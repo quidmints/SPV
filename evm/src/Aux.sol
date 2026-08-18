@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Vogue} from "./Vogue.sol";
+import {Quid} from "./Quid.sol";
 import {Basket} from "./Basket.sol";
 
 import {Core} from "./Core.sol";
@@ -25,7 +25,7 @@ import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChan
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
 
 /// EthVenue — the ETH yield-venue custody (AAVE-v4 WETH + ether.fi weETH). Aux keeps thin
-/// forwarders (vogueETH) for callers that must not change target (BasketLib IAux read, Core),
+/// forwarders (bandETH) for callers that must not change target (BasketLib IAux read, Core),
 /// and owns the vault-health state for the basket's stable 4626s.
 
 // Deploy-finalize helpers (see Aux.finalize; linkage asserts live in BasketLib.assertFullyWired).
@@ -39,7 +39,7 @@ contract Aux is // Auxiliary
     // Immutable handles. USDC is stables[0] by convention; anywhere
     // code needs the USDC address (ERC-3009, _ensureUSDC) it reads
     // stables[0].
-    Vogue internal immutable VOGUE;
+    Quid internal immutable BAND;
     Core internal immutable CORE;
     /// §ISBTC-SPLIT — the BTC band INSTANCE. `CORE` is the ETH band; both are constructed in
     /// `DeployLib` and registered with the same `BandBacking`. Aux needs the handle because the
@@ -69,18 +69,18 @@ contract Aux is // Auxiliary
 
     ChannelLib.SPState internal sp;
 
-    // _vogueETHPrincipal + the ETH-venue (AAVE/ether.fi) custody moved
+    // _bandETHPrincipal + the ETH-venue (AAVE/ether.fi) custody moved
     // to EthVenue (the venue carve). `ethVenue` is pinned once below.
 
     /// @notice Accumulator of WBTC ERC20 (BitGo) held by Aux on behalf
-    ///         of Vogue's BTC LPs — the V4 BTC pool's reserve buffer.
+    ///         of Quid's BTC LPs — the V4 BTC pool's reserve buffer.
     ///         NOT to be confused with the native-BTC sats locked in
     ///         BTCChannels' 2-of-2 key-path P2TR outputs; those are tracked
     ///         independently in `BTCChannels.totalSatsLocked` and the
     ///         per-channel `lpAmountSats` / `hopAmountSats` fields.
     ///         The two systems share a 1e8 scale (sats ≈ WBTC sub-unit)
     ///         but operate over disjoint pools of assets.
-    uint public vogueBTC;
+    uint public bandBTC;
 
     mapping(address => uint) public tranche;
     mapping(address => address) public vaults;
@@ -219,7 +219,7 @@ contract Aux is // Auxiliary
     // Body extracted to a private function (deployed ONCE) so the 13 onlyUs sites carry a cheap CALL
     // instead of inlining the 5-address comparison chain each — reclaims ~1 KB of Aux EIP-170 headroom.
     function _requireUs() private view {
-        if (msg.sender != address(VOGUE)
+        if (msg.sender != address(BAND)
          && msg.sender != address(CORE)
          && msg.sender != address(BTC_CORE)  // §ISBTC-SPLIT — THE BTC BAND IS A SECOND ADDRESS NOW.
                                              // `Core._settleUsdSide` calls `AUX.take` (onlyUs) to pay
@@ -235,10 +235,10 @@ contract Aux is // Auxiliary
                                              // SwapLib/VaultLib with address(this)==EthVenue,
                                              // so its auxSwap callback arrives as msg.sender
                                              // ==EthVenue. Without this the basket→WETH arb
-                                             // and the Vogue/Core shortfall fills silently
+                                             // and the Quid/Core shortfall fills silently
                                              // revert→catch→0.
          && msg.sender != CORE.btcVault()   // BTC band manager: same delegatecall shape on the
-                                             // BTC side (BtcVaultLib/SwapLib run as the Vault).
+                                             // BTC side (BtcLib/SwapLib run as the Vault).
                                              // ⚠️ TWO ENTRIES, NOT ONE, SINCE THE VENUE CARVE —
                                              // this used to read "one address (ethVenue) covers
                                              // ETH and BTC arb", true only while they WERE one
@@ -249,11 +249,11 @@ contract Aux is // Auxiliary
     modifier onlyUs { _requireUs(); _; }
 
     /// @notice init (plug) Aux with addresses
-    /// @param _vogue       Vogue contract (V4 LP wrapper)
-    /// @notice Constructor. Pins Vogue/Core/V4 wiring + GHO/AAVE-v4 venue.
+    /// @param _band       Quid contract (V4 LP wrapper)
+    /// @notice Constructor. Pins Quid/Core/V4 wiring + GHO/AAVE-v4 venue.
     /// Constraints: stables[0] must be USDC (ERC-3009 source). WBTC is
     /// transient only (single-tx legs, never inventory; native BTC backs
-    /// `vogueBTC` via BTCChannels). GHO's vault slot is 0 (goes through
+    /// `bandBTC` via BTCChannels). GHO's vault slot is 0 (goes through
     /// AAVE-v4 spoke, not a 4626 curator). _paths are SOR encodings; set
     /// once, iterated at runtime by auxSwap.
     /// @dev Constructor wiring bundled into one struct. Twelve flat
@@ -262,7 +262,7 @@ contract Aux is // Auxiliary
     /// one pointer, so the arg-decode stays shallow. Fields mirror the
     /// former positional params 1:1.
     struct AuxInit {
-        address vogue;
+        address band;
         address core;
         address btcCore;
         address weth;
@@ -281,7 +281,7 @@ contract Aux is // Auxiliary
         WETH = WETH9(payable(a.weth));
         if (a.wbtc != address(0)) WBTC = IERC20(a.wbtc);
 
-        VOGUE = Vogue(payable(a.vogue));
+        BAND = Quid(payable(a.band));
         CORE = Core(a.core);
         BTC_CORE = Core(a.btcCore);
         // §ISBTC-SPLIT: state the asset→band pairing ONCE, here, where the wiring is already known.
@@ -503,8 +503,8 @@ contract Aux is // Auxiliary
     ///         sitting on Aux into its canonical destination so donations
     ///         and dust are absorbed into the basket instead of being lost.
     ///         - `token == 0`: native ETH → wrap → the ETH venue via _supply
-    ///         - WETH: → the ETH venue via _supply (bumps _vogueETHPrincipal)
-    ///         - WBTC: bumped into vogueBTC accumulator (no vault exists)
+    ///         - WETH: → the ETH venue via _supply (bumps _bandETHPrincipal)
+    ///         - WBTC: bumped into bandBTC accumulator (no vault exists)
     ///         - registered stables: → vault via _supply
     ///         Unknown tokens revert — sweep is not a free transfer surface.
     ///         nonReentrant: prevents being called mid-deposit between
@@ -514,7 +514,7 @@ contract Aux is // Auxiliary
         // Body extracted to SwapLib.sweepBody to free Aux bytecode.
         (uint vbtcDelta, uint swept) = SwapLib.sweepBody(
             token, address(WETH), address(WBTC), GHO, USDG);
-        if (vbtcDelta > 0) vogueBTC += vbtcDelta;
+        if (vbtcDelta > 0) bandBTC += vbtcDelta;
         if (swept > 0) emit Swept(token, swept);
         _refreshHoldings(token);       // cache: sweep supplied free balance to a vault
     }
@@ -595,7 +595,7 @@ contract Aux is // Auxiliary
     ///         a re-call reverts. The ANGEL was approved to THIS Aux mid-deploy (DeployLib) and required by
     ///         Basket's constructor, so a Safe that didn't own it could never have produced a live Basket.
     function finalize() external onlyOwner {
-        BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(VOGUE));
+        BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(BAND));
         // Burn the committed ANGEL seed NFT: the deploy approved THIS Aux for it (and the Safe/owner() still
         // holds it — only approved, never moved), so we transfer the Safe's ANGEL straight to DEAD via that
         // approval. Runs BEFORE renounce (uses owner()); one-shot (ANGEL gone ⇒ a re-call reverts on transfer).
@@ -606,7 +606,7 @@ contract Aux is // Auxiliary
     function _pinQuid(address _quid) private {
         if (address(QUID) != address(0)) revert QuidPinned();
         QUID = Basket(_quid);
-        WETH.approve(address(VOGUE), type(uint).max);
+        WETH.approve(address(BAND), type(uint).max);
         // Stable→vault approvals are wired in the constructor loop; this only
         // pins QUID and adds the V4-side WETH approval (V4 wasn't known at
         // construction time).
@@ -617,7 +617,7 @@ contract Aux is // Auxiliary
     // by Basket's constructor, so the commitment is enforced at Basket's birth (a Safe that didn't own it could
     // never produce a live Basket). At finalize (above), Aux asserts every cross-contract linkage EQUALS its
     // owner-set view — catching a deploy-block front-runner who pinned a malicious-but-non-zero address into an
-    // UNGATED pin-once setter (Vogue.setEthVenueContract / Core.setBtcVault) — then burns ANGEL (owner→DEAD via
+    // UNGATED pin-once setter (Quid.setEthVenueContract / Core.setBtcVault) — then burns ANGEL (owner→DEAD via
     // the approval) and renounces Aux. Reverts (no burn/renounce) if anything is mis-wired → all-or-nothing.
     address constant F8N  = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
     address constant DEAD = 0x000000000000000000000000000000000000dEaD; // ANGEL burn sink (ERC-721 reverts on address(0))
@@ -752,7 +752,7 @@ contract Aux is // Auxiliary
                 // is what let reads and settlement disagree about which band they were talking to.
                 core: address(_bandOf(asset)),
                 // §SLOP: the asset picks the BAND MANAGER too, through the same wiring-time knowledge.
-                band: asset == address(WBTC) ? CORE.btcVault() : address(VOGUE),
+                band: asset == address(WBTC) ? CORE.btcVault() : address(BAND),
                 btcChannels: _btcChannels
             }),
             stables
@@ -766,9 +766,9 @@ contract Aux is // Auxiliary
         if (msg.sender != address(this)) revert NotSelf();
         return _deposit(asset, sender, amount);
     }
-    function bumpVogueBTC(uint amount) external {
+    function bumpQuidBTC(uint amount) external {
         if (msg.sender != address(this)) revert NotSelf();
-        vogueBTC += amount;
+        bandBTC += amount;
     }
 
     error VaultUnwired();
@@ -831,8 +831,8 @@ contract Aux is // Auxiliary
     // aaveEthBalance) now live on the ETH band manager. Aux keeps a pinned handle +
     // thin forwarders only where callers must not change target.
     // §E233-sor — THIS LINE LISTED `arbETH` AS ONE OF THEM, TWICE WRONG: `arbETH` does not exist
-    // (its forwarder and both callers -- Core.refillETH, Vogue._withdraw -- were removed, as noted
-    // below), and `EthVenue` no longer exists either, having been folded into `Vogue`. A comment
+    // (its forwarder and both callers -- Core.refillETH, Quid._withdraw -- were removed, as noted
+    // below), and `EthVenue` no longer exists either, having been folded into `Quid`. A comment
     // naming a deleted function AND a deleted contract is how a reader concludes a capability is
     // present when nothing implements it.
 
@@ -848,17 +848,17 @@ contract Aux is // Auxiliary
     }
 
     /// @notice Current ETH-equivalent backing on the ETH side — forwards to
-    ///         EthVenue.vogueETH(). Kept reachable because BasketLib (IAux read),
-    ///         Vogue, and front-ends read it at this address.
-    function vogueETH() public view returns (uint) {
-        return IEthVenue(ethVenue).vogueETH();
+    ///         EthVenue.bandETH(). Kept reachable because BasketLib (IAux read),
+    ///         Quid, and front-ends read it at this address.
+    function bandETH() public view returns (uint) {
+        return IEthVenue(ethVenue).bandETH();
     }
 
     function deliverableETH() public view returns (uint) {
         return IEthVenue(ethVenue).deliverableETH();
     }
 
-    // REMOVED: arbETH forwarder — its only callers (Core.refillETH, Vogue._withdraw)
+    // REMOVED: arbETH forwarder — its only callers (Core.refillETH, Quid._withdraw)
     // were removed as the toxic surplus-funded make-whole. No replacement: ETH-pool
     // shortfalls are borne fairly via the share price, never patched from surplus.
 
@@ -932,12 +932,12 @@ contract Aux is // Auxiliary
         // depeg keeps the feed fresh (it updates on deviation).
         // Body extracted to BasketLib.redeemAsBody. Redemption is STABLES-ONLY: when the
         // free stables can't cover it, redeemAsBody unwinds the band to free QU!D's own committed
-        // dollars (Vogue.unwindForRedeem) -- no volatile leg, no LP ETH sold.
+        // dollars (Quid.unwindForRedeem) -- no volatile leg, no LP ETH sold.
         // §A.5e: value against a bounded-fresh cache. MUST precede redeemAsBody — that is the whole bug.
         _requireFreshHoldings();
         BasketLib.redeemAsBody(BasketLib.RedeemArgs(
             amount, source, recipient,
-            address(CORE), address(QUID), address(VOGUE), address(WETH), preferred));
+            address(CORE), address(QUID), address(BAND), address(WETH), preferred));
         // cache: redeem does a FULL refresh to recapture yield drift across
         // ALL stables (the pro-rata draw touched some; this covers the rest).
         _refreshAllHoldings();
@@ -1121,7 +1121,7 @@ contract Aux is // Auxiliary
     // a hard EIP-170 budget (standing rule 1).
 
     /// @notice Structural invariant enforcer. Permissionless. Auto-triggers
-    ///         Vogue.repack when POOLED_USD is over-committed vs total
+    ///         Quid.repack when POOLED_USD is over-committed vs total
     ///         backing; reverts OverCommitted if the invariant remains
     ///         violated after both sides have repacked (structural
     ///         insolvency — caller must surface to user).
@@ -1158,7 +1158,7 @@ contract Aux is // Auxiliary
     function _backingCore()
         internal returns (uint committedSum, uint totalLiquid) {
         // Body extracted to BasketLib.backingCoreBody to free Aux bytecode.
-        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(VOGUE), CORE.btcVault());
+        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(BAND), CORE.btcVault());
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-
@@ -1180,7 +1180,7 @@ contract Aux is // Auxiliary
     }
 
     /// @notice Deposit entry. NO `nonReentrant` — external callers
-    ///         (`Basket.mint`, `Vogue.outOfRange`, `swapTo`) already hold
+    ///         (`Basket.mint`, `Quid.outOfRange`, `swapTo`) already hold
     ///         their own locks; adding one here deadlocks the `swapTo` →
     ///         `deposit` path. Venues are trusted (no re-entry).
     function deposit(address from,
@@ -1316,7 +1316,7 @@ contract Aux is // Auxiliary
     /// @notice Fused volatile-deposit helper. ETH path accepts native via
     /// msg.value (wraps to WETH); BTC path only takes WBTC ERC-20.
     ///         `amount` is the TOTAL deposit (msg.value counts toward it,
-    ///         matching Vogue._depositETH convention). Caller passes
+    ///         matching Quid._depositETH convention). Caller passes
     ///         amount=total; msg.value covers some/all of it.
     function _deposit(address asset, address sender, uint amount)
         internal returns (uint sent) {
@@ -1367,7 +1367,7 @@ contract Aux is // Auxiliary
 
 
     /// @notice Asset-supply dispatcher. WETH → the ETH venue (weETH) +
-    ///         increments _vogueETHPrincipal. GHO → AAVE-v4 spoke. BOLD
+    ///         increments _bandETHPrincipal. GHO → AAVE-v4 spoke. BOLD
     ///         → Liquity SP. Other stables → vaults[token] (ERC4626).
     ///         Returns the deposited amount in token-native units.
     function _supply(address token, uint amount) internal returns (uint deposited) {

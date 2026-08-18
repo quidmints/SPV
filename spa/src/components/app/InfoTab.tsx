@@ -2,7 +2,7 @@
 
 // ════════════════════════════════════════════════════════════════════════
 //   INFO TAB — read-only protocol surface (separate from the user's actions).
-//   Composition of stables in Aux · total ETH/BTC in Vogue · TVL / yield /
+//   Composition of stables in Aux · total ETH/BTC in Quid · TVL / yield /
 //   fees · NET FLOW (by asset + stable-kind) shown NEXT TO the REGIME read,
 //   so an LP sees protocol flow AND market context before peeling.
 // ════════════════════════════════════════════════════════════════════════
@@ -29,7 +29,7 @@ interface Composition { sym: string; usd: number }
 export default function InfoTab({ address }: { address?: string | null }) {
   const [tvl, setTvl] = useState<number | null>(null)
   const [avgYield, setAvgYield] = useState<number | null>(null)
-  const [vogueEth, setVogueEth] = useState<number | null>(null)
+  const [bandEth, setQuidEth] = useState<number | null>(null)
   const [btc, setBtc] = useState<number | null>(null)
   const [feesEth, setFeesEth] = useState<number | null>(null)
   const [comp, setComp] = useState<Composition[]>([])
@@ -39,7 +39,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
   const [market, setMarket] = useState<MarketSignal | null>(null)
   // ── REAL internal numbers (the actual on-chain state, not proxies) ──
   const [headroom, setHeadroom] = useState<number | null>(null)   // (totalLiquid−committed)/totalLiquid
-  const [theta, setTheta] = useState<number | null>(null)         // POOLED / vogueETH (in-range share)
+  const [theta, setTheta] = useState<number | null>(null)         // POOLED / bandETH (in-range share)
   const [poolEth, setPoolEth] = useState<number | null>(null)     // pool ETH TWAP (USD) — vs external price
   const [inv, setInv] = useState<number | null>(null)             // live inventory skew q ∈ [−1,1]: + = long ETH
   const [btcDelivered, setBtcDelivered] = useState<number | null>(null)  // live undelivered swap-out USD (BTC demand)
@@ -56,13 +56,13 @@ export default function InfoTab({ address }: { address?: string | null }) {
     const metrics = await readOne(CONTRACTS.aux, 'get_metrics', [false])
     if (metrics) setTvl(n(metrics[0]))
     setAvgYield(n(await readOne(CONTRACTS.aux, 'avgYield'), 16)) // 1e18 = 100% → /1e16 = %
-    setVogueEth(n(await readOne(CONTRACTS.vogue, 'vogueETH')))
+    setQuidEth(n(await readOne(CONTRACTS.band, 'bandETH')))
     setBtc(n(await readOne(CONTRACTS.btcChannels, 'totalSatsLocked'), 8))
-    setBtcDelivered(n(await readOne(CONTRACTS.vogueCore, 'pendingSwapOutUsd'), 6))  // live BTC swap-out demand (USD)
+    setBtcDelivered(n(await readOne(CONTRACTS.bandCore, 'pendingSwapOutUsd'), 6))  // live BTC swap-out demand (USD)
 
     // ── Protocol-total ETH-side LP fees ≈ feesPerShare × lpShares / WAD ──
-    const fps = await readOne(CONTRACTS.vogue, 'feesPerShare')
-    const lps = await readOne(CONTRACTS.vogue, 'lpShares')
+    const fps = await readOne(CONTRACTS.band, 'feesPerShare')
+    const lps = await readOne(CONTRACTS.band, 'lpShares')
     if (fps != null && lps != null) {
       try { setFeesEth(Number((BigInt(fps) * BigInt(lps)) / (10n ** 18n)) / 1e18) } catch {}
     }
@@ -74,11 +74,11 @@ export default function InfoTab({ address }: { address?: string | null }) {
       const committed = Number(BigInt(cb[0])), total = Number(BigInt(cb[1]))
       setHeadroom(total > 0 ? (total - committed) / total : null)
     }
-    // ── In-range share θ = POOLED / vogueETH (the short-gamma slice) ──
+    // ── In-range share θ = POOLED / bandETH (the short-gamma slice) ──
     // §E235-spa — `POOLED()` on the ETH engine. Was `POOLED_ETH` on a contract that carried both
-    // bands; the band is now the instance, so `vogueCore` IS the ETH selection.
-    const pooledEth = n(await readOne(CONTRACTS.vogueCore, 'POOLED'))
-    const vEth = n(await readOne(CONTRACTS.vogue, 'vogueETH'))
+    // bands; the band is now the instance, so `bandCore` IS the ETH selection.
+    const pooledEth = n(await readOne(CONTRACTS.bandCore, 'POOLED'))
+    const vEth = n(await readOne(CONTRACTS.band, 'bandETH'))
     if (pooledEth != null && vEth && vEth > 0) setTheta(pooledEth / vEth)
     // ── Pool ETH price (TWAP) — for the internal-vs-external comparison ──
     const ethPx = n(await readOne(CONTRACTS.aux, 'getTWAPforAsset', [CONTRACTS.weth, 1800]))
@@ -88,7 +88,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
     //    the ETH leg (POOLED × price) to the USD leg (POOLED_USD, 6-dec), BOTH read off the
     //    SAME instance — which is what makes the ratio a single band's skew rather than a mix.
     //    This is the real q the A-S reservation price skews on. Null pre-deploy. ──
-    const usdSide = n(await readOne(CONTRACTS.vogueCore, 'POOLED_USD'), 6)
+    const usdSide = n(await readOne(CONTRACTS.bandCore, 'POOLED_USD'), 6)
     if (pooledEth != null && ethPx != null && usdSide != null) {
       const ethVal = pooledEth * ethPx, tot = ethVal + usdSide
       setInv(tot > 0 ? Math.max(-1, Math.min(1, (ethVal - usdSide) / tot)) : null)
@@ -242,7 +242,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
           <Stat label="Blended yield" value={avgYield == null ? '—' : `${fmt(avgYield, 2)}%`} />
           <Stat label="Basket surplus" value={headroom == null ? '—' : `${fmt(headroom * 100, 0)}% above claims`} />
           <Stat label="ETH actively trading" value={theta == null ? '—' : `${fmt(theta * 100, 0)}%`} />
-          <Stat label="ETH in Vogue" value={vogueEth == null ? '—' : `${fmt(vogueEth, 3)} Ξ`} />
+          <Stat label="ETH in Quid" value={bandEth == null ? '—' : `${fmt(bandEth, 3)} Ξ`} />
           <Stat label="BTC locked" value={btc == null ? '—' : `${fmt(btc, 4)} ₿`} />
           <Stat label="ETH-LP fees (cum.)" value={feesEth == null ? '—' : `${fmt(feesEth, 4)} Ξ`} />
           <Stat label="Stables (basket)" value={usd(compTotal)} />
@@ -505,7 +505,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
                 value={`${market.regime} · ${market.quadrant}`}
                 note="Synthesized from σ and φ: chop / oscillation / trend, mapped to the calm↔stressed quadrant." />
               <Adv label="In-range share (θ)"
-                value={theta == null ? '—' : `${fmt(theta * 100, 0)}% of Vogue ETH`}
+                value={theta == null ? '—' : `${fmt(theta * 100, 0)}% of Quid ETH`}
                 note="The slice of ETH actively market-making (short-gamma). The rest just earns yield. LVR risk scales with θ × σ²." />
               <Adv label="BTC dominance"
                 value={market.dominanceBtc ? `${fmt(market.dominanceBtc, 1)}%` : '—'}

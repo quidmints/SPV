@@ -6,7 +6,7 @@ pragma solidity ^0.8.28;
 ///         to end against a real node: it exposes the EXACT read surface the keeper eth_calls (so the decode
 ///         path is exercised on real return data) returning a position that is URGENTLY near liquidation, and
 ///         records the writes the keeper sends (so the encode/sign/send path is exercised). The protocol logic
-///         itself is fork-proven separately (LevManager/Vogue); this isolates the keeper's RPC plumbing.
+///         itself is fork-proven separately (LevManager/Quid); this isolates the keeper's RPC plumbing.
 contract LevKeeperTarget {
     address public constant LP = address(0xBEEF);
     bool public cascaded;   // set when the keeper sends cascadeDelever (the urgent path)

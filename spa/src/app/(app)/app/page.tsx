@@ -6,7 +6,7 @@ import {
   CHAIN_ID, CHAIN_HEX, CHAIN_NAME, EXPLORER,
   CONTRACTS, STABLES, WBTC_DECIMALS, isUsdtLike,  type StableToken, type LevVenue,
 } from '@/lib/chains'
-import { ERC20_ABI, BASKET_ABI, AUX_ABI, VOGUE_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from '@/lib/abi'
+import { ERC20_ABI, BASKET_ABI, AUX_ABI, BAND_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from '@/lib/abi'
 import { addressToScriptPubKey, randomSwapId } from '@/lib/btcaddress'
 import { requestOnchainSwapIn, pollSwapIn, hopApiConfigured, submitOpenChannel, pollOpenChannel,
   type OnchainSwapInQuote, type SwapInStatus, type OpenChannelResult } from '@/lib/hop'
@@ -37,7 +37,7 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 //   ABI ENCODING — one ethers.Interface for all read/write encodes
 // ═════════════════════════════════════════════════════════════════════
 const iface = new ethers.Interface([
-  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...VOGUE_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
+  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...BAND_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
 ])
 
 const enc = {
@@ -47,7 +47,7 @@ const enc = {
   approve:    (s: string, n: bigint) => iface.encodeFunctionData('approve', [s, n]),
   // Basket
   // NOTE: full signatures REQUIRED — the merged iface has overloads of mint/swap/
-  // redeem/auxSwap (Basket + Vogue + Aux), so the bare name is ambiguous in ethers v6.
+  // redeem/auxSwap (Basket + Quid + Aux), so the bare name is ambiguous in ethers v6.
   mint:       (p: string, amt: bigint, t: string, when: number) =>
                 iface.encodeFunctionData('mint(address,uint256,address,uint256)', [p, amt, t, when]),
   currentMonth: () => iface.encodeFunctionData('currentMonth', []),
@@ -64,16 +64,16 @@ const enc = {
   metrics:     (force: boolean) => iface.encodeFunctionData('get_metrics', [force]),
   deposits:    () => iface.encodeFunctionData('get_deposits', []),
   avgYield:    () => iface.encodeFunctionData('avgYield', []),
-  // Vogue (ETH side ERC4626-shaped)
-  vogueDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
-  vogueWithdraw: (a: bigint, r: string, o: string) =>
+  // Quid (ETH side ERC4626-shaped)
+  bandDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
+  bandWithdraw: (a: bigint, r: string, o: string) =>
                 iface.encodeFunctionData('withdraw(uint256,address,address)', [a, r, o]),
   autoManaged:    (u: string) => iface.encodeFunctionData('autoManaged', [u]),
   // §E235-spa — `autoManagedBTC` encoder DELETED, not kept as an alias: with the band selected by
   // address, `enc.autoManaged` serves both sides and a second entry could only encode a selector
   // no contract has. One name, two addresses.
-  vogueTotalShares: () => iface.encodeFunctionData('totalShares', []),
-  vogueLpShares:    () => iface.encodeFunctionData('lpShares', []),
+  bandTotalShares: () => iface.encodeFunctionData('totalShares', []),
+  bandLpShares:    () => iface.encodeFunctionData('lpShares', []),
   // Self-managed
   outOfRange: (amt: bigint, token: string, distance: number, range: number, venue: number) =>
                 iface.encodeFunctionData('outOfRange', [amt, token, distance, range, venue]),
@@ -167,7 +167,7 @@ export default function QuidApp() {
   // ── Balances ────────────────────────────────────────────────────────
   // Note: no on-chain BTC balance stat — there is no user-facing BTC token.
   // The user's BTC stake is QUID (minted at channel open); BTC-leg fees accrue
-  // as native sats (Vogue.btcFeesOwedSats). WBTC is an Aux-internal pricing/SOR
+  // as native sats (Quid.btcFeesOwedSats). WBTC is an Aux-internal pricing/SOR
   // leg only. Native BTC is delivered by the hop on swap-out — never wrapped.
   const [ethBal, setEthBal] = useState('0')
   const [wethBal, setWethBal] = useState('0')
@@ -186,7 +186,7 @@ export default function QuidApp() {
   const [basketYield, setBasketYield] = useState(0)
   const [avgYield, setAvgYield] = useState(0)
   const [perStable, setPerStable] = useState<number[]>([])
-  const [vogueShares, setVogueShares] = useState(0)
+  const [bandShares, setQuidShares] = useState(0)
   const [autoMan, setAutoMan] = useState<{ pooled: number; feesEth: number; feesUsd: number; usdOwed: number } | null>(null)
   const [showBreakdown, setShowBreakdown] = useState(false)
 
@@ -219,7 +219,7 @@ export default function QuidApp() {
   const [depositAmount, setDepositAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
 
-  // Self-managed (Vogue.outOfRange / pull) state
+  // Self-managed (Quid.outOfRange / pull) state
   const [oorAmount, setOorAmount] = useState('')
   const [oorSide, setOorSide] = useState<'eth' | 'usd'>('eth')
   const [oorStable, setOorStable] = useState<StableToken | null>(null)
@@ -393,15 +393,15 @@ export default function QuidApp() {
     } catch {}
   }, [chainOk])
 
-  const fetchVogue = useCallback(async () => {
-    if (!chainOk || CONTRACTS.vogue === ZERO_ADDR) return
+  const fetchQuid = useCallback(async () => {
+    if (!chainOk || CONTRACTS.band === ZERO_ADDR) return
     try {
-      const ts = await ethCall(CONTRACTS.vogue, enc.vogueTotalShares())
-      setVogueShares(Number(BigInt(ts)) / 1e18)
+      const ts = await ethCall(CONTRACTS.band, enc.bandTotalShares())
+      setQuidShares(Number(BigInt(ts)) / 1e18)
     } catch {}
     if (!address) return
     try {
-      const a = await ethCall(CONTRACTS.vogue, enc.autoManaged(address))
+      const a = await ethCall(CONTRACTS.band, enc.autoManaged(address))
       const dec = iface.decodeFunctionResult('autoManaged', a)
       // Types.Deposit order: (pooled, usd_owed, fees_tok, fees_usd).
       setAutoMan({
@@ -426,14 +426,14 @@ export default function QuidApp() {
   // Walk positions[user] until id == 0 (capped to 50 for safety).
   // Skip zero-liq entries (already pulled to 0%).
   const fetchSmPositions = useCallback(async () => {
-    if (!connected || !chainOk || CONTRACTS.vogue === ZERO_ADDR) return
+    if (!connected || !chainOk || CONTRACTS.band === ZERO_ADDR) return
     const out: typeof smPositions = []
     for (let i = 0; i < 50; i++) {
       try {
-        const idR = await ethCall(CONTRACTS.vogue, enc.positions(address, i))
+        const idR = await ethCall(CONTRACTS.band, enc.positions(address, i))
         const id = BigInt(idR)
         if (id === 0n) break
-        const smR = await ethCall(CONTRACTS.vogue, enc.selfManaged(id))
+        const smR = await ethCall(CONTRACTS.band, enc.selfManaged(id))
         const dec = iface.decodeFunctionResult('selfManaged', smR)
         const liq = BigInt(dec[4] as bigint)
         if (liq > 0n) {
@@ -452,7 +452,7 @@ export default function QuidApp() {
 
   useEffect(() => { void fetchBalances() }, [fetchBalances])
   useEffect(() => { void fetchMetrics() }, [fetchMetrics])
-  useEffect(() => { void fetchVogue() }, [fetchVogue])
+  useEffect(() => { void fetchQuid() }, [fetchQuid])
   useEffect(() => { void fetchSmPositions() }, [fetchSmPositions])
   useEffect(() => { void fetchLevPos() }, [fetchLevPos])
 
@@ -500,7 +500,7 @@ export default function QuidApp() {
   }, [mintToken, mintAmount, connected, txMutex, waiverAccepted, currentMonth, maturityMonths, address, fetchBalances, fetchMetrics])
 
   // ═══════════════════════════════════════════════════════════════════
-  //   ETH LP DEPOSIT (Vogue.deposit + msg.value/WETH split)
+  //   ETH LP DEPOSIT (Quid.deposit + msg.value/WETH split)
   // ═══════════════════════════════════════════════════════════════════
   const doDeposit = useCallback(async () => {
     if (!depositAmount || !connected || txMutex) return
@@ -512,23 +512,23 @@ export default function QuidApp() {
       const { msgValue, wethAmount } = splitEthForDeposit(total, rawEth, wethW)
 
       if (wethAmount > 0n) {
-        await ensureAllowance(CONTRACTS.weth, CONTRACTS.vogue, wethAmount, address, setStatus)
+        await ensureAllowance(CONTRACTS.weth, CONTRACTS.band, wethAmount, address, setStatus)
       }
       setStatus('Depositing to V4 LP…')
       const tx = await sendTx({
-          from: address, to: CONTRACTS.vogue,
-          data: enc.vogueDeposit(wethAmount, address),
+          from: address, to: CONTRACTS.band,
+          data: enc.bandDeposit(wethAmount, address),
           ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
       await waitTx(tx); setStatus('Deposited.')
-      setDepositAmount(''); void fetchBalances(); void fetchVogue()
+      setDepositAmount(''); void fetchBalances(); void fetchQuid()
     } catch (e: any) { setError(e.message || 'deposit failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [depositAmount, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchVogue])
+  }, [depositAmount, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchQuid])
 
   // ═══════════════════════════════════════════════════════════════════
-  //   ETH LP WITHDRAW (Vogue.withdraw)
+  //   ETH LP WITHDRAW (Quid.withdraw)
   // ═══════════════════════════════════════════════════════════════════
   const doWithdraw = useCallback(async () => {
     if (!withdrawAmount || !connected || txMutex) return
@@ -537,15 +537,15 @@ export default function QuidApp() {
       const assets = ethers.parseEther(withdrawAmount)
       setStatus('Withdrawing from V4 LP…')
       const tx = await sendTx({
-          from: address, to: CONTRACTS.vogue,
-          data: enc.vogueWithdraw(assets, address, address),
+          from: address, to: CONTRACTS.band,
+          data: enc.bandWithdraw(assets, address, address),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
       await waitTx(tx); setStatus('Withdrawn.')
-      setWithdrawAmount(''); void fetchBalances(); void fetchVogue()
+      setWithdrawAmount(''); void fetchBalances(); void fetchQuid()
     } catch (e: any) { setError(e.message || 'withdraw failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [withdrawAmount, connected, txMutex, address, fetchBalances, fetchVogue])
+  }, [withdrawAmount, connected, txMutex, address, fetchBalances, fetchQuid])
 
   // ═══════════════════════════════════════════════════════════════════
   //   LEVERAGE OVERLAY (YB IL-protect, #65) — open / adjust / close.
@@ -623,7 +623,7 @@ export default function QuidApp() {
       setMyChannels(rows)
       // BTC-LP fees/position: autoManaged(user) = (pooled sats, usd_owed, fees_tok=sats, fees_usd).
       // BTC-leg fees accrue as native sats, settled by the hop at channel close.
-      // §E235-spa — `autoManaged` ON `vault`, NOT `autoManagedBTC` ON `vogue`. The BTC band's LP
+      // §E235-spa — `autoManaged` ON `vault`, NOT `autoManagedBTC` ON `band`. The BTC band's LP
       // state moved to its own contract, so the suffix that used to select the band is now an
       // address. ⚠️ NOTE THE `catch` BELOW, WHICH IS WHY THIS BREAK WAS INVISIBLE: a missing
       // selector or a wrong address lands in `setBtcLp(null)`, and the UI renders that as "no BTC
@@ -664,7 +664,7 @@ export default function QuidApp() {
   }, [closeId, closeRawTx, closeBlockHash, closeProof, closeTxIndex, connected, txMutex, address, fetchMyChannels])
 
   // ═══════════════════════════════════════════════════════════════════
-  //   SELF-MANAGED LP — Vogue.outOfRange / pull
+  //   SELF-MANAGED LP — Quid.outOfRange / pull
   //   Contract validates: range ∈ [100,1000] step 50; distance ∈ [-5000,5000]
   //   step 100, non-zero. UI multiplies % by 100 to get ticks (so range%50 == 0
   //   requires UI step 0.5%; distance multiplies cleanly for any UI int %).
@@ -691,7 +691,7 @@ export default function QuidApp() {
         msgValue = split.msgValue
         amount   = split.wethAmount
         if (amount > 0n) {
-          await ensureAllowance(CONTRACTS.weth, CONTRACTS.vogue, amount, address, setStatus)
+          await ensureAllowance(CONTRACTS.weth, CONTRACTS.band, amount, address, setStatus)
         }
       } else {
         tokenAddr = oorStable!.address
@@ -702,15 +702,15 @@ export default function QuidApp() {
 
       setStatus('Opening self-managed position…')
       const tx = await sendTx({
-          from: address, to: CONTRACTS.vogue,
+          from: address, to: CONTRACTS.band,
           data: enc.outOfRange(amount, tokenAddr, distanceTicks, rangeTicks),
           ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
         })
       setLastTx(tx); await waitTx(tx); setStatus('Position opened.')
-      setOorAmount(''); void fetchBalances(); void fetchSmPositions(); void fetchVogue()
+      setOorAmount(''); void fetchBalances(); void fetchSmPositions(); void fetchQuid()
     } catch (e: any) { setError(e.message || 'open failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [oorAmount, oorSide, oorStable, oorDistance, oorRange, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchVogue, fetchSmPositions])
+  }, [oorAmount, oorSide, oorStable, oorDistance, oorRange, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchQuid, fetchSmPositions])
 
   const doPullPosition = useCallback(async (id: bigint) => {
     if (!connected || txMutex) return
@@ -722,11 +722,11 @@ export default function QuidApp() {
     try {
       setStatus(`Pulling ${percent}% of #${idStr}…`)
       const tx = await sendTx({
-          from: address, to: CONTRACTS.vogue,
+          from: address, to: CONTRACTS.band,
           data: enc.pull(id, percent, tokenAddr),
         })
       setLastTx(tx); await waitTx(tx); setStatus('Pulled.')
-      void fetchBalances(); void fetchSmPositions(); void fetchVogue()
+      void fetchBalances(); void fetchSmPositions(); void fetchQuid()
     } catch (e: any) {
       // The 47-block timelock comes back as a revert "too soon" — surface plainly.
       const msg = e.message?.includes('too soon')
@@ -735,7 +735,7 @@ export default function QuidApp() {
       setError(msg)
     }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [connected, txMutex, pullPercents, pullTokens, address, fetchBalances, fetchSmPositions, fetchVogue])
+  }, [connected, txMutex, pullPercents, pullTokens, address, fetchBalances, fetchSmPositions, fetchQuid])
 
   // ═══════════════════════════════════════════════════════════════════
   //   SWAP — Aux.swap(token, asset, forVolatile, amount, minOut)
@@ -822,10 +822,10 @@ export default function QuidApp() {
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
   }, [swapAmount, swapDirection, swapToken, swapTokenOut, swapMinOut, swapBtcAddr, connected, txMutex, address, ethBal, wethBal, fetchBalances, fetchMetrics])
 
-  // NO ether.fi instant/wait CHOICE EXISTS. `Vogue.exitInstant` and the `instant` parameter were
+  // NO ether.fi instant/wait CHOICE EXISTS. `Quid.exitInstant` and the `instant` parameter were
   // removed on-chain 2026-08-09: the ~0.3% instant redeem it selected had capacity measured ZERO
   // at every sampled block, so there was never a fee for an LP to opt out of. Withdrawal is
-  // `vogueWithdraw` unconditionally. (This client kept calling the removed function until E154.)
+  // `bandWithdraw` unconditionally. (This client kept calling the removed function until E154.)
 
   // ── BTC→USD swap-IN (on-chain, invoice-free): ask the hop for a deposit address +
   //    exact amount; the user sends BTC from any wallet; the hop SPV-settles it. ──
@@ -1060,7 +1060,7 @@ export default function QuidApp() {
           <Stat label="QUI supply" value={fmt(Number(BigInt(qdTotalSupply)) / 1e18, 0)} />
           <Stat label="ETH TWAP" value={fmtUSD(ethTwap, 2)} />
           <Stat label="BTC TWAP" value={fmtUSD(btcTwap, 0)} />
-          <Stat label="Vogue shares" value={fmt(vogueShares, 0)} />
+          <Stat label="Quid shares" value={fmt(bandShares, 0)} />
           <Stat label="Your LP" value={autoMan ? `${fmt(autoMan.pooled, 3)} ETH` : '—'} />
         </div>
         {showBreakdown && perStable.length > 0 && (
@@ -1159,7 +1159,7 @@ export default function QuidApp() {
 
       {/* ── Deposit (ETH LP) ─────────────────────────────────────────── */}
       {tab === 'deposit' && (
-        <Section title="Deposit to ETH LP (Vogue V4)">
+        <Section title="Deposit to ETH LP (Quid V4)">
           <div className="flex gap-1 p-1 rounded-lg bg-white/5 mb-4 text-xs">
             <button
               className={`flex-1 px-3 py-2 rounded-md ${depositSubTab==='auto' ? 'bg-white/15' : 'hover:bg-white/10'}`}
@@ -1808,7 +1808,7 @@ export default function QuidApp() {
               yield venues (depositors select their preference), and mints yield upfront.
             </p>
             <p>
-              <strong>LP:</strong> Vogue runs a single-sided V4 position out-of-range
+              <strong>LP:</strong> Quid runs a single-sided V4 position out-of-range
               on the vanilla ETH/USD and BTC/USD pools. ETH side earns trading
               fees + ether.fi (weETH) yield. BTC side earns trading fees settled as
               native sats (<code>btcFeesOwedSats</code>, paid by the hop at close).

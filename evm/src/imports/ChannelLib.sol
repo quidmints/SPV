@@ -311,7 +311,7 @@ library ChannelLib {
             sp.spTotalYield = r.newSpTotalYield;
             sp.spPrincipalTime = r.newSpPrincipalTime;
             sp.spValue = r.newSpValue;
-            // Re-supply liquidation yield (WETH branch bumps Vogue backing).
+            // Re-supply liquidation yield (WETH branch bumps Quid backing).
             if (r.wethGain > 0) aux.supplySelf(cfg.weth, r.wethGain);
             // §E91-ROOT — DELIVER. This branch un-deployed BOLD into `Aux` and returned `r.sent`
             // WITHOUT MOVING IT, so every caller was told a delivery happened that never did.

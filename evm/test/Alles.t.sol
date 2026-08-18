@@ -20,7 +20,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Aux} from "../src/Aux.sol";
-import {Vogue} from "../src/Vogue.sol";
+import {Quid} from "../src/Quid.sol";
 import {Vault} from "../src/Vault.sol";
 import {Basket} from "../src/Basket.sol";
 import {FeeLib} from "../src/imports/FeeLib.sol";
@@ -35,7 +35,7 @@ import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 
 /// @notice Mock SPV gateway - always confirms inclusion. Lets the BTCChannels
-///         end-to-end test exercise tx PARSING + channel logic + Vogue wiring
+///         end-to-end test exercise tx PARSING + channel logic + Quid wiring
 ///         without re-testing the SPV cryptography (covered by SPVGateway.t.sol).
 contract MockSPV {
     function checkTxInclusion(bytes32[] calldata, bytes32, bytes32, uint256, uint256)
@@ -519,16 +519,16 @@ contract AllesFixture is ForkPin, ExitFixture {
     // ─── New protocol stack (replaces old Amp/Rover/Jury/Court) ───
     Core public CORE;
     Basket   public QUID;
-    Vogue    public V4;
+    Quid    public V4;
     Aux      public AUX;
     // The merged Vault, viewed from its two faces: ETH (yield-venue ops) and
     // BTC (LP/hop ops). Same instance - BTC == ETH - named for readability.
     Vault    public ETH;
-    /// §ETHVENUE-FOLD — the ETH yield venue IS Vogue, so this is `V4` under its venue-side name.
+    /// §ETHVENUE-FOLD — the ETH yield venue IS Quid, so this is `V4` under its venue-side name.
     /// Kept as an alias rather than rewritten at 33 call sites: those calls read as venue calls
-    /// (`EV.vogueETH()`, `EV.setLevManager(...)`) and still are — the address simply stopped being
+    /// (`EV.bandETH()`, `EV.setLevManager(...)`) and still are — the address simply stopped being
     /// a second contract.
-    Vogue EV;
+    Quid EV;
     Vault    public BTC;
     uint rack = 1000 * USDC_PRECISION;
 
@@ -599,9 +599,9 @@ contract AllesFixture is ForkPin, ExitFixture {
         // 977 / 4720 WETH), so no injected liquidity is needed.
         //
         // This ALSO fixes a real bug: gauntlet used to ALIAS the euler mock, which (a) left the
-        // Gauntlet venue entirely untested and (b) made `VaultLib._vogueETH` (which SUMS
+        // Gauntlet venue entirely untested and (b) made `VaultLib._bandETH` (which SUMS
         // galaxy+euler+gauntlet with no dedup) DOUBLE-COUNT that vault — a 10 ETH SPLIT deposit
-        // reported vogueETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
+        // reported bandETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
         //
         // Using real addresses also DELETES the whole nonce-prediction apparatus that existed
         // only to place the mocks (computeCreateAddress ×N + a drift `require`). The NONCE
@@ -659,7 +659,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         }));
         // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor
         //  rejects aliased venue slots, so the three addresses above must stay distinct.)
-        V4 = Vogue(payable(A.v4));
+        V4 = Quid(payable(A.v4));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
@@ -1244,7 +1244,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     // ─── §E233-sor — THE SOR PATH FIXTURE IS GONE, and so is the reason it existed.
     //     This block said the paths were here "so AUX.arbETH can recover ETH-withdrawal
     //     shortfalls from the stable basket". `arbETH` DOES NOT EXIST: `Aux` records
-    //     "REMOVED: arbETH forwarder -- its only callers (Core.refillETH, Vogue._withdraw)"
+    //     "REMOVED: arbETH forwarder -- its only callers (Core.refillETH, Quid._withdraw)"
     //     and `SwapLib` records "Both callers were removed as the toxic surplus-..." ───
     // Covers Aux's SOR stable->WETH path: auxSwap -> PoolManager.unlock ->
     // Aux.unlockCallback -> SOR.unlockBody (the V4 unlock body extracted to
@@ -1299,7 +1299,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     // committed ANGEL NFT (owner→DEAD via Aux's approval), then renounces Aux; QUID.renounceOwnership() renounces
     // Basket. No transferOwnership(Basket->Aux) — each contract self-renounces as its own owner (here the test ==
     // deployer/owner). The ANGEL burn is REAL here: setUp handed the deployer the live ANGEL and DeployLib
-    // approved Aux. setUp already wires Vogue/Core/Basket->Vault + setQuid; we add the two it omits (BTCChannels +
+    // approved Aux. setUp already wires Quid/Core/Basket->Vault + setQuid; we add the two it omits (BTCChannels +
     // a mocked Rover).
     function _wireFinalizeLinkages() internal {
         AUX.setBTCChannels(address(0xBC));   // sets Aux._btcChannels + Vault.btcChannels
@@ -2111,7 +2111,7 @@ contract Alles is AllesFixture {
     }
 
     /// @notice ETH multi-venue: a depositor who picks ether.fi gets their ETH
-    ///         staked to weETH (aggregated in vogueETH + attributed to their
+    ///         staked to weETH (aggregated in bandETH + attributed to their
     ///         ethfiBacked slice - the hard wall), and on withdraw the slice is
     ///         offramped weETH->WETH against the real pool (0x7a41…cae3) and
     ///         delivered as WETH. A Galaxy LP (no ether.fi slice) is untouched.
@@ -2123,13 +2123,13 @@ contract Alles is AllesFixture {
 
         // User01 picks ether.fi per-deposit (venue rides the call). ether.fi is VENUE_ROVER (4) — it is
         // never a distinct "ether.fi" code; the base deploy has Rover off (address(0)), so venue 4 hits
-        // VogueLib._supplyEtherFi's direct-weETH path. Same slice.
-        uint vEthBefore = EV.vogueETH();
+        // QuidLib._supplyEtherFi's direct-weETH path. Same slice.
+        uint vEthBefore = EV.bandETH();
         vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);
 
-        // weETH held at EthVenue + aggregated into vogueETH + attributed to the slice.
+        // weETH held at EthVenue + aggregated into bandETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(EV)), 0, "weETH held at EthVenue");
-        assertGt(EV.vogueETH(), vEthBefore, "vogueETH aggregates the weETH");
+        assertGt(EV.bandETH(), vEthBefore, "bandETH aggregates the weETH");
         // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
         // ether.fi-sourced, so the slice was a constant equal to `pooled`.
         (uint pooled,,,) = V4.autoManaged(User01);
@@ -2181,7 +2181,7 @@ contract Alles is AllesFixture {
 
     /// @notice Vault health is BINARY (blocked) + evac — the graded haircut was
     ///         the dead CRE-onReport vestige (removed). A blocked vault is valued
-    ///         at maxWithdraw (vogueETH/get_deposits) and evac pulls the
+    ///         at maxWithdraw (bandETH/get_deposits) and evac pulls the
     ///         protocol's balance out (spread to healthy vaults / left at Aux).
     function testVaultWatcher_BlockAndEvacuate() public {
         // Put USDC into its vault via a mint.
@@ -2251,13 +2251,13 @@ contract Alles is AllesFixture {
     ///       there is no alternate venue to evacuate TO.
     ///       ⚠️ ITS OLD FORM WAS LOAD-BEARING, and is why the collapse was attempted five times and
     ///       abandoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
-    ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `vogueOp` -> `Aux.supplySelf`
+    ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `bandOp` -> `Aux.supplySelf`
     ///       path was a REAL second destination, against a hand-trace that concluded the opposite.
     ///       Removing Galaxy was intentional, and as of 2026-08-14 the three WETH-4626 curator venues
     ///       are DELETED outright (their VENUE_* selectors were already gone, so nothing could reach
     ///       them) — so the inverted Galaxy assertion is dropped with the venue it named. The weETH
     ///       assertion below is the one that caught the bug and it stays: it measures the DESTINATION
-    ///       directly, which `vogueETH` alone cannot do.
+    ///       directly, which `bandETH` alone cannot do.
     ///       (`AUX.evacuate`/`vaultBlocked` are untouched and still cover the STABLE 4626 vaults; only
     ///       the ETH-venue path this test drove them through is gone.)
     function testEthDepositsLandInWeeth() public {
@@ -2265,14 +2265,14 @@ contract Alles is AllesFixture {
         assertTrue(weeth != address(0), "weETH wired");
 
         uint weethBefore    = IERC20(weeth).balanceOf(address(EV));
-        uint vogueEthBefore = EV.vogueETH();
+        uint bandEthBefore = EV.bandETH();
 
         vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
 
-        // Measure the DESTINATION directly. `vogueETH` would rise either way, so asserting on it alone
+        // Measure the DESTINATION directly. `bandETH` would rise either way, so asserting on it alone
         // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
         assertGt(IERC20(weeth).balanceOf(address(EV)), weethBefore, "ETH deposit did NOT land in weETH");
-        assertGt(EV.vogueETH(), vogueEthBefore, "deposit grew ETH backing");
+        assertGt(EV.bandETH(), bandEthBefore, "deposit grew ETH backing");
     }
 
     function testClearMultipleBlocks() public {
@@ -3096,7 +3096,7 @@ contract Alles is AllesFixture {
         assertGt(bobReceived, 0, "Bob should receive value (native ETH or WETH)");
     }
 
-    /// @notice Vogue is a DUAL (ETH+BTC) vault, so it cannot be strict
+    /// @notice Quid is a DUAL (ETH+BTC) vault, so it cannot be strict
     ///         single-asset ERC-4626 - the names are kept for ergonomics only.
     ///         What MUST hold is the economics: withdraw/redeem cannot let one LP
     ///         skim another's value, and backing is conserved (IL-free normal
@@ -3107,7 +3107,7 @@ contract Alles is AllesFixture {
     ///         ETH LP deposit drives usdAvailable (= total - committedUsd18) BELOW the QU!D supply
     ///         (the band's synthetic USD consumed QU!D's free stables). A redemption exceeding the
     ///         free stables must still fully honor QU!D -- it does so by UNWINDING in-range band
-    ///         liquidity (Vogue.unwindForRedeem) to free the committed dollars, delivering STABLES,
+    ///         liquidity (Quid.unwindForRedeem) to free the committed dollars, delivering STABLES,
     ///         while the LP's ETH stays in the venue (equity neutral). Proof: redeem MORE than the
     ///         free stables and show it burned more than usdAvailable (only possible via the
     ///         unwind), committedUsd18 dropped, and deliverableETH is untouched.
@@ -3334,7 +3334,7 @@ contract Alles is AllesFixture {
         assertEq(V4.totalShares(), pooled1 + pooled2 + pooled3, "totalShares should equal sum");
     }
 
-    function testVogueZeroDeposit() public {
+    function testQuidZeroDeposit() public {
         vm.startPrank(User01);
         uint sharesBefore = V4.totalShares();
         V4.deposit{value: 0}(0, User01);
@@ -3342,7 +3342,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testVogueMultipleDeposits() public {
+    function testQuidMultipleDeposits() public {
         vm.startPrank(User01);
         V4.deposit{value: 10 ether}(0, User01);
         V4.deposit{value: 20 ether}(0, User01);
@@ -3352,7 +3352,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testVoguePartialWithdraws() public {
+    function testQuidPartialWithdraws() public {
         vm.startPrank(User01);
         V4.deposit{value: 100 ether}(0, User01);
         (uint pooledInitial,,,) = V4.autoManaged(User01);
@@ -3369,7 +3369,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testVogueAccumulatorCorrectness() public {
+    function testQuidAccumulatorCorrectness() public {
         vm.prank(User01);
         V4.deposit{value: 100 ether}(0, User01);
 
@@ -3439,7 +3439,7 @@ contract Alles is AllesFixture {
     /// all-Galaxy ETH LPs; the crash is driven THROUGH the pool (_dipSell drains
     /// POOLED_USD to the seller).
     /// IMPORTANT: there is NO structural senior/junior subordination — both LPs
-    /// and QUI holders are FIRST-OUT (Vogue._withdraw's backing check is
+    /// and QUI holders are FIRST-OUT (Quid._withdraw's backing check is
     /// NON-reverting; _redeemAs is "first-out drain on remaining holders"). An LP
     /// can withdraw freely, even while backing is impaired, before QUI holders
     /// redeem. So this sim asserts ONLY what the code ENFORCES, not a waterfall:
@@ -3888,7 +3888,7 @@ contract Alles is AllesFixture {
     function test_RunSim_AllExit_BtcLp() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels -> drive register/unregister
         // §UNIT-A — the retained skew premium reaches a BTC LP through the USD FEE LEG (§E5 →
-        // usdR → BtcVaultLib:69), so once the base is reachable "fee dust" is fee + premium.
+        // usdR → BtcLib:69), so once the base is reachable "fee dust" is fee + premium.
         uint premBefore = CORE.skewPremiumCum();
 
         // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
@@ -4062,23 +4062,23 @@ contract Alles is AllesFixture {
         }
     }
 
-    function test_Vogue_PendingRewards_NonDepositor() public {
+    function test_Quid_PendingRewards_NonDepositor() public {
         (uint eth, uint usd) = V4.pendingRewards(User03);
         assertEq(eth, 0);
         assertEq(usd, 0);
     }
 
-    function test_Vogue_Withdraw_ZeroShares() public {
+    function test_Quid_Withdraw_ZeroShares() public {
         vm.startPrank(User03);
-        // New Vogue reverts NoPosition() on a withdraw with no position
+        // New Quid reverts NoPosition() on a withdraw with no position
         // (baseline was a silent no-op). Bind the SPECIFIC selector so an unrelated
         // revert (arithmetic, OOG, a different guard) can't vacuously green this.
-        vm.expectRevert(Vogue.NoPosition.selector);
+        vm.expectRevert(Quid.NoPosition.selector);
         V4.withdraw(1 ether, User03, User03);
         vm.stopPrank();
     }
 
-    function test_Vogue_Deposit_ZeroAmount() public {
+    function test_Quid_Deposit_ZeroAmount() public {
         vm.startPrank(User01);
         uint sharesBefore = V4.totalShares();
         V4.deposit{value: 0}(0, User01);
@@ -4086,7 +4086,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testFuzz_VogueDepositWithdraw(uint96 depositAmount, uint16 withdrawPct) public {
+    function testFuzz_QuidDepositWithdraw(uint96 depositAmount, uint16 withdrawPct) public {
         vm.assume(depositAmount > 0.1 ether);
         vm.assume(depositAmount < 100 ether);
         vm.assume(withdrawPct > 0 && withdrawPct <= 1000);
@@ -4166,9 +4166,9 @@ contract Alles is AllesFixture {
         // $3,000 of swap volume is 1259994 wei = 1.26e-12 QUID. Read as 6-dec USD instead it is
         // $1.259994, i.e. a ~4.2bps USD-leg fee — entirely plausible. SwapLib.pendingFor returns
         // 6-dec USD (weight in sats x a WAD-scaled accumulator fed 6-dec USDC fees), and
-        // BtcVaultLib.settleBtcLp mints it straight into 18-dec QUID with no scale-up, while the
-        // sibling path BtcVaultLib.settleDelivered mints `exactUsd * 1e12` through the SAME
-        // Basket.mint call and comments it "6-dec -> 18-dec QUI". Vogue._settlePending has the
+        // BtcLib.settleBtcLp mints it straight into 18-dec QUID with no scale-up, while the
+        // sibling path BtcLib.settleDelivered mints `exactUsd * 1e12` through the SAME
+        // Basket.mint call and comments it "6-dec -> 18-dec QUI". Quid._settlePending has the
         // same shape. If confirmed, LPs are paid 1e12x less trading-fee revenue than they earn.
         assertGt(lp1Fees + lp2Fees, 0, "a USD-leg fee pot exists to split");
         (uint pooled1,,,) = BTC.autoManaged(User01);
@@ -4764,9 +4764,9 @@ contract Alles is AllesFixture {
     }
 
     /// @dev §ETHVENUE-FOLD — REPOINTED, not deleted. This mocked `V4.EV()` to a bad address and
-    ///      expected `wire:vogue`. That pointer is GONE: the ETH venue folded into Vogue, so
+    ///      expected `wire:band`. That pointer is GONE: the ETH venue folded into Quid, so
     ///      `assertFullyWired` now checks `ethVenue == v4` -- and BOTH sides are fixed at deploy
-    ///      (Aux storage pinned once, `VOGUE` an immutable), so the miswire this simulated is
+    ///      (Aux storage pinned once, `BAND` an immutable), so the miswire this simulated is
     ///      UNCONSTRUCTIBLE. That is the fold working, not the test becoming wrong.
     ///
     ///      The INTENT survives and is what matters: a miswire must make `finalize` revert and must
@@ -4786,7 +4786,7 @@ contract Alles is AllesFixture {
     /// (E145-p) DOES A SWAP-IN ACCRUE A BTC-LEG FEE? The question that reopened E145.
     ///
     /// I concluded `feesPerShare` can never accrue, from three strands: the
-    /// `BtcInflowsViaChannels` guard, `mockBTC` being `onlyVogue`-gated, and a measured zero.
+    /// `BtcInflowsViaChannels` guard, `mockBTC` being `onlyQuid`-gated, and a measured zero.
     /// All three were about the USER path. `creditSwapIn` sells into the pool as the PROTOCOL
     /// (`onlyBTCChannels`, `rp.zeroForOne = !token1is(true)` — BTC→USD), bypassing the guard.
     /// This measures it instead of arguing about it.
@@ -4914,9 +4914,9 @@ contract Alles is AllesFixture {
     /// source: three decimal bases coexist, and the WBTC price carries a x1e10 lift. Getting
     /// it wrong under- or over-pays by 1e10. Measured here rather than reasoned about.
     function testBtcFee_satsToUsdConversionIsWellScaled() public {
-        uint price = AUX.getTWAPforAsset(address(WBTC), 1800);   // the same call BtcVaultLib uses
+        uint price = AUX.getTWAPforAsset(address(WBTC), 1800);   // the same call BtcLib uses
         assertGt(price, 0, "control: a live WBTC price, else the scaling below is vacuous");
-        // 1 BTC = 1e8 sats. `sats * price / WAD` is the canonical form (BtcVaultLib:93).
+        // 1 BTC = 1e8 sats. `sats * price / WAD` is the canonical form (BtcLib:93).
         uint oneBtcSats = 1e8;
         uint usd18 = oneBtcSats * price / WAD;
         emit log_named_uint("WBTC price (raw)        ", price);

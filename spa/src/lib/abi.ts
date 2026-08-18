@@ -14,7 +14,7 @@ export const ERC20_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ] as const
 
-// Core = the V4 pool engine (vogueCore). Only the oracle ring is consumed here —
+// Core = the V4 pool engine (bandCore). Only the oracle ring is consumed here —
 // observe() returns cumulative usd18 PRICE·seconds (it returned Uniswap-style
 // tickCumulatives before the tick removal). `regime.decodeTwapLogPrices` differences them into
 // TWAP prices and takes their natural log, which is the series the regime brain is
@@ -34,7 +34,7 @@ export const CORE_ABI = [
   // §E235-spa — THE `isBTC` ARGUMENT IS GONE, AND SO IS THE DISPATCH IT SELECTED. §E63 folded two
   // observes into one that "takes the band as an argument"; the isBTC split then went further and
   // made the band an INSTANCE, so `Core.observe(uint32[])` reads its own ring and there is nothing
-  // left to select. Call it on `vogueCore` for ETH and `vogueCoreBtc` for BTC.
+  // left to select. Call it on `bandCore` for ETH and `bandCoreBtc` for BTC.
   'function observe(uint32[] secondsAgos) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
@@ -103,9 +103,9 @@ export const AUX_ABI = [
   'function riskFactor(address token) view returns (uint)',
   // Stable↔stable swap (e.g. USDC→DAI) routed through the basket vaults.
   'function auxSwap(address tokenIn, address tokenOut, uint amountIn, address recipient, uint minOut) returns (uint amountOut)',
-  // Protocol-total ETH currently in the Vogue ETH pool (for the info tab).
-  // Total BTC is BTCChannels.totalSatsLocked(); there is no Aux.vogueBTC().
-  'function vogueETH() view returns (uint)',
+  // Protocol-total ETH currently in the Quid ETH pool (for the info tab).
+  // Total BTC is BTCChannels.totalSatsLocked(); there is no Aux.bandBTC().
+  'function bandETH() view returns (uint)',
   // The REAL over-collateralization read: committedSum vs totalLiquid (18-dec).
   // tryCheckBacking is the non-reverting variant (runs a repack; eth_call it).
   // Headroom = (totalLiquid − committedSum) / totalLiquid — the actual "buffer".
@@ -124,15 +124,15 @@ export const AUX_ABI = [
   'function WBTC() view returns (address)',
 ] as const
 
-// Vogue = V4 LP manager. Two LP modes:
+// Quid = V4 LP manager. Two LP modes:
 //   • Auto-managed — ERC4626-shaped; one shared single-sided vault per pool,
 //     pro-rata fee accumulators. owner==msg.sender enforced (AllowanceFlow).
 //   • Self-managed — per-position, NFT-like. outOfRange opens a position at
 //     a user-chosen tick range; pull withdraws by id+percent+output-token.
 //     47-block timelock after open (JIT defense).
 // BTC-side via depositBTC/withdrawBTC kept exposed for completeness, but the
-// SPA's "BTC path" goes through BTCChannels.openChannel, not Vogue.depositBTC.
-export const VOGUE_ABI = [
+// SPA's "BTC path" goes through BTCChannels.openChannel, not Quid.depositBTC.
+export const BAND_ABI = [
   // Auto-managed (ERC4626 shape on the ETH side). The ETH yield-VENUE rides each
   // deposit call (setEthVenue was removed): 0=Split(Galaxy+AAVE,default) 1=ether.fi
   // 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler. Hard-walled per-LP: your exit is
@@ -146,7 +146,7 @@ export const VOGUE_ABI = [
   // fee leg (ETH for the ETH pool, BTC for the BTC pool). DO NOT reorder.
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
   // §E235-spa — `autoManagedBTC` AND `lpSharesBTC` ARE THE SAME NAMES ON A DIFFERENT ADDRESS NOW.
-  // Both band managers declare `autoManaged` / `lpShares` (Vogue.sol:267/201, Vault.sol:116/117),
+  // Both band managers declare `autoManaged` / `lpShares` (Quid.sol:267/201, Vault.sol:116/117),
   // so the BTC entries stop being separate selectors and become the ETH ones called on `vault`.
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
   'function totalShares() view returns (uint)',
@@ -156,11 +156,11 @@ export const VOGUE_ABI = [
   //   range:    width, same units as the anchor
   //   token:    0x0 for the volatile side, stable address for the USD side
   // ⚠️ §E235-spa — THIS DECLARATION WAS TWICE WRONG AND THE COMMENT ABOVE IT WAS TOO.
-  // (1) `int24 distance, int24 range` are TICKS, and ticks left with v4: `Vogue.outOfRange` is
+  // (1) `int24 distance, int24 range` are TICKS, and ticks left with v4: `Quid.outOfRange` is
   //     `(uint amount, address token, int distance, uint range)` — `int256`/`uint256`. int24 is a
   //     narrower ABI word, so the old encoding was not merely mislabelled, it truncated.
   // (2) The comment claimed "outOfRange gained a uint8 venue (5th arg) … 4-arg encoding now
-  //     reverts." The live function IS 4-arg (`Vogue.sol:392-393`). The prose described a change
+  //     reverts." The live function IS 4-arg (`Quid.sol:392-393`). The prose described a change
   //     that either never landed or was undone, and it would have sent the next reader to add a
   //     fifth argument to a call that is already correct in arity and wrong only in width.
   'function outOfRange(uint amount, address token, int distance, uint range) payable returns (uint next)',

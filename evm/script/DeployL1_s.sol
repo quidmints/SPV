@@ -6,7 +6,7 @@ import "forge-std/console.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 
-import {Vogue} from "../src/Vogue.sol";
+import {Quid} from "../src/Quid.sol";
 
 import {Basket} from "../src/Basket.sol";
 import {Core} from "../src/Core.sol";
@@ -211,15 +211,15 @@ contract Deploy is Script {
 
     Basket public QUID;
     Core public CORE;
-    Vogue public VOGUE;
+    Quid public BAND;
     Aux public AUX;
     LevManager public LEVM;           // lev overlay (0x0 when DEPLOY_LEV unset)
     BtcLevManager public BTCLEVM;
     Vault public ETH;   // merged Vault — ETH-venue face
     Vault public BTC;   // ...and BTC face (same instance, BTC == ETH)
 
-    /// §J.2b: the vETH ERC-4626 IDENTITY (stateless projection over Vogue). Integrators PRICE against
-    /// this and TRANSACT against Vogue, which is the two-asset band manager and not itself a 4626.
+    /// §J.2b: the vETH ERC-4626 IDENTITY (stateless projection over Quid). Integrators PRICE against
+    /// this and TRANSACT against Quid, which is the two-asset band manager and not itself a 4626.
 
     function run() public {
         string memory privateKeyStr = vm.envString("PRIVATE_KEY");
@@ -338,7 +338,7 @@ contract Deploy is Script {
             allowUnburiedCheckpoint: false,   // (E135-b) PRODUCTION: the checkpoint MUST be buried; followers above prove it
             deployChannels: true
         }));
-        VOGUE = Vogue(payable(A.v4));
+        BAND = Quid(payable(A.v4));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
@@ -442,7 +442,7 @@ contract Deploy is Script {
         Ownable(address(QUID)).renounceOwnership();  // Safe renounces Basket (owner == deployer, no _transferOwnership)
 
         console.log("=== Deployed Addresses ===");
-        console.log("VOGUE (Vogue):", address(VOGUE));
+        console.log("BAND (Quid):", address(BAND));
         console.log("CORE (Core):", address(CORE));
         console.log("AUX:", address(AUX));
         console.log("QUID (Basket):", address(QUID));
@@ -460,13 +460,13 @@ contract Deploy is Script {
         vm.serializeAddress(j, "deployer", deployer);
         vm.serializeAddress(j, "basket", address(QUID));
         vm.serializeAddress(j, "aux", address(AUX));
-        vm.serializeAddress(j, "vogue", address(VOGUE));
+        vm.serializeAddress(j, "band", address(BAND));
         vm.serializeAddress(j, "core", address(CORE));
         // §E235-spa — THE BTC ENGINE'S ADDRESS WAS NEVER RECORDED, AND THAT IS WHY THE SPA BROKE.
         // The isBTC split made two `Core` instances (`DeployLib:137-138`: one on WETH/ethRisk, one on
         // WBTC/btcRisk), each exposing ONE `POOLED()`/`POOLED_USD()` instead of the old per-asset pair
         // on a single contract. The SPA still reads `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_*` off the
-        // ONE `vogueCore` address, so after the rename it calls four selectors that no longer exist —
+        // ONE `bandCore` address, so after the rename it calls four selectors that no longer exist —
         // and it had no way to do better, because the second instance was not in this file. Recording
         // it is the PRECONDITION for the client fix, not a nice-to-have: a rename in the SPA alone
         // would point the BTC reads at the ETH engine, which ANSWERS — with the wrong band's numbers.
@@ -502,10 +502,10 @@ contract Deploy is Script {
     ///   link the running system needs so the feature is live the moment the deploy lands:
     ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho + Euler escrow
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
-    ///       `setVogueSyncHook` (Vogue) → `Vault.setLevManager` (backing: vogueETH counts the book).
+    ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: bandETH counts the book).
     ///     BTC (vBTC collateral == the Vault): BtcLevManager → Morpho (and optional Euler) escrow venue →
     ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManager`
-    ///       (backing: vogueBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
+    ///       (backing: bandBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
     ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
     ///   GOV (`YB_GOV`, default = deployer) must be the broadcaster so the pin-once calls land, then has no
@@ -534,19 +534,19 @@ contract Deploy is Script {
         if (!vm.envOr("DEPLOY_LEV", false)) { console.log("[DEPLOY_LEV unset] leverage overlay skipped"); return; }
         address gov    = vm.envOr("YB_GOV", deployer);
         address morpho = vm.envOr("MORPHO", MORPHO_BLUE);
-        address weeth  = Vogue(payable(AUX.ethVenue())).WEETH();
+        address weeth  = Quid(payable(AUX.ethVenue())).WEETH();
 
         // ── ETH leverage: weETH-collateral leverage. Swaps reuse the basket SOR (stable↔WETH, sorSelfFunded) + the
         //    ether.fi adapter/redeemer (weETH↔WETH) — no bespoke swapper contract (RealWeethSwapper is gone). ──
         LevManager lm = new LevManager(weeth, address(AUX), address(WETH), gov, address(QUID));
-        // ONE atomic pin-once: hook (Vogue) + flash (Morpho, zero-fee de-lever) + the audited venues (weETH
+        // ONE atomic pin-once: hook (Quid) + flash (Morpho, zero-fee de-lever) + the audited venues (weETH
         // Morpho, weETH Euler, WETH Morpho, + optional WETH-debt short), then FROZEN. The venue array is built in
         // its own frame (_ethLevVenues) so this method stays within the legacy stack (no via_ir).
-        lm.init(address(VOGUE), morpho, _ethLevVenues(morpho, address(lm), weeth));
-        // BACKING: vogueETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
-        // lives there now, and `Core`/`VogueLib`/`BasketLib` all read `LEV_MANAGER()` THROUGH the
+        lm.init(address(BAND), morpho, _ethLevVenues(morpho, address(lm), weeth));
+        // BACKING: bandETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
+        // lives there now, and `Core`/`QuidLib`/`BasketLib` all read `LEV_MANAGER()` THROUGH the
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
-        Vogue(payable(AUX.ethVenue())).setLevManager(address(lm));
+        Quid(payable(AUX.ethVenue())).setLevManager(address(lm));
 
         // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
         BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
@@ -607,7 +607,7 @@ contract Deploy is Script {
             address(WBTC), wbtcDebt, address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
         address[] memory vsB = new address[](2); vsB[0] = pin; vsB[1] = wbtcV;
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        ETH.setLevManager(address(bm));                 // BACKING: vogueBTC counts the BTC lev book
+        ETH.setLevManager(address(bm));                 // BACKING: bandBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
         // owner-gated functions, so with both set the owner has nothing left to call. Renounce.
         Ownable(address(ETH)).renounceOwnership();

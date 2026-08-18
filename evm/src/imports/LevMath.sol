@@ -25,7 +25,7 @@ import {IMorphoFlash} from "../imports/Interfaces.sol";
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
 /// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
 /// ILevSyncHook/ILevSyncHookB — a delegatecall'd library can't read their immutables, so the manager passes the
-/// hook address in. All view: the Vogue impls are all view (soldFractionWad/bandPrice are
+/// hook address in. All view: the Quid impls are all view (soldFractionWad/bandPrice are
 /// `view` fns, reseatEpoch is a `public` state var), and `view` external calls are STATICCALL-safe inside the
 /// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
 
@@ -280,7 +280,7 @@ library LevMath {
     ///         price `pxBase` (USD/base, 1e18), CAPPED at the LP's OWN debt (`debtUsd`, 1e18). The debt-funded
     ///         buffer is fee-earning DEPTH, never equity, and is bounded by the LP's own debt BY CONSTRUCTION — the
     ///         exact `min((bufBase·px/1e18)/1e12, debtUsd/1e12)` that BOTH band-reconcile buffer legs applied
-    ///         inline (ETH `VogueLib.levAddBuf`, BTC `VaultLib._bufUsdBtc`). Centralized here — like `e0Usd` — so
+    ///         inline (ETH `QuidLib.levAddBuf`, BTC `VaultLib._bufUsdBtc`). Centralized here — like `e0Usd` — so
     ///         the buffer cap + its 6-dec scaling can never drift between the two paths. `bufBase` is ETH-1e18 or
     ///         BTC-8dec-sats; `pxBase` is WBTC-lifted ×1e10 on the BTC side, so the SAME `/1e18` yields 18-dec USD
     ///         for both before the shared `/1e12` to 6-dec (identical to the two former inline computations).

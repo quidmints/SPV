@@ -45,13 +45,13 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///         `test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact`, over the BTC band.
 ///
 ///         The exercised path is `Vault.syncLev` → `VaultLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
-///         (the BTC counterpart of `Vogue.syncLev`/`_levAdd`/`_levBurn`), driven by
+///         (the BTC counterpart of `Quid.syncLev`/`_levAdd`/`_levBurn`), driven by
 ///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquity()` backing read.
 ///
 ///         BTC-vs-ETH ADAPTATIONS (faithful, documented):
 ///           • Collateral is vBTC (8-dec, the Vault's own ERC-20 face minted `onlyBtcChannels`), not
 ///             weETH. The mock venue above holds vBTC collateral / USDC debt.
-///           • BTC band depth is CHANNEL-LOCKED (no permissionless `deposit`/`withdraw` like Vogue),
+///           • BTC band depth is CHANNEL-LOCKED (no permissionless `deposit`/`withdraw` like Quid),
 ///             so the fee-lane LP also holds a channel: its `LP.pooled` = channel funding + the lev
 ///             slice, and fees accrue pro-rata to `LP.pooled` — so the lev equity IS fee-earning band
 ///             depth, the same mechanism as a channel deposit.
@@ -598,7 +598,7 @@ contract VBtcLevFeeLane is AllesFixture {
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
         lm.init(address(ETH), MORPHO, vs);   // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        ETH.setLevManager(address(lm));        // pin the BTC leveraged book into vogueBTC + syncLev
+        ETH.setLevManager(address(lm));        // pin the BTC leveraged book into bandBTC + syncLev
     }
 
     /// Give `lp`'s position REAL Morpho debt of `usdc6` USDC. Borrowed DIRECTLY on `lp`'s own isolated Morpho
@@ -745,7 +745,7 @@ contract VBtcLevFeeLane is AllesFixture {
     /// @notice REGRESSION for the 1e10 BTC scale bug (Vyper audit C-1/C-2/C-3): with REAL debt, the BTC
     ///   valuations must scale like the rest of the codebase (px = USD18/1e18-raw, WBTC-lifted ×1e10 ⇒ /1e18).
     ///   The former /1e8 (collateral, E0) & /1e10 (debt) made net-equity treat the debt as ≈0 (phantom
-    ///   vogueBTC backing) and getCurrentLtvBps read ≈0 (venue-safety blind). Every prior BTC test used a
+    ///   bandBTC backing) and getCurrentLtvBps read ≈0 (venue-safety blind). Every prior BTC test used a
     ///   ZERO-debt position, which early-returns before the debt/price path — masking all three. Here: 2 BTC
     ///   collateral, ~50% LTV of real debt ⇒ net-equity MUST be ~1 BTC and LTV MUST be ~50%.
     function test_BtcLev_WithDebt_ScaleCorrect() public {
@@ -933,7 +933,7 @@ contract VBtcLevFeeLane is AllesFixture {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Net-equity → vogueBTC backing recognized; a venue seizure removes it cleanly
+    // Net-equity → bandBTC backing recognized; a venue seizure removes it cleanly
     // while POOLED_USD stays intact. Mirrors LevCascade.test_NetEquity_...
     // ═══════════════════════════════════════════════════════════════════════════
     function test_NetEquityBTC_BackingRecognized_SeizureLeavesPooledUsdIntact() public {
@@ -950,7 +950,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _openLev(lpEth, 5_000_000); // expose 0.05 BTC of the 0.3 BTC channel
         assertEq(lm.netEquity(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
         assertEq(lm.totalNetEquity(), 5_000_000, "book total == principal");
-        assertEq(ETH.totalNetEquity(), 5_000_000, "vogueBTC counts the leveraged book's net-equity");
+        assertEq(ETH.totalNetEquity(), 5_000_000, "bandBTC counts the leveraged book's net-equity");
         assertEq(CORE.POOLED_USD(), pooledUsd0, "open: basket POOLED_USD untouched (no band pairing)");
         _assertSolvent("open: solvent with lev backing");
 
@@ -962,10 +962,10 @@ contract VBtcLevFeeLane is AllesFixture {
         _borrowMorpho(lpEth, (collUsd / 2) / 1e12);            // ~50% LTV of real Morpho debt
         uint neqBefore = lm.netEquity(lpEth);
         assertLt(neqBefore, 5_000_000, "debt reduces net-equity below the collateral");
-        assertEq(ETH.totalNetEquity(), neqBefore, "vogueBTC counts the (now-levered) live net-equity");
+        assertEq(ETH.totalNetEquity(), neqBefore, "bandBTC counts the (now-levered) live net-equity");
         _seizeRealBtc(lpEth, 1, 2);                            // REAL Morpho liquidation (repay half the debt)
         assertLt(lm.netEquity(lpEth), neqBefore, "seized: net-equity backing REDUCED by the real liquidation");
-        assertEq(ETH.totalNetEquity(), lm.netEquity(lpEth), "seized: vogueBTC tracks the reduced live net-equity");
+        assertEq(ETH.totalNetEquity(), lm.netEquity(lpEth), "seized: bandBTC tracks the reduced live net-equity");
         assertEq(CORE.POOLED_USD(), pooledUsd0, "seized: basket POOLED_USD FULLY INTACT (no socialization)");
         _assertSolvent("seized: solvent, no socialization");
     }
@@ -1252,7 +1252,7 @@ contract VBtcLevFeeLane is AllesFixture {
     // ─────────────────────────── #36 venue safety gates (REAL Morpho vBTC venue) ───────────────────────────
 
     /// @notice (#36a) init must REJECT a real venue whose collateral isn't vBTC (== the Vault): a WBTC-collateral
-    ///   market would inject phantom BTC backing into vogueBTC. GOV can't pin it even though it's a real venue.
+    ///   market would inject phantom BTC backing into bandBTC. GOV can't pin it even though it's a real venue.
     /// RETARGETED 2026-07-26: WBTC collateral is ALLOWED by policy, so asserting its rejection was
     /// asserting the opposite of the documented behaviour. `BtcLevManager.init` passes WBTC as `c1` to
     /// `LevMath.vetVenue` and its own comment states it: "vBTC sats OR WBTC — SAME oracle price, so

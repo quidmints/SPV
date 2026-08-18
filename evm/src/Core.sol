@@ -3,7 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {Aux} from "./Aux.sol";
-import {Vogue} from "./Vogue.sol";
+import {Quid} from "./Quid.sol";
 import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
@@ -137,11 +137,11 @@ contract Core {
 
     /// @dev That pool's total leverage debt (18-dec), read live from the pinned LevManager (0 if unset). The
     ///      The BTC manager (`LEV_MANAGER`) lives on the Vault; the ETH one lives on the ETH-VENUE
-    ///      contract, reached via `VOGUE.EV()` — the same indirection `VogueLib` uses.
+    ///      contract, reached via `BAND.EV()` — the same indirection `QuidLib` uses.
     ///      FAIL-SAFE: `totalDebtUsd` iterates the open-LP book (external venue reads); a revert there must NOT
     ///      brick `committedUsd18` (the backing gate on every swap/mint/redeem). On failure we subtract 0 debt,
     ///      which only RAISES committed ⇒ a STRICTER gate + LOWER redeemable — conservative, never over-issue.
-    ///      Mirrors `vogueETH`'s try/catch over the same LevManager reads.
+    ///      Mirrors `bandETH`'s try/catch over the same LevManager reads.
     function _levDebtUsd18() internal view returns (uint) {
         if (address(BTCVAULT) == address(0)) return 0;
         address mgr = BAND.levManager();
@@ -299,12 +299,12 @@ contract Core {
 
     /// @notice Annualized realized variance (WAD) of this pool's oracle — the well
     ///         skew's live-vol steepness input (steeper premium in higher vol, matching a
-    ///         native-BTC MM's real cost). Thin pass to VogueLib (identical to Vogue's own
+    ///         native-BTC MM's real cost). Thin pass to QuidLib (identical to Quid's own
     ///         `realizedVarianceWad`); exposed here so the skew reads ONE source for both
     ///         pools regardless of which band contract drives the swap. Fails-open to 0
     ///         (insufficient history) ⇒ no steepening, base convex curve still applies.
     /// @notice §E59 — annualized realized tick variance (WAD), read DIRECTLY from the observation
-    ///         ring. Was a round trip (Core → VogueLib → back into Core) sampling `observe` on a
+    ///         ring. Was a round trip (Core → QuidLib → back into Core) sampling `observe` on a
     ///         wall-clock grid; that grid was the bug — `observe` INTERPOLATES between stored points
     ///         and linear interpolation has zero second derivative, so any stretch quieter than the
     ///         sample interval measured EXACTLY 0 however far price moved. One hop now, one source.
@@ -362,13 +362,13 @@ contract Core {
         // testGrindRemoval_DrainPaysRetainedSkewPremium); the CREDIT is what actually reaches LPs.
         // Without it the premium accrues to basket backing, which prices QU!D and not LP shares.
         skewPremium += premiumUsd; cum = skewPremium;   // §ISBTC-SPLIT: both arms were identical
-        // ONE call site, dispatched by address: `Vogue` and `Vault` expose the same
+        // ONE call site, dispatched by address: `Quid` and `Vault` expose the same
         // `creditSkewPremium` signature, so this is a single encode instead of one per branch.
         BAND.creditSkewPremium(premiumUsd);
         // §E42-netting — PUT THE BACKING WHERE THE CLAIM IS. The credit above creates an LP claim;
         // these are the dollars that back it, and until now they were the ONLY fee whose backing
         // stayed in general basket assets. Every other fee leaves its backing in the POOLED mirror
-        // on purpose (BtcVaultLib:56 — "the sats stay in POOLED by design: the guard exists so
+        // on purpose (BtcLib:56 — "the sats stay in POOLED by design: the guard exists so
         // creating the CLAIM does not remove its BACKING"), and `redeemableBody` nets that mirror.
         // MEASURED (§E42, 6 x 500 USDC): swappers paid 3,000.000000 into the basket while the
         // mirror rose only 2,993.999901 — the 6.000099 gap was the premium, quoted as QU!D
@@ -423,7 +423,7 @@ contract Core {
     /// §ISBTC-SPLIT — THIS INSTANCE'S BAND MANAGER, through `IBand`. Every money-path `IS_BTC`
     /// branch below was `Core` reaching into one of two managers for the same fact and having to
     /// know which; the facts differ per band, so they live in the band. ETH is pinned at `setup`
-    /// (Vogue exists by then); BTC at `setBtcVault`, because `Vault` is deployed AFTER `Core` and
+    /// (Quid exists by then); BTC at `setBtcVault`, because `Vault` is deployed AFTER `Core` and
     /// takes its address at construction -- which is exactly why that setter already exists.
     IBand public BAND;
 
@@ -515,8 +515,8 @@ contract Core {
 
     Aux AUX; Basket BASKET; Vault BTCVAULT;
 
-    /// @notice BtcVault — the BTC LP/swap side, regrouped out of Vogue/Aux.
-    /// Pinned once (post-deploy, like Vogue's btcChannels) since BtcVault is
+    /// @notice BtcVault — the BTC LP/swap side, regrouped out of Quid/Aux.
+    /// Pinned once (post-deploy, like Quid's btcChannels) since BtcVault is
     /// deployed after Core. Read for `totalShares()` (the BTC
     /// shortfall trigger) and admitted to `onlyUs` so it can drive the BTC
     /// pool (modLP / repack / collectFees / draw / dec / swap).
@@ -554,10 +554,10 @@ contract Core {
     }
 
     /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpShares,
-    ///         net) + gross debt-funded buffer (totalBuffer). The BTC analogue of (vogueETH + totalBuffer)
-    ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcVaultLib._thetaClampBtc) and the
-    ///         reseat clamp (VogueLib.addLiq IS_BTC) so they throttle on the SAME real capital -- NEVER the
-    ///         disjoint WBTC-donation `vogueBTC` pool (that mis-base collapsed the band whenever donations were
+    ///         net) + gross debt-funded buffer (totalBuffer). The BTC analogue of (bandETH + totalBuffer)
+    ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcLib._thetaClampBtc) and the
+    ///         reseat clamp (QuidLib.addLiq IS_BTC) so they throttle on the SAME real capital -- NEVER the
+    ///         disjoint WBTC-donation `bandBTC` pool (that mis-base collapsed the band whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
     function btcThetaBacking() external view returns (uint) {
         return address(BTCVAULT) == address(0) ? 0 : BTCVAULT.totalShares() + BTCVAULT.totalBuffer();
@@ -572,12 +572,12 @@ contract Core {
     ///      (CLAUDE.md 8c, measured independently on `BTCChannels` by a concurrent thread.)
     ///      VERIFIED against a same-worktree control, only this change differing: both arms
     ///      4,400 passed / 1 failed / 2 skipped — the failure pre-existing, the skips environmental.
-    /// §DEDUP-BAND (2026-08-18) — was `address(VOGUE)`, and `VOGUE` is DELETED. It duplicated `BAND`
+    /// §DEDUP-BAND (2026-08-18) — was `address(BAND)`, and `BAND` is DELETED. It duplicated `BAND`
     /// on the ETH instance and MIS-POINTED on the BTC one:
-    ///   • ETH: `setup(v4, v4, …)` pinned the SAME ADDRESS to both `VOGUE` and `BAND`. Two fields,
+    ///   • ETH: `setup(v4, v4, …)` pinned the SAME ADDRESS to both `BAND` and `BAND`. Two fields,
     ///     two types, one address — the shape CLAUDE.md records as having planted three bugs in the
     ///     EthVenue split, where the call site was right and the ASSIGNMENT was wrong.
-    ///   • BTC: `setup(v4, 0, …)` pinned `VOGUE` to the **ETH** band manager, so the BTC engine's
+    ///   • BTC: `setup(v4, 0, …)` pinned `BAND` to the **ETH** band manager, so the BTC engine's
     ///     `onlyUs` admitted a FOREIGN band. `Quid` holds ONE `Core` handle (`:57`) and no BTC-core
     ///     reference, so it never used that privilege — an unexercised grant, which is the kind that
     ///     survives review because nothing fails when you remove it and nothing fails when you don't.
@@ -631,13 +631,13 @@ contract Core {
     function setup(address _band, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
-        require(address(AUX) == address(0), "!");   // §DEDUP-BAND: was `VOGUE`, which is gone
+        require(address(AUX) == address(0), "!");   // §DEDUP-BAND: was `BAND`, which is gone
 
         // §E253-mock — the two `mock` ERC20s are no longer deployed. They were the v4 pool's two
         // currencies; with no PoolManager nothing mints, holds or moves them.
         
         AUX = Aux(payable(_aux));
-        // §ISBTC-ZERO: the BAND is whatever the deployer pins here. The ETH band (Vogue) exists by
+        // §ISBTC-ZERO: the BAND is whatever the deployer pins here. The ETH band (Quid) exists by
         // now; the BTC band (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a
         // zero here is not an error -- it is the second-pin case, and no flag distinguishes them.
         if (_band != address(0)) BAND = IBand(_band);
@@ -668,7 +668,7 @@ contract Core {
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
     ///         swap-out delivery pays the LP its exact proceeds. `usd6` is 6-dec.
     function drawPooledUsdBtc(uint usd6) external onlyUs {
-        // FAIL-LOUD, not silent-clamp: the sole caller (BtcVaultLib.settleDelivered) mints QUI for the FULL
+        // FAIL-LOUD, not silent-clamp: the sole caller (BtcLib.settleDelivered) mints QUI for the FULL
         // `exactUsd` it draws here, so a `Math.min` under-draw would leave that excess QUI unbacked. The
         // request/gate invariant (exactUsd ≤ pendingSwapOutUsd ≤ POOLED_USD) makes this subtraction never
         // underflow in correct operation; checked math reverts the whole settlement if a future change breaks
@@ -686,7 +686,7 @@ contract Core {
     /// @notice Clear an obligation's USD when it is delivered (paid exact to the
     ///         LP) or reversed. FAIL-LOUD, matching its sibling `drawPooledUsdBtc`
     ///         above — the two take the same argument in the same transaction
-    ///         (`BtcVaultLib.sol:85-86`) and must not disagree on discipline.
+    ///         (`BtcLib.sol:85-86`) and must not disagree on discipline.
     ///         Every clearing path subtracts EXACTLY what its request added:
     ///         delivery is one-LP-per-slice with the swapId consumed
     ///         (`BTCChannels._settleSwapOutSlice`), and the de-lever split is a
@@ -851,22 +851,22 @@ contract Core {
         // LPs join via modLP (which grows both in lockstep).
         // GROSS fee depth on both sides: for BTC, totalShares is NET, so add the levered buffer
         // (totalBuffer) to match POOLED (gross, includes the buffer) — keeps the shortfall
-        // comparison gross-to-gross (unchanged behavior). ETH: vogueETH(net) vs totalShares(net) already balanced.
+        // comparison gross-to-gross (unchanged behavior). ETH: bandETH(net) vs totalShares(net) already balanced.
         uint totalSharesPool = BAND.sharesForShortfall();
         // BOTH sides compare REAL inventory, never just the in-pool token.
-        // ETH = vogueETH() (in-range POOLED + AAVE/ether.fi venue
+        // ETH = bandETH() (in-range POOLED + AAVE/ether.fi venue
         // retention + idle). BTC has no yield-venue, but the protocol still HOLDS
-        // off-pool WBTC (swept donations + swap deltas, accrued in vogueBTC), so
-        // the BTC analogue is POOLED + vogueBTC. Comparing raw POOLED
+        // off-pool WBTC (swept donations + swap deltas, accrued in bandBTC), so
+        // the BTC analogue is POOLED + bandBTC. Comparing raw POOLED
         // over-fired the shortfall arb on off-range retention (lpShares > POOLED
         // by construction) — requesting a hop-source of BTC the protocol already
-        // holds. Adding vogueBTC is monotone-safe: it can only SHRINK the measured
+        // holds. Adding bandBTC is monotone-safe: it can only SHRINK the measured
         // shortfall, never grow it, and suppressing a "shortfall" we can cover from
         // our own WBTC is correct (no need to source what we already hold).
         // BTC IL-protect: totalShares includes each LP's LEVERED slice (levPooled), and its backing is
         // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
         // with levPooled (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
-        // (The ETH branch is NET-vs-NET: vogueETH() adds the lev book's NET equity (totalNetEquity, the
+        // (The ETH branch is NET-vs-NET: bandETH() adds the lev book's NET equity (totalNetEquity, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
         // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
         // so BTC alone needs the +totalBuffer above to keep totalShares's comparison gross-to-gross.)
@@ -885,7 +885,7 @@ contract Core {
                 // usually impermanent, realizing that IL onto the SHARED backing —
                 // compensating the flow at every LP's expense (toxic). Real ETH
                 // demand is met fairly at withdrawal: convertToAssets pays each LP
-                // pro-rata of vogueETH, so the IL is socialized via the share price,
+                // pro-rata of bandETH, so the IL is socialized via the share price,
                 // never patched from surplus.
                 BAND.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see IBand
             }
@@ -906,9 +906,9 @@ contract Core {
     // chase a usually-impermanent shortfall, realizing IL at every LP's expense) AND
     // griefable (no access control, magnitude-only 1% gate, so anyone could force the
     // speculative buy) AND redundant (TWAP pricing needs no pre-balanced inventory; LP
-    // exits read pro-rata of vogueETH at withdrawal). The fair model is the redemption
+    // exits read pro-rata of bandETH at withdrawal). The fair model is the redemption
     // path (BasketLib._depegLoss: pro-rata, no first-out-at-par); withdrawal now matches
-    // it (see Vogue._withdraw). BTC keeps its hop delivery rail (Aux.btcShortfall).
+    // it (see Quid._withdraw). BTC keeps its hop delivery rail (Aux.btcShortfall).
 
     /// @notice Fused repack — replaces separate repack/repackBTC. Pass
     ///         IS_BTC=true to repack the BTC/USD pool, false for ETH/USD.
@@ -955,7 +955,7 @@ contract Core {
     /// price and dilutes nobody. **The protection now holds BY CONSTRUCTION rather than by a pre-mint
     /// drain**, and the window this guarded closes on its own.
     /// ⚠️ Returns (0,0) rather than being deleted only while its callers still destructure the pair;
-    /// the JIT branches in `VogueLib`/`BtcVaultLib` go with it in the caller pass.
+    /// the JIT branches in `QuidLib`/`BtcLib` go with it in the caller pass.
     function collectFees() public view onlyUs returns (uint, uint) {
         return (0, 0);
     }
@@ -1031,7 +1031,7 @@ contract Core {
                 // §A.50/C2: `usdAmount` is the 6-dec mockUSD leg, but `AUX.take` wants the payout
                 // token's NATIVE units (`BasketLib.sol:620-628`; the two callers that already convert
                 // are `SwapLib.sol:1170` and `:1222`). The CREATE side of the same position already
-                // scales (`VogueLib.sol:662`), so without this the round trip was ASYMMETRIC and an
+                // scales (`QuidLib.sol:662`), so without this the round trip was ASYMMETRIC and an
                 // 18-dec redeemer was paid 1e12x too little. `minOut` cannot catch it: `Core.swap`
                 // returns the 6-dec delta, a different basis than delivery.
                 AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
@@ -1139,7 +1139,7 @@ contract Core {
     ///      real ETH out); delta<0 → mint+settle and (in-range) pool it.
     /// §V4-CUT — same removal as the USD leg, and the SAME reason it is safe: the comment below
     /// already said the real ETH payout was SEPARATE from the mock burn ("the burned mockETH is
-    /// matched by real ETH paid out"). `VOGUE.takeETH` is where value moves; the mock was a shadow.
+    /// matched by real ETH paid out"). `BAND.takeETH` is where value moves; the mock was a shadow.
     /// ⚠️ THE `!IS_BTC` GUARD STAYS AND IS **NOT** IS_BTC-DRIFT TO BE DELETED LATER: ETH pays out real
     // §DE-TICK — `_settleTokSide` FOLDED INTO `_handleDelta`. With `d.vol` naming the leg there was
     // no selection left to make, so the frame held six lines and a `token1isVol` read. The `!IS_BTC`
@@ -1175,7 +1175,7 @@ contract Core {
     ///   • COST: it made a frequently-read `view` perform an external CALL into Aux for a number
     ///     this contract already has in its own storage.
     ///   • BOOTSTRAP: at deploy the ring holds ONE observation stamped `now`, so a read 1800s back
-    ///     has no history and reverts `twap: pre-history`. That is what `Vogue.setup` hit, and it
+    ///     has no history and reverts `twap: pre-history`. That is what `Quid.setup` hit, and it
     ///     took every fixture's setUp down with it.
     /// `lastPrice` is seeded from the reference pool in `OracleLib.initPool` and updated by every
     /// observation write, so it is defined from the first block and never needs history.
@@ -1224,7 +1224,7 @@ contract Core {
         // the POOL TIER; v4 collected it and `Collect` harvested it into `feesPerShare`/`USD_FEES`.
         // Deleting v4 deletes the collector, so without this the fill charges NOTHING: the LP fee
         // lane earns zero, and the anti-grinding bound `w >= 1 - fee/C` degenerates to w = 100%.
-        // Retained in `POOLED_*`, which `Vogue.sol:136` calls "principal + ALL compounded fees" —
+        // Retained in `POOLED_*`, which `Quid.sol:136` calls "principal + ALL compounded fees" —
         // so it DOES reach LP claims, by compounding rather than per-share accrual. That difference
         // is one of TIMING (holder at claim vs holder at swap) and is decided when `Collect` goes.
         out -= (out * 420) / 1_000_000;

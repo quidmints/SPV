@@ -154,7 +154,7 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("ETH delivered   ", lpA.balance - bal0);
         assertLt(CORE.committedUsd18(), c1, "a withdraw must shrink committed");
         // MEASURE BOTH ASSETS. Every exit now routes through the ether.fi offramp, which pays WETH;
-        // it used to reach the band burn (`Vogue:530`, `_burnInRange(..., recipient)`) which pays
+        // it used to reach the band burn (`Quid:530`, `_burnInRange(..., recipient)`) which pays
         // NATIVE ETH. Watching only `.balance` reported "delivered 0" for a day while the trace showed
         // 4.99 WETH arriving -- the guard was reading the wrong asset, not catching a real zero.
         assertGt((lpA.balance - bal0) + (WETH.balanceOf(lpA) - weth0Del), 0,
@@ -162,7 +162,7 @@ contract UnificationControls is AllesFixture {
     }
 
     /// EDGE: withdrawing MORE than the position must clamp to the position, not revert and not
-    /// over-deliver. `Vogue.withdraw` caps at `autoManaged[msg.sender].pooled` before converting.
+    /// over-deliver. `Quid.withdraw` caps at `autoManaged[msg.sender].pooled` before converting.
     function test_V5_OverAskClampsToPosition() public {
         _seedBasket();
         vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
@@ -309,14 +309,14 @@ contract UnificationControls is AllesFixture {
     // V6 — REDEMPTION / BAND UNWIND, and V8 — CROSS-BAND REPACK REACHABILITY
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// `Vogue.unwindForRedeem` frees committed dollars by BURNING in-range band liquidity, and its
-    /// docstring makes a strong claim the suite never checks: *"LP EQUITY NEUTRAL (vogueETH/lpShares
+    /// `Quid.unwindForRedeem` frees committed dollars by BURNING in-range band liquidity, and its
+    /// docstring makes a strong claim the suite never checks: *"LP EQUITY NEUTRAL (bandETH/lpShares
     /// unchanged; only the band's mock mirror shrinks, returning ETH from in-band to in-venue)"*.
     /// `test_Redeem_UnwindsBandToFreeCommittedDollars` asserts the unwind FIRES and committed drops;
     /// it does not assert neutrality, and it runs with NO BTC band.
     ///
     /// Both gaps are exactly what the `POOLED_USD` unification would break: the unwind is ETH-ONLY
-    /// (`Vogue.sol:964` reads `POOLED_USD`), and `BasketLib.redeemableBody:969` subtracts
+    /// (`Quid.sol:964` reads `POOLED_USD`), and `BasketLib.redeemableBody:969` subtracts
     /// `POOLED_USD` from the redeemable quote PRECISELY BECAUSE an ETH-side redemption cannot
     /// reach the BTC band. Merge the counters and both assumptions dissolve silently.
     function test_V6_UnwindIsLpEquityNeutralAndCannotReachTheBtcBand() public {
@@ -341,7 +341,7 @@ contract UnificationControls is AllesFixture {
         (uint[15] memory d0,,,) = AUX.get_deposits();
         uint tvl0        = d0[14];
         uint committed0  = CORE.committedUsd18();
-        uint vogueEth0   = AUX.vogueETH();
+        uint bandEth0   = AUX.bandETH();
         uint lpShares0   = V4.lpShares();
         uint pooledA0    = V4.balanceOf(lpA);
         uint btcUsd0     = CORE.POOLED_USD();
@@ -350,7 +350,7 @@ contract UnificationControls is AllesFixture {
 
         emit log_named_uint("TVL before        ", tvl0);
         emit log_named_uint("committed before  ", committed0);
-        emit log_named_uint("vogueETH before   ", vogueEth0);
+        emit log_named_uint("bandETH before   ", bandEth0);
         emit log_named_uint("BTC USD leg before", btcUsd0);
 
         vm.prank(User01); AUX.redeem(1_100_000 * WAD);
@@ -358,7 +358,7 @@ contract UnificationControls is AllesFixture {
         (uint[15] memory d1,,,) = AUX.get_deposits();
         emit log_named_uint("TVL after         ", d1[14]);
         emit log_named_uint("committed after   ", CORE.committedUsd18());
-        emit log_named_uint("vogueETH after    ", AUX.vogueETH());
+        emit log_named_uint("bandETH after    ", AUX.bandETH());
         emit log_named_uint("BTC USD leg after ", CORE.POOLED_USD());
 
         // PREMISE: the unwind must actually have fired, else nothing below is being tested.
@@ -369,8 +369,8 @@ contract UnificationControls is AllesFixture {
         // yield accrued during the redeem; anything larger is the unwind taking LP value.
         assertEq(V4.lpShares(), lpShares0, "unwind must not change lpShares");
         assertEq(V4.balanceOf(lpA), pooledA0, "unwind must not change the LP's pooled claim");
-        assertApproxEqRel(AUX.vogueETH(), vogueEth0, 0.005e18,
-            "unwind must be LP-EQUITY NEUTRAL: vogueETH unchanged (ETH moved in-band -> in-venue, not out)");
+        assertApproxEqRel(AUX.bandETH(), bandEth0, 0.005e18,
+            "unwind must be LP-EQUITY NEUTRAL: bandETH unchanged (ETH moved in-band -> in-venue, not out)");
 
         // V6b — THE UNWIND IS ETH-ONLY AND MUST NOT REACH THE BTC BAND. This is the assumption
         // `redeemableBody`'s `POOLED_USD` subtraction rests on.
@@ -519,7 +519,7 @@ contract UnificationControls is AllesFixture {
         (uint[15] memory d,,,) = AUX.get_deposits();
         uint committed = CORE.committedUsd18();
         uint surplus   = d[14] > committed ? d[14] - committed : 0;
-        uint backing   = AUX.vogueETH();
+        uint backing   = AUX.bandETH();
         uint pooledEth = CORE.POOLED();
         uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
         uint theta;
@@ -730,7 +730,7 @@ contract UnificationControls is AllesFixture {
         uint claimUsd = claimEth * px / 1e18;
 
         emit log_named_uint("POOLED   pre  ", CORE.POOLED());
-        emit log_named_uint("vogueETH     pre  ", AUX.vogueETH());
+        emit log_named_uint("bandETH     pre  ", AUX.bandETH());
         emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD());
         emit log_named_uint("basketUsd pre  ", CORE.basketUsd());
         emit log_named_uint("lpShares     pre  ", V4.lpShares());
@@ -1062,7 +1062,7 @@ contract UnificationControls is AllesFixture {
 
     /// §E45 — THE REFILL'S GAS MODEL NEEDS NO NEW MECHANISM, AND THIS IS THE NUMBER THAT DECIDES IT.
     ///
-    /// `Vogue.compound(address lp)` is ALREADY the self-funding, permissionless crank: anyone may
+    /// `Quid.compound(address lp)` is ALREADY the self-funding, permissionless crank: anyone may
     /// crank anyone, it runs `_rebalance()` FIRST (so the repack/reseat rides along), and it pays
     /// the caller `min(tx.gasprice, COMPOUND_MAX_GASPRICE) x COMPOUND_GAS` by burning a sliver of
     /// the band to them as native ETH — grief-capped at HALF the harvest, funded from realized fees,
@@ -1072,7 +1072,7 @@ contract UnificationControls is AllesFixture {
     /// CHANGE to `recordSkewPremium`/`creditSkewPremium`, which is where the skew work is happening.
     ///
     /// The ONE thing that must hold is that `COMPOUND_GAS` actually covers the crank. It is a
-    /// hardcoded 140,000 (`Vogue.sol:1504`, `private constant` — hence the literal here) and it was
+    /// hardcoded 140,000 (`Quid.sol:1504`, `private constant` — hence the literal here) and it was
     /// sized for compounding ALONE. If the crank already costs more than that the keeper is
     /// under-reimbursed TODAY, and any refill work added to `_rebalance()` makes it worse.
     function test_E45_CompoundCrankGasVsTheSelfFundingConstant() public {
@@ -1082,7 +1082,7 @@ contract UnificationControls is AllesFixture {
         for (uint i; i < 10; i++) _trade(3_000e18);   // real harvest for the tip to come out of
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
-        uint COMPOUND_GAS = 200_000;                  // Vogue.sol:1504 (raised from 140,000, E46)
+        uint COMPOUND_GAS = 200_000;                  // Quid.sol:1504 (raised from 140,000, E46)
         vm.txGasPrice(10 gwei);
         uint g0 = gasleft();
         V4.compound(lpA);

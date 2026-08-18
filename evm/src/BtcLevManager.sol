@@ -29,7 +29,7 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 ///         fill/unwind over async steps (borrow → source BTC externally → mint vBTC → supply), so this manager
 ///         only exposes the **venue legs** (`leverBorrow`/`leverSupply`/`deleverWithdraw`/`repay`) that the
 ///         keeper sequences, plus the read side (`netEquityBtc`, paired into `POOLED` by `syncLev` —
-///         that is the solvency count; `vogueBTC` is WBTC-only and is never credited the net-equity).
+///         that is the solvency count; `bandBTC` is WBTC-only and is never credited the net-equity).
 ///
 ///         Reuses verbatim: `LevMath` (target `1−√(entry/now)`, net-equity, debt-delta), `ILevVenue` (the
 ///         renamed collateral-agnostic `Euler/MorphoEscrowVenue`, deployed against a vBTC market). Acquisition

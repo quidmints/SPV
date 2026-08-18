@@ -26,8 +26,8 @@ import {Core} from "../src/Core.sol";
 ///
 /// ⚠️ MEASUREMENT TRAPS THIS FILE EXISTS TO AVOID — each already cost a wrong conclusion:
 ///   • `reseatEpoch` IS NOT A REPACK SIGNAL. It bumps only when the RANGE changes
-///     (`VogueLib:519`); a repack onto the same boundaries fires without it. The true signal is
-///     `LAST_REPACK` (`Vogue.sol:113`), stamped only under `if (r.didRepack)`.
+///     (`QuidLib:519`); a repack onto the same boundaries fires without it. The true signal is
+///     `LAST_REPACK` (`Quid.sol:113`), stamped only under `if (r.didRepack)`.
 ///   • A LARGE ONE-SHOT SWAP CANNOT REPACK. `rebalanceCore:1620-1629` re-centres only when out
 ///     of range AND `!isManipulated(spot, twap, 300)` — flow big enough to leave the range also
 ///     breaks the 300-bps tolerance, so the repack REFUSES and the band strands.
@@ -85,7 +85,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         p.eth = _snap(IBandManager(address(V4)));
         p.btc = _snap(IBandManager(address(BTC)));
         // §ONE-REPACK-STAMP — ETH ONLY, and deliberately not mirrored. `LAST_REPACK` exists on
-        // Vogue and not on Vault, which looks like an asymmetry to close until you check who reads
+        // Quid and not on Vault, which looks like an asymmetry to close until you check who reads
         // it: NO CONTRACT DOES. It is stamped by the rebalance forwarder and consumed only by
         // tests. Giving Vault one would add money-path state to make a test observable symmetric,
         // which is backwards -- the direction here is fewer variables, not matching sets of them.

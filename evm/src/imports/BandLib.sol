@@ -8,7 +8,7 @@ import {SwapLib} from "./SwapLib.sol";
 
 /// @title  BandLib — the ONE implementation of each band-manager body, for both bands.
 ///
-/// @notice §BAND-MERGE. `VogueLib` (ETH, 633 lines) and `BtcVaultLib` (BTC, 623) are the ETH/BTC
+/// @notice §BAND-MERGE. `QuidLib` (ETH, 633 lines) and `BtcLib` (BTC, 623) are the ETH/BTC
 ///         pair of one logic. With `Types.BandCfg`/`BandP` shared, the pairs differ ONLY in their
 ///         bodies, and diffing them showed FOUR kinds of difference of which THREE are drift:
 ///
@@ -32,7 +32,7 @@ library BandLib {
     /// @notice Burn an LP's ENTIRE levered slice — both legs. Net equity leaves `pooled` (and so
     ///         the share count); the debt-funded buffer leaves the fee weight but was never equity.
     ///
-    /// @dev    THE MERGED PAIR: `VogueLib.levBurnAll` ∥ `BtcVaultLib.levBurnAllBtc` were line-for-
+    /// @dev    THE MERGED PAIR: `QuidLib.levBurnAll` ∥ `BtcLib.levBurnAllBtc` were line-for-
     ///         line identical apart from (a) BTC routing `modLP` through `_burnLpBtc`, a one-line
     ///         wrapper whose `p` argument was UNUSED, and (b) BTC's trailing refresh. Both resolved
     ///         above, so this is one body rather than a parameterised compromise.
@@ -61,7 +61,7 @@ library BandLib {
     }
 
     /// @notice NET-EQUITY leg. Grows `pooled` (and so the share count) and the levered net slice.
-    /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `IVogue(this).addLiq`
+    /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `IQuid(this).addLiq`
     ///         on ETH versus the library-local `addLiqChannel` on BTC -- and that is now one method
     ///         on the band face (`IBand.addLiq`), because routing is exactly what belongs in the
     ///         band. The other three differences were drift: price passed vs read (read here,
@@ -121,8 +121,8 @@ library BandLib {
     }
 
     /// @notice Close all or part of an out-of-range boundary order.
-    /// @dev    MERGED PAIR, and this one was a PURE DUPLICATE: `VogueLib.pullBody` and
-    ///         `BtcVaultLib.pullBtc` were BYTE-IDENTICAL after normalising the storage PARAMETER
+    /// @dev    MERGED PAIR, and this one was a PURE DUPLICATE: `QuidLib.pullBody` and
+    ///         `BtcLib.pullBtc` were BYTE-IDENTICAL after normalising the storage PARAMETER
     ///         names (`selfManaged`/`selfManaged`, `positions`/`positions`) -- and those are
     ///         parameters, so the bodies never differed at all. Two deployed copies of one function
     ///         because the mappings they were handed had different names at the call site.

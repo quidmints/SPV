@@ -79,7 +79,7 @@ contract LeveragePnLProbe is AllesFixture {
         emit log_string(when);
         emit log_named_uint("   POOLED_USD", CORE.POOLED_USD());
         emit log_named_uint("   POOLED    ", CORE.POOLED());
-        emit log_named_uint("   vogueETH      ", AUX.vogueETH());
+        emit log_named_uint("   bandETH      ", AUX.bandETH());
         emit log_named_uint("   basketUsd  ", CORE.basketUsd());
         emit log_named_uint("   lpShares      ", V4.lpShares());
         emit log_named_uint("   totalLevPooled", V4.totalLevPooled());
@@ -128,7 +128,7 @@ contract LeveragePnLProbe is AllesFixture {
         //   • post-redeem `convertToAssets` → 0.0134 ETH (~$25). The husk: the redeem already paid
         //     the backing out, so this UNDER-values.
         //   • pre-redeem NAV per share (1.0000257 ETH) → 31.834 ETH (~$59,960). This OVER-values,
-        //     and double-counts: `_pricingBacking()` is vogueETH() PLUS the LP-owned USD increment,
+        //     and double-counts: `_pricingBacking()` is bandETH() PLUS the LP-owned USD increment,
         //     so that number already contains the USD that was delivered as the 55,225 QUID leg.
         // Folding either in makes the LVR assertion pass for a reason the measurement cannot
         // support. The honest comparison is each arm against ITS OWN pre-redeem NAV, emitted
@@ -300,8 +300,8 @@ contract LeveragePnLProbe is AllesFixture {
         // Control: same starting pool, NO opens — but TIME-MATCHED to the treatment.
         //
         // `vm.revertToState(snap0)` also rewinds block.number/timestamp to the seed, and
-        // `Vogue.withdraw` enforces `block.number > lastDepositBlock[msg.sender]` ("too soon",
-        // Vogue.sol:540 — the JIT-deposit guard). The treatment rolls a block per `_open`, so its
+        // `Quid.withdraw` enforces `block.number > lastDepositBlock[msg.sender]` ("too soon",
+        // Quid.sol:540 — the JIT-deposit guard). The treatment rolls a block per `_open`, so its
         // three redeems clear the guard while the control's REVERTED with "too soon" and
         // `_lpValueUsd`'s try/catch turned that into 0 — which is precisely what PREMISE 2 below
         // exists to catch, and it did.

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice Proves the BTC band now gets the SAME theta risk-budget clamp as the ETH band.
-///   Before this change BtcVaultLib.addLiqChannel omitted theta entirely -- a real asymmetry
+///   Before this change BtcLib.addLiqChannel omitted theta entirely -- a real asymmetry
 ///   (the "locked channel sats" rationale justifies dropping only the PHYSICAL-inventory clamp,
 ///   not the IL risk-budget throttle; a BTC band bears IL exactly like an ETH band).
 ///
@@ -13,7 +13,7 @@ import {AllesFixture} from "./Alles.t.sol";
 ///   inert on the fork). To prove the clamp FIRES we mock the ONE input the fork cannot produce
 ///   -- a positive-yield theta<1 -- via Vault.derivedThetaWad(), and show the in-range pairing
 ///   is throttled, while the fail-open baseline pairs fully. The theta VALUE's live-ness itself is
-///   covered by the same VogueLib.derivedThetaWad path DerivedTheta.t.sol exercises for ETH.
+///   covered by the same QuidLib.derivedThetaWad path DerivedTheta.t.sol exercises for ETH.
 contract BtcBandThetaProbe is AllesFixture {
     function test_BtcBand_ThetaThrottlesInRangePairing() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels (requestDeposit is gated)
@@ -27,7 +27,7 @@ contract BtcBandThetaProbe is AllesFixture {
 
         // Force theta = 0.001 (WAD). The fork cannot make avgYield>0, so mock the theta oracle
         // value ONLY -- the real addLiqChannel/requestDeposit clamp path runs unchanged. With
-        // theta*vogueAvail << current POOLED, the in-range headroom collapses to ~0, so the
+        // theta*bandAvail << current POOLED, the in-range headroom collapses to ~0, so the
         // second LP's sats are shed to the unpaired (off-chain-backed) share tracking instead of
         // being force-paired into the IL-bearing band.
         vm.mockCall(address(BTC), abi.encodeWithSignature("derivedThetaWad()"), abi.encode(uint(1e15)));

@@ -598,7 +598,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
     }
 
     /// §UNIT-REPEG-CADENCE's missing input, outstanding since it was listed six entries ago:
-    /// ISOLATED RESEAT GAS. `Vogue.reseat()` is the permissionless poke, so the cost can be read
+    /// ISOLATED RESEAT GAS. `Quid.reseat()` is the permissionless poke, so the cost can be read
     /// on its own rather than inferred from a whole walk. Measured THREE ways because a single
     /// number would not distinguish the no-op path from the real burn+move+re-range.
     function test_UNIT_IsolatedReseatGas() public {

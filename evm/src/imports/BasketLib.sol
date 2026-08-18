@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
-import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IVogue, ILevHost} from "./Interfaces.sol";
+import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IQuid, ILevHost} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -537,12 +537,12 @@ library BasketLib {
                 //
                 // SHARES go to address(this) — i.e. Aux when called via
                 // library delegatecall. (The original `ctx.v4` field
-                // pointed at the Vogue contract, which would have
-                // orphaned shares there with no Vogue-side redemption
+                // pointed at the Quid contract, which would have
+                // orphaned shares there with no Quid-side redemption
                 // path — see takeETH / _sendETH, which draw from Aux's
-                // wethVault position via vogueOp, never from Vogue's
+                // wethVault position via bandOp, never from Quid's
                 // own balance. Routing to Aux keeps every supply
-                // symmetric: Aux is the sole share-owner, vogueETH()
+                // symmetric: Aux is the sole share-owner, bandETH()
                 // and _syncVenue see the full position.)
                 pooled = IERC4626(ctx.vault).convertToAssets(
                        IERC4626(ctx.vault).deposit(pooled, address(this)));
@@ -876,7 +876,7 @@ library BasketLib {
     ///         view, so the flag costs NOTHING EXTRA: no additional external call, no additional read.
     ///         ⚠️ NARROW, AND DELIBERATELY SO — do not read this as "mint drives detection". Its one
     ///         call site sits behind TWO gates: `if (auth(msg.sender))`, i.e. the PROTOCOL-INTERNAL mint
-    ///         path only (fee mints, `creditLPForSwap` swap-out reissuance, Vogue fee distribution) and
+    ///         path only (fee mints, `creditLPForSwap` swap-out reissuance, Quid fee distribution) and
     ///         NOT user deposits; and `if (currentMonth() >= 12)`, so it is DORMANT FOR THE FIRST YEAR.
     ///         The USER deposit path (`_finishMint`) intentionally does not compute `illiquidLoss` at
     ///         all, and hooking it would be a NEW read plus a change to the documented mint↔redeem
@@ -1058,7 +1058,7 @@ library BasketLib {
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
             uint need = wantUsd - freeUsd;
-            uint freed = IVogue(r.v4).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
+            uint freed = IQuid(r.v4).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
             // §G.6: if the plain unwind came up SHORT, the residual is levered backing being unbanded — de-lever
             // the in-band ETH levers (value-neutral, LTV-improving) to free it. Invariant (nothing leaves the band
             // without de-levering) holds; balanced unband ⇒ NO JIT/skew. No-op when there are no open levers.
@@ -1081,7 +1081,7 @@ library BasketLib {
     function _deleverBookForRedeem(address core, uint usdWanted) private returns (uint) {
         address vault = ICore(core).btcVault();
         if (vault == address(0)) return 0;
-        // ETH lev manager lives on the ETH-VENUE contract; reach it the way VogueLib does.
+        // ETH lev manager lives on the ETH-VENUE contract; reach it the way QuidLib does.
         address mgr = ILevHost(IAux(address(this)).ethVenue()).LEV_MANAGER();
         if (mgr == address(0)) return 0;
         return ILevSweep(mgr).deleverBook(usdWanted, address(this), 0);
@@ -1122,7 +1122,7 @@ library BasketLib {
         // one it claimed. Same shape as `token1isVol = token1isVol`: a rename/collapse producing an
         // expression the compiler cannot object to. Now it reads the two INSTANCES.
         bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();
-        // ETH pool repack → Vogue (v4); BTC pool repack → BtcVault (regrouped).
+        // ETH pool repack → Quid (v4); BTC pool repack → BtcVault (regrouped).
         IBandManager(ethFirst ? v4 : btcVault).repack();   // repack the LARGER pool first
         committedSum = ICore(core).committedUsd18();
         if (committedSum > totalLiquid) {
@@ -1152,10 +1152,10 @@ library BasketLib {
         require(q != address(0),                                    "wire:quid");
         require(ethVenue != address(0),                             "wire:ethv");
         require(btcVault != address(0),                              "wire:vault");
-        // §ETHVENUE-FOLD — was `IVogue(v4).EV() == ethVenue`, checking that Vogue's venue pointer and
-        // Aux's agreed. Vogue IS the venue now, so the pointer is gone; what still needs asserting is
+        // §ETHVENUE-FOLD — was `IQuid(v4).EV() == ethVenue`, checking that Quid's venue pointer and
+        // Aux's agreed. Quid IS the venue now, so the pointer is gone; what still needs asserting is
         // that Aux's pin names the band manager and not some other address.
-        require(ethVenue == v4,                                     "wire:vogue");
+        require(ethVenue == v4,                                     "wire:band");
         require(btcChannels != address(0)
              && IWiredVault(btcVault).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux
@@ -1175,7 +1175,7 @@ library BasketLib {
         // NB: this quotes AGGREGATE deliverable dollars (a capacity view). The per-QD `min(par, share)` cap lives
         // in the money path (redeemAsBody + SwapLib); `total` is a conservative upper bound and never under-reports.
         // STABLES-ONLY with the Option-4 unwind: QU!D's dollars deployed as the ETH band's
-        // USD side are freeable on redemption (Vogue.unwindForRedeem), so the redeemable is ALL
+        // USD side are freeable on redemption (Quid.unwindForRedeem), so the redeemable is ALL
         // haircut stables EXCEPT what is committed to the BTC band (an ETH-side redemption cannot
         // unwind the BTC band). Conservative: subtract POOLED_USD (>= BTC-band equity; ignores
         // the debt that would only shrink it), so the quote never over-reports.
@@ -1184,7 +1184,7 @@ library BasketLib {
     }
 
     // (ethToStableFallback removed -- redemption is stables-only; the committed dollars
-    //  are freed by unwinding the band, Vogue.unwindForRedeem, not by selling an LP's venue ETH.)
+    //  are freed by unwinding the band, Quid.unwindForRedeem, not by selling an LP's venue ETH.)
 
     // ─── CRE vault-health watcher bodies (extracted from Aux) ────────────
     // DELEGATECALL'd — address(this)==Aux, so every IERC4626/IAaveV4Spoke
@@ -1205,7 +1205,7 @@ library BasketLib {
 
     /// @notice Per-VENUE health state. BINARY (blocked) + the evac clock —
     ///         mirroring the depeg model: an incident BLOCKS the vault (valued
-    ///         at maxWithdraw in vogueETH/get_deposits, no new deposits routed)
+    ///         at maxWithdraw in bandETH/get_deposits, no new deposits routed)
     ///         and auto-RECOVERS when liquid again. The former graded
     ///         `haircutBps` was a vestige of the removed CRE onReport path
     ///         (owner-only setter, owner renounced at finalize → always 0 in

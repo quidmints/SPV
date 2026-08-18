@@ -6,7 +6,7 @@ import {LevYbRealProbe} from "./LevYbReal.t.sol";
 
 /// @notice §J.2 PREREQ — the deposit→band→withdraw round-trip CHARACTERISATION.
 ///
-///         WHY THIS EXISTS: §J.2 wants to refactor the vault-share model (Vogue not a 4626; vBTC's
+///         WHY THIS EXISTS: §J.2 wants to refactor the vault-share model (Quid not a 4626; vBTC's
 ///         ERC-20 face segregated out of Vault). The user's gate is that the collapse/merge must be
 ///         proven BEHAVIOUR-NEUTRAL on a round-trip FIRST. This file is that baseline: it pins what the
 ///         round-trip does TODAY so the refactor can be shown to change nothing.
@@ -87,8 +87,8 @@ contract RoundTripNeutrality is AllesFixture {
 contract RoundTripNeutralityLevered is LevYbRealProbe {
 
     /// The numerator must read the levered book on the DENOMINATOR's clock: `pricingBacking` =
-    /// vogueETH − LIVE totalNetEquity + RECORDED totalLevPooled. In sync those two cancel, so the
-    /// price is EXACTLY vogueETH/lpShares — and that exact identity is what a separation-style
+    /// bandETH − LIVE totalNetEquity + RECORDED totalLevPooled. In sync those two cancel, so the
+    /// price is EXACTLY bandETH/lpShares — and that exact identity is what a separation-style
     /// regression breaks (it produced 0.1886 vs 0.614 when the recorded term was not restored).
     function testRT_SharePriceHoldsWithLeverageOpen() public {
         _setupMorpho();
@@ -99,11 +99,11 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         assertGt(V4.totalLevPooled(), 0, "precondition: a levered slice IS open, else this is blind");
         assertGt(rlm.totalNetEquity(), 0, "precondition: live lev net-equity is non-zero");
 
-        // §#12 RE-DERIVED: `_pricingBacking` is no longer `vogueETH` alone — it adds the LP-owned
+        // §#12 RE-DERIVED: `_pricingBacking` is no longer `bandETH` alone — it adds the LP-owned
         // USD leg (the band's USD beyond the basket's contribution) valued at the band's own
         // ratio. With the clocks coincident the LEVERED term still cancels, which is what this
         // test is about; the two-leg term is added here so the identity measures that and not #12.
-        uint backing = AUX.vogueETH();
+        uint backing = AUX.bandETH();
         {   uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
             // Valued at the ORACLE, matching `_pricingBacking`. The band's leg ratio is NOT a
             // price for a concentrated position -- using it over-valued the increment ~2.2x.
@@ -115,6 +115,6 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         }
         uint expected = 1e18 * backing / V4.lpShares();
         assertEq(V4.convertToAssets(1e18), expected,
-            "with the book in sync the price is EXACTLY vogueETH/lpShares (clocks coincide)");
+            "with the book in sync the price is EXACTLY bandETH/lpShares (clocks coincide)");
     }
 }

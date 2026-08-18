@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice Reads the REAL derived θ = yield/(K·σ²) from live on-chain inputs, where BOTH K and σ²
-///   are measured live (no hardcoded constant). σ² = Vogue.realizedVarianceWad (Core's oracle ring);
-///   K = Vogue.kLvrWad — the closed-form band-geometry LVR coefficient computed from the live ticks.
+///   are measured live (no hardcoded constant). σ² = Quid.realizedVarianceWad (Core's oracle ring);
+///   K = Quid.kLvrWad — the closed-form band-geometry LVR coefficient computed from the live ticks.
 ///   avgYield on the fork is ~0 (mock venues don't accrue over a short test), so we ALSO show θ at
 ///   realistic yields {3,5,8%} using the real measured K·σ² — the meaningful "real number".
 contract DerivedThetaProbe is AllesFixture {

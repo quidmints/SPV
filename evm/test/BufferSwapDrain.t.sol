@@ -12,7 +12,7 @@ interface IErc20Bal { function balanceOf(address) external view returns (uint); 
 ///   by subtracting the LP's LIVE leverage debt (`committed = in-range USD - totalDebtUsd`, buffer == debt exactly).
 ///   Nothing a swap touches can desync, because the debt is read live from the LevManager, not stored in Core.
 ///
-///   Reuses LevCascadeProbe's REAL-Morpho + REAL-Vogue-band fork scaffolding (helpers/fields inherited).
+///   Reuses LevCascadeProbe's REAL-Morpho + REAL-Quid-band fork scaffolding (helpers/fields inherited).
 contract BufferSwapDrain is LevCascadeProbe {
     /// @dev committed must equal (both pools' BASKET-SUPPLIED depth) minus the live ETH leverage
     ///      debt, at every step. (No BTC lev here ⇒ the BTC band's debt term is 0.)

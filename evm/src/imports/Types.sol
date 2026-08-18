@@ -13,16 +13,16 @@ library Types {
     ///         getter is a 6-tuple. Reordering or retyping breaks every client that decodes it.
     struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint entryPrice; bool open; }
 
-    /// @notice Vogue
+    /// @notice Quid
     /// self-managed LP
-    /// §BAND-MERGE — ONE CONFIG FOR BOTH BANDS. `VogueLib.LevCfg{core,aux,weth}` and
-    /// `BtcVaultLib.BtcCfg{core,aux}` were the same struct with the ETH one carrying its asset and
+    /// §BAND-MERGE — ONE CONFIG FOR BOTH BANDS. `QuidLib.LevCfg{core,aux,weth}` and
+    /// `BtcLib.BtcCfg{core,aux}` were the same struct with the ETH one carrying its asset and
     /// the BTC one re-reading WBTC from Aux on every use. One struct, and the asset is named
     /// because a band HAS one -- which is what let the two libraries' bodies stay identical
     /// underneath while their signatures diverged.
     struct BandCfg { address core; address aux; address asset; }
 
-    /// §BAND-MERGE — the union of `VogueLib.LevP` and `BtcVaultLib.LevParams`. Both already began
+    /// §BAND-MERGE — the union of `QuidLib.LevP` and `BtcLib.LevParams`. Both already began
     /// with the SAME three price fields; the ETH one then carried `lm`+`gross` and the BTC one
     /// `mgr`+`gross` plus the two fee accumulators. `lm` and `mgr` were the same thing under two
     /// names (the band's lev manager), which is exactly the drift a shared type removes.
@@ -48,7 +48,7 @@ library Types {
         int amt;
     }
 
-    /// @notice Vogue LP deposit...
+    /// @notice Quid LP deposit...
     /// MasterChef-style fee tracking
     struct Deposit { uint pooled;
         uint usd_owed;
@@ -63,9 +63,9 @@ library Types {
     /// justice txs + watchtowers), NOT on the EVM. The EVM keeps only what it
     /// needs to bridge the channel to the BTC pool position:
     ///   • open  — SPV-prove the 2-of-2 funding UTXO exists → credit the LP's
-    ///             BTC pool position (Vogue.requestDeposit).
+    ///             BTC pool position (Quid.requestDeposit).
     ///   • close — SPV-prove the funding UTXO was spent (cooperative close or
-    ///             LP-refund) → retire the position (Vogue.requestRedeem).
+    ///             LP-refund) → retire the position (Quid.requestRedeem).
     ///
     /// There is deliberately NO commitRoot / latestCommitNum / revocationPoint
     /// / htlcListHash / redeemScriptHash / penalty machinery here — that was

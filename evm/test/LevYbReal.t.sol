@@ -171,7 +171,7 @@ contract LevYbRealProbe is AllesFixture {
         deal(address(USDC), address(this), 2_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, 2_000_000 * USDC_PRECISION);
         morpho.supply(mp, 2_000_000 * USDC_PRECISION, 0, address(this), "");
-        // Wire the YB stack against the real venue + real swap route + the REAL Vogue band (V4) as the
+        // Wire the YB stack against the real venue + real swap route + the REAL Quid band (V4) as the
         // BAND-ONLY E0 / sold-fraction source — NO MockBandHost: bandOf/bandSqrtP/soldFractionWad/reseatEpoch
         // all read the live V4 pool on the mainnet fork.
         rlm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
@@ -294,9 +294,9 @@ contract LevYbRealProbe is AllesFixture {
         assertEq(tradingDenom - venueDenom, V4.totalBuffer() + V4.totalLevPooled(),
             "excluded exactly the buffer + lev net-equity");
         // And the plain venue balance (_venueBalance) excludes the lev net-equity symmetrically, so a
-        // lev open/close can never appear as fake venue yield: vogueETH includes it, deliverableETH
+        // lev open/close can never appear as fake venue yield: bandETH includes it, deliverableETH
         // (the plain-venue proxy) excludes it, and they differ by the lev net-equity.
-        assertGe(AUX.vogueETH(), AUX.deliverableETH(), "vogueETH (incl lev) >= deliverableETH (excl lev)");
+        assertGe(AUX.bandETH(), AUX.deliverableETH(), "bandETH (incl lev) >= deliverableETH (excl lev)");
     }
 
     /// @notice FULL real-venue e2e: a real Morpho Blue market (permissionless createMarket + live IRM) +
@@ -387,7 +387,7 @@ contract LevYbRealProbe is AllesFixture {
         V4.syncLev(LP);
         assertLt(V4.levPooled(LP), lev0, "post-liquidation: levered slice shrank to the liquidated net-equity");
         assertGe(_tvl(), tvl0, "REAL liquidation drained the basket real backing (TVL)");                          // nothing real taken
-        assertGe(AUX.vogueETH(), CORE.POOLED(), "deliverable ETH must still cover the band (honest LPs whole)"); // POOLED_USD legitimately un-pairs to the free reserve after the band IL event — not a loss
+        assertGe(AUX.bandETH(), CORE.POOLED(), "deliverable ETH must still cover the band (honest LPs whole)"); // POOLED_USD legitimately un-pairs to the free reserve after the band IL event — not a loss
     }
 
     // EULER SECTION REMOVED 2026-08-13 — Euler v2 BORROWING is gone (owner), so `EulerEscrowVenue`,

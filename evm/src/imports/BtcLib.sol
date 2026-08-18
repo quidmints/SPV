@@ -20,12 +20,12 @@ import {IAux} from "./Interfaces.sol";
 //                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAux's).
 // The Basket mint callback stays local: `mint` is Basket's only member any consumer in this
 // subtree needs, and it is declared exactly once tree-wide, so there is nothing to dedup.
-/// @title  BtcVaultLib — the BTC band / leverage / channel accounting extracted from VaultLib
+/// @title  BtcLib — the BTC band / leverage / channel accounting extracted from VaultLib
 ///         (now purely the ETH venue custody ladder) for EIP-170 headroom. DELEGATECALL'd by the
 ///         Vault exactly as the BTC bodies were when they lived in VaultLib: `address(this)`==Vault,
 ///         so all storage/custody are the Vault's. Byte-identical to the former in-VaultLib BTC
-///         bodies -- only the home moved. Pairs with VogueLib (the ETH band's mirror).
-library BtcVaultLib {
+///         bodies -- only the home moved. Pairs with QuidLib (the ETH band's mirror).
+library BtcLib {
 
     // Mirror Vault's custom errors so reverts from delegatecalled bodies carry the SAME 4-byte selector.
     error Dust();
@@ -92,7 +92,7 @@ library BtcVaultLib {
 
     /// @notice Body of Vault._addLiqChannel — channel-lock liquidity sizer.
     ///         Shared solvency `surplus` + BTC-cap logic, and the SAME theta
-    ///         risk-budget clamp the ETH band applies (VogueLib.addLiq). Only the
+    ///         risk-budget clamp the ETH band applies (QuidLib.addLiq). Only the
     ///         PHYSICAL-inventory clamp is skipped -- the volatile backing is the
     ///         LP's LOCKED channel sats, so there is no shared-inventory headroom
     ///         to respect; but the band's IL exposure is throttled by theta
@@ -116,21 +116,21 @@ library BtcVaultLib {
 
     /// @dev BTC band theta clamp in its OWN frame (legacy-pipeline stack). Caps the paired depth at
     ///      `theta * backing` -- the live yield/(K*sigma^2) throttle over the BTC band's own ticks +
-    ///      variance ring (Vault.derivedThetaWadBtc asks Vogue). Fails OPEN (theta>=1e18 -> no-op),
+    ///      variance ring (Vault.derivedThetaWadBtc asks Quid). Fails OPEN (theta>=1e18 -> no-op),
     ///      including when yield is unmeasured (theta 0 -> 1e18), matching ETH's _liveTheta. `available`
     ///      base is the full `deltaTok` (locked backing skips the physical clamp); only theta bites here.
     ///      BACKING = `Core.btcThetaBacking()` (aggregate locked sats lpShares + gross buffer -- the ONE
-    ///      source of truth shared with the reseat clamp in VogueLib.addLiq, so a repack can't re-throttle
+    ///      source of truth shared with the reseat clamp in QuidLib.addLiq, so a repack can't re-throttle
     ///      the band this add just built) + THIS add's `sats` (requestDeposit/levAddBtc credit lpShares
-    ///      only AFTER this clamp -- unlike ETH, where _depositETH bumps vogueETH BEFORE addLiq; add it here
-    ///      for parity + first-deposit bootstrap). NOT vogueBTC: that is a disjoint WBTC-donation pool,
+    ///      only AFTER this clamp -- unlike ETH, where _depositETH bumps bandETH BEFORE addLiq; add it here
+    ///      for parity + first-deposit bootstrap). NOT bandBTC: that is a disjoint WBTC-donation pool,
     ///      structurally unrelated to the band's risk capital -- basing theta on it throttled the band to ~0
     ///      whenever donations were thin (the opposite of what scarcity should do).
     function _thetaClampBtc(address core, uint deltaTok, uint sats) private view returns (uint) {
         uint thetaEff = IBandManager(address(this)).derivedThetaWad();
         if (thetaEff == 0) thetaEff = 1e18;
         // ONE principle (SwapLib.clampByBacking): bound by both the physical backing headroom AND theta —
-        // shared verbatim with the reseat clamp (VogueLib.addLiq) and the ETH band. backing = the native
+        // shared verbatim with the reseat clamp (QuidLib.addLiq) and the ETH band. backing = the native
         // capital (Core.btcThetaBacking = lpShares + gross buffer) + THIS add's `sats` (not yet credited
         // to lpShares at clamp time — see the long note above).
         return SwapLib.clampByBacking(thetaEff, ICore(core).btcThetaBacking() + sats, ICore(core).POOLED(), deltaTok);
@@ -389,7 +389,7 @@ library BtcVaultLib {
         mapping(address => uint) storage levBuf,
         address lp, address mgr, address quid
     ) public returns (LevDelta memory d) {
-        // NET model (mirror of Vogue): levPooled is the NET leg (in pooled/lpShares); levBuf is the
+        // NET model (mirror of Quid): levPooled is the NET leg (in pooled/lpShares); levBuf is the
         // debt-funded buffer (fee weight only). Live gross depth = their sum.
         uint gross = mgr == address(0) ? 0 : ILevEquity(mgr).grossCollateral(lp);
         if (gross == levPooled[lp] + levBuf[lp] &&
@@ -484,7 +484,7 @@ library BtcVaultLib {
         o.feesPerShare = feesPerShare; o.usdFees = usdFees;
         if (r.didRepack) {
             // §DE-TICK: `repack`/`reseat` return zero fee legs (v4 collects nothing), so this
-            // reordered two zeros. Canonical (USD, tok) taken directly -- see VogueLib's note.
+            // reordered two zeros. Canonical (USD, tok) taken directly -- see QuidLib's note.
             uint feesTok = r.fees1;
             uint feesUsd = r.fees0;
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(feesTok, feesUsd, feeDenom);

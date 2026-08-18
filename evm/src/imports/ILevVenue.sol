@@ -16,7 +16,7 @@ interface IERC20Min {
     function totalSupply() external view returns (uint256);
 }
 /// §A.52: the ONE WETH view. Inherits `IERC20Min` so consumers needing balance/allowance/transfer
-/// do not each declare a private variant — `VogueLib::IWETH_VG` and `SwapLib::IWethDeposit` were both
+/// do not each declare a private variant — `QuidLib::IWETH_VG` and `SwapLib::IWethDeposit` were both
 /// partial restatements of exactly this, and a signature change had to be made in three places.
 interface IWETH9 is IERC20Min { function deposit() external payable; function withdraw(uint256) external; }
 

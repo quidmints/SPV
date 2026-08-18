@@ -4,7 +4,7 @@
 //! eth_calls the read surface (decoding real return data into a `PositionView`), runs the decision, and
 //! eth_sendRawTransaction's the resulting writes — end to end against a real EVM node. The deploy target is
 //! `evm/test/harness/LevKeeperTarget.sol`: it returns a position URGENTLY near liquidation (so the keeper
-//! must cascade-de-lever) and records the writes. The protocol logic (LevManager/Vogue) is fork-proven
+//! must cascade-de-lever) and records the writes. The protocol logic (LevManager/Quid) is fork-proven
 //! elsewhere; this isolates the keeper's RPC plumbing.
 //!
 //! Self-contained: spawns its own anvil and deploys via `cast`. If `anvil`/`cast` aren't on PATH (e.g. a CI
@@ -79,7 +79,7 @@ async fn lev_keeper_live_round_trip_against_anvil() {
     let receipt: serde_json::Value = serde_json::from_slice(&out.stdout).expect("deploy receipt json");
     let harness: Address = receipt["contractAddress"].as_str().expect("contractAddress").parse().expect("addr");
 
-    // 3) Build the REAL signing client + keeper, pointed at the harness as both lev_manager and vogue.
+    // 3) Build the REAL signing client + keeper, pointed at the harness as both lev_manager and band.
     let mut key = [0u8; 32];
     for i in 0..32 { key[i] = u8::from_str_radix(&ANVIL_KEY_HEX[i * 2..i * 2 + 2], 16).unwrap(); }
     let evm = Arc::new(JsonRpcEvmClient::new(
@@ -87,7 +87,7 @@ async fn lev_keeper_live_round_trip_against_anvil() {
         LocalSigner::from_secret_key_bytes(key).expect("signer"),
         test_cfg(url.clone())));
     let keeper = DaemonLevKeeper {
-        evm, lev_manager: harness, vogue: harness, quid: harness, venue_liq_ltv_bps: 8600, gas_limit: 500_000, lp_scan_from: 0,
+        evm, lev_manager: harness, band: harness, quid: harness, venue_liq_ltv_bps: 8600, gas_limit: 500_000, lp_scan_from: 0,
     };
 
     // 4) Run ONE keeper tick against the real node. The harness reports LTV 9000 (near the 8600 liq) ⇒ the

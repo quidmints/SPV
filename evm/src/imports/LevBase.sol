@@ -57,10 +57,10 @@ abstract contract LevBase {
     address[] internal _openLps;
     mapping(address => uint256) internal _lpIdx;
 
-    /// The band's sync hook (Vogue's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
+    /// The band's sync hook (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
-    /// §SLOP — was `vogueSyncHook`, the FOURTH name for one concept (after `V4`, `CORE` and
-    /// `BAND` in Core). It is the band manager: set to Vogue for the ETH lev book and to the
+    /// §SLOP — was `bandSyncHook`, the FOURTH name for one concept (after `V4`, `CORE` and
+    /// `BAND` in Core). It is the band manager: set to Quid for the ETH lev book and to the
     /// Vault for the BTC one, used for `bandPrice`, `syncLev` and as the settle-path auth gate.
     address public BAND;
 

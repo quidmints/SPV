@@ -13,7 +13,7 @@ import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
 ///         mutators, which need no events, no immutables and no virtual dispatch, so nothing but the
 ///         seam cost distinguishes the two shapes.
 /// @dev    Storage is passed by REFERENCE (`address[] storage`, `mapping storage`) — the same
-///         technique `ChannelLib.initVaultsBody` and `VogueLib` already use in this tree, which is
+///         technique `ChannelLib.initVaultsBody` and `QuidLib` already use in this tree, which is
 ///         what makes a library able to mutate its caller's state without owning a layout.
 library LevBookLib {
     /// @notice Enrol `lp` in the open-position book. `lpIdx` is 1-BASED so 0 means absent.

@@ -16,32 +16,32 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {VaultLib} from "./imports/VaultLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
-import {VogueLib} from "./imports/VogueLib.sol";
+import {QuidLib} from "./imports/QuidLib.sol";
 
 import {Types} from "./imports/Types.sol";
-import {BandState} from "./Shares.sol";
+import {State} from "./Shares.sol";
 import {Core} from "./Core.sol";
 import {Basket} from "./Basket.sol";
 import {Aux} from "./Aux.sol";
 import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 
 /// EthVenue — the ETH yield-venue custody (AAVE WETH + ether.fi weETH) carved out
-/// of Aux. Vogue routes its WETH venue ops here. vogueETH() is still read via AUX
-/// (a thin forwarder), so only the WRITE ops (vogueOp/supply*/offramp/arb) re-point.
+/// of Aux. Quid routes its WETH venue ops here. bandETH() is still read via AUX
+/// (a thin forwarder), so only the WRITE ops (bandOp/supply*/offramp/arb) re-point.
 
-/// IL-protect fee lane: Vogue reads the LevManager through the Vault's already-secure one-shot pin
-/// (`ethVenue.LEV_MANAGER()`), so `syncLev` needs NO new trust surface of its own (Vogue renounces ownership
+/// IL-protect fee lane: Quid reads the LevManager through the Vault's already-secure one-shot pin
+/// (`ethVenue.LEV_MANAGER()`), so `syncLev` needs NO new trust surface of its own (Quid renounces ownership
 /// at setup). `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
 // §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the BAND == this
-// Vogue). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
+// Quid). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
 
-    // §E252 — the THIRTEEN shared band-state declarations moved to `BandState` (Shares.sol).
+    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
-contract Vogue is BandState,
+contract Quid is State,
     Ownable, ReentrancyGuard {
     error AlreadyInitialized();
-    error WrongVogue();
+    error WrongQuid();
     error Dust();
     error NoPosition();
     error InsufficientBalance();
@@ -57,7 +57,7 @@ contract Vogue is BandState,
     Core public CORE; WETH9 WETH;
 
     // There is NO venue choice: `deposit(assets, receiver)` takes no venue argument and every ETH
-    // deposit becomes weETH. `VogueLib._supplyEtherFi` is the single destination, and a placement of
+    // deposit becomes weETH. `QuidLib._supplyEtherFi` is the single destination, and a placement of
     // 0 reverts `VenueUnavailable` rather than redirecting.
 
     // §DE-TICK — `token1isVol` DELETED. It mirrored Core's v4 leg ordering, itself derived from
@@ -74,7 +74,7 @@ contract Vogue is BandState,
     //  §ETHVENUE-FOLD — the ETH yield venue IS this contract. `EthVenue` is deleted.
     //
     //  It was carved out of `Vault` for a good reason: `Vault` was ETH-VENUE CUSTODY and BTC BAND
-    //  ACCOUNTING fused, and `Vogue`'s real counterpart is the BTC-band slice, not the whole of
+    //  ACCOUNTING fused, and `Quid`'s real counterpart is the BTC-band slice, not the whole of
     //  `Vault`. That argument said where the custody must NOT live; it never said it needed its own
     //  address. It belongs to the ETH BAND, and the ETH band is this contract.
     //
@@ -83,8 +83,8 @@ contract Vogue is BandState,
     //  custody is Lightning channels and not 4626 venues. That asymmetry is real, so this state
     //  stays on the ETH side however the band managers merge.
     //
-    //  WHAT THE FOLD DELETES, which is why it fits: three of the five immutables (`VOGUE` is now
-    //  `this`; `AUX` and `WETH` already existed here), all eight `msg.sender != address(VOGUE)`
+    //  WHAT THE FOLD DELETES, which is why it fits: three of the five immutables (`BAND` is now
+    //  `this`; `AUX` and `WETH` already existed here), all eight `msg.sender != address(BAND)`
     //  gates, the `IEthVenue` external-call stubs on this side, the standing WETH approval that
     //  existed only so a separate address could pull, and one deployable contract.
     // ════════════════════════════════════════════════════════════════════════════════════════
@@ -99,7 +99,7 @@ contract Vogue is BandState,
     /// `setup`, which runs after construction, and an immutable cannot be written there.
     address public WEETH;
 
-    /// The IL-protect orchestrator. Its levered book's LIVE net-equity counts in `vogueETH`.
+    /// The IL-protect orchestrator. Its levered book's LIVE net-equity counts in `bandETH`.
 
     error NotSelf();
     error NotAux();
@@ -136,9 +136,9 @@ contract Vogue is BandState,
         });
     }
 
-    /// @notice Stake WETH into weETH (restaking yield), held HERE and valued in `vogueETH()`.
+    /// @notice Stake WETH into weETH (restaking yield), held HERE and valued in `bandETH()`.
     /// @dev No `msg.sender` gate: the caller is this contract. The gate existed to keep a separate
-    ///      address from being driven by anyone but Vogue, and there is no separate address now.
+    ///      address from being driven by anyone but Quid, and there is no separate address now.
     function supplyEtherFi(uint amount) public returns (uint) {
         return VaultLib.supplyVenueBody(_ethCfg(), amount, address(this));
     }
@@ -150,13 +150,13 @@ contract Vogue is BandState,
 
     /// @notice Current ETH-equivalent backing: weETH valued in ETH + idle WETH, PLUS the levered
     ///         book's net-equity.
-    function vogueETH() public view returns (uint) {
-        return VaultLib.vogueETH(_ethCfg());
+    function bandETH() public view returns (uint) {
+        return VaultLib.bandETH(_ethCfg());
     }
 
     /// @notice Venue op selector. @param op 1 = take ETH, 2 = read the current claim.
-    function vogueOp(uint amount, uint8 op) public returns (uint sent) {
-        sent = SwapLib.vogueOpBody(amount, op, WETH, vogueETH());
+    function bandOp(uint amount, uint8 op) public returns (uint sent) {
+        sent = SwapLib.bandOpBody(amount, op, WETH, bandETH());
     }
 
     /// @notice DELIVERABLE ETH backing for the redemption path — each leg capped at what is
@@ -240,7 +240,7 @@ contract Vogue is BandState,
 
     // CORE.POOLED() = principal + ALL compounded fees (even unclaimed)
     // The previous singular `totalShares` is now exposed via this
-    // view because Core reads `VOGUE.totalShares()`.
+    // view because Core reads `BAND.totalShares()`.
     function totalShares() public view returns (uint) {
         return lpShares;
     }
@@ -257,7 +257,7 @@ contract Vogue is BandState,
 
     // BTC LP accounting (autoManaged/lpShares/feesPerShare/USD_FEES/
     // btcFeesOwedSats + UPPER_TICK_BTC/LOWER_TICK_BTC) lives entirely in
-    // BtcVault.sol — Vogue is the ETH vault; its helpers are ETH-only now.
+    // BtcVault.sol — Quid is the ETH vault; its helpers are ETH-only now.
 
 
     // ─── §A.5f (subset): TIMELOCKED WITHDRAWAL-RECIPIENT PIN ────────────────
@@ -326,7 +326,7 @@ contract Vogue is BandState,
     /// @notice The deployer — gates `setLevManager`; the EthVenue pin is gone with the contract (§ETHVENUE-FOLD)
     ///         WETH approval + drives every WETH venue op. `setup` RENOUNCES ownership, so that pin can't use
     ///         onlyOwner; this immutable survives the renounce and keeps the pin front-run-proof (a hostile
-    ///         pre-pin would drain Vogue's WETH). Captured at construction; equals the wiring caller in both
+    ///         pre-pin would drain Quid's WETH). Captured at construction; equals the wiring caller in both
     ///         the deploy script and tests.
     address immutable DEPLOYER;
     constructor()
@@ -346,14 +346,14 @@ contract Vogue is BandState,
         AUX = Aux(payable(_aux)); CORE = Core(_core);
         QUID = Basket(_quid);
         renounceOwnership();
-        if (QUID.VOGUE() != address(this)) revert WrongVogue();
-        // The rest is deploy-time-only work that was costing Vogue RUNTIME bytes
+        if (QUID.BAND() != address(this)) revert WrongQuid();
+        // The rest is deploy-time-only work that was costing Quid RUNTIME bytes
         // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the band
         // seed read, and the initial tick derivation. Only the value-type state
         // writes stay here; they have no storage pointer to hand the library.
         address weth;
         uint lo_; uint hi_;
-        (weth, lo_, hi_) = VogueLib.setupBody(_aux, _core);
+        (weth, lo_, hi_) = QuidLib.setupBody(_aux, _core);
         // §ONE-ANCHOR — `setupBody` still returns the pair it derived; the midpoint of
         // `p·(1−δ)`/`p·(1+δ)` recovers `p`. Exact enough HERE (and only here) because this is the
         // deploy seed, immediately superseded by the first repack, which passes the anchor directly.
@@ -395,14 +395,14 @@ contract Vogue is BandState,
         {   // geometry in a scope so currentSqrtPrice frees before sizing.
             // §J.8b: was an inline copy of `SwapLib.oorBounds` (identical branch structure, identical
             // alignment, same width 10) plus a local `_outOfRangeTicks`. The BTC path
-            // (`BtcVaultLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
+            // (`BtcLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
             // computes the out-of-range geometry for both assets — the same consolidation §A.56 did
             // §DE-TICK: `oorBounds` no longer negates `distance` from an ordering flag -- the
             // sign IS the side. The old warning about not pre-negating therefore no longer applies.
             (uint currentPrice, uint curLo, uint curUp,,) = _rebalance();
             t = SwapLib.oorBounds(currentPrice, range, distance, curLo, curUp);
         }
-        // Backing deposit + single-sided sizing lives in VogueLib (EIP-170
+        // Backing deposit + single-sided sizing lives in QuidLib (EIP-170
         // headroom); self-managed positions take no wall attribution (pledge==0).
         // §V4-CUT — THE POSITION NOW STORES THE AMOUNT, NOT THE LIQUIDITY.
         // `liquidity` was v4's encoding of the position; settling against our own inventory needs
@@ -414,7 +414,7 @@ contract Vogue is BandState,
         // closes behave identically. That is why this is a representation change, not a maths change.
         // `liquidity` is still computed and still gates on Dust, because it is the sizing function's
         // own validity check -- a range that can hold nothing yields zero liquidity.
-        (uint liquidity, uint placed) = VogueLib.sizeOutOfRange(
+        (uint liquidity, uint placed) = QuidLib.sizeOutOfRange(
             address(WETH), address(AUX), address(this),
             amount, token, t);
         if (liquidity == 0) revert Dust();
@@ -476,7 +476,7 @@ contract Vogue is BandState,
             usdR += LP.usd_owed;
             if (usdR > 0) {
                 LP.usd_owed = 0;
-                // §A.57: 6-dec USD fee accumulator → 18-dec QU!D. Same fix as BtcVaultLib.settleBtcLp;
+                // §A.57: 6-dec USD fee accumulator → 18-dec QU!D. Same fix as BtcLib.settleBtcLp;
                 // both paths shared the missing scale-up, so both move together.
                 QUID.mint(mintRecipient,
                 usdR * 1e12, address(QUID), 0);
@@ -654,8 +654,8 @@ contract Vogue is BandState,
         // (JIT-lock) refuse a same-block exit — see _depositImpl. Blocks the atomic
         // deposit→swap→withdraw JIT fee-snipe the composition audit found on this 4626 path.
         //
-        // ⚠️ WHY 1 BLOCK HERE AND 47 ON THE OOR PATHS (`VogueLib.pullBody`,
-        //    `BtcVaultLib.pullBtc`) — the asymmetry is REAL, not drift (E146):
+        // ⚠️ WHY 1 BLOCK HERE AND 47 ON THE OOR PATHS (`QuidLib.pullBody`,
+        //    `BtcLib.pullBtc`) — the asymmetry is REAL, not drift (E146):
         //    a BAND position is UNCONDITIONALLY exposed the moment it is in range, so one
         //    block already puts the whole deposit at risk of a block of price movement, and
         //    breaking ATOMICITY is what matters — an atomic snipe risks nothing because it
@@ -696,7 +696,7 @@ contract Vogue is BandState,
         // re-reads to the full remaining pooled. Full-close (not partial): reuses the existing closeLevFor
         // primitive — a past-free withdraw crystallizes the whole in-band lever, which is the opt-in.
         if (levPooled[msg.sender] > 0 && amount > SwapLib.plainNet(LP.pooled, levPooled[msg.sender])) {
-            ILevClose(VogueLib.levManager(address(AUX))).closeLevFor(msg.sender, 0);
+            ILevClose(QuidLib.levManager(address(AUX))).closeLevFor(msg.sender, 0);
             _reconcileLev(msg.sender);                      // hook re-entrancy was blocked → clear the slice here
         }
         // Cap withdrawal at the user's FREE (non-levered) balance. The levered slice (levPooled) leaves via the
@@ -784,7 +784,7 @@ contract Vogue is BandState,
                 sent += excess; shortfall -= excess;
             } // the LP receives only what its OWN in-range burn + venue
              // share can deliver — already IL-adjusted, since convertToAssets =
-            // pro-rata of vogueETH (the loss is socialized fairly via the share
+            // pro-rata of bandETH (the loss is socialized fairly via the share
            // price, no first-out advantage). Any residual is VENUE ILLIQUIDITY
           // only; it stays as LP.pooled (recoverable deferral, re-withdrawn on
          // venue thaw). NO surplus-funded make-whole here that would compensate
@@ -807,7 +807,7 @@ contract Vogue is BandState,
             uint owed = LP.usd_owed; LP.usd_owed = 0;
             // §A.57/C5: `usd_owed` is 6-dec; QU!D is 18-dec. This was the FOURTH sibling of the same
             // mint and the ONLY one missing the scale-up (cf. `_settlePending:439`,
-            // `BtcVaultLib.settleBtcLp:57`, `settleDelivered:74`). Without it, an LP whose fees were
+            // `BtcLib.settleBtcLp:57`, `settleDelivered:74`). Without it, an LP whose fees were
             // DEFERRED by a partial exit and who then FULLY exits was paid 1e-12 of the leg.
             QUID.mint(recipient, owed * 1e12, address(QUID), 0);
         }
@@ -856,7 +856,7 @@ contract Vogue is BandState,
     ///         back to the basket — so a venue liquidation leaves the basket fully intact. The minted slice is
     ///         UNWIND-ONLY (`levPooled`, excluded from `_withdraw`): it leaves via `LevManager.closeLev`, never
     ///         the free ladder, so it never introduces leverage-induced deferral. No tokens move here — the
-    ///         backing is the net-equity already counted in `vogueETH` (so addLiq's headroom includes it).
+    ///         backing is the net-equity already counted in `bandETH` (so addLiq's headroom includes it).
     /// @notice Permissionless reconcile of `lp`'s levered band slice to the LIVE gross collateral. Anyone (keeper,
     ///         monitor, or the LP) may poke it; it is ALSO called lazily at the entry of `_withdraw` so a position
     ///         seized by an EXTERNAL venue liquidation self-heals before the LP can extract value — closing the
@@ -864,12 +864,12 @@ contract Vogue is BandState,
     function syncLev(address lp) external { _reconcileLev(lp); }
 
     function _reconcileLev(address lp) internal {
-        address lm = VogueLib.levManager(address(AUX));
+        address lm = QuidLib.levManager(address(AUX));
         uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
         // full-2×: reconcile band CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
         // the debt-funded buffer, so the live gross depth is their sum. Skip only when the gross depth AND
         // the buffer-USD target are already in sync (nothing to do).
-        if (gross == levPooled[lp] + levBuf[lp] && levBufferUsd[lp] == VogueLib.bufTarget(lm, lp)) return;
+        if (gross == levPooled[lp] + levBuf[lp] && levBufferUsd[lp] == QuidLib.bufTarget(lm, lp)) return;
         _doReconcile(lp, lm, gross);
     }
 
@@ -882,7 +882,7 @@ contract Vogue is BandState,
         (p.spotPrice, p.loPrice, p.upPrice,,) = _rebalance();
         p.mgr = lm; p.gross = gross;   // §BAND-MERGE: `lm` and the BTC side's `mgr` were one field
         _settlePending(LP, lp, address(0));          // settle fees up to now (→ usd_owed) before pooled moves
-        (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) = VogueLib.reconcileLegs(
+        (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) = QuidLib.reconcileLegs(
             Types.BandCfg(address(CORE), address(AUX), address(WETH)),
             LP, levPooled, levBufferUsd, levBuf, lp, p);
         lpShares = lpShares + addedNet - burnedNet;       // NET equity leg
@@ -973,14 +973,14 @@ contract Vogue is BandState,
         bookmark = _venueBalance();
     }
 
-    /// @dev Live PLAIN-venue ETH balance for the venue-yield sync + withdrawal delivery. `vogueOp`
-    ///      op=2 returns vogueETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
+    /// @dev Live PLAIN-venue ETH balance for the venue-yield sync + withdrawal delivery. `bandOp`
+    ///      op=2 returns bandETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
     ///      pure plain-venue value: the lev collateral earns its own yield via the LevManager, so
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
     function _venueBalance() internal returns (uint) {
-        uint total = vogueOp(0, 2);   // vogueETH (all plain venues + lev net-equity)
-        address lm = VogueLib.levManager(address(AUX));
+        uint total = bandOp(0, 2);   // bandETH (all plain venues + lev net-equity)
+        address lm = QuidLib.levManager(address(AUX));
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
         }
@@ -1000,14 +1000,14 @@ contract Vogue is BandState,
     // from the on-chain ticks in `_kLvrWad()` below. The earlier 0.71/2.24 sim-fit constants are gone.
     /// @notice The LIVE LVR coefficient K (WAD) for the pool's current band — read the real, dynamic
     ///         number (front-end / probe / monitoring). 0 ⇒ band unset/degenerate (caller fails open).
-    ///         Body in VogueLib (EIP-170 headroom); band ticks passed in.
+    ///         Body in QuidLib (EIP-170 headroom); band ticks passed in.
     function kLvrWad() external view returns (uint) {
-        return VogueLib.kLvrWad(address(CORE), _lo(), _hi());
+        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice (A) The band's LIVE realized concavity α (WAD). Body in VogueLib.
+    /// @notice (A) The band's LIVE realized concavity α (WAD). Body in QuidLib.
     function realizedAlphaWad() public view returns (uint) {
-        return VogueLib.realizedAlphaWad(address(CORE), _lo(), _hi());
+        return QuidLib.realizedAlphaWad(address(CORE), _lo(), _hi());
     }
 
     /// @notice (B) The band's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — the ground-truth IL the
@@ -1025,7 +1025,7 @@ contract Vogue is BandState,
 
     /// @notice The band's current spot √P (Q96) — the leverage records this as its `entryPrice` at open so
     ///         `soldFractionWad` can measure the IL from the true band price (not the oracle).
-    /// @dev NO isBTC ARGUMENT, deliberately. Vogue is the ETH band manager, so it reads the ETH pool
+    /// @dev NO isBTC ARGUMENT, deliberately. Quid is the ETH band manager, so it reads the ETH pool
     ///      — full stop. It previously FORWARDED the caller's flag, meaning `bandPrice(true)` returned
     ///      the BTC pool's price from the ETH contract, while `Vault.bandPrice` IGNORED the same flag
     ///      and always read BTC. Two implementations disagreeing about one parameter is a silent
@@ -1035,29 +1035,29 @@ contract Vogue is BandState,
         (priceWad,) = CORE.poolStats();
     }
 
-    /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in VogueLib
+    /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in QuidLib
     ///         (EIP-170 headroom); band ticks + Core/Aux handles passed in.
     function derivedThetaWad() public view returns (uint) {
-        return VogueLib.derivedThetaWad(address(CORE), _lo(), _hi());
+        return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
     }
 
     /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
-    ///         UPPER_TICK_BTC), so it passes them in here -- Vogue stays the single home of the band-θ
-    ///         math for BOTH pools, and the Vault needs no VogueLib link of its own.
+    ///         UPPER_TICK_BTC), so it passes them in here -- Quid stays the single home of the band-θ
+    ///         math for BOTH pools, and the Vault needs no QuidLib link of its own.
     /// 🔴 §ISBTC-SPLIT — THE CORE IS A PARAMETER NOW, AND THAT IS A BUG FIX, not tidying. This
-    ///         took a `bool isBTC` it NEVER READ and always used `address(CORE)` -- Vogue's own core,
+    ///         took a `bool isBTC` it NEVER READ and always used `address(CORE)` -- Quid's own core,
     ///         the ETH instance. `derivedThetaWad` reads `ICore(core).realizedVarianceWad()`, so the
     ///         BTC band was getting theta from the ETH ORACLE'S VARIANCE applied to BTC's price
     ///         bounds. Theta throttles band depth by the band's OWN volatility; mixing the two is
     ///         wrong in both directions and silent -- it returns a plausible number either way.
     ///         Harmless while one Core held both rings; wrong the moment they became two instances.
-    ///         Vogue stays the single home of the band-theta math (the Vault still needs no VogueLib
+    ///         Quid stays the single home of the band-theta math (the Vault still needs no QuidLib
     ///         link); it just has to be told WHOSE ring to measure.
     function derivedThetaWadAt(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        return VogueLib.derivedThetaWad(core, loPrice, upPrice);
+        return QuidLib.derivedThetaWad(core, loPrice, upPrice);
     }
 
-    /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in VogueLib.
+    /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in QuidLib.
     function realizedVarianceWad() public view returns (uint) {
         return CORE.realizedVarianceWad();   // §E59: ONE source — Core reads its own ring
     }
@@ -1092,32 +1092,32 @@ contract Vogue is BandState,
     function addLiq(
         uint deltaTok, uint price) public
         onlyUs returns (uint usdOut, uint outDelta) {
-        // Body in VogueLib (EIP-170 headroom). The onlyUs guard stays here; the
-        // delegatecalled body preserves address(this) == Vogue for the θ self-call.
-        // Pass totalBuffer so addLiq sizes headroom on GROSS band backing (Vogue is ETH-only).
-        return VogueLib.addLiq(address(CORE), address(AUX), deltaTok, price, totalBuffer);   // §ISBTC-SPLIT: Vogue IS the ETH band, so the flag was always false
+        // Body in QuidLib (EIP-170 headroom). The onlyUs guard stays here; the
+        // delegatecalled body preserves address(this) == Quid for the θ self-call.
+        // Pass totalBuffer so addLiq sizes headroom on GROSS band backing (Quid is ETH-only).
+        return QuidLib.addLiq(address(CORE), address(AUX), deltaTok, price, totalBuffer);   // §ISBTC-SPLIT: Quid IS the ETH band, so the flag was always false
     }
 
     // _addLiqChannel (channel-lock liquidity sizer) regrouped into BtcVault.sol.
 
      // pull liquidity from. . .
-    /// @dev Thin forwarder: body in VogueLib.pullBody (delegatecall — EIP-170); the nonReentrant guard stays here,
+    /// @dev Thin forwarder: body in QuidLib.pullBody (delegatecall — EIP-170); the nonReentrant guard stays here,
     ///      storage refs (selfManaged/positions) mutate in place. Logic unchanged.
     function pull(uint id, // existing self-managed position
         int percent, address token) external nonReentrant {
         BandLib.pull(address(CORE), selfManaged, positions, id, percent, token, msg.sender);
     }
 
-    // _distributeV4Fees + _calcYield folded into VogueLib.rebalanceBody (their ONLY caller was _rebalance; the
+    // _distributeV4Fees + _calcYield folded into QuidLib.rebalanceBody (their ONLY caller was _rebalance; the
     // APY `yield` _calcYield computed was already discarded there). The token-canonical reorder + fee-increment
     // distribution now live in the library body; LAST_REPACK is stamped by the _rebalance forwarder.
 
-    /// @dev Thin forwarder: the venue-routing body lives in VogueLib (EIP-170
+    /// @dev Thin forwarder: the venue-routing body lives in QuidLib (EIP-170
     ///      headroom). Delegatecall preserves msg.value/address(this), so the WETH
     ///      wrap + venue placement + per-LP wall attribution behave identically.
     function _depositETH(address sender, address pledge,
         uint amount) internal returns (uint sent) {
-        return VogueLib.depositETH(address(WETH), address(AUX), address(this),
+        return QuidLib.depositETH(address(WETH), address(AUX), address(this),
             sender, pledge, amount);
     }
 
@@ -1131,7 +1131,7 @@ contract Vogue is BandState,
     ///         so the redeemer's usdAvailable rises for the subsequent take()). Reuses the
     ///         LP-withdraw burn primitive (_burnInRange) with recipient=0: the paired ETH is NOT
     ///         paid out (Core._settleTokSide gates delivery on `who != 0`), so it stays in the
-    ///         venue -- LP EQUITY NEUTRAL (vogueETH/lpShares unchanged; only the band's mock
+    ///         venue -- LP EQUITY NEUTRAL (bandETH/lpShares unchanged; only the band's mock
     ///         mirror shrinks, returning ETH from in-band to in-venue). Bounded by POOLED
     ///         (_burnInRange caps at it), so a truly insolvent basket simply frees all it can and
     ///         QU!D bears the residual via the haircut. onlyUs -- Aux drives it inside redeemAsBody.
@@ -1158,7 +1158,7 @@ contract Vogue is BandState,
     ///         WHY THIS EXISTS: the premium is withheld from a drainer's output — *"the drainer's
     ///         full USD entered the pool, they just take less out"* — so those dollars are already
     ///         basket backing. But basket backing prices QU!D, NOT LP shares: an LP's claim runs
-    ///         through `vogueETH()`/`pooled`, which never reads it. So a premium charged FOR THE
+    ///         through `bandETH()`/`pooled`, which never reads it. So a premium charged FOR THE
     ///         LP'S INVENTORY RISK was accruing to QU!D holders. Every comment on the path said it
     ///         *"accrues to LPs as backing"*; structurally it did not.
     ///
@@ -1194,7 +1194,7 @@ contract Vogue is BandState,
         try ILevEquity(m).totalGrossCollateral() returns (uint g) { return g; } catch { return 0; }
     }
 
-    /// @notice Share base the shortfall trigger compares against. NET here: `vogueETH()` (the
+    /// @notice Share base the shortfall trigger compares against. NET here: `bandETH()` (the
     ///         inventory side) already adds the lev book's NET equity, so both sides are net and no
     ///         gross buffer term belongs. The BTC side adds one, for the mirror-image reason.
     function sharesForShortfall() external view returns (uint) { return totalShares(); }
@@ -1202,14 +1202,14 @@ contract Vogue is BandState,
     /// @notice REAL inventory, never just the in-pool token: in-range POOLED plus AAVE/ether.fi
     ///         venue retention plus idle. Comparing raw POOLED over-fired the shortfall arb on
     ///         off-range retention.
-    function realInventory() external view returns (uint) { return AUX.vogueETH(); }
+    function realInventory() external view returns (uint) { return AUX.bandETH(); }
 
     /// @notice 🔴 A DELIBERATE NO-OP, AND NOT AN OMISSION. BTC routes a shortfall to the hop, which
     ///         delivers real BTC and consumes no basket stables. ETH must NOT: a surplus-funded
     ///         refill buys ETH to cover a shortfall that is usually IMPERMANENT, realising that IL
     ///         onto the SHARED backing and compensating the flow at every LP's expense. Real ETH
     ///         demand is met fairly at withdrawal instead -- `convertToAssets` pays each LP
-    ///         pro-rata of `vogueETH`, so the IL is socialised through the share price.
+    ///         pro-rata of `bandETH`, so the IL is socialised through the share price.
     ///         Do not "implement" this.
     function onShortfall(address, uint) external {}
 
@@ -1226,19 +1226,19 @@ contract Vogue is BandState,
     /// LPs don't hold shares directly, they hold a `pooled` claim
     /// against the shared Aux position). Removing this would leave
     /// Morpho appreciation unclaimable by LPs.
-    // _syncYield folded into VogueLib.rebalanceBody (its ONLY caller was _rebalance). The plain-venue
+    // _syncYield folded into QuidLib.rebalanceBody (its ONLY caller was _rebalance). The plain-venue
     // appreciation accrual over PLAIN depth into venueFeesPerShare is unchanged; `_venueBalance` (below) STAYS
     // because _withdraw/_depositImpl also call it.
 
-    /// @dev The delivery ladder itself lives in `VogueLib.sendEth` (E32: it was 777
+    /// @dev The delivery ladder itself lives in `QuidLib.sendEth` (E32: it was 777
     ///      RUNTIME bytes against a hard EIP-170 deficit, and it is called from only
-    ///      two places). Delegatecall keeps `address(this) == Vogue`, so the balance
+    ///      two places). Delegatecall keeps `address(this) == Quid`, so the balance
     ///      read, the WETH unwrap and `deleverEthOnDelivery`'s recipient are all
     ///      unchanged. Priced on the gas axis too: one extra delegatecall per ETH
     ///      send, on a path that already does a venue pull and an unwrap.
     function _sendETH(uint howMuch,
        address toWhom) internal returns (uint sent) {
-        return VogueLib.sendEth(address(WETH), address(this),
+        return QuidLib.sendEth(address(WETH), address(this),
             address(AUX), howMuch, toWhom);
     }
 
@@ -1259,13 +1259,13 @@ contract Vogue is BandState,
     ///         here: the Morpho _syncYield pre-sync, the _calcYield post-metric
     ///         (LAST_REPACK + avgYield), and the per-pool fee reorder/distribute.
     /// @dev Thin forwarder: the fee/yield harvest cluster (_syncYield + rebalanceCore + _calcYield/
-    ///      _distributeV4Fees) moved to VogueLib.rebalanceBody (delegatecall — EIP-170; relocates the inlined
+    ///      _distributeV4Fees) moved to QuidLib.rebalanceBody (delegatecall — EIP-170; relocates the inlined
     ///      rebalanceCore). It mutates only value-type accumulators, returned as increments/flags applied here.
     ///      Byte-identical: same ordering (_syncYield reads venue balance BEFORE rebalanceCore), same arithmetic;
     ///      the discarded `_calcYield` APY return is dropped. `_venueBalance` STAYS (its other callers use it).
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
-        VogueLib.RebalOut memory o = VogueLib.rebalanceBody(VogueLib.RebalIn({
+        QuidLib.RebalOut memory o = QuidLib.rebalanceBody(QuidLib.RebalIn({
             core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
             totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi(), bookmark: bookmark}));
@@ -1280,8 +1280,8 @@ contract Vogue is BandState,
 
     /// @notice Repack the ETH pool's in-range LP position when it drifts
     ///         outside the LP range. The `bool` arg is retained only for the
-    ///         Core IVogueRepack interface (BtcVault repacks the BTC
-    ///         pool); Vogue is ETH-only. Returns the post-repack pool state.
+    ///         Core IQuidRepack interface (BtcVault repacks the BTC
+    ///         pool); Quid is ETH-only. Returns the post-repack pool state.
     function repack() public onlyUs returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
@@ -1312,13 +1312,13 @@ contract Vogue is BandState,
     //          ERC-20 TRANSFER FACE + NATIVE LP ENTRYPOINTS
     // ════════════════════════════════════════════════════════════════
     //
-    // Makes Vogue LP positions transferable. The underlying autoManaged
+    // Makes Quid LP positions transferable. The underlying autoManaged
     // mapping + lpShares + feesPerShare + USD_FEES accumulators are
     // PRESERVED EXACTLY — this layer adds standard ERC-20 transfer/
     // approve plus the deposit/redeem entrypoints.
     //
     // THE ERC-4626 IDENTITY IS HERE, with the state it describes. It was split to
-    // `VEth.sol` on the premise that Vogue manages both asset classes; that was
+    // `VEth.sol` on the premise that Quid manages both asset classes; that was
     // measured false (no BTC state, and nothing ever supplied the `isBTC`
     // arguments), so the projection was an indirection over a distinction that
     // did not exist. `asset`, `totalAssets`, `convertTo*`, `preview*`, `max*`,
@@ -1356,11 +1356,11 @@ contract Vogue is BandState,
     /// already-compounded value; pending rewards (not yet credited)
     /// are revealed via previewRedeem / pendingRewards.
     // ─── THE vETH TOKEN FACE — 4626 identity and ERC-20, both HERE ────────────────
-    // §J.2b/§J.2c split this out to `VEth` on the premise that "Vogue manages BOTH asset
+    // §J.2b/§J.2c split this out to `VEth` on the premise that "Quid manages BOTH asset
     // classes, so a single-asset 4626 on it would be dishonest". THAT PREMISE WAS MEASURED
-    // FALSE (2026-08-15): Vogue declares NO BTC state — not one `Btc`/`BTC` member. Its
-    // `isBTC` arguments were pass-throughs to VogueLib math bodies, and NOTHING supplied
-    // them. Vogue is, and was, the ETH band manager; `bandPrice` already said so in its own
+    // FALSE (2026-08-15): Quid declares NO BTC state — not one `Btc`/`BTC` member. Its
+    // `isBTC` arguments were pass-throughs to QuidLib math bodies, and NOTHING supplied
+    // them. Quid is, and was, the ETH band manager; `bandPrice` already said so in its own
     // docblock while the comments here said the opposite.
     //
     // So the face returns to the state instead of projecting through a call boundary. That
@@ -1372,18 +1372,18 @@ contract Vogue is BandState,
     // The ENTRYPOINTS (`deposit`/`mint`/`withdraw`/`redeem`) remain the protocol's native LP
     // API below, carrying the per-deposit `venue` selector and the payable ETH path.
 
-    string public constant name   = "QU!D Vogue ETH LP";
+    string public constant name   = "QU!D Quid ETH LP";
     string public constant symbol = "vETH";
 
     /// The single asset this vault is defined over.
     function asset() external view returns (address) { return address(WETH); }
 
     /// @notice Total ETH-equivalent backing all LP positions: principal + ALL accrued
-    ///         CORE/Morpho fees, claimed or not. Deliberately `vogueETH()` RAW, NOT
+    ///         CORE/Morpho fees, claimed or not. Deliberately `bandETH()` RAW, NOT
     ///         `_pricingBacking()`, which restates the levered book onto the denominator's
     ///         clock for SHARE PRICING (§A.16b); the conversions below carry that
     ///         restatement, so applying it here too would double-count it.
-    function totalAssets() external view returns (uint) { return AUX.vogueETH(); }
+    function totalAssets() external view returns (uint) { return AUX.bandETH(); }
 
     function totalSupply() external view returns (uint) { return lpShares; }
 
@@ -1438,11 +1438,11 @@ contract Vogue is BandState,
     /// pooled against the not-yet-refreshed bookmark → phantom
     /// reward = R × feePerShare / WAD).
     /// @dev Thin forwarder: the settle-both-sides + move-principal + refresh body moved to
-    ///      VogueLib.transferSharesBody (delegatecall — EIP-170). Value-type `lpShares` growth returns as a delta
+    ///      QuidLib.transferSharesBody (delegatecall — EIP-170). Value-type `lpShares` growth returns as a delta
     ///      applied here; the Transfer event stays here (emitted for amount==0 too — Transfer(from,to,0)). Logic
     ///      unchanged (pendingRewards reached via self-staticcall; _refreshBookmarks replicated in the lib).
     function _transferShares(address from, address to, uint amount) internal {
-        lpShares += VogueLib.transferSharesBody(
+        lpShares += QuidLib.transferSharesBody(
             autoManaged, levPooled, levBuf, venueBm, from, to, amount, feesPerShare, USD_FEES, venueFeesPerShare);
     }
 
@@ -1450,8 +1450,8 @@ contract Vogue is BandState,
     // The conversions the 4626 face above is defined in terms of. One implementation, so the
     // §A.16b same-clock pricing cannot diverge between the identity and the entrypoints.
 
-    /// @dev Pricing backing: `vogueETH` with the levered book restated onto the SAME CLOCK as the
-    ///      denominator. `vogueETH` adds `totalNetEquity()` read LIVE from the venues
+    /// @dev Pricing backing: `bandETH` with the levered book restated onto the SAME CLOCK as the
+    ///      denominator. `bandETH` adds `totalNetEquity()` read LIVE from the venues
     ///      (`VaultLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
     ///      STORED and only refreshed by `_reconcileLev`/`syncLev` — i.e. on the levered LP's own next
     ///      action. Live numerator over lazy denominator is the whole defect (§A.16b): an external
@@ -1464,11 +1464,11 @@ contract Vogue is BandState,
     ///      shares burn alongside the backing. NOT the same as netting the levered book OUT — that was
     ///      tried and REVERTED (§A.16d): the levered capital is commingled in the band, so removing it
     ///      strips backing that genuinely supports plain claims (measured: 69% under-pricing).
-    ///      In steady state (`totalNetEquity == totalLevPooled`) this is EXACTLY `vogueETH`, so
+    ///      In steady state (`totalNetEquity == totalLevPooled`) this is EXACTLY `bandETH`, so
     ///      normal-case pricing is byte-identical to before.
     function _pricingBacking() internal view returns (uint total) {
-        total = AUX.vogueETH();
-        // §#12 — READ BOTH LEGS. `vogueETH` is the ETH leg of a TWO-legged band position; the USD
+        total = AUX.bandETH();
+        // §#12 — READ BOTH LEGS. `bandETH` is the ETH leg of a TWO-legged band position; the USD
         // leg beyond what the BASKET supplied (`basketUsd`) is LP-owned and was invisible here,
         // so a band that sold LP ETH for USD priced the LP down by the whole sale.
         // Valued at the band's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries
@@ -1492,7 +1492,7 @@ contract Vogue is BandState,
                 }
             }
         }
-        address lm = VogueLib.levManager(address(AUX));
+        address lm = QuidLib.levManager(address(AUX));
         if (lm == address(0)) return total;
         // GUARDED like every other lev read: a broken manager must not brick share pricing.
         try ILevEquity(lm).totalNetEquity() returns (uint live) {
@@ -1557,7 +1557,7 @@ contract Vogue is BandState,
 
     function redeem(uint shares, address receiver, address owner)
         external nonReentrant returns (uint assets) {
-        // Direct-owner-only path. Allowance flow not supported on Vogue:
+        // Direct-owner-only path. Allowance flow not supported on Quid:
         // _withdraw reads autoManaged[msg.sender], so debiting `owner`'s
         // position requires msg.sender == owner. Front-ends wanting to
         // act on behalf of `owner` must first transferFrom the LP shares
@@ -1576,7 +1576,7 @@ contract Vogue is BandState,
         _requirePinnedRecipient(owner, receiver);
         // CAP FIRST, then convert (2026-07-26). `convertToShares` used to run on the RAW `assets`, so
         // the standard "exit everything" sentinel `withdraw(type(uint).max)` REVERTED with no message:
-        // it is `SoladyMath.fullMulDiv(assets, lpShares, vogueETH())`, whose overflow guard is a bare
+        // it is `SoladyMath.fullMulDiv(assets, lpShares, bandETH())`, whose overflow guard is a bare
         // `require`, and `type(uint).max * lpShares` trips it unconditionally. 10+ call sites use the
         // sentinel, so this reverted in NORMAL operation.
         //
@@ -1590,7 +1590,7 @@ contract Vogue is BandState,
         // sentinel mean "exit my entire position", which is exactly what `maxWithdraw` advertises.
         // UNITS: cap in POOLED units, which is what `_withdraw` itself clamps in (`amount` vs
         // `plainNet(LP.pooled, levPooled)`, :511) — NOT through `convertToAssets`. Routing the cap
-        // through the share-conversion made the payout depend on `vogueETH()`, so once the redeem
+        // through the share-conversion made the payout depend on `bandETH()`, so once the redeem
         // turns had unwound the band the ceiling floored to 0 and a full-exit LP received NOTHING
         // (measured: `test_RunSim_AllExit_Normal`, LP1 got 0 of 8 ETH — a test that PASSES upstream).
         // Capping at the raw `pooled` reproduces upstream's effective behaviour exactly (upstream left

@@ -75,7 +75,7 @@ contract LevManager is LevBase {
     // PROTOCOL funds from `boldCloseReserve`, so the closing LP still gets full fair equity. Conservative vs the
     // ~90.9% Liquity max so the protocol trove itself is never near liquidation.
     uint256 internal constant PROTOCOL_MINT_LTV_BPS = 8000;
-    /// Min collateral to OPEN — keeps the `_openLps` book (iterated in vogueETH on every deposit/withdraw/swap)
+    /// Min collateral to OPEN — keeps the `_openLps` book (iterated in bandETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
     uint256 internal constant WAD = 1e18;
@@ -106,7 +106,7 @@ contract LevManager is LevBase {
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
-    ///         collateralOf/debtOf into `totalNetEquity → vogueETH`, so an UNVETTED (fake) venue could
+    ///         collateralOf/debtOf into `totalNetEquity → bandETH`, so an UNVETTED (fake) venue could
     ///         inject arbitrary phantom ETH backing and drain real ETH-LP principal on redemption. Only the
     ///         deployed Euler/Morpho adapters may ever be allowed. Pinned at construction.
     address internal immutable GOV;
@@ -156,12 +156,12 @@ contract LevManager is LevBase {
     }
 
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic (no partial-config window). Wires together:
-    ///         the band sync-hook (`hook` = Vogue — closeLev re-syncs the fee slice + the BAND-ONLY E0 source),
+    ///         the band sync-hook (`hook` = Quid — closeLev re-syncs the fee slice + the BAND-ONLY E0 source),
     ///         the zero-fee flash provider (`flash` = Morpho for repay-first de-lever; `address(0)` disables it),
     ///         and the audited venue allowlist (`venues`, then FROZEN). NOT rotatable — a rotatable allowlist is
     ///         the phantom-backing rug vector the freeze exists to prevent (GOV could add a fake venue → phantom
     ///         backing → drain); a new hook/flash/venue ⇒ deploy a new LevManager. Consolidates the former
-    ///         setVogueSyncHook/setFlashProvider/pinVenues (the manager↔venue circular dependency rules out a
+    ///         setQuidSyncHook/setFlashProvider/pinVenues (the manager↔venue circular dependency rules out a
     ///         constructor immutable). Matches BtcLevManager.init.
     function init(address hook, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert VenueNotAllowed();
@@ -455,7 +455,7 @@ contract LevManager is LevBase {
 
     /// @notice Permissioned force-close of `lp`'s lever ON THEIR BEHALF — the §4.2 cover-lever entry
     ///         (docs/actionable/JIT-DEPTH-GUARANTEE.md). Callable ONLY by the GOV-pinned `BAND`
-    ///         (the ETH band — so a `Vogue._withdraw` can cover an open lever before the free-ladder burn) — NO
+    ///         (the ETH band — so a `Quid._withdraw` can cover an open lever before the free-ladder burn) — NO
     ///         GOV force-close (no live governance authority). SEPARATE trusted-caller path, so the LP-only
     ///         `closeLev` msg.sender gate is left intact (NOT
     ///         weakened). Same unwind mechanics as `closeLev` (flash-repay-FIRST → return the collateral to `lp`);

@@ -5,7 +5,7 @@
 //! live regtest header chain into the REAL `SPVGateway`, and the driver
 //! submitting REAL `openChannel` / `recordClose` to the REAL `BTCChannels` on a
 //! REAL `anvil` (mainnet-forked) node. There is NO vault double: `DriverE2E.s.sol`
-//! deploys the FULL real Vogue/Core/Aux/Basket/Vault stack via the shared
+//! deploys the FULL real Quid/Core/Aux/Basket/Vault stack via the shared
 //! `DeployLib.deployQuidStack` (the same sequence production + the forge suite
 //! use), so the swap-out here exercises the REAL BTC curve economics — the channel
 //! lifecycle, the vault, and the Rust driver are all real.

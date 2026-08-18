@@ -47,7 +47,7 @@ contract RealRateMorphoOracle {
 }
 
 /// @notice CORRELATED-CRASH cascade de-lever, FULLY on the REAL mainnet-fork stack (no mocks): N weETH-collateral
-///   leveraged positions on a REAL Morpho Blue market + the REAL Vogue V4 band as the E0/sold-fraction source, all
+///   leveraged positions on a REAL Morpho Blue market + the REAL Quid V4 band as the E0/sold-fraction source, all
 ///   levered by a REAL band rally (genuine IL), then crashed so they breach their de-lever band together, then
 ///   `cascadeDelever`ed in one tx — asserting each is de-levered or gracefully skipped, isolated, with net progress.
 ///   The mocks (MockWeeth/MockSwapper/MaliciousSwapper/MockBandHost/MockFlashLender/TestLevVenue) are DELETED; the
@@ -83,7 +83,7 @@ contract LevCascadeProbe is AllesFixture {
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, 5_000_000 * USDC_PRECISION);
         morpho.supply(mp, 5_000_000 * USDC_PRECISION, 0, address(this), "");
-        // Wire the YB stack against the real venue + the REAL Vogue band (V4) as the BAND-ONLY E0 / sold-fraction
+        // Wire the YB stack against the real venue + the REAL Quid band (V4) as the BAND-ONLY E0 / sold-fraction
         // source — NO MockBandHost — + the real Morpho flash (zero-fee repay-first de-lever). One atomic pin-once.
         lm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
@@ -185,8 +185,8 @@ contract LevCascadeProbe is AllesFixture {
     }
 
     /// Establish `lp`'s REAL band position (the E0 IL base, read live from V4) — a genuine ETH band deposit,
-    /// which (unlike the old MockBandHost.setBand) ITSELF adds to `vogueETH`, so tests that measure the
-    /// leverage's OWN vogueETH contribution must baseline AFTER this (see `_openLevOnly`). Also mints the LP's
+    /// which (unlike the old MockBandHost.setBand) ITSELF adds to `bandETH`, so tests that measure the
+    /// leverage's OWN bandETH contribution must baseline AFTER this (see `_openLevOnly`). Also mints the LP's
     /// weETH equity + does the one-time Morpho authorization.
     function _bandE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
@@ -209,22 +209,22 @@ contract LevCascadeProbe is AllesFixture {
     // ═══════════════════════════════ tests ═══════════════════════════════
 
     /// FOUNDATION PROOF — net-equity backing + seizure-safety. The levered weETH's NET-of-debt equity is recognized
-    /// in `vogueETH` (backs the band), and a REAL Morpho liquidation removes that credit cleanly while `POOLED_USD`
+    /// in `bandETH` (backs the band), and a REAL Morpho liquidation removes that credit cleanly while `POOLED_USD`
     /// stays intact — no socialization.
     function test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact() public {
         _setupLev();
-        EV.setLevManager(address(lm));                         // pin the leveraged book into vogueETH
+        EV.setLevManager(address(lm));                         // pin the leveraged book into bandETH
 
-        // Establish the REAL band position FIRST, then baseline — the band deposit itself adds to vogueETH
+        // Establish the REAL band position FIRST, then baseline — the band deposit itself adds to bandETH
         // (unlike the old mock), so the leverage's OWN contribution is measured from the post-deposit baseline.
         _bandE0(lps[0], 5 ether);
-        uint vogue0 = AUX.vogueETH();
+        uint band0 = AUX.bandETH();
 
         // Open at entry ⇒ ZERO leverage ⇒ net-equity == principal (weETH→ETH via the real staking rate).
         _openLevOnly(lps[0], 5 ether);
         uint principalEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
         assertApproxEqAbs(lm.netEquity(lps[0]), principalEth, 1e15, "open: net-equity == principal");
-        assertApproxEqAbs(AUX.vogueETH(), vogue0 + principalEth, 1e15, "open: vogueETH gains exactly the net-equity");
+        assertApproxEqAbs(AUX.bandETH(), band0 + principalEth, 1e15, "open: bandETH gains exactly the net-equity");
 
         // Lever up on a REAL band rally (real IL): debt > 0, but the borrow is self-financing ⇒ equity ~principal.
         // (A real rally executes real swaps, which legitimately move POOLED_USD — so the mock's "POOLED_USD frozen
@@ -232,7 +232,7 @@ contract LevCascadeProbe is AllesFixture {
         _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
-        assertGe(AUX.vogueETH(), CORE.POOLED(), "levered: deliverable ETH still covers the band");
+        assertGe(AUX.bandETH(), CORE.POOLED(), "levered: deliverable ETH still covers the band");
 
         // SEIZE via a REAL Morpho liquidation (repay half the debt by shares — see `_seizeReal`).
         uint tvl0 = _tvl();
@@ -243,7 +243,7 @@ contract LevCascadeProbe is AllesFixture {
         // Basket clean: the liquidation took NOTHING from the basket (TVL intact) and deliverable ETH still
         // covers the band — the loss is isolated to the LP's Morpho account, never socialized.
         assertGe(_tvl(), tvl0, "seized: basket real backing (TVL) intact - nothing socialized");
-        assertGe(AUX.vogueETH(), CORE.POOLED(), "seized: deliverable ETH still covers the band");
+        assertGe(AUX.bandETH(), CORE.POOLED(), "seized: deliverable ETH still covers the band");
     }
 
     /// FEE-LANE PROOF: the levered weETH equity (a) EARNS band fees via the same machinery as a weETH deposit,
@@ -299,7 +299,7 @@ contract LevCascadeProbe is AllesFixture {
         assertLt(V4.levPooled(lps[0]), lev, "seizure: levered slice shrank/burned toward the liquidated equity");
     }
 
-    /// CRITICAL: a caller-supplied, NON-allowlisted venue (which could return phantom collateral → fake vogueETH →
+    /// CRITICAL: a caller-supplied, NON-allowlisted venue (which could return phantom collateral → fake bandETH →
     /// ETH-LP drain) is rejected. Only pinned adapters can be opened against.
     function test_VenueAllowlist_BlocksUnvettedVenue() public {
         _setupLev();
@@ -523,7 +523,7 @@ contract LevCascadeProbe is AllesFixture {
     ///     (3) NO CROSS-SUBSIDY / not worsened — the levered LP's hedge is isolated at the venue: syncing its
     ///         levered slice leaves the unlevered LP's pooled claim AND the basket TVL untouched, so the unlevered
     ///         LP's IL is purely its own price-path IL, neither subsidized nor deepened by the levered LP;
-    ///     (4) NO RACE — syncLev settles fees before moving pooled (Vogue.sol:513) and is idempotent, so a second
+    ///     (4) NO RACE — syncLev settles fees before moving pooled (Quid.sol:513) and is idempotent, so a second
     ///         call with no equity change does not double-credit the levered slice.
     function test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy() public {
         _setupLev();
@@ -561,7 +561,7 @@ contract LevCascadeProbe is AllesFixture {
         //   `committedUsd18` EXCLUDES it by subtracting the LP's LIVE leverage debt (buffer == debt), so
         //   committed + totalDebtUsd == the full in-range USD. Live ⇒ no stale segregation counter to desync.
         // Post net-equity rewrite (#52/#53) the levered depth is SPLIT: `levPooled` = the NET leg, `levBuf` =
-        // the debt-funded buffer, and the band CAPACITY = their sum == GROSS collateral (Vogue._reconcileLev:
+        // the debt-funded buffer, and the band CAPACITY = their sum == GROSS collateral (Quid._reconcileLev:
         // `gross == levPooled[lp] + levBuf[lp]`). The old assertion compared levPooled ALONE to gross (missing
         // levBuf), so its gap grew with leverage. Assert the true identity: net leg + buffer == gross (full-2×).
         assertApproxEqRel(V4.levPooled(lps[0]) + V4.levBuf(lps[0]), lm.grossCollateral(lps[0]), 0.05e18,
@@ -688,7 +688,7 @@ contract LevCascadeProbe is AllesFixture {
     // ─────────────────────────── #36 venue safety gates (REAL Morpho venue) ───────────────────────────
 
     /// @notice (#36a) init must REJECT a real venue whose collateral the manager cannot value (not WETH/weETH):
-    ///   a WBTC-collateral Morpho market would inject phantom ETH backing into vogueETH. GOV can't pin it.
+    ///   a WBTC-collateral Morpho market would inject phantom ETH backing into bandETH. GOV can't pin it.
     function test_LevVenueGate_InitRejectsUnvaluableCollateral() public {
         _setupLev();   // establishes mOracle + the good (weETH) reference stack
         LevManager lm2 = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));

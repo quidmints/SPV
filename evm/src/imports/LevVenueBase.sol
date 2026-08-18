@@ -231,7 +231,7 @@ interface IAaveV3Pool {
 /// @dev Aave's ProtocolDataProvider — the PROVEN read Amp.sol used (`getReserveTokensAddresses`). Its per-asset
 ///      `getUserReserveData` returns the CURRENT (already index-scaled, block-fresh, underlying-unit) aToken balance
 ///      and variable debt DIRECTLY — no vToken.balanceOf, no hardcoded reservesList index, one asset per call
-///      (cheap on the on-chain vogueBTC sum). This is why we read positions here and not off the raw tokens.
+///      (cheap on the on-chain bandBTC sum). This is why we read positions here and not off the raw tokens.
 interface IAaveV3DataProvider {
     function getUserReserveData(address asset, address user) external view returns (
         uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt,
@@ -306,7 +306,7 @@ contract AaveV3Escrow {
 ///
 ///         POSITION READS use the ProtocolDataProvider's per-asset `getUserReserveData` (Amp.sol's PROVEN source):
 ///         `currentVariableDebt` / `currentATokenBalance` are the exact block-fresh underlying-unit amounts — no
-///         raw vToken/aToken balanceOf, no hardcoded reservesList index, one asset per call (cheap for vogueBTC).
+///         raw vToken/aToken balanceOf, no hardcoded reservesList index, one asset per call (cheap for bandBTC).
 ///
 ///         Custody (per ILevVenue): MANAGER sends collateral/stable to the venue before supply/repay; the venue
 ///         routes them through the LP's escrow and forwards borrowed stable / withdrawn collateral back to MANAGER.

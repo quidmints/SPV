@@ -8,7 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///
 /// @notice The ~19.4-20% exit cluster has been read three ways so far (the AAVE fifth; a
 ///         `deliverableETH` under-count; a venue that cannot deliver). All three were guesses. This
-///         settles it by CONSERVATION instead: `Vogue._withdraw` already re-credits whatever the
+///         settles it by CONSERVATION instead: `Quid._withdraw` already re-credits whatever the
 ///         ladder could not source (`LP.pooled += shortfall`, "recoverable deferral … socialized
 ///         fairly via the share price, no first-out advantage"), and a band burn pays out BOTH legs —
 ///         ETH *and* USD (minted as QUID). So an LP withdrawing `X` should end up holding

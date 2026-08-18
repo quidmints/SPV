@@ -9,7 +9,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Vault} from "../../src/Vault.sol";
 
 /// @notice BTC-pool self-managed boundary orders — `Vault.outOfRangeBtc`/`pullBtc`,
-///         the USD-funded BTC twin of the ETH `Vogue.outOfRange`/`pull` path. Mirrors
+///         the USD-funded BTC twin of the ETH `Quid.outOfRange`/`pull` path. Mirrors
 ///         `Alles.testOutOfRangeUSDPosition` on the BTC (USD/WBTC) curve: place a
 ///         single-sided USD limit order outside range, then pull it back.
 contract BtcSelfManagedTest is AllesFixture {

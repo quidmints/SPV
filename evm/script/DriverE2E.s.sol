@@ -17,7 +17,7 @@ import {Aux} from "../src/Aux.sol";
 //
 // There is NO StubVault anymore: the SAME shared `DeployLib.deployQuidStack`
 // sequence that production (`DeployL1_s.sol`) and the mainnet-fork forge suite
-// (`Alles.t.sol`) use stands up the full Vogue/Core/Aux/Basket/Vault topology, so
+// (`Alles.t.sol`) use stands up the full Quid/Core/Aux/Basket/Vault topology, so
 // the driver e2e exercises the REAL curve economics (creditSwapOut, POOLED_USD_BTC
 // pairing, proceeds settlement) — not a divergent double that could drift.
 //

@@ -29,17 +29,17 @@
 //! A levered position must unwind on the right events, and — critically — an UNLEVERED LP's band
 //! withdrawal can force a chained unwind of OTHER levered LPs (the same shape as the LN-LP chained
 //! unwind). So the loop reacts to a UNION of triggers, not just "LTV crossed a band":
-//!   1. **Levered LP withdraws / closes** (`Vogue`/`LevManager` close events) → `closeLev` that LP: fully
+//!   1. **Levered LP withdraws / closes** (`Quid`/`LevManager` close events) → `closeLev` that LP: fully
 //!      unwind its leverage (repay debt by selling collateral, return weETH) BEFORE the band withdrawal
 //!      settles, so it never exits half-levered.
-//!   2. **ANY LP withdraws from the band** (levered or not) → `vogueETH` drops → every OTHER levered LP's
+//!   2. **ANY LP withdraws from the band** (levered or not) → `bandETH` drops → every OTHER levered LP's
 //!      IL target (`1 − √(entry/now)`) and LTV shift; re-evaluate the whole open set and
 //!      `rebalance`/`cascadeDelever` the ones pushed out of band. A big unlevered exit is exactly the
 //!      "correlated" event the cascade was built for.
 //!   3. **Price move** (Chainlink/band-TWAP update) → the IL target moved → rebalance toward it (subject to
 //!      the lazy/dwell policy below — never chase noise).
 //!   4. **Venue VaultStatus / LTV breach** → the safety de-lever (this module's `decide`).
-//! Sources: subscribe to `LevManager` Opened/Closed + `Vogue` Withdraw + the venue's status feed + a price
+//! Sources: subscribe to `LevManager` Opened/Closed + `Quid` Withdraw + the venue's status feed + a price
 //! feed + a heartbeat; on any of them, recompute the open set and act. Idempotent toward target, so
 //! overlapping triggers simply re-converge.
 //!
@@ -232,7 +232,7 @@ pub trait LevKeeperEvm {
     /// BATCH IL-target rebalance: hold every out-of-band LP in ONE tx (`rebalanceMany`). On-chain
     /// fault-tolerant + syncs each LP's band slice internally, so no per-LP sync follow-up is needed.
     async fn rebalance_many(&self, lps: &[LpAddr]) -> anyhow::Result<()>;
-    /// Reconcile `lp`'s LEVERED band slice to its live net-equity (`Vogue.syncLev`). Called after ANY
+    /// Reconcile `lp`'s LEVERED band slice to its live net-equity (`Quid.syncLev`). Called after ANY
     /// position change (rebalance/de-lever) so the fee lane (`levPooled`) tracks the equity promptly instead
     /// of waiting for the next external poke. Permissionless on-chain, so a failure is non-fatal — the slice
     /// just lags until the next tick re-syncs.
@@ -247,18 +247,18 @@ pub trait LevKeeperEvm {
 // ════════════════════════ compound crank — fees-on-fees for EVERY plain ETH LP ════════════════════════
 //
 // A passive ETH LP (never touches its position) doesn't compound its owed token-leg trading fees — those
-// stay pending until the LP itself acts. `Vogue.compound(lp)` folds them into the LP's `pooled` (more band
+// stay pending until the LP itself acts. `Quid.compound(lp)` folds them into the LP's `pooled` (more band
 // depth → more earning) permissionlessly, so the keeper can do it FOR every LP. The crank is SELF-FUNDING:
-// `Vogue.compound` reimburses the caller's gas as a native-ETH tip skimmed from the LP's OWN harvested leg
+// `Quid.compound` reimburses the caller's gas as a native-ETH tip skimmed from the LP's OWN harvested leg
 // (grief-capped ≤ half the harvest), so the operator fronts NO gas — the exact "no operator subsidy"
 // shape. We therefore crank an LP iff the tip will actually cover the gas: the contract caps the tip at
 // `gasprice·COMPOUND_GAS` AND at half the harvest, so break-even is `pending/2 ≥ gasprice·COMPOUND_GAS`.
 // Below that we skip (the fee stays pending and folds in later — a bigger crank, or when the LP acts).
 
-/// Conservative gas a `compound(address)` crank burns on-chain — MIRRORS `Vogue.COMPOUND_GAS` (the tip the
+/// Conservative gas a `compound(address)` crank burns on-chain — MIRRORS `Quid.COMPOUND_GAS` (the tip the
 /// contract pays is capped at `gasprice · COMPOUND_GAS`). Keep in sync with the Solidity constant.
 ///
-/// §E46/E51 (2026-08-04) — RAISED 140_000 → 200_000 IN LOCKSTEP WITH `Vogue.sol:1504`. The Solidity
+/// §E46/E51 (2026-08-04) — RAISED 140_000 → 200_000 IN LOCKSTEP WITH `Quid.sol:1504`. The Solidity
 /// side was raised because the crank MEASURED 172,299 gas against a 140,000 basis, and this mirror was
 /// left behind for one commit. That desync is not harmless and not symmetric: with the tip capped at
 /// 200k·gasprice but the gate still asking 140k, every LP whose `pending/2` fell BETWEEN the two
@@ -267,7 +267,7 @@ pub trait LevKeeperEvm {
 /// hardcoded number in another language moved. Change one, change both.
 pub const COMPOUND_GAS: u128 = 200_000;
 
-/// The self-funding gate: does the on-chain tip cover this crank's gas? `Vogue` caps the tip at BOTH
+/// The self-funding gate: does the on-chain tip cover this crank's gas? `Quid` caps the tip at BOTH
 /// `gasprice · COMPOUND_GAS` and half the harvest, so the caller only breaks even when
 /// `pending/2 ≥ gasprice · COMPOUND_GAS`. This is what makes the keeper subsidy-free — it cranks exactly
 /// the LPs whose fees pay for the crank, and lets the rest keep accruing until they do.
@@ -276,14 +276,14 @@ pub fn compound_pays_for_itself(pending_wei: u128, gas_price_wei: u128) -> bool 
 }
 
 /// The on-chain surface the compound sweep needs. Concrete impl = the same [`DaemonLevKeeper`] arm (it
-/// already holds `vogue`); verified against a real mainnet fork, never a mock.
+/// already holds `band`); verified against a real mainnet fork, never a mock.
 #[allow(async_fn_in_trait)]
 pub trait CompoundEvm: Send + Sync + 'static {
-    /// Every plain ETH LP address ever seen — deduped `Vogue.Deposit(_, owner, …)` owners.
+    /// Every plain ETH LP address ever seen — deduped `Quid.Deposit(_, owner, …)` owners.
     async fn eth_lps(&self) -> anyhow::Result<Vec<LpAddr>>;
     /// `(pending token-leg WETH-wei owed to `lp`, current gas price wei)` — one round-trip keeps it lean.
     async fn pending_and_gas(&self, lp: LpAddr) -> anyhow::Result<(u128, u128)>;
-    /// `Vogue.compound(lp)` — folds the owed leg into `pooled`; the tip self-funds the caller's gas.
+    /// `Quid.compound(lp)` — folds the owed leg into `pooled`; the tip self-funds the caller's gas.
     async fn compound(&self, lp: LpAddr) -> anyhow::Result<()>;
 }
 
@@ -426,19 +426,19 @@ use std::sync::Arc;
 pub struct DaemonLevKeeper<R: JsonRpc, S: TxSigner> {
     pub evm: Arc<JsonRpcEvmClient<R, S>>,
     pub lev_manager: Address,
-    pub vogue: Address,
+    pub band: Address,
     /// Aux (redemption entry) + QUID/Basket (mature-balance reads). Together they enable QUID-protect:
     /// the mature-QUID read is GATED on `signer == lp`, so these matter only for a self-hosted LP keeper.
     pub quid: Address,
     /// The weETH market's liquidation LTV (bps) — a deployment constant; the safety margin comes off it.
     pub venue_liq_ltv_bps: u32,
     pub gas_limit: u64,
-    /// Block to scan `Vogue.Deposit` logs from when enumerating ETH LPs for the compound crank (the Vogue
+    /// Block to scan `Quid.Deposit` logs from when enumerating ETH LPs for the compound crank (the Quid
     /// deploy block). 0 = genesis (correct but wasteful over a long chain); set it to the deploy height.
     pub lp_scan_from: u64,
 }
 
-/// Chunk size for the `Vogue.Deposit` log scan (L-4: a single huge range trips provider caps).
+/// Chunk size for the `Quid.Deposit` log scan (L-4: a single huge range trips provider caps).
 const LP_LOG_SPAN: u64 = 10_000;
 
 // ABI-word helpers (`addr_word`, `u64_word`, `selector4`, `word_to_lpaddr`) now live
@@ -546,11 +546,11 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     }
 
     async fn sync_lev(&self, lp: LpAddr) -> anyhow::Result<()> {
-        let (evm, vogue, gas) = (self.evm.clone(), self.vogue, self.gas_limit);
+        let (evm, band, gas) = (self.evm.clone(), self.band, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let mut data = selector4("syncLev(address)");
             data.extend_from_slice(&addr_word(lp));
-            evm.send_tx(vogue, data, gas)?;
+            evm.send_tx(band, data, gas)?;
             Ok(())
         })
         .await?
@@ -581,7 +581,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
 
 impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for DaemonLevKeeper<R, S> {
     async fn eth_lps(&self) -> anyhow::Result<Vec<LpAddr>> {
-        let (evm, vogue, from) = (self.evm.clone(), self.vogue, self.lp_scan_from);
+        let (evm, band, from) = (self.evm.clone(), self.band, self.lp_scan_from);
         tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<LpAddr>> {
             let rpc = evm.rpc_handle();
             let tip = crate::eth_logs::eth_tip(&rpc)?;
@@ -593,7 +593,7 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
                     b"Deposit(address,address,uint256,uint256)"
                 ))
             );
-            let logs = crate::eth_logs::get_logs_chunked(&rpc, &vogue.to_string(), &topic0, from, tip, LP_LOG_SPAN)?;
+            let logs = crate::eth_logs::get_logs_chunked(&rpc, &band.to_string(), &topic0, from, tip, LP_LOG_SPAN)?;
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
             for log in &logs {
@@ -613,10 +613,10 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
     }
 
     async fn pending_and_gas(&self, lp: LpAddr) -> anyhow::Result<(u128, u128)> {
-        let (evm, vogue) = (self.evm.clone(), self.vogue);
+        let (evm, band) = (self.evm.clone(), self.band);
         tokio::task::spawn_blocking(move || -> anyhow::Result<(u128, u128)> {
             // pendingRewards(address) → (ethReward, usdReward); the token leg is the first 32-byte word.
-            let ret = evm.eth_read(vogue, "pendingRewards(address)", Some(&addr_word(lp)))?;
+            let ret = evm.eth_read(band, "pendingRewards(address)", Some(&addr_word(lp)))?;
             let word = ret.get(0..32).ok_or_else(|| anyhow::anyhow!("pendingRewards: short return"))?;
             let pending: u128 = word_to_uint(word, "pendingRewards.eth")?;
             let raw = evm.rpc_handle().call("eth_gasPrice", serde_json::json!([]))?;
@@ -630,11 +630,11 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
     }
 
     async fn compound(&self, lp: LpAddr) -> anyhow::Result<()> {
-        let (evm, vogue, gas) = (self.evm.clone(), self.vogue, self.gas_limit);
+        let (evm, band, gas) = (self.evm.clone(), self.band, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let mut data = selector4("compound(address)");
             data.extend_from_slice(&addr_word(lp));
-            evm.send_tx(vogue, data, gas)?;
+            evm.send_tx(band, data, gas)?;
             Ok(())
         })
         .await?

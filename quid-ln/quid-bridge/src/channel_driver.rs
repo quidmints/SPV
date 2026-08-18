@@ -280,7 +280,7 @@ pub(crate) fn eth_call_revert_reason<R: JsonRpc>(
 
 /// Gas limit for a single BTCChannels call (openChannel / recordClose): the
 /// `eth_estimateGas` result + 25% headroom, floored at `floor` (cfg.gas_limit) —
-/// so a call whose cost grows with merkle-proof depth or Vogue state can't OOG.
+/// so a call whose cost grows with merkle-proof depth or Quid state can't OOG.
 /// On estimate failure (the call would revert) fall back to `floor` and let
 /// `send_tx` surface the revert.
 pub(crate) fn gas_limit_for<R: JsonRpc>(rpc: &R, to: Address, calldata: &[u8], floor: u64) -> u64 {
@@ -891,7 +891,7 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
     // BTC-leg fees (`Vault.btcFeesOwedSats`) INTO the position instead of paying them out
     // via a separate settler tx. The hop funds `grew_by` real sats into the splice; up to
     // that much is marked `fee_settle_sats`, which the contract clamps to the real owed
-    // (BtcVaultLib) and clears — the fees COMPOUND into `LP.pooled` via requestDeposit
+    // (BtcLib) and clears — the fees COMPOUND into `LP.pooled` via requestDeposit
     // (which already grew pooled by the full delta), and a bigger POOLED share grows the
     // LP's coop-close payout to btcRecipientOf, so `delivered` stays invariant with NO
     // LN-balance leg (under B the LP has no LN node — the old keysend is obsolete). A
@@ -1223,7 +1223,7 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
 /// outlived the code, as `fee_settle_sats` did until §E191 struck it out below.
 ///
 /// 🔑 **SO NOTHING IS PAID OUT: the LP's SHARE COUNT grows and the value is realised at
-/// resize or close** (`BtcVaultLib.feeCompounded` → `Vault.sol:543`,
+/// resize or close** (`BtcLib.feeCompounded` → `Vault.sol:543`,
 /// `lpSharesBTC += feeCompounded`). An LP needs no node, no action and no notification to
 /// receive fees, which is the whole point under B — and it is why a keysend, which would
 /// require the LP to be online to receive, could never have been the mechanism here.

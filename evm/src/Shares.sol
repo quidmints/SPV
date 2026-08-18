@@ -6,7 +6,7 @@ import {Types} from "./imports/Types.sol";
 /// @title  Shares — the band's share token. ONE declaration of the per-LP state, TWO instances.
 ///
 /// @notice §SLOP — THIS CONTRACT EXISTS TO DELETE TWELVE DUPLICATED STATE CONCEPTS. Measured on the
-///         pre-fold tree, the same per-LP state was declared twice, once in `Vogue` (ETH) and once
+///         pre-fold tree, the same per-LP state was declared twice, once in `Quid` (ETH) and once
 ///         in `Vault` (BTC), distinguished only by a `BTC` suffix:
 ///
 ///           autoManaged ∥ autoManaged · lpShares ∥ lpShares · selfManaged ∥ selfManaged
@@ -37,9 +37,9 @@ import {Types} from "./imports/Types.sol";
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
 ///    `docs/actionable/ONE-ENGINE-TWO-SHARE-TOKENS.md`.
 
-/// @title  BandState — the 13 per-LP declarations both band managers had a private copy of
+/// @title  State — the 13 per-LP declarations both band managers had a private copy of
 ///
-/// @notice §E252. `Vogue` (ETH) and `Vault` (BTC) each declared these THIRTEEN names, and a
+/// @notice §E252. `Quid` (ETH) and `Vault` (BTC) each declared these THIRTEEN names, and a
 ///         declaration-by-declaration diff showed them BYTE-IDENTICAL — same types, same visibility,
 ///         differing only in the order they appeared in their own file. One declaration now, two
 ///         instances, which is the same argument `Core` already won one level down.
@@ -53,11 +53,11 @@ import {Types} from "./imports/Types.sol";
 ///         would produce two contracts that cannot share an implementation at all.
 ///
 /// @dev    ⚠️ DELIBERATELY EXCLUDES THE ERC-20 FACE. `name`, `symbol`, `decimals`, `totalSupply`
-///         and `allowance` are declared in `Shares` AND in `Vogue`, but NOT in `Vault` — the BTC
+///         and `allowance` are declared in `Shares` AND in `Quid`, but NOT in `Vault` — the BTC
 ///         band's share face is `VBtc`, a separate token. Hoisting those five would collide with
-///         Vogue and give Vault a face it does not use. The band STATE is shared; the share FACE
+///         Quid and give Vault a face it does not use. The band STATE is shared; the share FACE
 ///         is per-asset, and that asymmetry is real (§A.19b: vBTC has no bearer redemption).
-abstract contract BandState {
+abstract contract State {
     /// The band's leverage manager. GOV pin-once, then frozen.
     address public LEV_MANAGER;
 

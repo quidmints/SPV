@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Vogue} from "./Vogue.sol";
+import {Quid} from "./Quid.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {Core} from "./Core.sol";
@@ -10,10 +10,10 @@ import {Aux} from "./Aux.sol";
 import {Basket} from "./Basket.sol";
 
 import {SwapLib} from "./imports/SwapLib.sol";
-import {BtcVaultLib} from "./imports/BtcVaultLib.sol";
+import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
-import {BandState} from "./Shares.sol";
+import {State} from "./Shares.sol";
 
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
@@ -25,7 +25,7 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 //  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
 //  formerly-separate EthVenue and BtcVault (5→4 deployable contracts). The
 //  two had disjoint state, disjoint function names, and only differed in
-//  their "V4" handle (EthVenue→Vogue, BtcVault→Core); here Vogue stays
+//  their "V4" handle (EthVenue→Quid, BtcVault→Core); here Quid stays
 //  `V4` and Core is `CORE` (the slot EthVenue already carried). Both
 //  init paths are preserved: the EthVenue constructor pins the ETH-venue
 //  immutables + approvals; `setup(quid)` does BtcVault's post-CORE-init
@@ -33,14 +33,14 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 //  lev-manager slots are pinned — they are the only owner-gated functions here.
 //
 //  GATES stay SPLIT, byte-for-byte with the originals — no widening:
-//    • onlyUs    = {Vogue(V4), AUX, this}      → ETH-side venue ops (supply/withdraw/deliverable)
+//    • onlyUs    = {Quid(V4), AUX, this}      → ETH-side venue ops (supply/withdraw/deliverable)
 //      §E233-sor: this line named `arbETH`, which DOES NOT EXIST -- `Aux` states its forwarder was
-//      REMOVED along with its only callers (Core.refillETH, Vogue._withdraw). The gate is real; the
+//      REMOVED along with its only callers (Core.refillETH, Quid._withdraw). The gate is real; the
 //      consumer it cited is not, and a gate documented by a dead caller reads as dead surface.
 //    • onlyUsBtc = {Core(CORE), AUX, this} → repack / setBTCChannels
 //    • onlyBtcChannels / onlyBTCChannels       → BTC LP register/close + swap
 //  Address-specific gates mean every interface-wired caller (Aux.ethVenue /
-//  Aux.btcVault / Vogue.EV / Core.BTCVAULT / BTCChannels.btcVault /
+//  Aux.btcVault / Quid.EV / Core.BTCVAULT / BTCChannels.btcVault /
 //  Basket.BTC_VAULT) just points at this one address — no caller changes.
 // ════════════════════════════════════════════════════════════════════════
 
@@ -61,32 +61,32 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 
 /// §SLOP — THIS PARAGRAPH WAS ETH-SIDE TEXT LEFT IN THE BTC CONTRACT by the EthVenue fusion. It said
 /// the book's collateral is "ETH, 1e18", that "the weETH lives on external Euler/Morpho", and that net
-/// equity counts "in `vogueETH`". None of that is this contract: `vogueETH` is VOGUE's accessor, and
+/// equity counts "in `bandETH`". None of that is this contract: `bandETH` is BAND's accessor, and
 /// line 70 below states what actually happens here — `syncLev` pairs the BTC book as tokenless depth
 /// INTO `POOLED`. Corrected rather than deleted, because the SHAPE it describes is right and is what
 /// makes the two bands mirror images.
 /// BtcLevManager read surface: the leveraged book's collateral (vBTC, 8-dec sats). The collateral lives
 /// on external Euler/Morpho per-LP (the Vault never holds it). The book is counted at NET equity
 /// (gross − debt) in both `POOLED` and `lpShares`; the debt-funded buffer (gross − net) is EXCLUDED from
-/// equity and tracked separately as fee-earning band depth (`Vogue.levBuf`/`Vault.levBuf` + `totalBuffer`),
+/// equity and tracked separately as fee-earning band depth (`Quid.levBuf`/`Vault.levBuf` + `totalBuffer`),
 /// so it earns fees on the gross weight but never inflates the LP's redeemable claim. The buffer's debt is
 /// excluded from committed via `committedUsd18`'s live-debt subtraction (no separate POOLED_USD_*_LEV bucket),
 /// so a venue liquidation un-pairs the buffer (`levBurnAll`) without stranding basket `POOLED_USD`.
 
 /// BTC IL-protect: the BtcLevManager's per-LP net-of-debt equity IS protocol BTC backing (8-dec
 /// sats), so `syncLev` pairs it as tokenless band depth INTO `POOLED` (LP.pooled) — that is where
-/// the net-equity is counted for solvency. `vogueBTC` is WBTC-only (swept donations + swap deltas) and is
-/// NEVER credited the net-equity, so `POOLED + vogueBTC` (Core shortfall read) is single-counted. Net
+/// the net-equity is counted for solvency. `bandBTC` is WBTC-only (swept donations + swap deltas) and is
+/// NEVER credited the net-equity, so `POOLED + bandBTC` (Core shortfall read) is single-counted. Net
 /// (not gross): a venue liquidation can't strand POOLED_USD. Mirrors the ETH `ILevEquity` over the BTC band.
-/// Declared once, in imports/Interfaces.sol (it was also BtcVaultLib's `ILevBtc_V`).
+/// Declared once, in imports/Interfaces.sol (it was also BtcLib's `ILevBtc_V`).
 
-    // §E252 — the THIRTEEN shared band-state declarations moved to `BandState` (Shares.sol).
+    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
-contract Vault is Ownable, ReentrancyGuard, BandState {
+contract Vault is Ownable, ReentrancyGuard, State {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
-    Vogue     internal immutable VOGUE;    // the ETH LP contract
+    Quid     internal immutable BAND;    // the ETH LP contract
     /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
     ///      could reach THIS band's engine -- `IBandManager` had no `core()` either -- so a test
     ///      wanting to compare the two bands had no handle for the second one and read the ETH core
@@ -95,7 +95,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     ///      that an unseeded band makes isolation assertions vacuous. The seeding was fixed; the
     ///      READS still both pointed here. An instance you cannot address is an instance you cannot
     ///      check is separate.
-    Core public immutable CORE;  // the PM (was BtcVault's "VOGUE")
+    Core public immutable CORE;  // the PM (was BtcVault's "BAND")
     Aux       internal immutable AUX;
     WETH9     public    immutable WETH;
 
@@ -108,11 +108,11 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
 
 
     /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `POOLED`
-    ///         (§SLOP: said `vogueETH`, which is Vogue's ETH-side accessor, not this contract's).
+    ///         (§SLOP: said `bandETH`, which is Quid's ETH-side accessor, not this contract's).
     ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
 
-    // §SLOP — `NotVogueCore` DELETED: zero reverts. `git log -S` traces it to `a3225031`
-    // ("Extract ETH-venue custody out of Vault into EthVenue") and `8720a35d` ("EthVenue IS Vogue"),
+    // §SLOP — `NotQuidCore` DELETED: zero reverts. `git log -S` traces it to `a3225031`
+    // ("Extract ETH-venue custody out of Vault into EthVenue") and `8720a35d` ("EthVenue IS Quid"),
     // i.e. it gated a split that was subsequently folded back -- the gate went, the error stayed.
     error NotSelf();
     error Unauthorized();
@@ -124,20 +124,20 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     // ─── BTC-side state (formerly BtcVault) ─────────────────────────────
     Basket QUID;
 
-    /// @notice BTC-side LP accounting — parallel to the ETH-side trio in Vogue.
+    /// @notice BTC-side LP accounting — parallel to the ETH-side trio in Quid.
     /// `autoManaged[user].pooled` slot holds the user's pooled WBTC
     /// (8-dec, type-reused from Types.Deposit). `lpShares` is the sum.
     /// `feesPerShare` accumulates V4 BTC-side trading fees (in WBTC);
     /// `USD_FEES` accumulates V4 USD-side trading fees from the BTC pool.
 
-    /// BTC IL-protect: per-LP LEVERED band slice (8-dec sats) — the mirror of Vogue's `levPooled`.
+    /// BTC IL-protect: per-LP LEVERED band slice (8-dec sats) — the mirror of Quid's `levPooled`.
     /// Backed by the BtcLevManager net-equity (not real channel sats), it earns V4 fees but is
     /// UNWIND-ONLY: it never leaves via a channel splice/close (there's no channel BTC behind it), only
     /// via `syncLev` shrinking to match the manager. Excluded from the LP's withdrawable balance.
     /// @notice full-2×: 6-dec USD counterpart of an LP's DEBT-funded BTC buffer leg. Post-fold it folds
     ///         into POOLED_USD (no separate LEV bucket) and is excluded from committed via the live-debt
-    ///         subtraction in committedUsd18. Bounded by the LP's own debt (enforced in BtcVaultLib.levAddBufBtc).
-    /// @notice NET model (mirror of Vogue.levBuf): per-LP debt-funded BTC BUFFER depth (8-dec sats). It is
+    ///         subtraction in committedUsd18. Bounded by the LP's own debt (enforced in BtcLib.levAddBufBtc).
+    /// @notice NET model (mirror of Quid.levBuf): per-LP debt-funded BTC BUFFER depth (8-dec sats). It is
     ///         fee-earning V4 depth but NOT equity — EXCLUDED from lpShares/pooled, INCLUDED in the GROSS
     ///         fee weight (pooled + levBuf) and the fee denominator (lpShares + totalBuffer).
     /// @notice Sum of every BTC LP's levBuf — the gross buffer total. Fee denom = lpShares + this.
@@ -171,10 +171,10 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     ///      only one. That was stale from before the fee-splice landed and it caused a downstream
     ///      doc error; do not restore it.
     // (E145) `btcFeesOwedSats` DELETED. The BTC fee leg now compounds into `LP.pooled` in sats
-    // as it is earned (see `BtcVaultLib.settleBtcLp`), so there is no unsettled claim to hold,
+    // as it is earned (see `BtcLib.settleBtcLp`), so there is no unsettled claim to hold,
     // no hop-funded grow-splice to settle it, and nothing to forfeit at close.
 
-    /// @dev NOT suffixed `_BTC`, deliberately. Vogue names its ETH band ticks `LOWER_PRICE`/
+    /// @dev NOT suffixed `_BTC`, deliberately. Quid names its ETH band ticks `LOWER_PRICE`/
     ///      `UPPER_PRICE`; this contract owns the BTC band and names its own the same. Each hook
     ///      answers for ITS asset, so `reanchorCompute` calls ONE accessor instead of selecting a
     ///      NAME by flag — which is all that `isBTC` was doing there (hence the try/catch around
@@ -195,9 +195,9 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
 
     address public btcChannels;
 
-    /// ETH-side trusted callers: Vogue (V4), Aux, self.
+    /// ETH-side trusted callers: Quid (V4), Aux, self.
     modifier onlyUs {
-        if (msg.sender != address(VOGUE)
+        if (msg.sender != address(BAND)
          && msg.sender != address(AUX)
          && msg.sender != address(this))
             revert Unauthorized(); _;
@@ -225,9 +225,9 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     /// resolved + approved only if the spoke lists WETH; else venue 2 stays inert.
     /// ether.fi is wired from the fixed mainnet adapter + v3 pool fees, with the
     /// standing approvals set once.
-    constructor(address _vogue, address _core, address _aux, address _weth)
+    constructor(address _band, address _core, address _aux, address _weth)
         Ownable(msg.sender) {
-        VOGUE = Vogue(payable(_vogue));
+        BAND = Quid(payable(_band));
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
@@ -257,7 +257,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     //                    ETH yield-venue side (was EthVenue)
     // ════════════════════════════════════════════════════════════════
 
-    /// @notice Pin the BtcLevManager (one-shot) so `vogueBTC` counts the BTC leveraged book's
+    /// @notice Pin the BtcLevManager (one-shot) so `bandBTC` counts the BTC leveraged book's
     ///         net-equity and `syncLev` can read the per-LP target. Distinct from the ETH LEV_MANAGER.
     /// @dev §LEV-FOLD-2 — THE IDENTITY CHECK THAT REPLACES THE SUFFIXED SELECTORS. Until this
     ///      commit the only thing stopping a BTC lev manager being pinned to the ETH band (or the
@@ -275,7 +275,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     }
 
     /// @notice LIVE sum of the BTC leveraged book's net-equity (8-dec sats) — the BACKING term added to
-    ///         `vogueBTC` (Core solvency). try/catch so a venue hiccup can't brick the backing read.
+    ///         `bandBTC` (Core solvency). try/catch so a venue hiccup can't brick the backing read.
     function totalNetEquity() external view returns (uint) {
         if (LEV_MANAGER == address(0)) return 0;
         try ILevEquity(LEV_MANAGER).totalNetEquity() returns (uint ne) { return ne; } catch { return 0; }
@@ -319,8 +319,8 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     ///   `unexposeBtcFromLev`. Gated to the pinned LevManager (the sole leverage authority).
     function exposeBtcToLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        // Storage-mutation body in BtcVaultLib.vbtcExposeBody (delegatecall — EIP-170); gate + emit stay here.
-        BtcVaultLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
+        // Storage-mutation body in BtcLib.vbtcExposeBody (delegatecall — EIP-170); gate + emit stay here.
+        BtcLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
         VBTC.mintTo(msg.sender, sats);   // the Transfer event is the TOKEN's to emit, not ours
         return true;
     }
@@ -332,19 +332,19 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     ///   The LP never receives loose vBTC (that would double-claim the same channel BTC).
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        // Storage-mutation body in BtcVaultLib.vbtcUnexposeBody (delegatecall — EIP-170); gate + emit stay here.
+        // Storage-mutation body in BtcLib.vbtcUnexposeBody (delegatecall — EIP-170); gate + emit stay here.
         VBTC.burnFrom(msg.sender, sats);   // reverts if the manager lacks the sats — checked BEFORE the band moves
-        BtcVaultLib.vbtcUnexposeBody(levPooled, lp, sats);
+        BtcLib.vbtcUnexposeBody(levPooled, lp, sats);
         return true;
     }
 
-    /// @notice BTC-side parallel of Vogue.totalShares — a VIEW over lpShares.
+    /// @notice BTC-side parallel of Quid.totalShares — a VIEW over lpShares.
     /// Re-arms the BTC shortfall/delivery trigger in Core.
-    /// @notice §E5 (BTC mirror of `Vogue.creditSkewPremium`) — route the retained scarcity premium
+    /// @notice §E5 (BTC mirror of `Quid.creditSkewPremium`) — route the retained scarcity premium
     ///         to BTC-band LPs via the same per-share accumulator their trading fees use. GROSS fee
     ///         weight (`lpShares + totalBuffer`), matching the `feeDenom` the rebalance body
     ///         already passes. `onlyUsBtc` because that is the gate naming CORE explicitly. SAME NAME as
-    ///         `Vogue.creditSkewPremium` so Core dispatches by ADDRESS through one interface and one call
+    ///         `Quid.creditSkewPremium` so Core dispatches by ADDRESS through one interface and one call
     ///         site (rule 2: one declaration) — two branch-local calls cost 180 bytes of Core's EIP-170.
     function creditSkewPremium(uint premium6) external onlyUsBtc {
         (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
@@ -352,7 +352,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     }
 
     // ─── IBand — the BTC band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
-    // The mirror of Vogue's block. `Core` asks ONE interface; the per-asset facts live here.
+    // The mirror of Quid's block. `Core` asks ONE interface; the per-asset facts live here.
 
     /// @notice This band's leverage manager. Distinct from the ETH one by design.
     function levManager() external view returns (address) { return LEV_MANAGER; }
@@ -373,15 +373,15 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     }
 
     /// @notice REAL inventory: pooled sats PLUS the off-pool WBTC the protocol holds (swept
-    ///         donations and swap deltas, accrued in `vogueBTC`). BTC has no yield venue, so this
+    ///         donations and swap deltas, accrued in `bandBTC`). BTC has no yield venue, so this
     ///         is the analogue of the ETH side's venue retention.
     function realInventory() external view returns (uint) {
-        return CORE.POOLED() + AUX.vogueBTC();
+        return CORE.POOLED() + AUX.bandBTC();
     }
 
     /// @notice Route the shortfall to the hop -- real-BTC delivery on L1, consuming NO basket
     ///         stables. That is the legitimate delivery rail, which is why BTC acts here and ETH
-    ///         deliberately does not (see Vogue's counterpart).
+    ///         deliberately does not (see Quid's counterpart).
     function onShortfall(address sender, uint shortfall) external onlyUsBtc {
         AUX.btcShortfall(sender, shortfall);
     }
@@ -397,7 +397,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
 
     /// @notice The LP's UNLEVERED band-BTC depth (`pooled` minus the leverage slice), in 8-dec sats — the E0
     ///         the BTC IL-protect sizes its debt against (`BtcLevManager` reads it at `openBtcLev`). Mirror of
-    ///         `Vogue.bandOf`; sizing to this FIXED base (not the buffer's growing collateral) is the
+    ///         `Quid.bandOf`; sizing to this FIXED base (not the buffer's growing collateral) is the
     ///         1/(1−t) over-hedge fix.
     function bandOf(address lp) external view returns (uint) {
         uint p = autoManaged[lp].pooled;
@@ -409,14 +409,14 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     // exists: `Delta`'s fields are named for what they hold and the OOR guard is symmetric.
 
     /// @notice (B) The BTC band's current spot √P (Q96) — recorded as `entryPrice` at `openBtcLev`. `isBTC` is
-    ///         accepted for interface-parity with `Vogue.bandPrice`; the Vault is BTC-only, so it always reads
+    ///         accepted for interface-parity with `Quid.bandPrice`; the Vault is BTC-only, so it always reads
     ///         the BTC pool.
     function bandPrice() external view returns (uint priceWad) {
         (priceWad,) = CORE.poolStats();
     }
 
     /// @notice (B) The BTC band's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — mirror of
-    ///         `Vogue.soldFractionWad`, over the BTC ticks/ordering. Shared pure geometry lives in SwapLib.
+    ///         `Quid.soldFractionWad`, over the BTC ticks/ordering. Shared pure geometry lives in SwapLib.
     function soldFractionWad(uint entryPrice) external view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
         return SwapLib.soldFractionWad(entryPrice, priceWad, _lo(), _hi());
@@ -434,23 +434,23 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
         // (E145) The BTC leg now COMPOUNDS INTO `pooled` in sats rather than accruing to the
         // owed ledger, so `lpShares` — the SUM of every LP's `pooled` — must absorb it here
         // or the two drift apart. The backing is already in `POOLED` (see settleBtcLp).
-        lpShares += BtcVaultLib.settleBtcLp(autoManaged[lpEth],
+        lpShares += BtcLib.settleBtcLp(autoManaged[lpEth],
             lpEth, payTo, address(QUID), feesPerShare, USD_FEES,
             autoManaged[lpEth].pooled + levBuf[lpEth]); // GROSS fee weight = net pooled + buffer
     }
 
-    // (_distributeV4Fees folded into BtcVaultLib.rebalanceBody — its only caller was _rebalance.)
+    // (_distributeV4Fees folded into BtcLib.rebalanceBody — its only caller was _rebalance.)
 
-    /// @notice BTC-side rebalance. Shares SwapLib.rebalanceCore with Vogue; BTC
+    /// @notice BTC-side rebalance. Shares SwapLib.rebalanceCore with Quid; BTC
     ///         has no Morpho yield to sync and no _calcYield metric, so the
     ///         wrapper only reorders + distributes the repack/JIT fees and writes
     ///         the new range back.
     /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/tick writeback) moved to
-    ///      BtcVaultLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpShares + totalBuffer (GROSS
+    ///      BtcLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpShares + totalBuffer (GROSS
     ///      fee weight); the value-type accumulators + ticks + reseat epoch are written back here. Logic unchanged.
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
-        BtcVaultLib.RebalOut memory o = BtcVaultLib.rebalanceBody(
+        BtcLib.RebalOut memory o = BtcLib.rebalanceBody(
             _btcCfg(), _lo(), _hi(),
             feesPerShare, USD_FEES, lpShares + totalBuffer);
         feesPerShare = o.feesPerShare; USD_FEES = o.usdFees;   // §BAND-MERGE: RebalOut's fields lost the redundant BTC suffix
@@ -458,7 +458,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
-    // (S4) public paddedSqrtPrice removed — dead (Core uses VOGUE.paddedSqrtPrice;
+    // (S4) public paddedSqrtPrice removed — dead (Core uses BAND.paddedSqrtPrice;
     // _rebalance here calls SwapLib.paddedSqrtPrice directly).
 
     /// §DE-TICK — forwards to the price-space band-bound helper. Was `_updateTicks`.
@@ -509,50 +509,50 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     ///         signature is not, because it would tell a lie about the caller.
     function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBtcChannels {
         // Whole body (checkBacking/TWAP/_rebalance-via-repack + settle + in-range
-        // pairing + out-of-range remainder) in BtcVaultLib.requestDeposit (delegatecall):
+        // pairing + out-of-range remainder) in BtcLib.requestDeposit (delegatecall):
         // it operates on the Vault's storage via the passed refs and drives the tick
         // rebalance through the public repack self-call; the value-type lpShares
         // delta returns for the forwarder.
-        lpShares += BtcVaultLib.requestDeposit(
+        lpShares += BtcLib.requestDeposit(
             _btcCfg(), autoManaged[lpEth],
             lpEth, sats, address(QUID), autoManaged[lpEth].pooled + levBuf[lpEth]); // GROSS fee weight
     }
 
     // ═══════════════════════════ BTC IL-PROTECT: levered band slice ═══════════════════════════
-    // Mirror of Vogue.syncLev/_levAdd/_levBurn over the BTC band. The BtcLevManager holds the LP's
+    // Mirror of Quid.syncLev/_levAdd/_levBurn over the BTC band. The BtcLevManager holds the LP's
     // vBTC collateral on external Euler/Morpho; its NET-of-debt equity (8-dec sats) is paired here as
-    // TOKENLESS band depth so the LP earns V4 fees on its IL-protected position, backed by vogueBTC.
+    // TOKENLESS band depth so the LP earns V4 fees on its IL-protected position, backed by bandBTC.
 
     /// @notice Re-sync `lp`'s levered BTC band slice to the BtcLevManager's authoritative net-equity.
-    ///         Permissionless (like Vogue.syncLev): it only moves the tokenless levered slice to match
+    ///         Permissionless (like Quid.syncLev): it only moves the tokenless levered slice to match
     ///         the manager (the keeper pokes it via the manager's hook). GROW pairs net-equity in-range
-    ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by vogueBTC.
-    /// §BAND-MERGE — THE SAME `addLiq` FACE VOGUE ALREADY HAS. The merged lev bodies size the
+    ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by bandBTC.
+    /// §BAND-MERGE — THE SAME `addLiq` FACE BAND ALREADY HAS. The merged lev bodies size the
     ///         net-equity leg through `IBand(address(this)).addLiq(tok, price)`; ETH answered that
-    ///         with `Vogue.addLiq` and BTC with the LIBRARY function `addLiqChannel`, which is why
+    ///         with `Quid.addLiq` and BTC with the LIBRARY function `addLiqChannel`, which is why
     ///         the two `levAddNet` bodies could not be one. Same signature, same return shape --
     ///         only the routing differs, and routing is exactly what belongs in the band.
     function addLiq(uint deltaTok, uint price) public onlyUsBtc returns (uint usdOut, uint outDelta) {
-        return BtcVaultLib.addLiqChannel(address(CORE), address(AUX), deltaTok, price);
+        return BtcLib.addLiqChannel(address(CORE), address(AUX), deltaTok, price);
     }
 
     function syncLev(address lp) external nonReentrant {   // §SLOP: one name across both bands
         // Whole body (skip-check + _rebalance-via-repack + fee-settle + FULL-RESYNC:
-        // burn all, re-add gross as two legs) in BtcVaultLib.syncLev (delegatecall)
+        // burn all, re-add gross as two legs) in BtcLib.syncLev (delegatecall)
         // over the Vault's storage via the passed refs (incl. levBufferUsd).
         // Returns (added, burned); the forwarder applies the value-type delta.
-        BtcVaultLib.LevDelta memory d = BtcVaultLib.syncLev(
+        BtcLib.LevDelta memory d = BtcLib.syncLev(
             _btcCfg(), autoManaged[lp], levPooled, levBufferUsd, levBuf,
             lp, LEV_MANAGER, address(QUID));
         lpShares = lpShares + d.addedNet - d.burnedNet;         // NET equity leg
         totalBuffer = totalBuffer + d.bufAdded - d.bufBurned;   // GROSS buffer depth (fee weight)
     }
 
-    /// @notice Live θ for the BTC band (yield/(K·σ²)) at the Vault's CURRENT BTC band ticks. Asks Vogue
-    ///         (the band-θ math home) with the BTC ticks so BtcVaultLib.addLiqChannel can risk-budget the
-    ///         BTC band exactly like the ETH band -- without VaultLib linking VogueLib.
+    /// @notice Live θ for the BTC band (yield/(K·σ²)) at the Vault's CURRENT BTC band ticks. Asks Quid
+    ///         (the band-θ math home) with the BTC ticks so BtcLib.addLiqChannel can risk-budget the
+    ///         BTC band exactly like the ETH band -- without VaultLib linking QuidLib.
     function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both bands
-        return VOGUE.derivedThetaWadAt(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
+        return BAND.derivedThetaWadAt(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib
@@ -561,7 +561,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
         return Types.BandCfg({ core: address(CORE), aux: address(AUX), asset: address(AUX.WBTC()) });
     }
 
-    // Per-channel swap-out PROCEEDS settlement moved into BtcVaultLib.settleDelivered
+    // Per-channel swap-out PROCEEDS settlement moved into BtcLib.settleDelivered
     // (called from resizeBtcLpTail): an on-chain delivery (exactUsd>0) pays the LP
     // exactly the swapper's recorded USD from POOLED_USD + clears pendingSwapOutUsd;
     // a close/withdrawal splice (exactUsd==0) is all native.
@@ -601,7 +601,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
         // MULTI-HOP: LP.pooled includes the LEVERED slice (levPooled), which has NO channel BTC
         // behind it. Channel funding is only the FREE part — the funded/lev prologue, clamp, the
         // _rebalance (via repack self-call) and the settlement/native-lev-burn/finalize tail all live
-        // in BtcVaultLib.resize (delegatecall over the Vault's slots). The guards run BEFORE repack
+        // in BtcLib.resize (delegatecall over the Vault's slots). The guards run BEFORE repack
         // (no rebalance when there's nothing to do); the value-type lpShares + accumulators apply here.
         // DELIVERY-SIDE de-lever: when this native swap-out delivery (exactUsd>0, partial) draws on the LP's
         // LEVERED slice past the free channel band (shrinkSats > funded = pooled − levPooled), de-lever the
@@ -622,7 +622,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
         if (!full && exactUsd > 0 && LEV_MANAGER != address(0))
             delevUsd = SwapLib.deleverOnDelivery(address(CORE), address(AUX), LEV_MANAGER,
                 autoManaged, levPooled, lpEth, shrinkSats, lpPayoutSats, exactUsd);
-        BtcVaultLib.ResizeOut memory o = BtcVaultLib.resize(
+        BtcLib.ResizeOut memory o = BtcLib.resize(
             address(CORE), address(QUID), autoManaged, levPooled, levBuf,
             lpEth, shrinkSats, lpPayoutSats, full, exactUsd - delevUsd);
         // (E145) fees compounded into `pooled` during this resize must be added, or `lpShares`
@@ -648,7 +648,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     }
 
     // ─── Self-managed BTC boundary orders (single-sided, USD-funded) ──────────
-    // The BTC-pool twin of Vogue's ETH `outOfRange`/`pull`: a user places a USD-
+    // The BTC-pool twin of Quid's ETH `outOfRange`/`pull`: a user places a USD-
     // funded single-sided limit order on the USD/WBTC curve that fills as price
     // crosses, exiting via `pullBtc`. Geometry + sizing come from the SAME shared
     // SwapLib LP-engine helpers the ETH path uses (only the pool/ordering differ). USD-
@@ -664,13 +664,13 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     /// @return next   The new position id.
     function outOfRangeBtc(uint amount, address token, int distance, uint range)
         external nonReentrant returns (uint next) {
-        // _rebalance stays in the Vault; the rest is BtcVaultLib.outOfRangeBtc
+        // _rebalance stays in the Vault; the rest is BtcLib.outOfRangeBtc
         // (delegatecall) which writes selfManaged/positions via the passed
         // refs and returns the new id (ID is value-type). A revert rolls back
         // the _rebalance, so validating inside the lib is behavior-identical.
         (uint spotPrice, uint curLo, uint curUp,,) = _rebalance();
-        next = BtcVaultLib.outOfRangeBtc(_btcCfg(), selfManaged, positions,
-            BtcVaultLib.OorArgs({ amount: amount, token: token, distance: distance,
+        next = BtcLib.outOfRangeBtc(_btcCfg(), selfManaged, positions,
+            BtcLib.OorArgs({ amount: amount, token: token, distance: distance,
                 range: range, owner: msg.sender, spotPrice: spotPrice, curLo: curLo,
                 curUp: curUp, idBtc: ID }));
         ID = next;
@@ -687,7 +687,7 @@ contract Vault is Ownable, ReentrancyGuard, BandState {
     ///      delivering LP (no on-chain proceeds are generated by a native burn), so
     ///      it's hop-trusted, not part of the provable proceeds collapse.
     function pullBtc(uint id, int percent, address token) external nonReentrant {
-        // Body in BtcVaultLib.pullBtc (delegatecall); storage refs mutate in place.
+        // Body in BtcLib.pullBtc (delegatecall); storage refs mutate in place.
         BandLib.pull(address(CORE), selfManaged, positions,
             id, percent, token, msg.sender);
     }

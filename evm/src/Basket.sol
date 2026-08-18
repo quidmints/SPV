@@ -31,7 +31,7 @@ contract Basket is ERC20, ERC6909,
     ///         working with zero redundant SSTOREs. #18.
     function target() external view returns (uint) { return seeded; }
     Aux public AUX;
-    address payable public VOGUE;
+    address payable public BAND;
     // ─── Safe/deployer seed commitment: the Foundation (F8N) ANGEL NFT ───
     // The Safe approves the already-deployed Aux for ANGEL (DeployLib, mid-deploy), and Basket's constructor
     // REQUIRES that approval — so Basket can't be born unless the seed is committed (this IS the deployer gate).
@@ -40,7 +40,7 @@ contract Basket is ERC20, ERC6909,
     address constant F8N = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
     uint public constant ANGEL = 16508; // NFT tokenId (public so the deploy reads the same id)
     // `onlyUs` wraps the public `auth` view — the SAME predicate serves both this
-    // modifier and external callers (Aux/Vogue) that check `auth()` directly, so
+    // modifier and external callers (Aux/Quid) that check `auth()` directly, so
     // there is no duplicated inline gate to fold into a private helper.
     modifier onlyUs() {
         if (!auth(msg.sender)) revert Unauthorized(); _;
@@ -55,13 +55,13 @@ contract Basket is ERC20, ERC6909,
         // rotatable forwarder address an (unused) mint capability was an
         // over-privilege; minting is AUX (creditLPForSwap) + V4 (fees) +
         // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's).
-        return (who == address(AUX) || who == VOGUE || who == BTC_VAULT);
+        return (who == address(AUX) || who == BAND || who == BTC_VAULT);
     } // BTC_VAULT is Vault.sol — the BTC-side vault (band + channels). It also HOSTS both
       // LevManagers (ETH LEV_MANAGER + BTC LEV_MANAGER) as a deploy consolidation, but the
-      // ETH band liquidity itself lives in Vogue (V4). The name reflects its primary BTC role.
+      // ETH band liquidity itself lives in Quid (V4). The name reflects its primary BTC role.
 
     /// @notice BtcVault — the regrouped BTC side. Its BTC-LP fee + close-time
-    ///         USD-leg mints (formerly Vogue's) need the same auth Vogue has.
+    ///         USD-leg mints (formerly Quid's) need the same auth Quid has.
     ///         Pinned once.
     address public BTC_VAULT;
     error BtcVaultPinned();
@@ -115,13 +115,13 @@ contract Basket is ERC20, ERC6909,
         return seeded;
     }
 
-    /// @notice Constructor wires Vogue + Aux and REQUIRES the Safe's ANGEL approval to Aux (the seed commitment,
+    /// @notice Constructor wires Quid + Aux and REQUIRES the Safe's ANGEL approval to Aux (the seed commitment,
     ///         made mid-deploy by DeployLib) — so Basket cannot exist unless the seed is committed. Aux burns
     ///         ANGEL and renounces at finalize; Basket is renounced by the Safe there too.
-    constructor(address _vogue, address _aux)
+    constructor(address _band, address _aux)
         ERC20("QU!D", "QUI")
         Ownable(msg.sender) {
-        VOGUE = payable(_vogue);
+        BAND = payable(_band);
         AUX = Aux(payable(_aux));
         _deployed = block.timestamp;
         // The ANGEL commitment: the Safe must have approved Aux for the F8N ANGEL NFT BEFORE Basket is born —
@@ -193,14 +193,14 @@ contract Basket is ERC20, ERC6909,
         uint nextMonth = currentMonth() + 1;
         if (auth(msg.sender)) { // ETH LP swap fee dollar half...
             // protocol-internal mint + Aux.creditLPForSwap for BTC
-            // swap-out reissuance; Vogue for V4 fee distribution.
+            // swap-out reissuance; Quid for V4 fee distribution.
             // The supply cap is the structural defense against a
             // compromised hop signer: even with valid LP+hop
             // signatures, a protocol mint can only credit up to the
             // headroom that prior burns or backing growth opened.
             //
             // Calibration window: cap skipped during first 12 months
-            // from deploy. Otherwise Vogue fee mints during
+            // from deploy. Otherwise Quid fee mints during
             // calibration would clamp to zero whenever seed bonuses
             // have temporarily pushed supply > backing — LPs would
             // lose their earned fees. After calibration, cap is

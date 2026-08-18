@@ -15,7 +15,7 @@ import {AllesFixture} from "./Alles.t.sol";
 ///  (A) redeem fetches the ETH TWAP lazily (try/catch → price=0 ⇒ stables-only).
 ///  (C) getTWAPforAsset RETURNS fresh Chainlink when the internal TWAP is stale
 ///      (>5% off) instead of reverting — callers price against reality.
-///  (B) a permissionless `Vogue.reseat()` MOVES the stale curve spot onto the
+///  (B) a permissionless `Quid.reseat()` MOVES the stale curve spot onto the
 ///      oracle price and re-ranges, so swaps (whose 50bps guard compares the
 ///      curve spot to the oracle) unblock at the real price.
 ///

@@ -7,8 +7,8 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./ILevVenue.sol";
-// §A.52: ONE canonical Vogue view (was two file-local variants, `IVogue_VG` + `IVogueView_VG`).
-import {IVogue} from "./Interfaces.sol";
+// §A.52: ONE canonical Quid view (was two file-local variants, `IQuid_VG` + `IQuidView_VG`).
+import {IQuid} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";
@@ -18,19 +18,19 @@ import {IAux} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 
-// ── Minimal external surfaces the extracted Vogue bodies touch. The library is
-//    DELEGATECALL'd (public fns), so `address(this)` is Vogue: every immutable
-//    Vogue reads (V4/AUX/WETH/QUID/EV) is passed in via a cfg struct or an
+// ── Minimal external surfaces the extracted Quid bodies touch. The library is
+//    DELEGATECALL'd (public fns), so `address(this)` is Quid: every immutable
+//    Quid reads (V4/AUX/WETH/QUID/EV) is passed in via a cfg struct or an
 //    interface handle; reference-type state (LP Deposit + the levPooled/
 //    levBufferUsd/ethfiBacked/aaveBacked mappings) is passed by STORAGE REF so
-//    writes land on Vogue's slots. Value-type state (lpShares) is mutated by
-//    RETURNING the delta, applied by the thin Vogue forwarder. ─────────────────
-/// @title  VogueLib — sizeable Vogue bodies extracted to free bytecode under the
-///         EIP-170 limit. DELEGATECALL'd by Vogue (public fns): inside each,
-///         `address(this)`/`msg.sender`/`msg.value` are Vogue's, so token custody
-///         and external calls leave from Vogue exactly as the former in-Vogue
+//    writes land on Quid's slots. Value-type state (lpShares) is mutated by
+//    RETURNING the delta, applied by the thin Quid forwarder. ─────────────────
+/// @title  QuidLib — sizeable Quid bodies extracted to free bytecode under the
+///         EIP-170 limit. DELEGATECALL'd by Quid (public fns): inside each,
+///         `address(this)`/`msg.sender`/`msg.value` are Quid's, so token custody
+///         and external calls leave from Quid exactly as the former in-Quid
 ///         bodies did. Byte-for-byte semantics; only the home moved.
-library VogueLib {
+library QuidLib {
     uint constant WAD = 1e18;
 
     /// A chosen venue placed 0 — paused / unwired / de-allowlisted. We do NOT silently redirect to a
@@ -42,7 +42,7 @@ library VogueLib {
         placed = IEthVenue(ev).supplyEtherFi(amount);
     }
 
-    // Mirror Vogue's selectors (name-derived) for the delegatecalled bodies.
+    // Mirror Quid's selectors (name-derived) for the delegatecalled bodies.
     error InsufficientBalance();
     error NotOwner();
     error BadPercent();
@@ -50,12 +50,12 @@ library VogueLib {
 
     // ════════════════════════════════════════════════════════════════════
     //  IL-protect: ETH levered band slice (full-2x fee lane). Bodies of
-    //  Vogue._reconcileLev's legs extracted. Reference state passed by storage
+    //  Quid._reconcileLev's legs extracted. Reference state passed by storage
     //  ref; the value-type lpShares delta is returned as (added, burned) and the
-    //  Vogue forwarder applies `lpShares += added - burned`.
+    //  Quid forwarder applies `lpShares += added - burned`.
     // ════════════════════════════════════════════════════════════════════
 
-    /// @dev Vogue immutables the levered-band bodies touch.
+    /// @dev Quid immutables the levered-band bodies touch.
     // §BAND-MERGE — the local `LevCfg`/`LevP` moved to `Types.BandCfg`/`Types.BandP`, shared with the BTC
     // side. They were the same structs; only the asset field's name and `lm` vs `mgr` differed.
 
@@ -71,7 +71,7 @@ library VogueLib {
     ///         NET model: `pooled`/`lpShares` carry ONLY the net-equity leg; the debt-funded
     ///         buffer is depth (fee weight + V4) tracked in `levBuf`/`totalBuffer`. Returns the
     ///         NET lpShares deltas (addedNet, burnedNet) AND the buffer deltas (bufAdded, bufBurned)
-    ///         for the Vogue forwarder to apply (lpShares += addedNet - burnedNet; totalBuffer += ...).
+    ///         for the Quid forwarder to apply (lpShares += addedNet - burnedNet; totalBuffer += ...).
     function reconcileLegs(
         Types.BandCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
@@ -101,10 +101,10 @@ library VogueLib {
     ///      USD = buffer collateral at band price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
 
     // ════════════════════════════════════════════════════════════════════
-    //  ETH-venue deposit routing (body of Vogue._depositETH). DELEGATECALL'd:
-    //  msg.value/address(this) are Vogue's, so the WETH wrap + venue placement
-    //  leave from Vogue. The per-LP wall attribution (ethfiBacked/aaveBacked) is
-    //  written via STORAGE REF. Byte-identical to the former in-Vogue body.
+    //  ETH-venue deposit routing (body of Quid._depositETH). DELEGATECALL'd:
+    //  msg.value/address(this) are Quid's, so the WETH wrap + venue placement
+    //  leave from Quid. The per-LP wall attribution (ethfiBacked/aaveBacked) is
+    //  written via STORAGE REF. Byte-identical to the former in-Quid body.
     // ════════════════════════════════════════════════════════════════════
     function depositETH(
         address weth, address aux, address ev,
@@ -135,10 +135,10 @@ library VogueLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  θ / LVR / realized-vol math (bodies of Vogue._kLvrWad, realizedAlphaWad,
+    //  θ / LVR / realized-vol math (bodies of Quid._kLvrWad, realizedAlphaWad,
     //  realizedVarianceWad, derivedThetaWad). Pure band-geometry + oracle-ring
     //  math extracted for EIP-170 headroom; view fns (no state written), the
-    //  live band ticks arrive as params. Byte-identical to the in-Vogue bodies.
+    //  live band ticks arrive as params. Byte-identical to the in-Quid bodies.
     // ════════════════════════════════════════════════════════════════════
     uint32  constant THETA_STEP = 300;         // 5-min sample window
     // THETA_N (8 windows → a 40-min horizon) DELETED 2026-08-15: zero references anywhere, code or
@@ -257,10 +257,10 @@ library VogueLib {
         // The `theta > 1e18 ? 1e18 : theta` clamp that used to close this function is DELETED — it
         // adds no safety. EVERY consumer already short-circuits at the same threshold:
         // `SwapLib.applyTheta:1299` is `if (thetaEff >= 1e18) return available;` (so 1e18 and 12e18
-        // are byte-identical no-ops), `VogueLib:470` and `BtcVaultLib:136` both document and treat
+        // are byte-identical no-ops), `QuidLib:470` and `BtcLib:136` both document and treat
         // ">= 1e18 ⇒ no-op / fail-open", and the real bound on band depth is the PHYSICAL
         // `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates.
-        // Removing it also makes the external views (`Vogue.derivedThetaWad`,
+        // Removing it also makes the external views (`Quid.derivedThetaWad`,
         // `Vault.derivedThetaWadBtc`) strictly MORE informative: they now report HOW FAR above the
         // no-throttle threshold the band is, instead of flattening everything to exactly 1.0 — which
         // matters more post-#107/D3, since a band earning real premium in a calm tape clears 1e18
@@ -283,8 +283,8 @@ library VogueLib {
     //  addLiq body (in-range pairing sizer). Clamps deltaTok to the three
     //  bounds: SOLVENCY surplus (+BTC policy cap via SwapLib.sizeBySurplus),
     //  PHYSICAL inventory, and the live θ-budget. View-ish (no state written).
-    //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Vogue
-    //  forwarder. Byte-identical to the in-Vogue body.
+    //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Quid
+    //  forwarder. Byte-identical to the in-Quid body.
     // ════════════════════════════════════════════════════════════════════
     function addLiq(address core, address aux, uint deltaTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
@@ -295,19 +295,19 @@ library VogueLib {
             SwapLib.sizeBySurplus(deposits[14], committedBoth, deltaTok, price);
         if (surplus == 0) return (0, 0);
 
-        // ETH: vogueETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
+        // ETH: bandETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
         // BTC: native backing = Core.btcThetaBacking() (lpShares net + totalBuffer gross) -- the SAME
-        // source the LP-add clamp (BtcVaultLib._thetaClampBtc) uses, so this reseat throttles on the real
-        // risk capital and can't collapse the band to ~0. NOT the disjoint WBTC-donation vogueBTC, and NOT
-        // Vogue's ETH `grossBuffer` (wrong asset for a BTC band; btcThetaBacking carries the BTC buffer).
+        // source the LP-add clamp (BtcLib._thetaClampBtc) uses, so this reseat throttles on the real
+        // risk capital and can't collapse the band to ~0. NOT the disjoint WBTC-donation bandBTC, and NOT
+        // Quid's ETH `grossBuffer` (wrong asset for a BTC band; btcThetaBacking carries the BTC buffer).
         // ONE principle (SwapLib.clampByBacking): physical backing HEADROOM (backing − pooled) AND the theta
         // risk-budget (θ·backing − pooled) — shared verbatim with the BTC LP-add clamp
-        // (BtcVaultLib._thetaClampBtc). `backing` = the IL-bearing capital (ETH: vogueETH venue principal +
-        // gross buffer; BTC: Core.btcThetaBacking = lpShares + gross buffer). vogueAvail/pooled inlined into
+        // (BtcLib._thetaClampBtc). `backing` = the IL-bearing capital (ETH: bandETH venue principal +
+        // gross buffer; BTC: Core.btcThetaBacking = lpShares + gross buffer). bandAvail/pooled inlined into
         // the call to keep this frame off the legacy-pipeline stack (no via-IR).
         uint capped = SwapLib.clampByBacking(
             _liveTheta(),
-            IAux(aux).vogueETH() + grossBuffer,   // §ISBTC-SPLIT: only caller passed isBTC=false, so the BTC arm was unreachable
+            IAux(aux).bandETH() + grossBuffer,   // §ISBTC-SPLIT: only caller passed isBTC=false, so the BTC arm was unreachable
             ICore(core).POOLED(),
             deltaTok);
         if (capped < deltaTok) {
@@ -320,18 +320,18 @@ library VogueLib {
     }
 
     /// @dev addLiq's live θ: derivedThetaWad, fail-OPEN (θ=1) when the oracle ring
-    ///      is too thin to measure vol. Self-call to Vogue's forwarder (delegatecall
-    ///      context: address(this) == Vogue).
+    ///      is too thin to measure vol. Self-call to Quid's forwarder (delegatecall
+    ///      context: address(this) == Quid).
     function _liveTheta() private view returns (uint) {   // §ISBTC-SPLIT: the parameter was never read
-        try IVogue(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
+        try IQuid(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
         catch { return 1e18; }
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  Body of Vogue._rebalance (ETH side) — the fee/yield HARVEST cluster
+    //  Body of Quid._rebalance (ETH side) — the fee/yield HARVEST cluster
     //  (_syncYield + SwapLib.rebalanceCore + _calcYield/_distributeV4Fees).
     //  Mutates ONLY value-type accumulators (no per-LP Deposit / lpShares /
-    //  pooled / native-ETH), returned as INCREMENTS/flags the thin Vogue
+    //  pooled / native-ETH), returned as INCREMENTS/flags the thin Quid
     //  forwarder applies — so `_rebalance()`'s callers are byte-unchanged.
     //  The dead `_calcYield` yield return (discarded in _rebalance) is dropped.
     // ════════════════════════════════════════════════════════════════════
@@ -346,10 +346,10 @@ library VogueLib {
         bool setLastRepack; bool reseatBump;
     }
 
-    /// @dev Plain-venue ETH balance = vogueETH − lev net-equity (replica of Vogue._venueBalance; that one STAYS in
-    ///      Vogue for its _withdraw/_depositImpl callers). No-op subtraction when no leverage.
+    /// @dev Plain-venue ETH balance = bandETH − lev net-equity (replica of Quid._venueBalance; that one STAYS in
+    ///      Quid for its _withdraw/_depositImpl callers). No-op subtraction when no leverage.
     function _venueBalanceLib(address ev, address aux) internal returns (uint total) {
-        total = IEthVenue(ev).vogueOp(0, 2);
+        total = IEthVenue(ev).bandOp(0, 2);
         address lm = levManager(aux);
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
@@ -391,7 +391,7 @@ library VogueLib {
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
     }
 
-    /// @dev Replica of Vogue._refreshBookmarks (that one STAYS in Vogue for its many other callers): rebaseline
+    /// @dev Replica of Quid._refreshBookmarks (that one STAYS in Quid for its many other callers): rebaseline
     ///      `user`'s TRADING-fee bookmark against gross weight (pooled + levBuf) and the VENUE-yield bookmark
     ///      (venueBm) against PLAIN weight. Byte-identical arithmetic.
     function _refreshBookmarksLib(
@@ -408,11 +408,11 @@ library VogueLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  Body of Vogue._transferShares — VERBATIM relocation. Settles BOTH
+    //  Body of Quid._transferShares — VERBATIM relocation. Settles BOTH
     //  parties' pending rewards (compound ETH → pooled/lpShares, accrue USD →
     //  usd_owed) BEFORE moving principal, so the moved pooled carries no
     //  past-reward claim. The value-type `lpShares` growth is returned as a
-    //  delta the Vogue forwarder applies; the Transfer event stays in Vogue.
+    //  delta the Quid forwarder applies; the Transfer event stays in Quid.
     //  `pendingRewards` is reached via a self-STATICCALL (public view — same
     //  storage, no reentrancy); the small _refreshBookmarks is replicated above.
     // ════════════════════════════════════════════════════════════════════
@@ -436,14 +436,14 @@ library VogueLib {
 
         // Settle pending rewards for `from` — ETH compounds into pooled (grows lpShares), USD accrues to usd_owed.
         if (L.pooled > 0) {
-            (uint ethReward, uint usdReward) = IVogue(address(this)).pendingRewards(from);
+            (uint ethReward, uint usdReward) = IQuid(address(this)).pendingRewards(from);
             if (ethReward > 0) { L.pooled += ethReward; lpSharesDelta += ethReward; }
             if (usdReward > 0) L.usd_owed += usdReward;
         }
         // Settle pending rewards for `to` (if they have a position).
         Types.Deposit storage R = autoManaged[to];
         if (R.pooled > 0) {
-            (uint ethReward, uint usdReward) = IVogue(address(this)).pendingRewards(to);
+            (uint ethReward, uint usdReward) = IQuid(address(this)).pendingRewards(to);
             if (ethReward > 0) { R.pooled += ethReward; lpSharesDelta += ethReward; }
             if (usdReward > 0) R.usd_owed += usdReward;
         }
@@ -455,18 +455,18 @@ library VogueLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  Body of Vogue.pull — reduce/close a self-managed boundary order. VERBATIM
+    //  Body of Quid.pull — reduce/close a self-managed boundary order. VERBATIM
     //  relocation: owner + maturity + percent guards, liquidity slice, the
     //  full-close array swap-pop cleanup, and the V4.outOfRange burn. Storage
     //  refs (selfManaged/positions) mutate in place; the nonReentrant guard stays
-    //  in the Vogue forwarder. `owner` = msg.sender (preserved through delegatecall).
+    //  in the Quid forwarder. `owner` = msg.sender (preserved through delegatecall).
     // ════════════════════════════════════════════════════════════════════
 
     // ════════════════════════════════════════════════════════════════════
-    //  Self-managed boundary-order sizing (body of Vogue._sizeOutOfRange):
+    //  Self-managed boundary-order sizing (body of Quid._sizeOutOfRange):
     //  deposit the position's backing (ETH at the chosen venue, or a stable via
     //  AUX) and size the single-sided liquidity. pledge==0 -> no wall attribution.
-    //  Ticks bundled to keep the Vogue forwarder off the legacy stack.
+    //  Ticks bundled to keep the Quid forwarder off the legacy stack.
     // ════════════════════════════════════════════════════════════════════
     // §A.54: `OorTicks` was byte-identical to `SwapLib.Oor` — same four fields, same order, same
     // types — i.e. one concept under two names. Collapsed onto `SwapLib.Oor`, which is the better home:
@@ -478,7 +478,7 @@ library VogueLib {
         uint amount, address token, SwapLib.Oor memory t
     ) public returns (uint liquidity, uint placed) {
         // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
-        // path (`BtcVaultLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
+        // path (`BtcLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
         // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
         // depositing the ASSET places the order on the opposite side of spot from depositing USD.
         // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
@@ -499,11 +499,11 @@ library VogueLib {
         placed = amount;
     }
 
-    /// @dev DEPLOY-TIME ONLY — the body of `Vogue.setup`, moved here for the same
+    /// @dev DEPLOY-TIME ONLY — the body of `Quid.setup`, moved here for the same
     ///      reason `Core.setup`'s body moved to OracleLib (E32): one-shot wiring was
-    ///      billing Vogue's RUNTIME bytes against a hard EIP-170 deficit. Vogue keeps
+    ///      billing Quid's RUNTIME bytes against a hard EIP-170 deficit. Quid keeps
     ///      what cannot leave: the `onlyOwner` gate, the AlreadyInitialized guard,
-    ///      `renounceOwnership()` (Ownable's slot is Vogue's), the QUID back-pin check,
+    ///      `renounceOwnership()` (Ownable's slot is Quid's), the QUID back-pin check,
     ///      and the assignments of the value-type state this returns.
     function setupBody(address _aux, address _core)
         external returns (address weth, uint lower, uint upper) {
@@ -513,7 +513,7 @@ library VogueLib {
         (lower, upper) = SwapLib.updateBounds(spotPrice, SwapLib.BAND_DELTA);
     }
 
-    /// @dev Vogue's ETH delivery ladder, moved here for EIP-170 (E32). Native balance
+    /// @dev Quid's ETH delivery ladder, moved here for EIP-170 (E32). Native balance
     ///      first, then this contract's WETH, then a venue pull, then — only if the
     ///      venue base is exhausted while POOLED priced the swap against the
     ///      LEVERED slice too — de-lever the levered book with the delivery's OWN
@@ -531,7 +531,7 @@ library VogueLib {
         else { uint needed = howMuch - alreadyInETH;
             uint inWETH = IWETH9(weth).balanceOf(address(this));
             if (needed > inWETH) {
-                inWETH += IEthVenue(ev).vogueOp(needed - inWETH, 1);
+                inWETH += IEthVenue(ev).bandOp(needed - inWETH, 1);
                 if (inWETH < needed) {
                     address mgr = ILevHost(ev).LEV_MANAGER();
                     if (mgr != address(0)) {

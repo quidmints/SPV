@@ -36,8 +36,8 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  The EVM's only role is to BRIDGE the channel to the BTC AMM position:
 //    • openChannel  — SPV-prove the key-path P2TR funding UTXO `0x5120||Q`
 //                     exists at value `amountSats`, then credit the LP's BTC pool
-//                     position (BtcVault.requestDeposit — NOT Vogue; the BTC side
-//                     was regrouped out of Vogue + Aux, see the bridge interface
+//                     position (BtcVault.requestDeposit — NOT Quid; the BTC side
+//                     was regrouped out of Quid + Aux, see the bridge interface
 //                     below. Also note `requestDeposit` is NOT open-only: a GROW
 //                     splice calls it again to add liquidity). The funding output is
 //                     byte-matched against the lpAuth-committed Q + value against
@@ -105,7 +105,7 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 // ═══════════════════════════════════════════════════════════════════════
 
 /// @notice The bridge into the BTC pool position — now BtcVault (the BTC side
-///         was regrouped out of Vogue + Aux). requestDeposit / requestRedeem /
+///         was regrouped out of Quid + Aux). requestDeposit / requestRedeem /
 ///         resize are gated `onlyBtcChannels` and creditSwapIn /
 ///         creditSwapOut `onlyBTCChannels` on BtcVault (msg.sender == its pinned
 ///         btcChannels), so only this contract can drive them.
@@ -138,7 +138,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // ─── State ─────────────────────────────────────────────────────────
     ISPVGateway     public immutable spv;
     // BtcVault — the regrouped BTC side (LP register/close + swap credit), bound in the
-    // constructor. (E150: the legacy `(_aux, _vogue)` pair and `_hopNode` are gone.)
+    // constructor. (E150: the legacy `(_aux, _band)` pair and `_hopNode` are gone.)
     IBtcVaultBridge public immutable btcVault;
     // 🔴 OBITUARY, NOT A DESCRIPTION — REWRITTEN 2026-08-16. This block used to read "MULTI-HOP:
     // there is NO single global `hopNode`. Each channel records the hop (EVM address) that opened
@@ -531,7 +531,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      check was INLINED at all EIGHT of its use sites; `_onlyHop`'s note directly below
     ///      records the same conversion measured at **+968 bytes for six uses**, and `BTCChannels`
     ///      had **138 bytes of margin** when this was measured (2026-08-17), having overtaken
-    ///      `Vogue` as the binding contract. One routine plus eight JUMPs paid for the mandatory
+    ///      `Quid` as the binding contract. One routine plus eight JUMPs paid for the mandatory
     ///      splice/rekey re-arming instead of blocking it.
     ///      ⚠️ CALL IT AS THE FIRST STATEMENT OF THE BODY. As a modifier it ran BEFORE everything
     ///      including `_onlyHop()`, so which revert a caller sees is part of the observed behaviour
@@ -604,7 +604,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         return _outpointKey(ch.fundingTxId, ch.fundingVout);
     }
 
-    /// @param lpPayoutSats the BTC the LP took in the close tx — Vogue uses
+    /// @param lpPayoutSats the BTC the LP took in the close tx — Quid uses
     ///        `delivered = funded − lpPayout` as the deferred swap-out USD claim.
     function _finalizeClose(bytes32 channelId, uint lpPayoutSats)
         internal returns (uint totalSats) {
@@ -689,11 +689,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// @param _btcVault the merged BtcVault — LP register/close + swap credit.
     /// @dev (E150) THIS TOOK FOUR PARAMS AND NEEDED TWO. Removed: `_hopNode`, read NOWHERE —
     ///      the body carried `_hopNode;` purely to silence the unused-param warning, a
-    ///      statement whose only job was to hide a dead parameter — and the `_aux`/`_vogue`
+    ///      statement whose only job was to hide a dead parameter — and the `_aux`/`_band`
     ///      PAIR, which both designated the SAME vault via
-    ///      `_vogue != address(0) ? _vogue : _aux`, a shim for two calling conventions left
+    ///      `_band != address(0) ? _band : _aux`, a shim for two calling conventions left
     ///      from when the BTC side was split. **All 18 construction sites passed a non-zero
-    ///      `_vogue`, so the `_aux` fallback was never once exercised**, and the compatibility
+    ///      `_band`, so the `_aux` fallback was never once exercised**, and the compatibility
     ///      it preserved was with callers we control — none external, none in `quid-ln`.
     constructor(address _spv, address _btcVault, address _mainHop, address _fallbackHop,
                 bytes32 _btcDepositKey)

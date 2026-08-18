@@ -50,7 +50,7 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     "commitManagerFreshness(uint64)",
     // --- SPV gateway ---
     "addBlockHeaderBatch(bytes[])",
-    // --- ETH leverage keeper (LevManager / Vogue / Rover) ---
+    // --- ETH leverage keeper (LevManager / Quid / Rover) ---
     "rebalance(address,uint256)",
     "syncLev(address)",
     "protectFromQuid(address,uint256)",

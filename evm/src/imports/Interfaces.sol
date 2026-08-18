@@ -65,12 +65,12 @@ interface IWeETH {
 
 
 
-/// Canonical Vogue view — union of the former per-file variants (`VogueLib::IVogue_VG` +
-/// `IVogueView_VG`), which split ONE contract's surface across two declarations so a signature
+/// Canonical Quid view — union of the former per-file variants (`QuidLib::IQuid_VG` +
+/// `IQuidView_VG`), which split ONE contract's surface across two declarations so a signature
 /// change had to be made twice and a missed one still compiled.
-interface IVogue {
+interface IQuid {
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
-    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IVogueUnwind                              // E21: was BasketLib.IWiredVogue
+    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IQuidUnwind                              // E21: was BasketLib.IWiredQuid
     function derivedThetaWad() external view returns (uint);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
 }
@@ -212,7 +212,7 @@ interface ILevEquity {
     function totalDebtUsd() external view returns (uint256);          // §E21: was Core.ILevDebtTotal
 }
 
-/// §E21: was `Vogue.ILevClose`. Kept as its own interface rather than folded into
+/// §E21: was `Quid.ILevClose`. Kept as its own interface rather than folded into
 /// `ILevEquity` -- that one is a VIEW surface and this is a mutator.
 interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
@@ -234,10 +234,10 @@ interface ILevSyncHook {
     function soldFractionWad(uint entryPrice) external view returns (uint256);
     function bandPrice() external view returns (uint);
     // Band bounds. These replace the former `reseatEpoch()` counter as the re-anchor signal: the counter and
-    // the ticks are written in the same statement pair (Vogue:1137-1138, Vault:711-712), so the bounds carry
+    // the ticks are written in the same statement pair (Quid:1137-1138, Vault:711-712), so the bounds carry
     // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
     // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
-    // state (Vogue:92-93, Vault:214-215); no new contract code implements them.
+    // state (Quid:92-93, Vault:214-215); no new contract code implements them.
     /// §ONE-ANCHOR — was `LOWER_PRICE()` + `UPPER_PRICE()`. One call returns the pair, derived from
     /// the single stored anchor, so a reader cannot obtain one leg without the other.
     function bandBounds() external view returns (uint lo, uint hi);
@@ -303,7 +303,7 @@ interface IAux {
     function get_metrics(bool force) external returns (uint total, uint avgYield);
     function get_metricsWith(uint raw, uint rateWeighted) external returns (uint total, uint avgYield);
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
-    function vogueETH() external view returns (uint);
+    function bandETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
     function getStables() external view returns (address[] memory);
@@ -335,7 +335,7 @@ interface IAux {
     function flagIlliquidSelf(address vault, bool illiquid) external;
     function _depositVol(address asset, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
-    function bumpVogueBTC(uint amount) external;
+    function bumpQuidBTC(uint amount) external;
     function resolvedTwap(address asset, uint32 period) external view returns (uint price, bool stale);
     function vaultHealth(address) external view returns (bool blocked, uint40 flaggedAt);
     function trancheTotal() external view returns (uint);
@@ -406,17 +406,17 @@ interface ICore {
 }
 
 /// Canonical IEthVenue — the WHOLE external surface of `Vault`, not just its ETH-venue half.
-/// Union of IEthVenue, IEthVenue_VG, IEthVenueCL and (2026-07) `IVaultCtx_V` (BtcVaultLib's
+/// Union of IEthVenue, IEthVenue_VG, IEthVenueCL and (2026-07) `IVaultCtx_V` (BtcLib's
 /// self-callback surface). The name is historical — `Vault` is the merged EthVenue+BtcVault, so
 /// the BTC-band reads below live on the same address; it is NOT renamed to `IVault` only because
-/// five consumers (Vogue, Aux, BasketLib, ChannelLib, VogueLib) would have to move with it.
+/// five consumers (Quid, Aux, BasketLib, ChannelLib, QuidLib) would have to move with it.
 ///
 /// WHY the BTC members belong here: the second declaration could not drift-detect. `IVaultCtx_V`
 /// named Vault's own functions, so a return-shape change in Vault.sol would compile clean and
 /// mis-decode at runtime in the delegatecalled library instead of failing the build.
 /// Canonical view — union of the former per-file variants (`IEthVenueV`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
-/// @notice The BAND MANAGER surface — implemented by BOTH `Vogue` (ETH) and `Vault` (BTC), which is why
+/// @notice The BAND MANAGER surface — implemented by BOTH `Quid` (ETH) and `Vault` (BTC), which is why
 ///         every dispatch site already casts both to ONE type: `IBandManager(v4).repack(false)` vs
 ///         `IBandManager(btcVault).repack(true)`. Callers therefore do NOT block the one-band-manager
 ///         merge; they already treat the two as a single type.
@@ -444,11 +444,11 @@ interface IBandManager {
 ///         already speak this interface at an `ethVenue` pointer, that extraction repoints a pointer
 ///         instead of re-typing every site.
 interface IEthVenue {
-    function vogueETH() external view returns (uint);
+    function bandETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
-    function vogueOp(uint amount, uint8 op) external returns (uint);
+    function bandOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
 }
@@ -456,7 +456,7 @@ interface IEthVenue {
 /// Canonical IAux — union of IAux, IAux.
 
 /// @notice §E5 — the per-band sink that routes a retained scarcity premium into that band's LP
-///         fee accumulator. Implemented by BOTH `Vogue` (ETH) and `Vault` (BTC) under the SAME
+///         fee accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME
 ///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
 /// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
 interface IBTCChannels { function btcRecipientOf(address user) external view returns (bytes32); }

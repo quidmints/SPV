@@ -62,9 +62,9 @@ library VaultLib {
     // ── Venue valuation ───────────────────────────────────────────────────
 
 
-    /// @dev Body of Vault.vogueETH — AGGREGATE ETH-equivalent backing across the
+    /// @dev Body of Vault.bandETH — AGGREGATE ETH-equivalent backing across the
     ///      depositor-chosen venues.
-    function _vogueETH(EthCfg memory c) internal view returns (uint total) {
+    function _bandETH(EthCfg memory c) internal view returns (uint total) {
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
@@ -89,9 +89,9 @@ library VaultLib {
         }
     }
 
-    /// @notice Body of Vault.vogueETH.
-    function vogueETH(EthCfg memory c) public view returns (uint) {
-        return _vogueETH(c);
+    /// @notice Body of Vault.bandETH.
+    function bandETH(EthCfg memory c) public view returns (uint) {
+        return _bandETH(c);
     }
 
 
@@ -107,7 +107,7 @@ library VaultLib {
     ///
     ///         WHY THAT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery. Its two
     ///         consumers both tolerate over-statement:
-    ///           • `Vogue` uses it ONLY to cap `firstBurn`, i.e. how much of a withdrawal is sourced
+    ///           • `Quid` uses it ONLY to cap `firstBurn`, i.e. how much of a withdrawal is sourced
     ///             from the in-range band burn before the venue ladder takes the remainder. The
     ///             shortfall is then derived from the ACTUAL `sent`, never from this number, so an
     ///             over-statement shifts the sourcing ORDER and self-corrects.
@@ -173,7 +173,7 @@ library VaultLib {
     ///      which is a different quantity. Conflating the two is what made an earlier attempt argue this
     ///      bound away as unnecessary.
     ///      ⚠️ MEASURED BOTH WAYS. Removing it does not merely under-report: the `amount > 0` fallback in
-    ///      `Vogue`'s exit then OVER-delivers against backing the offramp cannot source, so nothing
+    ///      `Quid`'s exit then OVER-delivers against backing the offramp cannot source, so nothing
     ///      defers and both test_RunSim_B_LiquidityRace_* fail "deferral recovers: 0 <= 0" -- there is
     ///      no deferral left to recover. It replaces the three per-venue `_deliverableCap` bounds that
     ///      went with the ETH venues, and serves the same purpose: virtual burn == real delivery.
@@ -184,11 +184,11 @@ library VaultLib {
     ///      the value is SLOWER, never stuck. A cap here would model an unreachable state that cannot
     ///      occur, and would understate backing on every read.
     function deliverableETH(EthCfg memory c) public view returns (uint total) {
-        total = _vogueETH(c);
+        total = _bandETH(c);
         // WEETH IS ONLY DELIVERABLE TO THE EXTENT CURVE CAN PAY FOR IT.
         // RE-DERIVED 2026-08-13, replacing the three `_deliverableCap` venue caps removed with the ETH
         // venues. Those caps were what made an undeliverable slice DEFER; deleting them without a
-        // replacement left `_vogueETH` counting weETH at full oracle value while the exit can realise at
+        // replacement left `_bandETH` counting weETH at full oracle value while the exit can realise at
         // most the pool's WETH, so delivery was overstated and the deferral machinery never engaged.
         // (Measured: that regression broke test_SETTLE_LvrResidualIsDeferralNotLeak,
         // test_RunSim_B_LiquidityRace_* and testRT_DeliveredPlusRetainedEqualsPrincipal, all of which
@@ -202,9 +202,9 @@ library VaultLib {
                 if (weethEth > payable_) total -= (weethEth - payable_);          // the surplus DEFERS
             }
         }
-        // The leverage net-equity is solvency backing (now counted in vogueETH as net) but NOT deliverable
+        // The leverage net-equity is solvency backing (now counted in bandETH as net) but NOT deliverable
         // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
-        // not from redemption). Exclude the same net-equity term vogueETH added, so deliverableETH == base
+        // not from redemption). Exclude the same net-equity term bandETH added, so deliverableETH == base
         // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
         if (c.levManager != address(0)) {
             try ILevEquity(c.levManager).totalNetEquity() returns (uint n) {
@@ -220,7 +220,7 @@ library VaultLib {
 
 
     /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
-    ///         Vault forwarders keep ONLY their `NotVogueCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
+    ///         Vault forwarders keep ONLY their `NotQuidCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
     ///         Vault). `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
     ///         `supplyFromAux`).
     /// @dev THE `kind` SELECTOR IS GONE (2026-08-13). It was already ignored — every value routed to the
@@ -257,7 +257,7 @@ library VaultLib {
         if (amount == 0) return 0;
         require(token == c.weth, "ethv:notWeth");
         // Sweep any idle WETH from Aux into the Vault first (Aux approved the Vault),
-        // preserving the idle-first ladder (vogueETH counts Aux idle as backing).
+        // preserving the idle-first ladder (bandETH counts Aux idle as backing).
         uint auxIdle = IERC20(c.weth).balanceOf(c.aux);
         if (auxIdle > 0) {
             try IERC20(c.weth).transferFrom(c.aux, address(this), auxIdle) {} catch {}
@@ -301,7 +301,7 @@ library VaultLib {
         uint bal = IERC20(c.weeth).balanceOf(address(this));
         if (weethIn > bal) weethIn = bal;
         // CAPACITY — shrink to what the pool can actually pay. This MUST happen before `covered` is
-        // derived: `covered` is returned as the amount SERVED, and `Vogue` burns it and decrements
+        // derived: `covered` is returned as the amount SERVED, and `Quid` burns it and decrements
         // `LP.pooled` by it. Shrinking inside `curveSellWeeth` instead would leave `covered` reflecting
         // the pre-shrink size, so the offramp would report serving more than it sold — a silent
         // over-credit on the exit path. Same arithmetic, wrong place, money-path defect.

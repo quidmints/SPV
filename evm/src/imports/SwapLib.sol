@@ -36,10 +36,10 @@ import {IAggregatorV3} from "./Interfaces.sol";
 /// Chainlink-style USD feed — the external anchor for the TWAP cross-check.
 
 
-/// @notice V4 (Vogue) repack. 5th return = the resolved oracle price (Chainlink-when-stale, else internal
+/// @notice V4 (Quid) repack. 5th return = the resolved oracle price (Chainlink-when-stale, else internal
 ///         TWAP) computed during the repack-first; the swap reuses it as v4Price so it doesn't read the
 ///         internal `observe` ring a 2nd time. 0 ⇒ live-read fallback. (Was two identical decls
-///         IVogueRepack2/IVogueRepackRet — now collapsed onto the CANONICAL `IEthVenue.repack`
+///         IQuidRepack2/IQuidRepackRet — now collapsed onto the CANONICAL `IEthVenue.repack`
 ///         in `Interfaces.sol` (rule 2), which already declared this exact signature.)
 
 /// @title  SwapLib — non-V4-callback bodies extracted from Aux to free
@@ -141,7 +141,7 @@ library SwapLib {
     error UnknownStableSweep();
     error BadOp();          // takeOrRead op ∉ {0,1,2} (custom error — no string-revert bytecode, EIP-170)
     /// @notice Body of Aux.sweep (delegatecall, address(this)==Aux).
-    /// Returns (vbtcDelta, swept): caller adds vbtcDelta to vogueBTC and
+    /// Returns (vbtcDelta, swept): caller adds vbtcDelta to bandBTC and
     /// emits Swept(token, swept).
     function sweepBody(address token, address weth, address wbtc, address gho, address usdg)
         external returns (uint vbtcDelta, uint swept) {
@@ -154,7 +154,7 @@ library SwapLib {
         }
         if (token == wbtc) {
             swept = IERC20(wbtc).balanceOf(address(this));
-            return (swept, swept); // caller adds to vogueBTC inventory
+            return (swept, swept); // caller adds to bandBTC inventory
         }
         if (token == weth || IAux(address(this)).toIndex(token) != 0
             || token == gho || token == usdg) {
@@ -226,34 +226,34 @@ library SwapLib {
         return BasketLib.scaleTokenAmount(usdOut, tokenOut, false);
     }
 
-    /// @notice Body of Aux.vogueOp. Wrapper enforces `msg.sender == V4`
+    /// @notice Body of Aux.bandOp. Wrapper enforces `msg.sender == V4`
     ///         BEFORE delegating; library trusts that gate. State
     ///         mutations route via supplySelf / withdrawSelf (self-gated).
     ///
     ///         The `weth` / `wbtc` immutables come from Aux's storage; we
     ///         pass them as args rather than re-fetching to avoid extra
-    ///         external calls back. `vogueBTC` and `_vogueETHPrincipal`
-    ///         are touched ONLY indirectly: vogueBTC via Aux's storage
+    ///         external calls back. `bandBTC` and `_bandETHPrincipal`
+    ///         are touched ONLY indirectly: bandBTC via Aux's storage
     ///         pointer (passed by ref), principal via supplySelf's
     ///         internal _supply which updates it.
-    /// @notice ETH-side Vogue↔Vault op body. The BTC ops that once shared this
+    /// @notice ETH-side Quid↔Vault op body. The BTC ops that once shared this
     ///         entry (op==1 native/Lightning out, op==3 WBTC ERC20 delivery, and
     ///         the isBTC branches of op 0/2) were DEAD — every caller passes
-    ///         isBTC=false and vogueBTCNow=0 (Vogue routes BTC through BTCChannels,
+    ///         isBTC=false and bandBTCNow=0 (Quid routes BTC through BTCChannels,
     ///         not here). Removed along with the now-redundant result struct and
-    ///         the isBTC/wbtc/ctx/vogueBTCNow params. op 0=deposit, 1=take, 2=read.
-    function vogueOpBody(uint amount, uint8 op, WETH9 weth, uint vogueETHLive)
+    ///         the isBTC/wbtc/ctx/bandBTCNow params. op 0=deposit, 1=take, 2=read.
+    function bandOpBody(uint amount, uint8 op, WETH9 weth, uint bandETHLive)
         external returns (uint sent) {
         IAux aux = IAux(address(this));
-        // op == 1: take ETH, capped at the live vogueETH claim.
+        // op == 1: take ETH, capped at the live bandETH claim.
         if (op == 1) {
-            amount = Math.min(amount, vogueETHLive);
+            amount = Math.min(amount, bandETHLive);
             sent = aux.withdrawSelf(address(weth), amount, address(this));
             weth.transfer(msg.sender, sent);
             return sent;
         }
         // op == 2: read current ETH claim.
-        if (op == 2) return vogueETHLive;
+        if (op == 2) return bandETHLive;
         revert BadOp();
     }
 
@@ -313,7 +313,7 @@ library SwapLib {
 
     /// @notice Body of Aux.swapTo — delegatecall'd (address(this)==Aux), so the
     ///         IAux callbacks (deposit/_depositVol/_tipSelf/withdrawSelf/
-    ///         get_deposits/getTWAPforAsset/tokens/toIndex/bumpVogueBTC) and the
+    ///         get_deposits/getTWAPforAsset/tokens/toIndex/bumpQuidBTC) and the
     ///         `stables`/`tranche` reads all resolve to Aux's own storage.
     ///         Verbatim of the prior in-place swapTo body; only the home moved.
     ///         The wrapper (Aux.swapTo) holds the nonReentrant lock + msg.value.
@@ -406,8 +406,8 @@ library SwapLib {
             //       nor the target bound value;
             //   (2) place+unwind-in-ONE-tx is INCOMPATIBLE with the existing outOfRange/pull
             //       primitive — pull() enforces `block.number >= created + 47`, so an outOfRange
-            //       position cannot be unwound in the same block (Vogue.sol pull());
-            //   (3) this body runs DELEGATECALL'd in Aux context; a mid-swap re-entry into Vogue's
+            //       position cannot be unwound in the same block (Quid.sol pull());
+            //   (3) this body runs DELEGATECALL'd in Aux context; a mid-swap re-entry into Quid's
             //       onlyUs addLiq/unwindForRedeem on the SHARED band needs its reentrancy + price-
             //       impact interaction with the V4 unlock callback worked out.
             // SYMMETRIC A-S skew (its own frame ⇒ no via_ir): a sell that pushes the pool's
@@ -447,7 +447,7 @@ library SwapLib {
         max = _finishSwap(ctx, aux, r, r.forVolatile, max, v4p);
     }
 
-    /// @dev routeSwap (8-field RouteParams build) + bumpVogueBTC + slippage guard
+    /// @dev routeSwap (8-field RouteParams build) + bumpQuidBTC + slippage guard
     ///      in its own frame so swapToBody stays within the legacy stack — no
     ///      via_ir crutch.
     /// @dev Pack the band's tick range into one word. Two int24 function-scope locals are
@@ -471,7 +471,7 @@ library SwapLib {
         }));
         // §ISBTC-SPLIT: derived, not threaded -- `ctx.nativeWETH` IS `!isBTC` (set at the call
         // site above), so the frame already carried the answer and the parameter was a second copy.
-        if (poolSupplied > 0 && !ctx.nativeWETH) aux.bumpVogueBTC(poolSupplied);
+        if (poolSupplied > 0 && !ctx.nativeWETH) aux.bumpQuidBTC(poolSupplied);
         // a dry volatile pool delivers max==0; with minOut==0 the
         // `max < minOut` guard wouldn't fire and the already-consumed input
         // (burned QUID / supplied stable) would strand with nothing out. Revert
@@ -608,7 +608,7 @@ library SwapLib {
 
     /// @notice Body of Aux.creditSwapIn — settle a BTC→USD swap-IN. See Aux's
     ///         wrapper docblock for the full semantics.
-    /// @param bandVault THE BTC VAULT, not Vogue. It was named `v4` — which means Vogue/ETH everywhere
+    /// @param bandVault THE BTC VAULT, not Quid. It was named `v4` — which means Quid/ETH everywhere
 ///        else — while `Vault.creditSwapIn` passes `address(this)`. That is why `repack(true)` below
 ///        is CORRECT and must not be "fixed" to false during the isBTC fold.
     function creditSwapInBody(address seller, uint sats, address token, uint minDeliveredUsd,
@@ -734,7 +734,7 @@ library SwapLib {
     /// half a drain 1.05 bps, and a band that was never funded owes nothing at all.
     uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm — see imbalanceFeeUsd6
     // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized
-    // variance in WAD (VogueLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
+    // variance in WAD (QuidLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
     // fraction² scaled 1e18; e.g. 80%-annualized vol ⇒ σ²≈0.64 ⇒ ~6.4e17). SIGMA_REF is
     // the REFERENCE variance = 1e18 (variance 1.0 = 100% annualized vol) at which full
     // scarcity saturates the cap — picking the per-interval-scale 1e16 instead would peg
@@ -749,7 +749,7 @@ library SwapLib {
     // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
     // Volatile band half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
-    // THIN band (±0.2%). Vogue SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
+    // THIN band (±0.2%). Quid SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
     // static position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
     // reverts. 0.2% is the thinnest that keeps the reseat re-add non-degenerate while staying maximally thin
     // (near-zero natural slippage, whale-friendly). Frequent repacks are covered by repack-first (swapper-paid)
@@ -1512,10 +1512,10 @@ library SwapLib {
     // ════════════════════════════════════════════════════════════════════
     // LP ENGINE — the shared masterchef LP engine for both vaults, folded in
     // from the former imports/LpEngine.sol (an internal-only library). Its
-    // callers (Vault, Vogue) already import SwapLib, so this adds no new
+    // callers (Vault, Quid) already import SwapLib, so this adds no new
     // deployed-library dependency; and SwapLib's own external functions never
     // call these, so they are NOT included in SwapLib's deployed bytecode —
-    // they inline into Vault/Vogue exactly as they did from LpEngine. Vogue
+    // they inline into Vault/Quid exactly as they did from LpEngine. Quid
     // (ETH side) and Vault (BTC side) once carried verbatim copies of this
     // logic; this is the ONE engine, parameterized by `isBTC`.
     //
@@ -1656,11 +1656,11 @@ library SwapLib {
     }
 
     /// @notice §M.1 ETH swap-out DELIVERY-SIDE de-lever ORCHESTRATOR (aggregate; the ETH mirror of BTC
-    ///   `deleverOnDelivery`). DELEGATECALL'd by Vogue (address(this)==Vogue==the LevManager's `BAND`) from
+    ///   `deleverOnDelivery`). DELEGATECALL'd by Quid (address(this)==Quid==the LevManager's `BAND`) from
     ///   `_sendETH` when the venue base (deliverableETH) can't cover a swap-out delivery. Walks the open lev book;
-    ///   per LP: sources the swap's OWN proceeds into the venue via `Aux.takeToSettle` DIRECTLY (Vogue==address(this)
-    ///   IS authorized — `V4==Vogue` in `Aux._requireUs`) and repays that LP's debt, delivering the freed collateral
-    ///   as WETH to `recipient` (Vogue, which unwraps + sends). VALUE-NEUTRAL per LP (the swapper's input de-levers
+    ///   per LP: sources the swap's OWN proceeds into the venue via `Aux.takeToSettle` DIRECTLY (Quid==address(this)
+    ///   IS authorized — `V4==Quid` in `Aux._requireUs`) and repays that LP's debt, delivering the freed collateral
+    ///   as WETH to `recipient` (Quid, which unwraps + sends). VALUE-NEUTRAL per LP (the swapper's input de-levers
     ///   the delivering LP; the keeper re-levers next tick). 0-debt (unlevered net-equity) LPs take the no-repay
     ///   `swapOutDeliverUnlevered` branch instead. Stops once `shortfallEth` (WETH 1e18) is covered; fault-tolerant
     ///   (a stuck LP is skipped → residual #105 partial-fill). @param px USD 1e18/WETH. @return deliveredEth to recipient.
@@ -1684,7 +1684,7 @@ library SwapLib {
             uint fundUsd = LevMath._toUsd18(aux,stable, amtNative);      // USD the clamped debt-repay represents
             if (fundUsd > needUsd) fundUsd = needUsd;
             if (fundUsd == 0) continue;
-            // Route the swap's OWN proceeds → venue directly (Vogue==address(this) IS `takeToSettle`-authorized),
+            // Route the swap's OWN proceeds → venue directly (Quid==address(this) IS `takeToSettle`-authorized),
             // then repay+free+deliver. try/catch: a stuck LP (illiquid collateral / venue revert) is skipped,
             // leaving the residual to the #105 partial-fill.
             // §A.55: native units for the take (see above). `fundUsd` stays 18-dec for `swapOutDelever`
@@ -1722,7 +1722,7 @@ library SwapLib {
     //    SOLVENCY-surplus only. The ≤TVL invariant + `committedBoth` (shared-mirror, so neither pool double-claims
     //    surplus) remain the bounds — no policy cap, no `btcCapClamp`.
 
-    /// @dev Shared solvency sizer for Vogue.addLiq (ETH) + Vault._addLiqChannel
+    /// @dev Shared solvency sizer for Quid.addLiq (ETH) + Vault._addLiqChannel
     ///      (BTC). From the SHARED free backing (`liquidTotal − committedBoth`,
     ///      where committedBoth nets BOTH pools' committed USD so neither can claim
     ///      the same surplus twice), optionally apply the BTC policy cap, then
@@ -1739,7 +1739,7 @@ library SwapLib {
         // #67 note: the levered net-equity is NOT paired against surplus (that would spend surplus making the
         // equity earn band fees on de-lever-backed / phantom USD, and make the levered backing withdrawable at
         // will). Surplus is reserved for the borrow cost + QU!D redemption; the levered net-equity is REDEMPTION
-        // backing (already in committedUsd18 / vogueETH/BTC), de-leverable only by a redemption. Its debt-funded
+        // backing (already in committedUsd18 / bandETH/BTC), de-leverable only by a redemption. Its debt-funded
         // BUFFER leg already earns band fees without touching surplus. So this stays REAL-surplus-only.
         surplus = liquidTotal > committedBoth ? liquidTotal - committedBoth : 0;
         if (surplus == 0) return (0, 0, 0);
@@ -1751,16 +1751,16 @@ library SwapLib {
         }
     }
 
-    /// @notice theta risk-budget clamp on a band add: cap post-add `pooled` at `thetaEff * vogueAvail`
+    /// @notice theta risk-budget clamp on a band add: cap post-add `pooled` at `thetaEff * bandAvail`
     ///         (WAD), so the IL-bearing band never holds more than the live yield/vol tradeoff prescribes.
     ///         `thetaEff >= 1e18` (fail-open / calm) is a no-op. Shared by BOTH sizing paths -- ETH
-    ///         (`VogueLib.addLiq`) and BTC (`BtcVaultLib.addLiqChannel`) -- so the throttle is identical
+    ///         (`QuidLib.addLiq`) and BTC (`BtcLib.addLiqChannel`) -- so the throttle is identical
     ///         across assets (a volatile-asset band bears IL the same way regardless of which asset).
-    function applyTheta(uint thetaEff, uint vogueAvail, uint pooled, uint available)
+    function applyTheta(uint thetaEff, uint bandAvail, uint pooled, uint available)
         internal pure returns (uint)
     {
         if (thetaEff >= 1e18) return available;
-        uint thetaCap   = SoladyMath.fullMulDiv(vogueAvail, thetaEff, 1e18);
+        uint thetaCap   = SoladyMath.fullMulDiv(bandAvail, thetaEff, 1e18);
         uint thetaAvail = thetaCap > pooled ? thetaCap - pooled : 0;
         return available > thetaAvail ? thetaAvail : available;
     }
@@ -1768,7 +1768,7 @@ library SwapLib {
     /// @notice Backing-bounded theta clamp — the ONE principle for EVERY band add (ETH band, BTC LP-add, BTC
     ///         reseat). Permit `want` new in-range depth, but never past two bounds:
     ///           • HEADROOM = `backing − pooled` — the physical room the IL-bearing capital leaves ABOVE the
-    ///             current in-range depth. `backing` = that capital (ETH: vogueETH venue principal + gross
+    ///             current in-range depth. `backing` = that capital (ETH: bandETH venue principal + gross
     ///             buffer; BTC: lpShares + gross buffer, +this add's sats); `pooled` = current in-range band
     ///             depth (POOLED/BTC). The band can never exceed what backs it.
     ///           • THETA budget = `θ·backing − pooled` (via applyTheta) — θ = avgYield/(K·σ²) (Merton), the
@@ -1902,10 +1902,10 @@ library SwapLib {
     ///         Holding is not the same as being able to source: `VaultLib.deliverableETH` already
     ///         subtracts the weETH slice beyond what Curve can pay for (`balances(0)·9/10`) and the
     ///         leverage net-equity, which is unwind-only and never drawn by redemption. Feed this
-    ///         `vogueETH()` and the band quotes depth it cannot honour — which does NOT revert and
+    ///         `bandETH()` and the band quotes depth it cannot honour — which does NOT revert and
     ///         fails no test; it surfaces as a partial fill wearing the costume of a normal one.
     ///         There is a measured precedent: deleting the three `_deliverableCap` venue caps left
-    ///         `_vogueETH` counting weETH at full oracle value while the exit could realise at most
+    ///         `_bandETH` counting weETH at full oracle value while the exit could realise at most
     ///         the pool's WETH, and delivery was overstated until they were re-derived.
     ///         ⚠️ THIS IS A PRECONDITION, NOT A CLAMP, AND THAT IS DELIBERATE (standing rule 17).
     ///         An earlier revision took `min(nominal, realisable)` here. That is a second bound over
@@ -1959,7 +1959,7 @@ library SwapLib {
     ///         soldFrac = 1 − amount_now/amount_entry. Returns 0 on the non-IL side (up-side-only, matching the
     ///         current target) or a degenerate band. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat recenters the
     ///         ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on a reseat. Shared verbatim by
-    ///         the ETH band (Vogue, `token1isVol`) and the BTC band (Vault, `token1isVol`).
+    ///         the ETH band (Quid, `token1isVol`) and the BTC band (Vault, `token1isVol`).
     /// @notice held-volatile amount NOW / held-volatile amount AT ENTRY (WAD), straight from the
     ///         concentrated-band geometry, clamped to the live band. `1e18` = at entry. `>1e18` ⇒ the band
     ///         BOUGHT the volatile (price fell — the OVER-hold the short cancels); `<1e18` ⇒ it SOLD (price
@@ -2015,7 +2015,7 @@ library SwapLib {
 
 
     /// Rescale a just-deposited stable amount to 6-dec USD by its own decimals.
-    /// Shared verbatim by the ETH (VogueLib) and BTC (BtcVaultLib) OOR paths.
+    /// Shared verbatim by the ETH (QuidLib) and BTC (BtcLib) OOR paths.
     function scaleTo6(uint amount, address token) internal view returns (uint) {
         uint8 dec = IERC20(token).decimals();
         if (dec == 6) return amount;
@@ -2032,10 +2032,10 @@ library SwapLib {
     }
 
     // ─── Self-managed (out-of-range / boundary-order) geometry ────────────────
-    // Shared by the ETH (Vogue) and BTC (Vault) single-sided position paths so
+    // Shared by the ETH (Quid) and BTC (Vault) single-sided position paths so
     // BOTH compute ticks + single-sided liquidity by the SAME rules — only the
     // pool + token ordering differ (token1is). Ported verbatim from the original
-    // Vogue `_outOfRangeTicks` / `_sizeOutOfRange` USD branch.
+    // Quid `_outOfRangeTicks` / `_sizeOutOfRange` USD branch.
     struct Oor { uint newLo; uint newUp; uint curLo; uint curUp; }
 
     /// The boundary order's tick range, fully outside the current [curLo,curUp].
@@ -2186,7 +2186,7 @@ library SwapLib {
         // so swaps resume at the real price. Fires ONLY in this dislocation regime
         // (never on normal drift, and never when no feed is wired ⇒ stale=false,
         // so it can't churn or perturb existing behavior); no-op if already
-        // aligned. Both pools route here (Vogue + BtcVault).
+        // aligned. Both pools route here (Quid + BtcVault).
         if (stale && _reseatIfStale(v4, r, twap)) return r;
 
         // HALF-OPEN RANGE (T1), NOW IN PRICE SPACE. The band is ACTIVE iff `lower <= P < upper`, so

@@ -825,7 +825,7 @@ contract BtcLpMintStress is AllesFixture {
 
         uint qdBeforeDeliver = QUID.balanceOf(lpEth);
         // §UNIT-A — the retained skew premium reaches the LP through the USD FEE LEG (§E5:
-        // creditSkewPremium → USD_FEES → usdR, minted at BtcVaultLib:69), so once the base is
+        // creditSkewPremium → USD_FEES → usdR, minted at BtcLib:69), so once the base is
         // reachable the mint is proceeds + fee + PREMIUM. The 6bps dust bound stays as-is and still
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
@@ -868,7 +868,7 @@ contract BtcLpMintStress is AllesFixture {
 
         uint qdBeforeDeliver = QUID.balanceOf(lpEth);
         // §UNIT-A — the retained skew premium reaches the LP through the USD FEE LEG (§E5:
-        // creditSkewPremium → USD_FEES → usdR, minted at BtcVaultLib:69), so once the base is
+        // creditSkewPremium → USD_FEES → usdR, minted at BtcLib:69), so once the base is
         // reachable the mint is proceeds + fee + PREMIUM. The 6bps dust bound stays as-is and still
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
@@ -1292,8 +1292,8 @@ contract BtcLpMintStress is AllesFixture {
     // ═══════════════════════════ E31 — does the BTC band need #12's payment? ═══════════════════════
     //
     // #12 pays the ETH LP the band's LP-OWNED USD leg (`POOLED_USD - basketUsd`) because
-    // `Vogue._pricingBacking` prices it into the share. The BTC side has NO such reader: `Vault`,
-    // `BtcVaultLib` and `VaultLib` never mention `basketUsd` at all. Reading that as "the BTC band
+    // `Quid._pricingBacking` prices it into the share. The BTC side has NO such reader: `Vault`,
+    // `BtcLib` and `VaultLib` never mention `basketUsd` at all. Reading that as "the BTC band
     // is fine" is a DISMISSAL, and a dismissal needs the same evidence as a finding — so these two
     // tests try to BREAK it instead.
     //

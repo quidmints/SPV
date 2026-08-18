@@ -101,7 +101,7 @@ def ret_from_artifact(entry) -> str:
 # `evm/out` still declared it — including `out/BTCChannels.sol/IAttestedHopRegistry.json`, whose
 # whole contract had been deleted. The client kept a call to it (`quid-bridge/src/signer.rs:181`)
 # and this checker reported `0 drifted, no ORPHAN`. That is the exact failure the ORPHAN rule was
-# added to catch (§E154-client-ghosts, `Vogue.exitInstant`) — reintroduced through the CACHE
+# added to catch (§E154-client-ghosts, `Quid.exitInstant`) — reintroduced through the CACHE
 # rather than through the regex. An ORPHAN check that resolves against stale output cannot detect
 # ANY deletion, which is the class it exists for.
 # ⇒ Accept an artifact ONLY if its contract is STILL DECLARED in a source file that STILL EXISTS.
@@ -182,7 +182,7 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
             # ⚠️ THE SECOND HOLE, closed 2026-08-10 (E154). The `continue` below used to be
             # unconditional, on the assumption that a name matching NOTHING is an external
             # contract's. That assumption was false in both cases it covered: `exitInstant`
-            # (deleted from Vogue 2026-08-09 — and the SPA still ENCODED A CALL to it, which
+            # (deleted from Quid 2026-08-09 — and the SPA still ENCODED A CALL to it, which
             # would hit the fallback and revert) and `recordSpliceOut` (never existed at all).
             # So the most severe drift — the function is GONE — was the one kind invisible here,
             # while mere argument drift was caught. Absence must be louder than mismatch, not

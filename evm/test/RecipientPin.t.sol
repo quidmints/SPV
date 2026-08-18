@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {AllesFixture} from "./Alles.t.sol";
-import {Vogue} from "../src/Vogue.sol";
+import {Quid} from "../src/Quid.sol";
 
 /// @notice §A.5f (subset) — the TIMELOCKED withdrawal-recipient pin.
 ///
@@ -23,7 +23,7 @@ contract RecipientPin is AllesFixture {
     function _seed(address lp) internal {
         vm.prank(lp);
         V4.deposit{value: 10 ether}(0, lp);          // VENUE_GALAXY
-        // Vogue:538 bars a withdraw in the SAME BLOCK as a deposit ("too soon"). Clear it, or every
+        // Quid:538 bars a withdraw in the SAME BLOCK as a deposit ("too soon"). Clear it, or every
         // `expectRevert` below would catch the COOLDOWN instead of the pin and pass vacuously —
         // which is exactly what happened on the first run of this file.
         vm.roll(block.number + 1);
@@ -50,7 +50,7 @@ contract RecipientPin is AllesFixture {
         assertEq(V4.pinnedRecipient(User01), User01, "first pin applies at once");
 
         vm.prank(User01);
-        vm.expectRevert(Vogue.RecipientNotPinned.selector); V4.withdraw(1 ether, ATTACKER, User01);
+        vm.expectRevert(Quid.RecipientNotPinned.selector); V4.withdraw(1 ether, ATTACKER, User01);
 
         // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native ETH, so a guard
         // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
@@ -73,10 +73,10 @@ contract RecipientPin is AllesFixture {
         assertEq(V4.pinnedRecipient(User01), User01, "re-point must NOT take effect immediately");
 
         vm.prank(User01);
-        vm.expectRevert(Vogue.RecipientTimelocked.selector); V4.applyPinnedRecipient();     // still inside the window
+        vm.expectRevert(Quid.RecipientTimelocked.selector); V4.applyPinnedRecipient();     // still inside the window
 
         vm.prank(User01);
-        vm.expectRevert(Vogue.RecipientNotPinned.selector); V4.withdraw(1 ether, ATTACKER, User01);   // and the drain is still barred
+        vm.expectRevert(Quid.RecipientNotPinned.selector); V4.withdraw(1 ether, ATTACKER, User01);   // and the drain is still barred
     }
 
     /// The delay must actually EXPIRE — a lock that never opens would be a brick, not a guard.

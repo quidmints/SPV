@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 
-import {Vogue} from "../src/Vogue.sol";
+import {Quid} from "../src/Quid.sol";
 import {OracleLib} from "../src/imports/OracleLib.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Core} from "../src/Core.sol";
@@ -21,7 +21,7 @@ uint constant ANGEL_ID = 16508; // == Basket.ANGEL
 
 /// @title DeployLib — the ONE canonical QU!D contract-deploy + wiring sequence.
 /// @notice The exact `new`s + setup/wiring that stand up the core QU!D stack
-///         (Vogue/Core/Aux/Basket/Vault + optional Rover + SPVGateway/BTCChannels
+///         (Quid/Core/Aux/Basket/Vault + optional Rover + SPVGateway/BTCChannels
 ///         + the SOR path table). It is the single source of truth shared by:
 ///           • the production script `src/DeployL1_s.sol` (`vm.startBroadcast`),
 ///           • the mainnet-fork test setUp in `test/Alles.t.sol` (whale-funded),
@@ -115,7 +115,7 @@ library DeployLib {
 
     /// @notice Deploy + wire the core QU!D stack in the exact production order.
     function deployQuidStack(StackConfig memory cfg) internal returns (StackAddrs memory a) {
-        Vogue v4 = new Vogue();
+        Quid v4 = new Quid();
         // §BANDBACKING-FOLD — TWO INSTANCES, AND THE ACCOUNTANT IS `Aux`.
         // `Core` is single-asset, so the stack deploys one per band. The ONE thing they still share
         // — the joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on —
@@ -138,7 +138,7 @@ library DeployLib {
             a.btcCore = address(btcCore);
         }
         Aux aux = new Aux(Aux.AuxInit({
-            vogue: address(v4), core: address(core), btcCore: a.btcCore,
+            band: address(v4), core: address(core), btcCore: a.btcCore,
             weth: cfg.weth, wbtc: cfg.wbtc,
             gho: cfg.gho, usdg: cfg.usdg,
             aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
@@ -161,7 +161,7 @@ library DeployLib {
         // overflowed at `_newVault` before the block was added.
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
-        core.setup(address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Vogue
+        core.setup(address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Quid
         // §E222 — the ring's independent observation source. ETH INSTANCE ONLY: 1inch's
         // OffchainOracle. The BTC instance is deliberately left unset — 1inch can only quote WRAPPED
         // BTC, and observing it would make a WBTC depeg indistinguishable from bitcoin moving. Unset
@@ -184,7 +184,7 @@ library DeployLib {
         v4.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
 
-        // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Vogue ──
+        // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Quid ──
         // §ISBTC-SPLIT — THE BTC BAND MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
         // instance) while `Vault.sol` states outright "the instance IS the BTC one", so the code
         // assumed one wiring and the deploy supplied another -- the comment was right and the
@@ -192,7 +192,7 @@ library DeployLib {
         Vault eth = _newVault(cfg, address(v4), a.btcCore, address(aux));  // own frame (no via_ir)
         // The ETH-venue pointers now target the CUSTODY contract, not the Vault. Every
         // `IBandManager(...)` call site follows the pin, so nothing else moves.
-        // §ETHVENUE-FOLD — the ETH yield venue IS Vogue. One fewer deployable contract, and one
+        // §ETHVENUE-FOLD — the ETH yield venue IS Quid. One fewer deployable contract, and one
         // fewer pin: `setEthVenueContract` is gone with the separate address it existed to name.
         // `aux.setEthVenue` still runs, now pointing at the band manager itself.
         aux.setEthVenue(address(v4));            // MUST run after V4.setup (WETH set)
@@ -266,10 +266,10 @@ library DeployLib {
         if (cfg.spvCheckpointFollowers.length != 0) {
             spv.addBlockHeaderBatch(cfg.spvCheckpointFollowers);
         }
-        // BTCChannels binds `btcVault = _vogue` (the 3rd arg). The BTC side was regrouped
+        // BTCChannels binds `btcVault = _band` (the 3rd arg). The BTC side was regrouped
         // into the merged Vault (`eth`) — creditSwapOut / requestDeposit / resize all
-        // live there (Vogue/`v4` has none). So the BtcVault is `eth`, NOT `v4`: passing v4
-        // pointed btcVault at Vogue, whose fallback returns empty ⇒ creditSwapOut decode-
+        // live there (Quid/`v4` has none). So the BtcVault is `eth`, NOT `v4`: passing v4
+        // pointed btcVault at Quid, whose fallback returns empty ⇒ creditSwapOut decode-
         // reverts (swap-out) and requestDeposit silently no-ops (open). Mirrors the canonical
         // BtcLpMintStress._deployChannels wiring (`new BTCChannels(spv, ETH)`).
         // (E164) MAIN_HOP + FALLBACK_HOP are pinned at construction and can never be added to:
@@ -280,7 +280,7 @@ library DeployLib {
                                         cfg.btcDepositKey);
         // WIRING INVARIANT (regression guard): btcVault MUST be the merged Vault `eth` —
         // where creditSwapOut / requestDeposit / resize live. A prior version passed
-        // `v4` (Vogue, which has none), silently breaking ALL BTC swap-out (creditSwapOut
+        // `v4` (Quid, which has none), silently breaking ALL BTC swap-out (creditSwapOut
         // decode-reverts) and no-op'ing requestDeposit on open. Assert at deploy so any
         // future miswire fails LOUDLY here (incl. production DeployL1_s) instead of on the
         // first live swap-out. Covers the gap that shipped it: forge tests deploy channels
