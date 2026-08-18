@@ -2,6 +2,11 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
+// the single declaration in `Types.sol` instead of restating it. Constants are
+// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
+// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
+import {WAD} from "./Types.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
@@ -44,12 +49,14 @@ import {IDepositAdapter} from "./Interfaces.sol";
 
 /// and the vault's assets sit in others. ~113k gas per pull, freeing nothing.
 /// It is also unnecessary — `withdraw()` self-deallocates (see `_withdrawableOf`).
-interface IMorphoV2 {
+/// @dev NOT Morpho Blue — this is Morpho VAULTS V2 (`liquidityAdapter`), a different protocol
+///      with no declaration in `lib/morpho-blue`, so it stays local. Renamed from `IMorphoV2`
+///      because that name sitting beside Blue imports reads as "Blue v2", which it is not.
+interface IMorphoVaultsV2 {
     function liquidityAdapter() external view returns (address);
 }
 
 library QuidLib {
-    uint constant WAD = 1e18;
 
     /// A chosen venue placed 0 — paused / unwired / de-allowlisted. We do NOT silently redirect to a
     /// fallback venue: no venue can be assumed always-live. Fail loud — the depositor picks a live one.
@@ -678,7 +685,7 @@ library QuidLib {
     ///         vaults are Morpho-V2 — measured, holding ~124M of ~126M total stable TVL — so the stable
     ///         side had the same understatement, and there it feeds the REDEMPTION haircut.
     function _withdrawableOf(address vault, address holder) internal view returns (uint) {
-        try IMorphoV2(vault).liquidityAdapter() returns (address adapter) {
+        try IMorphoVaultsV2(vault).liquidityAdapter() returns (address adapter) {
             if (adapter != address(0)) {
                 try IERC20(vault).balanceOf(holder) returns (uint shares) {
                     if (shares == 0) return 0;

@@ -2,6 +2,11 @@
 pragma solidity ^0.8.28;
 
 import {LevMath} from "./imports/LevMath.sol";
+// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
+// the single declaration in `Types.sol` instead of restating it. Constants are
+// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
+// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
+import {WAD} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
@@ -78,7 +83,6 @@ contract LevManager is LevBase {
     /// Min collateral to OPEN — keeps the `_openLps` book (iterated in bandETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
-    uint256 internal constant WAD = 1e18;
 
     /// @dev `targetLtvCapBps` = the LP's max-leverage LTV cap (≤ TARGET_LTV_CAP_BPS = 7500 bps ≈ 4×; 2× / 5000
     ///      bps is the IL-neutral value, higher is opt-in directional). `entryPriceWad` = ETH/USD at open: the IL

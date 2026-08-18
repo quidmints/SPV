@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Morpho Association
 pragma solidity 0.8.30;
 
-import {ISetterRatifier} from "./interfaces/ISetterRatifier.sol";
-import {IMidnight, Offer} from "../interfaces/IMidnight.sol";
-import {CALLBACK_SUCCESS} from "../libraries/ConstantsLib.sol";
-import {HashLib} from "./libraries/HashLib.sol";
+import {ISetterRatifier} from "./ISetterRatifier.sol";
+import {IMidnight, Offer} from "./IMidnight.sol";
+import {CALLBACK_SUCCESS} from "./ConstantsLib.sol";
+import {HashLib} from "./HashLib.sol";
 
 /// @dev This ratifier checks that the offer has been ratified by an authorized address in a Merkle tree of offers.
 /// To that end, it expects the ratifier data to contain the root of the tree, the leaf index of the offer in the tree,

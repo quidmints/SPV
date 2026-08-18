@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
-import {UtilsLib} from "../src/midnight/libraries/UtilsLib.sol";
+import {UtilsLib} from "../src/imports/UtilsLib.sol";
 
 contract MsbTest is Test {
     /// @dev Independent reference: highest set bit by descending scan. Deliberately NOT the

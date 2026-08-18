@@ -2,6 +2,11 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
+// the single declaration in `Types.sol` instead of restating it. Constants are
+// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
+// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
+import {WAD} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IBasketTurn2`).
 import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the canonical declaration site
                                                      // (BasketLib only RE-imports it, so importing from there does not resolve)
@@ -1525,7 +1530,6 @@ library SwapLib {
     // flat value-type accumulators are taken BY VALUE and the new value/increment
     // RETURNED; the thin vault wrapper writes the slot back.
     // ════════════════════════════════════════════════════════════════════
-    uint constant WAD = 1e18;
     // Curve-reseat fires only when the spot is off the oracle by more than this
     // (matches routeSwap's execution guard — within it, swaps work, so no reseat).
     uint constant RESEAT_MIN_BPS = 50;

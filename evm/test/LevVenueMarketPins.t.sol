@@ -2,6 +2,8 @@
 pragma solidity 0.8.30;
 
 import {ForkPin} from "./utils/ForkPin.sol";
+import {Id} from "morpho-blue/interfaces/IMorpho.sol";
+import {IMorphoStaticTyping as IMorphoMarketRead} from "morpho-blue/interfaces/IMorpho.sol";
 import {Deploy} from "../script/DeployL1_s.sol";
 import {IAaveV4Spoke} from "../src/imports/Interfaces.sol";
 
@@ -26,15 +28,6 @@ import {IAaveV4Spoke} from "../src/imports/Interfaces.sol";
 /// It inherits `Deploy` so it reads the SHIPPING constants. Asserting a copy pasted into the test would
 /// verify the copy and let the deploy script drift, which is the exact bug class it exists to catch.
 /// (`Test` and `Script` both descend from forge-std's `CommonBase`, so the diamond resolves.)
-interface IMorphoMarketRead {
-    function market(bytes32 id)
-        external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares,
-                               uint128 totalBorrowAssets, uint128 totalBorrowShares,
-                               uint128 lastUpdate, uint128 fee);
-    function idToMarketParams(bytes32 id)
-        external view returns (address loanToken, address collateralToken,
-                               address oracle, address irm, uint256 lltv);
-}
 
 contract LevVenueMarketPins is ForkPin, Deploy {
     // The deep market these constants must resolve to. Verified on-chain 2026-08-09.
@@ -63,7 +56,7 @@ contract LevVenueMarketPins is ForkPin, Deploy {
         IMorphoMarketRead m = IMorphoMarketRead(MORPHO_BLUE);
 
         // The market must ALREADY exist, or `_mkMorphoVenue` silently creates an empty twin.
-        (uint128 supply,, uint128 borrow,, uint128 lastUpdate,) = m.market(id);
+        (uint128 supply,, uint128 borrow,, uint128 lastUpdate,) = m.market(Id.wrap(id));
         assertGt(lastUpdate, 0, "market unlisted -> deploy would createMarket an empty twin");
 
         // Depth is the property the decoys fail. Assert on LIQUIDITY, since a decoy is well-formed.
@@ -75,7 +68,7 @@ contract LevVenueMarketPins is ForkPin, Deploy {
     /// constant that still hashes to a live id but describes a market we did not mean to join.
     function test_WeethWethVenue_OnChainParamsMatchDeployConstants() public view {
         (address loan, address coll, address oracle, address irm, uint256 lltv) =
-            IMorphoMarketRead(MORPHO_BLUE).idToMarketParams(EXPECTED_ID);
+            IMorphoMarketRead(MORPHO_BLUE).idToMarketParams(Id.wrap(EXPECTED_ID));
 
         assertEq(loan,   address(WETH),      "loanToken drifted - debt must be ETH-denominated");
         assertEq(coll,   WEETH,              "collateralToken drifted");

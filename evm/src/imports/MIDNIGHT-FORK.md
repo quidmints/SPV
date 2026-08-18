@@ -1,7 +1,23 @@
-# `src/midnight` — Morpho Blue v2 (Midnight), vendored and minimally adapted
+# Midnight (Morpho Blue v2) sources in `src/imports/` — vendored, minimally adapted
 
 Upstream: `morpho-org/morpho-v2` @ `709dab35` (also present unmodified as the submodule
-`evm/lib/morpho-v2`, which is the diff baseline — `diff -r lib/morpho-v2/src src/midnight`).
+`evm/lib/morpho-v2`, which is the diff baseline.
+
+⚠️ **THE AUDIT COMMAND CHANGED WHEN THESE FILES FLATTENED INTO `src/imports/`.** Upstream is nested
+(`src/libraries/`, `src/interfaces/`, `src/ratifiers/`); ours are flat, so `diff -r` no longer pairs
+them and silently reports every file as unique to one side. Diff by basename instead — run from `evm/`:
+
+```sh
+for f in Midnight ConstantsLib EventsLib IdLib SafeTransferLib TickLib UtilsLib HashLib \
+         SetterRatifier EcrecoverRatifier ICallbacks IERC20 IGate IMidnight IOracle IRatifier \
+         IEcrecoverRatifier ISetterRatifier; do
+  u=$(find lib/morpho-v2/src -name "$f.sol" | head -1)
+  diff -q "$u" "src/imports/$f.sol" 2>/dev/null || diff "$u" "src/imports/$f.sol"
+done
+```
+
+Expect exactly the differences in the table below — pragma pins, one function body, and the import
+paths, which changed from `./libraries/X.sol` / `../interfaces/Y.sol` to `./X.sol` on the flatten).
 
 We deploy our OWN instance, so this is a fork, not a call-out to a deployed contract. Keep the
 adaptation set as small as it is; every addition is code we own, must test, and must re-audit.

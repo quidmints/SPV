@@ -2,17 +2,17 @@
 // Copyright (c) 2026 Morpho Association
 pragma solidity 0.8.30;
 
-import {UtilsLib} from "./libraries/UtilsLib.sol";
-import {IdLib} from "./libraries/IdLib.sol";
-import {TickLib} from "./libraries/TickLib.sol";
-import {SafeTransferLib} from "./libraries/SafeTransferLib.sol";
-import {EventsLib} from "./libraries/EventsLib.sol";
-import "./libraries/ConstantsLib.sol"; // forge-lint: disable-line(unaliased-plain-import)
-import "./interfaces/ICallbacks.sol"; // forge-lint: disable-line(unaliased-plain-import)
-import {IOracle} from "./interfaces/IOracle.sol";
-import {IRatifier} from "./interfaces/IRatifier.sol";
-import {IEnterGate, ILiquidatorGate} from "./interfaces/IGate.sol";
-import {IMidnight, Market, Offer, CollateralParams, MarketState, Position} from "./interfaces/IMidnight.sol";
+import {UtilsLib} from "./UtilsLib.sol";
+import {IdLib} from "./IdLib.sol";
+import {TickLib} from "./TickLib.sol";
+import {SafeTransferLib} from "./SafeTransferLib.sol";
+import {EventsLib} from "./EventsLib.sol";
+import "./ConstantsLib.sol"; // forge-lint: disable-line(unaliased-plain-import)
+import "./ICallbacks.sol"; // forge-lint: disable-line(unaliased-plain-import)
+import {IOracle} from "./IOracle.sol";
+import {IRatifier} from "./IRatifier.sol";
+import {IEnterGate, ILiquidatorGate} from "./IGate.sol";
+import {IMidnight, Market, Offer, CollateralParams, MarketState, Position} from "./IMidnight.sol";
 
 /// MARKETS
 /// @dev The maximum time to maturity is 100 years.

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Morpho Association
 pragma solidity >=0.5.0;
 
-import {IRatifier} from "../../interfaces/IRatifier.sol";
+import {IRatifier} from "./IRatifier.sol";
 
 struct Signature {
     uint8 v;

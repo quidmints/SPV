@@ -3,6 +3,11 @@
 pragma solidity ^0.8.28;
 
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
+// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
+// the single declaration in `Types.sol` instead of restating it. Constants are
+// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
+// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
+import {WAD} from "./imports/Types.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical view (was a file-local `IEthVenueV`).
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
@@ -49,7 +54,6 @@ contract Quid is State,
     error NotOwner();
     error BadPercent();
 
-    uint constant WAD = 1e18;
     // §NAMING — was `V4`, which read as Uniswap v4. It is the Core band engine and always was.
     /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each band must be able to
     ///      name its own engine, or "these two bands are isolated" cannot be checked from outside.

@@ -2,6 +2,11 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
+// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
+// the single declaration in `Types.sol` instead of restating it. Constants are
+// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
+// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
+import {WAD} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
@@ -47,7 +52,6 @@ contract BtcLevManager is LevBase {
     uint256 public constant BAND_BPS           = 300;       // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_SLIPPAGE_BPS = 100;       // 1% anti-MEV floor on the leg's Curve swaps
     uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
-    uint256 internal constant WAD = 1e18;
 
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.

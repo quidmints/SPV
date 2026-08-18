@@ -3,6 +3,11 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
+// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
+// the single declaration in `Types.sol` instead of restating it. Constants are
+// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
+// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
+import {WAD} from "./Types.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IAggregatorV3, IAux} from "./Interfaces.sol";
@@ -19,7 +24,6 @@ import {IAggregatorV3, IAux} from "./Interfaces.sol";
 ///         deposits and pro-rata withdrawals, plus the risk-discount
 ///         factor consumed in Aux pricing paths.
 library FeeLib {
-    uint public constant WAD = 1e18;
 
     /// @dev x^n by binary exponentiation in 1e18 fixed point (Liquity _decPow).
     ///      Extracted from Aux (baseRate decay) to free Aux bytecode -- that is why it lives here,

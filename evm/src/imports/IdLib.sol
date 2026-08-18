@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Morpho Association
 pragma solidity ^0.8.0;
 
-import {Market} from "../interfaces/IMidnight.sol";
+import {Market} from "./IMidnight.sol";
 
 library IdLib {
     error SStore2DeploymentFailed();

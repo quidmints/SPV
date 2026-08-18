@@ -2,13 +2,19 @@
 pragma solidity 0.8.30;
 
 import {AllesFixture, MockSPV} from "./Alles.t.sol";
+import {IOracle as IMorphoOraclePrice} from "morpho-blue/interfaces/IOracle.sol";
+// §E266 — Morpho surface comes from `lib/morpho-blue`, not a local copy (owner, 2026-08-19:
+// "remove our custom morpho files to use the lib ones"). `IMorphoStaticTyping` is the
+// TUPLE-returning variant, matching how these tests destructure `position`; plain `IMorpho`
+// returns structs. Aliased so call sites are untouched.
+import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
 import {LevBase} from "../src/imports/LevBase.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
 import {Types} from "../src/imports/Types.sol";
-import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
+import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
@@ -23,18 +29,6 @@ interface IERC20V {
 }
 interface IAuxTwapV { function getTWAPforAsset(address asset, uint32 period) external view returns (uint); }
 interface IAaveV3AddrProviderT { function getPoolDataProvider() external view returns (address); }
-interface IMorphoTest {
-    function createMarket(MarketParams memory m) external;
-    function supply(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)
-        external returns (uint256, uint256);
-    function setAuthorization(address authorized, bool newIsAuthorized) external;
-    function borrow(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, address receiver)
-        external returns (uint256, uint256);
-    function liquidate(MarketParams memory m, address borrower, uint256 seizedAssets, uint256 repaidShares, bytes memory data)
-        external returns (uint256, uint256);
-    function position(bytes32 id, address user) external view returns (uint256, uint128, uint128);
-}
-interface IMorphoOraclePrice { function price() external view returns (uint256); }
 
 // RealRateBtcMorphoOracle now lives in src/imports/LevBase.sol (imported
 // above) — DeployL1_s deploys them inline for the real vBTC/short markets; this test fork-proves
