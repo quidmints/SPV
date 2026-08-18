@@ -312,6 +312,9 @@ library BtcLib {
         next = a.idBtc + 1;
         selfManaged[next] = Types.SelfManaged({
             created: block.number, owner: a.owner,
+            // §E258 — ALWAYS true here: `outOfRangeBtc` reverts `NotAStable()` above and deposits
+            // stable backing normalised to 6-dec USD, so this path cannot be volatile-funded.
+            usdFunded: true,
             lower: t.newLo, upper: t.newUp, amt: int(amt) });   // §V4-CUT: the AMOUNT, not liquidity
         positions[a.owner].push(next);
         // `liquidity` is still computed and still gates on Dust -- it is the sizer's own validity

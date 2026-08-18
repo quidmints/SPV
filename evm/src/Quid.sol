@@ -429,6 +429,10 @@ contract Quid is State,
         next = ++ID;
         selfManaged[next] = Types.SelfManaged({
             created: block.number, owner: msg.sender,
+            // §E258 — the funding side. This band's volatile leg is WETH, so anything else is the
+            // USD side. Required: `Types.SelfManaged` declares the field and Solidity's named-field
+            // form takes every one of them, so omitting it did not compile (§E265).
+            usdFunded: token != address(WETH),
             lower: t.newLo, upper: t.newUp,
             amt: int(placed) });
         positions[msg.sender].push(next);
