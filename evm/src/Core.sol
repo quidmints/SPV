@@ -1271,6 +1271,12 @@ contract Core {
     ///      against it fresh — never revived from history.
     address public observationSource;
 
+    /// @dev (§E232) The `price_oracle` index for THIS instance's pool. Curve prices coin `k+1` in
+    ///      units of coin 0; the pinned TriCrypto-USDC pool is USDC=0, WBTC=1, WETH=2, so `1` reads
+    ///      WETH/USDC. Named rather than inlined because a bare `1` at the call site is
+    ///      indistinguishable from a placeholder, and reading `0` here would price ETH as WBTC.
+    uint256 internal constant OBS_POOL_IDX = 1;
+
     function setObservationSource(address src) external {
         require(msg.sender == DEPLOYER, "403");
         require(observationSource == address(0), "!");
@@ -1288,12 +1294,30 @@ contract Core {
     function _observeIfSourced() internal {
         address src = observationSource;
         if (src == address(0)) return;
+        // (§E232) CURVE'S ON-POOL EMA, NOT 1inch's AGGREGATOR — because the aggregator DOES NOT FIT
+        // IN A BLOCK. `getRate` stood here and iterates all fourteen registered DEX oracles and
+        // their connectors, so one "observation" was a full multi-venue aggregation: **31,722,803
+        // gas against a 30M limit**, i.e. every swap and repack on this path exceeded an entire
+        // block. `price_oracle(k)` is a single storage read of the pool's own EMA — a few thousand
+        // gas — and returns a PLAIN WAD price, so there is nothing to decode and no scaling step to
+        // get wrong.
+        //
+        // ⚠️ INDEX 1 IS DERIVED, NOT GUESSED. Curve prices coin `k+1` in units of coin 0, and this
+        // pool's ordering was read from the chain: USDC=0, WBTC=1, WETH=2. So `price_oracle(1)` is
+        // coin2/coin0 = **WETH in USDC**, which is already USD·1e18 — `VOL_DECIMALS` scaling would
+        // DOUBLE-COUNT. A wrong index here reads WBTC/USDC and prices ETH at the BTC price, which is
+        // why `CurveObserverIsCheapAndSane` asserts against Chainlink rather than trusting this note.
+        //
+        // ⚠️ AND THE INDEPENDENCE CLAIM IS WEAKER THAN 1inch's — SAY SO RATHER THAN INHERIT IT.
+        // `ExternalTwap`'s header argues "correlated sources are one source" and that a single Curve
+        // pool is one venue with one depeg mode, which is TRUE and is why 1inch was chosen. It is
+        // also moot: an aggregation that cannot be called is not a source at all. This is one venue,
+        // genuinely different in MECHANISM from Chainlink's pushed feeds (an on-pool EMA of executed
+        // trades), and that is what the deviation test needs to mean anything.
         (bool ok, bytes memory out) = src.staticcall(
-            abi.encodeWithSignature("getRate(address,address,bool)", ASSET, USDC, false));
+            abi.encodeWithSignature("price_oracle(uint256)", OBS_POOL_IDX));
         if (!ok || out.length < 32) return;
-        uint rate = abi.decode(out, (uint));
-        if (rate == 0) return;
-        uint priceWad = Math.mulDiv(rate, 10 ** VOL_DECIMALS, 1e6);
+        uint priceWad = abi.decode(out, (uint));
         if (priceWad != 0) _writeObservationPrice(priceWad);
     }
 
