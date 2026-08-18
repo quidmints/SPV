@@ -192,8 +192,13 @@ is parked** (`git log origin/main..HEAD` → 0, `git worktree list` → none, `g
   where each phase lives and what state it is in. It does **not** re-litigate whether the owner's
   ordering is still right after `B0` — and `B0` changed what phase 2 and 3 mean, so that is a live
   question, not a settled one.
-- **Phase 0 (`§F5`, `§W1`) and phase 4's attestation half have NO ROW anywhere in this file.** They
-  are named only in `QUEUE.md:14103`. A reader working from SPRINT alone will not see them.
+- **Phase 0 (`§F5`, `§W1`) has NO ROW anywhere in this file** — named only in `QUEUE.md:14103`, so a
+  reader working from SPRINT alone never sees it. *(Phase 4's attestation half was also missing here;
+  `§D6` supplies it — ✅, 0 non-comment references. Corrected rather than carried.)*
+- ⚠️ **`§D6` and `§D2-PHASES` were written minutes apart by two threads and DISAGREED on phase 3.**
+  Reconciled: `§D6` is the mapping of record, `§D2-PHASES` is the delta, and phase 3's ✅ is
+  withdrawn in both plus at its root (`QUEUE.md` `§PHASE-1-4-STATUS`). **If a third mapping appears,
+  fold it in rather than adding it** — this file has now paid for the duplicate twice in one day.
 - **The `§HOST-*` rows are scoped, not designed.** The aggregator extraction has a parts list and no
   design; `§HOST-RUNTIME-IMAGE` has a gap and no Dockerfile. Neither has been priced.
 - ⚠️ **The seal caveat is measured; its CONSEQUENCES are not enumerated.** I read
@@ -2208,8 +2213,24 @@ below, **re-derived against code today, not against the rows.**
 | **3** | §M1#4 **per-channel freshness** — *"it changes WHAT AN EXIT COMMITS TO (`Prevouts::All` binds the freshness UTXO)"* | nowhere — **this is the gap** | 🔴 **NOT BUILT.** See the correction below; a previous pass recorded it as built and was pointing at a different mechanism. |
 | **4** | attestation removal **and** lazy `openChannel` | `#7` (lazy open) only | ⏸️ **`#7` needs re-deriving (§E183 removed its premise). Attestation removal is booked NOWHERE in this file** — the other half of phase 4 has no row. |
 
-⇒ **The honest answer to "did we finish 1–4" is: phase 1(a)(b) and phase 2's second half landed.
-Phases 0, 3 and half of 2 and 4 are open, and two of those halves have no row anywhere in SPRINT.**
+⚠️ **RECONCILED 2026-08-18 — `§D6` IS THE MAPPING OF RECORD; THIS TABLE IS NOW THE DELTA AGAINST IT.**
+Two threads wrote a phase mapping within minutes of each other (this one, and `§D6` at `1a596f5d`).
+**Two mappings drift, so only one is canonical: `§D6`.** It is more complete on 1a/1b/1c and it
+**corrected this table on two rows** — phase 2's signer refusal is ✅ and *needed no new code*
+(`QuidKeysManager` declares `type EcdsaSigner = ValidatingChannelSigner`, wrapping every channel),
+and phase 4's attestation half is ✅ (`AttestedHopRegistry` and every `_requireAttested` deleted,
+0 non-comment references). **Both of those overturn what this table said and are adopted.**
+**What survives here and NOT in `§D6`** — read on for both: **(a)** phase 3 is *not* built, and
+`§D6`'s ✅ is against the wrong mechanism; **(b)** the joint `B0`+`B4`+`#18` finding, which no phase
+row reaches. **And one thing NEITHER carries: phase 0 (`§F5`, `§W1`) has no row in SPRINT at all** —
+it is named only in `QUEUE.md:14103`, so a reader working from SPRINT alone never sees it.
+
+⇒ **The honest answer to "did we finish 1–4": 1a/1b/1c, 2 and 4 landed. Phase 0 was never in this
+file, phase 3 is NOT built, and `#7` (lazy `openChannel`, phase 4's other half) needs re-deriving
+rather than building.** ⛔ **But "phases done" is the wrong summary of the system's state**, which is
+the point of the joint finding below: every phase but 3 is discharged, and **no channel can be
+opened.** A phase list can be complete while the product does not work, because the phases are about
+*capability* and the hole is in the *connection between them*.
 
 ### ⛔ CORRECTION — **PHASE 3 IS NOT BUILT, AND THE THING THAT LOOKS LIKE IT IS A DIFFERENT MECHANISM**
 
@@ -2425,7 +2446,7 @@ carried that mapping — so every answer I gave was item-shaped against a questi
 | **1b** LP-hosted vault | ✅ | `bin/quid-lp-daemon.rs` — same `boot_vault`, LP's own seed, remote hop. The fleet's `derive_vault_seed` *"is not involved and cannot reach it"*. |
 | **1c** LP seed provisioning | ✅ | `load_or_provision_from_env`, mnemonic backup, `Individual` role, `QUID_SEED` restore. |
 | **2** LP-side signer refusal | ✅ **needed no new code** | `QuidKeysManager` declares `type EcdsaSigner = ValidatingChannelSigner` and wraps EVERY channel. **1b is what made it non-vacuous** — before it, the fleet was refusing to sign closes that do not pay the fleet's own address. |
-| **3** per-channel freshness | ✅ **already built** | `BTCChannels.commitFreshness(bytes32,uint64)` (`:1666`), `freshnessSeq` (`:213`), `_onlyHop()`-gated, strictly monotonic. ⚠️ **This independently corroborates D2 #3:** I closed §T3 on the routed-HTLC argument, and the freshness it was supposedly *gated on* turns out to exist anyway. Two unrelated reasons, same conclusion. |
+| **3** per-channel freshness | ⛔ **NOT BUILT — this row was ✅ against the WRONG MECHANISM, corrected 2026-08-18. See `§D2-PHASES`.** | **`§ORDER-M1` defines phase 3:** *"M1#4 / T3 per-channel freshness. **It changes WHAT AN EXIT COMMITS TO** (`Prevouts::All` binds the freshness UTXO)"* — a BIP-341 rule over Bitcoin prevouts. `commitFreshness`/`freshnessSeq` is the **EVM anti-rollback counter for the enclave's sealed monitor store**, read by **no exit path**; it is ✅ built and irrelevant here. The Bitcoin freshness UTXO is still *"shared by every channel"* (`quid-ln/src/deadman_exit.rs:67`, `:191`; `FRESHNESS_SHARD = 0`). ⚠️ **The tell this missed:** `freshnessSeq` is `mapping(bytes32 => uint64)` keyed by `channelId`, i.e. **already per-channel** — a phase whose whole content is *"make it per-channel"* cannot be discharged by something that always was. ⛔ **AND THE CORROBORATION OF `D2 #3` IS THEREFORE VOID** — §T3's closure may still stand on the routed-HTLC argument alone, but *"the freshness it was gated on exists anyway"* is about the other mechanism and is not a second reason. `§T3`'s own row warns about this conflation by name. |
 | **4** attestation removal | ✅ | `AttestedHopRegistry` and every `_requireAttested` call deleted; **0 non-comment references** re-verified 2026-08-18. |
 
 ### The remainder that row named — three of four are now closed
