@@ -1925,10 +1925,27 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
 | ~~17~~ | ~~fee-accumulator credit-site enumeration~~ | ✅ **RUN 2026-08-18, AT LAST — AND THE CONCLUSION IT WAS MEANT TO FALSIFY SURVIVES** | **Every write enumerated, not sampled.** Credits: `Vault.creditSkewPremium` (`:351`, `onlyUsBtc`), `Vogue.creditSkewPremium` (`:1178`, `onlyUs`), `Vogue._rebalance` (`:1274`), and the BTC rebalance via `BtcVaultLib` (`:491,495`) written back at `Vault.sol:456`. Resets: `Vault.sol:634`, `Vogue.sol:835`. **Of the three paths the note feared — swap-out delivery, liquidation, a rebalance leg — TWO have no credit site at all** (`BTCChannels`, `LevManager`, `BtcLevManager`: **zero** hits) **and the third, the rebalance leg, DOES credit** — which is the one that was never enumerated and the reason the check existed. ✅ **Per-instance correctness holds at every site:** `Core.sol:367` dispatches `BAND.creditSkewPremium` through per-instance storage (`BAND` pinned once at `:539`), and the rebalance passes **its own** base — `Vault.sol:455` hands `feesPerShare, USD_FEES, lpShares + totalBuffer` from the BTC instance's inherited `Shares` state and writes back to it. **No site reads one instance's base against another's accumulator**, which is the successor bug the owner named. | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC band is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
 
-▶️ **THE ORDER, IF YOU WANT ONE:** #2+#5 together (one commitment, and #5 is blocked on #2) → #6
-(cheap, and B0 made it load-bearing) → #11 and #3 are write-ups of conclusions already reached →
-#4 is the largest and the owner's stated priority → #10 costs one edit in another repo and is the
-likeliest to be lost.
+| **18** | 🔴🔴 **THE LP CONSENT PIPELINE HAS NO INTAKE — `bind_consent` HAS ZERO PRODUCTION CALLERS** (found 2026-08-18 answering *"is the LP half of the sig finished?"*) | 🔴 **SPV-side gap, and it was not booked anywhere** | The fleet describes itself as RELAYING consent — `daemon.rs:202-203`, *"the consent and the ladder require the LP half, which after §E175 the fleet does not have, so the fleet RELAYS"* — **but there is nothing to relay INTO.** Enumerated: `VaultRegistry::bind_consent` (`vault.rs:455`) is called by **four test assertions and nothing else**; the only other mentions are two prose references in `swap_out_onchain.rs:190` and `channel_driver.rs:817`. There is **no HTTP endpoint** that accepts an `LpConsent`, and **no site constructs one** outside `a_consent` (the test fixture). ⚠️ **It fails SILENTLY BY DESIGN, which is why nobody noticed:** `consent_for_funding` returns `Option` and absence means DORMANT, not error (correctly — *"the LP has not signed yet"* must not be a loud failure on every reconciler tick). So the open simply never happens, forever, with no error anywhere. ⇒ **This is SPV's half of ibiza's LP-signer item, and it is NOT the same task**: ibiza builds the PRODUCER (phone signs), SPV must build the INTAKE (endpoint → `bind_consent`). Booking only the producer, as both repos did, leaves a pipeline with a middle and no ends. |
+
+▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
+closed and the old order pointed mostly at those.**
+1. **`#18` — the LP consent pipeline has no intake.** Highest, because it is the one gap that makes
+   the whole LP-half topology inert: custody is built (`quid-lp-daemon`), the MuSig2 primitives are
+   built (`deadman_exit_partial`), and **nothing connects them**. It also fails silently.
+2. **`#2` + `#5` together** — one commitment, and `#5` is blocked on `#2`. `#2` is the one where I
+   destroyed working Solidity; the constants and the control survive, so redo it as the `Terms`
+   struct fold rather than threading a raw `[u8;32]`.
+3. **`#4`** — the owner's stated biggest vulnerability. Largest, and genuine design: the missing
+   piece is intent EMISSION on shortfall, not pricing.
+4. **`#13b`** — one clean full-suite run on a PINNED worktree. Cheap, and it settles seven rows of
+   D1's suite-state cluster at once; a shared tree invalidates every number.
+5. **`#14`/`#15`** — recovery. `#14` needs a migration trust anchor of its own (`migration.rs` looks
+   like the answer and is not); `#15` is an operator instruction plus a restore-then-reconnect test.
+6. **`#12` is blocked on the OWNER, not on work** — do not implement `§LP-SEED-ENTROPY` from its
+   shape; the ask is right and the reason matters.
+⏸️ **`#7` (lazy `openChannel`) and `#9` (the 7540 fold) are real but not urgent** — `#7`'s premise
+   changed under it (§E183 removed the consent-at-open it assumed), so it needs re-deriving before
+   building, not building.
 
 ## ✅ D2-ALERT — **DISCHARGED 2026-08-18 by `d13fde00`. Kept in full: the escalation was right, and the BLOCKER I attached to it was wrong.**
 
