@@ -2002,13 +2002,16 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
 | ~~17~~ | ~~fee-accumulator credit-site enumeration~~ | ✅ **RUN 2026-08-18, AT LAST — AND THE CONCLUSION IT WAS MEANT TO FALSIFY SURVIVES** | **Every write enumerated, not sampled.** Credits: `Vault.creditSkewPremium` (`:351`, `onlyUsBtc`), `Vogue.creditSkewPremium` (`:1178`, `onlyUs`), `Vogue._rebalance` (`:1274`), and the BTC rebalance via `BtcVaultLib` (`:491,495`) written back at `Vault.sol:456`. Resets: `Vault.sol:634`, `Vogue.sol:835`. **Of the three paths the note feared — swap-out delivery, liquidation, a rebalance leg — TWO have no credit site at all** (`BTCChannels`, `LevManager`, `BtcLevManager`: **zero** hits) **and the third, the rebalance leg, DOES credit** — which is the one that was never enumerated and the reason the check existed. ✅ **Per-instance correctness holds at every site:** `Core.sol:367` dispatches `BAND.creditSkewPremium` through per-instance storage (`BAND` pinned once at `:539`), and the rebalance passes **its own** base — `Vault.sol:455` hands `feesPerShare, USD_FEES, lpShares + totalBuffer` from the BTC instance's inherited `Shares` state and writes back to it. **No site reads one instance's base against another's accumulator**, which is the successor bug the owner named. | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC band is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
 
-| **18** | 🔴🔴 **THE LP CONSENT PIPELINE HAS NO INTAKE — `bind_consent` HAS ZERO PRODUCTION CALLERS** (found 2026-08-18 answering *"is the LP half of the sig finished?"*) | 🔴 **SPV-side gap, and it was not booked anywhere** | The fleet describes itself as RELAYING consent — `daemon.rs:202-203`, *"the consent and the ladder require the LP half, which after §E175 the fleet does not have, so the fleet RELAYS"* — **but there is nothing to relay INTO.** Enumerated: `VaultRegistry::bind_consent` (`vault.rs:455`) is called by **four test assertions and nothing else**; the only other mentions are two prose references in `swap_out_onchain.rs:190` and `channel_driver.rs:817`. There is **no HTTP endpoint** that accepts an `LpConsent`, and **no site constructs one** outside `a_consent` (the test fixture). ⚠️ **It fails SILENTLY BY DESIGN, which is why nobody noticed:** `consent_for_funding` returns `Option` and absence means DORMANT, not error (correctly — *"the LP has not signed yet"* must not be a loud failure on every reconciler tick). So the open simply never happens, forever, with no error anywhere. ⇒ **This is SPV's half of ibiza's LP-signer item, and it is NOT the same task**: ibiza builds the PRODUCER (phone signs), SPV must build the INTAKE (endpoint → `bind_consent`). Booking only the producer, as both repos did, leaves a pipeline with a middle and no ends. |
+| **18** | 🔴🔴 **THE LP CONSENT PIPELINE HAS NO INTAKE — `bind_consent` HAS ZERO PRODUCTION CALLERS** (found 2026-08-18 answering *"is the LP half of the sig finished?"*) | 🔴 **SPV-side gap, and it was not booked anywhere** | The fleet describes itself as RELAYING consent — `daemon.rs:202-203`, *"the consent and the ladder require the LP half, which after §E175 the fleet does not have, so the fleet RELAYS"* — **but there is nothing to relay INTO.** Enumerated: `VaultRegistry::bind_consent` (`vault.rs:455`) is called by **four test assertions and nothing else**; the only other mentions are two prose references in `swap_out_onchain.rs:190` and `channel_driver.rs:817`. There is **no HTTP endpoint** that accepts an `LpConsent`, and **no site constructs one** outside `a_consent` (the test fixture). ⚠️ **It fails SILENTLY BY DESIGN, which is why nobody noticed:** `consent_for_funding` returns `Option` and absence means DORMANT, not error (correctly — *"the LP has not signed yet"* must not be a loud failure on every reconciler tick). So the open simply never happens, forever, with no error anywhere. ⇒ **This is SPV's half of ibiza's LP-signer item, and it is NOT the same task**: ibiza builds the PRODUCER (phone signs), SPV must build the INTAKE (endpoint → `bind_consent`). Booking only the producer, as both repos did, leaves a pipeline with a middle and no ends. ⛔ **READ `D2-PHASES` BEFORE SIZING THIS — IT IS WORSE THAN THIS ROW STATES.** Jointly with `B0` and `B4`: `_armLadder` is on the open path and now requires ≥2 rungs at ≥2 deadlines, `drive_open` refuses to synthesise a ladder, and the heartbeat — the ONLY non-test `ExitArming` constructor — is inert vault-less. ⇒ **no channel can be opened in the default deployment**, and no exit is bound to a freshness UTXO either. The acceptance test is one channel opened end-to-end from an LP-supplied consent, not the existence of an endpoint. |
 
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 1. **`#18` — the LP consent pipeline has no intake.** Highest, because it is the one gap that makes
    the whole LP-half topology inert: custody is built (`quid-lp-daemon`), the MuSig2 primitives are
    built (`deadman_exit_partial`), and **nothing connects them**. It also fails silently.
+   🔴🔴 **RE-SCORED 2026-08-18 — see `D2-PHASES`: read with `B0` and `B4` it is not "inert topology"
+   but "NO CHANNEL CAN BE OPENED", because `_armLadder` now requires a ladder no production code
+   constructs.** Nothing else in this list matters until an LP can open.
 2. **`#2` + `#5` together** — one commitment, and `#5` is blocked on `#2`. `#2` is the one where I
    destroyed working Solidity; the constants and the control survive, so redo it as the `Terms`
    struct fold rather than threading a raw `[u8;32]`.
@@ -2023,6 +2026,88 @@ closed and the old order pointed mostly at those.**
 ⏸️ **`#7` (lazy `openChannel`) and `#9` (the 7540 fold) are real but not urgent** — `#7`'s premise
    changed under it (§E183 removed the consent-at-open it assumed), so it needs re-deriving before
    building, not building.
+
+## D2-PHASES. 🔴 **THE `§PHASE-ORDER` MAPPING — SPRINT HAS NEVER CARRIED IT, WHICH IS WHY *"DID WE FINISH PHASE 1–4?"* HAD NO ANSWER IN THIS FILE**
+
+`§PHASE-ORDER` (`QUEUE.md:14103`) is the owner's ordering for the Bitcoin work, and its reason for
+existing is that **work done out of sequence gets UNDONE.** Every row in D2 above is filed by `§id`,
+and **no part of this document maps those ids onto the phases** — so the natural question *"we did
+phases 1 through 4, what is left?"* could only be answered by re-reading the queue. That mapping is
+below, **re-derived against code today, not against the rows.**
+
+| phase | what `§PHASE-ORDER` says it is | where it lives here | state — **verified 2026-08-18** |
+|---|---|---|---|
+| **0** | §F5's three-test zero-delivery cluster; §W1's sweep signing tool | not in D2 — `§F5` / `§W1` are QUEUE-only | 🔴 **OPEN, and unblocked at any time by construction.** `create_sweep_tx` is the maintained-but-uncalled function `CLAUDE.md` warns twice about deleting: it marks §W1, it is not litter. |
+| **1** | **the keystone, §M1#2 — the LP holds its own funding half.** (a) fleet runs vault-less, (b) `quid-lp-daemon` boots against a remote hop, (c) LP seed provisioning | `B0` | 🟡 **(a) ✅ `99fda5e9`. (b) ✅ the binary exists. (c) is `§LP-SEED-ENTROPY` = `#12`, an OWNER decision.** So phase 1 is *structurally* done and **not** discharged: see the joint finding below, which is what (a) cost. |
+| **2** | §T9/§M1#5 as an LP-SIDE SIGNER REFUSAL, **then** ladder depth | `B4` = `#6` | 🟡 **the SECOND half is ✅ (`5295995f`, `LadderTooShallow`); the FIRST half — the signer refusal — is NOT in D2 at all.** Ladder depth landed *before* the thing it was ordered after. That is the inversion `§PHASE-ORDER` exists to prevent, and it is worth noting the order held anyway only because depth turned out to be independent. |
+| **3** | §M1#4 **per-channel freshness** — *"it changes WHAT AN EXIT COMMITS TO (`Prevouts::All` binds the freshness UTXO)"* | nowhere — **this is the gap** | 🔴 **NOT BUILT.** See the correction below; a previous pass recorded it as built and was pointing at a different mechanism. |
+| **4** | attestation removal **and** lazy `openChannel` | `#7` (lazy open) only | ⏸️ **`#7` needs re-deriving (§E183 removed its premise). Attestation removal is booked NOWHERE in this file** — the other half of phase 4 has no row. |
+
+⇒ **The honest answer to "did we finish 1–4" is: phase 1(a)(b) and phase 2's second half landed.
+Phases 0, 3 and half of 2 and 4 are open, and two of those halves have no row anywhere in SPRINT.**
+
+### ⛔ CORRECTION — **PHASE 3 IS NOT BUILT, AND THE THING THAT LOOKS LIKE IT IS A DIFFERENT MECHANISM**
+
+A pass earlier today recorded *"phase 3 (`commitFreshness`, monotonic, `:1666`) is genuinely built"*
+and used it to corroborate `§T3`'s closure. **That is the exact conflation `§T3`'s own QUEUE row
+warns about** — *"there are TWO distinct things called freshness … conflating them makes T3 look
+already-solved or already-absent."* Both were read this time:
+
+- **The EVM counter** — `BTCChannels.freshnessSeq` / `commitFreshness` (`:213`, `:1666`). Its own
+  header says what it is: *"monotonic per-channel persistence-freshness counter … the hop commits
+  the highest persisted channel-monitor `update_id` … on reboot its enclave refuses to load a
+  monitor whose `update_id` is behind."* **Anti-rollback for the enclave's sealed store. No exit
+  path reads it.** ✅ built, and irrelevant to phase 3.
+- **The Bitcoin UTXO** — `deadman_exit.rs:67`, still *"an OPTIONAL second input spending a
+  **fleet-controlled UTXO shared by every channel**"*, and `:191` repeats *"shared by every
+  channel"*. Phase 3 is making **that** per-channel. 🔴 **Unbuilt: it is still shared, and the
+  production sharding constant is `FRESHNESS_SHARD: u32 = 0` (`quid-bridge/deadman_exit.rs:317`)
+  — one hard-coded shard, i.e. a partition with one member.**
+
+📌 **Why the confusion is structural rather than careless:** both are called freshness, both are
+monotonic-ish, both are anti-replay, and they sit in files with the same name in two crates
+(`quid-ln/src/deadman_exit.rs` and `quid-bridge/src/deadman_exit.rs`). The discriminator is
+**what reads it**: an enclave at boot, or a Bitcoin consensus rule at spend time.
+
+### 🔴🔴 JOINT FINDING — **`#18` IS WORSE THAN BOOKED: IN THE DEFAULT DEPLOYMENT NO CHANNEL CAN BE OPENED AT ALL, AND THE FRESHNESS UTXO HAS NO WRITER EITHER**
+
+`#18` books the missing intake as *"the gap that makes the LP-half topology inert."* Reading it
+together with `B0` and `B4` — which is the reading neither row can do alone — gives a sharper and
+strictly worse statement. **Every step below was enumerated today.**
+
+1. **`_armLadder` is on the open path and now REQUIRES a real ladder.** `BTCChannels.sol:999` arms it
+   from `openChannel`, and since `5295995f` it reverts `LadderTooShallow` on `exits.length < 2` **or**
+   on rungs that all share one deadline (`:1557`, `:1571`). **So `openChannel` cannot succeed without
+   a ≥2-rung, ≥2-deadline ladder.**
+2. **The fleet will not synthesise one — by design.** `drive_open` (`channel_driver.rs:741-746`)
+   returns early when `consent_for_funding` is `None`: *"no LP consent (OpenAuth + ExitArming ladder)
+   yet; skip (reconciler retries)"*, and the comment above it says the fleet *"RELAYS consent and
+   never synthesises it."*
+3. **Nothing writes consent.** `#18`'s enumeration, re-run: `bind_consent` has only test callers.
+4. **And nothing constructs an `ExitArming` in production either.** Every construction site, not a
+   sample: `quid-bridge/deadman_exit.rs:202` (the heartbeat), `quid-bridge/vault.rs:1138`
+   (`a_consent`, a test fixture), `quid-hop/evm_codec.rs:1068` (`#[cfg(test)] t_exits`).
+   **The only non-test one is the heartbeat — and `B0` made it inert:** `run_deadman_exit_heartbeat`
+   takes `vault: Option<…>` and with `None` *"does not run at all"* (`:230`), which `99fda5e9` made
+   the default.
+
+⇒ **Chain: no intake → no consent → `drive_open` dormant → `openChannel` never called → no channel.**
+It is silent at every step, because dormancy is the correct local behaviour at each one.
+⇒ **And the SAME step 4 kills the freshness mechanism:** the heartbeat is also the only production
+site that RESOLVES a freshness outpoint (`quid-bridge/deadman_exit.rs:344-377`, `set_freshness`,
+retire-previous at `:503-522`). Vault-less, **no exit is bound to a freshness UTXO at all** — so the
+`§T3` revocation hazard *and* the invalidation property it was the price of are **both** currently
+absent from production. Phase 3 is not "the shared design needs sharding"; it is **"the shared
+design has no live writer, and per-channel is what would give it one."**
+
+⚠️ **THIS IS NOT AN ARGUMENT AGAINST `B0`** — `deadman_exit.rs:236` forbids the tempting fix in
+advance, and the design says §E165 and the split *"land together."* It is an argument that **`B0`'s
+other half was never built**, and that three separately-reasonable rows (`B0` closed, `B4` closed,
+`#18` booked) jointly describe a system that cannot open a channel. Same shape as `D2-ALERT`: the
+severity exists only in the product, and only a second-order check of our own landed change finds it.
+⇒ **`#18` stays `#1` in the order above and its severity is now 🔴🔴.** Its acceptance test is not
+*"an endpoint exists"* — it is **one channel opened end-to-end from an LP-supplied consent**, which
+is also the only thing that would have caught this.
 
 ## ✅ D2-ALERT — **DISCHARGED 2026-08-18 by `d13fde00`. Kept in full: the escalation was right, and the BLOCKER I attached to it was wrong.**
 
