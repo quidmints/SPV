@@ -3149,3 +3149,24 @@ the repo's standing posture is no hooks (`7a53747`).
 SEPARATE from the band meeting Midnight's *execution* model above. **Two different couplings to one
 protocol — do not let them share an adapter**, or the two things behind one name repeats at the
 integration layer.
+
+### ⛔ CORRECTION — **THEY DO SHARE A COORDINATE SYSTEM, LITERALLY. I HEDGED AND THE CODE SAYS OTHERWISE (owner, 2026-08-19)**
+I wrote *"`TickLib` prices a RATE tick and is NOT our price"* and that *"its survival is not evidence
+the two systems share a coordinate system."* **Both wrong, and `TickLib`'s own signature settles it:**
+```
+function priceToTick(uint256 price, uint256 spacing)
+    require(price <= 1e18, PriceGreaterThanOne());
+```
+⇒ **MIDNIGHT'S TICKS INDEX A PRICE IN `[0, 1]` WAD** on a log grid (`LN_ONE_PLUS_DELTA`,
+`MAX_TICK = 6744`, centred at `MAX_TICK/2`), and the contract's own doc reasons about *"resting sell
+offers with **price < 1**"*. **That is a DISCOUNT PRICE OF A DATED CLAIM — a bond below par.** Not a
+rate.
+⭐ **AND A QD VINTAGE BEFORE MATURITY IS EXACTLY THAT:** par at tenor, discount before. Same quantity,
+same `[0,1]` domain, same logarithmic grid. **This is WHY the field mapping came out total** — I
+recorded the totality as a happy result and then denied its cause one message later.
+📌 **CONSEQUENCE FOR THE "TWO COUPLINGS" NOTE ABOVE — SOFTEN IT.** The band's execution price and the
+vintage's discount price are points on **ONE** grid. What differs is what the price is OF, not how it
+is represented, so a shared *tick* representation is correct even though a shared *adapter* is not.
+⚠️ **METHOD:** I twice mis-scoped this integration by reading what Midnight IS (a lender ⇒ "rates")
+instead of what its code DOES (`priceToTick`, bounded at 1 ⇒ prices). **The identity of a protocol is
+not its coordinate system, and the signature is the authority over the category.**
