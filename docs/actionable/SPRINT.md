@@ -2084,6 +2084,10 @@ strictly worse statement. **Every step below was enumerated today.**
    yet; skip (reconciler retries)"*, and the comment above it says the fleet *"RELAYS consent and
    never synthesises it."*
 3. **Nothing writes consent.** `#18`'s enumeration, re-run: `bind_consent` has only test callers.
+   ✅ **CONTROL RUN, because this step asserts an absence.** `LpConsent` appears in **one file**
+   (`vault.rs`, 6 hits — the struct, the fixture, and the two registry methods) and in no route
+   handler. The control is that the *same* search method **does** find the routes that exist —
+   `/lp/onboard`, `/lp/withdraw`, `/provision` — so it can see a route when there is one.
 4. **And nothing constructs an `ExitArming` in production either.** Every construction site, not a
    sample: `quid-bridge/deadman_exit.rs:202` (the heartbeat), `quid-bridge/vault.rs:1138`
    (`a_consent`, a test fixture), `quid-hop/evm_codec.rs:1068` (`#[cfg(test)] t_exits`).
