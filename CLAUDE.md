@@ -242,8 +242,8 @@ single source of bulk.** ~5,500 lines sit in **four ETH/BTC pairs**:
 |---|---|---|
 | `Vogue` 1,557 | `Vault` 991 | band manager — ⚠️ **but see the caveat below: this row is unconfirmed** |
 | `LevManager` 908 | `BtcLevManager` 579 | lev manager (`§A.71`: `LevManager.Pos == BtcLevManager.Pos`) |
-| `VogueLib` 694 | `BtcVaultLib` 603 | delegatecall bodies |
-| `VEth` 116 | `VBtc` 105 | ERC-4626 faces |
+| `QuidLib` (was `VogueLib`) | `BtcLib` (was `BtcVaultLib`) | delegatecall bodies — ⚠️ **RENAMED 2026-08-18**, and `VaultLib` folded INTO `QuidLib` and was deleted |
+| ~~`VEth` 116~~ | `VBtc` 105 | ⛔ **THIS PAIR NO LONGER EXISTS — `VEth.sol` IS DELETED (2026-08-18: `ls` confirms, and the only `VEth` strings left in `evm/src` are 3 comments in `Quid.sol` recording the removal).** It is listed here only so the count of four is not read as current. See the RESOLVED note below: the ETH band manager IS the 4626, so there is no ETH face to pair with. |
 
 **`Core` is the one place that got it right** — it parameterises the same distinction with a bool
 (187 of the 359 `isBTC` occurrences; 13 files; 26 sit in `Interfaces.sol` signatures purely to pass
@@ -299,6 +299,19 @@ custody. **There is no vBTC holder population to build an anonymity set from.**"
 already exists*:
   • **ETH — none needed.** WETH exists independently; wrapping/unwrapping is an edge detail. The band
     manager instance names `asset() = WETH` and IS the 4626 outright. `VEth` has no remaining job.
+    ⭐ **THE MECHANICAL EXPRESSION OF THIS, MEASURED 2026-08-18 — and it is the sharpest form of the
+    discriminator, so read it before re-opening the question a fourth time: `Quid`'s ERC-20 face is a
+    PROJECTION OF BAND STATE, while `VBtc`'s is a LEDGER.** `Quid.totalSupply()` returns `lpShares`,
+    `Quid.balanceOf(u)` returns `autoManaged[u].pooled`, and `Quid.transfer` calls `_transferShares` —
+    there is no balances mapping, because the band's own accounting IS the balance. `VBtc` declares
+    `mapping(address => uint) balanceOf` and moves plain balances.
+    ⇒ **`Quid.balanceOf ∥ VBtc.balanceOf` IS NOT A DUPLICATED PAIR LIKE `State`'s TWELVE.** Those twelve
+    (`lpShares ∥ lpShares`, `feesPerShare ∥ feesPerShare`, …) are one concept declared twice. These two
+    are a projection and a ledger — different things wearing one ERC-20 signature. **Folding them would
+    duplicate state, which is the exact thing `Shares.sol`'s header says it exists to delete.**
+    ⚠️ **AND DO NOT MOVE THE FACE INTO `State`:** an abstract base COPIES its bodies into every
+    inheritor (measured +41 bytes, zero saved), and `State` is inherited by `Vault` too — which already
+    has `VBtc` for that job. It would add bytes to the BTC band to remove none from anywhere.
   • **BTC — one must be MINTED.** The underlying is LN-custodied native BTC, which has **no EVM token**;
     WBTC is only a pricing handle and is never held. So the BTC band needs a **synthetic underlying to
     point `asset()` at**, and that is exactly what vBTC is (`ibiza/COMPLIANCE-THESIS.md:77`: *"a
