@@ -15021,3 +15021,41 @@ attributable by construction. **Do not plan any addition to `Quid` against 86, o
 ⚠️ This repo has already shipped a `Core` at **−126 bytes** — undeployable — with a fully green suite.
 `forge build --sizes` cannot see it: `Quid`, `BTCChannels` and `LevManager` are library-linked and the
 script's own footer lists them as absent from that table.
+
+## §E265 — 🔴🔴 **`origin/main` DOES NOT COMPILE: `Types.SelfManaged` GAINED A FIELD, TWO CONSTRUCTORS DID NOT**
+🔴🔴 OPEN — measured 2026-08-19 from a worktree pinned at `origin/main` (`67536cb3`), i.e. by
+construction WITHOUT any thread's uncommitted work. `forge build` → **`FORGE_EXIT=1`**, and the two
+errors are:
+```
+Error (9755): Wrong argument count for struct constructor: 5 arguments given but expected 6.
+   --> src/imports/BtcLib.sol:313:29      Types.SelfManaged({ ... })
+   --> src/Quid.sol:430:29                Types.SelfManaged({ ... })
+```
+`Types.sol:52` declares `bool usdFunded` (the §E258 field: WHICH SIDE FUNDED THE ORDER, hence which
+side it pays out on). Solidity's named-field initialiser requires EVERY field, so omitting it is a hard
+error, not a warning.
+
+⚠️ **THIS IS WHY IT WENT UNNOTICED, AND THE MECHANISM IS WORTH KEEPING.** A `forge build` in the main
+CHECKOUT succeeds — because that tree carries another thread's uncommitted §E258 work, which removes
+the `Types.SelfManaged({...})` literal from `Quid.sol` entirely (0 occurrences there today). So **the
+working tree is green while the committed branch is red**, which is the mirror image of the shared-tree
+trap already in CLAUDE.md: there, a dirty tree makes a measurement look WORSE than the branch; here it
+makes it look BETTER, and that direction is the one nobody checks.
+⇒ **A GREEN BUILD IN A SHARED CHECKOUT IS NOT EVIDENCE THAT `main` BUILDS.** Pin a detached worktree
+(`git worktree add --detach <path> origin/main`) — and note `git worktree add` does **NOT populate
+submodules**, so the first build there fails with ~35 `lib/openzeppelin-contracts ... not found`
+`Error (6275)`s that are environmental and mean nothing. Symlink or `git submodule update --init` first,
+or you will read an environment failure as a code failure (this session did, for one round).
+
+**`usdFunded` HAS EXACTLY ONE REFERENCE IN THE TREE — ITS OWN DECLARATION.** Zero writers (that is the
+break), zero readers. It was added ahead of its consumer (§E258 `fillOOR`).
+⇒ **That is what makes the repair safe rather than a money-path guess:** with no consumer, the value
+cannot change behaviour today; it only restores compilation. Repaired as:
+  • `Quid.sol` — `usdFunded: token != address(WETH)`. `_outOfRange` takes the funding `token` and hands
+    `WETH` to `QuidLib.sizeOutOfRange` as the volatile leg, so anything else is the USD side.
+  • `BtcLib.sol` — `usdFunded: true`, unconditionally. `outOfRangeBtc` reverts `NotAStable()` on a
+    non-stable and deposits stable backing normalised to 6-dec USD, so that path cannot be
+    volatile-funded.
+⚠️ **§E258 OWNS THE FINAL SEMANTICS.** When `fillOOR` lands and actually READS `usdFunded`, re-derive
+both values against what the consumer needs — a field with no reader cannot be validated by any test,
+so these two are consistent-by-derivation, not verified-by-execution.
