@@ -14974,3 +14974,34 @@ built, so we do not. Two conditions before adopting: (1) it needs Blue **v1** as
 `min(supplyAssets, totalSupply-totalBorrow, blueBalance)`, so **our redemption liveness would depend on
 unrelated borrowers fully utilising a market we do not control**. Flagged so it is a decision, not a
 discovery under stress.
+
+
+## §E264 — 🔴 **`Quid` MEASURES 86 BYTES OF EIP-170 MARGIN, AND THE READING IS UNATTRIBUTABLE**
+🔴 OPEN — measured 2026-08-18 by `python3 tools/check-contract-sizes.py` after a clean
+`forge build` (`FORGE_EXIT=0`, zero `^Error` lines). 43 deployable contracts, all under the limit:
+
+| contract | size | margin |
+|---|---|---|
+| **`Quid`** | **24,490** | **86** |
+| `Midnight` (new, `src/midnight/`) | 24,457 | 119 |
+| `BTCChannels` | 23,499 | 1,077 |
+| `LevManager` | 22,830 | 1,746 |
+| `LevMath` | 22,817 | 1,759 |
+
+⚠️ **THE NUMBER CANNOT BE ATTRIBUTED AND MUST NOT BE QUOTED AS A BASELINE.** It was taken in a SHARED
+TREE carrying another thread's UNCOMMITTED edits to `Quid.sol`, `Core.sol`, `Vault.sol`, `BandLib`,
+`BasketLib`, `BtcLib`, `FeeLib`, `Interfaces`, `LevBase`, `LevMath`, `SortedSet`, `SwapLib`, plus
+`State.sol` deleted and `Shares.sol` untracked. So it measures code that is committed NOWHERE. This is
+the trap CLAUDE.md already documents ("A SHARED TREE INVALIDATES EVERY FULL-SUITE NUMBER"), arriving
+through the size gate instead of the suite.
+**It is NOT from the Midnight vendoring** (§E263): those commits touched comments in the two lev
+managers, new isolated files under `src/midnight/`, and a `compilation_restrictions` /
+`additional_compiler_profiles` pair scoped to `src/midnight/**`. None of that reaches `Quid`'s bytecode.
+⇒ **TWO THINGS TO DO, AND THE FIRST IS URGENT.** (1) Whoever owns the uncommitted `Quid.sol`/`Core.sol`
+work needs to know `Quid` is at **86 bytes** — the last recorded figure in this thread was **624**, so
+something in flight has spent ~538. (2) Re-measure from a PINNED DETACHED WORKTREE
+(`git worktree add --detach <path> HEAD`, then copy the gitignored `evm/.env`) to get a figure that is
+attributable by construction. **Do not plan any addition to `Quid` against 86, or against 624.**
+⚠️ This repo has already shipped a `Core` at **−126 bytes** — undeployable — with a fully green suite.
+`forge build --sizes` cannot see it: `Quid`, `BTCChannels` and `LevManager` are library-linked and the
+script's own footer lists them as absent from that table.
