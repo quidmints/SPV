@@ -508,11 +508,10 @@ contract Vogue is BandState,
     ///      and requestRedeem (BTC); the orchestration around it diverges
     ///      (fee model, native-vs-on-chain delivery, the BTC-only per-channel
     ///      claim), which is why the two callers stay distinct.
-    function _burnInRange(uint spotPrice, uint amount,
-        uint loPrice, uint upPrice, address recipient)
+    /// §V4-RESIDUE (2026-08-18) — the three price/bound args went with `SwapLib.burnInRange`'s.
+    function _burnInRange(uint amount, address recipient)
         internal returns (uint sent) {
-        return SwapLib.burnInRange(address(CORE), spotPrice, amount,
-                                    loPrice, upPrice, recipient);
+        return SwapLib.burnInRange(address(CORE), amount, recipient);
     }
 
     /// @dev Shared body. `recipient` receives the ETH; the accrued-fee QD is
@@ -590,10 +589,11 @@ contract Vogue is BandState,
     /// anything. Pay the LP's PRO-RATA share of the increment directly and let the burn govern only
     /// the ETH leg. `lpShares` is already debited by `claimAmt` at this point, so the pre-debit
     /// total is `lpShares + claimAmt` — using it un-restored would over-pay a partial exit.
-    function _burnAndDeliverUsdLeg(uint spotPrice, uint burnAmt, uint claimAmt, uint lo, uint hi, address recipient)
+    /// §V4-RESIDUE (2026-08-18) — `spotPrice`/`lo`/`hi` went when `_burnInRange` stopped taking them.
+    function _burnAndDeliverUsdLeg(uint burnAmt, uint claimAmt, address recipient)
         private returns (uint sent) {
         uint incrPre = _bandIncrement6();
-        sent = _burnInRange(spotPrice, burnAmt, lo, hi, recipient);
+        sent = _burnInRange(burnAmt, recipient);
         sent += _payUsdLeg(incrPre, lpShares + claimAmt, claimAmt, recipient);
     }
 
@@ -673,7 +673,7 @@ contract Vogue is BandState,
         //    of price risk is a measurement nobody has taken (E146); do not raise 1→47 as a
         //    reflex, it changes LP UX and the 4626 redeem semantics.
         require(block.number > lastDepositBlock[msg.sender], "too soon");
-        (uint spotPrice, uint loPrice, uint upPrice,,) = _rebalance();
+        _rebalance();   // §V4-RESIDUE 2026-08-18: kept for its EFFECT (repack/re-centre); returns unused.
         // §4.1 COMPOUND-not-transfer: settle with mintRecipient==0 so the USD fee leg
         // ACCRUES to `usd_owed` (a deferred, unrealized claim — strictly conservative, no
         // mint) rather than being minted out. The token (ETH) leg still compounds into
@@ -712,8 +712,7 @@ contract Vogue is BandState,
                 uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
                 uint served = offrampEtherFi(ethfiPart, recipient);
                 if (served > 0) {
-                    _burnInRange(spotPrice, served,
-                    loPrice, upPrice, address(0));
+                    _burnInRange(served, address(0));
                     // §E28-r(2): the ETH came from ether.fi, so the band burn delivers to nobody —
                     // but the USD leg it burned away is LP-OWNED and must still be paid. Skipping it
                     // was the leak the LVR probe measured (7,809.44 USD of a 60,000 increment).
@@ -736,7 +735,7 @@ contract Vogue is BandState,
                     // independent settlements of the same position.
                     uint usdEq = _payUsdLeg(incrPre, lpShares, ethfiPart, recipient);
                     if (usdEq > 0) {
-                        _burnInRange(spotPrice, usdEq, loPrice, upPrice, address(0));
+                        _burnInRange(usdEq, address(0));
                         LP.pooled -= usdEq;
                         lpShares  -= usdEq;
                         amount    -= usdEq;
@@ -774,8 +773,7 @@ contract Vogue is BandState,
             uint firstBurn = amount > deliverable ? deliverable : amount;
             // §#12: `sent` is VALUE DELIVERED in ETH-equivalent — the ETH burn PLUS the
             // QU!D-settled USD slice — so the shortfall re-credit below nets it off automatically.
-            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(spotPrice, firstBurn, amount,
-                                        loPrice, upPrice, recipient) : 0;
+            uint sent = firstBurn > 0 ? _burnAndDeliverUsdLeg(firstBurn, amount, recipient) : 0;
 
             if (amount > sent) { uint shortfall = amount - sent;
             { // Venue-share delivery — extracted to _deliverVenueShortfall (own frame, no via_ir).
@@ -845,8 +843,9 @@ contract Vogue is BandState,
 
     /// @dev The 7-arg in-range modLP in its own frame so _depositImpl stays within
     ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
-    function _modLpEth(uint spotPrice, uint deltaETH, uint deltaUSD,
-        uint loPrice, uint upPrice, address pledge) private {
+    /// §V4-RESIDUE (2026-08-18) — `spotPrice`/`loPrice`/`upPrice` DELETED, same three as
+    /// `_burnInRange`: `CORE.modLP` takes deltas and a pledge, and never read them.
+    function _modLpEth(uint deltaETH, uint deltaUSD, address pledge) private {
         CORE.modLP(-int256(deltaETH), -int256(deltaUSD), pledge);   // ENTERS ⇒ negative
     }
     /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
@@ -921,8 +920,8 @@ contract Vogue is BandState,
         // the pre-deposit balance. Otherwise the deposit is
         // misattributed as yield, inflating ETH_FEES.
         Types.Deposit storage LP = autoManaged[pledge];
-        (uint spotPrice, uint loPrice,
-         uint upPrice,,) = _rebalance();
+        _rebalance();   // §V4-RESIDUE 2026-08-18: called for its EFFECT (repack/re-centre); every returned
+                        // value became unused when the v4 price bounds left the burn path. Do NOT delete the call.
 
         // _depositETH pulls WETH from msg.sender (payer), routes it to the
         // per-deposit chosen venue, and attributes the slice (hard-wall)...
@@ -952,8 +951,7 @@ contract Vogue is BandState,
             _refreshBookmarks(pledge, 
             feesPerShare, USD_FEES);
 
-            _modLpEth(spotPrice, deltaETH, deltaUSD, 
-                        loPrice, upPrice, pledge);
+            _modLpEth(deltaETH, deltaUSD, pledge);
         }
         uint unpaired = amount - deltaETH;
         if (unpaired > 0) {
@@ -1143,13 +1141,13 @@ contract Vogue is BandState,
         uint usd6 = CORE.POOLED_USD();     // band's in-range USD leg (6-dec)
         uint eth  = CORE.POOLED();         // band's in-range ETH leg (18-dec)
         if (usd6 == 0 || eth == 0) return 0; // empty band -> free stables only
-        (uint spotPrice, uint loPrice, uint upPrice,,) = _rebalance();
+        _rebalance();   // §V4-RESIDUE 2026-08-18: kept for its EFFECT; returns are all unused now.
         // ROOT-PRECISE: size the ETH removal by the band's OWN in-range USD/ETH ratio, NOT an external TWAP.
         // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
         // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
         // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
-        _burnInRange(spotPrice, SoladyMath.fullMulDiv(usdWanted, eth, usd6 * 1e12), loPrice, upPrice, address(0));
+        _burnInRange(SoladyMath.fullMulDiv(usdWanted, eth, usd6 * 1e12), address(0));
         uint after6 = CORE.POOLED_USD();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
@@ -1670,7 +1668,7 @@ contract Vogue is BandState,
     function compound(address lp) external nonReentrant {
         Types.Deposit storage LP = autoManaged[lp];
         if (LP.pooled == 0) return;                  // nothing to compound — keeper-safe no-op
-        (uint spotPrice, uint loPrice, uint upPrice,,) = _rebalance(); // repack-first: roll pool fees into feesPerShare
+        _rebalance(); // repack-first: roll pool fees into feesPerShare — §V4-RESIDUE 2026-08-18: returns unused
         uint eth_fees = feesPerShare;
         uint usd_fees = USD_FEES;
         (uint tokR, uint usdR) = _pendingFor(lp);    // token-leg (WETH-units) + USD-leg owed
@@ -1688,7 +1686,7 @@ contract Vogue is BandState,
 
         // Burn-to-cranker FIRST so `sent` (capped at the band's active slice) is the truth for the
         // accounting below; the whole fn is nonReentrant so the native-ETH send can't re-enter.
-        uint sent = tip > 0 ? _burnInRange(spotPrice, tip, loPrice, upPrice, msg.sender) : 0;
+        uint sent = tip > 0 ? _burnInRange(tip, msg.sender) : 0;
 
         // EFFECTS: compound only what was NOT paid to the cranker; carry the USD leg (nothing leaves).
         uint net = tokR > sent ? tokR - sent : 0;

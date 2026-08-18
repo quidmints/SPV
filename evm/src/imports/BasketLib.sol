@@ -1304,7 +1304,8 @@ library BasketLib {
     }
 
     function evacuateBody(
-        address vault, VaultHealthCfg memory cfg,
+        address vault, VaultHealthCfg memory /*cfg*/,   // §V4-RESIDUE 2026-08-18: unread. Name commented
+        // rather than removed: `public` library function, so dropping it changes the SELECTOR.
         mapping(address => VaultHealth) storage vaultHealth,
         mapping(address => address[]) storage vaultsOf,
         mapping(address => address) storage tokens

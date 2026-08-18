@@ -372,7 +372,7 @@ library SwapLib {
         uint v4p;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for v4's
                     // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
-            (, uint lo, uint hi,, uint p) = IBandManager(c.band).repack();
+            (,,,, uint p) = IBandManager(c.band).repack();
             v4p = p;
         }
         {
@@ -655,7 +655,7 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (, uint lo, uint hi,, uint p_) = IBandManager(bandVault).repack();
+            (,,,, uint p_) = IBandManager(bandVault).repack();
             v4p = p_;
         }
         rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
@@ -1473,7 +1473,7 @@ library SwapLib {
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint v4p;
         {
-            (, uint lo, uint hi,, uint p_) = IBandManager(address(this)).repack();
+            (,,,, uint p_) = IBandManager(address(this)).repack();
             v4p = p_;
         }
         rp.inputIsUsd   = true;    // USD→BTC buy: USD is the INPUT (mirror of the sell)
@@ -1703,8 +1703,11 @@ library SwapLib {
     ///      active slice) and return what was actually delivered. ETH passes
     ///      the LP's recipient; BTC passes address(0) (native sats return via
     ///      the cooperative-close tx — only the mockBTC is burned).
-    function burnInRange(address v4, uint spotPrice, uint amount,   // §ISBTC-SPLIT: the `isBTC` param was never read
-        uint loPrice, uint upPrice, address recipient)
+    /// §V4-RESIDUE (2026-08-18) — `spotPrice`, `loPrice` and `upPrice` DELETED: solc reported all three
+    /// unused here, and they were the v4 position's price bounds. A burn against our own inventory takes
+    /// an AMOUNT; there is no range to burn out of and no spot to price it at. They were still being
+    /// computed and threaded through two frames to be discarded at the leaf.
+    function burnInRange(address v4, uint amount, address recipient)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal returns (uint sent) {
         uint pooled = ICore(v4).POOLED();
         uint pulled = Math.min(amount, pooled);

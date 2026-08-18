@@ -40,7 +40,10 @@ library BtcVaultLib {
     ///         (btcFeesOwedSats), settled by the hop at channel close.
     function settleBtcLp(
         Types.Deposit storage LP,
-        address lpEth, address payTo, address quid,
+        address /*lpEth*/, address payTo, address quid,   // §V4-RESIDUE 2026-08-18: `lpEth` unread here — the
+        // attribution it carried is done by the CALLER before this body runs. Name commented rather than the
+        // parameter removed: this is a `public` library function, so dropping it would change the SELECTOR and
+        // every delegatecall encoding with it, for a warning.
         uint feesPerShare, uint usdFees, uint weight
     ) public returns (uint compoundedSats) {
         // `weight` is the GROSS fee depth: net pooled + the debt-funded levered buffer (levBuf).
@@ -181,13 +184,13 @@ library BtcVaultLib {
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
-            SwapLib.burnInRange(core, a.spotPrice, nativeSlice, a.loPrice, a.upPrice, address(0));
+            SwapLib.burnInRange(core, nativeSlice, address(0));
             // Full channel close burns BOTH levered legs' V4 depth: the net slice (a.lev) and the
             // debt-funded buffer (a.buf). The buffer leaves totalBuffer via the bufRemoved return.
             if (a.full && a.lev > 0)
-                SwapLib.burnInRange(core, a.spotPrice, a.lev, a.loPrice, a.upPrice, address(0));
+                SwapLib.burnInRange(core, a.lev, address(0));
             if (a.full && a.buf > 0) {
-                SwapLib.burnInRange(core, a.spotPrice, a.buf, a.loPrice, a.upPrice, address(0));
+                SwapLib.burnInRange(core, a.buf, address(0));
                 o.bufRemoved = a.buf;
             }
         }
