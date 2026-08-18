@@ -14870,3 +14870,107 @@ invalidation property it was the price of are both absent from production today.
 📌 **The discriminator, because the confusion is structural not careless:** both are called freshness,
 both are anti-replay, and they live in files with the SAME NAME in two crates. Ask **what reads it** —
 an enclave at boot, or a Bitcoin consensus rule at spend time.
+
+## §E263 — **the zero-coupon join to Midnight is a PURE FUNCTION; the supply ledger must NOT follow it**
+⚠️ **DECISION REVERSED 2026-08-18, SAME DAY, BY THE OWNER: WE DEPLOY OUR OWN INSTANCE WITH LIGHT MODS.**
+Everything below that argues "call their deployed contract" was written BEFORE that call and is kept
+only because its MEASUREMENTS are still the evidence. The conclusion it draws is superseded: the fork
+is landed at `evm/src/midnight/` (`ae4edbea`), the submodule `evm/lib/morpho-v2` stays unmodified as
+the diff baseline, and `diff -r lib/morpho-v2/src src/midnight` is the whole audit surface — **3 pragma
+pins + 1 function body**. `evm/src/midnight/README.md` carries the adaptation table.
+**Why the reversal is not in tension with the size finding:** the −74/−187 margins below assumed
+upstream's `optimizer_runs`. They are not forced. Swept, and the curve is **NOT monotonic in runs**:
+`1 → +68 | 50 → +107 | 200 → −74 | 466 → −144`. At **runs=50 it fits with +107 bytes**. Also measured:
+`via_ir = false` (our global policy) does not build Midnight AT ALL — "Stack too deep", `LValue.cpp:54`,
+at every runs value — so the `[[profile.default.compilation_restrictions]]` block scoped to
+`src/midnight/**` is REQUIRED, not a convenience.
+🔴 **AND `MAX_COLLATERALS = 128` IS NOT SURPLUS — DO NOT "SIMPLIFY" IT TO 2** (owner, 2026-08-18). The
+collateral bitmap IS the array of internal swapping we offer as a maturity facility; each slot is an
+asset the facility accepts. That is also why `msb` had to stay CHEAP: both call sites
+(`Midnight.sol:646`, `:904`) are inside loops over that bitmap, so the shift-loop MSB (~29k gas per
+sweep) was rejected in favour of smear+popcount (~100 gas, and it reuses the SWAR `countBits` directly
+above it, so it adds no routine). `test/MidnightMsb.t.sol` proves it against an independent
+descending-scan reference over all 128 bit positions, all 127 smeared masks and a 256-run fuzz,
+including the `type(uint256).max` wrap on zero that upstream's `sub(255, clz(0))` also produces.
+⚠️ **solc 0.8.34 IS UNREACHABLE FROM THIS TOOLCHAIN — the pin is forced, not preferred.** forge 1.5.1
+cannot resolve it; upstream's own repo does not build on this machine. `evm_version = "osaka"` does not
+help either: solc 0.8.30 has no `clz` builtin at any EVM version.
+
+🟡 OPEN — design settled and measured 2026-08-18, nothing built yet. Blue v2 wired as a submodule in
+`069e7bfc` (`morpho-org/morpho-v2` @ `709dab35`, remap `morpho-v2/=lib/morpho-v2/src/`).
+
+**The join.** `Basket` is already `ERC20, ERC6909` and its 6909 `tokenId` IS `when` — a month index
+(`currentMonth() = (block.timestamp - _deployed) / MONTH`), clamped to a 12-month forward window.
+Midnight keys a market by `Market.maturity`, a timestamp. So one vintage-month × one redemption
+currency = one market Id, **DERIVED, NEVER STORED**:
+```
+maturity = _deployed + when * MONTH
+Id       = IdLib.id(Market{ loanToken: QUID|WETH|vBTC, maturity, collateralParams, ... })
+```
+Three 6909 redemption currencies = three `loanToken`s. No mapping, no registry, no schedule of ours.
+
+**What evaporates into their state** (`interfaces/IMidnight.sol`):
+| ours | theirs |
+|---|---|
+| face payable at maturity | `MarketState.totalUnits` |
+| discount price of the vintage | `Offer.tick` → `TickLib.tickToPrice` ∈ (0,1) |
+| the fixed rate paid upfront | `1 - tickToPrice(tick)` + `settlementFee(id, timeToMaturity)` |
+| socialised impairment | `MarketState.lossFactor` |
+| claimable-at-maturity (7540) | `MarketState.withdrawable` |
+
+**Checked, do not re-litigate:** our monthly granularity does NOT have to snap to their 7 buckets.
+`Midnight.settlementFee` (`:916-932`) is **piecewise-linear between breakpoints** — 0/1/7/30/90/180/360
+days are interpolation knots, not a lattice. Month-2, month-5 and month-11 vintages get a continuous
+fee. I expected this to be a friction and it is not; the measurement is why.
+
+🔴 **THE ONE THING THAT MUST NOT MOVE — `totalSupplies[when]` STAYS OURS.** It and `MarketState.totalUnits`
+are the same quantity, which is exactly what makes deleting ours look free. It is not free:
+`immatureSupply()` (`Basket.sol:147`) sums 13 vintages, `matureSupply()` calls it, and `matureSupply()`
+is on the **redeem/swap money path** (`SwapLib.sol:541`, `BasketLib.sol:1018`). Today: 13 SLOADs. Riding
+Midnight: 13 COLD EXTERNAL STATICCALLS, ~+34k gas on **every redeem**. §E257 already says the swap path
+does not fit in a block, so this spends the one budget that is already overdrawn. ⇒ **The derived Id and
+the fee/tick/maturity curve evaporate. The supply ledger does not.**
+
+⚠️ **THE PRAGMA PIN IS POSSIBLE AND MEASURED — AND IT COSTS MORE THAN IT SAVES (2026-08-18).** Owner
+asked to pin their implementations to our 0.8.30. It works, and `clz` is the ONLY obstacle in 18 files:
+rewriting `pragma solidity 0.8.34` → `0.8.30` leaves exactly one error, `Function "clz" not found` at
+`libraries/UtilsLib.sol:49` (`res := sub(255, clz(bitmap))`), an MSB over the collateral bitmap.
+`evm_version = "osaka"` does NOT rescue it — solc 0.8.30 has no `clz` builtin at any EVM version.
+Measured, solc 0.8.30 + cancun + `via_ir = true`, `Midnight` deployed bytecode:
+
+| MSB impl | runs | bytes | EIP-170 margin |
+|---|---|---|---|
+| binary search (7 branches) | 466 | 24,763 | **−187** |
+| binary search | 200 | 24,693 | **−117** |
+| shift loop | 200 | **24,559** | **+17** |
+| binary search | 999999 | 34,132 | −9,556 |
+
+⇒ **`clz` IS LOAD-BEARING FOR DEPLOYABILITY, NOT A STYLE CHOICE** — which is why their header
+(`Midnight.sol:187`) leads with it. Under cancun the only version that FITS is the shift loop, at **+17
+bytes**, and it fits by paying gas: both `msb` call sites (`Midnight.sol:646`, `:904`) are INSIDE loops
+over the collateral bitmap, so the loop MSB is an inner loop — worst case ~16 collaterals at high bit
+positions ≈ 1,900 iterations ≈ **~29k gas per collateral sweep** (vs ~100 for the branch form), landing
+on the liquidation and settlement paths. This repo has already shipped a `Core` at −126 bytes with a
+green suite; +17 is not a margin to build on.
+⇒ **BOTH COSTS EXIST ONLY IF WE DEPLOY OUR OWN INSTANCE.** Calling the deployed contract needs no patch
+at all. Pin only if we are forced to run our own Midnight; then the choice is a maintained fork
+(re-audited) or moving the whole tree to solc 0.8.34 + osaka.
+
+⚠️ **PRAGMA BOUNDARY — it decides the architecture, so do not plan around it.** Every Midnight
+IMPLEMENTATION is `pragma solidity 0.8.34` EXACT (`Midnight.sol`, all 5 periphery impls, both
+ratifiers); every INTERFACE and LIBRARY is `^0.8.0`/`>=0.5.0` (24 files incl. `IMidnight`, `TickLib`,
+`IdLib`, `ConstantsLib`, `UtilsLib`, `HashLib`, `ERC20Lib`). We pin 0.8.30. ⇒ import their interfaces
+and libraries, **call their DEPLOYED contract**, fork-test against it (which is also standing rule 5).
+Pulling `Midnight.sol` into `evm/src` is IMPOSSIBLE without moving the whole tree to 0.8.34, on a tree
+with `via_ir=false` and ~620 bytes of `Quid` margin. `ratifiers/libraries/HashLib.sol` is `>=0.5.0` and
+drops in as-is for the Bitcoin side.
+
+⚠️ **`BlueBuyCallback` IS NOT OUR FLASH-SERVE** — checked, because the name invites the error. Flash-serve
+is atomic (borrow → Curve → repay in one tx). `onBuy` (`:80-97`) WITHDRAWS from a Blue **v1** market and
+approves Midnight: funds sit supplied earning float while a buy offer waits unfilled. It IS the
+*relend-while-committed* primitive (fixed-rate capital utilised at a floating rate until taken) — already
+built, so we do not. Two conditions before adopting: (1) it needs Blue **v1** as well as v2
+(`lib/morpho-blue`, declared inside morpho-v2 and unfetched); (2) `buyerAssetsBound` caps a take at
+`min(supplyAssets, totalSupply-totalBorrow, blueBalance)`, so **our redemption liveness would depend on
+unrelated borrowers fully utilising a market we do not control**. Flagged so it is a decision, not a
+discovery under stress.
