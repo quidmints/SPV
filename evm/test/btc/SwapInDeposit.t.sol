@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ChannelLib} from "../../src/imports/ChannelLib.sol";
+import {Types} from "../../src/imports/Types.sol";
 import {ExitLib} from "../../src/imports/ExitLib.sol";
 
 /// @notice (E159) Recomputing an on-chain swap-in DEPOSIT address, so a credit can be PROVEN
@@ -31,9 +32,23 @@ contract SwapInDepositTest is Test {
         bytes32(uint256(0x2F8BDE4D1A07209355B4A7250A5C5128E88B84BDDC619AB7CBA8D569B240EFE4));
     uint32  constant CLTV = 800_001;
 
-    /// The deposit output key for (INTERNAL, REFUND, CLTV) — computed in Python directly from
-    /// BIP-341, and identical to the value `TaprootLeafKey.t.sol` pins.
+    /// (§T2) The swap's ECONOMIC TERMS, now committed into the deposit address itself.
+    function _terms() internal pure returns (Types.Terms memory) {
+        return Types.Terms({ seller: address(0xA1), token: address(0xB2), minDeliveredUsd: 1_500_000 });
+    }
+
+    /// (§T2) The deposit output key for (INTERNAL, terms, REFUND, CLTV) — computed in Python
+    /// directly from BIP-341, with the `PUSH32 <termsCommitment> OP_DROP` prefix on the leaf.
     bytes32 constant EXPECTED_Q =
+        bytes32(0xcd5f8505d5404088c26ea8f237bc8479ff326a8dabd258e6b8672c9c76bf66c6);
+    /// The terms commitment those fixture terms hash to.
+    bytes32 constant TERMS =
+        bytes32(0xa96ad576c2997494f5819848b392d6c312c02ee52ec7a0c3f3d5ae6d613a86fc);
+    /// 🔑 **THE CONTROL, AND IT IS WHY THIS RE-DERIVATION IS CHECKABLE RATHER THAN GUESSED.** This
+    /// is the address the SAME fixture derived BEFORE the terms prefix existed — the value this
+    /// file pinned until §T2. Any reimplementation of the leaf must still reproduce it with the
+    /// prefix omitted; if it cannot, the reimplementation is wrong rather than the pin.
+    bytes32 constant Q_WITHOUT_TERMS =
         bytes32(0xd0d16740ae143319f7883497b4b76efd9bb829725cf7e885c37dacff3be4e4ca);
 
     function _le8(uint64 v) internal pure returns (bytes8 o) {
@@ -53,7 +68,7 @@ contract SwapInDepositTest is Test {
     function test_derivesTheDepositAddressAndReturnsTheSats() public view {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
         assertEq(
-            ExitLib.verifySwapInDeposit(INTERNAL, REFUND, CLTV, _depositTx(spk, 1_500_000)),
+            ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV, _depositTx(spk, 1_500_000)),
             1_500_000, "sats paid to the derived deposit address"
         );
     }
@@ -64,7 +79,7 @@ contract SwapInDepositTest is Test {
     function test_paymentToAnotherScriptIsRefused() public {
         bytes memory foreign = abi.encodePacked(hex"5120", bytes32(uint256(0xC0FFEE)));
         vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, REFUND, CLTV, _depositTx(foreign, 1_500_000));
+        ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV, _depositTx(foreign, 1_500_000));
     }
 
     /// The leaf carries the per-swap identity: a different refund key is a different address, so
@@ -74,14 +89,14 @@ contract SwapInDepositTest is Test {
         bytes32 otherRefund =
             bytes32(uint256(0xDFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659));
         vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, otherRefund, CLTV, _depositTx(spk, 1_500_000));
+        ExitLib.verifySwapInDeposit(INTERNAL, _terms(), otherRefund, CLTV, _depositTx(spk, 1_500_000));
     }
 
     /// Same for the timelock — it is the other half of the leaf.
     function test_aDifferentTimelockDerivesADifferentAddress() public {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
         vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, REFUND, CLTV + 1, _depositTx(spk, 1_500_000));
+        ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV + 1, _depositTx(spk, 1_500_000));
     }
 
     /// ⚠️ MINIMAL SCRIPT-NUMBER ENCODING IS LOAD-BEARING AND EASY TO GET WRONG. A height whose
@@ -94,22 +109,52 @@ contract SwapInDepositTest is Test {
     /// what makes it a test: if the pad were dropped, 0x80 would encode as one byte and collide
     /// with a different height's leaf instead of standing apart.
     function test_scriptNumPaddingBoundary() public view {
-        bytes32 padded   = ExitLib.swapInDepositKey(INTERNAL, REFUND, 0x80);
-        bytes32 unpadded = ExitLib.swapInDepositKey(INTERNAL, REFUND, 0x7F);
+        bytes32 padded   = ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x80);
+        bytes32 unpadded = ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x7F);
         assertTrue(padded != unpadded, "0x80 and 0x7F must derive different addresses");
         // And neither may collide with a three-byte height that shares their low bytes.
-        assertTrue(padded != ExitLib.swapInDepositKey(INTERNAL, REFUND, 0x8000),
+        assertTrue(padded != ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x8000),
                    "byte-length must be part of the encoding, not just the value");
+    }
+
+    /// 🔑 **(§T2) THE HOLE THIS CLOSES: DIFFERENT TERMS MUST DERIVE A DIFFERENT ADDRESS.** Before
+    /// the commitment, the address bound only the refund key and the height, so a hop could
+    /// SPV-prove a GENUINE deposit and settle it under terms the seller never agreed — a worse
+    /// floor, a different token, or credit to someone else. The proof would be real and the terms
+    /// substituted. Now the terms are hashed into the leaf, so substituting any of them derives an
+    /// address the deposit never paid and `verifySwapInDeposit` reverts.
+    function test_substitutedTermsDeriveADifferentAddress() public {
+        bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
+        Types.Terms memory worseFloor =
+            Types.Terms({ seller: address(0xA1), token: address(0xB2), minDeliveredUsd: 1 });
+        vm.expectRevert(ExitLib.DepositNotPaid.selector);
+        ExitLib.verifySwapInDeposit(INTERNAL, worseFloor, REFUND, CLTV, _depositTx(spk, 1_500_000));
+    }
+
+    function test_aDifferentSellerDerivesADifferentAddress() public {
+        bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
+        Types.Terms memory otherSeller =
+            Types.Terms({ seller: address(0xA2), token: address(0xB2), minDeliveredUsd: 1_500_000 });
+        vm.expectRevert(ExitLib.DepositNotPaid.selector);
+        ExitLib.verifySwapInDeposit(INTERNAL, otherSeller, REFUND, CLTV, _depositTx(spk, 1_500_000));
+    }
+
+    /// The commitment is the documented hash of the documented fields — pinned so a change to
+    /// either the field order or the hash function is caught here rather than by an address that
+    /// silently stops matching.
+    function test_termsCommitmentIsPinned() public view {
+        assertEq(ExitLib.termsCommitment(_terms()), TERMS, "terms commitment vector");
+        assertTrue(EXPECTED_Q != Q_WITHOUT_TERMS, "the prefix must move the address");
     }
 
     /// The derivation the seller uses and the derivation the settle path uses are THE SAME
     /// function — asserted, because two copies of this arithmetic drifting apart is exactly the
     /// failure that would send a deposit somewhere the contract never looks.
     function test_exposedKeyMatchesWhatVerifyLooksFor() public view {
-        bytes32 q = ExitLib.swapInDepositKey(INTERNAL, REFUND, CLTV);
+        bytes32 q = ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, CLTV);
         assertEq(q, EXPECTED_Q, "exposed key == the BIP-341 vector");
         assertEq(
-            ExitLib.verifySwapInDeposit(INTERNAL, REFUND, CLTV,
+            ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV,
                 _depositTx(abi.encodePacked(hex"5120", q), 777)),
             777, "verify finds exactly what the exposed derivation names"
         );

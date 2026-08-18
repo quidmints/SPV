@@ -42,6 +42,14 @@ library Types {
     struct SelfManaged {
         uint created;
         address owner;
+        /// §E258 — WHICH SIDE FUNDED THE ORDER, and therefore which side it PAYS OUT on when it
+        /// fills. This is not recoverable after the fact: `SwapLib.oorBounds` picks the side from
+        /// the SIGN of `distance`, and neither that sign nor the spot it was measured against is
+        /// stored, so the geometry alone cannot say whether a range below the current price is a
+        /// resting bid or a stale ask. Packs into `owner`'s slot (12 free bytes), so it costs no
+        /// storage. ⚠️ `pull` still takes the payout token from its CALLER rather than from here —
+        /// see §E258-PULL-SIDE; this field is the thing that makes fixing that possible.
+        bool usdFunded;
         uint lower;
         uint upper;
         // §V4-CUT — the token AMOUNT placed, not v4 liquidity units. Pro-rata maths is unchanged
@@ -217,6 +225,17 @@ library Types {
     /// `userRefund` + `cltvHeight` are the swap's CLTV refund leaf — with one pinned internal key
     /// they ARE the per-swap identity, and together they determine the deposit address the contract
     /// recomputes. Supplying them wrongly derives a different address and the proof simply fails.
+    /// (§T2) The swap-in's ECONOMIC TERMS, folded into ONE struct because they travel together and
+    /// are hashed together. Three loose parameters (`seller`, `token`, `minDeliveredUsd`) were the
+    /// slop this replaces; more importantly they were UNCOMMITTED — the deposit address bound the
+    /// refund leaf and the CLTV height and nothing about what the seller was promised, so a hop
+    /// could SPV-prove a genuine deposit and settle it under terms the seller never agreed.
+    struct Terms {
+        address seller;
+        address token;
+        uint    minDeliveredUsd;
+    }
+
     struct DepositProof {
         bytes32   userRefund;    // x-only key of the deposit's CLTV refund leaf
         uint32    cltvHeight;    // absolute refund height in that leaf

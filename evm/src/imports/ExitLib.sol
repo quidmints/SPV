@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import {Types} from "./Types.sol";
 pragma solidity ^0.8.13;
 
 import {BitcoinTx} from "./BitcoinTx.sol";
@@ -148,11 +149,12 @@ library ExitLib {
     ///    transaction means nothing.
     function verifySwapInDeposit(
         bytes32 internalKey,
+        Types.Terms calldata terms,
         bytes32 userRefund,
         uint32  cltvHeight,
         bytes calldata rawDepositTx
     ) external view returns (uint sats) {
-        bytes32 q = swapInDepositKey(internalKey, userRefund, cltvHeight);
+        bytes32 q = swapInDepositKey(internalKey, terms, userRefund, cltvHeight);
         sats = BitcoinTx.sumOutputValuesToScript(rawDepositTx, abi.encodePacked(hex"5120", q));
         if (sats == 0) revert DepositNotPaid();
     }
@@ -160,22 +162,39 @@ library ExitLib {
     /// @notice (E159) The x-only deposit key a swap's BTC must be sent to. Exposed because BOTH
     ///         sides need it and neither should guess: the seller must know where to pay, and the
     ///         settle path must know what to look for. One derivation, one source of truth.
-    function swapInDepositKey(bytes32 internalKey, bytes32 userRefund, uint32 cltvHeight)
-        public view returns (bytes32)
-    {
+    function swapInDepositKey(
+        bytes32 internalKey, Types.Terms calldata terms, bytes32 userRefund, uint32 cltvHeight
+    ) public view returns (bytes32) {
         return MuSig2Agg.taprootOutputKeyWithLeaf(
-            internalKey, MuSig2Agg.tapLeafHash(_cltvRefundLeaf(userRefund, cltvHeight)));
+            internalKey, MuSig2Agg.tapLeafHash(_cltvRefundLeaf(terms, userRefund, cltvHeight)));
+    }
+
+    /// @notice (§T2) The terms a deposit address commits to. ONE leaf, no `tapBranch`: the prefix
+    ///         rides in front of the refund script rather than adding a second branch, so the
+    ///         control path and its hash shape are unchanged and only the leaf BYTES move.
+    /// @dev    `sha256`, not `keccak256` — this value is pushed into a Bitcoin script and any
+    ///         off-chain builder reproducing it works in Bitcoin's hash, so keccak here would make
+    ///         the two derivations disagree while both looked correct.
+    function termsCommitment(Types.Terms calldata terms) public pure returns (bytes32) {
+        return sha256(abi.encode(terms.seller, terms.token, terms.minDeliveredUsd));
     }
 
     /// @dev `<cltvHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP <userRefund> OP_CHECKSIG`, byte-identical
     ///      to the Rust builder. The height is a MINIMAL script number — Bitcoin's encoding, not a
     ///      fixed width — and a wrong encoding changes the leaf hash and therefore the ADDRESS,
     ///      silently deriving somewhere no deposit will ever land.
-    function _cltvRefundLeaf(bytes32 userRefund, uint32 cltvHeight)
+    function _cltvRefundLeaf(Types.Terms calldata terms, bytes32 userRefund, uint32 cltvHeight)
         private pure returns (bytes memory)
     {
         bytes memory n = _scriptNum(cltvHeight);
         return abi.encodePacked(
+            // (§T2) TERMS PREFIX — `PUSH32 <termsCommitment> OP_DROP`. It is a pure commitment: the
+            // script drops it immediately, so it changes NO spending condition and the refund path
+            // below still works exactly as before. What it changes is the ADDRESS, which is the
+            // point — settle under different terms and you derive a different address, so
+            // `verifySwapInDeposit` finds no payment there and reverts. The binding is enforced by
+            // Bitcoin's own hashing rather than by a check anyone could forget to call.
+            bytes1(0x20), termsCommitment(terms), bytes1(0x75),
             bytes1(uint8(n.length)), n,     // PUSH<len> <height, little-endian, minimal>
             bytes1(0xb1),                   // OP_CHECKLOCKTIMEVERIFY
             bytes1(0x75),                   // OP_DROP

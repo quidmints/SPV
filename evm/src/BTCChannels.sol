@@ -2016,23 +2016,25 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///    `minDeliveredUsd` remain the hop's assertions. What is proven is that the SATS EXIST and
     ///    landed at an address only this protocol controls.
     function settleSwapInProven(
-        address seller, address token, uint minDeliveredUsd,
+        Types.Terms calldata terms,
         Types.DepositProof calldata proof,
         bytes calldata rawDepositTx
     ) external nonReentrant {
         _onlyHop();
-        (bytes32 txid, uint sats) = _provenDeposit(proof, rawDepositTx);
+        (bytes32 txid, uint sats) = _provenDeposit(terms, proof, rawDepositTx);
 
         // Partials are accepted on this rail: the seller's remainder is refundable trustlessly via
         // the deposit's own CLTV leaf, which is exactly why the on-chain rail can take them and the
         // all-or-nothing LN rail cannot.
-        uint consumed = btcVault.creditSwapIn(seller, sats, token, minDeliveredUsd);
-        emit SwapInSettled(seller, txid, sats, consumed, token);
+        uint consumed = btcVault.creditSwapIn(terms.seller, sats, terms.token, terms.minDeliveredUsd);
+        emit SwapInSettled(terms.seller, txid, sats, consumed, terms.token);
     }
 
     /// @dev Own frame: dedup, SPV inclusion, and the derived-address check. Returns the deposit
     ///      txid (the replay key) and the sats it actually paid this protocol.
-    function _provenDeposit(Types.DepositProof calldata proof, bytes calldata rawDepositTx)
+    function _provenDeposit(
+        Types.Terms calldata terms, Types.DepositProof calldata proof, bytes calldata rawDepositTx
+    )
         private returns (bytes32 txid, uint sats)
     {
         txid = BitcoinTx.txid(rawDepositTx);
@@ -2043,7 +2045,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (!spv.checkTxInclusion(proof.merkleProof, proof.blockHash, txid, proof.txIndex,
                                   ChannelLib.MIN_CONFIRMATIONS)) revert BadSPV();
         sats = ExitLib.verifySwapInDeposit(
-            BTC_DEPOSIT_KEY, proof.userRefund, proof.cltvHeight, rawDepositTx);
+            BTC_DEPOSIT_KEY, terms, proof.userRefund, proof.cltvHeight, rawDepositTx);
     }
 
     /// @notice (T1) REVERSE a failed on-chain swap-out — refund the swapper's own USD.

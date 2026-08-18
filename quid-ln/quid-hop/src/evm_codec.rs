@@ -101,7 +101,7 @@ pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
 /// that same CLTV leaf. See `PINNED_DEPOSIT_INDEX` for why the internal key is pinned and
 /// per-swap uniqueness lives in the leaf.
 pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
-    "settleSwapInProven(address,address,uint256,(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
+    "settleSwapInProven((address,address,uint256),(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
 /// (T1-b, tightened by §T1-d) Reverse an undeliverable on-chain swap-out. Note what is NOT a
 /// parameter: the payee, the sats, **and now the token**. All three are read on-chain from
 /// `pendingOnchainSwapOut[swapId]`, which only `requestSwapOutOnchain` writes — so unlike
@@ -813,9 +813,17 @@ pub fn encode_settle_swap_in_proven(
     encode_call(
         SIG_SETTLE_SWAP_IN_PROVEN,
         &[
-            Tok::Address(seller),
-            Tok::Address(token),
-            Tok::Uint(min_delivered_usd),
+            // (§T2) The three loose terms are now ONE `Types.Terms` tuple — and it is not
+            // cosmetic: this struct is what the DEPOSIT ADDRESS commits to, via a
+            // `PUSH32 <sha256(abi.encode(seller, token, minDeliveredUsd))> OP_DROP` prefix on the
+            // refund leaf. Encode a different seller, token or floor here and the contract derives
+            // an address the deposit never paid, so the settle reverts instead of crediting under
+            // substituted terms.
+            Tok::Tuple(vec![
+                Tok::Address(seller),
+                Tok::Address(token),
+                Tok::Uint(min_delivered_usd),
+            ]),
             Tok::Tuple(vec![
                 Tok::FixedBytes32(user_refund),
                 Tok::Uint(U256::from(cltv_height)),
