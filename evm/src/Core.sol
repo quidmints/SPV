@@ -20,6 +20,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ILevEquity, IBand} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
 import {IERC20Min} from "./imports/ILevVenue.sol";
+import {QuidLib} from "./imports/QuidLib.sol";
 
 // §BANDBACKING-FOLD — `interface IBandBacking` DELETED FROM HERE, and it was declared TWICE: once
 // above and once in Interfaces.sol, which standing rule 2 forbids and which the note above that
@@ -865,7 +866,7 @@ contract Core {
         // our own WBTC is correct (no need to source what we already hold).
         // BTC IL-protect: totalShares includes each LP's LEVERED slice (levPooled), and its backing is
         // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
-        // with levPooled (VaultLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
+        // with levPooled (QuidLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
         // (The ETH branch is NET-vs-NET: bandETH() adds the lev book's NET equity (totalNetEquity, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
         // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),

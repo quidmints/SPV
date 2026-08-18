@@ -6,7 +6,7 @@ pragma solidity ^0.8.26;
 /// @notice STANDING RULE: one declaration per interface. Before this file the same external ABI was
 ///         re-declared per consumer with a per-file suffix (`_V`, `_VG`, `_L`, `CL`, `B`), each a
 ///         DISJOINT SUBSET of the same contract — `IAaveV4Spoke` alone existed 5× across `Aux`,
-///         `Vault`, `VaultLib`, `BasketLib` and `ChannelLib`, no two listing the same functions.
+///         `Vault`, `QuidLib`, `BasketLib` and `ChannelLib`, no two listing the same functions.
 ///         That is pure drift surface: a signature fixed in one copy stays wrong in the other four,
 ///         and a reader cannot tell whether the subsets disagree on purpose.
 ///
@@ -30,7 +30,7 @@ pragma solidity ^0.8.26;
 //  `library Interfaces {}` that used to sit on this line was a no-op that only produced an artifact)
 
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
-/// `IAaveV4Spoke_V` (VaultLib), `IAaveV4SpokeCL` (ChannelLib).
+/// `IAaveV4Spoke_V` (QuidLib), `IAaveV4SpokeCL` (ChannelLib).
 /// Canonical Aave **v4** spoke view — union of the former per-file variants
 /// (formerly also `AaveV4Venue::IAaveSpoke`, removed 2026-08-13). NOTE `getReserveId` is `view`: the declarations DISAGREED on
 /// mutability, and `view` is correct — four live call sites (`Aux`, `Vault`, `ChannelLib`) already

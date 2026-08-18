@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
 
 /// @notice Proves the BTC band now gets the SAME theta risk-budget clamp as the ETH band.
 ///   Before this change BtcLib.addLiqChannel omitted theta entirely -- a real asymmetry

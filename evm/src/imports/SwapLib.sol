@@ -29,6 +29,7 @@ import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {IAux} from "./Interfaces.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
+import {QuidLib} from "./QuidLib.sol";
 
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
@@ -1899,7 +1900,7 @@ library SwapLib {
     ///         honest report rather than a failure. **This is where "restore to 1:1" and "maximise
     ///         representation of what we hold" diverge, and the caller must not confuse them.**
     ///         🔴 PRECONDITION — `invTok`/`invUsd6` MUST BE DELIVERABLE FIGURES, NOT NOMINAL ONES.
-    ///         Holding is not the same as being able to source: `VaultLib.deliverableETH` already
+    ///         Holding is not the same as being able to source: `QuidLib.deliverableETH` already
     ///         subtracts the weETH slice beyond what Curve can pay for (`balances(0)·9/10`) and the
     ///         leverage net-equity, which is unwind-only and never drawn by redemption. Feed this
     ///         `bandETH()` and the band quotes depth it cannot honour — which does NOT revert and
@@ -2097,7 +2098,7 @@ library SwapLib {
     //  was an ABI entry promising a signal that could not fire. ⚠️ The degradation it covered is now
     //  UNANNOUNCED: rung 1 failing its 0.5% floor drops the withdrawer into the multi-day queue with no
     //  event. If that signal is wanted back it must be re-armed on the rung-1 catch in
-    //  `VaultLib.offrampBody`, not here — see QUEUE §E152-nerve.)
+    //  `QuidLib.offrampBody`, not here — see QUEUE §E152-nerve.)
 
     /// §DE-TICK COMPLETION (owner, 2026-08-17: *"there should be no tickmath"*) — was
     /// `TickOutOfRange`, the LAST tick identifier left in code anywhere in `evm/src`. It never

@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
 
 /// @title §E48 REFILL PLACEMENT — the refill as a placement computation, not a trade.
 /// @notice These are PURE-FUNCTION tests on purpose: the whole point of the placement form is that
@@ -157,7 +158,7 @@ contract RefillPlacementTest is Test {
     ///
     ///         THIS REPLACED A WRAPPER, AND THE DELETION IS THE POINT (standing rule 17). An earlier
     ///         revision added `refillRealisable`, taking `min(nominal, realisable)`. That was a
-    ///         SECOND bound over what `VaultLib.deliverableETH` already bounds — it subtracts the
+    ///         SECOND bound over what `QuidLib.deliverableETH` already bounds — it subtracts the
     ///         weETH beyond what Curve can pay for and the unwind-only leverage net-equity. Passing
     ///         the deliverable figure at the SOURCE makes the discrepancy unconstructible rather
     ///         than merely detectable.

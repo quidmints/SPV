@@ -2,9 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
-import {VaultLib} from "../src/imports/VaultLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
 
 /// @title Diagnostic: where does `deliverableETH()` lose the AAVE-v4 fifth?
 /// @notice Enabling ETH venue 2 (the sentinel-zero fix) left 6 tests failing with an EXACT ~1/5
@@ -40,7 +40,7 @@ contract EthVenueDeliverableProbe is AllesFixture {
         } catch { return; }
         if (own == 0) return;
 
-        uint deliv = VaultLib._withdrawableOf(v, address(AUX));
+        uint deliv = QuidLib._withdrawableOf(v, address(AUX));
         uint raw;
         try I4626Depth(v).maxWithdraw(address(AUX)) returns (uint m) { raw = m; } catch { raw = 0; }
 

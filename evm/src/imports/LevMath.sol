@@ -13,6 +13,7 @@ import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
 import {IMorphoFlash} from "../imports/Interfaces.sol";
+import {QuidLib} from "./QuidLib.sol";
 
 /// @dev Token/SOR surfaces the leg mechanics touch. IERC20Min + IWETH9 come from ILevVenue (shared).
 /// ONE Aux surface for everything LevMath touches on it (redeem / stables / TWAP / SOR both directions / venue /
@@ -280,7 +281,7 @@ library LevMath {
     ///         price `pxBase` (USD/base, 1e18), CAPPED at the LP's OWN debt (`debtUsd`, 1e18). The debt-funded
     ///         buffer is fee-earning DEPTH, never equity, and is bounded by the LP's own debt BY CONSTRUCTION — the
     ///         exact `min((bufBase·px/1e18)/1e12, debtUsd/1e12)` that BOTH band-reconcile buffer legs applied
-    ///         inline (ETH `QuidLib.levAddBuf`, BTC `VaultLib._bufUsdBtc`). Centralized here — like `e0Usd` — so
+    ///         inline (ETH `QuidLib.levAddBuf`, BTC `QuidLib._bufUsdBtc`). Centralized here — like `e0Usd` — so
     ///         the buffer cap + its 6-dec scaling can never drift between the two paths. `bufBase` is ETH-1e18 or
     ///         BTC-8dec-sats; `pxBase` is WBTC-lifted ×1e10 on the BTC side, so the SAME `/1e18` yields 18-dec USD
     ///         for both before the shared `/1e12` to 6-dec (identical to the two former inline computations).

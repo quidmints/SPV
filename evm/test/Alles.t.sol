@@ -33,6 +33,7 @@ import {BTCChannels} from "../src/BTCChannels.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
 
 /// @notice Mock SPV gateway - always confirms inclusion. Lets the BTCChannels
 ///         end-to-end test exercise tx PARSING + channel logic + Quid wiring
@@ -599,7 +600,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         // 977 / 4720 WETH), so no injected liquidity is needed.
         //
         // This ALSO fixes a real bug: gauntlet used to ALIAS the euler mock, which (a) left the
-        // Gauntlet venue entirely untested and (b) made `VaultLib._bandETH` (which SUMS
+        // Gauntlet venue entirely untested and (b) made `QuidLib._bandETH` (which SUMS
         // galaxy+euler+gauntlet with no dedup) DOUBLE-COUNT that vault — a 10 ETH SPLIT deposit
         // reported bandETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
         //
@@ -728,7 +729,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     ///      `vm.clearMockedCalls()` is the thaw (no code to restore).
     /// @dev Report only 30% of the Vault's position in `venue` as withdrawable — illiquid but SOLVENT.
     ///
-    ///      TWO mocks, because `VaultLib._withdrawableOf` deliberately IGNORES the ERC-4626 max-views on
+    ///      TWO mocks, because `QuidLib._withdrawableOf` deliberately IGNORES the ERC-4626 max-views on
     ///      a Morpho-V2 impl (they report 0 against a fully withdrawable position, so trusting them let
     ///      any caller block a healthy venue). Mocking `maxWithdraw` alone on Galaxy/Gauntlet is a
     ///      NON-EVENT — it silently makes the "illiquid" premise inert and the test passes for the wrong

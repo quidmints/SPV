@@ -12,6 +12,7 @@ import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
 
 interface IERC20V {
     function transfer(address, uint) external returns (bool);
@@ -44,7 +45,7 @@ interface IMorphoOraclePrice { function price() external view returns (uint256);
 ///         LevCascade's `test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean` +
 ///         `test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact`, over the BTC band.
 ///
-///         The exercised path is `Vault.syncLev` → `VaultLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
+///         The exercised path is `Vault.syncLev` → `QuidLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
 ///         (the BTC counterpart of `Quid.syncLev`/`_levAdd`/`_levBurn`), driven by
 ///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquity()` backing read.
 ///

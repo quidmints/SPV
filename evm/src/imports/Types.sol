@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {ILevVenue} from "./ILevVenue.sol";
+import {QuidLib} from "./QuidLib.sol";
 
 library Types {
 

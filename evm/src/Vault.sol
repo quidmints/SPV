@@ -20,6 +20,7 @@ import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";
+import {QuidLib} from "./imports/QuidLib.sol";
 
 // ════════════════════════════════════════════════════════════════════════
 //  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
@@ -54,7 +55,7 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 /// ether.fi venue (ETH-side, depositor-chosen). Stake WETH → weETH (restaking
 /// yield); value weETH in ETH via getEETHByWeETH. ⚠️ THERE IS NO DETERMINISTIC EXIT: the instant-redeem
 /// (0.3%) this line used to name was removed 2026-08-05/06 (zero measured capacity). The exit is the
-/// two-rung offramp ladder — v3 pool sale, else a multi-day wait NFT (`VaultLib.offrampBody`).
+/// two-rung offramp ladder — v3 pool sale, else a multi-day wait NFT (`QuidLib.offrampBody`).
 
 /// Aux read surface the Vault needs: WBTC handle (for the shared arbBody
 /// signature); vault-health state stays Aux-owned.
@@ -550,12 +551,12 @@ contract Vault is Ownable, ReentrancyGuard, State {
 
     /// @notice Live θ for the BTC band (yield/(K·σ²)) at the Vault's CURRENT BTC band ticks. Asks Quid
     ///         (the band-θ math home) with the BTC ticks so BtcLib.addLiqChannel can risk-budget the
-    ///         BTC band exactly like the ETH band -- without VaultLib linking QuidLib.
+    ///         BTC band exactly like the ETH band -- without QuidLib linking QuidLib.
     function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both bands
         return BAND.derivedThetaWadAt(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 
-    /// @dev Vault's BTC-side immutables gathered for the delegatecalled VaultLib
+    /// @dev Vault's BTC-side immutables gathered for the delegatecalled QuidLib
     ///      levered-band bodies (mirror of _ethCfg for the BTC cluster).
     function _btcCfg() internal view returns (Types.BandCfg memory) {
         return Types.BandCfg({ core: address(CORE), aux: address(AUX), asset: address(AUX.WBTC()) });

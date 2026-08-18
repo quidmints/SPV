@@ -1293,7 +1293,7 @@ contract BtcLpMintStress is AllesFixture {
     //
     // #12 pays the ETH LP the band's LP-OWNED USD leg (`POOLED_USD - basketUsd`) because
     // `Quid._pricingBacking` prices it into the share. The BTC side has NO such reader: `Vault`,
-    // `BtcLib` and `VaultLib` never mention `basketUsd` at all. Reading that as "the BTC band
+    // `BtcLib` and `QuidLib` never mention `basketUsd` at all. Reading that as "the BTC band
     // is fine" is a DISMISSAL, and a dismissal needs the same evidence as a finding — so these two
     // tests try to BREAK it instead.
     //

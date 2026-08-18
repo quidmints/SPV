@@ -10,6 +10,7 @@ import {IBandManager} from "./Interfaces.sol";
 import {IBasketMint} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
+import {QuidLib} from "./QuidLib.sol";
 
 // External surfaces used below all come from Interfaces.sol now (§A.52):
 //   • ILevEquityBtc — BtcLevManager's per-LP book (was `ILevBtc_V`, a 3-of-4 subset).
@@ -20,10 +21,10 @@ import {IAux} from "./Interfaces.sol";
 //                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAux's).
 // The Basket mint callback stays local: `mint` is Basket's only member any consumer in this
 // subtree needs, and it is declared exactly once tree-wide, so there is nothing to dedup.
-/// @title  BtcLib — the BTC band / leverage / channel accounting extracted from VaultLib
+/// @title  BtcLib — the BTC band / leverage / channel accounting extracted from QuidLib
 ///         (now purely the ETH venue custody ladder) for EIP-170 headroom. DELEGATECALL'd by the
-///         Vault exactly as the BTC bodies were when they lived in VaultLib: `address(this)`==Vault,
-///         so all storage/custody are the Vault's. Byte-identical to the former in-VaultLib BTC
+///         Vault exactly as the BTC bodies were when they lived in QuidLib: `address(this)`==Vault,
+///         so all storage/custody are the Vault's. Byte-identical to the former in-QuidLib BTC
 ///         bodies -- only the home moved. Pairs with QuidLib (the ETH band's mirror).
 library BtcLib {
 

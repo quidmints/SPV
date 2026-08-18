@@ -14,7 +14,7 @@ import {FeeLib} from "./FeeLib.sol";
 import {ShareMath} from "./ShareMath.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
-import {VaultLib} from "./VaultLib.sol";
+import {QuidLib} from "./QuidLib.sol";
 
 
 
@@ -964,14 +964,14 @@ library BasketLib {
                     uint solv;
                     try IERC4626(v).convertToAssets(sh) returns (uint a) { solv = a; }
                     catch { continue; }
-                    // ONE definition, shared with the ETH ladder (VaultLib._withdrawableOf). MEASURED
+                    // ONE definition, shared with the ETH ladder (QuidLib._withdrawableOf). MEASURED
                     // 2026-07-26: 6 of our 8 registered stable vaults are Morpho-V2 (sky/wintermute/
                     // rockaway USDC, sky USDT, gauntlet USDC+USDT) holding ~124M of ~126M stable TVL.
                     // Their max-views are IDLE-ONLY and report 0 against a fully withdrawable position,
                     // so the raw read treated `solv` as ENTIRELY undeliverable and haircut the whole
                     // position here — and this shortfall feeds the REDEMPTION haircut. Still returns 0
                     // for an unreadable view (conservative: over-haircut, never over-promise).
-                    uint deliv = VaultLib._withdrawableOf(v, aux);
+                    uint deliv = QuidLib._withdrawableOf(v, aux);
                     if (solv > deliv) shortfall += solv - deliv;
                     // Free: `solv` and `deliv` are already in hand. Same ratio the poke computes.
                     uint bps = SoladyMath.fullMulDiv(deliv, 10000, solv);
@@ -1243,7 +1243,7 @@ library BasketLib {
         // ONE `withdrawable` definition (see the haircut above). This is the PERMISSIONLESS poke: a
         // Morpho-V2 stable vault reads 0 liquid on the raw max-view, so `liqBps` was 0 and ANY caller
         // could block-then-evacuate a perfectly healthy vault holding real TVL.
-        uint liquid = VaultLib._withdrawableOf(vault, address(this));
+        uint liquid = QuidLib._withdrawableOf(vault, address(this));
         if (reported == 0) return;                       // empty position → no-op
         uint liqBps = SoladyMath.fullMulDiv(liquid, 10000, reported);
         if (liqBps >= LIQ_TOL_BPS) {

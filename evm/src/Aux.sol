@@ -232,7 +232,7 @@ contract Aux is // Auxiliary
                                              // when Core itself became two instances.
          && msg.sender != address(QUID)
          && msg.sender != ethVenue          // ETH-venue custody: it delegatecalls into
-                                             // SwapLib/VaultLib with address(this)==EthVenue,
+                                             // SwapLib/QuidLib with address(this)==EthVenue,
                                              // so its auxSwap callback arrives as msg.sender
                                              // ==EthVenue. Without this the basket→WETH arb
                                              // and the Quid/Core shortfall fills silently

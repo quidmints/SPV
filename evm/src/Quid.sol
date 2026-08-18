@@ -14,7 +14,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
-import {VaultLib} from "./imports/VaultLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 
@@ -89,7 +88,7 @@ contract Quid is State,
     //  existed only so a separate address could pull, and one deployable contract.
     // ════════════════════════════════════════════════════════════════════════════════════════
 
-    // ether.fi — fixed mainnet contracts. It is the ONLY ETH yield venue: `VaultLib.supplyVenueBody`
+    // ether.fi — fixed mainnet contracts. It is the ONLY ETH yield venue: `QuidLib.supplyVenueBody`
     // routes every inflow here unconditionally.
     address public constant ETHERFI_ADAPTER    = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     address public constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -128,9 +127,9 @@ contract Quid is State,
         });
     }
 
-    /// @dev Immutables gathered for the delegatecalled `VaultLib` (it cannot read them itself).
-    function _ethCfg() internal view returns (VaultLib.EthCfg memory) {
-        return VaultLib.EthCfg({
+    /// @dev Immutables gathered for the delegatecalled `QuidLib` (it cannot read them itself).
+    function _ethCfg() internal view returns (QuidLib.EthCfg memory) {
+        return QuidLib.EthCfg({
             weth: address(WETH), aux: address(AUX), curvePool: ETHERFI_CURVE_POOL,
             weeth: WEETH, eeth: ETHERFI_EETH, levManager: LEV_MANAGER
         });
@@ -140,18 +139,18 @@ contract Quid is State,
     /// @dev No `msg.sender` gate: the caller is this contract. The gate existed to keep a separate
     ///      address from being driven by anyone but Quid, and there is no separate address now.
     function supplyEtherFi(uint amount) public returns (uint) {
-        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(this));
+        return QuidLib.supplyVenueBody(_ethCfg(), amount, address(this));
     }
 
     /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH, delivered to `recipient`.
     function offrampEtherFi(uint amount, address recipient) public returns (uint served) {
-        return VaultLib.offrampBody(amount, recipient, _etherfiCfg());
+        return QuidLib.offrampBody(amount, recipient, _etherfiCfg());
     }
 
     /// @notice Current ETH-equivalent backing: weETH valued in ETH + idle WETH, PLUS the levered
     ///         book's net-equity.
     function bandETH() public view returns (uint) {
-        return VaultLib.bandETH(_ethCfg());
+        return QuidLib.bandETH(_ethCfg());
     }
 
     /// @notice Venue op selector. @param op 1 = take ETH, 2 = read the current claim.
@@ -162,7 +161,7 @@ contract Quid is State,
     /// @notice DELIVERABLE ETH backing for the redemption path — each leg capped at what is
     ///         actually withdrawable, so the ETH leg DEFERS the undeliverable slice.
     function deliverableETH() external view returns (uint total) {
-        return VaultLib.deliverableETH(_ethCfg());
+        return QuidLib.deliverableETH(_ethCfg());
     }
 
     /// @notice Self-gated wrapper. The DELEGATECALL'd library bodies reach back in via
@@ -175,7 +174,7 @@ contract Quid is State,
     /// @notice Aux-gated WETH supply (the BOLD/SP liquidation re-supply leg).
     function supplyFromAux(uint amount) external returns (uint) {
         if (msg.sender != address(AUX)) revert NotAux();
-        return VaultLib.supplyVenueBody(_ethCfg(), amount, address(AUX));
+        return QuidLib.supplyVenueBody(_ethCfg(), amount, address(AUX));
     }
 
     /// @notice Aux-gated WETH withdraw (redemption / take / ETH-fallback legs).
@@ -184,9 +183,9 @@ contract Quid is State,
         return _withdrawETH(address(WETH), amount, to);
     }
 
-    /// @notice WETH withdraw — the ladder in `VaultLib.withdrawETH`. Only WETH is served.
+    /// @notice WETH withdraw — the ladder in `QuidLib.withdrawETH`. Only WETH is served.
     function _withdrawETH(address token, uint amount, address to) internal returns (uint sent) {
-        return VaultLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
+        return QuidLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
     }
 
     /// @notice ETH-yield accounting. Single venue (Morpho 4626 wethVault
@@ -1452,7 +1451,7 @@ contract Quid is State,
 
     /// @dev Pricing backing: `bandETH` with the levered book restated onto the SAME CLOCK as the
     ///      denominator. `bandETH` adds `totalNetEquity()` read LIVE from the venues
-    ///      (`VaultLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
+    ///      (`QuidLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
     ///      STORED and only refreshed by `_reconcileLev`/`syncLev` — i.e. on the levered LP's own next
     ///      action. Live numerator over lazy denominator is the whole defect (§A.16b): an external
     ///      Morpho liquidation cut the numerator instantly while the denominator still carried the

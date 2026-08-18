@@ -5,6 +5,7 @@ import {Types} from "./Types.sol";
 import {ICore, IBand, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
+import {QuidLib} from "./QuidLib.sol";
 
 /// @title  BandLib — the ONE implementation of each band-manager body, for both bands.
 ///
