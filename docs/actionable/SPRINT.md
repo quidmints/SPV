@@ -2096,11 +2096,20 @@ this file.** Most of the 19 are correctly absent — `⛔ retracted` (E66/E66a/E
 |---|---|---|
 | **E70** | 📖 **All refill / band-restoration work** — the row is only a pointer: *"START THERE, NOT IN THIS TABLE"* → `docs/actionable/REFILL-AND-RESTORATION.md`, written to be executed **COLD**. | A whole workstream living in a second document that nothing in this sprint referenced. |
 | **E94** | LP **provisioning + migration authority**. Its own "separate operator / own enclave" framing is **superseded — do not plan from it**; the half in question is the **LP's** node. | Open, and the superseding note makes the original row actively misleading. |
-| **E127** | **Remove delegation**; Chainlink **VRF's witness pattern** is the enabling primitive (ranking inverted from E125-a). Owner-decided. | Decided, not built — *"verify the API first"*. ⚠️ Two rows share the tag `E127`; the second is E125's premium re-anchoring. **Renumber one.** |
 | **E134 / E134-r** | The **modexp precompile** switch (`staticcall(0x05)`) — both reference implementations use it, ours is the outlier. | **E134-r says it does NOT land**, blocked on an *uncharacterised side effect*. Blocked, not abandoned. |
 | **E133-skew** | The refill's funding constraint — a decision the owner had **already overturned** was resurrected and re-blocked the refill. | The lesson is recorded; whether the refill is actually unblocked now is **not** stated. Check before planning refill work. |
 | **E189-skew-horizon** | Skew **horizon** design; gap verified by grep + code. | *"nothing built"*, and **one half is another thread's live work** — read their entries first. |
 | **E151** | **LP-authority architecture** for EOAs *and* smart wallets, consolidated from four entries. | Two findings survived scrutiny, one did not; the surviving design is not implemented. |
+
+⛔ **E127 WAS IN THIS TABLE AND IS REMOVED (2026-08-18).** I listed it as *"remove delegation — decided,
+not built"*. **It IS built.** `BTCChannels.sol:266-269` names the deleted state outright —
+`delegatedHop`, `delegationVersion`, `delegatedAuthority` — and `:71` records that *"three separate
+notes in this file described the pre-delegation, pre-EC world as current"*. `grep` finds **no
+delegation** in `src` (excluding `delegatecall`, the unrelated library pattern) and **no VRF at all**,
+so the "VRF is the enabling primitive" framing is stale too: the removal landed without it.
+⇒ **I scored the STATUS COLUMN (🎯) and never checked the code — the exact failure `CLAUDE.md` warns
+about ("PLAN FROM ROW BODIES, the marker column is unreliable"). The other six in this table have NOT
+been code-checked the same way; do that before planning from any of them.**
 
 ⚠️ **This index is a snapshot.** `QUEUE.md`'s status column is unreliable by its own admission — re-run
 the audit rather than trusting these seven to still be the whole set.
