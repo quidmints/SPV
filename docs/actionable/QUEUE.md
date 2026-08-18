@@ -14754,3 +14754,99 @@ Anyone reporting "N rows are actually open" without naming which ones they read 
 mistake this section documents.
 | §E257-observation-source-cannot-fit | 🔴🔴🔴 **`main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK, AND IT IS PIN-ONCE SO NO OPERATOR CAN UNDO IT (measured 2026-08-17).** §E222 was closed by pinning 1inch's OffchainOracle as the ring's independent source. The wiring is real and correct in shape: `DeployLib.sol:170` sets `0x0AdDd25a…F9B8`; `Core.swap()` (`:776`) calls `_observeIfSourced()` at **`:822`**, `repack()` at `:932`; and `_observeIfSourced` (`:1288`) does `src.staticcall("getRate(address,address,bool)")` **with NO GAS CAP**. ⛔ **MEASURED ON MAINNET, NOT INFERRED — `cast estimate` against the live contract: `Error -32003: out of gas: gas required exceeds 16777216`.** The node refuses at its own 2^24 ceiling. §E232 independently measured the same call at **31,722,803 gas against a 30M block limit**: `getRate` iterates all 14 registered DEX oracles and their connectors, so one "read" is a full multi-venue aggregation executed on-chain. ⇒ **EVERY ETH SWAP AND EVERY REPACK FORWARDS 63/64 OF ITS GAS INTO A CALL THAT CANNOT COMPLETE.** The `if (!ok \|\| out.length < 32) return;` guard makes it fail SOFT, which does not save the transaction — the sub-call burns everything it is handed and the 1/64 left behind cannot finish a swap. 🔴 **AND IT IS UNRECOVERABLE IN PLACE: `setObservationSource` is pin-once (`require(observationSource == address(0), "!")`, `Core.sol:1276`)** — no re-point, no clear. A fresh deploy is dead on arrival and needs a CODE change, which is the difference between a config mistake and this one. ⚠️ **WHY IT PASSED REVIEW THREE TIMES, AND THIS IS THE TRANSFERABLE PART: `cast call` RETURNS A HEALTHY VALUE (`1906014527`) BECAUSE `eth_call` RUNS WITH AN EFFECTIVELY UNBOUNDED GAS ALLOWANCE.** The session that wired it, the session that closed it, and I all confirmed the contract EXISTS and RETURNS THE RIGHT NUMBER. **Nobody priced the CALL.** A live address says nothing about whether invoking it fits in a block, and `cast estimate` costs one second. ▶️ **THE FIX IS ALREADY WRITTEN AND WAS OVERRIDDEN ONCE — `ExternalTwap.curvePriceWad`**: a Curve `price_oracle()` storage read at **~2–3k gas**, a plain WAD needing no decoding, and a genuinely different MECHANISM from Chainlink (an EMA over executed trades vs a signed off-chain report). Open questions are its own: which pool per instance, and a deviation bound derived from Curve's EMA HALF-LIFE rather than inherited from a 30-minute-window bound. ⚠️ **BTC gains nothing from the change of venue** — Curve quotes WBTC, so §E223's wrapper objection survives and the BTC ring stays deliberately unset either way. ⛔ **§E222 IS NOT CLOSED: the self-write is genuinely gone (half the fix), the replacement source is unusable (the other half). Do not trust its ✅.** |
 | §E258-oor-never-executes | 🔴🔴 **THE v4 CUT SILENTLY TURNED LIMIT ORDERS INTO OPTIONS — AND I SHIPPED THE EXACT VARIANT I HAD REJECTED IN WRITING (owner asked 2026-08-17: *"you planned a replacement method for outofrange orders that would autoexecute them?"*).** MEASURED, not recalled: `selfManaged` has exactly **two** kinds of consumer in `evm/src` — `Vogue.outOfRange` / `BtcVaultLib.outOfRangeBtc` **CREATE** a position, and `BandLib.pull` **CLOSES** it behind `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns ZERO hits repo-wide. Nothing consumes a resting order when price crosses it.** Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the range; `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so **the crossing that used to execute these orders no longer happens anywhere.** ⇒ **A boundary order placed below spot will NOT execute when price falls through it. The owner pulls back what they put in.** ⛔ **AND THE PLAN WAS RIGHT — IT JUST WAS NOT BUILT.** On 2026-08-13 I enumerated three replacements and chose one: *"**fill-on-touch backed by the sorted set**, with the poke as the liveness backstop for orders nobody's swap happens to cross. **That preserves the automatic-fill property, which is the thing users actually bought**"* — resting orders between the old and new price consumed as part of the fill, findable by price via **`SortedSetLib` (`evm/src/imports/SortedSet.sol`), WHICH ALREADY EXISTS** (`Basket` uses it for `perMonth`), with gas *"bounded by how many orders lie between old and new price, which for a ±20 bps band and two-tick moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. On 2026-08-15 the same conclusion was restated as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet executed"*. 🔴 **THE VARIANT THAT SHIPPED IS THE ONE I EXPLICITLY REJECTED IN THE SAME PARAGRAPH: *"Claims rather than liquidity … Simplest, but it STOPS BEING A LIMIT ORDER (no execution guarantee at the moment of crossing) and becomes AN OPTION THE OWNER MUST EXERCISE."*** ⚠️ **NOTHING BOOKED THE DOWNGRADE.** The v4 cut's rows record what was deleted and what replaced it; this is a capability that was deleted with **no replacement built and no row saying so** — which is why it survived a full queue audit, a deletions scan and a five-day transcript sweep. **A capability regression leaves no broken symbol to find: `outOfRange` still compiles, still stores, still tests.** ▶️ **BUILD: the sorted set of resting orders keyed by price, consumption inside the fill between old and new price, and `fillOOR(id)` as the backstop.** ⚠️ **AND IT GATES TWO OPEN ITEMS: §E255 puts `oorShares` INTO `totalSupply`, and §E251 wants out-of-range BTC mintable as vBTC and lent on Morpho — both treat OOR as live inventory. If those orders can never execute, "locked liquidity" is permanently locked rather than resting, and both items are pricing a claim that has no settlement path.** |
+
+---
+
+## §HOST-SEPARATION — **SPV STAYS A SEPARATE REPO: IT IS THE ONE WITH A HOST (owner, 2026-08-18)**
+
+🔵 **DECIDED — not a task. Recorded because every item below inherits it.** SPV is not folded into
+`../ibiza`. It stays separate so the **Solidity keeper runs 24/7 on a Linux box**, with a **Docker
+container on this machine as the fallback**; the container **stands in for the secure enclave**,
+buying key-inaccessibility rather than attestation. **The same host runs the aggregator service,
+which must be extracted out of ibiza** (`§HOST-AGGREGATOR-EXTRACTION`).
+**Why SPV and not ibiza, verified:** SPV owns every long-running process — six bins under
+`quid-ln/quid-bridge/src/bin/` — and the keeper already exists as `lev_keeper.rs`/`lev_keeper_btc.rs`,
+*"one more `set.spawn(run_lev_keeper(...))` in the quid-bridge `JoinSet`"* (`lev_keeper.rs:4`).
+ibiza owns circuits, contracts and a frontend, and has no daemon. **The repo boundary is the process
+boundary.** Full write-up: `SPRINT.md` §0-TOPOLOGY.
+
+## §HOST-AGGREGATOR-EXTRACTION — **the aggregator moves to SPV's host, and it is a BUILD, not a lift-and-shift**
+
+🔴 **OPEN.** ibiza has the aggregation *machinery* — `backend/circuits/build-recursion-tree.py`,
+`backend/circuits/batch-witnesses/`, `contracts/pool/lib/BatchCommitmentLib.sol`,
+`PrivacyPool.verifyBatch`, the `TreeRoot{8,16,32}` verifiers — and **no service driving it**. Its own
+TODO says so: *"Decide the FILL POLICY: settle singly below 2 pending, batch above. **Nothing does
+this today**"* (`ibiza/TODO.md:570`) and *"Wire elect-to-wait at deposit: a queue the batcher serves"*
+(`:536`). ⇒ **Budget it as a build**: queue + fill-policy decider, proof collection, tree assembly,
+on-chain submission (the last is the shape `lev_keeper` already has).
+⚠️ **BLOCKED-ADJACENT, do not carry it across:** `build-recursion-tree.py:127` folds `2 × 7` signals
+and `BatchVerifierLib.PUB_LEN` is still **7**, a live **non-association bypass on the batch path**.
+That is ibiza's booked item and must land THERE first — a runner extracted while it is open ships
+the bypass on a schedule instead of leaving it latent.
+
+## §HOST-SEAL-IS-A-NOOP-OFF-SGX — **a container's "sealed" state is plaintext beside its key**
+
+⚠️ **MEASURED 2026-08-18, and it changes what the fallback container guarantees.** The bins ARE the
+enclave (`quid-bridge/Cargo.toml:18`, `[package.metadata.fortanix-sgx]`, target
+`x86_64-fortanix-unknown-sgx`). Off that target the seal path is `MockKeyRequest`, whose own docstring
+is the finding (`quid-enclave/src/platform.rs:309-312`): *"It just samples a fresh key for every
+sealing operation and **stores the key adjacent to the ciphertext**. NOTE: this does not provide any
+security whatsoever."* ⇒ **Under `§HOST-SEPARATION` the key inaccessibility is entirely host access
+control — no seal, no attestation.** Coherent, but not the enclave's guarantee, and it must be stated
+wherever the enclave's is currently claimed. 📌 `boot.rs:84` already draws the line in one place
+(refusing a host-supplied EVM key inside SGX, permitting it outside, *"the operator trusts their own
+host"*) — under this decision that sentence is the whole security model, not a convenience.
+
+## §HOST-RUNTIME-IMAGE — **the Dockerfile we have is a BUILD image; the fallback container does not exist**
+
+🟡 **OPEN.** `quid-ln/Dockerfile` ends `CMD ["cargo", "test", "--workspace"]` and exists because
+`quid-cvm` is Linux-only and transitive, so a Mac cannot compile the workspace. **No release profile,
+no daemon entrypoint, no volume contract, whole toolchain + Bitcoin Core 30.2 baked in.** Reaching
+for it as the runtime image will look like it works. 📌 **Settle with `§HANDOFF-2026-08-16-SEED-THREAD`
+OPEN 3** (`SPRINT.md` §D2#15): that row's finding is that nothing tells an operator to back up the
+data directory holding the channel monitors — the runtime image's volume contract is that same
+directory. One names it, the other must mount it.
+
+## §OPEN-PATH-HAS-NO-PRODUCER — 🔴🔴 **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
+
+🔴🔴 **OPEN — found 2026-08-18 by reading `§SPRINT-B0`, `§SPRINT-B4` and the `bind_consent` gap
+TOGETHER.** Each row alone reads as low-drama; the severity exists only in the product.
+**Every step enumerated, not sampled:**
+① `_armLadder` is on the open path (`BTCChannels.sol:999`) and since `5295995f` reverts
+`LadderTooShallow` on `exits.length < 2` (`:1557`) **or** on rungs sharing one deadline (`:1571`) —
+so `openChannel` cannot succeed without a ≥2-rung, ≥2-deadline ladder.
+② `drive_open` returns early when consent is absent (`channel_driver.rs:741-746`) and the fleet
+*"RELAYS consent and never synthesises it."*
+③ `bind_consent` has only test callers; `LpConsent` appears in **one file** and in **no route
+handler**. ✅ **CONTROL:** the same search finds the routes that DO exist — `/lp/onboard`,
+`/lp/withdraw`, `/provision` — so it can see a route when there is one.
+④ Every `ExitArming` construction site: `quid-bridge/deadman_exit.rs:202` (heartbeat),
+`quid-bridge/vault.rs:1138` (`a_consent`, test), `quid-hop/evm_codec.rs:1068` (`#[cfg(test)]`).
+**The only non-test one is the heartbeat, and `99fda5e9` made it inert** — `run_deadman_exit_heartbeat`
+with `vault: None` *"does not run at all"* (`deadman_exit.rs:230`).
+⇒ **no intake → no consent → `drive_open` dormant → `openChannel` never called → no channel.**
+Silent at every step, because dormancy is the correct LOCAL behaviour at each one.
+⚠️ **NOT AN ARGUMENT AGAINST B0** (`deadman_exit.rs:236` forbids the tempting fix in advance) — an
+argument that **B0's other half was never built.** ▶️ **Acceptance test is ONE CHANNEL OPENED
+END-TO-END FROM AN LP-SUPPLIED CONSENT**, not the existence of an endpoint; only that would have
+caught this.
+
+## §PHASE-3-NOT-BUILT — ⛔ **the thing recorded as phase 3 is a DIFFERENT mechanism with the same name**
+
+🔴 **OPEN, and a correction.** A pass on 2026-08-18 recorded *"phase 3 (`commitFreshness`, monotonic,
+`:1666`) is genuinely built"* and corroborated `§T3`'s closure with it. **That is the conflation
+`§T3-FIX-IS-INEXPRESSIBLE-WITHOUT-PHASE-3` warns about in its own last line.** Both read this time:
+- **EVM counter** — `BTCChannels.freshnessSeq`/`commitFreshness` (`:213`, `:1666`): anti-rollback for
+  the enclave's sealed monitor store (*"refuses to load a monitor whose `update_id` is behind"*).
+  **No exit path reads it.** ✅ built, irrelevant to phase 3.
+- **Bitcoin UTXO** — `quid-ln/src/deadman_exit.rs:67` and `:191`, still *"a fleet-controlled UTXO
+  **shared by every channel**"*; production sharding is `FRESHNESS_SHARD: u32 = 0`
+  (`quid-bridge/deadman_exit.rs:317`) — one hard-coded shard, a partition with one member.
+  🔴 **Phase 3 is making THIS per-channel, and it is unbuilt.**
+⇒ **And it is worse than unbuilt: it has no live writer.** The heartbeat is also the only production
+site that resolves/retires a freshness outpoint (`quid-bridge/deadman_exit.rs:344-377`, `:503-522`),
+so vault-less **no exit is bound to a freshness UTXO at all** — the `§T3` revocation hazard AND the
+invalidation property it was the price of are both absent from production today.
+📌 **The discriminator, because the confusion is structural not careless:** both are called freshness,
+both are anti-replay, and they live in files with the SAME NAME in two crates. Ask **what reads it** —
+an enclave at boot, or a Bitcoin consensus rule at spend time.
