@@ -87,23 +87,19 @@ contract LevManager is LevBase {
 
 
     event Opened(address indexed lp, address venue, uint256 targetLtvBps);
-    event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
+    // §ONE-REBALANCE — `Rebalanced` now declared in LevBase; both bands emit it.
     event Closed(address indexed lp, uint256 weethReturned);
     event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
 
     error AlreadyOpen();
-    error Reentrancy();
     error VenueNotAllowed();
     error NotGov();
     error NotFlash();
     error Slippage();
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
-    event ProtectedFromQuid(address indexed lp, uint256 quidRedeemed, uint256 debtRepaid);
 
-    uint256 private _lock = 1;
-    modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
     ///         collateralOf/debtOf into `totalNetEquity → bandETH`, so an UNVETTED (fake) venue could
@@ -246,29 +242,18 @@ contract LevManager is LevBase {
 
 
 
-    /// @notice Delegated QU!D-protect (autonomous layer): redeem the LP's OWN opted-in QUID to repay the LP's
-    ///         OWN debt when the position nears venue liquidation. Moves NO value to the caller — proceeds only
-    ///         ever reduce `lp`'s debt; any excess stable is refunded to `lp`. Opt-in = the LP's QUID `approve`
-    ///         to this manager (an EOA for solo, the n-of-m family Safe for a family plan — either works, the
-    ///         allowance is just a `transferFrom` source). The amount redeemed is DERIVED from the debt (and
-    ///         capped by the allowance), so a hostile operator can neither over-redeem the LP's QUID nor extract
-    ///         a wei. Permissionless (the fleet keeper / enclave calls it), near-liq-gated (anti-grief). No
-    ///         per-action quorum or cap — safety is by construction. Reuses `venue.repayFor`.
-    function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256 repaid) {
-        if (!pos[lp].open) revert NotOpen();
-        // Gate (near-liq anti-grief) + mechanics (redeem the LP's opted-in QUID → repay the LP's OWN debt → refund
-        // excess to the LP) live in LevMath (public, delegatecall — bytecode OUTSIDE this contract, run in-context).
-        uint256 pull;
-        (pull, repaid) = LevMath.protectExec(
-            address(QUID), address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
-        _reimburseKeeper(msg.sender, 0);   // the refund is stable (no WETH to peel) ⇒ keeper gas drawn from gasReserve
-        emit ProtectedFromQuid(lp, pull, repaid);
+    /// §ONE-PROTECT — body is now `LevBase.protectFromQuid`; only these hooks differ.
+    function _quid() internal view override returns (address) { return address(QUID); }
+
+    /// @dev ETH draws the keeper's gas from `gasReserve`; the refund is stable, no WETH to peel.
+    function _afterProtect(address keeper) internal override {
+        _reimburseKeeper(keeper, 0);
     }
 
 
     /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the band ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
-    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
+    function debtDeltaToTarget(address lp) public view override returns (bool levUp, uint256 amountUsd) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return (false, 0);
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
@@ -370,37 +355,18 @@ contract LevManager is LevBase {
         _rebalanceBody(lp, minOut);
     }
 
-    function _rebalanceBody(address lp, uint256 minOut) internal {
-        if (!pos[lp].open) revert NotOpen();
-        _reanchorIfReseated(lp);                 // (B) realize + re-anchor E0/entryPrice if the band recentered
-        ILevVenue venue = pos[lp].venue;
-        address stable = venue.stable();
-        (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
-        // `deltaUsd == 0` means already on target, so both branches below are skipped. (This line used to
-        // explain the absence of an early return by pointing at "the bidirectional short below" — that
-        // subsystem was REMOVED 2026-07-24, see the note under this block. The sync hook at the end of the
-        // function is the only remaining reason there is no early return.)
-        if (deltaUsd != 0) {
-            if (levUp) {
-                _leverUpBuy(venue, lp, stable, deltaUsd, minOut);
-            } else {
-                // Flash-repay-first: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so one flash lands on target
-                // with NO withdraw-before-repay health breach. (It used to also return 0 while a SHORT was open,
-                // so the de-lever would not fight the short leg's funding — that case is DEAD, the short
-                // subsystem was removed 2026-07-24 and no short can be open.)
-                _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut);
-            }
-            emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
-        }
-        // SHORT SUBSYSTEM REMOVED (2026-07-24): the below-entry "restore delta-1" short REALIZES the down-side LVR
-        // (sells the over-hold into the fall, forfeits the recovery) — down-side IL is IMPERMANENT and heals on
-        // its own, so for a long-biased LP holding strictly dominates over any round-trip; same fees, minus the
-        // realized leak. It's a bet AGAINST the LP's long thesis (the up-side overlay bets WITH it — that stays).
-        // Up-side-only is the correct design, not just the default. See docs §J.4 (settled verdict).
-        // full-2×: reconcile the band to the NEW gross/debt atomically so each levBufferUsd ≤ its debt and the
-        // band depth stay exact after a lever-up/de-lever — correct-by-construction, not reliant on a poke.
-        _syncBand(lp);
-    }
+    /// §ONE-REBALANCE — the body moved to `LevBase._rebalance`; only the LEAVES stay here.
+    /// ⚠️ ETH de-levers on `deleverRepayUsd(lp)` — the closed-form Δ/(1−t) — NOT on the raw
+    ///    `deltaUsd` the shared body computes, so one flash lands on target with no
+    ///    withdraw-before-repay health breach. That is why `_delever` takes the delta and is
+    ///    free to ignore it: the two bands size the repay differently.
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut)
+        internal override { _leverUpBuy(venue, lp, stable, deltaUsd, minOut); }
+
+    function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut)
+        internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut); }
+
+    function _rebalanceBody(address lp, uint256 minOut) internal { _rebalance(lp, minOut); }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
 

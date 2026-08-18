@@ -87,16 +87,12 @@ contract BtcLevManager is LevBase {
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
     event Closed(address indexed lp, uint vbtcReturned);
-    event ProtectedFromQuid(address indexed lp, uint quidRedeemed, uint debtRepaid);
     event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
     error AlreadyOpen();
     error BadAuth();
     error NotFlash();
-    error Reentrancy();
 
-    uint private _lock = 1;
-    modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     constructor(address vbtc, address aux, address wbtc, address gov, address quid) LevBase(aux, wbtc) {
         VBTC = IERC20Min(vbtc); VAULT = IVBtcToken(vbtc).VAULT(); WBTC = wbtc; GOV = gov; QUID = quid;
@@ -129,22 +125,12 @@ contract BtcLevManager is LevBase {
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
 
-    /// @notice Delegated QU!D-protect for a BTC-levered LP — the BTC counterpart of `LevManager.protectFromQuid`
-    ///         — the previously-stubbed keeper path. Redeems the LP's OWN opted-in QUID (`approve` = opt-in) to
-    ///         repay the LP's OWN BTC-lev debt near liquidation; moves NO value to the caller (excess refunds to
-    ///         `lp`). Asset-agnostic: the SAME `LevMath.protectExec` the ETH side uses — the venue abstracts
-    ///         collateral/stable, so there is ZERO BTC-specific glue. Permissionless + near-liq-gated (anti-grief).
-    function protectFromQuid(address lp, uint minStableOut) external nonReentrant returns (uint repaid) {
-        if (!pos[lp].open) revert NotOpen();
-        uint pull;
-        (pull, repaid) = LevMath.protectExec(
-            QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
-        emit ProtectedFromQuid(lp, pull, repaid);
-    }
+    /// §ONE-PROTECT — body is now `LevBase.protectFromQuid`; only these hooks differ.
+    function _quid() internal view override returns (address) { return QUID; }
 
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
-    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint amountUsd) {
+    function debtDeltaToTarget(address lp) public view override returns (bool levUp, uint amountUsd) {
         Types.Pos memory p = pos[lp];
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
@@ -255,20 +241,27 @@ contract BtcLevManager is LevBase {
     // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
-    function rebalanceWbtc(address lp, uint minOut) external nonReentrant {
-        _reanchorIfReseated(lp);                                          // (B) realize + re-anchor on a band reseat
-        Types.Pos memory p = pos[lp];
-        if (!p.open) revert NotOpen();
-        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget(); // WBTC-mode ONLY — a native vBTC
-        //   venue would get WBTC supplied into it (collateral mismatch). Native positions use the async legs above.
-        address stable = p.venue.stable();
-        (bool levUp, uint deltaUsd) = debtDeltaToTarget(lp);             // deltaUsd = curDebt−targetDebt on the FIXED E0
-        if (deltaUsd != 0) {
-            if (levUp) _leverUpBuyWbtc(p.venue, lp, stable, deltaUsd, minOut);
-            else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut); // repay-FIRST: always health-safe
-            else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut);                                 // graceful fallback (no flash provider)
-        }
-        _syncBand(lp);
+    /// §ONE-REBALANCE (2026-08-18) — the body is now `LevBase._rebalance`, shared with the ETH
+    /// band. Only the three per-band pieces stay here: the WBTC-mode gate and the two leaves.
+    function rebalanceWbtc(address lp, uint minOut) external nonReentrant { _rebalance(lp, minOut); }
+
+    /// @dev WBTC-mode ONLY. A native-vBTC position must not take this path — its collateral is
+    ///      sats the contract cannot source on-chain. The ETH band has no such mode, so its
+    ///      override is the empty default.
+    function _requireRebalancable(Types.Pos memory p) internal view override {
+        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
+    }
+
+    function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)
+        internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut); }
+
+    /// @dev Repay-FIRST when a flash provider is pinned (always health-safe); otherwise the
+    ///      graceful withdraw-then-repay fallback. The ETH band has no fallback because its
+    ///      provider is not optional.
+    function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)
+        internal override {
+        if (flashProvider != address(0)) _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut);
+        else                             _deleverWbtc(venue, lp, stable, deltaUsd, minOut);
     }
 
     /// @notice #10 SYSTEMIC batch de-lever for WBTC-mode positions — the BTC analog of ETH `LevManager.cascadeDelever`.

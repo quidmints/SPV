@@ -68,6 +68,20 @@ abstract contract LevBase {
     event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
 
     error NotOpen();
+    /// §ONE-GUARD (2026-08-18) — `error Reentrancy`, `_lock` and `nonReentrant` were declared
+    /// BYTE-IDENTICALLY in both managers. One declaration, two instances.
+    /// ⚠️ Note what this does NOT save: a modifier's body is INLINED at every use site (CLAUDE.md
+    /// 8c, measured at +968 bytes on `BTCChannels`), so N uses is still N copies. What is deduped
+    /// is the DECLARATION and the storage slot, not the inlined checks.
+    error Reentrancy();
+    uint256 private _lock = 1;
+    modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
+
+    /// §ONE-PROTECT — moved up with `protectFromQuid`; both bands emit it.
+    event ProtectedFromQuid(address indexed lp, uint256 quidRedeemed, uint256 debtRepaid);
+    /// §ONE-REBALANCE — moved up from `LevManager` so BOTH bands emit it. It was ETH-only, so a
+    /// WBTC-mode rebalance was invisible to anything indexing the ETH event.
+    event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
     error BadTarget();
 
     constructor(address aux, address oracleKey) { AUX = IAux(aux); ORACLE_KEY = oracleKey; }
@@ -372,6 +386,64 @@ abstract contract LevBase {
     ///         what can move, and it is why the guard is re-checked in the library rather than here:
     ///         computing `px`/`base` for a closed position is wasted gas but never wrong, and one
     ///         `open` check in the library is cheaper than two.
+    /// §ONE-REBALANCE (2026-08-18, owner: *"now there is just one rebalance and it handles both"*).
+    /// The two bodies were the SAME SEQUENCE — reanchor, open-check, read the venue's stable, ask
+    /// `debtDeltaToTarget`, branch on `levUp`, sync the band — differing only in WHICH leaf executes
+    /// and in a WBTC-mode gate. I had argued they were not mirrors because only 5 of 50 function
+    /// NAMES matched; that counted leaf helpers, not operation shape. The shape is one function.
+    /// ⚠️ The `Rebalanced` event now fires on BOTH bands. The BTC path never emitted it, so a
+    /// WBTC-mode rebalance was invisible to any indexer watching the ETH one — an asymmetry with no
+    /// stated reason, unlike the real ones (`deliverVolatile`, `onShortfall`) which are documented.
+    function _rebalance(address lp, uint256 minOut) internal {
+        _reanchorIfReseated(lp);
+        Types.Pos memory p = pos[lp];
+        if (!p.open) revert NotOpen();
+        _requireRebalancable(p);
+        address stable = p.venue.stable();
+        (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
+        if (deltaUsd != 0) {
+            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut);
+            else       _delever(p.venue, lp, stable, deltaUsd, minOut);
+            emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
+        }
+        _syncBand(lp);
+    }
+
+    /// @dev Per-band mode gate. ETH has none; BTC rejects a native-vBTC position (WBTC-mode only).
+    function _requireRebalancable(Types.Pos memory p) internal view virtual {}
+
+    /// @dev The two leaves. Kept `virtual` rather than folded because each side's leverage
+    ///      mechanics genuinely differ (weETH/Aave vs WBTC/Morpho) — and because a library body
+    ///      cannot call a virtual, which is why these stay on the contract.
+    /// @dev Both bands implement this with the same SHAPE but different sizing inputs, so it is
+    ///      declared here for `_rebalance` to reach and overridden on each side.
+    /// §ONE-PROTECT (2026-08-18) — the IL-protect entrypoint, shared. The two copies differed in
+    /// exactly two things: `QUID`'s declared TYPE (`IERC20Min` on ETH, `address` on BTC) and ETH's
+    /// keeper reimbursement. Both are hooks now, so the body is one.
+    /// ⚠️ The MATH was already shared — `ilLtvBps`, `ilTargetLtvBps`, `_ilTargetLive` live here and
+    /// `LevMath.protectExec` does the work — so this was the last duplicated piece of IL-protect.
+    function protectFromQuid(address lp, uint256 minStableOut)
+        external nonReentrant returns (uint256 repaid) {
+        if (!pos[lp].open) revert NotOpen();
+        uint256 pull;
+        (pull, repaid) = LevMath.protectExec(
+            _quid(), address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+        _afterProtect(msg.sender);
+        emit ProtectedFromQuid(lp, pull, repaid);
+    }
+
+    /// @dev `QUID` is declared with a different TYPE on each band; this normalises it.
+    function _quid() internal view virtual returns (address);
+
+    /// @dev ETH reimburses the keeper from `gasReserve` (the refund is stable, no WETH to peel).
+    ///      BTC has no reimbursement leg, so its override is the empty default.
+    function _afterProtect(address) internal virtual {}
+
+    function debtDeltaToTarget(address lp) public view virtual returns (bool levUp, uint256 amountUsd);
+
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
+    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
+
     function _reanchorIfReseated(address lp) internal {
         if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
         LevBookLib.reanchorIfReseated(pos, BAND, lp,
