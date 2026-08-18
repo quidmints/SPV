@@ -670,9 +670,17 @@ library SwapLib {
         // exactly what the removal was meant to stop, so that the retained drain premium STAYS with
         // LPs as backing (`retainSkewPremium` -> `Core.skewPremium*`, refilling direction exempt at
         // `:452`/`:962`). Do NOT rebuild it. The refill mechanism is: LP entry
-        // (`Vault.requestDeposit`) as the PRIMARY, self-funding path, plus the still-unbuilt ACTIVE
-        // flash-serve (#100 / J.3) — flash the scarce asset, serve the opposite flow, repay, premium
-        // stays with LPs. A flash-and-repay, never a subsidy to whoever swaps in first.
+        // (`Vault.requestDeposit`) as the PRIMARY, self-funding path, plus the ACTIVE flash-serve
+        // (#100 / J.3) — flash the scarce asset, serve the opposite flow, repay, premium stays with
+        // LPs. A flash-and-repay, never a subsidy to whoever swaps in first.
+        // §E18 — "still-unbuilt" DELETED 2026-08-18: IT WAS BUILT, AND THIS COMMENT CONTRADICTED
+        // ANOTHER ONE THIRTY LINES BELOW IT. `:703` describes the same mechanism as operating —
+        // "the refill is a self-funding fleet op (JIT Morpho-flash BTC → creditSwapIn → repay)" —
+        // and the rail it names is live: `BTCChannels.creditSwapIn` → `Vault.creditSwapIn:711` →
+        // `creditSwapInBody` here, driven off-chain by the hop daemon.
+        // ⚠️ THIS EXACT LINE COST THREE FINDINGS. §E18 records that they were built on it and had to
+        // be withdrawn when the owner said "flash refill was already built". A stale comment does
+        // not merely mislead a reader — it survives long enough to become the premise of new work.
         rp.v4Price = _priceOr(v4p, aux, wbtc);
         rp.recipient    = seller;
         // routeSwap + both gates + the refill bonus run in their OWN frame (_swapInSettle) so

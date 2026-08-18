@@ -167,7 +167,10 @@ library DeployLib {
         // BTC, and observing it would make a WBTC depeg indistinguishable from bitcoin moving. Unset
         // ⇒ no observations ⇒ σ² unmeasured ⇒ §E213 prices at the ceiling, which is the honest
         // reading. The BTC ANCHOR is unaffected and already wrapper-free (Chainlink "BTC / USD").
-        core.setObservationSource(0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8);
+        // (§E232) Curve TriCrypto-USDC — REPLACES 1inch's OffchainOracle `0x0AdDd25a…`, which was
+        // pinned here and cost 31,722,803 gas per read against a 30M block limit, making every ETH
+        // swap and repack unexecutable. This pool's `price_oracle(1)` is one storage read.
+        core.setObservationSource(0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B);
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
         // built both bands (above) but only the ETH one was
         // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
