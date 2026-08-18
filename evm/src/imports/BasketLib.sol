@@ -413,24 +413,11 @@ library BasketLib {
     ///         → higher fee → reserves build faster.
     ///         K=0 → 900bps (9%), K=32 → 100bps (1%)
 
-    /// @notice ETH price from spotPrice
-    /// @param spotPrice Square root price
-    /// @param token0isUSD Whether token0 is USD
-    /// @return price ETH price in USD 1e18
-    function getPrice(uint spotPrice, bool token0isUSD)
-        public pure returns (uint price) {
-        uint casted = uint(spotPrice);
-        uint ratioX128 = SoladyMath.fullMulDiv(
-               casted, casted, 1 << 64);
-
-        if (token0isUSD) {
-          price = SoladyMath.fullMulDiv(1 << 128,
-              WAD * 1e12, ratioX128);
-        } else {
-          price = SoladyMath.fullMulDiv(ratioX128,
-              WAD * 1e12, 1 << 128);
-        }
-    }
+    // §DE-TICK 2026-08-18 — `getPrice(uint spotPrice, bool token0isUSD)` DELETED. It squared a
+    // sqrt-price (`fullMulDiv(casted, casted, 1 << 64)`) and inverted by orientation: pure v4
+    // tick/sqrt math, and the last thing that could carry a sqrt-price into this library.
+    // ZERO call sites — every remaining mention across `Core` and `SwapLib` is a COMMENT saying
+    // where it USED to sit. The ring stores a plain WAD price and `twapBody` reads it directly.
 
     /// §TICK-REMOVAL — the ring stores PLAIN PRICE, so the TWAP is just the cumulative difference
     /// over the period. This deletes the tick→sqrt→price round trip that was the single largest

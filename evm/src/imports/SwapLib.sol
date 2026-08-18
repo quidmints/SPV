@@ -1784,7 +1784,7 @@ library SwapLib {
     ///         drain, sell-in, BtcVault drain). The retained premium stays in the basket as LP backing (the
     ///         refiller-payout side was removed — the fleet self-funds the refill). skew==0 no-op.
     /// @notice Plain (unlevered) net band equity = gross `pooled` minus the levered slice `lev`, zero-floored.
-    ///         ONE definition for the hedge-E0 base (bandOf/bandOf), the venue-yield fee weight, and the
+    ///         ONE definition for the hedge-E0 base (was `bandOfEth`/`bandOfBtc`, collapsed to one token by the suffix removal), the venue-yield fee weight, and the
     ///         withdraw/transfer free-balance cap — a drifted copy (dropped floor / wrong slice) would make
     ///         levered depth withdrawable or double-earn venue yield.
     function plainNet(uint pooled, uint lev) internal pure returns (uint) {

@@ -40,12 +40,17 @@ import {QuidLib} from "./imports/QuidLib.sol";
 /// accounting. A swap in the ETH pool that inflates the ETH-side dollar
 /// balance does NOT affect the BTC pool's dollars (and vice-versa). The
 /// per-pool USD slice is bounded by a single safety invariant —
-/// POOLED_USD + POOLED_USD ≤ current basket TVL — enforced
+/// POOLED_USD ≤ current basket TVL — enforced
 /// inline in _handleDelta on every USD add. BTC's share of the total is
 /// demand-driven within that ≤TVL invariant (no separate allocation cap).
-/// mockUSD_ETH and mockUSD_BTC stay as separate mocks because each pool
-/// can have its own out-of-range positions (limit orders) — those are
-/// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
+/// §STALE-PROSE 2026-08-18 — the paragraph above described the PRE-SPLIT world and two of its
+/// sentences had been mangled by a blanket suffix-removal rename applied to PROSE: it read
+/// "POOLED_USD + POOLED_USD ≤ TVL", which was `POOLED_USD_ETH + POOLED_USD_BTC` before the
+/// suffix went. There is now ONE Core per band (`new Core(weth,…)` and `new Core(wbtc,…)`), so
+/// there is no cross-pool sum to bound — the invariant is per-instance.
+/// The `mockUSD_ETH`/`mockUSD_BTC` sentence that stood here is DELETED: those mocks no longer
+/// exist (§E253-mock, `770749ca`), and out-of-range positions are `selfManaged`, not a mock
+/// balance.
 contract Core {
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
@@ -67,19 +72,27 @@ contract Core {
     // §V4-CUT — `POOL_ID_VANILLA_*` DELETED. Their last external reader was the protocol-fee
     // monitor, retired with the fee switch we no longer touch; `_poolId()` is gone too.
 
-    /// @notice In-range USD slice held against the ETH/USD pool. Sum of
-    /// this plus POOLED_USD is the total in-range USD; out-of-range
-    /// USD lives in mockUSD_ETH/mockUSD_BTC respectively.
     /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both bands). The split
     ///         #12 is named for: `POOLED_USD_*` track what is IN each CURVE (they move on every
     ///         swap); this tracks what the BASKET actually CONTRIBUTED (it moves ONLY when the
     ///         basket adds or removes depth via `addLiq`/burn — never on a swap).
     ///         `committedUsd18` is derived from THIS, so the backing gate stops counting an LP's
     ///         sale proceeds as a basket commitment.
-    /// §ISBTC-SPLIT — one instance, one asset. Was basketUsd/basketUsd.
+    /// §ISBTC-SPLIT — one instance, one asset. Was `basketUsdEth`/`basketUsdBtc`; the suffix
+    /// removal collapsed BOTH names in this comment to the same token, which is why it read
+    /// "Was basketUsd/basketUsd" until 2026-08-18.
     uint public basketUsd;
+
+    /// @notice THIS instance's in-range USD leg (6-dec). One Core per band, so there is no
+    ///         "ETH pool plus BTC pool" sum: the other band's USD lives in the OTHER instance.
     uint public POOLED_USD;
-    /// @notice In-range USD slice held against the BTC/USD pool.
+
+    /// @notice THIS instance's in-range VOLATILE inventory — WETH on the ETH instance, sats on
+    ///         the BTC one, selected by the `asset` passed at construction.
+    /// ⚠️ §STALE-PROSE 2026-08-18 — this was labelled "In-range USD slice held against the
+    ///    BTC/USD pool", which was wrong on BOTH counts: `POOLED` is the VOLATILE leg, not USD,
+    ///    and it is not "the BTC pool" — it is whichever asset THIS instance was constructed
+    ///    with. A mislabelled money-path variable is worse than an unlabelled one.
     uint public POOLED;
 
     /// @notice Committed BASKET USD (both pools, 18-dec) — the single `committed ≤ TVL` term + LP surplus sizing.
