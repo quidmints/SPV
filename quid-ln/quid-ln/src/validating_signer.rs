@@ -23,6 +23,17 @@
 //! inside the fleet: **it is the fleet checking itself**, and the checks below
 //! enforce nothing against the one adversary that matters.
 //!
+//! ✅ **THAT DESCRIBED THE DEPLOYMENT UNTIL 2026-08-18 AND NO LONGER DOES — `99fda5e9` (§M1#2)
+//! MADE THE FLEET VAULT-LESS BY DEFAULT.** The vault boot now sits behind
+//! `QUID_FLEET_COHOSTS_VAULT`, default OFF, so the LP funding half lives on the LP's own host and
+//! this signer is no longer the fleet checking itself: the adversary it was powerless against —
+//! a compromised fleet — can no longer produce the other half at all.
+//! ⚠️ **THE ANALYSIS BELOW IS STILL CORRECT FOR THE CO-HOSTED MODE**, which remains reachable by
+//! that flag, so it is corrected rather than deleted. **But do not quote it as the deployed model,**
+//! and in particular do not reason from it that a consent registry is plumbing for an absence that
+//! cannot happen: post-§M1#2 the LP genuinely is a separate party that can be offline when the
+//! reconciler ticks, which is exactly what `VaultRegistry`'s DORMANT-on-absence handling is for.
+//!
 //! Two consequences, and neither is fixed by editing this comment:
 //!
 //! * **The checks only become a trust boundary once the signer runs where the

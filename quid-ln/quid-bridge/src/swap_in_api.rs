@@ -98,6 +98,119 @@ struct ApiState {
     auth_token: Arc<String>,
     onchain: Option<Arc<OnchainState>>,
     onboard: Option<Arc<OnboardIngrid>>,
+    /// (§SPRINT-D2#18) The registry the LP's consent binds INTO. NOT an `Option`: the daemon always
+    /// has one — vault-less it is a fresh `VaultRegistry::new()` that `drive_open` reads anyway — so
+    /// an `Option` would make its `None` arm unreachable (rule 1).
+    consent: Arc<crate::vault::VaultRegistry>,
+}
+
+/// (§SPRINT-D2#18) One rung of the pre-signed exit ladder, on the wire.
+///
+/// Hex because `ExitArming` carries raw `Vec<u8>`/`[u8; 32]` and the codec types deliberately derive
+/// no `serde` — widening them for one endpoint would put a wire format on the ABI encoder, where a
+/// rename becomes a protocol break.
+#[derive(Deserialize)]
+struct ExitArmingReq {
+    prev_values: Vec<u64>,
+    prev_scripts: Vec<String>,
+    cltv_deadline: u64,
+    checkpoint_sats: u64,
+    signed_exit_tx: String,
+}
+
+/// (§SPRINT-D2#18) The LP's consent for ONE open, keyed by the funding outpoint it authorises.
+#[derive(Deserialize)]
+struct ConsentReq {
+    funding_txid: String,
+    funding_vout: u32,
+    btc_recipient: String,
+    btc_recipient_pop: String,
+    exits: Vec<ExitArmingReq>,
+}
+
+fn unhex(s: &str) -> Result<Vec<u8>, (StatusCode, String)> {
+    alloy_primitives::hex::decode(s.strip_prefix("0x").unwrap_or(s))
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad hex".into()))
+}
+
+/// (§SPRINT-D2#18) **THE INTAKE THE FLEET SAID IT HAD AND DID NOT.**
+///
+/// `daemon.rs:202` states the design — *"the consent and the ladder require the LP half, which after
+/// §E175 the fleet does not have, so the fleet RELAYS"* — but until this endpoint,
+/// `VaultRegistry::bind_consent` had **zero production callers**: four test assertions and two prose
+/// mentions. ibiza's producer was booked; this intake was booked nowhere, so the pipeline had a
+/// middle and no ends.
+///
+/// ⚠️ **IT FAILED SILENTLY, WHICH IS WHY IT SURVIVED.** `consent_for_funding` returns `Option` and
+/// absence means DORMANT, not error — correct, since "the LP has not signed yet" must not be a loud
+/// failure every reconciler tick. So a fleet with no intake simply never opened a channel, forever,
+/// with nothing in the logs saying why.
+///
+/// 🔑 **WHY A STORE-AND-RELAY REGISTRY IS RIGHT HERE, AND NOT PLUMBING FOR A NON-ABSENCE.** The
+/// tempting simplification — the LP is live whenever it signs, so ask it in-session and delete the
+/// registry — was checked and REFUTED. `drive_open` runs against a funding tx **already confirmed on
+/// Bitcoin** (it carries the raw tx and its merkle proof) and is retried by the reconciler every
+/// tick; the LP signs its ladder against that outpoint at some other moment. **Signing and opening
+/// are separated in time, so consent has to live somewhere in between.** Under the pre-§M1#2 model
+/// the fleet held both halves and the registry really was redundant — `99fda5e9` is what made it
+/// load-bearing, by making the LP a genuinely separate party that can be offline at a tick.
+///
+/// 🔑 **WHAT THIS DOES NOT DO, DELIBERATELY.** It does not re-check ladder depth or signatures.
+/// `_armLadder` already rejects `exits.length < 2` and a ladder sharing one deadline, and
+/// `_armDeadManExit` verifies every rung's structure, sighash and BIP-340 signature against the
+/// funding key. A bad ladder fails LOUDLY at `openChannel` with a named revert; duplicating those
+/// here would clamp a failure that already announces itself, and leave a second copy to drift.
+async fn lp_consent(
+    State(st): State<ApiState>,
+    headers: HeaderMap,
+    Json(req): Json<ConsentReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !token_ok(&headers, &st.auth_token) {
+        return Err((StatusCode::UNAUTHORIZED, "bad token".into()));
+    }
+    let registry = st.consent.clone();
+    let recipient = unhex(&req.btc_recipient)?;
+    let btc_recipient: [u8; 32] = recipient
+        .try_into()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "btc_recipient must be 32 bytes (x-only)".into()))?;
+    let mut exits = Vec::with_capacity(req.exits.len());
+    for e in &req.exits {
+        let mut prev_scripts = Vec::with_capacity(e.prev_scripts.len());
+        for h in &e.prev_scripts {
+            prev_scripts.push(unhex(h)?);
+        }
+        // Prevout values and scripts are ONE table indexed by input; a length mismatch is a
+        // malformed request, not a signature failure, and saying so here is cheaper than letting it
+        // surface as an opaque sighash mismatch inside `verifyDeadManExit`.
+        if prev_scripts.len() != e.prev_values.len() {
+            return Err((StatusCode::BAD_REQUEST, "prev_values/prev_scripts length mismatch".into()));
+        }
+        exits.push(quid_hop::evm_codec::ExitArming {
+            prev_values: e.prev_values.clone(),
+            prev_scripts,
+            cltv_deadline: e.cltv_deadline,
+            checkpoint_sats: e.checkpoint_sats,
+            signed_exit_tx: unhex(&e.signed_exit_tx)?,
+        });
+    }
+    let consent = crate::vault::LpConsent {
+        auth: quid_hop::evm_codec::OpenAuth {
+            btc_recipient,
+            btc_recipient_pop: unhex(&req.btc_recipient_pop)?,
+        },
+        exits,
+    };
+    let txid = req.funding_txid.strip_prefix("0x").unwrap_or(&req.funding_txid).to_string();
+    // `bind_consent` is idempotent on an IDENTICAL re-bind and REFUSES a conflicting one — consent
+    // authorises ONE open, so letting a re-bind overwrite it would let whatever relays it swap in a
+    // different ladder. A refusal is 409, not 400: the request is well-formed and the STATE rejects it.
+    if registry.bind_consent(&txid, req.funding_vout, consent) {
+        info!(txid = %txid, vout = req.funding_vout, rungs = req.exits.len(), "lp consent bound");
+        Ok(Json(serde_json::json!({ "bound": true })))
+    } else {
+        warn!(txid = %txid, vout = req.funding_vout, "lp consent CONFLICTS with the one already bound");
+        Err((StatusCode::CONFLICT, "a different consent is already bound for this outpoint".into()))
+    }
 }
 
 #[derive(Deserialize)]
@@ -434,6 +547,7 @@ pub async fn serve(
     auth_token: String,
     onchain: Option<OnchainIngrid>,
     onboard: Option<OnboardIngrid>,
+    consent: Arc<crate::vault::VaultRegistry>,
 ) {
     let onchain = onchain.map(|o| {
         // Restart-safe: resume the per-swap index ABOVE any persisted registration, so a
@@ -449,12 +563,14 @@ pub async fn serve(
         })
     });
     let onboard = onboard.map(Arc::new);
-    let state = ApiState { invoicer, auth_token: Arc::new(auth_token), onchain, onboard };
+    let state = ApiState { invoicer, auth_token: Arc::new(auth_token), onchain, onboard, consent };
     let app = Router::new()
         .route("/swap-in", post(swap_in))
         .route("/swap-in/onchain", post(swap_in_onchain))
         .route("/lp/onboard", post(lp_onboard))
         .route("/lp/withdraw", post(lp_withdraw))
+        // (§SPRINT-D2#18) The LP's half arrives here.
+        .route("/lp/consent", post(lp_consent))
         .with_state(state);
     let listener = match tokio::net::TcpListener::bind(&listen).await {
         Ok(l) => l,

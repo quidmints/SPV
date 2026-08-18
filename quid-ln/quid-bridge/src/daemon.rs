@@ -278,6 +278,10 @@ pub async fn run(
     // (§E233-ladder) The on-chain swap-out watcher needs it too: a delivery rotates the funding
     // outpoint, so it must carry the LP's fresh exit ladder like any other rotation.
     let swapout_vault_registry = vault_registry.clone();
+    // (§SPRINT-D2#18) The consent INTAKE's handle. Cloned before the move below, because the
+    // registry the API binds into must be the SAME one `drive_open` reads — a second registry would
+    // accept every consent and satisfy no open.
+    let api_vault_registry = vault_registry.clone();
     let reconcile_vault_registry = vault_registry;
     let reconcile_wallet = node.wallet.clone(); // hop-funded fee splice-in
     // On-chain swap-out (rail B) delivery-watcher handles (env-gated spawn below).
@@ -494,7 +498,7 @@ pub async fn run(
                 btc_channels: cfg.btc_channels,
             });
             set.spawn(crate::swap_in_api::serve(listen, invoicer,
-                token, onchain_ingrid, onboard_ingrid));
+                token, onchain_ingrid, onboard_ingrid, api_vault_registry));
         }
         (Some(_), None) => {
             anyhow::bail!(
