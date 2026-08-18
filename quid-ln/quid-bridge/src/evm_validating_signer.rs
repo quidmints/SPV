@@ -32,7 +32,10 @@ use crate::client::TxFields;
 /// signer, so they are intentionally absent.
 const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // --- BTCChannels ---
-    "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
+    // (§E247) `settleSwapInBuffered` was listed HERE while also arriving via
+    // `HOP_BTCCHANNELS_SIGS` (its builder, `swap.rs`, encodes with the codec const) — a
+    // duplicate of exactly the "second source of truth" the E178 note below retired.
+    // Deleted; the codec-derived entry is the one that cannot drift from what is sent.
     "markMigrationNonceUsed(bytes32)",
     // ⚠️ (E178) THE BTCChannels CHANNEL-LIFECYCLE SIGNATURES ARE NO LONGER LISTED HERE.
     // They used to be, and they DRIFTED: `openChannel` and `recordClose` changed shape and
@@ -51,6 +54,11 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     "rebalance(address,uint256)",
     "syncLev(address)",
     "protectFromQuid(address,uint256)",
+    // (§E247) `compound(address)` was NEVER listed while `lev_keeper.rs` has always built it —
+    // the compound crank was refused at the signing chokepoint since it landed. Found by the
+    // builder↔allowlist gate (`tools/check-signer-allowlist.py`), which now diffs every
+    // signature-shaped literal the keepers build against this list.
+    "compound(address)",
     // (2026-08-15) `repackNFT()` was here and is DELETED. It was the only entry in this
     // section with no Rust builder — the other seven each have 2–3 — and no contract declares
     // it: the successor is `repack(bool)`, which is `onlyUs`, so this hot key could never
@@ -59,6 +67,9 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // deliberate. Do NOT re-add it as `repack(bool)` — `onlyUs` means the protocol calls it,
     // not the keeper.
     "cascadeDelever(address[],uint256[])",
+    // (§E247) `rebalanceMany` — the #84 whole-book batch (`LevManager:354`), sent by
+    // `lev_keeper.rs` since the central rebalancer landed and never listed here.
+    "rebalanceMany(address[],uint256[])",
     // --- BTC leverage keeper (BtcLevManager) ---
     // §SLOP: `syncLevBTC(address)` was DELETED with the BTC suffix (`Vault.sol:536` — "one name
     // across both bands"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist
@@ -68,6 +79,18 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     "syncLev(address)",
     "leverBorrow(uint256)",
     "deleverWithdraw(uint256)",
+    // (§E247) `repay` — the third native-rail leg (`BtcLevManager:240`). Its two siblings
+    // above were listed when the dead-selector rename moved them; this one never was, so
+    // the de-lever half of the native rail was refused while the borrow half was signable.
+    "repay(uint256)",
+    // (§E247) RE-ADDED: the routeless `rebalanceWbtc` was collateral damage of the 1inch
+    // revert — `86ca80ec` fixed the original omission by adding the ROUTE form
+    // `rebalanceWbtc(address,uint256,bytes)`, and `e4f9c512` reverted that to
+    // `rebalance(address,uint256)` alone, dropping the WBTC entry entirely. The keeper
+    // (`lev_keeper_btc.rs`) kept building the routeless form, so every WBTC-mode atomic
+    // rebalance was again refused at the signing chokepoint. The gate that catches this
+    // class either way: `tools/check-signer-allowlist.py`.
+    "rebalanceWbtc(address,uint256)",
 ];
 
 /// The signing policy: which contracts + selectors the hop may sign for.
