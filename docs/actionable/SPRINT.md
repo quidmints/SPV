@@ -6,6 +6,83 @@ two sprint files drift, and this repo has paid for that twice today.
 
 ---
 
+## 0-TOPOLOGY. 🔴 **OWNER DECISION 2026-08-18 — SPV STAYS A SEPARATE REPO, BECAUSE IT IS THE ONE THAT HAS A HOST**
+
+**The decision (owner, 2026-08-18):** SPV is **not** folded into `../ibiza`. It stays separate so a
+**keeper for the Solidity contracts can run 24/7 on a Linux box**, with a **Docker container on this
+machine as the fallback**. The container **stands in for the secure enclave** — what it buys is
+*inaccessibility of the keys from outside the container*, not attestation. **That same host runs the
+aggregator service, which must be EXTRACTED OUT OF THE `ibiza` REPO.**
+
+### Why SPV is the repo that gets the host — verified, not assumed
+
+SPV already owns **every long-running process in the system**. `quid-ln/quid-bridge/src/bin/` ships
+six: `quid-bridge-daemon`, `quid-lp-daemon`, `quid-watchtower`, `quid-provision`,
+`quid-migrate-auth`, `quid-recover-exit`. The Solidity keeper is not a new thing to build — it is
+`lev_keeper.rs` / `lev_keeper_btc.rs`, already *"one more `set.spawn(run_lev_keeper(...))` in the
+quid-bridge `JoinSet`, parallel to swap-in / relayer / reconciler"* (`lev_keeper.rs:4-5`). ibiza owns
+circuits, contracts and a frontend; it has **no daemon and no host**. ⇒ The separation is not a
+preference about code layout — **the repo boundary is the process boundary**, and folding SPV into
+ibiza would put a 24/7 signing process inside a repo whose deploy target is a web app.
+
+### 🔴 §HOST-AGGREGATOR-EXTRACTION — the aggregator has to move, and it does not exist as a service on EITHER side
+
+**Checked in `../ibiza` today.** What exists there is the aggregation *machinery*:
+`backend/circuits/build-recursion-tree.py`, `backend/circuits/batch-witnesses/` (the `Prover.N.toml`
+fixtures), `contracts/pool/lib/BatchCommitmentLib.sol`, `PrivacyPool.verifyBatch`, and the
+`TreeRoot{8,16,32}` verifiers. What does **not** exist is the standing service that drives them —
+ibiza's own TODO says so twice: *"Decide the FILL POLICY: settle singly below 2 pending, batch above.
+**Nothing does this today**"* (`ibiza/TODO.md:570`) and *"Wire elect-to-wait at deposit: a queue the
+batcher serves"* (`:536`).
+⇒ **This is an extraction of a DESIGN plus its artifacts, not a lift-and-shift of a running service.
+Budget it as a build.** The pieces to carry: the fill policy (a queue plus a
+settle-singly-vs-batch decider), proof collection, tree assembly, and on-chain submission — the last
+of which is the shape `lev_keeper` already has, which is the second reason the host is SPV's.
+⚠️ **Do not widen ibiza's leaf template as part of this.** `build-recursion-tree.py:127` folds
+`2 × 7` signals and `BatchVerifierLib.PUB_LEN` is still 7, which is a live **non-association bypass
+on the batch path** — ibiza's own booked item, and it must land there *before* batching is enabled on
+a pool with a non-empty taint root. Extracting the runner does not fix it, and a runner extracted
+while it is open would **ship the bypass on a schedule** rather than leaving it latent.
+
+### ⚠️ §HOST-SEAL-IS-A-NOOP-OFF-SGX — what the container does NOT give you, measured today
+
+The bins **are** the enclave: `quid-bridge/Cargo.toml:18` carries `[package.metadata.fortanix-sgx]`
+and the daemon builds for `x86_64-fortanix-unknown-sgx`. **Off that target the sealing path is
+`MockKeyRequest`, and its own docstring is the finding** (`quid-enclave/src/platform.rs:309-312`):
+*"It just samples a fresh key for every sealing operation and **stores the key adjacent to the
+ciphertext**. NOTE: this does not provide any security whatsoever."*
+⇒ **In a container, "sealed" state is plaintext to anyone who can read the volume.** The key
+inaccessibility this decision buys is therefore **entirely host access control** — who has root on
+the Linux box, and what the container can read — with **no attestation and no seal**. That is a
+coherent posture; it is simply not the enclave's, and it must be stated wherever the enclave's
+guarantee is currently claimed, or the next reader inherits the stronger one. 📌 The code already
+draws the distinction in exactly one place and should draw it everywhere: `boot.rs:84` refuses a
+host-supplied EVM signing key *inside* SGX and permits it outside, because *"the operator trusts
+their own host"*. Under this decision that sentence is the whole security model, not a convenience.
+
+### 🟡 §HOST-RUNTIME-IMAGE — the Dockerfile we have is a BUILD image, not a runtime one
+
+`quid-ln/Dockerfile` ends `CMD ["cargo", "test", "--workspace"]` and its header calls itself *"the
+ONLY way this workspace builds"* — it exists because `quid-cvm` is Linux-only and transitive, so a
+Mac cannot compile the workspace at all. **It is not a deployment artifact:** no release profile, no
+daemon entrypoint, no volume contract for `lp-store.json` / `vault/`, and a whole Rust toolchain plus
+a Bitcoin Core 30.2 tarball baked in. ⇒ The fallback container this decision names is a **second
+image that does not exist yet**, and reaching for the existing one will look like it works.
+📌 **Book it with `§D2#15`:** that row's finding is that nothing tells an operator to back up the
+data directory holding the channel monitors. The runtime image's volume contract is that same
+directory — one row names it, the other must mount it, and they should be settled together.
+
+### What this decision does NOT change
+
+- `../ibiza` still consumes SPV as a **pinned git submodule**, and the four Vogue/Basket signatures
+  it depends on stay permissionless and stable. ⚠️ **That submodule copy is STALE** — it still
+  carries `evm/src/VEth.sol`, which no longer exists here.
+- The LP-signer split is unaffected: ibiza owns the mobile **producer** (`ibiza/TODO.md` §3b), SPV
+  owns the **intake** (`§D2#18`, `bind_consent` has zero production callers). This decision gives
+  the intake a host to run on; it does not build it.
+
+---
+
 ## PART A — session `d669393d`
 
 Written at `770749ca`. **Every item below is work this thread started, scoped, or measured but did
