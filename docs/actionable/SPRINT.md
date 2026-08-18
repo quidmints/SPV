@@ -1535,6 +1535,8 @@ I wired the ring to 1inch's OffchainOracle, **committed it, and reverted it** (`
 `df3c5e13`). `getRate` iterates **14 registered DEX oracles**: **31.7M gas, above the 30M block
 limit** — every ETH swap and repack would have exceeded a whole block. WRONG, not incomplete.
 
+⛔ **§E220 IS SUPERSEDED — DO NOT BUILD IT.** That row proposed sourcing the ring from **Chainlink**, which is itself circular: Chainlink is already the ANCHOR `twapResolve` checks against, so feeding it in makes the anchor test a smoothed copy of itself — the very defect §E222 names.
+
 **Kick off from `ExternalTwap.curvePriceWad`** (already written, ~one storage read):
 - **ETH: `price_oracle(1)` on `CURVE_TRICRYPTO_USDC`.** 🔴 **k=1 is WETH, k=0 is WBTC** — the file's
   comment said the opposite and was corrected in `6e442a4c`. Verified on-chain against `coins()`:
@@ -1614,7 +1616,8 @@ verify what actually landed before touching it.** Falsifiable: resizing changes 
 value, since `9 ≤ 32`. If any variance-dependent test moves, the ring has a second consumer nobody
 found.
 
-### C9b. 🟡 §E219/§E231 — Core + Vogue, the numbers PART A's §6 does not carry
+### C9b. 🟡 §E217/§E219/§E231 — Core + Vogue, the numbers PART A's §6 does not carry
+**§E217's hook half LANDED** (`f22fbce3`: Core has zero SafeCallback/unlockCallback/poolManager/modifyLiquidity/TickMath). **Only the COLLAPSE half is open, and it is this row.**
 PART A §6 owns the manager merge. What this session measured and it lacks: `Core` **10,073** +
 `Vogue` **21,925** = **31,998, over EIP-170 by 7,422** naively — but the EthVenue fold cost **1,984
 against 3,836 standalone (~52%)**, because a separate contract carries dispatch + interface overhead
@@ -2113,4 +2116,33 @@ been code-checked the same way; do that before planning from any of them.**
 
 ⚠️ **This index is a snapshot.** `QUEUE.md`'s status column is unreliable by its own admission — re-run
 the audit rather than trusting these seven to still be the whole set.
+
+
+---
+
+## MIGRATION GAP — rows still live in QUEUE.md that did NOT reach SPRINT.md (checked 2026-08-18)
+
+Method: all 148 identified 🔴 rows in `QUEUE.md` were matched against `SPRINT.md` by id AND by
+code-symbol. 120 matched by id; of the 28 that did not, most matched by SYMBOL (they migrated under
+different names — `§E257`, `§E258`, `E219`, `W1-sweep…` and others are all present). **Four did not
+match either way. Three are real and are reproduced below. `§A.59` was checked and is RESOLVED**
+(contradiction → resolved → corrected, evidenced live at `Vogue.sol:36` and `:483`) — historical.
+
+| id | item |
+|---|---|
+| **A8** | 🔗 **CROSS-TRACK — sizing constraint on any E2 fix.** #12 and E5 BOTH remove subsidies that flow silently to QU!D holders today (the LP's sale proceeds; the retained skew premium). Both make `perShare` run **LOWER** than today. ⇒ **Track B makes Track A's bleed WORSE.** Any E2 fix must be sized against **POST-#12 `perShare`, never today's**, or it is calibrated against a number that is about to move. |
+| **F1** | 🔴 **control-LP redeem delivers 0.** Likely a FIXTURE warp — **verify before fixing.** (Same family as the refill zero-return and the sUSDE valuation/delivery split: a path that reports success and delivers nothing.) |
+| **E93-KILLER** | 🔴 The decided part (`skewPremiumCum` over a tick measure, because `reseat()` is permissionless so tick history is adversarially destructible — monotonicity IS the history-preservation property) is ✅. **The 🔴 remainder is a defect at `Vogue.sol:1138`, found by the verification pass rather than by reasoning.** Re-read that line before treating E93 as closed. |
+
+⚠️ **`QUEUE.md` IS THEREFORE NOT PURELY HISTORICAL YET.** 120/148 migrated by id, most of the rest by
+symbol, and the three above by hand. Anyone declaring the queue archive-only should re-run the
+id+symbol match first — a sample that agrees is not the whole set verified.
+
+### C11-note. ⛔ §E229 — `deleverToVault` MUST NOT BE DELETED (a guard, not a task)
+Listed here only so a future "unused indirection" sweep does not remove it. `deleverBook:743` calls
+it as `try this.deleverToVault(...) { } catch { }` — **the `this.` self-call is LOAD-BEARING**: it
+forces a separate frame so ONE stuck LP is skipped instead of reverting the whole sweep. Inlining it
+turns a per-LP fault into a **total liveness failure of the redeem-settle path**. Its auth gate's
+`address(this)` arm exists precisely to admit that self-call, so neither arm is slop. Same shape as
+`create_sweep_tx`, which this repo records being wrongly deleted **twice**.
 
