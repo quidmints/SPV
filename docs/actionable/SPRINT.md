@@ -2503,6 +2503,30 @@ escape."* **The LP's node is a full LDK node.** `VaultNode` wraps `HopNode`, whi
 Lightning node** — the ordinary escape, needing no pre-signed anything. The ladder was designed for
 the model where *"the LP runs nothing"* (`vault.rs:612`). **§E175/B0 retired that model, so B0 is an
 argument for removing the ladder, not for keeping it.**
+✅ **ANSWERED 2026-08-18, ON THE CODE: `checkpointSats` DOES NOT PREVENT THE OVERPAYMENT. IT IS AN
+ANTI-*UNDER*PAYMENT MECHANISM AND BOUNDS THE LP'S PAYOUT FROM BELOW ONLY.** Both of its uses point the
+same way: `_armDeadManExit` rejects an exit that pays LESS than it attests
+(`if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint()`, `:1612`), and the stale-close
+guard rejects a close paying LESS than `checkpointOf − paidOutSinceCheckpoint` (`:378`). **Nothing
+anywhere bounds the LP's payout from ABOVE**, so pool inventory leaving with the LP is caught by
+exactly one thing — `emit PoolSatsLeftWithLp` — and the code says why that is all it can be: *"The BTC
+has already moved — this cannot claw it back."*
+⇒ **So the divergence is made VISIBLE one step earlier, and is never PREVENTED.**
+🔑 **BUT THAT DOES NOT MAKE THE LADDER DELETABLE — IT REDIRECTS THE ARGUMENT.** The ladder's job was
+never the pool split; it is (a) the LP's escape when the fleet is dark and (b) **the only attested
+number the EVM has for what the LP was owed.** A Lightning force-close gives (a) and gives the EVM
+NOTHING for (b): the chain would see a close and have no attestation to test staleness against.
+⇒ **Deleting the ladder costs the stale-close guard its input.** That is the real trade, not the
+heartbeat.
+⇒ **AND THE POOL OVERPAYMENT IS A SEPARATE, UNSOLVED DEFECT — rule 17 applies to it and not to the
+ladder.** One channel carries both the LP's balance and `poolOwnedSats`, and NO mechanism prevents a
+close from paying the pool's inventory to the LP. **Prefer making that state unconstructible over
+detecting it**: pool sats must not sit where an LP close can sweep them. `PoolSatsLeftWithLp` is the
+instrument that proves the state is reachable, and CLAUDE.md's rule-17 worked example is *this exact
+ledger* (`poolOwnedSats`) saying the root fix is that pool sats may only enter where no LP can claim
+them. **That root fix deletes the event, the clamp and this whole question.**
+
+⚠️ **SUPERSEDED — the paragraph below was the OPEN form of the question now answered above.**
 ▶️ **The ONE thing that could still justify it, and it must be settled before deletion:** a raw
 force-close pays the LP its whole channel-side balance, and the channel also carries **pool
 inventory** (`poolOwnedSats`). `BTCChannels.sol:623-632` computes `lpEntitled = totalSats − pool` and,
