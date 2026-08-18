@@ -95,6 +95,74 @@ and this is the summary.
 
 ---
 
+## 0-HANDOFF. READ THIS FIRST — what the next thread inherits from `d669393d`
+
+**Everything is on `main`. Nothing is parked in a worktree, branch, stash or unreachable commit.**
+Verify with `git log origin/main..HEAD` (0), `git worktree list` (none), `git stash list` (0).
+
+### Do these in this order
+
+1. 🔴🔴🔴 **§E257 — `main` cannot execute a swap.** `Core.swap()` staticcalls 1inch's
+   `getRate` with no gas cap; `cast estimate` refuses at the node's 2^24 ceiling and the fork test
+   measures **33,084,355 gas against a 30M block**. `setObservationSource` is **pin-once**, so a
+   fresh deploy is unrecoverable without a code change. **The fix is already written:**
+   `ExternalTwap.curvePriceWad` — a Curve `price_oracle()` read at ~2–3k gas. **Nothing else on this
+   list matters until this is done.**
+2. 🔴🔴 **§E258 — build `fillOOR` + the sorted set.** The spec is §0-BUILD below, complete: the index
+   key must be `(price << 96) | id` because `SortedSetLib.insert` **silently ignores duplicates**;
+   the in-swap loop must be capped or a swapper can be griefed; the poke is therefore a liveness
+   requirement, not a convenience. Out-of-range orders currently **cannot execute at all**.
+3. 🔴🔴 **§E50 — the over-mint class is live**, reproduced 2026-08-18: three assertions plus QU!D
+   minted on a delivery of **zero**. Not a stale row.
+4. 🔴 **§E255 / the manager merge — both are blocked by BYTECODE, not design.** ~11,986 and 15,532
+   bytes over EIP-170. **Every design question is settled (§E256).** ⚠️ §E255's old blocker
+   (*"`Vault` is two things fused"*) is **false and corrected in its row** — §E231's fold resolved it
+   by going into `Quid`. The next step is **~12k of delegatecalled-library extraction**, priced by
+   §E245's measured rate. **Do not attempt the merge first**: it would compile, test green, and be
+   undeployable — this repo has shipped that once at −126 bytes.
+5. ⏸️ **`addLiq`/`modLP` sizing — parked, and correctly.** `addLiq` is the SIZER (`sizeBySurplus`,
+   `clampByBacking`, the θ budget); `modLP` carries its result as a delta. Removing `deltaTok` leaves
+   the sizer with no input, so the real change relocates three clamps on the path every LP entry and
+   exit runs through. **Blocked on: the volatile-route decision (so a failure is attributable against
+   a green baseline), and where the three clamps should live.**
+
+### What is verified, and what only looks verified
+
+- **All 200 open `QUEUE.md` rows are in §16 as one-liners.** ~160 of them have had **only a
+  symbol-existence test** — that means *"not closable by that test"*, **not** *"confirmed open"*.
+- Of the ~35 rows read properly this session, **roughly 40% resolved**. That is the expected yield if
+  you continue; it is real work with a known return, not a formality.
+- ⚠️ **`E92` and `E91-ROOT` are the warning:** both looked stale from their headline and neither was.
+  `E92`'s number was dead while its mechanism had moved to a **worse** target — `forge build --sizes`
+  omits `Core`, `Quid` AND `Vault`, and `Quid` is the tightest contract in the tree. `E91-ROOT`'s
+  mechanism sentence is **still literally true** and it is **fixed**. A row whose EXAMPLE has aged is
+  not a row whose FINDING has.
+- 🔴 **Only you can settle `C-9`:** `foundry.toml:41-44` says the leaked Ankr token *"must be treated
+  as DISCLOSED and rotated"*, in a repo with a public-snapshot commit. **Whether it was rotated cannot
+  be determined from the repo.**
+- ⚠️ **Not mine, and open:** `f957692e` (*"main's Rust workspace does not compile"*) is unreachable and
+  its subject is not on `main`. `quid-ln` needs Docker to check, and it is the BTC thread's lane.
+
+### Four method notes that actually paid this session
+
+1. **Measure bytecode; never estimate it from line counts — or from FILE length.** `ShareMath` is a
+   29-line file and a **4-line body**. Hoisting into an abstract base frees **nothing** (+41 measured,
+   bodies are copied into every inheritor); moving into a delegatecalled library frees ~100 B per
+   small body and ~514 B per large one. **Same code, opposite sign.**
+2. **Check the callers before moving anything.** Three of four folds opened this session dissolved on
+   measurement — §E254, §E259, `ShareMath`. The one that survived (`VaultLib`) survived because the
+   callers were checked first: every non-`Quid` reference to it was a **comment**.
+3. **A green gate proves less than it looks, in both directions.** A size/ABI gate run after a FAILED
+   build reports on stale artifacts. A RED test can be the harness: `vm.expectRevert` cannot see an
+   inlined `internal` call, and `_forkMainnet()` **creates** a fork without **selecting** it.
+4. **Two things sharing one name is this repo's most expensive defect class.** `BAND`/`VOGUE` (same
+   address on ETH, a foreign band on BTC), `QUID` (token vs the rename target), `avgYield`/`depegLoss`
+   (accessor vs parameter), `inputCount` (function vs local), two `E115-b` rows, `SortedSet.sol`
+   declaring `SortedSetLib`. **A file's name is not its library's name; a matching header is not
+   identity; a zero-hit grep on a suffixed name means RENAMED, not removed.**
+
+---
+
 ## 0-BUILD. 🔴🔴 §E258 — `fillOOR` + THE SORTED SET: THE BUILD SPEC
 
 **This is the top of the document because it is the one piece of DESIGN work this thread produced,
