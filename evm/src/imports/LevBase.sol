@@ -73,6 +73,13 @@ abstract contract LevBase {
     /// ⚠️ Note what this does NOT save: a modifier's body is INLINED at every use site (CLAUDE.md
     /// 8c, measured at +968 bytes on `BTCChannels`), so N uses is still N copies. What is deduped
     /// is the DECLARATION and the storage slot, not the inlined checks.
+    /// §ONE-DECL (2026-08-18) — declared twice, byte-identical, in both managers.
+    error AlreadyOpen();
+    error NotFlash();
+    event DeleverFailed(address indexed lp, uint256 ltvBps);
+    /// @dev Param was `weethReturned` on ETH and `vbtcReturned` on BTC — same type, same position,
+    ///      so the SIGNATURE was already identical and only the name differed. Neutral name here.
+    event Closed(address indexed lp, uint256 collateralReturned);
     error Reentrancy();
     uint256 private _lock = 1;
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }

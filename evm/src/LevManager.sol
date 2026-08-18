@@ -88,14 +88,10 @@ contract LevManager is LevBase {
 
     event Opened(address indexed lp, address venue, uint256 targetLtvBps);
     // §ONE-REBALANCE — `Rebalanced` now declared in LevBase; both bands emit it.
-    event Closed(address indexed lp, uint256 weethReturned);
-    event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
 
-    error AlreadyOpen();
     error VenueNotAllowed();
     error NotGov();
-    error NotFlash();
     error Slippage();
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}

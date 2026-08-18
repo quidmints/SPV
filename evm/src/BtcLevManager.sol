@@ -86,12 +86,8 @@ contract BtcLevManager is LevBase {
     event Supplied(address indexed lp, uint vbtcIn);
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
-    event Closed(address indexed lp, uint vbtcReturned);
-    event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
-    error AlreadyOpen();
     error BadAuth();
-    error NotFlash();
 
 
     constructor(address vbtc, address aux, address wbtc, address gov, address quid) LevBase(aux, wbtc) {
