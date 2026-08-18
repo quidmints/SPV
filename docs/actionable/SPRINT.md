@@ -2697,3 +2697,66 @@ the coordinates moved. This note exists because CLAUDE.md records the exact fail
 because the reader concludes the concern is obsolete rather than that the names moved."* Same shape as
 the `USD_FEES_BTC` note that had to be re-derived, and as `lpSharesBTC` — **a zero-hit grep for a
 renamed symbol is evidence of a RENAME, never of a REMOVAL.**
+
+---
+
+# 🤝 HANDOFF — session `337ea6d3` (skew + refill). **Read this first; it is the whole thread in one page.**
+
+## 1. WHAT IS TRUE IN CODE RIGHT NOW (verified, not recalled)
+| claim | evidence |
+|---|---|
+| **PoolManager is fully supplanted** | `IPoolManager`/`PoolKey`/`unlockCallback`/`SafeCallback` **all 0**; `SOR.sol` deleted |
+| **`_handleDelta` is the single settler** | 4 entries — `modLP` `Core:745`, out-of-range `:773`, swap `:835`, dispatch `:982`. Custody and accounting are one thing again |
+| **Skew is billed IN THE PRICE** | `_fillDelta:1222-1223` — `wellSkew` on the drain, `sellSkew` on the fill, inside a FIRM quote (no true-up: we feed solvers who already committed a price) |
+| **It books to LPs as a fee** | `recordSkewPremium:359` → `BAND.creditSkewPremium` — the owner's original requirement, met |
+| **Sourcing nets to zero** | flash-and-repay: Morpho flash + Curve. **1inch is a CONSUMER and a price reader, never a source** |
+| **Skew is COMPLETE** | σ²=0 free drain closed · size-blind quote (90% drain filled **4.12×** worse) closed · depletion σ²-free keyed on `inv0` · patience **93.3% → 1.37%** · 27 UNIT markers audited, **0 red** |
+
+## 2. WHAT IS NOT TRUE, AND MUST NOT BE ASSUMED
+- 🔴 **THE REFILL IS POTEMKIN.** `refillPlacement`, `refillNeeded`, `proRataShortfall`,
+  `imbalanceFeeUsd6` are on main with **ZERO call sites**. Their only proof is pure arithmetic.
+  **Nothing has priced a real swap against a seeded pool.**
+- 🔴 **`deltaTok` IS NOT REMOVED** — 9 occurrences, `QuidLib.addLiq:307`. Two threads have now recorded
+  the fold unstarted (`5ccf58b5`).
+- 🔴 **THE VOLATILE ROUTE HAS NO CANDIDATE.** TriCrypto deleted on measurement (698 WETH / 20.72 WBTC,
+  breaching the 1% floor between $10k–$25k); V3 banned by the owner. `NoVolatileRoute()` fires.
+
+## 3. THE ONE DECISION THAT UNBLOCKS THE FOLD
+`QuidLib.addLiq:307` **SIZES** (`sizeBySurplus`, `clampByBacking`, θ); `modLP` **SETTLES**. The owner
+is right that the delta already lives in `modLP` — so removing `deltaTok` is real, but it RELOCATES
+those three clamps.
+▶️ **Owner's framing implies the answer: put the sizing INSIDE `modLP`** — it already receives the
+delta and already calls `_handleDelta`, so one place sizes and settles. That is *"modLP remaining the
+controlling force"*. **Confirm, then the edit is mechanical.**
+⚠️ Touches every LP entry and exit; needs a green baseline to be attributable.
+
+## 4. ORDER OF WORK
+1. **Volatile route** — decide (deeper Curve pool sized to the 1% floor · TriCrypto with a size cap ·
+   off-chain via the fleet · V3 for this hop only). **Blocks 73 of 77 failures.**
+   ⛔ **Do NOT delete `_poolSwap` to clear them** — they are `PREMISE` assertions (*"rally must lever
+   the position (debt > 0): 0 <= 0"*), so removal makes them fail EARLIER, not pass.
+2. **Fold** — §3 above.
+3. **Wire the refill** — trigger over the existing `creditSwapIn` rail (`daemon.rs` has TEN tasks,
+   none reads band inventory); pro-rata into redeem + the owner's 1inch conversion.
+4. **Split** — `f(drainUsd6 / poolVolUsd)`, pool-favoured, so only whales earn from the arb. Both
+   terms are already `skewWad` arguments ⇒ **no new state**. Only the crossover is unpicked, and it
+   should be MEASURED against the grinding arithmetic (−1.6 to −43.6 bp per round trip), not chosen.
+5. **Acceptance test — nothing above is done until this passes:** seed → a swap of known size depletes
+   as expected → the refill rebalances **immediately** → **zero skew at the end** → the charge reached
+   LPs as a dynamic fee → priced **independently for BTC and ETH** → against **one pool of dollars**.
+
+## 5. HOW TO NOT REPEAT MY MISTAKES (each cost real time here)
+- **Four components were BUILT and then DELETED** once the existing mechanism was found:
+  `refillRealisable` (duplicated `deliverableETH`), the stored bounds (a width the arithmetic never
+  read), `refillQuote` (duplicated repack-first), and `imbalanceFeeUsd6` (now a redundancy candidate
+  against the depletion term). **Find what already carries the quantity before adding a component.**
+- **An empty grep is a RENAME, not a removal.** `isBTC` "12 occurrences" was 3 obituaries + 8
+  same-named locals; the real count is 0. `lpSharesBTC` is `lpShares` on the BTC instance.
+- **Internal/private functions NEVER appear in forge traces.** I read their absence as a dead path.
+- **Never attribute a mass failure without a baseline.** I called 982 failures mine; the baseline was
+  954. My delta was 28, and I reverted a sound design on the misattribution.
+- **`rebase.autoStash` and `reset --hard` are UNSAFE in this shared tree.** I autostashed another
+  thread's 14 files (`77cd3631`, still unapplied) and destroyed three more with `reset --hard`
+  (recovered from their worktree). **Sync via a throwaway worktree; never touch the main tree.**
+- **Reading `HEAD` for your own SHA is unsafe** — another session committed between my `commit` and my
+  `log`, and I pushed their commit by mistake.
