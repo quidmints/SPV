@@ -1620,7 +1620,7 @@ covered by the fixture suite. Skew = wired. Refill = not.
    total, archive endpoint, **0 environmental**) — every one a PREMISE like *"rally must lever the
    position (debt > 0): 0 <= 0"*. **One root, not 73 problems.** Destination already exists in-tree:
    `ICurvePool.exchange` (`LevMath:401` etherFi, `:464` TriCrypto USDC→WETH).
-2. **Wire `refillPlacement` into repack.** `VogueLib.addLiq` ALREADY ends `targetUSD = deltaTok·price`
+2. **Wire `refillPlacement` into repack.** `QuidLib.addLiq` (`:307`) ALREADY ends `targetUSD = deltaTok·price`
    — that IS `tok·px == usd`. The fold replaces an implicit step with the explicit one; it is not new
    behaviour. ✅ **UNBLOCKED: `POOLED_USD` is funded again** (`testSwapIn_QuidOrStrictStable` passes
    after §E230's `basketUsd`/`basketLeg` fix).
@@ -2462,7 +2462,7 @@ authors have not agreed to this convention.
 that was checked and refuted:
 | | shape | input |
 |---|---|---|
-| `VogueLib.addLiq` | **ONE-SIDED** — caller already chose `deltaTok`; derives `targetUSD = deltaTok·price`, then clamps by surplus / backing / θ | its two callers pass **NEW inventory arriving**: `Vogue:948` an LP deposit `amount`, `BandLib:77` lev `netEq` |
+| `QuidLib.addLiq` (`:307`) | **ONE-SIDED** — caller already chose `deltaTok`; derives `targetUSD = deltaTok·price`, then clamps by surplus / backing / θ | its two callers pass **NEW inventory arriving**: `Quid.sol:946` an LP deposit `amount`, `BandLib:78` lev `netEq` |
 | `SwapLib.refillPlacement` | **TWO-SIDED** — picks the SCARCER leg from both inventories and reports `idle` | the band's whole standing inventory |
 ⇒ Different events: `addLiq` = *"someone added X, pair it"*; `refillPlacement` = *"given everything we
 hold, what is the max 1:1 and what cannot be represented"*.
@@ -2489,7 +2489,7 @@ same thread — three components added where a mechanism already existed.
 
 ### ✅ C5.1 — `deltaTok` GOES: **"it's already the delta in the modLP"**
 **VERIFIED.** `Core.modLP(int256 delta, int256 deltaUSD, …)` builds `Delta(deltaUSD, delta)` and
-settles it through `_handleDelta`. `Vogue:948` separately calls `this.addLiq(amount, price)` and gets
+settles it through `_handleDelta`. `Quid.sol:946` separately calls `this.addLiq(amount, price)` and gets
 back `(deltaUSD, deltaETH)`, which it then applies as `LP.pooled += deltaETH`. **Same two quantities,
 computed twice, on two paths.**
 ⇒ **THIS ANSWERS §C4.1'S GATING QUESTION: PLACEMENT IS THE DELTA.** There is no separate placement
@@ -2521,3 +2521,21 @@ DOUBLE-CREDIT). **Only the proportions were open, and this is them.**
 **no new state and no new accessor.** Monotone in the ratio, pool-majority below the crossover. The
 crossover point is the one number still to pick, and it should be MEASURED against the grinding
 arithmetic above rather than chosen.
+
+
+### 📌 C5.3 — **ANCHORS RE-POINTED AFTER THE RENAME (2026-08-18). Read this before trusting any `file:line` in C4/C5.**
+`dc044378` / `22ec766f` renamed the tree WHILE C4/C5 were being written: **`VogueLib`→`QuidLib`,
+`Vogue`→`Quid`, `BtcVaultLib`→`BtcLib`, and `VaultLib` folded into `QuidLib` and deleted.**
+**CURRENT, VERIFIED anchors for the fold:**
+| what | where now |
+|---|---|
+| the sizer | **`QuidLib.addLiq:307`** — `(core, aux, deltaTok, price, grossBuffer)`, *"in-range pairing sizer. Clamps `deltaTok` to the three [bounds]"* |
+| the LP-deposit caller | **`Quid.sol:946`** — `this.addLiq(amount, price)` |
+| the lev caller | **`BandLib:78`** — `IBand(address(this)).addLiq(netEq, price)` |
+| the settle | **`BandLib:82`** — `modLP(-netTok, -netUsd, lp)` |
+⚠️ **THE REASONING IN C4/C5 IS UNAFFECTED — the sizer/settler split is structural, not nominal.** Only
+the coordinates moved. This note exists because CLAUDE.md records the exact failure it prevents:
+*"a trap-note that points at deleted symbols causes the exact misreading it was written to stop,
+because the reader concludes the concern is obsolete rather than that the names moved."* Same shape as
+the `USD_FEES_BTC` note that had to be re-derived, and as `lpSharesBTC` — **a zero-hit grep for a
+renamed symbol is evidence of a RENAME, never of a REMOVAL.**
