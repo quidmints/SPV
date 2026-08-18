@@ -494,10 +494,20 @@ library ChannelLib {
     /// @dev Accepts BOTH shapes: success with empty returndata (USDT), and success with `true`.
     ///      Rejects a revert and an explicit `false`. Same predicate as OZ's `SafeERC20`, kept
     ///      inline because vendoring it here costs a delegatecall seam for six lines.
-    function _approveMax(address token, address spender) private {
+    /// 🔴 THE `extcodesize` LEG IS NOT OPTIONAL, AND MY FIRST VERSION OMITTED IT (2026-08-18).
+    /// A `call` to an address with NO CODE returns `ok = true` and EMPTY returndata — indistinguishable
+    /// from USDT succeeding. Without the code check this guard would wave through an approve to a
+    /// mistyped or unset token address and report success, which is the EXACT silent-success class it
+    /// was written to close, reproduced inside the fix. OZ's `SafeERC20` gets this right
+    /// (`SafeERC20.sol:208`: `and(iszero(returndatasize()), gt(extcodesize(token), 0))`) and the check
+    /// is only needed on the EMPTY-returndata branch — a token that returned `true` self-evidently has code.
+    /// `internal` rather than `private` so the invariant is directly testable; it is inlined either way.
+    function _approveMax(address token, address spender) internal {
         (bool ok, bytes memory ret) =
             token.call(abi.encodeWithSelector(0x095ea7b3, spender, type(uint).max));
-        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert ApproveFailed();
+        if (!ok) revert ApproveFailed();
+        if (ret.length == 0) { if (token.code.length == 0) revert ApproveFailed(); }
+        else if (!abi.decode(ret, (bool))) revert ApproveFailed();
     }
 
 
