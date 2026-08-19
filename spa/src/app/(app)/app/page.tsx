@@ -435,13 +435,17 @@ export default function QuidApp() {
         if (id === 0n) break
         const smR = await ethCall(CONTRACTS.band, enc.selfManaged(id))
         const dec = iface.decodeFunctionResult('selfManaged', smR)
-        const liq = BigInt(dec[4] as bigint)
+        // Read by NAME, not index. `Types.SelfManaged` gained `usdFunded` between `owner` and
+        // `lower` (§E258), shifting every positional index after 1: `dec[4]` became `upper`, and
+        // since upper > 0 the `liq > 0n` guard would still pass and render a tick as a position
+        // size. Named access cannot drift when a field is inserted.
+        const liq = BigInt(dec.amt as bigint)
         if (liq > 0n) {
           out.push({
             id,
-            created: BigInt(dec[0] as bigint),
-            lower:   Number(dec[2]),
-            upper:   Number(dec[3]),
+            created: BigInt(dec.created as bigint),
+            lower:   Number(dec.lower),
+            upper:   Number(dec.upper),
             liq,
           })
         }
