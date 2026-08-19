@@ -3347,3 +3347,37 @@ worse spread than the skew makes the refill loss-making by construction.**
 ▶️ **ACCEPTANCE TEST — the inequality is the assertion, and it is measurable today with pure
 functions plus one fill:** drain `D`, record `wellSkew(asset, D)·D`, restore through the chosen venue,
 record realised cost. **Assert premium ≥ cost.** The sign is the result; the magnitude is the margin.
+
+### ⛔ CORRECTION — **"SELF-FUNDING" IS UNBACKED. THE PREMIUM IS 48× TOO SMALL AGAINST THE ONLY ROUTE EVER MEASURED**
+I wrote that the refill is "self-funding" when `premium ≥ spread` holds. **I never checked whether
+anything makes it hold.** Owner asked one word — *"self-funding?"* — and it does not survive.
+
+**WHAT ACTUALLY BACKS THE PREMIUM (`SwapLib.sol:730-736`):**
+`DEPLETION_RATE_WAD` = `Aux.swapFeePpm()/2` — derived for **revenue neutrality against OUR OWN fee
+tier** (*"half the pool tier… a drain from balance creates exactly 2× its own value in idle
+inventory"*). ⇒ **IT IS NOT DERIVED FROM ANY VENUE'S SPREAD, AND WAS NEVER MEANT TO BE.**
+The comment states its own ceiling: **"a full drain owes 2.1 bps."**
+
+🔴 **THE NUMBER THAT SETTLES IT:**
+| | |
+|---|---|
+| depletion term, at its MAXIMUM (full drain) | **2.1 bps** |
+| measured TriCrypto cost, $10k–$25k (why it was deleted) | **100 bps** |
+| ⇒ shortfall | **48×** |
+**The only volatile route this repo ever measured costs 48× the most the depletion term can ever
+charge.** Not a calibration gap — a wrong order of magnitude.
+
+**AND THE σ² TERM DOES NOT COVER IT, BECAUSE IT PRICES A DIFFERENT COST.** `Γ·σ²·q/(1−q)^ρ` prices
+**ADVERSE SELECTION** — the drift between selling at `px` and buying back at `px'`. Real, and **not the
+spread.** ⇒ **RESTORATION HAS TWO COSTS — DRIFT AND SPREAD — AND ONLY DRIFT HAS A TERM AIMED AT IT.**
+`MAX_WELL_SKEW` (3%) numerically exceeds 100 bps, but only at σ²=SIGMA_REF **and** q at the pole, i.e.
+the band already empty in a storm. **A cap that clears the bar only in the worst state is not funding.**
+
+✅ **WHAT SURVIVES, AND IT IS THE HALF THAT WAS ALWAYS THE QUESTION:** the **PRINCIPAL** is structurally
+funded — the drainer's USD is already in `POOLED_USD` (§E134, **+$570,000 measured**). That needs no
+premium and no route. **The SPREAD is funded only if the premium happens to exceed it, and no term in
+the skew is derived from the spread.**
+▶️ **SO THE ACCEPTANCE TEST IS NOT A CONFIRMATION, IT IS AN OPEN QUESTION WITH A LIKELY-NEGATIVE
+ANSWER.** Run it against whatever route replaces TriCrypto **before** wiring the refill: if
+`premium < cost` there, the choice is a cheaper route or an explicit LP-funded restoration — **not a
+bigger constant**, since the venue ceiling bounds the premium from above regardless.
