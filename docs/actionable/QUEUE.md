@@ -15407,3 +15407,42 @@ a policy throttle. Then the solvency bound can finally be tested at θ = 1e18.
 Settle both together; they are the same eight lines.
 
 </details>
+
+## §E272 — 🔴 **BURN-THEN-ADD: A SYNC THAT CANNOT RE-ADD DESTROYS THE LP'S BAND DEPTH, SILENTLY**
+🔴 OPEN — found 2026-08-19 answering the owner's "find the root issue behind the clamps". **The clamps
+are not the defect** (see the §E271 retraction — they are two independent solvency bounds plus a derived
+risk budget, all legitimate). The defect is what happens to a clamp's ANSWER.
+
+**VERIFIED BY READING (all on `origin/main`):**
+1. `QuidLib:107-110` — `syncLev` is **BURN-ALL, THEN ADD**:
+   `if (levPooled[lp] > 0 || levBuf[lp] > 0) levBurnAll(...)` then `if (p.gross > 0) levAddGross(...)`.
+2. `BandLib.levAddNet:79-81` — the add can return **0 WITHOUT REVERTING**: `addLiq` returns `(0,0)` when
+   `surplus == 0` (`QuidLib:321`) or when either clamp cuts to zero; `levAddNet` then does
+   `if (netTok == 0) return 0;` and skips `LP.pooled`, `levPooled`, `refreshBookmarks` and `modLP`.
+3. `levAddNet` contains **ZERO `emit`** — there is no signal on the declining path.
+4. `LevBase._syncBand` is `try ILevSyncHook(BAND).syncLev(lp) {} catch {}` — **every outcome discarded.**
+
+⇒ **THE ASYMMETRY IS THE BUG.** The burn always succeeds — it removes. The add is conditional. A REVERT
+is survivable (it rolls the burn back; only the observability is lost to the empty `catch`). **The
+non-reverting zero is not:** the burn COMMITS, the add declines, `syncLev` returns normally, and the LP's
+levered depth is **destroyed rather than left in place**. Nothing reverts, nothing emits, and the one
+caller that could notice throws the result away. A refusal and a success are the same observable.
+⚠️ This is strictly worse than "the add did not happen" — the LP ends the call with LESS depth than it
+started with, while still holding the venue debt that depth was funding.
+
+**NOT YET VERIFIED — do this before sizing the fix:** that `surplus == 0` (or a clamp-to-zero) is
+actually reachable at the moment `syncLev` runs. The mechanism is certain; the FREQUENCY is not, and it
+governs whether this is a latent hazard or an active leak. A test that exhausts basket surplus and then
+triggers a rebalance settles it in one run. **Do not close this on reasoning — reachability is exactly
+the axis this repo has been wrong about before.**
+
+⇒ **ROOT FIX, NOT A CLAMP** (standing rule 17): make the bad state unconstructible rather than detected.
+Either (a) size the burn to what the add can actually take — compute capacity FIRST, burn only that
+much; or (b) make `levAddGross` REVERT on a short add so the burn rolls back atomically, and let
+`_syncBand`'s caller see it. **(b) is one line and restores the invariant immediately; (a) is the real
+fix** because it never destroys depth in the first place. ⚠️ **Whichever is chosen, `_syncBand`'s
+`catch {}` must stop swallowing** — a silent failure on the money path is precisely what standing rule 3
+says earns a check.
+⚠️ **THE EMPTY-CATCH PATTERN IS TREE-WIDE: 20 `catch {}` sites** — `QuidLib` 7, `SwapLib` 5, `LevBase` 3,
+`Quid` 2, `FeeLib` 2, `LevMath` 1. Each deserves the same question: is the swallowed failure survivable,
+or does it commit a half-completed state? This row covers ONE of them.
