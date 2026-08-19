@@ -3315,3 +3315,35 @@ interchangeable and the gap needs deciding:** waiting for zero means the NEXT ta
 firing at a threshold does work with no cause. **The honest middle is that the SOURCING trigger (can we
 still serve?) and the PLACEMENT trigger (is the composition wrong?) are different questions** — and
 this thread has conflated exactly that pair three times already.
+
+### 💰 WHO PAYS FOR THE REBALANCE, AND HOW THEY AFFORD IT (owner, 2026-08-19)
+> *"when the balance has been depleted, who spent what to get it back to balanced. how were they able
+> to afford that."*
+
+**THE PRINCIPAL IS ALREADY IN HAND — THE DRAINER FUNDS THEIR OWN REVERSAL.** A drain of `D` ETH pays
+`D·px` USD **in**: `POOLED` falls by `D`, `POOLED_USD` rises by `D·px`. **The band is not poorer, it is
+mis-composed** — same value, all on one side. So the buyback capital is *the swapper's own dollars*,
+already resident. **Nothing external funds the principal.** (This is why §E134 ruled funding a
+non-issue: *"the drainer's USD is already in `POOLED_USD` — +$570,000 measured."*)
+⇒ **WHAT IS NOT FREE IS THE SPREAD** to turn those dollars back into ETH — the venue's fee, slippage
+and settlement. **That is precisely what the skew premium is for.**
+
+**SO THE AFFORDABILITY CONDITION IS ONE INEQUALITY, AND IT IS THE WHOLE ECONOMICS:**
+```
+    skew premium collected  ≥  restoration spread paid
+```
+- **≥ holds** ⇒ the refill is self-funding and the owner's *"it should net the zero"* is literally
+  true: the drainer paid for the inventory AND for putting it back.
+- **< holds** ⇒ **the band pays the difference out of LP value** — the "never loses money" question,
+  and the only way this design leaks.
+📌 **THIS IS WHY THE VENUE CEILING MATTERS AND IS NOT A PARAMETER:** a taker routes around us once our
+skew exceeds their alternative's cost, so the premium is bounded ABOVE by the market. **If the
+restoration spread ever exceeds that bound, no skew we can charge covers it** — the inequality fails
+structurally, not by mis-calibration. **That, not `MAX_WELL_SKEW`, is the real ceiling.**
+⚠️ **AND IT IS WHY THE VOLATILE ROUTE IS THE BLOCKER FOR THE ECONOMICS, NOT JUST THE TESTS:** the
+restoration spread IS the route's cost. TriCrypto was deleted because it breached the **1% floor
+between $10k and $25k** — i.e. its spread exceeded any plausible premium at real size. **A route with a
+worse spread than the skew makes the refill loss-making by construction.**
+▶️ **ACCEPTANCE TEST — the inequality is the assertion, and it is measurable today with pure
+functions plus one fill:** drain `D`, record `wellSkew(asset, D)·D`, restore through the chosen venue,
+record realised cost. **Assert premium ≥ cost.** The sign is the result; the magnitude is the margin.
