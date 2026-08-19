@@ -15332,7 +15332,37 @@ is exactly the kind of thing a later reader hardens the wrong way.
 ⇒ Cheap first step regardless: give the three states three names (`wantTok` / `sizedTok` / `finalTok`).
 The rename costs nothing at runtime (locals) and makes the audit question expressible at all.
 
-## §E271 — 🔴 **THE THETA POLICY CLAMP DOMINATES THE SOLVENCY CLAMP, SO THE SOLVENCY BOUND NEVER BINDS**
+## §E271 — ⛔ **RETRACTED WITHIN THE HOUR: θ IS NOT CAPPED AT 1e18, SO THE PREMISE IS FALSE**
+⛔ **RETRACTION (2026-08-19, by its author, before anyone acted on it).** The row below rests entirely
+on *"since θ ≤ 1e18, `θ·backing − pooled ≤ backing − pooled`"*. **θ HAS NO UPPER BOUND.**
+`QuidLib.derivedThetaWad` says so explicitly, three lines above where I stopped reading:
+> *"The `theta > 1e18 ? 1e18 : theta` clamp that used to close this function is DELETED — it adds no
+> safety. EVERY consumer already short-circuits at the same threshold: `SwapLib.applyTheta` is
+> `if (thetaEff >= 1e18) return available;` … and the real bound on band depth is the PHYSICAL
+> `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates."*
+⇒ When θ ≥ 1e18 `applyTheta` returns `available` untouched and **the physical bound is exactly what
+binds** — and the same comment records that a band earning real premium in a calm tape *"clears 1e18
+routinely"*. So the solvency bound is reachable, is the normal-conditions bound, and is not untested.
+**Both regimes are live: θ throttles in volatile tape (the risk budget working), physical headroom
+throttles otherwise.** That is a designed two-regime bound, not a policy shadowing an invariant.
+⚠️ **AND THERE IS NO 'POLICY KNOB'.** θ is DERIVED — `realizedVarianceWad` × `kLvrWad` × band fee
+yield — with no setter anywhere; `Quid.sol:1006` records that the owner-set `ThetaMode`/`setThetaMode`
+scaffold was already REMOVED as dead code. Calling it a knob was my error and it framed the whole row.
+⇒ **THE METHOD FAILURE, which is the durable part:** I asserted a bound on a variable without checking
+whether it was bounded, then derived a three-consequence finding from it. The refutation was in a
+comment in the same function, and that comment ALSO named the audit (#8) that had already settled the
+question. **Second retraction today of this exact shape** — §E268 asserted code was committed without
+reading a commit; this asserted a range without reading the range. ⇒ *Before building on `x ≤ K`, grep
+for where `x` is clamped and confirm the clamp still exists.* Deleted clamps leave their assumption
+behind in every reader's head.
+⇒ **What survives is small and NOT actionable on its own:** the caller still cannot tell WHICH bound
+bit, so a throttle in volatile tape and a throttle from exhausted backing look identical at the call
+site. That is an observability nicety, not the defect claimed below. §E270 (the two bands re-deriving
+`targetUSD` differently in these same eight lines) is unaffected and stands.
+
+<details><summary>original row, built on a false premise — do not act on it</summary>
+
+### (retracted) THE THETA CLAMP DOMINATES THE SOLVENCY CLAMP
 🔴 OPEN — found 2026-08-19 from the owner's standing challenge that a clamp may be a workaround, or may
 constrain needlessly. Two of the three bounds on an `addLiq` are legitimate and independent; the third
 SWALLOWS one of them.
@@ -15375,3 +15405,5 @@ over-commit. The root move per rule 17 is to stop FUSING them: return WHICH boun
 a policy throttle. Then the solvency bound can finally be tested at θ = 1e18.
 ⚠️ Related, same function: §E270 — the two bands re-derive `targetUSD` differently after this clamp.
 Settle both together; they are the same eight lines.
+
+</details>
