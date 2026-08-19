@@ -3283,3 +3283,35 @@ else's exercise gas — that is the grief the standalone poke existed to avoid. 
 permissionless backstop necessary**: whatever the cap leaves, `fillOOR` (or `reseat`) drains.
 📌 **CONSISTENT WITH THE PATTERN THAT KEEPS WORKING HERE:** repack-first + a permissionless drain,
 paid by the traffic that caused the work — the same shape that made the refill trigger need no keeper.
+
+### ⛔ CORRECTION — **"END-OF-BLOCK NETTING" IS UNIMPLEMENTABLE. THE TRIGGER IS EXHAUSTION (owner, 2026-08-19)**
+I proposed netting the refill to end-of-block instead of per-swap. **A contract cannot know it is the
+end of a block** — there is no last-tx signal, any tx can be followed by another at the same
+timestamp. **I invented a boundary that does not exist on-chain.**
+
+⭐ **THE OWNER'S TRIGGER IS BETTER BECAUSE IT IS A REAL EVENT, AND IT FOLLOWS FROM ORACLE QUOTING:**
+> *"you still get the remainder of the inventory at the same price, so you can only trigger a
+> rebalance when one side is fully spent"*
+⇒ **WE QUOTE AT THE ORACLE, SO DEPLETION DOES NOT MOVE THE QUOTE.** A taker gets the same price on a
+full band and a nearly-empty one — unlike a curve, where each unit walks the price. **So there is no
+PRICING reason to rebalance until a side is actually spent.** Partial depletion costs the taker
+nothing and costs us nothing to leave standing.
+| | curve (v4) | ours (oracle) |
+|---|---|---|
+| price as inventory drains | walks continuously ⇒ must re-place to keep depth | **unchanged** ⇒ nothing to restore |
+| rebalance trigger | every trade moves the curve | **only when one side is FULLY SPENT** |
+⇒ **PER-SWAP REBALANCE IS WORK WITHOUT A CAUSE**, and end-of-block is a cause we cannot detect.
+Exhaustion is both real and observable in the same frame that settles the delta.
+
+📌 **AND IT SPLITS THE TWO THINGS I HAD FUSED:**
+- **the CHARGE is continuous** — the skew rises toward the pole as `q → 1`, so depletion is priced on
+  every unit as it happens (`Γ·σ²·q/(1−q)^ρ` + the σ²-free depletion term). **Nothing about this
+  changes.**
+- **the REBALANCE is discrete** — it fires when a side hits zero, because that is the first moment the
+  band cannot serve. **Pricing depletion ≠ repairing it.**
+⚠️ **CONSEQUENCE FOR `refillNeeded`:** it currently fires on `inv1 < target` — SCARCITY, a threshold.
+Under this it should fire on **EXHAUSTION** (`inv1 == 0`, the side spent). ⚠️ **But the two are not
+interchangeable and the gap needs deciding:** waiting for zero means the NEXT taker is unserved, while
+firing at a threshold does work with no cause. **The honest middle is that the SOURCING trigger (can we
+still serve?) and the PLACEMENT trigger (is the composition wrong?) are different questions** — and
+this thread has conflated exactly that pair three times already.
