@@ -17,6 +17,3 @@
 [submodule "evm/lib/openzeppelin-contracts"]
 	path = evm/lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
-[submodule "evm/lib/morpho-v2"]
-	path = evm/lib/morpho-v2
-	url = https://github.com/morpho-org/morpho-v2

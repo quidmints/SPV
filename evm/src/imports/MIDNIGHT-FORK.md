@@ -1,7 +1,18 @@
 # Midnight (Morpho Blue v2) sources in `src/imports/` — vendored, minimally adapted
 
 Upstream: `morpho-org/morpho-v2` @ `709dab35` (also present unmodified as the submodule
-`evm/lib/morpho-v2`, which is the diff baseline.
+`morpho-org/morpho-v2` @ `709dab35`, which is the diff baseline.
+
+⚠️ **THAT REPO IS NOT A SUBMODULE.** Nothing in `src/`, `test/` or `script/` ever compiled against
+it — its only job was to be diffed against — so carrying it was weight. Clone it when you need to
+audit the fork:
+
+```sh
+git clone --depth 1 https://github.com/morpho-org/morpho-v2 /tmp/mv2
+```
+
+Morpho **Blue v1** IS carried, vendored as tracked files under `evm/lib/morpho-blue`, because
+`LevVenueBase`, `DeployL1_s` and four tests import it (§E266).
 
 ⚠️ **THE AUDIT COMMAND CHANGED WHEN THESE FILES FLATTENED INTO `src/imports/`.** Upstream is nested
 (`src/libraries/`, `src/interfaces/`, `src/ratifiers/`); ours are flat, so `diff -r` no longer pairs
