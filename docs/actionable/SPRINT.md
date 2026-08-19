@@ -4467,3 +4467,60 @@ says earns a check.
 `Quid` 2, `FeeLib` 2, `LevMath` 1. Each deserves the same question: is the swallowed failure survivable,
 or does it commit a half-completed state? This row covers ONE of them.
 
+
+## 📍 REFILL — WHAT I DID **NOT** FINISH, WITH EVERYTHING THE NEXT THREAD NEEDS (2026-08-19)
+Booked because the design changed under the work (owner's 1inch message) and **most of what was built
+is now the wrong shape**. Nothing here is blocked on a decision; it is blocked on someone doing it.
+
+### STATE OF THE CODE, MEASURED NOT RECALLED
+**ALL THREE REFILL PRIMITIVES HAVE ZERO REAL CALL SITES.** The greps return 1 hit each and **the hit
+is the `function` declaration itself** — `SwapLib.sol:886` `refillNeeded`, `:910` `proRataShortfall`,
+`:1925` `refillPlacement`. ⚠️ **Do not read "1 in src" as wired**; I nearly did.
+`imbalanceFeeUsd6` has 3 and is the only one with real callers.
+
+### ⛔ WHAT THE OWNER'S DESIGN DELETED, BEFORE ANYONE "FINISHES" THESE
+Under *"refill only when not enough in the pool to cover a swap, paid against 1inch (routes the swap)…
+so a keeper is not needed"*, **we never source inventory**. ⇒ **`refillPlacement` and
+`proRataShortfall` may have NO JOB AT ALL** — they size and apportion a restoration we do not perform.
+**Wiring them would be building the deleted design.** ⇒ **AUDIT THEM FOR DELETION FIRST, WIRE SECOND.**
+`refillNeeded` is the one with a future: it IS `skewWad`'s flush test, and the new predicate
+("inventory cannot cover THIS swap") is a near relative of it.
+
+### ⭐ §UNIT-A-CAP-QUESTION IS RESOLVED BY THE SOLVER DESIGN — THE ROW SAYS SO ITSELF
+`QUEUE.md:10075` blocks deleting `MAX_WELL_SKEW` because *"it is currently **THE ONLY THING BOUNDING
+THE CURVE**"* and `Γ·σ²·q/(1−q)^ρ` **diverges as q → 1**. Its own body names the missing piece:
+> *"§UNIT-VENUE-CEILING established the REAL bound is **the cost of routing around us** — measurable,
+> per size and per asset, and **NOT a governance constant** — but **THAT BOUND DOES NOT EXIST IN
+> CODE.**"*
+⇒ **IT DOES NOT NEED TO. The solver applies it OFF-CHAIN by routing elsewhere** — continuously, per
+size, per asset, exactly as the row specifies, and without a constant. **The divergence at `q → 1` is
+then CORRECT, not a hole: an unbounded quote at zero inventory is an unfillable one, which is the
+truth.** ⚠️ **THE ROW'S OBJECTION WAS RIGHT WHEN WRITTEN — it assumed we must serve every order.
+Under solver routing we do not.**
+
+### ▶️ THE REMAINING WORK, IN DEPENDENCY ORDER (each shrinks the next)
+1. 🔴 **SEPARATE Γ FROM THE CAP.** They are ONE constant wearing two hats and `SwapLib:1013-1014`
+   admits it (*"Γ ≡ MAX_WELL_SKEW EXACTLY… the whole curve has ONE number in it, the cap, and it
+   appears twice"*). **Γ is load-bearing pricing and STAYS; the cap goes.** Sites: `:1069` (pole),
+   `:1072`, `:1135` (final clamp), `:1001` (σ²==0 sentinel — **KEEP, it is a different question:
+   "no data", not "no inventory"**).
+   ⚠️ **THE POLE IS THE DELICATE ONE AND HAS ALREADY BITTEN ONCE.** §E104 (`:1055-1065`) records that
+   resolving it to a sentinel instead of a number produced `type(uint).max + base` → **panic `0x11`**,
+   *"a full drain REVERTED instead of charging the 3% ceiling"*, and **the suite never caught it
+   because it never drains a band to zero (4,308 green over an UNREACHED state)**. ⇒ **Under the new
+   design the pole should mean DECLINE — the solver routes it — which is a DIFFERENT MECHANISM from
+   both a big number and a revert. Decide the channel before editing.**
+   ⚠️ **AND CHECK THE CONSUMER:** if `skew` may exceed 1e18, any `base·(1 − skew)` haircut underflows.
+   **I did not verify the application sites. That check is a precondition, not a follow-up.**
+2. 🔴 **MAKE "CANNOT COVER THIS SWAP" THE PREDICATE**, at the `_handleDelta` seam where `fillOOR` was
+   already folded (`4c111fa8` — into `rebalanceCore`, which runs on every swap via repack-first).
+3. 🟠 **RE-AUDIT THE FOUR PRIMITIVES FOR DELETION** (see above).
+4. 🔴 **§E241-obsidx** (`6c97595a`) — booked, unfixed, and **independent of all the above**.
+
+### ⚠️ WHAT I RETRACTED, SO NOBODY REBUILDS IT
+- **`1cf471af` (48× shortfall) — MOOT.** Priced a restoration spread we never pay. Right arithmetic,
+  wrong system.
+- **`cedcb061` (end-of-block netting) — UNIMPLEMENTABLE.** No end-of-block signal exists on-chain.
+- **A DELIVERABILITY PRECONDITION ON `refillPlacement` — DELETED FOR THE WRONG REASON** (owner:
+  *"it is just the imbalance in the POOLED_USD and the POOLED_ETH/BTC"*). **If that function survives
+  the audit, the precondition question is still open and was never correctly settled.**
