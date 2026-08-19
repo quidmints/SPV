@@ -4884,3 +4884,45 @@ shape** — same domain-separator discipline, same threshold model, same anchor 
 row), `§A.16` (*"DELIVERY IS FINE … #12 territory"*), `§SPLIT-WEIGHTS` (*"DECIDED"*), and the `§E2`
 / `§E2-#1` measurement rows (`paid $50,000.00 → claim $49,999.999998`, `supply 462,378 vs dollars
 352,000`) — numbers in a results table, whose live successors moved with the sections above.
+
+## §E273 — ✅ **THE HAIRCUT-CONSUMER PRECONDITION IS EXECUTED: ONE CHOKE POINT, AND THE LIMIT IS 1e18 NOT 3e16**
+Booked 2026-08-19. This is the check §UNIT-A-CAP-QUESTION named and did not run — *"I never verified the
+haircut consumers. If skew can exceed 1e18 once the cap is gone, base·(1 − skew) underflows. That's a
+precondition for the deletion, not a follow-up."* **Correct to refuse to ship without it. Run now.**
+
+**THE FORM IS NOT `base·(1 − skew)`** — that expression does not exist in the tree (0 hits for any
+`1e18 - skew` shape). The real application, `SwapLib.retainSkewPremium:1813-1819`, is:
+```solidity
+uint premium = SoladyMath.fullMulDiv(r.amount, skew, 1e18);
+...
+r.amount -= premium;                       // <- checked arithmetic, Solidity 0.8
+```
+⇒ **`skew > 1e18` ⇒ `premium > r.amount` ⇒ PANIC 0x11.** Same failure §E104 already recorded for the
+sentinel resolution, reached by a different route. Not silent — it reverts — but it reverts the SWAP,
+so the user-visible effect is a dead trade rather than a wrong number.
+
+⭐ **TWO RESULTS THAT CHANGE THE SHAPE OF THE WORK:**
+1. **ONE CHOKE POINT.** Every application of skew to an amount is that single site; `retainSkewPremium`
+   has exactly four callers (`SwapLib:428`, `:450`, `:1496`). There is no scattered haircut to audit.
+   **The pole-means-decline mechanism can therefore be implemented in ONE function**, which is what
+   makes the cap deletion tractable at all.
+2. 🔴 **THE ARITHMETIC LIMIT IS `1e18`; THE CAP IS `3e16` — 33× LOWER.** So `MAX_WELL_SKEW` is NOT
+   protecting the haircut from underflow at its current value, and never was. It is a POLICY ceiling
+   with a vast margin to the failure point. ⇒ **The precondition decomposes:** a bounded-but-large skew
+   (anything ≤ 100%) is arithmetically safe, and **only the POLE is dangerous** — the q → 1 divergence
+   where skew has no finite value at all. That is precisely why "the pole should mean DECLINE" is the
+   right third mechanism, and why it is neither a big number (§E104's sentinel → panic) nor a revert
+   (which is what the panic already gives, at the wrong layer and with no explanation).
+
+⇒ **THE DELETION IS UNBLOCKED ON THIS AXIS, CONDITIONAL ON ONE CHANGE**, not on a haircut audit: make
+the pole return "decline" at `retainSkewPremium`'s site or above it, so an unfillable quote is refused
+explicitly instead of arriving as `panic 0x11` from inside a subtraction. Under solver routing an
+unbounded quote at zero inventory is unfillable anyway, so decline is the honest encoding of it.
+⚠️ **STILL UNVERIFIED, and it is the remaining precondition:** whether the curve can produce
+`1e18 ≤ skew < ∞` for FINITE q once Γ is no longer pinned to the cap (`SwapLib:1019` records
+`GAMMA_WAD ≡ MAX_WELL_SKEW` exactly, so deleting the cap deletes the curve's scale too). If Γ is
+re-derived independently, the 33× margin above is only as good as the new Γ. **Measure the new Γ's
+worst case against 1e18 before deleting — that check is not done here.**
+⚠️ §E104's other lesson stands: 4,308 tests stayed green over the sentinel panic because the suite never
+drains a band to zero. **Whatever mechanism lands, the test that proves it must drain a band to zero** —
+otherwise the suite will be green over the successor bug too.
