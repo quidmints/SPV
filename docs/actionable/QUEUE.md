@@ -15244,3 +15244,51 @@ never be FILLED.** That asymmetry is intended today; it is listed here so it is 
 and so that whoever builds native delivery knows this is one of its dependants.
 
 </details>
+
+## §E269 — **HANDOFF: what this thread landed, what it did NOT, and the two framings worth keeping**
+🟢 REFERENCE — written 2026-08-19 at thread close so nothing survives only in a context window.
+
+**LANDED ON `main`, each verified before push:**
+| commit | what |
+|---|---|
+| `9ade41eb` | §E265 Solidity: `Types.SelfManaged` gets `usdFunded` at both call sites — `main` had not compiled since the field was added |
+| `7266d8f7` | §E265 client: `abi.ts` declaration **and** the positional decode in `page.tsx`. ⚠️ Fixing only the ABI string would have turned a loud mismatch into a QUIET WRONG NUMBER — `dec[4]` becomes `upper`, always > 0, so the `liq > 0n` guard still passes and a tick renders as a position size. Decode now reads by name. `check-client-abis.py`: **0 drifted, both clients.** |
+| `656775ff` `9e30a26f` | §E266: 18 Midnight sources flattened into `src/imports/`; Morpho inherited from `lib/morpho-blue` (12 hand-rolled interfaces → 2, and those two are Morpho **Vaults V2**, a different protocol); `MarketParams` compared field-for-field against Blue BEFORE swapping, because its order is hashed into the market `Id` — it matched |
+| `1de4bef3` | `morpho-v2` submodule dropped — nothing in `src/`, `test/` or `script/` ever compiled against it |
+| `3aa89b6f` | **the lev fold** — `LevBookLib` dissolved by CALLER (venue legs → `BtcLib`, book → `BandLib`); both `_leverUp` trampolines and `_rebalanceBody` deleted; one concrete `debtDeltaToTarget`; `BAND_BPS` 2→1; `NotOpen`/`BadTarget` file-level; `WAD` 9→1 |
+| `d82d0f9a` | §E267 — **compilation restrictions propagate through imports** |
+| `260f7cab` | §E268 RETRACTED (see it; the retraction is the useful part) |
+
+**MEASURED, DO NOT RE-DERIVE:** `Quid` 24,014 (**562** spare), `Midnight` 24,457 (119), `LevMath` 22,888
+(1,688), `LevManager` 22,957 (1,619) — stable across four pinned-worktree builds. `LevBookLib` into
+`LevMath` gives **27,431, i.e. 2,855 OVER** EIP-170; half of it still leaves ~538 over. Midnight's size
+curve is **NOT monotonic in runs**: 1→+68, 50→+107, 200→−74, 466→−144.
+
+**NOT DONE, AND WHY:**
+- 🔴 **§E266's actual prize is untouched** — deleting `Types.SelfManaged` and routing OOR through
+  Midnight's offer tree. It would DISSOLVE both §E265 defects rather than fix them, but it changes
+  authentication, pricing and fill accounting at once, and needs that row's two open questions settled.
+- 🔴 **"One master setting for all" is BLOCKED, not declined** (owner asked for it). Global
+  `via_ir = true` fails on **15 unannotated `assembly {` blocks**: each disables via_ir's memory
+  optimisation for its unit and the stack then dies on an ordinary struct literal
+  (`test/Alles.t.sol:641`). The fix — `assembly ("memory-safe")` — is a PROMISE to the optimiser whose
+  violation is **silent miscompilation on a money path**, so it needs 15 individual audits, not a sweep.
+  ⇒ **This is the same task as "mix our libs with the morpho libs"**: §E267 means our code cannot import
+  from the vendored Midnight files at all until the boundary can be deleted. Two asks, one blocker.
+- The full suite was never green end-to-end here; the lev fold was verified by DIFFING FAILURE SETS
+  against a same-base control (66 vs 63 unique failures, both fold-only failures explained: one HTTP
+  429 that passes in the control, one failing identically in both). Raw totals said the opposite —
+  81 failed vs 78 — which is why sets, never counts.
+
+**TWO FRAMINGS WORTH KEEPING** (the covered-call half is already in `SPRINT.md` via `8acacde4`):
+1. **IL-protect is the dynamic hedge of the call the band wrote.** An OOR position holding the asset
+   below its range and converting to USD as price rises IS a covered call; the mirror is a cash-secured
+   put; a band is short both, and IL is the premium. `targetDebt = E0·soldFraction` borrows stable and
+   BUYS COLLATERAL BACK as the band sells it — delta-hedging a short call. **Two limits:** it is
+   up-side-only (below entry it de-levers toward zero debt, so the written PUT is unhedged), and
+   `TARGET_LTV_CAP_BPS = 7500` caps replication, so deep upside stays partly unhedged.
+2. **Midnight's tick is linear in LOG-ODDS, not in price.** `tickToPrice` is
+   `1e36 / (1e18 + wExp(ln(1.005)·(MAX_TICK/2 − tick)))`, i.e. `price/(1−price) = 1.005^(tick − 3372)`,
+   centred at 0.5 on (0,1). So equal tick steps are equal RELATIVE moves in the discount:premium ratio
+   — roughly equal yield increments at par and near zero alike. That is why a dated claim fits the grid
+   natively, and it is a stronger statement than "the coordinate systems are shared".
