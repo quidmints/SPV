@@ -442,6 +442,15 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
   followed by `.*?\n    \}\n` under `re.S` ran for **40 MINUTES** on one file. It was blamed on
   machine contention twice. If a python edit "hangs", it is the pattern, not the box. Line-based
   `awk`/`Edit` does the same job instantly.
+- 🔴 **`\b` IS NOT A WORD BOUNDARY IN `git grep -E` EITHER — POSIX ERE HAS NO `\b`, AND IT EXITS 0**
+  (measured 2026-08-19; the bullet below documents the `sed` half, this is the other one, and both
+  bit in the SAME session). `git grep -E "\.e0\b"` returned almost nothing and I concluded a live
+  field was dead code — it has **eight** read sites including the LTV denominator, and deleting it
+  would have silently broken the leverage hedge. The same session then lost a build to
+  `sed 's/\bIMorphoV2(/.../'` renaming zero call sites while a second pattern renamed the
+  declaration. ⇒ **Use `[^A-Za-z0-9_]` on each side, or plain substring matching in python. An empty
+  grep from a `\b` pattern is evidence of NOTHING** — it is the same shape as the "empty grep proves
+  nothing" rule above, arriving through a pattern that looks precise.
 - **BSD `sed` ON macOS IS NOT GNU `sed`, AND FAILS SILENTLY:** `\(a\|b\)` alternation needs `-E`;
   **`\b` IS A LITERAL BACKSPACE, NOT A WORD BOUNDARY** (use `[[:<:]]`/`[[:>:]]`, or don't use sed).
   Both reported success and changed zero lines.

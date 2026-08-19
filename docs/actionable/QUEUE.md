@@ -14992,8 +14992,13 @@ unrelated borrowers fully utilising a market we do not control**. Flagged so it 
 discovery under stress.
 
 
-## §E264 — 🔴 **`Quid` MEASURES 86 BYTES OF EIP-170 MARGIN, AND THE READING IS UNATTRIBUTABLE**
-🔴 OPEN — measured 2026-08-18 by `python3 tools/check-contract-sizes.py` after a clean
+## §E264 — ✅ **CLOSED 2026-08-19: THE 86 WAS ANOTHER THREAD'S UNCOMMITTED WORK; `Quid` HAS 562**
+✅ **CLOSED.** Re-measured from PINNED DETACHED WORKTREES, which exclude uncommitted work by
+construction: **`Quid` = 24,014 bytes, 562 to spare**, stable across four separate builds today
+(fold, control, E266, and the final `main`). The 86 came from the shared checkout's uncommitted
+`Quid.sol`/`Core.sol` edits, exactly as the row suspected. **The row's instruction was the right
+one and it worked: never quote a size from a dirty tree.**
+Original reading, measured 2026-08-18 by `python3 tools/check-contract-sizes.py` after a clean
 `forge build` (`FORGE_EXIT=0`, zero `^Error` lines). 43 deployable contracts, all under the limit:
 
 | contract | size | margin |
@@ -15022,8 +15027,17 @@ attributable by construction. **Do not plan any addition to `Quid` against 86, o
 `forge build --sizes` cannot see it: `Quid`, `BTCChannels` and `LevManager` are library-linked and the
 script's own footer lists them as absent from that table.
 
-## §E265 — 🔴🔴 **`origin/main` DOES NOT COMPILE: `Types.SelfManaged` GAINED A FIELD, TWO CONSTRUCTORS DID NOT**
-🔴🔴 OPEN — measured 2026-08-19 from a worktree pinned at `origin/main` (`67536cb3`), i.e. by
+## §E265 — ✅ **CLOSED 2026-08-19, BOTH HALVES** — was: `origin/main` DOES NOT COMPILE: `Types.SelfManaged` GAINED A FIELD, TWO CONSTRUCTORS DID NOT**
+✅ **CLOSED.** Solidity half in `9ade41eb` (both constructors carry `usdFunded`; a worktree with only
+that repair builds `BUILD=0` and runs the suite). Client half in `7266d8f7` —
+`check-client-abis.py` now reports **0 drifted on both clients** (114 Rust, 69 SPA).
+⚠️ **THE CLIENT FIX WAS NOT THE ABI STRING.** That is the half the checker names. The dangerous half
+was `page.tsx` decoding the result BY INDEX: once the declaration is corrected, `dec[4]` stops being
+`amt` and becomes `upper`, which is always > 0, so the `liq > 0n` guard still passes and the UI
+renders a tick as a position size. **Fixing only the ABI string converts a loud decode mismatch into
+a quiet wrong number.** Decode now reads by name. Closeable per rule 16: both facts are measurements
+that cannot go stale — the tree compiles, and the gate reports zero.
+Original finding, measured 2026-08-19 from a worktree pinned at `origin/main` (`67536cb3`), i.e. by
 construction WITHOUT any thread's uncommitted work. `forge build` → **`FORGE_EXIT=1`**, and the two
 errors are:
 ```
