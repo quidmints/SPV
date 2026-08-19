@@ -4524,3 +4524,363 @@ Under solver routing we do not.**
 - **A DELIVERABILITY PRECONDITION ON `refillPlacement` — DELETED FOR THE WRONG REASON** (owner:
   *"it is just the imbalance in the POOLED_USD and the POOLED_ETH/BTC"*). **If that function survives
   the audit, the precondition question is still open and was never correctly settled.**
+
+## PART G (cont.) — **THE 9 I HAD LEFT BEHIND, NOW CLASSIFIED BY READING THEM**
+
+I left 12 non-finished rows in `QUEUE.md` and justified it as *"moving them would drag a finished
+child"*. **That was a weak reason for the rows** — a row is one line and drags nothing — and no
+reason at all for the unmarked ones, which I had not read. Read now, and split on what they SAY:
+
+### `§A.62` — 🟠 open by its own marker — layout-pass additions still banked
+
+## 🟠 LAYOUT PASS additions (§A.62)
+  • `src/mock.sol` → `src/imports/` — it is a helper, not a deployed contract.
+  • **Fold `QuidLens`** — a separate contract for what could be internal views. User: *"we can be more
+    elegant than requiring a separate QuidLens contract to exist"*. Check EIP-170 impact first; it may
+    exist BECAUSE Aux/Core are near the limit, in which case it stays and the reason gets documented.
+  • 🔴 **`Vogue`'s ERC-20 + ERC-4626 WRAPPER BLOCK IS LEFTOVER §J.2.** Its own header still says it
+    *"adds standard ERC-20 transfer/approve plus the ERC-4626 view + deposit/redeem entry points"* —
+    exactly what `VEth`/`VBtc` now own. §J.2 moved the IDENTITY but left this block.
+    ⚠️ **MY 2026-08-05 STRIKE OF THIS LINE WAS ITSELF WRONG AND IS WITHDRAWN** (2026-08-06, owner:
+    *"j2 indeed wasnt complete, see for yourself"*). I closed it on the IDENTITY having moved,
+    without measuring what remained. Measured now, by structure — the line was RIGHT:
+
+    **§J.2 IS INCOMPLETE, AND THE SPLIT LEAVES NO VALID ERC-4626 ANYWHERE.**
+    • `Vogue` (`:32`) no longer inherits ERC-20/4626, and `approve`/`transfer`/`transferFrom` +
+      `allowance` + the events did move to `VEth` (`:1256`). That much of §J.2 landed.
+    • But the 4626 **MUTATORS STAYED ON `Vogue`**: `deposit(uint,address)` `:1356`,
+      `deposit(uint,address,uint8)` `:1365`, `mint` `:1379`/`:1385`, `redeem` `:1407`,
+      `withdraw` `:1422`. Six 4626-signature functions on a contract that is **no longer an
+      ERC-20** — and ERC-4626 REQUIRES the vault to be one. `Vogue` is therefore not compliant.
+    • `VEth` has **ZERO** of `deposit`/`mint`/`withdraw`/`redeem` (17 functions, none of them
+      mutators) and **no fallback/delegatecall to forward them** — verified, not assumed. So `VEth`
+      is not compliant either, and it is worse than incomplete: it advertises
+      `maxDeposit = type(uint).max` (`:70`) and `previewDeposit` (`:72`) while **having no `deposit`
+      to call**. An integrator that discovers `VEth` as the vault gets a quote, then reverts.
+      `VBtc` has the same shape (0 mutators).
+    ⇒ Both halves look compliant to any check that reads only part of the surface. That is the
+    residual matter, and it is exactly why this item stays OPEN.
+
+    🔴 **THE OBVIOUS COMPLETION IS BLOCKED — this is a DESIGN FORK, not a mechanical move.** Moving
+    the mutators onto `VEth` would break `../ibiza`, which records at `PP-SPV-BUFFER-DESIGN.md:24`
+    (*"Confirmed, not assumed"*) that it depends on `Vogue.deposit(uint,address[,uint8])` and
+    `Vogue.withdraw(uint,address,address)` being plain external functions **on `Vogue`** — two of
+    the four pinned signatures CLAUDE.md names as a cross-repo breaking-change surface.
+    ▶️ Options: **(a)** leave the mutators on `Vogue` and have `VEth` FORWARD to them — keeps ibiza's
+    call sites intact and makes `VEth` a real 4626; **(b)** move them and coordinate an ibiza change.
+    Until that is chosen, everything downstream of §J.2 stays ⏸️ — a design decision is not a closure.
+
+
+### `§A.19b` — unmarked, but its text is *"THE ACTUAL DESIGN QUESTION §A.19b MUST ANSWER"* — a question, not an answer
+
+### 🔑 THE ACTUAL DESIGN QUESTION §A.19b MUST ANSWER
+**If a bearer redeems vBTC, WHOSE band depth shrinks?** Today the question cannot arise: vBTC only ever
+reaches the pinned LevManager, and `unexposeBtcFromLev` burns it back to the SAME LP (`lev → funded`,
+`LP.pooled` untouched). A CIRCULATING bearer breaks that 1:1 return path — the redeemer is not the LP
+whose depth backed the mint.
+⇒ That is what `Σ outstanding vBTC <= Σ free channel capacity` must actually enforce: redemption draws
+  from AGGREGATE free capacity, not from the minting LP specifically — which is only sound if the
+  aggregate bound holds at every instant, and if some rule decides WHICH LP's depth is consumed (pro
+  rata? the LP with most free capacity? the one whose channel can pay out cheapest?). **That choice is
+  the open design decision, and it is NOT yet made.**
+⚠️ AND IT INTERACTS WITH THE NON-TRANSFERABILITY RESULT ABOVE: band shares are bound to ONE channel with
+  a FIXED payout script (`BTCChannels.sol:719`). So a bearer redemption must be paid from a channel
+  whose script pays the REDEEMER — i.e. it is the swap-out rail, not a channel close. Good news: that
+  rail exists and already pays arbitrary P2TR.
+
+
+### `§A.71` — 🔴 codebase-wide dedup, open by marker
+
+| **§A.71** (*codebase-wide dedup, "every struct, everything"*) | 🔴 **GENUINELY OPEN** — this IS the deep dedup pass now queued next. |
+
+### `§A.5f` — unmarked, but *"BANKED AS A STANDALONE TASK (user asked for this explicitly)"* — a task
+
+## 📌 §A.5f — BANKED AS A STANDALONE TASK (user asked for this explicitly, 2026-08-01)
+**Recording this so it cannot be lost or re-misread as a small finish.**
+
+### 🔴 THE MISLABEL — and why acting on it would have been the bug
+I called §A.5f "PARTIAL", which implies a finishing touch. It is not:
+ • **Landed:** the *timelocked withdrawal-recipient pin* (`Vogue.sol:225`) — a genuinely SEPARATE, small
+   control that merely **shares the section number**. It is done and closes nothing of the real item.
+ • **Missing:** *on-chain per-action delegation.* Today's on-chain gates are only COARSE — `onlyUs`,
+   `vogueSyncHook`, `msg.sender == V4`. They say **"this exact contract"**. They NEVER say
+   **"this action, up to this size, until this time, and revocable."**
+⇒ **That is a NEW AUTHORISATION SURFACE ON THE MONEY PATH**, not a finishing touch. Rushing it is exactly
+  how a bug gets created — the thing the user asked to avoid. **It needs its own design run.**
+
+### ✅ DO NOT HAND-ROLL — the primitive already exists in this repo
+`quid-hop/src/migration.rs` implements EIP-712 **`MigrationAuth`**:
+ • Gnosis **Safe** as `verifyingContract` (domain separator bound to the operator multisig),
+ • **≥`MIGRATION_THRESHOLD`** owner signatures,
+ • `ecrecover` verified **IN-ENCLAVE**,
+ • `guard_prod_trust_anchors` **refusing prod** while dev placeholder keys are compiled in.
+⇒ **§A.5f's `ActionAuth` should mirror that exact shape** — same domain-separator discipline, same
+  threshold model, same anchor guard. Copy the REASONING, not just the structure.
+
+### ⭐ ONE PRIMITIVE SERVES THREE OPEN ITEMS — design it once
+| open item | what it needs |
+|---|---|
+| **`SweepAuth`** (`create_sweep_tx`, QUEUE:2251 — deliberately unwired) | a Safe-authorised trigger for a full drain |
+| **destination-allowlist exemption** (deferred in #114 step 5) | the one signed exception to deny-by-default |
+⇒ All three are *"a Safe-signed, typed, scoped authorisation"*. **Building them separately would triplicate
+  a security-critical mechanism** — the exact hand-rolling the user flagged. **Design ONE `TypedAuth`
+  primitive and give each item a scope type.**
+
+### ⚠️ EXPLICITLY OUT OF SCOPE (per the item itself — do not widen it)
+ • The optimal-entry **ALPHA logic stays OFF-CHAIN / LP-discretionary** — by design, not a gap.
+ • The **BTC path needs nothing**: `lpAuth` is already `ecrecover` over `BTCChannels.openChannelDigest`.
+ • The off-chain half is **BUILT**: `quid-common/src/api/revocable_clients.rs` (ed25519 keys, per-client
+   scopes, revocable). The gap is ON-CHAIN only.
+
+# 🚨🚨 REGRESSION I INTRODUCED — **SwapLib is OVER EIP-170. The library is UNDEPLOYABLE.**
+```
+| SwapLib | 24,672 |
+Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)
+```
+**96 bytes over.** Verified it predates today's §J.2c edit (stashed `Vogue.sol`, rebuilt, still 24,672), so
+it came from **C4 and/or C10 part 2** — both landed in `SwapLib` earlier today.
+🔴 **HOW IT SLIPPED THROUGH — and this is the important part:**
+ • I measured SwapLib at **24,358 (margin 218)** after the `volScale` cleanup and **explicitly noted the
+   margin mattered because C4 lands in SwapLib**. Then I landed C4, and **never re-measured.**
+ • **`forge test` DOES NOT ENFORCE EIP-170** — all 3,529 tests passed against a library that cannot be
+   deployed to mainnet. **A green suite is not a deployability check.** Only `forge build --sizes` is.
+ • This is a textbook `measure-a-fix-from-all-sides` failure: I verified C4's CORRECTNESS (tests, units,
+   call sites) and never its SIZE — on the one library I already knew was the tightest in the repo.
+📌 **NEW STANDING CHECK: `forge build --sizes` after ANY `SwapLib`/`Core`/`Vogue` change, in the SAME run
+  that reports the tests.** Green tests + over-limit bytecode is a silent, deploy-time-only failure.
+
+
+### `§CORE-ONLYUS` — unmarked, and its own caveat is the open part: *"⚠️ COMPILE-ONLY, NO TEST RUN"*
+
+| §CORE-ONLYUS | **907 bytes**; `Core` 24,472 → 23,565 ⚠️ **COMPILE-ONLY, NO TEST RUN** |
+
+### `§E2-#1` — 🔴🔴 tier-1 measurement refutes it
+
+### 🔴🔴 E2-REAL-REDEEM — TIER-1 MEASUREMENT REFUTES §E2-#1's HEADLINE. The depositor is NOT made whole.
+
+**Owner asked for the real thing: redeem and measure balances.** `test_E2_MintAtMark_RealRedeemMatches
+TheMark` uses `_redeemValue` (actual ERC-20 balance deltas + real QU!D burned). **FAILS.**
+| quantity | value |
+|---|---|
+| paid | **$50,000.00** |
+| **stables ACTUALLY received** | **$48,293.98** ⇒ **−$1,706 (−3.4%)** |
+| predicted `paid × m1/m0` | $50,165.80 |
+| old 1:1 mint would give | $45,999.33 (−8.0%) |
+| marks | m0 = 0.916946 (entry) · m1 = 0.919986 (redeem) |
+⇒ **§E2-#1 IS DIRECTIONALLY RIGHT (+$2,295 vs 1:1 — it recovers about HALF the haircut) BUT THE
+"paid → $49,999.999998 claim" HEADLINE IS AN ARTIFACT OF THE HYPOTHETICAL TEST.** The Tier-2 version
+computed `minted × _mark()` — code times code. A real redemption disagrees by **$1,706**.
+
+🔬 **AND THE GAP IS LOCALISED — IT IS NOT IN THE REDEEM:**
+**`received / burned` = 48,293.98 / 52,486.90 = 0.9201 ≈ m1 (0.919986).** ⇒ **The redeem pays EXACTLY
+at the mark; that path is correct.** The loss is at MINT: entry at the mark should give
+`50,000 / 0.916946` = **54,528** QU!D; the depositor got **52,487** (**−3.7%**). Back-solving,
+`normalized` was ≈ **48,128** BEFORE my `× mature/total` mark-up, not 50,000.
+▶️ **SO ~3.7% IS LOST UPSTREAM OF THE MARK-UP — FIND IT BEFORE TOUCHING §E2 AGAIN.** Candidates, NONE
+checked: (a) `AUX.deposit()` credits less than par for 50,000 USDC (depeg/illiquid haircut on the
+deposited stable); (b) `_finishMint`'s `total` is depeg-adjusted (`total -= min(total, depegLoss)`,
+`Basket.sol:258`) while the test's `_mark()` may be computed at a different instant or basis, so
+`m0` is not the mark the mint actually used; (c) the seed-`CAP` re-projection path. **(b) is the
+cheapest to eliminate: log `total`/`mature` INSIDE the mint and compare to the test's `m0`.**
+⚠️ **DO NOT "fix" this by scaling the mark-up until the number lands on 50,000** — that is
+§never-mask-the-question. Find which of (a)/(b)/(c) it is first.
+📌 **VINDICATES THE AUDIT'S TIER SPLIT IMMEDIATELY:** the Tier-2 hypothetical said "whole", the Tier-1
+balance delta says "−3.4%". **Every remaining Tier-2 claim (§E42's `redeemableAmount` invariant) is
+now suspect on the same grounds and needs the same upgrade.**
+
+
+### `§E2` — 🔴🔴🔴 ~3.745% lost between the USD legs
+
+### 🔴🔴🔴 E2-DEPOSIT-HAIRCUT — **~3.745% IS LOST BETWEEN THE USDC ARRIVING AND `normalized`. It is NOT an §E2 defect.**
+
+**Traced from the real-redeem failure. MEASURED, all four legs, one run:**
+| quantity | value |
+|---|---|
+| USDC actually spent (balance delta) | **50,000.000000 — the FULL amount** |
+| `depegLoss()` at mint | **0** |
+| `total` the mint uses / `matureSupply` | 1,252,000.111 / 1,365,402.095 ⇒ mark **0.916946** |
+| QU!D minted | 52,486.90 |
+| **implied `normalized` (= minted × total/mature)** | **48,127.66** ⇒ **−1,872.34 = −3.745%** |
+
+⇒ **THREE CANDIDATES ELIMINATED BY MEASUREMENT:** (b) the mark basis — `depegLoss == 0`, so the
+mint's `total` EQUALS the test's and `total/mature` reproduces `m0` **to the digit**; the deposit
+TRANSFER — the full 50,000 left the depositor; and the seed-`CAP` path — this mint is `when=0`,
+not seed.
+⇒ 🔴 **THE LOSS IS UPSTREAM OF §E2-#1's MARK-UP AND INDEPENDENT OF IT.** `normalized` is
+`deposited * 10**(18-dec)` PLUS a POSITIVE yield bonus (`avgYield` ≈ 16.36% ⇒ ~+1.4% at one month),
+so `deposited` must be **BELOW 48,128 — i.e. ≥4% under the 50,000 actually paid in.**
+▶️ **TWO SURVIVING CANDIDATES — read the code, do not guess (the last four guesses all died):**
+  (i) **`AUX.deposit()` CREDITS LESS THAN IT RECEIVES** — it returns `deposited`, and `Basket.sol:241`
+      normalizes THAT, not the transfer amount. `testDepeg_DepositCreditedAtFairValue` exists, so
+      fair-value crediting is a real mechanism — but `depegLoss == 0` here, so if this is it, the
+      per-token valuation disagrees with the basket-level aggregate.
+  (ii) **A CLAMP INSIDE `_finishMint` AFTER `calcMintYield`.** Its comment claims *"NO mint-side 1:1
+      cap"* — **that comment is exactly the kind this session proved unreliable. Verify by structure.**
+⚠️ **THIS AFFECTS EVERY MINT, NOT JUST THE SHORTFALL PATH** — §E2-#1's mark-up is a no-op when the
+basket is whole, but this haircut is not conditioned on it. **Re-measure a mint into a HEALTHY basket:
+if 50,000 USDC still yields ~48,128 of `normalized`, this is a live, general defect and outranks
+everything else on the mint path.**
+📌 **AND IT EXPLAINS §E2-REAL-REDEEM's −3.4% ENTIRELY** (−3.745% at mint, partly offset by m1 > m0).
+§E2-#1 is doing its job; it was measured against a baseline that was already short.
+
+| id | state |
+|---|---|
+| **E171-lp-custody-design** | 📋 **THE SECURE SHAPE, AND WHY THE WEBSITE SURVIVES. Read §E165 + §E170 first.** ✅ **VERIFIED GROUND TRUTH:** the funding 2-of-2 is **(vault node, hop node) — BOTH IN THE FLEET'S PROCESS**; the LP holds no Bitcoin key at all (`quid-bridge/src/deadman_exit.rs:7-8` *"re-derives BOTH funding-half signers (the hop node's + the vault node's, same process = 'the fleet holds both halves')"*, `:23` *"No LP action, no key"*). So "per-LP custody" is not a new subsystem — it is **the LP generating `lpPubkey`'s secret instead of the fleet doing it.** The channel shape is unchanged. 🔑 **THE TRICHOTOMY (arithmetic, not preference — every rejected proposal failed here):** to stop a compromised fleet spending the LP's UTXO, the fleet must be **unable to produce a valid spend alone**. ⇒ either (a) the LP is in the spending path on every update (LIVENESS — fatal for a routing channel), (b) the LP **pre-authorises an ENUMERABLE set** of future spends once (the §E165 ladder), or (c) there is no prevention (today). Pre-signing, timelock leaves and covenant-emulation ALL collapse into (c) if the fleet retains a key path it can sign alone — a CLTV escape leaf gives recovery-from-DEATH, never prevention-of-THEFT. ⇒ **(b) is the only survivor, and it is already built.** ✅ **AND THE STATE MACHINE FITS (b):** the LP's channel balance moves only at **discrete, on-chain, contract-verified events** — open, splice grow/shrink, close (`deliverSwapOutOnchain` requires a SHRINK, `error NotAShrink`), not a stream of HTLC updates. Discrete + verifiable = enumerable = pre-authorisable. 🔴 **THE ONE OPEN RISK, NAMED SO IT IS NOT LOST:** the channel is still a live LDK channel (peer manager, dial, reconnect, `testBtcChannels_ForceClose_WithHTLCs_Retires`), and **BOLT commitment updates need the funding half on demand.** If LDK requires the vault half to sign commitments between splices, (b) does not fit a standard channel and the LP's sats must move OUT of the LN channel into a custody UTXO with fleet-funded channels doing the routing — a real economic change. **EXECUTE THIS CHECK BEFORE BUILDING ON (b)** (verification discipline: a named-but-unexecuted check is a finding that will be lost). ⇒ **SIGNING SURFACE — THE DECISION THAT DECIDES WHETHER A WEBSITE WORKS.** Today's funding output is a **MuSig2 KEY PATH with an empty merkle root**. MuSig2 is signable by **Ledger only** (Bitcoin app v2.4.0, BIP-373 PSBT fields + BIP-388 policies); **Trezor does not do it and no browser extension wallet does**, and it needs a two-round nonce exchange. A **taproot SCRIPT PATH** leg (`<lp> OP_CHECKSIGVERIFY <hop> OP_CHECKSIG`) instead needs only a **plain BIP-340 signature over a script-path sighash**, which every taproot-capable signer produces via ordinary PSBT — Ledger, Trezor, and the Bitcoin browser extensions. ⇒ **DO NOT REQUIRE MuSig2 FROM THE LP.** 🔑 **THE ON-CHAIN MACHINERY ALREADY EXISTS — landed and tested this session:** `MuSig2Agg.taprootOutputKeyWithLeaf`, `MuSig2Agg.tapLeafHash`, `ExitLib._cltvRefundLeaf`, `ExitLib._scriptNum` were built for the §E159 swap-in deposit address and verify exactly this construction. Reusing them for the funding output is incremental, not new crypto. ⇒ **WEBSITE VERDICT: NOT futile, and NO mobile app required** — the LP's key lives in a hardware wallet or a Bitcoin extension wallet; the browser never holds it (WebCrypto is P-256/384/521 only, so browser-native secp256k1 does not exist and a raw in-page key is the one option to refuse). The phone app becomes ONE option, not a requirement — which is what makes §E170's TEE limitation stop mattering. |
+
+| id | state |
+|---|---|
+| **E171-r** | ⛔ **WITHDRAWN — §E171's "DO NOT REQUIRE MuSig2 FROM THE LP" IS WRONG AND MUST NOT BE ACTED ON** (owner, 2026-08-11: *"if we dont use musig 2 then everything is fucked… custom app is no problemo"*). **THE REFUTATION, IN THE CODE:** `quid-hop/src/funding.rs:48` builds the funding output *"per BIP327 + **BOLT simple-taproot-channels**"* — a key-path-only MuSig2 aggregate over an EMPTY merkle root, byte-matched on-chain as `0x5120||Q`. So MuSig2 is not a signing-UX choice layered on top; it **IS** the channel model. Dropping it takes out simple-taproot channels, the on-chain KeyAgg proof (`MuSig2Agg.computeOutputKey`, §E129/§E142), `funding.rs`, the fixture generator's `taproot_2of2_output_key`, and the key-path exit verification (§E128) — and a script tree is not a partial retreat either, because a non-empty merkle root **changes `Q`** and breaks the byte-match with what LDK produces. The fallback would be legacy P2WSH ECDSA 2-of-2, i.e. abandoning taproot outright. ⚠️ **MY ERROR, NAMED SO IT IS NOT REPEATED: I optimised for "works in a browser with wallets that exist" and let that outrank a load-bearing protocol dependency I had not checked.** The signing surface is a CONSEQUENCE of the channel model, never an input to it — check what the money path already depends on before proposing to change what signs it. ✅ **THE DECISION:** MuSig2 stays; the LP signer is a **custom app** (owner: no problem). Scope is bounded and one-time: hold one secp256k1 key (TEE-WRAPPED at rest per §E170, since no phone TEE can sign it), run N MuSig2 sessions for the §E165 ladder rungs in ONE interactive ceremony at open, then never come online again. 🔴 **THE ONE FAILURE THAT WOULD BE SILENT AND TOTAL — MuSig2 NONCE REUSE.** Signing two different messages under the same secnonce **leaks the LP's secret key**, and the fleet sees both partial signatures, so it recovers the key and holds BOTH halves again — the entire §E165 design defeated with every on-chain byte still looking correct. ⇒ **Use the same `musig2` crate the hop uses** (`funding.rs:88`, conduition), whose `FirstRound`/`SecondRound` types CONSUME `self` and make reuse a type error rather than a review item; delete secnonces after use and persist nothing replayable. This is precisely the rule-3 case where a check earns its place: violating it is silent and produces plausible-but-wrong output. ⇒ **WEBSITE ROLE, CORRECTED:** the site is NOT futile and NOT replaced — it keeps the EVM leg (`lpSig`, position monitoring, redemption) and drives the app as a signer over WalletConnect, exactly as it would drive a hardware wallet. Only the BTC key ceremony at open needs the app. ▶️ **WORTH CHECKING, NOT PROMISING:** Ledger Bitcoin app v2.4.0 does MuSig2 via BIP-373/388, which MIGHT cover a key-path `musig()` internal key (BIP-390) and give a no-app path for Ledger owners — the sources describe `musig()` in taproot SCRIPT expressions, so key-path support is unconfirmed. ⇒ 📱 **THE APP-SIDE SPEC MOVED TO `../ibiza/TODO.md` §3b** (owner, 2026-08-13: *"this shouldn't be in our own queue… it should be in the ibiza TODO.md"*). ibiza owns the mobile client; SPV owns the protocol. **What remains in this row is the protocol-side evidence — do not re-add app requirements here, and change §3b rather than this row when the app design moves.** |
+
+
+### `§V-ROUTE` — unmarked section header whose OPEN children (V-R10, V-R11) already moved — the header belongs with them
+
+## §V-ROUTE — the lev swap legs leave TriCrypto for 1inch (owner, 2026-08-16)
+
+Owner: *"do not even route to tricrypto at all because it is so thin, use the router directly"* and
+*"there is no more just curve tripool or uni it's handled by 1inch."*
+
+**MEASURED 2026-08-16 — this is why.** `CURVE_TRICRYPTO_USDC 0x7F86…829B` holds **698 WETH**,
+**20.72 WBTC**, $1.31M USDC. Against `SELL_SLIP_BPS = 100`, a $25k hop already slips **128bp** and
+therefore REVERTS; $100k slips 730bp, $250k 1,883bp. With `MAX_LOOPS = 8` that caps an entire
+lever-up near **$80–160k**. The failure is not a bad fill — the floor prevents that — it is that
+`openLev`/`rebalance` REVERT, so the IL hedge cannot be established or, worse, cannot TRACK the band
+as `targetDebt = E0·soldFrac` grows. The LP is progressively unhedged exactly while IL accrues, and
+the accounting still looks healthy because the debt it holds is the debt it could take.
+
+| id | state | item |
+|---|---|---|
+
+### Still open from the same thread, not superseded
+
+| id | state | item |
+|---|---|---|
+| §E232-tri | ✅ **DISCHARGED 2026-08-17 — THE CONSTRAINT WAS SATISFIED BY A DIFFERENT REPLACEMENT THAN THE ONE IT NAMED, WHICH IS WHY THE HAZARD NEVER FIRED.** This row forced the order *"1inch lands and is TESTED ON THE CLOSE PATH first; TriCrypto comes out second"*, and §V-R1/1inch was then WITHDRAWN (`e4f9c512`) — so on the row's own logic the close path should now be stranded. **It is not.** Measured: `grep -rn 'TriCrypto\|TRICRYPTO' evm/src` returns **zero code hits** (prose only), and all four legs this row traced now route a PINNED UNISWAP V3 POOL via `_poolSwap` — `_stableToWbtc`/`_wbtcToStable` (`V3_FEE_WBTC`), `_stableToWethSor`/`_wethToStable` (`V3_FEE_WETH`). The replacement was **§V-R1-MIN's pinned pools, not the aggregator**, so removal and replacement landed together and the close path (`deleverWbtc`, `flashDeleverWbtcSettle`) still has a venue. ⚠️ **The row's reasoning was right and its premise went stale** — do not read this as the ordering rule being wrong; read it as the replacement arriving from elsewhere. Prose fallout fixed in `bcc98865` |
+| §E233-sor | ✅ **CLOSED 2026-08-17 — VERIFIED AGAINST CODE, NOT AGAINST THIS ROW.** `SOR.sol` no longer exists (`find evm/src evm/script -iname '*SOR*'` returns only `SortedSet.sol`); `Aux.sol:784-795` records the removal in place (*"Removed: `auxSwap(uint,address,address,uint)` … `sorSelfFunded`, `sorSelfFundedReverse`, the `_pathEncodings` array"*); `DeployLib.sol:297` records the 8 path builders deleted. **And the trap this row warned about was honoured:** the 5-arg `auxSwap(address,address,uint,address,uint)` SURVIVES at `Aux.sol:809`, so the SPA's stable→stable swap still resolves. Nothing left to do |
+
+---
+
+
+### `§E241-obsidx` — 🔴 follow-up on `OBS_POOL_IDX`, the constant §E222s repoint introduced — my own work has a live follow-up
+
+### 🔴 §E241-obsidx — **`OBS_POOL_IDX` IS A CONSTANT TIED TO A DELETED POOL'S COIN ORDER, AND IT FAILS SILENTLY**
+Found while scrubbing TriCrypto prose. **It is not prose — it is live, on the swap path, on both
+instances.** `Core.sol:1309`: `uint256 internal constant OBS_POOL_IDX = 1;`
+
+**THE THREE FACTS THAT COMBINE:**
+1. **THE POOL IS A RUNTIME VARIABLE, THE INDEX IS A COMPILE-TIME CONSTANT.**
+   `setObservationSource(address src)` (`:1310-1314`) lets DEPLOYER pin **any** address, once, with
+   **no validation of its coin layout**. The index that reads it is frozen at `1`.
+2. **`1` IS ONLY CORRECT FOR TRICRYPTO'S ORDERING** — `USDC=0, WBTC=1, WETH=2`, so `price_oracle(1)`
+   = WETH/USDC (`:1305-1308`, `ExternalTwap.sol:58-60`). **Pin a pool ordered differently and the read
+   SUCCEEDS and returns the wrong pair.**
+3. **EVERY FAILURE MODE IS SILENT BY DESIGN.** `:1348-1350` is a raw `staticcall` with
+   `if (!ok || out.length < 32) return;` — deliberate, and correct for liveness (*"an oracle outage
+   would turn every swap and repack into a revert"*). ⇒ **But a WRONG-PAIR read does not fail at all.
+   It returns a valid number for the wrong asset**, and this feeds `_writeObservationPrice` → the
+   deviation check against Chainlink.
+⇒ **THE FILE ALREADY MEASURED THIS EXACT FAILURE AND KEPT THE CONSTANT: `price_oracle(0)` =
+$64,280.15 vs `price_oracle(1)` = $1,906.53 — "a 34x error that reverts nothing".** The comment records
+the near-miss; the design that permitted it is unchanged.
+
+⚠️ **AND THE CONSTANT IS SHARED BY BOTH `Core` INSTANCES.** `DeployLib.sol:136-137` builds
+`new Core(cfg.weth, …)` and `new Core(cfg.wbtc, …)` from one bytecode, so **the BTC band would also
+read slot 1 = WETH/USDC.** Latent today only because BTC deliberately pins nothing (`:1298-1302`:
+*"we cannot observe BTC independently, so we do not pretend to"*). **It ARMS the moment anyone
+honours the `▶️ If a wrapper-free BTC source ever exists it is pinned HERE` note** — the index does
+not move with the source, and nothing says so at the setter.
+
+▶️ **FIX (do not hardcode a new number — that reproduces the bug against a different pool):** pin the
+index **WITH** the address in the same setter, or derive it by reading `coins(k)` and matching this
+instance's own `asset()`. **The invariant is that the index and the pool cannot diverge**, which today
+they structurally can. ⚠️ **Whatever replaces the source, it is NOT TriCrypto** (owner, 2026-08-19:
+*"no tricrypto at all"*), so the ordering CANNOT be assumed — which is the whole finding.
+
+
+---
+---
+
+# PART F — **FINISHED ROWS MIGRATED OUT OF `QUEUE.md`** (2026-08-19)
+
+**Why here and not the archive.** I first appended these to `BUILD-QUEUE-AND-107.md` and that was
+wrong: that file is 2026-08-02 material, marked EVIDENCE-ONLY, *"do not work from it"* — nobody
+reads it, so moving live evidence there is closer to deleting it than to filing it. **`SPRINT.md` is
+the workspace**, and PART E already established this exact pattern for the first six rows. One
+destination, not two.
+
+**What this is.** `QUEUE.md` is the CURRENT-STATE list and had grown to 2.72 MB with **72 of its 177
+items already closed** — so most of what a reader scanned was finished work. These are those rows.
+
+⚠️ **VERBATIM, NOT SUMMARISED.** Their value is the EVIDENCE — traces, `file:line`, gas figures,
+retractions — and a summary of evidence is not evidence. Anything citing these `§id`s finds them here.
+⚠️ **A closed section stayed in `QUEUE.md` if it still CONTAINS an open item** — nesting beats the
+marker, and moving a parent would take a live child with it. That is why four finished rows remain
+there rather than zero.
+📌 **Not only this thread's rows.** The earlier six-row migration was scoped to rows I closed; this
+is every finished item, whoever closed it — which is what makes `QUEUE.md` read as work again.
+
+
+---
+
+### ⏸️ THE 3 DELIBERATELY LEFT IN `QUEUE.md`, each for a stated reason
+
+- **`§UNIT-B`** — an EVIDENCE row in a retrospective table (*"a guard denominated in notional"*), not a task
+- **`§A.16`** — *"DELIVERY IS FINE … This is #12 territory"* — a finding that REDIRECTS; the work lives under #12
+- **`§SPLIT-WEIGHTS`** — *"DECIDED: split on REBALANCED-AMOUNT vs POOL LIQUIDITY"* — a decision, i.e. finished
+
+
+### Two more, found because moving a section promotes an EARLIER mention to "last"
+
+Both `§A.19b` and `§A.5f` had a SECOND open section elsewhere in the file. **That is the trap in
+classifying by "the id's last mention": remove one and a different one becomes last**, so a single
+pass under-reports. Moved:
+
+#### `§A.19b` — 🔴 a SECOND open section for this id — *"RE-FRAMED — vBTC IS TOKENIZED BAND DEPTH"*
+
+## 🔴 §A.19b RE-FRAMED — vBTC **IS** TOKENIZED BAND DEPTH. My distinction was incoherent (user, 2026-07-31)
+
+User: *"if it's a 4626 then the token balance is the shares. you cant say vBTC is transferrable then say
+the shares are not… vBTC represents a deposit in the band."* **Correct. Struck my §J.2c framing.**
+ • `VBtc` carries a 4626 face — `asset() → WBTC`, `convertToAssets(shares) => shares` (a pure identity,
+   vBTC IS sats). So **the token balance IS the share.**
+ • `Vault.exposeBtcToLev` mints it by RECLASSIFYING already-banked channel depth:
+   `levPooledBTC[lp] += sats` with **`LP.pooled` UNCHANGED** (single-count). ⇒ vBTC is not a separate
+   asset; it is a TOKENIZED SLICE OF THE LP'S OWN BAND DEPTH.
+⇒ Saying "vBTC transferable, band shares not" was incoherent — they are the SAME CLAIM at two layers.
+
+### ❌ CORRECTION — I claimed "swaps leave band shares untouched". WRONG.
+Swap-out DOES reach band depth via delivery-side de-lever — there is a test named
+`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`. So the mechanism for "a third party's redemption
+consumes an LP's levered slice" ALREADY EXISTS and is exercised. **§A.19b should be modelled on that
+path, not invented** — the question is only what authorises it for a bearer rather than a swapper.
+
+
+#### `§A.5f` — *"NOT a finish-the-partial. It is a NEW SECURITY SUBSYSTEM"* — scoping work, unmarked but plainly open
+
+## 🛑 §A.5f — NOT a "finish the partial". It is a NEW SECURITY SUBSYSTEM. Scoping before building.
+My earlier "PARTIAL" label was misleading, and acting on it would have been the mistake:
+ • **Landed:** the *timelocked withdrawal-recipient pin* (`Vogue.sol:225`) — a genuinely separate, small
+   control that happens to share the section number.
+ • **Missing:** *on-chain per-action delegation* — EIP-712 typed permissions, **scoped + capped + revocable**,
+   for the delegated strategy layer. Today the on-chain gates are only COARSE (`onlyUs`, `vogueSyncHook`,
+   `msg.sender == V4`), which say *"this exact contract"* — never *"this action, up to this size, until this
+   time, revocable"*.
+⇒ **That is a new authorisation surface on the money path, not a finishing touch.** Shipping it hastily is
+  precisely how a bug gets created.
+### ▶️ DO NOT HAND-ROLL — the EIP-712 machinery ALREADY EXISTS here
+`quid-hop/src/migration.rs` implements EIP-712 `MigrationAuth`: **Gnosis Safe as `verifyingContract`,
+≥`MIGRATION_THRESHOLD` owner signatures, `ecrecover` verified IN-ENCLAVE**, plus `guard_prod_trust_anchors`
+refusing prod while dev placeholder keys are compiled in. **§A.5f's `ActionAuth` should mirror that exact
+shape** — same domain-separator discipline, same threshold model, same anchor guard.
+⇒ It ALSO shares the shape `SweepAuth` needs (the deferred `create_sweep_tx` trigger). ⭐ **One typed-auth
+  primitive would serve §A.5f, `SweepAuth`, AND the destination allowlist's exemption** — three open items,
+  one mechanism. **Design it once, deliberately.**
+⚠️ Explicitly OUT of scope (by design, per the item): the optimal-entry ALPHA logic stays off-chain /
+  LP-discretionary, and the BTC path needs nothing — `lpAuth` is already `ecrecover` over
+  `BTCChannels.openChannelDigest`.
+
+
+
+⇒ **What is left in `QUEUE.md` that is not ✅/⛔ is EVIDENCE, not work**: `§UNIT-B` (a retrospective
+row), `§A.16` (*"DELIVERY IS FINE … #12 territory"*), `§SPLIT-WEIGHTS` (*"DECIDED"*), and the `§E2`
+/ `§E2-#1` measurement rows (`paid $50,000.00 → claim $49,999.999998`, `supply 462,378 vs dollars
+352,000`) — numbers in a results table, whose live successors moved with the sections above.
