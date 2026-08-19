@@ -4371,7 +4371,22 @@ curve is **NOT monotonic in runs**: 1→+68, 50→+107, 200→−74, 466→−14
 
 ### `§E270` (none)
 
-## §E270 — **`deltaTok` NAMES THREE DIFFERENT QUANTITIES, AND THE TWO BANDS RE-DERIVE `targetUSD` DIFFERENTLY**
+## §E270 — ⏸️ **NAMING HALF LANDED; THE `targetUSD` DIVERGENCE IS STILL OPEN**
+⏸️ **PARTLY LANDED.** The naming half is fixed, and the fix was smaller than this row assumed:
+**BTC WAS ALREADY CORRECT** — `addLiqChannel` keeps its request in `sats` and reassigns only
+`deltaTok`. Only ETH took `deltaTok` AS ITS PARAMETER and destroyed it, so past `sizeBySurplus` the
+requested amount existed nowhere in the frame. ETH now mirrors BTC (`wantTok` requested, `deltaTok`
+evolving) — which is why the three-name scheme proposed below was NOT used: matching the band that
+already had it right removes a divergence instead of adding a third convention. Verified build exit 0;
+the risk was stack depth (`QuidLib.addLiq` is documented as kept off the legacy-pipeline stack under
+`via_ir = false`, and preserving the request costs one slot) and it fits.
+🔴 **STILL OPEN — the substantive half, untouched:** the two bands re-derive `targetUSD` by DIFFERENT
+formulae after the theta clamp — ETH recomputes from the clamped amount (`QuidLib`), BTC rescales
+proportionally (`BtcLib`). Both stay within surplus, so this is not a solvency finding, but they agree
+only up to rounding and neither file says which is intended. **Classify as REAL or DRIFT before any
+band merge.** Same eight lines as §E272.
+
+### (original) `deltaTok` NAMES THREE DIFFERENT QUANTITIES
 🟡 OPEN — found 2026-08-19 (owner pointed at it; I had swept this file for duplication and missed it,
 because a repeated NAME is invisible to a duplicate-BODY scan).
 
