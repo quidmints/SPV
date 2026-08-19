@@ -2763,11 +2763,18 @@ the audit rather than trusting these seven to still be the whole set.
 
 ## MIGRATION GAP — rows still live in QUEUE.md that did NOT reach SPRINT.md (checked 2026-08-18)
 
-Method: all 148 identified 🔴 rows in `QUEUE.md` were matched against `SPRINT.md` by id AND by
-code-symbol. 120 matched by id; of the 28 that did not, most matched by SYMBOL (they migrated under
-different names — `§E257`, `§E258`, `E219`, `W1-sweep…` and others are all present). **Four did not
-match either way. Three are real and are reproduced below. `§A.59` was checked and is RESOLVED**
-(contradiction → resolved → corrected, evidenced live at `Vogue.sol:36` and `:483`) — historical.
+⚠️ **THE FIRST VERSION OF THIS SECTION UNDERSTATED THE GAP AND IS CORRECTED HERE.** It said
+"120/148 matched, three by hand". That id-matcher silently EXCLUDED 54 rows whose id is prose rather
+than a code (`FABRICATED CONSENSUS PARAMS`, `0.63% LP "leak"`, `§A.71`, …), and it ran against a
+figure taken before `QUEUE.md` was rewritten at Aug 18 00:11. A sample that agrees with a hypothesis
+is not the hypothesis verified — that error is the reason this paragraph exists.
+
+**RE-RUN with a matcher handling prose ids, `§`-refs and code symbols:** 203 open rows → **41 are
+table fragments** (bare numbers, tallies, comparison-table citations), **145 MATCHED** in
+`SPRINT.md`, **17 did not**. Of those 17, five are not items (a summary tally, an already-⛔
+`UNIT-B-VERIFIED`, three code-citation rows, one ether.fi contract). **~12 are real and unmigrated,
+listed below.** `§A.59` was checked separately and is RESOLVED (contradiction → resolved →
+corrected, evidenced live at `Vogue.sol:36` and `:483`) — historical.
 
 | id | item |
 |---|---|
@@ -3170,3 +3177,85 @@ is represented, so a shared *tick* representation is correct even though a share
 ⚠️ **METHOD:** I twice mis-scoped this integration by reading what Midnight IS (a lender ⇒ "rates")
 instead of what its code DOES (`priceToTick`, bounded at 1 ⇒ prices). **The identity of a protocol is
 not its coordinate system, and the signature is the authority over the category.**
+
+The remaining unmigrated items, beyond the three tabled above: **`E74`** 🔴🔴 (*"THE DELIVERY GAP IS
+LOCATED: PROCEEDS ARRIVE AT `Aux` A…"* — same family as the refill zero-return and the sUSDE
+valuation/delivery split), **`E82`** (the sell leg assumes a shed horizon we cannot observe — bears
+directly on E54's `q/flow` derivation), **`E51`** (*"I DESYNCED A MIRRORED CONSTANT ACROSS LANGUAGES
+AND NOTHING…"*), **`C1r`** (C1 residual, never verified, `SwapLib.sol:498`), **`C6–C9`** (seedFee
+clamp basis · ungated TWAP seam · stale read across), **`B4`** (stranding reproduced, see E7),
+**`FABRICATED CONSENSUS PARAMS`** (23 instances, 2 files), **`0.63% LP "leak"`** (a withdrawn ✅), and
+two docs carrying live opens with **0 mentions anywhere**: `IMPAIRMENT-DERISK-TRIGGER.md` and
+`PUPPETEER-E2E-MATRIX.md`.
+
+---
+
+## MIDNIGHT IS A DATED CREDIT BOOK, NOT A SPOT BOOK — read this before "band as an order-book slot"
+
+Owner proposed representing the band as a slot in the Morpho Midnight order book, with all `modLP`
+deltas flowing through it. **Checked against the vendored source, and the literal form does not
+work — but a strong variant does.**
+
+**WHAT MIDNIGHT ACTUALLY IS** (`evm/src/midnight/`, verified 2026-08-19):
+`Market { loanToken, collateralParams[] { token, lltv, liquidationCursor, oracle }, maturity,
+rcfThreshold, enterGate, liquidatorGate }`. `take()` computes `TickLib.tickToPrice(offer.tick)`, then
+`timeToMaturity`, `settlementFee`, `buyerPrice = sellerPrice + fee`, `units × price`. Surface is
+`supplyCollateral` / `withdrawCollateral` / `repay` / `liquidate` / `isHealthy` / `debt` / `credit`.
+
+⇒ **The tick prices a DATED CREDIT UNIT — a discount factor against `maturity` — not ETH/USD.**
+Our band is spot concentrated liquidity in `(usd, vol)`. There is no spot axis in this book to put a
+band on. `TickLib` staying in-tree is correct and is NOT tick residue from the Uniswap removal: it
+serves the credit path, where ticks are the actual model.
+
+**THE VARIANT THAT DOES COHERE — and it matches the recorded vintage design:** not the BAND as a
+slot, but **the LP's CLAIM on the band as `units` in a Midnight market**. Then:
+  · `modLP(int256 usd, int256 vol)` deltas become **unit issuance / redemption** — the delta is what
+    mints or burns the LP's dated claim.
+  · `TickLib.tickToPrice` prices that claim BY RATE — which is the fixed-rate guarantee that makes
+    resting lender deposits exist by construction rather than by hoping a floating market has depth.
+  · LP positions become tradeable WITH DURATION instead of being a share balance.
+
+🔴 **THREE THINGS THAT MUST BE TRUE, NONE OF THEM CHECKED. SETTLE (1) FIRST — if it fails, the
+mapping fails at the centre rather than at the edges:**
+ 1. **`(usd, vol)` must collapse to `units` of ONE `loanToken`.** A band delta carries BOTH legs; a
+    unit is one-dimensional. This is the crux.
+ 2. **`maturity`** — the band is perpetual, units are dated. Either LP claims acquire a tenor, or the
+    band needs rolling vintages.
+ 3. **`collateralParams[].oracle`** — Midnight needs a price source for whatever backs the units, and
+    `E222` says our ring currently records its own output.
+
+⚠️ Everything above the numbered list is MEASURED from the vendored source. The numbered list is
+reasoning, and this thread's record is that the reasoning half is the unreliable one.
+
+### 💡 OOR LIQUIDITY **IS A COVERED CALL** — the product the pieces already assemble into (owner, 2026-08-19)
+> *"covered call fulfilling outOfRange liquidity, earning expected volatility returns without the risk
+> of liquidation (skew plus lending weETH in excess of own IL protect tx) + etherfi yield"*
+
+**THE STRUCTURAL CLAIM, and it is exact rather than a metaphor:** a resting OOR order is a
+**pre-commitment to sell inventory you already hold at a strike**. That is a covered call — strike =
+the trigger price, premium = the skew. **No liquidation risk because nothing is borrowed**: the
+"cover" is the asset itself, which is what separates this from every levered vol-selling product.
+⇒ **"Expected volatility returns" is literal:** the skew is `Γ·σ²·q/(1−q)^ρ` + the σ²-free depletion —
+so the premium IS a variance-scaled charge. **We are already pricing the option; we have not been
+selling it as one.**
+
+**THREE YIELDS ON ONE ASSET — every leg already exists in `evm/src`:**
+| leg | what it is | present |
+|---|---|---|
+| **1. skew premium** | the option premium, paid by whoever takes the inventory | ✅ live in `_fillDelta` |
+| **2. weETH lent IN EXCESS of own IL-protect** | the collateral does double duty — only the slice the LP's own IL-protect does not need is lent | ✅ `supplyEtherFi` (7), lending venue (2), `ilTarget`/dynamic-α (11) |
+| **3. ether.fi restaking yield** | the base rate on the asset while it waits | ✅ `_supplyEtherFi` |
+⇒ **THE OOR ORDER IS NOT IDLE CAPITAL.** It earns the base yield while resting, lends its surplus
+collateral, and collects a variance-scaled premium for the strike it stands ready to fill at.
+
+▶️ **WHAT THIS MAKES OF `fillOOR` (§E258):** it stops being a liquidity chore and becomes the
+**exercise leg of a written call.** Same ladder, same `(triggerPrice << 96) | id` key, same in-swap
+loop cap — but the reason it must be reliable changes: **an unexercised written call that should have
+filled is a broken settlement, not a missed refill.**
+⚠️ **THE ONE THING TO SIZE BEFORE SELLING IT AS THIS:** leg 2 is bounded by *"in excess of own IL
+protect"*, and the IL-protect requirement MOVES with price (dynamic α = `1 − √(entry/now)`). **The
+lendable surplus is therefore not constant** — it shrinks exactly when price rises, which is when the
+call is most likely to be exercised. **Measure that interaction before quoting a yield.**
+📌 Ties to the standing tension already recorded: leverage amplifies LVR onto the SHARED surplus. This
+product does not — **it is unlevered by construction**, which is why it can be offered to depositors
+whose view is flat, where the lever is *"strictly a cost"*.
