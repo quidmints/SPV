@@ -2734,8 +2734,7 @@ permissionlessly.
 
 ⇒ **This is the WHY behind the `avgYield` work this thread spent days on** (§E155's dimensionless
 factor, §E190's tranche fix, §E196's unbuilt cross-sectional filter). Without it those read as
-accuracy chores rather than as making a vintage *definable*. **Nothing about Midnight is built, and
-no row anywhere tracks it.** It also frames §C10b: an ETH-denominated 6909 leg is part of this, not a
+accuracy chores rather than as making a vintage *definable*. 🔴 **CORRECTED 2026-08-19 — MORPHO MIDNIGHT IS VENDORED IN THE REPO AND I SAID IT WAS ABSENT.** `evm/src/midnight/` holds `Midnight.sol`, `libraries/` (Tick/Constants/Id/Events/SafeTransfer/Utils), `ratifiers/`, `interfaces/` and a README, plus `test/MidnightMsb.t.sol`. My earlier grep reported it absent — **the code was there the whole time.** ⇒ **The gap is INTEGRATION, not the vendoring:** nothing outside `src/midnight/` imports it, it is in **no deploy script**, and it references **none** of `avgYield` / 6909 / vintage / Basket / Quid — it is standalone Morpho code sitting beside the protocol. **What is missing is the SEAM**: the 6909 vintage definition (`avgYield` + upfront mint) that Midnight consumes as input. It also frames §C10b: an ETH-denominated 6909 leg is part of this, not a
 separate feature.
 
 ## C11. QUEUE.md rows that are STILL ACTIONABLE and had no home here — INDEX, not a copy
