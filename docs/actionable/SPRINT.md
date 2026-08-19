@@ -3259,3 +3259,27 @@ call is most likely to be exercised. **Measure that interaction before quoting a
 📌 Ties to the standing tension already recorded: leverage amplifies LVR onto the SHARED surplus. This
 product does not — **it is unlevered by construction**, which is why it can be offered to depositors
 whose view is flat, where the lever is *"strictly a cost"*.
+
+### 🔁 FOLD `fillOOR` INTO `rebalanceCore` — **so it is never explicitly called** (owner, 2026-08-19)
+**TODAY:** `Quid.sol:1121` — `function fillOOR(uint id) external nonReentrant`. Built, but it must be
+POKED, per id. That is a liveness dependency on somebody remembering, which is the same shape as the
+refill keeper that dissolved.
+**HOST: `SwapLib.rebalanceCore` (`:2164`)** — and it is the right one for a reason beyond convenience:
+| why | detail |
+|---|---|
+| **it already runs on every swap** | repack-first, 2 call sites — `QuidLib:390`, `BtcLib:490` |
+| **it already has the price bounds** | `rebalanceCore(v4, aux, asset, upPrice, loPrice)` — `upPrice`/`loPrice` are exactly what decides whether a resting trigger has been crossed. **Nothing new to pass** |
+| **it already returns a settlement struct** | `Rebalanced memory r` — fills fold into the same return rather than a second write path |
+⇒ **AN OOR ORDER THEN FILLS AS A SIDE EFFECT OF TRAFFIC**, exactly as the refill does: the swap that
+crosses the strike is the swap that exercises it. **No keeper, no poke, no id to remember.**
+⭐ **AND IT IS THE COVERED-CALL EXERCISE MADE AUTOMATIC** — an written call must fill when the strike
+is crossed, not when someone calls a function. Leaving it explicit means an unexercised call is a
+BROKEN SETTLEMENT that nobody notices; folding it makes exercise a property of price movement.
+⚠️ **CARRY BOTH TRAPS FROM §0-BUILD INTO THE FOLD, they do not disappear:**
+① the key stays `(triggerPrice << 96) | id` — **never the bare price** — because `SortedSetLib.insert`
+**silently ignores duplicates**, so two triggers at one strike would collapse into one;
+② **CAP THE IN-SWAP LOOP.** Unbounded, the swapper who happens to cross a deep ladder pays everyone
+else's exercise gas — that is the grief the standalone poke existed to avoid. **The cap is what keeps a
+permissionless backstop necessary**: whatever the cap leaves, `fillOOR` (or `reseat`) drains.
+📌 **CONSISTENT WITH THE PATTERN THAT KEEPS WORKING HERE:** repack-first + a permissionless drain,
+paid by the traffic that caused the work — the same shape that made the refill trigger need no keeper.
