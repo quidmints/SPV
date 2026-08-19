@@ -15331,3 +15331,47 @@ answer is "either, they differ by ≤1 wei", write THAT down — an unexplained 
 is exactly the kind of thing a later reader hardens the wrong way.
 ⇒ Cheap first step regardless: give the three states three names (`wantTok` / `sizedTok` / `finalTok`).
 The rename costs nothing at runtime (locals) and makes the audit question expressible at all.
+
+## §E271 — 🔴 **THE THETA POLICY CLAMP DOMINATES THE SOLVENCY CLAMP, SO THE SOLVENCY BOUND NEVER BINDS**
+🔴 OPEN — found 2026-08-19 from the owner's standing challenge that a clamp may be a workaround, or may
+constrain needlessly. Two of the three bounds on an `addLiq` are legitimate and independent; the third
+SWALLOWS one of them.
+
+**The three bounds, and they are NOT redundant with each other:**
+| bound | source | class |
+|---|---|---|
+| `sizeBySurplus` | `deposits[14] − committedUsd18()` | basket-wide **USD solvency** |
+| `clampByBacking`'s headroom | `backing − pooled` (this band) | band **physical solvency** |
+| `applyTheta` | `θ·backing − pooled` | **POLICY** risk budget |
+The first two read different sources — basket USD vs this band's token headroom — and violating either
+is SILENT (numbers reconcile until redemption), so both earn their place under standing rule 3. **The
+double clamp is not a workaround; I expected it to be one and the code does not support that.**
+
+🔴 **BUT `clampByBacking` FUSES THE SECOND AND THIRD, AND THE THIRD ALWAYS WINS:**
+```solidity
+available = backing > pooled ? backing - pooled : 0;   // physical
+available = applyTheta(thetaEff, backing, pooled, available);
+return want < available ? want : available;            // => min(want, backing−pooled, θ·backing−pooled)
+```
+`applyTheta` returns `available` untouched only when `thetaEff >= 1e18`. Otherwise it returns
+`min(available, θ·backing − pooled)`. **Since θ ≤ 1e18, `θ·backing − pooled ≤ backing − pooled` for all
+inputs** ⇒ **the physical headroom term is UNREACHABLE for every θ < 1**, and binds only at exactly
+θ == 1e18, where the theta branch is skipped entirely.
+
+⇒ **THREE CONSEQUENCES, and the third is the one that bites.**
+1. Every throttle observed in practice is the POLICY knob. The solvency bound it shadows has, in effect,
+   never executed — it is untested by construction, not by omission of tests.
+2. A misconfigured or stale `θ` silently throttles adds in a way **indistinguishable at the call site
+   from running out of backing**: the caller sees `capped < deltaTok` and cannot tell which bound bit.
+   That is the exact false-positive shape the owner's challenge names.
+3. The comment above the call presents physical headroom as the primary principle — *"ONE principle
+   (`SwapLib.clampByBacking`): physical backing HEADROOM (backing − pooled) AND the theta risk-budget"*
+   — which reads as two peers. They are not peers; one dominates the other unconditionally.
+
+⇒ **DO NOT "FIX" THIS BY DELETING THE PHYSICAL BOUND.** It is the SOLVENCY invariant and θ is a tunable;
+deleting the invariant because a policy currently hides it is how a knob turned to 1e18 becomes an
+over-commit. The root move per rule 17 is to stop FUSING them: return WHICH bound bit (or split into
+`solvencyCap()` and `thetaCap()` and let the caller take the min), so a policy throttle is observable as
+a policy throttle. Then the solvency bound can finally be tested at θ = 1e18.
+⚠️ Related, same function: §E270 — the two bands re-derive `targetUSD` differently after this clamp.
+Settle both together; they are the same eight lines.
