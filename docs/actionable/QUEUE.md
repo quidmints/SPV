@@ -15174,7 +15174,34 @@ CONSTRAINS; it does not CREATE a profile. Without a matching
 settings restrictions for src/imports/Midnight.sol"*. Landing the first without the second broke `main`
 once already (fixed in `de5b65fa`). Keep them in sync — same `via_ir`, same `optimizer_runs`.
 
-## §E268 — **THE TWO OOR FILL TRIGGERS READ DIFFERENT PRICES; THE DEFERRED ONE IS TWAP-LAGGED**
+## §E268 — ⛔ **RETRACTED THE SAME DAY: IT DESCRIBED UNCOMMITTED CODE, NOT THE REPOSITORY**
+⛔ **RETRACTION (2026-08-19, by its author).** Everything below was read out of the SHARED CHECKOUT'S
+WORKING TREE, not out of any commit. Measured after the fact:
+```
+                 BandLib.fillOne   Core.sweepOor
+  de5b65fa             0                0
+  3aa89b6f             0                0
+  origin/main          0                0
+  working tree         1                2      <- the only place it exists
+```
+`fillOne`, `NotTouched`, `oorTrigger`, `Core.sweepOor` and the `Vault.sweepOor` stub are ANOTHER
+THREAD'S IN-FLIGHT WORK. So the "two triggers read different prices" finding is not a property of this
+codebase; it is a comment on a draft, published as if it were a defect in `main`.
+⚠️ **AND THE DRAFT HAD ALREADY MOVED PAST IT.** `4c111fa8` — *"Fold `fillOOR` into `rebalanceCore` so
+exercise is a property of price, not of a poke"* — addresses the poke directly, and `cedcb061`
+corrects its own trigger design again. I reported a seam in a design whose author was two steps ahead.
+⇒ **THE PROCESS FAILURE, WHICH IS THE ONLY DURABLE PART OF THIS ROW:** I answered a question about
+whether a feature had LANDED by reading `src/*.sol` with `sed`/`grep` in a checkout I already knew
+carried 16 files of someone else's uncommitted work — the trap this very session had already written
+up twice (§E265: a green working tree over a red branch; §E264: an unattributable size reading).
+**"Did it land" is a question about COMMITS. Answer it with `git show <ref>:<path>`, never by reading
+the file.** The distinction is invisible to `grep` and it flipped the entire conclusion.
+⇒ Nothing below is actionable against `main`. Whatever survives belongs to whoever owns the OOR work,
+and they are already tracking it in `SPRINT.md`. Retained only as the worked example above.
+
+<details><summary>original row, describing uncommitted code — do not act on it</summary>
+
+### (retracted) THE TWO OOR FILL TRIGGERS READ DIFFERENT PRICES
 🟡 OPEN — found 2026-08-19 answering "does the market ever jump straight past a band into out-of-range,
 and did those features land?" The answer is YES on the ETH band and the mechanism is right; this is the
 seam inside it.
@@ -15215,3 +15242,5 @@ a `deliverVolatile` that returns 0 and the fill would BURN it. Stays zero "until
 attributes the off-chain fill channel". ⇒ **A BTC OOR order can be CREATED (`outOfRangeBtc`) but can
 never be FILLED.** That asymmetry is intended today; it is listed here so it is not mistaken for drift,
 and so that whoever builds native delivery knows this is one of its dependants.
+
+</details>
