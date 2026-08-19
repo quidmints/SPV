@@ -3423,3 +3423,36 @@ still prices the fill.** What goes is the CAP, the KEEPER, the VENUE and the RES
 three clamp sites; (b) make "cannot cover this swap" the fill predicate at the `_handleDelta` seam,
 where `fillOOR` was already folded (`4c111fa8`); (c) re-audit the four refill primitives — under this
 design `refillPlacement` and `proRataShortfall` may have no job at all.
+
+### 🔴 §E241-obsidx — **`OBS_POOL_IDX` IS A CONSTANT TIED TO A DELETED POOL'S COIN ORDER, AND IT FAILS SILENTLY**
+Found while scrubbing TriCrypto prose. **It is not prose — it is live, on the swap path, on both
+instances.** `Core.sol:1309`: `uint256 internal constant OBS_POOL_IDX = 1;`
+
+**THE THREE FACTS THAT COMBINE:**
+1. **THE POOL IS A RUNTIME VARIABLE, THE INDEX IS A COMPILE-TIME CONSTANT.**
+   `setObservationSource(address src)` (`:1310-1314`) lets DEPLOYER pin **any** address, once, with
+   **no validation of its coin layout**. The index that reads it is frozen at `1`.
+2. **`1` IS ONLY CORRECT FOR TRICRYPTO'S ORDERING** — `USDC=0, WBTC=1, WETH=2`, so `price_oracle(1)`
+   = WETH/USDC (`:1305-1308`, `ExternalTwap.sol:58-60`). **Pin a pool ordered differently and the read
+   SUCCEEDS and returns the wrong pair.**
+3. **EVERY FAILURE MODE IS SILENT BY DESIGN.** `:1348-1350` is a raw `staticcall` with
+   `if (!ok || out.length < 32) return;` — deliberate, and correct for liveness (*"an oracle outage
+   would turn every swap and repack into a revert"*). ⇒ **But a WRONG-PAIR read does not fail at all.
+   It returns a valid number for the wrong asset**, and this feeds `_writeObservationPrice` → the
+   deviation check against Chainlink.
+⇒ **THE FILE ALREADY MEASURED THIS EXACT FAILURE AND KEPT THE CONSTANT: `price_oracle(0)` =
+$64,280.15 vs `price_oracle(1)` = $1,906.53 — "a 34x error that reverts nothing".** The comment records
+the near-miss; the design that permitted it is unchanged.
+
+⚠️ **AND THE CONSTANT IS SHARED BY BOTH `Core` INSTANCES.** `DeployLib.sol:136-137` builds
+`new Core(cfg.weth, …)` and `new Core(cfg.wbtc, …)` from one bytecode, so **the BTC band would also
+read slot 1 = WETH/USDC.** Latent today only because BTC deliberately pins nothing (`:1298-1302`:
+*"we cannot observe BTC independently, so we do not pretend to"*). **It ARMS the moment anyone
+honours the `▶️ If a wrapper-free BTC source ever exists it is pinned HERE` note** — the index does
+not move with the source, and nothing says so at the setter.
+
+▶️ **FIX (do not hardcode a new number — that reproduces the bug against a different pool):** pin the
+index **WITH** the address in the same setter, or derive it by reading `coins(k)` and matching this
+instance's own `asset()`. **The invariant is that the index and the pool cannot diverge**, which today
+they structurally can. ⚠️ **Whatever replaces the source, it is NOT TriCrypto** (owner, 2026-08-19:
+*"no tricrypto at all"*), so the ordering CANNOT be assumed — which is the whole finding.
