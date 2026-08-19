@@ -3380,3 +3380,46 @@ the skew is derived from the spread.**
 ANSWER.** Run it against whatever route replaces TriCrypto **before** wiring the refill: if
 `premium < cost` there, the choice is a cheaper route or an explicit LP-funded restoration — **not a
 bigger constant**, since the venue ceiling bounds the premium from above regardless.
+
+## ⭐⭐ THE REFILL IS NOT AN ACTION WE TAKE — THE SOLVER ROUTES THE PART WE DECLINE (owner, 2026-08-19)
+> *"refill only when not enough in the pool to cover a swap, paid against 1inch (routes the swap) and
+> rebalances the pool. so a keeper is not needed"*
+
+**THIS DISSOLVES THE THREE THINGS THIS THREAD HAS BEEN BLOCKED ON, AND IT DELETES RATHER THAN ADDS.**
+Confirmed in code, not reasoned: `Interfaces.sol:106` — *"**1inch resolves routes OFF-CHAIN**, so
+routing through it forces a `bytes route` argument"* — and `Aux.sol:663`, the solver-facing quote is
+already `base·(1 − wellSkew(asset, size))`. ⇒ **WE NEVER CALL A VENUE. The solver arrives with a price
+it has ALREADY COMMITTED (`Core.sol:1232`), fills what our inventory covers at our skewed quote, and
+routes the remainder itself.** The "refill" is the solver's own routing decision.
+
+| the question this thread kept asking | the answer under this design |
+|---|---|
+| when does the refill trigger? | **when inventory cannot cover THIS swap** — not a clock, not a threshold, not end-of-block |
+| who spent what to rebalance? | **the solver**, off-chain, with its own routing |
+| how did they afford it? | **not our problem** — it committed a price before it reached us |
+| which venue restores the volatile leg? | **NONE. There is no on-chain restoration.** |
+| who runs it? | **nobody — a keeper is not needed** (owner). It is inline in the swap. |
+
+🔴 **THREE LANDED CONCLUSIONS ARE NOW REFUTED, ALL IN THE SAME DIRECTION — I WAS SOLVING A PROBLEM THAT
+DOES NOT EXIST:**
+1. ⛔ **THE 48× SHORTFALL IS MOOT** (recorded `1cf471af`, hours old). It priced a *restoration spread we
+   pay*. **We pay none.** The premium does not have to cover a venue's cost because we never touch a
+   venue. ⚠️ **The finding was arithmetically right and about the wrong system.**
+2. ⛔ **THE "VOLATILE ROUTE" IS A NON-REQUIREMENT, NOT A BLOCKER.** `LevMath.sol:341` still says *"no
+   replacement is wired"* as though a gap were open. **For the REFILL there is nothing to wire.**
+   (⚠️ **The LEVER is a separate consumer and may still need one — do not read this as closing that.**)
+3. ⛔ **`MAX_WELL_SKEW` AS A CAP IS REDUNDANT WITH A REAL MECHANISM.** If our quote gets expensive the
+   solver simply routes MORE of the order elsewhere — **the market caps the premium, continuously and
+   by construction.** A 3% constant is a hand-rolled version of what the counterparty already does.
+   ⇒ **This is standing rule 17 exactly: the root fix makes the clamp DELETABLE.** And the file already
+   confessed the circularity — *"Γ ≡ MAX_WELL_SKEW EXACTLY. It was the cap under a second name… the
+   whole curve has ONE number in it, the cap, and it appears twice."* **A cap the curve is CALIBRATED
+   TO LAND ON was never a safety limit.**
+
+📌 **WHAT SURVIVES, AND IT IS THE PART THAT WAS ALWAYS LOAD-BEARING:** Γ (the A-S risk-aversion scale),
+the σ² adverse-selection kernel, the σ²-free depletion term, and the exhaustion predicate. **The skew
+still prices the fill.** What goes is the CAP, the KEEPER, the VENUE and the RESTORATION LEDGER.
+▶️ **NEXT (in this order, because each shrinks the next):** (a) separate Γ from the cap and delete the
+three clamp sites; (b) make "cannot cover this swap" the fill predicate at the `_handleDelta` seam,
+where `fillOOR` was already folded (`4c111fa8`); (c) re-audit the four refill primitives — under this
+design `refillPlacement` and `proRataShortfall` may have no job at all.
