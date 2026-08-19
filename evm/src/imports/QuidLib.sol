@@ -311,13 +311,19 @@ library QuidLib {
     //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Quid
     //  forwarder. Byte-identical to the in-Quid body.
     // ════════════════════════════════════════════════════════════════════
-    function addLiq(address core, address aux, uint deltaTok, uint price, uint grossBuffer)
+    /// @dev §E270 — `wantTok` is the REQUESTED amount and is never written; `deltaTok` is the evolving
+    ///      one (surplus-sized, then theta/backing-capped). This MIRRORS THE BTC SIDE, which already
+    ///      kept its request in `sats` and reassigned only `deltaTok` — so this removes an ETH/BTC
+    ///      divergence rather than inventing a third convention. Before it, the ETH PARAMETER was the
+    ///      thing overwritten, so past the `sizeBySurplus` call the requested amount existed nowhere in
+    ///      the frame and "asked for vs given" was unanswerable inside this function.
+    function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
         (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
         uint committedBoth = ICore(core).committedUsd18();
-        uint targetUSD; uint surplus;
+        uint deltaTok; uint targetUSD; uint surplus;
         (deltaTok, targetUSD, surplus) =
-            SwapLib.sizeBySurplus(deposits[14], committedBoth, deltaTok, price);
+            SwapLib.sizeBySurplus(deposits[14], committedBoth, wantTok, price);
         if (surplus == 0) return (0, 0);
 
         // ETH: bandETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
