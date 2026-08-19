@@ -15292,3 +15292,42 @@ curve is **NOT monotonic in runs**: 1→+68, 50→+107, 200→−74, 466→−14
    centred at 0.5 on (0,1). So equal tick steps are equal RELATIVE moves in the discount:premium ratio
    — roughly equal yield increments at par and near zero alike. That is why a dated claim fits the grid
    natively, and it is a stronger statement than "the coordinate systems are shared".
+
+## §E270 — **`deltaTok` NAMES THREE DIFFERENT QUANTITIES, AND THE TWO BANDS RE-DERIVE `targetUSD` DIFFERENTLY**
+🟡 OPEN — found 2026-08-19 (owner pointed at it; I had swept this file for duplication and missed it,
+because a repeated NAME is invisible to a duplicate-BODY scan).
+
+**One identifier, three meanings.** `SwapLib.sizeBySurplus(liquidTotal, committedBoth, deltaTok, price)`
+takes `deltaTok` = the amount REQUESTED and returns `deltaOut` = the amount COMMITTED, which differ
+whenever `targetUSD > surplus`. Both callers bind that return back onto the name `deltaTok`:
+```
+QuidLib:314  function addLiq(..., uint deltaTok, ...)          <- parameter: REQUESTED
+QuidLib:319  (deltaTok, targetUSD, surplus) = SwapLib.sizeBySurplus(..., deltaTok, price);
+                                                                <- now: SURPLUS-CLAMPED
+QuidLib:339  deltaTok = capped;                                 <- now: THETA-CLAMPED
+BtcLib:108   (uint deltaTok, ...) = SwapLib.sizeBySurplus(...)  <- same shadowing, fresh decl
+BtcLib:113   ... deltaTok = capped;
+```
+⇒ **On the ETH side the PARAMETER is destroyed at `:319`** — after that line the requested amount does
+not exist anywhere in the frame, so nothing downstream can audit "how much was asked for vs given".
+⚠️ This is the `isBTC`-family hazard in its subtlest form: same name, different quantity, discriminated
+only by WHICH LINE you are on. It is also why the duplication census missed it — that scan hashes
+function BODIES, and this is one name reused across three states, not one body written twice.
+
+🔴 **AND THE TWO BANDS RE-DERIVE `targetUSD` BY DIFFERENT FORMULAE AFTER THE THETA CLAMP:**
+| band | line | after `capped < deltaTok` |
+|---|---|---|
+| ETH | `QuidLib:340` | `targetUSD = fullMulDiv(deltaTok, price, WAD)` — **recomputed** from the clamped amount |
+| BTC | `BtcLib:113` | `targetUSD = targetUSD * capped / deltaTok` — **proportionally rescaled** |
+
+Both are monotone-decreasing in the clamp and both stay ≤ `surplus`, so neither over-commits — this is
+NOT a solvency finding. But they are two different computations of one quantity and they agree only up
+to rounding: the recompute floors `capped·price/WAD`, the rescale floors `targetUSD·capped/deltaTok`,
+and when `sizeBySurplus` already clamped `targetUSD` to `surplus` these are floors of different
+expressions. **Nothing in either file says which is intended.**
+⇒ **CLASSIFY BEFORE THE BAND MERGE.** Per the standing rule that every ETH/BTC asymmetry is REAL or
+DRIFT before anything merges: decide which formula is correct, make both use it, and say why. If the
+answer is "either, they differ by ≤1 wei", write THAT down — an unexplained divergence in a sizing step
+is exactly the kind of thing a later reader hardens the wrong way.
+⇒ Cheap first step regardless: give the three states three names (`wantTok` / `sizedTok` / `finalTok`).
+The rename costs nothing at runtime (locals) and makes the audit question expressible at all.
