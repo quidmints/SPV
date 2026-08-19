@@ -15173,3 +15173,45 @@ CONSTRAINS; it does not CREATE a profile. Without a matching
 `[[profile.default.additional_compiler_profiles]]` the build fails with *"Missing profile satisfying
 settings restrictions for src/imports/Midnight.sol"*. Landing the first without the second broke `main`
 once already (fixed in `de5b65fa`). Keep them in sync — same `via_ir`, same `optimizer_runs`.
+
+## §E268 — **THE TWO OOR FILL TRIGGERS READ DIFFERENT PRICES; THE DEFERRED ONE IS TWAP-LAGGED**
+🟡 OPEN — found 2026-08-19 answering "does the market ever jump straight past a band into out-of-range,
+and did those features land?" The answer is YES on the ETH band and the mechanism is right; this is the
+seam inside it.
+
+**The jump case itself is handled, and correctly.** `Core.sol:872` runs `BAND.sweepOor(px,
+MAX_FILLS_PER_SWAP)` after settlement on every swap, and its comment states the reason: *"Under v4 the
+PoolManager did this as part of any swap through the range; `FixedRateFill` has one price and no
+traversal, so without this a boundary order is an option its owner must exercise rather than the limit
+order it was sold as."* With no traversal there is no tick walk, so the fill test is a THRESHOLD on the
+current price (`BandLib:293`, `p.usdFunded ? px > p.upper : px < p.lower` reverts `NotTouched`), not a
+record of having passed through. ⇒ **A gap that skips the whole range still leaves the order fillable.**
+
+🔴 **BUT THE AUTOMATIC AND MANUAL TRIGGERS DO NOT READ THE SAME PRICE:**
+| trigger | price |
+|---|---|
+| swap-path sweep, `Core.sol:872` | `px` — the swap's own post-settlement price |
+| permissionless poke, `BandLib.fillOOR` | `IAux(aux).getTWAPforAsset(asset, **1800**)` — a 30-min TWAP |
+
+`MAX_FILLS_PER_SWAP` DEFERS every order past the cap, and the deferred ones are then gated behind a
+30-minute average rather than the price that actually crossed them. On a genuine gap the swap that
+caused it fills the first N instantly; the remainder cannot be poked until the TWAP catches up.
+⇒ `sweepOor`'s docblock calls the permissionless poke **"a liveness requirement, not a convenience"** —
+true, but the liveness it delivers is TWAP-LAGGED, which the cap's comment does not say. Decide whether
+that lag is intended (it does blunt single-block manipulation of a fill trigger) or an oversight; if
+intended, say so where the cap is documented, because the next reader will read "liveness" as "prompt".
+
+⚠️ **AND A GAP IS EXACTLY WHERE THE UNDECIDED ECONOMICS BITE.** `oorTrigger` returns the order's own
+edge, so a fill settles **at the order's limit price, not the band's** — and `fillOne`'s docblock says
+where that difference accrues *"is NOT decided here, on purpose"*, being the same question as
+`FixedRateFill`'s two suppliers, to be settled with #12. A shallow crossing makes that difference
+rounding; **a gap makes it the entire trade.** Whoever settles #12 should size it against a gap, not a
+crossing.
+
+**BTC side is deliberately absent, not missing** (`Vault.sol:707` `sweepOor` returns 0; BTC orders are
+not indexed into `oorBook`, `BtcLib.sol:319`). Reason recorded there: this band has no on-chain BTC
+delivery — settlement is a Lightning cooperative close — so `Core._handleDelta` hands the filled leg to
+a `deliverVolatile` that returns 0 and the fill would BURN it. Stays zero "until native delivery
+attributes the off-chain fill channel". ⇒ **A BTC OOR order can be CREATED (`outOfRangeBtc`) but can
+never be FILLED.** That asymmetry is intended today; it is listed here so it is not mistaken for drift,
+and so that whoever builds native delivery knows this is one of its dependants.
