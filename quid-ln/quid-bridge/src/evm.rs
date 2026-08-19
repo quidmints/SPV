@@ -75,7 +75,10 @@ pub trait ProvenSwapInSettler: Send + Sync + 'static {
         &self,
         seller: Address,
         token: Address,
-        min_delivered_usd: U256,
+        // (§T2) The RATE, not the floor: the contract derives the floor from this and the
+        // SPV-proven sats, so no floor crosses the wire for anyone to substitute.
+        price_per_btc: U256,
+        slippage_bps: u16,
         user_refund: [u8; 32],
         cltv_height: u32,
         inclusion: &quid_hop::evm_codec::TxInclusion,

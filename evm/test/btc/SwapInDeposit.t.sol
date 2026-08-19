@@ -34,16 +34,20 @@ contract SwapInDepositTest is Test {
 
     /// (§T2) The swap's ECONOMIC TERMS, now committed into the deposit address itself.
     function _terms() internal pure returns (Types.Terms memory) {
-        return Types.Terms({ seller: address(0xA1), token: address(0xB2), minDeliveredUsd: 1_500_000 });
+        return Types.Terms({
+            seller: address(0xA1), token: address(0xB2),
+            pricePerBtc: 50_000 * 1_000_000,   // $50k/BTC in 6-dec stable units
+            slippageBps: 100
+        });
     }
 
     /// (§T2) The deposit output key for (INTERNAL, terms, REFUND, CLTV) — computed in Python
     /// directly from BIP-341, with the `PUSH32 <termsCommitment> OP_DROP` prefix on the leaf.
     bytes32 constant EXPECTED_Q =
-        bytes32(0xcd5f8505d5404088c26ea8f237bc8479ff326a8dabd258e6b8672c9c76bf66c6);
+        bytes32(0xe74702c761ab3b61649eedb86bb4d8f5f7dfc84873e5096862b17fe08e69640d);
     /// The terms commitment those fixture terms hash to.
     bytes32 constant TERMS =
-        bytes32(0xa96ad576c2997494f5819848b392d6c312c02ee52ec7a0c3f3d5ae6d613a86fc);
+        bytes32(0x2bee02db2d398b3ab09a19df114e0fadbeeae271253976cf3892be21f328178c);
     /// 🔑 **THE CONTROL, AND IT IS WHY THIS RE-DERIVATION IS CHECKABLE RATHER THAN GUESSED.** This
     /// is the address the SAME fixture derived BEFORE the terms prefix existed — the value this
     /// file pinned until §T2. Any reimplementation of the leaf must still reproduce it with the
@@ -125,16 +129,21 @@ contract SwapInDepositTest is Test {
     /// address the deposit never paid and `verifySwapInDeposit` reverts.
     function test_substitutedTermsDeriveADifferentAddress() public {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
-        Types.Terms memory worseFloor =
-            Types.Terms({ seller: address(0xA1), token: address(0xB2), minDeliveredUsd: 1 });
+        Types.Terms memory worseRate = Types.Terms({
+            seller: address(0xA1), token: address(0xB2),
+            pricePerBtc: 1 * 1_000_000,   // quote the seller $1/BTC instead of $50k
+            slippageBps: 100
+        });
         vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, worseFloor, REFUND, CLTV, _depositTx(spk, 1_500_000));
+        ExitLib.verifySwapInDeposit(INTERNAL, worseRate, REFUND, CLTV, _depositTx(spk, 1_500_000));
     }
 
     function test_aDifferentSellerDerivesADifferentAddress() public {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
-        Types.Terms memory otherSeller =
-            Types.Terms({ seller: address(0xA2), token: address(0xB2), minDeliveredUsd: 1_500_000 });
+        Types.Terms memory otherSeller = Types.Terms({
+            seller: address(0xA2), token: address(0xB2),
+            pricePerBtc: 50_000 * 1_000_000, slippageBps: 100
+        });
         vm.expectRevert(ExitLib.DepositNotPaid.selector);
         ExitLib.verifySwapInDeposit(INTERNAL, otherSeller, REFUND, CLTV, _depositTx(spk, 1_500_000));
     }
@@ -142,6 +151,15 @@ contract SwapInDepositTest is Test {
     /// The commitment is the documented hash of the documented fields — pinned so a change to
     /// either the field order or the hash function is caught here rather than by an address that
     /// silently stops matching.
+    /// 🔑 (§T2) THE FLOOR IS DERIVED, SO THERE IS NOTHING FOR A HOP TO SUBSTITUTE. It used to be
+    ///    calldata — a hop could quote the seller one floor and settle against another. Now the
+    ///    address commits the RATE and the chain applies it to SPV-proven sats.
+    ///    1,500,000 sats × $50,000/BTC ÷ 1e8 = $750.00; less 100 bps = $742.50 (6-dec).
+    function test_theFloorIsDerivedFromTheCommittedRate() public view {
+        assertEq(ExitLib.settleFloorUsd(_terms(), 1_500_000), 742_500_000, "floor = sats*price/1e8, less slippage");
+        assertEq(ExitLib.settleFloorUsd(_terms(), 0), 0, "no sats, no floor");
+    }
+
     function test_termsCommitmentIsPinned() public view {
         assertEq(ExitLib.termsCommitment(_terms()), TERMS, "terms commitment vector");
         assertTrue(EXPECTED_Q != Q_WITHOUT_TERMS, "the prefix must move the address");

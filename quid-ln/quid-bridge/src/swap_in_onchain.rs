@@ -140,6 +140,17 @@ pub fn cltv_headroom_ok(cltv: bitcoin::absolute::LockTime, best_height: u32) -> 
 /// The settle floor for a deposit of `actual_sats`, at the hop's stored quote. Computed
 /// from the ACTUAL deposited amount, not the quote — so the USD delivered tracks the BTC
 /// received (under-payment ⇒ less USD, never free USD).
+/// (§T2) The terms commitment this swap's deposit address is derived from. ONE function, so the
+/// address the seller is told and the leaf the hop later claims through cannot drift apart.
+pub fn swap_terms(swap: &OnchainSwapIn) -> [u8; 32] {
+    quid_hop::swap_in_onchain::terms_commitment(
+        swap.seller.into(),
+        swap.token.into(),
+        swap.price_per_btc.to_be_bytes(),
+        swap.slippage_bps,
+    )
+}
+
 pub fn settle_floor(swap: &OnchainSwapIn, actual_sats: u64) -> U256 {
     swap_in_floor_usd(actual_sats, swap.price_per_btc, swap.slippage_bps)
 }
@@ -192,7 +203,9 @@ pub fn decide_deposit<E: ProvenSwapInSettler>(
     let outcome = evm.settle_swap_in_proven(
         swap.seller,
         swap.token,
-        floor,
+        // (§T2) The rate the deposit address commits to — the contract derives the floor itself.
+        swap.price_per_btc,
+        swap.slippage_bps,
         swap.user_refund.serialize(),
         cltv_height,
         inclusion,
@@ -335,8 +348,11 @@ async fn broadcast_claim(
         }
     };
     let claim = build_claim_tx_with_refund(deposit.outpoint, deposit.value, fee, dest_spk, refund);
+    // (§T2) The claim spends by KEY PATH, but the spend-info it needs is derived from the tree —
+    // so it must rebuild the SAME leaf the deposit address committed, terms prefix included. Get
+    // this wrong and the hop cannot claim a deposit that is sitting there, correctly paid.
     let signed = sign_claim(
-        &secp, master, swap.user_refund, swap.cltv, claim, &deposit_txout,
+        &secp, master, swap.user_refund, swap.cltv, claim, &deposit_txout, swap_terms(swap),
     )
     .map_err(|e| anyhow::anyhow!("sign claim: {e:?}"))?;
     esplora.client().broadcast(&signed).await.context("broadcast key-path claim")?;
@@ -477,6 +493,9 @@ mod tests {
             hop,
             usr,
             LockTime::from_height(cltv_height).unwrap(),
+            // (§T2) A fixed vector: these tests assert registry/claim behaviour, not the
+            // commitment itself, which is pinned cross-language in `SwapInDeposit.t.sol`.
+            [0u8; 32],
         )
         .unwrap();
         OnchainSwapIn {
@@ -534,7 +553,8 @@ mod tests {
             &self,
             _seller: Address,
             _token: Address,
-            min_delivered_usd: U256,
+            price_per_btc: U256,
+            _slippage_bps: u16,
             _user_refund: [u8; 32],
             _cltv_height: u32,
             _inclusion: &TxInclusion,
@@ -543,7 +563,9 @@ mod tests {
         ) -> anyhow::Result<SettleOutcome> {
             self.calls.set(self.calls.get() + 1);
             self.seen_sats.set(deposited_sats);
-            self.seen_floor.set(min_delivered_usd);
+            // (§T2) The floor is no longer sent — it is derived on-chain — so what this double
+            // can still witness is the RATE the settle was made against.
+            self.seen_floor.set(price_per_btc);
             self.seen_txid.set(deposit_txid);
             Ok(self.outcome)
         }
@@ -570,9 +592,17 @@ mod tests {
         let evm = FakeEvm::new(SettleOutcome::Delivered { consumed_sats: 40_000_000 });
         let act = decide_deposit(&evm, &swap, &deposit, 700_000, &an_inclusion()).unwrap(); // tip far below cltv → ample headroom
         assert_eq!(act, Some(OnchainAction::Claim { refund_sats: 0 }), "full fill ⇒ take the whole deposit");
-        // settled against the ACTUAL 0.4 BTC, not a quote — floor = 0.4*50k*(1-1%) = $19,800.
+        // Settled against the ACTUAL 0.4 BTC, not a quote.
         assert_eq!(evm.seen_sats.get(), 40_000_000);
-        assert_eq!(evm.seen_floor.get(), U256::from(19_800u64) * U256::from(1_000_000u64));
+        // (§T2) ⚠️ **THIS ASSERTION MOVED ON-CHAIN AND IS DELIBERATELY WEAKER HERE.** It used to
+        // pin the FLOOR the client computed — `0.4 BTC × $50k × (1−1%) = $19,800` — because the
+        // client SENT that number. It no longer does: the floor scales with the deposited sats, so
+        // it could not be committed in a deposit address that must exist before the deposit, and
+        // the contract now derives it from the committed RATE and the SPV-proven sats
+        // (`ExitLib.settleFloorUsd`, pinned in `SwapInDeposit.t.sol`). What this side can still be
+        // held to is that it passes the swap's OWN rate, unaltered — so the check here is that,
+        // and the arithmetic it used to guard is asserted where the arithmetic now lives.
+        assert_eq!(evm.seen_floor.get(), swap.price_per_btc, "the settle carries the swap's rate");
     }
 
     /// (T1-c) The property the repoint exists for: the replay key the caller gates on is the

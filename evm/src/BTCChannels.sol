@@ -2026,7 +2026,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // Partials are accepted on this rail: the seller's remainder is refundable trustlessly via
         // the deposit's own CLTV leaf, which is exactly why the on-chain rail can take them and the
         // all-or-nothing LN rail cannot.
-        uint consumed = btcVault.creditSwapIn(terms.seller, sats, terms.token, terms.minDeliveredUsd);
+        // (§T2) The floor is DERIVED from the committed rate and the proven sats — never supplied.
+        uint consumed = btcVault.creditSwapIn(
+            terms.seller, sats, terms.token, ExitLib.settleFloorUsd(terms, sats));
         emit SwapInSettled(terms.seller, txid, sats, consumed, terms.token);
     }
 

@@ -56,11 +56,55 @@ pub enum SwapInOnchainError {
     Derive,
 }
 
-/// The user's CLTV refund leaf: `<cltv> OP_CHECKLOCKTIMEVERIFY OP_DROP <userKey>
-/// OP_CHECKSIG`. Spendable only by `user_refund` and only once the tx's `nLockTime`
-/// reaches `cltv` (the hop's window to settle+claim by key path has elapsed).
-pub fn refund_leaf(user_refund: XOnlyPublicKey, cltv: LockTime) -> ScriptBuf {
+/// (§T2) The swap's ECONOMIC TERMS — the RATE, hashed into the deposit address.
+///
+/// ⛔ **NOT the floor.** `swap_in_floor_usd` scales with the sats actually deposited, which nobody
+/// knows when this address is derived — the address must exist before the seller can pay it. The
+/// RATE is what is fixed at registration, and the contract derives the floor from it and the
+/// SPV-proven sats (`ExitLib.settleFloorUsd`), so no floor is supplied by anyone.
+///
+/// `sha256(abi.encode(seller, token, pricePerBtc, slippageBps))` — four 32-byte ABI words, matching
+/// `ExitLib.termsCommitment` byte for byte. **`sha256`, not keccak:** the digest is pushed into a
+/// Bitcoin script, so both sides must work in Bitcoin's hash or the two derivations disagree while
+/// each looks correct on its own.
+pub fn terms_commitment(
+    seller: [u8; 20],
+    token: [u8; 20],
+    price_per_btc: [u8; 32],
+    slippage_bps: u16,
+) -> [u8; 32] {
+    use bitcoin::hashes::{sha256, Hash};
+    let mut buf = [0u8; 128];
+    buf[12..32].copy_from_slice(&seller); // ABI left-pads an address to 32 bytes
+    buf[44..64].copy_from_slice(&token);
+    buf[64..96].copy_from_slice(&price_per_btc); // uint256, already big-endian
+    buf[126..128].copy_from_slice(&slippage_bps.to_be_bytes());
+    sha256::Hash::hash(&buf).to_byte_array()
+}
+
+/// The user's CLTV refund leaf, PREFIXED with the terms commitment (§T2):
+/// `PUSH32 <terms> OP_DROP <cltv> OP_CHECKLOCKTIMEVERIFY OP_DROP <userKey> OP_CHECKSIG`.
+///
+/// Spendable only by `user_refund` and only once the tx's `nLockTime` reaches `cltv`.
+///
+/// ⚠️ **THE PREFIX CHANGES NO SPENDING CONDITION AND IS NOT OPTIONAL.** `OP_DROP` discards it
+/// immediately, so the refund path behaves exactly as before — what it changes is the ADDRESS.
+/// That is the point: the contract derives the same leaf in `ExitLib._cltvRefundLeaf` and looks
+/// for a payment there, so a seller told a DIFFERENT address (or a hop settling under substituted
+/// terms) simply finds no deposit and the settle reverts.
+/// 🔴 **THIS FUNCTION AND `ExitLib._cltvRefundLeaf` MUST STAY BYTE-IDENTICAL.** They are two
+/// implementations of one script, in two languages, and nothing compiles them together — the only
+/// thing tying them is the shared vector: for the pinned fixture the terms hash to
+/// `a96ad576…86fc` and the output key to `cd5f8505…66c6`, with the pre-§T2 (no-prefix) key
+/// `d0d16740…e4ca` retained as the control that any re-derivation must still reproduce.
+pub fn refund_leaf(
+    user_refund: XOnlyPublicKey,
+    cltv: LockTime,
+    terms: [u8; 32],
+) -> ScriptBuf {
     Builder::new()
+        .push_slice(terms)
+        .push_opcode(opc::OP_DROP)
         .push_int(i64::from(cltv.to_consensus_u32()))
         .push_opcode(opc::OP_CLTV)
         .push_opcode(opc::OP_DROP)
@@ -77,8 +121,9 @@ pub fn deposit_spend_info<C: Verification>(
     hop_internal: XOnlyPublicKey,
     user_refund: XOnlyPublicKey,
     cltv: LockTime,
+    terms: [u8; 32],
 ) -> Result<(TaprootSpendInfo, ScriptBuf), SwapInOnchainError> {
-    let leaf = refund_leaf(user_refund, cltv);
+    let leaf = refund_leaf(user_refund, cltv, terms);
     let spend_info = TaprootBuilder::new()
         .add_leaf(0, leaf.clone())
         .map_err(|_| SwapInOnchainError::LeafInsert)?
@@ -317,10 +362,11 @@ pub fn deposit_for<C: Signing + Verification>(
     user_refund: XOnlyPublicKey,
     cltv: LockTime,
     network: Network,
+    terms: [u8; 32],
 ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), SwapInOnchainError> {
     let hop = derive_deposit_key(secp, master)?;
     let (hop_x, _) = hop.x_only_public_key();
-    let (si, leaf) = deposit_spend_info(secp, hop_x, user_refund, cltv)?;
+    let (si, leaf) = deposit_spend_info(secp, hop_x, user_refund, cltv, terms)?;
     Ok((deposit_address(&si, network), si, leaf))
 }
 
@@ -339,10 +385,11 @@ pub fn sign_claim<C: Signing + Verification>(
     cltv: LockTime,
     mut claim_tx: Transaction,
     deposit: &TxOut,
+    terms: [u8; 32],
 ) -> Result<Transaction, SwapInOnchainError> {
     let hop = derive_deposit_key(secp, master)?;
     let (hop_x, _) = hop.x_only_public_key();
-    let (si, _leaf) = deposit_spend_info(secp, hop_x, user_refund, cltv)?;
+    let (si, _leaf) = deposit_spend_info(secp, hop_x, user_refund, cltv, terms)?;
     let sighash = key_path_sighash(&claim_tx, deposit)?;
     claim_tx.input[0].witness = key_path_witness(secp, &hop, &si, &sighash);
     Ok(claim_tx)
@@ -350,6 +397,10 @@ pub fn sign_claim<C: Signing + Verification>(
 
 #[cfg(test)]
 mod tests {
+    /// (§T2) A fixed terms vector: these tests assert leaf/address STRUCTURE, so the value only
+    /// has to be constant. The real cross-language vector lives in `SwapInDeposit.t.sol`.
+    const TEST_TERMS: [u8; 32] = [0u8; 32];
+
     use super::*;
     use bitcoin::bip32::Xpriv;
     use bitcoin::hashes::Hash;
@@ -382,7 +433,7 @@ mod tests {
         let (hop_x, _) = kp(&secp, 0x22).x_only_public_key();
         let (usr_x, _) = kp(&secp, 0x33).x_only_public_key();
         let cltv = LockTime::from_height(800_000).unwrap();
-        let (si, _leaf) = deposit_spend_info(&secp, hop_x, usr_x, cltv).unwrap();
+        let (si, _leaf) = deposit_spend_info(&secp, hop_x, usr_x, cltv, TEST_TERMS).unwrap();
 
         let addr = deposit_address(&si, Network::Regtest);
         assert!(addr.script_pubkey().is_p2tr());
@@ -401,7 +452,7 @@ mod tests {
         let (hop_x, _) = hop.x_only_public_key();
         let (usr_x, _) = kp(&secp, 0x33).x_only_public_key();
         let cltv = LockTime::from_height(800_000).unwrap();
-        let (si, _leaf) = deposit_spend_info(&secp, hop_x, usr_x, cltv).unwrap();
+        let (si, _leaf) = deposit_spend_info(&secp, hop_x, usr_x, cltv, TEST_TERMS).unwrap();
         let (op, deposit) = a_deposit(&si, 100_000);
 
         let dest = ScriptBuf::new_p2tr_tweaked(si.output_key()); // any spk for the test
@@ -423,7 +474,7 @@ mod tests {
         let usr = kp(&secp, 0x33);
         let (usr_x, _) = usr.x_only_public_key();
         let cltv = LockTime::from_height(800_000).unwrap();
-        let (si, leaf) = deposit_spend_info(&secp, hop_x, usr_x, cltv).unwrap();
+        let (si, leaf) = deposit_spend_info(&secp, hop_x, usr_x, cltv, TEST_TERMS).unwrap();
         let (op, deposit) = a_deposit(&si, 100_000);
 
         let dest = ScriptBuf::new_p2tr_tweaked(si.output_key());
@@ -452,7 +503,7 @@ mod tests {
         let secp = Secp256k1::new();
         let (usr_x, _) = kp(&secp, 0x33).x_only_public_key();
         let cltv = LockTime::from_height(777_000).unwrap();
-        let leaf = refund_leaf(usr_x, cltv);
+        let leaf = refund_leaf(usr_x, cltv, TEST_TERMS);
         let asm = leaf.to_asm_string();
         assert!(asm.contains("OP_CLTV"), "leaf must gate on CLTV: {asm}");
         assert!(asm.contains("OP_CHECKSIG"), "leaf must end in OP_CHECKSIG: {asm}");
@@ -468,9 +519,9 @@ mod tests {
         let (usr2_x, _) = kp(&secp, 0x44).x_only_public_key();
         let c1 = LockTime::from_height(800_000).unwrap();
         let c2 = LockTime::from_height(800_001).unwrap();
-        let a = deposit_address(&deposit_spend_info(&secp, hop_x, usr_x, c1).unwrap().0, Network::Regtest);
-        let b = deposit_address(&deposit_spend_info(&secp, hop_x, usr_x, c2).unwrap().0, Network::Regtest);
-        let d = deposit_address(&deposit_spend_info(&secp, hop_x, usr2_x, c1).unwrap().0, Network::Regtest);
+        let a = deposit_address(&deposit_spend_info(&secp, hop_x, usr_x, c1, TEST_TERMS).unwrap().0, Network::Regtest);
+        let b = deposit_address(&deposit_spend_info(&secp, hop_x, usr_x, c2, TEST_TERMS).unwrap().0, Network::Regtest);
+        let d = deposit_address(&deposit_spend_info(&secp, hop_x, usr2_x, c1, TEST_TERMS).unwrap().0, Network::Regtest);
         assert_ne!(a, b, "different CLTV ⇒ different address");
         assert_ne!(a, d, "different user refund key ⇒ different address");
     }
@@ -497,8 +548,8 @@ mod tests {
         let user_b = Keypair::from_seckey_slice(&secp, &[0x22u8; 32]).unwrap()
             .x_only_public_key().0;
         let cltv = LockTime::from_height(800_000).unwrap();
-        let (si_a, _) = deposit_spend_info(&secp, a1.x_only_public_key().0, user_a, cltv).unwrap();
-        let (si_b, _) = deposit_spend_info(&secp, a1.x_only_public_key().0, user_b, cltv).unwrap();
+        let (si_a, _) = deposit_spend_info(&secp, a1.x_only_public_key().0, user_a, cltv, TEST_TERMS).unwrap();
+        let (si_b, _) = deposit_spend_info(&secp, a1.x_only_public_key().0, user_b, cltv, TEST_TERMS).unwrap();
         assert_ne!(si_a.output_key(), si_b.output_key(),
                    "a different refund leaf must still give a different deposit address");
     }
@@ -509,7 +560,7 @@ mod tests {
         let m = master();
         let (usr_x, _) = kp(&secp, 0x33).x_only_public_key();
         let cltv = LockTime::from_height(800_000).unwrap();
-        let (addr, si, _leaf) = deposit_for(&secp, &m, usr_x, cltv, Network::Regtest).unwrap();
+        let (addr, si, _leaf) = deposit_for(&secp, &m, usr_x, cltv, Network::Regtest, TEST_TERMS).unwrap();
 
         let deposit = TxOut { value: Amount::from_sat(1_000_000), script_pubkey: addr.script_pubkey() };
         let outpoint = OutPoint { txid: bitcoin::Txid::from_slice(&[0x9; 32]).unwrap(), vout: 0 };
@@ -539,7 +590,7 @@ mod tests {
 
         // The hop's key-path signature over the TWO-output tx still verifies (SIGHASH ALL
         // commits to the refund output, so it can't be stripped after signing).
-        let signed = sign_claim(&secp, &m, usr_x, cltv, tx, &deposit).unwrap();
+        let signed = sign_claim(&secp, &m, usr_x, cltv, tx, &deposit, TEST_TERMS).unwrap();
         let sig = schnorr::Signature::from_slice(&signed.input[0].witness[0]).unwrap();
         let msg = key_path_sighash(&signed, &deposit).unwrap();
         secp.verify_schnorr(&sig, &msg, &si.output_key().to_x_only_public_key())
@@ -554,7 +605,7 @@ mod tests {
         let cltv = LockTime::from_height(800_000).unwrap();
 
         // Registration side: derive the address the user pays.
-        let (addr, si, _leaf) = deposit_for(&secp, &m, usr_x, cltv, Network::Regtest).unwrap();
+        let (addr, si, _leaf) = deposit_for(&secp, &m, usr_x, cltv, Network::Regtest, TEST_TERMS).unwrap();
         assert!(addr.script_pubkey().is_p2tr());
 
         // Watcher side: a deposit lands at that address; the hop signs the key-path claim.
@@ -562,7 +613,7 @@ mod tests {
         let outpoint = OutPoint { txid: bitcoin::Txid::from_slice(&[0x9; 32]).unwrap(), vout: 1 };
         let dest = ScriptBuf::new_p2tr_tweaked(si.output_key());
         let claim = build_claim_tx(outpoint, deposit.value, Amount::from_sat(400), dest);
-        let signed = sign_claim(&secp, &m, usr_x, cltv, claim, &deposit).unwrap();
+        let signed = sign_claim(&secp, &m, usr_x, cltv, claim, &deposit, TEST_TERMS).unwrap();
 
         assert_eq!(signed.input[0].witness.len(), 1, "single key-path sig");
         let sig = schnorr::Signature::from_slice(&signed.input[0].witness[0]).unwrap();
@@ -587,11 +638,13 @@ mod tests {
         use bitcoin::absolute::LockTime;
 
         let key = XOnlyPublicKey::from_slice(&[0xab; 32]).expect("valid x-only");
-        let script = refund_leaf(key, LockTime::from_height(500_000).unwrap());
+        let script = refund_leaf(key, LockTime::from_height(500_000).unwrap(), TEST_TERMS);
 
+        // (§T2) 20 PUSH32 <terms> | 75 OP_DROP  ← the terms prefix, then the original leaf:
         // PUSH3 20a107 | b1 OP_CLTV | 75 OP_DROP | 20 PUSH32 <key> | ac OP_CHECKSIG
         // 500000 = 0x07A120 -> little-endian 20 a1 07, top byte 0x07 so no sign pad.
-        let expected = format!("0320a107b17520{}ac", "ab".repeat(32));
+        // `TEST_TERMS` is the all-zero vector, so its push is `20` + 32 zero bytes.
+        let expected = format!("20{}750320a107b17520{}ac", "00".repeat(32), "ab".repeat(32));
         assert_eq!(script.to_hex_string(), expected, "refund leaf diverges from ExitLib/wallet");
     }
 
@@ -611,20 +664,29 @@ mod tests {
         use bitcoin::absolute::LockTime;
 
         let key = XOnlyPublicKey::from_slice(&[0xab; 32]).expect("valid x-only");
-        let one = refund_leaf(key, LockTime::from_height(1).unwrap());
+        let one = refund_leaf(key, LockTime::from_height(1).unwrap(), TEST_TERMS);
+
+        // (§T2) The CLTV encoding is no longer at offset 0 — the terms prefix
+        // (`20` + 32 bytes + `75` = 34 bytes = 68 hex chars) sits in front of it. Strip it, so this
+        // test still inspects the thing it is about rather than silently passing on the prefix.
+        const PREFIX_HEX: usize = 68;
+        let one_hex = one.to_hex_string();
+        let (prefix, cltv_part) = one_hex.split_at(PREFIX_HEX);
+        assert_eq!(prefix, format!("20{}75", "00".repeat(32)), "terms prefix shape");
 
         // rust-bitcoin: OP_1 (0x51). ExitLib/wallet would emit PUSH1 0x01 (0x0101).
-        assert!(one.to_hex_string().starts_with("51"), "expected OP_1, got {}", one.to_hex_string());
+        assert!(cltv_part.starts_with("51"), "expected OP_1, got {cltv_part}");
         assert!(
-            !one.to_hex_string().starts_with("0101"),
+            !cltv_part.starts_with("0101"),
             "if this now matches ExitLib, push_int changed and the note above is stale",
         );
 
         // ⚠️ REGTEST STARTS AT GENESIS. A regtest deposit with a low CLTV would hit exactly this.
         // The e2e harness must mine past height 16 before quoting, or use a realistic height.
         for h in [17u32, 128, 500_000] {
-            let s = refund_leaf(key, LockTime::from_height(h).unwrap());
-            assert!(!s.to_hex_string().starts_with("5"), "height {h} used an OP_N shortcut");
+            let s = refund_leaf(key, LockTime::from_height(h).unwrap(), TEST_TERMS);
+            let hx = s.to_hex_string();
+            assert!(!hx[PREFIX_HEX..].starts_with('5'), "height {h} used an OP_N shortcut");
         }
     }
 
@@ -638,6 +700,17 @@ mod tests {
     ///
     /// Fixture shared verbatim with `identity-wallet/src/chain/taproot.test.ts`: internal key
     /// 0x02*32, refund key 0xab*32, height 500000.
+    ///
+    /// 🔴 **(§T2) THE EXPECTED KEY CHANGED, AND ibiza's COPY OF THIS FIXTURE MUST CHANGE WITH IT.**
+    /// The leaf now carries the terms prefix, so the tweak — and therefore the address — moved:
+    /// `b6df894f…16c65` → `e3d813d7…f8bbe7` (with the all-zero test terms). **`identity-wallet`
+    /// still pins the OLD value**, so its QR verifier would recompute a different deposit address
+    /// than the hop quotes and reject a correctly-paid deposit. That is the whole failure this test
+    /// exists to prevent, now pointing across a repo boundary where nothing compiles the two
+    /// together.
+    /// ✅ **The old value is retained as the CONTROL**: derived independently from BIP-341, the
+    /// same script WITHOUT the prefix still reproduces `b6df894f…16c65`, which is what proves the
+    /// new number came from adding the prefix rather than from breaking the derivation.
     #[test]
     fn taproot_output_key_matches_the_wallet() {
         use bitcoin::absolute::LockTime;
@@ -648,12 +721,12 @@ mod tests {
         let key = XOnlyPublicKey::from_slice(&[0xab; 32]).expect("valid x-only");
 
         let (si, _leaf) =
-            deposit_spend_info(&secp, internal, key, LockTime::from_height(500_000).unwrap())
+            deposit_spend_info(&secp, internal, key, LockTime::from_height(500_000).unwrap(), TEST_TERMS)
                 .expect("spend info");
 
         assert_eq!(
             si.output_key().to_x_only_public_key().to_string(),
-            "b6df894fd855150b3df4e36b4ea2deb66b07976431164d501698691f4fa16c65",
+            "e3d813d71a0a6455a29c0dd7b2cc9c8263b2c839c0576010ece3e0b154f8bbe7",
             "the wallet would compute a different deposit address than the hop quotes",
         );
     }

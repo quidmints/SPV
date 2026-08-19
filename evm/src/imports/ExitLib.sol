@@ -176,7 +176,21 @@ library ExitLib {
     ///         off-chain builder reproducing it works in Bitcoin's hash, so keccak here would make
     ///         the two derivations disagree while both looked correct.
     function termsCommitment(Types.Terms calldata terms) public pure returns (bytes32) {
-        return sha256(abi.encode(terms.seller, terms.token, terms.minDeliveredUsd));
+        return sha256(abi.encode(
+            terms.seller, terms.token, terms.pricePerBtc, uint256(terms.slippageBps)));
+    }
+
+    /// @notice (§T2) The settle floor, DERIVED from the committed rate and the PROVEN sats.
+    /// @dev Byte-for-byte the arithmetic of `quid-hop::swap::swap_in_floor_usd`, which is the
+    ///      quote the hop showed the seller: `sats/1e8 · pricePerBtc`, less `slippageBps`.
+    ///      ⚠️ **DERIVED, NOT SUPPLIED — that is the security property.** The hop used to pass
+    ///      `minDeliveredUsd` as calldata, so it could quote one floor to the seller and settle
+    ///      against another. Now the address commits the RATE, the chain applies it to sats it has
+    ///      SPV-proven, and there is no floor parameter left for anyone to substitute.
+    function settleFloorUsd(Types.Terms calldata terms, uint sats) public pure returns (uint) {
+        uint expected = (sats * terms.pricePerBtc) / 1e8;
+        uint keep = terms.slippageBps >= 10_000 ? 0 : 10_000 - terms.slippageBps;
+        return (expected * keep) / 10_000;
     }
 
     /// @dev `<cltvHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP <userRefund> OP_CHECKSIG`, byte-identical

@@ -246,10 +246,19 @@ library Types {
     /// slop this replaces; more importantly they were UNCOMMITTED — the deposit address bound the
     /// refund leaf and the CLTV height and nothing about what the seller was promised, so a hop
     /// could SPV-prove a genuine deposit and settle it under terms the seller never agreed.
+    /// ⛔ **`minDeliveredUsd` WAS HERE AND COULD NOT BE (fixed 2026-08-19, same day it landed).**
+    /// The floor is `swap_in_floor_usd(sats, pricePerBtc, slippageBps)` — it SCALES WITH THE SATS
+    /// ACTUALLY DEPOSITED, which nobody knows when the address is derived, because the address must
+    /// exist before the seller can pay it. Committing it made the address underivable and every
+    /// settle would have reverted. **The RATE is what is fixed at registration**, so that is what
+    /// the address commits — and the floor is then a pure function of it and the proven sats, which
+    /// the contract computes itself. That is strictly stronger: the hop no longer SUPPLIES a floor
+    /// at all, so there is nothing to substitute.
     struct Terms {
         address seller;
         address token;
-        uint    minDeliveredUsd;
+        uint    pricePerBtc;   // stable units per BTC, as quoted to the seller
+        uint16  slippageBps;   // tolerance below the quote (the v4 curve fills under spot)
     }
 
     struct DepositProof {

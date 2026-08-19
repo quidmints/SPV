@@ -101,7 +101,7 @@ pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
 /// that same CLTV leaf. See `PINNED_DEPOSIT_INDEX` for why the internal key is pinned and
 /// per-swap uniqueness lives in the leaf.
 pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
-    "settleSwapInProven((address,address,uint256),(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
+    "settleSwapInProven((address,address,uint256,uint16),(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
 /// (T1-b, tightened by §T1-d) Reverse an undeliverable on-chain swap-out. Note what is NOT a
 /// parameter: the payee, the sats, **and now the token**. All three are read on-chain from
 /// `pendingOnchainSwapOut[swapId]`, which only `requestSwapOutOnchain` writes — so unlike
@@ -805,7 +805,8 @@ pub fn encode_splice(
 pub fn encode_settle_swap_in_proven(
     seller: Address,
     token: Address,
-    min_delivered_usd: U256,
+    price_per_btc: U256,
+    slippage_bps: u16,
     user_refund: [u8; 32],
     cltv_height: u32,
     inclusion: &TxInclusion,
@@ -813,16 +814,19 @@ pub fn encode_settle_swap_in_proven(
     encode_call(
         SIG_SETTLE_SWAP_IN_PROVEN,
         &[
-            // (§T2) The three loose terms are now ONE `Types.Terms` tuple — and it is not
-            // cosmetic: this struct is what the DEPOSIT ADDRESS commits to, via a
-            // `PUSH32 <sha256(abi.encode(seller, token, minDeliveredUsd))> OP_DROP` prefix on the
-            // refund leaf. Encode a different seller, token or floor here and the contract derives
-            // an address the deposit never paid, so the settle reverts instead of crediting under
-            // substituted terms.
+            // (§T2) The terms are ONE `Types.Terms` tuple, and it is the RATE rather than the
+            // floor — the floor scales with the deposited sats, which are unknown when the address
+            // is derived. This struct is what the DEPOSIT ADDRESS commits to, via a
+            // `PUSH32 <sha256(abi.encode(seller, token, pricePerBtc, slippageBps))> OP_DROP` prefix
+            // on the refund leaf, and the contract DERIVES the floor from it and the proven sats.
+            // Encode a different seller, token, price or slippage and the contract derives an
+            // address the deposit never paid, so the settle reverts rather than crediting under
+            // substituted terms — and there is no floor argument left to substitute.
             Tok::Tuple(vec![
                 Tok::Address(seller),
                 Tok::Address(token),
-                Tok::Uint(min_delivered_usd),
+                Tok::Uint(price_per_btc),
+                Tok::Uint(U256::from(slippage_bps)),
             ]),
             Tok::Tuple(vec![
                 Tok::FixedBytes32(user_refund),
