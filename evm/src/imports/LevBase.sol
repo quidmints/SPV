@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Types} from "./Types.sol";
+import {Types, NotOpen, BadTarget} from "./Types.sol";
 import {ILevVenue} from "./ILevVenue.sol";
 import {IAux, ILevSyncHook} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
-import {LevBookLib} from "./LevBookLib.sol";
+import {BandLib} from "./BandLib.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
 ///
@@ -39,6 +39,10 @@ abstract contract LevBase {
 
     /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
+    /// @dev §FOLD-DELTA — ±3% LTV dead-band before a rebalance is worth its gas. Was declared on
+    ///      BOTH managers with the same value (ETH `internal`, BTC `public`; no reader of either
+    ///      outside the managers, checked across src/ test/ script/).
+    uint256 internal constant BAND_BPS = 300;
 
     /// Oracle (`getTWAPforAsset`) + the caller-funded paths both managers reach through.
     IAux public immutable AUX;
@@ -67,7 +71,6 @@ abstract contract LevBase {
     event TargetSet(address indexed lp, uint256 targetLtvBps);
     event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
 
-    error NotOpen();
     /// §ONE-GUARD (2026-08-18) — `error Reentrancy`, `_lock` and `nonReentrant` were declared
     /// BYTE-IDENTICALLY in both managers. One declaration, two instances.
     /// ⚠️ Note what this does NOT save: a modifier's body is INLINED at every use site (CLAUDE.md
@@ -89,7 +92,6 @@ abstract contract LevBase {
     /// §ONE-REBALANCE — moved up from `LevManager` so BOTH bands emit it. It was ETH-only, so a
     /// WBTC-mode rebalance was invisible to anything indexing the ETH event.
     event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
-    error BadTarget();
 
     constructor(address aux, address oracleKey) { AUX = IAux(aux); ORACLE_KEY = oracleKey; }
 
@@ -137,30 +139,30 @@ abstract contract LevBase {
     ///         shape written twice, and a struct literal is not cheap in bytecode.
     /// @param  e0  the IL base, FIXED at open. Caller computes it because it is the one genuinely
     ///             per-asset quantity here; passing it in is what lets the rest be shared.
-    /// @notice §FOLD-MEASURE — body in `LevBookLib`. `_bandPrice()` is resolved HERE because it
+    /// @notice §FOLD-MEASURE — body in `LevMath` (§FOLD-BOOK). `_bandPrice()` is resolved HERE because it
     ///         try/catches a call to `BAND`, and the struct is built here so the library takes one
     ///         memory pointer rather than five scalars (cheaper seam, and `Types.Pos`'s field order
     ///         stays owned by one place).
     function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint e0) internal {
-        LevBookLib.openPos(pos, _openLps, _lpIdx, msg.sender,
+        BandLib.openPos(pos, _openLps, _lpIdx, msg.sender,
             Types.Pos({venue: venue, targetLtvCapBps: capBps, entryPriceWad: uint128(entryPx),
                        e0: uint128(e0), entryPrice: _bandPrice(), open: true}));
     }
 
     function _trackOpen(address lp) internal {
-        LevBookLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
+        BandLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     function _untrackOpen(address lp) internal {
-        LevBookLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
+        BandLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS).
-    /// @notice §FOLD-MEASURE — body in `LevBookLib`. The ceiling is PASSED, not duplicated there:
+    /// @notice §FOLD-MEASURE — body in `LevMath` (§FOLD-BOOK). The ceiling is PASSED, not duplicated there:
     ///         `TARGET_LTV_CAP_BPS` is a constant and constants live in the caller's code, so one
     ///         definition stays here and the library reads whatever it is given.
     function setTargetLtv(uint64 capBps) external {
-        LevBookLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
+        BandLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
@@ -232,8 +234,20 @@ abstract contract LevBase {
     /// @notice The LP's venue debt in USD(1e18). §FOLD-LTV — was declared `virtual` here and
     ///         overridden with the SAME body in both managers (0.88 similarity; the only difference
     ///         was ETH hoisting `v.stable()` into a local). Concrete now, and the overrides go.
+    /// @dev ⚠️ THE `address(v) == 0` EARLY-OUT IS NOT A DEFENSIVE CLAMP — IT IS THE ONE CASE THE
+    ///      §FOLD-LTV TRACE BELOW MISSED. That note argues the `!open` guards were droppable because
+    ///      every downstream helper returns 0 on a zeroed struct (`ltvBps` on 0 collateral,
+    ///      `collValueUsd` on 0 units, `ilTargetBps` on 0 entry price). True — but ALL of them are
+    ///      reached THROUGH this function, and a zeroed `Pos` zeroes `venue` too, so `v.stable()`
+    ///      is a high-level call to `address(0)`: solc's extcodesize check REVERTS before any of
+    ///      those zero-guards can run. `BtcLevManager.closeBtcLev` does `delete pos[lp]`, so this is
+    ///      reachable for every closed BTC position and for any address that never opened one —
+    ///      `debtUsd`, `getCurrentLtvBps` and `debtDeltaToTarget` are all `public`.
+    ///      Returning 0 for "no position" makes the query TOTAL; it cannot mask a real debt, because
+    ///      a real debt requires a venue and a venue is exactly what is absent.
     function debtUsd(address lp) public view returns (uint) {
         ILevVenue v = pos[lp].venue;
+        if (address(v) == address(0)) return 0;
         return LevMath._toUsd18(address(AUX), v.stable(), v.debtOf(lp));
     }
 
@@ -248,7 +262,9 @@ abstract contract LevBase {
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
     function getCurrentLtvBps(address lp) public view returns (uint) {
-        return LevMath.ltvBps(debtUsd(lp), collValueUsd(pos[lp].venue.collateralOf(lp)));
+        ILevVenue v = pos[lp].venue;                       // same address(0) case as `debtUsd` above
+        if (address(v) == address(0)) return 0;
+        return LevMath.ltvBps(debtUsd(lp), collValueUsd(v.collateralOf(lp)));
     }
 
     /// @notice LTV against the FIXED IL base `e0` — the reference the IL target is measured against,
@@ -387,7 +403,7 @@ abstract contract LevBase {
     /// @dev    The over-hedge fix still holds: `E0` tracks NET-EQUITY, never the growing collateral.
     ///         IDENTICAL on both sides once `netEquity` replaced the two per-asset accessors — the
     ///         bodies differed only in `uint` vs `uint256` spelling and comment framing.
-    /// @notice §FOLD-MEASURE — body in `LevBookLib`. `px` and `base` are computed HERE and passed BY
+    /// @notice §FOLD-MEASURE — body in `LevMath` (§FOLD-BOOK). `px` and `base` are computed HERE and passed BY
     ///         VALUE because a library cannot reach the caller's immutables (`AUX`, `ORACLE_KEY`) or
     ///         its virtuals (`netEquity` routes through `_collToBase`). That is the hard boundary on
     ///         what can move, and it is why the guard is re-checked in the library rather than here:
@@ -446,14 +462,31 @@ abstract contract LevBase {
     ///      BTC has no reimbursement leg, so its override is the empty default.
     function _afterProtect(address) internal virtual {}
 
-    function debtDeltaToTarget(address lp) public view virtual returns (bool levUp, uint256 amountUsd);
+    /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.
+    /// @dev §FOLD-DELTA — was `virtual` with a per-asset override on each manager (0.71 similarity).
+    ///      The two bodies computed the SAME thing in a different statement order; the only real
+    ///      difference was ETH's `if (!p.open)` early-out, which BTC lacked. BTC was not buggy —
+    ///      `closeBtcLev` does `delete pos[lp]`, so `entryPriceWad == 0` makes `_ilTargetLive`
+    ///      return 0 and `LevMath.debtDelta` reports in-band — whereas ETH RETAINS the `Pos` with
+    ///      `open = false` on its keepState branch, which is exactly why only ETH needed the gate.
+    ///      A REAL asymmetry, not drift; the shared body keeps the gate because it is correct for
+    ///      both and strictly cheaper than reaching `debtUsd` for a position that is not open.
+    /// @dev The hedge sizes against `e0` valued at the CURRENT px, NOT the venue's growing
+    ///      collateral — see the leverage-invariance note on `LevManager.openLev`. Sizing against
+    ///      gross collateral is what re-opens the `1/(1−t)` over-hedge.
+    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
+        Types.Pos memory p = pos[lp];
+        if (!p.open) return (false, 0);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        return LevMath.debtDelta(LevMath.e0Usd(p.e0, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
+    }
 
     function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
     function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
 
     function _reanchorIfReseated(address lp) internal {
         if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
-        LevBookLib.reanchorIfReseated(pos, BAND, lp,
+        BandLib.reanchorIfReseated(pos, BAND, lp,
             AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), netEquity(lp));
     }
 }

@@ -8,7 +8,7 @@ import {LevMath} from "./imports/LevMath.sol";
 // the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
 import {WAD} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
-import {Types} from "./imports/Types.sol";
+import {Types, NotOpen, BadTarget} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
@@ -72,7 +72,6 @@ contract LevManager is LevBase {
     // the test's own permissionless `createMarket`). Morpho Blue markets are IMMUTABLE, so a market's LLTV is
     // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
-    uint256 internal constant BAND_BPS           = 300;  // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
     // Safe LTV the venue's protocol trove mints BOLD at, for a depth-independent close (see `_onFlashMint`). The
@@ -253,20 +252,6 @@ contract LevManager is LevBase {
 
     /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the band ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
-    function debtDeltaToTarget(address lp) public view override returns (bool levUp, uint256 amountUsd) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return (false, 0);
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        uint256 curDebt = debtUsd(lp);
-        // (B) LIVE IL target = the band's ACTUAL sold fraction (soldFractionWad), capped; √p fallback.
-        uint256 t = _ilTargetLive(p, px);
-        // Size the IL hedge to the FIXED E0 (band-only at entry), valued at the current px — NOT the
-        // buffer's own growing collateral, which caused the 1/(1−t) over-hedge. targetDebt = E0·t; band in bps.
-        // Shared target/in-band/direction math (identical to the BTC path — see LevMath.debtDelta).
-        uint256 e0Usd = LevMath.e0Usd(p.e0, px);
-        return LevMath.debtDelta(e0Usd, curDebt, t, BAND_BPS);
-    }
-
 
 
     // ════════════════════════════ OPEN ════════════════════════════
@@ -315,7 +300,7 @@ contract LevManager is LevBase {
             (bool levUp, uint256 needUsd) = debtDeltaToTarget(msg.sender);
             if (!levUp || needUsd == 0) break;
             uint256 minOut = i < minWethOut.length ? minWethOut[i] : 0;
-            _leverUpBuy(venue, msg.sender, stable, needUsd, minOut);
+            _leverUp(venue, msg.sender, stable, needUsd, minOut);
         }
         // No MIN-debt floor: the corrected design opens at ZERO leverage (IL target = 0 at entry) and levers
         // up only as the band sells. The MAX bound is the per-position LTV cap (≤ 7500 bps ≈ 4×), enforced by the target.
@@ -333,7 +318,7 @@ contract LevManager is LevBase {
     /// PERMISSIONLESS single-LP rebalance toward the IL target. Sets `_activeKeeper` so the flash reimburses the caller.
     function rebalance(address lp, uint256 minOut) external nonReentrant {
         _activeKeeper = msg.sender;
-        _rebalanceBody(lp, minOut);
+        _rebalance(lp, minOut);
     }
 
     /// @notice BATCH rebalance — hold every out-of-band LP at its IL target in ONE tx (mirrors `cascadeDelever`),
@@ -356,7 +341,7 @@ contract LevManager is LevBase {
     ///         reimbursement still targets the real keeper.
     function rebalanceOne(address lp, uint256 minOut) external {
         if (msg.sender != address(this) && msg.sender != lp) revert Auth();
-        _rebalanceBody(lp, minOut);
+        _rebalance(lp, minOut);
     }
 
     /// §ONE-REBALANCE — the body moved to `LevBase._rebalance`; only the LEAVES stay here.
@@ -364,13 +349,8 @@ contract LevManager is LevBase {
     ///    `deltaUsd` the shared body computes, so one flash lands on target with no
     ///    withdraw-before-repay health breach. That is why `_delever` takes the delta and is
     ///    free to ignore it: the two bands size the repay differently.
-    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut)
-        internal override { _leverUpBuy(venue, lp, stable, deltaUsd, minOut); }
-
     function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut)
         internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut); }
-
-    function _rebalanceBody(address lp, uint256 minOut) internal { _rebalance(lp, minOut); }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
 
@@ -672,7 +652,7 @@ contract LevManager is LevBase {
 
     /// Lever-UP BUY (own frame, no via_ir): borrow `usd` stable, swap → collateral (LevMath.stableToColl), supply
     /// it to the venue for `who`. Shared by openLev's ladder + rebalance's up-leg (dedup).
-    function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut) internal {
+    function _leverUp(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut) internal override {
         uint256 coll = LevMath.stableToColl(
             _sellCtx(address(0)), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
         IERC20Min(_collToken(venue)).transfer(address(venue), coll);

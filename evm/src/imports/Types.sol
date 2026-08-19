@@ -14,6 +14,13 @@ import {QuidLib} from "./QuidLib.sol";
 ///      The vendored fork keeps upstream's copy; unifying ACROSS the boundary is what failed.
 uint256 constant WAD = 1e18;
 
+/// @dev §FOLD-BOOK — ONE declaration, per the shared-file rule. These were declared TWICE
+///      (`LevBase` and the old `LevBookLib`), and splitting the book across `BandLib` and
+///      `BtcLib` would have made it FOUR. File-level so every user imports the same error
+///      selector rather than minting its own.
+error NotOpen();
+error BadTarget();
+
 library Types {
 
     /// @notice One LP's isolated leverage position. §A.71: LevManager and BtcLevManager

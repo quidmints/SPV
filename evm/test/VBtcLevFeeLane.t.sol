@@ -13,7 +13,9 @@ import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
-import {Types} from "../src/imports/Types.sol";
+import {Types, BadTarget} from "../src/imports/Types.sol";
+// MarketParams is NOT taken from LevVenueBase any more — §E266 replaced our hand-rolled copy
+// with Morpho Blue's, imported directly below.
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
@@ -733,7 +735,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _setupBtcLev();                               // native vBTC venue on `lm`
         (,, address lp,) = _open(ch, 88, 3e8);        // 3 BTC channel = free band to expose
         _openLev(lp, 2e8);                            // native vBTC position
-        vm.expectRevert(LevBase.BadTarget.selector);
+        vm.expectRevert(BadTarget.selector);
         lm.rebalanceWbtc(lp, 0);                       // vBTC venue ⇒ BadTarget (WBTC-mode only)
     }
 
