@@ -2584,7 +2584,14 @@ rule 17: prefer making the bad state unconstructible over making it detectable.
 registry needs an owner decision on whether the phone is a signer at all.
 
 
-## D8. 🔴🔴 **`origin/main` DOES NOT BUILD — and four answers from the owner's questions** (2026-08-18)
+## D8. ✅ **`origin/main` BUILDS AGAIN (re-measured 2026-08-21) — plus four answers from the owner's questions**
+
+✅ **THE HEADLINE BELOW IS RESOLVED AND IS KEPT ONLY AS THE RECORD.** `forge build` on a worktree
+pinned at `origin/main`: **exit 0, zero errors.** The shadowed-declaration failures under
+`deny_warnings` are gone, carried out by the Midnight removal (`c13ba3a4`) and that lane's own fix.
+⚠️ **Do not quote "main does not build" from this section** — it was true on 2026-08-18 and is not now.
+The four answers that follow (E141's mutability cascade, ExitLib's EIP-170 justification, the
+duplication findings, and the environment-limited baseline) all still stand.
 
 ### 🔴🔴 FIRST, THE URGENT ONE: `main` fails `forge build`, and the fix is UNCOMMITTED in the shared tree
 Measured on a worktree pinned at `origin/main` with **nothing of mine in it**: the compile aborts on
