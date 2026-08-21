@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63544_IBTCChannels {
+subgraph cluster_49444_IBTCChannels {
 label = "IBTCChannels"
-"63544_btcRecipientOf" [label="btcRecipientOf"]
+"49444_btcRecipientOf" [label="btcRecipientOf"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

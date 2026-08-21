@@ -1,155 +1,144 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_77113_SwapLib {
+subgraph cluster_66865_SwapLib {
 label = "SwapLib"
-"77113_swapToBody" [label="swapToBody"]
-"77113__refundExcess" [label="_refundExcess"]
-"77113_clampByBacking" [label="clampByBacking"]
-"77113_burnInRange" [label="burnInRange"]
-"77113__swapInSettle" [label="_swapInSettle"]
-"77113__swapOutPrep" [label="_swapOutPrep"]
-"77113_validateOorParams" [label="validateOorParams"]
-"77113_twapResolve" [label="twapResolve"]
-"77113_alignTick" [label="alignTick"]
-"77113_paddedSqrtPrice" [label="paddedSqrtPrice"]
-"77113__composePrice" [label="_composePrice"]
-"77113_refreshBookmarks" [label="refreshBookmarks"]
-"77113__consumeVolInput" [label="_consumeVolInput"]
-"77113_creditSwapInBody" [label="creditSwapInBody"]
-"77113_auxSwapBody" [label="auxSwapBody"]
-"77113__consumeQdIn" [label="_consumeQdIn"]
-"77113_applyTheta" [label="applyTheta"]
-"77113_rebalanceCore" [label="rebalanceCore"]
-"77113_oorTicks" [label="oorTicks"]
-"77113_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"77113__priceOr" [label="_priceOr"]
-"77113__heldUsd18" [label="_heldUsd18"]
-"77113_deleverEthOnDelivery" [label="deleverEthOnDelivery"]
-"77113__convert" [label="_convert"]
-"77113_wellSkew" [label="wellSkew"]
-"77113_sizeOorUsd" [label="sizeOorUsd"]
-"77113__reseatIfStale" [label="_reseatIfStale"]
-"77113__skewBasis" [label="_skewBasis"]
-"77113_soldFractionWad" [label="soldFractionWad"]
-"77113_sellSkew" [label="sellSkew"]
-"77113_vogueOpBody" [label="vogueOpBody"]
-"77113_holdingRatioWad" [label="holdingRatioWad"]
-"77113_sweepBody" [label="sweepBody"]
-"77113__maxWellSkew" [label="_maxWellSkew"]
-"77113__sourceRepayFree" [label="_sourceRepayFree"]
-"77113_plainNet" [label="plainNet"]
-"77113__finishSwap" [label="_finishSwap"]
-"77113_scaleTo6" [label="scaleTo6"]
-"77113_skewWad" [label="skewWad"]
-"77113_deleverOnDelivery" [label="deleverOnDelivery"]
-"77113_pendingFor" [label="pendingFor"]
-"77113__sharedScarcityWad" [label="_sharedScarcityWad"]
-"77113_updateTicks" [label="updateTicks"]
-"77113_depositBody" [label="depositBody"]
-"77113_sourceWethBody" [label="sourceWethBody"]
-"77113_twapBody" [label="twapBody"]
-"77113_sizeBySurplus" [label="sizeBySurplus"]
-"77113__swapOutSettle" [label="_swapOutSettle"]
-"77113_retainSkewPremium" [label="retainSkewPremium"]
-"77113__doReseat" [label="_doReseat"]
-"77113__packBandTicks" [label="_packBandTicks"]
-"77113__requireStable" [label="_requireStable"]
-"77113_targetSqrtForPrice" [label="targetSqrtForPrice"]
-"77113_creditSwapOutBody" [label="creditSwapOutBody"]
-"77113_feeIncrements" [label="feeIncrements"]
-"77113_swapToBody" -> "77113__consumeVolInput"
-"77113_swapToBody" -> "77113__priceOr"
-"77113__swapOutPrep" -> "77113__priceOr"
-"77113_swapToBody" -> "77113__finishSwap"
-"77113_creditSwapInBody" -> "77113__requireStable"
-"77113_creditSwapInBody" -> "77113__priceOr"
-"77113__swapOutPrep" -> "77113_retainSkewPremium"
-"77113__consumeVolInput" -> "77113_scaleTo6"
-"77113_sellSkew" -> "77113__composePrice"
-"77113_sellSkew" -> "77113__skewBasis"
-"77113_rebalanceCore" -> "77113__reseatIfStale"
-"77113_creditSwapInBody" -> "77113__packBandTicks"
-"77113__swapOutPrep" -> "77113_scaleTo6"
-"77113_creditSwapOutBody" -> "77113__swapOutPrep"
-"77113_wellSkew" -> "77113_skewWad"
-"77113__finishSwap" -> "77113__priceOr"
-"77113_swapToBody" -> "77113_sellSkew"
-"77113_updateTicks" -> "77113_paddedSqrtPrice"
-"77113_swapToBody" -> "77113_retainSkewPremium"
-"77113_soldFractionWad" -> "77113_holdingRatioWad"
-"77113__reseatIfStale" -> "77113_targetSqrtForPrice"
-"77113_swapToBody" -> "77113__packBandTicks"
-"77113_creditSwapInBody" -> "77113__swapInSettle"
-"77113_swapToBody" -> "77113_wellSkew"
-"77113__doReseat" -> "77113_updateTicks"
-"77113_wellSkew" -> "77113__skewBasis"
-"77113__composePrice" -> "77113__sharedScarcityWad"
-"77113__finishSwap" -> "77113__refundExcess"
-"77113_auxSwapBody" -> "77113__convert"
-"77113_creditSwapOutBody" -> "77113__requireStable"
-"77113_creditSwapOutBody" -> "77113__swapOutSettle"
-"77113__reseatIfStale" -> "77113__doReseat"
-"77113_clampByBacking" -> "77113_applyTheta"
-"77113_rebalanceCore" -> "77113_updateTicks"
-"77113__swapOutPrep" -> "77113_wellSkew"
-"77113__sourceRepayFree" -> "77113__heldUsd18"
-"77113_updateTicks" -> "77113_alignTick"
-"77113__swapOutPrep" -> "77113__packBandTicks"
-"77113_oorTicks" -> "77113_alignTick"
-"77113__consumeVolInput" -> "77113__consumeQdIn"
-"77113__composePrice" -> "77113__maxWellSkew"
-"77113_deleverOnDelivery" -> "77113__sourceRepayFree"
-"77113_wellSkew" -> "77113__sharedScarcityWad"
+"66865__sourceRepayFree" [label="_sourceRepayFree"]
+"66865_sellSkew" [label="sellSkew"]
+"66865_retainSkewPremium" [label="retainSkewPremium"]
+"66865__risk" [label="_risk"]
+"66865_twapBody" [label="twapBody"]
+"66865_curveSellWeeth" [label="curveSellWeeth"]
+"66865_updateBounds" [label="updateBounds"]
+"66865_btcRisk" [label="btcRisk"]
+"66865_refillNeeded" [label="refillNeeded"]
+"66865_applyTheta" [label="applyTheta"]
+"66865__finishSwap" [label="_finishSwap"]
+"66865__maxWellSkew" [label="_maxWellSkew"]
+"66865__swapOutSettle" [label="_swapOutSettle"]
+"66865_proRataShortfall" [label="proRataShortfall"]
+"66865_sizeOorUsd" [label="sizeOorUsd"]
+"66865_ethRisk" [label="ethRisk"]
+"66865__consumeVolInput" [label="_consumeVolInput"]
+"66865__swapOutPrep" [label="_swapOutPrep"]
+"66865__doReseat" [label="_doReseat"]
+"66865__consumeQdIn" [label="_consumeQdIn"]
+"66865_soldFractionWad" [label="soldFractionWad"]
+"66865_refreshBookmarks" [label="refreshBookmarks"]
+"66865_burnInRange" [label="burnInRange"]
+"66865__swapInSettle" [label="_swapInSettle"]
+"66865_imbalanceFeeUsd6" [label="imbalanceFeeUsd6"]
+"66865_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"66865_deleverOnDelivery" [label="deleverOnDelivery"]
+"66865_validateOorParams" [label="validateOorParams"]
+"66865__sharedScarcityWad" [label="_sharedScarcityWad"]
+"66865_wellSkew" [label="wellSkew"]
+"66865__skewBasis" [label="_skewBasis"]
+"66865_deleverEthOnDelivery" [label="deleverEthOnDelivery"]
+"66865_clampByBacking" [label="clampByBacking"]
+"66865_refillPlacement" [label="refillPlacement"]
+"66865_rebalanceCore" [label="rebalanceCore"]
+"66865_creditSwapOutBody" [label="creditSwapOutBody"]
+"66865__reseatIfStale" [label="_reseatIfStale"]
+"66865_swapToBody" [label="swapToBody"]
+"66865__convert" [label="_convert"]
+"66865_bandOpBody" [label="bandOpBody"]
+"66865_scaleTo6" [label="scaleTo6"]
+"66865__heldUsd18" [label="_heldUsd18"]
+"66865_paddedSqrtPrice" [label="paddedSqrtPrice"]
+"66865__requireStable" [label="_requireStable"]
+"66865__priceOr" [label="_priceOr"]
+"66865_plainNet" [label="plainNet"]
+"66865_holdingRatioWad" [label="holdingRatioWad"]
+"66865_skewWad" [label="skewWad"]
+"66865_sizeBySurplus" [label="sizeBySurplus"]
+"66865_creditSwapInBody" [label="creditSwapInBody"]
+"66865_depositBody" [label="depositBody"]
+"66865_auxSwapBody" [label="auxSwapBody"]
+"66865__declineIfUnfillable" [label="_declineIfUnfillable"]
+"66865_pendingFor" [label="pendingFor"]
+"66865_sourceWethBody" [label="sourceWethBody"]
+"66865_oorBounds" [label="oorBounds"]
+"66865__composePrice" [label="_composePrice"]
+"66865_feeIncrements" [label="feeIncrements"]
+"66865_sweepBody" [label="sweepBody"]
+"66865__refundExcess" [label="_refundExcess"]
+"66865_twapResolve" [label="twapResolve"]
+"66865__swapOutPrep" -> "66865_retainSkewPremium"
+"66865_rebalanceCore" -> "66865_updateBounds"
+"66865_creditSwapInBody" -> "66865__swapInSettle"
+"66865__sourceRepayFree" -> "66865__heldUsd18"
+"66865__reseatIfStale" -> "66865__doReseat"
+"66865_swapToBody" -> "66865__finishSwap"
+"66865_swapToBody" -> "66865__consumeVolInput"
+"66865_rebalanceCore" -> "66865__reseatIfStale"
+"66865_swapToBody" -> "66865_wellSkew"
+"66865_creditSwapInBody" -> "66865__priceOr"
+"66865_creditSwapOutBody" -> "66865__swapOutSettle"
+"66865_swapToBody" -> "66865__priceOr"
+"66865_auxSwapBody" -> "66865__convert"
+"66865_swapToBody" -> "66865_retainSkewPremium"
+"66865__swapOutPrep" -> "66865_wellSkew"
+"66865_swapToBody" -> "66865_sellSkew"
+"66865__swapOutPrep" -> "66865__priceOr"
+"66865_clampByBacking" -> "66865_applyTheta"
+"66865__consumeVolInput" -> "66865_scaleTo6"
+"66865__doReseat" -> "66865_updateBounds"
+"66865__finishSwap" -> "66865__priceOr"
+"66865__consumeVolInput" -> "66865__consumeQdIn"
+"66865__finishSwap" -> "66865__refundExcess"
+"66865_soldFractionWad" -> "66865_holdingRatioWad"
+"66865_creditSwapInBody" -> "66865__requireStable"
+"66865_deleverOnDelivery" -> "66865__sourceRepayFree"
+"66865__swapOutPrep" -> "66865_scaleTo6"
+"66865_creditSwapOutBody" -> "66865__swapOutPrep"
+"66865_creditSwapOutBody" -> "66865__requireStable"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert BtcInflowsViaChannels()" 
-"revert SlippageExceeded()" 
+"revert StableMissingS()" 
+"revert SwapInShort()" 
+"revert SwapInDrainsProceeds()" 
+"revert ZeroAmount()" 
+"revert UnknownStableSweep()" 
+"revert ZeroAddress()" 
+"revert RangeNotOutsideBand()" 
+"revert BadOp()" 
+"revert NotBasketStable()" 
+"revert UnderBackedS()" 
+"revert NoBtcRecipient()" 
+"revert QuoteUnfillable(uint256)" 
 "revert SwapOutShort()" 
 "revert StableMissing()" 
-"revert UnderBackedS()" 
-"revert SwapInShort()" 
-"revert NotBasketStable()" 
-"revert DeleverStableUnavailable()" 
-"revert BadOp()" 
-"revert StableMissingS()" 
+"revert BtcInflowsViaChannels()" 
 "balance(address)" 
-"revert NoBtcRecipient()" 
-"revert NoShedPath()" 
-"revert ZeroAmount()" 
-"revert SameToken()" 
 "revert BadOorParam()" 
-"revert TickOutOfRange()" 
+"revert DeleverStableUnavailable()" 
 "revert BadAsset()" 
-"revert ZeroAddress()" 
+"revert SameToken()" 
+"revert SlippageExceeded()" 
 "revert SlippageMaxS()" 
-"revert SwapInDrainsProceeds()" 
-"revert UnknownStableSweep()" 
-"abi.encodePacked()" 
-"77113__swapInSettle" -> "revert SwapInShort()"
-"77113_sizeOorUsd" -> "revert TickOutOfRange()"
-"77113_vogueOpBody" -> "revert BadOp()"
-"77113__requireStable" -> "revert StableMissing()"
-"77113_sourceWethBody" -> "abi.encodePacked()"
-"77113_auxSwapBody" -> "revert SlippageExceeded()"
-"77113_validateOorParams" -> "revert BadOorParam()"
-"77113__sourceRepayFree" -> "revert DeleverStableUnavailable()"
-"77113__swapInSettle" -> "revert SwapInDrainsProceeds()"
-"77113_auxSwapBody" -> "revert ZeroAmount()"
-"77113_swapToBody" -> "revert StableMissingS()"
-"77113_auxSwapBody" -> "revert ZeroAddress()"
-"77113__consumeVolInput" -> "revert StableMissingS()"
-"77113_sweepBody" -> "revert UnknownStableSweep()"
-"77113_swapToBody" -> "revert BtcInflowsViaChannels()"
-"77113_swapToBody" -> "revert UnderBackedS()"
-"77113_swapToBody" -> "revert NoBtcRecipient()"
-"77113__swapOutSettle" -> "revert SwapOutShort()"
-"77113_sellSkew" -> "revert NoShedPath()"
-"77113_updateTicks" -> "revert TickOutOfRange()"
-"77113__finishSwap" -> "revert SlippageMaxS()"
-"77113_sweepBody" -> "balance(address)"
-"77113_auxSwapBody" -> "revert NotBasketStable()"
-"77113_auxSwapBody" -> "revert SameToken()"
-"77113_swapToBody" -> "revert BadAsset()"
+"66865_auxSwapBody" -> "revert SameToken()"
+"66865__requireStable" -> "revert StableMissing()"
+"66865__declineIfUnfillable" -> "revert QuoteUnfillable(uint256)"
+"66865__consumeVolInput" -> "revert StableMissingS()"
+"66865_swapToBody" -> "revert StableMissingS()"
+"66865_auxSwapBody" -> "revert NotBasketStable()"
+"66865__swapInSettle" -> "revert SwapInDrainsProceeds()"
+"66865_sizeOorUsd" -> "revert RangeNotOutsideBand()"
+"66865_bandOpBody" -> "revert BadOp()"
+"66865_swapToBody" -> "revert NoBtcRecipient()"
+"66865__sourceRepayFree" -> "revert DeleverStableUnavailable()"
+"66865_swapToBody" -> "revert BadAsset()"
+"66865_swapToBody" -> "revert UnderBackedS()"
+"66865_validateOorParams" -> "revert BadOorParam()"
+"66865_swapToBody" -> "revert BtcInflowsViaChannels()"
+"66865__finishSwap" -> "revert SlippageMaxS()"
+"66865__swapOutSettle" -> "revert SwapOutShort()"
+"66865_auxSwapBody" -> "revert SlippageExceeded()"
+"66865_auxSwapBody" -> "revert ZeroAddress()"
+"66865_sweepBody" -> "revert UnknownStableSweep()"
+"66865_auxSwapBody" -> "revert ZeroAmount()"
+"66865__swapInSettle" -> "revert SwapInShort()"
+"66865_sweepBody" -> "balance(address)"
 }
 }

@@ -1,157 +1,159 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_85200_ISPVGateway {
-label = "ISPVGateway"
-"85200_blockExists" [label="blockExists"]
-"85200_getMainchainHead" [label="getMainchainHead"]
-"85200_checkTxInclusion" [label="checkTxInclusion"]
-"85200_getBlockInfo" [label="getBlockInfo"]
-"85200_getBlockHeader" [label="getBlockHeader"]
-"85200_getBlockTarget" [label="getBlockTarget"]
-"85200_getBlockStatus" [label="getBlockStatus"]
-"85200_getBlockMerkleRoot" [label="getBlockMerkleRoot"]
-"85200_getMainchainHeight" [label="getMainchainHeight"]
-"85200_addBlockHeaderBatch" [label="addBlockHeaderBatch"]
-"85200_addBlockHeader" [label="addBlockHeader"]
-"85200_isInMainchain" [label="isInMainchain"]
-"85200_getBlockHash" [label="getBlockHash"]
-"85200_getBlockHeight" [label="getBlockHeight"]
-}subgraph cluster_13915_Initializable {
+subgraph cluster_937_Initializable {
 label = "Initializable"
-"13915__getInitializedVersion" [label="_getInitializedVersion"]
-"13915__getInitializableStorage" [label="_getInitializableStorage"]
-"13915__checkInitializing" [label="_checkInitializing"]
-"13915__isInitializing" [label="_isInitializing"]
-"13915__disableInitializers" [label="_disableInitializers"]
-"13915__getInitializedVersion" -> "13915__getInitializableStorage"
-"13915__isInitializing" -> "13915__getInitializableStorage"
-"13915__checkInitializing" -> "13915__isInitializing"
-"13915__disableInitializers" -> "13915__getInitializableStorage"
-}subgraph cluster_84998_SPVGateway {
+"937__checkInitializing" [label="_checkInitializing"]
+"937__disableInitializers" [label="_disableInitializers"]
+"937__isInitializing" [label="_isInitializing"]
+"937__initializableStorageSlot" [label="_initializableStorageSlot"]
+"937__getInitializableStorage" [label="_getInitializableStorage"]
+"937__getInitializedVersion" [label="_getInitializedVersion"]
+"937__getInitializableStorage" -> "937__initializableStorageSlot"
+"937__isInitializing" -> "937__getInitializableStorage"
+"937__checkInitializing" -> "937__isInitializing"
+"937__getInitializedVersion" -> "937__getInitializableStorage"
+"937__disableInitializers" -> "937__getInitializableStorage"
+}subgraph cluster_68365_SPVGateway {
 label = "SPVGateway"
-"84998__getStorageMedianTime" [label="_getStorageMedianTime"]
-"84998_addBlockHeaderBatch" [label="addBlockHeaderBatch"]
-"84998_getBlockMerkleRoot" [label="getBlockMerkleRoot"]
-"84998__addBlock" [label="_addBlock"]
-"84998__updateMainchainHead" [label="_updateMainchainHead"]
-"84998_checkTxInclusion" [label="checkTxInclusion"]
-"84998__getBlockCumulativeWork" [label="_getBlockCumulativeWork"]
-"84998_addBlockHeader" [label="addBlockHeader"]
-"84998_getMainchainHeight" [label="getMainchainHeight"]
-"84998_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"84998_blockExists" [label="blockExists"]
-"84998__validateBlockRules" [label="_validateBlockRules"]
-"84998__initialize" [label="_initialize"]
-"84998_getBlockHash" [label="getBlockHash"]
-"84998__getMemoryMedianTime" [label="_getMemoryMedianTime"]
-"84998__getEpochPassedTime" [label="_getEpochPassedTime"]
-"84998__getBlockHeaderTime" [label="_getBlockHeaderTime"]
-"84998_isInMainchain" [label="isInMainchain"]
-"84998__retargetIfEpochBoundary" [label="_retargetIfEpochBoundary"]
-"84998_getBlockHeader" [label="getBlockHeader"]
-"84998__onlyNonExistingBlock" [label="_onlyNonExistingBlock"]
-"84998_getBlockStatus" [label="getBlockStatus"]
-"84998_getBlockInfo" [label="getBlockInfo"]
-"84998_getBlockTarget" [label="getBlockTarget"]
-"84998__parseBlockHeadersRaw" [label="_parseBlockHeadersRaw"]
-"84998__parseBlockHeaderRaw" [label="_parseBlockHeaderRaw"]
-"84998_getMainchainHead" [label="getMainchainHead"]
-"84998_getBlockHeight" [label="getBlockHeight"]
-"84998__getSPVGatewayStorage" [label="_getSPVGatewayStorage"]
-"84998__getMedianTime" [label="_getMedianTime"]
-"84998__nextCumulativeWork" [label="_nextCumulativeWork"]
-"84998___SPVGateway_init" [label="__SPVGateway_init"]
-"84998_addBlockHeader" -> "84998_getBlockTarget"
-"84998_getBlockStatus" -> "84998_getBlockHeight"
-"84998_addBlockHeaderBatch" -> "84998__getStorageMedianTime"
-"84998_addBlockHeader" -> "84998__parseBlockHeaderRaw"
-"84998_addBlockHeaderBatch" -> "84998__nextCumulativeWork"
-"84998_addBlockHeader" -> "84998_blockExists"
-"84998__getEpochPassedTime" -> "84998__getBlockHeaderTime"
-"84998_addBlockHeaderBatch" -> "84998_getBlockHeight"
-"84998__initialize" -> "84998_onlyInitializing"
-"84998___SPVGateway_init" -> "84998__parseBlockHeaderRaw"
-"84998_addBlockHeader" -> "84998__addBlock"
-"84998_checkTxInclusion" -> "84998_getBlockMerkleRoot"
-"84998_getBlockHash" -> "84998__getSPVGatewayStorage"
-"84998__getBlockCumulativeWork" -> "84998__getSPVGatewayStorage"
-"84998_getBlockHeight" -> "84998__getSPVGatewayStorage"
-"84998_getMainchainHeight" -> "84998__getSPVGatewayStorage"
-"84998__getEpochPassedTime" -> "84998_getBlockHash"
-"84998__retargetIfEpochBoundary" -> "84998__getEpochPassedTime"
-"84998_getBlockTarget" -> "84998__getSPVGatewayStorage"
-"84998__parseBlockHeaderRaw" -> "84998__onlyNonExistingBlock"
-"84998_blockExists" -> "84998__getBlockHeaderTime"
-"84998__parseBlockHeadersRaw" -> "84998_blockExists"
-"84998_addBlockHeaderBatch" -> "84998__getMemoryMedianTime"
-"84998_checkTxInclusion" -> "84998_getBlockStatus"
-"84998_addBlockHeader" -> "84998_broadcastMainchainUpdateEvent"
-"84998__onlyNonExistingBlock" -> "84998_blockExists"
-"84998_getBlockInfo" -> "84998_blockExists"
-"84998_addBlockHeaderBatch" -> "84998__parseBlockHeadersRaw"
-"84998_getBlockMerkleRoot" -> "84998__getSPVGatewayStorage"
-"84998_addBlockHeaderBatch" -> "84998_getBlockTarget"
-"84998_addBlockHeader" -> "84998__nextCumulativeWork"
-"84998__getStorageMedianTime" -> "84998__getBlockHeaderTime"
-"84998__updateMainchainHead" -> "84998_getBlockHash"
-"84998_addBlockHeaderBatch" -> "84998__addBlock"
-"84998__updateMainchainHead" -> "84998__getSPVGatewayStorage"
-"84998__getMemoryMedianTime" -> "84998__getMedianTime"
-"84998_getBlockStatus" -> "84998_getMainchainHeight"
-"84998_getBlockInfo" -> "84998__getSPVGatewayStorage"
-"84998__addBlock" -> "84998__updateMainchainHead"
-"84998__updateMainchainHead" -> "84998__getBlockCumulativeWork"
-"84998_getBlockHeader" -> "84998__getSPVGatewayStorage"
-"84998_getMainchainHead" -> "84998__getSPVGatewayStorage"
-"84998_getBlockInfo" -> "84998_isInMainchain"
-"84998_addBlockHeaderBatch" -> "84998__validateBlockRules"
-"84998___SPVGateway_init" -> "84998__initialize"
-"84998_addBlockHeader" -> "84998__getStorageMedianTime"
-"84998_addBlockHeader" -> "84998__retargetIfEpochBoundary"
-"84998_addBlockHeaderBatch" -> "84998_broadcastMainchainUpdateEvent"
-"84998__getStorageMedianTime" -> "84998__getSPVGatewayStorage"
-"84998___SPVGateway_init" -> "84998_initializer"
-"84998_isInMainchain" -> "84998_getBlockHash"
-"84998__initialize" -> "84998__addBlock"
-"84998_addBlockHeaderBatch" -> "84998__retargetIfEpochBoundary"
-"84998__getStorageMedianTime" -> "84998__getMedianTime"
-"84998_addBlockHeader" -> "84998_getBlockHeight"
-"84998_getBlockStatus" -> "84998_isInMainchain"
-"84998__nextCumulativeWork" -> "84998__getSPVGatewayStorage"
-"84998_addBlockHeader" -> "84998__validateBlockRules"
-"84998__parseBlockHeadersRaw" -> "84998__parseBlockHeaderRaw"
-"84998_getMainchainHeight" -> "84998_getBlockHeight"
-"84998__addBlock" -> "84998__getSPVGatewayStorage"
-"84998__getBlockHeaderTime" -> "84998__getSPVGatewayStorage"
-"84998_isInMainchain" -> "84998_getBlockHeight"
+"68365_getBlockStatus" [label="getBlockStatus"]
+"68365__getMedianTime" [label="_getMedianTime"]
+"68365__nextCumulativeWork" [label="_nextCumulativeWork"]
+"68365__getMemoryMedianTime" [label="_getMemoryMedianTime"]
+"68365__initialize" [label="_initialize"]
+"68365__getSPVGatewayStorage" [label="_getSPVGatewayStorage"]
+"68365__retargetIfEpochBoundary" [label="_retargetIfEpochBoundary"]
+"68365_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"68365_checkTxInclusion" [label="checkTxInclusion"]
+"68365_getMainchainHeight" [label="getMainchainHeight"]
+"68365__getStorageMedianTime" [label="_getStorageMedianTime"]
+"68365__parseBlockHeaderRaw" [label="_parseBlockHeaderRaw"]
+"68365_getBlockMerkleRoot" [label="getBlockMerkleRoot"]
+"68365__addBlock" [label="_addBlock"]
+"68365__updateMainchainHead" [label="_updateMainchainHead"]
+"68365_getBlockInfo" [label="getBlockInfo"]
+"68365__getBlockHeaderTime" [label="_getBlockHeaderTime"]
+"68365_getBlockHeader" [label="getBlockHeader"]
+"68365_isInMainchain" [label="isInMainchain"]
+"68365_getMainchainHead" [label="getMainchainHead"]
+"68365__onlyNonExistingBlock" [label="_onlyNonExistingBlock"]
+"68365_getBlockHeight" [label="getBlockHeight"]
+"68365__parseBlockHeadersRaw" [label="_parseBlockHeadersRaw"]
+"68365_blockExists" [label="blockExists"]
+"68365__getEpochPassedTime" [label="_getEpochPassedTime"]
+"68365__validateBlockRules" [label="_validateBlockRules"]
+"68365_addBlockHeaderBatch" [label="addBlockHeaderBatch"]
+"68365_getBlockTarget" [label="getBlockTarget"]
+"68365__getBlockCumulativeWork" [label="_getBlockCumulativeWork"]
+"68365_getBlockHash" [label="getBlockHash"]
+"68365___SPVGateway_init" [label="__SPVGateway_init"]
+"68365_addBlockHeader" [label="addBlockHeader"]
+"68365__getBlockCumulativeWork" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeaderBatch" -> "68365__getStorageMedianTime"
+"68365__updateMainchainHead" -> "68365_getBlockHash"
+"68365___SPVGateway_init" -> "68365_initializer"
+"68365__getMemoryMedianTime" -> "68365__getMedianTime"
+"68365_getBlockHeight" -> "68365__getSPVGatewayStorage"
+"68365_getBlockMerkleRoot" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeader" -> "68365_broadcastMainchainUpdateEvent"
+"68365__updateMainchainHead" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeaderBatch" -> "68365__retargetIfEpochBoundary"
+"68365_addBlockHeader" -> "68365__parseBlockHeaderRaw"
+"68365_addBlockHeader" -> "68365__nextCumulativeWork"
+"68365_getBlockInfo" -> "68365_blockExists"
+"68365_getBlockInfo" -> "68365__getSPVGatewayStorage"
+"68365__getEpochPassedTime" -> "68365__getBlockHeaderTime"
+"68365__getStorageMedianTime" -> "68365__getBlockHeaderTime"
+"68365_addBlockHeader" -> "68365__validateBlockRules"
+"68365__nextCumulativeWork" -> "68365__getSPVGatewayStorage"
+"68365__onlyNonExistingBlock" -> "68365_blockExists"
+"68365_addBlockHeaderBatch" -> "68365_getBlockTarget"
+"68365___SPVGateway_init" -> "68365__parseBlockHeaderRaw"
+"68365_getMainchainHead" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeaderBatch" -> "68365_getBlockHeight"
+"68365__getStorageMedianTime" -> "68365__getMedianTime"
+"68365__getStorageMedianTime" -> "68365__getSPVGatewayStorage"
+"68365__parseBlockHeaderRaw" -> "68365__onlyNonExistingBlock"
+"68365_addBlockHeader" -> "68365_getBlockTarget"
+"68365_getBlockHeader" -> "68365__getSPVGatewayStorage"
+"68365__addBlock" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeader" -> "68365__retargetIfEpochBoundary"
+"68365__retargetIfEpochBoundary" -> "68365__getEpochPassedTime"
+"68365__parseBlockHeadersRaw" -> "68365__parseBlockHeaderRaw"
+"68365__getBlockHeaderTime" -> "68365__getSPVGatewayStorage"
+"68365___SPVGateway_init" -> "68365__initialize"
+"68365_isInMainchain" -> "68365_getBlockHash"
+"68365_getBlockInfo" -> "68365_isInMainchain"
+"68365_addBlockHeaderBatch" -> "68365_broadcastMainchainUpdateEvent"
+"68365_getBlockStatus" -> "68365_getMainchainHeight"
+"68365__initialize" -> "68365_onlyInitializing"
+"68365_addBlockHeaderBatch" -> "68365__addBlock"
+"68365_addBlockHeaderBatch" -> "68365__validateBlockRules"
+"68365_getBlockTarget" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeaderBatch" -> "68365__parseBlockHeadersRaw"
+"68365_isInMainchain" -> "68365_getBlockHeight"
+"68365_addBlockHeaderBatch" -> "68365__nextCumulativeWork"
+"68365_checkTxInclusion" -> "68365_getBlockMerkleRoot"
+"68365_blockExists" -> "68365__getBlockHeaderTime"
+"68365__addBlock" -> "68365__updateMainchainHead"
+"68365__parseBlockHeadersRaw" -> "68365_blockExists"
+"68365_addBlockHeader" -> "68365_blockExists"
+"68365__getEpochPassedTime" -> "68365_getBlockHash"
+"68365_addBlockHeaderBatch" -> "68365__getMemoryMedianTime"
+"68365_getBlockStatus" -> "68365_getBlockHeight"
+"68365_checkTxInclusion" -> "68365_getBlockStatus"
+"68365_addBlockHeader" -> "68365__addBlock"
+"68365_getBlockStatus" -> "68365_isInMainchain"
+"68365_getMainchainHeight" -> "68365_getBlockHeight"
+"68365__updateMainchainHead" -> "68365__getBlockCumulativeWork"
+"68365_getBlockHash" -> "68365__getSPVGatewayStorage"
+"68365_addBlockHeader" -> "68365_getBlockHeight"
+"68365_getMainchainHeight" -> "68365__getSPVGatewayStorage"
+"68365__initialize" -> "68365__addBlock"
+"68365_addBlockHeader" -> "68365__getStorageMedianTime"
+}subgraph cluster_68567_ISPVGateway {
+label = "ISPVGateway"
+"68567_addBlockHeaderBatch" [label="addBlockHeaderBatch"]
+"68567_getBlockStatus" [label="getBlockStatus"]
+"68567_getMainchainHead" [label="getMainchainHead"]
+"68567_getBlockInfo" [label="getBlockInfo"]
+"68567_getBlockTarget" [label="getBlockTarget"]
+"68567_checkTxInclusion" [label="checkTxInclusion"]
+"68567_getBlockMerkleRoot" [label="getBlockMerkleRoot"]
+"68567_getBlockHash" [label="getBlockHash"]
+"68567_getBlockHeight" [label="getBlockHeight"]
+"68567_isInMainchain" [label="isInMainchain"]
+"68567_getMainchainHeight" [label="getMainchainHeight"]
+"68567_blockExists" [label="blockExists"]
+"68567_getBlockHeader" [label="getBlockHeader"]
+"68567_addBlockHeader" [label="addBlockHeader"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "require(bool,error)" 
-"revert InvalidBlockHeadersOrder()" 
 "revert InvalidInitialization()" 
-"revert InvalidBlockTime(uint32,uint32)" 
-"revert InvalidTarget(bytes32,bytes32)" 
-"revert NotInitializing()" 
-"revert PrevBlockDoesNotExist(bytes32)" 
-"revert InvalidBlockHash(bytes32,bytes32)" 
-"revert BlockAlreadyExists(bytes32)" 
 "keccak256(bytes)" 
+"revert InvalidBlockTime(uint32,uint32)" 
 "revert EmptyBlockHeaderArray()" 
-"84998__parseBlockHeadersRaw" -> "require(bool,error)"
-"84998_addBlockHeader" -> "revert PrevBlockDoesNotExist(bytes32)"
-"13915__checkInitializing" -> "revert NotInitializing()"
-"84998__validateBlockRules" -> "revert InvalidTarget(bytes32,bytes32)"
-"84998__onlyNonExistingBlock" -> "require(bool,error)"
-"84998__validateBlockRules" -> "revert InvalidBlockHash(bytes32,bytes32)"
-"84998__parseBlockHeadersRaw" -> "revert InvalidBlockHeadersOrder()"
-"84998__onlyNonExistingBlock" -> "revert BlockAlreadyExists(bytes32)"
-"84998__validateBlockRules" -> "revert InvalidBlockTime(uint32,uint32)"
-"84998__parseBlockHeadersRaw" -> "revert EmptyBlockHeaderArray()"
-"84998__validateBlockRules" -> "require(bool,error)"
-"84998_slitherConstructorConstantVariables" -> "keccak256(bytes)"
-"84998__parseBlockHeadersRaw" -> "revert PrevBlockDoesNotExist(bytes32)"
-"13915__disableInitializers" -> "revert InvalidInitialization()"
-"84998_addBlockHeader" -> "require(bool,error)"
+"revert InvalidBlockHeadersOrder()" 
+"revert InvalidBlockHash(bytes32,bytes32)" 
+"revert InvalidTarget(bytes32,bytes32)" 
+"revert PrevBlockDoesNotExist(bytes32)" 
+"revert BlockAlreadyExists(bytes32)" 
+"revert NotInitializing()" 
+"68365_addBlockHeader" -> "revert PrevBlockDoesNotExist(bytes32)"
+"68365__parseBlockHeadersRaw" -> "revert InvalidBlockHeadersOrder()"
+"68365__validateBlockRules" -> "require(bool,error)"
+"68365__onlyNonExistingBlock" -> "require(bool,error)"
+"68365__validateBlockRules" -> "revert InvalidBlockTime(uint32,uint32)"
+"68365__onlyNonExistingBlock" -> "revert BlockAlreadyExists(bytes32)"
+"68365__parseBlockHeadersRaw" -> "revert PrevBlockDoesNotExist(bytes32)"
+"68365__parseBlockHeadersRaw" -> "require(bool,error)"
+"68365__parseBlockHeadersRaw" -> "revert EmptyBlockHeaderArray()"
+"68365__validateBlockRules" -> "revert InvalidTarget(bytes32,bytes32)"
+"68365_addBlockHeader" -> "require(bool,error)"
+"68365_slitherConstructorConstantVariables" -> "keccak256(bytes)"
+"68365__validateBlockRules" -> "revert InvalidBlockHash(bytes32,bytes32)"
+"937__disableInitializers" -> "revert InvalidInitialization()"
+"937__checkInitializing" -> "revert NotInitializing()"
 }
 }

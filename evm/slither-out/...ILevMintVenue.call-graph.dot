@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62589_ILevMintVenue {
+subgraph cluster_48674_ILevMintVenue {
 label = "ILevMintVenue"
-"62589_mintForClose" [label="mintForClose"]
-"62589_usesMintClose" [label="usesMintClose"]
+"48674_usesMintClose" [label="usesMintClose"]
+"48674_mintForClose" [label="mintForClose"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

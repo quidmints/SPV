@@ -1,0 +1,33 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_48021_FixedRateFill {
+label = "FixedRateFill"
+"48021_splitCost" [label="splitCost"]
+"48021__applySkew" [label="_applySkew"]
+"48021_quoteFill" [label="quoteFill"]
+"48021_quoteDrain" [label="quoteDrain"]
+"48021_assertConserved" [label="assertConserved"]
+"48021_requireNonAbusable" [label="requireNonAbusable"]
+"48021_enforce" [label="enforce"]
+"48021_quoteDrain" -> "48021__applySkew"
+"48021_quoteFill" -> "48021__applySkew"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert WeightsMustSumToOne()" 
+"revert SplitIsGrindable()" 
+"revert SizeExceedsInventory()" 
+"revert NoExternalCostToBound()" 
+"revert ConservationViolated()" 
+"revert QuoteExpired()" 
+"revert NoQuote()" 
+"48021_requireNonAbusable" -> "revert NoExternalCostToBound()"
+"48021_splitCost" -> "revert WeightsMustSumToOne()"
+"48021_requireNonAbusable" -> "revert SplitIsGrindable()"
+"48021_assertConserved" -> "revert ConservationViolated()"
+"48021_enforce" -> "revert SizeExceedsInventory()"
+"48021_quoteFill" -> "revert NoQuote()"
+"48021_quoteDrain" -> "revert NoQuote()"
+"48021_enforce" -> "revert QuoteExpired()"
+}
+}

@@ -1,76 +1,85 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_56178_BitcoinTx {
+subgraph cluster_41208_BitcoinTx {
 label = "BitcoinTx"
-"56178_sumOutputValuesExcept" [label="sumOutputValuesExcept"]
-"56178_inputCount" [label="inputCount"]
-"56178_extractLocktime" [label="extractLocktime"]
-"56178_sumOutputValuesToScript" [label="sumOutputValuesToScript"]
-"56178_isCommitmentTx" [label="isCommitmentTx"]
-"56178__skipInputs" [label="_skipInputs"]
-"56178__modExp" [label="_modExp"]
-"56178_txid" [label="txid"]
-"56178_findOutputByScript" [label="findOutputByScript"]
-"56178_extractInputPrevOutpoint" [label="extractInputPrevOutpoint"]
-"56178_readVarInt" [label="readVarInt"]
-"56178_extractInput0Sequence" [label="extractInput0Sequence"]
-"56178_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"56178__assertLegacy" [label="_assertLegacy"]
-"56178_buildTaprootScriptPubKey" [label="buildTaprootScriptPubKey"]
-"56178__readLE" [label="_readLE"]
-"56178_isValidXOnlyKey" [label="isValidXOnlyKey"]
-"56178_sumOutputValuesExcept" -> "56178_readVarInt"
-"56178_extractInputPrevOutpoint" -> "56178__readLE"
-"56178_extractInput0Sequence" -> "56178__assertLegacy"
-"56178_extractInput0Sequence" -> "56178__readLE"
-"56178_extractLocktime" -> "56178__readLE"
-"56178__skipInputs" -> "56178_readVarInt"
-"56178_sumOutputValuesToScript" -> "56178_readVarInt"
-"56178_isCommitmentTx" -> "56178_extractLocktime"
-"56178_isValidXOnlyKey" -> "56178__modExp"
-"56178_sumOutputValuesToScript" -> "56178__skipInputs"
-"56178_findOutputByScript" -> "56178_readVarInt"
-"56178_sumOutputValuesExcept" -> "56178__readLE"
-"56178__skipInputs" -> "56178__assertLegacy"
-"56178_isCommitmentTx" -> "56178_extractInput0Sequence"
-"56178_sumOutputValuesToScript" -> "56178__readLE"
-"56178_inputCount" -> "56178__assertLegacy"
-"56178_findOutputByScript" -> "56178__readLE"
-"56178_readVarInt" -> "56178__readLE"
-"56178_extractInputPrevOutpoint" -> "56178__assertLegacy"
-"56178_findOutputByScript" -> "56178__skipInputs"
-"56178_inputCount" -> "56178_readVarInt"
-"56178_extractInputPrevOutpoint" -> "56178_readVarInt"
-"56178_extractInput0Sequence" -> "56178_readVarInt"
-"56178_sumOutputValuesExcept" -> "56178__skipInputs"
+"41208__skipInputs" [label="_skipInputs"]
+"41208_isValidXOnlyKey" [label="isValidXOnlyKey"]
+"41208_sumOutputValuesToScript" [label="sumOutputValuesToScript"]
+"41208_extractInput0Sequence" [label="extractInput0Sequence"]
+"41208_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"41208_inputCount" [label="inputCount"]
+"41208_findOutputByScript" [label="findOutputByScript"]
+"41208_readVarInt" [label="readVarInt"]
+"41208__assertLegacy" [label="_assertLegacy"]
+"41208__readLE" [label="_readLE"]
+"41208_extractLocktime" [label="extractLocktime"]
+"41208_evmAddressOfCompressed" [label="evmAddressOfCompressed"]
+"41208_sumOutputValuesExcept" [label="sumOutputValuesExcept"]
+"41208__modExp" [label="_modExp"]
+"41208_isCommitmentTx" [label="isCommitmentTx"]
+"41208_extractInputPrevOutpoint" [label="extractInputPrevOutpoint"]
+"41208_buildTaprootScriptPubKey" [label="buildTaprootScriptPubKey"]
+"41208_txid" [label="txid"]
+"41208_extractInputPrevOutpoint" -> "41208__assertLegacy"
+"41208_extractInputPrevOutpoint" -> "41208__readLE"
+"41208_isCommitmentTx" -> "41208_extractLocktime"
+"41208_isCommitmentTx" -> "41208_extractInput0Sequence"
+"41208_extractInput0Sequence" -> "41208__assertLegacy"
+"41208_sumOutputValuesExcept" -> "41208_readVarInt"
+"41208_extractLocktime" -> "41208__readLE"
+"41208_sumOutputValuesExcept" -> "41208__readLE"
+"41208_isValidXOnlyKey" -> "41208__modExp"
+"41208_findOutputByScript" -> "41208__readLE"
+"41208__skipInputs" -> "41208_readVarInt"
+"41208_inputCount" -> "41208_readVarInt"
+"41208_inputCount" -> "41208__assertLegacy"
+"41208_extractInputPrevOutpoint" -> "41208_readVarInt"
+"41208_sumOutputValuesToScript" -> "41208__skipInputs"
+"41208_findOutputByScript" -> "41208__skipInputs"
+"41208__skipInputs" -> "41208__assertLegacy"
+"41208_sumOutputValuesToScript" -> "41208__readLE"
+"41208_findOutputByScript" -> "41208_readVarInt"
+"41208_extractInput0Sequence" -> "41208__readLE"
+"41208_sumOutputValuesExcept" -> "41208__skipInputs"
+"41208_extractInput0Sequence" -> "41208_readVarInt"
+"41208_sumOutputValuesToScript" -> "41208_readVarInt"
+"41208_evmAddressOfCompressed" -> "41208__modExp"
+"41208_readVarInt" -> "41208__readLE"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"mulmod(uint256,uint256,uint256)" 
-"calldataload(uint256)" 
 "revert InputOutOfRange()" 
-"abi.encodePacked()" 
+"keccak256(bytes)" 
 "revert OutputNotFound()" 
-"revert TruncatedTx()" 
 "sha256(bytes)" 
+"mload(uint256)" 
+"revert TruncatedTx()" 
+"abi.encodePacked()" 
+"calldataload(uint256)" 
+"mulmod(uint256,uint256,uint256)" 
 "addmod(uint256,uint256,uint256)" 
-"56178__assertLegacy" -> "revert TruncatedTx()"
-"56178_txid" -> "sha256(bytes)"
-"56178_extractLocktime" -> "revert TruncatedTx()"
-"56178_extractInput0Sequence" -> "revert TruncatedTx()"
-"56178_buildTaprootScriptPubKey" -> "abi.encodePacked()"
-"56178__modExp" -> "mulmod(uint256,uint256,uint256)"
-"56178_txid" -> "abi.encodePacked()"
-"56178_isValidXOnlyKey" -> "mulmod(uint256,uint256,uint256)"
-"56178_isValidXOnlyKey" -> "addmod(uint256,uint256,uint256)"
-"56178_extractInputPrevOutpoint" -> "revert InputOutOfRange()"
-"56178_sumOutputValuesExcept" -> "revert OutputNotFound()"
-"56178_findOutputByScript" -> "revert TruncatedTx()"
-"56178_extractInputPrevOutpoint" -> "revert TruncatedTx()"
-"56178_readVarInt" -> "revert TruncatedTx()"
-"56178_extractInputPrevOutpoint" -> "calldataload(uint256)"
-"56178_sumOutputValuesToScript" -> "revert TruncatedTx()"
-"56178_sumOutputValuesExcept" -> "revert TruncatedTx()"
-"56178_findOutputByScript" -> "revert OutputNotFound()"
+"41208_isValidXOnlyKey" -> "addmod(uint256,uint256,uint256)"
+"41208_readVarInt" -> "revert TruncatedTx()"
+"41208_buildTaprootScriptPubKey" -> "abi.encodePacked()"
+"41208_sumOutputValuesExcept" -> "revert OutputNotFound()"
+"41208_extractInputPrevOutpoint" -> "calldataload(uint256)"
+"41208_evmAddressOfCompressed" -> "addmod(uint256,uint256,uint256)"
+"41208__modExp" -> "mulmod(uint256,uint256,uint256)"
+"41208_findOutputByScript" -> "revert OutputNotFound()"
+"41208_evmAddressOfCompressed" -> "mulmod(uint256,uint256,uint256)"
+"41208__assertLegacy" -> "revert TruncatedTx()"
+"41208_sumOutputValuesExcept" -> "revert TruncatedTx()"
+"41208_evmAddressOfCompressed" -> "abi.encodePacked()"
+"41208_txid" -> "abi.encodePacked()"
+"41208_extractInput0Sequence" -> "revert TruncatedTx()"
+"41208_isValidXOnlyKey" -> "mulmod(uint256,uint256,uint256)"
+"41208_sumOutputValuesToScript" -> "revert TruncatedTx()"
+"41208_extractInputPrevOutpoint" -> "revert TruncatedTx()"
+"41208_extractLocktime" -> "revert TruncatedTx()"
+"41208_txid" -> "sha256(bytes)"
+"41208_findOutputByScript" -> "revert TruncatedTx()"
+"41208_evmAddressOfCompressed" -> "keccak256(bytes)"
+"41208_evmAddressOfCompressed" -> "mload(uint256)"
+"41208_extractInputPrevOutpoint" -> "revert InputOutOfRange()"
 }
 }

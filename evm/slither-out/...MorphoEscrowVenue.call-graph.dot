@@ -1,63 +1,63 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_44586_MorphoEscrowVenue {
+subgraph cluster_56212_MorphoEscrowVenue {
 label = "MorphoEscrowVenue"
-"44586_debtOf" [label="debtOf"]
-"44586_collateralOf" [label="collateralOf"]
-"44586_accrueAndDebtOf" [label="accrueAndDebtOf"]
-"44586_repayFor" [label="repayFor"]
-"44586_liqThresholdBps" [label="liqThresholdBps"]
-"44586_supply" [label="supply"]
-"44586_constructor" [label="constructor"]
-"44586_accrue" [label="accrue"]
-"44586__params" [label="_params"]
-"44586_withdraw" [label="withdraw"]
-"44586_repay" [label="repay"]
-"44586_borrow" [label="borrow"]
-"44586_constructor" -> "44586_constructor"
-"44586_accrueAndDebtOf" -> "44586_debtOf"
-"44586_borrow" -> "44586__params"
-"44586_repay" -> "44586__params"
-"44586_repayFor" -> "44586_debtOf"
-"44586_supply" -> "44586_nonReentrant"
-"44586_withdraw" -> "44586_onlyManager"
-"44586_withdraw" -> "44586_nonReentrant"
-"44586_accrueAndDebtOf" -> "44586__params"
-"44586_withdraw" -> "44586__params"
-"44586_repay" -> "44586_onlyManager"
-"44586_borrow" -> "44586_onlyManager"
-"44586_withdraw" -> "44586_collateralOf"
-"44586_repay" -> "44586_debtOf"
-"44586_repay" -> "44586_nonReentrant"
-"44586_repayFor" -> "44586__params"
-"44586_borrow" -> "44586_nonReentrant"
-"44586_accrue" -> "44586__params"
-"44586_supply" -> "44586__params"
-"44586_supply" -> "44586_onlyManager"
-"44586_repayFor" -> "44586_nonReentrant"
-}subgraph cluster_68059_LevVenueBase {
-label = "LevVenueBase"
-"68059_stable" [label="stable"]
-"68059_constructor" [label="constructor"]
-}subgraph cluster_62125_ILevVenue {
+"56212_supply" [label="supply"]
+"56212_constructor" [label="constructor"]
+"56212__params" [label="_params"]
+"56212_repayFor" [label="repayFor"]
+"56212_accrueAndDebtOf" [label="accrueAndDebtOf"]
+"56212_collateralOf" [label="collateralOf"]
+"56212_accrue" [label="accrue"]
+"56212_withdraw" [label="withdraw"]
+"56212_repay" [label="repay"]
+"56212_debtOf" [label="debtOf"]
+"56212_liqThresholdBps" [label="liqThresholdBps"]
+"56212_borrow" [label="borrow"]
+"56212_borrow" -> "56212_nonReentrant"
+"56212_repayFor" -> "56212__params"
+"56212_constructor" -> "56212_constructor"
+"56212_accrueAndDebtOf" -> "56212_debtOf"
+"56212_withdraw" -> "56212__params"
+"56212_borrow" -> "56212__params"
+"56212_repayFor" -> "56212_nonReentrant"
+"56212_supply" -> "56212__params"
+"56212_repayFor" -> "56212_debtOf"
+"56212_borrow" -> "56212_onlyManager"
+"56212_repay" -> "56212_nonReentrant"
+"56212_withdraw" -> "56212_collateralOf"
+"56212_accrueAndDebtOf" -> "56212__params"
+"56212_withdraw" -> "56212_nonReentrant"
+"56212_accrue" -> "56212__params"
+"56212_withdraw" -> "56212_onlyManager"
+"56212_repay" -> "56212_debtOf"
+"56212_supply" -> "56212_nonReentrant"
+"56212_repay" -> "56212__params"
+"56212_supply" -> "56212_onlyManager"
+"56212_repay" -> "56212_onlyManager"
+}subgraph cluster_48163_ILevVenue {
 label = "ILevVenue"
-"62125_collateralOf" [label="collateralOf"]
-"62125_borrow" [label="borrow"]
-"62125_liqThresholdBps" [label="liqThresholdBps"]
-"62125_repay" [label="repay"]
-"62125_stable" [label="stable"]
-"62125_withdraw" [label="withdraw"]
-"62125_supply" [label="supply"]
-"62125_debtOf" [label="debtOf"]
+"48163_repay" [label="repay"]
+"48163_stable" [label="stable"]
+"48163_collateralOf" [label="collateralOf"]
+"48163_supply" [label="supply"]
+"48163_borrow" [label="borrow"]
+"48163_withdraw" [label="withdraw"]
+"48163_liqThresholdBps" [label="liqThresholdBps"]
+"48163_debtOf" [label="debtOf"]
+}subgraph cluster_55524_LevVenueBase {
+label = "LevVenueBase"
+"55524_stable" [label="stable"]
+"55524_constructor" [label="constructor"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "abi.encode()" 
 "revert NotAuthorized()" 
 "keccak256(bytes)" 
-"44586_constructor" -> "abi.encode()"
-"44586_borrow" -> "revert NotAuthorized()"
-"44586_constructor" -> "keccak256(bytes)"
-"44586_withdraw" -> "revert NotAuthorized()"
+"56212_constructor" -> "keccak256(bytes)"
+"56212_constructor" -> "abi.encode()"
+"56212_withdraw" -> "revert NotAuthorized()"
+"56212_borrow" -> "revert NotAuthorized()"
 }
 }

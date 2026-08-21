@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62515_ILevHost {
+subgraph cluster_48618_ILevHost {
 label = "ILevHost"
-"62515_LEV_MANAGER" [label="LEV_MANAGER"]
+"48618_LEV_MANAGER" [label="LEV_MANAGER"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

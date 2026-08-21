@@ -1,0 +1,16 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_49382_IBandManager {
+label = "IBandManager"
+"49382_CORE" [label="CORE"]
+"49382_repack" [label="repack"]
+"49382_derivedThetaWad" [label="derivedThetaWad"]
+"49382_setBTCChannels" [label="setBTCChannels"]
+"49382_feesPerShare" [label="feesPerShare"]
+"49382_USD_FEES" [label="USD_FEES"]
+"49382_bandBounds" [label="bandBounds"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

@@ -1,0 +1,23 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_504_IERC1363 {
+label = "IERC1363"
+"504_approveAndCall" [label="approveAndCall"]
+"504_transferFromAndCall" [label="transferFromAndCall"]
+"504_transferAndCall" [label="transferAndCall"]
+}subgraph cluster_1530_IERC20 {
+label = "IERC20"
+"1530_balanceOf" [label="balanceOf"]
+"1530_approve" [label="approve"]
+"1530_transferFrom" [label="transferFrom"]
+"1530_transfer" [label="transfer"]
+"1530_allowance" [label="allowance"]
+"1530_totalSupply" [label="totalSupply"]
+}subgraph cluster_3735_IERC165 {
+label = "IERC165"
+"3735_supportsInterface" [label="supportsInterface"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

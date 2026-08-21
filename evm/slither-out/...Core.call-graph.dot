@@ -1,232 +1,100 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_18242_IUnlockCallback {
-label = "IUnlockCallback"
-"18242_unlockCallback" [label="unlockCallback"]
-}subgraph cluster_21350_SafeCallback {
-label = "SafeCallback"
-"21350_unlockCallback" [label="unlockCallback"]
-"21350_constructor" [label="constructor"]
-"21350__unlockCallback" [label="_unlockCallback"]
-"21350_unlockCallback" -> "21350__unlockCallback"
-"21350_unlockCallback" -> "21350_onlyPoolManager"
-"21350_constructor" -> "21350_constructor"
-}subgraph cluster_36936_Core {
+subgraph cluster_26704_Core {
 label = "Core"
-"36936__mockUsd" [label="_mockUsd"]
-"36936_levGrossNative" [label="levGrossNative"]
-"36936_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"36936_setLoadBalanceConsent" [label="setLoadBalanceConsent"]
-"36936__decayedBy" [label="_decayedBy"]
-"36936_drawPooledUsdBtc" [label="drawPooledUsdBtc"]
-"36936__unlockCallback" [label="_unlockCallback"]
-"36936_collectFees" [label="collectFees"]
-"36936__t1" [label="_t1"]
-"36936__repackAdd" [label="_repackAdd"]
-"36936_refundUnfilled" [label="refundUnfilled"]
-"36936_absorbPaidUsd" [label="absorbPaidUsd"]
-"36936__writeObservation" [label="_writeObservation"]
-"36936_btcVault" [label="btcVault"]
-"36936__obs" [label="_obs"]
-"36936__decayed" [label="_decayed"]
-"36936_premiumEwmaUsd" [label="premiumEwmaUsd"]
-"36936_outOfRange" [label="outOfRange"]
-"36936_recordSkewPremium" [label="recordSkewPremium"]
-"36936__addPooledTok" [label="_addPooledTok"]
-"36936__modLP" [label="_modLP"]
-"36936_realizedVarianceWad" [label="realizedVarianceWad"]
-"36936__mockTok" [label="_mockTok"]
-"36936__bandEdgeLimit" [label="_bandEdgeLimit"]
-"36936__bumpFlow" [label="_bumpFlow"]
-"36936__obsState" [label="_obsState"]
-"36936_poolTicks" [label="poolTicks"]
-"36936_modLP" [label="modLP"]
-"36936_btcThetaBacking" [label="btcThetaBacking"]
-"36936__dustOf" [label="_dustOf"]
-"36936__key" [label="_key"]
-"36936__modifyLiquidity" [label="_modifyLiquidity"]
-"36936_poolStats" [label="poolStats"]
-"36936_skewPremiumCum" [label="skewPremiumCum"]
-"36936__initPool" [label="_initPool"]
-"36936__subPooledUsd" [label="_subPooledUsd"]
-"36936__handleCollect" [label="_handleCollect"]
-"36936_flowEwmaUsd" [label="flowEwmaUsd"]
-"36936_setup" [label="setup"]
-"36936__handleRepack" [label="_handleRepack"]
-"36936_reseat" [label="reseat"]
-"36936_swap" [label="swap"]
-"36936__bumpEwma" [label="_bumpEwma"]
-"36936__repackBurn" [label="_repackBurn"]
-"36936_setBtcVault" [label="setBtcVault"]
-"36936_repack" [label="repack"]
-"36936__settleUsdSide" [label="_settleUsdSide"]
-"36936__handleDelta" [label="_handleDelta"]
-"36936__addPooledUsd" [label="_addPooledUsd"]
-"36936_btcBandEquityUsd18" [label="btcBandEquityUsd18"]
-"36936__settleTokSide" [label="_settleTokSide"]
-"36936_constructor" [label="constructor"]
-"36936__subPooledTok" [label="_subPooledTok"]
-"36936__handleMod" [label="_handleMod"]
-"36936__bandEquityUsd18" [label="_bandEquityUsd18"]
-"36936_addPendingSwapOut" [label="addPendingSwapOut"]
-"36936_token1is" [label="token1is"]
-"36936_subPendingSwapOut" [label="subPendingSwapOut"]
-"36936__poolUsdInRange" [label="_poolUsdInRange"]
-"36936_levClaimUsd6" [label="levClaimUsd6"]
-"36936__reseatBurnMove" [label="_reseatBurnMove"]
-"36936_observe" [label="observe"]
-"36936__poolId" [label="_poolId"]
-"36936_committedUsd18" [label="committedUsd18"]
-"36936__levDebtUsd18" [label="_levDebtUsd18"]
-"36936__handleReseat" [label="_handleReseat"]
-"36936__handleOutsideRange" [label="_handleOutsideRange"]
-"36936__handleSwap" [label="_handleSwap"]
-"36936_modLP" -> "36936__t1"
-"36936__bandEquityUsd18" -> "36936__dustOf"
-"36936__handleOutsideRange" -> "36936__modifyLiquidity"
-"36936__settleTokSide" -> "36936__key"
-"36936_committedUsd18" -> "36936__bandEquityUsd18"
-"36936_flowEwmaUsd" -> "36936__decayed"
-"36936__decayed" -> "36936__decayedBy"
-"36936_realizedVarianceWad" -> "36936__obs"
-"36936__writeObservation" -> "36936__obsState"
-"36936__poolUsdInRange" -> "36936_committedUsd18"
-"36936__poolUsdInRange" -> "36936__subPooledUsd"
-"36936__settleTokSide" -> "36936__addPooledTok"
-"36936__poolUsdInRange" -> "36936__addPooledUsd"
-"36936_btcBandEquityUsd18" -> "36936__bandEquityUsd18"
-"36936__handleCollect" -> "36936__t1"
-"36936_subPendingSwapOut" -> "36936_onlyUs"
-"36936__writeObservation" -> "36936__obs"
-"36936__handleRepack" -> "36936__poolId"
-"36936_modLP" -> "36936_onlyUs"
-"36936__modLP" -> "36936__modifyLiquidity"
-"36936_refundUnfilled" -> "36936_onlyUs"
-"36936__handleCollect" -> "36936__modifyLiquidity"
-"36936__bumpEwma" -> "36936__decayed"
-"36936__bandEquityUsd18" -> "36936__mockUsd"
-"36936__reseatBurnMove" -> "36936__modifyLiquidity"
-"36936__handleDelta" -> "36936__settleUsdSide"
-"36936__handleMod" -> "36936__handleDelta"
-"36936__handleRepack" -> "36936__repackAdd"
-"36936__handleDelta" -> "36936__settleTokSide"
-"36936_observe" -> "36936__obs"
-"36936_repack" -> "36936_onlyUs"
-"36936_poolTicks" -> "36936__poolId"
-"36936__repackAdd" -> "36936__t1"
-"36936__modLP" -> "36936_poolStats"
-"36936_poolStats" -> "36936_poolTicks"
-"36936__handleCollect" -> "36936__handleDelta"
-"36936__bumpFlow" -> "36936__bumpEwma"
-"36936_drawPooledUsdBtc" -> "36936_onlyUs"
-"36936__unlockCallback" -> "36936__handleOutsideRange"
-"36936__reseatBurnMove" -> "36936__handleDelta"
-"36936_setup" -> "36936__initPool"
-"36936__handleSwap" -> "36936__handleDelta"
-"36936_outOfRange" -> "36936__t1"
-"36936_premiumEwmaUsd" -> "36936__decayed"
-"36936__handleReseat" -> "36936__repackAdd"
-"36936_levClaimUsd6" -> "36936__levDebtUsd18"
-"36936__settleUsdSide" -> "36936__mockUsd"
-"36936__handleRepack" -> "36936__writeObservation"
-"36936_flowEwmaUsd" -> "36936__decayedBy"
-"36936__initPool" -> "36936__obs"
-"36936_collectFees" -> "36936_onlyUs"
-"36936__handleSwap" -> "36936__bandEdgeLimit"
-"36936_realizedVarianceWad" -> "36936__obsState"
-"36936__modLP" -> "36936__t1"
-"36936_recordSkewPremium" -> "36936__bumpEwma"
-"36936__repackAdd" -> "36936__modLP"
-"36936__repackAdd" -> "36936__handleDelta"
-"36936__unlockCallback" -> "36936__handleSwap"
-"36936__handleReseat" -> "36936__t1"
-"36936__handleReseat" -> "36936__reseatBurnMove"
-"36936__repackBurn" -> "36936__poolId"
-"36936_addPendingSwapOut" -> "36936_onlyUs"
-"36936_recordSkewPremium" -> "36936_onlyUs"
-"36936_reseat" -> "36936_onlyUs"
-"36936__handleSwap" -> "36936__writeObservation"
-"36936_absorbPaidUsd" -> "36936_onlyUs"
-"36936__handleDelta" -> "36936__t1"
-"36936__settleTokSide" -> "36936__t1"
-"36936_swap" -> "36936_onlyUs"
-"36936__repackBurn" -> "36936__modifyLiquidity"
-"36936__repackBurn" -> "36936__handleDelta"
-"36936__handleDelta" -> "36936__handleDelta"
-"36936__bandEquityUsd18" -> "36936__levDebtUsd18"
-"36936__unlockCallback" -> "36936__handleMod"
-"36936__handleRepack" -> "36936__repackBurn"
-"36936__modifyLiquidity" -> "36936__key"
-"36936__handleSwap" -> "36936__t1"
-"36936__unlockCallback" -> "36936__handleRepack"
-"36936__handleRepack" -> "36936__t1"
-"36936_outOfRange" -> "36936_onlyUs"
-"36936__reseatBurnMove" -> "36936__key"
-"36936__initPool" -> "36936__obsState"
-"36936__unlockCallback" -> "36936__handleReseat"
-"36936__handleReseat" -> "36936__writeObservation"
-"36936__handleSwap" -> "36936__poolId"
-"36936__settleUsdSide" -> "36936__poolUsdInRange"
-"36936__handleSwap" -> "36936__key"
-"36936__settleTokSide" -> "36936__mockTok"
-"36936__settleUsdSide" -> "36936__key"
-"36936_token1is" -> "36936__t1"
-"36936__settleUsdSide" -> "36936__t1"
-"36936__settleTokSide" -> "36936__subPooledTok"
-"36936__handleSwap" -> "36936__bumpFlow"
-"36936_observe" -> "36936__obsState"
-"36936__handleOutsideRange" -> "36936__handleDelta"
-"36936__handleReseat" -> "36936__poolId"
-"36936__unlockCallback" -> "36936__handleCollect"
-"36936__handleMod" -> "36936__modLP"
-"36936_constructor" -> "36936_constructor"
-}subgraph cluster_21363_IImmutableState {
-label = "IImmutableState"
-"21363_poolManager" [label="poolManager"]
-}subgraph cluster_21303_ImmutableState {
-label = "ImmutableState"
-"21303_constructor" [label="constructor"]
+"26704_setLoadBalanceConsent" [label="setLoadBalanceConsent"]
+"26704_setBtcVault" [label="setBtcVault"]
+"26704__handleDelta" [label="_handleDelta"]
+"26704__bumpFlow" [label="_bumpFlow"]
+"26704__poolUsdInRange" [label="_poolUsdInRange"]
+"26704_setObservationSource" [label="setObservationSource"]
+"26704_subPendingSwapOut" [label="subPendingSwapOut"]
+"26704_addPendingSwapOut" [label="addPendingSwapOut"]
+"26704__bumpEwma" [label="_bumpEwma"]
+"26704__levDebtUsd18" [label="_levDebtUsd18"]
+"26704__decayed" [label="_decayed"]
+"26704__observeIfSourced" [label="_observeIfSourced"]
+"26704__writeObservationPrice" [label="_writeObservationPrice"]
+"26704_riskParams" [label="riskParams"]
+"26704_poolStats" [label="poolStats"]
+"26704__settleUsdSide" [label="_settleUsdSide"]
+"26704__fillDelta" [label="_fillDelta"]
+"26704_recordSkewPremium" [label="recordSkewPremium"]
+"26704_btcVault" [label="btcVault"]
+"26704_settleOor" [label="settleOor"]
+"26704__onlyUs" [label="_onlyUs"]
+"26704_repack" [label="repack"]
+"26704_absorbPaidUsd" [label="absorbPaidUsd"]
+"26704_levClaimUsd6" [label="levClaimUsd6"]
+"26704_realizedVarianceWad" [label="realizedVarianceWad"]
+"26704_drawPooledUsdBtc" [label="drawPooledUsdBtc"]
+"26704_committedUsd18" [label="committedUsd18"]
+"26704_setup" [label="setup"]
+"26704_bandEquityUsd18" [label="bandEquityUsd18"]
+"26704_outOfRange" [label="outOfRange"]
+"26704_premiumEwmaUsd" [label="premiumEwmaUsd"]
+"26704__decayedBy" [label="_decayedBy"]
+"26704_btcThetaBacking" [label="btcThetaBacking"]
+"26704_observe" [label="observe"]
+"26704_levGrossNative" [label="levGrossNative"]
+"26704__reportEquity" [label="_reportEquity"]
+"26704_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"26704_refundUnfilled" [label="refundUnfilled"]
+"26704_swap" [label="swap"]
+"26704_skewPremiumCum" [label="skewPremiumCum"]
+"26704_flowEwmaUsd" [label="flowEwmaUsd"]
+"26704_constructor" [label="constructor"]
+"26704__bandEquityUsd18" [label="_bandEquityUsd18"]
+"26704_collectFees" [label="collectFees"]
+"26704_modLP" [label="modLP"]
+"26704_flowEwmaUsd" -> "26704__decayed"
+"26704_outOfRange" -> "26704_onlyUs"
+"26704_recordSkewPremium" -> "26704_onlyUs"
+"26704__settleUsdSide" -> "26704__poolUsdInRange"
+"26704_swap" -> "26704__handleDelta"
+"26704_outOfRange" -> "26704__handleDelta"
+"26704_subPendingSwapOut" -> "26704_onlyUs"
+"26704__reportEquity" -> "26704__bandEquityUsd18"
+"26704__bandEquityUsd18" -> "26704__levDebtUsd18"
+"26704__handleDelta" -> "26704__handleDelta"
+"26704_modLP" -> "26704__handleDelta"
+"26704__handleDelta" -> "26704__settleUsdSide"
+"26704__poolUsdInRange" -> "26704__reportEquity"
+"26704_bandEquityUsd18" -> "26704__bandEquityUsd18"
+"26704__observeIfSourced" -> "26704__writeObservationPrice"
+"26704_levClaimUsd6" -> "26704__levDebtUsd18"
+"26704_swap" -> "26704__bumpFlow"
+"26704_premiumEwmaUsd" -> "26704__decayed"
+"26704_settleOor" -> "26704_onlyUs"
+"26704_repack" -> "26704__observeIfSourced"
+"26704_modLP" -> "26704_onlyUs"
+"26704__decayed" -> "26704__decayedBy"
+"26704_refundUnfilled" -> "26704_onlyUs"
+"26704_recordSkewPremium" -> "26704__bumpEwma"
+"26704__poolUsdInRange" -> "26704_committedUsd18"
+"26704_settleOor" -> "26704__handleDelta"
+"26704__bumpEwma" -> "26704__decayed"
+"26704_swap" -> "26704_onlyUs"
+"26704_collectFees" -> "26704_onlyUs"
+"26704_swap" -> "26704__observeIfSourced"
+"26704__bumpFlow" -> "26704__bumpEwma"
+"26704_drawPooledUsdBtc" -> "26704_onlyUs"
+"26704_repack" -> "26704_onlyUs"
+"26704_absorbPaidUsd" -> "26704_onlyUs"
+"26704_swap" -> "26704__fillDelta"
+"26704_addPendingSwapOut" -> "26704_onlyUs"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"calldataload(uint256)" 
-"abi.encodePacked()" 
-"require(bool,string)" 
-"abi.encode()" 
-"keccak256(bytes)" 
-"revert BtcVaultPinned()" 
 "abi.decode()" 
-"36936_swap" -> "abi.decode()"
-"36936__handleSwap" -> "abi.encode()"
-"36936_modLP" -> "abi.decode()"
-"36936_setup" -> "require(bool,string)"
-"36936_collectFees" -> "abi.encode()"
-"36936__handleReseat" -> "abi.decode()"
-"36936__handleOutsideRange" -> "abi.encode()"
-"36936_outOfRange" -> "abi.decode()"
-"36936__repackBurn" -> "require(bool,string)"
-"36936__handleSwap" -> "abi.decode()"
-"36936_outOfRange" -> "abi.encode()"
-"36936_setBtcVault" -> "revert BtcVaultPinned()"
-"36936_modLP" -> "abi.encode()"
-"36936_collectFees" -> "abi.decode()"
-"36936__handleMod" -> "abi.decode()"
-"36936_reseat" -> "abi.decode()"
-"36936_reseat" -> "abi.encode()"
-"36936__repackBurn" -> "keccak256(bytes)"
-"36936_setBtcVault" -> "require(bool,string)"
-"36936__handleOutsideRange" -> "abi.decode()"
-"36936__handleCollect" -> "abi.encode()"
-"36936_swap" -> "abi.encode()"
-"36936__handleCollect" -> "abi.decode()"
-"36936__unlockCallback" -> "calldataload(uint256)"
-"36936__repackBurn" -> "abi.decode()"
-"36936__repackBurn" -> "abi.encodePacked()"
-"36936__poolUsdInRange" -> "require(bool,string)"
-"36936_repack" -> "abi.encode()"
-"36936_repack" -> "abi.decode()"
-"36936__handleRepack" -> "abi.encode()"
-"36936__handleReseat" -> "abi.encode()"
-"36936__handleMod" -> "abi.encode()"
+"require(bool,string)" 
+"revert BtcVaultPinned()" 
+"26704_setBtcVault" -> "revert BtcVaultPinned()"
+"26704_setBtcVault" -> "require(bool,string)"
+"26704__poolUsdInRange" -> "require(bool,string)"
+"26704_setObservationSource" -> "require(bool,string)"
+"26704__observeIfSourced" -> "abi.decode()"
+"26704__onlyUs" -> "require(bool,string)"
+"26704_setup" -> "require(bool,string)"
 }
 }

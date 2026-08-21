@@ -1,0 +1,75 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_46368_ExitLib {
+label = "ExitLib"
+"46368__le4" [label="_le4"]
+"46368_verifySwapInDeposit" [label="verifySwapInDeposit"]
+"46368_verifyDeadManExit" [label="verifyDeadManExit"]
+"46368__le8" [label="_le8"]
+"46368__cltvRefundLeaf" [label="_cltvRefundLeaf"]
+"46368_verifyExitStructure" [label="verifyExitStructure"]
+"46368__scriptNum" [label="_scriptNum"]
+"46368_swapInDepositKey" [label="swapInDepositKey"]
+"46368__cs" [label="_cs"]
+"46368__fundingInput" [label="_fundingInput"]
+"46368_termsCommitment" [label="termsCommitment"]
+"46368__exitStructure" [label="_exitStructure"]
+"46368__keyPathSig" [label="_keyPathSig"]
+"46368_settleFloorUsd" [label="settleFloorUsd"]
+"46368__verifyExitSignature" [label="_verifyExitSignature"]
+"46368_taprootKeyPathSighash" [label="taprootKeyPathSighash"]
+"46368__sighash" [label="_sighash"]
+"46368__sigParts" [label="_sigParts"]
+"46368_swapInDepositKey" -> "46368__cltvRefundLeaf"
+"46368_verifyExitStructure" -> "46368__exitStructure"
+"46368__verifyExitSignature" -> "46368__fundingInput"
+"46368__sigParts" -> "46368__cs"
+"46368__verifyExitSignature" -> "46368__sighash"
+"46368__cltvRefundLeaf" -> "46368_termsCommitment"
+"46368__sigParts" -> "46368__le8"
+"46368__sigParts" -> "46368__le4"
+"46368_taprootKeyPathSighash" -> "46368__sighash"
+"46368_verifyDeadManExit" -> "46368__exitStructure"
+"46368__verifyExitSignature" -> "46368__keyPathSig"
+"46368__sighash" -> "46368__le4"
+"46368__cltvRefundLeaf" -> "46368__scriptNum"
+"46368_verifyDeadManExit" -> "46368__verifyExitSignature"
+"46368_verifySwapInDeposit" -> "46368_swapInDepositKey"
+"46368__sighash" -> "46368__sigParts"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert DepositNotPaid()" 
+"revert ExitWitnessMissing()" 
+"keccak256(bytes)" 
+"revert ExitNotForThisChannel()" 
+"sha256(bytes)" 
+"mload(uint256)" 
+"abi.encodePacked()" 
+"revert ExitLocktimeMismatch()" 
+"abi.encode()" 
+"revert ExitSignatureInvalid()" 
+"revert PrevoutCountMismatch()" 
+"revert ScriptTooLong()" 
+"46368__fundingInput" -> "revert ExitNotForThisChannel()"
+"46368_termsCommitment" -> "abi.encode()"
+"46368__cltvRefundLeaf" -> "abi.encodePacked()"
+"46368__keyPathSig" -> "mload(uint256)"
+"46368__cs" -> "abi.encodePacked()"
+"46368_verifySwapInDeposit" -> "revert DepositNotPaid()"
+"46368__cs" -> "revert ScriptTooLong()"
+"46368_termsCommitment" -> "sha256(bytes)"
+"46368__verifyExitSignature" -> "abi.encodePacked()"
+"46368__sigParts" -> "revert PrevoutCountMismatch()"
+"46368__le4" -> "abi.encodePacked()"
+"46368__exitStructure" -> "revert ExitNotForThisChannel()"
+"46368__keyPathSig" -> "revert ExitWitnessMissing()"
+"46368__sigParts" -> "sha256(bytes)"
+"46368_verifySwapInDeposit" -> "abi.encodePacked()"
+"46368__exitStructure" -> "revert ExitLocktimeMismatch()"
+"46368__verifyExitSignature" -> "revert ExitSignatureInvalid()"
+"46368__exitStructure" -> "keccak256(bytes)"
+"46368__sighash" -> "abi.encodePacked()"
+"46368__sigParts" -> "abi.encodePacked()"
+}
+}

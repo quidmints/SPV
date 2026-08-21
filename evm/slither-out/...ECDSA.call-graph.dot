@@ -1,27 +1,41 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_15491_ECDSA {
+subgraph cluster_3374_ECDSA {
 label = "ECDSA"
-"15491__throwError" [label="_throwError"]
-"15491_recover" [label="recover"]
-"15491_tryRecover" [label="tryRecover"]
-"15491_tryRecover" -> "15491_tryRecover"
-"15491_recover" -> "15491__throwError"
-"15491_recover" -> "15491_tryRecover"
+"3374_tryRecover" [label="tryRecover"]
+"3374_parse" [label="parse"]
+"3374_recover" [label="recover"]
+"3374_tryRecoverCalldata" [label="tryRecoverCalldata"]
+"3374_parseCalldata" [label="parseCalldata"]
+"3374_recoverCalldata" [label="recoverCalldata"]
+"3374__throwError" [label="_throwError"]
+"3374_tryRecoverCalldata" -> "3374_tryRecover"
+"3374_recoverCalldata" -> "3374_tryRecoverCalldata"
+"3374_recover" -> "3374_tryRecover"
+"3374_tryRecover" -> "3374_tryRecover"
+"3374_recover" -> "3374__throwError"
+"3374_recoverCalldata" -> "3374__throwError"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"byte(uint256,uint256)" 
-"revert ECDSAInvalidSignatureLength(uint256)" 
-"revert ECDSAInvalidSignatureS(bytes32)" 
-"ecrecover(bytes32,uint8,bytes32,bytes32)" 
-"mload(uint256)" 
 "revert ECDSAInvalidSignature()" 
-"15491__throwError" -> "revert ECDSAInvalidSignatureLength(uint256)"
-"15491_tryRecover" -> "byte(uint256,uint256)"
-"15491__throwError" -> "revert ECDSAInvalidSignatureS(bytes32)"
-"15491_tryRecover" -> "mload(uint256)"
-"15491_tryRecover" -> "ecrecover(bytes32,uint8,bytes32,bytes32)"
-"15491__throwError" -> "revert ECDSAInvalidSignature()"
+"byte(uint256,uint256)" 
+"ecrecover(bytes32,uint8,bytes32,bytes32)" 
+"revert ECDSAInvalidSignatureLength(uint256)" 
+"mload(uint256)" 
+"calldataload(uint256)" 
+"revert ECDSAInvalidSignatureS(bytes32)" 
+"3374_tryRecover" -> "byte(uint256,uint256)"
+"3374_tryRecoverCalldata" -> "byte(uint256,uint256)"
+"3374_tryRecoverCalldata" -> "calldataload(uint256)"
+"3374__throwError" -> "revert ECDSAInvalidSignatureS(bytes32)"
+"3374_parseCalldata" -> "byte(uint256,uint256)"
+"3374__throwError" -> "revert ECDSAInvalidSignature()"
+"3374_parse" -> "byte(uint256,uint256)"
+"3374_parseCalldata" -> "calldataload(uint256)"
+"3374_tryRecover" -> "ecrecover(bytes32,uint8,bytes32,bytes32)"
+"3374_tryRecover" -> "mload(uint256)"
+"3374__throwError" -> "revert ECDSAInvalidSignatureLength(uint256)"
+"3374_parse" -> "mload(uint256)"
 }
 }

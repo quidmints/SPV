@@ -1,15 +1,15 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_882_Panic {
+subgraph cluster_2915_Panic {
 label = "Panic"
-"882_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"882_panic" [label="panic"]
+"2915_panic" [label="panic"]
+"2915_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "mstore(uint256,uint256)" 
 "revert(uint256,uint256)" 
-"882_panic" -> "mstore(uint256,uint256)"
-"882_panic" -> "revert(uint256,uint256)"
+"2915_panic" -> "revert(uint256,uint256)"
+"2915_panic" -> "mstore(uint256,uint256)"
 }
 }

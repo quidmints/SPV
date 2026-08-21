@@ -1,0 +1,13 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_48453_ICurvePool {
+label = "ICurvePool"
+"48453_exchange" [label="exchange"]
+"48453_get_dy" [label="get_dy"]
+"48453_coins" [label="coins"]
+"48453_balances" [label="balances"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

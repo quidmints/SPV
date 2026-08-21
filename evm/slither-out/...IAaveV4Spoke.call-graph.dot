@@ -1,21 +1,21 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62317_IAaveV4Spoke {
+subgraph cluster_48355_IAaveV4Spoke {
 label = "IAaveV4Spoke"
-"62317_supply" [label="supply"]
-"62317_setUsingAsCollateral" [label="setUsingAsCollateral"]
-"62317_getUserSuppliedAssets" [label="getUserSuppliedAssets"]
-"62317_getReserveSuppliedAssets" [label="getReserveSuppliedAssets"]
-"62317_withdraw" [label="withdraw"]
-"62317_getReserveTotalDebt" [label="getReserveTotalDebt"]
-"62317_getUserSuppliedShares" [label="getUserSuppliedShares"]
-"62317_borrow" [label="borrow"]
-"62317_getUserDebt" [label="getUserDebt"]
-"62317_getDynamicReserveConfig" [label="getDynamicReserveConfig"]
-"62317_getReserveId" [label="getReserveId"]
-"62317_getReserveConfig" [label="getReserveConfig"]
-"62317_repay" [label="repay"]
+"48355_getUserDebt" [label="getUserDebt"]
+"48355_getReserveConfig" [label="getReserveConfig"]
+"48355_getDynamicReserveConfig" [label="getDynamicReserveConfig"]
+"48355_withdraw" [label="withdraw"]
+"48355_getReserveSuppliedAssets" [label="getReserveSuppliedAssets"]
+"48355_repay" [label="repay"]
+"48355_getUserSuppliedAssets" [label="getUserSuppliedAssets"]
+"48355_supply" [label="supply"]
+"48355_getReserveId" [label="getReserveId"]
+"48355_getReserveTotalDebt" [label="getReserveTotalDebt"]
+"48355_getUserSuppliedShares" [label="getUserSuppliedShares"]
+"48355_borrow" [label="borrow"]
+"48355_setUsingAsCollateral" [label="setUsingAsCollateral"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

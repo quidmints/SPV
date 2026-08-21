@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63600_IWiredVault {
+subgraph cluster_49481_IWiredVault {
 label = "IWiredVault"
-"63600_LEV_MANAGER" [label="LEV_MANAGER"]
-"63600_btcChannels" [label="btcChannels"]
+"49481_LEV_MANAGER" [label="LEV_MANAGER"]
+"49481_btcChannels" [label="btcChannels"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

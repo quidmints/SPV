@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62607_ICollection {
+subgraph cluster_48692_ICollection {
 label = "ICollection"
-"62607_transferFrom" [label="transferFrom"]
-"62607_getApproved" [label="getApproved"]
+"48692_getApproved" [label="getApproved"]
+"48692_transferFrom" [label="transferFrom"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

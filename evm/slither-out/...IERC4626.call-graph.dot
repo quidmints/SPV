@@ -1,35 +1,35 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_13376_IERC4626 {
+subgraph cluster_260_IERC4626 {
 label = "IERC4626"
-"13376_redeem" [label="redeem"]
-"13376_previewMint" [label="previewMint"]
-"13376_maxMint" [label="maxMint"]
-"13376_convertToAssets" [label="convertToAssets"]
-"13376_previewRedeem" [label="previewRedeem"]
-"13376_previewDeposit" [label="previewDeposit"]
-"13376_asset" [label="asset"]
-"13376_mint" [label="mint"]
-"13376_withdraw" [label="withdraw"]
-"13376_maxDeposit" [label="maxDeposit"]
-"13376_deposit" [label="deposit"]
-"13376_totalAssets" [label="totalAssets"]
-"13376_convertToShares" [label="convertToShares"]
-"13376_previewWithdraw" [label="previewWithdraw"]
-"13376_maxWithdraw" [label="maxWithdraw"]
-"13376_maxRedeem" [label="maxRedeem"]
-}subgraph cluster_13211_IERC20 {
+"260_mint" [label="mint"]
+"260_withdraw" [label="withdraw"]
+"260_convertToAssets" [label="convertToAssets"]
+"260_previewDeposit" [label="previewDeposit"]
+"260_asset" [label="asset"]
+"260_maxMint" [label="maxMint"]
+"260_previewWithdraw" [label="previewWithdraw"]
+"260_previewMint" [label="previewMint"]
+"260_maxWithdraw" [label="maxWithdraw"]
+"260_redeem" [label="redeem"]
+"260_convertToShares" [label="convertToShares"]
+"260_deposit" [label="deposit"]
+"260_maxDeposit" [label="maxDeposit"]
+"260_totalAssets" [label="totalAssets"]
+"260_previewRedeem" [label="previewRedeem"]
+"260_maxRedeem" [label="maxRedeem"]
+}subgraph cluster_95_IERC20 {
 label = "IERC20"
-"13211_approve" [label="approve"]
-"13211_transfer" [label="transfer"]
-"13211_balanceOf" [label="balanceOf"]
-"13211_allowance" [label="allowance"]
-"13211_decimals" [label="decimals"]
-"13211_transferFrom" [label="transferFrom"]
-"13211_name" [label="name"]
-"13211_symbol" [label="symbol"]
-"13211_totalSupply" [label="totalSupply"]
+"95_balanceOf" [label="balanceOf"]
+"95_name" [label="name"]
+"95_allowance" [label="allowance"]
+"95_transferFrom" [label="transferFrom"]
+"95_symbol" [label="symbol"]
+"95_totalSupply" [label="totalSupply"]
+"95_decimals" [label="decimals"]
+"95_transfer" [label="transfer"]
+"95_approve" [label="approve"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

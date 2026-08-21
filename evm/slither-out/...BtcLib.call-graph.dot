@@ -1,0 +1,38 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_42930_BtcLib {
+label = "BtcLib"
+"42930__thetaClampBtc" [label="_thetaClampBtc"]
+"42930_resize" [label="resize"]
+"42930_settleDelivered" [label="settleDelivered"]
+"42930_addLiqChannel" [label="addLiqChannel"]
+"42930__pairRegLeg" [label="_pairRegLeg"]
+"42930_syncLev" [label="syncLev"]
+"42930_outOfRangeBtc" [label="outOfRangeBtc"]
+"42930_vbtcUnexposeBody" [label="vbtcUnexposeBody"]
+"42930_vbtcExposeBody" [label="vbtcExposeBody"]
+"42930_settleBtcLp" [label="settleBtcLp"]
+"42930_requestDeposit" [label="requestDeposit"]
+"42930_rebalanceBody" [label="rebalanceBody"]
+"42930_resizeBtcLpTail" [label="resizeBtcLpTail"]
+"42930_resizeBtcLpTail" -> "42930_settleBtcLp"
+"42930_requestDeposit" -> "42930__pairRegLeg"
+"42930_syncLev" -> "42930_settleBtcLp"
+"42930_resizeBtcLpTail" -> "42930_settleDelivered"
+"42930_resize" -> "42930_resizeBtcLpTail"
+"42930_addLiqChannel" -> "42930__thetaClampBtc"
+"42930_requestDeposit" -> "42930_addLiqChannel"
+"42930_requestDeposit" -> "42930_settleBtcLp"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NotAStable()" 
+"revert Dust()" 
+"revert ZeroTwap()" 
+"revert InsufficientChannelBtc()" 
+"42930_requestDeposit" -> "revert ZeroTwap()"
+"42930_outOfRangeBtc" -> "revert Dust()"
+"42930_outOfRangeBtc" -> "revert NotAStable()"
+"42930_vbtcExposeBody" -> "revert InsufficientChannelBtc()"
+}
+}

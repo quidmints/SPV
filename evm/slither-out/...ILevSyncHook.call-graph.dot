@@ -1,16 +1,12 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62561_ILevSyncHook {
+subgraph cluster_48646_ILevSyncHook {
 label = "ILevSyncHook"
-"62561_soldFractionWad" [label="soldFractionWad"]
-"62561_UPPER_TICK" [label="UPPER_TICK"]
-"62561_LOWER_TICK_BTC" [label="LOWER_TICK_BTC"]
-"62561_syncLev" [label="syncLev"]
-"62561_syncLevBTC" [label="syncLevBTC"]
-"62561_UPPER_TICK_BTC" [label="UPPER_TICK_BTC"]
-"62561_bandSqrtP" [label="bandSqrtP"]
-"62561_LOWER_TICK" [label="LOWER_TICK"]
+"48646_soldFractionWad" [label="soldFractionWad"]
+"48646_bandBounds" [label="bandBounds"]
+"48646_bandPrice" [label="bandPrice"]
+"48646_syncLev" [label="syncLev"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

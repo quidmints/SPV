@@ -1,11 +1,11 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62340_IWeETH {
+subgraph cluster_48378_IWeETH {
 label = "IWeETH"
-"62340_unwrap" [label="unwrap"]
-"62340_getWeETHByeETH" [label="getWeETHByeETH"]
-"62340_getEETHByWeETH" [label="getEETHByWeETH"]
+"48378_getWeETHByeETH" [label="getWeETHByeETH"]
+"48378_getEETHByWeETH" [label="getEETHByWeETH"]
+"48378_unwrap" [label="unwrap"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

@@ -1,32 +1,30 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_61983_FeeLib {
+subgraph cluster_47658_FeeLib {
 label = "FeeLib"
-"61983_decPow" [label="decPow"]
-"61983__shareCap" [label="_shareCap"]
-"61983_grossUpForDepeg" [label="grossUpForDepeg"]
-"61983__withdrawLeg" [label="_withdrawLeg"]
-"61983_multiVaultWithdrawBody" [label="multiVaultWithdrawBody"]
-"61983_scaledFeeL1" [label="scaledFeeL1"]
-"61983_calcNeeded" [label="calcNeeded"]
-"61983_riskFactor" [label="riskFactor"]
-"61983_liveDepegBps" [label="liveDepegBps"]
-"61983_allocate" [label="allocate"]
-"61983_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"61983_applyFeeAndHaircut" [label="applyFeeAndHaircut"]
-"61983_calcRisk" [label="calcRisk"]
-"61983_calcFeeL1" [label="calcFeeL1"]
-"61983_applyFeeAndHaircut" -> "61983_calcRisk"
-"61983__withdrawLeg" -> "61983__shareCap"
-"61983_applyFeeAndHaircut" -> "61983_grossUpForDepeg"
-"61983_allocate" -> "61983_grossUpForDepeg"
-"61983_multiVaultWithdrawBody" -> "61983__shareCap"
-"61983_allocate" -> "61983_calcRisk"
-"61983_multiVaultWithdrawBody" -> "61983__withdrawLeg"
-"61983_scaledFeeL1" -> "61983_calcFeeL1"
-"61983_calcNeeded" -> "61983_grossUpForDepeg"
-"61983_calcNeeded" -> "61983_calcRisk"
+"47658_calcFeeL1" [label="calcFeeL1"]
+"47658_calcRisk" [label="calcRisk"]
+"47658_riskFactor" [label="riskFactor"]
+"47658_allocate" [label="allocate"]
+"47658_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"47658_liveDepegBps" [label="liveDepegBps"]
+"47658_grossUpForDepeg" [label="grossUpForDepeg"]
+"47658__shareCap" [label="_shareCap"]
+"47658_applyFeeAndHaircut" [label="applyFeeAndHaircut"]
+"47658_multiVaultWithdrawBody" [label="multiVaultWithdrawBody"]
+"47658__withdrawLeg" [label="_withdrawLeg"]
+"47658_decPow" [label="decPow"]
+"47658_calcNeeded" [label="calcNeeded"]
+"47658__withdrawLeg" -> "47658__shareCap"
+"47658_allocate" -> "47658_calcRisk"
+"47658_applyFeeAndHaircut" -> "47658_calcRisk"
+"47658_multiVaultWithdrawBody" -> "47658__withdrawLeg"
+"47658_allocate" -> "47658_grossUpForDepeg"
+"47658_calcNeeded" -> "47658_calcRisk"
+"47658_applyFeeAndHaircut" -> "47658_grossUpForDepeg"
+"47658_multiVaultWithdrawBody" -> "47658__shareCap"
+"47658_calcNeeded" -> "47658_grossUpForDepeg"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

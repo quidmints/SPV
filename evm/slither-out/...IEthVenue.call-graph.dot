@@ -1,29 +1,15 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63535_IEthVenue {
+subgraph cluster_49435_IEthVenue {
 label = "IEthVenue"
-"63535_supplyEulerEth" [label="supplyEulerEth"]
-"63535_offrampEtherFi" [label="offrampEtherFi"]
-"63535_EULER_VAULT" [label="EULER_VAULT"]
-"63535_GALAXY_VAULT" [label="GALAXY_VAULT"]
-"63535_supplyAaveEth" [label="supplyAaveEth"]
-"63535_deliverableETH" [label="deliverableETH"]
-"63535_withdrawForAux" [label="withdrawForAux"]
-"63535_supplyFromAux" [label="supplyFromAux"]
-"63535_GAUNTLET_VAULT" [label="GAUNTLET_VAULT"]
-"63535_vogueOp" [label="vogueOp"]
-"63535_repack" [label="repack"]
-"63535_supplyGauntlet" [label="supplyGauntlet"]
-"63535_feesPerShareBTC" [label="feesPerShareBTC"]
-"63535_btcChannels" [label="btcChannels"]
-"63535_evacuateVenue" [label="evacuateVenue"]
-"63535_USD_FEES_BTC" [label="USD_FEES_BTC"]
-"63535_venuePosition" [label="venuePosition"]
-"63535_supplyEtherFi" [label="supplyEtherFi"]
-"63535_vogueETH" [label="vogueETH"]
-"63535_totalBufferBTC" [label="totalBufferBTC"]
-"63535_derivedThetaWadBtc" [label="derivedThetaWadBtc"]
+"49435_bandOp" [label="bandOp"]
+"49435_withdrawForAux" [label="withdrawForAux"]
+"49435_supplyEtherFi" [label="supplyEtherFi"]
+"49435_deliverableETH" [label="deliverableETH"]
+"49435_supplyFromAux" [label="supplyFromAux"]
+"49435_bandETH" [label="bandETH"]
+"49435_offrampEtherFi" [label="offrampEtherFi"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

@@ -1,0 +1,274 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_408_Ownable {
+label = "Ownable"
+"408_renounceOwnership" [label="renounceOwnership"]
+"408_transferOwnership" [label="transferOwnership"]
+"408_owner" [label="owner"]
+"408__transferOwnership" [label="_transferOwnership"]
+"408_constructor" [label="constructor"]
+"408__checkOwner" [label="_checkOwner"]
+"408_transferOwnership" -> "408_onlyOwner"
+"408_constructor" -> "408__transferOwnership"
+"408_transferOwnership" -> "408__transferOwnership"
+"408__checkOwner" -> "408_owner"
+"408_renounceOwnership" -> "408__transferOwnership"
+"408_renounceOwnership" -> "408_onlyOwner"
+"408__checkOwner" -> "408__msgSender"
+}subgraph cluster_32815_Quid {
+label = "Quid"
+"32815_deliverVolatile" [label="deliverVolatile"]
+"32815__depositImpl" [label="_depositImpl"]
+"32815__burnAndDeliverUsdLeg" [label="_burnAndDeliverUsdLeg"]
+"32815_derivedThetaWad" [label="derivedThetaWad"]
+"32815__settlePending" [label="_settlePending"]
+"32815_setLevManager" [label="setLevManager"]
+"32815__rebalance" [label="_rebalance"]
+"32815_deposit" [label="deposit"]
+"32815_onShortfall" [label="onShortfall"]
+"32815__withdrawETH" [label="_withdrawETH"]
+"32815__outOfRange" [label="_outOfRange"]
+"32815_previewDeposit" [label="previewDeposit"]
+"32815_mint" [label="mint"]
+"32815_bandBounds" [label="bandBounds"]
+"32815_realizedAlphaWad" [label="realizedAlphaWad"]
+"32815_realInventory" [label="realInventory"]
+"32815_supplyEtherFi" [label="supplyEtherFi"]
+"32815__lo" [label="_lo"]
+"32815_deliverableETH" [label="deliverableETH"]
+"32815_previewMint" [label="previewMint"]
+"32815_convertToAssets" [label="convertToAssets"]
+"32815_reseat" [label="reseat"]
+"32815_bandOp" [label="bandOp"]
+"32815_derivedThetaWadAt" [label="derivedThetaWadAt"]
+"32815__payUsdLeg" [label="_payUsdLeg"]
+"32815__mint4626" [label="_mint4626"]
+"32815_convertToShares" [label="convertToShares"]
+"32815__deliverVenueShortfall" [label="_deliverVenueShortfall"]
+"32815_withdrawSelf" [label="withdrawSelf"]
+"32815__hi" [label="_hi"]
+"32815_syncLev" [label="syncLev"]
+"32815_totalShares" [label="totalShares"]
+"32815_pinRecipient" [label="pinRecipient"]
+"32815_repack" [label="repack"]
+"32815_transferFrom" [label="transferFrom"]
+"32815__sendETH" [label="_sendETH"]
+"32815_addLiq" [label="addLiq"]
+"32815__depositETH" [label="_depositETH"]
+"32815__reconcileLev" [label="_reconcileLev"]
+"32815__pricingBacking" [label="_pricingBacking"]
+"32815__bandIncrement6" [label="_bandIncrement6"]
+"32815__venueBalance" [label="_venueBalance"]
+"32815__ethCfg" [label="_ethCfg"]
+"32815__pendingFor" [label="_pendingFor"]
+"32815_supplyFromAux" [label="supplyFromAux"]
+"32815_setup" [label="setup"]
+"32815__transferShares" [label="_transferShares"]
+"32815__burnInRange" [label="_burnInRange"]
+"32815__etherfiCfg" [label="_etherfiCfg"]
+"32815__refreshBookmarks" [label="_refreshBookmarks"]
+"32815_realizedVarianceWad" [label="realizedVarianceWad"]
+"32815_transfer" [label="transfer"]
+"32815_applyPinnedRecipient" [label="applyPinnedRecipient"]
+"32815__withdraw" [label="_withdraw"]
+"32815__modLpEth" [label="_modLpEth"]
+"32815_bandOf" [label="bandOf"]
+"32815_balanceOf" [label="balanceOf"]
+"32815_approve" [label="approve"]
+"32815_asset" [label="asset"]
+"32815__onExit" [label="_onExit"]
+"32815_withdrawForAux" [label="withdrawForAux"]
+"32815__deposit4626" [label="_deposit4626"]
+"32815_collectFees" [label="collectFees"]
+"32815_outOfRange" [label="outOfRange"]
+"32815_previewRedeem" [label="previewRedeem"]
+"32815_offrampEtherFi" [label="offrampEtherFi"]
+"32815_constructor" [label="constructor"]
+"32815_bandPrice" [label="bandPrice"]
+"32815_creditSkewPremium" [label="creditSkewPremium"]
+"32815_pull" [label="pull"]
+"32815_levManager" [label="levManager"]
+"32815_maxMint" [label="maxMint"]
+"32815_maxWithdraw" [label="maxWithdraw"]
+"32815_soldFractionWad" [label="soldFractionWad"]
+"32815_paddedSqrtPrice" [label="paddedSqrtPrice"]
+"32815__doReconcile" [label="_doReconcile"]
+"32815_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"32815_sweepOor" [label="sweepOor"]
+"32815_kLvrWad" [label="kLvrWad"]
+"32815_maxRedeem" [label="maxRedeem"]
+"32815_compound" [label="compound"]
+"32815_fillOOR" [label="fillOOR"]
+"32815_unwindForRedeem" [label="unwindForRedeem"]
+"32815_previewWithdraw" [label="previewWithdraw"]
+"32815__requirePinnedRecipient" [label="_requirePinnedRecipient"]
+"32815_withdraw" [label="withdraw"]
+"32815_levGrossNative" [label="levGrossNative"]
+"32815_bandETH" [label="bandETH"]
+"32815_totalSupply" [label="totalSupply"]
+"32815_fallback" [label="fallback"]
+"32815_sharesForShortfall" [label="sharesForShortfall"]
+"32815_totalAssets" [label="totalAssets"]
+"32815_pendingRewards" [label="pendingRewards"]
+"32815_redeem" [label="redeem"]
+"32815_maxDeposit" [label="maxDeposit"]
+"32815_compound" -> "32815__burnInRange"
+"32815__withdraw" -> "32815__burnInRange"
+"32815__depositImpl" -> "32815__venueBalance"
+"32815__withdraw" -> "32815__reconcileLev"
+"32815_compound" -> "32815__rebalance"
+"32815__withdraw" -> "32815_offrampEtherFi"
+"32815_constructor" -> "32815_constructor"
+"32815_maxWithdraw" -> "32815_balanceOf"
+"32815__deposit4626" -> "32815__depositImpl"
+"32815_withdrawSelf" -> "32815__withdrawETH"
+"32815_collectFees" -> "32815__rebalance"
+"32815_collectFees" -> "32815_nonReentrant"
+"32815__withdraw" -> "32815__venueBalance"
+"32815_bandOp" -> "32815_bandETH"
+"32815_transferFrom" -> "32815_nonReentrant"
+"32815_derivedThetaWad" -> "32815__hi"
+"32815_pendingRewards" -> "32815__pendingFor"
+"32815_deliverVolatile" -> "32815__sendETH"
+"32815__burnAndDeliverUsdLeg" -> "32815__bandIncrement6"
+"32815_withdraw" -> "32815_nonReentrant"
+"32815_convertToShares" -> "32815__pricingBacking"
+"32815__burnAndDeliverUsdLeg" -> "32815__payUsdLeg"
+"32815_transferFrom" -> "32815__transferShares"
+"32815_bandETH" -> "32815__ethCfg"
+"32815__onExit" -> "32815__refreshBookmarks"
+"32815_withdraw" -> "32815__withdraw"
+"32815__doReconcile" -> "32815__rebalance"
+"32815_realizedAlphaWad" -> "32815__lo"
+"32815_redeem" -> "32815_convertToAssets"
+"32815__withdraw" -> "32815__payUsdLeg"
+"32815_deposit" -> "32815_nonReentrant"
+"32815_withdrawForAux" -> "32815__withdrawETH"
+"32815__deliverVenueShortfall" -> "32815__sendETH"
+"32815_unwindForRedeem" -> "32815_onlyUs"
+"32815_sharesForShortfall" -> "32815_totalShares"
+"32815_creditSkewPremium" -> "32815_onlyUs"
+"32815__reconcileLev" -> "32815__doReconcile"
+"32815__outOfRange" -> "32815__rebalance"
+"32815_maxWithdraw" -> "32815_convertToAssets"
+"32815_withdraw" -> "32815_convertToShares"
+"32815__withdraw" -> "32815__bandIncrement6"
+"32815_sweepOor" -> "32815_onlyUs"
+"32815_reseat" -> "32815_nonReentrant"
+"32815_transfer" -> "32815_nonReentrant"
+"32815__depositImpl" -> "32815__settlePending"
+"32815__withdrawETH" -> "32815__etherfiCfg"
+"32815_mint" -> "32815__mint4626"
+"32815__depositImpl" -> "32815__modLpEth"
+"32815_setup" -> "32815_renounceOwnership"
+"32815__venueBalance" -> "32815_bandOp"
+"32815__mint4626" -> "32815_convertToAssets"
+"32815_collectFees" -> "32815__settlePending"
+"32815_compound" -> "32815__pendingFor"
+"32815__doReconcile" -> "32815__onExit"
+"32815_kLvrWad" -> "32815__hi"
+"32815_supplyEtherFi" -> "32815__ethCfg"
+"32815_previewWithdraw" -> "32815_convertToShares"
+"32815__withdrawETH" -> "32815__ethCfg"
+"32815__mint4626" -> "32815__depositImpl"
+"32815_redeem" -> "32815_nonReentrant"
+"32815__rebalance" -> "32815__lo"
+"32815_pull" -> "32815_nonReentrant"
+"32815_setup" -> "32815_onlyOwner"
+"32815__depositImpl" -> "32815__refreshBookmarks"
+"32815__settlePending" -> "32815__pendingFor"
+"32815_deposit" -> "32815__deposit4626"
+"32815__burnAndDeliverUsdLeg" -> "32815__burnInRange"
+"32815_collectFees" -> "32815__refreshBookmarks"
+"32815_repack" -> "32815__rebalance"
+"32815_previewDeposit" -> "32815_convertToShares"
+"32815_redeem" -> "32815__requirePinnedRecipient"
+"32815__lo" -> "32815_bandBounds"
+"32815_unwindForRedeem" -> "32815__rebalance"
+"32815_previewRedeem" -> "32815_convertToAssets"
+"32815_withdraw" -> "32815__requirePinnedRecipient"
+"32815_transfer" -> "32815__transferShares"
+"32815_redeem" -> "32815__withdraw"
+"32815_supplyFromAux" -> "32815__ethCfg"
+"32815_realizedAlphaWad" -> "32815__hi"
+"32815__withdraw" -> "32815__rebalance"
+"32815__withdraw" -> "32815__settlePending"
+"32815_reseat" -> "32815__rebalance"
+"32815_unwindForRedeem" -> "32815__burnInRange"
+"32815__depositImpl" -> "32815__rebalance"
+"32815_syncLev" -> "32815__reconcileLev"
+"32815__rebalance" -> "32815__hi"
+"32815_compound" -> "32815__refreshBookmarks"
+"32815__deliverVenueShortfall" -> "32815__venueBalance"
+"32815_fillOOR" -> "32815_nonReentrant"
+"32815_soldFractionWad" -> "32815__lo"
+"32815__withdraw" -> "32815__deliverVenueShortfall"
+"32815_previewMint" -> "32815_convertToAssets"
+"32815__withdraw" -> "32815__onExit"
+"32815_repack" -> "32815_onlyUs"
+"32815_kLvrWad" -> "32815__lo"
+"32815_soldFractionWad" -> "32815__hi"
+"32815_derivedThetaWad" -> "32815__lo"
+"32815__doReconcile" -> "32815__settlePending"
+"32815__hi" -> "32815_bandBounds"
+"32815_mint" -> "32815_nonReentrant"
+"32815_deliverVolatile" -> "32815_onlyUs"
+"32815_compound" -> "32815_nonReentrant"
+"32815_maxRedeem" -> "32815_balanceOf"
+"32815_outOfRange" -> "32815_nonReentrant"
+"32815_convertToAssets" -> "32815__pricingBacking"
+"32815_addLiq" -> "32815_onlyUs"
+"32815__depositImpl" -> "32815__depositETH"
+"32815_outOfRange" -> "32815__outOfRange"
+"32815_deliverableETH" -> "32815__ethCfg"
+"32815__withdraw" -> "32815__burnAndDeliverUsdLeg"
+"32815_offrampEtherFi" -> "32815__etherfiCfg"
+}subgraph cluster_2863_Context {
+label = "Context"
+"2863__msgData" [label="_msgData"]
+"2863__contextSuffixLength" [label="_contextSuffixLength"]
+"2863__msgSender" [label="_msgSender"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert WrongQuid()" 
+"revert AllowanceFlow()" 
+"revert RecipientTimelocked()" 
+"revert NotAux()" 
+"revert NoPosition()" 
+"revert Dust()" 
+"revert OwnableUnauthorizedAccount(address)" 
+"revert NotSelf()" 
+"revert ZeroTwap()" 
+"revert InsufficientAllowance()" 
+"revert RecipientNotPinned()" 
+"require(bool,string)" 
+"revert OwnableInvalidOwner(address)" 
+"revert AlreadyInitialized()" 
+"revert LevManagerPinned()" 
+"revert WrongBandManager()" 
+"32815_applyPinnedRecipient" -> "revert RecipientTimelocked()"
+"32815_redeem" -> "revert AllowanceFlow()"
+"32815__depositImpl" -> "revert ZeroTwap()"
+"408_transferOwnership" -> "revert OwnableInvalidOwner(address)"
+"32815_transferFrom" -> "revert InsufficientAllowance()"
+"32815__outOfRange" -> "revert Dust()"
+"32815__requirePinnedRecipient" -> "revert RecipientNotPinned()"
+"408__checkOwner" -> "revert OwnableUnauthorizedAccount(address)"
+"32815__mint4626" -> "require(bool,string)"
+"408_constructor" -> "revert OwnableInvalidOwner(address)"
+"32815_withdrawSelf" -> "revert NotSelf()"
+"32815_setLevManager" -> "revert WrongBandManager()"
+"32815__withdraw" -> "revert NoPosition()"
+"32815_supplyFromAux" -> "revert NotAux()"
+"32815_setup" -> "revert WrongQuid()"
+"32815_setLevManager" -> "require(bool,string)"
+"32815_withdrawForAux" -> "revert NotAux()"
+"32815_collectFees" -> "revert NoPosition()"
+"32815_setup" -> "revert AlreadyInitialized()"
+"32815_withdraw" -> "revert AllowanceFlow()"
+"32815__deposit4626" -> "require(bool,string)"
+"32815__withdraw" -> "require(bool,string)"
+"32815_setLevManager" -> "revert LevManagerPinned()"
+}"32815__depositImpl" -> "32815_addLiq"
+}

@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62428_IMorphoFlash {
+subgraph cluster_48558_IMorphoFlash {
 label = "IMorphoFlash"
-"62428_flashLoan" [label="flashLoan"]
+"48558_flashLoan" [label="flashLoan"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63588_IWiredBasket {
+subgraph cluster_49469_IWiredBasket {
 label = "IWiredBasket"
-"63588_AUX" [label="AUX"]
-"63588_BTC_VAULT" [label="BTC_VAULT"]
+"49469_AUX" [label="AUX"]
+"49469_BTC_VAULT" [label="BTC_VAULT"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

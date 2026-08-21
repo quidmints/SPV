@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63856_IVaultExposeB {
+subgraph cluster_49692_IVaultExposeB {
 label = "IVaultExposeB"
-"63856_unexposeBtcFromLev" [label="unexposeBtcFromLev"]
-"63856_exposeBtcToLev" [label="exposeBtcToLev"]
+"49692_unexposeBtcFromLev" [label="unexposeBtcFromLev"]
+"49692_exposeBtcToLev" [label="exposeBtcToLev"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

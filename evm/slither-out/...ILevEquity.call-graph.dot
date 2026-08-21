@@ -1,14 +1,15 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62466_ILevEquity {
+subgraph cluster_48602_ILevEquity {
 label = "ILevEquity"
-"62466_debtUsd" [label="debtUsd"]
-"62466_totalNetEquityEth" [label="totalNetEquityEth"]
-"62466_grossCollateralEth" [label="grossCollateralEth"]
-"62466_totalDebtUsd" [label="totalDebtUsd"]
-"62466_totalGrossCollateralEth" [label="totalGrossCollateralEth"]
-"62466_netEquityEth" [label="netEquityEth"]
+"48602_grossCollateral" [label="grossCollateral"]
+"48602_netEquity" [label="netEquity"]
+"48602_ORACLE_KEY" [label="ORACLE_KEY"]
+"48602_totalNetEquity" [label="totalNetEquity"]
+"48602_totalGrossCollateral" [label="totalGrossCollateral"]
+"48602_totalDebtUsd" [label="totalDebtUsd"]
+"48602_debtUsd" [label="debtUsd"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

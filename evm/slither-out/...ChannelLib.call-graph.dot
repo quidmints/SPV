@@ -1,59 +1,78 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_60826_ChannelLib {
+subgraph cluster_45207_ChannelLib {
 label = "ChannelLib"
-"60826_withdrawBody" [label="withdrawBody"]
-"60826_supplyBody" [label="supplyBody"]
-"60826_openChannelBody" [label="openChannelBody"]
-"60826_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"60826__depositToSPInline" [label="_depositToSPInline"]
-"60826_calcSPValue" [label="calcSPValue"]
-"60826_depositBody" [label="depositBody"]
-"60826_aaveWithdrawTo" [label="aaveWithdrawTo"]
-"60826_withdrawFromSP" [label="withdrawFromSP"]
-"60826_initVaultsBody" [label="initVaultsBody"]
-"60826_locateChannelOutput" [label="locateChannelOutput"]
-"60826_setVaultBody" [label="setVaultBody"]
-"60826__verifyAndLocate" [label="_verifyAndLocate"]
-"60826_openChannelBody" -> "60826__verifyAndLocate"
-"60826_supplyBody" -> "60826__depositToSPInline"
-"60826_withdrawBody" -> "60826_withdrawFromSP"
+"45207_supplyBody" [label="supplyBody"]
+"45207_withdrawBody" [label="withdrawBody"]
+"45207__depositToSPInline" [label="_depositToSPInline"]
+"45207_openChannelBody" [label="openChannelBody"]
+"45207__verifyAndLocate" [label="_verifyAndLocate"]
+"45207_calcSPValue" [label="calcSPValue"]
+"45207_lpEthOf" [label="lpEthOf"]
+"45207_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"45207_initVaultsBody" [label="initVaultsBody"]
+"45207_locateChannelOutput" [label="locateChannelOutput"]
+"45207_withdrawFromSP" [label="withdrawFromSP"]
+"45207_aaveWithdrawTo" [label="aaveWithdrawTo"]
+"45207__approveMax" [label="_approveMax"]
+"45207_setVaultBody" [label="setVaultBody"]
+"45207_depositBody" [label="depositBody"]
+"45207_rekeyAuthBody" [label="rekeyAuthBody"]
+"45207__aaveLegDepth" [label="_aaveLegDepth"]
+"45207_supplyBody" -> "45207__depositToSPInline"
+"45207_supplyBody" -> "45207__aaveLegDepth"
+"45207_setVaultBody" -> "45207__approveMax"
+"45207_openChannelBody" -> "45207__verifyAndLocate"
+"45207_withdrawBody" -> "45207_withdrawFromSP"
+"45207_initVaultsBody" -> "45207__approveMax"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"revert AmountMismatch()" 
-"abi.encodeWithSelector()" 
-"revert VaultAlreadySet()" 
-"revert GHOIsAaveWired()" 
-"revert GHONotOnAAVE()" 
-"revert InvalidParam()" 
-"revert VaultUnwired()" 
-"revert VaultAssetMismatch()" 
-"abi.encode()" 
 "keccak256(bytes)" 
-"revert ZeroDeposit()" 
-"revert BadSPV()" 
-"revert VaultBlocked()" 
+"abi.decode()" 
+"code(address)" 
+"abi.encode()" 
+"revert VaultUnwired()" 
+"revert ChannelKeysMismatch()" 
+"revert VaultAssetMismatch()" 
+"revert InvalidParam()" 
+"revert RekeyUnchanged()" 
+"revert ApproveFailed()" 
+"revert AmountMismatch()" 
+"revert GHOIsAaveWired()" 
 "revert UnknownStable()" 
-"60826_setVaultBody" -> "revert VaultUnwired()"
-"60826_locateChannelOutput" -> "revert InvalidParam()"
-"60826_initVaultsBody" -> "abi.encodeWithSelector()"
-"60826_openChannelBody" -> "keccak256(bytes)"
-"60826_setVaultBody" -> "revert VaultAssetMismatch()"
-"60826_depositBody" -> "revert ZeroDeposit()"
-"60826_openChannelBody" -> "revert InvalidParam()"
-"60826_setVaultBody" -> "abi.encodeWithSelector()"
-"60826_openChannelBody" -> "abi.encode()"
-"60826__verifyAndLocate" -> "revert AmountMismatch()"
-"60826_supplyBody" -> "revert GHOIsAaveWired()"
-"60826_depositBody" -> "revert UnknownStable()"
-"60826_setVaultBody" -> "revert VaultAlreadySet()"
-"60826_depositBody" -> "revert VaultBlocked()"
-"60826_setVaultBody" -> "revert GHONotOnAAVE()"
-"60826_setVaultBody" -> "revert UnknownStable()"
-"60826_locateChannelOutput" -> "revert AmountMismatch()"
-"60826_supplyBody" -> "revert VaultUnwired()"
-"60826__verifyAndLocate" -> "revert BadSPV()"
-"60826_withdrawBody" -> "revert VaultUnwired()"
+"revert BadSPV()" 
+"revert GHONotOnAAVE()" 
+"abi.encodeWithSelector()" 
+"revert VaultBlocked()" 
+"revert VaultAlreadySet()" 
+"revert ZeroDeposit()" 
+"45207_setVaultBody" -> "revert GHONotOnAAVE()"
+"45207__verifyAndLocate" -> "revert BadSPV()"
+"45207_setVaultBody" -> "revert UnknownStable()"
+"45207_setVaultBody" -> "revert VaultAlreadySet()"
+"45207_supplyBody" -> "revert VaultUnwired()"
+"45207_rekeyAuthBody" -> "keccak256(bytes)"
+"45207_setVaultBody" -> "revert VaultAssetMismatch()"
+"45207__verifyAndLocate" -> "revert AmountMismatch()"
+"45207_rekeyAuthBody" -> "revert InvalidParam()"
+"45207_locateChannelOutput" -> "revert InvalidParam()"
+"45207__approveMax" -> "abi.encodeWithSelector()"
+"45207_depositBody" -> "revert VaultBlocked()"
+"45207_setVaultBody" -> "revert VaultUnwired()"
+"45207__approveMax" -> "revert ApproveFailed()"
+"45207_rekeyAuthBody" -> "revert RekeyUnchanged()"
+"45207_openChannelBody" -> "keccak256(bytes)"
+"45207__approveMax" -> "abi.decode()"
+"45207_locateChannelOutput" -> "revert AmountMismatch()"
+"45207_depositBody" -> "revert UnknownStable()"
+"45207_supplyBody" -> "revert GHOIsAaveWired()"
+"45207__approveMax" -> "code(address)"
+"45207_rekeyAuthBody" -> "revert ChannelKeysMismatch()"
+"45207_rekeyAuthBody" -> "abi.encode()"
+"45207_withdrawBody" -> "revert VaultUnwired()"
+"45207_depositBody" -> "revert ZeroDeposit()"
+"45207_openChannelBody" -> "revert InvalidParam()"
+"45207_openChannelBody" -> "abi.encode()"
 }
 }

@@ -1,115 +1,130 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_32932_BtcLevManager {
+subgraph cluster_50633_LevBase {
+label = "LevBase"
+"50633_debtUsd" [label="debtUsd"]
+"50633_swapOutDeleverAmt" [label="swapOutDeleverAmt"]
+"50633_openLpAt" [label="openLpAt"]
+"50633_ilLtvBps" [label="ilLtvBps"]
+"50633_totalGrossCollateral" [label="totalGrossCollateral"]
+"50633_getCurrentLtvBps" [label="getCurrentLtvBps"]
+"50633__collNative" [label="_collNative"]
+"50633__netEquityAt" [label="_netEquityAt"]
+"50633_grossCollateral" [label="grossCollateral"]
+"50633_setTargetLtv" [label="setTargetLtv"]
+"50633_totalDebtUsd" [label="totalDebtUsd"]
+"50633__reanchorIfReseated" [label="_reanchorIfReseated"]
+"50633__syncBand" [label="_syncBand"]
+"50633__bandPrice" [label="_bandPrice"]
+"50633_totalDeliverableDollars" [label="totalDeliverableDollars"]
+"50633_constructor" [label="constructor"]
+"50633_totalNetEquity" [label="totalNetEquity"]
+"50633_netEquity" [label="netEquity"]
+"50633__collToBase" [label="_collToBase"]
+"50633__ilTargetLive" [label="_ilTargetLive"]
+"50633__untrackOpen" [label="_untrackOpen"]
+"50633_collValueUsd" [label="collValueUsd"]
+"50633__deliverableDollarsAt" [label="_deliverableDollarsAt"]
+"50633_deliverableDollars" [label="deliverableDollars"]
+"50633_openLevCount" [label="openLevCount"]
+"50633_ilTargetLtvBps" [label="ilTargetLtvBps"]
+"50633__openPos" [label="_openPos"]
+"50633__trackOpen" [label="_trackOpen"]
+"50633_totalNetEquity" -> "50633__netEquityAt"
+"50633__openPos" -> "50633__bandPrice"
+"50633__reanchorIfReseated" -> "50633_netEquity"
+"50633__deliverableDollarsAt" -> "50633_debtUsd"
+"50633__deliverableDollarsAt" -> "50633__collNative"
+"50633_collValueUsd" -> "50633__collToBase"
+"50633_totalDebtUsd" -> "50633_debtUsd"
+"50633_grossCollateral" -> "50633__collNative"
+"50633_netEquity" -> "50633__netEquityAt"
+"50633_deliverableDollars" -> "50633__deliverableDollarsAt"
+"50633_totalGrossCollateral" -> "50633_grossCollateral"
+"50633__netEquityAt" -> "50633_debtUsd"
+"50633_ilTargetLtvBps" -> "50633__ilTargetLive"
+"50633_totalDeliverableDollars" -> "50633__deliverableDollarsAt"
+"50633__netEquityAt" -> "50633__collNative"
+"50633_getCurrentLtvBps" -> "50633_collValueUsd"
+"50633_ilLtvBps" -> "50633_debtUsd"
+"50633__collNative" -> "50633__collToBase"
+"50633_getCurrentLtvBps" -> "50633_debtUsd"
+}subgraph cluster_24970_BtcLevManager {
 label = "BtcLevManager"
-"32932_constructor" [label="constructor"]
-"32932_swapOutDelever" [label="swapOutDelever"]
-"32932_setTargetLtv" [label="setTargetLtv"]
-"32932__reanchorIfReseated" [label="_reanchorIfReseated"]
-"32932_setSoldFractionActive" [label="setSoldFractionActive"]
-"32932__netEquityBtcAt" [label="_netEquityBtcAt"]
-"32932_leverSupply" [label="leverSupply"]
-"32932_deleverWithdraw" [label="deleverWithdraw"]
-"32932_grossCollateralBtc" [label="grossCollateralBtc"]
-"32932__untrackOpen" [label="_untrackOpen"]
-"32932_ilLtvBps" [label="ilLtvBps"]
-"32932__deleverWbtc" [label="_deleverWbtc"]
-"32932_onMorphoFlashLoan" [label="onMorphoFlashLoan"]
-"32932_totalGrossCollateralBtc" [label="totalGrossCollateralBtc"]
-"32932_openLevCount" [label="openLevCount"]
-"32932_swapOutDeleverAmt" [label="swapOutDeleverAmt"]
-"32932_openLpAt" [label="openLpAt"]
-"32932_protectFromQuid" [label="protectFromQuid"]
-"32932_init" [label="init"]
-"32932_netEquityBtc" [label="netEquityBtc"]
-"32932_closeBtcLev" [label="closeBtcLev"]
-"32932_totalDebtUsd" [label="totalDebtUsd"]
-"32932_cascadeDeleverMany" [label="cascadeDeleverMany"]
-"32932_slitherConstructorVariables" [label="slitherConstructorVariables"]
-"32932_deliverableDollars" [label="deliverableDollars"]
-"32932_totalDeliverableDollars" [label="totalDeliverableDollars"]
-"32932__ilTargetLive" [label="_ilTargetLive"]
-"32932__leverUpBuyWbtc" [label="_leverUpBuyWbtc"]
-"32932__deliverableDollarsAt" [label="_deliverableDollarsAt"]
-"32932_rebalanceWbtc" [label="rebalanceWbtc"]
-"32932__flashDeleverWbtc" [label="_flashDeleverWbtc"]
-"32932_debtUsd" [label="debtUsd"]
-"32932_vBtcValueUsd" [label="vBtcValueUsd"]
-"32932__trackOpen" [label="_trackOpen"]
-"32932_debtDeltaToTarget" [label="debtDeltaToTarget"]
-"32932_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"32932_openBtcLev" [label="openBtcLev"]
-"32932_getCurrentLtvBps" [label="getCurrentLtvBps"]
-"32932_ilTargetLtvBps" [label="ilTargetLtvBps"]
-"32932_leverBorrow" [label="leverBorrow"]
-"32932_totalNetEquityBtc" [label="totalNetEquityBtc"]
-"32932_repay" [label="repay"]
-"32932_cascadeDeleverMany" -> "32932_getCurrentLtvBps"
-"32932_ilLtvBps" -> "32932_debtUsd"
-"32932_debtDeltaToTarget" -> "32932__ilTargetLive"
-"32932_rebalanceWbtc" -> "32932__deleverWbtc"
-"32932_rebalanceWbtc" -> "32932__flashDeleverWbtc"
-"32932_leverBorrow" -> "32932__reanchorIfReseated"
-"32932_leverSupply" -> "32932_nonReentrant"
-"32932_deliverableDollars" -> "32932__deliverableDollarsAt"
-"32932_ilTargetLtvBps" -> "32932__ilTargetLive"
-"32932_deleverWithdraw" -> "32932_nonReentrant"
-"32932_openBtcLev" -> "32932_nonReentrant"
-"32932_totalNetEquityBtc" -> "32932__netEquityBtcAt"
-"32932_rebalanceWbtc" -> "32932_debtDeltaToTarget"
-"32932_closeBtcLev" -> "32932__untrackOpen"
-"32932__netEquityBtcAt" -> "32932_debtUsd"
-"32932_protectFromQuid" -> "32932_nonReentrant"
-"32932_deleverWithdraw" -> "32932__reanchorIfReseated"
-"32932_leverBorrow" -> "32932_debtDeltaToTarget"
-"32932_debtDeltaToTarget" -> "32932_debtUsd"
-"32932_netEquityBtc" -> "32932__netEquityBtcAt"
-"32932_protectFromQuid" -> "32932_getCurrentLtvBps"
-"32932_closeBtcLev" -> "32932_nonReentrant"
-"32932_openBtcLev" -> "32932__trackOpen"
-"32932_rebalanceWbtc" -> "32932_nonReentrant"
-"32932_getCurrentLtvBps" -> "32932_vBtcValueUsd"
-"32932_totalDeliverableDollars" -> "32932__deliverableDollarsAt"
-"32932_swapOutDelever" -> "32932_nonReentrant"
-"32932_totalDebtUsd" -> "32932_debtUsd"
-"32932_rebalanceWbtc" -> "32932__reanchorIfReseated"
-"32932_repay" -> "32932_nonReentrant"
-"32932__reanchorIfReseated" -> "32932_netEquityBtc"
-"32932_rebalanceWbtc" -> "32932__leverUpBuyWbtc"
-"32932__deliverableDollarsAt" -> "32932_debtUsd"
-"32932_getCurrentLtvBps" -> "32932_debtUsd"
-"32932_leverBorrow" -> "32932_nonReentrant"
+"24970_constructor" [label="constructor"]
+"24970_openBtcLev" [label="openBtcLev"]
+"24970_slitherConstructorVariables" [label="slitherConstructorVariables"]
+"24970__collToBase" [label="_collToBase"]
+"24970__flashDeleverWbtc" [label="_flashDeleverWbtc"]
+"24970_swapOutDelever" [label="swapOutDelever"]
+"24970_rebalanceWbtc" [label="rebalanceWbtc"]
+"24970_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"24970_onMorphoFlashLoan" [label="onMorphoFlashLoan"]
+"24970_cascadeDeleverMany" [label="cascadeDeleverMany"]
+"24970_closeBtcLev" [label="closeBtcLev"]
+"24970_deleverWithdraw" [label="deleverWithdraw"]
+"24970__deleverWbtc" [label="_deleverWbtc"]
+"24970_protectFromQuid" [label="protectFromQuid"]
+"24970_repay" [label="repay"]
+"24970_leverSupply" [label="leverSupply"]
+"24970_debtDeltaToTarget" [label="debtDeltaToTarget"]
+"24970_init" [label="init"]
+"24970__leverUpBuyWbtc" [label="_leverUpBuyWbtc"]
+"24970_leverBorrow" [label="leverBorrow"]
+"24970_closeBtcLev" -> "24970_nonReentrant"
+"24970_repay" -> "24970__syncBand"
+"24970_protectFromQuid" -> "24970_getCurrentLtvBps"
+"24970_debtDeltaToTarget" -> "24970_debtUsd"
+"24970_rebalanceWbtc" -> "24970__reanchorIfReseated"
+"24970_leverSupply" -> "24970_nonReentrant"
+"24970_onMorphoFlashLoan" -> "24970__syncBand"
+"24970_rebalanceWbtc" -> "24970__flashDeleverWbtc"
+"24970_openBtcLev" -> "24970_nonReentrant"
+"24970_closeBtcLev" -> "24970__untrackOpen"
+"24970_cascadeDeleverMany" -> "24970_getCurrentLtvBps"
+"24970_rebalanceWbtc" -> "24970__leverUpBuyWbtc"
+"24970_leverSupply" -> "24970__syncBand"
+"24970_constructor" -> "24970_constructor"
+"24970_leverBorrow" -> "24970_nonReentrant"
+"24970_leverBorrow" -> "24970__syncBand"
+"24970_openBtcLev" -> "24970__openPos"
+"24970_leverBorrow" -> "24970__reanchorIfReseated"
+"24970_deleverWithdraw" -> "24970_nonReentrant"
+"24970_rebalanceWbtc" -> "24970_debtDeltaToTarget"
+"24970_swapOutDelever" -> "24970_nonReentrant"
+"24970_debtDeltaToTarget" -> "24970__ilTargetLive"
+"24970_protectFromQuid" -> "24970_nonReentrant"
+"24970_leverBorrow" -> "24970_debtDeltaToTarget"
+"24970_rebalanceWbtc" -> "24970_nonReentrant"
+"24970_deleverWithdraw" -> "24970__reanchorIfReseated"
+"24970_repay" -> "24970_nonReentrant"
+"24970_rebalanceWbtc" -> "24970__deleverWbtc"
+"24970_deleverWithdraw" -> "24970__syncBand"
+"24970_rebalanceWbtc" -> "24970__syncBand"
+"24970_closeBtcLev" -> "24970__syncBand"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "revert AlreadyOpen()" 
+"revert NotOpen()" 
 "revert BadTarget()" 
 "revert BadAuth()" 
-"revert NotOpen()" 
-"require(bool,string)" 
-"abi.encode()" 
-"revert NotFlash()" 
 "abi.decode()" 
-"32932_repay" -> "revert NotOpen()"
-"32932_leverSupply" -> "revert NotOpen()"
-"32932_leverBorrow" -> "revert BadTarget()"
-"32932_rebalanceWbtc" -> "revert NotOpen()"
-"32932_deleverWithdraw" -> "revert NotOpen()"
-"32932_cascadeDeleverMany" -> "require(bool,string)"
-"32932_setSoldFractionActive" -> "revert BadAuth()"
-"32932_setTargetLtv" -> "revert NotOpen()"
-"32932_rebalanceWbtc" -> "revert BadTarget()"
-"32932__flashDeleverWbtc" -> "abi.encode()"
-"32932_protectFromQuid" -> "revert NotOpen()"
-"32932_leverBorrow" -> "revert NotOpen()"
-"32932_onMorphoFlashLoan" -> "revert NotFlash()"
-"32932_openBtcLev" -> "revert AlreadyOpen()"
-"32932_openBtcLev" -> "revert BadTarget()"
-"32932_init" -> "revert BadAuth()"
-"32932_setTargetLtv" -> "revert BadTarget()"
-"32932_swapOutDelever" -> "revert BadAuth()"
-"32932_closeBtcLev" -> "revert BadTarget()"
-"32932_closeBtcLev" -> "revert NotOpen()"
-"32932_onMorphoFlashLoan" -> "abi.decode()"
-}"32932_cascadeDeleverMany" -> "32932_rebalanceWbtc"
+"abi.encode()" 
+"require(bool,string)" 
+"revert NotFlash()" 
+"24970_init" -> "revert BadAuth()"
+"24970_cascadeDeleverMany" -> "require(bool,string)"
+"24970_closeBtcLev" -> "revert BadTarget()"
+"24970_openBtcLev" -> "revert AlreadyOpen()"
+"24970_onMorphoFlashLoan" -> "abi.decode()"
+"24970_rebalanceWbtc" -> "revert BadTarget()"
+"24970_onMorphoFlashLoan" -> "revert NotFlash()"
+"24970_closeBtcLev" -> "revert NotOpen()"
+"24970_swapOutDelever" -> "revert BadAuth()"
+"24970_openBtcLev" -> "revert BadTarget()"
+"24970_protectFromQuid" -> "revert NotOpen()"
+"24970_rebalanceWbtc" -> "revert NotOpen()"
+"24970__flashDeleverWbtc" -> "abi.encode()"
+}"24970_cascadeDeleverMany" -> "24970_rebalanceWbtc"
 }

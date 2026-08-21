@@ -1,39 +1,54 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_68590_MuSig2Agg {
+subgraph cluster_57744_MuSig2Agg {
 label = "MuSig2Agg"
-"68590__cmp" [label="_cmp"]
-"68590_taggedHash" [label="taggedHash"]
-"68590_computeOutputKey" [label="computeOutputKey"]
-"68590_decompress" [label="decompress"]
-"68590__lessThan" [label="_lessThan"]
-"68590_isTwoOfTwoOutputKey" [label="isTwoOfTwoOutputKey"]
-"68590_curve" [label="curve"]
-"68590_computeOutputKey" -> "68590__lessThan"
-"68590_computeOutputKey" -> "68590_taggedHash"
-"68590_isTwoOfTwoOutputKey" -> "68590_computeOutputKey"
-"68590_computeOutputKey" -> "68590_curve"
-"68590_decompress" -> "68590_curve"
-"68590__lessThan" -> "68590__cmp"
-"68590_computeOutputKey" -> "68590_decompress"
+"57744_schnorrVerify" [label="schnorrVerify"]
+"57744_decompress" [label="decompress"]
+"57744_taggedHash" [label="taggedHash"]
+"57744_tapLeafHash" [label="tapLeafHash"]
+"57744_curve" [label="curve"]
+"57744_isTwoOfTwoOutputKey" [label="isTwoOfTwoOutputKey"]
+"57744_taprootOutputKeyWithLeaf" [label="taprootOutputKeyWithLeaf"]
+"57744__cmp" [label="_cmp"]
+"57744_computeOutputKey" [label="computeOutputKey"]
+"57744__lessThan" [label="_lessThan"]
+"57744_taprootOutputKeyWithLeaf" -> "57744_curve"
+"57744_computeOutputKey" -> "57744_decompress"
+"57744_schnorrVerify" -> "57744_curve"
+"57744_computeOutputKey" -> "57744__lessThan"
+"57744_schnorrVerify" -> "57744_decompress"
+"57744_decompress" -> "57744_curve"
+"57744_schnorrVerify" -> "57744_taggedHash"
+"57744__lessThan" -> "57744__cmp"
+"57744_taprootOutputKeyWithLeaf" -> "57744_taggedHash"
+"57744_taprootOutputKeyWithLeaf" -> "57744_decompress"
+"57744_computeOutputKey" -> "57744_curve"
+"57744_tapLeafHash" -> "57744_taggedHash"
+"57744_isTwoOfTwoOutputKey" -> "57744_computeOutputKey"
+"57744_computeOutputKey" -> "57744_taggedHash"
 }subgraph cluster_solidity {
 label = "[Solidity]"
-"mulmod(uint256,uint256,uint256)" 
-"sha256(bytes)" 
-"abi.encodePacked()" 
 "keccak256(bytes)" 
-"require(bool,string)" 
+"sha256(bytes)" 
 "mload(uint256)" 
+"abi.encodePacked()" 
+"mulmod(uint256,uint256,uint256)" 
 "addmod(uint256,uint256,uint256)" 
-"68590_decompress" -> "require(bool,string)"
-"68590_decompress" -> "mload(uint256)"
-"68590_computeOutputKey" -> "abi.encodePacked()"
-"68590_decompress" -> "mulmod(uint256,uint256,uint256)"
-"68590_decompress" -> "addmod(uint256,uint256,uint256)"
-"68590_taggedHash" -> "sha256(bytes)"
-"68590_computeOutputKey" -> "require(bool,string)"
-"68590__lessThan" -> "keccak256(bytes)"
-"68590_taggedHash" -> "abi.encodePacked()"
+"require(bool,string)" 
+"57744__lessThan" -> "keccak256(bytes)"
+"57744_decompress" -> "mload(uint256)"
+"57744_tapLeafHash" -> "require(bool,string)"
+"57744_taggedHash" -> "abi.encodePacked()"
+"57744_schnorrVerify" -> "abi.encodePacked()"
+"57744_decompress" -> "addmod(uint256,uint256,uint256)"
+"57744_computeOutputKey" -> "require(bool,string)"
+"57744_taprootOutputKeyWithLeaf" -> "require(bool,string)"
+"57744_decompress" -> "mulmod(uint256,uint256,uint256)"
+"57744_computeOutputKey" -> "abi.encodePacked()"
+"57744_decompress" -> "require(bool,string)"
+"57744_tapLeafHash" -> "abi.encodePacked()"
+"57744_taprootOutputKeyWithLeaf" -> "abi.encodePacked()"
+"57744_taggedHash" -> "sha256(bytes)"
 }
 }

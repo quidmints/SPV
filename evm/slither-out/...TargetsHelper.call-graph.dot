@@ -1,33 +1,33 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_85399_TargetsHelper {
+subgraph cluster_68766_TargetsHelper {
 label = "TargetsHelper"
-"85399_countBlockWork" [label="countBlockWork"]
-"85399_roundTarget" [label="roundTarget"]
-"85399_isTargetAdjustmentBlock" [label="isTargetAdjustmentBlock"]
-"85399_bitsToTarget" [label="bitsToTarget"]
-"85399_targetToBits" [label="targetToBits"]
-"85399_getEpochBlockNumber" [label="getEpochBlockNumber"]
-"85399_countNewRoundedTarget" [label="countNewRoundedTarget"]
-"85399_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"85399_countCumulativeWork" [label="countCumulativeWork"]
-"85399_countNewTarget" [label="countNewTarget"]
-"85399_countNewRoundedTarget" -> "85399_roundTarget"
-"85399_countCumulativeWork" -> "85399_countBlockWork"
-"85399_isTargetAdjustmentBlock" -> "85399_getEpochBlockNumber"
-"85399_countNewRoundedTarget" -> "85399_countNewTarget"
+"68766_countNewRoundedTarget" [label="countNewRoundedTarget"]
+"68766_bitsToTarget" [label="bitsToTarget"]
+"68766_countNewTarget" [label="countNewTarget"]
+"68766_roundTarget" [label="roundTarget"]
+"68766_countBlockWork" [label="countBlockWork"]
+"68766_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"68766_targetToBits" [label="targetToBits"]
+"68766_countCumulativeWork" [label="countCumulativeWork"]
+"68766_getEpochBlockNumber" [label="getEpochBlockNumber"]
+"68766_isTargetAdjustmentBlock" [label="isTargetAdjustmentBlock"]
+"68766_countNewRoundedTarget" -> "68766_countNewTarget"
+"68766_countCumulativeWork" -> "68766_countBlockWork"
+"68766_isTargetAdjustmentBlock" -> "68766_getEpochBlockNumber"
+"68766_countNewRoundedTarget" -> "68766_roundTarget"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "mstore8(uint256,uint256)" 
-"mstore(uint256,uint256)" 
 "byte(uint256,uint256)" 
+"mstore(uint256,uint256)" 
 "mload(uint256)" 
-"85399_bitsToTarget" -> "byte(uint256,uint256)"
-"85399_targetToBits" -> "byte(uint256,uint256)"
-"85399_targetToBits" -> "mstore8(uint256,uint256)"
-"85399_targetToBits" -> "mload(uint256)"
-"85399_roundTarget" -> "byte(uint256,uint256)"
-"85399_targetToBits" -> "mstore(uint256,uint256)"
+"68766_targetToBits" -> "byte(uint256,uint256)"
+"68766_targetToBits" -> "mload(uint256)"
+"68766_roundTarget" -> "byte(uint256,uint256)"
+"68766_bitsToTarget" -> "byte(uint256,uint256)"
+"68766_targetToBits" -> "mstore(uint256,uint256)"
+"68766_targetToBits" -> "mstore8(uint256,uint256)"
 }
 }

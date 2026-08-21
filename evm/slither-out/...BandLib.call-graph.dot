@@ -1,0 +1,48 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_35918_BandLib {
+label = "BandLib"
+"35918_sweepOor" [label="sweepOor"]
+"35918_deindexOor" [label="deindexOor"]
+"35918_levBurnAll" [label="levBurnAll"]
+"35918_levAddBuf" [label="levAddBuf"]
+"35918_fillOne" [label="fillOne"]
+"35918_pull" [label="pull"]
+"35918_oorKey" [label="oorKey"]
+"35918_levAddNet" [label="levAddNet"]
+"35918_openOor" [label="openOor"]
+"35918_pokeOor" [label="pokeOor"]
+"35918_oorTrigger" [label="oorTrigger"]
+"35918_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"35918_levAddGross" [label="levAddGross"]
+"35918_pull" -> "35918_deindexOor"
+"35918_pokeOor" -> "35918_fillOne"
+"35918_fillOne" -> "35918_oorTrigger"
+"35918_levAddGross" -> "35918_levAddBuf"
+"35918_sweepOor" -> "35918_oorKey"
+"35918_fillOne" -> "35918_oorKey"
+"35918_pull" -> "35918_oorTrigger"
+"35918_openOor" -> "35918_oorKey"
+"35918_fillOne" -> "35918_deindexOor"
+"35918_sweepOor" -> "35918_fillOne"
+"35918_pull" -> "35918_oorKey"
+"35918_levAddGross" -> "35918_levAddNet"
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NotFillable()" 
+"revert NotOwner()" 
+"revert Dust()" 
+"revert NotTouched()" 
+"revert BadPercent()" 
+"require(bool,string)" 
+"revert NoSuchOrder()" 
+"35918_pokeOor" -> "revert NoSuchOrder()"
+"35918_pokeOor" -> "revert NotTouched()"
+"35918_pull" -> "require(bool,string)"
+"35918_pull" -> "revert Dust()"
+"35918_pull" -> "revert BadPercent()"
+"35918_pull" -> "revert NotOwner()"
+"35918_pokeOor" -> "revert NotFillable()"
+}
+}

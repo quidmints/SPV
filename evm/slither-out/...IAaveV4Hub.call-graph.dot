@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62417_IAaveV4Hub {
+subgraph cluster_48547_IAaveV4Hub {
 label = "IAaveV4Hub"
-"62417_getAssetId" [label="getAssetId"]
+"48547_getAssetId" [label="getAssetId"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

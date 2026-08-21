@@ -1,0 +1,18 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_46574_ExternalTwap {
+label = "ExternalTwap"
+"46574_requireAgrees" [label="requireAgrees"]
+"46574_curvePriceWad" [label="curvePriceWad"]
+"46574_oneInchRateWad" [label="oneInchRateWad"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NoExternalPrice()" 
+"revert DeviationTooWide(uint256,uint256,uint256)" 
+"46574_oneInchRateWad" -> "revert NoExternalPrice()"
+"46574_curvePriceWad" -> "revert NoExternalPrice()"
+"46574_requireAgrees" -> "revert NoExternalPrice()"
+"46574_requireAgrees" -> "revert DeviationTooWide(uint256,uint256,uint256)"
+}
+}

@@ -1,9 +1,9 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_63639_IBasketMint {
+subgraph cluster_49520_IBasketMint {
 label = "IBasketMint"
-"63639_mint" [label="mint"]
+"49520_mint" [label="mint"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

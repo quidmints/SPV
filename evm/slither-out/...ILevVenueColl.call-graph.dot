@@ -1,10 +1,10 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_62573_ILevVenueColl {
+subgraph cluster_48658_ILevVenueColl {
 label = "ILevVenueColl"
-"62573_stable" [label="stable"]
-"62573_COLLATERAL" [label="COLLATERAL"]
+"48658_COLLATERAL" [label="COLLATERAL"]
+"48658_stable" [label="stable"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

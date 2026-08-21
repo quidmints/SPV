@@ -1,0 +1,10 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_48486_IV3Router {
+label = "IV3Router"
+"48486_exactInputSingle" [label="exactInputSingle"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+}
+}

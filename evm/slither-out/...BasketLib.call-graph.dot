@@ -1,85 +1,91 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_55093_BasketLib {
+subgraph cluster_39994_BasketLib {
 label = "BasketLib"
-"55093__dispatchTake" [label="_dispatchTake"]
-"55093__depegLoss" [label="_depegLoss"]
-"55093_matureBatches" [label="matureBatches"]
-"55093_depegLoss" [label="depegLoss"]
-"55093_refreshAllHoldingsBody" [label="refreshAllHoldingsBody"]
-"55093_takeBodyWith" [label="takeBodyWith"]
-"55093_ticksToPrice" [label="ticksToPrice"]
-"55093_illiquidLoss" [label="illiquidLoss"]
-"55093__takePreferred" [label="_takePreferred"]
-"55093_evacuateBody" [label="evacuateBody"]
-"55093_get_deposits" [label="get_deposits"]
-"55093_backingCoreBody" [label="backingCoreBody"]
-"55093_spreadEquallyBody" [label="spreadEquallyBody"]
-"55093__valueStable" [label="_valueStable"]
-"55093_redeemAsBody" [label="redeemAsBody"]
-"55093__settleRedeem" [label="_settleRedeem"]
-"55093_tipBody" [label="tipBody"]
-"55093__aaveYieldWeighted" [label="_aaveYieldWeighted"]
-"55093__deleverBookForRedeem" [label="_deleverBookForRedeem"]
-"55093__redeemQuote" [label="_redeemQuote"]
-"55093_isManipulated" [label="isManipulated"]
-"55093_redeemableBody" [label="redeemableBody"]
-"55093__finalBacking" [label="_finalBacking"]
-"55093_scaleTokenAmount" [label="scaleTokenAmount"]
-"55093_routeSwap" [label="routeSwap"]
-"55093_avgYield" [label="avgYield"]
-"55093__takeProRata" [label="_takeProRata"]
-"55093_calcMintYield" [label="calcMintYield"]
-"55093_computeMetrics" [label="computeMetrics"]
-"55093__repackPool" [label="_repackPool"]
-"55093_getPrice" [label="getPrice"]
-"55093_from6" [label="from6"]
-"55093_assertFullyWired" [label="assertFullyWired"]
-"55093__refreshOne" [label="_refreshOne"]
-"55093__takeCore" [label="_takeCore"]
-"55093_convert" [label="convert"]
-"55093_refreshHoldingsBody" [label="refreshHoldingsBody"]
-"55093_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
-"55093_setVaultHealthBody" [label="setVaultHealthBody"]
-"55093__illiquidLoss" [label="_illiquidLoss"]
-"55093_pokeVaultHealthBody" [label="pokeVaultHealthBody"]
-"55093_takeBody" [label="takeBody"]
-"55093_seedFee" [label="seedFee"]
-"55093_depegLoss" -> "55093__depegLoss"
-"55093_backingCoreBody" -> "55093__repackPool"
-"55093_routeSwap" -> "55093_convert"
-"55093_redeemAsBody" -> "55093__redeemQuote"
-"55093__takeCore" -> "55093_scaleTokenAmount"
-"55093_pokeVaultHealthBody" -> "55093_evacuateBody"
-"55093_redeemableBody" -> "55093__depegLoss"
-"55093_takeBodyWith" -> "55093__takeCore"
-"55093__valueStable" -> "55093__aaveYieldWeighted"
-"55093__takeCore" -> "55093__takePreferred"
-"55093_refreshAllHoldingsBody" -> "55093__refreshOne"
-"55093_redeemAsBody" -> "55093__dispatchTake"
-"55093__refreshOne" -> "55093__valueStable"
-"55093__takePreferred" -> "55093_scaleTokenAmount"
-"55093__settleRedeem" -> "55093__deleverBookForRedeem"
-"55093_tipBody" -> "55093_scaleTokenAmount"
-"55093_redeemableBody" -> "55093__illiquidLoss"
-"55093_redeemAsBody" -> "55093__settleRedeem"
-"55093__redeemQuote" -> "55093__illiquidLoss"
-"55093_evacuateBody" -> "55093_spreadEquallyBody"
-"55093__takeCore" -> "55093__takeProRata"
-"55093__takeCore" -> "55093__finalBacking"
-"55093_pokeVaultHealthBody" -> "55093_setVaultHealthBody"
-"55093_ticksToPrice" -> "55093_getPrice"
-"55093_takeBody" -> "55093__takeCore"
-"55093_refreshHoldingsBody" -> "55093__refreshOne"
-"55093_illiquidLoss" -> "55093__illiquidLoss"
+"39994_cumsToPrice" [label="cumsToPrice"]
+"39994_flagIlliquidBody" [label="flagIlliquidBody"]
+"39994__yieldWeight" [label="_yieldWeight"]
+"39994_depegLoss" [label="depegLoss"]
+"39994_calcMintYield" [label="calcMintYield"]
+"39994_redeemableBody" [label="redeemableBody"]
+"39994_get_deposits" [label="get_deposits"]
+"39994__dispatchTake" [label="_dispatchTake"]
+"39994_assertFullyWired" [label="assertFullyWired"]
+"39994_from6" [label="from6"]
+"39994__redeemQuote" [label="_redeemQuote"]
+"39994__illiquidLoss" [label="_illiquidLoss"]
+"39994__takeCore" [label="_takeCore"]
+"39994_evacuateBody" [label="evacuateBody"]
+"39994_aaveHealthKey" [label="aaveHealthKey"]
+"39994_scaleTokenAmount" [label="scaleTokenAmount"]
+"39994_convert" [label="convert"]
+"39994_illiquidLossFlagging" [label="illiquidLossFlagging"]
+"39994_tipBody" [label="tipBody"]
+"39994__aaveYieldWeighted" [label="_aaveYieldWeighted"]
+"39994__takeProRata" [label="_takeProRata"]
+"39994_takeBody" [label="takeBody"]
+"39994__settleRedeem" [label="_settleRedeem"]
+"39994_slitherConstructorConstantVariables" [label="slitherConstructorConstantVariables"]
+"39994_pokeVaultHealthBody" [label="pokeVaultHealthBody"]
+"39994_refreshAllHoldingsBody" [label="refreshAllHoldingsBody"]
+"39994_matureBatches" [label="matureBatches"]
+"39994_seedFee" [label="seedFee"]
+"39994__refreshOne" [label="_refreshOne"]
+"39994_illiquidLoss" [label="illiquidLoss"]
+"39994__valueStable" [label="_valueStable"]
+"39994_backingCoreBody" [label="backingCoreBody"]
+"39994_takeBodyWith" [label="takeBodyWith"]
+"39994_refreshHoldingsBody" [label="refreshHoldingsBody"]
+"39994_getPrice" [label="getPrice"]
+"39994__depegLoss" [label="_depegLoss"]
+"39994_avgYield" [label="avgYield"]
+"39994__deleverBookForRedeem" [label="_deleverBookForRedeem"]
+"39994_computeMetrics" [label="computeMetrics"]
+"39994_setVaultHealthBody" [label="setVaultHealthBody"]
+"39994_spreadEquallyBody" [label="spreadEquallyBody"]
+"39994_redeemAsBody" [label="redeemAsBody"]
+"39994__finalBacking" [label="_finalBacking"]
+"39994_isManipulated" [label="isManipulated"]
+"39994_routeSwap" [label="routeSwap"]
+"39994__takePreferred" [label="_takePreferred"]
+"39994__takeCore" -> "39994__finalBacking"
+"39994_redeemableBody" -> "39994__depegLoss"
+"39994_redeemAsBody" -> "39994__settleRedeem"
+"39994_evacuateBody" -> "39994_spreadEquallyBody"
+"39994__takeCore" -> "39994__takeProRata"
+"39994_depegLoss" -> "39994__depegLoss"
+"39994_refreshAllHoldingsBody" -> "39994__refreshOne"
+"39994_takeBody" -> "39994__takeCore"
+"39994_illiquidLossFlagging" -> "39994__illiquidLoss"
+"39994__valueStable" -> "39994__aaveYieldWeighted"
+"39994_tipBody" -> "39994_scaleTokenAmount"
+"39994_illiquidLoss" -> "39994__illiquidLoss"
+"39994_redeemableBody" -> "39994__illiquidLoss"
+"39994_refreshHoldingsBody" -> "39994__refreshOne"
+"39994_routeSwap" -> "39994_convert"
+"39994__valueStable" -> "39994__yieldWeight"
+"39994_redeemAsBody" -> "39994__redeemQuote"
+"39994__redeemQuote" -> "39994__illiquidLoss"
+"39994_redeemAsBody" -> "39994__dispatchTake"
+"39994__takeCore" -> "39994__takePreferred"
+"39994__takePreferred" -> "39994_scaleTokenAmount"
+"39994__takeCore" -> "39994_scaleTokenAmount"
+"39994_flagIlliquidBody" -> "39994_setVaultHealthBody"
+"39994_takeBodyWith" -> "39994__takeCore"
 }subgraph cluster_solidity {
 label = "[Solidity]"
+"keccak256(bytes)" 
 "revert NothingDelivered()" 
+"abi.encode()" 
 "require(bool,string)" 
-"55093__takeCore" -> "require(bool,string)"
-"55093_takeBody" -> "revert NothingDelivered()"
-"55093_assertFullyWired" -> "require(bool,string)"
-"55093_takeBodyWith" -> "revert NothingDelivered()"
+"revert AmountTooSmall()" 
+"39994__takeCore" -> "revert AmountTooSmall()"
+"39994__takeCore" -> "require(bool,string)"
+"39994_assertFullyWired" -> "require(bool,string)"
+"39994_aaveHealthKey" -> "abi.encode()"
+"39994_aaveHealthKey" -> "keccak256(bytes)"
+"39994_takeBody" -> "revert NothingDelivered()"
+"39994_takeBodyWith" -> "revert NothingDelivered()"
 }
 }

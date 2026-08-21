@@ -1,40 +1,83 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_16545_Math {
+subgraph cluster_5392_Math {
 label = "Math"
-"16545_log2" [label="log2"]
-"16545_log256" [label="log256"]
-"16545_trySub" [label="trySub"]
-"16545_max" [label="max"]
-"16545_mulDiv" [label="mulDiv"]
-"16545_tryMul" [label="tryMul"]
-"16545_tryDiv" [label="tryDiv"]
-"16545_ceilDiv" [label="ceilDiv"]
-"16545_sqrt" [label="sqrt"]
-"16545_tryAdd" [label="tryAdd"]
-"16545_tryMod" [label="tryMod"]
-"16545_log10" [label="log10"]
-"16545_unsignedRoundsUp" [label="unsignedRoundsUp"]
-"16545_average" [label="average"]
-"16545_min" [label="min"]
-"16545_log256" -> "16545_log256"
-"16545_mulDiv" -> "16545_unsignedRoundsUp"
-"16545_sqrt" -> "16545_min"
-"16545_sqrt" -> "16545_log2"
-"16545_sqrt" -> "16545_sqrt"
-"16545_log256" -> "16545_unsignedRoundsUp"
-"16545_mulDiv" -> "16545_mulDiv"
-"16545_log10" -> "16545_unsignedRoundsUp"
-"16545_log2" -> "16545_unsignedRoundsUp"
-"16545_log2" -> "16545_log2"
-"16545_log10" -> "16545_log10"
-"16545_sqrt" -> "16545_unsignedRoundsUp"
+"5392_invMod" [label="invMod"]
+"5392_mulShr" [label="mulShr"]
+"5392_mul512" [label="mul512"]
+"5392_ternary" [label="ternary"]
+"5392_modExp" [label="modExp"]
+"5392_sqrt" [label="sqrt"]
+"5392_unsignedRoundsUp" [label="unsignedRoundsUp"]
+"5392_saturatingAdd" [label="saturatingAdd"]
+"5392_average" [label="average"]
+"5392_tryAdd" [label="tryAdd"]
+"5392_add512" [label="add512"]
+"5392_log256" [label="log256"]
+"5392_saturatingMul" [label="saturatingMul"]
+"5392_log10" [label="log10"]
+"5392_tryMod" [label="tryMod"]
+"5392_min" [label="min"]
+"5392_max" [label="max"]
+"5392_tryDiv" [label="tryDiv"]
+"5392_ceilDiv" [label="ceilDiv"]
+"5392_mulDiv" [label="mulDiv"]
+"5392_invModPrime" [label="invModPrime"]
+"5392_tryModExp" [label="tryModExp"]
+"5392_tryMul" [label="tryMul"]
+"5392_saturatingSub" [label="saturatingSub"]
+"5392__zeroBytes" [label="_zeroBytes"]
+"5392_log2" [label="log2"]
+"5392_clz" [label="clz"]
+"5392_trySub" [label="trySub"]
+"5392_min" -> "5392_ternary"
+"5392_saturatingAdd" -> "5392_tryAdd"
+"5392_sqrt" -> "5392_unsignedRoundsUp"
+"5392_saturatingMul" -> "5392_ternary"
+"5392_log256" -> "5392_unsignedRoundsUp"
+"5392_saturatingAdd" -> "5392_ternary"
+"5392_log256" -> "5392_log256"
+"5392_modExp" -> "5392_tryModExp"
+"5392__zeroBytes" -> "5392_saturatingSub"
+"5392_mulDiv" -> "5392_unsignedRoundsUp"
+"5392_mulShr" -> "5392_mul512"
+"5392_mulShr" -> "5392_unsignedRoundsUp"
+"5392_log10" -> "5392_unsignedRoundsUp"
+"5392_log10" -> "5392_log10"
+"5392_mulDiv" -> "5392_mul512"
+"5392_invMod" -> "5392_ternary"
+"5392_clz" -> "5392_log2"
+"5392_saturatingSub" -> "5392_trySub"
+"5392_mulDiv" -> "5392_mulDiv"
+"5392_mulDiv" -> "5392_ternary"
+"5392_mulShr" -> "5392_mulShr"
+"5392_log2" -> "5392_unsignedRoundsUp"
+"5392_invModPrime" -> "5392_modExp"
+"5392_log2" -> "5392_log2"
+"5392_saturatingMul" -> "5392_tryMul"
+"5392_tryModExp" -> "5392__zeroBytes"
+"5392_sqrt" -> "5392_sqrt"
+"5392_max" -> "5392_ternary"
+"5392_clz" -> "5392_ternary"
 }subgraph cluster_solidity {
 label = "[Solidity]"
+"staticcall(uint256,uint256,uint256,uint256,uint256,uint256)" 
+"byte(uint256,uint256)" 
+"mstore(uint256,uint256)" 
+"mload(uint256)" 
+"abi.encodePacked()" 
 "mulmod(uint256,uint256,uint256)" 
-"revert MathOverflowedMulDiv()" 
-"16545_mulDiv" -> "mulmod(uint256,uint256,uint256)"
-"16545_mulDiv" -> "revert MathOverflowedMulDiv()"
+"gas()" 
+"5392_tryModExp" -> "abi.encodePacked()"
+"5392_log2" -> "byte(uint256,uint256)"
+"5392_tryModExp" -> "mstore(uint256,uint256)"
+"5392_mulDiv" -> "mulmod(uint256,uint256,uint256)"
+"5392__zeroBytes" -> "mload(uint256)"
+"5392_mulShr" -> "mulmod(uint256,uint256,uint256)"
+"5392_tryModExp" -> "gas()"
+"5392_tryModExp" -> "staticcall(uint256,uint256,uint256,uint256,uint256,uint256)"
+"5392_mul512" -> "mulmod(uint256,uint256,uint256)"
+"5392_tryModExp" -> "mload(uint256)"
 }
 }

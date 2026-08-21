@@ -1,12 +1,12 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_58790_IStabilityPool {
+subgraph cluster_43004_IStabilityPool {
 label = "IStabilityPool"
-"58790_getCompoundedBoldDeposit" [label="getCompoundedBoldDeposit"]
-"58790_withdrawFromSP" [label="withdrawFromSP"]
-"58790_provideToSP" [label="provideToSP"]
-"58790_getDepositorYieldGainWithPending" [label="getDepositorYieldGainWithPending"]
+"43004_withdrawFromSP" [label="withdrawFromSP"]
+"43004_provideToSP" [label="provideToSP"]
+"43004_getDepositorYieldGainWithPending" [label="getDepositorYieldGainWithPending"]
+"43004_getCompoundedBoldDeposit" [label="getCompoundedBoldDeposit"]
 }subgraph cluster_solidity {
 label = "[Solidity]"
 }

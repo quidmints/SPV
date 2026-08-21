@@ -1,0 +1,27 @@
+strict digraph {
+rankdir="LR"
+node [shape=box]
+subgraph cluster_51342_LevBookLib {
+label = "LevBookLib"
+"51342_trackOpen" [label="trackOpen"]
+"51342_setTargetLtv" [label="setTargetLtv"]
+"51342_openPos" [label="openPos"]
+"51342_leverBorrow" [label="leverBorrow"]
+"51342_repay" [label="repay"]
+"51342_reanchorIfReseated" [label="reanchorIfReseated"]
+"51342_untrackOpen" [label="untrackOpen"]
+"51342_leverSupply" [label="leverSupply"]
+"51342_deleverWithdraw" [label="deleverWithdraw"]
+}subgraph cluster_solidity {
+label = "[Solidity]"
+"revert NotOpen()" 
+"revert BadTarget()" 
+"51342_deleverWithdraw" -> "revert NotOpen()"
+"51342_leverSupply" -> "revert NotOpen()"
+"51342_repay" -> "revert NotOpen()"
+"51342_leverBorrow" -> "revert NotOpen()"
+"51342_leverBorrow" -> "revert BadTarget()"
+"51342_setTargetLtv" -> "revert BadTarget()"
+"51342_setTargetLtv" -> "revert NotOpen()"
+}
+}

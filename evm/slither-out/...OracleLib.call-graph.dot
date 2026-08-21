@@ -1,21 +1,24 @@
 strict digraph {
 rankdir="LR"
 node [shape=box]
-subgraph cluster_69866_OracleLib {
+subgraph cluster_58736_OracleLib {
 label = "OracleLib"
-"69866__interpolate" [label="_interpolate"]
-"69866_deployMocks" [label="deployMocks"]
-"69866_ringVariance" [label="ringVariance"]
-"69866_prepRefs" [label="prepRefs"]
-"69866__getOldest" [label="_getOldest"]
-"69866_initPool" [label="initPool"]
-"69866_observe" [label="observe"]
-"69866_writeObservation" [label="writeObservation"]
-"69866_observe" -> "69866__getOldest"
-"69866_observe" -> "69866__interpolate"
+"58736_observe" [label="observe"]
+"58736_seedRing" [label="seedRing"]
+"58736_writeObservation" [label="writeObservation"]
+"58736_ringVariance" [label="ringVariance"]
+"58736_seedPrices" [label="seedPrices"]
+"58736__interpolate" [label="_interpolate"]
+"58736__feed18" [label="_feed18"]
+"58736__getOldest" [label="_getOldest"]
+"58736_seedPrices" -> "58736__feed18"
+"58736_observe" -> "58736__interpolate"
+"58736_observe" -> "58736__getOldest"
 }subgraph cluster_solidity {
 label = "[Solidity]"
 "revert(string)" 
-"69866_observe" -> "revert(string)"
+"require(bool,string)" 
+"58736__feed18" -> "require(bool,string)"
+"58736_observe" -> "revert(string)"
 }
 }
