@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
-import {ILevVenue} from "./ILevVenue.sol";
+import {ILevVenue} from "./Interfaces.sol";
 import {IAux, ILevSyncHook} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 

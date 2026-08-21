@@ -6,7 +6,7 @@ import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "morpho-blue/
 import {IOracle as IMorphoOraclePrice} from "morpho-blue/interfaces/IOracle.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LevManager} from "../src/LevManager.sol";
-import {ILevVenue} from "../src/imports/ILevVenue.sol";
+import {ILevVenue} from "../src/imports/Interfaces.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 

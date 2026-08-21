@@ -5,7 +5,7 @@ import {LevMath} from "./imports/LevMath.sol";
 import {WAD} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
-import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
+import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
@@ -26,7 +26,8 @@ import {ILevSyncHook} from "./imports/Interfaces.sol";
 ///         symmetric was REMOVED 2026-08-06 — it was unguarded, its capacity measured ZERO at every sampled
 ///         block over 90 days, and reaching it REVERTED THE WHOLE CALL rather than degrading (see
 ///         `LevMath._weethToWeth`). Do not re-describe this leg as deterministic-cost.
-// IERC20Min + IWETH9 (WETH deposit/withdraw) now come from ILevVenue.sol (shared across the lev cluster). The
+// IERC20Min + IWETH9 (WETH deposit/withdraw) now come from Interfaces.sol (§E296 folded
+// ILevVenue.sol in; it was shared across the lev cluster). The
 // ether.fi adapter/redeemer surfaces moved to LevMath with the sell/buy machinery.
 
 /// @notice Morpho Blue flash-loan surface — FREE (zero-fee), so the ONLY flash source we use. The de-lever

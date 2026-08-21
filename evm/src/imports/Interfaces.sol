@@ -288,7 +288,41 @@ interface IAggregatorV3 {
 /// Canonical Aux view — union of the former per-file variants (`IAux`, `IAux`,
 /// `ChannelLib::IAux`, `BasketLib::IAux`). FIVE declarations described
 /// ONE contract; a signature change had to be made up to six times and a missed one still compiled.
-interface IAux {
+/// @notice §E296 — `ISwap.sol` and `ILevVenue.sol` folded in (standing rule 2: one declaration per
+///         interface, in THIS file). Both files existed ONLY to hold interfaces, so both are deleted.
+///         `IAux is ISwap` rather than restating its three members: `getTWAPforAsset`, `resolvedTwap`
+///         and `swap` were declared in BOTH places and had DRIFTED — `Aux.swap` is `public payable`
+///         (`Aux.sol:721`), `ISwap` agreed, and `IAux` said non-payable. No `src` caller used either
+///         handle, so the wrong selector never fired; that is exactly the §E21 failure mode this rule
+///         exists to prevent, caught this time before it could bite.
+/// @notice Aux's public stable<->volatile swap surface (Aux.sol `swap`), declared
+///         once here as the single source of truth. `Aux` implements it; peripherals
+///         (formerly also `SorExchange`, the Liquity-zapper adapter, deleted 2026-08) consume it without
+///         re-declaring a duplicate interface. `token` = stable side (or QUID/zero),
+///         `asset` = volatile side (WETH/WBTC), `forVolatile` true = stable->volatile.
+interface ISwap {
+    function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut)
+        external payable returns (uint256);
+
+    // ── Unified QUOTE surface ──────────────────────────────────────────────
+    // The pricing views an RFQ maker (Bebop) or an Arcadia solver (Khalani) reads to
+    // quote the SAME fill the swap executes at: the Chainlink-anchored TWAP, its
+    // staleness flag, and the well's inventory-skew taker-limit. Quote = base × (1−skew)
+    // (swap-OUT), base the oracle price for `asset` (WETH/WBTC). `Aux` implements all.
+    function getTWAPforAsset(address asset, uint32 period) external view returns (uint256 price);
+    function resolvedTwap(address asset, uint32 period) external view returns (uint256 price, bool stale);
+    // SIZE IS MANDATORY. A `wellSkew(address)` returning the drain-0 rate was retired 2026-08-16:
+    // settlement charges the INTEGRAL of the pole over the path the swap walks (§E68), so the
+    // starting rate is the cheapest point on it — measured 1.11× understated at a 10% drain and
+    // 4.12× at 90%. Since the defect WAS consumers reading a size-blind number, leaving one callable
+    // preserved the mistake; `wellSkew(asset, 0)` still gives the indicative rate, but the caller has
+    // to say they meant zero size. Inventory, not `L`, separates a full band from a drained one at
+    // the same price, and a size-blind quote cannot express that difference at all.
+    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 skewWad);
+    function swapFeePpm() external pure returns (uint24 feePpm);   // flat V4 pool tier (420 = 0.042%)
+}
+
+interface IAux is ISwap {
     /// @dev The per-asset price-feed registry. Its EMPTINESS is the honest discriminator for "this token
     ///      is a dollar stable, worth par": a basket stable has no feed, a real asset (WETH/WBTC) does.
     ///      Used instead of naming WETH, which would re-open on the next non-dollar loan token.
@@ -307,7 +341,6 @@ interface IAux {
     function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
     function get_metrics(bool force) external returns (uint total, uint avgYield);
     function get_metricsWith(uint raw, uint rateWeighted) external returns (uint total, uint avgYield);
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint);
     function bandETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
@@ -341,7 +374,6 @@ interface IAux {
     function _depositVol(address asset, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
     function bumpQuidBTC(uint amount) external;
-    function resolvedTwap(address asset, uint32 period) external view returns (uint price, bool stale);
     function vaultHealth(address) external view returns (bool blocked, uint40 flaggedAt);
     function trancheTotal() external view returns (uint);
     function refreshHoldingsSelf(address stable) external;
@@ -355,12 +387,119 @@ interface IAux {
     /// the wrong selector never fired — which is exactly why a per-file restatement is
     /// dangerous: it drifts silently and only breaks the first time someone uses it.
     function redeem(uint amount) external;
-    function swap(address token, address asset, bool forVolatile, uint amount, uint minOut) external returns (uint);
     // §E233-sor — `sorSelfFunded` / `sorSelfFundedReverse` DECLARATIONS DELETED with `SOR.sol`.
     // Their only callers anywhere were two tests, deleted with them; nothing in `src` ever called
     // either. A live interface declaration for a removed function is a promise this codebase cannot
     // keep, and it is exactly what `check-client-abis.py` flags as an ORPHAN.
 }
+/// Shared token surfaces for the whole leverage cluster (LevManager / LevMath / BtcLevManager) — was three
+/// byte-identical ERC-20 slices (IERC20Min / IErc20M / IERC20B) + three WETH slices. One each now.
+interface IERC20Min {
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address) external view returns (uint256);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function decimals() external view returns (uint8);
+    /// §E21: absorbed from `Core.IERC20Min`, which was a SECOND declaration of this same
+    /// name in a second file — the literal rule-2 violation. Core's dust sweep is the only
+    /// caller; adding the member here costs nothing (interfaces emit no runtime bytecode).
+    function totalSupply() external view returns (uint256);
+}
+
+/// §A.52: the ONE WETH view. Inherits `IERC20Min` so consumers needing balance/allowance/transfer
+/// do not each declare a private variant — `QuidLib::IWETH_VG` and `SwapLib::IWethDeposit` were both
+/// partial restatements of exactly this, and a signature change had to be made in three places.
+interface IWETH9 is IERC20Min { function deposit() external payable; function withdraw(uint256) external; }
+
+/// @title  ILevVenue — per-LP isolated borrow-venue adapter for the leverage overlay
+/// @notice Each LP's leverage lives in its OWN isolated position on the venue (the LP is the venue
+///         account / borrower); `LevManager` orchestrates the constant-LTV logic venue-agnostically
+///         through this interface, so one LP's liquidation can never cascade into a shared pile. The
+///         adapter owns the per-venue isolation mechanism (Morpho authorization, a per-LP Liquity Trove,
+///         Aave/Euler sub-account) and the HARD risk params (liq threshold, oracle) — those are NOT
+///         abstracted away. Collateral is weETH (ether.fi, staked not lent); the borrowed asset is `stable()`.
+///
+///         Custody convention: `LevManager` transfers the collateral/stable to the adapter before
+///         `supply`/`repay`, and the adapter transfers withdrawn collateral / borrowed stable back to
+///         `LevManager` (the caller). All amounts are the venue asset's own units (weETH = 1e18,
+///         `stable()` in its own decimals); USD valuation/LTV is computed in `LevManager`.
+interface ILevVenue {
+    /// @notice Supply `collAmount` weETH (already transferred in) as `lp`'s isolated collateral.
+    /// @return supplied weETH actually credited to `lp`'s position.
+    function supply(address lp, uint256 collAmount) external returns (uint256 supplied);
+
+    /// @notice Borrow `stableAmount` of `stable()` against `lp`'s isolated position; sends it to the caller.
+    /// @return borrowed `stable()` actually drawn.
+    function borrow(address lp, uint256 stableAmount) external returns (uint256 borrowed);
+
+    /// @notice Repay `stableAmount` of `lp`'s debt (the stable was already transferred in). Repays at most
+    ///         the outstanding debt; the caller (`LevManager._deleverChunk`) clamps the transfer IN to the
+    ///         current debt, so no cross-LP excess is ever left sitting on the adapter.
+    /// @return repaid `stable()` actually applied to debt.
+    function repay(address lp, uint256 stableAmount) external returns (uint256 repaid);
+
+    /// @notice Withdraw `collAmount` weETH of `lp`'s collateral to the caller (capped at the position).
+    /// @return withdrawn weETH actually returned.
+    function withdraw(address lp, uint256 collAmount) external returns (uint256 withdrawn);
+
+    /// @notice `lp`'s outstanding `stable()` debt, in `stable()` units.
+    function debtOf(address lp) external view returns (uint256);
+
+    /// @notice `lp`'s weETH collateral balance on the venue, in weETH (1e18) units.
+    function collateralOf(address lp) external view returns (uint256);
+
+    /// @notice The stablecoin this venue lends (the debt asset).
+    function stable() external view returns (address);
+
+    /// @notice Venue liquidation threshold in bps of collateral value (e.g. 8000 = 80% LLTV).
+    function liqThresholdBps() external view returns (uint256);
+}
+
+/// @title  ILevVenue — per-LP isolated borrow-venue adapter for the leverage overlay
+/// @notice Each LP's leverage lives in its OWN isolated position on the venue (the LP is the venue
+///         account / borrower); `LevManager` orchestrates the constant-LTV logic venue-agnostically
+///         through this interface, so one LP's liquidation can never cascade into a shared pile. The
+///         adapter owns the per-venue isolation mechanism (Morpho authorization, a per-LP Liquity Trove,
+///         Aave/Euler sub-account) and the HARD risk params (liq threshold, oracle) — those are NOT
+///         abstracted away. Collateral is weETH (ether.fi, staked not lent); the borrowed asset is `stable()`.
+///
+///         Custody convention: `LevManager` transfers the collateral/stable to the adapter before
+///         `supply`/`repay`, and the adapter transfers withdrawn collateral / borrowed stable back to
+///         `LevManager` (the caller). All amounts are the venue asset's own units (weETH = 1e18,
+///         `stable()` in its own decimals); USD valuation/LTV is computed in `LevManager`.
+interface ILevVenue {
+    /// @notice Supply `collAmount` weETH (already transferred in) as `lp`'s isolated collateral.
+    /// @return supplied weETH actually credited to `lp`'s position.
+    function supply(address lp, uint256 collAmount) external returns (uint256 supplied);
+
+    /// @notice Borrow `stableAmount` of `stable()` against `lp`'s isolated position; sends it to the caller.
+    /// @return borrowed `stable()` actually drawn.
+    function borrow(address lp, uint256 stableAmount) external returns (uint256 borrowed);
+
+    /// @notice Repay `stableAmount` of `lp`'s debt (the stable was already transferred in). Repays at most
+    ///         the outstanding debt; the caller (`LevManager._deleverChunk`) clamps the transfer IN to the
+    ///         current debt, so no cross-LP excess is ever left sitting on the adapter.
+    /// @return repaid `stable()` actually applied to debt.
+    function repay(address lp, uint256 stableAmount) external returns (uint256 repaid);
+
+    /// @notice Withdraw `collAmount` weETH of `lp`'s collateral to the caller (capped at the position).
+    /// @return withdrawn weETH actually returned.
+    function withdraw(address lp, uint256 collAmount) external returns (uint256 withdrawn);
+
+    /// @notice `lp`'s outstanding `stable()` debt, in `stable()` units.
+    function debtOf(address lp) external view returns (uint256);
+
+    /// @notice `lp`'s weETH collateral balance on the venue, in weETH (1e18) units.
+    function collateralOf(address lp) external view returns (uint256);
+
+    /// @notice The stablecoin this venue lends (the debt asset).
+    function stable() external view returns (address);
+
+    /// @notice Venue liquidation threshold in bps of collateral value (e.g. 8000 = 80% LLTV).
+    function liqThresholdBps() external view returns (uint256);
+}
+
 
 /// Canonical ICore — union of ICore_V, ICore_VG.
 /// Canonical Core view — union of the former per-file variants (`SwapLib::ICore`,

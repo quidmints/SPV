@@ -9,7 +9,7 @@ import {Core} from "./Core.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
-import {ISwap} from "./imports/ISwap.sol";
+import {ISwap} from "./imports/Interfaces.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";

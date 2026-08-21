@@ -26,7 +26,7 @@ import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
-import {ISwap} from "../src/imports/ISwap.sol";
+import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";   // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)

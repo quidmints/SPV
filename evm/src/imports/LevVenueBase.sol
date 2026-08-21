@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 // `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
 // signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
-import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
+import {ILevVenue, IERC20Min} from "./Interfaces.sol";
 import {IMorphoStaticTyping as IMorpho, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
 // §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled

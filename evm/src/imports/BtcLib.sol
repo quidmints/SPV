@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SwapLib} from "./SwapLib.sol";
 import {NotOpen, BadTarget} from "./Types.sol";
-import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
+import {ILevVenue, IERC20Min} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";

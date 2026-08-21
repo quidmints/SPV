@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ILevVenue} from "./ILevVenue.sol";
+import {ILevVenue} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
 /// @dev §FOLD-BOOK — ONE declaration. They were declared in `LevBase` AND the old

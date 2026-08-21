@@ -5,7 +5,7 @@ import {AllesFixture} from "./Alles.t.sol";
 import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
 import {IOracle as IMorphoOraclePrice} from "morpho-blue/interfaces/IOracle.sol";
 import {LevManager} from "../src/LevManager.sol";
-import {ILevVenue} from "../src/imports/ILevVenue.sol";
+import {ILevVenue} from "../src/imports/Interfaces.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 
 interface IERC20R {

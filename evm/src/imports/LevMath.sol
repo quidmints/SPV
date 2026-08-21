@@ -6,7 +6,7 @@ import {WAD} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
-import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
+import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
         CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";

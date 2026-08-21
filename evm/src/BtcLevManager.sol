@@ -7,7 +7,7 @@ import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
-import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
+import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the

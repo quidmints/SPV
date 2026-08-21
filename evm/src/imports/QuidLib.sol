@@ -10,7 +10,7 @@ import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
-import {IWETH9} from "./ILevVenue.sol";
+import {IWETH9} from "./Interfaces.sol";
 // §A.52: ONE canonical Quid view (was two file-local variants, `IQuid_VG` + `IQuidView_VG`).
 import {IQuid} from "./Interfaces.sol";
 import {Types} from "./Types.sol";

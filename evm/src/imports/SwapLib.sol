@@ -15,7 +15,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
-import {IWETH9} from "./ILevVenue.sol";
+import {IWETH9} from "./Interfaces.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
 import {IWeETH, ICurvePool} from "./Interfaces.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";

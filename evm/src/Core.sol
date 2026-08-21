@@ -18,8 +18,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
 import {ILevEquity, IBand} from "./imports/Interfaces.sol";
-// §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol). One home now.
-import {IERC20Min} from "./imports/ILevVenue.sol";
+// §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol), then
+// one home in ILevVenue.sol; §E296 folded that file into Interfaces.sol, so the one home is there.
+import {IERC20Min} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 
 // §BANDBACKING-FOLD — `interface IBandBacking` DELETED FROM HERE, and it was declared TWICE: once
