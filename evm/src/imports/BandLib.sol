@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
 import {NotOpen, BadTarget} from "./Types.sol";
-import {ICore, ICore, IAux, ILevEquity} from "./Interfaces.sol";
+import {ICore, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {BasketLib} from "./BasketLib.sol";

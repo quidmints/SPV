@@ -6,7 +6,7 @@ import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
-import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IQuid, ILevHost} from "./Interfaces.sol";
+import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IQuid, IEthVenue} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -1082,7 +1082,7 @@ library BasketLib {
         address vault = ICore(core).btc();
         if (vault == address(0)) return 0;
         // ETH lev manager lives on the ETH-VENUE contract; reach it the way QuidLib does.
-        address mgr = ILevHost(IAux(address(this)).ethVenue()).LEV_MANAGER();
+        address mgr = IEthVenue(IAux(address(this)).ethVenue()).LEV_MANAGER();
         if (mgr == address(0)) return 0;
         return ILevSweep(mgr).deleverBook(usdWanted, address(this), 0);
     }

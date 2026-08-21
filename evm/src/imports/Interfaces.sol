@@ -223,10 +223,6 @@ interface ILevEquity {
 interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
 
-/// Canonical ILevHost — union of ILevHost, ILevHost_VG.
-interface ILevHost {
-    function LEV_MANAGER() external view returns (address);
-}
 
 /// Canonical IBand — union of IBand, IBandB.
 /// Canonical view — union of the former per-file variants (`IBandM`). Two declarations
@@ -568,6 +564,10 @@ interface IEthVenue {
     function bandOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
+    /// §E306 — folded in from `IEthVenue`, a one-function face over this SAME contract: all three of its
+    /// call sites resolved `IAux(...).ethVenue()`, which is what `IEthVenue` is already cast on.
+    /// @notice The lev manager this venue hosts.
+    function LEV_MANAGER() external view returns (address);
 }
 
 /// Canonical IAux — union of IAux, IAux.
@@ -622,8 +622,11 @@ interface IBasketTurn {
     /// ⇒ Interfaces here are named for the CONTRACT they address, never for the variable at the call
     /// site — which is why the `IQuid*` name was the one to retire, not this one.
     function target() external view returns (uint);
+    /// §E306 — folded in from `IBasketTurn`, a one-function face over this SAME contract. Both were cast
+    /// on `quid`, and `Basket.sol` implements `mint` alongside `turn` / `matureSupply` / `target`.
+    /// @notice Mint `amount` against `pledge`'s deposit of `token`, dated `when`.
+    function mint(address pledge, uint amount, address token, uint when) external returns (uint);
 }
-interface IBasketMint { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
 
 /// BTC swap-out de-lever surface on the BTC LevManager. (was SwapLib.ILevManagerDeliver)
 interface ILevManagerDeliver {

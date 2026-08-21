@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongBandManager} from "./imports/Types.sol";
-import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
+import {IEthVenue, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";

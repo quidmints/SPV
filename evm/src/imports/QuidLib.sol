@@ -17,7 +17,7 @@ import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
-import {ILevHost} from "./Interfaces.sol";
+import {IEthVenue} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
@@ -77,7 +77,7 @@ library QuidLib {
 
     function levManager(address aux) public view returns (address) {
         address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
-        return host == address(0) ? address(0) : ILevHost(host).LEV_MANAGER();
+        return host == address(0) ? address(0) : IEthVenue(host).LEV_MANAGER();
     }
     function bufTarget(address lm, address lp) public view returns (uint) {
         return lm == address(0) ? 0 : ILevEquity(lm).debtUsd(lp) / 1e12; // 1e18 USD -> 6-dec
@@ -553,7 +553,7 @@ library QuidLib {
             if (needed > inWETH) {
                 inWETH += IEthVenue(ev).bandOp(needed - inWETH, 1);
                 if (inWETH < needed) {
-                    address mgr = ILevHost(ev).LEV_MANAGER();
+                    address mgr = IEthVenue(ev).LEV_MANAGER();
                     if (mgr != address(0)) {
                         uint px = IAux(aux).getTWAPforAsset(weth, 1800);   // USD 1e18 / WETH
                         inWETH += SwapLib.deleverEthOnDelivery(

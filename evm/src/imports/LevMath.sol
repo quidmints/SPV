@@ -4,12 +4,9 @@ pragma solidity ^0.8.28;
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IBandM`).
-import {IBand, IAux, IWeETH, IWiredVault,
-        IDepositAdapter, ILevVenueColl} from "./Interfaces.sol";
+import {IBand, IAux, IWeETH, IWiredVault, IDepositAdapter, ILevVenueColl} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
-        CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
-        CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
