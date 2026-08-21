@@ -1302,23 +1302,51 @@ library SwapLib {
         return skew;
     }
 
+    /// §E295 — **THE ONE AMPLIFIER BOTH LEGS USE.** `wellSkew`'s tail and `_composePrice` computed the
+    /// same expression — `(X − splice)·scarcity + splice`, then decline — differing only in what `X`
+    /// was: `wellSkew` passed `raw` (which `skewWad` had already summed) while `_composePrice` re-added
+    /// the base itself. Substituting shows the same algebra, so it is written ONCE here.
+    /// 🔴 **THE DUPLICATION WAS THE DRIFT RISK, AND THIS FILE ALREADY RECORDED IT HAPPENING:** §E89b —
+    /// *"written here so both legs compose their price identically; **they had already drifted apart
+    /// once (E68b)**."* Two copies of one formula is how that recurs.
+    /// ⚠️ **THE `> splice` GUARD IS LOAD-BEARING, WHICH IS WHY THE FLOOR IS A PARAMETER.** `skewWad`
+    /// has early returns (`target == 0`, the flush branch) that never add the base, leaving `X == 0`;
+    /// assuming `X >= splice` underflowed on a BALANCED band — the common case — and cost **782
+    /// failures**. It is a no-op on the sell leg (whose `X` always contains `_maxWellSkew`, which
+    /// includes the floor) and essential on the drain leg.
+    /// ⚠️ **DEPLETION STAYS DRAIN-ONLY.** It reaches this frame only inside `wellSkew`'s `raw`, because
+    /// `skewWad` adds it there; the sell leg never forms it. Selling INTO the band cannot deplete it,
+    /// so a shared AMPLIFIER must not be read as a shared KERNEL.
+    function _amplify(address core, uint preAmp, uint splice) private view returns (uint) {
+        // §E275 — the sentinel must not reach checked arithmetic; see the pole comment in `skewWad`.
+        preAmp = _declineIfUnfillable(preAmp);
+        uint out = preAmp > splice
+            ? SoladyMath.fullMulDiv(preAmp - splice, _sharedScarcityWad(core), 1e18) + splice
+            : preAmp;
+        // §E79: no re-cap after the amplifier. The expected-loss FLOOR was applied inside `skewWad`,
+        // and re-clamping to it here would undo the inversion by pulling an amplified premium back
+        // down to the base charge.
+        return _declineIfUnfillable(out);   // uncapped; declined at the producer
+    }
+
     function _composePrice(address core, uint kernel, uint sigmaSqWad)
         private view returns (uint) {
         // §E275 — DECLINE BEFORE THE ARITHMETIC, NOT AFTER. `kernel` may carry `skewWad`'s pole
         // sentinel, and `kernel + risk` below is a checked ADD: reaching it panics 0x11 with no
         // name, four frames down (MEASURED — see the pole comment in `skewWad`). The exit guard
         // cannot help, because the overflow happens before any value reaches it.
+        // §E275 — DECLINE BEFORE THE ADD BELOW, not only inside `_amplify`. `kernel` may carry
+        // `skewWad`'s pole sentinel, and `kernel + base` is a checked ADD: reaching it panics 0x11
+        // with no name. `_amplify` declines too, but by then the overflow has already happened.
         kernel = _declineIfUnfillable(kernel);
-        // §ISBTC-SPLIT: derived HERE, not threaded in — the same argument the note below already
-        // makes about the exposure clock. Dropping the parameter CUTS a live value from two
-        // stack-tight call sites rather than adding one; `sellSkew` does not compile otherwise.
-        Risk memory rk = _risk(core);
-        uint splice = rk.spliceFloor;
-        // §UNIT-B-PATIENCE: read the exposure clock here rather than threading it in — this frame
+        // §ISBTC-SPLIT: derived HERE, not threaded in. Dropping the parameter CUTS a live value from
+        // two stack-tight call sites rather than adding one; `sellSkew` does not compile otherwise.
+        // §UNIT-B-PATIENCE: the exposure clock is read here rather than threaded in — this frame
         // exists to RELIEVE stack pressure (no via_ir), so a fifth parameter would work against it.
-        uint risk = _maxWellSkew(sigmaSqWad, rk) - splice;
-        uint out = SoladyMath.fullMulDiv(kernel + risk, _sharedScarcityWad(core), 1e18) + splice;
-        return _declineIfUnfillable(out);   // §E275 — uncapped; declined at the producer
+        Risk memory rk = _risk(core);
+        // §E295 — the sell leg carries the kernel ALONE, so the base is added here; the drain leg's
+        // `raw` already contains it. **That difference is the ONLY thing that kept these two apart.**
+        return _amplify(core, kernel + _maxWellSkew(sigmaSqWad, rk), rk.spliceFloor);
     }
 
     function _sharedScarcityWad(address core) private view returns (uint) {
@@ -1363,9 +1391,8 @@ library SwapLib {
             poolVolUsd,
             ICore(core).flowEwmaUsd(),
             ICore(core).realizedVarianceWad(), rk, drainUsd6);
-        // §E275 — same reason as `_composePrice`: `raw` may be the pole sentinel, and the
-        // amplifier below does checked arithmetic on it. Decline before touching it.
-        raw = _declineIfUnfillable(raw);
+        // §E295 — the decline that stood here is now `_amplify`'s first statement, and nothing
+        // between here and the call touches `raw`. One guard, at the frame that does the arithmetic.
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         // §E89b — THE AMPLIFIER SCALES RISK, NOT FEES. E89 made the base additive, which silently put
@@ -1381,14 +1408,10 @@ library SwapLib {
         //   ⚠️ `raw >= splice` is NOT guaranteed: `skewWad` has EARLY RETURNS (`target == 0`, and the
         // FLUSH branch `inv1 >= target`) that never add the base, leaving `raw == 0`. Assuming
         // otherwise underflowed on a BALANCED band — the common case — and cost 782 failures.
-        uint splice = rk.spliceFloor;
-        uint amp = raw > splice
-            ? SoladyMath.fullMulDiv(raw - splice, _sharedScarcityWad(core), 1e18) + splice
-            : raw;
-        // §E79: the re-cap after the amplifier is now the ABSOLUTE ceiling. The expected-loss FLOOR
-        // was already applied inside `skewWad`, and re-clamping to it here would undo the inversion
-        // by pulling an amplified premium straight back down to the base charge.
-        return _declineIfUnfillable(amp);   // §E275 — uncapped; declined at the producer
+        // §E295 — ONE composer, both legs. `raw` already carries kernel + base + depletion from
+        // `skewWad`, so it IS the pre-amplifier value; the sell leg sums its own inside
+        // `_composePrice`. The `> splice` guard and both declines now live in `_amplify`.
+        return _amplify(core, raw, rk.spliceFloor);
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
