@@ -40,17 +40,12 @@ import {QuidLib} from "./imports/QuidLib.sol";
 /// accounting. A swap in the ETH pool that inflates the ETH-side dollar
 /// balance does NOT affect the BTC pool's dollars (and vice-versa). The
 /// per-pool USD slice is bounded by a single safety invariant —
-/// POOLED_USD ≤ current basket TVL — enforced
+/// POOLED_USD + POOLED_USD ≤ current basket TVL — enforced
 /// inline in _handleDelta on every USD add. BTC's share of the total is
 /// demand-driven within that ≤TVL invariant (no separate allocation cap).
-/// §STALE-PROSE 2026-08-18 — the paragraph above described the PRE-SPLIT world and two of its
-/// sentences had been mangled by a blanket suffix-removal rename applied to PROSE: it read
-/// "POOLED_USD + POOLED_USD ≤ TVL", which was `POOLED_USD_ETH + POOLED_USD_BTC` before the
-/// suffix went. There is now ONE Core per band (`new Core(weth,…)` and `new Core(wbtc,…)`), so
-/// there is no cross-pool sum to bound — the invariant is per-instance.
-/// The `mockUSD_ETH`/`mockUSD_BTC` sentence that stood here is DELETED: those mocks no longer
-/// exist (§E253-mock, `770749ca`), and out-of-range positions are `selfManaged`, not a mock
-/// balance.
+/// mockUSD_ETH and mockUSD_BTC stay as separate mocks because each pool
+/// can have its own out-of-range positions (limit orders) — those are
+/// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
 contract Core {
 
     /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
@@ -72,27 +67,19 @@ contract Core {
     // §V4-CUT — `POOL_ID_VANILLA_*` DELETED. Their last external reader was the protocol-fee
     // monitor, retired with the fee switch we no longer touch; `_poolId()` is gone too.
 
+    /// @notice In-range USD slice held against the ETH/USD pool. Sum of
+    /// this plus POOLED_USD is the total in-range USD; out-of-range
+    /// USD lives in mockUSD_ETH/mockUSD_BTC respectively.
     /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both bands). The split
     ///         #12 is named for: `POOLED_USD_*` track what is IN each CURVE (they move on every
     ///         swap); this tracks what the BASKET actually CONTRIBUTED (it moves ONLY when the
     ///         basket adds or removes depth via `addLiq`/burn — never on a swap).
     ///         `committedUsd18` is derived from THIS, so the backing gate stops counting an LP's
     ///         sale proceeds as a basket commitment.
-    /// §ISBTC-SPLIT — one instance, one asset. Was `basketUsdEth`/`basketUsdBtc`; the suffix
-    /// removal collapsed BOTH names in this comment to the same token, which is why it read
-    /// "Was basketUsd/basketUsd" until 2026-08-18.
+    /// §ISBTC-SPLIT — one instance, one asset. Was basketUsd/basketUsd.
     uint public basketUsd;
-
-    /// @notice THIS instance's in-range USD leg (6-dec). One Core per band, so there is no
-    ///         "ETH pool plus BTC pool" sum: the other band's USD lives in the OTHER instance.
     uint public POOLED_USD;
-
-    /// @notice THIS instance's in-range VOLATILE inventory — WETH on the ETH instance, sats on
-    ///         the BTC one, selected by the `asset` passed at construction.
-    /// ⚠️ §STALE-PROSE 2026-08-18 — this was labelled "In-range USD slice held against the
-    ///    BTC/USD pool", which was wrong on BOTH counts: `POOLED` is the VOLATILE leg, not USD,
-    ///    and it is not "the BTC pool" — it is whichever asset THIS instance was constructed
-    ///    with. A mislabelled money-path variable is worse than an unlabelled one.
+    /// @notice In-range USD slice held against the BTC/USD pool.
     uint public POOLED;
 
     /// @notice Committed BASKET USD (both pools, 18-dec) — the single `committed ≤ TVL` term + LP surplus sizing.
@@ -788,6 +775,24 @@ contract Core {
         tokOut = t > 0 ? uint(t) : 0;
     }
 
+    /// @notice §E258 — settle ONE filled boundary order, both legs, at the order's own price.
+    /// @dev    `inRange = true` HERE, where `outOfRange` passes false, and the difference is the
+    ///         point. A resting order is deliberately kept out of `POOLED_*` so it cannot inflate
+    ///         the in-range depth every LP claim is priced against. Filling it is the moment its
+    ///         funded side JOINS that depth and the other side leaves it — exactly what a swap
+    ///         does — so it settles on the in-range path, and the two states stay disjoint with no
+    ///         window in which the order counts twice.
+    ///         `token` is `address(0)`: a fill's USD leg is either taken into the pool or paid out
+    ///         through `AUX.take`, and only the burn branch reads a payout token.
+    function settleOor(address owner, int256 usdDelta, int256 volDelta) external onlyUs {
+        _handleDelta(Delta(usdDelta, volDelta), true, false, owner, address(0));
+    }
+
+    /// @notice The most resting orders one swap will execute before it stops and leaves the rest to
+    ///         the poke. ⚠️ NOT A TUNING KNOB — it is the anti-griefing bound: without it anyone can
+    ///         rest a crowd of cheap orders in the path and charge the next swapper for all of them.
+    uint private constant MAX_FILLS_PER_SWAP = 4;
+
     /// @notice Fused swap — IS_BTC selects which V4 pool. The shortfall signal is
     ///         ASYNC per-pool (in-frame refill is unsafe — re-enters Aux on
     ///         half-settled backing); BTC emits a hop request (we don't mint WBTC).
@@ -857,6 +862,14 @@ contract Core {
             uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
             if (usd6 != 0) _bumpFlow(usd6);
         }
+
+        // (4) §E258 — EXECUTE THE RESTING ORDERS THIS MOVE CROSSED. Under v4 the PoolManager did
+        // this as part of any swap through the range; `FixedRateFill` has one price and no
+        // traversal, so without this a boundary order is an option its owner must exercise rather
+        // than the limit order it was sold as. It runs AFTER settlement so the fills price against
+        // inventory this swap has already moved, and it is capped inside the band — see
+        // `BandLib.sweepOor` for why that cap makes the permissionless poke a liveness requirement.
+        BAND.sweepOor(px, MAX_FILLS_PER_SWAP);
 
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
         // identical across pools; only the remediation differs. Both
@@ -976,7 +989,6 @@ contract Core {
 
     // §V4-CUT — `_key()` DELETED: no callers. It returned the PoolKey of a pool never created.
 
-
     /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a
     /// SINGLE PACKED int256; two `int256` parameters added a stack slot per call site and blew the
     /// limit (`via_ir = false`). CLAUDE.md's remedy verbatim: locals into struct fields, because one
@@ -990,21 +1002,16 @@ contract Core {
     /// the ordering question unaskable.
     struct Delta { int256 usd; int256 vol; }
 
-    function _handleDelta(Delta memory d, bool inRange, bool keep,
-        address who, address token) internal {
+    function _handleDelta(Delta memory d, bool inRange, 
+        bool keep, address who, address token) internal {
         _handleDelta(d, inRange, keep, who, token, false);
     }
 
-    /// §#12 `basketLeg`: TRUE only from `_handleMod` (the basket adding/removing depth via
-    /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves the curve mirror
-    /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`).
-    /// §DE-TICK — RETURNS NOTHING, AND THE VOLATILE LEG IS FOLDED IN. The old return was
-    /// `token1isVol ? (usd, tok) : (tok, usd)` -- a THIRD ordering decode -- and all three call
-    /// sites discarded it, so the tuple existed only to be re-ordered and thrown away.
-    /// `_settleTokSide` is inlined here because with `d.vol` already selected it was six lines and
-    /// a frame; the USD leg keeps its own frame (it is the big one, and `_poolUsdInRange` sits
-    /// under it). Net stack pressure FALLS: each leg used to take `amt0` AND `amt1` and re-derive
-    /// which was which.
+    /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves mirror
+    /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`)...
+    /// the USD leg keeps its own frame (it is the big one, and `_poolUsdInRange` 
+    /// sits under it). Net stack pressure FALLS: each leg 
+    /// used to take `amt0` AND `amt1` and re-derive which was which.
     function _handleDelta(Delta memory d, bool inRange, bool keep,
         address who, address token, bool basketLeg) internal {
         _settleUsdSide(d.usd, inRange, keep, who, token, basketLeg);

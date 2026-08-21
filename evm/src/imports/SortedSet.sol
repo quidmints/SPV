@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+/// @notice §E258 — a band's resting-order book: the trigger-price index PLUS the watermark saying
+///         how far it has been swept. They are ONE struct because they are one thing — a set swept
+///         from a price nobody recorded is not a book, it is two variables that can disagree — and
+///         because a single storage pointer is what lets the whole sweep live in a delegatecalled
+///         library instead of billing the band manager's EIP-170 margin for it.
+struct OorBook {
+    SortedSetLib.Set index;
+    /// The price this band last swept for crossed orders. Zero means NEVER SWEPT and seeds itself
+    /// without filling: otherwise the first swap after a deploy reads every resting bid as crossed.
+    uint lastSweptPx;
+}
+
 library SortedSetLib {
     struct Set {
         uint[] sortedArray;

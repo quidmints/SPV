@@ -173,6 +173,7 @@ export const BAND_ABI = [
   // (`Types.sol:41-49`). Was `int24 lower, int24 upper` from the tick era, and the last member is
   // `amt` — "the token AMOUNT placed, not v4 liquidity units" per its own comment — so calling it
   // `liq` named a quantity the contract stopped storing.
+  // (§E258) `usdFunded` records WHICH SIDE funded the order and packs into `owner`'s slot.
   'function selfManaged(uint id) view returns (uint created, address owner, bool usdFunded, uint lower, uint upper, int amt)',
   'function totalShares() view returns (uint)',
   'function feesPerShare() view returns (uint)',

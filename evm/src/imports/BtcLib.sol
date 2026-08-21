@@ -2,8 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {SwapLib} from "./SwapLib.sol";
-import {Types, NotOpen, BadTarget} from "./Types.sol";
-import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
+import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
@@ -313,8 +312,12 @@ library BtcLib {
         next = a.idBtc + 1;
         selfManaged[next] = Types.SelfManaged({
             created: block.number, owner: a.owner,
-            // §E258 — ALWAYS true here: `outOfRangeBtc` reverts `NotAStable()` above and deposits
-            // stable backing normalised to 6-dec USD, so this path cannot be volatile-funded.
+            // §E258 — `usdFunded: true` UNCONDITIONALLY, and that is not a shortcut: this path
+            // opens with `if (a.token == address(0)) revert NotAStable()`, so a BTC boundary order
+            // cannot be funded any other way. It is recorded rather than assumed because the field
+            // is what `pull` needs in order to stop taking the payout side from its caller.
+            // ⚠️ DELIBERATELY NOT INDEXED into `oorBook` — see `Vault.sweepOor` for why filling a
+            // BTC order automatically would burn the leg it fills into.
             usdFunded: true,
             lower: t.newLo, upper: t.newUp, amt: int(amt) });   // §V4-CUT: the AMOUNT, not liquidity
         positions[a.owner].push(next);
@@ -513,94 +516,4 @@ library BtcLib {
 
     /// @dev modLP burn (no delivery) for a levered BTC slice in its own frame (legacy stack). Recipient is
     ///      address(0) (tokenless burn); buffer USD un-pairs from POOLED_USD as part of the gross burn.
-
-
-    // ═══════════════ §FOLD-BOOK — WAS `LevBookLib`'s VENUE LEGS (2026-08-19) ═══════════════
-    // Split by CALLER, which is also the semantic split: every one of these is reached only from
-    // `BtcLevManager`. They did NOT go into `LevMath` with the rest of the book — measured, that
-    // put `LevMath` at 27,431 bytes, 2,855 OVER EIP-170, and even half of it left ~538 over.
-
-
-    // ── §FOLD-LEGS — THE FOUR VENUE LEGS, ASSET-AGNOSTIC ─────────────────────────────────────────
-    // These lived ONLY on `BtcLevManager` and read as BTC-specific. They are not: every one is a
-    // generic venue operation whose sole asset-specific input is the COLLATERAL TOKEN, which is now a
-    // parameter. `leverBorrow`/`repay` do not touch the collateral at all -- they move the venue's
-    // STABLE in and out -- which is why the BTC lever cycle survived TriCrypto's removal untouched
-    // while the ETH atomic path did not.
-    //
-    // ⚠️ EVENTS ARE DECLARED HERE AND STILL EMIT FROM THE MANAGER'S ADDRESS -- delegatecall preserves
-    // `address(this)`. The topics are unchanged because the declarations are byte-identical to the
-    // manager's, so no client ABI moves. If you edit an event here, you have edited the manager's ABI.
-    //
-    // ⚠️ `_syncBand` IS NOT CALLED FROM HERE. It try/catches a call to `BAND` and returning a flag for
-    // the caller to act on would be the same code in a worse place, so the WRAPPER pokes the band
-    // after this returns. That ordering matters: the poke must happen AFTER the venue state moves.
-
-    event Borrowed(address indexed lp, uint stableOut);
-    event Supplied(address indexed lp, uint vbtcIn);
-    event Withdrawn(address indexed lp, uint vbtcOut);
-    event Repaid(address indexed lp, uint stableIn);
-
-    /// @notice Borrow the venue's stable toward the IL target and hand it to the LP.
-    /// @dev    `room` is computed by the CALLER (`debtDeltaToTarget` routes through the `_collToBase`
-    ///         virtual). Clamping `want` to `room` is what makes an over-ask harmless: it can only
-    ///         reach the target, never pass it -- so this stays safe even though `stableUsd` is
-    ///         caller-supplied.
-    function leverBorrow(
-        mapping(address => Types.Pos) storage pos,
-        address aux, address lp, uint stableUsd, bool levUp, uint room
-    ) external returns (uint got) {
-        Types.Pos memory q = pos[lp];
-        if (!q.open) revert NotOpen();
-        if (!levUp || room == 0) revert BadTarget();
-        uint want = stableUsd > room ? room : stableUsd;
-        got = q.venue.borrow(lp, LevMath._fromUsd(aux, q.venue.stable(), want));
-        if (got > 0) IERC20Min(q.venue.stable()).transfer(lp, got);
-        emit Borrowed(lp, got);
-    }
-
-    /// @notice Pull `amount` of COLLATERAL from the LP and supply it as isolated collateral.
-    /// @param  coll the collateral token — weETH on the ETH side, vBTC on the BTC side. The ONLY
-    ///         asset-specific input, and the reason this body was never BTC-specific.
-    function leverSupply(
-        mapping(address => Types.Pos) storage pos,
-        address coll, address lp, uint amount
-    ) external {
-        Types.Pos memory q = pos[lp];
-        if (!q.open) revert NotOpen();
-        IERC20Min(coll).transferFrom(lp, address(this), amount);
-        IERC20Min(coll).transfer(address(q.venue), amount);
-        q.venue.supply(lp, amount);
-        emit Supplied(lp, amount);
-    }
-
-    /// @notice Withdraw collateral from the venue to the LP (to burn/sell externally, then repay).
-    function deleverWithdraw(
-        mapping(address => Types.Pos) storage pos,
-        address coll, address lp, uint amount
-    ) external returns (uint out) {
-        if (!pos[lp].open) revert NotOpen();
-        out = pos[lp].venue.withdraw(lp, amount);
-        if (out > 0) IERC20Min(coll).transfer(lp, out);
-        emit Withdrawn(lp, out);
-    }
-
-    /// @notice Repay debt from the LP's own stable.
-    /// @dev    CAPPED AT `debtOf` BEFORE the transfer, so an over-repay cannot pull more stable than
-    ///         the debt needs — the LP is never charged for value the venue will not credit. The
-    ///         `amt == 0` early return still emits, so a no-op repay is observable rather than silent.
-    function repay(
-        mapping(address => Types.Pos) storage pos,
-        address aux, address lp, uint stableUsd
-    ) external returns (uint repaid) {
-        Types.Pos memory q = pos[lp];
-        if (!q.open) revert NotOpen();
-        uint amt = LevMath._fromUsd(aux, q.venue.stable(), stableUsd);
-        uint debt = q.venue.debtOf(lp);
-        if (amt > debt) amt = debt;
-        if (amt == 0) { emit Repaid(lp, 0); return 0; }
-        IERC20Min(q.venue.stable()).transferFrom(lp, address(q.venue), amt);
-        repaid = q.venue.repay(lp, amt);
-        emit Repaid(lp, repaid);
-    }
 }

@@ -13,7 +13,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
-import {State} from "./State.sol";
+import {State} from "./Shares.sol";
 
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
@@ -81,7 +81,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 /// (not gross): a venue liquidation can't strand POOLED_USD. Mirrors the ETH `ILevEquity` over the BTC band.
 /// Declared once, in imports/Interfaces.sol (it was also BtcLib's `ILevBtc_V`).
 
-    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (State.sol).
+    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Vault is Ownable, ReentrancyGuard, State {
@@ -689,9 +689,22 @@ contract Vault is Ownable, ReentrancyGuard, State {
     ///      it's hop-trusted, not part of the provable proceeds collapse.
     function pullBtc(uint id, int percent, address token) external nonReentrant {
         // Body in BtcLib.pullBtc (delegatecall); storage refs mutate in place.
-        BandLib.pull(address(CORE), selfManaged, positions,
+        BandLib.pull(address(CORE), oorBook, selfManaged, positions,
             id, percent, token, msg.sender);
     }
+
+    /// @notice §E258 — this band executes NO resting orders, and the zero is the finding.
+    /// @dev    Same asymmetry as `deliverVolatile` above, and it is the one asymmetry that decides
+    ///         this: a BTC boundary order is **USD-funded only** (`outOfRangeBtc` reverts
+    ///         `NotAStable` otherwise), so EVERY order on this band is a bid that fills INTO BTC —
+    ///         and this band has no on-chain BTC delivery, because settlement is a Lightning
+    ///         cooperative close. `Core._handleDelta` therefore hands the filled leg to a
+    ///         `deliverVolatile` that returns 0, i.e. the fill would BURN it. The docblock on
+    ///         `pullBtc` already records that loss for the OWNER-INITIATED close; auto-filling here
+    ///         would convert a loss the owner currently chooses into one the protocol inflicts on
+    ///         its own schedule. ⇒ **BTC orders are deliberately not indexed and never swept**, and
+    ///         this stays zero until native delivery attributes the off-chain fill channel.
+    function sweepOor(uint, uint) external pure returns (uint) { return 0; }
 
 
     /// @notice Repack the BTC pool's in-range LP position.

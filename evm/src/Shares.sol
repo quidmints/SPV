@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./imports/Types.sol";
+import {OorBook} from "./imports/SortedSet.sol";
 
 /// @title  Shares — the band's share token. ONE declaration of the per-LP state, TWO instances.
 ///
@@ -70,6 +71,22 @@ abstract contract State {
     mapping(uint => Types.SelfManaged) public selfManaged;
     mapping(address => uint[])         public positions;
     uint internal ID;
+
+    /// §E258 — THE BOUNDARY-ORDER INDEX, KEYED BY TRIGGER PRICE. Under v4 the PoolManager filled a
+    /// resting order as part of any swap that crossed its range; `FixedRateFill` has one price and
+    /// no traversal, so that crossing stopped happening and a boundary order silently became an
+    /// option the owner had to exercise. This is the replacement: orders sorted by the price at
+    /// which they become fillable, so a fill can find the ones the price just crossed in a binary
+    /// search rather than by scanning every position.
+    /// ⚠️ THE KEY IS `(triggerPrice << 96) | id`, NEVER THE BARE PRICE. `SortedSetLib.insert` opens
+    /// with `if (self.exists[value]) return;` — it IGNORES duplicates silently — so two orders
+    /// resting at the same price would collapse into one entry and the second would become
+    /// permanently unfillable, stranding its funds with nothing reverting. The id makes every key
+    /// unique while leaving the sort order by price intact.
+    /// The index and its sweep watermark travel together as ONE storage pointer, which is what
+    /// lets `BandLib` own the whole mechanism — `Quid` has the tightest EIP-170 margin in the tree
+    /// and cannot afford to hold the logic, only the forwarder.
+    OorBook internal oorBook;
 
     // ─── fee accumulators — PER-SHARE, not dollars (see CLAUDE.md: multiply back by the
     //     credit site's own share base before reading either as an amount) ───

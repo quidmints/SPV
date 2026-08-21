@@ -5,22 +5,6 @@ pragma solidity ^0.8.28;
 import {ILevVenue} from "./ILevVenue.sol";
 import {QuidLib} from "./QuidLib.sol";
 
-/// @dev §E266 — ONE `WAD` for our tree; it lived in NINE places. Declared HERE and deliberately
-///      NOT imported from Midnight's `ConstantsLib.sol`, which declares the same value, because
-///      **compilation restrictions propagate through imports**: `ConstantsLib` carries
-///      `via_ir = true` / `runs = 50` in foundry.toml, so importing one constant from it drags every
-///      importer — and transitively most of `test/` — into that profile. Measured: it broke the
-///      build with "Cannot swap Variable expr_7 ... too deep in the stack" at `test/Alles.t.sol:641`.
-///      The vendored fork keeps upstream's copy; unifying ACROSS the boundary is what failed.
-uint256 constant WAD = 1e18;
-
-/// @dev §FOLD-BOOK — ONE declaration, per the shared-file rule. These were declared TWICE
-///      (`LevBase` and the old `LevBookLib`), and splitting the book across `BandLib` and
-///      `BtcLib` would have made it FOUR. File-level so every user imports the same error
-///      selector rather than minting its own.
-error NotOpen();
-error BadTarget();
-
 library Types {
 
     /// @notice One LP's isolated leverage position. §A.71: LevManager and BtcLevManager

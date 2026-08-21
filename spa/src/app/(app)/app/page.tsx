@@ -435,17 +435,18 @@ export default function QuidApp() {
         if (id === 0n) break
         const smR = await ethCall(CONTRACTS.band, enc.selfManaged(id))
         const dec = iface.decodeFunctionResult('selfManaged', smR)
-        // Read by NAME, not index. `Types.SelfManaged` gained `usdFunded` between `owner` and
-        // `lower` (§E258), shifting every positional index after 1: `dec[4]` became `upper`, and
-        // since upper > 0 the `liq > 0n` guard would still pass and render a tick as a position
-        // size. Named access cannot drift when a field is inserted.
-        const liq = BigInt(dec.amt as bigint)
+        // (§E258) Indices shifted by one from `lower` onward: `usdFunded` (bool) was inserted at
+        // index 2, packed into `owner`'s slot. The ABI checker compares SIGNATURES and cannot see a
+        // positional decode, so this is the half of the break no gate catches — and it fails
+        // SILENTLY: `liq` would read a tick, stay > 0, and every position would render as garbage
+        // rather than erroring.
+        const liq = BigInt(dec[5] as bigint)
         if (liq > 0n) {
           out.push({
             id,
-            created: BigInt(dec.created as bigint),
-            lower:   Number(dec.lower),
-            upper:   Number(dec.upper),
+            created: BigInt(dec[0] as bigint),
+            lower:   Number(dec[3]),
+            upper:   Number(dec[4]),
             liq,
           })
         }

@@ -2,11 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
-// the single declaration in `Types.sol` instead of restating it. Constants are
-// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
-// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
-import {WAD} from "./Types.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
@@ -49,14 +44,12 @@ import {IDepositAdapter} from "./Interfaces.sol";
 
 /// and the vault's assets sit in others. ~113k gas per pull, freeing nothing.
 /// It is also unnecessary — `withdraw()` self-deallocates (see `_withdrawableOf`).
-/// @dev NOT Morpho Blue — this is Morpho VAULTS V2 (`liquidityAdapter`), a different protocol
-///      with no declaration in `lib/morpho-blue`, so it stays local. Renamed from `IMorphoV2`
-///      because that name sitting beside Blue imports reads as "Blue v2", which it is not.
-interface IMorphoVaultsV2 {
+interface IMorphoV2 {
     function liquidityAdapter() external view returns (address);
 }
 
 library QuidLib {
+    uint constant WAD = 1e18;
 
     /// A chosen venue placed 0 — paused / unwired / de-allowlisted. We do NOT silently redirect to a
     /// fallback venue: no venue can be assumed always-live. Fail loud — the depositor picks a live one.
@@ -311,19 +304,13 @@ library QuidLib {
     //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Quid
     //  forwarder. Byte-identical to the in-Quid body.
     // ════════════════════════════════════════════════════════════════════
-    /// @dev §E270 — `wantTok` is the REQUESTED amount and is never written; `deltaTok` is the evolving
-    ///      one (surplus-sized, then theta/backing-capped). This MIRRORS THE BTC SIDE, which already
-    ///      kept its request in `sats` and reassigned only `deltaTok` — so this removes an ETH/BTC
-    ///      divergence rather than inventing a third convention. Before it, the ETH PARAMETER was the
-    ///      thing overwritten, so past the `sizeBySurplus` call the requested amount existed nowhere in
-    ///      the frame and "asked for vs given" was unanswerable inside this function.
-    function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
+    function addLiq(address core, address aux, uint deltaTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
         (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
         uint committedBoth = ICore(core).committedUsd18();
-        uint deltaTok; uint targetUSD; uint surplus;
+        uint targetUSD; uint surplus;
         (deltaTok, targetUSD, surplus) =
-            SwapLib.sizeBySurplus(deposits[14], committedBoth, wantTok, price);
+            SwapLib.sizeBySurplus(deposits[14], committedBoth, deltaTok, price);
         if (surplus == 0) return (0, 0);
 
         // ETH: bandETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
@@ -691,7 +678,7 @@ library QuidLib {
     ///         vaults are Morpho-V2 — measured, holding ~124M of ~126M total stable TVL — so the stable
     ///         side had the same understatement, and there it feeds the REDEMPTION haircut.
     function _withdrawableOf(address vault, address holder) internal view returns (uint) {
-        try IMorphoVaultsV2(vault).liquidityAdapter() returns (address adapter) {
+        try IMorphoV2(vault).liquidityAdapter() returns (address adapter) {
             if (adapter != address(0)) {
                 try IERC20(vault).balanceOf(holder) returns (uint shares) {
                     if (shares == 0) return 0;

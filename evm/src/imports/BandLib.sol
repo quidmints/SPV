@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Types, NotOpen, BadTarget} from "./Types.sol";
-import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
+import {Types} from "./Types.sol";
 import {ICore, IBand, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {QuidLib} from "./QuidLib.sol";
+import {BasketLib} from "./BasketLib.sol";
+import {SortedSetLib, OorBook} from "./SortedSet.sol";
 
 /// @title  BandLib — the ONE implementation of each band-manager body, for both bands.
 ///
@@ -30,6 +31,7 @@ import {QuidLib} from "./QuidLib.sol";
 ///         copy serves both bands — which is the whole size argument. An `internal` shared function
 ///         would inline into both libraries and buy nothing.
 library BandLib {
+    using SortedSetLib for SortedSetLib.Set;
 
     /// @notice Burn an LP's ENTIRE levered slice — both legs. Net equity leaves `pooled` (and so
     ///         the share count); the debt-funded buffer leaves the fee weight but was never equity.
@@ -129,8 +131,14 @@ library BandLib {
     ///         parameters, so the bodies never differed at all. Two deployed copies of one function
     ///         because the mappings they were handed had different names at the call site.
 
+    /// @dev §E258 — `ix` was added so a full close also leaves the TRIGGER-PRICE INDEX. Without it
+    ///      a pulled order stays in the sorted set, and the next sweep across its price reads a
+    ///      deleted position: harmless today only because `fillOne` re-checks `amt`, which is
+    ///      exactly the "two structures to keep in sync" shape the spec warned against. Removing it
+    ///      here keeps the set and the book one thing.
     function pull(
         address core,
+        OorBook storage book,
         mapping(uint => Types.SelfManaged) storage selfManaged,
         mapping(address => uint[]) storage positions,
         uint id, int percent, address token, address owner
@@ -146,6 +154,7 @@ library BandLib {
         uint[] storage myIds = positions[owner];
         uint lastIndex = myIds.length > 0 ? myIds.length - 1 : 0;
         if (percent == 100) {
+            deindexOor(book, oorKey(oorTrigger(position), id));
             delete selfManaged[id];
             for (uint i = 0; i <= lastIndex; i++) {
                 if (myIds[i] == id) {
@@ -160,105 +169,204 @@ library BandLib {
         ICore(core).outOfRange(owner, -closed, lower, upper, token);
     }
 
+    // ═══════════════════ §E258 — RESTING BOUNDARY ORDERS EXECUTE AGAIN ═══════════════════
+    //
+    // The v4 cut removed the PoolManager, and with it the tick crossing that used to fill a
+    // boundary order automatically as part of any swap through its range. Nothing replaced it:
+    // `outOfRange` still created positions and `pull` still closed them, so every symbol a reader
+    // would grep for was present and green. **A capability regression leaves no broken symbol to
+    // find** — which is why this went a week unnoticed and why the mechanism is written here, next
+    // to `pull`, rather than in a new file nobody looks at.
+    //
+    // It lives in this library and not in the band manager for the measured reason `pull` does:
+    // `Quid` has ~600 bytes of EIP-170 margin and is the tightest contract in the tree, while a
+    // delegatecalled body is deployed once and serves both bands.
+
+    /// Width of the id field in a packed index key. A trigger price is a WAD USD price (~2e21 for
+    /// ETH, ~71 bits), so price and id share 256 bits with room to spare.
+    uint private constant OOR_ID_BITS = 96;
+    uint private constant OOR_ID_MASK = (1 << OOR_ID_BITS) - 1;
+
+    /// @notice Pack an order's trigger price and id into one sortable key.
+    /// @dev    The id is the LOW bits precisely so that ordering is by PRICE first: two orders at
+    ///         the same trigger sort next to each other, and neither is lost. See the warning on
+    ///         `State.oorBook` for what happens without it.
+    function oorKey(uint triggerPrice, uint id) internal pure returns (uint) {
+        return (triggerPrice << OOR_ID_BITS) | id;
+    }
+
+    /// @notice The price at which a resting order becomes fillable: its NEAR edge.
+    /// @dev    A USD-funded order is a bid resting BELOW spot, so it is touched on the way down at
+    ///         its `upper` edge; a volatile-funded order is an ask resting ABOVE spot and is touched
+    ///         on the way up at its `lower` edge. Fill-on-touch means the order settles at the edge
+    ///         the price actually reached — never at a better price it never traded through.
+    function oorTrigger(Types.SelfManaged storage p) internal view returns (uint) {
+        return p.usdFunded ? p.upper : p.lower;
+    }
+
+    /// @notice Record a freshly sized boundary order: the position, the owner's id list, and the
+    ///         trigger-price index, in one place so the three cannot drift apart.
+    /// @dev    The band managers used to inline this block and `BtcLib` still carries its twin. It
+    ///         is here because `Quid` is the tightest contract in the tree under EIP-170 and a
+    ///         struct construction plus two container writes is not a cheap thing to hold.
+    function openOor(
+        OorBook storage book,
+        mapping(uint => Types.SelfManaged) storage selfManaged,
+        mapping(address => uint[]) storage positions,
+        uint id, address owner, bool usdFunded, uint lower, uint upper, int amt
+    ) public {
+        selfManaged[id] = Types.SelfManaged({
+            created: block.number, owner: owner, usdFunded: usdFunded,
+            lower: lower, upper: upper, amt: amt });
+        positions[owner].push(id);
+        // Indexed by the TRIGGER price — the NEAR edge, the one the price has to touch.
+        book.index.insert(oorKey(usdFunded ? upper : lower, id));
+    }
+
+    /// @notice Drop an order from the index when its owner closes it out entirely.
+    /// @dev    Idempotent by inspection rather than by `try`: `SortedSetLib.remove` REVERTS on a
+    ///         value that is not present ("Value does not exist"), and a partial `pull` leaves the
+    ///         order resting, so an unconditional remove here would revert every partial close.
+    function deindexOor(OorBook storage book, uint key) public {
+        if (book.index.exists[key]) book.index.remove(key);
+    }
+
+    /// @notice Consume every resting order whose trigger the price has crossed since the last sweep.
+    /// @param  pxNew the price the band is at now; the interval swept runs from the stored watermark.
+    /// @param  maxFills the per-call cap. ⚠️ **THIS CAP IS WHY `fillOne` MUST BE PERMISSIONLESS.**
+    ///         An unbounded sweep is a griefing vector — anyone can rest a crowd of cheap orders in
+    ///         the path and make the next swapper pay to execute all of them — so the sweep stops
+    ///         early by design, and something else has to be able to drain the remainder. The poke
+    ///         is a LIVENESS REQUIREMENT created by this cap, not a convenience.
+    /// @return filled how many orders were consumed.
+    function sweepOor(
+        address core,
+        OorBook storage book,
+        mapping(uint => Types.SelfManaged) storage selfManaged,
+        mapping(address => uint[]) storage positions,
+        uint pxNew, uint maxFills
+    ) public returns (uint filled) {
+        uint pxOld = book.lastSweptPx;
+        book.lastSweptPx = pxNew;
+        // THE FIRST CALL SEEDS THE WATERMARK, IT DOES NOT FILL. At `pxOld == 0` the crossed interval
+        // would be `(0, pxNew]`, which contains the trigger of every resting bid in the book — so a
+        // fresh deploy would execute the entire bid side on its first swap, at prices nothing ever
+        // touched. Seeding is the whole reason the watermark is stored rather than derived.
+        if (pxOld == 0 || pxOld == pxNew) return 0;
+        (uint lo, uint hi) = pxOld < pxNew ? (pxOld, pxNew) : (pxNew, pxOld);
+        // A MEMORY SNAPSHOT, DELIBERATELY. `SortedSetLib.remove` compacts the array on every
+        // removal, so iterating the STORAGE array while filling would renumber the indices under
+        // the loop and skip orders. The snapshot is taken once and each key is looked up by value.
+        uint[] memory keys = book.index.getSortedSet();
+        (uint i,) = book.index.binarySearch(oorKey(lo, 0));
+        uint stop = oorKey(hi, OOR_ID_MASK);
+        for (; i < keys.length && filled < maxFills; i++) {
+            uint k = keys[i];
+            if (k > stop) break;
+            if (fillOne(core, book, selfManaged, positions, k & OOR_ID_MASK)) filled++;
+        }
+    }
+
+    /// @notice §E258 — THE PERMISSIONLESS POKE. Execute one resting order whose price has been
+    ///         reached, for callers that are not a swap.
+    /// @dev    **A LIVENESS REQUIREMENT, NOT A CONVENIENCE.** `sweepOor` is capped so a crowd of
+    ///         cheap resting orders cannot be used to grief the next swapper, which means something
+    ///         must be able to drain the remainder. It also covers the case no swap can: `repack`
+    ///         moves the band with no swapper present to carry a sweep.
+    ///         Anyone may call it, and that is safe because the order settles at ITS OWN limit
+    ///         price — the caller chooses the timing, never the terms.
+    /// ⚠️      NO TIP IS PAID. Sizing one means deciding where the difference between the order's
+    ///         limit price and the band's price accrues, which is exactly the question §E258's spec
+    ///         leaves to #12. Booked as §E258-POKE-INCENTIVE rather than guessed at here.
+    function pokeOor(
+        address core, address aux, address asset,
+        OorBook storage book,
+        mapping(uint => Types.SelfManaged) storage selfManaged,
+        mapping(address => uint[]) storage positions,
+        uint id
+    ) public {
+        Types.SelfManaged storage p = selfManaged[id];
+        if (p.amt <= 0) revert NoSuchOrder();
+        uint px = IAux(aux).getTWAPforAsset(asset, 1800);
+        // The price must actually have REACHED the order: a bid fills on the way down through its
+        // upper edge, an ask on the way up through its lower edge.
+        if (p.usdFunded ? px > p.upper : px < p.lower) revert NotTouched();
+        if (!fillOne(core, book, selfManaged, positions, id)) revert NotFillable();
+    }
+
+    /// @notice Execute ONE resting order against the band's own inventory, at the order's own price.
+    ///
+    /// @dev    ⚠️ `pull`'s 47-block guard is DELIBERATELY ABSENT. That rule is an anti-gaming bound
+    ///         on an OWNER-INITIATED close; an execution is not a withdrawal, and applying it here
+    ///         would make every order unfillable for its first 47 blocks — reinstating exactly the
+    ///         "no execution guarantee at the moment of crossing" defect this exists to remove.
+    ///
+    /// @dev    THE ORDER SETTLES AT ITS OWN LIMIT PRICE, NOT AT THE BAND'S FILL PRICE. That is the
+    ///         whole difference between a limit order and a participant in the swap. ⚠️ **WHERE THE
+    ///         DIFFERENCE BETWEEN THE TWO ACCRUES IS NOT DECIDED HERE, ON PURPOSE** — it is the same
+    ///         question as `FixedRateFill`'s two suppliers (LP inventory vs basket capital) and is
+    ///         flagged there as having to be settled WITH #12. `OorFilled` carries both prices so
+    ///         the quantity is observable while the split is still open; inventing an answer here
+    ///         would bake it into the share maths before the question is asked.
+    ///
+    /// @dev    A fill the band cannot pay for is SKIPPED, not reverted — the order simply stays
+    ///         resting and remains fillable later. Reverting would let one unfundable order block
+    ///         the whole sweep, and with it the swap that carries it.
+    function fillOne(
+        address core,
+        OorBook storage book,
+        mapping(uint => Types.SelfManaged) storage selfManaged,
+        mapping(address => uint[]) storage positions,
+        uint id
+    ) public returns (bool) {
+        Types.SelfManaged storage p = selfManaged[id];
+        int amt = p.amt;
+        if (amt <= 0) return false;                     // already closed, or never existed
+        uint size = uint(amt);
+        uint limitPx = oorTrigger(p);
+        address owner = p.owner;
+        bool usdFunded = p.usdFunded;
+
+        // The order's funded side ENTERS the band and the other side LEAVES it, at `limitPx`.
+        // Signs follow `_handleDelta`'s one rule: positive LEAVES the pool, negative ENTERS it.
+        int usdDelta;
+        int volDelta;
+        if (usdFunded) {                                 // a resting bid: USD in, volatile out
+            uint volOut = BasketLib.convert(size, limitPx, true);
+            if (volOut == 0 || volOut > ICore(core).POOLED()) return false;
+            usdDelta = -int(size);
+            volDelta =  int(volOut);
+        } else {                                         // a resting ask: volatile in, USD out
+            uint usdOut = BasketLib.convert(size, limitPx, false);
+            if (usdOut == 0 || usdOut > ICore(core).POOLED_USD()) return false;
+            usdDelta =  int(usdOut);
+            volDelta = -int(size);
+        }
+
+        // Remove BEFORE the settlement call, which pays the owner: state-before-external-call, so a
+        // re-entrant fill of the same id finds `amt == 0` and returns false rather than paying twice.
+        deindexOor(book, oorKey(limitPx, id));
+        delete selfManaged[id];
+        uint[] storage myIds = positions[owner];
+        for (uint j = 0; j < myIds.length; j++) {
+            if (myIds[j] == id) {
+                if (j < myIds.length - 1) myIds[j] = myIds[myIds.length - 1];
+                myIds.pop(); break;
+            }
+        }
+        ICore(core).settleOor(owner, usdDelta, volDelta);
+        emit OorFilled(id, owner, size, limitPx, usdFunded);
+        return true;
+    }
+
+    /// @notice A resting order executed. `limitPx` is the price it settled at — its own, not the
+    ///         band's — which is what makes the accrual question above measurable from logs.
+    event OorFilled(uint indexed id, address indexed owner, uint size, uint limitPx, bool usdFunded);
+
     error NotOwner();
     error BadPercent();
     error Dust();
-
-
-    // ═══════════════ §FOLD-BOOK — WAS `LevBookLib`'s POSITION BOOK (2026-08-19) ═══════════════
-    // Band-neutral: reached from `LevBase`, so it serves BOTH lev managers. Lands here rather than
-    // in `LevMath` for the size reason recorded above, and `LevBase` therefore links `BandLib`.
-
-    /// @notice Enrol `lp` in the open-position book. `lpIdx` is 1-BASED so 0 means absent.
-    function trackOpen(
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
-        address lp
-    ) external {
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
-    }
-
-    /// @notice Remove `lp` from the book by SWAP-AND-POP, keeping the 1-based index consistent.
-    /// @dev    The moved element's index must be rewritten BEFORE the pop, and `lpIdx[lp] = 0` after,
-    ///         or the book leaks a stale index that `trackOpen` would then treat as present.
-    function untrackOpen(
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
-        address lp
-    ) external {
-        uint256 idx = lpIdx[lp];
-        if (idx == 0) return;
-        uint256 last = openLps.length;
-        if (idx != last) { address moved = openLps[last - 1]; openLps[idx - 1] = moved; lpIdx[moved] = idx; }
-        openLps.pop();
-        lpIdx[lp] = 0;
-    }
-
-    // ── §FOLD-MEASURE BATCH 2 ──────────────────────────────────────────────────────────────────
-    // MEASURED RATE FROM BATCH 1: moving `trackOpen`/`untrackOpen` (10 code lines) freed 212 bytes
-    // on `LevManager` and 213 on `BtcLevManager` -- ~106 bytes PER BODY, per manager. The seam is
-    // cheaper than duplication even for 5-line bodies, which refuted the prediction that a
-    // delegatecall stub would exceed a short inlined body. Everything below follows that result.
-    //
-    // ⚠️ WHAT CANNOT MOVE, AND WHY IT IS A HARD LIMIT RATHER THAN A CHOICE: a library body cannot
-    // read the caller's IMMUTABLES (`AUX`, `ORACLE_KEY` live in the caller's code, not its storage)
-    // and cannot call the caller's VIRTUALS (`_collToBase`). So every value derived from those must
-    // be computed by the caller and passed BY VALUE. That is exactly what `LevBase`'s own note
-    // predicted. It is why `_reanchorIfReseated` takes `px` and `base` instead of reading them.
-
-    event TargetSet(address indexed lp, uint256 targetLtvBps);
-    event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
-
-
-    /// @notice An LP sets its own max-leverage LTV cap.
-    /// @dev    `cap` is passed rather than read: `TARGET_LTV_CAP_BPS` is a caller CONSTANT, and a
-    ///         constant lives in the caller's code. Passing it keeps ONE ceiling definition instead
-    ///         of a second copy here that could silently diverge.
-    function setTargetLtv(
-        mapping(address => Types.Pos) storage pos,
-        address lp,
-        uint64 capBps,
-        uint256 cap
-    ) external {
-        if (!pos[lp].open) revert NotOpen();
-        if (capBps == 0 || capBps > cap) revert BadTarget();
-        pos[lp].targetLtvCapBps = capBps;
-        emit TargetSet(lp, capBps);
-    }
-
-    /// @notice Write a fresh position and enrol the LP, in one call.
-    /// @dev    `bandPx` is passed because `_bandPrice()` try/catches a call to the caller's `BAND`.
-    function openPos(
-        mapping(address => Types.Pos) storage pos,
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
-        address lp,
-        Types.Pos memory p
-    ) external {
-        pos[lp] = p;
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
-    }
-
-    /// @notice Re-anchor a position to the band's current price if the band has reseated.
-    /// @dev    `px` and `base` are computed by the CALLER: `px` needs `AUX`/`ORACLE_KEY` (immutables)
-    ///         and `base` needs `netEquity`, which routes through the `_collToBase` VIRTUAL. Neither
-    ///         is reachable from here, and passing them is what lets the rest of the body be shared.
-    ///         Returns whether it fired so the caller need not re-read to know.
-    function reanchorIfReseated(
-        mapping(address => Types.Pos) storage pos,
-        address band,
-        address lp,
-        uint256 px,
-        uint256 base
-    ) external returns (bool fired) {
-        Types.Pos storage q = pos[lp];
-        if (!q.open) return false;
-        (bool go, uint s) = LevMath.reanchorCompute(band, q.entryPrice);
-        if (!go) return false;
-        q.entryPrice    = s;
-        q.entryPriceWad = uint128(px);
-        q.e0            = uint128(base);
-        emit ReanchoredToBand(lp, s, base);
-        return true;
-    }
+    error NoSuchOrder();
+    error NotTouched();
+    error NotFillable();
 }

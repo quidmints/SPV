@@ -2,44 +2,32 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
+import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
-// the single declaration in `Types.sol` instead of restating it. Constants are
-// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
-// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
-import {WAD} from "./imports/Types.sol";
-import {BandLib} from "./imports/BandLib.sol";
-// §A.52: the canonical view (was a file-local `IEthVenueV`).
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-// §V4-CUT — 512-bit mulDiv from solady, not v4-core. `FullMath` is ordinary math, but it was
-// the LAST v4 import in this file; solady already ships the same full-precision operation and
-// is already a dependency (SwapLib imports it), so the v4 edge disappears at no cost.
-import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
-
+import {BandLib} from "./imports/BandLib.sol";
 import {Types} from "./imports/Types.sol";
-import {State} from "./State.sol";
-import {Core} from "./Core.sol";
+
 import {Basket} from "./Basket.sol";
+import {State} from "./Shares.sol";
+import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
-import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 
 /// EthVenue — the ETH yield-venue custody (AAVE WETH + ether.fi weETH) carved out
 /// of Aux. Quid routes its WETH venue ops here. bandETH() is still read via AUX
 /// (a thin forwarder), so only the WRITE ops (bandOp/supply*/offramp/arb) re-point.
+/// IL-protect fee lane: Quid reads the LevManager through the Vault's already-secure 
+/// needs NO new trust surface of its own (Quid renounces ownership at setup). 
+// `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
 
-/// IL-protect fee lane: Quid reads the LevManager through the Vault's already-secure one-shot pin
-/// (`ethVenue.LEV_MANAGER()`), so `syncLev` needs NO new trust surface of its own (Quid renounces ownership
-/// at setup). `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
-// §4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to the BAND == this
-// Quid). Repays debt + hands the freed collateral (LP's full residual) back to the LP. See §G.7.
-
-    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (State.sol).
+    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Quid is State,
@@ -54,6 +42,7 @@ contract Quid is State,
     error NotOwner();
     error BadPercent();
 
+    uint constant WAD = 1e18;
     // §NAMING — was `V4`, which read as Uniswap v4. It is the Core band engine and always was.
     /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each band must be able to
     ///      name its own engine, or "these two bands are isolated" cannot be checked from outside.
@@ -263,12 +252,7 @@ contract Quid is State,
     // BtcVault.sol — Quid is the ETH vault; its helpers are ETH-only now.
 
 
-    // ─── §A.5f (subset): TIMELOCKED WITHDRAWAL-RECIPIENT PIN ────────────────
-    // THREAT: the hosted fleet keeper HOLDS THE LP KEY (BtcLevManager:361), and `withdraw`/`redeem`
-    // leave `receiver` arbitrary — so a compromised keeper can send an LP's funds anywhere. Nothing
-    // off-chain constrains this: the Rust `Scope` layer is coarse API-client auth with no notion of
-    // EVM actions, so today the ONLY constraint is that the enclave runs attested code.
-    //
+  
     // WHY A TIMELOCK AND NOT JUST A PIN. A pin that the LP key can SET, the LP key can also UNSET —
     // a keeper would simply unpin, then withdraw. The delay is the entire mechanism: a stolen key may
     // REQUEST a change but cannot act on it inside the window, which is the LP's chance to notice and
@@ -335,15 +319,7 @@ contract Quid is State,
     constructor()
         Ownable(msg.sender) {
         DEPLOYER = msg.sender;
-    }
-    /// §MUTABILITY 2026-08-18 — `receive()` ADDED to match `Vault` (`:238-239`), which declares both.
-    /// ⚠️ THE `fallback` IS LOAD-BEARING, NOT DECORATION: `WETH.withdraw()` returns bare ETH with EMPTY
-    /// calldata, and with no `receive()` that lands on the payable fallback — so deleting it would
-    /// revert every unwrap on the ETH band. solc's warning was about INTENT, not correctness: a
-    /// contract that means to accept ether should say so with `receive`, and route the empty-calldata
-    /// case there instead of through the catch-all.
-    receive() external payable {}
-    fallback() external payable {}
+    }   fallback() external payable {}
 
      modifier onlyUs {
         require(msg.sender == address(AUX)
@@ -431,15 +407,12 @@ contract Quid is State,
         if (liquidity == 0) revert Dust();
 
         next = ++ID;
-        selfManaged[next] = Types.SelfManaged({
-            created: block.number, owner: msg.sender,
-            // §E258 — the funding side. This band's volatile leg is WETH, so anything else is the
-            // USD side. Required: `Types.SelfManaged` declares the field and Solidity's named-field
-            // form takes every one of them, so omitting it did not compile (§E265).
-            usdFunded: token != address(WETH),
-            lower: t.newLo, upper: t.newUp,
-            amt: int(placed) });
-        positions[msg.sender].push(next);
+        // §E258 — RECORD WHICH SIDE FUNDED IT. `token == address(0)` is the ETH branch of
+        // `sizeOutOfRange`, so a nonzero token is a stable and the order is a resting BID. The
+        // sizer's two branches already knew this and threw it away; the fill needs it, and it is
+        // not recoverable later (see the note on `Types.SelfManaged.usdFunded`).
+        BandLib.openOor(oorBook, selfManaged, positions,
+            next, msg.sender, token != address(0), t.newLo, t.newUp, int(placed));
         CORE.outOfRange(msg.sender, int(placed), t.newLo, t.newUp, address(0));
     } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
     // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple
@@ -1120,7 +1093,22 @@ contract Quid is State,
     ///      storage refs (selfManaged/positions) mutate in place. Logic unchanged.
     function pull(uint id, // existing self-managed position
         int percent, address token) external nonReentrant {
-        BandLib.pull(address(CORE), selfManaged, positions, id, percent, token, msg.sender);
+        BandLib.pull(address(CORE), oorBook, selfManaged, positions, id, percent, token, msg.sender);
+    }
+
+    /// @notice §E258 — execute the resting boundary orders the band's price has crossed.
+    /// @dev    Driven by `Core.swap`: the moment the price is known to have moved. Capped there, so
+    ///         `fillOOR` below is what drains whatever the cap left. Body in `BandLib` — this
+    ///         contract is the tightest in the tree under EIP-170 and can afford the call, not the code.
+    function sweepOor(uint px, uint maxFills) external onlyUs returns (uint) {
+        return BandLib.sweepOor(address(CORE), oorBook, selfManaged, positions, px, maxFills);
+    }
+
+    /// @notice §E258 — the permissionless poke. See `BandLib.pokeOor` for why it is a liveness
+    ///         requirement rather than a convenience, and why it pays no tip yet.
+    function fillOOR(uint id) external nonReentrant {
+        BandLib.pokeOor(address(CORE), address(AUX), address(WETH),
+            oorBook, selfManaged, positions, id);
     }
 
     // _distributeV4Fees + _calcYield folded into QuidLib.rebalanceBody (their ONLY caller was _rebalance; the

@@ -2,11 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
-// the single declaration in `Types.sol` instead of restating it. Constants are
-// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
-// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
-import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
@@ -46,6 +41,7 @@ library BasketLib {
     ///         reporting it sends the reader hunting a venue outage that never happened.
     error AmountTooSmall();
 
+    uint public constant WAD = 1e18;
     uint public constant MONTH = 2420000;
 
     struct Metrics {
@@ -417,11 +413,24 @@ library BasketLib {
     ///         → higher fee → reserves build faster.
     ///         K=0 → 900bps (9%), K=32 → 100bps (1%)
 
-    // §DE-TICK 2026-08-18 — `getPrice(uint spotPrice, bool token0isUSD)` DELETED. It squared a
-    // sqrt-price (`fullMulDiv(casted, casted, 1 << 64)`) and inverted by orientation: pure v4
-    // tick/sqrt math, and the last thing that could carry a sqrt-price into this library.
-    // ZERO call sites — every remaining mention across `Core` and `SwapLib` is a COMMENT saying
-    // where it USED to sit. The ring stores a plain WAD price and `twapBody` reads it directly.
+    /// @notice ETH price from spotPrice
+    /// @param spotPrice Square root price
+    /// @param token0isUSD Whether token0 is USD
+    /// @return price ETH price in USD 1e18
+    function getPrice(uint spotPrice, bool token0isUSD)
+        public pure returns (uint price) {
+        uint casted = uint(spotPrice);
+        uint ratioX128 = SoladyMath.fullMulDiv(
+               casted, casted, 1 << 64);
+
+        if (token0isUSD) {
+          price = SoladyMath.fullMulDiv(1 << 128,
+              WAD * 1e12, ratioX128);
+        } else {
+          price = SoladyMath.fullMulDiv(ratioX128,
+              WAD * 1e12, 1 << 128);
+        }
+    }
 
     /// §TICK-REMOVAL — the ring stores PLAIN PRICE, so the TWAP is just the cumulative difference
     /// over the period. This deletes the tick→sqrt→price round trip that was the single largest
@@ -796,7 +805,8 @@ library BasketLib {
             // express there. (`uint dep = amounts[i]` was the obvious spelling and went stack-too-deep;
             // `via_ir` stays off by design.)
             if (amounts[i] != 0) {
-                amounts[i] = FeeLib.allocate(token, amount, amounts[i], amounts[14], fc);
+                amounts[i] = FeeLib.allocate(token, 
+                amount, amounts[i], amounts[14], fc);
                 if (amounts[i] == 0) subUnit = true;
             }
             if (seed > 0) aux.tipSelf(SoladyMath.fullMulDiv(amounts[i], seed, amount), token, -1);
@@ -807,15 +817,14 @@ library BasketLib {
                 // `require(bad-dec)` outside the try, so one weird token reverted every holder's
                 // redeem.)
                 uint d;
-                try IERC20(token).decimals() returns (uint8 dd) { d = dd; } catch { d = 0; }
+                try IERC20(token).decimals() 
+                    returns (uint8 dd) { d = dd; } catch { d = 0; }
                 if (d == 0 || d > 18) { amounts[i] = 0; continue; }
                 uint divisor = d < 18 ? 10 ** (18 - d) : 1;
+                
                 if (amounts[i] / divisor == 0) { subUnit = true; amounts[i] = 0; continue; }
                 try aux.withdrawSelf(token, amounts[i] / divisor, who) returns (uint w) {
-                    amounts[i] = w;
-                    sent += amounts[i] * divisor;
-                } catch {
-                    amounts[i] = 0;
+                    amounts[i] = w; sent += amounts[i] * divisor; } catch { amounts[i] = 0;
                 }
             }
         }

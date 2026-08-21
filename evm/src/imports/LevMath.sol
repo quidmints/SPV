@@ -2,19 +2,13 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
-// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
-// the single declaration in `Types.sol` instead of restating it. Constants are
-// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
-// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
-import {WAD} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/ILevVenue.sol";
 import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
-        CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN,
-        BOLD_TOKEN, CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX} from "./Interfaces.sol";
+        CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -54,6 +48,7 @@ library LevMath {
     /// Zero oracle anchor. A named error, NOT a string require: the string form cost enough
     /// bytecode to push this library 38 bytes past EIP-170 (measured).
     error NoPrice();
+    uint256 internal constant WAD = 1e18;
 
     /// @notice The LTV (bps) of `debt` against a position worth `collValue` (same unit); `collValue==0 ⇒ 0`.
     ///         Consolidated in from the former `YBLib` (its only LIVE surface). the leverage's target leverage is L = 2 —
@@ -554,7 +549,6 @@ library LevMath {
     {
         if (stable == RLUSD_TOKEN) return (CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX);
         if (stable == PYUSD_TOKEN) return (CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX);
-        if (stable == BOLD_TOKEN)  return (CURVE_BOLD_USDC,  CRV_BOLD_IDX,  CRV_BOLD_USDC_IDX);
         // Absent ⇒ (0,0,0). Deliberately does NOT revert: this predicate serves `_routableStable`,
         // which must be able to ASK without failing (an unroutable slice is skipped and refunded).
     }

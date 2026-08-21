@@ -1,4 +1,7 @@
 {
+  "lib/morpho-v2": {
+    "rev": "709dab354d8f03e64effc2a3dcdd08f5013a0758"
+  },
   "lib/openzeppelin-contracts": {
     "tag": {
       "name": "v5.4.0",

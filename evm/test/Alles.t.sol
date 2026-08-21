@@ -17,18 +17,18 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
-
-import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Aux} from "../src/Aux.sol";
 import {Quid} from "../src/Quid.sol";
 import {Vault} from "../src/Vault.sol";
 import {Basket} from "../src/Basket.sol";
 import {FeeLib} from "../src/imports/FeeLib.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
 
 import {BasketLib} from "../src/imports/BasketLib.sol";
+import {DeployLib} from "../script/DeployLib.sol";
 import {Types} from "../src/imports/Types.sol";
 import {Core} from "../src/Core.sol";
-import {DeployLib} from "../script/DeployLib.sol";
+
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
@@ -42,8 +42,6 @@ contract MockSPV {
     function checkTxInclusion(bytes32[] calldata, bytes32, bytes32, uint256, uint256)
         external pure returns (bool) { return true; }
 }
-
-
 
 /// @dev v3 SwapRouter that ALWAYS reverts on exactInput - simulates an EMPTIED
 ///      weETH/WETH pool (no swappable liquidity). `vm.etch` onto ETHERFI_V3ROUTER.
@@ -142,18 +140,13 @@ contract AllesFixture is ForkPin, ExitFixture {
     address public LP_Alice = address(0xA11CE);
     address public Swapper_Bob = address(0xB0B);
 
-    // Arb : 0xa6147867264374F324524E30C02C331cF28aa879
-    address constant JAM = 0xbeb0b0623f66bE8cE162EbDfA2ec543A522F4ea6;
     address public ADAPTER = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2; // Etherfi
     address public REDEEMER = 0xDadEf1fFBFeaAB4f68A9fD181395F68b4e4E7Ae0;
-
     address[] public STABLECOINS; address[] public VAULTS;
 
     /// Test-only: the 32-byte x-only BIP-341 output key `Q` of the MuSig2 2-of-2 over
     /// `lpPubkey` and `hopPubkey` — a SIMPLE-TAPROOT channel's funding key.
-    ///
-    /// ⚠️ THIS WAS A KECCAK STUB UNTIL (E129-b), AND THE STUB IS WHY THE GATE COULD NOT SHIP.
-    ///    It returned `keccak256("M7-Q", …)`: symmetric under KeySort, and a plausible-looking
+    /// It returned `keccak256("M7-Q", …)`: symmetric under KeySort, and a plausible-looking
     ///    32 bytes, but not a curve point at all — so once `_verifySplice` began actually
     ///    checking `Q == TapTweak(KeyAgg(…))`, every splice fixture in the repo failed. The
     ///    old comment justified the stub with "the production contract does NO secp256k1 EC
@@ -169,11 +162,11 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// old `test` prefix made it read as a test case in every listing and grep of this
     /// suite while asserting nothing — it is `internal`, so forge never ran it either.
     /// A helper that claims to be a test is the same failure mode as a test with no
-    /// assertion: the name promises a proof that does not exist.
-
-    /// (E153) `recordClose` takes `OpenParams` so it can reconstruct the 2-of-2 and reject a
-    /// replayed SPLICE. Only the two pubkeys are read and both are checked against the
-    /// channel's pinned `keysHash`, so a minimal literal is honest here rather than misleading.
+    /// assertion: the name promises a proof that does not exist. takes `OpenParams` 
+    /// so it can reconstruct the 2-of-2 and reject a replayed SPLICE. 
+    /// Only the two pubkeys are read and both are checked against the
+    /// channel's pinned `keysHash`, so a minimal literal 
+    /// is honest here rather than misleading.
     function _closeParams(bytes memory lpPubkey, bytes memory hopPubkey)
         internal pure returns (Types.OpenParams memory)
     {

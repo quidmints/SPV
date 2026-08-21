@@ -2,15 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
-// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
-// the single declaration in `Types.sol` instead of restating it. Constants are
-// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
-// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
-import {WAD} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
-import {Types, NotOpen, BadTarget} from "./imports/Types.sol";
+import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
-import {BtcLib} from "./imports/BtcLib.sol";
+import {LevBookLib} from "./imports/LevBookLib.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
@@ -49,8 +44,10 @@ contract BtcLevManager is LevBase {
     address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
     // DIRECTIONAL (LP's own risk, isolated). 7500=75%≈4×, headroom below the 86% venue LLTV. Tunable. (ETH parity.)
+    uint256 public constant BAND_BPS           = 300;       // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_SLIPPAGE_BPS = 100;       // 1% anti-MEV floor on the leg's Curve swaps
     uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
+    uint256 internal constant WAD = 1e18;
 
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
@@ -89,9 +86,17 @@ contract BtcLevManager is LevBase {
     event Supplied(address indexed lp, uint vbtcIn);
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
+    event Closed(address indexed lp, uint vbtcReturned);
+    event ProtectedFromQuid(address indexed lp, uint quidRedeemed, uint debtRepaid);
+    event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
+    error AlreadyOpen();
     error BadAuth();
+    error NotFlash();
+    error Reentrancy();
 
+    uint private _lock = 1;
+    modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     constructor(address vbtc, address aux, address wbtc, address gov, address quid) LevBase(aux, wbtc) {
         VBTC = IERC20Min(vbtc); VAULT = IVBtcToken(vbtc).VAULT(); WBTC = wbtc; GOV = gov; QUID = quid;
@@ -124,11 +129,32 @@ contract BtcLevManager is LevBase {
     ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
 
-    /// §ONE-PROTECT — body is now `LevBase.protectFromQuid`; only these hooks differ.
-    function _quid() internal view override returns (address) { return QUID; }
+    /// @notice Delegated QU!D-protect for a BTC-levered LP — the BTC counterpart of `LevManager.protectFromQuid`
+    ///         — the previously-stubbed keeper path. Redeems the LP's OWN opted-in QUID (`approve` = opt-in) to
+    ///         repay the LP's OWN BTC-lev debt near liquidation; moves NO value to the caller (excess refunds to
+    ///         `lp`). Asset-agnostic: the SAME `LevMath.protectExec` the ETH side uses — the venue abstracts
+    ///         collateral/stable, so there is ZERO BTC-specific glue. Permissionless + near-liq-gated (anti-grief).
+    function protectFromQuid(address lp, uint minStableOut) external nonReentrant returns (uint repaid) {
+        if (!pos[lp].open) revert NotOpen();
+        uint pull;
+        (pull, repaid) = LevMath.protectExec(
+            QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+        emit ProtectedFromQuid(lp, pull, repaid);
+    }
 
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
+    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint amountUsd) {
+        Types.Pos memory p = pos[lp];
+        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
+        // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0·px/1e18 (18-dec, matching
+        // debtUsd; px is WBTC-lifted ×1e10 — /1e8 inflated targetDebt 1e10 ⇒ over-hedge to the venue ceiling).
+        uint e0Usd = LevMath.e0Usd(p.e0, px);
+        uint t = _ilTargetLive(p, px);                    // (B) live sold fraction, capped; √p fallback
+        return LevMath.debtDelta(e0Usd, debtUsd(lp), t, BAND_BPS);
+    }
+
     // ═══════════════════════════ OPEN / CONFIG (LP) ═══════════════════════════
 
     /// @notice Open an isolated BTC-lev position at ZERO leverage. The LP supplies `initialVbtc` vBTC (already
@@ -186,38 +212,38 @@ contract BtcLevManager is LevBase {
     /// @notice Borrow `stableUsd`-worth of the venue stable against the position; sent to the LP/keeper to
     ///         source BTC externally. Clamped to the debt-delta-to-target so it can only move toward the IL
     ///         target (never past the LP's LTV cap, ≤ 7500 bps).
-    /// @notice §FOLD-LEGS — body in `LevMath` (§FOLD-BOOK). `debtDeltaToTarget` is resolved HERE because it
+    /// @notice §FOLD-LEGS — body in `LevBookLib`. `debtDeltaToTarget` is resolved HERE because it
     ///         routes through the `_collToBase` virtual, which a library cannot call on its caller.
     function leverBorrow(uint stableUsd) external nonReentrant returns (uint got) {
         _reanchorIfReseated(msg.sender);
         (bool levUp, uint room) = debtDeltaToTarget(msg.sender);
-        got = BtcLib.leverBorrow(pos, address(AUX), msg.sender, stableUsd, levUp, room);
+        got = LevBookLib.leverBorrow(pos, address(AUX), msg.sender, stableUsd, levUp, room);
         _syncBand(msg.sender);
     }
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
     ///         the second half of a lever-up step, after the keeper has sourced+minted the BTC.
-    /// @notice §FOLD-LEGS — body in `LevMath` (§FOLD-BOOK). `VBTC` is passed as the collateral token; the same
+    /// @notice §FOLD-LEGS — body in `LevBookLib`. `VBTC` is passed as the collateral token; the same
     ///         library body serves weETH on the ETH side, which is why this was never BTC-specific.
     function leverSupply(uint vbtc) external nonReentrant {
-        BtcLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
+        LevBookLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
         _syncBand(msg.sender);
     }
 
     /// @notice Withdraw `vbtc` collateral to the LP/keeper (for delever/close: burn + enclave-spend the UTXO →
     ///         sell BTC → repay). Capped at the position by the venue.
-    /// @notice §FOLD-LEGS — body in `LevMath` (§FOLD-BOOK), parameterised by the collateral token.
+    /// @notice §FOLD-LEGS — body in `LevBookLib`, parameterised by the collateral token.
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
         _reanchorIfReseated(msg.sender);
-        out = BtcLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
+        out = LevBookLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
         _syncBand(msg.sender);
     }
 
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
-    /// @notice §FOLD-LEGS — body in `LevMath` (§FOLD-BOOK). A WRAPPER: reentrancy lock, then the shared leg,
+    /// @notice §FOLD-LEGS — body in `LevBookLib`. A WRAPPER: reentrancy lock, then the shared leg,
     ///         then the band poke. The poke must follow the venue move, which is why it stays here.
     function repay(uint stableUsd) external nonReentrant returns (uint repaid) {
-        repaid = BtcLib.repay(pos, address(AUX), msg.sender, stableUsd);
+        repaid = LevBookLib.repay(pos, address(AUX), msg.sender, stableUsd);
         _syncBand(msg.sender);
     }
 
@@ -232,24 +258,20 @@ contract BtcLevManager is LevBase {
     // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
-    /// §ONE-REBALANCE (2026-08-18) — the body is now `LevBase._rebalance`, shared with the ETH
-    /// band. Only the three per-band pieces stay here: the WBTC-mode gate and the two leaves.
-    function rebalanceWbtc(address lp, uint minOut) external nonReentrant { _rebalance(lp, minOut); }
-
-    /// @dev WBTC-mode ONLY. A native-vBTC position must not take this path — its collateral is
-    ///      sats the contract cannot source on-chain. The ETH band has no such mode, so its
-    ///      override is the empty default.
-    function _requireRebalancable(Types.Pos memory p) internal view override {
-        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
-    }
-
-    /// @dev Repay-FIRST when a flash provider is pinned (always health-safe); otherwise the
-    ///      graceful withdraw-then-repay fallback. The ETH band has no fallback because its
-    ///      provider is not optional.
-    function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)
-        internal override {
-        if (flashProvider != address(0)) _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut);
-        else                             _deleverWbtc(venue, lp, stable, deltaUsd, minOut);
+    function rebalanceWbtc(address lp, uint minOut) external nonReentrant {
+        _reanchorIfReseated(lp);                                          // (B) realize + re-anchor on a band reseat
+        Types.Pos memory p = pos[lp];
+        if (!p.open) revert NotOpen();
+        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget(); // WBTC-mode ONLY — a native vBTC
+        //   venue would get WBTC supplied into it (collateral mismatch). Native positions use the async legs above.
+        address stable = p.venue.stable();
+        (bool levUp, uint deltaUsd) = debtDeltaToTarget(lp);             // deltaUsd = curDebt−targetDebt on the FIXED E0
+        if (deltaUsd != 0) {
+            if (levUp) _leverUpBuyWbtc(p.venue, lp, stable, deltaUsd, minOut);
+            else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut); // repay-FIRST: always health-safe
+            else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut);                                 // graceful fallback (no flash provider)
+        }
+        _syncBand(lp);
     }
 
     /// @notice #10 SYSTEMIC batch de-lever for WBTC-mode positions — the BTC analog of ETH `LevManager.cascadeDelever`.
@@ -270,9 +292,9 @@ contract BtcLevManager is LevBase {
         }
     }
 
-    /// @dev Lever-UP: borrow stable → Curve to WBTC → supply. EXACT 4-step custody of `LevManager._leverUp`
+    /// @dev Lever-UP: borrow stable → Curve to WBTC → supply. EXACT 4-step custody of `LevManager._leverUpBuy`
     ///      (borrow→manager, swap→manager, manager→venue transfer, venue.supply→escrow), collateral = WBTC.
-    function _leverUp(ILevVenue venue, address lp, address stable, uint usd, uint minOut) internal override {
+    function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut) internal {
         (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         if (borrowed > 0) { emit Borrowed(lp, borrowed); emit Supplied(lp, wbtc); }   // body + oracle floor in LevMath (EIP-170)
     }

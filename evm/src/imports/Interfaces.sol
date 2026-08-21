@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
-
 /// @title  Interfaces — the ONE declaration site for external ABIs shared across the tree.
 ///
 /// @notice STANDING RULE: one declaration per interface. Before this file the same external ABI was
@@ -151,16 +149,6 @@ int128  constant CRV_RLUSD_USDC_IDX    = 0;
 address constant CURVE_PYUSD_USDC      = 0x383E6b4437b59fff47B619CBA855CA29342A8559;
 int128  constant CRV_PYUSD_IDX         = 0;
 int128  constant CRV_PYUSD_USDC_IDX    = 1;
-// §E216/§E261 — BOLD, the stable my depth sweep missed. EVERY VALUE BELOW WAS READ ON-CHAIN
-// 2026-08-18, not taken from the row that found it: symbol() == "BOLD", decimals() == 18,
-// coins(0) == BOLD and coins(1) == USDC on the pool, and get_dy(0,1,1000e18) == 1_000_446_914,
-// i.e. 1,000 BOLD -> 1,000.4469 USDC (+4.47 bps) against ~$7.0M of depth.
-// Until now `_routeOf` returned (0,0,0) for BOLD and — deliberately — did NOT revert, so the
-// slice was SILENTLY SKIPPED: a deep, cheap venue that was measured and unreachable.
-address constant BOLD_TOKEN            = 0x6440f144b7e50D6a8439336510312d2F54beB01D;
-address constant CURVE_BOLD_USDC       = 0xEFc6516323FbD28e80B85A497B65A86243a54B3E;
-int128  constant CRV_BOLD_IDX          = 0;
-int128  constant CRV_BOLD_USDC_IDX     = 1;
 
 /// @notice Curve crypto-swap (TriCrypto). Uniswap is gone from every leg: stable→stable goes through
 ///         the stableswap pools via `ICurvePool` (int128), stable→volatile through this one (uint256).
@@ -189,8 +177,9 @@ interface IAaveV4Hub {
 }
 
 /// Canonical IMorphoFlash — union of the former per-file variants.
-// §E266 — `flashLoan` comes from Morpho Blue itself; this was a hand-rolled restatement of
-// `IMorphoBase.flashLoan(address,uint256,bytes)`, identical in signature.
+interface IMorphoFlash {
+    function flashLoan(address token, uint256 assets, bytes calldata data) external;
+}
 
 /// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
 /// ILevEquity_VG and the former `ILevEquityBtc`/`ILevBtc_V`.
@@ -379,6 +368,9 @@ interface ICore {
     function committedUsd18() external view returns (uint);
     function modLP(int256 delta, int256 deltaUSD, address sender) external returns (uint);
     function outOfRange(address sender, int amount, uint loPrice, uint upPrice, address token) external returns (uint);
+    /// §E258 — settle ONE filled boundary order. Both legs at once, because a fill is a TRADE and
+    /// `outOfRange` can only express a one-sided open or close.
+    function settleOor(address owner, int256 usdDelta, int256 volDelta) external;
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
@@ -573,6 +565,12 @@ interface IBand {
     /// BTC through channels -- the ONE genuine difference in the merged `levAddNet`.
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
     function creditSkewPremium(uint premium6) external;
+    /// §E258 — execute the resting boundary orders `px` has crossed since the last sweep, capped.
+    /// ⚠️ THE TWO INSTANCES ANSWER DIFFERENTLY AND BOTH ANSWERS ARE CORRECT, for the same reason
+    /// `deliverVolatile` does: a BTC bid fills into BTC, and this band has no on-chain BTC delivery
+    /// (settlement is a Lightning cooperative close), so an automatic fill there would BURN the
+    /// filled leg — turning a loss the owner currently chooses into one the protocol inflicts.
+    function sweepOor(uint px, uint maxFills) external returns (uint filled);
     /// The band's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
     function levManager() external view returns (address);
     /// Gross levered collateral in the band's NATIVE unit (wei / sats).

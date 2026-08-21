@@ -2,11 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {Types} from "./Types.sol";
-// §E266 — ONE `WAD`. It was declared in TEN places (nine of ours plus Midnight's); this imports
-// the single declaration in `Types.sol` instead of restating it. Constants are
-// inlined, so this costs no bytecode — except on `FeeLib`/`BasketLib`, where it was `public` and
-// the generated getter goes away (no client reads it; checked across spa/ and quid-ln/).
-import {WAD} from "./Types.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {IAux} from "./Interfaces.sol";
 import {IQuidTarget} from "./Interfaces.sol";
@@ -72,6 +67,7 @@ library ChannelLib {
         return blocked ? type(uint).max : aux.aaveBalance(token);
     }
 
+    uint internal constant WAD = 1e18;
 
     // ─── Liquity StabilityPool (BOLD) cluster — relocated from BasketLib to
     // even out the EIP-170 budget. DELEGATECALL'd from Aux (address(this)==Aux),

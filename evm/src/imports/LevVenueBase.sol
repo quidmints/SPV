@@ -3,15 +3,6 @@ pragma solidity ^0.8.28;
 
 // `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
 // signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
-import {IMorphoStaticTyping as IMorpho, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
-import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
-// §E266 — INHERIT MORPHO DIRECTLY (owner, 2026-08-19: "no morpho-v2 it's morpho-blue inherit
-// directly"). `MarketParams` and `IMorpho` were hand-rolled here, and `MARKET_ID` hand-rolled
-// `keccak256(abi.encode(m))`, which is exactly what `MarketParamsLib.id()` computes. Verified
-// field-for-field against Blue before swapping — the order is hashed into the market Id, so a
-// mismatch would have been a live correctness bug rather than mere duplication. It matched.
-// `IMorphoStaticTyping` is the TUPLE-returning variant; plain `IMorpho` returns structs and
-// would break the destructuring at `borrowShares`/`market` below.
 import {ILevVenue, IERC20Min} from "./ILevVenue.sol";
 
 /// Minimal ERC20 surface shared by both weETH lending-venue adapters.
@@ -61,8 +52,30 @@ abstract contract LevVenueBase is ILevVenue {
 // ═══ folded from src/MorphoEscrowVenue.sol (2026-08-15) — see the note in the base header ═══
 
 /// Morpho Blue market parameters (the tuple whose hash IS the market id).
+struct MarketParams {
+    address loanToken;
+    address collateralToken;
+    address oracle;
+    address irm;
+    uint256 lltv; // 1e18 scale (1e18 = 100%)
+}
 
 /// Minimal Morpho Blue surface used by the IL-protect.
+interface IMorpho {
+    function supplyCollateral(MarketParams memory m, uint256 assets, address onBehalf, bytes memory data) external;
+    function withdrawCollateral(MarketParams memory m, uint256 assets, address onBehalf, address receiver) external;
+    function borrow(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, address receiver)
+        external returns (uint256 assetsBorrowed, uint256 sharesBorrowed);
+    function repay(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)
+        external returns (uint256 assetsRepaid, uint256 sharesRepaid);
+    function position(bytes32 id, address user)
+        external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral);
+    function market(bytes32 id)
+        external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets,
+            uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee);
+    function isAuthorized(address authorizer, address authorized) external view returns (bool);
+    function accrueInterest(MarketParams memory m) external;
+}
 
 /// @title  MorphoEscrowVenue — generic (escrow-equivalent) collateral / stable-debt `ILevVenue` on Morpho Blue (weETH on ETH, vBTC on BTC)
 /// @notice The weETH lev venue. Since Euler v2 and Aave V4 borrowing were removed (2026-08-13) this is the
@@ -83,7 +96,7 @@ abstract contract LevVenueBase is ILevVenue {
 contract MorphoEscrowVenue is LevVenueBase {
     IMorpho public immutable MORPHO;
     address public immutable COLLATERAL;        // collateral (== marketParams.collateralToken)
-    Id public immutable MARKET_ID;         // MarketParamsLib.id(marketParams)
+    bytes32 public immutable MARKET_ID;    // keccak256(abi.encode(marketParams))
     uint256 public immutable LLTV;         // 1e18 scale
 
     // Cache the market params (Morpho calls take the full struct).
@@ -98,7 +111,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         ORACLE = m.oracle;
         IRM = m.irm;
         LLTV = m.lltv;
-        MARKET_ID = MarketParamsLib.id(m);
+        MARKET_ID = keccak256(abi.encode(m));
     }
 
     function _params() internal view returns (MarketParams memory) {

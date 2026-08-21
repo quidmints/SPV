@@ -3,8 +3,6 @@
 pragma solidity ^0.8.28;
 
 import "forge-std/console.sol";
-import {Id} from "morpho-blue/interfaces/IMorpho.sol";
-import {IMorphoStaticTyping as IMorphoMkt} from "morpho-blue/interfaces/IMorpho.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 
@@ -34,6 +32,10 @@ import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";   // Inverse
 
 interface IAaveV3AddrProvider { function getPoolDataProvider() external view returns (address); }
 
+interface IMorphoMkt {
+    function createMarket(MarketParams memory m) external;
+    function market(bytes32 id) external view returns (uint128,uint128,uint128,uint128,uint128,uint128);
+}
 
 contract Deploy is Script {
 
@@ -564,7 +566,7 @@ contract Deploy is Script {
                 lltv: vm.envOr("MORPHO_VBTC_LLTV", MORPHO_LLTV_86)
             });
             bytes32 idB = keccak256(abi.encode(mpB));
-            (,,,,uint128 luB,) = IMorphoMkt(morpho).market(Id.wrap(idB));
+            (,,,,uint128 luB,) = IMorphoMkt(morpho).market(idB);
             if (luB == 0) IMorphoMkt(morpho).createMarket(mpB);
             mvB = address(new MorphoEscrowVenue(morpho, mpB, address(bm)));
         }
@@ -639,7 +641,7 @@ contract Deploy is Script {
 
     function _mkMorphoVenue(address morpho, MarketParams memory mp, address mgr) internal returns (address) {
         bytes32 id = keccak256(abi.encode(mp));
-        (,,,,uint128 lu,) = IMorphoMkt(morpho).market(Id.wrap(id));
+        (,,,,uint128 lu,) = IMorphoMkt(morpho).market(id);
         if (lu == 0) {
             require(vm.envOr("MORPHO_ALLOW_CREATE", false),
                 "morpho: market does not exist -- a wrong oracle/irm/lltv is a DIFFERENT market, not a missing one");
