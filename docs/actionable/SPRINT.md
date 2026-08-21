@@ -5906,3 +5906,84 @@ pass is the tell that the real defect is still there.
 `DrainAtomicity.t.sol:1372` (σ² pinned at ~0) carries an in-source ⛔ saying its failure IS the
 measurement, and names the correct way to retire the red — **fix the ring, do not weaken the bound**.
 ⇒ **Two forms, one principle: a learning that is not executable will be re-litigated from memory.**
+
+---
+
+## 🔴 §E286 — **THE FLOOR IS AN ARTIFACT OF A BARRIER THAT DUPLICATES THE DECLINE. `ρ = 0` IS THE QUESTION, NOT THE FLOOR'S VALUE.**
+
+**Owner, 2026-08-21: *"idk why there should be a floor or how to best make it dynamic."* Correct on
+both halves, and §E285's prescription conceded too much — it answered "how big a residual" when the
+question is "why is anything diverging".**
+
+### THE POLE IS NOT A–S. THE FILE SAYS SO, AND THEN SAYS THE OPPOSITE 260 LINES LATER.
+`SwapLib:765-770` derives it honestly: *"Γ·σ²·q/(1−q)^ρ: the A-S linear reservation premium Γσ²q
+**amplified by** the shadow price of the last inventory units. Derived from the HJB with a HARD inv≥0
+constraint — a −log(inv) barrier … **ρ=0 recovers plain linear A-S**."* But `:1030-1031` claims the
+simple pole *"is what A&S §2.3's infinite-horizon reservation price derives anyway."*
+🔴 **BOTH CANNOT BE TRUE.** If ρ=0 recovers plain A–S then ρ=1 is an ADDITION to it, and the second
+comment gives that addition a pedigree it does not have. **Everything else in the system uses the
+LINEAR form:** `sellSkew` is linear by §E54's explicit argument, `plan.pdf` and `plan2.pdf` both write
+`r = s − q·γ·σ²·(T−t)`, and §E276 restates it. **The pole is the only object in the design that
+diverges, and its citation is the one claim nobody has checked.**
+
+### WHY A LOG BARRIER IS THE WRONG THING TO CHARGE A COUNTERPARTY
+A −log(inv) barrier is an **interior-point technique for enforcing a constraint smoothly** — a
+numerical device for keeping an optimiser inside a feasible set. Its premise here is stated and TRUE:
+*"the LP physically cannot serve at inv=0."* **But that premise justifies a CONSTRAINT, not an
+infinite PRICE.** We already enforce the constraint directly: §E275's `_declineIfUnfillable` refuses
+at the pole. ⇒ **We now carry BOTH — the barrier that prices the approach to inv=0 at infinity, and
+the decline that refuses at inv=0.** That is standing rule 17 verbatim: *"when you find yourself
+adding a second guard for the same class of thing, stop and ask what state makes both necessary."*
+The decline is the honest one, because it is what physically happens; the barrier is a smooth
+approximation of it, and **once you have the real thing you do not need the approximation.**
+
+⇒ **THE FLOOR EXISTS ONLY TO KEEP THE BARRIER FINITE. REMOVE THE BARRIER AND THERE IS NOTHING TO
+FLOOR.** §E285's residual, §E275's 1e18 decline, §E278-partialfill's "bound by price" and §E283's
+cliff are **four bounds on one divergence**, and rule 17 says a clamp that survives a root fix was
+never the fix.
+
+### WHAT THE LAST UNIT IS ACTUALLY WORTH — FINITE, AND ALREADY MEASURED FROM BOTH SIDES
+The pole encodes *"we can never restock"*. **We can.** §E134 measured that a drain of `D` pays `D·px`
+**in** — *"the band is mis-composed, not poorer"*, **+\$570,000**. So depletion costs us exactly two
+finite things: the **foregone spread** on flow we can no longer serve (which is what A–S's `γσ²(T−t)`
+term IS), and the **restock cost**. And the ceiling on what we may charge for them is already named
+from the other side — §UNIT-VENUE-CEILING: *"the REAL bound is **the cost of routing around us** —
+measurable, per size and per asset, and **NOT a governance constant**."*
+⇒ **THAT IS THE DYNAMISM THE OWNER IS ASKING FOR, AND IT IS NOT A FLOOR.** It is not a parameter at
+all: the market applies it by routing elsewhere the moment our quote exceeds it, which is precisely
+*"the solver routes what we decline"*.
+
+### THE MAGNITUDES, SO THIS IS A COMPARISON AND NOT A PREFERENCE
+Linear kernel `Γσ²q` at full depletion (q=1):
+
+| | Γ = 3e16 (inherited) | Γ = 5.48e15 (§E274 derived) |
+|---|---|---|
+| σ² = 1e18 (100% ann. vol) | 3.0% | **0.55%** |
+| σ² = 4e18 (200% ann. vol) | 12% | **2.2%** |
+
+Sane market-maker spreads at total depletion. The pole at q = 0.99 is **99× the linear value**, and at
+q = 0.999 it is 999×, for an inventory difference nobody can perceive. ⚠️ **AND THE INTEGRATED CHARGE
+FOR EMPTYING THE BAND BECOMES `Γσ²/2`** — 0.27% at Γ_derived, 100% vol — which is the §E59/§E68
+objection restated: *is that enough to stop one trade converting the band?* **By A–S's own accounting
+it is exactly right**, because `γσ²(T−t)` IS the compensation for the inventory risk taken on, and
+§E134 says the principal was never at risk. **But that is the trade being made, and it should be made
+deliberately rather than discovered.**
+
+▶️ **WHAT TO DO, and this is an owner decision because it is the pricing model:**
+1. **Settle the citation first — it is free.** Does A&S §2.3 give a linear reservation price or a
+   pole? If linear, `:1030-1031` is a stale claim propping up the only divergent object in the system,
+   and `:765-770`'s own *"ρ=0 recovers plain linear A-S"* is the honest sentence.
+2. **If ρ=0:** the kernel is finite everywhere, the fill is bounded by INVENTORY (serve what we hold,
+   refund the rest — the owner's *"you still get the remainder of the inventory at the same price"*),
+   and we decline only at `inv0 == 0`, **a real state rather than a limit**. No floor, no residual, no
+   1e18 crossing — and §E276's spread-vs-shift question loses most of its force, because a linear
+   spread never approaches 100%.
+3. **If the barrier stays**, it must earn its place against rule 17 by naming a cost the linear term
+   does not already carry — and *"we cannot serve at inv=0"* is not it, because the decline enforces
+   that directly.
+
+⚠️ **THIS SUPERSEDES §E285's PRESCRIPTION, NOT ITS DIAGNOSIS.** §E285's execution-quality argument
+stands and gets STRONGER: a reverting quote tells a solver nothing, and under ρ=0 there is nothing to
+revert about short of an empty band. Its residual, however, was a fourth bound on a divergence that
+should not exist. **I wrote it in the same shape I criticised §E278-partialfill for — bounding the
+symptom — one row later.**
