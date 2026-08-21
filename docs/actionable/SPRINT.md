@@ -6887,3 +6887,65 @@ reachable inventory. **You cannot route the part we decline unless we say how bi
 4. **#4 should be booked or explicitly ruled out.** It is the only one of the four that would give us
    *order flow* rather than *execution*, which is the thing neither PDF's architecture supplies —
    and it carries a capital requirement (staked 1INCH) that no other option here does.
+
+---
+
+## 🔴🔴 §E294 — **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
+
+**Owner proposed 2026-08-21: cache `getRate` off-chain and submit it as an update alongside a trusted
+callback (a delever), using the EIP-712 permissions IL-protect and opt-in already carry. CHECKED THE
+MECHANISM FIRST — it exists, at `Core.sol:1389`, and it needs no 712 at all.**
+
+```solidity
+function pushObservation(uint256 priceWad) external {          // ← NO auth modifier
+    ...twapResolve(AUX.assetPriceFeed(ASSET), 0, …, OBS_PUSH_MAX_BPS, 1 days);   // Chainlink anchor
+    if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;    // outside 50 bps ⇒ refuse, silently
+    _writeObservationPrice(priceWad);
+}
+```
+
+⭐ **IT DISSOLVES THE GAS PROBLEM BY CONSTRUCTION, WHICH IS THE OWNER'S POINT EXACTLY.** `getRate`'s
+33.6M gas is the cost of an ON-CHAIN read; off-chain `eth_call` runs with an effectively unbounded
+allowance — **which is precisely why §E257 records that it *"looked perfectly healthy from a
+console"***. Reading it off-chain and pushing the result costs one `SSTORE`.
+
+⭐ **AND IT IS STRICTLY BETTER THAN THE PROPOSAL: THE ANCHOR REPLACES THE SIGNATURE.** It is
+**permissionless** — no 712, no keeper key, no trusted callback — because every push is validated
+against Chainlink within `OBS_PUSH_MAX_BPS = 50`. A liar cannot move the LEVEL more than 50 bps, and
+its own docblock already prices the σ² vector: *"it caps an adversary's reachable σ² inflation at
+±0.5% per block (the ring takes one write per timestamp)."*
+📌 **AND IT ANSWERS §E220/§C1's CIRCULARITY OBJECTION HEAD-ON, IN ITS OWN WORDS:** *"Chainlink updates
+on a heartbeat or a deviation threshold, so BETWEEN updates it reports a flat line while the market
+moves — a ring sourced from it would measure σ² ≈ 0 through real volatility. A DEX-aggregated push
+carries that intra-update movement… **The bound constrains the LEVEL; the information is in the
+PATH.**"* ⇒ **Chainlink as the ANCHOR and 1inch as the PATH is not circular** — they carry different
+information, which is the distinction §E284 was reaching for from the other side.
+
+### 🔴 WHAT IS ACTUALLY MISSING — AND IT IS SMALL
+| | |
+|---|---|
+| **a caller** | **ZERO**, in `src`, `script`, `test` AND `quid-ln`. This is the `create_sweep_tx` / `FixedRateFill` shape: a maintained function marking a gap, not litter (⛔ **do not delete it**). |
+| **a test** | **ZERO.** The band, both refuse paths (`anchorPx == 0`, outside-band) and σ² accumulation are all unverified. |
+| **cadence** | `ringVariance` returns 0 until `card ≥ 3`, `n ≥ 3`, `m ≥ 2` **distinct** samples — so ONE push changes nothing. σ² only exists once pushes are recurring. |
+
+⇒ **THIS IS WHY σ² ≡ 0 (§E278/§E290): the ring has a writer and no one invokes it.** §C1 has been
+framed as *"which source"* for weeks; the source question is answered and the open item is a **caller
+and a cadence**.
+
+### ⭐ THE OWNER'S "PIGGYBACK ON A DELEVER" SURVIVES, FOR A DIFFERENT REASON THAN PROPOSED
+The 712 is unnecessary, but the attachment idea is not — it solves **gas attribution**, not trust. A
+standalone push costs someone gas for no reward. Attaching it to a transaction that *already happens*
+(a delever, a keeper action, a swap) makes it free-ride on necessary work.
+⭐ **AND `pushObservation` IS BUILT TO BE ATTACHED SAFELY: EVERY FAILURE PATH IS A SILENT `return`, NOT
+A REVERT.** A bad anchor, a zero price, an out-of-band value — none can brick the carrying
+transaction. That is the same *"THE READ MUST NOT BE ABLE TO HALT THE BAND"* rule `Core.sol:1313`
+states for the pull path, and it is what makes piggybacking sound rather than merely convenient.
+▶️ **Attach it where the market drives the cadence, not the pusher** — a caller who chooses WHEN to
+push chooses which prices the ring sees, and selective sampling is the one manipulation the 50 bps
+band does not bound. **Sampling driven by band state (repack, swap, delever) is not attacker-chosen;
+a discretionary keeper loop is.**
+
+▶️ **NEXT, IN ORDER:** (1) a test for the band and both refuse paths — it is `public`, needs no fork
+for the refuse cases; (2) pick the carrier and state why its cadence is market-driven; (3) the
+off-chain reader (`eth_call` `getRate`, cache, attach). ⚠️ **None of this needs `setObservationSource`
+— that is the PULL path and it stays unset.** Two mechanisms, one ring; do not wire both.
