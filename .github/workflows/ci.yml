@@ -75,6 +75,15 @@ jobs:
       - name: cargo test (workspace, no harness)
         run: cargo test --workspace --locked
 
+      # §FUZZ-WAS-DEAD — the step above CANNOT see the fuzz crate. `quid-hop/fuzz` is in the
+      # workspace `exclude` list (detached nightly + sanitizer), so a fuzz target importing a
+      # DELETED module fails nothing: `lp_auth.rs` referenced `quid_hop::lp_auth` for three weeks
+      # after §E183 removed it, with every cargo test green, and it was the repo's only target.
+      # This is a reference check, not a compile — it needs no nightly and no cargo-fuzz, which is
+      # exactly why it can run here. A stronger check that CI cannot install is worth less.
+      - name: fuzz targets still reference live symbols
+        run: python3 tools/check-fuzz-targets.py
+
   solidity:
     name: solidity (evm)
     runs-on: ubuntu-latest

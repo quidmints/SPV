@@ -2654,9 +2654,17 @@ message-dependent and a fixed heartbeat would exercise one message forever.
 ⚠️ **Audited by hand first and it holds** — length-checked, recovery id validated, no `unwrap`, both
 slices provably in bounds. **That is an argument, not a proof, which is the whole reason to fuzz it.**
 
-🔴 **THE STRUCTURAL PROBLEM IS NOT FIXED: nothing runs this.** The crate is still excluded (correctly
-— it needs nightly), so the new target will rot exactly as the old one did unless a CI step runs
-`cargo +nightly fuzz run heartbeat`. **Adding a target without adding a runner just resets the clock.**
+✅ **THE STRUCTURAL PROBLEM IS NOW FIXED TOO (2026-08-22): `tools/check-fuzz-targets.py`, wired into
+`ci.yml` right after `cargo test`.** It resolves every `use <our-crate>::<path>` in every fuzz target
+against the `pub` items actually declared in that crate's `src`, and exits 1 naming any that vanished.
+⭐ **IT IS A REFERENCE CHECK, NOT A COMPILE, AND THAT IS THE DESIGN — NOT A COMPROMISE.** Compiling
+the crate needs nightly + `cargo-fuzz`, which CI does not install; that is precisely why the rot
+survived three weeks. **A stronger gate CI cannot run is worth less than a weak one it runs on every
+push.** The cost is real and stated: it catches a VANISHED symbol, not a changed signature — and a
+vanished symbol is the failure that actually happened.
+▶️ **VERIFIED BY CONTROL, not by passing:** re-introducing the exact dead `lp_auth.rs` makes it exit 1
+and name both `quid_hop::lp_auth` and `quid_hop::read_lp_auth`; removing it returns clean. A gate that
+has never been shown to fail is not known to work.
 ▶️ Second candidate when a runner exists: `swap::decode_swap_out_requested_onchain` — the other live
 decoder of untrusted input.
 
