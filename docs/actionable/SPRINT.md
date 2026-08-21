@@ -7281,27 +7281,33 @@ Adding `bytes swapData` to those means:
   hardest sub-problem and it is not addressed by the spec: a batch caller cannot pre-quote every LP
   without an off-chain round trip per position, and a stale quote reverts or fills badly.
 
-⭐ **THE `cascadeDelever` QUESTION HAS AN ANSWER — TRACED 2026-08-22, AND IT IS NOT "N CALLDATAS".**
-The cascade's sell leg is three hops, and **only ONE of them is a V3 site**:
-1. `_weethToWeth` → `_weethToWethDex` → **Curve `ETHERFI_CURVE_POOL`**. ⛔ The spec says explicitly
-   NOT to aggregate this one: *"one deep Curve pool… No split exists to find; routing it externally
-   adds a dependency and buys nothing."* Untouched by the migration.
-2. `_wethToStable` → **`_poolSwap(weth, USDC, V3_FEE_WETH, amt, 0)`** ← **the only V3 hop a cascade
-   touches.**
-3. `_fromUsdc(stable, usdc)` → Curve stableswap. Untouched.
-⇒ **The aggregatable hop is WETH→USDC, and it is HOMOGENEOUS: every LP sells the SAME token for the
-SAME token, differing only in amount.** So a batch does not need a quote per position — **sum the
-WETH, do ONE 1inch swap, distribute pro-rata.** One calldata for the whole cascade.
-⚠️ **AND NOTE `minOut = 0` ON THAT HOP TODAY.** The floor is applied after, on the final stable
-(`if (out < minOut) revert Slippage()`), so the route is bounded end-to-end rather than per hop —
-the same choice the spec records for `_stableToWbtc`. An aggregated swap keeps that property.
-🔴 **THE COST OF AGGREGATING IS THE LOOP'S FAULT ISOLATION, AND IT MUST BE PRICED BEFORE BUILDING.**
-Today each LP is isolated by `try this.deleverToVault(...) catch` (§E229 — the `this.` self-call is
-what stops one stuck LP blocking the sweep). One swap for the batch means the swap can no longer sit
-inside a per-LP frame: it becomes **collect (isolated) → swap once → distribute**, and the
-distribution step is new accounting that did not exist. **That restructure — not the calldata — is
-the real work**, and pro-rata distribution across LPs whose collections partially failed is the part
-to design first.
+✅ **`cascadeDelever` IS SETTLED — KEEP PER-LP CALLDATA. THE "EXPENSIVE" OPTION IS THE CORRECT ONE
+(owner, 2026-08-22: *"we should not create risks that are avoidable"*).**
+
+I had framed one-calldata-for-the-batch as the win and fault isolation as its cost. **That is
+backwards.** Isolation is not a cost to weigh — it is the reason the function exists.
+
+**What aggregating would have traded away, in the one scenario the function is for:**
+- The cascade fires on a **correlated crash** — every levered LP crosses its band at roughly the same
+  price, because `E0` is fixed at open and `targetDebt` falls with the price.
+- Each LP runs in `try this.deleverOne(lp, minOuts[i]) catch`. A position that cannot source
+  liquidity is **skipped**, and falls to its venue's own liquidation. **One stuck LP can never block
+  the rest** — and in a crash the illiquid LP is precisely the one most likely to revert.
+- `minOuts` is a **PER-LP array**. One aggregated swap means one execution price, so that array has
+  nowhere to go: enforce the strictest bound and it reverts the batch for everyone; drop it and every
+  LP loses individual price protection. **Today's code never has to choose. Aggregating forces it.**
+- Aggregation also needs a **distribution rule** — new accounting on a value path, deciding who eats
+  a shortfall nobody individually caused.
+
+⇒ **N calldatas is not a problem to engineer away. It is what isolation costs, and it is cheap:** a
+keeper assembling a cascade already enumerates the LP list off-chain, so quoting each position is the
+same loop. **The saving was gas and fill depth; the price was the guarantee the function is built to
+provide, in the exact conditions it is built for.**
+
+▶️ **CONSEQUENCE FOR THE MIGRATION: `_poolSwap` stays the seam, and `swapData` is threaded PER CALL —
+one quote per `deleverOne`, not one per batch.** `cascadeDelever(address[] lps, uint256[] minOuts,
+bytes[] swapData)` — three parallel arrays, same length check that already exists. **No restructure,
+no distribution rule, no new accounting, and §E229's `this.` self-call isolation is untouched.**
 
 ▶️ **ORDER: settle the `cascadeDelever` batch-calldata question FIRST** — it is the one that can make
 the whole design unworkable, and everything else is mechanical once it is answered.
