@@ -2448,7 +2448,28 @@ The directory vanished; the commit stayed in the shared object store and was rec
 is the rule-11/15 resolution booked in `CLAUDE.md` earlier the same day, paying for itself within the
 hour — the second worktree lost that day, and the first one whose work did not have to be rewritten.
 
-## 🔁 §TEST-RECONSTRUCTIONS — 🔴 **OPEN. FIXTURES RE-DERIVE WHAT THE CONTRACT ALREADY EXPOSES, AND THAT IS WHAT MADE `#21` POSSIBLE**
+## 🔁 §TEST-RECONSTRUCTIONS — 🟡 **1 OF 3 DONE, 1 CORRECTLY KEPT, 1 REMAINS. DO NOT RE-DO THE FIRST TWO.**
+
+⭐ **THE CLASSIFIER, WHICH THE ORIGINAL BOOKING GOT WRONG AND IS THE REUSABLE PART: DOES THE
+RECONSTRUCTION *FEED* THE CONTRACT OR *CHECK* IT?** A fixture that recomputes a digest in order to
+SIGN it is duplication and drifts silently ⇒ dedup. A control that recomputes it in order to ASSERT
+the contract's output **is the test** ⇒ keep. I booked all three as "bypassed" from a grep; reading
+them says otherwise.
+
+| site | kind | verdict |
+|---|---|---|
+| `btc/ExitFixture.sol` `_popDigest` | fixture (feeds a signature) | ✅ **DONE** — calls `IBTCChannels.btcRecipientPoPDigest`; `IBTCChannels` extended in the canonical `Interfaces.sol` (rule 2, not a second interface) |
+| `BTCChannelsAuth.t.sol:74` | **control** (asserts the digest binds tag+chainid+contract+tx+params+hop) | ✅ **KEEP AS IS — deduping it would make it `assertEq(d, d)` and delete the only proof of the digest's shape.** Do not "fix" it. |
+| `VBtcLevFeeLane.t.sol` `_signRekey` | fixture (feeds a signature) | 🔴 **OPEN** |
+
+▶️ **FOR THE REMAINING ONE, and the blocker is not what the first booking assumed:** `ChannelLib.rekeyAuthBody`
+**VERIFIES** the signature and never RETURNS the digest, so there is nothing to call — the test must
+reconstruct in order to sign. The fix is to EXTRACT the digest into a shared function that
+`rekeyAuthBody` and the test both use. ✅ **It is affordable: `ChannelLib` is a LINKED LIBRARY and does
+not appear in the deployable-size table at all, so this costs `BTCChannels` (292 spare) nothing.**
+⛔ Do NOT add a `BTCChannels` getter for it — that WOULD cost the tight contract.
+
+## 🔁 §TEST-RECONSTRUCTIONS — original booking, kept for its evidence
 
 Owner, 2026-08-22: *"tests use the same files of imports folder that contracts use for maximum
 dedup?"* — the right question, and the answer today is **only for TYPES, not for DERIVED VALUES.**
@@ -2484,6 +2505,31 @@ needing `_btcChannels` to be the right address, because the getter uses its own 
 costs bytes on a contract at **292 spare**. Either expose it from `ChannelLib` (which tests already
 link) or leave the copy WITH A POINTER at the source — do not add a `BTCChannels` getter for a test's
 convenience without measuring first.
+
+## 🔴 §SUITE-RPC-INFLATION — **THE SUITE'S FAILURE COUNT HAS BEEN INFLATED BY THE ENDPOINT, AND A `setUp` FAILURE HIDES 25 TESTS** (measured 2026-08-22)
+
+Two full-suite arms on the SAME tree, differing ONLY in RPC endpoint:
+
+| endpoint | passed | failed | **`setUp` failures** | tests that RAN |
+|---|---|---|---|---|
+| keyless (default `ETH_RPC_URL`) | 414 | 83 | **12** | 497 |
+| **archive (`ETH_RPC_URL=$ANKR_RPC_URL`)** | **440** | **82** | **0** | **522** |
+
+Every one of the 12 was `Max retries exceeded HTTP error 429` or `failed to get storage` — the
+documented "endpoint failure wearing a test's name". ⇒ **ALL TWELVE EVAPORATED ON THE ARCHIVE
+ENDPOINT.**
+
+🔑 **THE TRAP IS THE ARITHMETIC, NOT THE FLAKINESS.** A failed `setUp` drops its WHOLE SUITE from the
+run, so those 25 tests did not fail — **they never executed**, and the failure count barely moved
+while `passed` fell by 23. Read as a pass/fail delta that looks exactly like *"my change broke ten
+suites"*, and it nearly cost a correct change being unpicked.
+⇒ **ALWAYS DIFF `grep -c 'FAIL.*setUp'` AND THE TOTAL TESTS RUN BETWEEN ARMS, NOT JUST PASS/FAIL.**
+If total-run differs, the arms are not comparable and no attribution is valid.
+▶️ **RUN FULL SUITES ON THE ARCHIVE ENDPOINT**: `(set -a; . ./.env; set +a; ETH_RPC_URL="$ANKR_RPC_URL" forge test)`.
+⚠️ `FOUNDRY_RPC_ENDPOINTS_MAINNET` is SILENTLY IGNORED — using it looks like you applied the override
+while changing nothing.
+⚠️ **The morpho `debt 0 <= 0` cluster is NOT endpoint noise — it is 40 on BOTH arms.** I read it as 20
+mid-run and briefly reported the root as half-explained; it is not. That cluster is real and unowned.
 
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
