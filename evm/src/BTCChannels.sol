@@ -69,10 +69,6 @@ import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/Signa
 //  are now false. `MuSig2Agg.isTwoOfTwoOutputKey` PROVES Q == TapTweak(KeyAgg(lp,hop)) at the
 //  OPEN and at every SPLICE, and `lpAuth` is retired (see (B) below). Left as a marker because
 //  three separate notes in this file described the pre-delegation, pre-EC world as current.
-//  The historical text, for the record: it byte-matched the lpAuth-committed Q, so it did not prove
-//  on-chain that Q == KeyAgg(lp, hop). That 2-of-2 genuineness rests on the
-//  off-chain MuSig2 keygen (the LP recomputes Q from its own + the hop's key
-//  before signing lpAuth) + the hop-only msg.sender gate.
 //
 //  ⛔ ATTESTATION IS NOT A TRUST ANCHOR HERE, AND THIS COMMENT USED TO SAY IT WAS.
 //  It read "SGX attestation IS wired as the trust anchor: `_requireAttested` calls
@@ -153,9 +149,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // an OFF-CHAIN discipline (each daemon managing only its own channels), enforced by nothing in
     // this contract. Anyone reasoning about multi-daemon or family-plan partitioning from the old
     // text will reach the wrong conclusion — which is exactly what happened before this rewrite.
-    // ✅ WHAT SURVIVES AND IS STILL TRUE: the LP's ECDSA `lpAuth` signs the SUBMITTER (msg.sender)
-    // into the open digest, so a genuine LP's authorization cannot be REPLAYED through a different
-    // submitter (the original front-run). That binding is independent of who the hop is. The residual "self-deal" — a party citing a
+    // ✅ WHAT BINDS THE SUBMITTER (§E183): not a signature — `_onlyHop()`. `msg.sender` must be one
+    // of two IMMUTABLE addresses, so the replay-through-another-submitter attack is unreachable by
+    // construction rather than by a digest that commits to the caller. The residual "self-deal" — a party citing a
     // funding UTXO it doesn't truly control — is the SAME unproven-Bitcoin-key-control
     // residual the design accepts everywhere (bounded by the no-over-mint clamp
     // + the outpoint-uniqueness guard below).
@@ -250,9 +246,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     mapping(address => bool) public btcRecipientLocked;
 
     // (B) LP DELEGATION — THE LP RUNS NOTHING, AND THE CONSENT IS PER-OPEN, NOT A STANDING GRANT.
-    // The LP cold-signs `auth.lpSig` over `openAuthDigest(msg.sender, auth.btcRecipient)`; the hop
-    // submits it gaslessly. Because the digest COMMITS TO `msg.sender`, that signature authorises
-    // exactly one hop to open exactly one funding outpoint, and `_useOutpoint` spends it.
+    // The LP signs a BIP-340 proof-of-possession over `btcRecipientPoPDigest(lpEth)` — a Bitcoin
+    // signature, not an EVM one — and the hop submits gaslessly under `_onlyHop()`. The open is
+    // bound to exactly one funding outpoint by `_useOutpoint`, which spends it once, ever.
     // Security: the contract SPV-proves + taproot byte-matches (`0x5120||Q`) every funding/splice
     // tx, and every BTC payout pins to `btcRecipientOf`, so a compromised hop can only fund
     // positions credited to the LP with payouts to the LP — bounded, never theft.
@@ -265,10 +261,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // `registerDelegation` are at ZERO live-code references (verified by a comments-stripped sweep,
     // not a word grep). Leaving a stale description above its own correction means whichever half a
     // reader stops at decides what they believe.
-    // ⚠️ WHAT DID **NOT** CHANGE, and must not be mistaken for slop: the delegated-hop
-    // AUTHENTICATION is LIVE. §E157's title is exact — "the registration tx goes, the authentication
-    // stays". `auth.lpSig` IS the delegation. Without it any caller could open a channel pinning an
-    // arbitrary LP's `btcRecipient`, which close, splice-out and the dead-man exit all key on.
+    // ⚠️ THE AUTHENTICATION IS LIVE, and must not be mistaken for slop — only its WITNESS moved
+    // (§E183). What stops an arbitrary caller pinning some other LP's `btcRecipient` — which close,
+    // splice-out and the dead-man exit all key on — is now two things together: `_onlyHop()` bounds
+    // WHO may submit, and `btcRecipientPoP` proves the payout key's holder consented, over a digest
+    // committing to an `lpEth` the contract DERIVES rather than accepts.
     // (E157) The monotonic counter had nothing left to guard: a signature bound to a single-use
     // outpoint cannot be replayed, and `_useOutpoint` enforces that.
     // ⚠️ Afterwards `_onlyHop()` lets EITHER immutable hop address act, on any channel: the
@@ -770,59 +767,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // ═════════════════════════════════════════════════════════════════
     //  OPEN — the LP's DELEGATED HOP submits the raw funding tx + SPV proof.
     //
-    //  ⚠️ THIS SAID "anyone submits … + lpAuth" and "ch.lpEth = the recovered signer of
-    //  lpAuth". BOTH DESCRIBE THE RETIRED MODEL (E149): `lpAuth` is not a parameter
-    //  anywhere. (E157) The open now carries `auth.lpSig`, authenticated against this channel's
-    //  funding outpoint — so `lpEth` is passed EXPLICITLY and PROVEN, which is what stops a
-    //  relayer redirecting the credit.
-    //
-    //  AIRTIGHT FUNDING CHECK (in ChannelLib.openChannelBody):
-    //   1. SPV: funding tx confirmed in mainchain with MIN_CONFIRMATIONS.
-    //   2. txid integrity: recomputed from raw bytes.
-    //   3. Script match: byte-match the key-path P2TR funding output `0x5120||Q`
-    //      (Q = p.fundingTaproot) against the SPV-proven tx.
-    //   4. (E142) KeyAgg: `MuSig2Agg.isTwoOfTwoOutputKey` PROVES
-    //      Q == TapTweak(KeyAgg(KeySort(lpPubkey, hopPubkey))) — see openChannel.
-    //      ⚠️ THIS LINE USED TO SAY THE OPPOSITE ("the contract does NO secp256k1 EC, so it
-    //      does NOT prove Q == KeyAgg"). True until 2026-08-08, false now. It is the third
-    //      correction to this same block; the check it describes is what finally makes the
-    //      funding output SELF-IDENTIFYING rather than asserted.
-    //      ⚠️ CORRECTED 2026-08-07. This used to read: "the LP's lpAuth signs over the
-    //      WHOLE OpenParams (incl. Q), so Q is anchored to what the LP consented to."
-    //      THAT ANCHOR NO LONGER EXISTS — `lpAuth` was retired when `openChannel` moved
-    //      to `(…, address lpEth)` gated on `_authorizedHop`. Under delegation the LP
-    //      consents to a HOP, not to a funding output, so a delegated hop may open with
-    //      ANY `Q` and ANY `amountSats` credited to that LP. The 2-of-2 genuineness now
-    //      rests ENTIRELY on the off-chain MuSig2 keygen + the delegated-hop gate. This is
-    //      the SAME trust posture as the old P2WSH path: that path reconstructed
-    //      the script SHAPE but likewise never proved the LP controlled its key or
-    //      that the parties were independent. A malicious hop is the residual trust
-    //      either way.
-    //   4. Amount match: that output's value == p.amountSats.
-    //  Without (3)+(4) an LP could submit any tx and credit a fabricated
-    //  position.
-    // ═════════════════════════════════════════════════════════════════
-    /// @notice EIP-191-free authorization digest the LP signs with the EVM key
-    ///         that should own the channel + pool position. Binds chain + this
-    ///         contract + the exact funding tx + every OpenParams field.
-    /// @param hop the EVM address the LP authorizes to SUBMIT this open (== the hop
-    ///        that will own the channel). Binding it into the digest lets the LP
-    ///        designate its hop (fleet/self/family) and stops a genuine lpAuth from
-    ///        being replayed through any other submitter. (v2: hop added to the digest.)
-    ///
-    /// ═══ THE DIGEST FAMILY SPLITS IN TWO, AND NOTHING SAID SO UNTIL NOW (E149) ═══
-    /// **VERIFIED ON-CHAIN** — a signature over these is recovered/checked in this contract:
-    ///     `openAuthDigest`    (openChannel — the LP's per-channel consent)
-    /// **OFF-CHAIN-SIGNING HELPERS** — `public view` so the off-chain side can compute the
-    /// EXACT bytes this contract would, but NO on-chain consumer verifies a signature:
-    ///     `openChannelDigest` · `spliceDigest` · `swapOutDeliverDigest`
-    /// ⚠️ **HAVING NO ON-CHAIN CONSUMER IS THE NORMAL, INTENDED STATE FOR THE SECOND GROUP —
-    ///    IT IS NOT EVIDENCE OF DEAD CODE.** Under the delegation model the fleet acts as the
-    ///    channel's hop and produces no per-call signature, so these are currently unsigned;
-    ///    the helpers were kept deliberately. **E148 nearly deleted `swapOutDeliverDigest` on
-    ///    exactly that misreading — the criterion "no `src` consumer" would equally condemn
-    ///    `openChannelDigest`, which has 9 test and 7 Rust callers.** Count the SIBLINGS
-    ///    before concluding any member of this family is dead.
     function openChannelDigest(
         Types.OpenParams calldata p,
         bytes calldata rawFundingTx,
@@ -920,10 +864,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         Types.ExitArming[] calldata exits
     ) external nonReentrant returns (bytes32 channelId)
     {
-        // (E157) THE LP'S CONSENT ARRIVES WITH THE OPEN. This was a standing grant established by
-        // a prior `registerDelegation` tx; it is now `auth.lpSig`, authenticated below against the
-        // funding outpoint this very call proves. `channel.hop = msg.sender` owns the later
-        // splice/deliver. Same two protections as before, in one step instead of two:
+        // (E157/E183) THE LP'S CONSENT ARRIVES WITH THE OPEN, and it is a BITCOIN signature, not an
+        // EVM one: `auth.btcRecipientPoP` is a BIP-340 proof-of-possession over
+        // `btcRecipientPoPDigest(lpEth)`, where `lpEth` is DERIVED here from `p.lpPubkey` rather
+        // than supplied. The LP signs nothing on the EVM side, so there is no address to assert
+        // beside a signature. Submission is gated by `_onlyHop()` — one of two immutable addresses —
+        // and the later splice/deliver by the same gate. Two protections in one step:
         // `openChannelBody` SPV-proves + taproot byte-matches (0x5120||Q) the funding, and
         // `btcRecipient` is pinned here as the sole payout — so no hop can redirect funds.
         _onlyHop();   // (E185) a real gate; this line used to be a no-op registry check
