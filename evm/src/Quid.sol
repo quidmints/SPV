@@ -1175,7 +1175,7 @@ contract Quid is Shares,
         USD_FEES += usdInc;
     }
 
-    // ─── IBand — the ETH band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
+    // ─── ICore — the ETH band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
     // `Core` used to branch on `IS_BTC` to reach one of two managers for each of these. The facts
     // differ per band, so they live in the band, and `Core` asks one interface.
 
@@ -1395,10 +1395,21 @@ contract Quid is Shares,
     function maxMint(address) external pure returns (uint) { return type(uint).max; }
     function previewDeposit(uint assets) external view returns (uint) { return convertToShares(assets); }
     function previewMint(uint shares) external view returns (uint) { return convertToAssets(shares); }
-    function maxWithdraw(address owner) external view returns (uint) { return convertToAssets(balanceOf(owner)); }
-    function previewWithdraw(uint assets) external view returns (uint) { return convertToShares(assets); }
-    function maxRedeem(address owner) external view returns (uint) { return balanceOf(owner); }
-    function previewRedeem(uint shares) external view returns (uint) { return convertToAssets(shares); }
+    // §E295 — **THE REDEMPTION-SIDE 4626 ACCESSORS ARE DELETED: THEY DESCRIBED AN ASYNC FLOW AS
+    // SYNCHRONOUS.** `redeem`/`withdraw` reach `_withdraw`, whose own comment is the finding — *"4626
+    // path defaults to WAIT (no forced haircut)"* — so a redemption may DEFER. ERC-7540 requires
+    // `preview*` to REVERT on an async flow for exactly this reason; ours returned a number.
+    //   `maxRedeem` claimed the owner's WHOLE balance was redeemable and `previewRedeem` named an
+    // exact asset amount, while capacity gating can defer both. **That is rule 3's inverse: the
+    // failure was SILENT and produced plausible-but-wrong output**, which is the class of check that
+    // earns its place — or, having none to make, the accessor that must go.
+    // ⇒ **THE DEPOSIT SIDE IS UNTOUCHED AND THAT ASYMMETRY IS THE POINT.** `_deposit4626` mints
+    // immediately, so `previewDeposit`/`previewMint`/`maxDeposit`/`maxMint` describe a genuinely
+    // SYNCHRONOUS flow and are honest 4626. **It was never "both faces deny it" — it is the
+    // redemption half, and which half is decided by which side defers.**
+    // ⚠️ SAFE TO DELETE, CONTROLLED: zero references in `spa/src` and `quid-ln`, where the same
+    // search finds `redeem` (6 / 43) and `totalSupply` (3 / 0) — so the method sees client usage
+    // where it exists. `check-client-abis.py` is the gate and was run.
 
     mapping(address => mapping(address => uint)) public allowance;
     event Transfer(address indexed from, address indexed to, uint value);
