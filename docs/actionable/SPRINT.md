@@ -5342,7 +5342,23 @@ so anyone who "fixes" it by weakening the assertion destroys the measurement** �
 
 ---
 
-## 🔴🔴 §E278 — **THE TWO SKEW LEGS DISAGREE ABOUT THE σ²=0 SENTINEL, AND TODAY THAT MEANS TOXIC INFLOW IS FREE**
+## 🔴🔴 §E278 — **THE TWO SKEW LEGS DISAGREE ABOUT THE σ²=0 SENTINEL. ON BTC THAT IS LIVE; ON ETH IT IS NOW LATENT.**
+
+⛔ **MY OWN PREMISE WENT STALE WITHIN THE HOUR, AND I AM CORRECTING IT RATHER THAN LETTING IT READ AS
+CURRENT.** This row was written against *"nothing is pinned, so σ² ≡ 0 on BOTH instances"* (§C1,
+2026-08-21). **`d10d7b8b` then restored the source**: `DeployLib.sol:146` pins Curve TriCrypto-USDC
+`price_oracle(1)` on the **ETH** instance, and `:149-151` leaves the **BTC** instance unset on purpose
+(every on-chain venue quotes WRAPPED BTC, so observing one makes a WBTC depeg indistinguishable from
+bitcoin moving). ⇒ **Scope corrected:**
+- **BTC — UNCHANGED AND LIVE.** No source ⇒ ring never written ⇒ σ² ≡ 0 ⇒ every cell below is today's
+  behaviour on the BTC band. **Toxic inflow into the BTC band is free right now.**
+- **ETH — LATENT, NOT FIXED.** Once the ring populates, the kernel runs and the sentinel becomes a
+  fallback again. But `Core.sol:1318-1322` degrades to unmeasured **by design** — *"any failure
+  (revert, short return, zero) simply SKIPS the write … Degrade to unmeasured, never halt"* — and
+  `ringVariance` also returns 0 on `card < 3`, `n < 3` or `m < 2`. So a cold ring at deploy, a stale
+  pool, or a failing `staticcall` puts ETH back in this state silently.
+⚠️ **THE DEFECT ITSELF IS UNTOUCHED BY ANY OF THAT: `sellSkew` STILL HAS NO σ²=0 GUARD.** The source
+question changes HOW OFTEN the branch is taken, never what it does. **Do not close this row on §C1.**
 
 **Measured 2026-08-21 by enumeration, not inference.** `UNKNOWN_VARIANCE_SKEW` has **exactly one
 consumption site in the tree**: `SwapLib.sol:1020`, inside `skewWad` — the DRAIN leg.
@@ -5536,12 +5552,18 @@ job was the one that could not be justified: the curve was CALIBRATED TO LAND ON
 `UNKNOWN_VARIANCE_SKEW = 3e16` — **the same value — and its own docblock concedes the provenance:**
 *"THEY HOLD THE SAME VALUE TODAY BY INHERITANCE, NOT BY DERIVATION."*
 
-🔴 **WHAT CHANGED IS ITS WEIGHT, NOT ITS DERIVATION.** While a source was pinned, the sentinel was a
-rare fallback for an under-sampled ring. With nothing pinned (§C1), **σ² ≡ 0 on both instances**, so
-per §E278 the live price surface is `{0, 3e16 × sharedScarcity}` and **`UNKNOWN_VARIANCE_SKEW` is the
-only non-zero number in it.** An un-derived constant that was tolerable as a fallback is now the
-entire pricing model, and it arrived there without anyone choosing it — which is why the objection
-lands now and did not before.
+🔴 **WHAT CHANGED IS ITS WEIGHT, NOT ITS DERIVATION.** Where no source is pinned, σ² ≡ 0, so per §E278
+the live price surface is `{0, 3e16 × sharedScarcity}` and **`UNKNOWN_VARIANCE_SKEW` is the only
+non-zero number in it** — an un-derived constant becomes the entire pricing model, and it arrives there
+without anyone choosing it.
+
+⛔ **SCOPE CORRECTED THE SAME DAY, WITH §E278.** This row was written while NEITHER instance had a
+source. `d10d7b8b` pinned Curve on **ETH** (`DeployLib.sol:146`) and deliberately left **BTC** unset.
+⇒ **The paragraph above is today's state on the BTC band, and the ETH band's whenever its ring is cold
+or its read fails** (`Core.sol:1318-1322` degrades to unmeasured by design). On a warm ETH ring the
+sentinel is a fallback again and the objection narrows to: **an un-derived constant still prices every
+fallback, and nothing says what it is derived from.** ⚠️ **That narrower objection is the row** — do
+not close it because ETH got a source.
 
 ⚠️ **IT IS ALSO THE WRONG SHAPE FOR THE JOB, INDEPENDENT OF ITS MAGNITUDE.** A sentinel is a FLAT
 rate: it cannot be size-aware (§E68's `q0→q1` averaging is downstream of the σ² multiply), it discards
@@ -5613,7 +5635,14 @@ not, the split above buys nothing and §C1's hard problem is the only problem.
 does NOT fix the sentinel (§E278 stands — a stale or failed read still yields σ² = 0 by design), and it
 does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
 
-## 🔴 §E278 — **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
+## 🔴 §E278-partialfill — **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
+⚠️ **SUFFIXED 2026-08-21 — `§E278` NAMED TWO ROWS.** Two threads booked against the same id within the
+hour: the other is the σ²-sentinel row above (`:5328`). Per `CLAUDE.md`/§E124 the fix is a **suffix on
+the NEWER row, never a renumber** — this one is newer, and no code cites either (the `§E278` comment in
+`SwapLib` went out with `6890f95c`), so the collision is document-only and ends here.
+📌 **AND THE TWO ARE NOT INDEPENDENT — see `§E285`**, which argues this row is NOT blocked on §E276 and
+that the bound it needs is the one the σ²-sentinel row's option 2 also reaches for.
+
 Booked 2026-08-21 while wiring the refill. **Two things here: a real regression, and my own bad patch
 for it, reverted at `6890f95c`.**
 
@@ -5648,3 +5677,71 @@ and a policy choice about how close to the pole we are willing to quote. **Owner
 a shift of any magnitude still clears. **This whole problem exists only because we apply the pole as a
 SPREAD.** ⇒ **Do not build the price-bounded solve before settling §E276; it would be machinery to
 manage a boundary that the correct object does not have.**
+
+---
+
+## 🔴 §E285 — **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
+
+**Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
+`plan2.pdf` (2026-08-21). Three of its four steps do; the prescription and the blocker do not.**
+
+### What that row got RIGHT, and it is the load-bearing half
+- **The no-op catch.** Clamping `drainUsd6` to `poolVolUsd` changes nothing, because
+  `skewWad:980` is `inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6` — clamping to `inv0` still
+  satisfies `>=`, so `inv1 = 0` either way. Caught and reverted by its own author.
+- **The suite cannot see it.** §E104 already recorded that nothing here drains a band to zero.
+- **The behaviour change is real.** `wellSkew` is called at `:448` on the **requested** size, and the
+  inventory bound lands ~20 lines later in `routeSwap`/`_refundExcess`. So the pole is reached on a
+  request the band could have served in part.
+
+### 🔴 WHERE IT GOES WRONG — "SERVE THE LARGEST AMOUNT WHOSE SKEW STAYS UNDER 100%" BOUNDS AN ARTIFACT
+§E276 establishes that the `1e18` boundary is **an artifact of applying a SHIFT formula in a SPREAD
+slot**, not a property of the curve. Sizing the fill by that boundary therefore makes the servable
+quantity a function of a modelling error — and it is standing rule 3's exact shape: a bound that makes
+the symptom disappear while the object stays wrong. **Its author saw this and drew the opposite
+conclusion — that the work is blocked on §E276. It is not.**
+
+### ⭐ THE PDFs SPECIFY A DIFFERENT BOUND, AND IT DOES NOT CARE WHICH OBJECT WE APPLY
+`plan2.pdf` names two constants and only one is a price: *"**MAX_SKEW** — Hard safety guardrail. If
+inventory hits this boundary, the vault stops quoting one side entirely until arbs clear it"*, and
+*"it prevents the vault from accidentally going 100% into a collapsing asset if arbitrageurs fail to
+show up."* **That is a RESIDUAL INVENTORY FLOOR.** It never asks what the price is, so it reads the
+same under a spread and under a mid-shift. ⇒ **§E276 does not gate it.**
+
+### 🔴 AND THE RESIDUAL IS FORCED BY A–S's OWN MATH, NOT A POLICY GARNISH
+§E68 made the drain leg charge the INTEGRAL rather than the endpoint:
+`(1/Δ)·∫[q0→q1] q/(1−q) dq = [ln((1−q0)/(1−q1)) − Δ]/Δ`. **That integral DIVERGES as `q1 → 1`** — the
+code says so itself (`SwapLib:1064`: *"ends at inv=0 ⇒ pole → ∞"*). ⇒ **There is no finite price at
+which we can serve a drain that empties the band, integrated or not, spread or shift.** Any correct
+design must therefore serve strictly LESS than the whole inventory. The residual is not a choice about
+whether; only its SIZE is a choice.
+
+⇒ **THE FIX:** `fillable` = the largest drain leaving `inv1 ≥ residual` (equivalently `q1 ≤ q_max`);
+serve it, refund `request − fillable` through the `_refundExcess` path that already exists, and revert
+`QuoteUnfillable` **only when `fillable == 0`** — i.e. we are already at or under the floor, which is
+the case where declining is genuinely right and where the pole still MEANS something.
+📌 This reconciles the two statements that look opposed: the owner's *"you still get the remainder of
+the inventory at the same price"* (you get the remainder of the **servable** inventory) and the PDF's
+*"stop quoting one side entirely"* (at the floor, we stop).
+
+### ⚠️ AND "REGRESSION" IS THE WRONG FRAME, WHICH POINTS THE FIX BACKWARDS
+Before the cap deletion an oversized drain took **the entire band inventory at a flat 3%**. That is the
+same family as §E68's flush hole — *"one trade converts the WHOLE inventory and pays NO skew at all"* —
+so the old behaviour was not a feature the cap deletion broke. **Neither behaviour is right: the old
+one sells the last unit far too cheap, the new one refuses a fill it could serve in part.** Calling it
+a regression argues for restoring the fill; the residual is the forward fix, and it is the only one
+that is correct under both.
+
+### 📌 THE EXECUTION-QUALITY ARGUMENT, WHICH IS THE ONE THAT DECIDES IT
+`wellSkew` is `public view`, so `_declineIfUnfillable` makes a **QUOTE READ REVERT** (§E275 already
+flags `Aux:690`, `FixedRateFill:113/127`). **A reverting quote tells a solver nothing.** It cannot size
+down, cannot split the route, and must drop us for the whole leg. A residual-bounded quote returns
+*"X at price P"* — which is precisely what *"the solver routes the part we decline"* requires:
+**you cannot route the part we decline unless we say how big it is.** ⇒ Under §E276's first reading
+(solvers route the remainder) this row is not optional — it is what makes that reading executable.
+
+▶️ **WHAT IS ACTUALLY OWED, and none of it waits on §E276:** pick the residual (policy — note it is the
+SAME question as §E283's option 2, "refuse instead of guess", applied to SIZE rather than to the whole
+quote); move the bound ahead of the `wellSkew` call in `swapToBody`; and write the drain-to-empty test
+§E104 says has never existed. ⚠️ **Sizing must be computed from `inv0`, NOT by clamping `drainUsd6`** —
+that is the no-op this row's sibling already paid for.
