@@ -55,7 +55,7 @@ library ExternalTwap {
     error NoExternalPrice();
 
     /// @notice Curve's EMA price for a pool coin, in WAD.
-    /// @param  k  Curve indexes coin `k+1` against coin 0 — so on TriCrypto USDC (coins: 0 USDC,
+    /// @param  k  Curve indexes coin `k+1` against coin 0 — so on a 3-coin pool ordered (0 USDC,
     ///            1 WBTC, 2 WETH) it is **k=0 → WBTC/USDC, k=1 → WETH/USDC**, and k=2 REVERTS.
     ///            🔴 CORRECTED 2026-08-17: this said "1 = WBTC, 2 = WETH", which is off by one.
     ///            Wiring ETH from it returns **WBTC's** price — measured `price_oracle(0)` =

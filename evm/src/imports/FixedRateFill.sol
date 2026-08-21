@@ -168,7 +168,7 @@ library FixedRateFill {
     ///          C = 4.2bp → w ≥ 0%        C = 10bp → w ≥ 58.0%
     ///          C = 5bp   → w ≥ 16.0%     C = 26bp → w ≥ 83.8%
     ///
-    ///      🔴 **TriCrypto's fee is DYNAMIC across roughly that whole 4–26bp range**, so a constant
+    ///      🔴 **a Curve crypto-pool's fee is DYNAMIC across roughly that whole 4–26bp range**, so a constant
     ///      w is safe at 5bp and grindable at 10bp+. The weights being INPUTS is not sufficient —
     ///      they must clear this floor at the cost that actually applies.
     ///

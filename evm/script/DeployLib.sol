@@ -136,7 +136,7 @@ library DeployLib {
             core          = new Core(cfg.weth, SwapLib.ethRisk());
             Core btcCore  = new Core(cfg.wbtc, SwapLib.btcRisk());
             a.btcCore = address(btcCore);
-            // §E222 — NO OBSERVATION SOURCE IS PINNED. TriCrypto-USDC was pinned here and is
+            // §E222 — NO OBSERVATION SOURCE IS PINNED. A single Curve 3-coin pool was pinned here and is
             // REMOVED ON THE OWNER'S INSTRUCTION (2026-08-21, said three times).
             // ⇒ CONSEQUENCE, STATED RATHER THAN LEFT TO BE FOUND: `_observeIfSourced` returns early,
             //   the ring is never written, `ringVariance` returns 0, and §E213's sentinel prices
@@ -150,7 +150,7 @@ library DeployLib {
             // ▶️ WHAT WOULD WORK: several on-pool EMAs in DIFFERENT quote assets, median-of-N with a
             //   spread cap. Measured 2026-08-21 — WETH/USDC $2,384.81 · WETH/USDT $2,386.52 ·
             //   WETH/crvUSD $2,384.83, a 7.2 bps spread, one storage read each. The index is PER-POOL
-            //   (`price_oracle(1)` on TriCryptos, `price_oracle(0)` on TriCRV), so it must be pinned
+            //   (the WETH index differs BETWEEN Curve pools), so it must be pinned
             //   WITH the source or a shared index prices ETH as WBTC.
             // ⚠️ The BTC instance is deliberately left unset: every on-chain venue quotes WRAPPED
             // BTC, so observing one makes a WBTC depeg indistinguishable from bitcoin moving. Unset
@@ -183,11 +183,11 @@ library DeployLib {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
         core.setup(address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Quid
         // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
-        // TriCrypto-USDC was pinned here and is REMOVED: pricing the band off a single Curve pool
+        // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the band off one pool
         // makes that pool's depth and its own depeg mode an input to σ², the skew and liquidation —
         // and `ExternalTwap`'s own header says a single venue is one observer, not an independent one.
         // Two candidates were tried and both are ruled out: 1inch's OffchainOracle costs 31,722,803
-        // gas per read against a 30M block limit (unexecutable), and TriCrypto is this.
+        // gas per read against a 30M block limit (unexecutable), and a single pool is this.
         // ⇒ WITH NO SOURCE, `_observeIfSourced` RETURNS IMMEDIATELY: the ring is never written,
         //   `ringVariance` returns 0, and §E213's sentinel prices unmeasured variance at the CEILING.
         //   That is deliberate and it is the honest state — it is also what BOTH instances now do, so

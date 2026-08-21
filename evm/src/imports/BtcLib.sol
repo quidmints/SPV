@@ -535,7 +535,7 @@ library BtcLib {
     // These lived ONLY on `BtcLevManager` and read as BTC-specific. They are not: every one is a
     // generic venue operation whose sole asset-specific input is the COLLATERAL TOKEN, which is now a
     // parameter. `leverBorrow`/`repay` do not touch the collateral at all -- they move the venue's
-    // STABLE in and out -- which is why the BTC lever cycle survived TriCrypto's removal untouched
+    // STABLE in and out -- which is why the BTC lever cycle survived the volatile venue's removal untouched
     // while the ETH atomic path did not.
     //
     // ⚠️ EVENTS ARE DECLARED HERE AND STILL EMIT FROM THE MANAGER'S ADDRESS -- delegatecall preserves
