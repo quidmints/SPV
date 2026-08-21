@@ -262,11 +262,25 @@ same compile.
 one. The text below is kept as written because rewriting it wholesale would break the arguments it
 makes; read it through this table instead.
 
-| the docs say | the tree actually has |
-|---|---|
-| `Vogue` / `Vogue.sol` / `VogueCore.sol` | **`Quid` / `Quid.sol`** (and QU!D stays the token) |
-| `BandState` | **`State`** |
-| `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** |
+| the docs say | the tree actually has | stale citations |
+|---|---|---|
+| `Vogue` / `Vogue.sol` / `VogueCore.sol` | **`Quid` / `Quid.sol`** (QU!D stays the token) | 146 |
+| `VogueLib` / `VogueLib.sol` | **`QuidLib` / `QuidLib.sol`** | 34 |
+| `VaultLib` / `VaultLib.sol` | **`QuidLib`** — it was FOLDED IN and deleted, not renamed | 33 |
+| `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** | 20 |
+| `BandState`, then `State`, then `State.sol` | **`Shares` / `Shares.sol`** — ⚠️ **TWO HOPS** | 3 |
+
+⛔ **THE `BandState` ROW HAD ONE HOP AND NOW HAS TWO, AND THIS TABLE WAS WRONG UNTIL 2026-08-21.** It
+read *"`BandState` → `State`"*; the contract was then renamed **`State` → `Shares`** (`94f63006`, so the
+file and the contract finally agree — `Shares.sol` had been declaring `contract State`). **A rename
+table is itself a document that goes stale, and this one went stale the moment its own advice was
+followed.** Anything citing `State` or `State.sol` means today's `Shares`.
+
+⚠️ **DO NOT BULK-REWRITE THE 236 CITATIONS.** 58 of them are in `docs/actionable/BUILD-QUEUE-AND-107.md`,
+which this file declares **append-only** — its value is that its evidence is exactly as recorded. The
+rest sit inside arguments that name the old symbol as part of their reasoning. **Fix the KEY, not the
+references**: that is why this table exists, and it is cheaper and safer than 236 edits across five
+threads' rows.
 
 ⚠️ **`Vogue.sol` is cited in SIX files including this one, and `State.sol` is cited as if it exists —
 it was DELETED, not renamed into.** A row naming a file the tree does not have is not a small
