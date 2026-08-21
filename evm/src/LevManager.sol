@@ -71,10 +71,6 @@ contract LevManager is LevBase {
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
-    // Safe LTV the venue's protocol trove mints BOLD at, for a depth-independent close (see `_onFlashMint`). The
-    // WETH locked above the BOLD's face value = the over-collateralization (1/LTV − 1 = 25% at 8000bps) the
-    // PROTOCOL funds from `boldCloseReserve`, so the closing LP still gets full fair equity. Conservative vs the
-    // ~90.9% Liquity max so the protocol trove itself is never near liquidation.
     uint256 internal constant PROTOCOL_MINT_LTV_BPS = 8000;
     /// Min collateral to OPEN — keeps the `_openLps` book (iterated in bandETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
@@ -120,17 +116,10 @@ contract LevManager is LevBase {
     address public flashProvider;
 
     /// WETH reserve that funds the Liquity over-collateralization when closing a BOLD-levered LP (see
-    /// `_onFlashMint`). It is CONSUMED per close (becomes the protocol trove's own equity), so it is replenished
     /// from protocol capital / accrued leverage fees. The reserve balance is ITSELF the bound — NO governance cap:
     /// a close whose over-collateralization exceeds it simply reverts (fail-closed) and the LP falls to Liquity's
     /// own liquidation, never socialized. Permissionless top-up (only ever adds protocol WETH).
-    uint256 public boldCloseReserve;
-    function fundBoldCloseReserve(uint256 amount) external {
-        if (amount == 0) return;
-        IERC20Min(WETH).transferFrom(msg.sender, address(this), amount);
-        boldCloseReserve += amount;
-    }
-    event FlashProviderSet(address provider);
+     event FlashProviderSet(address provider);
     // flashProvider is pinned atomically alongside the hook + venues in `init` (below).
 
     // LIVE AND LOAD-BEARING — do not delete on the strength of the comment that used to be here (it named the
@@ -605,7 +594,6 @@ contract LevManager is LevBase {
         // trailing word is `minOut` (mode 0, flashed stable) or `repayBold` (mode 1, flashed WETH).
         (uint8 mode, address lp, address venueAddr, address stable, uint256 last) =
             abi.decode(data, (uint8, address, address, address, uint256));
-        if (mode == 1) { _onFlashMint(assets, lp, venueAddr, stable, last); return; }   // own frame (stack, no via_ir)
         if (mode == 2) { _extractSettle(assets, data); return; }             // §G.3 redeem/swap-out — own frame
         _deleverSettle(assets, lp, venueAddr, stable, last);
     }
@@ -630,25 +618,11 @@ contract LevManager is LevBase {
     }
 
     /// @notice mode-1 (BOLD) callback: flashed `wethFlashed` WETH in hand. Mint `repayBold` BOLD at face value via
-    ///         the venue's protocol trove, repay the LP's own trove with it, and settle the WETH flash — the LP
     ///         gets FULL fair equity and the protocol funds the Liquity over-collateralization from
-    ///         `boldCloseReserve` (it becomes the protocol trove's own equity). Depth-independent at any size.
     /// @notice mode-1 (BOLD) callback: flashed `wethFlashed` WETH in hand. Mint `repayBold` BOLD at face value via
-    ///         the venue's protocol trove, repay the LP's own trove with it, and settle the WETH flash — the LP
     ///         gets FULL fair equity and the protocol funds the Liquity over-collateralization from
-    ///         `boldCloseReserve` (it becomes the protocol trove's own equity). Depth-independent at any size.
-    /// @dev Thin forwarder: the fat body moved to `LevMath.onFlashMintBody` (public, delegatecall — bytecode OUTSIDE
-    ///      this EIP-170-critical manager). Passes the runtime addresses + the two WETH reserves in via `FlashMintCfg`
     ///      and writes the updated reserves back here (value-type deltas). Logic unchanged.
-    function _onFlashMint(uint256 wethFlashed, address lp, address venueAddr, address stable, uint256 repayBold)
-        internal
-    {
-        (boldCloseReserve, gasReserve) = LevMath.onFlashMintBody(
-            wethFlashed, lp, venueAddr, stable, repayBold,
-            LevMath.FlashMintCfg({weth: WETH, aux: address(AUX), flashProvider: flashProvider,
-                                  keeper: _activeKeeper, boldReserve: boldCloseReserve, gasReserve: gasReserve}));
-    }
-
+ 
     /// The ETH sell/buy machinery lives in LevMath now (delegatecall, bytecode OUTSIDE this contract, so the
     /// manager fits EIP-170). This builds the context it needs: the manager's runtime addresses + the crank keeper
     /// + the live WETH gas-reserve (threaded in, returned updated).
@@ -667,7 +641,6 @@ contract LevManager is LevBase {
 
     // ════════════════════════ SELF-FUNDING KEEPER GAS (no operator subsidy) ════════════════════════
     /// WETH reserve covering a keeper's de-lever/protect gas when the freed value's own headroom can't (mirrors
-    /// boldCloseReserve). Topped by the 1× surplus skimmed on ample de-levers + this permissionless protocol top-up.
     uint256 public gasReserve;
     function fundGasReserve(uint256 amount) external {
         if (amount == 0) return;

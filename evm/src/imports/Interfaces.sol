@@ -255,15 +255,6 @@ interface ILevVenueColl {
     function stable() external view returns (address);   // E21: was LevMath.ILevVenueVet
 }
 
-/// BOLD/Liquity venue mint-for-close surface -- the manager flashes WETH and draws BOLD at face
-/// value from the venue's protocol trove. `usesMintClose` is the detection marker
-/// `deleverFlashBody` reads to route un-flashable BOLD debt through flash-WETH->mint-BOLD.
-/// (was LevMath.ILevMintVenueM)
-interface ILevMintVenue {
-    function usesMintClose() external view returns (bool);
-    function mintForClose(uint256 wethIn, uint256 boldWanted) external returns (uint256 boldOut);
-}
-
 /// Canonical IAux — union of IAux, IAux.
 
 /// Canonical ICollection — union of ICollection, ICollection.

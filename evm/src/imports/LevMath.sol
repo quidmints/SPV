@@ -5,7 +5,7 @@ import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
-        IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
+        IDepositAdapter, ILevVenueColl} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
@@ -20,9 +20,6 @@ import {QuidLib} from "./QuidLib.sol";
 /// ONE Aux surface for everything LevMath touches on it (redeem / stables / TWAP / SOR both directions / venue /
 /// health) — was five tiny IAux* slices (consolidation).
 // ETH-side sell/buy machinery surfaces — moved here (delegatecall, bytecode OUTSIDE LevManager for EIP-170).
-/// BOLD/Liquity venue mint-for-close surface — the manager flashes WETH and draws BOLD at face value from the
-/// venue's protocol trove. Mirrors LevManager.ILevMintVenue (mintForClose + the usesMintClose detection marker
-/// `deleverFlashBody` reads to route the un-flashable BOLD debt through the flash-WETH→mint-BOLD path).
 /// Morpho Blue zero-fee flash surface — the ONLY flash source (see LevManager.IMorphoFlash). Mirrored here so the
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
 /// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
@@ -731,56 +728,11 @@ library LevMath {
         wethDelivered = collToWethDeliver(got, recipient, floor, cfg);
     }
 
-    /// The manager's runtime addresses + the two WETH reserves the BOLD-close leg reads/writes, threaded into
-    /// `onFlashMintBody` (delegatecall) and returned updated so the thin forwarder can write them back.
-    struct FlashMintCfg { address weth; address aux; address flashProvider; address keeper; uint256 boldReserve; uint256 gasReserve; }
-
-    /// @notice mode-1 (BOLD) flash-mint close body — VERBATIM of LevManager._onFlashMint, moved here (public,
+ 
     ///         delegatecall-linked, bytecode OUTSIDE the manager) so the manager fits EIP-170. Runs in the
     ///         MANAGER's context (address(this)==manager). Flashed `wethFlashed` WETH in hand: mint `repayBold`
-    ///         BOLD at face value via the venue's protocol trove, repay the LP's own trove, and settle the WETH
     ///         flash — the LP gets FULL fair equity and the protocol funds the Liquity over-collateralization from
-    ///         `boldReserve` (becomes the protocol trove's own equity). Depth-independent at any size.
-    /// @return newBoldReserve boldCloseReserve after funding the over-collateralization. @return newGasReserve gas-reserve after the keeper peel.
-    function onFlashMintBody(uint256 wethFlashed, address lp, address venueAddr, address stable, uint256 repayBold, FlashMintCfg memory cfg)
-        public returns (uint256 newBoldReserve, uint256 newGasReserve)
-    {
-        uint256 fairDebtWeth;
-        uint256 freed;
-        {   // 1. Mint `repayBold` BOLD against the flashed WETH (pushed to the venue), from the protocol trove. Liquity's
-            //    one-time WETH gas compensation on the protocol trove's first open is covered by the venue's own
-            //    gas-comp buffer (seeded at deploy), the same buffer that funds LP-trove opens — never the flash/LP.
-            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
-            IERC20Min(cfg.weth).transfer(venueAddr, wethFlashed);
-            uint256 minted = ILevMintVenue(venueAddr).mintForClose(wethFlashed, repayBold);
-            fairDebtWeth = (_toUsd18(cfg.aux,stable, minted) * 1e18) / px;          // fair WETH value of the BOLD repaid
-            // 2. Repay the LP's trove. Liquity returns ALL of its collateral here if this repay CLOSES the trove (full
-            //    close); a partial de-lever returns nothing yet → we withdraw the LP's fair slice next.
-            uint256 wBefore = IERC20Min(cfg.weth).balanceOf(address(this));
-            IERC20Min(stable).transfer(venueAddr, minted);
-            ILevVenue(venueAddr).repay(lp, minted);
-            freed = IERC20Min(cfg.weth).balanceOf(address(this)) - wBefore;
-        }
-        // 3. Partial de-lever (trove still open): withdraw the LP's FAIR freed WETH (= value of the BOLD repaid,
-        //    NOT grossed up — no sale). Equity-neutral: −BOLD debt, −(its fair WETH). Full close already returned all.
-        if (freed == 0 && (ILevVenue(venueAddr).debtOf(lp) > 0 || ILevVenue(venueAddr).collateralOf(lp) > 0))
-            freed = ILevVenue(venueAddr).withdraw(lp, fairDebtWeth);
-        // 4. Settle: repay `wethFlashed` to Morpho + pay the LP `freed − fairDebtWeth` (their equity on a full close;
-        //    0 on a partial). The gap = `wethFlashed − fairDebtWeth` = the over-collateralization the protocol
-        //    funds from the reserve (becomes the protocol trove's equity). Fail-closed if the reserve is short.
-        {
-            uint256 overColl = wethFlashed > fairDebtWeth ? wethFlashed - fairDebtWeth : 0;
-            require(cfg.boldReserve >= overColl, "bold-close: reserve");
-            newBoldReserve = cfg.boldReserve - overColl;
-        }
-        IERC20Min(cfg.weth).approve(cfg.flashProvider, wethFlashed);        // Morpho pulls exactly this back
-        uint256 lpDue = freed > fairDebtWeth ? freed - fairDebtWeth : 0;
-        uint256 skimmed;
-        (skimmed, newGasReserve) = _reimburse(cfg.weth, cfg.keeper, lpDue, cfg.gasReserve); // keeper gas from the freed WETH equity (native ETH)
-        lpDue -= skimmed;
-        if (lpDue > 0) IERC20Min(cfg.weth).transfer(lp, lpDue);            // LP's fair equity (full close) / 0 (partial)
-    }
-
+ 
     /// Pay `keeper` its gas as native ETH: skim from `availWeth` (freed WETH headroom) first, shortfall from
     /// `reserveIn`; skim an extra 1× into the reserve when the headroom covers 2× the gas. Bounded by the reserve —
     /// NEVER reverts (a safety unwind must complete). `keeper==0` ⇒ no-op. Returns (WETH skimmed, new reserve).
@@ -1001,23 +953,12 @@ library LevMath {
         uint256 repayStable = _fromUsd(cfg.aux,stable, repayUsd);
         if (repayStable > debt) repayStable = debt;                              // never flash more than we can repay
         if (repayStable == 0) return;
-        if (_isMintVenueM(address(venue))) {
-            // BOLD/Liquity: flash WETH grossed up to mint `repayStable` BOLD at the protocol trove's safe LTV (so the
-            // flash covers the over-collateralization), finish in the manager's mode-1 callback (_onFlashMint).
-            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);    // USD 1e18 / WETH
-            uint256 wethToFlash = ((_toUsd18(cfg.aux,stable, repayStable) * 1e18 / px) * 10_000) / protocolMintLtvBps;
-            IMorphoFlash(cfg.flashProvider).flashLoan(cfg.weth, wethToFlash, abi.encode(uint8(1), lp, address(venue), stable, repayStable));
-            return;
-        }
         // mode 0 = the generic flash-the-stable → repay → withdraw → sell → return path.
         IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut));
     }
 
     /// try/catch mint-close detection — every non-BOLD venue lacks the marker ⇒ false ⇒ the generic flash-stable path.
-    function _isMintVenueM(address venue) private view returns (bool) {
-        try ILevMintVenue(venue).usesMintClose() returns (bool m) { return m; } catch { return false; }
-    }
-
+ 
     /// USD(1e18) <-> `stable` native units (decimals). Canonical here so both managers can dedup onto them.
     /// @notice USD(1e18) -> native token units, at `pxUsd18` = the USD price of ONE WHOLE token,
     ///         1e18-scaled. `tokens = usd * 10^dec / px`.
