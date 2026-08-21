@@ -5,7 +5,7 @@ of the dollar basket), and *why* that fee is computed by reusing two existing
 primitives: the basket's **time-weighted yield machinery** (the yield analog of a
 price TWAP) and the per-stable **concentration** (each stable's share of the
 basket). This is the **Aux/basket fee** (`FeeLib.calcFeeL1` + `riskFactor`) — *not*
-the 4.2-bps Vogue PoolKey/AMM fee, which is a separate plane.
+the 4.2-bps Quid PoolKey/AMM fee, which is a separate plane.
 
 > ⚠️ **RETRACTED (2026-08-01, verified against the contracts). The `baseRate` described in the
 > 2026-06 update below was REMOVED.** There is no Liquity-style decaying directional redemption toll

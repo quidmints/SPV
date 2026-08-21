@@ -1,4 +1,4 @@
-# One engine, two share tokens: the state inventory for the Core+Vogue fold
+# One engine, two share tokens: the state inventory for the Core+Quid fold
 
 Owner-directed 2026-08-16. **Not implemented.** This is the measured state map for the fold, so the
 next session moves state rather than re-deriving what to move.
@@ -11,7 +11,7 @@ next session moves state rather than re-deriving what to move.
 
 | contract | owns |
 |---|---|
-| **Engine** (Core + Vogue merged) | `POOLED_ETH` / `POOLED_BTC`, `POOLED_USD_*`, both observation rings, skew, settlement, band bounds |
+| **Engine** (Core + Quid merged) | `POOLED_ETH` / `POOLED_BTC`, `POOLED_USD_*`, both observation rings, skew, settlement, band bounds |
 | **vETH** (share token) | every per-LP ETH position, in-range AND out-of-range |
 | **vBTC** (share token) | the same for the BTC band |
 
@@ -42,7 +42,7 @@ enforces this, symmetrically since the ordering flag went). So the two terms are
 construction and cannot double-count. Anything that reads `totalSupply` as "depth in the band" must
 be re-checked against that.
 
-## State to MOVE, measured (from `Vogue`)
+## State to MOVE, measured (from `Quid`)
 
 **Per-LP — goes to the share token:**
 
@@ -74,22 +74,22 @@ exactly this. It is one source of truth for cooperative-close attribution AND th
 
 ## Order of operations
 
-1. **Merge `VogueLib` ∥ `BtcVaultLib`** into ONE band library (8 pairs: `addLiq`/`addLiqChannel`,
+1. **Merge `QuidLib` ∥ `BtcLib`** into ONE band library (8 pairs: `addLiq`/`addLiqChannel`,
    `sizeOutOfRange`/`outOfRangeBtc`, `pullBody`/`pullBtc`, the four `levAdd*`/`levAdd*Btc`,
    `rebalanceBody`×2). ~1,256 lines → ~700. **This is the precondition** — without it the engine
    cannot fit, because the merge only works if one implementation serves both bands.
-   ⚠️ NOT into `VaultLib`: that is ETH **venue custody** (`vogueETH`, `offrampBody`,
+   ⚠️ NOT into `QuidLib`: that is ETH **venue custody** (`vogueETH`, `offrampBody`,
    `supplyVenueBody`, `waitNft`, `withdrawETH`), a third concern with no BTC counterpart. Folding
    the band pair into it re-fuses what `Vault` was split apart to separate.
-2. **Extract the share face** out of `Vogue` into `vETH`, carrying the per-LP state above.
-3. **Merge the remains of `Vogue` into `Core`** — by then it is band bounds + fee accumulators.
+2. **Extract the share face** out of `Quid` into `vETH`, carrying the per-LP state above.
+3. **Merge the remains of `Quid` into `Core`** — by then it is band bounds + fee accumulators.
 4. **Mirror for BTC**: `vBTC` already exists as a contract; give it the same face and per-LP state.
 
 ## The size arithmetic, current
 
 | | bytes |
 |---|---|
-| `Vogue` | 21,902 |
+| `Quid` | 21,902 |
 | `Core` | **10,260** (was 15,339: SafeCallback, PoolManager, PoolKey, the v4 identity layer and one of two rings all removed) |
 | sum | **32,162** vs the 24,576 limit ⇒ **over by 7,586** |
 
@@ -157,20 +157,20 @@ catch it. `python3 tools/check-contract-sizes.py` is the gate.
 
 | fold | sum | limit | over by |
 |---|---|---|---|
-| `Core` + `Vogue` | 32,000 | 24,576 | **7,424** |
+| `Core` + `Quid` | 32,000 | 24,576 | **7,424** |
 | `LevManager` + `BtcLevManager` | 44,372 | 24,576 | **19,796** |
 
-### The Core+Vogue fold is unblocked by ONE step, and it is sufficient
+### The Core+Quid fold is unblocked by ONE step, and it is sufficient
 
-`Vogue` splits cleanly, measured by walking its function bodies:
+`Quid` splits cleanly, measured by walking its function bodies:
 
 | cluster | lines | functions |
 |---|---|---|
 | share / position — `_withdraw` 182, `_depositImpl` 82, `_outOfRange` 41, `compound`, `_settlePending`, `_onExit`, the 4626 + ERC-20 face | **539** | 34 |
 | band — bounds, repack, theta, fee accumulators | **280** | 44 |
 
-⇒ `Vogue` is **66% position machinery**. Moving that cluster into `Shares` frees proportionally
-~14KB — comfortably more than the 7,424 needed — leaving a band-only `Vogue` of ~8KB. Then
+⇒ `Quid` is **66% position machinery**. Moving that cluster into `Shares` frees proportionally
+~14KB — comfortably more than the 7,424 needed — leaving a band-only `Quid` of ~8KB. Then
 `Core` 10,074 + band ~8,000 ≈ **18,000 < 24,576** and the fold fits with headroom.
 
 **So the order is forced, and it is not a preference:** extract the share face FIRST, fold
@@ -194,9 +194,9 @@ a WHOLE.**
 
 | | what it does |
 |---|---|
-| `BtcVaultLib.outOfRangeBtc` | validate → size → store `SelfManaged` → push `positions` → `ICore.outOfRange` — **the whole pipeline** |
-| `VogueLib.sizeOutOfRange` | deposit → `sizeOorUsd` → return `(liquidity, placed)` — **the sizing half only** |
-| `Vogue.outOfRange:277` | the storing half, kept in the contract |
+| `BtcLib.outOfRangeBtc` | validate → size → store `SelfManaged` → push `positions` → `ICore.outOfRange` — **the whole pipeline** |
+| `QuidLib.sizeOutOfRange` | deposit → `sizeOorUsd` → return `(liquidity, placed)` — **the sizing half only** |
+| `Quid.outOfRange:277` | the storing half, kept in the contract |
 
 ⇒ Same pipeline, **split at a different point**. The 12% textual similarity measures where the
 seam was cut, not whether the logic differs. ⚠️ **This is the "confirm what the value refers to"
@@ -238,22 +238,22 @@ A 6909 token id IS the monthly cohort, which is what ties this to the dated-liab
 
 ## 🔴 LIBRARY EXTRACTION CANNOT MAKE THE FOLD FIT — measured 2026-08-17, and it refuted the plan
 
-The plan of record was: Vogue's SHARE cluster is 32 functions / 273 code lines (48% of the
-contract), Vogue is 23,951 bytes, so ~42 bytes per code line ⇒ moving the cluster into a
-delegatecalled library frees ~11,400, and Core+Vogue (needing 9,337) fits. **The 42 bytes/line came
+The plan of record was: Quid's SHARE cluster is 32 functions / 273 code lines (48% of the
+contract), Quid is 23,951 bytes, so ~42 bytes per code line ⇒ moving the cluster into a
+delegatecalled library frees ~11,400, and Core+Quid (needing 9,337) fits. **The 42 bytes/line came
 from dividing total size by total lines, and it is wrong by a factor of eight.**
 
 ### The experiment
 
-`_settlePending` + `_pendingFor` were extracted into `VogueLib` — chosen because they are the one
+`_settlePending` + `_pendingFor` were extracted into `QuidLib` — chosen because they are the one
 self-contained pair (`_settlePending`'s ONLY internal call is `_pendingFor`, so neither needed
 promoting to `external` to be reachable). 28 code lines, build green.
 
 | | before | after | delta |
 |---|---|---|---|
-| `Vogue` | 23,951 | 23,808 | **−143** |
-| `VogueLib` | 12,277 | 13,270 | **+993** |
-| `Core` + `Vogue` | | 33,712 | still **over by 9,136** |
+| `Quid` | 23,951 | 23,808 | **−143** |
+| `QuidLib` | 12,277 | 13,270 | **+993** |
+| `Core` + `Quid` | | 33,712 | still **over by 9,136** |
 
 **143 bytes for 28 lines = 5 bytes/line.** At that rate the remaining 9,136 needs ~1,789 code lines
 and the whole share cluster is 273. Extraction is off by more than an order of magnitude.
@@ -262,8 +262,8 @@ and the whole share cluster is 273. Extraction is off by more than an order of m
 
 The bytes do not live in the body. They live in the SEAM: the forwarder, the external delegatecall
 dispatch, the struct construction for the value-type context (ten loose params overflow the legacy
-stack), and the storage-pointer marshalling. `VogueLib` GREW 993 for the same 28 lines, so the code
-moved without shrinking; Vogue only shed the difference between an inlined body and a call to it.
+stack), and the storage-pointer marshalling. `QuidLib` GREW 993 for the same 28 lines, so the code
+moved without shrinking; Quid only shed the difference between an inlined body and a call to it.
 
 ⚠️ This is the same lesson as the `LevBase` hoist, in the opposite direction and worse. There, nine
 bodies moved into an abstract base and freed 351 bytes total, because an abstract base is COPIED into
@@ -273,14 +273,14 @@ meaningful bytecode from the caller. Do not size an EIP-170 plan on "we moved N 
 
 ### What this leaves, and it is the architecture that was specified all along
 
-The fold needs the share state and its functions to genuinely LEAVE Vogue — `Shares` as a separate
-DEPLOYED contract that OWNS `autoManaged`/`lpShares`/`feesPerShare`/`selfManaged`, with Vogue holding
-only a handle. Then Vogue does not contain them at any level and the bytes are gone rather than
+The fold needs the share state and its functions to genuinely LEAVE Quid — `Shares` as a separate
+DEPLOYED contract that OWNS `autoManaged`/`lpShares`/`feesPerShare`/`selfManaged`, with Quid holding
+only a handle. Then Quid does not contain them at any level and the bytes are gone rather than
 relocated. That is the owner's original description (*"each 4626 instance has feesPerShare and
 selfManaged"*), and this measurement is why there is no cheaper route to it.
 
-⚠️ THE COST THAT MAKES IT HARD IS NOW EXPLICIT: `autoManaged` is read or written by most of Vogue,
-so moving it converts those touches into EXTERNAL CALLS. `_withdraw` alone calls seven Vogue
+⚠️ THE COST THAT MAKES IT HARD IS NOW EXPLICIT: `autoManaged` is read or written by most of Quid,
+so moving it converts those touches into EXTERNAL CALLS. `_withdraw` alone calls seven Quid
 internals. That is a real gas regression on the deposit/withdraw path and a large rewrite, and it
 cannot be verified against the current suite (1,014 pre-existing failures), so it is not a change to
 make blind. Sequence it AFTER the suite has a clean baseline.

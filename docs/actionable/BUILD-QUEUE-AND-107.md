@@ -25,15 +25,15 @@
 
 | Thread | State | Detail |
 |---|---|---|
-| **Venue refactor** (ether.fi-via-Rover, no sink, mappings) | ✅ CODE DONE + committed (`48abf53`+`95740da`); ⚠️ forge-UNVERIFIED | Implements the user `[ TODO ]` at `Vogue.sol:66-80`: ether.fi is NOT a venue (removed `VENUE_ETHERFI=1`; routes through Rover, direct-weETH = internal fallback on BOTH Rover revert AND return-0); no always-live sink (any short curated leg reverts `VenueUnavailable`); mappings deduped to `ethfiBacked` only; stale "50/50" comments fixed. Tests: 4 old venue=1 → venue=4 + new self-liquidated fallback test. **NOT compiled/tested in-thread — see §A.3 checklist for the build machine.** |
+| **Venue refactor** (ether.fi-via-Rover, no sink, mappings) | ✅ CODE DONE + committed (`48abf53`+`95740da`); ⚠️ forge-UNVERIFIED | Implements the user `[ TODO ]` at `Quid.sol:66-80`: ether.fi is NOT a venue (removed `VENUE_ETHERFI=1`; routes through Rover, direct-weETH = internal fallback on BOTH Rover revert AND return-0); no always-live sink (any short curated leg reverts `VenueUnavailable`); mappings deduped to `ethfiBacked` only; stale "50/50" comments fixed. Tests: 4 old venue=1 → venue=4 + new self-liquidated fallback test. **NOT compiled/tested in-thread — see §A.3 checklist for the build machine.** |
 | **Mainnet EIP-170 + deploy-readiness** | ✅ DONE + committed (squash `47d57bc`) | All non-mock contracts under 24576 B via library extraction, NO via_ir/optimizer (LevManager/LevMath/SwapLib). Deploy env: USDT0 removed (codeless), LevOracles promoted to `src/`, deployment-record JSON, SPA commit-pinning. Full detail §DR. **OPEN:** the two 🔴 in §DR (Alles 11-vs-12 stables "mirrors" claim; deployer-key runbook note). |
 | **Fork-test flakes** | 🟡 dominant class FIXED (`7c04fe2`); lev px=0 class REMAINS | Stale TVL-index [12]→[14] fixed → 23/23 sim suites green. Remaining: lev tick-underflow px=0 class (dead-ends recorded). Full detail + next step §A.2. |
 | **Doc self-containment** | ✅ DONE (`0e56125`+`1ec64f7`) | Portability banner + all memory-only context inlined (§A.1) so this repo alone is a complete handoff on a machine with no agent-memory/JSONLs. |
 | — — — 2026-07-24 threads (the substantive open work) — — — | | |
-| **#113 ETH swap-out de-lever** | KEEP (user); core DONE, forge-UNVERIFIED | Decided KEEP (net-equity banded; de-lever unlocks Morpho collateral, keeper re-levers = wash+fees). DONE this turn: deleted `fundVenueForDelever` + `takeToSettle` called DIRECTLY (Vogue IS auth); **added `swapOutDeliverUnlevered` 0-debt branch** (the HODL slice — no repay/no backing hazard); docstrings fixed. **Remaining:** `DeleverEthBackingProbe` (fork-verify levered QD-burn path) + purge arbETH tombstones. §M.1. |
+| **#113 ETH swap-out de-lever** | KEEP (user); core DONE, forge-UNVERIFIED | Decided KEEP (net-equity banded; de-lever unlocks Morpho collateral, keeper re-levers = wash+fees). DONE this turn: deleted `fundVenueForDelever` + `takeToSettle` called DIRECTLY (Quid IS auth); **added `swapOutDeliverUnlevered` 0-debt branch** (the HODL slice — no repay/no backing hazard); docstrings fixed. **Remaining:** `DeleverEthBackingProbe` (fork-verify levered QD-burn path) + purge arbETH tombstones. §M.1. |
 | **#114 BTC dead-man exit** | ✅ BUILT + security-reviewed (forge/BTC-broadcast unverified) | Full daemon done: sign-in-place (funding key NEVER exported — verified), 2-signer orchestrator, rust-bitcoin exit builder, `emitDeadManExit` encoder, heartbeat task (spawned), keyless `quid-recover-exit` broadcaster CLI + SPA link. 108+ tests green. **CORRECTED 2026-08-01: the splice residual is CLOSED** — `quid-bridge/src/deadman_exit.rs` `arm_signer` takes `splice_parent_funding_txid: Option<Txid>` and threads the CURRENT funding scope into both signers (structural check, not just the comment claiming it). **The real residual is VERIFICATION, not implementation:** 0 of 88 forge test files mention the dead-man path at all; the 293-line heartbeat has 0 tests; `presign_deadman_exit` (the MuSig2 2-of-2 orchestration) is uncovered — the 4 tests in `quid-ln/src/deadman_exit.rs` cover only the BUILDER (tx shape, sighash/CLTV binding, fee underflow, witness assembly). Never broadcast on regtest/testnet; the spliced-channel exit is not fork-verified end to end. This is a BACKSTOP — it only runs once everything else has failed, so nothing will reveal a defect before it is needed. §N. |
-| **#115 simplification sweep** | TIER-1 EXECUTED (partial) | ✅ DONE: 3 dead internals + dead vBTC roundtrip (mintVBTC/burnVBTC + BtcVaultLib bodies) + unused bandEthOf/bandBtcOf iface decls + `debtUsd` dedup (routed to `LevMath._toUsd18`, DRY/bytecode-neutral). SKIPPED: `swapOutDeleverAmt` dedup (needs a new LevMath fn — can't verify vs the stack-too-deep WIP) + `_trackOpen`/set-primitives (invasive, follow-up). `vbtcTransfer`/`vbtcTransferFrom` + concrete `bandEthOf/Of` untouched. |
-| **✅ WHOLE EVM SESSION SOLC-CLEAN (2026-07-24)** | targeted per-contract solc, all exit 0 | After the LevMath fix: `LevMath` + `LevManager` + `BtcLevManager` + `SwapLib` + `BtcVaultLib` + `Vogue` + `Vault` ALL compile clean (project optimizer/evm, solc 0.8.35). So the #113 ETH de-lever chain + #115 deletions + the IAux*→IAuxM refactor state are mutually solc-clean. STILL forge-UNVERIFIED (behavioral) — that needs the big box. NOTE: single-file solc needs the FULL v4 remapping set (`v4-core/`+`v4-periphery/`+`permit2/`) or Vogue/Vault throw phantom "IPoolManager→IPoolManager" dup-type errors. |
+| **#115 simplification sweep** | TIER-1 EXECUTED (partial) | ✅ DONE: 3 dead internals + dead vBTC roundtrip (mintVBTC/burnVBTC + BtcLib bodies) + unused bandEthOf/bandBtcOf iface decls + `debtUsd` dedup (routed to `LevMath._toUsd18`, DRY/bytecode-neutral). SKIPPED: `swapOutDeleverAmt` dedup (needs a new LevMath fn — can't verify vs the stack-too-deep WIP) + `_trackOpen`/set-primitives (invasive, follow-up). `vbtcTransfer`/`vbtcTransferFrom` + concrete `bandEthOf/Of` untouched. |
+| **✅ WHOLE EVM SESSION SOLC-CLEAN (2026-07-24)** | targeted per-contract solc, all exit 0 | After the LevMath fix: `LevMath` + `LevManager` + `BtcLevManager` + `SwapLib` + `BtcLib` + `Quid` + `Vault` ALL compile clean (project optimizer/evm, solc 0.8.35). So the #113 ETH de-lever chain + #115 deletions + the IAux*→IAuxM refactor state are mutually solc-clean. STILL forge-UNVERIFIED (behavioral) — that needs the big box. NOTE: single-file solc needs the FULL v4 remapping set (`v4-core/`+`v4-periphery/`+`permit2/`) or Quid/Vault throw phantom "IPoolManager→IPoolManager" dup-type errors. |
 | **✅ COMPILE BLOCKER FIXED (2026-07-24)** | LevMath compiles clean | The `LevMath.sol` `extractToVaultBody`→`sellColl` **stack-too-deep is RESOLVED**: extracted the sell+return-flash+route-surplus tail into a new `_sellAndRoute` frame (drops `lp`/`venueAddr`/`extractUsd` from co-living with the sell). Verified via targeted solc compile (one library + imports, NOT full forge) → **exit 0, no stack-too-deep**, only benign natspec/shadow warnings. Caveat: ran on solc 0.8.35 (pinned is 0.8.30 — not local); fix is structural/version-independent, re-confirm on 0.8.30 at big-box. |
 | **Short subsystem** | 🧭 OPEN (anchor) — removal MAYBE premature | Per memory `yb-shortleg-open-question`: committed `_growShort` BAND-SELLS (skew internal, NOT external-DEX leak) ⇒ Milionis IL≤LVR doesn't cleanly apply ⇒ net-vs-hold = unresolved SIM question. I flip-flopped 5×; anchor. Code removed this session; RESTORE = user's call. See §J.4. |
 | **Comment purge** (user) | PARTIAL | Vault:369 docstring gone (fundVenueForDelever deleted); deleverEthOnDelivery docstring fixed. REMAINING: arbETH tombstones Vault:430 / SwapLib:125 + swapOutDelever/collToWethDeliver/_sendETH "NOT arbETH" clutter. §O.2. |
@@ -61,9 +61,9 @@
 | #102 | ✅ BUILT / test-gap | cUSD + stcUSD (native 4626) as a basket stable. Deploy-wired + Redstone feed. GAP: no fork test exercises cUSD (Alles array omits it). | `DeployL1_s:238,255,357`; memory `102-cusd-stable` |
 | #103 | ✅ BUILT (task-list stale; doc already ✅) | Keeper gas/tip constants tuned to measured gas (Rust mirrors Solidity `COMPOUND_GAS`; Rover measured). | `lev_keeper.rs:266,272` |
 | #106 | ✅ BUILT (was mismarked pending) | BTC leverage venue LAYER: vBTC + WBTC venues side-by-side, per-stable, each collateral-agnostic, new-venue-new-manager (no cross-dependence). | `BtcLevManager:87-108`; Euler/Morpho escrow venues |
-| #107 | 🔴 OPEN (D3 only; θ FORMULA is settled/closed) | D3 = swap the θ NUMERATOR from reserve `avgYield` to the band's realized FEE yield, via θ-LOCAL (feed into `derivedThetaWad` directly — do NOT fold into shared `avgYield`, which also feeds seedFee mint-valuation). Code still uses reserve avgYield. ⚠️ doc:404's "✅ DONE folds skewPremium" is NOT in HEAD (❎ — that fold is absent; `Aux:969` folds SP-yield, grep skewPremium=0). | `VogueLib:341`; build spec doc:515 |
+| #107 | 🔴 OPEN (D3 only; θ FORMULA is settled/closed) | D3 = swap the θ NUMERATOR from reserve `avgYield` to the band's realized FEE yield, via θ-LOCAL (feed into `derivedThetaWad` directly — do NOT fold into shared `avgYield`, which also feeds seedFee mint-valuation). Code still uses reserve avgYield. ⚠️ doc:404's "✅ DONE folds skewPremium" is NOT in HEAD (❎ — that fold is absent; `Aux:969` folds SP-yield, grep skewPremium=0). | `QuidLib:341`; build spec doc:515 |
 | #108 | 🧊 DON'T-BUILD | BTC deferred-deliverability marker — intentionally NOT built; ETH twin was deleted as dead code; deliverability exposed via `totalDeliverableDollars`. | doc:340,411; `BtcLevManager:221` |
-| #109 | ✅ BUILT (was mismarked in_progress) | Cover-open-levers-first on withdraw: `_withdraw` calls `closeLevFor` inline when the ask exceeds free depth. ⚠️ the stale contradicting "DEFERRED" comment at `Vogue.sol:426` must be deleted. | `Vogue:502-505`; entry `LevManager:661` |
+| #109 | ✅ BUILT (was mismarked in_progress) | Cover-open-levers-first on withdraw: `_withdraw` calls `closeLevFor` inline when the ask exceeds free depth. ⚠️ the stale contradicting "DEFERRED" comment at `Quid.sol:426` must be deleted. | `Quid:502-505`; entry `LevManager:661` |
 | #110 | 🟡 refund DONE / ladder OPEN | Partial-fill REFUND is built (#105). OPEN: the opt-in partial-fill LADDER (redeemNFT-shaped) + SPA warning + optional bounty. | refund `SwapLib:509-512`,`Core:266-271`; ladder/bounty absent |
 | #111 | 🟡 ONGOING | Gas/bytecode optimization on NON-lev contracts. Heavy EIP-170 extraction embedded, but no discrete finished pass; explicit deferrals remain. | `SwapLib:752` (deferred) |
 | #113 | 🟡 impl DONE / ETH test missing | ETH swap-out de-lever = equity-preserving BTC-mirror (repay-then-deliver-WETH + 0-debt HODL branch). Impl mirrors BTC; MISSING: an ETH-side test (only the BTC mirror is exercised). | `LevManager:781-810`; `LevMath:728-760` |
@@ -96,14 +96,14 @@ comment). Status tags: 🔴 open · 🟡 partial/needs-verify · ✅ done · �
 - **🔴 STANDING RULE — FIX WHAT YOU FIND, ON THE WAY (user, 2026-07-26).** Verbatim: *"when you detect any issues on the way similar to what you uncovered here, then immediately fix them on the way if there is no doubt about it (if there might be, challenge your assumption)."* So: a defect noticed in passing is FIXED in the same turn when it is unambiguous — do NOT merely log it and move on. When there IS doubt, the obligation is to CHALLENGE the assumption (measure it, look from another angle) rather than either guess or shelve it. The two failure modes this bans: (a) filing a real bug as a TODO because it wasn't the task, and (b) "fixing" something on an unverified hypothesis. Exemplars from the session that motivated it: the sentinel-zero bug (found while chasing an unrelated venue refactor — fixed on the spot, 38→8 failures), the `gauntlet == euler` aliasing (found while reading setUp — fixed), the five divergent `withdrawable` definitions (found while adding ONE deallocate call — unified), vs the counter-example of asserting the ~20% shortfall "was the AAVE fifth" three times without measuring.
 - **🔴 STANDING RULE — NO CRYPTIC 2–3 LETTER NAMES (user, 2026-07-26).** Every variable, parameter and field earns a readable name: `venues` not `vs`, `adapter` not `ad`, `vault` not `v`. Applies to code you WRITE and to any line you TOUCH. (Rename-on-touch, not a big-bang sweep — the tree is full of them: `c`/`v`/`f`/`p`/`gv`/`mv`/`ev`/`bm`/`ec`/`ed`/`av`/`rf`/`mvB`/`evB`. A conventional single-char loop index `i` is the one accepted exception.)
 - **🔴 STANDING RULE — ONE DECLARATION PER INTERFACE, IN A SHARED FILE (user, 2026-07-26).** Verbatim: *"what is with all these underscore V interfaces? we seem to be re-declaring interfaces across files. we can just define them in a file and import them in the files we need."* MEASURED: **26** suffix-variant declarations (`_V`/`_VG`/`_L`/`_VB`/`CL`) and **16 base names declared 2–4×** — `IAaveV4Spoke` ×5, `IWeETH`/`IRover`/`ILevEquity`/`IEthVenue`/`IDepositAdapter` ×3 each, plus ten ×2. Interfaces emit **ZERO deployed bytecode** (verified: `ILevDebtTotal`/`ILevGrossEth`/`IAaveV4Hub` artifacts are 0 bytes), so consolidating is a pure source win with NO EIP-170 cost — and the union of a duplicated interface costs nothing either. The suffixes exist only to dodge same-name collisions when two are imported into one file; one shared `src/imports/Interfaces.sol` with named imports removes the need entirely. **Existing plan: `docs/actionable/INTERFACE-DEDUP-AND-CONSOLIDATION.md`** (findings-only, anchored to `main@025bfe4` — re-verify at mutation sites; it also concludes the `IAuxTWAP_B`/`_BView` view/non-view "deliberate twins" are NOT forced and should collapse to one `view` interface).
-  - ⚠️ **The 5 `IAaveV4Spoke` declarations have already DRIFTED into disjoint subsets of one ABI** — `Vault:44` {supply, withdraw, getReserveId}, `VaultLib:11` {supply, withdraw, **getUserSuppliedAssets**}, `Aux:30` {supply, withdraw, getReserveId}, `ChannelLib:41` {getReserveId, supply, withdraw}, `BasketLib:74` {supply, **getReserveSuppliedAssets**, **getReserveTotalDebt**}. Signatures AGREE where they overlap (so no live bug today), but five partial views of one contract is exactly how a future signature change lands in four files and misses the fifth. Consolidate to the UNION.
+  - ⚠️ **The 5 `IAaveV4Spoke` declarations have already DRIFTED into disjoint subsets of one ABI** — `Vault:44` {supply, withdraw, getReserveId}, `QuidLib:11` {supply, withdraw, **getUserSuppliedAssets**}, `Aux:30` {supply, withdraw, getReserveId}, `ChannelLib:41` {getReserveId, supply, withdraw}, `BasketLib:74` {supply, **getReserveSuppliedAssets**, **getReserveTotalDebt**}. Signatures AGREE where they overlap (so no live bug today), but five partial views of one contract is exactly how a future signature change lands in four files and misses the fifth. Consolidate to the UNION.
 - **🔴 STANDING RULE — DO NOT JUMP TO CONCLUSIONS; CHALLENGE YOURSELF UNTIL THE SOLUTION IS ELEGANT (user, 2026-07-26; applies to EVERY task).** Verbatim: *"not jump to conclusions, [do] check yourself and try to challenge yourself when something isn't an obvious clear win, look at multiple approaches from all angles until you can find the most elegant solution (that will either reuse what we already have in the code or remove a big chunk of code for a solution that provides better guarantees or the same functionality with better efficiency)."*
   - **The bar for "done deciding":** the chosen approach either (a) REUSES an existing primitive/signal, or (b) DELETES a big chunk while giving better guarantees or equal function at better efficiency. If it does neither — if it merely ADDS — you have not finished looking.
   - **Enumerate ≥2 approaches explicitly** before writing code for anything non-obvious, and write down why the loser lost. A single plausible design is a sign of insufficient search, not of clarity.
   - **Why this rule exists (my own failures, 2026-07-26):** asserted the ~20% LP shortfall "was the AAVE fifth" three times on arithmetic coincidence before a trace refuted the mechanism; wrote "REUSE existing harness IS A DEAD END" into this doc after a filename grep, when `DeployLib` was exactly it; theorised `maxWithdraw == 0` was a per-owner artifact when measurement showed the comment was right. In every case the fix was to MEASURE or to look from another angle, not to reason further from the first hypothesis.
 - **🔴 STANDING RULE — NO UNREACHABLE CODE, AND STRIP EVERY NON-SAFETY CLAMP (user, 2026-07-26; applies to EVERY task, not just removal sweeps).** Two directives, both now permanent:
   1. **"no code should be unreachable."** If a branch/guard/clamp provably cannot fire, DELETE it — "unreachable but intentional-defensive" is NO LONGER an accepted justification. This **REVERSES** the §R verdict that kept `FeeLib:194`'s `feeWad<WAD` guard, and any other row parked on defensive-but-dead grounds; re-audit those. An unreachable guard is worse than absent: it MASKS a violation of the invariant it claims to check (exemplar: the `QuidLens` `MAX_FEE` clamp hid any breach of `calcFeeL1`'s documented `[BASE, MAX_FEE]` range instead of surfacing it).
-  2. **"if you can get rid of any clamps or caps along the way without reducing safety you should do so."** On EVERY touch, prove each clamp in scope either (a) can fire AND prevents real harm ⇒ keep, or (b) cannot fire / prevents nothing ⇒ delete with the proof in-comment. Removals landed under this rule: `QuidLens` `MAX_FEE` (unreachable — `scaledFeeL1 ≤ full ≤ MAX_FEE` on every path, `frac` already clamped at `FeeLib:146`); `VogueLib.derivedThetaWad`'s `theta > 1e18 ? 1e18` (every consumer already short-circuits at `>= 1e18` — `SwapLib.applyTheta:1299`, `VogueLib:470`, `BtcVaultLib:136` — and the real bound is physical HEADROOM in `clampByBacking`). KEPT under it: `FeeLib:146` `frac > WAD` (CAN fire — a withdrawal may exceed one stable's deposit).
+  2. **"if you can get rid of any clamps or caps along the way without reducing safety you should do so."** On EVERY touch, prove each clamp in scope either (a) can fire AND prevents real harm ⇒ keep, or (b) cannot fire / prevents nothing ⇒ delete with the proof in-comment. Removals landed under this rule: `QuidLens` `MAX_FEE` (unreachable — `scaledFeeL1 ≤ full ≤ MAX_FEE` on every path, `frac` already clamped at `FeeLib:146`); `QuidLib.derivedThetaWad`'s `theta > 1e18 ? 1e18` (every consumer already short-circuits at `>= 1e18` — `SwapLib.applyTheta:1299`, `QuidLib:470`, `BtcLib:136` — and the real bound is physical HEADROOM in `clampByBacking`). KEPT under it: `FeeLib:146` `frac > WAD` (CAN fire — a withdrawal may exceed one stable's deposit).
 - **🔴 STANDING RULE — DO NOT MOCK ANYTHING; USE THE REAL ADDRESSES (user, 2026-07-26).** No injected stand-in contracts, no fake vaults, no substitute tokens: wire the real mainnet addresses the deploy script uses. Where a real dependency cannot satisfy a test at the CURRENT fork block, the answer is to **move the fork block, not to mock** — the pin is the variable, the counterparty is not. (Live consequence: `Alles.t.sol`'s ETH venues. MEASURED 2026-07-26 — real Euler `0xD8b2…84C2` is fully withdrawable (gap 0), but Galaxy `0x1878…824F` and Gauntlet `0x43fC…92da` (same Morpho-V2 impl) report `maxWithdraw == 0` against a position we genuinely hold, so exits cannot source from them and 6+ tests fail. ⇒ **the correct fix is pinning a fork block where those two hold idle liquidity**; the stand-ins currently wired for them are a KNOWN VIOLATION of this rule and must be removed once the block is pinned. See §A.5/§A.7.)
 - **HUNT FOR REMOVABLE CODE (less is more + EIP-170).** Periodically scan for code that can be DELETED without breaking anything: dead code (functions/vars/errors/events/constants/imports with ZERO consumers — verify with grep), USELESS caps/limits that aren't security boundaries (like `MAX_VAULTS`: an owner-only setter's self-limit, no loop used it → deleted the constant + struct field + 2 checks), assigned-once-used-once locals (inline them), redundant/unreachable guards, stale post-refactor leftovers. Prefer deletion over any addition; it also fights the 24576-byte contract limit (no via-IR — extract-to-library or delete). Be CONSERVATIVE: only remove verified-unused/provably-redundant; when unsure, flag. Recurring task (see "Removal scan").
 
@@ -129,10 +129,10 @@ This doc + `DISCUSSION-DIGEST.md` are a self-contained handoff. **Skip every ✅
 
 ## U. UNIFICATION SCAN (2026-07-21) — shared-principle dedups found (exemplar: `clampByBacking` #8)
 Ranked; ✅=clean dedup, ⚠️=safety/design decision (surface first), 🛑=intentional keep-divergent. All 3 agents in (fee/backing, swap/skew, leverage/band).
-- ✅ **U0 `plainNet(pooled, lev)` = `pooled − levPooled` (zero-floored)** — HIGHEST/SAFETY. Open-coded **8×** (`Vogue:190/326/363/446`, `VogueLib:448/476`, `Vault:631`, `BtcVaultLib:588`) for 4 roles: hedge E0 base (`bandEthOf`/`bandBtcOf`), venue-yield weight, withdraw cap, transfer cap. A drifted copy (dropped floor / net levBuf not levPooled / `>=` vs `>`) → levered depth withdrawable, double-earned yield, or the `1/(1−t)` over-hedge the split exists to avoid. One pure `plainNet` helper (LevMath/SwapLib). Closest analogue to `clampByBacking`.
+- ✅ **U0 `plainNet(pooled, lev)` = `pooled − levPooled` (zero-floored)** — HIGHEST/SAFETY. Open-coded **8×** (`Quid:190/326/363/446`, `QuidLib:448/476`, `Vault:631`, `BtcLib:588`) for 4 roles: hedge E0 base (`bandEthOf`/`bandBtcOf`), venue-yield weight, withdraw cap, transfer cap. A drifted copy (dropped floor / net levBuf not levPooled / `>=` vs `>`) → levered depth withdrawable, double-earned yield, or the `1/(1−t)` over-hedge the split exists to avoid. One pure `plainNet` helper (LevMath/SwapLib). Closest analogue to `clampByBacking`.
 - ✅ **U8 `TARGET_LTV_CAP_BPS=7500` duplicated literal** (`LevManager:108`, `BtcLevManager:54`) → move to `LevMath` (like `PROTECT_MARGIN_BPS`) so ETH/BTC max-leverage can't be governed apart.
-- ⚠️ **U9 ethThetaBacking parity** — ETH theta-backing inline (`VogueLib:357` `vogueETH+grossBuffer`) vs BTC's named `Core.btcThetaBacking()`. Only 1 ETH caller today; add `ethThetaBacking()` for parity/legibility (low payoff).
-- ⚠️ **U10 post-clamp `targetUSD` rescale** — ETH recomputes `deltaTok·price/WAD` (`VogueLib:360`) vs BTC ratio-scale `targetUSD·capped/deltaTok` (`BtcVaultLib:119`); different rounding. Fold the sizeBySurplus→clamp→rescale tail into one helper (verify rounding intent).
+- ⚠️ **U9 ethThetaBacking parity** — ETH theta-backing inline (`QuidLib:357` `vogueETH+grossBuffer`) vs BTC's named `Core.btcThetaBacking()`. Only 1 ETH caller today; add `ethThetaBacking()` for parity/legibility (low payoff).
+- ⚠️ **U10 post-clamp `targetUSD` rescale** — ETH recomputes `deltaTok·price/WAD` (`QuidLib:360`) vs BTC ratio-scale `targetUSD·capped/deltaTok` (`BtcLib:119`); different rounding. Fold the sizeBySurplus→clamp→rescale tail into one helper (verify rounding intent).
 - 🛑 lev KEEP-DIVERGENT (intentional, documented): shortfall backing ETH(net+gross-coll) vs BTC(POOLED+vogueBTC) — unifying re-doubles-counts BTC (`Core:564-586`) · BTC channel-add skips PHYSICAL-inventory clamp (self-custody sats; theta leg IS shared via clampByBacking) · live-theta fail-open try/catch vs bare check (stack/EIP-170 optimization).
 - ✅ **U1 QD per-share value `min(par, solvent/mature)`** — SAFETY. `ShareMath.qdShareValue` (swap path `SwapLib:544`) vs HAND-ROLLED in redeem (`BasketLib:864`). ShareMath's own docstring says it must be THE ONE valuation (swap↔redeem no-arb). Route redeem through it. Sub-flag: docstring says supplyPreBurn=all-vintages but both callers pass mature-only — verify docstring stale, not callers.
 - ✅ **U2 depeg loss on a balance** — SAFETY. `sev`-direct (`BasketLib:234`, NOT try/catched → a reverting feed reverts the whole basket) vs `riskFactor`-complement (`Aux:961`, try/catched → healthy). Same quantity, DIVERGENT failure semantics. One `applyDepegHaircut` fed by one severity accessor.
@@ -156,7 +156,7 @@ Swap/channel agent:
 - ✅ **R7 SOR `matchMask` dead** (`SOR:343-368`; caller `:212` discards it) — remove `require(nPaths<=256,"too-many-paths")` (`:350`, string-bearing = biggest saving), `matchMask|=(1<<i)` (`:356`), the return param (`:344`). KEEP leastHopsIdx/leastHops (used `:378`).
 - ✅ **R8 `SwapLib.waitNft` public→internal** (`:629`; only internal caller `:619`) — drops the external dispatcher.
 - ✅ **R9 `ChannelLib.WAD` public→internal** (`:71`; all 3 uses internal) — drops the getter.
-- 🟢 **R10 (source-only):** 5 never-reverted mirror errors `VaultLib:37-41` (Dust/NotOwner/BadPercent/NotAStable/ZeroTwap) · no-op `sqrtLower;` `Rover:622` · stale tombstone comments (`SwapLib:125-130`, `Rover:60/128/555/666-668`).
+- 🟢 **R10 (source-only):** 5 never-reverted mirror errors `QuidLib:37-41` (Dust/NotOwner/BadPercent/NotAStable/ZeroTwap) · no-op `sqrtLower;` `Rover:622` · stale tombstone comments (`SwapLib:125-130`, `Rover:60/128/555/666-668`).
 - ⚠️ VERIFY: `ChannelLib.locateChannelOutput` `:557` pubkey-length re-check on splice (likely redundant vs open-time validation).
 - **CORRECTION:** swap-in refill bonus is LIVE (payRefillBonus/creditSwapInBody wired: `Vault:934`→SwapLib→`Core:208-244`), NOT orphaned. `drawSkewPremium` never existed (real symbol `drawPooledUsdBtc`). SPV getters + BTCChannels state vars all used (external ABI/tests) — not removable.
 
@@ -181,25 +181,25 @@ Session scope: prove the WHOLE environment deploys (no broadcast) purely via `ev
 
 | # | Label | File:line | Sev | Defect | Fix |
 |---|-------|-----------|-----|--------|-----|
-| 1 | θ-clamp mis-base (EXEMPLAR) | `BtcVaultLib:130-135`; `applyTheta SwapLib:1222`; `vogueBTC Aux:116/533/711`; `Core:575` | ✅ DONE `c48ea01` | `θ×vogueBTC`, but vogueBTC = disjoint WBTC-donation accumulator, not IL-bearing POOLED_BTC. θ<1 + thin donations → 0 in-range → throttles refill. | **DONE**: one `Core.btcThetaBacking()` (lpSharesBTC + totalBufferBTC) source for BOTH the LP-add clamp (+incoming `sats`) AND the reseat clamp (VogueLib), so a repack can't undo it; dropped dead `aux`/`vogueBTC`. Regression-free (6-red baseline). Closes #7,#8. |
+| 1 | θ-clamp mis-base (EXEMPLAR) | `BtcLib:130-135`; `applyTheta SwapLib:1222`; `vogueBTC Aux:116/533/711`; `Core:575` | ✅ DONE `c48ea01` | `θ×vogueBTC`, but vogueBTC = disjoint WBTC-donation accumulator, not IL-bearing POOLED_BTC. θ<1 + thin donations → 0 in-range → throttles refill. | **DONE**: one `Core.btcThetaBacking()` (lpSharesBTC + totalBufferBTC) source for BOTH the LP-add clamp (+incoming `sats`) AND the reseat clamp (QuidLib), so a repack can't undo it; dropped dead `aux`/`vogueBTC`. Regression-free (6-red baseline). Closes #7,#8. |
 | 2 | Leverage-cap denominator (D7) | `LevManager:108,122`/`BtcLevManager:54` `TARGET_LTV_CAP_BPS`; prose `LevManager:550-552`,`BtcLevManager:369-373` | ❎ INTENTIONAL (2026-07-22 examined) | E0-denominator IS the deliberate over-hedge fix: `debtDelta` sizes `debt=E0·t`; a collateral-LTV swap would reintroduce the over-hedge that `testProof_OnlyDynamicSizingCancelsIL`/`testProof_CorrectKeeperTargetLtv` guard against. | No code change. Only nit: the "≈4×" comments overstate the *conservative* real bound (~1.75× = 1+t); left as-is — E0/leverage semantics too subtle to re-word without risking a wrong number (#14 lesson). |
 | 3 | uint[13] overflow / cUSD #102 | `DeployL1_s:198`; `BasketLib`; +9 files | ✅ HIGH | 13 stables vs uint[13] (BOLD[11]/TVL[12]); loop writes [1..12] → cUSD corrupts TVL, BOLD clobbers USDT0; silent backing corruption. | **DONE `9633064`**: uint[15], BOLD→[13], TVL→[14], 9 src + 8 test; backing 4/4 green. |
 | 4 | sUSDe-class balanceOf-valuation tenor smoothing (was "4626 donation → CAPO, HIGH") | `BasketLib:330` convertToAssets | 🟡 LOW-MED (downgraded from HIGH — FORK-PROVEN 2026-07-21) | EMPIRICAL (`VaultDonationClassify`, `AaveV4DonationProbe`): Aave V4 spoke IMMUNE to BOTH donation (0 on 500 WETH) AND index/rate (exact 0 same-block under a util spike; +14bps/30d real yield only) — true remaining CAPO surface = the weETH LST price oracle (collateral pricing), not the aToken balance; Euler/sDAI/morphoUsds = IMMUNE; MetaMorpho galaxy/gauntlet/sky = 0–13 bps under a 100%-of-totalAssets donation; **only sUSDe inflates fully (100% donation → 100% cta, `totalAssets=balanceOf(USDe)`)**. NOT a profitable attack (donation = real permanent USDe backing, no transient). Residual: a sudden sUSDe cta jump feeds the forward-yield tenor (bufBps) → over-credits future yield now. | Growth-cap/EWMA-smooth ONLY the sUSDe-class balanceOf legs, applied to the TENOR calc (not raw backing, which is real). Aave/Euler/sDAI/MetaMorpho need nothing. |
 | 5 | F2 committedUsd18 interest-loosening | `Core:100-122`; gate `Core:980` | ❎ REVERTED — intended behavior (2026-07-22) | Implemented `min(debt,recordedBuf)` then a named test refuted it: `BufferSwapDrain.t.sol::test_BufferConsumingSwap_CommittedTracksLiveDebt_NoDrain` asserts `committed==inRangeUSD−liveDebt` as "the fold's DEFINING identity, drift-free by construction". Interest shrinking committed is CORRECT (levered LP's real equity = collateral−debt genuinely shrinks; the lost value went to the venue, not the basket, so total claims stay ≤ backing). The "fix" reintroduced the stored counter the design deliberately avoids. | No change — reverted. Documented in Core.committedUsd18 NatSpec. |
 | 6 | F3 levClaimUsd6 scarcity off debt | `Core:183-191` | ✅ DONE `3dcbf46` | Locked-volatile scarcity term fed `_levDebtUsd18` (short-stable ~1× leg), but locked volatile is gross collateral (~2×). Under-weighted + wrong leg. | **DONE**: added `Core.levGrossNative` (gross collateral, native units); `skewWad` split — `inv` subtracts GROSS (locked inventory), `target` keeps DEBT (draw/return demand). Fork-proved `testSkewBarrierRamp_ConvexCapAndMonotone`. |
-| 7 | θ sibling VogueLib.addLiq | `VogueLib:348-352` | ✅ DONE `c48ea01` | Same `θ×backing` shape; masked on ETH (vogueETH≈POOLED_ETH), real only on BTC — the reseat path that would have re-collapsed the band. | **DONE**: VogueLib isBTC branch now reads `Core.btcThetaBacking()` (also fixed the entangled ETH-buffer-for-BTC-reseat bug). |
-| 8 | F3-sibling BTC drops physical clamp | `BtcVaultLib:117,127-129` | ✅ DONE `c48ea01`+dedup | BTC LP-add skipped the ETH physical `backing−pooled` clamp → θ·backing was the sole bound → unbounded when θ fails open. | **DONE (unify, not "skip is sound")**: extracted `SwapLib.clampByBacking` (physical HEADROOM `backing−pooled` AND θ-budget `θ·backing−pooled`), now shared verbatim by the ETH band + BTC add + BTC reseat. Every path bounded at real backing even on fail-open. |
+| 7 | θ sibling QuidLib.addLiq | `QuidLib:348-352` | ✅ DONE `c48ea01` | Same `θ×backing` shape; masked on ETH (vogueETH≈POOLED_ETH), real only on BTC — the reseat path that would have re-collapsed the band. | **DONE**: QuidLib isBTC branch now reads `Core.btcThetaBacking()` (also fixed the entangled ETH-buffer-for-BTC-reseat bug). |
+| 8 | F3-sibling BTC drops physical clamp | `BtcLib:117,127-129` | ✅ DONE `c48ea01`+dedup | BTC LP-add skipped the ETH physical `backing−pooled` clamp → θ·backing was the sole bound → unbounded when θ fails open. | **DONE (unify, not "skip is sound")**: extracted `SwapLib.clampByBacking` (physical HEADROOM `backing−pooled` AND θ-budget `θ·backing−pooled`), now shared verbatim by the ETH band + BTC add + BTC reseat. Every path bounded at real backing even on fail-open. |
 | 9 | ~~_finishMint omits illiquidLoss~~ INVALID — intentional asymmetry | `Basket:320-347` vs `:273-286` | ❎ NOT A BUG (2026-07-21) | Mint and redeem do NOT (and should not) value backing identically: mint over-mints forward yield at 1:1 (par); redeem values one basket share (min($1,solvent/mature)) which ABSORBS the over-mint. illiquid backing is TEMPORARY (thaws over the forward tenor of immature QUI), so the depositor path correctly excludes it; the protocol path subtracts it only because its QUI is redeemable-NOW. | No change — documented the asymmetry in-code so it isn't re-"fixed". |
 | 10 | _touchBaseRate totalSupply vs matureSupply | `Aux:1071-1082`→`FeeLib.touchBaseRate` | ❎ MOOT (2026-07-22) | The whole baseRate register was REMOVED by `6b0d7ff` (no `touchBaseRate` definition remains — only "REMOVED" tombstones `Aux:1015,1055`, `FeeLib:186`); there is no basis choice left to make. NOTE: `DISCUSSION-DIGEST.md` "★ DECAY / baseRate" still describes the removed mechanism as keep-as-is — superseded. | — |
 | 11 | Vote-median stale cache | `Basket` WEIGHTS_btc/SUM_btc/K_btc; `_median:202`; `_resyncVotes:504`←`_transferHelper:474` | ✅ DONE `3dcbf46` | Non-conserving subtraction (used live stake, not the prior contribution) let buckets accrue ghost weight; plus pure-maturation drift. | **DONE**: `votedWeight` snapshot makes every W[] update conserve exactly (also self-heals maturation drift on next interaction) — removed two computed locals from `_transferHelper`. Fork-proved `testGrief_ImmatureVote_NoDoubleCount`. Residual (never-touched voter's stale weight) is O(voters), bounded, soft-cap-only — documented in-code. |
 | 12 | H1 #54 delivery-side de-lever | `SwapLib:1097-1144`; `BtcLevManager:567,574` | ✅ code-verified 2026-07-22 (no new commit — landed earlier) | RESOLVED at HEAD: `deleverOnDelivery`/`_sourceRepayFree` clamp `takeUsd18` to LIVE debt (`SwapLib:1124`) + held (`:1127`); `swapOutDelever` returns REALIZED `freedSats` (`BtcLevManager:574` `if (got != freedSats) freedSats = got`) + realized `usedUsd` (`:567`). Residual: stale-POOLED async reconcile via keeper `syncLevBTC`, documented `SwapLib:1133`. The branch-test half is still open → folded into #13's guard/test ask. | — |
 | 13 | H2 #54 under-delivery | `SwapLib._sourceRepayFree:1116` | ✅ DONE `3dcbf46` (flash-fallback enhancement in progress) | takeUsd18==0 (basket lacks venue debt stable) → silently truncated to funded, leaving unbacked vBTC. | **DONE**: `takeUsd18==0` now reverts `DeleverStableUnavailable` (real debt) or frees the pure-equity slice (no debt). Fork-proved `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`. FOLLOW-ON (in progress): replace the revert with a free-Morpho-flash source (three-way ladder) so delivery never reverts on a sourceable stable. |
-| 14 | F1 shortfall-arb comment drift | `Core:561-586` | ✅ DONE `3dcbf46` | The stale parenthetical claimed the ETH branch adds `totalGrossCollateralEth` to `vogueETH()`; verified `vogueETH` adds NET (`totalNetEquityEth`, VaultLib:121) and `totalGrossCollateralEth` was uncalled until #6 wired it into the skew. | **DONE**: rewrote the Core comment to NET-vs-NET (ETH) + why only BTC needs +totalBufferBTC; corrected the `LevManager.totalGrossCollateralEth` docstring to its real (skew) consumer. |
+| 14 | F1 shortfall-arb comment drift | `Core:561-586` | ✅ DONE `3dcbf46` | The stale parenthetical claimed the ETH branch adds `totalGrossCollateralEth` to `vogueETH()`; verified `vogueETH` adds NET (`totalNetEquityEth`, QuidLib:121) and `totalGrossCollateralEth` was uncalled until #6 wired it into the skew. | **DONE**: rewrote the Core comment to NET-vs-NET (ETH) + why only BTC needs +totalBufferBTC; corrected the `LevManager.totalGrossCollateralEth` docstring to its real (skew) consumer. |
 | 15 | F4 _btcCapClamp dual-base | `SwapLib.btcCapClamp` vs `Core` gate | ✅ DONE `3dcbf46` | Sizer measured the BTC-share cap off GROSS `POOLED_USD_BTC` while the Core gate uses NET `_bandEquityUsd18` → over-restricted legit BTC adds. | **DONE**: added `Core.btcBandEquityUsd18()`; `btcCapClamp` now measures NET, matching the gate. Inlined the clamp locals too. |
-| 16 | F5 addLiq totalBuffer headroom | `VogueLib.addLiq` | ❎ INTENTIONAL (2026-07-22 examined) | `usdOut ≤ surplus = TVL − net-committed` ALWAYS (capped before the θ clamp); the buffer enters only the gross-θ DEPTH clamp (`clampByBacking`), never the TVL-surplus. Proven no F2-style loosening. | No change. |
+| 16 | F5 addLiq totalBuffer headroom | `QuidLib.addLiq` | ❎ INTENTIONAL (2026-07-22 examined) | `usdOut ≤ surplus = TVL − net-committed` ALWAYS (capped before the θ clamp); the buffer enters only the gross-θ DEPTH clamp (`clampByBacking`), never the TVL-surplus. Proven no F2-style loosening. | No change. |
 | 17 | F6 pendingSwapOutUsd gross | `Core:140,491-493` | ❎ correct-by-construction (2026-07-22 examined) | The swap-in gate uses gross `POOLED_USD_BTC` because the delivery draw it guards (`drawPooledUsdBtc`) subtracts from that SAME gross slot — using net would be a mismatched over-tighten. | No change. |
 | 18 | Basket.target ≡ seeded dup | `Basket:35,401-403,460,469`; `seedFee BasketLib:370-383` | ✅ DONE `3dcbf46` | `target` moved by the identical delta to `seeded` everywhere (the "×4yr/1.2" factor was never applied) = provable duplicate. | **DONE**: deleted the `target` storage var + its two writes; replaced with `function target() external view returns(uint){return seeded;}` — kills the redundant SSTOREs, `ChannelLib.seedFee` keeps working. |
-| 19 | recordClose stale mint NatSpec | `BTCChannels:880-881` | ✅ DONE `3dcbf46` | NatSpec said "Vogue reconciles/mints" the coop-close proceeds, but the mint moved to the BtcVault (`unregisterBtcLp`, per the Basket auth regroup). | **DONE**: corrected the attribution to "the BtcVault (via unregisterBtcLp)". |
+| 19 | recordClose stale mint NatSpec | `BTCChannels:880-881` | ✅ DONE `3dcbf46` | NatSpec said "Quid reconciles/mints" the coop-close proceeds, but the mint moved to the BtcVault (`unregisterBtcLp`, per the Basket auth regroup). | **DONE**: corrected the attribution to "the BtcVault (via unregisterBtcLp)". |
 | 20 | deliverableDollars | `LevManager:368-387`; `BtcLevManager:256-275`; `LevMath.deliverableDollars` | ❎ correct-by-construction (2026-07-22 examined) | Margin-bounded `min(netEquityUsd, buffer)` — can't emit phantom USD (`D≥S+L` preserved); single-`px` aggregation is price-consistent. Guarded by `VBtcLevFeeLane.t.sol::test_LevDeliverabilityBTC_DeliverableDollarsView` (asserts real, ≤collateral, grows w/ net-equity, solvent). | No change — it's a live, tested #67 view, not dead. |
 | 21 | Rover.take() tick-range half | `Rover:624-627` | ✅ DONE `3dcbf46` | amount1/WETH `L` sized over (sqrtCurrent,sqrtUpper); realizes over (sqrtLower,sqrtCurrent) → under-estimate short-delivery. | **DONE**: `getLiquidityForAmount1(sqrtLower, sqrtCurrent, need/2)`; removed the `; sqrtLower;` no-op. |
 | 22 | settleSwapIn authority mis-based | `BTCChannels:1011-1063`, gate `:1020` | 🧊 LOW (SGX) | Hop draws GLOBAL POOLED_USD_BTC gated on owning ANY channel, not its own locked sats; dust-hop dilutes LPs. Deferred. | ⚠️ **DO NOT rebuild the on-chain per-hop cap** — it was BUILT + REVERTED. Swap-in is **settle-then-claim**: `lockedSatsOf` systematically LAGS the hop's real LN-received BTC (backing is off-chain in Lightning), so an on-chain `≤ f(own totalSatsLocked-share)` cap chicken-and-eggs legit swap-in throughput. **Correct fix = enclave G-2** (the SGX hop verifies attested sats ≤ committed inbound HTLC before the EVM draws) — this is an M11 residual, not an on-chain change. (memory `multihop-swapin-sgx-residuals`, `btc-swapin-atomicity-aave-cap`; the "cap breaks settle-then-claim" trace is in SCAN-RECONCILE §0 KILLED. Same note applies to INTERFACE-DEDUP §175, which proposes the same reverted cap.) |
@@ -220,7 +220,7 @@ A memory→doc COMPLETENESS audit (does each open task have the context to be BU
 **G4 — M11/SGX residual actionable list (BUILD-QUEUE §V.9 only summarizes).** Completable list (memory + `deploy/PRODUCTION-LAUNCH.md`): G-2 swap-in HTLC gate (see §A#22); C-open key-control attest; DCAP TCB/revocation (`verifier.rs:440/543`); migration replay-nonce + Prod build-guard; seed key-rotation ("recovery #2"); split-brain; ReportData binds only `[0..32]` not the EVM addr `[32..52]`; contract-addr+chain-id→MRENCLAVE binding. **RECONCILE (memories disagree):** anti-rollback / sealed-freshness is **BUILT** (`570cbf8` + `1b76aaa` `commitFreshness`) — `taproot-nonce-reuse-critical` is authoritative; `multihop-swapin-sgx-residuals`'s "P0 UNBUILT" tag is STALE, do NOT re-scope it. (memories `m11-scope`, `m11-enclave-build`, `m11-foundation-audit`, `onchain-hop-attestation`.)
 
 **Tier-2 (memory-only; verify with a grep, then fold into the relevant §):**
-- `btc-lp-native-fees`: swap-IN net-RECEIVER reconcile (`Vogue:779` — a swap-in refilling a channel past funding leaves `finalBalance > funded`; LP keeps the extra natively) + partial/mid-channel LP settlement (full-close-only today).
+- `btc-lp-native-fees`: swap-IN net-RECEIVER reconcile (`Quid:779` — a swap-in refilling a channel past funding leaves `finalBalance > funded`; LP keeps the extra natively) + partial/mid-channel LP settlement (full-close-only today).
 - `yb-leverage-resolved-design`: `E0` **stale-on-band-resize** → keeper over-hedges (fix worth doing); #36 venue-gate = wire `vaultBlocked` into `netEquityEth`/`netEquityBtc` (distinct from S39 GAP-2).
 - `multihop-trustless`: lev collateral **hardcoded weETH** (`LevManager.sol:67`) → a WETH-only LP can't lever; needs a WETH-collateral market / 2nd manager (verify vs LEVERAGE-COLLATERAL-ROUTE-SPEC).
 - `leverage-liquity` (#19 directional Liquity long): the **earmark guard was REMOVED** — re-add on #19 ship, WITH a BOLD concentration cap + real depeg signal + pre-open D3 headroom gate + keeper D1/D2/D3. (§S5 records only the "BOLD trove rate HIGH" constraint.)
@@ -242,30 +242,30 @@ The mainnet-fork suite had two failure CLASSES (both pre-existing, both fail ide
 
 ## A.3 VENUE REFACTOR — ⚠️ VERIFY ON A BUILD MACHINE (2026-07-26, commits `48abf53` + the follow-up fallback commit)
 
-The ether.fi-via-Rover + no-always-live-sink + mappings-dedup refactor (user's `[ TODO ]` at `Vogue.sol:66-80`) is **committed but NOT compiled/tested in-thread** — this thread's machine has no working `forge` build (the `forge build` was interrupted; RAM-limited). **A fresh thread / the other machine MUST run the checklist below before treating this as done.** Everything here is reasoned from source, not verified by a run.
+The ether.fi-via-Rover + no-always-live-sink + mappings-dedup refactor (user's `[ TODO ]` at `Quid.sol:66-80`) is **committed but NOT compiled/tested in-thread** — this thread's machine has no working `forge` build (the `forge build` was interrupted; RAM-limited). **A fresh thread / the other machine MUST run the checklist below before treating this as done.** Everything here is reasoned from source, not verified by a run.
 
 **What changed (files):**
-- `evm/src/imports/VogueLib.sol` — removed the `VENUE_ETHERFI(=1)` dispatch tag; `depositETH` VENUE_ROVER branch + every SPLIT ether.fi leg go through `_supplyEtherFi`; explicit VENUE_GALAXY branch; SPLIT is equal 5-way and reverts `VenueUnavailable()` if any curated leg (Aave/Euler/Rover/Gauntlet) places short — NO Galaxy sink; `placed==0` ⇒ `revert VenueUnavailable()` (no silent fallback). **`_supplyEtherFi` fallback branch (the load-bearing bit):** Rover first; fall to direct weETH when Rover **reverts** (self-liquidated, drained v3 pool — `catch`) OR **returns 0** (Rover unset/inert — the `if (placed==0)` guard). Returns 0 only if BOTH place nothing.
-- `evm/src/Vogue.sol` — dropped the `VENUE_ETHERFI` constant; fixed the stale "50/50 Galaxy+AAVE", "SPLIT sweep target", and `deposit(...,venue)` doc comments (lines ~82/93/1203) that MISLED a prior thread into thinking venue 0 was a 50/50; only `ethfiBacked` per-LP mapping kept (`aaveBacked` + `withdrawInstant` were already removed).
+- `evm/src/imports/QuidLib.sol` — removed the `VENUE_ETHERFI(=1)` dispatch tag; `depositETH` VENUE_ROVER branch + every SPLIT ether.fi leg go through `_supplyEtherFi`; explicit VENUE_GALAXY branch; SPLIT is equal 5-way and reverts `VenueUnavailable()` if any curated leg (Aave/Euler/Rover/Gauntlet) places short — NO Galaxy sink; `placed==0` ⇒ `revert VenueUnavailable()` (no silent fallback). **`_supplyEtherFi` fallback branch (the load-bearing bit):** Rover first; fall to direct weETH when Rover **reverts** (self-liquidated, drained v3 pool — `catch`) OR **returns 0** (Rover unset/inert — the `if (placed==0)` guard). Returns 0 only if BOTH place nothing.
+- `evm/src/Quid.sol` — dropped the `VENUE_ETHERFI` constant; fixed the stale "50/50 Galaxy+AAVE", "SPLIT sweep target", and `deposit(...,venue)` doc comments (lines ~82/93/1203) that MISLED a prior thread into thinking venue 0 was a 50/50; only `ethfiBacked` per-LP mapping kept (`aaveBacked` + `withdrawInstant` were already removed).
 - `evm/test/Alles.t.sol` — the 4 old `venue=1` (ether.fi) deposits now use `venue=4`: 3 no-Rover tests (`testEthVenue_EtherFi_DepositAndOfframp`, `_WaitNFT`, `_InstantRedeem_Rung3`) hit the **return-0** fallback; `test_EmptiedWeethPool_OfframpResilient_RoverHandled` (funded Rover) mocks `rover.deposit` to revert around the deposit so it hits the **catch** fallback and keeps a direct-weETH slice. NEW explicit test `testEthVenue_Rover_SelfLiquidated_FallsBackToDirectWeETH` covers the catch branch head-on.
 
 **CHECKLIST (run on the build machine):**
-1. [x] **DONE 2026-07-26 (macOS x86_64, forge 1.5.1-stable, solc 0.8.30) — `forge build` EXIT 0, artifacts written.** Output was style lints ONLY (`mixed-case-variable`, `unwrapped-modifier-logic`) — zero errors/warnings. Verified the two specific claims: **no dangling `VENUE_ETHERFI` code refs** (the 4 remaining hits are COMMENTS documenting its deliberate absence — `Vogue:71`, `VogueLib:77/97/257`), and `VenueUnavailable` resolves (declared `VogueLib:89`, thrown `:287` curated-leg-short + `:291` placed==0). **EIP-170 gate PASSES: all 137 contracts under 24576.** ⚠️ **But the margins are RAZOR-THIN — treat as a hard constraint on every future edit: `LevManager` 24506 (**70 bytes** free), `LevMath` 24492 (**84**), `SwapLib` 24281 (**295**).** Next-largest are comfortable (`Aux` 1834, `BtcVaultLib` 2742, `BasketLib` 3441). Any addition to LevManager/LevMath/SwapLib must be offset by a deletion in the SAME contract — extract-to-library or delete (no via_ir).
+1. [x] **DONE 2026-07-26 (macOS x86_64, forge 1.5.1-stable, solc 0.8.30) — `forge build` EXIT 0, artifacts written.** Output was style lints ONLY (`mixed-case-variable`, `unwrapped-modifier-logic`) — zero errors/warnings. Verified the two specific claims: **no dangling `VENUE_ETHERFI` code refs** (the 4 remaining hits are COMMENTS documenting its deliberate absence — `Quid:71`, `QuidLib:77/97/257`), and `VenueUnavailable` resolves (declared `QuidLib:89`, thrown `:287` curated-leg-short + `:291` placed==0). **EIP-170 gate PASSES: all 137 contracts under 24576.** ⚠️ **But the margins are RAZOR-THIN — treat as a hard constraint on every future edit: `LevManager` 24506 (**70 bytes** free), `LevMath` 24492 (**84**), `SwapLib` 24281 (**295**).** Next-largest are comfortable (`Aux` 1834, `BtcLib` 2742, `BasketLib` 3441). Any addition to LevManager/LevMath/SwapLib must be offset by a deletion in the SAME contract — extract-to-library or delete (no via_ir).
 2. [x] **RUN 2026-07-26 — 🔴 THE REFACTOR BREAKS THE DEFAULT VENUE ON MAINNET. `forge test --match-contract '^Alles$'` = 72 pass / 38 FAIL, and 36 of the 38 are `VenueUnavailable()`.** (Fork suite runs in ~30 s, not the ~15 min this doc predicts elsewhere; `foundry.toml`'s committed Ankr `eth_rpc_url` is live + archive-capable, so NO `.env` is needed for fork tests.)
    - **The 5 targeted venue tests are FINE** — `testEthVenue_EtherFi_{DepositAndOfframp,WaitNFT,InstantRedeem_Rung3}`, `_Euler_FullLifecycle`, `_Rover_{DepositFundsRoverAndExits,FairGateRefusesManipulatedPool,SelfLiquidated_FallsBackToDirectWeETH}` all PASS. The `_supplyEtherFi` return-0 AND catch fallbacks (checklist items 3+4) are therefore CONFIRMED working. The breakage is elsewhere.
    - **ROOT CAUSE (user, 2026-07-26: "its not a genuine bug, its a symptom of the removal") — CONFIRMED, and the test docstring already said so.** `Alles.t.sol:1301-1308`: *"On THIS fork the configured spoke (0x94e7…, GHO/USDG) doesn't list WETH, so `WETH_RESERVE_ID == 0` → venue 2 is inert and deposits **gracefully fall back to Galaxy**."* `supplyAaveEth` is not defective — AAVE-v4 has no WETH market at this fork block, and `WETH_RESERVE_ID` is fixed at CONSTRUCTION (`Vault.sol:277-279`). The old silent Galaxy sweep hid that; removing the sink made it fatal. Corollary worth stating plainly: **those AAVE tests were never testing AAVE** — they were testing Galaxy under an AAVE label.
-   - **WHY IT SPREADS TO 36 TESTS:** almost nothing selects venue 2. They call the 2-arg `deposit` = **`VENUE_SPLIT`** (49 such call sites in `Alles.t.sol`), and SPLIT is all-or-nothing: `extSum += supplyAaveEth(fifth)` … `if (extSum < fifth*4) revert VenueUnavailable()` (`VogueLib:280-287`). With the AAVE leg structurally placing 0, `extSum` can NEVER reach `fifth*4` ⇒ **every default-venue ETH deposit reverts on mainnet.** Stale tests are a rounding error next to that.
+   - **WHY IT SPREADS TO 36 TESTS:** almost nothing selects venue 2. They call the 2-arg `deposit` = **`VENUE_SPLIT`** (49 such call sites in `Alles.t.sol`), and SPLIT is all-or-nothing: `extSum += supplyAaveEth(fifth)` … `if (extSum < fifth*4) revert VenueUnavailable()` (`QuidLib:280-287`). With the AAVE leg structurally placing 0, `extSum` can NEVER reach `fifth*4` ⇒ **every default-venue ETH deposit reverts on mainnet.** Stale tests are a rounding error next to that.
    - 🟢 **REAL ROOT CAUSE FOUND — A SENTINEL-ZERO BUG, NOT A CONFIG FACT. FIXED 2026-07-26. (This SUPERSEDES the "SPLIT design decision" this row previously proposed — SPLIT's all-or-nothing rule is probably FINE; it was depending on a venue that was spuriously disabled.)** Prompted by the user asking "why would it not list weETH? how odd" — it *was* odd, because the premise was false.
      - **CHAIN-VERIFIED (live mainnet, not comments):** `hub.getAssetId(WETH)` returns **0**, and `spoke.getReserveId(hub,0)` returns **0** — but `getAssetId` **REVERTS** (`0xb77e1e0f`) for a genuinely unlisted asset (probed with SHIB + a dead address). So a 0 return means **"asset index 0"**, i.e. **WETH IS LISTED**, and reserve **0 is its real, valid reserve**. Independent proof: `AaveV4Venue` resolves `COLL_RESERVE` the same way (`:110`), gets 0, and `test/AaveV4Venue.t.sol` **PASSES 2/2** supplying real WETH + borrowing USDC against it. Asset map on this hub: WETH 0, weETH 2, USDT 4, USDC 5, GHO 6, USDG 8 (so weETH is listed too — this is the ether.fi/GHO-flavoured instance).
      - **THE BUG:** `Vault.sol` used `WETH_RESERVE_ID != 0` as the "venue 2 is wired" flag. Reserve 0 being legitimate makes that a **sentinel collision**: it read a perfectly wired venue as absent and **silently disabled ETH venue 2 — which therefore never ran on mainnet at all.** Corroborating evidence that was already in the repo: removal-scan **R3** had flagged `VaultHealthCfg.wethReserveId` as a DEAD field. The old fall-back-to-Galaxy sweep masked it; removing the sweep turned it fatal.
      - **BOTH the `Vault` comment ("0 if WETH isn't listed on this spoke") AND the `Alles.t.sol` docstring ("the configured spoke doesn't list WETH") asserted the false premise** — a textbook instance of the doc's own standing law ("anchor every claim to HEAD; never to comments — the θ-clamp exemplar fooled two agents by comment"). Both corrected in place.
-     - **FIX (no new field, no new immutable, no meaningful bytecode):** `AAVE_SPOKE` becomes the single sentinel — an address cannot be validly zero. `Vault` now resolves inside `try IAaveV4Hub.getAssetId(WETH)` (a **revert** is the real listedness probe) and only then sets `AAVE_SPOKE` + grants the spoke its WETH approval; on revert venue 2 stays unwired with nothing propagated to the deploy. The **five** gates that tested the reserve id now test `aaveSpoke`: `VaultLib` `_aaveBal:83`, `:176`, `:217`, `:278`, `:316`. Stale comment at `BasketLib:1119` fixed too. **NOTE the 5th site (`:316`) was missed on the first pass and caught only by a follow-up grep — grep for `wethReserveId *[=!]= *0` after any change here.**
+     - **FIX (no new field, no new immutable, no meaningful bytecode):** `AAVE_SPOKE` becomes the single sentinel — an address cannot be validly zero. `Vault` now resolves inside `try IAaveV4Hub.getAssetId(WETH)` (a **revert** is the real listedness probe) and only then sets `AAVE_SPOKE` + grants the spoke its WETH approval; on revert venue 2 stays unwired with nothing propagated to the deploy. The **five** gates that tested the reserve id now test `aaveSpoke`: `QuidLib` `_aaveBal:83`, `:176`, `:217`, `:278`, `:316`. Stale comment at `BasketLib:1119` fixed too. **NOTE the 5th site (`:316`) was missed on the first pass and caught only by a follow-up grep — grep for `wethReserveId *[=!]= *0` after any change here.**
    - **RESULT AFTER THE SENTINEL FIX: 38 fail → 8 fail (72 pass → 101 pass, 2 skipped). All 36 `VenueUnavailable()` GONE.** SPLIT was never the problem, confirming the design change proposed above was unnecessary.
-   - 🔴 **NEW, NEWLY-VISIBLE BUG — the AAVE-v4 leg cannot be WITHDRAWN (6 of the remaining 8).** Enabling venue 2 for the first time means SPLIT now really places a fifth into AAVE-v4 — and the exit path cannot get it back. The shortfall is arithmetically exact: `testDepositImmediateWithdraw` 19.80%, `testWithdrawWithAccruedFees` 19.51%, `test_BankRun_VaultLiquidity` 20.00%, `test_EthLp_RedeemConservationAndFairness` 19.39% (this one is the damning framing — *"equal LPs must get equal payout (no exit-order skim)"*), plus `testFuzz_VogueDepositWithdraw` ("Received too little") and `testAlternatingSwaps` (10.78%, diluted by churn). **≈1/5 everywhere = the AAVE fifth.** Supply works (`VaultLib:177/219/316`); the recovery leg is `VaultLib:278-290`, whose `try …withdraw(…) catch {}` SWALLOWS failure — so a broken pull degrades into a silent LP shortfall rather than a revert. **TRACE-NARROWED 2026-07-26 (`-vvvv` on `testDepositImmediateWithdraw`) — it is NOT the pull, and NOT the supply. Both work:**
+   - 🔴 **NEW, NEWLY-VISIBLE BUG — the AAVE-v4 leg cannot be WITHDRAWN (6 of the remaining 8).** Enabling venue 2 for the first time means SPLIT now really places a fifth into AAVE-v4 — and the exit path cannot get it back. The shortfall is arithmetically exact: `testDepositImmediateWithdraw` 19.80%, `testWithdrawWithAccruedFees` 19.51%, `test_BankRun_VaultLiquidity` 20.00%, `test_EthLp_RedeemConservationAndFairness` 19.39% (this one is the damning framing — *"equal LPs must get equal payout (no exit-order skim)"*), plus `testFuzz_VogueDepositWithdraw` ("Received too little") and `testAlternatingSwaps` (10.78%, diluted by churn). **≈1/5 everywhere = the AAVE fifth.** Supply works (`QuidLib:177/219/316`); the recovery leg is `QuidLib:278-290`, whose `try …withdraw(…) catch {}` SWALLOWS failure — so a broken pull degrades into a silent LP shortfall rather than a revert. **TRACE-NARROWED 2026-07-26 (`-vvvv` on `testDepositImmediateWithdraw`) — it is NOT the pull, and NOT the supply. Both work:**
      - `SpokeInstance::supply(0, 2e18, Vault)` SUCCEEDS, and `getUserSuppliedAssets(0, Vault)` returns **1999999999999999999** (via `HubInstance::previewRemoveByShares`). So the AAVE slice is really deposited and really readable. The earlier `setUsingAsCollateral` suspicion is WRONG — irrelevant for a pure supply/withdraw with no borrow.
-     - There is **NO `SpokeInstance::withdraw` in the trace at all**, and correctly so: `Vault::withdrawSelf` is invoked for **4.009e18, NOT 5e18**, so `withdrawETH`'s ladder is satisfied by Galaxy alone (`MockGalaxyVault::withdraw` 2e18 + 0.901e18) and the `wethBal < amount` guard at `VaultLib:280` never opens the AAVE branch. The AAVE branch is behaving as designed.
-     - **THE REAL DEFECT IS UPSTREAM: the exit only ever ASKS for 4/5.** The failing assertion is the POOLED_ETH one — the band is unwound for the FULL ~5e18 (`4999999999999999969`) while only `4009905199576741564` is delivered, so ~0.99 ETH of band depth is destroyed with nothing paid out for it. (`"withdraw returns most of the principal"` PASSES at 4.009 > 4.0 — the loose bound hides it.) So whatever computes the deliverable/available ETH is not counting the AAVE-supplied slice as sourceable, even though `aaveBal` can now see it. **NEXT: find the deliverable computation feeding `withdrawSelf`'s amount** (start at `Vogue._withdraw` → the deliverable/`vogueETH` path) and check where the AAVE slice drops out.
-     - 🔴 **SEPARATE, ARGUABLY WORSE DEFECT — SILENT SHORTFALL BY DESIGN.** `VaultLib:286-288` and `:292-294` wrap the AAVE and Rover pulls in `try … catch {}` with EMPTY handlers, then `:297` does `sent = wethBal >= amount ? amount : wethBal` and returns the short amount as ordinary success. A venue fault therefore becomes QUIET LP VALUE LOSS instead of a revert — this is the mechanism that let a ~20% shortfall read as normal operation, and it is what made the sentinel bug invisible for so long. Worth fixing independently of the deliverable bug.
+     - There is **NO `SpokeInstance::withdraw` in the trace at all**, and correctly so: `Vault::withdrawSelf` is invoked for **4.009e18, NOT 5e18**, so `withdrawETH`'s ladder is satisfied by Galaxy alone (`MockGalaxyVault::withdraw` 2e18 + 0.901e18) and the `wethBal < amount` guard at `QuidLib:280` never opens the AAVE branch. The AAVE branch is behaving as designed.
+     - **THE REAL DEFECT IS UPSTREAM: the exit only ever ASKS for 4/5.** The failing assertion is the POOLED_ETH one — the band is unwound for the FULL ~5e18 (`4999999999999999969`) while only `4009905199576741564` is delivered, so ~0.99 ETH of band depth is destroyed with nothing paid out for it. (`"withdraw returns most of the principal"` PASSES at 4.009 > 4.0 — the loose bound hides it.) So whatever computes the deliverable/available ETH is not counting the AAVE-supplied slice as sourceable, even though `aaveBal` can now see it. **NEXT: find the deliverable computation feeding `withdrawSelf`'s amount** (start at `Quid._withdraw` → the deliverable/`vogueETH` path) and check where the AAVE slice drops out.
+     - 🔴 **SEPARATE, ARGUABLY WORSE DEFECT — SILENT SHORTFALL BY DESIGN.** `QuidLib:286-288` and `:292-294` wrap the AAVE and Rover pulls in `try … catch {}` with EMPTY handlers, then `:297` does `sent = wethBal >= amount ? amount : wethBal` and returns the short amount as ordinary success. A venue fault therefore becomes QUIET LP VALUE LOSS instead of a revert — this is the mechanism that let a ~20% shortfall read as normal operation, and it is what made the sentinel bug invisible for so long. Worth fixing independently of the deliverable bug.
      - Note this whole path **had never executed on mainnet before today** — it was dead behind the sentinel bug, which is why it is unexercised.
    - **2 remaining failures are PRE-EXISTING (identical before and after the fix), NOT this class and NOT in §A.2's known list — triage separately:** `test_HoldingsCache_BoldExcludedSpFires` ("SP leg fired (BOLD valued via calcSPValue): 0 <= 0") and `test_Redeem_UnwindsBandToFreeCommittedDollars` ("redeemed more than free stables … 535136822828954480479889 <= 767808068162316845319488"). They got PAST the deposit, so they are independent of the venue work; unverified whether pre-existing (checking would need a revert of the refactor, which is upstream-committed, not a local change).
 3. [ ] Confirm the **return-0 fallback assumption**: base `setUp()` deploys Rover OFF (`address(0)`), so `supplyEtherFiToRover` returns 0 and the 3 no-Rover tests fall to direct weETH. If some CI variant wires a Rover in setUp, those 3 would route THROUGH it instead — re-point them or add a `setRover(0)`.
@@ -305,7 +305,7 @@ Three variants of the same `bitcoin-cli` invocation were open-coded across five 
 
 §A.3 item 5 checked `spa/src/lib/chains.ts` only. A wider sweep of the SPA's contract seam found **three real drifts in `spa/src/lib/abi.ts` + its two consumers** — all grep-verified against HEAD, none fixed yet (awaiting the user's call, and D1 overlaps the #12 POOLED_USD merge).
 
-- 🔴 **D1 `get_deposits` ARITY IS STALE — `uint[13]` vs the contract's `uint[15]`.** `abi.ts:83` declares `(uint[13] amounts, uint[13] yieldW, uint avgYield, uint depegLoss)` and carries an emphatic *"DO NOT use uint[14]/3-tuple — the contract returns uint[13]"* comment. **That comment is wrong at HEAD:** audit #3 (`9633064`) widened it to `uint[15]`, and ALL 9 call sites agree (`Aux:945` decl, `Aux:545`, `QuidLens:8/29`, `SOR:51/350`, `Core:970`, `BtcVaultLib:45/110`). Static arrays encode INLINE, so the mis-declared arity desyncs everything after `amounts`: `dec[1]`(yieldW) is read 2 words early, and `dec[2]`/`dec[3]` (avgYield/depegLoss) decode garbage. Third inconsistent number: the call-site comments say `uint[14]` (`page.tsx:393`, `InfoTab.tsx:94`). **Fix = one edit to `abi.ts:83` + the two comments.**
+- 🔴 **D1 `get_deposits` ARITY IS STALE — `uint[13]` vs the contract's `uint[15]`.** `abi.ts:83` declares `(uint[13] amounts, uint[13] yieldW, uint avgYield, uint depegLoss)` and carries an emphatic *"DO NOT use uint[14]/3-tuple — the contract returns uint[13]"* comment. **That comment is wrong at HEAD:** audit #3 (`9633064`) widened it to `uint[15]`, and ALL 9 call sites agree (`Aux:945` decl, `Aux:545`, `QuidLens:8/29`, `SOR:51/350`, `Core:970`, `BtcLib:45/110`). Static arrays encode INLINE, so the mis-declared arity desyncs everything after `amounts`: `dec[1]`(yieldW) is read 2 words early, and `dec[2]`/`dec[3]` (avgYield/depegLoss) decode garbage. Third inconsistent number: the call-site comments say `uint[14]` (`page.tsx:393`, `InfoTab.tsx:94`). **Fix = one edit to `abi.ts:83` + the two comments.**
   - **EMPIRICALLY CONFIRMED (ethers 6.17, matching the SPA's `^6.16.0` pin) — ethers does NOT throw on the 4 trailing words; it silently decodes 28 of 32.** So the `try`/`catch` around both call sites NEVER fires — there is no error anywhere, just a silently short read. **Blame split, keep it straight: D1 alone does NOT corrupt the rendered stables** (`dec[0]`'s first 13 words are genuinely `amounts[0..12]`); the wrong numbers on screen are **D2's** off-by-one. D1's damage is confined to `dec[1]`/`dec[2]`/`dec[3]` and is latent only while no consumer reads them. Measured on synthetic returndata (`amounts[i]=1000+i`, `yieldW[i]=2000+i`, avgYield=7777, depegLoss=8888): `dec[0]`=`1000..1012` (first 13 right), `dec[1]`=`1013,1014,2000..2010` (2 words early, exactly as the inline analysis predicts), `dec[2]`=`2011` (should be 7777), `dec[3]`=`2012` (should be 8888). Anyone who starts reading avgYield/depegLoss off this call gets plausible-looking garbage, not an error — which is why this is worth fixing BEFORE the #12 SPA work rather than with it.
 - 🔴 **D2 OFF-BY-ONE in the stables-composition display (user-visible).** `amounts[0]` is NOT a stable — it is the **yield-weighted aggregate** (`BasketLib:191` "the basket baseline (amounts[0]/amounts[14])"); per-stable values are written at `amounts[i + 1]` (`BasketLib:245`), with BOLD's canonical slot at `amounts[13]` (`Aux:959`, it is SP-routed and filled in Aux, skipped by the BasketLib loop) and raw TVL at `amounts[14]` (`BasketLib:194`). But BOTH consumers map `STABLES[i] → amounts[i]`: `page.tsx:397` (`setPerStable(dec[0].map(...))`, rendered `:1069`) and `InfoTab.tsx:98`. So the breakdown renders the **aggregate labelled "USDC"**, shifts every stable down one, and **never shows BOLD**. `SPA STABLES` itself is CORRECT (12 entries, USDC…BOLD-last, matching `DeployL1_s:229-239` "AUSD at 9, cUSD at 10, BOLD LAST at 11"). **Fix = `amounts[i+1]`, with BOLD special-cased to `amounts[13]`.** Also stale: `page.tsx:1072` comment "Index 11..13 are aggregate slots".
 - 🔴 **D3 venue enum stale in `abi.ts` (the §A.3 refactor's blind spot).** `abi.ts:119-121` still documents *"0=Split(Galaxy+AAVE,default) 1=ether.fi 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler"* + *"Hard-walled per-LP: your exit is served from YOUR venue only"*, and `:140-141` repeats the same enum for `outOfRange`. Post-§A.3 there is **no venue 1**, SPLIT is an equal **5-way** (not Galaxy+AAVE), **6=Gauntlet** is missing, and per-LP attribution is **ether.fi-slice-only**. Comment-only (no wrong selector), but it is exactly the stale-comment class that misled a prior thread into believing venue 0 was a 50/50 — fix it rather than let it re-mislead.
@@ -327,16 +327,16 @@ Three variants of the same `bitcoin-cli` invocation were open-coded across five 
 
 **🔴 THE `forceDeallocate` FIX PRESCRIBED HERE WAS WRONG — DO NOT IMPLEMENT IT (disproven by direct probe, 2026-07-26; ✅ RESOLVED a different way in `f4a1c2a`).**
 
-The original prescription was: *"`_pull4626` must, when `maxWithdraw < need` and the venue is Morpho-V2, `forceDeallocate(liquidityAdapter(), liquidityData(), need, address(this))` and then withdraw."* It was built, and then **PROBED against the real Galaxy vault: the call SUCCEEDS, returns `penaltyAssets: 0`, and leaves `maxWithdraw` at 0 — before and after, identical.** `liquidityData()` names exactly ONE market (loan=WETH, LLTV 0.945e18) and the vault's 8971 WETH is allocated across OTHERS, so that one hatch frees nothing. It cost ~113k gas per pull for zero effect. **Removed** (VaultLib 9,791 → 9,355 bytes).
+The original prescription was: *"`_pull4626` must, when `maxWithdraw < need` and the venue is Morpho-V2, `forceDeallocate(liquidityAdapter(), liquidityData(), need, address(this))` and then withdraw."* It was built, and then **PROBED against the real Galaxy vault: the call SUCCEEDS, returns `penaltyAssets: 0`, and leaves `maxWithdraw` at 0 — before and after, identical.** `liquidityData()` names exactly ONE market (loan=WETH, LLTV 0.945e18) and the vault's 8971 WETH is allocated across OTHERS, so that one hatch frees nothing. It cost ~113k gas per pull for zero effect. **Removed** (QuidLib 9,791 → 9,355 bytes).
 
 **THE ACTUAL MECHANISM — the max-views are conservative, `withdraw()` self-deallocates:**
 Probed on real Galaxy holding our 20 ETH: `maxWithdraw == 0` **AND `maxRedeem == 0`**, yet `withdraw(1 ether)` **SUCCEEDS** (burning 0.9939 shares) and `redeem` returns **1.875 ETH**. Morpho V2 pulls from its adapters *inside* `withdraw`. Both ERC-4626 max-views are idle-only. **Nothing was ever stuck — we simply never TRIED**, because every read clamped by `maxWithdraw`.
-⇒ **Landed:** `VaultLib._withdrawableOf` is the ONE definition — reported position (`convertToAssets(balanceOf)`) for a Morpho-V2 impl detected via the `liquidityAdapter()` marker, honest `maxWithdraw` for everything else — shared by `_pull4626`, `_deliverableCap`, `evacuate` and `Vault.venuePosition`. `_pull4626` gained optimistic-then-fall-back (retry at the venue's conservative number on revert) since the reported amount is no longer a figure the venue promised.
+⇒ **Landed:** `QuidLib._withdrawableOf` is the ONE definition — reported position (`convertToAssets(balanceOf)`) for a Morpho-V2 impl detected via the `liquidityAdapter()` marker, honest `maxWithdraw` for everything else — shared by `_pull4626`, `_deliverableCap`, `evacuate` and `Vault.venuePosition`. `_pull4626` gained optimistic-then-fall-back (retry at the venue's conservative number on revert) since the reported amount is no longer a figure the venue promised.
 ⇒ **SECURITY, fixed in the same commit:** `Vault.venuePosition` feeds the **permissionless** `Aux.pokeVaultHealth`. Its comment already described the hazard — a healthy Morpho-V2 venue reads 0% liquid, so ANY caller could block-then-evacuate it — but the code below still did the raw `maxWithdraw` read, i.e. the documented fix had never been applied. Now wired, with `test_PokeVaultHealth_HealthyMorphoV2_NotBlocked` pinning it.
 ⇒ **Measured effect:** `deliverableETH` had been returning **0** against 16 solvent ETH in Galaxy; every ETH LP exit paid out NOTHING while the LP retained a full pooled balance. LevYbWeth 98 pass/22 fail (clean baseline) → **111 pass/11 fail**.
 ⇒ **Still open:** the silent-shortfall defect (§A.5) — a venue pull that fails must not degrade into quiet LP value loss (`sent = wethBal >= amount ? amount : wethBal`).
 
-## A.5c ✅ VERIFIED-DONE 2026-08-01 (code: VaultLib.sol:182 premise re-derived/withdrawn)  DESIGN — `deliverableETH` IS INCONSISTENT IN PRINCIPLE (user question, 2026-07-26: *"maybe deliverableETH is not correct in principle? it has to do with leverage and what else?"*)
+## A.5c ✅ VERIFIED-DONE 2026-08-01 (code: QuidLib.sol:182 premise re-derived/withdrawn)  DESIGN — `deliverableETH` IS INCONSISTENT IN PRINCIPLE (user question, 2026-07-26: *"maybe deliverableETH is not correct in principle? it has to do with leverage and what else?"*)
 
 **Verdict: yes — it haircuts THREE legs for liquidity and counts FOUR at full face value.** Today
 `deliverableETH = vogueETH − Σ(4626 illiquid gaps) − levNetEquity`, but `_vogueETH` sums SEVEN kinds of backing:
@@ -360,7 +360,7 @@ Probed on real Galaxy holding our 20 ETH: `maxWithdraw == 0` **AND `maxRedeem ==
 
 **Why this is the likely root of the exit-order failures:** `test_EthLp_RedeemConservationAndFairness` asserts *"equal LPs must get equal payout (no exit-order skim)"* and fails at ~19.4%. Over-counted legs ARE the exit-order advantage: the first LP out is served from the genuinely liquid legs, later LPs hit the legs that were counted but cannot convert. Same for `test_BankRun_VaultLiquidity` ("User01 underpaid").
 
-⚠️ **NOT YET IMPLEMENTED — deliberately.** This is a design change to a solvency-adjacent view (it feeds `Vogue._withdraw`'s `firstBurn` clamp), so per the standing rules it needs the multi-approach pass + measurement before code, not a same-turn edit. The two sub-questions to settle first: (1) does the view need to model the 0.3%-fee rung and the multi-day NFT rung as *discounted* rather than excluded? (2) should `levNetEquity` stay a subtraction or fall out naturally once the ladder is the definition?
+⚠️ **NOT YET IMPLEMENTED — deliberately.** This is a design change to a solvency-adjacent view (it feeds `Quid._withdraw`'s `firstBurn` clamp), so per the standing rules it needs the multi-approach pass + measurement before code, not a same-turn edit. The two sub-questions to settle first: (1) does the view need to model the 0.3%-fee rung and the multi-day NFT rung as *discounted* rather than excluded? (2) should `levNetEquity` stay a subtraction or fall out naturally once the ladder is the definition?
 
 ## A.5d ⚠️ DOC-TRIAGE METHOD WARNING + what `IMPAIRMENT-DERISK-TRIGGER.md` ACTUALLY decides (2026-07-26)
 
@@ -425,7 +425,7 @@ The user supplied a built-vs-marked audit. I verified each claim against the sou
 | **#81** | WBTC-base leverage collateral | ✅ `BtcLevManager:107` → `LevMath.vetVenue(v, WBTC, address(VBTC), WBTC)`; the in-code comment is explicit: *"c1=WBTC ⇒ WBTC venue allowed"*. Atomic path `:432-498`. |
 | **#106** | BTC lev venue layer (vBTC↔WBTC / per-stable) | ✅ `BtcLevManager:87-99` — `allowedVenue` mapping + `venuesFrozen` + one-shot `init(hook, flash, venues)`, *"mirrors LevManager so a WBTC venue can sit beside the vBTC one"*. |
 | **#89** | fold-vs-parallel dedup (Rust) | ✅ `lev_keeper_btc.rs:221` — *"#9/#89: out_of_band DEDUP'd → now imported from lev_keeper (the ONE shared predicate). Local copy removed."* Import at `:26`, used at `:120`. |
-| **#103** | keeper gas constants vs measured | ✅ `lev_keeper.rs:266` `COMPOUND_GAS = 140_000` *"MIRRORS `Vogue.COMPOUND_GAS` … Keep in sync"*; the self-funding gate `compound_pays_for_itself` at `:272`. |
+| **#103** | keeper gas constants vs measured | ✅ `lev_keeper.rs:266` `COMPOUND_GAS = 140_000` *"MIRRORS `Quid.COMPOUND_GAS` … Keep in sync"*; the self-funding gate `compound_pays_for_itself` at `:272`. |
 
 ⚠️ **NUANCE on #81/#106 — do NOT read `EIP170-MIGRATION.md:22` as a built/unbuilt ledger.** That line is a table of *projected bytecode savings from planned migrations* (`| BtcLevManager | #106 venue layer, #108 …, #85 | ~1.5–2 KB |`). The FEATURES are built; what is outstanding there is EXTRACTING them for EIP-170 headroom — a different axis. Two separate states got conflated into "unbuilt".
 
@@ -444,13 +444,13 @@ Second audit pass. Again code-verified before re-tagging. **This section is the 
 | # | Was | Reality at HEAD |
 |---|---|---|
 | **#102** | pending | ✅ **BUILT** — cUSD/stcUSD deploy-wired (`DeployL1_s:238,255,357`) + Redstone feed. **Only gap: no fork test.** |
-| **#109** | in_progress | ✅ **BUILT** — inline `closeLevFor` is LIVE at `Vogue:502-505` (`levPooled>0 && amount>plainNet ⇒ closeLevFor(lp,0)` then `_reconcileLev`). It was mis-marked by a **stale docstring** at `Vogue:426` still saying "INLINE WIRING DEFERRED" + listing two blocking forks. **Comment corrected in place 2026-07-26** with how both forks actually resolved. |
+| **#109** | in_progress | ✅ **BUILT** — inline `closeLevFor` is LIVE at `Quid:502-505` (`levPooled>0 && amount>plainNet ⇒ closeLevFor(lp,0)` then `_reconcileLev`). It was mis-marked by a **stale docstring** at `Quid:426` still saying "INLINE WIRING DEFERRED" + listing two blocking forks. **Comment corrected in place 2026-07-26** with how both forks actually resolved. |
 | **#114** | in_progress | ✅ **BUILT** — full dead-man daemon: `deadman_exit.rs`, keyless `quid-recover-exit.rs`, `emitDeadManExit` encoder, on-chain sink `BTCChannels:868`. |
 | **#97** | "no cleanup landed" | ✅ **EFFECTIVELY DONE** — the cleanup WAS removing stale short-management code post-#95, and it is gone everywhere (both keepers clean, EVM short-grow removed). **Absence of refs IS the cleanup** — reading it as not-done was the error. Contingent on the short staying removed. |
 | **#85** | open | 🧊 **MOOT** — "post basket-stables as short collateral" presumes the short BORROWS. It does not (`_growShort` was self-funded). No borrow ⇒ nothing to collateralize or de-stack. Re-opens ONLY if a borrow-based short is ever restored (see the §J.4 "Short subsystem" anchor). |
 
 **🔴 #107 / D3 — CONFIRMED OPEN, and doc:404 is WRONG. The θ FORMULA is settled/closed; the D3 NUMERATOR SWAP is not built.**
-Verified at HEAD: `VogueLib:341` is literally `theta = mulDiv(IAux_VG(aux).avgYield(), 1e18, work)` — the numerator is **reserve** `avgYield()`. `grep -c skewPremium src/Aux.sol` = **0**. `Aux:969` folds `spYieldWeighted` (Liquity **Stability-Pool** yield) into `amounts[0]`, which is what makes the two look alike — but band **skewPremium** (the retained market-making fee) is NOT folded anywhere.
+Verified at HEAD: `QuidLib:341` is literally `theta = mulDiv(IAux_VG(aux).avgYield(), 1e18, work)` — the numerator is **reserve** `avgYield()`. `grep -c skewPremium src/Aux.sol` = **0**. `Aux:969` folds `spYieldWeighted` (Liquity **Stability-Pool** yield) into `amounts[0]`, which is what makes the two look alike — but band **skewPremium** (the retained market-making fee) is NOT folded anywhere.
 ⇒ **doc line 404's "✅ DONE — folds skewPremium" describes code that is NOT at HEAD → treat as ❎.** The correct build is **θ-LOCAL** (doc:515): feed the band's realized FEE yield straight into `derivedThetaWad`. **Do NOT fold it into the shared `avgYield`** — that same accessor also feeds `seedFee` mint-valuation, so folding would move mint pricing as a side effect.
 
 **🔴 #100 — the ACTIVE WBTC flash-serve. UNBUILT either way; only the TRIGGER is undecided.**
@@ -458,7 +458,7 @@ Two readings share the SAME core op and differ ONLY in trigger:
 - **(A) PROACTIVE permissionless rebalance** — anyone calls a depletion-check entrypoint: flash WBTC → `creditSwapIn` → SOR a **PENDING** swap-out's USD → repay.
 - **(B) REACTIVE JIT** — the flash fires inside/right after a swap-OUT when the vBTC reservoir is too thin: flash WBTC → deliver that swap-out → repay from **THAT** swapper's USD.
 Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium for LPs". **STATUS: UNBUILT** — there is no `flashLoan` site for reservoir refill; every flash site in the tree is leverage de-lever.
-**What IS built and must NOT be re-confused with it:** LP-entry pump (`registerBtcLp`), premium retention (`retainSkewPremium`→`skewPremium*`), geometric re-center (`Vogue.reseat`/`Rover.repackNFT`). See §J.3 for the full pin.
+**What IS built and must NOT be re-confused with it:** LP-entry pump (`registerBtcLp`), premium retention (`retainSkewPremium`→`skewPremium*`), geometric re-center (`Quid.reseat`/`Rover.repackNFT`). See §J.3 for the full pin.
 
 **Corrected 🟡 PARTIAL rows (impl vs test/loop split):**
 - **#113** — 🟡 impl DONE (`LevManager:781-810`, mirrors BTC) / **ETH-side test MISSING** — only the BTC mirror is exercised. `DeleverEthBackingProbe` does not exist.
@@ -478,7 +478,7 @@ Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium fo
 **Slither targets:**
 - **Money-path reentrancy** — especially the HAND-ROLLED `nonReentrant`; consider just replacing it with solmate's `ReentrancyGuard`.
 - **Access-control / arbitrary-call surfaces** — `onGovernanceReport` (arbitrary call), and the CONSISTENCY of the `onlyUs` / `onlyBTCChannels` gates.
-- **Public-library `delegatecall`** — `LevMath` / `SwapLib` / `VaultLib` / `BtcVaultLib` unprotected-delegatecall detector.
+- **Public-library `delegatecall`** — `LevMath` / `SwapLib` / `QuidLib` / `BtcLib` unprotected-delegatecall detector.
 - **This session's work specifically** — the venue refactor's no-fallback revert paths, plus #113/#114 which are forge-UNVERIFIED.
 
 **Echidna money-path invariants (with the scaffolding to REUSE — per §C#20, reuse `DeployLib`, do not hand-roll a stack):**
@@ -495,12 +495,12 @@ Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium fo
 
 ## B. DESIGN VERDICTS (load-bearing decisions)
 
-- **θ Merton:** `θ=avgYield/(K·σ²)`, K=kLvrWad (band α, `VogueLib:263`), σ²=realizedVarianceWad; Merton-optimal risk-capital fraction into the IL bet. Fails OPEN (θ≥1e18 / cold ring → no-op). Higher α → higher K → lower θ → less levered depth (directionally right; magnitude = #107 D6).
+- **θ Merton:** `θ=avgYield/(K·σ²)`, K=kLvrWad (band α, `QuidLib:263`), σ²=realizedVarianceWad; Merton-optimal risk-capital fraction into the IL bet. Fails OPEN (θ≥1e18 / cold ring → no-op). Higher α → higher K → lower θ → less levered depth (directionally right; magnitude = #107 D6).
 - **surplus-vs-skew:** keep **surplus** as the sizing CAP (hard backing constraint D≥S+L); **skew** = PRICING signal (A-S reservation), already used so. Ideal LAYERED: `size=min(surplus_cap, θ·vol_cap, skew_desired_depth)` — skew pulls depth toward imbalance, never past safety ceilings. deltaTok is the right variable; the only defect is the `vogueAvail` argument (#1).
 - **IL-neutral / 2×:** 2× (5000bps)=delta-1; hedge target=`1−√(entry/now)` (ilTargetBps) clamped at cap; boughtFractionWad=ground-truth over-hold (#94 band-bounds ~1% at ±2%). Up-side-only is the PROVEN baseline; down-side short is opt-in (wbtcShortOptIn).
 - **R1 zero-subsidy (tested `LeverageCrossSubsidyProbe:42-44`):** every leverage leg executes EXTERNALLY, never the internal band. **LIVE REGRESSION:** `_growShort` ETH sells into the band (`LevMath:747 swapTo`) then SOR overflow (`:756`) — cross-subsidy violating the invariant (taker: passive LPs accumulate the falling asset; maker: jumps the passive queue). **Fix = external-route the ETH short sell (SOR only).** Fair price ≠ fair risk transfer.
 - **De-lever-into-pairing:** #54 deleverOnDelivery (own proceeds repay debt → free collateral → deliver; value-neutral, single-pay) = necessary & non-toxic, BUILT. #67-rejected = force-unwind to manufacture NEW band backing = forbidden subordination. proceeds-repay OK; freed-USD-as-new-depth toxic.
-- **Native-BTC map VERIFIED SOUND:** `funded=LP.pooled−levPooledBTC`=spliceable physical sats; levPooledBTC=synthetic unwind-only ("no channel BTC behind it", `Vault:179,819`); swap-out clamps shrinkSats to funded (`BtcVaultLib:239`); funded invariant across syncLevBTC; #54 is the ONLY synthetic→physical bridge. Rule: splice only funded; de-lever first to reach the levered slice.
+- **Native-BTC map VERIFIED SOUND:** `funded=LP.pooled−levPooledBTC`=spliceable physical sats; levPooledBTC=synthetic unwind-only ("no channel BTC behind it", `Vault:179,819`); swap-out clamps shrinkSats to funded (`BtcLib:239`); funded invariant across syncLevBTC; #54 is the ONLY synthetic→physical bridge. Rule: splice only funded; de-lever first to reach the levered slice.
 - **Stale-cache-from-non-hooked-change class:** correct = live-on-read (matureSupply loop, touchBaseRate elapsed×decay); buggy = snapshot-at-hook + time-drift. Members: vote-median (#11), committedUsd18 interest (#5), storedHoldings/CAPO (#4), levPooledBTC. **Keep hunting this class.**
 - **POOLED_USD shared-pool:** POOLED_USD_ETH/BTC mirror the SAME dollars; debiting both = consistency not double-spend; racing swaps → 2nd reverts on stale pre-read. Efficiency = drop sum-cap (each side sizes vs `TVL−own_committed`, debit both). **REQUIRED SAFETY:** committedUsd18 must count the shared pool ONCE, not ETH+BTC summed. Answer "protected against drain?" = the procyclical DoS residual → Echidna stress-block. **The median STAYS as the BTC risk-exposure cap (btcShareBps); the efficiency win (drop sum-cap) is orthogonal.** Optional NEW guarantee: per-side reserved liveness FLOOR (median-set) so correlated demand (both spike → shared pool starves one; BTC can't instant-retry like ETH) can't dark a market — an addition, not something lost by sharing. **Repurposing the median for a single-sided-LP volatile-fee→dollar-side split = DECIDED AGAINST (user, 2026-07-21: creates more problems than it solves) — do NOT build or re-propose.**
 - **Refill-bonus / MEV:** don't win the race — ELIMINATE it. (1) atomicity: urgent exit/de-lever self-contained in its own tx, never refill-dependent. (2) JIT-internalize the imbalance into the draining tx (#100 volatile reservoir = home). (3) fair continuous A-S price, not a discrete jackpot. Fleet as normal refiller on self-funded gas (#87) → premium→LPs; payRefillBonus stays only as bounded fleet-down fallback. **atomic-flash-close is UNVERIFIED — prove owed settles on reserve/premium within one call vs needing a paired outflow BEFORE building.** (Existence check: keeper/RFQ refill was deliberately removed `Vault:722-730`; reintroducing = reversal, confirm.)
@@ -508,7 +508,7 @@ Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium fo
 - **Directional long (>2×):** cap itself IS the opt-in (`setTargetLtv>5000`), but keeper doesn't HONOR it (always drags to ilTargetLive). 2×-hardwire branch closes both: `cap==5000`→hardwired IL-neutral hedge; `cap!=5000`→directional (long via cap, short via wbtcShortOptIn), keeper=liquidation-guard only. Key off `targetLtvCapBps==5000` + honor cap-as-target when ≠2×; no new venues. (Existence: no boolean long-opt-in today; >2× implicit via LTV to ~4×.)
 - **mature_quid_usd → maturity-or-FIXED-HAIRCUT:** NO secondary market to price unmatured QUID. Two honest options: wait to maturity (full value), or a **hardcoded conservative protocol haircut** for emergency liquidity — never a quote. protectFromQuid redeems mature at par; if it touches unmatured, a fixed fair haircut. (Existence: today unmatured is EXCLUDED entirely; BTC keeper hardcodes mature_quid_usd=0. BUILD the haircut path.)
 - **Acquirer:** REMOVE `UnwiredNativeAcquirer` + `BtcLevAcquirer` trait/legs (`lev_keeper_btc:77,91`). It's a fail-SAFE stub (bails→de-lever re-supplies); WBTC-mode never invokes it. Kill the external-acquirer indirection; inline the fail-safe de-lever. Audit ALL live stubs: needed→fulfil fully, unneeded→delete.
-- **#107 θ-μ (D3):** derivedThetaWad uses `IAux.avgYield()`=RESERVE yield (`VogueLib:298`); should be the band's realized FEE yield. NOT landed.
+- **#107 θ-μ (D3):** derivedThetaWad uses `IAux.avgYield()`=RESERVE yield (`QuidLib:298`); should be the band's realized FEE yield. NOT landed.
 
 ## C. OPEN AGENDA (build queue + asks; existence-annotated)
 
@@ -545,7 +545,7 @@ Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium fo
 20. 🔴 **Slither → Echidna** money-path invariants (backing≥supply, POOLED no-double-spend, skew conserves premium) — REUSE existing harness (check scaffolding first); manipulation floor = one uint min-half-life.
     - **✅ GATE RE-INSTATED + CAPABILITY CONFIRMED (user, 2026-07-26: "do not delay echidna verification, we have the capability to do this now").** This REVERSES the 2026-07-24 "no Echidna needed for now, verify later" lift recorded at §C#12/`:743`. Echidna verification now travels WITH the build-all work, not after it. Verified on the macOS build machine: **Echidna 2.3.2** (`/usr/local/bin/echidna`, brew), **slither 0.11.5**, **crytic-compile 0.4.1**, and **16 GB RAM** — which clears the 8–16 GB bar the note below sets, so the "too heavy" verdict is OBSOLETE HERE (it described a 3.5 GB box). Caveat: the standalone `solc` on PATH is 0.6.7 (nix); the project needs 0.8.30, so crytic MUST be driven through the foundry framework (`--compile-force-framework foundry`) to pick up forge's svm-managed 0.8.30 — do not let it fall back to the PATH solc.
     - **✅ "REUSE existing harness" IS CORRECT — reuse `DeployLib`, do NOT hand-roll a stack (2026-07-26; corrects an earlier wrong note in this doc that called it a dead end).** Searching for `*echidna*` filenames finds nothing and `evm/test/harness/` is unrelated (`LevKeeperTarget`/`FreshnessTarget` are anvil targets for the RUST keeper's RPC plumbing) — but that is the wrong thing to look for. **The reusable harness is the DEPLOYMENT scaffolding:**
-      - **`DeployLib.deployQuidStack(StackConfig) → StackAddrs`** (`src/DeployLib.sol:106`) stands up the WHOLE stack (Vogue/Core/Aux/Basket/Vault + optional SPVGateway/BTCChannels/Rover) in ONE call. It is `internal` and explicitly "runs in the CALLER's context" (`:43`), so an Echidna harness CONSTRUCTOR calls it exactly as production (`DeployL1_s.sol:290`) and the mainnet-fork suite (`Alles.t.sol:423`) already do. Same entry point ⇒ the fuzzer exercises the REAL deployed topology, not a model.
+      - **`DeployLib.deployQuidStack(StackConfig) → StackAddrs`** (`src/DeployLib.sol:106`) stands up the WHOLE stack (Quid/Core/Aux/Basket/Vault + optional SPVGateway/BTCChannels/Rover) in ONE call. It is `internal` and explicitly "runs in the CALLER's context" (`:43`), so an Echidna harness CONSTRUCTOR calls it exactly as production (`DeployL1_s.sol:290`) and the mainnet-fork suite (`Alles.t.sol:423`) already do. Same entry point ⇒ the fuzzer exercises the REAL deployed topology, not a model.
       - **Echidna 2.x forks**: set `rpcUrl` + `rpcBlock` in `echidna.yaml` to get the mainnet state the stack needs (PoolManager, tokens, Morpho vaults, feeds) — the same reason `driver-e2e.sh` and `Alles.t.sol` fork.
       - **Copy these load-bearing details from `Alles.t.sol` setUp, they are NOT optional:** (a) the **ANGEL #16508 seed** — the deployer must hold it or Basket's ctor check fails (`:415-422`); (b) **nonce alignment** — Core's mock tokens derive their addresses FROM Core, and `_initPool` orients each synthetic pool by an address comparison (`token1isVol = volMock > usdMock`), so Core must land at the same deployer-nonce or the pools flip orientation (`:402-414`); (c) mock venue 4626s are created AFTER the shared deploy at PREDICTED addresses to preserve (b).
       - **⚠️ VERIFY BEFORE BUILDING:** `Alles.t.sol` setUp uses FOUNDRY cheatcodes (`vm.getNonce`, `vm.computeCreateAddress`, `vm.prank`). Echidna runs on **hevm**, which supports only a SUBSET — confirm each one, or reproduce (b) without cheatcodes (the nonce math is computable, and ANGEL can be sourced by fork-state manipulation). This is the one real porting risk; it is a porting cost, NOT a reason to hand-roll a second stack.
@@ -564,7 +564,7 @@ Line refs are into the session JSONL. These were dropped from the agenda in comp
 - ❎ **#95 `recordSkewPremium` rail — ACTUALLY BUILT (doc claim was WRONG, code-verified 2026-07-21).** The levered LP's band-sold slice DOES pay the A-S skew premium → passive LPs: `LevMath._growShort:749` sells base into the band via `swapTo(...,forVolatile=false)` → `SwapLib.swapToBody` sell branch → `sellSkew` → `retainSkewPremium` → `Core.recordSkewPremium:219` (accrues skewPremiumETH/BTC, drawn by payRefillBonus). Do NOT re-implement. (The "called nowhere in LevMath" note read a stale state — it's called via swapTo→SwapLib, not directly.)
 - 🔴 **`outOfRangeBtc` vBTC-funded mirror UNBUILT** — USD-funded only; an order filling into BTC has that leg burned in `Core._settleTokSide` (documented deferred gap). (L7093)
 - 🟡 **C-priced sell-anchor hedge UNBUILT** — the short sizes off base-price + boughtFraction, not collateral-value C. DECIDE if wanted, then build. (L7093)
-- 🟡 **`_withdraw` de-lever capacity** — caps at `pooled−levPooled` (`Vogue:446`), does NOT auto-delever. DECIDE on-chain auto-delever vs SPA-only. (L7093)
+- 🟡 **`_withdraw` de-lever capacity** — caps at `pooled−levPooled` (`Quid:446`), does NOT auto-delever. DECIDE on-chain auto-delever vs SPA-only. (L7093)
 - 🔴 **surplus==0 / empty-band BTC swap-out hop** — served by real channel BTC + btcShortfall hop. Decide if worth building; document non-empty behavior. (L946)
 
 **Deploy / ownership cluster (NO prior agenda coverage — high value):**
@@ -614,10 +614,10 @@ Line refs are into the session JSONL. These were dropped from the agenda in comp
 
 **Numbers / constants (load-bearing, were absent):**
 - 🟡 **Leverage-cap ramp table** (answers D5 concretely): sold-fraction leverage ramps WITH the rally — `2× (5000bps)` IL-neutral only after price **×4**; `3× (6667bps)` at **×9**; `4× (7500bps hard cap)` at **×16** (`LevManager:488`). D5 is no longer "open" — this is the answer.
-- 🟡 `MAX_WELL_SKEW = 3e16` (3%) hard TWAP-anchor skew cap (`Vogue:766`).
+- 🟡 `MAX_WELL_SKEW = 3e16` (3%) hard TWAP-anchor skew cap (`Quid:766`).
 - 🟡 `PROTECT_MARGIN_BPS = 1500` (15%) de-lever ceiling (`LevMath:206`); 4× cap sits ~11% under the 86% Morpho/Euler LLTV line.
 - 🟡 Overlay committed-equity ratio **0.25–0.5× (minimal) up to 1× (default = full vBTC-base backstop)**, LP/keeper-settable.
-- ✅ Keeper gas (#103) TUNED: Vogue.compound `COMPOUND_GAS=140_000` / `MAX_GASPRICE=200 gwei` (`Vogue:1242`); Rover `COMPOUND_GAS=600_000` = measured ~560k (RoverFork) + ~7% margin (`Rover:57`; stale "#103 finalizes" placeholder dropped). **Rust `lev_keeper.rs:266 COMPOUND_GAS=140_000` MIRRORS Vogue's on-chain constant** — the keeper's subsidy-free break-even gate `pending/2 ≥ gasprice·COMPOUND_GAS` (`lev_keeper.rs:273`) reads it, so the ONLY standing invariant is: any future change to a Solidity value MUST update the Rust mirror in lockstep. (session 0f5876e3 corrected the stale doc "Rover 250k UNVERIFIED".)
+- ✅ Keeper gas (#103) TUNED: Quid.compound `COMPOUND_GAS=140_000` / `MAX_GASPRICE=200 gwei` (`Quid:1242`); Rover `COMPOUND_GAS=600_000` = measured ~560k (RoverFork) + ~7% margin (`Rover:57`; stale "#103 finalizes" placeholder dropped). **Rust `lev_keeper.rs:266 COMPOUND_GAS=140_000` MIRRORS Quid's on-chain constant** — the keeper's subsidy-free break-even gate `pending/2 ≥ gasprice·COMPOUND_GAS` (`lev_keeper.rs:273`) reads it, so the ONLY standing invariant is: any future change to a Solidity value MUST update the Rust mirror in lockstep. (session 0f5876e3 corrected the stale doc "Rover 250k UNVERIFIED".)
 
 **Issue numbers the critic surfaced — VERIFIED DROPPED/DONE (2026-07-21), NOT open** (the critic pulled these from a task-tracker attachment mixing dropped/done items; always code-verify before listing):
 - ~~#99 USYC RWA~~ DROPPED · ~~#72 MM RFQ~~ DROPPED · ~~#59 acquirer 3-layer spec~~ DROPPED (acquirer removal still needs the Section-D swap-in-role-absorbed check, but there's no #59 spec to honor) · ~~#101 swap price-move guard~~ DONE (`Core:718` extreme sqrtPriceLimit; isManipulated only for repack/reseat, not a swap revert) · ~~#66 B4~~ not a recognized open item, dropped.
@@ -694,7 +694,7 @@ Venue positions are **per-LP ISOLATED, not contract-owned-aggregate** (verified)
 - **Redeem is a BALANCED pro-rata unband ⇒ NO JIT / NO skew.** Only **swap-outs** (directional) create an imbalance → skew premium + fleet JIT refill. (User corrected an earlier "redeems trigger JIT" to this.)
 
 ### G.7 Withdraw specifics (#109-withdraw — HIGH CONFIDENCE, reuses `closeLevFor`)
-`Vogue._withdraw` (`Vogue.sol:413`) caps at `plainNet(pooled, levPooled)` (FREE only); §4.2 cover-lever primitive `LevManager.closeLevFor(lp,minOut)` is BUILT but inline-wiring was DEFERRED on two forks (`Vogue.sol:394-405`). Both now RESOLVED:
+`Quid._withdraw` (`Quid.sol:413`) caps at `plainNet(pooled, levPooled)` (FREE only); §4.2 cover-lever primitive `LevManager.closeLevFor(lp,minOut)` is BUILT but inline-wiring was DEFERRED on two forks (`Quid.sol:394-405`). Both now RESOLVED:
 - fork (b) "force-closing a SEPARATE lever as a side-effect is a semantics call" → RESOLVED by G.2: in-band (`levPooled>0`) = band participant, auto-close is correct not a side-effect; directional-out-of-band (`levPooled==0`) is structurally untouched.
 - fork (a) "no minOut in `_withdraw` → sandwich" → RESOLVED: `closeLev` returns equity as **unsold collateral** (weETH/WETH direct to LP); only the debt-repay swap sells, self-floored to ≤`MAX_SLIPPAGE_BPS` by the flash-coverage requirement (op reverts past it). `minOut=0` ⇒ bounded ≤1% crystallization — exactly the in-band crystallization the user sanctioned.
 - **Wiring:** when a withdraw reaches past FREE depth (`levPooled>0 && amount > plainNet`), call `closeLevFor(msg.sender, 0)` THEN `_reconcileLev(msg.sender)` inline — the callback's `syncLev` re-entrancy is nonReentrant-BLOCKED under the withdraw lock (try/caught → stale slice), so the manual reconcile clears the now-0 slice so the cap re-reads to full pooled. LP gets lever value as collateral (already delivered by closeLevFor) + free band depth.
@@ -706,7 +706,7 @@ WBTC-mode LP withdrawal MUST **sell WBTC → dollars** (else "you get exactly th
 Keeper auto-unwinds OUT-OF-band directional LPs via `closeLev` → `transfer(lp, back)` (`LevManager:780`): freed collateral incl. full directional P&L → **the LP** (keeps their upside). That's the opposite of in-band YB (guarantee + socialize excess) and is WHY out-of-band directional stays isolated. Existing behavior, no change.
 
 ### G.10 Build order (batch — ONE forge build at the very end, per user "in a hurry, don't build after every change")
-1. #109-withdraw wiring (G.7) — reuse `closeLevFor`+`_reconcileLev`. **✅ DONE (Vogue.sol, uncommitted/unbuilt).**
+1. #109-withdraw wiring (G.7) — reuse `closeLevFor`+`_reconcileLev`. **✅ DONE (Quid.sol, uncommitted/unbuilt).**
 2. Redeem shortfall sweep (G.6) — **✅ DONE (uncommitted/unbuilt):** `LevMath.extractToVaultBody` (extraction body), `LevManager.deleverToVault` (per-LP) + `deleverBook` (shared reactive walk) + mode-2 flash callback + `_extractCfg`/`_lastFreed`, `BasketLib._settleRedeem` shortfall→`_deleverBookForRedeem`→`deleverBook`. **EIP-170 WATCH:** LevManager +~600B (was 851B headroom), LevMath +~400B — VALIDATE at final build; if over, extract per the no-viaIR rule.
    - **CORRECTION (2026-07-22, code-verified): the "swap-out also calls deleverBook" line in §G.3 was an OVER-generalization.** `deleverBook` is STABLE-denominated (sells collateral→stable→sink) ⇒ it fits the stable-out REDEEM. The swap-outs deliver VOLATILE, and are ALREADY invariant-safe by different means: (a) **ETH swap-out** (QD→ETH) delivers capped at `deliverableETH` which EXCLUDES levered net-equity, and #105 partial-fills + refunds the unreachable remainder — it NEVER removes levered depth (invariant holds with NO de-lever; reaching levered ETH would need a WETH-delivery variant = capital-efficiency choice, NOT a safety gap, DEFERRED); (b) **BTC swap-out** already de-levers per-LP via `deleverOnDelivery` (#54, `SwapLib:1102`). So the ONLY reactive `deleverBook` consumer is redeem. No swap-out wiring needed. §G.3 reactive-triggers list amended: redeem→`deleverBook`; ETH swap-out→#105 partial-fill; BTC swap-out→#54; withdraw→`closeLevFor`.
 3. **#10** — `cascadeDeleverMany` for BTC — **✅ DONE (uncommitted/unbuilt).** `BtcLevManager.cascadeDeleverMany` mirrors ETH, fault-tolerant, keeper LTV-ranked list. (WBTC→stable sale already lives in `rebalanceWbtc`'s `_flashDeleverWbtc`/`sorSelfFundedReverse`, per G.8.)
@@ -747,7 +747,7 @@ The cap implicitly BALANCED ETH-vs-BTC depth (stopped a BTC surge pulling most o
 
 **`Core.sol`**: `maxPooledUsdBtc()` (`:494-501`) + its doc (`:50`). POOLED_USD_BTC then bounded ONLY by the `≤TVL` invariant (`_handleDelta`) — which STAYS.
 
-**`Vogue.sol`**: the `maxPooledUsdBtc × 1e12` pool ceiling (`capScaled`, docstring `:738` + the consuming logic near it — grep `maxPooledUsdBtc` in Vogue).
+**`Quid.sol`**: the `maxPooledUsdBtc × 1e12` pool ceiling (`capScaled`, docstring `:738` + the consuming logic near it — grep `maxPooledUsdBtc` in Quid).
 
 **`SwapLib.sol`**: in `sizeBySurplus` (`:1214`), remove the cap term `uint allowed = IV4(v4).maxPooledUsdBtc()*1e12` (`:1198`) and the clamp that uses it — BTC sizes by solvency-surplus only. Remove the `maxPooledUsdBtc()` interface decl (`:1585`). **Verify the sizer degrades cleanly to surplus-only** (its own build, since this is the money-path bit).
 
@@ -764,7 +764,7 @@ The cap implicitly BALANCED ETH-vs-BTC depth (stopped a BTC surge pulling most o
 (Build artifacts under `spa/.next` regenerate; ignore.)
 
 ### H.5 Status
-🔴 QUEUED — clean deletion, SEPARATE from the de-lever work. Touches Basket/Core/Vogue/VogueLib + SPA. Do as its own batch (its own build) since it spans the sizer. Fold the #5/#12 skew-simplification consideration alongside if de-gating from Echidna (see §F #12 / the JIT-drain notes).
+🔴 QUEUED — clean deletion, SEPARATE from the de-lever work. Touches Basket/Core/Quid/QuidLib + SPA. Do as its own batch (its own build) since it spans the sizer. Fold the #5/#12 skew-simplification consideration alongside if de-gating from Echidna (see §F #12 / the JIT-drain notes).
 
 ## I. OPEN-CHANNEL UX CONSOLIDATION + SPA CLEANUPS (2026-07-22, user)
 
@@ -787,13 +787,13 @@ USD→BTC and BTC→USD are TWO tabs today. Merge into ONE swap component with a
 
 ### J.1 Dedup patterns (bytecode + clarity; repeat across contracts)
 - 🔴 **External-wrapper-over-internal collapse:** e.g. `_reserveIdOf` internal + an external view getter that just returns it. Make the internal `public` (or keep one). SWEEP every contract for `external fn { return _internalFn(); }` shims and collapse.
-- 🔴 **Multiple interfaces for ONE external contract** (user: "why does Vogue need ILevHost + ILevClose + ILevEquityV?"). Merge per-target-contract interface fragments into ONE interface each. Repeats in EVERY contract — systematic sweep.
+- 🔴 **Multiple interfaces for ONE external contract** (user: "why does Quid need ILevHost + ILevClose + ILevEquityV?"). Merge per-target-contract interface fragments into ONE interface each. Repeats in EVERY contract — systematic sweep.
 - 🔴 **Merge `refreshHoldingsSelf(stable)` + `refreshAllHoldingsSelf()`** into one (address(0)=all, or a flag).
-- 🔴 **`BtcVaultLib.outOfRangeBTC` vs one generic `outOfRange`** — dedup to a single range predicate that handles ETH+BTC (like the #9 `out_of_band` dedup we just did in Rust).
+- 🔴 **`BtcLib.outOfRangeBTC` vs one generic `outOfRange`** — dedup to a single range predicate that handles ETH+BTC (like the #9 `out_of_band` dedup we just did in Rust).
 
 ### J.2 Refactors (structural)
 **STATUS 2026-07-24: NOT STARTED (user asked "did you finish the 4626 refactors?" — no).** Code confirms: `Vault.sol` is STILL the merged EthVenue+BtcVault carrying live vBTC ERC20 (`vbtcTransfer`/`vbtcTransferFrom`); the #115 batch only deletes the DEAD `mintVBTC`/`burnVBTC` roundtrip, not the segregation. **PREREQ (user, cleaning-mode): FIRST complete + VERIFY the round-trip proof** ("vogue-not-4626 doesn't mean the ETH-in-band isn't a 4626" — prove the collapse/merge is behavior-neutral on a deposit→band→withdraw round-trip) BEFORE refactoring the vault-share model. 🔴 QUEUED, structural, needs the proof gate first.
-- 🔴 **Vogue should NOT be a 4626** if vBTC is its own segregated 4626 and Vogue manages BOTH vETH and vBTC. Refactor the vault-share model.
+- 🔴 **Quid should NOT be a 4626** if vBTC is its own segregated 4626 and Quid manages BOTH vETH and vBTC. Refactor the vault-share model.
 - 🔴 **Vault.sol should NOT contain vBTC ERC20 functions** — segregate them out (into the vBTC 4626).
 - 🔴 **Full-2× buffer-as-band-depth UNIFICATION (user believes big dedup):** "the band sells the buffer" == "unwind the borrow for a swap" == the tap mechanism — ALL one operation. If the buffer sits in the band as depth (borrowed), a buy-ETH swap sells it → the levered slice de-levers → debt repaid, with no separate tap/buffer mechanism. Same-block refill re-aligns POOLED_USD of both pools + undoes the LTV delta by shifting where Aux holds stables (cover the collateral delta vs deposit-to-earn). VALIDATE this reduces moving parts and dedup accordingly.
 
@@ -801,7 +801,7 @@ USD→BTC and BTC→USD are TWO tabs today. Merge into ONE swap component with a
 
 **🟡 SCOPE SETTLED (user, 2026-07-26) — "partially done": the ECONOMICS are live, the FLASH REBALANCE is the genuine remaining work. Read this before anything below.** The mechanism is ONE thing — fix an imbalance in our OWN band, LPs keep the fee — and it decomposes into three parts, two built:
 1. ✅ **BUILT + LIVE — premium→LPs (the fee).** A swap that drains the scarce side pays an Avellaneda–Stoikov scarcity premium (`wellSkew`, `SwapLib:937`); `retainSkewPremium` (`SwapLib:1330`) withholds it from the swapper's output and `Core.recordSkewPremium` (`Core:253`) accrues it to `skewPremiumBTC`/`skewPremiumETH` (`Core:246-247`, emits `SkewPremiumRetained`). On the hot path: called from `swapToBody` (`SwapLib:457/479`) and the RFQ/route path (`:1035`). The **refilling (imbalance-REDUCING) direction is exempt** → yields 0 (`SwapLib:452,962`). The swapper-facing `payRefillBonus` was **deliberately REMOVED** (`Core:261`) so the premium stays with LPs — so do NOT re-introduce a bonus to a flasher/refiller.
-2. ✅ **BUILT + PERMISSIONLESS — geometric re-center (reseat).** `Vogue.reseat()` (`:1029`) and `Rover.repackNFT()` (`:296`) are `public nonReentrant`; anyone pokes them. (#96.)
+2. ✅ **BUILT + PERMISSIONLESS — geometric re-center (reseat).** `Quid.reseat()` (`:1029`) and `Rover.repackNFT()` (`:296`) are `public nonReentrant`; anyone pokes them. (#96.)
 3. 🔴 **NOT BUILT — the flash-funded ACTIVE rebalance.** Flash the scarce asset → route it through our own imbalanced band to correct inventory → repay → premium stays with LPs. **Every `flashLoan` call site in the tree is leverage de-lever, never the reservoir** (`LevManager:752/839`, `BtcLevManager._flashDeleverWbtc`). The building blocks ALL exist — Morpho zero-fee flash provider, `sorSelfFunded` router, RFQ-drawable premium (`SwapLib:1035`) — they were simply never assembled into ONE permissionless entrypoint. **This is the real remaining work.**
 
 **Corrections to earlier readings of this section (do not repeat them):** (a) it is NOT "superseded" by the LP-entry pump — the pump comment at `Vault:719-727` ("NO bespoke pump/keeper/RFQ") describes the PRIMARY organic refill and does not cover the active flash top-up; (b) `Core:242`'s description of a "self-funding fleet op (JIT Morpho-flash BTC → creditSwapIn → repay)" is NOT stale-and-wrong — it names exactly this unbuilt part, so leave it; (c) the split of "pump" vs "refiller" into two mechanisms was wrong — it is one mechanism.
@@ -810,16 +810,16 @@ USD→BTC and BTC→USD are TWO tabs today. Merge into ONE swap component with a
 - 🔴 The atomic flash-refill (flash WBTC → creditSwapIn → SOR the swap-out's USD → repay) only ever rebalances OUR OWN reservoir (value-neutral, sole internal beneficiary, nothing extractable) ⇒ make it **fully PERMISSIONLESS** — anyone pays gas to trigger it. NO keeper-gate, NO dedicated gas-comp (keepers already covered by other gas-comp layers). Model on permissionless-open-via-ecrecover. On-chain flash callback lives near `creditSwapIn` (Vault.sol:935); trigger is a depletion check anyone can call.
 - 🔴🔴 **LOAD-BEARING CONSTRAINT (user, do NOT violate):** the JIT refill is a **keeper op — ASYNC, next-block.** ⇒ you **CANNOT retire a SYNCHRONOUS safety guard on the strength of an asynchronous fix.** The **swap-out→refill window** (the gap between a swap depleting the reservoir and the next-block keeper refill) is **exactly where an adversary would act.** So any sync guard (e.g. the swap price-move / depletion guard — ties to #101 "loosen the swap guard") must STAY as the in-tx protection; the JIT refill is a *convergence/top-up* mechanism, NOT a substitute for the synchronous guard. When touching #101 or the well/reservoir, keep the synchronous in-swap protection intact and treat JIT as additive only.
 - 🧭 **RECONCILED with §P.1 (NOT a contradiction — read both together):** §P.1 says a swap-in refill "CANNOT be JIT-internalized into the drain" and "the reservoir is the answer." That is CONSISTENT with this section: the drain tx cannot refill ITSELF (opposite direction, needs a counterparty), so §J.3's flash-refill does NOT run inside the draining swap — it is a SEPARATE, per-need top-up that **flashes to serve a PENDING opposite-direction flow** (flash WBTC → serve a pending swap-out → repay from that swapper's USD; §169) and **folds into the #100 reservoir** as its fast fill path. Trigger cadence = **piggyback the existing `reseat`/`repack` hook** (per §Q4 — no standalone keeper, no gas-comp), NOT a caller inside the drain. Net: reservoir/LP-staking = PRIMARY (async) refill; §J.3 flash-JIT = bounded fast top-up folded into it; the sync in-swap guard (above) stays regardless. So §J.3 + §P.1 + §Q4 + #100 describe ONE mechanism, not competing ones.
-- 🧭 **DISAMBIGUATION (user, 2026-07-26) — pin the mechanism so no future thread re-diverges (a prior thread read it a DIFFERENT way).** "Flash-refill / the pump" has TWO readings that share the SAME core op but differ only in TRIGGER: **(A) PROACTIVE permissionless rebalance** — anyone calls a depletion-check entrypoint that flash-borrows WBTC → `creditSwapIn` → SORs a PENDING swap-out's USD → repays, topping up OUR reservoir; **(B) REACTIVE JIT** — the flash fires INSIDE / right after a swap-OUT when the virtual vBTC reservoir is too thin to serve it: flash WBTC → deliver the swap-out → repay from THAT swapper's USD. Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium for LPs"; the ONLY open decision is the trigger (standalone permissionless poke vs reactive-per-swap-out). **STATUS: UNBUILT either way** — there is NO `flashLoan` call site for reservoir refill (every flash site is leverage de-lever: `LevManager:752`, `BtcLevManager:487`, `LevMath:828/832`). What IS built and must NOT be re-confused with this: the LP-entry "pump" (`registerBtcLp`, the reservoir's PRIMARY refill), the drain skew-premium retained for LPs (`retainSkewPremium`→`recordSkewPremium`→`skewPremium*`), and the permissionless geometric re-center (`Vogue.reseat`/`Rover.repackNFT`). This item = ONLY the missing ACTIVE WBTC flash-serve. Grounding memories (this box): `pump-native-btc-lock`, `btc-swapin-atomicity-aave-cap`, `well-105-a-session`, `btc-market-structure`, `redeem-swap-value-capacity`.
+- 🧭 **DISAMBIGUATION (user, 2026-07-26) — pin the mechanism so no future thread re-diverges (a prior thread read it a DIFFERENT way).** "Flash-refill / the pump" has TWO readings that share the SAME core op but differ only in TRIGGER: **(A) PROACTIVE permissionless rebalance** — anyone calls a depletion-check entrypoint that flash-borrows WBTC → `creditSwapIn` → SORs a PENDING swap-out's USD → repays, topping up OUR reservoir; **(B) REACTIVE JIT** — the flash fires INSIDE / right after a swap-OUT when the virtual vBTC reservoir is too thin to serve it: flash WBTC → deliver the swap-out → repay from THAT swapper's USD. Both = "flash WBTC, serve the opposite BTC flow, repay, keep the skew premium for LPs"; the ONLY open decision is the trigger (standalone permissionless poke vs reactive-per-swap-out). **STATUS: UNBUILT either way** — there is NO `flashLoan` call site for reservoir refill (every flash site is leverage de-lever: `LevManager:752`, `BtcLevManager:487`, `LevMath:828/832`). What IS built and must NOT be re-confused with this: the LP-entry "pump" (`registerBtcLp`, the reservoir's PRIMARY refill), the drain skew-premium retained for LPs (`retainSkewPremium`→`recordSkewPremium`→`skewPremium*`), and the permissionless geometric re-center (`Quid.reseat`/`Rover.repackNFT`). This item = ONLY the missing ACTIVE WBTC flash-serve. Grounding memories (this box): `pump-native-btc-lock`, `btc-swapin-atomicity-aave-cap`, `well-105-a-session`, `btc-market-structure`, `redeem-swap-value-capacity`.
 
 ### J.8 🔴 weETH-on-Aave-v4 yield leg, gated on Rover instant-convertibility (user, 2026-07-26)
 
-**The ask (user, verbatim intent):** if the Rover NFT — which *guarantees* liquidity can't be pulled from the weETH/WETH v3 pool — is both **balanced** and **large enough** to support instant conversion of some weETH amount back to WETH, then that weETH amount (mintable from the WETH any LP brings to the Vogue band, levered or not) **can be lent on Aave-v4 for extra yield**. Otherwise — when we CANNOT guarantee the instant withdraw and the LP would eat the ~0.3% ether.fi instant-redeem fee — the **frontend must surface a hint** and take an **explicit opt-in at withdrawal time**: either the slow `waitNFT` flow (free) or accept the 0.3%. **User constraint: reuse existing views, do NOT write new code for the hint.**
+**The ask (user, verbatim intent):** if the Rover NFT — which *guarantees* liquidity can't be pulled from the weETH/WETH v3 pool — is both **balanced** and **large enough** to support instant conversion of some weETH amount back to WETH, then that weETH amount (mintable from the WETH any LP brings to the Quid band, levered or not) **can be lent on Aave-v4 for extra yield**. Otherwise — when we CANNOT guarantee the instant withdraw and the LP would eat the ~0.3% ether.fi instant-redeem fee — the **frontend must surface a hint** and take an **explicit opt-in at withdrawal time**: either the slow `waitNFT` flow (free) or accept the 0.3%. **User constraint: reuse existing views, do NOT write new code for the hint.**
 
 **Why this is the natural shape of ETH venue 2 (ties to §A.3/§A.5):** on the wired Aave-v4 hub **weETH IS listed (assetId 2 → reserveId 2)**; plain WETH is assetId 0 → reserveId 0. Lending the *weETH* leg is what that hub is actually set up for, and weETH is what the ether.fi/Rover path already produces.
 
 **REUSE INVENTORY — the opt-in already exists, don't rebuild it:**
-- `Vogue.exitInstant(assets, receiver)` (`:1273`) = the **per-tx** opt-in to the ~0.3% instant redeem ("for THIS tx only"); plain `withdraw`/`redeem` already default to **WAIT** with no forced haircut (`:1257/:1265`). So both branches the user describes ARE the current contract surface.
+- `Quid.exitInstant(assets, receiver)` (`:1273`) = the **per-tx** opt-in to the ~0.3% instant redeem ("for THIS tx only"); plain `withdraw`/`redeem` already default to **WAIT** with no forced haircut (`:1257/:1265`). So both branches the user describes ARE the current contract surface.
 - `SwapLib.offrampBody` (`:595`) is the 4-rung ladder and already encodes the preference order: **rung 2 = Rover unwind** (`:618`, needs no Aux weETH), **rung 3 = 0.3% instant** (`:637`, gated on the `instant` flag), **rung 4 = free wait-NFT** (`:642`). `waitNft` is also standalone (`:652`).
 - `Rover.take(amount)` is the actual capacity consumer (`:595`).
 
@@ -859,19 +859,19 @@ USD→BTC and BTC→USD are TWO tabs today. Merge into ONE swap component with a
 
 ### J.7 User's manual [TODO] markers — COMPLETE catalog (verified 2026-07-24, address in the refactor)
 Full grep of `evm/src` — these are the USER's hand-typed annotations; do NOT lose, address each:
-1. `Basket.sol:44` — `onlyUs() // TODO make sure the Vogue [...]`
+1. `Basket.sol:44` — `onlyUs() // TODO make sure the Quid [...]`
 2. `Basket.sol:76` — `// TODO` (bare — check what it flags)
-3. `Vogue.sol:65` — `[ TODO there are a couple problems with only letting the LP withdraw [...]` (ties to the levered-slice withdraw / §G)
-4. `Vogue.sol:91` — `[ TODO we are missing VENUE_GAUNTLET ??? do not assume Galaxy to be the default ]` (also `DeployLib.sol:131` below)
-5. `Vogue.sol:98` — `[ TODO why do we have separate mappings for each venue, it should just [...]` (per-venue-mapping dedup)
-6. `Vogue.sol:111` — `[ TODO we dont need a mapping for this user setting because it only becomes [...]` (drop a per-user mapping)
-7. `Vogue.sol:137` — `[ TODO i dont need one liner functions like this, merge it into the other deployment ops` (fn-merge dedup, §J.1)
-8. `Vogue.sol:332` — `[ TODO this implementation changed considerably from what was in Vogue.sol of [...]` — **the outOfRange TODO**: sits at the close of `_outOfRange` (301-328). Pairs with the outOfRange dedup below.
-9. `Vogue.sol:434` — `[ TODO why isnt this actively closed? can we get rid of code by being more proactive [...]` (relates to §4.2 closeLevFor / #109)
+3. `Quid.sol:65` — `[ TODO there are a couple problems with only letting the LP withdraw [...]` (ties to the levered-slice withdraw / §G)
+4. `Quid.sol:91` — `[ TODO we are missing VENUE_GAUNTLET ??? do not assume Galaxy to be the default ]` (also `DeployLib.sol:131` below)
+5. `Quid.sol:98` — `[ TODO why do we have separate mappings for each venue, it should just [...]` (per-venue-mapping dedup)
+6. `Quid.sol:111` — `[ TODO we dont need a mapping for this user setting because it only becomes [...]` (drop a per-user mapping)
+7. `Quid.sol:137` — `[ TODO i dont need one liner functions like this, merge it into the other deployment ops` (fn-merge dedup, §J.1)
+8. `Quid.sol:332` — `[ TODO this implementation changed considerably from what was in Quid.sol of [...]` — **the outOfRange TODO**: sits at the close of `_outOfRange` (301-328). Pairs with the outOfRange dedup below.
+9. `Quid.sol:434` — `[ TODO why isnt this actively closed? can we get rid of code by being more proactive [...]` (relates to §4.2 closeLevFor / #109)
 10. `DeployLib.sol:131` — `[ TODO whhy is this missing the Gauntlet vault ??? ]` (same as #4 — VENUE_GAUNTLET missing)
 
 ### J.8 outOfRange dedup (user TODO + "directional bands via outOfRange")
-- `Core.outOfRange(bool isBTC, …)` (`Core.sol:524`) is ALREADY fused (Action enum ETH vs BTC). The DUPLICATION is one level up: `Vogue._outOfRange` (`Vogue.sol:301`, ETH) + `BtcVaultLib.outOfRangeBtc` (`BtcVaultLib.sol:307`, BTC) both compute ticks + call the SAME fused Core.outOfRange. 🔴 DEDUP: collapse the two wrappers into ONE `isBTC`-parameterized tick-compute+band function (mirror Core). Note: the directional short/long products BAND via `outOfRange` (own dollars→SOR→collateral→borrow-volatile→`outOfRange`), so a single clean wrapper is the reuse surface for §K. Addresses TODO #8.
+- `Core.outOfRange(bool isBTC, …)` (`Core.sol:524`) is ALREADY fused (Action enum ETH vs BTC). The DUPLICATION is one level up: `Quid._outOfRange` (`Quid.sol:301`, ETH) + `BtcLib.outOfRangeBtc` (`BtcLib.sol:307`, BTC) both compute ticks + call the SAME fused Core.outOfRange. 🔴 DEDUP: collapse the two wrappers into ONE `isBTC`-parameterized tick-compute+band function (mirror Core). Note: the directional short/long products BAND via `outOfRange` (own dollars→SOR→collateral→borrow-volatile→`outOfRange`), so a single clean wrapper is the reuse surface for §K. Addresses TODO #8.
 
 ## K. DIRECTIONAL PRODUCTS + YB/DIRECTIONAL KEEPER SEPARATION (settled 2026-07-24)
 
@@ -944,24 +944,24 @@ The directional product does NOT restore `runShort`/`_growShort`. It builds the 
 1. `LevManager.swapOutDeleverAmt(lp, maxUsd18) → (venue, stable, amtNative)` — IDENTICAL to `BtcLevManager` (view, clamp to debt).
 2. `LevManager.swapOutDelever(lp, stableUsd, recipient, minWethOut) → (usedUsd, wethDelivered)` — gate `vogueSyncHook`; `venue.repay` (stable pre-funded by the Vault via `takeToSettle`); withdraw paired collateral (`_collToEth`/`_collToken`/`_isWethVenue` on LevManager); weETH→WETH via LevMath (`_weethToWeth` is `internal` at LevMath:368 — needs a public wrapper OR do the convert inside a LevMath body); deliver WETH to recipient; `syncLev(lp)`.
 3. SwapLib ETH aggregate orchestration mirroring `deleverOnDelivery`/`_sourceRepayFree`: walk lev book, per-LP `swapOutDeleverAmt` → `takeToSettle`(swap USD → venue) → `swapOutDelever` → accumulate WETH until shrink covered.
-4. Hook into the ETH swap-out delivery. Physical ETH delivery = `VOGUE.takeETH(tokAmount, who)` at **Core.sol:1000**; deliverable cap = `VaultLib.deliverableETH` (excludes `totalNetEquityEth`, VaultLib:145-157). Hook where delivery would exceed base-deliverable.
+4. Hook into the ETH swap-out delivery. Physical ETH delivery = `VOGUE.takeETH(tokAmount, who)` at **Core.sol:1000**; deliverable cap = `QuidLib.deliverableETH` (excludes `totalNetEquityEth`, QuidLib:145-157). Hook where delivery would exceed base-deliverable.
 
 **ORCHESTRATION + HOOK (the remaining cross-contract wiring — design locked this session):**
-- Delivery-shortfall point = **`Vogue._sendETH`** (Vogue.sol:~895→`_sendETH`): it draws WETH via `EV.vogueOp(false, needed,1,…)`; when deliverableETH is exhausted `got < needed` ⇒ `sent < howMuch` (under-delivery). `howMuch` is EXACT here (curve already ran in `Core.swap`) — so this is the BTC-style "reconcile at delivery" site, NOT a pre-swap quote.
-- Wire: `_sendETH`, when `sent < howMuch`, calls a NEW `Aux` onlyUs orchestrator `deleverEthForDelivery(shortfallEth, toWhom) → deliveredExtra` and adds it to `sent`. Aux has the plumbing Vogue lacks (`takeToSettle` + the LevManager handle + the lev book).
+- Delivery-shortfall point = **`Quid._sendETH`** (Quid.sol:~895→`_sendETH`): it draws WETH via `EV.vogueOp(false, needed,1,…)`; when deliverableETH is exhausted `got < needed` ⇒ `sent < howMuch` (under-delivery). `howMuch` is EXACT here (curve already ran in `Core.swap`) — so this is the BTC-style "reconcile at delivery" site, NOT a pre-swap quote.
+- Wire: `_sendETH`, when `sent < howMuch`, calls a NEW `Aux` onlyUs orchestrator `deleverEthForDelivery(shortfallEth, toWhom) → deliveredExtra` and adds it to `sent`. Aux has the plumbing Quid lacks (`takeToSettle` + the LevManager handle + the lev book).
 - `Aux.deleverEthForDelivery` (mirror of BTC `SwapLib.deleverOnDelivery`, aggregate): walk the lev book (`LevManager._openLps`), per-LP: `swapOutDeleverAmt(lp, remUsd)` → `takeToSettle(venue, amtUsd, stable)` (route the swap's OWN proceeds from the basket to the venue) → `LevManager.swapOutDelever(lp, amtUsd, toWhom, minWethOut)` (repay + free + deliver WETH; unwrap to ETH for `toWhom` OR deliver WETH and let `_sendETH` unwrap) → accumulate until `shortfallEth` covered. Fault-tolerant try/catch per-LP (stuck LP → #105 partial-fill).
-- Gating chain (verified): `swapOutDelever` gates `msg.sender==vogueSyncHook`; vogueSyncHook==Vogue(band); so the call must originate from Vogue's context (or Aux acting for the band). Confirm the `takeToSettle`/`drawPooledUsdEth` mirror of BTC's POOLED_USD_BTC draw (SwapLib:1151) exists for ETH (`drawPooledUsdEth`? — CHECK) so committed/liquid move together and the de-levered share isn't double-counted as backing.
+- Gating chain (verified): `swapOutDelever` gates `msg.sender==vogueSyncHook`; vogueSyncHook==Quid(band); so the call must originate from Quid's context (or Aux acting for the band). Confirm the `takeToSettle`/`drawPooledUsdEth` mirror of BTC's POOLED_USD_BTC draw (SwapLib:1151) exists for ETH (`drawPooledUsdEth`? — CHECK) so committed/liquid move together and the de-levered share isn't double-counted as backing.
 - Bound: de-lever only the shortfall (`howMuch − sent`), which ≤ the levered portion the curve already priced. Beyond de-leverable buffer ⇒ existing #105 partial-fill/refund.
 
 **🔴 CRITICAL ACCOUNTING FINDING (2026-07-24 — the orchestration is NOT a BTC copy):** `drawPooledUsdBtc`/`subPendingSwapOut`/`settleDelivered` are **BTC-ONLY** (Core:484/502). The BTC swap-out is **ASYNC** (request → later channel-splice delivery → `settleDelivered` mints QUI for the proceeds; the de-lever draws the retired-debt share out of `POOLED_USD_BTC` so it isn't minted). The **ETH swap-out is SYNCHRONOUS** (one tx, `swapToBody`): it BURNS QD (QD-in) or takes stable-in as backing, delivers ETH atomically — **no pending-swap-out, no delivery-mint, no `drawPooledUsdEth`.** So the ETH de-lever's backing reconciliation must be re-derived, NOT mirrored:
 - Position-level value-neutrality is PROVEN (§M.1 above). The open question is SYSTEM-level: for a **QD-in** ETH swap-out, the swapper adds NO fresh stable, yet the de-lever needs stable to repay the LP's debt ⇒ `takeToSettle` draws EXISTING basket stable. Value-check: burn ΔS QD + draw ΔS stable to repay + LP net-equity unchanged ⇒ backing ratio preserved (S−ΔS QD ← D−ΔS + E). Looks balanced BUT unverified.
 - Real risk sits in the `POOLED_ETH` / `POOLED_USD_ETH` / net-equity band-slice reconciliation: the V4 swap already decremented `POOLED_ETH` by the delivered X at execution; the de-lever then repays debt + physically frees X ETH; `syncLev(lp)` must reconcile the LP's band slice so the freed X isn't double-counted (once as consumed curve depth, once as vanished net-equity). This is EXACTLY where a silent over/under-backing bug lives, and it CANNOT be verified without forge (OOM locally).
 
-**DECISION (do NOT blind-build the accounting):** primitives are safe (value-neutral, proven). The `Aux.deleverEthForDelivery` orchestrator + `Vogue._sendETH` hook + the QD-burn/`syncLev`/`POOLED_ETH` reconciliation must be built AND fork-verified together on the big box (a `DeleverEthBackingProbe` asserting Σbacking invariant across a swap-out that reaches levered depth), not merged blind. Surface as a money-path fork.
+**DECISION (do NOT blind-build the accounting):** primitives are safe (value-neutral, proven). The `Aux.deleverEthForDelivery` orchestrator + `Quid._sendETH` hook + the QD-burn/`syncLev`/`POOLED_ETH` reconciliation must be built AND fork-verified together on the big box (a `DeleverEthBackingProbe` asserting Σbacking invariant across a swap-out that reaches levered depth), not merged blind. Surface as a money-path fork.
 
-**🔴 arbETH-ADJACENCY (2026-07-24 — do NOT reintroduce the toxic mechanism):** `arbETH`/`arbBody` (ETH-pool shortfall BUY from basket free surplus) was DELIBERATELY REMOVED as TOXIC (Vault.sol:430-431, SwapLib:125-128 — "spent the shared safety margin to patch a usually-impermanent shortfall"; = the R1 / toxic-sweep verdict, memory `il-leverage-amortization-verdict`). The §M de-lever hooks at the SAME `Vogue._sendETH` shortfall point arbETH used, so the build MUST make explicit that it is the NON-TOXIC kind: per-LP, funded by the swap's OWN proceeds repaying THAT LP's OWN debt (value-neutral, LTV-improving), NEVER a socialized basket-surplus buy. `swapOutDelever` is exactly this — but comment it loudly at the hook so the arbETH removal isn't seen as undone (verify-intent / no silent over-correction).
+**🔴 arbETH-ADJACENCY (2026-07-24 — do NOT reintroduce the toxic mechanism):** `arbETH`/`arbBody` (ETH-pool shortfall BUY from basket free surplus) was DELIBERATELY REMOVED as TOXIC (Vault.sol:430-431, SwapLib:125-128 — "spent the shared safety margin to patch a usually-impermanent shortfall"; = the R1 / toxic-sweep verdict, memory `il-leverage-amortization-verdict`). The §M de-lever hooks at the SAME `Quid._sendETH` shortfall point arbETH used, so the build MUST make explicit that it is the NON-TOXIC kind: per-LP, funded by the swap's OWN proceeds repaying THAT LP's OWN debt (value-neutral, LTV-improving), NEVER a socialized basket-surplus buy. `swapOutDelever` is exactly this — but comment it loudly at the hook so the arbETH removal isn't seen as undone (verify-intent / no silent over-correction).
 
-**🔴 GATING PREMISE WAS WRONG (corrected 2026-07-24, caught by the #115 scan + verified):** I claimed a "gating split" forcing `Vault.fundVenueForDelever`. FALSE. In **Aux**, `V4 == Vogue` (Aux.sol:89 `Vogue internal immutable V4`; :320 `V4 = Vogue(...)`), and `_requireUs` authorizes `msg.sender==V4` ⇒ **Vogue IS `takeToSettle`-authorized.** (I misread the `V4` in the `_requireUs` list as the Core pool.) ⇒ **`Vault.fundVenueForDelever` is UNNECESSARY** — `SwapLib.deleverEthOnDelivery` (delegatecall'd by Vogue, address(this)==Vogue) can call `Aux.takeToSettle` DIRECTLY. The "fold is lateral" conclusion was ALSO downstream of this misread. Simplify: DELETE `Vault.fundVenueForDelever`; orchestrator sources stable itself. (Also: `swapOutDelever`'s gate is `vogueSyncHook==Vogue`, consistent — Vogue is the single authorized context for BOTH calls. No split at all.)
+**🔴 GATING PREMISE WAS WRONG (corrected 2026-07-24, caught by the #115 scan + verified):** I claimed a "gating split" forcing `Vault.fundVenueForDelever`. FALSE. In **Aux**, `V4 == Quid` (Aux.sol:89 `Quid internal immutable V4`; :320 `V4 = Quid(...)`), and `_requireUs` authorizes `msg.sender==V4` ⇒ **Quid IS `takeToSettle`-authorized.** (I misread the `V4` in the `_requireUs` list as the Core pool.) ⇒ **`Vault.fundVenueForDelever` is UNNECESSARY** — `SwapLib.deleverEthOnDelivery` (delegatecall'd by Quid, address(this)==Quid) can call `Aux.takeToSettle` DIRECTLY. The "fold is lateral" conclusion was ALSO downstream of this misread. Simplify: DELETE `Vault.fundVenueForDelever`; orchestrator sources stable itself. (Also: `swapOutDelever`'s gate is `vogueSyncHook==Quid`, consistent — Quid is the single authorized context for BOTH calls. No split at all.)
 
 **🔴🔴 DEEPER NECESSITY QUESTION (user, 2026-07-24 — "WHY DO WE EVEN NEED THIS CODE"): #113 may be over-built.** The QD-in ETH swap-out has NO fresh stable to fund the de-lever (QD is burned) ⇒ the de-lever would draw EXISTING basket stable to repay the LP's debt ⇒ the backing reconciliation I flagged is a REAL hazard, and possibly a sign the swap-out de-lever ENGINE is the wrong solution. Memory `project-quid-67-surplus-redemption-only` says #67 CLOSED with "**NO opt-in/mint/new-engine**; de-lever capacity = USD surplus; redemption-de-lever = forbidden subordination." So a NEW inline swap-out de-lever engine for ETH may CONTRADICT the #67 decision. Alternatives that need NO engine + have NO backing hazard: (B) exclude levered net-equity from POOLED_ETH so the curve matches deliverableETH (no phantom to begin with); or (C) accept the #105 partial-fill (levered depth simply isn't inline-swap-deliverable; de-lever capacity serves redemption/keeper, per #67). **DECISION OWED (user's call): keep #113 (mirror BTC #54, do the backing work) vs remove it for B/C.** The dedup pass IS an audit — this necessity question is that audit working. Do NOT finish wiring #113 until decided.
 
@@ -971,12 +971,12 @@ The directional product does NOT restore `runShort`/`_growShort`. It builds the 
 
 **🔴 GAP the user caught (2026-07-24): the FULLY-UNLEVERED (0-debt) net-equity is STILL phantom in my build.** Below entry, target debt → 0, so the position can be unlevered. `swapOutDelever` clamps `amt = min(usd, debt) = 0` ⇒ delivers NOTHING ⇒ the unlevered net-equity (the "HODL part that re-levers later") is left exactly as distorted as before. Its collateral sits in Morpho with no debt to repay, so it needs a **plain withdraw-and-deliver path** (no de-lever; keeper re-levers as usual). WITHOUT this, #113 only fixes the levered slice — defeating the point (the unlevered slice is the main HODL part). **FINISH #113 must add the 0-debt withdraw-and-deliver branch to `swapOutDelever`/the walk.**
 
-**FINISH #113 checklist:** (1) DELETE unnecessary `Vault.fundVenueForDelever`; `SwapLib.deleverEthOnDelivery` calls `Aux.takeToSettle` directly (Vogue IS authorized). (2) ADD the 0-debt (unlevered net-equity) withdraw-and-deliver branch. (3) QD-burn backing reconciliation + `DeleverEthBackingProbe` (fork-verify — the LP IL is handled, but system backing when QD-in draws basket stable still needs proving).
+**FINISH #113 checklist:** (1) DELETE unnecessary `Vault.fundVenueForDelever`; `SwapLib.deleverEthOnDelivery` calls `Aux.takeToSettle` directly (Quid IS authorized). (2) ADD the 0-debt (unlevered net-equity) withdraw-and-deliver branch. (3) QD-burn backing reconciliation + `DeleverEthBackingProbe` (fork-verify — the LP IL is handled, but system backing when QD-in draws basket stable still needs proving).
 
-**⚠️ STALE-SECTION NOTE:** the old "SIMPLIFICATION EVALUATED (fold rejected as lateral)" reasoning was built on the WRONG gating premise (Vogue-not-`takeToSettle`-authorized). That premise was a MISREAD (Vogue==V4 IS in `Aux._requireUs`) → `fundVenueForDelever` is UNNECESSARY and has been DELETED, and `deleverEthOnDelivery` calls `Aux.takeToSettle` directly. The fold question is moot. Superseded by the CURRENT STATE below.
+**⚠️ STALE-SECTION NOTE:** the old "SIMPLIFICATION EVALUATED (fold rejected as lateral)" reasoning was built on the WRONG gating premise (Quid-not-`takeToSettle`-authorized). That premise was a MISREAD (Quid==V4 IS in `Aux._requireUs`) → `fundVenueForDelever` is UNNECESSARY and has been DELETED, and `deleverEthOnDelivery` calls `Aux.takeToSettle` directly. The fold question is moot. Superseded by the CURRENT STATE below.
 
 **✅ CURRENT STATE (2026-07-24, post-KEEP + gating-fix + 0-debt build):** #113 core BUILT + solc-clean-intent (forge-UNVERIFIED):
-- `LevMath.collToWethDeliver` + `LevManager.swapOutDeleverAmt` + `LevManager.swapOutDelever` (levered, equity-preserving) + **`LevManager.swapOutDeliverUnlevered` (NEW — the 0-debt HODL branch)** + `SwapLib.deleverEthOnDelivery` (aggregate walk, calls `Aux.takeToSettle` DIRECTLY — Vogue is authorized) + `Vogue._sendETH` hook. `Vault.fundVenueForDelever` DELETED.
+- `LevMath.collToWethDeliver` + `LevManager.swapOutDeleverAmt` + `LevManager.swapOutDelever` (levered, equity-preserving) + **`LevManager.swapOutDeliverUnlevered` (NEW — the 0-debt HODL branch)** + `SwapLib.deleverEthOnDelivery` (aggregate walk, calls `Aux.takeToSettle` DIRECTLY — Quid is authorized) + `Quid._sendETH` hook. `Vault.fundVenueForDelever` DELETED.
 - **Resolves the user's confusion (mid#50, re-asked 2026-07-24) — the full chain:** net-equity STAYS banded (fee-earning) AND becomes DELIVERABLE (old distortion gone). A swap-out delivers VALUE-NEUTRALLY — levered slice = repay-debt-with-the-swap's-USD → free collateral; unlevered (0-debt HODL) slice = withdraw net-equity collateral, and the V4 curve already rebalanced the LP's band slice ETH→USD (so the LP is paid). Keeper RE-LEVERS next tick (re-buys ETH = "adds collateral back to the loan", = the user's mid#37 instinct, realized async). ⇒ round-trip = sell-on-swap + re-buy-on-relever = **WASH + swap fee ⇒ NO realized IL on the HODL part**, and we NEVER de-band it (it keeps earning fees). "Still banded but delevered" = the correct TRANSIENT: leverage momentarily shrinks, net-equity value + band-membership persist, keeper restores the hedge.
 - REMAINING: `DeleverEthBackingProbe` (fork-verify the LEVERED QD-burn backing — mirror `LevYbWethProbe`: open lev WETH LP, big `_rallyBand` into lev depth, assert debt↓ + netEquity preserved + committed≤backing + open) + finish arbETH comment purge. Forge OOMs locally ⇒ solc-clean only; unverified axes = gating chain, QD-burn backing invariant, non-toxicity.
 
@@ -1019,22 +1019,22 @@ The directional product does NOT restore `runShort`/`_growShort`. It builds the 
 **WHERE THE BROADCASTER GETS THE BYTES (user Q, 2026-07-24):** the fully-signed exit tx bytes are carried in the on-chain **`DeadManExitEmitted(channelId, lpEth, cltvDeadline, checkpointSats, signedExitTx)` event** (BTCChannels — BUILT). Any broadcaster (a watchtower, a keeper, or a stateless one-page web app) reads the LATEST event for the channel via `eth_getLogs`/an indexer, extracts `signedExitTx`, and POSTs the raw bytes to a public Bitcoin mempool/Esplora broadcast endpoint. **No key, no signing — just publishing already-public bytes** once the CLTV has matured. **NOT BUILT:** the broadcaster/recovery reader itself (the SPA copy was updated to describe it, but the one-page-web / watchtower reader that does `getLogs → POST rawtx` is not written). Flag.
 
 ## O. SIMPLIFICATION SWEEP RESULTS (#115 scan, 2026-07-24) + TODAY'S OPEN-ITEM CAPTURE
-**GATE MAP (verified):** `Aux._requireUs` = {V4(**=Vogue**), CORE, QUID, ethVenue(**=Vault**), this}. `Core.onlyUs` = {AUX, VOGUE, BTCVAULT(=Vault)} — **BTCChannels NOT a member**. `Vault.onlyUs`={V4,AUX,this}; `NotVogueCore`={V4}. Vault/BtcVault/ethVenue = ONE merged contract. LevManager(ETH)/BtcLevManager(BTC) = parallel siblings sharing LevMath.
+**GATE MAP (verified):** `Aux._requireUs` = {V4(**=Quid**), CORE, QUID, ethVenue(**=Vault**), this}. `Core.onlyUs` = {AUX, VOGUE, BTCVAULT(=Vault)} — **BTCChannels NOT a member**. `Vault.onlyUs`={V4,AUX,this}; `NotVogueCore`={V4}. Vault/BtcVault/ethVenue = ONE merged contract. LevManager(ETH)/BtcLevManager(BTC) = parallel siblings sharing LevMath.
 
 ### O.1 Ranked findings (READ-ONLY; re-verify caller-set before acting; 🔴=money-path fork-verify)
 **TIER 1 — behavior-preserving wins:**
-1. 🔴 **DEAD vBTC roundtrip** — `Vault.mintVBTC`(:583)+`burnVBTC`(:590) + `BtcVaultLib.vbtcMintBody`(:561)+`vbtcBurnBody`(:568): `onlyBtcChannels` but BTCChannels NEVER calls them; live path = `expose/unexposeBtcToLev`. DELETE all 4. Fork-verify vBTC totalSupply invariant. KEEP `vbtcTransfer/vbtcTransferFrom` (venues use them). EIP-170 win (Vault+lib).
+1. 🔴 **DEAD vBTC roundtrip** — `Vault.mintVBTC`(:583)+`burnVBTC`(:590) + `BtcLib.vbtcMintBody`(:561)+`vbtcBurnBody`(:568): `onlyBtcChannels` but BTCChannels NEVER calls them; live path = `expose/unexposeBtcToLev`. DELETE all 4. Fork-verify vBTC totalSupply invariant. KEEP `vbtcTransfer/vbtcTransferFrom` (venues use them). EIP-170 win (Vault+lib).
 2. **DEAD internals** (0 tree refs): `Rover._adjustToNearestIncrement`(:433), `TargetsHelper.countEpochCumulativeWork`(:114, sibling `countCumulativeWork` is used), `BitcoinTx.hash160`(:291). DELETE.
 3. 🔴 **ETH/BTC byte-identical dedup**: `debtUsd`(LevManager:390 vs BtcLevManager:153), `swapOutDeleverAmt`(LevManager:798 vs BtcLevManager:550), open-LP set primitives `_trackOpen/_untrackOpen/openLevCount/openLpAt`(LevManager:122-136 vs BtcLevManager:71-83). → shared LevMath helpers + a shared abstract base. Helps EIP-170 on BOTH near-limit managers. Fork-verify swap-out delever. (`swapOutDelever` itself NOT mergeable — ETH sig+pooled-walk ≠ BTC single-LP.)
-4. **Unused iface methods**: `ILevSyncHook.bandEthOf`(LevManager:45), `ILevSyncHookB.bandBtcOf`(BtcLevManager:10) — declared, never called (managers size off `pos[lp].e0Eth`). Remove decls (compile-time safe). Defs `Vogue.bandEthOf:214`/`Vault.bandBtcOf:636` removable only if no off-chain lens reads (Tier-3).
+4. **Unused iface methods**: `ILevSyncHook.bandEthOf`(LevManager:45), `ILevSyncHookB.bandBtcOf`(BtcLevManager:10) — declared, never called (managers size off `pos[lp].e0Eth`). Remove decls (compile-time safe). Defs `Quid.bandEthOf:214`/`Vault.bandBtcOf:636` removable only if no off-chain lens reads (Tier-3).
 **TIER 2 — lateral (the template pattern; user's call):** `Vault.addPendingSwapOut/subPendingSwapOut`(:964-965) = 1-line forwarders bridging BTCChannels→Core (BTCChannels not in Core.onlyUs). Collapse = new Core `btcChannels`-gated entry. LATERAL (relocates trust boundary; can't widen Core.onlyUs = would expose modLP/swap = security). Don't action w/o a bytecode/security driver.
 **TIER 3 — LOW confidence dead (confirm NO off-chain/keeper/SPA reader first):** `LevManager.weethValueUsd`(:292, dup of LevMath:453), `Vault.aaveEthBalance`(:416, vestige per Aux:827), `Core.btcBandEquityUsd18`(:120), `BTCChannels.openChannelDigest/spliceDigest/swapOutDeliverDigest`(:563/586/606, likely off-chain signer conveniences).
-**KEEP (investigated, NOT dead):** delegatecall-to-lib thin forwarders (EIP-170 relief = load-bearing); `Vogue.takeETH`(:895, gate boundary); ~15 `IAux*` interface fragments (interfaces=0 bytecode; consolidation=cosmetic + regression risk); `ILevManagerDeliver` vs `ILevEthDeliver` (only `swapOutDeleverAmt` overlaps; delever sigs differ); arbETH/arbBTC/ratchet/baseRate/deferToWaitNft/acquirer = already fully deleted (only comment tombstones remain); vendored unused iface members (3rd-party, leave). Events/errors/modifiers swept clean (1 emit/revert each).
-**FACTUAL FIX:** `Vault.sol:369` docstring "Vogue is NOT takeToSettle-authorized" is STALE/WRONG (V4=Vogue IS in `Aux._requireUs`) — fix comment (ties to §M.1 gating correction; = why `fundVenueForDelever` is unnecessary).
+**KEEP (investigated, NOT dead):** delegatecall-to-lib thin forwarders (EIP-170 relief = load-bearing); `Quid.takeETH`(:895, gate boundary); ~15 `IAux*` interface fragments (interfaces=0 bytecode; consolidation=cosmetic + regression risk); `ILevManagerDeliver` vs `ILevEthDeliver` (only `swapOutDeleverAmt` overlaps; delever sigs differ); arbETH/arbBTC/ratchet/baseRate/deferToWaitNft/acquirer = already fully deleted (only comment tombstones remain); vendored unused iface members (3rd-party, leave). Events/errors/modifiers swept clean (1 emit/revert each).
+**FACTUAL FIX:** `Vault.sol:369` docstring "Quid is NOT takeToSettle-authorized" is STALE/WRONG (V4=Quid IS in `Aux._requireUs`) — fix comment (ties to §M.1 gating correction; = why `fundVenueForDelever` is unnecessary).
 **ACTION ORDER:** #1+#2 first (biggest Vault/manager bytecode relief) → #3 → #4 → Tier-3 after confirming readers → skip #5.
 
 ### O.2 TODAY'S OPEN-ITEM SWEEP (re-read all responses; nothing lost)
-- **Comment purge (user 2026-07-24):** stale arbETH-removal tombstones `Vault:430-433` + `SwapLib:125-128`; my arbETH-distraction comments in the #113 ETH de-lever (`Vault.fundVenueForDelever`, `SwapLib.deleverEthOnDelivery`, `Vogue._sendETH` hook — the "NOT arbETH" clutter); `Vault:369` stale docstring. `_sendETH` is a GENERIC send utility — no arbETH relevance. PURGE all. 🔴 QUEUED.
+- **Comment purge (user 2026-07-24):** stale arbETH-removal tombstones `Vault:430-433` + `SwapLib:125-128`; my arbETH-distraction comments in the #113 ETH de-lever (`Vault.fundVenueForDelever`, `SwapLib.deleverEthOnDelivery`, `Quid._sendETH` hook — the "NOT arbETH" clutter); `Vault:369` stale docstring. `_sendETH` is a GENERIC send utility — no arbETH relevance. PURGE all. 🔴 QUEUED.
 - **D3 θ fee-yield (§J.5):** the CORRECT source (`feesPerShare`/`USD_FEES`, θ-LOCAL) was NEVER built — only the wrong `skewPremium` version (reverted). Still QUEUED (user asked; I held back). 🔴.
 - **JIT flash-refill (§J.3):** still NOT built (design only).
 - **#113 fundVenueForDelever:** now KNOWN unnecessary (gating misread, §M.1) — DELETE when #113 necessity is decided.
@@ -1061,24 +1061,24 @@ Two sweep agents (today's 3 transcripts incl. the 280MB pre-compaction one; the 
 - **⇒ reinforces §J.3's load-bearing constraint:** the async layer (replenishment / keeper unwind / §J.3 flash-refill) can NEVER retire a synchronous in-swap guard — the swap-out→refill window is the adversary's window. Sync guard STAYS (#101); async refill is additive convergence only.
 
 ### P.2 TODAY's gaps (from the today-sweep)
-- **P.2a IL-MATH — SETTLED 2026-07-24 (user's premise CONFIRMED by code):** "the levered slice is band DEPTH so it eats its own IL — don't we need >2×? did you check the math with the levered part in the band?" **CODE FACT (VogueLib:150/160/162/167/180): the GROSS is in the band** — `levAddGross` runs BOTH `levAddNet` (net→`modLP` into V4, as equity/pooled) AND `levAddBuf` (buffer→`levBuf` fee-weight **AND the V4 position**). So the whole gross `C` experiences the √p band-selling. The `LevYbPnl` test modeled only NET-in-band ⇒ its model is incomplete (its *conclusion* — dynamic-sizing cancels IL, static-2× doesn't — still holds).
+- **P.2a IL-MATH — SETTLED 2026-07-24 (user's premise CONFIRMED by code):** "the levered slice is band DEPTH so it eats its own IL — don't we need >2×? did you check the math with the levered part in the band?" **CODE FACT (QuidLib:150/160/162/167/180): the GROSS is in the band** — `levAddGross` runs BOTH `levAddNet` (net→`modLP` into V4, as equity/pooled) AND `levAddBuf` (buffer→`levBuf` fee-weight **AND the V4 position**). So the whole gross `C` experiences the √p band-selling. The `LevYbPnl` test modeled only NET-in-band ⇒ its model is incomplete (its *conclusion* — dynamic-sizing cancels IL, static-2× doesn't — still holds).
   - **Correct math (gross-in-band):** net ETH = `C/√r − D/r` (band sells the gross `C/√r`; the offset is the FIXED-USD debt `D` SHRINKING in ETH-terms `D/r` as price rises — NOT a held-delta-1 buffer). At entry r=1 with C=2E0,D=E0: net=E0, and dδ/dr=0 ⇒ **static 2× is delta-1 ONLY at entry.** For large up-moves it UNDER-hedges (r=4 ⇒ 0.75·E0). ⇒ **you DO need leverage to rise above 2× as price rises** — the user is right.
   - **HOW it's handled (already designed): the DYNAMIC keeper target `ilTargetLive = 1−√(entry/now)`** re-levers ABOVE 2× as price rises to hold IL-neutrality — a static 2× would not. So no static change; the keeper's dynamic re-lever IS the >2× the user intuited.
   - **RESIDUAL (verify, not a blocker):** re-derive that `ilTargetLive` EXACTLY cancels the gross-in-band IL for all r (the test's net-in-band proof doesn't cover it) + fix `LevYbPnl` to model gross-in-band. 🔴 QUEUED (math-verify + test-fix). Paired Q "escrow weETH on AaveV4?" = ANSWERED no (Aave=rehyp; escrow only Morpho/Euler).
 - **P.2b Swap-out "add-collateral-instead" (user mid#37) — CORRECTED (my earlier "rejected" was WRONG):** user asked "ARE WE ALLOWED to let this swap out, won't it cause IL for the LP who levered to prevent IL — should it just ADD EXTRA COLLATERAL to the loan?" The add-collateral instinct is **CORRECT and is REALIZED, not rejected**: after the §M.1 de-lever delivers the ETH value-neutrally, the keeper **RE-LEVERS — which IS "adding the collateral/exposure back to the loan."** So the round-trip = deliver (sell) + re-lever (re-buy) = **a WASH + the swap fee ⇒ NO IL locked in** (the exact protection the LP levered for). The only nuance: it's not done INLINE (add-collateral-instead-of-delivering) because the swapper genuinely wants ETH OUT and inline-add wouldn't relieve the phantom depth; it's done as deliver-THEN-re-lever (async keeper). Net effect = identical to the user's intent. Pin in §M.1.
-- **P.2c Short-removal DEAD-CODE residuals (from the removal agent's own flags) — pending §J.4 restore decision:** (a) `DeployL1_s._ethShortVenue` + `InverseRateMorphoOracle` import left INERT; (b) `SwapLib.boughtFractionWad` now DEAD (Vogue/Vault impls removed); (c) KEPT short-concept tests `testProof_ShortLeg_BoundedByConcentratedBand` + 4× `testProof2_*` + `testProof_NestedShort_Solvent_BandUntouched` validate the deleted design. If §J.4 stays removed → delete these; if RESTORED → they come back. Hold with the §J.4 anchor.
+- **P.2c Short-removal DEAD-CODE residuals (from the removal agent's own flags) — pending §J.4 restore decision:** (a) `DeployL1_s._ethShortVenue` + `InverseRateMorphoOracle` import left INERT; (b) `SwapLib.boughtFractionWad` now DEAD (Quid/Vault impls removed); (c) KEPT short-concept tests `testProof_ShortLeg_BoundedByConcentratedBand` + 4× `testProof2_*` + `testProof_NestedShort_Solvent_BandUntouched` validate the deleted design. If §J.4 stays removed → delete these; if RESTORED → they come back. Hold with the §J.4 anchor.
 - **P.2d SPA pre-commit storage (user mid#49) — pin the resolved Q→A:** "keeping the pre-commitment? how does the LP store it? not cookies? reuse Solidity?" ANSWER (already in §N substance): dead-man exit = fleet-signed, EMITTED on-chain (`DeadManExitEmitted`), broadcast keyless by anyone; the LP stores NOTHING (no cookies, no keyfile) — the EVM event is the durable store, `registerDelegation`/`btcRecipientOf` is the Solidity reuse. Pin to §I/§J.6 openChannel-SPA task.
 
 ### P.3 07-22 gaps (from the previous-session sweep — NEVER migrated into the doc)
-- **P.3a 🔴 BIGGEST: cross-contract byte-identical INTERFACE CONSOLIDATION is HALF-DONE + untracked.** The 07-22 dedup map found ~5 byte-identical interface clusters duplicated across files; only the LEV subset was applied (commits 5e5b636/6d44ee6). Still duplicated VERBATIM, and **no `imports/Interfaces.sol` exists**: `IAaveV4Hub`×4 (Aux:43, Vault:53, ChannelLib:49, AaveV4Venue:10); `IWeETH`×6 (Vault:64, LevManager:23, LevMath:20, SwapLib:23, VaultLib:18, Rover:22); `IDepositAdapter`×4 (Vault:60, Rover:21, VaultLib:21, LevMath:24); `IMorphoFlash`×2 (LevManager:65, BtcLevManager:16); `IAggregatorV3`×2 (FeeLib:20, SwapLib:30) + the two `IEthVenue` subset merges. ⇒ create `imports/Interfaces.sol`, point all at it. (§J.1 captured a DIFFERENT framing; §O.1 wrongly deemed the IAux* family "cosmetic skip" — this concrete byte-identical cross-contract dedup is real + EIP-170-relevant.) 🔴 QUEUED. NOTE the view/non-view de-uglification (IAuxTWAP_B vs _BView, non-view boughtFractionWad) WAS done (5e5b636).
+- **P.3a 🔴 BIGGEST: cross-contract byte-identical INTERFACE CONSOLIDATION is HALF-DONE + untracked.** The 07-22 dedup map found ~5 byte-identical interface clusters duplicated across files; only the LEV subset was applied (commits 5e5b636/6d44ee6). Still duplicated VERBATIM, and **no `imports/Interfaces.sol` exists**: `IAaveV4Hub`×4 (Aux:43, Vault:53, ChannelLib:49, AaveV4Venue:10); `IWeETH`×6 (Vault:64, LevManager:23, LevMath:20, SwapLib:23, QuidLib:18, Rover:22); `IDepositAdapter`×4 (Vault:60, Rover:21, QuidLib:21, LevMath:24); `IMorphoFlash`×2 (LevManager:65, BtcLevManager:16); `IAggregatorV3`×2 (FeeLib:20, SwapLib:30) + the two `IEthVenue` subset merges. ⇒ create `imports/Interfaces.sol`, point all at it. (§J.1 captured a DIFFERENT framing; §O.1 wrongly deemed the IAux* family "cosmetic skip" — this concrete byte-identical cross-contract dedup is real + EIP-170-relevant.) 🔴 QUEUED. NOTE the view/non-view de-uglification (IAuxTWAP_B vs _BView, non-view boughtFractionWad) WAS done (5e5b636).
 - **P.3b THREE 07-22 security findings NEVER folded into §A — migrate:**
   - 🟠 **MED — oracle anchor is OPT-IN:** `getTWAPforAsset` short-circuits to the RAW internal V4 TWAP when `assetPriceFeed[asset]==0` (`SwapLib.twapResolve`); ALL lev valuation + BTC swap-in pricing read it; `setAssetFeed` is PIN-ONCE ⇒ a renounce/finalize BEFORE WETH/WBTC feeds are pinned leaves collateral/debt grind-able over a multi-block TWAP. FIX: make the Chainlink anchor MANDATORY for WETH/WBTC (revert if unset, or block finalize/renounce until both pinned). → §A/§DR.
-  - 🟡 **LOW — `Vogue._venueBalance` upward bias (LIVE, Vogue:765-769):** on a `catch` of `totalNetEquityEth()` it leaves `total` at full `vogueETH` (incl levered net-equity) ⇒ over-counts plain-venue backing (UNSAFE direction) → over-delivers ETH to an exiting plain LP / books a lev open-close as fake venue yield. FIX: catch → exclude, or fail-closed. → §A.
+  - 🟡 **LOW — `Quid._venueBalance` upward bias (LIVE, Quid:765-769):** on a `catch` of `totalNetEquityEth()` it leaves `total` at full `vogueETH` (incl levered net-equity) ⇒ over-counts plain-venue backing (UNSAFE direction) → over-delivers ETH to an exiting plain LP / books a lev open-close as fake venue yield. FIX: catch → exclude, or fail-closed. → §A.
   - 🟡 **Minor — stale `BtcInflowCap` comments** (BTCChannels:256, AttestedHopRegistry:30-38) assert a per-call bound `SwapLib:701-702` REMOVED; underlying HIGH (settleSwapIn can drain POOLED_USD_BTC) is §A#22 but rated 🧊-LOW/SGX-deferred vs the agent's HIGH — reconcile the rating + purge the stale comments. → §A#22.
-- **P.3c dead-code residuals (07-22, low-confidence):** `Vogue.VENUE_GALAXY:92` (declared-only, 1 ref — maybe intentional const), `spv/libs/TargetsHelper.targetToBits:159` (no callers; inverse `bitsToTarget` used). Confirm then remove. → §O.1/§R.
+- **P.3c dead-code residuals (07-22, low-confidence):** `Quid.VENUE_GALAXY:92` (declared-only, 1 ref — maybe intentional const), `spv/libs/TargetsHelper.targetToBits:159` (no callers; inverse `bitsToTarget` used). Confirm then remove. → §O.1/§R.
 
 ## Q. USER NOTES + DESIGN QUESTIONS (2026-07-24 batch — verify/record/decide; do NOT lose)
-- **Q1 #109-withdraw (closeLevFor + _reconcileLev) — ✅ VERIFIED DONE (~3 days ago work landed):** `Vogue.sol:487` `closeLevFor(msg.sender,0)` → `:488 _reconcileLev` (clears the nonReentrant-blocked slice); `:457` reconcile on levPooled>0. The redeem/swap-out shortfall sweep (§G) + #10/#9 also landed (§O.3-A). Nothing outstanding from that 3-day-old list EXCEPT the Q7 ranking gap below.
+- **Q1 #109-withdraw (closeLevFor + _reconcileLev) — ✅ VERIFIED DONE (~3 days ago work landed):** `Quid.sol:487` `closeLevFor(msg.sender,0)` → `:488 _reconcileLev` (clears the nonReentrant-blocked slice); `:457` reconcile on levPooled>0. The redeem/swap-out shortfall sweep (§G) + #10/#9 also landed (§O.3-A). Nothing outstanding from that 3-day-old list EXCEPT the Q7 ranking gap below.
 - **Q7 shared shortfall-de-lever primitive — 🟡 MOSTLY, ONE GAP:** shortfall-triggered + shared per-LP machinery EXIST (redeem→`deleverBook` LevManager:883; ETH swap-out→`deleverEthOnDelivery` SwapLib:1198; BTC→`deleverOnDelivery` #54; withdraw→`closeLevFor`). Invariant "any removal of levered in-band value de-levers proportionally, on shortfall past funded, never blindly/per-LP" = HELD. **🔴 GAP: the REACTIVE walk (`deleverBook`/`deleverEthOnDelivery`) iterates `_openLps` in STORAGE order, NOT highest-LTV-first.** Only the keeper's `cascadeDelever` takes an LTV-ranked list. FIX: sort the reactive walk highest-LTV-first (de-lever riskiest slices first) so "same ranking, two triggers" actually holds. 🔴 QUEUED.
 - **Q2 Morpho account ownership + authorization (user):** the MANAGER is the Morpho/Euler account owner (NO per-LP `isAuthorized`/sub-accounts). ⇒ the manager can de-lever/unwind ANY LP on behalf of all (needed for the shortfall sweep + keeper) WITHOUT per-LP permission prompts. RESOLUTION: the LP's permission IS granted by opting in via `openLev` (the control flow that hands collateral to the manager's account) — enforced ON-CHAIN in that tx regardless of whether they used our SPA. So: no per-function off-chain authority scheme needed, and no need to forbid programmatic (non-SPA) banding — an LP CANNOT be simultaneously in-band AND borrowed without going through our control flow (openLev), and that opt-in is the enforced permission. Commingled single-account, per-LP accounting in `pos[lp]`. ✅ no change needed; document the trust model.
 - **Q3 SAFE/deployer ownership — CORRECTION (user) + ⚠️ TENSION with current adminless design (must resolve before building):** user says: the DEPLOYER (`.env` key) owns ANGEL (NOT "the Safe"), and IN THE DEPLOY SCRIPT: (1) CREATE the SAFE, (2) ADD ITSELF as a SAFE member, (3) at `finalize()` TRANSFER ownership → the SAFE. **BUT the CURRENT `DeployL1_s` is deliberately ADMINLESS** (line 391 "NO governance handoff, adminless — every admin key RENOUNCED, no multisig handoff"; `AUX.finalize()`:404 burns ANGEL + RENOUNCES Aux; :405 Safe renounces Basket; :150 comment "the Safe (deployer) MUST own ANGEL"). So Q3's "TRANSFER to SAFE at finalize" ≠ the current "RENOUNCE at finalize" — it flips adminless → **Safe-governed**. TWO parts: (a) the ANGEL-ownership CLARITY fix (deployer≠Safe; fix the :150/:394 comments) is safe. (b) the transfer-to-Safe-instead-of-renounce is a **GOVERNANCE-MODEL DECISION** that reverses the deliberate adminless design — 🔴 NEEDS USER CONFIRM: does QU!D become Safe-governed (deployer-created Safe = owner post-finalize), abandoning adminless? Do NOT rewrite finalize until confirmed. (verify-intent: the adminless renounce was intentional.)
@@ -1164,8 +1164,8 @@ Full-thread scan of my own responses (this session + the 280MB pre-compaction se
 
 ### S (cont.) — DEEP RE-SCAN slices 1+3 (2026-07-24) — the keyword-pass MISSED these (whole-turn read)
 **🔴 AMM/band composition-audit (adversarial "compose entrypoints in one block" — OPEN, absent from §A):**
-- **S11 🟠 `Vogue._withdraw` interactions-before-effects (CEI):** sends native ETH (`_sendETH` .call{value}, ~:473) + delivers (`_burnInRange(...recipient)`) BEFORE `LP.pooled/lpShares -= amount` (~:485). nonReentrant but Aux's lock is SEPARATE → recipient gets control, can call Aux. Bounded (Aux doesn't read the lagging per-LP state) but a real ordering defect (Vogue:393 TODO path). → §A.
-- **S12 🟠 withdraw burns at SPOT, deposit is oracle-priced** (`Vogue:449`) — asymmetry leaks ≤50 bps IL pool-wide. Fix: oracle-price the withdraw burn. → §A.
+- **S11 🟠 `Quid._withdraw` interactions-before-effects (CEI):** sends native ETH (`_sendETH` .call{value}, ~:473) + delivers (`_burnInRange(...recipient)`) BEFORE `LP.pooled/lpShares -= amount` (~:485). nonReentrant but Aux's lock is SEPARATE → recipient gets control, can call Aux. Bounded (Aux doesn't read the lagging per-LP state) but a real ordering defect (Quid:393 TODO path). → §A.
+- **S12 🟠 withdraw burns at SPOT, deposit is oracle-priced** (`Quid:449`) — asymmetry leaks ≤50 bps IL pool-wide. Fix: oracle-price the withdraw burn. → §A.
 - **S13 🟠 normal repack recenters on SPOT not oracle** (`:1325`, realizes IL at spot `Core:672`) — front-runnable ±50 bps within the 300-bps gate. Fix: oracle-center it (unify w/ reseat's Chainlink move). → §A.
 - **S14 ✅ JIT fee-snipe on the 4626 LP path FIXED (`a25d0e4`):** auto-managed 4626 `_withdraw` had NO same-block lock (unlike `pull`'s created+47) → deposit→Aux.swap→withdraw atomic. Fixed via `lastDepositBlock` gate. Record so not re-derived. → §A.
 - **S15 🟡 true atomic reach ~100 bps not 50** — strict `>` in `isManipulated` lets the boundary swap through ⇒ two swaps walk ~2× the per-swap cap in one block (the real LVR window). → §A secondary.
@@ -1181,7 +1181,7 @@ Full-thread scan of my own responses (this session + the 280MB pre-compaction se
 - **S21 vBTC-borrow as FIRST-LINE refill (unifies 3 consumers):** reservoir defense order = free `POOLED_BTC` → **borrow vBTC against basket stables** (Morpho 1-market-per-stable / Euler multi-collat; skew premium funds carry; caveat = short-vBTC) → skew/organic refill (unwinds borrow) → WBTC fallback. ONE `getUserSuppliedAssets` read serves 3 consumers: skew-absorption signal + borrow source + #74 base-selection. → §71/#74.
 - **S22 dynamic swap fee = σ²×one-sidedness, netted vs skew** (the missing adverse-selection axis; skew prices INVENTORY, this prices FLOW): `fee_σ² = max(0, k·σ² − skewApplied)`, charged ONCE via `max(skew,fee)` never sum; keyed on flow one-sidedness not raw σ² (don't deter volume). → §71/#1.
 - **S23 reservation-recenter (#3) DECIDED-AGAINST:** recentering the reseat on the reservation price chases the drain + amplifies the move, conflicts with anchor-recentered reseat. Dropped. → decided-against note.
-- **S24 ✅ EIP-170 slimming DONE (#78/#93 UNBLOCKED):** all 5 over-limit contracts under 24576 (Vogue 27266→23645, Vault 25605→22032, SwapLib 25346→20338, LevManager 24927→23422, Aux 24707→24134); main deployable. §DR/#78 list it as open — RESOLVE. (13 money-path bodies relocated; box OOMs full run.)
+- **S24 ✅ EIP-170 slimming DONE (#78/#93 UNBLOCKED):** all 5 over-limit contracts under 24576 (Quid 27266→23645, Vault 25605→22032, SwapLib 25346→20338, LevManager 24927→23422, Aux 24707→24134); main deployable. §DR/#78 list it as open — RESOLVE. (13 money-path bodies relocated; box OOMs full run.)
 - **S25 detail: 48h flow-EWMA + σ-derived skew cap** — `FLOW_DECAY` un-tied from `BR_DECAY`, set `0.5^(1/2880)` (48h). `MAX_WELL_SKEW` DERIVED from σ: `√(σ²·T_confs/yr)·2 + 0.2%` clamped 3% (~1% @40% vol → 3% @~150%); per-asset conf window (ETH 1-block, BTC ~1hr). → §71.
 
 **🔴 KEEPER / self-funding (user focus) — extensions:**
@@ -1240,7 +1240,7 @@ The exhaustive whole-turn scan of the un-scanned titled sibling. Most items were
 **Un-tracked non-#54 items:**
 - **✅ legacy_sweep orphaned — RESOLVED (deleted, commit `4f3c952`):** `wallet/legacy_sweep.rs` (the orphaned lexe-legacy sweep, never spawned) was DELETED — it no longer exists at HEAD. Nothing to wire. (Distinct from run_btc_lev_keeper, which is spawned.)
 - **🔴 TWO security-fix ORPHAN commits — need HARD confirm they're LIVE in main (not a memory claim):** `7cb99dc` (H-1 cross-hop fee griefing) and `b0b20b3` (MED-3/LOW-4 cap inbound LP channels). If they're dangling/superseded but their fix didn't actually land, that's a live vuln. → git-verify the fix code is present in HEAD.
-- **🟡 COMPOUND_GAS sync invariant** (Rust/gas, #103-adjacent): Rust `lev_keeper.rs:266 COMPOUND_GAS=140k` MUST stay in sync with `Vogue.sol:1242`'s 140k (keeper break-even gate `pending/2 ≥ gasprice·COMPOUND_GAS`; mis-set → keeper runs at a loss → stops → liveness risk). NOT the Rover 600k (that's a different constant). Add a comment cross-link on both sides.
+- **🟡 COMPOUND_GAS sync invariant** (Rust/gas, #103-adjacent): Rust `lev_keeper.rs:266 COMPOUND_GAS=140k` MUST stay in sync with `Quid.sol:1242`'s 140k (keeper break-even gate `pending/2 ≥ gasprice·COMPOUND_GAS`; mis-set → keeper runs at a loss → stops → liveness risk). NOT the Rover 600k (that's a different constant). Add a comment cross-link on both sides.
 - Already-in-doc (agents cross-checked): payRefillBonus cost+gas-cap (B/C#11/E#140), #101 guard (§S19/§C), #102 cUSD follow-ups, #107 θ (do-not-record per user), JIT §2, #75 hand-rolled nonReentrant (C#15), #89 out_of_band dup (E#166), #95 recordSkewPremium (D#91), outOfRangeBtc vBTC mirror (D#92), #104 internalize-A (F#181). Task-status #100-112 tracked by number.
 - **Memory FIX:** `project-quid-btclev-keeper-audit-handoff` "keeper NOT spawned" is STALE — resolved by 60a0290 (run_btc_lev_keeper spawned daemon.rs:451). [updating]
 
@@ -1257,13 +1257,13 @@ Re-verified S40 #54 items against current code:
 
 ### S41 — TAIL-SCAN of 1f505948 (280M sibling, lines 60000-75866, newest-first) — 2026-07-25
 This thread ORIGINATED LST-PEG-MONITOR.md. Reverse-chron: mid-thread bug-flags were fixed LATER in the same thread → HEAD-verified stale (validates the reverse-chron method):
-- ✅ **btcVault deploy bug** (DeployLib passed Vogue not Vault as BTCChannels.btcVault → all BTC swap-out reverted, registerBtcLp no-op) — FIXED + regression-guarded at HEAD (DeployLib:160 passes `eth`, :184 `require(btcVault==eth)`). The old "fork flake" memory attribution was WRONG (real deploy bug). [memory to correct if any]
+- ✅ **btcVault deploy bug** (DeployLib passed Quid not Vault as BTCChannels.btcVault → all BTC swap-out reverted, registerBtcLp no-op) — FIXED + regression-guarded at HEAD (DeployLib:160 passes `eth`, :184 `require(btcVault==eth)`). The old "fork flake" memory attribution was WRONG (real deploy bug). [memory to correct if any]
 - ✅ **#105 ×3 beyond-minOut partial-fill leak** (swapToBody/creditSwapOut/creditSwapIn) — FIXED at HEAD (SwapLib `consumed`:484 + `_refundExcess`:497-508 + `inToken`:380). Matches task #105 complete.
-- ✅ **#95 sell-anchor** committed (b204da0/787b59a); ✅ **#93** Vogue/Vault were never over-limit at HEAD (stale blocker) — the real risk was LevManager margin-2, fixed by moving shortTargetBps to a LevMath delegatecall helper.
+- ✅ **#95 sell-anchor** committed (b204da0/787b59a); ✅ **#93** Quid/Vault were never over-limit at HEAD (stale blocker) — the real risk was LevManager margin-2, fixed by moving shortTargetBps to a LevMath delegatecall helper.
 
 **GENUINELY-LIVE (at HEAD) from this thread:**
 - 🔴 **LST-PEG-MONITOR.md FINAL VERDICT (supersedes S39 GAP-2):** do NOT build a reactive weETH-evac engine — it's over-engineering. QU!D values weETH at INTRINSIC (`getEETHByWeETH×ETH/USD`, LevManager:290-291), so a Mode-1 MARKET discount (the common, self-healing kind — stETH-June-2022) is INVISIBLE to the backing books; only a Mode-2 INTRINSIC loss (slash/exploit → getRate drops) matters, and that's ALREADY auto-reflected in D≥S+L. A reactive getRate trigger is also weak (discrete slash = loss already taken; fast exploit outruns the rate fn). Design = rely on existing per-LP isolation + venue liquidation, add TRANSPARENCY (extend dashboard stress-test #25), at most gate NEW deposits into a freshly-impaired wrapper. → S39's "levered weETH has no evacuation (GAP-2)" is REFRAMED: evacuation isn't the design; isolation is.
-- 🔴 **THE DECIDING OPEN QUESTION (unresolved, high-value):** is the PLAIN (unlevered) ether.fi/weETH venue truly per-LP ISOLATED, or does an intrinsic loss there SOCIALIZE across all ETH LPs via the shared vogueETH share price (Core:597)? The LEVERAGE side is definitively per-LP isolated (LevManager:68-77,201 "never socialized"); the plain side was only INFERRED. This single fact decides whether LST-PEG-MONITOR.md becomes "do essentially nothing on-chain + dashboard signal" or keeps a real ex-ante control. NB: our new venue work attributes the ether.fi slice per-LP via `ethfiBacked` (hard-wall "exit from YOUR venue only"), BUT vogueETH is a POOLED sum (VaultLib _venue4626Value) → share price is shared → a value loss MAY socialize despite the attribution. NEEDS a trace of vogueETH share-pricing vs ethfiBacked. → verify before finalizing the LST doc.
+- 🔴 **THE DECIDING OPEN QUESTION (unresolved, high-value):** is the PLAIN (unlevered) ether.fi/weETH venue truly per-LP ISOLATED, or does an intrinsic loss there SOCIALIZE across all ETH LPs via the shared vogueETH share price (Core:597)? The LEVERAGE side is definitively per-LP isolated (LevManager:68-77,201 "never socialized"); the plain side was only INFERRED. This single fact decides whether LST-PEG-MONITOR.md becomes "do essentially nothing on-chain + dashboard signal" or keeps a real ex-ante control. NB: our new venue work attributes the ether.fi slice per-LP via `ethfiBacked` (hard-wall "exit from YOUR venue only"), BUT vogueETH is a POOLED sum (QuidLib _venue4626Value) → share price is shared → a value loss MAY socialize despite the attribution. NEEDS a trace of vogueETH share-pricing vs ethfiBacked. → verify before finalizing the LST doc.
 - 🟠 **ETH-cap over-priced** (`_maxWellSkew` applies the BTC ~1hr confirmation window to ETH; needs per-asset conf-fraction, thread isBTC through skewWad). HEAD-status UNVERIFIED (may be fixed later like the others — check).
 - 🟠 **Adaptive flow-decay gap:** `FLOW_DECAY` (Core:156, 48h) is ONE constant for BOTH ETH & BTC despite very different refill latencies (ETH mins on-chain; BTC slow cross-chain). Staged fix: per-side decay first (2 constants), then optionally adaptive to `realizedVarianceWad` (TWAP-based, manip-safe) with a min-half-life floor; NEVER adaptive to instantaneous flow. ETH-side should track Rover's refill cadence (Rover has no inventory-cost reaction today).
 - 🟠 **#102 cUSD deposit-gate-on-feed RULE (established):** a market-floating stable is deposit-eligible IFF `stableFeed[token] != address(0)` (or structural-floor allowlist = BOLD) — else `getDepegSeverityBps` returns 0 → valued at par → over-mint/dilution exploit. Correction: RLUSD/USDG/AUSD DO have real Chainlink feeds ("proxy" = ENS resolution); only BOLD is truly feed-less (safe via Liquity redemption floor). cUSD/stcUSD maps 1:1 onto sUSDe/USDE (setVault + setStableFeed 0x8fFf…). Unverified forks: cUSD permissionless-vs-KYC; does 0x8fFf… return cUSD/USD (not the stcUSD share-rate)?
@@ -1290,9 +1290,9 @@ Deep whole-turn re-read of THIS thread's entire transcript: 18 slices × semanti
 ### V.2 Risk-reduction / correctness
 - 🔴 **Urgent-BTC-delever basis mismatch** — `lev_keeper.rs:161-175` `decide()` triggers on venue-safety LTV but sizes the target to the IL-basis `target_ltv_bps`; a crash can size the safety leg wrong exactly when it must fire. [confirmed] S17-7.
 - 🟠 **Wire `MorphoEscrowVenue.accrueAndDebtOf` into backing/keeper reads** — accessor exists (`:98`) with ZERO call sites; reads use pre-accrual `debtOf`, biasing net-equity/backing UP between pokes. [confirmed] S17-12/S17-3/S15-28.
-- 🟠 **Exclude Rover's protocol-owned weETH/WETH v3 MtM (`valueWeth()`) from the `venueFeesPerShareInc` bookmark** — `VaultLib._vogueETH` folds it into one total; `rebalanceBody` distributes the delta over plainDepth, crediting Rover P&L as "yield" to ALL plain ETH LPs incl. non-opted. [confirmed] S00-13.
+- 🟠 **Exclude Rover's protocol-owned weETH/WETH v3 MtM (`valueWeth()`) from the `venueFeesPerShareInc` bookmark** — `QuidLib._vogueETH` folds it into one total; `rebalanceBody` distributes the delta over plainDepth, crediting Rover P&L as "yield" to ALL plain ETH LPs incl. non-opted. [confirmed] S00-13.
 - 🟡 **AAVE-v4 `supply()` calls are bare** (a revert bricks deposit/rebalance) while the parallel AAVE `withdraw` is try/catch-wrapped — asymmetry worth re-review now Euler/Gauntlet add surface; "intentional" verdict never recorded. [unverified] S07-5.
-- 🟡 **Re-verify `POOLED_USD_*_LEV ≤ Σdebt` re-established on external liquidation on BOTH sides** (ETH lazy-synced `Vogue.sol:649`; BTC plain-withdraw + Core-cap NOT confirmed) + `_reconcileLev` no-op-skip gas/grief gap. [unverified] S17-26/27/28.
+- 🟡 **Re-verify `POOLED_USD_*_LEV ≤ Σdebt` re-established on external liquidation on BOTH sides** (ETH lazy-synced `Quid.sol:649`; BTC plain-withdraw + Core-cap NOT confirmed) + `_reconcileLev` no-op-skip gas/grief gap. [unverified] S17-26/27/28.
 - 🟡 **MED-4**: freeze `levPooledBTC` accrual during pending BTC channel-close vs accept bounded keeper-sync window; confirm async BTC close can re-sync the levered band slice (unlike ETH same-tx closeLev+syncLev). [unverified] S15-32/31.
 - 🟡 **Capacity-poisoning defense part (c)**: penalize/retire chronically-offline channels — only liveness-filter (a)/(b) exist in `swap_out_onchain.rs`. [confirmed] S13-28.
 - 🟡 **Gas-griefing of the hop hot wallet via a flood of min-size swaps** — never investigated. [unverified] S06-12.
@@ -1304,13 +1304,13 @@ Deep whole-turn re-read of THIS thread's entire transcript: 18 slices × semanti
 
 ### V.3 Design decisions to make
 - **Seed 600k CAP: one-time lifetime budget (as shipped) vs revolving/outstanding cap** that reopens as tranches mature/drain — the exact open Q in memory `levbasket-security-audit`. S17-32.
-- ~~**ETH LP share is NOT vintage-exact** (mints 1:1 nominal, redeems pro-rata NAV → cross-vintage subsidy); fix = NAV minting.~~ **⚠️ RE-SCOPED (code-verified 2026-07-25). The SUBSIDY fear is a NON-ISSUE: deposit AND withdraw are BOTH nominal (`pooled±=deltaETH`/`lpShares±=amount`, `Vogue:733/547`; `_deposit4626` returns pooled-delta not convertToShares, `:1214`) and yield is VINTAGE-EXACT via the fee/venue ACCUMULATORS (`_settlePending` runs first on withdraw `:474`; a fresh LP's feesPerShare/venueFeesPerShare bookmarks are set current at deposit → owed 0 of prior yield). No cross-vintage value leak; a NAV-minting "fix" would DOUBLE-COUNT vs the accumulator. NOT §A#9 (that's the QU!D token). **REAL residual (narrower):** the ERC-4626 VIEWS `convertToShares/Assets`→`previewDeposit`/`maxWithdraw`/`previewRedeem`/`totalAssets` (`:1153-1189`) are NAV-based (`vogueETH/lpShares`) and MISREPORT vs the nominal+accumulator execution when yield is unsettled (NAV>1): maxWithdraw over-states, previewDeposit under-states. Fix = make the 4626 views nominal-consistent OR document them approximate. Compliance/integrator bug, NOT a value bug. S17-31.
+- ~~**ETH LP share is NOT vintage-exact** (mints 1:1 nominal, redeems pro-rata NAV → cross-vintage subsidy); fix = NAV minting.~~ **⚠️ RE-SCOPED (code-verified 2026-07-25). The SUBSIDY fear is a NON-ISSUE: deposit AND withdraw are BOTH nominal (`pooled±=deltaETH`/`lpShares±=amount`, `Quid:733/547`; `_deposit4626` returns pooled-delta not convertToShares, `:1214`) and yield is VINTAGE-EXACT via the fee/venue ACCUMULATORS (`_settlePending` runs first on withdraw `:474`; a fresh LP's feesPerShare/venueFeesPerShare bookmarks are set current at deposit → owed 0 of prior yield). No cross-vintage value leak; a NAV-minting "fix" would DOUBLE-COUNT vs the accumulator. NOT §A#9 (that's the QU!D token). **REAL residual (narrower):** the ERC-4626 VIEWS `convertToShares/Assets`→`previewDeposit`/`maxWithdraw`/`previewRedeem`/`totalAssets` (`:1153-1189`) are NAV-based (`vogueETH/lpShares`) and MISREPORT vs the nominal+accumulator execution when yield is unsettled (NAV>1): maxWithdraw over-states, previewDeposit under-states. Fix = make the 4626 views nominal-consistent OR document them approximate. Compliance/integrator bug, NOT a value bug. S17-31.
 - **Live venue-APY feed to drive venue rotation** (today it's a manual per-LP hard-wall pick; §L only verifies yield-wiring correctness). S07-30.
-- ~~**Claim-without-close fee harvest** for both ETH and BTC LPs (no such entrypoint exists).~~ **✅ STALE/DONE (verified 2026-07-25): both entrypoints EXIST — `Vogue.collectFees()` (`:1284`, ETH) + `Vault.collectBtcLpFees` (`:863`, "Harvest … WITHOUT closing the channel"). Drop.** S02-26.
+- ~~**Claim-without-close fee harvest** for both ETH and BTC LPs (no such entrypoint exists).~~ **✅ STALE/DONE (verified 2026-07-25): both entrypoints EXIST — `Quid.collectFees()` (`:1284`, ETH) + `Vault.collectBtcLpFees` (`:863`, "Harvest … WITHOUT closing the channel"). Drop.** S02-26.
 
 ### V.4 Dedup / simplification / dead-code / perf
 - **tranche[] seed marker desyncs from actual seed-vintage QUI on transfer** (marker follows whatever batch is sent) — tighten now the CAP clamp shipped. S17-23.
-- ~~**Merge `Vogue._settlePending` + `Vault._settleBtcLp`** into one isBTC-branched helper.~~ **⚠️ SUPERSEDED (verified 2026-07-25): sibling-session extreme-care verdict (ad2385ae L9732) = DO NOT FOLD — different TOK-leg + caller-vs-internal bookmark-refresh semantics; `_settleBtcLp` was DELIBERATELY regrouped into BtcVault (`Vogue:399`), not a stalled merge. Keep separate. (Memory `btc-multichannel-bug` corrected.)** S03-8/S02-57.
+- ~~**Merge `Quid._settlePending` + `Vault._settleBtcLp`** into one isBTC-branched helper.~~ **⚠️ SUPERSEDED (verified 2026-07-25): sibling-session extreme-care verdict (ad2385ae L9732) = DO NOT FOLD — different TOK-leg + caller-vs-internal bookmark-refresh semantics; `_settleBtcLp` was DELIBERATELY regrouped into BtcVault (`Quid:399`), not a stalled merge. Keep separate. (Memory `btc-multichannel-bug` corrected.)** S03-8/S02-57.
 - **`BTCHopRequest` event (`Aux.sol:869/876`) has zero consumers** — wire a consumer or drop. (netDeliveredBtc-trigger half is stale — mechanism GONE.) S07-20.
 - ⇄ **Relocate `DeployL1_s.sol` from `evm/src/` → `scripts/`** (deprecated `DeployL1.s.sol` already removed; live one never moved). S14-6/S13-37.
 - **Fold `BitcoinTx.sol`/`OracleLib.sol` into `ChannelLib`** (file-count/deploy-count win only, optional). S14-1.
@@ -1423,7 +1423,7 @@ These mark things a later thread already BUILT, so no one re-does them (the reve
 **Value it buys (honest):** W.0 already gives redundant liveness. The AVS (W.1–4) buys ONLY **removing the foundation as the assumed watchtower operator** + turning liveness from *expected* → *crypto-economically guaranteed*. Build the AVS ONLY if that decentralization endgame is explicitly bought — NOT merely to close the §N flag (W.0 does that). Refs: memories `reference-weeth-valued-at-intrinsic`, `procyclical-intermediary-caution`, `ln-attack-surface`; §N; `IMPAIRMENT-DERISK-TRIGGER.md`.
 
 ### §S — AUTHORITATIVE RECONCILIATION vs HEAD d91107f (2026-07-25). Reverse-chron, verified.
-**✅ STRUCK — mis-recorded as live, RESOLVED at HEAD (do not re-raise):** S3 (light getUserReserveData AaveV3Venue:148), S10 (flat-multiple decided-against), S11 (_withdraw CEI Vogue:547), S14 (JIT snipe lastDepositBlock a25d0e4), S16 (revert on 0-delivery SwapLib:496), S17 (Aux-vs-POOLED bacfb6a), S29 (attestation wired), S30 (registerDelegation selectors uint64), S35 (matureSupply present Basket:156), S40 H1/H2/M3/M4 (delever hardened), S40 security-orphans (H-1 surface removed + MED-3 cap live), S40 COMPOUND_GAS (140k in sync).
+**✅ STRUCK — mis-recorded as live, RESOLVED at HEAD (do not re-raise):** S3 (light getUserReserveData AaveV3Venue:148), S10 (flat-multiple decided-against), S11 (_withdraw CEI Quid:547), S14 (JIT snipe lastDepositBlock a25d0e4), S16 (revert on 0-delivery SwapLib:496), S17 (Aux-vs-POOLED bacfb6a), S29 (attestation wired), S30 (registerDelegation selectors uint64), S35 (matureSupply present Basket:156), S40 H1/H2/M3/M4 (delever hardened), S40 security-orphans (H-1 surface removed + MED-3 cap live), S40 COMPOUND_GAS (140k in sync).
 **🔴 GENUINELY LIVE backlog at HEAD:**
 - S39 GAP-1 — `Aux.pokeVaultHealth` (Aux:448) has NO scheduled caller. Wire into fleet keeper / CRE cron.
 - S39 GAP-2 — no evacuate-to-Aave for OPEN levered weETH-on-Morpho. ⚠️ REFRAMED by S41 LST verdict: reactive evac = over-engineering; the real item is the plain-venue-socialization question (S41).
@@ -1431,7 +1431,7 @@ These mark things a later thread already BUILT, so no one re-does them (the reve
 - S40 T1 — #54 delever regression tests owed (needs forge).
 - ~~S40 legacy_sweep — orphaned; wire or delete.~~ ✅ RESOLVED: `wallet/legacy_sweep.rs` DELETED (`4f3c952`); no longer exists at HEAD.
 - S1 — FIXED 2026-07-25 (LevManager:496 "(L∈[1,2])" → "up to ~4× / 75% LTV").
-- S12/S13 — LOW ≤50bps IL-leak refinements (oracle-price withdraw burn Vogue:551; oracle-center normal-repack).
+- S12/S13 — LOW ≤50bps IL-leak refinements (oracle-price withdraw burn Quid:551; oracle-center normal-repack).
 - S40 C1/S37 — #104 cross-tx double-pay design fork — USER-OWNED.
 **❓ NEEDS FRESH BUILD/RUN:** S24 & S40-C2 (EIP-170 sizes — `out/` STALE Jul-22; run `forge build --sizes`), S31 (rev_client_ser_basic), S32 (LN↔EVM FFI e2e — bitcoind CI).
 
@@ -1445,7 +1445,7 @@ is the point: anything not in this file does not survive the thread.
 ### A.8a ✅ LANDED this session (do NOT redo)
 - **`_withdrawableOf`** — one Morpho-V2-aware withdrawable definition (`f4a1c2a`). See the corrected §A.5b.
 - **`forceDeallocate` REMOVED** — probed ineffective. §A.5b now says DO NOT IMPLEMENT; it previously
-  prescribed exactly that. VaultLib 9,791 → 9,355 bytes.
+  prescribed exactly that. QuidLib 9,791 → 9,355 bytes.
 - **`venuePosition` security fix** — permissionless-poke false-signal, was documented-but-unapplied.
 - **Interface consolidation STARTED** (`9efcf04`) — `src/imports/Interfaces.sol` created; 20 decls → 6
   (`IAaveV4Spoke` 5→1, `IWeETH`/`IRover`/`IDepositAdapter`/`IAaveV4Hub`/`IMorphoFlash` 3→1). 144 → 130.
@@ -1667,8 +1667,8 @@ question. Correctly: the guard would have hidden a genuine self-reinforcing fail
 3. At the boundary the price is unrepresentable, so `BasketLib.ticksToPrice` yields **0** and
    `getTWAPforAsset` returns 0 (it deliberately never reverts — #101 degrade-to-partial-fill).
 4. **`SwapLib.sol:1531` — `if (twap == 0) return r; // didRepack stays false → keep current range`.**
-5. `didRepack == false` ⇒ `Core._handleRepack`/`_repackAdd` never run ⇒ **`Vogue.addLiq` is never
-   called**, so the band is never re-paired with Aux dollars. Measured: 8 `Vogue::repack` calls during
+5. `didRepack == false` ⇒ `Core._handleRepack`/`_repackAdd` never run ⇒ **`Quid.addLiq` is never
+   called**, so the band is never re-paired with Aux dollars. Measured: 8 `Quid::repack` calls during
    the crash but only 3 `addLiq`, all of them during setup/open — **zero during the crash**.
 6. The drain therefore cannot stop, the pool pins, and every price consumer downstream reads 0 —
    including `LevMath`'s divisors, which panicked before §A.12's `NoPrice()` guard.
@@ -1680,7 +1680,7 @@ defect rather than a limit: basket surplus **$176,779**, and `clampByBacking` he
 
 ⇒ **Fix direction (needs a decision, do NOT guess):** step 4 is the load-bearing line. `twap == 0`
 currently means "don't touch the range", but at the boundary that is exactly backwards — a pinned pool
-is precisely when a reseat onto the Chainlink anchor is needed. `Vogue.reseat()` already exists for
+is precisely when a reseat onto the Chainlink anchor is needed. `Quid.reseat()` already exists for
 this ("PERMISSIONLESS deadlock-recovery poke… moves the spot onto the oracle so swaps resume") and the
 anchor IS pinned and healthy (`assetPriceFeed(WETH)` = Chainlink, resolving 1927–1942 throughout).
 So the material question: should `twap == 0` route to the RESEAT path (heal onto Chainlink) instead of
@@ -1690,10 +1690,10 @@ current behaviour is a deadlock the recovery mechanism cannot reach.
 ### A.13b `RebalIn` cannot be shrunk safely (asked 2026-07-26)
 All 11 fields are READ by `rebalanceBody` (measured: core 1, aux 2, ev 1, weth 1, token1isETH 1,
 lpShares 3, totalLevPooled 1, totalBuffer 2, lowerTick 2, upperTick 2, bookmark 3) — no dead fields.
-The struct is the DELEGATECALL-BOUNDARY TAX, not bloat: VogueLib can read neither Vogue's immutables
-(baked into Vogue's bytecode) nor Vogue's storage (libraries cannot declare state), so every value
-must cross explicitly. Rejected alternatives: library self-calls (`IVogue(address(this)).AUX()`) move
-bytecode INTO Vogue, the EIP-170-critical contract — spending headroom where it is scarcest to save it
+The struct is the DELEGATECALL-BOUNDARY TAX, not bloat: QuidLib can read neither Quid's immutables
+(baked into Quid's bytecode) nor Quid's storage (libraries cannot declare state), so every value
+must cross explicitly. Rejected alternatives: library self-calls (`IQuid(address(this)).AUX()`) move
+bytecode INTO Quid, the EIP-170-critical contract — spending headroom where it is scarcest to save it
 where it is not; and collapsing `lpShares`+`totalLevPooled` into `plainDepth` fails because `lpShares`
 is read 3× independently. The struct also exists to avoid stack-too-deep on the legacy pipeline, so
 flattening it to positional args breaks the build.
@@ -1707,7 +1707,7 @@ root, and one earlier masking change was REMOVED.
 **`testReal_Weth_OpenLeverClose`** asserted `vogueETH >= GROSS collateral` (5.920 vs 7.506) — one term
 covering two. `vogueETH` counts a levered position at NET equity BY DESIGN; the debt-funded remainder
 lives in `totalBuffer`, deliberately excluded from equity so it cannot be withdrawn as if it were the
-LP's. The protocol's own ETH-backing composition is `vogueETH + grossBuffer` (`VogueLib.addLiq`), and
+LP's. The protocol's own ETH-backing composition is `vogueETH + grossBuffer` (`QuidLib.addLiq`), and
 the assertion now uses exactly that. It failed by precisely the debt.
 
 **`testReal_Euler_RebalanceMany_BatchHoldsTarget`** — debt moved by EXACTLY zero, and `debtDelta` was
@@ -1793,14 +1793,14 @@ validation), and **every remaining one is sound**:
 - `LevManager.deleverOne` — its `require(debt < debtBefore)` deliberately SURFACES "sourced nothing"
   so `cascadeDelever` catches and skips that LP. That is the fault-tolerance, not a swallow.
 - `LevMath._roverAbsorb` — returns 0 so the caller falls to `_weethToWethDex`.
-- `VaultLib._supply4626` — try 4626 → else AAVE → else HOLD IDLE, and idle WETH is counted by
+- `QuidLib._supply4626` — try 4626 → else AAVE → else HOLD IDLE, and idle WETH is counted by
   `_vogueETH`, so all three outcomes are accounted.
 - `Core._levDebtUsd18` / `levGrossNative`, `Vault.totalNetEquityBtc` — view fail-safes whose direction
   is documented and conservative ("subtract 0 debt … only RAISES committed ⇒ STRICTER gate").
 
 **Detector 2 — a DOCSTRING promising a fallback the body may not implement** (the shape that caught
 `venuePosition`). 22 candidates; the θ family and the `falls back` promises audited. All implement what
-they promise: `BtcVaultLib._thetaClampBtc` has `if (thetaEff == 0) thetaEff = 1e18`, `v3SwapTiered`
+they promise: `BtcLib._thetaClampBtc` has `if (thetaEff == 0) thetaEff = 1e18`, `v3SwapTiered`
 explicitly assigns the fallback to the CALLER, `_aaveYieldWeighted` has `shares > 0 ? … : assets`.
 
 ### 🔴 SELF-CORRECTION — §A.8e OVERSTATED the θ fail-closed bug
@@ -1808,12 +1808,12 @@ The sweep's real find is that **my own claim was wrong**. §A.8e and commit `54d
 failing closed would cause "θ=0 ⇒ applyTheta clamps depth to zero ⇒ no fees ⇒ no premium ⇒ no depth,
 permanently. A cold band could never bootstrap." **That deadlock was NOT reachable.** Both consumers
 already normalise 0 → 1e18 BEFORE `applyTheta` sees it:
-- `VogueLib._liveTheta:467` — `try … returns (uint t) { return t == 0 ? 1e18 : t; }` (this is what
+- `QuidLib._liveTheta:467` — `try … returns (uint t) { return t == 0 ? 1e18 : t; }` (this is what
   `addLiq` calls, i.e. the ETH band-sizing path)
-- `BtcVaultLib._thetaClampBtc:125` — `if (thetaEff == 0) thetaEff = 1e18;`
+- `BtcLib._thetaClampBtc:125` — `if (thetaEff == 0) thetaEff = 1e18;`
 
 The fix is still correct and stays — the function must match its own docstring, and the EXTERNAL views
-(`Vogue.derivedThetaWad`, `Vault.derivedThetaWadBtc`) were reporting a bare 0 that reads as "throttle to
+(`Quid.derivedThetaWad`, `Vault.derivedThetaWadBtc`) were reporting a bare 0 that reads as "throttle to
 zero" to any off-chain consumer. But it is **belt-and-braces, not a deadlock preventer**, and it was
 never load-bearing. Recorded so nobody cites §A.8e as evidence of a bug that could fire.
 
@@ -1846,7 +1846,7 @@ they had no part in. That is the ~7.5% of §A.16.
 `_reconcileLev` exists for exactly this ("self-heal a levered position seized by an EXTERNAL venue
 liquidation"), and it works: forcing `syncLev(LEVR)` burns **exactly 5.226** of the LEVERED LP's shares,
 leaves PASSIVE's 10.000 intact, and **the test PASSES**. But it is LAZY — reached only from
-`Vogue._withdraw` (`if (levPooled[msg.sender] > 0) _reconcileLev(msg.sender)`) and `syncLev`, i.e. on the
+`Quid._withdraw` (`if (levPooled[msg.sender] > 0) _reconcileLev(msg.sender)`) and `syncLev`, i.e. on the
 LEVERED LP's OWN next action. Until then the loss sits socialised.
 ⇒ **So it is a RACE**: whoever exits before the levered LP is reconciled absorbs a share of someone
 else's liquidation. Nothing prevents a passive LP from being that party — and a liquidation is exactly
@@ -1855,7 +1855,7 @@ when everyone tries to exit.
 ### Q1 (user): can unlevered LPs be prevented from taking the loss? — YES, proven
 `syncLev` already charges the loss to precisely the right party. The gap is only that nothing GUARANTEES
 it runs before value is extracted. Options, cheapest first:
-1. **Reconcile-before-extract (targeted).** In `Vogue._withdraw`/`redeem`, before pricing shares, force
+1. **Reconcile-before-extract (targeted).** In `Quid._withdraw`/`redeem`, before pricing shares, force
    reconciliation of any STALE levered slice. Cheap staleness probe already exists: compare the live
    `ILevEquity.totalGrossCollateralEth()` against the recorded gross — `_reconcileLev`'s own docstring
    says it "reconciles the (possibly stale) levered slice to the live gross". Invariant to enforce:
@@ -2099,7 +2099,7 @@ Redone by testing each claim against the code.
 
 ### VERIFIED LIVE → KEPT (my first pass had these wrong)
 - `LST-PEG-MONITOR` — **KEEP.** Its one surviving lever, the ex-ante weETH venue-share cap, is
-  **NOT in the code** (grep: no cap in `VogueLib`/`Vogue`). The doc's "don't build the monitor"
+  **NOT in the code** (grep: no cap in `QuidLib`/`Quid`). The doc's "don't build the monitor"
   conclusion is not the same as "nothing here is open". The user had already said keep; I ignored that.
 - `HOP-CUSTODY-SGX` — **KEEP, but on WEAKER grounds than first stated.** 116 Rust files reference
   SGX/enclave, so the subject is alive. ⚠️ **RETRACTED:** I also cited "`lexe_ca.rs` still hard-references
@@ -2117,13 +2117,13 @@ Redone by testing each claim against the code.
   work rather than removing rot; needs the user's explicit call, not a sweep.
 
 ⚠️ **`JIT-DEPTH-GUARANTEE` status is stale even though the doc is load-bearing** — its §4 list marks
-work as TODO that is already built (§4.1 COMPOUND-not-transfer is present in `Vogue.sol`). Fix the
+work as TODO that is already built (§4.1 COMPOUND-not-transfer is present in `Quid.sol`). Fix the
 status; do not delete.
 
 ## A.24 ✅ VERIFIED-DONE 2026-08-01 (code: Core.sol:815 require(...==0,'repack:stale'); residual 2 accepted by design) THE TWO SURVIVING AUDIT-TODO RESIDUALS (the rest were dead — see §A.23)
 - 🟡 **`repack` `myLiquidity` trusted-arg.** VERIFIED still open: `Core.repack` takes `myLiquidity` from
   the caller with no `poolStats`-vs-arg assertion. POOLED desync is structurally safe (mutated only from
-  realized V4 `BalanceDelta`) and it is inside the Vogue keeper trust boundary, but add the assertion +
+  realized V4 `BalanceDelta`) and it is inside the Quid keeper trust boundary, but add the assertion +
   a POOLED-equals-realized invariant test to close it.
 - ⚠️ **RISK-2 bootstrap-year forward-yield over-mint (by-design, watch).** The 1:1 cap is skipped for
   `currentMonth() < 12` and `avgYield` is grindable via a 4626 share-price held past the averaging
@@ -2179,7 +2179,7 @@ against their implementation — do not claim it.
 
 Prompted by DualPoolStableHook capping quotes at `_effectiveAssets` to prevent over-claiming against
 reserves. **Yes, our band can quote depth it cannot immediately deliver** — and the code already knew,
-at `Vogue.sol:954`: the swap prices against `POOLED_ETH`, which INCLUDES the levered slice, while
+at `Quid.sol:954`: the swap prices against `POOLED_ETH`, which INCLUDES the levered slice, while
 `deliverableETH` EXCLUDES lev net-equity. That gap is the "§M phantom depth".
 
 **We take the opposite approach to Uniswap's, deliberately:**
@@ -2238,7 +2238,7 @@ recorded `lexe_ca.rs` un-migrated CA-constants issue — same trust-root class.
 ## A.29 THE OVER-QUOTE, FROM ALL SIDES — and why §A.5's "silent short" must NOT be "fixed" with a revert
 
 User: *"look at this from all sides, don't break our existing code."* Traced the whole ETH delivery
-chain (`Vogue.sol:949-971`):
+chain (`Quid.sol:949-971`):
 ```
 inWETH = balance
 if (needed > inWETH)  → pull from venues (vogueOp)
@@ -2291,7 +2291,7 @@ keeping `HOP-CUSTODY-SGX` (the "live bug in its domain" justification is void); 
 116 Rust files still reference SGX/enclave.
 
 ## A.31 §J.2 IS THE VOGUE/VAULT CLEANUP TODO — still NOT STARTED, and gated
-User asked where the Vogue/Vault cleanup lives. It is **§J.2 Refactors (structural)**: Vogue should not
+User asked where the Quid/Vault cleanup lives. It is **§J.2 Refactors (structural)**: Quid should not
 be a 4626 if vBTC is its own segregated 4626; `Vault.sol` should not carry vBTC ERC-20 functions; plus
 the full-2× buffer-as-band-depth unification.
 **PREREQ (user, unchanged): complete + VERIFY the deposit→band→withdraw round-trip behaviour-neutrality
@@ -2306,9 +2306,9 @@ which is the correct order, but means any earlier round-trip reasoning is stale.
 analysis requires `forge build --force` once. Not a habit to repeat — but it is the only way to see them.
 
 **`src` unused declarations: 7 found, 7 fixed → 0 remain.** The notable one was MY OWN dead code:
-`VogueLib.derivedThetaWad(core, aux, …)` — the `aux` parameter went dead when #107/D3 moved the θ
+`QuidLib.derivedThetaWad(core, aux, …)` — the `aux` parameter went dead when #107/D3 moved the θ
 numerator off `avgYield` (the only reader of `aux`). Parameter dropped and both callers updated;
-**Vogue 24,092 → 24,061 bytes (515 free).** The rest (`Aux:736`, `VogueLib:176`, `Rover:391/553/665`)
+**Quid 24,092 → 24,061 bytes (515 free).** The rest (`Aux:736`, `QuidLib:176`, `Rover:391/553/665`)
 were silenced by dropping the identifier, preserving every signature and the ABI.
 ⚠️ **Two near-misses worth recording, both caught only by re-checking:**
 - At `Rover:553` I first dropped `price` — but the compiler's column 10 pointed at `liq`; `price` is
@@ -2348,7 +2348,7 @@ Per user: drop `FAMILY-PLAN` + `KHALANI`, and re-verify "stale" claims IN THE CO
   `quid-watchtower.rs`); and it cited `AUDIT-TODO.md`, already deleted, so that reference dangled.
 - `EIP170-MIGRATION` — its stated GOAL ("enough headroom that ALL remaining BUILD-QUEUE work fits
   without re-breaching") is **measurably NOT met**: LevMath 20 B free, LevManager 70 B, SwapLib 306 B,
-  Vogue 515 B, Core 663 B. So it is not a completed record, and the live constraint is already tracked
+  Quid 515 B, Core 663 B. So it is not a completed record, and the live constraint is already tracked
   (§A.12) and measurable in seconds via `forge inspect <C> deployedBytecode`. Its one durable method
   note is preserved below.
 - `LEVERAGE-BTC-M11-SPEC` — its "genuinely open" item #1 describes a stub that **no longer exists**:
@@ -2376,13 +2376,13 @@ Per user: drop `FAMILY-PLAN` + `KHALANI`, and re-verify "stale" claims IN THE CO
 
 ### Kept (7, incl. the queue) — each verified live
 `BUILD-QUEUE` · `TAPROOT-CHANNELS-BUILD-SPEC` (Rust-cited, shipped model) · `JIT-DEPTH-GUARANTEE`
-(Vogue:419 cites §4.1 for live semantics; ⚠️ its §4 STATUS is stale — marks built work as TODO) ·
+(Quid:419 cites §4.1 for live semantics; ⚠️ its §4 STATUS is stale — marks built work as TODO) ·
 `IMPAIRMENT-DERISK-TRIGGER` (DeployL1_s:553 cites it as an OPEN product decision) ·
 `SOR-SIGNIFICANCE-DESIGN` (SOR.sol:362 cites it as "⚠️ PARTIAL") · `LST-PEG-MONITOR` (its ex-ante weETH
 venue-share cap is NOT in the code) · `PUPPETEER-E2E-MATRIX` (live E2E runbook — TRIMMED below).
 
 ### PUPPETEER trimmed, and one real error fixed
-Verified its API references against code: `requestSwapOutOnchain` ✓, `Vogue.deposit(assets, receiver,
+Verified its API references against code: `requestSwapOutOnchain` ✓, `Quid.deposit(assets, receiver,
 venue)` ✓ — but **`requestOnchainSwapIn` has ZERO hits in `evm/src`.** Corrected: swap-IN is
 hop-initiated and settles through `BTCChannels.settleSwapIn` → `Vault.creditSwapIn`. Also collapsed the
 two long strikethrough corrections (vote gate, USDT0) into one compact "settled, do not re-raise" note,
@@ -2459,8 +2459,8 @@ Recorded so this list is not re-litigated from a stale quote:
 
 ### Genuinely still open (the accurate list)
 §A.5e redeem stale-cache (needs a user decision) · §A.5f on-chain per-action delegation · §A.5g hop
-reconnector · §J.8 weETH-on-Aave venue leg · `VogueLib.depositETH` venue-share cap (LST-PEG-MONITOR's
-one surviving lever) · #12 POOLED_USD · MISS 1/4/6 · §J.2 Vogue/Vault refactor (gated on the round-trip
+reconnector · §J.8 weETH-on-Aave venue leg · `QuidLib.depositETH` venue-share cap (LST-PEG-MONITOR's
+one surviving lever) · #12 POOLED_USD · MISS 1/4/6 · §J.2 Quid/Vault refactor (gated on the round-trip
 proof) · §A.5c deliverableETH view-twin · §A.15 self-authorising forward tenor · §A.24 repack
 `myLiquidity` assertion · the native BTC rail #59/#74 + its force-close LLTV data gap · JIT-DEPTH §4
 status.
@@ -2683,8 +2683,8 @@ history is not the only cause: the 0.3-ETH swaps are simply too small to move `k
 ⇒ **Concrete lead for anyone who wants the pin:** `DerivedTheta.t.sol` DOES reach a live
 `kCalm ≈ 125e18`, using `_moveEth` with **40-ETH** steps. A θ pin has to live in that fixture's flow
 regime, not in a gentle Alles-style loop. Until then the fix stays correct-but-unpinned — and it is
-belt-and-braces anyway, since §A.17 established that BOTH consumers (`VogueLib._liveTheta`,
-`BtcVaultLib._thetaClampBtc`) already normalise 0 → 1e18 before `applyTheta` sees it. Only the EXTERNAL
+belt-and-braces anyway, since §A.17 established that BOTH consumers (`QuidLib._liveTheta`,
+`BtcLib._thetaClampBtc`) already normalise 0 → 1e18 before `applyTheta` sees it. Only the EXTERNAL
 views would have surfaced the raw 0.
 
 **Net on §A.41's doubt:** both re-checks (§A.42 for §A.5e, this one for §A.8e) CONFIRM the original
@@ -2713,7 +2713,7 @@ new market and nothing is lost. Confirm the live-deployment status before schedu
 (no separate mint/transferFrom roundtrip)"*, and `exposeBtcToLev` *"replaces the 'LP pre-holds vBTC +
 transferFrom' roundtrip"*. The mechanism reclassifies the LP's ALREADY-BANKED channel BTC
 (funded → lev) with `LP.pooled` UNCHANGED, so no BTC enters or leaves and there is no double-count.
-Concretely, `BtcVaultLib.vbtcExposeBody` takes **three Vault storage mappings** — `balanceOf`,
+Concretely, `BtcLib.vbtcExposeBody` takes **three Vault storage mappings** — `balanceOf`,
 `autoManagedBTC`, `levPooledBTC` — and mutates them in one frame. A segregated `VBtc` cannot touch
 `autoManagedBTC`/`levPooledBTC` directly, so segregation necessarily re-introduces a cross-contract
 call and a new trust boundary between the token face and the band accounting — i.e. it partially undoes
@@ -2749,25 +2749,25 @@ that must replace "the LP never receives loose vBTC" (Σ outstanding ≤ Σ free
 SUPPLY-level properties, so they belong in this contract, not buried in the Vault's band accounting.
 
 ⚠️ **Steps 2-4 NOT done and deliberately not started:** rewiring `Vault` to call `VBtc`, splitting
-`BtcVaultLib.vbtcExposeBody`/`vbtcUnexposeBody`, and repointing `DeployL1_s`'s `collateralToken` at the
+`BtcLib.vbtcExposeBody`/`vbtcUnexposeBody`, and repointing `DeployL1_s`'s `collateralToken` at the
 new contract. Left as a clean seam rather than a half-finished refactor.
 
 ### §J.2's OTHER bullet is much larger than the queue implies
 User: *"vogue handles both vETH and vBTC so it shouldn't be 4626 itself if it handles two of those."*
-Correct, and the reason is exactly that: ERC-4626 models ONE asset per vault, so a Vogue that manages
+Correct, and the reason is exactly that: ERC-4626 models ONE asset per vault, so a Quid that manages
 both legs cannot honestly implement it — `convertToAssets`/`maxWithdraw` have no single well-defined
-asset. **MEASURED SCOPE: 16 4626-shaped functions in `Vogue.sol` and 149 call sites in `test/`, plus the
+asset. **MEASURED SCOPE: 16 4626-shaped functions in `Quid.sol` and 149 call sites in `test/`, plus the
 SPA ABI.** That is a large, cross-cutting change and must not be started casually mid-session — but the
 §A.40 round-trip proof now exists as its safety net, and it is mutation-verified against the exact
 share-model regression class this refactor risks.
 
 ### §J.7 — the user's manual [TODO] catalog is now down to ONE open item
-Verified against code: **9 of 10 markers are gone**, and the survivor (`Vogue.sol:66`) has been TRIMMED
+Verified against code: **9 of 10 markers are gone**, and the survivor (`Quid.sol:66`) has been TRIMMED
 to only what is still true. Of its three original asks:
 - ✅ ether.fi is NOT a distinct user-selectable venue — there is deliberately no `VENUE_ETHERFI`
   dispatch tag; it is a fallback reached only when the Rover has self-liquidated.
 - ✅ `VENUE_SPLIT` splits EQUALLY across all five venues {AAVE, Euler, Rover, Galaxy, Gauntlet} —
-  `toDeposit / 5` in VogueLib's split branch.
+  `toDeposit / 5` in QuidLib's split branch.
 - 🔴 **STILL OPEN — fee attribution vs venue direction:** an LP may withdraw only from the venues they
   directed their deposit to, but their accrued FEE slices were never part of that deposit and we do not
   track which venues those slices landed in. Needs a decision: attribute fees per-venue on accrual, or
@@ -2776,8 +2776,8 @@ to only what is still true. Of its three original asks:
 ### §J.2b — `VEth.sol` is REQUIRED, and it is NOT symmetric with `VBtc.sol`
 
 USER CAUGHT THIS: "are you telling me we dont need a vETH.sol?" No — the §J.2 bullet
-"make Vogue not-a-4626" was incomplete as written. It said the ETH 4626 face leaves Vogue
-but never said where it LANDS. It lands in `VEth.sol`. Verified Vogue IS vETH today:
+"make Quid not-a-4626" was incomplete as written. It said the ETH 4626 face leaves Quid
+but never said where it LANDS. It lands in `VEth.sol`. Verified Quid IS vETH today:
 `balanceOf(user) => autoManaged[user].pooled` (:1100), `totalSupply() => lpShares` (:1105),
 `asset() => WETH` (:1149).
 
@@ -2791,8 +2791,8 @@ THE ASYMMETRY IS THE WHOLE DESIGN POINT — do not copy `VBtc.sol`:
     same-clock invariant repaired in §A.16 (live numerator over lazy denominator).
 
 SHAPE: `VEth` is a PROJECTION FACE — it holds the ERC-20/4626 IDENTITY (`name`, `symbol`,
-`decimals`, `asset`, `convertToAssets/Shares`) and reads `balanceOf`/`totalSupply` THROUGH Vogue.
-Vogue keeps `pooled`/`lpShares` and remains the transfer authority. Result: Vogue is not a 4626,
+`decimals`, `asset`, `convertToAssets/Shares`) and reads `balanceOf`/`totalSupply` THROUGH Quid.
+Quid keeps `pooled`/`lpShares` and remains the transfer authority. Result: Quid is not a 4626,
 it MANAGES two — which is the architecture the original bullet was reaching for.
 
 ### §J.7 — fee attribution vs venue direction: RESOLVED, no code change needed
@@ -2800,20 +2800,20 @@ it MANAGES two — which is the architecture the original bullet was reaching fo
 USER'S CALL: "let withdrawals source fee value from any venue... the purpose was not to force
 anyone to ever have to potentially be faced with the wait time of etherfi. otherwise it is
 unnecessarily heavy, am i wrong?" They are not wrong, and the code already agrees:
-  • `VaultLib:359` — "Galaxy + Euler are FUNGIBLE; pull from each at its maxWithdraw."
-  • `Vogue.sol:94` — `ethfiBacked` is annotated "the ONLY" per-LP isolated slice.
-  • `Vogue.sol:509` — an LP with `ethfiBacked == 0` "never touches the offramp/wait/fee".
-  • Credits are DEPOSIT-PATH ONLY (`ethfiBacked[pledge] += min(placed, sent)`, VogueLib:231/253),
+  • `QuidLib:359` — "Galaxy + Euler are FUNGIBLE; pull from each at its maxWithdraw."
+  • `Quid.sol:94` — `ethfiBacked` is annotated "the ONLY" per-LP isolated slice.
+  • `Quid.sol:509` — an LP with `ethfiBacked == 0` "never touches the offramp/wait/fee".
+  • Credits are DEPOSIT-PATH ONLY (`ethfiBacked[pledge] += min(placed, sent)`, QuidLib:231/253),
     sized by principal actually routed to ether.fi/Rover. FEES ARE NEVER ADDED, so accrued fee
     value can never drag an LP into the offramp.
 ⇒ ether.fi isolation is principal-only and opt-in by routing; every other venue is already
   fungible on exit. This was the last surviving user `[TODO]` marker in the tree.
 
-### §J.2b — DONE. `VEth.sol` landed; Vogue no longer claims ERC-4626.
+### §J.2b — DONE. `VEth.sol` landed; Quid no longer claims ERC-4626.
 
 WHAT SHIPPED. `VEth.sol` (stateless projection) now carries `name`/`symbol`/`decimals`/`asset`/
 `totalAssets`/`convertTo*`/`preview*`/`max*`, reading balances, supply and conversions back THROUGH
-Vogue. Those same members were REMOVED from Vogue, which keeps the share math and the entrypoints
+Quid. Those same members were REMOVED from Quid, which keeps the share math and the entrypoints
 (`deposit`/`mint`/`withdraw`/`redeem`) as its native two-asset LP API. Wired into `DeployL1_s` as
 `VETH`. Suite 3445/0; check-client-abis 0 drift; SPA never read the identity.
 
@@ -2823,21 +2823,21 @@ the withdraw ladder, `ethfiBacked` and the `_pricingBacking` numerator. Owning a
 move the accounting core across a call boundary and put an external call inside the §A.16b same-clock
 invariant. Conversions DELEGATE so that pricing has exactly one implementation.
 
-SCOPE NOTE — entrypoints deliberately stayed on Vogue. They carry the per-deposit `venue` selector,
+SCOPE NOTE — entrypoints deliberately stayed on Quid. They carry the per-deposit `venue` selector,
 the payable ETH path, and the `_depositImpl`/`_withdraw` machinery. Forwarding them through VEth would
 add a WETH pull-and-re-approve hop and change the allowance flow users already have. That is a
 separate decision, not a free side effect of splitting the identity. CONSEQUENCE: VEth is a complete
 4626 READ surface but not a transactional 4626 — an aggregator that wants to `deposit()` through it
 still needs the forwarders. Open if/when a real 4626 integration is wanted.
 
-TESTING NOTE (§A.13-class trap avoided). Vogue has `fallback() external payable {}`, so a REMOVED
+TESTING NOTE (§A.13-class trap avoided). Quid has `fallback() external payable {}`, so a REMOVED
 function does not make a raw call fail — the fallback swallows it and returns SUCCESS with EMPTY
 returndata. The checkable property is "returns nothing". Two natural assertions are wrong here:
 `vm.expectRevert()` sees a non-reverting call (the decode fails later, in the caller's frame), and
 `try/catch` does not catch return-data DECODING failures at all. `VEthIdentity.t.sol` asserts empty
-returndata instead, and pins that Vogue has STOPPED answering — the half that could silently rot.
+returndata instead, and pins that Quid has STOPPED answering — the half that could silently rot.
 
-### §A.5c ✅ VERIFIED-DONE 2026-08-01 (code: VaultLib.sol:182 premise re-derived/withdrawn) — RE-DERIVED 2026-07-27. PREMISE WITHDRAWN; downgraded from  to a semantics note.
+### §A.5c ✅ VERIFIED-DONE 2026-08-01 (code: QuidLib.sol:182 premise re-derived/withdrawn) — RE-DERIVED 2026-07-27. PREMISE WITHDRAWN; downgraded from  to a semantics note.
 
 §A.9 withdrew this item's original justification, so it was re-derived from the CODE and from live
 test measurement rather than from the doc text. The claimed harm does not occur.
@@ -2847,7 +2847,7 @@ are left ~19% short, therefore it must be made "the VIEW TWIN of the withdraw la
 §A.8d as **"the next work item"**.
 
 WHY THAT IS WRONG. `deliverableETH` is not load-bearing for delivery. It has exactly two consumers:
-  1. `Vogue:565` — it caps `firstBurn`, i.e. how much of a withdrawal is sourced from the IN-RANGE
+  1. `Quid:565` — it caps `firstBurn`, i.e. how much of a withdrawal is sourced from the IN-RANGE
      BAND BURN before the venue ladder takes the rest. The shortfall is then computed from the ACTUAL
      `sent` (`if (amount > sent) shortfall = amount - sent`), NOT from this view. So an over-statement
      changes the SOURCING ORDER (band-first vs venue-first) and nothing else — it is self-correcting.
@@ -2985,7 +2985,7 @@ were checked before any of them is built against.
 ### §A.5f — IS PER-ACTION DELEGATION NEEDED? (user, 2026-07-28). Answer: yes, but NOT first.
 
 THE EXPOSURE IS REAL. `BtcLevManager.sol:361` — the fleet keeper "holds the LP key"; there is no
-separate on-chain keeper role. `Vogue.withdraw(assets, receiver, owner)` requires
+separate on-chain keeper role. `Quid.withdraw(assets, receiver, owner)` requires
 `owner == msg.sender` but leaves **`receiver` ARBITRARY**. So a keeper key = the ability to withdraw
 that LP's funds anywhere. On-chain the protocol cannot distinguish the LP from a keeper acting as it.
 
@@ -3040,7 +3040,7 @@ full suite. It is not a drive-by edit.
 ## §A.46 🔴 VACUOUS-TEST SWEEP (user, 2026-07-28: *"we need every PASS to prove something"*)
 
 Triggered because `RecipientPin.t.sol`'s load-bearing case PASSED for the wrong reason on its first
-run — all three `expectRevert`s were catching Vogue:538's post-deposit cooldown, not the guard under
+run — all three `expectRevert`s were catching Quid:538's post-deposit cooldown, not the guard under
 test. That is a CLASS, so the suite was swept for it.
 
 ### 1. Bare `vm.expectRevert()` — DONE, 4 sites fixed
@@ -3243,7 +3243,7 @@ OPEN QUESTIONS — do NOT guess, both are cheap to settle:
 
 My first diagnosis was WRONG and is struck. Selector `0xad468d11` = **`liquidityAdapter()`** (confirmed
 via `cast sig`) — the Morpho-V2 detection marker in `_withdrawableOf`. That call IS correctly wrapped
-in `try` at `VaultLib.sol:313`, so its revert against a plain 4626 (sDAI) is EXPECTED AND CAUGHT. It
+in `try` at `QuidLib.sol:313`, so its revert against a plain 4626 (sDAI) is EXPECTED AND CAUGHT. It
 is the detection probe working as designed, not a failure. I read a nested, caught revert in the trace
 as the top-level cause — the exact trace-reading error this queue already warns about.
 
@@ -3309,7 +3309,7 @@ WORK:
  1. Wire FRAX into the stable set (`getStables`/`toIndex`) and sFRAX as its venue, mirroring how
     DAI/sDAI is wired. NOTE sFRAX is a PLAIN ERC-4626 like sDAI — so `_withdrawableOf`'s
     `liquidityAdapter()` Morpho-V2 probe WILL revert against it and be caught by the `try` at
-    `VaultLib.sol:313`. That is expected behaviour, NOT a bug (§A.48 corrected). Do not "fix" it.
+    `QuidLib.sol:313`. That is expected behaviour, NOT a bug (§A.48 corrected). Do not "fix" it.
  2. 🔴 THE MISSING PIECE — a **Chainlink FRAX/USD feed** for the depeg signal. Redemption haircuts
     read depeg severity live per stable via `getDepegSeverityBps → liveDepegBps` off a PINNED
     Chainlink feed. Without a feed FRAX defers to 0 (NO HAIRCUT) by design — which means a DEPEGGED
@@ -3418,7 +3418,7 @@ assertEq(QUID.balanceOf(User01), qdBeforeImmature,      "immature redeem burns N
 
 MY TWO STRUCK CLAIMS:
   1. "`AUX.redeem` reverts on an unknown sDAI selector" — WRONG. `0xad468d11` is `liquidityAdapter()`,
-     the Morpho-V2 probe, correctly caught by the `try` at `VaultLib.sol:313`. I read a nested CAUGHT
+     the Morpho-V2 probe, correctly caught by the `try` at `QuidLib.sol:313`. I read a nested CAUGHT
      revert as the top-level cause.
   2. "`testRedeem` was a silent no-op that passed regardless / a second vacuous test" — WRONG, and it
      is the inverse of the truth: it is one of the most deliberate tests in the suite. It ASSERTS the
@@ -3533,7 +3533,7 @@ and 150,178.89e18 cherry. A venue that pays out is not a reverting venue.
 
 WHAT THE "REVERT" ACTUALLY IS (§A.48 final): `liquidityAdapter()` (`0xad468d11`) is the MORPHO-V2
 DETECTION PROBE in `_withdrawableOf`. It is *supposed* to revert against anything that is not a
-Morpho-V2 vault, and it is caught by the `try` at `VaultLib.sol:313`. Seeing it in a trace is the
+Morpho-V2 vault, and it is caught by the `try` at `QuidLib.sol:313`. Seeing it in a trace is the
 detector WORKING, not a failure. I misread exactly this once already (§A.48) — a nested CAUGHT revert
 read as a top-level cause.
 
@@ -3702,7 +3702,7 @@ safe to run in separate threads/agents.
   • §A.49 FRAX/sFRAX listing + Chainlink feed.
   • §A.51 re-wire `calcFeeL1` (LAST — a fee on mis-scaled payouts is meaningless).
 
-**LANE D — Vault.sol / VaultLib / Interfaces. SERIAL within the lane.**
+**LANE D — Vault.sol / QuidLib / Interfaces. SERIAL within the lane.**
   • §A.52 interface dedup residual (do FIRST — it edits Vault.sol wholesale and would conflict).
   • §J.8 weETH-on-Aave-v4 leg.
   • §A.19b `redeemVBtc` (Vault.sol:638 + BtcLevManager.sol:578 + VBtc.sol:19 move together).
@@ -3719,22 +3719,22 @@ echidna stuff."*
 
 ### 1. CONFIRMED DUPLICATE STRUCT — two names, one shape
 ```solidity
-struct OorTicks { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }   // VogueLib.sol:640
+struct OorTicks { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }   // QuidLib.sol:640
 struct Oor      { int24 newLo; int24 newUp; int24 curLo; int24 curUp; }   // SwapLib.sol:1429
 ```
 BYTE-IDENTICAL. Collapse to ONE canonical declaration (`imports/Types.sol` or `Interfaces.sol`).
 
 ### 2. THE BTC QUESTION — PARTIALLY ANSWERED, one half still open
-`BtcVaultLib.OorArgs` (`:280`) is NOT a duplicate of the ETH TICK struct — it is an ARGUMENT BUNDLE
+`BtcLib.OorArgs` (`:280`) is NOT a duplicate of the ETH TICK struct — it is an ARGUMENT BUNDLE
 (`amount, token, distance, range, owner, sqrtP, curLo, curUp, idBtc`). So the answer to "why can't BTC
 reuse the ETH one" is: for TICKS it should (see #1), but `OorArgs` is a different concept.
 ⚠️ STILL OPEN, and this is the user's real question: does the ETH `outOfRange` path have its OWN
 equivalent args bundle? If it does, and the two differ only by `idBtc`/`idEth`, they should be ONE
-struct with the id passed separately. NOT YET VERIFIED — check `Vogue.outOfRange` / `SwapLib`'s ETH
+struct with the id passed separately. NOT YET VERIFIED — check `Quid.outOfRange` / `SwapLib`'s ETH
 path before concluding.
 
 ### 3. `tl` / `tu` → `tickLower` / `tickUpper` — 23 occurrences in `src/`
-Violates the standing no-cryptic-names rule. Declared at `BtcVaultLib.sol:146-147` and threaded
+Violates the standing no-cryptic-names rule. Declared at `BtcLib.sol:146-147` and threaded
 through `burnInRange` call sites and `repack` destructuring. Mechanical but touches several files, so
 do it when no other agent owns them. While there, sweep for the same class: `sqrtP`, `curLo`, `curUp`,
 `newLo`, `newUp`, `amts`, `yW`, `fc`, `rf`, `dl`, `il`, `ts`, `imm` — judge each (some, like `sqrtP`,
@@ -3748,14 +3748,14 @@ against ONE canonical surface. §A.52 (interface `_V` shims) is the same pass �
 
 ### §A.54 CORRECTION — "why would it be a different animal?" The user is right; my framing was wrong.
 
-I claimed `BtcVaultLib.OorArgs` was a different CONCEPT from the ETH out-of-range path. Checked, and it
+I claimed `BtcLib.OorArgs` was a different CONCEPT from the ETH out-of-range path. Checked, and it
 is not. Evidence:
   • **`Core.outOfRange(bool isBTC, address sender, int liquidity, int24 tickLower, int24 tickUpper,
     address token)`** — Core already services BOTH sides from ONE function, switching on `isBTC`. The
     operation is unified at the bottom of the stack.
-  • **`Vogue.outOfRange(uint amount, address token, int24 distance, int24 range, uint8 venue)`** — the
+  • **`Quid.outOfRange(uint amount, address token, int24 distance, int24 range, uint8 venue)`** — the
     ETH path passes its arguments INLINE.
-  • There is NO `*Args` struct in `VogueLib` or `SwapLib`. **Only the BTC side has one.**
+  • There is NO `*Args` struct in `QuidLib` or `SwapLib`. **Only the BTC side has one.**
 ⇒ `OorArgs` is the SAME concept, merely BUNDLED — almost certainly to avoid stack-too-deep without
   `via_ir` (the repo avoids via_ir elsewhere for the same reason). That is an IMPLEMENTATION ARTIFACT,
   not a design distinction, and my "different animal" answer obscured the very duplication being asked
@@ -3767,7 +3767,7 @@ does. Collapse `OorTicks`/`Oor` at the same time. If the BTC bundling is load-be
 then the ETH path should adopt the SAME struct rather than each side keeping its own convention.
 
 📌 REINFORCES #3: `Core.outOfRange` already spells them **`tickLower`/`tickUpper`**. So `tl`/`tu` in
-`BtcVaultLib` are not merely cryptic — they are INCONSISTENT WITH THE CODEBASE'S OWN NAMING one layer
+`BtcLib` are not merely cryptic — they are INCONSISTENT WITH THE CODEBASE'S OWN NAMING one layer
 down. The rename is restoring consistency, not imposing a new convention.
 
 ## §A.50 FIXED (landed in commit `1371b23` — see HISTORY NOTE below)
@@ -3826,12 +3826,12 @@ BTC/ETH split below, the question is NOT "why does this differ" but "should it e
 answer is NO unless the asset genuinely behaves differently.
 
 ### CONFIRMED MERGE CANDIDATES
-1. **`OorTicks` / `Oor`** — byte-identical structs, `VogueLib.sol:640` and `SwapLib.sol:1429`
+1. **`OorTicks` / `Oor`** — byte-identical structs, `QuidLib.sol:640` and `SwapLib.sol:1429`
    (`int24 newLo; newUp; curLo; curUp`). One canonical declaration.
 2. **The out-of-range PATH itself.** `Core.outOfRange(bool isBTC, address sender, int liquidity,
    int24 tickLower, int24 tickUpper, address token)` ALREADY services both assets from one function.
-   Above it the paths diverge for no design reason: `Vogue.outOfRange(...)` passes args INLINE, while
-   `BtcVaultLib.outOfRangeBtc` bundles into `OorArgs` (almost certainly stack-depth, since the repo
+   Above it the paths diverge for no design reason: `Quid.outOfRange(...)` passes args INLINE, while
+   `BtcLib.outOfRangeBtc` bundles into `OorArgs` (almost certainly stack-depth, since the repo
    avoids `via_ir`). ⇒ ONE args struct (or one signature) for both, `isBTC` + position id as
    fields/params, mirroring Core. If bundling is load-bearing, ETH adopts the SAME struct.
 3. **Six accessor twins** that are pure `isBTC` parameterisation:
@@ -3885,10 +3885,10 @@ check whether an `isBTC`-parameterised internal already exists beneath them, as 
 ## §A.57 🔴🔴 THIRD 1e12 UNIT BUG — trading-fee revenue may be under-paid 1e12x to LPs
 
 Found while tightening `testBtcLp_FeeAccrualAndWithdraw`. `SwapLib.pendingFor` returns **6-dec USD**
-(sats weight x a WAD-scaled accumulator fed 6-dec USDC fees). `BtcVaultLib.settleBtcLp:54` mints that
-straight into **18-dec QU!D with NO scale-up**, while its SIBLING `BtcVaultLib.settleDelivered:71`
+(sats weight x a WAD-scaled accumulator fed 6-dec USDC fees). `BtcLib.settleBtcLp:54` mints that
+straight into **18-dec QU!D with NO scale-up**, while its SIBLING `BtcLib.settleDelivered:71`
 mints `exactUsd * 1e12` through the SAME `Basket.mint` call, commented *"6-dec → 18-dec QUI"*.
-`Vogue._settlePending:437` has the same shape as the broken one. `Basket.mint`'s `auth` branch does no
+`Quid._settlePending:437` has the same shape as the broken one. `Basket.mint`'s `auth` branch does no
 normalisation — it `_mint`s the raw amount.
 
 EVIDENCE: the entire fee pot for 6 x \$500 = \$3,000 of volume is **1,259,994 wei = 1.26e-12 QU!D**.
@@ -3941,7 +3941,7 @@ coupling. Merging destroys the quantity being checked. Confirmed struck.
 ### §A.57 — the EXACT verification chain, so the fix is one session's work and zero guesswork
 
 The fix itself is almost certainly one token: `mint(payTo, usdR * 1e12, quid, 0)` at
-`BtcVaultLib.settleBtcLp:54`, mirroring `settleDelivered:71`. IT WAS NOT APPLIED because the last link
+`BtcLib.settleBtcLp:54`, mirroring `settleDelivered:71`. IT WAS NOT APPLIED because the last link
 is unverified, and **being wrong mints 1e12x TOO MUCH QU!D — unbacked supply on a live mint path,
 strictly worse than the under-payment it fixes.**
 
@@ -3951,13 +3951,13 @@ CHAIN VERIFIED SO FAR:
      commented "6-dec → 18-dec QUI". Same mint, same token, one scales.
   3. `usdR` comes from `SwapLib.pendingFor` → `usdOwed = mulDiv(weight, feePerShareUsd, WAD)`, so
      `usdR`'s units are `feePerShareUsd`'s units.
-  4. `feePerShareUsd` is `usdFeesBtc`, incremented at `BtcVaultLib:557` / `:561` by `usdInc`.
+  4. `feePerShareUsd` is `usdFeesBtc`, incremented at `BtcLib:557` / `:561` by `usdInc`.
   5. ❌ **UNVERIFIED: what units is `usdInc`?** ← THE ONE REMAINING LINK. Trace its source (the swap
      fee credit). If it is 6-dec USDC, the fix is confirmed.
 MAGNITUDE COROBORATION (supporting, not sufficient): the whole pot for \$3,000 volume is 1,259,994 wei;
 as 6-dec that is \$1.26 ≈ 4.2bps — plausible. As 18-dec it is 1.26e-12 QU!D — implausible as a fee.
 
-BEFORE CHANGING IT: (a) settle step 5; (b) check whether `Vogue._settlePending:437` (the ETH path) has
+BEFORE CHANGING IT: (a) settle step 5; (b) check whether `Quid._settlePending:437` (the ETH path) has
 the SAME shape and must move WITH it; (c) note `LP.usd_owed` accumulates the same `usdR`, so the
 deferred branch stays in the pre-scale unit and only the MINT scales — do not scale both; (d) run the
 FULL suite (a mint change touches backing invariants and `checkBacking`).
@@ -4008,7 +4008,7 @@ standard, not just against the failing fixture.
 ## §A.58(1) STRUCK — NOT an off-by-one. The legacy stress-tested repo uses the IDENTICAL condition.
 
 User: *"if you check that repo i mentioned before i can tell you the outOfRange implementation in it has
-been stress tested absolutely exhaustively — github.com/quidmints/quid"*. Checked. `evm/src/Vogue.sol`
+been stress tested absolutely exhaustively — github.com/quidmints/quid"*. Checked. `evm/src/Quid.sol`
 in that repo, inside `_repack()`:
 ```solidity
 if (currentTick > tickUpper || currentTick < tickLower) {
@@ -4041,7 +4041,7 @@ should automatically kick in to fix this, am i wrong?"* Not wrong. Checked:
   • `Core.sol:266` describes it: *"refill is a self-funding fleet op — JIT Morpho-flash BTC →
     creditSwapIn → repay, gas via #87"*. It is a KEEPER operation.
   • `Aux.sol:854/863` record that the older on-chain `arbETH`/`arbBTC` forwarders (called by
-    `Core.refillETH` / `Vogue._withdraw`) were REMOVED — i.e. the on-chain auto-arb path was
+    `Core.refillETH` / `Quid._withdraw`) were REMOVED — i.e. the on-chain auto-arb path was
     deliberately retired IN FAVOUR of the fleet op.
   • An ECONOMIC layer backs it: `skewPremiumETH`/`skewPremiumBTC` withhold a premium from the drainer
     that stays in the basket as LP backing (`SkewPremiumRetained`). Draining is PRICED, not free, and
@@ -4073,9 +4073,9 @@ it, and the disagreement is itself worth recording because the comments are load
 
 WHAT THE CODE COMMENTS CLAIM (both would tell a future reader the feature is MISSING):
   • `SwapLib.sol:419` — *"JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built)"*
-  • `Vogue.sol:499`  — *"§2 JIT depth-guarantee core — DEFERRED (backing-model fork)"*
+  • `Quid.sol:499`  — *"§2 JIT depth-guarantee core — DEFERRED (backing-model fork)"*
 
-WHAT I DID FIND that IS automatic: `SwapLib.deleverEthOnDelivery` — *"DELEGATECALL'd by Vogue from
+WHAT I DID FIND that IS automatic: `SwapLib.deleverEthOnDelivery` — *"DELEGATECALL'd by Quid from
 `_sendETH` when the venue base (`deliverableETH`) can't cover a swap-out delivery"*. Real auto-trigger,
 but it heals a DELIVERY SHORTFALL by de-levering, which is not obviously the same as restoring a
 one-sided band's USD DEPTH.
@@ -4104,7 +4104,7 @@ already-built items as TODO:
 Those three predate this thread. NO new mechanism was built here.
 
 **§2 ("Mechanism" — the depth-guarantee CORE) is a DIFFERENT SECTION and remains deferred.** That is
-precisely what `SwapLib.sol:419` and `Vogue.sol:499` state, so those comments are ACCURATE and must NOT
+precisely what `SwapLib.sol:419` and `Quid.sol:499` state, so those comments are ACCURATE and must NOT
 be cleared. §A.59's suspected stale-comment problem does not exist. Struck.
 
 WHAT *IS* AUTOMATIC TODAY (likely the source of the recollection — real triggers, wrong scope):
@@ -4122,13 +4122,13 @@ correction itself becomes a source of false recollection later.
 
 I told the user "no new mechanism was built here." WRONG, and struck. Looking deeper on their
 insistence:
-  • `Vogue.sol:36` — *"§4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to
+  • `Quid.sol:36` — *"§4.2 / #109: force-close an LP's OWN in-band levered slice on band-exit (gated to
     the vogueSyncHook)"* — an AUTOMATIC on-chain trigger.
-  • `Vogue.sol:483` — *"§4.2 cover-open-levers-first — ✅ **DONE (#109). INLINE WIRING IS LIVE**"*.
+  • `Quid.sol:483` — *"§4.2 cover-open-levers-first — ✅ **DONE (#109). INLINE WIRING IS LIVE**"*.
   • THIS THREAD RESTORED IT: the withdraw cap had been set to `plainNet`, which made `amount > plainNet`
     unsatisfiable and rendered #109 UNREACHABLE. Fixing the cap to the full pooled balance brought the
     auto-de-lever back to life. That is the JIT/auto-trigger work the user remembered.
-  • `Vogue.sol:490` names the original cause: *"That text outlived the code and is what caused #109 to…"*
+  • `Quid.sol:490` names the original cause: *"That text outlived the code and is what caused #109 to…"*
     — a STALE DOC made a live mechanism look missing. The same failure mode twice over.
 
 SCOPE — why it still does not change §A.58(2): #109 force-closes a LEVERED SLICE on BAND-EXIT. It does
@@ -4181,7 +4181,7 @@ STANDING RULES ADOPTED (also saved to durable memory as `never-assert-absence-fr
 Applying the §A.59 lesson BEFORE building: verify each deferral is real, not a stale marker like #109's.
 
 ### JIT-DEPTH §2 (the depth-guarantee core) — GENUINELY DEFERRED. Marker is ACCURATE, do not clear it.
-`Vogue.sol:499` gives a SUBSTANTIVE reason, not a TODO: *"the spec's redeem→addLiq top-up does NOT
+`Quid.sol:499` gives a SUBSTANTIVE reason, not a TODO: *"the spec's redeem→addLiq top-up does NOT
 compose backing-neutrally. `addLiq` headroom is surplus = TVL − committed (independent of QUID supply
 S); `Aux.redeem`/`redeemAsBody` pays real stables OUT of the vaults (TVL↓), SHRINKING that surplus
 rather than funding it, while the true D≥S+L requirement is unchanged. A bare `Basket.turn` burn
@@ -4202,7 +4202,7 @@ rather than funding it, while the true D≥S+L requirement is unchanged. A bare 
 |---|---|---|
 | JIT-DEPTH §2 core | ✅ genuinely deferred | reasoned blocker above; primitive now exists |
 | JIT-DEPTH §4 folding | ❌ **BUILT** | status corrected `dd10b0a`; all three items live |
-| #109 auto-de-lever | ❌ **BUILT + RESTORED this thread** | `Vogue.sol:36,483`; cap fix made it reachable |
+| #109 auto-de-lever | ❌ **BUILT + RESTORED this thread** | `Quid.sol:36,483`; cap fix made it reachable |
 | on-chain `refillETH`/`arbETH` | ❌ deliberately REMOVED | `Aux.sol:854,863` — retired in favour of the fleet JIT refill |
 | §A.55 `takeToSettle` 1e12 | ✅ unbuilt (a FIX, not a feature) | fix shape known; call-site conversion |
 | §A.57 fee scale-up | ✅ unbuilt (a FIX) | blocked on ONE unit trace (`usdInc`) |
@@ -4244,7 +4244,7 @@ seam.
 | # | site | direction | symptom | status |
 |---|---|---|---|---|
 | §A.50 | `_takeCore` → `_takePreferred` (redeem) | 18→native MISSING | preferred redemption paid **~8x par**; drained the venue | ✅ FIXED, suite-verified |
-| §A.57 | `settleBtcLp:54`, `Vogue._settlePending:437` | 6→18 MISSING | LP fee revenue **under-paid 1e12x** | ✅ FIXED, suite-verified |
+| §A.57 | `settleBtcLp:54`, `Quid._settlePending:437` | 6→18 MISSING | LP fee revenue **under-paid 1e12x** | ✅ FIXED, suite-verified |
 | §A.55 | `SwapLib:1166/1216` → `takeToSettle` | 18→native MISSING | de-lever **drained the basket's stable** | ✅ FIXED, suite pending |
 | (prior) | `SwapLib:542-544` | — | *"made `min(amount, poolCap6)` always pick the 6-dec pool cap → ~1e12x over-delivery"* | fixed earlier, same class |
 
@@ -4360,7 +4360,7 @@ RESULT: `test/BtcLpMintStress.t.sol` **127 passed / 0 failed / 2 skipped**.
 
 ## §A.54(3) DONE — `tl`/`tu` → `tickLower`/`tickUpper`. ⚠️ Build-verified only (RPC outage).
 
-42 occurrences renamed across `BtcVaultLib.sol` (24), `Vogue.sol` (10), `VogueLib.sol` (8); **0 left** in
+42 occurrences renamed across `BtcLib.sol` (24), `Quid.sol` (10), `QuidLib.sol` (8); **0 left** in
 each file. Word-boundary regex (`\btl\b` / `\btu\b`) so no longer identifier could be corrupted.
 `forge build --force`: 0 errors.
 
@@ -4378,19 +4378,19 @@ occurrences) but it is NOT test-verified, and this file does not pretend otherwi
 
 ## §A.54(1) DONE — `OorTicks` collapsed into `SwapLib.Oor`. One concept, one declaration.
 
-`VogueLib.OorTicks` and `SwapLib.Oor` were BYTE-IDENTICAL (`int24 newLo; newUp; curLo; curUp;` — same
+`QuidLib.OorTicks` and `SwapLib.Oor` were BYTE-IDENTICAL (`int24 newLo; newUp; curLo; curUp;` — same
 fields, same order, same types). Collapsed onto **`SwapLib.Oor`** because that is the better home: it
-already owns the `SwapLib.oorTicks(...)` FACTORY that constructs the value, and `VogueLib` already
-imports `SwapLib` (so no new dependency). Sites updated: `VogueLib:640` (declaration removed, replaced
-by a comment recording why), `VogueLib:645` (parameter type), `Vogue.sol:361` (local). `forge build
---force`: 0 errors. `Vogue.sol` already imported `SwapLib`.
+already owns the `SwapLib.oorTicks(...)` FACTORY that constructs the value, and `QuidLib` already
+imports `SwapLib` (so no new dependency). Sites updated: `QuidLib:640` (declaration removed, replaced
+by a comment recording why), `QuidLib:645` (parameter type), `Quid.sol:361` (local). `forge build
+--force`: 0 errors. `Quid.sol` already imported `SwapLib`.
 
 REMAINING IN THE DEDUP PASS (all still open):
   • §A.52 — the `_V` interface shims (`IAuxBtc_V`, `IAuxDeposits_V`, … in `Vault.sol`). NOT mechanical:
     each must be proven a STRICT SUBSET of the canonical interface before removal, and `forge build
     --sizes` deltas checked (several contracts are near EIP-170).
   • §A.56 — unify the out-of-range PATH: `Core.outOfRange(bool isBTC, …)` already services both assets,
-    but `Vogue.outOfRange` passes args INLINE while `BtcVaultLib.outOfRangeBtc` bundles into `OorArgs`
+    but `Quid.outOfRange` passes args INLINE while `BtcLib.outOfRangeBtc` bundles into `OorArgs`
     (stack depth). One args struct for both, `isBTC` + id as fields.
   • §A.61 — the 6↔18 conversion helper (task #7).
 
@@ -4401,14 +4401,14 @@ from done with it."* Both halves checked:
 
 ### The specific example: ALREADY CONSOLIDATED (a comment, not live code)
 `IAuxBtc_V` and `IAuxDeposits_V` have NO declarations anywhere. They survive only in a HISTORICAL NOTE
-at `BtcVaultLib.sol:17-18`: *"IAuxSwap — the Aux surface (was `IAuxBtc_V` + `IAuxDeposits_V`, …
+at `BtcLib.sol:17-18`: *"IAuxSwap — the Aux surface (was `IAuxBtc_V` + `IAuxDeposits_V`, …
 IAuxDeposits_V's lone `get_deposits` is byte-identical …"*. And `Vault.sol` declares exactly ONE
 interface — `IPermit2Approve` (`:57`), deliberately minimal (Permit2's allowance-grant surface only).
 📌 SAME TRAP AS #109: a comment describing past state read as present state. When auditing "what is
    still declared", grep for `^\s*interface`, never for the type NAME — a name matches its own obituary.
 
 ### The real scope: **113 interface declarations, only 18 canonical ⇒ 95 still local**
-Concentration: `SwapLib` 11 · `BasketLib` 11 · `LevMath` 10 · `Vogue`/`VogueLib`/`ILevVenue`/`ChannelLib`/
+Concentration: `SwapLib` 11 · `BasketLib` 11 · `LevMath` 10 · `Quid`/`QuidLib`/`ILevVenue`/`ChannelLib`/
 `Core`/`BtcLevManager` 3 each · remainder spread thin. So the user's CONCLUSION is correct even though
 the example was stale — this is a large pass, not a residue.
 
@@ -4499,7 +4499,7 @@ VERIFIED: `forge build --force` 0 errors · **duplicate interface names tree-wid
   ⬜ REMAINING: which OTHER `src/` files belong in `imports/`? Test = library/helper vs DEPLOYED
      contract. Examine `DeployLib.sol`, `mock.sol`, `QuidLens.sol`. The 5 venue contracts
      (`AaveV3Venue`, `AaveV4Venue`, `EulerEscrowVenue`, `LiquityTroveVenue`, `MorphoEscrowVenue`) and
-     the core set (`Aux`, `Basket`, `Core`, `Vault`, `Vogue`, `VBtc`, `VEth`, `Rover`, `LevManager`,
+     the core set (`Aux`, `Basket`, `Core`, `Vault`, `Quid`, `VBtc`, `VEth`, `Rover`, `LevManager`,
      `BtcLevManager`, `BTCChannels`, `AttestedHopRegistry`, `SorExchange`, `LevOracles`) are DEPLOYED
      and stay in `src/`.
 
@@ -4607,7 +4607,7 @@ stable→stable swap fee
 ```
 So a swap fee CREDITS A PER-STABLE TRANCHE and raises `trancheTotal`. It does NOT create a per-holder
 claim, and nothing indexes it by holder — there is no per-account fee accumulator on this path (unlike
-the LP side, which has `feesPerShare`/`USD_FEES` on Vogue).
+the LP side, which has `feesPerShare`/`USD_FEES` on Quid).
 
 WHAT THE TRANCHE IS (`Basket.sol:91-102`): the book is TRANCHED. `trancheTotal()` is *"the outstanding
 senior-tranche SUPPLY"*; the matured, 1:1-USD-backed pool is *"`totalSupply - trancheTotal()`"*. And
@@ -4635,8 +4635,8 @@ User: *"it should feed into the existing accumulator, right? and it should use t
 Checking that corrected my own §A.64 conclusion. The two paths are cleanly separate:
 
 **ACCUMULATOR (per-share, what LPs actually earn)** — fed ONLY by V4 POOL TRADING FEES:
-  `Vogue.sol:1069` — `feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;  // _distributeV4Fees`
-  `BtcVaultLib.sol:560,564` — the BTC-side twin.
+  `Quid.sol:1069` — `feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;  // _distributeV4Fees`
+  `BtcLib.sol:560,564` — the BTC-side twin.
 
 **`tipSelf` — SEED/TRANCHE ONLY.** All four call sites are seed accounting, not swap fees:
   `BasketLib:635` `tipSelf(seed, token, -1)` (DEBIT) · `BasketLib:662` seed-proportional ·
@@ -4756,8 +4756,8 @@ function _take(address who, uint amount, address token, uint seed) internal retu
 
 ### Legacy files deliberately NOT reviewed (user: "ignore the prediction market and chainlink cre stuff")
 `Court.sol`, `Jury.sol`, `Solver.sol`, `Amp.sol` (prediction market) and `Link.sol` (Chainlink). The
-legacy tree otherwise MIRRORS ours — `Aux.sol`, `Basket.sol`, `Vogue.sol`, `VogueCore.sol`, `Rover.sol`,
-`mock.sol`, plus `imports/` and `L2/` — so a broader Vogue/Aux legacy diff is feasible and is the next
+legacy tree otherwise MIRRORS ours — `Aux.sol`, `Basket.sol`, `Quid.sol`, `Quid.sol`, `Rover.sol`,
+`mock.sol`, plus `imports/` and `L2/` — so a broader Quid/Aux legacy diff is feasible and is the next
 step of this comparison (NOT yet done).
 
 ## §A.66 CORRECTED + §A.61 REFRAMED — the legacy had an INVARIANT, not awkwardness. My fixes are PATCHES.
@@ -4844,12 +4844,12 @@ MEASURE — `forge test --gas-report` on the money paths — not eyeball, and co
 ### §A.54(1) vs §A.56 — TWO DIFFERENT TASKS. Only the first is done. (user asked, 2026-07-29)
 
 User: *"i thought you already did the outOfRange stuff?"* — reasonable, because I reported them without
-distinguishing. `git show --stat d5d3b53` settles it: **9 lines changed** (2 in `Vogue.sol`, 7 in
-`VogueLib.sol`).
-  ✅ **§A.54(1) DONE** — collapsed the byte-identical STRUCTS `VogueLib.OorTicks` → `SwapLib.Oor`.
+distinguishing. `git show --stat d5d3b53` settles it: **9 lines changed** (2 in `Quid.sol`, 7 in
+`QuidLib.sol`).
+  ✅ **§A.54(1) DONE** — collapsed the byte-identical STRUCTS `QuidLib.OorTicks` → `SwapLib.Oor`.
      A type dedup. Nothing about control flow changed.
-  ⬜ **§A.56 STILL OPEN** — unify the out-of-range PATH: `Vogue.outOfRange` passes args INLINE while
-     `BtcVaultLib.outOfRangeBtc` bundles them into `OorArgs`, even though `Core.outOfRange(bool isBTC,
+  ⬜ **§A.56 STILL OPEN** — unify the out-of-range PATH: `Quid.outOfRange` passes args INLINE while
+     `BtcLib.outOfRangeBtc` bundles them into `OorArgs`, even though `Core.outOfRange(bool isBTC,
      …)` already services BOTH assets from one function. A real refactor, with EIP-170 and stack-depth
      (`via_ir = false`) constraints. Currently IN FLIGHT with an agent.
 
@@ -4869,8 +4869,8 @@ unrelated doc commit that way.
 User: *"if you can even delete the function from one of the libs and just have one definition instead of
 two separate ones, that would probably be best?"* — done, and the shared helper ALREADY EXISTED.
 
-FOUND: `BtcVaultLib.outOfRangeBtc:297` already calls `SwapLib.sizeOorUsd(amt, t, t1)`. The ETH path
-(`VogueLib.sol:650-672`) duplicated that helper's body INLINE, twice — once per token branch.
+FOUND: `BtcLib.outOfRangeBtc:297` already calls `SwapLib.sizeOorUsd(amt, t, t1)`. The ETH path
+(`QuidLib.sol:650-672`) duplicated that helper's body INLINE, twice — once per token branch.
 VERIFIED BYTE-IDENTICAL before replacing:
   • `sizeOorUsd(x, t, true)`  = `if (t.newUp >= t.curLo) revert` + `getLiquidityForAmount0`
     ≡ ETH's USD branch when `token1isETH` (`require(t.newUp < t.curLo)` + `getLiquidityForAmount0`).
@@ -4884,7 +4884,7 @@ NOTE: the bare `require`s became the helper's named `TickOutOfRange()` — same 
 but it IS a different revert selector (no test asserted on the anonymous require).
 
 ### ⬜ §A.56 (part 2) STILL OPEN — the ARGS asymmetry
-`Vogue.outOfRange` passes args INLINE; `BtcVaultLib.outOfRangeBtc` bundles into `OorArgs` (stack depth,
+`Quid.outOfRange` passes args INLINE; `BtcLib.outOfRangeBtc` bundles into `OorArgs` (stack depth,
 `via_ir = false`). That is a SEPARATE change from the sizing dedup above and is NOT done. A parallel
 agent attempted it, died mid-edit, and its partial work was reverted (saved at `/tmp/A56-partial.patch`,
 485 lines) — a half-applied refactor that COMPILES is more dangerous than one that does not.
@@ -4939,14 +4939,14 @@ scoped it, "one args struct for both", is not the actual shape of the problem):
 
 | | ETH | BTC |
 |---|---|---|
-| lib fn | `VogueLib.sizeOutOfRange(weth, aux, ev, ethfiBacked, amount, token, token1isETH, venue, Oor t)` — **SIZES ONLY**, returns `uint128` | `BtcVaultLib.outOfRangeBtc(BtcCfg, mappings, OorArgs)` — **DOES EVERYTHING**: validate → `oorTicks` → deposit → size → write `selfManagedBtc` → push `positionsBtc` → `Core.outOfRange` |
-| bookkeeping | in `Vogue.sol` (the CALLER) | INSIDE the lib |
+| lib fn | `QuidLib.sizeOutOfRange(weth, aux, ev, ethfiBacked, amount, token, token1isETH, venue, Oor t)` — **SIZES ONLY**, returns `uint128` | `BtcLib.outOfRangeBtc(BtcCfg, mappings, OorArgs)` — **DOES EVERYTHING**: validate → `oorTicks` → deposit → size → write `selfManagedBtc` → push `positionsBtc` → `Core.outOfRange` |
+| bookkeeping | in `Quid.sol` (the CALLER) | INSIDE the lib |
 
 ⇒ The libs are decomposed at DIFFERENT LEVELS. The `OorArgs` bundle is a CONSEQUENCE of BTC doing more
   work in one frame (more locals ⇒ stack pressure ⇒ bundle), not an arbitrary style choice. Unifying
   therefore requires moving a RESPONSIBILITY, one of:
-  (a) push Vogue's position bookkeeping down into `VogueLib` (ETH adopts BTC's shape) — grows VogueLib,
-      shrinks Vogue; check EIP-170 both ways.
+  (a) push Quid's position bookkeeping down into `QuidLib` (ETH adopts BTC's shape) — grows QuidLib,
+      shrinks Quid; check EIP-170 both ways.
   (b) lift BTC's bookkeeping up into `Vault` (BTC adopts ETH's shape) — may REMOVE the stack pressure
       that forced `OorArgs`, making the bundle unnecessary rather than shared.
   ⚠️ (b) is likely the better end state (it makes the struct redundant instead of universal) but is the
@@ -4964,7 +4964,7 @@ APPLIED — the two `Aux.deposit` sites in `SwapLib` now normalise to 6-dec USD:
   • `_swapOutPrep` — `uint amount = scaleTo6(IAuxSwap(aux).deposit(swapper, token, usdAmount), token);`
     (its own comment had claimed *"the normalized 6-dec USD pulled in"* while the call returned NATIVE)
   • `_consumeVolInput` — `amount = scaleTo6(aux.deposit(msg.sender, token, amount), token);`
-Both mirror what `VogueLib.sol:662` and `BtcVaultLib.sol:296` already do with the identical call.
+Both mirror what `QuidLib.sol:662` and `BtcLib.sol:296` already do with the identical call.
 
 ⚠️ **NOT VERIFIED.** `forge build --force` exceeded the foreground limit and was still running when this
 landed. This is a MONEY PATH. Before trusting it: `forge build --force` then the full suite with
@@ -4988,8 +4988,8 @@ their swap executed.
   • **C3**: `BasketLib.convert` is 1e10 off for `volScale = 1e8`. Two uncompensated BTC sites:
     `SwapLib.sol:1013` and `SwapLib.sol:444`+`:455`. Authoritative form is at `SwapLib.sol:926-929`
     (`/1e30`). Apply ONLY after C1 is verified green.
-  • **C4** (θ throttle dead), **C5** (`Vogue.sol:658` missing `* 1e12`), **C6–C9** — see
-    `GAS-AND-CORRECTNESS-AUDIT.md`. C5 is a one-token fix mirroring `Vogue.sol:439-440`.
+  • **C4** (θ throttle dead), **C5** (`Quid.sol:658` missing `* 1e12`), **C6–C9** — see
+    `GAS-AND-CORRECTNESS-AUDIT.md`. C5 is a one-token fix mirroring `Quid.sol:439-440`.
   • **F1/F2** (§A.67), **§A.56 part 2** (§9f23d68), **§A.61** boundary doc, **§A.52** semantic dedup.
 
 ## §A.69 — DEPLOY COST + BTC/ANVIL E2E: both owed, and they are ONE run (user, 2026-07-29)
@@ -5008,7 +5008,7 @@ RAW DATA (measured, `forge build --sizes`): 138 contracts, **443,353 runtime byt
 bytes** — but that includes TESTS AND MOCKS, so it is an upper bound, not the deploy set. Our real set is
 ~25–30 units: the core contracts plus the separately-deployed `public`-function libraries. Largest
 initcode: Aux 26,124 · LevManager 25,164 · LevMath 24,608 · SwapLib 24,487 · BtcLevManager 21,843 ·
-BasketLib 21,480 · BtcVaultLib 21,025 · VogueLib 20,730 · BTCChannels 19,399 · Rover 18,681.
+BasketLib 21,480 · BtcLib 21,025 · QuidLib 20,730 · BTCChannels 19,399 · Rover 18,681.
 Dominant term is **200 gas per byte of RUNTIME code stored**; secondary ~16 gas/byte calldata for
 initcode and 32k per CREATE.
 
@@ -5072,7 +5072,7 @@ pass. **#12 IS DONE** (both senses: drop-voting deleted EVM+SPA; the POOLED_USD 
    large: LevManager 25,164 / BtcLevManager 21,843 initcode).
 🛑 NOT merges — coincidental shape collisions between unrelated concepts:
    `MorphoEscrowVenue.MarketParams` == `LevMath.SellCtx` (5 fields) ·
-   `BtcVaultLib.LevDelta` == `Types.Deposit` == `ChannelLib.SPState` (4 uints).
+   `BtcLib.LevDelta` == `Types.Deposit` == `ChannelLib.SPState` (4 uints).
 🛑 NOT merges — vendored Uniswap, genuinely different ops that share a shape:
    `ISwapRouter`/`IV3SwapRouter` `ExactInput{,Single}Params` vs `ExactOutput{,Single}Params` (×4).
 
@@ -5082,7 +5082,7 @@ already exist elsewhere?"** `SwapLib.sizeOorUsd` was already there; the ETH path
 inline. So the general pass should search for **duplicated LOGIC**, not duplicated names:
  1. **Structs** — DONE above (field-signature scan).
  2. **ETH/BTC twins** — the richest seam. `Pos` above; also compare `LevManager` vs `BtcLevManager`
-    function-by-function, and `VogueLib` vs `BtcVaultLib`. Ask of each pair: is the difference REAL
+    function-by-function, and `QuidLib` vs `BtcLib`. Ask of each pair: is the difference REAL
     (different asset semantics) or incidental (different author, same job)?
  3. **Inlined helper bodies** — for each `imports/` helper, grep whether its BODY is duplicated at a
     call site that could just call it. That is precisely the `sizeOorUsd` case.
@@ -5204,11 +5204,11 @@ Moved here because `QUEUE.md` is the LIVE status list and this file is the appen
 
 | **E212-curve-roster-is-complete** | ✅ **THE CURVE TABLE IS ALREADY COMPLETE — AND THE OWNER'S CALL IS CONFIRMED BY A TWO-ORDER-OF-MAGNITUDE DEPTH CLIFF, NOT A JUDGEMENT (measured on mainnet 2026-08-16).** Owner (2026-08-16): *\"none of those are routable so forget curve for that. only weETH and whatever we cannot deny due to depth, all the mentioned are useless.\"* Measured both sides of every live pool: • **RLUSD/USDC** `0xD001…a186` — **\$42.25M USDC + \$29.51M RLUSD ≈ \$71.8M.** • **PYUSD/USDC** `0x383E…8559` — **\$20.93M PYUSD + \$22.10M USDC ≈ \$43.0M.** • **weETH/WETH** `0xDB74…dEd5` — **2,169.5 WETH + 2,613.8 weETH ≈ \$20M**, `get_dy(1,0,1e18) = 1.1014 WETH`, i.e. the pool is at the fair weETH rate. Against the rejected set (§E211): USDe **\$330k**, USDS **\$49k**, sUSDe **\$700**, frxUSD **no pool**. ⇒ **\$43M vs \$330k is 130×. There is no borderline case to argue about — the cliff decides it.** ✅ **Roster CLOSED as axiomatic-by-measurement (rule 16): the table holds exactly what survives a depth test, and everything else is 1inch's job. This does NOT go stale into a wrong decision — if a thin pool later deepens, the closure reopens by ADDING, never by having wired something unusable.** ⭐ **TWO CONSTANT-ORIENTATION CHECKS PASSED, WHICH IS WORTH RECORDING BECAUSE THE COMMENT CLAIMING IT WAS 5 MONTHS OLD.** `LevMath`'s header warns the live pools are *\"ordered OPPOSITELY (verified on-chain), so a shared constant would be wrong for one of them with no revert to catch it.\"* **Still true today:** RLUSD pool has **USDC at index 0** (`CRV_RLUSD_IDX=1`, `CRV_RLUSD_USDC_IDX=0` ✓) while PYUSD pool has **USDC at index 1** (`CRV_PYUSD_IDX=0`, `CRV_PYUSD_USDC_IDX=1` ✓). weETH pool: **idx0=WETH, idx1=weETH**, and `LevMath:398` calls `exchange(1, 0, …)` = weETH→WETH ✓. **Three for three. A rare case of a stale-looking comment surviving its audit — recorded so nobody re-derives it.** ⚠️ **§E210's CONVERSION NOW HAS TO STAND ON DIFFERENT GROUND. Its stated justification was \"the roster cannot grow in the current shape\"; the roster is not going to grow, so that argument is DEAD and must not be quoted.** What remains is real but must be said honestly: the roster was written **three times** (both swap bodies + `_routableStable`), which makes a LIVENESS BUG CONSTRUCTIBLE — a stable added to the predicate but not the legs returns `true` from `_routableStable` and then reverts `NoStableRoute()` inside the swap. Consolidating to one `_routeOf` makes that state **unconstructible** (rule 17). **If the size measurement (in flight) shows the conversion COSTS bytes on `LevMath` — the tightest contract in the repo at 73 spare — then rule 17 alone does not buy it and it should be reverted.** | ✅ closed by measurement; conversion LANDED at fb00688d (+435 bytes) |
 
-| **E231-ethvenue-folded-and-what-it-calibrates** | ✅ **THE EthVenue FOLD ALREADY LANDED (`8720a35d`), INTO `Vogue` — AND MY READING OF THE TARGET WAS WRONG.** I proposed folding it into `Vault` (owner's words, and the only pairing that fit my raw arithmetic). **That thread considered and REJECTED both `Vault` and `Core`, with reasons that hold:** `Vault` "re-fuses exactly what was separated — `Vogue`'s counterpart is the BTC-band SLICE of Vault, not the whole of it"; and `Core` "is instantiated TWICE, so ETH-only custody there is dead weight on the BTC instance: **the isBTC problem, re-entered through the back door**". **Vogue had the LEAST room of the three (2,609) and is the only correct home** — ETH venue custody belongs to the ETH band manager. `src/` went 12 deployable contracts → 11. 🔴 **AND THE CONSTRAINT THEY RECORDED MATTERS FOR §E217's MERGE: "IT CANNOT MOVE INTO THE MERGED BAND MANAGER LATER. One band manager with two instances means every member exists on BOTH. ETH venue custody has NO BTC counterpart — BTC custody is Lightning channels, not 4626 venues — so this state stays on the ETH side however the managers merge."** Same asymmetry `VBtc` records. ⇒ **the one-band-manager target is NOT a clean symmetric merge; it has a permanent ETH-only appendage, and any byte estimate for it must carry that.** ⭐ **THE CALIBRATION — measured, and it corrects my feasibility numbers: folding cost 1,984 bytes against 3,836 standalone, i.e. ~52%.** My earlier estimates just SUMMED deployed sizes, which overstates every fold because a standalone contract carries its own dispatch table and external interface that vanish on fold. Re-run with 52%: **Core→Vogue ≈ 27,135 (over by ~2,559, versus my 7,422)**; **BtcLevManager→LevManager ≈ 34,416 (over by ~9,840, versus my 19,794)**. ⚠️ **DO NOT TREAT 52% AS LINEAR — I would be repeating the error in the other direction.** The saving is mostly FIXED overhead (dispatch, interface, constructor), so it is roughly constant per contract rather than proportional. A thin 3.8 KB wrapper over `VaultLib` compresses far better than a 10 KB contract of real logic. **52% is a floor-ish estimate for small contracts and optimistic for large ones; the only honest number comes from doing the fold and measuring.** |
+| **E231-ethvenue-folded-and-what-it-calibrates** | ✅ **THE EthVenue FOLD ALREADY LANDED (`8720a35d`), INTO `Quid` — AND MY READING OF THE TARGET WAS WRONG.** I proposed folding it into `Vault` (owner's words, and the only pairing that fit my raw arithmetic). **That thread considered and REJECTED both `Vault` and `Core`, with reasons that hold:** `Vault` "re-fuses exactly what was separated — `Quid`'s counterpart is the BTC-band SLICE of Vault, not the whole of it"; and `Core` "is instantiated TWICE, so ETH-only custody there is dead weight on the BTC instance: **the isBTC problem, re-entered through the back door**". **Quid had the LEAST room of the three (2,609) and is the only correct home** — ETH venue custody belongs to the ETH band manager. `src/` went 12 deployable contracts → 11. 🔴 **AND THE CONSTRAINT THEY RECORDED MATTERS FOR §E217's MERGE: "IT CANNOT MOVE INTO THE MERGED BAND MANAGER LATER. One band manager with two instances means every member exists on BOTH. ETH venue custody has NO BTC counterpart — BTC custody is Lightning channels, not 4626 venues — so this state stays on the ETH side however the managers merge."** Same asymmetry `VBtc` records. ⇒ **the one-band-manager target is NOT a clean symmetric merge; it has a permanent ETH-only appendage, and any byte estimate for it must carry that.** ⭐ **THE CALIBRATION — measured, and it corrects my feasibility numbers: folding cost 1,984 bytes against 3,836 standalone, i.e. ~52%.** My earlier estimates just SUMMED deployed sizes, which overstates every fold because a standalone contract carries its own dispatch table and external interface that vanish on fold. Re-run with 52%: **Core→Quid ≈ 27,135 (over by ~2,559, versus my 7,422)**; **BtcLevManager→LevManager ≈ 34,416 (over by ~9,840, versus my 19,794)**. ⚠️ **DO NOT TREAT 52% AS LINEAR — I would be repeating the error in the other direction.** The saving is mostly FIXED overhead (dispatch, interface, constructor), so it is roughly constant per contract rather than proportional. A thin 3.8 KB wrapper over `QuidLib` compresses far better than a 10 KB contract of real logic. **52% is a floor-ish estimate for small contracts and optimistic for large ones; the only honest number comes from doing the fold and measuring.** |
 
 | **E218-no-target-ratio-so-no-skew** | ⭐ **OWNER (2026-08-16): *\"what about swaps between any stable in the basket to any stable in the basket. we dont apply skew to that because we have no target ratio.\"* THIS IS THE MISSING PREMISE THAT RETIRES §E206 AND RESHAPES §E209.** §E206 established by structure that `skewWad` sees only band-side inputs and cannot measure stable composition, and treated that as a LIMITATION to work around. **It is not a limitation, it is correct by design: the skew is Avellaneda–Stoikov INVENTORY risk, which presupposes a target inventory to be skewed away from. The basket has NO TARGET RATIO, so there is no quantity for a stable→stable swap to be skewed against** — applying one would invent a preference the protocol does not hold. ⇒ **§E206's \"double-duty measurement\" is now closed for a better reason than \"the signal is band-side\": there is no target for it to measure error against.** ⚠️ **AND IT NARROWS §E209 — do not carry that row forward unexamined.** E209 proposed merging yield and *concentration* into marginal contribution `c_i = (dep_i/total)·r_i`. **\"Concentration\" only means something against a target, so the concentration HALF of that merge is undefined here.** What survives is the DIMENSIONAL fix, which stands on its own: `calcFeeL1` compares a weight-blind `mine` against a weight-aware `baseline` (`FeeLib:108-109`), and that is incoherent regardless of whether a target exists. The contribution form fixes it as a RELATIVE RANKING among legs — no target needed. ▶️ **UNVERIFIED, AND THE NEXT THING TO CHECK: whether a basket stable→stable swap actually bypasses the skew in code today.** `Aux.sol:685 swap(address token, address asset, bool forVolatile, …)` carries a `forVolatile` flag that WOULD be the natural gate, but I have not traced it — **the owner's sentence describes the intended design, and this repo has been wrong about \"what the code does\" all day. Trace it before asserting the code matches.** | ✅ **TRACED AND PINNED (2026-08-16, `test/StableToStableHasNoSwap.t.sol`, 3/3, no fork, 3.4ms).** **The code is STRONGER than the claim: it is not that the skew is withheld from stable→stable — THE PAIR CANNOT FORM.** `SwapLib.swapToBody:336` is `if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset();` — the FIRST line, before `IAux(address(this))` is touched. Pinned for USDC→PYUSD, USDC→RLUSD and PYUSD→USDC, so it is not an artifact of one address. ⇒ **there is no path whose skew was switched off, hence none that can be switched back on by accident** — a stronger guarantee than "we don't apply skew there", and the reason §E218's conclusion holds even though its stated mechanism (no target ratio) is a DESIGN argument rather than the operative one. ⭐ **THE CONTROL CAUGHT MY OWN TEST BUG, WHICH IS THE POINT OF HAVING IT.** `test_CONTROL_*` asserts a VOLATILE asset gets PAST the guard — without it, a `swapToBody` that reverted `BadAsset` unconditionally would satisfy every other assertion while meaning the opposite. It FAILED on first run: I had collapsed "did not revert" and "reverted with EMPTY data" into one `bytes4(0)` sentinel, and this path produces empty returndata (`IAux(address(this)).toIndex` on a contract with no such function). **`reverted` and `sel` are now separate returns.** ✅ Also pinned: BTC inflow is closed by `BtcInflowsViaChannels`, NOT by skew — recorded so nobody reads it as a skew-priced swap that merely happens to be disabled. |
 
-| **E215-tick-sweep-is-done-for-what-was-ours** | ✅ **THE SWEEP IS ALREADY COMPLETE FOR EVERY PATH WE CONTROL. THE 32 REMAINING CALL SITES ARE UNISWAP'S — ITS ABI OR ITS INVARIANT — AND THEY GO ONLY WHEN THE V4 POOL GOES (audited 2026-08-16, tree clean, no thread in flight).** ✅ **SWEPT AND VERIFIED TICK-FREE — zero `TickMath`/`sqrtP`/`X96`/`int24` in the body of each:** `writeObservation`, `ringVariance`, `twapBody`, `skewWad`, `getTWAPforAsset`. **That is the whole price → observation → variance → skew chain**, i.e. every place the protocol chose its own representation. §TICK-REMOVAL landed it and it has not regressed. 🔴 **V4 IS NOT GONE FROM `Core` — VERIFY THIS BEFORE PLANNING ANY FURTHER REMOVAL.** `Core.sol:585` is `constructor(IPoolManager _manager) SafeCallback(_manager)`; `:859` `_unlockCallback`; `:910`/`:1073` `poolManager.swap(...)`; `:987`/`:1069`/`:1087` `_modifyLiquidity(...)`; `Aux.sol:241` a second `_unlockCallback`. **The protocol still holds and rebalances real concentrated-liquidity positions.** ⇒ the remaining calls split into exactly two kinds, **neither of them cleanup**: • **① THE V4 ABI BOUNDARY — Uniswap's parameter TYPES, not ours.** `Core:897-898` builds `sqrtPriceLimitX96` for `poolManager.swap` out of the band's packed tick edges (`_bandEdgeLimit`); `Core:1291-1307` + `SwapLib:1931-1936` build the `liquidity` argument for `modifyLiquidity` via `LiquidityAmounts.getLiquidityForAmount0/1`; `SwapLib:1953-1956` bounds-checks against `MIN/MAX_SQRT_PRICE`. **You cannot pass a plain price to a function whose signature takes `sqrtPriceLimitX96`.** • **② CONCENTRATED-LP GEOMETRY — MATHEMATICALLY INTRINSIC, NOT A REPRESENTATION CHOICE.** `VogueLib.kLvrWad:211-212`, `VogueLib.realizedAlphaWad:226-227` and `SwapLib.holdingRatioWad:1832-1833` all form ratios `s/sqrtPb` and `sqrtPa/s`. **A concentrated LP position's value genuinely varies as √P — that is `x·y=k`, not an encoding.** Rewriting these in plain price does not remove the square root, it just moves it and adds an operation. ⚠️ **DO NOT \"finish the sweep\" BY REWRITING ②.** It looks like the last of the tick math and it is the AMM's own algebra; the previous §TICK-REMOVAL passes were legitimate precisely BECAUSE the ring and the skew had no such dependence. ⇒ **THE ONLY REMAINING LEVER IS A DECISION, NOT A REFACTOR: remove the V4 pool itself.** That is architectural (Core stops being a hook, positions unwind, band geometry needs a non-AMM home) and must be chosen deliberately — it is NOT reachable as a tick-math cleanup. ⚠️ Also still true and NOT part of this: `LevMath:130-131` is blocked on `ILevSyncHook` exposing `LOWER_TICK()`/`UPPER_TICK()` — a **representation change to an interface**, and `OracleLib:197` feeds v4's `initialize`, which takes a sqrt-price. | ✅ our paths clean; the rest is Uniswap's ABI + invariant |
+| **E215-tick-sweep-is-done-for-what-was-ours** | ✅ **THE SWEEP IS ALREADY COMPLETE FOR EVERY PATH WE CONTROL. THE 32 REMAINING CALL SITES ARE UNISWAP'S — ITS ABI OR ITS INVARIANT — AND THEY GO ONLY WHEN THE V4 POOL GOES (audited 2026-08-16, tree clean, no thread in flight).** ✅ **SWEPT AND VERIFIED TICK-FREE — zero `TickMath`/`sqrtP`/`X96`/`int24` in the body of each:** `writeObservation`, `ringVariance`, `twapBody`, `skewWad`, `getTWAPforAsset`. **That is the whole price → observation → variance → skew chain**, i.e. every place the protocol chose its own representation. §TICK-REMOVAL landed it and it has not regressed. 🔴 **V4 IS NOT GONE FROM `Core` — VERIFY THIS BEFORE PLANNING ANY FURTHER REMOVAL.** `Core.sol:585` is `constructor(IPoolManager _manager) SafeCallback(_manager)`; `:859` `_unlockCallback`; `:910`/`:1073` `poolManager.swap(...)`; `:987`/`:1069`/`:1087` `_modifyLiquidity(...)`; `Aux.sol:241` a second `_unlockCallback`. **The protocol still holds and rebalances real concentrated-liquidity positions.** ⇒ the remaining calls split into exactly two kinds, **neither of them cleanup**: • **① THE V4 ABI BOUNDARY — Uniswap's parameter TYPES, not ours.** `Core:897-898` builds `sqrtPriceLimitX96` for `poolManager.swap` out of the band's packed tick edges (`_bandEdgeLimit`); `Core:1291-1307` + `SwapLib:1931-1936` build the `liquidity` argument for `modifyLiquidity` via `LiquidityAmounts.getLiquidityForAmount0/1`; `SwapLib:1953-1956` bounds-checks against `MIN/MAX_SQRT_PRICE`. **You cannot pass a plain price to a function whose signature takes `sqrtPriceLimitX96`.** • **② CONCENTRATED-LP GEOMETRY — MATHEMATICALLY INTRINSIC, NOT A REPRESENTATION CHOICE.** `QuidLib.kLvrWad:211-212`, `QuidLib.realizedAlphaWad:226-227` and `SwapLib.holdingRatioWad:1832-1833` all form ratios `s/sqrtPb` and `sqrtPa/s`. **A concentrated LP position's value genuinely varies as √P — that is `x·y=k`, not an encoding.** Rewriting these in plain price does not remove the square root, it just moves it and adds an operation. ⚠️ **DO NOT \"finish the sweep\" BY REWRITING ②.** It looks like the last of the tick math and it is the AMM's own algebra; the previous §TICK-REMOVAL passes were legitimate precisely BECAUSE the ring and the skew had no such dependence. ⇒ **THE ONLY REMAINING LEVER IS A DECISION, NOT A REFACTOR: remove the V4 pool itself.** That is architectural (Core stops being a hook, positions unwind, band geometry needs a non-AMM home) and must be chosen deliberately — it is NOT reachable as a tick-math cleanup. ⚠️ Also still true and NOT part of this: `LevMath:130-131` is blocked on `ILevSyncHook` exposing `LOWER_TICK()`/`UPPER_TICK()` — a **representation change to an interface**, and `OracleLib:197` feeds v4's `initialize`, which takes a sqrt-price. | ✅ our paths clean; the rest is Uniswap's ABI + invariant |
 
 | **E208-are-they-blocks** | ✅ **NO, THEY ARE NOT 13-SECOND SLOTS — AND THE IRREGULARITY IS ALREADY HANDLED HONESTLY. MEASURED (2026-08-16).** `writeObservation:47-52` keys on `block.timestamp` and returns early when it equals the last one, so **at most one observation per block** — but it is called from exactly three sites (`Core.sol:935, 967, 1047`), **all on the swap path**. ⇒ the ring holds *the last 9 blocks in which a swap occurred*, which can span one minute or one month of wall-clock. **That would be a live defect if the window assumed uniform spacing, and it does not:** `ringVariance:270` divides each cumulative difference by its OWN `dt` (time-weighted average price per interval), and `:321` returns `acc / spanSecs` using the **measured** span, not a fixed step. `Core.sol:338-339` then annualises per-second→per-year with `31536000`, which is the correct constant *given* a per-second input. ⇒ **the per-second normalisation is what makes traffic-gated sampling sound; do not "fix" the irregular spacing, and do not replace the measured span with a block-count assumption.** ⚠️ Residual worth knowing, NOT yet a defect: 9 traffic-gated samples over a very long span measure a real but very stale σ². No staleness bound exists. Not booked as a fix because §E88 already reserves 0 for \"unmeasured\" and `Core.sol:354` gates on `cardinality >= 2`; whether a MAX-AGE gate is also needed is a separate measurement. | ✅ mechanism confirmed by reading the write + normalise path |
 

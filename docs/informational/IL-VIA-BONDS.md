@@ -80,7 +80,7 @@ All of that exists to do one thing: **straighten √p into p.**
 
 ## 2. QU!D's approach — don't bend the curve, separate the two legs
 
-The protocol's own auto-managed `Vogue` position **is a 50/50 in-range book** — it
+The protocol's own auto-managed `Quid` position **is a 50/50 in-range book** — it
 **does** carry the √p IL (it gets `_repack`'d back into range as price moves). QU!D
 does **not** avoid IL by changing the LP placement, and it never tries to make the
 LP track spot 1:1, so it never needs the leverage device. Instead it **separates
@@ -106,7 +106,7 @@ During the term, the **stablecoin basket's** diversified venue yield
 (Morpho / Aave-v4 / sDAI / Liquity SP, etc.) accrues to back the bond's
 promised return. The bond's projected rate is `avgYield` — the time-weighted
 **stablecoin venue yield** (`yieldWeighted/raw − 1` in `get_deposits`). Be
-clear about what this is *not*: `avgYield` carries **no Vogue fee or IL term**.
+clear about what this is *not*: `avgYield` carries **no Quid fee or IL term**.
 The bond rate is priced off the stablecoin side; the ETH/BTC LP's √p IL is a
 **separate** P&L that lands on the residual, not netted into the coupon. The
 issuance cap is what bounds the claim — `calcMintYield`/`calculateAverageYield`
@@ -120,11 +120,11 @@ projected deliverable; it does **not** price IL.
 
 IL is a property of the **volatile leg**, and in QU!D that leg is held by the
 **ETH depositors** — who are **LPs, not bondholders**. They provide the ETH side
-of the 50/50 Vogue position, earn its V4 trading fees plus their chosen venue's
+of the 50/50 Quid position, earn its V4 trading fees plus their chosen venue's
 yield (Galaxy / Aave-v4 / ether.fi), and **bear the √p IL directly** (it lands on
 their `lpShares` claim). Two honest points:
 
-- **Our book is repacked, so IL is *realized*, not left impermanent.** Vogue is
+- **Our book is repacked, so IL is *realized*, not left impermanent.** Quid is
   auto-managed: it gets `_repack`'d back into range as price moves. Re-centering
   a concentrated position **sells the underperformer and buys the outperformer
   at each rebalance**, which *crystallizes* the divergence loss instead of
@@ -196,11 +196,11 @@ IL, the only non-leverage moves are exactly three:
 
 **What QU!D already does — and it's (a)+(b), structurally (verified in code).**
 Because the V4 position is **virtual** (mockETH/mockUSD), the ETH never has to sit
-*in* the pool. `Vogue.addLiq` commits to the in-range position **only as much ETH
+*in* the pool. `Quid.addLiq` commits to the in-range position **only as much ETH
 as can be paired against free USD backing** — `deltaTok` capped by `surplus =
 basketTVL − committedUSD` and by `available = vogueETH − POOLED_ETH`
-(Vogue.sol:558-584). Everything that can't be paired is **retained at the yield
-venue** — the explicit "Universal retention" at Vogue.sol:519-533 ("unpaired ETH
+(Quid.sol:558-584). Everything that can't be paired is **retained at the yield
+venue** — the explicit "Universal retention" at Quid.sol:519-533 ("unpaired ETH
 stays on deposit at the venue earning Morpho yield"), and the LP still owns it
 (`lpShares += unpaired`), earns fees on it, and withdraws it. So, verified:
 - **(a)** the *full* ETH principal earns venue yield (Galaxy / Aave-v4 / ether.fi)
@@ -270,8 +270,8 @@ reserve, yield-venue value) permitted in-range at any time:
 POOLED_ETH ≤ θ · vogueETH
 ```
 
-**Where it's enforced.** In `Vogue.addLiq`, which today caps the ETH commit at
-`available = vogueETH − POOLED_ETH` (Vogue.sol:571). Tighten that one line to the
+**Where it's enforced.** In `Quid.addLiq`, which today caps the ETH commit at
+`available = vogueETH − POOLED_ETH` (Quid.sol:571). Tighten that one line to the
 θ-bounded headroom:
 
 ```
@@ -281,7 +281,7 @@ uint available = cap > pooled ? cap - pooled : 0;  // was: vogueAvail - pooled
 
 Nothing else changes: the existing `surplus` (free USD backing) and `deltaTok`
 clamps still apply; θ only *lowers* the ceiling. Excess deposit ETH falls through
-to the existing "Universal retention" path (Vogue.sol:519-533) → pure venue yield,
+to the existing "Universal retention" path (Quid.sol:519-533) → pure venue yield,
 zero IL. The cap is read-only against live `vogueETH`, so it self-adjusts as the
 reserve grows/shrinks.
 
@@ -304,7 +304,7 @@ whole-vs-staking through a 3× swing; the other ~70% of the ETH sits in pure ven
 yield. Tolerate only 2× → θ can be larger; demand 4×-proofing → θ shrinks toward
 ~0.20.
 
-**Safety margin.** This uses the *passive* √p IL. Vogue is concentrated and
+**Safety margin.** This uses the *passive* √p IL. Quid is concentrated and
 **repacks**, which realizes *more* than passive IL, so θ should carry a haircut
 (pick θ from a `k_worst` one notch beyond your real tolerance, or scale |IL| up by
 the concentration factor). The cap is a ceiling, not a target — the `surplus`/fee
@@ -336,7 +336,7 @@ being the counterparty to.
    only by the whole pool, unlike cyclic arb), highly concentrated (the
    CrocSwap/0xfbifemboy ETH/USDC study: a handful of wallets, mostly one MEV
    complex, originate most swaps), and **markout-negative** — this is the LVR the
-   Vogue residual + bondholders' senior claim are structurally exposed to.
+   Quid residual + bondholders' senior claim are structurally exposed to.
 2. **Cyclic / atomic on-chain arb.** Triangular arb that takes whatever ETH/USDC
    price is there as an insensitive leg — *mildly positive* markout (the non-toxic
    wallet in that study averaged ~+5.6 bps), single-tx, gas-sensitive.
@@ -416,15 +416,15 @@ This is not a free lunch — it's a **different product**:
 So "no leverage" cuts two ways, by leg. The **dollar** depositor escapes √p IL
 entirely — not via any hedge, but because they hold a senior bond on the **stable**
 leg and were never in the volatile position. The **ETH** depositor *does* bear the
-IL (realized, because Vogue repacks) — unleveraged, as a plain LP, paid in venue
-yield + Vogue fees. The leverage YieldBasis needs is the price of making *its*
+IL (realized, because Quid repacks) — unleveraged, as a plain LP, paid in venue
+yield + Quid fees. The leverage YieldBasis needs is the price of making *its*
 volatile LP liquid and spot-tracking; QU!D's ETH LP forgoes that promise (and its
 cost), and QU!D's dollar product sidesteps √p exposure by being a different
 instrument on the other leg.
 
 ### Residual risk each leg *does* carry
 
-- **ETH LP:** the genuine open risk is **fee-vs-IL** — does venue yield + Vogue
+- **ETH LP:** the genuine open risk is **fee-vs-IL** — does venue yield + Quid
   fees cover realized IL over the holding period? If not, the LP's `lpShares`
   claim shrinks. Because it is unleveraged, the downside is bounded by principal —
   no liquidation, no debt spiral.
@@ -510,7 +510,7 @@ policy — exactly because it's gated on `currentMonth < 12`.
 A tempting idea: run a per-stable/per-vault **depeg prediction market** as
 depeg *insurance*, **dual-encumbered 1:1** (total incident-side stake == total
 no-incident-side liquidity). The no-incident side is represented **exactly the
-way `POOLED_USD` is in Vogue** — actual depositor dollars held by Aux in external
+way `POOLED_USD` is in Quid** — actual depositor dollars held by Aux in external
 venues, accounted virtually and paired against the incident side. *Separately*,
 the QUI **over-issuance** from optimistic forward yield projection
 (`calcMintYield`) would be **counterbalanced by burning** the QUI collected as
@@ -779,7 +779,7 @@ Be precise about what actually helps the ETH LP's IL, because most of our
 plumbing is *solvency*, not IL reduction. There is **one real cushion and one real
 protection that exist today**:
 
-1. **Yield-stacking via the virtual LP (the cushion — exists).** Vogue's V4
+1. **Yield-stacking via the virtual LP (the cushion — exists).** Quid's V4
    position is virtual (mockETH/mockUSD), so the depositor's real ETH never idles
    in the AMM — it stays in its chosen venue (Galaxy / Aave-v4 / ether.fi)
    **earning yield while the virtual position earns V4 fees**. A plain unlevered LP

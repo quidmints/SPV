@@ -46,7 +46,7 @@ Superseded. arbETH/arbBTC/refillETH were a surplus-funded make-whole, and surplu
 SHARED safety margin ("what we owe back"), NOT a payout reserve. Spending it to make ONE exiting LP whole
 compensates the flow at every other claimholder's expense — the toxic "first-out at others' expense" pattern the
 redemption path already avoids (pro-rata depeg haircut, no first-out-at-par). REMOVED this thread:
-`Vogue._withdraw` arbETH step; `Core.refillETH` + `ETHRefillRequest` (permissionless + griefable: a 1% magnitude
+`Quid._withdraw` arbETH step; `Core.refillETH` + `ETHRefillRequest` (permissionless + griefable: a 1% magnitude
 gate, no persistence, so anyone could force the speculative buy); `Aux.btcShortfall` WBTC-from-surplus fallback
 (KEPT the hop — real-BTC delivery on L1, consumes no basket stables); and the now-orphaned `arbETH`/`arbBody`
 machinery (Vault/Aux/SwapLib).

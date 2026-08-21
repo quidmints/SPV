@@ -6,16 +6,16 @@
 
 ## 0. Scope
 
-This specification covers the BTC- and ETH-specific functionality of a finance protocol dashboard. The protocol holds bitcoin and ether as reserves backing an ERC-6909-issued stablecoin (`QD`) whose redemption schedule is a tokenized maturity ladder, and operates Uniswap V4 LP positions on BTC/USD and ETH/USD pools via Vogue (V4 primary) and Rover (V3 legacy).
+This specification covers the BTC- and ETH-specific functionality of a finance protocol dashboard. The protocol holds bitcoin and ether as reserves backing an ERC-6909-issued stablecoin (`QD`) whose redemption schedule is a tokenized maturity ladder, and operates Uniswap V4 LP positions on BTC/USD and ETH/USD pools via Quid (V4 primary) and Rover (V3 legacy).
 
-**The central use case.** Users supply the dollar leg of Vogue's LP positions. Vogue places concentrated bands below current spot — when price moves down through a band, the dollar leg converts linearly into ETH or BTC at the band's AMM-enforced prices. The structure is therefore a *signal-informed accumulation strategy*: each band is a planned, range-priced conversion of dollars into the underlying, with the dollar leg earning ambient yield until conversion and LP fees while conversion is in progress.
+**The central use case.** Users supply the dollar leg of Quid's LP positions. Quid places concentrated bands below current spot — when price moves down through a band, the dollar leg converts linearly into ETH or BTC at the band's AMM-enforced prices. The structure is therefore a *signal-informed accumulation strategy*: each band is a planned, range-priced conversion of dollars into the underlying, with the dollar leg earning ambient yield until conversion and LP fees while conversion is in progress.
 
 **The decision the dashboard supports.** When and where to deploy bands so that the resulting effective accumulation price beats two benchmarks:
 
 - **DCA into ETH or BTC.** The no-information baseline. Beating it requires placing bands where conversion happens at prices better than the time-average spot the DCA-er pays. The signal stack (§3.2 macro + §3.9 micro) is the input that makes this possible.
 - **The Saylor strategy (MSTR-style accumulation).** The leveraged-bull benchmark — continuous-buyer-with-leverage. Beating it requires structural soundness Saylor sacrifices: no refinancing wall, no forced selling, no premium-collapse risk, productive yield on the un-converted dollar leg, no dilution.
 
-The dashboard makes the structural quality of Vogue's accumulation empirically evaluable against both benchmarks across regimes — bull, bear, and crab — so that the band-placement decision can be made with eyes open about where the strategy holds and where it breaks.
+The dashboard makes the structural quality of Quid's accumulation empirically evaluable against both benchmarks across regimes — bull, bear, and crab — so that the band-placement decision can be made with eyes open about where the strategy holds and where it breaks.
 
 **Supporting layers the dashboard surfaces:**
 
@@ -135,9 +135,9 @@ Together they support building an estimation and risk-characterization engine �
 
 QD is the protocol's yielding stablecoin. Backing composition has four productive components:
 
-- **Reserve mockUSD** earning ~4% baseline T-bill yield, always-on, in or out of LP positions. The dollar leg never sits idle — whether deployed as the dollar side of a Vogue band or held in pure reserve, it earns the baseline.
+- **Reserve mockUSD** earning ~4% baseline T-bill yield, always-on, in or out of LP positions. The dollar leg never sits idle — whether deployed as the dollar side of a Quid band or held in pure reserve, it earns the baseline.
 - **ether.fi staking on `weETH`** earning native ETH staking yield via ether.fi's validator set (~3.5% APR currently, plus restaking yield where applicable).
-- **V4 LP fee accrual net of LVR** from Vogue's positions on the protocol's ETH/USD and BTC/USD pools. This contribution is *regime-conditional* — positive when fees exceed LVR (per §3.8 framework), can go negative in jump-prone or low-volume regimes. The LP layer is an optimization on top of the baseline, not part of the baseline.
+- **V4 LP fee accrual net of LVR** from Quid's positions on the protocol's ETH/USD and BTC/USD pools. This contribution is *regime-conditional* — positive when fees exceed LVR (per §3.8 framework), can go negative in jump-prone or low-volume regimes. The LP layer is an optimization on top of the baseline, not part of the baseline.
 - **Equity/commodities basket trading-fee revenue** from the basket venue (matched long/short positions on tickers like SPX, gold, oil).
 
 Blended yield: ~10% APR in favorable regimes, compressing toward the ~4% + staking baseline in unfavorable ones (where LP layer subtracts). The bond ladder structure (§3.4) duration-matches reserves to the QD redemption schedule, preserving structural soundness independent of LP P&L.
@@ -146,11 +146,11 @@ Blended yield: ~10% APR in favorable regimes, compressing toward the ~4% + staki
 
 Most QD holders sit in QD and earn the blended yield. They are buying capital-preserving exposure to a productive reserve with maturity-matched redemption. No further action required, no commitment to crypto direction.
 
-For QD holders who want signal-informed BTC/ETH accumulation on top of the yield, the protocol provides an **opt-in rail: QD staking into out-of-range Vogue bands** (mechanic specified in §3.11). The staking does not burn QD; it shifts the staker's claim from general-reserve-backed to specific-band-backed. The staker continues to earn the ~4% mockUSD baseline yield throughout the staking period, plus any LP fees if the band touches in-range, plus the fill-conversion outcome if the band fills.
+For QD holders who want signal-informed BTC/ETH accumulation on top of the yield, the protocol provides an **opt-in rail: QD staking into out-of-range Quid bands** (mechanic specified in §3.11). The staking does not burn QD; it shifts the staker's claim from general-reserve-backed to specific-band-backed. The staker continues to earn the ~4% mockUSD baseline yield throughout the staking period, plus any LP fees if the band touches in-range, plus the fill-conversion outcome if the band fills.
 
 #### The three signal outputs the dashboard produces
 
-For Vogue's operator and for any QD holder watching:
+For Quid's operator and for any QD holder watching:
 
 1. **Should LP positions be deployed at all?** Per §3.8 rationality checklist. When fees > LVR and the signal stack favors LP exposure, deploy. When unfavorable, sit in pure mockUSD earning the ~4% baseline — no IL/LVR exposure during the period. The dashboard's headline LP-deploy indicator: green / amber / red.
 
@@ -174,7 +174,7 @@ The benchmarks are for evaluating the system over a full cycle. They are the com
 This is the architecture the protocol exists for. A QD depositor has, simultaneously:
 
 1. **A yield-optimized base layer**, always on. mockUSD earning baseline + ether.fi staking + V4 LP fees net of LVR + basket revenue. The depositor pays no opportunity cost for sitting in QD without staking — the baseline yield runs continuously on un-committed capital.
-2. **A per-trade signal overlay**, opt-in. For each out-of-range Vogue band, the dashboard surfaces the full signal-stack reading (Kalman state, HMM regime posterior, transition probabilities, pool flow, MSTR features, capital-structure operations, macro context, historical fill rates, regime-matched backtests). The depositor decides band-by-band whether to stake into it.
+2. **A per-trade signal overlay**, opt-in. For each out-of-range Quid band, the dashboard surfaces the full signal-stack reading (Kalman state, HMM regime posterior, transition probabilities, pool flow, MSTR features, capital-structure operations, macro context, historical fill rates, regime-matched backtests). The depositor decides band-by-band whether to stake into it.
 
 This is fundamentally different from holding MSTR equity. An MSTR holder is **all-or-nothing exposed** to Saylor's accumulation strategy — they can't selectively hedge specific decisions. Saylor's January BTC buy at $108K and his June BTC buy at $66K are not separable; the holder rides along with both via the equity price. A QD depositor hedges **at the trade level**: they stake into the bands where the signal stack reading supports their conviction, skip the bands where it doesn't, and the baseline yield runs on the un-committed capital throughout.
 
@@ -362,7 +362,7 @@ The `viterbi_path_last_90d` is the Viterbi-decoded most-likely regime sequence o
 
 - **ether.fi staking yield** — 7d-trailing APY on weETH, alongside 30d / 90d / lifetime windows
 - **V3 0.05% weETH/WETH LP fee yield** — cumulative fees / position value, annualized; net of UNIfication fee-switch haircut where applicable
-- **V4 ETH/USD pool fee yield** — same, with in-range vs out-of-range split for self-managed Vogue positions; no UNIfication haircut (protocol controls its V4 fee accumulator policy)
+- **V4 ETH/USD pool fee yield** — same, with in-range vs out-of-range split for self-managed Quid positions; no UNIfication haircut (protocol controls its V4 fee accumulator policy)
 - **V4 BTC/USD pool fee yield** — equivalent for the BTC side once added
 - **Equity/commodities basket trading-fee yield** — fees and funding-rate spreads from the basket venue, flowing to QD backing per protocol accounting
 
@@ -391,7 +391,7 @@ Stacked bar chart by maturity month, sourced from `Basket.totalSupplies(month)`.
 Same time axis, stacked bar chart with reserves grouped by source and projected maturity:
 
 - ether.fi withdrawal-queue positions (NFT ids with their unlock dates from the `LiquidityPool`)
-- Cash and short-duration USD reserves (assumed mature immediately) — including the un-deployed dollar leg of Vogue's bands
+- Cash and short-duration USD reserves (assumed mature immediately) — including the un-deployed dollar leg of Quid's bands
 - LP fee accrual stream — projected from the trailing 30d fee accrual rate, with a confidence band derived from rolling fee-rate variance (because LP fees are *expected* future income, not contractually scheduled)
 - Equity/commodities basket revenue accrual — same projection methodology as LP fees
 
@@ -542,7 +542,7 @@ The MSTR strip's role is documented further in §3.11.
 
 ### 3.8 LP economics framework
 
-**Purpose:** Make legible what the protocol's V4 LP positions (Vogue, Rover) actually earn and lose, expressed in the rigorous decomposition that the LP-position structure demands. The framework is the dashboard's central analytical lens for the LP layer.
+**Purpose:** Make legible what the protocol's V4 LP positions (Quid, Rover) actually earn and lose, expressed in the rigorous decomposition that the LP-position structure demands. The framework is the dashboard's central analytical lens for the LP layer.
 
 #### The fundamental identity
 
@@ -680,7 +680,7 @@ The dashboard surfaces all three, per pool, per time window, because the right b
 
 Three material changes to V3 LP economics over the last several cycles, all affecting gross-to-net realized by passive concentrated LPs. Earlier drafts of this section attributed the degradation primarily to solver/intent flow capture making V3 residue "more toxic"; that framing is inverted relative to the empirical research and is corrected below.
 
-**Fee-switch (post-UNIfication, December 2025).** Following the Uniswap governance unification ("UNIfication"), a portion of V3 LP fees is now routed to the protocol-fee accumulator rather than entirely to LPs. Net effect on the dashboard's accounting: gross fees from V3 pools must be discounted by the fee-switch percentage to compute net-to-LP fees. The V4 pools the protocol operates internally do not have this discount, since the protocol controls its own V4 fee accumulator policy. Vogue's V4 positions are unaffected; Rover's V3 positions (where they remain) are.
+**Fee-switch (post-UNIfication, December 2025).** Following the Uniswap governance unification ("UNIfication"), a portion of V3 LP fees is now routed to the protocol-fee accumulator rather than entirely to LPs. Net effect on the dashboard's accounting: gross fees from V3 pools must be discounted by the fee-switch percentage to compute net-to-LP fees. The V4 pools the protocol operates internally do not have this discount, since the protocol controls its own V4 fee accumulator policy. Quid's V4 positions are unaffected; Rover's V3 positions (where they remain) are.
 
 **JIT liquidity sniping.** Sophisticated bots observe large pending swaps in the public mempool, mint highly-concentrated liquidity in the swap's tick range immediately before execution, and burn the position immediately after. They capture a disproportionate share of the swap's fees (90%+ on a sniped swap is typical when the JIT bot's concentrated position dominates the tick's liquidity), leaving passive LPs with proportionally less. The asymmetry is selective: JIT bots have the ability to detect pending order flow before committing liquidity, so they only provide liquidity to *uninformed* swaps and avoid adversely-selected ones. Passive LPs face the residue — the flow JIT bots chose not to compete for, which is on average more adversely-selected. This is the dominant mechanism by which V3 LP fee economics have degraded; it predates intents/solvers and has intensified as JIT operations matured.
 
@@ -694,9 +694,9 @@ All three haircuts are visible in §3.10's historical replay: the 2026 figures i
 
 #### Data sources
 
-- V4 PoolManager state — pool liquidity, current tick, fee accumulator, accrued fees per Vogue/Rover position
+- V4 PoolManager state — pool liquidity, current tick, fee accumulator, accrued fees per Quid/Rover position
 - V3 NonfungiblePositionManager state for Rover's V3 positions (with the fee-switch haircut applied)
-- Vogue/Rover internal accounting — current band parameters, rebalance frequency, gas costs
+- Quid/Rover internal accounting — current band parameters, rebalance frequency, gas costs
 - Price oracle — for σ estimation and IL computation
 - Realized variance series — from the Kalman bank's σ filter in §3.2 (with the same Huber-style robust statistics)
 - Listed-options implied vol (where available, e.g., from Derive's orderbook even though Derive itself is bridged-only and not used as a venue here — the IV data is still useful as a fee-vs-premium comparator)
@@ -705,7 +705,7 @@ All three haircuts are visible in §3.10's historical replay: the 2026 figures i
 
 - **Headline fee/LVR ratio (per pool, per window).** Big number, color-coded — green when fee_APR > LVR_APR by a margin, amber when narrow, red when LVR exceeds fees.
 - **IL decomposition card.** Current LP value vs current 50/50 hold value (the divergence loss to date), current LP value vs holding ETH (which the user might have preferred), current LP value vs holding cash (which would have earned T-bill yield).
-- **Concentration / in-range share.** Vogue's and Rover's current band parameters, current price relative to bands, percentage of LP positions in-range, time-in-range over the last window.
+- **Concentration / in-range share.** Quid's and Rover's current band parameters, current price relative to bands, percentage of LP positions in-range, time-in-range over the last window.
 - **Fee accrual stream.** Cumulative fees over the chosen window, broken down by pool and by V3 (haircut-adjusted) vs V4 (no haircut).
 - **LVR estimator.** Computed continuously from the σ filter: `LVR_t ≈ (σ_t² / 8) × C × time_in_range × position_value`. Annualized.
 - **Implied vol vs fee APR.** Where listed-options IV is available, display the comparator: is the LP position selling vol below or above what the options market would pay for the same risk? If listed IV is meaningfully above fee APR, the dashboard flags "fees not compensating for vol" — the cleanest signal that the LP layer should be wound down or parameter-adjusted.
@@ -714,7 +714,7 @@ All three haircuts are visible in §3.10's historical replay: the 2026 figures i
 
 ### 3.9 Pool-flow microsignal
 
-**Purpose:** Surface the directional and size characteristics of capital flowing through the protocol's own V4 pools, in real time, as a leading indicator of buying or selling pressure that complements the macro signal layer (§3.2). Together with §3.2, this constitutes the micro half of the signal stack the dashboard exposes to users and to whoever operates Vogue/Rover parameter choices.
+**Purpose:** Surface the directional and size characteristics of capital flowing through the protocol's own V4 pools, in real time, as a leading indicator of buying or selling pressure that complements the macro signal layer (§3.2). Together with §3.2, this constitutes the micro half of the signal stack the dashboard exposes to users and to whoever operates Quid/Rover parameter choices.
 
 #### Why this signal is structurally available to the protocol
 
@@ -724,7 +724,7 @@ Compared to public DEX-analytics products that observe pool events on shared inf
 
 - The protocol has zero ingest lag (events are local).
 - The protocol can read finer-grained signals (per-swap, not just aggregated buckets) without rate limits.
-- The protocol can correlate flow with its other state (Kalman regime, reserve composition, basket position, Vogue/Rover LP positions) at the same block boundary.
+- The protocol can correlate flow with its other state (Kalman regime, reserve composition, basket position, Quid/Rover LP positions) at the same block boundary.
 
 Compared to MSTR holders who do not observe primary BTC/ETH market flow at all: this is a signal that does not exist in their information set.
 
@@ -780,14 +780,14 @@ H_W = Σ_{a ∈ addresses_W} (volume_a / total_volume_W)^2
 
 `H_W` close to 0 indicates many addresses each with small share (retail-distributed); `H_W` close to 1 indicates a few addresses dominating (institutional / whale-driven). Combined with `D_W`'s sign, this lets the panel say "net buying, but driven by 3 whale addresses" — a different state than "net buying, broadly distributed."
 
-**Range-fill velocity `V_W`.** For Vogue's currently-active LP bands on the protocol's V4 pools:
+**Range-fill velocity `V_W`.** For Quid's currently-active LP bands on the protocol's V4 pools:
 
 ```
 V_W = (dollar_volume_traded_through_active_bands within W) /
       (dollar_TVL_of_active_bands at start of W)
 ```
 
-`V_W` close to 1 indicates the band is being consumed quickly — directional pressure is strong enough to push price through the active range, which means fees are accruing rapidly but also that IL is being crystallized. `V_W` close to 0 indicates the band hasn't been touched — flow is going elsewhere, or the pool is quiet. Combined with the §3.8 fee-vs-LVR ratio, this is what tells Vogue's operators whether current band parameters are still appropriate.
+`V_W` close to 1 indicates the band is being consumed quickly — directional pressure is strong enough to push price through the active range, which means fees are accruing rapidly but also that IL is being crystallized. `V_W` close to 0 indicates the band hasn't been touched — flow is going elsewhere, or the pool is quiet. Combined with the §3.8 fee-vs-LVR ratio, this is what tells Quid's operators whether current band parameters are still appropriate.
 
 #### Statistical anomaly detection
 
@@ -846,17 +846,17 @@ The conjunction of macro regime classification and micro flow read is what's inf
 | Mean-reverting calm | Anomalous flow | Flow may precede regime shift the Kalman bank hasn't yet recognized |
 | Trending down | Net dollar inflow | Contrarian conviction; may presage reversal; not by itself a signal to act |
 
-These are **interpretive frames, not rules.** The dashboard surfaces both layers and lets the user, the protocol's reserve managers, or whoever operates Vogue/Rover parameter choices form a view. The protocol does not act automatically on conjunction states — the discipline from §1.2 holds (estimation, not prediction; the conjunction tells you about the current state, not what comes next).
+These are **interpretive frames, not rules.** The dashboard surfaces both layers and lets the user, the protocol's reserve managers, or whoever operates Quid/Rover parameter choices form a view. The protocol does not act automatically on conjunction states — the discipline from §1.2 holds (estimation, not prediction; the conjunction tells you about the current state, not what comes next).
 
 #### How the LP layer consumes this signal
 
-Vogue/Rover parameter decisions (band width, rebanding cadence, position sizing) are informed by the signal stack. A decision to widen Vogue's bands in anticipation of jump risk might be accompanied by high-σ regime change in §3.2 and large-swap-skewed distribution flow in §3.9; an operator looking at the panel sees both before committing the parameter change. The signal stack does not auto-rebalance the LP layer; it informs the operator (and any QD holder watching) what regime is currently visible in the data.
+Quid/Rover parameter decisions (band width, rebanding cadence, position sizing) are informed by the signal stack. A decision to widen Quid's bands in anticipation of jump risk might be accompanied by high-σ regime change in §3.2 and large-swap-skewed distribution flow in §3.9; an operator looking at the panel sees both before committing the parameter change. The signal stack does not auto-rebalance the LP layer; it informs the operator (and any QD holder watching) what regime is currently visible in the data.
 
 The composition is also visible in the §3.8 rationality checklist: signal-stack conjunctions that flag jump regimes or strong directional conviction populate that checklist's red-amber-green status for "directional posture appropriate" and "no jump indicators active," which are inputs to whether the LP layer is currently a rational position.
 
 #### Production caveats
 
-Pool flow is a leading indicator of *the protocol's venue specifically*, not of the global market. If the protocol's pool depth grows over time, the signal becomes more representative. If it shrinks (or if a large competing pool emerges off-protocol), the signal becomes more noisy. The signal is most informative when the protocol's pool is a meaningful fraction of the asset's total on-chain DEX volume — likely true for the ETH/USD pool given Vogue/Rover concentration; less obviously true for the BTC/USD pool depending on adoption trajectory.
+Pool flow is a leading indicator of *the protocol's venue specifically*, not of the global market. If the protocol's pool depth grows over time, the signal becomes more representative. If it shrinks (or if a large competing pool emerges off-protocol), the signal becomes more noisy. The signal is most informative when the protocol's pool is a meaningful fraction of the asset's total on-chain DEX volume — likely true for the ETH/USD pool given Quid/Rover concentration; less obviously true for the BTC/USD pool depending on adoption trajectory.
 
 The Yartseva-Kalman discipline applies. A flow read of "net dollar inflow at 3σ above baseline for the last 4h" is a statement about what is happening *in our venue*, not about what will happen next in the market. The signal's track record — does it correlate with subsequent price moves? does it lead regime shifts? — must be exposed alongside the live readings so users can evaluate the signal stack rather than trust it on assertion.
 
@@ -865,14 +865,14 @@ The Yartseva-Kalman discipline applies. A flow read of "net dollar inflow at 3σ
 - V4 PoolManager swap events on the protocol's ETH/USD and BTC/USD pools, indexed off-chain by block
 - V4 hook events if pool-specific hooks emit additional flow data (e.g., MEV-protection-aware events)
 - Price oracle for dollar-value conversion of each swap
-- Vogue/Rover position events for the range-fill velocity computation and for distinguishing external swaps from internal rebalancing
+- Quid/Rover position events for the range-fill velocity computation and for distinguishing external swaps from internal rebalancing
 
 #### Panels
 
 - **Flow tape (live).** Real-time per-swap stream with size, direction, and pool — small for situational awareness, not the primary read.
 - **Window summaries.** Four panels (1h, 4h, 24h, 7d) showing net flow, cumulative flow, size distribution, σ-from-baseline statistic. Anomaly flags highlighted.
 - **Composition panel.** The macro × micro conjunction table for the current state, with the interpretive frame highlighted.
-- **Range-fill velocity gauge.** Vogue's bands and how rapidly flow is consuming them — feeds the §3.8 rationality checklist.
+- **Range-fill velocity gauge.** Quid's bands and how rapidly flow is consuming them — feeds the §3.8 rationality checklist.
 - **Signal track record.** Historical fidelity of the flow signal — how often did >2σ anomalies precede notable price moves vs. how often were they noise. This is the panel that lets users evaluate whether the signal is worth acting on.
 
 ### 3.10 Historical regime replay — residual P&L of the QU!D structure
@@ -901,7 +901,7 @@ For each regime, the outputs are:
 - LP concentrated P&L (band-edge gap-through effects)
 - QU!D structure residual P&L (bond ladder yield + LP layer share × LP P&L)
 
-**On Vogue accumulation modeling.** The "Vogue accumulation" row in each regime's endpoint table assumes signal-informed band placement *plus signal-informed crystallization* per §3.11. The crystallization layer is what prevents the LP-sell-back effect from undoing accumulated entries on price recoveries through the upper band edge. Without crystallization, the modeled outperformance against DCA would be substantially smaller (especially in 2022 and 2026 grinding-bear regimes, where accumulated ETH at favorable prices would have been partially sold back on intermediate rebounds). The modeled numbers reflect crystallization being applied at signal-favored moments — operator action consuming the §3.11 hold-vs-crystallize recommendations, validated retrospectively against subsequent price action. A real-time implementation's outperformance depends on crystallization-call quality, which the §3.11 panels surface as a track-record indicator.
+**On Quid accumulation modeling.** The "Quid accumulation" row in each regime's endpoint table assumes signal-informed band placement *plus signal-informed crystallization* per §3.11. The crystallization layer is what prevents the LP-sell-back effect from undoing accumulated entries on price recoveries through the upper band edge. Without crystallization, the modeled outperformance against DCA would be substantially smaller (especially in 2022 and 2026 grinding-bear regimes, where accumulated ETH at favorable prices would have been partially sold back on intermediate rebounds). The modeled numbers reflect crystallization being applied at signal-favored moments — operator action consuming the §3.11 hold-vs-crystallize recommendations, validated retrospectively against subsequent price action. A real-time implementation's outperformance depends on crystallization-call quality, which the §3.11 panels surface as a track-record indicator.
 
 **On regime boundaries in this replay.** The regime dates below (Jan 2021 → Nov 10, 2021 as "run-up"; Nov 10, 2021 → Dec 31, 2022 as "capitulation"; etc.) are inspection-based — chosen by chart-reading the BTC/ETH price series. This is acceptable for an illustrative replay but is not the principled methodology. A production implementation should consume **Viterbi-decoded regime boundaries** from the §3.2 HMM regime layer: given the historical observation sequence, Viterbi computes the most-likely regime sequence under the HMM model, producing principled boundaries that defend against "you picked the dates to flatter the result" critique. The current six-regime HMM would likely segment the period covered here into more granular sub-regimes (the 2022 capitulation, for example, includes a brief LUNA-shock sub-regime distinct from the slower FTX-era decline). The illustrative numbers in this replay should be re-computed against Viterbi-decoded boundaries before any external claims are made about the protocol's regime-conditional performance.
 
@@ -931,9 +931,9 @@ For each regime, the outputs are:
 | LP full-range with fees minus LVR | $283 − ($100 × 0.95²/8 × 0.86) = $273 | +173% |
 | LP concentrated ±20% band, no rebanding | Exits range on first doubling; 100% USDC at band edge thereafter | ~+5% |
 | Saylor strategy (MSTR equity) | $107 | +7% |
-| **Vogue accumulation (signal-informed bands)** | **~$310** (modeled — see note below) | **~+210%** |
+| **Quid accumulation (signal-informed bands)** | **~$310** (modeled — see note below) | **~+210%** |
 
-**Vogue accumulation modeling.** In a strong directional bull, pullbacks are shallow and brief; the signal stack favors keeping conversion bands close-below-spot and trailing them upward as price rises. The dollar leg earns ambient yield (≈0% in 2021, but bands still kept some capital in dollars between fills). Effective accumulation price ends up modestly below DCA's time-average (signal-informed bands fill on the small pullbacks rather than averaging through the relentless up-moves). Estimated effective entry ~$1,500 vs DCA's ~$1,800 → ~12% more ETH per dollar deployed. Endpoint value ~$310 ≈ DCA's $268 × 1.16.
+**Quid accumulation modeling.** In a strong directional bull, pullbacks are shallow and brief; the signal stack favors keeping conversion bands close-below-spot and trailing them upward as price rises. The dollar leg earns ambient yield (≈0% in 2021, but bands still kept some capital in dollars between fills). Effective accumulation price ends up modestly below DCA's time-average (signal-informed bands fill on the small pullbacks rather than averaging through the relentless up-moves). Estimated effective entry ~$1,500 vs DCA's ~$1,800 → ~12% more ETH per dollar deployed. Endpoint value ~$310 ≈ DCA's $268 × 1.16.
 
 **QU!D structure residual** (bond ladder ~7% APR equivalent + LP layer 25%):
 
@@ -941,9 +941,9 @@ For each regime, the outputs are:
 - LP layer contribution: 173% × 25% = **+43.3%**
 - **Total residual: ~+49% over 0.86 years**
 
-**Benchmark comparison (Vogue accumulation):**
+**Benchmark comparison (Quid accumulation):**
 
-| Benchmark | Vogue accumulation − Benchmark |
+| Benchmark | Quid accumulation − Benchmark |
 |---|---|
 | vs Buy ETH at start (+560%) | −350 pp (badly underperformed — no leverage, started from dollars) |
 | vs Hold cash (+0.04%) | +210 pp (vastly outperformed) |
@@ -951,7 +951,7 @@ For each regime, the outputs are:
 | vs DCA into ETH (+168%) | **+42 pp (outperformed)** |
 | vs Saylor strategy / MSTR (+7%) | **+203 pp (vastly outperformed)** |
 
-**Interpretive read:** in a strong directional bull, the Vogue strategy meaningfully beats DCA on accumulation efficiency (signal-informed bands capture the small pullbacks DCA averages through), and dramatically beats the Saylor strategy because MSTR's premium compressed throughout 2021 from its early-year peak (the leveraged-bull vehicle paradoxically underperformed both BTC and a yielding-dollar-side accumulation strategy because MNAV expansion happened in 2020 and reversed through 2021). The structure still loses to "buy ETH at start" because that benchmark assumes the user already had the ETH conviction; the relevant comparison for someone holding dollars is DCA or Saylor, both of which Vogue beats. The trap of this regime is that "buy ETH at start" looks attractive in retrospect but requires the directional conviction Vogue does not require.
+**Interpretive read:** in a strong directional bull, the Quid strategy meaningfully beats DCA on accumulation efficiency (signal-informed bands capture the small pullbacks DCA averages through), and dramatically beats the Saylor strategy because MSTR's premium compressed throughout 2021 from its early-year peak (the leveraged-bull vehicle paradoxically underperformed both BTC and a yielding-dollar-side accumulation strategy because MNAV expansion happened in 2020 and reversed through 2021). The structure still loses to "buy ETH at start" because that benchmark assumes the user already had the ETH conviction; the relevant comparison for someone holding dollars is DCA or Saylor, both of which Quid beats. The trap of this regime is that "buy ETH at start" looks attractive in retrospect but requires the directional conviction Quid does not require.
 
 #### Regime 2 — 2022 capitulation (Nov 10, 2021 → Dec 31, 2022)
 
@@ -978,9 +978,9 @@ For each regime, the outputs are:
 | LP full-range with fees minus LVR | $67.01 − ($100 × 1.10²/8 × 1.14) = $49.77 | −50.2% |
 | LP concentrated ±20% band entered at $4,815, static | Gapped through range to band edge ($3,852) early; 100% ETH thereafter → $28.08 | −71.9% |
 | Saylor strategy (MSTR equity) | $20 | −80% |
-| **Vogue accumulation (signal-informed bands)** | **~$74** (modeled — see note below) | **~−26%** |
+| **Quid accumulation (signal-informed bands)** | **~$74** (modeled — see note below) | **~−26%** |
 
-**Vogue accumulation modeling.** In a capitulation regime with jump events (LUNA, FTX), signal-informed band placement widens ranges aggressively to avoid gap-through pinning, and slows accumulation pace when σ-divergence checks trigger and pool-flow distribution patterns indicate forced selling. The dollar leg earning T-bill yield (~3%) through the period meaningfully cushioned the un-deployed portion. Estimated 30–40% of dollar leg remained undeployed by year-end (signal stack repeatedly extended waiting on confirmation of bottom); the deployed portion converted at average price ~$2,000 (better than DCA's ~$2,500 falling-knife average). Endpoint value: $30 undeployed dollars + $44 in ETH (0.037 ETH × $1,200) = $74.
+**Quid accumulation modeling.** In a capitulation regime with jump events (LUNA, FTX), signal-informed band placement widens ranges aggressively to avoid gap-through pinning, and slows accumulation pace when σ-divergence checks trigger and pool-flow distribution patterns indicate forced selling. The dollar leg earning T-bill yield (~3%) through the period meaningfully cushioned the un-deployed portion. Estimated 30–40% of dollar leg remained undeployed by year-end (signal stack repeatedly extended waiting on confirmation of bottom); the deployed portion converted at average price ~$2,000 (better than DCA's ~$2,500 falling-knife average). Endpoint value: $30 undeployed dollars + $44 in ETH (0.037 ETH × $1,200) = $74.
 
 **QU!D structure residual** (bond ladder ~6.5% blended + LP layer 25%):
 
@@ -988,9 +988,9 @@ For each regime, the outputs are:
 - LP layer contribution: −50.2% × 25% = **−12.6%**
 - **Total residual: ~−5.2% over 1.14 years**
 
-**Benchmark comparison (Vogue accumulation):**
+**Benchmark comparison (Quid accumulation):**
 
-| Benchmark | Vogue accumulation − Benchmark |
+| Benchmark | Quid accumulation − Benchmark |
 |---|---|
 | vs Buy ETH at start (−75.1%) | +49 pp (vastly outperformed) |
 | vs Hold cash (+3.42%) | −29 pp (underperformed) |
@@ -998,7 +998,7 @@ For each regime, the outputs are:
 | vs DCA into ETH (−52%) | **+26 pp (outperformed)** |
 | vs Saylor strategy / MSTR (−80%) | **+54 pp (vastly outperformed)** |
 
-**Interpretive read:** in capitulation, holding cash dominates because no accumulation strategy can avoid loss when the asset drops 75%. But against the realistic comparators a dollar-holder faces — DCA into ETH and the Saylor strategy — Vogue meaningfully outperforms both. Against DCA, Vogue's signal-informed waiting (extending un-deployment as forced-selling signals fire) captured a meaningfully better effective entry. Against Saylor, the structural soundness Vogue offers shows up as 54 percentage points of preservation: MSTR was simultaneously exposed to BTC's drawdown, MNAV compression (premium collapsed from ~3x to ~1x), and convertible-debt servicing pressure during the worst possible window. This is the regime where the Saylor strategy's leverage and dilution amplify losses; Vogue's no-leverage / no-dilution / yield-while-waiting design preserves capital and accumulation efficiency together. The concentrated static-LP variant (−72%) is a cautionary tale for what the LP layer does *without* signal-informed band management — gap-through pins capital to the worst-possible-price ETH.
+**Interpretive read:** in capitulation, holding cash dominates because no accumulation strategy can avoid loss when the asset drops 75%. But against the realistic comparators a dollar-holder faces — DCA into ETH and the Saylor strategy — Quid meaningfully outperforms both. Against DCA, Quid's signal-informed waiting (extending un-deployment as forced-selling signals fire) captured a meaningfully better effective entry. Against Saylor, the structural soundness Quid offers shows up as 54 percentage points of preservation: MSTR was simultaneously exposed to BTC's drawdown, MNAV compression (premium collapsed from ~3x to ~1x), and convertible-debt servicing pressure during the worst possible window. This is the regime where the Saylor strategy's leverage and dilution amplify losses; Quid's no-leverage / no-dilution / yield-while-waiting design preserves capital and accumulation efficiency together. The concentrated static-LP variant (−72%) is a cautionary tale for what the LP layer does *without* signal-informed band management — gap-through pins capital to the worst-possible-price ETH.
 
 #### Regime 3 — Crab market (Jan 2023 → Aug 2023)
 
@@ -1024,9 +1024,9 @@ For each regime, the outputs are:
 | LP full-range with fees minus LVR | $126.89 − ($100 × 0.50²/8 × 0.67) = $124.80 | +24.8% |
 | LP concentrated ±10% band, well-centered, in-range much of period | Concentration ~10× → fees ~$80, LVR ~$21 (in-range only ~50%); net ≈ +40% | +40% (estimate; band-dependent) |
 | Saylor strategy (MSTR equity) | $233 | +133% (MNAV expansion off the 2022 lows; convertibles still serviceable) |
-| **Vogue accumulation (signal-informed bands)** | **~$148** (modeled — see note below) | **~+48%** |
+| **Quid accumulation (signal-informed bands)** | **~$148** (modeled — see note below) | **~+48%** |
 
-**Vogue accumulation modeling.** The crab regime is where signal-informed band placement most clearly beats DCA. Bands placed at corridor lows ($1,400–$1,550) fill repeatedly as mean reversion pulls price down to them; bands lift back to dollars on the way up. Effective accumulation price ~$1,400 vs DCA's ~$1,550 — meaningful ~10% improvement. Plus the in-range periods earn concentrated fees that compound the bond-ladder yield. T-bill yield (~5%) on the un-deployed dollar leg adds to the result.
+**Quid accumulation modeling.** The crab regime is where signal-informed band placement most clearly beats DCA. Bands placed at corridor lows ($1,400–$1,550) fill repeatedly as mean reversion pulls price down to them; bands lift back to dollars on the way up. Effective accumulation price ~$1,400 vs DCA's ~$1,550 — meaningful ~10% improvement. Plus the in-range periods earn concentrated fees that compound the bond-ladder yield. T-bill yield (~5%) on the un-deployed dollar leg adds to the result.
 
 **QU!D structure residual** (bond ladder ~8% blended + LP layer 25%):
 
@@ -1034,9 +1034,9 @@ For each regime, the outputs are:
 - LP layer contribution (full-range): 24.8% × 25% = **+6.2%**
 - **Total residual: ~+11.6% over 0.67 years (annualized ~+17.4%)**
 
-**Benchmark comparison (Vogue accumulation):**
+**Benchmark comparison (Quid accumulation):**
 
-| Benchmark | Vogue accumulation − Benchmark |
+| Benchmark | Quid accumulation − Benchmark |
 |---|---|
 | vs Buy ETH at start (+37.5%) | +10.5 pp (outperformed) |
 | vs Hold cash (+3.33%) | +44.7 pp (vastly outperformed) |
@@ -1044,7 +1044,7 @@ For each regime, the outputs are:
 | vs DCA into ETH (+20%) | **+28 pp (outperformed)** |
 | vs Saylor strategy / MSTR (+133%) | **−85 pp (underperformed)** |
 
-**Interpretive read:** Vogue cleanly beats DCA and even slightly beats hold-ETH-at-start because the LP fee accrual on a well-centered band stacks on top of the price exposure. But the Saylor strategy wins this regime decisively because MSTR was rebounding off its 2022 lows with MNAV expansion happening — the leveraged-bull bet, when timed at the trough, recovers fastest. This is the regime where Saylor's strategy looks great on paper. The honest read: Vogue cannot beat Saylor in MNAV-expansion phases. What it offers instead is the consistency that Saylor's strategy lacks in the regimes around it: Vogue's −26% in 2022 vs Saylor's −80%, Vogue's +210% in 2021 vs Saylor's +7%. Over the full cycle, regime-conditional outperformance compounds; Saylor's regime-specific dominance does not.
+**Interpretive read:** Quid cleanly beats DCA and even slightly beats hold-ETH-at-start because the LP fee accrual on a well-centered band stacks on top of the price exposure. But the Saylor strategy wins this regime decisively because MSTR was rebounding off its 2022 lows with MNAV expansion happening — the leveraged-bull bet, when timed at the trough, recovers fastest. This is the regime where Saylor's strategy looks great on paper. The honest read: Quid cannot beat Saylor in MNAV-expansion phases. What it offers instead is the consistency that Saylor's strategy lacks in the regimes around it: Quid's −26% in 2022 vs Saylor's −80%, Quid's +210% in 2021 vs Saylor's +7%. Over the full cycle, regime-conditional outperformance compounds; Saylor's regime-specific dominance does not.
 
 #### Regime 4 — Mid-2026 grinding bear (Aug 2025 → Jun 2026, current)
 
@@ -1054,7 +1054,7 @@ For each regime, the outputs are:
 - BTC price (scenario-conservative): ~$130K (Aug 2025 ATH) → ~$65K (Jun 2026), ratio = 0.50
 - Duration: 10 months ≈ 0.83 years
 - Realized σ (annualized): ~70% (elevated; nine consecutive months of lower highs)
-- LP fees: meaningfully reduced from prior cycles. Two structural haircuts: (1) post-UNIfication fee-switch (Dec 2025) routes a percentage of V3 fees to protocol; (2) intent/solver flow capture pulls clean retail flow away from V3 pools, leaving more toxic residue. Effective V3 fee APR ~6% net of haircuts; protocol's V4 pools (Vogue) unaffected by the fee switch, ~10% APR. Period blended ~8%.
+- LP fees: meaningfully reduced from prior cycles. Two structural haircuts: (1) post-UNIfication fee-switch (Dec 2025) routes a percentage of V3 fees to protocol; (2) intent/solver flow capture pulls clean retail flow away from V3 pools, leaving more toxic residue. Effective V3 fee APR ~6% net of haircuts; protocol's V4 pools (Quid) unaffected by the fee switch, ~10% APR. Period blended ~8%.
 - T-bill yield: ~4.5% (gradual rate compression from 2024 peak)
 - ETH staking yield: ~3.5% APR (post-Pectra)
 - MSTR (Saylor benchmark, scenario): ~$500 (Aug 2025 ATH) → ~$120 (Jun 2026) = −76% (BTC drawdown plus MNAV compression on a stretched premium)
@@ -1072,11 +1072,11 @@ For each regime, the outputs are:
 | LP full-range with fees (blended ~8%) | $64.84 + ($100 × 8% × 0.83) = $71.48 | −28.5% |
 | LP full-range with fees minus LVR | $71.48 − ($100 × 0.70²/8 × 0.83) = $66.40 | −33.6% |
 | LP concentrated ±20% band centered at ATH, no rebanding | Gapped through range early; $45.03 final | −55.0% |
-| LP concentrated with Vogue-style active rebanding | Bands chase price down; each reband crystallizes IL but maintains fee capture; ~−40% | −40% |
+| LP concentrated with Quid-style active rebanding | Bands chase price down; each reband crystallizes IL but maintains fee capture; ~−40% | −40% |
 | Saylor strategy (MSTR equity) | $24 | −76% |
-| **Vogue accumulation (signal-informed bands)** | **~$84** (modeled — see note below) | **~−16%** |
+| **Quid accumulation (signal-informed bands)** | **~$84** (modeled — see note below) | **~−16%** |
 
-**Vogue accumulation modeling.** Nine months of lower highs with FGI extreme-fear plus the §3.9 pool-flow signals indicating sustained distribution patterns: the signal stack repeatedly extends un-deployment and widens bands to avoid gap-through. Estimated 40–50% of dollar leg remained un-deployed by month 10 (the signal stack has not yet flagged conditions favorable for accumulation pace). The deployed portion converted at average price ~$2,900 (better than DCA's ~$3,300). T-bill yield (~4.5%) on the substantial un-deployed dollar leg materially cushions the result. Endpoint: $46 undeployed + yield + $38 in deployed-ETH × current spot = ~$84.
+**Quid accumulation modeling.** Nine months of lower highs with FGI extreme-fear plus the §3.9 pool-flow signals indicating sustained distribution patterns: the signal stack repeatedly extends un-deployment and widens bands to avoid gap-through. Estimated 40–50% of dollar leg remained un-deployed by month 10 (the signal stack has not yet flagged conditions favorable for accumulation pace). The deployed portion converted at average price ~$2,900 (better than DCA's ~$3,300). T-bill yield (~4.5%) on the substantial un-deployed dollar leg materially cushions the result. Endpoint: $46 undeployed + yield + $38 in deployed-ETH × current spot = ~$84.
 
 **QU!D structure residual** (bond ladder ~9% blended + LP layer 25%):
 
@@ -1084,9 +1084,9 @@ For each regime, the outputs are:
 - LP layer contribution (full-range): −33.6% × 25% = **−8.4%**
 - **Total residual: ~−0.9% over 0.83 years (essentially flat)**
 
-**Benchmark comparison (Vogue accumulation):**
+**Benchmark comparison (Quid accumulation):**
 
-| Benchmark | Vogue accumulation − Benchmark |
+| Benchmark | Quid accumulation − Benchmark |
 |---|---|
 | vs Buy ETH at start (−60.1%) | +44 pp (vastly outperformed) |
 | vs Hold cash (+3.74%) | −20 pp (underperformed) |
@@ -1094,11 +1094,11 @@ For each regime, the outputs are:
 | vs DCA into ETH (−40%) | **+24 pp (outperformed)** |
 | vs Saylor strategy / MSTR (−76%) | **+60 pp (vastly outperformed)** |
 
-**Interpretive read:** the grinding-bear analog of the 2022 capitulation, but slower and with the structural haircuts (fee switch, intent capture) eating into LP profitability. Vogue cleanly beats DCA on accumulation efficiency (signal-informed waiting captured better entries than the falling-knife average) and dramatically beats Saylor (whose MSTR is down 76% from premium compression layered on the BTC drawdown). Holding cash still won this regime, but Vogue lost to cash by only 20 pp on accumulation while keeping 84% of capital in productive position — a user wanting some BTC/ETH exposure with capital preservation finds Vogue's profile much more attractive than the all-or-nothing Saylor bet. The §3.8 rationality checklist for this regime: directional posture red on "no strong macro signal of direction" (clear bear trend, signal stack flags continued downside risk); σ acceptable; jump indicators amber. The LP layer should run wider bands and slower deployment pace through this regime — and the signal stack is already producing those parameter recommendations.
+**Interpretive read:** the grinding-bear analog of the 2022 capitulation, but slower and with the structural haircuts (fee switch, intent capture) eating into LP profitability. Quid cleanly beats DCA on accumulation efficiency (signal-informed waiting captured better entries than the falling-knife average) and dramatically beats Saylor (whose MSTR is down 76% from premium compression layered on the BTC drawdown). Holding cash still won this regime, but Quid lost to cash by only 20 pp on accumulation while keeping 84% of capital in productive position — a user wanting some BTC/ETH exposure with capital preservation finds Quid's profile much more attractive than the all-or-nothing Saylor bet. The §3.8 rationality checklist for this regime: directional posture red on "no strong macro signal of direction" (clear bear trend, signal stack flags continued downside risk); σ acceptable; jump indicators amber. The LP layer should run wider bands and slower deployment pace through this regime — and the signal stack is already producing those parameter recommendations.
 
 #### Summary across regimes
 
-| Regime | Vogue accumulation | vs Buy ETH | vs Cash | vs 50/50 | vs DCA | vs Saylor |
+| Regime | Quid accumulation | vs Buy ETH | vs Cash | vs 50/50 | vs DCA | vs Saylor |
 |---|---|---|---|---|---|---|
 | 2021 run-up (10.3 mo) | +210% | −350 pp | +210 pp | −70 pp | **+42 pp** | **+203 pp** |
 | 2022 capitulation (13.7 mo) | −26% | +49 pp | −29 pp | +12 pp | **+26 pp** | **+54 pp** |
@@ -1107,10 +1107,10 @@ For each regime, the outputs are:
 
 **Patterns visible across the matrix:**
 
-- **Vogue beats DCA in every regime.** Signal-informed band placement consistently captures better effective entries than time-uniform conversion. The edge ranges from +24 pp (grinding bear) to +42 pp (2021 run-up). This is the primary structural claim against the no-information baseline: across bull, capitulation, crab, and grinding-bear regimes, signal-informed accumulation outperforms unconditional averaging.
-- **Vogue beats Saylor in three of four regimes** — 2021 run-up (Saylor flat from MNAV compression), 2022 capitulation (Saylor amplified the BTC drawdown via leverage + premium collapse + convertible-debt pressure), and 2026 grinding bear (same dynamic, slower). The one regime Saylor wins is the post-capitulation rebound (2023 crab), where MNAV expansion off the lows compounds with BTC's recovery to produce 133% MSTR returns. This is honest: when MNAV expansion is in your favor and convertibles are serviceable, Saylor's leverage wins. In every other regime, the leverage cost or the premium collapse dominates.
-- **Cash wins drawdown regimes, loses everything else.** When capital preservation is the only goal, cash is the right answer — but cash earns nothing else. Vogue's edge against cash is +210 pp in the bull run-up and +45 pp in the crab, more than compensating for the −20 to −29 pp Vogue lags in drawdowns.
-- **Buy-ETH-at-start dominates strong bulls and loses everything else.** Same shape as Saylor but without the leverage amplification in either direction. Requires directional conviction Vogue doesn't.
+- **Quid beats DCA in every regime.** Signal-informed band placement consistently captures better effective entries than time-uniform conversion. The edge ranges from +24 pp (grinding bear) to +42 pp (2021 run-up). This is the primary structural claim against the no-information baseline: across bull, capitulation, crab, and grinding-bear regimes, signal-informed accumulation outperforms unconditional averaging.
+- **Quid beats Saylor in three of four regimes** — 2021 run-up (Saylor flat from MNAV compression), 2022 capitulation (Saylor amplified the BTC drawdown via leverage + premium collapse + convertible-debt pressure), and 2026 grinding bear (same dynamic, slower). The one regime Saylor wins is the post-capitulation rebound (2023 crab), where MNAV expansion off the lows compounds with BTC's recovery to produce 133% MSTR returns. This is honest: when MNAV expansion is in your favor and convertibles are serviceable, Saylor's leverage wins. In every other regime, the leverage cost or the premium collapse dominates.
+- **Cash wins drawdown regimes, loses everything else.** When capital preservation is the only goal, cash is the right answer — but cash earns nothing else. Quid's edge against cash is +210 pp in the bull run-up and +45 pp in the crab, more than compensating for the −20 to −29 pp Quid lags in drawdowns.
+- **Buy-ETH-at-start dominates strong bulls and loses everything else.** Same shape as Saylor but without the leverage amplification in either direction. Requires directional conviction Quid doesn't.
 
 #### Where the buffer holds and where it breaks
 
@@ -1128,16 +1128,16 @@ For each regime, the outputs are:
 #### Replay panels
 
 - **Regime selector.** Dropdown for {2021 run-up, 2022 capitulation, 2023 crab, mid-2026 grinding bear, custom date range}.
-- **Position simulator.** Sliders for: bond ladder share of reserve (default 75%), LP layer share (default 25%), Vogue band width, rebanding cadence. Recomputes the regime's residual P&L under the chosen parameters.
+- **Position simulator.** Sliders for: bond ladder share of reserve (default 75%), LP layer share (default 25%), Quid band width, rebanding cadence. Recomputes the regime's residual P&L under the chosen parameters.
 - **Benchmark comparison.** Three side-by-side cards (vs hold ETH, vs hold cash, vs 50/50 hold) with the structure residual visible against each.
 - **Decomposition panel.** Per-regime breakdown of where the residual came from: bond ladder yield (always positive), LP fee accrual (gross), LP LVR cost, LP IL vs 50/50 hold, basket revenue contribution, gas/rebalance cost.
-- **Sensitivity panel.** For the current regime, how does the residual change if you shift bond/LP share by ±10pp, tighten/widen Vogue's band by 5pp, or assume realized vol comes in 20% higher/lower than current.
+- **Sensitivity panel.** For the current regime, how does the residual change if you shift bond/LP share by ±10pp, tighten/widen Quid's band by 5pp, or assume realized vol comes in 20% higher/lower than current.
 
-These panels turn the replay from a static table into an operational tool — Vogue/Rover parameters can be evaluated against historical regimes before being committed, and the protocol's structural quality can be inspected by any QD holder against the regime they think we're currently in.
+These panels turn the replay from a static table into an operational tool — Quid/Rover parameters can be evaluated against historical regimes before being committed, and the protocol's structural quality can be inspected by any QD holder against the regime they think we're currently in.
 
 ### 3.11 The crystallization signal and the QD staking rail
 
-**Purpose:** Specify the dashboard's primary operational output — the crystallization decision for filled Vogue bands — and the opt-in QD-staking mechanic that lets QD holders participate in signal-informed accumulation while preserving their baseline yield.
+**Purpose:** Specify the dashboard's primary operational output — the crystallization decision for filled Quid bands — and the opt-in QD-staking mechanic that lets QD holders participate in signal-informed accumulation while preserving their baseline yield.
 
 #### Why crystallization is the load-bearing decision
 
@@ -1161,7 +1161,7 @@ The dashboard provides full per-band signal-stack information for the depositor 
 
 3. **Depositor horizons and exposures are individual, so the dashboard provides signals not commitments.** A depositor with a 6-month liquidity need will read a 12-month deployment-time-estimate band differently from one with a 10-year horizon. A depositor already holding significant BTC exposure elsewhere will read an accumulation-favored signal differently from one starting from cash. The dashboard surfaces deployment-time estimates, historical fill rates for comparable bands, backtests in matched regimes — letting each depositor evaluate the signal against their own situation.
 
-The composed signal-stack reading per band gives every depositor the same information surface; the per-trade decision is theirs. The crystallization signal (§3.11) is the protocol-level operational signal for Vogue's *own* positions, but the QD staker's parallel decision (whether to unstake from the band, partial-unstake, or let the protocol's crystallization hook execute) remains the staker's call. The dashboard provides full reasoning; the depositor decides per-trade.
+The composed signal-stack reading per band gives every depositor the same information surface; the per-trade decision is theirs. The crystallization signal (§3.11) is the protocol-level operational signal for Quid's *own* positions, but the QD staker's parallel decision (whether to unstake from the band, partial-unstake, or let the protocol's crystallization hook execute) remains the staker's call. The dashboard provides full reasoning; the depositor decides per-trade.
 
 #### The hold-vs-crystallize decision
 
@@ -1219,7 +1219,7 @@ The four MSTR capital-structure features were added after the May–June 2026 ep
 
 ```python
 @dataclass
-class BandState:
+class Shares:
     band_id: str
     asset: str                       # "ETH" or "BTC"
     band_low_price: float
@@ -1232,7 +1232,7 @@ class BandState:
     in_range_seconds: int            # time spent in-range so far
 
 def crystallize_recommendation(
-    band: BandState,
+    band: Shares,
     kalman_state: KalmanRegimeState,
     hmm_regime: HMMRegimeState,                      # §3.2 discrete regime layer
     pool_flow_state: PoolFlowState,
@@ -1313,15 +1313,15 @@ The thresholds and weights are illustrative — a real implementation requires e
 
 #### The QD staking rail
 
-QD holders can optionally stake QD into specific out-of-range Vogue bands to add accumulation capacity beyond what the protocol's own reserve provides. The mechanic preserves QD's fungibility at the underlying level — staking does not burn QD, it shifts which reserve assets back the staker's claim.
+QD holders can optionally stake QD into specific out-of-range Quid bands to add accumulation capacity beyond what the protocol's own reserve provides. The mechanic preserves QD's fungibility at the underlying level — staking does not burn QD, it shifts which reserve assets back the staker's claim.
 
 ##### How staking works
 
-1. **User selects an out-of-range Vogue band to stake into.** The dashboard surfaces Vogue's signal-informed pending bands (e.g., buy-side band at $1,500 ETH when spot is $1,975). The user picks one.
+1. **User selects an out-of-range Quid band to stake into.** The dashboard surfaces Quid's signal-informed pending bands (e.g., buy-side band at $1,500 ETH when spot is $1,975). The user picks one.
 
 2. **User commits N QD to that band.** The QD is locked at the contract level. **It is not burned.** The total QD supply does not change; the user retains a claim on N QD's worth of value, but the claim now points to a specific band's outcome rather than to the general reserve.
 
-3. **Vogue's mockUSD ledger adjusts.** The band's mockUSD capacity increases by N (dollar-equivalent of N QD at staking time). That mockUSD is now committed to providing the dollar leg of the band's LP position when deployed.
+3. **Quid's mockUSD ledger adjusts.** The band's mockUSD capacity increases by N (dollar-equivalent of N QD at staking time). That mockUSD is now committed to providing the dollar leg of the band's LP position when deployed.
 
 4. **The staker continues earning the baseline yield throughout staking.** The mockUSD backing the band still earns the ~4% T-bill baseline. The staker is *not* giving up baseline yield in exchange for the band-fill optionality — they earn baseline yield regardless of band outcome.
 
@@ -1339,11 +1339,11 @@ QD is a claim on the protocol's aggregate reserve. The reserve composition inclu
 
 - Bond ladder assets (staking positions, basket revenue accruals)
 - Reserve mockUSD (the dollar leg of LP positions and pure reserve)
-- Vogue's accumulated underlying (ETH/BTC in active bands or crystallized as spot)
+- Quid's accumulated underlying (ETH/BTC in active bands or crystallized as spot)
 
 When a user stakes QD into a band, the user's claim shifts from "general claim on aggregate reserve" to "specific claim on this band's outcome plus baseline yield." The total QD supply does not change; only the *backing composition* for that user's QD changes. The mockUSD that previously backed the staker's general claim now backs the specific band; if the band fills, the backing transitions further to the accumulated underlying.
 
-This is the same accounting move as a user moving money between a bank's savings account and a CD — the bank doesn't burn the money; it shifts which assets back the deposit. Vogue's mockUSD ledger is the protocol's analog of that internal accounting layer.
+This is the same accounting move as a user moving money between a bank's savings account and a CD — the bank doesn't burn the money; it shifts which assets back the deposit. Quid's mockUSD ledger is the protocol's analog of that internal accounting layer.
 
 ##### Staker economics summary
 
@@ -1363,7 +1363,7 @@ The bond ladder's structural-soundness property (§3.4 duration matching) is pre
 
 - Maturity buckets continue to track the QD redemption schedule on unstaked QD.
 - Staked QD is in a separate accounting state — committed to a specific band's outcome until unstake or crystallization.
-- Vogue's bands are sized so the protocol can absorb the fill outcomes (whether ETH accumulates or mockUSD remains) without breaking the redemption schedule for unstaked QD.
+- Quid's bands are sized so the protocol can absorb the fill outcomes (whether ETH accumulates or mockUSD remains) without breaking the redemption schedule for unstaked QD.
 
 A user who stakes into a band that doesn't fill for 12 months has their QD locked in that band for 12 months. They cannot redeem against the next-month bucket because their QD is committed. This is the trade-off the staker accepts in exchange for the signal-informed conversion opportunity — and they continue earning baseline yield throughout, so the trade-off is not "yield vs band fill" but "liquidity vs band fill."
 
@@ -1413,17 +1413,17 @@ This is the framing the demand-side reality check articulates: Saylor's edge is 
 
 This is the structural point the protocol exists for. A QD holder is **not** all-or-nothing exposed to the protocol's accumulation decisions, the way an MSTR holder is all-or-nothing exposed to Saylor's. The depositor's position has two layers operating simultaneously:
 
-1. **Base layer: yield-optimized basket, always-on.** mockUSD earning baseline + ether.fi staking + V4 LP fees net of LVR + basket revenue. Optimal at the protocol level regardless of what any specific Vogue band is doing. The depositor pays no opportunity cost for sitting in QD without staking — the baseline yield runs continuously, including for capital that's never committed to any specific band.
+1. **Base layer: yield-optimized basket, always-on.** mockUSD earning baseline + ether.fi staking + V4 LP fees net of LVR + basket revenue. Optimal at the protocol level regardless of what any specific Quid band is doing. The depositor pays no opportunity cost for sitting in QD without staking — the baseline yield runs continuously, including for capital that's never committed to any specific band.
 
-2. **Signal overlay: individual-trade-level information surface.** The dashboard surfaces every signal-relevant data point for each Vogue band — pending or active. The depositor decides which bands to stake into, which to skip, and when to unstake, on the basis of the full signal stack reading *for that specific band*.
+2. **Signal overlay: individual-trade-level information surface.** The dashboard surfaces every signal-relevant data point for each Quid band — pending or active. The depositor decides which bands to stake into, which to skip, and when to unstake, on the basis of the full signal stack reading *for that specific band*.
 
 This is what "be signalled on the individual trade level" means structurally. The depositor is hedged against committing wholesale to crypto holdings because the base layer doesn't require it; they opt into specific bands at the trade-level, with full signal-stack reasoning visible, only when their own conviction agrees.
 
 ##### What the dashboard provides for each pending band
 
-For every out-of-range Vogue band available for staking, the dashboard surfaces:
+For every out-of-range Quid band available for staking, the dashboard surfaces:
 
-- **The band's target price range** and Vogue's signal-informed rationale for placing it there
+- **The band's target price range** and Quid's signal-informed rationale for placing it there
 - **Full §3.2 signal-stack reading at deployment:**
   - Kalman state: σ, β, φ with uncertainty bands
   - HMM regime posterior: `P(regime | obs)` across the six discrete regimes
@@ -1466,13 +1466,13 @@ The depositor retains decision authority. The protocol's crystallization signal 
 | Dilution risk | High — continuous ATM issuance | None — no equity to dilute |
 | Narrative-crack vulnerability | Material — May–June 2026 episode showed 0.0038% BTC sale moved BTC 3.1% | None — QD is a claim on a yield-bearing reserve, not on a narrative |
 
-The point is not that QD is a better leveraged-BTC vehicle than MSTR. It isn't — MSTR's leverage produces more upside in MNAV-expansion regimes than Vogue's signal-informed accumulation does. The point is that QD provides **a different shape of exposure**: yield-optimized baseline with selective, per-trade, signal-informed accumulation opt-ins, where the depositor hedges at the trade level rather than committing to the wholesale BTC-treasury bet.
+The point is not that QD is a better leveraged-BTC vehicle than MSTR. It isn't — MSTR's leverage produces more upside in MNAV-expansion regimes than Quid's signal-informed accumulation does. The point is that QD provides **a different shape of exposure**: yield-optimized baseline with selective, per-trade, signal-informed accumulation opt-ins, where the depositor hedges at the trade level rather than committing to the wholesale BTC-treasury bet.
 
 ##### What this means for the Saylor benchmark in §3.10
 
-The §3.10 historical replay's "Saylor strategy" comparator is not a target the protocol synthesizes. It's the benchmark for evaluating Vogue's signal-informed accumulation against the leveraged-bull alternative — the question being: "if a depositor had opted into all of Vogue's bands across a given regime, how would their outcome compare to having instead bought MSTR equity?" That comparison is the §3.10 table; the result is regime-conditional outperformance (Vogue beats Saylor in 3 of 4 regimes via structural soundness; loses in MNAV-expansion phases like 2023's post-capitulation rebound).
+The §3.10 historical replay's "Saylor strategy" comparator is not a target the protocol synthesizes. It's the benchmark for evaluating Quid's signal-informed accumulation against the leveraged-bull alternative — the question being: "if a depositor had opted into all of Quid's bands across a given regime, how would their outcome compare to having instead bought MSTR equity?" That comparison is the §3.10 table; the result is regime-conditional outperformance (Quid beats Saylor in 3 of 4 regimes via structural soundness; loses in MNAV-expansion phases like 2023's post-capitulation rebound).
 
-A QD depositor doesn't have to opt into all of Vogue's bands. They can pick the ones the signal stack reads strongly in favor of, skip the ones they disagree with, and let their baseline yield run on the un-committed capital. Their realized outcome is therefore between the "all-bands Vogue" comparator and "pure baseline QD" — depending entirely on which individual bands they chose to participate in. The dashboard is what makes that choice possible at the individual-trade level.
+A QD depositor doesn't have to opt into all of Quid's bands. They can pick the ones the signal stack reads strongly in favor of, skip the ones they disagree with, and let their baseline yield run on the un-committed capital. Their realized outcome is therefore between the "all-bands Quid" comparator and "pure baseline QD" — depending entirely on which individual bands they chose to participate in. The dashboard is what makes that choice possible at the individual-trade level.
 
 #### Panels
 
@@ -1486,22 +1486,22 @@ A QD depositor doesn't have to opt into all of Vogue's bands. They can pick the 
 
 - **Not a synthetic MSTR instrument.** No MSTRq, no MNAV-tracking token, no equity-wrapper layer. MSTR is a signal feature; the protocol does not create instruments that track MSTR equity.
 - **Not a Panoptic-style options product.** The LP position is the vol-sell directly; no separate options layer needed. The protocol's short-gamma exposure is the LP position itself, backed by the QD bond ladder.
-- **Not a forced-action service.** The dashboard provides full signal-stack information per band for the depositor to make individual-trade-level decisions, but never forces actions or assumes a specific horizon. The crystallization signal is the protocol-level operational recommendation for Vogue's *own* positions; the QD staker's parallel decision (stay staked, unstake, partial-unstake) remains theirs, informed by the same signal surface.
+- **Not a forced-action service.** The dashboard provides full signal-stack information per band for the depositor to make individual-trade-level decisions, but never forces actions or assumes a specific horizon. The crystallization signal is the protocol-level operational recommendation for Quid's *own* positions; the QD staker's parallel decision (stay staked, unstake, partial-unstake) remains theirs, informed by the same signal surface.
 - **Not an automated execution.** Signal → recommendation → operator review → committed action. The crystallize-vs-hold recommendation is surfaced to the operator (and to QD stakers in the relevant bands), not auto-triggered.
-- **Not a permanent commitment.** Vogue can re-deploy bands after crystallization if regime turns favorable again. Crystallization locks the accumulation at the band's effective price; it does not preclude future accumulation cycles.
+- **Not a permanent commitment.** Quid can re-deploy bands after crystallization if regime turns favorable again. Crystallization locks the accumulation at the band's effective price; it does not preclude future accumulation cycles.
 
 
 ### 3.12 Plug-and-play external operators and the track-record feedback loop
 
-**Purpose:** Specify how external LP operators running Hummingbot-style open-source bot infrastructure provide additional liquidity capacity to Vogue's V4 pools, with their take-profit (TP) realized P&L sharing into the basket as revenue, and with their on-pool track records gating future allocation, basket take-rate tiers, and signal-stack feed access. Extends Vogue's capacity beyond protocol reserves while preserving structural-soundness properties.
+**Purpose:** Specify how external LP operators running Hummingbot-style open-source bot infrastructure provide additional liquidity capacity to Quid's V4 pools, with their take-profit (TP) realized P&L sharing into the basket as revenue, and with their on-pool track records gating future allocation, basket take-rate tiers, and signal-stack feed access. Extends Quid's capacity beyond protocol reserves while preserving structural-soundness properties.
 
 #### Why this layer exists
 
-Vogue's positions are bounded by the protocol's reserve composition. As the protocol's V4 pools attract organic volume, the question is how to scale LP depth beyond what reserves alone provide, without diluting QD's backing quality or compromising the bond ladder's duration matching.
+Quid's positions are bounded by the protocol's reserve composition. As the protocol's V4 pools attract organic volume, the question is how to scale LP depth beyond what reserves alone provide, without diluting QD's backing quality or compromising the bond ladder's duration matching.
 
 External operators bring their own capital, run their own crystallization logic (their bots' TP triggers), and contribute basket revenue from a share of their realized P&L. Three structural benefits:
 
-1. **Capacity scaling.** Deeper book and tighter spreads on the protocol's V4 pools attract more swap flow, which in turn grows fee revenue across all LP positions (Vogue's, QD-staker-backed, external).
+1. **Capacity scaling.** Deeper book and tighter spreads on the protocol's V4 pools attract more swap flow, which in turn grows fee revenue across all LP positions (Quid's, QD-staker-backed, external).
 2. **Strategy diversity.** Different operators run different strategies — mean-reverting, momentum, hedged-LP, range-following. Variation prevents monoculture and provides a continuous empirical test of the §3.11 crystallization signal: operators who outperform by following the signal validate it; operators who outperform by ignoring it indicate where the signal stack should be refined.
 3. **Basket revenue.** Operator TP profits flowing to the basket compound with existing basket revenue (matched long/short trading fees, equity/commodities funding spreads). The basket's contribution to QD's blended yield grows.
 
@@ -1530,7 +1530,7 @@ For each operator address in the registry, the protocol tracks rolling windows (
 
 - **Realized P&L net of LVR** — operator's bottom line on the protocol's pools
 - **Signal-alignment score** — how often the operator's deployment timing and TP timing match the §3.11 crystallization signal's recommendation at the moment of the decision
-- **Outperformance vs protocol baseline** — operator's net P&L over the window vs what Vogue would have realized with the same deployed capital following its own logic
+- **Outperformance vs protocol baseline** — operator's net P&L over the window vs what Quid would have realized with the same deployed capital following its own logic
 - **Toxicity contribution** — pool-flow analysis (§3.9) of whether the operator's positions attract uninformed flow (positive, fee-generating) or are sniped by JIT bots (negative, draining)
 - **Capital durability** — average position-holding time. Long durations indicate genuine market-making; sub-block durations indicate JIT-style strategies
 
@@ -1545,15 +1545,15 @@ These compose into a single track-record score that determines:
 
 The protocol does not enforce a specific strategy — operators are free to run whatever logic they want. The track record reveals what's working and economically self-selects for quality.
 
-#### Composition with Vogue and the QD staking rail
+#### Composition with Quid and the QD staking rail
 
 Three liquidity layers, in priority and decision authority:
 
-1. **Vogue's own positions** (protocol-managed, from reserve composition). Primary layer. Decision authority on directional band placement at the macro level per §3.8 + §3.11.
-2. **QD staker-backed bands** (§3.11). QD holders opt into specific out-of-range bands placed by Vogue. Vogue still controls placement; stakers provide additional dollar-leg capacity.
-3. **Plug-and-play external operators** (this section). Bring own capital, run own strategies in their own tick ranges or alternate fee tiers. Their positions complement Vogue's, do not override them.
+1. **Quid's own positions** (protocol-managed, from reserve composition). Primary layer. Decision authority on directional band placement at the macro level per §3.8 + §3.11.
+2. **QD staker-backed bands** (§3.11). QD holders opt into specific out-of-range bands placed by Quid. Quid still controls placement; stakers provide additional dollar-leg capacity.
+3. **Plug-and-play external operators** (this section). Bring own capital, run own strategies in their own tick ranges or alternate fee tiers. Their positions complement Quid's, do not override them.
 
-The three layers are explicitly non-overlapping in decision authority. Operators may not deploy positions that interfere with Vogue's active bands (the registry contract enforces minimum tick-distance constraints). When conflicts arise (e.g., an operator's position would partially overlap with a Vogue band), Vogue's deployment takes precedence; the operator's position is rejected with a clear error.
+The three layers are explicitly non-overlapping in decision authority. Operators may not deploy positions that interfere with Quid's active bands (the registry contract enforces minimum tick-distance constraints). When conflicts arise (e.g., an operator's position would partially overlap with a Quid band), Quid's deployment takes precedence; the operator's position is rejected with a clear error.
 
 #### Operator-as-empirical-test of the signal stack
 
@@ -1573,7 +1573,7 @@ The §1.2 estimation discipline applied to the signal stack itself: the stack is
 
 [Hummingbot](https://hummingbot.org) is open-source bot infrastructure for crypto market-making with established V3/V4 strategy templates and a community of operators. The protocol's integration:
 
-- **Standardized strategy module.** A "QU!D Vogue Pool" strategy plugin for Hummingbot, configurable for the protocol's specific V4 pools (ETH/USD, BTC/USD), with default parameter sets aligned to the §3.11 crystallization signal.
+- **Standardized strategy module.** A "QU!D Quid Pool" strategy plugin for Hummingbot, configurable for the protocol's specific V4 pools (ETH/USD, BTC/USD), with default parameter sets aligned to the §3.11 crystallization signal.
 - **TP hook contract.** When the strategy unwinds a position, it calls the protocol's `tp_settle()` function, which computes the basket share per the operator's current take-rate tier and routes accordingly.
 - **Signal-stack feed.** Authenticated WebSocket / HTTP API exposing the §3.2 Kalman state, §3.9 pool flow read, §3.7 MSTR features, and §3.11 crystallization recommendations. Permission tiered by track record.
 - **On-chain operator registry.** Maps operator addresses to current track-record scores, allocation caps, take-rate tiers, and signal-feed-access tier. Updated by an off-chain track-record calculator that posts state on each rolling-window boundary.
@@ -1583,18 +1583,18 @@ Operators can also bring their own bot infrastructure (not just Hummingbot) — 
 #### Panels
 
 - **Operator registry**: list of authorized operators, current track-record scores, allocation caps, take-rate tiers, signal-feed-access tier
-- **Per-operator track record**: P&L net of LVR (windowed), signal-alignment, outperformance vs Vogue baseline, toxicity contribution, capital durability
+- **Per-operator track record**: P&L net of LVR (windowed), signal-alignment, outperformance vs Quid baseline, toxicity contribution, capital durability
 - **Signal-stack empirical evaluation**: signal-alignment × P&L scatter plot, per-component attribution, strategy cluster fingerprints
 - **TP-to-basket revenue stream**: cumulative basket revenue from operator TP events, broken down by operator and by rolling window
-- **Hummingbot configuration export**: download the default QU!D Vogue Pool strategy module for self-onboarding operators
+- **Hummingbot configuration export**: download the default QU!D Quid Pool strategy module for self-onboarding operators
 
 #### What this isn't
 
 - **Not a permissionless public LP market.** Operators are registered via the on-chain registry, not open to any address that deploys capital.
-- **Not a delegation of band placement to operators.** Vogue retains decision authority on directional band placement at the macro level (§3.8 + §3.11). Operators run their own strategies in non-conflicting tick ranges.
+- **Not a delegation of band placement to operators.** Quid retains decision authority on directional band placement at the macro level (§3.8 + §3.11). Operators run their own strategies in non-conflicting tick ranges.
 - **Not a guarantee of operator profitability.** Many operators will lose money. The track-record system filters them out economically over time; no protocol intervention needed.
 - **Not a JIT-friendly venue.** JIT-style strategies are detected via §3.9 pool-flow patterns and on-chain behavior; identified JIT operators face 100% basket take rate and registry exclusion. The system is structurally hostile to JIT.
-- **Not a substitute for Vogue or QD staking.** External operators add capacity; they don't replace the primary LP layer (Vogue) or the QD-staker rail (§3.11). All three coexist.
+- **Not a substitute for Quid or QD staking.** External operators add capacity; they don't replace the primary LP layer (Quid) or the QD-staker rail (§3.11). All three coexist.
 
 
 ---
@@ -1662,7 +1662,7 @@ Asset curve:
    confidence_band = stddev_of_daily_fees × √30
    ```
 3. Model basket revenue accrual: same methodology as LP fee accrual.
-4. Sum cash/short-duration reserves into month-0 bucket (including the un-deployed dollar leg of Vogue's bands).
+4. Sum cash/short-duration reserves into month-0 bucket (including the un-deployed dollar leg of Quid's bands).
 
 Coverage ratio: straightforward division per bucket (§3.4).
 
@@ -1998,10 +1998,10 @@ The dashboard does **not**:
 4. **Display protocol-wide position aggregates that would reveal individual-user behavior.** Per the Goodhart-aware constraint in §2.3 — these would expose reflexive run dynamics. Aggregate reserve composition (bond ladder + LP layer) is shown because that aggregate is what backs every QD equally; anything implying per-user reserve allocation variation is structurally false because no such variation exists.
 5. **Show "confidence intervals" on forecasts.** There are no forecasts. Uncertainty bands appear only on *current* state estimates, where they have an honest interpretation.
 6. **Combine signals via the alpha-extraction framework at the BTC/ETH level.** With N=2 assets the cross-sectional and orthogonalization equations collapse to trivial relative-value computations; the framework's value is in equity portfolios with many cross-sectionally varying assets, not in a 2-asset crypto universe. The single applicable principle (inverse-vol weighting) is noted where it applies but does not justify importing the full framework.
-7. **Claim Vogue accumulation outperforms every benchmark in every regime.** Per §3.10 — the replay shows clearly: Vogue beats DCA in every regime, beats Saylor in 3 of 4 regimes, loses to cash in drawdowns, and loses to buy-ETH-at-start in strong directional bulls. The dashboard makes this regime-conditioned reality visible; it does not promise that any specific regime continues, and it does not claim universal outperformance.
-8. **Auto-adjust Vogue/Rover parameters on signal-stack conjunctions.** The signal stack (§3.2 + §3.7 + §3.9 + §3.11) informs Vogue/Rover operators looking at the §3.8 rationality checklist and produces concrete band-placement recommendations; it does not auto-rebalance the LP layer or commit parameter changes without operator action. Signal → recommendation → operator review → committed change.
+7. **Claim Quid accumulation outperforms every benchmark in every regime.** Per §3.10 — the replay shows clearly: Quid beats DCA in every regime, beats Saylor in 3 of 4 regimes, loses to cash in drawdowns, and loses to buy-ETH-at-start in strong directional bulls. The dashboard makes this regime-conditioned reality visible; it does not promise that any specific regime continues, and it does not claim universal outperformance.
+8. **Auto-adjust Quid/Rover parameters on signal-stack conjunctions.** The signal stack (§3.2 + §3.7 + §3.9 + §3.11) informs Quid/Rover operators looking at the §3.8 rationality checklist and produces concrete band-placement recommendations; it does not auto-rebalance the LP layer or commit parameter changes without operator action. Signal → recommendation → operator review → committed change.
 9. **Manufacture convexity from yield.** The protocol does not natively produce MSTR-style leveraged-bull convexity. No on-protocol convex sleeve, no yield-funded long-gamma position, no synthetic premium-funded structure. The reserve composition is bond ladder + LP layer + basket revenue; the LP layer is structurally short gamma (per §3.8) and is not transformed into long gamma anywhere in the design. The structural-soundness arguments against Saylor (no leverage, no refinancing wall, no premium collapse, no dilution) depend on this — adding convexity would re-introduce the failure modes those arguments preclude.
-10. **Take custody of user dollars outside Vogue's accumulation venue.** The dollar leg users supply funds Vogue's V4 LP positions exclusively. The dashboard does not route capital to off-protocol venues, to other LPs not under Vogue/Rover, or to discretionary strategies. Users supplying dollars know exactly where they go.
+10. **Take custody of user dollars outside Quid's accumulation venue.** The dollar leg users supply funds Quid's V4 LP positions exclusively. The dashboard does not route capital to off-protocol venues, to other LPs not under Quid/Rover, or to discretionary strategies. Users supplying dollars know exactly where they go.
 11. **Issue individualized user-level buy/sell timing recommendations.** Per §1.4 and §3.11 — the dashboard recommends protocol-level band placement (when and where to convert the aggregate un-deployed dollar leg), not individual user trading decisions. The structural reason matters: Saylor's edge is unknowable from outside (we can't tell whether his correct calls were intuition or coincidence, nor whether his wrong calls were still net-positive on his structural horizon); users' horizons and capital needs are individual (no universal "buy now" call serves a 6-month liquidity-need user and a 10-year accumulation user equally). The dashboard's recommendations are for the protocol's collective accumulation engine; each user's involvement remains the binary deposit-or-redeem decision against QD's redemption schedule.
 12. **Take long-MSTR or short-MSTR positions.** MSTR data (§3.7 sub-strip, §3.11) is a signal input to the band-placement and crystallization composition. The protocol does not hold MSTR equity, take synthetic MSTR exposure on the basket, or otherwise position itself against Saylor's premium. MSTR appears in the design only as one observable feature feeding the signal stack.
 
@@ -2009,12 +2009,12 @@ The first two are the most likely user-driven mission-creep candidates over time
 
 What the dashboard *does* do, distinguished clearly from what's above:
 
-- **Issues concrete protocol-level band-placement recommendations.** When and where Vogue should place its next conversion band; what pace of deployment the current regime supports; when to widen or tighten ranges. These are *directional* in the practical sense (they tell the operator what to do next) but they are grounded in current-regime estimation, not in price forecasting. The §3.8 rationality checklist, the §3.9 anomaly flags, the §3.10 replay sensitivity panels, and the §3.11 composed signals all produce inputs to these recommendations.
-- **Surfaces full per-band signal-stack reasoning for depositors making individual-trade decisions.** For each pending out-of-range Vogue band, the dashboard shows the depositor: Kalman state, HMM regime posterior, transition probabilities, pool flow patterns, MSTR features, capital-structure operations, macro context, historical fill rates, and regime-matched backtests. The depositor consumes this and decides band-by-band whether to stake, how much, for what duration. For currently-staked bands, the dashboard surfaces active signal-stack readings and the hold-vs-crystallize composed recommendation. The depositor decides per-trade; the dashboard provides per-trade reasoning. This is the load-bearing capability — it is what makes QD a different *shape* of exposure than MSTR's all-or-nothing-leveraged-bull-equity bet.
+- **Issues concrete protocol-level band-placement recommendations.** When and where Quid should place its next conversion band; what pace of deployment the current regime supports; when to widen or tighten ranges. These are *directional* in the practical sense (they tell the operator what to do next) but they are grounded in current-regime estimation, not in price forecasting. The §3.8 rationality checklist, the §3.9 anomaly flags, the §3.10 replay sensitivity panels, and the §3.11 composed signals all produce inputs to these recommendations.
+- **Surfaces full per-band signal-stack reasoning for depositors making individual-trade decisions.** For each pending out-of-range Quid band, the dashboard shows the depositor: Kalman state, HMM regime posterior, transition probabilities, pool flow patterns, MSTR features, capital-structure operations, macro context, historical fill rates, and regime-matched backtests. The depositor consumes this and decides band-by-band whether to stake, how much, for what duration. For currently-staked bands, the dashboard surfaces active signal-stack readings and the hold-vs-crystallize composed recommendation. The depositor decides per-trade; the dashboard provides per-trade reasoning. This is the load-bearing capability — it is what makes QD a different *shape* of exposure than MSTR's all-or-nothing-leveraged-bull-equity bet.
 - **Composes MSTR data into the signal stack as one feature.** Saylor's observable actions (purchase rate, ATM issuance, convertible offerings, MNAV level/direction, refinancing pressure, capital-structure operations) modify the band-placement recommendations and the per-band signal surface, but never override the composed reading on their own. Per §3.11.
 - **Surfaces regime-conditional comparisons.** Versus DCA, versus Saylor's MSTR equity return, versus passive holds. The §3.10 replay shows this historically; the live track-record panel shows it continuously.
 
-The distinction worth keeping in mind: *the dashboard advises the protocol on Vogue's band-placement parameters; the protocol places bands; the dashboard simultaneously advises depositors on a per-band basis whether to stake into specific bands; depositors decide per-trade.* The protocol-level recommendation (band placement, crystallization of the protocol's own positions) and the depositor-level information surface (full signal-stack reasoning per band, per stake decision) share the same underlying signal stack but address different decision surfaces. Both are first-class outputs.
+The distinction worth keeping in mind: *the dashboard advises the protocol on Quid's band-placement parameters; the protocol places bands; the dashboard simultaneously advises depositors on a per-band basis whether to stake into specific bands; depositors decide per-trade.* The protocol-level recommendation (band placement, crystallization of the protocol's own positions) and the depositor-level information surface (full signal-stack reasoning per band, per stake decision) share the same underlying signal stack but address different decision surfaces. Both are first-class outputs.
 
 ---
 
@@ -2022,7 +2022,7 @@ The distinction worth keeping in mind: *the dashboard advises the protocol on Vo
 
 | Source | Used by | Update cadence |
 |---|---|---|
-| On-chain reads (Basket, ether.fi LiquidityPool, V3/V4 pool state, Vogue/Rover position events, basket venue state, BTC channels) | §3.4 ladder, §3.5 liquidity, §3.3 yield, §3.8 LP economics | Every block on the deployment chain; 30s polling fallback |
+| On-chain reads (Basket, ether.fi LiquidityPool, V3/V4 pool state, Quid/Rover position events, basket venue state, BTC channels) | §3.4 ladder, §3.5 liquidity, §3.3 yield, §3.8 LP economics | Every block on the deployment chain; 30s polling fallback |
 | Off-chain price oracle (BTC, ETH, factor returns) | §3.2 Kalman, §3.6 stress | 1m bars sufficient; filters update on each new bar |
 | Perp funding rates, OI | §3.7 macro strip | 1h |
 | Fed effective rate | §3.7 macro strip | Daily |
@@ -2041,7 +2041,7 @@ The distinction worth keeping in mind: *the dashboard advises the protocol on Vo
 - Key finding for this design: factors that explain past outperformance routinely fail to predict future outperformance; earnings growth in every formulation tested is insignificant; drivers of outperformance evolve over time
 - Tortoriello (2008) is the prior literature she frames her result against
 
-**How this applies to the LP accumulation problem.** Yartseva's central claim is that *the factors which historically explain outsized future returns don't continue to predict them out-of-sample*. Applied to LP accumulation, this rules out a class of failure modes: extrapolating from "this band placement worked in 2021" to "this band placement will work in 2026" without re-evaluating regime. The Vogue strategy is built on *current-regime estimation* (via §3.2 Kalman and §3.9 pool flow), not on historical-pattern extrapolation. Bands are placed where the signal stack reads the current regime as favorable, not where they would have been placed in similar past regimes. This is the discipline Yartseva's work motivates: regimes are non-stationary; the strategy must re-estimate state at every decision point. The §3.10 historical replay is precisely a regime-conditional evaluation — not a backtest claiming forward edge, but a regime-by-regime characterization of how the strategy structurally performs.
+**How this applies to the LP accumulation problem.** Yartseva's central claim is that *the factors which historically explain outsized future returns don't continue to predict them out-of-sample*. Applied to LP accumulation, this rules out a class of failure modes: extrapolating from "this band placement worked in 2021" to "this band placement will work in 2026" without re-evaluating regime. The Quid strategy is built on *current-regime estimation* (via §3.2 Kalman and §3.9 pool flow), not on historical-pattern extrapolation. Bands are placed where the signal stack reads the current regime as favorable, not where they would have been placed in similar past regimes. This is the discipline Yartseva's work motivates: regimes are non-stationary; the strategy must re-estimate state at every decision point. The §3.10 historical replay is precisely a regime-conditional evaluation — not a backtest claiming forward edge, but a regime-by-regime characterization of how the strategy structurally performs.
 
 ### A.2 Miao (2020), *A Deep Learning Approach for Stock Market Prediction*
 
@@ -2049,7 +2049,7 @@ The distinction worth keeping in mind: *the dashboard advises the protocol on Vo
 - Method: LSTM trained on daily OHLC for AMZN/GOOG/FB, 2015–2020; variants over hidden layers (3/4), dropout (0.1/0.2), batch size (32/64)
 - Key observation for this design: the reported predicted-vs-actual plots show the predicted line tracking actual with ~1-period lag; the model is rediscovering price persistence, not extracting alpha, given price-only input on liquid assets
 
-**How this applies to the LP accumulation problem.** Miao's result rules out a tempting category of automation: training a sequence model on ETH/BTC price history to predict where the next pullback will be, then placing Vogue's bands there. That's the LSTM-on-AMZN trap. The model would learn to lag, and the resulting band placement would put liquidity below current price *after* price has already fallen — i.e., catching the falling knife rather than positioning for the conversion. The Vogue strategy explicitly does not use sequence-model price forecasting; band placement comes from current-regime estimation (Kalman state at this moment) combined with pool-flow microsignal (what is happening in our venue this hour). The accumulation timing is conditional on observable current state, not on a forecast that history-matches into a one-period lag.
+**How this applies to the LP accumulation problem.** Miao's result rules out a tempting category of automation: training a sequence model on ETH/BTC price history to predict where the next pullback will be, then placing Quid's bands there. That's the LSTM-on-AMZN trap. The model would learn to lag, and the resulting band placement would put liquidity below current price *after* price has already fallen — i.e., catching the falling knife rather than positioning for the conversion. The Quid strategy explicitly does not use sequence-model price forecasting; band placement comes from current-regime estimation (Kalman state at this moment) combined with pool-flow microsignal (what is happening in our venue this hour). The accumulation timing is conditional on observable current state, not on a forecast that history-matches into a one-period lag.
 
 ### A.3 Kalman filter article
 
@@ -2145,10 +2145,10 @@ For the LP accumulation problem specifically, this composition matters because r
 | Concentration factor | Multiplier for fees AND LVR for a concentrated LP position relative to full-range; approximately `1 / band_width`. Higher concentration = higher fee capture per dollar in range, and higher LVR per dollar in range |
 | Coverage ratio | Scheduled reserve maturity divided by scheduled QD liability, per month bucket |
 | ether.fi | Liquid staking provider; protocol holds eETH/weETH as ETH reserve form |
-| Accumulation alpha | The difference between the protocol's effective entry price (via Vogue's signal-informed bands) and naive DCA's time-average spot. The structural analog of MSTR's MNAV-based premium capture — value created from timing intelligence rather than from leverage. Captured automatically as backing-per-QD growth |
-| Conversion band | A Vogue-placed concentrated LP position below current spot, sized to convert a portion of the dollar leg into ETH or BTC linearly across the band as price moves down through it. The unit of Vogue's signal-informed accumulation |
+| Accumulation alpha | The difference between the protocol's effective entry price (via Quid's signal-informed bands) and naive DCA's time-average spot. The structural analog of MSTR's MNAV-based premium capture — value created from timing intelligence rather than from leverage. Captured automatically as backing-per-QD growth |
+| Conversion band | A Quid-placed concentrated LP position below current spot, sized to convert a portion of the dollar leg into ETH or BTC linearly across the band as price moves down through it. The unit of Quid's signal-informed accumulation |
 | Cycle-weighted comparison | The structure's edge over benchmarks measured across a full market cycle (bull + capitulation + crab + bear), not regime-by-regime. The protocol's claim is cycle-weighted outperformance vs Saylor, not regime-by-regime dominance |
-| DCA / Dollar-cost averaging | No-information accumulation: convert $1/period at whatever the current spot price is, uniformly over time. The §3.10 replay's primary benchmark against Vogue accumulation; effective entry price is the time-average spot. Vogue beats DCA in every regime per the replay |
+| DCA / Dollar-cost averaging | No-information accumulation: convert $1/period at whatever the current spot price is, uniformly over time. The §3.10 replay's primary benchmark against Quid accumulation; effective entry price is the time-average spot. Quid beats DCA in every regime per the replay |
 | Fee switch | Post-UNIfication (Dec 2025) Uniswap governance change routing a portion of V3 LP fees to the protocol-fee accumulator rather than to LPs. Material haircut to net-to-LP fees on V3 positions; V4 positions under the protocol's own fee accumulator policy unaffected |
 | Fee yield (LP) | Annualized fees earned by an LP position. Computed as pool volume × fee tier × LP's in-range share, annualized |
 | Grinding bear | The current regime as of June 2026: ETH ~$1,975 (down ~60% from Aug 2025 ATH of $4,954), nine consecutive months of lower highs, Fear & Greed Index at 11, Bitcoin 50-day SMA below 200-day. The regime §3.10 replays as Regime 4 |
@@ -2156,7 +2156,7 @@ For the LP accumulation problem specifically, this composition matters because r
 | In-range share | The fraction of total active liquidity at the current tick that belongs to the LP position. Determines fee capture: fees earned = pool fee volume × in-range share |
 | Innovation (y_t) | Residual between observation and Kalman prediction; sequence carries filter calibration signal |
 | Innovation covariance (S_t) | Model-implied variance of the innovation; comparison with empirical variance is the divergence check |
-| Hummingbot | Open-source market-making bot framework with established Uniswap V3/V4 strategy templates. The default integration point for §3.12 external operators; the protocol provides a standardized "QU!D Vogue Pool" strategy module operators can load |
+| Hummingbot | Open-source market-making bot framework with established Uniswap V3/V4 strategy templates. The default integration point for §3.12 external operators; the protocol provides a standardized "QU!D Quid Pool" strategy module operators can load |
 | HMM regime layer | The §3.2 discrete-regime classifier composed on top of the Kalman bank. Six discrete states {strong_bull, weak_bull, crab, weak_bear, capitulation, recovery} with explicit transition probabilities `P(regime_{t+1} \| regime_t)`. Forward algorithm produces posterior `P(regime_t \| obs_{1..t})`; Viterbi produces most-likely historical regime sequence; Baum-Welch learns the parameters without ground-truth regime labels. Methodology from §A.5 (Jurafsky & Martin) |
 | MSTR capital-structure operations | The §3.7 MSTR feature class added after the May–June 2026 episode: convert repurchase activity, USD reserve depletion rate, tactical BTC sale events, ATM equity issuance velocity in declining-MNAV environment. Distinct from accumulation features (purchase intensity, MNAV level); tracks Saylor's defensive capital management posture. Strong crystallize signal when active per §3.11 |
 | Markov-switching state-space | The compositional model used by §3.2: Kalman tracks continuous within-regime dynamics (σ, β, φ) with linear-Gaussian updates; HMM tracks discrete regime transitions and emits posterior `P(regime | obs)` based on Kalman's output. Captures jumpy regime transitions and smooth within-regime evolution that either machinery alone underfits |
@@ -2165,40 +2165,40 @@ For the LP accumulation problem specifically, this composition matters because r
 | Regime posterior | The probability distribution `P(regime_t | obs_{1..t})` over the HMM's discrete regimes at time t. Surfaced by the dashboard as a distribution, not a single committed classification. Diffuse posteriors (high entropy) signal regime transition in progress and flag for operator review per §3.2 |
 | Viterbi-decoded regime sequence | The most-likely historical regime sequence under the §3.2 HMM, computed by the Viterbi algorithm (§A.5). The principled regime-boundary specification for §3.10's historical replay (replacing the current inspection-based boundaries) |
 | Operator registry | The on-chain registry (§3.12) mapping external LP operator addresses to current track-record scores, allocation caps, basket take-rate tiers, and signal-feed-access tier. Updated by an off-chain track-record calculator on rolling-window boundaries |
-| Plug-and-play liquidity | The §3.12 layer where external operators (typically running Hummingbot) provide LP capacity to Vogue's V4 pools beyond what the protocol's own reserves support. Operators bring their own capital and run their own strategies; a share of their realized TP P&L flows to the basket as revenue |
+| Plug-and-play liquidity | The §3.12 layer where external operators (typically running Hummingbot) provide LP capacity to Quid's V4 pools beyond what the protocol's own reserves support. Operators bring their own capital and run their own strategies; a share of their realized TP P&L flows to the basket as revenue |
 | Take-profit hook (TP hook) | The on-chain `tp_settle()` function called by external operator bots when unwinding LP positions. Computes the operator-vs-basket split per the operator's current take-rate tier and routes accordingly |
-| Track-record feedback loop | The §3.12 mechanism that evaluates external operators on rolling windows (P&L net of LVR, signal-alignment, outperformance vs Vogue baseline, toxicity contribution, capital durability) and gates their allocation cap, basket take rate, and signal-stack access. Provides a continuous capital-at-risk empirical test of the signal stack's quality
+| Track-record feedback loop | The §3.12 mechanism that evaluates external operators on rolling windows (P&L net of LVR, signal-alignment, outperformance vs Quid baseline, toxicity contribution, capital durability) and gates their allocation cap, basket take rate, and signal-stack access. Provides a continuous capital-at-risk empirical test of the signal stack's quality
 | Intent/solver flow capture | Order-flow auction layers (UniswapX, CoW Swap, 1inch Fusion, RFQ aggregators) route through V3 pools as one liquidity venue among several. Empirical research finds solver-routed flow hitting V3 is *less* toxic, not more — solvers backstop uninformed retail intents on V3. The real V3 LP economic haircuts come from JIT liquidity sniping (bots cherry-pick uninformed flow before passive LPs can capture it) and latency-sensitive informed flow (MEV/arb bots routing direct because they need atomic execution). See §3.8 "Structural haircuts since pre-2022" |
-| Inverse-vol weighting | The cross-asset allocation principle from the alpha-extraction framework (§A.4) that survives N=2 collapse. Vogue's dollar leg splits between ETH and BTC accumulation bands inversely to each asset's Kalman-estimated σ — balancing expected accumulation rate and LVR exposure across assets |
+| Inverse-vol weighting | The cross-asset allocation principle from the alpha-extraction framework (§A.4) that survives N=2 collapse. Quid's dollar leg splits between ETH and BTC accumulation bands inversely to each asset's Kalman-estimated σ — balancing expected accumulation rate and LVR exposure across assets |
 | JIT liquidity sniping | A V3 LP strategy where sophisticated bots observe large pending swaps in the mempool, mint highly-concentrated liquidity in the swap's tick range immediately before execution, and burn the position immediately after. They capture a disproportionate share of the swap's fees (90%+ typical) and only deploy against uninformed flow they detect as non-toxic. The residue passive LPs face is therefore adversely-selected. The dominant degradation mechanism for V3 LP fee economics; not addressed by the §3.8 rationality checklist but priced into the fee/LVR ratio empirically through the realized-fees-per-LVR-unit metric |
 | Kalman gain (K) | Weight on new observation vs prior estimate; K = P / (P + R) in scalar form |
 | LCR analog | "Months of liquid runway" — the dashboard's headline asset-liability matching metric |
 | LP economics framework | The §3.8 analytical lens. Decomposes LP P&L into fees − LVR − costs, with regime-dependent rationality and benchmark-conditional quality. Centers the fee/LVR ratio as the decision metric |
-| LP layer | The Uniswap V4 LP positions operated by Vogue (V4 primary) and Rover (V3 legacy) on the protocol's BTC/USD and ETH/USD pools |
+| LP layer | The Uniswap V4 LP positions operated by Quid (V4 primary) and Rover (V3 legacy) on the protocol's BTC/USD and ETH/USD pools |
 | LVR / Loss-versus-rebalancing | Continuous-time analog of IL; a pure variance tax. For full-range LP: `LVR_annualized ≈ σ²/8`. Scales with concentration factor and time-in-range |
 | Mean-reversion strength (φ) | AR(1) coefficient on returns; negative = reverting, positive = trending, ≈ 0 = random walk |
-| MNAV / Multiple to NAV | The ratio of MSTR's equity market cap to the value of its BTC holdings. Expands in bull markets (Saylor's "BTC yield" mechanism) and compresses in drawdowns, amplifying MSTR's volatility above pure BTC volatility. A structural risk Vogue does not have |
+| MNAV / Multiple to NAV | The ratio of MSTR's equity market cap to the value of its BTC holdings. Expands in bull markets (Saylor's "BTC yield" mechanism) and compresses in drawdowns, amplifying MSTR's volatility above pure BTC volatility. A structural risk Quid does not have |
 | MSTR signal features | Observable inputs derived from MSTR's actions (8-K filings, ATM/convertible announcements, equity price, MNAV level/direction, refinancing pressure). Ingested by the signal stack as one feature among many (§3.7 sub-strip, §3.11). Never authoritative — modifies the composed Kalman + pool flow recommendation, cannot override it. |
-| mockUSD | Vogue's internal accounting unit representing dollar-equivalent value held as the dollar leg of LP positions or in pure reserve. mockUSD always earns the ~4% T-bill baseline yield regardless of LP deployment state. When a band fills, mockUSD converts to ETH/BTC at the band's AMM-enforced prices. The §3.11 QD staking mechanic adjusts the mockUSD ledger without burning the staker's QD |
+| mockUSD | Quid's internal accounting unit representing dollar-equivalent value held as the dollar leg of LP positions or in pure reserve. mockUSD always earns the ~4% T-bill baseline yield regardless of LP deployment state. When a band fills, mockUSD converts to ETH/BTC at the band's AMM-enforced prices. The §3.11 QD staking mechanic adjusts the mockUSD ledger without burning the staker's QD |
 | Baseline yield | The ~4% T-bill APR earned by mockUSD whether or not it is deployed in active LP positions. Always present in the reserve composition. LP fees net of LVR is the *opt-in optimization on top* of the baseline, not a substitute for it |
-| Crystallization | The decision to withdraw a filled Vogue LP band's position, moving the accumulated ETH/BTC out of the active AMM curve and locking it as protocol-held spot. Prevents the LP-sell-back effect where accumulated underlying would otherwise be sold back to mockUSD if price reverses upward through the band edge. The §3.11 primary operational signal output |
+| Crystallization | The decision to withdraw a filled Quid LP band's position, moving the accumulated ETH/BTC out of the active AMM curve and locking it as protocol-held spot. Prevents the LP-sell-back effect where accumulated underlying would otherwise be sold back to mockUSD if price reverses upward through the band edge. The §3.11 primary operational signal output |
 | Hold-vs-crystallize | The decision frame in §3.11 for each currently-deployed filled band: keep the LP active (collect more fees, accept price-reversal risk) or withdraw and lock the accumulation. Distinct from band placement (where to put new LPs) |
-| QD staking | The opt-in §3.11 mechanic by which a QD holder commits N QD to a specific out-of-range Vogue band. The QD is locked but not burned; Vogue's mockUSD ledger adjusts to reflect the additional capacity backing that band. The staker continues earning baseline yield throughout, plus any LP fees if the band touches in-range, plus the fill-conversion outcome if the band fills |
-| Staked-QD claim | A QD position that has been committed to a specific Vogue band via §3.11 staking. The claim points to that band's outcome (mockUSD remainder + accumulated underlying + accrued fees) rather than to the protocol's general reserve. Unstakeable when the band closes without filling; transitions to underlying-share when the band fills and is crystallized |
+| QD staking | The opt-in §3.11 mechanic by which a QD holder commits N QD to a specific out-of-range Quid band. The QD is locked but not burned; Quid's mockUSD ledger adjusts to reflect the additional capacity backing that band. The staker continues earning baseline yield throughout, plus any LP fees if the band touches in-range, plus the fill-conversion outcome if the band fills |
+| Staked-QD claim | A QD position that has been committed to a specific Quid band via §3.11 staking. The claim points to that band's outcome (mockUSD remainder + accumulated underlying + accrued fees) rather than to the protocol's general reserve. Unstakeable when the band closes without filling; transitions to underlying-share when the band fills and is crystallized |
 | Pool flow signal | The micro signal layer (§3.9) reading capital flow through the protocol's own V4 pools at block granularity. The protocol's structural information asymmetry. Computed as net dollar inflow, size asymmetry index, trader concentration (Herfindahl), and range-fill velocity per window |
 | POOLED_ETH | In-range ETH-side liquidity in the protocol's V4 ETH/USD pool |
 | QD | The stablecoin issued by Basket |
 | Q (process noise) | Variance of state drift between observations; smaller → smoother estimate |
 | R (measurement noise) | Variance of observation noise; smaller → trust observations more |
 | Rover | V3-style LP manager for positions on Uniswap V3 pools where they remain active. Subject to the V3 fee switch haircut |
-| Saylor strategy | The MSTR-style leveraged-bull accumulation: convertible debt and at-the-market equity issuance fund continuous BTC buying. Optimizes BTC-per-share. Failure modes: refinancing wall, forced selling under sustained drawdown, MNAV premium compression, ATM dilution. The §3.10 replay's secondary benchmark; Vogue beats Saylor in 3 of 4 regimes (loses in MNAV-expansion phases like 2023) |
+| Saylor strategy | The MSTR-style leveraged-bull accumulation: convertible debt and at-the-market equity issuance fund continuous BTC buying. Optimizes BTC-per-share. Failure modes: refinancing wall, forced selling under sustained drawdown, MNAV premium compression, ATM dilution. The §3.10 replay's secondary benchmark; Quid beats Saylor in 3 of 4 regimes (loses in MNAV-expansion phases like 2023) |
 | σ | Annualized volatility, tracked dynamically via Kalman in log-variance space |
 | Short gamma + fee coupon | The identity governing all LP economics: an LP collects fees (theta-equivalent) while paying for realized movement (negative gamma). The LP position replicates a short straddle on the pool's asset pair |
 | Signal stack | The composition of: (a) **Kalman state estimation** (§3.2, methodology per §A.3) tracking β, σ, and mean-reversion φ as dynamic hidden states; (b) **HMM discrete regime classification** (§3.2 HMM layer, methodology per §A.5) on top of Kalman, producing regime posterior `P(regime | obs)` and transition probabilities; (c) **non-extrapolation discipline** per §A.1 (Yartseva); (d) **non-forecasting discipline** per §A.2 (Miao) — no sequence models predicting price; (e) **inverse-vol cross-asset allocation** per §A.4 Eq. 10 (the surviving alpha-extraction principle at N=2); (f) **pool flow micro signal** (§3.9); (g) **macro context including MSTR features, MSTR capital-structure operations, and basket reweigh** (§3.7). Inputs to band-placement recommendations, the §3.8 LP rationality checklist, and the §3.11 crystallization signal |
 | Structure residual | The QU!D structure's combined P&L over a period: `bond_ladder_share × bond_yield + LP_share × LP_P&L`, computed against benchmarks per §3.10 |
 | UNIfication | Uniswap governance unification finalized December 2025; among other changes, enabled the fee switch on V3 pools |
-| Vogue | The protocol's primary V4 auto-LP layer. Places concentrated bands below current spot to convert the dollar leg into ETH or BTC at signal-favored prices. The accumulation mechanism evaluated against DCA and Saylor in §3.10; capacity expandable via the QD staking rail (§3.11) |
-| Vogue accumulation strategy | The signal-informed band-placement protocol Vogue executes, *with crystallization (§3.11)*. Bands are placed where the §3.2 Kalman regime and §3.9 pool flow read current spot as a less-favorable entry than levels below; filled bands are crystallized when the signal stack reads continued downside or directional risk, locking the accumulation as protocol spot. Beats DCA on accumulation efficiency in every regime; beats Saylor in 3 of 4 regimes via structural soundness (no leverage, no MNAV compression, baseline yield while waiting) |
+| Quid | The protocol's primary V4 auto-LP layer. Places concentrated bands below current spot to convert the dollar leg into ETH or BTC at signal-favored prices. The accumulation mechanism evaluated against DCA and Saylor in §3.10; capacity expandable via the QD staking rail (§3.11) |
+| Quid accumulation strategy | The signal-informed band-placement protocol Quid executes, *with crystallization (§3.11)*. Bands are placed where the §3.2 Kalman regime and §3.9 pool flow read current spot as a less-favorable entry than levels below; filled bands are crystallized when the signal stack reads continued downside or directional risk, locking the accumulation as protocol spot. Beats DCA on accumulation efficiency in every regime; beats Saylor in 3 of 4 regimes via structural soundness (no leverage, no MNAV compression, baseline yield while waiting) |
 | z-score | Standardized deviation `z = (X_W - mean_X) / std_X` used for anomaly detection on pool-flow measurements (§3.9). `|z| > 2.0` sustained triggers anomaly flag; `|z| > 3.0` triggers strong anomaly flag |
 
 ---
