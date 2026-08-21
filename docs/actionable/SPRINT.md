@@ -7339,3 +7339,37 @@ skew stays fillable, refund the rest — **and §E285 says it is NOT blocked on 
 top skew item: it is not a refinement, it is the difference between being routable and not.**
 📌 **AND IT SHARPENS §E293's OPEN CHOICE:** #3 (*"the solver routes what we decline"*) is only coherent
 under the partial fill. **As the code stands today, #3 does not describe anything the contract does.**
+
+## ✅✅ §E301 — **§E293's OPEN CHOICE IS ANSWERED, AND IT WAS A FALSE DICHOTOMY: THE SWAPPER PAYS THE ROUTING SPREAD.**
+Owner, 2026-08-22: *"what routing spread? — **the swapper, on top of their skew premium**"*.
+**Neither #2 nor #3 as I framed them.** I had it as *we pay 1inch to route our rebalance* vs *the solver
+absorbs it*, and asked which. **Both were wrong, because both assumed the cost sits on OUR side or the
+counterparty's balance sheet rather than the TAKER's.**
+
+### THE SETTLED MODEL — TWO CHARGES, ONE PAYER, NO RESTORATION LEDGER
+| leg | who pays | to whom |
+|---|---|---|
+| **skew premium** on the part WE fill | the swapper | us (retained as backing, `recordSkewPremium`) |
+| **routing cost** on the part they take ELSEWHERE | the swapper | whatever venue they route to |
+⇒ **WE NEVER SOURCE INVENTORY, SO WE NEVER PAY A SPREAD.** The question *"who affords the restoration"*
+does not have a hard answer — **it has no referent.** There is no restoration we perform.
+
+### 🔴 WHAT THIS CLOSES, AND WHAT IT DELETES
+1. ✅ **§E293 #2 vs #3 — RESOLVED.** `AggregationRouterV6` is not our dependency at all: the taker
+   routes their own remainder. **`§V-R1` can stop being described as a route we owe.**
+2. ✅ **§E285's 48× RETRACTION IS CONFIRMED CORRECT** — and for a stronger reason than I gave. I
+   retracted it because *the solver routes what we decline*; the real reason is that **no party on our
+   side ever buys inventory back**, so a "restoration spread" was never a cost we could underpay.
+3. 🔴 **`refillPlacement` AND `proRataShortfall` HAVE NO JOB — THEY ARE DELETABLE, NOT PARKED.** They
+   size and apportion a restoration we do not perform. §E278-partialfill predicted exactly this under
+   this reading; the reading is now confirmed. ⇒ **~30 lines + `RefillPlacement.t.sol` (182) +
+   `RefillTriggerAndProRata.t.sol` (84).** ⚠️ **`refillNeeded` is the survivor** — it IS `skewWad`'s
+   flush test and is a near relative of the "cannot cover this swap" predicate.
+4. ⇒ **§E295's ~580 parked lines are no longer blocked.** The gate was this sentence.
+
+### ⭐ AND IT COMPLETES §E300's DESIGN RATHER THAN CHANGING IT
+`_fillableDrain` prices what we can serve; `_refundExcess` returns the rest; **the swapper carries that
+remainder to another venue at their own cost.** ⇒ **The whole loop closes with no keeper, no venue
+integration, no restoration ledger and no spread on our books** — which is why the primitives that
+modelled one have nothing to do. ⚠️ **The BTC side is NOT covered by this** (§E290: `creditSwapIn` is a
+real, wired restoration rail, 8 live refs). **That asymmetry is real and stays.**
