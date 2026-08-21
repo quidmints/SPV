@@ -8,7 +8,7 @@ import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
-import {ILevSyncHook} from "./imports/Interfaces.sol";
+import {IBand} from "./imports/Interfaces.sol";
 
 
 
@@ -120,7 +120,7 @@ contract LevManager is LevBase {
     /// a close whose over-collateralization exceeds it simply reverts (fail-closed) and the LP falls to Liquity's
     /// own liquidation, never socialized. Permissionless top-up (only ever adds protocol WETH).
      event FlashProviderSet(address provider);
-    // flashProvider is pinned atomically alongside the hook + venues in `init` (below).
+    // flashProvider is pinned atomically alongside the band + venues in `init` (below).
 
     // LIVE AND LOAD-BEARING — do not delete on the strength of the comment that used to be here (it named the
     // ether.fi instant-redeem, removed 2026-08-06, and a `_sellWeeth` that never existed in this contract).
@@ -135,17 +135,17 @@ contract LevManager is LevBase {
     }
 
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic (no partial-config window). Wires together:
-    ///         the band sync-hook (`hook` = Quid — closeLev re-syncs the fee slice + the BAND-ONLY E0 source),
+    ///         the band sync-band (`band` = Quid — closeLev re-syncs the fee slice + the BAND-ONLY E0 source),
     ///         the zero-fee flash provider (`flash` = Morpho for repay-first de-lever; `address(0)` disables it),
     ///         and the audited venue allowlist (`venues`, then FROZEN). NOT rotatable — a rotatable allowlist is
     ///         the phantom-backing rug vector the freeze exists to prevent (GOV could add a fake venue → phantom
-    ///         backing → drain); a new hook/flash/venue ⇒ deploy a new LevManager. Consolidates the former
-    ///         setQuidSyncHook/setFlashProvider/pinVenues (the manager↔venue circular dependency rules out a
+    ///         backing → drain); a new band/flash/venue ⇒ deploy a new LevManager. Consolidates the former
+    ///         setQuidSyncBand/setFlashProvider/pinVenues (the manager↔venue circular dependency rules out a
     ///         constructor immutable). Matches BtcLevManager.init.
-    function init(address hook, address flash, address[] calldata venues) external {
+    function init(address band, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert VenueNotAllowed();
         venuesFrozen = true;
-        BAND = hook;
+        BAND = band;
         flashProvider = flash;
         emit FlashProviderSet(flash);
         for (uint i; i < venues.length; i++) {
@@ -405,9 +405,9 @@ contract LevManager is LevBase {
     ///         `closeLev` msg.sender gate is left intact (NOT
     ///         weakened). Same unwind mechanics as `closeLev` (flash-repay-FIRST → return the collateral to `lp`);
     ///         `minOut` bounds each collateral→stable swap. Backing-safe by construction: it only ever repays
-    ///         `lp`'s OWN debt and hands `lp`'s OWN freed collateral back to `lp`, so a hostile hook can neither
+    ///         `lp`'s OWN debt and hands `lp`'s OWN freed collateral back to `lp`, so a hostile band can neither
     ///         extract value nor redirect it — at worst it forces a close the LP could do themselves.
-    ///         `nonReentrant`: the tail `syncLev` hook call-back is already try/catch-wrapped, so a re-entrant
+    ///         `nonReentrant`: the tail `syncLev` band call-back is already try/catch-wrapped, so a re-entrant
     ///         band context degrades to the permissionless slice reconcile.
     function closeLevFor(address lp, uint256 minOut) external nonReentrant {
         if (msg.sender != BAND) revert NotGov();

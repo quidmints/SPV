@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
 import {ILevVenue} from "./Interfaces.sol";
-import {IAux, ILevSyncHook} from "./Interfaces.sol";
+import {IAux, IBand} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
@@ -76,9 +76,9 @@ abstract contract LevBase {
     address[] internal _openLps;
     mapping(address => uint256) internal _lpIdx;
 
-    /// The band's sync hook (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
+    /// The band's sync band (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
-    /// §SLOP — was `bandSyncHook`, the FOURTH name for one concept (after `V4`, `CORE` and
+    /// §SLOP — was `bandSyncBand`, the FOURTH name for one concept (after `V4`, `CORE` and
     /// `BAND` in Core). It is the band manager: set to Quid for the ETH lev book and to the
     /// Vault for the BTC one, used for `bandPrice`, `syncLev` and as the settle-path auth gate.
     address public BAND;
@@ -112,7 +112,7 @@ abstract contract LevBase {
     /// @notice Poke the band to reconcile `lp`'s levered slice to live net equity. ONE routine for
     ///         what was THIRTEEN byte-identical inlined copies (6 in `LevManager`, 7 in
     ///         `BtcLevManager`), every one of them exactly
-    ///         `if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }`.
+    ///         `if (BAND != address(0)) { try IBand(BAND).syncLev(lp) {} catch {} }`.
     /// @dev    §FOLD-SYNC. A FUNCTION, not a modifier, per standing rule 8c: a modifier's body is
     ///         inlined at every use site, so 13 uses would be 13 copies again — which is the thing
     ///         being removed. This is one body and 13 jumps. Precedent for the direction: §E210
@@ -166,7 +166,7 @@ abstract contract LevBase {
     function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
 
     function _syncBand(address lp) internal {
-        if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
+        if (BAND != address(0)) { try IBand(BAND).syncLev(lp) {} catch {} }
     }
 
     /// @notice The band's anchor price, or 0 if the band is unwired or reverts. §FOLD-SYNC — was
@@ -178,7 +178,7 @@ abstract contract LevBase {
     ///         strictly worse than opening with a reference that the first reanchor fills in.
     function _bandPrice() internal view returns (uint px) {
         if (BAND != address(0)) {
-            try ILevSyncHook(BAND).bandPrice() returns (uint s) { px = s; } catch {}
+            try IBand(BAND).bandPrice() returns (uint s) { px = s; } catch {}
         }
     }
 
@@ -241,15 +241,15 @@ abstract contract LevBase {
     /// @dev ⚠️ WHEN THESE MOVE TO A DELEGATECALL LIBRARY, THE CALLER COMPUTES THIS AND PASSES IT AS
     ///      A VALUE — a library cannot call a virtual on its caller. That constraint is why the
     ///      per-asset step is kept as narrow as possible: one `uint → uint` conversion is trivial to
-    ///      pass by value, whereas a hook that needed the venue or the LP would not be.
+    ///      pass by value, whereas a band that needed the venue or the LP would not be.
     ///
-    ///      §FOLD-COLL removed a stale justification that stood here. It read: "it is a hook rather
+    ///      §FOLD-COLL removed a stale justification that stood here. It read: "it is a band rather
     ///      than a shared helper because `_collToEth` CANNOT serve BTC: it tests
     ///      `COLLATERAL() == WETH`, which is false for a vBTC venue, so sats would be routed through
     ///      `getEETHByWeETH` and silently mis-converted." The `_collToEth` that existed when this was
     ///      written did test the collateral token; the one that survived to be folded did NOT — its
     ///      body was `units == 0 ? 0 : RATE.getEETHByWeETH(units)` with an UNNAMED venue parameter.
-    ///      So the stated reason for the hook had already stopped being true, while the hook itself
+    ///      So the stated reason for the band had already stopped being true, while the band itself
     ///      remained correct for a different and simpler reason: the two sides convert differently
     ///      (a rate lookup vs the identity), which is reason enough and needs no misvaluation story.
     /// @notice §FOLD-COLL — **THE ONLY PER-ASSET PRIMITIVE IN THE VALUATION STACK.** Collateral
@@ -306,7 +306,7 @@ abstract contract LevBase {
     ///         before removing them: a closed position zeroes the struct, and
     ///         `LevMath.ltvBps` returns 0 when `collValue == 0`, `collValueUsd` returns 0 when
     ///         `units == 0`, `ilTargetBps` returns 0 when `entryPriceWad == 0`, and
-    ///         `ilTargetLive`'s hook branch is already gated on `entryPrice != 0`. So every path
+    ///         `ilTargetLive`'s band branch is already gated on `entryPrice != 0`. So every path
     ///         returns 0 for a closed position WITHOUT the guard. The BTC copies never had it and
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
@@ -412,7 +412,7 @@ abstract contract LevBase {
     // `grossCollateral`/`grossCollateral` looked like a REAL per-asset difference and were
     // not: ETH ran `_collToEth(v, v.collateralOf(lp))` (weETH -> ETH via the ether.fi rate) while
     // BTC ran `v.collateralOf(lp)` raw, because vBTC IS sats. That difference is ALREADY isolated
-    // in `_collNative`, the hook each manager overrides -- the note on `_deliverableDollarsAt`
+    // in `_collNative`, the band each manager overrides -- the note on `_deliverableDollarsAt`
     // above records the same discovery ("identical once `_collNative` absorbed the collateral
     // conversion"). So the conversion was never in these bodies; it was one call down.
     //

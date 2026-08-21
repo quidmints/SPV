@@ -396,7 +396,7 @@ library SwapLib {
             if (r.token != c.quid && !stable) revert StableMissingS();
             r.amount = aux._depositVol{value: msg.value}(r.asset, msg.sender, r.amount);
             max = ICore(c.core).POOLED_USD();
-            // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
+            // JIT-DEPTH-GUARANTEE.md §2 band site (DEFERRED — design gap, NOT built): this is the
             // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
             // large sell can exhaust it / partial-fill → uncertain impact → sandwich room. The
             // guarantee would, before executing, top USD depth up to what `r.amount` needs within a

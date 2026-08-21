@@ -228,10 +228,10 @@ interface ILevHost {
     function LEV_MANAGER() external view returns (address);
 }
 
-/// Canonical ILevSyncHook — union of ILevSyncHook, ILevSyncHookB.
-/// Canonical view — union of the former per-file variants (`ILevSyncHookM`). Two declarations
+/// Canonical IBand — union of IBand, IBandB.
+/// Canonical view — union of the former per-file variants (`IBandM`). Two declarations
 /// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
-interface ILevSyncHook {
+interface IBand {
     /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLev` for the same
     /// operation, so the two bands could not be called through one method even though the
     /// interface existed precisely to make that possible. The interface IS the polymorphism;

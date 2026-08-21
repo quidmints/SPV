@@ -171,7 +171,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     // no hop-funded grow-splice to settle it, and nothing to forfeit at close.
 
     /// @dev NOT suffixed `_BTC`, deliberately. Quid names its ETH band ticks `LOWER_PRICE`/
-    ///      `UPPER_PRICE`; this contract owns the BTC band and names its own the same. Each hook
+    ///      `UPPER_PRICE`; this contract owns the BTC band and names its own the same. Each band
     ///      answers for ITS asset, so `reanchorCompute` calls ONE accessor instead of selecting a
     ///      NAME by flag — which is all that `isBTC` was doing there (hence the try/catch around
     ///      every call: the wrong name simply does not exist on the other side).
@@ -511,7 +511,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     /// @notice Re-sync `lp`'s levered BTC band slice to the BtcLevManager's authoritative net-equity.
     ///         Permissionless (like Quid.syncLev): it only moves the tokenless levered slice to match
-    ///         the manager (the keeper pokes it via the manager's hook). GROW pairs net-equity in-range
+    ///         the manager (the keeper pokes it via the manager's band). GROW pairs net-equity in-range
     ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by bandBTC.
     /// §BAND-MERGE — THE SAME `addLiq` FACE BAND ALREADY HAS. The merged lev bodies size the
     ///         net-equity leg through `ICore(address(this)).addLiq(tok, price)`; ETH answered that

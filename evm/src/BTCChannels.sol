@@ -1414,7 +1414,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///
     /// ⚠️ **THE BALANCE CHECK IS DELIBERATELY *AFTER* THE CREDIT, NOT BEFORE.** Both orders are
     /// equally safe (a revert rolls the whole call back), but checking after means `creditSwapIn`
-    /// validates the payout token FIRST — so an unregistered hook-token is still rejected with
+    /// validates the payout token FIRST — so an unregistered band-token is still rejected with
     /// `StableMissing` rather than being masked by an empty-buffer error. Checking early would
     /// have silently stopped `ReentrancyProbe`'s token test from testing what it names.
     ///

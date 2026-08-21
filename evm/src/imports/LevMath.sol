@@ -3,8 +3,8 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
-// §A.52: the canonical view (was a file-local `ILevSyncHookM`).
-import {ILevSyncHook, IAux, IWeETH, IWiredVault,
+// §A.52: the canonical view (was a file-local `IBandM`).
+import {IBand, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
@@ -22,9 +22,9 @@ import {QuidLib} from "./QuidLib.sol";
 // ETH-side sell/buy machinery surfaces — moved here (delegatecall, bytecode OUTSIDE LevManager for EIP-170).
 /// Morpho Blue zero-fee flash surface — the ONLY flash source (see LevManager.IMorphoFlash). Mirrored here so the
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
-/// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
-/// ILevSyncHook/ILevSyncHookB — a delegatecall'd library can't read their immutables, so the manager passes the
-/// hook address in. All view: the Quid impls are all view (soldFractionWad/bandPrice are
+/// The band sync-band surface the sold-fraction target + reseat reads. Mirrors the managers'
+/// IBand/IBandB — a delegatecall'd library can't read their immutables, so the manager passes the
+/// band address in. All view: the Quid impls are all view (soldFractionWad/bandPrice are
 /// `view` fns, reseatEpoch is a `public` state var), and `view` external calls are STATICCALL-safe inside the
 /// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
 
@@ -117,18 +117,18 @@ library LevMath {
     ///      production, including after the 2026-08-09 bounds-check rewrite.
     /// §MUTABILITY 2026-08-18 — `view`: body reads only, verified it touches none of the
     /// cache-sensitive family (`get_deposits`/`get_metrics`/`refreshHoldings`/`redeemableAmount`).
-    function reanchorCompute(address hook, uint entryPrice)
+    function reanchorCompute(address band, uint entryPrice)
         public view returns (bool go, uint newSqrtP) {
-        if (hook == address(0) || entryPrice == 0) return (false, 0);
-        try ILevSyncHook(hook).bandPrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
+        if (band == address(0) || entryPrice == 0) return (false, 0);
+        try IBand(band).bandPrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
-        // ONE accessor pair. The hook is per-asset and answers for its own band, so there is no name
+        // ONE accessor pair. The band is per-asset and answers for its own band, so there is no name
         // to select — which is all the removed `isBTC` did here.
         uint lo; uint hi;
         // §ONE-ANCHOR — ONE call, ONE try/catch. Two reads meant two chances to half-fail and a
         // caller left holding a lower bound with no upper; the pair now arrives together or not at
         // all, which is the property the `catch` was there to protect in the first place.
-        try ILevSyncHook(hook).bandBounds() returns (uint l, uint u) { lo = l; hi = u; }
+        try IBand(band).bandBounds() returns (uint l, uint u) { lo = l; hi = u; }
         catch { return (false, 0); }
         if (lo >= hi) return (false, 0);                       // band unset/degenerate → nothing to compare against
         // §DE-TICK — a DIRECT price comparison. The bounds are prices; converting them through the
@@ -137,7 +137,7 @@ library LevMath {
         go = true;
     }
 
-    /// @notice The live IL target (bps) with the hook read folded out of both managers' `_ilTargetLive`. `public`
+    /// @notice The live IL target (bps) with the band read folded out of both managers' `_ilTargetLive`. `public`
     ///         (delegatecall) ⇒ state-call-classed ⇒ the forwarders are non-view (BTC's `ilTargetLtvBps`/
     ///         `debtDeltaToTarget` drop `view` — no on-chain view caller depends on them; off-chain eth_call is
     ///         fine). Band's ACTUAL sold fraction (capped), else the 1−√(entry/now) estimate.
@@ -145,12 +145,12 @@ library LevMath {
     ///      flag defaulting FALSE that the deploy script never set — so in production this ALWAYS fell through
     ///      to the estimate and the band's measured sold fraction was never read, while three test suites
     ///      flipped it true in setUp and verified the path production did not run. The remaining conditions
-    ///      (`entryPrice != 0 && hook != address(0)`) already ARE the availability test the flag stood in for:
+    ///      (`entryPrice != 0 && band != address(0)`) already ARE the availability test the flag stood in for:
     ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
-    function ilTargetLive(address hook, uint entryPrice, uint128 entryPriceWad, uint256 px, uint64 capBps)
+    function ilTargetLive(address band, uint entryPrice, uint128 entryPriceWad, uint256 px, uint64 capBps)
         public view returns (uint256) {
-        if (entryPrice != 0 && hook != address(0)) {
-            try ILevSyncHook(hook).soldFractionWad(entryPrice) returns (uint256 sf) {
+        if (entryPrice != 0 && band != address(0)) {
+            try IBand(band).soldFractionWad(entryPrice) returns (uint256 sf) {
                 if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
             } catch {}
         }

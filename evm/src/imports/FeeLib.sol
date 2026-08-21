@@ -69,11 +69,11 @@ library FeeLib {
     ///         Link oracle. 0 if not depegged; otherwise the severity bps
     ///         (capped at 10000). No prior, no Bayesian blend — Link is
     ///         the authoritative signal.
-    function calcRisk(address token, address hook)
+    function calcRisk(address token, address band)
         internal view returns (uint)
     {
-        if (hook == address(0) || token == address(0)) return 0;
-        try IAux(hook).getDepegSeverityBps(token) returns (uint s) {
+        if (band == address(0) || token == address(0)) return 0;
+        try IAux(band).getDepegSeverityBps(token) returns (uint s) {
             if (s == 0) return 0;
             return s > 10000 ? 10000 : s;   // Recognize FULL severity (was capped at 3500/65c)
         } catch {
@@ -130,7 +130,7 @@ library FeeLib {
     ///         struct, silently breaking the loop's in-place mutation semantics).
     struct FeeCtx {
         address[] stables;
-        address hook;
+        address band;
     }
 
     /// @notice Gross up `amount` for a depegged leg — deliver more units of the cheap collateral for the same
@@ -150,18 +150,18 @@ library FeeLib {
         // The sole outflow COST is the depeg haircut, and only during an actual depeg. deps/yields/c.stables
         // are retained in the signature for the SOR/lens seam (unused here).
         deps; yields;
-        needed = grossUpForDepeg(amount, calcRisk(token, c.hook));
+        needed = grossUpForDepeg(amount, calcRisk(token, c.band));
     }
 
     /// @notice Apply fee + depeg haircut to a paid-out amount in one call.
     function applyFeeAndHaircut(address token, uint idx,
         uint amount, uint[15] memory deps, uint[15] memory yields,
-        address hook) external view returns (uint)
+        address band) external view returns (uint)
     {
         // Concentration/cherry-pick fee no longer charged (only the depeg haircut is). idx/deps/yields kept in
         // the signature for callers; concentration survives as a SOR routing signal only.
         idx; deps; yields;
-        return grossUpForDepeg(amount, calcRisk(token, hook));
+        return grossUpForDepeg(amount, calcRisk(token, band));
     }
 
     /// @notice Pro-rata allocation + fee + haircut in one call. Computes
@@ -178,7 +178,7 @@ library FeeLib {
         // unchanged → ZERO cherry-pick externality, so NO fee here (the concentration/cherry-pick fee is priced
         // only on a PREFERRED draw; the baseRate velocity toll was removed — no peg-arb loop). Only the depeg
         // haircut grosses up an impaired leg (more units of the cheap collateral for the same value).
-        amount = grossUpForDepeg(amount, calcRisk(token, c.hook));
+        amount = grossUpForDepeg(amount, calcRisk(token, c.band));
     }
 
     /// @notice Risk-weighted discount factor for a stablecoin's basket
@@ -188,14 +188,14 @@ library FeeLib {
     ///         returns severity 0 → 10000 (no-op).
     function riskFactor(
         address token,
-        address hook
+        address band
     ) external view returns (uint factorBps) {
         if (token == address(0)) return 10000;
-        // `hook` is Aux itself (getDepegSeverityBps reads the per-stable Chainlink
+        // `band` is Aux itself (getDepegSeverityBps reads the per-stable Chainlink
         // feed via liveDepegBps). The CRE that once answered this was removed; the
         // on-chain feed IS the depeg signal now. A revert is treated as healthy.
         uint sev;
-        try IAux(hook).getDepegSeverityBps(token) returns (uint s) {
+        try IAux(band).getDepegSeverityBps(token) returns (uint s) {
             sev = s;
         } catch {
             return 10000;

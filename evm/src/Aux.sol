@@ -159,7 +159,7 @@ contract Aux is // Auxiliary
         stableFeed[token] = feed;
     }
 
-    // NOTE: no post-renounce feed-binding hook. Every basket stable that can depeg
+    // NOTE: no post-renounce feed-binding band. Every basket stable that can depeg
     // already has its Chainlink feed pinned at deploy (10 of 11, incl. the proxy-only
     // RLUSD/USDG/AUSD resolved via data.eth ENS). The only unpinned stable is BOLD,
     // which doesn't market-depeg (Liquity redemption floor) — so there is nothing a
@@ -1326,7 +1326,7 @@ contract Aux is // Auxiliary
     }
 
     // ─── Native BTC LP integration ──────────────────────────────────
-    // Hooks called by BTCChannels.sol (gated via onlyBTCChannels).
+    // Entrypoints called by BTCChannels.sol (gated via onlyBTCChannels).
     // creditLPForSwap settles the LP's QUID credit after they prove a
     // swap-out BTC delivery via SPV. Swap-out user burned the same
     // amount upstream → total supply conserved. LP BTC stays in their

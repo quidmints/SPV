@@ -522,7 +522,7 @@ contract Quid is Shares,
     ///     THEIR withdraw, and the swap is bounded by the venue's own oracle/LTV rather than a caller floor;
     ///     (b) re-entrancy — `closeLevFor`'s flash callback re-enters `syncLev` under this contract's
     ///     nonReentrant lock, so it is try/caught and the band slice is cleared here by the explicit
-    ///     `_reconcileLev` instead of by the hook. The withdraw still CAPS at `pooled − levPooled`, so a
+    ///     `_reconcileLev` instead of by the band. The withdraw still CAPS at `pooled − levPooled`, so a
     ///     levered claim can never pull unlevered ETH.
     ///   • §2  JIT depth-guarantee core — DEFERRED (backing-model fork): the spec's redeem→addLiq top-up does
     ///     NOT compose backing-neutrally. `addLiq` headroom is surplus = TVL − committed (independent of QUID
@@ -682,7 +682,7 @@ contract Quid is Shares,
         // primitive — a past-free withdraw crystallizes the whole in-band lever, which is the opt-in.
         if (levPooled[msg.sender] > 0 && amount > SwapLib.plainNet(LP.pooled, levPooled[msg.sender])) {
             ILevClose(QuidLib.levManager(address(AUX))).closeLevFor(msg.sender, 0);
-            _reconcileLev(msg.sender);                      // hook re-entrancy was blocked → clear the slice here
+            _reconcileLev(msg.sender);                      // band re-entrancy was blocked → clear the slice here
         }
         // Cap withdrawal at the user's FREE (non-levered) balance. The levered slice (levPooled) leaves via the
         // auto-close above (or LP-initiated LevManager.closeLev) — repay debt → withdraw collateral — never the
@@ -1014,7 +1014,7 @@ contract Quid is Shares,
     ///      — full stop. It previously FORWARDED the caller's flag, meaning `bandPrice(true)` returned
     ///      the BTC pool's price from the ETH contract, while `Vault.bandPrice` IGNORED the same flag
     ///      and always read BTC. Two implementations disagreeing about one parameter is a silent
-    ///      mis-pricing waiting on a hook mis-wiring: it returns the wrong asset's price rather than
+    ///      mis-pricing waiting on a band mis-wiring: it returns the wrong asset's price rather than
     ///      reverting. Each side now names its own asset and cannot be asked for the other's.
     function bandPrice() external view returns (uint priceWad) {
         (priceWad,) = CORE.poolStats();

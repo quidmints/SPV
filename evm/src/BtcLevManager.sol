@@ -9,7 +9,7 @@ import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
-import {ILevSyncHook} from "./imports/Interfaces.sol";
+import {IBand} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
 import {ILevVenueColl} from "./imports/Interfaces.sol";
@@ -60,13 +60,13 @@ contract BtcLevManager is LevBase {
     bool    public venuesFrozen;
     address public flashProvider;   // Morpho zero-fee flash (set in init) — powers the WBTC flash-repay-first de-lever
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic. Wires the audited venue ALLOWLIST
-    ///         (`venues`, then frozen) and the band sync-hook (`hook` = Vault.syncLev, poked by
-    ///         closeBtcLev) together. NOT rotatable (a new venue/hook ⇒ deploy a new BtcLevManager). No flash
+    ///         (`venues`, then frozen) and the band sync-band (`band` = Vault.syncLev, poked by
+    ///         closeBtcLev) together. NOT rotatable (a new venue/band ⇒ deploy a new BtcLevManager). No flash
     ///         provider on the native vBTC path — BTC de-lever is keeper-sequenced (async external BTC
     ///         sourcing). Matches LevManager.init (allowlist so a WBTC venue can sit beside the vBTC one).
-    function init(address hook, address flash, address[] calldata venues) external {
+    function init(address band, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert BadAuth();
-        venuesFrozen = true; BAND = hook; flashProvider = flash;
+        venuesFrozen = true; BAND = band; flashProvider = flash;
         for (uint i; i < venues.length; i++) {
             address v = venues[i];
             if (v == address(0)) revert BadAuth();

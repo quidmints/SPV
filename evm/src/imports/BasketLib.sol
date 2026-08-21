@@ -812,7 +812,7 @@ library BasketLib {
             if (seed > 0) aux.tipSelf(SoladyMath.fullMulDiv(amounts[i], seed, amount), token, -1);
             if (amounts[i] > 0) {
                 // A bad/reverting-decimals stable (e.g. one bound via the permissionless
-                // registry hook) must contribute 0, NOT brick the whole pro-rata redeem — the
+                // registry band) must contribute 0, NOT brick the whole pro-rata redeem — the
                 // same fail-soft posture as the withdrawSelf try/catch below. (Was a bare
                 // `require(bad-dec)` outside the try, so one weird token reverted every holder's
                 // redeem.)
@@ -836,7 +836,7 @@ library BasketLib {
     ///         the ETH-source variant (sourceAsset = WETH, first hop's
     ///         currency0 = native ETH). PoolKey is the canonical V4
     ///         ETH/USDC pool (currency0 = native, currency1 = USDC,
-    ///         fee = 500, tickSpacing = 10, no hooks).
+    ///         fee = 500, tickSpacing = 10, ).
     /// @notice Body of Aux._redeemAs (delegatecall, address(this)==Aux).
     /// Returns ethPart+price so the Aux wrapper runs the ETH-fallback leg.
     /// @notice (C) Total depeg loss across the basket, for fair-valuing the
@@ -879,7 +879,7 @@ library BasketLib {
     ///         path only (fee mints, `creditLPForSwap` swap-out reissuance, Quid fee distribution) and
     ///         NOT user deposits; and `if (currentMonth() >= 12)`, so it is DORMANT FOR THE FIRST YEAR.
     ///         The USER deposit path (`_finishMint`) intentionally does not compute `illiquidLoss` at
-    ///         all, and hooking it would be a NEW read plus a change to the documented mint↔redeem
+    ///         all, and wiring it would be a NEW read plus a change to the documented mint↔redeem
     ///         valuation asymmetry — not free, so not done.
     ///         ⇒ REDEEM REMAINS THE PRIMARY DRIVER. This is a free second one after month 12, no more.
     ///         DETECTION ONLY — evacuation still requires the deliberate `pokeVaultHealth`.
