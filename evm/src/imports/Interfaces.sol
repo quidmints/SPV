@@ -517,9 +517,21 @@ interface ICore {
 
 /// Canonical IEthVenue — the WHOLE external surface of `Vault`, not just its ETH-venue half.
 /// Union of IEthVenue, IEthVenue_VG, IEthVenueCL and (2026-07) `IVaultCtx_V` (BtcLib's
-/// self-callback surface). The name is historical — `Vault` is the merged EthVenue+BtcVault, so
-/// the BTC-band reads below live on the same address; it is NOT renamed to `IVault` only because
-/// five consumers (Quid, Aux, BasketLib, ChannelLib, QuidLib) would have to move with it.
+/// self-callback surface).
+/// ⛔ §E301 — THIS HEADER SAID `Vault` IS "the merged EthVenue+BtcVault" AND THAT MERGE IS UNDONE.
+///    ETH-venue custody was extracted to `EthVenue`; measured in `Vault.sol`, every one of
+///    `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `aaveEthBalance`
+///    `deliverableETH` `_supplyETH` `_withdrawETH` `ETHERFI` `WEETH` `AAVE_SPOKE` is now ZERO
+///    references. `Vault` is the BTC band manager and nothing else. The reads below do NOT live
+///    on one shared address any more, and a reader who believes they do will look for ETH-venue
+///    state in the BTC band. The name stays `IBandManager` because that is what it now IS —
+///    not, as this said, a historical accident awaiting a rename to `IVault`.
+/// ⚠️ TWO INTERFACES DESCRIBE THE SAME PAIR OF OBJECTS AND SHARE NO MEMBERS: this one (7, the
+///    state/control surface) and `IBand` (9, the settlement surface), both implemented by `Quid`
+///    and `Vault`. That is not duplication to delete — nothing is declared twice — but it is two
+///    faces where the stated goal is one band manager, and a caller has no way to know which to
+///    reach for. Merging them is the same move §E21 made when `IAux` absorbed `LevMath.IAuxM`,
+///    `LevManager.ISwapAux` and `FeeLib.IAuxFee`. Left as a decision, not taken silently.
 ///
 /// WHY the BTC members belong here: the second declaration could not drift-detect. `IVaultCtx_V`
 /// named Vault's own functions, so a return-shape change in Vault.sol would compile clean and
