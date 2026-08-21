@@ -109,6 +109,29 @@ environment actually is*. Every line below was verified in-repo, not recalled.
 
 ## Verification discipline
 
+- 🔴 **CLOSING THE WORK IS NOT CLOSING THE ROW, AND THE ROW IS THE HALF THE NEXT THREAD READS.**
+  Measured 2026-08-21: **three stale rows found in three consecutive questions**, all the same shape
+  — the fix was landed, the commit message described it, and the ledger row still said 🔴.
+  `§MIDNIGHT-SUBMODULE-HALF-DONE` read *"the change CANNOT BE PUSHED"* after the change was pushed;
+  `#20` read *"I broke ibiza's wallet fixture"* after it was fixed; `D8` read *"`origin/main` DOES
+  NOT BUILD"* after a pinned rebuild exited 0. **None was found by the author** — each surfaced only
+  because the owner asked what a row was.
+  ⇒ **A commit is not a closure. The unit of work is code + row, in the SAME commit.** Landing the
+  code and leaving the row is how a fixed thing keeps being re-read as broken, which costs the next
+  thread the same investigation twice — the exact waste rule 12 exists to prevent, arriving from the
+  opposite direction.
+  ▶️ **The cheap sweep that finds these, and it takes seconds:** grep the OPEN rows for their own
+  falsifiable claims — *"does not build"*, *"zero references"*, *"NOT BUILT"*, *"cannot"*, *"never"* —
+  and re-run each. A row that states a testable fact is a row that can be tested; one that cannot be
+  tested that way was never a status, it was an opinion.
+  ⚠️ **Corollary, from the same three: a booking written from a SYMPTOM outlives its fix.** `#20` was
+  booked as *"ibiza pins the old output key"* — the visible thing — when the defect was the field
+  list its commitment hashed. The pin was correct all along, so fixing the real defect left the row
+  pointing at something that was never wrong. **Book the mechanism; the symptom is what you noticed,
+  not what is broken.**
+
+
+
 - **An empty grep proves nothing.** Never assert absence from a search. **Run the CONTROL before
   concluding: would this measurement look the same if I were wrong?** On 2026-08-02, "35 verifiers
   are unreferenced, therefore dead" collapsed when the LIVE verifiers scored identically — they are
