@@ -7148,3 +7148,55 @@ have NO JOB AT ALL** — they size and apportion a restoration we never perform,
 DELETION. Under #2 they are the sizing layer and the fold is a WIRING. ⇒ **The same 580 lines are
 either dead weight or the next feature, and one sentence decides which.** **That is the highest-leverage
 open item in the skew area — not because it is hard, but because everything downstream is blocked on it.**
+
+---
+
+## 🟡 §E297 — **THE REDEMPTION-SIDE 4626 ACCESSORS ARE WORTH 194 BYTES ON `Quid`, AND THEY DESCRIBE AN ASYNC FLOW AS SYNCHRONOUS**
+
+**Measured 2026-08-21 in a worktree pinned to `origin/main`, both build exits confirmed 0.**
+
+| | `Quid` | margin |
+|---|---|---|
+| `origin/main` | 24,490 | **86** |
+| minus `maxWithdraw` / `previewWithdraw` / `maxRedeem` / `previewRedeem` | **24,296** | **280** |
+
+⇒ **194 bytes, and it takes the binding contract's margin from 86 to 280 — 3.3×.** That is the
+largest single lever anyone has priced on `Quid`, and it is a DELETION, so it carries no new surface.
+
+### WHY THEY ARE WRONG, AND IT IS HALF OF WHAT THE DOC CLAIMS
+`docs/actionable/VBTC-ASSET-AND-7540.md` says *"BOTH bands are asynchronous, and both faces deny
+it."* **Measured, it is the REDEMPTION half only, and the discriminator is which side DEFERS:**
+- `redeem`/`withdraw` → `_withdraw`, whose own comment is the evidence — *"4626 path defaults to WAIT
+  (no forced haircut)"* — so a redemption **may defer**;
+- `_deposit4626` mints immediately, so `previewDeposit`/`previewMint`/`maxDeposit`/`maxMint` describe
+  a genuinely **synchronous** flow and are honest 4626.
+
+ERC-7540 requires `preview*` to REVERT on an async flow for exactly this reason; ours returned a
+number. `maxRedeem` claimed the owner's **whole balance** was redeemable and `previewRedeem` named an
+exact asset amount, while capacity gating can defer both. **Rule 3's inverse: the failure is SILENT
+and produces plausible-but-wrong output.**
+✅ **SAFE TO DELETE, CONTROLLED:** zero references to the four names in `spa/src` and `quid-ln`, where
+the same search finds `redeem` (6 / 43) and `totalSupply` (3) — **the method sees client usage where
+it exists**, so its silence here is evidence.
+
+### 🔴 WHAT IS NOT DECIDED, AND IT IS NOT A MEASUREMENT
+**Whether a PARTIAL 4626 face is better than none.** Removing only the redemption accessors leaves
+`asset`, `totalAssets`, `convertTo*`, `deposit`, `mint` looking compliant while `redeem`/`withdraw`
+lack their `preview`/`max` — an integrator checking 4626 compliance finds a broken interface rather
+than an async one. **The doc's answer is ONE 7540 FACE FOR BOTH INSTANCES** (`Quid` carries a 4626
+face, `VBtc` carries none, and `requestDeposit`/`requestRedeem` already live on `Vault:511`/`:578`
+and `BtcLib:345`) — which is the bigger fold and an owner decision.
+⇒ **The 194 bytes is the FLOOR of what that fold is worth, not the whole of it.** A full 7540 face
+would also delete the deposit-side four and `Quid`'s ERC-4626 identity, and `VBtc` gains a face it
+does not have. **Nobody has priced that; this row prices only the piece that is defensible alone.**
+
+📌 **PARKED, NOT LANDED:** `wt/quid-7540-preview` (`e8cc5507`) carries the edit. It is off `main`
+deliberately — the deletion is a public-ABI change and the *partial-face* question above is unsettled,
+so landing it would commit to an interface posture by side effect.
+
+📌 **AND THE MEASUREMENT ITSELF IS THE METHOD NOTE.** I first read these same 194 bytes off
+`check-contract-sizes.py` run immediately after a `forge build` I had piped into `grep` — so I read
+GREP's exit status, not forge's. **That build had failed** (another thread's duplicate `interface
+ILevVenue`), the artifacts were stale, and **the number was right by luck.** ⇒ *"Read the effect, not
+the exit code"* has a corollary: **read the RIGHT process's exit code.** A pipeline's `$?` is the last
+stage's, and every build check in this file that pipes into `grep` is measuring the grep.
