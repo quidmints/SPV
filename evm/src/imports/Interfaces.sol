@@ -499,7 +499,7 @@ interface ICore {
     function repack(uint anchorPrice) external returns (uint price);   // §ONE-ANCHOR: bounds derive from this
     function collectFees() external returns (uint, uint);
     
-    function btcBand() external view returns (address);   // E21: was BasketLib.IWiredCore
+    function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
     /// §E56 — the MONOTONIC (never-decayed) retained-premium counters. Their value here is NOT the
     /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
     /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
@@ -563,9 +563,9 @@ interface IBasketTurn {
     /// 📖 **NAMING, SO IT IS NOT RE-READ AS DRIFT:** `Basket` is the QU!D token contract, and the
     /// variables that hold it are named `quid` accordingly — `DeployLib:171` `Basket quid = new
     /// Basket(...)`. The contract *named* `Quid` is the ETH BAND (`DeployLib:118` `Quid ethBand = new
-    /// Quid()`). **That is deliberate and correct: the type names the implementation, the variable
-    /// names the role.** So `IBasketTurn(quid)` is reading the QU!D token, which is what `turn`,
-    /// `matureSupply`, `immatureBalanceOf` and `target` all belong to.
+    /// Quid()`). **Deliberate and correct: the type names the implementation, the variable names the
+    /// role.** So `IBasketTurn(quid)` reads the QU!D token, which is what `turn`, `matureSupply`,
+    /// `immatureBalanceOf` and `target` all belong to.
     /// ⇒ Interfaces here are named for the CONTRACT they address, never for the variable at the call
     /// site — which is why the `IQuid*` name was the one to retire, not this one.
     function target() external view returns (uint);
@@ -593,7 +593,7 @@ interface ILevEthDeliver {
         external returns (uint wethDelivered);
 }
 
-interface IBtcBand {
+interface IBtcVaultBridge {
     // BTC LP position: open/close/splice (driven on channel open/close).
     function requestDeposit(address lpEth, uint sats) external;
     function requestRedeem(address lpEth, uint lpPayoutSats) external;
