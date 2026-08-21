@@ -296,10 +296,6 @@ library SwapLib {
     }
 
     error NoShedPath();   // §E56: an overshoot in a pool that has traded before and has now gone dead
-    /// §E275 — the skew reached/exceeded 100%, so the premium would consume the trade. NOT an error
-    /// condition in the band: it is the honest answer at that scarcity, and under solver routing the
-    /// counterparty fills that leg elsewhere. Carries the rate so the caller can see how far past.
-    error QuoteUnfillable(uint skewWadValue);
     error BtcInflowsViaChannels();
     error NoBtcRecipient();
     error StableMissingS();
@@ -1130,7 +1126,7 @@ library SwapLib {
         //      — `sellSkew` hands this to `_composePrice` as `kernel`, which does `kernel + risk`,
         //      so it overflowed on the ADD instead of on the base (`panic 0x11`,
         //      `testMatrix_S5_UnfillableSwapMovesPriceForFree`).
-        //   2. `revert QuoteUnfillable(...)` HERE broke the REFILL TRIGGER: `skewWad` is read
+        //   2. reverting HERE broke the REFILL TRIGGER (§E275, since removed): `skewWad` is read
         //      DIRECTLY as an observation by `test_TriggerFiresExactlyWhenTheSkewLeavesFlush`,
         //      `test_E104_ConstantSensitivity` and `test_E105_BoundarySweep`. A reverting read cannot
         //      report that the band is empty — **at exactly the moment the refill exists for.** Same
@@ -1296,9 +1292,22 @@ library SwapLib {
     /// ⚠️ Reverting here means a QUOTE read can revert (`Aux:690`, `FixedRateFill:113/127`). That is
     /// intended: at this scarcity there is no fillable price, and a solver that asked for one needs
     /// to route that leg elsewhere rather than receive a number it cannot trade on.
-    function _declineIfUnfillable(uint skew) private pure returns (uint) {
-        if (skew >= SKEW_UNFILLABLE) revert QuoteUnfillable(skew);
-        return skew;
+    /// §E300 — **THE SKEW PATH NEVER REVERTS** (owner, 2026-08-22: *"dont revert at the pole"*, and
+    /// *"any rfq engine [must] smoothly work with us and not fail on the multihop"*).
+    /// §E275 declined past 100%; §E298 showed that was the wrong primitive — a revert hands the
+    /// counterparty NOTHING, so there is no remainder for a solver to route, and it can fail their
+    /// whole multi-hop bundle rather than just our leg. **We would be most hostile to route through
+    /// exactly when we are scarce.**
+    /// ⇒ A rate haircut cannot exceed 100% — that is the DEFINITION of taking a fraction of an amount,
+    /// not a policy ceiling — so the value is bounded there and the trade proceeds. At the bound the
+    /// premium equals the input, `out` is 0, and the EXISTING guard in `_finishSwap`
+    /// (`if (max == 0 || max < r.minOut) revert SlippageMaxS()`) rolls back **to a clean refund** —
+    /// the right layer, an error that already exists, and no new failure mode for a router.
+    /// ⚠️ NOT the deleted `MAX_WELL_SKEW`: that was a POLICY cap at 3% that suppressed 51% of the
+    /// integral's premium (§E286-integral) and pinned the curve flat from q≈0.6 (§E274). This binds
+    /// only where the arithmetic stops meaning anything — 33× higher.
+    function _boundToFullHaircut(uint skew) private pure returns (uint) {
+        return skew > SKEW_UNFILLABLE ? SKEW_UNFILLABLE : skew;
     }
 
     /// §E295 — **THE ONE AMPLIFIER BOTH LEGS USE.** `wellSkew`'s tail and `_composePrice` computed the
@@ -1318,14 +1327,14 @@ library SwapLib {
     /// so a shared AMPLIFIER must not be read as a shared KERNEL.
     function _amplify(address core, uint preAmp, uint splice) private view returns (uint) {
         // §E275 — the sentinel must not reach checked arithmetic; see the pole comment in `skewWad`.
-        preAmp = _declineIfUnfillable(preAmp);
+        preAmp = _boundToFullHaircut(preAmp);
         uint out = preAmp > splice
             ? SoladyMath.fullMulDiv(preAmp - splice, _sharedScarcityWad(core), 1e18) + splice
             : preAmp;
         // §E79: no re-cap after the amplifier. The expected-loss FLOOR was applied inside `skewWad`,
         // and re-clamping to it here would undo the inversion by pulling an amplified premium back
         // down to the base charge.
-        return _declineIfUnfillable(out);   // uncapped; declined at the producer
+        return _boundToFullHaircut(out);   // uncapped; declined at the producer
     }
 
     function _composePrice(address core, uint kernel, uint sigmaSqWad)
@@ -1337,7 +1346,7 @@ library SwapLib {
         // §E275 — DECLINE BEFORE THE ADD BELOW, not only inside `_amplify`. `kernel` may carry
         // `skewWad`'s pole sentinel, and `kernel + base` is a checked ADD: reaching it panics 0x11
         // with no name. `_amplify` declines too, but by then the overflow has already happened.
-        kernel = _declineIfUnfillable(kernel);
+        kernel = _boundToFullHaircut(kernel);
         // §ISBTC-SPLIT: derived HERE, not threaded in. Dropping the parameter CUTS a live value from
         // two stack-tight call sites rather than adding one; `sellSkew` does not compile otherwise.
         // §UNIT-B-PATIENCE: the exposure clock is read here rather than threaded in — this frame
@@ -1360,6 +1369,36 @@ library SwapLib {
         uint mine = ICore(core).bandEquityUsd18();
         uint other = both > mine ? both - mine : 0;
         return 1e18 + SoladyMath.fullMulDiv(other, 1e18, both);
+    }
+
+    /// §E300 — **THE LARGEST DRAIN WHOSE RATE IS STILL FILLABLE. CLOSED FORM, NO SEARCH.**
+    /// An RFQ engine must route through us without its multi-hop failing on our leg. Pricing the
+    /// REQUESTED size drives `q → 1` and yields a rate no trade can carry; pricing what we can SERVE
+    /// yields a steep but usable quote, and `routeSwap`'s inventory bound plus `_refundExcess` (#105)
+    /// hand back the rest. **That remainder is what a solver routes elsewhere — a revert gives them
+    /// nothing (§E298).**
+    ///     point rate `Γ·σ²·q/(1−q)` = LIMIT ⇒ `R = LIMIT/(Γ·σ²)`, `q* = R/(1+R)`, `inv1* = target/(1+R)`
+    /// **VERIFIED against §E274's independent measurements:** Γ=3e16, σ²=1e18 ⇒ q*=0.9709 (measured
+    /// 0.97087); σ²=4e18 ⇒ q*=0.8929 (measured 0.89286).
+    /// ⚠️ **CONSERVATIVE FOR A SIZED DRAIN:** the integral's average over `[q0,q1]` never exceeds its
+    /// endpoint rate, so bounding on the endpoint serves slightly LESS than the curve allows. It errs
+    /// toward filling less, never toward an unfillable quote.
+    /// ⚠️ **NOT A CLAMP ON A PRICE (rule 3):** it bounds the QUANTITY we quote for and leaves the curve
+    /// free. The alternative is asking the curve to price a delivery that cannot happen.
+    function _fillableDrain(uint inv0, uint target, uint sigmaSqWad, uint wanted)
+        private pure returns (uint) {
+        // Both branches return a finished skew without reaching the pole: σ²==0 gives
+        // UNKNOWN_VARIANCE_SKEW, target==0 gives the base. Nothing to bound.
+        if (sigmaSqWad == 0 || target == 0) return wanted;
+        uint gs = SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18);       // Γ·σ²
+        if (gs == 0) return wanted;                                         // σ² too small to bind
+        uint r = SoladyMath.fullMulDiv(SKEW_UNFILLABLE, 1e18, gs);          // R, in WAD
+        uint invFloor = SoladyMath.fullMulDiv(target, 1e18, 1e18 + r);      // target/(1+R)
+        // At or below the floor the band cannot serve at ANY size: pass `wanted` through, let the pole
+        // report itself, and `_boundToFullHaircut` makes it a 100% haircut ⇒ `out` 0 ⇒ clean refund.
+        if (inv0 <= invFloor) return wanted;
+        uint maxDrain = inv0 - invFloor;
+        return wanted > maxDrain ? maxDrain : wanted;
     }
 
     /// @param drainUsd6 The volatile-OUT this swap is about to take, in 6-dec USD — the SAME unit
@@ -1386,10 +1425,14 @@ library SwapLib {
         // lockedUsd = GROSS levered collateral, converted with the SAME base/1e30 scale as poolVol
         // (one price, one unit) — the locked-inventory basis for `inv` (#6/F3). committedUsd = DEBT.
 
+        // §E300 — price what we can SERVE, not what was asked for. The swap path bounds the fill to
+        // inventory ~20 lines after this call (`routeSwap` → `consumed`) and refunds the remainder
+        // (`_refundExcess`), so an oversized request is a PARTIAL FILL by design, not a refusal.
+        uint target = ICore(core).flowEwmaUsd();
+        uint sigmaSq = ICore(core).realizedVarianceWad();
         uint raw = skewWad(
-            poolVolUsd,
-            ICore(core).flowEwmaUsd(),
-            ICore(core).realizedVarianceWad(), rk, drainUsd6);
+            poolVolUsd, target, sigmaSq, rk,
+            _fillableDrain(poolVolUsd, target, sigmaSq, drainUsd6));
         // §E295 — the decline that stood here is now `_amplify`'s first statement, and nothing
         // between here and the call touches `raw`. One guard, at the frame that does the arithmetic.
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
