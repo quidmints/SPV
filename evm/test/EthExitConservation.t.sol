@@ -10,12 +10,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///         `deliverableETH` under-count; a venue that cannot deliver). All three were guesses. This
 ///         settles it by CONSERVATION instead: `Quid._withdraw` already re-credits whatever the
 ///         ladder could not source (`LP.pooled += shortfall`, "recoverable deferral … socialized
-///         fairly via the share price, no first-out advantage"), and a band burn pays out BOTH legs —
+///         fairly via the share price, no first-out advantage"), and a range burn pays out BOTH legs —
 ///         ETH *and* USD (minted as QUID). So an LP withdrawing `X` should end up holding
 ///         `ETH received + QUID received + re-credited pooled ≈ X`, with NO value destroyed.
 ///
 ///         If conservation HOLDS, the failing assertions are wrong in principle: they compare a
-///         POOLED delta against ETH-only payout and so implicitly assume the band is 100% BTC,
+///         POOLED delta against ETH-only payout and so implicitly assume the range is 100% BTC,
 ///         which stops being true the moment any swap moves price into the range.
 ///         If conservation FAILS, the gap is real and this prints exactly where it went.
 contract EthExitConservationProbe is AllesFixture {
@@ -23,7 +23,7 @@ contract EthExitConservationProbe is AllesFixture {
         vm.prank(User01);
         ETH.deposit{value: 10 ether}(0, User01);
 
-        // Move price into the range so the band holds BOTH legs — the condition under which a burn
+        // Move price into the range so the range holds BOTH legs — the condition under which a burn
         // cannot pay out pure ETH. This mirrors testDepositImmediateWithdraw's setup exactly.
         vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0);
@@ -74,7 +74,7 @@ contract EthExitConservationProbe is AllesFixture {
         emit log_named_decimal_uint("USD claim in ETH     ", usdClaimInEth, 18);
         emit log_named_decimal_uint("TOTAL received (BTC) ", ethGained + usdClaimInEth, 18);
 
-        // 2% tolerance for band geometry + fees; the failures are ~20%, so this cleanly separates
+        // 2% tolerance for range geometry + fees; the failures are ~20%, so this cleanly separates
         // "assertion assumed pure-ETH burn" from "value genuinely destroyed".
         assertApproxEqRel(ethGained + usdClaimInEth, pooledDrop, 0.02e18,
             "CONSERVATION: ETH + (QUID + usd_owed) must equal the claim given up");

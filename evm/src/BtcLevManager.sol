@@ -9,14 +9,14 @@ import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
-import {IBand} from "./imports/Interfaces.sol";
+import {ICore} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
 import {ILevVenueColl} from "./imports/Interfaces.sol";
 
    // branch open on the venue's collateral token
  // zero-fee flash (WBTC flash-repay-first de-lever)
-/// SAME-BTC leverage: the vBTC token IS the Vault, which exposes/un-exposes the LP's own channel band
+/// SAME-BTC leverage: the vBTC token IS the Vault, which exposes/un-exposes the LP's own channel range
 /// BTC as levered collateral (no separate mint/transferFrom roundtrip). See Vault.exposeBtcToLev.
 /// §J.2: the vBTC TOKEN's back-pointer to the Vault that owns its supply. `VBtc.VAULT` is immutable and
 /// set to its deployer (the Vault), so reading it once at construction gives a binding that CANNOT be
@@ -30,17 +30,17 @@ import {ILevVenueColl} from "./imports/Interfaces.sol";
 ///         fill/unwind over async steps (borrow → source BTC externally → mint vBTC → supply), so this manager
 ///         only exposes the **venue legs** (`leverBorrow`/`leverSupply`/`deleverWithdraw`/`repay`) that the
 ///         keeper sequences, plus the read side (`netEquityBtc`, paired into `POOLED` by `syncLev` —
-///         that is the solvency count; `bandBTC` is WBTC-only and is never credited the net-equity).
+///         that is the solvency count; `rangeBTC` is WBTC-only and is never credited the net-equity).
 ///
 ///         Reuses verbatim: `LevMath` (target `1−√(entry/now)`, net-equity, debt-delta), `ILevVenue` (the
 ///         renamed collateral-agnostic `Euler/MorphoEscrowVenue`, deployed against a vBTC market). Acquisition
-///         is EXTERNAL (never the swap-out rail → the band is never traded → no encroachment on other LPs).
+///         is EXTERNAL (never the swap-out rail → the range is never traded → no encroachment on other LPs).
 contract BtcLevManager is LevBase {
     IERC20Min public immutable VBTC;   // collateral (8-dec, 1e8 = 1 BTC = 1 sat-unit)
     address public immutable WBTC;   // oracle key
     address public immutable GOV;
     address public immutable QUID;
-    /// The Vault behind `VBTC` — band authority for expose/unexpose. Distinct from `VBTC` since §J.2
+    /// The Vault behind `VBTC` — range authority for expose/unexpose. Distinct from `VBTC` since §J.2
     /// split the token face out of the Vault; before that split one address served as both.
     address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
@@ -50,7 +50,7 @@ contract BtcLevManager is LevBase {
 
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
-    ///         GOV flips it ON only AFTER the band-driven fork proof lands — parity with `LevManager`.
+    ///         GOV flips it ON only AFTER the range-driven fork proof lands — parity with `LevManager`.
 
 
     /// @notice PIN-ONCE venue ALLOWLIST (not a rotatable governance setter — a rotatable one is the same
@@ -60,13 +60,13 @@ contract BtcLevManager is LevBase {
     bool    public venuesFrozen;
     address public flashProvider;   // Morpho zero-fee flash (set in init) — powers the WBTC flash-repay-first de-lever
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic. Wires the audited venue ALLOWLIST
-    ///         (`venues`, then frozen) and the band sync-band (`band` = Vault.syncLev, poked by
-    ///         closeBtcLev) together. NOT rotatable (a new venue/band ⇒ deploy a new BtcLevManager). No flash
+    ///         (`venues`, then frozen) and the range sync-range (`range` = Vault.syncLev, poked by
+    ///         closeBtcLev) together. NOT rotatable (a new venue/range ⇒ deploy a new BtcLevManager). No flash
     ///         provider on the native vBTC path — BTC de-lever is keeper-sequenced (async external BTC
     ///         sourcing). Matches LevManager.init (allowlist so a WBTC venue can sit beside the vBTC one).
-    function init(address band, address flash, address[] calldata venues) external {
+    function init(address range, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert BadAuth();
-        venuesFrozen = true; BAND = band; flashProvider = flash;
+        venuesFrozen = true; RANGE = range; flashProvider = flash;
         for (uint i; i < venues.length; i++) {
             address v = venues[i];
             if (v == address(0)) revert BadAuth();
@@ -117,7 +117,7 @@ contract BtcLevManager is LevBase {
 
 
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
-    ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
+    ///         backing in the range-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
 
     /// @notice Delegated QU!D-protect for a BTC-levered LP — the BTC counterpart of `LevManager.protectFromQuid`
@@ -139,7 +139,7 @@ contract BtcLevManager is LevBase {
 
     /// @notice Open an isolated BTC-lev position at ZERO leverage. The LP supplies `initialVbtc` vBTC (already
     ///         minted against its dedicated UTXO, approved here) as equity; the keeper fills the IL target over
-    ///         async steps as the band sells. `cap` is the LP's max-leverage LTV ceiling (≤ TARGET_LTV_CAP_BPS
+    ///         async steps as the range sells. `cap` is the LP's max-leverage LTV ceiling (≤ TARGET_LTV_CAP_BPS
     ///         = 7500 bps ≈ 4×; 2× is the IL-neutral value). Venue is the
     ///         pin-once venue (no caller-supplied venue ⇒ no phantom backing).
     function openBtcLev(uint64 cap, uint initialVbtc, ILevVenue venue) external nonReentrant {
@@ -151,23 +151,23 @@ contract BtcLevManager is LevBase {
         if (cap == 0 || cap > TARGET_LTV_CAP_BPS) revert BadTarget();
         uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
-        // IS the levered position — its net-equity is synced into the BTC band (levPooled) as delta-1 depth by
+        // IS the levered position — its net-equity is synced into the BTC range (levPooled) as delta-1 depth by
         // the 2× leverage, so E0 (the FIXED IL base) = the DEPOSIT ITSELF (in sats — vBTC IS sats, no conversion),
-        // NOT a separate unlevered band-BTC position. LEVERAGE-INVARIANT (over-hedge fix): collateral grows as the
+        // NOT a separate unlevered range-BTC position. LEVERAGE-INVARIANT (over-hedge fix): collateral grows as the
         // keeper levers, but E0 does not. ⚠️ E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to
-        // `netEquity(lp)` (BandLib.reanchorIfReseated) on every band reseat. SAFE because levering moves collateral and debt
+        // `netEquity(lp)` (RangeLib.reanchorIfReseated) on every range reseat. SAFE because levering moves collateral and debt
         // by the SAME amount, so net equity is leverage-invariant; sizing against GROSS collateral is what
         // re-opens the 1/(1−t) over-hedge. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
-        uint e0 = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
-        // §FOLD-OPEN — shared tail in `LevBase._openPos`. Only `e0` above is per-asset (sats as-is,
+        uint entryEquity = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
+        // §FOLD-OPEN — shared tail in `LevBase._openPos`. Only `entryEquity` above is per-asset (sats as-is,
         // because vBTC IS sats and needs no conversion).
-        _openPos(venue, cap, entryPx, e0);
-        // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel band BTC as the levered slice — the Vault
+        _openPos(venue, cap, entryPx, entryEquity);
+        // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel range BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero
-        // debt; the band isn't re-paired here (levPooled marks it withdrawal-excluded, LP.pooled unchanged),
-        // matching the "open doesn't touch the band" invariant — the keeper's first syncLev tracks net-equity.
+        // debt; the range isn't re-paired here (levPooled marks it withdrawal-excluded, LP.pooled unchanged),
+        // matching the "open doesn't touch the range" invariant — the keeper's first syncLev tracks net-equity.
         // COLLATERAL SOURCING — venue-agnostic, branched on the venue's collateral token (opens at ZERO debt either
-        // way; the band isn't re-paired here so "open doesn't touch the band" holds; the keeper's first syncLev
+        // way; the range isn't re-paired here so "open doesn't touch the range" holds; the keeper's first syncLev
         // tracks net-equity). vBTC (native #74): expose the LP's OWN free channel BTC (Vault mints the vBTC face to
         // this manager — no pre-mint/transferFrom roundtrip). WBTC (fallback): the caller/SPA already SOR'd its USD
         // equity → WBTC; pull it in. `initialVbtc` is the collateral amount (8-dec) in either token.
@@ -198,7 +198,7 @@ contract BtcLevManager is LevBase {
         _reanchorIfReseated(msg.sender);
         (bool levUp, uint room) = debtDeltaToTarget(msg.sender);
         got = BtcLib.leverBorrow(pos, address(AUX), msg.sender, stableUsd, levUp, room);
-        _syncBand(msg.sender);
+        _syncRange(msg.sender);
     }
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
@@ -207,7 +207,7 @@ contract BtcLevManager is LevBase {
     ///         library body serves weETH on the ETH side, which is why this was never BTC-specific.
     function leverSupply(uint vbtc) external nonReentrant {
         BtcLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
-        _syncBand(msg.sender);
+        _syncRange(msg.sender);
     }
 
     /// @notice Withdraw `vbtc` collateral to the LP/keeper (for delever/close: burn + enclave-spend the UTXO →
@@ -216,15 +216,15 @@ contract BtcLevManager is LevBase {
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
         _reanchorIfReseated(msg.sender);
         out = BtcLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
-        _syncBand(msg.sender);
+        _syncRange(msg.sender);
     }
 
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
     /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK). A WRAPPER: reentrancy lock, then the shared leg,
-    ///         then the band poke. The poke must follow the venue move, which is why it stays here.
+    ///         then the range poke. The poke must follow the venue move, which is why it stays here.
     function repay(uint stableUsd) external nonReentrant returns (uint repaid) {
         repaid = BtcLib.repay(pos, address(AUX), msg.sender, stableUsd);
-        _syncBand(msg.sender);
+        _syncRange(msg.sender);
     }
 
     // ═══════════════════════ ATOMIC WBTC-MODE (on-chain swap, no external BTC sourcing) ═══════════════════════
@@ -233,13 +233,13 @@ contract BtcLevManager is LevBase {
     // leaves to an external party, so there is no drain vector. Routed through CURVE by
     // `LevMath._stableToWbtc` / `_wbtcToStable` (084bc5c) — the SAME Curve helpers the ETH lever uses.
     // ⚠️ This previously read "SOR'd … through the V4 USDC/WBTC pool", naming `Aux.sorSelfFunded` /
-    //    `sorSelfFundedReverse`. Neither is on this path any more; the SOR is now the BAND's AMM only.
+    //    `sorSelfFundedReverse`. Neither is on this path any more; the SOR is now the RANGE's AMM only.
     // Venue-agnostic in shape (every leg is an `ILevVenue` call), but the BTC allowlist is exactly TWO
     // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position.
-    ///         §FOLD-REBALANCE — the body is `LevBase._rebalance`, shared with the ETH band.
+    ///         §FOLD-REBALANCE — the body is `LevBase._rebalance`, shared with the ETH range.
     function rebalanceWbtc(address lp, uint minOut) external nonReentrant { _rebalance(lp, minOut); }
 
     /// @dev WBTC-mode ONLY — a native vBTC venue would get WBTC supplied into it (collateral
@@ -252,7 +252,7 @@ contract BtcLevManager is LevBase {
         internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut); }
 
     /// @dev Repay-FIRST when a flash provider is pinned (always health-safe); otherwise the graceful
-    ///      withdraw-then-repay fallback. The ETH band has no fallback: its provider is not optional.
+    ///      withdraw-then-repay fallback. The ETH range has no fallback: its provider is not optional.
     function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)
         internal override {
         if (flashProvider != address(0)) _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut);
@@ -311,11 +311,11 @@ contract BtcLevManager is LevBase {
         LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
             LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS)));
         emit Repaid(lp, assets);
-        _syncBand(lp);
+        _syncRange(lp);
     }
 
     /// @notice #54 DELIVERY-SIDE de-lever (partial-burn vBTC deliverability). When a native-BTC swap-out is
-    ///         delivered from `lp`'s channel but draws on its LEVERED slice (free band exhausted — the stranded
+    ///         delivered from `lp`'s channel but draws on its LEVERED slice (free range exhausted — the stranded
     ///         state), the swap-out PROCEEDS (`stableUsd`-worth, pre-transferred to the venue by the Vault settle
     ///         path from POOLED_USD) repay `lp`'s debt, freeing the matching vBTC collateral — the Vault then
     ///         un-encumbers it (funded rises) so the settled shrink can deliver it. VALUE-NEUTRAL: −BTC −debt of
@@ -323,7 +323,7 @@ contract BtcLevManager is LevBase {
     ///         debt-reduction instead of the QUI mint (single-pay). Mechanics here mirror closeBtcLev: repay →
     ///         withdraw the freed vBTC to this manager → burn it + un-encumber the LP's channel BTC via
     ///         `unexposeBtcFromLev` (lev→funded), so the Vault's funded/lev clamp no longer bites the settled
-    ///         shrink. Gated to the Vault settle path (`BAND`). `freeSats` = the delivered levered slice
+    ///         shrink. Gated to the Vault settle path (`RANGE`). `freeSats` = the delivered levered slice
     ///         to un-encumber (decoupled from the debt repaid: the levered net slice can exceed its debt backing,
     ///         so we free the sats the channel actually delivered and repay only what debt there is — the pure-
     ///         equity remainder is compensated by the caller minting QUI for it). Equal-value removal (repaid debt
@@ -332,7 +332,7 @@ contract BtcLevManager is LevBase {
     ///         freedSats) — usedUsd is the debt actually retired (the caller withholds only THIS from the QUI mint).
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
         external nonReentrant returns (uint usedUsd, uint freedSats) {
-        if (msg.sender != BAND) revert BadAuth();          // Vault settle path only
+        if (msg.sender != RANGE) revert BadAuth();          // Vault settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
         uint amt = LevMath._fromUsd(address(AUX),p.venue.stable(), stableUsd);   // usd → native stable units
@@ -348,7 +348,7 @@ contract BtcLevManager is LevBase {
         if (freedSats > 0) {
             uint got = p.venue.withdraw(lp, freedSats);             // vBTC → this manager
             if (got != freedSats) freedSats = got;
-            // Burn the withdrawn vBTC + convert the LP's levered slice back to FREE channel band depth
+            // Burn the withdrawn vBTC + convert the LP's levered slice back to FREE channel range depth
             // (lev→funded), so the Vault settle path's funded/lev clamp delivers the settled shrink. Same
             // primitive closeBtcLev uses; msg.sender==this==LEV_MANAGER satisfies the Vault gate.
             if (freedSats > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, freedSats);
@@ -360,20 +360,20 @@ contract BtcLevManager is LevBase {
     ///         the venue adapter (swapOutDelever repays exactly this, recomputing the same clamp). View.
 
     /// @notice Fully retire the caller's position once debt is repaid: withdraw all remaining vBTC to the LP,
-    ///         delete the position, and re-sync the levered band slice so it stops earning on vanished backing.
+    ///         delete the position, and re-sync the levered range slice so it stops earning on vanished backing.
     function closeBtcLev() external nonReentrant {
         address lp = msg.sender;
         Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
         if (p.venue.debtOf(lp) != 0) revert BadTarget();               // repay first (keeper unwinds async)
         // Mark the levered slice to the live (now zero-debt) net-equity BEFORE unwinding, so it == `back`.
-        _syncBand(lp);
+        _syncRange(lp);
         uint rem = p.venue.collateralOf(lp);
         uint back = rem > 0 ? p.venue.withdraw(lp, rem) : 0;           // vBTC → this manager
         delete pos[lp];
         _untrackOpen(lp);
-        // SAME-BTC: burn the withdrawn vBTC and un-freeze the levered slice back to FREE channel band depth
-        // (lev→funded) — grown/shrunk by the realized leverage P&L. The LP keeps its channel band position; it
+        // SAME-BTC: burn the withdrawn vBTC and un-freeze the levered slice back to FREE channel range depth
+        // (lev→funded) — grown/shrunk by the realized leverage P&L. The LP keeps its channel range position; it
         // never receives loose vBTC (that would double-claim the same channel BTC). No post-sync needed: the
         // slice is zeroed here, and the position is gone.
         if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);

@@ -137,7 +137,7 @@ Each case: **precondition → action → assert (happy)** and its **failure twin
 
 
 ## 2. REDEEM (QUID → stables)
-Mature-only; per-QD `min(par, solvent-share)` cap; stables-only (band-unwind frees committed USD).
+Mature-only; per-QD `min(par, solvent-share)` cap; stables-only (range-unwind frees committed USD).
 | # | Path | Happy | Sad twin |
 |---|------|-------|----------|
 |2.1| Redeem to chosen stable | QUID burned, stable received at `min(par,share)` | redeem > QUID balance; redeem 0 |
@@ -180,7 +180,7 @@ Venues: Galaxy(0), ether.fi, Aave-v4, Rover, Euler, Split (per-LP hard-wall, #37
 
 ## 7. LEVERAGE (`LeverageCard` + `LeverageActionPanel` + `PnLPanel` + `ComfortPanel`)
 ETH (weETH: Morpho/Euler/Aave-v4/Liquity) + BTC (vBTC native / WBTC-fallback AaveV3). Target ≤ `TARGET_LTV_CAP=7500`.
-|7.1| Open lev per venue/collateral | position opens at 0 debt; net-equity synced to band | cap > 7500 → `BadTarget`; below `MIN_OPEN` |
+|7.1| Open lev per venue/collateral | position opens at 0 debt; net-equity synced to range | cap > 7500 → `BadTarget`; below `MIN_OPEN` |
 |7.2| Target 2× (IL-hedge) | keeper holds `ilTargetLtvBps` (sold-fraction ramp) | — |
 |7.3| Target >2× (directional) | SPA labels directional (`levL>2.001`, isolated-risk warning); on-chain the keeper still targets the IL ramp clamped at cap — the hold-and-ride branch is [pending] | liquidation guard de-levers near LLTV |
 |7.4| Close / unwind | returns ≥ HODL − costs across a move (#82); flash-close BOLD | close with residual debt; over-collat reserve |

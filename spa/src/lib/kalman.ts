@@ -19,7 +19,7 @@ const HUBER_K = 3.0                // §3.2.5 — clamp innovations beyond 3·�
 
 export interface KalmanResult {
   state: number       // filtered x_T (final)
-  band: number        // ±√P_T uncertainty
+  range: number        // ±√P_T uncertainty
   divergent: boolean  // innovation variance diverged from model S → retune
   divergenceRatio: number
 }
@@ -51,7 +51,7 @@ function scalarKalman(obs: { z: number; H: number }[], Q: number, R: number, x0:
   const varY = innovations.reduce((a, v) => a + (v - meanY) ** 2, 0) / Math.max(n - 1, 1)
   const meanS = sList.reduce((a, b) => a + b, 0) / Math.max(sList.length, 1)
   const ratio = meanS > 0 ? varY / meanS : 0
-  return { state: x, band: Math.sqrt(Math.max(P, 0)), divergent: ratio > DIVERGENCE_THRESHOLD, divergenceRatio: ratio }
+  return { state: x, range: Math.sqrt(Math.max(P, 0)), divergent: ratio > DIVERGENCE_THRESHOLD, divergenceRatio: ratio }
 }
 
 // ── Historical perspective: where does TODAY's volatility sit vs the whole
@@ -85,39 +85,39 @@ export function logReturns(prices: number[]): number[] {
 
 // ── σ: dynamic volatility (§3.2.2), log-variance space. Returns annualized σ. ──
 //    state = log(σ²_per-step); z = log(r²). periodsPerYear annualizes.
-export interface VolResult { sigmaAnnual: number; band: number; divergent: boolean }
+export interface VolResult { sigmaAnnual: number; range: number; divergent: boolean }
 export function estimateVol(returns: number[], periodsPerYear: number): VolResult {
-  if (returns.length < 5) return { sigmaAnnual: 0, band: 0, divergent: false }
+  if (returns.length < 5) return { sigmaAnnual: 0, range: 0, divergent: false }
   const obs = returns.map(r => ({ z: Math.log(Math.max(r * r, 1e-12)), H: 1 }))
   // R ≈ 1.0 (chi-square-derived per spec; Gaussian approx), Q_σ ≈ 0.1
   const seed = Math.log(Math.max(returns.reduce((a, r) => a + r * r, 0) / returns.length, 1e-12))
   const k = scalarKalman(obs, 0.1, 1.0, seed, 1.0)
   const sigmaStep = Math.exp(0.5 * k.state)            // √(σ²_per-step)
   const ann = Math.sqrt(periodsPerYear)
-  // band: propagate ±√P through 0.5·exp(0.5·state) (delta method), annualized
+  // range: propagate ±√P through 0.5·exp(0.5·state) (delta method), annualized
   const dSigma = 0.5 * sigmaStep
-  return { sigmaAnnual: sigmaStep * ann, band: dSigma * k.band * ann, divergent: k.divergent }
+  return { sigmaAnnual: sigmaStep * ann, range: dSigma * k.range * ann, divergent: k.divergent }
 }
 
 // ── β: dynamic factor exposure (§3.2.1). z = r_asset, H = r_factor. ──
-export interface BetaResult { beta: number; band: number; divergent: boolean }
+export interface BetaResult { beta: number; range: number; divergent: boolean }
 export function estimateBeta(assetReturns: number[], factorReturns: number[]): BetaResult {
   const n = Math.min(assetReturns.length, factorReturns.length)
-  if (n < 5) return { beta: 1, band: 0, divergent: false }
+  if (n < 5) return { beta: 1, range: 0, divergent: false }
   const obs = Array.from({ length: n }, (_, i) => ({ z: assetReturns[i], H: factorReturns[i] }))
   const k = scalarKalman(obs, 1e-5, 1e-3, 1, 1)        // Q_β≈1e-5, R_β≈1e-3
-  return { beta: k.state, band: k.band, divergent: k.divergent }
+  return { beta: k.state, range: k.range, divergent: k.divergent }
 }
 
 // ── φ: AR(1) mean-reversion (§3.2.3). z = r_t, H = r_{t-1}. ──
 export type ReversionLabel = 'trending' | 'random walk' | 'mean reverting'
-export interface PhiResult { phi: number; band: number; label: ReversionLabel; divergent: boolean }
+export interface PhiResult { phi: number; range: number; label: ReversionLabel; divergent: boolean }
 export function estimateMeanReversion(returns: number[]): PhiResult {
-  if (returns.length < 6) return { phi: 0, band: 0, label: 'random walk', divergent: false }
+  if (returns.length < 6) return { phi: 0, range: 0, label: 'random walk', divergent: false }
   const obs: { z: number; H: number }[] = []
   for (let i = 1; i < returns.length; i++) obs.push({ z: returns[i], H: returns[i - 1] })
   const k = scalarKalman(obs, 1e-5, 1e-3, 0, 1)
   const phi = k.state
   const label: ReversionLabel = phi > 0.1 ? 'trending' : phi < -0.1 ? 'mean reverting' : 'random walk'
-  return { phi, band: k.band, label, divergent: k.divergent }
+  return { phi, range: k.range, label, divergent: k.divergent }
 }

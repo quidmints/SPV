@@ -29,12 +29,12 @@ contract RefillTriggerAndProRataTest is Test {
         }
     }
 
-    /// @notice A BAND AT OR ABOVE TARGET MUST NOT FIRE — otherwise the refill runs forever.
-    function test_NoTargetAndFlushBandDoNotFire() public pure {
+    /// @notice A RANGE AT OR ABOVE TARGET MUST NOT FIRE — otherwise the refill runs forever.
+    function test_NoTargetAndFlushRangeDoNotFire() public pure {
         (bool noTarget,) = SwapLib.refillNeeded(POOL, 0, POOL / 2);
         assertFalse(noTarget, "no shed target means no scarcity to measure");
         (bool flush, uint s) = SwapLib.refillNeeded(FLOW, POOL, 0);   // inv well above target
-        assertFalse(flush, "a band above target created no imbalance");
+        assertFalse(flush, "a range above target created no imbalance");
         assertEq(s, 0, "and owes no shortfall");
     }
 
@@ -43,7 +43,7 @@ contract RefillTriggerAndProRataTest is Test {
     function test_ShortfallIsTheAmountToSourceAndGrowsWithTheDrain() public pure {
         (, uint small) = SwapLib.refillNeeded(POOL, FLOW, POOL / 10);
         (, uint large) = SwapLib.refillNeeded(POOL, FLOW, (POOL * 9) / 10);
-        assertGt(small, 0, "a scarce band must report something to source");
+        assertGt(small, 0, "a scarce range must report something to source");
         assertGt(large, small, "a deeper drain must need more sourced");
         // A total drain leaves nothing, so the shortfall is the whole target.
         (, uint total) = SwapLib.refillNeeded(POOL, FLOW, POOL);

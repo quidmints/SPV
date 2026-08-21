@@ -53,7 +53,7 @@ ratio of total path travelled to net move.
 
 | regime | who wins | why |
 |---|---|---|
-| choppy, round-tripping swings | unlevered | two spreads per cycle against IL that reverts for free; the de-lever band suppresses small oscillations but large ones trigger it. **ETH's most common regime.** |
+| choppy, round-tripping swings | unlevered | two spreads per cycle against IL that reverts for free; the de-lever range suppresses small oscillations but large ones trigger it. **ETH's most common regime.** |
 | rise then fall | unlevered, clearly | bought with borrowed money up, sold it down — buy high sell low, on the buffer specifically, realised through `_deleverFlash` (`LevManager.sol:34`, `:500`) |
 | low volume | unlevered, outright | fees on the buffer ≈ 0, so the amplification argument evaporates while carry is still paid |
 | long horizon, no forced exit | unlevered | IL is impermanent *for you* in the strict sense; paying carry to hedge something that resolves itself is negative EV |
@@ -154,11 +154,11 @@ rebalancing mechanism instead of letting external parties capture it and return 
 volume is typically the majority of fee revenue in volatile pairs, so LPs got less fee revenue than
 a vanilla pool at the same TVL — while still paying the rebalancing cost in gas and hook overhead.
 
-🔴 **CORRECTION — our band is ±0.2%, not ~2%, and the cited call does not exist.** `BAND_DELTA = 20`
-(`SwapLib.sol:732`), i.e. **±0.2%** — an order of magnitude tighter than the "~2% band" the draft
+🔴 **CORRECTION — our range is ±0.2%, not ~2%, and the cited call does not exist.** `RANGE_DELTA = 20`
+(`SwapLib.sol:732`), i.e. **±0.2%** — an order of magnitude tighter than the "~2% range" the draft
 claims — and there is no `_updateTicks(sqrtPriceX96, 200)` call in the tree.
 
-The contrast is also **stronger** than the draft states, as of 2026-08-16: we no longer store band
+The contrast is also **stronger** than the draft states, as of 2026-08-16: we no longer store range
 bounds at all. The 1:1 composition is `tokPlaced·px == usd6Placed` — a function of inventory and
 price, with no width term — so we are not "a simpler LDF", we are not on that axis.
 
@@ -189,7 +189,7 @@ endogenous yield** — it does not trade the stables against each other, or agai
 Cork and Bunni both died by adding expressive machinery on top of V4 — an unpriceable insurance
 market, a per-trade liquidity-reshaping LDF — and Pendle carries structural overhead in the split,
 the decaying curve, and per-maturity fragmentation. **Our edge everywhere is subtractive:** bound
-risk by diversification instead of pricing it; hold one band around the oracle instead of a
+risk by diversification instead of pricing it; hold one range around the oracle instead of a
 continuous distribution; redeem on a schedule instead of on a maintained curve. The minimalism *is*
 the safety argument.
 
@@ -201,8 +201,8 @@ Claims in circulation that the code contradicts, so they are not repeated downst
 
 | claim | status | evidence |
 |---|---|---|
-| "a ~2% band via `_updateTicks(sqrtPriceX96, 200)`" | 🔴 wrong on both counts | `BAND_DELTA = 20` ⇒ ±0.2%, `SwapLib.sol:732`; no such call exists |
+| "a ~2% range via `_updateTicks(sqrtPriceX96, 200)`" | 🔴 wrong on both counts | `RANGE_DELTA = 20` ⇒ ±0.2%, `SwapLib.sol:732`; no such call exists |
 | "the swap-in bonus is for a JIT actor" | 🔴 instrument removed | `payRefillBonus` deleted 2026-07-22 — `Core.sol:404`, `Vault.sol:432`, `SwapLib.sol:659` |
 | "we froze the fee and built a separate adaptive scalar beside it" | 🟠 historical | the skew now carries a base charged on **all** flow (§UNIT-A), so the skew *is* the fee; `swapFeePpm()` is a disclosure accessor that charges nothing, and the 420 is a v4 pool tier |
-| "solvers quote the exact number a swap executes at" | ✅ **fixed 2026-08-16** | was the instantaneous rate while settlement charges the §E68 integral — a 90%-of-band drain filled **4.12×** worse than quoted. `wellSkew(asset, drainUsd6)` added; `Aux.sol`, `ISwap.sol` |
-| "band bounds are stored" | ✅ no longer true | `deltaBps`/`pLower`/`pUpper` deleted; composition is width-independent |
+| "solvers quote the exact number a swap executes at" | ✅ **fixed 2026-08-16** | was the instantaneous rate while settlement charges the §E68 integral — a 90%-of-range drain filled **4.12×** worse than quoted. `wellSkew(asset, drainUsd6)` added; `Aux.sol`, `ISwap.sol` |
+| "range bounds are stored" | ✅ no longer true | `deltaBps`/`pLower`/`pUpper` deleted; composition is width-independent |

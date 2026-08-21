@@ -8,7 +8,7 @@ import json, math, time
 ser=json.load(open("eth_daily.json")); px=[p for _,p in ser]; ts=[t for t,_ in ser]
 r=[math.log(px[i]/px[i-1]) for i in range(1,len(px))]; N=len(r)
 YEARS=len(set(time.gmtime(ts[i+1]/1000).tm_year for i in range(N)))
-K=0.71; BAND=0.02; F=0.02; RATE=0.07; SP_INT=0.75; SPREAD=0.0010; MCR=1.10
+K=0.71; RANGE=0.02; F=0.02; RATE=0.07; SP_INT=0.75; SPREAD=0.0010; MCR=1.10
 
 def alive(L):
     liq=(1.0/L)/MCR; out=[]; live=True; pk=px[0]
@@ -31,11 +31,11 @@ def run(E,L):
         elif Nn>0 and ai>0.05: dv=min(Nn,Nn*ai*2.0); Nn-=dv
         # protective unwind on a would-be-liquidation day: surplus absorbs the dumped ETH at the lag
         if prev==1 and al[i]==0:
-            a['unwind'] -= Vt*min(ai,BAND)
+            a['unwind'] -= Vt*min(ai,RANGE)
         amp=Nn*dpf
         a['interest'] += Nn*dpf*RATE*SP_INT/365     # 75% borrower interest -> QU!D's SP (still earned)
         a['spread']   += op*SPREAD
-        a['cN']       += F*amp/365 - K*amp*min(r[i]*r[i],BAND*BAND)
+        a['cN']       += F*amp/365 - K*amp*min(r[i]*r[i],RANGE*RANGE)
         prev=al[i]
     net=sum(a.values())
     prem = (-net/(E*YEARS)) if net<0 else 0.0   # APR on leveraged equity to break even

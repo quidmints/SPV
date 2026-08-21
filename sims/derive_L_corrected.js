@@ -3,7 +3,7 @@
 // ONLY — no venue yield (load-bearing, scales with L), raw 7% carry (not self-funded). That single
 // misspecified objective drove the "R1 wins by a wide margin / ~300x turnover" verdict.
 //
-// FAITHFUL model (real 180d windows, constant-LTV band overlay = the validated host):
+// FAITHFUL model (real 180d windows, constant-LTV range overlay = the validated host):
 //   net_edge(L) vs HODL = trackErr(L) [equity/HODL, net of borrow drag in the overlay]
 //                        + VENUE_YIELD * L * t        <-- the OMITTED term (L*ETH in the venue)
 //                        + FEE * turnover * L * t      <-- fees (also scale with L)
@@ -14,22 +14,22 @@ const fs=require('fs');
 const SP='/tmp/claude-1000/-home-rico-projects/1f505948-253b-4400-a784-a1f0f9b9e1e5/scratchpad/';
 const loadD=f=>JSON.parse(fs.readFileSync(SP+f)).data.map(d=>+d.PriceUSD).filter(p=>isFinite(p)&&p>0);
 const DT=1/365, MCR=1.10, FEE=0.0005, ALPHA=0.5;
-const bandVal=p=>Math.pow(p,ALPHA);
+const rangeVal=p=>Math.pow(p,ALPHA);
 function overlay(Pin,L,R,BORROW){
   const P=Pin.map(x=>x/Pin[0]);
-  let coll=L, debt=L-1, units=coll/bandVal(P[0]);
+  let coll=L, debt=L-1, units=coll/rangeVal(P[0]);
   for(let i=1;i<P.length;i++){
-    coll=units*bandVal(P[i]); debt+=BORROW*debt*DT;
+    coll=units*rangeVal(P[i]); debt+=BORROW*debt*DT;
     if(coll-debt<=0||coll/debt<MCR) return null;            // liquidated
-    if(i%R===0){const E=coll-debt; coll=L*E; debt=(L-1)*E; units=coll/bandVal(P[i]);}
+    if(i%R===0){const E=coll-debt; coll=L*E; debt=(L-1)*E; units=coll/rangeVal(P[i]);}
   }
-  const pe=P[P.length-1]; return {trackErr:(units*bandVal(pe)-debt-pe)/pe, t:(P.length-1)/365};
+  const pe=P[P.length-1]; return {trackErr:(units*rangeVal(pe)-debt-pe)/pe, t:(P.length-1)/365};
 }
 function sigAnn(P){const r=[];for(let i=1;i<P.length;i++)r.push(Math.log(P[i]/P[i-1]));const m=r.reduce((a,b)=>a+b,0)/r.length;return Math.sqrt(r.reduce((a,b)=>a+(b-m)**2,0)/r.length/DT);}
 
 for(const [name,file] of [['ETH','eth.json'],['BTC','btc.json']]){
   const P=loadD(file);
-  // realized vol + analytic IL hurdle (sigma^2/8 on the band's sqrt(p))
+  // realized vol + analytic IL hurdle (sigma^2/8 on the range's sqrt(p))
   let sig=0,ns=0,wins=[];
   for(let s=0;s+180<P.length;s+=14){const w=P.slice(s,s+181);sig+=sigAnn(w);ns++;wins.push(w);}
   sig/=ns; const hurdle=sig*sig/8;

@@ -35,7 +35,7 @@
 //! Nothing about the family is written anywhere but the shares themselves, and a share carries
 //! **an index, a threshold, and 32 bytes of field element**. There is no roster, no coordinator,
 //! no on-chain artefact, no key exchange, and no record of who received which share — the
-//! operator hands them out off-band and that is the whole protocol. Two shares cannot be
+//! operator hands them out off-range and that is the whole protocol. Two shares cannot be
 //! recognised as belonging to the same family without K of them, and even then what they yield is
 //! a seed, not a membership list. **Set size is not published either**: `count` is not recorded
 //! in a share, only `threshold`, which is what recovery needs.
@@ -92,7 +92,7 @@ pub struct SeedShare {
 }
 
 impl SeedShare {
-    /// Which point this is. Shares are handed out off-band, so this is the only handle an
+    /// Which point this is. Shares are handed out off-range, so this is the only handle an
     /// operator has for saying "you have number 2" — it names nothing about the holder.
     pub fn index(&self) -> u8 {
         self.index

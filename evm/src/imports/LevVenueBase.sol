@@ -269,7 +269,7 @@ contract AaveV3Escrow {
 ///
 ///         POSITION READS use the ProtocolDataProvider's per-asset `getUserReserveData` (Amp.sol's PROVEN source):
 ///         `currentVariableDebt` / `currentATokenBalance` are the exact block-fresh underlying-unit amounts — no
-///         raw vToken/aToken balanceOf, no hardcoded reservesList index, one asset per call (cheap for bandBTC).
+///         raw vToken/aToken balanceOf, no hardcoded reservesList index, one asset per call (cheap for rangeBTC).
 ///
 ///         Custody (per ILevVenue): MANAGER sends collateral/stable to the venue before supply/repay; the venue
 ///         routes them through the LP's escrow and forwards borrowed stable / withdrawn collateral back to MANAGER.

@@ -17,7 +17,7 @@
 // The decision this answers: does arbETH/arbBTC create more problems than it solves, and what is
 // the right IL treatment for OUR design (linear-ETH claim, retention, venue yield)?
 
-const K = 0.71;                 // measured LVR coefficient, +/-2% band guard-on (IL-CERT §3)
+const K = 0.71;                 // measured LVR coefficient, +/-2% range guard-on (IL-CERT §3)
 const DT = 1 / 365;             // daily steps
 const YIELD = 0.05;             // 5%/yr venue yield (sweep below); ~3% real, 5-8% in scenarios
 const FEE_RATE = 0.0005;        // 5 bps pool fee

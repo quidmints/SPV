@@ -20,7 +20,7 @@ import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
 ///         `LevManager` has 70 bytes of headroom and `SwapLib` 295, and both are unchanged by this.)
 ///         Every merge here is a strict UNION of previously-declared members with byte-identical
 ///         signatures, so no call encoding changes.
-// §BANDBACKING-FOLD — `IBandBacking` DELETED, along with the contract it described. Its members
+// §RANGEBACKING-FOLD — `IRangeBacking` DELETED, along with the contract it described. Its members
 // moved onto `Aux` (`report`, `committedTotal`), which is where the gate that consumes them already
 // lives; `otherThan` was dropped rather than moved, having had no callers. Note this interface was
 // declared in TWO places — here and again in Core.sol — which is exactly what the warning below was
@@ -193,13 +193,13 @@ interface IAaveV4Hub {
 /// §LEV-FOLD-2 — THE BTC MIRROR IS GONE, AND THE GUARD IT PROVIDED IS NOT. The old note here said
 /// these were "NOT mergeable ... a single interface would let a caller reach a BTC read on the ETH
 /// manager (and vice versa)", and that was TRUE: distinct selectors made a wrong-manager call
-/// REVERT rather than quietly return the other band's book, which matters in a tree that has
+/// REVERT rather than quietly return the other range's book, which matters in a tree that has
 /// shipped three address-confusion bugs of that shape in one session.
 ///
 /// But that is a CLAMP -- it catches the mis-assignment once per call, forever, and only if the
 /// caller happens to use the suffixed accessor. The state it was detecting is now
 /// UNCONSTRUCTIBLE instead: `setLevManager` refuses any manager whose `ORACLE_KEY` is not the
-/// pinning band's own asset, so a BTC manager cannot be pinned to the ETH band at all and there is
+/// pinning range's own asset, so a BTC manager cannot be pinned to the ETH range at all and there is
 /// no wrong-manager handle for a caller to hold. Standing rule 17 — a root fix makes the previous
 /// guard DELETABLE, which is exactly the test for whether it was a fix or a clamp.
 ///
@@ -207,8 +207,8 @@ interface IAaveV4Hub {
 /// ETH manager and 8-dec sats on the BTC one. The MEANING is identical, which is why one name
 /// serves both — the same argument `LevBase.netEquity` already records.
 interface ILevEquity {
-    /// The band asset this manager prices against — WETH or WBTC. The identity `setLevManager`
-    /// checks, and the reason a wrong-band pin cannot be built.
+    /// The range asset this manager prices against — WETH or WBTC. The identity `setLevManager`
+    /// checks, and the reason a wrong-range pin cannot be built.
     function ORACLE_KEY() external view returns (address);
     function totalGrossCollateral() external view returns (uint256);
     function totalNetEquity() external view returns (uint256);
@@ -223,27 +223,6 @@ interface ILevEquity {
 interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
 
-
-/// Canonical IBand — union of IBand, IBandB.
-/// Canonical view — union of the former per-file variants (`IBandM`). Two declarations
-/// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
-interface IBand {
-    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLev` for the same
-    /// operation, so the two bands could not be called through one method even though the
-    /// interface existed precisely to make that possible. The interface IS the polymorphism;
-    /// a second name for the same call defeats it.
-    function syncLev(address lp) external;
-    function soldFractionWad(uint entryPrice) external view returns (uint256);
-    function bandPrice() external view returns (uint);
-    // Band bounds. These replace the former `reseatEpoch()` counter as the re-anchor signal: the counter and
-    // the ticks are written in the same statement pair (Quid:1137-1138, Vault:711-712), so the bounds carry
-    // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
-    // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
-    // state (Quid:92-93, Vault:214-215); no new contract code implements them.
-    /// §ONE-ANCHOR — was `LOWER_PRICE()` + `UPPER_PRICE()`. One call returns the pair, derived from
-    /// the single stored anchor, so a reader cannot obtain one leg without the other.
-    function bandBounds() external view returns (uint lo, uint hi);
-}
 
 /// Canonical ILevVenueColl — union of ILevVenueColl, ILevVenueCollB.
 interface ILevVenueColl {
@@ -304,7 +283,7 @@ interface ISwap {
     // starting rate is the cheapest point on it — measured 1.11× understated at a 10% drain and
     // 4.12× at 90%. Since the defect WAS consumers reading a size-blind number, leaving one callable
     // preserved the mistake; `wellSkew(asset, 0)` still gives the indicative rate, but the caller has
-    // to say they meant zero size. Inventory, not `L`, separates a full band from a drained one at
+    // to say they meant zero size. Inventory, not `L`, separates a full range from a drained one at
     // the same price, and a size-blind quote cannot express that difference at all.
     function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 skewWad);
     function swapFeePpm() external pure returns (uint24 feePpm);   // flat V4 pool tier (420 = 0.042%)
@@ -329,7 +308,7 @@ interface IAux is ISwap {
     function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
     function get_metrics(bool force) external returns (uint total, uint avgYield);
     function get_metricsWith(uint raw, uint rateWeighted) external returns (uint total, uint avgYield);
-    function bandETH() external view returns (uint);
+    function rangeETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
     function getStables() external view returns (address[] memory);
@@ -489,36 +468,36 @@ interface ICore {
     /// §E59 — realized tick variance from the STORED observations (per-second, WAD) + the measured
     /// span. Reads the RING, so it never sees observe()'s interpolation, which used to manufacture
     /// zeros in any stretch quieter than the old wall-clock sample grid. span 0 = UNKNOWN, not calm.
-    /// §E53 — the BTC band's equity alone. With committedUsd18() (the SUM) this yields the OTHER
-    /// band's share of the one bound both compete for, which is what the shared-scarcity amplifier
+    /// §E53 — the BTC range's equity alone. With committedUsd18() (the SUM) this yields the OTHER
+    /// range's share of the one bound both compete for, which is what the shared-scarcity amplifier
     /// needs and what no isBTC-scoped input could ever supply.
-    function bandEquityUsd18() external view returns (uint);
+    function rangeEquityUsd18() external view returns (uint);
     function swap(address sender, bool inputIsUsd, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 
-    // ═══ §E305 — `ICore` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH BAND MANAGERS ═══
+    // ═══ §E305 — `ICore` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH RANGE MANAGERS ═══
     // `ICore` named the same objects this does, from the other side, so the two were one concept
     // wearing two nouns. Its 16 members are below; `Core`, `Quid` and `Vault` all cast to `ICore`.
     // ⚠️ THIS INTERFACE DELIBERATELY OVER-PROMISES, AND THAT IS THE COST OF ONE NOUN. No single
     //    contract implements all 43 members: `Core` has the pool surface, `Quid` and `Vault` the
-    //    band surface. A call to a member the target does not implement COMPILES and reverts at
+    //    range surface. A call to a member the target does not implement COMPILES and reverts at
     //    runtime with no matching selector (~195 gas, the dispatcher falling through). If that
     //    ever bites, the tell is the gas number, not the message.
     // ⚠️ `repack` EXISTS TWICE AND THEY ARE DIFFERENT OPERATIONS: `repack(uint anchorPrice)` is
-    //    `Core`'s, `repack()` is the band manager's. Solidity keeps them as OVERLOADS because the
+    //    `Core`'s, `repack()` is the range manager's. Solidity keeps them as OVERLOADS because the
     //    parameter lists differ — the arity is what selects, so neither call site changes meaning.
-    /// Size and commit `deltaTok` of the band's volatile at `price`. ETH routes through the venue,
+    /// Size and commit `deltaTok` of the range's volatile at `price`. ETH routes through the venue,
     /// BTC through channels -- the ONE genuine difference in the merged `levAddNet`.
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
     function creditSkewPremium(uint premium6) external;
     /// §E258 — execute the resting boundary orders `px` has crossed since the last sweep, capped.
     /// ⚠️ THE TWO INSTANCES ANSWER DIFFERENTLY AND BOTH ANSWERS ARE CORRECT, for the same reason
-    /// `deliverVolatile` does: a BTC bid fills into BTC, and this band has no on-chain BTC delivery
+    /// `deliverVolatile` does: a BTC bid fills into BTC, and this range has no on-chain BTC delivery
     /// (settlement is a Lightning cooperative close), so an automatic fill there would BURN the
     /// filled leg — turning a loss the owner currently chooses into one the protocol inflicts.
     function sweepOor(uint px, uint maxFills) external returns (uint filled);
-    /// The band's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
+    /// The range's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
     function levManager() external view returns (address);
-    /// Gross levered collateral in the band's NATIVE unit (wei / sats).
+    /// Gross levered collateral in the range's NATIVE unit (wei / sats).
     function levGrossNative() external view returns (uint);
     /// Share base the shortfall trigger compares against -- NET for ETH, net + levered buffer for
     /// BTC, so the comparison stays gross-to-gross on both sides.
@@ -531,25 +510,41 @@ interface ICore {
     /// Pay the volatile leg out to `who`. See the no-op note above.
     function deliverVolatile(uint amount, address who) external returns (uint sent);
 
-    // ═══ §E302 — `IBandManager`'s SEVEN MEMBERS, MERGED IN. ONE BAND FACE, NOT TWO ═══
+    // ═══ §E302 — `IRangeManager`'s SEVEN MEMBERS, MERGED IN. ONE RANGE FACE, NOT TWO ═══
     // The two interfaces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
     // they were never two objects - only two names for one. Nothing was declared twice, which is
-    // why standing rule 2 never flagged it; the defect was that a caller holding a band had no way
-    // to know which of two faces to reach for, in a codebase whose target is ONE band manager.
+    // why standing rule 2 never flagged it; the defect was that a caller holding a range had no way
+    // to know which of two faces to reach for, in a codebase whose target is ONE range manager.
     // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions - their
     //    getters are auto-generated, so grepping for their `function` form in `Quid.sol` returns 0
     //    while the members are fully implemented.
     /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
     /// §ONE-ANCHOR — the derived range, from the single stored anchor.
-    function bandBounds() external view returns (uint lo, uint hi);
+    function rangeBounds() external view returns (uint lo, uint hi);
     function feesPerShare() external view returns (uint);
     function USD_FEES() external view returns (uint);
-    /// This band's engine. Without it a caller holding two band managers cannot reach the second
-    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
+    /// This range's engine. Without it a caller holding two range managers cannot reach the second
+    /// range's `POOLED`/`POOLED_USD`, which is what silently made cross-range isolation untestable.
     function CORE() external view returns (address);
     function derivedThetaWad() external view returns (uint);
     function setBTCChannels(address b) external;
+
+    // §E307 — `ICore` folded in; members ICore already had are not duplicated.
+    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLev` for the same
+    /// operation, so the two ranges could not be called through one method even though the
+    /// interface existed precisely to make that possible. The interface IS the polymorphism;
+    /// a second name for the same call defeats it.
+    function syncLev(address lp) external;
+    function soldFractionWad(uint entryPrice) external view returns (uint256);
+    function rangePrice() external view returns (uint);
+    // Range bounds. These replace the former `reseatEpoch()` counter as the re-anchor signal: the counter and
+    // the ticks are written in the same statement pair (Quid:1137-1138, Vault:711-712), so the bounds carry
+    // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
+    // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
+    // state (Quid:92-93, Vault:214-215); no new contract code implements them.
+    /// §ONE-ANCHOR — was `LOWER_PRICE()` + `UPPER_PRICE()`. One call returns the pair, derived from
+    /// the single stored anchor, so a reader cannot obtain one leg without the other.
 }
 
 /// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
@@ -557,11 +552,11 @@ interface ICore {
 ///         already speak this interface at an `ethVenue` pointer, that extraction repoints a pointer
 ///         instead of re-typing every site.
 interface IEthVenue {
-    function bandETH() external view returns (uint);
+    function rangeETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
     function supplyFromAux(uint amount) external returns (uint);
     function withdrawForAux(uint amount, address to) external returns (uint);
-    function bandOp(uint amount, uint8 op) external returns (uint);
+    function rangeOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
     function offrampEtherFi(uint amount, address recipient) external returns (uint);
     /// §E306 — folded in from `IEthVenue`, a one-function face over this SAME contract: all three of its
@@ -572,7 +567,7 @@ interface IEthVenue {
 
 /// Canonical IAux — union of IAux, IAux.
 
-/// @notice §E5 — the per-band sink that routes a retained scarcity premium into that band's LP
+/// @notice §E5 — the per-range sink that routes a retained scarcity premium into that range's LP
 ///         fee accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME
 ///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
 /// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
@@ -615,7 +610,7 @@ interface IBasketTurn {
     /// `target()` lives in `Basket.sol` alongside the three above, so both faces described one thing.
     /// 📖 **NAMING, SO IT IS NOT RE-READ AS DRIFT:** `Basket` is the QU!D token contract, and the
     /// variables that hold it are named `quid` accordingly — `DeployLib:171` `Basket quid = new
-    /// Basket(...)`. The contract *named* `Quid` is the ETH BAND (`DeployLib:118` `Quid ethBand = new
+    /// Basket(...)`. The contract *named* `Quid` is the ETH RANGE (`DeployLib:118` `Quid ethRange = new
     /// Quid()`). **Deliberate and correct: the type names the implementation, the variable names the
     /// role.** So `IBasketTurn(quid)` reads the QU!D token, which is what `turn`, `matureSupply`,
     /// `immatureBalanceOf` and `target` all belong to.
@@ -662,7 +657,7 @@ interface IBtc {
     // requestRedeem and NOTHING for a PARTIAL close: this shrinks a position by `shrinkSats`
     // without retiring the channel, which the standard does not model. Inventing `requestResize`
     // would dress a non-standard operation in standard vocabulary, which is worse than a plain
-    // name. The `Btc` suffix goes because that is the band-instance cleanup, not the 7540 one.
+    // name. The `Btc` suffix goes because that is the range-instance cleanup, not the 7540 one.
     function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
     // BTC↔USD swap settlement (the swap-IN credit + on-curve swap-OUT buy).
     function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd) external returns (uint consumedSats);
@@ -705,7 +700,7 @@ interface ICurveOracle {
 
 /// @title  ExternalTwap — the INDEPENDENT price observer, restoring what the v4 cut deleted
 ///
-/// @notice **WHY THIS EXISTS.** Before the cut, the observation ring recorded the BAND POOL'S SPOT
+/// @notice **WHY THIS EXISTS.** Before the cut, the observation ring recorded the RANGE POOL'S SPOT
 ///         PRICE — an actual observation of executed trades — and Chainlink was the ANCHOR checking
 ///         it. Two genuinely different sources, which is what made `twapResolve`'s deviation test and
 ///         `BasketLib.isManipulated` mean anything.
@@ -764,7 +759,7 @@ interface IAaveV3Pool {
 /// @dev Aave's ProtocolDataProvider — the PROVEN read Amp.sol used (`getReserveTokensAddresses`). Its per-asset
 ///      `getUserReserveData` returns the CURRENT (already index-scaled, block-fresh, underlying-unit) aToken balance
 ///      and variable debt DIRECTLY — no vToken.balanceOf, no hardcoded reservesList index, one asset per call
-///      (cheap on the on-chain bandBTC sum). This is why we read positions here and not off the raw tokens.
+///      (cheap on the on-chain rangeBTC sum). This is why we read positions here and not off the raw tokens.
 interface IAaveV3DataProvider {
     function getUserReserveData(address asset, address user) external view returns (
         uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt,

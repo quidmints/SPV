@@ -31,8 +31,8 @@ the 4.2-bps Quid PoolKey/AMM fee, which is a separate plane.
 > `calcNeeded`/`allocate` as `baseRateBps`, applied ONLY on the redemption path.~~
 
 > **The analogy in one line.** The ETH/BTC AMM side prices and fills exits
-> against a *price* TWAP and a *concentrated-liquidity* band. Pegged stables have
-> no floating price to TWAP and no v4 band — so the stable side reuses the
+> against a *price* TWAP and a *concentrated-liquidity* range. Pegged stables have
+> no floating price to TWAP and no v4 range — so the stable side reuses the
 > *same shapes* in its own register: a **time-weighted yield** (smooths blips like
 > a TWAP) and the basket **concentration** (each stable's weight). The outflow fee
 > is a function of both.

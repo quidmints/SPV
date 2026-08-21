@@ -3,7 +3,7 @@
 //  (1) theta is DERIVED live (Vogue.derivedThetaWad = min(1, yield/(K*sigma^2))), NOT fixed 0.5.
 //      => in a high-vol rally sigma^2 is large -> theta collapses -> the exposed in-range slice is
 //         SMALL exactly when a trend would hurt; the rest of the LP's ETH is plain ETH (HODL).
-//  (2) the band REPACKS (virtual re-center, NO realization charge — "real assets untouched"),
+//  (2) the range REPACKS (virtual re-center, NO realization charge — "real assets untouched"),
 //      so it FOLLOWS the trend instead of dumping at +2% and missing the rally.
 // LP edge vs HODL(1 ETH) over ALL withdrawal days, per real Binance 5m window.
 const fs=require('fs');
@@ -15,21 +15,21 @@ function amts(P,pa,pb,L){const sp=Math.sqrt(Math.max(pa,Math.min(P,pb))),spa=Mat
 function Lfor(C,p,pa,pb){const{eth,usd}=amts(p,pa,pb,1);return C/(eth*p+usd);}
 function sigAnnual(px,i){const a=Math.max(1,i-VOLWIN),r=[];for(let j=a;j<=i;j++)r.push(Math.log(px[j]/px[j-1]));const m=r.reduce((x,y)=>x+y,0)/r.length;const v=r.reduce((x,y)=>x+(y-m)**2,0)/Math.max(1,r.length-1);return Math.sqrt(v/DT);}
 
-// LP deposits 1 ETH. theta-slice in a +/-2% band (virtual USD pair); (1-theta) is plain ETH.
-// Repack on band exit: re-center + re-derive theta from current vol, using current wealth (no charge).
+// LP deposits 1 ETH. theta-slice in a +/-2% range (virtual USD pair); (1-theta) is plain ETH.
+// Repack on range exit: re-center + re-derive theta from current vol, using current wealth (no charge).
 function walk(px, policy){
   let pa=px[0]/(1+R), pb=px[0]*(1+R);
   let theta=1, L=Lfor(theta*px[0],px[0],pa,pb), retEth=1-theta, extraEth=0;
   const edges=[], thetas=[];
   for(let i=1;i<px.length;i++){
     const p=px[i], a=amts(p,pa,pb,L), ap=amts(px[i-1],pa,pb,L);
-    extraEth += FEE*Math.abs(ap.eth-a.eth);                 // fee on band volume
-    const bandValEth=(a.eth*p+a.usd)/p;
-    extraEth += YIELD*(bandValEth+retEth)*DT;               // venue yield on ALL the ETH
+    extraEth += FEE*Math.abs(ap.eth-a.eth);                 // fee on range volume
+    const rangeValEth=(a.eth*p+a.usd)/p;
+    extraEth += YIELD*(rangeValEth+retEth)*DT;               // venue yield on ALL the ETH
     if(p<pa||p>pb){                                          // repack: virtual re-center
       const sig=sigAnnual(px,i);
       theta = policy==='fixed05'?0.5 : policy==='one'?1 : Math.min(1, sig>0?YIELD/(K*sig*sig):1);
-      const totalEth=bandValEth+retEth;
+      const totalEth=rangeValEth+retEth;
       pa=p/(1+R); pb=p*(1+R); L=Lfor(theta*totalEth*p,p,pa,pb); retEth=(1-theta)*totalEth;
     }
     thetas.push(theta);

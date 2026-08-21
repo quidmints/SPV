@@ -23,9 +23,9 @@ import {SwapLib} from "./SwapLib.sol";
 ///         compensate and nothing the spread would be funding.
 ///
 ///         WHAT REMAINS IS A REAL COST, AND IT IS NOT FREE: curving back to target pays Curve's fee
-///         plus slippage, and it is incurred BECAUSE someone pushed the band off target.
+///         plus slippage, and it is incurred BECAUSE someone pushed the range off target.
 ///         ⇒ **THE COST SPLITS ACROSS ALL THREE** (owner, 2026-08-15, correcting an earlier
-///         causer-pays-only reading). A band trade has **TWO SUPPLIERS, NOT ONE**: the volatile leg
+///         causer-pays-only reading). A range trade has **TWO SUPPLIERS, NOT ONE**: the volatile leg
 ///         is LP INVENTORY, the USD leg is BASKET CAPITAL (at rest ~246k of basket dollars against a
 ///         739k ETH deposit). The rebalance cost is therefore incurred against capital supplied by
 ///         both, and CAUSATION IS ONLY ONE AXIS. Each pure answer is a corner solution:
@@ -38,17 +38,17 @@ import {SwapLib} from "./SwapLib.sol";
 ///         resolves the corner solutions.
 ///
 /// 🔴 THIS IS THE SAME QUESTION AS #12 (count-once) AND MUST BE SETTLED WITH IT.
-///         #12 cannot be evaluated without stating who owns the PROCEEDS of a band→basket sale —
+///         #12 cannot be evaluated without stating who owns the PROCEEDS of a range→basket sale —
 ///         two suppliers, both corners wrong, the survivor being "credit the LP its inventory's
 ///         proceeds MINUS a depth fee". That is this split seen from the other side: one asks who
 ///         pays a cost, the other who receives a proceed, and both answer "apportion between the
 ///         two suppliers". Settle them together or they WILL drift apart.
 ///
 /// 🔴 OUT-OF-RANGE IS A FOURTH STATE AND IT BREAKS THE TWO-SUPPLIER SYMMETRY.
-///         When the band is OOR it holds a SINGLE asset — the two legs have collapsed into one, so
+///         When the range is OOR it holds a SINGLE asset — the two legs have collapsed into one, so
 ///         "who supplied what" has a different answer entirely. The operation is also different: not
 ///         *restore 1:1* but *RE-ENTER RANGE*, a different cost with a different beneficiary. **A
-///         split calibrated on an in-range band is simply WRONG when applied out of range**, and it
+///         split calibrated on an in-range range is simply WRONG when applied out of range**, and it
 ///         will not announce itself — it produces a plausible apportionment against the wrong basis.
 ///         ⚠️ NOT SOLVED HERE. Any split rule must state its OOR behaviour explicitly rather than
 ///         inheriting the in-range weights by default.
@@ -77,7 +77,7 @@ import {SwapLib} from "./SwapLib.sol";
 ///         so and says the binding must carry its own staleness bound — so `Quote.deadline` is NOT
 ///         optional garnish, it is the thing that stops a quote taken in a calm block from settling
 ///         in a violent one. A committed rate with no expiry is a FREE OPTION written to the swapper,
-///         and the band is the counterparty who paid for it.
+///         and the range is the counterparty who paid for it.
 library FixedRateFill {
     /// A rate committed before execution, with the two bounds that make committing safe.
     /// @param rateWad     volatile↔USD rate INCLUSIVE of the skew charge. What settles.
@@ -97,7 +97,7 @@ library FixedRateFill {
     error ConservationViolated();
     error NoQuote();
 
-    /// @notice Quote a DRAIN — volatile out of the band, the scarce direction.
+    /// @notice Quote a DRAIN — volatile out of the range, the scarce direction.
     /// @param  core     the Core holding the pooled accumulators the skew reads.
     /// @param  base     the oracle price (the SAME base `wellSkew` takes; the WBTC ×1e10 lift already
     ///                  closes the 8↔18 gap, so one flat scale serves both assets — do NOT add a
@@ -116,7 +116,7 @@ library FixedRateFill {
         q.deadline  = uint64(block.timestamp) + ttl;
     }
 
-    /// @notice Quote a FILL — volatile into the band, the abundant direction.
+    /// @notice Quote a FILL — volatile into the range, the abundant direction.
     /// @param  addedTok the volatile being deposited. Passed so the sell is judged on inventory AFTER
     ///         its own contribution — a pool sitting exactly at target would otherwise never charge
     ///         any sell, however large (the §E54 note on `sellSkew`).
@@ -131,8 +131,8 @@ library FixedRateFill {
     }
 
     /// @dev The skew moves the rate AGAINST the swapper in both directions — it is a spread, not a
-    ///      directional view. On a drain the band parts with scarce inventory and charges MORE per
-    ///      unit; on a fill the band absorbs unwanted inventory and pays LESS per unit. Symmetric by
+    ///      directional view. On a drain the range parts with scarce inventory and charges MORE per
+    ///      unit; on a fill the range absorbs unwanted inventory and pays LESS per unit. Symmetric by
     ///      construction, which is what makes it a spread rather than a fee with a sign bug.
     function _applySkew(uint base, uint skewWad, bool draining) private pure returns (uint) {
         return draining
@@ -160,7 +160,7 @@ library FixedRateFill {
     ///         why this is a runtime check on live cost rather than a constant chosen once.
     ///
     /// @dev THE ARITHMETIC (from the skew thread, verified against its four data points). A grinder
-    ///      with no price view displaces the band and reverts it, paying our fee TWICE while we pay
+    ///      with no price view displaces the range and reverts it, paying our fee TWICE while we pay
     ///      the restoration leg twice:
     ///          trader pays 2·(fee + w·C)   ·   we pay 2·C   ·   non-abusable iff 2·fee + 2C(w−1) ≥ 0
     ///      ⇒   **w ≥ 1 − fee/C**   (w = swapper's share, C = per-leg restoration cost, fee = 420 ppm)
@@ -172,7 +172,7 @@ library FixedRateFill {
     ///      w is safe at 5bp and grindable at 10bp+. The weights being INPUTS is not sufficient —
     ///      they must clear this floor at the cost that actually applies.
     ///
-    ///      ⚠️ IN-RANGE ONLY. The derivation assumes TWO supplier legs. Out of range the band holds a
+    ///      ⚠️ IN-RANGE ONLY. The derivation assumes TWO supplier legs. Out of range the range holds a
     ///      SINGLE asset, so the round-trip it models does not exist and this bound says nothing —
     ///      do not apply it to the OOR split.
     ///      ⚠️ `costPpm` READ LIVE IS A TOLERANCE, NOT A CAPACITY READ. An attacker who moves Curve so
@@ -182,7 +182,7 @@ library FixedRateFill {
     ///      🔴 **EXTERNALLY-SOURCED RESTORATION ONLY — A SECOND PRECONDITION, ADDED AFTER THE FACT.**
     ///      `C` is an EXTERNAL per-leg cost. The recorded refill spec (§UNIT-C-OWNER-SPEC / §E48)
     ///      says restoration is INTERNAL — repositioning ETH already held, not buying more
-    ///      (*"uncommitted dollars shouldnt be sold for ETH out of band… that would be a misuse"*).
+    ///      (*"uncommitted dollars shouldnt be sold for ETH out of range… that would be a misuse"*).
     ///      With an internal restoration there is NO Curve leg, so `C == 0` and this bound has NO
     ///      REFERENT. It therefore **REVERTS on a zero cost instead of passing**: an early `return`
     ///      would make the guard a silent no-op that reads as protection while checking nothing —
@@ -202,14 +202,14 @@ library FixedRateFill {
     ///
     /// @dev  ⚠️ TAKES **BOTH** SPLITS AND SELECTS ON `inRange`, DELIBERATELY. The obvious signature
     ///       takes ONE `Split` and lets the caller decide which to pass — and that is precisely how
-    ///       out-of-range silently inherits the in-range weights. When the band is OOR it holds a
+    ///       out-of-range silently inherits the in-range weights. When the range is OOR it holds a
     ///       SINGLE asset: the two supplier legs have collapsed into one, so "who supplied what" has
     ///       a different answer, and the operation is not *restore 1:1* but *RE-ENTER RANGE* — a
     ///       different cost with a different beneficiary. An in-range split applied out of range
     ///       still returns three plausible numbers against the wrong basis, and NOTHING ANNOUNCES IT.
     ///       Requiring both makes the OOR decision a compile-time obligation rather than an omission.
     ///
-    ///       WHY THREE PARTIES (owner, 2026-08-15, correcting a causer-pays-only reading): a band
+    ///       WHY THREE PARTIES (owner, 2026-08-15, correcting a causer-pays-only reading): a range
     ///       trade has TWO SUPPLIERS — the volatile leg is LP inventory, the USD leg is basket
     ///       capital — so the cost lands on capital both provided, and causation is only one axis.
     ///       Each pure answer is a corner solution: swapper-only ignores that LPs are paid via the
@@ -219,7 +219,7 @@ library FixedRateFill {
     ///
     /// @param realisedCost measured cost of the rebalance (a BALANCE DELTA over the Curve legs —
     ///        never a number the swap path reports about itself).
-    /// @param inRange  whether the band was in range for this batch. Selects which weights apply.
+    /// @param inRange  whether the range was in range for this batch. Selects which weights apply.
     function splitCost(uint realisedCost, Split memory inRangeSplit, Split memory oorSplit, bool inRange)
         internal pure returns (uint swapperShare, uint lpShare, uint basketShare)
     {

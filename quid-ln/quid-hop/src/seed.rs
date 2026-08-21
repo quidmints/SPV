@@ -191,7 +191,7 @@ pub fn is_provisioned<F: Ffs>(ffs: &F) -> anyhow::Result<bool> {
     }
 }
 
-/// Provision a seed out-of-band (e.g. over the attested provisioning endpoint),
+/// Provision a seed out-of-range (e.g. over the attested provisioning endpoint),
 /// BEFORE the node boots: seal `root_seed` to this enclave and persist it as the
 /// [`SealedSeed`] that [`load_or_provision`] reads at boot.
 ///

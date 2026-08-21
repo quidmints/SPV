@@ -18,7 +18,7 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 /// This measures the gap directly, on `skewWad` (public pure) — no fixture, no fork.
 contract IntegralVsCapTest is Test {
     uint constant TARGET = 2_000_000e6;
-    uint constant POOL   = 1_000_000e6;   // band starts short ⇒ scarcity is real
+    uint constant POOL   = 1_000_000e6;   // range starts short ⇒ scarcity is real
     uint constant SIGMA  = 1e18;
     uint constant CAP    = 3e16;          // the deleted MAX_WELL_SKEW
 
@@ -35,7 +35,7 @@ contract IntegralVsCapTest is Test {
     }
 
     function test_E286_CapBreaksPathIndependence() public pure {
-        uint total = POOL * 60 / 100;                  // drain 60% of the band
+        uint total = POOL * 60 / 100;                  // drain 60% of the range
         uint one   = _cost(total, 1, false);
         uint many  = _cost(total, 20, false);
         uint oneC  = _cost(total, 1, true);

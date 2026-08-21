@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Does our setup OVER-REALIZE impermanent loss? Same +/-2% band, two cadences:
+// Does our setup OVER-REALIZE impermanent loss? Same +/-2% range, two cadences:
 //   REPACK-on-exit (current: re-center every 2% move -> LOCKS IN each step)
 //   RIDE-through   (never re-center -> IL stays IMPERMANENT, recovers on reversal)
 // on REAL 5m windows. If repack >> ride on choppy/round-trip windows, we're realizing noise.

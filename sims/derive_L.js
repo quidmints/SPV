@@ -11,16 +11,16 @@ const fs=require('fs');
 const SP='/tmp/claude-1000/-home-rico-projects/1f505948-253b-4400-a784-a1f0f9b9e1e5/scratchpad/';
 const loadD=f=>JSON.parse(fs.readFileSync(SP+f)).data.map(d=>+d.PriceUSD).filter(p=>isFinite(p)&&p>0);
 const BORROW=0.07, DT=1/365, MCR=1.10, FEE=0.0005, ALPHA=0.5;
-const bandVal=(p)=>Math.pow(p,ALPHA);
+const rangeVal=(p)=>Math.pow(p,ALPHA);
 function overlay(Pin,L,R){                       // equity over a normalized path at leverage L
   const P=Pin.map(x=>x/Pin[0]);
-  let coll=L, debt=L-1, units=coll/bandVal(P[0]);
+  let coll=L, debt=L-1, units=coll/rangeVal(P[0]);
   for(let i=1;i<P.length;i++){
-    coll=units*bandVal(P[i]); debt+=BORROW*debt*DT;
+    coll=units*rangeVal(P[i]); debt+=BORROW*debt*DT;
     if(coll-debt<=0||coll/debt<MCR) return null;     // liquidated
-    if(i%R===0){const E=coll-debt; coll=L*E; debt=(L-1)*E; units=coll/bandVal(P[i]);}
+    if(i%R===0){const E=coll-debt; coll=L*E; debt=(L-1)*E; units=coll/rangeVal(P[i]);}
   }
-  const pe=P[P.length-1]; const E=units*bandVal(pe)-debt;
+  const pe=P[P.length-1]; const E=units*rangeVal(pe)-debt;
   return {trackErr:(E-pe)/pe, t:(P.length-1)/365};
 }
 function sigAnn(P){const r=[];for(let i=1;i<P.length;i++)r.push(Math.log(P[i]/P[i-1]));const m=r.reduce((a,b)=>a+b,0)/r.length;return Math.sqrt(r.reduce((a,b)=>a+(b-m)**2,0)/r.length/DT);}

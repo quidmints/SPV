@@ -8,7 +8,7 @@ import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: fi
 ///         Vault"), which made the Morpho market's `collateralToken` the Vault address. That merge was
 ///         a deliberate optimisation — `exposeBtcToLev` reclassifies the LP's ALREADY-BANKED channel
 ///         BTC in one frame with no mint/transferFrom roundtrip — but it also fused two unrelated
-///         responsibilities: the TOKEN (supply, balances, transferability) and the BAND ACCOUNTING
+///         responsibilities: the TOKEN (supply, balances, transferability) and the RANGE ACCOUNTING
 ///         (`autoManaged`, `levPooled`). This contract owns the first; `Vault` keeps the second.
 ///
 ///         THE SPLIT IS EXACT, not a re-design. `Vault.exposeBtcToLev` still performs the whole
@@ -26,7 +26,7 @@ import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: fi
 ///         This contract is where both belong: a future `redeemVBtc(sats, p2trScript)` and the
 ///         aggregate invariant that must replace the blunt rule — Sigma outstanding vBTC <= Sigma free
 ///         channel capacity — are SUPPLY-level properties, and supply lives HERE. Putting them in
-///         `Vault` would bury a bearer-token invariant inside band accounting.
+///         `Vault` would bury a bearer-token invariant inside range accounting.
 ///
 /// 🔴 STOP — DO NOT IMPLEMENT `redeemVBtc(sats, p2trScript)` ON THE STRENGTH OF THE PARAGRAPH ABOVE.
 ///    Added 2026-08-07. The consuming repo analysed exactly that design and rejected it as a THEFT
@@ -117,7 +117,7 @@ contract VBtc {
         return true;
     }
 
-    /// @notice Supply mutations — Vault-only. The Vault performs the funded->lev band reclassification
+    /// @notice Supply mutations — Vault-only. The Vault performs the funded->lev range reclassification
     ///         and its channel-depth check FIRST; these only move the token face, so vBTC is still only
     ///         ever minted against real, already-banked channel BTC and never conjured.
     function mintTo(address to, uint sats) external onlyVault {

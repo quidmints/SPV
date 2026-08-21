@@ -70,7 +70,7 @@ docblock says *"Units = … (6-dec)"* → `_bumpEwma` → `QuidLib.sol:334-339` 
 pooled6)` (pooled6 genuinely 6-dec) → `derivedThetaWad` → `applyTheta` returns `available` unthrottled
 when `>= 1e18`. One 1 ETH sell at 1% skew writes `1e16` into a register read as "$10,000,000,000"
 (~3.3e8x at $3000/ETH). The clamp was deliberately deleted (`QuidLib.sol:376-381`), so it stays blown
-for the EWMA's life. **The #107/D3 Merton band-size throttle is DEAD on the ETH side after the first
+for the EWMA's life. **The #107/D3 Merton range-size throttle is DEAD on the ETH side after the first
 volatile sell-in.** Fail-open; `clampByBacking`'s physical headroom still binds, so not a direct drain —
 but the control is gone and `Core.skewPremiumETH` is meaningless.
 
@@ -154,7 +154,7 @@ computed `sev` for every stable in the same tx** (`BasketLib.sol:175`) and disca
 
 # ═══ C4 CONFIRMED (2026-07-30) — full trace, and the BTC side has the MIRROR defect ═══
 
-**CONFIRMED at every step**, each with file:line. The Merton band throttle IS dead on the ETH side.
+**CONFIRMED at every step**, each with file:line. The Merton range throttle IS dead on the ETH side.
 1. `SwapLib.sol:416` `r.amount = aux._depositVol(...)` → `Aux.sol:704-707` → `:1251-1256`
    `SwapLib.depositBody` returns `sent` **UNSCALED ⇒ raw NATIVE (wei)**. Corroborated in-file by
    `SwapLib.sol:500-503`'s own docblock — *"volatile-in is NATIVE (r.amount from _depositVol; no
@@ -181,7 +181,7 @@ computed `sev` for every stable in the same tx** (`BasketLib.sol:175`) and disca
 
 🔴 **NEW — THE BTC SIDE HAS THE MIRROR DEFECT, OPPOSITE SIGN.** Sats are 8-dec, so a 1 BTC sell at 1%
 records `1e6` = "\$1.00" against a true ~\$1,000 — a ~1e3 **UNDER**-report ⇒ BTC θ is too SMALL ⇒ the BTC
-band **OVER-throttles**. Only ETH goes dead; BTC is needlessly starved. Both are the same root cause.
+range **OVER-throttles**. Only ETH goes dead; BTC is needlessly starved. Both are the same root cause.
 
 PERSISTENCE: `FLOW_DECAY` has a 48h half-life, so once blown it stays blown **for weeks**.
 BLAST RADIUS: the risk BUDGET, not solvency — the physical `backing − pooled` bound (`clampByBacking`,
@@ -217,7 +217,7 @@ that is NOT a mirror: OUT applies `wellSkew`+`retainSkewPremium` (`:1024-1025`),
 (documented `:740-748`) — but the SELL-IN leg at `:441-442` DOES skew, so "swap-in never skews" is not a
 global invariant, and that is exactly the site carrying the C4 bug.
 
-NOT EXAMINED (time-bounded): `QuidLib` band-geometry `:1477-1610`; `wellSkew`/`sellSkew`/`skewWad`
+NOT EXAMINED (time-bounded): `QuidLib` range-geometry `:1477-1610`; `wellSkew`/`sellSkew`/`skewWad`
 internals; `Quid._withdraw` vs `unregisterBtcLp` (flagged intentionally distinct at `Quid.sol:461-467`).
 
 # ═══ §A.15 VERIFIED-OPEN (2026-07-30) — MY "inverted" SUSPICION WAS WRONG ═══

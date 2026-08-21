@@ -11,7 +11,7 @@ ser=json.load(open("eth_daily.json")); px=[p for _,p in ser]; ts=[t for t,_ in s
 r=[math.log(px[i]/px[i-1]) for i in range(1,len(px))]; N=len(r)
 def yr(i): return int(time.gmtime(ts[i+1]/1000).tm_year)
 YEARS=sorted(set(yr(i) for i in range(N)))
-K=0.71; BAND=0.02; THETA=0.33; Y=0.06; F=0.02; S0=0.03
+K=0.71; RANGE=0.02; THETA=0.33; Y=0.06; F=0.02; S0=0.03
 MCR=1.10; RATE=0.07; PEN=0.05; SP_INT=0.75; SPREAD=0.0010   # 75% interest->SP; 10bps SOR spread
 
 def run(E,L,SP_init,cap=None,ext_day=0.05,prem_bps=200):
@@ -46,9 +46,9 @@ def run(E,L,SP_init,cap=None,ext_day=0.05,prem_bps=200):
             if gap>0: P[y]['gap']-=gap*lq*dpf
         P[y]['int']+=Nn*dpf*RATE*SP_INT/365      # 75% borrower interest -> QU!D's SP
         P[y]['spr']+=(op+dv+lq)*SPREAD           # SOR spread on leverage turnover
-        amp=Nn*dpf; th=THETA+amp                 # amplified in-range = debt-funded slice
-        P[y]['cN']+=F*amp/365 - K*amp*min(ri*ri,BAND*BAND)
-        d=Y/365+F*th/365-K*th*min(ri*ri,BAND*BAND); S+=d; minS=min(minS,S)
+        amp=Nn*dpf; th=THETA+amp                 # amplified in-width = debt-funded slice
+        P[y]['cN']+=F*amp/365 - K*amp*min(ri*ri,RANGE*RANGE)
+        d=Y/365+F*th/365-K*th*min(ri*ri,RANGE*RANGE); S+=d; minS=min(minS,S)
         cum+=inflow-outflow; req=max(req,-cum); minSP=min(minSP,SP)
         synch=Nn*dpf                              # if EVERYONE delevers this instant
         if synch>1e-9: worstcover=min(worstcover, SP/synch)

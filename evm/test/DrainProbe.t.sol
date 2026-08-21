@@ -77,7 +77,7 @@ contract DrainProbe is AllesFixture {
 
     /// @dev Withdraw the holder's ENTIRE LP position; return the ETH (wei) actually
     ///      delivered (native + WETH). Ground truth — cuts through virtual
-    ///      POOLED_*/bandETH accounting.
+    ///      POOLED_*/rangeETH accounting.
     function _realizeExitETH(address who) internal returns (uint ethOut) {
         uint pooled = ETH.balanceOf(who);
         if (pooled == 0) return 0;

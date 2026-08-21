@@ -2,7 +2,7 @@ strict digraph {
 rankdir="LR"
 node [shape=box]
 subgraph cluster_61478_ShareMath {
-label = "ShareMath"
+label = "BasketLib"
 "61478_qdShareValue" [label="qdShareValue"]
 }subgraph cluster_solidity {
 label = "[Solidity]"

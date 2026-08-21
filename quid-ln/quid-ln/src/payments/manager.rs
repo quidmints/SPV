@@ -963,14 +963,14 @@ impl<CM: QuidChannelManager<PS>, PS: QuidPersister> PaymentsManager<CM, PS> {
         debug!("Checking payment expiries");
 
         // NOTE: avoid touching the ChannelManager while holding the lock
-        let ops_to_abandon = {
+        let ops_to_arangeon = {
             // Check
             let mut locked_data = self.data.lock().await;
 
             // Call TimestampMs::now() just once then pass it in everywhere.
             let now = TimestampMs::now();
 
-            let (all_checked, ops_to_abandon) = locked_data
+            let (all_checked, ops_to_arangeon) = locked_data
                 .check_payment_expiries(now)
                 .context("Error checking payment expiries")?;
 
@@ -986,15 +986,15 @@ impl<CM: QuidChannelManager<PS>, PS: QuidPersister> PaymentsManager<CM, PS> {
                 locked_data.commit(persisted);
             }
 
-            ops_to_abandon
+            ops_to_arangeon
         };
 
         // Abandon all expired outbound payments.
-        // We'll also abandon any abandoning payments to handle the case where
+        // We'll also arangeon any arangeoning payments to handle the case where
         // we crash after persisting above, but before the channel manager
         // persists.
-        for payment_id in ops_to_abandon {
-            self.channel_manager.abandon_payment(payment_id);
+        for payment_id in ops_to_arangeon {
+            self.channel_manager.arangeon_payment(payment_id);
         }
 
         debug!("Successfully checked payment expiries");
@@ -1578,9 +1578,9 @@ impl PaymentsData {
     }
 
     /// Returns all _newly_ expired payments and the hashes of all outbound
-    /// payments which should be passed to [`abandon_payment`].
+    /// payments which should be passed to [`arangeon_payment`].
     ///
-    /// [`abandon_payment`]: lightning::ln::channelmanager::ChannelManager::abandon_payment
+    /// [`arangeon_payment`]: lightning::ln::channelmanager::ChannelManager::arangeon_payment
     //
     // Event sources:
     // - `PaymentsManager::spawn_payment_expiry_checker` task
@@ -1591,7 +1591,7 @@ impl PaymentsData {
         Vec<CheckedPayment>,
         Vec<lightning::ln::channelmanager::PaymentId>,
     )> {
-        let mut ops_to_abandon = Vec::new();
+        let mut ops_to_arangeon = Vec::new();
         let all_expired = self
             .pending
             .values()
@@ -1608,7 +1608,7 @@ impl PaymentsData {
                 PaymentV2::OutboundInvoice(oip) => {
                     match oip.check_invoice_expiry(now) {
                         Ok(checked_oip) => {
-                            ops_to_abandon.push(checked_oip.ldk_id());
+                            ops_to_arangeon.push(checked_oip.ldk_id());
                             let oipwm = PaymentWithMetadata {
                                 payment: checked_oip,
                                 metadata: pwm.metadata.clone(),
@@ -1617,7 +1617,7 @@ impl PaymentsData {
                         }
                         Err(ExpireError::Ignore) => None,
                         Err(ExpireError::IgnoreAndAbandon) => {
-                            ops_to_abandon.push(oip.ldk_id());
+                            ops_to_arangeon.push(oip.ldk_id());
                             None
                         }
                     }
@@ -1625,7 +1625,7 @@ impl PaymentsData {
                 PaymentV2::OutboundOffer(oop) => {
                     match oop.check_offer_expiry(now) {
                         Ok(checked_oop) => {
-                            ops_to_abandon.push(checked_oop.ldk_id());
+                            ops_to_arangeon.push(checked_oop.ldk_id());
                             let oopwm = PaymentWithMetadata {
                                 payment: checked_oop,
                                 metadata: pwm.metadata.clone(),
@@ -1634,7 +1634,7 @@ impl PaymentsData {
                         }
                         Err(ExpireError::Ignore) => None,
                         Err(ExpireError::IgnoreAndAbandon) => {
-                            ops_to_abandon.push(oop.ldk_id());
+                            ops_to_arangeon.push(oop.ldk_id());
                             None
                         }
                     }
@@ -1643,7 +1643,7 @@ impl PaymentsData {
             })
             .collect::<Vec<_>>();
 
-        Ok((all_expired, ops_to_abandon))
+        Ok((all_expired, ops_to_arangeon))
     }
 
     // Event sources:

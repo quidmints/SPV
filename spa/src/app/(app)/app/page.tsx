@@ -6,7 +6,7 @@ import {
   CHAIN_ID, CHAIN_HEX, CHAIN_NAME, EXPLORER,
   CONTRACTS, STABLES, WBTC_DECIMALS, isUsdtLike,  type StableToken, type LevVenue,
 } from '@/lib/chains'
-import { ERC20_ABI, BASKET_ABI, AUX_ABI, BAND_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from '@/lib/abi'
+import { ERC20_ABI, BASKET_ABI, AUX_ABI, RANGE_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from '@/lib/abi'
 import { addressToScriptPubKey, randomSwapId } from '@/lib/btcaddress'
 import { requestOnchainSwapIn, pollSwapIn, hopApiConfigured, submitOpenChannel, pollOpenChannel,
   type OnchainSwapInQuote, type SwapInStatus, type OpenChannelResult } from '@/lib/hop'
@@ -37,7 +37,7 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 //   ABI ENCODING — one ethers.Interface for all read/write encodes
 // ═════════════════════════════════════════════════════════════════════
 const iface = new ethers.Interface([
-  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...BAND_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
+  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...RANGE_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
 ])
 
 const enc = {
@@ -65,15 +65,15 @@ const enc = {
   deposits:    () => iface.encodeFunctionData('get_deposits', []),
   avgYield:    () => iface.encodeFunctionData('avgYield', []),
   // Quid (ETH side ERC4626-shaped)
-  bandDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
-  bandWithdraw: (a: bigint, r: string, o: string) =>
+  rangeDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
+  rangeWithdraw: (a: bigint, r: string, o: string) =>
                 iface.encodeFunctionData('withdraw(uint256,address,address)', [a, r, o]),
   autoManaged:    (u: string) => iface.encodeFunctionData('autoManaged', [u]),
-  // §E235-spa — `autoManagedBTC` encoder DELETED, not kept as an alias: with the band selected by
+  // §E235-spa — `autoManagedBTC` encoder DELETED, not kept as an alias: with the range selected by
   // address, `enc.autoManaged` serves both sides and a second entry could only encode a selector
   // no contract has. One name, two addresses.
-  bandTotalShares: () => iface.encodeFunctionData('totalShares', []),
-  bandLpShares:    () => iface.encodeFunctionData('lpShares', []),
+  rangeTotalShares: () => iface.encodeFunctionData('totalShares', []),
+  rangeLpShares:    () => iface.encodeFunctionData('lpShares', []),
   // Self-managed
   outOfRange: (amt: bigint, token: string, distance: number, range: number, venue: number) =>
                 iface.encodeFunctionData('outOfRange', [amt, token, distance, range, venue]),
@@ -186,7 +186,7 @@ export default function QuidApp() {
   const [basketYield, setBasketYield] = useState(0)
   const [avgYield, setAvgYield] = useState(0)
   const [perStable, setPerStable] = useState<number[]>([])
-  const [bandShares, setQuidShares] = useState(0)
+  const [rangeShares, setQuidShares] = useState(0)
   const [autoMan, setAutoMan] = useState<{ pooled: number; feesEth: number; feesUsd: number; usdOwed: number } | null>(null)
   const [showBreakdown, setShowBreakdown] = useState(false)
 
@@ -394,14 +394,14 @@ export default function QuidApp() {
   }, [chainOk])
 
   const fetchQuid = useCallback(async () => {
-    if (!chainOk || CONTRACTS.band === ZERO_ADDR) return
+    if (!chainOk || CONTRACTS.range === ZERO_ADDR) return
     try {
-      const ts = await ethCall(CONTRACTS.band, enc.bandTotalShares())
+      const ts = await ethCall(CONTRACTS.range, enc.rangeTotalShares())
       setQuidShares(Number(BigInt(ts)) / 1e18)
     } catch {}
     if (!address) return
     try {
-      const a = await ethCall(CONTRACTS.band, enc.autoManaged(address))
+      const a = await ethCall(CONTRACTS.range, enc.autoManaged(address))
       const dec = iface.decodeFunctionResult('autoManaged', a)
       // Types.Deposit order: (pooled, usd_owed, fees_tok, fees_usd).
       setAutoMan({
@@ -426,14 +426,14 @@ export default function QuidApp() {
   // Walk positions[user] until id == 0 (capped to 50 for safety).
   // Skip zero-liq entries (already pulled to 0%).
   const fetchSmPositions = useCallback(async () => {
-    if (!connected || !chainOk || CONTRACTS.band === ZERO_ADDR) return
+    if (!connected || !chainOk || CONTRACTS.range === ZERO_ADDR) return
     const out: typeof smPositions = []
     for (let i = 0; i < 50; i++) {
       try {
-        const idR = await ethCall(CONTRACTS.band, enc.positions(address, i))
+        const idR = await ethCall(CONTRACTS.range, enc.positions(address, i))
         const id = BigInt(idR)
         if (id === 0n) break
-        const smR = await ethCall(CONTRACTS.band, enc.selfManaged(id))
+        const smR = await ethCall(CONTRACTS.range, enc.selfManaged(id))
         const dec = iface.decodeFunctionResult('selfManaged', smR)
         // (§E258) Indices shifted by one from `lower` onward: `usdFunded` (bool) was inserted at
         // index 2, packed into `owner`'s slot. The ABI checker compares SIGNATURES and cannot see a
@@ -517,12 +517,12 @@ export default function QuidApp() {
       const { msgValue, wethAmount } = splitEthForDeposit(total, rawEth, wethW)
 
       if (wethAmount > 0n) {
-        await ensureAllowance(CONTRACTS.weth, CONTRACTS.band, wethAmount, address, setStatus)
+        await ensureAllowance(CONTRACTS.weth, CONTRACTS.range, wethAmount, address, setStatus)
       }
       setStatus('Depositing to V4 LP…')
       const tx = await sendTx({
-          from: address, to: CONTRACTS.band,
-          data: enc.bandDeposit(wethAmount, address),
+          from: address, to: CONTRACTS.range,
+          data: enc.rangeDeposit(wethAmount, address),
           ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
@@ -542,8 +542,8 @@ export default function QuidApp() {
       const assets = ethers.parseEther(withdrawAmount)
       setStatus('Withdrawing from V4 LP…')
       const tx = await sendTx({
-          from: address, to: CONTRACTS.band,
-          data: enc.bandWithdraw(assets, address, address),
+          from: address, to: CONTRACTS.range,
+          data: enc.rangeWithdraw(assets, address, address),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
       await waitTx(tx); setStatus('Withdrawn.')
@@ -556,7 +556,7 @@ export default function QuidApp() {
   //   LEVERAGE OVERLAY (YB IL-protect, #65) — open / adjust / close.
   //   open: approve the venue's collateral (weETH or WETH) to LevManager, then
   //   openLev(targetLtvBps, venue, coll, []) — opens at zero leverage; the keeper
-  //   levers up to the cap as the band sells. adjust: setTargetLtv(capBps). close:
+  //   levers up to the cap as the range sells. adjust: setTargetLtv(capBps). close:
   //   closeLev(0) fully unwinds (short leg first, then long) back to the LP.
   // ═══════════════════════════════════════════════════════════════════
   const doOpenLev = useCallback(async (targetLtvBps: number, venue: LevVenue, amount: bigint) => {
@@ -628,8 +628,8 @@ export default function QuidApp() {
       setMyChannels(rows)
       // BTC-LP fees/position: autoManaged(user) = (pooled sats, usd_owed, fees_tok=sats, fees_usd).
       // BTC-leg fees accrue as native sats, settled by the hop at channel close.
-      // §E235-spa — `autoManaged` ON `vault`, NOT `autoManagedBTC` ON `band`. The BTC band's LP
-      // state moved to its own contract, so the suffix that used to select the band is now an
+      // §E235-spa — `autoManaged` ON `vault`, NOT `autoManagedBTC` ON `range`. The BTC range's LP
+      // state moved to its own contract, so the suffix that used to select the range is now an
       // address. ⚠️ NOTE THE `catch` BELOW, WHICH IS WHY THIS BREAK WAS INVISIBLE: a missing
       // selector or a wrong address lands in `setBtcLp(null)`, and the UI renders that as "no BTC
       // position" — indistinguishable from a user who genuinely has none. The ABI gate is the only
@@ -696,7 +696,7 @@ export default function QuidApp() {
         msgValue = split.msgValue
         amount   = split.wethAmount
         if (amount > 0n) {
-          await ensureAllowance(CONTRACTS.weth, CONTRACTS.band, amount, address, setStatus)
+          await ensureAllowance(CONTRACTS.weth, CONTRACTS.range, amount, address, setStatus)
         }
       } else {
         tokenAddr = oorStable!.address
@@ -707,7 +707,7 @@ export default function QuidApp() {
 
       setStatus('Opening self-managed position…')
       const tx = await sendTx({
-          from: address, to: CONTRACTS.band,
+          from: address, to: CONTRACTS.range,
           data: enc.outOfRange(amount, tokenAddr, distanceTicks, rangeTicks),
           ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
         })
@@ -727,7 +727,7 @@ export default function QuidApp() {
     try {
       setStatus(`Pulling ${percent}% of #${idStr}…`)
       const tx = await sendTx({
-          from: address, to: CONTRACTS.band,
+          from: address, to: CONTRACTS.range,
           data: enc.pull(id, percent, tokenAddr),
         })
       setLastTx(tx); await waitTx(tx); setStatus('Pulled.')
@@ -830,7 +830,7 @@ export default function QuidApp() {
   // NO ether.fi instant/wait CHOICE EXISTS. `Quid.exitInstant` and the `instant` parameter were
   // removed on-chain 2026-08-09: the ~0.3% instant redeem it selected had capacity measured ZERO
   // at every sampled block, so there was never a fee for an LP to opt out of. Withdrawal is
-  // `bandWithdraw` unconditionally. (This client kept calling the removed function until E154.)
+  // `rangeWithdraw` unconditionally. (This client kept calling the removed function until E154.)
 
   // ── BTC→USD swap-IN (on-chain, invoice-free): ask the hop for a deposit address +
   //    exact amount; the user sends BTC from any wallet; the hop SPV-settles it. ──
@@ -1065,7 +1065,7 @@ export default function QuidApp() {
           <Stat label="QUI supply" value={fmt(Number(BigInt(qdTotalSupply)) / 1e18, 0)} />
           <Stat label="ETH TWAP" value={fmtUSD(ethTwap, 2)} />
           <Stat label="BTC TWAP" value={fmtUSD(btcTwap, 0)} />
-          <Stat label="Quid shares" value={fmt(bandShares, 0)} />
+          <Stat label="Quid shares" value={fmt(rangeShares, 0)} />
           <Stat label="Your LP" value={autoMan ? `${fmt(autoMan.pooled, 3)} ETH` : '—'} />
         </div>
         {showBreakdown && perStable.length > 0 && (

@@ -23,7 +23,7 @@ contract SkewPatienceFloorTest is Test {
     uint constant SIG_BUSY = 2.88e13;       // §UNIT-B-PATIENCE's measured same-block variance
     uint constant SIG_PATIENT = 1.19e12;    // ...and its 4h-spaced variance, 24x lower
 
-    /// @notice THE DISCOUNT IS NOW BOUNDED. Same drain, same band, only σ² suppressed by waiting.
+    /// @notice THE DISCOUNT IS NOW BOUNDED. Same drain, same range, only σ² suppressed by waiting.
     ///         PREDICTION BEFORE RUNNING: the patient arm still pays LESS (adverse selection really
     ///         did fall) but no longer close to nothing — the σ²-free depletion term is a floor that
     ///         patience cannot reach.
@@ -44,10 +44,10 @@ contract SkewPatienceFloorTest is Test {
 
     /// @notice THE FLOOR IS THE DEPLETION TERM ITSELF, NOT A TUNED NUMBER. Drive σ² to the sentinel's
     ///         doorstep (1 wei) and the charge must still be a real cost, because what remains is the
-    ///         inventory fact: half the band left, and it has to be sourced back.
+    ///         inventory fact: half the range left, and it has to be sourced back.
     function test_TheFloorSurvivesTotalVarianceSuppression() public pure {
         uint floored = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN);
-        assertGt(floored, 0, "a half-drained band must cost something even at sigma^2 = 1");
+        assertGt(floored, 0, "a half-drained range must cost something even at sigma^2 = 1");
     }
 
     /// @notice §E234-vac — THIS TEST WAS VACUOUS AND IS REWRITTEN. It read:
@@ -68,17 +68,17 @@ contract SkewPatienceFloorTest is Test {
     ///         between measured values, so neither can be satisfied by a constant or by luck:
     ///           (1) a LARGER drain owes strictly MORE at the same σ² — so the term tracks the
     ///               fraction rather than being a flat floor;
-    ///           (2) a ZERO drain owes strictly LESS than any real drain — so a band nobody depleted
+    ///           (2) a ZERO drain owes strictly LESS than any real drain — so a range nobody depleted
     ///               is not charged for depletion, which is the bootstrap property the constant's
     ///               derivation claims (`inv0 == 0` ⇒ no fall ⇒ no charge, BY CONSTRUCTION).
     ///         σ² is pinned at 1 for all three so the adverse-selection kernel is as close to zero
     ///         as the sentinel allows and what moves is the depletion term.
-    function test_DepletionTracksTheDrainFractionAndSparesAnUndrainedBand() public pure {
+    function test_DepletionTracksTheDrainFractionAndSparesAnUndrainedRange() public pure {
         uint none = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), 0);
         uint half = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN);
         uint most = SwapLib.skewWad(POOL, FLOW, 1, SwapLib.ethRisk(), DRAIN * 3 / 2);
 
-        assertGt(half, none, "a drained band must owe MORE than one nobody touched");
+        assertGt(half, none, "a drained range must owe MORE than one nobody touched");
         assertGt(most, half, "a bigger drain must owe MORE: the term tracks the fraction, not a flat floor");
     }
 }

@@ -113,7 +113,7 @@ FAMILIES = OrderedDict([
     #    originals missed, and "things to return to" is mostly phrased in THESE, not in TODO.
     ("PROVISIONAL", r"\b(for now|temporar\w+|stop[- ]?gap|interim|first cut|rough(?:ly)?|"
                     r"approximat\w+|good enough|naive|simplif\w+|placeholder)\b"),
-    ("WORKAROUND",  r"\b(work[- ]?around|hack|bypass|side[- ]?step|band[- ]?aid|for the moment|"
+    ("WORKAROUND",  r"\b(work[- ]?around|hack|bypass|side[- ]?step|width[- ]?aid|for the moment|"
                     r"escape hatch|in the meantime|until (?:we|it|that))\b"),
     ("LIMITATION",  r"\b(only (?:works|handles|covers)|doesn'?t handle|breaks? (?:when|if)|fails? (?:when|if)|"
                     r"cannot (?:yet|currently)|no (?:support|coverage) for|limited to|does not (?:cover|track))\b"),
@@ -172,7 +172,7 @@ FAMILIES = OrderedDict([
     # not fire. Lookbehind + lookahead handle the common shapes; verified by control probe.
     ("OPEN",        r"\b(?:still (?:open|live|unresolved|pending|unsettled|undecided)|"
                     r"(?<!position )(?:remains?|stays?|left|kept|leave) open"
-                    r"(?! (?:position|channel|order|source|interest|range|market))|"
+                    r"(?! (?:position|channel|order|source|interest|width|market))|"
                     r"re[- ]?open(?:ed|s|ing)?|not (?:closed|settled|resolved|decided)|"
                     r"open (?:item|question|issue|fork|point|end|hole)s?|"
                     r"unresolved|unsettled|genuinely (?:open|remain))\b"),

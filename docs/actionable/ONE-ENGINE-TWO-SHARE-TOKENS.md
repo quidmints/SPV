@@ -6,17 +6,17 @@ next session moves state rather than re-deriving what to move.
 ## The shape (owner's words, restated)
 
 > "vogue and core are merging into one so they can't have one erc20 inside of themselves, they talk
-> to two of those which are the shares (internal balances) in band POOLED_BTC or POOLED_ETH"
+> to two of those which are the shares (internal balances) in range POOLED_BTC or POOLED_ETH"
 > — and "the remaining totalSupply being outOfRange".
 
 | contract | owns |
 |---|---|
-| **Engine** (Core + Quid merged) | `POOLED_ETH` / `POOLED_BTC`, `POOLED_USD_*`, both observation rings, skew, settlement, band bounds |
+| **Engine** (Core + Quid merged) | `POOLED_ETH` / `POOLED_BTC`, `POOLED_USD_*`, both observation rings, skew, settlement, range bounds |
 | **vETH** (share token) | every per-LP ETH position, in-range AND out-of-range |
-| **vBTC** (share token) | the same for the BTC band |
+| **vBTC** (share token) | the same for the BTC range |
 
 ⚠️ **This inverts the earlier VEth fold, and both were right at the time.** Folding `VEth` INTO the
-band manager was correct while the manager was PER-ASSET. Once one engine serves BOTH bands the share
+range manager was correct while the manager was PER-ASSET. Once one engine serves BOTH ranges the share
 face has to come back out — **one contract cannot have two `balanceOf`s.**
 
 ## Why the share face cannot inherit a stock ERC-20
@@ -37,9 +37,9 @@ totalSupply = lpShares                    // in-range, against POOLED
             + Σ selfManaged[id].amt       // out-of-range boundary orders
 ```
 
-⚠️ A boundary order is NOT band depth — it sits wholly outside the active range (`sizeOorUsd`
+⚠️ A boundary order is NOT range depth — it sits wholly outside the active range (`sizeOorUsd`
 enforces this, symmetrically since the ordering flag went). So the two terms are disjoint by
-construction and cannot double-count. Anything that reads `totalSupply` as "depth in the band" must
+construction and cannot double-count. Anything that reads `totalSupply` as "depth in the range" must
 be re-checked against that.
 
 ## State to MOVE, measured (from `Quid`)
@@ -58,7 +58,7 @@ be re-checked against that.
 | `pinnedRecipient`, `pendingRecipient`, `recipientUnlockAt` | `mapping`s | 🔴 KEEP — see below |
 | `lastDepositBlock` | `mapping` | anti-same-block |
 
-**Band-level — goes to the engine:** `UPPER_PRICE`, `LOWER_PRICE`, `LAST_REPACK`, `USD_FEES`.
+**Range-level — goes to the engine:** `UPPER_PRICE`, `LOWER_PRICE`, `LAST_REPACK`, `USD_FEES`.
 
 **The share face itself** (moves wholesale): `asset`, `totalSupply`, `balanceOf`, `approve`,
 `transfer`, `transferFrom`, `allowance`, `decimals`, `max{Deposit,Mint,Withdraw,Redeem}`, `preview*`,
@@ -74,15 +74,15 @@ exactly this. It is one source of truth for cooperative-close attribution AND th
 
 ## Order of operations
 
-1. **Merge `QuidLib` ∥ `BtcLib`** into ONE band library (8 pairs: `addLiq`/`addLiqChannel`,
+1. **Merge `QuidLib` ∥ `BtcLib`** into ONE range library (8 pairs: `addLiq`/`addLiqChannel`,
    `sizeOutOfRange`/`outOfRangeBtc`, `pullBody`/`pullBtc`, the four `levAdd*`/`levAdd*Btc`,
    `rebalanceBody`×2). ~1,256 lines → ~700. **This is the precondition** — without it the engine
-   cannot fit, because the merge only works if one implementation serves both bands.
+   cannot fit, because the merge only works if one implementation serves both ranges.
    ⚠️ NOT into `QuidLib`: that is ETH **venue custody** (`vogueETH`, `offrampBody`,
    `supplyVenueBody`, `waitNft`, `withdrawETH`), a third concern with no BTC counterpart. Folding
-   the band pair into it re-fuses what `Vault` was split apart to separate.
+   the range pair into it re-fuses what `Vault` was split apart to separate.
 2. **Extract the share face** out of `Quid` into `vETH`, carrying the per-LP state above.
-3. **Merge the remains of `Quid` into `Core`** — by then it is band bounds + fee accumulators.
+3. **Merge the remains of `Quid` into `Core`** — by then it is range bounds + fee accumulators.
 4. **Mirror for BTC**: `vBTC` already exists as a contract; give it the same face and per-LP state.
 
 ## The size arithmetic, current
@@ -99,7 +99,7 @@ exactly this. It is one source of truth for cooperative-close attribution AND th
 
 ## The eight pairs, classified (measured 2026-08-16)
 
-`Types.BandCfg`/`Types.BandP` now serve both libraries, so the pairs differ ONLY in their bodies.
+`Types.RangeCfg`/`Types.RangeP` now serve both libraries, so the pairs differ ONLY in their bodies.
 Diffing `levAddNet`∥`levAddNetBtc`, `levAddBuf`∥`levAddBufBtc`, `levAddGross`∥`levAddGrossBtc` and
 `levBurnAll`∥`levBurnAllBtc` gives FOUR kinds of difference, and three are drift:
 
@@ -167,11 +167,11 @@ catch it. `python3 tools/check-contract-sizes.py` is the gate.
 | cluster | lines | functions |
 |---|---|---|
 | share / position — `_withdraw` 182, `_depositImpl` 82, `_outOfRange` 41, `compound`, `_settlePending`, `_onExit`, the 4626 + ERC-20 face | **539** | 34 |
-| band — bounds, repack, theta, fee accumulators | **280** | 44 |
+| range — bounds, repack, theta, fee accumulators | **280** | 44 |
 
 ⇒ `Quid` is **66% position machinery**. Moving that cluster into `Shares` frees proportionally
-~14KB — comfortably more than the 7,424 needed — leaving a band-only `Quid` of ~8KB. Then
-`Core` 10,074 + band ~8,000 ≈ **18,000 < 24,576** and the fold fits with headroom.
+~14KB — comfortably more than the 7,424 needed — leaving a range-only `Quid` of ~8KB. Then
+`Core` 10,074 + range ~8,000 ≈ **18,000 < 24,576** and the fold fits with headroom.
 
 **So the order is forced, and it is not a preference:** extract the share face FIRST, fold
 second. Attempting the fold first cannot work at any level of care.
@@ -203,8 +203,8 @@ seam was cut, not whether the logic differs. ⚠️ **This is the "confirm what 
 trap in its purest form:** the diff ran, the number printed, and it was about something else.
 A similarity score can only be read as evidence of difference once BOTH sides are the same scope.
 
-**`Core.outOfRange` is ALREADY one function serving both bands** (`onlyUs`, ETH and BTC alike).
-So the engine end is done; the duplication is entirely in the two band managers' entries plus the
+**`Core.outOfRange` is ALREADY one function serving both ranges** (`onlyUs`, ETH and BTC alike).
+So the engine end is done; the duplication is entirely in the two range managers' entries plus the
 two library halves — i.e. **exactly the per-LP position cluster destined for `Shares`.**
 
 ### The one genuine fork, classified

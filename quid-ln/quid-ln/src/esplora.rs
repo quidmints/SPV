@@ -101,7 +101,7 @@ pub enum TxConfStatus {
 /// Thin wrapper around cached feerate estimates fetched from Esplora.
 /// - The cached feerates are periodically updated by [`Esplora`].
 /// - Implements [`FeeEstimator`] and provides other useful getters.
-/// Sanity band (sat/vByte) for esplora-supplied feerate estimates. The lower
+/// Sanity range (sat/vByte) for esplora-supplied feerate estimates. The lower
 /// bound complements LDK's `FEERATE_FLOOR_SATS_PER_KW`; the upper bound caps the
 /// fund-burn surface from a malicious/misbehaving esplora (audit HIGH) — 10k
 /// sat/vB is ~5–10× any realistic mainnet peak.
@@ -194,7 +194,7 @@ impl FeeEstimates {
         // HTLC-claim / sweep txs (huge value), or low-ball them to enable a
         // force-close pinning grief. So VALIDATE + CLAMP every estimate on ingest
         // (audit HIGH): drop non-finite (NaN/±inf), and clamp to a sane sat/vByte
-        // band. The lower clamp complements LDK's own `FEERATE_FLOOR_SATS_PER_KW`;
+        // range. The lower clamp complements LDK's own `FEERATE_FLOOR_SATS_PER_KW`;
         // the upper clamp (absent before) bounds the fund-burn surface — 10k
         // sat/vB is ~5–10× any realistic mainnet peak.
         estimates
@@ -556,7 +556,7 @@ mod fee_clamp_tests {
             (6u16, -5.0),           // negative → clamped to MIN
             (10u16, f64::NAN),      // NaN → dropped
             (20u16, f64::INFINITY), // inf → dropped
-            (30u16, 0.1),           // below band → clamped to MIN
+            (30u16, 0.1),           // below range → clamped to MIN
         ]);
         let got = FeeEstimates::convert_estimates(raw);
         assert_eq!(got[&1], 50.0, "normal feerate passes through");
@@ -564,7 +564,7 @@ mod fee_clamp_tests {
         assert_eq!(got[&6], MIN_FEERATE_SATS_PER_VBYTE, "negative clamped to MIN");
         assert!(!got.contains_key(&10), "NaN dropped");
         assert!(!got.contains_key(&20), "inf dropped");
-        assert_eq!(got[&30], MIN_FEERATE_SATS_PER_VBYTE, "below-band clamped to MIN");
+        assert_eq!(got[&30], MIN_FEERATE_SATS_PER_VBYTE, "below-range clamped to MIN");
     }
 }
 

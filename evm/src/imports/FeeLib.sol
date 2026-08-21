@@ -56,9 +56,9 @@ library FeeLib {
     // REMOVED — QU!D has no peg-arb loop to defend (see Aux._takeArgs); peg-defense redemptions are scheduled
     // by 6909. `decPow` is KEPT (Core still uses it for the 48h FLOW_DECAY flow-EWMA).
 
-    uint public constant DEPEG_DEADBAND_BPS = 50; // live-feed peg tolerance (bps);
+    uint public constant DEPEG_DEADZONE_BPS = 50; // live-feed peg tolerance (bps);
                                             // below this a stable is "healthy" (absorbs
-                                            // Chainlink's deviation band + heartbeat noise)
+                                            // Chainlink's deviation range + heartbeat noise)
     uint public constant BASE = 3;          // 0.03% baseline outflow fee (bps)
     uint public constant MAX_FEE = 30;      // 0.3% cap on the composite outflow fee
                                             // (the ether.fi-redeem-equivalent ceiling;
@@ -69,11 +69,11 @@ library FeeLib {
     ///         Link oracle. 0 if not depegged; otherwise the severity bps
     ///         (capped at 10000). No prior, no Bayesian blend — Link is
     ///         the authoritative signal.
-    function calcRisk(address token, address band)
+    function calcRisk(address token, address range)
         internal view returns (uint)
     {
-        if (band == address(0) || token == address(0)) return 0;
-        try IAux(band).getDepegSeverityBps(token) returns (uint s) {
+        if (range == address(0) || token == address(0)) return 0;
+        try IAux(range).getDepegSeverityBps(token) returns (uint s) {
             if (s == 0) return 0;
             return s > 10000 ? 10000 : s;   // Recognize FULL severity (was capped at 3500/65c)
         } catch {
@@ -130,7 +130,7 @@ library FeeLib {
     ///         struct, silently breaking the loop's in-place mutation semantics).
     struct FeeCtx {
         address[] stables;
-        address band;
+        address range;
     }
 
     /// @notice Gross up `amount` for a depegged leg — deliver more units of the cheap collateral for the same
@@ -150,18 +150,18 @@ library FeeLib {
         // The sole outflow COST is the depeg haircut, and only during an actual depeg. deps/yields/c.stables
         // are retained in the signature for the SOR/lens seam (unused here).
         deps; yields;
-        needed = grossUpForDepeg(amount, calcRisk(token, c.band));
+        needed = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 
     /// @notice Apply fee + depeg haircut to a paid-out amount in one call.
     function applyFeeAndHaircut(address token, uint idx,
         uint amount, uint[15] memory deps, uint[15] memory yields,
-        address band) external view returns (uint)
+        address range) external view returns (uint)
     {
         // Concentration/cherry-pick fee no longer charged (only the depeg haircut is). idx/deps/yields kept in
         // the signature for callers; concentration survives as a SOR routing signal only.
         idx; deps; yields;
-        return grossUpForDepeg(amount, calcRisk(token, band));
+        return grossUpForDepeg(amount, calcRisk(token, range));
     }
 
     /// @notice Pro-rata allocation + fee + haircut in one call. Computes
@@ -178,7 +178,7 @@ library FeeLib {
         // unchanged → ZERO cherry-pick externality, so NO fee here (the concentration/cherry-pick fee is priced
         // only on a PREFERRED draw; the baseRate velocity toll was removed — no peg-arb loop). Only the depeg
         // haircut grosses up an impaired leg (more units of the cheap collateral for the same value).
-        amount = grossUpForDepeg(amount, calcRisk(token, c.band));
+        amount = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 
     /// @notice Risk-weighted discount factor for a stablecoin's basket
@@ -188,14 +188,14 @@ library FeeLib {
     ///         returns severity 0 → 10000 (no-op).
     function riskFactor(
         address token,
-        address band
+        address range
     ) external view returns (uint factorBps) {
         if (token == address(0)) return 10000;
-        // `band` is Aux itself (getDepegSeverityBps reads the per-stable Chainlink
+        // `range` is Aux itself (getDepegSeverityBps reads the per-stable Chainlink
         // feed via liveDepegBps). The CRE that once answered this was removed; the
         // on-chain feed IS the depeg signal now. A revert is treated as healthy.
         uint sev;
-        try IAux(band).getDepegSeverityBps(token) returns (uint s) {
+        try IAux(range).getDepegSeverityBps(token) returns (uint s) {
             sev = s;
         } catch {
             return 10000;
@@ -207,8 +207,8 @@ library FeeLib {
     /// @notice Downside deviation (bps) of a stable's USD feed below $1 — the depeg
     ///         severity, sourced directly from the pinned Chainlink feed (this is what
     ///         Aux.getDepegSeverityBps returns). A feed that is stale / reverting /
-    ///         zero / at-or-above peg returns 0 (healthy). A deadband absorbs benign
-    ///         sub-peg noise (Chainlink's deviation band + heartbeat lag). Deliberately
+    ///         zero / at-or-above peg returns 0 (healthy). A deadzone absorbs benign
+    ///         sub-peg noise (Chainlink's deviation range + heartbeat lag). Deliberately
     ///         NOT treating a stale feed as max-severity: a benign heartbeat lapse must
     ///         not inflict a redemption haircut on an otherwise-healthy stable.
     function liveDepegBps(address feed, uint maxAge)
@@ -227,14 +227,14 @@ library FeeLib {
             uint price = uint(answer);
             if (price >= peg) return 0;             // at/above peg → no risk
             uint down = ((peg - price) * 10000) / peg;   // downside bps
-            // Deadband: Chainlink stable feeds carry a deviation band (~0.25–0.5%)
+            // Deadzone: Chainlink stable feeds carry a deviation range (~0.25–0.5%)
             // and update on deviation OR a ~24h heartbeat, so a perfectly healthy
             // stable routinely sits a few–tens of bps below $1 between updates.
-            // Without a deadband the live leg would haircut EVERY deposit/redeem on
+            // Without a deadzone the live leg would haircut EVERY deposit/redeem on
             // that benign noise (and diverge from the CRE, which medians+quantizes
-            // to ≈0 in steady state). Treat anything within DEADBAND of peg as
+            // to ≈0 in steady state). Treat anything within DEADZONE of peg as
             // healthy; a real depeg (hundreds–thousands of bps) clears it easily.
-            return down <= DEPEG_DEADBAND_BPS ? 0 : down;
+            return down <= DEPEG_DEADZONE_BPS ? 0 : down;
         } catch {
             return 0;
         }

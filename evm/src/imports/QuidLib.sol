@@ -14,7 +14,7 @@ import {IWETH9} from "./Interfaces.sol";
 // §A.52: ONE canonical Quid view (was two file-local variants, `IQuid_VG` + `IQuidView_VG`).
 import {IQuid} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
-import {BandLib} from "./BandLib.sol";
+import {RangeLib} from "./RangeLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
@@ -65,14 +65,14 @@ library QuidLib {
     error Dust();
 
     // ════════════════════════════════════════════════════════════════════
-    //  IL-protect: ETH levered band slice (full-2x fee lane). Bodies of
+    //  IL-protect: ETH levered range slice (full-2x fee lane). Bodies of
     //  Quid._reconcileLev's legs extracted. Reference state passed by storage
     //  ref; the value-type lpShares delta is returned as (added, burned) and the
     //  Quid forwarder applies `lpShares += added - burned`.
     // ════════════════════════════════════════════════════════════════════
 
-    /// @dev Quid immutables the levered-band bodies touch.
-    // §BAND-MERGE — the local `LevCfg`/`LevP` moved to `Types.BandCfg`/`Types.BandP`, shared with the BTC
+    /// @dev Quid immutables the levered-range bodies touch.
+    // §RANGE-MERGE — the local `LevCfg`/`LevP` moved to `Types.RangeCfg`/`Types.RangeP`, shared with the BTC
     // side. They were the same structs; only the asset field's name and `lm` vs `mgr` differed.
 
     function levManager(address aux) public view returns (address) {
@@ -89,16 +89,16 @@ library QuidLib {
     ///         NET lpShares deltas (addedNet, burnedNet) AND the buffer deltas (bufAdded, bufBurned)
     ///         for the Quid forwarder to apply (lpShares += addedNet - burnedNet; totalBuffer += ...).
     function reconcileLegs(
-        Types.BandCfg memory c, Types.Deposit storage LP,
+        Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, Types.BandP memory p
+        address lp, Types.RangeP memory p
     ) public returns (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) {
         if (levPooled[lp] > 0 || levBuf[lp] > 0)
-            (burnedNet, bufBurned) = BandLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+            (burnedNet, bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         if (p.gross > 0)
-            (addedNet, bufAdded) = BandLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+            (addedNet, bufAdded) = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
     }
 
     /// @dev Burn `lp`'s ENTIRE levered slice tokenlessly (no delivery). Burns the GROSS depth
@@ -114,7 +114,7 @@ library QuidLib {
 
     /// @dev BUFFER leg — the debt-funded half. It is fee-earning V4 DEPTH but NOT equity, so it grows
     ///      levBuf (fee weight + totalBuffer via the return) and the V4 position, but NOT pooled/lpShares.
-    ///      USD = buffer collateral at band price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
+    ///      USD = buffer collateral at range price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
 
     // ════════════════════════════════════════════════════════════════════
     //  ETH-venue deposit routing (body of Quid._depositETH). DELEGATECALL'd:
@@ -152,9 +152,9 @@ library QuidLib {
 
     // ════════════════════════════════════════════════════════════════════
     //  θ / LVR / realized-vol math (bodies of Quid._kLvrWad, realizedAlphaWad,
-    //  realizedVarianceWad, derivedThetaWad). Pure band-geometry + oracle-ring
+    //  realizedVarianceWad, derivedThetaWad). Pure range-geometry + oracle-ring
     //  math extracted for EIP-170 headroom; view fns (no state written), the
-    //  live band ticks arrive as params. Byte-identical to the in-Quid bodies.
+    //  live range ticks arrive as params. Byte-identical to the in-Quid bodies.
     // ════════════════════════════════════════════════════════════════════
     uint32  constant THETA_STEP = 300;         // 5-min sample window
     // THETA_N (8 windows → a 40-min horizon) DELETED 2026-08-15: zero references anywhere, code or
@@ -166,12 +166,12 @@ library QuidLib {
     //    would orphan that explanation and leave 300 as a magic number.
     uint    constant SECS_PER_YEAR = 31536000;
 
-    /// @notice The LVR coefficient K (WAD), derived LIVE from band geometry.
+    /// @notice The LVR coefficient K (WAD), derived LIVE from range geometry.
     /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
     /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:
     ///     s/√Pb = √(P/Pb)   ·   √Pa/s = √(Pa/P)
     /// so the tick→sqrt lookup disappears and the arithmetic is unchanged. √ survives as an
-    /// OPERATION (band width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
+    /// OPERATION (range width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
     function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
         (uint priceWad,) = ICore(core).poolStats();
         if (loPrice >= upPrice) return 0;
@@ -184,7 +184,7 @@ library QuidLib {
         return SoladyMath.fullMulDiv(1e18, 1e18, 4 * denom);
     }
 
-    /// @notice The band's LIVE realized concavity α (WAD).
+    /// @notice The range's LIVE realized concavity α (WAD).
     /// §DE-TICK — same conversion as `kLvrWad`: ratios of roots become roots of price ratios.
     function realizedAlphaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
         (uint priceWad,) = ICore(core).poolStats();
@@ -196,12 +196,12 @@ library QuidLib {
         return SoladyMath.fullMulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
     }
 
-    /// @dev Annualized WAD yield the BAND itself earned on the capital it put at risk — θ's
+    /// @dev Annualized WAD yield the RANGE itself earned on the capital it put at risk — θ's
     ///      numerator (#107/D3). Both inputs come off Core and are 6-dec USD, so the ratio is
     ///      unitless and needs no scale plumbing:
     ///        • numerator   = `premiumEwmaUsd` — retained scarcity premium, decayed over ~48h.
-    ///        • denominator = that pool's in-range band USD (`POOLED_USD_*`), i.e. the capital that
-    ///          actually bore the IL. Using the band's own capital (not TVL, not backing) is what
+    ///        • denominator = that pool's in-range range USD (`POOLED_USD_*`), i.e. the capital that
+    ///          actually bore the IL. Using the range's own capital (not TVL, not backing) is what
     ///          makes this a YIELD ON THE BET rather than a yield on the whole reserve.
     ///      Returns 0 when either side is unmeasured, which `derivedThetaWad` turns into fail-open.
     ///
@@ -223,27 +223,27 @@ library QuidLib {
     ///      half-life H has mean lifetime H/ln2, so it represents roughly that much accrual: for the
     ///      48h `FLOW_DECAY`, 48/ln2 ≈ 69.25h, and a year is 8760/69.25 ≈ 126.5 such windows (rounded UP to 127 per user). σ² is
     ///      ANNUALIZED (see `realizedVarianceWad`), so the numerator must be annualized too or θ is
-    ///      dimensionally wrong and would systematically under-size the band. 127 is that factor,
+    ///      dimensionally wrong and would systematically under-size the range. 127 is that factor,
     ///      not a tuning knob — if `FLOW_DECAY`'s half-life ever changes, this must change with it.
     uint internal constant PREMIUM_ANNUALIZE = 127;
 
-    function _bandFeeYieldWad(address core) internal view returns (uint) {
+    function _rangeFeeYieldWad(address core) internal view returns (uint) {
         uint prem6 = ICore(core).premiumEwmaUsd();
         if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
         uint pooled6 = ICore(core).POOLED_USD();
-        if (pooled6 == 0) return 0;                     // no band capital at risk ⇒ nothing to size
+        if (pooled6 == 0) return 0;                     // no range capital at risk ⇒ nothing to size
         return SoladyMath.fullMulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
     }
 
-    /// @notice θ derived live: **band fee yield** / (K·σ²), clamped to <=1.
+    /// @notice θ derived live: **range fee yield** / (K·σ²), clamped to <=1.
     ///
-    /// @dev #107/D3 (2026-07-26): the numerator is the BAND's realized market-making yield, NOT the
+    /// @dev #107/D3 (2026-07-26): the numerator is the RANGE's realized market-making yield, NOT the
     ///      reserve `avgYield` it used to read. θ is Merton's `μ/(K·σ²)` — the optimal fraction of
     ///      capital to commit to a RISKY bet — and the bet being sized here is IL-bearing in-range
-    ///      band depth. The compensation for that bet is the retained scarcity premium, full stop.
-    ///      Reserve `avgYield` is earned whether the dollar leg is banded or sits idle (`spec.md`),
-    ///      so it is NOT marginal compensation for IL and using it over-sized the band. Per the user:
-    ///      *"the size of the band should have nothing to do with avgYield at all — that is only a
+    ///      range depth. The compensation for that bet is the retained scarcity premium, full stop.
+    ///      Reserve `avgYield` is earned whether the dollar leg is ranged or sits idle (`spec.md`),
+    ///      so it is NOT marginal compensation for IL and using it over-sized the range. Per the user:
+    ///      *"the size of the range should have nothing to do with avgYield at all — that is only a
     ///      number that tells us how much QUI to mint upfront."* Two different jobs, two inputs.
     ///      Kept θ-LOCAL (read straight off Core) rather than folded into `avgYield`, precisely
     ///      because `avgYield` also feeds `seedFee` mint-valuation — folding would have moved mint
@@ -255,13 +255,13 @@ library QuidLib {
     ///      FAILS OPEN on an unmeasured register (`premium == 0` ⇒ return 1e18), matching every
     ///      other unmeasured path here (`sigmaSq == 0`, `kWad == 0`, cold oracle ring) and the
     ///      documented "θ≥1 fails open (calm/unmeasured) → only HEADROOM binds". That is what lets a
-    ///      cold band BOOTSTRAP: a fresh band has earned no premium, and failing CLOSED would clamp
+    ///      cold range BOOTSTRAP: a fresh range has earned no premium, and failing CLOSED would clamp
     ///      it to zero depth forever (no depth ⇒ no fees ⇒ no depth). Failing open is safe rather
     ///      than unbounded because `SwapLib.clampByBacking` applies the PHYSICAL
     ///      `backing − pooled` headroom independently — audit #8 was closed so that "every path
     ///      stays bounded at the real backing even when θ fails open".
     /// @dev `aux` was DROPPED (2026-07-27): the only thing that read it was the old `avgYield`
-    ///      numerator, which #107/D3 replaced with the band-fee premium EWMA read off `core`. The
+    ///      numerator, which #107/D3 replaced with the range-fee premium EWMA read off `core`. The
     ///      parameter has been dead since that change — the compiler flagged it as unused.
     function derivedThetaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
         uint sigmaSq = ICore(core).realizedVarianceWad();   // §E59: ONE source, read from Core
@@ -274,23 +274,23 @@ library QuidLib {
         // adds no safety. EVERY consumer already short-circuits at the same threshold:
         // `SwapLib.applyTheta:1299` is `if (thetaEff >= 1e18) return available;` (so 1e18 and 12e18
         // are byte-identical no-ops), `QuidLib:470` and `BtcLib:136` both document and treat
-        // ">= 1e18 ⇒ no-op / fail-open", and the real bound on band depth is the PHYSICAL
+        // ">= 1e18 ⇒ no-op / fail-open", and the real bound on range depth is the PHYSICAL
         // `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates.
         // Removing it also makes the external views (`Quid.derivedThetaWad`,
         // `Vault.derivedThetaWadBtc`) strictly MORE informative: they now report HOW FAR above the
-        // no-throttle threshold the band is, instead of flattening everything to exactly 1.0 — which
-        // matters more post-#107/D3, since a band earning real premium in a calm tape clears 1e18
+        // no-throttle threshold the range is, instead of flattening everything to exactly 1.0 — which
+        // matters more post-#107/D3, since a range earning real premium in a calm tape clears 1e18
         // routinely where the old reserve-`avgYield` numerator rarely did.
         // FAIL OPEN on an unmeasured premium register. This was MISSING (fixed 2026-07-26): the
-        // docstring above already promised it, and `_bandFeeYieldWad` returns 0 for both
+        // docstring above already promised it, and `_rangeFeeYieldWad` returns 0 for both
         // `premium == 0` and `pooled == 0`, so `mulDiv(0, ...)` made θ fail CLOSED — the exact
         // deadlock the docstring warns about (no depth ⇒ no fees ⇒ no premium ⇒ no depth, forever).
-        // A cold band could never bootstrap. Matches every other unmeasured path here
+        // A cold range could never bootstrap. Matches every other unmeasured path here
         // (`sigmaSq == 0`, `kWad == 0`, `work == 0`), and is safe for the same reason they are:
         // `SwapLib.clampByBacking` applies the PHYSICAL `backing − pooled` headroom independently.
-        uint bandFeeYield = _bandFeeYieldWad(core);
-        if (bandFeeYield == 0) return 1e18;
-        return SoladyMath.fullMulDiv(bandFeeYield, 1e18, work);
+        uint rangeFeeYield = _rangeFeeYieldWad(core);
+        if (rangeFeeYield == 0) return 1e18;
+        return SoladyMath.fullMulDiv(rangeFeeYield, 1e18, work);
     }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring.
@@ -303,7 +303,7 @@ library QuidLib {
     //  forwarder. Byte-identical to the in-Quid body.
     // ════════════════════════════════════════════════════════════════════
     /// @dev §E270 — `wantTok` is the REQUEST and is never written; `deltaTok` is the evolving value
-    ///      (surplus-sized, then theta/backing-capped). Mirrors the BTC band, which already kept its
+    ///      (surplus-sized, then theta/backing-capped). Mirrors the BTC range, which already kept its
     ///      request in `sats`. Before this the ETH PARAMETER was overwritten, so past `sizeBySurplus`
     ///      the requested amount existed nowhere in the frame.
     function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
@@ -315,19 +315,19 @@ library QuidLib {
             SwapLib.sizeBySurplus(deposits[14], committedBoth, wantTok, price);
         if (surplus == 0) return (0, 0);
 
-        // ETH: bandETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
+        // ETH: rangeETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
         // BTC: native backing = Core.btcThetaBacking() (lpShares net + totalBuffer gross) -- the SAME
         // source the LP-add clamp (BtcLib._thetaClampBtc) uses, so this reseat throttles on the real
-        // risk capital and can't collapse the band to ~0. NOT the disjoint WBTC-donation bandBTC, and NOT
-        // Quid's ETH `grossBuffer` (wrong asset for a BTC band; btcThetaBacking carries the BTC buffer).
+        // risk capital and can't collapse the range to ~0. NOT the disjoint WBTC-donation rangeBTC, and NOT
+        // Quid's ETH `grossBuffer` (wrong asset for a BTC range; btcThetaBacking carries the BTC buffer).
         // ONE principle (SwapLib.clampByBacking): physical backing HEADROOM (backing − pooled) AND the theta
         // risk-budget (θ·backing − pooled) — shared verbatim with the BTC LP-add clamp
-        // (BtcLib._thetaClampBtc). `backing` = the IL-bearing capital (ETH: bandETH venue principal +
-        // gross buffer; BTC: Core.btcThetaBacking = lpShares + gross buffer). bandAvail/pooled inlined into
+        // (BtcLib._thetaClampBtc). `backing` = the IL-bearing capital (ETH: rangeETH venue principal +
+        // gross buffer; BTC: Core.btcThetaBacking = lpShares + gross buffer). rangeAvail/pooled inlined into
         // the call to keep this frame off the legacy-pipeline stack (no via-IR).
         uint capped = SwapLib.clampByBacking(
             _liveTheta(),
-            IAux(aux).bandETH() + grossBuffer,   // §ISBTC-SPLIT: only caller passed isBTC=false, so the BTC arm was unreachable
+            IAux(aux).rangeETH() + grossBuffer,   // §ISBTC-SPLIT: only caller passed isBTC=false, so the BTC arm was unreachable
             ICore(core).POOLED(),
             deltaTok);
         if (capped < deltaTok) {
@@ -358,7 +358,7 @@ library QuidLib {
     struct RebalIn {
         address core; address aux; address ev; address weth;
         uint lpShares; uint totalLevPooled; uint totalBuffer;
-        uint loPrice; uint upPrice; uint bookmark;   // §DE-TICK: band bounds as PRICES
+        uint loPrice; uint upPrice; uint bookmark;   // §DE-TICK: range bounds as PRICES
     }
     struct RebalOut {
         uint    spotPrice; uint    loPrice; uint    upPrice; uint    myLiquidity; uint resolvedTwap;   // §DE-TICK: uniform 256-bit
@@ -366,10 +366,10 @@ library QuidLib {
         bool setLastRepack; bool reseatBump;
     }
 
-    /// @dev Plain-venue ETH balance = bandETH − lev net-equity (replica of Quid._venueBalance; that one STAYS in
+    /// @dev Plain-venue ETH balance = rangeETH − lev net-equity (replica of Quid._venueBalance; that one STAYS in
     ///      Quid for its _withdraw/_depositImpl callers). No-op subtraction when no leverage.
     function _venueBalanceLib(address ev, address aux) internal returns (uint total) {
-        total = IEthVenue(ev).bandOp(0, 2);
+        total = IEthVenue(ev).rangeOp(0, 2);
         address lm = levManager(aux);
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
@@ -502,7 +502,7 @@ library QuidLib {
         // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
         // depositing the ASSET places the order on the opposite side of spot from depositing USD.
         // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
-        // became `RangeNotOutsideBand()` (the helper's named error) — same guard, better diagnostics.
+        // became `RangeNotOutside()` (the helper's named error) — same guard, better diagnostics.
         if (token == address(0)) {
             amount = depositETH(weth, aux, ev, msg.sender, address(0), amount);
             liquidity = SwapLib.sizeOorUsd(amount, t);
@@ -530,7 +530,7 @@ library QuidLib {
         weth = IAux(_aux).WETH();
         IWETH9(weth).approve(_aux, type(uint).max);
         (uint spotPrice,) = ICore(_core).poolStats();
-        (lower, upper) = SwapLib.updateBounds(spotPrice, SwapLib.BAND_DELTA);
+        (lower, upper) = SwapLib.updateBounds(spotPrice, SwapLib.RANGE_DELTA);
     }
 
     /// @dev Quid's ETH delivery ladder, moved here for EIP-170 (E32). Native balance
@@ -551,7 +551,7 @@ library QuidLib {
         else { uint needed = howMuch - alreadyInETH;
             uint inWETH = IWETH9(weth).balanceOf(address(this));
             if (needed > inWETH) {
-                inWETH += IEthVenue(ev).bandOp(needed - inWETH, 1);
+                inWETH += IEthVenue(ev).rangeOp(needed - inWETH, 1);
                 if (inWETH < needed) {
                     address mgr = IEthVenue(ev).LEV_MANAGER();
                     if (mgr != address(0)) {
@@ -570,15 +570,15 @@ library QuidLib {
     // ══════════════════════════════════════════════════════════════════════════════
     // §VAULTLIB-FOLD (2026-08-18) — QuidLib merged in and DELETED.
     //
-    // Its name had become a lie: `Vault` is the BTC band manager and does not call it. Every
-    // non-`Quid` reference to EITHER library across `Core`, `Vault`, `BandLib` and `BtcLib` is a
-    // COMMENT — checked one by one — so both were the ETH band manager's libraries and only one
+    // Its name had become a lie: `Vault` is the BTC range manager and does not call it. Every
+    // non-`Quid` reference to EITHER library across `Core`, `Vault`, `RangeLib` and `BtcLib` is a
+    // COMMENT — checked one by one — so both were the ETH range manager's libraries and only one
     // of them said so. `Quid` called them 28 and 11 times respectively.
     //
     // Folded whole rather than split: 12,232 + 5,703 = 17,935 against the 24,576 limit, so it fits
     // in one envelope with ~6,600 to spare and needs no boundary judgement. Zero function-name
-    // collisions between the two. The alternative — spreading across BandLib and this — would have
-    // required deciding a band-vs-venue line that the CALLERS do not draw.
+    // collisions between the two. The alternative — spreading across RangeLib and this — would have
+    // required deciding a range-vs-venue line that the CALLERS do not draw.
     // ══════════════════════════════════════════════════════════════════════════════
 
     /// §E57: moved with the offramp body — its only emitter.
@@ -605,9 +605,9 @@ library QuidLib {
     // ── Venue valuation ───────────────────────────────────────────────────
 
 
-    /// @dev Body of Vault.bandETH — AGGREGATE ETH-equivalent backing across the
+    /// @dev Body of Vault.rangeETH — AGGREGATE ETH-equivalent backing across the
     ///      depositor-chosen venues.
-    function _bandETH(EthCfg memory c) internal view returns (uint total) {
+    function _rangeETH(EthCfg memory c) internal view returns (uint total) {
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
@@ -625,16 +625,16 @@ library QuidLib {
         // IL-protect: count the leveraged book's net-equity (gross collateral - debt), not gross. The buffer
         // half is debt-funded (offset by the LP's borrow), so counting gross would overstate solvency by the debt
         // -- the same error the fold fixed for `committed`. Net-equity is the LP's real deliverable claim (what
-        // `closeLev` returns after auto-repaying the debt). The 2x band depth is untouched -- it lives in
+        // `closeLev` returns after auto-repaying the debt). The 2x range depth is untouched -- it lives in
         // `levPooled = gross`, not here. try/catch degrades to "no lev credit". Unified with the BTC model.
         if (c.levManager != address(0)) {
             try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; } catch {}
         }
     }
 
-    /// @notice Body of Vault.bandETH.
-    function bandETH(EthCfg memory c) public view returns (uint) {
-        return _bandETH(c);
+    /// @notice Body of Vault.rangeETH.
+    function rangeETH(EthCfg memory c) public view returns (uint) {
+        return _rangeETH(c);
     }
 
 
@@ -651,7 +651,7 @@ library QuidLib {
     ///         WHY THAT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery. Its two
     ///         consumers both tolerate over-statement:
     ///           • `Quid` uses it ONLY to cap `firstBurn`, i.e. how much of a withdrawal is sourced
-    ///             from the in-range band burn before the venue ladder takes the remainder. The
+    ///             from the in-range range burn before the venue ladder takes the remainder. The
     ///             shortfall is then derived from the ACTUAL `sent`, never from this number, so an
     ///             over-statement shifts the sourcing ORDER and self-corrects.
     ///           • `SwapLib.deleverEthOnDelivery` gates the swap-out de-lever; under-triggering there
@@ -727,11 +727,11 @@ library QuidLib {
     ///      the value is SLOWER, never stuck. A cap here would model an unreachable state that cannot
     ///      occur, and would understate backing on every read.
     function deliverableETH(EthCfg memory c) public view returns (uint total) {
-        total = _bandETH(c);
+        total = _rangeETH(c);
         // WEETH IS ONLY DELIVERABLE TO THE EXTENT CURVE CAN PAY FOR IT.
         // RE-DERIVED 2026-08-13, replacing the three `_deliverableCap` venue caps removed with the ETH
         // venues. Those caps were what made an undeliverable slice DEFER; deleting them without a
-        // replacement left `_bandETH` counting weETH at full oracle value while the exit can realise at
+        // replacement left `_rangeETH` counting weETH at full oracle value while the exit can realise at
         // most the pool's WETH, so delivery was overstated and the deferral machinery never engaged.
         // (Measured: that regression broke test_SETTLE_LvrResidualIsDeferralNotLeak,
         // test_RunSim_B_LiquidityRace_* and testRT_DeliveredPlusRetainedEqualsPrincipal, all of which
@@ -745,9 +745,9 @@ library QuidLib {
                 if (weethEth > payable_) total -= (weethEth - payable_);          // the surplus DEFERS
             }
         }
-        // The leverage net-equity is solvency backing (now counted in bandETH as net) but NOT deliverable
+        // The leverage net-equity is solvency backing (now counted in rangeETH as net) but NOT deliverable
         // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
-        // not from redemption). Exclude the same net-equity term bandETH added, so deliverableETH == base
+        // not from redemption). Exclude the same net-equity term rangeETH added, so deliverableETH == base
         // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
         if (c.levManager != address(0)) {
             try ILevEquity(c.levManager).totalNetEquity() returns (uint n) {
@@ -800,7 +800,7 @@ library QuidLib {
         if (amount == 0) return 0;
         require(token == c.weth, "ethv:notWeth");
         // Sweep any idle WETH from Aux into the Vault first (Aux approved the Vault),
-        // preserving the idle-first ladder (bandETH counts Aux idle as backing).
+        // preserving the idle-first ladder (rangeETH counts Aux idle as backing).
         uint auxIdle = IERC20(c.weth).balanceOf(c.aux);
         if (auxIdle > 0) {
             try IERC20(c.weth).transferFrom(c.aux, address(this), auxIdle) {} catch {}
@@ -905,7 +905,7 @@ library QuidLib {
         // `onlyManager`, so the entrypoint must live on `LevManager` — and with ~100 free bytes there it
         // needs the repo's forwarder shape: thin function in `LevManager`, body in `LevMath` (439 free).
         // The protocol's debt is then seeded into `LevManager.totalDebtUsd`, which already flows to
-        // `Core._bandEquityUsd18` → `committedUsd18`; NO new accounting term (adding one double-subtracts).
+        // `Core._rangeEquityUsd18` → `committedUsd18`; NO new accounting term (adding one double-subtracts).
         return waitNft(covered, recipient, c);
     }
 

@@ -105,7 +105,7 @@ label = "ILevVenue"
 label = "IVBtcToken"
 "49698_VAULT" [label="VAULT"]
 }subgraph cluster_61478_ShareMath {
-label = "ShareMath"
+label = "BasketLib"
 "61478_qdShareValue" [label="qdShareValue"]
 }subgraph cluster_47658_FeeLib {
 label = "FeeLib"
@@ -670,7 +670,7 @@ label = "IERC20"
 "95_decimals" [label="decimals"]
 "95_symbol" [label="symbol"]
 }subgraph cluster_49769_IBand {
-label = "IBand"
+label = "ICore"
 "49769_deliverVolatile" [label="deliverVolatile"]
 "49769_onShortfall" [label="onShortfall"]
 "49769_levGrossNative" [label="levGrossNative"]
@@ -1082,7 +1082,7 @@ label = "LevMath"
 "55453_stableToColl" [label="stableToColl"]
 "55453_ilTargetBps" [label="ilTargetBps"]
 "55453_vetVenue" [label="vetVenue"]
-"55453_e0Usd" [label="e0Usd"]
+"55453_e0Usd" [label="entryEquityUsd"]
 "55453__poolSwap" [label="_poolSwap"]
 "55453_loanPxUsd18" [label="loanPxUsd18"]
 "55453__wethToStableDex" [label="_wethToStableDex"]

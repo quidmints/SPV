@@ -8,7 +8,7 @@ import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
-import {IBand} from "./imports/Interfaces.sol";
+import {ICore} from "./imports/Interfaces.sol";
 
 
 
@@ -34,7 +34,7 @@ import {IBand} from "./imports/Interfaces.sol";
 ///         path (`_deleverFlash`) flashes the venue stable, REPAYS the LP's debt FIRST, then withdraws the
 ///         freed collateral to sell — so the position's LTV only ever DROPS mid-operation. This DISSOLVES the
 ///         withdraw-before-repay hazard by construction (there is no health breach to clamp against), instead
-///         of the old "withdraw only the health-safe slice and iterate" band-aid. One Morpho flash covers
+///         of the old "withdraw only the health-safe slice and iterate" range-aid. One Morpho flash covers
 ///         BOTH Euler and Morpho positions (Morpho lends from its global stable liquidity, independent of
 ///         where the position lives), so a single pinned provider serves every venue.
 
@@ -42,10 +42,10 @@ import {IBand} from "./imports/Interfaces.sol";
 /// @notice Each LP's leverage is an ISOLATED position on an external `ILevVenue` (real Euler EVK or Morpho
 ///         Blue — see `MorphoEscrowVenue`). The COLLATERAL is **weETH** (staked, not lent ⇒
 ///         no rehypothecation; earns ether.fi yield while pledged). The loop borrows the venue stable, buys
-///         weETH, supplies it, until LTV hits the live target = the band's SOLD FRACTION `1 − √(entry/now)`
+///         weETH, supplies it, until LTV hits the live target = the range's SOLD FRACTION `1 − √(entry/now)`
 ///         (NOT the static `L=1/α` knob — see the `debtDeltaToTarget` comment), capped at 2× — so the leverage
 ///         only engages to cancel the IL the flow actually created. The keeper (`quid-bridge::lev_keeper`) holds LTV
-///         in band via `rebalance` and proactively de-levers via `deleverOne`/`cascadeDelever` so the
+///         in range via `rebalance` and proactively de-levers via `deleverOne`/`cascadeDelever` so the
 ///         venue's liquidation engine never fires; a position it can't save falls to the venue's OWN
 ///         isolated liquidation (that LP only, never the basket). No QUI is minted; nothing touches
 ///         `POOLED_USD`. (The old LEVERAGE-ENGINE-SPEC.md is gone; this file is the canonical design.)
@@ -54,13 +54,13 @@ contract LevManager is LevBase {
     IERC20Min public immutable WEETH;   // collateral token (ether.fi weETH)
     IWeETH    internal immutable RATE;    // weETH→ETH rate (== WEETH addr; getEETHByWeETH)
     IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
-    // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our band.
+    // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our range.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     // (ETHERFI_REDEEMER + ETHFI_NATIVE_ETH removed 2026-08-09 — the instant-redeem leg they addressed was
     //  deleted 2026-08-06 and neither constant had a use site after it.)
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
 
-    // ── leverage band ──
+    // ── leverage range ──
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50% = 2× is the IL-NEUTRAL max (delta-1); above it is
     // opt-in DIRECTIONAL (long-biased) leverage — the LP's own risk, isolated at the venue (buffer USD ≤ debt,
     // deliverable excludes gross). 7500 = 75% LTV ≈ 4×. Conservative LPs still pass 5000 (2×). Tunable policy.
@@ -72,13 +72,13 @@ contract LevManager is LevBase {
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
     uint256 internal constant PROTOCOL_MINT_LTV_BPS = 8000;
-    /// Min collateral to OPEN — keeps the `_openLps` book (iterated in bandETH on every deposit/withdraw/swap)
+    /// Min collateral to OPEN — keeps the `_openLps` book (iterated in rangeETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
 
     /// @dev `targetLtvCapBps` = the LP's max-leverage LTV cap (≤ TARGET_LTV_CAP_BPS = 7500 bps ≈ 4×; 2× / 5000
     ///      bps is the IL-neutral value, higher is opt-in directional). `entryPriceWad` = ETH/USD at open: the IL
-    ///      target is `1 − √(entryPrice/pxNow)` = the ETH the band has sold since entry (capped). Opens at
+    ///      target is `1 − √(entryPrice/pxNow)` = the ETH the range has sold since entry (capped). Opens at
     ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
 
 
@@ -93,7 +93,7 @@ contract LevManager is LevBase {
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
-    ///         collateralOf/debtOf into `totalNetEquity → bandETH`, so an UNVETTED (fake) venue could
+    ///         collateralOf/debtOf into `totalNetEquity → rangeETH`, so an UNVETTED (fake) venue could
     ///         inject arbitrary phantom ETH backing and drain real ETH-LP principal on redemption. Only the
     ///         deployed Euler/Morpho adapters may ever be allowed. Pinned at construction.
     address internal immutable GOV;
@@ -103,7 +103,7 @@ contract LevManager is LevBase {
     /// PIN-ONCE via `init` (below), then frozen (not rotatable) — matches the renounce-everything posture.
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays
-    ///         active. GOV flips it ON only AFTER the band-driven fork proof of the sold-fraction
+    ///         active. GOV flips it ON only AFTER the range-driven fork proof of the sold-fraction
     ///         IL-cancellation + the reseat re-anchor land — so the wiring ships without changing the proven
     ///         behavior or activating money-path math the oracle-mock unit tests cannot exercise.
 
@@ -120,7 +120,7 @@ contract LevManager is LevBase {
     /// a close whose over-collateralization exceeds it simply reverts (fail-closed) and the LP falls to Liquity's
     /// own liquidation, never socialized. Permissionless top-up (only ever adds protocol WETH).
      event FlashProviderSet(address provider);
-    // flashProvider is pinned atomically alongside the band + venues in `init` (below).
+    // flashProvider is pinned atomically alongside the range + venues in `init` (below).
 
     // LIVE AND LOAD-BEARING — do not delete on the strength of the comment that used to be here (it named the
     // ether.fi instant-redeem, removed 2026-08-06, and a `_sellWeeth` that never existed in this contract).
@@ -135,17 +135,17 @@ contract LevManager is LevBase {
     }
 
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic (no partial-config window). Wires together:
-    ///         the band sync-band (`band` = Quid — closeLev re-syncs the fee slice + the BAND-ONLY E0 source),
+    ///         the range sync-range (`range` = Quid — closeLev re-syncs the fee slice + the RANGE-ONLY E0 source),
     ///         the zero-fee flash provider (`flash` = Morpho for repay-first de-lever; `address(0)` disables it),
     ///         and the audited venue allowlist (`venues`, then FROZEN). NOT rotatable — a rotatable allowlist is
     ///         the phantom-backing rug vector the freeze exists to prevent (GOV could add a fake venue → phantom
-    ///         backing → drain); a new band/flash/venue ⇒ deploy a new LevManager. Consolidates the former
-    ///         setQuidSyncBand/setFlashProvider/pinVenues (the manager↔venue circular dependency rules out a
+    ///         backing → drain); a new range/flash/venue ⇒ deploy a new LevManager. Consolidates the former
+    ///         setQuidSyncRange/setFlashProvider/pinVenues (the manager↔venue circular dependency rules out a
     ///         constructor immutable). Matches BtcLevManager.init.
-    function init(address band, address flash, address[] calldata venues) external {
+    function init(address range, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert VenueNotAllowed();
         venuesFrozen = true;
-        BAND = band;
+        RANGE = range;
         flashProvider = flash;
         emit FlashProviderSet(flash);
         for (uint i; i < venues.length; i++) {
@@ -197,7 +197,7 @@ contract LevManager is LevBase {
 
 
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD
-    ///         backing in the band-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
+    ///         backing in the range-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
 
 
@@ -245,7 +245,7 @@ contract LevManager is LevBase {
     }
 
 
-    /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the band ⇒ (false,0).
+    /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the range ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
 
 
@@ -266,30 +266,30 @@ contract LevManager is LevBase {
         if (collWeeth < MIN_OPEN_WEETH) revert BadTarget();           // anti-Sybil: no free zero-collateral book entries
         if (targetLtvBps == 0 || targetLtvBps > TARGET_LTV_CAP_BPS) revert BadTarget();
         // `targetLtvBps` is the LP's max-leverage CAP; the live target is the entry-price-driven IL target.
-        // Pin the entry price so the position opens at ZERO leverage and levers only as the band sells.
+        // Pin the entry price so the position opens at ZERO leverage and levers only as the range sells.
         uint256 entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03): the LP's ONE deposit (`collWeeth`) IS the levered position.
-        // Its net-equity is synced into the concentrated band (`levPooled`) as delta-1 (IL-free) depth by the 2×
+        // Its net-equity is synced into the concentrated range (`levPooled`) as delta-1 (IL-free) depth by the 2×
         // leverage — so E0, the FIXED IL base the hedge sizes against, is the DEPOSIT ITSELF (in ETH), NOT a
-        // separate unlevered band position. LEVERAGE-INVARIANT (the over-hedge fix): the collateral grows as the keeper
-        // levers, but E0 does not, so `targetDebt = E0·soldFrac` cancels the band's IL exactly instead of chasing a
+        // separate unlevered range position. LEVERAGE-INVARIANT (the over-hedge fix): the collateral grows as the keeper
+        // levers, but E0 does not, so `targetDebt = E0·soldFrac` cancels the range's IL exactly instead of chasing a
         // 1/(1−t) fixed point. ⚠️ E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to `netEquity(lp)`
-        // (BandLib.reanchorIfReseated) whenever the band reseats. That is SAFE and is the actual invariant: levering moves
+        // (RangeLib.reanchorIfReseated) whenever the range reseats. That is SAFE and is the actual invariant: levering moves
         // collateral and debt by the SAME amount, so net equity is LEVERAGE-INVARIANT. Sizing against GROSS
         // collateral is what re-opens the over-hedge; any future base must be leverage-invariant, not "fixed". (Unlike
-        // the old (B) two-pool model, there is no separate deliverable principal band — that isolation is traded
+        // the old (B) two-pool model, there is no separate deliverable principal range — that isolation is traded
         // for capital efficiency; the whole deposit is levered.) SAFETY:
         // the up-side-only clamp de-levers this toward 0 debt below entry, so the deposit is never held at 2× into
-        // a crash. `entryPrice` still tracks the band for the sold-fraction reference.
-        uint256 e0 = _collToBase(collWeeth);   // (A) the deposit (weETH->ETH rate, or WETH 1:1) is the IL base
-        // §FOLD-OPEN — band-price read + Pos literal + book enrolment are `LevBase._openPos`, shared
-        // with the BTC side. Only `e0` above is per-asset.
-        _openPos(venue, targetLtvBps, entryPx, e0);   // joins the book the Vault sums net-equity over
+        // a crash. `entryPrice` still tracks the range for the sold-fraction reference.
+        uint256 entryEquity = _collToBase(collWeeth);   // (A) the deposit (weETH->ETH rate, or WETH 1:1) is the IL base
+        // §FOLD-OPEN — range-price read + Pos literal + book enrolment are `LevBase._openPos`, shared
+        // with the BTC side. Only `entryEquity` above is per-asset.
+        _openPos(venue, targetLtvBps, entryPx, entryEquity);   // joins the book the Vault sums net-equity over
 
         // 1. Pull equity collateral (weETH OR WETH, per the venue) and supply as isolated collateral.
         _supplyCollFrom(venue, msg.sender, collWeeth);
 
-        // 2. Loop: borrow toward target, buy collateral, supply, until inside band (or MAX_LOOPS).
+        // 2. Loop: borrow toward target, buy collateral, supply, until inside range (or MAX_LOOPS).
         address stable = venue.stable();
         for (uint256 i; i < MAX_LOOPS; i++) {
             (bool levUp, uint256 needUsd) = debtDeltaToTarget(msg.sender);
@@ -298,16 +298,16 @@ contract LevManager is LevBase {
             _leverUpBuy(venue, msg.sender, stable, needUsd, minOut);
         }
         // No MIN-debt floor: the corrected design opens at ZERO leverage (IL target = 0 at entry) and levers
-        // up only as the band sells. The MAX bound is the per-position LTV cap (≤ 7500 bps ≈ 4×), enforced by the target.
+        // up only as the range sells. The MAX bound is the per-position LTV cap (≤ 7500 bps ≈ 4×), enforced by the target.
         emit Opened(msg.sender, address(venue), targetLtvBps);
     }
 
-    /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS = 7500 ≈ 4×). The live IL target = the band's sold
+    /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS = 7500 ≈ 4×). The live IL target = the range's sold
     ///         fraction `1 − √(entry/now)` and is auto-computed each tick, never exceeding this cap. Permissioned
     ///         to the LP because the cap is a risk choice — `rebalance` toward the target stays permissionless.
     // ════════════════════════════ REBALANCE (keeper, up-side overlay) ════════════════════════════
 
-    /// @notice Hold `lp`'s LTV inside the band. levUp: borrow→buy-weETH→supply. levDown (the
+    /// @notice Hold `lp`'s LTV inside the range. levUp: borrow→buy-weETH→supply. levDown (the
     ///         liquidation-avoidance): withdraw weETH→sell→repay. `minOut` bounds the single swap this call
     ///         performs (off-chain quoted by the keeper). Permissionless: only moves toward target.
     /// PERMISSIONLESS single-LP rebalance toward the IL target. Sets `_activeKeeper` so the flash reimburses the caller.
@@ -316,7 +316,7 @@ contract LevManager is LevBase {
         _rebalance(lp, minOut);
     }
 
-    /// @notice BATCH rebalance — hold every out-of-band LP at its IL target in ONE tx (mirrors `cascadeDelever`),
+    /// @notice BATCH rebalance — hold every out-of-range LP at its IL target in ONE tx (mirrors `cascadeDelever`),
     ///         FAULT-TOLERANT: an LP whose rebalance reverts is SKIPPED (emit `RebalanceFailed`) and the loop
     ///         continues. PERMISSIONLESS + only moves toward target. Lets the keeper fire ONE tx for the whole book
     ///         instead of N per-LP txs — the central-rebalancer path.
@@ -351,8 +351,8 @@ contract LevManager is LevBase {
 
     /// @notice De-lever ONE position toward target (down-leg only). The atomic unit of the cascade;
     ///         `external` so `cascadeDelever` can try/catch it. Callable by the contract itself (cascade) or
-    ///         the LP. Iterates to within band (one chunk only gets close — selling weETH reflexively nudges
-    ///         the band mark + slippage leave headroom — so re-solve on the new mark and chip again,
+    ///         the LP. Iterates to within range (one chunk only gets close — selling weETH reflexively nudges
+    ///         the range mark + slippage leave headroom — so re-solve on the new mark and chip again,
     ///         bounded by MAX_LOOPS; a no-progress chunk breaks early so a stuck position never spins).
     /// @dev NO `nonReentrant` BY DESIGN: `cascadeDelever` (which holds the guard) calls this via `this.deleverOne`,
     ///      so a guard here would revert the whole cascade. Safe without it — caller is self or the LP only, and
@@ -361,8 +361,8 @@ contract LevManager is LevBase {
         if (msg.sender != address(this) && msg.sender != lp) revert Auth();
         Types.Pos memory p = pos[lp];
         if (!p.open) return;
-        uint256 repayUsd = deleverRepayUsd(lp);                                 // Δ/(1−t), 0 if inside band
-        if (repayUsd == 0) return;                                              // inside band → done
+        uint256 repayUsd = deleverRepayUsd(lp);                                 // Δ/(1−t), 0 if inside range
+        if (repayUsd == 0) return;                                              // inside range → done
         uint256 debtBefore = p.venue.debtOf(lp);
         // ONE flash-repay-first shot reaches target (no health breach, any depth). If the position is
         // genuinely underwater/illiquid the flash can't be repaid → the whole op reverts → `cascadeDelever`
@@ -370,9 +370,9 @@ contract LevManager is LevBase {
         _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut);
         require(p.venue.debtOf(lp) < debtBefore, "delever: no liquidity");      // sourced nothing → cascade skips it
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
-        // full-2×: reconcile the band to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
+        // full-2×: reconcile the range to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
         // debt) — atomic, so the ≤Σdebt invariant holds continuously even mid-cascade. try/catch: never break it.
-        _syncBand(lp);
+        _syncRange(lp);
     }
 
     /// @notice SYSTEMIC cascade de-lever — the correlated-crash path. De-levers a batch in ONE tx,
@@ -399,18 +399,18 @@ contract LevManager is LevBase {
     }
 
     /// @notice Permissioned force-close of `lp`'s lever ON THEIR BEHALF — the §4.2 cover-lever entry
-    ///         (docs/actionable/JIT-DEPTH-GUARANTEE.md). Callable ONLY by the GOV-pinned `BAND`
-    ///         (the ETH band — so a `Quid._withdraw` can cover an open lever before the free-ladder burn) — NO
+    ///         (docs/actionable/JIT-DEPTH-GUARANTEE.md). Callable ONLY by the GOV-pinned `RANGE`
+    ///         (the ETH range — so a `Quid._withdraw` can cover an open lever before the free-ladder burn) — NO
     ///         GOV force-close (no live governance authority). SEPARATE trusted-caller path, so the LP-only
     ///         `closeLev` msg.sender gate is left intact (NOT
     ///         weakened). Same unwind mechanics as `closeLev` (flash-repay-FIRST → return the collateral to `lp`);
     ///         `minOut` bounds each collateral→stable swap. Backing-safe by construction: it only ever repays
-    ///         `lp`'s OWN debt and hands `lp`'s OWN freed collateral back to `lp`, so a hostile band can neither
+    ///         `lp`'s OWN debt and hands `lp`'s OWN freed collateral back to `lp`, so a hostile range can neither
     ///         extract value nor redirect it — at worst it forces a close the LP could do themselves.
-    ///         `nonReentrant`: the tail `syncLev` band call-back is already try/catch-wrapped, so a re-entrant
-    ///         band context degrades to the permissionless slice reconcile.
+    ///         `nonReentrant`: the tail `syncLev` range call-back is already try/catch-wrapped, so a re-entrant
+    ///         range context degrades to the permissionless slice reconcile.
     function closeLevFor(address lp, uint256 minOut) external nonReentrant {
-        if (msg.sender != BAND) revert NotGov();
+        if (msg.sender != RANGE) revert NotGov();
         _closeLev(lp, minOut, true);            // INVOLUNTARY -- retain state so the LP can be restored
     }
 
@@ -433,23 +433,23 @@ contract LevManager is LevBase {
         uint256 remaining = venue.collateralOf(lp);
         uint256 back = remaining > 0 ? venue.withdraw(lp, remaining) : 0;
         if (back > 0) IERC20Min(_collToken(venue)).transfer(lp, back); // weETH OR WETH, per the venue (incl. rebuilt short base)
-        // A voluntary close DROPS the slot. An involuntary one (closeLevFor, the band covering a lever
+        // A voluntary close DROPS the slot. An involuntary one (closeLevFor, the range covering a lever
         // before its free-ladder burn) RETAINS every field with open=false, because the LP did not choose to
         // exit and must be restorable to the same position after the refill. Safe only because ilLtvBps,
         // ilTargetLtvBps and debtDeltaToTarget now gate on .open -- before that, a retained Pos made
         // debtDeltaToTarget report "lever up" on a closed position.
         if (keepState) p.open = false; else delete pos[lp];
         _untrackOpen(lp);          // leave the book — net-equity contribution drops to 0
-        // Burn the LP's levered band slice NOW (net-equity is 0 post-delete) so it can't keep earning band
+        // Burn the LP's levered range slice NOW (net-equity is 0 post-delete) so it can't keep earning range
         // fees on vanished backing. Non-fatal: the slice is also reconcilable permissionlessly via syncLev.
-        _syncBand(lp);
+        _syncRange(lp);
         emit Closed(lp, back);
     }
 
     /// @notice The stable (USD 1e18) that must be REPAID to bring `lp` to target LTV. De-levering sells
     ///         collateral too, so the naive `curDebt−targetDebt` UNDERSHOOTS (that's exactly why the old
     ///         chunked path had to loop); the closed form that lands ON target is `Δ/(1−t)`. Zero when the
-    ///         position is inside the de-lever band (or below target). One consistent oracle read.
+    ///         position is inside the de-lever range (or below target). One consistent oracle read.
     function deleverRepayUsd(address lp) internal view returns (uint256) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
@@ -458,7 +458,7 @@ contract LevManager is LevBase {
         // Compare-math folded to LevMath.deleverRepay: on the FIXED E0 the repay is simply curDebt − targetDebt
         // (no Δ/(1−t) inflation — that was only needed when the target tracked the shrinking collateral).
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return LevMath.deleverRepay(LevMath.e0Usd(p.e0, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
+        return LevMath.deleverRepay(LevMath.entryEquityUsd(p.entryEquity, px), debtUsd(lp), _ilTargetLive(p, px), RANGE_BPS);
     }
 
     // ════════════════════════════ DE-LEVER — flash-repay-FIRST (no health breach by construction) ══════════
@@ -485,17 +485,17 @@ contract LevManager is LevBase {
     }
 
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
-    ///         in-band levered net-equity to `vault` (the redeem sink) via a flash-repay-FIRST partial de-lever
+    ///         in-range levered net-equity to `vault` (the redeem sink) via a flash-repay-FIRST partial de-lever
     ///         that PRESERVES LTV — repay ΔD=`extractUsd`·debt/netEq, withdraw+sell the paired collateral, surplus
-    ///         → `vault`. Gated to the band (`BAND`, the redeem/swap-out settle path) — NEVER
+    ///         → `vault`. Gated to the range (`RANGE`, the redeem/swap-out settle path) — NEVER
     ///         permissionless (it routes value OUT). Bounded by the #67 `deliverableDollars` (never past the liq
     ///         threshold). The LP's residual position stays OPEN (unlike `closeLev`); `syncLev` reconciles the
-    ///         shrunk net-equity band slice. Uniform over YB + directional (both in-band); the YB-vs-directional
+    ///         shrunk net-equity range slice. Uniform over YB + directional (both in-range); the YB-vs-directional
     ///         settlement is on the LP's untouched residual, not here. Returns the stable actually routed to `vault`.
     function deleverToVault(address lp, uint256 extractUsd, address vault, uint256 minOut)
-        external returns (uint256 freed)     // NOT nonReentrant: the outer deleverBook (or the band's redeem lock) holds it — mirrors deleverOne
+        external returns (uint256 freed)     // NOT nonReentrant: the outer deleverBook (or the range's redeem lock) holds it — mirrors deleverOne
     {
-        if (msg.sender != BAND && msg.sender != address(this)) revert NotGov(); // band settle OR deleverBook self-call
+        if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov(); // range settle OR deleverBook self-call
         Types.Pos memory p = pos[lp];
         if (!p.open || extractUsd == 0 || flashProvider == address(0)) return 0;
         uint256 cap = deliverableDollars(lp);  // value-neutral bound (≤ liq threshold)
@@ -514,8 +514,8 @@ contract LevManager is LevBase {
             p.venue.stable(), extractUsd, vault, minOut));
 
         freed = _lastFreed; _lastFreed = 0;
-        // Reconcile the shrunk net-equity into the band slice (try/catch: never block the settle).
-        _syncBand(lp);
+        // Reconcile the shrunk net-equity into the range slice (try/catch: never block the settle).
+        _syncRange(lp);
     }
 
     /// @notice §M.1 #54-ETH funding quote: for `lp`, the venue stable + the EXACT native amount the Vault must
@@ -528,17 +528,17 @@ contract LevManager is LevBase {
     ///         unlevered net-equity PHANTOM (priced in POOLED, undeliverable because its collateral sits in the
     ///         lev venue, not the base 4626). This delivers it. NO repay / NO `takeToSettle` (no debt) ⇒ NO basket-
     ///         stable draw ⇒ NO backing hazard: withdraw up to `wethWanted`-worth of the net-equity collateral and
-    ///         deliver it as WETH. The V4 curve already did the ETH→USD rebalance for the LP's band slice; `syncLev`
-    ///         reconciles the shrunk net-equity; the keeper re-levers next tick. Gated to the band.
+    ///         deliver it as WETH. The V4 curve already did the ETH→USD rebalance for the LP's range slice; `syncLev`
+    ///         reconciles the shrunk net-equity; the keeper re-levers next tick. Gated to the range.
     function swapOutDeliverUnlevered(address lp, uint256 wethWanted, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 wethDelivered) {
-        if (msg.sender != BAND) revert NotGov();          // band settle path only
+        if (msg.sender != RANGE) revert NotGov();          // range settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open || wethWanted == 0) return 0;
         if (p.venue.debtOf(lp) != 0) return 0;                     // levered ⇒ use swapOutDelever (repay path)
         // withdraw net-equity collateral + MEV-floor + deliver-as-WETH: body in LevMath (delegatecall, EIP-170).
         wethDelivered = LevMath.swapOutDeliverUnleveredBody(p.venue, lp, wethWanted, recipient, minWethOut, _extractCfg());
-        _syncBand(lp);
+        _syncRange(lp);
     }
 
     /// @notice §M.1 ETH SWAP-OUT delivery-side de-lever (equity-preserving; mirrors `BtcLevManager.swapOutDelever`
@@ -550,15 +550,15 @@ contract LevManager is LevBase {
     ///         into REAL deliverable ETH. Gated to the Vault settle path. Returns (USD 1e18 repaid, WETH delivered).
     function swapOutDelever(address lp, uint256 stableUsd, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
-        if (msg.sender != BAND) revert NotGov();          // Vault/band settle path only
+        if (msg.sender != RANGE) revert NotGov();          // Vault/range settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
         // repay-with-the-Vault-pre-transferred-stable → free EXACTLY the repaid value of collateral → deliver as
         // WETH (value-neutral): body in LevMath (delegatecall, bytecode OUTSIDE this contract).
         (usedUsd, wethDelivered) = LevMath.swapOutDeleverBody(
             p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
-        // Reconcile the shrunk slice into the band (try/catch: never block the settle).
-        _syncBand(lp);
+        // Reconcile the shrunk slice into the range (try/catch: never block the settle).
+        _syncRange(lp);
     }
 
     /// @notice §G.3/§G.6 REACTIVE de-lever sweep — the ONE mechanism the redeem AND swap-out settle paths share
@@ -567,7 +567,7 @@ contract LevManager is LevBase {
     ///         the walk lives here, not reached into from the basket) and value-neutrally extracts up to `usdWanted`
     ///         (USD 1e18) into `sink`, stopping as soon as it's met. FAULT-TOLERANT via the same `this.`-self-call
     ///         pattern as `cascadeDelever`: a stuck/illiquid position reverts its own `deleverToVault` and is
-    ///         SKIPPED, never blocking the sweep. Gated to the band (`BAND`). Partial de-lever keeps
+    ///         SKIPPED, never blocking the sweep. Gated to the range (`RANGE`). Partial de-lever keeps
     ///         positions OPEN, so the book is stable across the walk (no swap-pop mid-loop). Returns stable routed
     ///         to `sink`. Book-order (not strict LTV rank): each tap is value-neutral + capped at its own #67
     ///         deliverable, so order only picks WHICH lightly-levered LPs are tapped — strict LTV-ranking is the
@@ -575,7 +575,7 @@ contract LevManager is LevBase {
     function deleverBook(uint256 usdWanted, address sink, uint256 minOut)
         external nonReentrant returns (uint256 freed)
     {
-        if (msg.sender != BAND) revert NotGov();
+        if (msg.sender != RANGE) revert NotGov();
         uint256 n = _openLps.length;
         for (uint256 i; i < n && freed < usdWanted; i++) {
             try this.deleverToVault(_openLps[i], usdWanted - freed, sink, minOut) returns (uint256 f) { freed += f; }

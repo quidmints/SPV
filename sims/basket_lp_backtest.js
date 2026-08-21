@@ -6,9 +6,9 @@
 //   withdrawal days, because timing is the whole point (withdraw at a diverged moment -> eat it).
 //
 // OUR system: LP deposits ETH; basket supplies VIRTUAL USD (no debt) to pair theta*E in a +/-2%
-// band; (1-theta)*E sits in RETENTION (holds ETH = HODL, NO IL). Band repacks on +/-2% exit
+// range; (1-theta)*E sits in RETENTION (holds ETH = HODL, NO IL). Range repacks on +/-2% exit
 // (manip-guarded in prod; daily cap here). theta = min(1, yield/(K*sigma^2)) [our formula].
-// LP is whole-in-ETH: the band's divergence is borne by BACKING (R2) or the LP (R1).
+// LP is whole-in-ETH: the range's divergence is borne by BACKING (R2) or the LP (R1).
 // Bundle value tracked CONTINUOUSLY (no per-step loss summation — that was the v1/v2 bug).
 
 const fs=require('fs');
@@ -24,25 +24,25 @@ function rvol(P,i){const a=Math.max(1,i-VOLWIN),r=[];for(let j=a;j<=i;j++)r.push
 // Walk the path; return per-day LP edge vs HODL (%) AND the cumulative backing-IL (R2).
 function walk(P, pol, yld){
   let pa=P[0]/(1+R), pb=P[0]*(1+R);
-  let theta=1, L=Lfor(theta*P[0], P[0], pa, pb);   // band capital = theta*1ETH worth (USD) at p0
+  let theta=1, L=Lfor(theta*P[0], P[0], pa, pb);   // range capital = theta*1ETH worth (USD) at p0
   let retEth=(1-theta);                             // retention in ETH
   let extraEth=0;                                   // accumulated fees+yield in ETH (R1 also -= IL realized)
   let backIL_usd=0;
   const edges=[];
   for(let i=1;i<P.length;i++){
     const p=P[i], pp=P[i-1];
-    const a=amts(p,pa,pb,L);                        // band composition at new price (clamped inside)
+    const a=amts(p,pa,pb,L);                        // range composition at new price (clamped inside)
     const aPrev=amts(pp,pa,pb,L);
-    // fee on ETH traded through the band this step
+    // fee on ETH traded through the range this step
     extraEth += FEE*Math.abs(aPrev.eth-a.eth);
-    // yield on whole backing (band value + retention), in ETH
-    const bandVal=a.eth*p+a.usd;
-    extraEth += yld*((bandVal/p)+retEth)*DT;
-    // repack on band exit: realize + re-center + re-size theta
+    // yield on whole backing (range value + retention), in ETH
+    const rangeVal=a.eth*p+a.usd;
+    extraEth += yld*((rangeVal/p)+retEth)*DT;
+    // repack on range exit: realize + re-center + re-size theta
     if(p<pa||p>pb){
       const sig=rvol(P,i);
       theta = pol==='one'?1: pol==='doc'?0.26: Math.min(1, sig>0?yld/(K*sig*sig):1);
-      const totalEth = bandVal/p + retEth;          // total wealth in ETH after the band's move
+      const totalEth = rangeVal/p + retEth;          // total wealth in ETH after the range's move
       pa=p/(1+R); pb=p*(1+R);
       L=Lfor(theta*totalEth*p, p, pa, pb);
       retEth=(1-theta)*totalEth;
@@ -51,7 +51,7 @@ function walk(P, pol, yld){
     const a2=amts(p,pa,pb,L);
     const lpEth = (a2.eth*p+a2.usd)/p + retEth + extraEth;  // LP total in ETH-equiv (R2: whole + extras)
     edges.push((lpEth-1)*100);                       // % vs HODL of 1 ETH
-    // R2 backing IL accrues the divergence the band can't return as ETH (tracked for the R2 column)
+    // R2 backing IL accrues the divergence the range can't return as ETH (tracked for the R2 column)
     backIL_usd += Math.max(0, (aPrev.eth - a.eth>0? (aPrev.eth-a.eth)*0 : 0)); // (see note) kept 0; R2 cost is the bundle gap below
   }
   return edges;
@@ -88,4 +88,4 @@ for(const [name,data] of [['ETH',ETH],['BTC',BTC]]){
     console.log(lab.padEnd(17)+f(stat(means).mean).padEnd(12)+f(stat(p5s).mean).padEnd(18)+f(stat(mins).min).padEnd(12));
   }
 }
-console.log('\nREAD: "worst-day" = if the LP is forced to withdraw at the worst moment in the window (your point). Compare θ=1 vs derived: does sizing θ meaningfully cut the bad-exit tail, or is even derived still deep negative (=> the ±2% band itself / R1 is the problem and R2/backing-absorb or a wider band is needed)?');
+console.log('\nREAD: "worst-day" = if the LP is forced to withdraw at the worst moment in the window (your point). Compare θ=1 vs derived: does sizing θ meaningfully cut the bad-exit tail, or is even derived still deep negative (=> the ±2% range itself / R1 is the problem and R2/backing-absorb or a wider range is needed)?');

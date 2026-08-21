@@ -30,14 +30,14 @@ SKEW_FNS = ["skewWad", "_maxWellSkew", "_skewBasis", "wellSkew",
 
 # Uniswap-v4 concepts. If any appears in a skew body, the skew is coupled to the PM again.
 V4_TOKENS = ["PoolKey", "IPoolManager", "poolManager", "sqrtPrice", "SqrtPrice", "TickMath",
-             "tickLower", "tickUpper", "bandTicks", "getSlot0", "Currency", "BalanceDelta",
+             "tickLower", "tickUpper", "rangeTicks", "getSlot0", "Currency", "BalanceDelta",
              "tickCumulative", "PoolId", "unlock"]
 
 # The seam: the ONLY Core surface the skew is allowed to read. Each entry is a plain
 # number in our own units, so a replacement PM can back it without inheriting v4's model.
 ALLOWED_SEAM = {
     # §ISBTC-SPLIT — `POOLED`, not `POOLED_ETH`/`POOLED_BTC`. The seam did NOT grow: one contract
-    # held both bands, so it needed a name per band; with an instance PER band there is one
+    # held both ranges, so it needed a name per width; with an instance PER width there is one
     # `POOLED` and two of it. The old pair is REMOVED rather than kept alongside -- leaving dead
     # names in an allowlist is how a genuinely new accessor slips through wearing a retired one.
     "POOLED",                            # inventory, raw
@@ -47,9 +47,9 @@ ALLOWED_SEAM = {
     # seeded from CHAINLINK (`OracleLib.seedPrices`) and advanced by `_writeObservationPrice`, so
     # nothing in the seam is v4-backed any more -- the whole point of the gate is now satisfiable.
     "realizedVarianceWad",
-    # §ISBTC-SPLIT — `bandEquityUsd18`, was `btcBandEquityUsd18`. Same accessor, same units; the
-    # `btc` prefix existed only because ONE contract named the BTC band's figure either way.
-    "committedUsd18", "bandEquityUsd18",      # shared-scarcity coupling
+    # §ISBTC-SPLIT — `rangeEquityUsd18`, was `btcRangeEquityUsd18`. Same accessor, same units; the
+    # `btc` prefix existed only because ONE contract named the BTC width's figure either way.
+    "committedUsd18", "rangeEquityUsd18",      # shared-scarcity coupling
     "recordSkewPremium", "skewPremiumCum",    # the premium ledger
 }
 

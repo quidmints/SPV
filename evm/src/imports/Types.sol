@@ -6,7 +6,7 @@ import {ILevVenue} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
 /// @dev §FOLD-BOOK — ONE declaration. They were declared in `LevBase` AND the old
-///      the old `LevBookLib`; splitting the book across `BandLib` and `BtcLib` would have made it FOUR.
+///      the old `LevBookLib`; splitting the book across `RangeLib` and `BtcLib` would have made it FOUR.
 ///      File-level so every user imports the same selector.
 /// @dev §E266 — ONE `WAD` for our tree; it lived in NINE places. Declared HERE and deliberately
 ///      NOT imported from a vendored file — a compilation restriction on such a file would
@@ -24,7 +24,7 @@ error BadTarget();
 ///         `Quid` and `Vault` import this file, never revert `NotOpen`, and `NotOpen` is NOT in
 ///         their ABIs — so importing is not enough, the contract has to revert with it. Twenty
 ///         duplicated errors exist precisely BECAUSE the declaring contract never reverts with
-///         them: a delegatecalled library does (`BadPercent` in `BandLib`, running in `Quid`'s
+///         them: a delegatecalled library does (`BadPercent` in `RangeLib`, running in `Quid`'s
 ///         context), and the contract declares it only so clients can DECODE that revert. Moving
 ///         those would strip the error from the ABI while the revert kept firing, leaving callers
 ///         a bare 4-byte selector. They stay duplicated on purpose; the duplication is the ABI.
@@ -45,7 +45,7 @@ error NotFlash();
 error Reentrancy();
 error Unauthorized();
 error VenueNotAllowed();
-error WrongBandManager();
+error WrongRangeManager();
 
 
 library Types {
@@ -55,28 +55,28 @@ library Types {
     ///         e0Eth vs e0Btc). ONE declaration now, per the shared-file rule.
     ///         ⚠️ FIELD ORDER IS ABI-VISIBLE: `pos` is a PUBLIC mapping, so its generated
     ///         getter is a 6-tuple. Reordering or retyping breaks every client that decodes it.
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 e0; uint entryPrice; bool open; }
+    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 entryEquity; uint entryPrice; bool open; }
 
     /// @notice Quid
     /// self-managed LP
-    /// §BAND-MERGE — ONE CONFIG FOR BOTH BANDS. `QuidLib.LevCfg{core,aux,weth}` and
+    /// §RANGE-MERGE — ONE CONFIG FOR BOTH RANGES. `QuidLib.LevCfg{core,aux,weth}` and
     /// `BtcLib.BtcCfg{core,aux}` were the same struct with the ETH one carrying its asset and
     /// the BTC one re-reading WBTC from Aux on every use. One struct, and the asset is named
-    /// because a band HAS one -- which is what let the two libraries' bodies stay identical
+    /// because a range HAS one -- which is what let the two libraries' bodies stay identical
     /// underneath while their signatures diverged.
-    struct BandCfg { address core; address aux; address asset; }
+    struct RangeCfg { address core; address aux; address asset; }
 
-    /// §BAND-MERGE — the union of `QuidLib.LevP` and `BtcLib.LevParams`. Both already began
+    /// §RANGE-MERGE — the union of `QuidLib.LevP` and `BtcLib.LevParams`. Both already began
     /// with the SAME three price fields; the ETH one then carried `lm`+`gross` and the BTC one
     /// `mgr`+`gross` plus the two fee accumulators. `lm` and `mgr` were the same thing under two
-    /// names (the band's lev manager), which is exactly the drift a shared type removes.
+    /// names (the range's lev manager), which is exactly the drift a shared type removes.
     /// Bundled as ONE memory pointer for the documented reason: these bodies run on the legacy
     /// stack (`via_ir = false`) and a pointer costs less than the fields would.
-    struct BandP {
+    struct RangeP {
         uint    spotPrice;
         uint    loPrice;
         uint    upPrice;
-        address mgr;          // the band's lev manager (was `lm` on the ETH side)
+        address mgr;          // the range's lev manager (was `lm` on the ETH side)
         uint    gross;        // GROSS collateral target = net equity + debt-funded buffer
         uint    feesPerShare; // BTC side populated these; ETH refreshes bookmarks elsewhere
         uint    usdFees;
@@ -306,7 +306,7 @@ library Types {
     }
 
     struct RouteParams {
-        // §DE-TICK — `spotPrice` removed. It carried a packed band-edge PRICE LIMIT for v4's
+        // §DE-TICK — `spotPrice` removed. It carried a packed range-edge PRICE LIMIT for v4's
         // swap; settlement is at oracle bounded by inventory, so there is no limit to carry.
         // §DE-TICK — `zeroForOne` renamed to what it MEANS. It was v4's leg-ordering convention,
         // built from `token1isVol` by the caller and un-built by `Core._fillDelta` with a second

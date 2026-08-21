@@ -1,8 +1,8 @@
 > ⚠️ STATUS (2026-08-01, re-verified line-by-line against the contracts): OVERRULED. The bond-funded / "IL without leverage" framing (ETH LP bears no IL because the basket's θ-bounded surplus absorbs the LVR; the dollar bond is just unexposed) is a disproven hypothesis. The IL-protect is opt-in, per-LP, ISOLATED collateral leverage on external Euler/Morpho/Aave/Liquity, and it is **UP-SIDE ONLY**.
 >
 > **Three corrections to the previous banner, which was itself stale:**
-> 1. **NOT bidirectional.** The below-entry SHORT leg was REMOVED 2026-07-24 (`LevManager.sol:580-584`): it realizes the down-side LVR and forfeits the recovery, so for a long-biased LP holding strictly dominates over any round trip. Target LTV is `1 − √(entry/now)` and returns ZERO at or below entry (`LevMath.ilTargetBps`, `imports/LevMath.sol:109-125`). The keeper sizes to realized band concavity (`L = 1/α`), never a pinned 2× (`quid-ln/quid-bridge/src/lev_keeper.rs`).
-> 2. **The ±2% band is stale throughout this file.** `SwapLib.BAND_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`). Every θ, K and LVR figure below is keyed to the old ±2% basis and is off-basis as written.
+> 1. **NOT bidirectional.** The below-entry SHORT leg was REMOVED 2026-07-24 (`LevManager.sol:580-584`): it realizes the down-side LVR and forfeits the recovery, so for a long-biased LP holding strictly dominates over any round trip. Target LTV is `1 − √(entry/now)` and returns ZERO at or below entry (`LevMath.ilTargetBps`, `imports/LevMath.sol:109-125`). The keeper sizes to realized range concavity (`L = 1/α`), never a pinned 2× (`quid-ln/quid-bridge/src/lev_keeper.rs`).
+> 2. **The ±2% range is stale throughout this file.** `SwapLib.RANGE_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`). Every θ, K and LVR figure below is keyed to the old ±2% basis and is off-basis as written.
 > 3. **`docs/actionable/LEVERAGE-ENGINE-SPEC.md` does not exist.** The contracts are canonical.
 >
 > arbETH/refillETH and the surplus-funded make-whole are REMOVED (R1: the LP bears its own IL via the share price). §11's off-chain CRE depeg watcher is also gone; the pinned Chainlink feeds ARE the signal (`Aux.sol:140`, `:202`, `FeeLib.sol:219`). See memory `spv-informational-docs-diverge-from-code`.
@@ -26,9 +26,9 @@ protocols like YieldBasis require. Working dir is `SPV/`.
 > expense), buffered by whole-backing yield and **bounded by θ** (the in-range
 > fraction). Only in the stress tail — surplus exhausted — do last-out LPs take a
 > haircut (buffer-conditional, not absolute). And **"fees ≈ IL" is false** once
-> concentrated: the COVID-crash backtest measured LVR ≈ 200%/yr at the ±2% band
+> concentrated: the COVID-crash backtest measured LVR ≈ 200%/yr at the ±2% range
 > (K=0.71) vs single-digit fees — **yield on the (1−θ) majority is the load-bearer,
-> fees are margin.** Solvent for **θ ≈ 0.25–0.40** (±2% band). No crvUSD/leverage
+> fees are margin.** Solvent for **θ ≈ 0.25–0.40** (±2% range). No crvUSD/leverage
 > needed. Treat the prose below as the original capital-structure intuition; the
 > quantified truth is in `IL-CERTIFICATION.md`.
 
@@ -70,7 +70,7 @@ It works, but look at everything it drags in:
 
 - borrowed crvUSD (a debt position),
 - a **maintained leverage ratio** (debt = 50% of value, continuously),
-- **liquidation risk** if debt/value drifts past the band,
+- **liquidation risk** if debt/value drifts past the range,
 - a Rebalancing-AMM + VirtualPool to expose the restoring arb,
 - the arb flow itself as an ongoing dependency.
 
@@ -239,10 +239,10 @@ The real unlocks:
    `addLiq`). **This is the single highest-leverage change.** Spec in §2.4.1.
 2. **Quote USD-heavy / asymmetric — exploit that the USD side is free-minted.** A
    normal ETH/USD LP must fund both legs with real capital, so it's stuck 50/50.
-   QU!D *mints* the USD side (mockUSD, backed by the basket). It can place the band
+   QU!D *mints* the USD side (mockUSD, backed by the basket). It can place the range
    skewed so the position holds mostly virtual USD and **minimal real ETH
    inventory** — quoting depth and earning fees with a smaller ETH-at-IL footprint.
-   Today the band is symmetric (`_updateTicks(…, 200)`); asymmetric placement is the
+   Today the range is symmetric (`_updateTicks(…, 200)`); asymmetric placement is the
    unlock the virtual-USD architecture *uniquely* enables and nobody else can copy.
    Medium build.
 3. **Not pursuing a fee mechanism — option (c) is off the table.** A V4 dynamic-fee
@@ -367,7 +367,7 @@ known bot complexes / MM addresses → toxic); and **per-address concentration**
 
 **What this does and doesn't license us to claim.** We are **not building a V4 fee
 hook**, and at the pool you **cannot pick your counterparty** — you choose how much
-liquidity to post and where to place the band, not who trades against it. So we
+liquidity to post and where to place the range, not who trades against it. So we
 take the *blended* flow and `fees ≈ IL` holds on it; there is no "we only capture
 the clean flow" mechanism to claim. The taxonomy's job is narrower and honest:
 (i) kill the "cheapest ⇒ flow" pitch; (ii) set the TAM to uninformed fee-paying
@@ -389,7 +389,7 @@ trying to select flow we can't select.
 | Linearizes √p → p via | 2× leverage, debt = 50% of value | n/a — depositor holds a bond, not the LP curve |
 | Borrowing | borrowed crvUSD (a debt position) | **none** |
 | Ratio maintenance | continuous 50/50 pin | **none** |
-| Liquidation risk | yes (debt/value band) | **none** — no debt to liquidate |
+| Liquidation risk | yes (debt/value range) | **none** — no debt to liquidate |
 | Rebalancing-AMM / VirtualPool / restoring arb | required | **none** |
 | Volatile-leg depositor | linearized LP, tracks BTC 1:1 | unleveraged ETH LP — bears √p IL, paid venue yield + fees |
 
@@ -438,7 +438,7 @@ instrument on the other leg.
   credit risk except in the tail where total backing would fall below senior
   claims — which the cap exists to prevent (and per-LP venue attribution, §11,
   keeps a venue's loss with that venue's LPs). That is a different, and we argue
-  more tractable, risk than a leverage band that can liquidate.
+  more tractable, risk than a leverage range that can liquidate.
 
 ---
 
@@ -629,7 +629,7 @@ Why this holds, mechanically, and where it's bounded:
   at the stale ticks and re-mints it around the current price so the LP's
   liquidity stays in-range and productive. It moves no value by swapping; it
   only relocates the range. So "the dollars correspond to what the asset is
-  worth" is upheld by external arb on price + repack keeping the band live —
+  worth" is upheld by external arb on price + repack keeping the range live —
   not by any self-trade.
 - On the BTC side this is exactly what the **per-channel close** enforces: the
   dollars a swap-out put into `POOLED_USD_BTC` are conserved 1:1 against
@@ -796,14 +796,14 @@ protection that exist today**:
    never crystallize IL into a manipulated price.
 
 **The one genuine improvement on the table — regime-adaptive repack width — was
-weighed and declined.** Today the in-range band is a *fixed* width (the hardcoded
+weighed and declined.** Today the in-range range is a *fixed* width (the hardcoded
 `200` in `_updateTicks(sqrtPriceX96, 200)`), repacked when price exits it. Width is
 the real fee-vs-IL dial: wider realizes less IL (fewer, gentler re-centers) at the
 cost of fewer concentrated fees; tighter harvests more fees and more IL. Making the
 width track realized volatility would be leverage-free and legitimate — but it is
 net-new machinery (a vol estimator + an adaptive-width path, plus the test
-surface), and the marginal IL it would save over the fixed band does not justify
-that added complexity. Decision: **keep the fixed band**; rely on the yield-stack
+surface), and the marginal IL it would save over the fixed range does not justify
+that added complexity. Decision: **keep the fixed range**; rely on the yield-stack
 to out-earn IL and the TWAP guard to keep it from being crystallized at a bad
 price. The lever is documented here in case the calculus changes at scale.
 

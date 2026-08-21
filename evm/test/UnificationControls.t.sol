@@ -70,10 +70,10 @@ contract UnificationControls is AllesFixture {
     // ETH — DEPOSIT
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// A deposit must grow `committedUsd18` by EXACTLY the USD the band committed for it —
+    /// A deposit must grow `committedUsd18` by EXACTLY the USD the range committed for it —
     /// no more (would over-claim basket backing) and no less (would under-report the claim).
-    /// This is the identity the unification rewrites, so it is pinned on both bands' legs.
-    function test_V4_DepositGrowsCommittedByExactlyTheBandedUsd() public {
+    /// This is the identity the unification rewrites, so it is pinned on both ranges' legs.
+    function test_V4_DepositGrowsCommittedByExactlyTheRangeedUsd() public {
         _seedBasket();
         uint c0 = CORE.committedUsd18();
         uint u0 = CORE.POOLED_USD();
@@ -87,14 +87,14 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("committed delta", c1 - c0);
         emit log_named_uint("ETH USD leg delta", u1 - u0);
 
-        assertGt(u1, u0, "PREMISE: the deposit banded USD, else nothing is being measured");
-        assertEq(CORE.POOLED_USD(), b0, "an ETH deposit must not touch the BTC band's USD leg");
+        assertGt(u1, u0, "PREMISE: the deposit ranged USD, else nothing is being measured");
+        assertEq(CORE.POOLED_USD(), b0, "an ETH deposit must not touch the BTC range's USD leg");
         // The identity the unification MUST preserve (or consciously redefine).
         assertEq(c1, (u1 + CORE.POOLED_USD()) * 1e12,
             "committedUsd18 == (both USD legs) x 1e12 with no leverage debt outstanding");
     }
 
-    /// EDGE: a second deposit must not retroactively re-band the first LP's depth. Both LPs'
+    /// EDGE: a second deposit must not retroactively re-range the first LP's depth. Both LPs'
     /// pooled must be strictly positive and the committed growth must be attributable.
     function test_V4_SecondDepositIsAdditiveNotRetroactive() public {
         _seedBasket();
@@ -154,7 +154,7 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("ETH delivered   ", lpA.balance - bal0);
         assertLt(CORE.committedUsd18(), c1, "a withdraw must shrink committed");
         // MEASURE BOTH ASSETS. Every exit now routes through the ether.fi offramp, which pays WETH;
-        // it used to reach the band burn (`Quid:530`, `_burnInRange(..., recipient)`) which pays
+        // it used to reach the range burn (`Quid:530`, `_burnInRange(..., recipient)`) which pays
         // NATIVE ETH. Watching only `.balance` reported "delivered 0" for a day while the trace showed
         // 4.99 WETH arriving -- the guard was reading the wrong asset, not catching a real zero.
         assertGt((lpA.balance - bal0) + (WETH.balanceOf(lpA) - weth0Del), 0,
@@ -306,25 +306,25 @@ contract UnificationControls is AllesFixture {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // V6 — REDEMPTION / BAND UNWIND, and V8 — CROSS-BAND REPACK REACHABILITY
+    // V6 — REDEMPTION / RANGE UNWIND, and V8 — CROSS-RANGE REPACK REACHABILITY
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// `Quid.unwindForRedeem` frees committed dollars by BURNING in-range band liquidity, and its
-    /// docstring makes a strong claim the suite never checks: *"LP EQUITY NEUTRAL (bandETH/lpShares
-    /// unchanged; only the band's mock mirror shrinks, returning ETH from in-band to in-venue)"*.
-    /// `test_Redeem_UnwindsBandToFreeCommittedDollars` asserts the unwind FIRES and committed drops;
-    /// it does not assert neutrality, and it runs with NO BTC band.
+    /// `Quid.unwindForRedeem` frees committed dollars by BURNING in-range range liquidity, and its
+    /// docstring makes a strong claim the suite never checks: *"LP EQUITY NEUTRAL (rangeETH/lpShares
+    /// unchanged; only the range's mock mirror shrinks, returning ETH from in-range to in-venue)"*.
+    /// `test_Redeem_UnwindsRangeToFreeCommittedDollars` asserts the unwind FIRES and committed drops;
+    /// it does not assert neutrality, and it runs with NO BTC range.
     ///
     /// Both gaps are exactly what the `POOLED_USD` unification would break: the unwind is ETH-ONLY
     /// (`Quid.sol:964` reads `POOLED_USD`), and `BasketLib.redeemableBody:969` subtracts
     /// `POOLED_USD` from the redeemable quote PRECISELY BECAUSE an ETH-side redemption cannot
-    /// reach the BTC band. Merge the counters and both assumptions dissolve silently.
-    function test_V6_UnwindIsLpEquityNeutralAndCannotReachTheBtcBand() public {
+    /// reach the BTC range. Merge the counters and both assumptions dissolve silently.
+    function test_V6_UnwindIsLpEquityNeutralAndCannotReachTheBtcRange() public {
         // NOTE: deliberately NOT `_seedBasket()`. Seeding an extra \$1M leaves free stables
         // (TVL - committed) ABOVE the redemption size, so the redeem is served from free stables
-        // and the band unwind NEVER FIRES -- measured: TVL 2,152,000, free 1,703,761 vs a
+        // and the range unwind NEVER FIRES -- measured: TVL 2,152,000, free 1,703,761 vs a
         // 1,100,000 redeem, committed unchanged. The premise below caught it. Run against the
-        // fixture's own basket, as `test_Redeem_UnwindsBandToFreeCommittedDollars` does.
+        // fixture's own basket, as `test_Redeem_UnwindsRangeToFreeCommittedDollars` does.
         vm.startPrank(User01);
         uint mintUsdc = 1_000_000 * 1e6; USDC.approve(address(AUX), mintUsdc);
         QUID.mint(User01, mintUsdc, address(USDC), 0);
@@ -334,14 +334,14 @@ contract UnificationControls is AllesFixture {
         vm.deal(lpA, 900 ether);
         vm.prank(lpA); ETH.deposit{value: 700 ether}(0, lpA);
 
-        // Seed the BTC band so "the unwind cannot reach it" is a real claim, not 0 == 0.
+        // Seed the BTC range so "the unwind cannot reach it" is a real claim, not 0 == 0.
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(lpB, 2e7);
 
         (uint[15] memory d0,,,) = AUX.get_deposits();
         uint tvl0        = d0[14];
         uint committed0  = CORE.committedUsd18();
-        uint bandEth0   = AUX.bandETH();
+        uint rangeEth0   = AUX.rangeETH();
         uint lpShares0   = ETH.lpShares();
         uint pooledA0    = ETH.balanceOf(lpA);
         uint btcUsd0     = CORE.POOLED_USD();
@@ -350,7 +350,7 @@ contract UnificationControls is AllesFixture {
 
         emit log_named_uint("TVL before        ", tvl0);
         emit log_named_uint("committed before  ", committed0);
-        emit log_named_uint("bandETH before   ", bandEth0);
+        emit log_named_uint("rangeETH before   ", rangeEth0);
         emit log_named_uint("BTC USD leg before", btcUsd0);
 
         vm.prank(User01); AUX.redeem(1_100_000 * WAD);
@@ -358,32 +358,32 @@ contract UnificationControls is AllesFixture {
         (uint[15] memory d1,,,) = AUX.get_deposits();
         emit log_named_uint("TVL after         ", d1[14]);
         emit log_named_uint("committed after   ", CORE.committedUsd18());
-        emit log_named_uint("bandETH after    ", AUX.bandETH());
+        emit log_named_uint("rangeETH after    ", AUX.rangeETH());
         emit log_named_uint("BTC USD leg after ", CORE.POOLED_USD());
 
         // PREMISE: the unwind must actually have fired, else nothing below is being tested.
-        assertLt(CORE.committedUsd18(), committed0, "PREMISE: the band was unwound (committed dropped)");
+        assertLt(CORE.committedUsd18(), committed0, "PREMISE: the range was unwound (committed dropped)");
 
-        // V6a — LP EQUITY NEUTRALITY. The unwind returns the paired ETH from in-band to in-venue,
-        // so the LP's claim and the total share count must be untouched. A 0.5% band absorbs venue
+        // V6a — LP EQUITY NEUTRALITY. The unwind returns the paired ETH from in-range to in-venue,
+        // so the LP's claim and the total share count must be untouched. A 0.5% range absorbs venue
         // yield accrued during the redeem; anything larger is the unwind taking LP value.
         assertEq(ETH.lpShares(), lpShares0, "unwind must not change lpShares");
         assertEq(ETH.balanceOf(lpA), pooledA0, "unwind must not change the LP's pooled claim");
-        assertApproxEqRel(AUX.bandETH(), bandEth0, 0.005e18,
-            "unwind must be LP-EQUITY NEUTRAL: bandETH unchanged (ETH moved in-band -> in-venue, not out)");
+        assertApproxEqRel(AUX.rangeETH(), rangeEth0, 0.005e18,
+            "unwind must be LP-EQUITY NEUTRAL: rangeETH unchanged (ETH moved in-range -> in-venue, not out)");
 
-        // V6b — THE UNWIND IS ETH-ONLY AND MUST NOT REACH THE BTC BAND. This is the assumption
+        // V6b — THE UNWIND IS ETH-ONLY AND MUST NOT REACH THE BTC RANGE. This is the assumption
         // `redeemableBody`'s `POOLED_USD` subtraction rests on.
-        assertGt(btcUsd0, 0, "PREMISE: the BTC band is seeded, else this assertion is 0 == 0");
-        assertEq(CORE.POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC band's USD leg");
-        assertEq(CORE.POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC band's BTC leg");
-        assertEq(BTC.feesPerShare(), btcFps0, "an ETH-side redemption must NOT credit BTC-band LPs");
+        assertGt(btcUsd0, 0, "PREMISE: the BTC range is seeded, else this assertion is 0 == 0");
+        assertEq(CORE.POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC range's USD leg");
+        assertEq(CORE.POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC range's BTC leg");
+        assertEq(BTC.feesPerShare(), btcFps0, "an ETH-side redemption must NOT credit BTC-range LPs");
 
-        // V8 — CROSS-BAND REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a band to
+        // V8 — CROSS-RANGE REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a range to
         // repack when `committedSum > totalLiquid`; the mint gate keeps committed <= haircutTvl
         // <= TVL on the way in, and this redemption UNWINDS committed as it drains TVL, which is
         // self-correcting. MEASURED, not asserted: if over-commitment is never observed here, the
-        // cross-band repack coupling (caveat B3) is far weaker than assumed and must be either
+        // cross-range repack coupling (caveat B3) is far weaker than assumed and must be either
         // constructed deliberately or downgraded.
         emit log_named_uint("committed > TVL at any point? (0=no)",
             CORE.committedUsd18() > d1[14] ? 1 : 0);
@@ -482,7 +482,7 @@ contract UnificationControls is AllesFixture {
         uint btcFree = btcUsd1 > pending ? btcUsd1 - pending : 0;
 
         // THE RESERVOIR THAT ACTUALLY MATTERS: uncommitted BASKET surplus. `SwapLib.sizeBySurplus`
-        // sizes band depth from `liquidTotal - committedBoth`, so a starved curve is only a real
+        // sizes range depth from `liquidTotal - committedBoth`, so a starved curve is only a real
         // deficit if the BASKET is also empty. Comparing against the OTHER CURVE (as the first
         // version of this test did) measures the wrong reservoir by two orders of magnitude.
         (uint[15] memory dS,,,) = AUX.get_deposits();
@@ -519,7 +519,7 @@ contract UnificationControls is AllesFixture {
         (uint[15] memory d,,,) = AUX.get_deposits();
         uint committed = CORE.committedUsd18();
         uint surplus   = d[14] > committed ? d[14] - committed : 0;
-        uint backing   = AUX.bandETH();
+        uint backing   = AUX.rangeETH();
         uint pooledEth = CORE.POOLED();
         uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
         uint theta;
@@ -571,8 +571,8 @@ contract UnificationControls is AllesFixture {
         vm.deal(lpB, 20 ether);
         vm.prank(lpB); ETH.deposit{value: 10 ether}(0, lpB);
         _logDeployGap("AFTER a deposit (exercises addLiq re-add)");
-        emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD());
-        emit log_named_uint("ETH band ETH after re-add", CORE.POOLED());
+        emit log_named_uint("ETH range USD after re-add", CORE.POOLED_USD());
+        emit log_named_uint("ETH range ETH after re-add", CORE.POOLED());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -633,9 +633,9 @@ contract UnificationControls is AllesFixture {
     /// `basketUsd`/`basketUsd` are deleted -- a net -4 slots. If the derived and stored
     /// values diverge, the removal is DEAD and must not be attempted.
     ///
-    /// E13 already cleared the objection that blocked this: band and boundary-order tick widths
+    /// E13 already cleared the objection that blocked this: range and boundary-order tick widths
     /// (40 vs >=90) can never coincide, so the shared `salt: bytes32(0)` cannot alias them and a
-    /// query on the band's range returns the band's position ALONE.
+    /// query on the range's range returns the range's position ALONE.
     function test_PROVE_PooledIsDerivableFromPoolState() public {
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
@@ -649,9 +649,9 @@ contract UnificationControls is AllesFixture {
         // volatile leg and compare it to POOLED" reads `POOLED == POOLED` -- a control that cannot
         // fail, which is worse than none because it still prints as a passing assertion.
         //
-        // The USD half survives as something real, and it is the invariant the band is built on:
+        // The USD half survives as something real, and it is the invariant the range is built on:
         // the two sides are meant to be EQUAL IN VALUE, so the stored USD mirror must equal the
-        // volatile inventory priced at the band price. Those are independent -- `POOLED_USD` is
+        // volatile inventory priced at the range price. Those are independent -- `POOLED_USD` is
         // accumulated by the settlement legs, `POOLED * price` comes from inventory and the oracle
         // -- so a divergence is a real defect rather than a rounding artefact.
         (uint price, uint liq) = CORE.poolStats();
@@ -663,15 +663,15 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("stored  POOLED_USD    ", CORE.POOLED_USD());
         emit log_named_uint("derived USD leg       ", derivedUsd6);
         emit log_named_uint("stored  POOLED        ", CORE.POOLED());
-        emit log_named_uint("band price            ", price);
-        emit log_named_uint("band liquidity        ", liq);
+        emit log_named_uint("range price            ", price);
+        emit log_named_uint("range liquidity        ", liq);
 
-        assertGt(liq, 0, "PREMISE: the band holds inventory, else the comparison is vacuous");
+        assertGt(liq, 0, "PREMISE: the range holds inventory, else the comparison is vacuous");
         assertGt(CORE.POOLED_USD(), 0, "PREMISE: the USD mirror is non-zero, else equality is trivial");
         // Within 1%: the legs drift with flow between rebalances and are restored afterwards, so a
-        // gap beyond that means the mirror and the inventory disagree about the same band.
+        // gap beyond that means the mirror and the inventory disagree about the same range.
         assertApproxEqRel(derivedUsd6, CORE.POOLED_USD(), 0.01e18,
-            "the USD mirror must equal the volatile inventory priced at the band price");
+            "the USD mirror must equal the volatile inventory priced at the range price");
     }
 
     // §E253-mock — `test_DUST_MocksAreContainedToAllowedHolders` DELETED with the mocks.
@@ -693,12 +693,12 @@ contract UnificationControls is AllesFixture {
         for (uint i; i < 20; i++) _trade(3_000e18);
 
         uint pooled0 = ETH.balanceOf(lpA);
-        uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
+        uint entryEquity = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
         vm.prank(lpA); ETH.redeem(pooled0, lpA, lpA);
         uint pooled1 = ETH.balanceOf(lpA);
         emit log_named_uint("pooled before   ", pooled0);
         emit log_named_uint("pooled after 1st", pooled1);
-        emit log_named_uint("ETH  after 1st  ", (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0));
+        emit log_named_uint("ETH  after 1st  ", (lpA.balance - entryEquity) + (WETH.balanceOf(lpA) - w0));
         emit log_named_uint("QUID after 1st  ", QUID.balanceOf(lpA) - q0);
 
         if (pooled1 == 0) { emit log_string("VERDICT: pooled==0 -> nothing deferred; any gap is a LEAK"); return; }
@@ -730,17 +730,17 @@ contract UnificationControls is AllesFixture {
         uint claimUsd = claimEth * px / 1e18;
 
         emit log_named_uint("POOLED   pre  ", CORE.POOLED());
-        emit log_named_uint("bandETH     pre  ", AUX.bandETH());
+        emit log_named_uint("rangeETH     pre  ", AUX.rangeETH());
         emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD());
         emit log_named_uint("basketUsd pre  ", CORE.basketUsd());
         emit log_named_uint("lpShares     pre  ", ETH.lpShares());
 
-        uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
+        uint entryEquity = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
         vm.prank(lpA); ETH.redeem(shares, lpA, lpA);
         emit log_named_uint("POOLED   post ", CORE.POOLED());
         emit log_named_uint("POOLED_USD   post ", CORE.POOLED_USD());
         emit log_named_uint("basketUsd post ", CORE.basketUsd());
-        uint gotEth = (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0);
+        uint gotEth = (lpA.balance - entryEquity) + (WETH.balanceOf(lpA) - w0);
         uint gotQ   = QUID.balanceOf(lpA) - q0;
         uint gotUsd = gotEth * px / 1e18 + gotQ;
 
@@ -758,10 +758,10 @@ contract UnificationControls is AllesFixture {
     /// §E36 — DID #12 ACTUALLY BUY CAPITAL EFFICIENCY? Measure it, do not argue it.
     ///
     /// The backing gate is `committedUsd18() <= haircutTvl`. Before #12 the committed figure was
-    /// built from `POOLED_USD_*`, the CURVE INVENTORY — which GROWS every time the band sells its
+    /// built from `POOLED_USD_*`, the CURVE INVENTORY — which GROWS every time the range sells its
     /// volatile leg for dollars. Those dollars are the LP's trading proceeds; the BASKET never
     /// supplied them. Counting them consumed headroom that did not exist, and the ceiling is not
-    /// small: a band that has rotated fully into USD would show roughly DOUBLE the basket's real
+    /// small: a range that has rotated fully into USD would show roughly DOUBLE the basket's real
     /// contribution (the basket's half plus the LP's half, now also denominated in USD).
     ///
     /// After #12 the figure is built from `basketUsd*`, which moves ONLY when the basket adds or
@@ -801,27 +801,27 @@ contract UnificationControls is AllesFixture {
         assertGt(oldAfter, newAfter, "#12 frees exactly the flow-inflated dollars");
 
         // AND THE SHARED BOUND IS A SUM, NOT A MINIMUM (the owner's concern, tested not asserted):
-        // committedUsd18 adds the two bands, so either may draw the whole free surplus while the
+        // committedUsd18 adds the two ranges, so either may draw the whole free surplus while the
         // other sits idle. A min- or share-capped design would show BTC's zero leg capping ETH.
         // (Written first as `btc + (committed - btc)`, which is true of any two numbers and
         //  therefore measures nothing. The real check computes the ETH leg INDEPENDENTLY.)
         uint ethEquity = CORE.basketUsd() * 1e12;   // no ETH lev debt in this fixture
-        assertEq(CORE.committedUsd18(), ethEquity + CORE.bandEquityUsd18(),
-                 "committed is the SUM of the two bands, each derived on its own");
+        assertEq(CORE.committedUsd18(), ethEquity + CORE.rangeEquityUsd18(),
+                 "committed is the SUM of the two ranges, each derived on its own");
         assertGt(CORE.basketUsd(), CORE.basketUsd(),
             "ETH may hold MORE committed dollars than BTC -- neither is capped to the other");
     }
 
-    /// §E39 — THE SECOND CAPITAL-EFFICIENCY AXIS: does one band's TRADING starve the other's
+    /// §E39 — THE SECOND CAPITAL-EFFICIENCY AXIS: does one range's TRADING starve the other's
     /// CAPACITY? E36 measured headroom in dollars; this measures what those dollars BUY, and
-    /// measures it ACROSS the bands, which is the axis the owner asked about.
+    /// measures it ACROSS the ranges, which is the axis the owner asked about.
     ///
-    /// The bands share ONE bound — `committedUsd18() <= haircutTvl` — so anything that inflates
+    /// The ranges share ONE bound — `committedUsd18() <= haircutTvl` — so anything that inflates
     /// the ETH leg's committed figure takes capacity away from the BTC leg, and vice versa. Before
     /// #12 the ETH leg grew with pure ETH TRADING, so ETH volume alone shrank what BTC could ever
-    /// commit, with no BTC LP involved and no basket dollar actually spent. That is a cross-band
+    /// commit, with no BTC LP involved and no basket dollar actually spent. That is a cross-range
     /// externality, not just a headroom rounding.
-    function test_E39_EthTradingNoLongerStarvesTheBtcBandsCapacity() public {
+    function test_E39_EthTradingNoLongerStarvesTheBtcRangesCapacity() public {
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
@@ -849,45 +849,45 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("free surplus, NEW defn (18d) ", freeNew);
         emit log_named_uint("capacity RESTORED (18d)      ", freeNew - freeOld);
         // What that capacity BUYS, in the unit an LP actually deposits.
-        emit log_named_uint("  = extra ETH band depth (wei)", (freeNew - freeOld) * 1e18 / px);
+        emit log_named_uint("  = extra ETH range depth (wei)", (freeNew - freeOld) * 1e18 / px);
         emit log_named_uint("free surplus lost to ETH FLOW under OLD defn",
             (tvl1 > tvl0 ? 0 : 0) + (oldCommitted1 - oldCommitted0));
 
         // PREMISE: the flow must have moved the OLD figure, else there is no externality to undo.
         assertGt(oldCommitted1, oldCommitted0, "PREMISE: ETH trading inflates the OLD committed figure");
 
-        // ⓵ THE CROSS-BAND RESULT: post-#12 the shared bound is untouched by pure ETH trading, so
-        //    the BTC band's capacity is exactly what it was before a single ETH trade happened.
+        // ⓵ THE CROSS-RANGE RESULT: post-#12 the shared bound is untouched by pure ETH trading, so
+        //    the BTC range's capacity is exactly what it was before a single ETH trade happened.
         assertEq(newCommitted1, newCommitted0,
-            "post-#12: ETH TRADING must not consume any of the SHARED bound the BTC band draws on");
+            "post-#12: ETH TRADING must not consume any of the SHARED bound the BTC range draws on");
 
-        // ⓶ And the capacity restored is strictly positive — the BTC band can now commit dollars
+        // ⓶ And the capacity restored is strictly positive — the BTC range can now commit dollars
         //    that the old definition had reserved against ETH's own trading proceeds.
         assertGt(freeNew, freeOld, "#12 restores shared capacity that ETH flow had been eating");
 
         // ⓷ PROVE IT IS SPENDABLE, not just a number: a BTC LP registers AFTER the ETH flow and
-        //    the BTC band commits real dollars. Under the old definition this capacity was reserved.
+        //    the BTC range commits real dollars. Under the old definition this capacity was reserved.
         uint btcBefore = CORE.basketUsd();
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
-        emit log_named_uint("BTC band committed AFTER eth flow (6d)", CORE.basketUsd() - btcBefore);
+        emit log_named_uint("BTC range committed AFTER eth flow (6d)", CORE.basketUsd() - btcBefore);
         assertGt(CORE.basketUsd(), btcBefore,
-            "the BTC band can still commit after heavy ETH trading -- no starvation, no min-of-two");
+            "the BTC range can still commit after heavy ETH trading -- no starvation, no min-of-two");
     }
 
-    /// §E41 — TWO MORE AXES: SWAP CAPACITY, and PER-BAND P&L ATTRIBUTION.
+    /// §E41 — TWO MORE AXES: SWAP CAPACITY, and PER-RANGE P&L ATTRIBUTION.
     ///
     /// SWAP CAPACITY is the sharpest of all of them, because pre-#12 the failure is not a smaller
-    /// number — it is a HALT. Every swap that moves dollars into a band mints mock USD in range,
+    /// number — it is a HALT. Every swap that moves dollars into a range mints mock USD in range,
     /// and `_poolUsdInRange` gates on `committedUsd18() <= haircutTvl`. Pre-#12 that figure grew
-    /// 1:1 with cumulative net flow, so a band bricked on VOLUME ALONE once trading had pushed the
+    /// 1:1 with cumulative net flow, so a range bricked on VOLUME ALONE once trading had pushed the
     /// curve mirror up to basket TVL — no LP action, no loss, no depeg. Post-#12 trading does not
     /// move the gated figure at all, so the gate is blind to volume, which is what it was always
     /// meant to be: a check on committed BASKET dollars.
     ///
     /// P&L ATTRIBUTION is the axis the owner flagged when the unification was scoped: with the two
     /// legs redefined, ETH's fees must not land on BTC LPs or the reverse.
-    function test_E41_SwapCapacityAndPerBandPnlAttribution() public {
+    function test_E41_SwapCapacityAndPerRangePnlAttribution() public {
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
@@ -921,13 +921,13 @@ contract UnificationControls is AllesFixture {
         assertLt(oldRoom / 3_000e18, type(uint).max, "OLD: swap capacity is finite in volume");
         assertGt(oldCommitted, newCommitted, "PREMISE: flow inflated the OLD figure, not the NEW one");
 
-        // ── AXIS: PER-BAND P&L ATTRIBUTION ─────────────────────────────────────────────────
+        // ── AXIS: PER-RANGE P&L ATTRIBUTION ─────────────────────────────────────────────────
         emit log_named_uint("ETH feesPerShare delta", ETH.feesPerShare() - ethFps0);
         emit log_named_uint("ETH USD_FEES    delta", ETH.USD_FEES() - ethUsdF0);
         emit log_named_uint("BTC feesPerShare   ", BTC.feesPerShare());
         emit log_named_uint("BTC USD_FEES      ", BTC.USD_FEES());
 
-        // PREMISE: the ETH band must actually have earned, else "BTC unchanged" proves nothing.
+        // PREMISE: the ETH range must actually have earned, else "BTC unchanged" proves nothing.
         assertTrue(ETH.feesPerShare() > ethFps0 || ETH.USD_FEES() > ethUsdF0,
             "PREMISE: ETH-side trading must credit the ETH accumulators");
 
@@ -942,14 +942,14 @@ contract UnificationControls is AllesFixture {
     /// ⛔ I PREDICTED A SHORTFALL HERE AND THE MEASUREMENT REFUTED IT. The reasoning was: #12 moved
     /// the BACKING GATE off the curve mirror and onto the basket's real contribution, but
     /// `BasketLib.redeemableBody` was NOT moved with it — it still subtracts `POOLED_USD`, the
-    /// CURVE figure, on a rationale (">= BTC-band equity, therefore conservative") written when the
-    /// two were the same number. Post-#12 they diverge by the BTC band's trading increment, so I
+    /// CURVE figure, on a rationale (">= BTC-range equity, therefore conservative") written when the
+    /// two were the same number. Post-#12 they diverge by the BTC range's trading increment, so I
     /// expected the quote to shrink with BTC VOLUME.
     ///
     /// ✅ IT DOES NOT, and the reason is structural rather than lucky: the dollars that inflate
     /// `POOLED_USD` are dollars a SWAPPER PAID IN, so basket TVL rises by the same amount in
     /// the same transaction. The subtraction and the total move in lockstep and CANCEL. The reverse
-    /// direction cancels too (band buys BTC: both fall). MEASURED over 6 x 500-USDC curve buys —
+    /// direction cancels too (range buys BTC: both fall). MEASURED over 6 x 500-USDC curve buys —
     /// curve mirror +3,000.000, basket leg +0, redeemable moved by 6e-6 USD.
     ///
     /// So redemption capacity is UNCHANGED by #12 — neither improved nor harmed — and it is
@@ -991,7 +991,7 @@ contract UnificationControls is AllesFixture {
 
         // AXIS 9 (the BTC mirror): the BTC leg behaves EXACTLY like the ETH leg — trading inflates
         // the curve figure while the basket's real commitment does not move at all. The #12 split
-        // is symmetric across the two bands, which no ETH-only measurement could establish.
+        // is symmetric across the two ranges, which no ETH-only measurement could establish.
         assertGt(curve1, curve0, "PREMISE: BTC-side trading must inflate the BTC curve mirror");
         assertEq(basket1, basket0, "the BASKET's BTC commitment is unmoved by pure BTC trading");
 
@@ -1012,8 +1012,8 @@ contract UnificationControls is AllesFixture {
     ///   (a) pure TRADING moves `POOLED_USD_*` while `basketUsd*` stays put, and
     ///   (b) a basket ADD moves BOTH, together.
     /// Two different `basketUsd` values for the same `POOLED_USD` ⇒ no function of `POOLED_USD`
-    /// can recover it. The split is PATH-DEPENDENT: it records how many of the band's in-range
-    /// dollars the BASKET put there versus how many the band TRADED its way into, and nothing else
+    /// can recover it. The split is PATH-DEPENDENT: it records how many of the range's in-range
+    /// dollars the BASKET put there versus how many the range TRADED its way into, and nothing else
     /// on-chain carries that history — the ETH position knows only the total.
     function test_E44_BasketUsdIsNotDerivableFromTheCurveMirror() public {
         _seedBasket();
@@ -1022,7 +1022,7 @@ contract UnificationControls is AllesFixture {
 
         uint pooled0 = CORE.POOLED_USD();
         uint basket0 = CORE.basketUsd();
-        assertEq(pooled0, basket0, "PREMISE: a fresh band's mirror IS the basket's contribution");
+        assertEq(pooled0, basket0, "PREMISE: a fresh range's mirror IS the basket's contribution");
 
         // (a) PURE TRADING — the curve mirror moves, the basket's leg does not.
         for (uint i; i < 10; i++) _trade(3_000e18);
@@ -1040,7 +1040,7 @@ contract UnificationControls is AllesFixture {
         uint basket2 = CORE.basketUsd();
         emit log_named_uint("after basket add: POOLED_USD", pooled2);
         emit log_named_uint("after basket add: basketUsd  ", basket2);
-        assertGt(pooled2, pooled1, "PREMISE: the deposit must band more USD");
+        assertGt(pooled2, pooled1, "PREMISE: the deposit must range more USD");
         assertGt(basket2, basket1, "(b) a basket ADD moves BOTH legs together");
 
         // THE PROOF: the mirror grew on BOTH events; the basket leg grew on only ONE of them. So
@@ -1065,7 +1065,7 @@ contract UnificationControls is AllesFixture {
     /// `Quid.compound(address lp)` is ALREADY the self-funding, permissionless crank: anyone may
     /// crank anyone, it runs `_rebalance()` FIRST (so the repack/reseat rides along), and it pays
     /// the caller `min(tx.gasprice, COMPOUND_MAX_GASPRICE) x COMPOUND_GAS` by burning a sliver of
-    /// the band to them as native ETH — grief-capped at HALF the harvest, funded from realized fees,
+    /// the range to them as native ETH — grief-capped at HALF the harvest, funded from realized fees,
     /// never an operator subsidy, and zero at zero gasprice so unit tests are unaffected.
     /// ⇒ When the refill is wired into `_rebalance()` (E6: reseat and refill fire together), the gas
     /// is ALREADY PAID. No reserve pot, no new state, no new payout path — and, deliberately, NO
@@ -1098,7 +1098,7 @@ contract UnificationControls is AllesFixture {
         // PREMISE: the crank must have done real work, else the number is meaningless.
         assertGt(used, 21_000, "PREMISE: the crank must actually execute, not no-op");
         // THE GUARD THIS TEST EXISTS FOR. Under-reimbursement is SILENT: nothing reverts, the crank
-        // just stops being worth running and the band quietly goes un-compounded. That is exactly
+        // just stops being worth running and the range quietly goes un-compounded. That is exactly
         // the failure mode a check earns its place against, so this is a hard bound and not a
         // printed number -- if the crank ever outgrows the tip basis again, it FAILS here.
         assertLe(used, COMPOUND_GAS,
@@ -1108,8 +1108,8 @@ contract UnificationControls is AllesFixture {
         // trades at 4x the size, with the time warps `_trade` already does so the TWAP manipulation
         // guard would not reject a recenter, left `reseatEpoch` at 0 and the crank CHEAPER (warm
         // storage, nothing pending). ⇒ THE REASON IS STRUCTURAL: `_rebalance()` is repack-FIRST on
-        // the SWAP path too, so the band is recentred inside the swapper's own tx and a later crank
-        // never finds an out-of-range band. The reseat's gas is borne by the SWAPPER, not the
+        // the SWAP path too, so the range is recentred inside the swapper's own tx and a later crank
+        // never finds an out-of-range range. The reseat's gas is borne by the SWAPPER, not the
         // cranker — which is the right party, and it means COMPOUND_GAS does NOT have to carry a
         // reseat. Kept in the test because "I could not make it happen, and here is why" is the
         // evidence for that claim; delete it and the sizing becomes an assertion again.

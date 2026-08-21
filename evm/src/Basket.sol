@@ -31,7 +31,7 @@ contract Basket is ERC20, ERC6909,
     ///         working with zero redundant SSTOREs. #18.
     function target() external view returns (uint) { return seeded; }
     Aux public AUX;
-    address payable public BAND;
+    address payable public RANGE;
     // ─── Safe/deployer seed commitment: the Foundation (F8N) ANGEL NFT ───
     // The Safe approves the already-deployed Aux for ANGEL (DeployLib, mid-deploy), and Basket's constructor
     // REQUIRES that approval — so Basket can't be born unless the seed is committed (this IS the deployer gate).
@@ -55,10 +55,10 @@ contract Basket is ERC20, ERC6909,
         // rotatable forwarder address an (unused) mint capability was an
         // over-privilege; minting is AUX (creditLPForSwap) + V4 (fees) +
         // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's).
-        return (who == address(AUX) || who == BAND || who == BTC_VAULT);
-    } // BTC_VAULT is Vault.sol — the BTC-side vault (band + channels). It also HOSTS both
+        return (who == address(AUX) || who == RANGE || who == BTC_VAULT);
+    } // BTC_VAULT is Vault.sol — the BTC-side vault (range + channels). It also HOSTS both
       // LevManagers (ETH LEV_MANAGER + BTC LEV_MANAGER) as a deploy consolidation, but the
-      // ETH band liquidity itself lives in Quid (V4). The name reflects its primary BTC role.
+      // ETH range liquidity itself lives in Quid (V4). The name reflects its primary BTC role.
 
     /// @notice BtcVault — the regrouped BTC side. Its BTC-LP fee + close-time
     ///         USD-leg mints (formerly Quid's) need the same auth Quid has.
@@ -117,10 +117,10 @@ contract Basket is ERC20, ERC6909,
     /// @notice Constructor wires Quid + Aux and REQUIRES the Safe's ANGEL approval to Aux (the seed commitment,
     ///         made mid-deploy by DeployLib) — so Basket cannot exist unless the seed is committed. Aux burns
     ///         ANGEL and renounces at finalize; Basket is renounced by the Safe there too.
-    constructor(address _band, address _aux)
+    constructor(address _range, address _aux)
         ERC20("QU!D", "QUI")
         Ownable(msg.sender) {
-        BAND = payable(_band);
+        RANGE = payable(_range);
         AUX = Aux(payable(_aux));
         _deployed = block.timestamp;
         // The ANGEL commitment: the Safe must have approved Aux for the F8N ANGEL NFT BEFORE Basket is born —

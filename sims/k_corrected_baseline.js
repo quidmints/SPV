@@ -9,7 +9,7 @@ const R=0.02, YIELD=0.05, FEE=0.0005, DT5=300/(365*86400);
 function amts(P,pa,pb,L){const sp=Math.sqrt(Math.max(pa,Math.min(P,pb))),spa=Math.sqrt(pa),spb=Math.sqrt(pb);return{eth:L*(1/sp-1/spb),usd:L*(sp-spa)};}
 function Lfor(C,p,pa,pb){const{eth,usd}=amts(p,pa,pb,1);return C/(eth*p+usd);}
 function winSig(px){const r=[];for(let i=1;i<px.length;i++)r.push(Math.log(px[i]/px[i-1]));const m=r.reduce((a,b)=>a+b,0)/r.length;return Math.sqrt(r.reduce((a,b)=>a+(b-m)**2,0)/r.length/DT5);}
-// LP edge vs HODL over all exits, theta from (K,sigma); slice in +/-2% band (reseat), rest retention(ETH)
+// LP edge vs HODL over all exits, theta from (K,sigma); slice in +/-2% range (reseat), rest retention(ETH)
 function run(px,K){
   const sig=winSig(px), theta=Math.min(1, sig>0?YIELD/(K*sig*sig):1);
   let pa=px[0]/(1+R),pb=px[0]*(1+R),L=Lfor(theta*px[0],px[0],pa,pb),ret=1-theta,fees=0;

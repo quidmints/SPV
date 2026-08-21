@@ -17,11 +17,11 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 /// EARLIER. The owner asked for it to be tested before anything in the refill design leans on it.
 /// This fixture is that test.
 ///
-/// THE FALSIFIABLE FORM. A drained band holds LESS of the volatile asset than a band that was
-/// never drained. If the volatile asset then RISES, the drained band gains less — that shortfall
+/// THE FALSIFIABLE FORM. A drained range holds LESS of the volatile asset than a range that was
+/// never drained. If the volatile asset then RISES, the drained range gains less — that shortfall
 /// IS the inventory risk the premium is supposed to price. So compare, at one common final price:
 ///
-///     DRAINED band value + premium collected     vs     NEVER-DRAINED band value
+///     DRAINED range value + premium collected     vs     NEVER-DRAINED range value
 ///
 ///   ≥  ⇒ the premium AT LEAST repays the risk it charges for. Holding an imbalance is free or
 ///        better, the premium IS farmable, and **§E123 IS REFUTED** — an LP would rationally sit
@@ -75,7 +75,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         vm.stopPrank();
     }
 
-    /// stable → volatile: the band HANDS OUT BTC, so `inv` FALLS and the band gets SCARCER.
+    /// stable → volatile: the range HANDS OUT BTC, so `inv` FALLS and the range gets SCARCER.
     /// (§E69 recorded this direction being written backwards twice; it is spelled out here.)
     ///
     /// THE FEED IS RE-PINNED EVERY STEP AND THE WARP IS 8 MINUTES, copied deliberately from
@@ -113,12 +113,12 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         AUX.setAssetFeed(address(WETH), ETH_FEED);
         uint snap = vm.snapshotState();
 
-        // ---- ARM 1: NEVER DRAINED. The band keeps its full volatile inventory.
-        // ONLY THE ETH COUNT IS NEEDED NOW. Two earlier drafts marked the whole band's VALUE here
+        // ---- ARM 1: NEVER DRAINED. The range keeps its full volatile inventory.
+        // ONLY THE ETH COUNT IS NEEDED NOW. Two earlier drafts marked the whole range's VALUE here
         // (`POOLED*px + POOLED_USD`) and both were wrong for it: the level form measured
         // the drain itself because `POOLED_USD` never absorbed the drainer's stables, and the
         // sensitivity form needed a hand-picked move. The breakeven-vs-variance assertion below
-        // needs neither, so the band-value helper is gone rather than left around to be misused.
+        // needs neither, so the range-value helper is gone rather than left around to be misused.
         uint ethQuiet = CORE.POOLED();
 
         // ---- ARM 2: DRAINED until genuinely scarce, from the SAME starting state.
@@ -126,15 +126,15 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint premium0 = CORE.skewPremium();
         // §E134-skew — WHERE DOES THE DRAINER'S USD LAND? E125 measured POOLED_USD NOT growing
         // while POOLED fell 400->103, which is why the level comparison was wrong. Reading the
-        // BAND's usd leg and the BASKET's total backing across the same drain settles it by
+        // RANGE's usd leg and the BASKET's total backing across the same drain settles it by
         // measurement rather than by tracing `inRange`-guarded delta accounting.
-        uint bandUsd0 = CORE.POOLED_USD();
+        uint rangeUsd0 = CORE.POOLED_USD();
         (uint[15] memory d0,,,) = AUX.get_deposits();
-        // DO NOT `break` THE INSTANT THE BAND TURNS SCARCE — that was this fixture's third
+        // DO NOT `break` THE INSTANT THE RANGE TURNS SCARCE — that was this fixture's third
         // zero-premium reading and it was entirely self-inflicted. The premium accrues only on
         // swaps that EXECUTE while `inv < target`; breaking on the transition means every drain
         // ran in the flush state (skew == 0 by design) and the swap that CREATED scarcity was the
-        // last thing to happen, so nothing was ever priced against a scarce band. Keep draining
+        // last thing to happen, so nothing was ever priced against a scarce range. Keep draining
         // AFTER the transition so the premium has swaps to accrue on.
         bool reachedScarce;
         uint scarceSwaps;
@@ -151,9 +151,9 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         emit log_named_uint("realizedVarianceWad at settle", CORE.realizedVarianceWad());
         emit log_named_uint("wellSkew at settle           ", AUX.wellSkew(address(WETH), 0));
         // §E130-skew — θ IS LOGGED AS CONTEXT AND MUST NOT BE ASSERTED ON HERE. It is an
-        // IL-PROTECTION CONTROL (band sizing), not a verdict on skew pricing, and using it as one
+        // IL-PROTECTION CONTROL (range sizing), not a verdict on skew pricing, and using it as one
         // is CIRCULAR: θ is DERIVED FROM the retained premium (`premiumEwmaUsd` is its numerator)
-        // and then used to CLAMP band exposure (`applyTheta`). A small premium ⇒ small θ ⇒ the
+        // and then used to CLAMP range exposure (`applyTheta`). A small premium ⇒ small θ ⇒ the
         // protocol shrinks exposure — that is IL protection WORKING, so reading θ back as "the
         // premium is inadequate" uses the system's own RESPONSE to the premium as evidence ABOUT
         // it. §E129 briefly claimed adequacy was "one call to derivedThetaWad"; that is withdrawn.
@@ -164,8 +164,8 @@ contract PremiumIsCarryNotIncome is AllesFixture {
 
         {
             (uint[15] memory d1,,,) = AUX.get_deposits();
-            emit log_named_uint("band USD leg BEFORE (POOLED_USD)", bandUsd0);
-            emit log_named_uint("band USD leg AFTER                  ", CORE.POOLED_USD());
+            emit log_named_uint("range USD leg BEFORE (POOLED_USD)", rangeUsd0);
+            emit log_named_uint("range USD leg AFTER                  ", CORE.POOLED_USD());
             emit log_named_uint("basket backing BEFORE (d[14])       ", d0[14]);
             emit log_named_uint("basket backing AFTER                ", d1[14]);
         }
@@ -176,7 +176,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // §E69's discipline: a fixture that never reached the state it meant to measure must SAY
         // SO, because an inconclusive run and a null result are indistinguishable from the numbers.
         if (!reachedScarce || ethDrained >= ethQuiet) {
-            emit log("INCONCLUSIVE: the band never became scarce -- no imbalance was under test.");
+            emit log("INCONCLUSIVE: the range never became scarce -- no imbalance was under test.");
             emit log("Do NOT read this run as evidence either way about E123.");
             return;
         }
@@ -239,7 +239,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
     ///
     /// A withdrawal is PRO-RATA of the mock position, so an LP entering at ~50/50 and exiting at
     /// ~98/2 takes a slice of the DRAIN'S composition. At an UNCHANGED price that should still be
-    /// value-neutral -- the band sold ETH at oracle and holds the dollars -- so any shortfall here
+    /// value-neutral -- the range sold ETH at oracle and holds the dollars -- so any shortfall here
     /// is LEAKAGE, not market risk, and it is the kind that accrues silently.
     ///
     /// MEASURED AT THE LP, NEVER FROM PROTOCOL STATE (§S16/§E91): the only number the failing code
@@ -355,7 +355,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
     ///
     /// This walks the oracle in ~0.3% steps 8 minutes apart (a plausible tape) and swaps at each,
     /// then reports what the ring actually measures. It ASSERTS the result lands in a plausible
-    /// band, so a dead-tape run reports INCONCLUSIVE instead of confidently wrong -- the guard
+    /// range, so a dead-tape run reports INCONCLUSIVE instead of confidently wrong -- the guard
     /// every earlier fixture in this file lacked.
     function test_UNIT_FixtureProducesRealisticVariance() public {
         _seed();
@@ -373,7 +373,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // §UNIT-A-FIXTURE-CORR — DRIVE THE POOL'S TICK, NOT THE FEED, AND WITH SIZE.
         // `ringVariance` reads `tickCumulative` off the POOL's ring and takes the variance of
         // consecutive RATE CHANGES. The previous draft moved the ORACLE 24 times with 4,000 USDC
-        // swaps: far too small to traverse a +/-0.2% band or force a reseat, so tickCumulative
+        // swaps: far too small to traverse a +/-0.2% range or force a reseat, so tickCumulative
         // advanced at a NEARLY CONSTANT rate and the variance of near-constant returns is ~0.
         // Sizing, not spacing -- the estimator is spacing-immune by construction (each return is
         // normalised by its own elapsed time).
@@ -388,8 +388,8 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint p = px;
         // FREQUENCY, NOT AMPLITUDE. Measured: 0.6% -> 556 bps, 1.0% -> 545 bps (NO change), 1.8% ->
         // 28,069 bps. `ringVariance` is BIMODAL -- below the reseat threshold amplitude is
-        // irrelevant, above it reseats dominate -- so the target band is stepped OVER, never hit,
-        // by scaling amplitude. The lever is HOW OFTEN the walk CROSSES the band edge: two large
+        // irrelevant, above it reseats dominate -- so the target range is stepped OVER, never hit,
+        // by scaling amplitude. The lever is HOW OFTEN the walk CROSSES the range edge: two large
         // (crossing) steps in eight, six small (non-crossing) ones.
         uint16[8] memory mult = [uint16(1018), 997, 1002, 1004, 985, 1001, 1003, 998];
         uint16[8] memory size = [uint16(40), 150, 25, 90, 200, 60, 15, 120];            // uneven size
@@ -411,7 +411,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             vm.stopPrank();
             // §UNIT-VOL-LANDED — MEASURE THE CHANNEL INSTEAD OF THEORISING ABOUT IT. Three
             // explanations for the sigma^2 spread have now been refuted. The only surviving one is
-            // that the band executes against a TWAP rather than the spot feed being poked, so log
+            // that the range executes against a TWAP rather than the spot feed being poked, so log
             // BOTH: what we SET, and what the venue actually PRICES against.
             if (i % 6 == 0) {
                 emit log_named_uint("  step", i);
@@ -423,9 +423,9 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         }
 
         // §UNIT-TWAP-RESOLVE — COUNT THE RESEATS. In this architecture the pool tick moves mainly
-        // when the band RESEATS onto a new oracle level (oracle-pegged fills consume inventory
+        // when the range RESEATS onto a new oracle level (oracle-pegged fills consume inventory
         // without walking the curve), so the reseat count IS the variance driver. +/-1.8% feed
-        // moves are 9x the band half-width and should force reseats; measure whether they do.
+        // moves are 9x the range half-width and should force reseats; measure whether they do.
         emit log_named_uint("frame lower price AFTER the walk", _bLo(address(ETH)));
         emit log_named_uint("swaps LANDED  ", landed);
         emit log_named_uint("swaps REVERTED", reverted);
@@ -464,13 +464,13 @@ contract PremiumIsCarryNotIncome is AllesFixture {
 
 
     /// §UNIT-ZOOM-OUT — REAL BACKTEST, NOT A SYNTHETIC WALK. Instead of poking a mock feed and
-    /// hoping the band's tick follows, read the tick history of the REAL Uniswap v3 WETH/USDC pool
+    /// hoping the range's tick follows, read the tick history of the REAL Uniswap v3 WETH/USDC pool
     /// -- which carries real flow -- and the REAL Chainlink series over the SAME window, through
     /// the SAME estimator (`OracleLib.ringVariance`'s exact arithmetic, per §UNIT-RINGVARIANCE-READ:
     /// rate = dTickCum/dt scaled 1e9, variance of consecutive rate CHANGES, `+ mean*mean` for §E63's
     /// drift term, `/ spanSecs`, then Core's `*31_536_000*1e10/1e18`).
     /// THE QUESTION IS RESPONSIVENESS, NOT MAGNITUDE: does a tick series driven by REAL flow track
-    /// the oracle's variance, or is our pegged band structurally deaf to it?
+    /// the oracle's variance, or is our pegged range structurally deaf to it?
     function test_UNIT_BacktestV3TickVarianceVsChainlink() public {
         IUniV3Pool POOL = IUniV3Pool(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640); // WETH/USDC 0.05%
         uint32[] memory ago = new uint32[](9);
@@ -498,16 +498,16 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         }
         emit log_named_uint("chainlink intervals used ", got);
         if (got >= 3) emit log_named_uint("CHAINLINK annualised sigma^2", _e63Variance(clRate, uint32(8 * 3600)));
-        emit log_named_uint("OUR BAND sigma^2 (for scale)", CORE.realizedVarianceWad());
+        emit log_named_uint("OUR RANGE sigma^2 (for scale)", CORE.realizedVarianceWad());
     }
 
 
-    /// §UNIT-DEADBAND-COUNT's settling measurement. Our pool TWAP is FROZEN between re-pegs
+    /// §UNIT-DEADZONE-COUNT's settling measurement. Our pool TWAP is FROZEN between re-pegs
     /// (§UNIT-PRICE-LOOP), so the divergence `twapResolve` gates on is simply how far Chainlink
     /// drifts from a FIXED point. That is measurable from Chainlink history alone: walk forward
     /// from each round and find how long until |p(t) - p0|/p0 crosses 500 bps. THAT interval IS the
     /// re-peg period, and it is how long the skew charges nothing.
-    function test_UNIT_HowLongUntilTheDeadbandOpens() public {
+    function test_UNIT_HowLongUntilTheDeadrangeOpens() public {
         (uint80 rid,,,,) = AggregatorV3Interface(AGG).latestRoundData();
         uint N = 119;
         int[] memory px = new int[](N); uint[] memory ts = new uint[](N); uint got;
@@ -534,7 +534,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         emit log_named_uint("window span, hours              ", got < 2 ? 0 : (ts[got-1] - ts[0]) / 3600);
     }
 
-    /// §UNIT-DEADBAND-NEVER-OPENS step 1: the same crossing count at CANDIDATE thresholds, so the
+    /// §UNIT-DEADZONE-NEVER-OPENS step 1: the same crossing count at CANDIDATE thresholds, so the
     /// re-peg cadence can be chosen from data rather than asserted. Reports, per threshold, how many
     /// origins ever cross and the mean hours to cross -- i.e. how long the skew would read 0.
     function test_UNIT_RepegCadenceByThreshold() public {
@@ -562,10 +562,10 @@ contract PremiumIsCarryNotIncome is AllesFixture {
     }
 
     /// §UNIT-REPEG-CADENCE step 2 — THE MEASUREMENT THAT COULD INVALIDATE THE FIX. Tightening the
-    /// deadband only helps if crossing it POPULATES THE RING. A re-peg that merely moves the spot
+    /// deadzone only helps if crossing it POPULATES THE RING. A re-peg that merely moves the spot
     /// without writing distinct observations leaves `card < 3` and sigma^2 at 0, and the whole
     /// diagnosis would be moot. Cross the 5% gate deliberately and watch both.
-    function test_UNIT_DoesCrossingTheDeadbandPopulateTheRing() public {
+    function test_UNIT_DoesCrossingTheDeadrangePopulateTheRing() public {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
@@ -614,7 +614,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint g = gasleft(); ETH.reseat(); uint gNoop = g - gasleft();
         emit log_named_uint("reseat gas: ALIGNED (no-op)   ", gNoop);
 
-        // (b) DRIFTED BELOW THE 5% GATE — the regime real ETH lives in (max 398 bps, §UNIT-DEADBAND-
+        // (b) DRIFTED BELOW THE 5% GATE — the regime real ETH lives in (max 398 bps, §UNIT-DEADZONE-
         //     NEVER-OPENS). Expect ANOTHER no-op: `stale` is false, so the auto-heal never runs.
         _setEthFeed((px * 103 / 100) / 1e10);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);

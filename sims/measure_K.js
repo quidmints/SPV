@@ -23,7 +23,7 @@ function poolSeries(guard){
   }
   return out;
 }
-// LVR of a +/-2% band (theta=1) rebalancing at poolPx, valued at spot; repack on exit
+// LVR of a +/-2% range (theta=1) rebalancing at poolPx, valued at spot; repack on exit
 function lvr(pool){
   let pa=pool[0]/(1+R), pb=pool[0]*(1+R), L=Lfor(1,pool[0],pa,pb);
   for(let i=1;i<pool.length;i++){

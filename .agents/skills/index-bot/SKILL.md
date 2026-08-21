@@ -100,7 +100,7 @@ Before any execution:
 
 For each leg, delegate to the swap-integration Trading API flow: `check_approval` then `quote` then `swap`, then sign and broadcast via viem. Pass the target chain id and that chain's router / token addresses from the selected template.
 
-Do NOT reimplement quoting, approvals, swap-body construction, or signing. Sequence legs with a short delay to respect Trading API rate limits, and handle a failed leg without abandoning the rest of the basket (report it and continue).
+Do NOT reimplement quoting, approvals, swap-body construction, or signing. Sequence legs with a short delay to respect Trading API rate limits, and handle a failed leg without arangeoning the rest of the basket (report it and continue).
 
 ### Step 5: Record target weights
 

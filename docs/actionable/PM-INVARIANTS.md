@@ -25,7 +25,7 @@ subtract after, compare against the floor.
 
 ## 2. DELTA SIGN — asserted at the call site now, not derived from the venue
 
-`modifyLiquidity` RETURNED signed deltas, so the band read direction FROM the venue and the sign
+`modifyLiquidity` RETURNED signed deltas, so the range read direction FROM the venue and the sign
 could not disagree with what moved. `Core` owns this now: `struct Delta { int256 usd; int256 vol; }`
 and `modLP(int256, int256)`, where **the caller carries the sign**.
 
@@ -36,7 +36,7 @@ BURN was accounted as an ADD and a withdrawal GREW `POOLED`.
 **CHECK:** at least once per path, assert the sign against a MEASURED balance change.
 
 **PRECEDENT:** `RestoreProfitability.t.sol` had EVERY direction comment backwards — a
-stable→volatile BUY *drains* the band. Reasoning about direction is how that happened; measuring is
+stable→volatile BUY *drains* the range. Reasoning about direction is how that happened; measuring is
 what caught it.
 
 ## 3. REENTRANCY — the lock is gone; a router call is arbitrary code

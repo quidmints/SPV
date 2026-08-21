@@ -104,14 +104,14 @@ losses first, and that waterfall carried forever with a separate valuation per l
 time instead of a person.** Future yield is the junior tranche. One elastic supply, no waterfall, no
 per-tranche accounting, because the thing subordinated is a date rather than a claimant.
 
-The band sells ETH as price rises — that is the impermanent loss. To cancel it you must buy as price rises. And symmetrically, the band buys as price falls, so the hedge sells. The overlay is the band's mirror image by construction.
-Invert it and you don't get buy-low-sell-high. You get the band's behaviour doubled. Selling as price rises while the band is also selling means shedding twice as much; buying as it falls while the band buys means accumulating twice as much. You'd take roughly 2× the impermanent loss instead of zero. The inverted version isn't a better hedge, it's an anti-hedge.
+The range sells ETH as price rises — that is the impermanent loss. To cancel it you must buy as price rises. And symmetrically, the range buys as price falls, so the hedge sells. The overlay is the range's mirror image by construction.
+Invert it and you don't get buy-low-sell-high. You get the range's behaviour doubled. Selling as price rises while the range is also selling means shedding twice as much; buying as it falls while the range buys means accumulating twice as much. You'd take roughly 2× the impermanent loss instead of zero. The inverted version isn't a better hedge, it's an anti-hedge.
 That's the general fact underneath: delta-hedging a short-gamma position is always buy-high-sell-low. That's what negative gamma means — your hedge is always chasing. There's no parameterisation that escapes it. 
 
 **The impermanent loss on the way up is cancelled.** The problem in a rally is that the pool sold your
 Ethereum too cheaply, so we give the pool something else to sell. An optional overlay borrows dollars
 against your own collateral on an outside lending market, buys extra Ethereum, and hands that to the
-pool as the inventory it sells during the rally. **The band sells the buffer, not the principal.** The
+pool as the inventory it sells during the rally. **The range sells the buffer, not the principal.** The
 buffer is sized exactly to the loss the pool has actually created, computable from how far price has
 moved since you entered.
 
@@ -352,7 +352,7 @@ single-sided provision through options machinery. **WBTC and cbBTC** are honest 
 correct for a mandate requiring a regulated counterparty.
 
 Across all of them we subtract. Rather than trying to price a risk nobody can price, we bound it by
-holding eleven things instead of one. A single band around the current price does the work a
+holding eleven things instead of one. A single range around the current price does the work a
 continuously maintained distribution does elsewhere, and it only moves when price leaves it. Redemption
 runs on a calendar set when the claim was written. Our debt sits on somebody else's market, isolated
 per depositor, on a venue that already operates its own liquidation machinery. Fewer moving parts is
@@ -401,7 +401,7 @@ ether.fi always routes through Rover. See `docs/informational/ETH-VENUES.md`.
 
 ## What is vETH exactly? Is it a wrapper around two assets?
 
-No, and the distinction matters for anyone integrating it. The underlying band is two-sided, ETH plus
+No, and the distinction matters for anyone integrating it. The underlying range is two-sided, ETH plus
 synthetic dollars, but **the synthetic dollar leg is protocol-owned and was never yours.** So the share
 redeems to one asset: ETH, plus the fees that share earned. `convertToAssets(shares)` is your pro-rata
 slice of the ETH-side backing, and fees accrue by appreciating that single-asset share price.
@@ -412,24 +412,24 @@ how to price.
 
 ## How is the impermanent loss actually cancelled?
 
-The rule is that **the band sells the buffer, not the principal.** When ETH rises, the band's loss is
+The rule is that **the range sells the buffer, not the principal.** When ETH rises, the range's loss is
 that it sold ETH too cheaply. The overlay borrows a stable against your own collateral, buys ETH with
-it, and supplies exactly enough extra ETH for the band to sell instead of yours.
+it, and supplies exactly enough extra ETH for the range to sell instead of yours.
 
 The keeper sizes that buffer to the loss actually incurred, `1 − √(entry/now)`, which is the fraction of
-ETH the band has sold since you entered. The target returns zero at or below entry
-(`imports/LevMath.sol:109-125`). Where the band reports its real measured sold fraction, that number is
+ETH the range has sold since you entered. The target returns zero at or below entry
+(`imports/LevMath.sol:109-125`). Where the range reports its real measured sold fraction, that number is
 used in preference to the formula.
 
-There is an elegance worth noting: **"the band sells the buffer" and "unwind the borrow for a swap" are
-the same operation.** A buy-ETH swap makes the band sell ETH, which sells the buffer, which de-levers
+There is an elegance worth noting: **"the range sells the buffer" and "unwind the borrow for a swap" are
+the same operation.** A buy-ETH swap makes the range sell ETH, which sells the buffer, which de-levers
 the slice and repays debt. The tap mechanism and the buffer-sale mechanism are one thing, not two bolted
 together.
 
 ## Why up-side only? Isn't a one-directional hedge not a hedge?
 
 That is exactly what a derivatives desk would say, and we built the symmetric version before deleting
-it. Below entry the band over-holds the falling asset. A short leg corrects that by selling the excess
+it. Below entry the range over-holds the falling asset. A short leg corrects that by selling the excess
 into the decline, which realises the loss and forfeits the recovery. Down-side impermanent loss is
 genuinely impermanent and heals on its own, so for a long-biased holder, doing nothing strictly
 dominates any round trip: same fees, minus the realised leak. The up-side overlay bets **with** the
@@ -464,7 +464,7 @@ got there* — it borrows and buys as price rises, sells and repays as it falls,
 spread on both legs plus interest for the duration. Path length, not destination.
 
 **Choppy markets with large round trips.** It levers up, de-levers, levers up again, paying two spreads
-each time, while the loss it keeps cancelling keeps reverting for free. The de-lever band suppresses
+each time, while the loss it keeps cancelling keeps reverting for free. The de-lever range suppresses
 small oscillations; large ones still trigger. Declining wins, and this is the most common regime for
 these assets.
 
@@ -487,13 +487,13 @@ fall gains nothing below their entry price and pays spreads and interest to disc
 **Above entry, though, the depositor sets their own direction.** `setTargetLtv(capBps)` takes any value
 from 1 to 7,500 bps and can be changed at any time while the position is open. It is permissioned to the
 depositor because the cap is a risk choice; the keeper's rebalance toward whatever target results stays
-permissionless. Because the band is only ±0.2% wide, its sold fraction saturates almost as soon as price
+permissionless. Because the range is only ±0.2% wide, its sold fraction saturates almost as soon as price
 leaves the top of the range, which means the cap is not a rarely-binding ceiling. It is the operating
 leverage.
 
-So 5,000 bps is two times and cancels the band's impermanent loss. Anything above that, to a ceiling of
+So 5,000 bps is two times and cancels the range's impermanent loss. Anything above that, to a ceiling of
 7,500 bps or roughly four times, buys back more exposure than neutrality calls for and is an opt-in
-directional long. Anything below it declines to buy back what the band already sold, which expresses a
+directional long. Anything below it declines to buy back what the range already sold, which expresses a
 bearish view. The honest limit on that last case: you stay net long the pool, so a low cap is a tilt
 against the neutral baseline rather than an outright short.
 
@@ -507,7 +507,7 @@ may be permanent exactly when it matters.
 
 ## What is the "full-2× buffer" and why do ETH and BTC differ?
 
-A two-times levered position puts in equity E, borrows E, and holds a 2E band position. That 2E sits in
+A two-times levered position puts in equity E, borrows E, and holds a 2E range position. That 2E sits in
 one pooled-dollar slice as equity E plus a debt-funded buffer E. **The buffer's dollar value equals the
 depositor's own debt exactly**, so the pure equity claim is in-range dollars minus leverage debt, read
 live from the pinned manager (`Core.sol:93-99`).
@@ -537,7 +537,7 @@ separate buffer for capacity.
 > equity**, not the gross. The source also insists the name be read narrowly: it is **not** a promptness
 > guarantee and not a view-twin of the withdraw ladder, and it counts the Aave leg, weETH at the vault,
 > raw eETH and the offramp position at full face even though none is instantly convertible. That
-> over-statement is tolerable rather than a bug, because its only two consumers tolerate it: the band
+> over-statement is tolerable rather than a bug, because its only two consumers tolerate it: the range
 > uses it solely to cap how much of a withdrawal is sourced from the in-range burn before the venue
 > ladder takes the remainder, with the shortfall derived from what was actually sent so the sourcing
 > order self-corrects; and the swap-out de-lever gate is caught downstream by slippage bounds and
@@ -547,7 +547,7 @@ separate buffer for capacity.
 
 **It should not, and the reason is worth understanding because it explains what this venue's real cost
 is.** Volatility is when swap demand and fee opportunity peak and when a
-liquidity venue most needs to be deep, so thinning the band in a vol spike is the fair-weather-liquidity
+liquidity venue most needs to be deep, so thinning the range in a vol spike is the fair-weather-liquidity
 failure that makes AMMs unreliable precisely when they matter.
 
 **Where it came from.** θ ≤ `yield / (K·σ² − f)` is a *solvency* inequality, not a
@@ -575,14 +575,14 @@ Theta-blind means the paired depth is bounded only by what is physically availab
 (`surplus = TVL − committed`) and the deposit itself.
 
 **For.** Depth is maximal when demand and fees peak. The pool never thins in a crisis. One fewer
-live-derived parameter, and the two it depends on (a variance ring and a `K` computed from band
+live-derived parameter, and the two it depends on (a variance ring and a `K` computed from range
 geometry) both disappear, which matches the minimalism argument the rest of the design rests on. It
 aligns the clamp with the actual cost model instead of a borrowed one. The LP already bears their own
 IL, can cancel the up-side with the opt-in overlay, and holds through the down-side, so the exposure is
 theirs by choice rather than bounded paternalistically. And `surplus` remains a hard structural bound on
 the basket's side.
 
-**Against.** The dollar leg of the band is **basket capital, not the LP's**, so a deeper band means more
+**Against.** The dollar leg of the range is **basket capital, not the LP's**, so a deeper range means more
 basket dollars converting into the volatile asset as price falls; `surplus` bounds the level of that
 exposure but not the rate. The execution lag is real and genuinely vol-sensitive, since more volume
 through a staler quote leaks more value to swappers, so *some* vol-awareness may be justified —
@@ -788,7 +788,7 @@ delivery arithmetic.
 **And a hedged depositor's compounded fees are hedged too, with a bounded lag.** The overlay sizes debt
 to `E0`, a base held *fixed between reseats* — deliberately, because sizing to the growing collateral
 produced a `1/(1−t)` over-hedge feedback loop. On every reseat `_reanchorIfReseated` re-anchors `E0` to
-the position's **current net equity**, which picks up whatever compounded since. The band is ±0.2%, so
+the position's **current net equity**, which picks up whatever compounded since. The range is ±0.2%, so
 reseats are frequent and the lag is short. **So for a protected depositor the "compounding costs you IL"
 objection is close to empty.**
 
@@ -828,7 +828,7 @@ grounds that an unhedged sats claim is IL-shielded while a hedged one is not. Th
 though **not for the reason the draft gave** (see the theta answer below — that reason was wrong).
 
 The real reason is the intentional hold. **Below entry nothing is realized at all**, because the design
-holds the band's over-hold rather than selling it, and IL is realized only at withdrawal. Compounded
+holds the range's over-hold rather than selling it, and IL is realized only at withdrawal. Compounded
 sats simply increase what is held through a fall, and what is held through a fall heals. Above entry the
 hedge picks the compounded value up at the next reseat. So there is no regime in which compounding
 creates a realized loss the depositor would otherwise have escaped, and the extra branch buys nothing.
@@ -840,7 +840,7 @@ An earlier answer said there was not. **Wrong, and the source says so in the rem
 recovery — down-side IL is IMPERMANENT and heals on its own, so for a long-biased LP **holding strictly
 dominates** over any round-trip."
 
-That is the hold, and it exists *because* the short was deleted. Below entry the band mechanically
+That is the hold, and it exists *because* the short was deleted. Below entry the range mechanically
 over-holds the falling asset. A short would sell that over-hold to restore delta-one and would realise
 the loss doing it. Removing the short **is** the decision to hold instead, until price recovers or until
 the depositor withdraws, which is the "certain moment" and is where R1 realises IL through the share
@@ -869,8 +869,8 @@ trending drawdown.
 
 **Three things actually bound that risk, and none of them is a protocol-funded hedge.**
 
-**The theta clamp caps how much is exposed at all.** Paired band depth is limited to a live fraction of
-the Bitcoin backing, so most of the deposit sits outside the band and is never short gamma. Note this
+**The theta clamp caps how much is exposed at all.** Paired range depth is limited to a live fraction of
+the Bitcoin backing, so most of the deposit sits outside the range and is never short gamma. Note this
 bound is sized on the basis discussed under "Why does the theta clamp pull liquidity in exactly when
 volatility rises?", which matters because this venue's cost is not the adverse selection a public pool
 faces.
@@ -1011,12 +1011,12 @@ and the Bitcoin two-of-two spend. The worst case for a lost or compromised hop k
 and depositors always self-exit.
 
 The keeper's entire job is to make a liquidation engine unnecessary. It polls each opted-in levered
-position and holds its loan-to-value inside a band around the target while never letting it reach the
+position and holds its loan-to-value inside a range around the target while never letting it reach the
 external venue's liquidation threshold, always a full safety margin below. So the venue's engine is a
 never-triggered backstop and we never wrote one. It is event-driven rather than a simple poller, because
 an unlevered depositor's withdrawal can force a chained unwind of other levered positions.
 
-The target is `L = 1/α`, where α is the realised band concavity measured from actual flow. Busy flow
+The target is `L = 1/α`, where α is the realised range concavity measured from actual flow. Busy flow
 drives α toward one half and leverage toward two, cancelling the loss that flow created. Quiet flow
 drives leverage toward one, because there is no realised loss to cancel. **Pinning a constant two-times
 over-levers in quiet regimes and drains the buffer**, which is the mistake sizing to α avoids.
@@ -1266,7 +1266,7 @@ a vanilla pool with the same TVL would return. The pool also paid the rebalancin
 gas, hook computation and the implicit cost of reshaping against incoming flow, without capturing the
 revenue that normally compensates for divergence.
 
-**Our calibration is one symmetric band around the current price**, recomputed and repacked only when
+**Our calibration is one symmetric range around the current price**, recomputed and repacked only when
 price drifts out of the current range, never after every trade. One static range, event-triggered, no
 continuous distribution function. Categorically simpler, and we let external arbitrageurs capture the
 discrepancy and pay us fees for the privilege.
@@ -1325,7 +1325,7 @@ and a per-trade liquidity-reshaping function. Pendle carries structural overhead
 decaying AMM and fragmented liquidity.
 
 **Our edge everywhere is subtractive.** Bound risk by diversification instead of pricing it. Calibrate
-one current-price band instead of maintaining a continuous distribution. Redeem on a schedule instead of
+one current-price range instead of maintaining a continuous distribution. Redeem on a schedule instead of
 on a maintained curve. Keep debt external and isolated instead of socialised. **The minimalism is the
 safety argument**, and it is also why two people can hold this system in their heads well enough to
 audit it honestly.
@@ -1742,7 +1742,7 @@ entities were founded on the cusp of the Terra crash, with first-hand experience
 under FASB ASC 958 nonprofit accounting principles, accumulated deficit exists on the balance sheet as a
 documented liability against future operations.
 
-Bebop.xyz chose a name representing intent-based hops, after bebop jazz replaced the big band's arranged
+Bebop.xyz chose a name representing intent-based hops, after bebop jazz replaced the big range's arranged
 harmony with improvisation over complex chord changes at high tempo. Every stablecoin in the basket is
 in a *quid pro quo*: mutual redemption pressure relief, peg stability. The Signal Foundation started on a
 promissory note; on similar terms, MetaWeb Capital backed a meta-stable.
@@ -1905,7 +1905,7 @@ call that changes where depositor assets are deployed?** The answer is none, and
 than promised.
 
 The reserve's setup call renounces ownership. Every discretionary lever sits behind an owner gate, so all
-of them die at that call: evacuation, vault assignment, price feed assignment, venue assignment. The band
+of them die at that call: evacuation, vault assignment, price feed assignment, venue assignment. The range
 contract renounces the same way. The basket's constituent set is fixed at deployment and cannot be added
 to. The leverage venue allowlist is pin-once then frozen behind a flag the source itself describes as
 matching the renounce-everything posture. The contracts are not upgradeable and have no administrator, so
@@ -1959,7 +1959,7 @@ that claim complete.
 | Safe governs measurement whitelist only, moves no funds | `evm/src/AttestedHopRegistry.sol:47-53` |
 | **Vault setters with no renounce found** | `evm/src/Vault.sol:355`, `:362`, `:372` |
 | IL target closed-form, zero at or below entry | `evm/src/imports/LevMath.sol:109-125` |
-| band width ±0.2%, not ±2% | `evm/src/imports/SwapLib.sol:831-838` |
+| range width ±0.2%, not ±2% | `evm/src/imports/SwapLib.sol:831-838` |
 | eleven stablecoins, BOLD last | `evm/test/Alles.t.sol:285-300` |
 
 ## How does the sequence conclude?

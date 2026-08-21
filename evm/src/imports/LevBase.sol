@@ -2,9 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
-import {BandLib} from "./BandLib.sol";
+import {RangeLib} from "./RangeLib.sol";
 import {ILevVenue} from "./Interfaces.sol";
-import {IAux, IBand} from "./Interfaces.sol";
+import {IAux, ICore} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
@@ -39,16 +39,16 @@ abstract contract LevBase {
 
     /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
-    /// @dev §FOLD-DELTA — ±3% LTV dead-band before a rebalance is worth its gas. Was declared on BOTH
+    /// @dev §FOLD-DELTA — ±3% LTV dead-range before a rebalance is worth its gas. Was declared on BOTH
     ///      managers with the same value (ETH `internal`, BTC `public`; no reader of either outside
     ///      the managers, checked across src/ test/ script/).
-    uint256 internal constant BAND_BPS = 300;
+    uint256 internal constant RANGE_BPS = 300;
 
     /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.
     /// @dev §FOLD-DELTA — was duplicated on each manager (0.71 similarity). The two bodies computed
     ///      the SAME thing in a different statement order; the only real difference was ETH's
     ///      `if (!p.open)` early-out. BTC was not buggy — `closeBtcLev` does `delete pos[lp]`, so
-    ///      `entryPriceWad == 0` makes `_ilTargetLive` return 0 and `debtDelta` reports in-band —
+    ///      `entryPriceWad == 0` makes `_ilTargetLive` return 0 and `debtDelta` reports in-range —
     ///      whereas ETH RETAINS the `Pos` with `open = false` on its keepState branch, which is why
     ///      only ETH needed the gate. A REAL asymmetry; the shared body keeps the gate because it is
     ///      correct for both and strictly cheaper than reaching `debtUsd` for a closed position.
@@ -56,7 +56,7 @@ abstract contract LevBase {
         Types.Pos memory p = pos[lp];
         if (!p.open) return (false, 0);
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return LevMath.debtDelta(LevMath.e0Usd(p.e0, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
+        return LevMath.debtDelta(LevMath.entryEquityUsd(p.entryEquity, px), debtUsd(lp), _ilTargetLive(p, px), RANGE_BPS);
     }
 
     /// Oracle (`getTWAPforAsset`) + the caller-funded paths both managers reach through.
@@ -76,12 +76,12 @@ abstract contract LevBase {
     address[] internal _openLps;
     mapping(address => uint256) internal _lpIdx;
 
-    /// The band's sync band (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
+    /// The range's sync range (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
-    /// §SLOP — was `bandSyncBand`, the FOURTH name for one concept (after `V4`, `CORE` and
-    /// `BAND` in Core). It is the band manager: set to Quid for the ETH lev book and to the
-    /// Vault for the BTC one, used for `bandPrice`, `syncLev` and as the settle-path auth gate.
-    address public BAND;
+    /// §SLOP — was `rangeSyncRange`, the FOURTH name for one concept (after `V4`, `CORE` and
+    /// `RANGE` in Core). It is the range manager: set to Quid for the ETH lev book and to the
+    /// Vault for the BTC one, used for `rangePrice`, `syncLev` and as the settle-path auth gate.
+    address public RANGE;
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
 
@@ -102,17 +102,17 @@ abstract contract LevBase {
     event VenueAllowed(address indexed venue, bool ok);
     event DeleverFailed(address indexed lp, uint256 ltvBps);
     event ProtectedFromQuid(address indexed lp, uint256 quidRedeemed, uint256 debtRepaid);
-    event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
+    event ReanchoredToRange(address indexed lp, uint entryPrice, uint256 entryEquity);
 
     error NotOpen();
     error BadTarget();
 
     constructor(address aux, address oracleKey) { AUX = IAux(aux); ORACLE_KEY = oracleKey; }
 
-    /// @notice Poke the band to reconcile `lp`'s levered slice to live net equity. ONE routine for
+    /// @notice Poke the range to reconcile `lp`'s levered slice to live net equity. ONE routine for
     ///         what was THIRTEEN byte-identical inlined copies (6 in `LevManager`, 7 in
     ///         `BtcLevManager`), every one of them exactly
-    ///         `if (BAND != address(0)) { try IBand(BAND).syncLev(lp) {} catch {} }`.
+    ///         `if (RANGE != address(0)) { try ICore(RANGE).syncLev(lp) {} catch {} }`.
     /// @dev    §FOLD-SYNC. A FUNCTION, not a modifier, per standing rule 8c: a modifier's body is
     ///         inlined at every use site, so 13 uses would be 13 copies again — which is the thing
     ///         being removed. This is one body and 13 jumps. Precedent for the direction: §E210
@@ -121,16 +121,16 @@ abstract contract LevBase {
     ///         folding a whole CONTRACT in costs them (its code still has to land somewhere).
     ///
     ///         WHY THE try/catch IS LOAD-BEARING AND MUST NOT BECOME A BARE CALL: this is a
-    ///         PERMISSIONLESS courtesy poke on the tail of money-moving operations. If the band
+    ///         PERMISSIONLESS courtesy poke on the tail of money-moving operations. If the range
     ///         reverts, the lever/delever that already succeeded must still commit — the slice is
     ///         separately reconcilable by anyone calling `syncLev` directly, so a failed poke costs
-    ///         a delay, while a propagated revert would strand the position. The `BAND != 0` guard
-    ///         is not defensive dressing either: `BAND` is pin-once and genuinely unset between
+    ///         a delay, while a propagated revert would strand the position. The `RANGE != 0` guard
+    ///         is not defensive dressing either: `RANGE` is pin-once and genuinely unset between
     ///         deploy and wiring, and a call to address(0) SUCCEEDS silently rather than reverting,
     ///         so without it an unwired deploy would look reconciled and not be.
-    /// @notice §FOLD-REBALANCE — THE ONE REBALANCE, FOR BOTH BANDS.
+    /// @notice §FOLD-REBALANCE — THE ONE REBALANCE, FOR BOTH RANGES.
     /// @dev Both managers ran this identical shape: reanchor, require open, read the target, branch on
-    ///      direction, sync the band. FOUR things actually differed and each is now a seam:
+    ///      direction, sync the range. FOUR things actually differed and each is now a seam:
     ///        • an extra per-asset precondition (BTC requires WBTC collateral)  -> `_requireRebalancable`
     ///        • which lever-up leg runs                                          -> `_leverUp`
     ///        • which de-lever leg runs                                          -> `_delever`
@@ -139,7 +139,7 @@ abstract contract LevBase {
     ///          previously did not — an ADDED event, which no consumer can break on, but say so.
     ///      ⚠️ `_delever` RECEIVES `deltaUsd` AND IS FREE TO IGNORE IT: ETH re-derives the closed-form
     ///      `Δ/(1−t)` via `deleverRepayUsd` so one flash lands on target with no withdraw-before-repay
-    ///      health breach, while BTC repays the delta directly. The two bands size the repay differently
+    ///      health breach, while BTC repays the delta directly. The two ranges size the repay differently
     ///      and that is REAL, not drift.
     /// @dev Order note: ETH checked `open` BEFORE reanchoring and BTC after. Immaterial —
     ///      `_reanchorIfReseated` already early-returns on a closed position.
@@ -155,7 +155,7 @@ abstract contract LevBase {
             else       _delever(p.venue, lp, stable, deltaUsd, minOut);
             emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
         }
-        _syncBand(lp);
+        _syncRange(lp);
     }
 
     event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
@@ -165,55 +165,55 @@ abstract contract LevBase {
     function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
     function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
 
-    function _syncBand(address lp) internal {
-        if (BAND != address(0)) { try IBand(BAND).syncLev(lp) {} catch {} }
+    function _syncRange(address lp) internal {
+        if (RANGE != address(0)) { try ICore(RANGE).syncLev(lp) {} catch {} }
     }
 
-    /// @notice The band's anchor price, or 0 if the band is unwired or reverts. §FOLD-SYNC — was
+    /// @notice The range's anchor price, or 0 if the range is unwired or reverts. §FOLD-SYNC — was
     ///         inlined identically in both managers' open paths.
     /// @dev    Returning 0 rather than reverting is deliberate and matches the pre-fold behaviour:
     ///         `entryPrice` is the sold-fraction REFERENCE, and `_ilTargetLive`/`reanchorCompute`
     ///         already treat 0 as "never anchored" (that is what `_reanchorIfReseated` exists to
-    ///         repair). Reverting here would make an unwired band block position OPENING, which is
+    ///         repair). Reverting here would make an unwired range block position OPENING, which is
     ///         strictly worse than opening with a reference that the first reanchor fills in.
-    function _bandPrice() internal view returns (uint px) {
-        if (BAND != address(0)) {
-            try IBand(BAND).bandPrice() returns (uint s) { px = s; } catch {}
+    function _rangePrice() internal view returns (uint px) {
+        if (RANGE != address(0)) {
+            try ICore(RANGE).rangePrice() returns (uint s) { px = s; } catch {}
         }
     }
 
     /// @notice Write a fresh position and enrol the LP in the book. §FOLD-OPEN — this tail was
     ///         duplicated verbatim in `LevManager.openLev` and `BtcLevManager.openBtcLev`; the two
-    ///         differed ONLY in how they computed `e0` (weETH→ETH for the ETH side, sats-as-is for
+    ///         differed ONLY in how they computed `entryEquity` (weETH→ETH for the ETH side, sats-as-is for
     ///         BTC, because vBTC IS sats) and in the local name of the LTV cap. Everything after
-    ///         that — the band-price read, the `Types.Pos` literal, the book enrolment — was one
+    ///         that — the range-price read, the `Types.Pos` literal, the book enrolment — was one
     ///         shape written twice, and a struct literal is not cheap in bytecode.
-    /// @param  e0  the IL base, FIXED at open. Caller computes it because it is the one genuinely
+    /// @param  entryEquity  the IL base, FIXED at open. Caller computes it because it is the one genuinely
     ///             per-asset quantity here; passing it in is what lets the rest be shared.
-    /// @notice §FOLD-MEASURE — body in `BandLib` (§FOLD-BOOK). `_bandPrice()` is resolved HERE because it
-    ///         try/catches a call to `BAND`, and the struct is built here so the library takes one
+    /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). `_rangePrice()` is resolved HERE because it
+    ///         try/catches a call to `RANGE`, and the struct is built here so the library takes one
     ///         memory pointer rather than five scalars (cheaper seam, and `Types.Pos`'s field order
     ///         stays owned by one place).
-    function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint e0) internal {
-        BandLib.openPos(pos, _openLps, _lpIdx, msg.sender,
+    function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint entryEquity) internal {
+        RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
             Types.Pos({venue: venue, targetLtvCapBps: capBps, entryPriceWad: uint128(entryPx),
-                       e0: uint128(e0), entryPrice: _bandPrice(), open: true}));
+                       entryEquity: uint128(entryEquity), entryPrice: _rangePrice(), open: true}));
     }
 
     function _trackOpen(address lp) internal {
-        BandLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
+        RangeLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     function _untrackOpen(address lp) internal {
-        BandLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
+        RangeLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS).
-    /// @notice §FOLD-MEASURE — body in `BandLib` (§FOLD-BOOK). The ceiling is PASSED, not duplicated there:
+    /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). The ceiling is PASSED, not duplicated there:
     ///         `TARGET_LTV_CAP_BPS` is a constant and constants live in the caller's code, so one
     ///         definition stays here and the library reads whatever it is given.
     function setTargetLtv(uint64 capBps) external {
-        BandLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
+        RangeLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
@@ -241,15 +241,15 @@ abstract contract LevBase {
     /// @dev ⚠️ WHEN THESE MOVE TO A DELEGATECALL LIBRARY, THE CALLER COMPUTES THIS AND PASSES IT AS
     ///      A VALUE — a library cannot call a virtual on its caller. That constraint is why the
     ///      per-asset step is kept as narrow as possible: one `uint → uint` conversion is trivial to
-    ///      pass by value, whereas a band that needed the venue or the LP would not be.
+    ///      pass by value, whereas a range that needed the venue or the LP would not be.
     ///
-    ///      §FOLD-COLL removed a stale justification that stood here. It read: "it is a band rather
+    ///      §FOLD-COLL removed a stale justification that stood here. It read: "it is a range rather
     ///      than a shared helper because `_collToEth` CANNOT serve BTC: it tests
     ///      `COLLATERAL() == WETH`, which is false for a vBTC venue, so sats would be routed through
     ///      `getEETHByWeETH` and silently mis-converted." The `_collToEth` that existed when this was
     ///      written did test the collateral token; the one that survived to be folded did NOT — its
     ///      body was `units == 0 ? 0 : RATE.getEETHByWeETH(units)` with an UNNAMED venue parameter.
-    ///      So the stated reason for the band had already stopped being true, while the band itself
+    ///      So the stated reason for the range had already stopped being true, while the range itself
     ///      remained correct for a different and simpler reason: the two sides convert differently
     ///      (a rate lookup vs the identity), which is reason enough and needs no misvaluation story.
     /// @notice §FOLD-COLL — **THE ONLY PER-ASSET PRIMITIVE IN THE VALUATION STACK.** Collateral
@@ -306,7 +306,7 @@ abstract contract LevBase {
     ///         before removing them: a closed position zeroes the struct, and
     ///         `LevMath.ltvBps` returns 0 when `collValue == 0`, `collValueUsd` returns 0 when
     ///         `units == 0`, `ilTargetBps` returns 0 when `entryPriceWad == 0`, and
-    ///         `ilTargetLive`'s band branch is already gated on `entryPrice != 0`. So every path
+    ///         `ilTargetLive`'s range branch is already gated on `entryPrice != 0`. So every path
     ///         returns 0 for a closed position WITHOUT the guard. The BTC copies never had it and
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
@@ -316,14 +316,14 @@ abstract contract LevBase {
         return LevMath.ltvBps(debtUsd(lp), collValueUsd(v.collateralOf(lp)));
     }
 
-    /// @notice LTV against the FIXED IL base `e0` — the reference the IL target is measured against,
+    /// @notice LTV against the FIXED IL base `entryEquity` — the reference the IL target is measured against,
     ///         which is why it does NOT move with collateral. §FOLD-LTV.
     function ilLtvBps(address lp) public view returns (uint) {
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return LevMath.ltvBps(debtUsd(lp), LevMath.e0Usd(pos[lp].e0, px));
+        return LevMath.ltvBps(debtUsd(lp), LevMath.entryEquityUsd(pos[lp].entryEquity, px));
     }
 
-    /// @notice The live IL target in bps. §FOLD-LTV. NOT `view`: `_ilTargetLive` reaches the band's
+    /// @notice The live IL target in bps. §FOLD-LTV. NOT `view`: `_ilTargetLive` reaches the range's
     ///         `soldFractionWad`, which is not a view call on that side.
     function ilTargetLtvBps(address lp) public view returns (uint) {
         return _ilTargetLive(pos[lp], AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
@@ -374,12 +374,12 @@ abstract contract LevBase {
     // `totalGrossCollateral`/`totalGrossCollateral` -- stay as they are, because
     // `ILevEquity` and `ILevEquityBtc` are two interfaces over two DIFFERENT manager contracts.
     // Distinct selectors mean `ILevEquity(btcManager).totalNetEquity()` REVERTS rather than
-    // silently returning the wrong band's book, and this repo has already shipped three
+    // silently returning the wrong range's book, and this repo has already shipped three
     // address-confusion bugs of exactly that shape in one session (an `ethVenue` passed into a
     // parameter named `btc`, among them). Note the discriminator: the members below all take
     // an LP ADDRESS or none and read THIS instance's own book, so a wrong-manager call yields 0 or
     // this manager's own total -- whereas a no-arg `totalNetEquity()` on the wrong handle would
-    // hand back a different band's number that looks perfectly valid. Standing rule 3: a guard
+    // hand back a different range's number that looks perfectly valid. Standing rule 3: a guard
     // earns its place when the failure it prevents would otherwise be silent.
 
     /// @notice Deliverable dollars for `lp` — oracle read ONCE.
@@ -404,7 +404,7 @@ abstract contract LevBase {
     /// `LevMath.ilTargetLive` was, which is the same shape as the dead-variable cascade earlier
     /// today. Tightening a callee is what lets the caller tighten.
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
-        return LevMath.ilTargetLive(BAND, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(RANGE, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
     }
 
     // ─── §LEV-FOLD-2 — the last three per-asset accessors, folded through `_collNative` ────────
@@ -412,20 +412,20 @@ abstract contract LevBase {
     // `grossCollateral`/`grossCollateral` looked like a REAL per-asset difference and were
     // not: ETH ran `_collToEth(v, v.collateralOf(lp))` (weETH -> ETH via the ether.fi rate) while
     // BTC ran `v.collateralOf(lp)` raw, because vBTC IS sats. That difference is ALREADY isolated
-    // in `_collNative`, the band each manager overrides -- the note on `_deliverableDollarsAt`
+    // in `_collNative`, the range each manager overrides -- the note on `_deliverableDollarsAt`
     // above records the same discovery ("identical once `_collNative` absorbed the collateral
     // conversion"). So the conversion was never in these bodies; it was one call down.
     //
     // ⚠️ AND THE SUFFIX WAS LOAD-BEARING UNTIL THIS COMMIT, so it is not simply deleted. Distinct
     // selectors were what made `ILevEquity(btcManager).totalNetEquity()` REVERT instead of
-    // silently returning the wrong band's book -- a real guard against a bug class this tree has
+    // silently returning the wrong range's book -- a real guard against a bug class this tree has
     // shipped three times. Removing it without replacement would trade a loud failure for a quiet
     // one. It is replaced at the ROOT: `setLevManager` now refuses a manager whose `ORACLE_KEY` is
-    // not this band's own asset, so a lev manager CANNOT be pinned to the wrong band at all.
+    // not this range's own asset, so a lev manager CANNOT be pinned to the wrong range at all.
     // Standing rule 17 -- a clamp detects the bad state per call, the root fix makes it
     // unconstructible, and the clamp is then deletable rather than merely redundant.
 
-    /// @notice This LP's GROSS collateral in the band's native unit (1e18 ETH / 8-dec sats).
+    /// @notice This LP's GROSS collateral in the range's native unit (1e18 ETH / 8-dec sats).
     function grossCollateral(address lp) public view returns (uint256) {
         Types.Pos memory p = pos[lp];
         return p.open ? _collNative(p.venue, lp) : 0;
@@ -445,14 +445,14 @@ abstract contract LevBase {
         for (uint256 i; i < n; i++) total += _netEquityAt(_openLps[i], px);
     }
 
-    /// @notice A band reseat REALIZES accrued IL, so re-anchor `E0` to the position's CURRENT
-    ///         net-equity — the new fixed base — NOT the band position (which is 0 in the (A) model,
-    ///         the deposit having no separate unlevered band slice). Net-equity IS the delta-1 slice
-    ///         now sitting in the recentered band; the next hedge cycle sizes from it at zero IL.
+    /// @notice A range reseat REALIZES accrued IL, so re-anchor `E0` to the position's CURRENT
+    ///         net-equity — the new fixed base — NOT the range position (which is 0 in the (A) model,
+    ///         the deposit having no separate unlevered range slice). Net-equity IS the delta-1 slice
+    ///         now sitting in the recentered range; the next hedge cycle sizes from it at zero IL.
     /// @dev    The over-hedge fix still holds: `E0` tracks NET-EQUITY, never the growing collateral.
     ///         IDENTICAL on both sides once `netEquity` replaced the two per-asset accessors — the
     ///         bodies differed only in `uint` vs `uint256` spelling and comment framing.
-    /// @notice §FOLD-MEASURE — body in `BandLib` (§FOLD-BOOK). `px` and `base` are computed HERE and passed BY
+    /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). `px` and `base` are computed HERE and passed BY
     ///         VALUE because a library cannot reach the caller's immutables (`AUX`, `ORACLE_KEY`) or
     ///         its virtuals (`netEquity` routes through `_collToBase`). That is the hard boundary on
     ///         what can move, and it is why the guard is re-checked in the library rather than here:
@@ -460,7 +460,7 @@ abstract contract LevBase {
     ///         `open` check in the library is cheaper than two.
     function _reanchorIfReseated(address lp) internal {
         if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
-        BandLib.reanchorIfReseated(pos, BAND, lp,
+        RangeLib.reanchorIfReseated(pos, RANGE, lp,
             AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), netEquity(lp));
     }
 }

@@ -6,22 +6,22 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ICore} from "../src/imports/Interfaces.sol";
 import {Core} from "../src/Core.sol";
 
-/// @notice #12 PREREQUISITE MATRIX — BOTH BANDS. Is the LP-owned claim well defined?
+/// @notice #12 PREREQUISITE MATRIX — BOTH RANGES. Is the LP-owned claim well defined?
 ///
-/// #12 would credit an LP the band's position MINUS the basket-supplied quoting depth.
+/// #12 would credit an LP the range's position MINUS the basket-supplied quoting depth.
 /// Three things must be MEASURED before any money-path code moves:
-///   1. Is the LP claim ever NEGATIVE? A negative claim means the band bought inventory with
+///   1. Is the LP claim ever NEGATIVE? A negative claim means the range bought inventory with
 ///      basket dollars and the LP kept it — a one-way ratchet in the LP's favour.
 ///   2. Is VALUE CONSERVED across composition changes and repacks?
-///   3. Do the two bands' P&L accumulators stay ISOLATED? A unified `POOLED_USD` must never
-///      let one band's flow credit the other band's LPs.
+///   3. Do the two ranges' P&L accumulators stay ISOLATED? A unified `POOLED_USD` must never
+///      let one range's flow credit the other range's LPs.
 ///
 /// ⚠️ THE DEFINITION THAT MATTERS (corrected 2026-08-03 after a measurement of mine was wrong).
 /// The claim is NOT `POOLED_USD − base`. That single-leg comparison goes negative whenever the
-/// band rotates into the volatile leg, which is ordinary curve behaviour and not a transfer —
-/// measured: the ETH band's USD leg sat 8,610 BELOW base while its ETH leg was 4.65 ETH ABOVE
+/// range rotates into the volatile leg, which is ordinary curve behaviour and not a transfer —
+/// measured: the ETH range's USD leg sat 8,610 BELOW base while its ETH leg was 4.65 ETH ABOVE
 /// deposit, i.e. the SAME trade seen from one side only.
-///     LP claim  =  band TWO-LEG value  −  basket-supplied capital (at par)
+///     LP claim  =  range TWO-LEG value  −  basket-supplied capital (at par)
 /// which is leg-agnostic, monotone under honest flow, and negative ONLY on a real loss.
 ///
 /// ⚠️ MEASUREMENT TRAPS THIS FILE EXISTS TO AVOID — each already cost a wrong conclusion:
@@ -30,10 +30,10 @@ import {Core} from "../src/Core.sol";
 ///     `LAST_REPACK` (`Quid.sol:113`), stamped only under `if (r.didRepack)`.
 ///   • A LARGE ONE-SHOT SWAP CANNOT REPACK. `rebalanceCore:1620-1629` re-centres only when out
 ///     of range AND `!isManipulated(spot, twap, 300)` — flow big enough to leave the range also
-///     breaks the 300-bps tolerance, so the repack REFUSES and the band strands.
-///   • AN UNSEEDED BAND MAKES EVERY ISOLATION ASSERTION VACUOUS. A previous version of this
-///     file "proved" cross-band isolation while every BTC field was 0 at both ends, i.e. it
-///     asserted 0 == 0. `_seedBoth` now seeds BOTH bands and PREMISE-asserts both are live.
+///     breaks the 300-bps tolerance, so the repack REFUSES and the range strands.
+///   • AN UNSEEDED RANGE MAKES EVERY ISOLATION ASSERTION VACUOUS. A previous version of this
+///     file "proved" cross-range isolation while every BTC field was 0 at both ends, i.e. it
+///     asserted 0 == 0. `_seedBoth` now seeds BOTH ranges and PREMISE-asserts both are live.
 ///
 /// DECIMALS (`CLAUDE.md`): the WBTC price carries a ×1e10 lift (`usd·1e28`) which closes the
 /// 8↔18 gap, so `leg * px / 1e18` is the correct USD18 valuation for BOTH assets — sats×1e28/1e18
@@ -47,17 +47,17 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// production question.
     uint warpPerSwap = 20 minutes;
 
-    /// §ONE-PER-INSTANCE — ONE field per concept, and a Snap is of ONE BAND. The previous version
+    /// §ONE-PER-INSTANCE — ONE field per concept, and a Snap is of ONE RANGE. The previous version
     /// carried `usdEth`/`usdBtc`, `feesPerShareEth`/`feesPerShareBtc` and so on: four names for two
-    /// concepts, mirroring in the fixture exactly the duplication the contracts just deleted. A band
-    /// manager owns one `feesPerShare` and one `USD_FEES`; two bands means two SNAPSHOTS, not two
-    /// fields. `_snap(band)` takes the instance, so the band-qualified spelling cannot be written.
+    /// concepts, mirroring in the fixture exactly the duplication the contracts just deleted. A range
+    /// manager owns one `feesPerShare` and one `USD_FEES`; two ranges means two SNAPSHOTS, not two
+    /// fields. `_snap(range)` takes the instance, so the range-qualified spelling cannot be written.
     ///
     /// 🔴 AND THE OLD SHAPE HID A LIVE DEFECT. `usdBtc`/`btcLeg` were assigned from `CORE` -- the
     /// ETH engine -- because `Vault.CORE` was `internal` and `ICore` had no `core()`, so the
-    /// BTC engine was UNREACHABLE from a test. Every "ETH flow must not move the BTC band's USD
+    /// BTC engine was UNREACHABLE from a test. Every "ETH flow must not move the BTC range's USD
     /// leg" assertion therefore compared a value to ITSELF. Both are now read through
-    /// `ICore(band).CORE()`, which is why that accessor was made public.
+    /// `ICore(range).CORE()`, which is why that accessor was made public.
     ///
     /// `epoch` is DELETED: a keccak of (LOWER_PRICE, UPPER_PRICE) that nothing asserted on. The
     /// bounds it hashed are read directly where they are wanted, and a hash of two values you can
@@ -70,15 +70,15 @@ contract PooledUsdRepackMatrix is AllesFixture {
         uint price;   // §DETICK: was `tick`; it holds a PRICE now and the name said otherwise
     }
 
-    /// @param band the band manager to snapshot. ONE instance in, one Snap out.
-    function _snap(ICore band) internal view returns (Snap memory s) {
-        Core c = Core(payable(band.CORE()));
+    /// @param range the range manager to snapshot. ONE instance in, one Snap out.
+    function _snap(ICore range) internal view returns (Snap memory s) {
+        Core c = Core(payable(range.CORE()));
         s.usd = c.POOLED_USD();  s.leg = c.POOLED();
-        s.committed = c.committedUsd18();          // joint by construction; same on both bands
-        s.feesPerShare = band.feesPerShare(); s.usdFees = band.USD_FEES();
+        s.committed = c.committedUsd18();          // joint by construction; same on both ranges
+        s.feesPerShare = range.feesPerShare(); s.usdFees = range.USD_FEES();
         (s.price,) = c.poolStats();                // was CALLED AND DISCARDED, leaving `price` at 0
     }
-    /// Both bands, each read through ITS OWN engine. `Snap` stays one-per-instance; this is two
+    /// Both ranges, each read through ITS OWN engine. `Snap` stays one-per-instance; this is two
     /// INSTANCES of it, which is the distinction the whole refactor turns on.
     struct Pair { Snap eth; Snap btc; }
     function _snap() internal view returns (Pair memory p) {
@@ -95,10 +95,10 @@ contract PooledUsdRepackMatrix is AllesFixture {
 
     function _log(string memory tag, Pair memory s) internal {
         emit log_string(tag);
-        emit log_named_uint("   ETH band USD (6d) ", s.eth.usd);
-        emit log_named_uint("   ETH band ETH (18d)", s.eth.leg);
-        emit log_named_uint("   BTC band USD (6d) ", s.btc.usd);
-        emit log_named_uint("   BTC band BTC (8d) ", s.btc.leg);
+        emit log_named_uint("   ETH range USD (6d) ", s.eth.usd);
+        emit log_named_uint("   ETH range ETH (18d)", s.eth.leg);
+        emit log_named_uint("   BTC range USD (6d) ", s.btc.usd);
+        emit log_named_uint("   BTC range BTC (8d) ", s.btc.leg);
         emit log_named_uint("   committedUsd18    ", s.eth.committed);
         emit log_named_uint("   feesPerShare  ETH ", s.eth.feesPerShare);
         emit log_named_uint("   USD_FEES      ETH ", s.eth.usdFees);
@@ -109,7 +109,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("   price         BTC ", s.btc.price);
     }
 
-    /// @dev Two-leg value of one band in USD18. Flat `/1e18` on the volatile leg is correct for
+    /// @dev Two-leg value of one range in USD18. Flat `/1e18` on the volatile leg is correct for
     ///      BOTH assets — see the DECIMALS note in the contract docblock.
     function _value(uint volLeg, uint px, uint usdLeg) internal pure returns (uint) {
         return volLeg * px / 1e18 + usdLeg * 1e12;
@@ -120,7 +120,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     function _pxEth() internal view returns (uint) { return AUX.getTWAPforAsset(address(WETH), 1800); }
     function _pxBtc() internal view returns (uint) { return AUX.getTWAPforAsset(address(WBTC), 1800); }
 
-    /// Seed BOTH bands. Seeding BTC is what makes every cross-band assertion non-vacuous.
+    /// Seed BOTH ranges. Seeding BTC is what makes every cross-range assertion non-vacuous.
     function _seedBoth(uint ethDeposit, uint sats) internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
         deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
@@ -131,17 +131,17 @@ contract PooledUsdRepackMatrix is AllesFixture {
 
         vm.prank(lp);
         // §NO-SHADOW-STATE — was a CONTRACT-level `uint lpShares`, written here and read only on
-        // the next line. A local doing a state variable's job, wearing the name of the band state it
+        // the next line. A local doing a state variable's job, wearing the name of the range state it
         // is not: `ETH.lpShares()` is the real one, and a reader had two things called lpShares to
         // tell apart for no gain. The deposit's return is what this line actually wants.
         require(ETH.deposit{value: ethDeposit}(0, lp) > 0, "lp deposit failed");
 
-        // requestDeposit is gated to BTCChannels; impersonate it exactly as BtcBandTheta does.
+        // requestDeposit is gated to BTCChannels; impersonate it exactly as BtcRangeTheta does.
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(LP_Alice, sats);
     }
 
-    /// BOLD → WETH: the band SELLS the LP's ETH and takes USD in (grows the ETH-band claim).
+    /// BOLD → WETH: the range SELLS the LP's ETH and takes USD in (grows the ETH-range claim).
     function _open(uint boldAmt) internal returns (uint wethOut) {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
@@ -152,8 +152,8 @@ contract PooledUsdRepackMatrix is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
-    /// ETH in, USD out: the band BUYS ETH back. `size` sets the REGIME — incremental keeps the
-    /// band in range, one-shot walks it past the 300-bps repack tolerance and strands it.
+    /// ETH in, USD out: the range BUYS ETH back. `size` sets the REGIME — incremental keeps the
+    /// range in range, one-shot walks it past the 300-bps repack tolerance and strands it.
     function _sellEth(uint size) internal {
         vm.prank(User01);
         try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0) {} catch {}
@@ -183,68 +183,68 @@ contract PooledUsdRepackMatrix is AllesFixture {
         uint baseBtc = _btcValue(s0, pxB);
         uint nowEth  = _ethValue(s1, pxE);
         uint nowBtc  = _btcValue(s1, pxB);
-        emit log_named_uint("ETH band value t0 / t1", baseEth);
+        emit log_named_uint("ETH range value t0 / t1", baseEth);
         emit log_named_uint("                      ", nowEth);
-        emit log_named_uint("BTC band value t0 / t1", baseBtc);
+        emit log_named_uint("BTC range value t0 / t1", baseBtc);
         emit log_named_uint("                      ", nowBtc);
         // NEVER NEGATIVE: the two-leg value must not fall below the capital that was put in.
         // A 2% floor absorbs real fees/slippage paid along the way; a LEAK is what this catches.
-        assertGe(nowEth * 100, baseEth * 98, "ETH band: LP claim must not go negative (two-leg value leaked)");
-        assertGe(nowBtc * 100, baseBtc * 98, "BTC band: LP claim must not go negative (two-leg value leaked)");
+        assertGe(nowEth * 100, baseEth * 98, "ETH range: LP claim must not go negative (two-leg value leaked)");
+        assertGe(nowBtc * 100, baseBtc * 98, "BTC range: LP claim must not go negative (two-leg value leaked)");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // S1 — NORMAL FLOW on the ETH band, BTC band live and idle beside it.
+    // S1 — NORMAL FLOW on the ETH range, BTC range live and idle beside it.
     // ═══════════════════════════════════════════════════════════════════════════
-    function testMatrix_S1_EthIncrementalFlow_BothBands() public {
+    function testMatrix_S1_EthIncrementalFlow_BothRanges() public {
         _seedBoth(400 ether, 2e7);
         uint pxE = _pxEth(); uint pxB = _pxBtc();
         Pair memory s0 = _snap();
         _log("S1 t0", s0);
-        assertGt(s0.eth.usd, 0, "PREMISE: ETH band is live");
-        assertGt(s0.btc.leg, 0, "PREMISE: BTC band is SEEDED (else every cross-band assertion is vacuous)");
+        assertGt(s0.eth.usd, 0, "PREMISE: ETH range is live");
+        assertGt(s0.btc.leg, 0, "PREMISE: BTC range is SEEDED (else every cross-range assertion is vacuous)");
 
         uint landed;
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; landed++; }
         for (uint r = 0; r < 6; r++) _sellEth(4 ether);
-        assertGt(landed, 0, "PREMISE: ETH-band flow landed");
+        assertGt(landed, 0, "PREMISE: ETH-range flow landed");
 
         Pair memory s1 = _snap();
         _log("S1 t1", s1);
         _assertClaimsSane(s0, s1, pxE, pxB);
 
-        // CROSS-BAND ISOLATION — now non-vacuous, the BTC band holds real sats.
+        // CROSS-RANGE ISOLATION — now non-vacuous, the BTC range holds real sats.
         assertEq(s1.btc.feesPerShare, s0.btc.feesPerShare, "ETH flow must not move the BTC token-fee accumulator");
         assertEq(s1.btc.usdFees,   s0.btc.usdFees,   "ETH flow must not move the BTC USD-fee accumulator");
-        assertEq(s1.btc.leg,          s0.btc.leg,          "ETH flow must not move the BTC band's BTC leg");
-        assertEq(s1.btc.usd,          s0.btc.usd,          "ETH flow must not move the BTC band's USD leg");
-        // The ETH band's own accumulators MUST have moved, else the isolation claim is untested.
+        assertEq(s1.btc.leg,          s0.btc.leg,          "ETH flow must not move the BTC range's BTC leg");
+        assertEq(s1.btc.usd,          s0.btc.usd,          "ETH flow must not move the BTC range's USD leg");
+        // The ETH range's own accumulators MUST have moved, else the isolation claim is untested.
         assertTrue(s1.eth.feesPerShare != s0.eth.feesPerShare || s1.eth.usdFees != s0.eth.usdFees,
-            "PREMISE: ETH-band accumulators moved");
+            "PREMISE: ETH-range accumulators moved");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // S2 — BTC band GROWS while the ETH band is live and idle. The mirror of S1:
+    // S2 — BTC range GROWS while the ETH range is live and idle. The mirror of S1:
     // BTC-side activity must not credit ETH LPs.
     // ═══════════════════════════════════════════════════════════════════════════
-    function testMatrix_S2_BtcGrowth_LeavesEthBandUntouched() public {
+    function testMatrix_S2_BtcGrowth_LeavesEthRangeUntouched() public {
         _seedBoth(400 ether, 2e7);
         uint pxE = _pxEth(); uint pxB = _pxBtc();
         Pair memory s0 = _snap();
         _log("S2 t0", s0);
-        assertGt(s0.btc.leg, 0, "PREMISE: BTC band is seeded");
+        assertGt(s0.btc.leg, 0, "PREMISE: BTC range is seeded");
 
         BTC.requestDeposit(User01, 2e7);
         BTC.requestDeposit(User03, 1e7);
 
         Pair memory s1 = _snap();
         _log("S2 t1", s1);
-        assertGt(s1.btc.leg, s0.btc.leg, "PREMISE: the BTC band actually grew");
+        assertGt(s1.btc.leg, s0.btc.leg, "PREMISE: the BTC range actually grew");
         _assertClaimsSane(s0, s1, pxE, pxB);
 
         assertEq(s1.eth.feesPerShare, s0.eth.feesPerShare, "BTC growth must not move the ETH token-fee accumulator");
         assertEq(s1.eth.usdFees,   s0.eth.usdFees,   "BTC growth must not move the ETH USD-fee accumulator");
-        assertEq(s1.eth.leg,       s0.eth.leg,       "BTC growth must not move the ETH band's ETH leg");
+        assertEq(s1.eth.leg,       s0.eth.leg,       "BTC growth must not move the ETH range's ETH leg");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -293,19 +293,19 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("(c) spot deviation bps ", devBps);
         emit log_named_uint("    manipulated @300bps?", rTwap != 0 && devBps > 300 ? 1 : 0);
 
-        // A band left OUT of range MUST have re-centred. If this fails, the stranding is real
+        // A range left OUT of range MUST have re-centred. If this fails, the stranding is real
         // and `reseat()` cannot recover it — which is the defect E6 needs to fix, not a bad test.
         assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
-            "a band left OUT OF RANGE must re-centre; stranded-out-of-range is the defect");
+            "a range left OUT OF RANGE must re-centre; stranded-out-of-range is the defect");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // S4 — BOTH bands driven together. `AUX.checkBacking()` runs at the head of every
-    // deposit and can repack EITHER band (`BasketLib.backingCoreBody:918` picks by
-    // `POOLED_USD >= POOLED_USD`), so this is the case where a per-band
+    // S4 — BOTH ranges driven together. `AUX.checkBacking()` runs at the head of every
+    // deposit and can repack EITHER range (`BasketLib.backingCoreBody:918` picks by
+    // `POOLED_USD >= POOLED_USD`), so this is the case where a per-range
     // baseline is most exposed and where a unified POOLED_USD must not cross-credit.
     // ═══════════════════════════════════════════════════════════════════════════
-    function testMatrix_S4_BothBandsDriven_NoCrossCredit() public {
+    function testMatrix_S4_BothRangesDriven_NoCrossCredit() public {
         _seedBoth(400 ether, 2e7);
         uint pxE = _pxEth(); uint pxB = _pxBtc();
         Pair memory s0 = _snap();
@@ -371,7 +371,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
         assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
-            "ANCHORED: a band left OUT OF RANGE must re-centre -- if this fails, production is exposed too");
+            "ANCHORED: a range left OUT OF RANGE must re-centre -- if this fails, production is exposed too");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -404,15 +404,15 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
         assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
-            "ANCHORED+FRESH: out-of-range band must re-centre -- failing here means PRODUCTION is exposed");
+            "ANCHORED+FRESH: out-of-range range must re-centre -- failing here means PRODUCTION is exposed");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // S5 — THE PREMISE OF THE R2 FIX, MEASURED. Bounding `sqrtPriceLimitX96` at the
-    // band edge is only neutral if a swap CANNOT FILL past that edge — i.e. the
+    // range edge is only neutral if a swap CANNOT FILL past that edge — i.e. the
     // teleport to MAX_SQRT_PRICE moves price WITHOUT moving tokens. If instead real
     // volume trades out there, bounding the limit would change fills and the fix is
-    // NOT neutral. This measures the marginal swap in isolation: drain the band's
+    // NOT neutral. This measures the marginal swap in isolation: drain the range's
     // USD leg first, then do ONE more swap and compare price movement against
     // tokens actually exchanged.
     // ═══════════════════════════════════════════════════════════════════════════
@@ -457,13 +457,13 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("marginal swap: ETH spent ", ethSpent);
         emit log_named_uint("marginal swap: USDC recvd", usdcGot);
         emit log_named_uint("price moved by            ", b.eth.price - a.eth.price);
-        emit log_named_uint("band ETH leg moved by    ", b.eth.leg > a.eth.leg ? b.eth.leg - a.eth.leg : 0);
-        emit log_named_uint("band USD leg moved by    ", a.eth.usd > b.eth.usd ? a.eth.usd - b.eth.usd : 0);
+        emit log_named_uint("range ETH leg moved by    ", b.eth.leg > a.eth.leg ? b.eth.leg - a.eth.leg : 0);
+        emit log_named_uint("range USD leg moved by    ", a.eth.usd > b.eth.usd ? a.eth.usd - b.eth.usd : 0);
 
         // NOT an assertion about the fix -- a MEASUREMENT of whether price moved without trade.
         // Reported so the neutrality claim rests on numbers, not on reading Uniswap semantics.
         emit log_string("If tick moves far while the legs barely move, the price moved for FREE");
-        emit log_string("=> bounding sqrtPriceLimitX96 at the band edge is FILL-NEUTRAL.");
+        emit log_string("=> bounding sqrtPriceLimitX96 at the range edge is FILL-NEUTRAL.");
     }
 
     /// @dev One sell, fully instrumented. Returns false if the swap REVERTED — `_sellEth`'s

@@ -10,15 +10,15 @@ var_d = statistics.pvariance(r)
 sigma = math.sqrt(var_d * 365)
 print(f"days={N}  realized ANNUALIZED vol sigma={sigma:.1%}  worst 1d={min(r):.1%} best={max(r):.1%}")
 
-# Lifecycle backtest. Backing normalized B=1. theta = in-range committed fraction.
-# Per day:  surplus += yield(whole backing) + fees(in-range) - LVR(in-range)
-#   LVR_t = K * theta * min(r_t^2, band^2)  (vs-holding drain; band-exit CAP via min)
-#   K lumps 1/8 (CPMM floor) * concentration * (1/guard). K=0.125 == full-range.
+# Lifecycle backtest. Backing normalized B=1. theta = in-width committed fraction.
+# Per day:  surplus += yield(whole backing) + fees(in-width) - LVR(in-width)
+#   LVR_t = K * theta * min(r_t^2, width^2)  (vs-holding drain; width-exit CAP via min)
+#   K lumps 1/8 (CPMM floor) * concentration * (1/guard). K=0.125 == full-width.
 # Insolvency = cumulative surplus < 0 (then LP haircuts begin).
-def run(theta, K, y, f, band=0.04, S0=0.03):
+def run(theta, K, y, f, width=0.04, S0=0.03):
     S = S0; minS = S0; yr_acc = {}
     for i in range(N):
-        lvr = K * theta * min(r[i]*r[i], band*band)
+        lvr = K * theta * min(r[i]*r[i], width*width)
         d = y/365 + f*theta/365 - lvr
         S += d
         if S < minS: minS = S

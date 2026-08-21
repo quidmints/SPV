@@ -8030,9 +8030,27 @@ The loan token has to satisfy three things at once and they pull apart:
 $47.14M): that is THEIR liquidity, and the whole point is that OUR depositors supply it. **Choosing on
 those numbers would be answering a different question** — the same error as reading a borrowable-depth
 snapshot as a permanent fact.
-⚠️ **But note the loop couples the choice to Aave:** the dollar leg of C17-a borrows the stable from
-**Aave**, so a stable Aave does not list (RLUSD, PYUSD are not v3 core reserves) forces the two legs
-onto different venues. **Price that before picking on depositor-holdings alone.**
+⚠️ **AND I GOT THE AAVE CONSTRAINT BACKWARDS ON FIRST WRITING — MEASURED 2026-08-22, CORRECTED THE
+SAME DAY.** I wrote that RLUSD and PYUSD *"are not v3 core reserves"*, asserting an absence I had not
+measured. **All six checked stables ARE listed and ALL are `borrowable = true`:**
+
+| stable | base LTV | liq threshold | borrowable |
+|---|---|---|---|
+| USDC | 75.00% | 78.00% | ✅ |
+| USDT | 75.00% | 78.00% | ✅ |
+| PYUSD | **0.00%** | 78.00% | ✅ |
+| USDS | **0.00%** | 78.00% | ✅ |
+| RLUSD | **0.00%** | 0.00% | ✅ |
+| crvUSD | **0.00%** | 0.00% | ✅ |
+
+⇒ **`LTV = 0` BLOCKS AN ASSET AS *COLLATERAL*, NOT AS A *BORROW*** — and the dollar leg **borrows**
+the stable, so **Aave does not narrow the stable choice at all.** The constraint I invented does not
+exist, and had it stood it would have eliminated four candidates for a reason that is not true.
+⚠️ **Where the zero DOES bite is the other direction:** a borrowed RLUSD/crvUSD position cannot be
+re-posted as Aave collateral, so any future leg that wants to *recycle* the borrowed dollars into
+Aave collateral is closed for those four. **That is a real constraint on loop shape, not on the loan
+token.** ⚠️ Note RLUSD and crvUSD also carry a **zero liquidation threshold**, so they are strictly
+borrow-only on Aave today.
 
 ▶️ **ORDER, and the first step is independent of the stable choice:**
 1. **Wire `setUserEMode` (C17-b), then extend `AaveV3Venue` to the ETH side and retire the Morpho ETH

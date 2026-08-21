@@ -38,10 +38,10 @@ contract OpenChannelE2ETest is Test, ExitFixture {
     }
 
     // Minimal Quid: openChannel credits the LP's BTC pool position.
-    MockQuid band;
+    MockQuid range;
 
     function setUp() public {
-        band = new MockQuid();
+        range = new MockQuid();
     }
 
     /// Build the SPV header chain from REAL regtest headers in its own frame
@@ -75,7 +75,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         // The hop's BTC pubkey is fixed at deploy; LP's is per-channel.
         // (E164) This file operates the channel as 0xB0B, so that address must BE `MAIN_HOP` —
         // authority is a global immutable pair now, not per-channel state.
-        ch = new BTCChannels(address(gw), address(band), address(0xB0B), address(0xFA11), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        ch = new BTCChannels(address(gw), address(range), address(0xB0B), address(0xFA11), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
 
         Types.OpenParams memory p = Types.OpenParams({
@@ -214,7 +214,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         assertEq(status, 0, "status OPEN");
         assertEq(ch.totalSatsLocked(), amount, "sats locked tracked");
         // BTC pool position credited to the LP for the locked sats.
-        assertEq(band.registered(lpEth), amount, "requestDeposit credited the LP");
+        assertEq(range.registered(lpEth), amount, "requestDeposit credited the LP");
     }
 
     /// (E147-g) THE ASSERTION WHOSE ABSENCE COST A WHOLE INVESTIGATION.
@@ -323,9 +323,9 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         //    itself rewrote — a resize that never reached the LP's position would otherwise
         //    look identical here.
         (, , address lpOwner, , , ) = ch.channels(channelId);
-        assertEq(band.resizedShrinkSats(lpOwner), vm.parseJsonUint(json, ".splice.withdrawSats"),
+        assertEq(range.resizedShrinkSats(lpOwner), vm.parseJsonUint(json, ".splice.withdrawSats"),
             "the vault was told the same shrink the splice performed");
-        assertEq(band.registered(lpOwner), vm.parseJsonUint(json, ".splice.newAmountSats"),
+        assertEq(range.registered(lpOwner), vm.parseJsonUint(json, ".splice.newAmountSats"),
             "the LP position tracks the resized channel");
     }
 }

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-/// §E63 — WHAT DOES A CALMLY-TRADING BAND ACTUALLY MEASURE?
+/// §E63 — WHAT DOES A CALMLY-TRADING RANGE ACTUALLY MEASURE?
 ///
 /// Four memory policies all failed downstream of one fact: `_calmVol()` performs 16 real swaps and
 /// the estimator still reports variance 0. Before any more policy work, find out whether that is a
@@ -47,7 +47,7 @@ contract VarPrecision is AllesFixture {
 
         // SIZE LADDER: find the smallest swap that moves a tick at all. That is the boundary
         // between "calm" (measurable, small) and "no data" (unmeasurable), and it decides whether
-        // the lev fixture needs bigger trades or the band needs finer resolution.
+        // the lev fixture needs bigger trades or the range needs finer resolution.
         uint[4] memory sizes = [uint(30e18), 300e18, 1_500e18, 4_000e18];
         for (uint k; k < 4; k++) {
             (uint t0,) = CORE.poolStats();
@@ -63,7 +63,7 @@ contract VarPrecision is AllesFixture {
         emit log_named_int ("  tick MOVED by            ", int(tickCalm) - int(tickBig));
 
         // PREMISE: the calm leg must actually trade, else "0" says nothing about precision.
-        assertGt(CORE.POOLED_USD(), 0, "PREMISE: the band is live");
+        assertGt(CORE.POOLED_USD(), 0, "PREMISE: the range is live");
         emit log_string("If tick MOVED but variance reads 0 => PRECISION. If tick did not move => the");
         emit log_string("swaps are too small to shift a tick at all, and 0 is the honest answer.");
     }

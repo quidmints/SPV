@@ -46,7 +46,7 @@ library DeployLib {
     ///      use a different Morpho USDC vault than production).
     struct StackConfig {
         // §V4-ZERO — was `IPoolManager poolManager`. The stack needed it for ONE deploy-time read:
-        // two reference-pool `slot0`s, to seed each band's ring. That read is Chainlink now, so the
+        // two reference-pool `slot0`s, to seed each range's ring. That read is Chainlink now, so the
         // config carries the two feeds and no ETH type appears in the deploy at all.
         address ethFeed;
         address btcFeed;
@@ -108,7 +108,7 @@ library DeployLib {
         address ethVenue;
         address spvGateway;
         address btcChannels;
-        /// §BANDBACKING-FOLD — the BTC band's Core instance. The `bandBacking` address is gone with
+        /// §RANGEBACKING-FOLD — the BTC range's Core instance. The `rangeBacking` address is gone with
         /// the contract: the joint committed figure lives on `Aux`, which is already in this struct.
         address btcCore;
     }
@@ -116,13 +116,13 @@ library DeployLib {
     /// @notice Deploy + wire the core QU!D stack in the exact production order.
     function deployQuidStack(StackConfig memory cfg) internal returns (StackAddrs memory a) {
         Quid ETH = new Quid();
-        // §BANDBACKING-FOLD — TWO INSTANCES, AND THE ACCOUNTANT IS `Aux`.
-        // `Core` is single-asset, so the stack deploys one per band. The ONE thing they still share
+        // §RANGEBACKING-FOLD — TWO INSTANCES, AND THE ACCOUNTANT IS `Aux`.
+        // `Core` is single-asset, so the stack deploys one per range. The ONE thing they still share
         // — the joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on —
         // is held by `Aux`, which is where the gate that reads it already lives.
         // ⚠️ THE REGISTER/SEAL CEREMONY IS GONE, AND THE INVARIANT IT PROTECTED IS STRONGER FOR IT.
-        // `BandBacking.total()` had to REFUSE before `seal()` because a partial sum under-reports
-        // and would pass a bound it should fail. Aux takes both band addresses in its CONSTRUCTOR,
+        // `RangeBacking.total()` had to REFUSE before `seal()` because a partial sum under-reports
+        // and would pass a bound it should fail. Aux takes both range addresses in its CONSTRUCTOR,
         // so the denominator is complete from birth and there is no window to seal shut.
         // ⚠️ SCOPED (`via_ir = false`): `btcCore` is dead after this block, and freeing its slot is
         // what keeps this already stack-tight frame compiling. The address survives on the returned
@@ -158,7 +158,7 @@ library DeployLib {
             // unaffected and already wrapper-free (Chainlink BTC/USD).
         }
         Aux aux = new Aux(Aux.AuxInit({
-            band: address(ETH), core: address(core), btcCore: a.btcCore,
+            range: address(ETH), core: address(core), btcCore: a.btcCore,
             weth: cfg.weth, wbtc: cfg.wbtc,
             gho: cfg.gho, usdg: cfg.usdg,
             aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
@@ -173,7 +173,7 @@ library DeployLib {
         // Reference V4 PoolKeys — Core reads their slot0 ticks at setup and seeds
         // VANILLA_ETH / VANILLA_BTC at live market prices (built in its own frame).
         // §V4-CUT — THE DEPLOYER READS THE REFERENCE POOLS, NOT `Core`. This lookup is a read of
-        // pools we do not own and is needed exactly ONCE, to seed each band's ring; keeping it
+        // pools we do not own and is needed exactly ONCE, to seed each range's ring; keeping it
         // inside `Core` forced that contract to carry an IPoolManager and two PoolKeys forever for
         // a deploy-time question. Each instance now receives its seed PRICE.
         // ⚠️ SCOPED (`via_ir = false`): the two PoolKeys and two seed prices are dead the moment
@@ -181,9 +181,9 @@ library DeployLib {
         // overflowed at `_newVault` before the block was added.
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
-        core.setup(address(ETH), address(aux), address(quid), seedEth);   // ETH band manager IS Quid
+        core.setup(address(ETH), address(aux), address(quid), seedEth);   // ETH range manager IS Quid
         // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
-        // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the band off one pool
+        // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the range off one pool
         // makes that pool's depth and its own depeg mode an input to σ², the skew and liquidation —
         // and `ExternalTwap`'s own header says a single venue is one observer, not an independent one.
         // Two candidates were tried and both are ruled out: 1inch's OffchainOracle costs 31,722,803
@@ -197,20 +197,20 @@ library DeployLib {
         //   unaffordable. The ANCHORS are untouched and already wrapper-free (Chainlink "ETH / USD"
         //   and "BTC / USD").
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
-        // built both bands (above) but only the ETH one was
+        // built both ranges (above) but only the ETH one was
         // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
         // observation ring. `OracleLib.observe` then computed `(st.index + 1) % st.cardinality`
         // with `cardinality == 0`, i.e. a modulo by zero, which is what every `repack(true)` path
         // hit. `setup` is instance-aware (it seeds only ITS OWN ring), so this is the missing call,
-        // not a workaround. Nothing else routed to the BTC instance until `Aux.bandOf` started
+        // not a workaround. Nothing else routed to the BTC instance until `Aux.rangeOf` started
         // dispatching WBTC to it, which is why the gap stayed invisible.
-        Core(a.btcCore).setup(address(0), address(aux), address(quid), seedBtc);   // BTC band pins in setBtcVault (Vault deployed later)
+        Core(a.btcCore).setup(address(0), address(aux), address(quid), seedBtc);   // BTC range pins in setBtcVault (Vault deployed later)
         }
         ETH.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
 
         // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Quid ──
-        // §ISBTC-SPLIT — THE BTC BAND MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
+        // §ISBTC-SPLIT — THE BTC RANGE MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
         // instance) while `Vault.sol` states outright "the instance IS the BTC one", so the code
         // assumed one wiring and the deploy supplied another -- the comment was right and the
         // assignment was wrong, which is the exact shape CLAUDE.md records for this split.
@@ -219,7 +219,7 @@ library DeployLib {
         // `ICore(...)` call site follows the pin, so nothing else moves.
         // §ETHVENUE-FOLD — the ETH yield venue IS Quid. One fewer deployable contract, and one
         // fewer pin: `setEthVenueContract` is gone with the separate address it existed to name.
-        // `aux.setEthVenue` still runs, now pointing at the band manager itself.
+        // `aux.setEthVenue` still runs, now pointing at the range manager itself.
         aux.setEthVenue(address(ETH));            // MUST run after ETH.setup (WETH set)
         BTC.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
         core.setBtcVault(address(BTC));
@@ -291,7 +291,7 @@ library DeployLib {
         if (cfg.spvCheckpointFollowers.length != 0) {
             spv.addBlockHeaderBatch(cfg.spvCheckpointFollowers);
         }
-        // BTCChannels binds `btc = _band` (the 3rd arg). The BTC side was regrouped
+        // BTCChannels binds `btc = _range` (the 3rd arg). The BTC side was regrouped
         // into the merged Vault (`BTC`) — creditSwapOut / requestDeposit / resize all
         // live there (Quid/`ETH` has none). So the BtcVault is `BTC`, NOT `ETH`: passing ETH
         // pointed btc at Quid, whose fallback returns empty ⇒ creditSwapOut decode-

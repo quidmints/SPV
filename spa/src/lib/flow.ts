@@ -6,8 +6,8 @@
 //   The protocol emits no domain flow events (by design, this thread adds no
 //   Solidity), so net flow is RECONSTRUCTED from ERC20 Transfer logs to/from
 //   the protocol addresses:
-//     • stable in  = Transfer(user → {basket,aux,band})   [mint / swap-in]
-//     • stable out = Transfer({basket,aux,band} → user)   [redeem / swap-out]
+//     • stable in  = Transfer(user → {basket,aux,range})   [mint / swap-in]
+//     • stable out = Transfer({basket,aux,range} → user)   [redeem / swap-out]
 //     • ETH flow   = WETH Transfer to/from the same set
 //     • BTC flow   = BTCChannels ChannelOpened (in) / ChannelClosed (out), in sats
 //
@@ -32,7 +32,7 @@ export interface NetFlow {
   partial: boolean      // true if any getLogs call came back empty/limited
 }
 
-const PROTOCOL = () => [CONTRACTS.basket, CONTRACTS.aux, CONTRACTS.band]
+const PROTOCOL = () => [CONTRACTS.basket, CONTRACTS.aux, CONTRACTS.range]
   .filter(a => a && a !== ZERO_ADDR)
 
 const sumTransfers = (logs: any[]): bigint =>
@@ -127,7 +127,7 @@ export interface BtcInventory {
   levelSats: number     // native BTC locked across all channels — the virtual reservoir
   netFlowSats: number   // signed net channel flow over the window (opens − closes)
   drainRatio: number    // net OUTFLOW as a fraction of the level this window (>0 ⇒ draining)
-  status: 'ok' | 'watch' | 'warn'   // early-warning band → "when to build the well"
+  status: 'ok' | 'watch' | 'warn'   // early-warning range → "when to build the well"
 }
 
 export async function fetchBtcInventory(windowBlocks = 7200): Promise<BtcInventory> {

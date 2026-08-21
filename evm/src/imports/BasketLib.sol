@@ -12,7 +12,6 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Types} from "./Types.sol";
 import {FeeLib} from "./FeeLib.sol";
-import {ShareMath} from "./ShareMath.sol";
 import {IAaveV4Spoke} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
@@ -158,7 +157,7 @@ library BasketLib {
             }
             // Depeg-yield discount: subtracts balance × severity/10000 from yieldWeighted.
             // Recognize the FULL live severity (no 3500/65c floor). liveDepegBps already
-            // absorbs benign sub-peg noise (deadband) and defers stale/dead feeds to 0, so a
+            // absorbs benign sub-peg noise (deadzone) and defers stale/dead feeds to 0, so a
             // nonzero `sev` is a REAL depeg -- marking it in full is the honest, first-out-fair
             // value (the old cap counted a 50c stable at 65c: phantom backing that let early
             // redeemers draw at a mark the basket couldn't honor, concentrating the loss on the
@@ -437,7 +436,7 @@ library BasketLib {
     /// `TickMath` consumer, AND the `token0isUSD` argument: orientation is resolved once at write
     /// time rather than on every read, so it can no longer disagree between writer and reader.
     /// ⚠️ The mean is now ARITHMETIC in price where it was geometric in log-price. Across the ±0.2%
-    /// `BAND_DELTA` the two differ by O(σ²/8) ≈ 1e-6 relative — inside the rounding already here.
+    /// `RANGE_DELTA` the two differ by O(σ²/8) ≈ 1e-6 relative — inside the rounding already here.
     function cumsToPrice(uint192 cum0, uint192 cum1, uint32 period)
         external pure returns (uint price) {
         price = uint256(cum1 - cum0) / period;
@@ -457,7 +456,7 @@ library BasketLib {
     }
 
     /// @notice True if `spot` deviates from `twap` by more than `thresholdBps`
-    ///         (1e4 = 100%). Threshold is in BPS so sub-1% bands are expressible.
+    ///         (1e4 = 100%). Threshold is in BPS so sub-1% ranges are expressible.
     function isManipulated(uint spot, uint twap,
         uint thresholdBps) public pure returns (bool) {
         uint dev = spot > twap ? spot - twap : twap - spot;
@@ -540,9 +539,9 @@ library BasketLib {
                 // pointed at the Quid contract, which would have
                 // orphaned shares there with no Quid-side redemption
                 // path — see takeETH / _sendETH, which draw from Aux's
-                // wethVault position via bandOp, never from Quid's
+                // wethVault position via rangeOp, never from Quid's
                 // own balance. Routing to Aux keeps every supply
-                // symmetric: Aux is the sole share-owner, bandETH()
+                // symmetric: Aux is the sole share-owner, rangeETH()
                 // and _syncVenue see the full position.)
                 pooled = IERC4626(ctx.vault).convertToAssets(
                        IERC4626(ctx.vault).deposit(pooled, address(this)));
@@ -812,7 +811,7 @@ library BasketLib {
             if (seed > 0) aux.tipSelf(SoladyMath.fullMulDiv(amounts[i], seed, amount), token, -1);
             if (amounts[i] > 0) {
                 // A bad/reverting-decimals stable (e.g. one bound via the permissionless
-                // registry band) must contribute 0, NOT brick the whole pro-rata redeem — the
+                // registry range) must contribute 0, NOT brick the whole pro-rata redeem — the
                 // same fail-soft posture as the withdrawSelf try/catch below. (Was a bare
                 // `require(bad-dec)` outside the try, so one weird token reverted every holder's
                 // redeem.)
@@ -1003,14 +1002,14 @@ library BasketLib {
     /// @dev Pre-burn redemption quote, own stack frame (redeemAsBody stays within the legacy pipeline, no via_ir).
     ///      Separates VALUE from DELIVERABILITY:
     ///        • perShare — what ONE mature QU!D is worth: min(par, SOLVENT backing / matureSupply). SOLVENT = par
-    ///          backing − depeg only; temporary illiquidity (Morpho-lent stables, band-committed USD) is NOT
+    ///          backing − depeg only; temporary illiquidity (Morpho-lent stables, range-committed USD) is NOT
     ///          subtracted (solvent, WILL pay → must not discount value — only depeg/drift moves perShare below
     ///          par). The IDENTICAL perShare prices a QD-in swap (SwapLib), so QD is never worth more swapped than
     ///          redeemed. Force-fresh metrics reflect a mid-cache write-down.
     ///        • freeUsd — stables withdrawable from the vaults RIGHT NOW = solvent − max(il, committed). `il` and
-    ///          `committed` OVERLAP (band-committed USD shows as throttled maxWithdraw, counted in `il`), so
-    ///          subtract the MAX not the sum; `committed` can exceed `il` when the band's USD leg > vault-missing.
-    ///          BOTH bands are excluded here; redeemAsBody unwinds ONLY the ETH band for the remainder.
+    ///          `committed` OVERLAP (range-committed USD shows as throttled maxWithdraw, counted in `il`), so
+    ///          subtract the MAX not the sum; `committed` can exceed `il` when the range's USD leg > vault-missing.
+    ///          BOTH ranges are excluded here; redeemAsBody unwinds ONLY the ETH range for the remainder.
     function _redeemQuote(RedeemArgs memory r, uint raw, uint rateWeighted, uint depegLossIn)
         private returns (uint perShare, uint freeUsd) {
         (uint solvent,) = IAux(address(this)).get_metricsWith(raw, rateWeighted);
@@ -1018,7 +1017,7 @@ library BasketLib {
         uint mature = IBasketTurn(r.quid).matureSupply();
         // ONE valuation for redeem AND swap (no swap↔redeem arb): per-share = qdShareValue of a single share.
         // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
-        perShare = ShareMath.qdShareValue(WAD, solvent, mature);
+        perShare = BasketLib.qdShareValue(WAD, solvent, mature);
         (uint il, address worst, uint worstBps) = _illiquidLoss();
         // DETECTION ONLY — never evacuation. A user's redeem must not trigger a multi-vault drain,
         // so this starts the EVAC_DWELL clock and leaves the fund-moving step to the existing
@@ -1043,10 +1042,10 @@ library BasketLib {
     }
 
     /// @dev Deliver + burn for redeemAsBody, own frame. Redeems the holder's MATURE QU!D only (immature/forward
-    ///      defers), valued at `perShare`. Pays from free vault stables first; unwinds the ETH band for the
+    ///      defers), valued at `perShare`. Pays from free vault stables first; unwinds the ETH range for the
     ///      remainder (LP ETH untouched — unwindForRedeem frees the exact USD asked, ratio-sized). Then burns
-    ///      EXACTLY `delivered/perShare`: if the ETH unwind frees LESS than asked — a shallow ETH band, or the
-    ///      shortfall was BTC-band USD the ETH unwind can't reach — `delivered` shrinks and the burn shrinks with
+    ///      EXACTLY `delivered/perShare`: if the ETH unwind frees LESS than asked — a shallow ETH range, or the
+    ///      shortfall was BTC-range USD the ETH unwind can't reach — `delivered` shrinks and the burn shrinks with
     ///      it; the un-served QU!D is RETAINED as a live deferred claim (redeems once liquid). No capacity
     ///      estimate, no cap, no over-burn: burn is derived FROM actual delivery, never assumed ahead of it.
     function _settleRedeem(RedeemArgs memory r, uint perShare, uint freeUsd)
@@ -1058,10 +1057,10 @@ library BasketLib {
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
             uint need = wantUsd - freeUsd;
-            uint freed = IQuid(r.ETH).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
-            // §G.6: if the plain unwind came up SHORT, the residual is levered backing being unbanded — de-lever
-            // the in-band ETH levers (value-neutral, LTV-improving) to free it. Invariant (nothing leaves the band
-            // without de-levering) holds; balanced unband ⇒ NO JIT/skew. No-op when there are no open levers.
+            uint freed = IQuid(r.ETH).unwindForRedeem(need);      // PLAIN range first; frees the exact USD asked
+            // §G.6: if the plain unwind came up SHORT, the residual is levered backing being unranged — de-lever
+            // the in-range ETH levers (value-neutral, LTV-improving) to free it. Invariant (nothing leaves the range
+            // without de-levering) holds; balanced unrange ⇒ NO JIT/skew. No-op when there are no open levers.
             if (freed < need) freed += _deleverBookForRedeem(r.core, need - freed);
             delivered = freeUsd + (freed < need ? freed : need);        // = wantUsd unless still short (retained deferred)
             unwound = true;
@@ -1072,9 +1071,9 @@ library BasketLib {
     }
 
     /// @dev §G.6 redeem shortfall sweep — the REACTIVE half of the ONE de-lever mechanism (shared with swap-out;
-    ///      the keeper's `cascadeDelever` is the proactive half). After the plain-band unwind comes up short, the
-    ///      residual IS levered backing being unbanded; the LevManager's `deleverBook` frees `usdWanted` (USD 1e18)
-    ///      by de-levering the open in-band ETH levers value-neutrally (LTV PRESERVED, capped per-LP at #67
+    ///      the keeper's `cascadeDelever` is the proactive half). After the plain-range unwind comes up short, the
+    ///      residual IS levered backing being unranged; the LevManager's `deleverBook` frees `usdWanted` (USD 1e18)
+    ///      by de-levering the open in-range ETH levers value-neutrally (LTV PRESERVED, capped per-LP at #67
     ///      deliverableDollars) into THIS Aux (address(this) == the redeem sink; the freed stable is picked up by
     ///      `_dispatchTake`). De-levering also shrinks `committed` (net-equity ↓), relaxing the backing gate. The
     ///      book-walk + fault-tolerance live in the manager (it owns the book). Delegatecall ⇒ address(this) == Aux.
@@ -1134,9 +1133,9 @@ library BasketLib {
     // ⛔ `_repackPool` IS DELETED — it wrapped ONE external call and added nothing.
     // Its own docstring recorded why it had stopped doing work: it used to ROUTE by boolean, and
     // "a boolean plus both addresses was a dispatch the caller had already made". Once the target
-    // became the band address itself, the body was `ICore(band).repack()` and the wrapper
+    // became the range address itself, the body was `ICore(range).repack()` and the wrapper
     // was a second name for `.repack()`. Both call sites now say that directly, and the choice of
-    // WHICH band stays where it was always made — in the `ethFirst` ternary at the call site.
+    // WHICH range stays where it was always made — in the `ethFirst` ternary at the call site.
 
     /// @notice All-or-nothing deploy-finalize linkage assert (delegatecall from
     ///         Aux.finalize, so address(this)==Aux). Reverts unless every
@@ -1144,7 +1143,7 @@ library BasketLib {
     ///         front-runner's malicious-but-non-zero pin in an ungated setter.
     function assertFullyWired(address q, address ethVenue, address btcChannels,
         address core, address ETH) external view {
-        // ETH-VENUE CUSTODY AND THE BTC BAND MANAGER ARE DIFFERENT CONTRACTS since the venue carve.
+        // ETH-VENUE CUSTODY AND THE BTC RANGE MANAGER ARE DIFFERENT CONTRACTS since the venue carve.
         // This assert used to take one address for both because they used to BE one address; each
         // fact is now checked against the contract that actually holds it. `btc` is derived
         // from Core rather than passed, so a caller cannot supply a mismatched pair.
@@ -1154,8 +1153,8 @@ library BasketLib {
         require(btc != address(0),                              "wire:vault");
         // §ETHVENUE-FOLD — was `IQuid(ETH).EV() == ethVenue`, checking that Quid's venue pointer and
         // Aux's agreed. Quid IS the venue now, so the pointer is gone; what still needs asserting is
-        // that Aux's pin names the band manager and not some other address.
-        require(ethVenue == ETH,                                     "wire:band");
+        // that Aux's pin names the range manager and not some other address.
+        require(ethVenue == ETH,                                     "wire:range");
         require(btcChannels != address(0)
              && IWiredVault(btc).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux
@@ -1174,17 +1173,17 @@ library BasketLib {
           if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS); }
         // NB: this quotes AGGREGATE deliverable dollars (a capacity view). The per-QD `min(par, share)` cap lives
         // in the money path (redeemAsBody + SwapLib); `total` is a conservative upper bound and never under-reports.
-        // STABLES-ONLY with the Option-4 unwind: QU!D's dollars deployed as the ETH band's
+        // STABLES-ONLY with the Option-4 unwind: QU!D's dollars deployed as the ETH range's
         // USD side are freeable on redemption (Quid.unwindForRedeem), so the redeemable is ALL
-        // haircut stables EXCEPT what is committed to the BTC band (an ETH-side redemption cannot
-        // unwind the BTC band). Conservative: subtract POOLED_USD (>= BTC-band equity; ignores
+        // haircut stables EXCEPT what is committed to the BTC range (an ETH-side redemption cannot
+        // unwind the BTC range). Conservative: subtract POOLED_USD (>= BTC-range equity; ignores
         // the debt that would only shrink it), so the quote never over-reports.
         uint btcCommitted = ICore(core).POOLED_USD() * 1e12;
         return total > btcCommitted ? total - btcCommitted : 0;
     }
 
     // (ethToStableFallback removed -- redemption is stables-only; the committed dollars
-    //  are freed by unwinding the band, Quid.unwindForRedeem, not by selling an LP's venue ETH.)
+    //  are freed by unwinding the range, Quid.unwindForRedeem, not by selling an LP's venue ETH.)
 
     // ─── CRE vault-health watcher bodies (extracted from Aux) ────────────
     // DELEGATECALL'd — address(this)==Aux, so every IERC4626/IAaveV4Spoke
@@ -1205,7 +1204,7 @@ library BasketLib {
 
     /// @notice Per-VENUE health state. BINARY (blocked) + the evac clock —
     ///         mirroring the depeg model: an incident BLOCKS the vault (valued
-    ///         at maxWithdraw in bandETH/get_deposits, no new deposits routed)
+    ///         at maxWithdraw in rangeETH/get_deposits, no new deposits routed)
     ///         and auto-RECOVERS when liquid again. The former graded
     ///         `haircutBps` was a vestige of the removed CRE onReport path
     ///         (owner-only setter, owner renounced at finalize → always 0 in
@@ -1353,6 +1352,32 @@ library BasketLib {
             if (a > 0) IERC4626(vs[j]).deposit(a, address(this));
         }
     }
+
+    // §E306 — `BasketLib.qdShareValue` folded in; the file is deleted. ONE `internal`
+    // function, and internal library functions are INLINED, so zero bytecode moves.
+    /// @notice THE ONE VALUATION OF QU!D AS BASKET SHARES (was `BasketLib`) — the ONE valuation of QU!D as basket shares
+    /// @notice QU!D is an ERC-4626-style share of the stablecoin basket, NOT a pegged $1 coin. `burned` QD is worth
+    ///         its PRO-RATA slice of the deliverable backing, CAPPED at par ($1/QD — the surplus stays as LP equity,
+    ///         so QD is the senior/stable claim and LPs are the junior/yield equity). Below par (supply drifted above
+    ///         backing) it pays the true pro-rata share. This SAME function values a redemption AND a QD-in swap, so
+    ///         QD can never be worth more one way than the other (no swap↔redeem arbitrage). Non-abusable BY
+    ///         CONSTRUCTION: Σ over all holders = `total` exactly, so the basket can never be drained — the last
+    ///         redeemer gets the same per-QD value as the first, no matter how far supply has drifted. This is what
+    ///         lets minting run UNCONSTRAINED (drift is fine); safety is a structural invariant, not a mint-side cap.
+    /// @param burned         QU!D burned (18-dec, the shares surrendered).
+    /// @param total          Deliverable backing in 18-dec USD (par TVL minus the depeg + illiquidity haircuts).
+    /// @param supplyPreBurn  Pre-burn MATURE QU!D supply (both callers — swap & redeem — pass matureSupply();
+    ///                       immature QU!D is not yet a redeemable claim). Passing the SAME basis on both paths is
+    ///                       what preserves swap↔redeem parity; there is no maturation jump to game.
+    /// @return dollars       Payout in 18-dec USD: `min(burned /*par*/, total·burned/supplyPreBurn /*share*/)`.
+    function qdShareValue(uint256 burned, uint256 total, uint256 supplyPreBurn)
+        internal pure returns (uint256 dollars)
+    {
+        if (burned == 0 || supplyPreBurn == 0) return burned;
+        uint256 share = SoladyMath.fullMulDiv(total, burned, supplyPreBurn);
+        return burned < share ? burned : share;   // min(par, pro-rata share)
+    }
+
 }
 
 /// @notice Aux's self-gated surface that BasketLib.takeBody calls back into.

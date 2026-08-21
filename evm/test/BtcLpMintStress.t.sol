@@ -1210,11 +1210,11 @@ contract BtcLpMintStress is AllesFixture {
         assertLe(mintedTot, proceedsTot + 9e18, "Sigma minted within Sigma proceeds (+ dust): no aggregate over-mint");
     }
 
-    // ═══════════════ V7 — PRE-UNIFICATION CONTROL: THE BTC FREE RESERVE IS BAND-LOCAL ═══════════════
+    // ═══════════════ V7 — PRE-UNIFICATION CONTROL: THE BTC FREE RESERVE IS RANGE-LOCAL ═══════════════
     //
     // `test_SwapInGate_RevertsIfDrainsPendingProceeds` above pins the GUARD: a swap-in may not draw
     // `POOLED_USD` below `pendingSwapOutUsd`. What nothing pins is the assumption UNDERNEATH it —
-    // that the free reserve `POOLED_USD − pendingSwapOutUsd` is **BAND-LOCAL**, i.e. ETH-side
+    // that the free reserve `POOLED_USD − pendingSwapOutUsd` is **RANGE-LOCAL**, i.e. ETH-side
     // activity cannot consume the dollars owed to BTC swap-out obligations.
     //
     // That assumption is exactly what the `POOLED_USD` unification puts at risk. If the two counters
@@ -1256,7 +1256,7 @@ contract BtcLpMintStress is AllesFixture {
         assertGt(pending0, 0, "PREMISE: undelivered swap-out obligations exist");
         assertGe(btcUsd0, pending0, "PREMISE: the free reserve is non-negative to begin with");
 
-        // Now drive REAL ETH-side activity: an LP deposit (which runs checkBacking and commits ETH-band
+        // Now drive REAL ETH-side activity: an LP deposit (which runs checkBacking and commits ETH-range
         // USD) plus swaps in both directions on the ETH curve.
         vm.deal(User01, 500 ether);
         vm.prank(User01); ETH.deposit{value: 200 ether}(0, User01);
@@ -1270,22 +1270,22 @@ contract BtcLpMintStress is AllesFixture {
         emit log_named_uint("BTC USD leg  after ", CORE.POOLED_USD());
         emit log_named_uint("pending      after ", CORE.pendingSwapOutUsd());
 
-        // THE CONTROL. ETH-side flow must leave the BTC band's obligation accounting bit-identical.
+        // THE CONTROL. ETH-side flow must leave the BTC range's obligation accounting bit-identical.
         assertEq(CORE.pendingSwapOutUsd(), pending0,
-            "ETH-side flow must not change the BTC band's undelivered swap-out obligations");
+            "ETH-side flow must not change the BTC range's undelivered swap-out obligations");
         assertEq(CORE.POOLED_USD(), btcUsd0,
-            "ETH-side flow must not draw the BTC band's USD leg -- the free reserve is BAND-LOCAL");
+            "ETH-side flow must not draw the BTC range's USD leg -- the free reserve is RANGE-LOCAL");
         uint free1 = CORE.POOLED_USD() > CORE.pendingSwapOutUsd()
             ? CORE.POOLED_USD() - CORE.pendingSwapOutUsd() : 0;
         assertEq(free1, free0,
             "the BTC free reserve (POOLED_USD - pendingSwapOutUsd) must be untouched by ETH activity");
     }
 
-    // ═══════════════════════════ E31 — does the BTC band need #12's payment? ═══════════════════════
+    // ═══════════════════════════ E31 — does the BTC range need #12's payment? ═══════════════════════
     //
-    // #12 pays the ETH LP the band's LP-OWNED USD leg (`POOLED_USD - basketUsd`) because
+    // #12 pays the ETH LP the range's LP-OWNED USD leg (`POOLED_USD - basketUsd`) because
     // `Quid._pricingBacking` prices it into the share. The BTC side has NO such reader: `Vault`,
-    // `BtcLib` and `QuidLib` never mention `basketUsd` at all. Reading that as "the BTC band
+    // `BtcLib` and `QuidLib` never mention `basketUsd` at all. Reading that as "the BTC range
     // is fine" is a DISMISSAL, and a dismissal needs the same evidence as a finding — so these two
     // tests try to BREAK it instead.
     //
@@ -1299,7 +1299,7 @@ contract BtcLpMintStress is AllesFixture {
     /// The increment must never be counted as BACKING. This is the property that makes NOT paying it
     /// safe — the ETH side's leak was not the unpaid increment itself but that `_pricingBacking` had
     /// already promised it to somebody.
-    function test_E31a_BtcIncrementIsNeverCountedAsBandEquity() public {
+    function test_E31a_BtcIncrementIsNeverCountedAsRangeEquity() public {
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);                       // 0.2 BTC
 
@@ -1316,23 +1316,23 @@ contract BtcLpMintStress is AllesFixture {
         emit log_named_uint("POOLED_USD   ", pooled);
         emit log_named_uint("basketUsd     ", base);
         emit log_named_uint("increment        ", pooled > base ? pooled - base : 0);
-        emit log_named_uint("btcBandEquityUsd18", CORE.bandEquityUsd18());
+        emit log_named_uint("btcRangeEquityUsd18", CORE.rangeEquityUsd18());
 
-        // PREMISE: an increment must EXIST, else this measures nothing. The ETH band grew one from
+        // PREMISE: an increment must EXIST, else this measures nothing. The ETH range grew one from
         // exactly this shape of flow, so its absence here would itself be the finding.
         assertGt(pooled, base, "PREMISE: the curve buys must lift the BTC mirror above the basket's leg");
 
-        // The band's equity is the BASKET's contribution net of live BTC leverage debt — the
-        // increment is NOT in it. `_bandEquityUsd18` reads `basketUsd`, so this holds by
+        // The range's equity is the BASKET's contribution net of live BTC leverage debt — the
+        // increment is NOT in it. `_rangeEquityUsd18` reads `basketUsd`, so this holds by
         // construction; asserting it is what will FAIL the day someone re-points that read at
         // `POOLED_USD`, which is precisely the change that would create an ETH-shaped hole.
-        assertLe(CORE.bandEquityUsd18(), base * 1e12,
-            "the BTC increment must NOT be priced as band equity: nothing may promise it to an LP");
+        assertLe(CORE.rangeEquityUsd18(), base * 1e12,
+            "the BTC increment must NOT be priced as range equity: nothing may promise it to an LP");
     }
 
     /// And nobody may be PAID it. A full close is all-native; if the increment ever reached the LP it
     /// would be a mint against basket headroom that no BTC LP asset backs.
-    function test_E31b_ClosingBtcLpIsNotPaidTheBandsUsdIncrement() public {
+    function test_E31b_ClosingBtcLpIsNotPaidTheRangesUsdIncrement() public {
         AUX.setBTCChannels(address(this));
         uint funded = 2e7;
         BTC.requestDeposit(User01, funded);

@@ -2,7 +2,7 @@
 >
 > **The previous banner's "bidirectional (long above + short below entry)" was itself stale.** The short leg was REMOVED 2026-07-24 (`LevManager.sol:580-584`); the target returns zero at or below entry (`imports/LevMath.sol:109-125`).
 >
-> **Read every number below as off-basis.** All of it is keyed to a ±2% band. `SwapLib.BAND_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`), so the K table in §3, the solvency table in §5 and the θ ≈ 0.25–0.40 target do not describe the deployed band. `IL-FINDINGS-2026-06.md` §4 already measured K at 1.84 guard-ON against the 0.71 claimed here, on the old basis. Treat this file as historical IL/LVR data, not as a live safety argument.
+> **Read every number below as off-basis.** All of it is keyed to a ±2% range. `SwapLib.RANGE_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`), so the K table in §3, the solvency table in §5 and the θ ≈ 0.25–0.40 target do not describe the deployed range. `IL-FINDINGS-2026-06.md` §4 already measured K at 1.84 guard-ON against the 0.71 claimed here, on the old basis. Treat this file as historical IL/LVR data, not as a live safety argument.
 >
 > `docs/actionable/LEVERAGE-ENGINE-SPEC.md` does not exist; the contracts are canonical. See memory `spv-informational-docs-diverge-from-code`.
 
@@ -103,36 +103,36 @@ LVR_rate ≈ K · σ²            V_inrange = θ · backing
 that decides everything, so it was **measured**.
 
 ## 3. Measured K (fine-grained, COVID crash, 5m)
-Pool pinned to the 30-min TWAP, ±2% band, repack-on-exit:
+Pool pinned to the 30-min TWAP, ±2% range, repack-on-exit:
 
-| band | K_eff (guard ON) | K_eff (guard OFF) | guard damping |
+| range | K_eff (guard ON) | K_eff (guard OFF) | guard damping |
 |---|---|---|---|
 | ±1% | 0.99 | — | — |
 | **±2% (current)** | **0.71** | **2.24** | **3.1× reduction** |
 | ±4% | 0.47 | — | — |
 
-The **manip guard (30-min TWAP pin + 50 bps/swap cap) cuts LVR 3.1×.** Wider band
+The **manip guard (30-min TWAP pin + 50 bps/swap cap) cuts LVR 3.1×.** Wider range
 → lower K is the second lever.
 
 ## 4. Crash day holds
 2020-03-12, ETH **−52% intraday** (1m sim): cumulative loss **−2.32% of position
-value** (41 repacks). The ±2% band + repack-on-exit caps each traversal, so the
+value** (41 repacks). The ±2% range + repack-on-exit caps each traversal, so the
 worst day in ETH history does not blow up the basket.
 
 ## 5. Solvency verdict (daily backtest, full history, K=0.71, 88% lifetime vol)
 Surplus never goes negative for:
 
-| band | yield 5% / 0% fees | yield 8% / 4% fees |
+| range | yield 5% / 0% fees | yield 8% / 4% fees |
 |---|---|---|
 | **±2%** | **θ ≤ 0.26** | **θ ≤ 0.50** |
 | ±4% | θ ≤ 0.40 | θ ≤ 0.87 |
 
-**Target θ ≈ 0.25–0.40 for the ±2% band.** Worst year is 2021 (two-way bull vol),
+**Target θ ≈ 0.25–0.40 for the ±2% range.** Worst year is 2021 (two-way bull vol),
 not a crash.
 
 ## 6. Honest caveats
 - Empirical, not formal; only the historical worst case survives with margin.
-- The daily band-exit cap is calibrated to the 1m crash sim (−2.3%) — grounded,
+- The daily range-exit cap is calibrated to the 1m crash sim (−2.3%) — grounded,
   but treat θ conservatively (bias toward 0.25).
 - Buffer-conditional: LP no-IL holds while basket free-surplus covers the
   buy-back; the tail haircut falls on last-out LPs.

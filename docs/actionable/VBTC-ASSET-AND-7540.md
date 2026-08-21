@@ -1,10 +1,10 @@
-# `VBtc.asset()` and EIP-7540: BOTH bands are asynchronous, and both faces deny it
+# `VBtc.asset()` and EIP-7540: BOTH ranges are asynchronous, and both faces deny it
 
 Owner-directed 2026-08-16 (pointer: <https://eips.ethereum.org/EIPS/eip-7540>). **Nothing below is
 implemented.** This settles the follow-on CLAUDE.md already books — *"today `VBtc.asset()` returns
 WBTC as a pricing handle … that accessor's meaning has to be revisited; do not carry it across
-unexamined"* — and it is a prerequisite for the band-manager merge, because the merge has to decide
-what a single band manager's face means. ⚠️ The answer changed once the owner pointed out the
+unexamined"* — and it is a prerequisite for the range-manager merge, because the merge has to decide
+what a single range manager's face means. ⚠️ The answer changed once the owner pointed out the
 de-lever: it is 7540 for BOTH instances, not 4626-for-ETH plus 7540-for-BTC. See the corrected
 section at the end -- the earlier reading of this document is wrong on that point.
 
@@ -20,7 +20,7 @@ section at the end -- the earlier reading of this document is wrong on that poin
 
 **Both claims are false, in different ways.**
 
-1. **`asset()` names a token the band never holds.** WBTC is a *pricing handle* — the venue prices
+1. **`asset()` names a token the range never holds.** WBTC is a *pricing handle* — the venue prices
    vBTC against it via `getTWAPforAsset`. The real underlying is LN-custodied native BTC, which has
    no EVM token. ERC-4626 defines `asset()` as the thing `deposit` takes and `redeem` pays. Nothing
    here deposits or pays WBTC.
@@ -54,7 +54,7 @@ with a real decision in it:
 | option | `asset()` | cost |
 |---|---|---|
 | **A — keep WBTC as the handle** | WBTC | the accessor keeps lying; every integrator must know it is nominal |
-| **B — `asset()` returns vBTC itself** | vBTC | honest under "the band has no underlying unless it mints one" (CLAUDE.md's resolved reason for vBTC surviving), but `asset() == address(this)` is degenerate and some integrators reject it |
+| **B — `asset()` returns vBTC itself** | vBTC | honest under "the range has no underlying unless it mints one" (CLAUDE.md's resolved reason for vBTC surviving), but `asset() == address(this)` is degenerate and some integrators reject it |
 | **C — a minimal sats-denominated ERC-20 as the true underlying** | that token | most honest, most bytecode, and creates a second supply to reconcile |
 
 **Not chosen here.** The measurement that should decide it is the one CLAUDE.md already names as the
@@ -62,10 +62,10 @@ surviving blocker: *an open Morpho/Euler market where a liquidator who seizes vB
 exit*. Whichever option makes that liquidator's exit expressible is the right one — the answer is
 downstream of a real user, not of interface aesthetics.
 
-## Consequences for the band-manager merge
+## Consequences for the range-manager merge
 
-🔴 **CORRECTED 2026-08-16 (owner). BOTH BANDS ARE ASYNCHRONOUS, and the earlier version of this
-section was wrong.** It claimed "the ETH band is genuinely synchronous (WETH exists, is held, is
+🔴 **CORRECTED 2026-08-16 (owner). BOTH RANGES ARE ASYNCHRONOUS, and the earlier version of this
+section was wrong.** It claimed "the ETH range is genuinely synchronous (WETH exists, is held, is
 redeemable)" and warned against making ETH async "for symmetry". The counter-example is not
 Lightning at all — it is the **de-lever**:
 
@@ -80,7 +80,7 @@ Lightning at all — it is the **de-lever**:
 reason: BTC because settlement is a Lightning cooperative close, ETH because de-levering is
 utilisation-bounded. **The asynchronicity is a property of the PROTOCOL, not of the BTC leg.**
 
-- So a single band manager CAN expose one face for both instances, and that face is **7540, not
+- So a single range manager CAN expose one face for both instances, and that face is **7540, not
   4626** — which makes the merge simpler than the earlier note claimed, not harder.
 - The `preview*`-must-revert rule then applies on BOTH sides. Today the ETH side is the more
   misleading of the two: it advertises a synchronous redemption that a drawn-down venue cannot

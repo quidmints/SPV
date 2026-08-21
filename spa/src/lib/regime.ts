@@ -131,7 +131,7 @@ export async function fetchRegime(
   const stepSec = Math.max(Math.floor(windowSec / samples), 60)
   const agos: number[] = []
   for (let i = samples; i >= 0; i--) agos.push(i * stepSec)   // descending → [N·step … 0]
-  const res = await readOne(coreAddr, 'observe', [agos, isBTC])   // §E63: one entry, band as an arg
+  const res = await readOne(coreAddr, 'observe', [agos, isBTC])   // §E63: one entry, range as an arg
   if (!res) return null
   const cumulatives: bigint[] = (res as any[]).map((x) => BigInt(x))
   return classifyRegime(decodeTwapLogPrices(cumulatives, stepSec), stepSec, 'pool')

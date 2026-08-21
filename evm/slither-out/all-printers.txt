@@ -174,7 +174,7 @@ Call Graph: ...ILevEthDeliver.call-graph.dot
 Call Graph: ...IBtcVaultBridge.call-graph.dot
 Call Graph: ...IVaultExposeB.call-graph.dot
 Call Graph: ...IVBtcToken.call-graph.dot
-Call Graph: ...IBand.call-graph.dot
+Call Graph: ...ICore.call-graph.dot
 Call Graph: ...RealRateBtcMorphoOracle.call-graph.dot
 Call Graph: ...LevBookLib.call-graph.dot
 Call Graph: ...LevMath.call-graph.dot
@@ -188,7 +188,7 @@ Call Graph: ...MuSig2Agg.call-graph.dot
 Call Graph: ...OracleLib.call-graph.dot
 Call Graph: ...IMorphoV2.call-graph.dot
 Call Graph: ...QuidLib.call-graph.dot
-Call Graph: ...ShareMath.call-graph.dot
+Call Graph: ...BasketLib.call-graph.dot
 Call Graph: ...SortedSetLib.call-graph.dot
 Call Graph: ...SwapLib.call-graph.dot
 Call Graph: ...Types.call-graph.dot
@@ -1953,8 +1953,8 @@ INFO:Printers:
   - From IVBtcToken
     - VAULT() (external)
 
-+ Contract IBand (Most derived contract)
-  - From IBand
++ Contract ICore (Most derived contract)
+  - From ICore
     - addLiq(uint256,uint256) (external)
     - creditSkewPremium(uint256) (external)
     - deliverVolatile(uint256,address) (external)
@@ -2205,8 +2205,8 @@ INFO:Printers:
     - waitNft(uint256,address,SwapLib.OfframpCfg) (internal)
     - withdrawETH(QuidLib.EthCfg,SwapLib.OfframpCfg,address,uint256,address) (public)
 
-+ Contract ShareMath (Most derived contract)
-  - From ShareMath
++ Contract BasketLib (Most derived contract)
+  - From BasketLib
     - qdShareValue(uint256,uint256,uint256) (internal)
 
 + Contract SortedSetLib (Most derived contract)
@@ -5016,7 +5016,7 @@ Inheritance:: []
 | Function                                                                                                                                         | Visibility | Modifiers | Read             | Write                          | Internal Calls                                                                                                                                                                                                                                                                                                                                                                                                                                           | External Calls                                                                                                                                       | Cyclomatic Complexity |
 +--------------------------------------------------------------------------------------------------------------------------------------------------+------------+-----------+------------------+--------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------+
 | levBurnAll(Types.BandCfg,Types.Deposit,mapping(address => uint256),mapping(address => uint256),mapping(address => uint256),address,Types.BandP)  | public     | []        | []               | []                             | []                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ['ICore(c.core).modLP(int256(grossRem),0,address(0))', 'SwapLib.refreshBookmarks(LP,LP.pooled,p.feesPerShare,p.usdFees)']                            | 1                     |
-| levAddNet(Types.BandCfg,Types.Deposit,mapping(address => uint256),mapping(address => uint256),address,uint256,uint256,Types.BandP)               | public     | []        | ['this']         | []                             | []                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ['IBand(address(this)).addLiq(netEq,price)', 'ICore(c.core).modLP(- int256(netTok),- int256(netUsd),lp)']                                            | 0                     |
+| levAddNet(Types.BandCfg,Types.Deposit,mapping(address => uint256),mapping(address => uint256),address,uint256,uint256,Types.BandP)               | public     | []        | ['this']         | []                             | []                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ['ICore(address(this)).addLiq(netEq,price)', 'ICore(c.core).modLP(- int256(netTok),- int256(netUsd),lp)']                                            | 0                     |
 |                                                                                                                                                  |            |           |                  |                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ['SwapLib.refreshBookmarks(LP,LP.pooled + levBuf[lp],p.feesPerShare,p.usdFees)']                                                                     |                       |
 | levAddBuf(Types.BandCfg,Types.Deposit,mapping(address => uint256),mapping(address => uint256),address,uint256,uint256,Types.BandP)               | public     | []        | []               | []                             | []                                                                                                                                                                                                                                                                                                                                                                                                                                                       | ['ICore(c.core).modLP(- int256(bufTok),- int256(bufUsd),lp)', 'ILevEquity(p.mgr).debtUsd(lp)']                                                       | 0                     |
 |                                                                                                                                                  |            |           |                  |                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ['LevMath.capBufferUsd(bufTok,price,ILevEquity(p.mgr).debtUsd(lp))', 'SwapLib.refreshBookmarks(LP,LP.pooled + levBuf[lp],p.feesPerShare,p.usdFees)'] |                       |
@@ -5095,7 +5095,7 @@ Inheritance:: []
 | _illiquidLoss()                                                                                                                                           | internal   | []        | ['this']                | []                             | []                                                                                                                                                                                                                                                                                                                                                                                                                               | []                                                                                                                                                                | 24                    |
 | _redeemQuote(BasketLib.RedeemArgs,uint256,uint256,uint256)                                                                                                | private    | []        | ['LIQ_TOL_BPS', 'WAD']  | []                             | ['TUPLE_144(uint256,address,uint256) = INTERNAL_CALL, BasketLib._illiquidLoss()()']                                                                                                                                                                                                                                                                                                                                              | ['IAux(address(this)).flagIlliquidSelf(worst,worstBps < LIQ_TOL_BPS)', 'IAux(address(this)).get_metricsWith(raw,rateWeighted)']                                   | 5                     |
 |                                                                                                                                                           |            |           | ['this']                |                                |                                                                                                                                                                                                                                                                                                                                                                                                                                  | ['IBasketTurn(r.quid).matureSupply()', 'ICore(r.core).committedUsd18()']                                                                                          |                       |
-|                                                                                                                                                           |            |           |                         |                                |                                                                                                                                                                                                                                                                                                                                                                                                                                  | ['ShareMath.qdShareValue(WAD,solvent,mature)']                                                                                                                    |                       |
+|                                                                                                                                                           |            |           |                         |                                |                                                                                                                                                                                                                                                                                                                                                                                                                                  | ['BasketLib.qdShareValue(WAD,solvent,mature)']                                                                                                                    |                       |
 | redeemAsBody(BasketLib.RedeemArgs)                                                                                                                        | external   | []        | ['this']                | []                             | ['INTERNAL_CALL, BasketLib._dispatchTake(BasketLib.RedeemArgs,uint256,uint256,uint256[15],uint256[15],bool)(r,usdPart,seedBurned,amts,yW,unwound)', 'TUPLE_146(uint256,uint256) = INTERNAL_CALL, BasketLib._redeemQuote(BasketLib.RedeemArgs,uint256,uint256,uint256)(r,REF_2051,REF_2052,depegLossOut)']                                                                                                                        | ['IAux(address(this)).get_deposits()']                                                                                                                            | 1                     |
 |                                                                                                                                                           |            |           |                         |                                | ['TUPLE_147(uint256,uint256,bool) = INTERNAL_CALL, BasketLib._settleRedeem(BasketLib.RedeemArgs,uint256,uint256)(r,perShare,freeUsd)']                                                                                                                                                                                                                                                                                           |                                                                                                                                                                   |                       |
 | _settleRedeem(BasketLib.RedeemArgs,uint256,uint256)                                                                                                       | private    | []        | []                      | []                             | []                                                                                                                                                                                                                                                                                                                                                                                                                               | []                                                                                                                                                                | 6                     |
@@ -6244,7 +6244,7 @@ Inheritance:: []
 +-----------+------------+------+-------+----------------+----------------+-----------------------+
 
 INFO:Printers:
-Contract IBand
+Contract ICore
 Contract vars: []
 Inheritance:: []
  
@@ -6842,7 +6842,7 @@ Inheritance:: []
 +-----------+------------+------+-------+----------------+----------------+-----------------------+
 
 INFO:Printers:
-Contract ShareMath
+Contract BasketLib
 Contract vars: []
 Inheritance:: []
  
@@ -9242,7 +9242,7 @@ Contract IVBtcToken
 | VAULT    | []                      | []                       |
 +----------+-------------------------+--------------------------+
 
-Contract IBand
+Contract ICore
 +--------------------+-------------------------+--------------------------+
 | Function           | State variables written | Conditions on msg.sender |
 +--------------------+-------------------------+--------------------------+
@@ -9561,7 +9561,7 @@ Contract QuidLib
 | slitherConstructorConstantVariables | ['ETHERFI_ADAPTER_VL', 'PREMIUM_ANNUALIZE', 'SECS_PER_YEAR', 'THETA_STEP', 'WAD'] | []                       |
 +-------------------------------------+-----------------------------------------------------------------------------------+--------------------------+
 
-Contract ShareMath
+Contract BasketLib
 +--------------+-------------------------+--------------------------+
 | Function     | State variables written | Conditions on msg.sender |
 +--------------+-------------------------+--------------------------+
@@ -11619,7 +11619,7 @@ Contract IVBtcToken
 | VAULT    | []        |
 +----------+-----------+
 INFO:Printers:
-Contract IBand
+Contract ICore
 +--------------------+-----------+
 | Function           | Modifiers |
 +--------------------+-----------+
@@ -11886,7 +11886,7 @@ Contract QuidLib
 | slitherConstructorConstantVariables | []        |
 +-------------------------------------+-----------+
 INFO:Printers:
-Contract ShareMath
+Contract BasketLib
 +--------------+-----------+
 | Function     | Modifiers |
 +--------------+-----------+
@@ -14646,7 +14646,7 @@ Contract IVBtcToken
 | VAULT    |                   |
 +----------+-------------------+
 INFO:Printers:
-Contract IBand
+Contract ICore
 +--------------------+-------------------+
 | Function           | require or assert |
 +--------------------+-------------------+
@@ -14950,7 +14950,7 @@ Contract QuidLib
 | slitherConstructorConstantVariables |                                                    |
 +-------------------------------------+----------------------------------------------------+
 INFO:Printers:
-Contract ShareMath
+Contract BasketLib
 +--------------+-------------------+
 | Function     | require or assert |
 +--------------+-------------------+
@@ -15394,7 +15394,7 @@ Core:
 | Core._prem             | Core.Flow                  | 263  | 0      | Storage |
 | Core.skewPremium       | uint256                    | 264  | 0      | Storage |
 | Core.ASSET             | address                    | 265  | 0      | Storage |
-| Core.BAND              | IBand                      | 266  | 0      | Storage |
+| Core.BAND              | ICore                      | 266  | 0      | Storage |
 | Core.BAND_ANCHOR       | uint256                    | 267  | 0      | Storage |
 | Core.AUX               | Aux                        | 268  | 0      | Storage |
 | Core.BASKET            | Basket                     | 269  | 0      | Storage |
@@ -15768,7 +15768,7 @@ IVBtcToken:
 +------+------+------+--------+-------+
 +------+------+------+--------+-------+
 
-IBand:
+ICore:
 +------+------+------+--------+-------+
 | Name | Type | Slot | Offset | State |
 +------+------+------+--------+-------+
@@ -15855,7 +15855,7 @@ QuidLib:
 +------+------+------+--------+-------+
 +------+------+------+--------+-------+
 
-ShareMath:
+BasketLib:
 +------+------+------+--------+-------+
 | Name | Type | Slot | Offset | State |
 +------+------+------+--------+-------+
@@ -15978,7 +15978,7 @@ ERCs: ERC1363, ERC4626, ERC20, ERC2612, ERC165
 | IBtcVaultBridge         | 7           |               |                    | No           |                    |
 | IVaultExposeB           | 2           |               |                    | No           |                    |
 | IVBtcToken              | 1           |               |                    | No           |                    |
-| IBand                   | 9           |               |                    | No           |                    |
+| ICore                   | 9           |               |                    | No           |                    |
 | RealRateBtcMorphoOracle | 2           |               |                    | No           |                    |
 | LevBookLib              | 9           |               |                    | No           | Tokens interaction |
 | LevMath                 | 57          |               |                    | Yes          | Send ETH           |
@@ -15994,7 +15994,7 @@ ERCs: ERC1363, ERC4626, ERC20, ERC2612, ERC165
 | IMorphoV2               | 1           |               |                    | No           |                    |
 | QuidLib                 | 27          |               |                    | Yes          | Send ETH           |
 |                         |             |               |                    |              | Tokens interaction |
-| ShareMath               | 1           |               |                    | No           |                    |
+| BasketLib               | 1           |               |                    | No           |                    |
 | SortedSetLib            | 5           |               |                    | No           |                    |
 | SwapLib                 | 61          |               |                    | Yes          | Send ETH           |
 |                         |             |               |                    |              | Tokens interaction |

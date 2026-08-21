@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {ShareMath} from "../../src/imports/ShareMath.sol";
+import {BasketLib} from "../../src/imports/BasketLib.sol";
 
 /// @title Redeem-quote invariants — VALUATION and LIQUIDITY are two different bounds.
 ///
@@ -9,7 +9,7 @@ import {ShareMath} from "../../src/imports/ShareMath.sol";
 /// applies exactly two haircuts and one liquidity bound:
 ///
 ///     solvent  = solvent > depegLoss ? solvent - depegLoss : 0          // (1) depeg severity
-///     perShare = ShareMath.qdShareValue(WAD, solvent, mature)           // (2) solvency, ≡ min(par, pro-rata)
+///     perShare = BasketLib.qdShareValue(WAD, solvent, mature)           // (2) solvency, ≡ min(par, pro-rata)
 ///     freeUsd  = solvent > locked ? solvent - locked : 0                // (3) NOT a haircut
 ///                where locked = max(illiquidLoss, committedUsd18)
 ///
@@ -50,7 +50,7 @@ contract RedeemQuoteEchidna {
     // Mirrors of the live expressions, kept thin so the property is about the ARITHMETIC and not
     // about a copy of it drifting. These take ALREADY-BOUNDED inputs.
     function _perShare(uint solvent, uint mature) private pure returns (uint) {
-        return ShareMath.qdShareValue(WAD, solvent, mature);
+        return BasketLib.qdShareValue(WAD, solvent, mature);
     }
 
     function _freeUsd(uint solvent, uint il, uint committed) private pure returns (uint) {

@@ -72,7 +72,7 @@ contract CurveObserverIsCheapAndSaneTest is Test {
     }
 
     /// The scaling is right. Curve returns coin1-per-coin0 already WAD-scaled, so the correct
-    /// conversion is NONE — a `10**VOL_DECIMALS` step would be a 1e18 double-count, which a 5% band
+    /// conversion is NONE — a `10**VOL_DECIMALS` step would be a 1e18 double-count, which a 5% range
     /// against Chainlink catches instantly.
     function test_ScalingIsIdentity_andTracksChainlink() public view {
         (bool ok, uint curveWad) = _observe();
@@ -80,8 +80,8 @@ contract CurveObserverIsCheapAndSaneTest is Test {
         uint cl = _clWad(CL_ETHUSD);
         uint lo = cl * 95 / 100;
         uint hi = cl * 105 / 100;
-        assertGt(curveWad, lo, "ETH/USD below a 5% band: wrong index or wrong scaling");
-        assertLt(curveWad, hi, "ETH/USD above a 5% band: wrong index or wrong scaling");
+        assertGt(curveWad, lo, "ETH/USD below a 5% range: wrong index or wrong scaling");
+        assertLt(curveWad, hi, "ETH/USD above a 5% range: wrong index or wrong scaling");
     }
 
     /// ⚠️ **THE INDEX IS THE SILENT FAILURE.** `price_oracle(0)` is WBTC/USDC on this pool, so an

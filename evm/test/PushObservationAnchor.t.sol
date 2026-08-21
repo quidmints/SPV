@@ -23,7 +23,7 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///         "no source pinned" state and would survive any green suite.
 ///
 ///         ⚠️ **SCOPE, STATED SO IT IS NOT OVER-READ.** This file tests the ANCHOR, not
-///         `pushObservation` itself: only `Alles.t.sol` builds a `Core`, so the band arithmetic and
+///         `pushObservation` itself: only `Alles.t.sol` builds a `Core`, so the range arithmetic and
 ///         the write path need that fixture and are still owed (§E294 step 1). What is asserted here
 ///         is the dependency the guard cannot work without.
 ///         ⛔ **AND IT IS NOT A MIRROR.** It calls the real `SwapLib.twapResolve` against a real
@@ -32,7 +32,7 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 contract PushObservationAnchorTest is Test {
     address constant CL_ETHUSD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
     /// `OBS_PUSH_MAX_BPS` in `Core` — mirrored because it is `internal`. If Core's moves and this
-    /// does not, `test_E294_BandIsTightEnoughToBoundAPusher` fails loudly. That coupling is intended.
+    /// does not, `test_E294_RangeIsTightEnoughToBoundAPusher` fails loudly. That coupling is intended.
     uint256 constant OBS_PUSH_MAX_BPS = 50;
 
     function setUp() public { vm.createSelectFork(vm.envString("ETH_RPC_URL")); }
@@ -49,16 +49,16 @@ contract PushObservationAnchorTest is Test {
         assertTrue(stale, "price==0 vs the anchor must trip the deviation test and report stale");
     }
 
-    /// The band must be tight enough that a pusher cannot walk the level far. §E294 records the
+    /// The range must be tight enough that a pusher cannot walk the level far. §E294 records the
     /// design claim — "caps an adversary's reachable sigma inflation at +/-0.5% per block" — and
     /// that claim is exactly `OBS_PUSH_MAX_BPS` being small relative to the anchor.
-    function test_E294_BandIsTightEnoughToBoundAPusher() public view {
+    function test_E294_RangeIsTightEnoughToBoundAPusher() public view {
         (uint256 anchorPx,) = SwapLib.twapResolve(CL_ETHUSD, 0, false, OBS_PUSH_MAX_BPS, 1 days);
         uint256 maxMove = anchorPx * OBS_PUSH_MAX_BPS / 10_000;
-        assertEq(maxMove * 10_000 / anchorPx, OBS_PUSH_MAX_BPS, "band arithmetic must be exact");
+        assertEq(maxMove * 10_000 / anchorPx, OBS_PUSH_MAX_BPS, "range arithmetic must be exact");
         // ⚠️ NOT `TWAP_MAX_DEVIATION_BPS` (500). Core's own note: inheriting that "would let a pusher
         // move the level ten times as far". Asserted so a later unification cannot quietly widen it.
-        assertLt(OBS_PUSH_MAX_BPS, 500, "the push band must stay tighter than the TWAP band");
+        assertLt(OBS_PUSH_MAX_BPS, 500, "the push range must stay tighter than the TWAP range");
     }
 
     /// CONTROL — would this measurement look the same if I were wrong? A DEAD feed address must NOT

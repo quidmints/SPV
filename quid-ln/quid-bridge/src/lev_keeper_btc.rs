@@ -1,7 +1,7 @@
 //! BTC YB IL-protect **keeper** — the vBTC-collateral analogue of [`crate::lev_keeper`] (ETH weETH).
 //!
 //! It reuses the ETH keeper's PURE decision core verbatim ([`crate::lev_keeper::decide`],
-//! [`crate::lev_keeper::DwellTracker`], [`PositionView`]): same LTV band, same `L = 1/α` IL target, same
+//! [`crate::lev_keeper::DwellTracker`], [`PositionView`]): same LTV range, same `L = 1/α` IL target, same
 //! safety-margin-below-venue-liquidation contract, same lazy/anti-churn dwell. What differs is the
 //! **actuation**, because BTC acquisition crosses Bitcoin confirmation and therefore cannot be a single
 //! atomic swap the way ETH's `rebalance` is (spec `LEVERAGE-BTC-M11-SPEC.md`):
@@ -23,13 +23,13 @@
 
 use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr};
 use crate::lev_keeper::{
-    decide, out_of_band, DwellTracker, KeeperAction, LevKeeperConfig, LpAddr, PositionView,
+    decide, out_of_range, DwellTracker, KeeperAction, LevKeeperConfig, LpAddr, PositionView,
 };
 use tokio::time::{timeout, Duration};
 
 /// Per-leg RPC ceiling: a hung read/tx must never stall the SERIAL pass — the urgent de-levers run
 /// first, so a single hang there would otherwise block the no-liquidation guarantee for every other LP.
-/// On timeout we log and move on (the blocking JSON-RPC thread is abandoned; a 5-min poll makes that cheap).
+/// On timeout we log and move on (the blocking JSON-RPC thread is arangeoned; a 5-min poll makes that cheap).
 const LEG_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// The BTC on-chain surface the loop needs (`BtcLevManager` reads + async legs). Every leg is `async`
@@ -56,7 +56,7 @@ pub trait BtcLevKeeperEvm {
     async fn delever_withdraw(&self, lp: LpAddr, vbtc_sats: u64) -> anyhow::Result<()>;
     /// `repay(stableUsd)` — repay debt (the keeper must have approved the manager to pull the stable).
     async fn repay(&self, lp: LpAddr, stable_usd: u128) -> anyhow::Result<()>;
-    /// Reconcile the LEVERED band slice to live net-equity (`Vault.syncLev`) after any position change,
+    /// Reconcile the LEVERED range slice to live net-equity (`Vault.syncLev`) after any position change,
     /// so the fee lane (`levPooledBTC`) tracks the equity promptly. Permissionless ⇒ non-fatal on failure.
     async fn sync_lev_btc(&self, lp: LpAddr) -> anyhow::Result<()>;
     /// Protect `lp` by repaying `repay_usd` (6-dec USD) from the LP's MATURE QUID — redeem mature QUID →
@@ -119,7 +119,7 @@ pub async fn btc_tick<E: BtcLevKeeperEvm>(
                 continue;
             }
         };
-        v.move_persisted = dwell.persisted(lp, out_of_band(&v, cfg), now_secs, dwell_secs);
+        v.move_persisted = dwell.persisted(lp, out_of_range(&v, cfg), now_secs, dwell_secs);
         let action = decide(&v, cfg);
         // WBTC-fallback collateral (real WBTC on Aave/Morpho/Euler) rebalances via ONE atomic on-chain call
         // that handles BOTH directions itself — no acquirer, no async withdraw→sell / borrow→mint→supply legs.
@@ -220,7 +220,7 @@ async fn do_relever<E: BtcLevKeeperEvm>(evm: &E, lp: LpAddr) -> anyhow::Result<(
     Ok(())
 }
 
-// #9/#89: out_of_band DEDUP'd → now imported from lev_keeper (the ONE shared predicate). Local copy removed.
+// #9/#89: out_of_range DEDUP'd → now imported from lev_keeper (the ONE shared predicate). Local copy removed.
 
 /// The BTC keeper task — one `set.spawn(run_btc_lev_keeper(...))` in the quid-bridge `JoinSet`, parallel to
 /// the ETH keeper. Polls every `poll_interval_secs`; a failed tick is logged, never fatal (idempotent toward
@@ -574,12 +574,12 @@ mod tests {
 
     #[tokio::test]
     async fn wbtc_mode_routes_to_atomic_rebalance_not_async_legs() {
-        // A WBTC-mode position that's out of band must go through ONE `rebalanceWbtc` — never the
+        // A WBTC-mode position that's out of range must go through ONE `rebalanceWbtc` — never the
         // withdraw→sell→repay (or borrow→mint→supply) sequence.
         let lp = [7u8; 20];
         let mut v = base();
         v.wbtc_mode = true;
-        v.current_ltv_bps = 7000; // out of band (would be an urgent de-lever in native mode)
+        v.current_ltv_bps = 7000; // out of range (would be an urgent de-lever in native mode)
         let px = 60_000u128 * 1_000_000_000_000_000_000u128;
         let usd = 30_000u128 * 1_000_000_000_000_000_000u128;
         let evm = MockEvm { views: vec![(lp, v)], delta: (false, usd), px, rec: Rec::default() };
@@ -597,15 +597,15 @@ mod tests {
         let lp = [3u8; 20];
         let mut v = base();
         v.wbtc_mode = true; // WBTC-mode: the dwell gates the atomic rebalance (native de-lever is a no-op now)
-        v.il_ltv_bps = 4000; // above band but mean-reverting (not near venue-liq)
+        v.il_ltv_bps = 4000; // above range but mean-reverting (not near venue-liq)
         let px = 60_000u128 * 1_000_000_000_000_000_000u128;
         let usd = 10_000u128 * 1_000_000_000_000_000_000u128;
         let evm = MockEvm { views: vec![(lp, v)], delta: (false, usd), px, rec: Rec::default() };
         let mut dwell = DwellTracker::default();
-        // t=0: just went out of band ⇒ NOT persisted ⇒ no rebalance (anti-churn).
+        // t=0: just went out of range ⇒ NOT persisted ⇒ no rebalance (anti-churn).
         btc_tick(&evm, &LevKeeperConfig::default(), &mut dwell, 0, 600).await.unwrap();
         assert!(evm.rec.rebalanced.borrow().is_empty(), "un-persisted move must not rebalance");
-        // t=700 (> 600 dwell), still out of band ⇒ persisted ⇒ the lazy rebalance fires.
+        // t=700 (> 600 dwell), still out of range ⇒ persisted ⇒ the lazy rebalance fires.
         btc_tick(&evm, &LevKeeperConfig::default(), &mut dwell, 700, 600).await.unwrap();
         assert!(!evm.rec.rebalanced.borrow().is_empty(), "persisted move must rebalance");
     }

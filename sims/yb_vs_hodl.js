@@ -13,5 +13,5 @@ console.log('itself IMPERMANENT (recovers on reversal; realized only on a mid-di
 console.log('PARTIAL hedge: less carry, less IL-elimination — it does NOT escape the turnover wall, it slides along it.');
 console.log('\nVERDICT: YB-LP is NOT directional (I was wrong to call it so vs the unlevered LP — wrong benchmark).');
 console.log('It is "ETH exposure + fees − carry", viable iff fees>carry iff turnover>~140x @ (5bps, 7%). The make-or-');
-console.log('break for QU!D is therefore EMPIRICAL: does the vogue band turn over ~140x/yr? High-turnover => build it;');
+console.log('break for QU!D is therefore EMPIRICAL: does the vogue range turn over ~140x/yr? High-turnover => build it;');
 console.log('low-turnover => carry eats the fees and an ETH holder is better off just holding (or unlevered R1).');

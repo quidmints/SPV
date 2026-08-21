@@ -24,7 +24,7 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
     BTCChannels ch;
 
     function setUp() public {
-        // Minimal deploy. Constructor is (spv, aux, band, hopNode); we only call
+        // Minimal deploy. Constructor is (spv, aux, range, hopNode); we only call
         // the view digest + the recovery path, which don't depend on them.
         ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address

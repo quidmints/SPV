@@ -1,10 +1,10 @@
 # Round 2: pressure-test the ring-fence verdict with the channels sim1 ignored.
-# sim1 measured ONLY channel C (amplified in-range LVR) at ONE adoption (10%), assuming
+# sim1 measured ONLY channel C (amplified in-width LVR) at ONE adoption (10%), assuming
 # QU!D is a passive bystander. But QU!D wants to CAPTURE value (be the leverage swap venue,
 # earn Liquity's 75%-to-SP). Capturing value re-couples QU!D to the leverage. Three channels:
 #   A = venue lag-drain   : voluntary opens/unwinds routed through QU!D's pool (correlated toxic flow)
 #   B = SP tail-absorption : if QU!D earns the 75% interest via Liquity's Stability Pool
-#   C = holding-LVR        : amplified in-range LVR while positions are open  (sim1)
+#   C = holding-LVR        : amplified in-width LVR while positions are open  (sim1)
 # Plus: ADOPTION SCALING (sim1 only did 10%) and realistic MCR+penalty liquidation.
 import json, math, time, statistics
 ser=json.load(open("eth_daily.json")); px=[p for _,p in ser]; ts=[t for t,_ in ser]
@@ -12,7 +12,7 @@ r=[math.log(px[i]/px[i-1]) for i in range(1,len(px))]; N=len(r)
 def yr(i): return int(time.gmtime(ts[i+1]/1000).tm_year)
 YEARS=sorted(set(yr(i) for i in range(N)))
 sigma=math.sqrt(statistics.pvariance(r)*365)
-K=0.71; BAND=0.02; THETA=0.33; Y=0.06; F=0.02; S0=0.03; MCR=1.10
+K=0.71; RANGE=0.02; THETA=0.33; Y=0.06; F=0.02; S0=0.03; MCR=1.10
 
 def alive(L):
     liq=1.0/L; out=[]; live=True; pk=px[0]
@@ -30,7 +30,7 @@ def surplus(extra):
     S=S0; mn=S; by={y:0.0 for y in YEARS}
     for i in range(N):
         th=THETA+extra(i)
-        d=Y/365+F*th/365-K*th*min(r[i]*r[i],BAND*BAND)
+        d=Y/365+F*th/365-K*th*min(r[i]*r[i],RANGE*RANGE)
         S+=d; mn=min(mn,S); by[yr(i)]+=d
     return S,mn,by
 base=surplus(lambda i:0.0)
@@ -48,16 +48,16 @@ for LEV_E in [0.10,0.25,0.50,0.75,1.00]:
 
 # ============ CHANNEL A: QU!D as the leverage swap venue (voluntary flow) ============
 # Each leverage open/unwind routes BOLD<->ETH through QU!D's pool, priced at the TWAP with a
-# lag <= BAND. Flow is CORRELATED (opens in calm, delever in stress) -> lands at the wide-lag
+# lag <= RANGE. Flow is CORRELATED (opens in calm, delever in stress) -> lands at the wide-lag
 # end. Per voluntary unwind event the cohort notional V=LEV_E*L turns over and pays ~lag.
-# Upper bound: notional turns over TURN times/yr, each fill at the band lag.
+# Upper bound: notional turns over TURN times/yr, each fill at the width lag.
 print("\n=== A) venue lag-drain UPPER BOUND if QU!D is the leverage swap venue ===")
 print(f"{'LEV_E':>7}{'L':>4}{'turn/yr':>9} | {'drain/yr':>9}  vs surplus growth ~4%/yr")
 for LEV_E in [0.10,0.50]:
     for L in [3,5]:
         V=LEV_E*L
         for TURN in [2,4]:
-            drain=V*TURN*BAND
+            drain=V*TURN*RANGE
             flag="  >> SWAMPS surplus" if drain>0.04 else ""
             print(f"{LEV_E:>7.0%}{L:>4}{TURN:>9} | {drain:>8.1%}{flag}")
 
@@ -67,7 +67,7 @@ for LEV_E in [0.10,0.50]:
     for L in [3,5]:
         V=LEV_E*L; al=alive(L); prev=1; by={y:0.0 for y in YEARS}
         for i,a in enumerate(al):
-            if prev==1 and a==0: by[yr(i)]+= V*min(abs(r[i]),BAND)  # forced shed at that day's lag
+            if prev==1 and a==0: by[yr(i)]+= V*min(abs(r[i]),RANGE)  # forced shed at that day's lag
             prev=a
         tot=sum(by.values()); wy=max(by.items(),key=lambda kv:kv[1])
         print(f"  LEV_E={LEV_E:.0%} L={L}: 11y total {tot:.1%}, worst-yr {wy[0]}:{wy[1]:.1%}")
@@ -103,7 +103,7 @@ def lp_pnl(L):
         if L>1 and p<=pk*(1-ddliq):
             by[yr(i)]-=eq+PEN; nliq[yr(i)]+=1; eq=1.0; pk=p; continue
         if p>pk: pk=p
-        d=L*(Y/365+F*THETA/365-K*min(r[i]*r[i],BAND*BAND))-(L-1)*RATE/365
+        d=L*(Y/365+F*THETA/365-K*min(r[i]*r[i],RANGE*RANGE))-(L-1)*RATE/365
         eq+=d; by[yr(i)]+=d
     return sum(by.values()), sum(nliq.values())
 for L in [1,2,3,5]:

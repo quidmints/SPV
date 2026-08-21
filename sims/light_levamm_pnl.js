@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// DEFINITIVE LevAMM P&L, fitted to QU!D (theta-slice in the vogue band + (1-theta) ETH retention).
+// DEFINITIVE LevAMM P&L, fitted to QU!D (theta-slice in the vogue range + (1-theta) ETH retention).
 // LevAMM power law: a constant-leverage-k LP position tracks value ∝ p^(k/2). k=1 -> p^0.5 (AMM, full
 // IL); k=2 -> p^1 (tracks ETH, ZERO IL). We lever ONLY the in-range slice (the part with IL). Compare,
 // per real window, the LEVERED-vs-UNLEVERED(R1) edge, net of carry on the borrowed (k-1) portion.
@@ -17,7 +17,7 @@ function deltas(P,k){
   const p=P[P.length-1]/P[0];                      // price multiple over the window
   const t=(P.length-1)/365;
   const carry=(k-1)*theta*BORROW*t;                // carry on the borrowed slice portion
-  // levered slice minus unlevered slice (ETH-numeraire, both vs the same band):
+  // levered slice minus unlevered slice (ETH-numeraire, both vs the same range):
   const offset=theta*(Math.pow(p,k/2)-Math.pow(p,0.5));
   return { delta:(offset-carry)*100, up:p>=1, p, theta, carryPct:carry*100 };
 }

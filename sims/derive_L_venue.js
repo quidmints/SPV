@@ -16,20 +16,20 @@
 // The point is STRUCTURAL (the venue term is purely additive and scales with L), so it does not hinge on
 // the exact path. VENUE=0 reproduces derive_L (R1). Then sweep VENUE to show where L* leaves 1.
 const DT=1/365, MCR=1.10, FEE=0.0005, ALPHA=0.5;
-const bandVal=p=>Math.pow(p,ALPHA);
+const rangeVal=p=>Math.pow(p,ALPHA);
 // deterministic LCG so the run is reproducible (no Math.random)
 let _s=123456789; const rnd=()=>{_s=(1103515245*_s+12345)&0x7fffffff; return _s/0x7fffffff;};
 const gauss=()=>{let u=0,v=0;while(u===0)u=rnd();while(v===0)v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
 function gbmPath(n,sig,mu){const P=[1];for(let i=1;i<n;i++)P.push(P[i-1]*Math.exp((mu-0.5*sig*sig)*DT+sig*Math.sqrt(DT)*gauss()));return P;}
 
 function overlay(P,L,R,BORROW){               // equity over a normalized path at leverage L
-  let coll=L, debt=L-1, units=coll/bandVal(P[0]);
+  let coll=L, debt=L-1, units=coll/rangeVal(P[0]);
   for(let i=1;i<P.length;i++){
-    coll=units*bandVal(P[i]); debt+=BORROW*debt*DT;
+    coll=units*rangeVal(P[i]); debt+=BORROW*debt*DT;
     if(coll-debt<=0||coll/debt<MCR) return null;            // liquidated
-    if(i%R===0){const E=coll-debt; coll=L*E; debt=(L-1)*E; units=coll/bandVal(P[i]);}
+    if(i%R===0){const E=coll-debt; coll=L*E; debt=(L-1)*E; units=coll/rangeVal(P[i]);}
   }
-  const pe=P[P.length-1]; const E=units*bandVal(pe)-debt;
+  const pe=P[P.length-1]; const E=units*rangeVal(pe)-debt;
   return {trackErr:(E-pe)/pe, t:(P.length-1)/365};
 }
 

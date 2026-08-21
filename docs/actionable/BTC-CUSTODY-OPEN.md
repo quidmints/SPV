@@ -200,7 +200,7 @@ documented, and the mnemonic kept as the system of record.
 
 `requireFull` makes the LN swap-in rail **all-or-nothing**, and `BTCChannels.sol:1160` says why:
 *"`requireFull` is preserved for the LN rail, **which cannot refund**"*. A Lightning payment is
-atomic — once the HTLC is claimed the sats are taken and there is no partial give-back — so a band
+atomic — once the HTLC is claimed the sats are taken and there is no partial give-back — so a range
 that can absorb only `consumed < sats` must reject the whole swap (`:1179`).
 
 **Funds are safe** (the HTLC is never claimed; the payer keeps their sats) — **the swap simply does
@@ -215,9 +215,9 @@ is a total rejection. **All-or-nothing turns a fragmentation problem into a bina
 problem.**
 
 **The fix is an extension of a pattern that already landed**, not a new design:
-`ROUTING-AGGREGATION.md` (`84d73b74`) — *"band fills what it can → 1inch splits the REMAINDER"* —
+`ROUTING-AGGREGATION.md` (`84d73b74`) — *"range fills what it can → 1inch splits the REMAINDER"* —
 and `SOR.sol`'s older `_v3Route`, the peer route *"tried when the V4 hops can't"*. Apply it to the
-swap-in absorption limit: the band absorbs what it can, the remainder's worth of BTC is sold as
+swap-in absorption limit: the range absorbs what it can, the remainder's worth of BTC is sold as
 WBTC through 1inch to source the USD, and `requireFull` succeeds instead of reverting.
 
 ⚠️ **`ROUTING-AGGREGATION.md` does NOT cover this** — checked: it mentions no Lightning, channel,

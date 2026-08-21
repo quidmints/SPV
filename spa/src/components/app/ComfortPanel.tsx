@@ -54,22 +54,22 @@ export default function ComfortPanel({ safeUsd, ethUsd, btcUsd, connected }: {
   const ethDelta = desiredEth - ethUsd
   const btcDelta = desiredBtc - btcUsd
 
-  // Suggest a move ONLY when you've drifted past a WIDE ~10% band. Empirically
-  // (9yr ETH backtest) ~10% is the cheapest-effective band — tighter just churns
+  // Suggest a move ONLY when you've drifted past a WIDE ~10% range. Empirically
+  // (9yr ETH backtest) ~10% is the cheapest-effective range — tighter just churns
   // fees for no gain, and rebalancing isn't an edge anyway (the "premium" is a
   // fixed-anchor artifact that vanishes once a target gravitates). So this is a
   // low-churn EXECUTOR of your exposure choice, not an optimiser. IL is mitigated
-  // only by how much you keep in QUI (≈ 1 − at-work %), nothing the band does.
-  const band = Math.max(total * 0.10, 1)
+  // only by how much you keep in QUI (≈ 1 − at-work %), nothing the range does.
+  const range = Math.max(total * 0.10, 1)
   const lines: string[] = []
   if (total <= 0) {
     lines.push('Deposit some dollars first, then this guides how much to put to work.')
   } else {
-    if (workDelta > band) lines.push(`Put about ${f0(workDelta)} of your safe QUI to work.`)
-    else if (workDelta < -band) lines.push(`Move about ${f0(workDelta)} back to safe QUI.`)
-    if (ethDelta > band && btcDelta < -band) lines.push(`Lean about ${f0(Math.min(ethDelta, -btcDelta))} from Bitcoin toward Ethereum.`)
-    else if (btcDelta > band && ethDelta < -band) lines.push(`Lean about ${f0(Math.min(btcDelta, -ethDelta))} from Ethereum toward Bitcoin.`)
-    if (lines.length === 0) lines.push('You’re within your ~10% comfort band — nothing to do.')
+    if (workDelta > range) lines.push(`Put about ${f0(workDelta)} of your safe QUI to work.`)
+    else if (workDelta < -range) lines.push(`Move about ${f0(workDelta)} back to safe QUI.`)
+    if (ethDelta > range && btcDelta < -range) lines.push(`Lean about ${f0(Math.min(ethDelta, -btcDelta))} from Bitcoin toward Ethereum.`)
+    else if (btcDelta > range && ethDelta < -range) lines.push(`Lean about ${f0(Math.min(btcDelta, -ethDelta))} from Ethereum toward Bitcoin.`)
+    if (lines.length === 0) lines.push('You’re within your ~10% comfort range — nothing to do.')
   }
 
   // Current mix bar segments.

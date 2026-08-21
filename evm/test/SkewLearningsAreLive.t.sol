@@ -49,11 +49,11 @@ contract SkewLearningsAreLiveTest is Test {
     }
 
     /// §E275 — **THE FULL DRAIN RETURNS THE SENTINEL AS DATA; IT DOES NOT REVERT HERE.** `skewWad` is
-    /// read as an OBSERVATION by the refill trigger, so a revert at this layer blinds the band at
+    /// read as an OBSERVATION by the refill trigger, so a revert at this layer blinds the range at
     /// exactly the state the refill exists for (measured: it broke three trigger tests). The decline
     /// lives at the PRODUCERS (`wellSkew`/`sellSkew`), before any arithmetic touches the sentinel.
     /// ⇒ **IF THIS FAILS**, someone moved the decline back into the measurement. Check the refill
-    /// trigger still reads an empty band before accepting it.
+    /// trigger still reads an empty range before accepting it.
     function test_E287_FullDrainReturnsSentinelRatherThanReverting() public pure {
         uint s = SwapLib.skewWad(POOL, TARGET, SIGMA, SwapLib.ethRisk(), POOL);
         assertEq(s, type(uint).max, "the pole must be observable as data, not a revert, at this layer");
@@ -67,10 +67,10 @@ contract SkewLearningsAreLiveTest is Test {
     /// ⇒ **IF THIS FAILS, SOMEBODY BUILT THE MID-SHIFT — which is the fix §E276 asks for.** Do not
     /// "repair" this test: delete it, and close §E276 and §UNIT-CURVE-SPEC in the same commit.
     function test_E287_RefillDirectionIsExemptNotPaid() public pure {
-        // a band AT or ABOVE target has no scarcity: the drain leg charges the base, never a bonus,
+        // a range AT or ABOVE target has no scarcity: the drain leg charges the base, never a bonus,
         // and there is no code path that returns value TO the counterparty.
         uint flush = SwapLib.skewWad(POOL, POOL, SIGMA, SwapLib.ethRisk(), 0);
-        assertGt(flush, 0, "even a flush band charges the adverse-selection base");
+        assertGt(flush, 0, "even a flush range charges the adverse-selection base");
         // and it is a CHARGE: the type is unsigned, so a negative (paying) quote is inexpressible.
         assertTrue(flush <= type(uint).max, "skew is unsigned: a bid-improving quote cannot be expressed");
     }

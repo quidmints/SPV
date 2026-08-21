@@ -156,7 +156,7 @@ pub struct ClaimedSwapIn {
 }
 
 /// What is actually sent over `swap_in_tx`: the persistable [`ClaimedSwapIn`]
-/// PLUS an out-of-band durable-record ACK channel. The ack lives OUTSIDE
+/// PLUS an out-of-range durable-record ACK channel. The ack lives OUTSIDE
 /// `ClaimedSwapIn` deliberately — that struct is serde-projected into
 /// [`BridgeStore`] and RECONSTRUCTED on boot, so it must stay a plain data
 /// record with no live handles. The event handler holds the LN event (returning

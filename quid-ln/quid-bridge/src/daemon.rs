@@ -50,7 +50,7 @@ fn hop_allowed_contracts(cfg: &BridgeConfig) -> Vec<Address> {
     let mut v = vec![cfg.btc_channels, cfg.spv_gateway, cfg.btc_vault];
     for var in [
         "QUID_LEV_MANAGER",
-        "QUID_BAND",
+        "QUID_RANGE",
         "QUID_BTC_LEV_MANAGER",
         "QUID_BASKET",
         "QUID_VAULT",
@@ -518,14 +518,14 @@ pub async fn run(
 
     // YB IL-protect keeper (opt-in): one more supervised loop, enabled only when QUID_LEV_MANAGER is set.
     // Polls the leveraged book, holds each LTV inside the IL target (so the venue's liquidation never fires),
-    // and re-syncs each position's band fee slice (Quid.syncLev) after a move.
+    // and re-syncs each position's range fee slice (Quid.syncLev) after a move.
     match std::env::var("QUID_LEV_MANAGER") {
         Ok(lm_str) => {
             let lev_manager: Address = lm_str.parse().context("QUID_LEV_MANAGER not a valid address")?;
-            let band: Address = std::env::var("QUID_BAND")
-                .context("QUID_LEV_MANAGER set without QUID_BAND (the Quid addr for syncLev)")?
+            let range: Address = std::env::var("QUID_RANGE")
+                .context("QUID_LEV_MANAGER set without QUID_RANGE (the Quid addr for syncLev)")?
                 .parse()
-                .context("QUID_BAND not a valid address")?;
+                .context("QUID_RANGE not a valid address")?;
             let venue_liq_ltv_bps: u32 = std::env::var("QUID_LEV_VENUE_LIQ_BPS")
                 .ok().and_then(|s| s.parse().ok())
                 .unwrap_or(9000); // weETH market default liq LTV
@@ -542,15 +542,15 @@ pub async fn run(
             // Block to scan `Quid.Deposit` logs from for the self-funding compound crank (the Quid deploy
             // height). Unset ⇒ 0 (genesis: correct but re-scans the whole chain each sweep — set it in prod).
             
-            let lp_scan_from: u64 = std::env::var("QUID_BAND_DEPLOY_BLOCK")
+            let lp_scan_from: u64 = std::env::var("QUID_RANGE_DEPLOY_BLOCK")
                                     .ok().and_then(|s| s.parse().ok()).unwrap_or(0);
 
             let keeper = crate::lev_keeper::DaemonLevKeeper {
-                evm: evm.clone(), lev_manager, band,
+                evm: evm.clone(), lev_manager, range,
                 quid, venue_liq_ltv_bps, gas_limit: cfg.gas_limit,
                 lp_scan_from,
             };
-            info!(%lev_manager, %band,
+            info!(%lev_manager, %range,
                 "YB lev-keeper's on the beat — LTVs kept tidy, liquidations off the street");
 
             set.spawn(async move {

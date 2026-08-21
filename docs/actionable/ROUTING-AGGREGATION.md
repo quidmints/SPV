@@ -1,4 +1,4 @@
-# Swap routing: band first, 1inch for the remainder
+# Swap routing: range first, 1inch for the remainder
 
 Landed here (the isBTC-removal tree) rather than only on `main` because it lands in `LevMath`, which
 this refactor is actively reshaping. Written 2026-08-16. Owner-directed. **Nothing below is
@@ -33,19 +33,19 @@ With `MAX_LOOPS = 8` that caps an entire lever-up near **$80–160k**.
 
 **The failure mode is the important part.** It is NOT a bad fill — the oracle floor prevents that.
 It is that `openLev`/`rebalance` REVERT, so the hedge cannot be established and, worse, cannot TRACK
-the band as `targetDebt = E0·soldFrac` grows. The LP goes progressively unhedged exactly while IL
+the range as `targetDebt = E0·soldFrac` grows. The LP goes progressively unhedged exactly while IL
 accrues, while the accounting reads healthy because the debt it holds is the debt it was able to
 take. Owner: *"it must never stop tracking like this."*
 
 ## The shape
 
 ```
-  band fills what it can  →  1inch splits the REMAINDER  →  dedicated rails stay dedicated
+  range fills what it can  →  1inch splits the REMAINDER  →  dedicated rails stay dedicated
 ```
 
-1. **Band first.** Internal fill pays no external fee and no external spread, and the flow accrues
+1. **Range first.** Internal fill pays no external fee and no external spread, and the flow accrues
    to our own LPs. Aggregation belongs on the RESIDUAL, not on the whole order.
-   ⚠️ Confirm how today's band-then-remainder split is actually expressed in `sorAuxSwapBody` /
+   ⚠️ Confirm how today's range-then-remainder split is actually expressed in `sorAuxSwapBody` /
    `Core.swap` before building on it — stated here as the shape to preserve, not as a verified
    description of current code.
 2. **1inch for the remainder.** AggregationRouterV6 `0x111111125421cA6dc452d289314280a0f8842A65`
@@ -58,7 +58,7 @@ take. Owner: *"it must never stop tracking like this."*
      (+0.674 bps/day, monotonic, unmanipulable). No split exists to find; routing it externally adds
      a dependency and buys nothing.
 
-## Call sites to convert — all four, or the BTC band keeps the defect
+## Call sites to convert — all four, or the BTC range keeps the defect
 
 `LevMath._stableToWethSor`, `_wethToStableDex`, `_stableToWbtc`, `_wbtcToStable`.
 The BTC pair draws on **20.72 WBTC** — thinner than the ETH leg, and it inherits the same floor.
@@ -148,7 +148,7 @@ already have the piece that provides it: **the oracle floor**. Pathfinder propos
 disposes: output clears `TWAP × (10_000 − SELL_SLIP_BPS)/10_000` or the call reverts. That holds no
 matter what route came back or how stale the quote is.
 
-**Ordering — the band-first principle extended to every rail we own:**
+**Ordering — the range-first principle extended to every rail we own:**
 
 1. **Our own pools first.**
    - ETH leg: weETH↔WETH on the ether.fi Curve pool. We have a fair-value anchor here (the ratchet,
@@ -182,7 +182,7 @@ configuration.
 `outOfRange(...)` parks liquidity outside the current range so it fills when price arrives. That IS
 a resting order, expressed as concentrated liquidity. The economics differ — ours earns fees while
 waiting and is our own inventory, an LOP order rests off-book and costs nothing until filled — but
-OOR depth the band cannot or should not carry is exactly what a limit order could carry instead.
+OOR depth the range cannot or should not carry is exactly what a limit order could carry instead.
 
 ### Fusion could invert the keeper dependency — worth evaluating, not yet verified
 
@@ -262,9 +262,9 @@ aggregator, to fix the basket's own weight imbalances.
 
 ⚠️ **BEFORE RELYING ON SKEW AS THE FEEDBACK SIGNAL, CHECK WHAT IT MEASURES.** The proposal is to
 observe the skew price change to see whether the rebalance helped — double duty on measurements that
-already exist. But skew here is a BAND-SIDE quantity (`sellSkew` quotes the imbalance charge in both
-directions, `6b41bc3`). **Whether it responds to STABLE-BASKET COMPOSITION or only to band inventory
-is the discriminator.** If it is purely band-side its change will not measure a stable rebalance and
+already exist. But skew here is a RANGE-SIDE quantity (`sellSkew` quotes the imbalance charge in both
+directions, `6b41bc3`). **Whether it responds to STABLE-BASKET COMPOSITION or only to range inventory
+is the discriminator.** If it is purely range-side its change will not measure a stable rebalance and
 the loop would be reading a signal about something else — a number that moves for a different reason
 than assumed, which is the failure mode that cost two wrong conclusions in this thread alone. Trace
 `sellSkew`'s inputs before wiring it as the objective.
@@ -280,7 +280,7 @@ guarantee its execution thereby then it's needed"*.
 
 **`deliverableDollars` does not merely HAIRCUT the levered position — it ASSERTS that a bounded,
 value-neutral de-lever EXISTS.** Read its own docblock (`LevMath.sol:60-68`): *"the USD a levered
-position can produce via a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the band's
+position can produce via a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the range's
 pairing may count … bounded by the liquidation edge, never phantom."* It returns
 `min(netEquityUsd, C·(1 − curLtv/safeLtv))` where `safeLtv = LLTV − PROTECT_MARGIN_BPS`.
 
@@ -353,8 +353,8 @@ on different endpoints, and never quote a count without checking for `database e
 `error sending request` / `Rate limit` lines first.**
 
 ⇒ Also: `testLeverage_LvrControlVsTreatment` is now the ONLY failing test in the repo. A
-self-dealing explanation for it (lev flow trading against our own band) was proposed and REFUTED —
-`DeployLib._pk` sets `hooks: IHooks(address(0))`, so our band is never in the SOR route. It fails at
+self-dealing explanation for it (lev flow trading against our own range) was proposed and REFUTED —
+`DeployLib._pk` sets `hooks: IHooks(address(0))`, so our range is never in the SOR route. It fails at
 UNCHANGED price, where there is no IL and no directional PnL, and it has no explanation.
 
 ### BTC LEG MEASURED 2026-08-16 — previously ASSERTED from inventory, now confirmed
@@ -394,7 +394,7 @@ delete `SOR.sol`. **It is not deletable yet, and the reason is not the one it lo
 | `unlockBody` | none — removed with `_unlockCallback` and the `SafeCallback` base | — |
 
 The code already records WHY the callers left: `BtcLevManager.sol:299` — *"Neither is on this path
-any more; the SOR is now the BAND's AMM only"* — and `LevMath.sol:550`, where
+any more; the SOR is now the RANGE's AMM only"* — and `LevMath.sol:550`, where
 `sorSelfFundedReverse` was replaced by `_wethToStableCurve`. The lev de-lever legs and the BTC path
 migrated to Curve.
 
@@ -418,7 +418,7 @@ deletion and its replacement are one commit) rather than ahead of it.
 
 ⇒ And it is the same gap this document already measures: TriCrypto holds 698 WETH, so a $25k hop
 slips 128bp against a 100bp floor and REVERTS. The basket's stable→volatile leg does not work at
-size on the current route either. Band-first-then-1inch is what makes it work AND what makes SOR
+size on the current route either. Range-first-then-1inch is what makes it work AND what makes SOR
 deletable; the two are one job.
 
 ### Where it goes

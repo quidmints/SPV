@@ -3,9 +3,9 @@ pragma solidity ^0.8.28;
 
 import {SwapLib} from "../../src/imports/SwapLib.sol";
 
-/// @title Echidna harness — `SwapLib.clampByBacking` is the ONE band-add bound (audit #8).
+/// @title Echidna harness — `SwapLib.clampByBacking` is the ONE range-add bound (audit #8).
 ///
-/// @notice #8 was closed by EXTRACTING this helper and sharing it verbatim across the ETH band,
+/// @notice #8 was closed by EXTRACTING this helper and sharing it verbatim across the ETH range,
 ///         the BTC LP-add and the BTC reseat — "not by asserting the skip is sound". Its docstring
 ///         commits to `min(want, HEADROOM, THETA)` where `HEADROOM = backing - pooled`, and the
 ///         load-bearing claim is the tail: *"now every path stays bounded at the real backing even
@@ -30,7 +30,7 @@ contract SwapLibClampEchidna {
         uint got = SwapLib.clampByBacking(thetaEff, backing, pooled, want);
 
         // HEADROOM: the physical room above current in-range depth. Zero-floored, because
-        // `pooled > backing` is reachable (a repack/price move can leave the band over its
+        // `pooled > backing` is reachable (a repack/price move can leave the range over its
         // backing) and must clamp to 0 rather than underflow into a huge allowance.
         uint headroom = backing > pooled ? backing - pooled : 0;
 

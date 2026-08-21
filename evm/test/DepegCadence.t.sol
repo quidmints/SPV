@@ -34,7 +34,7 @@ contract MockAggregator {
 ///         feed (the off-chain CRE was removed). `riskFactor(token, hook)` reads
 ///         `hook.getDepegSeverityBps`, which is the feed's live downside deviation
 ///         via liveDepegBps. These cases drive the feed (acting as its own hook)
-///         straight through riskFactor: deviation→factor, deadband, stale/revert
+///         straight through riskFactor: deviation→factor, deadzone, stale/revert
 ///         defer-to-0, the 6500 clamp, and non-8-dec scaling.
 contract DepegCadenceTest is Test {
     address constant TOKEN = address(0xDEAD);

@@ -18,7 +18,7 @@ import {AllesFixture} from "./Alles.t.sol";
 ///         wired. The SECOND pins the consequence, so a future regression that re-zeroes the yield is
 ///         caught at the number the bond curve actually consumes rather than at a vault read.
 contract YieldFactorDimensions is AllesFixture {
-    /// Band around 1.0. Wide on purpose: this is a DIMENSIONAL check, not a yield-value check —
+    /// Range around 1.0. Wide on purpose: this is a DIMENSIONAL check, not a yield-value check —
     /// it must not need updating when a vault's real APY moves. A decimals error is off by 1e6+,
     /// so nothing near this boundary is ambiguous.
     uint constant FACTOR_MIN_WAD = 0.5e18;

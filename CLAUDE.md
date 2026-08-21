@@ -266,7 +266,7 @@ the signature of this, and nothing else produces it.
   accumulators were fed by **v4 pool trading fees only**, so the v4 cut removed that FEED along with
   the `isBTC` fork; `USD_FEES` (32 refs) and `feesPerShare` survive without the suffix.
   ⛔ **DO NOT READ THAT AS "THE BTC ACCUMULATORS WERE DELETED" (owner's correction, 2026-08-18).**
-  They exist on **BOTH instances** — the BTC band is `new Core(cfg.wbtc, …)` (`DeployLib.sol:137`), so **the
+  They exist on **BOTH instances** — the BTC range is `new Core(cfg.wbtc, …)` (`DeployLib.sol:137`), so **the
   BTC accumulator is `feesPerShare` READ AT THE BTC ADDRESS.** The v4 cut ended the trading-fee SOURCE that
   fed it, not the accumulator. ⚠️ **AND THE RENAME CREATED A NEW WAY TO GET THE UNITS WRONG: the warning says
   multiply by the credit site's OWN share base, and "own" now means THAT INSTANCE'S — which the name used to
@@ -323,9 +323,9 @@ the destale** — and because `../ibiza` pins this repo as a submodule and may s
 | `VogueLib` / `VogueLib.sol` | **`QuidLib` / `QuidLib.sol`** |
 | `VaultLib` / `VaultLib.sol` | **`QuidLib`** — FOLDED IN and deleted, not renamed |
 | `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** |
-| `BandState`, then `State` / `State.sol` | **`Shares` / `Shares.sol`** — ⚠️ **TWO HOPS** |
+| `RangeState`, then `State` / `State.sol` | **`Shares` / `Shares.sol`** — ⚠️ **TWO HOPS** |
 
-⛔ **A RENAME TABLE IS ITSELF A DOCUMENT THAT GOES STALE, AND THIS ONE DID.** It read *"`BandState` →
+⛔ **A RENAME TABLE IS ITSELF A DOCUMENT THAT GOES STALE, AND THIS ONE DID.** It read *"`RangeState` →
 `State`"* until 2026-08-21; the contract was then renamed **`State` → `Shares`** (so file and contract
 finally agree — `Shares.sol` had been declaring `contract State`), which left the key pointing at a
 symbol that no longer existed. **It went stale the moment its own advice was followed.** If you rename
@@ -359,16 +359,16 @@ single source of bulk.** ~5,500 lines sit in **four ETH/BTC pairs**:
 
 | ETH side | BTC side | role |
 |---|---|---|
-| `Quid` 1,557 | `Vault` 991 | band manager — ⚠️ **but see the caveat below: this row is unconfirmed** |
+| `Quid` 1,557 | `Vault` 991 | range manager — ⚠️ **but see the caveat below: this row is unconfirmed** |
 | `LevManager` 908 | `BtcLevManager` 579 | lev manager (`§A.71`: `LevManager.Pos == BtcLevManager.Pos`) |
 | `QuidLib` (was `QuidLib`) | `BtcLib` (was `BtcLib`) | delegatecall bodies — ⚠️ **RENAMED 2026-08-18**, and `QuidLib` folded INTO `QuidLib` and was deleted |
-| ~~`VEth` 116~~ | `VBtc` 105 | ⛔ **THIS PAIR NO LONGER EXISTS — `VEth.sol` IS DELETED (2026-08-18: `ls` confirms, and the only `VEth` strings left in `evm/src` are 3 comments in `Quid.sol` recording the removal).** It is listed here only so the count of four is not read as current. See the RESOLVED note below: the ETH band manager IS the 4626, so there is no ETH face to pair with. |
+| ~~`VEth` 116~~ | `VBtc` 105 | ⛔ **THIS PAIR NO LONGER EXISTS — `VEth.sol` IS DELETED (2026-08-18: `ls` confirms, and the only `VEth` strings left in `evm/src` are 3 comments in `Quid.sol` recording the removal).** It is listed here only so the count of four is not read as current. See the RESOLVED note below: the ETH range manager IS the 4626, so there is no ETH face to pair with. |
 
 **`Core` is the one place that got it right** — it parameterises the same distinction with a bool
 (187 of the 359 `isBTC` occurrences; 13 files; 26 sit in `Interfaces.sol` signatures purely to pass
 it through). Everything *above* `Core` forked into per-asset copies instead.
 
-**The owner's target (2026-08-06):** *"there should just be one band manager, one lev manager, the
+**The owner's target (2026-08-06):** *"there should just be one range manager, one lev manager, the
 entire codebase needs to be slimmed as much as humanly possible without breaking anything and
 respecting any discrepancies/asymmetries that must be there for a reason."* One implementation, two
 instances — at which point `isBTC` has nothing to select between and deletes itself. ERC-4626 agrees:
@@ -398,11 +398,11 @@ an extraction that has since happened: ETH-venue custody now lives in `EthVenue`
 `_supplyETH` `_withdrawETH` `ETHERFI` `WEETH` `AAVE_SPOKE`. `contract Vault is Ownable,
 ReentrancyGuard, Shares` and nothing else.
 ⛔ **THE LAST TRACE OF THE FUSION WAS A `Quid` HANDLE, AND IT SURVIVED THE EXTRACTION BY 8 DAYS.**
-`Vault` still declared `Quid internal immutable BAND; // the ETH LP contract`, which is how a
-BTC-only contract came to hold the ETH band manager. It had exactly two uses and both were leftovers:
+`Vault` still declared `Quid internal immutable RANGE; // the ETH LP contract`, which is how a
+BTC-only contract came to hold the ETH range manager. It had exactly two uses and both were leftovers:
 a modifier `onlyUs` gating **zero** functions (every gated function uses `onlyUsBtc`) whose header
 still described *"ETH-side venue ops (supply/withdraw/deliverable)"*, and one external call to
-`BAND.derivedThetaWadAt(...)` — a **one-line pass-through** to `QuidLib.derivedThetaWad(core, lo, up)`
+`RANGE.derivedThetaWadAt(...)` — a **one-line pass-through** to `QuidLib.derivedThetaWad(core, lo, up)`
 reading no ETH state, which `Vault` was calling with its OWN core and OWN bounds. §E301 removed both;
 deleting the now-callerless `derivedThetaWadAt` gave **`Quid` back 181 bytes** (86 → 267 margin).
 ⇒ **THE LESSON, AND IT IS THE ONE THIS FILE KEEPS RE-LEARNING: AN EXTRACTION LEAVES THE HANDLES
@@ -414,12 +414,12 @@ extraction, not just for the moved functions. The table below is kept as the rec
 | slice | what it is | members |
 |---|---|---|
 | **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `ETHERFI_*` `WEETH`) |
-| **BTC band accounting** | the actual counterpart of `Quid` | `registerBtcLp` `resize` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLev` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` — plus the band state now inherited from `Shares.sol`'s `Shares`: `lpShares` `autoManaged` `levPooled` `totalBuffer` ⚠️ **SIX NAMES IN THIS ROW WENT STALE ON 2026-08-17/18 AND ARE CORRECTED ABOVE — `resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, and `totalSharesBTC` `bandBtcOf` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` all now **0 references in `evm/src`**.** The BTC suffix was deleted (`d2dc8b78` *one name per concept, two instances*, `088d2640`, `e0d72836`) and the per-band state moved into `Shares`, ⛔ **AND "0 REFERENCES" MEANS RENAMED, NOT REMOVED — READ THIS BEFORE CONCLUDING ANYTHING FROM SUCH A GREP (owner's correction, 2026-08-18).** The BTC band is a SEPARATE INSTANCE carrying the SAME names without the suffix: `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)`, so **`lpShares` ON THE BTC INSTANCE *IS* WHAT `lpSharesBTC` NAMED** — same slot, same meaning, different address. ⇒ **THE DISCRIMINATOR MOVED FROM THE NAME TO THE ADDRESS, WHICH IS THE ENTIRE POINT OF THE `isBTC` REFACTOR.** Nothing was deleted; the suffix was, because the instance already carries the distinction. ⚠️ **A ZERO-HIT GREP FOR A SUFFIXED NAME IS EVIDENCE OF A RENAME, NEVER OF A REMOVAL — this file asserted the opposite until the owner caught it.** ⚠️ **THE ROW'S POINT SURVIVES INTACT AND IS WHY IT IS CORRECTED RATHER THAN DELETED: `Vault` IS still two things fused, and this list is still the BTC-band slice.** Only the spelling moved. |
+| **BTC range accounting** | the actual counterpart of `Quid` | `registerBtcLp` `resize` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLev` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` — plus the range state now inherited from `Shares.sol`'s `Shares`: `lpShares` `autoManaged` `levPooled` `totalBuffer` ⚠️ **SIX NAMES IN THIS ROW WENT STALE ON 2026-08-17/18 AND ARE CORRECTED ABOVE — `resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, and `totalSharesBTC` `rangeBtcOf` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` all now **0 references in `evm/src`**.** The BTC suffix was deleted (`d2dc8b78` *one name per concept, two instances*, `088d2640`, `e0d72836`) and the per-range state moved into `Shares`, ⛔ **AND "0 REFERENCES" MEANS RENAMED, NOT REMOVED — READ THIS BEFORE CONCLUDING ANYTHING FROM SUCH A GREP (owner's correction, 2026-08-18).** The BTC range is a SEPARATE INSTANCE carrying the SAME names without the suffix: `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)`, so **`lpShares` ON THE BTC INSTANCE *IS* WHAT `lpSharesBTC` NAMED** — same slot, same meaning, different address. ⇒ **THE DISCRIMINATOR MOVED FROM THE NAME TO THE ADDRESS, WHICH IS THE ENTIRE POINT OF THE `isBTC` REFACTOR.** Nothing was deleted; the suffix was, because the instance already carries the distinction. ⚠️ **A ZERO-HIT GREP FOR A SUFFIXED NAME IS EVIDENCE OF A RENAME, NEVER OF A REMOVAL — this file asserted the opposite until the owner caught it.** ⚠️ **THE ROW'S POINT SURVIVES INTACT AND IS WHY IT IS CORRECTED RATHER THAN DELETED: `Vault` IS still two things fused, and this list is still the BTC-range slice.** Only the spelling moved. |
 
-⇒ **`Quid`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
+⇒ **`Quid`'s pair is the BTC-range SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
 concern with **no BTC counterpart — correctly**, because ETH venues are 4626 vaults while BTC custody
 is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it is REAL.
-🔴 **`VBtc` MUST SURVIVE THE CONSOLIDATION — do not "delete it into" the band manager.** The BTC band's
+🔴 **`VBtc` MUST SURVIVE THE CONSOLIDATION — do not "delete it into" the range manager.** The BTC range's
 `asset()` is **not a real ERC-20 underlying**: it returns WBTC as a *pricing handle* (the venue prices
 vBTC against WBTC via `getTWAPforAsset`) and `convertToAssets` is a pure identity because **vBTC IS
 sats**. The real underlying is LN-custodied native BTC. So "one instance = one `asset()` = an honest
@@ -434,13 +434,13 @@ custody. **There is no vBTC holder population to build an anonymity set from.**"
 ✅ **RESOLVED (owner, 2026-08-07) — AND THE REAL REASON IS NEITHER OF THE ONES THE CODE GIVES.**
 `VEth` **deletes**; `VBtc` **survives**. The discriminator is simply *whether an ERC-20 underlying
 already exists*:
-  • **ETH — none needed.** WETH exists independently; wrapping/unwrapping is an edge detail. The band
+  • **ETH — none needed.** WETH exists independently; wrapping/unwrapping is an edge detail. The range
     manager instance names `asset() = WETH` and IS the 4626 outright. `VEth` has no remaining job.
     ⭐ **THE MECHANICAL EXPRESSION OF THIS, MEASURED 2026-08-18 — and it is the sharpest form of the
     discriminator, so read it before re-opening the question a fourth time: `Quid`'s ERC-20 face is a
-    PROJECTION OF BAND STATE, while `VBtc`'s is a LEDGER.** `Quid.totalSupply()` returns `lpShares`,
+    PROJECTION OF RANGE STATE, while `VBtc`'s is a LEDGER.** `Quid.totalSupply()` returns `lpShares`,
     `Quid.balanceOf(u)` returns `autoManaged[u].pooled`, and `Quid.transfer` calls `_transferShares` —
-    there is no balances mapping, because the band's own accounting IS the balance. `VBtc` declares
+    there is no balances mapping, because the range's own accounting IS the balance. `VBtc` declares
     `mapping(address => uint) balanceOf` and moves plain balances.
     ⇒ **`Quid.balanceOf ∥ VBtc.balanceOf` IS NOT A DUPLICATED PAIR LIKE `State`'s TWELVE.** Those twelve
     (`lpShares ∥ lpShares`, `feesPerShare ∥ feesPerShare`, …) are one concept declared twice. These two
@@ -448,16 +448,16 @@ already exists*:
     duplicate state, which is the exact thing `Shares.sol`'s header says it exists to delete.**
     ⚠️ **AND DO NOT MOVE THE FACE INTO `State`:** an abstract base COPIES its bodies into every
     inheritor (measured +41 bytes, zero saved), and `State` is inherited by `Vault` too — which already
-    has `VBtc` for that job. It would add bytes to the BTC band to remove none from anywhere.
+    has `VBtc` for that job. It would add bytes to the BTC range to remove none from anywhere.
   • **BTC — one must be MINTED.** The underlying is LN-custodied native BTC, which has **no EVM token**;
-    WBTC is only a pricing handle and is never held. So the BTC band needs a **synthetic underlying to
+    WBTC is only a pricing handle and is never held. So the BTC range needs a **synthetic underlying to
     point `asset()` at**, and that is exactly what vBTC is (`ibiza/COMPLIANCE-THESIS.md:77`: *"a
     synthetic, sats-denominated token minted only against…"*).
-⇒ `VBtc` exists because **the BTC band has no underlying unless it mints one** — NOT because anyone
+⇒ `VBtc` exists because **the BTC range has no underlying unless it mints one** — NOT because anyone
 holds it, custodies it, or anonymises it. An asymmetry with a real reason, and one that survives
 instantiation rather than being dissolved by it.
 ⚠️ Follow-on to settle when this lands: today `VBtc.asset()` returns **WBTC** as a pricing handle. Under
-this design vBTC IS the band's asset rather than having one, so that accessor's meaning has to be
+this design vBTC IS the range's asset rather than having one, so that accessor's meaning has to be
 revisited — do not carry it across unexamined.
 
 🔴 **AND IT IS WORSE THAN STALE — `VBtc.sol:18-28` PROPOSES A FEATURE ibiza ANALYSED AS CROSS-LP THEFT.**
@@ -481,10 +481,10 @@ names: an open Morpho/Euler market, where a liquidator who seizes vBTC has no wa
 before deciding, and reconcile the two documents whichever way it goes.
 
 ⇒ ~~**Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`.~~ ✅ **DONE** — see the
-re-measurement at the head of this section. `Quid` ∥ `Vault` are now two band managers with no ETH-venue
+re-measurement at the head of this section. `Quid` ∥ `Vault` are now two range managers with no ETH-venue
 slice fused into either, so the remaining question really is the one-implementation-two-instances merge.
-⚠️ **What is NOT settled: there are still TWO polymorphic band faces over the same pair of objects** —
-`IBandManager` (7 members, state/control) and `IBand` (9, settlement), zero overlap, both implemented by
+⚠️ **What is NOT settled: there are still TWO polymorphic range faces over the same pair of objects** —
+`IRangeManager` (7 members, state/control) and `IRange` (9, settlement), zero overlap, both implemented by
 `Quid` and `Vault`. Nothing is declared twice, so this is not the duplication rule 2 catches; it is two
 faces where the goal is one manager, and a caller cannot tell which to reach for. Merging them is the
 §E21 move (`IAux` absorbing `LevMath.IAuxM`, `LevManager.ISwapAux`, `FeeLib.IAuxFee`).
@@ -496,14 +496,14 @@ CLEAN and reverted only at runtime, because in Solidity every contract handle is
 compiler cannot tell two of them apart.
 
 **THE ROOT: code that merged two identities because they SHARED AN ADDRESS.** `IBtcVault` had existed
-as a separate interface precisely to mark that ETH-venue custody and the BTC band manager are
+as a separate interface precisely to mark that ETH-venue custody and the BTC range manager are
 different things. It was deleted as "a second interface over one contract" — true while the address
 was shared, false the moment it was not. ⇒ **MERGE ON WHAT THINGS ARE, NEVER ON WHAT ADDRESS THEY
 CURRENTLY SHARE.** Same shape as `create_sweep_tx`: a marker for a gap that has not opened yet is
 indistinguishable from duplication.
 
-**THE AUDIT METHOD THAT FAILED:** I enumerated every `IBandManager(x).member` / `IEthVenue(x).member`
-call site and scored 29/29 correct — and that was TRUE. `IBandManager(c.btcVault).repack(true)` is a
+**THE AUDIT METHOD THAT FAILED:** I enumerated every `IRangeManager(x).member` / `IEthVenue(x).member`
+call site and scored 29/29 correct — and that was TRUE. `IRangeManager(c.btcVault).repack(true)` is a
 correct call site; the defect was that `c.btcVault` had been ASSIGNED the ETH-venue address upstream.
 ⇒ **WHEN TWO IDENTITIES SEPARATE, GREP THE ASSIGNMENTS**: `grep -rn "btcVault:" src` and
 `grep -rn "ethVenue" src`, then classify each by what the CONSUMER does with it. The worst instance
@@ -652,13 +652,13 @@ never touches `UtilsLib` — taking less would have meant hand-rolling nothing.
 ## ⛔ THERE ARE NO TICKS. THE GREP SAYS OTHERWISE AND IT IS WRONG.
 
 `evm/src` has **~185 case-insensitive `tick` matches and EVERY ONE IS A COMMENT.** Zero live tick code.
-They are `§DE-TICK` / `§TICK-REMOVAL` markers recording the removal: *"band bounds as PRICES"*,
-*"carries the PRICE now, not a sqrt price"*, *"`bandTicks` deleted — it packed a band-edge PRICE LIMIT
+They are `§DE-TICK` / `§TICK-REMOVAL` markers recording the removal: *"range bounds as PRICES"*,
+*"carries the PRICE now, not a sqrt price"*, *"`rangeTicks` deleted — it packed a range-edge PRICE LIMIT
 for v4's swap"*.
 ⚠️ **THE HIT COUNT LIES BY VOLUME**: 185 reads as heavy usage, and the density exists *because* the
 removal was documented carefully. **Filter comments before concluding anything about tick usage** — the
 inverse of "an empty grep proves nothing", and it costs the same wrong conclusion.
-⇒ **Band bounds are ABSOLUTE PRICES** (`loPrice`/`upPrice`); the fill settles at the oracle; out-of-range
+⇒ **Range bounds are ABSOLUTE PRICES** (`loPrice`/`upPrice`); the fill settles at the oracle; out-of-range
 orders carry absolute `lower`/`upper`. **Midnight's `TickLib` is therefore irrelevant to us** — it
 quantises onto a log grid in a (0,1) DISCOUNT domain and we neither quantise nor price in discounts. I
 nearly booked "tick normalisation" as unavoidable new work; there is none, because there is no tick on
@@ -725,7 +725,7 @@ JURISDICTION-SCOPED, not a contradiction of this.
   ⚠️ **Do not restate it in `QUEUE.md`.** The SPV rows (§E170/§E171-r/§E174/§E187/§E188) now keep
   only the protocol-side facts and point at §3b; two copies of a spec drift, and the one that drifts
   is always the copy in the repo that cannot build the thing.
-- `docs/informational/` **contradicts the contracts in ~10 verified places** (the band is ±0.2%, not
+- `docs/informational/` **contradicts the contracts in ~10 verified places** (the range is ±0.2%, not
   ±2%; the short leg, `baseRate`, CRE, and the swap-in bonus are gone; the stable count moved).
   Never quote it without checking the code.
 - `docs/actionable/BUILD-QUEUE-AND-107.md` is an **append-only archive**: its evidence (traces,

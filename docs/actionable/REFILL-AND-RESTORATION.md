@@ -1,4 +1,4 @@
-# Refill and band restoration — consolidated state
+# Refill and range restoration — consolidated state
 
 **Owner of this file: whoever picks it up next.** It is written to be executed COLD, by a thread with
 no memory of the 2026-08-04/05 sessions. Every claim below is marked ✅ verified in-repo, ⛔ retracted,
@@ -11,30 +11,30 @@ Companion files: `JIT-DEPTH-GUARANTEE.md` (JIT depth is a SEPARATE mechanism —
 
 ## 1. The question, stated so it cannot drift
 
-> **Is restoring the band's volatile:USD balance profitable to whoever does it, unaided?**
+> **Is restoring the range's volatile:USD balance profitable to whoever does it, unaided?**
 
 If YES, an external arbitrageur closes every imbalance for free and no mechanism is needed.
 If NO, the protocol must execute restoration itself, and the only remaining question is funding.
 
 **This has been asked three times and answered zero times.** Twice it was answered with an argument;
 once by citing E25's "0 bps across 300k volume" — **which does not answer it**, because E25 measured a
-BALANCED band under ORDINARY flow, and the question is about the dislocation present in an IMBALANCED
-band. Reusing that measurement here is the specific error this file exists to stop.
+BALANCED range under ORDINARY flow, and the question is about the dislocation present in an IMBALANCED
+range. Reusing that measurement here is the specific error this file exists to stop.
 
 ---
 
 ## 2. What refill is NOT — four definitions ruled out, three by the owner
 
 ⛔ **Not re-pairing assets already held.** Pairing spare ETH against spare dollars we already hold just
-makes the band smaller in one leg. If there is excess ETH beyond the dollars available to pair it, the
+makes the range smaller in one leg. If there is excess ETH beyond the dollars available to pair it, the
 excess stays uncovered. That is a REBALANCE, and it shrinks the pool rather than refilling it.
 
-⛔ **Not selling uncommitted basket dollars for out-of-band ETH.** Those dollars back QU!D. Spending
+⛔ **Not selling uncommitted basket dollars for out-of-range ETH.** Those dollars back QU!D. Spending
 them to buy volatile converts stable backing into directional exposure using QU!D holders' capital.
 It is a trade with someone else's money, not a refill. **This is the boundary that matters most.**
 
 ⛔ **Not #12's freed headroom.** (E67, owner-corrected.) I claimed E36's +60,000 of returned headroom
-and E39's +32 ETH of band depth were "additional refill capacity". **#12 freed no dollars**: it stopped
+and E39's +32 ETH of range depth were "additional refill capacity". **#12 freed no dollars**: it stopped
 the backing gate counting LP trading proceeds as basket commitments. `liquidTotal` never moved, only
 `committedBoth` fell. **What grew is PERMISSION, not capital.** ❓ Whether deployable dollars sit behind
 that permission was never checked — E39's `surplus/price` arithmetic assumes it does.
@@ -53,7 +53,7 @@ All verified in-repo 2026-08-05, at these lines, AFTER the E68 skew change lande
 | The sell leg exempts a refill outright (`over == 0 ⇒ 0`) | `evm/src/imports/SwapLib.sol:1102` |
 | The BTC swap-out records an OBLIGATION, recipient is the pool | `evm/src/imports/SwapLib.sol:1203` |
 
-**Consequence, and it is the load-bearing one:** a swap that moves the band TOWARD target is charged
+**Consequence, and it is the load-bearing one:** a swap that moves the range TOWARD target is charged
 **zero premium on both legs**. Restoration is not deterred. **But exemption is not a reward** — the
 restorer still pays gas and the ordinary LP fee and captures no premium, so "not deterred" and
 "incentivised" are different states and only the first is implemented.
@@ -61,7 +61,7 @@ restorer still pays gas and the ordinary LP fee and captures no premium, so "not
 ❓ **UNVERIFIED AND IMPORTANT: is `target = flowUsd` the right target at all?** It is a DEMAND proxy
 (the flow EWMA), not a value-balance target. E54 has a derivation for this; **it has not been read by
 anyone who then re-checked it.** If the target is wrong, every q in the system is wrong. *Check:* read
-E54's derivation in `SwapLib.sol` around `sellSkew`, then ask whether a band at "correct" composition
+E54's derivation in `SwapLib.sol` around `sellSkew`, then ask whether a range at "correct" composition
 but low flow reads as scarce.
 
 ---
@@ -77,7 +77,7 @@ seed 400 ETH, drain in 40k steps until `inv < target` —
 The scarce leg is live and observable.
 
 ⛔ **Two errors of mine were found inside this fixture; both are recorded in-file so they are not
-repeated.** (1) **Direction inverted** — a stable→volatile BUY *drains* the band (it hands out ETH,
+repeated.** (1) **Direction inverted** — a stable→volatile BUY *drains* the range (it hands out ETH,
 `inv` FALLS); I had every comment backwards. (2) **A zero skew reading that was the flush branch, not
 an absent premium** — `target = flowEwmaUsd` GROWS with the very volume used to drive the drain, so
 `inv >= target` held throughout and the fixture never entered the state it was measuring. It now logs
@@ -149,7 +149,7 @@ asserted absence — after having already found the relevant code earlier in the
 
 | module | what it actually is | wired? |
 |---|---|---|
-| `quid-hop/src/rebalancer.rs` | **Lightning channel liquidity** — splices on-chain BTC into the hop↔LP channel when `next_outbound_htlc_limit_msat` falls below the per-swap ceiling. Its "imbalance" is CHANNEL OUTBOUND DIRECTION, an unrelated quantity from the band's volatile:USD composition. | ✅ live — `rebalance_capacity_tick` at `quid-bridge/src/vault.rs:665`, PHASE C of `run_vault_open_orchestrator` |
+| `quid-hop/src/rebalancer.rs` | **Lightning channel liquidity** — splices on-chain BTC into the hop↔LP channel when `next_outbound_htlc_limit_msat` falls below the per-swap ceiling. Its "imbalance" is CHANNEL OUTBOUND DIRECTION, an unrelated quantity from the range's volatile:USD composition. | ✅ live — `rebalance_capacity_tick` at `quid-bridge/src/vault.rs:665`, PHASE C of `run_vault_open_orchestrator` |
 | `quid-bridge/src/lev_keeper.rs` | **THE RELEVANT PRIOR ART.** `compound_pays_for_itself(pending, gas_price) → pending/2 >= gas_price × COMPOUND_GAS` at `:280`. Its own comment: *"This is what makes the keeper subsidy-free."* | ✅ live — called at `:433` |
 | JIT, anywhere in Rust | **does not exist** — no match in `quid-hop/src` or `quid-bridge/src` | — |
 

@@ -519,7 +519,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     // BTC (LP/hop ops). Same instance - BTC == ETH - named for readability.
     /// §ETHVENUE-FOLD — the ETH yield venue IS Quid, so this is `ETH` under its venue-side name.
     /// Kept as an alias rather than rewritten at 33 call sites: those calls read as venue calls
-    /// (`EV.bandETH()`, `EV.setLevManager(...)`) and still are — the address simply stopped being
+    /// (`EV.rangeETH()`, `EV.setLevManager(...)`) and still are — the address simply stopped being
     /// a second contract.
     Quid EV;
     Vault    public BTC;
@@ -592,9 +592,9 @@ contract AllesFixture is ForkPin, ExitFixture {
         // 977 / 4720 WETH), so no injected liquidity is needed.
         //
         // This ALSO fixes a real bug: gauntlet used to ALIAS the euler mock, which (a) left the
-        // Gauntlet venue entirely untested and (b) made `QuidLib._bandETH` (which SUMS
+        // Gauntlet venue entirely untested and (b) made `QuidLib._rangeETH` (which SUMS
         // galaxy+euler+gauntlet with no dedup) DOUBLE-COUNT that vault — a 10 ETH SPLIT deposit
-        // reported bandETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
+        // reported rangeETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
         //
         // Using real addresses also DELETES the whole nonce-prediction apparatus that existed
         // only to place the mocks (computeCreateAddress ×N + a drift `require`). The NONCE
@@ -657,7 +657,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
         BTC = Vault(payable(A.vault));
-        EV  = ETH;                              // ETH-venue custody now lives in the ETH band
+        EV  = ETH;                              // ETH-venue custody now lives in the ETH range
 
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
@@ -1307,10 +1307,10 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
 
-    /// §ONE-ANCHOR — the band stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
-    /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
-    function _bLo(address band) internal view returns (uint) { (uint l,) = ICore(band).bandBounds(); return l; }
-    function _bHi(address band) internal view returns (uint) { (, uint h) = ICore(band).bandBounds(); return h; }
+    /// §ONE-ANCHOR — the range stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
+    /// `rangeBounds()`. These two exist so the files that want a single leg do not each destructure it.
+    function _bLo(address range) internal view returns (uint) { (uint l,) = ICore(range).rangeBounds(); return l; }
+    function _bHi(address range) internal view returns (uint) { (, uint h) = ICore(range).rangeBounds(); return h; }
 
 
     // ════════════════════════════════════════════════════════════════════════════════════════
@@ -1339,8 +1339,8 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
 
-    /// §WRONG-BAND — the BTC band's ENGINE. `Aux.swap(USDC, WBTC, ...)` settles on
-    /// `_bandOf(WBTC) == BTC_CORE`, so a test that primes with WBTC swaps and then reads
+    /// §WRONG-RANGE — the BTC range's ENGINE. `Aux.swap(USDC, WBTC, ...)` settles on
+    /// `_rangeOf(WBTC) == BTC_CORE`, so a test that primes with WBTC swaps and then reads
     /// `CORE.POOLED_USD()` is reading the ETH engine and can only ever see 0. That was 246
     /// `priming funded POOLED_USD: 0 <= 0` failures plus four sibling buckets -- an assertion about
     /// the wrong contract, not a defect in the code under test.
@@ -1348,7 +1348,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// ⚠️ It was UNREACHABLE until `Vault.CORE` was made public: with no handle for the second
     /// engine, the fixture had nothing to read but `CORE`. `Aux.sol` warns about exactly this two
     /// lines above the dispatch -- splitting read from write "is what let reads and settlement
-    /// disagree about which band they were talking to".
+    /// disagree about which range they were talking to".
     function BCORE() internal view returns (Core) { return BTC.CORE(); }
 
 }
@@ -1586,25 +1586,25 @@ contract Alles is AllesFixture {
     // WHAT THIS FIXTURE ACTUALLY REACHES (measured — see the premise assertions below, which
     // previously did not exist; the 0.06e18 / 0.15e18 tolerances hid all of it):
     //   • The swap DOES maximally skew composition: POOLED_USD goes 50_692_000_843 → 46_595_116,
-    //     i.e. the band's USD leg is 99.91% drained. That part of the premise is real.
-    //   • The swap CANNOT push the tick out of the band. It saturates at the band edge: measured
-    //     band [200660, 200700], post-swap tick 200699 — one tick inside. Verified by sweeping the
+    //     i.e. the range's USD leg is 99.91% drained. That part of the premise is real.
+    //   • The swap CANNOT push the tick out of the range. It saturates at the range edge: measured
+    //     range [200660, 200700], post-swap tick 200699 — one tick inside. Verified by sweeping the
     //     swap size over 40 / 80 / 160 / 400 / 1000 ETH: ALL FIVE produce a bit-identical end
     //     state (same tick, same POOLED_USD 46_595_116, same POOLED). A concentrated
-    //     position cannot trade itself past its own band edge — there is no liquidity beyond it.
+    //     position cannot trade itself past its own range edge — there is no liquidity beyond it.
     //   • Therefore NEITHER reseat branch in SwapLib.rebalanceCore fires. The repack branch needs
     //     `currentTick > upPrice || currentTick < loPrice` (false, by 1 tick). The auto-heal
     //     branch needs `stale` — internal TWAP >5% off Chainlink — and the gap here is 0.0999%.
     //     `reseatEpoch` is 0 both before AND after the reseat: nothing was re-centered.
     //
     // So `ETH.reseat()` is a verified NO-OP here and the assertions below pin exactly that. This
-    // test does NOT prove "_repackAdd handles a composition-skewed re-band" — that path is not
+    // test does NOT prove "_repackAdd handles a composition-skewed re-range" — that path is not
     // reachable from this fixture, so the old comment claiming it did was wrong. See the report:
-    // a band drained to 99.9% one-sided is functionally dead (no USD depth for the next swapper)
+    // a range drained to 99.9% one-sided is functionally dead (no USD depth for the next swapper)
     // yet is still "in range" by one tick, so the permissionless deadlock-recovery poke cannot
     // heal it. That is a suspected REAL defect in the repack trigger (it tests the tick boundary,
     // not the composition) and is deliberately NOT papered over with a loose tolerance here.
-    function testGrindRemoval_LargeSwapThenReseatRebandsSkewed() public {
+    function testGrindRemoval_LargeSwapThenReseatRerangesSkewed() public {
         vm.prank(User01); ETH.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
@@ -1612,7 +1612,7 @@ contract Alles is AllesFixture {
         assertGt(pooledUsdAtSeed, 0, "PREMISE: deposit seeded a USD leg to skew");
 
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
-        // curve until the band's USD leg is exhausted at the upper edge.
+        // curve until the range's USD leg is exhausted at the upper edge.
         vm.prank(User02);
         AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0);
 
@@ -1621,21 +1621,21 @@ contract Alles is AllesFixture {
         // Derived from live state, not a literal: the USD leg must be ≥99% consumed.
         uint pooledBeforeReseat = CORE.POOLED_USD();
         assertLt(pooledBeforeReseat, pooledUsdAtSeed / 100,
-            "PREMISE: swap drained >=99% of the band's USD leg (composition really is skewed)");
+            "PREMISE: swap drained >=99% of the range's USD leg (composition really is skewed)");
 
-        // PREMISE: the swap saturated AT the band edge — it did not leave the band. This is what
+        // PREMISE: the swap saturated AT the range edge — it did not leave the range. This is what
         // makes the reseat a structural no-op below, so assert it rather than letting it hide.
         (uint priceBefore,) = CORE.poolStats();   // §DE-TICK: was a tick
-        assertLe(priceBefore, _bHi(address(ETH)), "PREMISE: swap saturates inside the band (upper)");
-        assertGe(priceBefore, _bLo(address(ETH)), "PREMISE: swap saturates inside the band (lower)");
+        assertLe(priceBefore, _bHi(address(ETH)), "PREMISE: swap saturates inside the range (upper)");
+        assertGe(priceBefore, _bLo(address(ETH)), "PREMISE: swap saturates inside the range (lower)");
         uint loBefore = _bLo(address(ETH)); uint hiBefore = _bHi(address(ETH));
 
         // The permissionless reseat must handle the skewed pool without reverting.
         ETH.reseat();
 
         // Spot vs the anchor. BOUND DERIVED FROM LIVE STATE, not a fitted literal: the swap can
-        // only walk the spot to the band edge, and the band is built by SwapLib.updateTicks with
-        // BAND_DELTA = 20bps, so |spot/twap - 1| is structurally capped at 20bps = 0.002e18.
+        // only walk the spot to the range edge, and the range is built by SwapLib.updateTicks with
+        // RANGE_DELTA = 20bps, so |spot/twap - 1| is structurally capped at 20bps = 0.002e18.
         // Measured residual is 0.0999% (9.99bps) — the centre-to-edge distance after tick
         // alignment — and it is bit-stable across fork blocks (the fork is unpinned, so the
         // absolute price moves run to run, but this RATIO does not). Old bound was 0.06e18 (6%),
@@ -1643,7 +1643,7 @@ contract Alles is AllesFixture {
         (uint sp,) = CORE.poolStats();
         uint spot = sp;   // §DE-TICK: already a price
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
-        assertApproxEqRel(spot, twap, 0.002e18, "spot within one BAND_DELTA (20bps) of the anchor");
+        assertApproxEqRel(spot, twap, 0.002e18, "spot within one RANGE_DELTA (20bps) of the anchor");
 
         // Capital-neutral, EXACTLY. Residual is 0 wei — not "small", but structurally zero: as
         // established above the reseat takes neither the repack nor the auto-heal branch, so it
@@ -1653,12 +1653,12 @@ contract Alles is AllesFixture {
         assertEq(CORE.POOLED_USD(), pooledBeforeReseat, "reseat moved no USD capital");
 
         // Pin the no-op explicitly so this test can never again pass while silently inert: if a
-        // future change makes the reseat actually re-band here, these fail and force a re-read of
+        // future change makes the reseat actually re-range here, these fail and force a re-read of
         // the block comment above (that would be the FIX for the suspected defect, not a break).
         (uint priceAfter,) = CORE.poolStats();
         assertEq(priceAfter, priceBefore, "reseat did not move the spot (no branch fired)");
         assertTrue(_bLo(address(ETH)) == loBefore && _bHi(address(ETH)) == hiBefore,
-            "reseat did not re-center the band (no branch fired)");
+            "reseat did not re-center the range (no branch fired)");
     }
 
     // Grind removed → the mover pays the reseat/repack gas INSIDE its own swap (SwapLib.rebalanceCore
@@ -1718,10 +1718,10 @@ contract Alles is AllesFixture {
         // q=0.5 — five orders below — so ETH is where the kernel's SHAPE is observable.** The BTC
         // floor gets its own assertions below instead of being papered over.
         // §UNIT-A — RE-EXPRESSED, NOT WEAKENED (§E81-r precedent). This asserted 0. The flush now
-        // returns the BASE, because a well-stocked band is not an UNEXPOSED one: the
+        // returns the BASE, because a well-stocked range is not an UNEXPOSED one: the
         // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
         // (kernel) term flushes away, never the adverse-selection floor. Both early returns
-        // previously sat ABOVE `_maxWellSkew`, so a fresh OR idle band charged NOTHING — §E99
+        // previously sat ABOVE `_maxWellSkew`, so a fresh OR idle range charged NOTHING — §E99
         // measured a 30-day-old imbalance pricing at 0 and §E98 measured BTC's SPLICE_FLOOR never
         // applying. The expected value is the SAME ETH base this test already names below
         // (`σ²·ETH_CONF_FRAC/8` = 475e6), so this pins a DERIVED quantity, not a fitted one, and is
@@ -1780,7 +1780,7 @@ contract Alles is AllesFixture {
     // SWAP-PRICING PIN (BTC, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
     // pinning what a small buy actually PAYS. Fresh pool ⇒ no flow/leverage ⇒ target=0 ⇒ skew=0,
     // so a small stable→WETH buy must deliver ≈ amountUSD/oracle (minus the 0.042% fee + a little
-    // slippage). The tight band catches gross rot: wrong oracle scale, a decimals bug, a spurious
+    // slippage). The tight range catches gross rot: wrong oracle scale, a decimals bug, a spurious
     // skew (would cut up to 3%), a doubled/dropped haircut, or a sign error. (The 420ppm fee alone
     // is below fork-slippage noise — its magnitude is pinned separately by fee-accrual tests.)
     function testSwapPricing_EthInRange_PaysAboutOracle() public {
@@ -1788,7 +1788,7 @@ contract Alles is AllesFixture {
         vm.roll(vm.getBlockNumber() + 1);
 
         uint base = AUX.getTWAPforAsset(address(WETH), 1800);       // USD18 per 1e18 raw ETH
-        uint amtUsdc = 2000 * USDC_PRECISION;                        // ~0.2% of a ~$1M+ band ⇒ tiny slippage
+        uint amtUsdc = 2000 * USDC_PRECISION;                        // ~0.2% of a ~$1M+ range ⇒ tiny slippage
         uint expectedWeth = SoladyMath.fullMulDiv(amtUsdc * 1e12, 1e18, base); // USD18/oracle ⇒ ETH18, pre-fee
 
         vm.startPrank(User02);
@@ -1797,7 +1797,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
 
         // Within 1.5%: mostly slippage. A broken oracle scale / decimals / spurious skew would miss
-        // by whole percent and blow this band. Pins the fundamental "what a swap pays" at genesis.
+        // by whole percent and blow this range. Pins the fundamental "what a swap pays" at genesis.
         assertApproxEqRel(got, expectedWeth, 0.015e18,
             "ETH in-range buy must deliver ~amountUSD/oracle (no spurious skew, right scale)");
     }
@@ -1820,7 +1820,7 @@ contract Alles is AllesFixture {
     }
 
     // SWAP-PRICING PIN (ETH sell, in-range): the tight successor to the old testRegularSwaps (which
-    // only asserted `usdcReceived > expected*90/100`). Sell 1 ETH into a deep fresh band (skew=0):
+    // only asserted `usdcReceived > expected*90/100`). Sell 1 ETH into a deep fresh range (skew=0):
     // must receive ≈ oracle price minus the 0.042% fee + tiny slippage. Pins the sell leg's pricing.
     function testSwapPricing_EthSellInRange_PaysAboutOracle() public {
         vm.prank(User01); ETH.deposit{value: 500 ether}(0, User01);
@@ -1850,8 +1850,8 @@ contract Alles is AllesFixture {
 
         // Within 5% (1.67% off): trust the internal (DEX-native) price — normal operation.
         (uint pIn, bool staleIn) = SwapLib.twapResolve(feed, 3050e18, false, 500, 1 days);
-        assertEq(pIn, 3050e18, "within-band internal price kept");
-        assertFalse(staleIn,   "within-band not flagged stale");
+        assertEq(pIn, 3050e18, "within-range internal price kept");
+        assertFalse(staleIn,   "within-range not flagged stale");
 
         // Poisoned 10% HIGH (an uncapped buy dragged spot up): beyond 5% ⇒ snaps to Chainlink.
         (uint pHi, bool staleHi) = SwapLib.twapResolve(feed, 3300e18, false, 500, 1 days);
@@ -2103,7 +2103,7 @@ contract Alles is AllesFixture {
     }
 
     /// @notice ETH multi-venue: a depositor who picks ether.fi gets their ETH
-    ///         staked to weETH (aggregated in bandETH + attributed to their
+    ///         staked to weETH (aggregated in rangeETH + attributed to their
     ///         ethfiBacked slice - the hard wall), and on withdraw the slice is
     ///         offramped weETH->WETH against the real pool (0x7a41…cae3) and
     ///         delivered as WETH. A Galaxy LP (no ether.fi slice) is untouched.
@@ -2116,12 +2116,12 @@ contract Alles is AllesFixture {
         // User01 picks ether.fi per-deposit (venue rides the call). ether.fi is VENUE_ROVER (4) — it is
         // never a distinct "ether.fi" code; the base deploy has Rover off (address(0)), so venue 4 hits
         // QuidLib._supplyEtherFi's direct-weETH path. Same slice.
-        uint vEthBefore = EV.bandETH();
+        uint vEthBefore = EV.rangeETH();
         vm.prank(User01); ETH.deposit{value: 10 ether}(0, User01);
 
-        // weETH held at EthVenue + aggregated into bandETH + attributed to the slice.
+        // weETH held at EthVenue + aggregated into rangeETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(EV)), 0, "weETH held at EthVenue");
-        assertGt(EV.bandETH(), vEthBefore, "bandETH aggregates the weETH");
+        assertGt(EV.rangeETH(), vEthBefore, "rangeETH aggregates the weETH");
         // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
         // ether.fi-sourced, so the slice was a constant equal to `pooled`.
         (uint pooled,,,) = ETH.autoManaged(User01);
@@ -2173,7 +2173,7 @@ contract Alles is AllesFixture {
 
     /// @notice Vault health is BINARY (blocked) + evac — the graded haircut was
     ///         the dead CRE-onReport vestige (removed). A blocked vault is valued
-    ///         at maxWithdraw (bandETH/get_deposits) and evac pulls the
+    ///         at maxWithdraw (rangeETH/get_deposits) and evac pulls the
     ///         protocol's balance out (spread to healthy vaults / left at Aux).
     function testVaultWatcher_BlockAndEvacuate() public {
         // Put USDC into its vault via a mint.
@@ -2242,14 +2242,14 @@ contract Alles is AllesFixture {
     ///       when venue choice was removed: there is one destination, so nothing lands in Galaxy and
     ///       there is no alternate venue to evacuate TO.
     ///       ⚠️ ITS OLD FORM WAS LOAD-BEARING, and is why the collapse was attempted five times and
-    ///       abandoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
-    ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `bandOp` -> `Aux.supplySelf`
+    ///       arangeoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
+    ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `rangeOp` -> `Aux.supplySelf`
     ///       path was a REAL second destination, against a hand-trace that concluded the opposite.
     ///       Removing Galaxy was intentional, and as of 2026-08-14 the three WETH-4626 curator venues
     ///       are DELETED outright (their VENUE_* selectors were already gone, so nothing could reach
     ///       them) — so the inverted Galaxy assertion is dropped with the venue it named. The weETH
     ///       assertion below is the one that caught the bug and it stays: it measures the DESTINATION
-    ///       directly, which `bandETH` alone cannot do.
+    ///       directly, which `rangeETH` alone cannot do.
     ///       (`AUX.evacuate`/`vaultBlocked` are untouched and still cover the STABLE 4626 vaults; only
     ///       the ETH-venue path this test drove them through is gone.)
     function testEthDepositsLandInWeeth() public {
@@ -2257,14 +2257,14 @@ contract Alles is AllesFixture {
         assertTrue(weeth != address(0), "weETH wired");
 
         uint weethBefore    = IERC20(weeth).balanceOf(address(EV));
-        uint bandEthBefore = EV.bandETH();
+        uint rangeEthBefore = EV.rangeETH();
 
         vm.prank(User01); ETH.deposit{value: 100 ether}(0, User01);
 
-        // Measure the DESTINATION directly. `bandETH` would rise either way, so asserting on it alone
+        // Measure the DESTINATION directly. `rangeETH` would rise either way, so asserting on it alone
         // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
         assertGt(IERC20(weeth).balanceOf(address(EV)), weethBefore, "ETH deposit did NOT land in weETH");
-        assertGt(EV.bandETH(), bandEthBefore, "deposit grew ETH backing");
+        assertGt(EV.rangeETH(), rangeEthBefore, "deposit grew ETH backing");
     }
 
     function testClearMultipleBlocks() public {
@@ -2815,11 +2815,11 @@ contract Alles is AllesFixture {
 
     function test_OutOfRange_CreatesPosition() public {
         // Deterministic, NO catch{}. For an ETH-only position (token==0) the
-        // contract requires the new band ABOVE the current band
+        // contract requires the new range ABOVE the current range
         // (newLowerTick > currentUpperTick) - which `_outOfRangeTicks` produces
         // for a NEGATIVE distance (sell-ETH-higher limit order). The old working
         // suite used exactly these params (`-1000, 100`); a positive distance
-        // places the band on the wrong side and legitimately reverts. So this
+        // places the range on the wrong side and legitimately reverts. So this
         // proves outOfRange genuinely creates the position, not that it's bug-free
         // for an arbitrary sign.
         vm.startPrank(User01);
@@ -2984,7 +2984,7 @@ contract Alles is AllesFixture {
         ETH.withdraw(10 ether, User01, User01);
         uint received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
         // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
-        // the old band-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
+        // the old range-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
         // that happened -- the wrong ASSET, not a real zero.
         assertGt(received, 0, "Should receive something on withdraw (native ETH or WETH)");
 
@@ -3000,7 +3000,7 @@ contract Alles is AllesFixture {
         wBefore1 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
         ETH.withdraw(10 ether, User01, User01);
-        // MEASURE BOTH ASSETS -- the offramp pays WETH, the old band burn paid native ETH.
+        // MEASURE BOTH ASSETS -- the offramp pays WETH, the old range burn paid native ETH.
         received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
         assertGt(received, 0, "Should receive something on final withdraw (native ETH or WETH)");
     }
@@ -3021,7 +3021,7 @@ contract Alles is AllesFixture {
         // with minOut=0 they set no slippage floor, so the unfilled portion
         // becomes protocol backing rather than refunding - conservation-safe (D
         // grows, S unchanged), but a swapper protects themselves with a real
-        // minOut. (The earlier ">26"/">30" thresholds were arbitrary; a deep band
+        // minOut. (The earlier ">26"/">30" thresholds were arbitrary; a deep range
         // legitimately fills several ETH at <=0.5%.)
         vm.prank(User02);
         AUX.swap{value: 50 ether}(address(USDC), address(WETH), false, 0, 0);
@@ -3082,7 +3082,7 @@ contract Alles is AllesFixture {
         uint bobReceived = (User02.balance - bal2) + (IERC20(address(WETH)).balanceOf(User02) - wBob0);
 
         // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
-        // the old band-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
+        // the old range-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
         // that happened -- the wrong ASSET, not a real zero.
         assertGt(aliceReceived, 0, "Alice should receive value (native ETH or WETH)");
         assertGt(bobReceived, 0, "Bob should receive value (native ETH or WETH)");
@@ -3095,15 +3095,15 @@ contract Alles is AllesFixture {
     ///         regime). Two EQUAL LPs join simultaneously, equal fee-accrual
     ///         window ⇒ equal payout regardless of exit order; total out is
     ///         bounded by principal + realized fees.
-    /// @notice #51 Option 4 fork proof. QU!D's dollars WORK as the band's USD side, so a large
+    /// @notice #51 Option 4 fork proof. QU!D's dollars WORK as the range's USD side, so a large
     ///         ETH LP deposit drives usdAvailable (= total - committedUsd18) BELOW the QU!D supply
-    ///         (the band's synthetic USD consumed QU!D's free stables). A redemption exceeding the
-    ///         free stables must still fully honor QU!D -- it does so by UNWINDING in-range band
+    ///         (the range's synthetic USD consumed QU!D's free stables). A redemption exceeding the
+    ///         free stables must still fully honor QU!D -- it does so by UNWINDING in-range range
     ///         liquidity (Quid.unwindForRedeem) to free the committed dollars, delivering STABLES,
     ///         while the LP's ETH stays in the venue (equity neutral). Proof: redeem MORE than the
     ///         free stables and show it burned more than usdAvailable (only possible via the
     ///         unwind), committedUsd18 dropped, and deliverableETH is untouched.
-    function test_Redeem_UnwindsBandToFreeCommittedDollars() public {
+    function test_Redeem_UnwindsRangeToFreeCommittedDollars() public {
         vm.mockCall(address(AUX),
             abi.encodeWithSignature("getDepegSeverityBps(address)", address(USDC)), abi.encode(uint(0)));
         vm.mockCall(address(AUX),
@@ -3116,8 +3116,8 @@ contract Alles is AllesFixture {
         vm.stopPrank();
         vm.warp(block.timestamp + 35 days);
 
-        // LP deposits a LARGE ETH band position -> committedUsd18 grows toward TVL, driving
-        // usdAvailable below the redeemer's MATURE QU!D so the redemption MUST unwind the band.
+        // LP deposits a LARGE ETH range position -> committedUsd18 grows toward TVL, driving
+        // usdAvailable below the redeemer's MATURE QU!D so the redemption MUST unwind the range.
         vm.deal(User02, 900 ether);
         vm.prank(User02); ETH.deposit{value: 700 ether}(0, User02);
 
@@ -3128,7 +3128,7 @@ contract Alles is AllesFixture {
         emit log_named_uint("usdAvailable (free stables) before redeem (18)", usdAvail0);
         emit log_named_uint("committedUsd18 before redeem (18)", committed0);
 
-        // Redeem MORE than the free stables -> Option 4 must unwind the band to honor it.
+        // Redeem MORE than the free stables -> Option 4 must unwind the range to honor it.
         uint qdBefore = QUID.balanceOf(User01);
         vm.prank(User01); AUX.redeem(1_100_000 * WAD);
         uint burned = qdBefore - QUID.balanceOf(User01);
@@ -3138,11 +3138,11 @@ contract Alles is AllesFixture {
         emit log_named_uint("committedUsd18 after redeem (18)", CORE.committedUsd18());
         emit log_named_uint("stables delivered (18)", d0[14] > d1[14] ? d0[14] - d1[14] : 0);
 
-        // (1) redeemed MORE than the free stables -> the band unwind FIRED (couldn't happen under
+        // (1) redeemed MORE than the free stables -> the range unwind FIRED (couldn't happen under
         //     a naive stables-only redeem; the ETH-leg is gone).
-        assertGt(burned, usdAvail0, "redeemed more than free stables => band unwound to free committed dollars");
-        // (2) the band was unwound: committedUsd18 dropped.
-        assertLt(CORE.committedUsd18(), committed0, "committedUsd18 dropped (band unwound)");
+        assertGt(burned, usdAvail0, "redeemed more than free stables => range unwound to free committed dollars");
+        // (2) the range was unwound: committedUsd18 dropped.
+        assertLt(CORE.committedUsd18(), committed0, "committedUsd18 dropped (range unwound)");
         // (3) delivered in STABLES ~ the burned value (QU!D paid in dollars).
         assertApproxEqRel(d0[14] - d1[14], burned, 0.03e18, "stables delivered ~ redeemed value");
         // (4) LP EQUITY NEUTRAL: the LP's deliverable ETH is untouched (ETH stayed in venue, unsold).
@@ -3175,13 +3175,13 @@ contract Alles is AllesFixture {
         assertLe(gotUsd, burned * 101 / 100, "QD->ETH out-value <= QD-in value (no 1e12 over-delivery)");
     }
 
-    /// B2 REGRESSION: a redeem with a LIVE BTC band must NOT over-burn. `committedUsd18` includes BTC-band
+    /// B2 REGRESSION: a redeem with a LIVE BTC range must NOT over-burn. `committedUsd18` includes BTC-range
     /// equity, but the ETH-side `unwindForRedeem` cannot free it. unwind-first-burn-exact burns only what is
-    /// actually delivered, so `delivered == burned*perShare` holds even with a committed BTC band present.
-    function test_Redeem_WithBtcBand_NoOverBurn() public {
+    /// actually delivered, so `delivered == burned*perShare` holds even with a committed BTC range present.
+    function test_Redeem_WithBtcRange_NoOverBurn() public {
         for (uint i = 0; i < AUX.getStables().length; i++)
             vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
-        // Register a BTC LP + fund POOLED_USD (median-governed pairing) so a BTC band is committed.
+        // Register a BTC LP + fund POOLED_USD (median-governed pairing) so a BTC range is committed.
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User02, 2e7);
         deal(address(USDC), User03, 10_000 * USDC_PRECISION);
@@ -3190,7 +3190,7 @@ contract Alles is AllesFixture {
         for (uint i = 0; i < 4; i++) { AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); }
         vm.stopPrank();
-        assertGt(BCORE().POOLED_USD(), 0, "BTC band committed (precondition)");
+        assertGt(BCORE().POOLED_USD(), 0, "BTC range committed (precondition)");
         // Mint + mature QD, then redeem a chunk.
         deal(address(USDC), User01, 100_000 * USDC_PRECISION);
         vm.startPrank(User01);
@@ -3203,9 +3203,9 @@ contract Alles is AllesFixture {
           perUnit = SoladyMath.fullMulDiv(1e18, solv, ms); if (perUnit > 1e18) perUnit = 1e18; }
         (uint red, uint burned) = _redeemValue(User01, 50_000e18);
         assertGt(burned, 0, "redeem burned mature QD");
-        // NO OVER-BURN: delivered ~= burned*perShare (burn follows delivery even with a live BTC band).
+        // NO OVER-BURN: delivered ~= burned*perShare (burn follows delivery even with a live BTC range).
         assertApproxEqRel(red, SoladyMath.fullMulDiv(burned, perUnit, 1e18), 0.03e18,
-            "delivered == burned*perShare (no over-burn with a committed BTC band)");
+            "delivered == burned*perShare (no over-burn with a committed BTC range)");
     }
 
     /// EXTREME: dust (1 wei) + whole-mature-balance single redeem, at both ends of the size range.
@@ -3790,7 +3790,7 @@ contract Alles is AllesFixture {
         // riskFactor/calcRisk now recognize the live severity with no floor: a 60% depeg marks
         // the stable at 40% of face (not 65%), so the previously-phantom 25% can no longer be
         // extracted by an early redeemer at the remaining holders' expense (was the "first-out"
-        // advantage). liveDepegBps's deadband still absorbs benign noise, so only a REAL depeg bites.
+        // advantage). liveDepegBps's deadzone still absorbs benign noise, so only a REAL depeg bites.
         _setDepeg(address(USDC), 6000);  uint r60 = AUX.redeemableAmount();
         console.log("redeemable @ 60% depeg (REAL, full write-down)", r60);
         console.log("redeemable @ 35% depeg", r35);
@@ -4147,7 +4147,7 @@ contract Alles is AllesFixture {
         // 629997 wei. The old 0.2e18 (20%) tolerance therefore constrained nothing whatsoever.
         assertEq(lp1Fees, lp2Fees, "equal stake -> exactly equal fee revenue");
         // NOTE on what this test does NOT prove. An equal-vs-equal check passes just as happily
-        // for a payout that ignores stake entirely, so the weighting was probed out-of-band by
+        // for a payout that ignores stake entirely, so the weighting was probed out-of-range by
         // varying LP2's lock: 2e7:6e7 paid 314998:944995 (exactly 1:3) and 2e7:1e7 paid
         // 839995:419997 (exactly 2:1), pot conserved at ~1259994 wei in all three runs. The
         // pro-rata ATTRIBUTION is therefore genuinely stake-weighted and correct.
@@ -4771,9 +4771,9 @@ contract Alles is AllesFixture {
     }
 
     /// @dev §ETHVENUE-FOLD — REPOINTED, not deleted. This mocked `ETH.EV()` to a bad address and
-    ///      expected `wire:band`. That pointer is GONE: the ETH venue folded into Quid, so
+    ///      expected `wire:range`. That pointer is GONE: the ETH venue folded into Quid, so
     ///      `assertFullyWired` now checks `ethVenue == v4` -- and BOTH sides are fixed at deploy
-    ///      (Aux storage pinned once, `BAND` an immutable), so the miswire this simulated is
+    ///      (Aux storage pinned once, `RANGE` an immutable), so the miswire this simulated is
     ///      UNCONSTRUCTIBLE. That is the fold working, not the test becoming wrong.
     ///
     ///      The INTENT survives and is what matters: a miswire must make `finalize` revert and must
@@ -4886,7 +4886,7 @@ contract Alles is AllesFixture {
     ///
     /// The `BtcLpMintStress` bound was DERIVED from this rate at 4.2 bps; the suite now shows
     /// 24.24 bps. That test cannot discriminate, because its delta mixes proceeds and fees.
-    /// This isolates the fee: ONE LP (so its share is the whole band) and ONE swap, so the
+    /// This isolates the fee: ONE LP (so its share is the whole range) and ONE swap, so the
     /// accrued USD-leg fee IS the pool's rate on that volume.
     function testBtcPool_measureUsdLegFeeRateOnASingleSwap() public {
         AUX.setBTCChannels(address(this));
