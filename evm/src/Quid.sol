@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
+import {WAD} from "./imports/Types.sol";
 import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
@@ -42,7 +43,6 @@ contract Quid is Shares,
     error NotOwner();
     error BadPercent();
 
-    uint constant WAD = 1e18;
     // §NAMING — was `V4`, which read as Uniswap v4. It is the Core band engine and always was.
     /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each band must be able to
     ///      name its own engine, or "these two bands are isolated" cannot be checked from outside.

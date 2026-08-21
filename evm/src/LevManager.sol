@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {LevMath} from "./imports/LevMath.sol";
+import {WAD} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
@@ -67,7 +68,6 @@ contract LevManager is LevBase {
     // the test's own permissionless `createMarket`). Morpho Blue markets are IMMUTABLE, so a market's LLTV is
     // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
-    uint256 internal constant BAND_BPS           = 300;  // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
     // Safe LTV the venue's protocol trove mints BOLD at, for a depth-independent close (see `_onFlashMint`). The
@@ -78,7 +78,6 @@ contract LevManager is LevBase {
     /// Min collateral to OPEN — keeps the `_openLps` book (iterated in bandETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
-    uint256 internal constant WAD = 1e18;
 
     /// @dev `targetLtvCapBps` = the LP's max-leverage LTV cap (≤ TARGET_LTV_CAP_BPS = 7500 bps ≈ 4×; 2× / 5000
     ///      bps is the IL-neutral value, higher is opt-in directional). `entryPriceWad` = ETH/USD at open: the IL
@@ -268,20 +267,6 @@ contract LevManager is LevBase {
 
     /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the band ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
-    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return (false, 0);
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        uint256 curDebt = debtUsd(lp);
-        // (B) LIVE IL target = the band's ACTUAL sold fraction (soldFractionWad), capped; √p fallback.
-        uint256 t = _ilTargetLive(p, px);
-        // Size the IL hedge to the FIXED E0 (band-only at entry), valued at the current px — NOT the
-        // buffer's own growing collateral, which caused the 1/(1−t) over-hedge. targetDebt = E0·t; band in bps.
-        // Shared target/in-band/direction math (identical to the BTC path — see LevMath.debtDelta).
-        uint256 e0Usd = LevMath.e0Usd(p.e0, px);
-        return LevMath.debtDelta(e0Usd, curDebt, t, BAND_BPS);
-    }
-
 
 
     // ════════════════════════════ OPEN ════════════════════════════

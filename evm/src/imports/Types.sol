@@ -8,6 +8,11 @@ import {QuidLib} from "./QuidLib.sol";
 /// @dev §FOLD-BOOK — ONE declaration. They were declared in `LevBase` AND the old
 ///      the old `LevBookLib`; splitting the book across `BandLib` and `BtcLib` would have made it FOUR.
 ///      File-level so every user imports the same selector.
+/// @dev §E266 — ONE `WAD` for our tree; it lived in NINE places. Declared HERE and deliberately
+///      NOT imported from a vendored file — a compilation restriction on such a file would
+///      propagate to every importer (§E267).
+uint256 constant WAD = 1e18;
+
 error NotOpen();
 error BadTarget();
 

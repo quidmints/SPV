@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
+import {WAD} from "./imports/Types.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
@@ -44,10 +45,8 @@ contract BtcLevManager is LevBase {
     address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
     // DIRECTIONAL (LP's own risk, isolated). 7500=75%≈4×, headroom below the 86% venue LLTV. Tunable. (ETH parity.)
-    uint256 public constant BAND_BPS           = 300;       // ±3% LTV before a rebalance is worth doing
     uint256 internal constant MAX_SLIPPAGE_BPS = 100;       // 1% anti-MEV floor on the leg's Curve swaps
     uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
-    uint256 internal constant WAD = 1e18;
 
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
@@ -144,17 +143,6 @@ contract BtcLevManager is LevBase {
 
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
-    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint amountUsd) {
-        Types.Pos memory p = pos[lp];
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        // Size to the FIXED, BAND-ONLY E0 (band sats at entry) valued at px — NOT band+buffer (over-hedge) and
-        // NOT the buffer's growing collateral (the 1/(1−t) over-hedge). e0Usd = e0·px/1e18 (18-dec, matching
-        // debtUsd; px is WBTC-lifted ×1e10 — /1e8 inflated targetDebt 1e10 ⇒ over-hedge to the venue ceiling).
-        uint e0Usd = LevMath.e0Usd(p.e0, px);
-        uint t = _ilTargetLive(p, px);                    // (B) live sold fraction, capped; √p fallback
-        return LevMath.debtDelta(e0Usd, debtUsd(lp), t, BAND_BPS);
-    }
-
     // ═══════════════════════════ OPEN / CONFIG (LP) ═══════════════════════════
 
     /// @notice Open an isolated BTC-lev position at ZERO leverage. The LP supplies `initialVbtc` vBTC (already

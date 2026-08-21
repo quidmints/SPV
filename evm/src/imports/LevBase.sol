@@ -39,6 +39,25 @@ abstract contract LevBase {
 
     /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
+    /// @dev §FOLD-DELTA — ±3% LTV dead-band before a rebalance is worth its gas. Was declared on BOTH
+    ///      managers with the same value (ETH `internal`, BTC `public`; no reader of either outside
+    ///      the managers, checked across src/ test/ script/).
+    uint256 internal constant BAND_BPS = 300;
+
+    /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.
+    /// @dev §FOLD-DELTA — was duplicated on each manager (0.71 similarity). The two bodies computed
+    ///      the SAME thing in a different statement order; the only real difference was ETH's
+    ///      `if (!p.open)` early-out. BTC was not buggy — `closeBtcLev` does `delete pos[lp]`, so
+    ///      `entryPriceWad == 0` makes `_ilTargetLive` return 0 and `debtDelta` reports in-band —
+    ///      whereas ETH RETAINS the `Pos` with `open = false` on its keepState branch, which is why
+    ///      only ETH needed the gate. A REAL asymmetry; the shared body keeps the gate because it is
+    ///      correct for both and strictly cheaper than reaching `debtUsd` for a closed position.
+    function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
+        Types.Pos memory p = pos[lp];
+        if (!p.open) return (false, 0);
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        return LevMath.debtDelta(LevMath.e0Usd(p.e0, px), debtUsd(lp), _ilTargetLive(p, px), BAND_BPS);
+    }
 
     /// Oracle (`getTWAPforAsset`) + the caller-funded paths both managers reach through.
     IAux public immutable AUX;
@@ -211,8 +230,18 @@ abstract contract LevBase {
     /// @notice The LP's venue debt in USD(1e18). §FOLD-LTV — was declared `virtual` here and
     ///         overridden with the SAME body in both managers (0.88 similarity; the only difference
     ///         was ETH hoisting `v.stable()` into a local). Concrete now, and the overrides go.
+    /// @dev ⚠️ THE `address(v) == 0` EARLY-OUT IS NOT A DEFENSIVE CLAMP — it is the one case the
+    ///      §FOLD-LTV trace below missed. That note argues the `!open` guards were droppable because
+    ///      every downstream helper returns 0 on a zeroed struct. True — but ALL of them are reached
+    ///      THROUGH this function, and a zeroed `Pos` zeroes `venue` too, so `v.stable()` is a
+    ///      high-level call to `address(0)`: solc's extcodesize check REVERTS before any zero-guard
+    ///      runs. `BtcLevManager.closeBtcLev` does `delete pos[lp]`, so this is reachable for every
+    ///      closed BTC position and any address that never opened one — and `debtUsd`,
+    ///      `getCurrentLtvBps` and `debtDeltaToTarget` are all `public`. Returning 0 for "no position"
+    ///      makes the query TOTAL; it cannot mask a real debt, because a real debt requires a venue.
     function debtUsd(address lp) public view returns (uint) {
         ILevVenue v = pos[lp].venue;
+        if (address(v) == address(0)) return 0;
         return LevMath._toUsd18(address(AUX), v.stable(), v.debtOf(lp));
     }
 
@@ -227,7 +256,9 @@ abstract contract LevBase {
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
     function getCurrentLtvBps(address lp) public view returns (uint) {
-        return LevMath.ltvBps(debtUsd(lp), collValueUsd(pos[lp].venue.collateralOf(lp)));
+        ILevVenue v = pos[lp].venue;                       // same address(0) case as `debtUsd`
+        if (address(v) == address(0)) return 0;
+        return LevMath.ltvBps(debtUsd(lp), collValueUsd(v.collateralOf(lp)));
     }
 
     /// @notice LTV against the FIXED IL base `e0` — the reference the IL target is measured against,

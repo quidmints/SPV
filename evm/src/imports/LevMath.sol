@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
+import {WAD} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
@@ -48,7 +49,6 @@ library LevMath {
     /// Zero oracle anchor. A named error, NOT a string require: the string form cost enough
     /// bytecode to push this library 38 bytes past EIP-170 (measured).
     error NoPrice();
-    uint256 internal constant WAD = 1e18;
 
     /// @notice The LTV (bps) of `debt` against a position worth `collValue` (same unit); `collValue==0 ⇒ 0`.
     ///         Consolidated in from the former `YBLib` (its only LIVE surface). the leverage's target leverage is L = 2 —

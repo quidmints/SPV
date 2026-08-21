@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {IBandManager} from "./Interfaces.sol";
@@ -41,7 +42,6 @@ library BasketLib {
     ///         reporting it sends the reader hunting a venue outage that never happened.
     error AmountTooSmall();
 
-    uint public constant WAD = 1e18;
     uint public constant MONTH = 2420000;
 
     struct Metrics {

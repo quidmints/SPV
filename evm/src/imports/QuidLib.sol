@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {WAD} from "./Types.sol";
 // §E266 — Morpho VAULTS V2 is a different protocol from Blue; import ITS interface rather than
 // restating three signatures. A hand-rolled restatement is what drifts silently.
 import {IVaultV2} from "morpho-vaults-v2/interfaces/IVaultV2.sol";
@@ -47,7 +48,6 @@ import {IDepositAdapter} from "./Interfaces.sol";
 
 
 library QuidLib {
-    uint constant WAD = 1e18;
 
     /// A chosen venue placed 0 — paused / unwired / de-allowlisted. We do NOT silently redirect to a
     /// fallback venue: no venue can be assumed always-live. Fail loud — the depositor picks a live one.
