@@ -6336,3 +6336,42 @@ plausible-but-wrong constraint rule 15 warns about.
 3. **`κ` needs a derivation, not just A&S's "+1".** Their `+1` is one share; our `1` is one
    flow-window, and that those coincide is an analogy, not a result. ▶️ **The honest first landing is
    `κ = 1` (a pure refactor); `κ = 2` is a SECOND, economic commit with its own prediction.**
+
+## §E287 — **`init` IS THE LAST UNFOLDED MANAGER PAIR (74%), AND IT HIDES FOUR ASYMMETRIES**
+🟡 OPEN — the one fold task this thread FLAGGED AND NEVER FINISHED. Found in the first similarity scan
+(`LevManager.init` vs `BtcLevManager.init`, 277 vs 287 chars, **0.74**), then lost behind the larger
+folds. Booked now from a re-scan of the post-fold tree, which is how it resurfaced.
+
+**Same shape on both:** GOV-only + freeze, pin `BAND` and `flashProvider`, loop the venue list, vet each,
+allowlist it, emit. **Five things differ, and only ONE is known-deliberate:**
+| | ETH | BTC |
+|---|---|---|
+| zero-address venue | 🔴 **NO CHECK** | `if (v == address(0)) revert BadAuth()` |
+| bad-auth error | `VenueNotAllowed()` | `BadAuth()` |
+| `FlashProviderSet` event | emitted | **not emitted** |
+| `VenueAllowed` signature | `(v, true)` | `(v)` |
+| `vetVenue` return value | **discarded** | `if (...) revert BadAuth()` |
+
+⭐ **THE `vetVenue` ROW IS REAL — DO NOT "FIX" IT.** `vetVenue` returns `isShort` (`stable() == base`).
+ETH discards it because its weETH/WETH loop is a LEGITIMATE self-referential venue; BTC reverts because a
+`{stable,WBTC}` short mis-pinned as a long must not be allowlisted. Folding must keep this as a seam.
+
+🔴 **THE ZERO-ADDRESS ROW IS A CANDIDATE DEFECT, NOT DRIFT-TO-TIDY.** BTC rejects `address(0)`; ETH does
+not. GOV-supplied, frozen-after-first-call, so the blast radius is a permanently allowlisted zero venue
+in the ETH manager. ⚠️ **VERIFY BEFORE ASSUMING IT IS EXPLOITABLE:** `LevMath.vetVenue(v, ...)` may
+already revert on a zero address by calling into it (extcodesize), which would make ETH's check
+redundant rather than missing — that is exactly the shape of §E272's over-claim, so **measure it, do not
+reason it.** If `vetVenue` does revert first, the row collapses to naming and events.
+
+**The other three are ABI-visible and cost a decision, not a rename:** two errors for one condition, an
+event emitted on one band only, and `VenueAllowed` with different arity. ⇒ **Settle the event/error
+shapes FIRST, then the fold is mechanical.** Changing `VenueAllowed`'s arity is a client-visible change —
+run `tools/check-client-abis.py` as the gate, not `forge build`.
+
+⚠️ **ALSO RECORDED HERE SO IT IS NOT RE-PROPOSED: THE FOUR IDENTICAL `Quid`∥`Vault` BODIES STAY.**
+`soldFractionWad` (98 chars), `pull`/`pullBtc` (88), `creditSkewPremium` (88), `bandOf` (83) are
+byte-identical and were LEFT DELIBERATELY. They are thin wrappers over shared library calls — the logic
+is already single-sourced — and the only place to hoist them is the `Shares` abstract base, which
+**copies into every inheritor**: measured **+41 bytes, zero saved**. With `Quid` at 86 bytes
+(§E274-SIZE), that is the wrong direction. A delegatecalled library would save bytes at one call per
+use; measure before adopting.
