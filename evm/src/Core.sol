@@ -1267,8 +1267,6 @@ contract Core {
     /// price directly, so it goes straight in with NO conversion — no `getPrice`, no sqrt, no tick.
     /// ⚠️ `observe`, `ringVariance` and all ~54 `getTWAPforAsset` call sites are UNTOUCHED: the
     /// variance estimator was already price-based, so nothing downstream needs re-deriving.
-    /// The sqrt-taking variant above survives only while Repack/Reseat/Collect still read `getSlot0`,
-    /// and deletes with them.
     /// @notice The ring's INDEPENDENT observation source for THIS instance. `address(0)` = none,
     ///         and this instance then records NO observations at all.
     ///
