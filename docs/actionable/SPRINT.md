@@ -4994,7 +4994,14 @@ so the user-visible effect is a dead trade rather than a wrong number.
 the pole return "decline" at `retainSkewPremium`'s site or above it, so an unfillable quote is refused
 explicitly instead of arriving as `panic 0x11` from inside a subtraction. Under solver routing an
 unbounded quote at zero inventory is unfillable anyway, so decline is the honest encoding of it.
-⚠️ **STILL UNVERIFIED, and it is the remaining precondition:** whether the curve can produce
+✅ **THAT CHECK HAS SINCE BEEN EXECUTED — SEE §E274, AND IT INVERTS THIS ROW AGAIN.** This row said the
+new Γ's worst case had to be measured against `1e18` before deleting, and that *"that check is not done
+here"*. It was done: §E274 re-derives Γ from `FLOW_DECAY`'s 48h half-life and remeasures it in
+`evm/test/GammaRederived.t.sol` (5 tests, control included), concluding **NO FINITE Γ IS SAFE** — a
+stronger result than the 33× margin this row inferred. ⇒ Nothing here is still owed; read §E274 for the
+live conclusion. Kept as the worked example of inferring reachability from a gap size instead of
+measuring where the curve crosses.
+⚠️ **(superseded) the precondition as originally stated:** whether the curve can produce
 `1e18 ≤ skew < ∞` for FINITE q once Γ is no longer pinned to the cap (`SwapLib:1019` records
 `GAMMA_WAD ≡ MAX_WELL_SKEW` exactly, so deleting the cap deletes the curve's scale too). If Γ is
 re-derived independently, the 33× margin above is only as good as the new Γ. **Measure the new Γ's
