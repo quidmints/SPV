@@ -6134,3 +6134,53 @@ unconditional external leg and remove the Uniswap BRAND from prose without remov
 (c) measure a third venue — 1inch is already ruled out at 31.7M gas (§E232), and nothing else has been.
 ⚠️ **Whichever is chosen, the test that proves it must run a CORRELATED CRASH with no user flow.** A
 suite that never drains the band will pass under (a) and tell you nothing — §E104's lesson exactly.
+
+## ⚖️ §E288 — **STEP 1 RESOLVES, BUT AGAINST THE PLAN: A&S IS LINEAR, AND THAT IS AN ARGUMENT FOR THE POLE, NOT AGAINST IT**
+Asked 2026-08-21: *"is the pole removal correct, why did we build it in the first place?"* — and whether
+A&S §2.3 gives a linear reservation price or a pole.
+⚠️ **NOT VERIFIED AGAINST THE SOURCE. The PDFs are not on this machine** (`mcp__pdf` is scoped to the
+repo, which holds only solady/OZ audits; 358 PDFs under `~` and no A&S or MMRZ among them). **Everything
+below about A&S is FROM KNOWLEDGE and must be checked before it is load-bearing.**
+
+### THE CONTRADICTION, AND WHICH SIDE GOES
+| site | says |
+|---|---|
+| `SwapLib:765-770` | *"the A-S linear reservation premium Γσ²q **AMPLIFIED BY** the shadow price of the last inventory units… HJB with a HARD inv≥0 constraint — a −log(inv) barrier… **ρ=0 recovers plain linear A-S**"* |
+| `SwapLib:1030-1031` | *"a SIMPLE POLE q/(1−q), **which is what A&S §2.3's infinite-horizon reservation price derives anyway** (exponent fixed at 1 by the CARA value function)"* |
+⇒ **`:765` IS RIGHT; `:1030-1031` IS THE ONE TO DELETE.** A&S is `r = s − qγσ²(T−t)` — **linear in q**;
+CARA gives a linear inventory term and there is no `q/(1−q)` anywhere in it. `:765` never claimed
+otherwise: it says the barrier is something WE ADD ON TOP.
+
+### 🔴 BUT THE RESOLUTION ARGUES FOR THE POLE, NOT AGAINST IT
+**A&S's market maker holds SIGNED, UNBOUNDED inventory — they can go short and keep quoting. WE CANNOT.**
+We hold real assets and physically cannot serve at `inv = 0`. That is exactly the constraint `:765`
+names, and it is a STRUCTURAL asymmetry, not drift. ⇒ *"A&S is linear, therefore drop the pole"*
+**imports a model whose key assumption we violate.** The pole exists because our inventory has a floor
+and A&S's does not.
+
+### ⚠️ AND `q²` IS NOT A&S EITHER — THE CITATION AUTHORISES `q¹`
+The plan's justification is *"Γσ²q² is even in q — same premium for the same imbalance either
+direction, which is what A–S says"*. **That argument supports `|q|`, not `q²`.** A&S's SHIFT is **odd**
+in q (long lowers the mid, short raises it); its MAGNITUDE is even, i.e. `|q|`. `q²` is even as well —
+**but so is `|q|`, and they are different functions.** Evenness cannot pick between them.
+⇒ **The plan invokes A&S to reject the pole and then adopts an exponent A&S does not give.**
+
+### 🔴 THE ORDERING OBJECTION — THE STRONGEST ONE
+Under `q²` a full drain integrates to **Γσ²/3 ≈ 0.18%**. ⇒ **ANYONE CAN EMPTY THE BAND FOR 18 bps.**
+Today they cannot empty it at any price. And §E276 established **nothing pulls inventory back**: we
+never move the bid, the refill direction is EXEMPT rather than paid, and **§V-R1 (1inch
+AggregationRouterV6) does not exist in code**. ⇒ **Removing the pole BEFORE the refill or the shift
+exists leaves a band drainable to zero, cheaply, with no restoration mechanism.** The pole is currently
+the ONLY thing preventing that. Steps 2–5 are each coherent; **the sequence puts the deletion before the
+thing that makes it safe.**
+⭐ **AND THE EXPONENT IS DOWNSTREAM OF §E276, NOT INDEPENDENT OF IT.** The pole's pathology — crossing
+100% at finite q — exists **only because we apply it as a SPREAD**. Under a mid-SHIFT a large shift
+still clears and there is nothing to tame. **Choosing `q²` to keep the spread bounded treats the symptom
+of using the wrong object.**
+
+▶️ **WHAT I AGREE WITH:** delete `:1030-1031` (free, and true); the floor (`σ²·confFrac/8`, §E79) — not
+the kernel — is what closes the free-drain hole; and a closed-form integral is cheaper than `lnWad`.
+▶️ **WHAT NEEDS SETTLING FIRST:** (1) verify A&S against the actual paper — **nobody has**; (2) decide
+§E276 (spread vs shift), because it determines whether the pole is pathological at all; (3) show what
+prevents a cheap full drain once the pole is gone. **Until (3) has an answer, step 2 removes the only
+brake we have.**
