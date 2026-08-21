@@ -77,8 +77,8 @@ contract LevManager is LevBase {
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
 
     /// @dev `targetLtvCapBps` = the LP's max-leverage LTV cap (≤ TARGET_LTV_CAP_BPS = 7500 bps ≈ 4×; 2× / 5000
-    ///      bps is the IL-neutral value, higher is opt-in directional). `entryPriceWad` = ETH/USD at open: the IL
-    ///      target is `1 − √(entryPrice/pxNow)` = the ETH the range has sold since entry (capped). Opens at
+    ///      bps is the IL-neutral value, higher is opt-in directional). `ilBasisPx` = ETH/USD at open: the IL
+    ///      target is `1 − √(syncKeyPx/pxNow)` = the ETH the range has sold since entry (capped). Opens at
     ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
 
 
@@ -280,7 +280,7 @@ contract LevManager is LevBase {
         // the old (B) two-pool model, there is no separate deliverable principal range — that isolation is traded
         // for capital efficiency; the whole deposit is levered.) SAFETY:
         // the up-side-only clamp de-levers this toward 0 debt below entry, so the deposit is never held at 2× into
-        // a crash. `entryPrice` still tracks the range for the sold-fraction reference.
+        // a crash. `syncKeyPx` still tracks the range for the sold-fraction reference.
         uint256 entryEquity = _collToBase(collWeeth);   // (A) the deposit (weETH->ETH rate, or WETH 1:1) is the IL base
         // §FOLD-OPEN — range-price read + Pos literal + book enrolment are `LevBase._openPos`, shared
         // with the BTC side. Only `entryEquity` above is per-asset.

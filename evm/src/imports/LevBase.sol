@@ -48,7 +48,7 @@ abstract contract LevBase {
     /// @dev §FOLD-DELTA — was duplicated on each manager (0.71 similarity). The two bodies computed
     ///      the SAME thing in a different statement order; the only real difference was ETH's
     ///      `if (!p.open)` early-out. BTC was not buggy — `closeBtcLev` does `delete pos[lp]`, so
-    ///      `entryPriceWad == 0` makes `_ilTargetLive` return 0 and `debtDelta` reports in-range —
+    ///      `ilBasisPx == 0` makes `_ilTargetLive` return 0 and `debtDelta` reports in-range —
     ///      whereas ETH RETAINS the `Pos` with `open = false` on its keepState branch, which is why
     ///      only ETH needed the gate. A REAL asymmetry; the shared body keeps the gate because it is
     ///      correct for both and strictly cheaper than reaching `debtUsd` for a closed position.
@@ -102,7 +102,7 @@ abstract contract LevBase {
     event VenueAllowed(address indexed venue, bool ok);
     event DeleverFailed(address indexed lp, uint256 ltvBps);
     event ProtectedFromQuid(address indexed lp, uint256 quidRedeemed, uint256 debtRepaid);
-    event ReanchoredToRange(address indexed lp, uint entryPrice, uint256 entryEquity);
+    event ReanchoredToRange(address indexed lp, uint syncKeyPx, uint256 entryEquity);
 
     error NotOpen();
     error BadTarget();
@@ -172,7 +172,7 @@ abstract contract LevBase {
     /// @notice The range's anchor price, or 0 if the range is unwired or reverts. §FOLD-SYNC — was
     ///         inlined identically in both managers' open paths.
     /// @dev    Returning 0 rather than reverting is deliberate and matches the pre-fold behaviour:
-    ///         `entryPrice` is the sold-fraction REFERENCE, and `_ilTargetLive`/`reanchorCompute`
+    ///         `syncKeyPx` is the sold-fraction REFERENCE, and `_ilTargetLive`/`reanchorCompute`
     ///         already treat 0 as "never anchored" (that is what `_reanchorIfReseated` exists to
     ///         repair). Reverting here would make an unwired range block position OPENING, which is
     ///         strictly worse than opening with a reference that the first reanchor fills in.
@@ -196,8 +196,8 @@ abstract contract LevBase {
     ///         stays owned by one place).
     function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint entryEquity) internal {
         RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
-            Types.Pos({venue: venue, targetLtvCapBps: capBps, entryPriceWad: uint128(entryPx),
-                       entryEquity: uint128(entryEquity), entryPrice: _rangePrice(), open: true}));
+            Types.Pos({venue: venue, targetLtvCapBps: capBps, ilBasisPx: uint128(entryPx),
+                       entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
     }
 
     function _trackOpen(address lp) internal {
@@ -305,8 +305,8 @@ abstract contract LevBase {
     ///         AND THAT IS A DELETION OF DEAD CHECKS, NOT A WEAKENING — traced through every layer
     ///         before removing them: a closed position zeroes the struct, and
     ///         `LevMath.ltvBps` returns 0 when `collValue == 0`, `collValueUsd` returns 0 when
-    ///         `units == 0`, `ilTargetBps` returns 0 when `entryPriceWad == 0`, and
-    ///         `ilTargetLive`'s range branch is already gated on `entryPrice != 0`. So every path
+    ///         `units == 0`, `ilTargetBps` returns 0 when `ilBasisPx == 0`, and
+    ///         `ilTargetLive`'s range branch is already gated on `syncKeyPx != 0`. So every path
     ///         returns 0 for a closed position WITHOUT the guard. The BTC copies never had it and
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
@@ -404,7 +404,7 @@ abstract contract LevBase {
     /// `LevMath.ilTargetLive` was, which is the same shape as the dead-variable cascade earlier
     /// today. Tightening a callee is what lets the caller tighten.
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
-        return LevMath.ilTargetLive(RANGE, p.entryPrice, p.entryPriceWad, px, p.targetLtvCapBps);
+        return LevMath.ilTargetLive(RANGE, p.syncKeyPx, p.ilBasisPx, px, p.targetLtvCapBps);
     }
 
     // ─── §LEV-FOLD-2 — the last three per-asset accessors, folded through `_collNative` ────────

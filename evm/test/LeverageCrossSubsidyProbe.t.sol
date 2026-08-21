@@ -86,11 +86,11 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         vm.stopPrank();
     }
 
-    function _rallyRange(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyRange(uint syncKeyPx, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (ETH.soldFractionWad(entryPrice) >= targetWad) break;
+            if (ETH.soldFractionWad(syncKeyPx) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }

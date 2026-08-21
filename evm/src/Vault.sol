@@ -394,18 +394,18 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     // §DE-TICK — `token1isVol()` DELETED. It forwarded Core's v4 leg ordering, which no longer
     // exists: `Delta`'s fields are named for what they hold and the OOR guard is symmetric.
 
-    /// @notice (B) The BTC range's current spot √P (Q96) — recorded as `entryPrice` at `openBtcLev`. `isBTC` is
+    /// @notice (B) The BTC range's current spot √P (Q96) — recorded as `syncKeyPx` at `openBtcLev`. `isBTC` is
     ///         accepted for interface-parity with `Quid.rangePrice`; the Vault is BTC-only, so it always reads
     ///         the BTC pool.
     function rangePrice() external view returns (uint priceWad) {
         (priceWad,) = CORE.poolStats();
     }
 
-    /// @notice (B) The BTC range's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — mirror of
+    /// @notice (B) The BTC range's ACTUAL sold-volatile fraction (WAD) since `syncKeyPx` — mirror of
     ///         `Quid.soldFractionWad`, over the BTC ticks/ordering. Shared pure geometry lives in SwapLib.
-    function soldFractionWad(uint entryPrice) external view returns (uint) {
+    function soldFractionWad(uint syncKeyPx) external view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
-        return SwapLib.soldFractionWad(entryPrice, priceWad, _lo(), _hi());
+        return SwapLib.soldFractionWad(syncKeyPx, priceWad, _lo(), _hi());
     }
 
 

@@ -55,7 +55,7 @@ library Types {
     ///         e0Eth vs e0Btc). ONE declaration now, per the shared-file rule.
     ///         ⚠️ FIELD ORDER IS ABI-VISIBLE: `pos` is a PUBLIC mapping, so its generated
     ///         getter is a 6-tuple. Reordering or retyping breaks every client that decodes it.
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 entryPriceWad; uint128 entryEquity; uint entryPrice; bool open; }
+    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 ilBasisPx; uint128 entryEquity; uint syncKeyPx; bool open; }
 
     /// @notice Quid
     /// self-managed LP

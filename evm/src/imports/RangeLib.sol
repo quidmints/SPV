@@ -413,7 +413,7 @@ library RangeLib {
     // predicted. It is why `_reanchorIfReseated` takes `px` and `base` instead of reading them.
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
-    event ReanchoredToRange(address indexed lp, uint entryPrice, uint256 entryEquity);
+    event ReanchoredToRange(address indexed lp, uint syncKeyPx, uint256 entryEquity);
 
 
     /// @notice An LP sets its own max-leverage LTV cap.
@@ -459,10 +459,10 @@ library RangeLib {
     ) external returns (bool fired) {
         Types.Pos storage q = pos[lp];
         if (!q.open) return false;
-        (bool go, uint s) = LevMath.reanchorCompute(range, q.entryPrice);
+        (bool go, uint s) = LevMath.reanchorCompute(range, q.syncKeyPx);
         if (!go) return false;
-        q.entryPrice    = s;
-        q.entryPriceWad = uint128(px);
+        q.syncKeyPx    = s;
+        q.ilBasisPx = uint128(px);
         q.entryEquity            = uint128(base);
         emit ReanchoredToRange(lp, s, base);
         return true;

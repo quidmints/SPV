@@ -79,25 +79,25 @@ library LevMath {
     error BadCollateral();    // a pinned LONG venue whose collateral the manager cannot value/custody
     error VenueBlocked();     // open onto an incident-flagged venue
 
-    /// @notice IL-cancelling target LTV (bps) = `1 − √(entryPrice/pxNow)`, clamped to `capBps`.
-    ///         ZERO when flat/down (no IL accrued ⇒ no leverage). `entryPriceWad`/`pxNow` are
+    /// @notice IL-cancelling target LTV (bps) = `1 − √(syncKeyPx/pxNow)`, clamped to `capBps`.
+    ///         ZERO when flat/down (no IL accrued ⇒ no leverage). `ilBasisPx`/`pxNow` are
     ///         USD-per-base (1e18). Identical to `LevManager._ilTargetBps`.
-    function ilTargetBps(uint128 entryPriceWad, uint256 pxNow, uint64 capBps)
+    function ilTargetBps(uint128 ilBasisPx, uint256 pxNow, uint64 capBps)
         internal pure returns (uint256)
     {
         // at/below entry → no UP-SIDE IL → no up-side overlay. (There IS down-side IL below entry — the range
         // over-holds the falling asset — but a long LP does NOT hedge it: the up-side-only LP just HOLDS long
         // through the fall. Holding beats an LVR-leaking downside rebalance: down-side IL is impermanent and heals,
         // so a below-entry short would realize the loss and forfeit the recovery. Up-side-only is the design.)
-        if (entryPriceWad == 0 || pxNow <= entryPriceWad) return 0;
-        uint256 ratioWad = (uint256(entryPriceWad) * WAD) / pxNow;    // entry/now < 1 (WAD)
+        if (ilBasisPx == 0 || pxNow <= ilBasisPx) return 0;
+        uint256 ratioWad = (uint256(ilBasisPx) * WAD) / pxNow;    // entry/now < 1 (WAD)
         uint256 sqrtWad  = FixedPointMathLib.sqrt(ratioWad * WAD);    // √(entry/now), WAD (solady, audited)
         uint256 ilBps    = ((WAD - sqrtWad) * 10_000) / WAD;          // 1 − √(entry/now), bps
         return ilBps > capBps ? capBps : ilBps;
     }
 
     /// @notice The reseat DECISION folded out of both managers' `_reanchorIfReseated`.
-    /// @dev  Re-anchor iff the position's `entryPrice` now sits OUTSIDE the range's current `[lower, upper]`.
+    /// @dev  Re-anchor iff the position's `syncKeyPx` now sits OUTSIDE the range's current `[lower, upper]`.
     ///       This REPLACED a `reseatEpoch` counter (removed 2026-08-09) and is strictly MORE PRECISE, not
     ///       merely smaller: the counter fired on EVERY reseat, including ones that left this anchor still
     ///       inside the new range and therefore needed no re-anchor. The bounds fire only when the frame moved
@@ -108,15 +108,15 @@ library LevMath {
     ///       because BOTH live consumers ask the point-in-time question; the windowed consumer (§E93) is
     ///       refuted and blocked. **If anyone builds a WINDOWED reading over the tick series, the epoch must
     ///       come back, and §E117 is the evidence for why.**
-    /// @dev  Compared in SQRT space, never by converting `entryPrice` to a tick: tick conversion truncates, so
+    /// @dev  Compared in SQRT space, never by converting `syncKeyPx` to a tick: tick conversion truncates, so
     ///       a position anchored exactly at a boundary would flip on rounding.
     /// @dev Same `active` deletion as `ilTargetLive` — this gate is why re-anchoring NEVER FIRED in
     ///      production, including after the 2026-08-09 bounds-check rewrite.
     /// §MUTABILITY 2026-08-18 — `view`: body reads only, verified it touches none of the
     /// cache-sensitive family (`get_deposits`/`get_metrics`/`refreshHoldings`/`redeemableAmount`).
-    function reanchorCompute(address range, uint entryPrice)
+    function reanchorCompute(address range, uint syncKeyPx)
         public view returns (bool go, uint newSqrtP) {
-        if (range == address(0) || entryPrice == 0) return (false, 0);
+        if (range == address(0) || syncKeyPx == 0) return (false, 0);
         try ICore(range).rangePrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
         // ONE accessor pair. The range is per-asset and answers for its own range, so there is no name
@@ -130,7 +130,7 @@ library LevMath {
         if (lo >= hi) return (false, 0);                       // range unset/degenerate → nothing to compare against
         // §DE-TICK — a DIRECT price comparison. The bounds are prices; converting them through the
         // tick grid was the only reason this needed TickMath.
-        if (entryPrice >= lo && entryPrice <= hi) return (false, 0);   // still inside its own frame
+        if (syncKeyPx >= lo && syncKeyPx <= hi) return (false, 0);   // still inside its own frame
         go = true;
     }
 
@@ -142,16 +142,20 @@ library LevMath {
     ///      flag defaulting FALSE that the deploy script never set — so in production this ALWAYS fell through
     ///      to the estimate and the range's measured sold fraction was never read, while three test suites
     ///      flipped it true in setUp and verified the path production did not run. The remaining conditions
-    ///      (`entryPrice != 0 && range != address(0)`) already ARE the availability test the flag stood in for:
+    ///      (`syncKeyPx != 0 && range != address(0)`) already ARE the availability test the flag stood in for:
     ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
-    function ilTargetLive(address range, uint entryPrice, uint128 entryPriceWad, uint256 px, uint64 capBps)
+    /// §E309 — these two were `entryPrice` and `entryPriceWad`, which read as ONE value at two
+    ///        scalings. They are not: `syncKeyPx` is a LOOKUP KEY into the sync hook, `ilBasisPx`
+    ///        is the IL math BASIS, and they are set from different sources at open. The old
+    ///        names invited a dedup that would have silently changed the IL target.
+    function ilTargetLive(address range, uint syncKeyPx, uint128 ilBasisPx, uint256 px, uint64 capBps)
         public view returns (uint256) {
-        if (entryPrice != 0 && range != address(0)) {
-            try ICore(range).soldFractionWad(entryPrice) returns (uint256 sf) {
+        if (syncKeyPx != 0 && range != address(0)) {
+            try ICore(range).soldFractionWad(syncKeyPx) returns (uint256 sf) {
                 if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
             } catch {}
         }
-        return ilTargetBps(entryPriceWad, px, capBps);
+        return ilTargetBps(ilBasisPx, px, capBps);
     }
 
     /// @notice (§3) The stable (USD 1e18) to REPAY to bring a position to target LTV on the FIXED E0 (over-hedge

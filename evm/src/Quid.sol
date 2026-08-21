@@ -222,7 +222,7 @@ contract Quid is Shares,
     ///         sizes it to the buffer collateral at the range price, capped at debtUsd).
 
     /// @notice Bumped whenever the range ticks RECENTER (repack/reseat in `_rebalance`). A reseat realizes the
-    ///         range's IL and moves the ticks, so the IL-protect re-anchors its `entryPrice`/`E0` when this
+    ///         range's IL and moves the ticks, so the IL-protect re-anchors its `syncKeyPx`/`E0` when this
     ///         advances past a position's recorded epoch — otherwise the sold-fraction would be measured
     ///         across a tick-config change and mis-hedge.
 
@@ -995,20 +995,20 @@ contract Quid is Shares,
         return QuidLib.realizedAlphaWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice (B) The range's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — the ground-truth IL the
+    /// @notice (B) The range's ACTUAL sold-volatile fraction (WAD) since `syncKeyPx` — the ground-truth IL the
     ///         hedge must cancel, straight from the concentrated-position geometry, so it reflects the real
     ///         (drifting) α with NO sqrt/pow and NO α parameter. Held-volatile amount is ∝ (1/√P − 1/√P_b)
     ///         when the volatile is token0 (sold as √P RISES) or ∝ (√P − √P_a) when it's token1 (sold as √P
     ///         FALLS); soldFrac = 1 − amount_now/amount_entry. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat
-    ///         recenters the ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on reseat.
+    ///         recenters the ticks and realizes IL, so the CALLER must re-anchor `syncKeyPx` on reseat.
     ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate range.
     ///         ETH range (the BTC parallel lives on the Vault with the BTC ticks/ordering).
-    function soldFractionWad(uint entryPrice) public view returns (uint) {
+    function soldFractionWad(uint syncKeyPx) public view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
-        return SwapLib.soldFractionWad(entryPrice, priceWad, _lo(), _hi());
+        return SwapLib.soldFractionWad(syncKeyPx, priceWad, _lo(), _hi());
     }
 
-    /// @notice The range's current spot √P (Q96) — the leverage records this as its `entryPrice` at open so
+    /// @notice The range's current spot √P (Q96) — the leverage records this as its `syncKeyPx` at open so
     ///         `soldFractionWad` can measure the IL from the true range price (not the oracle).
     /// @dev NO isBTC ARGUMENT, deliberately. Quid is the ETH range manager, so it reads the ETH pool
     ///      — full stop. It previously FORWARDED the caller's flag, meaning `rangePrice(true)` returned

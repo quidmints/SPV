@@ -2015,21 +2015,21 @@ library SwapLib {
         return uint160(FixedPointMathLib.mulDivDown(spotPrice, factor, 1e9));
     }
 
-    /// @notice (B — IL-protect) The range's ACTUAL sold-volatile fraction (WAD) between `entryPrice` and the
+    /// @notice (B — IL-protect) The range's ACTUAL sold-volatile fraction (WAD) between `syncKeyPx` and the
     ///         current `spotPrice`, straight from the concentrated-position geometry — the ground-truth IL the
     ///         hedge must cancel, reflecting the real (drifting) α with NO sqrt/pow and NO α parameter. Held
     ///         volatile amount is ∝ (√P − √Pa) when the volatile is token1 (sold as √P FALLS — volatile
     ///         appreciates ⇒ pool price down) or ∝ (√Pb − √P)/(√P·√Pb) when it's token0 (sold as √P RISES);
     ///         soldFrac = 1 − amount_now/amount_entry. Returns 0 on the non-IL side (up-side-only, matching the
     ///         current target) or a degenerate range. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat recenters the
-    ///         ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on a reseat. Shared verbatim by
+    ///         ticks and realizes IL, so the CALLER must re-anchor `syncKeyPx` on a reseat. Shared verbatim by
     ///         the ETH range (Quid, `token1isVol`) and the BTC range (Vault, `token1isVol`).
     /// @notice held-volatile amount NOW / held-volatile amount AT ENTRY (WAD), straight from the
     ///         concentrated-range geometry, clamped to the live range. `1e18` = at entry. `>1e18` ⇒ the range
     ///         BOUGHT the volatile (price fell — the OVER-hold the short cancels); `<1e18` ⇒ it SOLD (price
     ///         rose — the UNDER-hold the long cancels). Reflects the real (drifting) α with NO α parameter and
     ///         NO sqrt/pow — the single ground-truth primitive both hedge legs size from. VALID WITHIN ONE
-    ///         TICK-CONFIG ONLY: a reseat recenters + realizes IL, so the caller MUST re-anchor `entryPrice`.
+    ///         TICK-CONFIG ONLY: a reseat recenters + realizes IL, so the caller MUST re-anchor `syncKeyPx`.
     /// @notice Fraction of the range's ORIGINAL volatile still held, WAD. Same quantity as before,
     ///         computed in USD-PER-VOLATILE space instead of spotPrice space.
     ///
@@ -2051,13 +2051,13 @@ library SwapLib {
     ///      more — which was the actual coupling to core.
     ///      Roots are taken on WAD prices via `sqrt(P·1e18)`, so every term carries the same 1e18
     ///      scale and the ratios cancel it exactly.
-    function holdingRatioWad(uint entryPrice, uint price, uint loPrice, uint upPrice)
+    function holdingRatioWad(uint syncKeyPx, uint price, uint loPrice, uint upPrice)
         internal pure returns (uint) {
-        if (entryPrice == 0 || loPrice >= upPrice) return 1e18;
+        if (syncKeyPx == 0 || loPrice >= upPrice) return 1e18;
         // Clamp in PRICE space; `sqrt` is monotonic so clamping before or after the root is
         // identical, and price-space clamping is the one a reader can check against the range edges.
         uint pc  = price      < loPrice ? loPrice : (price      > upPrice ? upPrice : price);
-        uint p0c = entryPrice < loPrice ? loPrice : (entryPrice > upPrice ? upPrice : entryPrice);
+        uint p0c = syncKeyPx < loPrice ? loPrice : (syncKeyPx > upPrice ? upPrice : syncKeyPx);
         uint a = FixedPointMathLib.sqrt(pc  * 1e18);   // √P
         uint b = FixedPointMathLib.sqrt(p0c * 1e18);   // √P₀
         uint c = FixedPointMathLib.sqrt(upPrice * 1e18);
@@ -2067,9 +2067,9 @@ library SwapLib {
 
     /// @notice The range's ACTUAL sold-volatile fraction (WAD) since entry = `1 − holdingRatio` when the range
     ///         under-holds (price rose). The LONG hedge re-adds exactly this. Ground truth; 0 on the non-sold side.
-    function soldFractionWad(uint entryPrice, uint price, uint loPrice, uint upPrice)
+    function soldFractionWad(uint syncKeyPx, uint price, uint loPrice, uint upPrice)
         internal pure returns (uint) {
-        uint r = holdingRatioWad(entryPrice, price, loPrice, upPrice);
+        uint r = holdingRatioWad(syncKeyPx, price, loPrice, upPrice);
         return r < 1e18 ? 1e18 - r : 0;
     }
 

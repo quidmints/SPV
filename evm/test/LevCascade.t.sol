@@ -106,11 +106,11 @@ contract LevCascadeProbe is AllesFixture {
     /// Move the REAL ETH range UP by buying WETH out of it in bounded steps (each under the 50bps/swap manip cap),
     /// warping between so each step measures from spot≈TWAP and the guard resets. Real swaps only — the range sells
     /// ETH → real IL accrues; kept under the 5% Chainlink anchor so no reseat/no oracle override. Self-calibrating.
-    function _rallyRange(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyRange(uint syncKeyPx, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (ETH.soldFractionWad(entryPrice) >= targetWad) break;
+            if (ETH.soldFractionWad(syncKeyPx) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }

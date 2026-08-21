@@ -536,7 +536,7 @@ interface ICore {
     /// interface existed precisely to make that possible. The interface IS the polymorphism;
     /// a second name for the same call defeats it.
     function syncLev(address lp) external;
-    function soldFractionWad(uint entryPrice) external view returns (uint256);
+    function soldFractionWad(uint syncKeyPx) external view returns (uint256);
     function rangePrice() external view returns (uint);
     // Range bounds. These replace the former `reseatEpoch()` counter as the re-anchor signal: the counter and
     // the ticks are written in the same statement pair (Quid:1137-1138, Vault:711-712), so the bounds carry
