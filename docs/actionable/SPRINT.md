@@ -4291,7 +4291,16 @@ onboarding the SPA does.
 
 ### `§E267` 🔴
 
-## §E267 — 🔴 **`compilation_restrictions` PROPAGATE THROUGH IMPORTS — THE VENDORED FORK IS QUARANTINED**
+## §E267 — ✅ **MOOT: THE FORK AND ITS RESTRICTIONS ARE BOTH GONE. THE MECHANISM IS STILL TRUE.**
+✅ **RESOLVED BY REMOVAL, not by fixing.** `origin/main` now has **0** `[[profile.*]]` blocks and **0**
+vendored Midnight files. With no restriction there is no propagation and no quarantine, so nothing
+below is actionable. It also un-blocks the owner's *"one master setting for all"*: the only file that
+ever needed `via_ir = true` was `Midnight.sol`, so the tree is uniformly `via_ir = false` at 200 runs
+again — the 15-assembly-block audit is no longer a prerequisite for anything.
+⚠️ **KEEP THE MECHANISM.** `compilation_restrictions` DO propagate through imports — importing one
+constant from a restricted file drags every importer into that profile. If anything is ever vendored
+under its own compiler settings again, this is the trap, and it cost a build to find.
+
 🔴 OPEN (a constraint to design around, not a bug to fix) — measured 2026-08-19.
 
 `evm/foundry.toml` scopes `via_ir = true` / `optimizer_runs = 50` to the 18 vendored Midnight sources
@@ -5139,7 +5148,27 @@ shared library calls. Hoisting them into `State` was measured at **+41 bytes and
 abstract base copies into every inheritor), so that is NOT the lever — but a delegatecalled library
 would be, at the cost of one call per use. Measure before adopting.
 
-## §E275-HYGIENE — **THE REFACTOR'S SUBSTANCE IS DONE; ITS NAMING AND PROSE ARE NOT**
+## §E275-HYGIENE — 🟡 **TWO OF FOUR DONE; ONE WITHDRAWN AS A BAD CALL; ONE STILL OPEN**
+**STATUS 2026-08-21.**
+1. ✅ **DONE** — `Shares.sol` declares `abstract contract Shares`; both bands say `is Shares`.
+2. ✅ **DONE** — the false `allowance` comment is gone (0 hits).
+3. ⛔ **WITHDRAWN — I WAS WRONG TO PROPOSE IT.** I called the 48 `uniswap`/`v4`/`slot0` mentions stale
+   prose. Reading them, they are DESIGN RATIONALE and TRAP-NOTES: a MEASURED bug ($120 of mockUSD on
+   $120,000 of volume) and why it cannot recur; why the contract *"still looked responsive to the
+   PoolManager long after it stopped trading on it"*; and the distinction that *"the PoolManager settle
+   is GONE; the ACCOUNTING is not"*. One was a false positive entirely — `BTCChannels.sol:413`'s
+   `slot0` is a STORAGE-SLOT layout. **Deleting these would strip the repo's memory, which is what
+   CLAUDE.md is built out of.** Comments that explain WHY a shape exists are not residue.
+   ⚠️ ONE genuinely stale line found while checking: `Core.sol:1272` says the sqrt variant *"survives
+   only while Repack/Reseat/Collect still read `getSlot0`"*. `getSlot0` has **0 non-comment hits** in
+   `evm/src` — the condition has already passed. Fix that ONE line; leave the other 47.
+4. 🟡 **STILL OPEN** — `approve`/`allowance`/`transferFrom` on `Quid` are genuinely stock
+   (`Shares.sol` says so itself). With `Quid` at 86 bytes (§E274-SIZE) they are the one ERC-20 piece
+   worth pricing for removal. **Check the SPA and Rust clients first** — do not assume an ERC-20 method
+   is unused because our own contracts skip it.
+   ⚠️ `totalSupply`/`balanceOf`/`transfer` are the deliberate PROJECTION and must NOT be folded;
+   CLAUDE.md measures the abstract-base alternative at +41 bytes and zero saved.
+
 🟡 OPEN — measured 2026-08-21 against `origin/main` after the owner observed the refactor looked
 unfinished. **The substance IS finished and I want that on record before the defects:** `Shares.sol`'s
 abstract base is inherited by BOTH bands (`contract Quid is State`, `contract Vault is Ownable,
