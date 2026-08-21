@@ -4964,3 +4964,62 @@ re-doing the fork, i.e. what the vendored files already are. ⚠️ Note the sec
 
 📌 **`State.sol`'s deletion is unstaged, so it is not armed** — but it belongs to this change set, and
 rule 14b says a deletion and its replacement land together or the deletion waits. It is waiting.
+
+## §E274 — ✅ **Γ RE-DERIVED AND REMEASURED. THE ANSWER INVERTS §E273's READING: NO FINITE Γ IS SAFE.**
+Owner: *"rederive and remeasure"*. Executed 2026-08-21, `evm/test/GammaRederived.t.sol`, **5 tests,
+all passing, control included.** `skewWad` is `public pure`, so this needed no fixture and no fork.
+
+### 1️⃣ THE RE-DERIVATION — FROM A HORIZON SOMEBODY ACTUALLY CHOSE
+A–S's premium is `q·γ·σ²·(T−t)`; the code folds γ and (T−t) into Γ. σ² is **annualized**
+(`QuidLib:161,169` — `tickVar·SECS_PER_YEAR/THETA_STEP`), so **(T−t) must be in YEARS**.
+⛔ **The current Γ is circular** (`SwapLib:1013-1014`: *"Γ ≡ MAX_WELL_SKEW EXACTLY… the whole curve
+has ONE number in it, the cap, and it appears twice"*), and §GAMMA-HORIZON-DERIVED read a horizon back
+out of it — **946,080 s = 10.95 days, *"a horizon nobody chose"***. The chain is cap → Γ → horizon,
+and nothing in it is measured.
+⭐ **THE ONE HORIZON IN THIS REPO CHOSEN FOR A STATED REASON IS `Core.sol:207` `FLOW_DECAY` — a 48h
+half-life**, documented as the memory for *"the well's flow-EWMA / **inventory-skew target**"*. That
+is exactly the timescale on which an imbalance is expected to be worked off, which is what (T−t)
+means here.
+```
+    Γ_derived = γ·(T−t) = 1 · 172,800 / 31,536,000 = 5.48e15
+    Γ_current = 3e16                    ⇒ 5.475× LARGER than the flow register implies
+```
+
+### 2️⃣ THE REMEASUREMENT — AND IT REFUTES THE "33× MARGIN" FRAMING
+§E273 found the haircut's real limit is `1e18` and the cap `3e16`, *"33× lower… a vast margin to the
+failure point"*, leaving open whether a re-derived Γ stays inside it. **It does not, and neither does
+any other finite value.** Uncapped kernel, σ²=4e18 (200% ann. vol):
+| case | Γ=3e16 | Γ=5.48e15 | vs 1e18 |
+|---|---|---|---|
+| small drain above q₀=0.99 | 12.52e18 | **2.29e18** | **both over** |
+| Δ=0 quote at q=0.99 | 11.88e18 | **2.17e18** | **both over** |
+| Δ=0 quote at q=0.99999 | 11,999e18 | **2,192e18** | **both over, ~2,000×** |
+🔴 **DIVIDING Γ BY 5.475 BUYS NOTHING, BECAUSE THE KERNEL DIVERGES.** `q/(1−q)` has no finite bound,
+so **no coefficient tames it** — margin is the wrong concept for a pole. ⇒ **THE DECLINE MECHANISM IS
+MANDATORY, NOT A REFINEMENT**, and §E273's "conditional on one change" is the whole thing.
+⚠️ **AND IT MUST TRIGGER WELL BEFORE EXHAUSTION.** The 1e18 crossing is **not** at q=1:
+| Γ | σ²=100% vol | σ²=200% vol |
+|---|---|---|
+| 3e16 (current) | q ≥ **0.97087** | q ≥ **0.89286** |
+| 5.48e15 (derived) | q ≥ **0.99455** | q ≥ **0.97855** |
+⇒ At 200% vol the current curve is already unfillable-in-arithmetic at **89% scarcity**. **"Decline at
+the pole" is too late by design; the predicate is a THRESHOLD, and the threshold MOVES WITH σ².**
+
+### 3️⃣ 🔴 THE SHARPEST CASE IS A **QUOTE**, NOT A FILL — AND IT IS THE SOLVER-FACING PATH
+`Δ = 0` is the zero-size read (`SwapLib:1046-1049`: *"a zero-size READ (the Aux/MM signal, which wants
+the instantaneous rate)"*), where `qBar = q/(1−q)` with **no integral averaging it down**. That is the
+path `Aux.sol:663` exposes so *"Bebop's RFQ engine AND Khalani's Arcadia solver read the same curve
+settlement uses"*. ⇒ **The solver-facing quote is the one that diverges fastest**, and under the
+owner's 1inch design it is the *primary* interface. **Today the cap hides it entirely.**
+
+### 4️⃣ 📌 WHAT THE CAP IS ACTUALLY DOING TODAY — MEASURED, AND IT IS NOT A SAFETY LIMIT
+At σ²=1e18, q₀=0.5, the live (capped) skew is **exactly 3e16 from q₁=0.6 through q₁=0.95**, while the
+uncapped kernel runs 3.69e16 → 12.35e16. ⇒ **THE CURVE IS FLAT-TOPPED ACROSS ESSENTIALLY THE WHOLE
+SCARCITY RANGE.** Every result §UNIT-B and §UNIT-SKEW-IS-NOISE measured about "the skew" above q≈0.6
+was measuring **the constant**, not the curve.
+
+▶️ **CONSEQUENCE FOR THE ORDER OF WORK IN §REFILL-UNFINISHED:** step 1 was "separate Γ from the cap,
+delete the cap". **Γ IS NOW DERIVED (5.48e15) AND THE CAP IS STILL NOT DELETABLE ALONE** — the decline
+threshold must land in the SAME change, or the first deep drain panics `0x11` inside
+`retainSkewPremium`. ⚠️ §E104's lesson stands and now has a number: **the test that proves it must
+drive q past the threshold above**, not merely to zero.
