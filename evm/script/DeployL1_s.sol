@@ -208,7 +208,7 @@ contract Deploy is Script {
 
     Basket public QUID;
     Core public CORE;
-    Quid public BAND;
+    Quid public RANGE;
     Aux public AUX;
     LevManager public LEVM;           // lev overlay (0x0 when DEPLOY_LEV unset)
     BtcLevManager public BTCLEVM;
@@ -216,7 +216,7 @@ contract Deploy is Script {
     Vault public BTC;   // ...and BTC face (same instance, BTC == ETH)
 
     /// §J.2b: the vETH ERC-4626 IDENTITY (stateless projection over Quid). Integrators PRICE against
-    /// this and TRANSACT against Quid, which is the two-asset band manager and not itself a 4626.
+    /// this and TRANSACT against Quid, which is the two-asset range manager and not itself a 4626.
 
     function run() public {
         string memory privateKeyStr = vm.envString("PRIVATE_KEY");
@@ -335,7 +335,7 @@ contract Deploy is Script {
             allowUnburiedCheckpoint: false,   // (E135-b) PRODUCTION: the checkpoint MUST be buried; followers above prove it
             deployChannels: true
         }));
-        BAND = Quid(payable(A.ETH));
+        RANGE = Quid(payable(A.ETH));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
@@ -439,7 +439,7 @@ contract Deploy is Script {
         Ownable(address(QUID)).renounceOwnership();  // Safe renounces Basket (owner == deployer, no _transferOwnership)
 
         console.log("=== Deployed Addresses ===");
-        console.log("BAND (Quid):", address(BAND));
+        console.log("RANGE (Quid):", address(RANGE));
         console.log("CORE (Core):", address(CORE));
         console.log("AUX:", address(AUX));
         console.log("QUID (Basket):", address(QUID));
@@ -457,16 +457,16 @@ contract Deploy is Script {
         vm.serializeAddress(j, "deployer", deployer);
         vm.serializeAddress(j, "basket", address(QUID));
         vm.serializeAddress(j, "aux", address(AUX));
-        vm.serializeAddress(j, "band", address(BAND));
+        vm.serializeAddress(j, "range", address(RANGE));
         vm.serializeAddress(j, "core", address(CORE));
         // §E235-spa — THE BTC ENGINE'S ADDRESS WAS NEVER RECORDED, AND THAT IS WHY THE SPA BROKE.
         // The isBTC split made two `Core` instances (`DeployLib:137-138`: one on WETH/ethRisk, one on
         // WBTC/btcRisk), each exposing ONE `POOLED()`/`POOLED_USD()` instead of the old per-asset pair
         // on a single contract. The SPA still reads `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_*` off the
-        // ONE `bandCore` address, so after the rename it calls four selectors that no longer exist —
+        // ONE `rangeCore` address, so after the rename it calls four selectors that no longer exist —
         // and it had no way to do better, because the second instance was not in this file. Recording
         // it is the PRECONDITION for the client fix, not a nice-to-have: a rename in the SPA alone
-        // would point the BTC reads at the ETH engine, which ANSWERS — with the wrong band's numbers.
+        // would point the BTC reads at the ETH engine, which ANSWERS — with the wrong range's numbers.
         // That is the failure this key exists to prevent: silent, plausible, and wrong.
         vm.serializeAddress(j, "btcCore", address(ETH.CORE()));
         // ⚠️ TWO ADDITIONS TO THE ABOVE, both checked rather than assumed (§E233-ladder thread,
@@ -477,7 +477,7 @@ contract Deploy is Script {
         //    `A.btcCore` record the same address. ⚠️ Worth stating because the READ looks wrong:
         //    a variable named `ETH` yielding the BTC core, out of a DeployLib local itself named
         //    `eth` that receives `a.btcCore`. That is the `ethVenue`-into-a-parameter-named-
-        //    `btc` shape from CLAUDE.md — benign here (the Vault IS the BTC band; the name is
+        //    `btc` shape from CLAUDE.md — benign here (the Vault IS the BTC range; the name is
         //    the stale half), and exactly why it must be asserted from the constructor argument
         //    rather than read off the name.
         // 2. **THE CLIENT EDIT MUST WAIT FOR A DEPLOY, and that trap is in the FIX.** `chains.ts`
@@ -499,10 +499,10 @@ contract Deploy is Script {
     ///   link the running system needs so the feature is live the moment the deploy lands:
     ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho + Euler escrow
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
-    ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: bandETH counts the book).
+    ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: rangeETH counts the book).
     ///     BTC (vBTC collateral == the Vault): BtcLevManager → Morpho (and optional Euler) escrow venue →
     ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManager`
-    ///       (backing: bandBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
+    ///       (backing: rangeBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
     ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
     ///   GOV (`YB_GOV`, default = deployer) must be the broadcaster so the pin-once calls land, then has no
@@ -539,8 +539,8 @@ contract Deploy is Script {
         // ONE atomic pin-once: hook (Quid) + flash (Morpho, zero-fee de-lever) + the audited venues (weETH
         // Morpho, weETH Euler, WETH Morpho, + optional WETH-debt short), then FROZEN. The venue array is built in
         // its own frame (_ethLevVenues) so this method stays within the legacy stack (no via_ir).
-        lm.init(address(BAND), morpho, _ethLevVenues(morpho, address(lm), weeth));
-        // BACKING: bandETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
+        lm.init(address(RANGE), morpho, _ethLevVenues(morpho, address(lm), weeth));
+        // BACKING: rangeETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
         // lives there now, and `Core`/`QuidLib`/`BasketLib` all read `LEV_MANAGER()` THROUGH the
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
         Quid(payable(AUX.ethVenue())).setLevManager(address(lm));
@@ -604,7 +604,7 @@ contract Deploy is Script {
             address(WBTC), wbtcDebt, address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
         address[] memory vsB = new address[](2); vsB[0] = pin; vsB[1] = wbtcV;
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        ETH.setLevManager(address(bm));                 // BACKING: bandBTC counts the BTC lev book
+        ETH.setLevManager(address(bm));                 // BACKING: rangeBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
         // owner-gated functions, so with both set the owner has nothing left to call. Renounce.
         Ownable(address(ETH)).renounceOwnership();
@@ -668,13 +668,33 @@ contract Deploy is Script {
     ///    unchecked branch, and the hole is generic. Booked in QUEUE; do not add a second WETH-debt venue
     ///    until the gate covers this path.
     ///
-    /// 📌 EVERY VENUE HERE BORROWS **USDC**, which is why an ETH-denominated IL-protect borrow currently pays
-    ///    a stable→WETH SOR round trip. A weETH-collateral/WETH-loan Morpho market EXISTS and is deep
-    ///    (id `0x37e7484d…472ba7`, 94.5% LLTV, 1,770 WETH liquid, verified on-chain 2026-08-08 — see QUEUE).
-    ///    Adding it here removes that round trip entirely. The plumbing is already in place and inert:
-    ///    `LevMath._stableToWethSor`/`_wethToStableDex` short-circuit when `stable == c.weth`, and
-    ///    `_fromUsd`/`_toUsd18` are now price-aware, so a WETH loan token sizes off the ETH price rather
-    ///    than silently assuming $1. NOT ADDED YET: it is a money-path change and needs its own verified run.
+    /// 📌 EVERY VENUE HERE BORROWS **USDC/RLUSD/PYUSD**, which is why an ETH-denominated IL-protect borrow
+    ///    pays a stable→WETH round trip — the `WETH→USDC` V3 hop exists ONLY because the debt is a stable.
+    ///    With ETH-denominated debt, de-lever is `weETH→WETH` on Curve and the hop disappears.
+    ///
+    /// 🔴 THE MORPHO weETH/WETH MARKET IS **NOT** THE WAY TO GET THAT — THIS NOTE USED TO SAY IT WAS, AND
+    ///    THE NUMBER IT CITED HAS DECAYED 63% IN TWO WEEKS. It read *"EXISTS and is deep … 1,770 WETH
+    ///    liquid, verified 2026-08-08"*. RE-MEASURED 2026-08-22 (id `0x37e7484d…472ba7`):
+    ///      supply 6,519 WETH ($15.5M) · borrowed 5,868 ($14.0M) · **FREE 652 WETH ($1.55M)** · util **90%**
+    ///    ⚠️ "Deep" was a snapshot, and a borrowable-depth snapshot is the fastest-rotting number in this
+    ///    file — utilisation moves it without anyone touching the market.
+    ///
+    /// ✅ **AAVE v3 eMODE DOMINATES IT ON BOTH AXES** (measured 2026-08-22, `getEModeCategoryData(1)`,
+    ///    decoding past the ABI offset word — the naive decode reports a nonsense 0.32% LTV):
+    ///      Aave eMode cat 1 : LTV **93.00%**, liq threshold **95.00%**, bonus 1.00%, **free $808M**
+    ///      Morpho 94.5%     : LLTV 94.50%,                                            free $1.55M
+    ///    Aave's liquidation threshold is HIGHER (95.00 vs 94.50) at **520× the free liquidity**, weETH is
+    ///    active/unfrozen with a 1,350,000 supply cap, and `AaveV3Venue` ALREADY EXISTS and is fork-verified
+    ///    (`test/AaveV3Venue.t.sol`) — it is used for the WBTC leg, not yet for ETH-denominated debt.
+    ///
+    /// ⚠️ WHICH DIRECTION IS CONSTRAINED, because the 90% utilisation is easy to misread: **DE-LEVERING
+    ///    REPAYS, so it can never be blocked by low availability** — repaying ADDS liquidity. The $1.55M
+    ///    caps LEVERING UP only. So the WETH-debt route removes the V3 hop from de-lever unconditionally;
+    ///    what it cannot do is absorb new levered demand past ~$1.55M, at which point positions fall back
+    ///    to the stable markets and the hop returns.
+    /// ▶️ NOT WIRED, and `MORPHO_LLTV_945` / `WEETH_WETH_ORACLE` are ORPHAN CONSTANTS (0 uses) kept only
+    ///    as the market's coordinates. Extend `AaveV3Venue` to the ETH side instead — same money-path
+    ///    caution applies, and it needs its own verified run.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
         // MORPHO ONLY. Euler v2 and Aave v4 BORROWING are removed; the BTC side keeps Aave V3 for WBTC.
         // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
@@ -699,7 +719,7 @@ contract Deploy is Script {
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
         // 🔴 THE WETH-DEBT VENUE {loanToken: WETH, collateralToken: weETH} WAS DELETED HERE. It could not
-        // hedge, and was added on the belief that it could. THE ALGEBRA: the band sold `soldFrac·E0` of ETH,
+        // hedge, and was added on the belief that it could. THE ALGEBRA: the range sold `soldFrac·E0` of ETH,
         // so it holds `E0(1−soldFrac)` ETH plus the USD proceeds; delta-1 requires netting `E0`.
         //   • Borrow WETH `soldFrac·E0` ⇒ hold `E0` but OWE `soldFrac·E0` ETH ⇒ net `E0(1−soldFrac)`.
         //     UNCHANGED — the debt cancels exactly what the borrow bought.
