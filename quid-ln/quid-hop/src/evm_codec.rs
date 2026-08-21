@@ -564,7 +564,18 @@ impl OpenParams {
         ]
     }
 
-    /// `keccak256(abi.encode(p))` — the inner struct hash used in the digest.
+    /// `keccak256(abi.encode(p))` over the 7-field taproot `OpenParams`.
+    ///
+    /// ⚠️ **TEST-ONLY, AND NOT DEAD — DO NOT DELETE ON THE `dead_code` WARNING.** It backs the
+    /// CROSS-LANGUAGE CONFORMANCE assertion in `openparams_abi_ground_truth`: this Rust encoding is
+    /// compared against a constant produced by Solidity's
+    /// `BTCChannelsAuthTest.test_openparams_abi_ground_truth`. That pair is what catches the two
+    /// encoders drifting apart — a class the ABI checker cannot see, because it compares function
+    /// SIGNATURES, not struct ENCODINGS.
+    /// ⇒ The digest it was named for is gone (§E182/§REKEY-FOLD deleted the consents; the open
+    /// accessor went with them), so `#[cfg(test)]` now states what was already true: its only
+    /// caller is the conformance test, and the warning was the lib target not compiling tests.
+    #[cfg(test)]
     fn abi_struct_hash(&self) -> [u8; 32] {
         keccak256(encode_struct(&self.tokens())).0
     }
@@ -1522,18 +1533,17 @@ mod proptests {
             prop_assert_eq!(cd.len() % 32, 4);
         }
 
-        // (P4) Digests + channelId over arbitrary inputs: never panic, deterministic.
+        // (P4) `channelId` over arbitrary inputs: never panics, deterministic.
+        // ⚠️ Was `digests_never_panic` and covered three digests. Two were deleted with the
+        // consents they encoded (§E182, §REKEY-FOLD) and the third with its contract accessor, so
+        // the generators that fed them (`chain_id`, `addr`, `cid`, `raw`) went too rather than
+        // being left bound-but-unread — which is what the compiler flagged.
         #[test]
-        fn digests_never_panic(
-            chain_id in any::<u64>(),
-            addr in proptest::array::uniform20(any::<u8>()),
-            cid in proptest::array::uniform32(any::<u8>()),
-            raw in proptest::collection::vec(any::<u8>(), 0..300),
+        fn channel_id_never_panics(
             p in arb_open_params(),
             txid_int in proptest::array::uniform32(any::<u8>()),
             vout in any::<u32>(),
         ) {
-            let a = Address::from(addr);
             let c = channel_id(&p.lp_pubkey, &p.hop_pubkey, txid_int, vout);
             prop_assert_eq!(c, channel_id(&p.lp_pubkey, &p.hop_pubkey, txid_int, vout));
         }
