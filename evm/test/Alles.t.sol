@@ -412,21 +412,22 @@ contract AllesFixture is ForkPin, ExitFixture {
         BTCChannels ch, address hop, Types.OpenParams memory p, bytes memory fundingTx, uint seed,
         bytes32[] memory merkleBranch
     ) internal returns (bytes32 cid) {
-        (address lpEth, uint lpPk) = makeAddrAndKey(string(abi.encodePacked("hop-lp-", seed)));
         // Realistic btcRecipientOf: a full 32-byte x-only shutdown key distinct from the
         // funding material (this helper's callers never close/splice, so it is only
         // registered — but it must still look like a real key, not a hash160 in a slot).
         bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
-        // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx. It pins
-        // btcRecipientOf[lpEth]=payout and names `hop` as this channel's operator.
-        bytes memory dsig = _signDigest(lpPk, ch.openAuthDigest(hop, payout));
+        // (§E183 item 1 / #21) The LP's consent rides WITH the open as the payout PoP inside
+        // `mkAuth`, and the address it commits to is DERIVED — `ChannelLib.lpEthOf(p.lpPubkey)`,
+        // never a Foundry key. `makeAddrAndKey` + `_signDigest` used to supply an `lpEth` and an
+        // EVM signature here; §E183 deleted `lpEth`/`lpSig` from `OpenAuth`, so the signature was
+        // read by nothing and the address disagreed with the one the contract credits.
         // (E128) Built BEFORE the prank: `armingFor` runs an FFI cheatcode, and a cheatcode call
         // consumes a pending prank — evaluating it as a call argument would send `openChannel`
         // from the test contract instead of `hop`.
         Types.ExitArming[] memory exits_ = _armFixture(p, fundingTx, seed, payout);
         // (E138) `mkAuth` ALSO shells out now — it derives the payout key's proof-of-possession —
         // so it is subject to the same rule as the arming above and must be built before the prank.
-        Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
+        Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
         vm.prank(hop);
         cid = ch.openChannel(p, fundingTx, merkleBranch, auth_, exits_);
     }
@@ -438,16 +439,15 @@ contract AllesFixture is ForkPin, ExitFixture {
         BTCChannels ch_, address hop_, uint lpPk_, address lpEth_, bytes32 payout_,
         Types.OpenParams memory p_, bytes memory fundingTx_, string memory label_
     ) internal returns (bytes32 cid) {
-        bytes memory dsig =
-            _signDigest(lpPk_, ch_.openAuthDigest(hop_, payout_));
         // ⚠️ THE ARMING MUST BE BUILT BEFORE `vm.prank`. `armingFor` runs an FFI cheatcode, and a
         // cheatcode call CONSUMES a pending prank — so evaluating it as a call ARGUMENT meant
-        // `openChannel` arrived from the test contract, not from `hop_`. The contract then hashed
-        // the digest over a different hop and the LP signature failed to recover, surfacing as a
-        // bare `InvalidParam()` with nothing pointing at the prank.
+        // `openChannel` arrived from the test contract, not from `hop_`.
+        // (§E183 item 1 / #21) No `_signDigest` here any more: the LP signs nothing on the EVM,
+        // and `lpEth_`/`lpPk_` are vestigial — the address the contract uses is derived from
+        // `p_.lpPubkey`, which `mkAuth` below reads directly.
         Types.ExitArming[] memory exits_ = _armAlles(label_, fundingTx_, p_.amountSats, payout_);
         // (E138) Same rule, second FFI: `mkAuth` derives the payout PoP by shelling out.
-        Types.OpenAuth memory auth_ = mkAuth(lpEth_, payout_, dsig);
+        Types.OpenAuth memory auth_ = mkAuth(p_.lpPubkey, payout_);
         vm.prank(hop_);
         cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, exits_);
     }
@@ -4446,7 +4446,12 @@ contract Alles is AllesFixture {
 
         // LP: EVM key (signs lpAuth -> owns the position) is independent of the
         // BTC channel pubkey above.
-        (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
+        // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
+        // `ChannelLib.lpEthOf` the contract calls — because the assertions below compare
+        // against what the channel was actually credited to. The Foundry key survives only
+        // to feed `_openWithConsent`'s vestigial `lpPk_`, which §E183 left unread.
+        (, uint lpPk) = makeAddrAndKey("btc-lp");
+        address lpEth = ChannelLib.lpEthOf(lpPubkey);
         uint amountSats = 2e7;                              // 0.2 BTC funded
 
         // Funding + open, block-scoped so the funding-tx locals free before the
@@ -4542,7 +4547,12 @@ contract Alles is AllesFixture {
         BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
-        (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
+        // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
+        // `ChannelLib.lpEthOf` the contract calls — because the assertions below compare
+        // against what the channel was actually credited to. The Foundry key survives only
+        // to feed `_openWithConsent`'s vestigial `lpPk_`, which §E183 left unread.
+        (, uint lpPk) = makeAddrAndKey("btc-lp");
+        address lpEth = ChannelLib.lpEthOf(lpPubkey);
         uint amountSats = 2e7;
         bytes32 channelId; bytes32 fundingTxId;
         {
@@ -4609,7 +4619,12 @@ contract Alles is AllesFixture {
         BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
-        (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
+        // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
+        // `ChannelLib.lpEthOf` the contract calls — because the assertions below compare
+        // against what the channel was actually credited to. The Foundry key survives only
+        // to feed `_openWithConsent`'s vestigial `lpPk_`, which §E183 left unread.
+        (, uint lpPk) = makeAddrAndKey("btc-lp");
+        address lpEth = ChannelLib.lpEthOf(lpPubkey);
         uint amountSats = 2e7;
         bytes32 channelId; bytes32 fundingTxId;
         {

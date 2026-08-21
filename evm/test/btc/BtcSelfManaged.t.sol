@@ -5,6 +5,7 @@ import {AllesFixture, MockSPV} from "../Alles.t.sol";
 import {BTCChannels} from "../../src/BTCChannels.sol";
 import {SPVGateway} from "../../src/spv/SPVGateway.sol";
 import {Types} from "../../src/imports/Types.sol";
+import {ChannelLib} from "../../src/imports/ChannelLib.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Vault} from "../../src/Vault.sol";
 
@@ -363,17 +364,18 @@ contract BtcSelfManagedTest is AllesFixture {
             // retire/no-mint invariant (>=0), so the synthetic key just needs to be a
             // proper key, not a hash160 in a slot.
             bytes32 payout = e2ePayout;   // (E166-4) the key the signed exit pays
-            // (E157) The LP's consent rides WITH the open — no prior registerDelegation tx.
-            // ⚠️ `lpEth` is RECOVERED FROM the fixture's signature rather than checked against a
-            // known address, which is the pattern this test already used. It means the consent
-            // check passes by construction here, so THIS test does not prove LP authentication —
-            // `SmartWalletLp` does. What it proves is the SPV/channel machinery downstream, on
-            // real regtest data, and that is why the fixture did not need regenerating.
-            address lpEth = ECDSA.recover(
-                ch.openAuthDigest(hop, payout), b.lpAuth);
+            // (§E183 item 1 / #21) The LP's consent rides WITH the open as the payout PoP.
+            // ⚠️ `lpEth` USED TO BE `ECDSA.recover`ed from the fixture's `lpAuth`, which made the
+            // consent check pass by construction AND — after §E183 deleted `lpEth`/`lpSig` from
+            // `OpenAuth` — recovered an address the contract no longer uses for anything. It is
+            // now DERIVED the way the contract derives it, from the channel pubkey, so the
+            // assertions downstream compare against the address that was actually credited.
+            // What this test proves is unchanged: the SPV/channel machinery on real regtest data,
+            // not LP authentication (`SmartWalletLp` does that).
+            address lpEth = ChannelLib.lpEthOf(p.lpPubkey);
             // (E138) Built BEFORE the prank — `mkAuth` derives the payout PoP over FFI, and a
             // cheatcode call consumes a pending prank.
-            Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, b.lpAuth);
+            Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
             vm.prank(hop);
             channelId =
                 ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, auth_,

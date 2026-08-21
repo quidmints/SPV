@@ -85,20 +85,12 @@ contract BtcLpMintStress is AllesFixture {
         // taproot key DISTINCT from the funding key material, exactly as production separates the
         // per-channel MuSig2 funding key from the wallet's stable external-0 P2TR shutdown key.
         bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
-        Types.OpenAuth memory auth = _mkAuth(ch, lpEth, payout);
+        Types.OpenAuth memory auth = mkAuth(p.lpPubkey, payout);
         // (E128) A REAL signed ladder for THIS funding outpoint, built before the prank so the FFI
         // calls cannot consume it. (§SPRINT-B4) Two rungs — `_armLadder` rejects a single window.
         Types.ExitArming[] memory exits = _ladderFor(seed, fundingTxId, p.amountSats, payout);
         vm.prank(makeAddr("hop"));
         cid = ch.openChannel(p, fundingTx, new bytes32[](0), auth, exits);
-    }
-
-    /// (E157) The LP signs ONCE for THIS channel; the hop submits that consent with the open.
-    /// Own frame so `openAuthDigest`'s external call does not consume the caller's prank.
-    function _mkAuth(BTCChannels ch, address lpEth, bytes32 payout)
-        private returns (Types.OpenAuth memory)
-    {
-        return Types.OpenAuth({ btcRecipient: payout, btcRecipientPoP: _popFor(payout, lpEth)});
     }
 
     /// (E128) Own frame — building the arming inline pushed `_open` over the legacy stack, and
@@ -139,7 +131,7 @@ contract BtcLpMintStress is AllesFixture {
                        twoSameDeadline);
     }
 
-    /// ⚠️ EVERY FFI RUNS BEFORE `expectRevert` — `armingFor`/`_mkAuth` shell out, and a
+    /// ⚠️ EVERY FFI RUNS BEFORE `expectRevert` — `armingFor`/`mkAuth` shell out, and a
     /// cheatcode call consumes a pending expectRevert (the same trap this suite documents
     /// for pranks).
     function _submitShallow(
@@ -147,7 +139,7 @@ contract BtcLpMintStress is AllesFixture {
         uint seed, bytes32 fundingTxId, bool twoSameDeadline
     ) private {
         bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
-        Types.OpenAuth memory auth = _mkAuth(ch, lpEth, payout);
+        Types.OpenAuth memory auth = mkAuth(p.lpPubkey, payout);
         Types.ExitArming memory rung = armingFor(
             string.concat("mintstress-", vm.toString(seed)), fundingTxId, 0, p.amountSats,
             abi.encodePacked(hex"5120", payout), EXIT_DEADLINE, 1_000);

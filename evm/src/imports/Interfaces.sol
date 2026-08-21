@@ -529,7 +529,19 @@ interface IEthVenue {
 ///         fee accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME
 ///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
 /// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
-interface IBTCChannels { function btcRecipientOf(address user) external view returns (bytes32); }
+interface IBTCChannels {
+    function btcRecipientOf(address user) external view returns (bytes32);
+    /// (§TEST-RECONSTRUCTIONS) The canonical PoP digest. `BTCChannels` declares this `public`
+    /// precisely so a signer *"signs EXACTLY what the contract checks rather than a
+    /// reconstruction"* (`BTCChannels.sol:2429`) — and `ExitFixture` was reconstructing it by hand
+    /// anyway, tag and field order copied. Homed here so the fixtures reach it through the ONE
+    /// canonical interface rather than growing a second (standing rule 2, same as every merge above).
+    /// ⚠️ **A HAND COPY OF THIS DIGEST DRIFTS SILENTLY**: change the tag, a field, or the field
+    /// ORDER in the contract and every copy keeps signing the old shape and keeps PASSING, until
+    /// something integration-level fails somewhere nobody can localise. That is the same root as
+    /// `#21`, where the fixtures kept their own notion of `lpEth` and §E183 moved the contract's.
+    function btcRecipientPoPDigest(address lpEth) external view returns (bytes32);
+}
 
 
 /// G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with

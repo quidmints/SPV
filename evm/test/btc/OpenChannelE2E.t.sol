@@ -44,12 +44,6 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         band = new MockQuid();
     }
 
-    /// Sign an open digest in its own frame (keeps the test's stack shallow).
-    function _signOpen(uint pk, bytes32 digest) internal pure returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
-        return abi.encodePacked(r, s, v);
-    }
-
     /// Build the SPV header chain from REAL regtest headers in its own frame
     /// (returns the gw; parse locals stay confined here).
     function _buildChain(string memory json) internal returns (SPVGateway gw) {
@@ -94,18 +88,22 @@ contract OpenChannelE2ETest is Test, ExitFixture {
             fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot")
         });
 
-        // LP authorizes (owns the channel regardless of who relays). lpAuth is an
-        // ECDSA sig over openChannelDigest; the recovered signer is the owner.
-        uint lpPk;
-        (lpEth, lpPk) = makeAddrAndKey("lp");
-        channelId = _submitOpen(ch, json, p, lpPk, payoutOverride);
+        // (§E183 item 1 / #21) The LP OWNS the channel regardless of who relays, and its address is
+        // DERIVED from the channel key — `ChannelLib.lpEthOf(p.lpPubkey)`, the same call the
+        // contract makes. There is no `lpAuth` any more: §E183 deleted `lpEth`/`lpSig` from
+        // `OpenAuth`, so nothing recovers a signer and `makeAddrAndKey("lp")` named an address the
+        // contract never sees. ⚠️ **THIS IS THE VALUE THE ASSERTIONS COMPARE** (`ownerEth == lpEth`,
+        // `registered(lpEth) == amount`), which is why fixing only `_submitOpen`'s local left them
+        // failing against a Foundry address the channel was never credited to.
+        lpEth = ChannelLib.lpEthOf(p.lpPubkey);
+        channelId = _submitOpen(ch, json, p, payoutOverride);
     }
 
     /// Sign + submit the open in its own frame (rawTx/lpAuth/payout confined here).
     /// @param payoutOverride when non-zero, pin THIS as `btcRecipientOf` instead of the derived
     ///        shutdown key. A SHRINK splice's withdrawal output pins to `btcRecipientOf`, so a
     ///        test driving the fixture's real splice must pin the key that splice actually pays.
-    function _submitOpen(BTCChannels ch, string memory json, Types.OpenParams memory p, uint lpPk,
+    function _submitOpen(BTCChannels ch, string memory json, Types.OpenParams memory p,
                          bytes32 payoutOverride)
         internal
         returns (bytes32 channelId)
@@ -117,18 +115,19 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         bytes32 payout = payoutOverride != bytes32(0)
             ? payoutOverride
             : payoutKeyOnly(abi.encode(p.lpPubkey));
-        // (E157) One transaction: the LP signs for THIS channel (hop 0xB0B, this payout, this Q,
-        // this size) and the hop submits that consent WITH the open. It pins + LOCKS
-        // btcRecipientOf[lpEth]=payout and credits the position to lpEth.
-        address lpEth = vm.addr(lpPk);
-        bytes memory dsig = _signOpen(lpPk,
-            ch.openAuthDigest(address(0xB0B), payout));
+        // (§E183 item 1) The LP's consent rides with the open as a BITCOIN signature — the payout
+        // PoP inside `mkAuth`, whose digest commits to the DERIVED `lpEth`. It pins + LOCKS
+        // btcRecipientOf[lpEth]=payout and credits the position to that same derived address,
+        // which the caller computes (`_openFromFixture`) because the assertions compare it.
+        // ⚠️ Nothing here signs on the EVM any more: §E183 deleted `lpEth`/`lpSig` from `OpenAuth`,
+        // so the `_signOpen`/`dsig` pair that used to live here is GONE rather than relocated —
+        // computing a signature no entrypoint reads is dead work (standing rule 1).
         // (E128) Built BEFORE the prank: `signedExitFull` runs an FFI cheatcode, and a cheatcode
         // call CONSUMES a pending prank — as a call argument it would send `openChannel` from the
-        // test contract instead of 0xB0B, and the LP signature would fail to recover.
+        // test contract instead of 0xB0B.
         Types.ExitArming[] memory arm_ = _armRegtest(p, rawTx, json, payout);
         // (E138) `mkAuth` is a second FFI caller now (the payout PoP) — same hoist, same reason.
-        Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
+        Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
         bytes32[] memory branch_ = vm.parseJsonBytes32Array(json, ".merkleBranch");
         vm.prank(address(0xB0B)); // must be the hop the LP signed for
         channelId = ch.openChannel(p, rawTx, branch_, auth_, arm_);
