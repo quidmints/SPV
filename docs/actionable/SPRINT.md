@@ -7512,3 +7512,40 @@ runs, `D8`'s build, `§E280`'s credit path). **Those need re-execution, not grep
 is that its four "vanished tests" were three false positives because the discriminator was reading the
 deleting commit, never the search. ⇒ **10-of-11 is a result about the symbol-shaped subset, not a
 clean bill for the ✅ column.**
+
+---
+
+## 📋 §E303 — **THE RED-STUCK COMPLEMENT: THE FILE'S TOP TWO PRIORITIES ARE BOTH DONE OR MOOT**
+
+**§E302 swept the green-stuck direction; this is the red-stuck one on the rows that matter most.**
+`§0-HANDOFF` opens *"Do these in this order: 1. §E257 … 2. §E258"* and both are 🔴🔴/🔴🔴🔴 at the top of
+the file. **Checked against code 2026-08-22 — neither is work the next thread should start.**
+
+### ✅ §E258 IS BUILT (`:237` "THE BUILD SPEC" and `:360` "limit orders became options")
+`fillOOR`, `sweepOor` and `openOor` all exist — 2 hits each in `Quid.sol` and `BandLib.sol` — along
+with the packed `(price << bits) | id` key, the near-edge trigger, the `maxFills` cap, the
+permissionless poke and the `lastSweptPx` watermark that seeds without filling. **The spec at `:237` is
+a specification for work that has landed**, and `:360`'s *"a boundary order is now an option the owner
+must exercise"* is no longer true.
+⚠️ **BOTH ROWS CARRY THE SAME ID, so re-pointing one leaves the other** — that is §E291-ids' cost
+arriving in the highest-severity rows in the file.
+
+### 🟡 §E257 IS MOOT-BY-CONFIGURATION, NOT FIXED — RE-POINT, DO NOT CLOSE
+Its headline is *"`main` SHIPS a swap path that cannot fit in a block."* **It does not, today:**
+`setObservationSource` has **zero call sites in `DeployLib`**, so `_observeIfSourced` hits
+`if (src == address(0)) return;` (`Core.sol:1324`) and the 33.6M read is never reached. Every surviving
+`getRate` in `Core.sol` is a **comment** (`:1288`, `:1320`, `:1326`, `:1362`).
+🔴 **BUT THE DEFECT IS LATENT, NOT REMOVED — and that is the whole reason this is a re-point.** It
+returns the instant anyone pins 1inch as the source, and §C1 is *actively looking for a source*. The
+protection is no longer "we fixed the call", it is **"nothing is pinned"** plus `OneInchGasProbe.t.sol`
+as a tripwire. ⇒ **Closing it would delete the warning exactly when the decision that could re-trigger
+it is live.** Rule 16: a row conditional on a choice not yet made is ⏸️, never ✅.
+
+### 📌 WHY THIS MATTERS MORE THAN TWO ROWS
+**`§0-HANDOFF` IS THE FIRST THING A NEW THREAD READS, AND ITS ORDERED LIST IS WRONG AT POSITIONS 1
+AND 2.** A thread following it spends its first hours building `fillOOR` (built) and re-plumbing an
+oracle read (unreachable). ⇒ **The ordered list is a ✅-equivalent: it tells the next thread what to
+do, so a stale entry costs the same as a stale marker** — and it is not covered by either sweep,
+because it is prose, not a row.
+▶️ **Row action:** re-point `§0-HANDOFF` items 1 and 2, suffix the two `§E258` rows, and mark §E257 ⏸️
+against §C1 rather than ✅.
