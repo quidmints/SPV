@@ -6184,3 +6184,50 @@ the kernel — is what closes the free-drain hole; and a closed-form integral is
 §E276 (spread vs shift), because it determines whether the pole is pathological at all; (3) show what
 prevents a cheap full drain once the pole is gone. **Until (3) has an answer, step 2 removes the only
 brake we have.**
+
+## ⛔ §E288-CORRECTED — **I WAS WRONG. A&S §2.3 DOES HAVE A POLE, AND IT IS AT AN INVENTORY BOUND.**
+**VERIFIED AGAINST THE ACTUAL PAPER** (Avellaneda & Stoikov, *Quantitative Finance* 8(3), 2008,
+217–224), fetched and text-extracted 2026-08-21. §E288 above asserted from memory that A&S is linear
+and that `:1030-1031` should be deleted. **Both claims are false. The row is superseded by this one.**
+
+### WHAT §2.3 ACTUALLY SAYS — QUOTED, NOT RECALLED
+```
+r^a(s,q) = s + (1/γ)·ln[ 1 + ((1−2q)γ²σ²) / (2ω − γ²q²σ²) ]
+r^b(s,q) = s + (1/γ)·ln[ 1 + ((−1−2q)γ²σ²) / (2ω − γ²q²σ²) ]      where  ω > ½γ²σ²q²
+```
+> *"The parameter ω may therefore be interpreted as an **UPPER BOUND ON THE INVENTORY POSITION our
+> agent is allowed to take**. The natural choice of ω = ½γ²σ²(q_max+1)² would ensure that the prices
+> defined above are **BOUNDED**."*
+⇒ **THE DENOMINATOR `2ω − γ²q²σ²` IS A POLE, AND IT SITS EXACTLY AT THE INVENTORY LIMIT.**
+
+### ⇒ THE TWO COMMENTS NEVER CONTRADICTED — THEY ARE ONE FACT FROM TWO SIDES
+| | |
+|---|---|
+| `:765-770` — *"HJB with a HARD inv≥0 constraint… ρ=0 recovers plain linear A-S"* | ✅ **TRUE.** §2.2's FINITE-horizon price IS linear: `r = s − qγσ²(T−t)`. |
+| `:1030-1031` — *"a SIMPLE POLE q/(1−q), which is what A&S §2.3's infinite-horizon reservation price derives anyway"* | ✅ **ALSO TRUE**, and I proposed deleting it. §2.3 IS a pole, and A&S's `ω` IS `:765`'s hard constraint. |
+⇒ **`:1030-1031` MUST NOT BE DELETED.** Step 1 of the removal plan was *"one must go"* — **neither does.**
+
+### 🔴 AND IT REFUTES `Γσ²q²` ON THE PLAN'S OWN CITATION
+**A&S PUTS `q²` IN THE DENOMINATOR, WHERE IT CREATES THE POLE.** `Γσ²q²` moves `q²` to the numerator as
+the premium itself — **the opposite operation.** The plan invoked A&S to justify the exponent; the paper
+says the exponent belongs on the other side of the fraction. ⚠️ Also note A&S DAMPS the pole with a
+`ln(1 + ·)`, which we do not — a real difference worth studying, and a third option nobody has costed.
+
+### ⭐ WHAT A&S DOES INSTEAD OF A CAP — AND IT IS THE ELEGANT ANSWER TO §E275
+A&S never clamps the output. **They choose ω so the pole sits OUTSIDE the reachable inventory range:**
+at `q = q_max` with `ω = ½γ²σ²(q_max+1)²` the denominator is `γ²σ²(2q_max+1) > 0`, so the price is
+finite everywhere the agent can actually be. ⇒ **THE BOUND IS A PARAMETER CHOICE, NOT A CLAMP** — which
+is exactly standing rule 17 (make the bad state unconstructible rather than detectable), arrived at
+independently by the source. **This is a THIRD design we have not costed, and it may dominate both the
+cap (deleted, §E275) and the decline (`SKEW_UNFILLABLE`, landed today).**
+▶️ **NEXT:** map our `q` (scarcity vs shed target) onto A&S's `q_max`, and ask whether an ω-equivalent
+exists here. If it does, `_declineIfUnfillable` becomes unreachable **by construction** rather than by a
+threshold — and rule 1 then deletes it.
+
+### 📌 THE PROCESS POINT, BECAUSE IT IS THE SECOND TIME TODAY
+§E277 flagged 4 rows from a grep and **3 were false positives**. §E288 asserted a paper's contents from
+memory and **was refuted by reading it — 20 minutes of fetching and decompressing.** ⚠️ **BOTH TIMES THE
+CONFIDENT-SOUNDING CLAIM WAS THE UNVERIFIED ONE, AND BOTH TIMES THE OWNER ASKED FOR THE CHECK.** The
+papers live in `../` (SPV's PARENT — outside the `mcp__pdf` root, which is why "not on disk" was wrong
+too); A&S is fetchable from `math.nyu.edu/~avellane/HighFrequencyTrading.pdf` and this repo has no
+`pdftotext`, so decompress the streams with `zlib` and regex the text operators.
