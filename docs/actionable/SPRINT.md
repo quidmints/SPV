@@ -7057,11 +7057,31 @@ other docs, `SOR-SIGNIFICANCE-DESIGN` ×4 in other docs, `LST-PEG-MONITOR` ×3, 
 **Their conclusions are preserved in the table above**, so a citation can be resolved here rather than
 read as work that went missing. Full text remains in git history.
 
-⚠️ **`PM-INVARIANTS.md` WAS KEPT, AND IS THE INTERESTING ONE.** It asserts *"V4 and its lock/unlock are
-gone from this repo — zero imports"*, but `poolManager` still appears in **1 src file**. It is not
-stale in the "already done" direction: **it is a verification gate resting on a premise that is
-false**, which makes the three invariants it derives suspect rather than obsolete. Re-derive them
-against the real state before using it as a gate.
+🔴 **`PM-INVARIANTS.md` IS KEPT AND ITS FORCE IS UNDIMINISHED — I MIS-FRAMED IT AND THE OWNER
+CORRECTED ME (2026-08-21).** I wrote that it "rests on a false premise" because it opens *"V4 and its
+lock/unlock are gone — zero imports"* while `poolManager` still appears in 1 src file. **That is a
+quibble with one sentence, not with the document.** Owner: *"the invariants must be respected even
+though v4 and lock/unlock are gone — the reentry is still there for state read, and the start and end
+balance of the middleman contract must settle the way univ4 did."*
+⇒ **THE LOCK'S ABSENCE IS THE REASON THEY BIND, NOT A REASON THEY LAPSE.** V4 enforced all three for
+free; with an external router each is ours, and **each fails silently if unenforced.** A doc whose
+premise reads slightly stale is not the same as a gate that has expired.
+
+🔴 **TWO CONCRETE GAPS FOUND WHILE RE-CHECKING INVARIANT 3 (approval hygiene), both in `LevMath`:**
+- **`_wethToWeeth` (`:454-460`) NEVER ZEROES ITS APPROVAL.** It approves `wethRem` to
+  `ETHERFI_ADAPTER_M` and calls `depositWETHForWeETH`; if the adapter pulls less than approved, a
+  **residual allowance persists to a third-party contract**. ✅ Note it DOES satisfy invariant 1
+  properly — output is a MEASURED balance delta (`bef` → after), not a returned number.
+- **`_weethToWethDex` (`:426-432`) zeroes on the CATCH path only.** On success it returns `out`
+  without zeroing. Curve's `exchange(i,j,dx,minDy)` transfers exactly `dx`, so the allowance lands at
+  zero *in practice* — **but that is relying on the venue's behaviour rather than asserting it, which
+  is precisely what invariant 3 forbids.**
+✅ **The V3 router path is disciplined by contrast** — `LevMath:507/514/517` zero the approval on
+every exit including the unwind.
+
+▶️ **ACTION: zero after use on both, and re-run the invariant-3 checklist over every router-reaching
+path — `nonReentrant`, exact-amount approval, zeroed after, router pinned, and a callback re-entering
+through a DIFFERENT entrypoint than the one that called out.**
 
 ✅ **KEPT, code confirms work remains:** `BTC-CUSTODY-OPEN` (8 files use `btcRecipientOf`) ·
 `HOP-TRUST-AUDIT` (3) · `LP-SIGNING-READINESS` (`MuSig2Agg` present) · `TAPROOT-CHANNELS-BUILD-SPEC`
