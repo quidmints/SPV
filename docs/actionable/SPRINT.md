@@ -6116,7 +6116,9 @@ pole, make its LOCATION a parameter (`KAPPA_WAD`), which is what A&S actually do
 
 *(original below, kept because it is what must be answered if anyone re-opens this)*
 
-## ⛔ ~~§E286~~ — **THE FLOOR IS AN ARTIFACT OF A BARRIER THAT DUPLICATES THE DECLINE. `ρ = 0` IS THE QUESTION, NOT THE FLOOR'S VALUE.**
+⛔ *(withdrawn original of `§E286-floor`, demoted out of the header namespace so a `^##.*§E286` grep
+cannot land on it — see §E291)* — **THE FLOOR IS AN ARTIFACT OF A BARRIER THAT DUPLICATES THE DECLINE.
+`ρ = 0` IS THE QUESTION, NOT THE FLOOR'S VALUE.**
 
 **Owner, 2026-08-21: *"idk why there should be a floor or how to best make it dynamic."* Correct on
 both halves, and §E285's prescription conceded too much — it answered "how big a residual" when the
@@ -6219,7 +6221,9 @@ through a whole kernel replacement). ⇒ **§E289 is the live successor.**
 
 *(original below, kept because it is what must be answered, not repeated)*
 
-## ⛔ ~~§E287~~ — **THE HORIZON IS `q·T_flow`, NOT A CONSTANT. THAT DERIVES THE CONVEXITY, DELETES THE BARRIER, AND MAKES ONE KERNEL SERVE BOTH LEGS.**
+⛔ *(withdrawn original of `§E287-qsquared`, demoted out of the header namespace so a `^##.*§E287` grep
+cannot land on it — see §E291)* — **THE HORIZON IS `q·T_flow`, NOT A CONSTANT. THAT DERIVES THE
+CONVEXITY, DELETES THE BARRIER, AND MAKES ONE KERNEL SERVE BOTH LEGS.**
 
 **The root fix §E286 asks for, built from parts already in the tree. Nothing here is new machinery —
 it is one substitution that removes four bounds, one branch, one import and one whole function.**
@@ -6324,7 +6328,16 @@ size-awareness survives **and gets cheaper** than the current `lnWad` branch.
 5. **Then delete** `SKEW_UNFILLABLE`, `lnWad`, the saturation clamp and §E285's residual, which by
    then have nothing to bound. ⚠️ **Deleting them earlier hides whether step 2 worked.**
 
-## §E286 — 🔴 **THE LEV PATH STILL ROUTES THROUGH UNISWAP V3, AND REMOVING IT IS A LIVENESS DECISION**
+## §E286-v3 — 🔴 **THE LEV PATH STILL ROUTES THROUGH UNISWAP V3, AND REMOVING IT IS A LIVENESS DECISION**
+⚠️ **SUFFIXED 2026-08-21 — the last bare `§E286`.** Three findings shared it: `§E286-integral`,
+`§E286-floor` (withdrawn) and this one. Prose across the file has been calling this row `§E286-v3`
+for some time, so the suffix makes the citation real rather than inventing a new one. See §E291.
+📌 **AND ITS SUBJECT IS THE SAME DECISION AS §E293 #2** (owner, 2026-08-21: *"AggregationRouterV6 was
+supposed to replace uni"*). ⇒ **The question is NOT "what replaces V3" but "do we wire the router that
+was always meant to."** ⚠️ That reframes the option table below: *"another external venue"* is not a
+third option, it is **the original plan that never landed**. And the comparison the decision needs has
+never been made — **V3's 46× depth advantage was measured against TriCrypto, a single pool, not
+against an aggregator that routes across V3 AND everything else.**
 🔴 OPEN — owner, 2026-08-21: *"there must be no routing through univ3 for the levpath"*. Booked rather
 than executed, because the obvious replacement was already tried and MEASURED WORSE.
 
@@ -6492,7 +6505,7 @@ diff is `1e18 - q` → `κ - q`, plus one outer `κ·`. **`lnWad` stays, the bra
 convexity stays.** Nothing is deleted to make this work, which is why it is worth preferring to both
 things tried today.
 
-### ⭐ AND `κ` DISSOLVES THE ORDERING OBJECTION THAT KILLED §E287
+### ⭐ AND `κ` DISSOLVES THE ORDERING OBJECTION THAT KILLED §E287-qsquared
 §E287's fatal flaw was deleting the only brake before its replacement existed. **`κ` separates the
 STRUCTURAL change from the ECONOMIC one:** land the generalisation at `κ = 1` and the behaviour is
 provably identical (same expression), then move `κ` as a single-constant change **gated on the refill
@@ -6530,7 +6543,11 @@ plausible-but-wrong constraint rule 15 warns about.
    flow-window, and that those coincide is an analogy, not a result. ▶️ **The honest first landing is
    `κ = 1` (a pure refactor); `κ = 2` is a SECOND, economic commit with its own prediction.**
 
-## §E287 — **`init` IS THE LAST UNFOLDED MANAGER PAIR (74%), AND IT HIDES FOUR ASYMMETRIES**
+## §E287-init — **`init` IS THE LAST UNFOLDED MANAGER PAIR (74%), AND IT HIDES FOUR ASYMMETRIES**
+⚠️ **SUFFIXED 2026-08-21 — the last bare `§E287`.** Three findings shared it: `§E287-guards`,
+`§E287-qsquared` (withdrawn) and this one. See §E291. **Nothing about this row's content changes** —
+it is a manager-fold item and has no relation to the skew work the other two carry, which is precisely
+why the shared id was dangerous.
 🟡 OPEN — the one fold task this thread FLAGGED AND NEVER FINISHED. Found in the first similarity scan
 (`LevManager.init` vs `BtcLevManager.init`, 277 vs 287 chars, **0.74**), then lost behind the larger
 folds. Booked now from a re-scan of the post-fold tree, which is how it resurfaced.
@@ -6822,10 +6839,26 @@ thread documented twice, arriving in MY OWN row: the work landed, and the row st
 
 ---
 
-## 🔴 §E291 — **16 OF 114 ROW IDS ARE DUPLICATED, AND THE LEDGER HAS NO ALLOCATION STEP**
+## 🔴 §E291-ids — **THE LEDGER HAS NO ALLOCATION STEP — AND THIS ROW PROVED IT BY COLLIDING**
 
-**Counted mechanically 2026-08-21, not recalled:** `grep -oE "^#{1,3} .*§E[0-9]+"` over `SPRINT.md`
-gives **114 row headers carrying an `§E` id, of which 16 ids are used by more than one row.**
+⛔ **SUFFIXED, AND THE REASON IS THE ROW'S OWN THESIS.** I claimed `§E291` by grepping for the highest
+id and adding one. **Another thread claimed it in the same window** — `§E291` at `:6768` is *"evidence
+rescued from an abandoned commit: three on-pool EMAs agree to 7.2 bps"*, unrelated to this. ⇒ **The row
+about id collisions collided, by exactly the mechanism it describes.** Mine takes the suffix (newer in
+the file, and one edits one's own row before someone else's).
+
+⛔ **AND MY COUNT WAS WRONG — I RAN THE GREP WITHOUT THE CONTROL.** It said *"16 of 114 row headers"*.
+That pattern was `^#{1,3}`, which counts **`###` sub-headings and any heading that merely CITES an id**
+as though each were a row. **Measured properly — level-2 headers only, `^## ` — it is 2 duplicated ids
+out of 57 rows**, and one of those two (`§E258`) is one finding written up in two places
+(`0-BUILD` and `0-CRITICAL-B`), not two findings sharing a name. **The other was this row.**
+⇒ **I over-stated the problem ~8× and did it the same way I have been faulting others for all day:
+reported a grep's output without asking whether it would look the same if I were wrong.**
+
+⭐ **THE FINDING SURVIVES THE CORRECTION, WHICH IS WHY THE ROW STAYS.** Today `§E286` and `§E287` each
+genuinely carried **three distinct rows**, `§E278` and `§E283` two, and this row made a fifth
+collision — five in one day is not a measurement artifact. **The rate is the problem; my number for
+the stock was not.**
 Today alone: **`§E287` × 3 distinct rows** (the survival mechanism, the refuted `q²` proposal, the
 `init` manager pair), **`§E286` × 3** (the cap/integral finding, the floor argument, the UniV3 venue
 row), **`§E278` × 2**, **`§E283` × 2**.
