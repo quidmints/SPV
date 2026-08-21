@@ -2309,6 +2309,42 @@ The owner's constraint decides the design, so state it as a rule before writing 
   the fold rather than found by it. **Permissionless is not a nicety here; it is the whole safety
   argument.**
 
+🔴🔴 **THE FOLD IS A SECURITY FIX, NOT AN OPTIMISATION — IT REMOVES A FUND-STRANDING PATH A
+COMPROMISED ENCLAVE CAN TRIGGER. Measured 2026-08-21, and this is the answer to the owner's
+constraint rather than a caveat on it.**
+
+Three facts, each checked in code, and together they are an attack:
+1. **Custody is FINAL before the EVM sees it.** `openChannelBody` *SPV-proves* the funding output, so
+   the LP's sats are already locked in the 2-of-2 on Bitcoin when `openChannel` runs. **The window is
+   structural, not incidental** — the proof's input IS the confirmed funding, so funding necessarily
+   precedes the EVM record and no ordering change can remove it.
+2. **The claim leg reverts on PROTOCOL-WIDE state.** `BtcLib.requestDeposit` calls
+   `IAux(c.aux).checkBacking()`, self-calls `repack()`, and carries `if (price == 0) revert ZeroTwap()`.
+   None of these are about this LP or this channel.
+3. **`_armLadder` is at `:938`, INSIDE THE SAME TRANSACTION as the claim at `:943`.** A revert in (2)
+   rolls back the arming in (3).
+
+⇒ **A ZERO TWAP OR A FAILING `checkBacking` LEAVES A FUNDED 2-of-2 WITH NO ARMED LADDER.** The LP's
+BTC is locked, the EVM has no channel record, and **no dead-man exit exists** — so the LP's only route
+out is the hop's signature, held by the very party the ladder exists to escape. **An enclave that can
+stall the open across a bad-oracle or unhealthy-basket window converts "the LP is protected by
+construction" into "the LP is protected if the protocol was healthy at one particular moment."**
+⚠️ **AND THE DAMAGE IS SILENT AT THE MOMENT IT HAPPENS:** the LP sees a reverted transaction, which
+reads as "try again later", not as "your funds are now locked with no escape".
+
+▶️ **THIS DECIDES THE DESIGN, and it also answers "when does the LP start earning" without needing
+retroactive accrual:**
+- **CUSTODY + LADDER must record UNCONDITIONALLY**, gated only on the SPV proof — facts about *this*
+  channel, which cannot fail for reasons elsewhere in the protocol.
+- **THE CLAIM becomes a separate PERMISSIONLESS, RETRYABLE step.** Normally it is called immediately
+  (the same submitter, even the same block), so **the deferral is a SAFETY VALVE, not a normal-path
+  delay** — which is why no back-dated fee accrual is needed and why the accumulator-checkpoint
+  problem never arises. The LP earns from CLAIM, and the LP (or anyone) can make claim = custody + 0
+  blocks whenever the protocol is healthy.
+- ⚠️ **Do NOT "fix" this by making the claim retroactive to custody.** Joining a `feesPerShare` pool
+  with a back-dated checkpoint claims fees already distributed to the other LPs — it moves the loss
+  onto them instead of removing it. Permissionless retry removes it.
+
 ⚠️ **THE HARD PART IS *WHEN THE LP STARTS EARNING*, NOT HOW TO DEFER THE BOOKKEEPING** (§E166's own
 words). Deferring the credit defers fee accrual, so the fold must say explicitly whether the LP earns
 from CUSTODY (sats locked) or from CLAIM (position registered) — and the two now happen at different
