@@ -6028,7 +6028,10 @@ carries the evidence — this is an index, not a restatement.** Read this before
    diff the index's citation list against the open rows for the subsystem** — mechanically, not from
    memory. That check is three lines of `grep` and it is the only thing that catches an omission.
 
-## ⭐ §E286 — **THE CAP WAS DISCARDING 51% OF WHAT §E68's INTEGRAL COMPUTED. DELETING IT RESTORES THE INTEGRAL.**
+## ⭐ §E286-integral — **THE CAP WAS DISCARDING 51% OF WHAT §E68's INTEGRAL COMPUTED. DELETING IT RESTORES THE INTEGRAL.**
+⚠️ **SUFFIXED 2026-08-21 — §E286 WAS USED BY THREE DIFFERENT FINDINGS** (this one, `§E286-floor`, and
+the lev-path/Uniswap-V3 row below). Suffixing mine, the same courtesy `f471af6a` showed when it renamed
+its own §E274 to §E274-SIZE.
 Measured 2026-08-21, `evm/test/IntegralVsCap.t.sol` (pure, no fixture). Asked because the integral
 additions (§E68 drain leg, §E68b sell leg) were never re-examined after the cap came out.
 
@@ -6058,7 +6061,11 @@ finer slices, a real edge does not.
 re-deriving Γ downward by 5.475× is NOT compounding with a cut — it is being applied to a charge that
 was itself halved. **Do not reason about the Γ change against the OLD collected number.**
 
-## 🛡️ §E287 — **HOW THESE LEARNINGS SURVIVE THE NEXT THREAD (and how to overturn them honestly)**
+## 🛡️ §E287-guards — **HOW THESE LEARNINGS SURVIVE THE NEXT THREAD (and how to overturn them honestly)**
+⚠️ **SUFFIXED 2026-08-21 — §E287 WAS USED BY THREE DIFFERENT FINDINGS.** ⛔ **AND THE COLLISION WAS
+ALREADY MISLEADING:** §E289 says *"§E287's fatal flaw was deleting the only brake before its replacement
+existed"* — that is **`§E287-qsquared`**, the withdrawn q² kernel, **NOT this row**, which is a test file
+and deletes nothing. A reader checking that citation would arrive here and find no such flaw.
 Owner asked how to stop a parallel thread undoing this work *"unless they are truly wrong or
 confirmation bias or overfitting"*. **The answer is not to lock anything — it is to make each learning
 FALSIFIABLE AND CHEAP TO RE-TEST, so overturning one costs a measurement rather than an opinion.**
@@ -6071,7 +6078,7 @@ FALSIFIABLE AND CHEAP TO RE-TEST, so overturning one costs a measurement rather 
    reader concludes the concern is obsolete rather than that the coordinates moved.
 3. **A ✅ stops being re-read** (standing rule 16), so the row is never revisited even when live.
 
-### THE MECHANISM: `evm/test/SkewLearningsAreLive.t.sol` (§E287, 4 assertions, pure, ~10 ms)
+### THE MECHANISM: `evm/test/SkewLearningsAreLive.t.sol` (§E287-guards, 4 assertions, pure, ~10 ms)
 | assertion | the learning it makes fail-loud | what overturning it legitimately requires |
 |---|---|---|
 | skew rises with scarcity and exceeds 3e16 | §E274/§E286 — **the curve must not be flat**; a ceiling discarded **51.4%** of the integral's premium and made path-independence vacuous | re-measure the premium against §E68's integral at q=0.6–0.95 and show the clamp does not void it |
