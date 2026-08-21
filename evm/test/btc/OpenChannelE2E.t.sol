@@ -210,7 +210,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         uint amount = vm.parseJsonUint(json, ".amountSats");
         (uint amountSats, , address ownerEth, , uint8 status, ) = ch.channels(channelId);
         assertEq(amountSats, amount, "channel records funded sats");
-        assertEq(ownerEth, lpEth, "channel owned by the lpAuth signer");
+        assertEq(ownerEth, lpEth, "channel owned by the address derived from the channel key");
         assertEq(status, 0, "status OPEN");
         assertEq(ch.totalSatsLocked(), amount, "sats locked tracked");
         // BTC pool position credited to the LP for the locked sats.

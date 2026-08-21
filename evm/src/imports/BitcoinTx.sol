@@ -276,13 +276,17 @@ library BitcoinTx {
     ///      key-path-only P2TR output `OP_1 (0x51) PUSH32 (0x20) || Q` (34 bytes),
     ///      where `Q` is the 32-byte x-only MuSig2 key-path aggregate
     ///      `Q = lift_x(KeyAgg(KeySort(lp,hop))) + H_TapTweak(agg)·G` (empty merkle
-    ///      root, BIP341 §158). The contract does **NO** secp256k1 EC math — `Q` is
-    ///      supplied (committed in the LP's lpAuth over OpenParams) and the funding
-    ///      output is byte-matched against `0x5120||Q`. Consensus does the
-    ///      spend-time verification; the 2-of-2 guarantee rests on the LP's lpAuth
-    ///      consent to Q + the off-chain MuSig2 keygen in which the LP itself
-    ///      recomputes Q from its own and the hop's key — NOT on any
-    ///      on-chain script reconstruction (key-path taproot reveals no script).
+    ///      root, BIP341 §158). `Q` is supplied and the funding output is byte-matched
+    ///      against `0x5120||Q`. Consensus does the spend-time verification.
+    ///      🔑 **THE 2-of-2 GUARANTEE RESTS ON THE KeyAgg GATE, NOT ON AN LP SIGNATURE.**
+    ///      This said it "rests on the LP's lpAuth consent to Q" — **that is false since §E183
+    ///      item 1 deleted `lpEth`/`lpSig` from `OpenAuth`; the LP signs nothing on the EVM at
+    ///      open.** What binds Q is algebraic: `MuSig2Agg.isTwoOfTwoOutputKey` PROVES
+    ///      `Q == TapTweak(KeyAgg(lpPubkey, hopPubkey))` on-chain (§E129/§E142), so a supplied Q
+    ///      that is not the two-party aggregate is rejected without anyone having to have signed
+    ///      for it. `BTCChannels.sol:66-69` already carried this correction; these three files did
+    ///      not, which is how one true note and three false ones coexisted.
+    ///      NOT an on-chain script reconstruction (key-path taproot reveals no script).
     ///      A key-path close carries only a 64-byte Schnorr sig (no witnessScript),
     ///      so the funding output can only ever be identified by this scriptPubKey,
     ///      never by reconstructing a redeem script from a spend witness.
