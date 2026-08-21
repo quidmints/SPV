@@ -7680,3 +7680,41 @@ ever revisited: **(1)** a maker ratifying ONE Merkle root rests an entire TREE o
 one tick, so a range becomes a ladder of N offers. ⛔ **But do not re-derive them from `morpho-v2` —
 the checkout is gone, and §E267 records that importing those sources propagated `via_ir`/`runs=50`
 into nine money-path files and broke the build.**
+
+## 🔴🔴 §E304 — **THE MINT-CLOSE PATH IS A WHOLE DEAD FLASH-MODE FOR A VENUE THAT WAS REMOVED. `ILevMintVenue` IS ITS INTERFACE.**
+Owner asked, 2026-08-22: *"what do you mean by minting or nonminting adapters? are you sure these arent
+making up any capabilities that actual morpho dosnt have"* — **the question is exactly right, and the
+answer is that they are not Morpho's capabilities at all.**
+
+`mintForClose(uint256 wethIn, uint256 boldWanted)` is **Liquity V2**: BOLD is Liquity's stablecoin and
+the flow is *mint against a protocol trove*. **Morpho is a lending market — it does not mint, you borrow
+what already exists.** `LevManager:74-77` names the source outright: *"the venue's protocol trove mints
+BOLD… ~90.9% Liquity max"*.
+🔴 **AND LIQUITY WAS REMOVED:** `c11cb40f` — *"**remove Liquity as untestable under all-weETH**"*.
+⇒ **`_isMintVenueM`'s own comment states the consequence:** *"every non-BOLD venue lacks the marker ⇒
+false ⇒ the generic flash-stable path."* With BOLD gone, **EVERY** venue lacks it, so the detector is
+**unconditionally false** and everything behind it is unreachable.
+
+### THE DEAD SET — an interface, a detector, a branch, a callback, and manager state
+| unit | site |
+|---|---|
+| `interface ILevMintVenue` | `Interfaces.sol:262-265` |
+| `_isMintVenueM` (always `false`) | `LevMath:1017-1019` |
+| mode-1 branch in `deleverFlashBody` | `LevMath:1004-1011` |
+| `onFlashMintBody` (**38 lines**) | `LevMath:745-782` |
+| `_onFlashMint` forwarder + `if (mode == 1)` dispatch | `LevManager:643-650`, `:608` |
+| `boldCloseReserve`, `protocolMintLtvBps` | `LevManager` state + `:74-77`, `:122-125` |
+
+⛔ **THIS IS RULE 1, NOT THE `create_sweep_tx` PATTERN — AND THE DISCRIMINATOR IS THE COMMIT MESSAGE.**
+`create_sweep_tx` was a maintained function whose caller was a security feature **not yet built**; this
+is residue of a venue **deliberately removed**, and the removing commit says why. **A marker for a gap
+that has not opened is not the same as a leftover from a door that was closed.**
+▶️ **AND IT KILLED MY OWN FOLD, CORRECTLY.** I tried folding `ILevMintVenue` into `ILevVenue` (§E304
+first attempt, reverted): the build failed with *"`MorphoEscrowVenue` should be marked as abstract"* —
+**Solidity refusing to make Morpho implement a Liquity operation.** The compiler stated the domain fact
+before I did. ⚠️ The `try` around `usesMintClose` was the other tell: you only wrap a probe in `try` when
+you expect the callee not to have it.
+▶️ **NEXT (one money-path change, prediction first):** delete the six units above together — a partial
+deletion leaves `mode == 1` dispatching to nothing. **Predict: byte-identical behaviour**, since the
+branch is provably unreachable, and `--sizes` should show `LevManager` and `LevMath` both shrink.
+⚠️ **`boldCloseReserve` is STATE** — check `DeployLib` and any setter before removing the slot.
