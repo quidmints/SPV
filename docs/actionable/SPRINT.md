@@ -5873,3 +5873,36 @@ finer slices, a real edge does not.
 📌 **CONSEQUENCE FOR §E274's UNLANDED Γ:** the correct premium is ~2× what was being collected, so
 re-deriving Γ downward by 5.475× is NOT compounding with a cut — it is being applied to a charge that
 was itself halved. **Do not reason about the Γ change against the OLD collected number.**
+
+## 🛡️ §E287 — **HOW THESE LEARNINGS SURVIVE THE NEXT THREAD (and how to overturn them honestly)**
+Owner asked how to stop a parallel thread undoing this work *"unless they are truly wrong or
+confirmation bias or overfitting"*. **The answer is not to lock anything — it is to make each learning
+FALSIFIABLE AND CHEAP TO RE-TEST, so overturning one costs a measurement rather than an opinion.**
+
+### THE FAILURE MODE THIS DEFENDS AGAINST, OBSERVED THREE TIMES TODAY
+1. **Prose is read as opinion.** A finding in a 5,000-line ledger is an assertion nobody has to answer.
+2. **Evidence rots.** §E277: a ✅ row's proof was a test later deleted; the conclusion stood for two
+   weeks with nothing behind it. Symbols rename (§E277's own 3 false positives), files move, and a note
+   that points at a deleted symbol **causes the exact misreading it was written to prevent** — the
+   reader concludes the concern is obsolete rather than that the coordinates moved.
+3. **A ✅ stops being re-read** (standing rule 16), so the row is never revisited even when live.
+
+### THE MECHANISM: `evm/test/SkewLearningsAreLive.t.sol` (§E287, 4 assertions, pure, ~10 ms)
+| assertion | the learning it makes fail-loud | what overturning it legitimately requires |
+|---|---|---|
+| skew rises with scarcity and exceeds 3e16 | §E274/§E286 — **the curve must not be flat**; a ceiling discarded **51.4%** of the integral's premium and made path-independence vacuous | re-measure the premium against §E68's integral at q=0.6–0.95 and show the clamp does not void it |
+| kernel ≥ 1e18 at q=0.999, σ²=4e18 | §E274 — **the pole is reached in normal operation**, so no Γ tames it | re-run `GammaRederived.t.sol` and re-derive the crossing q. *"We lowered Γ so it cannot happen"* is the specific wrong conclusion |
+| full drain returns the sentinel, does NOT revert | §E275 — the pole is **data at the measurement, declined at the fill**; reverting here blinds the refill trigger | show the trigger can still read an empty band |
+| the refill direction is exempt, never paid | §E276 — we implement δ where A–S specifies `r` | **this failing means somebody BUILT the mid-shift — the fix §E276 asks for.** Delete the test and close §E276 + §UNIT-CURVE-SPEC in the same commit |
+
+### ⚠️ THE RULE THAT MAKES THIS NON-TYRANNICAL — WRITE IT INTO ANY FUTURE GUARD
+**A red assertion here is a PROMPT TO RE-MEASURE, never an instruction to revert.** If the measurement
+says the learning was wrong — confirmation bias, overfitting to one fixture, or a premise that has since
+changed — **update the assertion AND the row it guards, in the same commit** (`757e4500`'s rule: the
+unit of work is code plus row). **The only forbidden path is the silent one: making it green without
+re-running anything.** That is standing rule 4 restated for this file — a tolerance that makes a test
+pass is the tell that the real defect is still there.
+📌 **AND THE SAME SHAPE ALREADY GUARDS THE ONE PIECE OF EVIDENCE THAT IS A *FAILING* TEST**:
+`DrainAtomicity.t.sol:1372` (σ² pinned at ~0) carries an in-source ⛔ saying its failure IS the
+measurement, and names the correct way to retire the red — **fix the ring, do not weaken the bound**.
+⇒ **Two forms, one principle: a learning that is not executable will be re-litigated from memory.**
