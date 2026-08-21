@@ -5,7 +5,7 @@
 # and `cargo install cargo-fuzz`, which the normal CI step does not have.
 #
 # Run (after `cargo install cargo-fuzz`):
-#   cd quid-hop/fuzz && cargo +nightly fuzz run lp_auth
+#   cd quid-hop/fuzz && cargo +nightly fuzz run heartbeat
 # See README.md.
 
 [package]
@@ -26,11 +26,16 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 quid-hop = { path = ".." }
+alloy-primitives = "0.8"
 bitcoin = "0.32.7"
 
+# ⚠️ (2026-08-22) WAS `lp_auth`, WHICH FUZZED A MODULE §E183 HAD DELETED. This crate is
+# `exclude`d from the parent workspace, so a target importing a nonexistent module NEVER FAILED A
+# BUILD — the repo's only fuzz target was dead and nothing could report it. If you add a target
+# here, add it to CI or it will rot the same way.
 [[bin]]
-name = "lp_auth"
-path = "fuzz_targets/lp_auth.rs"
+name = "heartbeat"
+path = "fuzz_targets/heartbeat.rs"
 test = false
 doc = false
 bench = false

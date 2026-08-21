@@ -2582,6 +2582,34 @@ before treating it as a fresh defect, and do not "fix" it by widening the tolera
 ⚠️ **`testSwapOut_SwapperSelfRefundAfterTimeout`'s `panic 0x11` is a bare arithmetic revert with no
 name** — the same undiagnosable shape `§LAZY-OPEN-SHRINK` was fixed for. Trace it before theorising.
 
+## 🔴 §FUZZ-WAS-DEAD — **THE REPO'S ONLY FUZZ TARGET HAD BEEN DEAD SINCE §E183, AND NOTHING COULD REPORT IT** (found 2026-08-22 by the regenerated graph)
+
+`quid-hop/fuzz/fuzz_targets/lp_auth.rs` fuzzed `quid_hop::lp_auth::read_lp_auth`. **§E183 item 1
+deleted that module** with the EVM signature it decoded: no `lp_auth.rs`, no `mod lp_auth`, zero
+definitions of `read_lp_auth`. The target had been importing a nonexistent module ever since.
+
+🔑 **WHY NOTHING CAUGHT IT, AND THIS IS THE REUSABLE PART: `quid-hop/fuzz` IS IN `exclude = [...]`.**
+It is a detached workspace (nightly + sanitizer), deliberately out of `cargo build` and `cargo test`
+— so a target that CANNOT COMPILE never fails anything. `cargo test -p quid-hop -p quid-bridge` is
+green with it broken. **An excluded crate is invisible to every gate this repo runs**, which is
+exactly the property that let it rot for three weeks.
+⚠️ **AND IT WAS THE ONLY TARGET** — `ls fuzz_targets/` returned one file. So the repo has had **zero
+coverage-guided fuzzing** since §E183, while believing it had some.
+
+▶️ **FIXED: repointed to `recover_heartbeat`** (`§LP-LIVENESS`), which is the same shape the dead
+target guarded — arbitrary bytes from UNTRUSTED Lightning peers, and it slices (`sig65[..64]`,
+`uncompressed[1..]`, `keccak256(..)[12..]`) and branches on a caller-supplied recovery id. The fuzz
+input is split so the fuzzer drives BOTH the digest preimage and the signature, because recovery is
+message-dependent and a fixed heartbeat would exercise one message forever.
+⚠️ **Audited by hand first and it holds** — length-checked, recovery id validated, no `unwrap`, both
+slices provably in bounds. **That is an argument, not a proof, which is the whole reason to fuzz it.**
+
+🔴 **THE STRUCTURAL PROBLEM IS NOT FIXED: nothing runs this.** The crate is still excluded (correctly
+— it needs nightly), so the new target will rot exactly as the old one did unless a CI step runs
+`cargo +nightly fuzz run heartbeat`. **Adding a target without adding a runner just resets the clock.**
+▶️ Second candidate when a runner exists: `swap::decode_swap_out_requested_onchain` — the other live
+decoder of untrusted input.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
