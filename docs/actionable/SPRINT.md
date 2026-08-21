@@ -7281,6 +7281,28 @@ Adding `bytes swapData` to those means:
   hardest sub-problem and it is not addressed by the spec: a batch caller cannot pre-quote every LP
   without an off-chain round trip per position, and a stale quote reverts or fills badly.
 
+⭐ **THE `cascadeDelever` QUESTION HAS AN ANSWER — TRACED 2026-08-22, AND IT IS NOT "N CALLDATAS".**
+The cascade's sell leg is three hops, and **only ONE of them is a V3 site**:
+1. `_weethToWeth` → `_weethToWethDex` → **Curve `ETHERFI_CURVE_POOL`**. ⛔ The spec says explicitly
+   NOT to aggregate this one: *"one deep Curve pool… No split exists to find; routing it externally
+   adds a dependency and buys nothing."* Untouched by the migration.
+2. `_wethToStable` → **`_poolSwap(weth, USDC, V3_FEE_WETH, amt, 0)`** ← **the only V3 hop a cascade
+   touches.**
+3. `_fromUsdc(stable, usdc)` → Curve stableswap. Untouched.
+⇒ **The aggregatable hop is WETH→USDC, and it is HOMOGENEOUS: every LP sells the SAME token for the
+SAME token, differing only in amount.** So a batch does not need a quote per position — **sum the
+WETH, do ONE 1inch swap, distribute pro-rata.** One calldata for the whole cascade.
+⚠️ **AND NOTE `minOut = 0` ON THAT HOP TODAY.** The floor is applied after, on the final stable
+(`if (out < minOut) revert Slippage()`), so the route is bounded end-to-end rather than per hop —
+the same choice the spec records for `_stableToWbtc`. An aggregated swap keeps that property.
+🔴 **THE COST OF AGGREGATING IS THE LOOP'S FAULT ISOLATION, AND IT MUST BE PRICED BEFORE BUILDING.**
+Today each LP is isolated by `try this.deleverToVault(...) catch` (§E229 — the `this.` self-call is
+what stops one stuck LP blocking the sweep). One swap for the batch means the swap can no longer sit
+inside a per-LP frame: it becomes **collect (isolated) → swap once → distribute**, and the
+distribution step is new accounting that did not exist. **That restructure — not the calldata — is
+the real work**, and pro-rata distribution across LPs whose collections partially failed is the part
+to design first.
+
 ▶️ **ORDER: settle the `cascadeDelever` batch-calldata question FIRST** — it is the one that can make
 the whole design unworkable, and everything else is mechanical once it is answered.
 
