@@ -117,15 +117,22 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         bytes32 payout = payoutOverride != bytes32(0)
             ? payoutOverride
             : payoutKeyOnly(abi.encode(p.lpPubkey));
-        // (E157) One transaction: the LP signs for THIS channel (hop 0xB0B, this payout, this Q,
-        // this size) and the hop submits that consent WITH the open. It pins + LOCKS
+        // (§E183 item 1) The LP's consent rides with the open as a BITCOIN signature — the payout
+        // PoP inside `mkAuth`, whose digest commits to `lpEth`. It pins + LOCKS
         // btcRecipientOf[lpEth]=payout and credits the position to lpEth.
-        address lpEth = vm.addr(lpPk);
-        bytes memory dsig = _signOpen(lpPk,
-            ch.openAuthDigest(address(0xB0B), payout));
+        // 🔑 (#21) `lpEth` IS DERIVED FROM THE CHANNEL KEY, NOT `vm.addr(lpPk)`. The contract does
+        // `ChannelLib.lpEthOf(p.lpPubkey)`, and `p.lpPubkey` comes from the Python generator — a
+        // key with NO relation to the Foundry-local `lpPk`. Using the Foundry address here made
+        // every assertion below compare against an address the contract never touches ("channel
+        // owned by the lpAuth signer", "requestDeposit credited the LP"), on top of signing the
+        // PoP over a digest the contract never computes.
+        // ⚠️ The `_signOpen`/`dsig` pair that used to live here is GONE, not relocated: §E183
+        // deleted `lpEth`/`lpSig` from `OpenAuth`, so the LP signs NOTHING on the EVM. Computing
+        // an EVM signature no entrypoint reads is dead work (standing rule 1).
+        address lpEth = ChannelLib.lpEthOf(p.lpPubkey);
         // (E128) Built BEFORE the prank: `signedExitFull` runs an FFI cheatcode, and a cheatcode
         // call CONSUMES a pending prank — as a call argument it would send `openChannel` from the
-        // test contract instead of 0xB0B, and the LP signature would fail to recover.
+        // test contract instead of 0xB0B.
         Types.ExitArming[] memory arm_ = _armRegtest(p, rawTx, json, payout);
         // (E138) `mkAuth` is a second FFI caller now (the payout PoP) — same hoist, same reason.
         Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
