@@ -5987,3 +5987,110 @@ stands and gets STRONGER: a reverting quote tells a solver nothing, and under ρ
 revert about short of an empty band. Its residual, however, was a fourth bound on a divergence that
 should not exist. **I wrote it in the same shape I criticised §E278-partialfill for — bounding the
 symptom — one row later.**
+
+---
+
+## ⭐ §E287 — **THE HORIZON IS `q·T_flow`, NOT A CONSTANT. THAT DERIVES THE CONVEXITY, DELETES THE BARRIER, AND MAKES ONE KERNEL SERVE BOTH LEGS.**
+
+**The root fix §E286 asks for, built from parts already in the tree. Nothing here is new machinery —
+it is one substitution that removes four bounds, one branch, one import and one whole function.**
+
+### THE DERIVATION — AND IT IS §E54's OWN SENTENCE, FINISHED
+A–S's premium is `q·γ·σ²·(T−t)`. §E274 folded `γ·(T−t)` into Γ and read a horizon back out: **946,080 s
+= 10.95 days, *"a horizon nobody chose"***. But §E54 already states what the horizon IS, on the other
+leg: *"the only real cost of taking volatile we did not want is that we must SHED it, shedding happens
+INTO FLOW, and **the holding time is q/flow**."*
+
+Make that dimensional against what `Core` actually stores. The imbalance in USD is `I = q·target`, and
+`target = flowEwmaUsd` — an EWMA whose characteristic time is `FLOW_DECAY`'s **48 h half-life**
+(`Core.sol:207`, documented as *"the well's flow-EWMA / **inventory-skew target**"*). So the shed RATE
+is `flowEwma / T_flow`, and
+
+```
+    τ(q) = I / rate = (q·flowEwma) / (flowEwma / T_flow) = q · T_flow
+```
+
+⇒ **The horizon is not a constant — it is PROPORTIONAL TO THE IMBALANCE**, which is obvious in
+hindsight: twice the imbalance takes twice as long to work off at the same flow. Substituting:
+
+```
+    skew = γ·σ²·τ(q)·q = γ·σ²·(q·T_flow)·q = (γ·T_flow)·σ²·q²  =  Γ·σ²·q²
+```
+
+⭐ **AND Γ IS ALREADY THIS NUMBER.** §E274 derived Γ = γ·(T−t) = 1 × 172,800 / 31,536,000 = **5.48e15**
+from FLOW_DECAY's 48 h — i.e. **Γ = γ·T_flow exactly**. §E274 found the right coefficient and read it
+as a fixed horizon; it is the flow WINDOW, and the horizon is `q` times it. ⇒ **§E274 is not superseded
+— it is explained, and its number lands unchanged.**
+
+### 🔴 THE CONVEXITY IS DERIVED, SO THE BARRIER HAS NOTHING LEFT TO DO
+The pole was added because linear A–S felt too flat near depletion (§E286: a −log(inv) barrier from an
+HJB with a hard `inv ≥ 0` constraint). **`q²` supplies convexity from the shedding time instead** — a
+measured quantity, not an asserted constraint — and it is **finite everywhere on `q ∈ [0,1]`**.
+⇒ The barrier's job is gone, and with it every bound erected to contain its divergence.
+
+| deleted | why it existed |
+|---|---|
+| `q/(1−q)` pole + the `oneMinusQ == 0` branch | the barrier |
+| `SKEW_UNFILLABLE` (1e18) and `_declineIfUnfillable`'s **pole** role | to stop the barrier overflowing (§E275) |
+| `SoladyMath.lnWad` and its import note (`SwapLib:22`) | **exactly one use site, `:1074`** — the pole's integral |
+| §E285's residual floor · §E278-partialfill's price bound · §E283's cliff | four bounds on one divergence (§E286, rule 17) |
+| `sellSkew`'s `if (q1 > 1e18) q1 = 1e18` saturation | a clamp on the abundant side's linear term |
+| **`sellSkew` as a separate function** | see below |
+
+### ⭐ ONE KERNEL, SIGNED `q` — WHICH FIXES §E278 BY CONSTRUCTION RATHER THAN BY A SECOND GUARD
+`q` is the same quantity on both legs: **the normalised deviation from `target`**, scarce on one side,
+overshoot on the other. §E54 kept them apart only because the POLE had no meaning on the abundant side
+(*"you cannot run out of surplus"*). **With no pole that objection dissolves**, and `Γσ²q²` is even in
+`q` — the same premium for the same magnitude of imbalance, either direction, which is what A–S says.
+⇒ 🔴 **§E278 CLOSES AS A SIDE EFFECT.** Its defect is that `UNKNOWN_VARIANCE_SKEW` has one consumption
+site and `sellSkew` is not it. **One kernel means one site**, so the σ²=0 guard is written once and both
+legs inherit it — the root fix, versus adding the missing guard as a second copy (rule 17, rule 2).
+
+### ⭐ AND IT DISSOLVES §E283's CLIFF, BECAUSE THE SENTINEL STOPS BEING AN OUTPUT
+Today `σ² == 0` returns `UNKNOWN_VARIANCE_SKEW` — **a finished skew that BYPASSES the curve**, which is
+precisely why it is flat, size-blind and produces a step at the flow target. Under one kernel the fix
+is a substitution, not a new constant: **replace the OUTPUT `UNKNOWN_VARIANCE_SKEW = 3e16` with an
+INPUT `SIGMA_UNKNOWN`** — an assumed variance fed through the same `Γσ²q²`. The sentinel then inherits
+size-awareness and shape automatically, **and the cliff cannot exist**, because there is no longer a
+branch that skips the curve. That is §E283's option 1 arriving for free.
+
+### THE NUMBERS, SO THIS IS A COMPARISON — Γ = 5.48e15, σ² = 1e18 (100 % ann. vol)
+
+| q (imbalance vs flow target) | today: pole, capped | **`Γσ²q²`** | linear `Γσ²q` |
+|---|---|---|---|
+| 0.25 | 3.00 % (the cap) | **0.034 %** | 0.137 % |
+| 0.50 | 3.00 % (the cap) | **0.137 %** | 0.274 % |
+| 0.90 | 3.00 % (the cap) | **0.444 %** | 0.493 % |
+| 1.00 (band empty) | ∞ ⇒ decline | **0.548 %** | 0.548 % |
+
+The integral is closed-form and needs no logarithm: `(1/Δ)∫q² dq = (q₁³ − q₀³)/(3Δ)`, so §E68's
+size-awareness survives **and gets cheaper** than the current `lnWad` branch.
+
+### ⚠️ THE HONEST COSTS — three, and the first is the one to argue about
+1. **A FULL DRAIN INTEGRATES TO `Γσ²/3` = 0.18 %**, below both today's capped 3 % and the linear 0.27 %.
+   **Is that enough?** §E59/§E68 spent a session on the free-drain hole, so this must be decided, not
+   discovered. ▶️ **The answer is that the KERNEL was never what closed it — the FLOOR is.** §E79's
+   inversion made `_maxWellSkew = σ²·confFrac/8` (LVR over the settlement window, MMRZ eq. 16) the
+   **base charge under every trade**, and §UNIT-A's *"RETURN THE BASE, NOT ZERO"* is that rule. **The
+   floor is untouched here and is the adverse-selection term; the kernel is the inventory term.**
+   Two terms, two jobs — and the owner's §E79 reframe says the skew's real job is the FIRST one.
+2. **The premium falls sharply at small q** (0.034 % at q = 0.25 vs 3 % today). That is not a loss of
+   protection, it is **the removal of the flat top §E274 measured** — but it IS a revenue change on the
+   money path and must be measured, not reasoned (rule 9).
+3. **`q` unbounded on the abundant side.** Dropping the saturation lets `q² ` grow without limit as
+   surplus grows. That is correct A–S (the more you hold, the more you charge to take more) and it is
+   **self-limiting in the only way that matters** — nobody sells into a quote that bad. ⚠️ But it is an
+   uncapped number on a money path: check the `1e18`-scaled arithmetic for overflow at large surplus
+   before landing.
+
+▶️ **LANDING ORDER (rule 10 — one money-path change per run, each with a stated prediction):**
+1. **Settle §E286's citation** (free, and it authorises everything below). `SwapLib:1030-1031` claims
+   A&S §2.3 derives the pole; `:765-770` says *"ρ=0 recovers plain linear A-S"*. One must go.
+2. **`q/(1−q)` → `q²` on the drain leg alone.** Predict: `wellSkew` finite for all `q < 1`; every
+   pole-related revert unreachable; §E274's crossing table becomes empty.
+3. **Unify the legs** on signed `q` and delete `sellSkew`. Predict: byte-identical outputs on the
+   abundant side (`q² = q²`), and §E278 closes with no new guard.
+4. **Sentinel becomes an input** (`SIGMA_UNKNOWN`). Predict: the step at the flow target disappears
+   from a σ²=0 sweep — **that sweep is the falsifiable test §E283 never had.**
+5. **Then delete** `SKEW_UNFILLABLE`, `lnWad`, the saturation clamp and §E285's residual, which by
+   then have nothing to bound. ⚠️ **Deleting them earlier hides whether step 2 worked.**
