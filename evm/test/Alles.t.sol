@@ -4446,7 +4446,12 @@ contract Alles is AllesFixture {
 
         // LP: EVM key (signs lpAuth -> owns the position) is independent of the
         // BTC channel pubkey above.
-        (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
+        // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
+        // `ChannelLib.lpEthOf` the contract calls — because the assertions below compare
+        // against what the channel was actually credited to. The Foundry key survives only
+        // to feed `_openWithConsent`'s vestigial `lpPk_`, which §E183 left unread.
+        (, uint lpPk) = makeAddrAndKey("btc-lp");
+        address lpEth = ChannelLib.lpEthOf(lpPubkey);
         uint amountSats = 2e7;                              // 0.2 BTC funded
 
         // Funding + open, block-scoped so the funding-tx locals free before the
@@ -4542,7 +4547,12 @@ contract Alles is AllesFixture {
         BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
-        (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
+        // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
+        // `ChannelLib.lpEthOf` the contract calls — because the assertions below compare
+        // against what the channel was actually credited to. The Foundry key survives only
+        // to feed `_openWithConsent`'s vestigial `lpPk_`, which §E183 left unread.
+        (, uint lpPk) = makeAddrAndKey("btc-lp");
+        address lpEth = ChannelLib.lpEthOf(lpPubkey);
         uint amountSats = 2e7;
         bytes32 channelId; bytes32 fundingTxId;
         {
@@ -4609,7 +4619,12 @@ contract Alles is AllesFixture {
         BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
-        (address lpEth, uint lpPk) = makeAddrAndKey("btc-lp");
+        // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
+        // `ChannelLib.lpEthOf` the contract calls — because the assertions below compare
+        // against what the channel was actually credited to. The Foundry key survives only
+        // to feed `_openWithConsent`'s vestigial `lpPk_`, which §E183 left unread.
+        (, uint lpPk) = makeAddrAndKey("btc-lp");
+        address lpEth = ChannelLib.lpEthOf(lpPubkey);
         uint amountSats = 2e7;
         bytes32 channelId; bytes32 fundingTxId;
         {
