@@ -132,6 +132,25 @@ A local commit in a detached worktree is not a publication, so "commit early" st
 unverified". **Do money-path work in a worktree from the start** — retrofitting one after the loss
 costs the whole cold compile (~6 min) a second time.
 
+🔴 **AND ITS TWIN, WHICH COST A CLOBBERED `main` THE SAME DAY: `git reset --soft <base>` STAGES THE
+REVERSAL OF EVERYTHING BETWEEN `<base>` AND YOUR TREE — AND IN A WORKTREE THAT HAS BEEN RESET BACK
+AND FORTH, `<base>` IS NOT WHATEVER `origin/main` HAPPENS TO BE.** Squashing two WIP commits, I reset
+`--soft` to *the `origin/main` I had reset to for the baseline arm* — but the tree was back on a
+PINNED ref whose parent predated that commit. The diff therefore carried my 3 files **plus the
+reversal of every commit in between**, and it went out as **26 files, 969 insertions / 922 deletions**,
+reverting `CLAUDE.md`, `spec.md`, `FAQ.md`, `PRODUCTION-LAUNCH.md`, ten `docs/actionable/` files
+including `QUEUE.md` and `SPRINT.md`, and another thread's TriCrypto scrub.
+⇒ **THE TELL WAS PRINTED AND I READ PAST IT.** The commit echoed `M CLAUDE.md`, `M docs/FAQ.md`,
+`M deploy/PRODUCTION-LAUNCH.md` — **files I had never opened** — and I pushed anyway. Same
+"read the effect, not the exit code" rule as everything else here, arriving through the staged list.
+⇒ **BEFORE ANY SQUASH: `git diff --cached --name-only`, AND CONFIRM EVERY PATH IS ONE YOU EDITED.**
+Better, skip the squash entirely — `git reset --soft $(git merge-base HEAD origin/main)` names the
+real parent, or just push the WIP commits as they stand. A tidy history is not worth a reverted `main`.
+⚠️ **THE REPAIR THAT WORKS, since `git revert` would also undo your own change:** restore every
+unintended path from the commit BEFORE yours (`git checkout <prev> -- <path>`), re-apply your own
+files from your commit, then verify with `git diff --stat <prev> origin/main` — it must list ONLY
+your files. Stage by name, per rule 14; the bulk-stage flags are refused by a hook here anyway.
+
 ⛔ **AND THE TRAP THAT MADE IT INVISIBLE, WHICH IS THE PART WORTH REMEMBERING: `evm/out` OUTLIVES
 `evm/src`.** The size check ran AFTER the reset and still reported the new number, because it reads
 `deployedBytecode.object` from artifacts the deleted source had already produced. **A green
