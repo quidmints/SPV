@@ -5559,3 +5559,39 @@ not, the split above buys nothing and §C1's hard problem is the only problem.
 ⚠️ **SCOPE, so this is not read as more than it is:** the split makes §E278's sentinel rare again; it
 does NOT fix the sentinel (§E278 stands — a stale or failed read still yields σ² = 0 by design), and it
 does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
+
+## 🔴 §E278 — **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
+Booked 2026-08-21 while wiring the refill. **Two things here: a real regression, and my own bad patch
+for it, reverted at `6890f95c`.**
+
+### THE REGRESSION — REAL, AND THE SUITE CANNOT SEE IT
+`swapToBody` prices the skew on the **REQUESTED** size (`SwapLib:448` `wellSkew(core, r.px, r.amount)`)
+and bounds it to inventory ~20 lines later — `routeSwap` returns `consumed`, `_refundExcess` (`:488`,
+#105) refunds the remainder. **So an oversized request is a PARTIAL FILL by design** (owner: *"you
+still get the remainder of the inventory at the same price"*).
+| request > inventory | before the cap deletion | now |
+|---|---|---|
+| `inv1 = 0` ⇒ pole | pinned to `MAX_WELL_SKEW` (3%) ⇒ **fill proceeds, remainder refunded** | **reverts `QuoteUnfillable`** — the whole swap dies |
+⛔ **FOUR FULL-SUITE RUNS ON BOTH ARMS AGREED, BECAUSE NONE OF THEM ASKS FOR MORE THAN THE BAND HOLDS.**
+§E104 recorded this same blind spot (*"the suite never drains a band to zero"*, 4,308 green over an
+unreached state). **It is still unwritten, and a pure-function test CANNOT cover it — the bound lives in
+the swap path, so the test must be a fixture that drains past inventory.**
+
+### ⛔ MY FIX WAS A NO-OP AND I SHIPPED IT WITH A CONFIDENT COMMENT (reverted)
+I added `fillable = min(drainUsd6, poolVolUsd)` in `wellSkew`. **`skewWad:980` ALREADY does exactly
+that**: `inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6`. Clamping the input to `inv0` still satisfies
+`>= inv0`, so `inv1` is 0 either way — **identical arithmetic, zero behaviour change**, under twelve
+lines of comment asserting it repaired a regression. The accompanying test called
+`SwapLib.wellSkewPure(...)`, **which does not exist** — I invented an API to fit the test I wanted.
+⇒ **Two failures of the same kind in one commit: I wrote the explanation before running the check.**
+
+### ▶️ WHY THE REAL FIX IS NOT MECHANICAL — AND WHO DECIDES
+The pole is at `inv1 = 0`, so **NO FINITE PRICE SERVES A DRAIN THAT EMPTIES THE BAND.** That is
+CORRECT under A–S, and the old 3% cap was the defect (it sold the last inventory too cheap — the very
+reason the cap was deleted). ⇒ The fill can no longer be bounded by INVENTORY alone; it must be bounded
+by **PRICE**: serve the largest amount whose skew stays under 100%, refund the rest. That is a solve,
+and a policy choice about how close to the pole we are willing to quote. **Owner's call, not a patch.**
+⭐ **AND §E276 DISSOLVES IT.** Under a mid-SHIFT (`r = s − qγσ²(T−t)`) there is no 100% boundary at all —
+a shift of any magnitude still clears. **This whole problem exists only because we apply the pole as a
+SPREAD.** ⇒ **Do not build the price-bounded solve before settling §E276; it would be machinery to
+manage a boundary that the correct object does not have.**
