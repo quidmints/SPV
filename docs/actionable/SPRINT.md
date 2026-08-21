@@ -6622,3 +6622,57 @@ inflation at ±0.5%/block since the ring takes one write per timestamp.
    that policy price become unreachable and deletable — and **not one moment before**, since §E59
    measured the free-drain it closes.
 
+
+---
+
+## ⛔ §E290-CORRECTED — **THE SOURCE FLIPPED A THIRD TIME. MY TABLE WAS STALE WITHIN THE HOUR, AND SO WAS §E278's SCOPE NOTE.**
+
+**Measured 2026-08-21, minutes after §E290 landed.** `grep -n setObservationSource evm/script/DeployLib.sol`
+returns **NOTHING**. The pin's history today:
+
+| commit | state |
+|---|---|
+| §C1 / owner instruction | nothing pinned — σ² ≡ 0 on BOTH |
+| `d10d7b8b` → `e073d302` | Curve `price_oracle(1)` pinned on **ETH**, BTC left unset |
+| **`368f1bbb`** *"Remove the TriCrypto observation pin"* | **nothing pinned again — σ² ≡ 0 on BOTH** |
+
+⇒ **§E290's table is WRONG as written.** It says *"ETH: kernel runs (Curve-sourced σ²)"* and
+*"BTC: sentinel short-circuits it"*. **Today the sentinel short-circuits BOTH.** §E278's scope note
+— *"live on BTC, latent on ETH"* — is wrong the same way, and this is the **second** time I have had
+to re-scope that row on this one fact.
+⇒ **§E290's CONCLUSIONS SURVIVE AND GET STRONGER, WHICH IS WHY THIS IS A CORRECTION AND NOT A
+WITHDRAWAL.** The asymmetry it found — **`creditSwapIn` is wired on BTC and there is no ETH analogue**
+(8 live refs vs a controlled absence) — is a property of the CODE, not of the deploy config, and it
+does not move. What moves is the σ² column. And with σ² ≡ 0 on both, κ is *pointless on both bands*
+rather than pointless on one and unsafe on the other — so `KAPPA_WAD` is gated harder, not softer.
+
+### 🔴 THE STRUCTURAL LESSON, AND IT IS WORTH MORE THAN THE CORRECTION
+**This fact has flipped THREE TIMES IN ONE DAY, and at least four rows encode it as a static premise.**
+A row that says *"today ETH is sourced"* is a row that is wrong within hours — and it is wrong
+*silently*, because nothing in the row points at the config it depends on.
+⇒ **WRITE IT CONDITIONALLY. NEVER ASSERT ITS CURRENT VALUE.** §E283's correction already does this by
+accident — *"Where no source is pinned, σ² ≡ 0"* — and that phrasing has stayed true through all three
+flips while the asserted ones went stale twice. **The durable form is a predicate on `§C1`, not a
+reading of `DeployLib`.**
+⚠️ **AND `Core.sol:1344` IS THE MODEL TO COPY:** *"🔴 NO SOURCE IS PINNED (see `DeployLib`), so this
+body does not run today"* — it names WHERE the fact lives, so a reader can check it in one command
+instead of trusting the sentence. **Every σ²-dependent claim in this file should cite `DeployLib` the
+same way.**
+
+### 📌 AND THIS DECIDES THE TWO CONSTANTS, one each way
+- **`UNKNOWN_VARIANCE_SKEW = 3e16` DOES NOT DELETE ITSELF WHEN A SOURCE LANDS.** The rule-17 argument
+  — *"give the ring a real observation and `sigmaSqWad == 0` stops being reachable"* — **fails on the
+  code.** `Core.sol:1318-1322` degrades to unmeasured **BY DESIGN**: *"any failure (revert, short
+  return, zero) simply SKIPS the write … Degrade to unmeasured, never halt"*, and `ringVariance`
+  independently returns 0 on `card < 3`, `n < 3` or `m < 2`. ⇒ **σ² = 0 stays reachable with a source
+  pinned — a cold ring at deploy, a stale pool, a failing staticcall.** So the root fix makes it RARE,
+  never DEAD, and rule 17's own test (does the previous fix become deletable?) returns NO. It earns
+  its place under rule 3's inverse instead: violating it is SILENT, which is precisely §E59's measured
+  vector. **Keep it; §E283's real question is its DERIVATION, not its existence.**
+- **`SPLICE_FLOOR = 2e15` IS A REAL COST BADLY EXPRESSED — agreed, and the row should say so.**
+  `SwapLib:806` labels it *"0.2% — on-chain splice-fee floor (**the feerate term**)"*: a FIXED constant
+  standing in for a LIVE mempool feerate, so it is wrong in both directions as fees move. **It is not
+  a clamp and must not be deleted** — the protocol genuinely pays it, and charging it is recovery.
+  ⚠️ **AND IT IS LOAD-BEARING RIGHT NOW:** with σ² ≡ 0, `_maxWellSkew` collapses to `0 + spliceFloor`,
+  so on the **BTC** band it is the ONLY charge a flush trade pays, and on **ETH** (`spliceFloor = 0`)
+  a flush trade pays **NOTHING**. ▶️ The fix is to read the feerate, not to re-tune the constant.
