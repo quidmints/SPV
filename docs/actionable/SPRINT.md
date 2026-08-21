@@ -6489,3 +6489,66 @@ while a **scarce band charges the 3% policy price**. Neither number has anything
 volatility, and the band sits permanently in the state an attacker would otherwise have to
 manufacture.
 
+
+---
+
+## 🔴🔴 §E290 — **THE CURVE AND ITS RESTORATION MECHANISM ARE ON OPPOSITE BANDS. THAT IS WHY κ CANNOT MOVE ON EITHER.**
+
+**Measured 2026-08-21 by checking the mechanism before designing around it, with the control run.**
+
+§E276 states that *"nothing pulls inventory back — we never move the bid, the refill direction is
+exempt rather than paid, and §V-R1 does not exist in code"*, and that premise is what refuted §E287 on
+ordering. **It is true of ETH and FALSE of BTC**, and nobody has said so.
+
+| primitive | live refs in `evm/src` (comments excluded) | verdict |
+|---|---|---|
+| `creditSwapIn` | **8** — `BTCChannels` ×4 → `Vault.creditSwapIn:725` → `SwapLib.creditSwapInBody` | 🟢 **a real, wired restoration rail — BTC ONLY** |
+| `swapOutDelever` | **15** | 🟢 live (lev path, not band restoration) |
+| `FixedRateFill` | **1** — its own `library` declaration; **every other mention is a comment** | ⛔ unwired |
+| `refillNeeded` · `refillPlacement` · `proRataShortfall` | **1 each** — the `function` line itself | ⛔ unwired |
+
+⇒ **BTC HAS THE MECHANISM:** the self-funding fleet op `Core.sol:387` describes — *"JIT Morpho-flash
+BTC → `creditSwapIn` → repay"* — is not a plan, it is four call sites driven by the hop daemon.
+
+✅ **CONTROL RUN, because this asserts an absence (repo rule).** The same search over `Quid` (the ETH
+band manager) returns `supplyFromAux`, `offrampEtherFi` and `creditSkewPremium` — **venue plumbing and
+the premium credit, no swap-in rail** — while over `Vault` it returns `creditSwapIn` AND
+`creditSwapOut`. `supplyFromAux` is gated to Aux and its own docblock calls it *"the BOLD/SP
+liquidation re-supply leg"*: it supplies a venue, it does not serve a swap from flashed inventory.
+**The method can see the rail where one exists, so its silence on ETH is evidence.**
+
+### 🔴🔴 THE CONSEQUENCE, AND IT IS WORSE THAN EITHER HALF
+Read this against §E278: the **BTC** instance is deliberately left with **no observation source**
+(`DeployLib:149-151` — every on-chain venue quotes wrapped BTC), so σ² ≡ 0 there and `skewWad` returns
+the flat `UNKNOWN_VARIANCE_SKEW` **before the kernel is ever evaluated**. Meanwhile **ETH** is sourced
+(`DeployLib:146`) and its kernel runs.
+
+| | kernel actually runs? | restoration rail? |
+|---|---|---|
+| **ETH** | ✅ yes (Curve-sourced σ²) | ⛔ **none** |
+| **BTC** | ⛔ no (σ² ≡ 0 ⇒ sentinel short-circuits it) | ✅ `creditSwapIn` |
+
+⇒ **THE PRICING CURVE AND THE THING THAT MAKES IT SAFE TO RELAX ARE ON DIFFERENT INSTANCES.**
+
+### ▶️ WHAT THIS DECIDES
+1. **κ = 2e18 CANNOT LAND ON EITHER BAND TODAY, FOR OPPOSITE REASONS.** On ETH it is meaningful and
+   unsafe — the ordering objection applies in full, because raising κ makes the band drainable at a
+   finite price with nothing to pull inventory back. On BTC it is safe and **pointless**: σ² = 0 means
+   κ never enters the arithmetic at all. ⇒ **`KAPPA_WAD`'s gate is now specific rather than general —
+   it is not "wait for the refill", it is "ETH needs a rail, BTC needs a source", and they are
+   different tasks.**
+2. **§E286-partialfill / §E286-v3's option (b) is stronger on BTC than its own row argues.** It cites
+   `LevManager:597`'s `swapOutDelever` as the precedent for routing internally. **`creditSwapIn` is a
+   better one** — a whole flash-serve rail, already wired, already daemon-driven. ⚠️ **And it is
+   correspondingly weaker on ETH, where there is nothing to route into.** A single venue decision
+   spanning both legs is therefore the wrong shape; the two bands are not in the same position.
+3. **The cheapest unblock is BTC's source, not ETH's rail** — one is a config decision already scoped
+   in §C1, the other is a subsystem. ⚠️ But §E223's objection stands and is why BTC is unset: a WBTC
+   quote makes a wrapper depeg indistinguishable from bitcoin moving. **Do not treat "cheapest" as
+   "decided".**
+
+📌 **METHOD NOTE, because it is the third time today.** The answer came from `grep -c` on live
+references and a control, not from reading rows. `FixedRateFill` reads as a built primitive in four
+documents and is a `library` declaration with no caller; `creditSwapIn` reads as a plan in a comment
+and is four wired call sites. **Both ledgers were wrong in opposite directions about the same
+subsystem** — which is what "check the mechanism before building around it" is for.
