@@ -7119,8 +7119,15 @@ passes `raw` (which `skewWad` has already summed: kernel + base + depletion), wh
 re-adds the base itself. **Substitute and they are the same algebra.**
 🔴 **AND THE FILE ALREADY KNOWS THIS IS A HAZARD:** *"§E89b — written here so both legs compose their
 price identically; **they had already drifted apart once (E68b)**."* **The duplication IS the drift
-risk, still present.** ⇒ **FOLD: one composer taking the full pre-amplifier value; `sellSkew` adds its
-own base before calling.**
+risk, still present.** ⇒ ✅ **FOLDED AND LANDED (`a3aee9b2`, on `origin/main`, build clean).** `_amplify(core, preAmp,
+splice)` is now the single routine; `wellSkew` passes `raw` directly and `_composePrice` sums
+`kernel + _maxWellSkew(σ²)` first. **VERIFIED BEHAVIOUR-PRESERVING BY A/B, EACH ARM ISOLATED IN ITS OWN
+WORKTREE AT ITS OWN COMMIT: 45 passed / 8 failed on BOTH, and the failure NAME SETS are identical** —
+nothing in one arm that is not in the other. Prediction was stated before the run, per rule 10.
+⚠️ **THE FIRST "CONTROL" WAS AN ARTIFACT AND NEARLY PASSED AS CONFIRMATION:** I ran `git stash push`
+on `SwapLib.sol` **after already committing the fold**, so it stashed nothing and I compared the fold
+against ITSELF — producing an identical 45/8 that looked like proof. **A stash is not a control when
+the change is already committed; the control has to be a worktree at the parent commit.**
 ⚠️ **PRESERVE ON THE WAY:** (a) the `raw > splice` guard — `skewWad`'s early returns (`target == 0`,
 the flush branch) leave `raw == 0`, and assuming otherwise *"underflowed on a BALANCED band — the
 common case — and cost **782 failures**"*; (b) **depletion is DRAIN-ONLY** — you cannot deplete the
