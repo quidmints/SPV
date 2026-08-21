@@ -2012,9 +2012,16 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// ⚠️ DEDUP IS ON THE DEPOSIT OUTPOINT, NOT A HOP-CHOSEN HASH. The old rail keyed replay
     ///    protection on `paymentHash`, a value the hop invents; a txid is a fact.
     ///
-    /// ⚠️ STILL TRUSTED, AND NAMED SO IT IS NOT MISTAKEN FOR PROVEN: `seller`, `token` and
-    ///    `minDeliveredUsd` remain the hop's assertions. What is proven is that the SATS EXIST and
-    ///    landed at an address only this protocol controls.
+    /// ✅ (§T2) NOT TRUSTED ANY MORE — THIS SAID THE OPPOSITE UNTIL 2026-08-21 AND SAT DIRECTLY ABOVE
+    ///    THE FUNCTION THAT CHANGED. It read: *"STILL TRUSTED … `seller`, `token` and
+    ///    `minDeliveredUsd` remain the hop's assertions."* They are now COMMITTED: the deposit
+    ///    address's leaf carries `PUSH32 sha256(abi.encode(seller, token, pricePerBtc, slippageBps))
+    ///    OP_DROP`, so a hop that settles under different terms derives an address the deposit never
+    ///    paid and `verifySwapInDeposit` reverts. **And `minDeliveredUsd` is gone entirely** — the
+    ///    floor is DERIVED here from the committed rate and the proven sats (`settleFloorUsd`),
+    ///    because it scales with the deposit and so could never have been committed in an address
+    ///    that must exist before the deposit. ⇒ What is proven is now BOTH: that the sats exist and
+    ///    landed at an address only this protocol controls, AND that they landed under these terms.
     function settleSwapInProven(
         Types.Terms calldata terms,
         Types.DepositProof calldata proof,
