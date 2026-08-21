@@ -2448,7 +2448,19 @@ The directory vanished; the commit stayed in the shared object store and was rec
 is the rule-11/15 resolution booked in `CLAUDE.md` earlier the same day, paying for itself within the
 hour — the second worktree lost that day, and the first one whose work did not have to be rewritten.
 
-## 🔁 §TEST-RECONSTRUCTIONS — 🟡 **1 OF 3 DONE, 1 CORRECTLY KEPT, 1 REMAINS. DO NOT RE-DO THE FIRST TWO.**
+## ✅ §TEST-RECONSTRUCTIONS — **CLOSED 2026-08-22. ALL THREE RESOLVED, AND THE THIRD RESOLVED ITSELF.**
+
+⭐ **THE THIRD ONE WAS NOT FIXED — IT CEASED TO EXIST**, which is the better outcome and worth the
+note: `VBtcLevFeeLane._signRekey` reconstructed the rekey digest in order to SIGN it, and the standing
+prescription was to extract that digest into `ChannelLib` so the fixture could call it. `§REKEY-FOLD`
+deleted the signature entirely — the ladder is the consent — so the fixture, the digest, and the
+extraction task all went together. **A reconstruction whose message no longer exists needs no shared
+accessor.** Verified: 0 `_signRekey`, 0 domain tags in that file.
+⇒ **The general lesson, since this is the second time today it paid: when a duplication is hard to
+dedupe, ask whether the thing being duplicated should exist.** The other two were resolved on the
+FEED-vs-CHECK classifier below; this one dissolved when its subject did.
+
+## 🔁 §TEST-RECONSTRUCTIONS — resolution detail (1 deduped, 1 correctly kept, 1 dissolved)
 
 ⭐ **THE CLASSIFIER, WHICH THE ORIGINAL BOOKING GOT WRONG AND IS THE REUSABLE PART: DOES THE
 RECONSTRUCTION *FEED* THE CONTRACT OR *CHECK* IT?** A fixture that recomputes a digest in order to
