@@ -4450,7 +4450,20 @@ caller that could notice throws the result away. A refusal and a success are the
 ⚠️ This is strictly worse than "the add did not happen" — the LP ends the call with LESS depth than it
 started with, while still holding the venue debt that depth was funding.
 
-**NOT YET VERIFIED — do this before sizing the fix:** that `surplus == 0` (or a clamp-to-zero) is
+⭐ **REACHABILITY UPGRADED 2026-08-21 (still not TESTED — see below).** `surplus = liquidTotal −
+committedBoth`, and `SwapLib.sol:389` reverts `UnderBackedS()` when `committedUsd18() > deposits[14]`.
+⇒ **`committed` can equal `liquid` but never exceed it, so `surplus == 0` IS the protocol's own
+documented operating boundary — the fully-committed state — not a pathological corner.** The backing
+gate is `committedUsd18() <= haircutTvl`, i.e. the design intends to run right up to this line.
+⇒ So the burn-then-add asymmetry does not require an exotic state: it requires the ordinary
+fully-committed one. That raises the priority; it does not close the row.
+⚠️ **AND NO EXISTING FIXTURE REACHES IT.** Checked: `BackingGateSplit.t.sol` is the closest and is an
+INSTRUMENT — it logs `committedUsd18` and `deposits[14]` and its own header says it *"asserts NOTHING
+about which is true"*. Nothing in `evm/test` drives `committed` to `liquid`. **The test is new fixture
+work — constructing a fully-committed fork state — not a quick assertion**, which is why it is still
+owed rather than done.
+
+**STILL NOT VERIFIED — do this before sizing the fix:** that `surplus == 0` (or a clamp-to-zero) is
 actually reachable at the moment `syncLev` runs. The mechanism is certain; the FREQUENCY is not, and it
 governs whether this is a latent hazard or an active leak. A test that exhausts basket surplus and then
 triggers a rebalance settles it in one run. **Do not close this on reasoning — reachability is exactly
