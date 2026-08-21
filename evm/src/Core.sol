@@ -1380,8 +1380,17 @@ contract Core {
     ///      push carries that intra-update movement, which is exactly what σ² is for. The bound
     ///      constrains the LEVEL; the information is in the PATH.
     ///
-    /// @dev Band = 50 bps. MEASURED basis between 1inch and Chainlink on ETH/USD is **8 bps**, so
-    ///      this is ~6x headroom, and it caps an adversary's reachable σ² inflation at ±0.5% per
+    /// @dev Band = 50 bps. ⛔ **THE "8 bps ⇒ ~6x headroom" FIGURE THAT STOOD HERE IS STALE.
+    ///      RE-MEASURED 2026-08-22: the live 1inch-vs-Chainlink ETH/USD basis is 23 bps** — so the
+    ///      headroom is **~2.2x, not ~6x** (`PushSourceIsAdmissible.t.sol`, which prints the number
+    ///      and fails if it ever reaches half the band). The band still ADMITS a 1inch push, which is
+    ///      the property that matters; what changed is that the margin is thin enough to watch.
+    ///      ⚠️ **AND THE FAILURE IS SILENT IF IT GOES:** past 50 bps every push is refused, the ring
+    ///      never fills, σ² stays 0 and the skew serves the flat sentinel forever — a state
+    ///      indistinguishable from "no source pinned". That is why the tripwire exists, and why the
+    ///      pre-existing `OneInchObserverIsIndependent` assertion (`< 500` bps, **10x looser than
+    ///      this guard**) could never have caught it.
+    ///      It caps an adversary's reachable σ² inflation at ±0.5% per
     ///      block (the ring takes one write per timestamp). It is NOT `TWAP_MAX_DEVIATION_BPS`
     ///      (500) — that is calibrated for a 30-minute window against a pushed feed, and inheriting
     ///      it here would let a pusher move the level ten times as far.

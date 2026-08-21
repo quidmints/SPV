@@ -390,8 +390,26 @@ to relocating vETH balances does not follow). Treat that header as a record of a
 derivation. The real constraint it leaves behind: any relocation must preserve the **recorded-vs-live**
 lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 
-🔴 **`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED** (measured
-2026-08-07 by classifying its whole surface — 11 ETH-named functions, 20 BTC-named, 24 state decls):
+✅ **`Vault` WAS TWO THINGS FUSED. THE SPLIT IS DONE — `Vault` IS BTC-ONLY** (re-measured 2026-08-22).
+The row below was written 2026-08-07 (11 ETH-named functions, 20 BTC-named, 24 state decls) and demanded
+an extraction that has since happened: ETH-venue custody now lives in `EthVenue`. **Measured in
+`Vault.sol` today, every ETH-venue symbol in the first row of the table is ZERO references** —
+`supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `aaveEthBalance` `deliverableETH`
+`_supplyETH` `_withdrawETH` `ETHERFI` `WEETH` `AAVE_SPOKE`. `contract Vault is Ownable,
+ReentrancyGuard, Shares` and nothing else.
+⛔ **THE LAST TRACE OF THE FUSION WAS A `Quid` HANDLE, AND IT SURVIVED THE EXTRACTION BY 8 DAYS.**
+`Vault` still declared `Quid internal immutable BAND; // the ETH LP contract`, which is how a
+BTC-only contract came to hold the ETH band manager. It had exactly two uses and both were leftovers:
+a modifier `onlyUs` gating **zero** functions (every gated function uses `onlyUsBtc`) whose header
+still described *"ETH-side venue ops (supply/withdraw/deliverable)"*, and one external call to
+`BAND.derivedThetaWadAt(...)` — a **one-line pass-through** to `QuidLib.derivedThetaWad(core, lo, up)`
+reading no ETH state, which `Vault` was calling with its OWN core and OWN bounds. §E301 removed both;
+deleting the now-callerless `derivedThetaWadAt` gave **`Quid` back 181 bytes** (86 → 267 margin).
+⇒ **THE LESSON, AND IT IS THE ONE THIS FILE KEEPS RE-LEARNING: AN EXTRACTION LEAVES THE HANDLES
+BEHIND.** The functions moved, the reference did not, and the stale comment beside it (*"the ETH LP
+contract"*) made the reference read as load-bearing. Grep for the OLD collaborator's type after any
+extraction, not just for the moved functions. The table below is kept as the record of what was split.
+(original row, 2026-08-07):
 
 | slice | what it is | members |
 |---|---|---|
@@ -462,10 +480,14 @@ and do NOT delete it on those grounds either — **the surviving question is the
 names: an open Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit.** Settle THAT
 before deciding, and reconcile the two documents whichever way it goes.
 
-⇒ **Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`. Only then does
-`Quid` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
-explained by this fusion, not by drift — which is exactly why every gap must be classified before
-merging.
+⇒ ~~**Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`.~~ ✅ **DONE** — see the
+re-measurement at the head of this section. `Quid` ∥ `Vault` are now two band managers with no ETH-venue
+slice fused into either, so the remaining question really is the one-implementation-two-instances merge.
+⚠️ **What is NOT settled: there are still TWO polymorphic band faces over the same pair of objects** —
+`IBandManager` (7 members, state/control) and `IBand` (9, settlement), zero overlap, both implemented by
+`Quid` and `Vault`. Nothing is declared twice, so this is not the duplication rule 2 catches; it is two
+faces where the goal is one manager, and a caller cannot tell which to reach for. Merging them is the
+§E21 move (`IAux` absorbing `LevMath.IAuxM`, `LevManager.ISwapAux`, `FeeLib.IAuxFee`).
 
 ## 🔴 SPLITTING ONE CONTRACT INTO TWO: audit ASSIGNMENTS, not call sites (measured 2026-08-15)
 
