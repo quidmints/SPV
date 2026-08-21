@@ -6094,3 +6094,43 @@ size-awareness survives **and gets cheaper** than the current `lnWad` branch.
    from a σ²=0 sweep — **that sweep is the falsifiable test §E283 never had.**
 5. **Then delete** `SKEW_UNFILLABLE`, `lnWad`, the saturation clamp and §E285's residual, which by
    then have nothing to bound. ⚠️ **Deleting them earlier hides whether step 2 worked.**
+
+## §E286 — 🔴 **THE LEV PATH STILL ROUTES THROUGH UNISWAP V3, AND REMOVING IT IS A LIVENESS DECISION**
+🔴 OPEN — owner, 2026-08-21: *"there must be no routing through univ3 for the levpath"*. Booked rather
+than executed, because the obvious replacement was already tried and MEASURED WORSE.
+
+⚠️ **FIRST, A CORRECTION I OWE: I TWICE REPORTED UNISWAP AS FULLY REMOVED. IT IS NOT.**
+`V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45` (`Interfaces.sol:117`) is pinned, and
+`LevMath._poolSwap` calls `IV3Router(...).exactInputSingle` — **15 live code references.** My grep said
+"0 live, all comments" because **the comments say `Uniswap` and the code says `V3`**
+(`V3_SWAP_ROUTER`, `IV3Router`, `V3_FEE_WETH`). ⇒ **Searching for a SPELLING is not searching for a
+DEPENDENCY.** The bands ARE independent of Uniswap (v4/PoolManager/ticks are genuinely gone); the LEV
+path is not, and those are different claims.
+
+**THE FOUR LEGS** (`LevMath`): `:527` USDC→WETH (lever ETH) · `:591` USDC→WBTC (lever BTC) ·
+`:598` WBTC→USDC (delever BTC) · `:607` WETH→USDC (delever ETH).
+
+🔴 **CURVE IS NOT THE ANSWER — IT IS WHAT V3 REPLACED, ON A MEASUREMENT** (`Interfaces.sol:103-106`,
+2026-08-17): USDC/WETH 0.05% held **32,497 WETH + 36.9M USDC — 46× TriCrypto's 698 WETH**; WBTC/USDC
+0.30% held **262.9 WBTC — 12.7× TriCrypto's 20.72**. *"TriCrypto was removed because BOTH legs breached
+the 1% floor between $10k and $25k."* §E240-tri then DELETED the TriCrypto pool address. **Reverting
+reinstates a measured slippage failure at lev size.**
+
+⭐ **THE ONE REPLACEMENT CONSISTENT WITH "NO NEW DEPENDENCIES" IS OUR OWN INVENTORY, AND THE PRECEDENT
+EXISTS.** `LevManager.sol:597` already reads *"levered ⇒ use `swapOutDelever` (repay path)"* — a delever
+filled by a USER SWAPPING OUT, against our own book, no external venue. `FixedRateFill` is the same
+primitive that replaced the v4 AMM for user swaps. ⇒ Route the lev legs through the band and the
+external venue disappears. **It also composes with §E285:** sizing a lev leg against RESIDUAL BAND
+INVENTORY is the same floor that row wants for swaps.
+
+🔴 **THE COST, AND IT IS THE WHOLE DECISION: EXECUTION BECOMES CONDITIONAL.** V3 fills unconditionally
+at measured depth; our own book fills only when inventory or matching flow exists. **A delever that
+cannot source liquidity is a delever that does not happen — and the moment it is needed most is a
+correlated crash, precisely when user flow dries up and band inventory is already skewed one way.**
+`cascadeDelever` exists for that scenario and today can fall back to V3.
+⇒ **DECIDE THIS EXPLICITLY, DO NOT LET IT FALL OUT OF A CLEANUP.** Either (a) accept flow-dependent
+delevering and size the lev book so a crash cannot exceed what the band can absorb, or (b) keep an
+unconditional external leg and remove the Uniswap BRAND from prose without removing the venue, or
+(c) measure a third venue — 1inch is already ruled out at 31.7M gas (§E232), and nothing else has been.
+⚠️ **Whichever is chosen, the test that proves it must run a CORRELATED CRASH with no user flow.** A
+suite that never drains the band will pass under (a) and tell you nothing — §E104's lesson exactly.
