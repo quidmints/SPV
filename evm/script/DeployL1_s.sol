@@ -659,14 +659,19 @@ contract Deploy is Script {
     ///    What is true is only the CONSEQUENCE: `init` DISCARDS the returned `isShort`, so no short
     ///    behaviour follows — the venue is simply allowlisted.
     ///
-    /// 🔴 BUT THAT EARLY RETURN SKIPS THE COLLATERAL-SET GATE. For a WETH-DEBT venue, `vetVenue` returns
-    ///    BEFORE `coll != c0 && coll != c1 -> revert BadCollateral()` (LevMath.sol:255-256). That gate is
-    ///    the one LevManager.sol:206-208 calls "the rug the frozen allowlist stops": collateral outside
-    ///    {WETH, weETH} "silently misvalues into phantom ETH backing" via `_collToEth`. So ANY WETH-debt
-    ///    venue is allowlistable with ARBITRARY, UNVALIDATED collateral. The venue added below is benign
-    ///    (its collateral IS weETH), but it is the FIRST venue to reach the allowlist through the
-    ///    unchecked branch, and the hole is generic. Booked in QUEUE; do not add a second WETH-debt venue
-    ///    until the gate covers this path.
+    /// ✅ THE COLLATERAL-SET HOLE THIS USED TO WARN ABOUT IS CLOSED (re-read 2026-08-22). It said a
+    ///    WETH-DEBT venue returns from `vetVenue` BEFORE the `coll != c0 && coll != c1 -> BadCollateral()`
+    ///    gate, so any such venue was allowlistable with ARBITRARY collateral -- which `LevManager.sol`
+    ///    calls "the rug the frozen allowlist stops", since collateral outside {WETH, weETH} silently
+    ///    misvalues into phantom ETH backing via `_collToEth`. `LevMath.sol:315-319` now reads
+    ///    `ILevVenueColl(v).COLLATERAL()` and reverts `BadCollateral()` FIRST, then returns
+    ///    `stable() == base`. The gate is unconditional, so the standing "do not add a second WETH-debt
+    ///    venue" ban is lifted.
+    /// ⚠️ THE BAN IS LIFTED, THE CASE AGAINST THE VENUE IS NOT -- and the reasons are unrelated, so do
+    ///    not read this as clearance. See SPRINT §C17-c: chaining weETH->WETH->USDC multiplies the LTVs
+    ///    (0.93 x 0.805 = 74.87%, BELOW the 77.50% available in ONE hop), and at 2x exposure the dollar
+    ///    debt lands on a 1.24 WETH base instead of the whole 2 weETH stack, so a 3% ETH move liquidates
+    ///    it. A weETH->USDC borrow reaches 4.44x with a 37.5% buffer in one account and no eMode.
     ///
     /// 📌 EVERY VENUE HERE BORROWS **USDC**, which is why an ETH-denominated IL-protect borrow currently pays
     ///    a stable→WETH SOR round trip. A weETH-collateral/WETH-loan Morpho market EXISTS and is deep

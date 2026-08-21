@@ -8124,3 +8124,58 @@ from scratch** — the method matters more than the count, because the obvious m
 ▶️ **THE SCAN THAT FINDS ANY FUTURE ONE**, if new interfaces land: group every `IFoo(x)` cast by `x`,
 report groups with >1 interface, then **check signatures and assignment sites per group before believing
 it** — 5 of 10 groups were false positives.
+
+### C17-c. 🔴 THE WETH INTERMEDIATE MAKES THE LOOP **STRICTLY WORSE**. THE DIRECT BORROW DOMINATES IT ON EVERY AXIS
+
+The owner's loop is weETH → **borrow WETH** (eMode) → **borrow dollars against that WETH** → buy WETH →
+wrap → redeposit. It works, and it reaches 2×. **But a single-account weETH→USDC borrow beats it on
+leverage, on liquidation buffer, and on complexity simultaneously** — measured, not reasoned.
+
+**FIRST, THE CONSTRAINT THAT FORCES THE SHAPE — enumerated from the Pool's eMode bitmaps 2026-08-22:**
+
+| eMode cat | collateral | borrowable |
+|---|---|---|
+| **1** | **WETH, weETH** | **WETH only** |
+| 2, 8, 9, 10 | *(other assets)* | USDC |
+
+⇒ **THERE IS NO CATEGORY WHERE weETH IS COLLATERAL AND A DOLLAR IS BORROWABLE.** The dollar leg is
+non-eMode by construction, at weETH's base **77.50% / 80.00%**. This is not a listing gap to lobby for;
+it is what makes the two-account split unavoidable *if* the WETH leg is kept.
+
+**AND THAT IS THE ROOT: CHAINING TWO BORROWS MULTIPLIES THE LTVs.** `0.93 × 0.805 = ` **74.87%**, which
+is **BELOW** the 77.50% available in one hop. **The product of two high LTVs is lower than one moderate
+LTV**, so the eMode 93% — the whole reason for going through WETH — is spent on a step that gives the
+dollar leg a *smaller* base than it started with.
+
+| per 1 weETH of own capital | max net ETH exposure | ETH drop that liquidates @ 2× | accounts | eMode needed |
+|---|---|---|---|---|
+| **direct: weETH → USDC** | **4.44×** | **37.5%** | **1** | **no** |
+| two-leg: weETH → WETH → USDC | 3.98× | **3.0%** at minimum `w`; 35.2% at maximum `w`, but acct A health is then **1.02** | 2 | yes |
+
+⚠️ **READ THE LIQUIDATION COLUMN, IT IS THE SHARPEST PART.** At 2× the two-leg's dollar debt sits on a
+**1.24 WETH** collateral base rather than on the whole **2 weETH** stack, so **a 3% ETH move liquidates
+it.** Pushing `w` to its maximum recovers the buffer to 35.2% — still short of direct — only by driving
+account A to health **1.02**, where a ~2% weETH/ETH dislocation liquidates *that*. **There is no sizing
+of the two-leg that beats the one-hop on both accounts at once.**
+
+⇒ **RECOMMENDATION: drop the WETH intermediate for the LEVERAGE objective.** It makes the "threeway"
+a two-way — weETH collateral, USDC debt, one Aave account per LP — which is **what `AaveV3Venue`
+already is** (`COLLATERAL`/`STABLE` are constructor immutables), so extending to the ETH side becomes a
+**deploy-time construction**, not a contract change. That also retires C17-a's two-account work and
+C17-b's `setUserEMode` prerequisite **entirely**.
+⚠️ **WHAT THIS DOES *NOT* SAY.** A WETH-denominated liability has a real and different job — it is the
+**staking carry**, and the deploy file already derives why it cannot be the IL hedge (*"THE LIABILITY
+MUST BE IN THE ASSET YOU ARE NOT LONG… a weETH/WETH market is a STAKING CARRY, not IL protect"*).
+**If the WETH leg is wanted for carry, keep it as its own product and price it as carry** — the
+objection here is only to using it as a *step toward dollar debt*, where the arithmetic says it
+subtracts.
+📌 **UNMEASURED, and it is the one axis that could overturn this:** the two-leg pays WETH borrow APR on
+account A, the direct route does not; the direct route pays a higher dollar APR on a larger balance.
+**Neither rate is measured here.** If the WETH borrow rate is far below the USDC rate the carry could
+offset part of the gap — it cannot offset the liquidation-buffer column, but it belongs in the decision.
+
+✅ **AND A STALE COMMENT THIS RETIRES.** `_ethLevVenues`'s header warned *"do not add a second WETH-debt
+venue until the gate covers this path"*, describing `vetVenue`'s `stable() == base` early return
+skipping the `BadCollateral` check. **That hole is CLOSED** — `LevMath.sol:315-319` now reads the
+collateral and reverts `BadCollateral()` **before** returning `stable() == base`. The comment described
+past state; the gate is unconditional today. Destaled in the same commit as this row.
