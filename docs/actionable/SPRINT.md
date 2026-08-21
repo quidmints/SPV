@@ -6985,10 +6985,23 @@ push chooses which prices the ring sees, and selective sampling is the one manip
 band does not bound. **Sampling driven by band state (repack, swap, delever) is not attacker-chosen;
 a discretionary keeper loop is.**
 
-▶️ **NEXT, IN ORDER:** (1) a test for the band and both refuse paths — it is `public`, needs no fork
-for the refuse cases; (2) pick the carrier and state why its cadence is market-driven; (3) the
-off-chain reader (`eth_call` `getRate`, cache, attach). ⚠️ **None of this needs `setObservationSource`
-— that is the PULL path and it stays unset.** Two mechanisms, one ring; do not wire both.
+▶️ **NEXT, IN ORDER:** (1) a test for the band and both refuse paths; (2) pick the carrier and state
+why its cadence is market-driven; (3) the off-chain reader (`eth_call` `getRate`, cache, attach).
+⚠️ **None of this needs `setObservationSource` — that is the PULL path and it stays unset.** Two
+mechanisms, one ring; do not wire both.
+
+🟡 **STEP 1 IS PART-DONE — `evm/test/PushObservationAnchor.t.sol`, 3 passing, ~8s on a fork.**
+It asserts the DEPENDENCY the guard cannot work without: `twapResolve(feed, 0, …)` returns the raw
+Chainlink anchor by way of §A.13's `price == 0` fall-through — **a fix made for an unrelated reason (a
+self-reinforcing drain deadlock) and relied on here as load-bearing, with nothing asserting it.**
+⇒ **Its failure mode is why it was worth writing: if that fall-through regressed, `anchorPx` would be
+0, `pushObservation` would take the refuse branch on EVERY push, and the ring would silently never
+fill — indistinguishable from today's no-source state, and green in any suite.** The file also carries
+a control (a dead feed must yield NO anchor, so the refuse path is reachable) and pins
+`OBS_PUSH_MAX_BPS < 500` so a later unification cannot quietly widen it to the TWAP band.
+⚠️ **WHAT IS STILL OWED, stated so the row is not read as closed:** the band arithmetic and the write
+path itself. **Only `Alles.t.sol` constructs a `Core`**, so those need that fixture — which is the
+real reason this function shipped untested, and it is a cost worth naming rather than absorbing.
 
 ## C14. SIX ACTIONABLE DOCS DELETED — audited by CODE, not by header (2026-08-21)
 

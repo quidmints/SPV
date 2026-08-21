@@ -447,6 +447,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error AlreadyOpen();
     error NothingToClaim();    // (§LAZY-OPEN) no unregistered custody for this channel: never opened,
                                // already claimed, or closed before the claim was registered
+    error ClaimNotRegistered(); // (§LAZY-OPEN-SHRINK) this channel's claim is still deferred, so the
+                               // LP has no position to shrink — call registerChannelClaim first
     error WrongBtcRecipient(); // open's payout hash != the LP's already-registered one
     error OneChannelPerLp();   // lpEth already has an open channel (splice to resize)
     error BtcRecipientLockedErr(); // can't setBtcRecipient once a channel locked it
@@ -550,6 +552,22 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      clothes.
     function _whenOpen(bytes32 channelId) private view {
         if (channels[channelId].status != ChannelLib.STATUS_OPEN) revert WrongStatus();
+    }
+
+    /// @dev (§LAZY-OPEN-SHRINK) A PARTIAL shrink reduces the LP's pool position, and
+    ///      `BtcLib.resize` does `LP.pooled -= shrinkSats` — so against a channel whose claim is
+    ///      still deferred (`pendingClaimSats != 0`, i.e. the position was never opened) it
+    ///      **underflows to panic `0x11`, which is undiagnosable in production.** This says what
+    ///      the caller must actually do instead. ⚠️ A FULL close needs no such guard and must not
+    ///      get one: there `sharesRemoved = LP.pooled`, so the subtraction self-cancels at zero.
+    /// @dev **A `private view`, NOT a modifier, deliberately** (standing rule 8c): a modifier's body
+    ///      is inlined at every use site, and `BTCChannels` has 356 bytes of margin.
+    /// ⛔ **DO NOT "FIX" THIS BY AUTO-CLAIMING INSIDE THE SHRINK.** That rebuilds the coupling
+    ///      §LAZY-OPEN removed — a claim leg that reverts on protocol-wide state, back on a path
+    ///      where the swapper's BTC has ALREADY moved. Anyone can call `registerChannelClaim`
+    ///      first; this only has to say so.
+    function _requireClaimRegistered(bytes32 channelId) private view {
+        if (pendingClaimSats[channelId] != 0) revert ClaimNotRegistered();
     }
 
     // ─── Shared close helper ──────────────────────────────────────────
@@ -1520,6 +1538,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
             _releasePoolSats(channelId, p.amountSats);
         }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
+        _requireClaimRegistered(channelId);   // (§LAZY-OPEN-SHRINK) else `LP.pooled -=` panics
         btcVault.resize(lpEth, shrinkSats, lpPayoutSats, 0);
         emit ChannelSpliced(channelId, lpEth, false, shrinkSats, p.amountSats, newTxId, newVout);
     }
@@ -2376,6 +2395,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // proceeds: lpPayout = shrink − sats is the LP's native change; exactUsd =
         // so.usd is its dollar leg. _settleDelivered draws POOLED_USD + clears
         // pendingSwapOutUsd by so.usd (the matched -= for the request's +=).
+        _requireClaimRegistered(channelId);   // (§LAZY-OPEN-SHRINK) else `LP.pooled -=` panics
         btcVault.resize(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
         // Mark the swapId consumed on the swap-IN side too: delivery and reversal are now
         // MUTUALLY EXCLUSIVE in BOTH directions. The deliver entry already blocks

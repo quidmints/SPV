@@ -240,6 +240,27 @@ pub(crate) fn read_channel_state<R: JsonRpc>(
     Ok(ChannelState { amount_sats, status, lp_eth })
 }
 
+/// (§LAZY-OPEN-RETRY) Sats custodied by `openChannel` whose LP pool claim is still DEFERRED.
+///
+/// Non-zero means the channel is open and its ladder armed, but the LP is not yet earning: the
+/// claim leg reverted on protocol-wide state (`checkBacking`/`repack`/`ZeroTwap`) when the open
+/// landed, so `openChannel` booked it instead of crediting inline. Anyone may complete it via
+/// `registerChannelClaim`; the reconciler is simply the party that always notices.
+pub(crate) fn read_pending_claim<R: JsonRpc>(
+    rpc: &R,
+    btc_channels: Address,
+    cid: [u8; 32],
+) -> anyhow::Result<u128> {
+    let bytes = crate::client::eth_call_raw(rpc, btc_channels, "pendingClaimSats(bytes32)", Some(&cid))?;
+    if bytes.len() < 32 {
+        anyhow::bail!("pendingClaimSats(bytes32): short return ({} bytes)", bytes.len());
+    }
+    // Same reasoning as `amountSats` above: do NOT cap a garbage value into range. This figure
+    // only ever gates whether we submit a retry, so an adversarial MAX would cost a wasted tx
+    // rather than corrupt accounting — but surfacing it is still cheaper than explaining it later.
+    crate::client::word_to_uint(&bytes, "pendingClaimSats(bytes32): exceeds u128")
+}
+
 /// Best-effort revert-reason decode for a BTCChannels call that `send_tx`
 /// reported reverted (it only yields a bool). Replays the calldata as a
 /// read-only `eth_call` and surfaces what the node returns: many nodes put the
@@ -778,9 +799,12 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     // `ChannelClaimDeferred` when the claim leg itself reverts. So an unconditional
     // `registerChannelClaim` right here would revert `NothingToClaim()` on every healthy open —
     // a warn line per channel that means nothing, which is how a log stops being read.
-    // ⚠️ **THE RETRY IS THEREFORE OWED SOMEWHERE ELSE, AND IS BOOKED, NOT ASSUMED:** the deferred
-    // state is announced by the event and is completable by ANYONE, so nothing is lost while it
-    // waits — but nothing retries it automatically yet either. See §LAZY-OPEN-RETRY in SPRINT.md.
+    // ⚠️ **AND THE RETRY WOULD BE WRONG HERE FOR A SECOND REASON, not just a noisy one:** at open
+    // time the basket is BY DEFINITION the thing that just refused, so retrying in the same breath
+    // retries into the same failure. It belongs on a periodic pass that waits for the condition to
+    // clear. `run_channel_reconciler` does it (§LAZY-OPEN-RETRY) — it already resolves every
+    // channel's `cid` each pass, so the retry costs one `pendingClaimSats` read that normally
+    // returns zero.
     // (B) Prune the funding→lpEth binding now the open is mirrored — `by_funding` only
     // holds in-flight opens, so it can't grow unbounded over the daemon's lifetime.
     registry.clear_inflight(&funding_txid.to_string(), funding_vout);
@@ -1460,6 +1484,40 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
             // lets an LP be routed at all — the gate fails closed by design.
             if let Some(g) = gate.as_ref() {
                 g.bind(ch_id.0, alloy_primitives::B256::from(cid), state.lp_eth);
+            }
+            // (§LAZY-OPEN-RETRY) Complete a claim the open had to defer. `openChannel` credits the
+            // LP inline whenever the basket is healthy and only books `pendingClaimSats` when the
+            // claim leg itself reverted, so this is normally a single cheap read that finds zero.
+            //
+            // ⚠️ **THE RETRY BELONGS HERE AND NOT IN `drive_open`**, which is why the open path
+            // deliberately does not call it: at open time the basket is by definition the thing
+            // that just refused, so retrying in the same breath retries into the same failure. This
+            // pass runs on a period, so it naturally waits for the condition to clear.
+            // ⚠️ Not a liveness dependency: the claim is PERMISSIONLESS, so an LP whose fleet is
+            // down is not stuck — it, or any observer, can send the same call. This only means
+            // nobody has to.
+            match tokio::task::spawn_blocking({
+                let rpc = rpc.clone();
+                move || read_pending_claim(&*rpc, btc_channels, cid)
+            })
+            .await
+            {
+                Ok(Ok(pending)) if pending > 0 => {
+                    let calldata = quid_hop::evm_codec::encode_register_channel_claim(cid);
+                    match estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, cfg.gas_limit).await {
+                        Ok(true) => info!(
+                            cid = %hex::encode(cid), pending,
+                            "completed a deferred LP pool claim"
+                        ),
+                        // Still unhealthy, or someone beat us to it. Either way the next pass
+                        // re-reads and decides again from chain state, so nothing accumulates.
+                        Ok(false) => debug!(cid = %hex::encode(cid), "deferred claim still not creditable"),
+                        Err(e) => warn!(cid = %hex::encode(cid), err = %e, "deferred claim retry failed to send"),
+                    }
+                }
+                Ok(Ok(_)) => {}                 // zero: the common case, credited inline at open
+                Ok(Err(e)) => debug!(cid = %hex::encode(cid), err = %e, "pendingClaimSats read failed"),
+                Err(e) => debug!(cid = %hex::encode(cid), err = %e, "pendingClaimSats join failed"),
             }
             // Is the funding output already spent (channel closed on Bitcoin)?
             // Capture the FULL outspend so we can hand the close txid to
