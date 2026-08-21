@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {WAD} from "./Types.sol";
+import {WAD, BadAsset} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IBasketTurn2`).
 import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the canonical declaration site
                                                      // (BasketLib only RE-imports it, so importing from there does not resolve)
@@ -295,7 +295,6 @@ library SwapLib {
         if (IAux(aux).toIndex(token) == 0) revert StableMissing();
     }
 
-    error BadAsset();
     error NoShedPath();   // §E56: an overshoot in a pool that has traded before and has now gone dead
     /// §E275 — the skew reached/exceeded 100%, so the premium would consume the trade. NOT an error
     /// condition in the band: it is the honest answer at that scarcity, and under solver routing the

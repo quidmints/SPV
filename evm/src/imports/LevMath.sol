@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
-import {WAD} from "./Types.sol";
+import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `ILevSyncHookM`).
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
@@ -83,7 +83,6 @@ library LevMath {
     // Venue-gate reverts. Name-derived selectors, so `revert VenueNotAllowed()` here is INDISTINGUISHABLE
     // from LevManager's own `VenueNotAllowed()` (same signature) -- callers/tests keep the typed error.
     error BadCollateral();    // a pinned LONG venue whose collateral the manager cannot value/custody
-    error VenueNotAllowed();  // open onto a venue not on the frozen allowlist
     error VenueBlocked();     // open onto an incident-flagged venue
 
     /// @notice IL-cancelling target LTV (bps) = `1 − √(entryPrice/pxNow)`, clamped to `capBps`.

@@ -20,6 +20,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChannels} from "./imports/Interfaces.sol";
+import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, NotBTCChannels, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
@@ -202,19 +203,14 @@ contract Aux is // Auxiliary
     // array had no reader outside the three SOR bodies.
 
     error LengthMismatch();
-    error Unauthorized();
     error QuidPinned();
-    error BadAsset();
     error NoBtcRecipient();
     error NotSelf();
     error OverCommitted();
-    error BtcChannelsPinned();
     error BtcInflowsViaChannels();
-    error GHONotOnAAVE();
     // §SLOP — `BadV4Terminal`, `BadV4SourceVault`, `BadV4Last` DELETED: all three were SOR's
     // path-VALIDATION errors (`git log -S` traces them to the v4-cut commits `4d1256fa`/`22c67108`),
     // and with `SOR.sol` gone none can be reverted. Zero reverts each, verified comments-stripped.
-    error GHOIsAaveWired();
     error UnknownStable();
     // Body extracted to a private function (deployed ONCE) so the 13 onlyUs sites carry a cheap CALL
     // instead of inlining the 5-address comparison chain each — reclaims ~1 KB of Aux EIP-170 headroom.
@@ -1337,7 +1333,6 @@ contract Aux is // Auxiliary
     // own 2-of-2 channel; Aux never touches it.
     address internal _btcChannels;
 
-    error NotBTCChannels();
     modifier onlyBTCChannels() {
         if (msg.sender != _btcChannels) revert NotBTCChannels(); _;
     }

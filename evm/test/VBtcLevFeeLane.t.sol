@@ -9,7 +9,7 @@ import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {ILevVenue} from "../src/imports/Interfaces.sol";
-import {Types} from "../src/imports/Types.sol";
+import {Types, ChannelKeysMismatch} from "../src/imports/Types.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
@@ -310,7 +310,7 @@ contract VBtcLevFeeLane is AllesFixture {
             amountSats: 3e6, fundingTaproot: _taprootQ(otherLp, HOP_PUBKEY) });
 
         vm.prank(makeAddr("hop"));
-        vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
+        vm.expectRevert(ChannelKeysMismatch.selector);
         // (§E233-ladder) `stubLadder` — `_requireChannelKeys` fires before the rotation, let alone arming.
         ch.splice(cid, p, hex"00", new bytes32[](0), stubLadder());
     }
@@ -497,7 +497,7 @@ contract VBtcLevFeeLane is AllesFixture {
         // re-pinned `keysHash`. Same trap this fixture already names a few tests above.
         Types.OpenParams memory stalePair = _rekeyParams(c.lpPubkey, c.oldHop, 1e6);
         vm.prank(makeAddr("hop"));
-        vm.expectRevert(BTCChannels.ChannelKeysMismatch.selector);
+        vm.expectRevert(ChannelKeysMismatch.selector);
         // (§E233-ladder) `stubLadder` — the stale pair is refused on the pin, upstream of arming.
         ch.splice(c.cid, stalePair, hex"00", new bytes32[](0), stubLadder());
     }

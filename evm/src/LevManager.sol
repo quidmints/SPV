@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {LevMath} from "./imports/LevMath.sol";
-import {WAD} from "./imports/Types.sol";
+import {WAD, AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed} from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
@@ -88,11 +88,7 @@ contract LevManager is LevBase {
 
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
 
-    error AlreadyOpen();
-    error Reentrancy();
-    error VenueNotAllowed();
     error NotGov();
-    error NotFlash();
     error Slippage();
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}

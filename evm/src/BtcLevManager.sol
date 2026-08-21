@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
-import {WAD} from "./imports/Types.sol";
+import {WAD, AlreadyOpen, NotFlash, Reentrancy} from "./imports/Types.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
@@ -84,10 +84,7 @@ contract BtcLevManager is LevBase {
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
 
-    error AlreadyOpen();
     error BadAuth();
-    error NotFlash();
-    error Reentrancy();
 
     uint private _lock = 1;
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }

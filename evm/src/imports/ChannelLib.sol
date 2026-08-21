@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Types} from "./Types.sol";
+import {Types, BadSPV, ChannelKeysMismatch, GHOIsAaveWired, GHONotOnAAVE, InvalidParam} from "./Types.sol";
 import {WAD} from "./Types.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {IAux, IStabilityPool} from "./Interfaces.sol";
@@ -360,19 +360,15 @@ library ChannelLib {
     uint8  internal constant STATUS_OPEN       = 0;
     uint8  internal constant STATUS_CLOSED     = 2;  // cooperative close or LP refund
 
-    error InvalidParam();
-    error BadSPV();
     error AmountMismatch();
     // setVaultBody errors (mirror Aux's; raised in Aux's context via delegatecall)
     error VaultUnwired();
     error VaultAlreadySet();
-    error GHONotOnAAVE();
     error VaultAssetMismatch();
     error ApproveFailed();       // §APPROVE-INVARIANT: approve reverted, or returned false
     error UnknownStable();
     error ZeroDeposit();
     error VaultBlocked();
-    error GHOIsAaveWired();
 
     using SafeERC20 for IERC20OZ;
 
@@ -527,7 +523,6 @@ library ChannelLib {
         }
     }
 
-    error ChannelKeysMismatch();   // the supplied pair is not the one pinned at open
     error RekeyUnchanged();        // the "new" hop key is the one already pinned
 
     /// (§E182) THE REKEY GATE — decides WHO may rotate a channel's hop key and TO WHAT.

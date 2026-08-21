@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IBtcVaultBridge} from "./imports/Interfaces.sol";
-import {Types} from "./imports/Types.sol";
+import {Types, AlreadyOpen, BadSPV, ChannelKeysMismatch, InvalidParam} from "./imports/Types.sol";
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
@@ -443,8 +443,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error OutpointReused();      // this funding UTXO already backs a channel
     error SwapInReplay();
     error SwapInPartialRejected();   // requireFull swap-in (LN rail) that the pool could only partially fill
-    error BadSPV();
-    error AlreadyOpen();
     error NothingToClaim();    // (§LAZY-OPEN) no unregistered custody for this channel: never opened,
                                // already claimed, or closed before the claim was registered
     error ClaimNotRegistered(); // (§LAZY-OPEN-SHRINK) this channel's claim is still deferred, so the
@@ -454,7 +452,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error BtcRecipientLockedErr(); // can't setBtcRecipient once a channel locked it
     error WrongStatus();
     error WrongPrevOutpoint();        // tx doesn't spend this channel's funding UTXO
-    error InvalidParam();             // bad lpAuth recovery
     error SpliceUnchanged();          // a splice must change the funded amount (grow or shrink)
     error SpliceIsNotAClose();        // (E153) tx pays a continuing 2-of-2 ⇒ it is a splice
     error SpliceKeyNotTwoOfTwo();     // (E129) new funding Q is not KeyAgg(lpPubkey, hopPubkey)
@@ -1861,7 +1858,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     error ExitUnderpaysCheckpoint();   // the armed exit pays less than it attests
 
-    error ChannelKeysMismatch();   // p.lpPubkey/p.hopPubkey != the keysHash pinned at open
 
     /// @param p this channel's `OpenParams` — only `lpPubkey`/`hopPubkey` are read, and both
     ///        are checked against the `keysHash` pinned at open.

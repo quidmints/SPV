@@ -12,7 +12,7 @@ import {Basket} from "./Basket.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
-import {Types} from "./imports/Types.sol";
+import {Types, AlreadyInitialized, BtcChannelsPinned, LevManagerPinned, NotBTCChannels, Unauthorized, WrongBandManager} from "./imports/Types.sol";
 import {Shares} from "./Shares.sol";
 
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -116,9 +116,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     // ("Extract ETH-venue custody out of Vault into EthVenue") and `8720a35d` ("EthVenue IS Quid"),
     // i.e. it gated a split that was subsequently folded back -- the gate went, the error stayed.
     error NotSelf();
-    error Unauthorized();
-    error LevManagerPinned();
-    error WrongBandManager();
     error NotAux();
     error NoBtcPosition();
 
@@ -184,14 +181,11 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// of one another. Two slots for one number; `bandBounds()` derives the pair on read.
 
 
-    error BtcChannelsPinned();
-    error AlreadyInitialized();
     error ZeroTwap();
     error Dust();          // boundary order too small to mint nonzero liquidity
     error NotOwner();      // pullBtc by a non-owner of the position
     error BadPercent();    // pullBtc percent must be 1..100
     error NotAStable();    // BTC self-managed positions are USD-funded (token != 0, no native)
-    error NotBTCChannels();
     error SwapOutShort();
 
     address public btcChannels;

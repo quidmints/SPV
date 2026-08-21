@@ -9,6 +9,7 @@ import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/Interfaces.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
+import {VenueNotAllowed} from "../src/imports/Types.sol";
 
 interface IERC20R {
     function approve(address, uint) external returns (bool);
@@ -305,7 +306,7 @@ contract LevCascadeProbe is AllesFixture {
         uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), 5 ether);
-        vm.expectRevert(LevManager.VenueNotAllowed.selector);
+        vm.expectRevert(VenueNotAllowed.selector);
         lm.openLev(5000, ILevVenue(address(rogue)), 5 ether, mins);
         vm.stopPrank();
     }

@@ -14,12 +14,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ICollection} from "./imports/Interfaces.sol";
+import {Types, BtcVaultPinned, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 
 contract Basket is ERC20, ERC6909, 
     ReentrancyGuard, Ownable {
     using SortedSetLib for SortedSetLib.Set;
     error InsufficientUnlocked();
-    error Unauthorized();
 
     uint internal _deployed;
     uint constant CAP = 600_000 * 1e18;
@@ -64,7 +64,6 @@ contract Basket is ERC20, ERC6909,
     ///         USD-leg mints (formerly Quid's) need the same auth Quid has.
     ///         Pinned once.
     address public BTC_VAULT;
-    error BtcVaultPinned();
     function setBtcVault(address b) external {
         if (msg.sender != owner()) revert Unauthorized();
         if (BTC_VAULT != address(0)) revert BtcVaultPinned();

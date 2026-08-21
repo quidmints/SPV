@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: file-level errors
 
 /// @title  VBtc — the EVM face of LN-custodied BTC, segregated out of `Vault` (§J.2).
 ///
@@ -75,7 +76,6 @@ contract VBtc {
     /// short, and this error did not exist. A caller holding plenty of tokens but under-approved was
     /// told their BALANCE was insufficient: a diagnosis that is not merely unhelpful but points the
     /// reader at the wrong account. `Quid` already distinguishes the two.
-    error InsufficientAllowance();
 
     constructor(address vault, address wbtc) { VAULT = vault; WBTC = wbtc; }
 

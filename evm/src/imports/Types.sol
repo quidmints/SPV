@@ -16,6 +16,38 @@ uint256 constant WAD = 1e18;
 error NotOpen();
 error BadTarget();
 
+/// @notice §E299 — eighteen errors that each had two or more identical declarations across the
+///         contracts. File-level here means ONE declaration, and every holder keeps the error in
+///         its own ABI because a file-level error still lands there for any contract that actually
+///         reverts with it.
+/// ⛔ THAT LAST CONDITION IS THE WHOLE SELECTION RULE, AND IT EXCLUDED TWENTY NAMES. Measured:
+///         `Quid` and `Vault` import this file, never revert `NotOpen`, and `NotOpen` is NOT in
+///         their ABIs — so importing is not enough, the contract has to revert with it. Twenty
+///         duplicated errors exist precisely BECAUSE the declaring contract never reverts with
+///         them: a delegatecalled library does (`BadPercent` in `BandLib`, running in `Quid`'s
+///         context), and the contract declares it only so clients can DECODE that revert. Moving
+///         those would strip the error from the ABI while the revert kept firing, leaving callers
+///         a bare 4-byte selector. They stay duplicated on purpose; the duplication is the ABI.
+error AlreadyInitialized();
+error AlreadyOpen();
+error BadAsset();
+error BadSPV();
+error BtcChannelsPinned();
+error BtcVaultPinned();
+error ChannelKeysMismatch();
+error GHOIsAaveWired();
+error GHONotOnAAVE();
+error InsufficientAllowance();
+error InvalidParam();
+error LevManagerPinned();
+error NotBTCChannels();
+error NotFlash();
+error Reentrancy();
+error Unauthorized();
+error VenueNotAllowed();
+error WrongBandManager();
+
+
 library Types {
 
     /// @notice One LP's isolated leverage position. §A.71: LevManager and BtcLevManager

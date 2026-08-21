@@ -3,7 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {WAD} from "./imports/Types.sol";
+import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongBandManager} from "./imports/Types.sol";
 import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
@@ -33,7 +33,6 @@ import {Aux} from "./Aux.sol";
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Quid is Shares,
     Ownable, ReentrancyGuard {
-    error AlreadyInitialized();
     error WrongQuid();
     error Dust();
     error NoPosition();
@@ -95,8 +94,6 @@ contract Quid is Shares,
 
     error NotSelf();
     error NotAux();
-    error LevManagerPinned();
-    error WrongBandManager();
 
     /// @notice Pin the LevManager (one-shot, no repoint).
     /// @dev §LEV-FOLD-2 — THE IDENTITY CHECK THAT REPLACES THE SUFFIXED SELECTORS. What used to stop
@@ -1409,7 +1406,6 @@ contract Quid is Shares,
     mapping(address => mapping(address => uint)) public allowance;
     event Transfer(address indexed from, address indexed to, uint value);
     event Approval(address indexed owner, address indexed spender, uint value);
-    error InsufficientAllowance();
 
     function approve(address spender, uint amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;

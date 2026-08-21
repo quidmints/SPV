@@ -22,6 +22,7 @@ import {ILevEquity, IBand} from "./imports/Interfaces.sol";
 // one home in ILevVenue.sol; §E296 folded that file into Interfaces.sol, so the one home is there.
 import {IERC20Min} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
+import {Types, BtcVaultPinned} from "./imports/Types.sol";  // §E299: file-level errors
 
 // §BANDBACKING-FOLD — `interface IBandBacking` DELETED FROM HERE, and it was declared TWICE: once
 // above and once in Interfaces.sol, which standing rule 2 forbids and which the note above that
@@ -524,7 +525,6 @@ contract Core {
     /// pool (modLP / repack / collectFees / draw / dec / swap).
     
     
-    error BtcVaultPinned();
     // BTCVAULT is pinned in its OWN setter, not setup(), because Vault is deployed AFTER Core
     // (Vault takes Core's address at construction, so it can't exist when setup() runs). The
     // one-shot pin makes a re-point impossible even before ownership is renounced — defence in

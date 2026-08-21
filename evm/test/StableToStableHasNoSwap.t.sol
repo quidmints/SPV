@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
+import {BadAsset} from "../src/imports/Types.sol";
 
 /// @title §E218 — THE SKEW IS NOT "NOT APPLIED" TO STABLE→STABLE. THERE IS NO STABLE→STABLE SWAP.
 ///
@@ -72,7 +73,7 @@ contract StableToStableHasNoSwapTest is Test {
         address[3] memory ins  = [USDC,  USDC,  PYUSD];
         address[] memory stables = new address[](0);
         for (uint i = 0; i < outs.length; i++) {
-            vm.expectRevert(SwapLib.BadAsset.selector);
+            vm.expectRevert(BadAsset.selector);
             SwapLib.swapToBody(_req(ins[i], outs[i], true), _cfg(), stables);
         }
     }
@@ -88,7 +89,7 @@ contract StableToStableHasNoSwapTest is Test {
             (bool reverted, bytes4 sel) =
                 caller.revertSelectorOf(_req(USDC, asset, true), _cfg(), stables);
             assertTrue(reverted, "premise: no Aux here, so this must still revert");
-            assertTrue(sel != SwapLib.BadAsset.selector,
+            assertTrue(sel != BadAsset.selector,
                 "a VOLATILE asset was rejected by the asset guard - the other test proves nothing");
         }
     }
