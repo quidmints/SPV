@@ -33,7 +33,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         EV.setLevManager(address(lm));
         // Thick shared band so the swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this));
+        ETH.deposit{value: 20 ether}(0, address(this));
 
         // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD.
         _openAtEntry(lps[0], 5 ether);
@@ -41,7 +41,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "precondition: levered debt > 0");
         _calmVol();
-        V4.syncLev(lps[0]);                                   // mints the GROSS (2x) depth ⇒ buffer USD → POOLED_USD
+        ETH.syncLev(lps[0]);                                   // mints the GROSS (2x) depth ⇒ buffer USD → POOLED_USD
         assertGt(lm.totalDebtUsd(), 0, "precondition: live leverage debt > 0 (the folded buffer)");
         _assertCommittedIdentity("FOLD: committed == in-range USD - live debt (pre-swap)");
 
@@ -94,12 +94,12 @@ contract BufferSwapDrain is LevCascadeProbe {
         _setupLev();
         EV.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
-        V4.deposit{value: 20 ether}(0, address(this));
+        ETH.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
-        V4.syncLev(lps[0]);
+        ETH.syncLev(lps[0]);
         assertGt(lm.totalDebtUsd(), 0, "precondition: the debt-funded buffer (live debt) > 0");
 
         uint supply0 = QUID.totalSupply();

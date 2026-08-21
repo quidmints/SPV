@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
-import {IBand} from "./Interfaces.sol";
+import {ICore} from "./Interfaces.sol";
 import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IQuid, ILevHost} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -19,13 +19,13 @@ import {QuidLib} from "./QuidLib.sol";
 
 
 
-/// AAVE-v4 GHO spoke (vault-health evac haven). Mirrors Aux.IAaveV4Spoke.
+/// AAVE-ETH GHO spoke (vault-health evac haven). Mirrors Aux.IAaveV4Spoke.
 /// The two reserve-level reads are asset-denominated (verified live: GHO reserve
 /// supplied/debt in 1e18); available cash = supplied − debt.
 /// EthVenue — the ETH-venue custody (AAVE WETH + ether.fi weETH). vault-health
 /// STATE stays Aux-owned; the basket's stable 4626s are held by Aux itself.
 // §G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with swap-out). Reached
-// via core→Vault (IWiredCore.btcVault → IWiredVault.LEV_MANAGER, both existing). `deleverBook` frees levered
+// via core→Vault (IWiredCore.btc → IWiredVault.LEV_MANAGER, both existing). `deleverBook` frees levered
 // net-equity into the sink (= this Aux) value-neutrally and returns the stable routed there.
 // Deploy-finalize linkage cross-checks (BasketLib.assertFullyWired).
   // §G.6: reach the ETH LevManager
@@ -186,7 +186,7 @@ library BasketLib {
     }
 
     /// @notice The EXPENSIVE per-stable valuation: sum a stable's balance +
-    ///         yield-weighted value across ALL its venues (Aave-v4 leg via
+    ///         yield-weighted value across ALL its venues (Aave-ETH leg via
     ///         aaveBalance, every 4626 leg via convertToAssets; the i>=5
     ///         yield-weighting boost), decimal-scaled to 18-dec. This is the
     ///         only part of get_deposits that hits external vault reads — so it
@@ -194,7 +194,7 @@ library BasketLib {
     ///         serves from storage on reads. The cheap per-read adjustments
     ///         (tranche subtraction, depeg discount) stay LIVE in the
     ///         callers. Runs in Aux's context (delegatecall), so address(this)
-    ///         is Aux. `isAave` = (stable is GHO/USDG); `aaveSpoke` the v4 sentinel.
+    ///         is Aux. `isAave` = (stable is GHO/USDG); `aaveSpoke` the ETH sentinel.
     // ─── Stored-holdings cache bodies — run in Aux's context via
     // delegatecall (address(this)==Aux), so the storage-ref mappings resolve to
     // Aux's slots. Kept HERE (not Aux) to stay under Aux's EIP-170 ceiling.
@@ -279,7 +279,7 @@ library BasketLib {
         for (uint i; i < len; i++) _refreshOne(stables[i], sh);
     }
 
-    /// @dev Aave-v4 yield-weighting: `assets × (assets/shares)` = assets × the
+    /// @dev Aave-ETH yield-weighting: `assets × (assets/shares)` = assets × the
     ///      reserve liquidity index, mirroring the 4626 `mulDiv(b, b, shares)`
     ///      form so GHO/USDG land on the SAME yield-factor basis as every 4626
     ///      venue (not principal-only). One extra read (suppliedShares); shares==0
@@ -330,7 +330,7 @@ library BasketLib {
             for (uint j = 0; j < vs.length; j++) {
                 address v = vs[j];
                 if (v == aaveSpoke) {
-                    // Aave-v4 leg: assets are yield-accrued; the factor is
+                    // Aave-ETH leg: assets are yield-accrued; the factor is
                     // suppliedAssets/suppliedShares (= the reserve liquidity
                     // index), the exact analog of a 4626 share price.
                     uint ab = IAux(aux).aaveBalance(stable);
@@ -523,7 +523,7 @@ library BasketLib {
         // `consumed` = the caller-input amount actually routed to the swap (before any 4626 revaluation);
         // the excess p.amount-consumed is a partial fill the caller must reclaim/cap (#105).
         consumed = Math.min(p.amount, convert(p.pooled,
-                        p.v4Price, p.token != address(0)));
+                        p.fillPrice, p.token != address(0)));
         uint pooled = consumed;
         if (pooled > 0) {
             if (p.token != address(0) && ctx.vault != address(0)) {
@@ -536,7 +536,7 @@ library BasketLib {
                 // supply" and we go straight to the V4 leg below.
                 //
                 // SHARES go to address(this) — i.e. Aux when called via
-                // library delegatecall. (The original `ctx.v4` field
+                // library delegatecall. (The original `ctx.ETH` field
                 // pointed at the Quid contract, which would have
                 // orphaned shares there with no Quid-side redemption
                 // path — see takeETH / _sendETH, which draw from Aux's
@@ -902,7 +902,7 @@ library BasketLib {
     /// ONLY (get_deposits/FeeLib/backing keep PAR semantics). Conservative — uses
     /// raw convertToAssets (not the vault-health-reduced value), clamped at total,
     /// so a both-haircut-and-illiquid vault is over-deferred, never over-paid.
-    /// The Aave-v4 leg IS deliverable-capped: a reserve can be utilization-bound
+    /// The Aave-ETH leg IS deliverable-capped: a reserve can be utilization-bound
     /// (cash = suppliedAssets − totalDebt < our balance), so the slice we can't
     /// withdraw NOW defers like a frozen 4626 (verified live: GHO reserve ~78%
     /// utilized). BOLD/SP needs no cap — getCompoundedBoldDeposit is withdrawable
@@ -993,7 +993,7 @@ library BasketLib {
         address recipient;
         address core;
         address quid;
-        address v4;
+        address ETH;
         address weth;
         // Optional targeted draw: a basket stable to shed FIRST (then pro-rata
         // remainder), or address(0) for the default cherry-pick-free pro-rata draw.
@@ -1058,7 +1058,7 @@ library BasketLib {
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
             uint need = wantUsd - freeUsd;
-            uint freed = IQuid(r.v4).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
+            uint freed = IQuid(r.ETH).unwindForRedeem(need);      // PLAIN band first; frees the exact USD asked
             // §G.6: if the plain unwind came up SHORT, the residual is levered backing being unbanded — de-lever
             // the in-band ETH levers (value-neutral, LTV-improving) to free it. Invariant (nothing leaves the band
             // without de-levering) holds; balanced unband ⇒ NO JIT/skew. No-op when there are no open levers.
@@ -1079,7 +1079,7 @@ library BasketLib {
     ///      `_dispatchTake`). De-levering also shrinks `committed` (net-equity ↓), relaxing the backing gate. The
     ///      book-walk + fault-tolerance live in the manager (it owns the book). Delegatecall ⇒ address(this) == Aux.
     function _deleverBookForRedeem(address core, uint usdWanted) private returns (uint) {
-        address vault = ICore(core).btcVault();
+        address vault = ICore(core).btc();
         if (vault == address(0)) return 0;
         // ETH lev manager lives on the ETH-VENUE contract; reach it the way QuidLib does.
         address mgr = ILevHost(IAux(address(this)).ethVenue()).LEV_MANAGER();
@@ -1106,7 +1106,7 @@ library BasketLib {
     /// @notice Body of Aux._backingCore (delegatecall, address(this)==Aux).
     /// Reads backing vs commitment; up to two V4 repacks to heal an
     /// over-commit. Returns current values regardless.
-    function backingCoreBody(address core, address btcCore, address v4, address btcVault)
+    function backingCoreBody(address core, address btcCore, address ETH, address btc)
         external returns (uint committedSum, uint totalLiquid) {
         // Terminal solvency gate counts standing holdings at PAR (drain side — intentional mint/drain asymmetry;
         // the issuance side haircuts depeg to block over-mint). See DepegBackingProbe / SwapLib.swapToBody.
@@ -1122,11 +1122,11 @@ library BasketLib {
         // one it claimed. Same shape as `token1isVol = token1isVol`: a rename/collapse producing an
         // expression the compiler cannot object to. Now it reads the two INSTANCES.
         bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();
-        // ETH pool repack → Quid (v4); BTC pool repack → BtcVault (regrouped).
-        IBand(ethFirst ? v4 : btcVault).repack();   // repack the LARGER pool first
+        // ETH pool repack → Quid (ETH); BTC pool repack → BtcVault (regrouped).
+        ICore(ethFirst ? ETH : btc).repack();   // repack the LARGER pool first
         committedSum = ICore(core).committedUsd18();
         if (committedSum > totalLiquid) {
-            IBand(ethFirst ? btcVault : v4).repack();   // then the other one
+            ICore(ethFirst ? btc : ETH).repack();   // then the other one
             committedSum = ICore(core).committedUsd18();
         }
     }
@@ -1134,7 +1134,7 @@ library BasketLib {
     // ⛔ `_repackPool` IS DELETED — it wrapped ONE external call and added nothing.
     // Its own docstring recorded why it had stopped doing work: it used to ROUTE by boolean, and
     // "a boolean plus both addresses was a dispatch the caller had already made". Once the target
-    // became the band address itself, the body was `IBand(band).repack()` and the wrapper
+    // became the band address itself, the body was `ICore(band).repack()` and the wrapper
     // was a second name for `.repack()`. Both call sites now say that directly, and the choice of
     // WHICH band stays where it was always made — in the `ethFirst` ternary at the call site.
 
@@ -1143,23 +1143,23 @@ library BasketLib {
     ///         external linkage EQUALS Aux's owner-set view — catching a
     ///         front-runner's malicious-but-non-zero pin in an ungated setter.
     function assertFullyWired(address q, address ethVenue, address btcChannels,
-        address core, address v4) external view {
+        address core, address ETH) external view {
         // ETH-VENUE CUSTODY AND THE BTC BAND MANAGER ARE DIFFERENT CONTRACTS since the venue carve.
         // This assert used to take one address for both because they used to BE one address; each
-        // fact is now checked against the contract that actually holds it. `btcVault` is derived
+        // fact is now checked against the contract that actually holds it. `btc` is derived
         // from Core rather than passed, so a caller cannot supply a mismatched pair.
-        address btcVault = ICore(core).btcVault();
+        address btc = ICore(core).btc();
         require(q != address(0),                                    "wire:quid");
         require(ethVenue != address(0),                             "wire:ethv");
-        require(btcVault != address(0),                              "wire:vault");
-        // §ETHVENUE-FOLD — was `IQuid(v4).EV() == ethVenue`, checking that Quid's venue pointer and
+        require(btc != address(0),                              "wire:vault");
+        // §ETHVENUE-FOLD — was `IQuid(ETH).EV() == ethVenue`, checking that Quid's venue pointer and
         // Aux's agreed. Quid IS the venue now, so the pointer is gone; what still needs asserting is
         // that Aux's pin names the band manager and not some other address.
-        require(ethVenue == v4,                                     "wire:band");
+        require(ethVenue == ETH,                                     "wire:band");
         require(btcChannels != address(0)
-             && IWiredVault(btcVault).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
+             && IWiredVault(btc).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
         require(IWiredBasket(q).AUX() == address(this),             "wire:bAux");  // Basket→Aux
-        require(IWiredBasket(q).BTC_VAULT() == btcVault,            "wire:bVlt");  // Basket→Vault
+        require(IWiredBasket(q).BTC_VAULT() == btc,            "wire:bVlt");  // Basket→Vault
     }
 
     /// @notice Body of Aux.redeemableAmount (delegatecall, address(this)==Aux).

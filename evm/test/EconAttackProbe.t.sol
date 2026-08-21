@@ -195,18 +195,18 @@ contract EconAttackProbe is AllesFixture {
     /// C: JIT-LP — deposit AFTER swap fees accrue, then check pending. If the bookmark set
     /// at deposit works, a fresh LP earns ~0 of the fees generated before it joined.
     function testCC_JITLPFeeCapture() public {
-        vm.prank(User02); V4.deposit{value: 100 ether}(0, User02);   // incumbent
+        vm.prank(User02); ETH.deposit{value: 100 ether}(0, User02);   // incumbent
         vm.startPrank(User03);                                        // generate swap fees
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 10; i++) {
             try AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0) {} catch { break; }
         }
         vm.stopPrank();
-        (uint incE, uint incU) = V4.pendingRewards(User02);
+        (uint incE, uint incU) = ETH.pendingRewards(User02);
         emit log_named_uint("C: incumbent pending eth", incE);
         emit log_named_uint("C: incumbent pending usd", incU);
-        vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);   // JIT joins AFTER fees
-        (uint jitE, uint jitU) = V4.pendingRewards(User01);
+        vm.prank(User01); ETH.deposit{value: 100 ether}(0, User01);   // JIT joins AFTER fees
+        (uint jitE, uint jitU) = ETH.pendingRewards(User01);
         emit log_named_uint("C: JIT pending eth (want ~0)", jitE);
         emit log_named_uint("C: JIT pending usd (want ~0)", jitU);
 

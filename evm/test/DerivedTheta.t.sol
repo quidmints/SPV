@@ -19,9 +19,9 @@ contract DerivedThetaProbe is AllesFixture {
     }
 
     function _read(string memory tag) internal returns (uint k, uint sigmaSq, uint theta5) {
-        try V4.realizedVarianceWad() returns (uint s) {
+        try ETH.realizedVarianceWad() returns (uint s) {
             sigmaSq = s;
-            k = V4.kLvrWad();   // LIVE band-geometry K
+            k = ETH.kLvrWad();   // LIVE band-geometry K
             theta5 = _thetaAt(k, s, 5e16);
             emit log_string("________________________________");
             emit log_named_string("regime", tag);
@@ -29,7 +29,7 @@ contract DerivedThetaProbe is AllesFixture {
             emit log_named_uint("  implied sigma (annual %, approx)", _approxSigmaPct(s));
             emit log_named_uint("  LIVE K from band geometry (WAD)", k);
             emit log_named_uint("  on-chain avgYield (WAD, fork~0)", AUX.avgYield());
-            emit log_named_uint("  on-chain derivedTheta (uses fork yield)", V4.derivedThetaWad());
+            emit log_named_uint("  on-chain derivedTheta (uses fork yield)", ETH.derivedThetaWad());
             emit log_named_uint("  theta @ 3% yield (WAD)", _thetaAt(k, s, 3e16));
             emit log_named_uint("  theta @ 5% yield (WAD)", theta5);
             emit log_named_uint("  theta @ 8% yield (WAD)", _thetaAt(k, s, 8e16));

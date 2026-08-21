@@ -108,7 +108,7 @@ interface IWeethSubId { function subIdOf(address lp) external view returns (uint
 
 /// @notice REAL-FORK proof of the YB IL-protect production swap route. Proves the folded `LevManager` legs
 ///   perform a genuine stable↔weETH round-trip over LIVE markets — caller-funded SOR (stable→WETH via the
-///   basket's real Uniswap-V4 hops) + ether.fi adapter mint UP / v3-pool sale DOWN (WETH↔weETH) — NOT our internal
+///   basket's real Uniswap-ETH hops) + ether.fi adapter mint UP / v3-pool sale DOWN (WETH↔weETH) — NOT our internal
 ///   band. (No sims; the bespoke RealWeethSwapper is gone, folded into LevManager.)
 contract LevYbRealProbe is AllesFixture {
     // KEPT when the Euler section was removed: this feed is the price anchor for the MORPHO tests
@@ -163,26 +163,26 @@ contract LevYbRealProbe is AllesFixture {
         deal(address(USDC), address(this), 2_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, 2_000_000 * USDC_PRECISION);
         morpho.supply(mp, 2_000_000 * USDC_PRECISION, 0, address(this), "");
-        // Wire the YB stack against the real venue + real swap route + the REAL Quid band (V4) as the
+        // Wire the YB stack against the real venue + real swap route + the REAL Quid band (ETH) as the
         // BAND-ONLY E0 / sold-fraction source — NO MockBandHost: bandOf/bandSqrtP/soldFractionWad/reseatEpoch
-        // all read the live V4 pool on the mainnet fork.
+        // all read the live ETH pool on the mainnet fork.
         rlm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
         rvenue = new MorphoEscrowVenue(MORPHO, mp, address(rlm));
-        // atomic pin-once: REAL V4 hook + Morpho flash (zero-fee repay-first de-lever) + the frozen venue.
-        { address[] memory vs = new address[](1); vs[0] = address(rvenue); rlm.init(address(V4), MORPHO, vs); }
+        // atomic pin-once: REAL ETH hook + Morpho flash (zero-fee repay-first de-lever) + the frozen venue.
+        { address[] memory vs = new address[](1); vs[0] = address(rvenue); rlm.init(address(ETH), MORPHO, vs); }
         vm.prank(LP);
         morpho.setAuthorization(address(rvenue), true); // one-time Morpho-native isolation
     }
 
-    /// Move the REAL V4 band UP by buying WETH out of it in bounded steps (each under the 50bps/swap manip cap),
+    /// Move the REAL ETH band UP by buying WETH out of it in bounded steps (each under the 50bps/swap manip cap),
     /// warping between so each step measures from spot≈TWAP and the guard resets. Real swaps only — the band
     /// sells ETH → real IL accrues; kept under the 5% Chainlink anchor so no reseat/no oracle override needed.
-    /// Self-calibrating: stops once the live sold fraction (from V4.poolStats) reaches `targetWad`.
+    /// Self-calibrating: stops once the live sold fraction (from ETH.poolStats) reaches `targetWad`.
     function _rallyBand(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (V4.soldFractionWad(entryPrice) >= targetWad) break;
+            if (ETH.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows, no 5% anchor trip
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
@@ -237,7 +237,7 @@ contract LevYbRealProbe is AllesFixture {
     /// getTWAPforAsset (⇒ _stableFloor, ⇒ POOLED_USD valuation) matches real execution — a fork artifact fix.
     function _realignBandToReal() internal {
         (, int256 clp,,,) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
-        _setEthFeed(uint(clp)); V4.reseat();
+        _setEthFeed(uint(clp)); ETH.reseat();
     }
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
@@ -245,12 +245,12 @@ contract LevYbRealProbe is AllesFixture {
     function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , , s, ) = m.pos(lp); }
 
     function _openLp() internal {
-        // REAL band position (the E0 IL base) — bandOf(LP) == 5 ETH deposit, read live from V4.
+        // REAL band position (the E0 IL base) — bandOf(LP) == 5 ETH deposit, read live from ETH.
         vm.deal(LP, 6 ether);
-        vm.prank(LP); V4.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
+        vm.prank(LP); ETH.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
         deal(WEETH, LP, 5 ether);
         uint[] memory mins = new uint[](8);
-        // Open at the CURRENT real band price (entry pinned from V4.bandSqrtP); zero leverage at entry.
+        // Open at the CURRENT real band price (entry pinned from ETH.bandSqrtP); zero leverage at entry.
         vm.startPrank(LP);
         IERC20R(WEETH).approve(address(rlm), 5 ether);
         rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins); // cap = 2×
@@ -269,21 +269,21 @@ contract LevYbRealProbe is AllesFixture {
     ///         venue denominator excludes it by construction.
     function testReal_VenueYield_LevExcludedFromDenominator() public {
         _setupMorpho();
-        EV.setLevManager(address(rlm));   // register V4/AUX -> manager so the band syncs the levered slice
+        EV.setLevManager(address(rlm));   // register ETH/AUX -> manager so the band syncs the levered slice
         _openLp();          // 5 ETH plain band (Galaxy) + 5 ETH weETH lev, rallied + rebalanced
-        V4.syncLev(LP);     // force the levered-slice reconcile (the rebalance's auto-sync is best-effort)
+        ETH.syncLev(LP);     // force the levered-slice reconcile (the rebalance's auto-sync is best-effort)
 
-        assertGt(V4.totalBuffer(), 0, "leverage paired a debt-funded buffer into the band");
+        assertGt(ETH.totalBuffer(), 0, "leverage paired a debt-funded buffer into the band");
         // #55/#1: the VENUE-yield denominator is PLAIN depth (lpShares - totalLevPooled), which is
         // STRICTLY SMALLER than the TRADING-fee denominator (lpShares + totalBuffer) -- it excludes
         // both the debt-funded buffer AND the lev net-equity. So Morpho venue appreciation (funded
         // only by plain LP deposits) is distributed over plain depth alone: the lev slice + buffer
-        // can no longer skim it. Trading fees rightly stay on gross depth (the buffer IS V4 depth).
-        uint venueDenom   = V4.lpShares() - V4.totalLevPooled();
-        uint tradingDenom = V4.lpShares() + V4.totalBuffer();
+        // can no longer skim it. Trading fees rightly stay on gross depth (the buffer IS ETH depth).
+        uint venueDenom   = ETH.lpShares() - ETH.totalLevPooled();
+        uint tradingDenom = ETH.lpShares() + ETH.totalBuffer();
         assertLt(venueDenom, tradingDenom,
             "venue-yield denominator EXCLUDES the lev buffer + net-equity (trading-fee denom includes them)");
-        assertEq(tradingDenom - venueDenom, V4.totalBuffer() + V4.totalLevPooled(),
+        assertEq(tradingDenom - venueDenom, ETH.totalBuffer() + ETH.totalLevPooled(),
             "excluded exactly the buffer + lev net-equity");
         // And the plain venue balance (_venueBalance) excludes the lev net-equity symmetrically, so a
         // lev open/close can never appear as fake venue yield: bandETH includes it, deliverableETH
@@ -297,7 +297,7 @@ contract LevYbRealProbe is AllesFixture {
     ///   the adapter's Morpho-authorization + position/borrow/repay/withdraw semantics against the LIVE contract.
     function testReal_Morpho_OpenAndDelever() public {
         _setupMorpho();
-        EV.setLevManager(address(rlm));   // register V4/AUX -> manager so the band syncs the levered slice
+        EV.setLevManager(address(rlm));   // register ETH/AUX -> manager so the band syncs the levered slice
         _openLp();
 
         uint debt0 = rvenue.debtOf(LP);
@@ -309,20 +309,20 @@ contract LevYbRealProbe is AllesFixture {
         assertGt(coll0, 5 ether, "leverage must grow collateral beyond equity");
 
         // ── #52 net-equity model invariants (post-leverage) ──────────────────────────────
-        // pooled/lpShares are NET equity; the debt-funded buffer is fee-earning V4 depth tracked
+        // pooled/lpShares are NET equity; the debt-funded buffer is fee-earning ETH depth tracked
         // separately in levBuf/totalBuffer, EXCLUDED from equity: it can't be freely withdrawn but
         // STILL earns leverage yield via the gross fee weight (lpShares + totalBuffer).
-        V4.syncLev(LP);
-        uint buffer = V4.levBuf(LP);
+        ETH.syncLev(LP);
+        uint buffer = ETH.levBuf(LP);
         assertGt(buffer, 0, "leverage pairs a debt-funded buffer into the band");
         assertLe(buffer, rlm.grossCollateral(LP), "buffer <= live gross collateral");
         // Conservation: totalBuffer == the single levered LP's buffer.
-        assertEq(V4.totalBuffer(), buffer, "totalBuffer == sum of levBuf");
+        assertEq(ETH.totalBuffer(), buffer, "totalBuffer == sum of levBuf");
         // The buffer is EXCLUDED from equity: balanceOf (redeemable net share) does not include it,
         // and for the sole LP the net share total == their balance.
-        assertEq(V4.balanceOf(LP), V4.lpShares(), "single LP: balanceOf(net) == lpShares(net)");
+        assertEq(ETH.balanceOf(LP), ETH.lpShares(), "single LP: balanceOf(net) == lpShares(net)");
         // GROSS fee weight (fee denominator) = net lpShares + totalBuffer, strictly above net equity.
-        assertGt(V4.lpShares() + V4.totalBuffer(), V4.lpShares(), "gross fee weight exceeds net equity by the buffer");
+        assertGt(ETH.lpShares() + ETH.totalBuffer(), ETH.lpShares(), "gross fee weight exceeds net equity by the buffer");
 
         // REAL CRASH: sell ETH into the band so the mark drops ~10% (feed tracks the pool) — LTV jumps for real,
         // no getTWAPforAsset mock. De-lever then fires on the genuine mark move.
@@ -349,8 +349,8 @@ contract LevYbRealProbe is AllesFixture {
         _openLp();
         _calmVol();                    // vol calms after the IL event ⇒ θ recovers ⇒ syncLev can add the levered depth
         uint tvl0 = _tvl();
-        V4.syncLev(LP);
-        uint lev0 = V4.levPooled(LP);
+        ETH.syncLev(LP);
+        uint lev0 = ETH.levPooled(LP);
         assertGt(lev0, 0, "levered band slice minted");
         uint vdebt0 = rvenue.debtOf(LP);
 
@@ -376,8 +376,8 @@ contract LevYbRealProbe is AllesFixture {
         // Realign the band oracle to the real market before reconciling — the rally elevated the mock band's
         // feed vs real Chainlink; reconcile the burn at the same real price the mint would be valued at now.
         _realignBandToReal();
-        V4.syncLev(LP);
-        assertLt(V4.levPooled(LP), lev0, "post-liquidation: levered slice shrank to the liquidated net-equity");
+        ETH.syncLev(LP);
+        assertLt(ETH.levPooled(LP), lev0, "post-liquidation: levered slice shrank to the liquidated net-equity");
         assertGe(_tvl(), tvl0, "REAL liquidation drained the basket real backing (TVL)");                          // nothing real taken
         assertGe(AUX.bandETH(), CORE.POOLED(), "deliverable ETH must still cover the band (honest LPs whole)"); // POOLED_USD legitimately un-pairs to the free reserve after the band IL event — not a loss
     }

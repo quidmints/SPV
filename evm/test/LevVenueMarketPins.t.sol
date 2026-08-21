@@ -76,7 +76,7 @@ contract LevVenueMarketPins is ForkPin, Deploy {
         assertEq(lltv,   MORPHO_LLTV_945,    "lltv constant drifted - 86% would be a DIFFERENT market");
     }
 
-    /// The Aave V4 leg must be DEEP, not merely configured. A correctly-configured EMPTY market is the
+    /// The Aave ETH leg must be DEEP, not merely configured. A correctly-configured EMPTY market is the
     /// failure mode that has now appeared THREE times: two 86% weETH/WETH Morpho markets holding $0.0002
     /// and $2,095, and Euler's eWETH-14 -- which accepts the eweETH-1 escrow at 67% LTVBorrow / 77%
     /// LTVLiquidation with a renounced governor, and has totalAssets, cash AND totalBorrows all ZERO.
@@ -85,7 +85,7 @@ contract LevVenueMarketPins is ForkPin, Deploy {
         IAaveV4Spoke sp = IAaveV4Spoke(aaveSpoke);
         uint256 supplied = sp.getReserveSuppliedAssets(0);   // WETH -- the leg we BORROW
         uint256 debt     = sp.getReserveTotalDebt(0);
-        assertGt(supplied - debt, 100 ether, "no free WETH on Aave V4 - the borrow leg cannot fill");
+        assertGt(supplied - debt, 100 ether, "no free WETH on Aave ETH - the borrow leg cannot fill");
         // weETH is supply-only here (borrowable=false, correctly). Depth still matters: an empty collateral
         // reserve means no liquidator has any reason to be watching it.
         assertGt(sp.getReserveSuppliedAssets(2), 10 ether, "weETH collateral reserve is empty");

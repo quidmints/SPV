@@ -17,7 +17,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 
 // §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
-import {ILevEquity, IBand} from "./imports/Interfaces.sol";
+import {ILevEquity, ICore} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol), then
 // one home in ILevVenue.sol; §E296 folded that file into Interfaces.sol, so the one home is there.
 import {IERC20Min} from "./imports/Interfaces.sol";
@@ -146,7 +146,7 @@ contract Core {
     ///      which only RAISES committed ⇒ a STRICTER gate + LOWER redeemable — conservative, never over-issue.
     ///      Mirrors `bandETH`'s try/catch over the same LevManager reads.
     function _levDebtUsd18() internal view returns (uint) {
-        if (address(BTCVAULT) == address(0)) return 0;
+        if (address(BTC) == address(0)) return 0;
         address mgr = BAND.levManager();
         if (mgr == address(0)) return 0;
         try ILevEquity(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
@@ -296,7 +296,7 @@ contract Core {
     }
 
     function levGrossNative() public view returns (uint) {
-        if (address(BTCVAULT) == address(0)) return 0;
+        if (address(BTC) == address(0)) return 0;
         return BAND.levGrossNative();
     }
 
@@ -423,12 +423,12 @@ contract Core {
     /// EXTERNAL CALL into Aux to look up a constant, then chose between two constants with a
     /// branch. Not immutable only because `AUX` is wired in `setup`, not in the constructor.
     address public ASSET;
-    /// §ISBTC-SPLIT — THIS INSTANCE'S BAND MANAGER, through `IBand`. Every money-path `IS_BTC`
+    /// §ISBTC-SPLIT — THIS INSTANCE'S BAND MANAGER, through `ICore`. Every money-path `IS_BTC`
     /// branch below was `Core` reaching into one of two managers for the same fact and having to
     /// know which; the facts differ per band, so they live in the band. ETH is pinned at `setup`
     /// (Quid exists by then); BTC at `setBtcVault`, because `Vault` is deployed AFTER `Core` and
     /// takes its address at construction -- which is exactly why that setter already exists.
-    IBand public BAND;
+    ICore public BAND;
 
     /// §V4-CUT — THE BAND'S RANGE, now OURS to store. It used to live inside the v4 position, which
     /// is why re-ranging required burning and re-adding liquidity. With inventory held directly the
@@ -516,7 +516,7 @@ contract Core {
     // announce itself. Keeping it is correct for now; it is ALSO the thing to revisit first if
     // pooled state ever disagrees with the basket (see §V4-REMOVAL-POOLED-STATE).
 
-    Aux AUX; Basket BASKET; Vault BTCVAULT;
+    Aux AUX; Basket BASKET; Vault BTC;
 
     /// @notice BtcVault — the BTC LP/swap side, regrouped out of Quid/Aux.
     /// Pinned once (post-deploy, like Quid's btcChannels) since BtcVault is
@@ -525,7 +525,7 @@ contract Core {
     /// pool (modLP / repack / collectFees / draw / dec / swap).
     
     
-    // BTCVAULT is pinned in its OWN setter, not setup(), because Vault is deployed AFTER Core
+    // BTC is pinned in its OWN setter, not setup(), because Vault is deployed AFTER Core
     // (Vault takes Core's address at construction, so it can't exist when setup() runs). The
     // one-shot pin makes a re-point impossible even before ownership is renounced — defence in
     // depth on the deploy path; a generic "already-set" error would also work, but the specific
@@ -533,16 +533,16 @@ contract Core {
 
     function setBtcVault(address b) external {
         require(msg.sender == DEPLOYER, "403");   
-        if (address(BTCVAULT) != address(0)) 
+        if (address(BTC) != address(0)) 
             revert BtcVaultPinned();
-        BTCVAULT = Vault(payable(b));
+        BTC = Vault(payable(b));
         // §ISBTC-SPLIT: the BTC instance's band manager IS the Vault, and this is the first moment
         // it exists (Vault takes Core's address at construction, so it cannot be pinned in setup).
-        if (address(BAND) == address(0)) BAND = IBand(b);   // §ISBTC-ZERO: the second pin, no flag needed
+        if (address(BAND) == address(0)) BAND = ICore(b);   // §ISBTC-ZERO: the second pin, no flag needed
     }
     /// @notice Public linkage getter — the deploy-finalize assert cross-checks
     ///         Core's BTC-vault pin against Aux's owner-set view.
-    function btcVault() external view returns (address) { return address(BTCVAULT); }
+    function btc() external view returns (address) { return address(BTC); }
 
     /// @notice The MONOTONIC retained-premium counter for one pool (6-dec USD). §E56 — its value is
     ///         not the point; being CUMULATIVE is. A decayed EWMA cannot tell a DEAD pool from a NEW
@@ -562,7 +562,7 @@ contract Core {
     ///         disjoint WBTC-donation `bandBTC` pool (that mis-base collapsed the band whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
     function btcThetaBacking() external view returns (uint) {
-        return address(BTCVAULT) == address(0) ? 0 : BTCVAULT.totalShares() + BTCVAULT.totalBuffer();
+        return address(BTC) == address(0) ? 0 : BTC.totalShares() + BTC.totalBuffer();
     }
 
     /// @dev §CORE-ONLYUS — THE CHECK IS A `private view`; THE MODIFIER STAYS THE GATE. A modifier
@@ -586,13 +586,13 @@ contract Core {
     function _onlyUs() private view {
         require(msg.sender == address(AUX)
              || msg.sender == address(BAND)
-             || msg.sender == address(BTCVAULT), "403");
+             || msg.sender == address(BTC), "403");
     }
 
     modifier onlyUs { _onlyUs(); _; } bytes internal constant ZERO_BYTES = bytes("");
 
     /// @notice The deployer — the ONLY address that may run `setup`/`setBtcVault`, the authority-wiring pins
-    ///         that admit BAND/AUX/BASKET/BTCVAULT into `onlyUs`. Captured at construction so a hostile
+    ///         that admit BAND/AUX/BASKET/BTC into `onlyUs`. Captured at construction so a hostile
     ///         party can't FRONT-RUN an un-pinned wiring call in the deploy window and inject a malicious
     ///         `onlyUs` member (Core isn't Ownable; this is the immutable analog of the owner-gate the
     ///         siblings Basket.setBtcVault / Aux.setEthVenue already carry).
@@ -640,7 +640,7 @@ contract Core {
         // §ISBTC-ZERO: the BAND is whatever the deployer pins here. The ETH band (Quid) exists by
         // now; the BTC band (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a
         // zero here is not an error -- it is the second-pin case, and no flag distinguishes them.
-        if (_band != address(0)) BAND = IBand(_band);
+        if (_band != address(0)) BAND = ICore(_band);
         BASKET = Basket(_basket);
 
         // Both reference pools' live ticks are read in ONE library call so they
@@ -913,7 +913,7 @@ contract Core {
                 // demand is met fairly at withdrawal: convertToAssets pays each LP
                 // pro-rata of bandETH, so the IL is socialized via the share price,
                 // never patched from surplus.
-                BAND.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see IBand
+                BAND.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see ICore
             }
         }
     }

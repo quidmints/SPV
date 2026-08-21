@@ -21,7 +21,7 @@ contract RefillKeeperProbe is AllesFixture {
         QUID.mint(address(this), usdcAmt, address(USDC), 0);
     }
     function _seedPool(uint ethAmt) internal {
-        vm.prank(lp); V4.deposit{value: ethAmt}(0, lp);
+        vm.prank(lp); ETH.deposit{value: ethAmt}(0, lp);
         require(CORE.POOLED() > 0, "no in-range pool");
     }
     function _buyEth(uint usdc) internal {
@@ -46,7 +46,7 @@ contract RefillKeeperProbe is AllesFixture {
 
         for (uint i = 0; i < 12; i++) _buyEth(5_000 * USDC_PRECISION);
         uint vShort = EV.bandETH();
-        uint shares = V4.totalShares();
+        uint shares = ETH.totalShares();
         require(vShort < shares, "expected a shortfall to exist");
 
         // INVARIANT: the shortfall did NOT consume the shared free backing (no toxic
@@ -58,9 +58,9 @@ contract RefillKeeperProbe is AllesFixture {
         emit log_named_uint("bandETH shortfall (ETH owed, unpatched - borne via share price)", shares - vShort);
     }
     // (BTC no-recipient no-op is covered by Alles.test_BtcShortfall_NoRecipient_NoWbtcFromSurplus,
-    //  which has the correct harness wiring: setBTCChannels + mocked btcRecipientOf + V4 pranker.)
+    //  which has the correct harness wiring: setBTCChannels + mocked btcRecipientOf + ETH pranker.)
 
-    /// CROSS-POOL drainage vector (audit D-1): the OLD race was arbETH(ETH) + btcShortfall-WBTC(BTC)
+    /// CROSS-POOL drainage vector (audit D-1): the OLD race was arbETH(BTC) + btcShortfall-WBTC(BTC)
     /// drawing the SAME freeBackingUsdc — induce both → one starves or the drain doubles. BOTH draws
     /// are removed. Induce an ETH shortfall AND a no-recipient BTC shortfall in the same state →
     /// assert the shared free backing is untouched, no WBTC, no QUI minted, committedUsd<=TVL. Proves
@@ -76,7 +76,7 @@ contract RefillKeeperProbe is AllesFixture {
         AUX.setBTCChannels(address(this));                                // BTC no-recipient shortfall
         vm.mockCall(address(this), abi.encodeWithSignature("btcRecipientOf(address)", User02), abi.encode(bytes32(0)));
         uint wbtc0 = WBTC.balanceOf(User02);
-        vm.prank(address(V4));
+        vm.prank(address(ETH));
         AUX.btcShortfall(User02, 1e7);
 
         (uint c1, uint l1) = AUX.checkBacking();
@@ -102,7 +102,7 @@ contract RefillKeeperProbe is AllesFixture {
         uint pub0 = CORE.POOLED_USD();
         uint wbtc0 = WBTC.balanceOf(User02);
 
-        vm.prank(address(V4));
+        vm.prank(address(ETH));
         AUX.btcShortfall(User02, 1e7);   // silent no-op — must NOT revert
 
         assertEq(WBTC.balanceOf(User02) - wbtc0, 0, "silent no-op delivers no WBTC");

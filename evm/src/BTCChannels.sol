@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IBtcVaultBridge} from "./imports/Interfaces.sol";
+import {IBtc} from "./imports/Interfaces.sol";
 import {Types, AlreadyOpen, BadSPV, ChannelKeysMismatch, InvalidParam} from "./imports/Types.sol";
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
@@ -135,7 +135,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ISPVGateway     public immutable spv;
     // BtcVault — the regrouped BTC side (LP register/close + swap credit), bound in the
     // constructor. (E150: the legacy `(_aux, _band)` pair and `_hopNode` are gone.)
-    IBtcVaultBridge public immutable btcVault;
+    IBtc public immutable btc;
     // 🔑 AUTHORIZATION IS PER-OUTPOINT, NOT PER-HOP.
     //   • There is no `channel.hop`: a channel records no owning hop (§E164).
     //   • The gate is `_onlyHop()`: `msg.sender` must equal `MAIN_HOP` or `FALLBACK_HOP`, two
@@ -665,7 +665,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // would let `registerChannelClaim` credit a position for custody that has already left.
         bool claimed = pendingClaimSats[channelId] == 0;
         delete pendingClaimSats[channelId];
-        if (claimed) btcVault.requestRedeem(ch.lpEth, lpPayoutSats);
+        if (claimed) btc.requestRedeem(ch.lpEth, lpPayoutSats);
     }
 
     /// @notice The LP's remaining channel balance read from a cooperative-close
@@ -735,7 +735,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (_mainHop == address(0) || _fallbackHop == address(0) || _mainHop == _fallbackHop)
             revert InvalidParam();
         spv = ISPVGateway(_spv);
-        btcVault = IBtcVaultBridge(_btcVault);
+        btc = IBtc(_btcVault);
         MAIN_HOP = _mainHop;
         FALLBACK_HOP = _fallbackHop;
         BTC_DEPOSIT_KEY = _btcDepositKey;
@@ -975,7 +975,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // (§LAZY-OPEN) Channel locks back the pool: the LP's BTC pool position is credited with
         // the locked sats. One channel per lpEth (the position aggregates per address; close
         // retires it in full). ⚠️ **BOOKED HERE, CREDITED IN `registerChannelClaim`** — this used
-        // to be an inline `btcVault.requestDeposit`, which put a leg that reverts on PROTOCOL-WIDE
+        // to be an inline `btc.requestDeposit`, which put a leg that reverts on PROTOCOL-WIDE
         // state (`checkBacking`/`repack`/`ZeroTwap`) in the same transaction as `_armLadder` above.
         // The consequence was the opposite of what the arming is for: an unhealthy basket meant a
         // channel whose funding is already final on Bitcoin could not record its escape.
@@ -996,7 +996,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // state, announced by an event, and retryable by anyone. What it must never become is a
         // `catch` that lets the channel proceed as if credited — the whole point is that
         // `pendingClaimSats` stays non-zero until someone actually credits it.
-        try btcVault.requestDeposit(channel.lpEth, channel.amountSats) {
+        try btc.requestDeposit(channel.lpEth, channel.amountSats) {
             // Healthy basket: credited inline, byte-for-byte the behaviour that shipped before.
         } catch {
             pendingClaimSats[channelId] = channel.amountSats;
@@ -1041,7 +1041,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (sats > entitled) sats = entitled;
         delete pendingClaimSats[channelId];
         if (sats == 0) revert NothingToClaim();   // shrunk to nothing: no position to open
-        btcVault.requestDeposit(channels[channelId].lpEth, sats);
+        btc.requestDeposit(channels[channelId].lpEth, sats);
     }
 
     /// @dev The 9-field ChannelOpened emit in its own frame — keeps openChannel
@@ -1146,7 +1146,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // (T1-f) THE CLAIM, decided here rather than inside the splice: an ordinary grow is
         // funded BY this LP, so it is a deposit and earns the LP its shares. The swap-in path
         // deliberately does NOT do this — see `settleSwapInSpliced`.
-        if (grewBy != 0) btcVault.requestDeposit(channels[channelId].lpEth, grewBy);
+        if (grewBy != 0) btc.requestDeposit(channels[channelId].lpEth, grewBy);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
         // they compound into the LP's position (requestDeposit already grew pooled by the full delta, so `delivered`
         // stays invariant); the bigger pooled share grows the LP's coop-close payout. (An earlier version of this
@@ -1261,7 +1261,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // fails to verify reverts the rotation with nothing moved.
         _armLadder(channelId, p, exits);
         // Same claim rule as `splice`: an ordinary grow is LP-funded, so it earns the LP its shares.
-        if (grewBy != 0) btcVault.requestDeposit(ch.lpEth, grewBy);
+        if (grewBy != 0) btc.requestDeposit(ch.lpEth, grewBy);
 
         // 🔴 THE STEP WHOSE ABSENCE CAUSED §E153's *unretirable forever* REGRESSION. A rotated
         // outpoint with a stale `keysHash` fails `_requireChannelKeys` on BOTH retirement paths,
@@ -1436,7 +1436,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (paymentHash == bytes32(0) || swapInUsed[paymentHash]) revert SwapInReplay();
         swapInUsed[paymentHash] = true;
         uint avail = provenSatsAvailable[msg.sender];
-        consumed = btcVault.creditSwapIn(seller, sats, token, minDeliveredUsd);
+        consumed = btc.creditSwapIn(seller, sats, token, minDeliveredUsd);
         if (consumed > avail) revert InsufficientProvenSats();
         provenSatsAvailable[msg.sender] = avail - consumed;
         if (requireFull && consumed < sats) revert SwapInPartialRejected();
@@ -1528,7 +1528,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
         _requireClaimRegistered(channelId);   // (§LAZY-OPEN-SHRINK) else `LP.pooled -=` panics
-        btcVault.resize(lpEth, shrinkSats, lpPayoutSats, 0);
+        btc.resize(lpEth, shrinkSats, lpPayoutSats, 0);
         emit ChannelSpliced(channelId, lpEth, false, shrinkSats, p.amountSats, newTxId, newVout);
     }
 
@@ -2078,7 +2078,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // the deposit's own CLTV leaf, which is exactly why the on-chain rail can take them and the
         // all-or-nothing LN rail cannot.
         // (§T2) The floor is DERIVED from the committed rate and the proven sats — never supplied.
-        uint consumed = btcVault.creditSwapIn(
+        uint consumed = btc.creditSwapIn(
             terms.seller, sats, terms.token, ExitLib.settleFloorUsd(terms, sats));
         emit SwapInSettled(terms.seller, txid, sats, consumed, terms.token);
     }
@@ -2129,8 +2129,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (so.sats == 0) revert NotAReversal();
         swapInUsed[swapId] = true;
         delete pendingOnchainSwapOut[swapId];
-        btcVault.subPendingSwapOut(so.usd);
-        consumed = btcVault.creditSwapIn(so.swapper, so.sats, so.token, minDeliveredUsd);
+        btc.subPendingSwapOut(so.usd);
+        consumed = btc.creditSwapIn(so.swapper, so.sats, so.token, minDeliveredUsd);
         // All-or-nothing: a partial refund strands the remainder, because the swapper has no
         // deposit or HTLC to reclaim it from on this path.
         if (requireFull && consumed < so.sats) revert SwapInPartialRejected();
@@ -2165,8 +2165,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (swapInUsed[swapId]) revert SwapInReplay();            // already delivered/reversed
         swapInUsed[swapId] = true;
         delete pendingOnchainSwapOut[swapId];
-        btcVault.subPendingSwapOut(so.usd);
-        btcVault.creditSwapIn(so.swapper, so.sats, token, minDeliveredUsd);   // pinned to the recorded swapper
+        btc.subPendingSwapOut(so.usd);
+        btc.creditSwapIn(so.swapper, so.sats, token, minDeliveredUsd);   // pinned to the recorded swapper
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -2223,7 +2223,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         bytes memory swapperScript = _lpPayoutScript(msg.sender);
         swapOutUsed[swapId] = true;
         uint usd6;
-        (sats, usd6) = btcVault.creditSwapOut(msg.sender, token, usdAmount, minSats);
+        (sats, usd6) = btc.creditSwapOut(msg.sender, token, usdAmount, minSats);
         if (sats == 0) revert SwapOutReplay(); // zero/dust fill → unwind the used-mark
         // uint96 packing self-evidently safe (BTC supply ≪ 2^96; 6-dec usd ≪ 2^96/1e6).
         if (sats > type(uint96).max || usd6 > type(uint96).max) revert InvalidParam();
@@ -2239,7 +2239,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // grew POOLED_USD by the same usd6, so the swap-in FREE reserve
         // (POOLED − pending) is UNCHANGED → spamming requests can't grief the gate.
         // Matched -= on delivery (_settleDelivered) or reversal (settleSwapIn).
-        btcVault.addPendingSwapOut(usd6);
+        btc.addPendingSwapOut(usd6);
         emit SwapOutRequestedOnchain(msg.sender, sats, token, swapId, swapperScript);
     }
 
@@ -2388,7 +2388,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // so.usd is its dollar leg. _settleDelivered draws POOLED_USD + clears
         // pendingSwapOutUsd by so.usd (the matched -= for the request's +=).
         _requireClaimRegistered(channelId);   // (§LAZY-OPEN-SHRINK) else `LP.pooled -=` panics
-        btcVault.resize(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
+        btc.resize(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
         // Mark the swapId consumed on the swap-IN side too: delivery and reversal are now
         // MUTUALLY EXCLUSIVE in BOTH directions. The deliver entry already blocks
         // reverse→deliver (swapInUsed check at the top); this blocks deliver→reverse, so a

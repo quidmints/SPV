@@ -64,13 +64,13 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         lm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
-        lm.init(address(V4), MORPHO, vs);
+        lm.init(address(ETH), MORPHO, vs);
 
         // PIN THE ETH/USD ANCHOR (BUILD-QUEUE §A.13). This fixture maintains ETH_FEED as a
         // pool-tracking mock (`_setEthFeed`) but never registered it with Aux, so assetPriceFeed(WETH)
         // was address(0). Without an anchor, a rally that walks the pool toward its tick boundary makes
         // getTWAPforAsset return 0, `rebalanceCore`'s `if (twap == 0) return r` blocks the repack, and
-        // the band stops being re-paired — which also makes `_realignBandToReal`'s `V4.reseat()` a
+        // the band stops being re-paired — which also makes `_realignBandToReal`'s `ETH.reseat()` a
         // no-op. For a TREATMENT-vs-CONTROL comparison that is fatal: the two arms can diverge on
         // oracle availability rather than on the levered LP's actual effect, which is the only thing
         // this probe is trying to measure.
@@ -90,7 +90,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (V4.soldFractionWad(entryPrice) >= targetWad) break;
+            if (ETH.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
@@ -100,7 +100,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
 
     function _realignBandToReal() internal {
         (, int256 clp,,,) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
-        _setEthFeed(uint(clp)); V4.reseat();
+        _setEthFeed(uint(clp)); ETH.reseat();
     }
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
@@ -108,7 +108,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
 
     function _bandE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
-        vm.prank(lp); V4.deposit{value: sizeEth}(0, lp);
+        vm.prank(lp); ETH.deposit{value: sizeEth}(0, lp);
         deal(WEETH, lp, sizeEth);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
     }
@@ -145,7 +145,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         uint snap = vm.snapshotState();
         uint e0 = PASSIVE.balance; uint w0 = WETH.balanceOf(PASSIVE); uint q0 = QUID.balanceOf(PASSIVE);
-        vm.prank(PASSIVE); try V4.redeem(shares, PASSIVE, PASSIVE) {} catch {}
+        vm.prank(PASSIVE); try ETH.redeem(shares, PASSIVE, PASSIVE) {} catch {}
         usd = ((PASSIVE.balance - e0) + (WETH.balanceOf(PASSIVE) - w0)) * px / 1e18 + (QUID.balanceOf(PASSIVE) - q0);
         vm.revertToState(snap);
     }
@@ -159,9 +159,9 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
 
         // A passive REGULAR band LP (no leverage) — the party that must not be expensed.
         vm.deal(PASSIVE, 20 ether);
-        vm.prank(PASSIVE); uint shares = V4.deposit{value: 10 ether}(0, PASSIVE);
+        vm.prank(PASSIVE); uint shares = ETH.deposit{value: 10 ether}(0, PASSIVE);
         require(shares > 0 && CORE.POOLED() > 0, "no in-range pool for the passive LP");
-        uint160 startSqrt = ILevBandView(address(V4)).bandSqrtP();   // shared rally reference for both arms
+        uint160 startSqrt = ILevBandView(address(ETH)).bandSqrtP();   // shared rally reference for both arms
 
         uint snap = vm.snapshotState();
 

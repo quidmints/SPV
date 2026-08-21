@@ -36,7 +36,7 @@ contract VarPrecision is AllesFixture {
 
     function test_E63_WhatCalmTradingMeasures() public {
         _seed();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         // BIG moves first — the control. If this reads 0 the estimator is broken outright.

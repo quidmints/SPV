@@ -71,15 +71,15 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_AFreshOrderIsNotTouched_soThePokeRefusesIt() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
         vm.stopPrank();
 
-        (,, bool usdFunded,,, int amt) = V4.selfManaged(id);
+        (,, bool usdFunded,,, int amt) = ETH.selfManaged(id);
         assertTrue(usdFunded, "a stable-funded order is a resting BID and must record itself as one");
         assertGt(amt, 0, "premise: the order exists");
 
         vm.expectRevert(BandLib.NotTouched.selector);
-        V4.fillOOR(id);
+        ETH.fillOOR(id);
     }
 
     /// THE POKE IS PERMISSIONLESS BY DESIGN — anyone may call it, because the order settles at its
@@ -88,7 +88,7 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_ThePokeRejectsAnOrderThatIsNotThere() public {
         vm.prank(User02);
         vm.expectRevert(BandLib.NoSuchOrder.selector);
-        V4.fillOOR(999_999);
+        ETH.fillOOR(999_999);
     }
 
     /// ⚠️ **`pull`'s 47-BLOCK GUARD MUST NOT REACH THE FILL PATH.** That rule is an anti-gaming
@@ -100,17 +100,17 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_TheFillPathIsNotGatedByPullsFortySevenBlockRule() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
 
         // Same block as creation: the owner's close is refused by the age rule ...
         vm.expectRevert(bytes("too soon"));
-        V4.pull(id, 100, address(USDC));
+        ETH.pull(id, 100, address(USDC));
         vm.stopPrank();
 
         // ... while the fill path has already moved past age and is deciding on price. `NotTouched`
         // — not "too soon" — IS the assertion: it proves the age rule is not in this path at all.
         vm.expectRevert(BandLib.NotTouched.selector);
-        V4.fillOOR(id);
+        ETH.fillOOR(id);
     }
 
     /// A FULL PULL MUST ALSO LEAVE THE INDEX. Otherwise the sorted set outlives the position it
@@ -120,15 +120,15 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_AFullPullLeavesNoGhostInTheIndex() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
         vm.roll(vm.getBlockNumber() + 1000);
-        V4.pull(id, 100, address(USDC));
+        ETH.pull(id, 100, address(USDC));
         vm.stopPrank();
 
-        (,,,,, int amt) = V4.selfManaged(id);
+        (,,,,, int amt) = ETH.selfManaged(id);
         assertEq(amt, 0, "premise: the position is closed");
         vm.expectRevert(BandLib.NoSuchOrder.selector);
-        V4.fillOOR(id);
+        ETH.fillOOR(id);
     }
 
     /// TWO ORDERS AT ONE TRIGGER PRICE BOTH SURVIVE PLACEMENT — the end-to-end form of the first
@@ -137,13 +137,13 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_TwoOrdersAtTheSameTriggerBothRemainReal() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack * 2);
-        uint a = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
-        uint b = V4.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint a = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint b = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
         vm.stopPrank();
 
         assertTrue(a != b, "two placements must be two positions");
-        (,,, uint loA, uint upA, int amtA) = V4.selfManaged(a);
-        (,,, uint loB, uint upB, int amtB) = V4.selfManaged(b);
+        (,,, uint loA, uint upA, int amtA) = ETH.selfManaged(a);
+        (,,, uint loB, uint upB, int amtB) = ETH.selfManaged(b);
         assertEq(upA, upB, "premise: identical geometry gives one shared trigger price");
         assertEq(loA, loB, "premise: identical geometry gives identical bounds");
         assertGt(amtA, 0, "the first order is live");
@@ -151,8 +151,8 @@ contract OorFillsOnTouchTest is AllesFixture {
 
         // And both are still individually addressable through the fill path.
         vm.expectRevert(BandLib.NotTouched.selector);
-        V4.fillOOR(a);
+        ETH.fillOOR(a);
         vm.expectRevert(BandLib.NotTouched.selector);
-        V4.fillOOR(b);
+        ETH.fillOOR(b);
     }
 }

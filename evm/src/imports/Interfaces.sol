@@ -484,7 +484,7 @@ interface ICore {
     function repack(uint anchorPrice) external returns (uint price);   // §ONE-ANCHOR: bounds derive from this
     function collectFees() external returns (uint, uint);
     
-    function btcVault() external view returns (address);   // E21: was BasketLib.IWiredCore
+    function btc() external view returns (address);   // E21: was BasketLib.IWiredCore
     /// §E56 — the MONOTONIC (never-decayed) retained-premium counters. Their value here is NOT the
     /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
     /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
@@ -498,6 +498,62 @@ interface ICore {
     /// needs and what no isBTC-scoped input could ever supply.
     function bandEquityUsd18() external view returns (uint);
     function swap(address sender, bool inputIsUsd, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
+
+    // ═══ §E305 — `ICore` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH BAND MANAGERS ═══
+    // `ICore` named the same objects this does, from the other side, so the two were one concept
+    // wearing two nouns. Its 16 members are below; `Core`, `Quid` and `Vault` all cast to `ICore`.
+    // ⚠️ THIS INTERFACE DELIBERATELY OVER-PROMISES, AND THAT IS THE COST OF ONE NOUN. No single
+    //    contract implements all 43 members: `Core` has the pool surface, `Quid` and `Vault` the
+    //    band surface. A call to a member the target does not implement COMPILES and reverts at
+    //    runtime with no matching selector (~195 gas, the dispatcher falling through). If that
+    //    ever bites, the tell is the gas number, not the message.
+    // ⚠️ `repack` EXISTS TWICE AND THEY ARE DIFFERENT OPERATIONS: `repack(uint anchorPrice)` is
+    //    `Core`'s, `repack()` is the band manager's. Solidity keeps them as OVERLOADS because the
+    //    parameter lists differ — the arity is what selects, so neither call site changes meaning.
+    /// Size and commit `deltaTok` of the band's volatile at `price`. ETH routes through the venue,
+    /// BTC through channels -- the ONE genuine difference in the merged `levAddNet`.
+    function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
+    function creditSkewPremium(uint premium6) external;
+    /// §E258 — execute the resting boundary orders `px` has crossed since the last sweep, capped.
+    /// ⚠️ THE TWO INSTANCES ANSWER DIFFERENTLY AND BOTH ANSWERS ARE CORRECT, for the same reason
+    /// `deliverVolatile` does: a BTC bid fills into BTC, and this band has no on-chain BTC delivery
+    /// (settlement is a Lightning cooperative close), so an automatic fill there would BURN the
+    /// filled leg — turning a loss the owner currently chooses into one the protocol inflicts.
+    function sweepOor(uint px, uint maxFills) external returns (uint filled);
+    /// The band's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
+    function levManager() external view returns (address);
+    /// Gross levered collateral in the band's NATIVE unit (wei / sats).
+    function levGrossNative() external view returns (uint);
+    /// Share base the shortfall trigger compares against -- NET for ETH, net + levered buffer for
+    /// BTC, so the comparison stays gross-to-gross on both sides.
+    function sharesForShortfall() external view returns (uint);
+    /// REAL inventory, never just the in-pool token: ETH counts venue retention and idle, BTC
+    /// counts pooled sats plus swept off-pool WBTC.
+    function realInventory() external view returns (uint);
+    /// Remediation when inventory falls short of shares. See the no-op note above.
+    function onShortfall(address sender, uint shortfall) external;
+    /// Pay the volatile leg out to `who`. See the no-op note above.
+    function deliverVolatile(uint amount, address who) external returns (uint sent);
+
+    // ═══ §E302 — `IBandManager`'s SEVEN MEMBERS, MERGED IN. ONE BAND FACE, NOT TWO ═══
+    // The two interfaces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
+    // they were never two objects - only two names for one. Nothing was declared twice, which is
+    // why standing rule 2 never flagged it; the defect was that a caller holding a band had no way
+    // to know which of two faces to reach for, in a codebase whose target is ONE band manager.
+    // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions - their
+    //    getters are auto-generated, so grepping for their `function` form in `Quid.sol` returns 0
+    //    while the members are fully implemented.
+    /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
+    function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
+    /// §ONE-ANCHOR — the derived range, from the single stored anchor.
+    function bandBounds() external view returns (uint lo, uint hi);
+    function feesPerShare() external view returns (uint);
+    function USD_FEES() external view returns (uint);
+    /// This band's engine. Without it a caller holding two band managers cannot reach the second
+    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
+    function CORE() external view returns (address);
+    function derivedThetaWad() external view returns (uint);
+    function setBTCChannels(address b) external;
 }
 
 /// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
@@ -590,7 +646,7 @@ interface ILevEthDeliver {
         external returns (uint wethDelivered);
 }
 
-interface IBtcVaultBridge {
+interface IBtc {
     // BTC LP position: open/close/splice (driven on channel open/close).
     function requestDeposit(address lpEth, uint sats) external;
     function requestRedeem(address lpEth, uint lpPayoutSats) external;
@@ -621,71 +677,6 @@ interface IVaultExposeB {
 
 interface IVBtcToken { function VAULT() external view returns (address); }
 
-
-/// §ISBTC-SPLIT — THE BAND MANAGER'S FACE, SO `Core` STOPS ASKING WHICH ASSET IT IS.
-///
-/// Every remaining `IS_BTC` branch on Core's money path was Core reaching into ONE OF TWO band
-/// managers for the same fact and having to know which. `ISkewSink` above already proved the shape
-/// works -- both managers expose `creditSkewPremium`, so that one call site needed no branch. This
-/// extends that to the rest, and the two contracts implement it differently BECAUSE THE BANDS
-/// DIFFER, which is the honest place for the difference to live.
-///
-/// ⚠️ THE TWO NO-OPS ARE THE POINT, not laziness:
-///   • `deliverVolatile` — ETH pays out real ether; BTC settles by Lightning cooperative close, so
-///     there is nothing on-chain to send. One of the four known-REAL asymmetries (CLAUDE.md).
-///   • `onShortfall` — BTC routes to the hop (real-BTC delivery, no basket stables). ETH does
-///     NOTHING **deliberately**: a surplus-funded refill would buy ETH for a usually-impermanent
-///     shortfall and realise that IL onto shared backing, compensating the flow at every LP's
-///     expense. Real ETH demand is met at withdrawal via the share price instead.
-/// Encoding those as members means the BAND owns its settlement, instead of `Core` branching on an
-/// identity it should not need to carry -- and it is the precondition for the two managers becoming
-/// one implementation with two instances.
-interface IBand {
-    /// Size and commit `deltaTok` of the band's volatile at `price`. ETH routes through the venue,
-    /// BTC through channels -- the ONE genuine difference in the merged `levAddNet`.
-    function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
-    function creditSkewPremium(uint premium6) external;
-    /// §E258 — execute the resting boundary orders `px` has crossed since the last sweep, capped.
-    /// ⚠️ THE TWO INSTANCES ANSWER DIFFERENTLY AND BOTH ANSWERS ARE CORRECT, for the same reason
-    /// `deliverVolatile` does: a BTC bid fills into BTC, and this band has no on-chain BTC delivery
-    /// (settlement is a Lightning cooperative close), so an automatic fill there would BURN the
-    /// filled leg — turning a loss the owner currently chooses into one the protocol inflicts.
-    function sweepOor(uint px, uint maxFills) external returns (uint filled);
-    /// The band's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
-    function levManager() external view returns (address);
-    /// Gross levered collateral in the band's NATIVE unit (wei / sats).
-    function levGrossNative() external view returns (uint);
-    /// Share base the shortfall trigger compares against -- NET for ETH, net + levered buffer for
-    /// BTC, so the comparison stays gross-to-gross on both sides.
-    function sharesForShortfall() external view returns (uint);
-    /// REAL inventory, never just the in-pool token: ETH counts venue retention and idle, BTC
-    /// counts pooled sats plus swept off-pool WBTC.
-    function realInventory() external view returns (uint);
-    /// Remediation when inventory falls short of shares. See the no-op note above.
-    function onShortfall(address sender, uint shortfall) external;
-    /// Pay the volatile leg out to `who`. See the no-op note above.
-    function deliverVolatile(uint amount, address who) external returns (uint sent);
-
-    // ═══ §E302 — `IBandManager`'s SEVEN MEMBERS, MERGED IN. ONE BAND FACE, NOT TWO ═══
-    // The two interfaces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
-    // they were never two objects - only two names for one. Nothing was declared twice, which is
-    // why standing rule 2 never flagged it; the defect was that a caller holding a band had no way
-    // to know which of two faces to reach for, in a codebase whose target is ONE band manager.
-    // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions - their
-    //    getters are auto-generated, so grepping for their `function` form in `Quid.sol` returns 0
-    //    while the members are fully implemented.
-    /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
-    function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
-    /// §ONE-ANCHOR — the derived range, from the single stored anchor.
-    function bandBounds() external view returns (uint lo, uint hi);
-    function feesPerShare() external view returns (uint);
-    function USD_FEES() external view returns (uint);
-    /// This band's engine. Without it a caller holding two band managers cannot reach the second
-    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
-    function CORE() external view returns (address);
-    function derivedThetaWad() external view returns (uint);
-    function setBTCChannels(address b) external;
-}
 
 /// @notice §E297 — the last five interfaces that lived outside this file (standing rule 2).
 ///         `ISwap.sol`/`ILevVenue.sol` were deleted by §E296 because they held nothing else;

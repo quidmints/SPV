@@ -8,7 +8,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 /// §E125 — IS THE SKEW PREMIUM FAIR CARRY, OR IS IT FARMABLE INCOME?
 ///
 /// WHY THIS FILE EXISTS. §E122 observed that E5 routes the skew premium to the LPs
-/// (`V4.USD_FEES`), and concluded an LP therefore EARNS from an unrepaired imbalance and would
+/// (`ETH.USD_FEES`), and concluded an LP therefore EARNS from an unrepaired imbalance and would
 /// rationally refuse to repair it. §E123 withdrew that on the owner's confirmation that
 /// premium-to-LP is intended, arguing the premium is priced `Γ·σ²·q` — exactly the variance the
 /// skewed inventory is exposed to — so it is CARRY for a risk, not PROFIT to farm.
@@ -37,7 +37,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 ///     measuring the fork's arb depth, not the LP's exposure. §E120 is the standing reason to
 ///     distrust any magnitude this fork produces through a trading path.
 ///
-///  2. PREMIUM IS READ FROM `CORE.skewPremium()`, NOT `V4.USD_FEES()`. `Alles.t.sol:1066`
+///  2. PREMIUM IS READ FROM `CORE.skewPremium()`, NOT `ETH.USD_FEES()`. `Alles.t.sol:1066`
 ///     states that USD_FEES is a PER-SHARE RATE and "cannot answer how much has been retained in
 ///     total", which is the exact question here. The cumulative counter is the one that can.
 ///     Reading the per-share accumulator as a total would have silently understated the premium
@@ -75,7 +75,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         vm.stopPrank();
     }
 
-    /// stable → volatile: the band HANDS OUT ETH, so `inv` FALLS and the band gets SCARCER.
+    /// stable → volatile: the band HANDS OUT BTC, so `inv` FALLS and the band gets SCARCER.
     /// (§E69 recorded this direction being written backwards twice; it is spelled out here.)
     ///
     /// THE FEED IS RE-PINNED EVERY STEP AND THE WARP IS 8 MINUTES, copied deliberately from
@@ -103,7 +103,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
         vm.prank(lp);
-        V4.deposit{value: 400 ether}(0, lp);
+        ETH.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -157,7 +157,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // protocol shrinks exposure — that is IL protection WORKING, so reading θ back as "the
         // premium is inadequate" uses the system's own RESPONSE to the premium as evidence ABOUT
         // it. §E129 briefly claimed adequacy was "one call to derivedThetaWad"; that is withdrawn.
-        emit log_named_uint("derivedThetaWad (1e18 = fees COVER IL)", V4.derivedThetaWad());
+        emit log_named_uint("derivedThetaWad (1e18 = fees COVER IL)", ETH.derivedThetaWad());
         emit log_named_uint("premiumEwmaUsd (rate, usd6)  ", CORE.premiumEwmaUsd());
         uint premium = CORE.skewPremium() - premium0;
         uint ethDrained = CORE.POOLED();
@@ -200,7 +200,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         //
         // THE REPORTED INVARIANT IS `8P/V`, WHICH IS sigma^2-FREE. §E120 bars quoting fork
         // magnitudes, and sigma^2 here is the most fork-sensitive term of all (a thin pool with a
-        // pinned feed measures 1.553e-4, i.e. ~1.25% ANNUAL vol -- absurd for ETH). Publishing
+        // pinned feed measures 1.553e-4, i.e. ~1.25% ANNUAL vol -- absurd for BTC). Publishing
         // 8P/V lets any reader divide by the sigma^2 they believe, so the measurement survives the
         // fork's volatility being wrong. T* below is that division at the MEASURED sigma^2 and is
         // labelled accordingly.
@@ -251,7 +251,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
 
         uint ethIn = 400 ether;
         vm.prank(lp);
-        V4.deposit{value: ethIn}(0, lp);
+        ETH.deposit{value: ethIn}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -265,7 +265,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint ethBefore = lp.balance + WETH.balanceOf(lp);
         uint usdBefore = _stableValue18(lp);
         vm.prank(lp);
-        try V4.withdraw(type(uint).max, lp, lp) {} catch { emit log("withdraw reverted"); }
+        try ETH.withdraw(type(uint).max, lp, lp) {} catch { emit log("withdraw reverted"); }
         uint ethOut = (lp.balance + WETH.balanceOf(lp)) - ethBefore;
         uint usdOut = _stableValue18(lp) - usdBefore;
 
@@ -306,7 +306,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
+        vm.prank(lp); ETH.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -316,7 +316,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         for (uint i; i < 14; ++i) _drainEth(30_000 * USDC_PRECISION, px);
 
         uint prem0 = CORE.skewPremiumCum();
-        uint fees0 = V4.USD_FEES();
+        uint fees0 = ETH.USD_FEES();
         uint usdc0 = USDC.balanceOf(drainer);
         uint eth0  = drainer.balance + WETH.balanceOf(drainer);
 
@@ -325,7 +325,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint usdcIn  = usdc0 - USDC.balanceOf(drainer);
         uint ethOut  = (drainer.balance + WETH.balanceOf(drainer)) - eth0;
         uint premium = CORE.skewPremiumCum() - prem0;   // usd6
-        uint feesDlt = V4.USD_FEES() - fees0;
+        uint feesDlt = ETH.USD_FEES() - fees0;
 
         // What the swapper ACTUALLY gave up vs an oracle fill of the same input, in usd6.
         uint fairEth = SoladyMath.fullMulDiv(usdcIn * 1e12, 1e18, px);   // usd18 input / px -> ETH wei
@@ -362,13 +362,13 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
         vm.deal(drainer, 600 ether);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
+        vm.prank(lp); ETH.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
         emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad());
-        emit log_named_uint("frame lower price BEFORE      ", _bLo(address(V4)));
+        emit log_named_uint("frame lower price BEFORE      ", _bLo(address(ETH)));
 
         // §UNIT-A-FIXTURE-CORR — DRIVE THE POOL'S TICK, NOT THE FEED, AND WITH SIZE.
         // `ringVariance` reads `tickCumulative` off the POOL's ring and takes the variance of
@@ -426,7 +426,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // when the band RESEATS onto a new oracle level (oracle-pegged fills consume inventory
         // without walking the curve), so the reseat count IS the variance driver. +/-1.8% feed
         // moves are 9x the band half-width and should force reseats; measure whether they do.
-        emit log_named_uint("frame lower price AFTER the walk", _bLo(address(V4)));
+        emit log_named_uint("frame lower price AFTER the walk", _bLo(address(ETH)));
         emit log_named_uint("swaps LANDED  ", landed);
         emit log_named_uint("swaps REVERTED", reverted);
         uint varWad = CORE.realizedVarianceWad();
@@ -569,7 +569,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
+        vm.prank(lp); ETH.deposit{value: 400 ether}(0, lp);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -605,26 +605,26 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         _seed();
         deal(address(USDC), drainer, 20_000_000 * USDC_PRECISION);
         vm.prank(drainer); USDC.approve(address(AUX), type(uint).max);
-        vm.prank(lp); V4.deposit{value: 400 ether}(0, lp);
+        vm.prank(lp); ETH.deposit{value: 400 ether}(0, lp);
         _settle();
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
 
         // (a) ALIGNED — the common case. Should be a cheap no-op (`targetSqrt == spotPrice`).
-        uint g = gasleft(); V4.reseat(); uint gNoop = g - gasleft();
+        uint g = gasleft(); ETH.reseat(); uint gNoop = g - gasleft();
         emit log_named_uint("reseat gas: ALIGNED (no-op)   ", gNoop);
 
         // (b) DRIFTED BELOW THE 5% GATE — the regime real ETH lives in (max 398 bps, §UNIT-DEADBAND-
         //     NEVER-OPENS). Expect ANOTHER no-op: `stale` is false, so the auto-heal never runs.
         _setEthFeed((px * 103 / 100) / 1e10);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
-        g = gasleft(); V4.reseat(); uint gSub5 = g - gasleft();
+        g = gasleft(); ETH.reseat(); uint gSub5 = g - gasleft();
         emit log_named_uint("reseat gas: DRIFTED +3% (<5%) ", gSub5);
 
         // (c) PAST THE GATE — the only regime the auto-heal fires in. This is the REAL cost.
         _setEthFeed((px * 112 / 100) / 1e10);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
-        g = gasleft(); V4.reseat(); uint gStale = g - gasleft();
+        g = gasleft(); ETH.reseat(); uint gStale = g - gasleft();
         emit log_named_uint("reseat gas: DRIFTED +12% (>5%)", gStale);
         emit log_named_uint("  => real reseat cost (c - a) ", gStale > gNoop ? gStale - gNoop : 0);
     }

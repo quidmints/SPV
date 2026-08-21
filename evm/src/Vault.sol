@@ -40,7 +40,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //    • onlyUsBtc = {Core(CORE), AUX, this} → repack / setBTCChannels
 //    • onlyBtcChannels / onlyBTCChannels       → BTC LP register/close + swap
 //  Address-specific gates mean every interface-wired caller (Aux.ethVenue /
-//  Aux.btcVault / Quid.EV / Core.BTCVAULT / BTCChannels.btcVault /
+//  Aux.btc / Quid.EV / Core.BTC / BTCChannels.btc /
 //  Basket.BTC_VAULT) just points at this one address — no caller changes.
 // ════════════════════════════════════════════════════════════════════════
 
@@ -87,7 +87,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
     /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
-    ///      could reach THIS band's engine -- `IBand` had no `core()` either -- so a test
+    ///      could reach THIS band's engine -- `ICore` had no `core()` either -- so a test
     ///      wanting to compare the two bands had no handle for the second one and read the ETH core
     ///      TWICE. That is how `PooledUsdRepackMatrix`'s cross-band isolation assertions became
     ///      comparisons of a value to itself: vacuously true, in the very file whose docblock warns
@@ -337,7 +337,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         USD_FEES += usdInc;
     }
 
-    // ─── IBand — the BTC band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
+    // ─── ICore — the BTC band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
     // The mirror of Quid's block. `Core` asks ONE interface; the per-asset facts live here.
 
     /// @notice This band's leverage manager. Distinct from the ETH one by design.
@@ -514,7 +514,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         the manager (the keeper pokes it via the manager's hook). GROW pairs net-equity in-range
     ///         as depth; SHRINK/liquidation burns it. No new channel sats — backed by bandBTC.
     /// §BAND-MERGE — THE SAME `addLiq` FACE BAND ALREADY HAS. The merged lev bodies size the
-    ///         net-equity leg through `IBand(address(this)).addLiq(tok, price)`; ETH answered that
+    ///         net-equity leg through `ICore(address(this)).addLiq(tok, price)`; ETH answered that
     ///         with `Quid.addLiq` and BTC with the LIBRARY function `addLiqChannel`, which is why
     ///         the two `levAddNet` bodies could not be one. Same signature, same return shape --
     ///         only the routing differs, and routing is exactly what belongs in the band.

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {IBand} from "../src/imports/Interfaces.sol";
+import {ICore} from "../src/imports/Interfaces.sol";
 import {Core} from "../src/Core.sol";
 
 /// @notice #12 PREREQUISITE MATRIX — BOTH BANDS. Is the LP-owned claim well defined?
@@ -54,10 +54,10 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// fields. `_snap(band)` takes the instance, so the band-qualified spelling cannot be written.
     ///
     /// 🔴 AND THE OLD SHAPE HID A LIVE DEFECT. `usdBtc`/`btcLeg` were assigned from `CORE` -- the
-    /// ETH engine -- because `Vault.CORE` was `internal` and `IBand` had no `core()`, so the
+    /// ETH engine -- because `Vault.CORE` was `internal` and `ICore` had no `core()`, so the
     /// BTC engine was UNREACHABLE from a test. Every "ETH flow must not move the BTC band's USD
     /// leg" assertion therefore compared a value to ITSELF. Both are now read through
-    /// `IBand(band).CORE()`, which is why that accessor was made public.
+    /// `ICore(band).CORE()`, which is why that accessor was made public.
     ///
     /// `epoch` is DELETED: a keccak of (LOWER_PRICE, UPPER_PRICE) that nothing asserted on. The
     /// bounds it hashed are read directly where they are wanted, and a hash of two values you can
@@ -71,7 +71,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     }
 
     /// @param band the band manager to snapshot. ONE instance in, one Snap out.
-    function _snap(IBand band) internal view returns (Snap memory s) {
+    function _snap(ICore band) internal view returns (Snap memory s) {
         Core c = Core(payable(band.CORE()));
         s.usd = c.POOLED_USD();  s.leg = c.POOLED();
         s.committed = c.committedUsd18();          // joint by construction; same on both bands
@@ -82,15 +82,15 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// INSTANCES of it, which is the distinction the whole refactor turns on.
     struct Pair { Snap eth; Snap btc; }
     function _snap() internal view returns (Pair memory p) {
-        p.eth = _snap(IBand(address(V4)));
-        p.btc = _snap(IBand(address(BTC)));
+        p.eth = _snap(ICore(address(ETH)));
+        p.btc = _snap(ICore(address(BTC)));
         // §ONE-REPACK-STAMP — ETH ONLY, and deliberately not mirrored. `LAST_REPACK` exists on
         // Quid and not on Vault, which looks like an asymmetry to close until you check who reads
         // it: NO CONTRACT DOES. It is stamped by the rebalance forwarder and consumed only by
         // tests. Giving Vault one would add money-path state to make a test observable symmetric,
         // which is backwards -- the direction here is fewer variables, not matching sets of them.
         // If a BTC repack ever needs to be observable, that is when the second stamp earns its slot.
-        p.eth.lastRepack = V4.LAST_REPACK();
+        p.eth.lastRepack = ETH.LAST_REPACK();
     }
 
     function _log(string memory tag, Pair memory s) internal {
@@ -132,9 +132,9 @@ contract PooledUsdRepackMatrix is AllesFixture {
         vm.prank(lp);
         // §NO-SHADOW-STATE — was a CONTRACT-level `uint lpShares`, written here and read only on
         // the next line. A local doing a state variable's job, wearing the name of the band state it
-        // is not: `V4.lpShares()` is the real one, and a reader had two things called lpShares to
+        // is not: `ETH.lpShares()` is the real one, and a reader had two things called lpShares to
         // tell apart for no gain. The deposit's return is what this line actually wants.
-        require(V4.deposit{value: ethDeposit}(0, lp) > 0, "lp deposit failed");
+        require(ETH.deposit{value: ethDeposit}(0, lp) > 0, "lp deposit failed");
 
         // requestDeposit is gated to BTCChannels; impersonate it exactly as BtcBandTheta does.
         AUX.setBTCChannels(address(this));
@@ -265,17 +265,17 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _oracleTrace("S3 t1 oracle");
 
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
-        V4.reseat();
+        ETH.reseat();
 
         Pair memory s2 = _snap();
         _log("S3 t2 (one-shot on top)", s2);
         _oracleTrace("S3 t2 oracle");
 
-        bool outOfRange = s2.eth.price >= _bHi(address(V4)) || s2.eth.price < _bLo(address(V4));
+        bool outOfRange = s2.eth.price >= _bHi(address(ETH)) || s2.eth.price < _bLo(address(ETH));
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
-        emit log_named_uint("UPPER_PRICE", _bHi(address(V4)));
-        emit log_named_uint("LOWER_PRICE", _bLo(address(V4)));
+        emit log_named_uint("UPPER_PRICE", _bHi(address(ETH)));
+        emit log_named_uint("LOWER_PRICE", _bLo(address(ETH)));
 
         // ── ROOT-CAUSE TRACE. `rebalanceCore` has exactly three ways to decline a re-centre;
         //    read the inputs to each so the blocking branch is IDENTIFIED, not guessed at.
@@ -360,13 +360,13 @@ contract PooledUsdRepackMatrix is AllesFixture {
 
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; }
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
-        V4.reseat();
+        ETH.reseat();
 
         Pair memory s2 = _snap();
         _log("S3b t2 (one-shot on top, ANCHORED)", s2);
         _oracleTrace("S3b t2 oracle (anchored)");
 
-        bool outOfRange = s2.eth.price >= _bHi(address(V4)) || s2.eth.price < _bLo(address(V4));
+        bool outOfRange = s2.eth.price >= _bHi(address(ETH)) || s2.eth.price < _bLo(address(ETH));
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
@@ -391,7 +391,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         uint opens;
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; opens++; }
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
-        V4.reseat();
+        ETH.reseat();
 
         Pair memory s2 = _snap();
         _log("S3c t2", s2);
@@ -399,7 +399,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("opens landed", opens);
         emit log_named_uint("hours warped", (block.timestamp - s0.eth.lastRepack) / 3600);
 
-        bool outOfRange = s2.eth.price >= _bHi(address(V4)) || s2.eth.price < _bLo(address(V4));
+        bool outOfRange = s2.eth.price >= _bHi(address(ETH)) || s2.eth.price < _bLo(address(ETH));
         emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
@@ -482,13 +482,13 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("    USD leg after  ", CORE.POOLED_USD());
         emit log_named_uint("    ETH leg before ", eA);
         emit log_named_uint("    ETH leg after  ", CORE.POOLED());
-        emit log_named_uint("    UPPER_PRICE     ", _bHi(address(V4)));
-        emit log_named_uint("    LOWER_PRICE     ", _bLo(address(V4)));
+        emit log_named_uint("    UPPER_PRICE     ", _bHi(address(ETH)));
+        emit log_named_uint("    LOWER_PRICE     ", _bLo(address(ETH)));
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // S6 — WHICH SWAP TELEPORTS, AND FROM WHAT STATE. S3 (12 opens, then 6 x 30 ETH)
+    // S6 — WHICH SWAP TELEPORTS, AND FROM WHAT STATE. S3 (12 opens, then 6 x 30 BTC)
     // reaches MAX_TICK; S5 (the same 6 sells with NO opens) does not, and drains the
     // USD leg FURTHER while staying at tick 201019. So exhaustion is not the trigger
     // and the opens are somehow necessary. This logs every sell so the exact
@@ -508,8 +508,8 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("price after opens", s1.eth.price);
         emit log_named_uint("USD leg after opens", s1.eth.usd);
         emit log_named_uint("ETH leg after opens", s1.eth.leg);
-        emit log_named_uint("UPPER_PRICE after opens", _bHi(address(V4)));
-        emit log_named_uint("LOWER_PRICE after opens", _bLo(address(V4)));
+        emit log_named_uint("UPPER_PRICE after opens", _bHi(address(ETH)));
+        emit log_named_uint("LOWER_PRICE after opens", _bLo(address(ETH)));
 
         for (uint i = 1; i <= 6; i++) _sellEthLogged(i, 30 ether);
     }

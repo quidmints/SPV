@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
-import {ICurvePool, IBand} from "../src/imports/Interfaces.sol";
+import {ICurvePool, ICore} from "../src/imports/Interfaces.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
@@ -107,7 +107,7 @@ interface IAngelF8N {
     function transferFrom(address, address, uint256) external;
 }
 
-// §V4-ZERO — `Fixtures` DROPPED from the inheritance. It was the Uniswap v4 test base (extending
+// §ETH-ZERO — `Fixtures` DROPPED from the inheritance. It was the Uniswap v4 test base (extending
 // v4-core's `Deployers`) and this contract used NOT ONE member of it: no `deployFreshManager`, no
 // `manager`, no `permit2`. It carried a whole submodule's test harness into every suite inheriting
 // Alles, for nothing.
@@ -505,7 +505,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             USDC.approve(address(AUX), 15_000e6);
             QUID.mint(address(this), 15_000e6, address(USDC), 0);
         }
-        V4.deposit{value: 100 ether}(0, address(this));
+        ETH.deposit{value: 100 ether}(0, address(this));
         // Ensure test contract has QUI to file assertions
         deal(address(QUID), address(this), 500e18);
     }
@@ -513,12 +513,11 @@ contract AllesFixture is ForkPin, ExitFixture {
     // ─── New protocol stack (replaces old Amp/Rover/Jury/Court) ───
     Core public CORE;
     Basket   public QUID;
-    Quid    public V4;
+    Quid    public ETH;
     Aux      public AUX;
     // The merged Vault, viewed from its two faces: ETH (yield-venue ops) and
     // BTC (LP/hop ops). Same instance - BTC == ETH - named for readability.
-    Vault    public ETH;
-    /// §ETHVENUE-FOLD — the ETH yield venue IS Quid, so this is `V4` under its venue-side name.
+    /// §ETHVENUE-FOLD — the ETH yield venue IS Quid, so this is `ETH` under its venue-side name.
     /// Kept as an alias rather than rewritten at 33 call sites: those calls read as venue calls
     /// (`EV.bandETH()`, `EV.setLevManager(...)`) and still are — the address simply stopped being
     /// a second contract.
@@ -653,13 +652,12 @@ contract AllesFixture is ForkPin, ExitFixture {
         }));
         // (Nothing to create — all three venues are the real mainnet curator vaults. `Vault`'s ctor
         //  rejects aliased venue slots, so the three addresses above must stay distinct.)
-        V4 = Quid(payable(A.v4));
+        ETH = Quid(payable(A.ETH));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
-        ETH = Vault(payable(A.vault));
-        EV  = V4;                              // ETH-venue custody now lives in the ETH band
-        BTC = ETH;
+        BTC = Vault(payable(A.vault));
+        EV  = ETH;                              // ETH-venue custody now lives in the ETH band
 
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
@@ -668,7 +666,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         QUID.mint(User01, 150000 * 1e18, address(DAI), 0);
         vm.stopPrank();
 
-        // TWAP warmup: the new Core uses synthetic V4 vanilla pools
+        // TWAP warmup: the new Core uses synthetic ETH vanilla pools
         // seeded at the fork block (single observation at time T). Unlike
         // the baseline (which read the live V3 pool with deep history),
         // observe() reverts "twap: pre-history" while now-1800 <= T. Warp
@@ -863,7 +861,7 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
     function getAutoManaged(address who) internal view returns (Types.Deposit memory) {
-        (uint pooled, uint fees_tok, uint fees_usd, uint usd_owed) = V4.autoManaged(who);
+        (uint pooled, uint fees_tok, uint fees_usd, uint usd_owed) = ETH.autoManaged(who);
         return Types.Deposit({
             pooled: pooled,
             fees_tok: fees_tok,
@@ -926,8 +924,8 @@ contract AllesFixture is ForkPin, ExitFixture {
 
         lp1 = makeAddr("runsim-lp1"); lp2 = makeAddr("runsim-lp2");
         vm.deal(lp1, lpEth); vm.deal(lp2, lpEth);
-        vm.prank(lp1); V4.deposit{value: lpEth}(0, lp1); // all-Galaxy
-        vm.prank(lp2); V4.deposit{value: lpEth}(0, lp2);
+        vm.prank(lp1); ETH.deposit{value: lpEth}(0, lp1); // all-Galaxy
+        vm.prank(lp2); ETH.deposit{value: lpEth}(0, lp2);
         vm.roll(block.number + 1); // JIT-lock: withdraws below must be a later block than these deposits
     }
 
@@ -977,7 +975,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     }
 
     /// Per-tranche drain telemetry. Returns (exhausted, twapAlive). The TWAP
-    /// reads are try/catch'd: an EXTREME single-pool crater can drive the V4
+    /// reads are try/catch'd: an EXTREME single-pool crater can drive the ETH
     /// observation ring past where its raw (no-Chainlink-anchor on this fork)
     /// math stays valid - we RECORD that as a data point ("TWAP broke at
     /// tranche N") rather than crash the measurement, since it's the boundary
@@ -1050,7 +1048,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         _setEthFeed(px / 1e10);
         AUX.setAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
         vm.deal(lp, lpEth);
-        vm.prank(lp); V4.deposit{value: lpEth}(0, lp); // all-Galaxy ETH LP
+        vm.prank(lp); ETH.deposit{value: lpEth}(0, lp); // all-Galaxy ETH LP
     }
 
 
@@ -1226,8 +1224,8 @@ contract AllesFixture is ForkPin, ExitFixture {
     }
 
     function _lpRemainders(address a, address b) internal view returns (uint, uint) {
-        (uint ra,,,) = V4.autoManaged(a);
-        (uint rb,,,) = V4.autoManaged(b);
+        (uint ra,,,) = ETH.autoManaged(a);
+        (uint rb,,,) = ETH.autoManaged(b);
         return (ra, rb);
     }
 
@@ -1241,7 +1239,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     //     "REMOVED: arbETH forwarder -- its only callers (Core.refillETH, Quid._withdraw)"
     //     and `SwapLib` records "Both callers were removed as the toxic surplus-..." ───
     // Covers Aux's SOR stable->WETH path: auxSwap -> PoolManager.unlock ->
-    // Aux.unlockCallback -> SOR.unlockBody (the V4 unlock body extracted to
+    // Aux.unlockCallback -> SOR.unlockBody (the ETH unlock body extracted to
     // a library). No other test exercises Aux's unlock path.
 
     // ════════════════════════════════════════════════════════════════════
@@ -1297,8 +1295,8 @@ contract AllesFixture is ForkPin, ExitFixture {
     // a mocked Rover).
     function _wireFinalizeLinkages() internal {
         AUX.setBTCChannels(address(0xBC));   // sets Aux._btcChannels + Vault.btcChannels
-        vm.mockCall(address(ETH), abi.encodeWithSignature("ROVER()"), abi.encode(address(0xB0)));
-        vm.mockCall(address(0xB0), abi.encodeWithSignature("AUX()"), abi.encode(address(ETH)));
+        vm.mockCall(address(BTC), abi.encodeWithSignature("ROVER()"), abi.encode(address(0xB0)));
+        vm.mockCall(address(0xB0), abi.encodeWithSignature("AUX()"), abi.encode(address(BTC)));
     }
 
 
@@ -1311,12 +1309,12 @@ contract AllesFixture is ForkPin, ExitFixture {
 
     /// §ONE-ANCHOR — the band stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
     /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
-    function _bLo(address band) internal view returns (uint) { (uint l,) = IBand(band).bandBounds(); return l; }
-    function _bHi(address band) internal view returns (uint) { (, uint h) = IBand(band).bandBounds(); return h; }
+    function _bLo(address band) internal view returns (uint) { (uint l,) = ICore(band).bandBounds(); return l; }
+    function _bHi(address band) internal view returns (uint) { (, uint h) = ICore(band).bandBounds(); return h; }
 
 
     // ════════════════════════════════════════════════════════════════════════════════════════
-    //  §V4-ZERO — `testSOR_StableToWeth_Unlock` and `testBTC_SOR_StableToWbtc_Unlock` DELETED.
+    //  §ETH-ZERO — `testSOR_StableToWeth_Unlock` and `testBTC_SOR_StableToWbtc_Unlock` DELETED.
     //
     //  They asserted "auxSwap delivers WETH through Aux.unlockCallback" -- the v4 unlock path, which
     //  no longer exists (`SafeCallback` and `_unlockCallback` went with the v4 cut). With no
@@ -1361,7 +1359,7 @@ contract Alles is AllesFixture {
         console.log("=== testRegularSwaps ===");
 
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
 
         uint pooledETH = CORE.POOLED();
         console.log("POOLED after deposit:", pooledETH);
@@ -1521,12 +1519,12 @@ contract Alles is AllesFixture {
 
     function testOutOfRangeUSDPosition() public {
         vm.startPrank(User01);
-        V4.deposit{value: 25 ether}(0, User01);
+        ETH.deposit{value: 25 ether}(0, User01);
 
         USDC.approve(address(AUX), rack);
         uint balanceBefore = USDC.balanceOf(User01);
 
-        uint id = V4.outOfRange(rack / 10, address(USDC), 1000, 100);   // §DETICK: (amount, token, distance, range)
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);   // §DETICK: (amount, token, distance, range)
 
         assertGt(id, 0, "Position ID should be > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -1534,7 +1532,7 @@ contract Alles is AllesFixture {
 
         vm.roll(vm.getBlockNumber() + 1000);
         balanceBefore = USDC.balanceOf(User01);
-        V4.pull(id, 100, address(USDC));
+        ETH.pull(id, 100, address(USDC));
 
         assertApproxEqAbs(USDC.balanceOf(User01),
         balanceBefore, rack / 50, "Should get USDC back");
@@ -1544,17 +1542,17 @@ contract Alles is AllesFixture {
 
     function testPartialPullOutOfRange() public {
         vm.startPrank(User01);
-        V4.deposit{value: 50 ether}(0, User01);
+        ETH.deposit{value: 50 ether}(0, User01);
 
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint id = V4.outOfRange{value: 2 ether}(0, address(0), -1000, 100);
+        uint id = ETH.outOfRange{value: 2 ether}(0, address(0), -1000, 100);
         assertGt(id, 0, "Should create position");
 
         vm.roll(vm.getBlockNumber() + 1000);
 
         uint balanceBefore = USDC.balanceOf(User01);
-        V4.pull(id, 50, address(USDC));
+        ETH.pull(id, 50, address(USDC));
 
         uint received = USDC.balanceOf(User01) - balanceBefore;
         assertGt(received, 0, "Should receive USDC");
@@ -1564,19 +1562,19 @@ contract Alles is AllesFixture {
 
     function testInvalidOutOfRangeParams() public {
         vm.startPrank(User01);
-        V4.deposit{value: 25 ether}(0, User01);
+        ETH.deposit{value: 25 ether}(0, User01);
 
         // EXACT selector, not a bare `vm.expectRevert()`. Each line claims a DISTINCT parameter is
         // rejected, so a bare form would let one shared incidental revert (a cooldown, a TWAP gate)
         // satisfy all four and prove nothing. Verified: all four really do reach `BadOorParam`.
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -1000, 50);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 50);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -1000, 1500);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 1500);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -6000, 100);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -6000, 100);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        V4.outOfRange{value: 1 ether}(0, address(0), -1050, 100);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -1050, 100);
 
         vm.stopPrank();
     }
@@ -1599,7 +1597,7 @@ contract Alles is AllesFixture {
     //     branch needs `stale` — internal TWAP >5% off Chainlink — and the gap here is 0.0999%.
     //     `reseatEpoch` is 0 both before AND after the reseat: nothing was re-centered.
     //
-    // So `V4.reseat()` is a verified NO-OP here and the assertions below pin exactly that. This
+    // So `ETH.reseat()` is a verified NO-OP here and the assertions below pin exactly that. This
     // test does NOT prove "_repackAdd handles a composition-skewed re-band" — that path is not
     // reachable from this fixture, so the old comment claiming it did was wrong. See the report:
     // a band drained to 99.9% one-sided is functionally dead (no USD depth for the next swapper)
@@ -1607,7 +1605,7 @@ contract Alles is AllesFixture {
     // heal it. That is a suspected REAL defect in the repack trigger (it tests the tick boundary,
     // not the composition) and is deliberately NOT papered over with a loose tolerance here.
     function testGrindRemoval_LargeSwapThenReseatRebandsSkewed() public {
-        vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
         uint pooledUsdAtSeed = CORE.POOLED_USD();
@@ -1628,12 +1626,12 @@ contract Alles is AllesFixture {
         // PREMISE: the swap saturated AT the band edge — it did not leave the band. This is what
         // makes the reseat a structural no-op below, so assert it rather than letting it hide.
         (uint priceBefore,) = CORE.poolStats();   // §DE-TICK: was a tick
-        assertLe(priceBefore, _bHi(address(V4)), "PREMISE: swap saturates inside the band (upper)");
-        assertGe(priceBefore, _bLo(address(V4)), "PREMISE: swap saturates inside the band (lower)");
-        uint loBefore = _bLo(address(V4)); uint hiBefore = _bHi(address(V4));
+        assertLe(priceBefore, _bHi(address(ETH)), "PREMISE: swap saturates inside the band (upper)");
+        assertGe(priceBefore, _bLo(address(ETH)), "PREMISE: swap saturates inside the band (lower)");
+        uint loBefore = _bLo(address(ETH)); uint hiBefore = _bHi(address(ETH));
 
         // The permissionless reseat must handle the skewed pool without reverting.
-        V4.reseat();
+        ETH.reseat();
 
         // Spot vs the anchor. BOUND DERIVED FROM LIVE STATE, not a fitted literal: the swap can
         // only walk the spot to the band edge, and the band is built by SwapLib.updateTicks with
@@ -1659,7 +1657,7 @@ contract Alles is AllesFixture {
         // the block comment above (that would be the FIX for the suspected defect, not a break).
         (uint priceAfter,) = CORE.poolStats();
         assertEq(priceAfter, priceBefore, "reseat did not move the spot (no branch fired)");
-        assertTrue(_bLo(address(V4)) == loBefore && _bHi(address(V4)) == hiBefore,
+        assertTrue(_bLo(address(ETH)) == loBefore && _bHi(address(ETH)) == hiBefore,
             "reseat did not re-center the band (no branch fired)");
     }
 
@@ -1670,19 +1668,19 @@ contract Alles is AllesFixture {
     // drained. The reseat is capital-neutral, so there is no free favorable reprice to extract — and
     // because it pulls spot back toward the anchor, it makes the return leg WORSE for the sandwicher.
     function testGrindRemoval_RoundTripSandwichNetsNonPositive() public {
-        vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
         uint lpPooledBefore = CORE.POOLED_USD();
 
-        // Leg 1: attacker gives 40 ETH, receives USDC — walks the curve down.
+        // Leg 1: attacker gives 40 BTC, receives USDC — walks the curve down.
         vm.prank(User02);
         uint usdcOut = AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0);
         assertGt(usdcOut, 0, "leg1 delivered USDC");
 
         // Sandwich the reseat: force it between the legs. Capital-neutral, and it re-centers spot
         // onto the anchor — so it must NOT hand the attacker a favorable price on the return leg.
-        V4.reseat();
+        ETH.reseat();
         vm.roll(vm.getBlockNumber() + 1);
 
         // Leg 2: attacker gives the USDC back, receives WETH.
@@ -1730,7 +1728,7 @@ contract Alles is AllesFixture {
         // STRICTLY STRONGER than asserting zero.
         assertEq(SwapLib.skewWad(T, T, sig, SwapLib.ethRisk(), 0), 475e6, "flush charges the BASE, not zero");
 
-        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (kernel leads on ETH).
+        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (kernel leads on BTC).
         uint s12 = SwapLib.skewWad(T / 2, T, sig, SwapLib.ethRisk(), 0);
         // §E89: the settlement-window base now ADDS to the kernel (it is incurred regardless of size),
         // so the pin is kernel + base, not kernel alone. ETH base = σ²·ETH_CONF_FRAC/8 = 4.75e8.
@@ -1779,14 +1777,14 @@ contract Alles is AllesFixture {
                  27e14 + 475e6, "ETH high-scarcity = kernel(q/(1-q)=9) + base, base NOT absorbed");
     }
 
-    // SWAP-PRICING PIN (ETH, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
+    // SWAP-PRICING PIN (BTC, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
     // pinning what a small buy actually PAYS. Fresh pool ⇒ no flow/leverage ⇒ target=0 ⇒ skew=0,
     // so a small stable→WETH buy must deliver ≈ amountUSD/oracle (minus the 0.042% fee + a little
     // slippage). The tight band catches gross rot: wrong oracle scale, a decimals bug, a spurious
     // skew (would cut up to 3%), a doubled/dropped haircut, or a sign error. (The 420ppm fee alone
     // is below fork-slippage noise — its magnitude is pinned separately by fee-accrual tests.)
     function testSwapPricing_EthInRange_PaysAboutOracle() public {
-        vm.prank(User01); V4.deposit{value: 500 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 500 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
         uint base = AUX.getTWAPforAsset(address(WETH), 1800);       // USD18 per 1e18 raw ETH
@@ -1795,7 +1793,7 @@ contract Alles is AllesFixture {
 
         vm.startPrank(User02);
         USDC.approve(address(AUX), amtUsdc);
-        uint got = AUX.swap(address(USDC), address(WETH), true, amtUsdc, 0); // stable→WETH (buy ETH)
+        uint got = AUX.swap(address(USDC), address(WETH), true, amtUsdc, 0); // stable→WETH (buy BTC)
         vm.stopPrank();
 
         // Within 1.5%: mostly slippage. A broken oracle scale / decimals / spurious skew would miss
@@ -1825,7 +1823,7 @@ contract Alles is AllesFixture {
     // only asserted `usdcReceived > expected*90/100`). Sell 1 ETH into a deep fresh band (skew=0):
     // must receive ≈ oracle price minus the 0.042% fee + tiny slippage. Pins the sell leg's pricing.
     function testSwapPricing_EthSellInRange_PaysAboutOracle() public {
-        vm.prank(User01); V4.deposit{value: 500 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 500 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
         uint base = AUX.getTWAPforAsset(address(WETH), 1800);        // USD18 per 1e18 raw ETH
@@ -1873,7 +1871,7 @@ contract Alles is AllesFixture {
     // vol — proven deterministically in testSkewStablenessRamp_ConvexCapAndMonotone — while σ²→0 in
     // a settled, non-moving market correctly zeroes it, since no volatility ⇒ no inventory risk.)
     function testGrindRemoval_DrainPaysRetainedSkewPremium() public {
-        vm.prank(User01); V4.deposit{value: 300 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 300 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
         // Pin the external anchor and HOLD it (production-faithful: the global market/Chainlink is
@@ -1885,7 +1883,7 @@ contract Alles is AllesFixture {
 
         uint pooledBefore  = CORE.POOLED();
         uint premiumBefore = CORE.skewPremium();
-        uint lpFeesBefore  = V4.USD_FEES();      // §E5: where the premium must actually LAND
+        uint lpFeesBefore  = ETH.USD_FEES();      // §E5: where the premium must actually LAND
 
         vm.startPrank(User02);
         USDC.approve(address(AUX), type(uint).max);
@@ -1908,7 +1906,7 @@ contract Alles is AllesFixture {
         // above stays because it is the CUMULATIVE record — the accumulator is a per-share rate
         // and cannot answer "how much has been retained in total", which the protocol-fee
         // compensation work needs.
-        assertGt(V4.USD_FEES(), lpFeesBefore,
+        assertGt(ETH.USD_FEES(), lpFeesBefore,
             "the retained premium must REACH the LPs' accumulator, not merely be recorded");
     }
 
@@ -1944,12 +1942,12 @@ contract Alles is AllesFixture {
     function testFeeAccrual() public {
         vm.startPrank(User01);
 
-        V4.deposit{value: 10 ether}(0, User01);
+        ETH.deposit{value: 10 ether}(0, User01);
 
-        uint ethFeesBefore = V4.feesPerShare();
+        uint ethFeesBefore = ETH.feesPerShare();
 
         USDC.approve(address(AUX), rack);
-        // Smaller swaps + roll between: the synthetic V4 vanilla pool has
+        // Smaller swaps + roll between: the synthetic ETH vanilla pool has
         // limited depth (only the 10-ETH deposit), so larger swaps move
         // spot >2% off TWAP and trip routeSwap's manipulation guard. The
         // assertion (fees did not decrease) only needs >=1 swap to land.
@@ -1958,7 +1956,7 @@ contract Alles is AllesFixture {
             vm.roll(vm.getBlockNumber() + 1);
         }
 
-        uint ethFeesAfter = V4.feesPerShare();
+        uint ethFeesAfter = ETH.feesPerShare();
         assertGe(ethFeesAfter, ethFeesBefore, "ETH fees should not decrease");
 
         vm.stopPrank();
@@ -1967,13 +1965,13 @@ contract Alles is AllesFixture {
     function testWithdrawWithAccruedFees() public {
         vm.startPrank(User01);
 
-        V4.deposit{value: 10 ether}(0, User01);
-        uint sharesBefore = V4.lpShares();
+        ETH.deposit{value: 10 ether}(0, User01);
+        uint sharesBefore = ETH.lpShares();
 
         USDC.approve(address(AUX), rack);
 
         // SMALL swaps (each moves spot well under the 0.5% manip guard) WITH time
-        // between, so the 30-min TWAP tracks - accrues real V4 fees without
+        // between, so the 30-min TWAP tracks - accrues real ETH fees without
         // tripping the guard. (Large swaps revert by design; see RISK-1.)
         for (uint i = 0; i < 5; i++) {
             AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
@@ -1984,44 +1982,44 @@ contract Alles is AllesFixture {
         // alone read as a ~20% shortfall that does NOT exist -- measured, ETH+WETH is ~99.96%.
         uint balanceBefore = User01.balance + WETH.balanceOf(User01);
         uint pooledBeforeWithdraw = CORE.POOLED();
-        V4.withdraw(5 ether, User01, User01);
+        ETH.withdraw(5 ether, User01, User01);
         uint received = (User01.balance + WETH.balanceOf(User01)) - balanceBefore;
 
         assertGe(received, 4.5 ether, "withdraw returns ~the principal");
-        // RIGOR: V4 liquidity actually removed - POOLED falls by ~the
+        // RIGOR: ETH liquidity actually removed - POOLED falls by ~the
         // delivered ETH; shares fall too but NOT 1:1 (they appreciate with the
         // fees just accrued, so don't over-specify the share delta).
         assertApproxEqAbs(pooledBeforeWithdraw - CORE.POOLED(), received, 0.05 ether,
-            "POOLED dropped by ~the delivered ETH (V4 liquidity removed)");
-        assertLt(V4.lpShares(), sharesBefore, "lpShares decreased on withdraw");
+            "POOLED dropped by ~the delivered ETH (ETH liquidity removed)");
+        assertLt(ETH.lpShares(), sharesBefore, "lpShares decreased on withdraw");
 
         vm.stopPrank();
     }
 
-    /// @notice claim-without-close (ETH): harvest accrued fees WITHOUT withdrawing.
+    /// @notice claim-without-close (BTC): harvest accrued fees WITHOUT withdrawing.
     ///         The USD-leg mints as QUID; the token-leg compounds; the position is
     ///         preserved (lpShares not decreased); a repeated call pays ~nothing.
     function testCollectFees_NoWithdraw() public {
         vm.startPrank(User01);
-        V4.deposit{value: 10 ether}(0, User01);
-        uint sharesBefore = V4.lpShares();
+        ETH.deposit{value: 10 ether}(0, User01);
+        uint sharesBefore = ETH.lpShares();
         USDC.approve(address(AUX), rack);
         for (uint i = 0; i < 5; i++) {
             AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
         // Harvest WITHOUT withdrawing. These one-way ETH-in swaps accrue TOKEN-leg
-        // (ETH) fees, which compound into the position → lpShares grows; nothing is
+        // (BTC) fees, which compound into the position → lpShares grows; nothing is
         // withdrawn. (The USD-leg → QUID mint path is exercised by the BTC test,
         // whose USDC-in swaps accrue the USD leg.)
-        V4.collectFees();
-        uint sharesAfter = V4.lpShares();
+        ETH.collectFees();
+        uint sharesAfter = ETH.lpShares();
         assertGt(sharesAfter, sharesBefore, "fees realized: token-leg compounded into the position (no withdraw)");
         // Second collect → rebaselined, compounds nothing more (no double-pay).
-        V4.collectFees();
-        assertEq(V4.lpShares(), sharesAfter, "second collect realizes nothing (no double-pay)");
+        ETH.collectFees();
+        assertEq(ETH.lpShares(), sharesAfter, "second collect realizes nothing (no double-pay)");
         // The position still withdraws cleanly afterward.
-        V4.withdraw(5 ether, User01, User01);
+        ETH.withdraw(5 ether, User01, User01);
         vm.stopPrank();
     }
 
@@ -2033,11 +2031,11 @@ contract Alles is AllesFixture {
     function testCompound_KeeperCranksWithoutLpAction() public {
         // LP deposits once, then never calls compound/collect/deposit/withdraw again.
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01);
-        (uint pooledBefore,,,) = V4.autoManaged(User01);
-        uint sharesBefore = V4.lpShares();
+        ETH.deposit{value: 10 ether}(0, User01);
+        (uint pooledBefore,,,) = ETH.autoManaged(User01);
+        uint sharesBefore = ETH.lpShares();
 
-        // Trading activity accrues token-leg (ETH) fees (generated by the market,
+        // Trading activity accrues token-leg (BTC) fees (generated by the market,
         // not by the LP managing their position).
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
@@ -2050,25 +2048,25 @@ contract Alles is AllesFixture {
         // A KEEPER (arbitrary third party) compounds the LP's fees. The LP does nothing.
         address keeper = makeAddr("keeper");
         vm.prank(keeper);
-        V4.compound(User01);
+        ETH.compound(User01);
 
-        (uint pooledAfter,,,) = V4.autoManaged(User01);
+        (uint pooledAfter,,,) = ETH.autoManaged(User01);
         assertGt(pooledAfter, pooledBefore, "keeper compounded the LP's token-leg fees into pooled, no LP action");
-        assertGt(V4.lpShares(), sharesBefore, "lpShares grew by the compounded fees");
+        assertGt(ETH.lpShares(), sharesBefore, "lpShares grew by the compounded fees");
 
         // Idempotent: a second crank rebaselines to nothing (no double-pay, no drain).
         vm.prank(keeper);
-        V4.compound(User01);
-        (uint pooledAfter2,,,) = V4.autoManaged(User01);
+        ETH.compound(User01);
+        (uint pooledAfter2,,,) = ETH.autoManaged(User01);
         assertEq(pooledAfter2, pooledAfter, "second keeper crank compounds nothing more (rebaselined)");
 
         // Empty position → keeper crank is a cheap no-op, not a revert.
         vm.prank(keeper);
-        V4.compound(makeAddr("noPosition"));
+        ETH.compound(makeAddr("noPosition"));
 
         // The LP still withdraws cleanly afterward.
         vm.prank(User01);
-        V4.withdraw(5 ether, User01, User01);
+        ETH.withdraw(5 ether, User01, User01);
     }
 
     /// @notice The compound crank is SELF-FUNDING: with a live gasprice it reimburses the
@@ -2078,9 +2076,9 @@ contract Alles is AllesFixture {
     function testCompound_SelfFundingTip() public {
         vm.txGasPrice(20 gwei);                       // foundry default is 0 → tip live only here
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01);
+        ETH.deposit{value: 10 ether}(0, User01);
 
-        // Trading accrues token-leg (ETH) fees.
+        // Trading accrues token-leg (BTC) fees.
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
         for (uint i = 0; i < 5; i++) {
@@ -2091,13 +2089,13 @@ contract Alles is AllesFixture {
 
         address keeper = makeAddr("keeperTip");
         uint keeperEthBefore = keeper.balance;        // fresh address → 0
-        (uint pooledBefore,,,) = V4.autoManaged(User01);
+        (uint pooledBefore,,,) = ETH.autoManaged(User01);
 
         vm.prank(keeper);
-        V4.compound(User01);                          // WETH.withdraw(tip) here reverts if no harvest ⇒ proves availability
+        ETH.compound(User01);                          // WETH.withdraw(tip) here reverts if no harvest ⇒ proves availability
 
         uint tip = keeper.balance - keeperEthBefore;
-        (uint pooledAfter,,,) = V4.autoManaged(User01);
+        (uint pooledAfter,,,) = ETH.autoManaged(User01);
         uint net = pooledAfter - pooledBefore;
         assertGt(tip, 0, "cranker self-funded: ETH tip from the LP's OWN harvested fees, no operator gas");
         assertGt(net, 0, "LP still nets the majority of its compounded fees");
@@ -2119,14 +2117,14 @@ contract Alles is AllesFixture {
         // never a distinct "ether.fi" code; the base deploy has Rover off (address(0)), so venue 4 hits
         // QuidLib._supplyEtherFi's direct-weETH path. Same slice.
         uint vEthBefore = EV.bandETH();
-        vm.prank(User01); V4.deposit{value: 10 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 10 ether}(0, User01);
 
         // weETH held at EthVenue + aggregated into bandETH + attributed to the slice.
         assertGt(IERC20(weeth).balanceOf(address(EV)), 0, "weETH held at EthVenue");
         assertGt(EV.bandETH(), vEthBefore, "bandETH aggregates the weETH");
         // ethfiBacked assertion removed 2026-08-07 with the mapping: every deposit is
         // ether.fi-sourced, so the slice was a constant equal to `pooled`.
-        (uint pooled,,,) = V4.autoManaged(User01);
+        (uint pooled,,,) = ETH.autoManaged(User01);
         assertEq(pooled, 10 ether, "position credited full deposit");
 
         // Withdraw -> the ether.fi slice offramps weETH->WETH via the real pool,
@@ -2134,7 +2132,7 @@ contract Alles is AllesFixture {
         // WETH-heavy so the v3 swap serves - no fee.)
         uint wethBefore = WETH.balanceOf(User01);
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than the deposit
-        vm.prank(User01); V4.withdraw(5 ether, User01, User01);
+        vm.prank(User01); ETH.withdraw(5 ether, User01, User01);
         assertGt(WETH.balanceOf(User01) - wethBefore, 0, "offramp delivered WETH");
     }
 
@@ -2261,7 +2259,7 @@ contract Alles is AllesFixture {
         uint weethBefore    = IERC20(weeth).balanceOf(address(EV));
         uint bandEthBefore = EV.bandETH();
 
-        vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 100 ether}(0, User01);
 
         // Measure the DESTINATION directly. `bandETH` would rise either way, so asserting on it alone
         // cannot tell weETH from Galaxy — the same gap that let the venue bug hide.
@@ -2271,7 +2269,7 @@ contract Alles is AllesFixture {
 
     function testClearMultipleBlocks() public {
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
 
         uint pooledBefore = CORE.POOLED();
         assertGt(pooledBefore, 0, "deposit created the ETH pool position");
@@ -2297,7 +2295,7 @@ contract Alles is AllesFixture {
 
     function testAlternatingSwaps() public {
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
         USDC.approve(address(AUX), type(uint).max);
 
         // Alternate small sell/buy swaps across blocks (warped so the TWAP tracks).
@@ -2316,7 +2314,7 @@ contract Alles is AllesFixture {
         assertGt(buys, 0, "buy-side swaps cleared");
 
         uint balBefore = User01.balance + WETH.balanceOf(User01);       // ETH+WETH, §A.9
-        V4.withdraw(50 ether, User01, User01);
+        ETH.withdraw(50 ether, User01, User01);
         assertGt((User01.balance + WETH.balanceOf(User01)) - balBefore, 45 ether,
             "LP exits ~whole after the alternating churn");
         vm.stopPrank();
@@ -2479,7 +2477,7 @@ contract Alles is AllesFixture {
         vm.expectRevert(Aux.StableMissing.selector);
         BTC.creditSwapIn(address(0x5E11), sats, address(QUID), 0);
 
-        // (B) Seller sells BTC, receives a basket stable (USDC) at the V4 curve
+        // (B) Seller sells BTC, receives a basket stable (USDC) at the ETH curve
         // price. POOLED_USD drains; POOLED grows (the received sats are
         // now pool inventory) - exactly how an ETH->USD swap moves the ETH pool.
         // (No-CRE fork defaults an unconfigured stable to max depeg severity;
@@ -2517,7 +2515,7 @@ contract Alles is AllesFixture {
     ///         swap-IN) - exercised here.
     function testSwapOut_RequestCreditAndFailureReversal() public {
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -2608,7 +2606,7 @@ contract Alles is AllesFixture {
     ///         the timeout, by a non-swapper, double-refund).
     function testSwapOut_SwapperSelfRefundAfterTimeout() public {
         address hop = makeAddr("hopTO");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(ETH), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(BTC), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -2677,7 +2675,7 @@ contract Alles is AllesFixture {
         // full-fill, not about inclusion proofs, and parking a buffer needs a splice the gateway
         // will accept. The real gateway only knows the fixture's recorded headers, so a synthetic
         // grow-splice cannot prove against it — and the buffer is this test's premise now.
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -2767,9 +2765,9 @@ contract Alles is AllesFixture {
         vm.startPrank(User01);
 
         uint depositAmount = 10 ether;
-        V4.deposit{value: depositAmount}(0, User01);
+        ETH.deposit{value: depositAmount}(0, User01);
         uint pooledBefore = CORE.POOLED();
-        uint sharesBefore = V4.lpShares();
+        uint sharesBefore = ETH.lpShares();
 
         vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0);
@@ -2777,17 +2775,17 @@ contract Alles is AllesFixture {
         uint balanceBefore = User01.balance + WETH.balanceOf(User01);   // ETH+WETH, §A.9
         uint pooledBeforeWithdraw = CORE.POOLED();
         // Direct call - a revert here is a REAL failure, not something to skip.
-        V4.withdraw(5 ether, User01, User01);
+        ETH.withdraw(5 ether, User01, User01);
         uint received = (User01.balance + WETH.balanceOf(User01)) - balanceBefore;
 
         assertGt(received, 4 ether, "withdraw returns most of the principal");
-        // RIGOR: the V4 liquidity was actually removed (modLP burned it) - not
+        // RIGOR: the ETH liquidity was actually removed (modLP burned it) - not
         // paid from idle ETH while leaving the position intact. POOLED must
         // fall by ~the delivered ETH; lpShares must fall (shares ≠ ETH 1:1 because
         // they appreciate with accrued fees, so don't over-specify the amount).
         assertApproxEqAbs(pooledBeforeWithdraw - CORE.POOLED(), received, 0.05 ether,
-            "POOLED dropped by ~the delivered ETH (V4 liquidity removed)");
-        assertLt(V4.lpShares(), sharesBefore, "lpShares decreased on withdraw");
+            "POOLED dropped by ~the delivered ETH (ETH liquidity removed)");
+        assertLt(ETH.lpShares(), sharesBefore, "lpShares decreased on withdraw");
         vm.stopPrank();
     }
 
@@ -2795,7 +2793,7 @@ contract Alles is AllesFixture {
         amount = uint96(bound(amount, 0.1 ether, 100 ether));
 
         vm.startPrank(User01);
-        V4.deposit{value: 200 ether}(0, User01);
+        ETH.deposit{value: 200 ether}(0, User01);
 
         // A broken deposit (zero pool) must FAIL the test, not silently pass.
         uint pooledETH = CORE.POOLED();
@@ -2825,9 +2823,9 @@ contract Alles is AllesFixture {
         // proves outOfRange genuinely creates the position, not that it's bug-free
         // for an arbitrary sign.
         vm.startPrank(User01);
-        V4.deposit{value: 25 ether}(0, User01);
+        ETH.deposit{value: 25 ether}(0, User01);
 
-        uint id = V4.outOfRange{value: 5 ether}(0, address(0), -1000, 100);
+        uint id = ETH.outOfRange{value: 5 ether}(0, address(0), -1000, 100);
         assertGt(id, 0, "out-of-range position created");
 
         vm.stopPrank();
@@ -2901,7 +2899,7 @@ contract Alles is AllesFixture {
 
     function testSwapWithDifferentStableOutputs() public {
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
 
         uint pooledETH = CORE.POOLED();
         assertGt(pooledETH, 0, "pool must be seeded");
@@ -2969,7 +2967,7 @@ contract Alles is AllesFixture {
 
     function test_WithdrawDoesNotPersistFeeSnapshot() public {
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
         vm.stopPrank();
 
         for (uint i = 0; i < 3; i++) {
@@ -2983,7 +2981,7 @@ contract Alles is AllesFixture {
         uint balBefore = User01.balance;
         uint wBefore1 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
-        V4.withdraw(10 ether, User01, User01);
+        ETH.withdraw(10 ether, User01, User01);
         uint received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
         // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
         // the old band-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
@@ -3001,7 +2999,7 @@ contract Alles is AllesFixture {
         balBefore = User01.balance;
         wBefore1 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
-        V4.withdraw(10 ether, User01, User01);
+        ETH.withdraw(10 ether, User01, User01);
         // MEASURE BOTH ASSETS -- the offramp pays WETH, the old band burn paid native ETH.
         received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
         assertGt(received, 0, "Should receive something on final withdraw (native ETH or WETH)");
@@ -3009,7 +3007,7 @@ contract Alles is AllesFixture {
 
     function test_PendingSwapETHInflatesAvailable() public {
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
         vm.stopPrank();
 
         uint initialPooledETH = CORE.POOLED();
@@ -3017,7 +3015,7 @@ contract Alles is AllesFixture {
 
         // A 50-ETH sell into a 100-ETH pool partial-fills (the per-swap 0.5% move
         // cap). The accounting INVARIANT this test guards: only the FILLED ETH may
-        // land in POOLED - the unfilled remainder must NOT inflate the V4
+        // land in POOLED - the unfilled remainder must NOT inflate the ETH
         // pool's counted ETH (it settles to vault backing), and an ETH->USDC swap
         // mints NO QUID (it draws USDC; it never mints). NOTE on the swapper:
         // with minOut=0 they set no slippage floor, so the unfilled portion
@@ -3036,10 +3034,10 @@ contract Alles is AllesFixture {
         // And a subsequent real deposit grows the pool - by its in-range PAIRED
         // portion, which is bounded by the free USD surplus (the big swap consumed
         // surplus), so it's <= the deposit, not exactly it. The invariant is that a
-        // real deposit DOES add in-range liquidity (unlike the unfilled swap ETH).
+        // real deposit DOES add in-range liquidity (unlike the unfilled swap BTC).
         uint beforeDep = CORE.POOLED();
         vm.prank(User01);
-        V4.deposit{value: 25 ether}(0, User01);
+        ETH.deposit{value: 25 ether}(0, User01);
         assertGt(CORE.POOLED(), beforeDep, "a real deposit grows POOLED");
     }
 
@@ -3049,7 +3047,7 @@ contract Alles is AllesFixture {
         vm.deal(User03, 1000 ether);
 
         vm.prank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
 
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
@@ -3061,7 +3059,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
 
         vm.prank(User02);
-        V4.deposit{value: 100 ether}(0, User02);
+        ETH.deposit{value: 100 ether}(0, User02);
 
         vm.startPrank(User03);
         for (uint i = 0; i < 5; i++) {
@@ -3074,13 +3072,13 @@ contract Alles is AllesFixture {
         uint bal1 = User01.balance;
         uint wAlice0 = IERC20(address(WETH)).balanceOf(User01);
         vm.prank(User01);
-        V4.withdraw(type(uint).max, User01, User01);
+        ETH.withdraw(type(uint).max, User01, User01);
         uint aliceReceived = (User01.balance - bal1) + (IERC20(address(WETH)).balanceOf(User01) - wAlice0);
 
         uint bal2 = User02.balance;
         uint wBob0 = IERC20(address(WETH)).balanceOf(User02);
         vm.prank(User02);
-        V4.withdraw(type(uint).max, User02, User02);
+        ETH.withdraw(type(uint).max, User02, User02);
         uint bobReceived = (User02.balance - bal2) + (IERC20(address(WETH)).balanceOf(User02) - wBob0);
 
         // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
@@ -3121,7 +3119,7 @@ contract Alles is AllesFixture {
         // LP deposits a LARGE ETH band position -> committedUsd18 grows toward TVL, driving
         // usdAvailable below the redeemer's MATURE QU!D so the redemption MUST unwind the band.
         vm.deal(User02, 900 ether);
-        vm.prank(User02); V4.deposit{value: 700 ether}(0, User02);
+        vm.prank(User02); ETH.deposit{value: 700 ether}(0, User02);
 
         (uint[15] memory d0,,,) = AUX.get_deposits();
         uint committed0 = CORE.committedUsd18();
@@ -3156,7 +3154,7 @@ contract Alles is AllesFixture {
     /// always took the full pool cap → burning dust mature QD drove a full-cap USD->ETH buy (pool drain). The
     /// only prior QD->volatile tests swap IMMATURE QD (burned~=0), so the drain never manifested.
     function test_MatureQdSwapOut_NoDrain() public {
-        vm.prank(User02); V4.deposit{value: 300 ether}(0, User02);   // deep ETH inventory to drain, if allowed
+        vm.prank(User02); ETH.deposit{value: 300 ether}(0, User02);   // deep ETH inventory to drain, if allowed
         deal(address(USDC), User01, 50_000 * USDC_PRECISION);
         vm.startPrank(User01);
         USDC.approve(address(AUX), 50_000 * USDC_PRECISION);
@@ -3271,10 +3269,10 @@ contract Alles is AllesFixture {
     function test_EthLp_RedeemConservationAndFairness() public {
         vm.deal(User01, 1000 ether);
         vm.deal(User02, 1000 ether);
-        vm.prank(User01); V4.deposit{value: 100 ether}(0, User01);
-        vm.prank(User02); V4.deposit{value: 100 ether}(0, User02);
+        vm.prank(User01); ETH.deposit{value: 100 ether}(0, User01);
+        vm.prank(User02); ETH.deposit{value: 100 ether}(0, User02);
 
-        // Accrue real V4 fees: small swaps under the 0.5% manip guard, with time.
+        // Accrue real ETH fees: small swaps under the 0.5% manip guard, with time.
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
@@ -3289,10 +3287,10 @@ contract Alles is AllesFixture {
         // alone therefore reads as a 19.4% "exit-order skim" that is purely a composition
         // difference -- the total value each LP receives is equal.
         uint b1 = User01.balance + WETH.balanceOf(User01);
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
+        vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
         uint got1 = (User01.balance + WETH.balanceOf(User01)) - b1;
         uint b2 = User02.balance + WETH.balanceOf(User02);
-        vm.prank(User02); V4.withdraw(type(uint).max, User02, User02);
+        vm.prank(User02); ETH.withdraw(type(uint).max, User02, User02);
         uint got2 = (User02.balance + WETH.balanceOf(User02)) - b2;
 
         // FAIRNESS: equal LPs, equal accrual ⇒ equal payout, no first-mover skim.
@@ -3306,8 +3304,8 @@ contract Alles is AllesFixture {
         // levered route either). `test_RunSim_AllExit_Normal` is the test that asserts the stronger
         // "no stuck bag" property (rem < 1e9); THIS test's unique jobs are exit-order fairness and
         // the conservation UPPER bound, so it must not silently duplicate the former.
-        (uint rem1,,,) = V4.autoManaged(User01);
-        (uint rem2,,,) = V4.autoManaged(User02);
+        (uint rem1,,,) = ETH.autoManaged(User01);
+        (uint rem2,,,) = ETH.autoManaged(User02);
         assertGe(got1 + got2 + rem1 + rem2, 200 ether, "delivered + retained >= total in");
         // CONSERVATION: cannot conjure more than principal + realized fees.
         assertLt(got1 + got2 + rem1 + rem2, 215 ether, "total bounded (no value created from nowhere)");
@@ -3315,48 +3313,48 @@ contract Alles is AllesFixture {
 
     function testInvariant_TotalSharesMatchesSum() public {
         vm.prank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
         vm.prank(User02);
-        V4.deposit{value: 50 ether}(0, User02);
+        ETH.deposit{value: 50 ether}(0, User02);
         vm.prank(User03);
-        V4.deposit{value: 75 ether}(0, User03);
+        ETH.deposit{value: 75 ether}(0, User03);
 
-        (uint pooled1,,,) = V4.autoManaged(User01);
-        (uint pooled2,,,) = V4.autoManaged(User02);
-        (uint pooled3,,,) = V4.autoManaged(User03);
+        (uint pooled1,,,) = ETH.autoManaged(User01);
+        (uint pooled2,,,) = ETH.autoManaged(User02);
+        (uint pooled3,,,) = ETH.autoManaged(User03);
 
-        assertEq(V4.totalShares(), pooled1 + pooled2 + pooled3, "totalShares should equal sum");
+        assertEq(ETH.totalShares(), pooled1 + pooled2 + pooled3, "totalShares should equal sum");
     }
 
     function testQuidZeroDeposit() public {
         vm.startPrank(User01);
-        uint sharesBefore = V4.totalShares();
-        V4.deposit{value: 0}(0, User01);
-        assertEq(V4.totalShares(), sharesBefore, "Zero deposit should not change shares");
+        uint sharesBefore = ETH.totalShares();
+        ETH.deposit{value: 0}(0, User01);
+        assertEq(ETH.totalShares(), sharesBefore, "Zero deposit should not change shares");
         vm.stopPrank();
     }
 
     function testQuidMultipleDeposits() public {
         vm.startPrank(User01);
-        V4.deposit{value: 10 ether}(0, User01);
-        V4.deposit{value: 20 ether}(0, User01);
-        V4.deposit{value: 5 ether}(0, User01);
-        (uint pooled3,,,) = V4.autoManaged(User01);
+        ETH.deposit{value: 10 ether}(0, User01);
+        ETH.deposit{value: 20 ether}(0, User01);
+        ETH.deposit{value: 5 ether}(0, User01);
+        (uint pooled3,,,) = ETH.autoManaged(User01);
         assertEq(pooled3, 35 ether, "Pooled should equal total deposited");
         vm.stopPrank();
     }
 
     function testQuidPartialWithdraws() public {
         vm.startPrank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
-        (uint pooledInitial,,,) = V4.autoManaged(User01);
+        ETH.deposit{value: 100 ether}(0, User01);
+        (uint pooledInitial,,,) = ETH.autoManaged(User01);
 
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than deposit
-        V4.withdraw(10 ether, User01, User01);
-        (uint pooled1,,,) = V4.autoManaged(User01);
+        ETH.withdraw(10 ether, User01, User01);
+        (uint pooled1,,,) = ETH.autoManaged(User01);
 
-        V4.withdraw(20 ether, User01, User01);
-        (uint pooled2,,,) = V4.autoManaged(User01);
+        ETH.withdraw(20 ether, User01, User01);
+        (uint pooled2,,,) = ETH.autoManaged(User01);
 
         assertLt(pooled1, pooledInitial, "Pooled should decrease after withdraw");
         assertLt(pooled2, pooled1, "Pooled should decrease further");
@@ -3365,19 +3363,19 @@ contract Alles is AllesFixture {
 
     function testQuidAccumulatorCorrectness() public {
         vm.prank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
 
-        (uint pooled1,,uint debt1,) = V4.autoManaged(User01);
-        uint acc1 = V4.feesPerShare();
+        (uint pooled1,,uint debt1,) = ETH.autoManaged(User01);
+        uint acc1 = ETH.feesPerShare();
 
         uint expectedDebt1 = SoladyMath.fullMulDiv(pooled1, acc1, WAD);
         assertEq(debt1, expectedDebt1, "Debt should match formula");
 
         vm.prank(User02);
-        V4.deposit{value: 50 ether}(0, User02);
+        ETH.deposit{value: 50 ether}(0, User02);
 
-        (uint pooled2,,uint debt2,) = V4.autoManaged(User02);
-        uint acc2 = V4.feesPerShare();
+        (uint pooled2,,uint debt2,) = ETH.autoManaged(User02);
+        uint acc2 = ETH.feesPerShare();
 
         uint expectedDebt2 = SoladyMath.fullMulDiv(pooled2, acc2, WAD);
         assertEq(debt2, expectedDebt2, "Debt should match formula");
@@ -3385,13 +3383,13 @@ contract Alles is AllesFixture {
 
     function testPendingRewardsCalculation() public {
         vm.prank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
 
-        (uint pooled,,uint debtBefore,) = V4.autoManaged(User01);
-        uint accBefore = V4.feesPerShare();
+        (uint pooled,,uint debtBefore,) = ETH.autoManaged(User01);
+        uint accBefore = ETH.feesPerShare();
 
         uint expectedPending = SoladyMath.fullMulDiv(pooled, accBefore, WAD) - debtBefore;
-        (uint actualPending,) = V4.pendingRewards(User01);
+        (uint actualPending,) = ETH.pendingRewards(User01);
 
         assertEq(actualPending, expectedPending, "Pending should match formula");
     }
@@ -3403,19 +3401,19 @@ contract Alles is AllesFixture {
         uint bal3Before = User03.balance + WETH.balanceOf(User03);
 
         vm.prank(User01);
-        V4.deposit{value: 100 ether}(0, User01);
+        ETH.deposit{value: 100 ether}(0, User01);
         vm.prank(User02);
-        V4.deposit{value: 100 ether}(0, User02);
+        ETH.deposit{value: 100 ether}(0, User02);
         vm.prank(User03);
-        V4.deposit{value: 100 ether}(0, User03);
+        ETH.deposit{value: 100 ether}(0, User03);
 
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than deposit
         vm.prank(User01);
-        V4.withdraw(type(uint).max, User01, User01);
+        ETH.withdraw(type(uint).max, User01, User01);
         vm.prank(User02);
-        V4.withdraw(type(uint).max, User02, User02);
+        ETH.withdraw(type(uint).max, User02, User02);
         vm.prank(User03);
-        V4.withdraw(type(uint).max, User03, User03);
+        ETH.withdraw(type(uint).max, User03, User03);
 
         uint total1 = (User01.balance + WETH.balanceOf(User01)) - (bal1Before - 100 ether);
         uint total2 = (User02.balance + WETH.balanceOf(User02)) - (bal2Before - 100 ether);
@@ -3522,11 +3520,11 @@ contract Alles is AllesFixture {
         // NB: read maxWithdraw BEFORE the prank - evaluating it as a call
         // argument would consume the vm.prank, so the withdraw would run as the
         // test contract (owner != msg.sender → AllowanceFlow).
-        uint maxW = V4.convertToAssets(V4.balanceOf(lp));
+        uint maxW = ETH.convertToAssets(ETH.balanceOf(lp));
         uint e = lp.balance; uint w = WETH.balanceOf(lp); uint q = QUID.balanceOf(lp);
-        vm.prank(lp); V4.withdraw(maxW, lp, lp);
+        vm.prank(lp); ETH.withdraw(maxW, lp, lp);
         uint got = _lpReceived(lp, e, w, q);
-        uint residual = V4.convertToAssets(V4.balanceOf(lp)); // any pooled left behind (deferral)
+        uint residual = ETH.convertToAssets(ETH.balanceOf(lp)); // any pooled left behind (deferral)
         console.log("chop LP delivered / residual-pooled", got, residual);
 
         // FORK LIMIT: the thin fork pool cannot model a BENIGN chop. The test's
@@ -3579,14 +3577,14 @@ contract Alles is AllesFixture {
 
         // Exit the LP's ACTUAL position (maxWithdraw, not uint.max - see chop).
         // maxWithdraw read BEFORE the prank (else it consumes the prank).
-        uint maxW = V4.convertToAssets(V4.balanceOf(lp));
+        uint maxW = ETH.convertToAssets(ETH.balanceOf(lp));
         uint e = lp.balance; uint w = WETH.balanceOf(lp); uint q = QUID.balanceOf(lp);
-        vm.prank(lp); try V4.withdraw(maxW, lp, lp) {} catch {}
+        vm.prank(lp); try ETH.withdraw(maxW, lp, lp) {} catch {}
         uint got = _lpReceived(lp, e, w, q);
 
         // IL IS A USD CONCEPT, NOT AN ETH ONE. An ETH/USDC LP accumulates the
         // FALLING asset in a downtrend; valued in ETH (_lpReceived counts WETH
-        // 1:1 with ETH) that reads as a GAIN - the ETH numeraire is STRUCTURALLY
+        // 1:1 with BTC) that reads as a GAIN - the ETH numeraire is STRUCTURALLY
         // BLIND to ETH-leg IL, which is why the old `got <= 51e18` assertion was
         // wrong (it measured the wrong thing on the wrong substrate). Valued in
         // USD - the only numeraire IL exists in - the exit underperforms a HODL.
@@ -3631,7 +3629,7 @@ contract Alles is AllesFixture {
         // (2) A SWAP that draws a specific stable (ETH→USDC) — exercises
         // take/_withdraw per-stable refresh, NOT the mint full-refresh.
         address elp = makeAddr("cache-elp"); vm.deal(elp, 100 ether);
-        vm.prank(elp); V4.deposit{value: 50 ether}(0, elp);
+        vm.prank(elp); ETH.deposit{value: 50 ether}(0, elp);
         address sw = makeAddr("cache-sw"); vm.deal(sw, 30 ether);
         vm.prank(sw);
         try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
@@ -3714,14 +3712,14 @@ contract Alles is AllesFixture {
         // needs in-range ETH-pool liquidity). This adds ETH backing, not stables,
         // so it doesn't perturb the stable-share measurement.
         address elp = makeAddr("d-ethlp"); vm.deal(elp, 200 ether);
-        vm.prank(elp); V4.deposit{value: 100 ether}(0, elp);
+        vm.prank(elp); ETH.deposit{value: 100 ether}(0, elp);
 
         (uint[15] memory dep,,,) = AUX.get_deposits();
         uint usdcIdx; for (uint i; i < st.length; i++) if (st[i] == address(USDC)) usdcIdx = i;
         uint shareBps0 = dep[14] == 0 ? 0 : dep[usdcIdx + 1] * 10000 / dep[14];
         console.log("baseline USDC share of stable-TVL bps", shareBps0);
 
-        // (A) drain USDC specifically (WETH->USDC swaps pay ETH, take USDC out of the basket -> tilt away from
+        // (A) drain USDC specifically (WETH->USDC swaps pay BTC, take USDC out of the basket -> tilt away from
         // USDC). NOTE: baseRate accelerator REMOVED (no peg-arb loop); this test's fee-brake premise is
         // superseded by the depeg-only fee model — REWRITE pending (see DEFERRED NOTES: concentration-fee).
         address drainer = makeAddr("conc-drainer");
@@ -3847,25 +3845,25 @@ contract Alles is AllesFixture {
         assertApproxEqRel(burn1, RUNSIM_FACE, 0.01e18, "burn matches requested face (nothing frozen)");
         assertApproxEqRel(burn2, RUNSIM_FACE, 0.01e18, "burn matches requested face");
 
-        // All ETH LPs withdraw fully and get ~their principal back (their ETH),
-        // with nothing stuck. (>=99% allows V4 rounding; LPs never bagged.)
+        // All ETH LPs withdraw fully and get ~their principal back (their BTC),
+        // with nothing stuck. (>=99% allows ETH rounding; LPs never bagged.)
         uint got1;
         {
             uint e1 = lp1.balance; uint w1 = WETH.balanceOf(lp1); uint q1 = QUID.balanceOf(lp1);
-            vm.prank(lp1); V4.withdraw(type(uint).max, lp1, lp1);
+            vm.prank(lp1); ETH.withdraw(type(uint).max, lp1, lp1);
             got1 = _lpReceived(lp1, e1, w1, q1);
         }
         uint got2;
         {
             uint e2 = lp2.balance; uint w2 = WETH.balanceOf(lp2); uint q2 = QUID.balanceOf(lp2);
-            vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
+            vm.prank(lp2); ETH.withdraw(type(uint).max, lp2, lp2);
             got2 = _lpReceived(lp2, e2, w2, q2);
         }
         (uint rem1, uint rem2) = _lpRemainders(lp1, lp2);
         console.log("LP1 received / retained", got1, rem1);
         console.log("LP2 received / retained", got2, rem2);
-        assertGe(got1, 8 ether * 99 / 100, "ETH LP1 gets ~principal back (their ETH)");
-        assertGe(got2, 8 ether * 99 / 100, "ETH LP2 gets ~principal back (their ETH)");
+        assertGe(got1, 8 ether * 99 / 100, "ETH LP1 gets ~principal back (their BTC)");
+        assertGe(got2, 8 ether * 99 / 100, "ETH LP2 gets ~principal back (their BTC)");
         // Fully exited: at most sub-gwei rounding dust may linger (not a bag).
         assertLt(rem1, 1e9, "LP1 fully exited (only rounding dust left)");
         assertLt(rem2, 1e9, "LP2 fully exited (only rounding dust left)");
@@ -3950,18 +3948,18 @@ contract Alles is AllesFixture {
         uint got1;
         {
             uint eth1a = lp1.balance; uint qd1a = QUID.balanceOf(lp1); uint w1a = WETH.balanceOf(lp1);
-            vm.prank(lp1); V4.withdraw(type(uint).max, lp1, lp1);
+            vm.prank(lp1); ETH.withdraw(type(uint).max, lp1, lp1);
             got1 = _lpReceived(lp1, eth1a, w1a, qd1a);
         }
         (uint red2, uint burn2) = _redeemTurn(User02);
         uint got2;
         {
             uint eth2a = lp2.balance; uint qd2a = QUID.balanceOf(lp2); uint w2a = WETH.balanceOf(lp2);
-            vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
+            vm.prank(lp2); ETH.withdraw(type(uint).max, lp2, lp2);
             got2 = _lpReceived(lp2, eth2a, w2a, qd2a);
         }
-        (uint rem1,,,) = V4.autoManaged(lp1);
-        (uint rem2,,,) = V4.autoManaged(lp2);
+        (uint rem1,,,) = ETH.autoManaged(lp1);
+        (uint rem2,,,) = ETH.autoManaged(lp2);
         console.log("redeemer1 delivered/burned (18-dec)", red1, burn1);
         console.log("redeemer2 delivered/burned (18-dec)", red2, burn2);
         console.log("LP1/2 ETH out (wei)", got1, got2);
@@ -3987,7 +3985,7 @@ contract Alles is AllesFixture {
             // body forwards it), so a native-only delta reads 0 on a delivery that DID happen — the
             // exact mis-measurement five other withdraw guards in this file were corrected for.
             uint b = lp2.balance + WETH.balanceOf(lp2);
-            vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
+            vm.prank(lp2); ETH.withdraw(type(uint).max, lp2, lp2);
             uint got = (lp2.balance + WETH.balanceOf(lp2)) - b;
             console.log("LP2 post-thaw recovery (wei)", got);
             assertGt(got, 0, "thaw: LP2's deferred slice is recoverable");
@@ -4016,7 +4014,7 @@ contract Alles is AllesFixture {
         uint got1; // first out
         {
             uint eth1a = lp1.balance; uint qd1a = QUID.balanceOf(lp1); uint w1a = WETH.balanceOf(lp1);
-            vm.prank(lp1); V4.withdraw(type(uint).max, lp1, lp1);
+            vm.prank(lp1); ETH.withdraw(type(uint).max, lp1, lp1);
             got1 = _lpReceived(lp1, eth1a, w1a, qd1a);
         }
         vm.roll(block.number + 1); vm.warp(block.timestamp + 5 minutes);
@@ -4025,7 +4023,7 @@ contract Alles is AllesFixture {
         uint got2; // last out
         {
             uint eth2a = lp2.balance; uint qd2a = QUID.balanceOf(lp2); uint w2a = WETH.balanceOf(lp2);
-            vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
+            vm.prank(lp2); ETH.withdraw(type(uint).max, lp2, lp2);
             got2 = _lpReceived(lp2, eth2a, w2a, qd2a);
         }
         vm.roll(block.number + 1); vm.warp(block.timestamp + 5 minutes);
@@ -4051,13 +4049,13 @@ contract Alles is AllesFixture {
             // Native + WETH: the offramp settles in WETH, so a native-only delta reads 0 on a recovery
             // that DID happen. TRACED: post-thaw `offrampEtherFi(3.68e18)` -> `exchange(1, 0, 3.341e18)`.
             uint b = lp2.balance + WETH.balanceOf(lp2);
-            vm.prank(lp2); V4.withdraw(type(uint).max, lp2, lp2);
+            vm.prank(lp2); ETH.withdraw(type(uint).max, lp2, lp2);
             assertGt((lp2.balance + WETH.balanceOf(lp2)) - b, 0, "thaw: late LP's deferral recovers");
         }
     }
 
     function test_Quid_PendingRewards_NonDepositor() public {
-        (uint eth, uint usd) = V4.pendingRewards(User03);
+        (uint eth, uint usd) = ETH.pendingRewards(User03);
         assertEq(eth, 0);
         assertEq(usd, 0);
     }
@@ -4068,15 +4066,15 @@ contract Alles is AllesFixture {
         // (baseline was a silent no-op). Bind the SPECIFIC selector so an unrelated
         // revert (arithmetic, OOG, a different guard) can't vacuously green this.
         vm.expectRevert(Quid.NoPosition.selector);
-        V4.withdraw(1 ether, User03, User03);
+        ETH.withdraw(1 ether, User03, User03);
         vm.stopPrank();
     }
 
     function test_Quid_Deposit_ZeroAmount() public {
         vm.startPrank(User01);
-        uint sharesBefore = V4.totalShares();
-        V4.deposit{value: 0}(0, User01);
-        assertEq(sharesBefore, V4.totalShares());
+        uint sharesBefore = ETH.totalShares();
+        ETH.deposit{value: 0}(0, User01);
+        assertEq(sharesBefore, ETH.totalShares());
         vm.stopPrank();
     }
 
@@ -4088,7 +4086,7 @@ contract Alles is AllesFixture {
         deal(User01, depositAmount);
 
         vm.startPrank(User01);
-        V4.deposit{value: depositAmount}(0, User01);
+        ETH.deposit{value: depositAmount}(0, User01);
 
         Types.Deposit memory LP = getAutoManaged(User01);
         uint toWithdraw = LP.pooled * withdrawPct / 1000;
@@ -4096,7 +4094,7 @@ contract Alles is AllesFixture {
         vm.roll(block.number + 1); // JIT-lock: withdraw must be a later block than deposit
         if (toWithdraw > 0) {
             uint balBefore = User01.balance + WETH.balanceOf(User01);   // ETH+WETH, §A.9
-            V4.withdraw(toWithdraw, User01, User01);
+            ETH.withdraw(toWithdraw, User01, User01);
             uint received = (User01.balance + WETH.balanceOf(User01)) - balBefore;
             assertGt(received, toWithdraw * 99 / 100, "Received too little");
         }
@@ -4113,7 +4111,7 @@ contract Alles is AllesFixture {
         BTC.requestDeposit(User01, 2e7); // 0.2 BTC
         BTC.requestDeposit(User02, 2e7); // 0.2 BTC
 
-        // BTC swaps through the virtual liquidity (V4 BTC pool) generate fees.
+        // BTC swaps through the virtual liquidity (ETH BTC pool) generate fees.
         // (Fees collect into feesPerShare on the next _rebalance - i.e. at
         // withdraw - via the JIT-defense collect, so we assert at withdraw.)
         vm.startPrank(User03);
@@ -4440,7 +4438,7 @@ contract Alles is AllesFixture {
         (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
 
         // Real BTCChannels with a mock SPV gateway, wired as THE btcChannels.
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -4544,7 +4542,7 @@ contract Alles is AllesFixture {
         // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
         // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
         (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
@@ -4616,7 +4614,7 @@ contract Alles is AllesFixture {
         // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
         // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
         (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
@@ -4698,7 +4696,7 @@ contract Alles is AllesFixture {
         uint wbtcBefore = WBTC.balanceOf(User02);
         (uint cB, uint lB) = AUX.checkBacking();
         uint freeBefore = lB > cB ? lB - cB : 0;
-        vm.prank(address(V4));
+        vm.prank(address(ETH));
         AUX.btcShortfall(User02, shortfall);               // must NOT revert, NOT draw surplus
         assertEq(WBTC.balanceOf(User02) - wbtcBefore, 0, "no WBTC delivered from surplus");
         (uint cA, uint lA) = AUX.checkBacking();
@@ -4772,7 +4770,7 @@ contract Alles is AllesFixture {
                  0x000000000000000000000000000000000000dEaD, "ANGEL burned to DEAD");
     }
 
-    /// @dev §ETHVENUE-FOLD — REPOINTED, not deleted. This mocked `V4.EV()` to a bad address and
+    /// @dev §ETHVENUE-FOLD — REPOINTED, not deleted. This mocked `ETH.EV()` to a bad address and
     ///      expected `wire:band`. That pointer is GONE: the ETH venue folded into Quid, so
     ///      `assertFullyWired` now checks `ethVenue == v4` -- and BOTH sides are fixed at deploy
     ///      (Aux storage pinned once, `BAND` an immutable), so the miswire this simulated is
@@ -4820,7 +4818,7 @@ contract Alles is AllesFixture {
         // THREE (plus backing). If the sats are already banked here, there is no backing gap
         // and the owed ledger can be deleted without sacrificing sats compounding.
         uint pooledBtcPre = BCORE().POOLED();
-        // THE SELL: a swap-in routes BTC->USD through the same V4 path swap-out uses.
+        // THE SELL: a swap-in routes BTC->USD through the same ETH path swap-out uses.
         BTC.creditSwapIn(address(0x5E15), 500_000, address(USDC), 0);
         emit log_named_uint("POOLED before swap-in", pooledBtcPre);
         emit log_named_uint("POOLED after  swap-in", BCORE().POOLED());

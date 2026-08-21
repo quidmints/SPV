@@ -94,7 +94,7 @@ contract EthVenueDeliverableProbe is AllesFixture {
 
     function test_Diag_DeliverableBreakdownAfterSplitDeposit() public {
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01);
+        ETH.deposit{value: 10 ether}(0, User01);
 
         uint band = EV.bandETH();
         uint deliv = EV.deliverableETH();

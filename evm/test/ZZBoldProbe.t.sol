@@ -14,7 +14,7 @@ contract ZZBoldProbe is AllesFixture {
         USDC.approve(address(AUX), type(uint).max);
         QUID.mint(User01, 1_000_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
-        vm.prank(User02); V4.deposit{value: 400 ether}(0, User02);
+        vm.prank(User02); ETH.deposit{value: 400 ether}(0, User02);
         emit log_named_uint("SP before", ISPq2(sp).getCompoundedBoldDeposit(address(AUX)));
         emit log_named_uint("AUX bold bal before", IERC20(bold).balanceOf(address(AUX)));
         deal(bold, User03, 4000e18);

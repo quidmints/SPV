@@ -32,7 +32,7 @@ contract TwapAnchorDeadlockTest is AllesFixture {
 
     function testTwapAnchorDeadlock_FullFix() public {
         // ── Arrange (anchor not yet wired) ──
-        V4.deposit{value: 100 ether}(0, address(this));
+        ETH.deposit{value: 100 ether}(0, address(this));
         deal(address(USDC), address(this), 60_000e6);
         USDC.approve(address(AUX), type(uint).max);
         QUID.mint(address(this), 50_000e6, address(USDC), 0);
@@ -86,6 +86,6 @@ contract TwapAnchorDeadlockTest is AllesFixture {
             "auto-reseat moved the curve spot onto the oracle price");
 
         // the permissionless reseat poke is a safe no-op once aligned.
-        V4.reseat();
+        ETH.reseat();
     }
 }

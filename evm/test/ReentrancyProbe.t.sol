@@ -21,7 +21,7 @@ contract EvilToken {
 ///   (2) settleSwapIn is hop-gated — a non-hop can't even initiate a swap-in.
 ///   (3) the swap-in payout token MUST be a whitelisted basket stable, so a
 ///       hook-bearing token can't be injected to gain control during delivery.
-///   (4) the V4 unlock callback is PoolManager-gated — the swap path can't be
+///   (4) the ETH unlock callback is PoolManager-gated — the swap path can't be
 ///       re-entered by forging the callback.
 /// Deliveries are standard ERC20 / WETH (no native-ETH `call{value}`), so the
 /// protocol never hands control to attacker code — the guards have nothing to
@@ -31,7 +31,7 @@ contract ReentrancyProbe is AllesFixture {
         hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0";
 
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(_realSPV(), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        ch = new BTCChannels(_realSPV(), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
     }
@@ -43,14 +43,14 @@ contract ReentrancyProbe is AllesFixture {
         _deployChannels();
         vm.prank(address(0xBAD));
         vm.expectRevert(bytes4(keccak256("NotBTCChannels()")));
-        ETH.creditSwapIn(address(0xBAD), 1_000_000, address(USDC), 0);
+        BTC.creditSwapIn(address(0xBAD), 1_000_000, address(USDC), 0);
     }
 
     function test_creditSwapOut_only_btcChannels() public {
         _deployChannels();
         vm.prank(address(0xBAD));
         vm.expectRevert(bytes4(keccak256("NotBTCChannels()")));
-        ETH.creditSwapOut(address(0xBAD), address(USDC), 1e18, 0);
+        BTC.creditSwapOut(address(0xBAD), address(USDC), 1e18, 0);
     }
 
     // (2) the buffered swap-in is hop-gated: a non-hop caller can't initiate a credit
@@ -85,7 +85,7 @@ contract ReentrancyProbe is AllesFixture {
         ch.settleSwapInBuffered(address(0x5E), 1_000_000, evil, bytes32(uint(7)), 0, false);
     }
 
-    // §V4-ZERO — the unlock-callback reentrancy probe is DELETED WITH THE CALLBACK. It asserted
+    // §ETH-ZERO — the unlock-callback reentrancy probe is DELETED WITH THE CALLBACK. It asserted
     // `Aux.unlockCallback` reverts `NotPoolManager()` for a forged caller, a real property of the
     // `SafeCallback` base. There is no PoolManager, no unlock and no callback to forge: the surface
     // it guarded does not exist, so the test could only assert that a missing function is missing.

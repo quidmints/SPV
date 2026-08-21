@@ -9,7 +9,7 @@ import {Test} from "forge-std/Test.sol";
 ///   re-derivable from the asserts. Skeptical by design: it tests the strategy the CODE implements (a
 ///   STATIC target LTV) and the keeper's `L=1/α` rule, NOT only the one the levamm sim claimed works.
 ///
-///   Model (p0=1, price ratio r=p1/p0; E0 = the LP's deposited ETH):
+///   Model (p0=1, price ratio r=p1/p0; E0 = the LP's deposited BTC):
 ///     • a √p band LP holds `E0/√r` ETH after the move (it SOLD `E0·(1 − 1/√r)` ETH as price rose — that
 ///       sold ETH IS the IL, in ETH terms);
 ///     • HODL keeps the full `E0` ETH exposure.

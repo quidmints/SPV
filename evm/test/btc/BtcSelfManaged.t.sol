@@ -139,7 +139,7 @@ contract BtcSelfManagedTest is AllesFixture {
         // headers, and no splice fixture exists for this pair. Real-SPV inclusion is covered by
         // the proven-swap-in and deposit-proof tests; what moves here is coverage those already
         // hold. ▶️ Restoring it needs a splice added to the fixture generator (booked).
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
@@ -333,7 +333,7 @@ contract BtcSelfManagedTest is AllesFixture {
         assertTrue(gw.isInMainchain(b.closeBlockHash),   "close block on mainchain");
 
         // ── REAL BTCChannels at the predicted address; hopNode = our hop ──
-        BTCChannels ch = new BTCChannels(address(gw), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(gw), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         require(address(ch) == predictedCh, "BTCChannels address prediction off");
         AUX.setBTCChannels(address(ch));

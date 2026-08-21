@@ -19,7 +19,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
-import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBand, IBTCChannels} from "./imports/Interfaces.sol";
+import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, ICore, IBTCChannels} from "./imports/Interfaces.sol";
 import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, NotBTCChannels, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 
 
@@ -233,7 +233,7 @@ contract Aux is // Auxiliary
                                              // ==EthVenue. Without this the basket→WETH arb
                                              // and the Quid/Core shortfall fills silently
                                              // revert→catch→0.
-         && msg.sender != CORE.btcVault()   // BTC band manager: same delegatecall shape on the
+         && msg.sender != CORE.btc()   // BTC band manager: same delegatecall shape on the
                                              // BTC side (BtcLib/SwapLib run as the Vault).
                                              // ⚠️ TWO ENTRIES, NOT ONE, SINCE THE VENUE CARVE —
                                              // this used to read "one address (ethVenue) covers
@@ -748,7 +748,7 @@ contract Aux is // Auxiliary
                 // is what let reads and settlement disagree about which band they were talking to.
                 core: address(_bandOf(asset)),
                 // §SLOP: the asset picks the BAND MANAGER too, through the same wiring-time knowledge.
-                band: asset == address(WBTC) ? CORE.btcVault() : address(BAND),
+                band: asset == address(WBTC) ? CORE.btc() : address(BAND),
                 btcChannels: _btcChannels
             }),
             stables
@@ -1154,7 +1154,7 @@ contract Aux is // Auxiliary
     function _backingCore()
         internal returns (uint committedSum, uint totalLiquid) {
         // Body extracted to BasketLib.backingCoreBody to free Aux bytecode.
-        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(BAND), CORE.btcVault());
+        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(BAND), CORE.btc());
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-
@@ -1338,8 +1338,8 @@ contract Aux is // Auxiliary
     }
 
     // The BTC side rides the SAME merged Vault as the ETH side, so it reuses the
-    // `ethVenue` pin — the ETH-VENUE CUSTODY contract. Distinct from Core's `btcVault` since the
-    // venue carve; anything BTC-band must go through `CORE.btcVault()`, not this.
+    // `ethVenue` pin — the ETH-VENUE CUSTODY contract. Distinct from Core's `btc` since the
+    // venue carve; anything BTC-band must go through `CORE.btc()`, not this.
 
     function setBTCChannels(address b) external onlyOwner {
         if (_btcChannels != address(0)) revert BtcChannelsPinned();
@@ -1351,7 +1351,7 @@ contract Aux is // Auxiliary
         // liquidity).
         // ON THE BTC VAULT, not `ethVenue`: those were one address until the venue carve, and
         // `setBTCChannels` is a BTC-BAND function. Read the vault from Core so there is no second pin.
-        IBand(CORE.btcVault()).setBTCChannels(b);
+        ICore(CORE.btc()).setBTCChannels(b);
     }
 
     // moved to EthVenue (the ETH-venue custody home).

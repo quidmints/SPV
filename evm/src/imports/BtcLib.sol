@@ -8,7 +8,7 @@ import {Types} from "./Types.sol";
 import {BandLib} from "./BandLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
-import {IBand} from "./Interfaces.sol";
+import {ICore} from "./Interfaces.sol";
 import {IBasketMint} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
@@ -136,7 +136,7 @@ library BtcLib {
     ///      structurally unrelated to the band's risk capital -- basing theta on it throttled the band to ~0
     ///      whenever donations were thin (the opposite of what scarcity should do).
     function _thetaClampBtc(address core, uint deltaTok, uint sats) private view returns (uint) {
-        uint thetaEff = IBand(address(this)).derivedThetaWad();
+        uint thetaEff = ICore(address(this)).derivedThetaWad();
         if (thetaEff == 0) thetaEff = 1e18;
         // ONE principle (SwapLib.clampByBacking): bound by both the physical backing headroom AND theta —
         // shared verbatim with the reseat clamp (QuidLib.addLiq) and the ETH band. backing = the native
@@ -255,9 +255,9 @@ library BtcLib {
                 a.shrinkSats = shrinkSats > funded ? funded : shrinkSats;
             }
         }
-        (a.spotPrice, a.loPrice, a.upPrice,,) = IBand(address(this)).repack();
-        a.feesPerShare = IBand(address(this)).feesPerShare();
-        a.usdFees = IBand(address(this)).USD_FEES();
+        (a.spotPrice, a.loPrice, a.upPrice,,) = ICore(address(this)).repack();
+        a.feesPerShare = ICore(address(this)).feesPerShare();
+        a.usdFees = ICore(address(this)).USD_FEES();
         return resizeBtcLpTail(core, quid, autoManaged, levPooled, levBuf, a);
     }
 
@@ -356,9 +356,9 @@ library BtcLib {
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
         Types.BandP memory p;
-        (p.spotPrice, p.loPrice, p.upPrice,,) = IBand(address(this)).repack();
-        p.feesPerShare = IBand(address(this)).feesPerShare();
-        p.usdFees = IBand(address(this)).USD_FEES();
+        (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
+        p.feesPerShare = ICore(address(this)).feesPerShare();
+        p.usdFees = ICore(address(this)).USD_FEES();
         sharesAdded += settleBtcLp(LP, lpEth, address(0), quid, p.feesPerShare, p.usdFees, weight); // (E145) fee compounds into pooled
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
@@ -415,9 +415,9 @@ library BtcLib {
         // literal) so external-call temporaries free between assignments — both keep this off the legacy stack.
         uint w = LP.pooled + levBuf[lp];
         Types.BandP memory p;
-        (p.spotPrice, p.loPrice, p.upPrice,,) = IBand(address(this)).repack();
-        p.feesPerShare = IBand(address(this)).feesPerShare();
-        p.usdFees = IBand(address(this)).USD_FEES();
+        (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
+        p.feesPerShare = ICore(address(this)).feesPerShare();
+        p.usdFees = ICore(address(this)).USD_FEES();
         p.mgr = mgr; p.gross = gross;
         d.addedNet += settleBtcLp(LP, lp, address(0), quid, p.feesPerShare, p.usdFees, w); // (E145) fee compounds into pooled
         (d.burnedNet, d.bufBurned) = BandLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);

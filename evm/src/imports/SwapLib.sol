@@ -10,7 +10,7 @@ import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is t
 import {ICore} from "./Interfaces.sol";
 import {ILevManagerDeliver, ILevEthDeliver} from "./Interfaces.sol";
 import {IBTCChannels} from "./Interfaces.sol";
-import {IBand} from "./Interfaces.sol";
+import {ICore} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -39,7 +39,7 @@ import {QuidLib} from "./QuidLib.sol";
 
 
 /// @notice V4 (Quid) repack. 5th return = the resolved oracle price (Chainlink-when-stale, else internal
-///         TWAP) computed during the repack-first; the swap reuses it as v4Price so it doesn't read the
+///         TWAP) computed during the repack-first; the swap reuses it as fillPrice so it doesn't read the
 ///         internal `observe` ring a 2nd time. 0 ⇒ live-read fallback. (Was two identical decls
 ///         IQuidRepack2/IQuidRepackRet — now collapsed onto the CANONICAL `IEthVenue.repack`
 ///         in `Interfaces.sol` (rule 2), which already declared this exact signature.)
@@ -279,7 +279,7 @@ library SwapLib {
         }
     }
 
-    /// @dev Resolve the execution price: the repack-provided v4 mark if non-zero, else the live oracle TWAP.
+    /// @dev Resolve the execution price: the repack-provided core mark if non-zero, else the live oracle TWAP.
     ///      Factored from the 5 swap-body sites — no-optimizer build ⇒ ONE shared body (jump target), not 5
     ///      inlined copies of the getTWAPforAsset call, so it genuinely reclaims deployed bytecode (EIP-170).
     ///      §D3 (2026-07-31): this claim was ASPIRATIONAL until now — two verbatim inline copies survived
@@ -287,8 +287,8 @@ library SwapLib {
     ///      stack. Fixed by resolving once into the `SwapReq.px` STRUCT FIELD (no new stack slot) and
     ///      SEQUENCING the call out of argument position. Freed 197 bytes. `Stack too deep` is a code-shape
     ///      problem, never a licence to duplicate.
-    function _priceOr(uint v4p, address aux, address asset) internal view returns (uint) {
-        return v4p != 0 ? v4p : IAux(aux).getTWAPforAsset(asset, 1800);
+    function _priceOr(uint priceHint, address aux, address asset) internal view returns (uint) {
+        return priceHint != 0 ? priceHint : IAux(aux).getTWAPforAsset(asset, 1800);
     }
     /// @dev Revert unless `token` is a real basket stable (toIndex>0). Factored from creditSwapIn/OutBody (dedup).
     function _requireStable(address aux, address token) internal view {
@@ -306,7 +306,7 @@ library SwapLib {
     /// @notice Config for swapToBody (the immutables/handles Aux holds).
     struct SwapToCfg {
         address weth; address wbtc; address quid; address core;
-        // §SLOP — ONE `band`, not `v4` + `btcVault`. Carrying BOTH and picking between them by
+        // §SLOP — ONE `band`, not `core` + `btc`. Carrying BOTH and picking between them by
         // `isBTC` re-made a dispatch the CALLER had already made: `Aux` knows the asset, so it
         // knows the band. Same collapse as `bandOf` for cores, one level along.
         address band; address btcChannels;
@@ -370,11 +370,11 @@ library SwapLib {
         // design (`via_ir = false`), and carrying the two ticks as function-scope locals is
         // stack-too-deep. Net locals are UNCHANGED from before — `bandTicks` simply replaces the
         // old `spotPrice` carrier, which was assigned, reassigned and passed, never read.
-        uint v4p;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for v4's
+        uint priceHint;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for core's
                     // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
-            (,,,, uint p) = IBand(c.band).repack();
-            v4p = p;
+            (,,,, uint p) = ICore(c.band).repack();
+            priceHint = p;
         }
         {
             // Drain-side backing gate counts standing holdings at PAR (NOT the depeg haircut): the mint/issuance
@@ -386,7 +386,7 @@ library SwapLib {
         }
         // token1is inlined per-branch (not a local) — frees a stack slot so
         // swapToBody stays within the legacy pipeline (no via_ir) after threading
-        // the reused v4 price `v4p`. One executed branch ⇒ still one token1is call.
+        // the reused core price `priceHint`. One executed branch ⇒ still one token1is call.
         // §DE-TICK — NO `zeroForOne` LOCAL. It was assigned `token1isVol` in one branch and
         // `!token1isVol` in the other, and `Core` then re-derived the direction with a flip that
         // cancelled both. The quantity actually being transported is `r.forVolatile`: the user
@@ -418,7 +418,7 @@ library SwapLib {
             // Scale the volatile input DOWN by the premium ⇒ less USD credited out; the
             // withheld input stays as basket backing (same mechanism as the drain leg).
             {
-                r.px = _priceOr(v4p, address(aux), r.asset);
+                r.px = _priceOr(priceHint, address(aux), r.asset);
                 uint skew = sellSkew(c.core, r.px, r.amount); // inline (swapToBody stack-tight)
                 retainSkewPremium(c.core, r, skew, true);   // NATIVE volatile input ⇒ convert   // mutates r.amount; r.px declares NATIVE
             }
@@ -438,14 +438,14 @@ library SwapLib {
             // isn't guaranteed); WBTC swap-out drains the same POOLED, so it's skewed too
             // (else arbers route around the premium). Scale the buy DOWN so a scarce pool hands
             // out less volatile; the withheld input stays as backing. The swap still executes at
-            // the honest oracle (v4p) through routeSwap ⇒ no manip-guard exemption.
+            // the honest oracle (priceHint) through routeSwap ⇒ no manip-guard exemption.
             {
-                r.px = _priceOr(v4p, address(aux), r.asset);
+                r.px = _priceOr(priceHint, address(aux), r.asset);
                 uint skew = wellSkew(c.core, r.px, r.amount); // §E68: r.amount IS the 6-dec drain size
                 retainSkewPremium(c.core, r, skew, false);  // buy-driving USD ⇒ already 6-dec   // mutates r.amount; r.px declares NATIVE
             }
         }
-        max = _finishSwap(ctx, aux, r, r.forVolatile, max, v4p);
+        max = _finishSwap(ctx, aux, r, r.forVolatile, max, priceHint);
     }
 
     /// @dev routeSwap (8-field RouteParams build) + bumpQuidBTC + slippage guard
@@ -456,18 +456,18 @@ library SwapLib {
     ///      bit-preserving, so negative ticks round-trip exactly.
 
     function _finishSwap(Types.AuxContext memory ctx, IAux aux, SwapReq memory r,
-        bool inputIsUsd, uint pooled, uint v4p) private returns (uint max) {
+        bool inputIsUsd, uint pooled, uint priceHint) private returns (uint max) {
         uint poolSupplied;
-        // Reuse the resolved oracle price from the repack-first (v4p) instead of
+        // Reuse the resolved oracle price from the repack-first (priceHint) instead of
         // re-reading the internal `observe` ring + Chainlink a 2nd time per swap;
-        // fall back to a live read only if the repack couldn't resolve it (v4p==0,
+        // fall back to a live read only if the repack couldn't resolve it (priceHint==0,
         // e.g. a bootstrap pre-history read that try/catch'd to 0).
-        uint v4Price = _priceOr(v4p, address(aux), r.asset);
+        uint fillPrice = _priceOr(priceHint, address(aux), r.asset);
         uint consumed;
         (max, poolSupplied, consumed) = BasketLib.routeSwap(ctx, Types.RouteParams({
             inputIsUsd: inputIsUsd, token: r.token,
             amount: r.amount, pooled: pooled,
-            v4Price: v4Price,
+            fillPrice: fillPrice,
             recipient: r.recipient
         }));
         // §ISBTC-SPLIT: derived, not threaded -- `ctx.nativeWETH` IS `!isBTC` (set at the call
@@ -609,7 +609,7 @@ library SwapLib {
 
     /// @notice Body of Aux.creditSwapIn — settle a BTC→USD swap-IN. See Aux's
     ///         wrapper docblock for the full semantics.
-    /// @param bandVault THE BTC VAULT, not Quid. It was named `v4` — which means Quid/ETH everywhere
+    /// @param bandVault THE BTC VAULT, not Quid. It was named `core` — which means Quid/ETH everywhere
 ///        else — while `Vault.creditSwapIn` passes `address(this)`. That is why `repack(true)` below
 ///        is CORRECT and must not be "fixed" to false during the isBTC fold.
     function creditSwapInBody(address seller, uint sats, address token, uint minDeliveredUsd,
@@ -638,13 +638,13 @@ library SwapLib {
         // USD-side cap (POOLED_USD) converts to sats via the same flat-1e18 scale
         // swap-OUT uses, keeping units coherent.
         // ctx + RouteParams built field-by-field (not an inline literal) so the
-        // added v4p reuse fits this body's legacy stack without via_ir — the literal
+        // added priceHint reuse fits this body's legacy stack without via_ir — the literal
         // construction peak is what overflowed. vault=0 / nativeWETH=false are the
         // zero-defaults of a fresh memory struct.
         Types.AuxContext memory ctx;
         ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if
-        // v4p==0 — same as _finishSwap. POOLED_USD is passed RAW: `convert` now uses a flat
+        // priceHint==0 — same as _finishSwap. POOLED_USD is passed RAW: `convert` now uses a flat
         // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
         // former ×1e10 pre-scale here CANCELLED convert's 1e18/1e8 under-scaling — two wrongs that
         // agreed on this path only; both are removed together, leaving this path unit-neutral.
@@ -653,11 +653,11 @@ library SwapLib {
         // `_swapOutPrep` below, and `_finishSwap`. Passing a real spotPrice here is what broke
         // 132 tests (`InvalidTick` / `PriceLimitAlreadyExceeded`) when only one was converted.
         // Block-scoped: these bodies are stack-tight by design (`via_ir = false`).
-        uint v4p;
+        uint priceHint;
         Types.RouteParams memory rp;
         {
-            (,,,, uint p_) = IBand(bandVault).repack();
-            v4p = p_;
+            (,,,, uint p_) = ICore(bandVault).repack();
+            priceHint = p_;
         }
         rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
@@ -682,7 +682,7 @@ library SwapLib {
         // ⚠️ THIS EXACT LINE COST THREE FINDINGS. §E18 records that they were built on it and had to
         // be withdrawn when the owner said "flash refill was already built". A stale comment does
         // not merely mislead a reader — it survives long enough to become the premise of new work.
-        rp.v4Price = _priceOr(v4p, aux, wbtc);
+        rp.fillPrice = _priceOr(priceHint, aux, wbtc);
         rp.recipient    = seller;
         // routeSwap + both gates + the refill bonus run in their OWN frame (_swapInSettle) so
         // creditSwapInBody stays within the legacy stack (no via_ir). Returns the sats actually converted so
@@ -694,7 +694,7 @@ library SwapLib {
     ///      BONUS (removed 2026-07-22): the refill is a self-funding fleet op (JIT Morpho-flash BTC →
     ///      creditSwapIn → repay, gas via #87), so the drainer's retained skew premium accrues to LPs as
     ///      backing (recordSkewPremium) rather than being paid out to the refiller — the refill settles at the
-    ///      honest v4Price. Serves the creditSwapIn rail
+    ///      honest fillPrice. Serves the creditSwapIn rail
     ///      (JIT sell-to-pool reward); requestDeposit (become-LP, pooled fees) never reaches here.
     function _swapInSettle(Types.AuxContext memory ctx, Types.RouteParams memory rp, uint minDeliveredUsd)
         private returns (uint consumedSats) {
@@ -1170,7 +1170,7 @@ library SwapLib {
         // ⚠️ THE `sigmaSqWad == 0` SENTINEL STAYS AND IS NOT REDUNDANT: `== 0` means NO DATA (charge
         // the ceiling, conservative); this handles data that is real and tiny. Different inputs.
         if (inv0 != 0 && inv1 < inv0) {
-            // `SoladyMath`, not `FullMath` (which left with v4-core) and not OZ `Math`: solady is
+            // `SoladyMath`, not `FullMath` (which left with core-core) and not OZ `Math`: solady is
             // this file's convention — 32 call sites to OZ's 2.
             skew += SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
         }
@@ -1582,7 +1582,7 @@ library SwapLib {
         _requireStable(aux, token);
         // Two OWN frames so the body stays trivially within the legacy stack (no via_ir): PREP does
         // deposit + oracle + drain-skew + route-params; SETTLE does the buy + proceeds-cap + swapper refund.
-        // v4 (the BtcVault) == address(this) and wbtc is read from aux INSIDE prep, so neither this body nor
+        // core (the BtcVault) == address(this) and wbtc is read from aux INSIDE prep, so neither this body nor
         // its Vault caller carries them as params — that's what frees the stack for the refund call.
         (Types.AuxContext memory ctx, Types.RouteParams memory rp) =
             _swapOutPrep(swapper, token, usdAmount, core, aux);
@@ -1592,7 +1592,7 @@ library SwapLib {
     /// @dev creditSwapOutBody PHASE 1 (own frame): pull the swapper's full stable into the basket, resolve
     ///      the oracle price, apply the drain scarcity skew (the withheld premium stays in Aux as fungible
     ///      backing, tracked by recordSkewPremium — it NEVER enters POOLED), and return the fully-built route
-    ///      params. v4 == address(this) (this lib body is delegatecalled from the BtcVault); wbtc via aux.
+    ///      params. core == address(this) (this lib body is delegatecalled from the BtcVault); wbtc via aux.
     function _swapOutPrep(address swapper, address token, uint usdAmount, address core, address aux)
         private returns (Types.AuxContext memory ctx, Types.RouteParams memory rp) {
         address wbtc = address(IAux(aux).WBTC());
@@ -1604,18 +1604,18 @@ library SwapLib {
         // currently exercises — see the mixed-decimal Echidna target (§A.70).
         uint amount = scaleTo6(IAux(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core;
-        // Reuse the repack-resolved oracle price (5th return); live-read only if v4p==0.
+        // Reuse the repack-resolved oracle price (5th return); live-read only if priceHint==0.
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
-        uint v4p;
+        uint priceHint;
         {
-            (,,,, uint p_) = IBand(address(this)).repack();
-            v4p = p_;
+            (,,,, uint p_) = ICore(address(this)).repack();
+            priceHint = p_;
         }
         rp.inputIsUsd   = true;    // USD→BTC buy: USD is the INPUT (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
         rp.pooled       = ICore(core).POOLED();      // BTC inventory bounds the fill
-        uint basePrice  = _priceOr(v4p, aux, wbtc);
-        rp.v4Price      = basePrice;                         // HONEST oracle — manip-guard stays unskewed
+        uint basePrice  = _priceOr(priceHint, aux, wbtc);
+        rp.fillPrice      = basePrice;                         // HONEST oracle — manip-guard stays unskewed
         // Effective-rate scarcity skew on the drain: scale the buy-driving USD DOWN by (1−skew) so a
         // BTC-scarce pool hands the swapper FEWER sats per USD; the withheld premium stays as backing. The
         // swap still executes at basePrice through routeSwap ⇒ NO manip-guard exemption (separate scalar).
@@ -1838,17 +1838,17 @@ library SwapLib {
     ///      the LP's recipient; BTC passes address(0) (native sats return via
     ///      the cooperative-close tx — only the mockBTC is burned).
     /// §V4-RESIDUE (2026-08-18) — `spotPrice`, `loPrice` and `upPrice` DELETED: solc reported all three
-    /// unused here, and they were the v4 position's price bounds. A burn against our own inventory takes
+    /// unused here, and they were the core position's price bounds. A burn against our own inventory takes
     /// an AMOUNT; there is no range to burn out of and no spot to price it at. They were still being
     /// computed and threaded through two frames to be discarded at the leaf.
-    function burnInRange(address v4, uint amount, address recipient)   // §ISBTC-SPLIT: the `isBTC` param was never read
+    function burnInRange(address core, uint amount, address recipient)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal returns (uint sent) {
-        uint pooled = ICore(v4).POOLED();
+        uint pooled = ICore(core).POOLED();
         uint pulled = Math.min(amount, pooled);
         if (pulled == 0) return 0;
-        (, uint posLiquidity) = ICore(v4).poolStats();
+        (, uint posLiquidity) = ICore(core).poolStats();
         if (posLiquidity > 0) {
-            sent = ICore(v4).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive: delivers to `recipient`
+            sent = ICore(core).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive: delivers to `recipient`
         }
     }
 
@@ -2041,11 +2041,11 @@ library SwapLib {
     ///      ordering: when USD is token0, price ∝ 1/sqrtP², so the same holding needed the mirrored
     ///      formula. USD-PER-VOLATILE DOES NOT INVERT — it is the same number whichever token got
     ///      the lower address — so one expression now serves both bands. The ordering flag was
-    ///      never about economics; it was about v4's encoding.
+    ///      never about economics; it was about core's encoding.
     ///
     ///      √ SURVIVES AS AN OPERATION, NOT A REPRESENTATION. The root is mathematically required
     ///      (holdings are √-shaped in price), but nothing is STORED or PASSED as a sqrt price any
-    ///      more — which was the actual coupling to v4.
+    ///      more — which was the actual coupling to core.
     ///      Roots are taken on WAD prices via `sqrt(P·1e18)`, so every term carries the same 1e18
     ///      scale and the ratios cancel it exactly.
     function holdingRatioWad(uint entryPrice, uint price, uint loPrice, uint upPrice)
@@ -2104,7 +2104,7 @@ library SwapLib {
     /// it for the pool's token ordering. `width` is the tick-alignment (10).
     /// §DE-TICK — THE BOUNDARY ORDER'S RANGE IS A PRICE OFFSET. A tick is 1 bp by construction
     /// (1.0001^i), so a `distance`/`range` expressed in ticks IS an offset in basis points — the grid
-    /// was only ever a way to index them. `alignTick` goes with it: alignment existed because v4 can
+    /// was only ever a way to index them. `alignTick` goes with it: alignment existed because core can
     /// place liquidity only on grid boundaries, and we hold inventory at a price bound.
     /// ⇒ THIS DELETES THE #46 OFF-BY-ONE OUTRIGHT. That defect existed because a tick was derived
     /// from a sqrt price and `getTickAtSqrtRatio(spotPrice) == currentTick` does not always hold;
@@ -2132,7 +2132,7 @@ library SwapLib {
     function sizeOorUsd(uint amount6, Oor memory t)
         internal pure returns (uint placeable) {
         // §DE-TICK — WHAT SURVIVES IS THE OUTSIDE-NESS GUARD; the liquidity encoding does not.
-        // This used to convert both bounds to sqrt prices and ask `LiquidityAmounts` for a v4
+        // This used to convert both bounds to sqrt prices and ask `LiquidityAmounts` for a core
         // liquidity figure. Callers now STORE AND PASS THE AMOUNT (see `Types.SelfManaged.amt`), so
         // the only thing the return was still doing was answering "can this range hold anything" —
         // a validity check, which the guards below already are.
@@ -2164,7 +2164,7 @@ library SwapLib {
     /// `TickOutOfRange`, the LAST tick identifier left in code anywhere in `evm/src`. It never
     /// guarded a tick: both call sites compare PRICES (`t.newUp < t.curLo`, `t.newLo >= t.newUp`).
     /// The name outlived the grid by seven commits and would have read as evidence that tick math
-    /// survives the v4 cut. No client decodes it — zero hits in `spa/src`, `quid-ln`, `tools` — so
+    /// survives the core cut. No client decodes it — zero hits in `spa/src`, `quid-ln`, `tools` — so
     /// the selector change costs nothing.
     error RangeNotOutsideBand();
     /// §DE-TICK — THE BAND IS ±δ AROUND THE PRICE, AND THAT IS THE WHOLE COMPUTATION.
@@ -2172,7 +2172,7 @@ library SwapLib {
     /// tick grid and align to a spacing of 10. In price space the root cancels — padding a price by
     /// a ratio is a multiplication — so TWO square roots and TWO tick lookups become two multiplies.
     /// ⚠️ THE ALIGNMENT AND THE RANGE GUARDS GO WITH THEM, and nothing is lost: `alignTick` existed
-    /// because v4 can only place liquidity on grid boundaries, and MIN/MAX_SQRT_PRICE bounded the
+    /// because core can only place liquidity on grid boundaries, and MIN/MAX_SQRT_PRICE bounded the
     /// tick representation. We hold inventory at a price bound — there is no grid to land on and no
     /// representable range to fall out of. This also deletes the off-by-one class described in #46,
     /// which existed ONLY because a tick was being derived from a sqrt price.
@@ -2204,7 +2204,7 @@ library SwapLib {
         uint    jitFeesTok;
         // The resolved oracle price (Chainlink when stale, else internal TWAP)
         // read here for the staleness/reseat check — exported so the swap path
-        // (SwapLib._finishSwap) REUSES it as v4Price instead of reading the
+        // (SwapLib._finishSwap) REUSES it as fillPrice instead of reading the
         // internal `observe` ring a second time per swap. 0 ⇒ caller live-reads.
         uint    resolvedTwap;
     }
@@ -2222,15 +2222,15 @@ library SwapLib {
     /// bottom one had stopped reading; each call site picks the CONTRACT, which is what actually
     /// identifies the band.
     function rebalanceCore(
-        address v4, address aux, address asset,
+        address core, address aux, address asset,
         uint upPrice, uint loPrice
     ) internal returns (Rebalanced memory r) {
         r.upPrice = upPrice;
         r.loPrice = loPrice;
-        // §DE-TICK — `currentTick` is gone. It was v4's index of where spot sat on the grid; the
+        // §DE-TICK — `currentTick` is gone. It was core's index of where spot sat on the grid; the
         // price it encoded is now read directly, so keeping a tick would mean deriving an index into
         // a grid nothing consults.
-        (r.spotPrice, r.myLiquidity) = ICore(v4).poolStats();
+        (r.spotPrice, r.myLiquidity) = ICore(core).poolStats();
 
         // Resolved oracle price + staleness. try/catch so a bootstrap pre-history
         // / dead-feed read NEVER bricks the op (falls through to legacy handling).
@@ -2248,7 +2248,7 @@ library SwapLib {
         // (never on normal drift, and never when no feed is wired ⇒ stale=false,
         // so it can't churn or perturb existing behavior); no-op if already
         // aligned. Both pools route here (Quid + BtcVault).
-        if (stale && _reseatIfStale(v4, r, twap)) return r;
+        if (stale && _reseatIfStale(core, r, twap)) return r;
 
         // HALF-OPEN RANGE (T1), NOW IN PRICE SPACE. The band is ACTIVE iff `lower <= P < upper`, so
         // it is OUT of range at `P >= upper` — NOT `>`. With `>`, at exactly `P == upper` the band
@@ -2271,7 +2271,7 @@ library SwapLib {
             // §ONE-ANCHOR — hand the engine the ANCHOR; the bounds it implies are derived here and
             // wherever else they are wanted, from that one number.
             if (r.myLiquidity > 0) {
-                r.price = ICore(v4).repack(r.spotPrice);
+                r.price = ICore(core).repack(r.spotPrice);
                 r.didRepack = true;
             }
             (r.loPrice, r.upPrice) = updateBounds(r.spotPrice, BAND_DELTA);
@@ -2280,7 +2280,7 @@ library SwapLib {
             // in the accumulators BEFORE the caller's bookmark advances.
             // collectFees ALREADY reorders internally and returns canonical
             // (feesUSD, feesTok) — USD first.
-            (r.jitFeesUsd, r.jitFeesTok) = ICore(v4).collectFees();
+            (r.jitFeesUsd, r.jitFeesTok) = ICore(core).collectFees();
             r.jitFees = true;
         }
     }
@@ -2288,7 +2288,7 @@ library SwapLib {
     /// @dev Move the curve spot onto the (Chainlink) target `twap` + re-range.
     ///      Own frame so rebalanceCore stays within the legacy stack (no via_ir).
     ///      Returns true if it moved the spot. No-op (false) when already aligned.
-    function _reseatIfStale(address v4, Rebalanced memory r, uint twap)
+    function _reseatIfStale(address core, Rebalanced memory r, uint twap)
         private returns (bool) {
         // §DE-TICK — `spot` IS `r.spotPrice` now; there is no sqrt to decode and no token
         // ordering to resolve, because a USD-per-volatile price does not flip with ordering.
@@ -2303,16 +2303,16 @@ library SwapLib {
         // back into a sqrt price without an absolute price→sqrt conversion. In price space the
         // target simply IS the price, so the whole encoding step disappears.
         if (twap == r.spotPrice) return false;   // already aligned
-        _doReseat(v4, r, twap);
+        _doReseat(core, r, twap);
         return true;
     }
 
     /// @dev Burn+move+re-range to `targetSqrt` — own frame so the reseat's 5-tuple
     ///      return doesn't pin _reseatIfStale's stack (legacy pipeline, no via_ir).
-    function _doReseat(address v4, Rebalanced memory r, uint targetPrice)
+    function _doReseat(address core, Rebalanced memory r, uint targetPrice)
         private {
         if (r.myLiquidity > 0) {
-            r.price = ICore(v4).repack(targetPrice);   // §ONE-ANCHOR: the anchor, not the pair
+            r.price = ICore(core).repack(targetPrice);   // §ONE-ANCHOR: the anchor, not the pair
             r.didRepack = true;
         }
         (r.loPrice, r.upPrice) = updateBounds(targetPrice, BAND_DELTA);

@@ -51,7 +51,7 @@ contract DrainAtomicity is AllesFixture {
         vm.warp(block.timestamp + 20 minutes);
     }
 
-    /// stable → volatile: the band hands out ETH, so `inv` FALLS and it gets SCARCER.
+    /// stable → volatile: the band hands out BTC, so `inv` FALLS and it gets SCARCER.
     /// §E71-r3 — RETURNS THE VOLATILE THE TRADER ACTUALLY RECEIVED. The original version returned
     /// nothing and the test read `skewPremiumCum` instead: OUR OWN ACCOUNTING of what we retained.
     /// That is the same trap that hid the delivery bug through six layers of diagnosis — asserting
@@ -63,7 +63,7 @@ contract DrainAtomicity is AllesFixture {
         // §E71-r3 CONTROL: count NATIVE ETH as well as WETH. I already made the mistake once of
         // reading a single token and concluding "delivered nothing" when the payout landed elsewhere
         // (E69, where proceeds arrived as a different basket stable). A volatile leg can settle as
-        // native ETH, so summing both is what makes a zero reading mean ZERO RECEIPT rather than
+        // native BTC, so summing both is what makes a zero reading mean ZERO RECEIPT rather than
         // ZERO KNOWLEDGE of where it went.
         uint before = WETH.balanceOf(drainer) + drainer.balance;
         vm.startPrank(drainer);
@@ -81,7 +81,7 @@ contract DrainAtomicity is AllesFixture {
     function _setupBand() internal {
         _seedBasket();
         vm.prank(lpA);
-        V4.deposit{value: 400 ether}(0, lpA);
+        ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         // Pre-drain into the SCARCE region so both legs start from an identical, premium-charging
         // state. Starting flush would put both at zero premium and measure nothing.
@@ -195,7 +195,7 @@ contract DrainAtomicity is AllesFixture {
     /// `live` must exceed `SPLICE_FLOOR` while staying below `raw × 2` (the amplifier's own ceiling).
     function test_E98_BtcLegAndTheSpliceFloorSplit() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         uint ethAlone = AUX.wellSkew(address(WETH), 0);
 
@@ -336,19 +336,19 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E101_DoesAnLpBurnMoveInventoryWithoutBumpingFlow() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
         _settle();
         for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a history
         vm.warp(block.timestamp + 1 days);                    // let it decay so a bump is visible
 
         uint invBefore  = CORE.POOLED();
         uint flowBefore = CORE.flowEwmaUsd();
-        uint shares     = V4.balanceOf(lpA);
+        uint shares     = ETH.balanceOf(lpA);
         emit log_named_uint("LP shares held           ", shares);
 
         uint64 tsFast0 = _flowTs(false); uint64 tsSlow0 = _flowTs(true);
         vm.prank(lpA);
-        V4.withdraw(20 ether, lpA, lpA);   // §E102: no try/catch -- a revert must announce itself
+        ETH.withdraw(20 ether, lpA, lpA);   // §E102: no try/catch -- a revert must announce itself
         vm.roll(block.number + 1);
 
         uint invAfter  = CORE.POOLED();
@@ -382,12 +382,12 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E100_DoesAnLpAddBumpTheFlowTimestamp() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         _settle();
         for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a non-zero history
 
         uint invBefore   = CORE.POOLED();
-        uint repackBefore = V4.LAST_REPACK();
+        uint repackBefore = ETH.LAST_REPACK();
         uint flowBefore  = CORE.flowEwmaUsd();
         vm.warp(block.timestamp + 3 days);                    // let the clock move, no trading
         uint flowMid = CORE.flowEwmaUsd();               // decayed, proving time passed
@@ -396,11 +396,11 @@ contract DrainAtomicity is AllesFixture {
         // is only valid when the FAST leg binds, and this row's original conclusion rested on it.
         uint64 tsFast0 = _flowTs(false); uint64 tsSlow0 = _flowTs(true);
         // THE LP ACTION under test -- moves POOLED_* with no swap.
-        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 50 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         uint invAfter    = CORE.POOLED();
-        uint repackAfter = V4.LAST_REPACK();
+        uint repackAfter = ETH.LAST_REPACK();
         emit log_named_uint("POOLED before / after", invBefore);
         emit log_named_uint("                         ", invAfter);
         emit log_named_uint("flow (decayed, pre-add)  ", flowMid);
@@ -433,7 +433,7 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E99_DoesTheSkewSeePersistence() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         for (uint i = 0; i < 20; ++i) {
             _drain(20_000 * 1e18);
@@ -474,14 +474,14 @@ contract DrainAtomicity is AllesFixture {
         // Reference: sell into a FRESH band (at/below target ⇒ `over == 0` ⇒ EXEMPT by construction).
         uint snap = vm.snapshotState();
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         uint refOut = _sell(SMALL);
         vm.revertToState(snap);
 
         // Now push the band ABUNDANT with someone else's sells, then send the SAME small ticket.
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         for (uint i = 0; i < 15; ++i) _sell(20 ether);
         uint heavyOut = _sell(SMALL);
@@ -527,7 +527,7 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E88_IsTheSentinelReachableAtAll() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
         // Many TINY drains: enough to build a flow EWMA, each too small to be expected to move a tick.
@@ -559,7 +559,7 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E88_SigmaSentinelDiscriminatesUnmeasuredFromCalm() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
         // FRESH band: `OracleLib.initPool` sets `cardinality = 1`, so the ring is UNPOPULATED by the
@@ -612,7 +612,7 @@ contract DrainAtomicity is AllesFixture {
     ///     calls, so "load-bearing" is a measurement rather than a reading of the source.
     function test_E104_ReseatInventoryAndE59Ceiling() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
         // (2) E59: a FRESH band has unmeasured variance. Does it charge the ceiling?
@@ -625,7 +625,7 @@ contract DrainAtomicity is AllesFixture {
         uint64 tsF0 = _flowTs(false); uint64 tsS0 = _flowTs(true);
 
         // (1) RESEAT -- permissionless, no swap.
-        V4.reseat();
+        ETH.reseat();
         vm.roll(block.number + 1);
         uint invAfter = CORE.POOLED();
         emit log_named_uint("RESEAT: POOLED before   ", invBefore);
@@ -695,10 +695,10 @@ contract DrainAtomicity is AllesFixture {
     /// a fixed frame is untenable and the epoch is unavoidable rather than incidental.
     function test_E118_TickTravelVersusBandWidth() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         (uint t0,) = CORE.poolStats();
-        uint origLo = _bLo(address(V4)); uint origHi = _bHi(address(V4));
+        uint origLo = _bLo(address(ETH)); uint origHi = _bHi(address(ETH));
         emit log_named_uint("band width (price)        ", origHi - origLo);
         emit log_named_uint("start price              ", t0);
 
@@ -715,10 +715,10 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("price range visited      ", maxT - minT);
         emit log_named_uint("  min price              ", minT);
         emit log_named_uint("  max price              ", maxT);
-        emit log_named_uint("frame lower price        ", _bLo(address(V4)));
-        emit log_named_uint("frame upper price        ", _bHi(address(V4)));
-        emit log_named_uint("band NOW  LOWER         ", _bLo(address(V4)));
-        emit log_named_uint("band NOW  UPPER         ", _bHi(address(V4)));
+        emit log_named_uint("frame lower price        ", _bLo(address(ETH)));
+        emit log_named_uint("frame upper price        ", _bHi(address(ETH)));
+        emit log_named_uint("band NOW  LOWER         ", _bLo(address(ETH)));
+        emit log_named_uint("band NOW  UPPER         ", _bHi(address(ETH)));
         emit log_named_uint("ORIGINAL  LOWER         ", origLo);
         emit log_named_uint("ORIGINAL  UPPER         ", origHi);
 
@@ -735,19 +735,19 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E117_TwapAcrossAReseatMixesFrames() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);
 
         uint32[] memory ago = new uint32[](2); ago[0] = 0; ago[1] = 3600;
-        bytes32 ep0 = keccak256(abi.encode(_bLo(address(V4)), _bHi(address(V4))));  // the FRAME, not a count
-        uint lo0 = _bLo(address(V4)); uint hi0 = _bHi(address(V4));
+        bytes32 ep0 = keccak256(abi.encode(_bLo(address(ETH)), _bHi(address(ETH))));  // the FRAME, not a count
+        uint lo0 = _bLo(address(ETH)); uint hi0 = _bHi(address(ETH));
         // §TICK-REMOVAL — the ring yields a PRICE TWAP now, so the reading is in price space. The
         // frame (LOWER/UPPER_TICK) is still v4's and still ticks, so the FRAME-MOVED signal below —
         // which is what this diagnostic exists to surface — is unchanged.
         uint192[] memory c0 = CORE.observe(ago);
         uint twap0 = uint(c0[0] - c0[1]) / 3600;
-        emit log_named_uint("BEFORE: lower price     ", _bLo(address(V4)));
+        emit log_named_uint("BEFORE: lower price     ", _bLo(address(ETH)));
         emit log_named_uint("BEFORE: 1h TWAP price  ", twap0);
 
         // Force frame motion the way E112 did -- sells push price to loPrice and trigger repacks.
@@ -759,11 +759,11 @@ contract DrainAtomicity is AllesFixture {
             vm.stopPrank(); _settle();
         }
 
-        bytes32 ep1 = keccak256(abi.encode(_bLo(address(V4)), _bHi(address(V4))));
-        uint lo1 = _bLo(address(V4)); uint hi1 = _bHi(address(V4));
+        bytes32 ep1 = keccak256(abi.encode(_bLo(address(ETH)), _bHi(address(ETH))));
+        uint lo1 = _bLo(address(ETH)); uint hi1 = _bHi(address(ETH));
         uint192[] memory c1 = CORE.observe(ago);
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
-        emit log_named_uint("AFTER : lower price     ", _bLo(address(V4)));
+        emit log_named_uint("AFTER : lower price     ", _bLo(address(ETH)));
         emit log_named_uint("AFTER : 1h TWAP price  ", twap1);
         emit log_named_uint("AFTER : band LOWER     ", lo1);
         emit log_named_uint("AFTER : band UPPER     ", hi1);
@@ -778,7 +778,7 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E116_TimeWeightedTickLagsTheSpot() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);   // establish a history
 
@@ -799,7 +799,7 @@ contract DrainAtomicity is AllesFixture {
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
         emit log_named_uint("AFTER  move: spot price ", spot1);
         emit log_named_uint("AFTER  move: 1h TWAP px", twap1);
-        emit log_named_uint("frame lower price       ", _bLo(address(V4)));
+        emit log_named_uint("frame lower price       ", _bLo(address(ETH)));
 
         if (spot1 == spot0) { emit log("VOID: the move did not shift the spot tick."); return; }
         if (twap1 == twap0) {
@@ -811,19 +811,19 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E115_NormalizedTickTracksComposition() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         for (uint round = 0; round < 5; ++round) {
             for (uint d = 0; d < 4; ++d) _drain(20_000 * 1e18);
             (uint ct, uint liq) = CORE.poolStats();
-            uint lo = _bLo(address(V4)); uint hi = _bHi(address(V4));
+            uint lo = _bLo(address(ETH)); uint hi = _bHi(address(ETH));
             uint px = AUX.getTWAPforAsset(address(WETH), 1800);
             uint volLeg = CORE.POOLED() * px / 1e30;
             uint usdLeg = CORE.POOLED_USD();
             uint norm = hi > lo && ct >= lo ? uint((ct - lo)) * 1e4 / uint((hi - lo)) : 0;
             emit log_named_uint("normalized tick (1e-4)  ", norm);
             emit log_named_uint("  vol:USD ratio (1e-4)  ", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
-            emit log_named_uint("  frame lower price      ", _bLo(address(V4)));
+            emit log_named_uint("  frame lower price      ", _bLo(address(ETH)));
             emit log_named_uint("  liquidity             ", liq);
         }
         emit log("Monotone normalized-vs-ratio WITHIN one frame => the instrument works.");
@@ -832,7 +832,7 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E109_DoesReseatMoveTheRatio() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
         _settle();
         // §E110-r: the repack gate is `currentTick >= upPrice || currentTick < loPrice`, so the
         // band must be driven OUT OF RANGE before a reseat does anything. 12 rounds of 20k moved
@@ -884,10 +884,10 @@ contract DrainAtomicity is AllesFixture {
         // `UPPER_TICK`/`reseatEpoch` are unchanged, the reseat was a NO-OP and E109 tested NOTHING —
         // its "refutation" of the price-in-range mechanism would itself be void. I asserted a
         // negative result without checking the operation under test had any effect.
-        uint lo0 = _bLo(address(V4)); uint hi0 = _bHi(address(V4));
-        V4.reseat();
+        uint lo0 = _bLo(address(ETH)); uint hi0 = _bHi(address(ETH));
+        ETH.reseat();
         vm.roll(block.number + 1);
-        uint lo1 = _bLo(address(V4)); uint hi1 = _bHi(address(V4));
+        uint lo1 = _bLo(address(ETH)); uint hi1 = _bHi(address(ETH));
         emit log_named_uint("LOWER_PRICE before/after   ", lo0);
         emit log_named_uint("                          ", lo1);
         emit log_named_uint("UPPER_PRICE before/after   ", hi0);
@@ -929,19 +929,19 @@ contract DrainAtomicity is AllesFixture {
             uint snap = vm.snapshotState();
             _seedBasket();
             vm.deal(lpA, 6000 ether);
-            vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
+            vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
             _settle();
             for (uint d = 0; d < 12; ++d) _drain(20_000 * 1e18);
 
             uint inner = vm.snapshotState();
             for (uint d = 0; d < 6; ++d) _drain(5_000 * 1e18);
-            uint noRepair = V4.convertToAssets(1e18);
+            uint noRepair = ETH.convertToAssets(1e18);
             vm.revertToState(inner);
 
-            vm.prank(lpA); V4.deposit{value: sizes[i]}(0, lpA);
+            vm.prank(lpA); ETH.deposit{value: sizes[i]}(0, lpA);
             vm.roll(block.number + 1);
             for (uint d = 0; d < 6; ++d) _drain(5_000 * 1e18);
-            uint repaired = V4.convertToAssets(1e18);
+            uint repaired = ETH.convertToAssets(1e18);
 
             // §E108b-r: locate 1:1 -- "full restoration" is ambiguous between restoring the DRAINED
             // amount and reaching volatile==USD. The optimum must be stated against a named target.
@@ -965,12 +965,12 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E108_DoesLpFundedRepairPayForItself() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
         _settle();
         for (uint i = 0; i < 12; ++i) _drain(20_000 * 1e18);   // drive the imbalance
 
         uint invDrained = CORE.POOLED();
-        uint perShare0  = V4.convertToAssets(1e18);
+        uint perShare0  = ETH.convertToAssets(1e18);
         emit log_named_uint("after drain: POOLED  ", invDrained);
         emit log_named_uint("after drain: value/share ", perShare0);
 
@@ -978,16 +978,16 @@ contract DrainAtomicity is AllesFixture {
 
         // LEG A -- NO REPAIR. Same subsequent flow.
         for (uint i = 0; i < 6; ++i) _drain(5_000 * 1e18);
-        uint perShareA = V4.convertToAssets(1e18);
+        uint perShareA = ETH.convertToAssets(1e18);
         uint invA = CORE.POOLED();
         vm.revertToState(snap);
 
         // LEG B -- LP REPAIRS by depositing the scarce side, then the SAME subsequent flow.
-        vm.prank(lpA); V4.deposit{value: 40 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 40 ether}(0, lpA);
         vm.roll(block.number + 1);
         uint invRepaired = CORE.POOLED();
         for (uint i = 0; i < 6; ++i) _drain(5_000 * 1e18);
-        uint perShareB = V4.convertToAssets(1e18);
+        uint perShareB = ETH.convertToAssets(1e18);
 
         emit log_named_uint("REPAIR moved POOLED to", invRepaired);
         emit log_named_uint("leg A (no repair) inv     ", invA);
@@ -1053,7 +1053,7 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E67_IsTheFreedHeadroomBackedByRealDollars() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
         (uint[15] memory amts,,,) = AUX.get_deposits();
@@ -1085,14 +1085,14 @@ contract DrainAtomicity is AllesFixture {
             // BALANCED reference for THIS ticket size.
             uint snap = vm.snapshotState();
             _seedBasket();
-            vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+            vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
             _settle();
             uint refEth = _drain(tickets[i]);
             vm.revertToState(snap);
 
             // SAME ticket into a band someone else drained to the SAME depth.
             _seedBasket();
-            vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+            vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
             _settle();
             for (uint r = 0; r < 20; ++r) _drain(20_000 * 1e18);
             uint skewedEth = _drain(tickets[i]);
@@ -1118,7 +1118,7 @@ contract DrainAtomicity is AllesFixture {
         for (uint r = 0; r < 4; ++r) {
             uint snap = vm.snapshotState();
             _seedBasket();
-            vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+            vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
             _settle();
             for (uint i = 0; i < rounds[r]; ++i) _drain(20_000 * 1e18);
             uint inv = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
@@ -1148,7 +1148,7 @@ contract DrainAtomicity is AllesFixture {
         // LEG A — the SAME small swap into a FRESH, balanced band.
         uint snap = vm.snapshotState();
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         uint invBal = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethBalanced = _drain(SMALL);
@@ -1306,7 +1306,7 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("B skew (usd6) ", premB);
         // ETH is 18-dec, px is usd*1e18 per 1e18 wei scaled 1e30 in this repo's convention.
         // §UNIT-SKEW-IS-NOISE post-§UNIT-A: what FRACTION of the swapper's bill is the skew?
-        emit log_named_uint("px (usd18/ETH)  ", px);
+        emit log_named_uint("px (usd18/BTC)  ", px);
         emit log_named_uint("ETH at oracle   ", SIZE * 1e18 / px);
         emit log_named_uint("ETH received (B)", ethB);
         emit log_named_uint("TOTAL cost usd18", (SIZE * 1e18 / px - ethB) * px / 1e18);
@@ -1609,7 +1609,7 @@ contract DrainAtomicity is AllesFixture {
         // CONTROL: a band that is not skewed cannot demonstrate that skew survives anything.
         assertGt(skewBefore, 0, "CONTROL: the band must actually be skewed before the reseat");
 
-        V4.reseat();
+        ETH.reseat();
 
         uint skewAfter   = AUX.wellSkew(address(WETH), 0);
         uint pooledAfter = CORE.POOLED();

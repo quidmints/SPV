@@ -39,7 +39,7 @@ contract BtcLpMintStress is AllesFixture {
     /// Deploy a real BTCChannels (mock SPV - the SPV crypto is covered elsewhere)
     /// and pin it as THE channels contract so register/close drive the real Vault.
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(address(new MockSPV()), address(ETH), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
     }
@@ -465,7 +465,7 @@ contract BtcLpMintStress is AllesFixture {
     /// bounded by an empty pool and the test asserts nothing.
     function _primePoolUsd(BTCChannels ch) internal {
         ch;
-        // ⚠️ `vm.deal` gives ETH, not USDC — the setUp only funds ETH, so without this the
+        // ⚠️ `vm.deal` gives BTC, not USDC — the setUp only funds BTC, so without this the
         // priming swaps spend nothing, POOLED_USD stays empty, and the swap-in trips
         // `SlippageMaxS` for a reason that has nothing to do with what is under test.
         deal(address(USDC), User03, 500_000 * USDC_PRECISION);
@@ -554,7 +554,7 @@ contract BtcLpMintStress is AllesFixture {
         (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
             _open(ch, 1, 1_000_000); // open 0.01 BTC
         uint pooled0; uint locked0 = ch.totalSatsLocked();
-        { (uint p0,,,) = ETH.autoManaged(lpEth); pooled0 = p0;
+        { (uint p0,,,) = BTC.autoManaged(lpEth); pooled0 = p0;
           (uint a0, , , , , ) = ch.channels(channelId); assertEq(a0, 1_000_000, "opened 1.0mm"); }
 
         bytes32 newTxId = _splice(ch, channelId, fundingTxId, 1, lpPubkey, 1_600_000); // grow → 1.6mm
@@ -564,7 +564,7 @@ contract BtcLpMintStress is AllesFixture {
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice tx");
         assertEq(st1, 0, "channel still OPEN");
         assertEq(ch.totalSatsLocked(), locked0 + 600_000, "totalSatsLocked grew by the delta");
-        (uint pooled1,,,) = ETH.autoManaged(lpEth);
+        (uint pooled1,,,) = BTC.autoManaged(lpEth);
         assertGt(pooled1, pooled0, "LP BTC pool position grew");
         _assertSolvent("splice keeps backing solvent");
     }
@@ -633,7 +633,7 @@ contract BtcLpMintStress is AllesFixture {
         (bytes32 channelId, bytes32 fundingTxId, address lpEth, bytes memory lpPubkey) =
             _open(ch, 7, 1_600_000); // open 0.016 BTC
         uint locked0 = ch.totalSatsLocked();
-        (uint pooled0,,,) = ETH.autoManaged(lpEth);
+        (uint pooled0,,,) = BTC.autoManaged(lpEth);
 
         bytes32 newTxId = _spliceOut(ch, channelId, fundingTxId, 7, lpPubkey, 1_000_000); // shrink → 1.0mm
 
@@ -642,7 +642,7 @@ contract BtcLpMintStress is AllesFixture {
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice-out tx");
         assertEq(st1, 0, "channel still OPEN after partial withdrawal");
         assertEq(ch.totalSatsLocked(), locked0 - 600_000, "totalSatsLocked shrank by the withdrawn slice");
-        (uint pooled1,,,) = ETH.autoManaged(lpEth);
+        (uint pooled1,,,) = BTC.autoManaged(lpEth);
         assertLt(pooled1, pooled0, "LP BTC pool position shrank");
         _assertSolvent("splice-out keeps backing solvent");
     }
@@ -696,7 +696,7 @@ contract BtcLpMintStress is AllesFixture {
         // had to be a fee-rate estimate — and why it could not distinguish a fee defect from a
         // volume change from a haircut leak. Crystallising here zeroes the bookmark, so what
         // follows is the proceeds mint alone and can be asserted EXACTLY.
-        vm.prank(s.lpEth); ETH.collectBtcFees();
+        vm.prank(s.lpEth); BTC.collectBtcFees();
         uint qdBefore = QUID.balanceOf(s.lpEth);
 
         // Hop delivers: splice-out the channel, paying the swapper their sats.
@@ -1259,7 +1259,7 @@ contract BtcLpMintStress is AllesFixture {
         // Now drive REAL ETH-side activity: an LP deposit (which runs checkBacking and commits ETH-band
         // USD) plus swaps in both directions on the ETH curve.
         vm.deal(User01, 500 ether);
-        vm.prank(User01); V4.deposit{value: 200 ether}(0, User01);
+        vm.prank(User01); ETH.deposit{value: 200 ether}(0, User01);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         for (uint i = 0; i < 3; i++) {
             vm.prank(User01);

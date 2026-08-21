@@ -70,7 +70,7 @@ contract BackingGateSplit is AllesFixture {
 
         vm.deal(User01, 200 ether);
         vm.prank(User01);
-        try V4.deposit{value: 100 ether}(0, User01) {
+        try ETH.deposit{value: 100 ether}(0, User01) {
             console.log("deposit SUCCEEDED");
         } catch Error(string memory reason) {
             console.log("deposit reverted:", reason);

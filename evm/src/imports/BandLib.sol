@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
 import {NotOpen, BadTarget} from "./Types.sol";
-import {ICore, IBand, IAux, ILevEquity} from "./Interfaces.sol";
+import {ICore, ICore, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {BasketLib} from "./BasketLib.sol";
@@ -67,7 +67,7 @@ library BandLib {
     /// @notice NET-EQUITY leg. Grows `pooled` (and so the share count) and the levered net slice.
     /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `IQuid(this).addLiq`
     ///         on ETH versus the library-local `addLiqChannel` on BTC -- and that is now one method
-    ///         on the band face (`IBand.addLiq`), because routing is exactly what belongs in the
+    ///         on the band face (`ICore.addLiq`), because routing is exactly what belongs in the
     ///         band. The other three differences were drift: price passed vs read (read here,
     ///         once), `modLP` direct vs wrapped (direct), and the refresh placement (carried, see
     ///         `levBurnAll`).
@@ -78,7 +78,7 @@ library BandLib {
         address lp, uint netEq, uint price, Types.BandP memory p
     ) public returns (uint added) {
         if (netEq == 0 || price == 0) return 0;
-        (uint netUsd, uint netTok) = IBand(address(this)).addLiq(netEq, price);
+        (uint netUsd, uint netTok) = ICore(address(this)).addLiq(netEq, price);
         if (netTok == 0) return 0;
         LP.pooled += netTok; levPooled[lp] += netTok;
         SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.feesPerShare, p.usdFees);

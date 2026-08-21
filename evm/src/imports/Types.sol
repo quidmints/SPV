@@ -285,7 +285,7 @@ library Types {
         address seller;
         address token;
         uint    pricePerBtc;   // stable units per BTC, as quoted to the seller
-        uint16  slippageBps;   // tolerance below the quote (the v4 curve fills under spot)
+        uint16  slippageBps;   // tolerance below the quote (the fill settles at the oracle, which can land under spot)
     }
 
     struct DepositProof {
@@ -315,7 +315,7 @@ library Types {
         address token;
         uint    amount;
         uint    pooled;
-        uint    v4Price;
+        uint    fillPrice;
         address recipient;
         // §ISBTC-SPLIT — `isBTC` REMOVED: it was WRITE-ONLY. Three sites set it and `routeSwap`
         // never read it, so it travelled the whole swap path to be ignored.

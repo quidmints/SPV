@@ -47,7 +47,7 @@ library DeployLib {
     struct StackConfig {
         // §V4-ZERO — was `IPoolManager poolManager`. The stack needed it for ONE deploy-time read:
         // two reference-pool `slot0`s, to seed each band's ring. That read is Chainlink now, so the
-        // config carries the two feeds and no v4 type appears in the deploy at all.
+        // config carries the two feeds and no ETH type appears in the deploy at all.
         address ethFeed;
         address btcFeed;
         // ── tokens (canonical mainnet in every caller) ──
@@ -66,7 +66,7 @@ library DeployLib {
         address morphoUsdsVault;
         address sdai;
         address susde;
-        // ── AAVE v4 ──
+        // ── AAVE ETH ──
         address aaveSpoke;
         address aaveHub;
         // ── ETH-venue WETH 4626s (mock in tests, real in prod) ──
@@ -100,7 +100,7 @@ library DeployLib {
     /// @dev The deployed core-stack addresses. `rover`/`spvGateway`/`btcChannels`
     ///      are 0 when the corresponding flag was false.
     struct StackAddrs {
-        address v4;
+        address ETH;
         address core;
         address aux;
         address quid;
@@ -115,7 +115,7 @@ library DeployLib {
 
     /// @notice Deploy + wire the core QU!D stack in the exact production order.
     function deployQuidStack(StackConfig memory cfg) internal returns (StackAddrs memory a) {
-        Quid v4 = new Quid();
+        Quid ETH = new Quid();
         // §BANDBACKING-FOLD — TWO INSTANCES, AND THE ACCOUNTANT IS `Aux`.
         // `Core` is single-asset, so the stack deploys one per band. The ONE thing they still share
         // — the joint committed equity that `require(committedUsd18() <= haircutTvl)` gates on —
@@ -146,7 +146,7 @@ library DeployLib {
             //   ("correlated sources are one source") and one venue fails it on its own terms.
             // ⛔ RULED OUT, so nobody re-tries them: 1inch's OffchainOracle iterates 14 venues at
             //   31,722,803 gas — above the 30M block limit, unexecutable on the swap path. A v3 TWAP
-            //   needs `1.0001^tick`, i.e. `TickMath`, which the v4 cut removed.
+            //   needs `1.0001^tick`, i.e. `TickMath`, which the ETH cut removed.
             // ▶️ WHAT WOULD WORK: several on-pool EMAs in DIFFERENT quote assets, median-of-N with a
             //   spread cap. Measured 2026-08-21 — WETH/USDC $2,384.81 · WETH/USDT $2,386.52 ·
             //   WETH/crvUSD $2,384.83, a 7.2 bps spread, one storage read each. The index is PER-POOL
@@ -158,7 +158,7 @@ library DeployLib {
             // unaffected and already wrapper-free (Chainlink BTC/USD).
         }
         Aux aux = new Aux(Aux.AuxInit({
-            band: address(v4), core: address(core), btcCore: a.btcCore,
+            band: address(ETH), core: address(core), btcCore: a.btcCore,
             weth: cfg.weth, wbtc: cfg.wbtc,
             gho: cfg.gho, usdg: cfg.usdg,
             aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
@@ -168,7 +168,7 @@ library DeployLib {
         // ANGEL NFT — no predicted address needed. Basket's constructor requires this approval, so it can't be
         // born without the seed committed; Aux burns ANGEL deployer→DEAD at finalize via the same approval.
         IF8N(F8N_COLLECTION).approve(address(aux), ANGEL_ID);
-        Basket quid = new Basket(address(v4), address(aux));
+        Basket quid = new Basket(address(ETH), address(aux));
 
         // Reference V4 PoolKeys — Core reads their slot0 ticks at setup and seeds
         // VANILLA_ETH / VANILLA_BTC at live market prices (built in its own frame).
@@ -181,7 +181,7 @@ library DeployLib {
         // overflowed at `_newVault` before the block was added.
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
-        core.setup(address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Quid
+        core.setup(address(ETH), address(aux), address(quid), seedEth);   // ETH band manager IS Quid
         // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
         // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the band off one pool
         // makes that pool's depth and its own depeg mode an input to σ², the skew and liquidation —
@@ -206,7 +206,7 @@ library DeployLib {
         // dispatching WBTC to it, which is why the gap stayed invisible.
         Core(a.btcCore).setup(address(0), address(aux), address(quid), seedBtc);   // BTC band pins in setBtcVault (Vault deployed later)
         }
-        v4.setup(address(quid), address(aux), address(core));
+        ETH.setup(address(quid), address(aux), address(core));
         aux.setQuid(address(quid));
 
         // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Quid ──
@@ -214,39 +214,39 @@ library DeployLib {
         // instance) while `Vault.sol` states outright "the instance IS the BTC one", so the code
         // assumed one wiring and the deploy supplied another -- the comment was right and the
         // assignment was wrong, which is the exact shape CLAUDE.md records for this split.
-        Vault eth = _newVault(cfg, address(v4), a.btcCore, address(aux));  // own frame (no via_ir)
+        Vault BTC = _newVault(cfg, a.btcCore, address(aux));  // own frame (no via_ir)
         // The ETH-venue pointers now target the CUSTODY contract, not the Vault. Every
-        // `IBand(...)` call site follows the pin, so nothing else moves.
+        // `ICore(...)` call site follows the pin, so nothing else moves.
         // §ETHVENUE-FOLD — the ETH yield venue IS Quid. One fewer deployable contract, and one
         // fewer pin: `setEthVenueContract` is gone with the separate address it existed to name.
         // `aux.setEthVenue` still runs, now pointing at the band manager itself.
-        aux.setEthVenue(address(v4));            // MUST run after V4.setup (WETH set)
-        eth.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
-        core.setBtcVault(address(eth));
-        Core(a.btcCore).setBtcVault(address(eth));   // the BTC instance needs the same pin
-        quid.setBtcVault(address(eth));
+        aux.setEthVenue(address(ETH));            // MUST run after ETH.setup (WETH set)
+        BTC.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
+        core.setBtcVault(address(BTC));
+        Core(a.btcCore).setBtcVault(address(BTC));   // the BTC instance needs the same pin
+        quid.setBtcVault(address(BTC));
 
-        a.v4 = address(v4);
+        a.ETH = address(ETH);
         a.core = address(core);
         a.aux = address(aux);
         a.quid = address(quid);
-        a.vault = address(eth);
-        a.ethVenue = address(v4);
+        a.vault = address(BTC);
+        a.ethVenue = address(ETH);
 
 
         // ── native BTC LP infrastructure (SPV gateway + per-LP channel registry) ──
         if (cfg.deployChannels) {
-            (a.spvGateway, a.btcChannels) = _deployChannels(cfg, address(aux), address(v4), address(eth));
+            (a.spvGateway, a.btcChannels) = _deployChannels(cfg, address(aux), address(BTC));
         }
     }
 
     /// @dev SPV gateway + BTCChannels + the Aux pin, in its own frame.
     /// @dev `new Vault(...)` in its OWN frame (no via_ir) — it tips deployQuidStack's stack inline.
-    function _newVault(StackConfig memory cfg, address v4, address core, address aux) internal returns (Vault) {
+    function _newVault(StackConfig memory cfg, address core, address aux) internal returns (Vault) {
         return new Vault(core, aux, cfg.weth);
     }
 
-    function _deployChannels(StackConfig memory cfg, address aux, address /*v4*/, address eth)
+    function _deployChannels(StackConfig memory cfg, address aux, address BTC)
         private returns (address gw, address ch)
     {
         SPVGateway spv = new SPVGateway();
@@ -291,26 +291,26 @@ library DeployLib {
         if (cfg.spvCheckpointFollowers.length != 0) {
             spv.addBlockHeaderBatch(cfg.spvCheckpointFollowers);
         }
-        // BTCChannels binds `btcVault = _band` (the 3rd arg). The BTC side was regrouped
-        // into the merged Vault (`eth`) — creditSwapOut / requestDeposit / resize all
-        // live there (Quid/`v4` has none). So the BtcVault is `eth`, NOT `v4`: passing v4
-        // pointed btcVault at Quid, whose fallback returns empty ⇒ creditSwapOut decode-
+        // BTCChannels binds `btc = _band` (the 3rd arg). The BTC side was regrouped
+        // into the merged Vault (`BTC`) — creditSwapOut / requestDeposit / resize all
+        // live there (Quid/`ETH` has none). So the BtcVault is `BTC`, NOT `ETH`: passing ETH
+        // pointed btc at Quid, whose fallback returns empty ⇒ creditSwapOut decode-
         // reverts (swap-out) and requestDeposit silently no-ops (open). Mirrors the canonical
         // BtcLpMintStress._deployChannels wiring (`new BTCChannels(spv, ETH)`).
         // (E164) MAIN_HOP + FALLBACK_HOP are pinned at construction and can never be added to:
         // a governed hop set is a Safe that can grant itself channels, which is the lever a
         // 4-of-7 compromise pulls. `cfg` carries both so a deployment names them explicitly
         // rather than inheriting a default nobody chose.
-        BTCChannels c = new BTCChannels(address(spv), eth, cfg.mainHop, cfg.fallbackHop,
+        BTCChannels c = new BTCChannels(address(spv), BTC, cfg.mainHop, cfg.fallbackHop,
                                         cfg.btcDepositKey);
-        // WIRING INVARIANT (regression guard): btcVault MUST be the merged Vault `eth` —
+        // WIRING INVARIANT (regression guard): btc MUST be the merged Vault `BTC` —
         // where creditSwapOut / requestDeposit / resize live. A prior version passed
-        // `v4` (Quid, which has none), silently breaking ALL BTC swap-out (creditSwapOut
+        // `ETH` (Quid, which has none), silently breaking ALL BTC swap-out (creditSwapOut
         // decode-reverts) and no-op'ing requestDeposit on open. Assert at deploy so any
         // future miswire fails LOUDLY here (incl. production DeployL1_s) instead of on the
         // first live swap-out. Covers the gap that shipped it: forge tests deploy channels
         // by hand, so nothing exercised deployQuidStack(deployChannels:true) until now.
-        require(address(c.btcVault()) == eth, "DeployLib: btcVault must be the Vault");
+        require(address(c.btc()) == BTC, "DeployLib: btc must be the Vault");
         Aux(payable(aux)).setBTCChannels(address(c));
         gw = address(spv);
         ch = address(c);

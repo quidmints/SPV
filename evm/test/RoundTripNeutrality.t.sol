@@ -21,14 +21,14 @@ contract RoundTripNeutrality is AllesFixture {
     /// (1) ENTRY IDENTITY — a deposit credits `pooled` 1:1 with assets, and `lpShares` moves by exactly
     ///     that amount. This is the invariant the refactor must not disturb: `pooled` IS the share unit.
     function testRT_EntryIsOneToOne() public {
-        uint before  = V4.lpShares();
+        uint before  = ETH.lpShares();
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01);          // VENUE_GALAXY
+        ETH.deposit{value: 10 ether}(0, User01);          // VENUE_GALAXY
 
-        (uint pooled,,,) = V4.autoManaged(User01);
+        (uint pooled,,,) = ETH.autoManaged(User01);
         assertEq(pooled, 10 ether, "deposit credits pooled 1:1 with assets");
-        assertEq(V4.lpShares() - before, pooled, "lpShares moves by EXACTLY the credited pooled");
-        assertEq(V4.balanceOf(User01), pooled, "balanceOf(user) == that user's pooled");
+        assertEq(ETH.lpShares() - before, pooled, "lpShares moves by EXACTLY the credited pooled");
+        assertEq(ETH.balanceOf(User01), pooled, "balanceOf(user) == that user's pooled");
     }
 
     /// (2) ROUND-TRIP CONSERVATION — delivered + RETAINED == principal. The retained term is
@@ -38,15 +38,15 @@ contract RoundTripNeutrality is AllesFixture {
     function testRT_DeliveredPlusRetainedEqualsPrincipal() public {
         uint principal = 10 ether;
         vm.prank(User01);
-        V4.deposit{value: principal}(0, User01);
+        ETH.deposit{value: principal}(0, User01);
         vm.roll(block.number + 1);                          // JIT-lock: exit must be a later block
 
         uint e0 = User01.balance + WETH.balanceOf(User01);
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
+        vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
         uint delivered = (User01.balance + WETH.balanceOf(User01)) - e0;
-        (uint retained,,,) = V4.autoManaged(User01);
+        (uint retained,,,) = ETH.autoManaged(User01);
 
-        // TOLERANCE 1e12 -> 3e15 (0.001 bps -> 3 bps of 10 ETH). NOT a nudge to green: the mechanism is
+        // TOLERANCE 1e12 -> 3e15 (0.001 bps -> 3 bps of 10 BTC). NOT a nudge to green: the mechanism is
         // TRACED. The exit runs `Curve.exchange(1, 0, 9.0795e18, ...)` and mints NO wait-NFT, so the
         // principal crosses TWO conversions -- WETH->weETH in, weETH->WETH out -- at ~0.5 bp each.
         // Measured residual 1.03e15 on 1e19 = ~1.03 bps. 1e12 asserted a LOSSLESS round trip, which was
@@ -64,17 +64,17 @@ contract RoundTripNeutrality is AllesFixture {
     ///     §J.2 refactor must preserve. Asserted in ABSOLUTE terms: the bystander's redeemable value is
     ///     compared before/after against a tolerance derived from its own size, not a constant.
     function testRT_BystanderClaimUnmovedByAnotherLpRoundTrip() public {
-        vm.prank(User02); V4.deposit{value: 10 ether}(0, User02);   // the bystander
-        (uint bystanderPooled,,,) = V4.autoManaged(User02);
-        uint valueBefore = V4.convertToAssets(bystanderPooled);
+        vm.prank(User02); ETH.deposit{value: 10 ether}(0, User02);   // the bystander
+        (uint bystanderPooled,,,) = ETH.autoManaged(User02);
+        uint valueBefore = ETH.convertToAssets(bystanderPooled);
 
-        vm.prank(User01); V4.deposit{value: 25 ether}(0, User01);   // the round-tripper
+        vm.prank(User01); ETH.deposit{value: 25 ether}(0, User01);   // the round-tripper
         vm.roll(block.number + 1);
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
+        vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
 
-        (uint stillPooled,,,) = V4.autoManaged(User02);
+        (uint stillPooled,,,) = ETH.autoManaged(User02);
         assertEq(stillPooled, bystanderPooled, "a bystander's SHARE COUNT is untouched by another LP");
-        assertApproxEqRel(V4.convertToAssets(stillPooled), valueBefore, 0.005e18,
+        assertApproxEqRel(ETH.convertToAssets(stillPooled), valueBefore, 0.005e18,
             "a bystander's REDEEMABLE VALUE is untouched by another LP's full round-trip");
     }
 }
@@ -94,9 +94,9 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         _setupMorpho();
         EV.setLevManager(address(rlm));
         _openLp();
-        V4.syncLev(LP);
+        ETH.syncLev(LP);
 
-        assertGt(V4.totalLevPooled(), 0, "precondition: a levered slice IS open, else this is blind");
+        assertGt(ETH.totalLevPooled(), 0, "precondition: a levered slice IS open, else this is blind");
         assertGt(rlm.totalNetEquity(), 0, "precondition: live lev net-equity is non-zero");
 
         // §#12 RE-DERIVED: `_pricingBacking` is no longer `bandETH` alone — it adds the LP-owned
@@ -113,8 +113,8 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
                 else { uint d = ((base6 - usd6) * 1e12) * 1e18 / px; backing = backing > d ? backing - d : 0; }
             }
         }
-        uint expected = 1e18 * backing / V4.lpShares();
-        assertEq(V4.convertToAssets(1e18), expected,
+        uint expected = 1e18 * backing / ETH.lpShares();
+        assertEq(ETH.convertToAssets(1e18), expected,
             "with the book in sync the price is EXACTLY bandETH/lpShares (clocks coincide)");
     }
 }

@@ -46,7 +46,7 @@ contract LeveragePnLProbe is AllesFixture {
         QUID.mint(User01, 1_000_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
         vm.prank(lp);
-        lpShares = V4.deposit{value: ethDeposit}(0, lp);
+        lpShares = ETH.deposit{value: ethDeposit}(0, lp);
         require(lpShares > 0, "lp deposit failed");
     }
 
@@ -81,8 +81,8 @@ contract LeveragePnLProbe is AllesFixture {
         emit log_named_uint("   POOLED    ", CORE.POOLED());
         emit log_named_uint("   bandETH      ", AUX.bandETH());
         emit log_named_uint("   basketUsd  ", CORE.basketUsd());
-        emit log_named_uint("   lpShares      ", V4.lpShares());
-        emit log_named_uint("   totalLevPooled", V4.totalLevPooled());
+        emit log_named_uint("   lpShares      ", ETH.lpShares());
+        emit log_named_uint("   totalLevPooled", ETH.totalLevPooled());
         emit log_named_uint("   basket TVL    ", _tvl());
         emit log_named_uint("   committedUsd18", CORE.committedUsd18());
         // §WHY-ANY-HAIRCUT — the redeem has exactly TWO haircut paths and both can be inert:
@@ -95,7 +95,7 @@ contract LeveragePnLProbe is AllesFixture {
         emit log_named_uint("   matureSupply  ", IBasketTurn(address(QUID)).matureSupply());
     }
 
-    /// TOTAL LP value in USD18 at a given ETH price (USD18 per 1e18 ETH): redeem the
+    /// TOTAL LP value in USD18 at a given ETH price (USD18 per 1e18 BTC): redeem the
     /// LP in a snapshot, value both legs (ETH + QUID), then revert.
     function _lpValueUsd(uint ethPx18) internal returns (uint usd) {
         uint snap = vm.snapshotState();
@@ -105,12 +105,12 @@ contract LeveragePnLProbe is AllesFixture {
         // 2026-08-16, 31.833 surviving shares priced at 0.0134 ETH (~$25) when the same LP had
         // deposited 400 ETH for ~400 shares. That is the husk, not the claim — so the per-share
         // basis is captured HERE, before anything is burned.
-        uint preShares = V4.balanceOf(lp);
-        uint preAssets = V4.convertToAssets(preShares);
+        uint preShares = ETH.balanceOf(lp);
+        uint preAssets = ETH.convertToAssets(preShares);
         emit log_named_uint("  pre  shares   ", preShares);
         emit log_named_uint("  pre  assets   ", preAssets);
         vm.prank(lp);
-        try V4.redeem(lpShares, lp, lp) {} catch {}
+        try ETH.redeem(lpShares, lp, lp) {} catch {}
         uint ethG  = (lp.balance - eth0) + (WETH.balanceOf(lp) - weth0);
         uint quidG = QUID.balanceOf(lp) - q0;
         // §WHICH-BRANCH — DID THE REDEEM BURN EVERYTHING? `BasketLib:1023` is UNWIND-FIRST,
@@ -127,13 +127,13 @@ contract LeveragePnLProbe is AllesFixture {
         // Measured 2026-08-16, valuing 31.833 surviving shares:
         //   • post-redeem `convertToAssets` → 0.0134 ETH (~$25). The husk: the redeem already paid
         //     the backing out, so this UNDER-values.
-        //   • pre-redeem NAV per share (1.0000257 ETH) → 31.834 ETH (~$59,960). This OVER-values,
+        //   • pre-redeem NAV per share (1.0000257 BTC) → 31.834 ETH (~$59,960). This OVER-values,
         //     and double-counts: `_pricingBacking()` is bandETH() PLUS the LP-owned USD increment,
         //     so that number already contains the USD that was delivered as the 55,225 QUID leg.
         // Folding either in makes the LVR assertion pass for a reason the measurement cannot
         // support. The honest comparison is each arm against ITS OWN pre-redeem NAV, emitted
         // above — that is scope-matched by construction and needs no cross-arm assumption.
-        uint left = V4.balanceOf(lp);
+        uint left = ETH.balanceOf(lp);
         uint residEth = 0;
         emit log_named_uint("  shares left   ", left);
         emit log_named_uint("  resid ETH(wei)", residEth);
@@ -260,17 +260,17 @@ contract LeveragePnLProbe is AllesFixture {
         uint snap0 = vm.snapshotState();
 
         for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; }
-        uint tShares = V4.balanceOf(lp);
-        uint tAssets = V4.convertToAssets(tShares);
+        uint tShares = ETH.balanceOf(lp);
+        uint tAssets = ETH.convertToAssets(tShares);
         emit log_named_uint("TREAT shares      ", tShares);
-        emit log_named_uint("TREAT assets(ETH) ", tAssets);
+        emit log_named_uint("TREAT assets(BTC) ", tAssets);
         emit log_named_uint("TREAT value (USD) ", tAssets * px0 / 1e18);
 
         vm.revertToState(snap0);
-        uint cShares = V4.balanceOf(lp);
-        uint cAssets = V4.convertToAssets(cShares);
+        uint cShares = ETH.balanceOf(lp);
+        uint cAssets = ETH.convertToAssets(cShares);
         emit log_named_uint("CTRL  shares      ", cShares);
-        emit log_named_uint("CTRL  assets(ETH) ", cAssets);
+        emit log_named_uint("CTRL  assets(BTC) ", cAssets);
         emit log_named_uint("CTRL  value (USD) ", cAssets * px0 / 1e18);
 
         assertGt(cShares, 0, "PREMISE: control LP holds no shares");
@@ -329,7 +329,7 @@ contract LeveragePnLProbe is AllesFixture {
         // treatment and control the same scenario — every comparison below then reduces to
         // `x vs x` and passes while measuring nothing.
         assertGt(landed, 0, "PREMISE: at least one leverage open must land, else treatment == control");
-        // PREMISE 2: the LP valuation must be REAL. `_lpValueUsd` wraps `V4.redeem` in a
+        // PREMISE 2: the LP valuation must be REAL. `_lpValueUsd` wraps `ETH.redeem` in a
         // try/catch and returns 0 when it reverts — with all six legs at 0 every inequality
         // below holds vacuously. This is the exact hazard that let a zero-delivery redeem hide
         // in `testDD`. Require delivery on all six measurements.

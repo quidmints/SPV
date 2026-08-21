@@ -335,7 +335,7 @@ contract Deploy is Script {
             allowUnburiedCheckpoint: false,   // (E135-b) PRODUCTION: the checkpoint MUST be buried; followers above prove it
             deployChannels: true
         }));
-        BAND = Quid(payable(A.v4));
+        BAND = Quid(payable(A.ETH));
         CORE = Core(A.core);
         AUX = Aux(payable(A.aux));
         QUID = Basket(A.quid);
@@ -477,7 +477,7 @@ contract Deploy is Script {
         //    `A.btcCore` record the same address. ⚠️ Worth stating because the READ looks wrong:
         //    a variable named `ETH` yielding the BTC core, out of a DeployLib local itself named
         //    `eth` that receives `a.btcCore`. That is the `ethVenue`-into-a-parameter-named-
-        //    `btcVault` shape from CLAUDE.md — benign here (the Vault IS the BTC band; the name is
+        //    `btc` shape from CLAUDE.md — benign here (the Vault IS the BTC band; the name is
         //    the stale half), and exactly why it must be asserted from the constructor argument
         //    rather than read off the name.
         // 2. **THE CLIENT EDIT MUST WAIT FOR A DEPLOY, and that trap is in the FIX.** `chains.ts`

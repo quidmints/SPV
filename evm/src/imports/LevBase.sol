@@ -376,7 +376,7 @@ abstract contract LevBase {
     // Distinct selectors mean `ILevEquity(btcManager).totalNetEquity()` REVERTS rather than
     // silently returning the wrong band's book, and this repo has already shipped three
     // address-confusion bugs of exactly that shape in one session (an `ethVenue` passed into a
-    // parameter named `btcVault`, among them). Note the discriminator: the members below all take
+    // parameter named `btc`, among them). Note the discriminator: the members below all take
     // an LP ADDRESS or none and read THIS instance's own book, so a wrong-manager call yields 0 or
     // this manager's own total -- whereas a no-arg `totalNetEquity()` on the wrong handle would
     // hand back a different band's number that looks perfectly valid. Standing rule 3: a guard

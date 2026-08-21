@@ -28,7 +28,7 @@ contract DrainProbe is AllesFixture {
     ///     boundary — NOT a freeze on the token (it can still be sold to a third party).
     function testFreshQUICannotPullETHFromPool() public {
         // Seed ETH inventory so a QUI→ETH swap COULD draw, if it were allowed.
-        vm.prank(User02); V4.deposit{value: 200 ether}(0, User02);
+        vm.prank(User02); ETH.deposit{value: 200 ether}(0, User02);
 
         vm.startPrank(User01);
         uint minted = QUID.mint(User01, 50_000 * USDC_PRECISION, address(USDC), 0);
@@ -53,8 +53,8 @@ contract DrainProbe is AllesFixture {
     ///     oracle-pin), never a profit, and the pool stays solvent (no value drain).
     function testRepeatedBuyIsNotADrain() public {
         // Seed deep ETH inventory across two LPs.
-        vm.prank(User02); V4.deposit{value: 500 ether}(0, User02);
-        vm.prank(User03); V4.deposit{value: 500 ether}(0, User03);
+        vm.prank(User02); ETH.deposit{value: 500 ether}(0, User02);
+        vm.prank(User03); ETH.deposit{value: 500 ether}(0, User03);
 
         uint startVal = _valueUSD18(User01);
         vm.startPrank(User01);
@@ -79,10 +79,10 @@ contract DrainProbe is AllesFixture {
     ///      delivered (native + WETH). Ground truth — cuts through virtual
     ///      POOLED_*/bandETH accounting.
     function _realizeExitETH(address who) internal returns (uint ethOut) {
-        uint pooled = V4.balanceOf(who);
+        uint pooled = ETH.balanceOf(who);
         if (pooled == 0) return 0;
         uint b0 = who.balance; uint w0 = WETH.balanceOf(who);
-        vm.prank(who); V4.withdraw(pooled, who, who);
+        vm.prank(who); ETH.withdraw(pooled, who, who);
         ethOut = (who.balance - b0) + (WETH.balanceOf(who) - w0);
         // PLUS the RETAINED claim. `withdraw` delivers what the ETH ladder can source and DEFERS the
         // rest as a live, recoverable `pooled` balance (BUILD-QUEUE §A.11) — counting delivery alone
@@ -90,7 +90,7 @@ contract DrainProbe is AllesFixture {
         // 76.86, i.e. EXACTLY its 500.00 principal, so the "round-trip harmed the incumbent" reading
         // was an artifact of the measure, not harm. Including it also makes the entrant-side bound
         // (b) strictly TIGHTER, which is the safe direction for an anti-drain assertion.
-        (uint remPooled,,,) = V4.autoManaged(who);
+        (uint remPooled,,,) = ETH.autoManaged(who);
         ethOut += remPooled;
     }
 
@@ -108,7 +108,7 @@ contract DrainProbe is AllesFixture {
         uint X = 200_000 * USDC_PRECISION;               // entrant's dollars
 
         // Incumbent LP seeds 500 ETH.
-        vm.prank(User02); V4.deposit{value: 500 ether}(0, User02);
+        vm.prank(User02); ETH.deposit{value: 500 ether}(0, User02);
 
         // Entrant buys ETH with $X, then INSTANTLY redeposits it as an LP.
         uint b0 = User01.balance; uint w0 = WETH.balanceOf(User01);
@@ -118,8 +118,8 @@ contract DrainProbe is AllesFixture {
         uint nativeGot = User01.balance - b0;
         uint wethGot   = WETH.balanceOf(User01) - w0;
         uint bought    = nativeGot + wethGot;
-        if (wethGot > 0) WETH.approve(address(V4), wethGot);
-        V4.deposit{value: nativeGot}(wethGot, User01);
+        if (wethGot > 0) WETH.approve(address(ETH), wethGot);
+        ETH.deposit{value: nativeGot}(wethGot, User01);
         vm.stopPrank();
         AUX.checkBacking();                              // no virtual inflation
 

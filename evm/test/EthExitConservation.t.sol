@@ -15,13 +15,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///         `ETH received + QUID received + re-credited pooled ≈ X`, with NO value destroyed.
 ///
 ///         If conservation HOLDS, the failing assertions are wrong in principle: they compare a
-///         POOLED delta against ETH-only payout and so implicitly assume the band is 100% ETH,
+///         POOLED delta against ETH-only payout and so implicitly assume the band is 100% BTC,
 ///         which stops being true the moment any swap moves price into the range.
 ///         If conservation FAILS, the gap is real and this prints exactly where it went.
 contract EthExitConservationProbe is AllesFixture {
     function test_Diag_ExitConservation() public {
         vm.prank(User01);
-        V4.deposit{value: 10 ether}(0, User01);
+        ETH.deposit{value: 10 ether}(0, User01);
 
         // Move price into the range so the band holds BOTH legs — the condition under which a burn
         // cannot pay out pure ETH. This mirrors testDepositImmediateWithdraw's setup exactly.
@@ -32,7 +32,7 @@ contract EthExitConservationProbe is AllesFixture {
         // USD leg to `usd_owed` on a PARTIAL exit and only MINTS QUID on a FULL exit
         // (JIT-DEPTH §4.1). An accounting that reads only `pooled` + QUID balance therefore MISSES
         // the USD leg entirely and looks like an ~18% loss when nothing was lost.
-        (uint pooledBefore, uint owedBefore,,) = V4.autoManaged(User01);
+        (uint pooledBefore, uint owedBefore,,) = ETH.autoManaged(User01);
         // ETH **+ WETH**: the ladder pays part of an exit as WETH (BUILD-QUEUE §A.9). This test was
         // written to prove conservation and then measured only NATIVE ETH — so it reported the ~19%
         // ETH/WETH split ratio as missing value, which is the very artifact it exists to rule out.
@@ -46,9 +46,9 @@ contract EthExitConservationProbe is AllesFixture {
         // ("socialized fairly via the share price, no first-out advantage", `_withdraw`). Exiting
         // everything removes that absorber, so any residual gap is REAL.
         vm.roll(vm.getBlockNumber() + 1);
-        vm.prank(User01); V4.withdraw(type(uint).max, User01, User01);
+        vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
 
-        (uint pooledAfter, uint owedAfter,,) = V4.autoManaged(User01);
+        (uint pooledAfter, uint owedAfter,,) = ETH.autoManaged(User01);
         uint owedGained = owedAfter > owedBefore ? owedAfter - owedBefore : 0;
         uint ethGained  = (User01.balance + WETH.balanceOf(User01)) - ethBefore;
         uint quidGained = QUID.balanceOf(User01) - quidBefore;
@@ -72,7 +72,7 @@ contract EthExitConservationProbe is AllesFixture {
         uint usdClaimInEth = ethPrice == 0 ? 0 : ((quidGained + owedGained) * 1e18) / ethPrice;
         emit log_named_decimal_uint("usd_owed gained      ", owedGained, 18);
         emit log_named_decimal_uint("USD claim in ETH     ", usdClaimInEth, 18);
-        emit log_named_decimal_uint("TOTAL received (ETH) ", ethGained + usdClaimInEth, 18);
+        emit log_named_decimal_uint("TOTAL received (BTC) ", ethGained + usdClaimInEth, 18);
 
         // 2% tolerance for band geometry + fees; the failures are ~20%, so this cleanly separates
         // "assertion assumed pure-ETH burn" from "value genuinely destroyed".

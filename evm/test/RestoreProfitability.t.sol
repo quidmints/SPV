@@ -13,7 +13,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///
 /// TWO ERRORS IN THE FIRST DRAFT OF THIS FILE, RECORDED SO THEY ARE NOT REPEATED:
 ///   1. DIRECTION INVERTED. I labelled a stable→volatile BUY as "adds volatile to the band".
-///      It does the opposite: the band HANDS OUT ETH, so `inv` FALLS and the band gets SCARCER.
+///      It does the opposite: the band HANDS OUT BTC, so `inv` FALLS and the band gets SCARCER.
 ///      A volatile→stable SELL is what RAISES `inv`. Every comment was backwards.
 ///   2. THE SKEW STAYED 0 AND I NEARLY READ THAT AS "NO PREMIUM EXISTS". It was the flush
 ///      branch: `target = flowEwmaUsd` GROWS with the very volume used to drive the drain, so
@@ -84,7 +84,7 @@ contract RestoreProfitability is AllesFixture {
     function test_E69_IsRestoringNaturallyProfitable() public {
         _seedBasket();
         vm.prank(lpA);
-        V4.deposit{value: 400 ether}(0, lpA);
+        ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);

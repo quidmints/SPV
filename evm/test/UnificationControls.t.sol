@@ -9,7 +9,7 @@ interface IProtoFeeAccrued {
     function protocolFeesAccrued(address currency) external view returns (uint256);
     function collectProtocolFees(address recipient, address currency, uint256 amount) external returns (uint256);
 }
-// §V4-ZERO — `IProtoFeeCtrl` DELETED. It declared v4's `protocolFeeForPool(PoolKey)` so a probe
+// §ETH-ZERO — `IProtoFeeCtrl` DELETED. It declared v4's `protocolFeeForPool(PoolKey)` so a probe
 // could measure whether the PoolManager retained a protocol-fee cut. There is no PoolManager and no
 // fee switch, so the interface described a call that cannot be made.
 
@@ -30,7 +30,7 @@ interface IProtoFeeAccrued {
 ///
 /// VEINS COVERED HERE (LP lifecycle + P&L attribution):
 ///   V2  per-LP fee apportionment, bookmark correctness, exit realization
-///   V4  deposit: committed accounting, backing gate, JIT lock
+///   ETH  deposit: committed accounting, backing gate, JIT lock
 ///   V5  withdraw: committed accounting, full-vs-partial exit, over-ask, slot clearing
 /// Swap pricing (V3) is covered by `PooledUsdRepackMatrix` + the `testGrindRemoval_*` family;
 /// redemption (V6) and BTC swap-in/out (V7) are NOT yet covered and are tracked in QUEUE.
@@ -67,7 +67,7 @@ contract UnificationControls is AllesFixture {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // V4 — DEPOSIT
+    // ETH — DEPOSIT
     // ─────────────────────────────────────────────────────────────────────────
 
     /// A deposit must grow `committedUsd18` by EXACTLY the USD the band committed for it —
@@ -80,7 +80,7 @@ contract UnificationControls is AllesFixture {
         uint b0 = CORE.POOLED_USD();
 
         vm.prank(lpA);
-        V4.deposit{value: 100 ether}(0, lpA);
+        ETH.deposit{value: 100 ether}(0, lpA);
 
         uint c1 = CORE.committedUsd18();
         uint u1 = CORE.POOLED_USD();
@@ -98,15 +98,15 @@ contract UnificationControls is AllesFixture {
     /// pooled must be strictly positive and the committed growth must be attributable.
     function test_V4_SecondDepositIsAdditiveNotRetroactive() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
-        uint pooledA1 = V4.balanceOf(lpA);
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
+        uint pooledA1 = ETH.balanceOf(lpA);
         uint c1 = CORE.committedUsd18();
 
         vm.roll(block.number + 1);
-        vm.prank(lpB); V4.deposit{value: 100 ether}(0, lpB);
+        vm.prank(lpB); ETH.deposit{value: 100 ether}(0, lpB);
 
-        assertEq(V4.balanceOf(lpA), pooledA1, "LP A's position must not change when LP B deposits");
-        assertGt(V4.balanceOf(lpB), 0, "PREMISE: LP B actually got a position");
+        assertEq(ETH.balanceOf(lpA), pooledA1, "LP A's position must not change when LP B deposits");
+        assertGt(ETH.balanceOf(lpB), 0, "PREMISE: LP B actually got a position");
         assertGe(CORE.committedUsd18(), c1, "committed must not shrink on a new deposit");
     }
 
@@ -115,8 +115,8 @@ contract UnificationControls is AllesFixture {
         _seedBasket();
         uint c0 = CORE.committedUsd18();
         vm.prank(lpA);
-        V4.deposit{value: 0}(0, lpA);
-        assertEq(V4.balanceOf(lpA), 0, "zero deposit must not create a position");
+        ETH.deposit{value: 0}(0, lpA);
+        assertEq(ETH.balanceOf(lpA), 0, "zero deposit must not create a position");
         assertEq(CORE.committedUsd18(), c0, "zero deposit must not move committed");
     }
 
@@ -126,9 +126,9 @@ contract UnificationControls is AllesFixture {
     function test_V4_JitLockBlocksSameBlockExit() public {
         _seedBasket();
         vm.startPrank(lpA);
-        V4.deposit{value: 50 ether}(0, lpA);
+        ETH.deposit{value: 50 ether}(0, lpA);
         vm.expectRevert(bytes("too soon"));
-        V4.withdraw(1 ether, lpA, lpA);
+        ETH.withdraw(1 ether, lpA, lpA);
         vm.stopPrank();
     }
 
@@ -141,13 +141,13 @@ contract UnificationControls is AllesFixture {
     /// unification breaks it the over-commit self-heal silently stops working.
     function test_V5_WithdrawShrinksCommitted() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
         uint c1 = CORE.committedUsd18();
         uint bal0 = lpA.balance;
         uint weth0Del = WETH.balanceOf(lpA);
-        vm.prank(lpA); V4.withdraw(40 ether, lpA, lpA);
+        vm.prank(lpA); ETH.withdraw(40 ether, lpA, lpA);
 
         emit log_named_uint("committed before", c1);
         emit log_named_uint("committed after ", CORE.committedUsd18());
@@ -165,15 +165,15 @@ contract UnificationControls is AllesFixture {
     /// over-deliver. `Quid.withdraw` caps at `autoManaged[msg.sender].pooled` before converting.
     function test_V5_OverAskClampsToPosition() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 50 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
-        uint pooled = V4.balanceOf(lpA);
+        uint pooled = ETH.balanceOf(lpA);
         vm.prank(lpA);
-        V4.withdraw(type(uint).max, lpA, lpA);     // the "exit everything" sentinel
+        ETH.withdraw(type(uint).max, lpA, lpA);     // the "exit everything" sentinel
         emit log_named_uint("pooled before", pooled);
-        emit log_named_uint("pooled after ", V4.balanceOf(lpA));
-        assertLt(V4.balanceOf(lpA), pooled, "the sentinel must actually reduce the position");
+        emit log_named_uint("pooled after ", ETH.balanceOf(lpA));
+        assertLt(ETH.balanceOf(lpA), pooled, "the sentinel must actually reduce the position");
     }
 
     /// EDGE: a withdraw of zero DELIVERS NOTHING — but it is NOT a no-op, and asserting that it
@@ -185,19 +185,19 @@ contract UnificationControls is AllesFixture {
     ///   unification only if the settle path keeps reading the same accumulators.
     function test_V5_ZeroWithdrawDeliversNothingAndNeverShrinks() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 50 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
-        uint pooled = V4.balanceOf(lpA);
+        uint pooled = ETH.balanceOf(lpA);
         uint bal0   = lpA.balance;
         uint weth0  = WETH.balanceOf(lpA);
         uint q0     = QUID.balanceOf(lpA);
 
-        vm.prank(lpA); V4.withdraw(0, lpA, lpA);
+        vm.prank(lpA); ETH.withdraw(0, lpA, lpA);
 
         emit log_named_uint("pooled before", pooled);
-        emit log_named_uint("pooled after ", V4.balanceOf(lpA));
-        assertGe(V4.balanceOf(lpA), pooled, "a zero withdraw must never SHRINK the position");
+        emit log_named_uint("pooled after ", ETH.balanceOf(lpA));
+        assertGe(ETH.balanceOf(lpA), pooled, "a zero withdraw must never SHRINK the position");
         assertEq(lpA.balance, bal0,  "a zero withdraw must deliver no native ETH");
         assertEq(WETH.balanceOf(lpA), weth0, "a zero withdraw must deliver no WETH");
         assertEq(QUID.balanceOf(lpA), q0, "a zero withdraw is a PARTIAL exit -> usd_owed DEFERS, no QUID mint");
@@ -212,14 +212,14 @@ contract UnificationControls is AllesFixture {
     /// if placement moves fee-earning capacity, equal LPs stop earning equally.
     function test_V2_EqualLpsEarnEqualFees() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
-        vm.prank(lpB); V4.deposit{value: 100 ether}(0, lpB);
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
+        vm.prank(lpB); ETH.deposit{value: 100 ether}(0, lpB);
         vm.roll(block.number + 1);
 
         for (uint i; i < 6; i++) _trade(3_000e18);
 
-        (uint tokA, uint usdA) = V4.pendingRewards(lpA);
-        (uint tokB, uint usdB) = V4.pendingRewards(lpB);
+        (uint tokA, uint usdA) = ETH.pendingRewards(lpA);
+        (uint tokB, uint usdB) = ETH.pendingRewards(lpB);
         emit log_named_uint("LP A pending tok/usd", tokA); emit log_named_uint("  ", usdA);
         emit log_named_uint("LP B pending tok/usd", tokB); emit log_named_uint("  ", usdB);
 
@@ -235,15 +235,15 @@ contract UnificationControls is AllesFixture {
     /// retroactive fees out of other LPs' claims and nothing reverts.
     function test_V2_LateJoinerEarnsNoRetroactiveFees() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         for (uint i; i < 6; i++) _trade(3_000e18);
-        (uint tokA0, uint usdA0) = V4.pendingRewards(lpA);
+        (uint tokA0, uint usdA0) = ETH.pendingRewards(lpA);
         assertTrue(tokA0 > 0 || usdA0 > 0, "PREMISE: fees accrued BEFORE the late joiner arrives");
 
-        vm.prank(lpB); V4.deposit{value: 100 ether}(0, lpB);
-        (uint tokB, uint usdB) = V4.pendingRewards(lpB);
+        vm.prank(lpB); ETH.deposit{value: 100 ether}(0, lpB);
+        (uint tokB, uint usdB) = ETH.pendingRewards(lpB);
         emit log_named_uint("late joiner pending tok", tokB);
         emit log_named_uint("late joiner pending usd", usdB);
 
@@ -254,11 +254,11 @@ contract UnificationControls is AllesFixture {
     /// EDGE: a non-depositor has no claim. Guards the `pooled == 0` early-out in `_settlePending`.
     function test_V2_NonDepositorHasNoClaim() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        (uint tok, uint usd) = V4.pendingRewards(address(0xDEAD));
+        (uint tok, uint usd) = ETH.pendingRewards(address(0xDEAD));
         assertEq(tok, 0, "a non-depositor must have no token claim");
         assertEq(usd, 0, "a non-depositor must have no USD claim");
     }
@@ -267,39 +267,39 @@ contract UnificationControls is AllesFixture {
     /// yields nothing. A broken rebaseline would let an LP drain the accumulator by looping.
     function test_V2_CollectFeesIsIdempotent() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 100 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 6; i++) _trade(3_000e18);
 
-        vm.prank(lpA); V4.collectFees();
+        vm.prank(lpA); ETH.collectFees();
         uint q1 = QUID.balanceOf(lpA);
-        uint pooled1 = V4.balanceOf(lpA);
+        uint pooled1 = ETH.balanceOf(lpA);
 
-        vm.prank(lpA); V4.collectFees();
+        vm.prank(lpA); ETH.collectFees();
         assertEq(QUID.balanceOf(lpA), q1, "a repeated collectFees must mint nothing further");
-        assertEq(V4.balanceOf(lpA), pooled1, "a repeated collectFees must compound nothing further");
+        assertEq(ETH.balanceOf(lpA), pooled1, "a repeated collectFees must compound nothing further");
     }
 
     /// EDGE: the LAST LP exiting fully must leave the accumulators zeroed, so a future LP does
     /// not inherit historical fees attributed to nobody (`_onExit`'s `lpShares == 0` branch).
     function test_V2_LastExitZeroesAccumulators() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 50 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 50 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        vm.prank(lpA); V4.withdraw(type(uint).max, lpA, lpA);
-        emit log_named_uint("pooled after full exit", V4.balanceOf(lpA));
-        emit log_named_uint("lpShares", V4.lpShares());
-        emit log_named_uint("feesPerShare", V4.feesPerShare());
-        emit log_named_uint("USD_FEES", V4.USD_FEES());
+        vm.prank(lpA); ETH.withdraw(type(uint).max, lpA, lpA);
+        emit log_named_uint("pooled after full exit", ETH.balanceOf(lpA));
+        emit log_named_uint("lpShares", ETH.lpShares());
+        emit log_named_uint("feesPerShare", ETH.feesPerShare());
+        emit log_named_uint("USD_FEES", ETH.USD_FEES());
 
         // Only assert the zeroing if the exit really emptied the pool — an undelivered
         // shortfall legitimately leaves `pooled` behind as a recoverable deferral, and that
         // is NOT a failure. Assert the implication, not the happy path.
-        if (V4.lpShares() == 0) {
-            assertEq(V4.feesPerShare(), 0, "last exit must zero the token accumulator");
-            assertEq(V4.USD_FEES(), 0, "last exit must zero the USD accumulator");
+        if (ETH.lpShares() == 0) {
+            assertEq(ETH.feesPerShare(), 0, "last exit must zero the token accumulator");
+            assertEq(ETH.USD_FEES(), 0, "last exit must zero the USD accumulator");
         } else {
             emit log_string("partial delivery left pooled behind (venue illiquidity deferral) - zeroing not expected");
         }
@@ -332,7 +332,7 @@ contract UnificationControls is AllesFixture {
         vm.warp(block.timestamp + 35 days);
 
         vm.deal(lpA, 900 ether);
-        vm.prank(lpA); V4.deposit{value: 700 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 700 ether}(0, lpA);
 
         // Seed the BTC band so "the unwind cannot reach it" is a real claim, not 0 == 0.
         AUX.setBTCChannels(address(this));
@@ -342,8 +342,8 @@ contract UnificationControls is AllesFixture {
         uint tvl0        = d0[14];
         uint committed0  = CORE.committedUsd18();
         uint bandEth0   = AUX.bandETH();
-        uint lpShares0   = V4.lpShares();
-        uint pooledA0    = V4.balanceOf(lpA);
+        uint lpShares0   = ETH.lpShares();
+        uint pooledA0    = ETH.balanceOf(lpA);
         uint btcUsd0     = CORE.POOLED_USD();
         uint btcLeg0     = CORE.POOLED();
         uint btcFps0     = BTC.feesPerShare();
@@ -367,8 +367,8 @@ contract UnificationControls is AllesFixture {
         // V6a — LP EQUITY NEUTRALITY. The unwind returns the paired ETH from in-band to in-venue,
         // so the LP's claim and the total share count must be untouched. A 0.5% band absorbs venue
         // yield accrued during the redeem; anything larger is the unwind taking LP value.
-        assertEq(V4.lpShares(), lpShares0, "unwind must not change lpShares");
-        assertEq(V4.balanceOf(lpA), pooledA0, "unwind must not change the LP's pooled claim");
+        assertEq(ETH.lpShares(), lpShares0, "unwind must not change lpShares");
+        assertEq(ETH.balanceOf(lpA), pooledA0, "unwind must not change the LP's pooled claim");
         assertApproxEqRel(AUX.bandETH(), bandEth0, 0.005e18,
             "unwind must be LP-EQUITY NEUTRAL: bandETH unchanged (ETH moved in-band -> in-venue, not out)");
 
@@ -405,11 +405,11 @@ contract UnificationControls is AllesFixture {
     /// distinguishes "recorded" from "received", which is the whole defect.
     function test_E16_RetainedPremiumReachesLpsNotOnlyTheCounter() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
         uint prem0 = CORE.skewPremium();
-        uint usdFees0 = V4.USD_FEES();
+        uint usdFees0 = ETH.USD_FEES();
         emit log_named_uint("skewPremium before", prem0);
         emit log_named_uint("USD_FEES       before", usdFees0);
 
@@ -423,7 +423,7 @@ contract UnificationControls is AllesFixture {
         }
 
         uint prem1 = CORE.skewPremium();
-        uint usdFees1 = V4.USD_FEES();
+        uint usdFees1 = ETH.USD_FEES();
         emit log_named_uint("skewPremium after ", prem1);
         emit log_named_uint("USD_FEES       after ", usdFees1);
         emit log_named_uint("premium retained     ", prem1 - prem0);
@@ -454,7 +454,7 @@ contract UnificationControls is AllesFixture {
     /// not prove the win is often collected.
     function test_E3sizing_StarvedCurveVsIdleCapitalOnTheOther() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
@@ -523,7 +523,7 @@ contract UnificationControls is AllesFixture {
         uint pooledEth = CORE.POOLED();
         uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
         uint theta;
-        try V4.derivedThetaWad() returns (uint t) { theta = t; } catch { theta = 0; }
+        try ETH.derivedThetaWad() returns (uint t) { theta = t; } catch { theta = 0; }
         emit log_string(tag);
         emit log_named_uint("   USD deployed (committed) ", committed);
         emit log_named_uint("   USD available (surplus)  ", surplus);
@@ -540,7 +540,7 @@ contract UnificationControls is AllesFixture {
     /// close it. Measurement only; the assertions are PREMISES so it cannot pass vacuously.
     function test_E6target_DeployGapAtRestAndAfterDrain() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(lpB, 2e7);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
@@ -560,7 +560,7 @@ contract UnificationControls is AllesFixture {
 
         // A reseat poke is the natural refill trigger. Today it does NOT top up -- logged so the
         // E6 build has a before/after on the SAME scenario.
-        V4.reseat();
+        ETH.reseat();
         _logDeployGap("AFTER reseat() poke");
 
         // DECISIVE FOR E6's DESIGN: a repack re-adds through `addLiq`, which sizes USD from
@@ -569,7 +569,7 @@ contract UnificationControls is AllesFixture {
         // composition drift, not solely on range exit. A deposit is the cheapest way to exercise
         // the same `addLiq` -> `_modLpEth` path without changing production code.
         vm.deal(lpB, 20 ether);
-        vm.prank(lpB); V4.deposit{value: 10 ether}(0, lpB);
+        vm.prank(lpB); ETH.deposit{value: 10 ether}(0, lpB);
         _logDeployGap("AFTER a deposit (exercises addLiq re-add)");
         emit log_named_uint("ETH band USD after re-add", CORE.POOLED_USD());
         emit log_named_uint("ETH band ETH after re-add", CORE.POOLED());
@@ -601,16 +601,16 @@ contract UnificationControls is AllesFixture {
     /// different (and worse) answer, so it is measured rather than assumed.
     function test_CHECK_FullExitResidualIsRecoverable() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 300 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 8; i++) _trade(3_000e18);
         vm.warp(block.timestamp + 1 hours);
 
-        uint pooled0 = V4.balanceOf(lpA);
+        uint pooled0 = ETH.balanceOf(lpA);
         uint eth0 = lpA.balance; uint q0 = QUID.balanceOf(lpA);
-        vm.prank(lpA); V4.redeem(pooled0, lpA, lpA);
+        vm.prank(lpA); ETH.redeem(pooled0, lpA, lpA);
 
-        uint pooled1 = V4.balanceOf(lpA);
+        uint pooled1 = ETH.balanceOf(lpA);
         emit log_named_uint("pooled before exit", pooled0);
         emit log_named_uint("pooled AFTER exit ", pooled1);
         emit log_named_uint("ETH delivered     ", lpA.balance - eth0);
@@ -621,11 +621,11 @@ contract UnificationControls is AllesFixture {
         // A residual exists -> it must be COLLECTABLE. Second withdraw.
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         uint eth1 = lpA.balance; uint q1 = QUID.balanceOf(lpA);
-        vm.prank(lpA); V4.redeem(pooled1, lpA, lpA);
-        emit log_named_uint("2nd exit: pooled left", V4.balanceOf(lpA));
+        vm.prank(lpA); ETH.redeem(pooled1, lpA, lpA);
+        emit log_named_uint("2nd exit: pooled left", ETH.balanceOf(lpA));
         emit log_named_uint("2nd exit: ETH more   ", lpA.balance - eth1);
         emit log_named_uint("2nd exit: QUID more  ", QUID.balanceOf(lpA) - q1);
-        assertLt(V4.balanceOf(lpA), pooled1, "the deferred residual must be RECOVERABLE by a second exit");
+        assertLt(ETH.balanceOf(lpA), pooled1, "the deferred residual must be RECOVERABLE by a second exit");
     }
 
     /// PROVE-BEFORE-REFACTOR: can `POOLED_USD`/`POOLED` be DERIVED from pool state instead
@@ -638,11 +638,11 @@ contract UnificationControls is AllesFixture {
     /// query on the band's range returns the band's position ALONE.
     function test_PROVE_PooledIsDerivableFromPoolState() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
 
-        // §V4-CUT — THE ORIGINAL QUESTION IS DISSOLVED, AND HALF THE OLD CHECK WOULD NOW BE VACUOUS.
+        // §ETH-CUT — THE ORIGINAL QUESTION IS DISSOLVED, AND HALF THE OLD CHECK WOULD NOW BE VACUOUS.
         // This derived both legs from a concentrated-liquidity position via
         // (sqrtPrice, loPrice, upPrice, liquidity) and diffed them against the mirror. There is
         // no v4 position left: `poolStats()` returns the TWAP and `POOLED` ITSELF, so "derive the
@@ -688,14 +688,14 @@ contract UnificationControls is AllesFixture {
     /// rather than reasoned, because I got the previous residual wrong exactly this way (E26).
     function test_SETTLE_LvrResidualIsDeferralNotLeak() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 20; i++) _trade(3_000e18);
 
-        uint pooled0 = V4.balanceOf(lpA);
+        uint pooled0 = ETH.balanceOf(lpA);
         uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
-        vm.prank(lpA); V4.redeem(pooled0, lpA, lpA);
-        uint pooled1 = V4.balanceOf(lpA);
+        vm.prank(lpA); ETH.redeem(pooled0, lpA, lpA);
+        uint pooled1 = ETH.balanceOf(lpA);
         emit log_named_uint("pooled before   ", pooled0);
         emit log_named_uint("pooled after 1st", pooled1);
         emit log_named_uint("ETH  after 1st  ", (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0));
@@ -705,10 +705,10 @@ contract UnificationControls is AllesFixture {
 
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         uint e1 = lpA.balance; uint w1 = WETH.balanceOf(lpA); uint q1 = QUID.balanceOf(lpA);
-        vm.prank(lpA); V4.redeem(pooled1, lpA, lpA);
+        vm.prank(lpA); ETH.redeem(pooled1, lpA, lpA);
         uint gotEth = (lpA.balance - e1) + (WETH.balanceOf(lpA) - w1);
         uint gotQ   = QUID.balanceOf(lpA) - q1;
-        emit log_named_uint("pooled after 2nd", V4.balanceOf(lpA));
+        emit log_named_uint("pooled after 2nd", ETH.balanceOf(lpA));
         emit log_named_uint("ETH  from 2nd   ", gotEth);
         emit log_named_uint("QUID from 2nd   ", gotQ);
         assertTrue(gotEth > 0 || gotQ > 0, "VERDICT: the deferral must be COLLECTABLE, else it is a leak");
@@ -720,23 +720,23 @@ contract UnificationControls is AllesFixture {
     /// the thing to examine; if claim > delivered the leak is in the delivery path.
     function test_PINPOINT_ClaimVsDelivered() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 20; i++) _trade(3_000e18);
 
         uint px      = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint shares  = V4.balanceOf(lpA);
-        uint claimEth = V4.convertToAssets(shares);
+        uint shares  = ETH.balanceOf(lpA);
+        uint claimEth = ETH.convertToAssets(shares);
         uint claimUsd = claimEth * px / 1e18;
 
         emit log_named_uint("POOLED   pre  ", CORE.POOLED());
         emit log_named_uint("bandETH     pre  ", AUX.bandETH());
         emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD());
         emit log_named_uint("basketUsd pre  ", CORE.basketUsd());
-        emit log_named_uint("lpShares     pre  ", V4.lpShares());
+        emit log_named_uint("lpShares     pre  ", ETH.lpShares());
 
         uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
-        vm.prank(lpA); V4.redeem(shares, lpA, lpA);
+        vm.prank(lpA); ETH.redeem(shares, lpA, lpA);
         emit log_named_uint("POOLED   post ", CORE.POOLED());
         emit log_named_uint("POOLED_USD   post ", CORE.POOLED_USD());
         emit log_named_uint("basketUsd post ", CORE.basketUsd());
@@ -752,7 +752,7 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("GOT quid          ", gotQ);
         emit log_named_uint("DELIVERED (usd18) ", gotUsd);
         emit log_named_int ("delivered - claim ", int(gotUsd) - int(claimUsd));
-        emit log_named_uint("pooled left       ", V4.balanceOf(lpA));
+        emit log_named_uint("pooled left       ", ETH.balanceOf(lpA));
     }
 
     /// §E36 — DID #12 ACTUALLY BUY CAPITAL EFFICIENCY? Measure it, do not argue it.
@@ -768,7 +768,7 @@ contract UnificationControls is AllesFixture {
     /// removes depth. This test runs real flow and asserts the OLD definition is strictly worse.
     function test_E36_CommittedNoLongerCountsDollarsTheBasketNeverSupplied() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         uint oldBefore = CORE.POOLED_USD() + CORE.POOLED_USD();
@@ -823,7 +823,7 @@ contract UnificationControls is AllesFixture {
     /// externality, not just a headroom rounding.
     function test_E39_EthTradingNoLongerStarvesTheBtcBandsCapacity() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         (uint[15] memory d0,,, uint depeg0) = AUX.get_deposits();
@@ -889,7 +889,7 @@ contract UnificationControls is AllesFixture {
     /// legs redefined, ETH's fees must not land on BTC LPs or the reverse.
     function test_E41_SwapCapacityAndPerBandPnlAttribution() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         // A BTC LP exists BEFORE the ETH flow, so its P&L has a baseline to be measured against.
@@ -898,8 +898,8 @@ contract UnificationControls is AllesFixture {
         uint btcFps0 = BTC.feesPerShare();
         uint btcUsdF0 = BTC.USD_FEES();
         uint btcShares0 = BTC.lpShares();
-        uint ethFps0 = V4.feesPerShare();
-        uint ethUsdF0 = V4.USD_FEES();
+        uint ethFps0 = ETH.feesPerShare();
+        uint ethUsdF0 = ETH.USD_FEES();
         assertGt(btcShares0, 0, "PREMISE: a BTC LP must exist, else attribution is vacuous");
 
         (uint[15] memory d0,,, uint dp0) = AUX.get_deposits();
@@ -922,13 +922,13 @@ contract UnificationControls is AllesFixture {
         assertGt(oldCommitted, newCommitted, "PREMISE: flow inflated the OLD figure, not the NEW one");
 
         // ── AXIS: PER-BAND P&L ATTRIBUTION ─────────────────────────────────────────────────
-        emit log_named_uint("ETH feesPerShare delta", V4.feesPerShare() - ethFps0);
-        emit log_named_uint("ETH USD_FEES    delta", V4.USD_FEES() - ethUsdF0);
+        emit log_named_uint("ETH feesPerShare delta", ETH.feesPerShare() - ethFps0);
+        emit log_named_uint("ETH USD_FEES    delta", ETH.USD_FEES() - ethUsdF0);
         emit log_named_uint("BTC feesPerShare   ", BTC.feesPerShare());
         emit log_named_uint("BTC USD_FEES      ", BTC.USD_FEES());
 
         // PREMISE: the ETH band must actually have earned, else "BTC unchanged" proves nothing.
-        assertTrue(V4.feesPerShare() > ethFps0 || V4.USD_FEES() > ethUsdF0,
+        assertTrue(ETH.feesPerShare() > ethFps0 || ETH.USD_FEES() > ethUsdF0,
             "PREMISE: ETH-side trading must credit the ETH accumulators");
 
         // THE RESULT: not one wei of ETH-side trading reaches the BTC accumulators.
@@ -1014,10 +1014,10 @@ contract UnificationControls is AllesFixture {
     /// Two different `basketUsd` values for the same `POOLED_USD` ⇒ no function of `POOLED_USD`
     /// can recover it. The split is PATH-DEPENDENT: it records how many of the band's in-range
     /// dollars the BASKET put there versus how many the band TRADED its way into, and nothing else
-    /// on-chain carries that history — the V4 position knows only the total.
+    /// on-chain carries that history — the ETH position knows only the total.
     function test_E44_BasketUsdIsNotDerivableFromTheCurveMirror() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 200 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
 
         uint pooled0 = CORE.POOLED_USD();
@@ -1035,7 +1035,7 @@ contract UnificationControls is AllesFixture {
 
         // (b) A BASKET ADD — both move, together.
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
-        vm.prank(lpB); V4.deposit{value: 200 ether}(0, lpB);
+        vm.prank(lpB); ETH.deposit{value: 200 ether}(0, lpB);
         uint pooled2 = CORE.POOLED_USD();
         uint basket2 = CORE.basketUsd();
         emit log_named_uint("after basket add: POOLED_USD", pooled2);
@@ -1077,7 +1077,7 @@ contract UnificationControls is AllesFixture {
     /// under-reimbursed TODAY, and any refill work added to `_rebalance()` makes it worse.
     function test_E45_CompoundCrankGasVsTheSelfFundingConstant() public {
         _seedBasket();
-        vm.prank(lpA); V4.deposit{value: 400 ether}(0, lpA);
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 10; i++) _trade(3_000e18);   // real harvest for the tip to come out of
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
@@ -1085,7 +1085,7 @@ contract UnificationControls is AllesFixture {
         uint COMPOUND_GAS = 200_000;                  // Quid.sol:1504 (raised from 140,000, E46)
         vm.txGasPrice(10 gwei);
         uint g0 = gasleft();
-        V4.compound(lpA);
+        ETH.compound(lpA);
         uint used = g0 - gasleft();
 
         emit log_named_uint("compound() gas ACTUALLY used  ", used);
@@ -1113,17 +1113,17 @@ contract UnificationControls is AllesFixture {
         // cranker — which is the right party, and it means COMPOUND_GAS does NOT have to carry a
         // reseat. Kept in the test because "I could not make it happen, and here is why" is the
         // evidence for that claim; delete it and the sizing becomes an assertion again.
-        uint lo0 = _bLo(address(V4)); uint hi0 = _bHi(address(V4));  // the FRAME (reseatEpoch removed 2026-08-09)
+        uint lo0 = _bLo(address(ETH)); uint hi0 = _bHi(address(ETH));  // the FRAME (reseatEpoch removed 2026-08-09)
         for (uint i; i < 30; i++) _trade(12_000e18);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.txGasPrice(10 gwei);
         uint g1 = gasleft();
-        V4.compound(lpA);
+        ETH.compound(lpA);
         uint usedHeavy = g1 - gasleft();
         emit log_named_uint("compound() gas, HEAVY crank   ", usedHeavy);
         emit log_named_uint("frame lower price before/after", lo0);
-        emit log_named_uint("                              ", _bLo(address(V4)));
-        assertTrue(_bLo(address(V4)) == lo0 && _bHi(address(V4)) == hi0,
+        emit log_named_uint("                              ", _bLo(address(ETH)));
+        assertTrue(_bLo(address(ETH)) == lo0 && _bHi(address(ETH)) == hi0,
             "no reseat fired: the SWAP path recentres first, so the cranker never pays for one");
         emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
     }
