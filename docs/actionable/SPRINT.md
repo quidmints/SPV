@@ -6692,3 +6692,37 @@ the constant is gone — but the HAZARD returns the moment any source is pinned 
 returns short, or returns zero is DROPPED rather than reverting the fill, because this sits on the swap
 path; below two survivors the ring is simply not written, `ringVariance` returns 0, and §E213's sentinel
 prices at the ceiling. **That last step is what makes dropping safe rather than silent.**
+
+## ✅ §E292 — **`SCRUB-TRI`: TRICRYPTO IS ZERO IN `evm/src` AND `evm/script`. WHAT WAS KEPT, AND WHY.**
+Owner, 2026-08-21: *"there should be no tricrypto references in the code at all."* Done (`863cc902`) —
+**25 references removed, 0 remain in `src` or `script`, build clean.** Booked because the scrub made
+DECISIONS, and a commit message is not where the next thread looks for them.
+
+🔴 **ONE WAS NOT MERELY STALE — IT WAS SELF-CONTRADICTING, AND IT WOULD HAVE SENT A READER LOOKING FOR A
+ROUTE THAT DOES NOT EXIST.** `Interfaces.sol` opened by calling the pool *"the **ONLY** external route to
+WETH/WBTC"* **in the present tense, TWELVE LINES ABOVE** the note recording that it had been REMOVED.
+**No address was pinned anywhere** (`ICurveTriCrypto` was already deleted, §E240-tri), so every one of
+the 25 was prose — but prose that contradicted itself inside one file.
+
+### KEPT (reworded, not deleted) — the facts outlive the venue's name
+| fact | why it survives |
+|---|---|
+| **32,497 WETH vs 698 · 262.9 WBTC vs 20.72** (46× / 12.7×) | it is the argument for the pools we ACTUALLY use, not a note about a dead one |
+| **removed for breaching the 1% floor between $10k–$25k** | states the removal was a **DEPTH** problem — and specifically **did NOT require an aggregator**, which is the conclusion that keeps getting relitigated |
+| **the WETH index differs BETWEEN Curve pools** (`DeployLib`) | the §E241-obsidx hazard, now stated generically: pin the index WITH the source |
+
+### ⚠️ TWO REFERENCES DELIBERATELY LEFT IN `evm/test` — A MEASUREMENT, NOT ROT
+- **`CurveObserverIsCheapAndSane.t.sol`** pins `0x7F86Bf…c829B` and staticcalls `price_oracle`. **It is
+  a live gas measurement** — the counterweight to 1inch's **33.6M** tripwire (`a9c44003`) — and the pool
+  is an EXEMPLAR, not our source. Deleting it destroys the measurement; renaming it makes the address
+  unidentifiable. ⇒ **The name there documents a test fixture, not a routing claim.**
+- **`FillAndBatch.t.sol:70`** — the dynamic **4–26 bp** Curve crypto-pool fee range, which the test
+  asserts against.
+▶️ **If the owner wants these gone too, the honest trade is stated: a grep count for a measurement.**
+
+### 🔴 STALE ROW THIS SURFACED — §E241-obsidx IS CLOSED IN CODE AND ITS ROW STILL READS OPEN
+`Core.sol:1300` now pins the calldata WITH the address (*"The exact call to make on `observationSource`,
+**pinned WITH it**"*, `setObservationSource(src, call_)`), and **`OBS_POOL_IDX` has 0 references**. That
+is exactly the fix §E241-obsidx asked for — *"the invariant is that the index and the pool cannot
+diverge"* — landed by another thread. ⇒ **CLOSE §E241-obsidx.** ⚠️ **This is the rule-16 failure this
+thread documented twice, arriving in MY OWN row: the work landed, and the row still says otherwise.**
