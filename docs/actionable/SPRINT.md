@@ -5513,3 +5513,49 @@ rate: it cannot be size-aware (§E68's `q0→q1` averaging is downstream of the 
 📌 **DO NOT RE-TUNE THE CONSTANT AS A STANDALONE CHANGE.** That is standing rule 3's clamp exactly: it
 would make the cliff a different height without making the failure announce itself, and it would read
 as fixed. The cliff is a SHAPE defect; the magnitude is a separate and smaller question.
+
+---
+
+## 🟠 §E284 — **σ² AND THE PRICE SHARE ONE RING, AND THAT — NOT CHAINLINK — IS WHAT BLOCKS §C1**
+
+**Item 2 of the 2026-08-21 audit. A proposal, not a change: it reframes §C1's question and the
+owner owns the answer.**
+
+§C1 is blocked because every candidate source fails: 1inch is unaffordable (31.7M gas), TriCrypto is a
+single venue (owner's objection — *"correlated sources are one source"* turned on the pool itself),
+and §E220's Chainlink is **circular: Chainlink is the ANCHOR `twapResolve` cross-checks against**
+(`SwapLib.sol:112-132` — on a deviation trip it returns `(ext18, true)`, i.e. *trust Chainlink*), so
+writing the ring from it makes the anchor test a smoothed copy of itself.
+
+⭐ **BUT THAT OBJECTION IS ABOUT THE PRICE, AND THE RING HAS TWO CONSUMERS.**
+
+| consumer | reads | is it circular under a Chainlink-fed ring? |
+|---|---|---|
+| `getTWAPforAsset` → `twapResolve` | the ring's smoothed PRICE | **YES** — this is §E220/§E222 exactly |
+| `ringVariance` → `realizedVarianceWad` → the skew | the series' DISPERSION | **No** — σ² appears nowhere in the anchor test |
+
+Using an external series' volatility to price inventory risk is what A–S asks for; it is not
+self-reference. ⇒ **§E220's objection binds through the SHARED STRUCTURE, not through the variance
+semantics.** One ring means you cannot feed it Chainlink for σ² without also feeding the TWAP.
+
+▶️ **SO THE QUESTION §C1 SHOULD BE ASKING IS NOT "WHICH SOURCE" BUT "WHY ONE RING".** Split them and
+each half gets an answerable question: the PRICE ring keeps §C1's hard problem (and may legitimately
+stay unset, since the Chainlink anchor already backstops price), while σ² gets its own accumulator and
+a source that is allowed to be Chainlink precisely because it never touches the value the anchor
+checks. That would retire §E278's whole live surface without solving the harder problem first.
+
+🔴 **AND THE OBJECTION THAT ACTUALLY APPLIES TO CHAINLINK-FOR-VARIANCE IS A DIFFERENT ONE, WHICH THIS
+REPO HAS ALREADY HIT.** Chainlink updates on a DEVIATION THRESHOLD plus a heartbeat, so its realized
+variance is a function of its own trigger parameters, not of the market — a quiet tape and a tape that
+moves less than the threshold are indistinguishable in the series. **That is very likely why the
+attempt failed before:** `5b6e96c9` retired `test_UNIT_PoolVarianceVsChainlinkVariance` saying *"the
+Chainlink estimator port never produced a comparable number across three scaling attempts"*, and
+`test_UNIT_HowOftenDoesChainlinkCrossTheDeadband` was asking exactly this question.
+⇒ **DO NOT RE-PORT THAT ESTIMATOR TO TEST THIS.** §E277's re-derivation already established the half
+that matters from our side alone. What this row needs is not a cross-series comparison but an answer
+to: **can a deviation-triggered feed's dispersion be turned into a variance estimate at all**, and if
+not, the split above buys nothing and §C1's hard problem is the only problem.
+
+⚠️ **SCOPE, so this is not read as more than it is:** the split makes §E278's sentinel rare again; it
+does NOT fix the sentinel (§E278 stands — a stale or failed read still yields σ² = 0 by design), and it
+does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
