@@ -495,10 +495,24 @@ impl HopNode {
     /// A cheaply-cloneable handle that issues swap-in invoices, for a prod request
     /// ingrid (i.e. ingress, bridge's swap-in HTTP API) to hold without the whole node.
     pub fn invoicer(&self) -> SwapInInvoicer {
+        self.invoicer_gated(None)
+    }
+
+    /// (§LP-LIVENESS) The invoicer with the routing gate attached: channels whose LP has not posted
+    /// a recent heartbeat are dropped from the route hints, so no NEW swapper is sent down one.
+    ///
+    /// ⚠️ Separate from [`Self::invoicer`] rather than replacing it, because the gate FAILS CLOSED:
+    /// handing it to a deployment that is not yet collecting heartbeats would refuse every channel
+    /// and issue invoices with no hints at all. Pass `Some` once the phone posts them.
+    pub fn invoicer_gated(
+        &self,
+        gate: Option<Arc<crate::liveness::RoutingGate>>,
+    ) -> SwapInInvoicer {
         SwapInInvoicer {
             cm: self.channel_manager.clone(),
             keys_manager: self.keys_manager.clone(),
             bitcoin_network: self.bitcoin_network,
+            gate,
         }
     }
 }
@@ -511,6 +525,10 @@ pub struct SwapInInvoicer {
     cm: Arc<HopChannelManager>,
     keys_manager: Arc<QuidKeysManager>,
     bitcoin_network: bitcoin::Network,
+    /// (§LP-LIVENESS) The routing gate. `None` disables the filter entirely, which is the honest
+    /// default for a deployment that has not started collecting heartbeats — a gate with no data
+    /// would refuse every channel, since it fails closed.
+    gate: Option<Arc<crate::liveness::RoutingGate>>,
 }
 
 impl SwapInInvoicer {
@@ -539,6 +557,17 @@ impl SwapInInvoicer {
             .cm
             .list_usable_channels()
             .into_iter()
+            // (§LP-LIVENESS) THE ROUTING GATE. A channel whose LP has not posted a recent heartbeat
+            // is left OUT of the hints, so the payer is never given a path to it and no new swap
+            // starts down a channel whose LP cannot complete the co-signs it needs. That is the DoS
+            // this prevents, and it is also what makes per-splice ladder re-arming (§E233-ladder)
+            // OPT-IN for a phone: sign more, get routed more; go quiet, and only NEW routing stops
+            // — existing positions, the armed ladder and the refund paths are untouched.
+            .filter(|ch| {
+                self.gate
+                    .as_ref()
+                    .is_none_or(|g| g.is_routable_ldk(&ch.channel_id.0))
+            })
             .filter_map(|ch| {
                 let scid = ch.get_inbound_payment_scid()?;
                 let fwd = ch.counterparty.forwarding_info?;

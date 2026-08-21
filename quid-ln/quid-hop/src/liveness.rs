@@ -34,6 +34,7 @@ use alloy_primitives::{keccak256, Address, B256};
 use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use secp256k1::{Message, Secp256k1};
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 /// Domain tag. A heartbeat must never be reinterpretable as any other message this key signs.
 const HEARTBEAT_TAG: &[u8] = b"QUID-REALM::lp-liveness.v1";
@@ -243,11 +244,114 @@ mod tests {
         assert!(!book.is_routable(&h.channel_id, 1_000, 144), "future-dated heartbeat routed");
     }
 
+    /// 🔑 THE ROUTING DECISION ITSELF. A channel is routable only when it is BOUND to an on-chain
+    /// id and its LP has posted recently — unmapped, unheard-from and stale all read the same to a
+    /// payer: no path is offered, so no swap starts down a channel whose LP cannot co-sign.
+    #[test]
+    fn the_gate_offers_no_path_to_an_lp_that_cannot_cosign() {
+        let (sk, lp) = signer(0x88);
+        let gate = RoutingGate::new(144);
+        let ldk = [0x01u8; 32];
+        let cid = B256::repeat_byte(0xAB);
+        gate.set_tip(1_000);
+
+        assert!(!gate.is_routable_ldk(&ldk), "an UNBOUND channel must not be routed");
+        gate.bind(ldk, cid, lp);
+        assert!(!gate.is_routable_ldk(&ldk), "bound but never heard from must not be routed");
+
+        let fresh = hb(1, 990);
+        assert!(gate.record(ldk, fresh, &sign(&sk, &fresh)));
+        assert!(gate.is_routable_ldk(&ldk), "a live LP must be routable");
+
+        // Time passes with no heartbeat: routing stops on its own, no operator action.
+        gate.set_tip(1_200);
+        assert!(!gate.is_routable_ldk(&ldk), "stale LP still routed");
+
+        // ⚠️ One channel's heartbeat must never refresh another's.
+        let other = Heartbeat { channel_id: B256::repeat_byte(0xCD), height: 1_200, seq: 2 };
+        assert!(!gate.record(ldk, other, &sign(&sk, &other)), "wrong channelId accepted");
+        assert!(!gate.is_routable_ldk(&ldk), "liveness refreshed by another channel's heartbeat");
+
+        // The LP comes back: routing resumes on the next heartbeat alone.
+        let back = hb(2, 1_200);
+        assert!(gate.record(ldk, back, &sign(&sk, &back)));
+        assert!(gate.is_routable_ldk(&ldk), "re-entry must need nothing but a heartbeat");
+    }
+
     #[test]
     fn a_malformed_signature_is_refused_not_panicking() {
         let h = hb(1, 10);
         for bad in [vec![], vec![0u8; 64], vec![0u8; 65], vec![9u8; 66]] {
             assert_eq!(recover_heartbeat(&h, &bad), None);
+        }
+    }
+}
+
+/// (§LP-LIVENESS) The gate as the ROUTING PATH sees it: "may a new swapper be sent down this LDK
+/// channel?"
+///
+/// 🔑 **IT RESOLVES LDK's CHANNEL ID TO OURS, because they are not the same thing.** LDK identifies
+/// a channel by its own id; the contract identifies it by `channelId`, derived from the ORIGINAL
+/// funding outpoint and the sorted 2-of-2 pubkeys (`onchain_cid_from_monitor`). The heartbeat
+/// signs OUR id — the one the contract and the phone agree on — so the routing filter has to cross
+/// that boundary, and the map is maintained by whoever already walks the monitors.
+///
+/// ⚠️ **AN UNMAPPED CHANNEL IS NOT ROUTABLE**, for the same reason an unheard-from one is not: the
+/// gate cannot show the LP is live, and the cheap error is forgone fees.
+pub struct RoutingGate {
+    inner: RwLock<GateState>,
+    /// See [`LivenessBook::is_routable`] — required, never defaulted, because the threshold must be
+    /// derived from the slowest co-sign rather than picked.
+    max_age_blocks: u32,
+}
+
+#[derive(Default)]
+struct GateState {
+    book: LivenessBook,
+    tip: u32,
+    /// LDK channel id → (our on-chain `channelId`, the LP that must sign for it).
+    known: HashMap<[u8; 32], (B256, Address)>,
+}
+
+impl RoutingGate {
+    pub fn new(max_age_blocks: u32) -> Self {
+        Self { inner: RwLock::new(GateState::default()), max_age_blocks }
+    }
+
+    /// Bind an LDK channel to its on-chain id and LP. Idempotent; call it whenever the monitor set
+    /// is walked.
+    pub fn bind(&self, ldk_id: [u8; 32], channel_id: B256, lp_eth: Address) {
+        if let Ok(mut g) = self.inner.write() {
+            g.known.insert(ldk_id, (channel_id, lp_eth));
+        }
+    }
+
+    pub fn set_tip(&self, height: u32) {
+        if let Ok(mut g) = self.inner.write() {
+            g.tip = height;
+        }
+    }
+
+    /// Record a heartbeat the LP posted. Returns false on a bad signature, the wrong signer, a
+    /// replay, or an unbound channel — all "this did not update liveness".
+    pub fn record(&self, ldk_id: [u8; 32], hb: Heartbeat, sig65: &[u8]) -> bool {
+        let Ok(mut g) = self.inner.write() else { return false };
+        let Some(&(cid, lp)) = g.known.get(&ldk_id) else { return false };
+        // The heartbeat must name the channel it is posted for; otherwise one channel's heartbeat
+        // would refresh another's liveness.
+        if hb.channel_id != cid {
+            return false;
+        }
+        g.book.record(hb, sig65, lp)
+    }
+
+    /// THE ROUTING DECISION. `false` ⇒ this channel is left out of the route hints, so a payer is
+    /// never given a path to it and no NEW swap starts down a channel whose LP cannot co-sign.
+    pub fn is_routable_ldk(&self, ldk_id: &[u8; 32]) -> bool {
+        let Ok(g) = self.inner.read() else { return false };
+        match g.known.get(ldk_id) {
+            Some(&(cid, _)) => g.book.is_routable(&cid, g.tip, self.max_age_blocks),
+            None => false,
         }
     }
 }
