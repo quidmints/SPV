@@ -2364,6 +2364,54 @@ retroactive accrual:**
   with a back-dated checkpoint claims fees already distributed to the other LPs — it moves the loss
   onto them instead of removing it. Permissionless retry removes it.
 
+### 📊 MEASURED, AND IT CORRECTED THE DESIGN — two full-suite arms on an ISOLATED worktree (2026-08-21)
+
+| arm | passed | failed | attributed |
+|---|---|---|---|
+| **B — baseline** (`origin/main`) | 433 | 86 | — |
+| **A — unconditional deferral** | 419 | 97 | **13 tests fail on A alone**; 2 on B alone (noise) |
+
+**Controls held exactly as predicted, which is what makes the 13 attributable:** `NotPubkeyHash()`
+20↔20 (the known `#21` fixture regression) and the morpho `debt 0 <= 0` cluster 40↔40 (the known
+root). The A-only reasons were `InsufficientChannelBtc()` 18↔**0** and `SlippageMaxS()` 4↔**0**.
+
+🔑 **WHAT THE 13 SAID, AND IT IS NOT "THE TESTS ARE STALE".** `test_SpliceOut_ShrinksPositionAndChannel`
+was among them, and that one is a REAL defect, not an old model: a partial shrink does
+`LP.pooled -= shrinkSats`, which **underflows against a position that was never opened**. (A full
+close is safe — `sharesRemoved = LP.pooled` self-cancels at zero.)
+⇒ **If essentially every caller must claim in the next breath, the deferral is friction on the
+normal path AND a new hazard on the shrink path.** The defect was only ever that an IRREVERSIBLE
+record (custody + ladder) could be rolled back by a REVERTIBLE leg. **Stop the rollback; do not
+restructure who credits whom.**
+
+▶️ **THE LANDED SHAPE IS THEREFORE A `try`/`catch`, NOT AN UNCONDITIONAL SPLIT:** `openChannel`
+credits inline when the basket is healthy (byte-for-byte the old behaviour, so the normal path and
+every fixture are untouched), and books `pendingClaimSats` + emits `ChannelClaimDeferred` only when
+the claim leg actually reverts. `registerChannelClaim` remains the permissionless completion.
+⚠️ **THIS IS NOT A SWALLOWED ERROR (standing rule 4).** The failure is recorded in PUBLIC state,
+ANNOUNCED by an event, and RETRYABLE by anyone. What it must never become is a `catch` that lets the
+channel proceed as if credited — `pendingClaimSats` staying non-zero is the whole mechanism.
+⚠️ **The shrink hazard is NOT fixed, only made exceptional** — it is now reachable solely in the
+deferred state. It still panics rather than naming itself; see `§LAZY-OPEN-SHRINK` below.
+
+## 🔁 §LAZY-OPEN-RETRY — 🔴 **OPEN. NOTHING RETRIES A DEFERRED CLAIM AUTOMATICALLY YET**
+Referenced from `channel_driver.rs`, so it is booked rather than assumed. `drive_open` deliberately
+does NOT call `registerChannelClaim`: with the inline credit, an unconditional call would revert
+`NothingToClaim()` on every healthy open — a warn line per channel that means nothing, which is how a
+log stops being read. **Nothing is LOST while a claim waits** (the event announces it and anyone can
+complete it), but nothing completes it on its own.
+▶️ The reconciler is the right home: it already reads channel state every pass and already binds the
+liveness gate there. It needs `pendingClaimSats(channelId)` in that read, then a send when non-zero.
+
+## ⚠️ §LAZY-OPEN-SHRINK — 🔴 **OPEN. A PARTIAL SHRINK AGAINST A DEFERRED CLAIM PANICS INSTEAD OF NAMING ITSELF**
+`BtcLib.resize` does `LP.pooled -= o.sharesRemoved` where a partial shrink's `sharesRemoved` is
+`a.shrinkSats`, so a delivery or withdrawal splice on a channel whose claim is still deferred
+underflows → **panic 0x11, which is undiagnosable in production**. Recoverable (anyone can register
+the claim first), and now rare — but a panic is the wrong way to say "register the claim first".
+▶️ Fix is a named error at the two shrink sites, `BTCChannels.sol:1423` (`_withdrawalPayout`) and
+`:2279` (`_settleSwapOutSlice`). ⛔ **Do NOT auto-claim inside the shrink** — that rebuilds the
+coupling this whole item removed, on the path where the swapper's BTC has already moved.
+
 ⚠️ **THE HARD PART IS *WHEN THE LP STARTS EARNING*, NOT HOW TO DEFER THE BOOKKEEPING** (§E166's own
 words). Deferring the credit defers fee accrual, so the fold must say explicitly whether the LP earns
 from CUSTODY (sats locked) or from CLAIM (position registered) — and the two now happen at different
