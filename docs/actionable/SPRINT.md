@@ -5118,3 +5118,41 @@ than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
    ⇒ With `Quid` at **86 bytes** of margin (§E274-SIZE), that stock machinery is the one ERC-20 piece
    worth pricing for removal — IF nothing external calls it. **Check the SPA and the Rust clients before
    touching it; do not assume an ERC-20 method is unused because our own contracts skip it.**
+
+## 🔴 §E276 — **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
+Owner, 2026-08-21: *"True A-S moves the mid — `r = s − qγσ²(T−t)` — so the balancing side is quoted
+BETTER than reference. **We never go below mid.**"*
+
+**VERIFIED IN BOTH PRICING SITES — every path moves AGAINST the taker:**
+```
+Core.sol:1241     out -= (out * skew) / 1e18              // taker receives LESS
+FixedRateFill     draining ? base + base·skew/1e18        // taker pays MORE
+   _applySkew               : base - base·skew/1e18       // taker receives LESS
+SwapLib.sellSkew  `if (over == 0) return 0;`              // refill EXEMPT — zero, never negative
+```
+⇒ **THE REFILL DIRECTION IS EXEMPT, NOT ATTRACTIVE.** The best price a rebalancing counterparty can
+get from us is *reference*. A–S pays them better than reference; that payment IS the inventory-control
+mechanism, and we do not have it — we have δ (object ii) doing duty for r (object i).
+⚠️ **`UNIT-WHY-ONESIDED` ✅ CLOSED THE `payRefillBonus` IMPLEMENTATION, NOT THIS DEFECT** — correctly
+(a discrete jackpot is a race, MEV). **A closed implementation is not a closed problem**, and the ✅
+conflated them, which is why this read as done for two weeks. §UNIT-CURVE-SPEC's ⛔ — *"we never move
+the BID"* — is still TRUE IN THE CODE AS OF TODAY.
+
+⭐ **AND IT EXPLAINS `SKEW_UNFILLABLE`, WHICH I LANDED TODAY AS IF IT WERE A PROPERTY OF THE CURVE.**
+A **shift** of any magnitude is meaningful — it moves the price and the trade still clears. A **spread**
+of 100% means the taker receives NOTHING, so the quote is arithmetically dead. `Γ·σ²·q/(1−q)` is the
+SHIFT formula, and we feed its output into the SPREAD slot. ⇒ **The 1e18 boundary is an artifact of
+that mismatch, not of the pole.** §E274 measured the crossing at q ≥ 0.893 (200% vol); under a shift
+there would be nothing to cross. **The decline is correct GIVEN the spread implementation — a true
+statement about the wrong object.**
+
+▶️ **THE OPEN QUESTION IS WHETHER THE MISSING SHIFT IS A DEFECT OR A DELIBERATE NON-REQUIREMENT**, and
+it turns on ONE ambiguity in the owner's 1inch spec (*"refill only when not enough in the pool to cover
+a swap, **paid against 1inch (routes the swap)** and rebalances the pool"*):
+| reading | who restores inventory | is the missing bid-shift a defect? | does §E273's 48× reopen? |
+|---|---|---|---|
+| **the SOLVER routes** what we decline | the counterparty, externally | **NO** — nobody needs to be attracted | no (my `1cf471af` retraction stands) |
+| **WE pay 1inch** to route and rebalance | us, actively | **NO**, but we bear the routing cost | **YES — reopens exactly as posed** |
+⇒ **Both readings retire the bid-shift; they disagree about who pays the spread.** ⚠️ **I resolved this
+by inference once already and retracted a CORRECT finding on the strength of it. Do not infer it
+again — the answer decides whether the restoration cost is ours.**
