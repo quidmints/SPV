@@ -7207,3 +7207,43 @@ GREP's exit status, not forge's. **That build had failed** (another thread's dup
 ILevVenue`), the artifacts were stale, and **the number was right by luck.** ⇒ *"Read the effect, not
 the exit code"* has a corollary: **read the RIGHT process's exit code.** A pipeline's `$?` is the last
 stage's, and every build check in this file that pipes into `grep` is measuring the grep.
+
+## C15. 🔴 THE 1inch EXECUTION MIGRATION — the seam is ONE function, the cost is CLIENT-SIDE (2026-08-21)
+
+**V3 is still the live execution path.** `V3_SWAP_ROUTER.exactInputSingle` at `LevMath._poolSwap`, and
+there is **no 1inch execution router anywhere in `src`** — the only 1inch surface is the
+`OffchainOracle` PRICE reader. This is the work behind PART C2's *"there should be no v3 in this code
+at all"*: **V3 cannot be removed until 1inch replaces it, so the directive and `ROUTING-AGGREGATION.md`
+are ONE task.**
+
+✅ **LANDED: `LevMath._aggSwap`** — router pinned (`ONE_INCH_ROUTER`, verified on-chain codesize
+**24,294**), calldata as an ARGUMENT because Pathfinder's weighted split has nothing to derive
+on-chain. Enforces all three PM invariants explicitly: `out` is a **MEASURED balance delta** (never the
+router's return value), direction is the caller's, and approval is exact-amount and **zeroed on every
+exit including failure**. A failed call returns **0 — a shortfall, not a revert** (§V-R11), while
+`minOut` still reverts: the floor bounds the PRICE, never the SIZE.
+⚠️ **IT COST ZERO BYTES, WHICH MEANS IT IS NOT IN THE BYTECODE.** `LevMath` measured 22,817/1,759
+before and after — solc strips an `internal` function with no callers. **It is specification, not yet
+behaviour.** Do not read its presence as the migration.
+
+⭐ **THE SEAM IS ONE FUNCTION, NOT FOUR.** `_poolSwap` has **exactly 4 callers**, and they are precisely
+the spec's four sites: `_stableToWethSor:526` · `_stableToWbtc:627` · `_wbtcToStable:634` ·
+`_wethToStableDex:643`. Converting `_poolSwap` converts all four at once. ✅ Note the V3 version is
+**already invariant-compliant** (measured delta, approval zeroed both paths, pinned router) — so this
+is a venue swap, not a correctness repair.
+
+🔴 **THE REAL COST IS NOT IN `LevMath` — IT IS THE ABI.** The internal ripple is small (each of the
+four has 1–2 callers), but 1inch calldata must ENTER from the external entrypoints:
+**`deleverOne(lp, minOut)` · `closeLev(minOut)` · `closeLevFor(lp, minOut)` · `leverUpBuyWbtc(...)`**.
+Adding `bytes swapData` to those means:
+- **`tools/check-client-abis.py` WILL flag drift** — and per `CLAUDE.md` that gate must be run AFTER a
+  rebuild and must GATE the commit, because `spa/` has no `node_modules` so `tsc` cannot run at all.
+- **The SPA and the Rust clients must be updated in the same change**, or they encode calls to
+  signatures that no longer exist (§E154-client-ghosts).
+- 🔴 **`cascadeDelever` IS PERMISSIONLESS AND BATCHED** — it would need calldata PER LP. That is the
+  hardest sub-problem and it is not addressed by the spec: a batch caller cannot pre-quote every LP
+  without an off-chain round trip per position, and a stale quote reverts or fills badly.
+
+▶️ **ORDER: settle the `cascadeDelever` batch-calldata question FIRST** — it is the one that can make
+the whole design unworkable, and everything else is mechanical once it is answered.
+
