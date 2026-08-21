@@ -277,11 +277,17 @@ cite that is not in the tree — **56 on the day it was written**. Most are legi
 (`AttestedHopRegistry`, the Midnight files); the RENAMES above are the live rot, because a reader
 follows them somewhere that exists under a different name. Run it after any rename.
 
-📌 **Separately, and found the same way: `evm/lib/morpho-blue` is 23 tracked files that NOTHING
-references** — no import, no remapping, not a submodule. `MIDNIGHT-FORK.md` claimed *"Blue v1 IS
-carried … because `LevVenueBase`, `DeployL1_s` and four tests import it"*, and that is no longer
-true: every Morpho import resolves to our own `src/imports/` declarations. **Booked, not deleted** —
-the Midnight removal is the precedent for who decides what exists.
+✅ **`evm/lib/morpho-blue` IS DELETED (23 files, owner's call 2026-08-21).** It was carried on a
+claim that had gone stale: `MIDNIGHT-FORK.md` said *"Blue v1 IS carried … because `LevVenueBase`,
+`DeployL1_s` and four tests import it"*, and by the time it was checked **nothing referenced it at
+all** — no import, no remapping, not a submodule; every Morpho import resolves to our own
+`src/imports/` declarations (`IMorphoFlash` in `Interfaces.sol`, `IMorpho` declared inline in
+`LevVenueBase.sol:64`). `forge build` clean without it.
+⚠️ **THE PATTERN, SINCE IT HAS NOW HAPPENED TWICE IN ONE WEEK:** both morpho-v2 and morpho-blue were
+kept alive by a SENTENCE claiming importers, not by importers. **A vendored dependency's
+justification is a testable claim — `grep -rn "<lib>" evm/src evm/test evm/script` — and it should be
+re-run before the weight is carried another month**, because the code that once imported it can be
+deleted without anyone revisiting the note that explains why it is there.
 
 ## The central structural fact — read this before proposing any refactor
 
