@@ -256,6 +256,33 @@ ownership/renounce posture that `docs/FAQ.md` Part 6 argues to counsel. `.dot` f
 `dot -Tsvg`. Slither is also a static analyser, so a bare `slither ..` surfaces real findings on the
 same compile.
 
+## 🔴 RENAMES THAT LANDED IN CODE AND NOT IN THE LEDGERS (2026-08-21) — read before trusting a name below
+
+`22ec766f` renamed the core contracts and **every document still uses the old names**, including this
+one. The text below is kept as written because rewriting it wholesale would break the arguments it
+makes; read it through this table instead.
+
+| the docs say | the tree actually has |
+|---|---|
+| `Vogue` / `Vogue.sol` / `VogueCore.sol` | **`Quid` / `Quid.sol`** (and QU!D stays the token) |
+| `BandState` | **`State`** |
+| `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** |
+
+⚠️ **`Vogue.sol` is cited in SIX files including this one, and `State.sol` is cited as if it exists —
+it was DELETED, not renamed into.** A row naming a file the tree does not have is not a small
+inaccuracy: it is a row the next thread cannot act on, and it reads as current.
+
+▶️ **`tools/check-doc-symbols.py` now finds this class.** It reports every `Something.sol` the docs
+cite that is not in the tree — **56 on the day it was written**. Most are legitimate tombstones
+(`AttestedHopRegistry`, the Midnight files); the RENAMES above are the live rot, because a reader
+follows them somewhere that exists under a different name. Run it after any rename.
+
+📌 **Separately, and found the same way: `evm/lib/morpho-blue` is 23 tracked files that NOTHING
+references** — no import, no remapping, not a submodule. `MIDNIGHT-FORK.md` claimed *"Blue v1 IS
+carried … because `LevVenueBase`, `DeployL1_s` and four tests import it"*, and that is no longer
+true: every Morpho import resolves to our own `src/imports/` declarations. **Booked, not deleted** —
+the Midnight removal is the precedent for who decides what exists.
+
 ## The central structural fact — read this before proposing any refactor
 
 **`isBTC` is polymorphism done by hand, and the duplication it implies is the codebase's biggest
