@@ -1352,6 +1352,54 @@ contract Core {
         if (priceWad != 0) _writeObservationPrice(priceWad);
     }
 
+    /// @notice PUSH AN OBSERVATION. Permissionless, and bounded by the Chainlink anchor.
+    ///
+    /// @dev §E232 — WHY A PUSH AT ALL. The ring needs a reading INDEPENDENT of Chainlink, because
+    ///      Chainlink is already the ANCHOR `twapResolve` checks against — source the ring from it
+    ///      too and the deviation test compares Chainlink with Chainlink and can never fire (§E222).
+    ///      The best independent source is 1inch's aggregator, and it **cannot be read on-chain**:
+    ///      `getRate` measured **33,573,664 gas** against a 30M block limit, corroborated by the
+    ///      node's own `eth_estimateGas` refusing past its 16.7M ceiling. **That is not a defect —
+    ///      the contract is named `OffchainOracle` and is built for `eth_call`, where the caller sets
+    ///      its own gas cap.** So it is read OFF-chain, where it works as designed, and pushed here.
+    ///
+    /// @dev **PERMISSIONLESS, FOLLOWING `cascadeDelever`'s PRECEDENT: the BOUND is the security, not
+    ///      a keeper role.** Anyone may call this; nobody can move the ring outside the anchor band,
+    ///      so there is no privilege to steal, no key to rotate, and no liveness dependency on one
+    ///      operator. A trusted-pusher role would add all three and buy nothing the bound does not.
+    ///
+    /// @dev **FAULT TOLERANCE — EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS.** No pusher, a
+    ///      dark feed, or an out-of-band value all end the same way: the ring is not written,
+    ///      `ringVariance` returns 0, and §E213's sentinel prices at the CEILING. Never a revert,
+    ///      because a revert here would let a stalled oracle halt the band.
+    ///
+    /// @dev **WHAT THE BAND STILL LETS THROUGH IS THE POINT.** Chainlink updates on a heartbeat or a
+    ///      deviation threshold, so BETWEEN updates it reports a flat line while the market moves —
+    ///      a ring sourced from it would measure σ² ≈ 0 through real volatility. A DEX-aggregated
+    ///      push carries that intra-update movement, which is exactly what σ² is for. The bound
+    ///      constrains the LEVEL; the information is in the PATH.
+    ///
+    /// @dev Band = 50 bps. MEASURED basis between 1inch and Chainlink on ETH/USD is **8 bps**, so
+    ///      this is ~6x headroom, and it caps an adversary's reachable σ² inflation at ±0.5% per
+    ///      block (the ring takes one write per timestamp). It is NOT `TWAP_MAX_DEVIATION_BPS`
+    ///      (500) — that is calibrated for a 30-minute window against a pushed feed, and inheriting
+    ///      it here would let a pusher move the level ten times as far.
+    uint256 internal constant OBS_PUSH_MAX_BPS = 50;
+
+    function pushObservation(uint256 priceWad) external {
+        if (priceWad == 0) return;
+        // `twapResolve(feed, 0, ...)` returns the RAW anchor: §A.13 made `price == 0` fall through to
+        // Chainlink rather than short-circuit, so this reuses tested machinery instead of adding a
+        // second `latestRoundData` reader to Core. `isWbtc` is DERIVED — the lift exists to close the
+        // 8-vs-18-dec gap, so it is exactly `VOL_DECIMALS != 18`, which keeps Core asset-agnostic.
+        (uint256 anchorPx,) = SwapLib.twapResolve(
+            AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
+        if (anchorPx == 0) return;                       // no anchor => cannot validate => refuse
+        (uint256 lo, uint256 hi) = priceWad < anchorPx ? (priceWad, anchorPx) : (anchorPx, priceWad);
+        if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;   // outside the band => refuse
+        _writeObservationPrice(priceWad);
+    }
+
     function _writeObservationPrice(uint price) internal {
         OracleLib.writeObservation(observations, obsState, price);
     }
