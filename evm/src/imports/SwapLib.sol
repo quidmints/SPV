@@ -1318,28 +1318,10 @@ library SwapLib {
         // lockedUsd = GROSS levered collateral, converted with the SAME base/1e30 scale as poolVol
         // (one price, one unit) — the locked-inventory basis for `inv` (#6/F3). committedUsd = DEBT.
 
-        // §E278 — **PRICE THE SKEW ON WHAT WE CAN ACTUALLY FILL, NOT ON WHAT WAS ASKED FOR.**
-        // The swap path bounds the drain to inventory ~20 lines AFTER this call: `routeSwap` returns
-        // `consumed`, and `_refundExcess` (`:488`, #105) returns the unfilled remainder to the
-        // swapper. So a request larger than the band is ALREADY a partial fill by design — the owner
-        // states the rule as *"you still get the remainder of the inventory at the same price"*.
-        // ⛔ **WITHOUT THIS LINE §E275'S DECLINE MISFIRES ON EXACTLY THAT CASE.** An oversized
-        // `drainUsd6` drives `inv1 = 0` inside `skewWad`, which is the POLE, which now reverts
-        // `QuoteUnfillable` — killing a swap that the band can serve in part. Before the cap was
-        // deleted the pole was pinned to 3% and the fill proceeded, so this is a REGRESSION the cap
-        // removal introduced and the suite CANNOT SEE: §E104 already recorded that nothing here
-        // drains a band to zero (4,308 green over an unreached state), and four full-suite runs on
-        // both arms agreed precisely because none of them tries it.
-        // ⇒ Clamping the INPUT is not a §3 clamp: it is a domain correction. A drain larger than the
-        // inventory is not a bigger drain, it is a drain of everything plus a refund, and pricing
-        // scarcity against a quantity that cannot be delivered asks the curve a meaningless question.
-        // The pole stays reachable where it MEANS something — `poolVolUsd == 0`, a genuinely empty
-        // band, where there is no partial fill to protect and declining is correct.
-        uint fillable = drainUsd6 > poolVolUsd ? poolVolUsd : drainUsd6;
         uint raw = skewWad(
             poolVolUsd,
             ICore(core).flowEwmaUsd(),
-            ICore(core).realizedVarianceWad(), rk, fillable);
+            ICore(core).realizedVarianceWad(), rk, drainUsd6);
         // §E275 — same reason as `_composePrice`: `raw` may be the pole sentinel, and the
         // amplifier below does checked arithmetic on it. Decline before touching it.
         raw = _declineIfUnfillable(raw);
