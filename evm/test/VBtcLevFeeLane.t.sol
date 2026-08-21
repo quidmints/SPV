@@ -8,7 +8,7 @@ import {LevBase} from "../src/imports/LevBase.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
-import {ILevVenue} from "../src/imports/ILevVenue.sol";
+import {ILevVenue} from "../src/imports/Interfaces.sol";
 import {Types} from "../src/imports/Types.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
