@@ -5745,3 +5745,63 @@ SAME question as §E283's option 2, "refuse instead of guess", applied to SIZE r
 quote); move the bound ahead of the `wellSkew` call in `swapToBody`; and write the drain-to-empty test
 §E104 says has never existed. ⚠️ **Sizing must be computed from `inv0`, NOT by clamping `drainUsd6`** —
 that is the no-op this row's sibling already paid for.
+
+---
+
+# 📕 §SKEW-LEARNINGS — **EVERYTHING THIS THREAD ESTABLISHED ABOUT THE SKEW, AND THE TRAPS THAT COST THE MOST**
+Consolidated 2026-08-21 so the next thread does not re-derive it. **Each line is a pointer to a row that
+carries the evidence — this is an index, not a restatement.** Read this before touching `skewWad`,
+`wellSkew`, `sellSkew`, `_composePrice` or the refill.
+
+## WHAT THE SKEW ACTUALLY IS (and the four things it is NOT)
+| | |
+|---|---|
+| ⭐ **It is A–S's SPREAD δ wearing A–S's name — NOT the reservation shift `r`** | §E276. `r = s − qγσ²(T−t)` moves the MID so the balancing side is quoted **better than reference**; we never go below mid. Every path moves against the taker (`Core:1241`, `FixedRateFill._applySkew`), and the refill direction is **exempt (`sellSkew` returns 0), not paid**. ⇒ **We have the magnitude without the mechanism.** |
+| **Γ is the cap under a second name** | `SwapLib:1013-1014` says so outright. The chain was cap → Γ → a 10.95-day horizon *"nobody chose"*. §E274 re-derives Γ = **5.48e15** from `FLOW_DECAY`'s 48h half-life; the old 3e16 is **5.475× larger**. **Not landed — deliberately unbundled from the cap removal.** |
+| **No finite Γ makes the curve safe** | §E274, measured. `q/(1−q)` diverges, so dividing Γ by 5.475 changes nothing: at 200% vol the kernel passes 1e18 at **q ≥ 0.893**, i.e. in normal operation. **Margin is the wrong concept for a pole.** |
+| **The 1e18 boundary is an ARTIFACT, not a property** | §E276. A *shift* of any size still clears; a *spread* of 100% leaves the taker nothing. We feed the shift formula into the spread slot. **Under a real mid-shift there is nothing to cross.** |
+| **The curve was FLAT-TOPPED almost everywhere it mattered** | §E274. At σ²=1e18, live skew was pinned at exactly 3e16 from q₁=0.6 through 0.95 while the uncapped kernel ran 3.69e16 → 12.35e16. ⇒ **Every §UNIT-B / §UNIT-SKEW-IS-NOISE number above q≈0.6 was measuring THE CONSTANT, not the curve.** |
+| **σ² is pinned at ~0 and cannot be moved** | §E277. `DrainAtomicity.t.sol:1372` fails with σ² = **1,1,1,0 wad across four runs on both arms**. ⛔ **ITS FAILURE IS THE MEASUREMENT — "fixing" it destroys the evidence.** |
+
+## THE REFILL — SETTLED, AND SMALLER THAN IT LOOKED
+- **Trigger = EXHAUSTION, not a clock or a threshold.** A contract cannot know it is end-of-block; and
+  because we quote at the oracle, depletion does not move the quote, so there is **no pricing reason to
+  rebalance until a side is spent**. (My end-of-block proposal was unimplementable.)
+- **The principal is never the problem.** A drain of `D` pays `D·px` **in** — the band is mis-composed,
+  not poorer (**+$570,000 measured**, §E134). Only the SPREAD costs anything.
+- **The solver routes what we decline** (owner) ⇒ no keeper, no on-chain venue, and **§V-R1 (1inch
+  AggregationRouterV6) does not exist in code** — it is a comment naming an intended route.
+- ⚠️ **STILL AMBIGUOUS AND IT DECIDES WHO PAYS:** *"paid against 1inch"* — solver routes (we pay
+  nothing) vs we pay 1inch (the 48× question reopens). **I inferred this once and retracted a CORRECT
+  finding on it. Do not infer it again.**
+
+## 🔴 THE TRAPS — each cost real time in THIS thread
+1. **THE SENTINEL HAS NO SAFE VALUE — it must be DATA at the measurement and DECLINED at the fill.**
+   Three attempts: (a) return `type(uint).max` ⇒ `_composePrice` does `kernel + risk` ⇒ **panic 0x11**,
+   §E104 relocated one frame out; (b) `revert` inside `skewWad` ⇒ **broke the refill trigger**, which
+   reads it as an observation — *"the read must not be able to halt the band"*; (c) correct: sentinel
+   returned by `skewWad`, declined by `wellSkew`/`sellSkew` **before** any arithmetic. Full history at
+   the pole in `SwapLib`.
+2. **THE SUITE CANNOT SEE A FULL DRAIN.** §E104 recorded it (4,308 green over an unreached state) and
+   it bit again: §E278-partialfill regressed and **four full-suite runs on both arms missed it**,
+   because nothing asks for more than the band holds. **A pure-function test cannot cover it** — the
+   inventory bound lives in the swap path, so it must be a fixture.
+3. **±2-TEST NOISE FLOOR, FLIPPING BOTH WAYS. RUN EACH ARM TWICE OR SAY NOTHING.** §E275-VERIFIED. I
+   attributed one test to my change, retracted, then **re-asserted it because ONE noise sample showed
+   no PASS→FAIL flips** — the worst inference of the three. It then flipped inside my own arm.
+   The fork is unpinned (`ETH_RPC_URL=publicnode`, no `FORK_BLOCK`), so arms run against different heads.
+4. **A ZERO-HIT GREP IS A RENAME, NEVER A REMOVAL — I broke this rule TWICE in one session** and the
+   owner caught both. §E277 flagged 4 ✅ rows as citing deleted tests; **3 were false positives**
+   (`testReal_Euler_*` → `testReal_Morpho_*`). **The discriminator was always reading the deleting
+   COMMIT, never the grep.**
+5. **A ✅ CAN CLOSE THE WRONG THING.** Two mechanisms, both invisible from the marker: it closed an
+   IMPLEMENTATION not the defect (§E276), or its EVIDENCE was later retracted (§E277). ⇒ **The sweep
+   for rows stuck RED after a fix (`757e4500`) has no counterpart for rows stuck GREEN over a live
+   defect. Take a ✅ row's falsifiable claim and re-check it against code.**
+6. **CHECK THE MECHANISM FIRST — it was already built, three times.** Partial fill + refund
+   (`_refundExcess`, #105) existed; the "cannot cover" predicate went live as a side effect of the cap
+   deletion; and `fillOOR` folded into `rebalanceCore`, which already runs on every swap.
+7. ⛔ **MY OWN FAILURE MODE, NAMED: I WROTE THE EXPLANATION BEFORE RUNNING THE CHECK.** §E278's fix
+   was a **no-op** (`skewWad:980` already clamped `inv1` to 0) shipped under twelve lines asserting it
+   repaired a regression, with a test calling `wellSkewPure` — **an API I invented to fit the test I
+   wanted**. Reverted. **Everything I caught, I caught by running something.**
