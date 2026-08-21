@@ -2,6 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+// §E266 — Morpho VAULTS V2 is a different protocol from Blue; import ITS interface rather than
+// restating three signatures. A hand-rolled restatement is what drifts silently.
+import {IVaultV2} from "morpho-vaults-v2/interfaces/IVaultV2.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
@@ -42,13 +45,6 @@ import {IDepositAdapter} from "./Interfaces.sol";
 // living OUTSIDE the library block was invisible to it — the merge compiled everywhere except
 // the one body that used this, three files from where the mistake was made.
 
-/// and the vault's assets sit in others. ~113k gas per pull, freeing nothing.
-/// It is also unnecessary — `withdraw()` self-deallocates (see `_withdrawableOf`).
-/// @dev NOT Morpho Blue — Morpho VAULTS V2 (`liquidityAdapter`), a different protocol with no
-///      declaration in `lib/morpho-blue`, so it stays local.
-interface IMorphoVaultsV2 {
-    function liquidityAdapter() external view returns (address);
-}
 
 library QuidLib {
     uint constant WAD = 1e18;
@@ -684,7 +680,7 @@ library QuidLib {
     ///         vaults are Morpho-V2 — measured, holding ~124M of ~126M total stable TVL — so the stable
     ///         side had the same understatement, and there it feeds the REDEMPTION haircut.
     function _withdrawableOf(address vault, address holder) internal view returns (uint) {
-        try IMorphoVaultsV2(vault).liquidityAdapter() returns (address adapter) {
+        try IVaultV2(vault).liquidityAdapter() returns (address adapter) {
             if (adapter != address(0)) {
                 try IERC20(vault).balanceOf(holder) returns (uint shares) {
                     if (shares == 0) return 0;

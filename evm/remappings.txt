@@ -8,3 +8,4 @@ solady/=lib/solady/
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts/contracts/
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
 openzeppelin-contracts/=lib/openzeppelin-contracts/
+morpho-vaults-v2/=lib/morpho-vaults-v2/src/

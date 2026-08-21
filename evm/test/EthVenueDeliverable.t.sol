@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
+import {IVaultV2 as IMorphoV2Probe} from "morpho-vaults-v2/interfaces/IVaultV2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {QuidLib} from "../src/imports/QuidLib.sol";
@@ -118,11 +119,3 @@ contract EthVenueDeliverableProbe is AllesFixture {
 
 }
 
-/// Probe-local copy of the Morpho-V2 surface (the diagnostic must not import from src/imports).
-/// @dev NOT Morpho Blue — Morpho VAULTS V2 surface; no lib declaration exists to import.
-interface IMorphoV2Probe {
-    function liquidityAdapter() external view returns (address);
-    function liquidityData() external view returns (bytes memory);
-    function forceDeallocate(address adapter, bytes memory data, uint assets, address onBehalf)
-        external returns (uint penaltyAssets);
-}
