@@ -5286,3 +5286,157 @@ The row asserted TWO things and only one was load-bearing.
 ⇒ **ROW ACTION: keep the consequence, re-point the citation at `DrainAtomicity.t.sol:1372`, and DELETE
 the market-comparison sentence.** ⚠️ **AND NOTE WHAT THIS COSTS: the red test is load-bearing evidence,
 so anyone who "fixes" it by weakening the assertion destroys the measurement** — rule 4 exactly.
+
+---
+
+## 🔴🔴 §E278 — **THE TWO SKEW LEGS DISAGREE ABOUT THE σ²=0 SENTINEL, AND TODAY THAT MEANS TOXIC INFLOW IS FREE**
+
+**Measured 2026-08-21 by enumeration, not inference.** `UNKNOWN_VARIANCE_SKEW` has **exactly one
+consumption site in the tree**: `SwapLib.sol:1020`, inside `skewWad` — the DRAIN leg.
+`sellSkew` has **no such guard**, while carrying a comment at `:1476-1480` that says in §E59's own
+words that it must: *"same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must
+not price an inventory-increasing sell at nothing … UNMEASURED variance must price at the CEILING."*
+**The prose is right and the code does the opposite.** `sellSkew` goes straight to
+`skew = Γ·σ²·q/1e18`, which at σ² = 0 is **exactly 0**, and `_composePrice(core, 0, 0)` then returns
+`0·sharedScarcity + SPLICE`, i.e. **0 on ETH** (`Core.sol:611` — ETH is `(ETH_CONF_FRAC_WAD, 0)`).
+
+⇒ **AND §C1 MAKES IT LIVE RATHER THAN LATENT.** Nothing is pinned as an observation source
+(2026-08-21, owner), so `_observeIfSourced` returns immediately, the ring is never written,
+`ringVariance` returns 0, and **σ² ≡ 0 on BOTH instances**. So this is not a tail case reachable at
+genesis — it is the state of every swap on `main` right now.
+
+### What the live pricing actually is, with the cap gone (§E275) and σ² ≡ 0
+
+| post-swap band state | ETH | BTC |
+|---|---|---|
+| inventory-INCREASING sell (`sellSkew`, `over > 0`) | **0** | SPLICE only |
+| drain leaving the band flush (`inv1 ≥ flow target`) | **0** | SPLICE only |
+| drain leaving the band scarce (`inv1 < target`) | **3%**, ×`_sharedScarcityWad` ⇒ **3–6%** | same |
+
+⇒ **A TWO-STATE STEP FUNCTION WITH A CLIFF, NOT A CURVE.** A drain landing one unit above target
+pays nothing; one unit below pays 300–600 bps **on the whole ticket**.
+
+### Three things this silently disables — each was built deliberately and none is reachable today
+
+1. **§E68's size-awareness.** The `q0 → q1` path-averaging lives downstream of the σ² multiply, so a
+   \$1 drain and a reservoir drain quote identically again — the exact defect §E68 exists to kill.
+2. **§E274's Γ.** Γ multiplies σ², so the re-derivation (5.48e15 from `FLOW_DECAY`) changes nothing
+   until a source exists. **Do not read §E274 as inert work — read it as blocked on §C1.**
+3. **§E275's `SKEW_UNFILLABLE`.** 3e16 < 1e18, so the decline threshold cannot trigger. (§E276
+   reaches the same place from the other direction: the 1e18 boundary is an artifact of feeding a
+   SHIFT formula into a SPREAD slot.)
+
+### Why this is a defect and not "the honest state"
+
+§C1 records the σ²=0 consequence as *"§E213 prices unmeasured variance at the ceiling, which is the
+honest reading."* **That is true of ONE branch of ONE leg.** The other three cells above price
+unmeasured variance at **zero** — which is precisely the sentinel error §E59 named and closed on the
+drain side: *"a value meaning 'no data' must never be consumed as if it meant 'none of the thing'."*
+🔴 **THE DIRECTION MATTERS: the free cell is the TOXIC one.** An inventory-increasing sell is
+somebody dumping the falling asset into the band, and today it pays nothing. The design sentence this
+repo has been working toward — *"the curve tilts to price your inventory, turning toxic directional
+flow into balanced pool inventory"* — is **inverted** by the live configuration: the balancing
+direction and the toxic direction are both free, and only the scarce drain is charged.
+
+▶️ **THE FIX IS THE GUARD THE COMMENT ALREADY DESCRIBES**, at the producer, per §E275's own rule that
+the decline lives at the producer and not at three consumers: `sellSkew` must resolve `σ² == 0` to
+`UNKNOWN_VARIANCE_SKEW` before the multiply, exactly as `skewWad:1020` does.
+⚠️ **AND THE FLUSH BRANCH IS A SEPARATE HALF — do not fix one and call it done.** `skewWad`'s two
+early returns (`target == 0`, `inv1 >= target`) return `_maxWellSkew(0, rk)`, which is **0 on ETH**
+because ETH has no splice floor. §UNIT-A's *"RETURN THE BASE, NOT ZERO"* fix is neutralised whenever
+σ² is unmeasured, because at σ² = 0 **the base IS zero**. That is the free-drain hole §E59 closed,
+arriving through a different door.
+⚠️ **ONE MONEY-PATH CHANGE PER RUN (rule 10).** These are two changes, not one, and the second is
+gated on §C1: with a live source the flush branch stops being zero on its own.
+
+📌 **BOOKED, NOT FIXED. `§C1` OWNS THE SOURCE; THIS ROW OWNS THE SENTINEL.** The sentinel defect
+survives §C1 — a source that goes stale, a `staticcall` that fails, or a band with too few distinct
+samples all return σ² = 0 by design (`Core.sol:1318-1322`: *"Degrade to unmeasured, never halt"*), so
+`sellSkew` would still price toxic inflow at zero on exactly the days the ring stops advancing.
+
+---
+
+## 🔴 §E279 — **THE SKEW MAY BE APPLIED TWICE ON THE `Aux.swap` PATH. ONE TEST SETTLES IT.**
+
+**Call chain verified by `file:line`, 2026-08-21; NOT yet executed, so this is a reading and not a
+finding — booked because rule 12 says a named-but-unexecuted check dies in prose otherwise.**
+
+```
+Aux.swapTo:741  → SwapLib.swapToBody          (delegatecall)
+  :448-449      →   skew = wellSkew(...);  retainSkewPremium(...)   ⇒ r.amount -= premium
+  _finishSwap   → BasketLib.routeSwap:552 → ICore.swap
+                     → Core._fillDelta:1240  ⇒ out -= out·wellSkew/1e18
+```
+
+Both sites read the SAME `wellSkew`. If they are genuinely in series the effective rate is
+**`(1−s)²`**, i.e. 5.9% where 3% was intended — and it scales with the curve the moment §C1 pins a
+source, so it gets worse, not better.
+
+⚠️ **§E275 ENUMERATED THE THREE CONSUMERS AND DID NOT ASK WHETHER ANY TWO ARE IN SERIES.** Its note
+(`SwapLib.sol:1248-1252`) lists `retainSkewPremium`, `Core.sol:1241` and `FixedRateFill._applySkew:140`
+to justify declining at the PRODUCER rather than guarding each consumer — a correct conclusion about
+where the guard goes, which is a different question from whether one swap hits two of them.
+
+▶️ **THE TEST:** one `Aux.swap` on a scarce band with a known σ², asserting the realised haircut is
+`s` and not `s·(2−s)`. ⚠️ **RUN IT AGAINST A PINNED σ²** — at σ² = 0 (today's state, §E278) `wellSkew`
+returns the flat 3e16 sentinel on both legs, so the two applications are still distinguishable
+(3% vs 5.91%), but the SIZE-dependence that would make the reading obvious is absent.
+⚠️ **IF IT IS REAL, THE FIX IS NOT "DELETE ONE".** `retainSkewPremium` also RECORDS the premium
+(`Core.recordSkewPremium` → `BAND.creditSkewPremium`), which is what routes it to LPs — deleting the
+call would silently stop crediting them. Separate the RECORD from the SUBTRACT before removing either.
+
+---
+
+## ✅ §E280 — **THE SKEW PREMIUM DOES REACH THE LPs. `E121`/`E122`'s CONTRADICTION IS SETTLED, IN `E122`'s FAVOUR.**
+
+**Verified in code 2026-08-21, one hop:** `Core.recordSkewPremium:359` increments the audit counter
+and then calls **`BAND.creditSkewPremium(premiumUsd)`** — dispatched by address, so `Quid` and `Vault`
+both receive it. Its own note states the discriminator: *"the counters below are an AUDIT RECORD …
+the CREDIT is what actually reaches LPs. Without it the premium accrues to basket backing, which
+prices QU!D and not LP shares."* §E42-netting then puts the backing where the claim is
+(measured: 3,000.000000 in vs a 2,993.999901 mirror, the 6.000099 gap being the premium).
+
+⇒ §16's digest carries `E121` (🔴🔴 *"the premium lands in the LP fee accumulator, NOT QU!D backing"*)
+and `E122` (🔴🔴 *"E121 CONFIRMED … the premium reaches the LPs"*) as an unresolved pair, and §16's own
+warning flags `E122` as a candidate stale-open whose body contains a ✅. **It is not stale-open: it is
+correct, and now has a code citation rather than a test's say-so.**
+⚠️ **CLOSING ONLY WHAT IS AXIOMATIC (rule 16): this closes WHERE the premium goes, nothing else.**
+The 420 ppm is a DIFFERENT charge with a DIFFERENT destination — retained in `POOLED`, reaching LPs
+by COMPOUNDING rather than per-share accrual, which is the timing question §E226 defers until
+`Collect` goes. Two fees, two routes; do not read this row as covering both.
+
+---
+
+## 🟡 §E281 — **WE REINTRODUCED IDLE CAPITAL THROUGH THE OOR BOOK, WHICH IS THE ONE THING THE ORACLE-SETTLED DESIGN EXISTS TO ABOLISH**
+
+Settling at oracle against `POOLED` means **every dollar of pooled inventory is quotable at every
+price** — there is no out-of-range capital by construction, and §E58 goes further by counting levered
+depth as band depth (*"in the band is in the band alike"*). That is the structural answer to
+concentrated liquidity leaving most supply unused, and it is the strongest claim this architecture has.
+
+**But `selfManaged` positions are idle until price touches their trigger, and `oorShares` are not in
+`Quid.totalSupply()`.** §E258's `fillOOR`/`sweepOor` now consumes them ON TOUCH, so they are no longer
+permanently stranded — but between placement and touch they are exactly the category the design
+claims to have removed, and §E255 still has to settle whether they count as supply.
+
+▶️ **AND THERE IS A SECOND, UNMEASURED AXIS: VALUED ≠ DELIVERABLE.** `_skewBasis:1211` prices off
+`ICore(core).POOLED()`, while `QuidLib.deliverableETH:727` applies partial-liquidity haircuts and
+`Quid.sol:715` records that it can be **~0**. If those diverge we quote as flush while unable to
+deliver — a revert to a solver that has already committed a price, which is the worst failure shape
+for the RFQ counterparty §E272/§E275 assume. **I did not trace whether the swap path can reach that
+state; that trace is the task.**
+
+---
+
+## 🟡 §E282 — **NOTHING UNWINDS THE IL HEDGE WHEN BORROW COST EXCEEDS FEE YIELD**
+
+`grep -n "borrowRate\|carry\|interest"` over `LevManager.sol` and `LevMath.sol` returns **zero hits**
+(2026-08-21). ⚠️ **AN EMPTY GREP PROVES NOTHING ABOUT THE TREE** — this is a bounded claim about the
+two files that would carry it, not an assertion that no such logic exists anywhere.
+
+The hedge borrows the venue stable to restore ETH the band already sold. In a flat, low-volume regime
+the position pays borrow interest while the band generates little fee income, so net carry goes
+negative and nothing observed here re-evaluates it: `debtDeltaToTarget` targets `E0·soldFractionWad`,
+which is a function of the BAND's sold fraction alone and is blind to what the debt costs.
+▶️ Settle whether that is a deliberate non-requirement (the hedge is a tracking obligation, priced
+however it costs) or a gap. **State which, with a reason — a dismissal is a conclusion (rule 13).**
