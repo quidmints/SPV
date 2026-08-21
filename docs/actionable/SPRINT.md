@@ -6989,3 +6989,40 @@ a discretionary keeper loop is.**
 for the refuse cases; (2) pick the carrier and state why its cadence is market-driven; (3) the
 off-chain reader (`eth_call` `getRate`, cache, attach). ⚠️ **None of this needs `setObservationSource`
 — that is the PULL path and it stays unset.** Two mechanisms, one ring; do not wire both.
+
+## C14. SIX ACTIONABLE DOCS DELETED — audited by CODE, not by header (2026-08-21)
+
+⚠️ **HOW THIS AUDIT WENT WRONG THE FIRST TIME, because the method matters more than the list.** I first
+classified these by reading each file's opening paragraph and reported it as verification. **A design
+doc's header is the MOST stale-prone text in the repo** — its whole purpose is to be executed and then
+not re-read. `CLAUDE.md` says it outright: *"A comment describes past state. Audit by structure."*
+Re-audited against the code, four of the ten I had said to KEEP were describing work that had landed.
+
+| deleted | its claim | what the code says |
+|---|---|---|
+| `SOR-SIGNIFICANCE-DESIGN.md` | *"the committed `_pickBestPath` is a binary gate"* | **`SOR.sol` DELETED.** It documents a call site in a file that no longer exists — and §E228 removed that gate. |
+| `ROUTING-AGGREGATION.md` | *"Nothing below is implemented"* | **`SOR.sol` deleted, `_routeOf` live.** The migration happened. |
+| `JIT-DEPTH-GUARANTEE.md` | anchored to *"Vogue `_withdraw:393` TODO"* | **`Vogue.sol` is GONE.** |
+| `IBAND-THE-BAND-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IBand` is in 9 src files.** Wired. |
+| `LST-PEG-MONITOR.md` | *"over-engineering — don't build it"* | `pegMonitor` = 0. Self-concluded; nothing to keep. |
+| `IMPAIRMENT-DERISK-TRIGGER.md` | hold-down design note | `hold-down`/`derisk` = **0 files**. Nothing it describes exists. |
+
+🔴 **DANGLING CITATIONS THEY LEAVE — fix on sight, do not treat a broken pointer as a missing task:**
+`JIT-DEPTH-GUARANTEE` ×3 in **code**, `IBAND` ×2 in **code**, `ROUTING-AGGREGATION` ×1 in code + ×4 in
+other docs, `SOR-SIGNIFICANCE-DESIGN` ×4 in other docs, `LST-PEG-MONITOR` ×3, `IMPAIRMENT-DERISK` ×3.
+**Their conclusions are preserved in the table above**, so a citation can be resolved here rather than
+read as work that went missing. Full text remains in git history.
+
+⚠️ **`PM-INVARIANTS.md` WAS KEPT, AND IS THE INTERESTING ONE.** It asserts *"V4 and its lock/unlock are
+gone from this repo — zero imports"*, but `poolManager` still appears in **1 src file**. It is not
+stale in the "already done" direction: **it is a verification gate resting on a premise that is
+false**, which makes the three invariants it derives suspect rather than obsolete. Re-derive them
+against the real state before using it as a gate.
+
+✅ **KEPT, code confirms work remains:** `BTC-CUSTODY-OPEN` (8 files use `btcRecipientOf`) ·
+`HOP-TRUST-AUDIT` (3) · `LP-SIGNING-READINESS` (`MuSig2Agg` present) · `TAPROOT-CHANNELS-BUILD-SPEC`
+(6) · `REFILL-AND-RESTORATION` (9) · `VBTC-ASSET-AND-7540` (partial — `requestRedeem` in 5) ·
+`ONE-ENGINE-TWO-SHARE-TOKENS` (partial — `contract Shares` still present) · `INVARIANTS` ·
+`PUPPETEER-E2E-MATRIX` · `TRAPDOORS` · `GAS-AND-CORRECTNESS-AUDIT` (partly stale: it audits
+`BtcVaultLib`, which is gone, but also `BasketLib`/`FeeLib`/`SwapLib`, which are not).
+
