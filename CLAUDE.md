@@ -501,6 +501,42 @@ double-counts it.
 (`i < 4 || i == 11 ? 1e12 : 1`) shipped once and broke when a 6-dec stable joined at a later slot;
 `IERC20(stable).decimals()` is the fix, not the complexity (`src/imports/BasketLib.sol:282`).
 
+## Working facts that lived ONLY in agent memory (folded in 2026-08-21, then the memory deleted)
+
+This section exists for the same reason the file does. 69 memories were scanned against the repo;
+**two automated coverage tests both SATURATED** (mean 0.96, median 1.00 against a 3.7 MB corpus — any
+keyword hits, so neither could discriminate), so the decision was made on principle instead: the repo
+is the source of truth, a memory that DUPLICATES it is redundant, and a memory that does NOT is the
+very failure this file was created to end. Four were not in the repo. They are here now.
+
+🔴 **PUSHING TO ANY `quidmints/*` REPO NEEDS THE SSH ALIAS — a plain github.com remote FAILS.**
+Use `git@github-quidmints:quidmints/<repo>.git`. A `git@github.com:quidmints/…` remote errors with
+*"Permission to quidmints/<repo> denied to tobaccorico"*. `~/.ssh/config` carries a
+`Host github-quidmints` block (`HostName github.com`, `IdentityFile ~/.ssh/id_rsa`,
+`IdentitiesOnly yes`) — a LOCAL alias only; GitHub sees an ordinary github.com push.
+
+✍️ **PROSE RULES FOR ANYTHING OUTWARD-FACING** (applications, pitches, docs for non-engineers).
+No antithesis or corrective negation (*"not X, but Y"*), no paragraph pinning, parataxis, summary
+beats, negative parallelism, anaphora, contrasting pairs, rule of three, em dashes, throat-clearing
+openers, landing sentences, setup/payoff, or parallel structures inside one paragraph. Vary sentence
+length unpredictably. No stacked noun phrases and no filler intensifiers (*genuinely, really,
+truly*). Write for non-crypto readers, stay at investor altitude, mine the uploaded context, and
+consolidate into ONE document rather than many.
+
+💰 **SIX FACTS ARE LOAD-BEARING IN ANY QU!D PITCH — and all six were silently lost in one compression
+pass** (2026-08-01, Alliance application). Audit for them before calling a draft done: (1) **BTC yield
+~20% vs Lombard/Babylon's ~2%** — always marked a DESIGN figure, never a measurement, because there is
+no live TVL; (2) *"the only insurance against a depeg is holding basket shares"*; (3) the dated
+liability curve; (4) the design is determinate; (5) Perena/Panoptic; (6) Thorchain.
+
+🏦 **THE MORTGAGE PRODUCT IS A DISTRIBUTOR MODEL — QU!D does NOT originate or underwrite.** The chain
+splits five ways and four need a licence (origination, underwriting, servicing, registering the lien).
+The fifth is CAPITAL, which is QU!D's role: a licensed originator finds the borrower, values the
+property, sets terms and creates the lien; the reserve funds the loan and holds the paper.
+Refinancing is the entry product. **Why it matters: DURATION** — every reserve asset is overnight and
+crypto-native while the liabilities are dated. ⚠️ ibiza's *"nobody underwrites"* is
+JURISDICTION-SCOPED, not a contradiction of this.
+
 ## Cross-repo
 
 - **`../ibiza` consumes SPV as a pinned git submodule** and depends on exactly four Vogue/Basket
