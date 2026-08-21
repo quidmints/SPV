@@ -14,7 +14,7 @@ export const ERC20_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ] as const
 
-// Core = the V4 pool engine (bandCore). Only the oracle ring is consumed here —
+// Core = the V4 pool engine (rangeCore). Only the oracle ring is consumed here —
 // observe() returns cumulative usd18 PRICE·seconds (it returned Uniswap-style
 // tickCumulatives before the tick removal). `regime.decodeTwapLogPrices` differences them into
 // TWAP prices and takes their natural log, which is the series the regime brain is
@@ -24,7 +24,7 @@ export const ERC20_ABI = [
 export const CORE_ABI = [
   // §E63 — ONE dispatched observe. These were two entries differing only in which ring they
   // read, mirroring a duplication that also existed on-chain (two selectors, two dispatch
-  // entries, one behaviour). Both sides now take the band as an argument.
+  // entries, one behaviour). Both sides now take the range as an argument.
   // (2026-08-15) Was `int56[] tickCumulatives`, inherited from Uniswap v3's observe. The tick
   // removal made the observation ring store PLAIN PRICES, so `Core.observe` now returns
   // `uint192[]`. Both are 32-byte words, so the old declaration did not revert — it decoded
@@ -32,15 +32,15 @@ export const CORE_ABI = [
   // NEGATIVE numbers in the UI. Silent, which is why the ABI gate is the only thing that
   // catches it here: `spa/` has no node_modules, so `tsc` cannot run in this tree.
   // §E235-spa — THE `isBTC` ARGUMENT IS GONE, AND SO IS THE DISPATCH IT SELECTED. §E63 folded two
-  // observes into one that "takes the band as an argument"; the isBTC split then went further and
-  // made the band an INSTANCE, so `Core.observe(uint32[])` reads its own ring and there is nothing
-  // left to select. Call it on `bandCore` for ETH and `bandCoreBtc` for BTC.
+  // observes into one that "takes the range as an argument"; the isBTC split then went further and
+  // made the range an INSTANCE, so `Core.observe(uint32[])` reads its own ring and there is nothing
+  // left to select. Call it on `rangeCore` for ETH and `rangeCoreBtc` for BTC.
   'function observe(uint32[] secondsAgos) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
   // §E235-spa — ONE PAIR, NOT FOUR ACCESSORS. `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_ETH`/
   // `POOLED_USD_BTC` were four selectors on one contract; they are now two on each of two
-  // instances. The band comes from WHICH ADDRESS you call, which is why `chains.ts` grew a second
+  // instances. The range comes from WHICH ADDRESS you call, which is why `chains.ts` grew a second
   // field rather than this file growing a flag back.
   'function POOLED() view returns (uint)',              // in-range volatile leg (this instance's asset)
   'function POOLED_USD() view returns (uint)',          // USD committed, this instance's pool
@@ -104,8 +104,8 @@ export const AUX_ABI = [
   // Stable↔stable swap (e.g. USDC→DAI) routed through the basket vaults.
   'function auxSwap(address tokenIn, address tokenOut, uint amountIn, address recipient, uint minOut) returns (uint amountOut)',
   // Protocol-total ETH currently in the Quid ETH pool (for the info tab).
-  // Total BTC is BTCChannels.totalSatsLocked(); there is no Aux.bandBTC().
-  'function bandETH() view returns (uint)',
+  // Total BTC is BTCChannels.totalSatsLocked(); there is no Aux.rangeBTC().
+  'function rangeETH() view returns (uint)',
   // The REAL over-collateralization read: committedSum vs totalLiquid (18-dec).
   // tryCheckBacking is the non-reverting variant (runs a repack; eth_call it).
   // Headroom = (totalLiquid − committedSum) / totalLiquid — the actual "buffer".
@@ -132,7 +132,7 @@ export const AUX_ABI = [
 //     47-block timelock after open (JIT defense).
 // BTC-side via depositBTC/withdrawBTC kept exposed for completeness, but the
 // SPA's "BTC path" goes through BTCChannels.openChannel, not Quid.depositBTC.
-export const BAND_ABI = [
+export const RANGE_ABI = [
   // Auto-managed (ERC4626 shape on the ETH side). The ETH yield-VENUE rides each
   // deposit call (setEthVenue was removed): 0=Split(Galaxy+AAVE,default) 1=ether.fi
   // 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler. Hard-walled per-LP: your exit is
@@ -146,13 +146,13 @@ export const BAND_ABI = [
   // fee leg (ETH for the ETH pool, BTC for the BTC pool). DO NOT reorder.
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
   // §E235-spa — `autoManagedBTC` AND `lpSharesBTC` ARE THE SAME NAMES ON A DIFFERENT ADDRESS NOW.
-  // Both band managers declare `autoManaged` / `lpShares` (Quid.sol:267/201, Vault.sol:116/117),
+  // Both range managers declare `autoManaged` / `lpShares` (Quid.sol:267/201, Vault.sol:116/117),
   // so the BTC entries stop being separate selectors and become the ETH ones called on `vault`.
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
   'function totalShares() view returns (uint)',
   'function lpShares() view returns (uint)',
   // Self-managed (per-position, non-fungible)
-  //   distance: signed offset from the band anchor
+  //   distance: signed offset from the range anchor
   //   range:    width, same units as the anchor
   //   token:    0x0 for the volatile side, stable address for the USD side
   // ⚠️ §E235-spa — THIS DECLARATION WAS TWICE WRONG AND THE COMMENT ABOVE IT WAS TOO.
@@ -262,7 +262,7 @@ export const BTCCHANNELS_ABI = [
 
 // LevManager — the opt-in YB leverage overlay (task #19/#25). One ISOLATED
 // position per LP on an external venue (Euler/Morpho): the LP supplies equity
-// (weETH/WETH); a keeper borrows a stable and re-buys ETH as the band SELLS on a
+// (weETH/WETH); a keeper borrows a stable and re-buys ETH as the range SELLS on a
 // rally, cancelling that IL up to the LP's chosen cap. On a FALL the target LTV
 // goes to 0 (it de-levers) so the LP is never levered into a crash. The SPA reads
 // these to render the plain "how's my cushion" card — none of the bps are the
@@ -277,7 +277,7 @@ export const LEV_MANAGER_ABI = [
   // so both the width and the name were carrying the old model.
   'function pos(address lp) view returns (address venue, uint64 targetLtvCapBps, uint128 entryPriceWad, uint128 e0Eth, uint entryPrice, bool open)',
   'function getCurrentLtvBps(address lp) returns (uint256)',   // venue-safety LTV (debt / actual collateral), bps
-  'function ilTargetLtvBps(address lp) returns (uint256)',     // IL-cancelling target (band's sold fraction, capped), bps
+  'function ilTargetLtvBps(address lp) returns (uint256)',     // IL-cancelling target (range's sold fraction, capped), bps
   'function netEquityUsd(address lp) returns (uint256)',       // collateral − debt, USD 1e18
   'function debtUsd(address lp) view returns (uint256)',       // outstanding debt, USD 1e18
   // §E235-spa — hoisted to `LevBase` as `grossCollateral` when both lev managers took a shared base:
@@ -288,7 +288,7 @@ export const LEV_MANAGER_ABI = [
   'function TARGET_LTV_CAP_BPS() view returns (uint256)',      // hard leverage cap (bps LTV)
   // ── WRITE (the #65 leverage-choice txs). openLev opens a position at ZERO leverage on the chosen borrow venue
   //    with `collWeeth` of the venue's collateral (weETH or WETH) already approved+pulled; the keeper then levers
-  //    it to the LP's cap as the band sells. setTargetLtv picks the leverage level (≤ TARGET_LTV_CAP_BPS; 5000 =
+  //    it to the LP's cap as the range sells. setTargetLtv picks the leverage level (≤ TARGET_LTV_CAP_BPS; 5000 =
   //    2× IL-neutral, higher = opt-in directional). closeLev fully unwinds (short first, then long) back to the LP.
   'function openLev(uint64 targetLtvBps, address venue, uint256 collWeeth, uint256[] minWethOut)',
   'function setTargetLtv(uint64 capBps)',

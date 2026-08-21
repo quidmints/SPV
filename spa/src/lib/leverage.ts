@@ -9,7 +9,7 @@
 //   dollar outcome ("+$Z after IL"). The bps live only in a collapsed detail.
 //
 //   What the overlay actually does (so the copy stays honest): as ETH RISES the
-//   band sells the LP's ETH; the overlay re-buys it (borrow stable → buy ETH),
+//   range sells the LP's ETH; the overlay re-buys it (borrow stable → buy ETH),
 //   cancelling that impermanent loss up to the LP's chosen comfort cap. As ETH
 //   FALLS the IL-target LTV goes to zero — it de-levers — so the LP is never
 //   levered into a crash. Down-move IL is therefore small, borne, and recovers
@@ -21,7 +21,7 @@ import { readOne, ZERO_ADDR } from './eth'
 import { ilPercent } from './quant'
 
 // ── Pure client-side stress math ────────────────────────────────────────
-// IL on a 50/50-style band for a price move of `movePct` (standard 2√k/(1+k)−1
+// IL on a 50/50-style range for a price move of `movePct` (standard 2√k/(1+k)−1
 // shape, per the certified IL model). `comfortFrac` ∈ [0,1] is the LP's cushion
 // choice = the fraction of the up-move IL the overlay cancels. On a fall the
 // cushion steps back (cancels 0; the IL is borne and recovers on retrace).

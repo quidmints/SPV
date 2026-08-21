@@ -10,7 +10,7 @@ import {FixedRateFill} from "../src/imports/FixedRateFill.sol";
 ///         keeper are ordinary addresses because that is exactly what they are on-chain.
 contract FillAndBatchTest is Test {
 
-    // 60/30/10 in range; OOR shifts weight OFF the swapper, because out of range the band's two
+    // 60/30/10 in range; OOR shifts weight OFF the swapper, because out of range the range's two
     // supplier legs have collapsed and the operation is re-enter-range rather than restore-1:1.
     FixedRateFill.Split IN_RANGE = FixedRateFill.Split(6000, 3000, 1000);
     FixedRateFill.Split OOR      = FixedRateFill.Split(2000, 5000, 3000);

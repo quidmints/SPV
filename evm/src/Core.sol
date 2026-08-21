@@ -16,7 +16,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 
 
-// §E5 — the shared per-band premium sink (rule 2: ONE declaration, in the canonical file).
+// §E5 — the shared per-range premium sink (rule 2: ONE declaration, in the canonical file).
 import {ILevEquity, ICore} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol), then
 // one home in ILevVenue.sol; §E296 folded that file into Interfaces.sol, so the one home is there.
@@ -24,17 +24,17 @@ import {IERC20Min} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 import {Types, BtcVaultPinned} from "./imports/Types.sol";  // §E299: file-level errors
 
-// §BANDBACKING-FOLD — `interface IBandBacking` DELETED FROM HERE, and it was declared TWICE: once
+// §RANGEBACKING-FOLD — `interface IRangeBacking` DELETED FROM HERE, and it was declared TWICE: once
 // above and once in Interfaces.sol, which standing rule 2 forbids and which the note above that
 // second copy warns about explicitly ("a duplicate interface surfaces as forge's `Error writing
-// output JSON`, NOT as a redeclaration error"). Both copies go with the contract: the band now
+// output JSON`, NOT as a redeclaration error"). Both copies go with the contract: the range now
 // calls `AUX` directly, which Core already holds as a concrete type.
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
 ///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
 
 /// @dev Live total GROSS levered collateral in NATIVE units — the LOCKED-INVENTORY basis for the well skew's
-///      scarcity term. POOLED_{ETH,BTC} already carries the full 2× gross buffer as tokenless band depth, so the
+///      scarcity term. POOLED_{ETH,BTC} already carries the full 2× gross buffer as tokenless range depth, so the
 ///      deliverable native reservoir = poolVol − gross (subtracting DEBT, ~1×, would leave one equity leg of
 ///      phantom inventory in the scarcity signal). Names differ per manager, hence two interfaces.
 
@@ -56,7 +56,7 @@ contract Core {
     /// `_obsState`). These were never read externally; only POOLED_* getters
     /// (kept) are.
     /// §ISBTC-SPLIT — ONE RING PER INSTANCE, AND THE SELECTORS ARE GONE WITH THE SECOND COPY.
-    /// This held BOTH bands' rings and picked between them on every access, so each deployed
+    /// This held BOTH ranges' rings and picked between them on every access, so each deployed
     /// instance reserved TWO `Observation[65535]` arrays and used exactly one. The `obsState` /
     /// `observations` helpers existed only to make that choice; with one of each there is nothing to
     /// choose, so the fields are read directly.
@@ -72,7 +72,7 @@ contract Core {
     /// @notice In-range USD slice held against the ETH/USD pool. Sum of
     /// this plus POOLED_USD is the total in-range USD; out-of-range
     /// USD lives in mockUSD_ETH/mockUSD_BTC respectively.
-    /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both bands). The split
+    /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both ranges). The split
     ///         #12 is named for: `POOLED_USD_*` track what is IN each CURVE (they move on every
     ///         swap); this tracks what the BASKET actually CONTRIBUTED (it moves ONLY when the
     ///         basket adds or removes depth via `addLiq`/burn — never on a swap).
@@ -85,19 +85,19 @@ contract Core {
     uint public POOLED;
 
     /// @notice Committed BASKET USD (both pools, 18-dec) — the single `committed ≤ TVL` term + LP surplus sizing.
-    /// The full-2× band holds the LP's equity AND a debt-funded buffer in ONE `POOLED_USD_*` slice (no separate
+    /// The full-2× range holds the LP's equity AND a debt-funded buffer in ONE `POOLED_USD_*` slice (no separate
     /// counter). The buffer's USD equals the LP's OWN debt exactly (gross−net = debt/px ⇒ bufUsd = debt), so the
     /// pure equity claim is `in-range USD − leverage debt`, with the debt read LIVE from the pinned LevManagers.
     /// Live (not a stale segregation counter) so accrued borrow interest shrinks committed the instant it accrues —
     /// correctly, because the levered LP's real equity is collateral−debt and DOES shrink with interest (the lost
     /// value went to the venue, not the basket, so total claims stay ≤ backing). Reading debt live keeps the
     /// "committed == in-range USD − live debt" fold identity drift-free BY CONSTRUCTION (no counter to desync —
-    /// see BufferSwapDrain.t.sol). Floored PER BAND so ETH debt never eats BTC equity. Centralized ×1e12 scale.
+    /// see BufferSwapDrain.t.sol). Floored PER RANGE so ETH debt never eats BTC equity. Centralized ×1e12 scale.
     /// §#12: committed is the BASKET's contribution net of live leverage debt — NOT the curve
     /// inventory. A swap moves `POOLED_USD_*` but not `basketUsd`, so it no longer moves committed.
     /// §ISBTC-SPLIT — THE SUM MOVED TO THE SHARED ACCOUNTANT, AND IT HAD TO.
-    /// This was `_bandEquityUsd18(false) + _bandEquityUsd18(true)` — one contract adding up both
-    /// bands because one contract WAS both bands. With two instances neither can see the other, and
+    /// This was `_rangeEquityUsd18(false) + _rangeEquityUsd18(true)` — one contract adding up both
+    /// ranges because one contract WAS both ranges. With two instances neither can see the other, and
     /// two instances each gating against the FULL TVL would DOUBLE-COMMIT the same backing without
     /// reverting. `Aux` holds the joint figure; each instance pushes only its own.
     function committedUsd18() public view returns (uint) {
@@ -105,19 +105,19 @@ contract Core {
     }
 
     /// @notice Push THIS instance's equity to the shared accountant. PUSH, not pull, and at the
-    ///         moment the equity changes — a sum of per-band figures is only meaningful if every
+    ///         moment the equity changes — a sum of per-range figures is only meaningful if every
     ///         term is on the same clock, which is §A.16b one level up. A lazy pull would let the
     ///         bound pass against a total that was never simultaneously true.
-    /// @dev    §BANDBACKING-FOLD — reports to `AUX` DIRECTLY. The band talks to Aux; there is no
+    /// @dev    §RANGEBACKING-FOLD — reports to `AUX` DIRECTLY. The range talks to Aux; there is no
     ///         intermediary contract holding two numbers on their behalf.
-    function _reportEquity() internal { AUX.report(_bandEquityUsd18()); }
+    function _reportEquity() internal { AUX.report(_rangeEquityUsd18()); }
 
     /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
-    function _bandEquityUsd18() internal view returns (uint) {
+    function _rangeEquityUsd18() internal view returns (uint) {
         // §E60 — COUNT OUT MOCK THAT HAS LEFT THE ALLOWED HOLDER SET. Once the v4 protocol fee is
         // targeted at our key AND collected, the cut is transferred to a recipient outside
         // {poolManager, Core}: MEASURED $120 of mockUSD on $120,000 of volume, up to 10 bps of
-        // throughput indefinitely. Those dollars are gone from the band but `basketUsd*` still
+        // throughput indefinitely. Those dollars are gone from the range but `basketUsd*` still
         // claims them, so every LP claim and the backing gate would price against backing that is
         // no longer there. Subtracting the dust is what makes "committed" mean committed.
         // §E253-mock — THE DUST SUBTRACTION IS DELETED, AND IT HAD BEEN A NO-OP SINCE THE v4 CUT.
@@ -131,23 +131,23 @@ contract Core {
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
     }
 
-    /// @notice THIS instance's NET equity USD (18-dec). Was `btcBandEquityUsd18`, which existed so
-    ///         `SwapLib._sharedScarcityWad` could subtract one band from the total to learn what the
-    ///         OTHER holds. That subtraction now lives in `BandBacking.otherThan`, derived from the
+    /// @notice THIS instance's NET equity USD (18-dec). Was `btcRangeEquityUsd18`, which existed so
+    ///         `SwapLib._sharedScarcityWad` could subtract one range from the total to learn what the
+    ///         OTHER holds. That subtraction now lives in `RangeBacking.otherThan`, derived from the
     ///         SAME total the solvency bound uses — so the amplifier and the gate cannot disagree
     ///         about the denominator, which two independent computations eventually would.
-    function bandEquityUsd18() external view returns (uint) { return _bandEquityUsd18(); }
+    function rangeEquityUsd18() external view returns (uint) { return _rangeEquityUsd18(); }
 
     /// @dev That pool's total leverage debt (18-dec), read live from the pinned LevManager (0 if unset). The
     ///      The BTC manager (`LEV_MANAGER`) lives on the Vault; the ETH one lives on the ETH-VENUE
-    ///      contract, reached via `BAND.EV()` — the same indirection `QuidLib` uses.
+    ///      contract, reached via `RANGE.EV()` — the same indirection `QuidLib` uses.
     ///      FAIL-SAFE: `totalDebtUsd` iterates the open-LP book (external venue reads); a revert there must NOT
     ///      brick `committedUsd18` (the backing gate on every swap/mint/redeem). On failure we subtract 0 debt,
     ///      which only RAISES committed ⇒ a STRICTER gate + LOWER redeemable — conservative, never over-issue.
-    ///      Mirrors `bandETH`'s try/catch over the same LevManager reads.
+    ///      Mirrors `rangeETH`'s try/catch over the same LevManager reads.
     function _levDebtUsd18() internal view returns (uint) {
         if (address(BTC) == address(0)) return 0;
-        address mgr = BAND.levManager();
+        address mgr = RANGE.levManager();
         if (mgr == address(0)) return 0;
         try ILevEquity(mgr).totalDebtUsd() returns (uint d) { return d; } catch { return 0; }
     }
@@ -176,11 +176,11 @@ contract Core {
     // The skew curve (SwapLib.skewWad) prices scarce volatile inventory UP on the
     // swap-OUT (well) path, re-admitting the BENIGN inventory-rebalancing arber that
     // oracle-only pricing killed alongside toxic LVR (a swap must never price off the oracle alone:
-    // that is a free option to the taker and the LVR it feeds is exactly what the band fee exists to price).
+    // that is a free option to the taker and the LVR it feeds is exactly what the range fee exists to price).
     // Its adaptive TARGET = "the buffer needed to serve normal flow" is an EWMA of
     // two-sided swap volume — decayed exactly like the Aux.BaseRate register (same
     // FeeLib.decPow half-life), NO governance constant, the market's own volume sets
-    // it. Bumped by every swap's USD notional in _handleSwap (band + well both route
+    // it. Bumped by every swap's USD notional in _handleSwap (range + well both route
     // through it). Read DECAYED via flowEwmaUsd(). One register per pool.
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
     Flow internal _flow;   // §ISBTC-SPLIT: one per instance
@@ -209,7 +209,7 @@ contract Core {
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 
-    /// @notice Retained band market-making premium per pool, as a DECAYED EWMA (6-dec USD) — the
+    /// @notice Retained range market-making premium per pool, as a DECAYED EWMA (6-dec USD) — the
     ///         θ NUMERATOR source (#107/D3). Deliberately the SAME `Flow` struct, the SAME
     ///         `FLOW_DECAY` (48h) and the SAME read/bump helpers as the swap-volume register:
     ///         premium accrues on exactly the same swap events and wants exactly the same memory,
@@ -260,12 +260,12 @@ contract Core {
         return _decayed(_flow);
     }
 
-    /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the band's realized
+    /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the range's realized
     ///         market-making earnings over the trailing ~48h window. θ's numerator (#107/D3):
-    ///         the compensation the band actually receives for bearing IL. Reserve `avgYield` is
+    ///         the compensation the range actually receives for bearing IL. Reserve `avgYield` is
     ///         deliberately NOT part of this — that number sizes how much QUI to mint up front and
-    ///         has nothing to do with how big the band should be (user, 2026-07-26); the dollar leg
-    ///         earns the reserve baseline whether it is banded or idle (`spec.md`), so reserve yield
+    ///         has nothing to do with how big the range should be (user, 2026-07-26); the dollar leg
+    ///         earns the reserve baseline whether it is ranged or idle (`spec.md`), so reserve yield
     ///         is not marginal compensation for IL risk and must not inflate the risk budget.
     function premiumEwmaUsd() public view returns (uint) {
         return _decayed(_prem);
@@ -282,14 +282,14 @@ contract Core {
 
     /// @notice This pool's aggregate levered GROSS collateral in NATIVE units (wei for ETH, sats for BTC), read
     ///         live from the pinned LevManager (0 if unset). The well skew's LOCKED-INVENTORY basis: POOLED_{ETH,
-    ///         BTC} already pairs in the full 2× gross buffer as tokenless band depth, so the true deliverable
+    ///         BTC} already pairs in the full 2× gross buffer as tokenless range depth, so the true deliverable
     ///         reservoir is `poolVol − gross`. Kept NATIVE (not USD) so SwapLib converts it with the SAME
     ///         `base`/1e30 scale it already applies to poolVol — one price, one unit. DISTINCT from the debt basis
     ///         (`levClaimUsd6`, ~1×), which stays on the demand/target side of the skew (the net-equity leg
     ///         self-heals via bounded de-lever, so only the debt leg is an uncovered forward claim on the reservoir).
     ///         FAIL-SAFE: a revert in the venue-iterating read must not brick the swap; on failure returns 0 (the
     ///         skew merely relaxes toward the base oracle curve — the pricing signal, not a hard backing gate).
-    /// @notice This band's risk profile for the skew cap: the settlement-window fraction of a year
+    /// @notice This range's risk profile for the skew cap: the settlement-window fraction of a year
     ///         and the on-chain splice floor. Returned as a PAIR so `SwapLib` needs no asset flag.
     function riskParams() external view returns (uint confFracWad, uint spliceFloor) {
         return (CONF_FRAC, SPLICE);
@@ -297,14 +297,14 @@ contract Core {
 
     function levGrossNative() public view returns (uint) {
         if (address(BTC) == address(0)) return 0;
-        return BAND.levGrossNative();
+        return RANGE.levGrossNative();
     }
 
     /// @notice Annualized realized variance (WAD) of this pool's oracle — the well
     ///         skew's live-vol steepness input (steeper premium in higher vol, matching a
     ///         native-BTC MM's real cost). Thin pass to QuidLib (identical to Quid's own
     ///         `realizedVarianceWad`); exposed here so the skew reads ONE source for both
-    ///         pools regardless of which band contract drives the swap. Fails-open to 0
+    ///         pools regardless of which range contract drives the swap. Fails-open to 0
     ///         (insufficient history) ⇒ no steepening, base convex curve still applies.
     /// @notice §E59 — annualized realized tick variance (WAD), read DIRECTLY from the observation
     ///         ring. Was a round trip (Core → QuidLib → back into Core) sampling `observe` on a
@@ -367,7 +367,7 @@ contract Core {
         skewPremium += premiumUsd; cum = skewPremium;   // §ISBTC-SPLIT: both arms were identical
         // ONE call site, dispatched by address: `Quid` and `Vault` expose the same
         // `creditSkewPremium` signature, so this is a single encode instead of one per branch.
-        BAND.creditSkewPremium(premiumUsd);
+        RANGE.creditSkewPremium(premiumUsd);
         // §E42-netting — PUT THE BACKING WHERE THE CLAIM IS. The credit above creates an LP claim;
         // these are the dollars that back it, and until now they were the ONLY fee whose backing
         // stayed in general basket assets. Every other fee leaves its backing in the POOLED mirror
@@ -377,7 +377,7 @@ contract Core {
         // mirror rose only 2,993.999901 — the 6.000099 gap was the premium, quoted as QU!D
         // redeemability while owed to LPs. Folding it in closes the gap AT SOURCE, so redeemable
         // needs no premium-specific subtraction and no claimed/unclaimed counter to keep in sync:
-        // the mirror already falls as LPs draw. Symmetric across both bands via IS_BTC.
+        // the mirror already falls as LPs draw. Symmetric across both ranges via IS_BTC.
         POOLED_USD += premiumUsd;
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
@@ -400,7 +400,7 @@ contract Core {
     }
 
     // §ISBTC-SPLIT — ONE PAIR PER INSTANCE. Four mocks existed because one contract hosted two
-    // pools; an instance hosts one band, so it needs one volatile mock and one USD mock.
+    // pools; an instance hosts one range, so it needs one volatile mock and one USD mock.
 
     /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS. Not a parameter threaded through every call: an
     /// IMMUTABLE the contract holds about itself. That distinction is the point of the split — a
@@ -412,7 +412,7 @@ contract Core {
     /// a NUMBER because that is what actually differs; the mock deployer takes it directly instead
     /// of re-deciding from a flag.
     uint8 public immutable VOL_DECIMALS;
-    /// §ISBTC-SPLIT — THIS BAND'S RISK PROFILE, resolved once at construction. `SwapLib` used to
+    /// §ISBTC-SPLIT — THIS RANGE'S RISK PROFILE, resolved once at construction. `SwapLib` used to
     /// take a `bool isBTC` solely to choose between two constants; the instance owns which pair
     /// applies, so it hands over the NUMBERS. BTC locks capital through ~1hr of confirmations and
     /// pays an on-chain splice fee; ETH settles in ~one block with neither.
@@ -423,30 +423,30 @@ contract Core {
     /// EXTERNAL CALL into Aux to look up a constant, then chose between two constants with a
     /// branch. Not immutable only because `AUX` is wired in `setup`, not in the constructor.
     address public ASSET;
-    /// §ISBTC-SPLIT — THIS INSTANCE'S BAND MANAGER, through `ICore`. Every money-path `IS_BTC`
+    /// §ISBTC-SPLIT — THIS INSTANCE'S RANGE MANAGER, through `ICore`. Every money-path `IS_BTC`
     /// branch below was `Core` reaching into one of two managers for the same fact and having to
-    /// know which; the facts differ per band, so they live in the band. ETH is pinned at `setup`
+    /// know which; the facts differ per range, so they live in the range. ETH is pinned at `setup`
     /// (Quid exists by then); BTC at `setBtcVault`, because `Vault` is deployed AFTER `Core` and
     /// takes its address at construction -- which is exactly why that setter already exists.
-    ICore public BAND;
+    ICore public RANGE;
 
-    /// §V4-CUT — THE BAND'S RANGE, now OURS to store. It used to live inside the v4 position, which
+    /// §V4-CUT — THE RANGE'S RANGE, now OURS to store. It used to live inside the v4 position, which
     /// is why re-ranging required burning and re-adding liquidity. With inventory held directly the
     /// range is a PRICING PARAMETER: moving it changes what we quote against, not what we hold.
-    /// §DE-TICK — the band's bounds are PRICES (USD per volatile, WAD), not ticks. Under inventory
+    /// §DE-TICK — the range's bounds are PRICES (USD per volatile, WAD), not ticks. Under inventory
     /// the range is a pricing parameter, and a price bound is what every consumer actually wanted:
     /// the tick grid only ever existed so v4 could index many positions on a shared curve.
     /// §ONE-ANCHOR — was `LOWER_PRICE` + `UPPER_PRICE`. The two were ALWAYS
-    /// `updateBounds(anchor, BAND_DELTA)` of one another -- `lower = p·(1−δ)`, `upper = p·(1+δ)`,
+    /// `updateBounds(anchor, RANGE_DELTA)` of one another -- `lower = p·(1−δ)`, `upper = p·(1+δ)`,
     /// symmetric about a SINGLE price -- so they were two slots holding one number, and two that
     /// could drift apart if anything ever wrote one without the other. The anchor is the spot at the
     /// LAST REPACK, not the live price, so it is still a snapshot; just one instead of two.
     /// Deriving is CHEAPER than storing: two `mulDiv`s beat a cold SLOAD, and a repack writes one
     /// slot instead of two.
-    uint public BAND_ANCHOR;
+    uint public RANGE_ANCHOR;
 
-    // §BANDBACKING-FOLD — `BACKING` DELETED. The shared accountant held the ONE thing two instances
-    // still share (the joint committed equity the backing gate reads, and the cross-band input
+    // §RANGEBACKING-FOLD — `BACKING` DELETED. The shared accountant held the ONE thing two instances
+    // still share (the joint committed equity the backing gate reads, and the cross-range input
     // `SwapLib._sharedScarcityWad` needs) — but that state now lives in `AUX`, which this contract
     // already holds and which owns the gate that consumes it. One fewer address to wire, one fewer
     // immutable, and one fewer constructor argument a deployer can get wrong.
@@ -483,7 +483,7 @@ contract Core {
     ///         our key that would bypass Core's `_handleDelta` mirror, and it is the quantity we
     ///         would owe if the fee is ever settled voluntarily at LP withdrawal.
     // §E60 — `externalMockDust` (the two-leg MONITOR) was DELETED from Core: with the count-out
-    // landing in `_bandEquityUsd18`, keeping a second external for monitoring put Core 37 bytes
+    // landing in `_rangeEquityUsd18`, keeping a second external for monitoring put Core 37 bytes
     // over EIP-170, and the production path must not pay for the observability one. Tests read the
     // mock addresses straight from storage (they already do for the fee flip) and compute it there.
 
@@ -536,9 +536,9 @@ contract Core {
         if (address(BTC) != address(0)) 
             revert BtcVaultPinned();
         BTC = Vault(payable(b));
-        // §ISBTC-SPLIT: the BTC instance's band manager IS the Vault, and this is the first moment
+        // §ISBTC-SPLIT: the BTC instance's range manager IS the Vault, and this is the first moment
         // it exists (Vault takes Core's address at construction, so it cannot be pinned in setup).
-        if (address(BAND) == address(0)) BAND = ICore(b);   // §ISBTC-ZERO: the second pin, no flag needed
+        if (address(RANGE) == address(0)) RANGE = ICore(b);   // §ISBTC-ZERO: the second pin, no flag needed
     }
     /// @notice Public linkage getter — the deploy-finalize assert cross-checks
     ///         Core's BTC-vault pin against Aux's owner-set view.
@@ -555,11 +555,11 @@ contract Core {
         return skewPremium;
     }
 
-    /// @notice BTC band theta-numerator: the native IL-bearing backing = aggregate locked sats (lpShares,
-    ///         net) + gross debt-funded buffer (totalBuffer). The BTC analogue of (bandETH + totalBuffer)
+    /// @notice BTC range theta-numerator: the native IL-bearing backing = aggregate locked sats (lpShares,
+    ///         net) + gross debt-funded buffer (totalBuffer). The BTC analogue of (rangeETH + totalBuffer)
     ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcLib._thetaClampBtc) and the
     ///         reseat clamp (QuidLib.addLiq IS_BTC) so they throttle on the SAME real capital -- NEVER the
-    ///         disjoint WBTC-donation `bandBTC` pool (that mis-base collapsed the band whenever donations were
+    ///         disjoint WBTC-donation `rangeBTC` pool (that mis-base collapsed the range whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
     function btcThetaBacking() external view returns (uint) {
         return address(BTC) == address(0) ? 0 : BTC.totalShares() + BTC.totalBuffer();
@@ -574,25 +574,25 @@ contract Core {
     ///      (CLAUDE.md 8c, measured independently on `BTCChannels` by a concurrent thread.)
     ///      VERIFIED against a same-worktree control, only this change differing: both arms
     ///      4,400 passed / 1 failed / 2 skipped — the failure pre-existing, the skips environmental.
-    /// §DEDUP-BAND — ONE field for the band manager. A second field holding the same address is
+    /// §DEDUP-RANGE — ONE field for the range manager. A second field holding the same address is
     /// the shape CLAUDE.md records as having planted three bugs in the EthVenue split: the call
     /// site reads correctly while the ASSIGNMENT points somewhere else.
-    ///   • BTC: `setup(v4, 0, …)` pinned `BAND` to the **ETH** band manager, so the BTC engine's
-    ///     `onlyUs` admitted a FOREIGN band. `Quid` holds ONE `Core` handle (`:57`) and no BTC-core
+    ///   • BTC: `setup(v4, 0, …)` pinned `RANGE` to the **ETH** range manager, so the BTC engine's
+    ///     `onlyUs` admitted a FOREIGN range. `Quid` holds ONE `Core` handle (`:57`) and no BTC-core
     ///     reference, so it never used that privilege — an unexercised grant, which is the kind that
     ///     survives review because nothing fails when you remove it and nothing fails when you don't.
-    /// ⇒ `BAND` is THIS instance's band manager on BOTH: ETH `BAND = v4`, BTC `BAND = Vault` (pinned
+    /// ⇒ `RANGE` is THIS instance's range manager on BOTH: ETH `RANGE = v4`, BTC `RANGE = Vault` (pinned
     ///   in `setBtcVault`). Gating on it is identical for ETH and strictly TIGHTER for BTC.
     function _onlyUs() private view {
         require(msg.sender == address(AUX)
-             || msg.sender == address(BAND)
+             || msg.sender == address(RANGE)
              || msg.sender == address(BTC), "403");
     }
 
     modifier onlyUs { _onlyUs(); _; } bytes internal constant ZERO_BYTES = bytes("");
 
     /// @notice The deployer — the ONLY address that may run `setup`/`setBtcVault`, the authority-wiring pins
-    ///         that admit BAND/AUX/BASKET/BTC into `onlyUs`. Captured at construction so a hostile
+    ///         that admit RANGE/AUX/BASKET/BTC into `onlyUs`. Captured at construction so a hostile
     ///         party can't FRONT-RUN an un-pinned wiring call in the deploy window and inject a malicious
     ///         `onlyUs` member (Core isn't Ownable; this is the immutable analog of the owner-gate the
     ///         siblings Basket.setBtcVault / Aux.setEthVenue already carry).
@@ -626,21 +626,21 @@ contract Core {
 
     /// @param _aux              Aux (settlement adapter)
     /// @param _basket           Basket (settlement target)
-    /// @param seedPrice         This band's reference price at deploy (WAD USD per unit volatile),
+    /// @param seedPrice         This range's reference price at deploy (WAD USD per unit volatile),
     ///                          read from the REAL on-chain pool by the DEPLOYER and passed in.
-    function setup(address _band, address _aux, address _basket, uint seedPrice)
+    function setup(address _range, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
-        require(address(AUX) == address(0), "!");   // §DEDUP-BAND: was `BAND`, which is gone
+        require(address(AUX) == address(0), "!");   // §DEDUP-RANGE: was `RANGE`, which is gone
 
         // §E253-mock — the two `mock` ERC20s are no longer deployed. They were the v4 pool's two
         // currencies; with no PoolManager nothing mints, holds or moves them.
         
         AUX = Aux(payable(_aux));
-        // §ISBTC-ZERO: the BAND is whatever the deployer pins here. The ETH band (Quid) exists by
-        // now; the BTC band (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a
+        // §ISBTC-ZERO: the RANGE is whatever the deployer pins here. The ETH range (Quid) exists by
+        // now; the BTC range (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a
         // zero here is not an error -- it is the second-pin case, and no flag distinguishes them.
-        if (_band != address(0)) BAND = ICore(_band);
+        if (_range != address(0)) RANGE = ICore(_range);
         BASKET = Basket(_basket);
 
         // Both reference pools' live ticks are read in ONE library call so they
@@ -656,7 +656,7 @@ contract Core {
         // to hold an `IPoolManager` and two `PoolKey`s for a deploy-time lookup -- which is why this
         // contract still looked "responsive to the PoolManager" long after it stopped trading on it.
         // The DEPLOYER does the lookup (`OracleLib.prepRefs`) and passes the price. The ONGOING
-        // v3/v4-vs-Chainlink cross-check lives where the GUARD lives, not in the band engine.
+        // v3/v4-vs-Chainlink cross-check lives where the GUARD lives, not in the range engine.
 
         // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE. `_initPool` is gone: it existed to assemble a
         // lex-sorted PoolKey, initialise a v4 pool and record its id, and none of that happens any
@@ -703,10 +703,10 @@ contract Core {
     // ─── External entrypoints — same surface as before, parallel BTC ──
     /// @notice Fused modLP — IS_BTC selects which pool. `delta` is the
     /// volatile-side change (ETH amount for ETH pool, BTC sats for BTC).
-    /// @notice full-2× band op. The debt-funded buffer leg folds into POOLED_USD_* like any in-range USD;
+    /// @notice full-2× range op. The debt-funded buffer leg folds into POOLED_USD_* like any in-range USD;
     ///         committedUsd18 recovers equity by subtracting min(live debt, pooled buffer). No separate buffer
     ///         param — the old `levUsd` slot was a no-op post-fold and has been removed.
-    /// §V4-CUT — the band TAKES WHAT IT IS GIVEN. `_modLP` computed a liquidity amount for a tick
+    /// §V4-CUT — the range TAKES WHAT IT IS GIVEN. `_modLP` computed a liquidity amount for a tick
     /// range and handed it to `poolManager.modifyLiquidity`, which decides how much of each leg that
     /// range can absorb at the current price — so a caller could get back an unplaceable remainder.
     /// Inventory has no range to fit: both legs enter in full.
@@ -729,7 +729,7 @@ contract Core {
     /// subtraction underflowed. The test is right and the accounting was wrong.
     ///
     /// ⚠️ THE DIRECTION WAS LOST IN THE V4 CUT, and the header it left behind says so without
-    /// noticing: *"the band TAKES WHAT IT IS GIVEN"*. While v4 existed, `modifyLiquidity` RETURNED
+    /// noticing: *"the range TAKES WHAT IT IS GIVEN"*. While v4 existed, `modifyLiquidity` RETURNED
     /// signed deltas — the pool told us which way value moved. The cut replaced that return with a
     /// hand-built `Delta` and hardcoded the sign to "enters", which is correct for the deposit path
     /// the author was looking at and silently wrong for the two burn paths.
@@ -751,14 +751,14 @@ contract Core {
     /// PoolManager for: the amount settles against our own inventory through `_handleDelta`,
     /// exactly like a swap.
     /// ⚠️ `inRange = false` IS PRESERVED AND IS LOAD-BEARING: an out-of-range order must not move
-    /// `POOLED_*`, which tracks the ACTIVE band. Dropping it would let a resting boundary order
+    /// `POOLED_*`, which tracks the ACTIVE range. Dropping it would let a resting boundary order
     /// inflate the in-range inventory every LP claim is priced against.
-    /// SIGN CARRIES DIRECTION: `amount > 0` OPENS the order (tokens ENTER the band ⇒ negative delta,
+    /// SIGN CARRIES DIRECTION: `amount > 0` OPENS the order (tokens ENTER the range ⇒ negative delta,
     /// per `_handleDelta`'s rule that positive LEAVES); `amount < 0` CLOSES it. One value, one
     /// meaning — no companion flag that can disagree with it, and no call site where the size says
     /// one thing and the direction another.
     /// ⇒ THIS WAS THE LAST `poolManager.unlock` AND THE LAST `_modifyLiquidity`. With it gone the
-    /// band's tokens are ours, custody and accounting are one thing again, and the transitional
+    /// range's tokens are ours, custody and accounting are one thing again, and the transitional
     /// divergence marked in `swap` is CLOSED.
     function outOfRange(address sender, int amount, uint /*lower*/, uint /*upper*/, address token)
         public onlyUs returns (uint tokOut) {
@@ -824,8 +824,8 @@ contract Core {
         //   ⇒ POSITIVE = leaves the pool (we pay out) · NEGATIVE = enters the pool (we take in).
         //   `forOne` is zeroForOne: pays leg 0, receives leg 1.
         //
-        // ⚠️ `spotPrice` IS NOW UNUSED. It carried the packed band ticks for the price limit —
-        // a bound that existed because crossing the band edge cost ZERO and bricked the band
+        // ⚠️ `spotPrice` IS NOW UNUSED. It carried the packed range ticks for the price limit —
+        // a bound that existed because crossing the range edge cost ZERO and bricked the range
         // (`PooledUsdRepackMatrix::testMatrix_S6`). The inventory bound below replaces it with a
         // PHYSICAL limit, and an edge that does not exist cannot be crossed. The parameter stays
         // only until `BasketLib.routeSwap`'s call site is updated in the same cut.
@@ -854,7 +854,7 @@ contract Core {
         // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
         // with no replenishment if this is missing, and flow IS the `target` in `skewWad`/`sellSkew`.
         // At `target == 0` `sellSkew` RETURNS 0, so every sell goes exempt from the imbalance charge
-        // — looking exactly like a skew that simply never fires. Every band and well swap routes
+        // — looking exactly like a skew that simply never fires. Every range and well swap routes
         // through here, so this remains the ONE bump point.
         {
             int256 usdLeg = delta.usd;
@@ -866,9 +866,9 @@ contract Core {
         // this as part of any swap through the range; `FixedRateFill` has one price and no
         // traversal, so without this a boundary order is an option its owner must exercise rather
         // than the limit order it was sold as. It runs AFTER settlement so the fills price against
-        // inventory this swap has already moved, and it is capped inside the band — see
-        // `BandLib.sweepOor` for why that cap makes the permissionless poke a liveness requirement.
-        BAND.sweepOor(px, MAX_FILLS_PER_SWAP);
+        // inventory this swap has already moved, and it is capped inside the range — see
+        // `RangeLib.sweepOor` for why that cap makes the permissionless poke a liveness requirement.
+        RANGE.sweepOor(px, MAX_FILLS_PER_SWAP);
 
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
         // identical across pools; only the remediation differs. Both
@@ -877,26 +877,26 @@ contract Core {
         // LPs join via modLP (which grows both in lockstep).
         // GROSS fee depth on both sides: for BTC, totalShares is NET, so add the levered buffer
         // (totalBuffer) to match POOLED (gross, includes the buffer) — keeps the shortfall
-        // comparison gross-to-gross (unchanged behavior). ETH: bandETH(net) vs totalShares(net) already balanced.
-        uint totalSharesPool = BAND.sharesForShortfall();
+        // comparison gross-to-gross (unchanged behavior). ETH: rangeETH(net) vs totalShares(net) already balanced.
+        uint totalSharesPool = RANGE.sharesForShortfall();
         // BOTH sides compare REAL inventory, never just the in-pool token.
-        // ETH = bandETH() (in-range POOLED + AAVE/ether.fi venue
+        // ETH = rangeETH() (in-range POOLED + AAVE/ether.fi venue
         // retention + idle). BTC has no yield-venue, but the protocol still HOLDS
-        // off-pool WBTC (swept donations + swap deltas, accrued in bandBTC), so
-        // the BTC analogue is POOLED + bandBTC. Comparing raw POOLED
+        // off-pool WBTC (swept donations + swap deltas, accrued in rangeBTC), so
+        // the BTC analogue is POOLED + rangeBTC. Comparing raw POOLED
         // over-fired the shortfall arb on off-range retention (lpShares > POOLED
         // by construction) — requesting a hop-source of BTC the protocol already
-        // holds. Adding bandBTC is monotone-safe: it can only SHRINK the measured
+        // holds. Adding rangeBTC is monotone-safe: it can only SHRINK the measured
         // shortfall, never grow it, and suppressing a "shortfall" we can cover from
         // our own WBTC is correct (no need to source what we already hold).
         // BTC IL-protect: totalShares includes each LP's LEVERED slice (levPooled), and its backing is
         // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
         // with levPooled (QuidLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
-        // (The ETH branch is NET-vs-NET: bandETH() adds the lev book's NET equity (totalNetEquity, the
+        // (The ETH branch is NET-vs-NET: rangeETH() adds the lev book's NET equity (totalNetEquity, the
         // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
         // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
         // so BTC alone needs the +totalBuffer above to keep totalShares's comparison gross-to-gross.)
-        uint pooledTok = BAND.realInventory();
+        uint pooledTok = RANGE.realInventory();
         // The load-balance (the shortfall arb/refill this swap would trigger) is the
         // SWAPPER's to consent to — it routes through the SOR / hop and can add MEV/slippage
         // to their own fill, and the LP-side analysis says firing it on every wiggle realizes
@@ -911,9 +911,9 @@ contract Core {
                 // usually impermanent, realizing that IL onto the SHARED backing —
                 // compensating the flow at every LP's expense (toxic). Real ETH
                 // demand is met fairly at withdrawal: convertToAssets pays each LP
-                // pro-rata of bandETH, so the IL is socialized via the share price,
+                // pro-rata of rangeETH, so the IL is socialized via the share price,
                 // never patched from surplus.
-                BAND.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see ICore
+                RANGE.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see ICore
             }
         }
     }
@@ -932,19 +932,19 @@ contract Core {
     // chase a usually-impermanent shortfall, realizing IL at every LP's expense) AND
     // griefable (no access control, magnitude-only 1% gate, so anyone could force the
     // speculative buy) AND redundant (TWAP pricing needs no pre-balanced inventory; LP
-    // exits read pro-rata of bandETH at withdrawal). The fair model is the redemption
+    // exits read pro-rata of rangeETH at withdrawal). The fair model is the redemption
     // path (BasketLib._depegLoss: pro-rata, no first-out-at-par); withdrawal now matches
     // it (see Quid._withdraw). BTC keeps its hop delivery rail (Aux.btcShortfall).
 
     /// @notice Fused repack — replaces separate repack/repackBTC. Pass
     ///         IS_BTC=true to repack the BTC/USD pool, false for ETH/USD.
     /// §V4-CUT — REPACKING MOVES NO TOKENS. Once liquidity settles against inventory, the range is
-    /// a PRICING PARAMETER, not a custody boundary: the band holds what it holds, and re-ranging
+    /// a PRICING PARAMETER, not a custody boundary: the range holds what it holds, and re-ranging
     /// only changes the bounds we price against. So this stores the new range and returns zeros for
     /// every delta — there is nothing to burn and nothing to re-add.
     /// ⚠️ `POOLED_*` IS NOT ZEROED HERE ANY MORE. `_handleRepack` used to clear it and rebuild from
     /// the re-added position, which was correct while the position WAS the inventory. Zeroing it now
-    /// would delete the band's holdings on a bookkeeping operation.
+    /// would delete the range's holdings on a bookkeeping operation.
     /// Fees return 0 because there is no v4 accrual to harvest: the 420 ppm is charged in the fill
     /// and compounds into `POOLED_*` at swap time.
     /// §DE-TICK — the four dead parameters are GONE, not widened. `myLiquidity` and the old bounds
@@ -956,20 +956,20 @@ contract Core {
     /// them by token identity, and fed them to `feeIncrements` -- arithmetic on constants. Also
     /// absorbs `reseat`, whose body was identical.
     /// @dev §ONE-ANCHOR — takes the ANCHOR, not the two bounds it implies. The caller computed those
-    ///      as `updateBounds(spotPrice, BAND_DELTA)` and already held `spotPrice`, so passing the
+    ///      as `updateBounds(spotPrice, RANGE_DELTA)` and already held `spotPrice`, so passing the
     ///      pair meant sending a derived value and reconstructing its source. Reconstructing it as
     ///      the midpoint would be LOSSY: `p·(10000±δ)/10000` truncates on each leg, so the recovered
     ///      anchor drifts a wei and every bound derived from it drifts with it. One argument, exact,
     ///      and the derivation lives in exactly one place.
     function repack(uint anchorPrice) public onlyUs returns (uint price) {
-        BAND_ANCHOR = anchorPrice;
+        RANGE_ANCHOR = anchorPrice;
         price = AUX.getTWAPforAsset(ASSET, 1800);
         _observeIfSourced();   // §E222: `price` is RETURNED for pricing; the ring records an independent read
     }
 
     // §V4-CUT — `reseat` DELETED: it had become BYTE-IDENTICAL to `repack` above. Both stored the
     // new bounds, read the TWAP and wrote an observation. They were distinct while v4 hosted the
-    // band -- `repack` adjusted an existing position, `reseat` tore one down and rebuilt it at a new
+    // range -- `repack` adjusted an existing position, `reseat` tore one down and rebuilt it at a new
     // range -- and that difference lived entirely in the `modifyLiquidity` calls both have lost.
     // Two names for one behaviour is drift waiting to happen; one behaviour gets one name.
 
@@ -1020,7 +1020,7 @@ contract Core {
             if (inRange) POOLED -= Math.min(tokAmount, POOLED);   // clamp: see the note at the deleted helpers
             // ⚠️ THE `!IS_BTC` GUARD STAYS: ETH pays out real ether here, BTC settles by Lightning
             // cooperative close, not an on-chain transfer. One of the four known-REAL asymmetries.
-            if (who != address(0)) BAND.deliverVolatile(tokAmount, who);   // BTC: no-op (LN close)
+            if (who != address(0)) RANGE.deliverVolatile(tokAmount, who);   // BTC: no-op (LN close)
         } else if (tokDelta < 0) {
             uint tokAmount = uint(-tokDelta);
             if (inRange) POOLED += tokAmount;
@@ -1031,8 +1031,8 @@ contract Core {
     ///      (in-range) pool it under the backing invariant.
     ///      ⚠️ This used to say "under the BTC share cap" — a comment describing PAST state. The
     ///      `btcShareBps` median-vote cap was REMOVED in §H (2026-07); see `SwapLib.sol:1304`.
-    ///      There is NO per-band cap and NO fixed ETH/BTC split: the ONLY shared bound is the SUM
-    ///      (`committedUsd18() <= haircutTvl`), so either band may draw the whole free surplus if
+    ///      There is NO per-range cap and NO fixed ETH/BTC split: the ONLY shared bound is the SUM
+    ///      (`committedUsd18() <= haircutTvl`), so either range may draw the whole free surplus if
     ///      the other is not using it. Neither side is limited to a share, still less to the
     ///      MINIMUM of the two.
     /// §V4-CUT — the mock ERC20 and the PoolManager settle are GONE; the ACCOUNTING is not.
@@ -1073,7 +1073,7 @@ contract Core {
             //   PERMANENT value loss of a depegged stable). NOT the deliverability haircut (illiquidLoss): that is
             //   the normal, ever-present lending-utilization slice (own − withdrawable-now; the GHO reserve sits
             //   ~78% utilized at rest), which is SOLVENT and only defers per-redemption — subtracting it here
-            //   would treat routine utilization as a backing loss and block the band from committing at all
+            //   would treat routine utilization as a backing loss and block the range from committing at all
             //   (proven: it reverts test_BankRun / RedeemConservation with no depeg). Redeem subtracts illiquid to
             //   DEFER a single withdrawal; the standing solvency gate must not. depegLoss == 0 in normal
             //   operation ⇒ byte-identical to the old par gate; it only tightens under an ACTUAL depeg.
@@ -1082,18 +1082,18 @@ contract Core {
             if (basketLeg) basketUsd += usdAmount;   // §ISBTC-SPLIT: both arms were identical
             // 🔴 §BACKING-DEAD — THE PUSH THAT MAKES THE GATE BELOW MEAN ANYTHING. `_reportEquity`
             // existed, was documented as PUSH-not-pull, and HAD NO CALLERS -- so
-            // `BandBacking.committedOf` was never written, `total()` was permanently 0, and this
-            // `require` compared `0 <= haircutTvl`: ALWAYS TRUE. The bound that stops both bands
+            // `RangeBacking.committedOf` was never written, `total()` was permanently 0, and this
+            // `require` compared `0 <= haircutTvl`: ALWAYS TRUE. The bound that stops both ranges
             // over-committing the same basket could not bind. It must run BEFORE the require, so
-            // the gate sees THIS band's new equity, and the sibling's last pushed figure.
+            // the gate sees THIS range's new equity, and the sibling's last pushed figure.
             _reportEquity();
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
             uint pooledPre = POOLED_USD;
             POOLED_USD -= Math.min(usdAmount, POOLED_USD);   // clamp: see the note at the deleted helpers
-            // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the band's USD leg
+            // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the range's USD leg
             // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
-            // the band's CURRENT ratio. The old `-= min(usdAmount, basket)` drained the basket leg
+            // the range's CURRENT ratio. The old `-= min(usdAmount, basket)` drained the basket leg
             // FIRST, so on a partial exit `POOLED_USD - basketUsd` (the increment `_pricingBacking`
             // now reads as LP backing) grew by the whole released basket slice — phantom backing
             // paid to whoever withdrew next. Measured on a FULL exit: basket floored to 0 against a
@@ -1104,7 +1104,7 @@ contract Core {
             // from a swapper are not basket-owned, so they must not grow the basket's claim. It is
             // WRONG here, because a burn does not get to choose which dollars leave. The USD leg is
             // one undivided balance; when `usdAmount` leaves it, basket dollars and the LP increment
-            // leave in the band's CURRENT ratio no matter who took them. Gating the release on
+            // leave in the range's CURRENT ratio no matter who took them. Gating the release on
             // `basketLeg` meant a SWAP drained `POOLED_USD` while `basketUsd` stood still.
             //
             // MEASURED (BackingGateSplit, and reproduced independently): across eight 1-ETH swaps
@@ -1129,21 +1129,21 @@ contract Core {
                       : Math.mulDiv(b, usdAmount, pooledPre);
             basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             // The burn side moves equity DOWN. Reporting here keeps the accountant on the same
-            // clock as the mint side -- a sum of per-band figures is only meaningful if every term
+            // clock as the mint side -- a sum of per-range figures is only meaningful if every term
             // is current (§A.16b one level up), which is why this is a push at the moment of change.
             _reportEquity();
         }
     }
 
-    /// @notice The venue just SETTLED `lpOwned6` as the band's remaining LP-owned USD leg — it paid the
+    /// @notice The venue just SETTLED `lpOwned6` as the range's remaining LP-owned USD leg — it paid the
     ///         rest out in QU!D, so the BASKET now owns that slice of the mirror. Re-anchors `basketUsd*`
     ///         to `POOLED_USD_* - lpOwned6` instead of leaving it to whatever the burn happened to release.
     /// @dev    WHY THIS EXISTS. `POOLED_USD_* - basketUsd*` is the number `_pricingBacking` reads as LP
     ///         equity, so it must equal what the venue actually still owes. It cannot, if both sides move
     ///         independently: the venue pays a SHARE-proportional slice (`served/lpShares`) while the burn
-    ///         removes a LIQUIDITY-proportional one (`served/bandEth`), and the two differ by exactly the
-    ///         amount the band's own trading has skewed it away from 1:1. Measured on the LVR probe with a
-    ///         367.9-ETH band against 400 shares: 636.44 USD of a 60,000 increment, 8 bps of LP value,
+    ///         removes a LIQUIDITY-proportional one (`served/rangeEth`), and the two differ by exactly the
+    ///         amount the range's own trading has skewed it away from 1:1. Measured on the LVR probe with a
+    ///         367.9-ETH range against 400 shares: 636.44 USD of a 60,000 increment, 8 bps of LP value,
     ///         evaporating into an accumulator nobody reconciled. Netting it here makes the identity exact
     ///         rather than approximately right, and it is the BASKET's leg that moves because the QU!D was
     ///         minted against basket backing.
@@ -1159,7 +1159,7 @@ contract Core {
     ///      real ETH out); delta<0 → mint+settle and (in-range) pool it.
     /// §V4-CUT — same removal as the USD leg, and the SAME reason it is safe: the comment below
     /// already said the real ETH payout was SEPARATE from the mock burn ("the burned mockETH is
-    /// matched by real ETH paid out"). `BAND.takeETH` is where value moves; the mock was a shadow.
+    /// matched by real ETH paid out"). `RANGE.takeETH` is where value moves; the mock was a shadow.
     /// ⚠️ THE `!IS_BTC` GUARD STAYS AND IS **NOT** IS_BTC-DRIFT TO BE DELETED LATER: ETH pays out real
     // §DE-TICK — `_settleTokSide` FOLDED INTO `_handleDelta`. With `d.vol` naming the leg there was
     // no selection left to make, so the frame held six lines and a `token1isVol` read. The `!IS_BTC`
@@ -1169,8 +1169,8 @@ contract Core {
 
     /// §V4-CUT — THE LAST TWO v4 READS, NOW ANSWERED FROM OUR OWN STATE.
     /// These asked Uniswap's singleton for the spot price and the position's size. We hold both now:
-    /// the price is the oracle the fill settles at, and the "position" is the band's own inventory.
-    /// `liquidity` reports `POOLED` — the band's volatile holding — because that is what the callers
+    /// the price is the oracle the fill settles at, and the "position" is the range's own inventory.
+    /// `liquidity` reports `POOLED` — the range's volatile holding — because that is what the callers
     /// actually want (how much depth is there), and it was only ever v4 liquidity units because v4
     /// was the custodian.
     /// ⚠️ The tick bounds are ignored: with inventory held directly there is no per-range position to
@@ -1189,7 +1189,7 @@ contract Core {
     /// a cast for it. Plain `uint` throughout.
     /// §BOOTSTRAP — RETURNS THE RING'S `lastPrice`, NOT AN 1800s TWAP. Reading a 30-minute average
     /// here was wrong on three counts, and the third broke the deploy outright:
-    ///   • SEMANTICS: `poolStats` is the band's CURRENT price and inventory. A TWAP is a different
+    ///   • SEMANTICS: `poolStats` is the range's CURRENT price and inventory. A TWAP is a different
     ///     quantity, and the consumers that need one ask for it BY NAME (`getTWAPforAsset`) -- the
     ///     swap path already does, so nothing loses manipulation resistance here.
     ///   • COST: it made a frequently-read `view` perform an external CALL into Aux for a number
@@ -1208,7 +1208,7 @@ contract Core {
     // §V4-CUT — `_writeObservation(spotPrice)` DELETED HERE: it had no callers left. It existed
     // to convert v4's sqrt-price once, at the write, so the ring stored plain price. Nothing hands
     // us a sqrt-price any more -- every live write goes through `_writeObservationPrice` with a
-    // price the band already has -- so the conversion had nothing to convert. It was the last
+    // price the range already has -- so the conversion had nothing to convert. It was the last
     // `BasketLib.getPrice` consumer on the write path, and the last place a sqrt-price could enter
     // storage.
 
@@ -1311,7 +1311,7 @@ contract Core {
         observationSource = src; OBS_CALLDATA = call_;
     }
 
-    /// @dev THE READ MUST NOT BE ABLE TO HALT THE BAND. `ExternalTwap.oneInchRateWad` reverts on a
+    /// @dev THE READ MUST NOT BE ABLE TO HALT THE RANGE. `ExternalTwap.oneInchRateWad` reverts on a
     ///      zero/failed read, and this sits on the SWAP path — using it directly would turn an
     ///      oracle outage into "every swap and repack reverts", trading a silent measurement fault
     ///      for a hard liveness one. So the call is a raw `staticcall` and ANY failure (revert, short
@@ -1365,25 +1365,25 @@ contract Core {
     ///      its own gas cap.** So it is read OFF-chain, where it works as designed, and pushed here.
     ///
     /// @dev **PERMISSIONLESS, FOLLOWING `cascadeDelever`'s PRECEDENT: the BOUND is the security, not
-    ///      a keeper role.** Anyone may call this; nobody can move the ring outside the anchor band,
+    ///      a keeper role.** Anyone may call this; nobody can move the ring outside the anchor range,
     ///      so there is no privilege to steal, no key to rotate, and no liveness dependency on one
     ///      operator. A trusted-pusher role would add all three and buy nothing the bound does not.
     ///
     /// @dev **FAULT TOLERANCE — EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS.** No pusher, a
-    ///      dark feed, or an out-of-band value all end the same way: the ring is not written,
+    ///      dark feed, or an out-of-range value all end the same way: the ring is not written,
     ///      `ringVariance` returns 0, and §E213's sentinel prices at the CEILING. Never a revert,
-    ///      because a revert here would let a stalled oracle halt the band.
+    ///      because a revert here would let a stalled oracle halt the range.
     ///
-    /// @dev **WHAT THE BAND STILL LETS THROUGH IS THE POINT.** Chainlink updates on a heartbeat or a
+    /// @dev **WHAT THE RANGE STILL LETS THROUGH IS THE POINT.** Chainlink updates on a heartbeat or a
     ///      deviation threshold, so BETWEEN updates it reports a flat line while the market moves —
     ///      a ring sourced from it would measure σ² ≈ 0 through real volatility. A DEX-aggregated
     ///      push carries that intra-update movement, which is exactly what σ² is for. The bound
     ///      constrains the LEVEL; the information is in the PATH.
     ///
-    /// @dev Band = 50 bps. ⛔ **THE "8 bps ⇒ ~6x headroom" FIGURE THAT STOOD HERE IS STALE.
+    /// @dev Range = 50 bps. ⛔ **THE "8 bps ⇒ ~6x headroom" FIGURE THAT STOOD HERE IS STALE.
     ///      RE-MEASURED 2026-08-22: the live 1inch-vs-Chainlink ETH/USD basis is 23 bps** — so the
     ///      headroom is **~2.2x, not ~6x** (`PushSourceIsAdmissible.t.sol`, which prints the number
-    ///      and fails if it ever reaches half the band). The band still ADMITS a 1inch push, which is
+    ///      and fails if it ever reaches half the range). The range still ADMITS a 1inch push, which is
     ///      the property that matters; what changed is that the margin is thin enough to watch.
     ///      ⚠️ **AND THE FAILURE IS SILENT IF IT GOES:** past 50 bps every push is refused, the ring
     ///      never fills, σ² stays 0 and the skew serves the flat sentinel forever — a state
@@ -1406,7 +1406,7 @@ contract Core {
             AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
         if (anchorPx == 0) return;                       // no anchor => cannot validate => refuse
         (uint256 lo, uint256 hi) = priceWad < anchorPx ? (priceWad, anchorPx) : (anchorPx, priceWad);
-        if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;   // outside the band => refuse
+        if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;   // outside the range => refuse
         _writeObservationPrice(priceWad);
     }
 

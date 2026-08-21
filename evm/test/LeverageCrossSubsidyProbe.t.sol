@@ -15,7 +15,7 @@ interface IERC20R {
 }
 interface IChainlinkFeedT { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 interface IWeETHRateT { function getEETHByWeETH(uint) external view returns (uint); }
-interface ILevBandView { function bandSqrtP() external view returns (uint160); }
+interface ILevRangeView { function rangeSqrtP() external view returns (uint160); }
 
 /// Morpho IOracle from REAL sources (weETH→ETH ether.fi rate × real Chainlink ETH/USD), 1e36-scaled. No mock price.
 contract RealRateMorphoOracle {
@@ -30,10 +30,10 @@ contract RealRateMorphoOracle {
 }
 
 /// @title  LeverageCrossSubsidyProbe — REAL-stack regression for the ONE cross-subsidy invariant that matters
-/// @notice A PASSIVE regular band LP is NOT expensed by a LEVERED LP's full lifecycle (open → lever → venue
+/// @notice A PASSIVE regular range LP is NOT expensed by a LEVERED LP's full lifecycle (open → lever → venue
 ///   liquidation). The IL-protect leverage is isolated BY CONSTRUCTION: `levPooled ≡ netEquity`, `deliverableETH`
 ///   EXCLUDES the levered slice, and every leverage leg executes EXTERNALLY (Morpho borrow + ether.fi/Uniswap
-///   sale via SOR), NEVER the internal band. So a levered LP being liquidated socializes NOTHING onto the passive
+///   sale via SOR), NEVER the internal range. So a levered LP being liquidated socializes NOTHING onto the passive
 ///   LP: measured at a MATCHED price (to strip the price move the lever's rally drives), the passive LP's
 ///   redeemable value and the basket's real backing (TVL) are intact. (The dead Liquity-Trove design this probe
 ///   used to model is gone; this is the real-venue replacement.)
@@ -47,7 +47,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     MorphoEscrowVenue venue;
     address mOracle;
     MarketParams mp;
-    address constant PASSIVE = address(0xBEEF5);   // passive regular band LP (the potential victim)
+    address constant PASSIVE = address(0xBEEF5);   // passive regular range LP (the potential victim)
     address constant LEVR    = address(0xBEEF7);   // leveraged LP
 
     function _setupLev() internal {
@@ -70,7 +70,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         // pool-tracking mock (`_setEthFeed`) but never registered it with Aux, so assetPriceFeed(WETH)
         // was address(0). Without an anchor, a rally that walks the pool toward its tick boundary makes
         // getTWAPforAsset return 0, `rebalanceCore`'s `if (twap == 0) return r` blocks the repack, and
-        // the band stops being re-paired — which also makes `_realignBandToReal`'s `ETH.reseat()` a
+        // the range stops being re-paired — which also makes `_realignRangeToReal`'s `ETH.reseat()` a
         // no-op. For a TREATMENT-vs-CONTROL comparison that is fatal: the two arms can diverge on
         // oracle availability rather than on the levered LP's actual effect, which is the only thing
         // this probe is trying to measure.
@@ -86,7 +86,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         vm.stopPrank();
     }
 
-    function _rallyBand(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyRange(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
@@ -98,7 +98,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         }
     }
 
-    function _realignBandToReal() internal {
+    function _realignRangeToReal() internal {
         (, int256 clp,,,) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
         _setEthFeed(uint(clp)); ETH.reseat();
     }
@@ -106,7 +106,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
     function _entryPrice(address lp) internal view returns (uint s) { ( , , , , s, ) = lm.pos(lp); }
 
-    function _bandE0(address lp, uint sizeEth) internal {
+    function _rangeE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
         vm.prank(lp); ETH.deposit{value: sizeEth}(0, lp);
         deal(WEETH, lp, sizeEth);
@@ -123,7 +123,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     /// REAL Morpho seizure of `lp` (repay `numer/denom` of the debt by SHARES — never seizedAssets, which
     /// over-repays a small debt and underflows Morpho). Crashes the shared Chainlink feed to ~92% LTV first.
     function _seizeReal(address lp, uint numer, uint denom) internal {
-        _realignBandToReal();
+        _realignRangeToReal();
         uint collValue = venue.collateralOf(lp) * IMorphoOraclePrice(mOracle).price() / 1e36;
         uint vdebt = venue.debtOf(lp);
         (uint80 rid, int256 p,, uint256 ut, uint80 ar) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
@@ -135,7 +135,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
         IMorphoTest(MORPHO).liquidate(mp, lp, 0, uint256(borrowShares) * numer / denom, "");
         vm.clearMockedCalls();
-        _realignBandToReal();
+        _realignRangeToReal();
     }
 
     /// The passive LP's redeemable value (USD 1e18) at the CURRENT (real, post-realign) price — redeem in a
@@ -144,48 +144,48 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     function _passiveValueUsd(uint shares) internal returns (uint usd) {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         uint snap = vm.snapshotState();
-        uint e0 = PASSIVE.balance; uint w0 = WETH.balanceOf(PASSIVE); uint q0 = QUID.balanceOf(PASSIVE);
+        uint entryEquity = PASSIVE.balance; uint w0 = WETH.balanceOf(PASSIVE); uint q0 = QUID.balanceOf(PASSIVE);
         vm.prank(PASSIVE); try ETH.redeem(shares, PASSIVE, PASSIVE) {} catch {}
-        usd = ((PASSIVE.balance - e0) + (WETH.balanceOf(PASSIVE) - w0)) * px / 1e18 + (QUID.balanceOf(PASSIVE) - q0);
+        usd = ((PASSIVE.balance - entryEquity) + (WETH.balanceOf(PASSIVE) - w0)) * px / 1e18 + (QUID.balanceOf(PASSIVE) - q0);
         vm.revertToState(snap);
     }
 
-    /// CONTROL vs TREATMENT at a matched price. The band's IL from the rally price move hits the passive LP in
-    /// BOTH arms (it is NOT cross-subsidy — the band sells the passive LP's ETH on any move); differencing it
+    /// CONTROL vs TREATMENT at a matched price. The range's IL from the rally price move hits the passive LP in
+    /// BOTH arms (it is NOT cross-subsidy — the range sells the passive LP's ETH on any move); differencing it
     /// out, the cross-subsidy is (treatment − control). If the leverage is isolated, they're equal: the levered
     /// LP's external ops + isolated slice add NOTHING onto the passive LP beyond the shared price path.
     function test_PassiveLp_NotExpensedByLeveredLpLifecycle() public {
         _setupLev();
 
-        // A passive REGULAR band LP (no leverage) — the party that must not be expensed.
+        // A passive REGULAR range LP (no leverage) — the party that must not be expensed.
         vm.deal(PASSIVE, 20 ether);
         vm.prank(PASSIVE); uint shares = ETH.deposit{value: 10 ether}(0, PASSIVE);
         require(shares > 0 && CORE.POOLED() > 0, "no in-range pool for the passive LP");
-        uint160 startSqrt = ILevBandView(address(ETH)).bandSqrtP();   // shared rally reference for both arms
+        uint160 startSqrt = ILevRangeView(address(ETH)).rangeSqrtP();   // shared rally reference for both arms
 
         uint snap = vm.snapshotState();
 
         // ── TREATMENT: a levered LP runs its FULL lifecycle over the SAME rally price path ──
-        EV.setLevManager(address(lm));                     // pin the leveraged book into bandETH
-        _bandE0(LEVR, 5 ether);
+        EV.setLevManager(address(lm));                     // pin the leveraged book into rangeETH
+        _rangeE0(LEVR, 5 ether);
         _openLevOnly(LEVR, 5 ether);
-        _rallyBand(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(LEVR, 0);                              // real Morpho borrow + external Uniswap buy (NOT the band)
+        _rallyRange(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(LEVR, 0);                              // real Morpho borrow + external Uniswap buy (NOT the range)
         require(venue.debtOf(LEVR) > 0, "precondition: levered position took real debt");
         _seizeReal(LEVR, 1, 1);                             // REAL Morpho liquidation of the levered LP
-        _realignBandToReal();
+        _realignRangeToReal();
         uint passiveT = _passiveValueUsd(shares);
         uint tvlT     = _tvl();
 
         vm.revertToState(snap);
 
-        // ── CONTROL: the SAME band rally price path, NO levered LP at all ──
-        _rallyBand(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
-        _realignBandToReal();
+        // ── CONTROL: the SAME range rally price path, NO levered LP at all ──
+        _rallyRange(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _realignRangeToReal();
         uint passiveC = _passiveValueUsd(shares);
         uint tvlC     = _tvl();
 
-        // Cross-subsidy = treatment − control. Isolated leverage ⇒ treatment ≥ control (to a rounding band):
+        // Cross-subsidy = treatment − control. Isolated leverage ⇒ treatment ≥ control (to a rounding range):
         // the levered LP's borrow/buy/liquidation took NOTHING from the passive LP beyond the shared IL.
         assertGe(passiveT, passiveC * 9990 / 10000,
             "CROSS-SUBSIDY: levered LP must not expense the passive LP beyond the shared rally IL");

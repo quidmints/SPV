@@ -26,7 +26,7 @@ import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, NotBTC
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
 
 /// EthVenue — the ETH yield-venue custody (AAVE-v4 WETH + ether.fi weETH). Aux keeps thin
-/// forwarders (bandETH) for callers that must not change target (BasketLib IAux read, Core),
+/// forwarders (rangeETH) for callers that must not change target (BasketLib IAux read, Core),
 /// and owns the vault-health state for the basket's stable 4626s.
 
 // Deploy-finalize helpers (see Aux.finalize; linkage asserts live in BasketLib.assertFullyWired).
@@ -40,24 +40,24 @@ contract Aux is // Auxiliary
     // Immutable handles. USDC is stables[0] by convention; anywhere
     // code needs the USDC address (ERC-3009, _ensureUSDC) it reads
     // stables[0].
-    Quid internal immutable BAND;
+    Quid internal immutable RANGE;
     Core internal immutable CORE;
-    /// §ISBTC-SPLIT — the BTC band INSTANCE. `CORE` is the ETH band; both are constructed in
-    /// `DeployLib` and registered with the same `BandBacking`. Aux needs the handle because the
+    /// §ISBTC-SPLIT — the BTC range INSTANCE. `CORE` is the ETH range; both are constructed in
+    /// `DeployLib` and registered with the same `RangeBacking`. Aux needs the handle because the
     /// skew is now read FROM the instance rather than selected by a flag passed alongside one
-    /// address: without it, a WBTC quote would silently be priced by the ETH band's inventory —
-    /// a plausible number for the wrong band, which is the failure mode that announces nothing.
+    /// address: without it, a WBTC quote would silently be priced by the ETH range's inventory —
+    /// a plausible number for the wrong range, which is the failure mode that announces nothing.
     Core internal immutable BTC_CORE;
-    /// §ISBTC-SPLIT — ASSET → BAND INSTANCE. Every read path needs to reach the band that owns the
+    /// §ISBTC-SPLIT — ASSET → RANGE INSTANCE. Every read path needs to reach the range that owns the
     /// inventory and the oracle ring for `asset`. Doing that with `asset == address(WBTC) ? … : …`
     /// is the hand-rolled dispatch this refactor removes, moved one level up: a literal comparison
     /// re-decided on every quote. The pairing is a WIRING fact, so it is stated ONCE here, at
-    /// construction, and every call site is a lookup. Adding a third band is then a wiring change,
+    /// construction, and every call site is a lookup. Adding a third range is then a wiring change,
     /// not an edit to every read.
-    // §BANDOF-DELETE — was `mapping(address => Core) bandOf`, a mapping with exactly TWO entries,
+    // §RANGEOF-DELETE — was `mapping(address => Core) rangeOf`, a mapping with exactly TWO entries,
     // written once at construction, in a contract that ALREADY holds both values as immutables
     // (`CORE`, `BTC_CORE`). A storage slot, two SSTOREs at deploy and an SLOAD on every price read,
-    // to answer a question two immutable comparisons answer for free. `_bandOf` below replaces it.
+    // to answer a question two immutable comparisons answer for free. `_rangeOf` below replaces it.
     WETH9 public immutable WETH;
     IERC20 public immutable WBTC;
 
@@ -70,7 +70,7 @@ contract Aux is // Auxiliary
 
     ChannelLib.SPState internal sp;
 
-    // _bandETHPrincipal + the ETH-venue (AAVE/ether.fi) custody moved
+    // _rangeETHPrincipal + the ETH-venue (AAVE/ether.fi) custody moved
     // to EthVenue (the venue carve). `ethVenue` is pinned once below.
 
     /// @notice Accumulator of WBTC ERC20 (BitGo) held by Aux on behalf
@@ -81,7 +81,7 @@ contract Aux is // Auxiliary
     ///         per-channel `lpAmountSats` / `hopAmountSats` fields.
     ///         The two systems share a 1e8 scale (sats ≈ WBTC sub-unit)
     ///         but operate over disjoint pools of assets.
-    uint public bandBTC;
+    uint public rangeBTC;
 
     mapping(address => uint) public tranche;
     mapping(address => address) public vaults;
@@ -122,13 +122,13 @@ contract Aux is // Auxiliary
     // `riskFactor(token)` is the ONE depeg boundary, consumed identically by
     // deposit (B), redemption (C), and get_deposits:
     //   riskFactor <  10000  ⟺  IN a depeg (the stable's feed is below peg by
-    //                            more than the deadband)
+    //                            more than the deadzone)
     //   riskFactor == 10000  ⟺  OUT (no discount anywhere)
     //
     // Severity is sourced ON-CHAIN from the per-stable Chainlink feed via
     // `getDepegSeverityBps` below (→ FeeLib.liveDepegBps). The off-chain Chainlink
     // CRE that once pushed this signal was REMOVED — the pinned feeds ARE the
-    // signal now (downside-only, deadbanded, defers on a stale/dead feed). No
+    // signal now (downside-only, deadzoned, defers on a stale/dead feed). No
     // governance override and no hysteresis state: each read reflects the live
     // price, so the boundary tracks the current peg directly.
 
@@ -188,7 +188,7 @@ contract Aux is // Auxiliary
     }
 
     /// @notice Depeg severity (bps below peg) for `token`, sourced from its pinned
-    ///         Chainlink feed. 0 = healthy / no feed / stale / within deadband. This
+    ///         Chainlink feed. 0 = healthy / no feed / stale / within deadzone. This
     ///         IS the depeg signal (the off-chain CRE was removed); `riskFactor`,
     ///         the FeeLib fee model, and the swap/redeem libs all read it here by
     ///         calling `getDepegSeverityBps` on Aux (the address they're handed).
@@ -215,13 +215,13 @@ contract Aux is // Auxiliary
     // Body extracted to a private function (deployed ONCE) so the 13 onlyUs sites carry a cheap CALL
     // instead of inlining the 5-address comparison chain each — reclaims ~1 KB of Aux EIP-170 headroom.
     function _requireUs() private view {
-        if (msg.sender != address(BAND)
+        if (msg.sender != address(RANGE)
          && msg.sender != address(CORE)
-         && msg.sender != address(BTC_CORE)  // §ISBTC-SPLIT — THE BTC BAND IS A SECOND ADDRESS NOW.
+         && msg.sender != address(BTC_CORE)  // §ISBTC-SPLIT — THE BTC RANGE IS A SECOND ADDRESS NOW.
                                              // `Core._settleUsdSide` calls `AUX.take` (onlyUs) to pay
                                              // the USD leg, and `Core.swap` calls `btcShortfall`
                                              // (onlyUs); with only the ETH instance listed, BOTH
-                                             // reverted for the BTC band -- it could not pay out or
+                                             // reverted for the BTC range -- it could not pay out or
                                              // signal. Note the warning already written below about
                                              // the venue carve: "true only while they WERE one
                                              // address". The same thing happened again one level up
@@ -233,7 +233,7 @@ contract Aux is // Auxiliary
                                              // ==EthVenue. Without this the basket→WETH arb
                                              // and the Quid/Core shortfall fills silently
                                              // revert→catch→0.
-         && msg.sender != CORE.btc()   // BTC band manager: same delegatecall shape on the
+         && msg.sender != CORE.btc()   // BTC range manager: same delegatecall shape on the
                                              // BTC side (BtcLib/SwapLib run as the Vault).
                                              // ⚠️ TWO ENTRIES, NOT ONE, SINCE THE VENUE CARVE —
                                              // this used to read "one address (ethVenue) covers
@@ -245,11 +245,11 @@ contract Aux is // Auxiliary
     modifier onlyUs { _requireUs(); _; }
 
     /// @notice init (plug) Aux with addresses
-    /// @param _band       Quid contract (V4 LP wrapper)
+    /// @param _range       Quid contract (V4 LP wrapper)
     /// @notice Constructor. Pins Quid/Core/V4 wiring + GHO/AAVE-v4 venue.
     /// Constraints: stables[0] must be USDC (ERC-3009 source). WBTC is
     /// transient only (single-tx legs, never inventory; native BTC backs
-    /// `bandBTC` via BTCChannels). GHO's vault slot is 0 (goes through
+    /// `rangeBTC` via BTCChannels). GHO's vault slot is 0 (goes through
     /// AAVE-v4 spoke, not a 4626 curator). _paths are SOR encodings; set
     /// once, iterated at runtime by auxSwap.
     /// @dev Constructor wiring bundled into one struct. Twelve flat
@@ -258,7 +258,7 @@ contract Aux is // Auxiliary
     /// one pointer, so the arg-decode stays shallow. Fields mirror the
     /// former positional params 1:1.
     struct AuxInit {
-        address band;
+        address range;
         address core;
         address btcCore;
         address weth;
@@ -277,13 +277,13 @@ contract Aux is // Auxiliary
         WETH = WETH9(payable(a.weth));
         if (a.wbtc != address(0)) WBTC = IERC20(a.wbtc);
 
-        BAND = Quid(payable(a.band));
+        RANGE = Quid(payable(a.range));
         CORE = Core(a.core);
         BTC_CORE = Core(a.btcCore);
-        // §ISBTC-SPLIT: state the asset→band pairing ONCE, here, where the wiring is already known.
+        // §ISBTC-SPLIT: state the asset→range pairing ONCE, here, where the wiring is already known.
         // `a.wbtc` is optional (guarded above), so the BTC row is only written when there IS a BTC
         // asset — an unwired asset then resolves to address(0) and the read reverts LOUDLY rather
-        // than silently answering from the wrong band, which is the failure this replaces.
+        // than silently answering from the wrong range, which is the failure this replaces.
 
         // GHO + USDG + WETH AAVE wiring. All are first-class assets on the
         // AAVE v4 spoke; reserve ids are deterministic per (hub, asset),
@@ -499,8 +499,8 @@ contract Aux is // Auxiliary
     ///         sitting on Aux into its canonical destination so donations
     ///         and dust are absorbed into the basket instead of being lost.
     ///         - `token == 0`: native ETH → wrap → the ETH venue via _supply
-    ///         - WETH: → the ETH venue via _supply (bumps _bandETHPrincipal)
-    ///         - WBTC: bumped into bandBTC accumulator (no vault exists)
+    ///         - WETH: → the ETH venue via _supply (bumps _rangeETHPrincipal)
+    ///         - WBTC: bumped into rangeBTC accumulator (no vault exists)
     ///         - registered stables: → vault via _supply
     ///         Unknown tokens revert — sweep is not a free transfer surface.
     ///         nonReentrant: prevents being called mid-deposit between
@@ -510,7 +510,7 @@ contract Aux is // Auxiliary
         // Body extracted to SwapLib.sweepBody to free Aux bytecode.
         (uint vbtcDelta, uint swept) = SwapLib.sweepBody(
             token, address(WETH), address(WBTC), GHO, USDG);
-        if (vbtcDelta > 0) bandBTC += vbtcDelta;
+        if (vbtcDelta > 0) rangeBTC += vbtcDelta;
         if (swept > 0) emit Swept(token, swept);
         _refreshHoldings(token);       // cache: sweep supplied free balance to a vault
     }
@@ -591,7 +591,7 @@ contract Aux is // Auxiliary
     ///         a re-call reverts. The ANGEL was approved to THIS Aux mid-deploy (DeployLib) and required by
     ///         Basket's constructor, so a Safe that didn't own it could never have produced a live Basket.
     function finalize() external onlyOwner {
-        BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(BAND));
+        BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(RANGE));
         // Burn the committed ANGEL seed NFT: the deploy approved THIS Aux for it (and the Safe/owner() still
         // holds it — only approved, never moved), so we transfer the Safe's ANGEL straight to DEAD via that
         // approval. Runs BEFORE renounce (uses owner()); one-shot (ANGEL gone ⇒ a re-call reverts on transfer).
@@ -602,7 +602,7 @@ contract Aux is // Auxiliary
     function _pinQuid(address _quid) private {
         if (address(QUID) != address(0)) revert QuidPinned();
         QUID = Basket(_quid);
-        WETH.approve(address(BAND), type(uint).max);
+        WETH.approve(address(RANGE), type(uint).max);
         // Stable→vault approvals are wired in the constructor loop; this only
         // pins QUID and adds the V4-side WETH approval (V4 wasn't known at
         // construction time).
@@ -618,15 +618,15 @@ contract Aux is // Auxiliary
     address constant F8N  = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
     address constant DEAD = 0x000000000000000000000000000000000000dEaD; // ANGEL burn sink (ERC-721 reverts on address(0))
 
-    /// @dev §BANDOF-DELETE — the asset picks its band, from immutables rather than a mapping.
+    /// @dev §RANGEOF-DELETE — the asset picks its range, from immutables rather than a mapping.
     /// @dev ⚠️ IT REVERTS ON AN UNKNOWN ASSET, AND THAT IS THE POINT. The mapping returned
     ///      `address(0)` for anything unwired, which failed loudly downstream. A bare
-    ///      `asset == WBTC ? BTC_CORE : CORE` would instead return the ETH band for an unknown
-    ///      asset -- a VALID-LOOKING handle carrying the wrong band's price and pooled state, which
-    ///      is the silent-wrong-band class this tree has already shipped three times. So the
+    ///      `asset == WBTC ? BTC_CORE : CORE` would instead return the ETH range for an unknown
+    ///      asset -- a VALID-LOOKING handle carrying the wrong range's price and pooled state, which
+    ///      is the silent-wrong-range class this tree has already shipped three times. So the
     ///      replacement is stricter than what it replaces, not merely cheaper.
     ///      A `private view`, not a modifier: a modifier inlines at every use site (rule 8c).
-    function _bandOf(address asset) private view returns (Core) {
+    function _rangeOf(address asset) private view returns (Core) {
         if (asset == address(WBTC)) return BTC_CORE;
         if (asset == address(WETH)) return CORE;
         revert BadAsset();
@@ -634,7 +634,7 @@ contract Aux is // Auxiliary
 
     function getTWAPforAsset(address asset, uint32 period)
         public view returns (uint price) {
-        price = SwapLib.twapBody(address(_bandOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the band
+        price = SwapLib.twapBody(address(_rangeOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the range
 
         (price,) = SwapLib.twapResolve(assetPriceFeed[asset], price, 
                     asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, 
@@ -647,7 +647,7 @@ contract Aux is // Auxiliary
     ///         move the pool spot onto `price` only in this dislocation regime.
     function resolvedTwap(address asset, uint32 period)
         public view returns (uint price, bool stale) {
-        price = SwapLib.twapBody(address(_bandOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the band
+        price = SwapLib.twapBody(address(_rangeOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the range
 
         (price, stale) = SwapLib.twapResolve(assetPriceFeed[asset], price,
             asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE);
@@ -657,7 +657,7 @@ contract Aux is // Auxiliary
     ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
     ///         seam as getTWAPforAsset/resolvedTwap so Bebop's RFQ engine AND Khalani's
     ///         Arcadia solver read the same curve settlement uses. `base·(1 − wellSkew(asset, size))`
-    ///         is the fill. 0 = flush (band price stands); rises to the cap as deliverable inventory
+    ///         is the fill. 0 = flush (range price stands); rises to the cap as deliverable inventory
     ///         becomes scarce. Read-only.
     ///
     ///         🔴 THE SIZE ARGUMENT IS MANDATORY BY DESIGN — THE ZERO-SIZE FORM WAS RETIRED, NOT KEPT
@@ -665,7 +665,7 @@ contract Aux is // Auxiliary
     ///         returned the INSTANTANEOUS rate, and its docblock claimed solvers "quote against the
     ///         EXACT number a swap executes at". True before §E68, false after: settlement charges
     ///         the INTEGRAL of the pole over the path the swap itself walks (q0→q1), and the starting
-    ///         rate is the CHEAPEST point on that path. MEASURED on a $1m band: a 10% drain filled
+    ///         rate is the CHEAPEST point on that path. MEASURED on a $1m range: a 10% drain filled
     ///         **1.11×** worse than that quote and a 90% drain **4.12×** worse, the error widening
     ///         toward the pole — exactly where being wrong costs most.
     ///         ⚠️ It was first fixed by ADDING this overload and documenting the old one as narrow.
@@ -681,9 +681,9 @@ contract Aux is // Auxiliary
     /// @param drainUsd6  the swap's volatile-side draw, 6-dec USD — the same base settlement uses;
     ///                   pass 0 for the flush/indicative rate, which is the `size → 0` limit
     function wellSkew(address asset, uint drainUsd6) public view returns (uint) {
-        // §ISBTC-SPLIT: the asset picks the BAND INSTANCE via the wiring-time lookup, and the
+        // §ISBTC-SPLIT: the asset picks the RANGE INSTANCE via the wiring-time lookup, and the
         // `isBTC` argument is gone -- the instance knows what it is.
-        return SwapLib.wellSkew(address(_bandOf(asset)), getTWAPforAsset(asset, 1800), drainUsd6);
+        return SwapLib.wellSkew(address(_rangeOf(asset)), getTWAPforAsset(asset, 1800), drainUsd6);
     }
 
     /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,
@@ -738,17 +738,17 @@ contract Aux is // Auxiliary
             SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, address(0), 0),
             SwapLib.SwapToCfg({
                 weth: address(WETH), wbtc: address(WBTC), quid: address(QUID),
-                // §ISBTC-SPLIT — THE SWAP SETTLES AGAINST THE BAND THAT OWNS THE ASSET. This read
+                // §ISBTC-SPLIT — THE SWAP SETTLES AGAINST THE RANGE THAT OWNS THE ASSET. This read
                 // `address(CORE)` for every asset, so a WBTC swap priced and settled against the ETH
-                // band's inventory: `POOLED`, `POOLED_USD`, the skew and the backing gate all came
-                // from the wrong instance. MEASURED: with the BTC band's own POOLED at 0, every BTC
+                // range's inventory: `POOLED`, `POOLED_USD`, the skew and the backing gate all came
+                // from the wrong instance. MEASURED: with the BTC range's own POOLED at 0, every BTC
                 // swap returned out == 0 and reverted `SlippageMaxS()` -- ~593 failures, all BTC.
                 // The read paths (`getTWAPforAsset`, `resolvedTwap`, `wellSkew`) were dispatched by
-                // `bandOf` already; this is the WRITE half of the same dispatch, and splitting them
-                // is what let reads and settlement disagree about which band they were talking to.
-                core: address(_bandOf(asset)),
-                // §SLOP: the asset picks the BAND MANAGER too, through the same wiring-time knowledge.
-                band: asset == address(WBTC) ? CORE.btc() : address(BAND),
+                // `rangeOf` already; this is the WRITE half of the same dispatch, and splitting them
+                // is what let reads and settlement disagree about which range they were talking to.
+                core: address(_rangeOf(asset)),
+                // §SLOP: the asset picks the RANGE MANAGER too, through the same wiring-time knowledge.
+                range: asset == address(WBTC) ? CORE.btc() : address(RANGE),
                 btcChannels: _btcChannels
             }),
             stables
@@ -764,7 +764,7 @@ contract Aux is // Auxiliary
     }
     function bumpQuidBTC(uint amount) external {
         if (msg.sender != address(this)) revert NotSelf();
-        bandBTC += amount;
+        rangeBTC += amount;
     }
 
     error VaultUnwired();
@@ -824,7 +824,7 @@ contract Aux is // Auxiliary
     // ─── ETH yield venue (AAVE/ether.fi) — REGROUPED into EthVenue ──────────
     // The WETH-side custody (AAVE WETH, weETH) + its ops
     // (supplyETH/withdrawETH, supplyEtherFi/supplyAaveEth, offrampEtherFi,
-    // aaveEthBalance) now live on the ETH band manager. Aux keeps a pinned handle +
+    // aaveEthBalance) now live on the ETH range manager. Aux keeps a pinned handle +
     // thin forwarders only where callers must not change target.
     // §E233-sor — THIS LINE LISTED `arbETH` AS ONE OF THEM, TWICE WRONG: `arbETH` does not exist
     // (its forwarder and both callers -- Core.refillETH, Quid._withdraw -- were removed, as noted
@@ -844,10 +844,10 @@ contract Aux is // Auxiliary
     }
 
     /// @notice Current ETH-equivalent backing on the ETH side — forwards to
-    ///         EthVenue.bandETH(). Kept reachable because BasketLib (IAux read),
+    ///         EthVenue.rangeETH(). Kept reachable because BasketLib (IAux read),
     ///         Quid, and front-ends read it at this address.
-    function bandETH() public view returns (uint) {
-        return IEthVenue(ethVenue).bandETH();
+    function rangeETH() public view returns (uint) {
+        return IEthVenue(ethVenue).rangeETH();
     }
 
     function deliverableETH() public view returns (uint) {
@@ -927,13 +927,13 @@ contract Aux is // Auxiliary
         // dead feed defers to 0 (no haircut) by design — see liveDepegBps; a real
         // depeg keeps the feed fresh (it updates on deviation).
         // Body extracted to BasketLib.redeemAsBody. Redemption is STABLES-ONLY: when the
-        // free stables can't cover it, redeemAsBody unwinds the band to free QU!D's own committed
+        // free stables can't cover it, redeemAsBody unwinds the range to free QU!D's own committed
         // dollars (Quid.unwindForRedeem) -- no volatile leg, no LP ETH sold.
         // §A.5e: value against a bounded-fresh cache. MUST precede redeemAsBody — that is the whole bug.
         _requireFreshHoldings();
         BasketLib.redeemAsBody(BasketLib.RedeemArgs(
             amount, source, recipient,
-            address(CORE), address(QUID), address(BAND), address(WETH), preferred));
+            address(CORE), address(QUID), address(RANGE), address(WETH), preferred));
         // cache: redeem does a FULL refresh to recapture yield drift across
         // ALL stables (the pro-rata draw touched some; this covers the rest).
         _refreshAllHoldings();
@@ -1070,47 +1070,47 @@ contract Aux is // Auxiliary
     // loop to defend (unlike Liquity), so the toll had no peg to protect; peg-defense redemptions are scheduled
     // by 6909. Outflow control is now the depeg haircut only.
 
-    // ─── The band accountant. Was a separate `BandBacking` contract; folded in here ───────────
+    // ─── The range accountant. Was a separate `RangeBacking` contract; folded in here ───────────
     //
-    /// §BANDBACKING-FOLD — THE JOINT COMMITTED FIGURE LIVES WHERE THE GATE LIVES. Two band
+    /// §RANGEBACKING-FOLD — THE JOINT COMMITTED FIGURE LIVES WHERE THE GATE LIVES. Two range
     /// instances each own their own `POOLED_*` and accumulators, but the solvency bound is a SUM:
-    /// there is deliberately NO per-band cap, so either band may draw the whole free surplus while
+    /// there is deliberately NO per-range cap, so either range may draw the whole free surplus while
     /// the other is idle. Two instances each gating against the FULL TVL would double-commit the
     /// same backing WITHOUT reverting.
     ///
-    /// That coupling used to be a whole contract (`BandBacking`: a registry, a `seal()`, a
-    /// `bands` array, an `isBand` map, a `DEPLOYER` pin and five errors) whose entire job was to
+    /// That coupling used to be a whole contract (`RangeBacking`: a registry, a `seal()`, a
+    /// `ranges` array, an `isRange` map, a `DEPLOYER` pin and five errors) whose entire job was to
     /// hold two numbers and add them. It is deleted, because **Aux already IS this contract**: the
     /// gate that consumes the sum is `_checkBacking` twelve lines below, and Aux already holds
     /// `CORE` and `BTC_CORE` as immutables.
     ///
-    /// ⇒ The band set is fixed at Aux's CONSTRUCTION rather than registered-then-sealed, which is
-    /// strictly stronger: there is no window in which the denominator is partial. `BandBacking`
+    /// ⇒ The range set is fixed at Aux's CONSTRUCTION rather than registered-then-sealed, which is
+    /// strictly stronger: there is no window in which the denominator is partial. `RangeBacking`
     /// needed `total()` to revert unless sealed for exactly that reason — a partial sum
     /// UNDER-reports and passes a bound it should fail. Here the sum cannot be partial.
     mapping(address => uint256) public committedOf;
-    event Reported(address indexed band, uint256 equityUsd18);
+    event Reported(address indexed range, uint256 equityUsd18);
 
-    /// @notice A band pushes its OWN committed equity. PUSH, not pull.
-    /// @dev    ⚠️ THE STALENESS RULE (§A.16b one level up): a sum of per-band figures is only
-    ///         meaningful if every term is on the same clock. If one band reports live while the
+    /// @notice A range pushes its OWN committed equity. PUSH, not pull.
+    /// @dev    ⚠️ THE STALENESS RULE (§A.16b one level up): a sum of per-range figures is only
+    ///         meaningful if every term is on the same clock. If one range reports live while the
     ///         other's figure is stale, the total is a number that was never simultaneously true,
     ///         and the bound would pass against backing that does not exist. So this is pushed at
-    ///         the moment the band's equity changes, never lazily pulled.
+    ///         the moment the range's equity changes, never lazily pulled.
     function report(uint256 equityUsd18) external {
         if (msg.sender != address(CORE) && msg.sender != address(BTC_CORE)) revert Unauthorized();
         committedOf[msg.sender] = equityUsd18;
         emit Reported(msg.sender, equityUsd18);
     }
 
-    /// @notice Total committed equity across both bands — the old `committedUsd18()`.
+    /// @notice Total committed equity across both ranges — the old `committedUsd18()`.
     function committedTotal() public view returns (uint256) {
         return committedOf[address(CORE)] + committedOf[address(BTC_CORE)];
     }
 
-    // §BANDBACKING-FOLD — `otherThan` IS NOT PORTED, because it had ZERO callers. It was written as
+    // §RANGEBACKING-FOLD — `otherThan` IS NOT PORTED, because it had ZERO callers. It was written as
     // the §E53 shared-scarcity input, but `SwapLib._sharedScarcityWad` never used it: that function
-    // derives the sibling itself, as `ICore.committedUsd18() - ICore.bandEquityUsd18()`. The two
+    // derives the sibling itself, as `ICore.committedUsd18() - ICore.rangeEquityUsd18()`. The two
     // agree on the denominator (which was `otherThan`'s whole justification) because the subtraction
     // is against the same total the bound reads — so the accessor was a second way to compute a
     // number nobody asked it for. Carrying it across would have moved dead code into a contract with
@@ -1154,7 +1154,7 @@ contract Aux is // Auxiliary
     function _backingCore()
         internal returns (uint committedSum, uint totalLiquid) {
         // Body extracted to BasketLib.backingCoreBody to free Aux bytecode.
-        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(BAND), CORE.btc());
+        return BasketLib.backingCoreBody(address(CORE), address(BTC_CORE), address(RANGE), CORE.btc());
     }
 
     /// @notice Asset-withdraw dispatcher (mirror of _supply). WETH idle-
@@ -1339,7 +1339,7 @@ contract Aux is // Auxiliary
 
     // The BTC side rides the SAME merged Vault as the ETH side, so it reuses the
     // `ethVenue` pin — the ETH-VENUE CUSTODY contract. Distinct from Core's `btc` since the
-    // venue carve; anything BTC-band must go through `CORE.btc()`, not this.
+    // venue carve; anything BTC-range must go through `CORE.btc()`, not this.
 
     function setBTCChannels(address b) external onlyOwner {
         if (_btcChannels != address(0)) revert BtcChannelsPinned();
@@ -1350,7 +1350,7 @@ contract Aux is // Auxiliary
         // swap-out, the V4 BTC pool holds mockBTC/mockUSD_BTC for spot
         // liquidity).
         // ON THE BTC VAULT, not `ethVenue`: those were one address until the venue carve, and
-        // `setBTCChannels` is a BTC-BAND function. Read the vault from Core so there is no second pin.
+        // `setBTCChannels` is a BTC-RANGE function. Read the vault from Core so there is no second pin.
         ICore(CORE.btc()).setBTCChannels(b);
     }
 
@@ -1362,7 +1362,7 @@ contract Aux is // Auxiliary
 
 
     /// @notice Asset-supply dispatcher. WETH → the ETH venue (weETH) +
-    ///         increments _bandETHPrincipal. GHO → AAVE-v4 spoke. BOLD
+    ///         increments _rangeETHPrincipal. GHO → AAVE-v4 spoke. BOLD
     ///         → Liquity SP. Other stables → vaults[token] (ERC4626).
     ///         Returns the deposited amount in token-native units.
     function _supply(address token, uint amount) internal returns (uint deposited) {

@@ -4,16 +4,16 @@ pragma solidity ^0.8.28;
 import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-/// §E69 — IS RESTORING THE BAND'S BALANCE NATURALLY PROFITABLE?
+/// §E69 — IS RESTORING THE RANGE'S BALANCE NATURALLY PROFITABLE?
 ///
 /// Asked twice by the owner, answered twice by me with an ARGUMENT, and once by citing E25's
 /// "0 bps across 300k" as though it settled the matter. IT DOES NOT: E25 measured a BALANCED
-/// band under ORDINARY volume. The question is the dislocation in an IMBALANCED band — the only
+/// range under ORDINARY volume. The question is the dislocation in an IMBALANCED range — the only
 /// state in which a restorer would act. This fixture asks the actual question.
 ///
 /// TWO ERRORS IN THE FIRST DRAFT OF THIS FILE, RECORDED SO THEY ARE NOT REPEATED:
-///   1. DIRECTION INVERTED. I labelled a stable→volatile BUY as "adds volatile to the band".
-///      It does the opposite: the band HANDS OUT BTC, so `inv` FALLS and the band gets SCARCER.
+///   1. DIRECTION INVERTED. I labelled a stable→volatile BUY as "adds volatile to the range".
+///      It does the opposite: the range HANDS OUT BTC, so `inv` FALLS and the range gets SCARCER.
 ///      A volatile→stable SELL is what RAISES `inv`. Every comment was backwards.
 ///   2. THE SKEW STAYED 0 AND I NEARLY READ THAT AS "NO PREMIUM EXISTS". It was the flush
 ///      branch: `target = flowEwmaUsd` GROWS with the very volume used to drive the drain, so
@@ -48,7 +48,7 @@ contract RestoreProfitability is AllesFixture {
         vm.warp(block.timestamp + 20 minutes);
     }
 
-    /// stable → volatile. The band HANDS OUT ETH ⇒ `inv` FALLS ⇒ the band gets SCARCER.
+    /// stable → volatile. The range HANDS OUT ETH ⇒ `inv` FALLS ⇒ the range gets SCARCER.
     function _drainEth(uint boldAmt) internal {
         deal(bold, drainer, boldAmt);
         vm.startPrank(drainer);
@@ -58,7 +58,7 @@ contract RestoreProfitability is AllesFixture {
         _settle();
     }
 
-    /// The band's scarcity state, in the SAME terms the skew itself computes it.
+    /// The range's scarcity state, in the SAME terms the skew itself computes it.
     function _state() internal view returns (uint invUsd6, uint targetUsd6) {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         invUsd6 = CORE.POOLED() * px / 1e30;
@@ -93,7 +93,7 @@ contract RestoreProfitability is AllesFixture {
         emit log_named_uint("START target (usd6)", tgt0);
         emit log_named_uint("START wellSkew     ", AUX.wellSkew(address(WETH), 0));
 
-        // ---- 1. DRAIN until the band is genuinely SCARCE (inv < target), or give up and SAY SO
+        // ---- 1. DRAIN until the range is genuinely SCARCE (inv < target), or give up and SAY SO
         //         rather than reporting a number from a state we never reached.
         for (uint i = 0; i < 30; ++i) {
             _drainEth(40_000 * 1e18);

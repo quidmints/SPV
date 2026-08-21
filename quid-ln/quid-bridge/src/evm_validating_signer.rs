@@ -72,7 +72,7 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     "rebalanceMany(address[],uint256[])",
     // --- BTC leverage keeper (BtcLevManager) ---
     // §SLOP: `syncLevBTC(address)` was DELETED with the BTC suffix (`Vault.sol:536` — "one name
-    // across both bands"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist
+    // across both ranges"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist
     // still naming the old selector while the keeper sends the new one makes the signer REJECT every
     // reconcile, and the reverse signs for a selector no contract declares. Caught by
     // `check-client-abis.py`'s Rust ORPHAN check, which exists for exactly this.

@@ -5,7 +5,7 @@ import {AllesFixture} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
 import {Core} from "../src/Core.sol";
 
-/// @title  BackingGateSplit — WHICH band is over-committing, measured per band.
+/// @title  BackingGateSplit — WHICH range is over-committing, measured per range.
 ///
 /// @notice §OVERCOMMITTED-ROOT. 960 suite failures revert on `Aux.sol:1149 OverCommitted()`
 ///         (`committedSum > totalLiquid`). Two explanations were on the table and they demand
@@ -14,25 +14,25 @@ import {Core} from "../src/Core.sol";
 ///           (a) the fixtures genuinely over-commit the shared basket, encoding the world from
 ///               BEFORE `_reportEquity` was wired (when `total()` was permanently 0 and the
 ///               `require` compared `0 <= haircutTvl`: always true), or
-///           (b) `_reportEquity`/`committedUsd18` DOUBLE-COUNTS across the two bands.
+///           (b) `_reportEquity`/`committedUsd18` DOUBLE-COUNTS across the two ranges.
 ///
-///         The discriminator is the PER-BAND SPLIT, which no failure message shows: the revert
-///         prints only the sum. If ONE band's own figure already ≈ TVL, the sum is honest and
+///         The discriminator is the PER-RANGE SPLIT, which no failure message shows: the revert
+///         prints only the sum. If ONE range's own figure already ≈ TVL, the sum is honest and
 ///         (a) holds — the basket is fully drawn and the sibling correctly cannot commit. If the
-///         two bands report OVERLAPPING claims on the same dollars, (b) holds.
+///         two ranges report OVERLAPPING claims on the same dollars, (b) holds.
 ///
 /// @dev    ⚠️ This asserts NOTHING about which is true. It is an instrument, and it reads the
 ///         EXACT public quantities the deployed gate uses (`Aux.committedOf`,
-///         `Core.bandEquityUsd18`, `AUX.get_deposits()[14]`) so its numbers ARE the gate's.
+///         `Core.rangeEquityUsd18`, `AUX.get_deposits()[14]`) so its numbers ARE the gate's.
 ///         Asserting a conclusion here is how a probe stops being able to disprove it.
 contract BackingGateSplit is AllesFixture {
 
-    function test_backingGate_perBandSplit() public {
+    function test_backingGate_perRangeSplit() public {
         _stageDepeg();  // heal the fork's default depeg; build real basket backing
 
-        // §BANDBACKING-FOLD — the accountant IS `AUX` now. `committedOf` and `committedTotal` are
-        // public there, so the per-band split is still readable without a registry to enumerate:
-        // the ETH band by address, the BTC band as the remainder of the same total the bound uses.
+        // §RANGEBACKING-FOLD — the accountant IS `AUX` now. `committedOf` and `committedTotal` are
+        // public there, so the per-range split is still readable without a registry to enumerate:
+        // the ETH range by address, the BTC range as the remainder of the same total the bound uses.
 
         // TVL is the gate's ceiling, read from the same accessor `backingCoreBody` uses.
         (uint[15] memory d,,, uint depegLoss) = AUX.get_deposits();
@@ -44,15 +44,15 @@ contract BackingGateSplit is AllesFixture {
         console.log("depegLoss         (18d):", depegLoss);
         console.log("haircutTvl        (18d):", haircutTvl);
 
-        // Enumerate every registered band. `total()` reverts unless sealed, so a revert here is
+        // Enumerate every registered range. `total()` reverts unless sealed, so a revert here is
         // itself a finding: it would mean the deploy never sealed and the gate cannot be trusted.
-        console.log("--- per band ---");
+        console.log("--- per range ---");
         uint ethCommitted = AUX.committedOf(address(CORE));
         uint reportedTotal = AUX.committedTotal();
-        console.log("ETH band committedOf:", ethCommitted);
-        console.log("ETH band live equity:", CORE.bandEquityUsd18());  // divergence == a STALE push
-        console.log("ETH band POOLED_USD :", CORE.POOLED_USD());
-        console.log("BTC band (remainder):", reportedTotal - ethCommitted);
+        console.log("ETH range committedOf:", ethCommitted);
+        console.log("ETH range live equity:", CORE.rangeEquityUsd18());  // divergence == a STALE push
+        console.log("ETH range POOLED_USD :", CORE.POOLED_USD());
+        console.log("BTC range (remainder):", reportedTotal - ethCommitted);
         uint sum = reportedTotal;
         console.log("--- sum ---");
         console.log("sum(committedOf)  :", sum);
@@ -60,7 +60,7 @@ contract BackingGateSplit is AllesFixture {
         console.log("committedUsd18    :", CORE.committedUsd18());
 
         // §THE-ACTUAL-TRIP. `testRegularSwaps` and the other OverCommitted failures do exactly this
-        // and nothing else beforehand: one LP deposits 100 ETH into the ETH band. A two-sided band
+        // and nothing else beforehand: one LP deposits 100 ETH into the ETH range. A two-sided range
         // must PAIR that ETH with USD depth drawn from the basket, so the question the gate asks is
         // whether the basket can back the pairing. Measure what one deposit costs in headroom.
         (uint spot,) = CORE.poolStats();
@@ -81,9 +81,9 @@ contract BackingGateSplit is AllesFixture {
         console.log("--- after the deposit ---");
         uint ethAfter = AUX.committedOf(address(CORE));
         uint totAfter = AUX.committedTotal();
-        console.log("ETH band committedOf:", ethAfter);
-        console.log("ETH band POOLED_USD :", CORE.POOLED_USD());
-        console.log("BTC band (remainder):", totAfter - ethAfter);
+        console.log("ETH range committedOf:", ethAfter);
+        console.log("ETH range POOLED_USD :", CORE.POOLED_USD());
+        console.log("BTC range (remainder):", totAfter - ethAfter);
         (uint[15] memory d2,,, uint loss2) = AUX.get_deposits();
         uint ceil2 = d2[14] > loss2 ? d2[14] - loss2 : 0;
         console.log("TVL after         :", d2[14]);
@@ -118,12 +118,12 @@ contract BackingGateSplit is AllesFixture {
         uint tot3  = AUX.committedTotal();
         console.log("TVL after swap    :", d3[14]);
         console.log("committed after   :", tot3);
-        console.log("ETH band POOLED_USD:", CORE.POOLED_USD());
+        console.log("ETH range POOLED_USD:", CORE.POOLED_USD());
         if (tot3 > ceil3) console.log("OVER BY           :", tot3 - ceil3);
         else console.log("headroom left     :", ceil3 - tot3);
 
-        // §BANDBACKING-FOLD — THE OLD "total == sum of parts" ASSERTION IS DELETED, NOT REWRITTEN.
-        // Under the registry it was a real check: `bands` could be partial, `seal()` could be
+        // §RANGEBACKING-FOLD — THE OLD "total == sum of parts" ASSERTION IS DELETED, NOT REWRITTEN.
+        // Under the registry it was a real check: `ranges` could be partial, `seal()` could be
         // missed, and a partial sum under-reports and passes a bound it should fail. Aux adds two
         // IMMUTABLE addresses, so the property now holds by construction and any assertion of it
         // reduces to `x + (t - x) == t` -- true for every t, testing nothing. A vacuous assertion is
@@ -131,9 +131,9 @@ contract BackingGateSplit is AllesFixture {
         //
         // What IS still worth pinning is the relation the gate actually depends on.
         assertLe(AUX.committedOf(address(CORE)), tot3,
-                 "a band's own committed figure can never exceed the joint total");
+                 "a range's own committed figure can never exceed the joint total");
         assertEq(tot3, CORE.committedUsd18(),
-                 "committedUsd18 must be the accountant's total, not a per-band figure");
+                 "committedUsd18 must be the accountant's total, not a per-range figure");
 
         _drift();
     }

@@ -9,10 +9,10 @@ import {SwapLib} from "./SwapLib.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {SortedSetLib, OorBook} from "./SortedSet.sol";
 
-/// @title  BandLib — the ONE implementation of each band-manager body, for both bands.
+/// @title  RangeLib — the ONE implementation of each range-manager body, for both ranges.
 ///
-/// @notice §BAND-MERGE. `QuidLib` (ETH, 633 lines) and `BtcLib` (BTC, 623) are the ETH/BTC
-///         pair of one logic. With `Types.BandCfg`/`BandP` shared, the pairs differ ONLY in their
+/// @notice §RANGE-MERGE. `QuidLib` (ETH, 633 lines) and `BtcLib` (BTC, 623) are the ETH/BTC
+///         pair of one logic. With `Types.RangeCfg`/`RangeP` shared, the pairs differ ONLY in their
 ///         bodies, and diffing them showed FOUR kinds of difference of which THREE are drift:
 ///
 ///           • price passed as a parameter (ETH) vs read internally (BTC)
@@ -28,9 +28,9 @@ import {SortedSetLib, OorBook} from "./SortedSet.sol";
 ///         its own `_onExit` then overwrites at the final weight.
 ///
 /// @dev    `public`, not `internal`, ON PURPOSE. These bodies are delegatecalled, so one DEPLOYED
-///         copy serves both bands — which is the whole size argument. An `internal` shared function
+///         copy serves both ranges — which is the whole size argument. An `internal` shared function
 ///         would inline into both libraries and buy nothing.
-library BandLib {
+library RangeLib {
     using SortedSetLib for SortedSetLib.Set;
 
     /// @notice Burn an LP's ENTIRE levered slice — both legs. Net equity leaves `pooled` (and so
@@ -43,11 +43,11 @@ library BandLib {
     /// @dev    The `netRem > LP.pooled` clamp is NOT defensive padding: the net leg lives INSIDE
     ///         `pooled`, and burning past the position would take equity that is not levered.
     function levBurnAll(
-        Types.BandCfg memory c, Types.Deposit storage LP,
+        Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, Types.BandP memory p
+        address lp, Types.RangeP memory p
     ) public returns (uint netBurned, uint bufBurned) {
         uint netRem = levPooled[lp];
         if (netRem > LP.pooled) netRem = LP.pooled;
@@ -67,15 +67,15 @@ library BandLib {
     /// @notice NET-EQUITY leg. Grows `pooled` (and so the share count) and the levered net slice.
     /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `IQuid(this).addLiq`
     ///         on ETH versus the library-local `addLiqChannel` on BTC -- and that is now one method
-    ///         on the band face (`ICore.addLiq`), because routing is exactly what belongs in the
-    ///         band. The other three differences were drift: price passed vs read (read here,
+    ///         on the range face (`ICore.addLiq`), because routing is exactly what belongs in the
+    ///         range. The other three differences were drift: price passed vs read (read here,
     ///         once), `modLP` direct vs wrapped (direct), and the refresh placement (carried, see
     ///         `levBurnAll`).
     function levAddNet(
-        Types.BandCfg memory c, Types.Deposit storage LP,
+        Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBuf,
-        address lp, uint netEq, uint price, Types.BandP memory p
+        address lp, uint netEq, uint price, Types.RangeP memory p
     ) public returns (uint added) {
         if (netEq == 0 || price == 0) return 0;
         (uint netUsd, uint netTok) = ICore(address(this)).addLiq(netEq, price);
@@ -87,15 +87,15 @@ library BandLib {
     }
 
     /// @notice BUFFER leg — the DEBT-FUNDED half. Fee-earning depth, never equity: it grows the fee
-    ///         weight and the band position but NOT `pooled`/shares.
-    /// @dev    USD is the buffer collateral at band price CAPPED AT THE LP'S OWN DEBT. Both sides
+    ///         weight and the range position but NOT `pooled`/shares.
+    /// @dev    USD is the buffer collateral at range price CAPPED AT THE LP'S OWN DEBT. Both sides
     ///         already used `LevMath.capBufferUsd` for that -- BTC reached it through `_bufUsdBtc`,
     ///         a wrapper that read the price itself. One body, price passed in.
     function levAddBuf(
-        Types.BandCfg memory c, Types.Deposit storage LP,
+        Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, uint bufTok, uint price, Types.BandP memory p
+        address lp, uint bufTok, uint price, Types.RangeP memory p
     ) public returns (uint added) {
         uint bufUsd = LevMath.capBufferUsd(bufTok, price, ILevEquity(p.mgr).debtUsd(lp));
         if (bufUsd == 0) return 0;
@@ -109,11 +109,11 @@ library BandLib {
     /// @dev    `ILevEquity` and `ILevEquityBtc` both declare `netEquity(address)`; the two bodies
     ///         differed only in which interface they cast through, for the same member.
     function levAddGross(
-        Types.BandCfg memory c, Types.Deposit storage LP,
+        Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
         mapping(address => uint) storage levBuf,
-        address lp, Types.BandP memory p
+        address lp, Types.RangeP memory p
     ) public returns (uint addedNet, uint bufAdded) {
         if (p.gross == 0) return (0, 0);
         uint price = IAux(c.aux).getTWAPforAsset(c.asset, 1800);
@@ -178,9 +178,9 @@ library BandLib {
     // find** — which is why this went a week unnoticed and why the mechanism is written here, next
     // to `pull`, rather than in a new file nobody looks at.
     //
-    // It lives in this library and not in the band manager for the measured reason `pull` does:
+    // It lives in this library and not in the range manager for the measured reason `pull` does:
     // `Quid` has ~600 bytes of EIP-170 margin and is the tightest contract in the tree, while a
-    // delegatecalled body is deployed once and serves both bands.
+    // delegatecalled body is deployed once and serves both ranges.
 
     /// Width of the id field in a packed index key. A trigger price is a WAD USD price (~2e21 for
     /// ETH, ~71 bits), so price and id share 256 bits with room to spare.
@@ -206,7 +206,7 @@ library BandLib {
 
     /// @notice Record a freshly sized boundary order: the position, the owner's id list, and the
     ///         trigger-price index, in one place so the three cannot drift apart.
-    /// @dev    The band managers used to inline this block and `BtcLib` still carries its twin. It
+    /// @dev    The range managers used to inline this block and `BtcLib` still carries its twin. It
     ///         is here because `Quid` is the tightest contract in the tree under EIP-170 and a
     ///         struct construction plus two container writes is not a cheap thing to hold.
     function openOor(
@@ -232,7 +232,7 @@ library BandLib {
     }
 
     /// @notice Consume every resting order whose trigger the price has crossed since the last sweep.
-    /// @param  pxNew the price the band is at now; the interval swept runs from the stored watermark.
+    /// @param  pxNew the price the range is at now; the interval swept runs from the stored watermark.
     /// @param  maxFills the per-call cap. ⚠️ **THIS CAP IS WHY `fillOne` MUST BE PERMISSIONLESS.**
     ///         An unbounded sweep is a griefing vector — anyone can rest a crowd of cheap orders in
     ///         the path and make the next swapper pay to execute all of them — so the sweep stops
@@ -272,11 +272,11 @@ library BandLib {
     /// @dev    **A LIVENESS REQUIREMENT, NOT A CONVENIENCE.** `sweepOor` is capped so a crowd of
     ///         cheap resting orders cannot be used to grief the next swapper, which means something
     ///         must be able to drain the remainder. It also covers the case no swap can: `repack`
-    ///         moves the band with no swapper present to carry a sweep.
+    ///         moves the range with no swapper present to carry a sweep.
     ///         Anyone may call it, and that is safe because the order settles at ITS OWN limit
     ///         price — the caller chooses the timing, never the terms.
     /// ⚠️      NO TIP IS PAID. Sizing one means deciding where the difference between the order's
-    ///         limit price and the band's price accrues, which is exactly the question §E258's spec
+    ///         limit price and the range's price accrues, which is exactly the question §E258's spec
     ///         leaves to #12. Booked as §E258-POKE-INCENTIVE rather than guessed at here.
     function pokeOor(
         address core, address aux, address asset,
@@ -294,14 +294,14 @@ library BandLib {
         if (!fillOne(core, book, selfManaged, positions, id)) revert NotFillable();
     }
 
-    /// @notice Execute ONE resting order against the band's own inventory, at the order's own price.
+    /// @notice Execute ONE resting order against the range's own inventory, at the order's own price.
     ///
     /// @dev    ⚠️ `pull`'s 47-block guard is DELIBERATELY ABSENT. That rule is an anti-gaming bound
     ///         on an OWNER-INITIATED close; an execution is not a withdrawal, and applying it here
     ///         would make every order unfillable for its first 47 blocks — reinstating exactly the
     ///         "no execution guarantee at the moment of crossing" defect this exists to remove.
     ///
-    /// @dev    THE ORDER SETTLES AT ITS OWN LIMIT PRICE, NOT AT THE BAND'S FILL PRICE. That is the
+    /// @dev    THE ORDER SETTLES AT ITS OWN LIMIT PRICE, NOT AT THE RANGE'S FILL PRICE. That is the
     ///         whole difference between a limit order and a participant in the swap. ⚠️ **WHERE THE
     ///         DIFFERENCE BETWEEN THE TWO ACCRUES IS NOT DECIDED HERE, ON PURPOSE** — it is the same
     ///         question as `FixedRateFill`'s two suppliers (LP inventory vs basket capital) and is
@@ -309,7 +309,7 @@ library BandLib {
     ///         the quantity is observable while the split is still open; inventing an answer here
     ///         would bake it into the share maths before the question is asked.
     ///
-    /// @dev    A fill the band cannot pay for is SKIPPED, not reverted — the order simply stays
+    /// @dev    A fill the range cannot pay for is SKIPPED, not reverted — the order simply stays
     ///         resting and remains fillable later. Reverting would let one unfundable order block
     ///         the whole sweep, and with it the swap that carries it.
     function fillOne(
@@ -327,7 +327,7 @@ library BandLib {
         address owner = p.owner;
         bool usdFunded = p.usdFunded;
 
-        // The order's funded side ENTERS the band and the other side LEAVES it, at `limitPx`.
+        // The order's funded side ENTERS the range and the other side LEAVES it, at `limitPx`.
         // Signs follow `_handleDelta`'s one rule: positive LEAVES the pool, negative ENTERS it.
         int usdDelta;
         int volDelta;
@@ -360,7 +360,7 @@ library BandLib {
     }
 
     /// @notice A resting order executed. `limitPx` is the price it settled at — its own, not the
-    ///         band's — which is what makes the accrual question above measurable from logs.
+    ///         range's — which is what makes the accrual question above measurable from logs.
     event OorFilled(uint indexed id, address indexed owner, uint size, uint limitPx, bool usdFunded);
 
     error NotOwner();
@@ -372,7 +372,7 @@ library BandLib {
 
 
     // ═════════ §FOLD-BOOK — WAS `LevBookLib`'s POSITION BOOK ═════════
-    // Band-neutral: reached from `LevBase`, so it serves BOTH lev managers. Not in `LevMath`:
+    // Range-neutral: reached from `LevBase`, so it serves BOTH lev managers. Not in `LevMath`:
     // measured, that put LevMath at 27,431 bytes, 2,855 OVER EIP-170.
 
     /// @notice Enrol `lp` in the open-position book. `lpIdx` is 1-BASED so 0 means absent.
@@ -413,7 +413,7 @@ library BandLib {
     // predicted. It is why `_reanchorIfReseated` takes `px` and `base` instead of reading them.
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
-    event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
+    event ReanchoredToRange(address indexed lp, uint entryPrice, uint256 entryEquity);
 
 
     /// @notice An LP sets its own max-leverage LTV cap.
@@ -433,7 +433,7 @@ library BandLib {
     }
 
     /// @notice Write a fresh position and enrol the LP, in one call.
-    /// @dev    `bandPx` is passed because `_bandPrice()` try/catches a call to the caller's `BAND`.
+    /// @dev    `rangePx` is passed because `_rangePrice()` try/catches a call to the caller's `RANGE`.
     function openPos(
         mapping(address => Types.Pos) storage pos,
         address[] storage openLps,
@@ -445,26 +445,26 @@ library BandLib {
         if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
-    /// @notice Re-anchor a position to the band's current price if the band has reseated.
+    /// @notice Re-anchor a position to the range's current price if the range has reseated.
     /// @dev    `px` and `base` are computed by the CALLER: `px` needs `AUX`/`ORACLE_KEY` (immutables)
     ///         and `base` needs `netEquity`, which routes through the `_collToBase` VIRTUAL. Neither
     ///         is reachable from here, and passing them is what lets the rest of the body be shared.
     ///         Returns whether it fired so the caller need not re-read to know.
     function reanchorIfReseated(
         mapping(address => Types.Pos) storage pos,
-        address band,
+        address range,
         address lp,
         uint256 px,
         uint256 base
     ) external returns (bool fired) {
         Types.Pos storage q = pos[lp];
         if (!q.open) return false;
-        (bool go, uint s) = LevMath.reanchorCompute(band, q.entryPrice);
+        (bool go, uint s) = LevMath.reanchorCompute(range, q.entryPrice);
         if (!go) return false;
         q.entryPrice    = s;
         q.entryPriceWad = uint128(px);
-        q.e0            = uint128(base);
-        emit ReanchoredToBand(lp, s, base);
+        q.entryEquity            = uint128(base);
+        emit ReanchoredToRange(lp, s, base);
         return true;
     }
 }

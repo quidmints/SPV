@@ -23,7 +23,7 @@ library ExternalTwap {
     ///       **~18.5 bps (1σ)** — i.e. ~37 bps at 2σ, ~56 bps at 3σ. **`TWAP_MAX_DEVIATION_BPS` is
     ///       500 bps**, calibrated as "manipulation territory" for a 30-minute window: against a
     ///       10-minute EMA that is **~27σ**, so it would never fire and the check would be
-    ///       decorative. A bound for this source belongs in the 37–74 bps band and must be restated
+    ///       decorative. A bound for this source belongs in the 37–74 bps range and must be restated
     ///       if the pool's `ma_time` changes — it is the POOL's parameter, not ours.
     function curvePriceWad(address pool, uint256 k) internal view returns (uint priceWad) {
         priceWad = ICurveOracle(pool).price_oracle(k);

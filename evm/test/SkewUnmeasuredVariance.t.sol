@@ -7,10 +7,10 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 /// @title §E59/§E79 — UNMEASURED VARIANCE MUST PRICE AT THE CEILING, NOT AT ZERO.
 /// @notice `SwapLib.skewWad` is `public pure`, so this needs no fixture and no fork.
 ///
-/// WHAT THIS CAUGHT (measured 2026-08-16, on a $1m band with a $2m shed target). At σ² = 0 the ETH
+/// WHAT THIS CAUGHT (measured 2026-08-16, on a $1m range with a $2m shed target). At σ² = 0 the ETH
 /// charge was **0** at 10%, 50% AND 90% drains; only a 100% drain reached the ceiling, and it did so
 /// through the SEPARATE `qBar == type(uint).max` pole. BTC returned `SPLICE_FLOOR` alone. The kernel
-/// is `Γ·σ²·qBar`, identically 0 when σ² is 0 however scarce the band is — so §E59's guard had to sit
+/// is `Γ·σ²·qBar`, identically 0 when σ² is 0 however scarce the range is — so §E59's guard had to sit
 /// OUTSIDE the product, and after §E79 inverted `_maxWellSkew` from ceiling to base there was nothing
 /// left holding it. §E79's own comment predicted exactly this: *"returning [the base] here would
 /// re-open the free-drain hole E59 closed."*
@@ -21,7 +21,7 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///    the tell. `test_PREMISE_*` below exists so the same mistake fails loudly next time instead of
 ///    reading as "the skew charges nothing".
 contract SkewUnmeasuredVarianceTest is Test {
-    uint constant POOL = 1_000_000e6;          // $1m band inventory, 6-dec
+    uint constant POOL = 1_000_000e6;          // $1m range inventory, 6-dec
     uint constant FLOW = 2_000_000e6;          // shed target ABOVE inventory ⇒ genuinely scarce
     uint constant CEIL = 3e16;                 // MAX_WELL_SKEW, 3%
 
@@ -41,7 +41,7 @@ contract SkewUnmeasuredVarianceTest is Test {
     function test_UnmeasuredVarianceChargesTheCeilingAtPartialScarcity() public pure {
         uint[3] memory drains = [POOL / 10, POOL / 2, (POOL * 9) / 10];
         for (uint i; i < drains.length; i++) {
-            // PREMISE: the drain must leave the band genuinely scarce (inv1 < target), else the
+            // PREMISE: the drain must leave the range genuinely scarce (inv1 < target), else the
             // flush branch returns the base and the assertion below tests nothing.
             assertLt(POOL - drains[i], FLOW, "PREMISE: this drain does not create scarcity");
             assertEq(SwapLib.skewWad(POOL, FLOW, 0, SwapLib.ethRisk(), drains[i]), CEIL,
@@ -64,9 +64,9 @@ contract SkewUnmeasuredVarianceTest is Test {
     /// @notice THE FLUSH BRANCH IS UNAFFECTED — a swap that ends at/above target created no scarcity
     ///         and still owes only the base, sentinel or not. Without this, the fix above could have
     ///         silently started charging 3% on every non-scarce swap and no test would have said so.
-    function test_FlushBandStillOwesOnlyTheBase() public pure {
+    function test_FlushRangeStillOwesOnlyTheBase() public pure {
         // inv1 >= target ⇒ the §UNIT-A flush path, which returns `_maxWellSkew` and never the kernel.
         uint flush = SwapLib.skewWad(POOL, POOL / 10, 0, SwapLib.ethRisk(), 0);
-        assertLt(flush, CEIL, "a flush band must not be charged the unknown-variance ceiling");
+        assertLt(flush, CEIL, "a flush range must not be charged the unknown-variance ceiling");
     }
 }

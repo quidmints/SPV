@@ -96,11 +96,11 @@ contract EthVenueDeliverableProbe is AllesFixture {
         vm.prank(User01);
         ETH.deposit{value: 10 ether}(0, User01);
 
-        uint band = EV.bandETH();
+        uint range = EV.rangeETH();
         uint deliv = EV.deliverableETH();
 
         emit log_named_decimal_uint("deposited          ", 10 ether, 18);
-        emit log_named_decimal_uint("bandETH           ", band, 18);
+        emit log_named_decimal_uint("rangeETH           ", range, 18);
         emit log_named_decimal_uint("deliverableETH     ", deliv, 18);
 
         // The three WETH-4626 curator venues were deleted 2026-08-14, so there are no per-venue legs

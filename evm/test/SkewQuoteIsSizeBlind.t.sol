@@ -13,12 +13,12 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///         EXACT number a swap executes at": true before §E68, false after.
 ///
 ///         This is the concrete form of a more general point: inventory, not `L`, is what
-///         distinguishes a full band from a drained one at the same price. A quote that does not
+///         distinguishes a full range from a drained one at the same price. A quote that does not
 ///         take the size being drawn cannot express that difference at all.
 ///
 ///         `skewWad` is `public pure`, so the property is provable with no pool, fork or fixture.
 contract SkewQuoteIsSizeBlindTest is Test {
-    uint constant POOL = 1_000_000e6;      // $1m band inventory, 6-dec
+    uint constant POOL = 1_000_000e6;      // $1m range inventory, 6-dec
     uint constant FLOW = 2_000_000e6;      // shed target above inventory ⇒ genuinely scarce
     uint constant SIG  = 1e16;             // a measured, plausible variance
 
@@ -40,7 +40,7 @@ contract SkewQuoteIsSizeBlindTest is Test {
     ///         what makes the size-aware form a strict generalisation rather than a different curve.
     function test_TheyAgreeAsSizeGoesToZero() public pure {
         uint quoted = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 0);
-        uint dust   = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 1e6);        // $1 of a $1m band
+        uint dust   = SwapLib.skewWad(POOL, FLOW, SIG, SwapLib.ethRisk(), 1e6);        // $1 of a $1m range
         assertGt(quoted, 0, "PREMISE: a zero quote would make the comparison vacuous");
         assertApproxEqRel(dust, quoted, 1e15, "size-aware must converge to the instantaneous rate");
     }

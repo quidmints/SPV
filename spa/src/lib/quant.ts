@@ -15,22 +15,22 @@
 //   per LP on external ISOLATED Euler/Morpho/Aave/Liquity, target LTV 1-sqrt(entry/now),
 //   zero at or below entry. The prior "not built yet" note was stale. R1 below still
 //   describes the UNPROTECTED path, which is what an LP who declines the overlay gets.]
-//   [ALSO STALE BELOW: K_LVR/CERTIFIED_THETA are keyed to a +/-2% band. The deployed
-//   band is +/-0.2% (SwapLib.BAND_DELTA = 20).]
+//   [ALSO STALE BELOW: K_LVR/CERTIFIED_THETA are keyed to a +/-2% range. The deployed
+//   range is +/-0.2% (SwapLib.RANGE_DELTA = 20).]
 //
 //   "fees ≈ IL" is FALSE once concentrated — YIELD is the load-bearer, fees are
 //   margin (COVID backtest: LVR ≈ 200%/yr at ±2% vs single-digit fees).
 //
 //   Sustainability (sizing, not avoidance):   θ ≤ yield / (K·σ² − f)
-//   IL-CERT used K≈0.71 at the ±2% band; live measurement shows K is regime-
+//   IL-CERT used K≈0.71 at the ±2% range; live measurement shows K is regime-
 //   dependent and higher (≈1.8–8.4), so any K·σ² shown is a conservative FLOOR.
 // ════════════════════════════════════════════════════════════════════════
 
 import type { Regime } from './regime'
 
-export const K_LVR = 0.71            // IL-CERT §3 estimate (±2% band, guard ON). Live measurement: K is regime-dependent ≈1.8–8.4 — treat K·σ² as a conservative FLOOR, not measured truth.
+export const K_LVR = 0.71            // IL-CERT §3 estimate (±2% range, guard ON). Live measurement: K is regime-dependent ≈1.8–8.4 — treat K·σ² as a conservative FLOOR, not measured truth.
 export const LIFETIME_VOL = 0.88     // ETH lifetime annualized vol — the backtest basis (IL-CERT §5)
-export const CERTIFIED_THETA = 0.33  // safe in-range fraction at K≈0.71, ±2% band (mid 0.25–0.40); the higher live K implies a SMALLER safe θ
+export const CERTIFIED_THETA = 0.33  // safe in-range fraction at K≈0.71, ±2% range (mid 0.25–0.40); the higher live K implies a SMALLER safe θ
 
 // LVR rate per unit in-range value, annualized ≈ K·σ².
 export function lvrRate(sigmaAnnual: number): number {
@@ -45,9 +45,9 @@ export function ilPercent(k: number): number {
 
 // ════════════════════════════════════════════════════════════════════════
 //   AVELLANEDA–STOIKOV (2008) — ANALYTICS ONLY (NOT what the protocol does).
-//   Concentrated liquidity is a discretized limit-order book, so an LP band has
+//   Concentrated liquidity is a discretized limit-order book, so an LP range has
 //   an A-S-optimal CENTER (reservation price) and WIDTH (spread). QU!D quotes a
-//   SYMMETRIC ±2% band; this shows what an inventory-aware market-maker WOULD
+//   SYMMETRIC ±2% range; this shows what an inventory-aware market-maker WOULD
 //   quote, for an LP's intuition — the protocol can't act on it (flow isn't
 //   selectable in the internal-TWAP pools).
 //     reservation:  r = mid · (1 − q·γ·σ²·(T−t))

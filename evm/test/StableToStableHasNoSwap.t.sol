@@ -56,7 +56,7 @@ contract StableToStableHasNoSwapTest is Test {
     function _cfg() internal pure returns (SwapLib.SwapToCfg memory) {
         return SwapLib.SwapToCfg({
             weth: WETH, wbtc: WBTC, quid: address(0), core: address(0),
-            band: address(0), btcChannels: address(0)});
+            range: address(0), btcChannels: address(0)});
     }
 
     function _req(address token, address asset, bool forVolatile)

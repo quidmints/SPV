@@ -9,7 +9,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///   BTC shortfall is a clean no-op (the WBTC-from-surplus fallback removed). The shared
 ///   safety margin is "what we owe back", not a reserve to compensate one party — so no
 ///   path may spend it to patch a (usually impermanent) inventory shortfall. IL is borne
-///   fairly via the share price (convertToAssets = pro-rata of bandETH).
+///   fairly via the share price (convertToAssets = pro-rata of rangeETH).
 contract RefillKeeperProbe is AllesFixture {
     address lp = User01; address adv = User03;
 
@@ -45,7 +45,7 @@ contract RefillKeeperProbe is AllesFixture {
         uint freeBefore = lBefore > cBefore ? lBefore - cBefore : 0;
 
         for (uint i = 0; i < 12; i++) _buyEth(5_000 * USDC_PRECISION);
-        uint vShort = EV.bandETH();
+        uint vShort = EV.rangeETH();
         uint shares = ETH.totalShares();
         require(vShort < shares, "expected a shortfall to exist");
 
@@ -55,7 +55,7 @@ contract RefillKeeperProbe is AllesFixture {
         uint freeAfter = lAfter > cAfter ? lAfter - cAfter : 0;
         assertGe(freeAfter, freeBefore, "ETH-pool shortfall must NOT draw shared surplus");
         assertGe(lAfter, cAfter, "committedUsd <= TVL preserved");
-        emit log_named_uint("bandETH shortfall (ETH owed, unpatched - borne via share price)", shares - vShort);
+        emit log_named_uint("rangeETH shortfall (ETH owed, unpatched - borne via share price)", shares - vShort);
     }
     // (BTC no-recipient no-op is covered by Alles.test_BtcShortfall_NoRecipient_NoWbtcFromSurplus,
     //  which has the correct harness wiring: setBTCChannels + mocked btcRecipientOf + ETH pranker.)

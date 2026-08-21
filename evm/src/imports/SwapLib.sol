@@ -25,7 +25,6 @@ import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {FeeLib} from "./FeeLib.sol";
-import {ShareMath} from "./ShareMath.sol";
 import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {IAux} from "./Interfaces.sol";
@@ -117,7 +116,7 @@ library SwapLib {
         // caused a self-reinforcing deadlock: a one-directional drain walks the pool to
         // MAX_SQRT_RATIO, `ticksToPrice` yields 0, this returned 0, and `rebalanceCore:1531`'s
         // `if (twap == 0) return r` then left `didRepack == false` — so `addLiq` was never called and
-        // the band could never be re-paired (measured: 8 repacks during the crash, 0 addLiq, with
+        // the range could never be re-paired (measured: 8 repacks during the crash, 0 addLiq, with
         // $176,779 of basket surplus and 7.88 ETH of headroom sitting unused).
         // No new logic is needed below: with price==0, `diff == ext18`, so the deviation test trips and
         // it already returns (ext18, true) = "stale TWAP → trust Chainlink", which is precisely the
@@ -143,7 +142,7 @@ library SwapLib {
     error UnknownStableSweep();
     error BadOp();          // takeOrRead op ∉ {0,1,2} (custom error — no string-revert bytecode, EIP-170)
     /// @notice Body of Aux.sweep (delegatecall, address(this)==Aux).
-    /// Returns (vbtcDelta, swept): caller adds vbtcDelta to bandBTC and
+    /// Returns (vbtcDelta, swept): caller adds vbtcDelta to rangeBTC and
     /// emits Swept(token, swept).
     function sweepBody(address token, address weth, address wbtc, address gho, address usdg)
         external returns (uint vbtcDelta, uint swept) {
@@ -156,7 +155,7 @@ library SwapLib {
         }
         if (token == wbtc) {
             swept = IERC20(wbtc).balanceOf(address(this));
-            return (swept, swept); // caller adds to bandBTC inventory
+            return (swept, swept); // caller adds to rangeBTC inventory
         }
         if (token == weth || IAux(address(this)).toIndex(token) != 0
             || token == gho || token == usdg) {
@@ -228,34 +227,34 @@ library SwapLib {
         return BasketLib.scaleTokenAmount(usdOut, tokenOut, false);
     }
 
-    /// @notice Body of Aux.bandOp. Wrapper enforces `msg.sender == V4`
+    /// @notice Body of Aux.rangeOp. Wrapper enforces `msg.sender == V4`
     ///         BEFORE delegating; library trusts that gate. State
     ///         mutations route via supplySelf / withdrawSelf (self-gated).
     ///
     ///         The `weth` / `wbtc` immutables come from Aux's storage; we
     ///         pass them as args rather than re-fetching to avoid extra
-    ///         external calls back. `bandBTC` and `_bandETHPrincipal`
-    ///         are touched ONLY indirectly: bandBTC via Aux's storage
+    ///         external calls back. `rangeBTC` and `_rangeETHPrincipal`
+    ///         are touched ONLY indirectly: rangeBTC via Aux's storage
     ///         pointer (passed by ref), principal via supplySelf's
     ///         internal _supply which updates it.
     /// @notice ETH-side Quid↔Vault op body. The BTC ops that once shared this
     ///         entry (op==1 native/Lightning out, op==3 WBTC ERC20 delivery, and
     ///         the isBTC branches of op 0/2) were DEAD — every caller passes
-    ///         isBTC=false and bandBTCNow=0 (Quid routes BTC through BTCChannels,
+    ///         isBTC=false and rangeBTCNow=0 (Quid routes BTC through BTCChannels,
     ///         not here). Removed along with the now-redundant result struct and
-    ///         the isBTC/wbtc/ctx/bandBTCNow params. op 0=deposit, 1=take, 2=read.
-    function bandOpBody(uint amount, uint8 op, WETH9 weth, uint bandETHLive)
+    ///         the isBTC/wbtc/ctx/rangeBTCNow params. op 0=deposit, 1=take, 2=read.
+    function rangeOpBody(uint amount, uint8 op, WETH9 weth, uint rangeETHLive)
         external returns (uint sent) {
         IAux aux = IAux(address(this));
-        // op == 1: take ETH, capped at the live bandETH claim.
+        // op == 1: take ETH, capped at the live rangeETH claim.
         if (op == 1) {
-            amount = Math.min(amount, bandETHLive);
+            amount = Math.min(amount, rangeETHLive);
             sent = aux.withdrawSelf(address(weth), amount, address(this));
             weth.transfer(msg.sender, sent);
             return sent;
         }
         // op == 2: read current ETH claim.
-        if (op == 2) return bandETHLive;
+        if (op == 2) return rangeETHLive;
         revert BadOp();
     }
 
@@ -306,10 +305,10 @@ library SwapLib {
     /// @notice Config for swapToBody (the immutables/handles Aux holds).
     struct SwapToCfg {
         address weth; address wbtc; address quid; address core;
-        // §SLOP — ONE `band`, not `core` + `btc`. Carrying BOTH and picking between them by
+        // §SLOP — ONE `range`, not `core` + `btc`. Carrying BOTH and picking between them by
         // `isBTC` re-made a dispatch the CALLER had already made: `Aux` knows the asset, so it
-        // knows the band. Same collapse as `bandOf` for cores, one level along.
-        address band; address btcChannels;
+        // knows the range. Same collapse as `rangeOf` for cores, one level along.
+        address range; address btcChannels;
     }
 
     /// @notice Body of Aux.swapTo — delegatecall'd (address(this)==Aux), so the
@@ -338,7 +337,7 @@ library SwapLib {
         external returns (uint max) {
         if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset();
         // §ISBTC-ZERO — THE LAST FOUR, AND THE NAME WAS THE PROBLEM. `isBTC` asserted an IDENTITY;
-        // what all three guards below actually test is the SETTLEMENT RAIL: this band pays out
+        // what all three guards below actually test is the SETTLEMENT RAIL: this range pays out
         // native ether on delivery, or it does not because it settles by Lightning cooperative
         // close. `nativeWETH` is that fact, the codebase already used it two lines down as
         // `!isBTC`, and it is the discriminator the guards were reaching for through the identity.
@@ -360,25 +359,25 @@ library SwapLib {
             asset: r.asset, vault: address(0), core: c.core,
             nativeWETH: nativeWETH
         });
-        // E9: capture the band's OWN tick range from the repack we already run. These were
+        // E9: capture the range's OWN tick range from the repack we already run. These were
         // discarded before, and `spotPrice` was then handed to `Core.swap` only to be thrown
         // away in `_handleSwap` — so the swap ran to the TICK EXTREME. Measured consequence
         // (`PooledUsdRepackMatrix::testMatrix_S6`): a swap crossing `upPrice` with input left
         // drove the spot to `MAX_SQRT_PRICE - 1` moving ZERO tokens, which corrupts every price
-        // read (`getPrice` truncates to 0) and bricks the band. The edge is the honest limit.
+        // read (`getPrice` truncates to 0) and bricks the range. The edge is the honest limit.
         // Block-scoped so `lo`/`hi`/`p` are freed at its end: `swapToBody` is stack-tight by
         // design (`via_ir = false`), and carrying the two ticks as function-scope locals is
-        // stack-too-deep. Net locals are UNCHANGED from before — `bandTicks` simply replaces the
+        // stack-too-deep. Net locals are UNCHANGED from before — `rangeTicks` simply replaces the
         // old `spotPrice` carrier, which was assigned, reassigned and passed, never read.
-        uint priceHint;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for core's
+        uint priceHint;   // §DE-TICK: `rangeTicks` deleted — it packed a range-edge PRICE LIMIT for core's
                     // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
-            (,,,, uint p) = ICore(c.band).repack();
+            (,,,, uint p) = ICore(c.range).repack();
             priceHint = p;
         }
         {
             // Drain-side backing gate counts standing holdings at PAR (NOT the depeg haircut): the mint/issuance
-            // side haircuts depeg (Core band-add + mint-headroom) to block over-mint, but the drain side stays at
+            // side haircuts depeg (Core range-add + mint-headroom) to block over-mint, but the drain side stays at
             // par so a transient depeg can't brick redeems/swaps for existing holders (intentional asymmetry;
             // redeem VALUE is separately haircut in _redeemQuote). See DepegBackingProbe.
             (uint[15] memory _deposits,,,) = aux.get_deposits();
@@ -397,10 +396,10 @@ library SwapLib {
             r.amount = aux._depositVol{value: msg.value}(r.asset, msg.sender, r.amount);
             max = ICore(c.core).POOLED_USD();
             // JIT-DEPTH-GUARANTEE.md §2 hook site (DEFERRED — design gap, NOT built): this is the
-            // volatile→USD leg whose fill is bounded by the band's in-range USD depth (`max`), so a
+            // volatile→USD leg whose fill is bounded by the range's in-range USD depth (`max`), so a
             // large sell can exhaust it / partial-fill → uncertain impact → sandwich room. The
             // guarantee would, before executing, top USD depth up to what `r.amount` needs within a
-            // target impact bound (tryPair: idle band USD → unwindForRedeem-inverse → redeem mature
+            // target impact bound (tryPair: idle range USD → unwindForRedeem-inverse → redeem mature
             // QUID→addLiq) then unwind it post-swap. Three unresolved blockers keep it out for now:
             //   (1) NO impact formula: the spec's "USD depth needed within a target impact bound" is
             //       "a pure function of size + current in-range depth" but gives neither the function
@@ -409,11 +408,11 @@ library SwapLib {
             //       primitive — pull() enforces `block.number >= created + 47`, so an outOfRange
             //       position cannot be unwound in the same block (Quid.sol pull());
             //   (3) this body runs DELEGATECALL'd in Aux context; a mid-swap re-entry into Quid's
-            //       onlyUs addLiq/unwindForRedeem on the SHARED band needs its reentrancy + price-
+            //       onlyUs addLiq/unwindForRedeem on the SHARED range needs its reentrancy + price-
             //       impact interaction with the V4 unlock callback worked out.
             // SYMMETRIC A-S skew (its own frame ⇒ no via_ir): a sell that pushes the pool's
             // volatile inventory PAST target is inventory-INCREASING (the self-funded short's
-            // band-leg shed) ⇒ charge the same A-S premium the drain does; a sell that REFILLS
+            // range-leg shed) ⇒ charge the same A-S premium the drain does; a sell that REFILLS
             // a scarce reservoir REDUCES imbalance ⇒ sellSkew's mirror+flush yields 0 (EXEMPT).
             // Scale the volatile input DOWN by the premium ⇒ less USD credited out; the
             // withheld input stays as basket backing (same mechanism as the drain leg).
@@ -451,7 +450,7 @@ library SwapLib {
     /// @dev routeSwap (8-field RouteParams build) + bumpQuidBTC + slippage guard
     ///      in its own frame so swapToBody stays within the legacy stack — no
     ///      via_ir crutch.
-    /// @dev Pack the band's tick range into one word. Two int24 function-scope locals are
+    /// @dev Pack the range's tick range into one word. Two int24 function-scope locals are
     ///      stack-too-deep in `swapToBody`; one packed carrier is not. int24→uint24→int24 is
     ///      bit-preserving, so negative ticks round-trip exactly.
 
@@ -525,7 +524,7 @@ library SwapLib {
     ///      for $1/QD > its share value). `solvent` = par TVL − depeg ONLY: temporary illiquidity does NOT
     ///      discount value (it only caps redeem CAPACITY; a swap delivers volatile from pool depth, bounded
     ///      separately by `max` in swapToBody).
-    ///      SCALE (CRITICAL): ShareMath.qdShareValue returns 18-dec USD (redeem feeds it to 18-dec take()), but
+    ///      SCALE (CRITICAL): BasketLib.qdShareValue returns 18-dec USD (redeem feeds it to 18-dec take()), but
     ///      the SWAP pipeline (routeSwap→convert→POOLED_USD_*→Core.swap) is 6-dec. Feeding the 18-dec value
     ///      straight in made `min(amount, poolCap6)` always pick the 6-dec pool cap → ~1e12x over-delivery of
     ///      pool volatile for dust QD burned (a drain). Down-scale to 6-dec here so the swap sizes on the true
@@ -538,7 +537,7 @@ library SwapLib {
             // yW[0] = Σ balance×rate (the annualised-rate numerator), NOT d[0] = Σ yieldWeighted.
             (solvent,) = aux.get_metricsWith(d[14], yW[0]);
             solvent = solvent > dl ? solvent - dl : 0; }
-        amount = ShareMath.qdShareValue(burned, solvent, IBasketTurn(quid).matureSupply() + burned) / 1e12;
+        amount = BasketLib.qdShareValue(burned, solvent, IBasketTurn(quid).matureSupply() + burned) / 1e12;
         if (seedBurned > 0) {
             uint n = stables.length;
             for (uint i = 0; i < n; i++) {
@@ -609,11 +608,11 @@ library SwapLib {
 
     /// @notice Body of Aux.creditSwapIn — settle a BTC→USD swap-IN. See Aux's
     ///         wrapper docblock for the full semantics.
-    /// @param bandVault THE BTC VAULT, not Quid. It was named `core` — which means Quid/ETH everywhere
+    /// @param rangeVault THE BTC VAULT, not Quid. It was named `core` — which means Quid/ETH everywhere
 ///        else — while `Vault.creditSwapIn` passes `address(this)`. That is why `repack(true)` below
 ///        is CORRECT and must not be "fixed" to false during the isBTC fold.
     function creditSwapInBody(address seller, uint sats, address token, uint minDeliveredUsd,
-        address core, address bandVault, address wbtc, address aux) external returns (uint consumedSats) {
+        address core, address rangeVault, address wbtc, address aux) external returns (uint consumedSats) {
         if (sats == 0) return 0;
         // The USD-side output must be a real basket stable. QUID is NOT takeable
         // (it's the liability, not a reserve asset) — so a swap-IN can never mint
@@ -648,7 +647,7 @@ library SwapLib {
         // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
         // former ×1e10 pre-scale here CANCELLED convert's 1e18/1e8 under-scaling — two wrongs that
         // agreed on this path only; both are removed together, leaving this path unit-neutral.
-        // §E9 — this field now carries the BAND'S PACKED TICKS, not a price. `Core._handleSwap`
+        // §E9 — this field now carries the RANGE'S PACKED TICKS, not a price. `Core._handleSwap`
         // unpacks it into the swap's `sqrtPriceLimitX96`. ALL THREE producers must agree: this one,
         // `_swapOutPrep` below, and `_finishSwap`. Passing a real spotPrice here is what broke
         // 132 tests (`InvalidTick` / `PriceLimitAlreadyExceeded`) when only one was converted.
@@ -656,7 +655,7 @@ library SwapLib {
         uint priceHint;
         Types.RouteParams memory rp;
         {
-            (,,,, uint p_) = ICore(bandVault).repack();
+            (,,,, uint p_) = ICore(rangeVault).repack();
             priceHint = p_;
         }
         rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
@@ -742,7 +741,7 @@ library SwapLib {
     /// landing is a PURE REFACTOR: it installs the dial and changes no economics, which is what makes
     /// a regression attributable to the refactor alone (rule 10).
     /// ▶️ **MOVING IT IS A SEPARATE, ECONOMIC COMMIT** with its own prediction, and it is GATED on a
-    /// restoration mechanism existing — §E276 (the shift) or the refill. Raising κ makes the band
+    /// restoration mechanism existing — §E276 (the shift) or the refill. Raising κ makes the range
     /// drainable at a finite price, and §E276 established that nothing currently pulls inventory back:
     /// we never move the bid, the refill direction is exempt rather than paid, and §V-R1 is not in
     /// code. **That sequencing is what refuted §E287; do not repeat it by editing this constant early.**
@@ -768,7 +767,7 @@ library SwapLib {
     /// balance creates exactly 2× its own value in idle inventory). Reused so the kernel and the
     /// imbalance fee price the same thing at the same rate rather than disagreeing.
     /// Scaled by the FRACTION DRAINED, so it is bounded BY this value: a full drain owes 2.1 bps,
-    /// half a drain 1.05 bps, and a band that was never funded owes nothing at all.
+    /// half a drain 1.05 bps, and a range that was never funded owes nothing at all.
     uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm — see imbalanceFeeUsd6
     // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized
     // variance in WAD (QuidLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
@@ -785,13 +784,13 @@ library SwapLib {
     // (the LP physically cannot serve at inv=0) whose marginal ∝ 1/inv makes depletion convexly
     // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
-    // Volatile band half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
-    // THIN band (±0.2%). Quid SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
+    // Volatile range half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
+    // THIN range (±0.2%). Quid SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
     // static position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
     // reverts. 0.2% is the thinnest that keeps the reseat re-add non-degenerate while staying maximally thin
     // (near-zero natural slippage, whale-friendly). Frequent repacks are covered by repack-first (swapper-paid)
     // + the self-funded reseat keeper — no separate gas budget needed.
-    uint internal constant BAND_DELTA = 20;
+    uint internal constant RANGE_DELTA = 20;
 
     // DYNAMIC CAP calibration. Instead of a fixed 3%, the ceiling tracks the native-BTC MM's
     // REAL drain-edge cost, which is dominated by the BTC-price risk while its capital is
@@ -806,7 +805,7 @@ library SwapLib {
     /// §ISBTC-SPLIT — THE PER-ASSET RISK PROFILE, PASSED AS NUMBERS. The skew math used to take a
     /// `bool isBTC` purely so it could look up WHICH of the constants above to use. That is the
     /// hand-rolled dispatch this refactor removes, one layer down: the instance knows its own risk
-    /// parameters, so it hands them over and the math stops knowing what an asset is. A THIRD band
+    /// parameters, so it hands them over and the math stops knowing what an asset is. A THIRD range
     /// then needs no edit here at all -- it brings its own numbers.
     /// ⚠️ A STRUCT, NOT TWO PARAMETERS, DELIBERATELY. `sellSkew` sits EXACTLY at the stack limit
     /// (`via_ir = false`; its own comments record two measured stack-too-deep incidents), and one
@@ -857,7 +856,7 @@ library SwapLib {
         // 0.00097 ETH — a total inventory wipe — reported variance 0.
         //
         // Feeding that 0 through the formula gave `cap = 0` on ETH (which, unlike BTC, has no
-        // SPLICE_FLOOR), and a zero cap means **a fully drained band charges NOTHING at maximum
+        // SPLICE_FLOOR), and a zero cap means **a fully drained range charges NOTHING at maximum
         // scarcity** — the crisis case priced at free. Returning the HARD CEILING instead is the
         // conservative reading of "unknown", and it needs no new constant: MAX_WELL_SKEW already
         // exists for exactly this role. A genuinely calm market reports a SMALL NON-ZERO variance
@@ -883,9 +882,9 @@ library SwapLib {
     ///         benign inventory-rebalancing arber WITHOUT the toxic LVR one: the swap itself
     ///         still executes at the honest oracle through routeSwap (the manip-guard sees an
     ///         UNSKEWED price ⇒ no exemption needed) — the skew is a separate output scalar,
-    ///         which is precisely what lets it exceed the band's ±50-bps ceiling in a genuine
-    ///         drought (the band + in-window benign arb own the near-target regime; the skew
-    ///         is a TAIL layer that only bites past what the band can express).
+    ///         which is precisely what lets it exceed the range's ±50-bps ceiling in a genuine
+    ///         drought (the range + in-window benign arb own the near-target regime; the skew
+    ///         is a TAIL layer that only bites past what the range can express).
     ///
     ///         Inputs (all 6-dec USD except σ²), asset-agnostic:
     ///           inv    = poolVolUsd − lockedUsd      (deliverable volatile, gross-lev-excluded)
@@ -904,7 +903,7 @@ library SwapLib {
     ///           Γ  = GAMMA_WAD  = γ·(T−t) folded into ONE coefficient (the horizon T−t is
     ///                already carried by the FLOW_DECAY EWMA smoothing of flow/scarcity).
     ///         skew = Γ·σ²·q — both σ² and q enter LINEARLY (no scarcity², no separate vol
-    ///         steepening term). The flush guard (inv≥target ⇒ 0, band owns the common case)
+    ///         steepening term). The flush guard (inv≥target ⇒ 0, range owns the common case)
     ///         and the MAX_WELL_SKEW hard cap are preserved.
     /// @notice §UNIT-C — THE REFILL TRIGGER, AND IT IS THE SKEW'S OWN PREDICATE (owner, 2026-08-16:
     ///         *"the threshold that fires a refill swap [is] the same threshold that triggers a skew
@@ -917,7 +916,7 @@ library SwapLib {
     ///         `shortfallUsd6` is what must be sourced to clear the imbalance — the input to the
     ///         profitability half (fire when the retained premium covers the cost of sourcing).
     /// @param poolVolUsd  pre-swap deliverable inventory, 6-dec USD (`inv0`)
-    /// @param flowUsd     the shed target the band is measured against (`target`)
+    /// @param flowUsd     the shed target the range is measured against (`target`)
     /// @param drainUsd6   the swap's volatile-side draw, 6-dec USD
     function refillNeeded(uint poolVolUsd, uint flowUsd, uint drainUsd6)
         internal pure returns (bool fire, uint shortfallUsd6)
@@ -938,20 +937,20 @@ library SwapLib {
         // argument cannot change a pure function's output), so it does not confound the one real
         // change in this run — the `drainUsd6` size thread.
         // §E58 — BOTH LEVERAGE TERMS DELETED (owner: *"leverage shouldn't be perceived by this skew
-        // at all… whether levered or not, in the band is in the band alike"*). They entered TWICE and
+        // at all… whether levered or not, in the range is in the range alike"*). They entered TWICE and
         // both inflated scarcity: `inv` SUBTRACTED `lockedUsd` (levered GROSS collateral — which IS
-        // band depth), and `target` ADDED `committedUsd` (the leverage DEBT). Together they made the
-        // band read scarcer than it is by an amount that SCALES WITH THE LEV BOOK.
-        //   The skew prices the cost of SHEDDING volatile the band holds. How an LP FINANCED its
-        //   participation is not a property of that inventory: it is in the band either way, and a
+        // range depth), and `target` ADDED `committedUsd` (the leverage DEBT). Together they made the
+        // range read scarcer than it is by an amount that SCALES WITH THE LEV BOOK.
+        //   The skew prices the cost of SHEDDING volatile the range holds. How an LP FINANCED its
+        //   participation is not a property of that inventory: it is in the range either way, and a
         //   levered position is collateralised and unwindable (`closeLev` repays debt and returns
-        //   collateral), so it never consumes the band's shed capacity. Nothing about a levered LP
-        //   changes how hard it is to sell the band's ETH.
+        //   collateral), so it never consumes the range's shed capacity. Nothing about a levered LP
+        //   changes how hard it is to sell the range's ETH.
         //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
         uint target = flowUsd;
         // §UNIT-A — RETURN THE BASE, NOT ZERO. This sat ABOVE `_maxWellSkew`, so a fresh OR idle
-        // band charged NOTHING: not the kernel, not `σ²·confFrac/8`, not `SPLICE_FLOOR`. §E98
-        // measured BTC's floor never applying on a fresh band; §E99 measured a 30-day-old imbalance
+        // range charged NOTHING: not the kernel, not `σ²·confFrac/8`, not `SPLICE_FLOOR`. §E98
+        // measured BTC's floor never applying on a fresh range; §E99 measured a 30-day-old imbalance
         // pricing at 0; and `wellSkew` read 0 at σ² = 4.09 on a violent tape, proving the base is
         // unreachable INDEPENDENT of variance.
         if (target == 0) return _maxWellSkew(sigmaSqWad, rk);
@@ -962,19 +961,19 @@ library SwapLib {
         //   1. SIZE-BLINDNESS. `q` was the pre-swap LEVEL, so a $1 drain and a drain-the-reservoir
         //      quoted the IDENTICAL premium. Nothing about the swap's own magnitude reached the
         //      kernel — the rate was a property of the pool alone.
-        //   2. THE FLUSH HOLE, which is the worse of the two. If the band sat AT OR ABOVE target,
+        //   2. THE FLUSH HOLE, which is the worse of the two. If the range sat AT OR ABOVE target,
         //      the pre-swap test returned 0 for EVERY size, so a single trade could convert the
-        //      WHOLE inventory and pay NO skew at all — it only ever paid the band's ~10 bps
+        //      WHOLE inventory and pay NO skew at all — it only ever paid the range's ~10 bps
         //      cushion. The premium began only on the NEXT trade, by which time the inventory was
-        //      already gone. That is the "one trade converts the band for ~10 bps" leak.
+        //      already gone. That is the "one trade converts the range for ~10 bps" leak.
         // Both die the same way: evaluate scarcity on the inventory this swap LEAVES BEHIND, and
         // charge the average rate along the path from where it started to where it ends.
         uint inv0 = poolVolUsd;                           // pre-swap deliverable inventory
         uint inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6;   // what the drain LEAVES
         // Flush now means flush AFTER the drain. A swap that ends at/above target created no
         // scarcity and is genuinely free; a swap that ENDS below it is charged for the crossing,
-        // however flush the band looked before it. Size-blindness cannot survive this test.
-        // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked band is not an UNEXPOSED one: the
+        // however flush the range looked before it. Size-blindness cannot survive this test.
+        // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked range is not an UNEXPOSED one: the
         // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
         // (kernel) term flushes away, never the adverse-selection floor.
         if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk);
@@ -983,11 +982,11 @@ library SwapLib {
         // "real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling", and §E79 restates
         // it after the cap→base inversion: "UNMEASURED variance must price at the CEILING… returning
         // [the base] here would re-open the free-drain hole E59 closed."
-        // 🔴 IT HAD RE-OPENED. MEASURED 2026-08-16 on a $1m band with a $2m shed target: at σ²=0 the
+        // 🔴 IT HAD RE-OPENED. MEASURED 2026-08-16 on a $1m range with a $2m shed target: at σ²=0 the
         // ETH charge was 0 at 10%, 50% AND 90% drains, and only a 100% drain reached the ceiling
         // (via the separate `qBar == type(uint).max` pole at `:941`). BTC returned SPLICE_FLOOR
         // alone. The kernel is `Γ·σ²·qBar`, which is identically 0 when σ² is 0 NO MATTER HOW SCARCE
-        // the band is — so the guard §E59 added had to live outside the product, and after the §E79
+        // the range is — so the guard §E59 added had to live outside the product, and after the §E79
         // inversion moved `_maxWellSkew` from ceiling to base there was nothing left holding it.
         // ⚠️ WHY THIS IS NOT A CLAMP (standing rule 3 / rule 17). It does not bound a computed
         // number; it declines to run a formula on an input that carries NO INFORMATION. σ² == 0 is
@@ -1009,7 +1008,7 @@ library SwapLib {
         // would be the clamp.
         // ⚠️ AND IT IS REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE MEASURED σ² AS ATTACKER-
         // STRETCHABLE — 4h spacing drove σ² 24× down and the charge 93.3% down. Suppress σ² to the
-        // sentinel, then drain up to 90% of the band for free. That is the vector this closes.
+        // sentinel, then drain up to 90% of the range for free. That is the vector this closes.
         if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;
         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
@@ -1030,8 +1029,8 @@ library SwapLib {
         // So the whole curve has ONE number in it, the cap, and it appears twice. Three constants
         // deleted with byte-identical behaviour: SIGMA_REF, GAMMA_WAD, STABLENESS.
         // §E59 (part 2) — THE CAP FIX ALONE WAS NOT ENOUGH: σ² ZEROES THE KERNEL TOO.
-        // `skew = Γ·σ²·qBar` is 0 whenever σ² is 0, no matter how scarce the band is, so flooring
-        // only `_maxWellSkew` left a drained band still charging nothing (MEASURED: the fix went in,
+        // `skew = Γ·σ²·qBar` is 0 whenever σ² is 0, no matter how scarce the range is, so flooring
+        // only `_maxWellSkew` left a drained range still charging nothing (MEASURED: the fix went in,
         // `wellSkew` stayed 0 at inv/target = 0). σ² gates the curve in TWO places and both had to
         // be answered. Here: real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling.
         // That is the conservative reading of "unknown" and it is consistent with the cap's, so the
@@ -1087,10 +1086,10 @@ library SwapLib {
                 : 0;
         }
         // §E104 — CLAMP THE KERNEL *BEFORE* THE BASE IS ADDED. E89 made the base additive and left
-        // the pole sentinel as `type(uint).max`, so a drain that EMPTIES the band produced
+        // the pole sentinel as `type(uint).max`, so a drain that EMPTIES the range produced
         // `type(uint).max + base` and PANICKED (`0x11`) — a full drain REVERTED instead of charging
         // the 3% ceiling, which is the exact case the ceiling exists for. The suite never caught it
-        // because it never drains a band to zero: 4,308 green, a pinned controlled comparison,
+        // because it never drains a range to zero: 4,308 green, a pinned controlled comparison,
         // `--sizes` and `check-client-abis` all passed over an UNREACHED state.
         //   The pole means "charge the maximum", so resolve it to `MAX_WELL_SKEW` directly rather
         // than to a sentinel that must survive arithmetic. The finite branch is clamped too: near
@@ -1105,9 +1104,9 @@ library SwapLib {
         //   2. reverting HERE broke the REFILL TRIGGER (§E275, since removed): `skewWad` is read
         //      DIRECTLY as an observation by `test_TriggerFiresExactlyWhenTheSkewLeavesFlush`,
         //      `test_E104_ConstantSensitivity` and `test_E105_BoundarySweep`. A reverting read cannot
-        //      report that the band is empty — **at exactly the moment the refill exists for.** Same
+        //      report that the range is empty — **at exactly the moment the refill exists for.** Same
         //      principle `Core.sol` states for the observation source: THE READ MUST NOT BE ABLE TO
-        //      HALT THE BAND.
+        //      HALT THE RANGE.
         // ⇒ `skewWad` is the MEASUREMENT and says "unfillable" by returning the sentinel; the
         // PRODUCERS (`wellSkew`/`sellSkew`) are the fill path and decline before touching it. The
         // early return is what makes the sentinel safe: nothing is added to it here.
@@ -1138,7 +1137,7 @@ library SwapLib {
         // takes the whole charge down with it.
         //   A-S's reservation premium is `q·γ·σ²·(T−t)` — it HAS a horizon. Ours folded a constant
         // horizon into Γ, which is exactly what makes it stretchable. Scaling by how much longer than
-        // the nominal window the band actually carried the imbalance restores σ²·T, the quantity LVR
+        // the nominal window the range actually carried the imbalance restores σ²·T, the quantity LVR
         // is really made of (δ²/8 for a displacement δ, independent of elapsed time).
         //   ⛔ SCALING THE KERNEL BY `idle/nominal` WAS TRIED AND MEASURED, AND IT IS WRONG AS
         // CALIBRATED — DO NOT RE-ADD IT WITHOUT SETTLING Γ's HORIZON FIRST. It DOES close the vector
@@ -1152,17 +1151,17 @@ library SwapLib {
         // keyed on `inv0` rather than `q`. Every clause there was learned by a failed attempt.
         //
         // WHY. The kernel is `Γ·σ²·qBar`: ONE product fusing TWO different costs, so σ²→0 kills
-        // both. Adverse selection IS ∝ σ² (the band is picked off in proportion to how far price
+        // both. Adverse selection IS ∝ σ² (the range is picked off in proportion to how far price
         // travels before repair) and stays there. Depletion is not: at `inv → 0` you cannot serve,
         // you must SOURCE, and you pay settlement — true on the flattest tape there is.
         // MEASURED: the patience instrument logs σ² = **1** — real data, so the `== 0` sentinel does
         // NOT fire — with `wellSkew` = 0 at every slice. A free drain needing no patience, only calm.
         //
         // ⛔ ATTEMPT 1 FOLDED THIS INTO THE KERNEL'S RATE (`Γ·σ² + rate`, all × `qBar`) AND WAS
-        // REFUTED. `qBar` is scarcity against the TARGET, so a FRESH, UNFUNDED band — `inv0 = 0`
+        // REFUTED. `qBar` is scarcity against the TARGET, so a FRESH, UNFUNDED range — `inv0 = 0`
         // against a positive target — sits at the pole and got charged the CEILING: bootstrap priced
         // out of existence. It could not tell DRAINED from NEVER FUNDED, and only the first is a
-        // depletion cost — nobody depleted a band that was never filled.
+        // depletion cost — nobody depleted a range that was never filled.
         // ⇒ SO THE DISCRIMINATOR IS `inv0`, NOT `q`: charge the FALL FROM WHAT WAS ACTUALLY THERE.
         //   `inv0 == 0` ⇒ no fall ⇒ no charge ⇒ **bootstrap untouched BY CONSTRUCTION**, not by a
         //   special case. And ADDITIVE + bounded by `DEPLETION_RATE_WAD`, so unlike attempt 1 it
@@ -1229,7 +1228,7 @@ library SwapLib {
     }
 
     /// @dev §E53 — THE SHARED-SCARCITY AMPLIFIER. Every input to the skews is `isBTC`-scoped, yet
-    ///      BOTH bands draw on ONE basket: `committedUsd18() <= haircutTvl` is the single bound they
+    ///      BOTH ranges draw on ONE basket: `committedUsd18() <= haircutTvl` is the single bound they
     ///      compete for. So two SIMULTANEOUS drains stress the same backing and neither skew can see
     ///      the other — and ETH/BTC correlate hardest on exactly the days that matter, which makes
     ///      this the expected shape of a bad day rather than a tail case.
@@ -1240,20 +1239,20 @@ library SwapLib {
     ///      ⚠️ CONSTRAINT THAT PICKS THE FORM: the natural measure is utilisation, `committed/TVL`.
     ///      **TVL is NOT reachable here** — `Aux.get_deposits`, `checkBacking` and `tryCheckBacking`
     ///      are all NON-VIEW, and these skews are `view`. So the term is RELATIVE (how much of the
-    ///      shared commitment belongs to the OTHER band) rather than absolute, built only from
-    ///      `committedUsd18()` and `bandEquityUsd18()`, both of which are view.
+    ///      shared commitment belongs to the OTHER range) rather than absolute, built only from
+    ///      `committedUsd18()` and `rangeEquityUsd18()`, both of which are view.
     ///
-    ///      Returns a WAD multiplier in [1e18, 2e18): 1× when this band is the only claimant, →2× as
-    ///      the other band's equity dominates the shared bound. Bounded by construction — it can
+    ///      Returns a WAD multiplier in [1e18, 2e18): 1× when this range is the only claimant, →2× as
+    ///      the other range's equity dominates the shared bound. Bounded by construction — it can
     ///      never invent scarcity, only reflect that the shared backing is already spoken for.
 
     /// @dev §E89b — THE ONE PLACE THE PRICE IS COMPOSED, for BOTH legs. `_maxWellSkew` is two unlike
     ///      things summed, and only one of them rides E53's shared-scarcity amplifier:
-    ///        • `σ²·confFrac/8` — capital AT RISK while locked through settlement. When the other band
+    ///        • `σ²·confFrac/8` — capital AT RISK while locked through settlement. When the other range
     ///          has claimed the shared backing the SAME exposure is dearer to carry, exactly as the
     ///          shed kernel is, so it IS amplified.
     ///        • `SPLICE_FLOOR` — a FIXED on-chain splice FEE. An external price does not rise because
-    ///          our other band is busy, so it is NEVER amplified.
+    ///          our other range is busy, so it is NEVER amplified.
     ///      Its own frame for two reasons: it frees stack in the tight `sellSkew` (no `via_ir`), and
     ///      having ONE composer means the two legs cannot drift apart again — they already did once
     ///      (E68b: the sell leg priced at the endpoint for a whole session after the drain leg was
@@ -1295,11 +1294,11 @@ library SwapLib {
     /// once (E68b)**."* Two copies of one formula is how that recurs.
     /// ⚠️ **THE `> splice` GUARD IS LOAD-BEARING, WHICH IS WHY THE FLOOR IS A PARAMETER.** `skewWad`
     /// has early returns (`target == 0`, the flush branch) that never add the base, leaving `X == 0`;
-    /// assuming `X >= splice` underflowed on a BALANCED band — the common case — and cost **782
+    /// assuming `X >= splice` underflowed on a BALANCED range — the common case — and cost **782
     /// failures**. It is a no-op on the sell leg (whose `X` always contains `_maxWellSkew`, which
     /// includes the floor) and essential on the drain leg.
     /// ⚠️ **DEPLETION STAYS DRAIN-ONLY.** It reaches this frame only inside `wellSkew`'s `raw`, because
-    /// `skewWad` adds it there; the sell leg never forms it. Selling INTO the band cannot deplete it,
+    /// `skewWad` adds it there; the sell leg never forms it. Selling INTO the range cannot deplete it,
     /// so a shared AMPLIFIER must not be read as a shared KERNEL.
     function _amplify(address core, uint preAmp, uint splice) private view returns (uint) {
         // §E275 — the sentinel must not reach checked arithmetic; see the pole comment in `skewWad`.
@@ -1337,12 +1336,12 @@ library SwapLib {
         uint both = ICore(core).committedUsd18();
         if (both == 0) return 1e18;
         // §ISBTC-SPLIT — THE TERNARY WAS THE FUSED `Core` DECIDING WHICH HALF WAS "MINE". It read
-        // `isBTC ? both - btc : btc` because ONE contract held BOTH bands and `bandEquityUsd18()`
+        // `isBTC ? both - btc : btc` because ONE contract held BOTH ranges and `rangeEquityUsd18()`
         // named the BTC one either way. Under instances that question does not arise:
-        // `bandEquityUsd18()` IS this instance's own equity, so the other side is the remainder,
+        // `rangeEquityUsd18()` IS this instance's own equity, so the other side is the remainder,
         // unconditionally. Same denominator (`committedUsd18`) as the solvency bound, by
         // subtraction — computing it independently is how two views of one quantity drift apart.
-        uint mine = ICore(core).bandEquityUsd18();
+        uint mine = ICore(core).rangeEquityUsd18();
         uint other = both > mine ? both - mine : 0;
         return 1e18 + SoladyMath.fullMulDiv(other, 1e18, both);
     }
@@ -1370,7 +1369,7 @@ library SwapLib {
         if (gs == 0) return wanted;                                         // σ² too small to bind
         uint r = SoladyMath.fullMulDiv(SKEW_UNFILLABLE, 1e18, gs);          // R, in WAD
         uint invFloor = SoladyMath.fullMulDiv(target, 1e18, 1e18 + r);      // target/(1+R)
-        // At or below the floor the band cannot serve at ANY size: pass `wanted` through, let the pole
+        // At or below the floor the range cannot serve at ANY size: pass `wanted` through, let the pole
         // report itself, and `_boundToFullHaircut` makes it a 100% haircut ⇒ `out` 0 ⇒ clean refund.
         if (inv0 <= invFloor) return wanted;
         uint maxDrain = inv0 - invFloor;
@@ -1411,21 +1410,21 @@ library SwapLib {
             _fillableDrain(poolVolUsd, target, sigmaSq, drainUsd6));
         // §E295 — the decline that stood here is now `_amplify`'s first statement, and nothing
         // between here and the call touches `raw`. One guard, at the frame that does the arithmetic.
-        // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
+        // §E53: amplify by how much of the SHARED bound the other range already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         // §E89b — THE AMPLIFIER SCALES RISK, NOT FEES. E89 made the base additive, which silently put
         // it INSIDE the amplifier (while it was a CEILING applied after, that was impossible). The
         // right split is not "kernel vs base" but RISK vs FEE, because `_maxWellSkew` is two unlike
         // things added together:
         //   • `σ²·confFrac/8` — capital AT RISK while locked through settlement. E53's amplifier says
-        //     the other band has already claimed the shared backing, so the SAME dollar of exposure
+        //     the other range has already claimed the shared backing, so the SAME dollar of exposure
         //     is dearer to carry. That applies to this term exactly as it does to the shed kernel,
         //     so it IS amplified. (I first claimed it should not be; that was wrong.)
         //   • `SPLICE_FLOOR` — a FIXED on-chain splice FEE. An external price does not rise because
-        //     our other band is busy, so it is NEVER amplified.
+        //     our other range is busy, so it is NEVER amplified.
         //   ⚠️ `raw >= splice` is NOT guaranteed: `skewWad` has EARLY RETURNS (`target == 0`, and the
         // FLUSH branch `inv1 >= target`) that never add the base, leaving `raw == 0`. Assuming
-        // otherwise underflowed on a BALANCED band — the common case — and cost 782 failures.
+        // otherwise underflowed on a BALANCED range — the common case — and cost 782 failures.
         // §E295 — ONE composer, both legs. `raw` already carries kernel + base + depletion from
         // `skewWad`, so it IS the pre-amplifier value; the sell leg sums its own inside
         // `_composePrice`. The `> splice` guard and both declines now live in `_amplify`.
@@ -1433,7 +1432,7 @@ library SwapLib {
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
-    ///         band-leg shed). Where `wellSkew` prices the SCARCE side (volatile-OUT drain,
+    ///         range-leg shed). Where `wellSkew` prices the SCARCE side (volatile-OUT drain,
     ///         inv<target), this prices the ABUNDANT side: a sell that pushes the pool's
     ///         volatile inventory PAST target grows the pool's inventory risk, so A-S skews
     ///         the reservation price AGAINST it (`skew = Γ·σ²·q` with q = overshoot). A sell
@@ -1465,7 +1464,7 @@ library SwapLib {
         uint inv;
         {
             uint poolVolUsd = _skewBasis(core, base, addedTok);
-            inv = poolVolUsd;                                 // §E58: levered depth IS band depth
+            inv = poolVolUsd;                                 // §E58: levered depth IS range depth
         }
         // A-S inventory-sign flip: reflect inv about target. inv≤target (refill) ⇒
         // mirror≥target ⇒ skewWad flush ⇒ 0 (EXEMPT); inv>target (inventory-increasing
@@ -1494,7 +1493,7 @@ library SwapLib {
         // `tau = q/flow` is UNDEFINED at flow == 0, not merely large, so the honest response is to
         // refuse rather than clamp. But refusing on `flow == 0` ALONE is wrong and was MEASURED
         // wrong (644 failures): a zero EWMA is AMBIGUOUS between "the market is dead" and "we just
-        // started", and a brand-new band has no flow HISTORY — refusing there bricks the pool at
+        // started", and a brand-new range has no flow HISTORY — refusing there bricks the pool at
         // genesis. No threshold on that one number can separate the two; it is an identifiability
         // problem, not a tuning one.
         //
@@ -1516,8 +1515,8 @@ library SwapLib {
         //
         // `inv` already includes `addedTok` (see _skewBasis), so `over` is the POST-swap overshoot
         // and `q` was q1: the sell was billed at the scarcity its LAST unit created, applied to
-        // EVERY unit. A seller arriving at a balanced band and pushing it to 2× target paid the
-        // 2×-target rate on the whole ticket, including the first units that landed while the band
+        // EVERY unit. A seller arriving at a balanced range and pushing it to 2× target paid the
+        // 2×-target rate on the whole ticket, including the first units that landed while the range
         // was still at target. Symmetrically to the drain leg, each unit must be billed at the
         // overshoot IT sees.
         //
@@ -1545,7 +1544,7 @@ library SwapLib {
             q = (q0 + q1) / 2;                            // the integral's mean over THIS sell
         }
         uint sigmaSqWad = ICore(core).realizedVarianceWad();
-        // §E54-r REMOVED (owner, 2026-08-04: *"avgYield has nothing to do with the band. it's a
+        // §E54-r REMOVED (owner, 2026-08-04: *"avgYield has nothing to do with the range. it's a
         // dollar only thing. your skew shouldnt even consider it"*). I had added an opportunity-cost
         // term `r = Aux.avgYield()`, reasoning that the premium should equal what a counterparty
         // foregoes by taking this inventory off us. **`avgYield` does not measure that.** It is the
@@ -1553,7 +1552,7 @@ library SwapLib {
         // the yield on DOLLARS. This skew prices the cost of carrying VOLATILE we did not want, and
         // the counterparty who takes ETH off us is not foregoing our stablecoin yield. Two different
         // assets, two different returns; I imported the number because it was conveniently in-system,
-        // not because it measured the quantity. Same error as valuing the USD increment at the band's
+        // not because it measured the quantity. Same error as valuing the USD increment at the range's
         // leg ratio (§E28): a number that is *available* is not thereby the *right* one.
         // §E59: same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must not
         // price an inventory-increasing sell at nothing. Scarcity is real (q > 0) by this point.
@@ -1563,7 +1562,7 @@ library SwapLib {
         uint skew = SoladyMath.fullMulDiv(
             SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
-        // inventory is dearer to shed when the OTHER band has already spoken for the shared backing.
+        // inventory is dearer to shed when the OTHER range has already spoken for the shared backing.
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
         // with the kernel; only `SPLICE_FLOOR` stays outside it. Written here so both legs compose
         // their price identically; they had already drifted apart once (E68b).
@@ -1605,7 +1604,7 @@ library SwapLib {
         uint amount = scaleTo6(IAux(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if priceHint==0.
-        // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
+        // §E9 — packed range ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint priceHint;
         {
             (,,,, uint p_) = ICore(address(this)).repack();
@@ -1701,7 +1700,7 @@ library SwapLib {
     // ── Delivery-side de-lever (partial-burn vBTC deliverability) ─────────────────────────────────
 
     /// @notice Runs at the head of a native swap-out settlement (Vault._resize) when the delivering LP's
-    ///   slice draws PAST its FREE channel band into the LEVERED slice — the "stranded volatile" state
+    ///   slice draws PAST its FREE channel range into the LEVERED slice — the "stranded volatile" state
     ///   (`shrinkSats > funded = pooled − levPooled`). The delivery's OWN proceeds de-lever the shortfall
     ///   `want = min(shrinkSats−funded, levPooled)`: source the venue's debt stable from the basket, repay the
     ///   LP's debt (the manager burns the freed vBTC + un-encumbers the channel BTC, lev→funded, so the clamp in
@@ -1712,7 +1711,7 @@ library SwapLib {
     ///   levered slice's V4 depth was already consumed by the curve at REQUEST (it sold against the full
     ///   POOLED), so this only reconciles the per-LP accounting — no second burnInRange. DELEGATECALL'd by the
     ///   Vault (address(this)==Vault): AUX/CORE see msg.sender==Vault (onlyUs), the manager sees Vault (==its
-    ///   BAND gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER).
+    ///   RANGE gate), and the manager's unexpose callback arrives as msg.sender==manager (==LEV_MANAGER).
     ///   Returns the 6-dec debt-share withheld from the QUI mint.
     function deleverOnDelivery(
         address core, address aux, address mgr,
@@ -1724,7 +1723,7 @@ library SwapLib {
         if (lev == 0) return 0;                                    // not levered — nothing to de-lever
         uint funded;
         { uint pooled = autoManaged[lp].pooled; funded = pooled > lev ? pooled - lev : 0; }
-        if (shrinkSats <= funded) return 0;                       // free channel band covers the shrink
+        if (shrinkSats <= funded) return 0;                       // free channel range covers the shrink
         uint deliveredRaw = shrinkSats > lpPayoutSats ? shrinkSats - lpPayoutSats : 0;
         if (deliveredRaw == 0) return 0;
         uint want = shrinkSats - funded;                          // levered sats this delivery must un-encumber
@@ -1790,7 +1789,7 @@ library SwapLib {
     }
 
     /// @notice §M.1 ETH swap-out DELIVERY-SIDE de-lever ORCHESTRATOR (aggregate; the ETH mirror of BTC
-    ///   `deleverOnDelivery`). DELEGATECALL'd by Quid (address(this)==Quid==the LevManager's `BAND`) from
+    ///   `deleverOnDelivery`). DELEGATECALL'd by Quid (address(this)==Quid==the LevManager's `RANGE`) from
     ///   `_sendETH` when the venue base (deliverableETH) can't cover a swap-out delivery. Walks the open lev book;
     ///   per LP: sources the swap's OWN proceeds into the venue via `Aux.takeToSettle` DIRECTLY (Quid==address(this)
     ///   IS authorized — `V4==Quid` in `Aux._requireUs`) and repays that LP's debt, delivering the freed collateral
@@ -1866,8 +1865,8 @@ library SwapLib {
     ///      themselves — keeps the large get_deposits ABI decode in the contract,
     ///      off the legacy-pipeline headStart path. `surplus == 0` ⇒ caller
     ///      early-returns. Every mulDiv floors → commits ≤ requested, never more.
-    /// @notice §E270 — THE ONE token→USD conversion at a band price. Three sites had it inline:
-    ///         `sizeBySurplus` below and the post-theta-clamp recompute on EACH band. The BTC band had
+    /// @notice §E270 — THE ONE token→USD conversion at a range price. Three sites had it inline:
+    ///         `sizeBySurplus` below and the post-theta-clamp recompute on EACH range. The BTC range had
     ///         drifted to `targetUSD*capped/deltaTok`, which computes the SAME quantity with two
     ///         compounded roundings and an unguarded `*`/`/`. Classified DRIFT and unified here.
     /// @dev    `internal pure` ⇒ inlines. No new bytecode, no delegatecall.
@@ -1880,10 +1879,10 @@ library SwapLib {
         uint deltaTok, uint price
     ) internal pure returns (uint deltaOut, uint targetUSD, uint surplus) {
         // #67 note: the levered net-equity is NOT paired against surplus (that would spend surplus making the
-        // equity earn band fees on de-lever-backed / phantom USD, and make the levered backing withdrawable at
+        // equity earn range fees on de-lever-backed / phantom USD, and make the levered backing withdrawable at
         // will). Surplus is reserved for the borrow cost + QU!D redemption; the levered net-equity is REDEMPTION
-        // backing (already in committedUsd18 / bandETH/BTC), de-leverable only by a redemption. Its debt-funded
-        // BUFFER leg already earns band fees without touching surplus. So this stays REAL-surplus-only.
+        // backing (already in committedUsd18 / rangeETH/BTC), de-leverable only by a redemption. Its debt-funded
+        // BUFFER leg already earns range fees without touching surplus. So this stays REAL-surplus-only.
         surplus = liquidTotal > committedBoth ? liquidTotal - committedBoth : 0;
         if (surplus == 0) return (0, 0, 0);
         deltaOut  = deltaTok;
@@ -1894,26 +1893,26 @@ library SwapLib {
         }
     }
 
-    /// @notice theta risk-budget clamp on a band add: cap post-add `pooled` at `thetaEff * bandAvail`
-    ///         (WAD), so the IL-bearing band never holds more than the live yield/vol tradeoff prescribes.
+    /// @notice theta risk-budget clamp on a range add: cap post-add `pooled` at `thetaEff * rangeAvail`
+    ///         (WAD), so the IL-bearing range never holds more than the live yield/vol tradeoff prescribes.
     ///         `thetaEff >= 1e18` (fail-open / calm) is a no-op. Shared by BOTH sizing paths -- ETH
     ///         (`QuidLib.addLiq`) and BTC (`BtcLib.addLiqChannel`) -- so the throttle is identical
-    ///         across assets (a volatile-asset band bears IL the same way regardless of which asset).
-    function applyTheta(uint thetaEff, uint bandAvail, uint pooled, uint available)
+    ///         across assets (a volatile-asset range bears IL the same way regardless of which asset).
+    function applyTheta(uint thetaEff, uint rangeAvail, uint pooled, uint available)
         internal pure returns (uint)
     {
         if (thetaEff >= 1e18) return available;
-        uint thetaCap   = SoladyMath.fullMulDiv(bandAvail, thetaEff, 1e18);
+        uint thetaCap   = SoladyMath.fullMulDiv(rangeAvail, thetaEff, 1e18);
         uint thetaAvail = thetaCap > pooled ? thetaCap - pooled : 0;
         return available > thetaAvail ? thetaAvail : available;
     }
 
-    /// @notice Backing-bounded theta clamp — the ONE principle for EVERY band add (ETH band, BTC LP-add, BTC
+    /// @notice Backing-bounded theta clamp — the ONE principle for EVERY range add (ETH range, BTC LP-add, BTC
     ///         reseat). Permit `want` new in-range depth, but never past two bounds:
     ///           • HEADROOM = `backing − pooled` — the physical room the IL-bearing capital leaves ABOVE the
-    ///             current in-range depth. `backing` = that capital (ETH: bandETH venue principal + gross
-    ///             buffer; BTC: lpShares + gross buffer, +this add's sats); `pooled` = current in-range band
-    ///             depth (POOLED/BTC). The band can never exceed what backs it.
+    ///             current in-range depth. `backing` = that capital (ETH: rangeETH venue principal + gross
+    ///             buffer; BTC: lpShares + gross buffer, +this add's sats); `pooled` = current in-range range
+    ///             depth (POOLED/BTC). The range can never exceed what backs it.
     ///           • THETA budget = `θ·backing − pooled` (via applyTheta) — θ = avgYield/(K·σ²) (Merton), the
     ///             fraction of backing it is optimal to RISK in-range given yield vs realized variance; θ≥1
     ///             fails open (calm/unmeasured) → only HEADROOM binds.
@@ -1925,8 +1924,8 @@ library SwapLib {
     ///         less out), and return the reduced amount. ONE definition for all three retain sites (swap-out
     ///         drain, sell-in, BtcVault drain). The retained premium stays in the basket as LP backing (the
     ///         refiller-payout side was removed — the fleet self-funds the refill). skew==0 no-op.
-    /// @notice Plain (unlevered) net band equity = gross `pooled` minus the levered slice `lev`, zero-floored.
-    ///         ONE definition for the hedge-E0 base (bandOf/bandOf), the venue-yield fee weight, and the
+    /// @notice Plain (unlevered) net range equity = gross `pooled` minus the levered slice `lev`, zero-floored.
+    ///         ONE definition for the hedge-E0 base (rangeOf/rangeOf), the venue-yield fee weight, and the
     ///         withdraw/transfer free-balance cap — a drifted copy (dropped floor / wrong slice) would make
     ///         levered depth withdrawable or double-earn venue yield.
     function plainNet(uint pooled, uint lev) internal pure returns (uint) {
@@ -1977,16 +1976,16 @@ library SwapLib {
     ///         leg, no impact, so a charge sized to "cover" it would cover nothing; (2) both abuse
     ///         vectors are closed by CONSTRUCTION in this measure (chopping and waiting each buy
     ///         exactly nothing — see `RefillPlacement.t.sol`), so the charge is not a guard either;
-    ///         and (3) the one REAL cost — band fees forgone while capital sits idle — needs a
+    ///         and (3) the one REAL cost — range fees forgone while capital sits idle — needs a
     ///         DURATION, which is §E83 and has never been measured. Any rate picked for it today
     ///         would be invented, and an invented rate on a money path is the thing that produced
     ///         §E155's 6.04x over-issuance.
     ///
-    ///         WHAT IS DERIVABLE, AND IS THE WHOLE CALIBRATION. From a balanced band a drain of D
+    ///         WHAT IS DERIVABLE, AND IS THE WHOLE CALIBRATION. From a balanced range a drain of D
     ///         creates 2·D·px of idle inventory (measured, exact to rounding). So HALF the flat fee
     ///         rate applied to the IMBALANCE reproduces the flat fee applied to NOTIONAL, on that
     ///         canonical case, with NO new constant: 210 ppm x 2·D·px == 420 ppm x D·px.
-    ///         ⇒ Revenue-neutral where the band starts balanced, and it diverges deliberately
+    ///         ⇒ Revenue-neutral where the range starts balanced, and it diverges deliberately
     ///         everywhere else — which is the point. A trade that creates MORE imbalance than its
     ///         notional pays more; one that creates LESS pays less.
     ///
@@ -2012,22 +2011,22 @@ library SwapLib {
         return uint160(FixedPointMathLib.mulDivDown(spotPrice, factor, 1e9));
     }
 
-    /// @notice (B — IL-protect) The band's ACTUAL sold-volatile fraction (WAD) between `entryPrice` and the
+    /// @notice (B — IL-protect) The range's ACTUAL sold-volatile fraction (WAD) between `entryPrice` and the
     ///         current `spotPrice`, straight from the concentrated-position geometry — the ground-truth IL the
     ///         hedge must cancel, reflecting the real (drifting) α with NO sqrt/pow and NO α parameter. Held
     ///         volatile amount is ∝ (√P − √Pa) when the volatile is token1 (sold as √P FALLS — volatile
     ///         appreciates ⇒ pool price down) or ∝ (√Pb − √P)/(√P·√Pb) when it's token0 (sold as √P RISES);
     ///         soldFrac = 1 − amount_now/amount_entry. Returns 0 on the non-IL side (up-side-only, matching the
-    ///         current target) or a degenerate band. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat recenters the
+    ///         current target) or a degenerate range. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat recenters the
     ///         ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on a reseat. Shared verbatim by
-    ///         the ETH band (Quid, `token1isVol`) and the BTC band (Vault, `token1isVol`).
+    ///         the ETH range (Quid, `token1isVol`) and the BTC range (Vault, `token1isVol`).
     /// @notice held-volatile amount NOW / held-volatile amount AT ENTRY (WAD), straight from the
-    ///         concentrated-band geometry, clamped to the live band. `1e18` = at entry. `>1e18` ⇒ the band
+    ///         concentrated-range geometry, clamped to the live range. `1e18` = at entry. `>1e18` ⇒ the range
     ///         BOUGHT the volatile (price fell — the OVER-hold the short cancels); `<1e18` ⇒ it SOLD (price
     ///         rose — the UNDER-hold the long cancels). Reflects the real (drifting) α with NO α parameter and
     ///         NO sqrt/pow — the single ground-truth primitive both hedge legs size from. VALID WITHIN ONE
     ///         TICK-CONFIG ONLY: a reseat recenters + realizes IL, so the caller MUST re-anchor `entryPrice`.
-    /// @notice Fraction of the band's ORIGINAL volatile still held, WAD. Same quantity as before,
+    /// @notice Fraction of the range's ORIGINAL volatile still held, WAD. Same quantity as before,
     ///         computed in USD-PER-VOLATILE space instead of spotPrice space.
     ///
     /// @dev DERIVATION, because this is hedge-sizing math and the equivalence must be checkable.
@@ -2040,7 +2039,7 @@ library SwapLib {
     ///      translation. Two branches existed because `spotPrice` INVERTS meaning with token
     ///      ordering: when USD is token0, price ∝ 1/sqrtP², so the same holding needed the mirrored
     ///      formula. USD-PER-VOLATILE DOES NOT INVERT — it is the same number whichever token got
-    ///      the lower address — so one expression now serves both bands. The ordering flag was
+    ///      the lower address — so one expression now serves both ranges. The ordering flag was
     ///      never about economics; it was about core's encoding.
     ///
     ///      √ SURVIVES AS AN OPERATION, NOT A REPRESENTATION. The root is mathematically required
@@ -2052,7 +2051,7 @@ library SwapLib {
         internal pure returns (uint) {
         if (entryPrice == 0 || loPrice >= upPrice) return 1e18;
         // Clamp in PRICE space; `sqrt` is monotonic so clamping before or after the root is
-        // identical, and price-space clamping is the one a reader can check against the band edges.
+        // identical, and price-space clamping is the one a reader can check against the range edges.
         uint pc  = price      < loPrice ? loPrice : (price      > upPrice ? upPrice : price);
         uint p0c = entryPrice < loPrice ? loPrice : (entryPrice > upPrice ? upPrice : entryPrice);
         uint a = FixedPointMathLib.sqrt(pc  * 1e18);   // √P
@@ -2062,7 +2061,7 @@ library SwapLib {
         return SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(b, 1e18, a), c - a, c - b);
     }
 
-    /// @notice The band's ACTUAL sold-volatile fraction (WAD) since entry = `1 − holdingRatio` when the band
+    /// @notice The range's ACTUAL sold-volatile fraction (WAD) since entry = `1 − holdingRatio` when the range
     ///         under-holds (price rose). The LONG hedge re-adds exactly this. Ground truth; 0 on the non-sold side.
     function soldFractionWad(uint entryPrice, uint price, uint loPrice, uint upPrice)
         internal pure returns (uint) {
@@ -2137,19 +2136,19 @@ library SwapLib {
         // the only thing the return was still doing was answering "can this range hold anything" —
         // a validity check, which the guards below already are.
         // ⚠️ THE STRICT COMPARISONS ARE UNCHANGED, INCLUDING THEIR DIRECTION. A boundary order must
-        // sit FULLY outside the active band; `>=` / `<=` (not `>` / `<`) is what makes a range that
-        // merely touches the band edge invalid.
+        // sit FULLY outside the active range; `>=` / `<=` (not `>` / `<`) is what makes a range that
+        // merely touches the range edge invalid.
         // 🔴 SYMMETRIC, AND DELIBERATELY SO. This was two branches picked by the ordering flag,
         // and that flag derives from the lex order of freshly-deployed MOCK addresses -- so WHICH
         // SIDE a boundary order was allowed to sit on varied with deployment nonce. The comment on
         // the first branch ("above current") also contradicted its own guard, which requires the
         // range to be BELOW. There was no stable behaviour to preserve, so this enforces the
         // requirement the docblock states and both branches were separately approximating: the new
-        // range must lie WHOLLY outside the active band, on either side. The side itself is the
+        // range must lie WHOLLY outside the active range, on either side. The side itself is the
         // caller's choice, carried by the sign of `distance`.
         // The strict comparisons are unchanged: a range that merely TOUCHES an edge is invalid.
-        if (!(t.newUp < t.curLo || t.newLo > t.curUp)) revert RangeNotOutsideBand();
-        if (t.newLo >= t.newUp) revert RangeNotOutsideBand();       // degenerate range holds nothing
+        if (!(t.newUp < t.curLo || t.newLo > t.curUp)) revert RangeNotOutside();
+        if (t.newLo >= t.newUp) revert RangeNotOutside();       // degenerate range holds nothing
         placeable = amount6;
     }
 
@@ -2166,8 +2165,8 @@ library SwapLib {
     /// The name outlived the grid by seven commits and would have read as evidence that tick math
     /// survives the core cut. No client decodes it — zero hits in `spa/src`, `quid-ln`, `tools` — so
     /// the selector change costs nothing.
-    error RangeNotOutsideBand();
-    /// §DE-TICK — THE BAND IS ±δ AROUND THE PRICE, AND THAT IS THE WHOLE COMPUTATION.
+    error RangeNotOutside();
+    /// §DE-TICK — THE RANGE IS ±δ AROUND THE PRICE, AND THAT IS THE WHOLE COMPUTATION.
     /// This used to pad in SQRT space (`spotPrice · √((10000±δ)/10000)`), then look the result up in the
     /// tick grid and align to a spacing of 10. In price space the root cancels — padding a price by
     /// a ratio is a multiplication — so TWO square roots and TWO tick lookups become two multiplies.
@@ -2188,7 +2187,7 @@ library SwapLib {
     /// fee-distribution / yield-metric after the shared work.
     struct Rebalanced {
         uint spotPrice;   // §DE-TICK: carries the PRICE now, not a sqrt price
-        uint    loPrice;     // §DE-TICK: post-repack band bounds, as PRICES
+        uint    loPrice;     // §DE-TICK: post-repack range bounds, as PRICES
         uint    upPrice;
         uint    myLiquidity;
         bool    didRepack;     // true → a range move happened; fees0/1/delta0/1/price valid
@@ -2220,7 +2219,7 @@ library SwapLib {
     /// `repack(bool)` through `_rebalance` -> `rebalanceBody` -> here -> `_reseatIfStale` ->
     /// `_doReseat`, whose signature already read `bool /*isBTC*/`. Six frames carrying a value the
     /// bottom one had stopped reading; each call site picks the CONTRACT, which is what actually
-    /// identifies the band.
+    /// identifies the range.
     function rebalanceCore(
         address core, address aux, address asset,
         uint upPrice, uint loPrice
@@ -2250,8 +2249,8 @@ library SwapLib {
         // aligned. Both pools route here (Quid + BtcVault).
         if (stale && _reseatIfStale(core, r, twap)) return r;
 
-        // HALF-OPEN RANGE (T1), NOW IN PRICE SPACE. The band is ACTIVE iff `lower <= P < upper`, so
-        // it is OUT of range at `P >= upper` — NOT `>`. With `>`, at exactly `P == upper` the band
+        // HALF-OPEN RANGE (T1), NOW IN PRICE SPACE. The range is ACTIVE iff `lower <= P < upper`, so
+        // it is OUT of range at `P >= upper` — NOT `>`. With `>`, at exactly `P == upper` the range
         // is inactive (fully in one token, earning nothing) yet this returned "still in range" and
         // did not re-centre, leaving it stranded. The asymmetry is the tell: a half-open range needs
         // `>=` upper and `<` lower.
@@ -2274,7 +2273,7 @@ library SwapLib {
                 r.price = ICore(core).repack(r.spotPrice);
                 r.didRepack = true;
             }
-            (r.loPrice, r.upPrice) = updateBounds(r.spotPrice, BAND_DELTA);
+            (r.loPrice, r.upPrice) = updateBounds(r.spotPrice, RANGE_DELTA);
         } else if (r.myLiquidity > 0) {
             // JIT-snipe defense: force a fee-only collect so accrued fees land
             // in the accumulators BEFORE the caller's bookmark advances.
@@ -2315,7 +2314,7 @@ library SwapLib {
             r.price = ICore(core).repack(targetPrice);   // §ONE-ANCHOR: the anchor, not the pair
             r.didRepack = true;
         }
-        (r.loPrice, r.upPrice) = updateBounds(targetPrice, BAND_DELTA);
+        (r.loPrice, r.upPrice) = updateBounds(targetPrice, RANGE_DELTA);
         r.spotPrice = targetPrice;
     }
 

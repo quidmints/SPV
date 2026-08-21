@@ -5,7 +5,7 @@ import {SwapLib} from "./SwapLib.sol";
 import {NotOpen, BadTarget} from "./Types.sol";
 import {ILevVenue, IERC20Min} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
-import {BandLib} from "./BandLib.sol";
+import {RangeLib} from "./RangeLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
@@ -23,11 +23,11 @@ import {QuidLib} from "./QuidLib.sol";
 //                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAux's).
 // The Basket mint callback stays local: `mint` is Basket's only member any consumer in this
 // subtree needs, and it is declared exactly once tree-wide, so there is nothing to dedup.
-/// @title  BtcLib — the BTC band / leverage / channel accounting extracted from QuidLib
+/// @title  BtcLib — the BTC range / leverage / channel accounting extracted from QuidLib
 ///         (now purely the ETH venue custody ladder) for EIP-170 headroom. DELEGATECALL'd by the
 ///         Vault exactly as the BTC bodies were when they lived in QuidLib: `address(this)`==Vault,
 ///         so all storage/custody are the Vault's. Byte-identical to the former in-QuidLib BTC
-///         bodies -- only the home moved. Pairs with QuidLib (the ETH band's mirror).
+///         bodies -- only the home moved. Pairs with QuidLib (the ETH range's mirror).
 library BtcLib {
 
     // Mirror Vault's custom errors so reverts from delegatecalled bodies carry the SAME 4-byte selector.
@@ -95,11 +95,11 @@ library BtcLib {
 
     /// @notice Body of Vault._addLiqChannel — channel-lock liquidity sizer.
     ///         Shared solvency `surplus` + BTC-cap logic, and the SAME theta
-    ///         risk-budget clamp the ETH band applies (QuidLib.addLiq). Only the
+    ///         risk-budget clamp the ETH range applies (QuidLib.addLiq). Only the
     ///         PHYSICAL-inventory clamp is skipped -- the volatile backing is the
     ///         LP's LOCKED channel sats, so there is no shared-inventory headroom
-    ///         to respect; but the band's IL exposure is throttled by theta
-    ///         identically (a BTC band bears IL exactly like an ETH band -- the
+    ///         to respect; but the range's IL exposure is throttled by theta
+    ///         identically (a BTC range bears IL exactly like an ETH range -- the
     ///         asset never changes the yield/vol tradeoff). The theta-shed
     ///         remainder is still tracked as fee-earning share by the caller.
     function addLiqChannel(address core, address aux, uint sats, uint price)
@@ -123,23 +123,23 @@ library BtcLib {
         outDelta = deltaTok;
     }
 
-    /// @dev BTC band theta clamp in its OWN frame (legacy-pipeline stack). Caps the paired depth at
-    ///      `theta * backing` -- the live yield/(K*sigma^2) throttle over the BTC band's own ticks +
+    /// @dev BTC range theta clamp in its OWN frame (legacy-pipeline stack). Caps the paired depth at
+    ///      `theta * backing` -- the live yield/(K*sigma^2) throttle over the BTC range's own ticks +
     ///      variance ring (Vault.derivedThetaWadBtc asks Quid). Fails OPEN (theta>=1e18 -> no-op),
     ///      including when yield is unmeasured (theta 0 -> 1e18), matching ETH's _liveTheta. `available`
     ///      base is the full `deltaTok` (locked backing skips the physical clamp); only theta bites here.
     ///      BACKING = `Core.btcThetaBacking()` (aggregate locked sats lpShares + gross buffer -- the ONE
     ///      source of truth shared with the reseat clamp in QuidLib.addLiq, so a repack can't re-throttle
-    ///      the band this add just built) + THIS add's `sats` (requestDeposit/levAddBtc credit lpShares
-    ///      only AFTER this clamp -- unlike ETH, where _depositETH bumps bandETH BEFORE addLiq; add it here
-    ///      for parity + first-deposit bootstrap). NOT bandBTC: that is a disjoint WBTC-donation pool,
-    ///      structurally unrelated to the band's risk capital -- basing theta on it throttled the band to ~0
+    ///      the range this add just built) + THIS add's `sats` (requestDeposit/levAddBtc credit lpShares
+    ///      only AFTER this clamp -- unlike ETH, where _depositETH bumps rangeETH BEFORE addLiq; add it here
+    ///      for parity + first-deposit bootstrap). NOT rangeBTC: that is a disjoint WBTC-donation pool,
+    ///      structurally unrelated to the range's risk capital -- basing theta on it throttled the range to ~0
     ///      whenever donations were thin (the opposite of what scarcity should do).
     function _thetaClampBtc(address core, uint deltaTok, uint sats) private view returns (uint) {
         uint thetaEff = ICore(address(this)).derivedThetaWad();
         if (thetaEff == 0) thetaEff = 1e18;
         // ONE principle (SwapLib.clampByBacking): bound by both the physical backing headroom AND theta —
-        // shared verbatim with the reseat clamp (QuidLib.addLiq) and the ETH band. backing = the native
+        // shared verbatim with the reseat clamp (QuidLib.addLiq) and the ETH range. backing = the native
         // capital (Core.btcThetaBacking = lpShares + gross buffer) + THIS add's `sats` (not yet credited
         // to lpShares at clamp time — see the long note above).
         return SwapLib.clampByBacking(thetaEff, ICore(core).btcThetaBacking() + sats, ICore(core).POOLED(), deltaTok);
@@ -160,7 +160,7 @@ library BtcLib {
         uint    loPrice;
         uint    upPrice;
         uint    feesPerShare;
-        uint    usdFees;      // §BAND-MERGE: the BTC suffix is redundant inside a BTC library
+        uint    usdFees;      // §RANGE-MERGE: the BTC suffix is redundant inside a BTC library
     }
 
     /// @dev resize/resizeBtcLpTail output as ONE struct (single memory pointer) rather than four
@@ -173,7 +173,7 @@ library BtcLib {
 
     /// @notice Body of Vault._resize AFTER the funded/lev prologue + _rebalance
     ///         (both stay in the Vault). Settles fees, pays the swap-out proceeds,
-    ///         burns the native (+ full-close lev) band depth, decrements the
+    ///         burns the native (+ full-close lev) range depth, decrements the
     ///         position and finalizes. Returns (sharesRemoved, cleared, owed): the
     ///         forwarder applies `lpShares -= sharesRemoved`, and on `cleared`
     ///         FORGOES the residual `owed` to the pool (dust; the sats are already in
@@ -262,7 +262,7 @@ library BtcLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  BTC IL-PROTECT: levered band slice. Bodies of Vault._levAddBTC /
+    //  BTC IL-PROTECT: levered range slice. Bodies of Vault._levAddBTC /
     //  _levBurnBTC extracted to free bytecode. Reference-type state (the LP
     //  Deposit + levPooled mapping) is passed by STORAGE REF so the library
     //  writes the Vault's slots via delegatecall; the value-type lpShares is
@@ -270,14 +270,14 @@ library BtcLib {
     //  forwarder applies (`lpShares += levAddBtc(...)` / `-= levBurnBtc(...)`).
     // ════════════════════════════════════════════════════════════════════
 
-    /// @dev Vault's BTC-side immutables the levered-band bodies touch.
-    // §BAND-MERGE — `Types.BandCfg` moved to `Types.BandCfg` (shared). It was `LevCfg` minus the
+    /// @dev Vault's BTC-side immutables the levered-range bodies touch.
+    // §RANGE-MERGE — `Types.RangeCfg` moved to `Types.RangeCfg` (shared). It was `LevCfg` minus the
     // asset, which this side then re-read from Aux on every use.
 
     /// @dev Current pool range + BTC fee accumulators, bundled into one memory
-    ///      slot so the levered-band bodies stay off the legacy stack (avoids
+    ///      slot so the levered-range bodies stay off the legacy stack (avoids
     ///      stack-too-deep without via_ir; mirrors the "own frame" discipline).
-    // §BAND-MERGE — `Types.BandP` moved to `Types.BandP` (shared with the ETH side).
+    // §RANGE-MERGE — `Types.RangeP` moved to `Types.RangeP` (shared with the ETH side).
 
     /// @dev syncLev's four signed deltas, returned as ONE struct (a single memory pointer) rather than
     ///      four stack-slot returns — keeps syncLev off the legacy-pipeline stack (no via_ir). The Vault
@@ -303,7 +303,7 @@ library BtcLib {
     ///         single-sided BTC boundary order; returns the new position id (the
     ///         forwarder writes it back to ID). Byte-identical.
     function outOfRangeBtc(
-        Types.BandCfg memory c,
+        Types.RangeCfg memory c,
         mapping(uint => Types.SelfManaged) storage selfManaged,
         mapping(address => uint[]) storage positions,
         OorArgs memory a
@@ -343,7 +343,7 @@ library BtcLib {
     ///         pair the in-range slice + track the out-of-range remainder as shares.
     ///         Returns the lpShares increase (deltaBTC + unpaired). Byte-identical.
     function requestDeposit(
-        Types.BandCfg memory c,
+        Types.RangeCfg memory c,
         Types.Deposit storage LP,
         address lpEth, uint sats, address quid, uint weight
     ) public returns (uint sharesAdded) {
@@ -355,7 +355,7 @@ library BtcLib {
         // Bundle the pool range + fresh fee accumulators into one memory slot so this
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
-        Types.BandP memory p;
+        Types.RangeP memory p;
         (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
         p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
@@ -380,7 +380,7 @@ library BtcLib {
     /// @dev In-range channel-register leg in its own frame (legacy stack): pair `deltaBTC`, refresh the
     ///      bookmark at the post-pair GROSS weight (weight + deltaBTC), and modLP. Returns the shares added.
     function _pairRegLeg(
-        address core, Types.Deposit storage LP, Types.BandP memory p,
+        address core, Types.Deposit storage LP, Types.RangeP memory p,
         uint weight, uint deltaBTC, uint deltaUSD, address lpEth
     ) private returns (uint) {
         LP.pooled += deltaBTC;
@@ -390,7 +390,7 @@ library BtcLib {
     }
 
     /// @notice Full body of Vault.syncLev (skip-check + rebalance moved here):
-    ///         reconcile band CAPACITY to the manager's GROSS target; skip when both
+    ///         reconcile range CAPACITY to the manager's GROSS target; skip when both
     ///         the gross depth AND the buffer-USD target are already in sync. On work,
     ///         repack (self-call), then settle fees + FULL-RESYNC the slice to GROSS
     ///         (net + debt-funded buffer) as two legs — the net leg pairs basket-surplus
@@ -398,7 +398,7 @@ library BtcLib {
     ///         committedUsd18's live-debt subtraction). Mirrors ETH.
     ///         Returns the signed lpShares change split as (added, burned).
     function syncLev(
-        Types.BandCfg memory c,
+        Types.RangeCfg memory c,
         Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBufferUsd,
@@ -414,14 +414,14 @@ library BtcLib {
         // below doesn't compute pooled+levBuf inline at its peak. Build p field-by-field (NOT a struct
         // literal) so external-call temporaries free between assignments — both keep this off the legacy stack.
         uint w = LP.pooled + levBuf[lp];
-        Types.BandP memory p;
+        Types.RangeP memory p;
         (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
         p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
         p.mgr = mgr; p.gross = gross;
         d.addedNet += settleBtcLp(LP, lp, address(0), quid, p.feesPerShare, p.usdFees, w); // (E145) fee compounds into pooled
-        (d.burnedNet, d.bufBurned) = BandLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
-        (d.addedNet, d.bufAdded)   = BandLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+        (d.burnedNet, d.bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+        (d.addedNet, d.bufAdded)   = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
     }
 
     /// @dev Grow the full-2× BTC slice as two legs: net-equity (into pooled/lpShares) + the debt-funded
@@ -440,19 +440,19 @@ library BtcLib {
     /// @dev modLP for the BUFFER BTC leg in its own frame (legacy stack). Buffer USD folds into POOLED_USD.
 
     // ════════════════════════════════════════════════════════════════════
-    //  vBTC BAND BODIES (BTC-lev collateral). The ERC-20 face that used to
+    //  vBTC RANGE BODIES (BTC-lev collateral). The ERC-20 face that used to
     //  live here moved to `VBtc.sol` (§J.2) along with the Vault's supply
     //  slots, so `vbtcTransfer`/`vbtcTransferFrom` are GONE — VBtc owns its
     //  own balances and does not need a delegatecall'd body. What remains is
-    //  band accounting ONLY: the funded↔lev reclassification. DELEGATECALL'd,
+    //  range accounting ONLY: the funded↔lev reclassification. DELEGATECALL'd,
     //  so the passed-by-STORAGE-REF mappings are the Vault's real slots.
     //  vBTC is sats-denominated (8-dec); supply moves only via the SAME-BTC
     //  expose/unexpose path, gated to the LevManager in the Vault forwarder.
     // ════════════════════════════════════════════════════════════════════
 
-    /// @notice Body of Vault.exposeBtcToLev — reclassify `sats` of the LP's FREE channel band BTC as the levered
+    /// @notice Body of Vault.exposeBtcToLev — reclassify `sats` of the LP's FREE channel range BTC as the levered
     ///         slice (funded→lev; LP.pooled untouched, single-count). The matching vBTC SUPPLY mutation is the
-    ///         token's own (`VBtc.mintTo`, called by the Vault forwarder right after this) — this body owns band
+    ///         token's own (`VBtc.mintTo`, called by the Vault forwarder right after this) — this body owns range
     ///         state only. The `NotLevManagerBtc` gate stays in the Vault forwarder.
     function vbtcExposeBody(
         mapping(address => Types.Deposit) storage autoManaged,
@@ -465,9 +465,9 @@ library BtcLib {
         levPooled[lp] += sats;                            // funded → lev; LP.pooled untouched (single-count)
     }
 
-    /// @notice Body of Vault.unexposeBtcFromLev — convert the LP's levered slice back to FREE channel band depth
+    /// @notice Body of Vault.unexposeBtcFromLev — convert the LP's levered slice back to FREE channel range depth
     ///         (lev→funded; LP.pooled untouched). The burn is the token's own (`VBtc.burnFrom`), and the Vault
-    ///         forwarder runs it BEFORE this so an under-funded manager reverts without the band having moved.
+    ///         forwarder runs it BEFORE this so an under-funded manager reverts without the range having moved.
     function vbtcUnexposeBody(
         mapping(address => uint) storage levPooled,
         address lp, uint sats
@@ -491,7 +491,7 @@ library BtcLib {
     ///         `SwapLib.feeIncrements(fees, usd, feeDenom)` to the accumulators (the dead `bool` arg dropped). The
     ///         forwarder writes back feesPerShare/USD_FEES/reseatEpochBTC/LOWER_TICK_BTC/UPPER_TICK_BTC.
     function rebalanceBody(
-        Types.BandCfg memory c, uint loPrice, uint upPrice,
+        Types.RangeCfg memory c, uint loPrice, uint upPrice,
         uint feesPerShare, uint usdFees, uint feeDenom
     ) public returns (RebalOut memory o) {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
@@ -515,7 +515,7 @@ library BtcLib {
     }
 
     /// @notice Body of Vault._levBurnBTC — shrink the levered slice by up to `rem`
-    ///         sats (burn band depth without delivery). Returns the sats actually
+    ///         sats (burn range depth without delivery). Returns the sats actually
     ///         burned, subtracted from lpShares by the forwarder. Byte-identical.
     /// @dev Burn the ENTIRE full-2× BTC slice tokenlessly (no delivery — equity sits on the venue). The buffer
     ///      USD (`levBufferUsd`) un-pairs from POOLED_USD as part of the gross burn,
@@ -542,8 +542,8 @@ library BtcLib {
     // `address(this)`. The topics are unchanged because the declarations are byte-identical to the
     // manager's, so no client ABI moves. If you edit an event here, you have edited the manager's ABI.
     //
-    // ⚠️ `_syncBand` IS NOT CALLED FROM HERE. It try/catches a call to `BAND` and returning a flag for
-    // the caller to act on would be the same code in a worse place, so the WRAPPER pokes the band
+    // ⚠️ `_syncRange` IS NOT CALLED FROM HERE. It try/catches a call to `RANGE` and returning a flag for
+    // the caller to act on would be the same code in a worse place, so the WRAPPER pokes the range
     // after this returns. That ordering matters: the poke must happen AFTER the venue state moves.
 
     event Borrowed(address indexed lp, uint stableOut);

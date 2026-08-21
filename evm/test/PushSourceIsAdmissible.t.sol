@@ -8,7 +8,7 @@ interface IAggV3 { function latestRoundData() external view returns (uint80,int2
 
 /// @title  §E294 — CAN A 1inch-SOURCED PUSH ACTUALLY CLEAR `pushObservation`'s GUARD?
 ///
-/// @notice **THE DESIGN NAMES A SOURCE AND A BAND, AND NOTHING CHECKS THEY ARE COMPATIBLE.**
+/// @notice **THE DESIGN NAMES A SOURCE AND A RANGE, AND NOTHING CHECKS THEY ARE COMPATIBLE.**
 ///         `Core.pushObservation` admits a price only within `OBS_PUSH_MAX_BPS = 50` of the Chainlink
 ///         anchor, and `Core`'s note justifies that number with *"MEASURED basis between 1inch and
 ///         Chainlink on ETH/USD is 8 bps, so this is ~6x headroom."*
@@ -54,7 +54,7 @@ contract PushSourceIsAdmissibleTest is Test {
         console2.log("chainlink ETH/USD   :", cl);
         console2.log("basis (bps)         :", bps);
         assertLt(bps, OBS_PUSH_MAX_BPS,
-            "1inch is OUTSIDE the push band => every push refused => the ring never fills");
+            "1inch is OUTSIDE the push range => every push refused => the ring never fills");
     }
 
     /// CONTROL — would this measurement look the same if I were wrong? The EXISTING assertion (500
@@ -68,12 +68,12 @@ contract PushSourceIsAdmissibleTest is Test {
             "control void: the existing bound is not meaningfully looser than the guard");
     }
 
-    /// The band must leave real headroom, not merely be satisfied at this block. `Core`'s claim is
+    /// The range must leave real headroom, not merely be satisfied at this block. `Core`'s claim is
     /// ~6x; assert a floor of 2x so a drift that eats the margin fails here BEFORE it silently
     /// starts refusing pushes in production.
     function test_E294_HeadroomIsNotMarginal() public view {
         (uint256 bps,,) = _basisBps();
         assertLt(bps * 2, OBS_PUSH_MAX_BPS,
-            "basis has drifted to within 2x of the band - the guard is about to start refusing");
+            "basis has drifted to within 2x of the range - the guard is about to start refusing");
     }
 }

@@ -4,8 +4,8 @@ pragma solidity 0.8.30;
 import {AllesFixture} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
 
-/// Probe: the LP-band backing gate (Core._poolUsdInRange → `committedUsd18() <=
-/// _d[14]`) sized committed band dollars against PAR TVL (`_d[14]`), while
+/// Probe: the LP-range backing gate (Core._poolUsdInRange → `committedUsd18() <=
+/// _d[14]`) sized committed range dollars against PAR TVL (`_d[14]`), while
 /// redemption (BasketLib.redeemAsBody:889) and mint (Basket.sol:266/315) size
 /// against par − depegLoss. Under a detected stable depeg the gate therefore
 /// OVER-PERMITS committed dollars by exactly `depegLoss`, so QD's real redeemable
@@ -16,10 +16,10 @@ import {console} from "forge-std/console.sol";
 /// (`CORE.committedUsd18()`, `AUX.get_deposits()`), so the gate-decision flip it
 /// asserts IS the deployed require()'s decision. The end-to-end regime sims
 /// (test_RunSim_A/IL_*/C_DepegFee) exercise the live require() on the happy path.
-contract BandGateDepegProbe is AllesFixture {
+contract RangeGateDepegProbe is AllesFixture {
     /// Gate over-permit == depegLoss; the fixed basis (par − depegLoss) equals the
     /// redeem/mint basis; and non-depeg operation is unchanged (depegLoss == 0).
-    function test_bandGate_overpermits_committed_by_depegLoss() public {
+    function test_rangeGate_overpermits_committed_by_depegLoss() public {
         // Heal the no-CRE fork default depeg, then build real basket backing.
         _stageDepeg(); // 100k QUI minted from USDC; all stables healthy
 
@@ -57,7 +57,7 @@ contract BandGateDepegProbe is AllesFixture {
         // GATE-DECISION FLIP: a committed level in the over-permit window
         // (par-haircut, par] passes the OLD gate but the NEW gate rejects it — and
         // that committed level leaves QD's redeemable reserve negative by the slice.
-        uint hypotheticalCommitted = newCeil + overPermit / 2; // mid over-permit band
+        uint hypotheticalCommitted = newCeil + overPermit / 2; // mid over-permit range
         bool oldGatePasses = hypotheticalCommitted <= oldCeil;
         bool newGatePasses = hypotheticalCommitted <= newCeil;
         assertTrue(oldGatePasses, "BEFORE fix: over-permitting committed level ACCEPTED (bug)");

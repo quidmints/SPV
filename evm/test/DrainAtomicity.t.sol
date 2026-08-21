@@ -51,7 +51,7 @@ contract DrainAtomicity is AllesFixture {
         vm.warp(block.timestamp + 20 minutes);
     }
 
-    /// stable → volatile: the band hands out BTC, so `inv` FALLS and it gets SCARCER.
+    /// stable → volatile: the range hands out BTC, so `inv` FALLS and it gets SCARCER.
     /// §E71-r3 — RETURNS THE VOLATILE THE TRADER ACTUALLY RECEIVED. The original version returned
     /// nothing and the test read `skewPremiumCum` instead: OUR OWN ACCOUNTING of what we retained.
     /// That is the same trap that hid the delivery bug through six layers of diagnosis — asserting
@@ -78,7 +78,7 @@ contract DrainAtomicity is AllesFixture {
         _settle();
     }
 
-    function _setupBand() internal {
+    function _setupRange() internal {
         _seedBasket();
         vm.prank(lpA);
         ETH.deposit{value: 400 ether}(0, lpA);
@@ -150,7 +150,7 @@ contract DrainAtomicity is AllesFixture {
     ///
     /// E71 (consolidation) does NOT answer it — that measures ONE big swap vs the same volume split,
     /// i.e. path-independence WITHIN a displacement. This measures the LEVEL dependence: the SAME
-    /// small ticket, priced at a balanced band and at an imbalanced one. The integral is irrelevant
+    /// small ticket, priced at a balanced range and at an imbalanced one. The integral is irrelevant
     /// here BY CONSTRUCTION — its own limit argument says infinitesimal swaps price identically to
     /// the old point rate, which is exactly why E68/E68b could not have fixed this.
     ///
@@ -180,13 +180,13 @@ contract DrainAtomicity is AllesFixture {
     /// the DRAIN side; `sellSkew`'s integral (E68b) and its share of the risk-vs-fee split (E89b) were
     /// verified only by "the suite is green" — which E88-PROOF just demonstrated is what a
     /// never-executed branch also produces. This is E96's mirror on the abundant side: does a seller
-    /// into an ALREADY-ABUNDANT band pay for an overshoot it did not create?
+    /// into an ALREADY-ABUNDANT range pay for an overshoot it did not create?
     /// Measured on the trader's receipt (all basket stables + QUID), never on our own ledger.
     /// §E98 — THE BTC LEG, WHICH HAS NEVER BEEN EXERCISED. Every behavioural skew test this session
     /// was ETH. That matters specifically for E89b: `SPLICE_FLOOR` (2e15) exists ONLY for BTC, so the
     /// risk-vs-fee split — amplify the kernel and `σ²·confFrac/8`, NEVER the fixed splice fee — is
     /// entirely UNTESTED. And it only bites when E53's amplifier exceeds 1, which requires BOTH
-    /// bands populated (a lone band gives `_sharedScarcityWad == 1e18` and the split is invisible).
+    /// ranges populated (a lone range gives `_sharedScarcityWad == 1e18` and the split is invisible).
     ///
     /// THE DISCRIMINATOR: `skewWad` is public and returns the UNAMPLIFIED `kernel + base`.
     /// `AUX.wellSkew` returns the composed, amplified price. If the split is right the splice fee
@@ -199,16 +199,16 @@ contract DrainAtomicity is AllesFixture {
         _settle();
         uint ethAlone = AUX.wellSkew(address(WETH), 0);
 
-        // Populate the BTC band so the SHARED-scarcity amplifier can exceed 1 for BOTH assets.
+        // Populate the BTC range so the SHARED-scarcity amplifier can exceed 1 for BOTH assets.
         AUX.setBTCChannels(address(this));   // auth: requestDeposit is gated (403 without this)
         BTC.requestDeposit(User01, 2e7);
         _settle();
 
         uint ethBoth = AUX.wellSkew(address(WETH), 0);
         uint btcLive = AUX.wellSkew(address(WBTC), 0);
-        emit log_named_uint("ETH wellSkew, ETH band only ", ethAlone);
-        emit log_named_uint("ETH wellSkew, BOTH bands    ", ethBoth);
-        emit log_named_uint("BTC wellSkew, BOTH bands    ", btcLive);
+        emit log_named_uint("ETH wellSkew, ETH range only ", ethAlone);
+        emit log_named_uint("ETH wellSkew, BOTH ranges    ", ethBoth);
+        emit log_named_uint("BTC wellSkew, BOTH ranges    ", btcLive);
         emit log_named_uint("SPLICE_FLOOR (BTC only)     ", 2e15);
 
         if (ethBoth > ethAlone) {
@@ -216,8 +216,8 @@ contract DrainAtomicity is AllesFixture {
         } else {
             emit log("AMPLIFIER NOT ACTIVE at this state -- the E89b split cannot be observed here.");
         }
-        // DRIVE REAL BTC FLOW INTO SCARCITY. A populated band is not enough (E98): the base is only
-        // reached once `flowEwmaUsd(true) > 0` AND `inv < target`. Buying BTC drains the BTC band.
+        // DRIVE REAL BTC FLOW INTO SCARCITY. A populated range is not enough (E98): the base is only
+        // reached once `flowEwmaUsd(true) > 0` AND `inv < target`. Buying BTC drains the BTC range.
         for (uint i = 0; i < 3; ++i) {   // §E98-r: MILD scarcity -- 14 rounds pinned `live` at the
             deal(bold, drainer, 3_000 * 1e18);   // 3% ceiling and destroyed the discriminator.
             vm.startPrank(drainer);
@@ -237,8 +237,8 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("BTC sigma^2           ", sigBtc);
         emit log_named_uint("BTC raw (unamplified) ", raw);
         emit log_named_uint("BTC live (amplified)  ", btcLive);
-        // §E98-r2 — DRIVE THE **ETH** BAND SCARCE TOO. The identity `amp_ETH + amp_BTC = 3e18` needs
-        // BOTH bands live: `_sharedScarcityWad = 1e18 + other/both`, and `other_ETH + other_BTC =
+        // §E98-r2 — DRIVE THE **ETH** RANGE SCARCE TOO. The identity `amp_ETH + amp_BTC = 3e18` needs
+        // BOTH ranges live: `_sharedScarcityWad = 1e18 + other/both`, and `other_ETH + other_BTC =
         // both`, so the two amplifiers sum to exactly 3e18. ETH has NO `SPLICE_FLOOR`, so for ETH the
         // splice-inside and splice-outside forms COINCIDE and `amp_ETH = live/raw` is unambiguous —
         // which pins `amp_BTC` INDEPENDENTLY of the thing under test. Only then can the BTC forms be
@@ -317,8 +317,8 @@ contract DrainAtomicity is AllesFixture {
         // §RING-SIZE — RE-DERIVED FROM `forge inspect Core storageLayout`, NOT ADJUSTED BY HAND.
         // `Observation` packs into ONE slot (uint32+uint192+bool = 232 bits), so `Observation[RING]`
         // occupies exactly RING slots and EVERY variable after it moves when RING moves. History of
-        // this number, each step measured: `_flowETH` 131088 (RING 65535, two bands in one Core) ->
-        // `_flow` 1030 (RING 1024, one band per instance) -> `_flow` 262 (RING 256). The shift from
+        // this number, each step measured: `_flowETH` 131088 (RING 65535, two ranges in one Core) ->
+        // `_flow` 1030 (RING 1024, one range per instance) -> `_flow` 262 (RING 256). The shift from
         // the last step is 1024-256 = 768, and 1030-768 = 262 as solc reports.
         // ⚠️ A STALE SLOT HERE DOES NOT FAIL -- `vm.load`/`vm.store` happily read and write the
         // WRONG variable, so the test would pass while measuring something else. That is why this is
@@ -471,7 +471,7 @@ contract DrainAtomicity is AllesFixture {
     function test_E97_SellLegTaxOnOrdinaryFlow() public {
         uint SMALL = 3 ether;
 
-        // Reference: sell into a FRESH band (at/below target ⇒ `over == 0` ⇒ EXEMPT by construction).
+        // Reference: sell into a FRESH range (at/below target ⇒ `over == 0` ⇒ EXEMPT by construction).
         uint snap = vm.snapshotState();
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
@@ -479,7 +479,7 @@ contract DrainAtomicity is AllesFixture {
         uint refOut = _sell(SMALL);
         vm.revertToState(snap);
 
-        // Now push the band ABUNDANT with someone else's sells, then send the SAME small ticket.
+        // Now push the range ABUNDANT with someone else's sells, then send the SAME small ticket.
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
@@ -562,7 +562,7 @@ contract DrainAtomicity is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
-        // FRESH band: `OracleLib.initPool` sets `cardinality = 1`, so the ring is UNPOPULATED by the
+        // FRESH range: `OracleLib.initPool` sets `cardinality = 1`, so the ring is UNPOPULATED by the
         // `>= 2` test. Variance here must read 0 = "we have not measured", and the skew must charge
         // the conservative ceiling — that is E59's intent and it must survive E88-r.
         uint vFresh = CORE.realizedVarianceWad();
@@ -607,7 +607,7 @@ contract DrainAtomicity is AllesFixture {
     /// (1) E101's second check: does RESEAT reduce inventory without a swap? If so, E101's
     ///     "scarce-now + no-swap-since-ts ⟹ continuously scarce" derivation weakens further.
     /// (2) E59's claim that UNMEASURED variance charges the CEILING — E88-PROOF showed `wellSkew`
-    ///     reads 0 on fresh/flush bands, so the claim is asserted here directly rather than implied.
+    ///     reads 0 on fresh/flush ranges, so the claim is asserted here directly rather than implied.
     /// (3) The four constants: measure each one's MARGINAL EFFECT on the price via pure `skewWad`
     ///     calls, so "load-bearing" is a measurement rather than a reading of the source.
     function test_E104_ReseatInventoryAndE59Ceiling() public {
@@ -615,7 +615,7 @@ contract DrainAtomicity is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
-        // (2) E59: a FRESH band has unmeasured variance. Does it charge the ceiling?
+        // (2) E59: a FRESH range has unmeasured variance. Does it charge the ceiling?
         emit log_named_uint("E59: realizedVariance, fresh", CORE.realizedVarianceWad());
         emit log_named_uint("E59: wellSkew, fresh        ", AUX.wellSkew(address(WETH), 0));
         emit log_named_uint("E59: MAX_WELL_SKEW (claimed)", 3e16);
@@ -646,7 +646,7 @@ contract DrainAtomicity is AllesFixture {
     /// in the operating range is not a dial, whatever the source says.
     /// §E105 — SYSTEMATIC BOUNDARY SWEEP. Every structural defect found this session lived at an
     /// EXTREME, not in the operating range: E88's sentinel sat below two short-circuits and never
-    /// executed · E99's idle decay drove the premium to ZERO · E104's empty-band drain OVERFLOWED
+    /// executed · E99's idle decay drove the premium to ZERO · E104's empty-range drain OVERFLOWED
     /// and reverted. All three survived a 4,308-test green suite, a pinned controlled comparison,
     /// `--sizes` and `check-client-abis`, because **the suite tests REGRESSION thoroughly and
     /// EXTREMES barely**. This walks the corners deliberately. Pure calls: no fixture to blame.
@@ -689,17 +689,17 @@ contract DrainAtomicity is AllesFixture {
     /// TWAP that spans the change mixes TWO frames. E114/E115 identified `reseatEpoch` as the public,
     /// monotonic discriminator; this measures what actually goes wrong without it.
     /// §E118 — CONSEQUENCES OF ELIMINATING THE MOVING FRAME, measured BEFORE proposing it. If the
-    /// band never re-centred, `reseatEpoch` and E117's frame-mixing hazard would both vanish. The
+    /// range never re-centred, `reseatEpoch` and E117's frame-mixing hazard would both vanish. The
     /// question is what that would COST: a fixed range that price leaves is OUT OF RANGE — 100% one
-    /// asset, earning NOTHING. So the measurable is TICK TRAVEL vs BAND WIDTH. If travel >> width,
+    /// asset, earning NOTHING. So the measurable is TICK TRAVEL vs RANGE WIDTH. If travel >> width,
     /// a fixed frame is untenable and the epoch is unavoidable rather than incidental.
-    function test_E118_TickTravelVersusBandWidth() public {
+    function test_E118_TickTravelVersusRangeWidth() public {
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
         (uint t0,) = CORE.poolStats();
         uint origLo = _bLo(address(ETH)); uint origHi = _bHi(address(ETH));
-        emit log_named_uint("band width (price)        ", origHi - origLo);
+        emit log_named_uint("range width (price)        ", origHi - origLo);
         emit log_named_uint("start price              ", t0);
 
         uint minT = t0; uint maxT = t0;
@@ -717,18 +717,18 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("  max price              ", maxT);
         emit log_named_uint("frame lower price        ", _bLo(address(ETH)));
         emit log_named_uint("frame upper price        ", _bHi(address(ETH)));
-        emit log_named_uint("band NOW  LOWER         ", _bLo(address(ETH)));
-        emit log_named_uint("band NOW  UPPER         ", _bHi(address(ETH)));
+        emit log_named_uint("range NOW  LOWER         ", _bLo(address(ETH)));
+        emit log_named_uint("range NOW  UPPER         ", _bHi(address(ETH)));
         emit log_named_uint("ORIGINAL  LOWER         ", origLo);
         emit log_named_uint("ORIGINAL  UPPER         ", origHi);
 
         uint travel = maxT - minT; uint width = origHi - origLo;
         if (travel > width) {
-            emit log("TRAVEL EXCEEDS WIDTH: a FIXED band would have gone OUT OF RANGE and stayed there,");
+            emit log("TRAVEL EXCEEDS WIDTH: a FIXED range would have gone OUT OF RANGE and stayed there,");
             emit log("holding 100% of one asset and earning nothing. The moving frame is REQUIRED, so");
             emit log("FRAME MOVES are UNAVOIDABLE -- not an incidental complication to design away.");
         } else {
-            emit log("Travel stayed within width here -- a fixed band MIGHT be viable; widen the test");
+            emit log("Travel stayed within width here -- a fixed range MIGHT be viable; widen the test");
             emit log("before concluding, because one sequence is not the operating envelope.");
         }
     }
@@ -765,13 +765,13 @@ contract DrainAtomicity is AllesFixture {
         uint twap1 = uint(c1[0] - c1[1]) / 3600;
         emit log_named_uint("AFTER : lower price     ", _bLo(address(ETH)));
         emit log_named_uint("AFTER : 1h TWAP price  ", twap1);
-        emit log_named_uint("AFTER : band LOWER     ", lo1);
-        emit log_named_uint("AFTER : band UPPER     ", hi1);
+        emit log_named_uint("AFTER : range LOWER     ", lo1);
+        emit log_named_uint("AFTER : range UPPER     ", hi1);
 
 
         if (ep1 == ep0) { emit log("VOID: no reseat occurred -- the frame never moved."); return; }
         emit log("FRAME MOVED. The TWAP above spans BOTH frames, so `normalized` mixes a pre-reseat");
-        emit log("tick with a post-reseat range. The band BOUNDS moving is the signal of that --");
+        emit log("tick with a post-reseat range. The range BOUNDS moving is the signal of that --");
         emit log("without it the number looks perfectly ordinary. THAT is why it must be read.");
         if (twap1 == twap0) emit log("TWAP price UNCHANGED across the reseat.");
     }
@@ -827,7 +827,7 @@ contract DrainAtomicity is AllesFixture {
             emit log_named_uint("  liquidity             ", liq);
         }
         emit log("Monotone normalized-vs-ratio WITHIN one frame => the instrument works.");
-        emit log("A jump where the band bounds change is a FRAME MOVE, not a composition change.");
+        emit log("A jump where the range bounds change is a FRAME MOVE, not a composition change.");
     }
 
     function test_E109_DoesReseatMoveTheRatio() public {
@@ -835,15 +835,15 @@ contract DrainAtomicity is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
         _settle();
         // §E110-r: the repack gate is `currentTick >= upPrice || currentTick < loPrice`, so the
-        // band must be driven OUT OF RANGE before a reseat does anything. 12 rounds of 20k moved
-        // price ~0.15% against a +/-0.2% band and never exited -- which is why E109 tested nothing.
-        // `reseatEpoch` incrementing IS the proof the band exited and re-centred, so no tick getter
+        // range must be driven OUT OF RANGE before a reseat does anything. 12 rounds of 20k moved
+        // price ~0.15% against a +/-0.2% range and never exited -- which is why E109 tested nothing.
+        // `reseatEpoch` incrementing IS the proof the range exited and re-centred, so no tick getter
         // is needed: drain hard, then assert the epoch moved before reading any result.
-        // §E111 -> §E112: DRAINING cannot arm this test -- it empties the band, and the repack needs
+        // §E111 -> §E112: DRAINING cannot arm this test -- it empties the range, and the repack needs
         // `myLiquidity > 0`, so the liquidity is destroyed in the act of moving the price. The MIRROR
         // construction avoids that: SELLING ETH IN pushes price DOWN toward `loPrice`, where a
-        // concentrated position converts to 100% VOLATILE -- so the band exits the range while still
-        // HOLDING assets rather than being emptied. That is a band that is out-of-range AND liquid,
+        // concentrated position converts to 100% VOLATILE -- so the range exits the range while still
+        // HOLDING assets rather than being emptied. That is a range that is out-of-range AND liquid,
         // which is exactly the state E108-EXPLAINED's mechanism needs to be testable.
         uint sells;
         for (uint d = 0; d < 40; ++d) {
@@ -860,15 +860,15 @@ contract DrainAtomicity is AllesFixture {
         // §E112 -> §E113 ANSWERED BY CONSTRUCTION, SO THE COMPARISON IS GONE. This used to recompute
         // the v4 POSITION's true split from (sqrtPrice, loPrice, upPrice, liquidity) and diff it
         // against `POOLED_*` to decide which of the two the ledger measured. There is no v4 position
-        // left to disagree with: the band settles against the oracle bounded by inventory, and
+        // left to disagree with: the range settles against the oracle bounded by inventory, and
         // `poolStats()` reports OUR OWN accounting. `POOLED_*` is the ledger -- not because the diff
         // came out that way, but because there is nothing else for it to be. Recomputing a number
         // from the same source it is being checked against is a control that CANNOT fail, which is
         // worse than no control: it reads as coverage.
         {
             (uint px, uint liq) = CORE.poolStats();
-            emit log_named_uint("band price                ", px);
-            emit log_named_uint("band liquidity            ", liq);
+            emit log_named_uint("range price                ", px);
+            emit log_named_uint("range liquidity            ", liq);
             emit log_named_uint("Core POOLED           ", CORE.POOLED());
             emit log_named_uint("Core POOLED_USD       ", CORE.POOLED_USD());
         }
@@ -1005,7 +1005,7 @@ contract DrainAtomicity is AllesFixture {
             emit log_named_uint("REPAIR PAYS: value/share gain (1e-8)", (perShareB - perShareA) * 1e8 / perShareA);
         } else if (perShareA > perShareB) {
             emit log_named_uint("REPAIR COSTS: value/share loss (1e-8)", (perShareA - perShareB) * 1e8 / perShareB);
-            emit log("=> the LP is WORSE OFF repairing -- a drained band is cheaper to hold.");
+            emit log("=> the LP is WORSE OFF repairing -- a drained range is cheaper to hold.");
         } else {
             emit log("NEUTRAL: repair changes value/share by nothing measurable at this horizon.");
         }
@@ -1013,11 +1013,11 @@ contract DrainAtomicity is AllesFixture {
 
     function test_E105_BoundarySweep() public pure {
         uint T = 1_000_000e6;
-        // Each row is a corner that a real band can actually occupy.
+        // Each row is a corner that a real range can actually occupy.
         console.log("--- target == 0 (genesis, no flow history)");
         console.log("  eth:", SwapLib.skewWad(T, 0, 1e16, SwapLib.ethRisk(), T / 4));
         console.log("  btc:", SwapLib.skewWad(T, 0, 1e16, SwapLib.btcRisk(),  T / 4));
-        console.log("--- inv == 0 (band already empty)");
+        console.log("--- inv == 0 (range already empty)");
         console.log("  eth:", SwapLib.skewWad(0, T, 1e16, SwapLib.ethRisk(), T / 4));
         console.log("  btc:", SwapLib.skewWad(0, T, 1e16, SwapLib.btcRisk(),  T / 4));
         console.log("--- drain == 0 (read-only quote)");
@@ -1090,7 +1090,7 @@ contract DrainAtomicity is AllesFixture {
             uint refEth = _drain(tickets[i]);
             vm.revertToState(snap);
 
-            // SAME ticket into a band someone else drained to the SAME depth.
+            // SAME ticket into a range someone else drained to the SAME depth.
             _seedBasket();
             vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
             _settle();
@@ -1124,7 +1124,7 @@ contract DrainAtomicity is AllesFixture {
             uint inv = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
             uint got = _drain(SMALL);
             if (r == 0) { refEth = got; refInv = inv; }
-            // §E93-b GATE: does the TICK (hence price) track COMPOSITION? If the band is
+            // §E93-b GATE: does the TICK (hence price) track COMPOSITION? If the range is
             // oracle-pegged, price is pinned externally and CANNOT encode internal imbalance --
             // which would refute E93-b's premise that the tick ring records composition history.
             emit log_named_uint("    oracle px (usd18)   ", AUX.getTWAPforAsset(address(WETH), 1800));
@@ -1145,7 +1145,7 @@ contract DrainAtomicity is AllesFixture {
     function test_E96_TaxOnOrdinaryFlowFromSomeoneElsesImbalance() public {
         uint SMALL = 5_000 * 1e18;      // an ordinary ticket, not a whale
 
-        // LEG A — the SAME small swap into a FRESH, balanced band.
+        // LEG A — the SAME small swap into a FRESH, balanced range.
         uint snap = vm.snapshotState();
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
@@ -1154,8 +1154,8 @@ contract DrainAtomicity is AllesFixture {
         uint ethBalanced = _drain(SMALL);
         vm.revertToState(snap);
 
-        // LEG B — the SAME small swap into a band someone ELSE has already drained.
-        _setupBand();
+        // LEG B — the SAME small swap into a range someone ELSE has already drained.
+        _setupRange();
         uint invSkewed = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethSkewed = _drain(SMALL);
 
@@ -1200,7 +1200,7 @@ contract DrainAtomicity is AllesFixture {
         // rather than kept alongside: keeping both was hedging, and it cost the stack slots that made
         // this function stack-too-deep.
         uint snap = vm.snapshotState();
-        _setupBand();
+        _setupRange();
         uint invA = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         emit log_named_uint("flow target t0 (BIG)  ", CORE.flowEwmaUsd());
         uint ethA = _drain(TOTAL);
@@ -1208,7 +1208,7 @@ contract DrainAtomicity is AllesFixture {
         uint premA = CORE.skewPremium() - premStart;   // ledger, BIG leg (pre-revert)
         vm.revertToState(snap);
 
-        _setupBand();
+        _setupRange();
         uint invB = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         uint ethB;
         for (uint i = 0; i < N; ++i) {
@@ -1259,7 +1259,7 @@ contract DrainAtomicity is AllesFixture {
     /// called it a MONEY-PATH question: §E5 credits LPs the RECORDED number, so if the record
     /// overstates what is withheld, LPs are paid value no swapper paid.
     /// ⚠️ §UNIT-SKEW-IS-NOISE already tried "measure (a) balance deltas, (b) counter, (c) USD_FEES in
-    /// one run" and could NOT settle it: (a) conflates band cushion + price impact + skew.
+    /// one run" and could NOT settle it: (a) conflates range cushion + price impact + skew.
     /// ⚠️ AND THE OBVIOUS DIFFERENCING DESIGN IS BROKEN: `q = (target-inv)/target` and `inv` IS the
     /// depth, so reaching a different `q` BY DRAINING changes the depth and the cushion stops
     /// cancelling — silently, with every control passing (§UNIT-B-VERIFIED-DESIGN-FIX).
@@ -1269,7 +1269,7 @@ contract DrainAtomicity is AllesFixture {
     /// `retainSkewPremium` does `r.amount -= premium`, so a dollar withheld is a dollar the swapper
     /// does not receive: **ΔReceipt must equal ΔCounter.**
     function test_UNITB_CounterMatchesWhatTheSwapperLoses() public {
-        _setupBand();
+        _setupRange();
         uint SIZE = 30_000 * 1e18;
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         uint snap = vm.snapshotState();
@@ -1294,7 +1294,7 @@ contract DrainAtomicity is AllesFixture {
         // cushion and curve impact cancel. Comparing a pre-drain figure to a post-drain one is the
         // mistake that made this assertion fire the first time.
         assertEq(CORE.POOLED(), pooledEthA, "CONTROL: identical volatile depth across arms, "
-            "else the band cushion does not cancel and this measures the wrong thing");
+            "else the range cushion does not cancel and this measures the wrong thing");
         assertEq(CORE.POOLED_USD(), pooledUsdA, "CONTROL: identical USD depth across arms");
         uint premB = CORE.skewPremium();
         uint ethB = _drain(SIZE);
@@ -1333,7 +1333,7 @@ contract DrainAtomicity is AllesFixture {
 
     /// §UNIT-A-FIXTURE (surviving half) — DRIVE THE POOL TICK, NOT THE FEED.
     /// `realizedVarianceWad` reads the POOL's observation ring (`Core:313` →
-    /// `OracleLib.ringVariance(..., 9)`), and the ring advances ONLY ON A SWAP. The band executes AT
+    /// `OracleLib.ringVariance(..., 9)`), and the ring advances ONLY ON A SWAP. The range executes AT
     /// oracle, so walking the Chainlink feed moves NOTHING — that is why every fixture here reports
     /// ~0 variance and why §UNIT-SKEW-IS-NOISE's "rounding error" was measured on a flat tape
     /// (§SKEW-IS-NOISE-OVERTURNED: 2.458e-5 wad = 0.496% ANNUALIZED vol, against ETH's real 30-60%).
@@ -1360,9 +1360,9 @@ contract DrainAtomicity is AllesFixture {
     }
 
     /// Does the fixture actually reach a plausible volatility? Reports, and asserts only that it
-    /// moved the ring at all — the plausible-band assertion goes in once the level is known.
+    /// moved the ring at all — the plausible-range assertion goes in once the level is known.
     function test_UNITA_FixtureDrivesRealVariance() public {
-        _setupBand();
+        _setupRange();
         emit log_named_uint("sigma^2 BEFORE (wad)", CORE.realizedVarianceWad());
         _driveTick(20);
         uint s2 = CORE.realizedVarianceWad();
@@ -1389,21 +1389,21 @@ contract DrainAtomicity is AllesFixture {
     }
 
     /// §UNIT-B-E71-NOT-AN-INSTRUMENT — PIN THE ENTRY STATE so a target-mechanism change is
-    /// ATTRIBUTABLE. §E71 cannot do this: changing the mechanism changes what `_setupBand`'s own
+    /// ATTRIBUTABLE. §E71 cannot do this: changing the mechanism changes what `_setupRange`'s own
     /// swaps leave in the flow registers, so each variant starts from a different `q` — measured
     /// 380,432 → 360,528 → 340,720 across three variants, and skew is NON-LINEAR in `q`, so the
     /// discounts were never comparable. Two experiments were void on that broken control.
     ///
     /// `Flow` is `{uint128 vol; uint64 ts}` in ONE slot ⇒ `(ts << 128) | vol`. Slots from
     /// `forge inspect Core storageLayout`: 262 `_flow` (ONE register per instance since the isBTC
-    /// split; the sibling band is a separate contract), followed by the retained dead slow-flow
+    /// split; the sibling range is a separate contract), followed by the retained dead slow-flow
     /// slots (§UNIT-B-SLOWDEL-PADDING). `ts = now` ⇒ zero decay ⇒ the value is exactly what was
     /// written.
     function _pinFlow(uint128 vol) internal {
         bytes32 packed = bytes32((uint(block.timestamp) << 128) | uint(vol));
         // §RING-SIZE — ONE flow register per instance (was `_flowBTC` + `_flowETH`); it moved to 1030
         // when the second ring went and RING became 1024, and to 262 now RING is 256. Pinning the
-        // single live register is the whole job; there is no sibling band's copy to keep in step.
+        // single live register is the whole job; there is no sibling range's copy to keep in step.
         // Authoritative source: `forge inspect Core storageLayout` -> `_flow` slot 262.
         vm.store(address(CORE), bytes32(uint(262)), packed);
     }
@@ -1418,7 +1418,7 @@ contract DrainAtomicity is AllesFixture {
         uint128 PINNED = 380_432_109_336;   // the pre-fix entry target, so runs stay comparable
 
         uint snap = vm.snapshotState();
-        _setupBand();
+        _setupRange();
         _pinFlow(PINNED);
         assertEq(CORE.flowEwmaUsd(), PINNED,
             "CONTROL: the entry target must be exactly what was pinned -- if this fails the slots "
@@ -1428,7 +1428,7 @@ contract DrainAtomicity is AllesFixture {
         premBig = CORE.skewPremium() - premBig;
 
         vm.revertToState(snap);
-        _setupBand();
+        _setupRange();
         _pinFlow(PINNED);
         assertEq(CORE.flowEwmaUsd(), PINNED, "CONTROL: identical pinned entry in BOTH arms");
         uint premSplit = CORE.skewPremium();
@@ -1474,7 +1474,7 @@ contract DrainAtomicity is AllesFixture {
         uint[3] memory delays = [uint(0), 30 minutes, 4 hours];
 
         uint snap = vm.snapshotState();
-        _setupBand();
+        _setupRange();
         _pinFlow(PINNED);
         uint premBig = CORE.skewPremium();
         _drain(TOTAL);
@@ -1483,7 +1483,7 @@ contract DrainAtomicity is AllesFixture {
 
         for (uint d; d < delays.length; d++) {
             vm.revertToState(snap);
-            _setupBand();
+            _setupRange();
             _pinFlow(PINNED);
             uint prem = CORE.skewPremium();
             for (uint i = 0; i < N; ++i) {
@@ -1511,7 +1511,7 @@ contract DrainAtomicity is AllesFixture {
     function test_UNITB_PatienceWhy_LogTheInputsPerSlice() public {
         uint TOTAL = 120_000 * 1e18;
         uint N = 12;
-        _setupBand();
+        _setupRange();
         _pinFlow(380_432_109_336);
 
         for (uint i = 0; i < N; ++i) {
@@ -1545,7 +1545,7 @@ contract DrainAtomicity is AllesFixture {
 
         // ARM A — quiet pool: the attacker is the only trader (reproduces §UNIT-B-PATIENCE).
         uint snap = vm.snapshotState();
-        _setupBand();
+        _setupRange();
         _pinFlow(380_432_109_336);
         uint premQuiet = CORE.skewPremium();
         for (uint i = 0; i < N; ++i) {
@@ -1557,7 +1557,7 @@ contract DrainAtomicity is AllesFixture {
 
         // ARM B — busy pool: three small swaps inside each 4h gap, so the ring keeps advancing.
         vm.revertToState(snap);
-        _setupBand();
+        _setupRange();
         _pinFlow(380_432_109_336);
         uint premBusy = CORE.skewPremium();
         uint bgPaid;
@@ -1599,15 +1599,15 @@ contract DrainAtomicity is AllesFixture {
     /// Asserts the INPUTS as well as the output: if only the composed skew were checked, two
     /// compensating moves could cancel and read as survival.
     function test_FORELLA_ScarcitySurvivesAPermissionlessReseat() public {
-        _setupBand();
+        _setupRange();
         _drain(60_000 * 1e18);                     // create real imbalance, so q > 0
 
         uint skewBefore   = AUX.wellSkew(address(WETH), 0);
         uint pooledBefore = CORE.POOLED();
         uint flowBefore   = CORE.flowEwmaUsd();
 
-        // CONTROL: a band that is not skewed cannot demonstrate that skew survives anything.
-        assertGt(skewBefore, 0, "CONTROL: the band must actually be skewed before the reseat");
+        // CONTROL: a range that is not skewed cannot demonstrate that skew survives anything.
+        assertGt(skewBefore, 0, "CONTROL: the range must actually be skewed before the reseat");
 
         ETH.reseat();
 
@@ -1658,7 +1658,7 @@ contract DrainAtomicity is AllesFixture {
         uint128 PINNED = 380_432_109_336;   // same entry target as the sibling test, so runs compare
 
         uint snap = vm.snapshotState();
-        _setupBand();
+        _setupRange();
         _pinFlow(PINNED);
         assertEq(CORE.flowEwmaUsd(), PINNED, "CONTROL: pinned entry target, big arm");
         uint premBig = CORE.skewPremium();
@@ -1666,7 +1666,7 @@ contract DrainAtomicity is AllesFixture {
         premBig = CORE.skewPremium() - premBig;
 
         vm.revertToState(snap);
-        _setupBand();
+        _setupRange();
         _pinFlow(PINNED);
         assertEq(CORE.flowEwmaUsd(), PINNED, "CONTROL: pinned entry target, split arm");
         uint premSplit = CORE.skewPremium();
@@ -1700,7 +1700,7 @@ contract DrainAtomicity is AllesFixture {
     }
 
     /// §UNIT-B-RIGHT-QUESTION (P2) — ENTRY-HISTORY INDEPENDENCE. The SAME traversal must cost the
-    /// SAME however the band reached its starting point. This is the property a signed/two-sided
+    /// SAME however the range reached its starting point. This is the property a signed/two-sided
     /// curve needs (§UNIT-B-BLOCKS-C), and §E71 cannot see it: comparing SEQUENCE TOTALS conflates
     /// "what this swap created" with "what the history did".
     /// ⚠️ THE FLOW IS RE-PINNED IMMEDIATELY BEFORE THE PROBE, and that is not optional: arm B has
@@ -1712,7 +1712,7 @@ contract DrainAtomicity is AllesFixture {
         uint128 PINNED = 380_432_109_336;
         uint snap = vm.snapshotState();
 
-        _setupBand(); _pinFlow(PINNED);
+        _setupRange(); _pinFlow(PINNED);
         _drain(TOTAL);                                   // ARM A: one whale walks 0 -> q0
         uint invA = CORE.POOLED();
         emit log_named_uint("sigma^2 after whale   ", CORE.realizedVarianceWad());
@@ -1723,7 +1723,7 @@ contract DrainAtomicity is AllesFixture {
 
         vm.revertToState(snap);
 
-        _setupBand(); _pinFlow(PINNED);
+        _setupRange(); _pinFlow(PINNED);
         for (uint i = 0; i < N; ++i) _drain(TOTAL / N);   // ARM B: twelve walk to the SAME q0
         uint invB = CORE.POOLED();
         emit log_named_uint("sigma^2 after split   ", CORE.realizedVarianceWad());
@@ -1763,11 +1763,11 @@ contract DrainAtomicity is AllesFixture {
         //     price ring: sigma^2 whale 2.075e13 / split 5.185e12 -> ratio 4.00x
         //   The WHALE arm barely moved (x0.84). The SPLIT arm COLLAPSED (x0.34), and that asymmetry
         //   is the evidence: the split arm is twelve SMALL moves, and TICKS ARE QUANTIZED. With
-        //   BAND_DELTA = 20 bps against tickSpacing 10, each ~1.7 bp sub-move rounded UP to a whole
+        //   RANGE_DELTA = 20 bps against tickSpacing 10, each ~1.7 bp sub-move rounded UP to a whole
         //   tick, inflating the split arm's variance ~3x and MASKING the real dependence.
         //   ⇒ 4.00x is not new leakage. It is the TRUE value, which the coarse estimator was hiding;
         //   1.59x (and the 2.34x recorded earlier) were artifacts of measuring log-price on a grid
-        //   too coarse for the band. The defect did not grow — our ability to see it did.
+        //   too coarse for the range. The defect did not grow — our ability to see it did.
         // 📌 The ~1.0x TARGET IS UNCHANGED, and the root is unpatchable at the estimator: realized
         //   variance of a chopped path IS genuinely lower (D^2 versus 12*(D/12)^2 = D^2/12), so no
         //   normalization fixes it. It is fixed by removing sigma^2 from the CHARGE, which is what
@@ -1803,8 +1803,8 @@ contract DrainAtomicity is AllesFixture {
     /// history gap relabelled (§SIGMA-REMOVE-P1-COMPLETE-RETRACTED).
     /// A decaying SUM should barely notice; a SECOND-MOMENT statistic reads spacing directly through
 
-    /// §SIGMA-REMOVE-P2-FITS-BUT-SATURATES — IS THE SATURATION THE SWAP-TO-BAND RATIO?
-    /// A 120,000 drain is ~9% of a ~$1.3M band — a pathological ratio, not a production one. The
+    /// §SIGMA-REMOVE-P2-FITS-BUT-SATURATES — IS THE SATURATION THE SWAP-TO-RANGE RATIO?
+    /// A 120,000 drain is ~9% of a ~$1.3M range — a pathological ratio, not a production one. The
     /// substitution implies `sigma^2 = 8 · lossFraction / 0.0079 = 1012 · lossFraction`, and the 3%
     /// `MAX_WELL_SKEW` cap binds around `sigma^2 ~ 1`, so **`lossFraction` must stay under ~0.1%**.
     /// This measures the fraction at REALISTIC sizes with NO contract change (the register is live;

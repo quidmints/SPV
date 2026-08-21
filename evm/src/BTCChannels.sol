@@ -134,7 +134,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // ─── State ─────────────────────────────────────────────────────────
     ISPVGateway     public immutable spv;
     // BtcVault — the regrouped BTC side (LP register/close + swap credit), bound in the
-    // constructor. (E150: the legacy `(_aux, _band)` pair and `_hopNode` are gone.)
+    // constructor. (E150: the legacy `(_aux, _range)` pair and `_hopNode` are gone.)
     IBtc public immutable btc;
     // 🔑 AUTHORIZATION IS PER-OUTPOINT, NOT PER-HOP.
     //   • There is no `channel.hop`: a channel records no owning hop (§E164).
@@ -722,11 +722,11 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// @param _btcVault the merged BtcVault — LP register/close + swap credit.
     /// @dev (E150) THIS TOOK FOUR PARAMS AND NEEDED TWO. Removed: `_hopNode`, read NOWHERE —
     ///      the body carried `_hopNode;` purely to silence the unused-param warning, a
-    ///      statement whose only job was to hide a dead parameter — and the `_aux`/`_band`
+    ///      statement whose only job was to hide a dead parameter — and the `_aux`/`_range`
     ///      PAIR, which both designated the SAME vault via
-    ///      `_band != address(0) ? _band : _aux`, a shim for two calling conventions left
+    ///      `_range != address(0) ? _range : _aux`, a shim for two calling conventions left
     ///      from when the BTC side was split. **All 18 construction sites passed a non-zero
-    ///      `_band`, so the `_aux` fallback was never once exercised**, and the compatibility
+    ///      `_range`, so the `_aux` fallback was never once exercised**, and the compatibility
     ///      it preserved was with callers we control — none external, none in `quid-ln`.
     constructor(address _spv, address _btcVault, address _mainHop, address _fallbackHop,
                 bytes32 _btcDepositKey)

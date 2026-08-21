@@ -43,7 +43,7 @@ contract SkewCalibration is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         // §E58 DRAIN FIXTURE: 12x3,000 left inv/target at 20x and the flush branch firing. To reach
-        // the SCARCITY regime the band must shed most of its ~$714k, so drain hard and let the TWAP
+        // the SCARCITY regime the range must shed most of its ~$714k, so drain hard and let the TWAP
         // keep up (each _trade warps 20 min). Sized to overshoot deliberately — the question is
         // whether the curve EVER engages, so a fixture that stops short answers nothing.
         for (uint i; i < 120; i++) _trade(20_000e18);   // drain into SCARCITY, where the curve engages
@@ -53,15 +53,15 @@ contract SkewCalibration is AllesFixture {
         emit log_named_uint("flowEwmaUsd ETH      ", CORE.flowEwmaUsd());
         emit log_named_uint("flowEwmaUsd BTC      ", CORE.flowEwmaUsd());
         emit log_named_uint("committedUsd18       ", CORE.committedUsd18());
-        emit log_named_uint("btcBandEquityUsd18   ", CORE.bandEquityUsd18());
+        emit log_named_uint("btcRangeEquityUsd18   ", CORE.rangeEquityUsd18());
         emit log_named_uint("POOLED           ", CORE.POOLED());
         emit log_named_uint("POOLED_USD       ", CORE.POOLED_USD());
         // No assertion on the VALUE — the value is the output. Only a premise, so a zeroed
         // fixture cannot masquerade as "the skew is small".
-        assertGt(CORE.POOLED(), 0, "PREMISE: the band must hold inventory, else 0 means nothing");
+        assertGt(CORE.POOLED(), 0, "PREMISE: the range must hold inventory, else 0 means nothing");
 
         // §E48/E58 — THE REGIME QUESTION IN ONE NUMBER. `wellSkew` is 0 above because
-        // `target = flow + levClaimUsd6` is tiny against band inventory, so the scarcity curve never
+        // `target = flow + levClaimUsd6` is tiny against range inventory, so the scarcity curve never
         // engages. `committed` there is the LEVERAGE DEBT, ~0 in this fixture. If a real levered book
         // lifts it toward inventory scale, the regime is ORDINARY and both the skew changes and the
         // refill matter; if it cannot, they address a state the system rarely enters. Print the ratio
@@ -72,7 +72,7 @@ contract SkewCalibration is AllesFixture {
         emit log_named_uint("realizedVarianceWad ETH", CORE.realizedVarianceWad());
         emit log_named_uint("levClaimUsd6 ETH (debt)", CORE.levClaimUsd6());
         emit log_named_uint("target = flow + debt   ", target6);
-        emit log_named_uint("band inventory (6-dec) ", invUsd6);
+        emit log_named_uint("range inventory (6-dec) ", invUsd6);
         emit log_named_uint("inv / target  (x)      ", target6 == 0 ? 0 : invUsd6 / target6);
         emit log_string("inv/target >> 1 => flush branch => skew 0. The scarcity regime needs this near 1.");
     }

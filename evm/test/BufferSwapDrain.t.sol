@@ -12,10 +12,10 @@ interface IErc20Bal { function balanceOf(address) external view returns (uint); 
 ///   by subtracting the LP's LIVE leverage debt (`committed = in-range USD - totalDebtUsd`, buffer == debt exactly).
 ///   Nothing a swap touches can desync, because the debt is read live from the LevManager, not stored in Core.
 ///
-///   Reuses LevCascadeProbe's REAL-Morpho + REAL-Quid-band fork scaffolding (helpers/fields inherited).
+///   Reuses LevCascadeProbe's REAL-Morpho + REAL-Quid-range fork scaffolding (helpers/fields inherited).
 contract BufferSwapDrain is LevCascadeProbe {
     /// @dev committed must equal (both pools' BASKET-SUPPLIED depth) minus the live ETH leverage
-    ///      debt, at every step. (No BTC lev here ⇒ the BTC band's debt term is 0.)
+    ///      debt, at every step. (No BTC lev here ⇒ the BTC range's debt term is 0.)
     ///      §#12 RE-DERIVED: the fold's INTENT is unchanged — *committed excludes the debt-funded
     ///      buffer* — but the quantity it is measured against moved from CURVE INVENTORY
     ///      (`POOLED_USD_*`, which a swap moves) to BASKET CONTRIBUTION (`basketUsd*`, which only
@@ -31,13 +31,13 @@ contract BufferSwapDrain is LevCascadeProbe {
     function test_BufferConsumingSwap_CommittedTracksLiveDebt_NoDrain() public {
         _setupLev();
         EV.setLevManager(address(lm));
-        // Thick shared band so the swaps clear the 50bps manip guard.
+        // Thick shared range so the swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
         ETH.deposit{value: 20 ether}(0, address(this));
 
         // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD.
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "precondition: levered debt > 0");
         _calmVol();
@@ -56,7 +56,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         uint usdcBefore = IErc20Bal(address(USDC)).balanceOf(swapper);
         uint ethBefore  = swapper.balance;
 
-        // Sell WETH into the USD-heavy post-rally band, hard, in bounded (<=50bps) steps.
+        // Sell WETH into the USD-heavy post-rally range, hard, in bounded (<=50bps) steps.
         for (uint i; i < 24; i++) {
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
@@ -96,7 +96,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         vm.deal(address(this), 40 ether);
         ETH.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         ETH.syncLev(lps[0]);

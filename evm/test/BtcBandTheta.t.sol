@@ -4,10 +4,10 @@ pragma solidity ^0.8.28;
 import {AllesFixture} from "./Alles.t.sol";
 import {QuidLib} from "../src/imports/QuidLib.sol";
 
-/// @notice Proves the BTC band now gets the SAME theta risk-budget clamp as the ETH band.
+/// @notice Proves the BTC range now gets the SAME theta risk-budget clamp as the ETH range.
 ///   Before this change BtcLib.addLiqChannel omitted theta entirely -- a real asymmetry
 ///   (the "locked channel sats" rationale justifies dropping only the PHYSICAL-inventory clamp,
-///   not the IL risk-budget throttle; a BTC band bears IL exactly like an ETH band).
+///   not the IL risk-budget throttle; a BTC range bears IL exactly like an ETH range).
 ///
 ///   The fork's mock venues accrue ~0 yield, so the LIVE theta = avgYield/(K*sigma^2) = 0 ->
 ///   fails OPEN (no clamp). That is exactly why every existing BTC test is unaffected (theta
@@ -15,8 +15,8 @@ import {QuidLib} from "../src/imports/QuidLib.sol";
 ///   -- a positive-yield theta<1 -- via Vault.derivedThetaWad(), and show the in-range pairing
 ///   is throttled, while the fail-open baseline pairs fully. The theta VALUE's live-ness itself is
 ///   covered by the same QuidLib.derivedThetaWad path DerivedTheta.t.sol exercises for ETH.
-contract BtcBandThetaProbe is AllesFixture {
-    function test_BtcBand_ThetaThrottlesInRangePairing() public {
+contract BtcRangeThetaProbe is AllesFixture {
+    function test_BtcRange_ThetaThrottlesInRangePairing() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels (requestDeposit is gated)
 
         // Baseline: theta fails open (fork avgYield ~ 0 -> derivedThetaWadBtc()==0 -> 1e18 in the
@@ -28,9 +28,9 @@ contract BtcBandThetaProbe is AllesFixture {
 
         // Force theta = 0.001 (WAD). The fork cannot make avgYield>0, so mock the theta oracle
         // value ONLY -- the real addLiqChannel/requestDeposit clamp path runs unchanged. With
-        // theta*bandAvail << current POOLED, the in-range headroom collapses to ~0, so the
+        // theta*rangeAvail << current POOLED, the in-range headroom collapses to ~0, so the
         // second LP's sats are shed to the unpaired (off-chain-backed) share tracking instead of
-        // being force-paired into the IL-bearing band.
+        // being force-paired into the IL-bearing range.
         vm.mockCall(address(BTC), abi.encodeWithSignature("derivedThetaWad()"), abi.encode(uint(1e15)));
         uint p1 = CORE.POOLED();
         BTC.requestDeposit(User02, 2e7);            // same sats, theta << 1

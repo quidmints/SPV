@@ -20,7 +20,7 @@ interface IAggV3 {
 ///         the cross would reimport the basis §E221 deletes. **The gap between the two readings is
 ///         not noise between two BTC prices — it is one BTC price and one WBTC price.**
 ///
-/// ⚠️ WHY THE ASSERTIONS ARE BANDS, NOT EQUALITIES. Both sides move with the market, and this repo
+/// ⚠️ WHY THE ASSERTIONS ARE RANGES, NOT EQUALITIES. Both sides move with the market, and this repo
 ///    has already burned a session comparing fork runs whose inputs differed (§E214: an unpinned
 ///    FORK_BLOCK made two arms of an A/B measure different chain states, and the deltas looked like
 ///    a code effect). Nothing here compares across runs — every assertion is between two values read
@@ -47,7 +47,7 @@ contract OneInchObserverIsIndependentTest is Test {
 
     /// @notice THE SCALING IS RIGHT. `priceWad = rate · 10^srcDec / 10^dstDec` is derived from
     ///         `getRate`'s raw-unit definition; if it were wrong it would be wrong by a power of ten,
-    ///         which a 5% band against Chainlink catches immediately.
+    ///         which a 5% range against Chainlink catches immediately.
     function test_EthUsd_ScalingIsCorrect_andTracksChainlink() public view {
         uint oneInch = ExternalTwap.oneInchRateWad(ORACLE, WETH, USDC, 18, 6);
         uint chainlink = _clWad(CL_ETHUSD);

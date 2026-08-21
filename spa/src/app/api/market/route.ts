@@ -58,7 +58,7 @@ const DEGRADED: MarketSignal = {
   asOf: 0, degraded: true,
 }
 function blank(symbol: 'ETH' | 'BTC'): AssetSignal {
-  return { symbol, price: 0, change24h: 0, change7d: 0, sigmaAnnual: 0, sigmaBand: 0, sigmaDivergent: false, phi: 0, phiLabel: 'random walk' }
+  return { symbol, price: 0, change24h: 0, change7d: 0, sigmaAnnual: 0, sigmaRange: 0, sigmaDivergent: false, phi: 0, phiLabel: 'random walk' }
 }
 
 // ── 10-year perspective (best-effort): place today's vol against the full
@@ -130,14 +130,14 @@ export async function GET() {
     symbol: 'ETH', price: ethRow.current_price || 0,
     change24h: ethRow.price_change_percentage_24h_in_currency ?? ethRow.price_change_percentage_24h ?? 0,
     change7d: ethRow.price_change_percentage_7d_in_currency ?? 0,
-    sigmaAnnual: ethVol.sigmaAnnual, sigmaBand: ethVol.band, sigmaDivergent: ethVol.divergent,
+    sigmaAnnual: ethVol.sigmaAnnual, sigmaRange: ethVol.range, sigmaDivergent: ethVol.divergent,
     phi: ethPhi.phi, phiLabel: ethPhi.label,
   }
   const btc: AssetSignal = {
     symbol: 'BTC', price: btcRow.current_price || 0,
     change24h: btcRow.price_change_percentage_24h_in_currency ?? btcRow.price_change_percentage_24h ?? 0,
     change7d: btcRow.price_change_percentage_7d_in_currency ?? 0,
-    sigmaAnnual: btcVol.sigmaAnnual, sigmaBand: btcVol.band, sigmaDivergent: btcVol.divergent,
+    sigmaAnnual: btcVol.sigmaAnnual, sigmaRange: btcVol.range, sigmaDivergent: btcVol.divergent,
     phi: btcPhi.phi, phiLabel: btcPhi.label,
   }
 

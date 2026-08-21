@@ -64,7 +64,7 @@ downstream of a real user, not of interface aesthetics.
 
 ## Consequences for the band-manager merge
 
-🔴 **CORRECTED 2026-08-16 (owner). BOTH BANDS ARE ASYNCHRONOUS, and the earlier version of this
+🔴 **CORRECTED 2026-08-16 (owner). BOTH RANGES ARE ASYNCHRONOUS, and the earlier version of this
 section was wrong.** It claimed "the ETH band is genuinely synchronous (WETH exists, is held, is
 redeemable)" and warned against making ETH async "for symmetry". The counter-example is not
 Lightning at all — it is the **de-lever**:

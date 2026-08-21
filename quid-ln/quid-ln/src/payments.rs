@@ -1227,7 +1227,7 @@ impl OutboundInvoicePaymentStatus {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Pending => "pending",
-            Self::Abandoning => "abandoning",
+            Self::Abandoning => "arangeoning",
             Self::Completed => "completed",
             Self::Failed => "failed",
         }
@@ -1238,7 +1238,7 @@ impl OutboundOfferPaymentStatus {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Pending => "pending",
-            Self::Abandoning => "abandoning",
+            Self::Abandoning => "arangeoning",
             Self::Completed => "completed",
             Self::Failed => "failed",
         }

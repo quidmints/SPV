@@ -3,7 +3,7 @@
 //!
 //! It runs as one more `set.spawn(run_lev_keeper(...))` in the quid-bridge `JoinSet`
 //! (parallel to swap-in / relayer / reconciler), polling each opt-in levered LP
-//! position and holding its LTV inside a band around the IL-protect target
+//! position and holding its LTV inside a range around the IL-protect target
 //! `L = 1/α`, while NEVER letting LTV reach the external venue's liquidation
 //! threshold.
 //!
@@ -18,7 +18,7 @@
 //! the whole reason the lender must be external, not internal.
 //!
 //! # The target is `L = 1/α`, never a pinned 2x
-//! `α` = the realized band concavity (how √p-like the position is), measured from
+//! `α` = the realized range concavity (how √p-like the position is), measured from
 //! flow via [`realized_alpha`]. Busy flow → `α→0.5` → `L→2` (cancel the IL the flow
 //! created). Quiet → `α→1` → `L→1` (no leverage, because there is no realized IL to
 //! cancel). Pinning `L=2` (ybamm's mistake) over-levers in quiet regimes and drains
@@ -26,17 +26,17 @@
 //! `target_ltv = 1 − α` ([`target_ltv_bps_from_alpha`]).
 //!
 //! # OMNI triggers — the keeper is EVENT-DRIVEN, not just an LTV poller
-//! A levered position must unwind on the right events, and — critically — an UNLEVERED LP's band
+//! A levered position must unwind on the right events, and — critically — an UNLEVERED LP's range
 //! withdrawal can force a chained unwind of OTHER levered LPs (the same shape as the LN-LP chained
-//! unwind). So the loop reacts to a UNION of triggers, not just "LTV crossed a band":
+//! unwind). So the loop reacts to a UNION of triggers, not just "LTV crossed a range":
 //!   1. **Levered LP withdraws / closes** (`Quid`/`LevManager` close events) → `closeLev` that LP: fully
-//!      unwind its leverage (repay debt by selling collateral, return weETH) BEFORE the band withdrawal
+//!      unwind its leverage (repay debt by selling collateral, return weETH) BEFORE the range withdrawal
 //!      settles, so it never exits half-levered.
-//!   2. **ANY LP withdraws from the band** (levered or not) → `bandETH` drops → every OTHER levered LP's
+//!   2. **ANY LP withdraws from the range** (levered or not) → `rangeETH` drops → every OTHER levered LP's
 //!      IL target (`1 − √(entry/now)`) and LTV shift; re-evaluate the whole open set and
-//!      `rebalance`/`cascadeDelever` the ones pushed out of band. A big unlevered exit is exactly the
+//!      `rebalance`/`cascadeDelever` the ones pushed out of range. A big unlevered exit is exactly the
 //!      "correlated" event the cascade was built for.
-//!   3. **Price move** (Chainlink/band-TWAP update) → the IL target moved → rebalance toward it (subject to
+//!   3. **Price move** (Chainlink/range-TWAP update) → the IL target moved → rebalance toward it (subject to
 //!      the lazy/dwell policy below — never chase noise).
 //!   4. **Venue VaultStatus / LTV breach** → the safety de-lever (this module's `decide`).
 //! Sources: subscribe to `LevManager` Opened/Closed + `Quid` Withdraw + the venue's status feed + a price
@@ -46,7 +46,7 @@
 //! # Lazy/dwell policy — do NOT realize IL on noise (conservation)
 //! Continuously chasing `1 − √(entry/now)` LOSES on mean-reverting moves (buy-high/sell-low churn), proven
 //! in evm/test/LevYbPnl.t.sol. The keeper only rebalances toward the IL target when the move is BOTH past
-//! the band AND has persisted (a dwell window) — so chop doesn't trigger it. The SAFETY de-lever (trigger
+//! the range AND has persisted (a dwell window) — so chop doesn't trigger it. The SAFETY de-lever (trigger
 //! 4) has NO dwell (a liquidation-imminent breach acts immediately); only the IL-TARGET up-leg is lazy.
 //!
 //! # Hard bounds are physics, never heuristics (mirrors `quid-hop::rebalancer`)
@@ -68,7 +68,7 @@ pub struct LevKeeperConfig {
     /// target, so re-polling a mid-flight state simply re-converges.
     pub poll_interval_secs: u64,
     /// Tolerance around the `L=1/α` target before we rebalance (avoids churn on noise).
-    pub target_band_bps: u32,
+    pub target_range_bps: u32,
     /// How far BELOW the venue's liquidation LTV we force an urgent de-lever. This is
     /// the margin that guarantees the venue's liquidation engine never fires.
     pub safety_margin_bps: u32,
@@ -78,11 +78,11 @@ pub struct LevKeeperConfig {
 
 impl Default for LevKeeperConfig {
     fn default() -> Self {
-        // 5 min poll; ±3% band around target; force de-lever 15% LTV below venue liq;
+        // 5 min poll; ±3% range around target; force de-lever 15% LTV below venue liq;
         // skip <$50 moves.
         LevKeeperConfig {
             poll_interval_secs: 300,
-            target_band_bps: 300,
+            target_range_bps: 300,
             safety_margin_bps: 1500,
             min_rebalance_usd: 50_000_000, // $50 @ 6-dec
         }
@@ -95,7 +95,7 @@ pub struct PositionView {
     /// VENUE-SAFETY LTV in bps = debt / ACTUAL collateral (`LevManager.getCurrentLtvBps`). Used ONLY for the
     /// liquidation-avoidance track — it must track the venue's own health basis.
     pub current_ltv_bps: u32,
-    /// IL-TARGET LTV in bps = debt / E0 (the FIXED band+buffer base) (`LevManager.ilLtvBps`). The IL-track
+    /// IL-TARGET LTV in bps = debt / E0 (the FIXED range+buffer base) (`LevManager.ilLtvBps`). The IL-track
     /// compares THIS to `target_ltv_bps`, consistent with the on-chain debt=E0·t sizing — using the
     /// actual-collateral LTV here would re-settle at the 1/(1−t) over-hedge.
     pub il_ltv_bps: u32,
@@ -108,7 +108,7 @@ pub struct PositionView {
     pub collateral_usd: u64,
     /// True while a floor of UNLOCKED weETH remains. Re-lever only when set.
     pub deliverable_floor_ok: bool,
-    /// DWELL: true once the position has sat out-of-band for the dwell window. Gates the NON-urgent
+    /// DWELL: true once the position has sat out-of-range for the dwell window. Gates the NON-urgent
     /// IL-target rebalance so chop (mean-reverting moves) can't churn IL into permanent rebalancing loss
     /// (the conservation result proven in evm/test/LevYbPnl.t.sol). The URGENT safety de-lever ignores it.
     pub move_persisted: bool,
@@ -180,8 +180,8 @@ pub fn decide(v: &PositionView, cfg: &LevKeeperConfig) -> KeeperAction {
     if !v.move_persisted {
         return KeeperAction::Hold;
     }
-    let upper = v.target_ltv_bps.saturating_add(cfg.target_band_bps);
-    let lower = v.target_ltv_bps.saturating_sub(cfg.target_band_bps);
+    let upper = v.target_ltv_bps.saturating_add(cfg.target_range_bps);
+    let lower = v.target_ltv_bps.saturating_sub(cfg.target_range_bps);
 
     if v.il_ltv_bps > upper {
         if !economic(v, cfg) {
@@ -229,10 +229,10 @@ pub trait LevKeeperEvm {
     async fn position_view(&self, lp: LpAddr) -> anyhow::Result<PositionView>;
     async fn rebalance(&self, lp: LpAddr) -> anyhow::Result<()>;
     async fn cascade_delever(&self, lps: &[LpAddr]) -> anyhow::Result<()>;
-    /// BATCH IL-target rebalance: hold every out-of-band LP in ONE tx (`rebalanceMany`). On-chain
-    /// fault-tolerant + syncs each LP's band slice internally, so no per-LP sync follow-up is needed.
+    /// BATCH IL-target rebalance: hold every out-of-range LP in ONE tx (`rebalanceMany`). On-chain
+    /// fault-tolerant + syncs each LP's range slice internally, so no per-LP sync follow-up is needed.
     async fn rebalance_many(&self, lps: &[LpAddr]) -> anyhow::Result<()>;
-    /// Reconcile `lp`'s LEVERED band slice to its live net-equity (`Quid.syncLev`). Called after ANY
+    /// Reconcile `lp`'s LEVERED range slice to its live net-equity (`Quid.syncLev`). Called after ANY
     /// position change (rebalance/de-lever) so the fee lane (`levPooled`) tracks the equity promptly instead
     /// of waiting for the next external poke. Permissionless on-chain, so a failure is non-fatal — the slice
     /// just lags until the next tick re-syncs.
@@ -247,7 +247,7 @@ pub trait LevKeeperEvm {
 // ════════════════════════ compound crank — fees-on-fees for EVERY plain ETH LP ════════════════════════
 //
 // A passive ETH LP (never touches its position) doesn't compound its owed token-leg trading fees — those
-// stay pending until the LP itself acts. `Quid.compound(lp)` folds them into the LP's `pooled` (more band
+// stay pending until the LP itself acts. `Quid.compound(lp)` folds them into the LP's `pooled` (more range
 // depth → more earning) permissionlessly, so the keeper can do it FOR every LP. The crank is SELF-FUNDING:
 // `Quid.compound` reimburses the caller's gas as a native-ETH tip skimmed from the LP's OWN harvested leg
 // (grief-capped ≤ half the harvest), so the operator fronts NO gas — the exact "no operator subsidy"
@@ -276,7 +276,7 @@ pub fn compound_pays_for_itself(pending_wei: u128, gas_price_wei: u128) -> bool 
 }
 
 /// The on-chain surface the compound sweep needs. Concrete impl = the same [`DaemonLevKeeper`] arm (it
-/// already holds `band`); verified against a real mainnet fork, never a mock.
+/// already holds `range`); verified against a real mainnet fork, never a mock.
 #[allow(async_fn_in_trait)]
 pub trait CompoundEvm: Send + Sync + 'static {
     /// Every plain ETH LP address ever seen — deduped `Quid.Deposit(_, owner, …)` owners.
@@ -306,14 +306,14 @@ pub async fn compound_tick<E: CompoundEvm>(evm: &E) -> anyhow::Result<()> {
 }
 
 /// Per-position dwell timer → the `move_persisted` flag (the lazy/anti-churn policy). Resets on
-/// return-to-band so a reversal can't leave a stale "persisted" (don't realize impermanent IL).
+/// return-to-range so a reversal can't leave a stale "persisted" (don't realize impermanent IL).
 #[derive(Default)]
 pub struct DwellTracker {
     first_out: std::collections::HashMap<LpAddr, u64>,
 }
 impl DwellTracker {
-    pub fn persisted(&mut self, lp: LpAddr, out_of_band: bool, now_secs: u64, dwell_secs: u64) -> bool {
-        if !out_of_band {
+    pub fn persisted(&mut self, lp: LpAddr, out_of_range: bool, now_secs: u64, dwell_secs: u64) -> bool {
+        if !out_of_range {
             self.first_out.remove(&lp);
             return false;
         }
@@ -322,13 +322,13 @@ impl DwellTracker {
     }
 }
 
-/// #9/#89: the ONE out-of-band predicate — shared by BOTH keeper loops (ETH `tick` + BTC `btc_tick`) so the
+/// #9/#89: the ONE out-of-range predicate — shared by BOTH keeper loops (ETH `tick` + BTC `btc_tick`) so the
 /// dwell/anti-churn basis can never drift between the two rails. `pub(crate)` so `lev_keeper_btc` reuses it
-/// instead of its own byte-identical copy. Tracks the IL-target band, not venue-safety (the urgent leg keys off
+/// instead of its own byte-identical copy. Tracks the IL-target range, not venue-safety (the urgent leg keys off
 /// safety separately in `decide`).
-pub(crate) fn out_of_band(v: &PositionView, cfg: &LevKeeperConfig) -> bool {
-    let upper = v.target_ltv_bps.saturating_add(cfg.target_band_bps);
-    let lower = v.target_ltv_bps.saturating_sub(cfg.target_band_bps);
+pub(crate) fn out_of_range(v: &PositionView, cfg: &LevKeeperConfig) -> bool {
+    let upper = v.target_ltv_bps.saturating_add(cfg.target_range_bps);
+    let lower = v.target_ltv_bps.saturating_sub(cfg.target_range_bps);
     v.il_ltv_bps > upper || v.il_ltv_bps < lower // dwell tracks the IL-target basis, not venue-safety
 }
 
@@ -350,7 +350,7 @@ pub async fn tick<E: LevKeeperEvm>(
             Ok(v) => v,
             Err(e) => { tracing::warn!(?lp, error = %e, "position_view failed; skipping this LP this tick"); continue }
         };
-        v.move_persisted = dwell.persisted(lp, out_of_band(&v, cfg), now_secs, dwell_secs);
+        v.move_persisted = dwell.persisted(lp, out_of_range(&v, cfg), now_secs, dwell_secs);
         match decide(&v, cfg) {
             KeeperAction::ProtectFromQuid { repay_usd } => protect.push((lp, repay_usd)),
             KeeperAction::DeLever { urgent: true, .. } => { urgent.push(lp); }
@@ -381,7 +381,7 @@ pub async fn tick<E: LevKeeperEvm>(
     }
     // Then the non-urgent IL-target rebalances — the fleet holds the whole book at target in ONE `rebalanceMany`
     // tx, instead of N per-LP txs. On-chain it's fault-tolerant (a reverting LP is skipped) and syncs each
-    // LP's band slice internally, so no per-LP syncLev follow-up is needed here.
+    // LP's range slice internally, so no per-LP syncLev follow-up is needed here.
     if !rebal.is_empty() {
         if let Err(e) = evm.rebalance_many(&rebal).await {
             tracing::warn!(error = %e, "rebalance_many failed; retrying next interval");
@@ -426,7 +426,7 @@ use std::sync::Arc;
 pub struct DaemonLevKeeper<R: JsonRpc, S: TxSigner> {
     pub evm: Arc<JsonRpcEvmClient<R, S>>,
     pub lev_manager: Address,
-    pub band: Address,
+    pub range: Address,
     /// Aux (redemption entry) + QUID/Basket (mature-balance reads). Together they enable QUID-protect:
     /// the mature-QUID read is GATED on `signer == lp`, so these matter only for a self-hosted LP keeper.
     pub quid: Address,
@@ -546,11 +546,11 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     }
 
     async fn sync_lev(&self, lp: LpAddr) -> anyhow::Result<()> {
-        let (evm, band, gas) = (self.evm.clone(), self.band, self.gas_limit);
+        let (evm, range, gas) = (self.evm.clone(), self.range, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let mut data = selector4("syncLev(address)");
             data.extend_from_slice(&addr_word(lp));
-            evm.send_tx(band, data, gas)?;
+            evm.send_tx(range, data, gas)?;
             Ok(())
         })
         .await?
@@ -581,7 +581,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
 
 impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for DaemonLevKeeper<R, S> {
     async fn eth_lps(&self) -> anyhow::Result<Vec<LpAddr>> {
-        let (evm, band, from) = (self.evm.clone(), self.band, self.lp_scan_from);
+        let (evm, range, from) = (self.evm.clone(), self.range, self.lp_scan_from);
         tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<LpAddr>> {
             let rpc = evm.rpc_handle();
             let tip = crate::eth_logs::eth_tip(&rpc)?;
@@ -593,7 +593,7 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
                     b"Deposit(address,address,uint256,uint256)"
                 ))
             );
-            let logs = crate::eth_logs::get_logs_chunked(&rpc, &band.to_string(), &topic0, from, tip, LP_LOG_SPAN)?;
+            let logs = crate::eth_logs::get_logs_chunked(&rpc, &range.to_string(), &topic0, from, tip, LP_LOG_SPAN)?;
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
             for log in &logs {
@@ -613,10 +613,10 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
     }
 
     async fn pending_and_gas(&self, lp: LpAddr) -> anyhow::Result<(u128, u128)> {
-        let (evm, band) = (self.evm.clone(), self.band);
+        let (evm, range) = (self.evm.clone(), self.range);
         tokio::task::spawn_blocking(move || -> anyhow::Result<(u128, u128)> {
             // pendingRewards(address) → (ethReward, usdReward); the token leg is the first 32-byte word.
-            let ret = evm.eth_read(band, "pendingRewards(address)", Some(&addr_word(lp)))?;
+            let ret = evm.eth_read(range, "pendingRewards(address)", Some(&addr_word(lp)))?;
             let word = ret.get(0..32).ok_or_else(|| anyhow::anyhow!("pendingRewards: short return"))?;
             let pending: u128 = word_to_uint(word, "pendingRewards.eth")?;
             let raw = evm.rpc_handle().call("eth_gasPrice", serde_json::json!([]))?;
@@ -630,11 +630,11 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
     }
 
     async fn compound(&self, lp: LpAddr) -> anyhow::Result<()> {
-        let (evm, band, gas) = (self.evm.clone(), self.band, self.gas_limit);
+        let (evm, range, gas) = (self.evm.clone(), self.range, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let mut data = selector4("compound(address)");
             data.extend_from_slice(&addr_word(lp));
-            evm.send_tx(band, data, gas)?;
+            evm.send_tx(range, data, gas)?;
             Ok(())
         })
         .await?
@@ -717,7 +717,7 @@ mod tests {
         // A move that hasn't persisted must NOT trigger the IL-target rebalance (anti-churn).
         let mut v = base();
         v.move_persisted = false;
-        v.il_ltv_bps = 5500; // above band, but un-persisted ⇒ hold (don't realize IL on noise)
+        v.il_ltv_bps = 5500; // above range, but un-persisted ⇒ hold (don't realize IL on noise)
         assert_eq!(decide(&v, &LevKeeperConfig::default()), KeeperAction::Hold);
         // ...but an URGENT (near venue-liq) breach must still fire even un-persisted.
         v.current_ltv_bps = 7600;
@@ -728,14 +728,14 @@ mod tests {
     }
 
     #[test]
-    fn holds_inside_band() {
+    fn holds_inside_range() {
         let mut v = base();
         v.il_ltv_bps = 5200; // within ±300 of 5000
         assert_eq!(decide(&v, &LevKeeperConfig::default()), KeeperAction::Hold);
     }
 
     #[test]
-    fn delevers_above_band() {
+    fn delevers_above_range() {
         let mut v = base();
         v.il_ltv_bps = 5500; // > 5000 + 300
         assert_eq!(
@@ -861,7 +861,7 @@ mod tests {
         let mut uv = base();
         uv.current_ltv_bps = 7600; // near venue liq ⇒ urgent (ignores the dwell)
         let mut nv = base();
-        nv.il_ltv_bps = 5500; // out of band but mean-reverting
+        nv.il_ltv_bps = 5500; // out of range but mean-reverting
         let evm = MockEvm {
             views: vec![(urgent_lp, uv), (noisy_lp, nv)],
             rebalanced: RefCell::new(vec![]),
@@ -871,11 +871,11 @@ mod tests {
         };
         let mut dwell = DwellTracker::default();
         let cfg = LevKeeperConfig::default();
-        // t=0: urgent cascades immediately; noisy just went out of band ⇒ NOT persisted ⇒ no churn.
+        // t=0: urgent cascades immediately; noisy just went out of range ⇒ NOT persisted ⇒ no churn.
         tick(&evm, &cfg, &mut dwell, 0, 600).await.unwrap();
         assert_eq!(*evm.cascaded.borrow(), vec![urgent_lp]);
         assert!(evm.rebalanced.borrow().is_empty(), "un-persisted noise must not churn");
-        // t=700 (> 600s dwell) and still out of band ⇒ now persisted ⇒ the lazy rebalance fires.
+        // t=700 (> 600s dwell) and still out of range ⇒ now persisted ⇒ the lazy rebalance fires.
         tick(&evm, &cfg, &mut dwell, 700, 600).await.unwrap();
         assert!(evm.rebalanced.borrow().contains(&noisy_lp), "persisted move must rebalance");
     }

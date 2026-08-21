@@ -120,7 +120,7 @@ contract Deploy is Script {
         //    the swap-out fills > 0 on the REAL curve. ──
         Basket quid = Basket(A.quid);
         IERC20(USDC).approve(A.aux, type(uint).max); // standing approval (reused by the Rust swap-out from this acct)
-        quid.mint(hop, 150_000e6, USDC, 0);          // TVL: the BTC band pairs against this
+        quid.mint(hop, 150_000e6, USDC, 0);          // TVL: the BTC range pairs against this
 
         vm.stopBroadcast();
 

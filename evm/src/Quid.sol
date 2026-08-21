@@ -3,7 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
-import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongBandManager} from "./imports/Types.sol";
+import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";
 import {ILevHost, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
@@ -13,7 +13,7 @@ import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
-import {BandLib} from "./imports/BandLib.sol";
+import {RangeLib} from "./imports/RangeLib.sol";
 import {Types} from "./imports/Types.sol";
 
 import {Basket} from "./Basket.sol";
@@ -22,13 +22,13 @@ import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 
 /// EthVenue — the ETH yield-venue custody (AAVE WETH + ether.fi weETH) carved out
-/// of Aux. Quid routes its WETH venue ops here. bandETH() is still read via AUX
-/// (a thin forwarder), so only the WRITE ops (bandOp/supply*/offramp/arb) re-point.
+/// of Aux. Quid routes its WETH venue ops here. rangeETH() is still read via AUX
+/// (a thin forwarder), so only the WRITE ops (rangeOp/supply*/offramp/arb) re-point.
 /// IL-protect fee lane: Quid reads the LevManager through the Vault's already-secure 
 /// needs NO new trust surface of its own (Quid renounces ownership at setup). 
 // `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
 
-    // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
+    // §E252 — the THIRTEEN shared range-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Quid is Shares,
@@ -42,9 +42,9 @@ contract Quid is Shares,
     error NotOwner();
     error BadPercent();
 
-    // §NAMING — was `V4`, which read as Uniswap v4. It is the Core band engine and always was.
-    /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each band must be able to
-    ///      name its own engine, or "these two bands are isolated" cannot be checked from outside.
+    // §NAMING — was `V4`, which read as Uniswap v4. It is the Core range engine and always was.
+    /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each range must be able to
+    ///      name its own engine, or "these two ranges are isolated" cannot be checked from outside.
     Core public CORE; WETH9 WETH;
 
     // There is NO venue choice: `deposit(assets, receiver)` takes no venue argument and every ETH
@@ -54,8 +54,8 @@ contract Quid is Shares,
     // §DE-TICK — `token1isVol` DELETED. It mirrored Core's v4 leg ordering, itself derived from
     // the lex order of freshly-deployed MOCK addresses. Nothing orders legs by token identity now.
     // range = between ticks
-    /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, BAND_DELTA)`
-    /// of one another. Two slots for one number; `bandBounds()` derives the pair on read.
+    /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, RANGE_DELTA)`
+    /// of one another. Two slots for one number; `rangeBounds()` derives the pair on read.
     uint public LAST_REPACK;
     // ^ timestamp allows us
     // to measure APY% for
@@ -64,18 +64,18 @@ contract Quid is Shares,
     // ════════════════════════════════════════════════════════════════════════════════════════
     //  §ETHVENUE-FOLD — the ETH yield venue IS this contract. `EthVenue` is deleted.
     //
-    //  It was carved out of `Vault` for a good reason: `Vault` was ETH-VENUE CUSTODY and BTC BAND
-    //  ACCOUNTING fused, and `Quid`'s real counterpart is the BTC-band slice, not the whole of
+    //  It was carved out of `Vault` for a good reason: `Vault` was ETH-VENUE CUSTODY and BTC RANGE
+    //  ACCOUNTING fused, and `Quid`'s real counterpart is the BTC-range slice, not the whole of
     //  `Vault`. That argument said where the custody must NOT live; it never said it needed its own
-    //  address. It belongs to the ETH BAND, and the ETH band is this contract.
+    //  address. It belongs to the ETH RANGE, and the ETH range is this contract.
     //
-    //  ⚠️ AND IT CANNOT LIVE IN THE MERGED BAND MANAGER LATER. One band manager with two instances
+    //  ⚠️ AND IT CANNOT LIVE IN THE MERGED RANGE MANAGER LATER. One range manager with two instances
     //  means every member exists on BOTH; ETH venue custody has NO BTC counterpart, because BTC
     //  custody is Lightning channels and not 4626 venues. That asymmetry is real, so this state
-    //  stays on the ETH side however the band managers merge.
+    //  stays on the ETH side however the range managers merge.
     //
-    //  WHAT THE FOLD DELETES, which is why it fits: three of the five immutables (`BAND` is now
-    //  `this`; `AUX` and `WETH` already existed here), all eight `msg.sender != address(BAND)`
+    //  WHAT THE FOLD DELETES, which is why it fits: three of the five immutables (`RANGE` is now
+    //  `this`; `AUX` and `WETH` already existed here), all eight `msg.sender != address(RANGE)`
     //  gates, the `IEthVenue` external-call stubs on this side, the standing WETH approval that
     //  existed only so a separate address could pull, and one deployable contract.
     // ════════════════════════════════════════════════════════════════════════════════════════
@@ -90,23 +90,23 @@ contract Quid is Shares,
     /// `setup`, which runs after construction, and an immutable cannot be written there.
     address public WEETH;
 
-    /// The IL-protect orchestrator. Its levered book's LIVE net-equity counts in `bandETH`.
+    /// The IL-protect orchestrator. Its levered book's LIVE net-equity counts in `rangeETH`.
 
     error NotSelf();
     error NotAux();
 
     /// @notice Pin the LevManager (one-shot, no repoint).
     /// @dev §LEV-FOLD-2 — THE IDENTITY CHECK THAT REPLACES THE SUFFIXED SELECTORS. What used to stop
-    ///      a BTC lev manager being pinned to the ETH band was that the two managers exposed
-    ///      DIFFERENT selectors, so a wrong-band read reverted. That is a clamp: per call, forever,
+    ///      a BTC lev manager being pinned to the ETH range was that the two managers exposed
+    ///      DIFFERENT selectors, so a wrong-range read reverted. That is a clamp: per call, forever,
     ///      and only if the caller reaches for the suffixed name. With one `ILevEquity` the bad state
-    ///      is made UNCONSTRUCTIBLE here instead, once: a manager carries its band asset in
+    ///      is made UNCONSTRUCTIBLE here instead, once: a manager carries its range asset in
     ///      `ORACLE_KEY` (immutable from construction), so the wrong one cannot be installed at all.
     ///      Standing rule 17 — the root fix is the one that makes the previous guard DELETABLE.
     function setLevManager(address m) external {
         require(msg.sender == DEPLOYER, "403");
         if (LEV_MANAGER != address(0)) revert LevManagerPinned();
-        if (ILevEquity(m).ORACLE_KEY() != address(WETH)) revert WrongBandManager();
+        if (ILevEquity(m).ORACLE_KEY() != address(WETH)) revert WrongRangeManager();
         LEV_MANAGER = m;
     }
 
@@ -125,7 +125,7 @@ contract Quid is Shares,
         });
     }
 
-    /// @notice Stake WETH into weETH (restaking yield), held HERE and valued in `bandETH()`.
+    /// @notice Stake WETH into weETH (restaking yield), held HERE and valued in `rangeETH()`.
     /// @dev No `msg.sender` gate: the caller is this contract. The gate existed to keep a separate
     ///      address from being driven by anyone but Quid, and there is no separate address now.
     function supplyEtherFi(uint amount) public returns (uint) {
@@ -139,13 +139,13 @@ contract Quid is Shares,
 
     /// @notice Current ETH-equivalent backing: weETH valued in ETH + idle WETH, PLUS the levered
     ///         book's net-equity.
-    function bandETH() public view returns (uint) {
-        return QuidLib.bandETH(_ethCfg());
+    function rangeETH() public view returns (uint) {
+        return QuidLib.rangeETH(_ethCfg());
     }
 
     /// @notice Venue op selector. @param op 1 = take ETH, 2 = read the current claim.
-    function bandOp(uint amount, uint8 op) public returns (uint sent) {
-        sent = SwapLib.bandOpBody(amount, op, WETH, bandETH());
+    function rangeOp(uint amount, uint8 op) public returns (uint sent) {
+        sent = SwapLib.rangeOpBody(amount, op, WETH, rangeETH());
     }
 
     /// @notice DELIVERABLE ETH backing for the redemption path — each leg capped at what is
@@ -190,13 +190,13 @@ contract Quid is Shares,
 
     /// @notice SEPARATE accumulator for VENUE (Morpho WETH) appreciation, distinct from the
     ///         CORE-trading-fee `feesPerShare`. Venue yield is funded ONLY by PLAIN LP deposits (the
-    ///         lev slice's capital lives in the external lev venue; the buffer is band depth), so it
+    ///         lev slice's capital lives in the external lev venue; the buffer is range depth), so it
     ///         accrues over PLAIN depth (`lpShares - totalLevPooled`) and is paid on weight
     ///         `pooled - levPooled` -- never diluting plain LPs to the lev/buffer depth. Trading fees
     ///         stay on gross depth (the buffer IS real CORE depth). `venueBm` is the per-LP bookmark.
     uint public venueFeesPerShare;
     mapping(address => uint) public venueBm;
-    /// @notice Sum of every levered LP's `levPooled` (the net-equity band leg). Plain depth for the
+    /// @notice Sum of every levered LP's `levPooled` (the net-equity range leg). Plain depth for the
     ///         venue-yield denominator is `lpShares - totalLevPooled` (moves in lockstep with the lev
     ///         reconcile, so it is invariant under lev changes and tracks only plain deposits).
     uint public totalLevPooled;
@@ -207,38 +207,38 @@ contract Quid is Shares,
     ///         `LevManager.closeLev`, never the free ladder), so a levered claim never competes with unlevered
     ///         LPs for deliverable ETH.
 
-    /// @notice The DEBT-FUNDED BUFFER band depth of a levered LP (gross collateral - net equity), in band-ETH.
-    ///         It is NOT equity, so it is EXCLUDED from `pooled`/`lpShares` (net), but it IS real CORE band depth,
-    ///         so it earns band fees: the per-LP fee WEIGHT is `pooled + levBuf` and the fee denominator is
+    /// @notice The DEBT-FUNDED BUFFER range depth of a levered LP (gross collateral - net equity), in range-ETH.
+    ///         It is NOT equity, so it is EXCLUDED from `pooled`/`lpShares` (net), but it IS real CORE range depth,
+    ///         so it earns range fees: the per-LP fee WEIGHT is `pooled + levBuf` and the fee denominator is
     ///         `lpShares + totalBuffer` (both GROSS). This is how the leverage keeps its yield on the 2x depth
     ///         while the LP's share accounting stays net. Cleared (with the net leg) on reconcile/close.
     /// @notice Sum of every levered LP's `levBuf` — the gross buffer total. Fee denominator = lpShares + this.
 
-    /// @notice The 6-dec USD counterpart of an LP's DEBT-funded BUFFER band leg. Post-fold there is no
+    /// @notice The 6-dec USD counterpart of an LP's DEBT-funded BUFFER range leg. Post-fold there is no
     ///         separate POOLED_USD_ETH_LEV bucket: the buffer USD folds into POOLED_USD like any in-range USD
     ///         and is EXCLUDED from committed because committedUsd18
     ///         subtracts live debt (committed = POOLED_USD − debt = net equity). A venue liquidation un-pairs
     ///         it without stranding basket USD. Bounded by the LP's own debt by construction (`levAddBuf`
-    ///         sizes it to the buffer collateral at the band price, capped at debtUsd).
+    ///         sizes it to the buffer collateral at the range price, capped at debtUsd).
 
-    /// @notice Bumped whenever the band ticks RECENTER (repack/reseat in `_rebalance`). A reseat realizes the
-    ///         band's IL and moves the ticks, so the IL-protect re-anchors its `entryPrice`/`E0` when this
+    /// @notice Bumped whenever the range ticks RECENTER (repack/reseat in `_rebalance`). A reseat realizes the
+    ///         range's IL and moves the ticks, so the IL-protect re-anchors its `entryPrice`/`E0` when this
     ///         advances past a position's recorded epoch — otherwise the sold-fraction would be measured
     ///         across a tick-config change and mis-hedge.
 
 
     // CORE.POOLED() = principal + ALL compounded fees (even unclaimed)
     // The previous singular `totalShares` is now exposed via this
-    // view because Core reads `BAND.totalShares()`.
+    // view because Core reads `RANGE.totalShares()`.
     function totalShares() public view returns (uint) {
         return lpShares;
     }
 
-    /// @notice The LP's UNLEVERED band-ETH depth (`pooled` minus the leverage slice) — the `E0` the leverage
+    /// @notice The LP's UNLEVERED range-ETH depth (`pooled` minus the leverage slice) — the `E0` the leverage
     ///         IL-protect must size its debt against (`LevManager` reads this at `openLev`). At open the
-    ///         leverage slice is 0, so this is the LP's raw band deposit. Sizing the IL hedge to THIS fixed
+    ///         leverage slice is 0, so this is the LP's raw range deposit. Sizing the IL hedge to THIS fixed
     ///         base (not the buffer's own growing collateral) is what avoids the 1/(1−t) over-hedge.
-    function bandOf(address lp) external view returns (uint) {
+    function rangeOf(address lp) external view returns (uint) {
         uint p = autoManaged[lp].pooled;
         uint lev = levPooled[lp];
         return SwapLib.plainNet(p, lev);
@@ -330,9 +330,9 @@ contract Quid is Shares,
         AUX = Aux(payable(_aux)); CORE = Core(_core);
         QUID = Basket(_quid);
         renounceOwnership();
-        if (QUID.BAND() != address(this)) revert WrongQuid();
+        if (QUID.RANGE() != address(this)) revert WrongQuid();
         // The rest is deploy-time-only work that was costing Quid RUNTIME bytes
-        // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the band
+        // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the range
         // seed read, and the initial tick derivation. Only the value-type state
         // writes stay here; they have no storage pointer to hand the library.
         address weth;
@@ -341,7 +341,7 @@ contract Quid is Shares,
         // §ONE-ANCHOR — `setupBody` still returns the pair it derived; the midpoint of
         // `p·(1−δ)`/`p·(1+δ)` recovers `p`. Exact enough HERE (and only here) because this is the
         // deploy seed, immediately superseded by the first repack, which passes the anchor directly.
-        BAND_ANCHOR = (lo_ + hi_) / 2;
+        RANGE_ANCHOR = (lo_ + hi_) / 2;
         WETH = WETH9(payable(weth));
         // §ETHVENUE-FOLD — arm the ether.fi venue here, where `EthVenue`'s constructor used to.
         // The standing WETH approval to a SEPARATE venue address is gone with the address.
@@ -408,12 +408,12 @@ contract Quid is Shares,
         // `sizeOutOfRange`, so a nonzero token is a stable and the order is a resting BID. The
         // sizer's two branches already knew this and threw it away; the fill needs it, and it is
         // not recoverable later (see the note on `Types.SelfManaged.usdFunded`).
-        BandLib.openOor(oorBook, selfManaged, positions,
+        RangeLib.openOor(oorBook, selfManaged, positions,
             next, msg.sender, token != address(0), t.newLo, t.newUp, int(placed));
         CORE.outOfRange(msg.sender, int(placed), t.newLo, t.newUp, address(0));
     } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
     // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple
-    // of 50 ≥ 100, so lower<upper always (no degenerate/inverted band); liquidity cast
+    // of 50 ≥ 100, so lower<upper always (no degenerate/inverted range); liquidity cast
     // int(uint(uint128)) is always +, passed positive = a MINT (correct); CORE.outOfRange args
     // (ETH pool, sender, +liq, newLo<newUp, token=address(0)) — the address(0) is CORRECT:
     // on a mint the USD side is settled by minting mock-USD, and `token` is only read on the
@@ -474,7 +474,7 @@ contract Quid is Shares,
     function _pendingFor(address user)
         internal view returns (uint tokReward, uint usdReward) {
         Types.Deposit storage LP = autoManaged[user];
-        // TRADING fees (CORE): gross band-depth weight (buffer IS real CORE depth).
+        // TRADING fees (CORE): gross range-depth weight (buffer IS real CORE depth).
         (tokReward, usdReward) = SwapLib.pendingFor(LP, LP.pooled + levBuf[user], feesPerShare, USD_FEES);
         // VENUE yield: PLAIN weight only. The lev slice earns its own yield via the
         // LevManager, not this Morpho position, so crediting it here would skim plain LPs.
@@ -511,8 +511,8 @@ contract Quid is Shares,
     ///   • §4.2 cover-open-levers-first — ✅ **DONE (#109). INLINE WIRING IS LIVE** — see `_withdraw` below:
     ///     when the ask exceeds the LP's FREE (non-levered) balance it calls
     ///     `ILevClose(levManager).closeLevFor(msg.sender, 0)` then `_reconcileLev(msg.sender)`, i.e. a
-    ///     past-free withdraw crystallizes the whole in-band lever (full-close, not partial — that IS the
-    ///     opt-in). `closeLevFor` stays gated to the GOV-pinned BAND OR GOV, and `closeLev`'s
+    ///     past-free withdraw crystallizes the whole in-range lever (full-close, not partial — that IS the
+    ///     opt-in). `closeLevFor` stays gated to the GOV-pinned RANGE OR GOV, and `closeLev`'s
     ///     LP-only msg.sender gate is untouched.
     ///     **CORRECTED 2026-07-26 — this comment previously read "PRIMITIVE BUILT, INLINE WIRING DEFERRED"
     ///     and listed two blocking forks. That text outlived the code and is what caused #109 to be tracked as
@@ -521,7 +521,7 @@ contract Quid is Shares,
     ///     the inline call passes `0`, deliberately, because the slice is closed at the LP's own request during
     ///     THEIR withdraw, and the swap is bounded by the venue's own oracle/LTV rather than a caller floor;
     ///     (b) re-entrancy — `closeLevFor`'s flash callback re-enters `syncLev` under this contract's
-    ///     nonReentrant lock, so it is try/caught and the band slice is cleared here by the explicit
+    ///     nonReentrant lock, so it is try/caught and the range slice is cleared here by the explicit
     ///     `_reconcileLev` instead of by the hook. The withdraw still CAPS at `pooled − levPooled`, so a
     ///     levered claim can never pull unlevered ETH.
     ///   • §2  JIT depth-guarantee core — DEFERRED (backing-model fork): the spec's redeem→addLiq top-up does
@@ -569,7 +569,7 @@ contract Quid is Shares,
     ///
     /// §E28-r: the mint used to pay only what the BURN RELEASED, which coupled the USD leg to a cap
     /// that exists for the ETH leg alone — measured, the burn released 99.958% of the increment and
-    /// the claim was debited for 100%, leaking 25.200001 USD. **The band's USD leg is a MOCK
+    /// the claim was debited for 100%, leaking 25.200001 USD. **The range's USD leg is a MOCK
     /// MIRROR; the REAL stables are basket-held**, so the mint never needed the burn to release
     /// anything. Pay the LP's PRO-RATA share of the increment directly and let the burn govern only
     /// the ETH leg. `lpShares` is already debited by `claimAmt` at this point, so the pre-debit
@@ -577,27 +577,27 @@ contract Quid is Shares,
     /// §V4-RESIDUE (2026-08-18) — `spotPrice`/`lo`/`hi` went when `_burnInRange` stopped taking them.
     function _burnAndDeliverUsdLeg(uint burnAmt, uint claimAmt, address recipient)
         private returns (uint sent) {
-        uint incrPre = _bandIncrement6();
+        uint incrPre = _rangeIncrement6();
         sent = _burnInRange(burnAmt, recipient);
         sent += _payUsdLeg(incrPre, lpShares + claimAmt, claimAmt, recipient);
     }
 
-    /// @dev The band's LP-OWNED USD leg, 6-dec: everything in the curve's USD mirror beyond what the
-    ///      BASKET put there. Signed-safe — a band that BOUGHT ETH with basket dollars reads 0 here
+    /// @dev The range's LP-OWNED USD leg, 6-dec: everything in the curve's USD mirror beyond what the
+    ///      BASKET put there. Signed-safe — a range that BOUGHT ETH with basket dollars reads 0 here
     ///      (the negative case is priced, not paid: see `_pricingBacking`).
-    function _bandIncrement6() private view returns (uint) {
+    function _rangeIncrement6() private view returns (uint) {
         uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
         return usd6 > base6 ? usd6 - base6 : 0;
     }
 
-    /// @dev Pays `claimAmt`'s pro-rata slice of the band's USD increment in QU!D and returns its
+    /// @dev Pays `claimAmt`'s pro-rata slice of the range's USD increment in QU!D and returns its
     ///      ETH-EQUIVALENT, the caller's ledger unit (returning two numbers costs a stack slot
     ///      `_withdraw` lacks). `incrPre`/`denom` MUST be captured BEFORE the burn: the burn removes
     ///      the increment proportionally, so reading them after would pay on an already-shrunk leg.
     ///
     ///      §E28-r(2) — this is a SEPARATE helper, not a branch of `_burnAndDeliverUsdLeg`, because
     ///      the ether.fi offramp needs the SAME payment with a DIFFERENT ETH recipient. That slice
-    ///      burns its band liquidity to `address(0)` (its ETH comes from ether.fi, not the band),
+    ///      burns its range liquidity to `address(0)` (its ETH comes from ether.fi, not the range),
     ///      and before this it burned the USD leg away too and paid the LP NOTHING for it. Measured
     ///      on the LVR control-vs-treatment probe: a 13.016% ether.fi slice silently consumed
     ///      7,809.44 USD of a 60,000 USD increment — the whole 104 bps by which the treatment LP
@@ -611,7 +611,7 @@ contract Quid is Shares,
         // Re-anchor the mirror: what the LP still owns is what it owned MINUS what was just paid,
         // NOT whatever the burn happened to release. See `Core.absorbPaidUsd` for the measurement.
         CORE.absorbPaidUsd(incrPre - owed6);
-        // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the band's leg
+        // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the range's leg
         // ratio, which is not a price for a concentrated position (measured: it implied ~840
         // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
@@ -641,7 +641,7 @@ contract Quid is Shares,
         //
         // ⚠️ WHY 1 BLOCK HERE AND 47 ON THE OOR PATHS (`QuidLib.pullBody`,
         //    `BtcLib.pullBtc`) — the asymmetry is REAL, not drift (E146):
-        //    a BAND position is UNCONDITIONALLY exposed the moment it is in range, so one
+        //    a RANGE position is UNCONDITIONALLY exposed the moment it is in range, so one
         //    block already puts the whole deposit at risk of a block of price movement, and
         //    breaking ATOMICITY is what matters — an atomic snipe risks nothing because it
         //    borrows, captures and repays in one transaction. An OOR BOUNDARY ORDER is
@@ -667,9 +667,9 @@ contract Quid is Shares,
         // the slot — see the mint-out block below.
         _settlePending(LP, msg.sender, address(0));
 
-        // #109 (§G.7): a withdraw that reaches PAST the LP's FREE (plain) depth into their OWN in-band levered
-        // slice AUTO-DE-LEVERS it. `levPooled>0` ⟺ in-band ⟺ auto-close candidate (2× auto-banded OR a
-        // directional lever the LP CHOSE to band — both opted in); an out-of-band directional lever has
+        // #109 (§G.7): a withdraw that reaches PAST the LP's FREE (plain) depth into their OWN in-range levered
+        // slice AUTO-DE-LEVERS it. `levPooled>0` ⟺ in-range ⟺ auto-close candidate (2× auto-ranged OR a
+        // directional lever the LP CHOSE to range — both opted in); an out-of-range directional lever has
         // levPooled==0 and is structurally untouched. `closeLevFor` repays debt and hands the freed collateral
         // (weETH/WETH — the LP's FULL residual: YB guarantee, or directional upside) straight to the LP, so the
         // levered value IS delivered. Fires ONLY when the ask exceeds free depth (know-WHEN-to-delever; a
@@ -679,7 +679,7 @@ contract Quid is Shares,
         // BLOCKED under this withdraw lock (LevManager try/catches it → the slice stays stale for the tx), so
         // reconcile INLINE right after to burn the now-0 levPooled leg (net-equity==0 post-close) BEFORE the cap
         // re-reads to the full remaining pooled. Full-close (not partial): reuses the existing closeLevFor
-        // primitive — a past-free withdraw crystallizes the whole in-band lever, which is the opt-in.
+        // primitive — a past-free withdraw crystallizes the whole in-range lever, which is the opt-in.
         if (levPooled[msg.sender] > 0 && amount > SwapLib.plainNet(LP.pooled, levPooled[msg.sender])) {
             ILevClose(QuidLib.levManager(address(AUX))).closeLevFor(msg.sender, 0);
             _reconcileLev(msg.sender);                      // hook re-entrancy was blocked → clear the slice here
@@ -694,11 +694,11 @@ contract Quid is Shares,
             // Every exit is an ether.fi exit: all ETH is weETH, so the slice IS the withdrawal.
             uint ethfiPart = amount;
             if (ethfiPart > 0) {
-                uint incrPre = _bandIncrement6();          // BEFORE the burn shrinks it
+                uint incrPre = _rangeIncrement6();          // BEFORE the burn shrinks it
                 uint served = offrampEtherFi(ethfiPart, recipient);
                 if (served > 0) {
                     _burnInRange(served, address(0));
-                    // §E28-r(2): the ETH came from ether.fi, so the band burn delivers to nobody —
+                    // §E28-r(2): the ETH came from ether.fi, so the range burn delivers to nobody —
                     // but the USD leg it burned away is LP-OWNED and must still be paid. Skipping it
                     // was the leak the LVR probe measured (7,809.44 USD of a 60,000 increment).
                     _payUsdLeg(incrPre, lpShares, served, recipient);
@@ -769,7 +769,7 @@ contract Quid is Shares,
                 sent += excess; shortfall -= excess;
             } // the LP receives only what its OWN in-range burn + venue
              // share can deliver — already IL-adjusted, since convertToAssets =
-            // pro-rata of bandETH (the loss is socialized fairly via the share
+            // pro-rata of rangeETH (the loss is socialized fairly via the share
            // price, no first-out advantage). Any residual is VENUE ILLIQUIDITY
           // only; it stays as LP.pooled (recoverable deferral, re-withdrawn on
          // venue thaw). NO surplus-funded make-whole here that would compensate
@@ -833,16 +833,16 @@ contract Quid is Shares,
     function _modLpEth(uint deltaETH, uint deltaUSD, address pledge) private {
         CORE.modLP(-int256(deltaETH), -int256(deltaUSD), pledge);   // ENTERS ⇒ negative
     }
-    /// @notice Reconcile `lp`'s LEVERED band position to its LIVE net-equity — the IL-protect fee lane.
-    ///         PERMISSIONLESS (keeper/monitor/anyone): when the leverage's net-equity GROWS, mint band depth
-    ///         for `lp` so the levered weETH earns band fees via the SAME machinery as a weETH deposit
+    /// @notice Reconcile `lp`'s LEVERED range position to its LIVE net-equity — the IL-protect fee lane.
+    ///         PERMISSIONLESS (keeper/monitor/anyone): when the leverage's net-equity GROWS, mint range depth
+    ///         for `lp` so the levered weETH earns range fees via the SAME machinery as a weETH deposit
     ///         (settle → addLiq → pooled/lpShares/levPooled += → modLP); when it SHRINKS or is liquidated,
     ///         burn that depth WITHOUT delivery (the equity is on the venue, not here), un-pairing POOLED_USD
     ///         back to the basket — so a venue liquidation leaves the basket fully intact. The minted slice is
     ///         UNWIND-ONLY (`levPooled`, excluded from `_withdraw`): it leaves via `LevManager.closeLev`, never
     ///         the free ladder, so it never introduces leverage-induced deferral. No tokens move here — the
-    ///         backing is the net-equity already counted in `bandETH` (so addLiq's headroom includes it).
-    /// @notice Permissionless reconcile of `lp`'s levered band slice to the LIVE gross collateral. Anyone (keeper,
+    ///         backing is the net-equity already counted in `rangeETH` (so addLiq's headroom includes it).
+    /// @notice Permissionless reconcile of `lp`'s levered range slice to the LIVE gross collateral. Anyone (keeper,
     ///         monitor, or the LP) may poke it; it is ALSO called lazily at the entry of `_withdraw` so a position
     ///         seized by an EXTERNAL venue liquidation self-heals before the LP can extract value — closing the
     ///         "external liquidation → stale slice earns fees on vanished backing" gap on-chain, not by poke-hope.
@@ -851,7 +851,7 @@ contract Quid is Shares,
     function _reconcileLev(address lp) internal {
         address lm = QuidLib.levManager(address(AUX));
         uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
-        // full-2×: reconcile band CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
+        // full-2×: reconcile range CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
         // the debt-funded buffer, so the live gross depth is their sum. Skip only when the gross depth AND
         // the buffer-USD target are already in sync (nothing to do).
         if (gross == levPooled[lp] + levBuf[lp] && levBufferUsd[lp] == QuidLib.bufTarget(lm, lp)) return;
@@ -863,12 +863,12 @@ contract Quid is Shares,
     ///      from the returned (added, burned) deltas.
     function _doReconcile(address lp, address lm, uint gross) private {
         Types.Deposit storage LP = autoManaged[lp];
-        Types.BandP memory p;
+        Types.RangeP memory p;
         (p.spotPrice, p.loPrice, p.upPrice,,) = _rebalance();
-        p.mgr = lm; p.gross = gross;   // §BAND-MERGE: `lm` and the BTC side's `mgr` were one field
+        p.mgr = lm; p.gross = gross;   // §RANGE-MERGE: `lm` and the BTC side's `mgr` were one field
         _settlePending(LP, lp, address(0));          // settle fees up to now (→ usd_owed) before pooled moves
         (uint addedNet, uint burnedNet, uint bufAdded, uint bufBurned) = QuidLib.reconcileLegs(
-            Types.BandCfg(address(CORE), address(AUX), address(WETH)),
+            Types.RangeCfg(address(CORE), address(AUX), address(WETH)),
             LP, levPooled, levBufferUsd, levBuf, lp, p);
         lpShares = lpShares + addedNet - burnedNet;       // NET equity leg
         totalLevPooled = totalLevPooled + addedNet - burnedNet; // the levered share of lpShares
@@ -958,13 +958,13 @@ contract Quid is Shares,
         bookmark = _venueBalance();
     }
 
-    /// @dev Live PLAIN-venue ETH balance for the venue-yield sync + withdrawal delivery. `bandOp`
-    ///      op=2 returns bandETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
+    /// @dev Live PLAIN-venue ETH balance for the venue-yield sync + withdrawal delivery. `rangeOp`
+    ///      op=2 returns rangeETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
     ///      pure plain-venue value: the lev collateral earns its own yield via the LevManager, so
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
     function _venueBalance() internal returns (uint) {
-        uint total = bandOp(0, 2);   // bandETH (all plain venues + lev net-equity)
+        uint total = rangeOp(0, 2);   // rangeETH (all plain venues + lev net-equity)
         address lm = QuidLib.levManager(address(AUX));
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
@@ -981,62 +981,62 @@ contract Quid is Shares,
     // yield and vol, needs no owner, and uses no synthetic value. (f omitted = conservative: fees
     // only shrink LVR, so dropping them yields a SMALLER, safer θ.)
     // K = the LVR coefficient (annual LVR_rate = K·σ²). NO HARDCODE: K is NOT a free constant — for a
-    // concentrated-liquidity band it is a CLOSED-FORM function of the band's own geometry, computed LIVE
+    // concentrated-liquidity range it is a CLOSED-FORM function of the range's own geometry, computed LIVE
     // from the on-chain ticks in `_kLvrWad()` below. The earlier 0.71/2.24 sim-fit constants are gone.
-    /// @notice The LIVE LVR coefficient K (WAD) for the pool's current band — read the real, dynamic
-    ///         number (front-end / probe / monitoring). 0 ⇒ band unset/degenerate (caller fails open).
-    ///         Body in QuidLib (EIP-170 headroom); band ticks passed in.
+    /// @notice The LIVE LVR coefficient K (WAD) for the pool's current range — read the real, dynamic
+    ///         number (front-end / probe / monitoring). 0 ⇒ range unset/degenerate (caller fails open).
+    ///         Body in QuidLib (EIP-170 headroom); range ticks passed in.
     function kLvrWad() external view returns (uint) {
         return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice (A) The band's LIVE realized concavity α (WAD). Body in QuidLib.
+    /// @notice (A) The range's LIVE realized concavity α (WAD). Body in QuidLib.
     function realizedAlphaWad() public view returns (uint) {
         return QuidLib.realizedAlphaWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice (B) The band's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — the ground-truth IL the
+    /// @notice (B) The range's ACTUAL sold-volatile fraction (WAD) since `entryPrice` — the ground-truth IL the
     ///         hedge must cancel, straight from the concentrated-position geometry, so it reflects the real
     ///         (drifting) α with NO sqrt/pow and NO α parameter. Held-volatile amount is ∝ (1/√P − 1/√P_b)
     ///         when the volatile is token0 (sold as √P RISES) or ∝ (√P − √P_a) when it's token1 (sold as √P
     ///         FALLS); soldFrac = 1 − amount_now/amount_entry. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat
     ///         recenters the ticks and realizes IL, so the CALLER must re-anchor `entryPrice` on reseat.
-    ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate band.
-    ///         ETH band (the BTC parallel lives on the Vault with the BTC ticks/ordering).
+    ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate range.
+    ///         ETH range (the BTC parallel lives on the Vault with the BTC ticks/ordering).
     function soldFractionWad(uint entryPrice) public view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
         return SwapLib.soldFractionWad(entryPrice, priceWad, _lo(), _hi());
     }
 
-    /// @notice The band's current spot √P (Q96) — the leverage records this as its `entryPrice` at open so
-    ///         `soldFractionWad` can measure the IL from the true band price (not the oracle).
-    /// @dev NO isBTC ARGUMENT, deliberately. Quid is the ETH band manager, so it reads the ETH pool
-    ///      — full stop. It previously FORWARDED the caller's flag, meaning `bandPrice(true)` returned
-    ///      the BTC pool's price from the ETH contract, while `Vault.bandPrice` IGNORED the same flag
+    /// @notice The range's current spot √P (Q96) — the leverage records this as its `entryPrice` at open so
+    ///         `soldFractionWad` can measure the IL from the true range price (not the oracle).
+    /// @dev NO isBTC ARGUMENT, deliberately. Quid is the ETH range manager, so it reads the ETH pool
+    ///      — full stop. It previously FORWARDED the caller's flag, meaning `rangePrice(true)` returned
+    ///      the BTC pool's price from the ETH contract, while `Vault.rangePrice` IGNORED the same flag
     ///      and always read BTC. Two implementations disagreeing about one parameter is a silent
     ///      mis-pricing waiting on a hook mis-wiring: it returns the wrong asset's price rather than
     ///      reverting. Each side now names its own asset and cannot be asked for the other's.
-    function bandPrice() external view returns (uint priceWad) {
+    function rangePrice() external view returns (uint priceWad) {
         (priceWad,) = CORE.poolStats();
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in QuidLib
-    ///         (EIP-170 headroom); band ticks + Core/Aux handles passed in.
+    ///         (EIP-170 headroom); range ticks + Core/Aux handles passed in.
     function derivedThetaWad() public view returns (uint) {
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice θ for an EXPLICIT band range. The BTC band ticks live in the Vault (LOWER_TICK_BTC/
-    ///         UPPER_TICK_BTC), so it passes them in here -- Quid stays the single home of the band-θ
+    /// @notice θ for an EXPLICIT range range. The BTC range ticks live in the Vault (LOWER_TICK_BTC/
+    ///         UPPER_TICK_BTC), so it passes them in here -- Quid stays the single home of the range-θ
     ///         math for BOTH pools, and the Vault needs no QuidLib link of its own.
     /// 🔴 §ISBTC-SPLIT — THE CORE IS A PARAMETER NOW, AND THAT IS A BUG FIX, not tidying. This
     ///         took a `bool isBTC` it NEVER READ and always used `address(CORE)` -- Quid's own core,
     ///         the ETH instance. `derivedThetaWad` reads `ICore(core).realizedVarianceWad()`, so the
-    ///         BTC band was getting theta from the ETH ORACLE'S VARIANCE applied to BTC's price
-    ///         bounds. Theta throttles band depth by the band's OWN volatility; mixing the two is
+    ///         BTC range was getting theta from the ETH ORACLE'S VARIANCE applied to BTC's price
+    ///         bounds. Theta throttles range depth by the range's OWN volatility; mixing the two is
     ///         wrong in both directions and silent -- it returns a plausible number either way.
     ///         Harmless while one Core held both rings; wrong the moment they became two instances.
-    ///         Quid stays the single home of the band-theta math (the Vault still needs no QuidLib
+    ///         Quid stays the single home of the range-theta math (the Vault still needs no QuidLib
     ///         link); it just has to be told WHOSE ring to measure.
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in QuidLib.
@@ -1076,8 +1076,8 @@ contract Quid is Shares,
         onlyUs returns (uint usdOut, uint outDelta) {
         // Body in QuidLib (EIP-170 headroom). The onlyUs guard stays here; the
         // delegatecalled body preserves address(this) == Quid for the θ self-call.
-        // Pass totalBuffer so addLiq sizes headroom on GROSS band backing (Quid is ETH-only).
-        return QuidLib.addLiq(address(CORE), address(AUX), deltaTok, price, totalBuffer);   // §ISBTC-SPLIT: Quid IS the ETH band, so the flag was always false
+        // Pass totalBuffer so addLiq sizes headroom on GROSS range backing (Quid is ETH-only).
+        return QuidLib.addLiq(address(CORE), address(AUX), deltaTok, price, totalBuffer);   // §ISBTC-SPLIT: Quid IS the ETH range, so the flag was always false
     }
 
     // _addLiqChannel (channel-lock liquidity sizer) regrouped into BtcVault.sol.
@@ -1087,21 +1087,21 @@ contract Quid is Shares,
     ///      storage refs (selfManaged/positions) mutate in place. Logic unchanged.
     function pull(uint id, // existing self-managed position
         int percent, address token) external nonReentrant {
-        BandLib.pull(address(CORE), oorBook, selfManaged, positions, id, percent, token, msg.sender);
+        RangeLib.pull(address(CORE), oorBook, selfManaged, positions, id, percent, token, msg.sender);
     }
 
-    /// @notice §E258 — execute the resting boundary orders the band's price has crossed.
+    /// @notice §E258 — execute the resting boundary orders the range's price has crossed.
     /// @dev    Driven by `Core.swap`: the moment the price is known to have moved. Capped there, so
-    ///         `fillOOR` below is what drains whatever the cap left. Body in `BandLib` — this
+    ///         `fillOOR` below is what drains whatever the cap left. Body in `RangeLib` — this
     ///         contract is the tightest in the tree under EIP-170 and can afford the call, not the code.
     function sweepOor(uint px, uint maxFills) external onlyUs returns (uint) {
-        return BandLib.sweepOor(address(CORE), oorBook, selfManaged, positions, px, maxFills);
+        return RangeLib.sweepOor(address(CORE), oorBook, selfManaged, positions, px, maxFills);
     }
 
-    /// @notice §E258 — the permissionless poke. See `BandLib.pokeOor` for why it is a liveness
+    /// @notice §E258 — the permissionless poke. See `RangeLib.pokeOor` for why it is a liveness
     ///         requirement rather than a convenience, and why it pays no tip yet.
     function fillOOR(uint id) external nonReentrant {
-        BandLib.pokeOor(address(CORE), address(AUX), address(WETH),
+        RangeLib.pokeOor(address(CORE), address(AUX), address(WETH),
             oorBook, selfManaged, positions, id);
     }
 
@@ -1122,24 +1122,24 @@ contract Quid is Shares,
     // anywhere in src/, test/ or script/ -- inside this contract or out. A one-line forwarder to
     // `_sendETH` that nothing could reach.
 
-    /// @notice Redemption unwind. QU!D's dollars work as the band's USD side (capital
+    /// @notice Redemption unwind. QU!D's dollars work as the range's USD side (capital
     ///         efficiency); when a redemption exceeds the FREE stables, free them back out by
-    ///         BURNING in-range band liquidity -- this shrinks POOLED_USD (committedUsd18 down,
+    ///         BURNING in-range range liquidity -- this shrinks POOLED_USD (committedUsd18 down,
     ///         so the redeemer's usdAvailable rises for the subsequent take()). Reuses the
     ///         LP-withdraw burn primitive (_burnInRange) with recipient=0: the paired ETH is NOT
     ///         paid out (Core._settleTokSide gates delivery on `who != 0`), so it stays in the
-    ///         venue -- LP EQUITY NEUTRAL (bandETH/lpShares unchanged; only the band's mock
-    ///         mirror shrinks, returning ETH from in-band to in-venue). Bounded by POOLED
+    ///         venue -- LP EQUITY NEUTRAL (rangeETH/lpShares unchanged; only the range's mock
+    ///         mirror shrinks, returning ETH from in-range to in-venue). Bounded by POOLED
     ///         (_burnInRange caps at it), so a truly insolvent basket simply frees all it can and
     ///         QU!D bears the residual via the haircut. onlyUs -- Aux drives it inside redeemAsBody.
     /// @param usdWanted 18-dec USD shortfall to free. @return usdFreed 18-dec USD actually freed.
     function unwindForRedeem(uint usdWanted) external onlyUs returns (uint usdFreed) {
         if (usdWanted == 0) return 0;
-        uint usd6 = CORE.POOLED_USD();     // band's in-range USD leg (6-dec)
-        uint eth  = CORE.POOLED();         // band's in-range ETH leg (18-dec)
-        if (usd6 == 0 || eth == 0) return 0; // empty band -> free stables only
+        uint usd6 = CORE.POOLED_USD();     // range's in-range USD leg (6-dec)
+        uint eth  = CORE.POOLED();         // range's in-range ETH leg (18-dec)
+        if (usd6 == 0 || eth == 0) return 0; // empty range -> free stables only
         _rebalance();   // §V4-RESIDUE 2026-08-18: kept for its EFFECT; returns are all unused now.
-        // ROOT-PRECISE: size the ETH removal by the band's OWN in-range USD/ETH ratio, NOT an external TWAP.
+        // ROOT-PRECISE: size the ETH removal by the range's OWN in-range USD/ETH ratio, NOT an external TWAP.
         // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
         // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
         // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
@@ -1155,7 +1155,7 @@ contract Quid is Shares,
     ///         WHY THIS EXISTS: the premium is withheld from a drainer's output — *"the drainer's
     ///         full USD entered the pool, they just take less out"* — so those dollars are already
     ///         basket backing. But basket backing prices QU!D, NOT LP shares: an LP's claim runs
-    ///         through `bandETH()`/`pooled`, which never reads it. So a premium charged FOR THE
+    ///         through `rangeETH()`/`pooled`, which never reads it. So a premium charged FOR THE
     ///         LP'S INVENTORY RISK was accruing to QU!D holders. Every comment on the path said it
     ///         *"accrues to LPs as backing"*; structurally it did not.
     ///
@@ -1175,23 +1175,23 @@ contract Quid is Shares,
         USD_FEES += usdInc;
     }
 
-    // ─── ICore — the ETH band's face (see docs/actionable/IBAND-THE-BAND-MANAGER-FACE.md) ───
+    // ─── ICore — the ETH range's face (see docs/actionable/IRANGE-THE-RANGE-MANAGER-FACE.md) ───
     // `Core` used to branch on `IS_BTC` to reach one of two managers for each of these. The facts
-    // differ per band, so they live in the band, and `Core` asks one interface.
+    // differ per range, so they live in the range, and `Core` asks one interface.
 
-    /// @notice This band's leverage manager. `totalDebtUsd` is shared; only the LOOKUP differed.
+    /// @notice This range's leverage manager. `totalDebtUsd` is shared; only the LOOKUP differed.
     function levManager() external view returns (address) {
         return LEV_MANAGER;
     }
 
-    /// @notice Gross levered collateral in the band's NATIVE unit (wei here, sats on the BTC side).
+    /// @notice Gross levered collateral in the range's NATIVE unit (wei here, sats on the BTC side).
     function levGrossNative() external view returns (uint) {
         address m = LEV_MANAGER;
         if (m == address(0)) return 0;
         try ILevEquity(m).totalGrossCollateral() returns (uint g) { return g; } catch { return 0; }
     }
 
-    /// @notice Share base the shortfall trigger compares against. NET here: `bandETH()` (the
+    /// @notice Share base the shortfall trigger compares against. NET here: `rangeETH()` (the
     ///         inventory side) already adds the lev book's NET equity, so both sides are net and no
     ///         gross buffer term belongs. The BTC side adds one, for the mirror-image reason.
     function sharesForShortfall() external view returns (uint) { return totalShares(); }
@@ -1199,18 +1199,18 @@ contract Quid is Shares,
     /// @notice REAL inventory, never just the in-pool token: in-range POOLED plus AAVE/ether.fi
     ///         venue retention plus idle. Comparing raw POOLED over-fired the shortfall arb on
     ///         off-range retention.
-    function realInventory() external view returns (uint) { return AUX.bandETH(); }
+    function realInventory() external view returns (uint) { return AUX.rangeETH(); }
 
     /// @notice 🔴 A DELIBERATE NO-OP, AND NOT AN OMISSION. BTC routes a shortfall to the hop, which
     ///         delivers real BTC and consumes no basket stables. ETH must NOT: a surplus-funded
     ///         refill buys ETH to cover a shortfall that is usually IMPERMANENT, realising that IL
     ///         onto the SHARED backing and compensating the flow at every LP's expense. Real ETH
     ///         demand is met fairly at withdrawal instead -- `convertToAssets` pays each LP
-    ///         pro-rata of `bandETH`, so the IL is socialised through the share price.
+    ///         pro-rata of `rangeETH`, so the IL is socialised through the share price.
     ///         Do not "implement" this.
     function onShortfall(address, uint) external {}
 
-    /// @notice Pay the volatile leg out. ETH sends real ether; the BTC band's counterpart is a
+    /// @notice Pay the volatile leg out. ETH sends real ether; the BTC range's counterpart is a
     ///         no-op because settlement there is a Lightning cooperative close.
     function deliverVolatile(uint amount, address who) external onlyUs returns (uint) {
         return _sendETH(amount, who);
@@ -1271,7 +1271,7 @@ contract Quid is Shares,
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // _distributeV4Fees
         
         if (o.setLastRepack) LAST_REPACK = block.timestamp;      // _calcYield's live effect
-        BAND_ANCHOR = o.spotPrice;   // §ONE-ANCHOR: store the anchor; the range derives from it
+        RANGE_ANCHOR = o.spotPrice;   // §ONE-ANCHOR: store the anchor; the range derives from it
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
@@ -1301,8 +1301,8 @@ contract Quid is Shares,
 
 
     // §ONE-ANCHOR — `_updateBounds` DELETED. It forwarded to `SwapLib.updateBounds`, and every
-    // caller went away when the band bounds became derived from `BAND_ANCHOR`: `bandBounds()` calls
-    // the library directly. Zero call sites left in this contract. (The BTC band manager has its own
+    // caller went away when the range bounds became derived from `RANGE_ANCHOR`: `rangeBounds()` calls
+    // the library directly. Zero call sites left in this contract. (The BTC range manager has its own
     // copy, which is a separate contract's business.)
 
     // ════════════════════════════════════════════════════════════════
@@ -1357,7 +1357,7 @@ contract Quid is Shares,
     // classes, so a single-asset 4626 on it would be dishonest". THAT PREMISE WAS MEASURED
     // FALSE (2026-08-15): Quid declares NO BTC state — not one `Btc`/`BTC` member. Its
     // `isBTC` arguments were pass-throughs to QuidLib math bodies, and NOTHING supplied
-    // them. Quid is, and was, the ETH band manager; `bandPrice` already said so in its own
+    // them. Quid is, and was, the ETH range manager; `rangePrice` already said so in its own
     // docblock while the comments here said the opposite.
     //
     // So the face returns to the state instead of projecting through a call boundary. That
@@ -1376,11 +1376,11 @@ contract Quid is Shares,
     function asset() external view returns (address) { return address(WETH); }
 
     /// @notice Total ETH-equivalent backing all LP positions: principal + ALL accrued
-    ///         CORE/Morpho fees, claimed or not. Deliberately `bandETH()` RAW, NOT
+    ///         CORE/Morpho fees, claimed or not. Deliberately `rangeETH()` RAW, NOT
     ///         `_pricingBacking()`, which restates the levered book onto the denominator's
     ///         clock for SHARE PRICING (§A.16b); the conversions below carry that
     ///         restatement, so applying it here too would double-count it.
-    function totalAssets() external view returns (uint) { return AUX.bandETH(); }
+    function totalAssets() external view returns (uint) { return AUX.rangeETH(); }
 
     function totalSupply() external view returns (uint) { return lpShares; }
 
@@ -1457,8 +1457,8 @@ contract Quid is Shares,
     // The conversions the 4626 face above is defined in terms of. One implementation, so the
     // §A.16b same-clock pricing cannot diverge between the identity and the entrypoints.
 
-    /// @dev Pricing backing: `bandETH` with the levered book restated onto the SAME CLOCK as the
-    ///      denominator. `bandETH` adds `totalNetEquity()` read LIVE from the venues
+    /// @dev Pricing backing: `rangeETH` with the levered book restated onto the SAME CLOCK as the
+    ///      denominator. `rangeETH` adds `totalNetEquity()` read LIVE from the venues
     ///      (`QuidLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
     ///      STORED and only refreshed by `_reconcileLev`/`syncLev` — i.e. on the levered LP's own next
     ///      action. Live numerator over lazy denominator is the whole defect (§A.16b): an external
@@ -1469,22 +1469,22 @@ contract Quid is Shares,
     ///      Swapping the LIVE term for the RECORDED one makes both sides move together: while the book
     ///      is stale the price is simply unchanged, and when reconciliation lands, the levered LP's own
     ///      shares burn alongside the backing. NOT the same as netting the levered book OUT — that was
-    ///      tried and REVERTED (§A.16d): the levered capital is commingled in the band, so removing it
+    ///      tried and REVERTED (§A.16d): the levered capital is commingled in the range, so removing it
     ///      strips backing that genuinely supports plain claims (measured: 69% under-pricing).
-    ///      In steady state (`totalNetEquity == totalLevPooled`) this is EXACTLY `bandETH`, so
+    ///      In steady state (`totalNetEquity == totalLevPooled`) this is EXACTLY `rangeETH`, so
     ///      normal-case pricing is byte-identical to before.
     function _pricingBacking() internal view returns (uint total) {
-        total = AUX.bandETH();
-        // §#12 — READ BOTH LEGS. `bandETH` is the ETH leg of a TWO-legged band position; the USD
+        total = AUX.rangeETH();
+        // §#12 — READ BOTH LEGS. `rangeETH` is the ETH leg of a TWO-legged range position; the USD
         // leg beyond what the BASKET supplied (`basketUsd`) is LP-owned and was invisible here,
-        // so a band that sold LP ETH for USD priced the LP down by the whole sale.
-        // Valued at the band's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries
+        // so a range that sold LP ETH for USD priced the LP down by the whole sale.
+        // Valued at the range's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries
         // no oracle dependency, the same choice `unwindForRedeem` makes deliberately.
-        // SIGNED: when the band has BOUGHT ETH with basket dollars the increment is NEGATIVE and
+        // SIGNED: when the range has BOUGHT ETH with basket dollars the increment is NEGATIVE and
         // must REDUCE the claim (B11) — flooring at zero would gift the LP the basket's capital.
         {
             uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
-            // ⚠️ VALUED AT THE ORACLE, NOT THE BAND'S LEG RATIO. `POOLED / POOLED_USD` is
+            // ⚠️ VALUED AT THE ORACLE, NOT THE RANGE'S LEG RATIO. `POOLED / POOLED_USD` is
             // NOT a price for a CONCENTRATED position — measured, it implied ~840 USD/ETH against
             // an actual 1,854, valuing the increment ~2.2x too high and inflating a 400-share claim
             // to 439.44 ETH (a 73,116 USD over-price). `unwindForRedeem` uses that ratio to size a
@@ -1583,7 +1583,7 @@ contract Quid is Shares,
         _requirePinnedRecipient(owner, receiver);
         // CAP FIRST, then convert (2026-07-26). `convertToShares` used to run on the RAW `assets`, so
         // the standard "exit everything" sentinel `withdraw(type(uint).max)` REVERTED with no message:
-        // it is `SoladyMath.fullMulDiv(assets, lpShares, bandETH())`, whose overflow guard is a bare
+        // it is `SoladyMath.fullMulDiv(assets, lpShares, rangeETH())`, whose overflow guard is a bare
         // `require`, and `type(uint).max * lpShares` trips it unconditionally. 10+ call sites use the
         // sentinel, so this reverted in NORMAL operation.
         //
@@ -1597,8 +1597,8 @@ contract Quid is Shares,
         // sentinel mean "exit my entire position", which is exactly what `maxWithdraw` advertises.
         // UNITS: cap in POOLED units, which is what `_withdraw` itself clamps in (`amount` vs
         // `plainNet(LP.pooled, levPooled)`, :511) — NOT through `convertToAssets`. Routing the cap
-        // through the share-conversion made the payout depend on `bandETH()`, so once the redeem
-        // turns had unwound the band the ceiling floored to 0 and a full-exit LP received NOTHING
+        // through the share-conversion made the payout depend on `rangeETH()`, so once the redeem
+        // turns had unwound the range the ceiling floored to 0 and a full-exit LP received NOTHING
         // (measured: `test_RunSim_AllExit_Normal`, LP1 got 0 of 8 ETH — a test that PASSES upstream).
         // Capping at the raw `pooled` reproduces upstream's effective behaviour exactly (upstream left
         // `assets` huge and let `_withdraw` clamp it) while still bounding `convertToShares`, and it
@@ -1649,12 +1649,12 @@ contract Quid is Shares,
     /// this × a grief-capped gasprice out of the LP's OWN harvested token-leg — so the keeper needs
     /// ZERO operator gas subsidy (the operator covers no gas at all).
     /// §E46 (2026-08-04) — RAISED 140,000 -> 200,000. The old value UNDER-REIMBURSED the cranker on
-    /// every single crank: measured 172,299 gas on a 400-ETH band after real flow
+    /// every single crank: measured 172,299 gas on a 400-ETH range after real flow
     /// (`test_E45_CompoundCrankGasVsTheSelfFundingConstant`), against a 140,000 basis — short 32,299,
     /// so the only keeper that cranked was one subsidising it. 200,000 is that measured worst case
     /// plus ~16% headroom. It does NOT need to carry a RESEAT: `_rebalance()` is repack-first on the
-    /// SWAP path too, so the band is recentred inside the swapper's own tx and a later crank never
-    /// finds an out-of-range band (verified — 30 trades at 4x size left `reseatEpoch` unmoved).
+    /// SWAP path too, so the range is recentred inside the swapper's own tx and a later crank never
+    /// finds an out-of-range range (verified — 30 trades at 4x size left `reseatEpoch` unmoved).
     /// The tip is still `min(gasprice, COMPOUND_MAX_GASPRICE) x this`, GRIEF-CAPPED at half the
     /// harvest, so over-sizing can never take more than that cap; under-sizing costs liveness
     /// always, which is the asymmetry that argues for the headroom.
@@ -1680,9 +1680,9 @@ contract Quid is Shares,
         uint usd_fees = USD_FEES;
         (uint tokR, uint usdR) = _pendingFor(lp);    // token-leg (WETH-units) + USD-leg owed
 
-        // SELF-FUNDING TIP. The token leg is NEVER free WETH — like every LP fee it lives as band
+        // SELF-FUNDING TIP. The token leg is NEVER free WETH — like every LP fee it lives as range
         // liquidity (see _settlePending: `LP.pooled += tokR`), so there is nothing to unwrap. Instead the
-        // cranker is paid by burning a `tip`-sized sliver of the band to itself as native ETH — the SAME
+        // cranker is paid by burning a `tip`-sized sliver of the range to itself as native ETH — the SAME
         // _burnInRange primitive _withdraw uses to deliver an LP's ETH. The tip is grief-capped at half the
         // harvest and comes out of THIS LP's realized fees only (the LP compounds `tokR − sent`, other LPs'
         // feesPerShare bookmarks are untouched), so backing == claims is preserved and no operator gas is
@@ -1691,7 +1691,7 @@ contract Quid is Shares,
         uint tip = gp * COMPOUND_GAS;
         if (tip > tokR / 2) tip = tokR / 2;          // cranker never takes more than half the harvest
 
-        // Burn-to-cranker FIRST so `sent` (capped at the band's active slice) is the truth for the
+        // Burn-to-cranker FIRST so `sent` (capped at the range's active slice) is the truth for the
         // accounting below; the whole fn is nonReentrant so the native-ETH send can't re-enter.
         uint sent = tip > 0 ? _burnInRange(tip, msg.sender) : 0;
 
@@ -1702,17 +1702,17 @@ contract Quid is Shares,
         _refreshBookmarks(lp, eth_fees, usd_fees);   // rebaseline → next pending is 0
     }
 
-    /// @notice This band's range, DERIVED from the one stored anchor: `[p·(1−δ), p·(1+δ)]`.
+    /// @notice This range's range, DERIVED from the one stored anchor: `[p·(1−δ), p·(1+δ)]`.
     /// @dev    §ONE-ANCHOR. Every consumer wanted the PAIR (`soldFractionWad`, `derivedThetaWad`,
     ///         `kLvrWad`, the rebalance body), which is why storing two looked natural. But the pair
     ///         is a function of ONE number, and two slots that must move together are two slots that
     ///         can fail to. Deriving is also cheaper: two `mulDiv`s against a cold SLOAD, and a
     ///         repack writes one slot instead of two.
-    function bandBounds() public view returns (uint lo, uint hi) {
-        return SwapLib.updateBounds(BAND_ANCHOR, SwapLib.BAND_DELTA);
+    function rangeBounds() public view returns (uint lo, uint hi) {
+        return SwapLib.updateBounds(RANGE_ANCHOR, SwapLib.RANGE_DELTA);
     }
 
-    function _lo() internal view returns (uint) { (uint l,) = bandBounds(); return l; }
-    function _hi() internal view returns (uint) { (, uint h) = bandBounds(); return h; }
+    function _lo() internal view returns (uint) { (uint l,) = rangeBounds(); return l; }
+    function _hi() internal view returns (uint) { (, uint h) = rangeBounds(); return h; }
 
 }

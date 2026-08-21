@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {AllesFixture} from "./Alles.t.sol";
 import {LevYbRealProbe} from "./LevYbReal.t.sol";
 
-/// @notice §J.2 PREREQ — the deposit→band→withdraw round-trip CHARACTERISATION.
+/// @notice §J.2 PREREQ — the deposit→range→withdraw round-trip CHARACTERISATION.
 ///
 ///         WHY THIS EXISTS: §J.2 wants to refactor the vault-share model (Quid not a 4626; vBTC's
 ///         ERC-20 face segregated out of Vault). The user's gate is that the collapse/merge must be
@@ -41,9 +41,9 @@ contract RoundTripNeutrality is AllesFixture {
         ETH.deposit{value: principal}(0, User01);
         vm.roll(block.number + 1);                          // JIT-lock: exit must be a later block
 
-        uint e0 = User01.balance + WETH.balanceOf(User01);
+        uint entryEquity = User01.balance + WETH.balanceOf(User01);
         vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
-        uint delivered = (User01.balance + WETH.balanceOf(User01)) - e0;
+        uint delivered = (User01.balance + WETH.balanceOf(User01)) - entryEquity;
         (uint retained,,,) = ETH.autoManaged(User01);
 
         // TOLERANCE 1e12 -> 3e15 (0.001 bps -> 3 bps of 10 BTC). NOT a nudge to green: the mechanism is
@@ -87,8 +87,8 @@ contract RoundTripNeutrality is AllesFixture {
 contract RoundTripNeutralityLevered is LevYbRealProbe {
 
     /// The numerator must read the levered book on the DENOMINATOR's clock: `pricingBacking` =
-    /// bandETH − LIVE totalNetEquity + RECORDED totalLevPooled. In sync those two cancel, so the
-    /// price is EXACTLY bandETH/lpShares — and that exact identity is what a separation-style
+    /// rangeETH − LIVE totalNetEquity + RECORDED totalLevPooled. In sync those two cancel, so the
+    /// price is EXACTLY rangeETH/lpShares — and that exact identity is what a separation-style
     /// regression breaks (it produced 0.1886 vs 0.614 when the recorded term was not restored).
     function testRT_SharePriceHoldsWithLeverageOpen() public {
         _setupMorpho();
@@ -99,13 +99,13 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         assertGt(ETH.totalLevPooled(), 0, "precondition: a levered slice IS open, else this is blind");
         assertGt(rlm.totalNetEquity(), 0, "precondition: live lev net-equity is non-zero");
 
-        // §#12 RE-DERIVED: `_pricingBacking` is no longer `bandETH` alone — it adds the LP-owned
-        // USD leg (the band's USD beyond the basket's contribution) valued at the band's own
+        // §#12 RE-DERIVED: `_pricingBacking` is no longer `rangeETH` alone — it adds the LP-owned
+        // USD leg (the range's USD beyond the basket's contribution) valued at the range's own
         // ratio. With the clocks coincident the LEVERED term still cancels, which is what this
         // test is about; the two-leg term is added here so the identity measures that and not #12.
-        uint backing = AUX.bandETH();
+        uint backing = AUX.rangeETH();
         {   uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
-            // Valued at the ORACLE, matching `_pricingBacking`. The band's leg ratio is NOT a
+            // Valued at the ORACLE, matching `_pricingBacking`. The range's leg ratio is NOT a
             // price for a concentrated position -- using it over-valued the increment ~2.2x.
             uint px = AUX.getTWAPforAsset(address(WETH), 1800);
             if (px > 0 && usd6 != base6) {
@@ -115,6 +115,6 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         }
         uint expected = 1e18 * backing / ETH.lpShares();
         assertEq(ETH.convertToAssets(1e18), expected,
-            "with the book in sync the price is EXACTLY bandETH/lpShares (clocks coincide)");
+            "with the book in sync the price is EXACTLY rangeETH/lpShares (clocks coincide)");
     }
 }

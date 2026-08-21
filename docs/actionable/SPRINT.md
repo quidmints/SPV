@@ -1093,7 +1093,7 @@ a row overturned the plan built from its marker.
 - **§E247-allowlist-gate** — OPEN, AND IT ONLY EVER LIVED IN PROSE INSIDE ANOTHER ROW'S BODY UNTIL NOW (booked retroactively 2026-08-17).
 
 #### 🟠  (38)
-- **E48** — REFILL — DESIGN SETTLED 2026-08-04 AFTER TWO OWNER CORRECTIONS. ATOMIC ON BOTH BANDS, WITH THE ASYNC KEEPER AS A REQUIRED FALLBACK TIER.
+- **E48** — REFILL — DESIGN SETTLED 2026-08-04 AFTER TWO OWNER CORRECTIONS. ATOMIC ON BOTH RANGES, WITH THE ASYNC KEEPER AS A REQUIRED FALLBACK TIER.
 - **E33** — `evm/test/btc/swapin_fixture.json` IS A BUILD ARTIFACT PRETENDING TO BE A FIXTURE — it is REWRITTEN BY EVERY FULL-SUITE RUN.
 - **E37** — AN EFFICIENCY LESSON THE `_take` ITEM MISSED: SPV THREADS TWICE THE MEMORY LEGACY DID, and pays for it at EXTERNAL library boundaries.
 - **E6** — RESEAT AND REFILL SHOULD FIRE TOGETHER (user, 2026-08-03).
@@ -4804,7 +4804,7 @@ not exist anywhere in the frame, so nothing downstream can audit "how much was a
 only by WHICH LINE you are on. It is also why the duplication census missed it — that scan hashes
 function BODIES, and this is one name reused across three states, not one body written twice.
 
-🔴 **AND THE TWO BANDS RE-DERIVE `targetUSD` BY DIFFERENT FORMULAE AFTER THE THETA CLAMP:**
+🔴 **AND THE TWO RANGES RE-DERIVE `targetUSD` BY DIFFERENT FORMULAE AFTER THE THETA CLAMP:**
 | band | line | after `capped < deltaTok` |
 |---|---|---|
 | ETH | `QuidLib:340` | `targetUSD = fullMulDiv(deltaTok, price, WAD)` — **recomputed** from the clamped amount |
@@ -6769,7 +6769,7 @@ manufacture.
 
 ---
 
-## 🔴🔴 §E290 — **THE CURVE AND ITS RESTORATION MECHANISM ARE ON OPPOSITE BANDS. THAT IS WHY κ CANNOT MOVE ON EITHER.**
+## 🔴🔴 §E290 — **THE CURVE AND ITS RESTORATION MECHANISM ARE ON OPPOSITE RANGES. THAT IS WHY κ CANNOT MOVE ON EITHER.**
 
 **Measured 2026-08-21 by checking the mechanism before designing around it, with the control run.**
 
@@ -7168,7 +7168,7 @@ Re-audited against the code, four of the ten I had said to KEEP were describing 
 |---|---|---|
 | `SOR-SIGNIFICANCE-DESIGN.md` | *"the committed `_pickBestPath` is a binary gate"* | **`SOR.sol` DELETED.** It documents a call site in a file that no longer exists — and §E228 removed that gate. |
 | `JIT-DEPTH-GUARANTEE.md` | anchored to *"Vogue `_withdraw:393` TODO"* | **`Vogue.sol` is GONE.** |
-| `IBAND-THE-BAND-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IBand` is in 9 src files.** Wired. |
+| `IRANGE-THE-BAND-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IBand` is in 9 src files.** Wired. |
 | `LST-PEG-MONITOR.md` | *"over-engineering — don't build it"* | `pegMonitor` = 0. Self-concluded; nothing to keep. |
 | `IMPAIRMENT-DERISK-TRIGGER.md` | hold-down design note | `hold-down`/`derisk` = **0 files**. Nothing it describes exists. |
 
@@ -7186,7 +7186,7 @@ answers.** ▶️ It also intersects PART C2's owner directive *"there should be
 all"*: **V3 cannot be removed until 1inch replaces it**, so that directive and this spec are one task.
 
 🔴 **DANGLING CITATIONS THEY LEAVE — fix on sight, do not treat a broken pointer as a missing task:**
-`JIT-DEPTH-GUARANTEE` ×3 in **code**, `IBAND` ×2 in **code**, `ROUTING-AGGREGATION` ×1 in code + ×4 in
+`JIT-DEPTH-GUARANTEE` ×3 in **code**, `IRANGE` ×2 in **code**, `ROUTING-AGGREGATION` ×1 in code + ×4 in
 other docs, `SOR-SIGNIFICANCE-DESIGN` ×4 in other docs, `LST-PEG-MONITOR` ×3, `IMPAIRMENT-DERISK` ×3.
 **Their conclusions are preserved in the table above**, so a citation can be resolved here rather than
 read as work that went missing. Full text remains in git history.
@@ -7869,3 +7869,51 @@ tests actually execute the call.**
 correct to push it over a red gate rather than block a clean commit on someone else's break.
 ▶️ Restore the function or update the three SPA call sites; and **fix `:839`, which will otherwise
 tell the next reader the opposite of the truth.**
+
+## C17. ⭐ LEND OUR OWN DOLLARS AGAINST OUR OWN LIGHTNING BTC (owner design, 2026-08-22)
+
+Owner: *"extend AaveV3Venue to the ETH side, remove the morpho borrow, we use Morpho only for our own
+listed lightning BTC … LPs borrow dollars against the lightning-btc market we listed, the dollars
+supplied by OUR dollar depositors instead of an arbitrary morpho vault — so we are not paying yield to
+arbitrary markets, we are paying our dollar stakers."*
+
+✅ **MORE OF THIS EXISTS THAN THE FRAMING SUGGESTS — four checks:**
+1. **The vBTC market is ALREADY CREATED BY US.** `DeployL1_s:556-568` — `loanToken: USDC`,
+   `collateralToken: ETH.VBTC()`, 86% LLTV, `createMarket` if unlisted. "Our own listed market" is
+   not new work; **what is new is who SUPPLIES it.**
+2. **Double-use is ALREADY PREVENTED, so "band and collateral at once" is answered: NO, by design.**
+   `Vault.exposeBtcToLev(lp, sats)` moves sats `autoManaged → levPooled` and THEN mints vBTC 1:1
+   (`Vault:306-310`). The sats are RECLASSIFIED, not shared — swap-backing sats cannot also back a
+   loan, or the band is under-collateralised exactly when the loan is drawn.
+3. **The LP never sells BTC to get dollar collateral — that is already true today** and is the point
+   of `exposeBtcToLev`. What the owner's change alters is where the borrowed dollars COME FROM.
+4. 🔴 **AND IT DISSOLVES THE ONE RECORDED BLOCKER ON THE vBTC MARKET, which is why this is the right
+   shape and not just a yield-capture play.** `VBtc.sol:22/:52` and `CLAUDE.md:480`: *"an open
+   Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit."* Measured: `burnFrom`
+   and `mintTo` are **`onlyVault`** (`VBtc:82/123/129`), `transfer` is open. So a THIRD-PARTY
+   liquidator ends up holding a token they cannot redeem for sats and can only sell to… nobody.
+   ⇒ **If the lender is US, the protocol can be the liquidator of last resort — it is the only address
+   that CAN burn vBTC and pay out sats.** An arbitrary Morpho lender structurally cannot. **The
+   blocker is a property of lending to strangers, not of the collateral.**
+
+🔴 **THE DECISION THE OWNER FLAGGED — WHICH STABLE. Do not default to USDC because it is `stables[0]`.**
+The loan token has to satisfy three things at once and they pull apart:
+- **Depositors must hold it** (it is their yield that replaces Morpho's lenders),
+- **Borrowing LPs must want it** — they borrow to buy WBTC for IL-protect, so it must reach WBTC
+  cheaply,
+- **Liquidation must clear in it**, which is where the wrapper question bites again (§E221/§E223).
+⚠️ **The measured Morpho depths do NOT decide this** (weETH/USDC $0.74M vs RLUSD $95M vs PYUSD
+$47.14M): that is THEIR liquidity, and the whole point is that OUR depositors supply it. **Choosing on
+those numbers would be answering a different question** — the same error as reading a borrowable-depth
+snapshot as a permanent fact.
+
+▶️ **ORDER, and the first step is independent of the stable choice:**
+1. **Extend `AaveV3Venue` to the ETH side and retire the Morpho ETH borrow.** Measured 2026-08-22:
+   Aave eMode cat 1 = **LTV 93.00%, liq threshold 95.00%, $808M free**; the Morpho weETH/WETH 94.5%
+   market has **$1.55M free at 90% utilisation**. Aave's threshold is HIGHER at **520× the depth**,
+   weETH is active/unfrozen with a 1,350,000 supply cap, and **`AaveV3Venue` already exists and is
+   fork-verified** (`test/AaveV3Venue.t.sol`) — today wired only for the WBTC leg.
+2. **Then** point the vBTC market's supply side at our depositors, once the stable is chosen.
+⚠️ Both are money-path changes needing their own verified runs — and the tree does not currently
+build (another thread's uncommitted `IBtcBand` import), so neither can be verified right now.
+

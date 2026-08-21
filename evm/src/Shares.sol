@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Types} from "./imports/Types.sol";
 import {OorBook} from "./imports/SortedSet.sol";
 
-/// @title  Shares — the band's share token. ONE declaration of the per-LP state, TWO instances.
+/// @title  Shares — the range's share token. ONE declaration of the per-LP state, TWO instances.
 ///
 /// @notice §SLOP — THIS CONTRACT EXISTS TO DELETE TWELVE DUPLICATED STATE CONCEPTS. Measured on the
 ///         pre-fold tree, the same per-LP state was declared twice, once in `Quid` (ETH) and once
@@ -31,14 +31,14 @@ import {OorBook} from "./imports/SortedSet.sol";
 /// @dev    `totalSupply` SPANS BOTH POSITION KINDS. `lpShares` is the in-range book (against the
 ///         engine's `POOLED`); the remainder is the out-of-range boundary orders. They are DISJOINT
 ///         BY CONSTRUCTION — `sizeOorUsd` requires a boundary order to sit wholly outside the active
-///         band — so the sum cannot double-count. Anything reading `totalSupply` as "depth in the
-///         band" is reading it wrong.
+///         range — so the sum cannot double-count. Anything reading `totalSupply` as "depth in the
+///         range" is reading it wrong.
 ///
-/// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the band
+/// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the range
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
 ///    `docs/actionable/ONE-ENGINE-TWO-SHARE-TOKENS.md`.
 
-/// @title  State — the 13 per-LP declarations both band managers had a private copy of
+/// @title  State — the 13 per-LP declarations both range managers had a private copy of
 ///
 /// @notice §E252. `Quid` (ETH) and `Vault` (BTC) each declared these THIRTEEN names, and a
 ///         declaration-by-declaration diff showed them BYTE-IDENTICAL — same types, same visibility,
@@ -58,11 +58,11 @@ import {OorBook} from "./imports/SortedSet.sol";
 ///         This file declares STATE and no functions at all — a previous version of this line
 ///         claimed a duplication across `Shares` and `Quid` that does not exist, in the one file
 ///         whose purpose is preventing duplication.
-///         band's share face is `VBtc`, a separate token. Hoisting those five would collide with
-///         Quid and give Vault a face it does not use. The band STATE is shared; the share FACE
+///         range's share face is `VBtc`, a separate token. Hoisting those five would collide with
+///         Quid and give Vault a face it does not use. The range STATE is shared; the share FACE
 ///         is per-asset, and that asymmetry is real (§A.19b: vBTC has no bearer redemption).
 abstract contract Shares {
-    /// The band's leverage manager. GOV pin-once, then frozen.
+    /// The range's leverage manager. GOV pin-once, then frozen.
     address public LEV_MANAGER;
 
     // ─── the position book: `pooled` IS the LP's balance ───
@@ -87,7 +87,7 @@ abstract contract Shares {
     /// permanently unfillable, stranding its funds with nothing reverting. The id makes every key
     /// unique while leaving the sort order by price intact.
     /// The index and its sweep watermark travel together as ONE storage pointer, which is what
-    /// lets `BandLib` own the whole mechanism — `Quid` has the tightest EIP-170 margin in the tree
+    /// lets `RangeLib` own the whole mechanism — `Quid` has the tightest EIP-170 margin in the tree
     /// and cannot afford to hold the logic, only the forwarder.
     OorBook internal oorBook;
 
@@ -103,6 +103,6 @@ abstract contract Shares {
     mapping(address => uint) public levBufferUsd;
     uint public totalBuffer;
 
-    /// The band's price anchor; bounds are `updateBounds(anchor, BAND_DELTA)` about it.
-    uint public BAND_ANCHOR;
+    /// The range's price anchor; bounds are `updateBounds(anchor, RANGE_DELTA)` about it.
+    uint public RANGE_ANCHOR;
 }

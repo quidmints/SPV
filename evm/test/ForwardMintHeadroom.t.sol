@@ -114,7 +114,7 @@ contract ForwardMintHeadroom is AllesFixture {
         // mint computed the 150-300 tier, so `nextMonth + 1` failed with `nextMonth + 3`.
         //
         // What this test actually exists to prove is that a THIN buffer yields a SHORT lock and that the
-        // far request was CLAMPED. Both hold across the whole thin band (tiers 1 and 3) and neither
+        // far request was CLAMPED. Both hold across the whole thin range (tiers 1 and 3) and neither
         // depends on our estimate being exact — which is what makes it robust on an unpinned fork.
         assertLt(actualM, when_(nextMonth, expMaxFwdFor(bufBps)),
             "far `when` was clamped down to the cap");

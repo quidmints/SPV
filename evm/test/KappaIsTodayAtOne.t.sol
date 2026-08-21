@@ -62,7 +62,7 @@ contract KappaIsTodayAtOneTest is Test {
     ///    have caught §E287 before it was pushed.
     function test_E289_FullDrainStillHitsTheSentinel() public pure {
         assertEq(_skew(0, 1e18), type(uint).max,
-                 "at kappa=1 the band must still be unemptiable - the brake is not removed yet");
+                 "at kappa=1 the range must still be unemptiable - the brake is not removed yet");
     }
 
     /// CONTROL — would this look the same if I were wrong? These values were captured from the kernel

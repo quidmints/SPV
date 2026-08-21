@@ -56,9 +56,9 @@ library FeeLib {
     // REMOVED — QU!D has no peg-arb loop to defend (see Aux._takeArgs); peg-defense redemptions are scheduled
     // by 6909. `decPow` is KEPT (Core still uses it for the 48h FLOW_DECAY flow-EWMA).
 
-    uint public constant DEPEG_DEADBAND_BPS = 50; // live-feed peg tolerance (bps);
+    uint public constant DEPEG_DEADZONE_BPS = 50; // live-feed peg tolerance (bps);
                                             // below this a stable is "healthy" (absorbs
-                                            // Chainlink's deviation band + heartbeat noise)
+                                            // Chainlink's deviation range + heartbeat noise)
     uint public constant BASE = 3;          // 0.03% baseline outflow fee (bps)
     uint public constant MAX_FEE = 30;      // 0.3% cap on the composite outflow fee
                                             // (the ether.fi-redeem-equivalent ceiling;
@@ -207,8 +207,8 @@ library FeeLib {
     /// @notice Downside deviation (bps) of a stable's USD feed below $1 — the depeg
     ///         severity, sourced directly from the pinned Chainlink feed (this is what
     ///         Aux.getDepegSeverityBps returns). A feed that is stale / reverting /
-    ///         zero / at-or-above peg returns 0 (healthy). A deadband absorbs benign
-    ///         sub-peg noise (Chainlink's deviation band + heartbeat lag). Deliberately
+    ///         zero / at-or-above peg returns 0 (healthy). A deadzone absorbs benign
+    ///         sub-peg noise (Chainlink's deviation range + heartbeat lag). Deliberately
     ///         NOT treating a stale feed as max-severity: a benign heartbeat lapse must
     ///         not inflict a redemption haircut on an otherwise-healthy stable.
     function liveDepegBps(address feed, uint maxAge)
@@ -227,14 +227,14 @@ library FeeLib {
             uint price = uint(answer);
             if (price >= peg) return 0;             // at/above peg → no risk
             uint down = ((peg - price) * 10000) / peg;   // downside bps
-            // Deadband: Chainlink stable feeds carry a deviation band (~0.25–0.5%)
+            // Deadzone: Chainlink stable feeds carry a deviation range (~0.25–0.5%)
             // and update on deviation OR a ~24h heartbeat, so a perfectly healthy
             // stable routinely sits a few–tens of bps below $1 between updates.
-            // Without a deadband the live leg would haircut EVERY deposit/redeem on
+            // Without a deadzone the live leg would haircut EVERY deposit/redeem on
             // that benign noise (and diverge from the CRE, which medians+quantizes
-            // to ≈0 in steady state). Treat anything within DEADBAND of peg as
+            // to ≈0 in steady state). Treat anything within DEADZONE of peg as
             // healthy; a real depeg (hundreds–thousands of bps) clears it easily.
-            return down <= DEPEG_DEADBAND_BPS ? 0 : down;
+            return down <= DEPEG_DEADZONE_BPS ? 0 : down;
         } catch {
             return 0;
         }

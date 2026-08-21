@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {AllesFixture} from "./Alles.t.sol";
-import {BandLib} from "../src/imports/BandLib.sol";
+import {RangeLib} from "../src/imports/RangeLib.sol";
 import {SortedSetLib} from "../src/imports/SortedSet.sol";
 
 /// @notice Exercises `SortedSetLib` on its own, as the CONTROL for the key-packing decision.
@@ -26,7 +26,7 @@ contract RawSortedSet {
 ///         writing when the design was chosen.
 ///
 /// ⚠️ **WHAT THIS FILE DOES NOT PROVE, STATED HERE RATHER THAN LEFT TO BE DISCOVERED.** It does not
-///    execute a fill across a real crossing. A crossing needs the band's ORACLE price to move, and
+///    execute a fill across a real crossing. A crossing needs the range's ORACLE price to move, and
 ///    on a pinned mainnet fork it cannot: `getTWAPforAsset` is the observation ring anchored to
 ///    Chainlink, and neither budges for `vm.roll` or `vm.warp`. Moving it would mean mocking the
 ///    oracle, which would prove the test can lie to itself and nothing else. So what is asserted
@@ -49,7 +49,7 @@ contract OorFillsOnTouchTest is AllesFixture {
             "premise: the set ignores duplicates; if this is 2, the packed key is no longer needed");
 
         // The packed key is what breaks the tie: same price, different id, two distinct entries.
-        assertTrue(BandLib.oorKey(1895e18, 1) != BandLib.oorKey(1895e18, 2),
+        assertTrue(RangeLib.oorKey(1895e18, 1) != RangeLib.oorKey(1895e18, 2),
             "two orders at one price must produce two keys");
     }
 
@@ -57,14 +57,14 @@ contract OorFillsOnTouchTest is AllesFixture {
     /// worse than no index — `binarySearch` would return a range that is not the crossed range.
     function test_ThePackedKeySortsByPriceFirst() public pure {
         // A higher price outranks a lower one no matter how the ids compare.
-        assertTrue(BandLib.oorKey(2000e18, 0) > BandLib.oorKey(1999e18, type(uint96).max),
+        assertTrue(RangeLib.oorKey(2000e18, 0) > RangeLib.oorKey(1999e18, type(uint96).max),
             "price must dominate the ordering; if id can outweigh it the sweep range is wrong");
         // And within one price, the ids simply separate.
-        assertTrue(BandLib.oorKey(2000e18, 5) > BandLib.oorKey(2000e18, 4), "id breaks the tie");
+        assertTrue(RangeLib.oorKey(2000e18, 5) > RangeLib.oorKey(2000e18, 4), "id breaks the tie");
     }
 
     /// A FRESH ORDER IS NOT FILLABLE, and the poke says so instead of filling it. `oorBounds`
-    /// requires a new order to rest wholly OUTSIDE the active band, so at the moment of placement
+    /// requires a new order to rest wholly OUTSIDE the active range, so at the moment of placement
     /// the price has by construction not touched it. If this ever starts filling, the order's
     /// bounds and the price the poke reads have drifted onto different bases — which would hand
     /// every placer an instant fill at their own limit.
@@ -78,7 +78,7 @@ contract OorFillsOnTouchTest is AllesFixture {
         assertTrue(usdFunded, "a stable-funded order is a resting BID and must record itself as one");
         assertGt(amt, 0, "premise: the order exists");
 
-        vm.expectRevert(BandLib.NotTouched.selector);
+        vm.expectRevert(RangeLib.NotTouched.selector);
         ETH.fillOOR(id);
     }
 
@@ -87,7 +87,7 @@ contract OorFillsOnTouchTest is AllesFixture {
     /// pay out an order that does not exist.
     function test_ThePokeRejectsAnOrderThatIsNotThere() public {
         vm.prank(User02);
-        vm.expectRevert(BandLib.NoSuchOrder.selector);
+        vm.expectRevert(RangeLib.NoSuchOrder.selector);
         ETH.fillOOR(999_999);
     }
 
@@ -109,7 +109,7 @@ contract OorFillsOnTouchTest is AllesFixture {
 
         // ... while the fill path has already moved past age and is deciding on price. `NotTouched`
         // — not "too soon" — IS the assertion: it proves the age rule is not in this path at all.
-        vm.expectRevert(BandLib.NotTouched.selector);
+        vm.expectRevert(RangeLib.NotTouched.selector);
         ETH.fillOOR(id);
     }
 
@@ -127,7 +127,7 @@ contract OorFillsOnTouchTest is AllesFixture {
 
         (,,,,, int amt) = ETH.selfManaged(id);
         assertEq(amt, 0, "premise: the position is closed");
-        vm.expectRevert(BandLib.NoSuchOrder.selector);
+        vm.expectRevert(RangeLib.NoSuchOrder.selector);
         ETH.fillOOR(id);
     }
 
@@ -150,9 +150,9 @@ contract OorFillsOnTouchTest is AllesFixture {
         assertGt(amtB, 0, "the SECOND order is live: the one a bare-price key would strand");
 
         // And both are still individually addressable through the fill path.
-        vm.expectRevert(BandLib.NotTouched.selector);
+        vm.expectRevert(RangeLib.NotTouched.selector);
         ETH.fillOOR(a);
-        vm.expectRevert(BandLib.NotTouched.selector);
+        vm.expectRevert(RangeLib.NotTouched.selector);
         ETH.fillOOR(b);
     }
 }

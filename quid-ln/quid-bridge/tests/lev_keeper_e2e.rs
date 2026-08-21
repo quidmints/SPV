@@ -79,7 +79,7 @@ async fn lev_keeper_live_round_trip_against_anvil() {
     let receipt: serde_json::Value = serde_json::from_slice(&out.stdout).expect("deploy receipt json");
     let harness: Address = receipt["contractAddress"].as_str().expect("contractAddress").parse().expect("addr");
 
-    // 3) Build the REAL signing client + keeper, pointed at the harness as both lev_manager and band.
+    // 3) Build the REAL signing client + keeper, pointed at the harness as both lev_manager and range.
     let mut key = [0u8; 32];
     for i in 0..32 { key[i] = u8::from_str_radix(&ANVIL_KEY_HEX[i * 2..i * 2 + 2], 16).unwrap(); }
     let evm = Arc::new(JsonRpcEvmClient::new(
@@ -87,7 +87,7 @@ async fn lev_keeper_live_round_trip_against_anvil() {
         LocalSigner::from_secret_key_bytes(key).expect("signer"),
         test_cfg(url.clone())));
     let keeper = DaemonLevKeeper {
-        evm, lev_manager: harness, band: harness, quid: harness, venue_liq_ltv_bps: 8600, gas_limit: 500_000, lp_scan_from: 0,
+        evm, lev_manager: harness, range: harness, quid: harness, venue_liq_ltv_bps: 8600, gas_limit: 500_000, lp_scan_from: 0,
     };
 
     // 4) Run ONE keeper tick against the real node. The harness reports LTV 9000 (near the 8600 liq) ⇒ the

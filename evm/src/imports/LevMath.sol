@@ -22,9 +22,9 @@ import {QuidLib} from "./QuidLib.sol";
 // ETH-side sell/buy machinery surfaces — moved here (delegatecall, bytecode OUTSIDE LevManager for EIP-170).
 /// Morpho Blue zero-fee flash surface — the ONLY flash source (see LevManager.IMorphoFlash). Mirrored here so the
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
-/// The band sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
+/// The range sync-hook surface the sold-fraction target + reseat reads. Mirrors the managers'
 /// ILevSyncHook/ILevSyncHookB — a delegatecall'd library can't read their immutables, so the manager passes the
-/// hook address in. All view: the Quid impls are all view (soldFractionWad/bandPrice are
+/// hook address in. All view: the Quid impls are all view (soldFractionWad/rangePrice are
 /// `view` fns, reseatEpoch is a `public` state var), and `view` external calls are STATICCALL-safe inside the
 /// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
 
@@ -49,9 +49,9 @@ library LevMath {
 
     /// @notice The LTV (bps) of `debt` against a position worth `collValue` (same unit); `collValue==0 ⇒ 0`.
     ///         Consolidated in from the former `YBLib` (its only LIVE surface). the leverage's target leverage is L = 2 —
-    ///         the IL-vanishing point: a constant-L position has `V* ∝ V_c^L`, a √p band has `V_c ∝ √p`, so
+    ///         the IL-vanishing point: a constant-L position has `V* ∝ V_c^L`, a √p range has `V_c ∝ √p`, so
     ///         `V* ∝ p^(L/2)` and L=2 ⇒ `V* ∝ p` (IL cancels), = 2·α⁻¹ (measured α≈0.5). YBLib's `requireSafeDebt`
-    ///         + MIN/MAX_SAFE_DEBT envelope were DEAD (no callers) — superseded by the LTV-band rebalance
+    ///         + MIN/MAX_SAFE_DEBT envelope were DEAD (no callers) — superseded by the LTV-range rebalance
     ///         (`debtDelta`) + each venue's own LLTV health, so they were dropped, not moved.
     function ltvBps(uint256 debt, uint256 collValue) internal pure returns (uint256) {
         if (collValue == 0) return 0;
@@ -59,7 +59,7 @@ library LevMath {
     }
 
     /// @notice #67 deliverability (LEVERED-DELIVERABILITY-SPEC.md §1) — the USD a levered position can produce via
-    ///         a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the band's pairing may count. The MIN of:
+    ///         a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the range's pairing may count. The MIN of:
     ///         (a) `netEquityUsd` — the proportional de-lever (sell a fraction of collateral pro-rata to debt):
     ///         LTV-preserving, always safe; and (b) the dollar-heavy pull bound `C·(1 − curLtv/(LLTV − margin))` —
     ///         the USD extractable by withdrawing collateral until LTV reaches a FULL keeper-margin below the venue
@@ -88,7 +88,7 @@ library LevMath {
     function ilTargetBps(uint128 entryPriceWad, uint256 pxNow, uint64 capBps)
         internal pure returns (uint256)
     {
-        // at/below entry → no UP-SIDE IL → no up-side overlay. (There IS down-side IL below entry — the band
+        // at/below entry → no UP-SIDE IL → no up-side overlay. (There IS down-side IL below entry — the range
         // over-holds the falling asset — but a long LP does NOT hedge it: the up-side-only LP just HOLDS long
         // through the fall. Holding beats an LVR-leaking downside rebalance: down-side IL is impermanent and heals,
         // so a below-entry short would realize the loss and forfeit the recovery. Up-side-only is the design.)
@@ -100,13 +100,13 @@ library LevMath {
     }
 
     /// @notice The reseat DECISION folded out of both managers' `_reanchorIfReseated`.
-    /// @dev  Re-anchor iff the position's `entryPrice` now sits OUTSIDE the band's current `[lower, upper]`.
+    /// @dev  Re-anchor iff the position's `entryPrice` now sits OUTSIDE the range's current `[lower, upper]`.
     ///       This REPLACED a `reseatEpoch` counter (removed 2026-08-09) and is strictly MORE PRECISE, not
     ///       merely smaller: the counter fired on EVERY reseat, including ones that left this anchor still
     ///       inside the new range and therefore needed no re-anchor. The bounds fire only when the frame moved
     ///       RELATIVE TO THIS POSITION, and there is no counter to desynchronise.
     /// ⚠️   IT IS A POINT-IN-TIME TEST. It answers "is my anchor stale NOW", NOT "were these two reads taken in
-    ///       the SAME frame". §E117 measured a 1h TWAP tick of 200766 sitting neatly inside a post-reseat band
+    ///       the SAME frame". §E117 measured a 1h TWAP tick of 200766 sitting neatly inside a post-reseat range
     ///       [200730, 200770) whose window spanned FOUR frame changes — no bounds check can see that. Safe here
     ///       because BOTH live consumers ask the point-in-time question; the windowed consumer (§E93) is
     ///       refuted and blocked. **If anyone builds a WINDOWED reading over the tick series, the epoch must
@@ -120,17 +120,17 @@ library LevMath {
     function reanchorCompute(address hook, uint entryPrice)
         public view returns (bool go, uint newSqrtP) {
         if (hook == address(0) || entryPrice == 0) return (false, 0);
-        try ILevSyncHook(hook).bandPrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
+        try ILevSyncHook(hook).rangePrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
-        // ONE accessor pair. The hook is per-asset and answers for its own band, so there is no name
+        // ONE accessor pair. The hook is per-asset and answers for its own range, so there is no name
         // to select — which is all the removed `isBTC` did here.
         uint lo; uint hi;
         // §ONE-ANCHOR — ONE call, ONE try/catch. Two reads meant two chances to half-fail and a
         // caller left holding a lower bound with no upper; the pair now arrives together or not at
         // all, which is the property the `catch` was there to protect in the first place.
-        try ILevSyncHook(hook).bandBounds() returns (uint l, uint u) { lo = l; hi = u; }
+        try ILevSyncHook(hook).rangeBounds() returns (uint l, uint u) { lo = l; hi = u; }
         catch { return (false, 0); }
-        if (lo >= hi) return (false, 0);                       // band unset/degenerate → nothing to compare against
+        if (lo >= hi) return (false, 0);                       // range unset/degenerate → nothing to compare against
         // §DE-TICK — a DIRECT price comparison. The bounds are prices; converting them through the
         // tick grid was the only reason this needed TickMath.
         if (entryPrice >= lo && entryPrice <= hi) return (false, 0);   // still inside its own frame
@@ -140,10 +140,10 @@ library LevMath {
     /// @notice The live IL target (bps) with the hook read folded out of both managers' `_ilTargetLive`. `public`
     ///         (delegatecall) ⇒ state-call-classed ⇒ the forwarders are non-view (BTC's `ilTargetLtvBps`/
     ///         `debtDeltaToTarget` drop `view` — no on-chain view caller depends on them; off-chain eth_call is
-    ///         fine). Band's ACTUAL sold fraction (capped), else the 1−√(entry/now) estimate.
+    ///         fine). Range's ACTUAL sold fraction (capped), else the 1−√(entry/now) estimate.
     /// @dev The `bool active` gate was DELETED 2026-08-09. It was `LevManager.soldFractionActive`, a GOV-only
     ///      flag defaulting FALSE that the deploy script never set — so in production this ALWAYS fell through
-    ///      to the estimate and the band's measured sold fraction was never read, while three test suites
+    ///      to the estimate and the range's measured sold fraction was never read, while three test suites
     ///      flipped it true in setUp and verified the path production did not run. The remaining conditions
     ///      (`entryPrice != 0 && hook != address(0)`) already ARE the availability test the flag stood in for:
     ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
@@ -158,15 +158,15 @@ library LevMath {
     }
 
     /// @notice (§3) The stable (USD 1e18) to REPAY to bring a position to target LTV on the FIXED E0 (over-hedge
-    ///         fix): `curDebt − targetDebt`, ZERO inside the de-lever band. Pure; folded out of `deleverRepayUsd`.
-    /// §DEDUP-NAMES (2026-08-18) — the first parameter was `e0Usd`, which SHADOWED the library's own
-    /// `e0Usd(e0Base, pxBase)` helper thirty lines below. Inside this body `e0Usd` was the number, not
+    ///         fix): `curDebt − targetDebt`, ZERO inside the de-lever range. Pure; folded out of `deleverRepayUsd`.
+    /// §DEDUP-NAMES (2026-08-18) — the first parameter was `entryEquityUsd`, which SHADOWED the library's own
+    /// `entryEquityUsd(entryEquity, price)` helper thirty lines below. Inside this body `entryEquityUsd` was the number, not
     /// the function, and nothing said so — the same read-ambiguity that made `inputCount` worth
     /// renaming in `BitcoinTx`. `equityUsd` is what the value actually is: the position's equity,
-    /// already converted, which is precisely what `e0Usd()` RETURNS.
-    function deleverRepay(uint256 equityUsd, uint256 curDebt, uint256 tBps, uint256 bandBps) public pure returns (uint256) {
+    /// already converted, which is precisely what `entryEquityUsd()` RETURNS.
+    function deleverRepay(uint256 equityUsd, uint256 curDebt, uint256 tBps, uint256 rangeBps) public pure returns (uint256) {
         uint256 targetDebt = (equityUsd * tBps) / 10_000;
-        if (curDebt <= targetDebt + (equityUsd * bandBps) / 10_000) return 0;
+        if (curDebt <= targetDebt + (equityUsd * rangeBps) / 10_000) return 0;
         return curDebt - targetDebt;
     }
 
@@ -257,39 +257,39 @@ library LevMath {
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);   // realized surplus → LP
     }
 
-    /// @notice Net-equity in BASE-asset units (1e18) = `collBase − debtUsd/pxBase`, floored at 0.
+    /// @notice Net-equity in BASE-asset units (1e18) = `collBase − debtUsd/price`, floored at 0.
     ///         `collBase` is collateral ALREADY in base units (ETH or BTC); `debtUsd` is 1e18 USD;
-    ///         `pxBase` is USD per 1 base (1e18). `debt==0 ⇒ collBase`; `px==0 ⇒ 0` (dead oracle,
+    ///         `price` is USD per 1 base (1e18). `debt==0 ⇒ collBase`; `px==0 ⇒ 0` (dead oracle,
     ///         the conservative side — no phantom credit). Identical to `LevManager._netEquityEthAt`
     ///         tail (with `collBase` = weETH→ETH pre-computed by the caller).
-    function netEquityBase(uint256 collBase, uint256 debtUsd, uint256 pxBase)
+    function netEquityBase(uint256 collBase, uint256 debtUsd, uint256 price)
         internal pure returns (uint256)
     {
         if (debtUsd == 0) return collBase;
-        if (pxBase == 0) return 0;
-        uint256 debtBase = (debtUsd * WAD) / pxBase;
+        if (price == 0) return 0;
+        uint256 debtBase = (debtUsd * WAD) / price;
         return collBase > debtBase ? collBase - debtBase : 0;
     }
 
-    /// @notice USD (1e18) value of a BAND-ONLY E0 base amount: `e0Base · pxBase / 1e18`. `e0Base` is the LP's
-    ///         unlevered band deposit in BASE units (ETH 1e18, or BTC 8-dec sats), `pxBase` is USD-per-base
+    /// @notice USD (1e18) value of a RANGE-ONLY E0 base amount: `entryEquity · price / 1e18`. `entryEquity` is the LP's
+    ///         unlevered range deposit in BASE units (ETH 1e18, or BTC 8-dec sats), `price` is USD-per-base
     ///         (1e18; WBTC-lifted ×1e10 on the BTC side, so the SAME `/1e18` yields 18-dec USD for both). This
     ///         is the SINGLE scale layer both managers value E0 through — the exact site the BTC 1e10 mis-scale
     ///         (`/1e8`) lived in; centralized here so the decimals can never drift between the two managers again.
-    function e0Usd(uint256 e0Base, uint256 pxBase) internal pure returns (uint256) {
-        return (e0Base * pxBase) / WAD;
+    function entryEquityUsd(uint256 entryEquity, uint256 price) internal pure returns (uint256) {
+        return (entryEquity * price) / WAD;
     }
 
-    /// @notice Debt-backed BUFFER-leg USD (6-dec) for a band-reconcile buffer of `bufBase` volatile units at band
-    ///         price `pxBase` (USD/base, 1e18), CAPPED at the LP's OWN debt (`debtUsd`, 1e18). The debt-funded
+    /// @notice Debt-backed BUFFER-leg USD (6-dec) for a range-reconcile buffer of `bufBase` volatile units at range
+    ///         price `price` (USD/base, 1e18), CAPPED at the LP's OWN debt (`debtUsd`, 1e18). The debt-funded
     ///         buffer is fee-earning DEPTH, never equity, and is bounded by the LP's own debt BY CONSTRUCTION — the
-    ///         exact `min((bufBase·px/1e18)/1e12, debtUsd/1e12)` that BOTH band-reconcile buffer legs applied
-    ///         inline (ETH `QuidLib.levAddBuf`, BTC `QuidLib._bufUsdBtc`). Centralized here — like `e0Usd` — so
+    ///         exact `min((bufBase·px/1e18)/1e12, debtUsd/1e12)` that BOTH range-reconcile buffer legs applied
+    ///         inline (ETH `QuidLib.levAddBuf`, BTC `QuidLib._bufUsdBtc`). Centralized here — like `entryEquityUsd` — so
     ///         the buffer cap + its 6-dec scaling can never drift between the two paths. `bufBase` is ETH-1e18 or
-    ///         BTC-8dec-sats; `pxBase` is WBTC-lifted ×1e10 on the BTC side, so the SAME `/1e18` yields 18-dec USD
+    ///         BTC-8dec-sats; `price` is WBTC-lifted ×1e10 on the BTC side, so the SAME `/1e18` yields 18-dec USD
     ///         for both before the shared `/1e12` to 6-dec (identical to the two former inline computations).
-    function capBufferUsd(uint256 bufBase, uint256 pxBase, uint256 debtUsd) internal pure returns (uint256 bufUsd) {
-        bufUsd = ((bufBase * pxBase) / WAD) / 1e12;
+    function capBufferUsd(uint256 bufBase, uint256 price, uint256 debtUsd) internal pure returns (uint256 bufUsd) {
+        bufUsd = ((bufBase * price) / WAD) / 1e12;
         uint256 dCap = debtUsd / 1e12;
         if (bufUsd > dCap) bufUsd = dCap;
     }
@@ -340,7 +340,7 @@ library LevMath {
     error NotNearLiq();
     error NoDebt();
     /// Protect only a position within PROTECT_MARGIN_BPS (LTV) of its venue liquidation threshold — anti-grief
-    /// (a healthy, low-LTV LP can never be force-redeemed); mirrors the cascade de-lever trigger band.
+    /// (a healthy, low-LTV LP can never be force-redeemed); mirrors the cascade de-lever trigger range.
     uint256 internal constant PROTECT_MARGIN_BPS = 1500;
 
     // ═══════════════════════ ETH SELL/BUY MACHINERY + SELF-FUNDING KEEPER GAS ═══════════════════════
@@ -460,7 +460,7 @@ library LevMath {
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — no SOR, no fee, no slippage.
     ///      The IL-protect lever borrows, then immediately buys the ETH it is hedging with. While the
     ///      loan token is a stable that costs a SOR leg on EVERY OPEN (here) and another on every
-    ///      close (`_wethToStableDex`), each paying our in-band fee PLUS the external venue fee PLUS
+    ///      close (`_wethToStableDex`), each paying our in-range fee PLUS the external venue fee PLUS
     ///      slippage — a double charge, twice per round trip, to reach an asset we could have
     ///      borrowed directly. The collateral is weETH, the exposure hedged is ETH-denominated and
     ///      the exit needs WETH; the stable is a detour with a toll at both ends.
@@ -837,13 +837,13 @@ library LevMath {
     }
 
     /// @notice Debt delta (USD 1e18) + direction to re-hit `targetBps` LTV, given the position's
-    ///         collateral value (`collUsd`) and current debt (`curDebtUsd`). Inside `±bandBps` of
+    ///         collateral value (`collUsd`) and current debt (`curDebtUsd`). Inside `±rangeBps` of
     ///         target ⇒ `(false, 0)`. Identical to `LevManager.debtDeltaToTarget` tail.
-    function debtDelta(uint256 collUsd, uint256 curDebtUsd, uint256 targetBps, uint256 bandBps)
+    function debtDelta(uint256 collUsd, uint256 curDebtUsd, uint256 targetBps, uint256 rangeBps)
         internal pure returns (bool levUp, uint256 amountUsd)
     {
         uint256 cur = ltvBps(curDebtUsd, collUsd);
-        if (cur + bandBps >= targetBps && cur <= targetBps + bandBps) return (false, 0); // in band
+        if (cur + rangeBps >= targetBps && cur <= targetBps + rangeBps) return (false, 0); // in range
         uint256 targetDebt = (collUsd * targetBps) / 10_000;
         if (targetDebt > curDebtUsd) { levUp = true;  amountUsd = targetDebt - curDebtUsd; }
         else                         { levUp = false; amountUsd = curDebtUsd - targetDebt; }

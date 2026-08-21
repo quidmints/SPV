@@ -35,15 +35,15 @@ pub struct RevshareSchedule {
     )]
     name: String,
 
-    /// An ordered list of revshare bands, from high to low priority.
-    bands: Vec<Band>,
+    /// An ordered list of revshare ranges, from high to low priority.
+    ranges: Vec<Range>,
 }
 
 // NOTE(phlip9): the only two required fields are `lower/upper_bound` to
 // support more easily making breaking changes to the revshare policy.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "test-utils"), derive(Eq, PartialEq))]
-pub struct Band {
+pub struct Range {
     /// The lower bound `total_partner_fee` (inclusive).
     #[serde(rename = "l")]
     lower_bound: Ppm,
@@ -52,7 +52,7 @@ pub struct Band {
     #[serde(rename = "u")]
     upper_bound: Ppm,
 
-    /// Some bands may be disallowed and return an error.
+    /// Some ranges may be disallowed and return an error.
     /// - ex: `[0, 5000) -> "partner fee is too low"`.
     #[serde(rename = "e", skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -113,8 +113,8 @@ impl RevshareSchedule {
     fn current() -> Self {
         Self {
             name: Self::DEFAULT_NAME.to_owned(),
-            bands: vec![
-                Band {
+            ranges: vec![
+                Range {
                     lower_bound: ppm!(0.0%),
                     upper_bound: ppm!(0.5%),
                     error: Some(
@@ -123,31 +123,31 @@ impl RevshareSchedule {
                     ),
                     revshare: None,
                 },
-                Band {
+                Range {
                     lower_bound: ppm!(0.5%),
                     upper_bound: ppm!(1.0%),
                     error: None,
                     revshare: Some(ppm!(20.0%)),
                 },
-                Band {
+                Range {
                     lower_bound: ppm!(1.0%),
                     upper_bound: ppm!(3.0%),
                     error: None,
                     revshare: Some(ppm!(50.0%)),
                 },
-                Band {
+                Range {
                     lower_bound: ppm!(3.0%),
                     upper_bound: ppm!(10.0%),
                     error: None,
                     revshare: Some(ppm!(70.0%)),
                 },
-                Band {
+                Range {
                     lower_bound: ppm!(10.0%),
                     upper_bound: ppm!(50.0%),
                     error: None,
                     revshare: Some(ppm!(80.0%)),
                 },
-                Band {
+                Range {
                     lower_bound: ppm!(50.0%),
                     upper_bound: ppm!(100.0%),
                     error: Some(
@@ -168,20 +168,20 @@ impl RevshareSchedule {
         &self,
         total_partner_fee: Ppm,
     ) -> Result<Ppm, String> {
-        for band in &self.bands {
-            // Check if in relevant band
-            if total_partner_fee < band.lower_bound
-                || total_partner_fee >= band.upper_bound
+        for range in &self.ranges {
+            // Check if in relevant range
+            if total_partner_fee < range.lower_bound
+                || total_partner_fee >= range.upper_bound
             {
                 continue;
             }
 
             // Errors take precedence
-            if let Some(err) = &band.error {
+            if let Some(err) = &range.error {
                 return Err(err.clone());
             }
 
-            if let Some(revshare) = band.revshare {
+            if let Some(revshare) = range.revshare {
                 return Ok(revshare);
             }
         }
@@ -194,19 +194,19 @@ impl RevshareSchedule {
             );
         }
 
-        let msg = "No matching revshare band found; this user node is \
+        let msg = "No matching revshare range found; this user node is \
                    probably too old";
         Err(msg.to_owned())
     }
 
-    /// Returns `true` if the union of `[band.lower_bound, band.upper_bound)`
+    /// Returns `true` if the union of `[range.lower_bound, range.upper_bound)`
     /// covers the range `[0, 1)`.
     ///
     /// Useful as a sanity check.
     #[cfg(test)]
     fn is_covering(&self) -> bool {
         let mut ranges = self
-            .bands
+            .ranges
             .iter()
             .map(|b| (b.lower_bound, b.upper_bound))
             .collect::<Vec<_>>();
@@ -240,7 +240,7 @@ impl RevshareSchedule {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-impl Arbitrary for Band {
+impl Arbitrary for Range {
     type Strategy = BoxedStrategy<Self>;
     type Parameters = ();
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
@@ -284,7 +284,7 @@ mod test {
   "revshare_schedules": [
     {
       "name": "default-v1",
-      "bands": [
+      "ranges": [
         {
           "l": 0,
           "u": 5000,
@@ -334,7 +334,7 @@ mod test {
   "revshare_schedules": [
     {
       "name": "default-v2",
-      "bands": [
+      "ranges": [
         {
           "l": 0,
           "u": 500000,
@@ -349,7 +349,7 @@ mod test {
     },
     {
       "name": "default-v1",
-      "bands": [
+      "ranges": [
         {
           "l": 0,
           "u": 1000000,
@@ -431,7 +431,7 @@ mod test {
             revshare_schedules: vec![
                 RevshareSchedule {
                     name: "new".to_owned(),
-                    bands: vec![Band {
+                    ranges: vec![Range {
                         lower_bound: Ppm::ZERO,
                         upper_bound: Ppm::MAX,
                         error: None,
@@ -440,7 +440,7 @@ mod test {
                 },
                 RevshareSchedule {
                     name: "old".to_owned(),
-                    bands: vec![Band {
+                    ranges: vec![Range {
                         lower_bound: Ppm::ZERO,
                         upper_bound: Ppm::MAX,
                         error: None,

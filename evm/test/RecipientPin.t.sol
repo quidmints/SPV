@@ -33,7 +33,7 @@ contract RecipientPin is AllesFixture {
     function test_Unpinned_ArbitraryRecipientStillAllowed() public {
         _seed(User01);
         assertEq(ETH.pinnedRecipient(User01), address(0), "default must be unpinned");
-        // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native BTC, so a guard
+        // ETH+WETH. The Curve offramp settles the range's exit in WETH, not native BTC, so a guard
         // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
         // measurement missed it. Count both legs, as `Alles.t_EthLp_RedeemConservationAndFairness`
         // already does; asserting on the recipient's TOTAL is what the pin property is actually about.
@@ -52,7 +52,7 @@ contract RecipientPin is AllesFixture {
         vm.prank(User01);
         vm.expectRevert(Quid.RecipientNotPinned.selector); ETH.withdraw(1 ether, ATTACKER, User01);
 
-        // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native BTC, so a guard
+        // ETH+WETH. The Curve offramp settles the range's exit in WETH, not native BTC, so a guard
         // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
         // measurement missed it. Count both legs, as `Alles.t_EthLp_RedeemConservationAndFairness`
         // already does; asserting on the recipient's TOTAL is what the pin property is actually about.
@@ -89,7 +89,7 @@ contract RecipientPin is AllesFixture {
         vm.prank(User01); ETH.applyPinnedRecipient();
         assertEq(ETH.pinnedRecipient(User01), User02, "re-point applies after the window");
 
-        // ETH+WETH. The Curve offramp settles the band's exit in WETH, not native BTC, so a guard
+        // ETH+WETH. The Curve offramp settles the range's exit in WETH, not native BTC, so a guard
         // that counts only `.balance` reads a real payment as ZERO -- the delivery happened, the
         // measurement missed it. Count both legs, as `Alles.t_EthLp_RedeemConservationAndFairness`
         // already does; asserting on the recipient's TOTAL is what the pin property is actually about.

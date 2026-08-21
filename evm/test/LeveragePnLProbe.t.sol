@@ -29,11 +29,11 @@ contract LeveragePnLProbe is AllesFixture {
     function _seed(uint ethDeposit) internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
         sp   = AUX.getVaults(bold)[0];
-        // SEED THE BASKET FIRST — $1M of stable backing, the same seed every sibling band probe
+        // SEED THE BASKET FIRST — $1M of stable backing, the same seed every sibling range probe
         // uses (`LevCascade._seedBasket`, `LeverageCrossSubsidyProbe._seedBasket`).
         //
         // Without it this file had NO stable backing at all: the shared fixture arrives with about
-        // $156k of basket TVL, while a 400-ETH LP deposit needs the band to commit roughly $1.5M of
+        // $156k of basket TVL, while a 400-ETH LP deposit needs the range to commit roughly $1.5M of
         // USD in range. `Core._poolUsdInRange` then trips `require(committedUsd18() <= haircutTvl,
         // "backing")` (src/Core.sol:1016) on the FIRST swap, so `_open` caught the revert, returned
         // 0, and both loops below `break`d on round one. Every measurement in this file — the whole
@@ -73,13 +73,13 @@ contract LeveragePnLProbe is AllesFixture {
     }
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
 
-    /// @dev Band/basket state at one instant. Emitted rather than returned so the caller
+    /// @dev Range/basket state at one instant. Emitted rather than returned so the caller
     ///      keeps no locals — this measurement is what decides #12's ownership question.
-    function _snapshotBands(string memory when) internal {
+    function _snapshotRanges(string memory when) internal {
         emit log_string(when);
         emit log_named_uint("   POOLED_USD", CORE.POOLED_USD());
         emit log_named_uint("   POOLED    ", CORE.POOLED());
-        emit log_named_uint("   bandETH      ", AUX.bandETH());
+        emit log_named_uint("   rangeETH      ", AUX.rangeETH());
         emit log_named_uint("   basketUsd  ", CORE.basketUsd());
         emit log_named_uint("   lpShares      ", ETH.lpShares());
         emit log_named_uint("   totalLevPooled", ETH.totalLevPooled());
@@ -87,8 +87,8 @@ contract LeveragePnLProbe is AllesFixture {
         emit log_named_uint("   committedUsd18", CORE.committedUsd18());
         // §WHY-ANY-HAIRCUT — the redeem has exactly TWO haircut paths and both can be inert:
         //   1. `depegLoss` subtracted from `solvent` in `_redeemQuote` (BasketLib:1019)
-        //   2. `perShare = ShareMath.qdShareValue(WAD, solvent, mature)` ≡ min(par, pro-rata)
-        // and `qdShareValue` returns PAR when `supplyPreBurn == 0` (ShareMath:25). So with
+        //   2. `perShare = BasketLib.qdShareValue(WAD, solvent, mature)` ≡ min(par, pro-rata)
+        // and `qdShareValue` returns PAR when `supplyPreBurn == 0` (BasketLib:25). So with
         // matureSupply == 0 there is NO valuation haircut, and the shortfall must be the OTHER term:
         // `freeUsd = solvent − max(il, committedUsd18)`, which is a COMMITMENT/LIQUIDITY bound, not a
         // price. Those are different defects with different fixes, so measure which one is live.
@@ -128,7 +128,7 @@ contract LeveragePnLProbe is AllesFixture {
         //   • post-redeem `convertToAssets` → 0.0134 ETH (~$25). The husk: the redeem already paid
         //     the backing out, so this UNDER-values.
         //   • pre-redeem NAV per share (1.0000257 BTC) → 31.834 ETH (~$59,960). This OVER-values,
-        //     and double-counts: `_pricingBacking()` is bandETH() PLUS the LP-owned USD increment,
+        //     and double-counts: `_pricingBacking()` is rangeETH() PLUS the LP-owned USD increment,
         //     so that number already contains the USD that was delivered as the 55,225 QUID leg.
         // Folding either in makes the LVR assertion pass for a reason the measurement cannot
         // support. The honest comparison is each arm against ITS OWN pre-redeem NAV, emitted
@@ -213,7 +213,7 @@ contract LeveragePnLProbe is AllesFixture {
     //     the SAME final ETH price. Difference = pure leverage externality on the LP.
     // ───────────────────────────────────────────────────────────────────────────
     /// @notice THE DISCRIMINATOR for the 0.63% passive-LP leak (owner asked "check which", 2026-08-16).
-    ///         The leak is NOT the band swap — that sells 0.05% ABOVE mid and leaves band value
+    ///         The leak is NOT the range swap — that sells 0.05% ABOVE mid and leaves range value
     ///         unchanged. It is the REDEMPTION's ETH→QUID conversion, which pays 92.1 cents on the
     ///         dollar. `_redeemQuote` forms `perShare = min(WAD, solvent·WAD/mature)`, so the whole
     ///         fork reduces to ONE comparison:
@@ -252,7 +252,7 @@ contract LeveragePnLProbe is AllesFixture {
 
     /// @notice INSTRUMENT CHECK for the arm-asymmetry fix: value the LP position DIRECTLY,
     ///         BEFORE any redeem, so no partial-settlement artifact can enter. If control and
-    ///         treatment agree here at unchanged price, the band swap was value-neutral and the
+    ///         treatment agree here at unchanged price, the range swap was value-neutral and the
     ///         0.63% is entirely an artifact of measuring redemption PROCEEDS.
     function test_Instrument_PositionValueBeforeAnyRedeem() public {
         _seed(400 ether);
@@ -288,10 +288,10 @@ contract LeveragePnLProbe is AllesFixture {
         uint landed;
         // Emitted, not stored: five `before` locals blew the stack here, and the repo's rule is to
         // shed locals rather than reach for via_ir.
-        _snapshotBands("before");
+        _snapshotRanges("before");
         for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; landed++; }
         emit log_named_uint("treatment opens landed", landed);
-        _snapshotBands("after ");
+        _snapshotRanges("after ");
         emit log_named_uint("BOLD accumulated (18d)", _spBold());
         uint tUp   = _lpValueUsd(px0 * 120 / 100);
         uint tFlat = _lpValueUsd(px0);
@@ -343,7 +343,7 @@ contract LeveragePnLProbe is AllesFixture {
         // that conversion IS the mechanism under study. Because `_lpValueUsd` values the same
         // redeemed bundle at three prices, (up - down) is exactly 0.4 x px0 x the ETH the LP
         // gets back, so a strictly smaller spread in the treatment is a direct measurement of
-        // a smaller ETH leg. If the spreads match, the band never sold and there is no LVR to
+        // a smaller ETH leg. If the spreads match, the range never sold and there is no LVR to
         // measure regardless of what the totals say.
         assertLt(tUp - tDown, cUp - cDown,
             "PREMISE: the opens must shrink the LP's ETH leg, else no value transfer occurred");

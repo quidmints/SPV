@@ -7,7 +7,7 @@
 //   + choose a leverage level), ADJUST the level, or CLOSE it — all real txs.
 //
 //   Framing rule (kept honest): 2× = delta-1 = IL-NEUTRAL (the overlay cancels the
-//   band's up-move IL, no directional bet). Above 2× is DIRECTIONAL — the LP takes
+//   range's up-move IL, no directional bet). Above 2× is DIRECTIONAL — the LP takes
 //   isolated, own-risk long exposure. The bps/LTV are shown as the detail, never
 //   the whole story. The panel owns its input state; the actual approve+send lives
 //   in page.tsx (doOpenLev / doAdjustLev / doCloseLev), passed in as callbacks so

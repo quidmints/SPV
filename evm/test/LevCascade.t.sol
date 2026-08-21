@@ -25,7 +25,7 @@ interface IVaultRoverT { function ROVER() external view returns (address); }
 
 /// Morpho IOracle (`price()` = collateral→loan, 1e36-scaled). NOT a mock — REAL sources: weETH→ETH (ether.fi
 /// getEETHByWeETH) x ETH→USD (REAL Chainlink ETH/USD). Morpho scale weETH(18)→USDC(6): price = weETH_USD(1e18)x1e6.
-/// A "crash" overrides the SAME real ETH/USD feed (one drawdown moves this AND our band oracle), no hardcoded price.
+/// A "crash" overrides the SAME real ETH/USD feed (one drawdown moves this AND our range oracle), no hardcoded price.
 contract RealRateMorphoOracle {
     address public immutable WEETH;
     IChainlinkFeedT public immutable ETH_USD;
@@ -39,10 +39,10 @@ contract RealRateMorphoOracle {
 }
 
 /// @notice CORRELATED-CRASH cascade de-lever, FULLY on the REAL mainnet-fork stack (no mocks): N weETH-collateral
-///   leveraged positions on a REAL Morpho Blue market + the REAL Quid ETH band as the E0/sold-fraction source, all
-///   levered by a REAL band rally (genuine IL), then crashed so they breach their de-lever band together, then
+///   leveraged positions on a REAL Morpho Blue market + the REAL Quid ETH range as the E0/sold-fraction source, all
+///   levered by a REAL range rally (genuine IL), then crashed so they breach their de-lever range together, then
 ///   `cascadeDelever`ed in one tx — asserting each is de-levered or gracefully skipped, isolated, with net progress.
-///   The mocks (MockWeeth/MockSwapper/MaliciousSwapper/MockBandHost/MockFlashLender/TestLevVenue) are DELETED; the
+///   The mocks (MockWeeth/MockSwapper/MaliciousSwapper/MockRangeHost/MockFlashLender/TestLevVenue) are DELETED; the
 ///   folded LevManager mints/redeems real weETH via ether.fi + routes stable legs through the basket SOR, and the
 ///   venue/flash/liquidation are the LIVE Morpho singleton. Mirrors LevYbReal's real-venue scaffolding.
 contract LevCascadeProbe is AllesFixture {
@@ -75,8 +75,8 @@ contract LevCascadeProbe is AllesFixture {
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, 5_000_000 * USDC_PRECISION);
         morpho.supply(mp, 5_000_000 * USDC_PRECISION, 0, address(this), "");
-        // Wire the YB stack against the real venue + the REAL Quid band (ETH) as the BAND-ONLY E0 / sold-fraction
-        // source — NO MockBandHost — + the real Morpho flash (zero-fee repay-first de-lever). One atomic pin-once.
+        // Wire the YB stack against the real venue + the REAL Quid range (ETH) as the RANGE-ONLY E0 / sold-fraction
+        // source — NO MockRangeHost — + the real Morpho flash (zero-fee repay-first de-lever). One atomic pin-once.
         lm = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
         venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
         address[] memory vs = new address[](1); vs[0] = address(venue);
@@ -87,14 +87,14 @@ contract LevCascadeProbe is AllesFixture {
         // registered it with Aux, so `assetPriceFeed(WETH)` was address(0) — MEASURED. With no anchor,
         // once a crash walks the pool to its tick boundary `getTWAPforAsset` returns 0 and
         // `rebalanceCore`'s `if (twap == 0) return r` leaves `didRepack == false`, so `addLiq` never
-        // runs and the band can never be re-paired. Registering the tracking feed is what lets the
+        // runs and the range can never be re-paired. Registering the tracking feed is what lets the
         // twapResolve anchor fall-through actually rescue this fixture, exactly as the real deploy
         // pins Chainlink (DeployL1_s:326).
         _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);   // seed it before pinning
         AUX.setAssetFeed(address(WETH), ETH_FEED);
     }
 
-    /// Seed REAL basket POOLED_USD surplus (mint QUID against USDC) so syncLev can pair the levered band slice.
+    /// Seed REAL basket POOLED_USD surplus (mint QUID against USDC) so syncLev can pair the levered range slice.
     function _seedBasket() internal {
         deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
         vm.startPrank(User01);
@@ -103,10 +103,10 @@ contract LevCascadeProbe is AllesFixture {
         vm.stopPrank();
     }
 
-    /// Move the REAL ETH band UP by buying WETH out of it in bounded steps (each under the 50bps/swap manip cap),
-    /// warping between so each step measures from spot≈TWAP and the guard resets. Real swaps only — the band sells
+    /// Move the REAL ETH range UP by buying WETH out of it in bounded steps (each under the 50bps/swap manip cap),
+    /// warping between so each step measures from spot≈TWAP and the guard resets. Real swaps only — the range sells
     /// ETH → real IL accrues; kept under the 5% Chainlink anchor so no reseat/no oracle override. Self-calibrating.
-    function _rallyBand(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
+    function _rallyRange(uint entryPrice, uint targetWad, uint maxSteps, uint usdcPerStep) internal {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
@@ -118,8 +118,8 @@ contract LevCascadeProbe is AllesFixture {
         }
     }
 
-    /// Real DOWN move: sell ETH into the band so the mark crashes ~`dropBps` (drives the venue-safety de-lever).
-    function _crashBand(uint dropBps, uint maxSteps, uint ethPerStep) internal {
+    /// Real DOWN move: sell ETH into the range so the mark crashes ~`dropBps` (drives the venue-safety de-lever).
+    function _crashRange(uint dropBps, uint maxSteps, uint ethPerStep) internal {
         uint start = AUX.getTWAPforAsset(address(WETH), 1800);
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
@@ -131,7 +131,7 @@ contract LevCascadeProbe is AllesFixture {
         }
     }
 
-    /// Calm realized vol after a rally so θ=yield/(K·σ²) recovers (the θ-budget cap refuses new band depth while vol
+    /// Calm realized vol after a rally so θ=yield/(K·σ²) recovers (the θ-budget cap refuses new range depth while vol
     /// is elevated). The realistic sequence: an IL event, then vol calms — what lets syncLev add the levered depth.
     function _calmVol() internal {
         deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
@@ -145,10 +145,10 @@ contract LevCascadeProbe is AllesFixture {
         }
     }
 
-    /// Realign the band oracle to the REAL Chainlink market before a real weETH↔stable leg / basket reconcile
-    /// (the rally elevates the mock-token band feed we can move; the leverage's external legs execute on REAL
+    /// Realign the range oracle to the REAL Chainlink market before a real weETH↔stable leg / basket reconcile
+    /// (the rally elevates the mock-token range feed we can move; the leverage's external legs execute on REAL
     /// Uniswap which we can't — a fork artifact fix, matches LevYbReal).
-    function _realignBandToReal() internal {
+    function _realignRangeToReal() internal {
         (, int256 clp,,,) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
         _setEthFeed(uint(clp)); ETH.reseat();
     }
@@ -156,12 +156,12 @@ contract LevCascadeProbe is AllesFixture {
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
     function _entryPrice(address lp) internal view returns (uint s) { ( , , , , s, ) = lm.pos(lp); }
 
-    /// REAL Morpho seizure of `lp`: realign the band oracle to the market, crash the SHARED Chainlink feed so the
+    /// REAL Morpho seizure of `lp`: realign the range oracle to the market, crash the SHARED Chainlink feed so the
     /// position lands ~92% LTV (liquidatable per lltv 0.86, not deep bad debt), then liquidate by REPAID SHARES
     /// (a fraction of the ACTUAL debt — never `seizedAssets`, which over-repays a tiny debt and underflows
     /// Morpho's `borrowShares -= repaidShares`). Repays `numer/denom` of the debt; leaves the position smaller.
     function _seizeReal(address lp, uint numer, uint denom) internal {
-        _realignBandToReal();
+        _realignRangeToReal();
         uint collValue = venue.collateralOf(lp) * IMorphoOraclePrice(mOracle).price() / 1e36;
         uint vdebt = venue.debtOf(lp);
         (uint80 rid, int256 p,, uint256 ut, uint80 ar) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
@@ -173,21 +173,21 @@ contract LevCascadeProbe is AllesFixture {
         IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
         IMorphoTest(MORPHO).liquidate(mp, lp, 0, uint256(borrowShares) * numer / denom, ""); // repay by SHARES
         vm.clearMockedCalls();
-        _realignBandToReal();
+        _realignRangeToReal();
     }
 
-    /// Establish `lp`'s REAL band position (the E0 IL base, read live from ETH) — a genuine ETH band deposit,
-    /// which (unlike the old MockBandHost.setBand) ITSELF adds to `bandETH`, so tests that measure the
-    /// leverage's OWN bandETH contribution must baseline AFTER this (see `_openLevOnly`). Also mints the LP's
+    /// Establish `lp`'s REAL range position (the E0 IL base, read live from ETH) — a genuine ETH range deposit,
+    /// which (unlike the old MockRangeHost.setRange) ITSELF adds to `rangeETH`, so tests that measure the
+    /// leverage's OWN rangeETH contribution must baseline AFTER this (see `_openLevOnly`). Also mints the LP's
     /// weETH equity + does the one-time Morpho authorization.
-    function _bandE0(address lp, uint sizeEth) internal {
+    function _rangeE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
         vm.prank(lp); ETH.deposit{value: sizeEth}(0, lp);   // venue 3 = all-Galaxy (no offramp noise)
         deal(WEETH, lp, sizeEth);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true); // one-time Morpho isolation
     }
 
-    /// Open at ZERO leverage against the already-established band position (entry pinned from ETH.bandSqrtP).
+    /// Open at ZERO leverage against the already-established range position (entry pinned from ETH.rangeSqrtP).
     function _openLevOnly(address lp, uint sizeEth) internal {
         uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
@@ -196,35 +196,35 @@ contract LevCascadeProbe is AllesFixture {
         vm.stopPrank();
     }
 
-    function _openAtEntry(address lp, uint sizeEth) internal { _bandE0(lp, sizeEth); _openLevOnly(lp, sizeEth); }
+    function _openAtEntry(address lp, uint sizeEth) internal { _rangeE0(lp, sizeEth); _openLevOnly(lp, sizeEth); }
 
     // ═══════════════════════════════ tests ═══════════════════════════════
 
     /// FOUNDATION PROOF — net-equity backing + seizure-safety. The levered weETH's NET-of-debt equity is recognized
-    /// in `bandETH` (backs the band), and a REAL Morpho liquidation removes that credit cleanly while `POOLED_USD`
+    /// in `rangeETH` (backs the range), and a REAL Morpho liquidation removes that credit cleanly while `POOLED_USD`
     /// stays intact — no socialization.
     function test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact() public {
         _setupLev();
-        EV.setLevManager(address(lm));                         // pin the leveraged book into bandETH
+        EV.setLevManager(address(lm));                         // pin the leveraged book into rangeETH
 
-        // Establish the REAL band position FIRST, then baseline — the band deposit itself adds to bandETH
+        // Establish the REAL range position FIRST, then baseline — the range deposit itself adds to rangeETH
         // (unlike the old mock), so the leverage's OWN contribution is measured from the post-deposit baseline.
-        _bandE0(lps[0], 5 ether);
-        uint band0 = AUX.bandETH();
+        _rangeE0(lps[0], 5 ether);
+        uint range0 = AUX.rangeETH();
 
         // Open at entry ⇒ ZERO leverage ⇒ net-equity == principal (weETH→ETH via the real staking rate).
         _openLevOnly(lps[0], 5 ether);
         uint principalEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
         assertApproxEqAbs(lm.netEquity(lps[0]), principalEth, 1e15, "open: net-equity == principal");
-        assertApproxEqAbs(AUX.bandETH(), band0 + principalEth, 1e15, "open: bandETH gains exactly the net-equity");
+        assertApproxEqAbs(AUX.rangeETH(), range0 + principalEth, 1e15, "open: rangeETH gains exactly the net-equity");
 
-        // Lever up on a REAL band rally (real IL): debt > 0, but the borrow is self-financing ⇒ equity ~principal.
+        // Lever up on a REAL range rally (real IL): debt > 0, but the borrow is self-financing ⇒ equity ~principal.
         // (A real rally executes real swaps, which legitimately move POOLED_USD — so the mock's "POOLED_USD frozen
-        // across the lever" assertion is unmeasurable here; the real invariant is deliverable-covers-band, below.)
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        // across the lever" assertion is unmeasurable here; the real invariant is deliverable-covers-range, below.)
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
-        assertGe(AUX.bandETH(), CORE.POOLED(), "levered: deliverable ETH still covers the band");
+        assertGe(AUX.rangeETH(), CORE.POOLED(), "levered: deliverable ETH still covers the range");
 
         // SEIZE via a REAL Morpho liquidation (repay half the debt by shares — see `_seizeReal`).
         uint tvl0 = _tvl();
@@ -233,35 +233,35 @@ contract LevCascadeProbe is AllesFixture {
         assertLt(venue.debtOf(lps[0]), vdebt, "seize: REAL Morpho liquidation reduced the debt");
 
         // Basket clean: the liquidation took NOTHING from the basket (TVL intact) and deliverable ETH still
-        // covers the band — the loss is isolated to the LP's Morpho account, never socialized.
+        // covers the range — the loss is isolated to the LP's Morpho account, never socialized.
         assertGe(_tvl(), tvl0, "seized: basket real backing (TVL) intact - nothing socialized");
-        assertGe(AUX.bandETH(), CORE.POOLED(), "seized: deliverable ETH still covers the band");
+        assertGe(AUX.rangeETH(), CORE.POOLED(), "seized: deliverable ETH still covers the range");
     }
 
-    /// FEE-LANE PROOF: the levered weETH equity (a) EARNS band fees via the same machinery as a weETH deposit,
+    /// FEE-LANE PROOF: the levered weETH equity (a) EARNS range fees via the same machinery as a weETH deposit,
     /// (b) is UNWIND-ONLY (the free ladder can't pull it), and (c) a REAL seizure burns the slice clean.
     function test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean() public {
         _setupLev();
         EV.setLevManager(address(lm));
-        // Thicken the band with a normal ETH-LP so small swaps clear the manip guard.
+        // Thicken the range with a normal ETH-LP so small swaps clear the manip guard.
         vm.deal(address(this), 20 ether);
         ETH.deposit{value: 10 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);                                 // real levered position
         _calmVol();                                             // θ recovers ⇒ syncLev can add the depth
 
         uint pu0 = CORE.POOLED_USD();
-        ETH.syncLev(lps[0]);                                     // mint the levered band slice (tokenless)
+        ETH.syncLev(lps[0]);                                     // mint the levered range slice (tokenless)
         uint lev = ETH.levPooled(lps[0]);
-        assertGt(lev, 0, "syncLev minted the levered slice into the band");
-        // The levered slice is IN the band's depth. NOT "grew at this instant": `lm.rebalance` above
+        assertGt(lev, 0, "syncLev minted the levered slice into the range");
+        // The levered slice is IN the range's depth. NOT "grew at this instant": `lm.rebalance` above
         // already minted it through the manager's syncLev HOOK, so the explicit `ETH.syncLev` here is
         // IDEMPOTENT and `pe0` (captured after the rebalance) already contains the slice. MEASURED:
         // levPooled 5.503 and levBuf 1.507 are both already live, while POOLED moves by -23 wei of
         // modLP rounding — so the old `assertGt(POOLED, pe0)` was asserting a transition that had
         // already happened, and could only ever pass or fail on rounding noise.
-        assertGe(CORE.POOLED(), lev, "the levered slice is part of the band's in-range depth");
+        assertGe(CORE.POOLED(), lev, "the levered slice is part of the range's in-range depth");
         assertGt(ETH.levBuf(lps[0]), 0, "the debt-funded buffer is live and fee-earning");
         // SAME DEFECT AS THE `pe0` ASSERTION ABOVE, fixed the same way. `pu0` is captured AFTER
         // `lm.rebalance`, which already minted the slice via the manager's syncLev hook, so the explicit
@@ -272,13 +272,13 @@ contract LevCascadeProbe is AllesFixture {
         // depth is in-range and fee-earning) rather than a delta that is pure noise.
         assertGt(CORE.POOLED_USD(), 0, "POOLED_USD paired against it (in-range, fee-earning)");
 
-        // (a) small swaps generate band fees; the levered LP IS band depth.
+        // (a) small swaps generate range fees; the levered LP IS range depth.
         for (uint i; i < 10; i++) {
             try AUX.swap{value: 0.2 ether}(address(USDC), address(WETH), false, 0, 0) returns (uint) {} catch {}
             vm.roll(vm.getBlockNumber() + 1);
         }
         (uint ethR, uint usdR) = ETH.pendingRewards(lps[0]);
-        assertGt(ethR + usdR, 0, "(a) levered LP ACCRUES band fees on its equity");
+        assertGt(ethR + usdR, 0, "(a) levered LP ACCRUES range fees on its equity");
 
         // (b) UNWIND-ONLY: the free ladder cannot pull the levered slice.
         vm.prank(lps[0]);
@@ -291,12 +291,12 @@ contract LevCascadeProbe is AllesFixture {
         assertLt(ETH.levPooled(lps[0]), lev, "seizure: levered slice shrank/burned toward the liquidated equity");
     }
 
-    /// CRITICAL: a caller-supplied, NON-allowlisted venue (which could return phantom collateral → fake bandETH →
+    /// CRITICAL: a caller-supplied, NON-allowlisted venue (which could return phantom collateral → fake rangeETH →
     /// ETH-LP drain) is rejected. Only pinned adapters can be opened against.
     function test_VenueAllowlist_BlocksUnvettedVenue() public {
         _setupLev();
         MorphoEscrowVenue rogue = new MorphoEscrowVenue(MORPHO, mp, address(lm)); // real, but NOT pinned
-        _openAtEntry(lps[0], 5 ether); // establishes a band position for lps[0]
+        _openAtEntry(lps[0], 5 ether); // establishes a range position for lps[0]
         // Fresh LP so the AlreadyOpen guard doesn't mask the venue check.
         address lp = address(0xBEEF4);
         vm.deal(lp, 6 ether);
@@ -330,7 +330,7 @@ contract LevCascadeProbe is AllesFixture {
         QUID.mint(lp, 300_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
         // ONE shared real rally ⇒ correlated IL ⇒ lever both to the IL target (debt > 0).
-        _rallyBand(_entryPrice(lp), 0.2e18, 24, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lp), 0.2e18, 24, 8_000 * USDC_PRECISION);
         lm.rebalance(lp, 0); lm.rebalance(lp2, 0);
         assertGt(venue.debtOf(lp), 0, "rally must lever the position (debt > 0)");
 
@@ -353,7 +353,7 @@ contract LevCascadeProbe is AllesFixture {
         // without a long enough history to ride a crash that large). This IS the condition the fleet keeper acts on.
         vm.mockCall(address(venue), abi.encodeWithSelector(venue.liqThresholdBps.selector),
             abi.encode(lm.getCurrentLtvBps(lp) + 1000));
-        // Heal the no-CRE fork's spurious default depeg on the redeemed legs (as DrainProbe does), so the band's
+        // Heal the no-CRE fork's spurious default depeg on the redeemed legs (as DrainProbe does), so the range's
         // backing isn't haircut below its committed claims — else ANY redeem trips the OverCommitted drain guard.
         vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", address(USDC)), abi.encode(uint(0)));
         vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", address(DAI)), abi.encode(uint(0)));
@@ -383,12 +383,12 @@ contract LevCascadeProbe is AllesFixture {
 
     function test_CascadeDelever_CorrelatedCrash() public {
         _setupLev();
-        // 3 levered LPs on the SHARED real band (small so each loop's SOR buy stays under the manip cap).
+        // 3 levered LPs on the SHARED real range (small so each loop's SOR buy stays under the manip cap).
         _openAtEntry(lps[0], 5 ether);
         _openAtEntry(lps[1], 4 ether);
         _openAtEntry(lps[2], 3 ether);
         // ONE shared REAL rally ⇒ correlated IL for all three ⇒ lever each up to the IL target.
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
         for (uint i; i < 3; i++) {
             lm.rebalance(lps[i], 0);
             assertGt(venue.debtOf(lps[i]), 0, "rally must lever each position to the IL target (debt > 0)");
@@ -402,7 +402,7 @@ contract LevCascadeProbe is AllesFixture {
         // target clamps to 0 ⇒ every position is far above target ⇒ a full de-lever fires. The hybrid down-leg
         // (the deep V3 weETH/WETH pool — the ether.fi instant-redeem tier that used to sit beside it was
         // removed 2026-08-06) services the large redeem, so all three de-lever without bricking.
-        _crashBand(3000, 24, 40 ether);
+        _crashRange(3000, 24, 40 ether);
 
         address[] memory batch = new address[](3);
         uint[] memory mins = new uint[](3);
@@ -410,7 +410,7 @@ contract LevCascadeProbe is AllesFixture {
         vm.recordLogs();
         lm.cascadeDelever(batch, mins);
 
-        // Assert only what IS invariant (this rides the UNPINNED real band; magnitudes vary block-to-block):
+        // Assert only what IS invariant (this rides the UNPINNED real range; magnitudes vary block-to-block):
         //   (1) ISOLATED + NON-DESTRUCTIVE: every position OPEN, none made worse (post-debt ≤ pre).
         //   (2) FAULT-TOLERANT: de-levered + DeleverFailed-skipped == 3 (batch never reverts).
         //   (3) NET PROGRESS: total batch debt strictly falls (≥1 full sell→repay ran end-to-end).
@@ -442,10 +442,10 @@ contract LevCascadeProbe is AllesFixture {
         _setupLev();
         _openAtEntry(lps[0], 5 ether);
         _openAtEntry(lps[1], 4 ether);
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         lm.rebalance(lps[1], 0); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
-        _crashBand(3000, 24, 40 ether);   // ~30%: full de-lever; hybrid down-leg services the redeem
+        _crashRange(3000, 24, 40 ether);   // ~30%: full de-lever; hybrid down-leg services the redeem
 
         // BRICK lp0: revoke the adapter's Morpho authorization ⇒ its withdraw can source nothing.
         vm.prank(lps[0]); IMorphoTest(MORPHO).setAuthorization(address(venue), false);
@@ -465,7 +465,7 @@ contract LevCascadeProbe is AllesFixture {
         assertEq(failed, 1, "the stuck LP must emit exactly one DeleverFailed");
         // The stuck LP's de-lever reverted atomically (no repay/withdraw for it). Its COLLATERAL is exactly
         // unchanged (Morpho collateral doesn't accrue); its DEBT only drifts up by market-wide interest that
-        // lp1's real Morpho ops accrued — NOT a repay. So: collateral exact, debt within a small interest band.
+        // lp1's real Morpho ops accrued — NOT a repay. So: collateral exact, debt within a small interest range.
         assertApproxEqAbs(venue.debtOf(lps[0]), dbt0, dbt0 / 100 + 1, "stuck LP debt only drifts by market interest (no repay)");
         assertEq(venue.collateralOf(lps[0]), coll0, "stuck LP collateral UNTOUCHED (no withdraw)");
         // lp1: de-levered for real DESPITE lp0 being stuck (no blocking, no corruption).
@@ -482,7 +482,7 @@ contract LevCascadeProbe is AllesFixture {
     function test_MEV_OracleFloorRejectsSandwich() public {
         _setupLev();
         _openAtEntry(lps[0], 5 ether);
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
         // An impossibly high min-weETH-out (1e30) can never be met by the real mint ⇒ the floor reverts the trade.
         vm.expectRevert(LevManager.Slippage.selector);
         lm.rebalance(lps[0], 1e30);
@@ -506,12 +506,12 @@ contract LevCascadeProbe is AllesFixture {
         vm.clearMockedCalls();
     }
 
-    /// @notice IL-PROTECTION PROOF — two EQUAL 5-ETH band LPs through ONE shared real rally, one levered, one not.
+    /// @notice IL-PROTECTION PROOF — two EQUAL 5-ETH range LPs through ONE shared real rally, one levered, one not.
     ///   Proves the four things the design must guarantee:
-    ///     (1) the LEVERED LP is IL-protected — its ETH exposure (net-equity) is preserved as the band sells BTC,
+    ///     (1) the LEVERED LP is IL-protected — its ETH exposure (net-equity) is preserved as the range sells BTC,
     ///         because the debt (the IL hedge) grows to exactly the sold fraction;
     ///     (2) the UNLEVERED LP eats the IL — withdrawing after the rally returns LESS ETH than it deposited (the
-    ///         band sold its ETH on the way up);
+    ///         range sold its ETH on the way up);
     ///     (3) NO CROSS-SUBSIDY / not worsened — the levered LP's hedge is isolated at the venue: syncing its
     ///         levered slice leaves the unlevered LP's pooled claim AND the basket TVL untouched, so the unlevered
     ///         LP's IL is purely its own price-path IL, neither subsidized nor deepened by the levered LP;
@@ -520,22 +520,22 @@ contract LevCascadeProbe is AllesFixture {
     function test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy() public {
         _setupLev();
         EV.setLevManager(address(lm));
-        // Thick shared band so the rally's swaps clear the 50bps manip guard.
+        // Thick shared range so the rally's swaps clear the 50bps manip guard.
         vm.deal(address(this), 40 ether);
         ETH.deposit{value: 20 ether}(0, address(this));
 
-        // Two EQUAL band LPs: lps[0] levers, lps[1] stays a plain ETH-LP.
-        _openAtEntry(lps[0], 5 ether);        // levered: band E0 + openLev at ZERO leverage
-        _bandE0(lps[1], 5 ether);             // unlevered: identical band deposit, NO openLev
+        // Two EQUAL range LPs: lps[0] levers, lps[1] stays a plain ETH-LP.
+        _openAtEntry(lps[0], 5 ether);        // levered: range E0 + openLev at ZERO leverage
+        _rangeE0(lps[1], 5 ether);             // unlevered: identical range deposit, NO openLev
         uint principalEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
         (uint unlevPooled0,,,) = ETH.autoManaged(lps[1]);
 
-        // ONE shared REAL rally ⇒ identical price-path IL on BOTH band positions.
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        // ONE shared REAL rally ⇒ identical price-path IL on BOTH range positions.
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered LP hedged: debt = IL target > 0");
 
-        // (1) LEVERED LP IL-protected: ETH exposure preserved despite the band selling ETH.
+        // (1) LEVERED LP IL-protected: ETH exposure preserved despite the range selling ETH.
         assertApproxEqRel(lm.netEquity(lps[0]), principalEth, 0.05e18,
             "(1) levered: net-equity (ETH exposure) preserved = IL cancelled by the hedge");
 
@@ -548,18 +548,18 @@ contract LevCascadeProbe is AllesFixture {
         assertEq(unlevPost, unlevPre, "(3) levered sync did NOT touch the unlevered LP's pooled claim");
         assertGe(_tvl(), tvlPre, "(3) levered sync took nothing from the basket (no cross-subsidy)");
 
-        // (3b) FULL-2x PROOF: the synced band depth is the GROSS collateral (2x, net-equity + the debt-funded
+        // (3b) FULL-2x PROOF: the synced range depth is the GROSS collateral (2x, net-equity + the debt-funded
         //   buffer), NOT just net-equity. Post-fold the buffer folds into the ONE POOLED_USD slice and
         //   `committedUsd18` EXCLUDES it by subtracting the LP's LIVE leverage debt (buffer == debt), so
         //   committed + totalDebtUsd == the full in-range USD. Live ⇒ no stale segregation counter to desync.
         // Post net-equity rewrite (#52/#53) the levered depth is SPLIT: `levPooled` = the NET leg, `levBuf` =
-        // the debt-funded buffer, and the band CAPACITY = their sum == GROSS collateral (Quid._reconcileLev:
+        // the debt-funded buffer, and the range CAPACITY = their sum == GROSS collateral (Quid._reconcileLev:
         // `gross == levPooled[lp] + levBuf[lp]`). The old assertion compared levPooled ALONE to gross (missing
         // levBuf), so its gap grew with leverage. Assert the true identity: net leg + buffer == gross (full-2×).
         assertApproxEqRel(ETH.levPooled(lps[0]) + ETH.levBuf(lps[0]), lm.grossCollateral(lps[0]), 0.05e18,
-            "(3b) full-2x: band CAPACITY (net leg levPooled + debt buffer levBuf) == GROSS collateral (2x)");
+            "(3b) full-2x: range CAPACITY (net leg levPooled + debt buffer levBuf) == GROSS collateral (2x)");
         assertGt(lm.grossCollateral(lps[0]), lm.netEquity(lps[0]),
-            "(3b) full-2x: gross > net => a real debt-funded buffer is in the band");
+            "(3b) full-2x: gross > net => a real debt-funded buffer is in the range");
         assertGt(lm.totalDebtUsd(), 0, "(3b) full-2x: a real debt-funded buffer exists (live leverage debt > 0)");
         // §#12 RE-DERIVED: same claim — committed EXCLUDES the debt-funded buffer — but measured
         // against BASKET-SUPPLIED depth rather than curve inventory, because committed no longer
@@ -575,16 +575,16 @@ contract LevCascadeProbe is AllesFixture {
         assertEq(ETH.levPooled(lps[0]), levSlice, "(4) syncLev idempotent - no double-credit of the levered slice");
 
         // (2) The IL is REAL and ONLY the UNLEVERED LP bears it. (A direct withdraw-IL measurement is unreliable
-        //     on the fork: the mock band moves but takeETH delivers from real venues at the real price, so the
+        //     on the fork: the mock range moves but takeETH delivers from real venues at the real price, so the
         //     price would have to be reseated to deliver — which round-trips the move and erases the IL. The
         //     deterministic proof is the sold fraction + the hedge differential.)
         uint sold = ETH.soldFractionWad(_entryPrice(lps[0]));
-        assertGt(sold, 0, "(2) the band SOLD ETH on the rally => IL accrued to every band LP");
+        assertGt(sold, 0, "(2) the range SOLD ETH on the rally => IL accrued to every range LP");
         // The UNLEVERED LP has NO leverage position => zero hedge => it bears the full sold fraction as IL.
         ( , , , , , bool unlevOpen) = lm.pos(lps[1]);
         assertTrue(!unlevOpen, "(2) unlevered LP is unhedged (no lev position) => bears the full sold-fraction IL");
         // The LEVERED LP DOES hedge exactly that sold fraction (debt/E0 == sold fraction), so its ETH exposure is
-        // preserved per (1) — one takes the IL, the other doesn't, from the SAME shared band move.
+        // preserved per (1) — one takes the IL, the other doesn't, from the SAME shared range move.
         assertApproxEqAbs(lm.ilLtvBps(lps[0]) * 1e14, sold, 0.06e18,
             "(2) levered: the hedge (debt/E0) tracks the sold fraction => IL cancelled");
         assertLt(unlevPooled0, 5 ether + 1, "sanity: unlevered opened with ~5 ETH pooled");
@@ -623,16 +623,16 @@ contract LevCascadeProbe is AllesFixture {
         _setupLev();
 
         uint s0 = QUID.totalSupply();
-        _bandE0(lps[0], 5 ether);
+        _rangeE0(lps[0], 5 ether);
         _openLevOnly(lps[0], 5 ether);
         assertEq(QUID.totalSupply(), s0, "open: leverage must not mint/burn QUID");
 
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         uint s1 = QUID.totalSupply();
         lm.rebalance(lps[0], 0);
         assertEq(QUID.totalSupply(), s1, "rebalance/lever-up: leverage must not mint/burn QUID");
 
-        _crashBand(3000, 24, 40 ether);
+        _crashRange(3000, 24, 40 ether);
         address[] memory batch = new address[](1); batch[0] = lps[0];
         uint[] memory mins = new uint[](1);
         uint s2 = QUID.totalSupply();
@@ -640,21 +640,21 @@ contract LevCascadeProbe is AllesFixture {
         assertEq(QUID.totalSupply(), s2, "de-lever: leverage must not mint/burn QUID");
         // (closeLev's QUID-neutrality is the same code paths — no QUID.mint/burn anywhere in LevManager — and is
         // exercised by LevYbReal's testReal_Euler_CloseUnwindsFully. It's omitted here because closing while the
-        // band feed is still CRASHED (no _realignBandToReal, which LevYbReal does before its close) diverges from
+        // range feed is still CRASHED (no _realignRangeToReal, which LevYbReal does before its close) diverges from
         // real-Uniswap execution — a fork artifact, not a QUID/close bug.)
     }
 
 
     /// @notice (A) INTRINSIC DEPOSIT MODEL — the capital-efficiency win. A levered LP makes ONE deposit and does
-    ///   ONLY `openLev` (NO separate `ETH.deposit` band position). Proves E0 comes from the deposit ITSELF, the
-    ///   single deposit's net-equity IS the LP's entire band presence, and `syncLev` turns it into IL-free band
-    ///   depth — so the LP hedges with one capital leg, not a principal-band-plus-separate-buffer (the old (B)).
+    ///   ONLY `openLev` (NO separate `ETH.deposit` range position). Proves E0 comes from the deposit ITSELF, the
+    ///   single deposit's net-equity IS the LP's entire range presence, and `syncLev` turns it into IL-free range
+    ///   depth — so the LP hedges with one capital leg, not a principal-range-plus-separate-buffer (the old (B)).
     function test_A_IntrinsicOneDeposit_IsTheLeverageBase() public {
         _setupLev();
         EV.setLevManager(address(lm));
         address lp = address(0xBEEF8);
 
-        // (A): ONE deposit — mint weETH + openLev. Deliberately NO ETH.deposit (the LP has no separate band).
+        // (A): ONE deposit — mint weETH + openLev. Deliberately NO ETH.deposit (the LP has no separate range).
         deal(WEETH, lp, 5 ether);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
         uint[] memory mins = new uint[](8);
@@ -663,24 +663,24 @@ contract LevCascadeProbe is AllesFixture {
         lm.openLev(5000, ILevVenue(address(venue)), 5 ether, mins);
         vm.stopPrank();
 
-        // E0 = the deposit itself (weETH→ETH via the ether.fi rate), NOT a separate band position (there is none).
+        // E0 = the deposit itself (weETH→ETH via the ether.fi rate), NOT a separate range position (there is none).
         uint depositEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
-        ( , , , uint128 e0, , ) = lm.pos(lp);
-        assertApproxEqAbs(uint(e0), depositEth, 1e15, "(A): E0 == the single deposit, not a separate band slice");
-        // Zero leverage at open ⇒ the deposit's net-equity == the deposit; it IS the LP's entire band presence.
+        ( , , , uint128 entryEquity, , ) = lm.pos(lp);
+        assertApproxEqAbs(uint(entryEquity), depositEth, 1e15, "(A): E0 == the single deposit, not a separate range slice");
+        // Zero leverage at open ⇒ the deposit's net-equity == the deposit; it IS the LP's entire range presence.
         assertApproxEqAbs(lm.netEquity(lp), depositEth, 1e15, "(A): net-equity == the single deposit");
 
-        // syncLev turns the single deposit into the LP's IL-free levered band slice — no principal band needed.
+        // syncLev turns the single deposit into the LP's IL-free levered range slice — no principal range needed.
         uint pe0 = CORE.POOLED();
         ETH.syncLev(lp);
-        assertApproxEqAbs(ETH.levPooled(lp), depositEth, 2e15, "(A): the single deposit IS the levered band slice");
-        assertGt(CORE.POOLED(), pe0, "(A): the one deposit deepened the band as levPooled (capital-efficient)");
+        assertApproxEqAbs(ETH.levPooled(lp), depositEth, 2e15, "(A): the single deposit IS the levered range slice");
+        assertGt(CORE.POOLED(), pe0, "(A): the one deposit deepened the range as levPooled (capital-efficient)");
     }
 
     // ─────────────────────────── #36 venue safety gates (REAL Morpho venue) ───────────────────────────
 
     /// @notice (#36a) init must REJECT a real venue whose collateral the manager cannot value (not WETH/weETH):
-    ///   a WBTC-collateral Morpho market would inject phantom ETH backing into bandETH. GOV can't pin it.
+    ///   a WBTC-collateral Morpho market would inject phantom ETH backing into rangeETH. GOV can't pin it.
     function test_LevVenueGate_InitRejectsUnvaluableCollateral() public {
         _setupLev();   // establishes mOracle + the good (weETH) reference stack
         LevManager lm2 = new LevManager(WEETH, address(AUX), address(WETH), address(this), address(QUID));
@@ -707,26 +707,26 @@ contract LevCascadeProbe is AllesFixture {
 
     // ═════════════════════════ V1b — PRE-UNIFICATION CONTROL ═════════════════════════
     //
-    // `committedUsd18()` is `_bandEquityUsd18(false) + _bandEquityUsd18(true)`, each term floored
-    // at ZERO **PER BAND** (`Core.sol:112-116`), so one band's leverage debt can never eat the
-    // other band's equity. The `POOLED_USD` unification merges those counters, and the naive form
+    // `committedUsd18()` is `_rangeEquityUsd18(false) + _rangeEquityUsd18(true)`, each term floored
+    // at ZERO **PER RANGE** (`Core.sol:112-116`), so one range's leverage debt can never eat the
+    // other range's equity. The `POOLED_USD` unification merges those counters, and the naive form
     // takes a SINGLE floor over the unified total:
     //
-    //      per-band (today):  max(0, ethUsd - ethDebt) + max(0, btcUsd - btcDebt)
+    //      per-range (today):  max(0, ethUsd - ethDebt) + max(0, btcUsd - btcDebt)
     //      unified (naive) :  max(0, (ethUsd + btcUsd) - (ethDebt + btcDebt))
     //
-    // They agree while each band's debt is below its OWN USD leg. When one band's debt EXCEEDS its
-    // own leg, the naive form lets that overflow eat the other band's equity, reporting LESS
+    // They agree while each range's debt is below its OWN USD leg. When one range's debt EXCEEDS its
+    // own leg, the naive form lets that overflow eat the other range's equity, reporting LESS
     // committed — a LOOSER `committedUsd18() <= haircutTvl` gate that admits commitments the
-    // per-band form rejects. Nothing reverts; the basket silently over-commits. Caveat B6.
+    // per-range form rejects. Nothing reverts; the basket silently over-commits. Caveat B6.
     //
     // ⚠️ WHAT THIS TEST DOES AND DOES NOT COVER. `test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy`
     // already pins `committed + totalDebtUsd == (both USD legs) x 1e12` with live debt — but that
     // is the SUM form, which is IDENTICAL under both definitions and therefore cannot discriminate
-    // them. This test pins the PER-BAND decomposition instead, which is the part the merge would
-    // change. The fully discriminating case (one band's debt > its own USD leg) needs BTC-band
+    // them. This test pins the PER-RANGE decomposition instead, which is the part the merge would
+    // change. The fully discriminating case (one range's debt > its own USD leg) needs BTC-range
     // leverage or a deliberately thin ETH leg and is NOT built here — tracked as V1b-disc.
-    function test_V1b_CommittedDecomposesPerBandWithLiveLeverageDebt() public {
+    function test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt() public {
         _setupLev();
         EV.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
@@ -736,14 +736,14 @@ contract LevCascadeProbe is AllesFixture {
         // Debt is entry-price-driven: `openLev` opens at ZERO leverage, so a rally is what creates
         // the IL hedge. Without it `totalDebtUsd() == 0` and the whole test is vacuous — the
         // PREMISE below caught exactly that on the first run.
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         ETH.syncLev(lps[0]);
 
-        // SEED THE BTC BAND. Without it `btcPooled18 == 0` and the cross-band assertion below is
+        // SEED THE BTC RANGE. Without it `btcPooled18 == 0` and the cross-range assertion below is
         // `0 == 0` — it would "prove" that ETH debt cannot reach BTC equity while there is no BTC
-        // equity to reach. `requestDeposit` is gated to BTCChannels, impersonated as in BtcBandTheta.
+        // equity to reach. `requestDeposit` is gated to BTCChannels, impersonated as in BtcRangeTheta.
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);          // 0.2 BTC
 
@@ -751,71 +751,71 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("live ETH leverage debt (18d)", debt);
         assertGt(debt, 0, "PREMISE: leverage debt must be outstanding, else the floor has nothing to floor");
 
-        // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
+        // §#12: the per-range floor now applies to the BASKET's contribution, not the curve leg.
         uint ethPooled18 = CORE.basketUsd() * 1e12;
         uint btcPooled18 = CORE.basketUsd() * 1e12;
         uint committed   = CORE.committedUsd18();
-        uint btcEquity   = CORE.bandEquityUsd18();
+        uint btcEquity   = CORE.rangeEquityUsd18();
         uint ethEquity   = committed - btcEquity;
         emit log_named_uint("ETH USD leg (18d)", ethPooled18);
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);
         emit log_named_uint("committedUsd18   ", committed);
-        emit log_named_uint("  ETH band equity", ethEquity);
-        emit log_named_uint("  BTC band equity", btcEquity);
+        emit log_named_uint("  ETH range equity", ethEquity);
+        emit log_named_uint("  BTC range equity", btcEquity);
 
-        // THE PER-BAND DECOMPOSITION — the property the merge must preserve or consciously redefine.
+        // THE PER-RANGE DECOMPOSITION — the property the merge must preserve or consciously redefine.
         assertEq(ethEquity, ethPooled18 > debt ? ethPooled18 - debt : 0,
-            "ETH band equity == its OWN BASKET DEPTH less its OWN debt, floored at 0");
+            "ETH range equity == its OWN BASKET DEPTH less its OWN debt, floored at 0");
         assertGt(btcPooled18, 0,
-            "PREMISE: the BTC band must be SEEDED, else the cross-band assertion below is 0 == 0");
+            "PREMISE: the BTC range must be SEEDED, else the cross-range assertion below is 0 == 0");
         assertEq(btcEquity, btcPooled18,
-            "BTC band carries no debt here, so its equity is its FULL basket depth -- the ETH band's debt must NOT reach it");
+            "BTC range carries no debt here, so its equity is its FULL basket depth -- the ETH range's debt must NOT reach it");
         assertEq(committed, ethEquity + btcEquity,
-            "committedUsd18 is the SUM OF PER-BAND FLOORED equities, not one floor over the total");
+            "committedUsd18 is the SUM OF PER-RANGE FLOORED equities, not one floor over the total");
         assertLt(committed, ethPooled18 + btcPooled18,
             "live debt must pull committed BELOW the raw two-leg sum, else the debt term is inert");
     }
 
     // ════════════════ V1b-disc — THE DISCRIMINATING CASE ════════════════
     //
-    // V1b pins the per-band DECOMPOSITION, but while each band's debt stays below its own USD leg
-    // both floors are non-binding and the per-band and single-floor definitions agree exactly. So
+    // V1b pins the per-range DECOMPOSITION, but while each range's debt stays below its own USD leg
+    // both floors are non-binding and the per-range and single-floor definitions agree exactly. So
     // V1b — like `test_IlProtection_…:573` before it — passes under BOTH definitions and cannot
     // catch the merge going wrong. THIS is the case that can:
     //
     //   ethLeg = 1,000  ·  ethDebt = 3,522  ·  btcLeg = 11,542
-    //     per-band  : max(0, 1000-3522) + max(0, 11542-0) = 0 + 11,542 = 11,542
+    //     per-range  : max(0, 1000-3522) + max(0, 11542-0) = 0 + 11,542 = 11,542
     //     naive     : max(0, (1000+11542) - 3522)         =              9,020
     //
-    // The naive form lets the ETH band's debt OVERFLOW into the BTC band's equity, reporting LESS
+    // The naive form lets the ETH range's debt OVERFLOW into the BTC range's equity, reporting LESS
     // committed. `_poolUsdInRange` gates on `committedUsd18() <= haircutTvl`, so LESS committed is
-    // a LOOSER gate — it admits commitments the per-band form rejects. Nothing reverts; the basket
-    // silently over-commits, and the BTC band's LPs have quietly underwritten the ETH band's
+    // a LOOSER gate — it admits commitments the per-range form rejects. Nothing reverts; the basket
+    // silently over-commits, and the BTC range's LPs have quietly underwritten the ETH range's
     // leverage. Silent + plausible-but-wrong ⇒ standing rule 3's earns-a-check shape.
     //
     // Construction: establish real debt via the rally (openLev opens at ZERO leverage), seed the
-    // BTC band, then DRAIN the ETH band's USD leg with sells until it falls BELOW the debt.
-    function test_V1bdisc_OneBandsDebtExceedingItsOwnLegMustNotEatTheOther() public {
+    // BTC range, then DRAIN the ETH range's USD leg with sells until it falls BELOW the debt.
+    function test_V1bdisc_OneRangesDebtExceedingItsOwnLegMustNotEatTheOther() public {
         _setupLev();
         EV.setLevManager(address(lm));
         vm.deal(address(this), 40 ether);
         ETH.deposit{value: 2 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
 
-        _rallyBand(_entryPrice(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         _calmVol();
         ETH.syncLev(lps[0]);
 
         AUX.setBTCChannels(address(this));
-        BTC.requestDeposit(User01, 2e7);                       // 0.2 BTC — the band that must stay whole
+        BTC.requestDeposit(User01, 2e7);                       // 0.2 BTC — the range that must stay whole
 
         uint debt = lm.totalDebtUsd();
         assertGt(debt, 0, "PREMISE: leverage debt must exist before we try to exceed a leg with it");
 
         // §#12/E28-r RE-DERIVED CONSTRUCTION, twice. (1) The ORIGINAL method drained the curve until
         // its USD leg fell below the debt — but draining is a SWAP, and after #12 a swap no longer
-        // reduces the BASKET's contribution. (2) The replacement shrank the band by withdrawing the
+        // reduces the BASKET's contribution. (2) The replacement shrank the range by withdrawing the
         // plain LP position — which worked only while the basket leg came off FIRST-OUT; once E28-r
         // made that removal PROPORTIONAL, a 95% withdrawal left 95%-of-a-large-leg behind and the
         // premise stopped holding. Both times the premise assertion caught it rather than letting
@@ -827,33 +827,33 @@ contract LevCascadeProbe is AllesFixture {
         try ETH.withdraw(2 ether, address(this), address(this)) {} catch {}
         vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
 
-        // §#12: the per-band floor now applies to the BASKET's contribution, not the curve leg.
+        // §#12: the per-range floor now applies to the BASKET's contribution, not the curve leg.
         uint ethPooled18 = CORE.basketUsd() * 1e12;
         uint btcPooled18 = CORE.basketUsd() * 1e12;
         debt = lm.totalDebtUsd();                             // re-read: the drain may have moved it
         uint committed = CORE.committedUsd18();
-        uint btcEquity = CORE.bandEquityUsd18();
+        uint btcEquity = CORE.rangeEquityUsd18();
         emit log_named_uint("ETH USD leg (18d)", ethPooled18);
         emit log_named_uint("ETH debt    (18d)", debt);
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);
         emit log_named_uint("committedUsd18   ", committed);
-        emit log_named_uint("  BTC band equity", btcEquity);
+        emit log_named_uint("  BTC range equity", btcEquity);
 
         // PREMISES — without BOTH of these the case is not the discriminating one and the
         // assertions below hold under either definition.
         assertGt(debt, ethPooled18,
-            "PREMISE: the ETH band's debt must EXCEED its own USD leg, else both definitions agree");
+            "PREMISE: the ETH range's debt must EXCEED its own USD leg, else both definitions agree");
         assertGt(btcPooled18, 0,
-            "PREMISE: the BTC band must hold equity for the overflow to be able to eat");
+            "PREMISE: the BTC range must hold equity for the overflow to be able to eat");
 
-        // THE DISCRIMINATOR. Per-band: the ETH band floors at 0 and the BTC band is untouched, so
+        // THE DISCRIMINATOR. Per-range: the ETH range floors at 0 and the BTC range is untouched, so
         // committed is EXACTLY the BTC leg. The naive single floor would instead return
         // `(ethLeg + btcLeg) - debt`, which is strictly SMALLER here.
         assertEq(btcEquity, btcPooled18,
-            "the ETH band's excess debt must NOT reach the BTC band's equity");
+            "the ETH range's excess debt must NOT reach the BTC range's equity");
         assertEq(committed, btcPooled18,
-            "committed == the BTC basket depth alone: the ETH band floors at ZERO, its overflow is NOT netted against BTC");
+            "committed == the BTC basket depth alone: the ETH range floors at ZERO, its overflow is NOT netted against BTC");
         assertGt(committed, ethPooled18 + btcPooled18 > debt ? ethPooled18 + btcPooled18 - debt : 0,
-            "per-band flooring must report STRICTLY MORE committed than a single floor over the total");
+            "per-range flooring must report STRICTLY MORE committed than a single floor over the total");
     }
 }

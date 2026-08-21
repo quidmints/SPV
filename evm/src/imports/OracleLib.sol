@@ -187,7 +187,7 @@ library OracleLib {
     ///      is the one existing Core-lib with bytecode headroom — no new file.)
     /// §V4-CUT — THIS IS A RING SEEDER NOW, AND THE NAME SAYS SO. It used to assemble a lex-sorted
     /// PoolKey, derive its PoolId, align a reference tick to the grid and call `pm.initialize` so v4
-    /// would host the band. Nothing calls the PoolManager any more, so the pool was never created --
+    /// would host the range. Nothing calls the PoolManager any more, so the pool was never created --
     /// which made the PoolKey, the PoolId and the `volMock > usdMock` ordering all write-only
     /// vestigia of a pool that does not exist. `VANILLA_*` and `POOL_ID_VANILLA_*` went with them.
     /// What actually mattered was always these three lines: seed `lastPrice` from the reference
@@ -217,14 +217,14 @@ library OracleLib {
     /// ⚠️ The reference pools are still READ, deliberately: they are the independent v3/v4
     /// observation the Chainlink cross-check is measured against.
     /// §V4-CUT — THE FOUR MOCK APPROVALS ARE GONE. They approved the PoolManager to move our mock
-    /// tokens, which mattered while v4 hosted the band. No pool of ours is ever created now, so the
+    /// tokens, which mattered while v4 hosted the range. No pool of ours is ever created now, so the
     /// allowances had no spender that could use them -- and granting `type(uint).max` to a contract
     /// that will never call `transferFrom` is a standing approval for no reason.
-    /// @notice Deploy-time seed price for each band, read from CHAINLINK.
+    /// @notice Deploy-time seed price for each range, read from CHAINLINK.
     /// @dev    §V4-ZERO — was `prepRefs`, which read `slot0` from two UNISWAP V4 REFERENCE POOLS and
     ///         was the last thing in `src/` needing `IPoolManager`, `PoolKey`, `PoolIdLibrary`,
     ///         `Currency` and `StateLibrary`. Five v4 types and a `PoolKey` field on the deploy
-    ///         config, so a band could learn its starting price ONCE.
+    ///         config, so a range could learn its starting price ONCE.
     ///
     ///         Chainlink is where that price comes from at RUNTIME anyway: `SwapLib.twapResolve`
     ///         anchors every internal TWAP against `assetPriceFeed[asset]` and falls back to it
@@ -279,7 +279,7 @@ library OracleLib {
         // Walk back n stored points from the newest, newest-first, differencing as we go.
         //
         // §TICK-REMOVAL — THE 1e9 LIFT IS GONE WITH THE TICKS. §E59 added it because truncating to
-        // WHOLE TICKS zeroed every difference on a ~20-tick band. A usd18 price carries 18 decimals
+        // WHOLE TICKS zeroed every difference on a ~20-tick range. A usd18 price carries 18 decimals
         // natively, so sub-basis-point movement survives without any rescaling, and omitting the
         // lift keeps `d*d` far inside uint256.
         //
@@ -335,7 +335,7 @@ library OracleLib {
         acc /= (m - 1);
         // §E63 — SECOND MOMENT, NOT CENTRAL SECOND MOMENT: add the DRIFT back in.
         //
-        // `acc` alone is the variance ABOUT THE MEAN, and a band walking STEADILY one way has every
+        // `acc` alone is the variance ABOUT THE MEAN, and a range walking STEADILY one way has every
         // difference equal ⇒ every deviation 0 ⇒ variance EXACTLY 0. That is arithmetically right
         // and economically wrong: a monotone walk carries real inventory risk while measuring as
         // perfectly calm. MEASURED: 16 swaps moving the tick −1 read 0; only a −2 move registered.

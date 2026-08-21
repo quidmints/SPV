@@ -8,7 +8,7 @@
 //   Withdraw logs (filtered by the `owner` indexed topic == the wallet):
 //     • sharesHeld     = Σ deposit.shares − Σ withdraw.shares          (exact)
 //     • ethInvestedNet = Σ deposit.assets − Σ withdraw.assets          (exact)
-//     • currentValueEth= sharesHeld / lpShares() × bandETH()  (on-chain, now)
+//     • currentValueEth= sharesHeld / lpShares() × rangeETH()  (on-chain, now)
 //   The USD legs need a price PER deposit/withdraw block. The app's only price
 //   source (market.ts → /api/market → CoinGecko) exposes the CURRENT price, not
 //   a by-timestamp one, so the USD cost basis is APPROXIMATED at today's price
@@ -31,7 +31,7 @@ export interface LpPnl {
   // ── exact, from events / on-chain ──
   sharesHeld: number          // Σ deposit.shares − Σ withdraw.shares
   ethInvestedNet: number      // Σ deposit.assets − Σ withdraw.assets (ETH)
-  currentValueEth: number     // sharesHeld / lpShares × bandETH (ETH, now)
+  currentValueEth: number     // sharesHeld / lpShares × rangeETH (ETH, now)
   currentValueUsd: number     // currentValueEth × current ETH price
   feesEarnedEth: number       // position's share of pool fee growth (approx — see note)
   // ── USD legs (approx at current price unless an archive feed is wired) ──
@@ -64,7 +64,7 @@ const toEth = (v: bigint) => Number(v) / 1e18
 
 export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> {
   if (!address || !hasWallet()) return null
-  if (!CONTRACTS.band || CONTRACTS.band === ZERO_ADDR) return null
+  if (!CONTRACTS.range || CONTRACTS.range === ZERO_ADDR) return null
 
   const ownerTopic = padAddr(address)
 
@@ -75,9 +75,9 @@ export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> 
   if (head === 0) return null
 
   const [depLogs, wdLogs] = await Promise.all([
-    getLogs({ address: CONTRACTS.band, fromBlock: 0, toBlock: head,
+    getLogs({ address: CONTRACTS.range, fromBlock: 0, toBlock: head,
       topics: [DEPOSIT_TOPIC, null, ownerTopic] }),                 // owner = topics[2]
-    getLogs({ address: CONTRACTS.band, fromBlock: 0, toBlock: head,
+    getLogs({ address: CONTRACTS.range, fromBlock: 0, toBlock: head,
       topics: [WITHDRAW_TOPIC, null, null, ownerTopic] }),          // owner = topics[3]
   ])
 
@@ -102,16 +102,16 @@ export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> 
     }
   }
 
-  // ── Current value (on-chain, exact NOW): sharesHeld / lpShares × bandETH ──
+  // ── Current value (on-chain, exact NOW): sharesHeld / lpShares × rangeETH ──
   let currentValueEth = 0
-  const lpSharesRaw = await readOne(CONTRACTS.band, 'lpShares')
-  const bandEthRaw = await readOne(CONTRACTS.band, 'bandETH')
+  const lpSharesRaw = await readOne(CONTRACTS.range, 'lpShares')
+  const rangeEthRaw = await readOne(CONTRACTS.range, 'rangeETH')
   try {
-    if (lpSharesRaw != null && bandEthRaw != null) {
-      const lpShares = BigInt(lpSharesRaw), bandEth = BigInt(bandEthRaw)
+    if (lpSharesRaw != null && rangeEthRaw != null) {
+      const lpShares = BigInt(lpSharesRaw), rangeEth = BigInt(rangeEthRaw)
       if (lpShares > 0n && sharesHeldBig > 0n) {
-        // value = sharesHeld/lpShares × bandEth, computed in 1e18 fixed point.
-        const valWei = (sharesHeldBig * bandEth) / lpShares
+        // value = sharesHeld/lpShares × rangeEth, computed in 1e18 fixed point.
+        const valWei = (sharesHeldBig * rangeEth) / lpShares
         currentValueEth = toEth(valWei)
       }
     }
@@ -124,7 +124,7 @@ export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> 
   //   for the protocol total; it overstates if the LP entered after fees began
   //   accruing — kept honest via the UI label, not fabricated precision. ──
   let feesEarnedEth = 0
-  const fpsRaw = await readOne(CONTRACTS.band, 'feesPerShare')
+  const fpsRaw = await readOne(CONTRACTS.range, 'feesPerShare')
   try {
     if (fpsRaw != null && sharesHeldBig > 0n) {
       const fps = BigInt(fpsRaw)

@@ -174,7 +174,7 @@ pub fn broadcast_raw_tx(esplora_url: &str, raw_tx: &[u8]) -> Result<String> {
 /// `force`), broadcast it. KEYLESS — only public reads + a public broadcast POST.
 ///
 /// `force` bypasses the maturity check (for keeper testing / a keeper that already
-/// verified maturity out of band); a non-final tx will simply be rejected by the
+/// verified maturity out of range); a non-final tx will simply be rejected by the
 /// mempool, so `force` cannot cause harm.
 pub fn recover_and_broadcast(
     rpc_url: &str,

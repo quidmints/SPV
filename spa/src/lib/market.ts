@@ -21,7 +21,7 @@ export interface AssetSignal {
   change24h: number       // %
   change7d: number        // %
   sigmaAnnual: number     // Kalman dynamic vol, annualized (0.62 = 62%)
-  sigmaBand: number       // ±band
+  sigmaRange: number       // ±range
   sigmaDivergent: boolean // innovation-divergence flag → retune
   phi: number             // AR(1) mean-reversion coefficient
   phiLabel: string        // trending / random walk / mean reverting

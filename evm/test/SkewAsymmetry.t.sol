@@ -9,7 +9,7 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///         the material omission. That claim was never executed. This measures it.
 ///
 ///         The instrument is `SwapLib.skewWad`, which is `public pure`: identical inputs with one
-///         bool flipped is a CONTROL that band state cannot confound. That matters because every
+///         bool flipped is a CONTROL that range state cannot confound. That matters because every
 ///         previous skew measurement here ran against a fixture, and two were overturned when the
 ///         fixture (not the code) turned out to explain the number.
 ///
@@ -79,13 +79,13 @@ contract SkewAsymmetry is Test {
     ///         `T* >= ETH_CONF_FRAC_WAD`: the premium must fund LVR over at least the window
     ///         `_maxWellSkew` charges for, or the formula contradicts its own derivation. That row
     ///         says the result is PER-ASSET and must be re-run for BTC before anything is claimed
-    ///         for that leg. This is that run, on a FLUSH band (kernel == 0), which is the worst
+    ///         for that leg. This is that run, on a FLUSH range (kernel == 0), which is the worst
     ///         case: the base is then the entire premium.
-    function test_UNITASYM_E131_AdequacyOnBothLegs_FlushBand() public {
+    function test_UNITASYM_E131_AdequacyOnBothLegs_FlushRange() public {
         uint[3] memory sigmas = [uint(36e16), 1e18, 4e18];   // 60%/yr (E131's reference), 100%, 200%
         for (uint i; i < sigmas.length; i++) {
             uint s = sigmas[i];
-            // T* in WAD-years = 8 * skew / sigma^2. On a flush band skew == base.
+            // T* in WAD-years = 8 * skew / sigma^2. On a flush range skew == base.
             uint tBtc = (8 * _base(s, true)  * WAD) / s;
             uint tEth = (8 * _base(s, false) * WAD) / s;
             // WAD-years -> seconds
@@ -105,10 +105,10 @@ contract SkewAsymmetry is Test {
     /// @notice THE ADEQUACY MARGIN IS THE REAL ASYMMETRY, AND IT RUNS THE OPPOSITE WAY TO UNIT-ASYM's
     ///         FRAMING. BTC's base carries a variance-INDEPENDENT splice on top of the LVR term, so
     ///         its T* strictly exceeds its window. ETH's base is EXACTLY sigma^2*window/8, so on a
-    ///         flush band T* equals its window with ZERO margin -- E131's assertion passes by
+    ///         flush range T* equals its window with ZERO margin -- E131's assertion passes by
     ///         equality, not by headroom. Everything ETH has above breakeven comes from the kernel,
-    ///         which is zero precisely when the band is flush.
-    function test_UNITASYM_EthFlushBandIsExactlyBreakeven_BtcIsNot() public {
+    ///         which is zero precisely when the range is flush.
+    function test_UNITASYM_EthFlushRangeIsExactlyBreakeven_BtcIsNot() public {
         uint s = WAD;
         uint tEth = (8 * _base(s, false) * WAD) / s;
         uint tBtc = (8 * _base(s, true)  * WAD) / s;
@@ -118,7 +118,7 @@ contract SkewAsymmetry is Test {
         emit log_named_uint("BTC T* (wad-years)   ", tBtc);
         emit log_named_uint("BTC window (wad-yrs) ", uint(114_000_000_000_000));
 
-        // ETH: exact equality. No margin whatsoever on a flush band.
+        // ETH: exact equality. No margin whatsoever on a flush range.
         assertEq(tEth, 380_000_000_000, "ETH flush T* should be EXACTLY its 12s window");
 
         // BTC: strictly greater, and the excess is the splice re-expressed as time.
@@ -133,7 +133,7 @@ contract SkewAsymmetry is Test {
     ///         path-independent). Two mechanisms can move it, and they need separating because they
     ///         have OPPOSITE fixes:
     ///           (a) THE INVENTORY TRAPEZOID — as a drain proceeds, poolVol falls, so later slices
-    ///               are priced on a scarcer band. This is INTRINSIC to integrating a convex curve
+    ///               are priced on a scarcer range. This is INTRINSIC to integrating a convex curve
     ///               and is not a defect: the chopped path pays MORE because it genuinely does more
     ///               damage per later dollar.
     ///           (b) THE EWMA RATCHET — each slice bumps `flowEwmaUsd`, raising the TARGET for the
@@ -153,7 +153,7 @@ contract SkewAsymmetry is Test {
         uint pool0  = 300_000e6;
         uint total  = 120_000e6;
 
-        // PATH A -- one drain of the whole notional, priced once on the entry band.
+        // PATH A -- one drain of the whole notional, priced once on the entry range.
         uint premA = (SwapLib.skewWad(pool0, flow, s, SwapLib.ethRisk(), total) * total) / WAD;
 
         // PATH B -- twelve slices. Inventory falls as it would in reality; flow does NOT move.
