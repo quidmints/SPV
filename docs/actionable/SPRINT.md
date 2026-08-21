@@ -7467,3 +7467,48 @@ the machinery to copy is in-repo, not in a paper.**
 liquidity. The change is that it moves OFF the protocol's critical path, where its calldata,
 its outages and its gas were never affordable.
 
+
+---
+
+## 📋 §E302 — **THE GREEN-STUCK SWEEP: 11 CLOSED ROWS CHECKED AGAINST CODE, 10 HOLD, 1 IS A NAME TRAP**
+
+**The pass nobody had run.** `757e4500` swept the RED-stuck direction (rows still 🔴 after the work
+landed). This is its complement — **take a ✅ row's falsifiable claim and check whether the code still
+satisfies it** — which is how §E276 and §E277 were found and what §E277 itself says is *"not in
+anyone's sweep yet"*. Scope: the 32 rows carrying ✅; **11 have a claim testable by symbol**, and those
+are what this pass covers.
+
+| row | claim | verdict |
+|---|---|---|
+| §E292 `SCRUB-TRI` | zero TriCrypto in `src` + `script` | ✅ holds (0) |
+| §E267 | the Midnight fork is gone | ✅ holds (0) |
+| §E247 | the allowlist gate exists | ✅ `tools/check-signer-allowlist.py` |
+| B4 | ladder depth enforced | ✅ `LadderTooShallow` ×3 |
+| B0 | the fleet no longer boots a vault | ✅ `QUID_FLEET_COHOSTS_VAULT`, 3 files |
+| §LAZY-OPEN-RETRY | reconciler reads `pendingClaimSats` | ✅ present |
+| §LAZY-OPEN-SHRINK | `_requireClaimRegistered` is a private view | ✅ ×3 |
+| §E141 / `ExitLib` | the library is justified | ✅ exists |
+| §E300 | `_fillableDrain` prices what we can serve | ✅ ×2 |
+| §E301 | `refillPlacement`/`proRataShortfall` are deletable | ✅ **already deleted, and cleanly** |
+| **§6b** | ***"`contract Shares` — DELETED 2026-08-17"*** | 🔴 **reads FALSE — see below** |
+
+### 🔴 §6b IS A NAME TRAP, AND IT IS THE MIRROR OF THE ONE CLAUDE.md WARNS ABOUT
+`Shares.sol:64` declares **`abstract contract Shares`**, so a reader checking §6b's claim finds the
+thing it says was deleted and concludes the row is stale. **It is not.** The CONCRETE `contract Shares`
+(2,300 bytes, unwired) *was* deleted; `94f63006` *"Finish the rename: `Shares.sol` now declares
+`contract Shares`"* then reassigned the NAME to the abstract base formerly called `BandState`.
+⇒ **Two different objects, one name, eight days apart.**
+⚠️ **THIS IS THE INVERSE OF THE DOCUMENTED TRAP.** CLAUDE.md warns that *"a zero-hit grep for a
+suffixed name is evidence of a RENAME, never of a REMOVAL"*. **Here a POSITIVE hit is evidence of a
+rename, not of a survival** — same mechanism, opposite sign, and the existing rule does not cover it.
+▶️ **Row action:** say which `Shares` it means. The deleted one was concrete and unwired; the live one
+is the abstract base every band manager inherits. **Deleting today's `Shares` on the strength of that
+row would remove the shared layout `State`/§E252 depends on.**
+
+### 📌 WHAT THIS PASS DOES NOT ESTABLISH
+**Symbol existence closes a row only when the row is ABOUT a symbol.** The other 21 ✅ rows assert a
+BEHAVIOUR, a MEASUREMENT or a DECISION (`§E273`'s arithmetic, `§E274`'s Γ, `§E275-VERIFIED`'s four
+runs, `D8`'s build, `§E280`'s credit path). **Those need re-execution, not grep** — §E277's own lesson
+is that its four "vanished tests" were three false positives because the discriminator was reading the
+deleting commit, never the search. ⇒ **10-of-11 is a result about the symbol-shaped subset, not a
+clean bill for the ✅ column.**
