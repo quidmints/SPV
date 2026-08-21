@@ -5023,3 +5023,27 @@ delete the cap". **Γ IS NOW DERIVED (5.48e15) AND THE CAP IS STILL NOT DELETABL
 threshold must land in the SAME change, or the first deep drain panics `0x11` inside
 `retainSkewPremium`. ⚠️ §E104's lesson stands and now has a number: **the test that proves it must
 drive q past the threshold above**, not merely to zero.
+
+## §E274 — 🔴 **`Quid` IS AT 86 BYTES OF EIP-170 MARGIN ON `main`, MEASURED CLEAN**
+🔴 OPEN — measured 2026-08-21 from a worktree PINNED to `origin/main` with no uncommitted work, so it is
+attributable by construction. `python3 tools/check-contract-sizes.py`, 33 deployable contracts:
+```
+  Quid          24490      86   linked
+  BTCChannels   23683     893
+  LevManager    22830    1746
+  LevMath       22817    1759
+```
+⚠️ **THIS CORRECTS §E264's CLOSURE.** That row closed on `Quid = 24,014 (562 spare)`, and attributed an
+earlier 86-byte reading to a dirty shared checkout. **The attribution was right then and the number is
+wrong now:** `Quid` has since grown ~476 bytes on `main`. A clean measurement has a shelf life, and
+§E264's did not survive four days.
+⇒ **DO NOT PLAN ANY ADDITION TO `Quid` AGAINST 562.** The binding contract is `Quid`, alone, at 86 —
+`BTCChannels` is the next tightest at 893, an order of magnitude further away.
+⚠️ This repo has already shipped a `Core` at **−126 bytes** (undeployable) with a fully green suite, and
+`forge build --sizes` cannot see `Quid` at all because it is library-linked. **The only gate that sees
+this is `tools/check-contract-sizes.py`, and it must run before any change that touches `Quid`.**
+⇒ Cheapest known lever if headroom is needed: the four `Quid`∥`Vault` identical bodies
+(`soldFractionWad`, `creditSkewPremium`, `bandOf`, `pull`/`pullBtc`, 80–98 chars each) are wrappers over
+shared library calls. Hoisting them into `State` was measured at **+41 bytes and zero saved** (an
+abstract base copies into every inheritor), so that is NOT the lever — but a delegatecalled library
+would be, at the cost of one call per use. Measure before adopting.
