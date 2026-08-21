@@ -2242,6 +2242,9 @@ closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
    that makes the phone sign per splice, so today a splice on an offline LP's channel reverts. The
    gate is what makes that opt-in instead of imposed, and the LP is a phone.
+   ⚠️ **IT ANSWERS INTERMITTENCE, NOT LOSS, AND MUST NOT BE GROWN TO COVER LOSS** — see
+   `§LADDER-VALUE-IS-CONDITIONAL`. A lost phone is `#14`, a different failure with a different
+   remedy; fusing them would give one mechanism two jobs and it would do neither cleanly.
 0b. **`#19` — DOWNGRADED.** (a) is already built; (b) reduces to one off-chain question (which LN
    side parked sats land on). Answer that before treating it as a defect.
 1. **`#18` — the LP consent pipeline** (built; note D7: needed for a PHONE LP, removable for a daemon LP). Highest, because it is the one gap that makes
@@ -2259,6 +2262,12 @@ closed and the old order pointed mostly at those.**
    D1's suite-state cluster at once; a shared tree invalidates every number.
 5. **`#14`/`#15`** — recovery. `#14` needs a migration trust anchor of its own (`migration.rs` looks
    like the answer and is not); `#15` is an operator instruction plus a restore-then-reconnect test.
+   🔴 **`#14` IS MIS-ORDERED AT 5, AND THE REASON IS `§LADDER-VALUE-IS-CONDITIONAL`: IT IS WHAT MAKES
+   EVERY ROW ABOVE IT WORTH ANYTHING.** Each armed rung pays `btcRecipientOf` = `_lpPayoutScript(lpEth)`,
+   derived from the key the phone holds — so with an unrecoverable seed the dead-man exit **confirms,
+   pays, and pays an address nobody can spend.** `#1`, `#22` and the whole §E165/§E233 ladder deliver
+   protection **conditional on the LP still holding its key**, and that condition is `#14`. Treat it as
+   a peer of `#22`, not as cleanup after it — the old position is left visible so the move is legible.
 6. **`#12` is blocked on the OWNER, not on work** — do not implement `§LP-SEED-ENTROPY` from its
    shape; the ask is right and the reason matters.
 ⏸️ **`#7` (lazy `openChannel`) and `#9` (the 7540 fold) are real but not urgent** — `#7`'s premise
