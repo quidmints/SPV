@@ -733,6 +733,27 @@ library SwapLib {
     /// replacement but does NOT land it here — that is a separate money-path change, deliberately
     /// not bundled with the cap removal so a regression can be attributed to one of them.
     uint internal constant GAMMA_WAD = 3e16;
+    /// §E289 — **THE POLE'S LOCATION, in units of `target`** — our analogue of A–S's ω.
+    /// A–S do NOT clamp: they place the singularity where the agent cannot go. §2.3's denominator is
+    /// `2ω − γ²q²σ²`, and the paper says ω *"may be interpreted as an upper bound on the inventory
+    /// position our agent is allowed to take"*, with a natural choice that *"would ensure that the
+    /// prices defined above are bounded"*. Our kernel is `q/(1−q)` — a pole at `q = 1` — and
+    /// `q = (target−inv)/target`, so **`q = 1` IS `inv = 0`: our singularity sits exactly ON the
+    /// reachable boundary, which is the one thing A–S take care to avoid.** Generalised, the pole
+    /// lives at `q = κ`, i.e. `inv = (1−κ)·target` — NEGATIVE inventory, unreachable, for any κ > 1e18.
+    ///
+    /// 🔴 **`1e18` IS TODAY'S BEHAVIOUR, EXACTLY — NOT APPROXIMATELY.** At this value the generalised
+    /// expression below collapses to the original character for character (`κ·x/1e18 == x`), so this
+    /// landing is a PURE REFACTOR: it installs the dial and changes no economics, which is what makes
+    /// a regression attributable to the refactor alone (rule 10).
+    /// ▶️ **MOVING IT IS A SEPARATE, ECONOMIC COMMIT** with its own prediction, and it is GATED on a
+    /// restoration mechanism existing — §E276 (the shift) or the refill. Raising κ makes the band
+    /// drainable at a finite price, and §E276 established that nothing currently pulls inventory back:
+    /// we never move the bid, the refill direction is exempt rather than paid, and §V-R1 is not in
+    /// code. **That sequencing is what refuted §E287; do not repeat it by editing this constant early.**
+    /// ⚠️ A–S's own choice is one unit beyond the maximum ⇒ `κ = 2e18` here, because our unit of `q`
+    /// is one flow-window. **That coincidence is an ANALOGY, not a derivation** — see §E289's caveats.
+    uint internal constant KAPPA_WAD = 1e18;
     /// The conservative charge for `σ² == 0` — "we could not MEASURE the variance", never "there
     /// was none" (§E59/§E79). A POLICY price for absent information, not a ceiling on a computed
     /// one: nothing is compared against it, it is only ever RETURNED.
@@ -1021,7 +1042,9 @@ library SwapLib {
         if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;
         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
-        uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
+        // §E289 — `oneMinusQ` is gone: the distance to the pole is now `KAPPA_WAD − q1` (`kMinusQ1`,
+        // computed at the kernel below), because the pole's LOCATION is a parameter rather than
+        // hard-coded at 1. At κ = 1e18 they are the same number.
         // DEPLETION-BARRIER skew = Γ·σ²·q / (1−q)^ρ, ρ = STABLENESS (see the constant's derivation):
         // the A-S linear premium Γσ²q amplified by the log-barrier shadow price 1/(1−q)^ρ of the last
         // inventory units. Blows up convexly as inv→0 (oneMinusQ→0), bounded by the cap below.
@@ -1061,19 +1084,36 @@ library SwapLib {
         // using ∫q/(1−q)dq = −ln(1−q) − q. The bracket is ≥ 0 because the integrand is ≥ 0 on
         // [0,1), so the subtraction cannot underflow on exact math; it is saturated anyway to keep
         // a rounding artifact from wrapping into an enormous premium.
+        // §E289 — THE POLE LOCATION IS NOW THE PARAMETER `κ` (`KAPPA_WAD`), A–S's ω. The kernel is
+        //     q/(1 − q/κ) = κ·q/(κ − q),   whose integral keeps §E68's shape:
+        //     qBar(q0,q1) = κ·[ κ·ln((κ−q0)/(κ−q1)) − Δ ] / Δ,   using ∫q/(κ−q)dq = (κ−q) − κ·ln(κ−q)
+        // 🔴 AT κ = 1e18 EVERY LINE BELOW IS THE ORIGINAL: `fullMulDiv(κ, x, 1e18) == x`, so the two
+        // outer κ factors vanish and `κ − q` is `1e18 − q`. **This is a refactor, not a repricing** —
+        // it installs the dial that lets the singularity move OFF the reachable range later.
+        uint kMinusQ1 = KAPPA_WAD - q1;                   // κ > q1 for κ > 1e18 ⇒ never zero
         uint qBar;
-        if (oneMinusQ == 0) {
+        if (kMinusQ1 == 0) {
+            // REACHABLE ONLY AT κ = 1e18, where it is `q1 == 1e18` ⇔ `inv1 == 0` — today's pole.
+            // ⚠️ For any κ > 1e18 this branch is DEAD (q1 ≤ 1e18 < κ), and rule 1 then deletes it
+            // along with `SKEW_UNFILLABLE` and the producers' decline. **Delete them in the commit
+            // that RAISES κ, not before** — removing them while κ = 1e18 would drop the only brake.
             qBar = type(uint).max;                        // ends at inv=0 ⇒ pole → ∞ ⇒ pinned to the cap
         } else if (q1 == q0) {
             // Δ = 0. Either a zero-size READ (the Aux/MM signal, which wants the instantaneous
             // rate) or a drain too small to move q. The integral's limit as Δ→0 IS the point rate,
             // so this branch is the formula's own limit, not a special case bolted beside it.
-            qBar = SoladyMath.fullMulDiv(q0, 1e18, 1e18 - q0);
+            qBar = SoladyMath.fullMulDiv(
+                SoladyMath.fullMulDiv(KAPPA_WAD, q0, 1e18), 1e18, KAPPA_WAD - q0);
         } else {
             uint d = q1 - q0;
             // ln(u0/u1) in WAD. u0 > u1 > 0 here, so the ratio exceeds 1e18 and the log is positive.
-            uint lnTerm = uint(SoladyMath.lnWad(int(SoladyMath.fullMulDiv(1e18 - q0, 1e18, oneMinusQ))));
-            qBar = lnTerm > d ? SoladyMath.fullMulDiv(lnTerm - d, 1e18, d) : 0;
+            uint lnTerm = uint(SoladyMath.lnWad(int(
+                SoladyMath.fullMulDiv(KAPPA_WAD - q0, 1e18, kMinusQ1))));
+            lnTerm = SoladyMath.fullMulDiv(KAPPA_WAD, lnTerm, 1e18);   // the inner κ·ln(·)
+            qBar = lnTerm > d
+                ? SoladyMath.fullMulDiv(
+                    SoladyMath.fullMulDiv(KAPPA_WAD, lnTerm - d, 1e18), 1e18, d)   // the outer κ·
+                : 0;
         }
         // §E104 — CLAMP THE KERNEL *BEFORE* THE BASE IS ADDED. E89 made the base additive and left
         // the pole sentinel as `type(uint).max`, so a drain that EMPTIES the band produced
