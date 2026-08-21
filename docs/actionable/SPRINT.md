@@ -5195,3 +5195,55 @@ a swap, **paid against 1inch (routes the swap)** and rebalances the pool"*):
 ⇒ **Both readings retire the bid-shift; they disagree about who pays the spread.** ⚠️ **I resolved this
 by inference once already and retracted a CORRECT finding on the strength of it. Do not infer it
 again — the answer decides whether the restoration cost is ours.**
+
+## ✅ §E275-VERIFIED — THE CAP DELETION HAS NO ATTRIBUTABLE REGRESSION (4 runs, 2 per arm, 2026-08-21)
+`a9da145b` landed the cap deletion from my working tree while I was holding it under rule 15. The
+verification it lacked is now done — **two runs per arm, because one is not a measurement on this suite.**
+| run | passed | failed | skipped |
+|---|---|---|---|
+| baseline `f471af6a` #1 | 420 | 88 | 1 |
+| baseline `f471af6a` #2 | 422 | 86 | 1 |
+| with change #1 | 419 | 90 | 0 |
+| with change #2 | **421** | **88** | 0 |
+⇒ **THE CHANGE ARM SITS INSIDE THE BASELINE RANGE.** All three single-run "regressions" dissolved:
+| candidate | base#1 | base#2 | chg#1 | chg#2 | verdict |
+|---|---|---|---|---|---|
+| `testMatrix_S5_UnfillableSwapMovesPriceForFree` | PASS | PASS | FAIL | **PASS** | noise |
+| `testBtcChannels_recordClose_…` | PASS | PASS | FAIL | **PASS** | noise |
+| `testSwapIn_RealLightningHTLC` | **SKIP** | SKIP | FAIL | FAIL | regtest env (`NotPubkeyHash`, a family that ran 18/20/22/22 across the four) |
+
+🔴 **THE PROCESS LESSON, AND I GOT THIS WRONG TWICE IN OPPOSITE DIRECTIONS IN ONE SESSION:**
+1. Called S5 *"decisive, and it's mine"* from ONE run per arm.
+2. Retracted it correctly on the unpinned fork (§UNIT-FORK-UNPINNED) — **the retraction was right**.
+3. **Re-asserted it** because the noise floor showed 0 PASS→FAIL flips. ⛔ **THAT INFERENCE WAS THE
+   WORST OF THE THREE: one sample of a noise floor cannot establish that a flip DIRECTION is
+   impossible.** S5 then produced exactly that flip inside my own arm.
+⇒ **ON THIS SUITE THE NOISE FLOOR IS ±2 TESTS AND FLIPS BOTH WAYS. A SINGLE-RUN DIFFERENCE IS NOT
+EVIDENCE OF ANYTHING** — run each arm twice, or say nothing. Cheap rule, and it would have saved three
+reversals.
+
+## 🔴 §E277 — **FOUR ✅ UNIT ROWS ARE CERTIFIED BY TESTS THAT NO LONGER EXIST**
+Owner asked whether the finished UNIT items are actually finished. Audited the 53 ✅ UNIT rows in
+`QUEUE.md` by extracting every test function they cite as evidence (24 distinct) and checking each
+against `HEAD`. **Four are gone**, and one was deleted *for being invalid*:
+| vanished test | certifies |
+|---|---|
+| `test_UNIT_PoolVarianceVsChainlinkVariance` | **`UNIT-SERIES-MEASURED`** ✅✅, `UNIT-BASELINE` |
+| `test_UNIT_HowOftenDoesChainlinkCrossTheDeadband` | `UNIT-BASELINE` |
+| `testReal_Euler_OpenAndDelever` | `UNIT-A-SUITE`, `UNIT-A-SUITE-V3` |
+| `testReal_Euler_CloseBeatsHodlModuloCosts` | `UNIT-A-SUITE-V3` |
+
+⛔ **THE WORST IS `UNIT-SERIES-MEASURED`, BECAUSE THE DELETING COMMIT RETRACTS THE EVIDENCE AND THE ROW
+STILL CARRIES THE CONCLUSION.** `5b6e96c9` says of that fixture: *"The Chainlink estimator port **NEVER
+PRODUCED A COMPARABLE NUMBER ACROSS THREE SCALING ATTEMPTS** and would read as a working instrument to
+the next thread."* The row it certified reads ✅✅ *"THE MARKET SERIES HAS REAL VARIANCE OVER ~8 HOURS
+WHERE OURS REPORTS EXACTLY ZERO"* — **a comparison the deletion says was never valid.**
+⚠️ **THE CONCLUSION MAY STILL BE TRUE** (that ours reports ~zero is independently supported — §UNIT-B-
+PATIENCE measured σ² = 1 wad). **But it is currently unevidenced, and it fed σ² decisions downstream.**
+⇒ **RE-DERIVE IT OR DOWNGRADE THE ROW. Do not leave a ✅✅ standing on a retracted instrument.**
+📌 **SAME SHAPE AS §E276, DIFFERENT MECHANISM** — E276: a ✅ closed an IMPLEMENTATION, not the defect.
+E277: a ✅ rests on an INSTRUMENT later withdrawn. **Both are invisible from the marker column, which is
+why "are the finished ones finished?" is a question the ledger cannot answer about itself.**
+⚠️ **METHOD NOTE (my own error, kept so it is not repeated): I first flagged `BtcLpMintStress.t.sol` as
+missing by grepping a FILENAME against file CONTENTS. It exists. Grep contents for symbols, `ls`/`git
+grep -l` for files.**
