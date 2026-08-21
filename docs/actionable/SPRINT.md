@@ -6093,7 +6093,23 @@ measurement, and names the correct way to retire the red — **fix the ring, do 
 
 ---
 
-## 🔴 §E286 — **THE FLOOR IS AN ARTIFACT OF A BARRIER THAT DUPLICATES THE DECLINE. `ρ = 0` IS THE QUESTION, NOT THE FLOOR'S VALUE.**
+## ⛔ §E286-floor — **REFUTED BY §E288. DO NOT ACT ON THIS ROW.** *(withdrawn by its author; restored 2026-08-21 after a rebase silently dropped the withdrawal)*
+⛔ **ITS PREMISE IS FALSE.** This row argues `q/(1−q)` is an ADDITION to A–S and that
+`SwapLib:1030-1031`'s §2.3 citation is stale. **§E288 read the paper: §2.3's stationary reservation
+prices carry a denominator `2ω − γ²q²σ²` with ω *"an upper bound on the inventory position the agent
+is allowed to take"* — that IS a pole, at an inventory bound.** The two comments never contradicted:
+`:765-770` is §2.2 (finite-horizon, linear), `:1030-1031` is §2.3. **Neither goes.**
+🔴 **AND THE RULE-17 ARGUMENT WAS TOO QUICK:** the barrier and the decline are not one guard twice —
+**the barrier makes the bound self-enforcing (no price empties the band); the decline is the hard stop
+at it.** Removing the smooth one leaves only the cliff. ⇒ **§E289 is the live successor**: keep the
+pole, make its LOCATION a parameter (`KAPPA_WAD`), which is what A&S actually do.
+⭐ Surviving: the floor (§E79's `σ²·confFrac/8`), not the kernel, closes the free-drain hole; and
+§E285's residual really was a fourth bound. **Neither authorises deleting the pole.**
+⚠️ **ID: this row is `§E286-floor`.** Three rows shared `§E286` — see §E291.
+
+*(original below, kept because it is what must be answered if anyone re-opens this)*
+
+## ⛔ ~~§E286~~ — **THE FLOOR IS AN ARTIFACT OF A BARRIER THAT DUPLICATES THE DECLINE. `ρ = 0` IS THE QUESTION, NOT THE FLOOR'S VALUE.**
 
 **Owner, 2026-08-21: *"idk why there should be a floor or how to best make it dynamic."* Correct on
 both halves, and §E285's prescription conceded too much — it answered "how big a residual" when the
@@ -6174,7 +6190,29 @@ symptom — one row later.**
 
 ---
 
-## ⭐ §E287 — **THE HORIZON IS `q·T_flow`, NOT A CONSTANT. THAT DERIVES THE CONVEXITY, DELETES THE BARRIER, AND MAKES ONE KERNEL SERVE BOTH LEGS.**
+## ⛔ §E287-qsquared — **REFUTED THREE WAYS. DO NOT BUILD THIS.** *(withdrawn by its author; restored 2026-08-21 after a rebase silently dropped the withdrawal)*
+⛔ **THE ⭐ ON THE ORIGINAL HEADER BELOW IS THE DEFECT §E276/§E277 DESCRIBE — a marker recommending a
+design that has been refuted. It was withdrawn within the hour and the withdrawal was lost twice.**
+1. 🔴 **THE CITATION PUTS `q²` IN THE DENOMINATOR, WHERE IT CREATES THE POLE** (§E288, from the paper:
+   `… / (2ω − γ²q²σ²)`). This row moves it to the NUMERATOR as the premium — the opposite operation.
+2. 🔴 **EVENNESS DOES NOT DISCRIMINATE.** A–S's shift is ODD in `q`; its magnitude is `|q|`, which is
+   even exactly as `q²` is. The argument supports `q¹`. *(The `τ(q)=q·T_flow` derivation is mine and
+   stands alone — but it is a MODEL CHOICE competing with the barrier, not a citation.)*
+3. 🔴🔴 **ORDERING, decisive alone.** Under `q²` a full drain integrates to ~1% at the landed Γ; today
+   the band cannot be emptied **at any price**. §E276: nothing pulls inventory back. **The pole is the
+   only brake and this deletes it before its replacement exists.**
+🔴 **AND STEP 2 HALF-LANDED:** the kernel commit was dropped by a rebase while its test landed, so
+`main` carried 5 failing tests asserting a kernel that was not there. ⇒ **`git ls-remote` proves a SHA
+arrived, never that the DIFF did. Verify by content.**
+⭐ Surviving: the closed-form `(q1²+q1q0+q0²)/3` beats `lnWad` for whatever kernel wins; one σ²=0
+consumption site is still right for §E278; and `GammaRederived`'s control is vacuous (it asserts
+`assertLe` at σ²=1e12 where the DEPLETION term is ~9.3e13 and the kernel ~1e10 — it passed unchanged
+through a whole kernel replacement). ⇒ **§E289 is the live successor.**
+⚠️ **ID: this row is `§E287-qsquared`.** Three rows shared `§E287` — see §E291.
+
+*(original below, kept because it is what must be answered, not repeated)*
+
+## ⛔ ~~§E287~~ — **THE HORIZON IS `q·T_flow`, NOT A CONSTANT. THAT DERIVES THE CONVEXITY, DELETES THE BARRIER, AND MAKES ONE KERNEL SERVE BOTH LEGS.**
 
 **The root fix §E286 asks for, built from parts already in the tree. Nothing here is new machinery —
 it is one substitution that removes four bounds, one branch, one import and one whole function.**
@@ -6774,3 +6812,38 @@ the 25 was prose — but prose that contradicted itself inside one file.
 is exactly the fix §E241-obsidx asked for — *"the invariant is that the index and the pool cannot
 diverge"* — landed by another thread. ⇒ **CLOSE §E241-obsidx.** ⚠️ **This is the rule-16 failure this
 thread documented twice, arriving in MY OWN row: the work landed, and the row still says otherwise.**
+
+---
+
+## 🔴 §E291 — **16 OF 114 ROW IDS ARE DUPLICATED, AND THE LEDGER HAS NO ALLOCATION STEP**
+
+**Counted mechanically 2026-08-21, not recalled:** `grep -oE "^#{1,3} .*§E[0-9]+"` over `SPRINT.md`
+gives **114 row headers carrying an `§E` id, of which 16 ids are used by more than one row.**
+Today alone: **`§E287` × 3 distinct rows** (the survival mechanism, the refuted `q²` proposal, the
+`init` manager pair), **`§E286` × 3** (the cap/integral finding, the floor argument, the UniV3 venue
+row), **`§E278` × 2**, **`§E283` × 2**.
+
+§E124 already recorded this class — *"two threads independently numbered from E96, so 28 ids are
+duplicated and every cross-reference in both blocks is ambiguous"* — and prescribed the repair
+(**suffix the newer row, never renumber**). **The repair works and is being applied. What is missing
+is the thing that would stop it recurring: there is no step at which an id is CLAIMED.** Every thread
+greps for the highest `§E` and adds one, and three threads grepping within the same minute all get the
+same answer.
+
+⇒ **THE FIX IS ONE LINE OF PROCESS, NOT A CLEANUP:** *the commit that first uses an id must be the
+commit that writes its header into `SPRINT.md`* — claim and use in the same commit, so a second thread
+grepping after it sees the id taken. That is rule 12's shape (*book it in the same turn*) applied to
+the identifier rather than to the finding.
+⚠️ **DO NOT RENUMBER THE EXISTING 16.** §E124 is explicit and the reason is unchanged: renumbering
+breaks every citation already written elsewhere, including in commit messages, which cannot be edited.
+📌 **AND AN INDEX MULTIPLIES THE DAMAGE** (§SKEW-LEARNINGS trap 8): a consolidated pointer list
+inherits every ambiguous id it cites, and it is READ INSTEAD OF the rows — so an ambiguous citation
+there sends the next thread to the wrong evidence with no signal that it happened.
+
+### 📌 WHY THIS IS BOOKED NOW RATHER THAN NOTED
+Two of my own rows (`§E286-floor`, `§E287-qsquared`) spent part of today marked ⭐/🔴 while carrying
+designs §E288 had refuted, because **a rebase silently dropped the withdrawal edits and I verified the
+push rather than the content.** An ambiguous id makes exactly that failure harder to see: the reader
+who follows `§E287` may land on any of three rows, one of which recommends a refuted design.
+⇒ **Ambiguity and staleness compound. The id is the address of the evidence; when it resolves two
+ways, every other verification discipline in this file loses its anchor.**
