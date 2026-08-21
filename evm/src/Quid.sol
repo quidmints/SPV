@@ -1038,9 +1038,6 @@ contract Quid is Shares,
     ///         Harmless while one Core held both rings; wrong the moment they became two instances.
     ///         Quid stays the single home of the band-theta math (the Vault still needs no QuidLib
     ///         link); it just has to be told WHOSE ring to measure.
-    function derivedThetaWadAt(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        return QuidLib.derivedThetaWad(core, loPrice, upPrice);
-    }
 
     /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in QuidLib.
     function realizedVarianceWad() public view returns (uint) {

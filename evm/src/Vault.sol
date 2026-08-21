@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Quid} from "./Quid.sol";
 import {BandLib} from "./imports/BandLib.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {Core} from "./Core.sol";
@@ -87,7 +86,6 @@ import {QuidLib} from "./imports/QuidLib.sol";
 contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
-    Quid     internal immutable BAND;    // the ETH LP contract
     /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
     ///      could reach THIS band's engine -- `IBandManager` had no `core()` either -- so a test
     ///      wanting to compare the two bands had no handle for the second one and read the ETH core
@@ -191,12 +189,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     address public btcChannels;
 
     /// ETH-side trusted callers: Quid (V4), Aux, self.
-    modifier onlyUs {
-        if (msg.sender != address(BAND)
-         && msg.sender != address(AUX)
-         && msg.sender != address(this))
-            revert Unauthorized(); _;
-    }
 
     /// BTC-side trusted callers: Core (CORE), Aux, self. Kept distinct
     /// from onlyUs so neither gate is widened by the merge.
@@ -220,9 +212,8 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// resolved + approved only if the spoke lists WETH; else venue 2 stays inert.
     /// ether.fi is wired from the fixed mainnet adapter + v3 pool fees, with the
     /// standing approvals set once.
-    constructor(address _band, address _core, address _aux, address _weth)
+    constructor(address _core, address _aux, address _weth)
         Ownable(msg.sender) {
-        BAND = Quid(payable(_band));
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
@@ -547,7 +538,11 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         (the band-θ math home) with the BTC ticks so BtcLib.addLiqChannel can risk-budget the
     ///         BTC band exactly like the ETH band -- without QuidLib linking QuidLib.
     function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both bands
-        return BAND.derivedThetaWadAt(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
+        // §E301 — was `BAND.derivedThetaWadAt(...)`, an EXTERNAL call into the ETH band manager to
+        // reach a body that reads NO ETH state: `Quid.derivedThetaWadAt` was a one-line pass-through
+        // to this same library, taking the core and bounds as ARGUMENTS. This band passed its OWN
+        // `CORE` and its OWN bounds, so the hop bought nothing and cost a CALL.
+        return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH band's
     }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled QuidLib
