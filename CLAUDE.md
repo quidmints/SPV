@@ -107,6 +107,41 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     earns its place **while the root is still reachable** — `poolOwnedSats` was correct to land
     and is correct to remove, in that order.
 
+## 🔴 RULES 11 AND 15 CONTRADICT EACH OTHER IN A SHARED TREE. THE WORKTREE IS THE RESOLUTION (2026-08-21)
+
+Rule 11 says **commit before a long build**, because the edit outlives the command. Rule 15 says
+**never commit an unverified money-path change**, because a plausible-but-wrong constraint is worse
+than a documented hole. In a tree several threads share, **both cannot be obeyed**: verifying first
+means holding the work uncommitted across a multi-minute build, which is exactly when another thread's
+`reset`/`checkout` can erase it.
+
+**It fired on 2026-08-21 and cost a full build cycle.** Four `BTCChannels.sol` edits (the §LAZY-OPEN
+split) were made, `forge build` returned exit 0, and `check-contract-sizes.py` measured the change at
+**+331 bytes**. Another thread then reset `evm/`, and `git status` showed only the two *Rust* files as
+dirty — the Solidity was gone from the working tree AND absent from `HEAD`.
+
+⇒ **THE RESOLUTION, AND IT SATISFIES BOTH RULES RATHER THAN PICKING ONE:**
+```
+git worktree add --detach <path> origin/main    # isolated: no other thread writes here
+<make the money-path edits>
+git commit                                       # LOCAL only — preserves the work (rule 11)
+<build + test>                                   # verify in isolation
+git push origin HEAD:main                        # only now does main see it (rule 15)
+```
+A local commit in a detached worktree is not a publication, so "commit early" stops meaning "publish
+unverified". **Do money-path work in a worktree from the start** — retrofitting one after the loss
+costs the whole cold compile (~6 min) a second time.
+
+⛔ **AND THE TRAP THAT MADE IT INVISIBLE, WHICH IS THE PART WORTH REMEMBERING: `evm/out` OUTLIVES
+`evm/src`.** The size check ran AFTER the reset and still reported the new number, because it reads
+`deployedBytecode.object` from artifacts the deleted source had already produced. **A green
+measurement can describe code that is no longer in the tree.** The same applies to any `forge test`
+started before a reset — it recompiles from the reverted source, so its result is not about your
+change either, and it will look like a clean pass.
+⇒ **AFTER ANY SUSPICIOUS `git status`, RE-GREP THE SOURCE FOR YOUR OWN SYMBOL BEFORE TRUSTING ANY
+NUMBER YOU JUST MEASURED** — `grep -c "<newSymbol>" <file>` returning 0 while the build was green is
+the signature of this, and nothing else produces it.
+
 ## Verification discipline
 
 - 🔴 **CLOSING THE WORK IS NOT CLOSING THE ROW, AND THE ROW IS THE HALF THE NEXT THREAD READS.**
