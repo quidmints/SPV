@@ -37,7 +37,7 @@ contract DrainProbe is AllesFixture {
         uint wethBefore = WETH.balanceOf(User01);
         // Attempt to swap the freshly-minted (immature) QUI for ETH. turn() burns
         // matured-only → it can consume ~nothing of this immature balance.
-        try AUX.swap(address(QUID), address(WETH), true, qd, 0) {} catch {}
+        try AUX.swap(address(QUID), address(WETH), true, qd, 0, true) {} catch {}
         uint got = WETH.balanceOf(User01) - wethBefore;
         vm.stopPrank();
         // The drain step yields ~no ETH from freshly-minted QUI: the protocol refuses
@@ -61,7 +61,7 @@ contract DrainProbe is AllesFixture {
         USDC.approve(address(AUX), type(uint).max);
         // Drain attempt: buy ETH with USDC, over and over.
         for (uint i = 0; i < 40; i++) {
-            try AUX.swap(address(USDC), address(WETH), true, 2_000 * USDC_PRECISION, 0) {}
+            try AUX.swap(address(USDC), address(WETH), true, 2_000 * USDC_PRECISION, 0, true) {}
             catch { break; } // exhausted / guard tripped — drain self-limits
         }
         vm.stopPrank();
@@ -114,7 +114,7 @@ contract DrainProbe is AllesFixture {
         uint b0 = User01.balance; uint w0 = WETH.balanceOf(User01);
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
-        AUX.swap(address(USDC), address(WETH), true, X, 0);
+        AUX.swap(address(USDC), address(WETH), true, X, 0, true);
         uint nativeGot = User01.balance - b0;
         uint wethGot   = WETH.balanceOf(User01) - w0;
         uint bought    = nativeGot + wethGot;
@@ -173,7 +173,7 @@ contract DrainProbe is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();

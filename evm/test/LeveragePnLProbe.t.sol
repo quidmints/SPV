@@ -58,7 +58,7 @@ contract LeveragePnLProbe is AllesFixture {
         deal(bold, trader, boldAmt);          // deal SETS the balance, so leftover == change
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0) returns (uint w) { wethOut = w; }
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) returns (uint w) { wethOut = w; }
         catch { wethOut = 0; }
         vm.stopPrank();
         lastBoldSpent = boldAmt - IERC20(bold).balanceOf(trader);

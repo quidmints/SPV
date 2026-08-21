@@ -317,6 +317,8 @@ library Types {
         uint    pooled;
         uint    fillPrice;
         address recipient;
+        /// §E308 — the swapper's load-balance consent, carried with the trade it affects.
+        bool    loadBalance;
         // §ISBTC-SPLIT — `isBTC` REMOVED: it was WRITE-ONLY. Three sites set it and `routeSwap`
         // never read it, so it travelled the whole swap path to be ignored.
     }

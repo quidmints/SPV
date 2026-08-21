@@ -157,7 +157,7 @@ contract BtcSelfManagedTest is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -392,7 +392,7 @@ contract BtcSelfManagedTest is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();

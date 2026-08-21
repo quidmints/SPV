@@ -93,7 +93,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
             if (ETH.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
-            try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
+            try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
     }

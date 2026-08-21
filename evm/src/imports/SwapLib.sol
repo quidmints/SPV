@@ -327,6 +327,9 @@ library SwapLib {
         uint amount;
         uint minOut;
         address recipient;
+        /// §E308 — the swapper's load-balance consent, carried with the trade rather than
+        ///          stored per address: consent belongs to the swap it affects.
+        bool loadBalance;
         address inToken;   // #105: the actual INPUT token (set inside swapToBody) for the partial-fill refund
         uint px;           // §D3: resolved oracle price, set inside swapToBody. A STRUCT FIELD, not a
                            // local, so both skew branches share `_priceOr` WITHOUT adding a stack slot —
@@ -467,7 +470,8 @@ library SwapLib {
             inputIsUsd: inputIsUsd, token: r.token,
             amount: r.amount, pooled: pooled,
             fillPrice: fillPrice,
-            recipient: r.recipient
+            recipient: r.recipient,
+            loadBalance: r.loadBalance
         }));
         // §ISBTC-SPLIT: derived, not threaded -- `ctx.nativeWETH` IS `!isBTC` (set at the call
         // site above), so the frame already carried the answer and the parameter was a second copy.

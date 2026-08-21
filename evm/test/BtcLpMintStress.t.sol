@@ -472,7 +472,7 @@ contract BtcLpMintStress is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -969,7 +969,7 @@ contract BtcLpMintStress is AllesFixture {
         // the genuinely-free headroom a swap-in is allowed to draw against.
         vm.startPrank(User03);
         for (uint i = 0; i < 2; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -1234,7 +1234,7 @@ contract BtcLpMintStress is AllesFixture {
         // Prime a free reserve, then record UNDELIVERED swap-out obligations against it.
         vm.startPrank(User03);
         for (uint i = 0; i < 2; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -1263,7 +1263,7 @@ contract BtcLpMintStress is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         for (uint i = 0; i < 3; i++) {
             vm.prank(User01);
-            try AUX.swap{value: 20 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            try AUX.swap{value: 20 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
 
@@ -1306,7 +1306,7 @@ contract BtcLpMintStress is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -1340,7 +1340,7 @@ contract BtcLpMintStress is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();

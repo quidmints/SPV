@@ -800,8 +800,12 @@ contract Core {
     ///         ETHRefillRequest — the eager, permissionless ETH-pool [...]". The BTC hop request is
     ///         real and stays; the ETH half named an event no contract emits and a function no
     ///         contract declares, which is how a reader concludes the ETH shortfall path is wired.
+    /// @param loadBalance  the SWAPPER's consent to trigger the shortfall load-balance. It routes
+    ///        through the SOR/hop and can add MEV/slippage to their OWN fill, so it is theirs to
+    ///        decide -- and it is a PARAMETER OF THE SWAP, not a stored per-address flag: consent
+    ///        belongs to the trade it affects, not to the address that once set it.
     function swap(address sender,
-        bool inputIsUsd, address token, uint amount)
+        bool inputIsUsd, address token, uint amount, bool loadBalance)
         onlyUs public returns (uint out) {
 
         // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
@@ -902,7 +906,7 @@ contract Core {
         // to their own fill, and the LP-side analysis says firing it on every wiggle realizes
         // impermanent loss. So it only fires if `sender` has NOT opted out (default = consent,
         // preserving behavior; the SPA exposes a toggle). Symmetric for WETH and WBTC.
-        if (pooledTok < totalSharesPool && !loadBalanceOptOut[sender]) {
+        if (pooledTok < totalSharesPool && loadBalance) {
             uint shortfall = totalSharesPool - pooledTok;
             if (shortfall * 100 >= totalSharesPool) {
                 // BTC: route to the hop — real-BTC delivery on L1, consuming NO
@@ -918,14 +922,6 @@ contract Core {
         }
     }
 
-    /// @notice Per-swapper consent to LOAD-BALANCING (the shortfall arb/refill a swap triggers,
-    ///         for BOTH the WETH and WBTC pools). Stored opt-OUT: default (false) = consented =
-    ///         behavior unchanged; a swapper calling setLoadBalanceConsent(false) makes their
-    ///         own swaps NOT trigger the load-balance (no MEV/slippage on their fill, and they
-    ///         don't fund the basket's rebalancing). Per-address + persistent (set once via the
-    ///         SPA), so no swap-signature change. Only affects msg.sender's own swaps.
-    mapping(address => bool) public loadBalanceOptOut;
-    function setLoadBalanceConsent(bool consent) external { loadBalanceOptOut[msg.sender] = !consent; }
 
     // REMOVED: refillETH() / ETHRefillRequest — the eager, permissionless ETH-pool
     // refill from basket surplus. It was toxic (spent the SHARED safety margin to

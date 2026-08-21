@@ -72,7 +72,7 @@ contract DrainAtomicity is AllesFixture {
         // indistinguishable between "the swap reverted" and "the swap delivered nothing" — the exact
         // S16 pattern this session spent six layers untangling, sitting inside the measuring
         // instrument. Let a revert announce itself; that is the whole discriminator.
-        AUX.swap(bold, address(WETH), true, boldAmt, 0);
+        AUX.swap(bold, address(WETH), true, boldAmt, 0, true);
         vm.stopPrank();
         ethGot = (WETH.balanceOf(drainer) + drainer.balance) - before;
         _settle();
@@ -222,7 +222,7 @@ contract DrainAtomicity is AllesFixture {
             deal(bold, drainer, 3_000 * 1e18);   // 3% ceiling and destroyed the discriminator.
             vm.startPrank(drainer);
             IERC20(bold).approve(address(AUX), 3_000 * 1e18);
-            try AUX.swap(bold, address(WBTC), true, 3_000 * 1e18, 0) {} catch {}
+            try AUX.swap(bold, address(WBTC), true, 3_000 * 1e18, 0, true) {} catch {}
             vm.stopPrank();
             _settle();
         }
@@ -514,7 +514,7 @@ contract DrainAtomicity is AllesFixture {
         WETH.approve(address(AUX), ethAmt);
         // §E97: NO try/catch. Three times this session a swallowed revert was mistaken for a
         // delivery failure. Let it announce itself.
-        AUX.swap(bold, address(WETH), false, ethAmt, 0);
+        AUX.swap(bold, address(WETH), false, ethAmt, 0, true);
         vm.stopPrank();
         uint after_ = QUID.balanceOf(drainer);
         for (uint i = 0; i < ss.length; ++i) {
@@ -707,7 +707,7 @@ contract DrainAtomicity is AllesFixture {
             deal(address(WETH), drainer, 30 ether);
             vm.startPrank(drainer);
             WETH.approve(address(AUX), 30 ether);
-            try AUX.swap(bold, address(WETH), false, 30 ether, 0) {} catch { vm.stopPrank(); break; }
+            try AUX.swap(bold, address(WETH), false, 30 ether, 0, true) {} catch { vm.stopPrank(); break; }
             vm.stopPrank(); _settle();
             (uint t,) = CORE.poolStats();
             if (t < minT) minT = t; if (t > maxT) maxT = t;
@@ -755,7 +755,7 @@ contract DrainAtomicity is AllesFixture {
             deal(address(WETH), drainer, 30 ether);
             vm.startPrank(drainer);
             WETH.approve(address(AUX), 30 ether);
-            try AUX.swap(bold, address(WETH), false, 30 ether, 0) {} catch { vm.stopPrank(); break; }
+            try AUX.swap(bold, address(WETH), false, 30 ether, 0, true) {} catch { vm.stopPrank(); break; }
             vm.stopPrank(); _settle();
         }
 
@@ -850,7 +850,7 @@ contract DrainAtomicity is AllesFixture {
             deal(address(WETH), drainer, 30 ether);
             vm.startPrank(drainer);
             WETH.approve(address(AUX), 30 ether);
-            try AUX.swap(bold, address(WETH), false, 30 ether, 0) { sells++; }
+            try AUX.swap(bold, address(WETH), false, 30 ether, 0, true) { sells++; }
             catch { vm.stopPrank(); emit log_named_uint("sell path hit its limit after", sells); break; }
             vm.stopPrank();
             _settle();
@@ -1349,10 +1349,10 @@ contract DrainAtomicity is AllesFixture {
         for (uint i = 0; i < rounds; ++i) {
             if (i % 2 == 0) {
                 try AUX.swap(address(USDC), address(WETH), true,
-                    (4_000 + (i % 5) * 1_500) * USDC_PRECISION, 0) {} catch {}
+                    (4_000 + (i % 5) * 1_500) * USDC_PRECISION, 0, true) {} catch {}
             } else {
                 try AUX.swap(address(WETH), address(USDC), true,
-                    (1 + (i % 4)) * 1e18, 0) {} catch {}
+                    (1 + (i % 4)) * 1e18, 0, true) {} catch {}
             }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 90 seconds);
         }

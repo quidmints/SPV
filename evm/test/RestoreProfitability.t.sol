@@ -53,7 +53,7 @@ contract RestoreProfitability is AllesFixture {
         deal(bold, drainer, boldAmt);
         vm.startPrank(drainer);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) {} catch {}
         vm.stopPrank();
         _settle();
     }
@@ -123,7 +123,7 @@ contract RestoreProfitability is AllesFixture {
         vm.startPrank(restorer);
         WETH.approve(address(AUX), sellSize);
         uint minOut = 1;   // the weakest possible demand: ANY non-zero delivery
-        AUX.swap(bold, address(WETH), false, sellSize, minOut);
+        AUX.swap(bold, address(WETH), false, sellSize, minOut, true);
         vm.stopPrank();
         uint wethLeft = WETH.balanceOf(restorer);
         emit log_named_uint("restorer WETH left (0=input taken, 20e18=no-op)", wethLeft);

@@ -26,7 +26,7 @@ contract EthExitConservationProbe is AllesFixture {
         // Move price into the range so the range holds BOTH legs — the condition under which a burn
         // cannot pay out pure ETH. This mirrors testDepositImmediateWithdraw's setup exactly.
         vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
-        AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         // NB: `usd_owed` is the SECOND field and it is load-bearing here — `burnInRange` DEFERS the
         // USD leg to `usd_owed` on a PARTIAL exit and only MINTS QUID on a FULL exit

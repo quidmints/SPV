@@ -63,7 +63,7 @@ contract StableToStableHasNoSwapTest is Test {
         internal view returns (SwapLib.SwapReq memory) {
         return SwapLib.SwapReq({
             token: token, asset: asset, forVolatile: forVolatile, amount: 1_000e6,
-            minOut: 0, recipient: address(this), inToken: address(0), px: 0});
+            minOut: 0, recipient: address(this), loadBalance: true, inToken: address(0), px: 0});
     }
 
     /// @notice EVERY stable-as-`asset` pairing is rejected at the first line. Three distinct basket

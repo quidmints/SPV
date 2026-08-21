@@ -76,7 +76,7 @@ contract TwapAnchorDeadlockTest is AllesFixture {
         //     oracle before executing, so the swap succeeds at the real price with
         //     NO manual poke and NO freeze.
         uint usdcBeforeSwap = USDC.balanceOf(address(this));
-        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
         assertGt(USDC.balanceOf(address(this)) - usdcBeforeSwap, 0,
             "swap auto-heals during the crash (executes at the Chainlink price)");
 

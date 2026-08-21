@@ -104,7 +104,7 @@ contract BackingGateSplit is AllesFixture {
         console.log("--- one swap (as testRegularSwaps does) ---");
         vm.startPrank(User01);
         USDC.approve(address(AUX), type(uint).max);
-        try AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0) {
+        try AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true) {
             console.log("swap SUCCEEDED");
         } catch Error(string memory reason) {
             console.log("swap reverted:", reason);
@@ -147,7 +147,7 @@ contract BackingGateSplit is AllesFixture {
         for (uint n; n < 8; ++n) {
             vm.deal(User01, 5 ether);
             vm.prank(User01);
-            try AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0) {}
+            try AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true) {}
             catch { console.log("swap reverted at iteration", n); break; }
 
             (uint[15] memory dn,,, uint lossN) = AUX.get_deposits();

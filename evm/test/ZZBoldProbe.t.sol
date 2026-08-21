@@ -20,7 +20,7 @@ contract ZZBoldProbe is AllesFixture {
         deal(bold, User03, 4000e18);
         vm.startPrank(User03);
         IERC20(bold).approve(address(AUX), 4000e18);
-        uint w = AUX.swap(bold, address(WETH), true, 4000e18, 0);
+        uint w = AUX.swap(bold, address(WETH), true, 4000e18, 0, true);
         vm.stopPrank();
         emit log_named_uint("weth out", w);
         emit log_named_uint("SP after", ISPq2(sp).getCompoundedBoldDeposit(address(AUX)));

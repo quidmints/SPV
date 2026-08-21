@@ -61,7 +61,7 @@ contract UnificationControls is AllesFixture {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) {} catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
     }
@@ -418,7 +418,7 @@ contract UnificationControls is AllesFixture {
         vm.deal(User01, 3_000 ether);
         for (uint i; i < 8; i++) {
             vm.prank(User01);
-            try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0) {} catch {}
+            try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0, true) {} catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
         }
 
@@ -471,7 +471,7 @@ contract UnificationControls is AllesFixture {
         uint steps;
         for (uint i; i < 20 && CORE.POOLED_USD() > ethUsd0 / 100; i++) {
             vm.prank(User01);
-            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
             steps++;
         }
@@ -551,7 +551,7 @@ contract UnificationControls is AllesFixture {
         vm.deal(User01, 5_000 ether);
         for (uint i; i < 20 && CORE.POOLED_USD() > ethUsd0 / 100; i++) {
             vm.prank(User01);
-            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
         }
 
@@ -971,7 +971,7 @@ contract UnificationControls is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();

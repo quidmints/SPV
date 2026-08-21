@@ -28,7 +28,7 @@ contract RefillKeeperProbe is AllesFixture {
         deal(address(USDC), adv, usdc);
         vm.startPrank(adv);
         IERC20(address(USDC)).approve(address(AUX), usdc);
-        try AUX.swap(address(USDC), address(WETH), true, usdc, 0) {} catch {}
+        try AUX.swap(address(USDC), address(WETH), true, usdc, 0, true) {} catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
     }

@@ -146,7 +146,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0) returns (uint w) { wethOut = w; }
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) returns (uint w) { wethOut = w; }
         catch { wethOut = 0; }
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
@@ -156,7 +156,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// range in range, one-shot walks it past the 300-bps repack tolerance and strands it.
     function _sellEth(uint size) internal {
         vm.prank(User01);
-        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
@@ -472,7 +472,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         (uint spA,) = CORE.poolStats();   // §DETICK: price is now the FIRST element, and it is a uint
         uint uA = CORE.POOLED_USD(); uint eA = CORE.POOLED();
         vm.prank(User01);
-        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0) { ok = true; } catch { ok = false; }
+        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0, true) { ok = true; } catch { ok = false; }
         (uint spB,) = CORE.poolStats();   // §DETICK: price is now the FIRST element, and it is a uint
         emit log_named_uint("--- sell #", i);
         emit log_named_uint("    reverted?      ", ok ? 0 : 1);

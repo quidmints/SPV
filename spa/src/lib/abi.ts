@@ -83,8 +83,8 @@ export const AUX_ABI = [
   //   forVolatile  = true: stable→volatile  | false: volatile→stable
   //   amount       = input amount (in input-token units)
   //   minOut       = slippage floor (output-token units)
-  'function swap(address token, address asset, bool forVolatile, uint amount, uint minOut) payable returns (uint max)',
-  'function swapTo(address token, address asset, bool forVolatile, uint amount, uint minOut, address recipient) payable returns (uint max)',
+  'function swap(address token, address asset, bool forVolatile, uint amount, uint minOut, bool loadBalance) payable returns (uint max)',
+  'function swapTo(address token, address asset, bool forVolatile, uint amount, uint minOut, address recipient, bool loadBalance) payable returns (uint max)',
 
   // Redeem QUID for USDC (+ ETH fallback for shortfall) at user's address.
   'function redeem(uint amount)',

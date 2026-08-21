@@ -92,7 +92,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
     function _drainEth(uint amt, uint pxPin) internal {
         _setEthFeed(pxPin / 1e10);
         vm.startPrank(drainer);
-        try AUX.swap(address(USDC), address(WETH), true, amt, 0) {} catch {}
+        try AUX.swap(address(USDC), address(WETH), true, amt, 0, true) {} catch {}
         vm.stopPrank();
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 8 minutes);
@@ -402,10 +402,10 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             // TWAP-deviation guards. Count them, so the workload is observable rather than inferred.
             vm.startPrank(drainer);
             if (i % 3 != 1) {
-                try AUX.swap(address(USDC), address(WETH), true, uint(size[i % 8]) * 1_000 * USDC_PRECISION, 0) { ++landed; }
+                try AUX.swap(address(USDC), address(WETH), true, uint(size[i % 8]) * 1_000 * USDC_PRECISION, 0, true) { ++landed; }
                 catch { ++reverted; }
             } else {
-                try AUX.swap{value: uint(size[i % 8]) * 4e17}(address(USDC), address(WETH), false, 0, 0) { ++landed; }
+                try AUX.swap{value: uint(size[i % 8]) * 4e17}(address(USDC), address(WETH), false, 0, 0, true) { ++landed; }
                 catch { ++reverted; }
             }
             vm.stopPrank();
@@ -583,7 +583,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             p = p * 1015 / 1000;
             _setEthFeed(p / 1e10);
             vm.startPrank(drainer);
-            try AUX.swap(address(USDC), address(WETH), true, 20_000 * USDC_PRECISION, 0) {} catch {}
+            try AUX.swap(address(USDC), address(WETH), true, 20_000 * USDC_PRECISION, 0, true) {} catch {}
             vm.stopPrank();
             vm.roll(block.number + 1); vm.warp(block.timestamp + 5 minutes);
             if (i % 3 == 0) {

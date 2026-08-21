@@ -185,7 +185,7 @@ contract LevYbRealProbe is AllesFixture {
             if (ETH.soldFractionWad(entryPrice) >= targetWad) break;
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows, no 5% anchor trip
-            try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0) {} catch { break; }
+            try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
     }
@@ -199,7 +199,7 @@ contract LevYbRealProbe is AllesFixture {
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             if (px <= start - start * dropBps / 10000) break;
             _setEthFeed(px / 1e10);
-            try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0) {} catch { break; }
+            try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
     }
@@ -226,8 +226,8 @@ contract LevYbRealProbe is AllesFixture {
             vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
             // tiny alternating round-trips (θ ∝ 1/move² ⇒ small moves ⇒ σ²→~0 once the rally ages out of the 40min horizon)
-            if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0) {} catch {} }
-            else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {} }
+            if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {} }
+            else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {} }
         }
     }
 

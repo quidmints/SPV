@@ -29,7 +29,7 @@ contract VarPrecision is AllesFixture {
         deal(bold, trader, amt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), amt);
-        try AUX.swap(bold, address(WETH), true, amt, 0) {} catch {}
+        try AUX.swap(bold, address(WETH), true, amt, 0, true) {} catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpMin * 60);
     }

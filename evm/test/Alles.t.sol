@@ -967,7 +967,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             uint ethStep = SoladyMath.fullMulDiv(poolUsd6 / 10 * 1e12, 1e18, px);
             if (ethStep == 0) ethStep = 0.01 ether;
             vm.prank(seller);
-            try AUX.swap{value: ethStep}(address(USDC), address(WETH), false, 0, 0) {
+            try AUX.swap{value: ethStep}(address(USDC), address(WETH), false, 0, 0, true) {
                 absorbed += ethStep;
             } catch { break; } // pool USD exhausted / gate - drain complete
             vm.roll(block.number + 1); vm.warp(block.timestamp + 16 minutes);
@@ -1025,10 +1025,10 @@ contract AllesFixture is ForkPin, ExitFixture {
             _setEthFeed(px / 1e10);                 // feed = pre-swap pool price (no deviation)
             vm.prank(actor);
             if (down) {
-                try AUX.swap{value: perStep}(address(USDC), address(WETH), false, 0, 0) { moved++; }
+                try AUX.swap{value: perStep}(address(USDC), address(WETH), false, 0, 0, true) { moved++; }
                 catch { break; }
             } else {
-                try AUX.swap(address(USDC), address(WETH), true, perStep, 0) { moved++; }
+                try AUX.swap(address(USDC), address(WETH), true, perStep, 0, true) { moved++; }
                 catch { break; }
             }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 16 minutes);
@@ -1373,7 +1373,7 @@ contract Alles is AllesFixture {
         console.log("ETH price:", price);
 
         uint usdcBefore = USDC.balanceOf(User01);
-        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         uint usdcAfter = USDC.balanceOf(User01);
         uint usdcReceived = usdcAfter - usdcBefore;
@@ -1511,7 +1511,7 @@ contract Alles is AllesFixture {
 
         // buy WETH (forVolatile=true) with minOut==0 into the dry pool -> max==0 -> revert
         vm.expectRevert(abi.encodeWithSignature("SlippageMaxS()"));
-        AUX.swap(address(USDC), address(WETH), true, 500 * 1e6, 0);
+        AUX.swap(address(USDC), address(WETH), true, 500 * 1e6, 0, true);
 
         assertEq(USDC.balanceOf(User01), usdcBefore, "input USDC not consumed on dry-pool revert");
         vm.stopPrank();
@@ -1614,7 +1614,7 @@ contract Alles is AllesFixture {
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
         // curve until the range's USD leg is exhausted at the upper edge.
         vm.prank(User02);
-        AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         // PREMISE: the swap really did skew the pool's composition — without this the whole test
         // is inert, and nothing downstream would have noticed (it passed for both reasons before).
@@ -1675,7 +1675,7 @@ contract Alles is AllesFixture {
 
         // Leg 1: attacker gives 40 BTC, receives USDC — walks the curve down.
         vm.prank(User02);
-        uint usdcOut = AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0);
+        uint usdcOut = AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true);
         assertGt(usdcOut, 0, "leg1 delivered USDC");
 
         // Sandwich the reseat: force it between the legs. Capital-neutral, and it re-centers spot
@@ -1686,7 +1686,7 @@ contract Alles is AllesFixture {
         // Leg 2: attacker gives the USDC back, receives WETH.
         vm.startPrank(User02);
         USDC.approve(address(AUX), usdcOut);
-        uint wethBack = AUX.swap(address(USDC), address(WETH), true, usdcOut, 0);
+        uint wethBack = AUX.swap(address(USDC), address(WETH), true, usdcOut, 0, true);
         vm.stopPrank();
 
         // Unprofitable: the attacker gets back strictly LESS ETH than the 40 it put in (fee + skew
@@ -1793,7 +1793,7 @@ contract Alles is AllesFixture {
 
         vm.startPrank(User02);
         USDC.approve(address(AUX), amtUsdc);
-        uint got = AUX.swap(address(USDC), address(WETH), true, amtUsdc, 0); // stable→WETH (buy BTC)
+        uint got = AUX.swap(address(USDC), address(WETH), true, amtUsdc, 0, true); // stable→WETH (buy BTC)
         vm.stopPrank();
 
         // Within 1.5%: mostly slippage. A broken oracle scale / decimals / spurious skew would miss
@@ -1831,7 +1831,7 @@ contract Alles is AllesFixture {
 
         uint before = USDC.balanceOf(User02);
         vm.prank(User02);
-        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0); // sell 1 ETH → USDC
+        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true); // sell 1 ETH → USDC
         uint got = USDC.balanceOf(User02) - before;
 
         assertApproxEqRel(got, expectedUsdc, 0.015e18,
@@ -1891,7 +1891,7 @@ contract Alles is AllesFixture {
         // moving step carries volatility, so inv<target ⇒ skew>0 ⇒ premium is recorded + retained.
         for (uint i; i < 10; i++) {
             _setEthFeed(px0 / 1e10);
-            try AUX.swap(address(USDC), address(WETH), true, 30_000 * USDC_PRECISION, 0) {} catch { break; }
+            try AUX.swap(address(USDC), address(WETH), true, 30_000 * USDC_PRECISION, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 8 minutes);
         }
         vm.stopPrank();
@@ -1952,7 +1952,7 @@ contract Alles is AllesFixture {
         // spot >2% off TWAP and trip routeSwap's manipulation guard. The
         // assertion (fees did not decrease) only needs >=1 swap to land.
         for (uint i = 0; i < 10; i++) {
-            AUX.swap{value: 0.2 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.2 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(vm.getBlockNumber() + 1);
         }
 
@@ -1974,7 +1974,7 @@ contract Alles is AllesFixture {
         // between, so the 30-min TWAP tracks - accrues real ETH fees without
         // tripping the guard. (Large swaps revert by design; see RISK-1.)
         for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
 
@@ -2005,7 +2005,7 @@ contract Alles is AllesFixture {
         uint sharesBefore = ETH.lpShares();
         USDC.approve(address(AUX), rack);
         for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
         // Harvest WITHOUT withdrawing. These one-way ETH-in swaps accrue TOKEN-leg
@@ -2040,7 +2040,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
         for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -2082,7 +2082,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
         for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -2279,11 +2279,11 @@ contract Alles is AllesFixture {
         // Small swaps across distinct blocks (with time so the 30-min TWAP tracks
         // spot and the manip guard isn't tripped). Each must CLEAR (return USDC)
         // and add its sold ETH to the pool.
-        uint b1 = AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0);
+        uint b1 = AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0, true);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        uint b2 = AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0);
+        uint b2 = AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0, true);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        uint b3 = AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0);
+        uint b3 = AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         assertGt(b1, 0, "block-1 swap cleared");
         assertGt(b2, 0, "block-2 swap cleared");
@@ -2304,9 +2304,9 @@ contract Alles is AllesFixture {
         uint sells; uint buys;
         for (uint i = 0; i < 10; i++) {
             if (i % 2 == 0) {
-                if (AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0) > 0) sells++;
+                if (AUX.swap{value: 0.3 ether}(address(USDC), address(WETH), false, 0, 0, true) > 0) sells++;
             } else {
-                if (AUX.swap(address(USDC), address(WETH), true, 500 * USDC_PRECISION, 0) > 0) buys++;
+                if (AUX.swap(address(USDC), address(WETH), true, 500 * USDC_PRECISION, 0, true) > 0) buys++;
             }
             vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
         }
@@ -2459,7 +2459,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -2527,7 +2527,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -2615,7 +2615,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -2688,7 +2688,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -2770,7 +2770,7 @@ contract Alles is AllesFixture {
         uint sharesBefore = ETH.lpShares();
 
         vm.roll(vm.getBlockNumber() + 1); vm.warp(block.timestamp + 15 minutes);
-        AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 0.1 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         uint balanceBefore = User01.balance + WETH.balanceOf(User01);   // ETH+WETH, §A.9
         uint pooledBeforeWithdraw = CORE.POOLED();
@@ -2800,7 +2800,7 @@ contract Alles is AllesFixture {
         assertGt(pooledETH, 0, "deposit created the ETH pool position");
 
         uint usdcBefore = USDC.balanceOf(User01);
-        AUX.swap{value: amount}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: amount}(address(USDC), address(WETH), false, 0, 0, true);
         vm.roll(block.number + 1);
 
         uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
@@ -2905,7 +2905,7 @@ contract Alles is AllesFixture {
         assertGt(pooledETH, 0, "pool must be seeded");
 
         uint usdcBefore = USDC.balanceOf(User01);
-        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
         assertGt(usdcReceived, 0, "Should receive USDC");
@@ -2972,7 +2972,7 @@ contract Alles is AllesFixture {
 
         for (uint i = 0; i < 3; i++) {
             vm.startPrank(User03);
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + 15 minutes);
             vm.stopPrank();
@@ -2990,7 +2990,7 @@ contract Alles is AllesFixture {
 
         for (uint i = 0; i < 3; i++) {
             vm.startPrank(User03);
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + 15 minutes);
             vm.stopPrank();
@@ -3024,7 +3024,7 @@ contract Alles is AllesFixture {
         // minOut. (The earlier ">26"/">30" thresholds were arbitrary; a deep range
         // legitimately fills several ETH at <=0.5%.)
         vm.prank(User02);
-        AUX.swap{value: 50 ether}(address(USDC), address(WETH), false, 0, 0);
+        AUX.swap{value: 50 ether}(address(USDC), address(WETH), false, 0, 0, true);
         uint pooledFill = CORE.POOLED() - initialPooledETH;
 
         assertLt(pooledFill, 50 ether,
@@ -3052,7 +3052,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + 15 minutes);
         }
@@ -3063,7 +3063,7 @@ contract Alles is AllesFixture {
 
         vm.startPrank(User03);
         for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + 15 minutes);
         }
@@ -3164,7 +3164,7 @@ contract Alles is AllesFixture {
         uint qd0 = QUID.balanceOf(User01);
         uint eth0 = User01.balance; uint weth0 = WETH.balanceOf(User01);
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);          // USD18 per 1e18 raw ETH
-        vm.prank(User01); AUX.swap(address(QUID), address(WETH), true, 1_000e18, 0);
+        vm.prank(User01); AUX.swap(address(QUID), address(WETH), true, 1_000e18, 0, true);
         uint burned = qd0 - QUID.balanceOf(User01);
         uint got = (WETH.balanceOf(User01) - weth0) + (User01.balance - eth0);
         uint gotUsd = SoladyMath.fullMulDiv(got, px, 1e18);                // 18-dec USD value of ETH received
@@ -3187,7 +3187,7 @@ contract Alles is AllesFixture {
         deal(address(USDC), User03, 10_000 * USDC_PRECISION);
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
-        for (uint i = 0; i < 4; i++) { AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+        for (uint i = 0; i < 4; i++) { AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes); }
         vm.stopPrank();
         assertGt(BCORE().POOLED_USD(), 0, "BTC range committed (precondition)");
@@ -3276,7 +3276,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0);
+            AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -3632,7 +3632,7 @@ contract Alles is AllesFixture {
         vm.prank(elp); ETH.deposit{value: 50 ether}(0, elp);
         address sw = makeAddr("cache-sw"); vm.deal(sw, 30 ether);
         vm.prank(sw);
-        try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch {}
+        try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
         (uint usdc2,,,,) = AUX.storedHoldings(address(USDC));
         emit log_named_uint("swapper USDC out (6d)", USDC.balanceOf(sw));
         emit log_named_uint("cache USDC after swap (18d)", usdc2);
@@ -3727,7 +3727,7 @@ contract Alles is AllesFixture {
         uint drained;
         for (uint i; i < 8; i++) {
             vm.prank(drainer);
-            try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0) { drained++; }
+            try AUX.swap{value: 5 ether}(address(USDC), address(WETH), false, 0, 0, true) { drained++; }
             catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
@@ -3890,7 +3890,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 4; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4117,7 +4117,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + 15 minutes);
         }
@@ -4178,7 +4178,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4235,7 +4235,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1);
             vm.warp(block.timestamp + 15 minutes);
         }
@@ -4284,7 +4284,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4325,7 +4325,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4370,7 +4370,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4497,7 +4497,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4804,7 +4804,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 4; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4854,7 +4854,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 4; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0);
+            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
@@ -4899,7 +4899,7 @@ contract Alles is AllesFixture {
         uint volume6 = 1_000 * USDC_PRECISION;           // ONE swap, known size
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
-        AUX.swap(address(USDC), address(WBTC), true, volume6, 0);
+        AUX.swap(address(USDC), address(WBTC), true, volume6, 0, true);
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 

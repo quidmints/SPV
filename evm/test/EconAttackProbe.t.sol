@@ -199,7 +199,7 @@ contract EconAttackProbe is AllesFixture {
         vm.startPrank(User03);                                        // generate swap fees
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 10; i++) {
-            try AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0) {} catch { break; }
+            try AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0, true) {} catch { break; }
         }
         vm.stopPrank();
         (uint incE, uint incU) = ETH.pendingRewards(User02);

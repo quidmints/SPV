@@ -32,7 +32,7 @@ contract SkewCalibration is AllesFixture {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0) {} catch {}
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) {} catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
     }

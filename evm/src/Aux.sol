@@ -714,9 +714,9 @@ contract Aux is // Auxiliary
 
     /// @notice Generic swap entry. Output goes to msg.sender.
     function swap(address token, address asset, bool forVolatile,
-        uint amount, uint minOut) public payable
+        uint amount, uint minOut, bool loadBalance) public payable
         returns (uint max) {
-        return swapTo(token, asset, forVolatile, amount, minOut, msg.sender);
+        return swapTo(token, asset, forVolatile, amount, minOut, msg.sender, loadBalance);
     }
 
     /// @notice Swap with explicit recipient. Useful when the caller is
@@ -727,7 +727,7 @@ contract Aux is // Auxiliary
     /// @param asset         volatile side — WETH or WBTC
     /// @param forVolatile   true: stable→volatile; false: volatile→stable
     function swapTo(address token, address asset, bool forVolatile,
-        uint amount, uint minOut, address recipient) public payable nonReentrant
+        uint amount, uint minOut, address recipient, bool loadBalance) public payable nonReentrant
         returns (uint max) {
         // Body extracted to SwapLib.swapToBody (delegatecall — address(this)==Aux,
         // msg.value/msg.sender forwarded) to free Aux bytecode. The public entry +
@@ -735,7 +735,7 @@ contract Aux is // Auxiliary
         // the BTC-recipient gate, the runtime backing invariant, the QUID-turn seed
         // un-tip, and the routeSwap call all run inside the body.
         return SwapLib.swapToBody(
-            SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, address(0), 0),
+            SwapLib.SwapReq(token, asset, forVolatile, amount, minOut, recipient, loadBalance, address(0), 0),
             SwapLib.SwapToCfg({
                 weth: address(WETH), wbtc: address(WBTC), quid: address(QUID),
                 // §ISBTC-SPLIT — THE SWAP SETTLES AGAINST THE RANGE THAT OWNS THE ASSET. This read

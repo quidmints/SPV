@@ -548,7 +548,7 @@ library BasketLib {
 
                 poolSupplied = pooled;
             }
-            out = ICore(ctx.core).swap(p.recipient, p.inputIsUsd, p.token, pooled);
+            out = ICore(ctx.core).swap(p.recipient, p.inputIsUsd, p.token, pooled, p.loadBalance);
         }
         // If p.amount > V4 capacity, `out` is less than amount. minOut at
         // outer layer enforces slippage / partial-fill tolerance.

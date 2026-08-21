@@ -61,7 +61,7 @@ contract BufferSwapDrain is LevCascadeProbe {
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             vm.prank(swapper);
-            try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch { break; }
+            try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
         }
 
@@ -111,7 +111,7 @@ contract BufferSwapDrain is LevCascadeProbe {
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
             _setEthFeed(px / 1e10);
             vm.prank(swapper);
-            try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0) {} catch { break; }
+            try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
         }
 

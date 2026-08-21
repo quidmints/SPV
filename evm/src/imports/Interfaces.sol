@@ -268,7 +268,7 @@ interface IAggregatorV3 {
 ///         re-declaring a duplicate interface. `token` = stable side (or QUID/zero),
 ///         `asset` = volatile side (WETH/WBTC), `forVolatile` true = stable->volatile.
 interface ISwap {
-    function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut)
+    function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut, bool loadBalance)
         external payable returns (uint256);
 
     // ── Unified QUOTE surface ──────────────────────────────────────────────
@@ -472,7 +472,7 @@ interface ICore {
     /// range's share of the one bound both compete for, which is what the shared-scarcity amplifier
     /// needs and what no isBTC-scoped input could ever supply.
     function rangeEquityUsd18() external view returns (uint);
-    function swap(address sender, bool inputIsUsd, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
+    function swap(address sender, bool inputIsUsd, address token, uint amount, bool loadBalance) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 
     // ═══ §E305 — `ICore` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH RANGE MANAGERS ═══
     // `ICore` named the same objects this does, from the other side, so the two were one concept

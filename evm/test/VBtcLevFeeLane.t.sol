@@ -860,7 +860,7 @@ contract VBtcLevFeeLane is AllesFixture {
             // incoming USD stays under BtcShareCap (the lev slice already consumes headroom).
             for (uint i; i < 6; i++) {
                 vm.prank(User03);
-                AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0);
+                AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0, true);
                 vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
             }
             vm.prank(lpEth);
