@@ -22,7 +22,8 @@ interface IAggV3 {
 ///         against 1inch too — they did. **Only `test_TheReadFitsInABlock` discriminates**, which is
 ///         the whole point of this file: the property that failed was never the one under test.
 contract CurveObserverIsCheapAndSaneTest is Test {
-    /// Curve TriCrypto-USDC. Ordering READ FROM CHAIN (not assumed): USDC=0, WBTC=1, WETH=2.
+    /// A Curve 3-coin crypto pool (USDC/WBTC/WETH) — an EXEMPLAR for the read cost, not our source.
+    /// Ordering READ FROM CHAIN (not assumed): USDC=0, WBTC=1, WETH=2.
     address constant POOL       = 0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B;
     address constant CL_ETHUSD  = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
     /// `price_oracle(k)` prices coin `k+1` in coin-0 units ⇒ 1 = coin2/coin0 = WETH/USDC.
