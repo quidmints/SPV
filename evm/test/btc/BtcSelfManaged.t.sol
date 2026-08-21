@@ -373,7 +373,7 @@ contract BtcSelfManagedTest is AllesFixture {
                 ch.openAuthDigest(hop, payout), b.lpAuth);
             // (E138) Built BEFORE the prank — `mkAuth` derives the payout PoP over FFI, and a
             // cheatcode call consumes a pending prank.
-            Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, b.lpAuth);
+            Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
             vm.prank(hop);
             channelId =
                 ch.openChannel(p, b.rawFundingTx, b.fundingMerkleProof, auth_,

@@ -128,7 +128,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         // test contract instead of 0xB0B, and the LP signature would fail to recover.
         Types.ExitArming[] memory arm_ = _armRegtest(p, rawTx, json, payout);
         // (E138) `mkAuth` is a second FFI caller now (the payout PoP) — same hoist, same reason.
-        Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
+        Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
         bytes32[] memory branch_ = vm.parseJsonBytes32Array(json, ".merkleBranch");
         vm.prank(address(0xB0B)); // must be the hop the LP signed for
         channelId = ch.openChannel(p, rawTx, branch_, auth_, arm_);

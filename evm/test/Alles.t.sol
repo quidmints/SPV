@@ -426,7 +426,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         Types.ExitArming[] memory exits_ = _armFixture(p, fundingTx, seed, payout);
         // (E138) `mkAuth` ALSO shells out now — it derives the payout key's proof-of-possession —
         // so it is subject to the same rule as the arming above and must be built before the prank.
-        Types.OpenAuth memory auth_ = mkAuth(lpEth, payout, dsig);
+        Types.OpenAuth memory auth_ = mkAuth(p.lpPubkey, payout);
         vm.prank(hop);
         cid = ch.openChannel(p, fundingTx, merkleBranch, auth_, exits_);
     }
@@ -447,7 +447,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         // bare `InvalidParam()` with nothing pointing at the prank.
         Types.ExitArming[] memory exits_ = _armAlles(label_, fundingTx_, p_.amountSats, payout_);
         // (E138) Same rule, second FFI: `mkAuth` derives the payout PoP by shelling out.
-        Types.OpenAuth memory auth_ = mkAuth(lpEth_, payout_, dsig);
+        Types.OpenAuth memory auth_ = mkAuth(p_.lpPubkey, payout_);
         vm.prank(hop_);
         cid = ch_.openChannel(p_, fundingTx_, new bytes32[](0), auth_, exits_);
     }
