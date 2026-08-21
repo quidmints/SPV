@@ -6695,3 +6695,41 @@ same way.**
   ⚠️ **AND IT IS LOAD-BEARING RIGHT NOW:** with σ² ≡ 0, `_maxWellSkew` collapses to `0 + spliceFloor`,
   so on the **BTC** band it is the ONLY charge a flush trade pays, and on **ETH** (`spliceFloor = 0`)
   a flush trade pays **NOTHING**. ▶️ The fix is to read the feerate, not to re-tune the constant.
+
+## 📌 §E291 — **EVIDENCE RESCUED FROM AN ABANDONED COMMIT: THREE ON-POOL EMAs AGREE TO 7.2 bps**
+Found 2026-08-21 auditing for unmerged work. **`8c72554f` is DANGLING** — unreachable from `origin/main`,
+so it will be garbage-collected — and it is the ONLY record of a live on-chain measurement. **The design
+was superseded on purpose** (main went to `pushObservation`, `70fcc163`; §E290 notes *"the observation
+source flipped a third time"*), **so the code is not being resurrected. The MEASUREMENT is, because
+nothing else in the repo carries it** — `7.2 bps`, the three prices and `WETH/USDT` all return **0 hits**
+across SPRINT, QUEUE and `evm/src`.
+
+### THE MEASUREMENT (verified on-chain by that thread, 2026-08-21)
+| source | WETH quote |
+|---|---|
+| WETH/USDC | **$2,384.81** |
+| WETH/USDT | **$2,386.52** |
+| WETH/crvUSD | **$2,384.83** |
+⇒ **spread 7.2 bps across three independent on-pool EMAs.** That number is what a venue-basis bound
+should be derived FROM, and it is expensive to re-measure (needs a live fork at a comparable block).
+
+### THE THREE ARGUMENTS WORTH KEEPING, WHATEVER THE SOURCE ENDS UP BEING
+1. **A SINGLE POOL MAKES ITS OWN DEPTH AND DEPEG MODE AN INPUT TO σ², THE SKEW AND LIQUIDATION** —
+   which fails `ExternalTwap`'s own correlated-sources rule on its own terms.
+2. **1inch WOULD SATISFY THAT RULE AND CANNOT BE CALLED: 31,722,803 gas, above the block limit.**
+   *"An aggregation that cannot be called is not a source at all."* (Cf. `a9c44003`, which pins it at
+   33.6M as a tripwire — two independent measurements of the same wall.)
+3. **THE 50 bps BOUND IS DERIVED, NOT INHERITED:** all three are ~600 s EMAs, so the 300 s lag argument
+   that sizes the Chainlink bound does not apply between them; what separates them is venue basis,
+   measured at 7.2 bps. **50 gives ~7× headroom**, against `TWAP_MAX_DEVIATION_BPS` = 500 which is
+   calibrated for a 30-minute window against a PUSHED feed. ⇒ **Do not reuse 500 between on-pool EMAs.**
+🔴 **AND IT INDEPENDENTLY CONFIRMS §E241-obsidx, WHICH IS STILL OPEN:** *"the calldata is pinned with
+each source because the index is PER-POOL — WETH is `price_oracle(1)` on both TriCryptos but
+`price_oracle(0)` on TriCRV. **Hardcoding one index is how a pool's ordering survives into another and
+prices ETH as WBTC.**"* That is the exact defect §E241-obsidx booked from the other direction, reached
+by a different thread on different evidence. ⚠️ **`OBS_POOL_IDX` now has 0 references in `Core.sol`, so
+the constant is gone — but the HAZARD returns the moment any source is pinned without its index.**
+▶️ **Liveness rule this commit states and `pushObservation` must also honour:** anything that reverts,
+returns short, or returns zero is DROPPED rather than reverting the fill, because this sits on the swap
+path; below two survivors the ring is simply not written, `ringVariance` returns 0, and §E213's sentinel
+prices at the ceiling. **That last step is what makes dropping safe rather than silent.**
