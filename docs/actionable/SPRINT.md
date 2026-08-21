@@ -2222,20 +2222,49 @@ makes `#1`, `#22` and the whole §E165/§E233 ladder investment PAY OFF.** Do no
 armed at all five rotation sites" as protection delivered; it is protection delivered *conditional on
 the LP still holding its key.* Neither row said so.
 
-### Is the gate the most elegant answer? — the honest version
-**On today's Bitcoin, some re-arm is FORCED.** BIP-341 `Prevouts::All` binds a pre-signed exit to the
-funding outpoint, and a splice rotates it, so any spliceable channel invalidates its ladder. The gate
-does not remove that cost; it makes it **opt-in** (sign more → routed more; go quiet → only NEW
-routing stops).
-- ⭐ **What would DISSOLVE it: `SIGHASH_ANYPREVOUT` (BIP-118).** An exit that does not commit to its
-  prevout survives rotation, the phone signs ONCE, and both the gate and the per-splice handshake
-  delete themselves. **Not activated on Bitcoin**, so it is not an option — but it is the shape to
-  watch for, and it is the reason to keep the re-arm machinery cleanly separable.
-- **Option (b) "never splice an armed channel" is not more elegant, only differently priced.** It
-  does not remove phone signing: a new channel still needs consent AND a ladder at open. It trades
-  splice fees for open fees and keeps the same signature count.
-⇒ **The gate is the right answer to the problem as Bitcoin currently poses it**, and the thing to
-revisit is the premise (ANYPREVOUT), not the mechanism.
+### Can it be DISSOLVED ENTIRELY? — asked directly by the owner, 2026-08-21. **NO, AND THE PROOF IS SHORT**
+
+I went looking for a way to remove the gate rather than justify it, and the search closes. Four steps,
+each checkable:
+
+1. **Bitcoin cannot express "pay this party its CURRENT balance" in script** — that needs a covenant
+   (`OP_CTV`), which is not activated. ⇒ the split must be **pre-signed**, which is why a ladder of
+   rungs exists at all rather than one leaf.
+2. **Every ACTIVATED sighash flag commits to the spending input's outpoint.** BIP-341 hashes
+   `sha_prevouts` normally and the single `outpoint` under `ANYONECANPAY` — so `ANYONECANPAY` does
+   **not** buy prevout-independence, which is the near-miss worth knowing before someone tries it.
+   ⇒ **rotation kills every pre-signature, with no flag combination that survives it.**
+3. 🔴 **ROTATION IS TRAFFIC-DRIVEN, NOT LP-DRIVEN — AND THIS IS THE STEP THAT KILLED MY OWN
+   PREFERRED ANSWER.** The five `_armLadder` sites are `openChannel` · `splice` · `_finishRekey` ·
+   **`parkProvenSats`** · **`deliverSwapOutOnchain`**. The last two are ordinary swap flow: parking
+   proves hop inventory in, delivery shrinks it out, and both *"rotate the funding outpoint like any
+   other"*. ⇒ **option (b) "never splice an armed channel" DISSOLVES NOTHING** — with zero splices
+   ever, a channel's ladder still dies on the next user swap. My earlier note priced (b) as "not more
+   elegant, only differently priced"; that was the right verdict for the wrong reason, and the real
+   reason is fatal rather than economic.
+4. **The traffic-driven rotation cannot be moved off the 2-of-2, because THE 2-of-2 IS THE CUSTODY.**
+   The obvious repair — let the hop park and deliver on hop-owned outputs, leaving the LP's outpoint
+   to rotate only at LP-initiated moments — **makes the hop custodial**, which is the property the
+   channel exists to deny. `parkProvenSats` proves the hop's BTC *into the 2-of-2* precisely so no
+   one holds it alone.
+
+⇒ **THE GATE IS NOT A WORKAROUND FOR A MISSING SOFT FORK; IT IS THE ONLY AVAILABLE ANSWER, AND IT IS
+FORCED.** Given (1)-(4), a channel taking traffic while its LP is unreachable is a channel accruing
+rotations nobody can re-arm. The only two responses are *block the traffic* or *block the rotation*,
+and blocking rotation is blocking the protocol. The gate blocks traffic, at the narrowest point (NEW
+route hints) and reversibly.
+
+**What WOULD dissolve it, so nobody re-derives this a third time:**
+- ⭐ **`SIGHASH_ANYPREVOUT` (BIP-118)** — exact fit, defeats step 2 outright, phone signs once. Not
+  activated. **The reason to keep the re-arm machinery cleanly separable** rather than woven through.
+- **`OP_CTV`/covenants** — defeats step 1; the split becomes a leaf and pre-signing ends. Not activated.
+- ⚠️ **A ROTATION TREE — the only one buildable TODAY, and it buys BOUNDED tolerance, not dissolution.**
+  A future outpoint is `txid:vout` of a tx that does not exist yet, but a txid is computable in advance
+  **if the tx is fully determined**. Quantise rotation amounts to a fixed lattice and the successor set
+  becomes finite, so the phone can pre-sign exits for the next `b` outpoints — and for depth `k`, `b^k`
+  of them. **Exponential in offline depth**: `b=4, k=3` is 64 signatures for three rotations of
+  tolerance. That is a real option if the owner wants offline depth > 0 without a fork, and it is NOT a
+  replacement for the gate — it moves the cliff, it does not remove it.
 
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
