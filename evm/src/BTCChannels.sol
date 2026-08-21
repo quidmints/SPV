@@ -13,7 +13,6 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MuSig2Agg} from "./imports/MuSig2Agg.sol";
 // (E125-d) ERC-1271 + ECDSA in one call, so a SMART-WALLET LP can register. Tries ECDSA
 // first, so the EOA path — the common one — keeps its cost.
-import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/SignatureChecker.sol";
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BTCChannels — standard-LDK 2-of-2 channels for native BTC LP deposits,
@@ -465,8 +464,10 @@ contract BTCChannels is Ownable, ReentrancyGuard {
                                           // CLTV deadlines — one rung is one window, and vault-less
                                           // (B0) the ladder is the LP's only escape
     // §SLOP — `NotDelegatedHop` DELETED: zero reverts, and it named `registerDelegation`, itself
-    // deleted by §E157. The live open authenticates `auth.lpSig` and reverts `InvalidParam()`, so this
-    // error could not fire. `git log -S` first (this repo has twice deleted a symbol that was a
+    // deleted by §E157. ⚠️ This said "the live open authenticates `auth.lpSig`" — it does NOT since
+    // §E183 item 1 deleted that field; the open authenticates the BIP-340 payout PoP and derives
+    // `lpEth` from `p.lpPubkey`. The conclusion is unchanged and now has a simpler reason: with no
+    // delegated-hop concept at all, the error could not fire. `git log -S` first (this repo has twice deleted a symbol that was a
     // deliberate gap marker): it traces to E156/E157, the commits that REMOVED its check.
 
     event ChannelOpened(
@@ -921,11 +922,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // use more addresses. This makes the over-mint/wipe bug unrepresentable.
         if (hasOpenBtcChannel[lpEth]) revert OneChannelPerLp();
 
-        // (E157) AUTHENTICATE THE LP FIRST. The digest reads only `p`, so consent can be checked
-        // BEFORE the SPV proof and the ~631k gas of secp256k1 — same reasoning the KeyAgg check
-        // already gives for sitting after the merkle proof: both must pass, and the order decides
-        // only what a FAILING open pays. `SignatureChecker` serves BOTH LP kinds, so the
-        // EOA/smart-wallet entrypoint split is gone with the standing registration that forced it.
+        // (E157) AUTHENTICATE THE LP FIRST — consent is checked BEFORE the SPV proof and the
+        // ~631k gas of secp256k1. Same reasoning the KeyAgg check already gives for sitting after
+        // the merkle proof: both must pass, and the order decides only what a FAILING open pays.
+        // ⚠️ The line naming `SignatureChecker` as serving "BOTH LP kinds" is gone with the import:
+        // §REKEY-FOLD removed the last `isValidSignatureNow` in the tree. The EOA/smart-wallet split
+        // it justified was already gone with the standing registration that forced it.
         // ⛔ (§E183 item 1) THE LP'S ECDSA SIGNATURE IS DELETED — the LP now signs NOTHING on the
         // EVM, which is what item 1 asked for and §E157 did not deliver. It bound two things and
         // BOTH are carried elsewhere now: the SUBMITTER, by `_onlyHop()` above (§E185) — one of two
@@ -1190,15 +1192,18 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// ⚠️ THE DIGEST IS DELIBERATELY NOT A PUBLIC VIEW, unlike `openChannelDigest`/`spliceDigest`.
     /// `BTCChannels` is size-constrained and the signer computes this preimage locally anyway (see
     /// `evm_codec.rs`), so an external accessor would spend deploy bytes on convenience. Domain tag
-    /// `rekey.v1` keeps it unforgeable against a `splice.v1` signature over the same arguments.
+    /// ⚠️ (§REKEY-FOLD) NO `lpSig`. The LP's consent to a rotation IS the fresh `exits` ladder: it
+    /// is verified against `Q' = TapTweak(KeyAgg(p.lpPubkey, p.hopPubkey))`, which DERIVES FROM THE
+    /// NEW HOP KEY, so no rung can exist unless the LP co-signed a MuSig2 session over exactly this
+    /// rotation. See `ChannelLib.rekeyAuthBody` for why that is strictly stronger than a signature.
     function rekey(
         bytes32 channelId,
         Types.OpenParams calldata p,        // the NEW pair + the NEW taproot Q
         bytes calldata oldHopPubkey,        // the hop key being rotated OUT
         bytes calldata rawSpliceTx,
         bytes32[] calldata spliceMerkleProof,
-        bytes calldata lpSig,               // the LP's consent to THIS rotation
-        Types.ExitArming[] calldata exits   // (§E233-ladder) the fresh ladder under the NEW pair's Q'
+        Types.ExitArming[] calldata exits   // the fresh ladder under the NEW pair's Q' — AND the
+                                            // LP's consent to this rotation (§REKEY-FOLD)
     ) external nonReentrant {
         _whenOpen(channelId);
         // ⚠️ THREE FRAMES, NOT ONE — and this is a legacy-stack requirement, not a style choice.
@@ -1209,7 +1214,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // already uses (`_applySplice`, `_shrinkSplice`, `_emitOpened`): give each phase its own
         // frame and pass calldata pointers, never re-materialised values.
         _onlyHop();
-        _authorizeRekey(channelId, p, oldHopPubkey, rawSpliceTx, lpSig);
+        _authorizeRekey(channelId, p, oldHopPubkey);
         // Custody: SPV-prove, rotate the outpoint, resize. A rekey MAY also resize — the LP signs
         // the whole of `p`, so it consents to the amount as well as to the key.
         // ⚠️ (§E233-ladder) NOT `_finishRekey(…, _applySplice(…))`. Nesting them needs every argument of
@@ -1230,14 +1235,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     function _authorizeRekey(
         bytes32 channelId,
         Types.OpenParams calldata p,
-        bytes calldata oldHopPubkey,
-        bytes calldata rawSpliceTx,
-        bytes calldata lpSig
+        bytes calldata oldHopPubkey
     ) private view {
-        Types.BTCChannel storage ch = channels[channelId];
-        ChannelLib.rekeyAuthBody(
-            channelId, p, oldHopPubkey, rawSpliceTx, lpSig, ch.keysHash, ch.lpEth
-        );
+        ChannelLib.rekeyAuthBody(p, oldHopPubkey, channels[channelId].keysHash);
     }
 
     /// (§E182) The claim + the re-pin, in their own frame.

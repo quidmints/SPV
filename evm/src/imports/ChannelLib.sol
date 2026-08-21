@@ -15,7 +15,6 @@ import {BitcoinTx} from "./BitcoinTx.sol";
 import {TxParser} from "@solarity/solidity-lib/libs/bitcoin/TxParser.sol";
 import {MuSig2Agg} from "./MuSig2Agg.sol";
 // (E182) Same checker the open path uses, so an EOA and a smart-wallet LP authorize alike.
-import {SignatureChecker} from "@openzeppelin-submodule/utils/cryptography/SignatureChecker.sol";
 import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -547,15 +546,15 @@ library ChannelLib {
         return BitcoinTx.evmAddressOfCompressed(lpPubkey);
     }
 
+    /// @notice (§REKEY-FOLD 2026-08-22) The STRUCTURAL half of a rotation's authorisation. The LP's
+    ///         CONSENT half is not here and needs no signature — see the block at the end.
+    /// ⚠️ Four parameters were removed with the signature (`channelId`, `rawSpliceTx`, `lpSig`,
+    ///    `lpEth`): every one existed ONLY to build the digest, so they went with it.
     function rekeyAuthBody(
-        bytes32 channelId,
         Types.OpenParams calldata p,      // the NEW pair
         bytes calldata oldHopPubkey,      // the hop key being rotated OUT
-        bytes calldata rawSpliceTx,
-        bytes calldata lpSig,
-        bytes32 keysHash,                 // the pair pinned at open
-        address lpEth
-    ) external view {
+        bytes32 keysHash                  // the pair pinned at open
+    ) external pure {
         // TO WHAT — one comparison, two facts: the LP half is UNCHANGED, and `oldHopPubkey` is
         // genuinely the key this channel pinned. Only `hopPubkey` is free to move, so the rotated
         // output remains a 2-of-2 REQUIRING the LP and a compromised hop gains no unilateral spend.
@@ -566,25 +565,20 @@ library ChannelLib {
         // outpoint makes every pre-signed rung unbroadcastable under BIP-341 `Prevouts::All`.
         if (keccak256(p.hopPubkey) == keccak256(oldHopPubkey)) revert RekeyUnchanged();
 
-        // WHO — the LP co-signs THIS rotation. ⚠️ **NO DOMAIN TAG** (owner, 2026-08-22). This used
-        // to read *"domain tag `rekey.v1` keeps the message unforgeable against a `splice.v1`
-        // signature over the same arguments"* — and `splice.v1` no longer exists: §E157 retired the
-        // per-splice consent as redundant and §E182 deleted its digest. What separates this from
-        // the ONE other verified digest (the payout PoP) is structural, not a string: that one is
-        // **sha256 over 3 fields verified as BIP-340 Schnorr**, this is **keccak256 over 5 fields
-        // verified as ECDSA**. ⇒ A new verified digest sharing this hash AND arity would reopen the
-        // question; nothing does today.
-        if (!SignatureChecker.isValidSignatureNow(
-                lpEth,
-                keccak256(abi.encode(
-                    block.chainid,
-                    address(this),
-                    channelId,
-                    keccak256(rawSpliceTx),
-                    keccak256(abi.encode(p))
-                )),
-                lpSig))
-            revert InvalidParam();
+        // 🔑 WHO — **THE LP'S CONSENT IS THE FRESH LADDER, NOT A SIGNATURE.** An `lpSig` used to be
+        // verified here against a rekey digest. It was REDUNDANT and is deleted (§REKEY-FOLD):
+        // `rekey` already requires `exits`, a fresh ladder armed by `_finishRekey` against the NEW
+        // pair's `Q' = TapTweak(KeyAgg(p.lpPubkey, p.hopPubkey))`, and `_armDeadManExit` verifies
+        // each rung as a BIP-340 signature under that `Q'`. **`Q'` IS DERIVED FROM THE NEW HOP KEY,
+        // so a rung cannot exist unless the LP co-signed a MuSig2 session over exactly this
+        // rotation.** The hop cannot forge one: it holds half of a 2-of-2.
+        // ⇒ The ladder proves everything the signature did AND MORE — the signature proved the LP
+        // agreed; the ladder proves the LP agreed *and still has an escape after the rotation*,
+        // which is the property the rotation actually threatens (BIP-341 `Prevouts::All` voids every
+        // pre-signed rung when the outpoint moves). Same shape as §E157 retiring the per-splice
+        // `lpAuth`, and it makes "the LP signs NOTHING on the EVM" true without exception.
+        // ⚠️ **DO NOT RE-ADD A SIGNATURE HERE.** It would re-impose EVM signing on a phone-held LP
+        // for a fact the ladder already establishes, and add a second source of truth for consent.
     }
 
     /// @notice Body of BTCChannels.openChannel. Wrapper handles the

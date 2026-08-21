@@ -352,17 +352,6 @@ contract VBtcLevFeeLane is AllesFixture {
             amountSats: sats, fundingTaproot: _taprootQ(lpPubkey, newHopKey) });
     }
 
-    /// The LP's consent to THIS rotation. ⚠️ **NO DOMAIN TAG** (2026-08-22) — mirrors
-    /// `ChannelLib.rekeyAuthBody`, which dropped it once `splice.v1` ceased to exist. This is a
-    /// FIXTURE (it signs), so it must track the library's preimage exactly; see §TEST-RECONSTRUCTIONS
-    /// — the standing fix is to extract the digest into `ChannelLib` so this cannot drift at all.
-    function _signRekey(string memory label, address ch, bytes32 cid, Types.OpenParams memory p, bytes memory tx_)
-        internal returns (bytes memory)
-    {
-        return _lpSign(label, keccak256(abi.encode(
-            block.chainid, ch, cid, keccak256(tx_), keccak256(abi.encode(p)))));
-    }
-
     /// ⚠️ ONE STRUCT, BECAUSE THESE TESTS OVERFLOW THE LEGACY STACK OTHERWISE. A rotation case
     /// carries a channel id, a funding txid, THREE pubkeys, an amount and a signing key; held as
     /// separate locals that is past the limit and the first version failed to compile with *"Stack
@@ -375,7 +364,6 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes   oldHop;     // the hop key pinned at open
         bytes   newHop;     // the hop key being rotated in
         uint    sats;
-        string  signerLabel; // whose CHANNEL key signs the consent — deliberately not always the LP's
         // (§E233-ladder) The fresh ladder's provenance. A rekey rotates the outpoint AND the aggregate, so
         // its rungs must be signed under the MIXED pair (this channel's LP half, the INCOMING hop
         // half) — which is what `signedExitFull` takes two labels for. `lpLabel` is the seed label
@@ -395,7 +383,6 @@ contract VBtcLevFeeLane is AllesFixture {
     function _submitRekey(BTCChannels ch, RekeyCase memory c, bool expectRevert_) internal {
         bytes memory tx_ = _buildRekey(c.ftx, c.lpPubkey, c.newHop, c.sats);
         Types.OpenParams memory p = _rekeyParams(c.lpPubkey, c.newHop, c.sats);
-        bytes memory sig = _signRekey(c.signerLabel, address(ch), c.cid, p, tx_);
         // (§E233-ladder) THE LADDER IS CHOSEN BY WHETHER ARMING IS REACHABLE, and that is a statement
         // about the contract, not a convenience. All three rejection cases are refused by
         // `_authorizeRekey`/`_applySplice`, i.e. strictly upstream of `_armLadder`, so a
@@ -410,7 +397,7 @@ contract VBtcLevFeeLane is AllesFixture {
             : _rekeyLadder(c, tx_);
         if (expectRevert_) vm.expectRevert();
         vm.prank(makeAddr("hop"));
-        ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), sig, exits_);
+        ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), exits_);
     }
 
     /// (§SPRINT-B4) The rekey's 2-rung ladder in its OWN frame (legacy stack, no `via_ir`):
@@ -472,7 +459,6 @@ contract VBtcLevFeeLane is AllesFixture {
         ( , c.oldHop, ) = ownedChannelKeys(_label(93));
         ( , c.newHop, ) = ownedChannelKeys(_label(94));
         c.sats = 2e6;
-        c.signerLabel = _label(93);
         // (§E233-ladder) The rotation must carry a ladder valid under the NEW aggregate, so the fixture
         // needs both halves' provenance and the payout the exit pays. Seed 93 opened the channel.
         // ⚠️ THE ROLE SUFFIX IS PART OF THE LABEL HERE. `signedExitFull` → the generator's
@@ -516,7 +502,6 @@ contract VBtcLevFeeLane is AllesFixture {
         c.sats = 2e6;
         // Signed by the REAL LP, so this cannot pass merely because the signature is bad: the
         // rejection has to come from the pair check.
-        c.signerLabel = _label(95);
         assertTrue(keccak256(c.lpPubkey) != keccak256(realLp), "must actually differ");
 
         _submitRekey(ch, c, true);   // ChannelLib.ChannelKeysMismatch
@@ -532,7 +517,6 @@ contract VBtcLevFeeLane is AllesFixture {
         ( , c.oldHop, ) = ownedChannelKeys(_label(97));
         c.newHop = c.oldHop;                 // the "rotation" that rotates nothing
         c.sats = 2e6;
-        c.signerLabel = _label(97);
 
         _submitRekey(ch, c, true);   // ChannelLib.RekeyUnchanged
     }
@@ -540,18 +524,27 @@ contract VBtcLevFeeLane is AllesFixture {
     /// WHO, enforced: the hop cannot rotate alone. Without this the LP could be moved into a 2-of-2
     /// with a party it never agreed to — survivable via the exit ladder, but the ladder is exactly
     /// what the rotation just invalidated.
-    function test_rekeyRequiresTheLpsOwnSignature() public {
+    function test_rekeyRequiresTheLpsOwnLadder() public {
         BTCChannels ch = _deployChannels();
         RekeyCase memory c;
         (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 98, 2e6);
         ( , c.oldHop, ) = ownedChannelKeys(_label(98));
         ( , c.newHop, ) = ownedChannelKeys(_label(99));
         c.sats = 2e6;
-        // A WELL-FORMED signature from the wrong key — the hop signing for itself. The rejection
-        // must come from WHOSE key it is, not from the signature being malformed.
-        c.signerLabel = _label(99);   // a REAL channel key, just not this channel's LP
+        // 🔑 (§REKEY-FOLD) THE SAME PROPERTY, ENFORCED BY THE LADDER INSTEAD OF A SIGNATURE. This
+        // used to hand `rekey` a well-formed `lpSig` from a REAL-but-wrong channel key and assert
+        // the rejection came from WHOSE key it was. `lpSig` is gone, so the wrong key now shows up
+        // where consent actually lives: the ladder's LP half.
+        // ⚠️ **THE COVERAGE IS NOT WEAKER, IT IS THE SAME FACT ONE LAYER DOWN.** `p.lpPubkey` is
+        // seed 98's, so `Q' = TapTweak(KeyAgg(lp98, newHop))`; the rungs below are signed under
+        // `KeyAgg(lp99, newHop)`. `_armDeadManExit` verifies each rung against `Q'` and rejects —
+        // which is precisely why the signature was redundant: a rotation the LP did not co-sign
+        // CANNOT produce an armable ladder, and `_armLadder` refuses to leave a channel escape-less.
+        c.lpLabel = string.concat(_label(99), "-lp");   // a REAL channel key, just not THIS channel's LP
+        c.hopLabel = string.concat(_label(99), "-hop");
+        c.payoutScript = abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(uint(98))));
 
-        _submitRekey(ch, c, true);   // ChannelLib.InvalidParam
+        _submitRekey(ch, c, true);   // ExitSignatureInvalid — the rung is not under Q'
     }
 
     function test_Seam_WithdrawalPayout_MustMatchShutdownKey_NotFundingKey() public {
