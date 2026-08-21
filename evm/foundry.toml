@@ -83,26 +83,3 @@ mainnet = { key = "${ETHERSCAN_L1}" }
 # dependency nothing imports. Worse than dead weight: while the trees are present, a stray import or
 # an alias can still RESOLVE into them, so the cut is only enforceable once they cannot be found.
 solady = { git = "https://github.com/Vectorized/solady" }
-# ─── MIDNIGHT (Morpho Blue v2) — OUR OWN INSTANCE, COMPILED AT ITS OWN SETTINGS ────────────────
-# `src/midnight/**` is a vendored, minimally-adapted copy of morpho-org/morpho-v2 @ 709dab35.
-# It CANNOT build under this repo's global settings, and both reasons are load-bearing:
-#   • `via_ir = false` (our deliberate policy) => "Stack too deep" in Midnight's codegen. MEASURED,
-#     not assumed: the error names LValue.cpp:54 and it fails at every optimizer_runs value.
-#   • upstream targets `evm_version = "osaka"` for the `clz` opcode; we are on cancun, so
-#     `UtilsLib.msb` is adapted to smear+popcount (see src/midnight/README.md and MidnightMsb.t.sol).
-# `optimizer_runs` here is 50, NOT the 200 we use elsewhere nor upstream's 466. It is the only value
-# measured to FIT EIP-170, and the curve is NOT monotonic, so do not "tidy" it toward 200:
-#     runs=1 -> 24,508 (+68) | runs=50 -> 24,469 (+107) | runs=200 -> 24,650 (-74) | runs=466 -> 24,720 (-144)
-# Re-measure with `python3 tools/check-contract-sizes.py` after ANY change to src/midnight.
-[[profile.default.compilation_restrictions]]
-paths = "src/midnight/**"
-via_ir = true
-optimizer_runs = 50
-
-# A `compilation_restrictions` entry only CONSTRAINS; it does not CREATE a profile. Without a
-# matching entry here the build fails with "Missing profile satisfying settings restrictions for
-# src/midnight/...". The two blocks must be kept in sync — same via_ir, same optimizer_runs.
-[[profile.default.additional_compiler_profiles]]
-name = "midnight-viair-50"
-via_ir = true
-optimizer_runs = 50
