@@ -2394,7 +2394,7 @@ channel proceed as if credited — `pendingClaimSats` staying non-zero is the wh
 ⚠️ **The shrink hazard is NOT fixed, only made exceptional** — it is now reachable solely in the
 deferred state. It still panics rather than naming itself; see `§LAZY-OPEN-SHRINK` below.
 
-## 🔁 §LAZY-OPEN-RETRY — 🔴 **OPEN. NOTHING RETRIES A DEFERRED CLAIM AUTOMATICALLY YET**
+## 🔁 §LAZY-OPEN-RETRY — ✅ **LANDED AND VERIFIED 2026-08-21.** `run_channel_reconciler` now reads `pendingClaimSats(bytes32)` each pass and sends `registerChannelClaim` when non-zero (`read_pending_claim`, `channel_driver.rs`). ⚠️ **THE REASON IT IS NOT IN `drive_open` IS SHARPER THAN THE ONE FIRST BOOKED:** the original note said an unconditional call there would be noisy, which is true but secondary — **at open time the basket is BY DEFINITION the thing that just refused**, so retrying in the same breath retries into the same failure. A periodic pass waits for the condition to clear. Not a liveness dependency: the claim stays permissionless, so an LP whose fleet is down is not stuck — this only means nobody HAS to notice. Prior text:
 Referenced from `channel_driver.rs`, so it is booked rather than assumed. `drive_open` deliberately
 does NOT call `registerChannelClaim`: with the inline credit, an unconditional call would revert
 `NothingToClaim()` on every healthy open — a warn line per channel that means nothing, which is how a
@@ -2403,7 +2403,7 @@ complete it), but nothing completes it on its own.
 ▶️ The reconciler is the right home: it already reads channel state every pass and already binds the
 liveness gate there. It needs `pendingClaimSats(channelId)` in that read, then a send when non-zero.
 
-## ⚠️ §LAZY-OPEN-SHRINK — 🔴 **OPEN. A PARTIAL SHRINK AGAINST A DEFERRED CLAIM PANICS INSTEAD OF NAMING ITSELF**
+## ⚠️ §LAZY-OPEN-SHRINK — ✅ **LANDED AND VERIFIED 2026-08-21.** `_requireClaimRegistered` (a `private view`, standing rule 8c — a modifier would inline at both sites) now reverts `ClaimNotRegistered()` at `_shrinkSplice` and `_settleSwapOutSlice` instead of panicking. **+64 bytes; `BTCChannels` 24,284 with 292 to spare.** The auto-claim was NOT taken, deliberately — see the `@dev` block at the helper. Prior text:
 `BtcLib.resize` does `LP.pooled -= o.sharesRemoved` where a partial shrink's `sharesRemoved` is
 `a.shrinkSats`, so a delivery or withdrawal splice on a channel whose claim is still deferred
 underflows → **panic 0x11, which is undiagnosable in production**. Recoverable (anyone can register
@@ -2416,6 +2416,37 @@ coupling this whole item removed, on the path where the swapper's BTC has alread
 words). Deferring the credit defers fee accrual, so the fold must say explicitly whether the LP earns
 from CUSTODY (sats locked) or from CLAIM (position registered) — and the two now happen at different
 times. Answer that FIRST; it is a money-path semantic, not an implementation detail.
+
+## ✅ §LAZY-OPEN — VERIFICATION LEDGER, AND A MIS-ATTRIBUTION THE NEXT READER WILL TRIP ON
+
+**Arms, all on an isolated worktree (2026-08-21):**
+
+| | passed | failed | note |
+|---|---|---|---|
+| baseline `origin/main` | 433 | 86 | two known roots (`NotPubkeyHash` ×20, morpho `debt 0<=0` ×40) |
+| lazy-open `try`/`catch` | 431 | 88 | +2 = RPC storage-fetch on the Curve pool, environmental |
+| **+ shrink guard + retry** | **433** | **86** | **identical to baseline, test-for-test; 0 unique either way** |
+
+`ClaimNotRegistered` fired **zero** times across the suite — correct, and the point: a healthy
+fixture never produces a deferred claim, so the guard is inert until the condition it names exists.
+Also: `BTCChannels` 24,284 (292 spare) · ABI **116 Rust + 69 SPA, 0 drifted** (116 is up from 115 —
+the new `pendingClaimSats(bytes32)` getter call) · `quid-hop`+`quid-bridge` **273 passed / 0 failed**
+in the Linux image.
+
+🔴 **THE HISTORY LIES ABOUT WHO WROTE THIS, AND IT IS THE `§14b` MIRROR HAZARD AGAIN.** The shrink
+guard and the retry were written and verified in a worktree, and that worktree was **deleted while
+its test run was still live**. The changes reached `main` inside **`aacefd34` — *"E294 step 1 … the
+anchor `pushObservation`'s guard"*** — a commit about observation anchors. So
+`git log -- evm/src/BTCChannels.sol` attributes a lazy-open shrink guard to an observation-anchor
+change, exactly as `8debdb7` once attributed a Solidity deletion to a Lightning commit.
+⚠️ **THE CODE IS CORRECT AND VERIFIED — `git diff <tested-commit> origin/main` over both files is
+EMPTY**, so the numbers above do apply to what is on `main`. It is the ATTRIBUTION that is wrong, and
+attribution is what the next thread greps. ⇒ **When `git log` on a file gives a subject that has
+nothing to do with the hunk you are reading, suspect a swept worktree before you suspect the hunk.**
+⭐ **AND THE THING THAT SAVED IT: the work was COMMITTED LOCALLY IN THE WORKTREE BEFORE THE BUILD.**
+The directory vanished; the commit stayed in the shared object store and was recoverable by SHA. That
+is the rule-11/15 resolution booked in `CLAUDE.md` earlier the same day, paying for itself within the
+hour — the second worktree lost that day, and the first one whose work did not have to be rewritten.
 
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
