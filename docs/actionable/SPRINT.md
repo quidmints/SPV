@@ -7869,3 +7869,54 @@ tests actually execute the call.**
 correct to push it over a red gate rather than block a clean commit on someone else's break.
 ▶️ Restore the function or update the three SPA call sites; and **fix `:839`, which will otherwise
 tell the next reader the opposite of the truth.**
+
+---
+
+## 🔴🔴 §E308 — **THE "σ² IS PINNED" EVIDENCE IS MISSING ITS CONTROL: THE TICK DRIVER WRITES NOTHING**
+
+**Owner, 2026-08-22: *"why is it zero? … it shouldn't be zero."* Auditing the observation path to
+answer that turned up a defect in the EVIDENCE, not just in the wiring.**
+
+`DrainAtomicity::test_UNITA_FixtureDrivesRealVariance` drives 20 ticks and reports
+*"σ² = 1, 1, 1, 0 wad across FOUR full-suite runs … `realizedVarianceWad()` is pinned at ~0 and 20
+driven ticks cannot budge it."* §E277 and §UNIT-SERIES-MEASURED both rest on it, the second reading it
+as a property of **our series** — *"ours reports exactly zero"*.
+
+🔴 **BUT `_driveTick` MOVES THE RING ONLY THROUGH `AUX.swap` → `Core._observeIfSourced`, WHICH BEGINS
+`if (src == address(0)) return;` — AND NO SOURCE IS PINNED (§C1).** ⇒ **Those 20 ticks write NOTHING.**
+An unwritten ring returning 0 is not a measurement of the estimator; **it is the definition of an
+unwritten ring.** The test has no control distinguishing *"the estimator cannot produce variance"*
+from *"nothing was written"*, and those have **opposite remedies**:
+
+| if the truth is… | then… |
+|---|---|
+| nothing is written | a pusher fixes σ², and §E294's 23 bps admissibility means **1inch is a working source today** |
+| the estimator is broken | a pusher changes nothing, and the whole calibration effort needs a different fix |
+
+⚠️ **§E277 RE-DERIVED §UNIT-SERIES-MEASURED ON THIS TEST** after the original instrument was retracted
+— *"the failure IS the measurement"*. **If the reading above holds, the replacement instrument has the
+same defect as the retracted one: it cannot support the conclusion drawn from it.** That is the third
+time today an instrument has been found to measure something other than its stated subject
+(`GammaRederived`'s mirror, `GammaRederived`'s vacuous control, this).
+
+### ▶️ THE DISCRIMINATOR IS BUILT: `evm/test/PushObservationFillsTheRing.t.sol`
+`pushObservation` is the **other** writer — permissionless, anchor-bounded, **zero callers** — so
+calling it separates the two cases. Pushes a varying **in-band** series (jitter 0–32 bps, all inside
+the 50 bps guard) across 9 samples with `vm.warp` between them (`ringVariance` needs `card ≥ 3`,
+`n ≥ 3`, ≥2 distinct values, and a ring that will not advance on a repeated timestamp), then asserts
+σ² moved. **Two controls**: an out-of-band push must be refused *silently* (which is what makes the
+call safe to attach to a carrier), and one sample must NOT produce a variance.
+🔴 **NOT YET RUN — and the reason is not mine.** Four source files (`Quid`, `Vault`, `LevManager`,
+`BtcLevManager`) are in state **`UU`**: an unresolved merge from another session, with conflict markers
+in the source, so `solc` fails on *"Expected pragma…"* and **no build in this tree means anything**.
+My test is implicated in **zero** of those errors. API assumptions verified statically against
+`origin/main`: `Aux.assetPriceFeed` is a public mapping, and `AllesFixture` exposes `CORE`/`AUX`/`WETH`
+(`DrainAtomicity` uses all three).
+
+### 📌 AND THIS IS WHY σ² IS ZERO — THE ANSWER TO THE QUESTION
+**Not because 1inch does not work.** §E294 measured the basis at **23 bps against a 50 bps guard**, so
+a 1inch-sourced push is *admissible today*. **σ² is zero because the ring has two writers and neither
+runs:** the PULL path (`_observeIfSourced`) has no source by owner decision, and the PUSH path
+(`pushObservation`) has no caller because nobody wrote one. ⇒ **It is an operations gap, not a
+cryptography or pricing one** — and the missing piece is a process that calls a permissionless
+function, not a contract change.
