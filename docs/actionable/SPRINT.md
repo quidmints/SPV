@@ -7718,3 +7718,25 @@ you expect the callee not to have it.
 deletion leaves `mode == 1` dispatching to nothing. **Predict: byte-identical behaviour**, since the
 branch is provably unreachable, and `--sizes` should show `LevManager` and `LevMath` both shrink.
 ⚠️ **`boldCloseReserve` is STATE** — check `DeployLib` and any setter before removing the slot.
+
+### ✅ §E304-WHY — **LIQUITY WENT BECAUSE THE LEVER IS weETH-DENOMINATED BY INTERFACE, AND TROVES DO NOT TAKE weETH**
+Owner, 2026-08-22: *"these were removed because we use weETH collateral all the time and we cant do that
+with liquity"*. **Recorded because `c11cb40f`'s message — *"remove Liquity as untestable under
+all-weETH"* — states the CONSEQUENCE, and the next reader will ask what the cause was.**
+
+**VERIFIED IN THE INTERFACE, not inferred:** `Interfaces.sol:420-421` — *"Supply `collAmount` **weETH**
+(already transferred in) as `lp`'s isolated collateral… @return supplied **weETH** actually credited"*;
+`:441` — *"`lp`'s **weETH** collateral balance on the venue, in **weETH (1e18) units**"*.
+⇒ **`ILevVenue` IS weETH-denominated in its own docs, so EVERY adapter is** (`MorphoEscrowVenue`,
+`AaveV3Venue`). A Liquity V2 trove takes its own collateral branches, not weETH, so a Liquity adapter
+could not satisfy this interface without an unwrap/wrap leg that defeats the point of holding weETH.
+⇒ **NOT A CAPABILITY GAP IN MORPHO — A COLLATERAL MISMATCH IN LIQUITY.** The lever is generic over
+VENUES and specific about the COLLATERAL, which is the right way round: one asset, several places to
+lend it.
+📌 **AND THIS IS WHY `mintForClose` COULD NEVER HAVE BEEN GENERALISED.** Minting a stable against a
+trove is a property of the protocol that ISSUES the stable. Morpho issues nothing. Folding that
+capability onto `ILevVenue` made the compiler say so — *"`MorphoEscrowVenue` should be marked as
+abstract"* — which is the same fact arriving as a type error.
+⚠️ **LIQUITY IS STILL PRESENT AS A DEPOSIT VENUE AND MUST NOT BE SWEPT WITH THIS:** `ChannelLib:98-150`
+makes live Stability Pool calls (`getCompoundedBoldDeposit`, `getDepositorYieldGainWithPending`,
+`withdrawFromSP`). **Lending against weETH is what it cannot do; taking BOLD deposits is what it does.**
