@@ -18,6 +18,18 @@ interface IOffchainOracle {
 ///
 /// 🔴 **AND IT COSTS MORE THAN A BLOCK.** That is the whole reason it is not the source.
 ///
+/// ⭐ **"THEY WOULD NOT SHIP A FUNCTION THAT RUNS OUT OF GAS" — CORRECT, AND THE NAME IS THE ANSWER.**
+///    The deployed contract is **`OffchainOracle`**. It is built to be called by `eth_call` from
+///    OFF-CHAIN, where the caller sets its own gas cap and the block limit does not apply. For that
+///    use it does not run out of gas at all. It is simply **not an on-chain primitive**, and reading
+///    it from a swap path is using it against its own stated purpose.
+///
+/// ✅ **CORROBORATED BY A SECOND, INDEPENDENT METHOD (2026-08-21)** — because one measurement that
+///    supports the conclusion you already hold is exactly the one to distrust. `eth_estimateGas`,
+///    computed by the NODE rather than by `gasleft()` bracketing inside the EVM, refuses outright:
+///        `error -32003: out of gas: gas required exceeds: 16777216`
+///    The node gives up at its own 16.7M estimation ceiling. Two different mechanisms, same verdict.
+///
 /// ⚠️ WHY THIS TEST EXISTS RATHER THAN A COMMENT. The figure that first ruled 1inch out — 31,722,803
 ///    — was the WHOLE TEST's gas: fork setup, Chainlink reads, assertions. I attributed it to
 ///    `getRate` alone and reverted a commit on it. **The conclusion was right and the measurement was
