@@ -2332,6 +2332,25 @@ construction" into "the LP is protected if the protocol was healthy at one parti
 ⚠️ **AND THE DAMAGE IS SILENT AT THE MOMENT IT HAPPENS:** the LP sees a reverted transaction, which
 reads as "try again later", not as "your funds are now locked with no escape".
 
+⚠️⚠️ **CORRECTED WITHIN THE HOUR — I OVERSTATED THIS AS PERMANENT STRANDING AND IT IS AN EXPOSURE
+WINDOW. The correction makes the finding sharper, so read it rather than the paragraph above.**
+`Vault.sol:620` already contains the counter-argument, written for the delivery path: *"a revert just
+re-tries the EVM leg against a **still-valid SPV proof** after the basket refills; the swapper already
+holds their BTC and **nothing is lost**."* That is right, and it applies to the open too — **a merkle
+proof stays valid forever, and a reverted open wrote nothing, so `openChannel` can simply be
+resubmitted once the protocol is healthy.** Nothing is stranded permanently.
+🔑 **BUT THE ARGUMENT DOES NOT TRANSFER, AND THE REASON IS THE WHOLE FINDING: on delivery the revert
+leaves the swapper ALREADY HOLDING THEIR BTC; on open it leaves the LP HOLDING CUSTODY WITH NO
+ESCAPE.** *"Nothing is lost"* is a statement about who is already paid, and at the open nobody is.
+⇒ The defect is a **WINDOW in which a funded 2-of-2 has no armed ladder**, not a permanent loss — and
+it matters because of **WHEN the window opens**: `checkBacking` fails and TWAPs go stale exactly
+during stress, which is also when a hop is most likely to go dark. **If the hop vanishes inside that
+window the loss IS permanent**, because the ladder that would have covered it was never armed. A
+correlated-failure window, not a stranding bug.
+⚠️ **The severity claim about the enclave narrows accordingly:** it cannot strand funds at will, but it
+CAN decline to submit the open and let the window run, and the LP cannot tell a hostile stall from an
+unhealthy basket. **Do not carry the stronger version of this claim forward.**
+
 ▶️ **THIS DECIDES THE DESIGN, and it also answers "when does the LP start earning" without needing
 retroactive accrual:**
 - **CUSTODY + LADDER must record UNCONDITIONALLY**, gated only on the SPV proof — facts about *this*
