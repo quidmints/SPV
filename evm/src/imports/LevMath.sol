@@ -474,10 +474,6 @@ library LevMath {
     /// @dev Borrowed stable → WETH. Two hops, because the deep dollar markets are RLUSD/PYUSD
     ///      while the volatile book is a pinned Uniswap V3 pool:
     ///          stable →(Curve stableswap, int128)→ USDC →(Uniswap V3, `_poolSwap`)→ WETH
-    /// ⛔ THIS SAID "ENTIRELY ON CURVE (no Uniswap on this path)" UNTIL 2026-08-17, DIRECTLY ABOVE A
-    ///      `_poolSwap` CALL — the exact inverse of the truth, and on the money path. §V-R1-MIN
-    ///      replaced TriCrypto's USDC leg with the pinned pool and the header was never updated.
-    ///      A comment describes past state; this one described a venue the code had stopped using.
     ///      The caller mints the result straight into weETH; WETH never rests as collateral.
     /// ⚠️ THE FLOOR IS ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop. A per-hop floor
     ///      would let the pair of hops lose more than the stated slippage between them. This is the
@@ -583,8 +579,7 @@ library LevMath {
 
     /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both VIA USDC — and the two
     ///      hops sit on DIFFERENT venues: stable↔USDC is Curve stableswap, USDC↔WBTC is a pinned
-    ///      Uniswap V3 pool. It read "both via USDC on Curve" until 2026-08-17, which was true of
-    ///      the TriCrypto route this replaced.
+    ///      Uniswap V3 pool.
     ///      `minOut` is applied on the LAST hop so it bounds the whole route.
     /// @dev §V-R1-MIN — TWO HOPS, AND THE FIRST IS NOT OPTIONAL. The pinned pools are USDC-paired
     ///      (USDC/WETH, WBTC/USDC), so a venue stable that is NOT USDC has no direct pool and the

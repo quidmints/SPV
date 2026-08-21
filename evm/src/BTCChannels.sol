@@ -140,13 +140,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // BtcVault — the regrouped BTC side (LP register/close + swap credit), bound in the
     // constructor. (E150: the legacy `(_aux, _band)` pair and `_hopNode` are gone.)
     IBtcVaultBridge public immutable btcVault;
-    // 🔴 OBITUARY, NOT A DESCRIPTION — REWRITTEN 2026-08-16. This block used to read "MULTI-HOP:
-    // there is NO single global `hopNode`. Each channel records the hop (EVM address) that opened
-    // it (`channel.hop`) … splice and swap-out delivery gate on `channel.hop` directly … this lets
-    // independent SGX instances run against the SAME contracts WITHOUT ONE BEING ABLE TO TOUCH
-    // ANOTHER'S CHANNELS. Open is PERMISSIONLESS across hops."
-    // ⚠️ **EVERY ONE OF THOSE SENTENCES IS NOW FALSE, AND THEY ARE THE LOAD-BEARING KIND.**
-    //   • `channel.hop` IS DELETED (§E164 — see the `BTCChannel` struct, which says so outright).
+    // 🔑 AUTHORIZATION IS PER-OUTPOINT, NOT PER-HOP.
+    //   • There is no `channel.hop`: a channel records no owning hop (§E164).
     //   • The gate is `_onlyHop()`: `msg.sender` must equal `MAIN_HOP` or `FALLBACK_HOP`, two
     //     IMMUTABLE addresses, at every hop entrypoint.
     //   • Open is NOT permissionless — `openChannel` calls `_onlyHop()` too (§E185).
@@ -276,9 +271,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // arbitrary LP's `btcRecipient`, which close, splice-out and the dead-man exit all key on.
     // (E157) The monotonic counter had nothing left to guard: a signature bound to a single-use
     // outpoint cannot be replayed, and `_useOutpoint` enforces that.
-    // ⚠️ CORRECTED 2026-08-16: this used to continue "and afterwards only
-    // `channel.hop` — the hop that opened it — may act." `channel.hop` IS DELETED (§E164);
-    // afterwards `_onlyHop()` lets EITHER immutable hop address act, on any channel. The
+    // ⚠️ Afterwards `_onlyHop()` lets EITHER immutable hop address act, on any channel: the
     // authorization is per-OUTPOINT, not per-hop — see the `_onlyHop` note for why that is
     // deliberate and what it costs.
     // (E156) THE E122 LP-NAMED FALLBACK IS DELETED — `fallbackAuthority`, `registerFallback[For]`,
@@ -2012,9 +2005,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// ⚠️ DEDUP IS ON THE DEPOSIT OUTPOINT, NOT A HOP-CHOSEN HASH. The old rail keyed replay
     ///    protection on `paymentHash`, a value the hop invents; a txid is a fact.
     ///
-    /// ✅ (§T2) NOT TRUSTED ANY MORE — THIS SAID THE OPPOSITE UNTIL 2026-08-21 AND SAT DIRECTLY ABOVE
-    ///    THE FUNCTION THAT CHANGED. It read: *"STILL TRUSTED … `seller`, `token` and
-    ///    `minDeliveredUsd` remain the hop's assertions."* They are now COMMITTED: the deposit
+    /// ✅ (§T2) THE TERMS ARE COMMITTED, NOT TRUSTED: the deposit
     ///    address's leaf carries `PUSH32 sha256(abi.encode(seller, token, pricePerBtc, slippageBps))
     ///    OP_DROP`, so a hop that settles under different terms derives an address the deposit never
     ///    paid and `verifySwapInDeposit` reverts. **And `minDeliveredUsd` is gone entirely** — the

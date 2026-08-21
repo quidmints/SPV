@@ -60,8 +60,8 @@ pub enum SwapInOnchainError {
 ///
 /// ⛔ **NOT the floor.** `swap_in_floor_usd` scales with the sats actually deposited, which nobody
 /// knows when this address is derived — the address must exist before the seller can pay it. The
-/// RATE is what is fixed at registration, and the contract derives the floor from it and the
-/// SPV-proven sats (`ExitLib.settleFloorUsd`), so no floor is supplied by anyone.
+/// RATE is fixed at registration, and the contract derives the floor from it and the SPV-proven
+/// sats (`ExitLib.settleFloorUsd`), so no floor is supplied by anyone.
 ///
 /// `sha256(abi.encode(seller, token, pricePerBtc, slippageBps))` — four 32-byte ABI words, matching
 /// `ExitLib.termsCommitment` byte for byte. **`sha256`, not keccak:** the digest is pushed into a

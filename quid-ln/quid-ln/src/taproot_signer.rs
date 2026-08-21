@@ -436,13 +436,11 @@ pub fn local_pubnonce_deadman(
 /// **our** MuSig2 key-path partial over the exit-tx sighash `message`, given the
 /// other half's public nonce, deriving our secret nonce via
 /// [`KeyPathFirstRound::new_deadman`] (domain-separated + message-bound). Returns
-/// `(our_partial, our_pubnonce)`. ⛔ **THIS SAID "the fleet holds BOTH funding halves, so it calls
-/// this once per half" UNTIL 2026-08-18, AND `99fda5e9` (§M1#2) MADE THAT FALSE.** The fleet is
-/// vault-less by DEFAULT now, so it holds ONE half and calls this once, with the LP's pubnonce
-/// arriving from the LP's own host; the both-halves form survives only under
-/// `QUID_FLEET_COHOSTS_VAULT=true`, the single-custodian deployment that logs a warning saying its
-/// multisig is nominal. Partials still combine via [`aggregate_key_path_partials`] either way —
-/// only WHO produces the second one moved. Because the nonce is disjoint from both
+/// `(our_partial, our_pubnonce)`. The fleet is vault-less by default, so it holds ONE half and
+/// calls this once, with the LP's pubnonce arriving from the LP's own host; the both-halves form
+/// applies only under `QUID_FLEET_COHOSTS_VAULT=true`, the single-custodian deployment that logs a
+/// warning saying its multisig is nominal. Partials combine via [`aggregate_key_path_partials`]
+/// either way — only WHO produces the second one differs. Because the nonce is disjoint from both
 /// commitment domains AND bound to the exit sighash, this partial can never share a
 /// secret nonce with live commitment/close signing nor with a refreshed exit over a
 /// different sighash (the funding-key-leak guard, `x = (s1-s2)/(e1-e2)`).

@@ -136,6 +136,17 @@ library DeployLib {
             core          = new Core(cfg.weth, SwapLib.ethRisk());
             Core btcCore  = new Core(cfg.wbtc, SwapLib.btcRisk());
             a.btcCore = address(btcCore);
+            // (§E222) The ring's independent observation source: Curve TriCrypto-USDC,
+            // `price_oracle(1)`. Index 1 is derived, not chosen — Curve prices coin `k+1` in coin-0
+            // units and this pool is USDC=0, WBTC=1, WETH=2, so `1` is WETH/USDC, already USD·1e18,
+            // which is why `_observeIfSourced` applies no scaling. One storage read: it sits on the
+            // swap path, so an aggregating source that iterates venues cannot be used here.
+            // ⚠️ REQUIRED. Unset, `_observeIfSourced` returns early and the ring records nothing, so
+            // σ² is never measured and §E213 prices at the ceiling — safe, and silent.
+            // ⚠️ The BTC instance is deliberately left unset: every on-chain venue quotes WRAPPED
+            // BTC, so observing one makes a WBTC depeg indistinguishable from bitcoin moving. Unset
+            // ⇒ σ² unmeasured ⇒ §E213 at the ceiling, which is the honest reading. The BTC anchor is
+            // unaffected and already wrapper-free (Chainlink BTC/USD).
         }
         Aux aux = new Aux(Aux.AuxInit({
             band: address(v4), core: address(core), btcCore: a.btcCore,

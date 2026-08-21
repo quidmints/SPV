@@ -244,12 +244,8 @@ pub struct VaultRegistry {
     /// rungs are spends of the 2-of-2 — **both require the LP funding half, which after §E175
     /// the fleet does not have.** So the fleet RELAYS consent; it never manufactures it.
     ///
-    /// ⚠️ This said `OpenAuth.lp_sig ... over openAuthDigest` until §E183 item 1 deleted that
-    /// field. The CLAIM survived the deletion unchanged and is still true — consent is still
-    /// unforgeable without the LP half — but the WITNESS moved, from an ECDSA signature over
-    /// an EVM digest to a Schnorr PoP, because `lpEth` is now DERIVED from `lpPubkey` on chain
-    /// rather than asserted next to a signature. A right conclusion resting on a deleted
-    /// mechanism is the shape that reads as verified and is not.
+    /// ⚠️ The witness is a Schnorr PoP rather than an EVM signature: `lpEth` is DERIVED from
+    /// `lpPubkey` on chain (§E183), so there is no EVM signature for the LP to produce.
     ///
     /// ⚠️ Same lifecycle as `by_funding`: only IN-FLIGHT opens AND SPLICES (§E233-ladder — a splice's
     /// rotated outpoint needs its own fresh ladder, and it binds here under the same

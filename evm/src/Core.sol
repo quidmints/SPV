@@ -573,11 +573,9 @@ contract Core {
     ///      (CLAUDE.md 8c, measured independently on `BTCChannels` by a concurrent thread.)
     ///      VERIFIED against a same-worktree control, only this change differing: both arms
     ///      4,400 passed / 1 failed / 2 skipped — the failure pre-existing, the skips environmental.
-    /// §DEDUP-BAND (2026-08-18) — was `address(BAND)`, and `BAND` is DELETED. It duplicated `BAND`
-    /// on the ETH instance and MIS-POINTED on the BTC one:
-    ///   • ETH: `setup(v4, v4, …)` pinned the SAME ADDRESS to both `BAND` and `BAND`. Two fields,
-    ///     two types, one address — the shape CLAUDE.md records as having planted three bugs in the
-    ///     EthVenue split, where the call site was right and the ASSIGNMENT was wrong.
+    /// §DEDUP-BAND — ONE field for the band manager. A second field holding the same address is
+    /// the shape CLAUDE.md records as having planted three bugs in the EthVenue split: the call
+    /// site reads correctly while the ASSIGNMENT points somewhere else.
     ///   • BTC: `setup(v4, 0, …)` pinned `BAND` to the **ETH** band manager, so the BTC engine's
     ///     `onlyUs` admitted a FOREIGN band. `Quid` holds ONE `Core` handle (`:57`) and no BTC-core
     ///     reference, so it never used that privilege — an unexercised grant, which is the kind that

@@ -23,8 +23,7 @@
 //! inside the fleet: **it is the fleet checking itself**, and the checks below
 //! enforce nothing against the one adversary that matters.
 //!
-//! ✅ **THAT DESCRIBED THE DEPLOYMENT UNTIL 2026-08-18 AND NO LONGER DOES — `99fda5e9` (§M1#2)
-//! MADE THE FLEET VAULT-LESS BY DEFAULT.** The vault boot now sits behind
+//! ✅ **THE FLEET IS VAULT-LESS BY DEFAULT (§M1#2).** The vault boot sits behind
 //! `QUID_FLEET_COHOSTS_VAULT`, default OFF, so the LP funding half lives on the LP's own host and
 //! this signer is no longer the fleet checking itself: the adversary it was powerless against —
 //! a compromised fleet — can no longer produce the other half at all.
