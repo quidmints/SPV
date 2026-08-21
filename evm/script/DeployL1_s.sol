@@ -673,13 +673,33 @@ contract Deploy is Script {
     ///    debt lands on a 1.24 WETH base instead of the whole 2 weETH stack, so a 3% ETH move liquidates
     ///    it. A weETH->USDC borrow reaches 4.44x with a 37.5% buffer in one account and no eMode.
     ///
-    /// 📌 EVERY VENUE HERE BORROWS **USDC**, which is why an ETH-denominated IL-protect borrow currently pays
-    ///    a stable→WETH SOR round trip. A weETH-collateral/WETH-loan Morpho market EXISTS and is deep
-    ///    (id `0x37e7484d…472ba7`, 94.5% LLTV, 1,770 WETH liquid, verified on-chain 2026-08-08 — see QUEUE).
-    ///    Adding it here removes that round trip entirely. The plumbing is already in place and inert:
-    ///    `LevMath._stableToWethSor`/`_wethToStableDex` short-circuit when `stable == c.weth`, and
-    ///    `_fromUsd`/`_toUsd18` are now price-aware, so a WETH loan token sizes off the ETH price rather
-    ///    than silently assuming $1. NOT ADDED YET: it is a money-path change and needs its own verified run.
+    /// 📌 EVERY VENUE HERE BORROWS **USDC/RLUSD/PYUSD**, which is why an ETH-denominated IL-protect borrow
+    ///    pays a stable→WETH round trip — the `WETH→USDC` V3 hop exists ONLY because the debt is a stable.
+    ///    With ETH-denominated debt, de-lever is `weETH→WETH` on Curve and the hop disappears.
+    ///
+    /// 🔴 THE MORPHO weETH/WETH MARKET IS **NOT** THE WAY TO GET THAT — THIS NOTE USED TO SAY IT WAS, AND
+    ///    THE NUMBER IT CITED HAS DECAYED 63% IN TWO WEEKS. It read *"EXISTS and is deep … 1,770 WETH
+    ///    liquid, verified 2026-08-08"*. RE-MEASURED 2026-08-22 (id `0x37e7484d…472ba7`):
+    ///      supply 6,519 WETH ($15.5M) · borrowed 5,868 ($14.0M) · **FREE 652 WETH ($1.55M)** · util **90%**
+    ///    ⚠️ "Deep" was a snapshot, and a borrowable-depth snapshot is the fastest-rotting number in this
+    ///    file — utilisation moves it without anyone touching the market.
+    ///
+    /// ✅ **AAVE v3 eMODE DOMINATES IT ON BOTH AXES** (measured 2026-08-22, `getEModeCategoryData(1)`,
+    ///    decoding past the ABI offset word — the naive decode reports a nonsense 0.32% LTV):
+    ///      Aave eMode cat 1 : LTV **93.00%**, liq threshold **95.00%**, bonus 1.00%, **free $808M**
+    ///      Morpho 94.5%     : LLTV 94.50%,                                            free $1.55M
+    ///    Aave's liquidation threshold is HIGHER (95.00 vs 94.50) at **520× the free liquidity**, weETH is
+    ///    active/unfrozen with a 1,350,000 supply cap, and `AaveV3Venue` ALREADY EXISTS and is fork-verified
+    ///    (`test/AaveV3Venue.t.sol`) — it is used for the WBTC leg, not yet for ETH-denominated debt.
+    ///
+    /// ⚠️ WHICH DIRECTION IS CONSTRAINED, because the 90% utilisation is easy to misread: **DE-LEVERING
+    ///    REPAYS, so it can never be blocked by low availability** — repaying ADDS liquidity. The $1.55M
+    ///    caps LEVERING UP only. So the WETH-debt route removes the V3 hop from de-lever unconditionally;
+    ///    what it cannot do is absorb new levered demand past ~$1.55M, at which point positions fall back
+    ///    to the stable markets and the hop returns.
+    /// ▶️ NOT WIRED, and `MORPHO_LLTV_945` / `WEETH_WETH_ORACLE` are ORPHAN CONSTANTS (0 uses) kept only
+    ///    as the market's coordinates. Extend `AaveV3Venue` to the ETH side instead — same money-path
+    ///    caution applies, and it needs its own verified run.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
         // MORPHO ONLY. Euler v2 and Aave v4 BORROWING are removed; the BTC side keeps Aave V3 for WBTC.
         // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
