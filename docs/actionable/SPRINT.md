@@ -2448,6 +2448,43 @@ The directory vanished; the commit stayed in the shared object store and was rec
 is the rule-11/15 resolution booked in `CLAUDE.md` earlier the same day, paying for itself within the
 hour — the second worktree lost that day, and the first one whose work did not have to be rewritten.
 
+## 🔁 §TEST-RECONSTRUCTIONS — 🔴 **OPEN. FIXTURES RE-DERIVE WHAT THE CONTRACT ALREADY EXPOSES, AND THAT IS WHAT MADE `#21` POSSIBLE**
+
+Owner, 2026-08-22: *"tests use the same files of imports folder that contracts use for maximum
+dedup?"* — the right question, and the answer today is **only for TYPES, not for DERIVED VALUES.**
+
+Fixtures do share `src/imports/` for `Types` and `ChannelLib`. But three of them recompute a
+domain-separated digest by hand, and **two of those have a PUBLIC getter on the contract that exists
+specifically to stop the hand copy:**
+
+| fixture | recomputes | canonical source | status |
+|---|---|---|---|
+| `btc/ExitFixture.sol:184` `_popDigest` | `BTCChannels.btcRecipient.pop.v1` | **`btcRecipientPoPDigest()` `public`** | 🔴 bypassed |
+| `BTCChannelsAuth.t.sol:74` | `BTCChannels.openChannel.v2` | **`openAuthDigest()` `public`** | 🔴 bypassed |
+| `VBtcLevFeeLane.t.sol:361` | `BTCChannels.rekey.v1` | **none — lives in `ChannelLib.rekeyAuthBody`** | ⚠️ different problem |
+
+⭐ **THE CONTRACT'S OWN COMMENT CONVICTS THE FIRST ONE.** `BTCChannels.sol:2429` says
+`btcRecipientPoPDigest` is *"Public so the LP's wallet signs EXACTLY what the contract checks
+**rather than a reconstruction**."* The fixture reconstructs it anyway — same tag, same field order,
+copied by hand. The getter was added to prevent precisely this and is not called by the tests it was
+added for.
+
+🔑 **WHY IT IS NOT COSMETIC — IT IS `#21`'s ROOT IN GENERAL FORM.** `#21` happened because the
+fixtures kept their OWN notion of `lpEth` (`vm.addr(lpPk)`, `ECDSA.recover`) that could drift from
+`ChannelLib.lpEthOf(p.lpPubkey)` **silently**, and §E183 changed the contract's side without the
+copies noticing. A hand-copied digest is the same hazard one level up: change the tag string, a
+field, or the field ORDER in the contract, and every test keeps signing the old digest and keeps
+passing until an integration test fails for a reason nobody can localise.
+⇒ **The discriminator is standing rule 3's inverse: the drift is SILENT.** That is what earns the
+dedup, not tidiness.
+
+▶️ **THE FIX FOR THE FIRST TWO IS FREE** — call the getter, delete the copy. `_popDigest` also stops
+needing `_btcChannels` to be the right address, because the getter uses its own `address(this)`.
+⚠️ **THE THIRD IS NOT FREE AND MUST NOT BE FORCED.** `rekey.v1` has no public getter, and adding one
+costs bytes on a contract at **292 spare**. Either expose it from `ChannelLib` (which tests already
+link) or leave the copy WITH A POINTER at the source — do not add a `BTCChannels` getter for a test's
+convenience without measuring first.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
