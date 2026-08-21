@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 // §E266 — flashLoan comes from Morpho Blue itself; this was a hand-rolled restatement of
 // IMorphoBase.flashLoan(address,uint256,bytes), identical in signature.
 import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
+import {IStabilityPool, ICurveOracle, IOffchainOracle, IAaveV3Pool, IAaveV3DataProvider} from "./Interfaces.sol";
 
 /// @title  Interfaces — the ONE declaration site for external ABIs shared across the tree.
 ///
@@ -685,4 +686,95 @@ interface IBand {
     function onShortfall(address sender, uint shortfall) external;
     /// Pay the volatile leg out to `who`. See the no-op note above.
     function deliverVolatile(uint amount, address who) external returns (uint sent);
+}
+
+/// @notice §E297 — the last five interfaces that lived outside this file (standing rule 2).
+///         `ISwap.sol`/`ILevVenue.sol` were deleted by §E296 because they held nothing else;
+///         these five sat inside files that also hold real libraries, so only the declarations
+///         moved. `Interfaces.sol` already declared `IAaveV4Spoke`, `IAaveV4Hub` and
+///         `ICurvePool`, so the Aave/Curve handles now all live in one place instead of two.
+
+/// @notice Minimal interface for Liquity V2 StabilityPool
+/// @dev 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF (WETH)
+interface IStabilityPool {
+    function provideToSP(uint _topUp, bool _doClaim) external;
+    function withdrawFromSP(uint _amount, bool _doClaim) external;
+    function getCompoundedBoldDeposit(address _depositor) external view returns (uint);
+    function getDepositorYieldGainWithPending(address _depositor) external view returns (uint);
+}
+
+/// Curve's on-pool EMA oracle. Returns a PLAIN PRICE (WAD) of coin `k+1` in units of coin 0 —
+/// no ticks, no sqrt price, nothing to decode.
+interface ICurveOracle {
+    function price_oracle(uint256 k) external view returns (uint256);
+    function price_oracle() external view returns (uint256);   // two-coin pools take no index
+}
+
+/// @title  ExternalTwap — the INDEPENDENT price observer, restoring what the v4 cut deleted
+///
+/// @notice **WHY THIS EXISTS.** Before the cut, the observation ring recorded the BAND POOL'S SPOT
+///         PRICE — an actual observation of executed trades — and Chainlink was the ANCHOR checking
+///         it. Two genuinely different sources, which is what made `twapResolve`'s deviation test and
+///         `BasketLib.isManipulated` mean anything.
+///
+///         Removing the AMM removed the observation. `Core.swap` now writes the ring from
+///         `AUX.getTWAPforAsset`, which reads that same ring and anchors to Chainlink — so the ring
+///         records a value derived from itself plus Chainlink, and every guard compares one source
+///         against a smoothed copy of itself. **Nothing reverts. The guards still run and still
+///         compute; they simply lost the ability to disagree.**
+///
+/// @dev **WHY CURVE AND NOT A UNISWAP TWAP.** A v3 TWAP is tick-cumulative, so reading one means
+///      `1.0001^tick` — i.e. `TickMath`, the exact dependency this refactor removed. Curve's
+///      `price_oracle()` is a plain WAD price maintained by the pool, so it needs no decoding at
+///      all. It is also a genuinely DIFFERENT mechanism from Chainlink's pushed feeds — an EMA over
+///      executed trades versus a signed off-chain report — which is what makes the cross-check
+///      informative rather than decorative. And we already route every swap leg through these pools,
+///      so it adds no new integration surface.
+///
+/// ⚠️ **AN EMA IS NOT A WINDOWED TWAP, AND THE DIFFERENCE MATTERS FOR THE BOUND.** Curve's oracle
+///      decays exponentially toward spot with a pool-configured half-life; it has no explicit window
+///      you choose. So its manipulation profile is set by the POOL, not by us — you cannot widen the
+///      window to buy safety the way you can with a v3 observation. The deviation bound must be
+///      derived against that half-life, not inherited from `TWAP_MAX_DEVIATION_BPS`, which was
+///      calibrated for a 30-minute windowed reading.
+///
+/// ⚠️ **CORRELATED SOURCES ARE ONE SOURCE.** Two stablecoin-quoted ETH pools share a depeg mode:
+///      when the stable moves, both move together, in exactly the regime the guard exists for.
+///      Relating the volatile legs through ONE BTC↔ETH ratio avoids compounding two USD oracle
+///      errors into the number that actually matters. Count correlated readings as one observer.
+/// @dev 1inch OffchainOracle — the AGGREGATED spot-rate reader. `useWrappers=false` keeps the lookup
+///      on the token as given rather than letting the oracle substitute a wrapper: a substitution
+///      would quietly reintroduce the wrapped-asset basis this protocol is removing (§E221).
+interface IOffchainOracle {
+    function getRate(address srcToken, address dstToken, bool useWrappers)
+        external view returns (uint256 weightedRate);
+    /// @dev §E297 — absorbed from `OneInchGasProbe.t.sol`, which declared its own `IOffchainOracle`
+    ///      carrying this member as well. The two declarations had DRIFTED: the test's had
+    ///      `getRateToEth` and this one did not, so folding the file-local copy in without taking
+    ///      this member would have deleted a call the probe actually makes (`:65`). Union, not
+    ///      truncation — that is what "one declaration" has to mean when the copies disagree.
+    function getRateToEth(address srcToken, bool useWrappers) external view returns (uint256);
+}
+
+/// ── Aave V3 Pool surface this adapter needs. Signatures proven against the LIVE Aave V3 Pool by the (tested)
+///    Amp.sol integration: supply(asset,amt,onBehalf,ref) / borrow(asset,amt,rateMode,ref,onBehalf) /
+///    repay(asset,amt,rateMode,onBehalf) / withdraw(asset,amt,to). V3 keys a position by the CALLER (no
+///    sub-account / on-behalf-borrow), so per-LP isolation uses a per-LP escrow (the pattern `LevVenueBase` holds).
+interface IAaveV3Pool {
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
+    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
+    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
+    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
+}
+
+/// @dev Aave's ProtocolDataProvider — the PROVEN read Amp.sol used (`getReserveTokensAddresses`). Its per-asset
+///      `getUserReserveData` returns the CURRENT (already index-scaled, block-fresh, underlying-unit) aToken balance
+///      and variable debt DIRECTLY — no vToken.balanceOf, no hardcoded reservesList index, one asset per call
+///      (cheap on the on-chain bandBTC sum). This is why we read positions here and not off the raw tokens.
+interface IAaveV3DataProvider {
+    function getUserReserveData(address asset, address user) external view returns (
+        uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt,
+        uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate,
+        uint256 liquidityRate, uint40 stableRateLastUpdated, bool usageAsCollateralEnabled);
 }

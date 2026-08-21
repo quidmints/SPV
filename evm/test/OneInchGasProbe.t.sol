@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 import "forge-std/Test.sol";
-
-interface IOffchainOracle {
-    function getRate(address src, address dst, bool useWrappers) external view returns (uint256);
-    function getRateToEth(address src, bool useWrappers) external view returns (uint256);
-}
+import {IOffchainOracle} from "../src/imports/Interfaces.sol";
 
 /// @title §E232 — 1inch's OffchainOracle CANNOT BE READ ON-CHAIN. Measured in isolation.
 ///

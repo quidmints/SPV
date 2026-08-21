@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Types} from "./Types.sol";
 import {WAD} from "./Types.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
-import {IAux} from "./Interfaces.sol";
+import {IAux, IStabilityPool} from "./Interfaces.sol";
 import {IQuidTarget} from "./Interfaces.sol";
 import {BitcoinTx} from "./BitcoinTx.sol";
 // (E128/§E140-r) `BitcoinTx._assertLegacy` REJECTS any witness-carrying tx, so it cannot parse a
@@ -36,15 +36,6 @@ import {IEthVenue} from "./Interfaces.sol";
 ///         mapping getters are READS; the *Self entries are the self-gated
 ///         mutators (the same DELEGATECALL→self-CALL pattern takeBody uses).
 /// @notice Aave-v4 reserve-id resolution + supply surface (subset of Aux.IAaveV4Spoke).
-
-/// @notice Minimal interface for Liquity V2 StabilityPool
-/// @dev 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF (WETH)
-interface IStabilityPool {
-    function provideToSP(uint _topUp, bool _doClaim) external;
-    function withdrawFromSP(uint _amount, bool _doClaim) external;
-    function getCompoundedBoldDeposit(address _depositor) external view returns (uint);
-    function getDepositorYieldGainWithPending(address _depositor) external view returns (uint);
-}
 
 /// @title  ChannelLib — bodies extracted from BTCChannels to free its
 ///         deployed bytecode under EIP-170. Same DELEGATECALL semantics

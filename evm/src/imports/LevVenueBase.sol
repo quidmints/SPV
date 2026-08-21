@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 // `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
 // signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
-import {ILevVenue, IERC20Min} from "./Interfaces.sol";
+import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider} from "./Interfaces.sol";
 import {IMorphoStaticTyping as IMorpho, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
 // §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled
@@ -201,28 +201,6 @@ contract MorphoEscrowVenue is LevVenueBase {
 }
 
 // ═══ folded from src/AaveV3Venue.sol (2026-08-15) ═══
-
-/// ── Aave V3 Pool surface this adapter needs. Signatures proven against the LIVE Aave V3 Pool by the (tested)
-///    Amp.sol integration: supply(asset,amt,onBehalf,ref) / borrow(asset,amt,rateMode,ref,onBehalf) /
-///    repay(asset,amt,rateMode,onBehalf) / withdraw(asset,amt,to). V3 keys a position by the CALLER (no
-///    sub-account / on-behalf-borrow), so per-LP isolation uses a per-LP escrow (the pattern `LevVenueBase` holds).
-interface IAaveV3Pool {
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
-    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
-    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
-    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
-}
-/// @dev Aave's ProtocolDataProvider — the PROVEN read Amp.sol used (`getReserveTokensAddresses`). Its per-asset
-///      `getUserReserveData` returns the CURRENT (already index-scaled, block-fresh, underlying-unit) aToken balance
-///      and variable debt DIRECTLY — no vToken.balanceOf, no hardcoded reservesList index, one asset per call
-///      (cheap on the on-chain bandBTC sum). This is why we read positions here and not off the raw tokens.
-interface IAaveV3DataProvider {
-    function getUserReserveData(address asset, address user) external view returns (
-        uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt,
-        uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate,
-        uint256 liquidityRate, uint40 stableRateLastUpdated, bool usageAsCollateralEnabled);
-}
 
 /// @title  AaveV3Escrow — a single LP's ISOLATED Aave V3 position, owned by the venue (mirror of AaveV4Escrow)
 /// @notice Aave V3, like V4, keys a position by the CALLER and has no sub-account/on-behalf-borrow, so the only way
