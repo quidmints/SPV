@@ -1301,16 +1301,17 @@ contract Core {
     ///      against it fresh — never revived from history.
     address public observationSource;
 
-    /// @dev (§E232) The `price_oracle` index for THIS instance's pool. Curve prices coin `k+1` in
-    ///      units of coin 0; the pinned TriCrypto-USDC pool is USDC=0, WBTC=1, WETH=2, so `1` reads
-    ///      WETH/USDC. Named rather than inlined because a bare `1` at the call site is
-    ///      indistinguishable from a placeholder, and reading `0` here would price ETH as WBTC.
-    uint256 internal constant OBS_POOL_IDX = 1;
+    /// @dev The exact call to make on `observationSource`, pinned WITH it. Empty = no source.
+    ///      Kept as calldata rather than a hardcoded selector because the read shape is the SOURCE's
+    ///      (Curve takes a coin index, a feed takes none), and hardcoding one venue's shape is how a
+    ///      rejected pool's index survives into its replacement.
+    bytes public OBS_CALLDATA;
 
-    function setObservationSource(address src) external {
+
+    function setObservationSource(address src, bytes calldata call_) external {
         require(msg.sender == DEPLOYER, "403");
         require(observationSource == address(0), "!");
-        observationSource = src;
+        observationSource = src; OBS_CALLDATA = call_;
     }
 
     /// @dev THE READ MUST NOT BE ABLE TO HALT THE BAND. `ExternalTwap.oneInchRateWad` reverts on a
@@ -1344,8 +1345,12 @@ contract Core {
         // also moot: an aggregation that cannot be called is not a source at all. This is one venue,
         // genuinely different in MECHANISM from Chainlink's pushed feeds (an on-pool EMA of executed
         // trades), and that is what the deviation test needs to mean anything.
-        (bool ok, bytes memory out) = src.staticcall(
-            abi.encodeWithSignature("price_oracle(uint256)", OBS_POOL_IDX));
+        // 🔴 NO SOURCE IS PINNED (see `DeployLib`), so this body does not run today. The SELECTOR
+        //    and any index belong TO THE CHOSEN SOURCE and must be decided WITH it — a pool index is
+        //    meaningless without the pool, and carrying TriCrypto's `1` forward would silently price
+        //    ETH as WBTC on any pool ordered differently. Left as a raw call so the next source
+        //    supplies its own encoding rather than inheriting a rejected pool's.
+        (bool ok, bytes memory out) = src.staticcall(OBS_CALLDATA);
         if (!ok || out.length < 32) return;
         uint priceWad = abi.decode(out, (uint));
         if (priceWad != 0) _writeObservationPrice(priceWad);

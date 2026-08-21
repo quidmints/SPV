@@ -162,15 +162,20 @@ library DeployLib {
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
         core.setup(address(v4), address(aux), address(quid), seedEth);   // ETH band manager IS Quid
-        // §E222 — the ring's independent observation source. ETH INSTANCE ONLY: 1inch's
-        // OffchainOracle. The BTC instance is deliberately left unset — 1inch can only quote WRAPPED
-        // BTC, and observing it would make a WBTC depeg indistinguishable from bitcoin moving. Unset
-        // ⇒ no observations ⇒ σ² unmeasured ⇒ §E213 prices at the ceiling, which is the honest
-        // reading. The BTC ANCHOR is unaffected and already wrapper-free (Chainlink "BTC / USD").
-        // (§E232) Curve TriCrypto-USDC — REPLACES 1inch's OffchainOracle `0x0AdDd25a…`, which was
-        // pinned here and cost 31,722,803 gas per read against a 30M block limit, making every ETH
-        // swap and repack unexecutable. This pool's `price_oracle(1)` is one storage read.
-        core.setObservationSource(0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B);
+        // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
+        // TriCrypto-USDC was pinned here and is REMOVED: pricing the band off a single Curve pool
+        // makes that pool's depth and its own depeg mode an input to σ², the skew and liquidation —
+        // and `ExternalTwap`'s own header says a single venue is one observer, not an independent one.
+        // Two candidates were tried and both are ruled out: 1inch's OffchainOracle costs 31,722,803
+        // gas per read against a 30M block limit (unexecutable), and TriCrypto is this.
+        // ⇒ WITH NO SOURCE, `_observeIfSourced` RETURNS IMMEDIATELY: the ring is never written,
+        //   `ringVariance` returns 0, and §E213's sentinel prices unmeasured variance at the CEILING.
+        //   That is deliberate and it is the honest state — it is also what BOTH instances now do, so
+        //   the BTC/ETH asymmetry the old comment described no longer exists.
+        // ⚠️ THE CIRCULARITY §E222 NAMES IS GONE EITHER WAY: the ring is no longer self-written from
+        //   `getTWAPforAsset`. What is open is finding a source that is neither a single venue nor
+        //   unaffordable. The ANCHORS are untouched and already wrapper-free (Chainlink "ETH / USD"
+        //   and "BTC / USD").
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split
         // built both bands (above) but only the ETH one was
         // ever configured -- so the BTC Core had no AUX, no BASKET and, decisively, an UNSEEDED
