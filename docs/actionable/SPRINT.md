@@ -7373,3 +7373,44 @@ remainder to another venue at their own cost.** ⇒ **The whole loop closes with
 integration, no restoration ledger and no spread on our books** — which is why the primitives that
 modelled one have nothing to do. ⚠️ **The BTC side is NOT covered by this** (§E290: `creditSwapIn` is a
 real, wired restoration rail, 8 live refs). **That asymmetry is real and stays.**
+
+---
+
+## ⚠️ §E294-sources — **"MEDIAN OF THREE" IS NOT DERIVED, AND THOSE THREE ARE NOT INDEPENDENT ON THE AXIS THAT MATTERS**
+
+**Correcting a claim I made in conversation and did NOT book — recorded here because §C1's "which
+source" question is live and the claim would have misled whoever answered it.**
+
+I said a median of three on-pool EMAs answers the standing *"one venue is one observer"* objection,
+citing §E291's measurement. **Three was not derived from anything — it is the count that happened to
+be measured.** And the sources are:
+
+| | WETH/USDC | WETH/USDT | WETH/crvUSD |
+|---|---|---|---|
+| quote | \$2,384.81 | \$2,386.52 | \$2,384.83 |
+
+🔴 **THE ETH LEG IS COMMON TO ALL THREE. They are ONE observer of ETH with THREE stablecoin legs**, so
+the **7.2 bps spread is a STABLECOIN basis** (USDC vs USDT vs crvUSD), not evidence that three
+independent sources agree about ETH. A median across them is robust to **one stable depegging and to
+nothing else** — if ETH's on-chain price is pushed on Curve, all three move together, sharing an
+arbitrage surface and much of the same liquidity. ⇒ **That is `ExternalTwap`'s own objection —
+*"correlated sources are one source"* — landing on the very combination I offered to satisfy it.**
+
+⭐ **AND THE DEEPER ERROR: THE MEDIAN WAS NOT DOING SAFETY WORK AT ALL.** `pushObservation` is
+anchor-bounded at `OBS_PUSH_MAX_BPS = 50` against Chainlink, so **no combination of sources changes
+what a bad one can do to the LEVEL** — the anchor already caps it. Combining sources buys two other
+things, and they should be argued for on their own terms:
+- **availability** — a stale or thin pool still leaves an answer;
+- **σ² quality** — a single manipulated-but-in-band source can still inflate or suppress variance
+  (§UNIT-B-PATIENCE measured exactly that: 4h spacing drove σ² **24× down** and the charge 93.3% down),
+  and a median damps it.
+⇒ **Level safety comes from the anchor; source count is a QUALITY question. I conflated them.**
+
+▶️ **SO A SOURCE-COMBINATION RULE MUST BE DERIVED FROM THE THREAT, NOT FROM A COUNT.** The threat the
+band does not cover is σ² manipulation *within* ±50 bps, plus selective sampling (§E294). Sources that
+are independent **on the ETH leg** — different chains, different venue families, a CEX read — address
+it; three Curve pools sharing an ETH leg do not. ⚠️ **And note the tension with the ADMISSIBILITY
+result (§E294, 23 bps): sources far enough apart to be genuinely independent are also more likely to
+sit outside the band and be refused.** Independence and admissibility pull opposite ways — **that
+trade-off is the actual content of §C1's "which source", and neither this row nor §E291's measurement
+settles it.**
