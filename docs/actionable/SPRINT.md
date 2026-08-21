@@ -7045,11 +7045,23 @@ Re-audited against the code, four of the ten I had said to KEEP were describing 
 | deleted | its claim | what the code says |
 |---|---|---|
 | `SOR-SIGNIFICANCE-DESIGN.md` | *"the committed `_pickBestPath` is a binary gate"* | **`SOR.sol` DELETED.** It documents a call site in a file that no longer exists — and §E228 removed that gate. |
-| `ROUTING-AGGREGATION.md` | *"Nothing below is implemented"* | **`SOR.sol` deleted, `_routeOf` live.** The migration happened. |
 | `JIT-DEPTH-GUARANTEE.md` | anchored to *"Vogue `_withdraw:393` TODO"* | **`Vogue.sol` is GONE.** |
 | `IBAND-THE-BAND-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IBand` is in 9 src files.** Wired. |
 | `LST-PEG-MONITOR.md` | *"over-engineering — don't build it"* | `pegMonitor` = 0. Self-concluded; nothing to keep. |
 | `IMPAIRMENT-DERISK-TRIGGER.md` | hold-down design note | `hold-down`/`derisk` = **0 files**. Nothing it describes exists. |
+
+🔴 **`ROUTING-AGGREGATION.md` WAS DELETED IN THIS SWEEP AND HAS BEEN RESTORED — I DELETED A SPEC FOR
+WORK THAT IS STILL UNBUILT (owner caught it, 2026-08-21).** My reason was *"`SOR.sol` deleted,
+`_routeOf` live ⇒ the migration happened."* **Both facts were true and the conclusion was false.**
+`_routeOf` is the **Curve STABLE table** (`stable → USDC` hops, RLUSD/PYUSD); deleting `SOR.sol`
+removed the V4-hop router. **Neither is 1inch execution.** Measured: `V3_SWAP_ROUTER` is STILL the
+live execution path (`LevMath:507-517`, `exactInputSingle`), and **there is no 1inch execution router
+anywhere in `src`** — the only 1inch surface is the `OffchainOracle` PRICE reader in `ExternalTwap`.
+⇒ **The §V-R spec (7 clauses) is the plan for work that has not started**, and it is now the only
+record of it. ⚠️ **THE ERROR IS THE SAME SHAPE AS THE HEADER-READING ONE: I inferred "done" from two
+ADJACENT facts instead of testing the actual claim — "is 1inch executing swaps?" — which one grep
+answers.** ▶️ It also intersects PART C2's owner directive *"there should be no v3 in this code at
+all"*: **V3 cannot be removed until 1inch replaces it**, so that directive and this spec are one task.
 
 🔴 **DANGLING CITATIONS THEY LEAVE — fix on sight, do not treat a broken pointer as a missing task:**
 `JIT-DEPTH-GUARANTEE` ×3 in **code**, `IBAND` ×2 in **code**, `ROUTING-AGGREGATION` ×1 in code + ×4 in
