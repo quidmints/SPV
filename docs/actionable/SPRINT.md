@@ -4969,7 +4969,26 @@ drains a band to zero. **Whatever mechanism lands, the test that proves it must 
 otherwise the suite will be green over the successor bug too.
 
 
-## 🔴🔴 §MIDNIGHT-SUBMODULE-HALF-DONE — **THE WORKING TREE'S 54-FILE CHANGE CANNOT BE PUSHED, AND IT DELETES THE FILE THAT SAYS WHY** (measured 2026-08-21)
+## ✅ §MIDNIGHT-SUBMODULE-HALF-DONE — **RESOLVED THE SAME DAY BY THE OWNER: *"we are not forking Midnight, forget about Midnight completely for now."*** (`c13ba3a4`)
+
+✅ **CLOSED. Verified on `origin/main`: 0 `morpho-v2` submodule refs, 0 Midnight files in `evm/src`,
+0 Midnight tests.** The blocked change set is landed — the 20 vendored files deleted, the submodule
+and its remapping removed, `MidnightMsb.t.sol` deleted with the library it tested, and `forge build`
+green.
+
+🔑 **THE ANALYSIS BELOW WAS RIGHT AND ITS RECOMMENDATION WAS WRONG, WHICH IS WHY IT IS KEPT.** It
+proved the change could not be pushed as it stood, and offered two resolutions: restore the vendored
+copies, or adapt upstream for `solc 0.8.30`. **The owner picked a third — delete Midnight entirely** —
+and that dissolves the dilemma rather than solving it: with nothing importing the libraries, neither
+the fork nor the adaptation has to exist. ⚠️ **A correct analysis can still enumerate only the
+options its own framing allows.** Both of mine assumed the code had to keep working; neither asked
+whether it had to exist.
+
+📌 The measurements below stand and are worth keeping: `clz` is unknown to `solc 0.8.30`, upstream
+therefore cannot compile here, and that is why the fork existed. **If Midnight ever returns, this is
+the constraint it returns into.**
+
+### The original finding, as measured (2026-08-21)
 
 The owner asked me to push the shared tree's uncommitted work. **I did not, because it does not
 build — and the reason is not a straggler, it is the premise.**
