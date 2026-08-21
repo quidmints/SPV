@@ -7794,3 +7794,78 @@ cases, which must go in the same commit or the suite breaks.
 work rather than `main`.** Rule 15 on a money-path-adjacent deletion needs a clean tree or a detached
 worktree; **the finding is landed here so it is not lost, and the cut is one bounded commit when the
 tree settles.**
+
+---
+
+## 🔴🔴 §E306 — **THE κ BLINDSPOT GENERALISES: EVERY SKEW MEASUREMENT WE HAVE TESTED A FORMULA THE LIVE PATH NEVER REACHES**
+
+**Owner, 2026-08-22: *"with kappa we can't have a blindspot like this, it is suggestive of a larger
+issue at play."* Correct, and the larger issue is the INSTRUMENTS, not the constant.**
+
+### THE BLINDSPOT, STATED PLAINLY
+`skewWad` short-circuits at `if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;` (`:1020`) **before the
+kernel is evaluated.** With no observation source pinned (§C1), σ² ≡ 0 on **both** instances (§E290).
+⇒ **Γ, ρ, the pole, §E68's integral and now κ are ALL downstream of a multiply-by-zero. None of them
+has ever executed in production.** Sessions have derived Γ from a flow half-life, measured crossings
+at finite q, deleted a cap, re-derived an exponent and installed a pole-location dial — **on a curve
+the live path does not reach.**
+
+### 🔴 THE MECHANISM: OUR INSTRUMENTS MIRROR THE FORMULA INSTEAD OF CALLING THE PATH
+1. **`GammaRederived.t.sol` reimplements the kernel locally** (`_kernel`, `:33`/`:117`). A mirror
+   cannot detect that its subject is unreachable — **and it demonstrably cannot detect that the
+   subject CHANGED either: it passed unaltered through a complete kernel replacement (§E287-qsquared),
+   measured today.**
+2. **`skewWad` takes σ² as a PARAMETER, and it is `public pure`.** So every test supplies its own σ²
+   and *none of them observes what the caller supplies.* ⇒ **The parameterisation that makes the
+   function testable is exactly what hides the unreachability.** My own `KappaIsTodayAtOne.t.sol`
+   calls the real function — and still passes σ² = 16e18 by hand, so **it would pass identically in a
+   world where production always passes 0.** It does.
+3. ⇒ **THE GAP IS BETWEEN `skewWad` AND `wellSkew`.** `wellSkew(core, …)` READS
+   `ICore(core).realizedVarianceWad()` itself. **Nothing tests `wellSkew` against a real `Core`** —
+   every skew test enters at the pure function one level below the read.
+
+### ▶️ THE MISSING INSTRUMENT, AND IT IS THE §E294 SHAPE
+**Assert on the PRODUCTION ENTRY POINT, not the formula:** call `wellSkew`/`sellSkew` against a
+deployed `Core` and assert the skew **varies with scarcity**. Today that assertion FAILS — it returns
+the flat sentinel at every q — **and that failure is the finding.** Same shape as
+`PushObservationAnchor.t.sol`: test the DEPENDENCY the thing cannot work without, not the arithmetic
+it would perform if it ran.
+⚠️ **It needs a `Core`, and only `Alles.t.sol` builds one** (§E294 hit the same wall). **That fixture
+cost is the actual reason this class went unmeasured for weeks — name it rather than pay it again.**
+
+### 📌 THE RULE THIS REPO DOES NOT YET HAVE
+It has *"an empty grep proves nothing"*, *"a comment describes past state"*, and *"run the CONTROL"*.
+It does **not** have: ⭐ **A TEST THAT REIMPLEMENTS ITS SUBJECT CANNOT SEE THAT THE SUBJECT IS
+UNREACHABLE, AND CANNOT SEE THAT IT CHANGED.** Both failures were measured today, in the same file.
+⇒ **When a pure function is parameterised for testability, at least one test must enter through the
+CALLER that supplies those parameters in production** — otherwise the suite is green over a path
+nothing takes.
+
+---
+
+## 🔴🔴 §E307 — **`openChannelDigest` IS DELETED, 3 SPA FILES AND 2 TEST FILES STILL CALL IT, AND A COMMENT SAYS IT WAS KEPT**
+
+**Found 2026-08-22 while gating another thread's rename — the ABI gate is RED on `origin/main` and
+this is why.** `check-client-abis.py`: **`DRIFT openChannelDigest(...) — spa declares: (ORPHAN — no
+contract has a function of this name)`**.
+
+| | |
+|---|---|
+| the function in `evm/src` | **gone** — the 3 surviving hits in `BTCChannels.sol` (`:817`, `:839`, `:1190`) are **all comments** |
+| removed by | **`6201a26d` — *"WIP no domain tags (unverified)"*** |
+| SPA files still calling it | **3** |
+| test files still calling it | **2** |
+| `BTCChannels.sol:839` says | *"`openChannelDigest` is **KEPT** — six tests call it"* |
+
+⇒ **A function deleted in an explicitly UNVERIFIED WIP commit, with a comment two lines away asserting
+it was kept, and three clients encoding a call to it.** That is `§E154-client-ghosts` exactly — the
+case ORPHAN failures were added to the checker to catch — and the checker DID catch it; nothing gated
+on the result.
+⚠️ **`forge build` EXITS 0**, because the two test files reach it through their own interface
+declarations rather than the contract, so **the deletion is invisible to the compiler and fails only
+at runtime.** ⇒ **A green build is not evidence here, and neither is a green suite unless those two
+tests actually execute the call.**
+📌 **NOT E305's DOING** — that rename touches `openChannelDigest` zero times, which is why it was
+correct to push it over a red gate rather than block a clean commit on someone else's break.
+▶️ Restore the function or update the three SPA call sites; and **fix `:839`, which will otherwise
+tell the next reader the opposite of the truth.**
