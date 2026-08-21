@@ -596,57 +596,6 @@ pub fn open_channel_digest(
     keccak256(preimage).0
 }
 
-/// Recompute `BTCChannels.spliceDigest(channelId, p, rawSpliceTx)`:
-/// `keccak256(abi.encode(keccak256("BTCChannels.splice.v1"), chainId,
-/// address(this), channelId, keccak256(rawSpliceTx), keccak256(abi.encode(p))))`.
-/// The message the LP signs to authorize a splice (grow OR shrink). NOTE two
-/// differences from [`open_channel_digest`]: (1) a distinct domain tag
-/// (`splice.v1`), and (2) `channelId` is bound as a dedicated field, so consent is
-/// specific to THIS channel + THIS new total and can't be replayed onto another
-/// channel or amount. `params.amount_sats` is the NEW TOTAL funded amount.
-pub fn splice_digest(
-    chain_id: u64,
-    btc_channels: Address,
-    channel_id: [u8; 32],
-    raw_splice_tx: &[u8],
-    params: &OpenParams,
-) -> [u8; 32] {
-    let preimage = encode_tuple(&[
-        Tok::FixedBytes32(keccak256("BTCChannels.splice.v1").0),
-        Tok::Uint(U256::from(chain_id)),
-        Tok::Address(btc_channels),
-        Tok::FixedBytes32(channel_id),
-        Tok::FixedBytes32(keccak256(raw_splice_tx).0),
-        Tok::FixedBytes32(params.abi_struct_hash()),
-    ]);
-    keccak256(preimage).0
-}
-
-/// Recompute `BTCChannels.swapOutDeliverDigest(swapId, channelId, p, rawSpliceTx)`:
-/// the LP-consent digest for an ON-CHAIN swap-out DELIVERY splice. A DISTINCT domain
-/// tag from [`splice_digest`] (`swapOutDeliver.v1`) + an extra bound `swapId` field,
-/// so a delivery lpAuth can ONLY drive `deliverSwapOutOnchain` — never replayed as a
-/// plain `splice` (which would leave the swapId unfulfilled → a possible double-refund).
-pub fn swap_out_deliver_digest(
-    chain_id: u64,
-    btc_channels: Address,
-    swap_id: [u8; 32],
-    channel_id: [u8; 32],
-    raw_splice_tx: &[u8],
-    params: &OpenParams,
-) -> [u8; 32] {
-    let preimage = encode_tuple(&[
-        Tok::FixedBytes32(keccak256("BTCChannels.swapOutDeliver.v1").0),
-        Tok::Uint(U256::from(chain_id)),
-        Tok::Address(btc_channels),
-        Tok::FixedBytes32(swap_id),
-        Tok::FixedBytes32(channel_id),
-        Tok::FixedBytes32(keccak256(raw_splice_tx).0),
-        Tok::FixedBytes32(params.abi_struct_hash()),
-    ]);
-    keccak256(preimage).0
-}
-
 /// Sort two 33-byte funding pubkeys the way LDK's `make_funding_redeemscript`
 /// (and `BitcoinTx.buildChannelRedeemScript`) order the 2-of-2 — by serialized
 /// bytes ascending. `OpenParams.lpPubkey/hopPubkey` MUST be in this order so the
@@ -774,11 +723,19 @@ pub fn encode_open_channel(
 /// channel's funding UTXO, every withdrawal output pins to `btcRecipientOf`, and the §E129-c
 /// KeyAgg gate proves `p.lpPubkey` is inside the NEW `Q` — so a grow cannot migrate custody.
 ///
-/// ⚠️ [`splice_digest`] IS NOT ON THIS PATH. It documents itself as *"the message the LP signs
-/// to authorize a splice"*, but the contract verifies no such signature and this encoder sends
-/// none — its only callers are tests. It is kept because the digest is the natural message for
-/// an LP-consent gate that does not exist yet (§E182 rekey needs exactly one); **do not read
-/// its presence as evidence that splices are LP-authorized today, because they are not.**
+/// ⚠️ **SPLICES ARE NOT LP-AUTHORIZED, AND NOTHING HERE SHOULD SUGGEST OTHERWISE.** A
+/// `splice_digest` used to sit below, documenting itself as *"the message the LP signs to
+/// authorize a splice"*, and it was kept as the natural message for an LP-consent gate that did
+/// not exist yet. **That justification EXPIRED and was re-tested (2026-08-22): the gate arrived —
+/// §E182 `rekey` — and it deliberately did NOT reuse this digest**, keeping its own preimage
+/// inline under tag `rekey.v1`, because domain separation requires a distinct tag per gate. So
+/// the marker named a need, the need was met another way, and the only gate `splice.v1` could
+/// serve is the per-splice `lpAuth` §E157 retired AS REDUNDANT. Removed rather than carried.
+/// ⇒ What actually bounds a splice is above: the SPV proof, the `btcRecipientOf` output pin, and
+/// the §E129-c KeyAgg gate — plus the fresh `exits` ladder, whose rungs verify against the 2-of-2
+/// aggregate `Q` and therefore CANNOT be produced without the LP. **That ladder is the LP consent
+/// now, and it is stronger than a signature over the splice tx: it proves the LP co-signed FOR THE
+/// ROTATED OUTPOINT, so agreement and a surviving escape are the same act.**
 pub fn encode_splice(
     channel_id: [u8; 32],
     params: &OpenParams,
@@ -1359,9 +1316,6 @@ mod tests {
             assert_eq!(&sp[..4], &sp_sel[..4]);
             assert_eq!(sp.len() % 32, 4);
         }
-        let _ = splice_digest(
-            u64::MAX, Address::repeat_byte(0xff), [0x42; 32], &vec![0xab; 10_000], &p,
-        );
     }
 
     // splice selector must match keccak256(signature)[..4].
@@ -1386,30 +1340,6 @@ mod tests {
         );
     }
 
-    // The splice digest must (a) be deterministic, (b) bind channelId + chainId,
-    // and (c) be domain-separated from the open digest — so LP consent to a splice
-    // can never be replayed onto another channel/amount or confused with an open.
-    #[test]
-    fn splice_digest_binds_channel_and_is_domain_separated() {
-        let p = OpenParams {
-            funding_block_hash_be: [0x11u8; 32],
-            funding_block_height: 800_010,
-            funding_tx_index: 3,
-            lp_pubkey: [2u8; 33],
-            hop_pubkey: [3u8; 33],
-            amount_sats: 2_000_000,
-            funding_taproot: [0u8; 32],
-        };
-        let raw = vec![0xABu8; 120];
-        let addr = Address::repeat_byte(0x11);
-        let cid_a = [0x42u8; 32];
-        let cid_b = [0x43u8; 32];
-        let d = splice_digest(1, addr, cid_a, &raw, &p);
-        assert_eq!(d, splice_digest(1, addr, cid_a, &raw, &p)); // deterministic
-        assert_ne!(d, splice_digest(1, addr, cid_b, &raw, &p)); // channelId bound
-        assert_ne!(d, splice_digest(2, addr, cid_a, &raw, &p)); // chainId bound
-        assert_ne!(d, open_channel_digest(1, addr, &raw, &p, Address::ZERO)); // domain-separated from open
-    }
 
     // splice calldata: arg0 is a STATIC bytes32 (channelId, inlined in the head);
     // args are (channelId static, params dynamic, raw dynamic, proof dynamic,
@@ -1443,33 +1373,6 @@ mod tests {
         );
     }
 
-    // The on-chain swap-out DELIVERY digest must (a) be deterministic, (b) bind
-    // swapId + channelId + chainId, and (c) be DOMAIN-SEPARATED from splice_digest —
-    // so a delivery lpAuth can never be replayed as a plain splice (the contract
-    // hardening that prevents a double-refund).
-    #[test]
-    fn swap_out_deliver_digest_binds_swap_and_is_domain_separated() {
-        let p = OpenParams {
-            funding_block_hash_be: [0x11u8; 32],
-            funding_block_height: 800_010,
-            funding_tx_index: 3,
-            lp_pubkey: [2u8; 33],
-            hop_pubkey: [3u8; 33],
-            amount_sats: 1_500_000,
-            funding_taproot: [0u8; 32],
-        };
-        let raw = vec![0xABu8; 120];
-        let a = Address::repeat_byte(0x11);
-        let (sid_a, sid_b) = ([0x42u8; 32], [0x43u8; 32]);
-        let cid = [0x7Au8; 32];
-        let d = swap_out_deliver_digest(1, a, sid_a, cid, &raw, &p);
-        assert_eq!(d, swap_out_deliver_digest(1, a, sid_a, cid, &raw, &p)); // deterministic
-        assert_ne!(d, swap_out_deliver_digest(1, a, sid_b, cid, &raw, &p)); // swapId bound
-        assert_ne!(d, swap_out_deliver_digest(2, a, sid_a, cid, &raw, &p)); // chainId bound
-        // CRITICAL: distinct from splice_digest over the same (channel, params, tx),
-        // so a delivery lpAuth can't drive a plain `splice`.
-        assert_ne!(d, splice_digest(1, a, cid, &raw, &p));
-    }
 
     // deliverSwapOutOnchain selector matches keccak256(signature)[..4].
     #[test]
@@ -1661,8 +1564,6 @@ mod proptests {
             let a = Address::from(addr);
             let od = open_channel_digest(chain_id, a, &raw, &p, a);
             prop_assert_eq!(od, open_channel_digest(chain_id, a, &raw, &p, a));
-            let sd = splice_digest(chain_id, a, cid, &raw, &p);
-            prop_assert_eq!(sd, splice_digest(chain_id, a, cid, &raw, &p));
             let c = channel_id(&p.lp_pubkey, &p.hop_pubkey, txid_int, vout);
             prop_assert_eq!(c, channel_id(&p.lp_pubkey, &p.hop_pubkey, txid_int, vout));
         }

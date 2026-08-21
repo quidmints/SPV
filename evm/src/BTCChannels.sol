@@ -2257,9 +2257,13 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///         `swapOutDeliverDigest`)". **NO SIGNATURE IS VERIFIED HERE — this function takes
     ///         no signature parameter at all** (E148). Under the delegation model the fleet
     ///         splices as the channel's hop and produces no per-call lpAuth
-    ///         (`quid-bridge/swap_out_onchain.rs:221-223`). `swapOutDeliverDigest` REMAINS as
-    ///         an off-chain-signing helper — the same status as `openChannelDigest`, which
-    ///         also has no on-chain consumer (E148-c) — but nothing signs it today.
+    ///         (`quid-bridge/swap_out_onchain.rs:221-223`).
+    ///         ⚠️ **THIS ALSO SAID `swapOutDeliverDigest` "REMAINS as an off-chain-signing helper".
+    ///         IT DOES NOT — §E182 deleted it (see `:828`), and its Rust twin
+    ///         `swap_out_deliver_digest` went with it on 2026-08-22 once the reason for keeping the
+    ///         pair was re-tested and found expired.** The keep-reason was "the natural message for
+    ///         an LP-consent gate that does not exist yet"; that gate arrived as §E182 `rekey` and
+    ///         deliberately did NOT reuse it, keeping its own preimage under tag `rekey.v1`.
     ///         What actually bounds this call: the hop gate, the SPV proof, and the KeyAgg
     ///         gate on the new funding key (E129). Verifies the tx
     ///         pays `swapperScript` ≥ the obligation, then shrinks the LP's channel and
