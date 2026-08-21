@@ -5356,10 +5356,39 @@ samples all return σ² = 0 by design (`Core.sol:1318-1322`: *"Degrade to unmeas
 
 ---
 
-## 🔴 §E279 — **THE SKEW MAY BE APPLIED TWICE ON THE `Aux.swap` PATH. ONE TEST SETTLES IT.**
+## 🔴🔴 §E279 — **THE SKEW IS APPLIED TWICE ON THE `Aux.swap` PATH — CONFIRMED IN SERIES BY CONSTRUCTION**
 
-**Call chain verified by `file:line`, 2026-08-21; NOT yet executed, so this is a reading and not a
-finding — booked because rule 12 says a named-but-unexecuted check dies in prose otherwise.**
+⬆️ **UPGRADED FROM 🔴 THE SAME DAY IT WAS BOOKED, and no execution was needed.** It was written as a
+reading; **one line closes it**. `_finishSwap` builds its `RouteParams` with **`amount: r.amount`
+(`SwapLib.sol:473`) — the value `retainSkewPremium` has ALREADY reduced** — and `routeSwap` derives
+`pooled` from that `p.amount` before calling `ICore.swap`. So the reduced input reaches `_fillDelta`,
+which applies the skew a SECOND time, to the output. **Both legs do it**: the drain branch computes
+`wellSkew` and `_fillDelta` recomputes `wellSkew` (`inputIsUsd == true`); the sell branch computes
+`sellSkew` and `_fillDelta` recomputes `sellSkew`. Neither `retainSkewPremium` call is conditional.
+⇒ **The amount that leaves one site is the amount that enters the other. That is the whole proof.**
+
+🔴 **AND HERE IS WHY IT SURVIVED — EVERY ASSERTION ON THIS PATH IS DIRECTIONAL.** `Alles.t.sol:1904`
+is `assertGt(CORE.skewPremium(), premiumBefore)` and `:1911` is `assertGt(V4.USD_FEES(), lpFeesBefore)`.
+**`assertGt` cannot distinguish `s` from `s·(2−s)`.** Nothing in the tree asserts the MAGNITUDE of the
+realised haircut, so a second application is invisible to a green suite — the same shape as the four
+vacuous tests §12 records, arriving through an assertion that is TRUE but too weak to discriminate.
+
+⚠️ **THE MAGNITUDE IS NOT EXACTLY `(1−s)²`, and the row must not claim it is.** The second application
+recomputes `wellSkew` on the ALREADY-REDUCED amount, so the effective rate is `s + s'·(1−s)` with
+`s' = wellSkew(reduced)` — strictly under the square, equal to it only in the Δ→0 limit. At today's
+σ² = 0 (§E278) both evaluate to the flat `3e16` sentinel, so **the live effective drain rate is 5.91%,
+not 3%** — and being sentinel-driven it is size-blind, so no size sweep will reveal it either.
+
+▶️ **THE TEST IS THE MISSING INSTRUMENT, NOT THE PROOF.** Assert the realised haircut EQUALS the quoted
+`wellSkew`, against a pinned σ². ⚠️ **Do not write it as `assertGt`** — that is the assertion class
+that hid this.
+⚠️ **AND THE FIX IS NOT "DELETE ONE CALL".** `retainSkewPremium` also RECORDS the premium
+(`Core.recordSkewPremium` → `BAND.creditSkewPremium`), which is the ONLY thing routing it to LPs
+(§E280). Removing the call would silently stop crediting them. **Separate the RECORD from the
+SUBTRACT before removing either** — and note that this makes it a two-part money-path change, so
+rule 10 applies.
+
+**(Original reading below, kept because the chain is still the shortest statement of the defect.)**
 
 ```
 Aux.swapTo:741  → SwapLib.swapToBody          (delegatecall)
@@ -5440,3 +5469,47 @@ negative and nothing observed here re-evaluates it: `debtDeltaToTarget` targets 
 which is a function of the BAND's sold fraction alone and is blind to what the debt costs.
 ▶️ Settle whether that is a deliberate non-requirement (the hedge is a tracking obligation, priced
 however it costs) or a gap. **State which, with a reason — a dismissal is a conclusion (rule 13).**
+
+---
+
+## 🔴 §E283 — **THE 3% IS INHERITED FROM A CONSTANT §E275 DELETED AS UNJUSTIFIABLE, AND σ²=0 HAS MADE IT THE ONLY PRICE WE QUOTE**
+
+**Owner, 2026-08-21: *"3% cliff is arbitrary."* It is — and this repo already said so about the same
+number under its previous name.**
+
+§E275 deleted `MAX_WELL_SKEW` with a stated reason: *"IT WAS ONE NUMBER DOING THREE JOBS, and the cap
+job was the one that could not be justified: the curve was CALIBRATED TO LAND ON IT
+(`Γ ≡ MAX_WELL_SKEW` exactly), so it never bounded anything it did not also define."* The split kept
+`UNKNOWN_VARIANCE_SKEW = 3e16` — **the same value — and its own docblock concedes the provenance:**
+*"THEY HOLD THE SAME VALUE TODAY BY INHERITANCE, NOT BY DERIVATION."*
+
+🔴 **WHAT CHANGED IS ITS WEIGHT, NOT ITS DERIVATION.** While a source was pinned, the sentinel was a
+rare fallback for an under-sampled ring. With nothing pinned (§C1), **σ² ≡ 0 on both instances**, so
+per §E278 the live price surface is `{0, 3e16 × sharedScarcity}` and **`UNKNOWN_VARIANCE_SKEW` is the
+only non-zero number in it.** An un-derived constant that was tolerable as a fallback is now the
+entire pricing model, and it arrived there without anyone choosing it — which is why the objection
+lands now and did not before.
+
+⚠️ **IT IS ALSO THE WRONG SHAPE FOR THE JOB, INDEPENDENT OF ITS MAGNITUDE.** A sentinel is a FLAT
+rate: it cannot be size-aware (§E68's `q0→q1` averaging is downstream of the σ² multiply), it discards
+`q` entirely, and it produces the cliff — one unit above the flow target pays 0, one unit below pays
+300–600 bps on the whole ticket. **No value of the constant removes that. Only a live σ² does.**
+⇒ **THIS ROW IS NOT "PICK A BETTER 3%".**
+
+▶️ **THREE CANDIDATE RESOLUTIONS. Two are policy, so the choice is the owner's:**
+1. **DERIVE it** as the expected loss over the settlement window at an ASSUMED variance —
+   `σ²_ref·confFrac/8`, i.e. `_maxWellSkew`'s own formula evaluated at a stated point (e.g. 100%
+   annualised). The number then has a sentence attached and moves when the assumption does.
+2. **REFUSE instead of guess** — treat unmeasured variance as unfillable and decline, which is
+   §E275's posture for a quote we cannot price and is consistent with *"the solver routes the part we
+   decline"*. ⚠️ **This halts the band whenever the ring is cold, INCLUDING AT GENESIS** — the §E56
+   identifiability trap: a brand-new band and a dead band both read σ² = 0, and no threshold on that
+   one number separates them. §E56 solved the same ambiguity with the monotonic `skewPremium*`
+   counters; any refusal here needs that discriminator or it bricks a fresh deployment.
+3. **MAKE IT UNREACHABLE** by settling §C1 so σ² is measured, leaving the sentinel as the rare
+   fallback it was designed to be. **This is the only one that also removes the cliff**, which is why
+   §C1 outranks this row rather than the reverse.
+
+📌 **DO NOT RE-TUNE THE CONSTANT AS A STANDALONE CHANGE.** That is standing rule 3's clamp exactly: it
+would make the cliff a different height without making the failure announce itself, and it would read
+as fixed. The cliff is a SHAPE defect; the magnitude is a separate and smaller question.
