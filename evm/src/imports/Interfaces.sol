@@ -120,12 +120,6 @@ interface ICurvePool {
 // makes that acceptable HERE and it is what must be re-checked before trusting this again.
 address constant V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
 
-// 1inch AggregationRouterV6 — VERIFIED ON-CHAIN 2026-08-21: codesize 24,294.
-// ⚠️ IT TAKES PRE-COMPUTED CALLDATA. Pathfinder returns a WEIGHTED SPLIT across Uni V3/V4, Balancer,
-// Curve and others as ONE atomic blob; there is no on-chain quote to derive, which is why the swap
-// data is an ARGUMENT and not something the contract builds. That is also why the aggregator cannot
-// be read on-chain for PRICE (`OffchainOracle.getRate` = 33.6M gas, above the block limit).
-address constant ONE_INCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
 uint24  constant V3_FEE_WETH    = 500;    // USDC/WETH 0.05%
 uint24  constant V3_FEE_WBTC    = 3000;   // WBTC/USDC 0.30%
 
