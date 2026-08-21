@@ -7693,7 +7693,7 @@ one tick, so a range becomes a ladder of N offers. ⛔ **But do not re-derive th
 the checkout is gone, and §E267 records that importing those sources propagated `via_ir`/`runs=50`
 into nine money-path files and broke the build.**
 
-## 🔴🔴 §E304 — **THE MINT-CLOSE PATH IS A WHOLE DEAD FLASH-MODE FOR A VENUE THAT WAS REMOVED. `ILevMintVenue` IS ITS INTERFACE.**
+## 🔴🔴 §E304-mintclose — **THE MINT-CLOSE PATH IS A WHOLE DEAD FLASH-MODE FOR A VENUE THAT WAS REMOVED. `ILevMintVenue` IS ITS INTERFACE.**
 Owner asked, 2026-08-22: *"what do you mean by minting or nonminting adapters? are you sure these arent
 making up any capabilities that actual morpho dosnt have"* — **the question is exactly right, and the
 answer is that they are not Morpho's capabilities at all.**
@@ -7731,7 +7731,7 @@ deletion leaves `mode == 1` dispatching to nothing. **Predict: byte-identical be
 branch is provably unreachable, and `--sizes` should show `LevManager` and `LevMath` both shrink.
 ⚠️ **`boldCloseReserve` is STATE** — check `DeployLib` and any setter before removing the slot.
 
-### ✅ §E304-WHY — **LIQUITY WENT BECAUSE THE LEVER IS weETH-DENOMINATED BY INTERFACE, AND TROVES DO NOT TAKE weETH**
+### ✅ §E304-mintclose-WHY — **LIQUITY WENT BECAUSE THE LEVER IS weETH-DENOMINATED BY INTERFACE, AND TROVES DO NOT TAKE weETH**
 Owner, 2026-08-22: *"these were removed because we use weETH collateral all the time and we cant do that
 with liquity"*. **Recorded because `c11cb40f`'s message — *"remove Liquity as untestable under
 all-weETH"* — states the CONSEQUENCE, and the next reader will ask what the cause was.**
@@ -8061,7 +8061,7 @@ borrow-only on Aave today.
 3. **Then** point the vBTC market's supply side at our depositors, once the stable is chosen.
 ⚠️ Each is a money-path change needing its own verified run (rule 10), so they do not batch.
 
-## ✅ §E308 — **THE INTERFACE FOLD IS EXHAUSTED. FIVE LANDED; EVERY REMAINING CANDIDATE IS A FALSE POSITIVE, AND HERE IS WHY.**
+## ✅ §E308-interfaces — **THE INTERFACE FOLD IS EXHAUSTED. FIVE LANDED; EVERY REMAINING CANDIDATE IS A FALSE POSITIVE, AND HERE IS WHY.**
 Owner: *"are there any more folds?"* **No. Recorded with the negative evidence so the scan is not re-run
 from scratch** — the method matters more than the count, because the obvious metric is wrong twice.
 
