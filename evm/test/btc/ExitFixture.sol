@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {Types} from "../../src/imports/Types.sol";
 import {ChannelLib} from "../../src/imports/ChannelLib.sol";
+import {IBTCChannels} from "../../src/imports/Interfaces.sol";
 
 interface BTCChannelsLike {
     function setBtcRecipient(bytes32, bytes calldata) external;
@@ -194,9 +195,23 @@ abstract contract ExitFixture is Test {
     }
 
     /// The contract's PoP digest, mirrored so tests sign exactly what it checks.
+    /// (§TEST-RECONSTRUCTIONS) ASKS THE CONTRACT rather than recomputing. `BTCChannels` declares
+    /// `btcRecipientPoPDigest` `public` for exactly this — *"so the LP's wallet signs EXACTLY what
+    /// the contract checks rather than a reconstruction"* (`BTCChannels.sol:2429`) — and this
+    /// function used to be that reconstruction, tag and field order copied by hand.
+    /// ⚠️ **THE COPY COULD ONLY EVER FAIL SILENTLY**, which is what earned the change: reorder a
+    /// field in the contract and every fixture keeps signing the old shape and keeps PASSING.
+    /// Same root as `#21` one level up.
+    /// ⭐ It also drops an assumption: the old copy used the fixture's stored `_btcChannels`, so a
+    /// fixture pointed at the wrong instance signed a *valid-looking* digest for another contract.
+    /// The getter uses the callee's OWN `address(this)`, so that class cannot arise.
+    /// ⚠️ **Kept as a helper rather than inlined** — `BTCChannelsAuth.test_digest_binds_chain_and
+    /// _contract` still recomputes this shape BY HAND, and that is CORRECT: it is a CONTROL
+    /// asserting the contract's digest, not a fixture feeding it. Deduping that one would make it
+    /// `assertEq(d, d)`. **The discriminator is whether the reconstruction FEEDS the contract or
+    /// CHECKS it** — feed it from here, check it there.
     function _popDigest(address lpEth) internal view returns (bytes32) {
-        return sha256(abi.encode(
-            keccak256("BTCChannels.btcRecipient.pop.v1"), block.chainid, _btcChannels, lpEth));
+        return IBTCChannels(_btcChannels).btcRecipientPoPDigest(lpEth);
     }
 
     /// Label used to derive each payout key, so its PoP can be produced later.
