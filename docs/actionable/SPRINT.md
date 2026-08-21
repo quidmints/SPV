@@ -5843,3 +5843,33 @@ carries the evidence — this is an index, not a restatement.** Read this before
    same failure one level up, because an index is READ INSTEAD OF the rows.** **Before consolidating,
    diff the index's citation list against the open rows for the subsystem** — mechanically, not from
    memory. That check is three lines of `grep` and it is the only thing that catches an omission.
+
+## ⭐ §E286 — **THE CAP WAS DISCARDING 51% OF WHAT §E68's INTEGRAL COMPUTED. DELETING IT RESTORES THE INTEGRAL.**
+Measured 2026-08-21, `evm/test/IntegralVsCap.t.sol` (pure, no fixture). Asked because the integral
+additions (§E68 drain leg, §E68b sell leg) were never re-examined after the cap came out.
+
+**THE INTEGRALS ARE INTACT AND CORRECT** — `SwapLib:1059` `qBar = [ln((1−q₀)/(1−q₁)) − Δ]/Δ` for the
+drain leg (log integral of `q/(1−q)`), `:1445` `q = (q₀+q₁)/2` for the sell leg (midpoint, the integral
+of a linear kernel). Neither was touched by the cap removal.
+🔴 **BUT THEY WERE COMPUTING A NUMBER THAT WAS THROWN AWAY.** Draining 60% of a short band at σ²=1e18:
+| | one 60% drain | 20 × 3% slices |
+|---|---|---|
+| **uncapped (today)** | **$37,053** | $36,983 |
+| **capped (before `a9da145b`)** | **$18,000** | $18,000 |
+⇒ **THE CAP SUPPRESSED $19,053 OF A $37,053 PREMIUM — 51.4% — ON A SINGLE ORDINARY DRAIN.**
+
+⭐ **AND IT DID NOT BREAK PATH-INDEPENDENCE; IT MADE IT VACUOUS.** Both arms pinned to the SAME constant,
+so §E68's property held the way a FLAT FEE is path-independent — **by discarding the computation.** A cap
+is a function of the ENDPOINT, the integral is a function of the PATH, so above the binding point the
+integral cannot influence the price at all. ⇒ **§E68/§E68b were inert in exactly the regime they were
+built for** (§E274 measured the pinning from q₁=0.6 through 0.95). **This is a second, independent
+argument for the deletion that nobody made at the time: the cap was not merely a clamp, it was silently
+voiding a landed fix.**
+⚠️ **RESIDUAL, SMALL BUT REAL AND NOW VISIBLE:** uncapped, 20 slices cost **$69.97 less** than one shot
+(**0.19%**) — the same DIRECTION as the atomicity arbitrage §E68 closed, ~500× smaller. Could be
+discretisation of the slice grid or a genuine residual edge. **Not chased here; booked so it is not
+mistaken for exact path-independence.** ▶️ Test it by sweeping slice counts: discretisation shrinks with
+finer slices, a real edge does not.
+📌 **CONSEQUENCE FOR §E274's UNLANDED Γ:** the correct premium is ~2× what was being collected, so
+re-deriving Γ downward by 5.475× is NOT compounding with a cut — it is being applied to a charge that
+was itself halved. **Do not reason about the Γ change against the OLD collected number.**
