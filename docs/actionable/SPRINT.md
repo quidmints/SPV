@@ -6413,3 +6413,31 @@ is already single-sourced — and the only place to hoist them is the `Shares` a
 **copies into every inheritor**: measured **+41 bytes, zero saved**. With `Quid` at 86 bytes
 (§E274-SIZE), that is the wrong direction. A delegatecalled library would save bytes at one call per
 use; measure before adopting.
+
+### C12. 🟠 NO ARTIFICIAL CEILINGS OR FLOORS — the two in the skew, classified (owner, 2026-08-21)
+
+Standing rule 3, applied to the skew path. Two constants were checked; **they are not the same kind
+of thing**, and only one is artificial.
+
+| constant | value | verdict |
+|---|---|---|
+| `UNKNOWN_VARIANCE_SKEW` | `3e16` = 3% | 🔴 **ARTIFICIAL — and it says so itself:** *"A **POLICY price** for absent information, not a ceiling on a computed one: nothing is compared against it, it is only ever RETURNED."* An undERIVED number returned when σ² is unmeasured. |
+| `SPLICE_FLOOR` | `2e15` = 0.2% | ⚠️ **A REAL COST, BADLY EXPRESSED.** It is the BTC on-chain **splice fee** — the protocol genuinely pays it, so charging it is recovery, not a clamp. **But it is a FIXED constant standing in for a VARIABLE feerate** (its own comment calls it *"the feerate term"*). A fixed proxy for a live cost is wrong in both directions as mempool conditions move. |
+
+⭐ **RULE 17 SETTLES THE FIRST ONE WITHOUT A DEBATE: a root fix makes the previous fix DELETABLE.**
+`UNKNOWN_VARIANCE_SKEW` exists **only because the ring has no source**. Give the ring a real
+observation (§C1) and `sigmaSqWad == 0` stops being reachable in normal operation — the policy price
+then has nothing to price, and **deletes itself**. It is not a number to re-tune; it is a placeholder
+whose removal is a consequence of fixing the source. ⛔ **Do NOT delete it BEFORE the source exists** —
+§E59 measured the vector it closes: σ² is attacker-stretchable (4h spacing → σ² **24× down**, charge
+**93.3% down**), and suppressing σ² then draining **up to 90% of the band for free** is what it stops.
+
+▶️ **The second one is its own task:** make the splice floor read the ACTUAL feerate rather than a
+constant. Until then it is a real cost charged at a made-up rate.
+
+🔴 **AND THE CURRENT STATE IS THE WORST OF BOTH, MEASURED:** with no source, σ² is pinned at 0, so an
+**idle ETH band charges ZERO** (`_maxWellSkew(0, ethRisk)` = `0·confFrac/8 + spliceFloor(0)` = 0)
+while a **scarce band charges the 3% policy price**. Neither number has anything to do with realised
+volatility, and the band sits permanently in the state an attacker would otherwise have to
+manufacture.
+
