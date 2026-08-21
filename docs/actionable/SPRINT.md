@@ -1,6 +1,6 @@
 # SPRINT — what two sessions leave open
 
-⚠️ **TWO SESSIONS WRITE HERE.** Part A is session `d669393d` (band-manager merge, bytecode).
+⚠️ **TWO SESSIONS WRITE HERE.** Part A is session `d669393d` (range-manager merge, bytecode).
 Part B is session `391df7b6` (the Bitcoin/secp256k1 thread). Kept in ONE file deliberately:
 two sprint files drift, and this repo has paid for that twice today.
 
@@ -165,8 +165,8 @@ Verify with `git log origin/main..HEAD` (0), `git worktree list` (none), `git st
 3. **A green gate proves less than it looks, in both directions.** A size/ABI gate run after a FAILED
    build reports on stale artifacts. A RED test can be the harness: `vm.expectRevert` cannot see an
    inlined `internal` call, and `_forkMainnet()` **creates** a fork without **selecting** it.
-4. **Two things sharing one name is this repo's most expensive defect class.** `BAND`/`VOGUE` (same
-   address on ETH, a foreign band on BTC), `QUID` (token vs the rename target), `avgYield`/`depegLoss`
+4. **Two things sharing one name is this repo's most expensive defect class.** `RANGE`/`VOGUE` (same
+   address on ETH, a foreign range on BTC), `QUID` (token vs the rename target), `avgYield`/`depegLoss`
    (accessor vs parameter), `inputCount` (function vs local), two `E115-b` rows, `SortedSet.sol`
    declaring `SortedSetLib`. **A file's name is not its library's name; a matching header is not
    identity; a zero-hit grep on a suffixed name means RENAMED, not removed.**
@@ -240,7 +240,7 @@ either closure.**
 chose, and then failed to build.** Everything else here is a finding; this is a specification.
 
 **The problem, measured:** `selfManaged` positions are created (`Quid.outOfRange`,
-`BtcLib.outOfRangeBtc`) and closed by their owner (`BandLib.pull`, behind
+`BtcLib.outOfRangeBtc`) and closed by their owner (`RangeLib.pull`, behind
 `if (position.owner != owner) revert NotOwner()`). **Nothing consumes one when price crosses it** —
 `fillOOR` is zero hits repo-wide. Under v4 the PoolManager did this on every swap that crossed the
 range; `FixedRateFill` is *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so the crossing is gone.
@@ -268,7 +268,7 @@ with the first, which is the shape §E194 and the `poolOwnedSats` lesson both wa
 `pxOld` and `pxNew` and walk the index range between them. Each order in that interval settles **at
 its own limit price, not at `px`** — that is precisely what makes it a limit order rather than a
 participant in the swap. Then `remove` from the set, `delete selfManaged[id]`, credit the owner.
-**Gas is bounded by how many orders lie between the two prices, which for a ±0.2% band and a
+**Gas is bounded by how many orders lie between the two prices, which for a ±0.2% range and a
 two-observation move is usually ZERO** — that is the whole reason a sorted set over *our* resting
 orders replaces a global tick bitmap over *all* prices.
 
@@ -277,7 +277,7 @@ anyone can place many cheap orders in the path and make the next swapper pay for
 (`MAX_FILLS_PER_SWAP`), and let **`fillOOR(uint id)` — permissionless, callable once price is past
 the trigger, tipped from the fill** — drain the remainder. ⇒ **The poke is a LIVENESS REQUIREMENT
 created by the cap, not a convenience.** It also covers the case a swap cannot: **`repack` moves the
-band without a fill**, so orders can be crossed with no swapper present to sweep them.
+range without a fill**, so orders can be crossed with no swapper present to sweep them.
 
 **4. `pull`'s 47-block guard must NOT gate an auto-fill.** `require(block.number >= position.created
 + 47, "too soon")` is an anti-gaming rule on *owner-initiated* close. An execution is not a
@@ -285,11 +285,11 @@ withdrawal, and applying that guard to it would make an order unfillable for its
 reintroducing exactly the "no execution guarantee at the moment of crossing" defect this fixes.
 
 **5. It cannot live in `Quid`.** 547 bytes of margin. This is a delegatecalled library — consistent
-with §E245's measured extraction rate, and the reason `BandLib` already holds `pull`.
+with §E245's measured extraction rate, and the reason `RangeLib` already holds `pull`.
 
 ### The one thing this spec does NOT decide, deliberately
 
-**Where the difference between the order's limit price and the band's fill price accrues.** That is
+**Where the difference between the order's limit price and the range's fill price accrues.** That is
 the *same* question as `FixedRateFill`'s header — two suppliers, LP inventory and basket capital, and
 *"causation is only one axis"* — and it is flagged there as 🔴 *"THE SAME QUESTION AS #12 (count-once)
 AND MUST BE SETTLED WITH IT."* **Do not invent an answer while building the mechanism.** Ship the
@@ -364,7 +364,7 @@ autoexecute them?"* Yes. It was designed, it was the right design, and it was ne
 shipped is the variant I had rejected in writing, in the same paragraph.**
 
 **MEASURED.** `selfManaged` has exactly two kinds of consumer in `evm/src`: `Quid.outOfRange` /
-`BtcLib.outOfRangeBtc` **create** a position, and `BandLib.pull` **closes** it behind
+`BtcLib.outOfRangeBtc` **create** a position, and `RangeLib.pull` **closes** it behind
 `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns zero hits repo-wide.** Nothing
 consumes a resting order when price crosses it.
 
@@ -378,7 +378,7 @@ the poke as the liveness backstop for orders nobody's swap happens to cross. Tha
 automatic-fill property, **which is the thing users actually bought**."* Resting orders between the
 old and new price are consumed as part of the fill, findable by price via **`SortedSetLib`
 (`evm/src/imports/SortedSet.sol`) — which already exists**, `Basket` uses it for `perMonth` — with
-gas *"bounded by how many orders lie between old and new price, which for a ±20 bps band and two-tick
+gas *"bounded by how many orders lie between old and new price, which for a ±20 bps range and two-tick
 moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. Restated
 on 08-15 as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet
 executed."*
@@ -420,17 +420,17 @@ just is not the only term.
 
 ---
 
-## 1. 🔴 §E255 — ONE BAND MANAGER, TWO `Shares` INSTANCES
+## 1. 🔴 §E255 — ONE RANGE MANAGER, TWO `Shares` INSTANCES
 
 **The architecture this thread was driving toward** (owner, 2026-08-17): *"vogue must control two
-shares contracts that each do their delever etc for each band, calling each lev library it needs."*
+shares contracts that each do their delever etc for each range, calling each lev library it needs."*
 
 Today the share **face is implemented three times instead of instantiated twice** — inline in
 `Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same
 `isBTC` argument one level up from `Core`, which already **is** one implementation with two instances.
 
 **Already in place:**
-- `Shares` (§E252) — 13 declarations shared, so both bands lay out **identically**. This was the
+- `Shares` (§E252) — 13 declarations shared, so both ranges lay out **identically**. This was the
   precondition, and it is done.
 - `LevBookLib` (§E246) — the four venue legs, parameterised by collateral token.
 - `Core` — the working precedent for one implementation, two instances.
@@ -449,7 +449,7 @@ changes what every ERC-20/4626 client reads.**
 ## 2. 🔴 §E251 — vBTC MINT SCOPE
 
 `VBtc.mintTo` has **exactly one call site** (`Vault:333`, inside `exposeBtcToLev`), so the entire
-vBTC supply is the levered slice. `outOfRangeBtc` mints none. The design is broader: band BTC
+vBTC supply is the levered slice. `outOfRangeBtc` mints none. The design is broader: range BTC
 *including* the out-of-range locked portion should be mintable and lendable on Morpho, subset-
 accounted so it is not double counted.
 
@@ -458,10 +458,10 @@ accounted so it is not double counted.
 own counter would **pass that guard** while the two jointly over-mint — the double count arrives
 *through* the guard, not around it.
 
-**Three questions before any code:** which band BTC is eligible (in-range depth may have to stay
+**Three questions before any code:** which range BTC is eligible (in-range depth may have to stay
 unmintable because it must remain deliverable to swappers); whether one marker or two (an LP could be
 lev-exposed *and* lent-out, and `plainNet` assumes one); and what happens to lent-out vBTC when the
-band needs that BTC for a swap or close — §V-R10's deliverability question in a new place.
+range needs that BTC for a swap or close — §V-R10's deliverability question in a new place.
 
 ✅ **Verified adjacent (§E250):** the levered slice is **not** double-counted today. All six
 consumers use `plainNet(pooled, levPooled)`, which *subtracts*; none adds. Withdrawal is capped at
@@ -547,7 +547,7 @@ Measured rates make the extraction itself costable rather than aspirational.
 ⚠️ **THE CEILING IS A PROPERTY OF DELEGATECALL, NOT A PREFERENCE.** A library body cannot read the
 caller's **immutables** (they live in its *code*, not storage) nor call its **virtuals**. Values must
 be computed by the wrapper and passed **by value**. `totalNetEquity` *loops* a virtual per LP and
-cannot move at all. And `_syncBand`'s **ordering** is load-bearing — the band poke must follow the
+cannot move at all. And `_syncRange`'s **ordering** is load-bearing — the range poke must follow the
 venue state move — so it stays in the wrapper.
 
 `LevManager` is the tightest of the pair at **1,746 bytes** of margin.
@@ -589,7 +589,7 @@ The owner's rule is "wire it or delete it", so I swept `evm/src` for every decla
 references (excluding its own declaration line, import paths, and comments). **Exactly three came
 back, and all three are now deleted** — `contract Shares`, `interface ISkewSink`
 (`Interfaces.sol:540`, fully superseded: `Core.sol:367` calls `creditSkewPremium` through
-`IBandManager`, and both managers implement it), and `library Interfaces {}` (a literal empty
+`IRangeManager`, and both managers implement it), and `library Interfaces {}` (a literal empty
 no-op that existed only to produce an artifact).
 
 **Two more libraries have NO production caller, and I did not touch either. Both have evidence saying
@@ -701,9 +701,9 @@ were HTTP 429, which knocked out three whole suites and 11 tests.
 - **§E238-scan** — `AttestedHopRegistry.sol` was deleted by `812e6822` ("Attestation is fully phased
   out") *after* another thread banked it for §E111. Settle whether that **supersedes** §E111 or
   merely removed an implementation of it. Cheap question, nobody has asked it.
-- **§V-R1 / routing** — the aggregator path was **abandoned in favour of a pinned pool** (see §11).
-  `ROUTING-AGGREGATION.md`'s "band first, then 1inch" describes **user** flow and must not be applied
-  to lever flow: `BtcLevManager:36` — *"Acquisition is EXTERNAL (never the swap-out rail → the band
+- **§V-R1 / routing** — the aggregator path was **arangeoned in favour of a pinned pool** (see §11).
+  `ROUTING-AGGREGATION.md`'s "range first, then 1inch" describes **user** flow and must not be applied
+  to lever flow: `BtcLevManager:36` — *"Acquisition is EXTERNAL (never the swap-out rail → the range
   is never traded → no encroachment on other LPs)."*
 
 ---
@@ -723,8 +723,8 @@ were HTTP 429, which knocked out three whole suites and 11 tests.
 | `RING` 1024 → 256, raw slots 1030/1031 → 262/263 from `forge inspect` | layout |
 | `Shares` — 26 declarations → 13 | **+11 B**; buys layout alignment, not size |
 | clients repaired | 11 SPA signatures, 2 Rust selectors |
-| `TickOutOfRange` → `RangeNotOutsideBand` | **the last tick identifier in code.** Both call sites compare PRICES (`t.newUp < t.curLo`, `t.newLo >= t.newUp`) — it never guarded a tick, and left in place it read as evidence that tick math survived the v4 cut. Zero client references, so the selector change was free. **Residual tick identifiers in code: 0**; every remaining mention is a `§DE-TICK`/`§TICK-REMOVAL`/`§V4-CUT` block recording the removal on purpose. |
-| 3 unreferenced declarations deleted | `contract Shares` (2,300 B, the §E255 prototype — `git show 5ada37f4:evm/src/Shares.sol`), `interface ISkewSink` (superseded; `Core.sol:367` reaches `creditSkewPremium` through `IBandManager`), `library Interfaces {}` (an empty no-op that only produced an artifact). **`Shares` stays** — it is the wired half and the base §E256 confirms. |
+| `TickOutOfRange` → `RangeNotOutside` | **the last tick identifier in code.** Both call sites compare PRICES (`t.newUp < t.curLo`, `t.newLo >= t.newUp`) — it never guarded a tick, and left in place it read as evidence that tick math survived the v4 cut. Zero client references, so the selector change was free. **Residual tick identifiers in code: 0**; every remaining mention is a `§DE-TICK`/`§TICK-REMOVAL`/`§V4-CUT` block recording the removal on purpose. |
+| 3 unreferenced declarations deleted | `contract Shares` (2,300 B, the §E255 prototype — `git show 5ada37f4:evm/src/Shares.sol`), `interface ISkewSink` (superseded; `Core.sol:367` reaches `creditSkewPremium` through `IRangeManager`), `library Interfaces {}` (an empty no-op that only produced an artifact). **`Shares` stays** — it is the wired half and the base §E256 confirms. |
 | 3 rescue tags pushed | `rescue/E194-rover-open-14-18`, `rescue/E232-1inch-unusable`, `rescue/E222-revert` — commits that were reachable from no branch and no remote |
 
 **The venue choice is measured, and the measurement is the reason it works:** Uni V3 USDC/WETH 0.05%
@@ -734,7 +734,7 @@ DEPTH problem; a deeper pool solves it and an aggregator was never required.** R
 before trusting the pin again — a pinned pool *can* be thin at size, and that is the standing cost.
 
 **The keeper's scope stayed minimal because of it:** it passes nothing, encodes nothing, fetches
-nothing. No signature changed, so **ABI gate 0 Rust / 0 SPA**. The abandoned aggregator design would
+nothing. No signature changed, so **ABI gate 0 Rust / 0 SPA**. The arangeoned aggregator design would
 have required an HTTP client, API credentials, an outage mode, a staleness window, `bytes route`
 threaded through two managers and three structs, an ABI break on four entrypoints, and a nested
 `bytes[]` encoder in Rust.
@@ -789,7 +789,7 @@ and I would have re-opened every one of them by reporting from my own notes.**
 | what I wrote, and when | state today |
 |---|---|
 | *"366 `isBTC` references, 182 in `Core.sol` alone — 53% in one file"* (08-15) | **36 total.** `SwapLib` 17, `Quid` 8, `Vault` 3, `Interfaces` 2, `Shares` 1. **Core: zero.** |
-| *"`Core` still carries BOTH bands' state — `obsBTC`/`obsETH`, `_flowBTC`/`_flowETH`. That's the unfinished half"* (08-16) | **Zero matches in `Core.sol`.** |
+| *"`Core` still carries BOTH ranges' state — `obsBTC`/`obsETH`, `_flowBTC`/`_flowETH`. That's the unfinished half"* (08-16) | **Zero matches in `Core.sol`.** |
 | *"the `LEV_MANAGER` duplication — one fact with two homes"* (08-14) | **Dissolved by `Shares`**: one declaration (`Shares.sol:62`), inherited by both. |
 | *"`#32` — the per-LP `COLLATERAL()` STATICCALL inside two loops"* (08-13) | **Not in any loop.** Three single-shot branch sites remain. |
 | *"`Alles` inherits `Fixtures` while using not one member of it"* (08-17) | v4 `Fixtures.sol` **gone**. ⚠️ `evm/test/SPVFixtures.sol` is a **different, live** file — Bitcoin header fixtures for `SPVGateway.t.sol`. **Similar name, unrelated thing: do not delete it on the strength of that note.** |
@@ -825,18 +825,18 @@ reachable. **Do not delete that tag until the question below is answered.**
 | the **doc** half — `OPEN 14`…`OPEN 18` | ✅ all five present in `main`'s `QUEUE.md` |
 | the **code** half — `evm/src/imports/SwapLib.sol` | ⛔ **never landed** |
 
-The code half halved `BAND_FRAC_WAD`: *"IT IS HALF THE BAND WIDTH, NOT THE WIDTH … it credited twice
-what the band can actually charge and made the skew **UNDER-collect by ~10bps on every trade above
-the band**"* — carrying the derivation that average execution across a traversal is the **geometric
+The code half halved `RANGE_FRAC_WAD`: *"IT IS HALF THE RANGE WIDTH, NOT THE WIDTH … it credited twice
+what the range can actually charge and made the skew **UNDER-collect by ~10bps on every trade above
+the range**"* — carrying the derivation that average execution across a traversal is the **geometric
 mean** of pre- and post-trade marginal price, `1 − (P_a/P_b)^(1/4) ≈ δ/2`, control-validated against
 the v3 whitepaper's own 200× and 2000× capital-efficiency figures.
 
-⚠️ **`BAND_FRAC_WAD` DOES NOT EXIST ON `main`.** `8dc68cf0` rebuilt the well skew, `29f0cb01`
+⚠️ **`RANGE_FRAC_WAD` DOES NOT EXIST ON `main`.** `8dc68cf0` rebuilt the well skew, `29f0cb01`
 reverted that rebuild to the known-green state, and the constant left with it. ⇒ **DO NOT RE-APPLY
 THE DIFF** — it patches something that is gone.
 
 🔴 **THE SURVIVING QUESTION IS A MONEY-PATH ONE:** does today's skew formula credit the swapper for
-band slippage at all — and if it does, does it credit the **full width** (the ~10bps under-collection
+range slippage at all — and if it does, does it credit the **full width** (the ~10bps under-collection
 this commit found) or the **half**? Re-derive against the current formula; do not assume the revert
 carried the correction with it.
 
@@ -902,7 +902,7 @@ because the flag was written down at the time.
 
 **(2) EVERY DELETION, to see whether §E109/§E116 were the only rows closable that way.** All **35
 deleted `.sol` files** in `evm/src` were enumerated from history and each cross-referenced against
-the open rows: `AaveV3Venue` `AaveV4Venue` `BandBacking` `BatchLedger` `EthVenue` `EulerEscrowVenue`
+the open rows: `AaveV3Venue` `AaveV4Venue` `RangeBacking` `BatchLedger` `EthVenue` `EulerEscrowVenue`
 `SOR` `LevOracles` `LiquityTroveVenue` `MorphoEscrowVenue` `QuidLens` `Rover` `SorExchange` `VEth`
 `mock` `AttestedHopRegistry`, plus the 13 v3 `TickMath`/`LiquidityAmounts`/`FullMath`/pool-interface
 files.
@@ -1032,7 +1032,7 @@ a row overturned the plan built from its marker.
 - **E214-unpinned-fork-invalidates-every-ab** — **`FORK_BLOCK` IS NOT SET IN `evm/.env`, SO FORK TESTS RUN AGAINST A MOVING CHAIN HEAD — AND THAT SILENTLY INVALIDATES ANY BEFORE/AFTER NUMERIC COMPARISON. I BUILT A CONT
 - **E213-sigma-zero-rationale-is-stale** — **A PARALLEL THREAD'S IN-FLIGHT σ²=0 FIX IS CORRECT AND ITS STATED MECHANISM DESCRIBES CODE THAT WAS ALREADY REPLACED. FLAGGED BEFORE IT COMMITS (2026-08-16). I DID NOT E
 - **E209-merge-yield-and-concentration** — THE OWNER'S MERGE IS A CORRECTION, NOT A SIMPLIFICATION — `calcFeeL1` COMPARES AN UNWEIGHTED NUMERATOR AGAINST A WEIGHTED BASELINE (2026-08-16).
-- **E206-skew-cannot-measure-composition** — THE DOUBLE-DUTY MEASUREMENT DOES NOT WORK AS PROPOSED — THE SKEW IS PURELY BAND-SIDE. CHECK EXECUTED, NOT ASSUMED (2026-08-16).
+- **E206-skew-cannot-measure-composition** — THE DOUBLE-DUTY MEASUREMENT DOES NOT WORK AS PROPOSED — THE SKEW IS PURELY RANGE-SIDE. CHECK EXECUTED, NOT ASSUMED (2026-08-16).
 - **E202-btc-priced-by-a-handle** — **WE HOLD NATIVE BTC AND PRICE IT WITH A WBTC HANDLE, SO THE WBTC BASIS IS AN UNCORRECTED VALUATION ERROR — NOT MERELY A DETECTION GAP. AND BOTH LEVERS THAT COULD FIX IT 
 - **E201-oracle-posture-reconciled** — **§E190-oracle-posture SAYS "Chainlink appears ONLY as the per-stable depeg feed, a circuit breaker". THE CODE DISAGREES: THERE ARE TWO ROLES, AND THE SECOND SUPPLIES PRI
 - **E199-old-aave-leg-uncovered** — THE DUAL-VENUE AAVE LEGS EXIST ONLY IN PRODUCTION — THE HARNESS NEVER WIRES THEM, AND A DEPOSIT INTO ONE REVERTS (2026-08-15).
@@ -1047,10 +1047,10 @@ a row overturned the plan built from its marker.
 - **E120** — `ForkPin` PINS THE *CURRENT* BLOCK, SO EVERY FULL-SUITE RUN REFETCHES AND SELF-RATE-LIMITS THE PUBLIC RPC (2026-08-07).
 - **E121** — THERE IS NO SAFE. `gov` DEFAULTS TO THE DEPLOYER EOA, AND THE "Safe (owner) calls" COMMENTS DESCRIBE AN INTENTION (owner asked, 2026-08-07).
 - **E88-PROOF** — THE σ² SENTINEL IS UNREACHABLE ON THE PATHS TESTED — WHICH MEANS E59's ORIGINAL FIX MAY NEVER HAVE FIRED, AND MY E88-r REFINED A BRANCH THAT DOES NOT EXECUTE (2026-08-06).
-- **E98** — THE BTC LEG IS MEASURED FOR THE FIRST TIME — AND ITS BASE IS INERT. `SPLICE_FLOOR`, WHICH E85 SHOWED IS ~99.3% OF BTC's FLOOR, NEVER APPLIES ON AN UNTRADED BAND (2026-08-06).
+- **E98** — THE BTC LEG IS MEASURED FOR THE FIRST TIME — AND ITS BASE IS INERT. `SPLICE_FLOOR`, WHICH E85 SHOWED IS ~99.3% OF BTC's FLOOR, NEVER APPLIES ON AN UNTRADED RANGE (2026-08-06).
 - **E123** — THE CLIENT STILL PERFORMS A SIGNING CEREMONY THE CONTRACT NO LONGER CHECKS. `openChannelDigest` HAS NO ON-CHAIN CONSUMER (owner asked what delegation is for, 2026-08-07).
 - **E124** — **`check-client-abis.py` COULD NOT SEE ARGUMENT DRIFT — the tool CLAUDE.md elevates above "forge + tsc green" reported success on a real break. FIXED, and it found one im
-- **E93-VERIFY** — **VERIFICATION FINDS A STRUCTURAL BLOCKER: THE BAND *RESEATS*, WHICH RESETS TICK-POSITION-WITHIN-BAND WITHOUT REPAIRING COMPOSITION. And the width question resolves as ME
+- **E93-VERIFY** — **VERIFICATION FINDS A STRUCTURAL BLOCKER: THE RANGE *RESEATS*, WHICH RESETS TICK-POSITION-WITHIN-RANGE WITHOUT REPAIRING COMPOSITION. And the width question resolves as ME
 - **E128** — `emitDeadManExit` NEVER VERIFIES `signedExitTx` — the LP's only fleet-independent protection accepts arbitrary bytes (2026-08-07).
 - **E131** — THE SAME UNCHECKED-KEY DEFECT AS E130 EXISTS IN `requestSwapOutOnchain` — found by scanning for the pattern rather than assuming E130 was unique (2026-08-07).
 - **E138** — **A FIFTH IMPROVEMENT, NEVER NAMED: `btcRecipientOf` PROVES THE KEY IS ON THE CURVE, NOT THAT THE LP CONTROLS IT — E130 closed only half the failure (owner asked whether 
@@ -1089,11 +1089,11 @@ a row overturned the plan built from its marker.
 - **§E244-tri-tests** — PARTLY CLOSED — ONE OF THE TWO IS FIXED, AND BY THE VENUE PIN RATHER THAN BY THE TEST (2026-08-17).
 - **§E249-close** — LIVE FUND-STUCK DEFECT ON THE WBTC-MODE CLOSE — FIXED 2026-08-17, AND IT WAS INVISIBLE BY CONSTRUCTION.
 - **§E251-vbtc-scope** — OPEN — DESIGN vs IMPLEMENTATION GAP: vBTC CAN ONLY BE MINTED AGAINST THE LEVERED SLICE, AND THE DESIGN WANTS MORE (owner, 2026-08-17).
-- **§E255-two-instances** — **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each band,
+- **§E255-two-instances** — **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each range,
 - **§E247-allowlist-gate** — OPEN, AND IT ONLY EVER LIVED IN PROSE INSIDE ANOTHER ROW'S BODY UNTIL NOW (booked retroactively 2026-08-17).
 
 #### 🟠  (38)
-- **E48** — REFILL — DESIGN SETTLED 2026-08-04 AFTER TWO OWNER CORRECTIONS. ATOMIC ON BOTH BANDS, WITH THE ASYNC KEEPER AS A REQUIRED FALLBACK TIER.
+- **E48** — REFILL — DESIGN SETTLED 2026-08-04 AFTER TWO OWNER CORRECTIONS. ATOMIC ON BOTH RANGES, WITH THE ASYNC KEEPER AS A REQUIRED FALLBACK TIER.
 - **E33** — `evm/test/btc/swapin_fixture.json` IS A BUILD ARTIFACT PRETENDING TO BE A FIXTURE — it is REWRITTEN BY EVERY FULL-SUITE RUN.
 - **E37** — AN EFFICIENCY LESSON THE `_take` ITEM MISSED: SPV THREADS TWICE THE MEMORY LEGACY DID, and pays for it at EXTERNAL library boundaries.
 - **E6** — RESEAT AND REFILL SHOULD FIRE TOGETHER (user, 2026-08-03).
@@ -1144,7 +1144,7 @@ a row overturned the plan built from its marker.
 - **DELEGATION-REMOVED-FROM-CONTRACTS-NOT-FROM-CLIENTS** — HALF FIXED — the LIVE break is closed; one TEST-ONLY builder remains | **Measured 2026-08-15 against the pushed tree.** Contract side: **DONE.** `Interfaces.sol` (the can
 - **BTCFEESOWEDSATS-DRIVER-IS-DEAD-AT-RUNTIME** — DISGUISE REMOVED (2026-08-15) — path kept, deadness now HONEST; routing-fee question still OPEN | **What it existed for (answered from `git log -S`, not from the name):**
 - **§E234-vac** — OPEN — A TEST THAT PASSES FOR NO REASON, FOUND 2026-08-17 WHILE LANDING ITS OWN SUITE.
-- **§E236-shares** — OPEN — THREE COPIES OF THE SAME BAND STATE, FOUND WHILE FIXING §E235-spa.
+- **§E236-shares** — OPEN — THREE COPIES OF THE SAME RANGE STATE, FOUND WHILE FIXING §E235-spa.
 - **§E238-scan** — OPEN, ONE FACT — §E111's SCAFFOLDING IS GONE, SO ITS COST IS NOT WHAT THE LAST THREAD TO TOUCH IT BELIEVED (found 2026-08-17 by scanning all 21 session transcripts).
 
 #### 🟢  (13)
@@ -1159,7 +1159,7 @@ a row overturned the plan built from its marker.
 - **§E241-lib** — **OPEN AND PAYING, AND IT OVERTURNS A RECORDED CONCLUSION — `CLAUDE.md` states *"neither abstract-base hoisting nor delegatecalled-library extraction removes meaningful b
 - **§E245-rate** — THE EXTRACTION RATE, MEASURED AT THREE BODY SIZES — THIS IS THE NUMBER THAT MAKES THE MANAGER MERGE PLANNABLE (2026-08-17).
 - **§E246-legs** — THE FOUR "BTC" VENUE LEGS ARE ASSET-AGNOSTIC AND NOW SHARED — the naming hid it (2026-08-17).
-- **§E252-shares-merge** — READY — THE 13 BAND-STATE DECLARATIONS ARE BYTE-IDENTICAL IN ALL THREE FILES, so the merge is mechanical (verified 2026-08-17).
+- **§E252-shares-merge** — READY — THE 13 RANGE-STATE DECLARATIONS ARE BYTE-IDENTICAL IN ALL THREE FILES, so the merge is mechanical (verified 2026-08-17).
 - **§E256-shares-base** — UNBLOCKED BY THE OWNER 2026-08-17: `Shares` IS THE BASE, AND ITS `totalSupply` SEMANTICS ARE THE ONES THAT SURVIVE.
 
 #### ⏸️  (9)
@@ -1383,9 +1383,9 @@ as if the thread stopped before it.**
 
 | | |
 |---|---|
-| `QuidLib` → `QuidLib`, deleted | **8 libraries → 7.** Predicted 17,935 as an upper bound, measured **17,507** — shared code deduped. Every non-`Quid` reference to either library was a COMMENT, so both were already the ETH band manager's libraries and only one said so. |
-| `Quid`→`Quid`, `Shares`→`State`, `BtcLib`→`BtcLib`, `VOGUE`→`BAND`, `vogue`→`band` | 65 files. **`QUID` stays the token** — it means the Basket in 47 files (~470 uses), so freeing it would have been the tail wagging the dog. |
-| `Core`'s `BAND`/`VOGUE` duplication | Deleted. On ETH they were the SAME ADDRESS; on BTC `VOGUE` was the **ETH** band manager, so the BTC engine's `onlyUs` admitted a foreign band. Unexercised, now impossible. |
+| `QuidLib` → `QuidLib`, deleted | **8 libraries → 7.** Predicted 17,935 as an upper bound, measured **17,507** — shared code deduped. Every non-`Quid` reference to either library was a COMMENT, so both were already the ETH range manager's libraries and only one said so. |
+| `Quid`→`Quid`, `Shares`→`State`, `BtcLib`→`BtcLib`, `VOGUE`→`RANGE`, `vogue`→`range` | 65 files. **`QUID` stays the token** — it means the Basket in 47 files (~470 uses), so freeing it would have been the tail wagging the dog. |
+| `Core`'s `RANGE`/`VOGUE` duplication | Deleted. On ETH they were the SAME ADDRESS; on BTC `VOGUE` was the **ETH** range manager, so the BTC engine's `onlyUs` admitted a foreign range. Unexercised, now impossible. |
 | 17 dead variables, +76 bytes on `Quid` | One dead concept (`spotPrice`/`loPrice`/`upPrice`) propagated through **four** functions. |
 | 14 shadow/duplicate names | Including `OracleLib._interpolate`, where the shadow was the SYMPTOM of a duplicated arithmetic tail. |
 | `ApproveFailed` invariant + its reject-path test | Three ignored `approve` returns. **The first version had the hole it was written to close** — a codeless address returns `ok=true` with empty returndata, indistinguishable from USDT. Control-verified: removing the `extcodesize` leg makes the test fail. |
@@ -1399,7 +1399,7 @@ low-level calls, zero unreachable code.
 1. 🟡 **9 mutability hints + 1 payable-fallback note** — the entire remaining warning surface. Each
    `view`/`pure` restriction is free gas and free clarity; none is structural. **Not booked anywhere
    else — this is its only record.**
-2. 🔴 **The band merge (§E255) and the manager merge are blocked by BYTECODE, not design.** ~11,986
+2. 🔴 **The range merge (§E255) and the manager merge are blocked by BYTECODE, not design.** ~11,986
    and 15,532 bytes over. ⚠️ **§E255's recorded blocker was STALE and is corrected in its row:**
    *"`Vault` is two things fused"* is false — §E231's EthVenue fold resolved it by going the other
    way, into `Quid`. Every design question is settled (§E256). **The next step is ~12k of
@@ -1415,7 +1415,7 @@ low-level calls, zero unreachable code.
 ⭐ **THE PATTERN THIS PASS KEPT PAYING FOR, and it is the same one four earlier components hit:
 I reach for structure before checking what already carries the quantity.** §E254 was not a fold
 (only `approve` duplicates, and a base COPIES bodies). §E259 was not a fold (`Quid`'s face is a
-PROJECTION of band state, `VBtc`'s is a LEDGER — folding them would CREATE duplicated state).
+PROJECTION of range state, `VBtc`'s is a LEDGER — folding them would CREATE duplicated state).
 `ShareMath` was not worth extracting (a 29-line FILE is a 4-line BODY). **Three of the four folds I
 opened this pass dissolved on measurement, and the one that survived — `QuidLib` — survived because
 I checked the callers first.**
@@ -1736,14 +1736,14 @@ claim is about.** The row was not wrong about `E0463`; it was wrong about what "
 Absent from Part B entirely, and `BTC-CUSTODY-OPEN.md` §4b gives it its own section. `requireFull`
 makes the LN swap-in rail **all-or-nothing** because, as `BTCChannels.sol` says, that rail *"cannot
 refund"* — a Lightning payment is atomic and cannot be partially returned. The design agreed in this
-thread: **do not reject the remainder — route it.** Band fills what it can, the remainder goes out
+thread: **do not reject the remainder — route it.** Range fills what it can, the remainder goes out
 through 1inch, cleared as a **Khalani cross-chain intent against Perena**, with instantly-redeemable
 QU!D forcing the swap-out through 1inch to take in several stables and pack them into one at the end.
 ⚠️ **The quote seam for this already exists** (§NO-REJECT records it), so the missing piece is intent
 emission on shortfall, not a new pricing path. **Two QUEUE rows carry the detail; neither is scoped
 to a task.**
 
-### 🟡 B9b-iv. `BandEquityCollapseEchidna` now guards a term that no longer exists
+### 🟡 B9b-iv. `RangeEquityCollapseEchidna` now guards a term that no longer exists
 The harness proved the `dust6` collapse safe (50,000 cases: `collapsed >= withDust`, identity when
 `dust6 == 0`, floors saturate, monotonicity). **The collapse has since landed — `dust6`/`_dustOf` are
 at 0 references in `Core`.** The harness is self-contained pure math, so it still runs and still
@@ -1814,7 +1814,7 @@ covered by the fixture suite. Skew = wired. Refill = not.
    after §E230's `basketUsd`/`basketLeg` fix).
 3. **Wire `refillNeeded`** into a daemon task over the EXISTING rail (`BTCChannels.creditSwapIn` →
    `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`). `daemon.rs` spawns TEN tasks and **none reads
-   band inventory**. Docker builds `quid-ln`; macOS cannot.
+   range inventory**. Docker builds `quid-ln`; macOS cannot.
 4. **Wire `proRataShortfall`** into the redeem path + the owner's **1inch conversion to destination
    token**. ⚠️ 1inch is currently a CONSUMER (`Core:1228` *"we feed 1inch / Khalani"*) and a price
    reader (`ExternalTwap:45`) — **never a liquidity source**. Sourcing is Morpho flash + Curve.
@@ -1863,7 +1863,7 @@ limit** — every ETH swap and repack would have exceeded a whole block. WRONG, 
 
 ⛔ **§E220 IS SUPERSEDED — DO NOT BUILD IT.** That row proposed sourcing the ring from **Chainlink**, which is itself circular: Chainlink is already the ANCHOR `twapResolve` checks against, so feeding it in makes the anchor test a smoothed copy of itself — the very defect §E222 names.
 
-🔴 **BOTH CANDIDATE SOURCES ARE NOW RULED OUT, AND NOTHING IS PINNED (2026-08-21).** 1inch: **31,722,803 gas**, above the block limit. Curve TriCrypto-USDC: pinned, then **removed on the owner's instruction** — pricing the band off a single pool makes that pool's depth and depeg mode an input to σ², the skew and liquidation, which is `ExternalTwap`'s own *"correlated sources are one source"* objection turned on the pool itself. ⇒ **`observationSource` is unset, so the ring is NEVER WRITTEN: `ringVariance` returns 0 and §E213 prices at the ceiling — on BOTH instances, so the old ETH/BTC asymmetry is gone.** ✅ The circularity is gone regardless (no self-write from `getTWAPforAsset`); what is open is **which source**. ⚠️ `Core`'s `OBS_POOL_IDX` was DELETED with the pin — a TriCrypto-ordering index that would have priced ETH as WBTC on any differently-ordered pool. **The read shape is now pinned WITH the source (`setObservationSource(src, calldata)`); do not hardcode a venue's encoding again.**
+🔴 **BOTH CANDIDATE SOURCES ARE NOW RULED OUT, AND NOTHING IS PINNED (2026-08-21).** 1inch: **31,722,803 gas**, above the block limit. Curve TriCrypto-USDC: pinned, then **removed on the owner's instruction** — pricing the range off a single pool makes that pool's depth and depeg mode an input to σ², the skew and liquidation, which is `ExternalTwap`'s own *"correlated sources are one source"* objection turned on the pool itself. ⇒ **`observationSource` is unset, so the ring is NEVER WRITTEN: `ringVariance` returns 0 and §E213 prices at the ceiling — on BOTH instances, so the old ETH/BTC asymmetry is gone.** ✅ The circularity is gone regardless (no self-write from `getTWAPforAsset`); what is open is **which source**. ⚠️ `Core`'s `OBS_POOL_IDX` was DELETED with the pin — a TriCrypto-ordering index that would have priced ETH as WBTC on any differently-ordered pool. **The read shape is now pinned WITH the source (`setObservationSource(src, calldata)`); do not hardcode a venue's encoding again.**
 
 **Kick off from `ExternalTwap.curvePriceWad`** (already written, ~one storage read):
 - **ETH: `price_oracle(1)` on `CURVE_TRICRYPTO_USDC`.** 🔴 **k=1 is WETH, k=0 is WBTC** — the file's
@@ -1878,7 +1878,7 @@ limit** — every ETH swap and repack would have exceeded a whole block. WRONG, 
   objection survives the change of venue. No source ⇒ no writes ⇒ `ringVariance` returns 0 ⇒ §E213's
   sentinel prices at the ceiling. **A wrong guard is worse than a vacuous one: the vacuous reports
   nothing you can act on, the wrong one reports something you WILL.**
-- **The read must not halt the band:** raw `staticcall`, any failure skips the write. Degrade to
+- **The read must not halt the range:** raw `staticcall`, any failure skips the write. Degrade to
   unmeasured, never revert — the source sits on the swap path.
 
 ## C2. 🟠 `calcFeeL1` — TWO changes or neither (§E209, §E227)
@@ -1890,7 +1890,7 @@ Related and never justified: **`swapFeePpm() = 420` is now OUR policy**, not v4'
 ## C3. 🟠 vBTC IS the 7540's asset — its 4626 face contradicts that (§E221/E223/E224)
 `VBtc.asset()` returns **WBTC** while vBTC **is** the ERC-20 the async vault points at. `Vault` has
 **no `asset()`**, and `VBtc`'s three 4626 accessors have **ZERO call sites**. Delete them; give the
-band manager `asset() = vBTC`. The BTC anchor is already wrapper-free (Chainlink **"BTC / USD"**),
+range manager `asset() = vBTC`. The BTC anchor is already wrapper-free (Chainlink **"BTC / USD"**),
 so the depeg exposure is narrower than §E221 first claimed. **The `WBTC/BTC` feed (`0xfdFD…BB23`,
 **1.00039110** = 3.91 bps) is wired NOWHERE** — the basis is unmeasured, and that feed is the direct
 instrument if a detector is wanted.
@@ -2064,7 +2064,7 @@ A grep of this thread's work against the whole file found nine absences. Five we
 **The task this thread opened with:** route stables **above the total redeemable QU!D claim** out via
 1inch to correct basket imbalance, *"which we can measure by seeing how the skew price changes —
 double duty reuse of the same measurements."* **`grep` confirms nothing was implemented.**
-🔴 **The measurement half is refuted (§E206): `skewWad` takes four band-side inputs — deliverable
+🔴 **The measurement half is refuted (§E206): `skewWad` takes four range-side inputs — deliverable
 volatile inventory, the flow EWMA, ring variance, this swap's size — so swapping USDC→PYUSD moves
 NONE of them.** A loop keyed on skew would optimise against a signal that only moves for unrelated
 reasons.
@@ -2150,7 +2150,7 @@ worktree.
 
 ### 🟡 Structure / size
 `§E242-inline` (seven "libraries" are inlined into every consumer — targets the binding contract),
-`§E236-shares` (three copies of the same band state), `§E255-two-instances` (the architecture target),
+`§E236-shares` (three copies of the same range state), `§E255-two-instances` (the architecture target),
 `§E238-scan`, `§REGIME-TWO-CLASSIFIERS` (**verified: `spa/src/lib/regime.ts` still exists, 3 refs to
 `classifyRegime`** — one design decision, then a deletion), `§MINT-SITE-COUNT`, `§UNIT-*` cluster.
 
@@ -2176,7 +2176,7 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | **1** | ~~`§E233-ladder`~~ | ✅ **CLOSED `d13fde00`** | 5/5 rotation sites arm; verified by assignment + ordering. See D2-ALERT. |
 | ~~2~~ | ~~`§T2` terms commitment~~ | ✅ **COMPLETE (`1aaefab3` + `0c208ac6`) — BUT THE FIRST LANDING COMMITTED THE WRONG FIELD AND COULD NOT HAVE WORKED** | ⛔ **Read this before quoting the earlier description of this row.** The first version committed `sha256(abi.encode(seller, token, minDeliveredUsd))`. **`minDeliveredUsd` cannot be committed:** it is `swap_in_floor_usd(sats, price, slippage)`, so it SCALES WITH THE SATS ACTUALLY DEPOSITED — unknowable when the address is derived, because the address must exist before the seller can pay it. The address was underivable and every settle would have reverted. **Found only when the client half was written**, which is exactly what `#5`'s ordering row said the client half was for. ✅ **The replacement is stronger than the original design:** the address commits the **RATE** (`seller, token, pricePerBtc, slippageBps` — fixed at registration) and the contract DERIVES the floor from it and the SPV-proven sats (`ExitLib.settleFloorUsd`). So `minDeliveredUsd` stops being a parameter at all — the hop used to quote one floor to the seller and settle against another; now no floor crosses the wire. Rust matches byte-for-byte (`terms_commitment`, the leaf prefix, and `swap_terms` as ONE derivation so the quoted address and the later claim cannot drift). Vectors re-derived from BIP-341 in fresh Python with the pre-existing pins as controls. forge 10/10; `cargo test -p quid-hop -p quid-bridge` 170/0. |
 | ~~3~~ | ~~`§T3`~~ | ✅ **CLOSED 2026-08-18 — written up and closed in `QUEUE.md`; the fix is for a case that cannot arise, and the three one-line falsifiers are named on the row** | *Does the vault route third-party HTLCs?* **No, structurally**: one permitted counterparty (`event_handler.rs:474`). T3 was never gated on per-channel freshness — freshness was the price of the FIX, and the fix addresses a case that cannot arise. **Remaining work is to write the deletion up and let it be attacked**, naming the three one-line falsifiers. |
-| **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability — and it is NOT one event, which is what the row implied** | **Scoped against code 2026-08-21.** Today: `settleSwapInBuffered` ends `if (requireFull && consumed < sats) revert SwapInPartialRejected()` (`BTCChannels.sol:1396`), and that revert is **correct as things stand** — the LN rail *"cannot refund a partial and must fail the HTLC back"*, because a Lightning payment is atomic. ⛔ **SO "EMIT AN INTENT ON SHORTFALL" CANNOT BE THE WHOLE FIX, AND CANNOT EVEN BE THE FIRST STEP: a revert rolls the event back.** Emission only exists if the call STOPS reverting. ⇒ **The real shape: "do not reject — route it" means the protocol ACCEPTS sats it cannot yet pay for, which creates an OBLIGATION TO THE SELLER that must live somewhere until the remainder clears.** 🔴 **Measured: no such ledger exists** — no `owed`/`obligation` mapping in `evm/src`, and **zero** `Intent`/`Shortfall`/`Unfilled`/`Remainder` events anywhere. So this is an owed-ledger plus a settlement path plus emission, not an event. ▶️ **THE DECISION IS THE OWNER'S BECAUSE IT MOVES RISK, and it should be made before any code:** between accepting the sats and the intent clearing, **someone is short** — the seller (paid late), the pool (pays now, recovers later), or the hop (fronts it). The revert exists precisely so nobody is. ⚠️ **The route in the original note is partly stale:** it reads band → **1inch** → Khalani → Perena, and §V-R1's 1inch work was WITHDRAWN (`e4f9c512`); the volatile legs now route pinned Uniswap V3. Re-derive the venue leg before building on that sentence. |
+| **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability — and it is NOT one event, which is what the row implied** | **Scoped against code 2026-08-21.** Today: `settleSwapInBuffered` ends `if (requireFull && consumed < sats) revert SwapInPartialRejected()` (`BTCChannels.sol:1396`), and that revert is **correct as things stand** — the LN rail *"cannot refund a partial and must fail the HTLC back"*, because a Lightning payment is atomic. ⛔ **SO "EMIT AN INTENT ON SHORTFALL" CANNOT BE THE WHOLE FIX, AND CANNOT EVEN BE THE FIRST STEP: a revert rolls the event back.** Emission only exists if the call STOPS reverting. ⇒ **The real shape: "do not reject — route it" means the protocol ACCEPTS sats it cannot yet pay for, which creates an OBLIGATION TO THE SELLER that must live somewhere until the remainder clears.** 🔴 **Measured: no such ledger exists** — no `owed`/`obligation` mapping in `evm/src`, and **zero** `Intent`/`Shortfall`/`Unfilled`/`Remainder` events anywhere. So this is an owed-ledger plus a settlement path plus emission, not an event. ▶️ **THE DECISION IS THE OWNER'S BECAUSE IT MOVES RISK, and it should be made before any code:** between accepting the sats and the intent clearing, **someone is short** — the seller (paid late), the pool (pays now, recovers later), or the hop (fronts it). The revert exists precisely so nobody is. ⚠️ **The route in the original note is partly stale:** it reads range → **1inch** → Khalani → Perena, and §V-R1's 1inch work was WITHDRAWN (`e4f9c512`); the volatile legs now route pinned Uniswap V3. Re-derive the venue leg before building on that sentence. |
 | ~~5~~ | ~~`§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT`~~ | ✅ **CLOSED by §T2 — the ordering it demanded was honoured, protocol first** | The row's title was *"the specified client check cannot match ANY address the hop can produce today"*, and every clause of it is now addressed. **(1) The commitment the documents described but the protocol did not build, now exists** — `ExitLib.termsCommitment` + the leaf prefix. **(2) Its `tapBranch`/`termsLeaf` objection is resolved by ADOPTING the one-leaf design instead** — the terms ride in front of the refund leaf that already exists, so there is no second leaf, no sibling in the control block, and no new primitive in three languages. **(3) *"`seller`, `token` and `minDeliveredUsd` remain the hop's assertions"* is no longer true** — the first two are committed, and the third does not exist: the floor is derived on-chain from the committed rate. That comment sat directly above `settleSwapInProven` and is corrected in the same commit. ⚠️ **`PUPPETEER-E2E-MATRIX.md` still specifies the two-leaf `tapBranch` verifier** and should be re-pointed at the one-leaf shape; the wallet already implements the latter. | The client work is AHEAD of the contract. Landing the client first ships a verifier committing to a shape the chain cannot check. |
 | ~~6~~ | ~~`B4` LADDER DEPTH~~ | ✅ **CLOSED `5295995f` — another thread built it FROM THIS BOOKING.** `_armLadder` now rejects `exits.length < 2` AND a ladder whose rungs share one deadline (`LadderTooShallow`), which is exactly the property booked here: two rungs at one deadline are one window. Tested in `BtcLpMintStress` + `ExitFixture` | `_armLadder` enforces **only `if (exits.length == 0) revert InvalidParam()`** (`BTCChannels.sol:1530`). **A ONE-rung ladder is accepted**, so a single missed CLTV window leaves the LP with no escape. ⚠️ **B0 RAISED THIS ITEM'S STAKES**: vault-less, the heartbeat does not run, so the open ladder + per-rotation arming is the ONLY escape — depth is no longer a nicety. Bounds the one thing that cannot be prevented: a hop declining to settle, emit or route. |
 | **7** | **`B5` lazy `openChannel` AND `closeChannel`** | 🔴 **RE-OPENED 2026-08-21 (owner: *"you were supposed to fold openChannel and closeChannel to be lazy"*). THE ✅ BELOW CLOSED THE *CONSENT* QUESTION AND THE LIVE ONE IS *CLAIM*, SO IT DELETED A REAL ITEM FROM ATTENTION — rule 16 exactly. Measured today: `openChannel:943` calls `btcVault.requestDeposit(lpEth, amountSats)` and `_finalizeClose:625` calls `btcVault.requestRedeem(lpEth, lpPayoutSats)`, both INLINE, and `Vault.requestDeposit` does `lpShares += BtcLib.requestDeposit(...)` — **a synchronous credit wearing an ERC-7540 async name.** ⇒ custody and claim are still ONE ACT at both ends, which is the blocker §E166-lazy-open-MEETS-T1-f named and the ✅ never addressed. Prior text kept below.** ~~CLOSED 2026-08-18 — BOTH SENSES SATISFIED~~ | **TIMING sense: built.** `run_vault_open_orchestrator` PHASE A opens only on a CONFIRMED, sized deposit, so the on-chain open is deposit-triggered rather than eager. **CLAIM sense: dissolved.** SPRINT held this open on *"§E183 item 1 removed the premise — with the LP signing nothing at open, the open no longer carries LP consent at the moment it happens."* **That is false, and `drive_open` is the proof:** it returns early unless `consent_for_funding` yields an `LpConsent`, so **an open CANNOT happen without the LP's consent riding with it** — which is exactly what §E166-3 built. §E183 deleted the LP's EVM *signature*; it did not delete the LP's consent, which moved to `btc_recipient_pop` + the pre-signed ladder. ⇒ Nothing left to defer: the claim is already gated on consent that arrives with the open. | §E183 item 1 removed its premise: with the LP signing nothing at open, the open no longer carries LP consent *when it happens*, which is when deferring the CLAIM starts to matter. |
@@ -2185,13 +2185,13 @@ survived) · `§E232-tri` (TriCrypto zero code hits; all four legs on pinned V3 
 | ~~10~~ | ~~`B9b-i` ERC-7947 → ibiza~~ | ✅ **WRITTEN INTO `ibiza/TODO.md` (`bb268a2`), AND IT CARRIED A BIGGER CORRECTION WITH IT.** That repo's LP-SIGNER item still told ibiza to build `auth.lp_sig` — **the field §E183 item 1 deleted** — and called it the easy half to land first. It no longer exists, so the item is now blocked on `@scure/btc-signer` rather than having an easy first step: a SCHEDULE change, not a scope cut | Reached here, never written where the mobile client is owned. Dies with this context window otherwise. |
 | ~~11~~ | ~~`§LADDER-REMOVAL`~~ | ✅ **CLOSED 2026-08-18 — the ladder STAYS and B0 is why: removing the co-hosted vault removed the ALTERNATIVE (the heartbeat), not the need. Rule 17 inverted — the root fix made it load-bearing** | The row already retracted itself in full; its "real item" was #1, now closed. Its open half asked whether phase 1b dissolves the ladder's two justifications. **It does the opposite:** vault-less, `run_deadman_exit_heartbeat` does not run, so the ladder is the ONLY escape mechanism left. Close it with that. |
 | **12** | `§LP-SEED-ENTROPY` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 **owner decisions — blocked on a person** | `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape. |
-| ~~13a~~ | ~~`B9b-iv` `BandEquityCollapseEchidna`~~ | ✅ **DECIDED 2026-08-18: DELETED, and the proof it carried is recorded here instead** | It was a **one-shot proof artifact, not a standing guard** (`43cfe633` — *"Echidna proves the dust term collapses safely: 50k tests, all passing"*), wired into **no** runner. What it proved, kept because the artifact is gone: **(1)** collapsing the dust term can only ever RAISE `committed`, never lower it — the safe direction; **(2)** where `dust6 == 0` the collapsed and with-dust forms are byte-identical, so the change was behaviour-preserving, not merely safe. **Both arms are now unfalsifiable in production:** `dust6` has **zero** references in `evm/src`, and the file fuzzed a locally reimplemented model rather than the contract, so it could not have caught a regression in either. ⚠️ **The one condition that would reverse this:** a deliberate re-introduction of a dust term — which now also requires re-adding the v4 dependencies deleted from `foundry.toml`. Restore from `43cfe633` if that ever happens rather than rewriting it. |
+| ~~13a~~ | ~~`B9b-iv` `RangeEquityCollapseEchidna`~~ | ✅ **DECIDED 2026-08-18: DELETED, and the proof it carried is recorded here instead** | It was a **one-shot proof artifact, not a standing guard** (`43cfe633` — *"Echidna proves the dust term collapses safely: 50k tests, all passing"*), wired into **no** runner. What it proved, kept because the artifact is gone: **(1)** collapsing the dust term can only ever RAISE `committed`, never lower it — the safe direction; **(2)** where `dust6 == 0` the collapsed and with-dust forms are byte-identical, so the change was behaviour-preserving, not merely safe. **Both arms are now unfalsifiable in production:** `dust6` has **zero** references in `evm/src`, and the file fuzzed a locally reimplemented model rather than the contract, so it could not have caught a regression in either. ⚠️ **The one condition that would reverse this:** a deliberate re-introduction of a dust term — which now also requires re-adding the v4 dependencies deleted from `foundry.toml`. Restore from `43cfe633` if that ever happens rather than rewriting it. |
 | ~~13b~~ | ~~`B9b-v` one suite baseline~~ | ✅ **TAKEN 2026-08-21 on a pinned worktree at `origin/main`, archive RPC: 420 passed / 88 failed / 1 skipped, 509 tests, 76 suites** | **This one is REAL, unlike the earlier attempt:** only **9** env-shaped lines (429/403/fork) against 79 last time, so the failures are code, not the node. ⚠️ **509 tests against a historical ~4,316 means suites are still dying in `setUp`** — a reverting `setUp` drops its whole suite from the count, so the 88 are a floor, not a total. **The 88 are TWO roots, not 88 problems** (CLAUDE.md's "flat N-per-suite means one shared base"): ~60 are Morpho-debt variants (*"open must take on real Morpho debt: 0 <= 0"*, *"levered: real Morpho debt > 0"*, *"rally must lever"*), and **20 are `NotPubkeyHash()`**. |
 | **21** | 🔴🔴 **`NotPubkeyHash()` ×20 IS MY §E183 REGRESSION — the PoP is signed over the WRONG `lpEth`** (diagnosed 2026-08-21) | 🔴 **mine, and mechanical** | §E183 item 1 made the contract DERIVE `lpEth = ChannelLib.lpEthOf(p.lpPubkey)` instead of taking it as calldata. **The fixtures still sign the PoP over an unrelated address**: `OpenChannelE2E.t.sol:123` does `address lpEth = vm.addr(lpPk)` — an EOA from a test private key — and `mkAuth(lpEth, …)` signs `_popDigest(lpEth)` over it, while `_requireRecipientPoP` checks `btcRecipientPoPDigest(lpEthOf(lpPubkey))`. **Different keys ⇒ different digests ⇒ `NotPubkeyHash()`**, which is a CORRECT rejection of a PoP over the wrong message and reads exactly like a broken taproot tweak. ▶️ **The fix already exists and I built it for this:** `ExitFixture._lpEthOfLabel(label)` returns the derived address; every `mkAuth`/`_mkAuth` call site must pass THAT rather than `vm.addr(...)`. Call sites: `btc/OpenChannelE2E.t.sol:131`, `btc/BtcSelfManaged.t.sol:376`, `BtcLpMintStress.t.sol:88,150`, plus the `SmartWalletLp`/`BTCChannelsAuth` literals. ⚠️ **Not attempted in this session's remaining budget** — it is ~20 tests on the money path and a half-done fixture migration is worse than a booked one. | The Echidna guard watches a term that no longer exists — keep or delete. The baseline is D1's suite cluster: **one clean run on one commit settles seven rows at once.** |
 | **14** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 1 — an ENCLAVE-HOSTED LP has no recovery path at all** | 🔴 **was in QUEUE only; booked here 2026-08-18** | It correctly gets no export (the backend gate refuses a custody-ready seal) and the fleet's `MigrationAuth` cannot reach it, *"having never been in the fleet's enclave to migrate."* **It needs a migration trust anchor OF ITS OWN.** ⚠️ **`migration.rs` LOOKS like the answer and is not** — `verify_migration_auth` takes the owner set as a PARAMETER against a sealed-config snapshot. Anyone re-deriving this reaches for migration first. 📌 The row's *"or family"* half is retired by the owner's *"no self/family"*; the enclave-hosted-LP half stands. |
 | **15** | **`§HANDOFF-2026-08-16-SEED-THREAD` OPEN 3 — a words-only restore is not a restore** | 🔴 **was in QUEUE only; booked here 2026-08-18** | The seed roots the KEYS; the channel MONITORS (`lp-store.json`, `vault/`) sit in the same data dir and die with the same disk. **Nothing tells an operator to back that directory up, and no test covers restore-then-reconnect.** The backup makes the irreplaceable part recoverable and leaves the replaceable part undone. ⏸️ Do NOT double-file the `PolicyState` cross-reboot reset — that is booked on the `§M1#2-PHASE-2` row. |
 | ~~16~~ | ~~`§HANDOFF…` OPEN 2 — the escape meant to survive a dead LP is not public~~ | ✅ **CLOSED 2026-08-18 by evidence, both halves** | It blocked on *"until the four-entrypoint on-chain arming lands, nobody else can broadcast it"* — **that arming landed** (`d13fde00`, row #1), and its second half (*"a splice rotates the outpoint and invalidates every rung at once"*) went with it. **And the escape IS public:** `event DeadManExitEmitted(..., bytes signedExitTx)` (`:512`) carries the FULLY-SIGNED exit tx and fires from `_armDeadManExit` inside the shared `_armLadder`, so **every rung at all five sites publishes broadcastable bytes on-chain.** Anyone watching can send it after the CLTV. |
-| ~~17~~ | ~~fee-accumulator credit-site enumeration~~ | ✅ **RUN 2026-08-18, AT LAST — AND THE CONCLUSION IT WAS MEANT TO FALSIFY SURVIVES** | **Every write enumerated, not sampled.** Credits: `Vault.creditSkewPremium` (`:351`, `onlyUsBtc`), `Quid.creditSkewPremium` (`:1178`, `onlyUs`), `Quid._rebalance` (`:1274`), and the BTC rebalance via `BtcLib` (`:491,495`) written back at `Vault.sol:456`. Resets: `Vault.sol:634`, `Quid.sol:835`. **Of the three paths the note feared — swap-out delivery, liquidation, a rebalance leg — TWO have no credit site at all** (`BTCChannels`, `LevManager`, `BtcLevManager`: **zero** hits) **and the third, the rebalance leg, DOES credit** — which is the one that was never enumerated and the reason the check existed. ✅ **Per-instance correctness holds at every site:** `Core.sol:367` dispatches `BAND.creditSkewPremium` through per-instance storage (`BAND` pinned once at `:539`), and the rebalance passes **its own** base — `Vault.sol:455` hands `feesPerShare, USD_FEES, lpShares + totalBuffer` from the BTC instance's inherited `Shares` state and writes back to it. **No site reads one instance's base against another's accumulator**, which is the successor bug the owner named. | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC band is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
+| ~~17~~ | ~~fee-accumulator credit-site enumeration~~ | ✅ **RUN 2026-08-18, AT LAST — AND THE CONCLUSION IT WAS MEANT TO FALSIFY SURVIVES** | **Every write enumerated, not sampled.** Credits: `Vault.creditSkewPremium` (`:351`, `onlyUsBtc`), `Quid.creditSkewPremium` (`:1178`, `onlyUs`), `Quid._rebalance` (`:1274`), and the BTC rebalance via `BtcLib` (`:491,495`) written back at `Vault.sol:456`. Resets: `Vault.sol:634`, `Quid.sol:835`. **Of the three paths the note feared — swap-out delivery, liquidation, a rebalance leg — TWO have no credit site at all** (`BTCChannels`, `LevManager`, `BtcLevManager`: **zero** hits) **and the third, the rebalance leg, DOES credit** — which is the one that was never enumerated and the reason the check existed. ✅ **Per-instance correctness holds at every site:** `Core.sol:367` dispatches `RANGE.creditSkewPremium` through per-instance storage (`RANGE` pinned once at `:539`), and the rebalance passes **its own** base — `Vault.sol:455` hands `feesPerShare, USD_FEES, lpShares + totalBuffer` from the BTC instance's inherited `Shares` state and writes back to it. **No site reads one instance's base against another's accumulator**, which is the successor bug the owner named. | Enumerate every site crediting `feesPerShare`/`USD_FEES` across the full lifecycle (swap-out delivery, liquidation, rebalance leg) **per INSTANCE**, since the BTC range is `new Core(cfg.wbtc,…)` and carries the same names at a different address. `CLAUDE.md` memorialises this as the check written down three times and run zero times; do not let a zero-hit grep on the old suffixed name close it a fourth. |
 
 | ~~18~~ | ~~LP consent intake~~ | ✅ **BUILT 2026-08-18 (`/lp/consent`) — AFTER THE DELETION ARGUMENT WAS TESTED AND FAILED** | **The arc, because the reversal is the point.** (1) Found: `bind_consent` had **zero production callers**, so the fleet's *"the fleet RELAYS consent"* relayed into nothing, failing silently because absence reads as DORMANT. (2) The owner pushed back — *"i thought a registry was not need"* — and a second lane had independently written *"the registry is plumbing for an absence that does not exist… simplification is likely DELETION."* I reverted my half-built endpoint and reframed the row as a deletion question. (3) **Then I ran the falsifier I had recorded, and it FIRED.** `drive_open` runs against a funding tx **already confirmed on Bitcoin** (it carries the raw tx and its merkle proof) and is retried by the reconciler every tick, while the LP signs its ladder against that outpoint at some other moment — **signing and opening are separated in time, so consent must live somewhere in between.** (4) **The other lane's premise was stale, and MY OWN CHANGE staled it:** their argument rests on `taproot_signer.rs`/`validating_signer.rs` saying the fleet holds BOTH halves under "Option B, which is what is deployed" — true when written, and false since `99fda5e9` made the fleet vault-less by default. ⇒ **`§M1#2` is what made the registry load-bearing**, exactly as it made the exit ladder load-bearing in `#11`: B0 removes the alternative and the thing it looked redundant against becomes necessary. **Both comments corrected in the same commit** — they were telling every reader that the fleet holds both halves, which is the posture B0 exists to remove. 📌 The endpoint validates only what it must to construct the types; `_armLadder` and `_armDeadManExit` already reject shallow or badly-signed ladders LOUDLY at `openChannel`, so re-checking here would clamp a failure that announces itself. |
 
@@ -2824,11 +2824,11 @@ unreliable on a drained vault. **A broken instrument killed the correct hypothes
 mechanism then propagated into three documents.
 
 ### ✅ C3.2 — THE SKEW GATE — CLOSED 2026-08-18 (session `0131QZjc`)
-`tools/check-skew-agnostic.py`: *"skew reads NEW Core accessor **`bandEquityUsd18`** — the seam
-grew."* The isBTC removal renamed `btcBandEquityUsd18`; **`ALLOWED_SEAM` needs one word added by
+`tools/check-skew-agnostic.py`: *"skew reads NEW Core accessor **`rangeEquityUsd18`** — the seam
+grew."* The isBTC removal renamed `btcRangeEquityUsd18`; **`ALLOWED_SEAM` needs one word added by
 whoever did the rename.** Not silenced deliberately — every new accessor is another thing a
 replacement PM must back, which is exactly what the gate exists to force a decision on.
-✅ **Already reconciled on `main`** — `bandEquityUsd18` sits in `ALLOWED_SEAM` (`:52`, with the
+✅ **Already reconciled on `main`** — `rangeEquityUsd18` sits in `ALLOWED_SEAM` (`:52`, with the
 §ISBTC-SPLIT rename note) and the gate runs GREEN (`checked 8/8 skew functions; seam is 7 accessors;
 clean`). Verified 2026-08-18; the row was stale-open. No code change needed.
 
@@ -2843,13 +2843,13 @@ off-chain = a daemon that must stay up, and §E48's *"who pays the gas"* is answ
 Ten properties over `_redeemQuote`'s arithmetic, incl. the one encoding C3.1's confusion: **par and
 liquidity are INDEPENDENT — a full-par share can still be payout-bounded.**
 ⛔ **ECHIDNA CANNOT RUN IN THIS TREE:** *"Unlinked libraries detected … `script/DeployL1_s.sol:Deploy`"*.
-✅ **CONTROLLED:** the EXISTING `BandEquityCollapseEchidna` (green at 50k for another thread) fails
+✅ **CONTROLLED:** the EXISTING `RangeEquityCollapseEchidna` (green at 50k for another thread) fails
 **identically**, so the blocker is the project-level echidna config, **not this harness**.
 
 ### 📄 C3.5 — `docs/informational/POSITIONING.md` LANDED, WITH FOUR CORRECTIONS AGAINST CODE
 The bill/bankers-acceptance framing, the levered-vs-unlevered regime table (**path length, not
 destination**), the socialised-LVR externality as an open tension, and the field (Cork/Bunni/Pendle/
-mStable). **Corrections it carries so they stop propagating:** the band is **±0.2%** not ~2% (and
+mStable). **Corrections it carries so they stop propagating:** the range is **±0.2%** not ~2% (and
 `_updateTicks(sqrtPriceX96, 200)` does not exist); the **swap-in bonus is a removed instrument**
 (`payRefillBonus`, 2026-07-22, *"do NOT rebuild it"*); *"we froze the fee and built a separate
 adaptive scalar"* is historical since the skew now carries a base on all flow; and the size-blind
@@ -3101,7 +3101,7 @@ tasks** — recorded so nobody re-opens them:
 - 🔴 **THE `feesPerShareBTC` CREDIT-SITE ENUMERATION IS **NOT** MOOT — I CALLED IT MOOT FROM A
   ZERO-HIT GREP, AND THE OWNER CORRECTED IT (2026-08-18).** I wrote that `feesPerShareBTC` and
   `USD_FEES_BTC` have zero references in `evm/src` and concluded the accumulator was deleted with the
-  v4 cut. **The grep was right and the conclusion was wrong.** The BTC band is a SEPARATE INSTANCE —
+  v4 cut. **The grep was right and the conclusion was wrong.** The BTC range is a SEPARATE INSTANCE —
   `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)` — so
   **`feesPerShare` READ AT THE BTC ADDRESS *is* what `feesPerShareBTC` named**: same slot, same
   meaning, different address. The v4 cut ended the trading-fee **SOURCE** that fed it, not the
@@ -3259,7 +3259,7 @@ and the contract agree). It is fallout from the suffix-deletion sweep (`e0d72836
 
 ✅ **THE RUST HALF IS FIXED — AND IT WAS LIVE, NOT COSMETIC.** `lev_keeper_btc.rs:378` built calldata
 for **`syncLevBTC(address)`, which `e0d72836` deleted**; the successor is `syncLev(address)`
-(`Vault.sol:536`, *"one name across both bands"*). So every BTC lev reconcile was sending a selector
+(`Vault.sol:536`, *"one name across both ranges"*). So every BTC lev reconcile was sending a selector
 no contract declares — the `delegationVersion`/`btcFeesOwedSats` failure shape again, a dead read
 whose revert nobody sees. 🔑 **AND THE ALLOWLIST HAD TO MOVE WITH IT:**
 `evm_validating_signer.rs:63` permitted the OLD selector, so fixing only the keeper would have made
@@ -3268,7 +3268,7 @@ change; **Rust drift 4 → 0.**
 
 🔴 **AND THE SPA HALF HAS A ROOT CAUSE ONE LEVEL DOWN — 4 OF THE 11 WERE UNFIXABLE BY ANY CLIENT
 EDIT, BECAUSE THE ADDRESS DID NOT EXIST IN THE RECORD.** I first wrote this row as "not a rename,
-call it on the right band's address" and stopped there. Followed the address, and there was none:
+call it on the right range's address" and stopped there. Followed the address, and there was none:
 `DeployLib.sol:137-138` builds **TWO Cores** (*"one instance, one asset"* — `new Core(cfg.weth,
 ethRisk())` and `new Core(cfg.wbtc, btcRisk())`), assigns the second into `a.btcCore`, and
 `DeployL1_s.sol` **never serialized it**. `POOLED`/`POOLED_USD` are per-Core state
@@ -3292,13 +3292,13 @@ into a parameter named `btcVault`.
 `selfManaged(uint256)`, `pos(address)` (shape drift).
 ⚠️ **The successors are `POOLED()`, `POOLED_USD()`, `lpShares`, `grossCollateral(address)`,
 `observe(uint32[])` — ONE NAME WITH TWO INSTANCES.** So the SPA's fix is not "swap the identifier",
-it is **"call the same name on the right band's ADDRESS"**, and a careless edit reads the WRONG BAND
+it is **"call the same name on the right range's ADDRESS"**, and a careless edit reads the WRONG RANGE
 and returns a plausible number. That is the defect `46d49c04` just fixed on the Solidity side
-(*"the POOLED_USD failures are an assertion about the WRONG BAND"*) and the one `CLAUDE.md`'s
+(*"the POOLED_USD failures are an assertion about the WRONG RANGE"*) and the one `CLAUDE.md`'s
 split-a-contract section is entirely about: **grep the ASSIGNMENTS, classify each by what the
 consumer does with it.** ⚠️ `spa/` has **no `node_modules`**, so `tsc` cannot run and this gate is the
-only client-side check that exists — there is no second signal to catch a wrong-band read.
-▶️ Whoever owns the suffix sweep should finish it: for each of the 11, name which band instance the
+only client-side check that exists — there is no second signal to catch a wrong-range read.
+▶️ Whoever owns the suffix sweep should finish it: for each of the 11, name which range instance the
 consumer means. `observe`'s dropped `bool` is the same question in argument form — it WAS the
 `isBTC` selector.
 
@@ -3330,7 +3330,7 @@ dependency order; a step may not start before the one above it lands.
 ### `§E59-REOPENED` 🔴
 
 ## 🔴 §E59-REOPENED — **THE FREE-DRAIN HOLE WAS BACK: AT UNMEASURED σ² A PARTIAL DRAIN CHARGED ZERO (found + fixed 2026-08-16).**
-**MEASURED**, $1m band / $2m shed target, `SwapLib.skewWad`, σ² = 0:
+**MEASURED**, $1m range / $2m shed target, `SwapLib.skewWad`, σ² = 0:
 
 | drain | ETH charge | BTC charge |
 |---|---|---|
@@ -3339,14 +3339,14 @@ dependency order; a step may not start before the one above it lands.
 | 90% | **0** | `SPLICE_FLOOR` only |
 | 100% | 3% ✅ | 3% ✅ (separate `qBar == type(uint).max` pole, `:941`) |
 
-**THE MECHANISM.** The kernel is `Γ·σ²·qBar`, identically 0 when σ² is 0 **however scarce the band
+**THE MECHANISM.** The kernel is `Γ·σ²·qBar`, identically 0 when σ² is 0 **however scarce the range
 is**, so §E59's guard had to live OUTSIDE the product. §E79 then inverted `_maxWellSkew` from
 CEILING to BASE — and nothing was left holding it. **§E79's own comment predicted this exactly:**
 *"returning [the base] here would re-open the free-drain hole E59 closed. UNMEASURED variance must
 price at the CEILING."* It was right, and the code stopped doing it.
 🔴 **REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE already MEASURED σ² as attacker-stretchable —
 4h spacing drove σ² 24× down and the charge 93.3% down.** Suppress σ² to the sentinel, then drain
-up to 90% of the band paying nothing. That is the vector.
+up to 90% of the range paying nothing. That is the vector.
 ✅ **FIXED — `if (sigmaSqWad == 0) return MAX_WELL_SKEW;`, placed AFTER the flush/target exits so it
 fires only when scarcity is REAL (`inv1 < target ⇒ q1 > 0`), which is §E59 part 2 verbatim.**
 ⚠️ **NOT A CLAMP (rule 3 / rule 17): it does not bound a computed number, it declines to run a
@@ -3373,7 +3373,7 @@ CHARGING 3% BROKE ZERO TESTS.** Suite 4,523 passed / 1 failed — the one failur
 byte-identical. **No test covered σ²=0 with PARTIAL scarcity**, which is precisely why the hole
 survived both §E59 and §E79. Now pinned by `test/SkewUnmeasuredVariance.t.sol` (4 tests), which
 brackets BOTH sides: unmeasured+scarce ⇒ ceiling, small-but-MEASURED ⇒ <1% of ceiling (a calm tape
-must not be over-charged), and a flush band ⇒ base only.
+must not be over-charged), and a flush range ⇒ base only.
 ⚠️ **MY FIRST PROBE OF THIS WAS VACUOUS AND LOOKED LIKE THE FINDING.** It passed `flowUsd = 0`, but
 `target = flowUsd` and `skewWad` returns the base at `target == 0` (`:845`,`:851`) — so it never
 reached the kernel and **every drain size returned an IDENTICAL value.** That constancy was the
@@ -3424,7 +3424,7 @@ User: *"swapout might not need de-lever, it's contingent on need (case per case)
 `SwapLib.sol:1195` documents `deleverEthOnDelivery` as firing *"when the venue base (`deliverableETH`)
 can't cover a swap-out delivery"*, and `Quid.sol:1026` calls it inside a conditional with
 `needed - inWETH` — a SHORTFALL amount. ⇒ A swap-out normally settles from the free venue base and never
-touches the levered slice. Only a shortfall reaches band depth.
+touches the levered slice. Only a shortfall reaches range depth.
 ⇒ CONSEQUENCE FOR §A.19b: the "third party consumes an LP's levered slice" precedent is a FALLBACK path,
   not a routine one. It is still the right MODEL, but bearer redemption would invoke it far more often
   than swap-out does — so its cost/fairness profile must be judged on its own, not inherited from a
@@ -3432,7 +3432,7 @@ touches the levered slice. Only a shortfall reaches band depth.
 
 **2. 🟠 IS THE RECLASSIFICATION DUPLICATION? — a real consistency risk, worth its own item.**
 User asked directly. `exposeBtcToLev` writes the SAME sats into THREE places:
-  • `LP.pooled` — UNCHANGED (deliberate: single-count of band depth)
+  • `LP.pooled` — UNCHANGED (deliberate: single-count of range depth)
   • `levPooledBTC[lp] += sats` — a SUBSET MARKER (free depth = `pooled - levPooled`)
   • `VBtc.balanceOf[manager] += sats` — the external token representation
 These are three VIEWS of ONE economic claim, so it is not double-counting BY DESIGN. **But they are
@@ -3534,11 +3534,11 @@ itself), so these items are invisible from there by design.
 ### `§A.16` (none)
 
 ### ⇒ THE REAL QUESTION (and it is a #12 POOLED_USD question, not an §A.16 one)
-`AUX.swap(BOLD → WETH)` takes WETH **out of the band** and puts BOLD **into the basket**. The band's LPs
+`AUX.swap(BOLD → WETH)` takes WETH **out of the range** and puts BOLD **into the basket**. The range's LPs
 are the ones who supplied that WETH. So either:
- (a) the band SHOULD be credited a USD claim for the inventory it sold (`POOLED_USD_ETH` ↑), and the LP's
+ (a) the range SHOULD be credited a USD claim for the inventory it sold (`POOLED_USD_ETH` ↑), and the LP's
      redeemable value should be ~400 ETH-equivalent ⇒ **the credit is missing or not reaching `vogueETH()`**;
- (b) band LPs and QUID holders share ONE balance sheet BY DESIGN, and selling band inventory to the basket
+ (b) range LPs and QUID holders share ONE balance sheet BY DESIGN, and selling range inventory to the basket
      legitimately transfers value from LPs to QUID backing ⇒ **working as intended, and both probes plus the
      assertion need re-scoping to say so.**
 ⚠️ **I cannot settle (a) vs (b) from the measurement alone — it is a design intent question.** What IS
@@ -3944,7 +3944,7 @@ same pre-sequence value) also REFUTED — and worse again:**
 | lagged, sampled BEFORE bump | **340,720** | **2,916 bps** |
 
 🛑 **THE ENTRY TARGET MOVED EVERY TIME. That is the finding, not the discount.** Changing the target
-MECHANISM changes what `_setupBand`'s own swaps leave behind, so each variant starts from a DIFFERENT
+MECHANISM changes what `_setupRange`'s own swaps leave behind, so each variant starts from a DIFFERENT
 `q` — and the skew is non-linear in `q` (`Γ·σ²·q/(1−q)^ρ`). ⇒ **The three discounts are not
 comparable. §E71 cannot attribute ANY target-mechanism change**, because the fixture's entry state is
 downstream of the mechanism under test. **I ran two experiments whose control was broken by
@@ -3954,7 +3954,7 @@ were void and leaving an unevaluated money-path change in the tree is worse than
 
 ▶️ **WHAT THE NEXT ATTEMPT NEEDS, BEFORE ANY MORE VARIANTS:**
 1. **PIN THE ENTRY STATE.** Assert `t0` is IDENTICAL across arms AND across variants — e.g. `vm.store`
-   the snapshot/EWMA to a fixed value after `_setupBand`, so the mechanism cannot move the starting
+   the snapshot/EWMA to a fixed value after `_setupRange`, so the mechanism cannot move the starting
    point. **Without this assertion every future run repeats today's error.**
 2. **§UNIT-FORELLA INDEPENDENTLY SAYS §E71 MEASURES THE WRONG PROPERTY** (level-vs-marginal, not
    consolidation). ⇒ **Two separate reasons it is the wrong instrument. Build the right test first.**
@@ -4000,7 +4000,7 @@ wall are both artifacts of machinery that is going away.
 - ✅ **LVR IS INTRINSICALLY PATH-DEPENDENT** (§…-LVR-IS-PATH-DEPENDENT, 1.692×): part of the 13.71% is
   REAL ECONOMICS. **Do not "fix" the real part in the new design either.**
 - ✅ **A SUM is path-independent; a SECOND DIFFERENCE is not** — the reason for the whole direction.
-- ✅ **LVR = HODL − band** (P&L-on-inventory read the band net AHEAD by 3×).
+- ✅ **LVR = HODL − range** (P&L-on-inventory read the range net AHEAD by 3×).
 - ✅ **ALL SIX INSTRUMENTS** (§UNIT-B-INSTRUMENTS-HARDENED): pinned entry · probe swap · saturation
   control · accrual counting · run-to-run noise · three-estimator comparison. **They test BEHAVIOUR,
   so they port — and the saturation control has already caught one false pass.**
@@ -4036,7 +4036,7 @@ strictly inside the cap, most of §UNIT-B closes as a side effect — which is e
 
 ### `§DOC-CLAIMS-VS-CODE` 🔴
 
-| **§DOC-CLAIMS-VS-CODE — FIVE CORRECTIONS MEASURED 2026-08-15** | 🔴 READ BEFORE ACTING ON THE PROSE HANDOFF | A prose summary in circulation describes state the code has moved past. Each line below was checked BY STRUCTURE against the pushed tree. 🔴 **(1) FALSE NOW: *'checkpointSats is only an event parameter… only deadManDeadline is stored. Nothing persists the balance and nothing compares it.'*** It IS persisted — `checkpointOf[channelId]` written at `BTCChannels.sol:1279` (refresh) and `:1309` (ladder max) — and it IS compared, at `:1595`. ✅ **(2) AND THE 'ENFORCEABLE VERSION' IT PROPOSES IS ALREADY IMPLEMENTED, EXACTLY.** The doc names the target `lpFinalBalance ≥ checkpointSats − deliveredSinceCheckpoint`; `:1595` reverts when `coop && ckpt != 0 && lpPayoutSats + paidOutSinceCheckpoint[channelId] < ckpt` — algebraically the same inequality, with deliveries accumulated at `:1237` (`lpPayoutSats`) and `:2036` (`shrinkSats`), reset in the SHARED body `_armDeadManExit:1352`. **Pair audited CLEAN today (§CHECKPOINT-PAIR-AUDIT). ⇒ Do NOT 'build' this; it is built.** 🔴 **(3) STALE: *'BTC-leg band fees accrue to `btcFeesOwedSats` and splice into capacity opportunistically on a grow.'*** E145 deleted the owed ledger (`974b6d8` compound-in-position, `a67e2d8` delete-the-ledger, `5e16492` delete `feeSettleSats`); the splice driver has not run since and its dead read is now honest (§BTCFEESOWEDSATS-DRIVER). ✅ **(4) CLOSED TODAY: *'Lightning routing fees… I have not traced whether they join that splice.'*** They do not, **by design**: `announce_for_forwarding` defaults `false` (vendored `config.rs:269`) and we never override it, so the node is unannounced and unroutable. **Residual: BOLT-11 ROUTE HINTS.** 🔴 **(5) `btcRecipientOf` IS NOT REMOVED AND MUST NOT BE.** Live at `Aux.sol:846`. **It is the pin that makes payout attribution enforceable — unbinding it re-opens cross-LP theft (ibiza `TODO.md:2118-2132`), which the owner has explicitly forbidden. The linkability IS a design consequence, and the answer is NOT to remove the pin.** ✅ **(6) RECONCILED — ALL SIX ARE COMMENTS, ZERO LIVE CODE. `_requireAttested` DOES NOT EXIST AS A FUNCTION; §E185 DELETED EVERY CALL.** ⇒ **The claim *'`_requireAttested` is a no-op while `hopRegistry == 0`, so until governance pins the live registry ANY HOP PASSES'* is STALE — there is no such gate to be a no-op. Today's hop gate is `_onlyHop()`, a pure two-address check (`MAIN_HOP`/`FALLBACK_HOP`). Do not repeat the 'any hop passes' description; it names a mechanism that is gone.** 🔧 **BUT THE SIX SPLIT TWO WAYS AND ONLY ONE HALF SHOULD SURVIVE.** KEEP (deliberate history, they explain WHY the trust anchor went and correct an earlier wrong claim): `:78-79`, `:675`, `:681`. 🔴 **FIX — these describe CURRENT behaviour and are WRONG:** `:803` (*'`authority` … OR THE Safe-governed `hopRegistry` for fleet mode'*) and `:1257` (*'AUTHORITY: identical (B) gate to `openChannel` — `_requireAttested` + …'*). **Both name a live gate that no longer exists, on the AUTHORITY path — the highest-consequence place for a stale comment, because the next reader audits authority by reading them.** ⚠️ Rule: a comment describes PAST state; these two are exactly the 'stale comment as false evidence' failure, and they sit next to the two-address check that actually decides. ▶️ Rewrite both to name `_onlyHop()` and what it really checks. ⏸️ **UNANSWERED AND NOT INVESTIGATED THIS THREAD — do not treat as covered:** stablecoin DELIVERABILITY on Morpho/Aave-v4/Euler under a UTILISATION SPIKE (`pokeVaultHealth` is a different question — it is health, not withdrawability); the VAULT-side custody concentration (*'one vault node serves ALL lpEths'*) which multi-hop does NOT partition; `derive_vault_seed`'s shared ancestor making the 2-of-2 nominal; swap-out double-pay across daemons (`dispatched_swap_outs` is node-local); §E95 churn caps; the weETH offramp build. |
+| **§DOC-CLAIMS-VS-CODE — FIVE CORRECTIONS MEASURED 2026-08-15** | 🔴 READ BEFORE ACTING ON THE PROSE HANDOFF | A prose summary in circulation describes state the code has moved past. Each line below was checked BY STRUCTURE against the pushed tree. 🔴 **(1) FALSE NOW: *'checkpointSats is only an event parameter… only deadManDeadline is stored. Nothing persists the balance and nothing compares it.'*** It IS persisted — `checkpointOf[channelId]` written at `BTCChannels.sol:1279` (refresh) and `:1309` (ladder max) — and it IS compared, at `:1595`. ✅ **(2) AND THE 'ENFORCEABLE VERSION' IT PROPOSES IS ALREADY IMPLEMENTED, EXACTLY.** The doc names the target `lpFinalBalance ≥ checkpointSats − deliveredSinceCheckpoint`; `:1595` reverts when `coop && ckpt != 0 && lpPayoutSats + paidOutSinceCheckpoint[channelId] < ckpt` — algebraically the same inequality, with deliveries accumulated at `:1237` (`lpPayoutSats`) and `:2036` (`shrinkSats`), reset in the SHARED body `_armDeadManExit:1352`. **Pair audited CLEAN today (§CHECKPOINT-PAIR-AUDIT). ⇒ Do NOT 'build' this; it is built.** 🔴 **(3) STALE: *'BTC-leg range fees accrue to `btcFeesOwedSats` and splice into capacity opportunistically on a grow.'*** E145 deleted the owed ledger (`974b6d8` compound-in-position, `a67e2d8` delete-the-ledger, `5e16492` delete `feeSettleSats`); the splice driver has not run since and its dead read is now honest (§BTCFEESOWEDSATS-DRIVER). ✅ **(4) CLOSED TODAY: *'Lightning routing fees… I have not traced whether they join that splice.'*** They do not, **by design**: `announce_for_forwarding` defaults `false` (vendored `config.rs:269`) and we never override it, so the node is unannounced and unroutable. **Residual: BOLT-11 ROUTE HINTS.** 🔴 **(5) `btcRecipientOf` IS NOT REMOVED AND MUST NOT BE.** Live at `Aux.sol:846`. **It is the pin that makes payout attribution enforceable — unbinding it re-opens cross-LP theft (ibiza `TODO.md:2118-2132`), which the owner has explicitly forbidden. The linkability IS a design consequence, and the answer is NOT to remove the pin.** ✅ **(6) RECONCILED — ALL SIX ARE COMMENTS, ZERO LIVE CODE. `_requireAttested` DOES NOT EXIST AS A FUNCTION; §E185 DELETED EVERY CALL.** ⇒ **The claim *'`_requireAttested` is a no-op while `hopRegistry == 0`, so until governance pins the live registry ANY HOP PASSES'* is STALE — there is no such gate to be a no-op. Today's hop gate is `_onlyHop()`, a pure two-address check (`MAIN_HOP`/`FALLBACK_HOP`). Do not repeat the 'any hop passes' description; it names a mechanism that is gone.** 🔧 **BUT THE SIX SPLIT TWO WAYS AND ONLY ONE HALF SHOULD SURVIVE.** KEEP (deliberate history, they explain WHY the trust anchor went and correct an earlier wrong claim): `:78-79`, `:675`, `:681`. 🔴 **FIX — these describe CURRENT behaviour and are WRONG:** `:803` (*'`authority` … OR THE Safe-governed `hopRegistry` for fleet mode'*) and `:1257` (*'AUTHORITY: identical (B) gate to `openChannel` — `_requireAttested` + …'*). **Both name a live gate that no longer exists, on the AUTHORITY path — the highest-consequence place for a stale comment, because the next reader audits authority by reading them.** ⚠️ Rule: a comment describes PAST state; these two are exactly the 'stale comment as false evidence' failure, and they sit next to the two-address check that actually decides. ▶️ Rewrite both to name `_onlyHop()` and what it really checks. ⏸️ **UNANSWERED AND NOT INVESTIGATED THIS THREAD — do not treat as covered:** stablecoin DELIVERABILITY on Morpho/Aave-v4/Euler under a UTILISATION SPIKE (`pokeVaultHealth` is a different question — it is health, not withdrawability); the VAULT-side custody concentration (*'one vault node serves ALL lpEths'*) which multi-hop does NOT partition; `derive_vault_seed`'s shared ancestor making the 2-of-2 nominal; swap-out double-pay across daemons (`dispatched_swap_outs` is node-local); §E95 churn caps; the weETH offramp build. |
 
 ### `§REGIME-TWO-CLASSIFIERS` 🟡
 
@@ -4056,15 +4056,15 @@ strictly inside the cap, most of §UNIT-B closes as a side effect — which is e
 
 ### `§OVERCOMMITTED-MEASURED` 🔴
 
-| **🔴 §OVERCOMMITTED-MEASURED — the probe answered it: NOT double-counting. `committedUsd18` is SWAP-INVARIANT while the pool it claims is not, and the gap is exactly the USD swapped out.** | 🔴 OPEN — one design decision away from green; do NOT guess it | **Ran `BackingGateSplit`, the instrument the other thread built for exactly this. It discriminates (a) fixtures genuinely over-commit from (b) `_reportEquity`/`committedUsd18` double-counts. ✅ (b) IS DISPROVED, measured:** after a 100-ETH deposit the split is **ETH band `committedOf` 189,070.658835 · BTC band 0 · `sum(committedOf)` = `AUX.committedTotal` = `committedUsd18` = 189,070.658835**, with **62,929 of headroom left**. The accountant's total equals the sum of its parts, and only one band claims anything. **No overlap, no double count.** 🔎 **THE REAL ROOT IS DRIFT, AND THE PROBE'S REPEATED-SWAP LOOP MAKES IT UNAMBIGUOUS.** Across four swaps `committed` NEVER MOVES (189,070.658835 every iteration) while `POOLED_USD×1e12` falls monotonically — 185,290.83 → 183,400.92 → 181,511.01 → 179,621.10. The gap the probe names `phantom` grows ~1,889.9 per swap: 3,779.82 → 5,669.74 → 7,559.65 → **9,449.562460**, and that final figure is EXACTLY the probe's own `swapper USDC out (6d): 9449562457`. ⇒ **THE PHANTOM IS PRECISELY THE USD THAT HAS LEFT THE POOL VIA SWAPS.** `committedUsd18` still claims it. **And TVL falls at the same time** (252,000.112 → 250,288.986 after one swap), so the gate closes from both sides and `OverCommitted()` is only a matter of volume. ⚠️ **THIS IS NOT AN ACCIDENT — IT IS §#12 WORKING AS SPECIFIED.** `committedUsd18` derives from `basketUsd`, which by design moves ONLY on `addLiq`/burn and **never on a swap**, *"which is why `committedUsd18` is derived from it rather than from the curve inventory"*. The swap-invariance is deliberate. **What was never true before is that anything CHECKED it** — the gate compared `0 <= haircutTvl` until `_reportEquity` was wired (§BACKING-DEAD). Arming the gate exposed a drift that had always been accumulating silently. ▶️ **THE DECISION, and it is a solvency question rather than a test problem: should a swap REDUCE the band's committed claim?** If dollars leave the pool and the band's claim does not fall, the band claims dollars it no longer holds — which is what the gate is now correctly refusing. If instead committed is *meant* to be swap-invariant (the basket's contribution, not current inventory), then the GATE's right-hand side is wrong, because `haircutTvl` DOES move with swaps and the two sides are measuring different clocks. **Do not re-green by loosening the bound or by re-basing the fixtures until that is answered: a committed figure that is too low widens backing, the one direction that turns this into a solvency bug** — the exact property `BandEquityCollapseEchidna` exists to protect. 📌 The 33 `Alles` failures are downstream of this one question; `POOLED_USD: 0` readings are reverted transactions, not missing writes. |
+| **🔴 §OVERCOMMITTED-MEASURED — the probe answered it: NOT double-counting. `committedUsd18` is SWAP-INVARIANT while the pool it claims is not, and the gap is exactly the USD swapped out.** | 🔴 OPEN — one design decision away from green; do NOT guess it | **Ran `BackingGateSplit`, the instrument the other thread built for exactly this. It discriminates (a) fixtures genuinely over-commit from (b) `_reportEquity`/`committedUsd18` double-counts. ✅ (b) IS DISPROVED, measured:** after a 100-ETH deposit the split is **ETH range `committedOf` 189,070.658835 · BTC range 0 · `sum(committedOf)` = `AUX.committedTotal` = `committedUsd18` = 189,070.658835**, with **62,929 of headroom left**. The accountant's total equals the sum of its parts, and only one range claims anything. **No overlap, no double count.** 🔎 **THE REAL ROOT IS DRIFT, AND THE PROBE'S REPEATED-SWAP LOOP MAKES IT UNAMBIGUOUS.** Across four swaps `committed` NEVER MOVES (189,070.658835 every iteration) while `POOLED_USD×1e12` falls monotonically — 185,290.83 → 183,400.92 → 181,511.01 → 179,621.10. The gap the probe names `phantom` grows ~1,889.9 per swap: 3,779.82 → 5,669.74 → 7,559.65 → **9,449.562460**, and that final figure is EXACTLY the probe's own `swapper USDC out (6d): 9449562457`. ⇒ **THE PHANTOM IS PRECISELY THE USD THAT HAS LEFT THE POOL VIA SWAPS.** `committedUsd18` still claims it. **And TVL falls at the same time** (252,000.112 → 250,288.986 after one swap), so the gate closes from both sides and `OverCommitted()` is only a matter of volume. ⚠️ **THIS IS NOT AN ACCIDENT — IT IS §#12 WORKING AS SPECIFIED.** `committedUsd18` derives from `basketUsd`, which by design moves ONLY on `addLiq`/burn and **never on a swap**, *"which is why `committedUsd18` is derived from it rather than from the curve inventory"*. The swap-invariance is deliberate. **What was never true before is that anything CHECKED it** — the gate compared `0 <= haircutTvl` until `_reportEquity` was wired (§BACKING-DEAD). Arming the gate exposed a drift that had always been accumulating silently. ▶️ **THE DECISION, and it is a solvency question rather than a test problem: should a swap REDUCE the range's committed claim?** If dollars leave the pool and the range's claim does not fall, the range claims dollars it no longer holds — which is what the gate is now correctly refusing. If instead committed is *meant* to be swap-invariant (the basket's contribution, not current inventory), then the GATE's right-hand side is wrong, because `haircutTvl` DOES move with swaps and the two sides are measuring different clocks. **Do not re-green by loosening the bound or by re-basing the fixtures until that is answered: a committed figure that is too low widens backing, the one direction that turns this into a solvency bug** — the exact property `RangeEquityCollapseEchidna` exists to protect. 📌 The 33 `Alles` failures are downstream of this one question; `POOLED_USD: 0` readings are reverted transactions, not missing writes. |
 
 ### `§POOLED-USD-ROOT-CORRECTED` 🔴
 
-| **🔴 §POOLED-USD-ROOT-CORRECTED — MY MECHANISM WAS WRONG. `inRange` HAS a definer; the real cause is a solvency gate that was armed and now BINDS.** | 🔴 OPEN — correct root, and it is a REAL finding rather than a refactor slip | ⚠️ **RETRACTING THE MECHANISM IN THE TWO ROWS BELOW (and in §V4-REMOVAL-POOLED-STATE, which predicted it).** I claimed `POOLED_USD` reads zero because *"`inRange` lost its definer when the v4 position was removed — the predicate has no source, so the globals stop being written."* **That is false, and one grep of the call sites disproves it.** ✅ **`inRange` IS DEFINED, AND ITS DEFINER IS THE ENTRYPOINT — scoped, not computed.** Three call sites, all in `Core.sol`: `modLP` → `true` (`:738`), `swap` → `true` (`:839`), **`outOfRange` → `false` (`:766`)** — a function *named for the condition it encodes*. That is correct BY CONSTRUCTION and it survives the v4 cut perfectly, because "is this an out-of-range order?" is answered by WHICH FUNCTION WAS CALLED, never by a pool position. **I asserted the flag was dangling without ever reading its callers** — the same failure as reading a variable named `ETH` as a contract type earlier the same day. 🔎 **THE ACTUAL ROOT, read out of `_poolUsdInRange`:** on the mint branch it **DOES** call `_addPooledUsd(usdAmount)` — pooling is reached — and then runs `_reportEquity()` followed by `require(committedUsd18() <= haircutTvl, "backing")`, with `Aux.sol:1149` (`if (committedSum > totalLiquid) revert OverCommitted()`) behind it. ⇒ **THE WHOLE TRANSACTION REVERTS, so the pooling rolls back and the assertion reads a zero that was never persisted. `POOLED_USD: 0` is a SYMPTOM of the revert, not a missing write.** 🔴 **AND THE GATE ONLY STARTED BINDING BECAUSE IT WAS FIXED.** `_poolUsdInRange`'s own comment (§BACKING-DEAD) records that `_reportEquity` *"existed, was documented as PUSH-not-pull, and HAD NO CALLERS — so `BandBacking.committedOf` was never written, `total()` was permanently 0, and this `require` compared `0 <= haircutTvl`: ALWAYS TRUE. The bound that stops both bands over-committing the same basket could not bind."* Wiring the writer **armed a real solvency bound for the first time**, and `OverCommitted()` ×24 is that bound rejecting. ▶️ **SO THE QUESTION IS NOT "WHAT BROKE `POOLED_USD`" BUT "IS THE GATE RIGHT?"** — either the fixtures genuinely over-commit the shared basket (in which case the tests encode the OLD, unbounded world and must be re-based), or `_reportEquity`/`committedUsd18()` double-counts across the two bands. **Do not loosen the bound to go green: a committed figure that is too low widens backing, the one direction that turns this into a solvency bug.** 📌 The bisect suggestion in the row below still works, but expect it to land on the commit that WIRED `_reportEquity` — which is a fix, not a regression. |
+| **🔴 §POOLED-USD-ROOT-CORRECTED — MY MECHANISM WAS WRONG. `inRange` HAS a definer; the real cause is a solvency gate that was armed and now BINDS.** | 🔴 OPEN — correct root, and it is a REAL finding rather than a refactor slip | ⚠️ **RETRACTING THE MECHANISM IN THE TWO ROWS BELOW (and in §V4-REMOVAL-POOLED-STATE, which predicted it).** I claimed `POOLED_USD` reads zero because *"`inRange` lost its definer when the v4 position was removed — the predicate has no source, so the globals stop being written."* **That is false, and one grep of the call sites disproves it.** ✅ **`inRange` IS DEFINED, AND ITS DEFINER IS THE ENTRYPOINT — scoped, not computed.** Three call sites, all in `Core.sol`: `modLP` → `true` (`:738`), `swap` → `true` (`:839`), **`outOfRange` → `false` (`:766`)** — a function *named for the condition it encodes*. That is correct BY CONSTRUCTION and it survives the v4 cut perfectly, because "is this an out-of-range order?" is answered by WHICH FUNCTION WAS CALLED, never by a pool position. **I asserted the flag was dangling without ever reading its callers** — the same failure as reading a variable named `ETH` as a contract type earlier the same day. 🔎 **THE ACTUAL ROOT, read out of `_poolUsdInRange`:** on the mint branch it **DOES** call `_addPooledUsd(usdAmount)` — pooling is reached — and then runs `_reportEquity()` followed by `require(committedUsd18() <= haircutTvl, "backing")`, with `Aux.sol:1149` (`if (committedSum > totalLiquid) revert OverCommitted()`) behind it. ⇒ **THE WHOLE TRANSACTION REVERTS, so the pooling rolls back and the assertion reads a zero that was never persisted. `POOLED_USD: 0` is a SYMPTOM of the revert, not a missing write.** 🔴 **AND THE GATE ONLY STARTED BINDING BECAUSE IT WAS FIXED.** `_poolUsdInRange`'s own comment (§BACKING-DEAD) records that `_reportEquity` *"existed, was documented as PUSH-not-pull, and HAD NO CALLERS — so `RangeBacking.committedOf` was never written, `total()` was permanently 0, and this `require` compared `0 <= haircutTvl`: ALWAYS TRUE. The bound that stops both ranges over-committing the same basket could not bind."* Wiring the writer **armed a real solvency bound for the first time**, and `OverCommitted()` ×24 is that bound rejecting. ▶️ **SO THE QUESTION IS NOT "WHAT BROKE `POOLED_USD`" BUT "IS THE GATE RIGHT?"** — either the fixtures genuinely over-commit the shared basket (in which case the tests encode the OLD, unbounded world and must be re-based), or `_reportEquity`/`committedUsd18()` double-counts across the two ranges. **Do not loosen the bound to go green: a committed figure that is too low widens backing, the one direction that turns this into a solvency bug.** 📌 The bisect suggestion in the row below still works, but expect it to land on the commit that WIRED `_reportEquity` — which is a fix, not a regression. |
 
 ### `§MAIN-IS-RED-RECHECKED` 🔴
 
-| **🔴 §MAIN-IS-RED-RECHECKED — "the v4 cut regression should have been fixed" is NOT true as of `f945d75c`, and the suite got WORSE** | 🔴🔴 OPEN — re-measured 2026-08-16, later than the row below | **Owner stated the v4-cut regression should have been fixed. Checked it rather than accepting it, on a CLEAN detached worktree at `origin/main` (`f945d75c`), freshly built — `BUILD=0`, so this is a test result and not a build artifact.** **`Alles.t.sol` — the base fixture nearly everything inherits: 71 passed / 33 FAILED.** ⚠️ **THAT IS A REGRESSION ON THE REGRESSION.** The control earlier the same day, on an older `origin/main`, measured the same suite at **82 passed / 22 failed**. So between those two commits the shared fixture went **22 → 33 failures**, i.e. eleven MORE tests broke while the original fault was still unfixed. **The original signatures are all still present:** `priming funded POOLED_USD: 0 <= 0` (×6), `panic: arithmetic underflow or overflow (0x11)` (×6), `the BTC-leg fee is still earned on a swap-in: 0 <= 0` (×2). 🔴 **AND A NEW DOMINANT FAILURE MODE HAS APPEARED THAT WAS NOT IN THE EARLIER RUN AT ALL: `OverCommitted()` ×24** — now the single largest bucket in the suite. That is the backing gate (`committedUsd18() <= haircutTvl`) rejecting, which is the *solvency* assertion, so it should not be waved through as fixture noise. ⇒ **`POOLED_USD` is still never funded (the `inRange` predicate still has no definer after the v4 position was removed — see the row below for the mechanism and `Core.sol` line cites), and something landed on top that now trips the commitment gate as well.** ▶️ **Do not treat this area as closed, and do not re-green it by loosening `OverCommitted`'s bound — a committed figure that is too LOW widens the backing gate, which is the one direction that turns a refactor into a solvency bug** (the property `BandEquityCollapseEchidna` was written to protect). **Next actionable step is a bisect between the two measured points**, since both endpoints are now known and the fixture is deterministic. |
+| **🔴 §MAIN-IS-RED-RECHECKED — "the v4 cut regression should have been fixed" is NOT true as of `f945d75c`, and the suite got WORSE** | 🔴🔴 OPEN — re-measured 2026-08-16, later than the row below | **Owner stated the v4-cut regression should have been fixed. Checked it rather than accepting it, on a CLEAN detached worktree at `origin/main` (`f945d75c`), freshly built — `BUILD=0`, so this is a test result and not a build artifact.** **`Alles.t.sol` — the base fixture nearly everything inherits: 71 passed / 33 FAILED.** ⚠️ **THAT IS A REGRESSION ON THE REGRESSION.** The control earlier the same day, on an older `origin/main`, measured the same suite at **82 passed / 22 failed**. So between those two commits the shared fixture went **22 → 33 failures**, i.e. eleven MORE tests broke while the original fault was still unfixed. **The original signatures are all still present:** `priming funded POOLED_USD: 0 <= 0` (×6), `panic: arithmetic underflow or overflow (0x11)` (×6), `the BTC-leg fee is still earned on a swap-in: 0 <= 0` (×2). 🔴 **AND A NEW DOMINANT FAILURE MODE HAS APPEARED THAT WAS NOT IN THE EARLIER RUN AT ALL: `OverCommitted()` ×24** — now the single largest bucket in the suite. That is the backing gate (`committedUsd18() <= haircutTvl`) rejecting, which is the *solvency* assertion, so it should not be waved through as fixture noise. ⇒ **`POOLED_USD` is still never funded (the `inRange` predicate still has no definer after the v4 position was removed — see the row below for the mechanism and `Core.sol` line cites), and something landed on top that now trips the commitment gate as well.** ▶️ **Do not treat this area as closed, and do not re-green it by loosening `OverCommitted`'s bound — a committed figure that is too LOW widens the backing gate, which is the one direction that turns a refactor into a solvency bug** (the property `RangeEquityCollapseEchidna` was written to protect). **Next actionable step is a bisect between the two measured points**, since both endpoints are now known and the fixture is deterministic. |
 
 ### `§MAIN-IS-RED-POOLED-USD` 🔴
 
@@ -4076,7 +4076,7 @@ strictly inside the cap, most of §UNIT-B closes as a side effect — which is e
 
 ### `§V4-REMOVAL-POOLED-STATE` 🔴
 
-| **§V4-REMOVAL-POOLED-STATE — reuse the GLOBAL trackers, and note the cross-check that disappears with them** | 🔴 for the v4cut thread | Owner (2026-08-16): with no v4 pool `Currency` there are no mock ERC20s, and *'the state for this must reuse what is already globally tracked by each instead of the band'*. ✅ **Correct, and the global trackers already exist and are already authoritative.** `Core.sol` runs TWO parallel bookkeepings on every swap leg (`:1268-1277` is the clearest instance): **(1)** `_mockTok(isBTC).mint(amt)` + `tokCurrency.settle(poolManager, …)` — the v4 pool's own accounting; **(2)** `if (inRange) _addPooledTok(isBTC, amt)` → `POOLED_BTC += a` / `POOLED_ETH += a` (`:500-506`), with the USD side going through `_poolUsdInRange` into `POOLED_USD_BTC`/`POOLED_USD_ETH`. ⇒ **Removing v4 deletes (1) and leaves (2), which is exactly the reuse the owner is describing — `POOLED_*` is already the global state, so nothing needs reconstructing per band.** 🔴 **BUT TWO THINGS GO WITH (1), AND NEITHER IS OBVIOUS FROM THE DIFF.** **(a) ⚠️ 'THE `inRange` GATE LOSES ITS DEFINER' WAS ALSO WRONG — the owner: *a definer was scoped*, and the code shows it.** I assumed `inRange` was derived from the v4 POSITION (price inside the LP's tick range), which would indeed have died with the pool. **It is not derived at all: it is a LITERAL at each call site.** `Core.sol:936` passes `true`, `:997` passes `false`, `:1009`/`:1015` pass `true`, and `BtcLib.sol:58` names the rule — *'`inRange=false` (`_handleCollect`), so the subtract…'*. ⇒ **The flag distinguishes a SWAP (moves the curve's tracked depth ⇒ `POOLED_*` must move) from a COLLECT (fees, not depth ⇒ it must not). That is a scoped CALLER decision about what KIND of delta this is, and it takes no input from the pool's tick range.** ✅ **So it survives v4 removal untouched, and with it `POOLED_*`'s subset semantics and §#12's separation.** 📌 **The lesson, since it is the third time in one exchange: I read a parameter NAME (`inRange`) as a v4 concept and built a migration hazard on it, without once looking at what the callers pass. `git grep` on the call sites answered it in one command.**  **(b) ⚠️ MY 'THE CLAMP BECOMES A SILENT ABSORBER' CLAIM WAS WRONG — the owner asked what the variable was FOR, and the declaration answers it.** These are **NOT duplicate bookkeepings that check each other**; they are THREE different measurements kept deliberately apart (`Core.sol:92-105`): **`POOLED_USD_*` track *'what is IN each CURVE (they move on every swap)'*** and `POOLED_USD_BTC` is documented as ***'the IN-RANGE USD slice'***; **`basketUsdEth`/`basketUsdBtc`** track *'what the BASKET actually CONTRIBUTED (it moves ONLY when the basket adds or removes depth via `addLiq`/burn — never on a swap)'*; and the mock/pool balance is total custody. **§#12 is named for that split and states the reason: *'so the backing gate stops counting an LP's sale proceeds as a basket commitment'*, with `committedUsd18` derived from the BASKET term rather than the curve term.** ⇒ **The DIFFERENCE between them is the point, not an inconsistency to be cross-checked.** ✅ **Which also explains `_subPooledTok`'s `Math.min` properly: `POOLED_*` is an IN-RANGE SUBSET** (every write is gated `if (inRange)`), **so removing a full amount from a subset can legitimately exceed it — the `min` ENCODES THE SUBSET RELATIONSHIP rather than papering over an error.** It is not the `subPendingSwapOut` shape at all: that clamp guarded a quantity meant to match exactly, this one bounds a part against a whole. ▶️ **So the v4-removal guidance is narrower than I first wrote:** deleting the pool leg removes ONE measurement (total custody) and leaves two that were never redundant. **What still needs deciding is (a) above — `inRange` loses its definer — because that predicate is what makes `POOLED_*` a subset in the first place. If 'in range' stops meaning anything, `POOLED_*` and the basket term collapse toward each other and §#12's separation is what quietly dies.** ⚠️ Check `committedUsd18`'s derivation survives that, since the backing gate depends on it. |
+| **§V4-REMOVAL-POOLED-STATE — reuse the GLOBAL trackers, and note the cross-check that disappears with them** | 🔴 for the v4cut thread | Owner (2026-08-16): with no v4 pool `Currency` there are no mock ERC20s, and *'the state for this must reuse what is already globally tracked by each instead of the range'*. ✅ **Correct, and the global trackers already exist and are already authoritative.** `Core.sol` runs TWO parallel bookkeepings on every swap leg (`:1268-1277` is the clearest instance): **(1)** `_mockTok(isBTC).mint(amt)` + `tokCurrency.settle(poolManager, …)` — the v4 pool's own accounting; **(2)** `if (inRange) _addPooledTok(isBTC, amt)` → `POOLED_BTC += a` / `POOLED_ETH += a` (`:500-506`), with the USD side going through `_poolUsdInRange` into `POOLED_USD_BTC`/`POOLED_USD_ETH`. ⇒ **Removing v4 deletes (1) and leaves (2), which is exactly the reuse the owner is describing — `POOLED_*` is already the global state, so nothing needs reconstructing per range.** 🔴 **BUT TWO THINGS GO WITH (1), AND NEITHER IS OBVIOUS FROM THE DIFF.** **(a) ⚠️ 'THE `inRange` GATE LOSES ITS DEFINER' WAS ALSO WRONG — the owner: *a definer was scoped*, and the code shows it.** I assumed `inRange` was derived from the v4 POSITION (price inside the LP's tick range), which would indeed have died with the pool. **It is not derived at all: it is a LITERAL at each call site.** `Core.sol:936` passes `true`, `:997` passes `false`, `:1009`/`:1015` pass `true`, and `BtcLib.sol:58` names the rule — *'`inRange=false` (`_handleCollect`), so the subtract…'*. ⇒ **The flag distinguishes a SWAP (moves the curve's tracked depth ⇒ `POOLED_*` must move) from a COLLECT (fees, not depth ⇒ it must not). That is a scoped CALLER decision about what KIND of delta this is, and it takes no input from the pool's tick range.** ✅ **So it survives v4 removal untouched, and with it `POOLED_*`'s subset semantics and §#12's separation.** 📌 **The lesson, since it is the third time in one exchange: I read a parameter NAME (`inRange`) as a v4 concept and built a migration hazard on it, without once looking at what the callers pass. `git grep` on the call sites answered it in one command.**  **(b) ⚠️ MY 'THE CLAMP BECOMES A SILENT ABSORBER' CLAIM WAS WRONG — the owner asked what the variable was FOR, and the declaration answers it.** These are **NOT duplicate bookkeepings that check each other**; they are THREE different measurements kept deliberately apart (`Core.sol:92-105`): **`POOLED_USD_*` track *'what is IN each CURVE (they move on every swap)'*** and `POOLED_USD_BTC` is documented as ***'the IN-RANGE USD slice'***; **`basketUsdEth`/`basketUsdBtc`** track *'what the BASKET actually CONTRIBUTED (it moves ONLY when the basket adds or removes depth via `addLiq`/burn — never on a swap)'*; and the mock/pool balance is total custody. **§#12 is named for that split and states the reason: *'so the backing gate stops counting an LP's sale proceeds as a basket commitment'*, with `committedUsd18` derived from the BASKET term rather than the curve term.** ⇒ **The DIFFERENCE between them is the point, not an inconsistency to be cross-checked.** ✅ **Which also explains `_subPooledTok`'s `Math.min` properly: `POOLED_*` is an IN-RANGE SUBSET** (every write is gated `if (inRange)`), **so removing a full amount from a subset can legitimately exceed it — the `min` ENCODES THE SUBSET RELATIONSHIP rather than papering over an error.** It is not the `subPendingSwapOut` shape at all: that clamp guarded a quantity meant to match exactly, this one bounds a part against a whole. ▶️ **So the v4-removal guidance is narrower than I first wrote:** deleting the pool leg removes ONE measurement (total custody) and leaves two that were never redundant. **What still needs deciding is (a) above — `inRange` loses its definer — because that predicate is what makes `POOLED_*` a subset in the first place. If 'in range' stops meaning anything, `POOLED_*` and the basket term collapse toward each other and §#12's separation is what quietly dies.** ⚠️ Check `committedUsd18`'s derivation survives that, since the backing gate depends on it. |
 
 ### `§MINT-SITE-COUNT` 🟡
 
@@ -4084,11 +4084,11 @@ strictly inside the cap, most of §UNIT-B closes as a side effect — which is e
 
 ### `§NO-REJECT` 🔴
 
-| **§NO-REJECT — Khalani cross-chain intent clears the LN remainder against Perena; the QUOTE SEAM IS ALREADY BUILT** | 🔴 OPEN — the missing piece is intent EMISSION, not pricing | Owner (2026-08-16), correcting the row above: **"no reject"** — the remainder must not fall back to rejecting the swap. **Khalani balances for 1inch with a CROSS-CHAIN INTENT to clear with Perena.** ⇒ The fill ladder becomes **band → 1inch (EVM remainder) → Khalani intent (cross-chain remainder, cleared against Perena) → never `SwapInPartialRejected`.** ✅ **WHAT ALREADY EXISTS, AND IT IS THE HARD HALF: the unified QUOTE SURFACE, built for exactly these counterparties.** `ISwap.sol:13-22` — *'the pricing views an RFQ maker (Bebop) or an **Arcadia solver (Khalani)** reads to quote the SAME fill the swap executes at'* — exposing `getTWAPforAsset`, `resolvedTwap`, `wellSkew` and `swapFeePpm`. `Aux.sol:641-645` states the purpose: so Bebop's RFQ engine **AND Khalani's Arcadia solver** *'quote against the EXACT number a swap executes at (base × (1−skew)), instead of re-deriving it and drifting from settlement'*. ⇒ **A Khalani solver can already price our fill correctly. The seam is not the gap.** 🔴 **WHAT IS MISSING — two things, and only one is ours.** **(1) INTENT EMISSION ON SHORTFALL:** today the shortfall path REVERTS (`BTCChannels.sol:1179`); it must instead emit the remainder as a cross-chain intent. **(2) PERENA AS A CLEARING VENUE:** Perena appears in this repo ONLY in `docs/FAQ.md` as a comparison (*'Perena only swaps between stablecoins'*) — **there is no integration of any kind**, so its stablecoin liquidity being the clearing side is a design intent, not a wiring detail. ⚠️ **THE CONSTRAINT THAT DECIDES WHETHER THIS IS BUILDABLE AS DESCRIBED — HTLC HOLD TIME vs INTENT LATENCY.** A Lightning swap-in is an in-flight HTLC: the protocol must decide claim-or-fail while the payer's HTLC is held. **A cross-chain intent settles on someone else's clock.** So either **(a)** the intent clears INSIDE the hold budget — then holding is a real liquidity cost and a long hold risks the payer's own timeout; or **(b)** the protocol CLAIMS THE BTC FIRST and sources the USD asynchronously — which removes the reject but **moves the risk onto the protocol: it holds sats it has not yet converted, and an intent that fails to clear leaves a short USD leg against a real BTC inflow.** ⇒ **(b) is what 'no reject' actually costs, and it should be chosen deliberately rather than discovered.** It is the same shape as the swap-OUT direction, which already accepts a two-phase settlement (the splice pays the swapper BEFORE the EVM leg settles) and is documented as safe *because* the swapper already holds their BTC and a revert just re-tries. **Here the exposure runs the other way, so that argument does NOT transfer.** ✅ **THE NEAR-TERM ANSWER, OWNER 2026-08-16 — AND IT DISSOLVES THE (a)/(b) LATENCY DILEMMA RATHER THAN CHOOSING A SIDE:** settle the remainder in **INSTANTLY-REDEEMABLE QU!D**, then **force-route the redemption out of dollars — burning QU!D 6909 — through 1inch on the way OUT, taking in many different stables and packing them into ONE final stable at the end.** ⇒ **The protocol stops trying to SOURCE dollars while an HTLC is held and instead ISSUES an instrument it can settle instantly**, moving the multi-venue gathering to the redemption side where there is no HTLC clock at all. That is why it beats both (a) and (b): no hold-time race, and no window where the protocol sits on unconverted sats. 🔑 **THIS IS NOT A RULE-8b VIOLATION, AND THE DISTINCTION IS THE WHOLE ARGUMENT.** Rule 8b: *minting QU!D is a LAST RESORT … a mint creates a liability against the basket; paying with value that ALREADY EXISTS never does.* **Here the value DOES already exist and has already arrived: the swap-in IS a BTC inflow.** The mint is issued AGAINST sats the protocol just received, so it is the ordinary deposit→mint shape, not new unbacked liability. ⚠️ The rule bites on mints that paper over an absence; this one is backed by the very thing that triggered it. ✅ **AND IT IS ALREADY BOUNDED BY CONSTRUCTION — the cap is not something to add.** `Basket.sol:190-196`: the protocol-internal mint path is capped by backing headroom, *'the structural defense against a compromised hop signer: even with valid LP+hop signatures, a protocol mint can only credit up to the headroom that prior burns or backing growth opened'*. ⇒ **A remainder that cannot be backed cannot be minted**, so the no-reject property degrades into the existing cap rather than into unbacked issuance. ⚠️ **That also means the cap becomes a LIVE constraint on fill rate** — worth measuring, since it is now the thing that decides whether 'no reject' actually holds under load. ✅ **THE PRINCIPLE IS ALREADY PRECEDENTED IN PRODUCTION — owner: *'isn't that the reason `fees_usd` was used in legacy `Quid.sol`? same principle.'* Correct, and it is still live here:** `BtcLib.sol:70` pays the USD FEE reward by MINTING (`IBasketMint(quid).mint(payTo, usdR*1e12, …)`), and `:87` does the same for the swap-out delivery's USD leg. **CLAUDE.md's rule-8b carve-out names exactly this:** *'the seven existing mint sites are not thereby wrong — the fee/redeem legs pay a 6-dec USD claim in an 18-dec token and have no pre-existing balance to draw on.'* ⇒ **Settling a USD obligation by ISSUING rather than SOURCING is the established shape, not a new liberty.** 🔴 **BUT 'INSTANTLY REDEEMABLE' DOES NOT EXIST TODAY, AND THE FLOOR IS DELIBERATE — checked, not assumed.** `:87` passes `when = 0`, which looks instant and is not: `Basket.sol:293-294` clamps it — `month = max(min(when, nextMonth + maxFwd), nextMonth)` — so **`0` clamps UP to `nextMonth` (`currentMonth() + 1`), a ~1-month lock.** The floor is protective, not incidental: the surrounding logic sizes `maxFwd` off the buffer and notes the *'buffer is live to absorb that pre-spend'*, with a *'thin buffer → ~1mo floor'*. ⇒ **An instantly-redeemable mint means minting into the MATURE bucket, which BYPASSES that floor. That is the real decision here, and it is a different question from whether to mint at all.** ▶️ Price it against the buffer's pre-spend absorption before building — and note `redeemableAmount()`/`matureSupply = totalSupply − immatureSupply` must see it immediately or the 'instant' property is nominal.  ⇒ **ORDERING (owner said 'for now'): QU!D-as-bridge is the NEAR-TERM no-reject path; the Khalani cross-chain intent clearing against Perena is the END STATE.** They compose — the intent leg can later source the redemption's stables cross-chain — so building the QU!D route first does not close it off. ▶️ **Decide (a) or (b) before building.** ▶️ Sequence after the isBTC split, with `ROUTING-AGGREGATION.md`'s own caveat inherited: 1inch does not close every case, and the Khalani leg is what is supposed to close the rest — so the no-reject property rests on the CROSS-CHAIN leg's reliability, which is the least controlled dependency in the ladder. |
+| **§NO-REJECT — Khalani cross-chain intent clears the LN remainder against Perena; the QUOTE SEAM IS ALREADY BUILT** | 🔴 OPEN — the missing piece is intent EMISSION, not pricing | Owner (2026-08-16), correcting the row above: **"no reject"** — the remainder must not fall back to rejecting the swap. **Khalani balances for 1inch with a CROSS-CHAIN INTENT to clear with Perena.** ⇒ The fill ladder becomes **range → 1inch (EVM remainder) → Khalani intent (cross-chain remainder, cleared against Perena) → never `SwapInPartialRejected`.** ✅ **WHAT ALREADY EXISTS, AND IT IS THE HARD HALF: the unified QUOTE SURFACE, built for exactly these counterparties.** `ISwap.sol:13-22` — *'the pricing views an RFQ maker (Bebop) or an **Arcadia solver (Khalani)** reads to quote the SAME fill the swap executes at'* — exposing `getTWAPforAsset`, `resolvedTwap`, `wellSkew` and `swapFeePpm`. `Aux.sol:641-645` states the purpose: so Bebop's RFQ engine **AND Khalani's Arcadia solver** *'quote against the EXACT number a swap executes at (base × (1−skew)), instead of re-deriving it and drifting from settlement'*. ⇒ **A Khalani solver can already price our fill correctly. The seam is not the gap.** 🔴 **WHAT IS MISSING — two things, and only one is ours.** **(1) INTENT EMISSION ON SHORTFALL:** today the shortfall path REVERTS (`BTCChannels.sol:1179`); it must instead emit the remainder as a cross-chain intent. **(2) PERENA AS A CLEARING VENUE:** Perena appears in this repo ONLY in `docs/FAQ.md` as a comparison (*'Perena only swaps between stablecoins'*) — **there is no integration of any kind**, so its stablecoin liquidity being the clearing side is a design intent, not a wiring detail. ⚠️ **THE CONSTRAINT THAT DECIDES WHETHER THIS IS BUILDABLE AS DESCRIBED — HTLC HOLD TIME vs INTENT LATENCY.** A Lightning swap-in is an in-flight HTLC: the protocol must decide claim-or-fail while the payer's HTLC is held. **A cross-chain intent settles on someone else's clock.** So either **(a)** the intent clears INSIDE the hold budget — then holding is a real liquidity cost and a long hold risks the payer's own timeout; or **(b)** the protocol CLAIMS THE BTC FIRST and sources the USD asynchronously — which removes the reject but **moves the risk onto the protocol: it holds sats it has not yet converted, and an intent that fails to clear leaves a short USD leg against a real BTC inflow.** ⇒ **(b) is what 'no reject' actually costs, and it should be chosen deliberately rather than discovered.** It is the same shape as the swap-OUT direction, which already accepts a two-phase settlement (the splice pays the swapper BEFORE the EVM leg settles) and is documented as safe *because* the swapper already holds their BTC and a revert just re-tries. **Here the exposure runs the other way, so that argument does NOT transfer.** ✅ **THE NEAR-TERM ANSWER, OWNER 2026-08-16 — AND IT DISSOLVES THE (a)/(b) LATENCY DILEMMA RATHER THAN CHOOSING A SIDE:** settle the remainder in **INSTANTLY-REDEEMABLE QU!D**, then **force-route the redemption out of dollars — burning QU!D 6909 — through 1inch on the way OUT, taking in many different stables and packing them into ONE final stable at the end.** ⇒ **The protocol stops trying to SOURCE dollars while an HTLC is held and instead ISSUES an instrument it can settle instantly**, moving the multi-venue gathering to the redemption side where there is no HTLC clock at all. That is why it beats both (a) and (b): no hold-time race, and no window where the protocol sits on unconverted sats. 🔑 **THIS IS NOT A RULE-8b VIOLATION, AND THE DISTINCTION IS THE WHOLE ARGUMENT.** Rule 8b: *minting QU!D is a LAST RESORT … a mint creates a liability against the basket; paying with value that ALREADY EXISTS never does.* **Here the value DOES already exist and has already arrived: the swap-in IS a BTC inflow.** The mint is issued AGAINST sats the protocol just received, so it is the ordinary deposit→mint shape, not new unbacked liability. ⚠️ The rule bites on mints that paper over an absence; this one is backed by the very thing that triggered it. ✅ **AND IT IS ALREADY BOUNDED BY CONSTRUCTION — the cap is not something to add.** `Basket.sol:190-196`: the protocol-internal mint path is capped by backing headroom, *'the structural defense against a compromised hop signer: even with valid LP+hop signatures, a protocol mint can only credit up to the headroom that prior burns or backing growth opened'*. ⇒ **A remainder that cannot be backed cannot be minted**, so the no-reject property degrades into the existing cap rather than into unbacked issuance. ⚠️ **That also means the cap becomes a LIVE constraint on fill rate** — worth measuring, since it is now the thing that decides whether 'no reject' actually holds under load. ✅ **THE PRINCIPLE IS ALREADY PRECEDENTED IN PRODUCTION — owner: *'isn't that the reason `fees_usd` was used in legacy `Quid.sol`? same principle.'* Correct, and it is still live here:** `BtcLib.sol:70` pays the USD FEE reward by MINTING (`IBasketMint(quid).mint(payTo, usdR*1e12, …)`), and `:87` does the same for the swap-out delivery's USD leg. **CLAUDE.md's rule-8b carve-out names exactly this:** *'the seven existing mint sites are not thereby wrong — the fee/redeem legs pay a 6-dec USD claim in an 18-dec token and have no pre-existing balance to draw on.'* ⇒ **Settling a USD obligation by ISSUING rather than SOURCING is the established shape, not a new liberty.** 🔴 **BUT 'INSTANTLY REDEEMABLE' DOES NOT EXIST TODAY, AND THE FLOOR IS DELIBERATE — checked, not assumed.** `:87` passes `when = 0`, which looks instant and is not: `Basket.sol:293-294` clamps it — `month = max(min(when, nextMonth + maxFwd), nextMonth)` — so **`0` clamps UP to `nextMonth` (`currentMonth() + 1`), a ~1-month lock.** The floor is protective, not incidental: the surrounding logic sizes `maxFwd` off the buffer and notes the *'buffer is live to absorb that pre-spend'*, with a *'thin buffer → ~1mo floor'*. ⇒ **An instantly-redeemable mint means minting into the MATURE bucket, which BYPASSES that floor. That is the real decision here, and it is a different question from whether to mint at all.** ▶️ Price it against the buffer's pre-spend absorption before building — and note `redeemableAmount()`/`matureSupply = totalSupply − immatureSupply` must see it immediately or the 'instant' property is nominal.  ⇒ **ORDERING (owner said 'for now'): QU!D-as-bridge is the NEAR-TERM no-reject path; the Khalani cross-chain intent clearing against Perena is the END STATE.** They compose — the intent leg can later source the redemption's stables cross-chain — so building the QU!D route first does not close it off. ▶️ **Decide (a) or (b) before building.** ▶️ Sequence after the isBTC split, with `ROUTING-AGGREGATION.md`'s own caveat inherited: 1inch does not close every case, and the Khalani leg is what is supposed to close the rest — so the no-reject property rests on the CROSS-CHAIN leg's reliability, which is the least controlled dependency in the ladder. |
 
 ### `§LN-SWAPIN-REMAINDER` 🔴
 
-| **§LN-SWAPIN-REMAINDER — the LN rail is ALL-OR-NOTHING because it cannot refund; extend band→1inch to it** | 🔴 OPEN — owner calls it the biggest vulnerability; NOT covered by ROUTING-AGGREGATION | Owner (2026-08-16): swap-ins should reroute to whoever is online and SPLIT across LPs; with many channels lined up and one offline *'we never find the requisite total of bitcoin splice ins … then we are stuck not being able to pay the swap'*, and **WBTC must deliver the remainder, routed by 1inch on the remainder only — the way SOR previously did WETH/USDC through UniswapV3**. 🔎 **THE MECHANISM, and it is sharper than 'stuck'.** `BTCChannels.sol:1160` states it: **“`requireFull` is preserved for the LN rail, which CANNOT REFUND”**, enforced at `:1179` — `if (requireFull && consumed < sats) revert SwapInPartialRejected()`. **A Lightning payment is ATOMIC: once the HTLC is claimed the sats are taken, and there is no partial give-back.** So when the band can absorb only `consumed < sats`, the rail must reject the WHOLE swap. ⇒ **Funds are SAFE — the HTLC is never claimed and the payer keeps their sats — but the swap simply DOES NOT HAPPEN.** ⚠️ **Characterise it as a SERVICE failure, not fund loss, or the fix gets mis-scoped.** Contrast the swap-OUT direction, which has real escapes (`reverseSwapOut`, `refundExpiredSwapOut`): **the asymmetry is not an oversight — it is that Lightning cannot refund and the EVM can.** 🔴 **WHY IT COMPOUNDS, which is the owner's actual point: FRAGMENTATION.** Absorption is bounded by what LP channels can serve, and a swap-in split across N channels needs enough of them SIMULTANEOUSLY ONLINE. Under option (c) LPs are online only sometimes, so as N grows the probability that the full amount is servable FALLS — and every shortfall is a total rejection, not a partial fill. **The all-or-nothing rule turns a liquidity fragmentation problem into a binary availability problem.** ✅ **THE FIX ALREADY HAS ITS PATTERN AND ITS PRECEDENT IN THIS REPO — this is an EXTENSION, not a new design.** `docs/actionable/ROUTING-AGGREGATION.md` (landed on `main` 2026-08-16, `84d73b74`) establishes *'band fills what it can → 1inch splits the REMAINDER → dedicated rails stay dedicated'* and the owner's venue priority *'our own rails first, aggregator for the residual'*. `SOR.sol`'s `_v3Route` is the older instance of the same shape — the peer route *'tried when the V4 hops can't'*. ⇒ **Apply it to the swap-in absorption limit: the band absorbs what it can, and the REMAINDER's worth of BTC is sold as WBTC through 1inch to source the USD, so `requireFull` succeeds instead of reverting.** 🔴 **BUT ROUTING-AGGREGATION DOES NOT COVER THIS, AND THAT WAS CHECKED, NOT ASSUMED:** that doc mentions no Lightning, channel, LP-offline, swap-in or splice case anywhere — its two near-hits are about the leverage band. **It solves the EVM-side remainder; this is the LN-side remainder, and nobody has written it.** ⚠️ It also already warns that **1inch does NOT close every case** (API outage, volatile block, size that cannot clear) — so the LN extension inherits that caveat: the remainder path RAISES the fill rate, it does not guarantee it, and `requireFull` must still reject cleanly when the remainder cannot be sourced. ▶️ **Sequence AFTER the isBTC split settles**, same as the doc says for its own call sites. |
+| **§LN-SWAPIN-REMAINDER — the LN rail is ALL-OR-NOTHING because it cannot refund; extend range→1inch to it** | 🔴 OPEN — owner calls it the biggest vulnerability; NOT covered by ROUTING-AGGREGATION | Owner (2026-08-16): swap-ins should reroute to whoever is online and SPLIT across LPs; with many channels lined up and one offline *'we never find the requisite total of bitcoin splice ins … then we are stuck not being able to pay the swap'*, and **WBTC must deliver the remainder, routed by 1inch on the remainder only — the way SOR previously did WETH/USDC through UniswapV3**. 🔎 **THE MECHANISM, and it is sharper than 'stuck'.** `BTCChannels.sol:1160` states it: **“`requireFull` is preserved for the LN rail, which CANNOT REFUND”**, enforced at `:1179` — `if (requireFull && consumed < sats) revert SwapInPartialRejected()`. **A Lightning payment is ATOMIC: once the HTLC is claimed the sats are taken, and there is no partial give-back.** So when the range can absorb only `consumed < sats`, the rail must reject the WHOLE swap. ⇒ **Funds are SAFE — the HTLC is never claimed and the payer keeps their sats — but the swap simply DOES NOT HAPPEN.** ⚠️ **Characterise it as a SERVICE failure, not fund loss, or the fix gets mis-scoped.** Contrast the swap-OUT direction, which has real escapes (`reverseSwapOut`, `refundExpiredSwapOut`): **the asymmetry is not an oversight — it is that Lightning cannot refund and the EVM can.** 🔴 **WHY IT COMPOUNDS, which is the owner's actual point: FRAGMENTATION.** Absorption is bounded by what LP channels can serve, and a swap-in split across N channels needs enough of them SIMULTANEOUSLY ONLINE. Under option (c) LPs are online only sometimes, so as N grows the probability that the full amount is servable FALLS — and every shortfall is a total rejection, not a partial fill. **The all-or-nothing rule turns a liquidity fragmentation problem into a binary availability problem.** ✅ **THE FIX ALREADY HAS ITS PATTERN AND ITS PRECEDENT IN THIS REPO — this is an EXTENSION, not a new design.** `docs/actionable/ROUTING-AGGREGATION.md` (landed on `main` 2026-08-16, `84d73b74`) establishes *'range fills what it can → 1inch splits the REMAINDER → dedicated rails stay dedicated'* and the owner's venue priority *'our own rails first, aggregator for the residual'*. `SOR.sol`'s `_v3Route` is the older instance of the same shape — the peer route *'tried when the V4 hops can't'*. ⇒ **Apply it to the swap-in absorption limit: the range absorbs what it can, and the REMAINDER's worth of BTC is sold as WBTC through 1inch to source the USD, so `requireFull` succeeds instead of reverting.** 🔴 **BUT ROUTING-AGGREGATION DOES NOT COVER THIS, AND THAT WAS CHECKED, NOT ASSUMED:** that doc mentions no Lightning, channel, LP-offline, swap-in or splice case anywhere — its two near-hits are about the leverage range. **It solves the EVM-side remainder; this is the LN-side remainder, and nobody has written it.** ⚠️ It also already warns that **1inch does NOT close every case** (API outage, volatile block, size that cannot clear) — so the LN extension inherits that caveat: the remainder path RAISES the fill rate, it does not guarantee it, and `requireFull` must still reject cleanly when the remainder cannot be sourced. ▶️ **Sequence AFTER the isBTC split settles**, same as the doc says for its own call sites. |
 
 ### `§FEE-CREDIT` 🔴
 
@@ -4163,8 +4163,8 @@ three times larger than it is, and would have invited pointless churn in four fi
 
 ## ⭐ THE REFILL IS A RANGE-PLACEMENT COMPUTATION, NOT A TRADE (skew thread, and it reconciles §E48)
 
-Once liquidity settles against inventory too, **the band stops being a position and becomes inventory
-we own**. "Putting ETH into the band" is then crediting `POOLED_ETH` — bookkeeping, not a trade — and
+Once liquidity settles against inventory too, **the range stops being a position and becomes inventory
+we own**. "Putting ETH into the range" is then crediting `POOLED_ETH` — bookkeeping, not a trade — and
 the range becomes a PRICING PARAMETER rather than a custody boundary.
 
 ⇒ A refill is: **choose the range so that inventory ALREADY HELD sits at the target composition at
@@ -4174,7 +4174,7 @@ the current price.** No counterparty, no external leg, no restoration cost.
 
 | owner's words | why it follows |
 |---|---|
-| *"shouldn't be sold for ETH out of band… a misuse"* | there is nothing to buy — the ETH is already held |
+| *"shouldn't be sold for ETH out of range… a misuse"* | there is nothing to buy — the ETH is already held |
 | *"maximise representation of the ETH already held"* | that IS range placement |
 | *"external impact should net the zero"* | no external leg exists to carry impact |
 | *"no premium paid to a restorer"* | no external party restores |
@@ -4186,7 +4186,7 @@ hop, where an external cost is real. It must not gate the atomic tier — which 
 on `costPpm == 0` rather than passing.
 
 ### Three things this does NOT dissolve
-1. **If the band is SHORT ETH outright, no reseat fixes it.** You can only represent what you hold —
+1. **If the range is SHORT ETH outright, no reseat fixes it.** You can only represent what you hold —
    and that is exactly where *"restore to 1:1"* and *"maximise representation"* diverge. Owner's call.
 2. §E48's three opens are untouched: who pays the gas, Rust-automatic vs on-chain trigger (asked to be
    COMPARED, not assumed), and nothing tying the skew collected to the external price impact a flash
@@ -4208,11 +4208,11 @@ on `costPpm == 0` rather than passing.
 
 ### `§V-R8` 🔴
 
-| §V-R8 | 🔴 **OPEN — CONFIRMED STILL FAILING 2026-08-16** (the only one of the three that survived) | `testLeverage_LvrControlVsTreatment` — passive LP worse off at UNCHANGED price, where there is no IL and no directional PnL. ⚠️ A self-dealing explanation (lev flow trading against our own band) was proposed and REFUTED: the SOR paths are hookless (`DeployLib._pk` sets `hooks: IHooks(address(0))`), so our band is never in the route. Real failure, no explanation. |
+| §V-R8 | 🔴 **OPEN — CONFIRMED STILL FAILING 2026-08-16** (the only one of the three that survived) | `testLeverage_LvrControlVsTreatment` — passive LP worse off at UNCHANGED price, where there is no IL and no directional PnL. ⚠️ A self-dealing explanation (lev flow trading against our own range) was proposed and REFUTED: the SOR paths are hookless (`DeployLib._pk` sets `hooks: IHooks(address(0))`), so our range is never in the route. Real failure, no explanation. |
 
 ### `§V-R11` 🔴
 
-| §V-R11 | 🔴 **OPEN — INVARIANT, owner 2026-08-16: "it must never stop tracking like this"** | **THE HEDGE SWAP IS ALL-OR-NOTHING, AND FOR A HEDGE THAT IS THE WRONG SHAPE.** `SELL_SLIP_BPS` must bound the PRICE, not the SIZE. Today a $250k need against a venue that can fill $25k within 1% REVERTS and delivers ZERO hedge; filling the $25k leaves the LP 10% hedged instead of 0%, and the accounting stays coherent because `_leverUpBuy` borrows and supplies the SAME reduced amount — debt and collateral move together, LTV stays valid. UNDER-hedged is bounded and visible; UN-hedged while the band keeps selling is neither. ⚠️ **§V-R1 (1inch) DOES NOT CLOSE THIS**: an API outage, a volatile block, or any size that cannot clear the floor still produces a total revert. Aggregation makes tracking DEEPER; partial fill makes it ROBUST. Both are needed. ⚠️ Do NOT implement by weakening the floor — that is rule 4 (a tolerance that makes the failure go away leaves the defect). The change is to accept a SHORTFALL at a good price, then re-target on the next tick; `RebalanceFailed(lp, ltvBps)` already exists as the signal and `targetDebt = E0·soldFrac` is recomputed each call, so a partial fill converges rather than drifting. Settle what a partial fill means for `debtDeltaToTarget`'s convergence and for `MAX_LOOPS` before writing it. |
+| §V-R11 | 🔴 **OPEN — INVARIANT, owner 2026-08-16: "it must never stop tracking like this"** | **THE HEDGE SWAP IS ALL-OR-NOTHING, AND FOR A HEDGE THAT IS THE WRONG SHAPE.** `SELL_SLIP_BPS` must bound the PRICE, not the SIZE. Today a $250k need against a venue that can fill $25k within 1% REVERTS and delivers ZERO hedge; filling the $25k leaves the LP 10% hedged instead of 0%, and the accounting stays coherent because `_leverUpBuy` borrows and supplies the SAME reduced amount — debt and collateral move together, LTV stays valid. UNDER-hedged is bounded and visible; UN-hedged while the range keeps selling is neither. ⚠️ **§V-R1 (1inch) DOES NOT CLOSE THIS**: an API outage, a volatile block, or any size that cannot clear the floor still produces a total revert. Aggregation makes tracking DEEPER; partial fill makes it ROBUST. Both are needed. ⚠️ Do NOT implement by weakening the floor — that is rule 4 (a tolerance that makes the failure go away leaves the defect). The change is to accept a SHORTFALL at a good price, then re-target on the next tick; `RebalanceFailed(lp, ltvBps)` already exists as the signal and `targetDebt = E0·soldFrac` is recomputed each call, so a partial fill converges rather than drifting. Settle what a partial fill means for `debtDeltaToTarget`'s convergence and for `MAX_LOOPS` before writing it. |
 
 ### `§E232-tri` (none)
 
@@ -4240,7 +4240,7 @@ on `costPpm == 0` rather than passing.
 
 ### `§E245-rate` (none)
 
-| §E245-rate | 🟢 **THE EXTRACTION RATE, MEASURED AT THREE BODY SIZES — THIS IS THE NUMBER THAT MAKES THE MANAGER MERGE PLANNABLE (2026-08-17).** Library extraction frees bytes from the CALLER at a rate that scales with body size, so a plan can be costed instead of guessed: **2–5-line bodies ≈ 100 B each** (`trackOpen`/`untrackOpen`/`setTargetLtv`/`openPos`/`reanchorIfReseated`: −480 LevManager, −512 BtcLevManager over 5); **10–13-line bodies ≈ 514 B each** (the four venue legs: BtcLevManager **19,335 → 17,279, −2,056**). ⇒ **RUNNING TOTALS:** `LevManager` 23,311 → 22,831 (margin 1,745); `BtcLevManager` 20,323 → **17,279** (margin 7,297); `LevMath` 23,020 → **19,101**; `Aux` 22,955 → **20,996**; `BTCChannels` 24,433 → **23,761** (margin 144 → 815). `LevBookLib` 5,878, deployed once. ▶️ **WHAT REMAINS AND WHAT IT IS WORTH AT THESE RATES:** 23 `LevBase` bodies (~2,200/manager), `LevManager`'s 34 own bodies incl. `openLev` 20 / `deleverToVault` 19 / `_rebalanceBody` 16 / `_closeLev` 15 (~5,000 at the large-body rate), `BtcLevManager`'s 13 remaining. ⚠️ **THE TWO HARD BOUNDARIES, properties of delegatecall not preferences:** a library body cannot read the caller's IMMUTABLES (they live in its CODE) nor call its VIRTUALS — so `debtDeltaToTarget`, `_reanchorIfReseated`, `_collToBase` and `_syncBand` values must be computed by the wrapper and passed BY VALUE. And `_syncBand`'s ORDERING is load-bearing: the band poke must follow the venue move, so it stays in the wrapper. |
+| §E245-rate | 🟢 **THE EXTRACTION RATE, MEASURED AT THREE BODY SIZES — THIS IS THE NUMBER THAT MAKES THE MANAGER MERGE PLANNABLE (2026-08-17).** Library extraction frees bytes from the CALLER at a rate that scales with body size, so a plan can be costed instead of guessed: **2–5-line bodies ≈ 100 B each** (`trackOpen`/`untrackOpen`/`setTargetLtv`/`openPos`/`reanchorIfReseated`: −480 LevManager, −512 BtcLevManager over 5); **10–13-line bodies ≈ 514 B each** (the four venue legs: BtcLevManager **19,335 → 17,279, −2,056**). ⇒ **RUNNING TOTALS:** `LevManager` 23,311 → 22,831 (margin 1,745); `BtcLevManager` 20,323 → **17,279** (margin 7,297); `LevMath` 23,020 → **19,101**; `Aux` 22,955 → **20,996**; `BTCChannels` 24,433 → **23,761** (margin 144 → 815). `LevBookLib` 5,878, deployed once. ▶️ **WHAT REMAINS AND WHAT IT IS WORTH AT THESE RATES:** 23 `LevBase` bodies (~2,200/manager), `LevManager`'s 34 own bodies incl. `openLev` 20 / `deleverToVault` 19 / `_rebalanceBody` 16 / `_closeLev` 15 (~5,000 at the large-body rate), `BtcLevManager`'s 13 remaining. ⚠️ **THE TWO HARD BOUNDARIES, properties of delegatecall not preferences:** a library body cannot read the caller's IMMUTABLES (they live in its CODE) nor call its VIRTUALS — so `debtDeltaToTarget`, `_reanchorIfReseated`, `_collToBase` and `_syncRange` values must be computed by the wrapper and passed BY VALUE. And `_syncRange`'s ORDERING is load-bearing: the range poke must follow the venue move, so it stays in the wrapper. |
 
 ### `§E246-legs` (none)
 
@@ -4248,15 +4248,15 @@ on `costPpm == 0` rather than passing.
 
 ### `§E251-vbtc-scope` 🔴
 
-| §E251-vbtc-scope | 🔴 **OPEN — DESIGN vs IMPLEMENTATION GAP: vBTC CAN ONLY BE MINTED AGAINST THE LEVERED SLICE, AND THE DESIGN WANTS MORE (owner, 2026-08-17).** MEASURED: `VBtc.mintTo` has **exactly ONE call site** — `Vault:333`, inside `exposeBtcToLev` — so the entire vBTC supply is the portion of band BTC currently exposed to leverage. `outOfRangeBtc` mints none. **The owner's design is broader:** the BTC leg of native coins in 2-of-2 channels should be represented by the band manager's SHARE SUPPLY, and *"totalSupply includes outOfRange locked liquidity that can be lent as vBTC deposited on the Morpho market … not double counted as LP capital twice in the band, since it's in the band by default."* ⇒ i.e. an LP's band BTC — including the out-of-range LOCKED portion — should be mintable as vBTC and lendable, with `levPooled`-style subset accounting preventing the double count (the mechanism §E250 verified already works for the lev slice). ▶️ **WHAT MUST BE SETTLED BEFORE ANY CODE:** ① which band BTC is eligible (all `pooled`? only the out-of-range/locked portion? does in-range depth stay unmintable because it must be deliverable to swappers?); ② whether the subset marker generalises — one marker for "exposed", or separate markers for lev-exposed vs lent-out, since an LP could do both and `plainNet` currently assumes one; ③ what happens to lent-out vBTC when the band needs that BTC for a swap or a close — the deliverability question `§V-R10` raises for sUSDE, in a new place. ⚠️ **DO NOT WIDEN THE MINT WITHOUT ②.** `vbtcExposeBody` guards `sats <= plainNet(pooled, levPooled)`; a second consumer minting against the same `pooled` with its own counter would pass that guard while jointly over-minting. That is the double-count the owner is explicitly ruling out, and it arrives through the guard rather than around it. |
+| §E251-vbtc-scope | 🔴 **OPEN — DESIGN vs IMPLEMENTATION GAP: vBTC CAN ONLY BE MINTED AGAINST THE LEVERED SLICE, AND THE DESIGN WANTS MORE (owner, 2026-08-17).** MEASURED: `VBtc.mintTo` has **exactly ONE call site** — `Vault:333`, inside `exposeBtcToLev` — so the entire vBTC supply is the portion of range BTC currently exposed to leverage. `outOfRangeBtc` mints none. **The owner's design is broader:** the BTC leg of native coins in 2-of-2 channels should be represented by the range manager's SHARE SUPPLY, and *"totalSupply includes outOfRange locked liquidity that can be lent as vBTC deposited on the Morpho market … not double counted as LP capital twice in the range, since it's in the range by default."* ⇒ i.e. an LP's range BTC — including the out-of-range LOCKED portion — should be mintable as vBTC and lendable, with `levPooled`-style subset accounting preventing the double count (the mechanism §E250 verified already works for the lev slice). ▶️ **WHAT MUST BE SETTLED BEFORE ANY CODE:** ① which range BTC is eligible (all `pooled`? only the out-of-range/locked portion? does in-range depth stay unmintable because it must be deliverable to swappers?); ② whether the subset marker generalises — one marker for "exposed", or separate markers for lev-exposed vs lent-out, since an LP could do both and `plainNet` currently assumes one; ③ what happens to lent-out vBTC when the range needs that BTC for a swap or a close — the deliverability question `§V-R10` raises for sUSDE, in a new place. ⚠️ **DO NOT WIDEN THE MINT WITHOUT ②.** `vbtcExposeBody` guards `sats <= plainNet(pooled, levPooled)`; a second consumer minting against the same `pooled` with its own counter would pass that guard while jointly over-minting. That is the double-count the owner is explicitly ruling out, and it arrives through the guard rather than around it. |
 
 ### `§E252-shares-merge` (none)
 
-| §E252-shares-merge | 🟢 **READY — THE 13 BAND-STATE DECLARATIONS ARE BYTE-IDENTICAL IN ALL THREE FILES, so the merge is mechanical (verified 2026-08-17).** `Shares.sol` is a written-but-UNWIRED prototype: **nothing imports or inherits it**, yet it compiles to 2,301 bytes of deployable contract. Declared identically in `Shares`+`Vault`+`Quid`: `LEV_MANAGER` `autoManaged` `lpShares` `selfManaged` `positions` `ID` `feesPerShare` `USD_FEES` `levPooled` `levBuf` `levBufferUsd` `totalBuffer`, plus `BAND_ANCHOR` in `Vault`+`Quid` — checked declaration-by-declaration, not by name (an earlier pass flagged `autoManaged` as differing; that was a regex hitting a USAGE line, and the real declarations match). ⇒ Convert `Shares` to an ABSTRACT base both managers inherit. ⚠️ **THE POINT IS NOT SOURCE TIDINESS — IT IS STORAGE LAYOUT.** State costs no bytecode, so this frees nothing directly; what it buys is that both managers' layouts become IDENTICAL for these members, which is the PRECONDITION for one-implementation-two-instances. Merging the managers without it means two contracts whose slots disagree. ⚠️ Check no test reads `Quid`/`Vault` by RAW SLOT first (only `DrainAtomicity` does raw-slot reads today, and it reads `Core`). |
+| §E252-shares-merge | 🟢 **READY — THE 13 RANGE-STATE DECLARATIONS ARE BYTE-IDENTICAL IN ALL THREE FILES, so the merge is mechanical (verified 2026-08-17).** `Shares.sol` is a written-but-UNWIRED prototype: **nothing imports or inherits it**, yet it compiles to 2,301 bytes of deployable contract. Declared identically in `Shares`+`Vault`+`Quid`: `LEV_MANAGER` `autoManaged` `lpShares` `selfManaged` `positions` `ID` `feesPerShare` `USD_FEES` `levPooled` `levBuf` `levBufferUsd` `totalBuffer`, plus `RANGE_ANCHOR` in `Vault`+`Quid` — checked declaration-by-declaration, not by name (an earlier pass flagged `autoManaged` as differing; that was a regex hitting a USAGE line, and the real declarations match). ⇒ Convert `Shares` to an ABSTRACT base both managers inherit. ⚠️ **THE POINT IS NOT SOURCE TIDINESS — IT IS STORAGE LAYOUT.** State costs no bytecode, so this frees nothing directly; what it buys is that both managers' layouts become IDENTICAL for these members, which is the PRECONDITION for one-implementation-two-instances. Merging the managers without it means two contracts whose slots disagree. ⚠️ Check no test reads `Quid`/`Vault` by RAW SLOT first (only `DrainAtomicity` does raw-slot reads today, and it reads `Core`). |
 
 ### `§E255-two-instances` 🔴
 
-| §E255-two-instances | 🔴 **RE-MEASURED 2026-08-18 — THE RECORDED BLOCKER IS GONE, AND THE REAL ONE IS EIP-170 BY ~11,986 BYTES.** ⛔ **THE STALE BLOCKER: *"`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED"* IS NO LONGER TRUE.** Enumerated the whole ETH-venue slice against `Vault` today: `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `deliverableETH` `AAVE_SPOKE` `WEETH` — **ZERO references in `Vault.sol`, all of them in `Quid`.** The only three left (`:64`, `:111`, `:559`) are COMMENTS that say so outright — *"`vogueETH` is VOGUE's accessor, not this contract's"*. ⇒ **§E231's EthVenue fold resolved the precondition by going the OTHER WAY — into `Quid` rather than out of `Vault` — so the split everyone was waiting to do had already happened, under a different row.** `Vault` IS the BTC band manager now. 🔴 **WHAT ACTUALLY BLOCKS IT, MEASURED: `Quid` 23,953 + `Vault` 12,609 = 36,562 against the 24,576 limit ⇒ ~11,986 OVER.** One implementation with two instances means ONE contract carrying both bands' behaviour and deployed twice, so the union must fit in a single EIP-170 envelope — and it does not, before even counting that ETH-venue custody would ride as dead weight on the BTC instance (the permanent asymmetry `CLAUDE.md` records). ⭐ **THIS IS THE SAME WALL AS THE `LevManager`+`BtcLevManager` FOLD (15,532 over), AND THAT IS THE POINT: BOTH REMAINING FOLDS ARE BLOCKED BY BYTECODE, NOT BY DESIGN AMBIGUITY.** The design questions — which base, whose `totalSupply`, who owns `oorShares` — are settled (§E256). ▶️ **SO THE NEXT STEP IS NOT THE MERGE, IT IS ~12k OF DELEGATECALLED-LIBRARY EXTRACTION, priced by §E245's measured rate (~100 B per small body, ~514 B per large one).** Attempting the merge first produces a contract that compiles, tests, and cannot be deployed — which this repo has shipped once already at −126 bytes with a green suite. ⚠️ **DO NOT START THE MERGE UNTIL THE UNION FITS.** Original text: **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each band, calling each lev library it needs."*** ⇒ ONE band manager; TWO `Shares` INSTANCES (ETH + BTC); each instance delevers its own band through the lev libraries. Today the share FACE is IMPLEMENTED THREE TIMES instead of INSTANTIATED TWICE: inline in `Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same `isBTC` argument one level up from `Core`, which already IS one implementation with two instances. ✅ **WHAT IS ALREADY IN PLACE:** `Shares` (§E252) gives both bands an IDENTICAL storage layout — the precondition; `LevBookLib` (§E246) holds the four venue legs parameterised by collateral token; `Core` is the working precedent. 🔴 **THE BLOCKER IS A SEMANTIC DISAGREEMENT, NOT PLUMBING:** `Shares.totalSupply()` = `lpShares + oorShares` and SPANS both position kinds (*"disjoint by construction… the sum cannot double-count"*); `Quid.totalSupply()` = `lpShares` alone and **`oorShares` does not exist in `Quid` at all**, so out-of-range positions are absent from the share supply. The owner's design says totalSupply INCLUDES the out-of-range locked liquidity (and §E251 wants it lendable). Instantiating `Shares` twice ADOPTS its semantics — **changing what every ERC-20/4626 client reads**. ▶️ Settle that first; it is the same decision §E251 turns on. |
+| §E255-two-instances | 🔴 **RE-MEASURED 2026-08-18 — THE RECORDED BLOCKER IS GONE, AND THE REAL ONE IS EIP-170 BY ~11,986 BYTES.** ⛔ **THE STALE BLOCKER: *"`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED"* IS NO LONGER TRUE.** Enumerated the whole ETH-venue slice against `Vault` today: `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `deliverableETH` `AAVE_SPOKE` `WEETH` — **ZERO references in `Vault.sol`, all of them in `Quid`.** The only three left (`:64`, `:111`, `:559`) are COMMENTS that say so outright — *"`vogueETH` is VOGUE's accessor, not this contract's"*. ⇒ **§E231's EthVenue fold resolved the precondition by going the OTHER WAY — into `Quid` rather than out of `Vault` — so the split everyone was waiting to do had already happened, under a different row.** `Vault` IS the BTC range manager now. 🔴 **WHAT ACTUALLY BLOCKS IT, MEASURED: `Quid` 23,953 + `Vault` 12,609 = 36,562 against the 24,576 limit ⇒ ~11,986 OVER.** One implementation with two instances means ONE contract carrying both ranges' behaviour and deployed twice, so the union must fit in a single EIP-170 envelope — and it does not, before even counting that ETH-venue custody would ride as dead weight on the BTC instance (the permanent asymmetry `CLAUDE.md` records). ⭐ **THIS IS THE SAME WALL AS THE `LevManager`+`BtcLevManager` FOLD (15,532 over), AND THAT IS THE POINT: BOTH REMAINING FOLDS ARE BLOCKED BY BYTECODE, NOT BY DESIGN AMBIGUITY.** The design questions — which base, whose `totalSupply`, who owns `oorShares` — are settled (§E256). ▶️ **SO THE NEXT STEP IS NOT THE MERGE, IT IS ~12k OF DELEGATECALLED-LIBRARY EXTRACTION, priced by §E245's measured rate (~100 B per small body, ~514 B per large one).** Attempting the merge first produces a contract that compiles, tests, and cannot be deployed — which this repo has shipped once already at −126 bytes with a green suite. ⚠️ **DO NOT START THE MERGE UNTIL THE UNION FITS.** Original text: **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each range, calling each lev library it needs."*** ⇒ ONE range manager; TWO `Shares` INSTANCES (ETH + BTC); each instance delevers its own range through the lev libraries. Today the share FACE is IMPLEMENTED THREE TIMES instead of INSTANTIATED TWICE: inline in `Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same `isBTC` argument one level up from `Core`, which already IS one implementation with two instances. ✅ **WHAT IS ALREADY IN PLACE:** `Shares` (§E252) gives both ranges an IDENTICAL storage layout — the precondition; `LevBookLib` (§E246) holds the four venue legs parameterised by collateral token; `Core` is the working precedent. 🔴 **THE BLOCKER IS A SEMANTIC DISAGREEMENT, NOT PLUMBING:** `Shares.totalSupply()` = `lpShares + oorShares` and SPANS both position kinds (*"disjoint by construction… the sum cannot double-count"*); `Quid.totalSupply()` = `lpShares` alone and **`oorShares` does not exist in `Quid` at all**, so out-of-range positions are absent from the share supply. The owner's design says totalSupply INCLUDES the out-of-range locked liquidity (and §E251 wants it lendable). Instantiating `Shares` twice ADOPTS its semantics — **changing what every ERC-20/4626 client reads**. ▶️ Settle that first; it is the same decision §E251 turns on. |
 
 ### `§QUEUE-RECONCILED-2026-08-17` (none)
 
@@ -4342,7 +4342,7 @@ cross-referential, "the id appears on this line" is almost never "this is that i
 Anyone reporting "N rows are actually open" without naming which ones they read is repeating the
 mistake this section documents.
 | §E257-observation-source-cannot-fit | 🔴🔴🔴 **`main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK, AND IT IS PIN-ONCE SO NO OPERATOR CAN UNDO IT (measured 2026-08-17).** §E222 was closed by pinning 1inch's OffchainOracle as the ring's independent source. The wiring is real and correct in shape: `DeployLib.sol:170` sets `0x0AdDd25a…F9B8`; `Core.swap()` (`:776`) calls `_observeIfSourced()` at **`:822`**, `repack()` at `:932`; and `_observeIfSourced` (`:1288`) does `src.staticcall("getRate(address,address,bool)")` **with NO GAS CAP**. ⛔ **MEASURED ON MAINNET, NOT INFERRED — `cast estimate` against the live contract: `Error -32003: out of gas: gas required exceeds 16777216`.** The node refuses at its own 2^24 ceiling. §E232 independently measured the same call at **31,722,803 gas against a 30M block limit**: `getRate` iterates all 14 registered DEX oracles and their connectors, so one "read" is a full multi-venue aggregation executed on-chain. ⇒ **EVERY ETH SWAP AND EVERY REPACK FORWARDS 63/64 OF ITS GAS INTO A CALL THAT CANNOT COMPLETE.** The `if (!ok \|\| out.length < 32) return;` guard makes it fail SOFT, which does not save the transaction — the sub-call burns everything it is handed and the 1/64 left behind cannot finish a swap. 🔴 **AND IT IS UNRECOVERABLE IN PLACE: `setObservationSource` is pin-once (`require(observationSource == address(0), "!")`, `Core.sol:1276`)** — no re-point, no clear. A fresh deploy is dead on arrival and needs a CODE change, which is the difference between a config mistake and this one. ⚠️ **WHY IT PASSED REVIEW THREE TIMES, AND THIS IS THE TRANSFERABLE PART: `cast call` RETURNS A HEALTHY VALUE (`1906014527`) BECAUSE `eth_call` RUNS WITH AN EFFECTIVELY UNBOUNDED GAS ALLOWANCE.** The session that wired it, the session that closed it, and I all confirmed the contract EXISTS and RETURNS THE RIGHT NUMBER. **Nobody priced the CALL.** A live address says nothing about whether invoking it fits in a block, and `cast estimate` costs one second. ▶️ **THE FIX IS ALREADY WRITTEN AND WAS OVERRIDDEN ONCE — `ExternalTwap.curvePriceWad`**: a Curve `price_oracle()` storage read at **~2–3k gas**, a plain WAD needing no decoding, and a genuinely different MECHANISM from Chainlink (an EMA over executed trades vs a signed off-chain report). Open questions are its own: which pool per instance, and a deviation bound derived from Curve's EMA HALF-LIFE rather than inherited from a 30-minute-window bound. ⚠️ **BTC gains nothing from the change of venue** — Curve quotes WBTC, so §E223's wrapper objection survives and the BTC ring stays deliberately unset either way. ⛔ **§E222 IS NOT CLOSED: the self-write is genuinely gone (half the fix), the replacement source is unusable (the other half). Do not trust its ✅.** |
-| §E258-oor-never-executes | 🔴🔴 **THE v4 CUT SILENTLY TURNED LIMIT ORDERS INTO OPTIONS — AND I SHIPPED THE EXACT VARIANT I HAD REJECTED IN WRITING (owner asked 2026-08-17: *"you planned a replacement method for outofrange orders that would autoexecute them?"*).** MEASURED, not recalled: `selfManaged` has exactly **two** kinds of consumer in `evm/src` — `Quid.outOfRange` / `BtcLib.outOfRangeBtc` **CREATE** a position, and `BandLib.pull` **CLOSES** it behind `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns ZERO hits repo-wide. Nothing consumes a resting order when price crosses it.** Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the range; `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so **the crossing that used to execute these orders no longer happens anywhere.** ⇒ **A boundary order placed below spot will NOT execute when price falls through it. The owner pulls back what they put in.** ⛔ **AND THE PLAN WAS RIGHT — IT JUST WAS NOT BUILT.** On 2026-08-13 I enumerated three replacements and chose one: *"**fill-on-touch backed by the sorted set**, with the poke as the liveness backstop for orders nobody's swap happens to cross. **That preserves the automatic-fill property, which is the thing users actually bought**"* — resting orders between the old and new price consumed as part of the fill, findable by price via **`SortedSetLib` (`evm/src/imports/SortedSet.sol`), WHICH ALREADY EXISTS** (`Basket` uses it for `perMonth`), with gas *"bounded by how many orders lie between old and new price, which for a ±20 bps band and two-tick moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. On 2026-08-15 the same conclusion was restated as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet executed"*. 🔴 **THE VARIANT THAT SHIPPED IS THE ONE I EXPLICITLY REJECTED IN THE SAME PARAGRAPH: *"Claims rather than liquidity … Simplest, but it STOPS BEING A LIMIT ORDER (no execution guarantee at the moment of crossing) and becomes AN OPTION THE OWNER MUST EXERCISE."*** ⚠️ **NOTHING BOOKED THE DOWNGRADE.** The v4 cut's rows record what was deleted and what replaced it; this is a capability that was deleted with **no replacement built and no row saying so** — which is why it survived a full queue audit, a deletions scan and a five-day transcript sweep. **A capability regression leaves no broken symbol to find: `outOfRange` still compiles, still stores, still tests.** ▶️ **BUILD: the sorted set of resting orders keyed by price, consumption inside the fill between old and new price, and `fillOOR(id)` as the backstop.** ⚠️ **AND IT GATES TWO OPEN ITEMS: §E255 puts `oorShares` INTO `totalSupply`, and §E251 wants out-of-range BTC mintable as vBTC and lent on Morpho — both treat OOR as live inventory. If those orders can never execute, "locked liquidity" is permanently locked rather than resting, and both items are pricing a claim that has no settlement path.** |
+| §E258-oor-never-executes | 🔴🔴 **THE v4 CUT SILENTLY TURNED LIMIT ORDERS INTO OPTIONS — AND I SHIPPED THE EXACT VARIANT I HAD REJECTED IN WRITING (owner asked 2026-08-17: *"you planned a replacement method for outofrange orders that would autoexecute them?"*).** MEASURED, not recalled: `selfManaged` has exactly **two** kinds of consumer in `evm/src` — `Quid.outOfRange` / `BtcLib.outOfRangeBtc` **CREATE** a position, and `RangeLib.pull` **CLOSES** it behind `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns ZERO hits repo-wide. Nothing consumes a resting order when price crosses it.** Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the range; `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so **the crossing that used to execute these orders no longer happens anywhere.** ⇒ **A boundary order placed below spot will NOT execute when price falls through it. The owner pulls back what they put in.** ⛔ **AND THE PLAN WAS RIGHT — IT JUST WAS NOT BUILT.** On 2026-08-13 I enumerated three replacements and chose one: *"**fill-on-touch backed by the sorted set**, with the poke as the liveness backstop for orders nobody's swap happens to cross. **That preserves the automatic-fill property, which is the thing users actually bought**"* — resting orders between the old and new price consumed as part of the fill, findable by price via **`SortedSetLib` (`evm/src/imports/SortedSet.sol`), WHICH ALREADY EXISTS** (`Basket` uses it for `perMonth`), with gas *"bounded by how many orders lie between old and new price, which for a ±20 bps range and two-tick moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. On 2026-08-15 the same conclusion was restated as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet executed"*. 🔴 **THE VARIANT THAT SHIPPED IS THE ONE I EXPLICITLY REJECTED IN THE SAME PARAGRAPH: *"Claims rather than liquidity … Simplest, but it STOPS BEING A LIMIT ORDER (no execution guarantee at the moment of crossing) and becomes AN OPTION THE OWNER MUST EXERCISE."*** ⚠️ **NOTHING BOOKED THE DOWNGRADE.** The v4 cut's rows record what was deleted and what replaced it; this is a capability that was deleted with **no replacement built and no row saying so** — which is why it survived a full queue audit, a deletions scan and a five-day transcript sweep. **A capability regression leaves no broken symbol to find: `outOfRange` still compiles, still stores, still tests.** ▶️ **BUILD: the sorted set of resting orders keyed by price, consumption inside the fill between old and new price, and `fillOOR(id)` as the backstop.** ⚠️ **AND IT GATES TWO OPEN ITEMS: §E255 puts `oorShares` INTO `totalSupply`, and §E251 wants out-of-range BTC mintable as vBTC and lent on Morpho — both treat OOR as live inventory. If those orders can never execute, "locked liquidity" is permanently locked rather than resting, and both items are pricing a claim that has no settlement path.** |
 
 ---
 
@@ -4361,7 +4361,7 @@ mistake this section documents.
 
 ### `§E258-oor-never-executes` 🔴
 
-| §E258-oor-never-executes | 🔴🔴 **THE v4 CUT SILENTLY TURNED LIMIT ORDERS INTO OPTIONS — AND I SHIPPED THE EXACT VARIANT I HAD REJECTED IN WRITING (owner asked 2026-08-17: *"you planned a replacement method for outofrange orders that would autoexecute them?"*).** MEASURED, not recalled: `selfManaged` has exactly **two** kinds of consumer in `evm/src` — `Quid.outOfRange` / `BtcLib.outOfRangeBtc` **CREATE** a position, and `BandLib.pull` **CLOSES** it behind `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns ZERO hits repo-wide. Nothing consumes a resting order when price crosses it.** Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the range; `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so **the crossing that used to execute these orders no longer happens anywhere.** ⇒ **A boundary order placed below spot will NOT execute when price falls through it. The owner pulls back what they put in.** ⛔ **AND THE PLAN WAS RIGHT — IT JUST WAS NOT BUILT.** On 2026-08-13 I enumerated three replacements and chose one: *"**fill-on-touch backed by the sorted set**, with the poke as the liveness backstop for orders nobody's swap happens to cross. **That preserves the automatic-fill property, which is the thing users actually bought**"* — resting orders between the old and new price consumed as part of the fill, findable by price via **`SortedSetLib` (`evm/src/imports/SortedSet.sol`), WHICH ALREADY EXISTS** (`Basket` uses it for `perMonth`), with gas *"bounded by how many orders lie between old and new price, which for a ±20 bps band and two-tick moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. On 2026-08-15 the same conclusion was restated as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet executed"*. 🔴 **THE VARIANT THAT SHIPPED IS THE ONE I EXPLICITLY REJECTED IN THE SAME PARAGRAPH: *"Claims rather than liquidity … Simplest, but it STOPS BEING A LIMIT ORDER (no execution guarantee at the moment of crossing) and becomes AN OPTION THE OWNER MUST EXERCISE."*** ⚠️ **NOTHING BOOKED THE DOWNGRADE.** The v4 cut's rows record what was deleted and what replaced it; this is a capability that was deleted with **no replacement built and no row saying so** — which is why it survived a full queue audit, a deletions scan and a five-day transcript sweep. **A capability regression leaves no broken symbol to find: `outOfRange` still compiles, still stores, still tests.** ▶️ **BUILD: the sorted set of resting orders keyed by price, consumption inside the fill between old and new price, and `fillOOR(id)` as the backstop.** ⚠️ **AND IT GATES TWO OPEN ITEMS: §E255 puts `oorShares` INTO `totalSupply`, and §E251 wants out-of-range BTC mintable as vBTC and lent on Morpho — both treat OOR as live inventory. If those orders can never execute, "locked liquidity" is permanently locked rather than resting, and both items are pricing a claim that has no settlement path.** |
+| §E258-oor-never-executes | 🔴🔴 **THE v4 CUT SILENTLY TURNED LIMIT ORDERS INTO OPTIONS — AND I SHIPPED THE EXACT VARIANT I HAD REJECTED IN WRITING (owner asked 2026-08-17: *"you planned a replacement method for outofrange orders that would autoexecute them?"*).** MEASURED, not recalled: `selfManaged` has exactly **two** kinds of consumer in `evm/src` — `Quid.outOfRange` / `BtcLib.outOfRangeBtc` **CREATE** a position, and `RangeLib.pull` **CLOSES** it behind `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns ZERO hits repo-wide. Nothing consumes a resting order when price crosses it.** Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the range; `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so **the crossing that used to execute these orders no longer happens anywhere.** ⇒ **A boundary order placed below spot will NOT execute when price falls through it. The owner pulls back what they put in.** ⛔ **AND THE PLAN WAS RIGHT — IT JUST WAS NOT BUILT.** On 2026-08-13 I enumerated three replacements and chose one: *"**fill-on-touch backed by the sorted set**, with the poke as the liveness backstop for orders nobody's swap happens to cross. **That preserves the automatic-fill property, which is the thing users actually bought**"* — resting orders between the old and new price consumed as part of the fill, findable by price via **`SortedSetLib` (`evm/src/imports/SortedSet.sol`), WHICH ALREADY EXISTS** (`Basket` uses it for `perMonth`), with gas *"bounded by how many orders lie between old and new price, which for a ±20 bps range and two-tick moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. On 2026-08-15 the same conclusion was restated as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet executed"*. 🔴 **THE VARIANT THAT SHIPPED IS THE ONE I EXPLICITLY REJECTED IN THE SAME PARAGRAPH: *"Claims rather than liquidity … Simplest, but it STOPS BEING A LIMIT ORDER (no execution guarantee at the moment of crossing) and becomes AN OPTION THE OWNER MUST EXERCISE."*** ⚠️ **NOTHING BOOKED THE DOWNGRADE.** The v4 cut's rows record what was deleted and what replaced it; this is a capability that was deleted with **no replacement built and no row saying so** — which is why it survived a full queue audit, a deletions scan and a five-day transcript sweep. **A capability regression leaves no broken symbol to find: `outOfRange` still compiles, still stores, still tests.** ▶️ **BUILD: the sorted set of resting orders keyed by price, consumption inside the fill between old and new price, and `fillOOR(id)` as the backstop.** ⚠️ **AND IT GATES TWO OPEN ITEMS: §E255 puts `oorShares` INTO `totalSupply`, and §E251 wants out-of-range BTC mintable as vBTC and lent on Morpho — both treat OOR as live inventory. If those orders can never execute, "locked liquidity" is permanently locked rather than resting, and both items are pricing a claim that has no settlement path.** |
 
 ### `§HOST-SEPARATION` (none)
 
@@ -4720,7 +4720,7 @@ once already (fixed in `de5b65fa`). Keep them in sync — same `via_ir`, same `o
 | `7266d8f7` | §E265 client: `abi.ts` declaration **and** the positional decode in `page.tsx`. ⚠️ Fixing only the ABI string would have turned a loud mismatch into a QUIET WRONG NUMBER — `dec[4]` becomes `upper`, always > 0, so the `liq > 0n` guard still passes and a tick renders as a position size. Decode now reads by name. `check-client-abis.py`: **0 drifted, both clients.** |
 | `656775ff` `9e30a26f` | §E266: 18 Midnight sources flattened into `src/imports/`; Morpho inherited from `lib/morpho-blue` (12 hand-rolled interfaces → 2, and those two are Morpho **Vaults V2**, a different protocol); `MarketParams` compared field-for-field against Blue BEFORE swapping, because its order is hashed into the market `Id` — it matched |
 | `1de4bef3` | `morpho-v2` submodule dropped — nothing in `src/`, `test/` or `script/` ever compiled against it |
-| `3aa89b6f` | **the lev fold** — `LevBookLib` dissolved by CALLER (venue legs → `BtcLib`, book → `BandLib`); both `_leverUp` trampolines and `_rebalanceBody` deleted; one concrete `debtDeltaToTarget`; `BAND_BPS` 2→1; `NotOpen`/`BadTarget` file-level; `WAD` 9→1 |
+| `3aa89b6f` | **the lev fold** — `LevBookLib` dissolved by CALLER (venue legs → `BtcLib`, book → `RangeLib`); both `_leverUp` trampolines and `_rebalanceBody` deleted; one concrete `debtDeltaToTarget`; `RANGE_BPS` 2→1; `NotOpen`/`BadTarget` file-level; `WAD` 9→1 |
 | `d82d0f9a` | §E267 — **compilation restrictions propagate through imports** |
 | `260f7cab` | §E268 RETRACTED (see it; the retraction is the useful part) |
 
@@ -4746,10 +4746,10 @@ curve is **NOT monotonic in runs**: 1→+68, 50→+107, 200→−74, 466→−14
   81 failed vs 78 — which is why sets, never counts.
 
 **TWO FRAMINGS WORTH KEEPING** (the covered-call half is already in `SPRINT.md` via `8acacde4`):
-1. **IL-protect is the dynamic hedge of the call the band wrote.** An OOR position holding the asset
+1. **IL-protect is the dynamic hedge of the call the range wrote.** An OOR position holding the asset
    below its range and converting to USD as price rises IS a covered call; the mirror is a cash-secured
-   put; a band is short both, and IL is the premium. `targetDebt = E0·soldFraction` borrows stable and
-   BUYS COLLATERAL BACK as the band sells it — delta-hedging a short call. **Two limits:** it is
+   put; a range is short both, and IL is the premium. `targetDebt = E0·soldFraction` borrows stable and
+   BUYS COLLATERAL BACK as the range sells it — delta-hedging a short call. **Two limits:** it is
    up-side-only (below entry it de-levers toward zero debt, so the written PUT is unhedged), and
    `TARGET_LTV_CAP_BPS = 7500` caps replication, so deep upside stays partly unhedged.
 2. **Midnight's tick is linear in LOG-ODDS, not in price.** `tickToPrice` is
@@ -4772,8 +4772,8 @@ clean inputs instead of compounding the earlier one and dividing by a `deltaTok`
 in the clamped case, and `fullMulDiv` instead of an unguarded `*` then `/`.
 ⭐ **NOT copied onto BTC — EXTRACTED.** `BtcLib` had neither `SoladyMath` nor `WAD`, so importing them
 would have re-added the duplicate `WAD` the fold exists to remove. Instead `SwapLib.usdForTok(tok,
-price)` is the ONE token→USD conversion at a band price, now used by all THREE sites that had written
-it inline (`sizeBySurplus` and each band's post-clamp recompute). `internal pure` ⇒ it inlines, so no
+price)` is the ONE token→USD conversion at a range price, now used by all THREE sites that had written
+it inline (`sizeBySurplus` and each range's post-clamp recompute). `internal pure` ⇒ it inlines, so no
 new bytecode and no delegatecall.
 **Verified:** build exit 0 / 0 errors; `check-contract-sizes` exit 0 with `Quid` unchanged at 24,490;
 and the two BTC lev suites hold their baselines EXACTLY — `LevCascade` 7 passed / 9 failed,
@@ -4785,15 +4785,15 @@ the rescale was load-bearing and 'drift' was wrong. None moved.
 **BTC WAS ALREADY CORRECT** — `addLiqChannel` keeps its request in `sats` and reassigns only
 `deltaTok`. Only ETH took `deltaTok` AS ITS PARAMETER and destroyed it, so past `sizeBySurplus` the
 requested amount existed nowhere in the frame. ETH now mirrors BTC (`wantTok` requested, `deltaTok`
-evolving) — which is why the three-name scheme proposed below was NOT used: matching the band that
+evolving) — which is why the three-name scheme proposed below was NOT used: matching the range that
 already had it right removes a divergence instead of adding a third convention. Verified build exit 0;
 the risk was stack depth (`QuidLib.addLiq` is documented as kept off the legacy-pipeline stack under
 `via_ir = false`, and preserving the request costs one slot) and it fits.
-🔴 **STILL OPEN — the substantive half, untouched:** the two bands re-derive `targetUSD` by DIFFERENT
+🔴 **STILL OPEN — the substantive half, untouched:** the two ranges re-derive `targetUSD` by DIFFERENT
 formulae after the theta clamp — ETH recomputes from the clamped amount (`QuidLib`), BTC rescales
 proportionally (`BtcLib`). Both stay within surplus, so this is not a solvency finding, but they agree
 only up to rounding and neither file says which is intended. **Classify as REAL or DRIFT before any
-band merge.** Same eight lines as §E272.
+range merge.** Same eight lines as §E272.
 
 ### (original) `deltaTok` NAMES THREE DIFFERENT QUANTITIES
 🟡 OPEN — found 2026-08-19 (owner pointed at it; I had swept this file for duplication and missed it,
@@ -4816,8 +4816,8 @@ not exist anywhere in the frame, so nothing downstream can audit "how much was a
 only by WHICH LINE you are on. It is also why the duplication census missed it — that scan hashes
 function BODIES, and this is one name reused across three states, not one body written twice.
 
-🔴 **AND THE TWO BANDS RE-DERIVE `targetUSD` BY DIFFERENT FORMULAE AFTER THE THETA CLAMP:**
-| band | line | after `capped < deltaTok` |
+🔴 **AND THE TWO RANGES RE-DERIVE `targetUSD` BY DIFFERENT FORMULAE AFTER THE THETA CLAMP:**
+| range | line | after `capped < deltaTok` |
 |---|---|---|
 | ETH | `QuidLib:340` | `targetUSD = fullMulDiv(deltaTok, price, WAD)` — **recomputed** from the clamped amount |
 | BTC | `BtcLib:113` | `targetUSD = targetUSD * capped / deltaTok` — **proportionally rescaled** |
@@ -4827,7 +4827,7 @@ NOT a solvency finding. But they are two different computations of one quantity 
 to rounding: the recompute floors `capped·price/WAD`, the rescale floors `targetUSD·capped/deltaTok`,
 and when `sizeBySurplus` already clamped `targetUSD` to `surplus` these are floors of different
 expressions. **Nothing in either file says which is intended.**
-⇒ **CLASSIFY BEFORE THE BAND MERGE.** Per the standing rule that every ETH/BTC asymmetry is REAL or
+⇒ **CLASSIFY BEFORE THE RANGE MERGE.** Per the standing rule that every ETH/BTC asymmetry is REAL or
 DRIFT before anything merges: decide which formula is correct, make both use it, and say why. If the
 answer is "either, they differ by ≤1 wei", write THAT down — an unexplained divergence in a sizing step
 is exactly the kind of thing a later reader hardens the wrong way.
@@ -4840,16 +4840,16 @@ The rename costs nothing at runtime (locals) and makes the audit question expres
 ## §E272 — 🟡 **OVERSTATED AND NARROWED: THE SYNC IS TRANSIENT, NOT DESTRUCTIVE**
 ⛔ **CORRECTION (owner's challenge, 2026-08-21): *"what are you trying to prove about the sync?"***
 This row said the LP *"ends the call with LESS depth than it started with"*, framed as terminal. **It
-is not.** `_syncBand` is called at **13 sites** across both managers — every lever, delever, repay,
+is not.** `_syncRange` is called at **13 sites** across both managers — every lever, delever, repay,
 close and rebalance path. A failed add is therefore **TRANSIENT**: the next touch re-runs burn-then-add
 and restores the depth once surplus returns. Nothing is permanently lost.
 ⇒ **THE DEFENSIBLE CLAIM IS NARROWER:** between touches, an LP can hold venue debt whose depth is not
-in the band, earning no band fees while still paying borrow cost — and **nothing records that it
-happened** (`levAddNet` has zero `emit` on the declining path; `_syncBand` is `try {} catch {}`).
+in the range, earning no range fees while still paying borrow cost — and **nothing records that it
+happened** (`levAddNet` has zero `emit` on the declining path; `_syncRange` is `try {} catch {}`).
 That is an OBSERVABILITY gap over a transient state, not depth destruction. Priority drops accordingly;
 the fix is an event on the declining path, not a re-architecture of the burn.
 ⚠️ **WHAT I GOT WRONG, since it is the reusable part:** I traced the mechanism correctly and never
-asked how often the mechanism RUNS. One grep for `_syncBand(` — 13 hits — reframes the whole row.
+asked how often the mechanism RUNS. One grep for `_syncRange(` — 13 hits — reframes the whole row.
 **A sequence that is destructive in isolation can be self-healing in context, and the context is the
 call-site count.**
 
@@ -4861,11 +4861,11 @@ risk budget, all legitimate). The defect is what happens to a clamp's ANSWER.
 **VERIFIED BY READING (all on `origin/main`):**
 1. `QuidLib:107-110` — `syncLev` is **BURN-ALL, THEN ADD**:
    `if (levPooled[lp] > 0 || levBuf[lp] > 0) levBurnAll(...)` then `if (p.gross > 0) levAddGross(...)`.
-2. `BandLib.levAddNet:79-81` — the add can return **0 WITHOUT REVERTING**: `addLiq` returns `(0,0)` when
+2. `RangeLib.levAddNet:79-81` — the add can return **0 WITHOUT REVERTING**: `addLiq` returns `(0,0)` when
    `surplus == 0` (`QuidLib:321`) or when either clamp cuts to zero; `levAddNet` then does
    `if (netTok == 0) return 0;` and skips `LP.pooled`, `levPooled`, `refreshBookmarks` and `modLP`.
 3. `levAddNet` contains **ZERO `emit`** — there is no signal on the declining path.
-4. `LevBase._syncBand` is `try ILevSyncHook(BAND).syncLev(lp) {} catch {}` — **every outcome discarded.**
+4. `LevBase._syncRange` is `try ILevSyncHook(RANGE).syncLev(lp) {} catch {}` — **every outcome discarded.**
 
 ⇒ **THE ASYMMETRY IS THE BUG.** The burn always succeeds — it removes. The add is conditional. A REVERT
 is survivable (it rolls the burn back; only the observability is lost to the empty `catch`). **The
@@ -4897,8 +4897,8 @@ the axis this repo has been wrong about before.**
 ⇒ **ROOT FIX, NOT A CLAMP** (standing rule 17): make the bad state unconstructible rather than detected.
 Either (a) size the burn to what the add can actually take — compute capacity FIRST, burn only that
 much; or (b) make `levAddGross` REVERT on a short add so the burn rolls back atomically, and let
-`_syncBand`'s caller see it. **(b) is one line and restores the invariant immediately; (a) is the real
-fix** because it never destroys depth in the first place. ⚠️ **Whichever is chosen, `_syncBand`'s
+`_syncRange`'s caller see it. **(b) is one line and restores the invariant immediately; (a) is the real
+fix** because it never destroys depth in the first place. ⚠️ **Whichever is chosen, `_syncRange`'s
 `catch {}` must stop swallowing** — a silent failure on the money path is precisely what standing rule 3
 says earns a check.
 ⚠️ **THE EMPTY-CATCH PATTERN IS TREE-WIDE: 20 `catch {}` sites** — `QuidLib` 7, `SwapLib` 5, `LevBase` 3,
@@ -4945,7 +4945,7 @@ Under solver routing we do not.**
    ⚠️ **THE POLE IS THE DELICATE ONE AND HAS ALREADY BITTEN ONCE.** §E104 (`:1055-1065`) records that
    resolving it to a sentinel instead of a number produced `type(uint).max + base` → **panic `0x11`**,
    *"a full drain REVERTED instead of charging the 3% ceiling"*, and **the suite never caught it
-   because it never drains a band to zero (4,308 green over an UNREACHED state)**. ⇒ **Under the new
+   because it never drains a range to zero (4,308 green over an UNREACHED state)**. ⇒ **Under the new
    design the pole should mean DECLINE — the solver routes it — which is a DIFFERENT MECHANISM from
    both a big number and a revert. Decide the channel before editing.**
    ⚠️ **AND CHECK THE CONSUMER:** if `skew` may exceed 1e18, any `base·(1 − skew)` haircut underflows.
@@ -5012,7 +5012,7 @@ reason at all for the unmarked ones, which I had not read. Read now, and split o
 ### `§A.19b` — unmarked, but its text is *"THE ACTUAL DESIGN QUESTION §A.19b MUST ANSWER"* — a question, not an answer
 
 ### 🔑 THE ACTUAL DESIGN QUESTION §A.19b MUST ANSWER
-**If a bearer redeems vBTC, WHOSE band depth shrinks?** Today the question cannot arise: vBTC only ever
+**If a bearer redeems vBTC, WHOSE range depth shrinks?** Today the question cannot arise: vBTC only ever
 reaches the pinned LevManager, and `unexposeBtcFromLev` burns it back to the SAME LP (`lev → funded`,
 `LP.pooled` untouched). A CIRCULATING bearer breaks that 1:1 return path — the redeemer is not the LP
 whose depth backed the mint.
@@ -5021,7 +5021,7 @@ whose depth backed the mint.
   aggregate bound holds at every instant, and if some rule decides WHICH LP's depth is consumed (pro
   rata? the LP with most free capacity? the one whose channel can pay out cheapest?). **That choice is
   the open design decision, and it is NOT yet made.**
-⚠️ AND IT INTERACTS WITH THE NON-TRANSFERABILITY RESULT ABOVE: band shares are bound to ONE channel with
+⚠️ AND IT INTERACTS WITH THE NON-TRANSFERABILITY RESULT ABOVE: range shares are bound to ONE channel with
   a FIXED payout script (`BTCChannels.sol:719`). So a bearer redemption must be paid from a channel
   whose script pays the REDEEMER — i.e. it is the swap-out rail, not a channel close. Good news: that
   rail exists and already pays arbitrary P2TR.
@@ -5167,7 +5167,7 @@ everything else on the mint path.**
 
 | id | state |
 |---|---|
-| **E171-r** | ⛔ **WITHDRAWN — §E171's "DO NOT REQUIRE MuSig2 FROM THE LP" IS WRONG AND MUST NOT BE ACTED ON** (owner, 2026-08-11: *"if we dont use musig 2 then everything is fucked… custom app is no problemo"*). **THE REFUTATION, IN THE CODE:** `quid-hop/src/funding.rs:48` builds the funding output *"per BIP327 + **BOLT simple-taproot-channels**"* — a key-path-only MuSig2 aggregate over an EMPTY merkle root, byte-matched on-chain as `0x5120||Q`. So MuSig2 is not a signing-UX choice layered on top; it **IS** the channel model. Dropping it takes out simple-taproot channels, the on-chain KeyAgg proof (`MuSig2Agg.computeOutputKey`, §E129/§E142), `funding.rs`, the fixture generator's `taproot_2of2_output_key`, and the key-path exit verification (§E128) — and a script tree is not a partial retreat either, because a non-empty merkle root **changes `Q`** and breaks the byte-match with what LDK produces. The fallback would be legacy P2WSH ECDSA 2-of-2, i.e. abandoning taproot outright. ⚠️ **MY ERROR, NAMED SO IT IS NOT REPEATED: I optimised for "works in a browser with wallets that exist" and let that outrank a load-bearing protocol dependency I had not checked.** The signing surface is a CONSEQUENCE of the channel model, never an input to it — check what the money path already depends on before proposing to change what signs it. ✅ **THE DECISION:** MuSig2 stays; the LP signer is a **custom app** (owner: no problem). Scope is bounded and one-time: hold one secp256k1 key (TEE-WRAPPED at rest per §E170, since no phone TEE can sign it), run N MuSig2 sessions for the §E165 ladder rungs in ONE interactive ceremony at open, then never come online again. 🔴 **THE ONE FAILURE THAT WOULD BE SILENT AND TOTAL — MuSig2 NONCE REUSE.** Signing two different messages under the same secnonce **leaks the LP's secret key**, and the fleet sees both partial signatures, so it recovers the key and holds BOTH halves again — the entire §E165 design defeated with every on-chain byte still looking correct. ⇒ **Use the same `musig2` crate the hop uses** (`funding.rs:88`, conduition), whose `FirstRound`/`SecondRound` types CONSUME `self` and make reuse a type error rather than a review item; delete secnonces after use and persist nothing replayable. This is precisely the rule-3 case where a check earns its place: violating it is silent and produces plausible-but-wrong output. ⇒ **WEBSITE ROLE, CORRECTED:** the site is NOT futile and NOT replaced — it keeps the EVM leg (`lpSig`, position monitoring, redemption) and drives the app as a signer over WalletConnect, exactly as it would drive a hardware wallet. Only the BTC key ceremony at open needs the app. ▶️ **WORTH CHECKING, NOT PROMISING:** Ledger Bitcoin app v2.4.0 does MuSig2 via BIP-373/388, which MIGHT cover a key-path `musig()` internal key (BIP-390) and give a no-app path for Ledger owners — the sources describe `musig()` in taproot SCRIPT expressions, so key-path support is unconfirmed. ⇒ 📱 **THE APP-SIDE SPEC MOVED TO `../ibiza/TODO.md` §3b** (owner, 2026-08-13: *"this shouldn't be in our own queue… it should be in the ibiza TODO.md"*). ibiza owns the mobile client; SPV owns the protocol. **What remains in this row is the protocol-side evidence — do not re-add app requirements here, and change §3b rather than this row when the app design moves.** |
+| **E171-r** | ⛔ **WITHDRAWN — §E171's "DO NOT REQUIRE MuSig2 FROM THE LP" IS WRONG AND MUST NOT BE ACTED ON** (owner, 2026-08-11: *"if we dont use musig 2 then everything is fucked… custom app is no problemo"*). **THE REFUTATION, IN THE CODE:** `quid-hop/src/funding.rs:48` builds the funding output *"per BIP327 + **BOLT simple-taproot-channels**"* — a key-path-only MuSig2 aggregate over an EMPTY merkle root, byte-matched on-chain as `0x5120||Q`. So MuSig2 is not a signing-UX choice layered on top; it **IS** the channel model. Dropping it takes out simple-taproot channels, the on-chain KeyAgg proof (`MuSig2Agg.computeOutputKey`, §E129/§E142), `funding.rs`, the fixture generator's `taproot_2of2_output_key`, and the key-path exit verification (§E128) — and a script tree is not a partial retreat either, because a non-empty merkle root **changes `Q`** and breaks the byte-match with what LDK produces. The fallback would be legacy P2WSH ECDSA 2-of-2, i.e. arangeoning taproot outright. ⚠️ **MY ERROR, NAMED SO IT IS NOT REPEATED: I optimised for "works in a browser with wallets that exist" and let that outrank a load-bearing protocol dependency I had not checked.** The signing surface is a CONSEQUENCE of the channel model, never an input to it — check what the money path already depends on before proposing to change what signs it. ✅ **THE DECISION:** MuSig2 stays; the LP signer is a **custom app** (owner: no problem). Scope is bounded and one-time: hold one secp256k1 key (TEE-WRAPPED at rest per §E170, since no phone TEE can sign it), run N MuSig2 sessions for the §E165 ladder rungs in ONE interactive ceremony at open, then never come online again. 🔴 **THE ONE FAILURE THAT WOULD BE SILENT AND TOTAL — MuSig2 NONCE REUSE.** Signing two different messages under the same secnonce **leaks the LP's secret key**, and the fleet sees both partial signatures, so it recovers the key and holds BOTH halves again — the entire §E165 design defeated with every on-chain byte still looking correct. ⇒ **Use the same `musig2` crate the hop uses** (`funding.rs:88`, conduition), whose `FirstRound`/`SecondRound` types CONSUME `self` and make reuse a type error rather than a review item; delete secnonces after use and persist nothing replayable. This is precisely the rule-3 case where a check earns its place: violating it is silent and produces plausible-but-wrong output. ⇒ **WEBSITE ROLE, CORRECTED:** the site is NOT futile and NOT replaced — it keeps the EVM leg (`lpSig`, position monitoring, redemption) and drives the app as a signer over WalletConnect, exactly as it would drive a hardware wallet. Only the BTC key ceremony at open needs the app. ▶️ **WORTH CHECKING, NOT PROMISING:** Ledger Bitcoin app v2.4.0 does MuSig2 via BIP-373/388, which MIGHT cover a key-path `musig()` internal key (BIP-390) and give a no-app path for Ledger owners — the sources describe `musig()` in taproot SCRIPT expressions, so key-path support is unconfirmed. ⇒ 📱 **THE APP-SIDE SPEC MOVED TO `../ibiza/TODO.md` §3b** (owner, 2026-08-13: *"this shouldn't be in our own queue… it should be in the ibiza TODO.md"*). ibiza owns the mobile client; SPV owns the protocol. **What remains in this row is the protocol-side evidence — do not re-add app requirements here, and change §3b rather than this row when the app design moves.** |
 
 
 ### `§V-ROUTE` — unmarked section header whose OPEN children (V-R10, V-R11) already moved — the header belongs with them
@@ -5181,7 +5181,7 @@ Owner: *"do not even route to tricrypto at all because it is so thin, use the ro
 **20.72 WBTC**, $1.31M USDC. Against `SELL_SLIP_BPS = 100`, a $25k hop already slips **128bp** and
 therefore REVERTS; $100k slips 730bp, $250k 1,883bp. With `MAX_LOOPS = 8` that caps an entire
 lever-up near **$80–160k**. The failure is not a bad fill — the floor prevents that — it is that
-`openLev`/`rebalance` REVERT, so the IL hedge cannot be established or, worse, cannot TRACK the band
+`openLev`/`rebalance` REVERT, so the IL hedge cannot be established or, worse, cannot TRACK the range
 as `targetDebt = E0·soldFrac` grows. The LP is progressively unhedged exactly while IL accrues, and
 the accounting still looks healthy because the debt it holds is the debt it could take.
 
@@ -5221,7 +5221,7 @@ $64,280.15 vs `price_oracle(1)` = $1,906.53 — "a 34x error that reverts nothin
 the near-miss; the design that permitted it is unchanged.
 
 ⚠️ **AND THE CONSTANT IS SHARED BY BOTH `Core` INSTANCES.** `DeployLib.sol:136-137` builds
-`new Core(cfg.weth, …)` and `new Core(cfg.wbtc, …)` from one bytecode, so **the BTC band would also
+`new Core(cfg.weth, …)` and `new Core(cfg.wbtc, …)` from one bytecode, so **the BTC range would also
 read slot 1 = WETH/USDC.** Latent today only because BTC deliberately pins nothing (`:1298-1302`:
 *"we cannot observe BTC independently, so we do not pretend to"*). **It ARMS the moment anyone
 honours the `▶️ If a wrapper-free BTC source ever exists it is pinned HERE` note** — the index does
@@ -5272,21 +5272,21 @@ Both `§A.19b` and `§A.5f` had a SECOND open section elsewhere in the file. **T
 classifying by "the id's last mention": remove one and a different one becomes last**, so a single
 pass under-reports. Moved:
 
-#### `§A.19b` — 🔴 a SECOND open section for this id — *"RE-FRAMED — vBTC IS TOKENIZED BAND DEPTH"*
+#### `§A.19b` — 🔴 a SECOND open section for this id — *"RE-FRAMED — vBTC IS TOKENIZED RANGE DEPTH"*
 
-## 🔴 §A.19b RE-FRAMED — vBTC **IS** TOKENIZED BAND DEPTH. My distinction was incoherent (user, 2026-07-31)
+## 🔴 §A.19b RE-FRAMED — vBTC **IS** TOKENIZED RANGE DEPTH. My distinction was incoherent (user, 2026-07-31)
 
 User: *"if it's a 4626 then the token balance is the shares. you cant say vBTC is transferrable then say
-the shares are not… vBTC represents a deposit in the band."* **Correct. Struck my §J.2c framing.**
+the shares are not… vBTC represents a deposit in the range."* **Correct. Struck my §J.2c framing.**
  • `VBtc` carries a 4626 face — `asset() → WBTC`, `convertToAssets(shares) => shares` (a pure identity,
    vBTC IS sats). So **the token balance IS the share.**
  • `Vault.exposeBtcToLev` mints it by RECLASSIFYING already-banked channel depth:
    `levPooledBTC[lp] += sats` with **`LP.pooled` UNCHANGED** (single-count). ⇒ vBTC is not a separate
-   asset; it is a TOKENIZED SLICE OF THE LP'S OWN BAND DEPTH.
-⇒ Saying "vBTC transferable, band shares not" was incoherent — they are the SAME CLAIM at two layers.
+   asset; it is a TOKENIZED SLICE OF THE LP'S OWN RANGE DEPTH.
+⇒ Saying "vBTC transferable, range shares not" was incoherent — they are the SAME CLAIM at two layers.
 
-### ❌ CORRECTION — I claimed "swaps leave band shares untouched". WRONG.
-Swap-out DOES reach band depth via delivery-side de-lever — there is a test named
+### ❌ CORRECTION — I claimed "swaps leave range shares untouched". WRONG.
+Swap-out DOES reach range depth via delivery-side de-lever — there is a test named
 `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`. So the mechanism for "a third party's redemption
 consumes an LP's levered slice" ALREADY EXISTS and is exercised. **§A.19b should be modelled on that
 path, not invented** — the question is only what authorises it for a bearer rather than a swapper.
@@ -5378,7 +5378,7 @@ measuring where the curve crosses.
 re-derived independently, the 33× margin above is only as good as the new Γ. **Measure the new Γ's
 worst case against 1e18 before deleting — that check is not done here.**
 ⚠️ §E104's other lesson stands: 4,308 tests stayed green over the sentinel panic because the suite never
-drains a band to zero. **Whatever mechanism lands, the test that proves it must drain a band to zero** —
+drains a range to zero. **Whatever mechanism lands, the test that proves it must drain a range to zero** —
 otherwise the suite will be green over the successor bug too.
 
 
@@ -5521,14 +5521,14 @@ wrong now:** `Quid` has since grown ~476 bytes on `main`. A clean measurement ha
 `forge build --sizes` cannot see `Quid` at all because it is library-linked. **The only gate that sees
 this is `tools/check-contract-sizes.py`, and it must run before any change that touches `Quid`.**
 ⇒ Cheapest known lever if headroom is needed: the four `Quid`∥`Vault` identical bodies
-(`soldFractionWad`, `creditSkewPremium`, `bandOf`, `pull`/`pullBtc`, 80–98 chars each) are wrappers over
+(`soldFractionWad`, `creditSkewPremium`, `rangeOf`, `pull`/`pullBtc`, 80–98 chars each) are wrappers over
 shared library calls. Hoisting them into `State` was measured at **+41 bytes and zero saved** (an
 abstract base copies into every inheritor), so that is NOT the lever — but a delegatecalled library
 would be, at the cost of one call per use. Measure before adopting.
 
 ## §E275-HYGIENE — 🟡 **TWO OF FOUR DONE; ONE WITHDRAWN AS A BAD CALL; ONE STILL OPEN**
 **STATUS 2026-08-21.**
-1. ✅ **DONE** — `Shares.sol` declares `abstract contract Shares`; both bands say `is Shares`.
+1. ✅ **DONE** — `Shares.sol` declares `abstract contract Shares`; both ranges say `is Shares`.
 2. ✅ **DONE** — the false `allowance` comment is gone (0 hits).
 3. ⛔ **WITHDRAWN — I WAS WRONG TO PROPOSE IT.** I called the 48 `uniswap`/`v4`/`slot0` mentions stale
    prose. Reading them, they are DESIGN RATIONALE and TRAP-NOTES: a MEASURED bug ($120 of mockUSD on
@@ -5549,7 +5549,7 @@ would be, at the cost of one call per use. Measure before adopting.
 
 🟡 OPEN — measured 2026-08-21 against `origin/main` after the owner observed the refactor looked
 unfinished. **The substance IS finished and I want that on record before the defects:** `Shares.sol`'s
-abstract base is inherited by BOTH bands (`contract Quid is State`, `contract Vault is Ownable,
+abstract base is inherited by BOTH ranges (`contract Quid is State`, `contract Vault is Ownable,
 ReentrancyGuard, State`), and `Vault` USES the inherited `autoManaged`/`levPooled`/`lpShares` rather
 than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
 
@@ -5562,7 +5562,7 @@ than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
    `Shares.sol` declares NO ERC-20 machinery — only state. A stale comment asserting a duplication that
    does not exist, in the one file whose job is to prevent duplication.
 3. **48 `uniswap`/`v4`/`poolManager`/`slot0` mentions in `evm/src`, ALL of them comments, ZERO live
-   code.** The bands are entirely independent of Uniswap (owner's point, verified). The residue is
+   code.** The ranges are entirely independent of Uniswap (owner's point, verified). The residue is
    historical prose, and it is why a reader concludes the v4 cut is unfinished when it is complete.
 4. `Quid`'s ERC-20 face is the deliberate PROJECTION (`totalSupply → lpShares`, `balanceOf →
    autoManaged[u].pooled`, `transfer → _transferShares`) and must NOT be folded away — CLAUDE.md
@@ -5705,7 +5705,7 @@ CURRENT.** This row was written against *"nothing is pinned, so σ² ≡ 0 on BO
 (every on-chain venue quotes WRAPPED BTC, so observing one makes a WBTC depeg indistinguishable from
 bitcoin moving). ⇒ **Scope corrected:**
 - **BTC — UNCHANGED AND LIVE.** No source ⇒ ring never written ⇒ σ² ≡ 0 ⇒ every cell below is today's
-  behaviour on the BTC band. **Toxic inflow into the BTC band is free right now.**
+  behaviour on the BTC range. **Toxic inflow into the BTC range is free right now.**
 - **ETH — LATENT, NOT FIXED.** Once the ring populates, the kernel runs and the sentinel becomes a
   fallback again. But `Core.sol:1318-1322` degrades to unmeasured **by design** — *"any failure
   (revert, short return, zero) simply SKIPS the write … Degrade to unmeasured, never halt"* — and
@@ -5730,11 +5730,11 @@ genesis — it is the state of every swap on `main` right now.
 
 ### What the live pricing actually is, with the cap gone (§E275) and σ² ≡ 0
 
-| post-swap band state | ETH | BTC |
+| post-swap range state | ETH | BTC |
 |---|---|---|
 | inventory-INCREASING sell (`sellSkew`, `over > 0`) | **0** | SPLICE only |
-| drain leaving the band flush (`inv1 ≥ flow target`) | **0** | SPLICE only |
-| drain leaving the band scarce (`inv1 < target`) | **3%**, ×`_sharedScarcityWad` ⇒ **3–6%** | same |
+| drain leaving the range flush (`inv1 ≥ flow target`) | **0** | SPLICE only |
+| drain leaving the range scarce (`inv1 < target`) | **3%**, ×`_sharedScarcityWad` ⇒ **3–6%** | same |
 
 ⇒ **A TWO-STATE STEP FUNCTION WITH A CLIFF, NOT A CURVE.** A drain landing one unit above target
 pays nothing; one unit below pays 300–600 bps **on the whole ticket**.
@@ -5756,7 +5756,7 @@ honest reading."* **That is true of ONE branch of ONE leg.** The other three cel
 unmeasured variance at **zero** — which is precisely the sentinel error §E59 named and closed on the
 drain side: *"a value meaning 'no data' must never be consumed as if it meant 'none of the thing'."*
 🔴 **THE DIRECTION MATTERS: the free cell is the TOXIC one.** An inventory-increasing sell is
-somebody dumping the falling asset into the band, and today it pays nothing. The design sentence this
+somebody dumping the falling asset into the range, and today it pays nothing. The design sentence this
 repo has been working toward — *"the curve tilts to price your inventory, turning toxic directional
 flow into balanced pool inventory"* — is **inverted** by the live configuration: the balancing
 direction and the toxic direction are both free, and only the scarce drain is charged.
@@ -5773,7 +5773,7 @@ arriving through a different door.
 gated on §C1: with a live source the flush branch stops being zero on its own.
 
 📌 **BOOKED, NOT FIXED. `§C1` OWNS THE SOURCE; THIS ROW OWNS THE SENTINEL.** The sentinel defect
-survives §C1 — a source that goes stale, a `staticcall` that fails, or a band with too few distinct
+survives §C1 — a source that goes stale, a `staticcall` that fails, or a range with too few distinct
 samples all return σ² = 0 by design (`Core.sol:1318-1322`: *"Degrade to unmeasured, never halt"*), so
 `sellSkew` would still price toxic inflow at zero on exactly the days the ring stops advancing.
 
@@ -5806,7 +5806,7 @@ not 3%** — and being sentinel-driven it is size-blind, so no size sweep will r
 `wellSkew`, against a pinned σ². ⚠️ **Do not write it as `assertGt`** — that is the assertion class
 that hid this.
 ⚠️ **AND THE FIX IS NOT "DELETE ONE CALL".** `retainSkewPremium` also RECORDS the premium
-(`Core.recordSkewPremium` → `BAND.creditSkewPremium`), which is the ONLY thing routing it to LPs
+(`Core.recordSkewPremium` → `RANGE.creditSkewPremium`), which is the ONLY thing routing it to LPs
 (§E280). Removing the call would silently stop crediting them. **Separate the RECORD from the
 SUBTRACT before removing either** — and note that this makes it a two-part money-path change, so
 rule 10 applies.
@@ -5829,12 +5829,12 @@ source, so it gets worse, not better.
 to justify declining at the PRODUCER rather than guarding each consumer — a correct conclusion about
 where the guard goes, which is a different question from whether one swap hits two of them.
 
-▶️ **THE TEST:** one `Aux.swap` on a scarce band with a known σ², asserting the realised haircut is
+▶️ **THE TEST:** one `Aux.swap` on a scarce range with a known σ², asserting the realised haircut is
 `s` and not `s·(2−s)`. ⚠️ **RUN IT AGAINST A PINNED σ²** — at σ² = 0 (today's state, §E278) `wellSkew`
 returns the flat 3e16 sentinel on both legs, so the two applications are still distinguishable
 (3% vs 5.91%), but the SIZE-dependence that would make the reading obvious is absent.
 ⚠️ **IF IT IS REAL, THE FIX IS NOT "DELETE ONE".** `retainSkewPremium` also RECORDS the premium
-(`Core.recordSkewPremium` → `BAND.creditSkewPremium`), which is what routes it to LPs — deleting the
+(`Core.recordSkewPremium` → `RANGE.creditSkewPremium`), which is what routes it to LPs — deleting the
 call would silently stop crediting them. Separate the RECORD from the SUBTRACT before removing either.
 
 ---
@@ -5842,7 +5842,7 @@ call would silently stop crediting them. Separate the RECORD from the SUBTRACT b
 ## ✅ §E280 — **THE SKEW PREMIUM DOES REACH THE LPs. `E121`/`E122`'s CONTRADICTION IS SETTLED, IN `E122`'s FAVOUR.**
 
 **Verified in code 2026-08-21, one hop:** `Core.recordSkewPremium:359` increments the audit counter
-and then calls **`BAND.creditSkewPremium(premiumUsd)`** — dispatched by address, so `Quid` and `Vault`
+and then calls **`RANGE.creditSkewPremium(premiumUsd)`** — dispatched by address, so `Quid` and `Vault`
 both receive it. Its own note states the discriminator: *"the counters below are an AUDIT RECORD …
 the CREDIT is what actually reaches LPs. Without it the premium accrues to basket backing, which
 prices QU!D and not LP shares."* §E42-netting then puts the backing where the claim is
@@ -5863,7 +5863,7 @@ by COMPOUNDING rather than per-share accrual, which is the timing question §E22
 
 Settling at oracle against `POOLED` means **every dollar of pooled inventory is quotable at every
 price** — there is no out-of-range capital by construction, and §E58 goes further by counting levered
-depth as band depth (*"in the band is in the band alike"*). That is the structural answer to
+depth as range depth (*"in the range is in the range alike"*). That is the structural answer to
 concentrated liquidity leaving most supply unused, and it is the strongest claim this architecture has.
 
 **But `selfManaged` positions are idle until price touches their trigger, and `oorShares` are not in
@@ -5886,10 +5886,10 @@ state; that trace is the task.**
 (2026-08-21). ⚠️ **AN EMPTY GREP PROVES NOTHING ABOUT THE TREE** — this is a bounded claim about the
 two files that would carry it, not an assertion that no such logic exists anywhere.
 
-The hedge borrows the venue stable to restore ETH the band already sold. In a flat, low-volume regime
-the position pays borrow interest while the band generates little fee income, so net carry goes
+The hedge borrows the venue stable to restore ETH the range already sold. In a flat, low-volume regime
+the position pays borrow interest while the range generates little fee income, so net carry goes
 negative and nothing observed here re-evaluates it: `debtDeltaToTarget` targets `E0·soldFractionWad`,
-which is a function of the BAND's sold fraction alone and is blind to what the debt costs.
+which is a function of the RANGE's sold fraction alone and is blind to what the debt costs.
 ▶️ Settle whether that is a deliberate non-requirement (the hedge is a tracking obligation, priced
 however it costs) or a gap. **State which, with a reason — a dismissal is a conclusion (rule 13).**
 
@@ -5913,7 +5913,7 @@ without anyone choosing it.
 
 ⛔ **SCOPE CORRECTED THE SAME DAY, WITH §E278.** This row was written while NEITHER instance had a
 source. `d10d7b8b` pinned Curve on **ETH** (`DeployLib.sol:146`) and deliberately left **BTC** unset.
-⇒ **The paragraph above is today's state on the BTC band, and the ETH band's whenever its ring is cold
+⇒ **The paragraph above is today's state on the BTC range, and the ETH range's whenever its ring is cold
 or its read fails** (`Core.sol:1318-1322` degrades to unmeasured by design). On a warm ETH ring the
 sentinel is a fallback again and the objection narrows to: **an un-derived constant still prices every
 fallback, and nothing says what it is derived from.** ⚠️ **That narrower objection is the row** — do
@@ -5931,8 +5931,8 @@ rate: it cannot be size-aware (§E68's `q0→q1` averaging is downstream of the 
    annualised). The number then has a sentence attached and moves when the assumption does.
 2. **REFUSE instead of guess** — treat unmeasured variance as unfillable and decline, which is
    §E275's posture for a quote we cannot price and is consistent with *"the solver routes the part we
-   decline"*. ⚠️ **This halts the band whenever the ring is cold, INCLUDING AT GENESIS** — the §E56
-   identifiability trap: a brand-new band and a dead band both read σ² = 0, and no threshold on that
+   decline"*. ⚠️ **This halts the range whenever the ring is cold, INCLUDING AT GENESIS** — the §E56
+   identifiability trap: a brand-new range and a dead range both read σ² = 0, and no threshold on that
    one number separates them. §E56 solved the same ambiguity with the monotonic `skewPremium*`
    counters; any refusal here needs that discriminator or it bricks a fresh deployment.
 3. **MAKE IT UNREACHABLE** by settling §C1 so σ² is measured, leaving the sentinel as the rare
@@ -6008,8 +6008,8 @@ still get the remainder of the inventory at the same price"*).
 | request > inventory | before the cap deletion | now |
 |---|---|---|
 | `inv1 = 0` ⇒ pole | pinned to `MAX_WELL_SKEW` (3%) ⇒ **fill proceeds, remainder refunded** | **reverts `QuoteUnfillable`** — the whole swap dies |
-⛔ **FOUR FULL-SUITE RUNS ON BOTH ARMS AGREED, BECAUSE NONE OF THEM ASKS FOR MORE THAN THE BAND HOLDS.**
-§E104 recorded this same blind spot (*"the suite never drains a band to zero"*, 4,308 green over an
+⛔ **FOUR FULL-SUITE RUNS ON BOTH ARMS AGREED, BECAUSE NONE OF THEM ASKS FOR MORE THAN THE RANGE HOLDS.**
+§E104 recorded this same blind spot (*"the suite never drains a range to zero"*, 4,308 green over an
 unreached state). **It is still unwritten, and a pure-function test CANNOT cover it — the bound lives in
 the swap path, so the test must be a fixture that drains past inventory.**
 
@@ -6022,7 +6022,7 @@ lines of comment asserting it repaired a regression. The accompanying test calle
 ⇒ **Two failures of the same kind in one commit: I wrote the explanation before running the check.**
 
 ### ▶️ WHY THE REAL FIX IS NOT MECHANICAL — AND WHO DECIDES
-The pole is at `inv1 = 0`, so **NO FINITE PRICE SERVES A DRAIN THAT EMPTIES THE BAND.** That is
+The pole is at `inv1 = 0`, so **NO FINITE PRICE SERVES A DRAIN THAT EMPTIES THE RANGE.** That is
 CORRECT under A–S, and the old 3% cap was the defect (it sold the last inventory too cheap — the very
 reason the cap was deleted). ⇒ The fill can no longer be bounded by INVENTORY alone; it must be bounded
 by **PRICE**: serve the largest amount whose skew stays under 100%, refund the rest. That is a solve,
@@ -6043,10 +6043,10 @@ manage a boundary that the correct object does not have.**
 - **The no-op catch.** Clamping `drainUsd6` to `poolVolUsd` changes nothing, because
   `skewWad:980` is `inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6` — clamping to `inv0` still
   satisfies `>=`, so `inv1 = 0` either way. Caught and reverted by its own author.
-- **The suite cannot see it.** §E104 already recorded that nothing here drains a band to zero.
+- **The suite cannot see it.** §E104 already recorded that nothing here drains a range to zero.
 - **The behaviour change is real.** `wellSkew` is called at `:448` on the **requested** size, and the
   inventory bound lands ~20 lines later in `routeSwap`/`_refundExcess`. So the pole is reached on a
-  request the band could have served in part.
+  request the range could have served in part.
 
 ### 🔴 WHERE IT GOES WRONG — "SERVE THE LARGEST AMOUNT WHOSE SKEW STAYS UNDER 100%" BOUNDS AN ARTIFACT
 §E276 establishes that the `1e18` boundary is **an artifact of applying a SHIFT formula in a SPREAD
@@ -6066,7 +6066,7 @@ same under a spread and under a mid-shift. ⇒ **§E276 does not gate it.**
 §E68 made the drain leg charge the INTEGRAL rather than the endpoint:
 `(1/Δ)·∫[q0→q1] q/(1−q) dq = [ln((1−q0)/(1−q1)) − Δ]/Δ`. **That integral DIVERGES as `q1 → 1`** — the
 code says so itself (`SwapLib:1064`: *"ends at inv=0 ⇒ pole → ∞"*). ⇒ **There is no finite price at
-which we can serve a drain that empties the band, integrated or not, spread or shift.** Any correct
+which we can serve a drain that empties the range, integrated or not, spread or shift.** Any correct
 design must therefore serve strictly LESS than the whole inventory. The residual is not a choice about
 whether; only its SIZE is a choice.
 
@@ -6079,7 +6079,7 @@ the inventory at the same price"* (you get the remainder of the **servable** inv
 *"stop quoting one side entirely"* (at the floor, we stop).
 
 ### ⚠️ AND "REGRESSION" IS THE WRONG FRAME, WHICH POINTS THE FIX BACKWARDS
-Before the cap deletion an oversized drain took **the entire band inventory at a flat 3%**. That is the
+Before the cap deletion an oversized drain took **the entire range inventory at a flat 3%**. That is the
 same family as §E68's flush hole — *"one trade converts the WHOLE inventory and pays NO skew at all"* —
 so the old behaviour was not a feature the cap deletion broke. **Neither behaviour is right: the old
 one sells the last unit far too cheap, the new one refuses a fill it could serve in part.** Calling it
@@ -6116,16 +6116,16 @@ carries the evidence — this is an index, not a restatement.** Read this before
 | **The 1e18 boundary is an ARTIFACT, not a property** | §E276. A *shift* of any size still clears; a *spread* of 100% leaves the taker nothing. We feed the shift formula into the spread slot. **Under a real mid-shift there is nothing to cross.** |
 | **The curve was FLAT-TOPPED almost everywhere it mattered** | §E274. At σ²=1e18, live skew was pinned at exactly 3e16 from q₁=0.6 through 0.95 while the uncapped kernel ran 3.69e16 → 12.35e16. ⇒ **Every §UNIT-B / §UNIT-SKEW-IS-NOISE number above q≈0.6 was measuring THE CONSTANT, not the curve.** |
 | **σ² is pinned at ~0 and cannot be moved** | §E277. `DrainAtomicity.t.sol:1372` fails with σ² = **1,1,1,0 wad across four runs on both arms**. ⛔ **ITS FAILURE IS THE MEASUREMENT — "fixing" it destroys the evidence.** ⚠️ **And the DEPLOY side is now asymmetric (`d10d7b8b`): ETH is sourced (`DeployLib:146`, Curve `price_oracle(1)`), BTC is deliberately UNSET. So σ²≡0 is BTC's steady state, and ETH's whenever its ring is cold or its read fails — `Core:1318-1322` degrades to unmeasured BY DESIGN.** |
-| 🔴 **`sellSkew` HAS NO σ²=0 GUARD, SO TOXIC INFLOW PRICES AT ZERO** | §E278 (the σ²-sentinel row — **not** §E278-partialfill). `UNKNOWN_VARIANCE_SKEW` has **exactly one consumption site in the tree**, `SwapLib:1020`, inside `skewWad` — the DRAIN leg. `sellSkew` computes `Γ·σ²·q` = 0 and `_composePrice` returns `SPLICE`, **which is 0 on ETH**, while its own comment at `:1476-1480` says in §E59's words that unmeasured variance must price at the CEILING. ⇒ **The free cell is the TOXIC one** — an inventory-increasing sell is somebody dumping the falling asset into the band. Live on BTC today. |
+| 🔴 **`sellSkew` HAS NO σ²=0 GUARD, SO TOXIC INFLOW PRICES AT ZERO** | §E278 (the σ²-sentinel row — **not** §E278-partialfill). `UNKNOWN_VARIANCE_SKEW` has **exactly one consumption site in the tree**, `SwapLib:1020`, inside `skewWad` — the DRAIN leg. `sellSkew` computes `Γ·σ²·q` = 0 and `_composePrice` returns `SPLICE`, **which is 0 on ETH**, while its own comment at `:1476-1480` says in §E59's words that unmeasured variance must price at the CEILING. ⇒ **The free cell is the TOXIC one** — an inventory-increasing sell is somebody dumping the falling asset into the range. Live on BTC today. |
 | 🔴 **THE SKEW IS APPLIED TWICE ON `Aux.swap` — the realised rate is 5.91%, not 3%** | §E279, confirmed **by construction**, no execution needed. `_finishSwap` builds `RouteParams` with `amount: r.amount` (`SwapLib:473`) — the value `retainSkewPremium` **already reduced** — and `routeSwap` derives `pooled` from it before `ICore.swap` → `_fillDelta:1240` applies the skew **again**. Both legs, neither call conditional. ⛔ **It survived because every assertion here is `assertGt` (`Alles.t.sol:1904`, `:1911`), which cannot distinguish `s` from `s·(2−s)`.** ⚠️ The fix is NOT deleting one call — `retainSkewPremium` is what ROUTES the premium to LPs (§E280). |
 | **The 3% is an inherited constant, and it is the wrong SHAPE** | §E283. §E275 deleted `MAX_WELL_SKEW` as unjustifiable; the split kept `UNKNOWN_VARIANCE_SKEW` at the same 3e16 **"BY INHERITANCE, NOT BY DERIVATION"** (its own docblock). A sentinel is FLAT: it discards `q`, defeats §E68's size-awareness, and **produces the cliff** — one unit above the flow target pays 0, one unit below pays 300–600 bps on the whole ticket. **No value of the constant fixes that; only a live σ² does.** |
-| **The premium DOES reach the LPs** | §E280, one hop: `Core.recordSkewPremium:359` → `BAND.creditSkewPremium`. Settles the `E121`/`E122` pair in **E122's** favour with a code citation. ⚠️ Scoped to the SKEW premium — the 420 ppm is a different charge on a different route (§E226). |
+| **The premium DOES reach the LPs** | §E280, one hop: `Core.recordSkewPremium:359` → `RANGE.creditSkewPremium`. Settles the `E121`/`E122` pair in **E122's** favour with a code citation. ⚠️ Scoped to the SKEW premium — the 420 ppm is a different charge on a different route (§E226). |
 
 ## THE REFILL — SETTLED, AND SMALLER THAN IT LOOKED
 - **Trigger = EXHAUSTION, not a clock or a threshold.** A contract cannot know it is end-of-block; and
   because we quote at the oracle, depletion does not move the quote, so there is **no pricing reason to
   rebalance until a side is spent**. (My end-of-block proposal was unimplementable.)
-- **The principal is never the problem.** A drain of `D` pays `D·px` **in** — the band is mis-composed,
+- **The principal is never the problem.** A drain of `D` pays `D·px` **in** — the range is mis-composed,
   not poorer (**+$570,000 measured**, §E134). Only the SPREAD costs anything.
 - **The solver routes what we decline** (owner) ⇒ no keeper, no on-chain venue, and **§V-R1 (1inch
   AggregationRouterV6) does not exist in code** — it is a comment naming an intended route.
@@ -6144,7 +6144,7 @@ carries the evidence — this is an index, not a restatement.** Read this before
   is, so it reads the same under a spread and under a shift.**
   🔴 **And it is FORCED, not chosen: §E68's integral `[ln((1−q0)/(1−q1)) − Δ]/Δ` DIVERGES as q₁→1**
   (`SwapLib:1064` — *"ends at inv=0 ⇒ pole → ∞"*). ⇒ **No finite price serves a drain that empties the
-  band, under any of the four combinations of integrated/endpoint × spread/shift.** Serve
+  range, under any of the four combinations of integrated/endpoint × spread/shift.** Serve
   `inv1 ≥ residual`, refund the rest through `_refundExcess`, decline **only** at `fillable == 0`.
   ⚠️ **Size from `inv0`; clamping `drainUsd6` is the no-op §E278-partialfill already paid for.**
 
@@ -6152,12 +6152,12 @@ carries the evidence — this is an index, not a restatement.** Read this before
 1. **THE SENTINEL HAS NO SAFE VALUE — it must be DATA at the measurement and DECLINED at the fill.**
    Three attempts: (a) return `type(uint).max` ⇒ `_composePrice` does `kernel + risk` ⇒ **panic 0x11**,
    §E104 relocated one frame out; (b) `revert` inside `skewWad` ⇒ **broke the refill trigger**, which
-   reads it as an observation — *"the read must not be able to halt the band"*; (c) correct: sentinel
+   reads it as an observation — *"the read must not be able to halt the range"*; (c) correct: sentinel
    returned by `skewWad`, declined by `wellSkew`/`sellSkew` **before** any arithmetic. Full history at
    the pole in `SwapLib`.
 2. **THE SUITE CANNOT SEE A FULL DRAIN.** §E104 recorded it (4,308 green over an unreached state) and
    it bit again: §E278-partialfill regressed and **four full-suite runs on both arms missed it**,
-   because nothing asks for more than the band holds. **A pure-function test cannot cover it** — the
+   because nothing asks for more than the range holds. **A pure-function test cannot cover it** — the
    inventory bound lives in the swap path, so it must be a fixture.
 3. **±2-TEST NOISE FLOOR, FLIPPING BOTH WAYS. RUN EACH ARM TWICE OR SAY NOTHING.** §E275-VERIFIED. I
    attributed one test to my change, retracted, then **re-asserted it because ONE noise sample showed
@@ -6203,7 +6203,7 @@ additions (§E68 drain leg, §E68b sell leg) were never re-examined after the ca
 **THE INTEGRALS ARE INTACT AND CORRECT** — `SwapLib:1059` `qBar = [ln((1−q₀)/(1−q₁)) − Δ]/Δ` for the
 drain leg (log integral of `q/(1−q)`), `:1445` `q = (q₀+q₁)/2` for the sell leg (midpoint, the integral
 of a linear kernel). Neither was touched by the cap removal.
-🔴 **BUT THEY WERE COMPUTING A NUMBER THAT WAS THROWN AWAY.** Draining 60% of a short band at σ²=1e18:
+🔴 **BUT THEY WERE COMPUTING A NUMBER THAT WAS THROWN AWAY.** Draining 60% of a short range at σ²=1e18:
 | | one 60% drain | 20 × 3% slices |
 |---|---|---|
 | **uncapped (today)** | **$37,053** | $36,983 |
@@ -6248,7 +6248,7 @@ FALSIFIABLE AND CHEAP TO RE-TEST, so overturning one costs a measurement rather 
 |---|---|---|
 | skew rises with scarcity and exceeds 3e16 | §E274/§E286 — **the curve must not be flat**; a ceiling discarded **51.4%** of the integral's premium and made path-independence vacuous | re-measure the premium against §E68's integral at q=0.6–0.95 and show the clamp does not void it |
 | kernel ≥ 1e18 at q=0.999, σ²=4e18 | §E274 — **the pole is reached in normal operation**, so no Γ tames it | re-run `GammaRederived.t.sol` and re-derive the crossing q. *"We lowered Γ so it cannot happen"* is the specific wrong conclusion |
-| full drain returns the sentinel, does NOT revert | §E275 — the pole is **data at the measurement, declined at the fill**; reverting here blinds the refill trigger | show the trigger can still read an empty band |
+| full drain returns the sentinel, does NOT revert | §E275 — the pole is **data at the measurement, declined at the fill**; reverting here blinds the refill trigger | show the trigger can still read an empty range |
 | the refill direction is exempt, never paid | §E276 — we implement δ where A–S specifies `r` | **this failing means somebody BUILT the mid-shift — the fix §E276 asks for.** Delete the test and close §E276 + §UNIT-CURVE-SPEC in the same commit |
 
 ### ⚠️ THE RULE THAT MAKES THIS NON-TYRANNICAL — WRITE IT INTO ANY FUTURE GUARD
@@ -6272,7 +6272,7 @@ prices carry a denominator `2ω − γ²q²σ²` with ω *"an upper bound on the
 is allowed to take"* — that IS a pole, at an inventory bound.** The two comments never contradicted:
 `:765-770` is §2.2 (finite-horizon, linear), `:1030-1031` is §2.3. **Neither goes.**
 🔴 **AND THE RULE-17 ARGUMENT WAS TOO QUICK:** the barrier and the decline are not one guard twice —
-**the barrier makes the bound self-enforcing (no price empties the band); the decline is the hard stop
+**the barrier makes the bound self-enforcing (no price empties the range); the decline is the hard stop
 at it.** Removing the smooth one leaves only the cliff. ⇒ **§E289 is the live successor**: keep the
 pole, make its LOCATION a parameter (`KAPPA_WAD`), which is what A&S actually do.
 ⭐ Surviving: the floor (§E79's `σ²·confFrac/8`), not the kernel, closes the free-drain hole; and
@@ -6318,7 +6318,7 @@ never the fix.
 
 ### WHAT THE LAST UNIT IS ACTUALLY WORTH — FINITE, AND ALREADY MEASURED FROM BOTH SIDES
 The pole encodes *"we can never restock"*. **We can.** §E134 measured that a drain of `D` pays `D·px`
-**in** — *"the band is mis-composed, not poorer"*, **+\$570,000**. So depletion costs us exactly two
+**in** — *"the range is mis-composed, not poorer"*, **+\$570,000**. So depletion costs us exactly two
 finite things: the **foregone spread** on flow we can no longer serve (which is what A–S's `γσ²(T−t)`
 term IS), and the **restock cost**. And the ceiling on what we may charge for them is already named
 from the other side — §UNIT-VENUE-CEILING: *"the REAL bound is **the cost of routing around us** —
@@ -6337,8 +6337,8 @@ Linear kernel `Γσ²q` at full depletion (q=1):
 
 Sane market-maker spreads at total depletion. The pole at q = 0.99 is **99× the linear value**, and at
 q = 0.999 it is 999×, for an inventory difference nobody can perceive. ⚠️ **AND THE INTEGRATED CHARGE
-FOR EMPTYING THE BAND BECOMES `Γσ²/2`** — 0.27% at Γ_derived, 100% vol — which is the §E59/§E68
-objection restated: *is that enough to stop one trade converting the band?* **By A–S's own accounting
+FOR EMPTYING THE RANGE BECOMES `Γσ²/2`** — 0.27% at Γ_derived, 100% vol — which is the §E59/§E68
+objection restated: *is that enough to stop one trade converting the range?* **By A–S's own accounting
 it is exactly right**, because `γσ²(T−t)` IS the compensation for the inventory risk taken on, and
 §E134 says the principal was never at risk. **But that is the trade being made, and it should be made
 deliberately rather than discovered.**
@@ -6358,7 +6358,7 @@ deliberately rather than discovered.**
 
 ⚠️ **THIS SUPERSEDES §E285's PRESCRIPTION, NOT ITS DIAGNOSIS.** §E285's execution-quality argument
 stands and gets STRONGER: a reverting quote tells a solver nothing, and under ρ=0 there is nothing to
-revert about short of an empty band. Its residual, however, was a fourth bound on a divergence that
+revert about short of an empty range. Its residual, however, was a fourth bound on a divergence that
 should not exist. **I wrote it in the same shape I criticised §E278-partialfill for — bounding the
 symptom — one row later.**
 
@@ -6373,7 +6373,7 @@ design that has been refuted. It was withdrawn within the hour and the withdrawa
    even exactly as `q²` is. The argument supports `q¹`. *(The `τ(q)=q·T_flow` derivation is mine and
    stands alone — but it is a MODEL CHOICE competing with the barrier, not a citation.)*
 3. 🔴🔴 **ORDERING, decisive alone.** Under `q²` a full drain integrates to ~1% at the landed Γ; today
-   the band cannot be emptied **at any price**. §E276: nothing pulls inventory back. **The pole is the
+   the range cannot be emptied **at any price**. §E276: nothing pulls inventory back. **The pole is the
    only brake and this deletes it before its replacement exists.**
 🔴 **AND STEP 2 HALF-LANDED:** the kernel commit was dropped by a rebase while its test landed, so
 `main` carried 5 failing tests asserting a kernel that was not there. ⇒ **`git ls-remote` proves a SHA
@@ -6459,7 +6459,7 @@ branch that skips the curve. That is §E283's option 1 arriving for free.
 | 0.25 | 3.00 % (the cap) | **0.034 %** | 0.137 % |
 | 0.50 | 3.00 % (the cap) | **0.137 %** | 0.274 % |
 | 0.90 | 3.00 % (the cap) | **0.444 %** | 0.493 % |
-| 1.00 (band empty) | ∞ ⇒ decline | **0.548 %** | 0.548 % |
+| 1.00 (range empty) | ∞ ⇒ decline | **0.548 %** | 0.548 % |
 
 The integral is closed-form and needs no logarithm: `(1/Δ)∫q² dq = (q₁³ − q₀³)/(3Δ)`, so §E68's
 size-awareness survives **and gets cheaper** than the current `lnWad` branch.
@@ -6511,7 +6511,7 @@ than executed, because the obvious replacement was already tried and MEASURED WO
 `LevMath._poolSwap` calls `IV3Router(...).exactInputSingle` — **15 live code references.** My grep said
 "0 live, all comments" because **the comments say `Uniswap` and the code says `V3`**
 (`V3_SWAP_ROUTER`, `IV3Router`, `V3_FEE_WETH`). ⇒ **Searching for a SPELLING is not searching for a
-DEPENDENCY.** The bands ARE independent of Uniswap (v4/PoolManager/ticks are genuinely gone); the LEV
+DEPENDENCY.** The ranges ARE independent of Uniswap (v4/PoolManager/ticks are genuinely gone); the LEV
 path is not, and those are different claims.
 
 **THE FOUR LEGS** (`LevMath`): `:527` USDC→WETH (lever ETH) · `:591` USDC→WBTC (lever BTC) ·
@@ -6526,21 +6526,21 @@ reinstates a measured slippage failure at lev size.**
 ⭐ **THE ONE REPLACEMENT CONSISTENT WITH "NO NEW DEPENDENCIES" IS OUR OWN INVENTORY, AND THE PRECEDENT
 EXISTS.** `LevManager.sol:597` already reads *"levered ⇒ use `swapOutDelever` (repay path)"* — a delever
 filled by a USER SWAPPING OUT, against our own book, no external venue. `FixedRateFill` is the same
-primitive that replaced the v4 AMM for user swaps. ⇒ Route the lev legs through the band and the
-external venue disappears. **It also composes with §E285:** sizing a lev leg against RESIDUAL BAND
+primitive that replaced the v4 AMM for user swaps. ⇒ Route the lev legs through the range and the
+external venue disappears. **It also composes with §E285:** sizing a lev leg against RESIDUAL RANGE
 INVENTORY is the same floor that row wants for swaps.
 
 🔴 **THE COST, AND IT IS THE WHOLE DECISION: EXECUTION BECOMES CONDITIONAL.** V3 fills unconditionally
 at measured depth; our own book fills only when inventory or matching flow exists. **A delever that
 cannot source liquidity is a delever that does not happen — and the moment it is needed most is a
-correlated crash, precisely when user flow dries up and band inventory is already skewed one way.**
+correlated crash, precisely when user flow dries up and range inventory is already skewed one way.**
 `cascadeDelever` exists for that scenario and today can fall back to V3.
 ⇒ **DECIDE THIS EXPLICITLY, DO NOT LET IT FALL OUT OF A CLEANUP.** Either (a) accept flow-dependent
-delevering and size the lev book so a crash cannot exceed what the band can absorb, or (b) keep an
+delevering and size the lev book so a crash cannot exceed what the range can absorb, or (b) keep an
 unconditional external leg and remove the Uniswap BRAND from prose without removing the venue, or
 (c) measure a third venue — 1inch is already ruled out at 31.7M gas (§E232), and nothing else has been.
 ⚠️ **Whichever is chosen, the test that proves it must run a CORRELATED CRASH with no user flow.** A
-suite that never drains the band will pass under (a) and tell you nothing — §E104's lesson exactly.
+suite that never drains the range will pass under (a) and tell you nothing — §E104's lesson exactly.
 
 ## ⚖️ §E288 — **STEP 1 RESOLVES, BUT AGAINST THE PLAN: A&S IS LINEAR, AND THAT IS AN ARGUMENT FOR THE POLE, NOT AGAINST IT**
 Asked 2026-08-21: *"is the pole removal correct, why did we build it in the first place?"* — and whether
@@ -6573,11 +6573,11 @@ in q (long lowers the mid, short raises it); its MAGNITUDE is even, i.e. `|q|`. 
 ⇒ **The plan invokes A&S to reject the pole and then adopts an exponent A&S does not give.**
 
 ### 🔴 THE ORDERING OBJECTION — THE STRONGEST ONE
-Under `q²` a full drain integrates to **Γσ²/3 ≈ 0.18%**. ⇒ **ANYONE CAN EMPTY THE BAND FOR 18 bps.**
+Under `q²` a full drain integrates to **Γσ²/3 ≈ 0.18%**. ⇒ **ANYONE CAN EMPTY THE RANGE FOR 18 bps.**
 Today they cannot empty it at any price. And §E276 established **nothing pulls inventory back**: we
 never move the bid, the refill direction is EXEMPT rather than paid, and **§V-R1 (1inch
 AggregationRouterV6) does not exist in code**. ⇒ **Removing the pole BEFORE the refill or the shift
-exists leaves a band drainable to zero, cheaply, with no restoration mechanism.** The pole is currently
+exists leaves a range drainable to zero, cheaply, with no restoration mechanism.** The pole is currently
 the ONLY thing preventing that. Steps 2–5 are each coherent; **the sequence puts the deletion before the
 thing that makes it safe.**
 ⭐ **AND THE EXPONENT IS DOWNSTREAM OF §E276, NOT INDEPENDENT OF IT.** The pole's pathology — crossing
@@ -6717,7 +6717,7 @@ why the shared id was dangerous.
 (`LevManager.init` vs `BtcLevManager.init`, 277 vs 287 chars, **0.74**), then lost behind the larger
 folds. Booked now from a re-scan of the post-fold tree, which is how it resurfaced.
 
-**Same shape on both:** GOV-only + freeze, pin `BAND` and `flashProvider`, loop the venue list, vet each,
+**Same shape on both:** GOV-only + freeze, pin `RANGE` and `flashProvider`, loop the venue list, vet each,
 allowlist it, emit. **Five things differ, and only ONE is known-deliberate:**
 | | ETH | BTC |
 |---|---|---|
@@ -6739,12 +6739,12 @@ redundant rather than missing — that is exactly the shape of §E272's over-cla
 reason it.** If `vetVenue` does revert first, the row collapses to naming and events.
 
 **The other three are ABI-visible and cost a decision, not a rename:** two errors for one condition, an
-event emitted on one band only, and `VenueAllowed` with different arity. ⇒ **Settle the event/error
+event emitted on one range only, and `VenueAllowed` with different arity. ⇒ **Settle the event/error
 shapes FIRST, then the fold is mechanical.** Changing `VenueAllowed`'s arity is a client-visible change —
 run `tools/check-client-abis.py` as the gate, not `forge build`.
 
 ⚠️ **ALSO RECORDED HERE SO IT IS NOT RE-PROPOSED: THE FOUR IDENTICAL `Quid`∥`Vault` BODIES STAY.**
-`soldFractionWad` (98 chars), `pull`/`pullBtc` (88), `creditSkewPremium` (88), `bandOf` (83) are
+`soldFractionWad` (98 chars), `pull`/`pullBtc` (88), `creditSkewPremium` (88), `rangeOf` (83) are
 byte-identical and were LEFT DELIBERATELY. They are thin wrappers over shared library calls — the logic
 is already single-sourced — and the only place to hoist them is the `Shares` abstract base, which
 **copies into every inheritor**: measured **+41 bytes, zero saved**. With `Quid` at 86 bytes
@@ -6767,21 +6767,21 @@ observation (§C1) and `sigmaSqWad == 0` stops being reachable in normal operati
 then has nothing to price, and **deletes itself**. It is not a number to re-tune; it is a placeholder
 whose removal is a consequence of fixing the source. ⛔ **Do NOT delete it BEFORE the source exists** —
 §E59 measured the vector it closes: σ² is attacker-stretchable (4h spacing → σ² **24× down**, charge
-**93.3% down**), and suppressing σ² then draining **up to 90% of the band for free** is what it stops.
+**93.3% down**), and suppressing σ² then draining **up to 90% of the range for free** is what it stops.
 
 ▶️ **The second one is its own task:** make the splice floor read the ACTUAL feerate rather than a
 constant. Until then it is a real cost charged at a made-up rate.
 
 🔴 **AND THE CURRENT STATE IS THE WORST OF BOTH, MEASURED:** with no source, σ² is pinned at 0, so an
-**idle ETH band charges ZERO** (`_maxWellSkew(0, ethRisk)` = `0·confFrac/8 + spliceFloor(0)` = 0)
-while a **scarce band charges the 3% policy price**. Neither number has anything to do with realised
-volatility, and the band sits permanently in the state an attacker would otherwise have to
+**idle ETH range charges ZERO** (`_maxWellSkew(0, ethRisk)` = `0·confFrac/8 + spliceFloor(0)` = 0)
+while a **scarce range charges the 3% policy price**. Neither number has anything to do with realised
+volatility, and the range sits permanently in the state an attacker would otherwise have to
 manufacture.
 
 
 ---
 
-## 🔴🔴 §E290 — **THE CURVE AND ITS RESTORATION MECHANISM ARE ON OPPOSITE BANDS. THAT IS WHY κ CANNOT MOVE ON EITHER.**
+## 🔴🔴 §E290 — **THE CURVE AND ITS RESTORATION MECHANISM ARE ON OPPOSITE RANGES. THAT IS WHY κ CANNOT MOVE ON EITHER.**
 
 **Measured 2026-08-21 by checking the mechanism before designing around it, with the control run.**
 
@@ -6792,7 +6792,7 @@ ordering. **It is true of ETH and FALSE of BTC**, and nobody has said so.
 | primitive | live refs in `evm/src` (comments excluded) | verdict |
 |---|---|---|
 | `creditSwapIn` | **8** — `BTCChannels` ×4 → `Vault.creditSwapIn:725` → `SwapLib.creditSwapInBody` | 🟢 **a real, wired restoration rail — BTC ONLY** |
-| `swapOutDelever` | **15** | 🟢 live (lev path, not band restoration) |
+| `swapOutDelever` | **15** | 🟢 live (lev path, not range restoration) |
 | `FixedRateFill` | **1** — its own `library` declaration; **every other mention is a comment** | ⛔ unwired |
 | `refillNeeded` · `refillPlacement` · `proRataShortfall` | **1 each** — the `function` line itself | ⛔ unwired |
 
@@ -6800,7 +6800,7 @@ ordering. **It is true of ETH and FALSE of BTC**, and nobody has said so.
 BTC → `creditSwapIn` → repay"* — is not a plan, it is four call sites driven by the hop daemon.
 
 ✅ **CONTROL RUN, because this asserts an absence (repo rule).** The same search over `Quid` (the ETH
-band manager) returns `supplyFromAux`, `offrampEtherFi` and `creditSkewPremium` — **venue plumbing and
+range manager) returns `supplyFromAux`, `offrampEtherFi` and `creditSkewPremium` — **venue plumbing and
 the premium credit, no swap-in rail** — while over `Vault` it returns `creditSwapIn` AND
 `creditSwapOut`. `supplyFromAux` is gated to Aux and its own docblock calls it *"the BOLD/SP
 liquidation re-supply leg"*: it supplies a venue, it does not serve a swap from flashed inventory.
@@ -6820,8 +6820,8 @@ the flat `UNKNOWN_VARIANCE_SKEW` **before the kernel is ever evaluated**. Meanwh
 ⇒ **THE PRICING CURVE AND THE THING THAT MAKES IT SAFE TO RELAX ARE ON DIFFERENT INSTANCES.**
 
 ### ▶️ WHAT THIS DECIDES
-1. **κ = 2e18 CANNOT LAND ON EITHER BAND TODAY, FOR OPPOSITE REASONS.** On ETH it is meaningful and
-   unsafe — the ordering objection applies in full, because raising κ makes the band drainable at a
+1. **κ = 2e18 CANNOT LAND ON EITHER RANGE TODAY, FOR OPPOSITE REASONS.** On ETH it is meaningful and
+   unsafe — the ordering objection applies in full, because raising κ makes the range drainable at a
    finite price with nothing to pull inventory back. On BTC it is safe and **pointless**: σ² = 0 means
    κ never enters the arithmetic at all. ⇒ **`KAPPA_WAD`'s gate is now specific rather than general —
    it is not "wait for the refill", it is "ETH needs a rail, BTC needs a source", and they are
@@ -6830,7 +6830,7 @@ the flat `UNKNOWN_VARIANCE_SKEW` **before the kernel is ever evaluated**. Meanwh
    `LevManager:597`'s `swapOutDelever` as the precedent for routing internally. **`creditSwapIn` is a
    better one** — a whole flash-serve rail, already wired, already daemon-driven. ⚠️ **And it is
    correspondingly weaker on ETH, where there is nothing to route into.** A single venue decision
-   spanning both legs is therefore the wrong shape; the two bands are not in the same position.
+   spanning both legs is therefore the wrong shape; the two ranges are not in the same position.
 3. **The cheapest unblock is BTC's source, not ETH's rail** — one is a config decision already scoped
    in §C1, the other is a subsystem. ⚠️ But §E223's objection stands and is why BTC is unset: a WBTC
    quote makes a wrapper depeg indistinguishable from bitcoin moving. **Do not treat "cheapest" as
@@ -6859,16 +6859,16 @@ be believed forever.
 
 **Design, so it is not re-litigated.** *Permissionless*, following `cascadeDelever`'s precedent — the
 BOUND is the security, not a keeper role, so there is no privilege to steal, no key to rotate and no
-liveness dependency on one operator. *Every failure degrades*: no pusher, dark feed, or out-of-band
+liveness dependency on one operator. *Every failure degrades*: no pusher, dark feed, or out-of-range
 value all leave the ring unwritten → `ringVariance` 0 → the sentinel. **Never a revert** — a revert
-here lets a stalled oracle halt the band, which was the defect in the first attempt. *Band = 50 bps*,
+here lets a stalled oracle halt the range, which was the defect in the first attempt. *Range = 50 bps*,
 against a **measured 8 bps** 1inch-vs-Chainlink basis (~6× headroom), capping an adversary's σ²
 inflation at ±0.5%/block since the ring takes one write per timestamp.
 
 ▶️ **WHAT IS LEFT — this is the "proper fix" to finish elsewhere:**
 1. **No off-chain caller.** `quid-bridge` has `lev_keeper.rs` / `lev_keeper_btc.rs` but no observation
    pusher. That crate is being edited by another thread.
-2. **No test at all** — not the band, not the degrade paths, not the `isWbtc` derivation
+2. **No test at all** — not the range, not the degrade paths, not the `isWbtc` derivation
    (`VOL_DECIMALS != 18`), not the raw-anchor trick (`twapResolve(feed, **0**, …)` returns the anchor
    because §A.13 made a zero price fall through instead of short-circuiting).
 3. **It does not yet retire `UNKNOWN_VARIANCE_SKEW`** (§C12). Only once σ² is genuinely measured does
@@ -6896,7 +6896,7 @@ to re-scope that row on this one fact.
 ⇒ **§E290's CONCLUSIONS SURVIVE AND GET STRONGER, WHICH IS WHY THIS IS A CORRECTION AND NOT A
 WITHDRAWAL.** The asymmetry it found — **`creditSwapIn` is wired on BTC and there is no ETH analogue**
 (8 live refs vs a controlled absence) — is a property of the CODE, not of the deploy config, and it
-does not move. What moves is the σ² column. And with σ² ≡ 0 on both, κ is *pointless on both bands*
+does not move. What moves is the σ² column. And with σ² ≡ 0 on both, κ is *pointless on both ranges*
 rather than pointless on one and unsafe on the other — so `KAPPA_WAD` is gated harder, not softer.
 
 ### 🔴 THE STRUCTURAL LESSON, AND IT IS WORTH MORE THAN THE CORRECTION
@@ -6927,7 +6927,7 @@ same way.**
   standing in for a LIVE mempool feerate, so it is wrong in both directions as fees move. **It is not
   a clamp and must not be deleted** — the protocol genuinely pays it, and charging it is recovery.
   ⚠️ **AND IT IS LOAD-BEARING RIGHT NOW:** with σ² ≡ 0, `_maxWellSkew` collapses to `0 + spliceFloor`,
-  so on the **BTC** band it is the ONLY charge a flush trade pays, and on **ETH** (`spliceFloor = 0`)
+  so on the **BTC** range it is the ONLY charge a flush trade pays, and on **ETH** (`spliceFloor = 0`)
   a flush trade pays **NOTHING**. ▶️ The fix is to read the feerate, not to re-tune the constant.
 
 ## 📌 §E291 — **EVIDENCE RESCUED FROM AN ABANDONED COMMIT: THREE ON-POOL EMAs AGREE TO 7.2 bps**
@@ -7008,7 +7008,7 @@ thread documented twice, arriving in MY OWN row: the work landed, and the row st
 
 ⛔ **SUFFIXED, AND THE REASON IS THE ROW'S OWN THESIS.** I claimed `§E291` by grepping for the highest
 id and adding one. **Another thread claimed it in the same window** — `§E291` at `:6768` is *"evidence
-rescued from an abandoned commit: three on-pool EMAs agree to 7.2 bps"*, unrelated to this. ⇒ **The row
+rescued from an arangeoned commit: three on-pool EMAs agree to 7.2 bps"*, unrelated to this. ⇒ **The row
 about id collisions collided, by exactly the mechanism it describes.** Mine takes the suffix (newer in
 the file, and one edits one's own row before someone else's).
 
@@ -7130,7 +7130,7 @@ information, which is the distinction §E284 was reaching for from the other sid
 | | |
 |---|---|
 | **a caller** | **ZERO**, in `src`, `script`, `test` AND `quid-ln`. This is the `create_sweep_tx` / `FixedRateFill` shape: a maintained function marking a gap, not litter (⛔ **do not delete it**). |
-| **a test** | **ZERO.** The band, both refuse paths (`anchorPx == 0`, outside-band) and σ² accumulation are all unverified. |
+| **a test** | **ZERO.** The range, both refuse paths (`anchorPx == 0`, outside-range) and σ² accumulation are all unverified. |
 | **cadence** | `ringVariance` returns 0 until `card ≥ 3`, `n ≥ 3`, `m ≥ 2` **distinct** samples — so ONE push changes nothing. σ² only exists once pushes are recurring. |
 
 ⇒ **THIS IS WHY σ² ≡ 0 (§E278/§E290): the ring has a writer and no one invokes it.** §C1 has been
@@ -7142,15 +7142,15 @@ The 712 is unnecessary, but the attachment idea is not — it solves **gas attri
 standalone push costs someone gas for no reward. Attaching it to a transaction that *already happens*
 (a delever, a keeper action, a swap) makes it free-ride on necessary work.
 ⭐ **AND `pushObservation` IS BUILT TO BE ATTACHED SAFELY: EVERY FAILURE PATH IS A SILENT `return`, NOT
-A REVERT.** A bad anchor, a zero price, an out-of-band value — none can brick the carrying
-transaction. That is the same *"THE READ MUST NOT BE ABLE TO HALT THE BAND"* rule `Core.sol:1313`
+A REVERT.** A bad anchor, a zero price, an out-of-range value — none can brick the carrying
+transaction. That is the same *"THE READ MUST NOT BE ABLE TO HALT THE RANGE"* rule `Core.sol:1313`
 states for the pull path, and it is what makes piggybacking sound rather than merely convenient.
 ▶️ **Attach it where the market drives the cadence, not the pusher** — a caller who chooses WHEN to
 push chooses which prices the ring sees, and selective sampling is the one manipulation the 50 bps
-band does not bound. **Sampling driven by band state (repack, swap, delever) is not attacker-chosen;
+range does not bound. **Sampling driven by range state (repack, swap, delever) is not attacker-chosen;
 a discretionary keeper loop is.**
 
-▶️ **NEXT, IN ORDER:** (1) a test for the band and both refuse paths; (2) pick the carrier and state
+▶️ **NEXT, IN ORDER:** (1) a test for the range and both refuse paths; (2) pick the carrier and state
 why its cadence is market-driven; (3) the off-chain reader (`eth_call` `getRate`, cache, attach).
 ⚠️ **None of this needs `setObservationSource` — that is the PULL path and it stays unset.** Two
 mechanisms, one ring; do not wire both.
@@ -7163,8 +7163,8 @@ self-reinforcing drain deadlock) and relied on here as load-bearing, with nothin
 0, `pushObservation` would take the refuse branch on EVERY push, and the ring would silently never
 fill — indistinguishable from today's no-source state, and green in any suite.** The file also carries
 a control (a dead feed must yield NO anchor, so the refuse path is reachable) and pins
-`OBS_PUSH_MAX_BPS < 500` so a later unification cannot quietly widen it to the TWAP band.
-⚠️ **WHAT IS STILL OWED, stated so the row is not read as closed:** the band arithmetic and the write
+`OBS_PUSH_MAX_BPS < 500` so a later unification cannot quietly widen it to the TWAP range.
+⚠️ **WHAT IS STILL OWED, stated so the row is not read as closed:** the range arithmetic and the write
 path itself. **Only `Alles.t.sol` constructs a `Core`**, so those need that fixture — which is the
 real reason this function shipped untested, and it is a cost worth naming rather than absorbing.
 
@@ -7180,7 +7180,7 @@ Re-audited against the code, four of the ten I had said to KEEP were describing 
 |---|---|---|
 | `SOR-SIGNIFICANCE-DESIGN.md` | *"the committed `_pickBestPath` is a binary gate"* | **`SOR.sol` DELETED.** It documents a call site in a file that no longer exists — and §E228 removed that gate. |
 | `JIT-DEPTH-GUARANTEE.md` | anchored to *"Vogue `_withdraw:393` TODO"* | **`Vogue.sol` is GONE.** |
-| `IBAND-THE-BAND-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IBand` is in 9 src files.** Wired. |
+| `IRANGE-THE-RANGE-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IRange` is in 9 src files.** Wired. |
 | `LST-PEG-MONITOR.md` | *"over-engineering — don't build it"* | `pegMonitor` = 0. Self-concluded; nothing to keep. |
 | `IMPAIRMENT-DERISK-TRIGGER.md` | hold-down design note | `hold-down`/`derisk` = **0 files**. Nothing it describes exists. |
 
@@ -7198,7 +7198,7 @@ answers.** ▶️ It also intersects PART C2's owner directive *"there should be
 all"*: **V3 cannot be removed until 1inch replaces it**, so that directive and this spec are one task.
 
 🔴 **DANGLING CITATIONS THEY LEAVE — fix on sight, do not treat a broken pointer as a missing task:**
-`JIT-DEPTH-GUARANTEE` ×3 in **code**, `IBAND` ×2 in **code**, `ROUTING-AGGREGATION` ×1 in code + ×4 in
+`JIT-DEPTH-GUARANTEE` ×3 in **code**, `IRANGE` ×2 in **code**, `ROUTING-AGGREGATION` ×1 in code + ×4 in
 other docs, `SOR-SIGNIFICANCE-DESIGN` ×4 in other docs, `LST-PEG-MONITOR` ×3, `IMPAIRMENT-DERISK` ×3.
 **Their conclusions are preserved in the table above**, so a citation can be resolved here rather than
 read as work that went missing. Full text remains in git history.
@@ -7263,9 +7263,9 @@ on `SwapLib.sol` **after already committing the fold**, so it stashed nothing an
 against ITSELF — producing an identical 45/8 that looked like proof. **A stash is not a control when
 the change is already committed; the control has to be a worktree at the parent commit.**
 ⚠️ **PRESERVE ON THE WAY:** (a) the `raw > splice` guard — `skewWad`'s early returns (`target == 0`,
-the flush branch) leave `raw == 0`, and assuming otherwise *"underflowed on a BALANCED band — the
+the flush branch) leave `raw == 0`, and assuming otherwise *"underflowed on a BALANCED range — the
 common case — and cost **782 failures**"*; (b) **depletion is DRAIN-ONLY** — you cannot deplete the
-band by selling into it, so it must not follow the sell leg through a shared composer.
+range by selling into it, so it must not follow the sell leg through a shared composer.
 
 ### 2️⃣ ~580 LINES ARE PARKED, NOT DEAD — AND EVERY ONE CARRIES A "DECIDE FIRST" MARKER
 | unit | lines | callers in `evm/src` |
@@ -7305,7 +7305,7 @@ open item in the skew area — not because it is hard, but because everything do
 largest single lever anyone has priced on `Quid`, and it is a DELETION, so it carries no new surface.
 
 ### WHY THEY ARE WRONG, AND IT IS HALF OF WHAT THE DOC CLAIMS
-`docs/actionable/VBTC-ASSET-AND-7540.md` says *"BOTH bands are asynchronous, and both faces deny
+`docs/actionable/VBTC-ASSET-AND-7540.md` says *"BOTH ranges are asynchronous, and both faces deny
 it."* **Measured, it is the REDEMPTION half only, and the discriminator is which side DEFERS:**
 - `redeem`/`withdraw` → `_withdraw`, whose own comment is the evidence — *"4626 path defaults to WAIT
   (no forced haircut)"* — so a redemption **may defer**;
@@ -7385,7 +7385,7 @@ I had framed one-calldata-for-the-batch as the win and fault isolation as its co
 backwards.** Isolation is not a cost to weigh — it is the reason the function exists.
 
 **What aggregating would have traded away, in the one scenario the function is for:**
-- The cascade fires on a **correlated crash** — every levered LP crosses its band at roughly the same
+- The cascade fires on a **correlated crash** — every levered LP crosses its range at roughly the same
   price, because `E0` is fixed at open and `targetDebt` falls with the price.
 - Each LP runs in `try this.deleverOne(lp, minOuts[i]) catch`. A position that cannot source
   liquidity is **skipped**, and falls to its venue's own liquidation. **One stuck LP can never block
@@ -7430,12 +7430,12 @@ the opposite of what quoting a steep-but-fillable price achieves.** A partial fi
 RFQ engine or aggregator already expects; a revert is the one response they cannot use.
 ⚠️ **AND IT UNDERMINES THE ARGUMENT I USED TO JUSTIFY THE DECLINE.** §E275 reasoned *"an unbounded quote
 at zero inventory is an unfillable one, so declining is the honest encoding"* — **honest about the LAST
-unit, wrong about the FIRST.** The band can serve up to its inventory at a finite price; only the
+unit, wrong about the FIRST.** The range can serve up to its inventory at a finite price; only the
 marginal unit beyond it is unfillable. **Declining the whole request prices the fillable part at
 infinity.**
 
 ▶️ **WHAT THIS DOES NOT CHANGE:** the decline is still correct where there is genuinely NOTHING to fill
-(`poolVolUsd == 0`), and it is still correct that no finite price empties the band (§E274, §E288-CORRECTED
+(`poolVolUsd == 0`), and it is still correct that no finite price empties the range (§E274, §E288-CORRECTED
 — A&S's pole at the inventory bound). **The error is applying a boundary condition to the whole order.**
 ▶️ **THE FIX IS THE PRICE-BOUNDED SOLVE §E278-partialfill ALREADY NAMES** — serve the largest amount whose
 skew stays fillable, refund the rest — **and §E285 says it is NOT blocked on §E276.** ⇒ **This is now the
@@ -7504,21 +7504,21 @@ anchor-bounded at `OBS_PUSH_MAX_BPS = 50` against Chainlink, so **no combination
 what a bad one can do to the LEVEL** — the anchor already caps it. Combining sources buys two other
 things, and they should be argued for on their own terms:
 - **availability** — a stale or thin pool still leaves an answer;
-- **σ² quality** — a single manipulated-but-in-band source can still inflate or suppress variance
+- **σ² quality** — a single manipulated-but-in-range source can still inflate or suppress variance
   (§UNIT-B-PATIENCE measured exactly that: 4h spacing drove σ² **24× down** and the charge 93.3% down),
   and a median damps it.
 ⇒ **Level safety comes from the anchor; source count is a QUALITY question. I conflated them.**
 
 ▶️ **SO A SOURCE-COMBINATION RULE MUST BE DERIVED FROM THE THREAT, NOT FROM A COUNT.** The threat the
-band does not cover is σ² manipulation *within* ±50 bps, plus selective sampling (§E294). Sources that
+range does not cover is σ² manipulation *within* ±50 bps, plus selective sampling (§E294). Sources that
 are independent **on the ETH leg** — different chains, different venue families, a CEX read — address
 it; three Curve pools sharing an ETH leg do not. ⚠️ **And note the tension with the ADMISSIBILITY
 result (§E294, 23 bps): sources far enough apart to be genuinely independent are also more likely to
-sit outside the band and be refused.** Independence and admissibility pull opposite ways — **that
+sit outside the range and be refused.** Independence and admissibility pull opposite ways — **that
 trade-off is the actual content of §C1's "which source", and neither this row nor §E291's measurement
 settles it.**
 
-## C16. ⭐ THE ROOT FIX — STOP ROUTING. THE BTC BAND ALREADY DOES THIS (owner-prompted, 2026-08-22)
+## C16. ⭐ THE ROOT FIX — STOP ROUTING. THE BTC RANGE ALREADY DOES THIS (owner-prompted, 2026-08-22)
 
 Owner: *"there may be an even more elegant solution … which resolves the root cause rather than
 treating the symptom and can even fold the code."* There is, and it is already in the tree.
@@ -7529,7 +7529,7 @@ symptom traces to that one decision: it needs a route (`_routeOf`, the Curve tab
 ripple), a price floor per hop, approval hygiene, a reentrancy surface, and a flash loan to repay
 before it can withdraw. **Per-LP calldata (C15) treats the symptom.**
 
-✅ **THE BTC BAND NEVER ROUTES, AND IT WORKS: `grep` counts ZERO venue calls in `Vault.sol`.**
+✅ **THE BTC RANGE NEVER ROUTES, AND IT WORKS: `grep` counts ZERO venue calls in `Vault.sol`.**
 `creditSwapIn(seller, sats, token, minDeliveredUsd)` — an **external party DELIVERS** value; the
 contract **prices the delivery** against its own oracle and credits it. `creditSwapOut` is the mirror.
 No router, no calldata, no approval, no flash.
@@ -7552,7 +7552,7 @@ however they like (1inch, own inventory, a CEX) and the protocol never learns ho
   repay, withdraw, hand over, one atomic tx. `flashProvider` and its callback path fold out.
 - **Per-LP isolation is preserved trivially** — each fill is its own settlement, so §E229's `this.`
   self-call pattern keeps working unchanged.
-- **It is SYMMETRIC WITH THE BTC BAND**, which is the "one implementation, two instances" direction
+- **It is SYMMETRIC WITH THE BTC RANGE**, which is the "one implementation, two instances" direction
   the whole refactor is pushing toward — the ETH side stops being the odd one out.
 
 ⚠️ **WHAT MUST BE DESIGNED, and it is the whole risk:** the **discount** a filler earns. Too small and
@@ -7593,13 +7593,13 @@ are what this pass covers.
 `Shares.sol:64` declares **`abstract contract Shares`**, so a reader checking §6b's claim finds the
 thing it says was deleted and concludes the row is stale. **It is not.** The CONCRETE `contract Shares`
 (2,300 bytes, unwired) *was* deleted; `94f63006` *"Finish the rename: `Shares.sol` now declares
-`contract Shares`"* then reassigned the NAME to the abstract base formerly called `BandState`.
+`contract Shares`"* then reassigned the NAME to the abstract base formerly called `RangeState`.
 ⇒ **Two different objects, one name, eight days apart.**
 ⚠️ **THIS IS THE INVERSE OF THE DOCUMENTED TRAP.** CLAUDE.md warns that *"a zero-hit grep for a
 suffixed name is evidence of a RENAME, never of a REMOVAL"*. **Here a POSITIVE hit is evidence of a
 rename, not of a survival** — same mechanism, opposite sign, and the existing rule does not cover it.
 ▶️ **Row action:** say which `Shares` it means. The deleted one was concrete and unwired; the live one
-is the abstract base every band manager inherits. **Deleting today's `Shares` on the strength of that
+is the abstract base every range manager inherits. **Deleting today's `Shares` on the strength of that
 row would remove the shared layout `State`/§E252 depends on.**
 
 ### 📌 WHAT THIS PASS DOES NOT ESTABLISH
@@ -7619,7 +7619,7 @@ clean bill for the ✅ column.**
 the file. **Checked against code 2026-08-22 — neither is work the next thread should start.**
 
 ### ✅ §E258 IS BUILT (`:237` "THE BUILD SPEC" and `:360` "limit orders became options")
-`fillOOR`, `sweepOor` and `openOor` all exist — 2 hits each in `Quid.sol` and `BandLib.sol` — along
+`fillOOR`, `sweepOor` and `openOor` all exist — 2 hits each in `Quid.sol` and `RangeLib.sol` — along
 with the packed `(price << bits) | id` key, the near-edge trigger, the `maxFills` cap, the
 permissionless poke and the `lastSweptPx` watermark that seeds without filling. **The spec at `:237` is
 a specification for work that has landed**, and `:360`'s *"a boundary order is now an option the owner
@@ -7765,7 +7765,7 @@ known-live case (`SwapLib.` = **13** production files). 17 libraries in `evm/src
 
 | library | prod callers | verdict |
 |---|---|---|
-| `Types` 20 · `BasketLib` 9 · `BtcLib` 9 · `QuidLib` 9 · `BandLib` 8 · `LevMath` 8 · `ChannelLib` 6 · `FeeLib` 6 · `MuSig2Agg` 4 · `BitcoinTx` 4 · `SortedSetLib` 3 · `OracleLib` 2 · `ShareMath` 2 · `SwapLib` 13 | many | in use |
+| `Types` 20 · `BasketLib` 9 · `BtcLib` 9 · `QuidLib` 9 · `RangeLib` 8 · `LevMath` 8 · `ChannelLib` 6 · `FeeLib` 6 · `MuSig2Agg` 4 · `BitcoinTx` 4 · `SortedSetLib` 3 · `OracleLib` 2 · `ShareMath` 2 · `SwapLib` 13 | many | in use |
 | `ExitLib` | **1 REAL CALL** — `BTCChannels.sol:1655` `ExitLib.verifyDeadManExit` | in use (§E141's ✅ holds) |
 | `ExternalTwap` | 0 — its only `evm/src` hit is a COMMENT (`Core.sol:1314`) | ⛔ **KEEP — see below** |
 | `FixedRateFill` | 0 — its only `evm/src` hit is a COMMENT (`SwapLib.sol:1264`) | ⛔ **KEEP — see below** |
@@ -7773,8 +7773,8 @@ known-live case (`SwapLib.` = **13** production files). 17 libraries in `evm/src
 ### ⛔ WHY THE TWO CALLER-LESS ONES STAY — *"no caller"* IS NOT THE TEST; *"no caller AND no reason"* IS
 - **`ExternalTwap` has a JOB IT IS DOING RIGHT NOW.** `oneInchRateWad` is the instrument behind
   `PushSourceIsAdmissible.t.sol` and `OneInchObserverIsIndependent.t.sol` — the pair that measures the
-  1inch↔Chainlink basis (**23 bps**, §E294) against `pushObservation`'s 50 bps band. **Deleting it
-  removes the only way to detect that basis drifting out of the band**, which fails SILENTLY: past 50
+  1inch↔Chainlink basis (**23 bps**, §E294) against `pushObservation`'s 50 bps range. **Deleting it
+  removes the only way to detect that basis drifting out of the range**, which fails SILENTLY: past 50
   bps every push is refused, the ring never fills and σ² stays 0.
 - **`FixedRateFill` IS MOSTLY THE UNWIRED FIRM-QUOTE SURFACE, WHICH THE DESIGN DEPENDS ON.** 270 lines,
   7 functions: `quoteDrain` / `quoteFill` (a `Quote` with a **TTL**), `enforce`, `assertConserved`,
@@ -7913,10 +7913,10 @@ time today an instrument has been found to measure something other than its stat
 
 ### ▶️ THE DISCRIMINATOR IS BUILT: `evm/test/PushObservationFillsTheRing.t.sol`
 `pushObservation` is the **other** writer — permissionless, anchor-bounded, **zero callers** — so
-calling it separates the two cases. Pushes a varying **in-band** series (jitter 0–32 bps, all inside
+calling it separates the two cases. Pushes a varying **in-range** series (jitter 0–32 bps, all inside
 the 50 bps guard) across 9 samples with `vm.warp` between them (`ringVariance` needs `card ≥ 3`,
 `n ≥ 3`, ≥2 distinct values, and a ring that will not advance on a repeated timestamp), then asserts
-σ² moved. **Two controls**: an out-of-band push must be refused *silently* (which is what makes the
+σ² moved. **Two controls**: an out-of-range push must be refused *silently* (which is what makes the
 call safe to attach to a carrier), and one sample must NOT produce a variance.
 🔴 **NOT YET RUN — and the reason is not mine.** Four source files (`Quid`, `Vault`, `LevManager`,
 `BtcLevManager`) are in state **`UU`**: an unresolved merge from another session, with conflict markers
@@ -7932,3 +7932,113 @@ runs:** the PULL path (`_observeIfSourced`) has no source by owner decision, and
 (`pushObservation`) has no caller because nobody wrote one. ⇒ **It is an operations gap, not a
 cryptography or pricing one** — and the missing piece is a process that calls a permissionless
 function, not a contract change.
+
+---
+
+## C17. ⭐ LEND OUR OWN DOLLARS AGAINST OUR OWN LIGHTNING BTC (owner design, 2026-08-22)
+
+Owner: *"extend AaveV3Venue to the ETH side, remove the morpho borrow, we use Morpho only for our own
+listed lightning BTC … LPs borrow dollars against the lightning-btc market we listed, the dollars
+supplied by OUR dollar depositors instead of an arbitrary morpho vault — so we are not paying yield to
+arbitrary markets, we are paying our dollar stakers."*
+Follow-up: *"the 1.55M market should never be a concern to us anymore … we need 2x so that is two
+borrows, dollars borrowed against the WETH borrowed against the weETH and those dollars buy more WETH
+that gets wrapped into weETH and deposited as collateral … this is a threeway with aavev3. the morpho
+borrow of our own aux dollars through morpho paying our own depositors the interest from our own
+bitcoin depositors, this flywheel … can only be done with morpho because there is no other way to list
+the lightning bitcoin collateral."*
+
+✅ **MORE OF THIS EXISTS THAN THE FRAMING SUGGESTS — four checks:**
+1. **The vBTC market is ALREADY CREATED BY US.** `DeployL1_s:556-568` — `loanToken: USDC`,
+   `collateralToken: ETH.VBTC()`, 86% LLTV, `createMarket` if unlisted. "Our own listed market" is
+   not new work; **what is new is who SUPPLIES it.**
+2. **Double-use is ALREADY PREVENTED, so "band and collateral at once" is answered: NO, by design.**
+   `Vault.exposeBtcToLev(lp, sats)` moves sats `autoManaged → levPooled` and THEN mints vBTC 1:1
+   (`Vault:306-310`). The sats are RECLASSIFIED, not shared — swap-backing sats cannot also back a
+   loan, or the band is under-collateralised exactly when the loan is drawn.
+3. **The LP never sells BTC to get dollar collateral — that is already true today** and is the point
+   of `exposeBtcToLev`. What the owner's change alters is where the borrowed dollars COME FROM.
+4. 🔴 **AND IT DISSOLVES THE ONE RECORDED BLOCKER ON THE vBTC MARKET, which is why this is the right
+   shape and not just a yield-capture play.** `VBtc.sol:22/:52` and `CLAUDE.md:480`: *"an open
+   Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit."* Measured: `burnFrom`
+   and `mintTo` are **`onlyVault`** (`VBtc:82/123/129`), `transfer` is open. So a THIRD-PARTY
+   liquidator ends up holding a token they cannot redeem for sats and can only sell to… nobody.
+   ⇒ **If the lender is US, the protocol can be the liquidator of last resort — it is the only address
+   that CAN burn vBTC and pay out sats.** An arbitrary Morpho lender structurally cannot. **The
+   blocker is a property of lending to strangers, not of the collateral.**
+
+🔴 **WHY MORPHO STAYS, AND IT IS STRUCTURAL RATHER THAN PREFERENCE: IT IS THE ONLY PERMISSIONLESS
+LISTING.** "Remove the Morpho borrow" means the **ETH** borrow only. We do not JOIN the vBTC market,
+we **CREATE** it — `DeployL1_s:567`, `if (luB == 0) IMorphoMkt(morpho).createMarket(mpB)`. By contrast
+`AaveV3Venue`'s entire surface is `supply/borrow/repay/withdraw` against a reserve that **already
+exists** (`LevVenueBase:295-320`); there is no `listReserve`, because **Aave listing is a governance
+vote**. ⇒ **Lightning BTC can never be Aave collateral.** Morpho is the only venue where it can exist
+at all, and that is why the BTC leg keeps it while the ETH leg leaves.
+
+⭐ **THE FLYWHEEL, AND IT IS THE SAME FACT AS THE LIQUIDATOR FIX SEEN FROM THE OTHER SIDE.** Our BTC
+depositors borrow dollars against their Lightning BTC; the interest they pay is earned by **our dollar
+depositors** supplying that same market. No external lender takes a cut and no external borrower sets
+the rate, because **both sides of the book are ours** — on an arbitrary vault the interest leaves the
+system. ⚠️ **A market we list is also the only market where we are both lender of record and the only
+address that can burn the collateral. Those two properties arrive together or not at all**, which is
+why the flywheel and the liquidator-exit resolution are one design, not two.
+
+### C17-a. 🔴 THE 2× LOOP NEEDS **TWO AAVE ACCOUNTS**, NOT TWO CALLS — eMode forbids the second borrow
+
+The loop is: weETH collateral → **borrow WETH** (eMode) → **borrow dollars against that WETH** →
+dollars buy WETH → wrap → weETH → redeposit. **Measured on-chain 2026-08-22** (`getConfiguration`
+bitmap, Pool `0x8787…4E2`):
+
+| reserve | base LTV | liq threshold | borrowable | eMode cat |
+|---|---|---|---|---|
+| weETH | **77.50%** | **80.00%** | false | **1** |
+| WETH  | **80.50%** | **83.00%** | true  | **1** |
+| USDC  | **75.00%** | **78.00%** | true  | **0** |
+
+⇒ **`USDC` IS eMode CATEGORY 0 WHILE THE ETH LEG NEEDS CATEGORY 1, AND AN AAVE v3 ACCOUNT IN eMode
+CAN ONLY BORROW ASSETS INSIDE ITS CATEGORY.** So the 93% WETH borrow and the dollar borrow
+**structurally cannot share one account** — this is not a parameter to tune, it is Aave's
+`validateBorrow`. Two positions are required.
+
+✅ **AND THE ARCHITECTURE ALREADY ANTICIPATES THIS — the fix is smaller than it looks.**
+`LevVenueBase:282` is `mapping(address => AaveV3Escrow) public escrowOf; // lp → isolated Aave
+account`, and `AaveV3Escrow`'s `(COLLATERAL, STABLE)` pair is **immutable per instance**
+(`constructor(IAaveV3Pool pool, address coll, address stable)`). **Each LP already gets its own Aave
+account**, so leg 1 is `escrow(weETH → WETH)` in eMode and leg 2 is `escrow(WETH → USDC)` out of it.
+▶️ **The change is to key `escrowOf` on the (collateral, stable) PAIR as well as the LP**, not to
+invent an account model. **Do not "fix" this by dropping eMode on both legs** — that silently costs
+the 93%→77.50% difference on the leg that motivated the whole move off Morpho.
+
+🔴 **C17-b. eMode IS NOT WIRED AT ALL TODAY, SO THE 93% IS NOT REACHABLE YET.** `setUserEMode` has
+**zero occurrences in `evm/src`, `evm/test` and `evm/script`** — the escrow calls `supply`,
+`setUserUseReserveAsCollateral`, `borrow`, `repay`, `withdraw` and nothing else
+(`LevVenueBase:30-52`). ⇒ **The existing WBTC leg runs at BASE LTV right now**, and "Aave eMode 93%
+dominates Morpho's 94.5%" is a claim about a configuration **we have not yet made**. Adding
+`POOL.setUserEMode(1)` to the escrow is a prerequisite of step 1, not a detail of it — and it is
+itself a money-path change (it re-prices every existing position's health factor).
+⚠️ **This is the axis the earlier comparison did not measure**, and it is exactly the shape rule 9
+warns about: the Morpho-vs-Aave verdict was priced on depth and threshold while the *reachability* of
+the threshold went unpriced.
+
+🔴 **THE DECISION THE OWNER FLAGGED — WHICH STABLE. Do not default to USDC because it is `stables[0]`.**
+The loan token has to satisfy three things at once and they pull apart:
+- **Depositors must hold it** (it is their yield that replaces Morpho's lenders),
+- **Borrowing LPs must want it** — they borrow to buy WBTC for IL-protect, so it must reach WBTC
+  cheaply,
+- **Liquidation must clear in it**, which is where the wrapper question bites again (§E221/§E223).
+⚠️ **The measured Morpho depths do NOT decide this** (weETH/USDC $0.74M vs RLUSD $95M vs PYUSD
+$47.14M): that is THEIR liquidity, and the whole point is that OUR depositors supply it. **Choosing on
+those numbers would be answering a different question** — the same error as reading a borrowable-depth
+snapshot as a permanent fact.
+⚠️ **But note the loop couples the choice to Aave:** the dollar leg of C17-a borrows the stable from
+**Aave**, so a stable Aave does not list (RLUSD, PYUSD are not v3 core reserves) forces the two legs
+onto different venues. **Price that before picking on depositor-holdings alone.**
+
+▶️ **ORDER, and the first step is independent of the stable choice:**
+1. **Wire `setUserEMode` (C17-b), then extend `AaveV3Venue` to the ETH side and retire the Morpho ETH
+   borrow.** The Morpho weETH/WETH 94.5% market has **$1.55M free at 90% utilisation** against Aave's
+   **$808M**; per the owner it *"should never be a concern to us anymore"*. `AaveV3Venue` already
+   exists and is fork-verified (`test/AaveV3Venue.t.sol`), today wired only for the WBTC leg.
+2. **Key `escrowOf` on the (collateral, stable) pair** so the 2× loop's two legs get two accounts.
+3. **Then** point the vBTC market's supply side at our depositors, once the stable is chosen.
+⚠️ Each is a money-path change needing its own verified run (rule 10), so they do not batch.
