@@ -4135,7 +4135,24 @@ caught this.
 
 ### `§E263` (none)
 
-## §E263 — **the zero-coupon join to Midnight is a PURE FUNCTION; the supply ledger must NOT follow it**
+## §E263 — ⏸️ **THE ZERO-COUPON FRAMING IS LATENT, NOT LIVE — AND THE JOIN HAS NO COUNTERPARTY NOW**
+⏸️ **SCOPED DOWN 2026-08-21 (owner: *"why mention zero coupon at all, doesn't seem applicable to us"*).
+Correct, and the code says so.** `matureSupply`/`immatureSupply` have exactly THREE non-comment uses
+(`Basket.sol:319`, `BasketLib.sol:1018`, `SwapLib.sol:545`) and all three are the SAME use — a
+REDEMPTION DENOMINATOR. `qdShareValue(burned, solvent, matureSupply() + burned)`: mature QU!D redeems
+against mature supply, immature is simply EXCLUDED.
+⇒ **Nothing prices an immature vintage. No discount, no curve, no secondary value.** A claim that pays
+par at a date and is worth less before IS zero-coupon in FORM, but nothing here ever asks what one is
+worth before maturity. **The structure is latent; the mechanism does not exist.**
+⇒ It becomes applicable ONLY if immature vintages become TRADEABLE at a discount — which is what the
+Midnight/Pendle framing assumed. **The vendored fork is deleted, so there is no counterparty to join
+to.** Read the rest as a design option that was costed, not as a description of what we do.
+⚠️ **THE ONE PART THAT STAYS TRUE REGARDLESS**, and it is the reason this row is scoped rather than
+deleted: `totalSupplies[when]` MUST NOT be replaced by an external read. `matureSupply()` is on the
+REDEEM MONEY PATH, so that trade is 13 SLOADs for 13 cold staticcalls, roughly +34k gas per redeem, on
+the path §E257 already says will not fit in a block. That holds whoever the counterparty turns out to
+be.
+
 ⚠️ **DECISION REVERSED 2026-08-18, SAME DAY, BY THE OWNER: WE DEPLOY OUR OWN INSTANCE WITH LIGHT MODS.**
 Everything below that argues "call their deployed contract" was written BEFORE that call and is kept
 only because its MEASUREMENTS are still the evidence. The conclusion it draws is superseded: the fork
