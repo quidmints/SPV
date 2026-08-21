@@ -570,32 +570,6 @@ impl OpenParams {
     }
 }
 
-/// Recompute `BTCChannels.openChannelDigest(p, rawFundingTx, hop)` (v2):
-/// `keccak256(abi.encode(keccak256("BTCChannels.openChannel.v2"), chainId,
-/// address(this), keccak256(rawFundingTx), keccak256(abi.encode(p)), hop))`.
-/// This is the message the LP signs to authorize an open (`lpAuth`). MULTI-HOP: the
-/// `hop` (the EVM address that will SUBMIT the open — the channel's owning hop) is
-/// bound into the digest, so only that hop can open the LP's channel and a genuine
-/// lpAuth cannot be replayed through a different submitter. For a self-hosted or
-/// family-plan instance, `hop` is that instance's own EVM address.
-pub fn open_channel_digest(
-    chain_id: u64,
-    btc_channels: Address,
-    raw_funding_tx: &[u8],
-    params: &OpenParams,
-    hop: Address,
-) -> [u8; 32] {
-    let preimage = encode_tuple(&[
-        Tok::FixedBytes32(keccak256("BTCChannels.openChannel.v2").0),
-        Tok::Uint(U256::from(chain_id)),
-        Tok::Address(btc_channels),
-        Tok::FixedBytes32(keccak256(raw_funding_tx).0),
-        Tok::FixedBytes32(params.abi_struct_hash()),
-        Tok::Address(hop),
-    ]);
-    keccak256(preimage).0
-}
-
 /// Sort two 33-byte funding pubkeys the way LDK's `make_funding_redeemscript`
 /// (and `BitcoinTx.buildChannelRedeemScript`) order the 2-of-2 — by serialized
 /// bytes ascending. `OpenParams.lpPubkey/hopPubkey` MUST be in this order so the
@@ -642,7 +616,7 @@ pub fn evm_address_of(pk: &bitcoin::secp256k1::PublicKey) -> Address {
 // ───────────────────────────── calldata builders ─────────────────────────────
 
 /// `openChannel(OpenParams,bytes,bytes32[],bytes)` calldata. `lp_auth` is the
-/// LP's 65-byte `r‖s‖v` ECDSA over [`open_channel_digest`].
+/// LP's 65-byte `r‖s‖v` ECDSA. ⚠️ VESTIGIAL: §E183 deleted `lpEth`/`lpSig` from `OpenAuth`.
 /// (E178) `openChannel(OpenParams, bytes, bytes32[], OpenAuth, ExitArming[])`.
 ///
 /// ⚠️ **THIS SIGNATURE DRIFTED AND THE DAEMON WOULD HAVE ENCODED A DEAD SELECTOR.** The old
@@ -976,7 +950,7 @@ pub fn encode_record_force_close_permissionless(
 /// on-chain funding output's P2WSH equals the reconstructed 2-of-2 (so a wrong
 /// pubkey pair is rejected here, before any signing/submission). Returns the
 /// params plus the raw funding tx + merkle proof needed for
-/// [`open_channel_digest`] / [`encode_open_channel`].
+/// [`encode_open_channel`].
 pub async fn build_open_params(
     esplora: &Esplora,
     funding_txid: &Txid,
@@ -1303,8 +1277,6 @@ mod tests {
         // Empty Bytes / huge Bytes / nested tuple — encode_struct/tuple no panic.
         let _ = encode_struct(&[Tok::Bytes(vec![]), Tok::Bytes(vec![0xff; 9999])]);
         let _ = encode_tuple(&[Tok::Tuple(p.tokens()), Tok::FixedBytes32Array(vec![[0u8; 32]; 500])]);
-        // digest + channelId with extreme values.
-        let _ = open_channel_digest(u64::MAX, Address::repeat_byte(0xff), &vec![0xab; 10_000], &p, Address::repeat_byte(0x11));
         let _ = channel_id(&[0xff; 33], &[0x00; 33], [0xaa; 32], u32::MAX);
         // splice encoder + digest with extreme values — must not panic, right shape.
         let sp_sel = keccak256(
@@ -1562,8 +1534,6 @@ mod proptests {
             vout in any::<u32>(),
         ) {
             let a = Address::from(addr);
-            let od = open_channel_digest(chain_id, a, &raw, &p, a);
-            prop_assert_eq!(od, open_channel_digest(chain_id, a, &raw, &p, a));
             let c = channel_id(&p.lp_pubkey, &p.hop_pubkey, txid_int, vout);
             prop_assert_eq!(c, channel_id(&p.lp_pubkey, &p.hop_pubkey, txid_int, vout));
         }

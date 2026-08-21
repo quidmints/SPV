@@ -566,12 +566,17 @@ library ChannelLib {
         // outpoint makes every pre-signed rung unbroadcastable under BIP-341 `Prevouts::All`.
         if (keccak256(p.hopPubkey) == keccak256(oldHopPubkey)) revert RekeyUnchanged();
 
-        // WHO — the LP co-signs THIS rotation. Domain tag `rekey.v1` keeps the message unforgeable
-        // against a `splice.v1` signature over the same arguments.
+        // WHO — the LP co-signs THIS rotation. ⚠️ **NO DOMAIN TAG** (owner, 2026-08-22). This used
+        // to read *"domain tag `rekey.v1` keeps the message unforgeable against a `splice.v1`
+        // signature over the same arguments"* — and `splice.v1` no longer exists: §E157 retired the
+        // per-splice consent as redundant and §E182 deleted its digest. What separates this from
+        // the ONE other verified digest (the payout PoP) is structural, not a string: that one is
+        // **sha256 over 3 fields verified as BIP-340 Schnorr**, this is **keccak256 over 5 fields
+        // verified as ECDSA**. ⇒ A new verified digest sharing this hash AND arity would reopen the
+        // question; nothing does today.
         if (!SignatureChecker.isValidSignatureNow(
                 lpEth,
                 keccak256(abi.encode(
-                    keccak256("BTCChannels.rekey.v1"),
                     block.chainid,
                     address(this),
                     channelId,

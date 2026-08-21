@@ -225,25 +225,24 @@ contract BtcSelfManagedTest is AllesFixture {
         bytes     hopPubkey;         // 9  (33-byte)
         uint256   amountSats;        // 10
         bytes32   fundingTaproot;    // 11 the REAL x-only MuSig2 Q of 0x5120||Q
-        bytes     lpAuth;            // 12 (r‖s‖v)
-        address   seller;            // 13
-        uint256   sats;              // 14
-        address   token;             // 15
-        bytes32   paymentHash;       // 16
-        bytes     rawCloseTx;        // 17 (witness-stripped legacy)
-        bytes32   closeBlockHash;    // 18 (BE)
-        bytes32[] closeMerkleProof;  // 19
-        uint256   closeTxIndex;      // 20
+        address   seller;            // 12
+        uint256   sats;              // 13
+        address   token;             // 14
+        bytes32   paymentHash;       // 15
+        bytes     rawCloseTx;        // 16 (witness-stripped legacy)
+        bytes32   closeBlockHash;    // 17 (BE)
+        bytes32[] closeMerkleProof;  // 18
+        uint256   closeTxIndex;      // 19
         // (E166-4) The channel's pre-signed dead-man exit, produced by the Rust harness
         // with BOTH LDK-derived funding halves — the Solidity side cannot sign for these
         // keys, which is why the stub `hex"00"` could never have worked.
-        bytes     signedExitTx;      // 21
-        uint256   exitCltvDeadline;  // 22
-        uint256   exitCheckpointSats;// 23
+        bytes     signedExitTx;      // 20
+        uint256   exitCltvDeadline;  // 21
+        uint256   exitCheckpointSats;// 22
         // (§SPRINT-B4) the second rung — `_armLadder` rejects a single window, so the
         // harness pre-signs two exits at distinct deadlines (funding_height +144 / +288).
-        bytes     signedExitTx2;     // 24
-        uint256   exitCltvDeadline2; // 25
+        bytes     signedExitTx2;     // 23
+        uint256   exitCltvDeadline2; // 24
     }
 
     /// (E166-4) Own FRAME — building this arming inline blew the legacy stack

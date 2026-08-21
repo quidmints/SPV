@@ -352,14 +352,15 @@ contract VBtcLevFeeLane is AllesFixture {
             amountSats: sats, fundingTaproot: _taprootQ(lpPubkey, newHopKey) });
     }
 
-    /// The LP's consent to THIS rotation. Domain tag `rekey.v1`, so a `splice.v1` signature over
-    /// the same arguments is not accepted here — that separation is the point of the tag.
+    /// The LP's consent to THIS rotation. ⚠️ **NO DOMAIN TAG** (2026-08-22) — mirrors
+    /// `ChannelLib.rekeyAuthBody`, which dropped it once `splice.v1` ceased to exist. This is a
+    /// FIXTURE (it signs), so it must track the library's preimage exactly; see §TEST-RECONSTRUCTIONS
+    /// — the standing fix is to extract the digest into `ChannelLib` so this cannot drift at all.
     function _signRekey(string memory label, address ch, bytes32 cid, Types.OpenParams memory p, bytes memory tx_)
         internal returns (bytes memory)
     {
         return _lpSign(label, keccak256(abi.encode(
-            keccak256("BTCChannels.rekey.v1"), block.chainid, ch, cid,
-            keccak256(tx_), keccak256(abi.encode(p)))));
+            block.chainid, ch, cid, keccak256(tx_), keccak256(abi.encode(p)))));
     }
 
     /// ⚠️ ONE STRUCT, BECAUSE THESE TESTS OVERFLOW THE LEGACY STACK OTHERWISE. A rotation case

@@ -13,7 +13,6 @@
 //!   5. recovers the two 33-byte funding pubkeys from the cooperative-close
 //!      tx witness (the 2-of-2 redeem script is its last witness element) and
 //!      reconstructs `OpenParams`;
-//!   6. signs the LP's `lpAuth` over the EXACT `BTCChannels.openChannelDigest`
 //!      (chainId + contract address are passed in as argv by the Solidity test
 //!      after it deploys), with a fresh secp256k1 EVM key;
 //!   7. ABI-encodes the whole bundle and prints it as `0x…` hex to stdout.
@@ -44,7 +43,7 @@ use lightning::types::payment::PaymentPreimage;
 
 use quid_common::root_seed::RootSeed;
 use quid_hop::evm_codec::{
-    encode_struct, open_channel_digest, serialize_header, tx_inclusion, OpenParams, Tok,
+    encode_struct, serialize_header, tx_inclusion, OpenParams, Tok,
 };
 use quid_hop::harness::{
     bdk_full_sync, boot_node, connect, ldk_resync, lsp_info, spawn_listener, Regtest,
@@ -282,7 +281,6 @@ async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Ve
     )
     .expect("P2TR (0x5120||Q) funded output");
 
-    // ── LP lpAuth over the EXACT BTCChannels.openChannelDigest ──
     let secp = Secp256k1::new();
     // Deterministic throwaway LP EVM key (seed-derived; the EVM identity is
     // independent of the BTC channel keys, exactly like makeAddrAndKey("lp")).
@@ -310,19 +308,11 @@ async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Ve
             &lp_pubkey, &hop_pubkey,
         ),
     };
-    // MULTI-HOP v2 digest: bind the submitting hop. This fixture's lpAuth is a
-    // convenience artifact (the Solidity OpenChannelE2E test re-signs in-test), so
-    // ZERO is fine here; a live submitter would bind its own address.
-    let digest = open_channel_digest(chain_id, btc_channels, &funding.raw, &params, Address::ZERO);
-    let msg = Message::from_digest(digest);
-    let sig = secp.sign_ecdsa_recoverable(&msg, &lp_sk);
-    let (rec_id, compact) = sig.serialize_compact();
-    // EVM lpAuth = r ‖ s ‖ v, v = 27 + parity (OZ ECDSA.recover convention).
-    let mut lp_auth = Vec::with_capacity(65);
-    lp_auth.extend_from_slice(&compact[0..32]);
-    lp_auth.extend_from_slice(&compact[32..64]);
-    lp_auth.push(27 + rec_id.to_i32() as u8);
-    eprintln!("e2e_ffi: lpEth = {lp_eth} (recovers from lpAuth over the digest)");
+    // (2026-08-22) NO lpAuth IS PRODUCED. §E183 item 1 deleted `lpEth`/`lpSig` from `OpenAuth`, so
+    // the 65-byte ECDSA this used to sign — over a digest whose contract accessor is now also gone —
+    // was read by nothing on either side. Removed with the bundle field it filled, in the same
+    // commit, so the positional decode never sees a shape the other half does not.
+    eprintln!("e2e_ffi: lpEth = {lp_eth} (derived from the channel key, per E183)");
 
     // ── (E166-4) A GENUINELY SIGNED DEAD-MAN EXIT ────────────────────────────────
     //
@@ -364,26 +354,24 @@ async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Ve
         // funding output (`0x5120||Q`). The EVM rebuilds the scriptPubKey from this and
         // byte-matches the live funding tx, so the bundle MUST carry the genuine Q (not
         // a synthetic stand-in) — that is exactly what `params.funding_taproot` is, and
-        // it is the same Q the LP's lpAuth (next field) is signed over.
         Tok::FixedBytes32(params.funding_taproot),   // 11 fundingTaproot (real Q)
-        Tok::Bytes(lp_auth),                         // 12 lpAuth (r‖s‖v)
         // settleSwapIn
-        Tok::Address(seller),                        // 13 seller
-        Tok::Uint(U256::from(amount_sats)),          // 14 sats
-        Tok::Address(token),                         // 15 token
-        Tok::FixedBytes32(payment_hash),             // 16 paymentHash
+        Tok::Address(seller),                        // 12 seller
+        Tok::Uint(U256::from(amount_sats)),          // 13 sats
+        Tok::Address(token),                         // 14 token
+        Tok::FixedBytes32(payment_hash),             // 15 paymentHash
         // recordClose
-        Tok::Bytes(close.raw),                       // 17 rawCloseTx (legacy)
-        Tok::FixedBytes32(close.block_hash_be),      // 18 closeBlockHash (BE)
-        Tok::FixedBytes32Array(close.merkle_proof),  // 19 closeMerkleProof
-        Tok::Uint(U256::from(close.tx_index)),       // 20 closeTxIndex
+        Tok::Bytes(close.raw),                       // 16 rawCloseTx (legacy)
+        Tok::FixedBytes32(close.block_hash_be),      // 17 closeBlockHash (BE)
+        Tok::FixedBytes32Array(close.merkle_proof),  // 18 closeMerkleProof
+        Tok::Uint(U256::from(close.tx_index)),       // 19 closeTxIndex
         // (E166-4) the pre-signed dead-man exit for this channel
-        Tok::Bytes(exit_raw),                        // 21 signedExitTx
-        Tok::Uint(U256::from(exit_cltv)),            // 22 exitCltvDeadline
-        Tok::Uint(U256::from(exit_checkpoint)),      // 23 exitCheckpointSats
+        Tok::Bytes(exit_raw),                        // 20 signedExitTx
+        Tok::Uint(U256::from(exit_cltv)),            // 21 exitCltvDeadline
+        Tok::Uint(U256::from(exit_checkpoint)),      // 22 exitCheckpointSats
         // (§SPRINT-B4) the second rung — a later, independently signed window
-        Tok::Bytes(exit2_raw),                       // 24 signedExitTx2
-        Tok::Uint(U256::from(exit2_cltv)),           // 25 exitCltvDeadline2
+        Tok::Bytes(exit2_raw),                       // 23 signedExitTx2
+        Tok::Uint(U256::from(exit2_cltv)),           // 24 exitCltvDeadline2
     ];
     let bundle = encode_struct(&toks);
 

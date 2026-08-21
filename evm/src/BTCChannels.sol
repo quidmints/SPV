@@ -810,24 +810,25 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // ═════════════════════════════════════════════════════════════════
     //  OPEN — the LP's DELEGATED HOP submits the raw funding tx + SPV proof.
     //
-    function openChannelDigest(
-        Types.OpenParams calldata p,
-        bytes calldata rawFundingTx,
-        address hop
-    ) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("BTCChannels.openChannel.v2"),
-            block.chainid,
-            address(this),
-            keccak256(rawFundingTx),
-            keccak256(abi.encode(p)),
-            hop
-        ));
-    }
-
-    // ⛔ (E182) `spliceDigest` AND `swapOutDeliverDigest` ARE DELETED — they computed the message
-    // for TWO LP CONSENTS THAT NO LONGER EXIST, and they paid for it in deploy bytes on the one
-    // contract that could not afford them.
+    // ⛔ ALL FOUR PUBLIC DIGEST ACCESSORS ARE DELETED, AND WITH THEM EVERY DOMAIN TAG.
+    //
+    // (E182) `spliceDigest` and `swapOutDeliverDigest` went first: they computed the message for
+    // TWO LP CONSENTS THAT NO LONGER EXIST, and paid for it in deploy bytes on the one contract
+    // that could not afford them. (2026-08-22) `openChannelDigest` and `openAuthDigest` follow for
+    // the SAME measured reason — **zero call sites in `evm/src`**, the LP signature they served
+    // having been deleted by §E183 item 1. ⚠️ The comment that used to sit here claimed
+    // `openAuthDigest` was "KEPT because the open path genuinely verifies against it" — **it did
+    // not; nothing verified it after §E183**, and that sentence is exactly the misreading these
+    // accessors produce.
+    //
+    // 🔑 **WHY THE TAGS COULD THEN GO (owner: *"no tags"*), AND IT IS THE DELETIONS THAT EARNED IT.**
+    // A domain tag separates messages that would otherwise collide. With FOUR digests sharing one
+    // namespace, string separation was doing real work. Two remain — the payout PoP and `rekey` —
+    // and they are separated THREE ways without a tag: a different HASH (sha256 vs keccak256), a
+    // different FIELD COUNT (3 vs 5), and a different SIGNATURE SCHEME (BIP-340 Schnorr vs ECDSA).
+    // ⇒ **Removing the tags is safe BECAUSE the dead digests went first. Do not re-add a third
+    // verified digest without re-deriving this** — if a new one shares a hash AND an arity with an
+    // existing one, the separation is gone and something has to restore it.
     //
     // Both described themselves as "the digest the LP signs to authorize …". Neither consent is
     // verified anywhere: `splice` and `deliverSwapOutOnchain` are both gated by `_onlyHop()`, and
@@ -889,15 +890,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///    `OneChannelPerLp` allowing one at a time. What is genuinely lost is EOA revocation, which
     ///    `delegationVersion` provided; a smart-wallet LP still revokes by rotating owners.
     ///    §E125 flagged exactly this ("valid forever and cannot be revoked"), so it is a KNOWN cost.
-    function openAuthDigest(address hop, bytes32 btcRecipient) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("BTCChannels.open.v1"),
-            block.chainid,
-            address(this),
-            hop,
-            btcRecipient
-        ));
-    }
 
     function openChannel(
         Types.OpenParams calldata p,
@@ -2433,8 +2425,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     /// @notice (E138) The message a payout key signs to prove possession. Public so the LP's
     ///         wallet signs EXACTLY what the contract checks rather than a reconstruction.
     function btcRecipientPoPDigest(address lpEth) public view returns (bytes32) {
-        return sha256(abi.encode(
-            keccak256("BTCChannels.btcRecipient.pop.v1"), block.chainid, address(this), lpEth));
+        // (2026-08-22) NO DOMAIN TAG. Separated from the only other verified digest (`rekey`) by
+        // hash function, field count and signature scheme — see the block above `openChannel`.
+        return sha256(abi.encode(block.chainid, address(this), lpEth));
     }
 
     /// @dev (E138) Own frame — `openChannel` is at the legacy stack limit.

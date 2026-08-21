@@ -16,6 +16,10 @@ import {Types} from "../src/imports/Types.sol";
 ///
 ///         End-to-end openChannel (valid SPV proof → channel written) is
 ///         covered by the Phase-B funding-tx fixture (separate, pending).
+// (2026-08-22) THE FOUR DIGEST/RECOVERY TESTS ARE DELETED WITH WHAT THEY TESTED. Three asserted
+// the shape of `openChannelDigest` and one that `ecrecover` returns the LP — all properties of an
+// LP EVM signature that §E183 item 1 removed from `OpenAuth`. The contract now derives `lpEth`
+// from `p.lpPubkey` and verifies a BIP-340 payout PoP instead; `openChannelDigest` itself is gone.
 contract BTCChannelsAuthTest is Test, ExitFixture {
     BTCChannels ch;
 
@@ -63,38 +67,6 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         ch.openChannel(_params(), hex"00", proof,
             Types.OpenAuth({ btcRecipient: bytes32(0), btcRecipientPoP: ""}),
             _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: 1, checkpointSats: 0, signedExitTx: hex"00"})));
-    }
-
-    function test_digest_binds_chain_and_contract() public view {
-        Types.OpenParams memory p = _params();
-        bytes memory rawTx = hex"0200000001deadbeef";
-        bytes32 d = ch.openChannelDigest(p, rawTx, address(0xB0B));
-        // Recompute the expected digest exactly as the contract does.
-        bytes32 expected = keccak256(abi.encode(
-            keccak256("BTCChannels.openChannel.v2"),
-            block.chainid,
-            address(ch),
-            keccak256(rawTx),
-            keccak256(abi.encode(p)),
-            address(0xB0B)
-        ));
-        assertEq(d, expected, "digest must bind tag+chainid+contract+tx+params+hop");
-    }
-
-    function test_digest_changes_with_params() public view {
-        Types.OpenParams memory p = _params();
-        bytes memory rawTx = hex"0200000001deadbeef";
-        bytes32 d1 = ch.openChannelDigest(p, rawTx, address(0xB0B));
-        p.amountSats = 999_999; // tamper
-        bytes32 d2 = ch.openChannelDigest(p, rawTx, address(0xB0B));
-        assertTrue(d1 != d2, "param tamper must change digest");
-    }
-
-    function test_digest_changes_with_funding_tx() public view {
-        Types.OpenParams memory p = _params();
-        bytes32 d1 = ch.openChannelDigest(p, hex"0200000001deadbeef", address(0xB0B));
-        bytes32 d2 = ch.openChannelDigest(p, hex"0200000001deadbe00", address(0xB0B)); // tamper tx
-        assertTrue(d1 != d2, "funding-tx tamper must change digest");
     }
 
     /// The core property: whoever signs the digest is the recovered owner —
@@ -183,19 +155,4 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         require(keccak256(abi.encode(t)) != h, "PREMISE: a field is NOT covered by the pinned struct hash");
     }
 
-    function test_recovered_signer_is_the_lp_not_the_submitter() public {
-        Types.OpenParams memory p = _params();
-        bytes memory rawTx = hex"0200000001deadbeef";
-        bytes32 d = ch.openChannelDigest(p, rawTx, address(0xB0B));
-
-        (address lp, uint256 lpPk) = makeAddrAndKey("lp");
-        (address attacker,)        = makeAddrAndKey("attacker");
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(lpPk, d);
-        // ecrecover the same way the contract's ECDSA.recover does.
-        address recovered = ecrecover(d, v, r, s);
-
-        assertEq(recovered, lp, "recovered == LP signer");
-        assertTrue(recovered != attacker, "front-runner cannot be the owner");
-    }
 }
