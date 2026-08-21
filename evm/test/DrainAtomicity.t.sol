@@ -1369,6 +1369,22 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("sigma^2 AFTER  (wad)", s2);
         // annualized vol = sqrt(sigma^2); report in bps so the level is readable at a glance.
         emit log_named_uint("annualized vol (bps)", Math.sqrt(s2 * 1e18) / 1e14);
+        // 🔴 §E277 — **THIS ASSERTION IS EXPECTED TO FAIL, AND THE FAILURE IS THE MEASUREMENT.**
+        // It is the LIVE evidence for §UNIT-SERIES-MEASURED after that row's original instrument
+        // (`test_UNIT_PoolVarianceVsChainlinkVariance`) was retracted by `5b6e96c9` for *"never
+        // producing a comparable number across three scaling attempts"*. Measured 2026-08-21:
+        // **σ² = 1, 1, 1, 0 wad across FOUR full-suite runs on BOTH arms** — deterministic, while the
+        // rest of this suite carries a ±2-test noise floor. `realizedVarianceWad()` is pinned at ~0
+        // and 20 driven ticks cannot budge it.
+        // ⛔ **DO NOT WEAKEN OR DELETE THIS TO GET THE SUITE GREEN.** Lowering the bound, widening a
+        // tolerance or skipping it destroys the only live proof that σ² is unresponsive — which is
+        // what makes the σ²-LINEAR kernel `Γ·σ²·qBar` blind (§UNIT-B-PATIENCE, §E274). Standing rule
+        // 4: a tolerance that makes a test pass is the tell that the real defect is still there.
+        // ▶️ The correct way to retire this red is to FIX THE RING so a driven tick moves σ², then
+        // watch this assertion go green on its own.
+        // ⚠️ `CORE.realizedVarianceWad() * 0 + 1` is literally `1`, written the long way. Left as-is
+        // deliberately: changing the expression while the test is load-bearing evidence would muddy
+        // which side moved.
         assertGt(s2, CORE.realizedVarianceWad() * 0 + 1, "the tick driver must move the ring");
     }
 
