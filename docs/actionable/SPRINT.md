@@ -4885,7 +4885,16 @@ row), `§A.16` (*"DELIVERY IS FINE … #12 territory"*), `§SPLIT-WEIGHTS` (*"DE
 / `§E2-#1` measurement rows (`paid $50,000.00 → claim $49,999.999998`, `supply 462,378 vs dollars
 352,000`) — numbers in a results table, whose live successors moved with the sections above.
 
-## §E273 — ✅ **THE HAIRCUT-CONSUMER PRECONDITION IS EXECUTED: ONE CHOKE POINT, AND THE LIMIT IS 1e18 NOT 3e16**
+## §E273 — ✅ **EXECUTED, AND ONE CONCLUSION SINCE CORRECTED BY MEASUREMENT**
+⛔ **CORRECTION (2026-08-21), and it is the load-bearing half.** This row concluded: *"a bounded-but-large
+skew (anything ≤ 100%) is arithmetically safe, and only the POLE is dangerous."* **The reachability half
+is wrong.** Another thread MEASURED the kernel crossing `1e18` at **q ≥ 0.893 under 200% vol** with
+today's Γ — FINITE scarcity, nowhere near the pole. ⇒ `SKEW_UNFILLABLE` is reached in NORMAL OPERATION
+once the cap is gone, so the decline path is a LIVE CODE PATH, not an edge guard. The arithmetic in this
+row stands (one choke point, limit 1e18, 33× the old cap); the inference that the margin made the
+threshold unreachable does not. **I reasoned the reachability from the size of the gap; they measured
+where the curve actually crosses it.** Landed in `a9da145b`.
+### (original, arithmetic still valid) THE HAIRCUT-CONSUMER PRECONDITION IS EXECUTED
 Booked 2026-08-19. This is the check §UNIT-A-CAP-QUESTION named and did not run — *"I never verified the
 haircut consumers. If skew can exceed 1e18 once the cap is gone, base·(1 − skew) underflows. That's a
 precondition for the deletion, not a follow-up."* **Correct to refuse to ship without it. Run now.**
@@ -5024,7 +5033,12 @@ threshold must land in the SAME change, or the first deep drain panics `0x11` in
 `retainSkewPremium`. ⚠️ §E104's lesson stands and now has a number: **the test that proves it must
 drive q past the threshold above**, not merely to zero.
 
-## §E274 — 🔴 **`Quid` IS AT 86 BYTES OF EIP-170 MARGIN ON `main`, MEASURED CLEAN**
+## §E274-SIZE — 🔴 **`Quid` IS AT 86 BYTES OF EIP-170 MARGIN ON `main`, MEASURED CLEAN**
+⚠️ **RENAMED FROM §E274 — ID COLLISION.** Another thread was already using §E274 for the Γ derivation
+(`Γ = 5.48e15` from `FLOW_DECAY`'s 48h half-life) and cites it FROM SOURCE COMMENTS in `SwapLib.sol`.
+Theirs keeps the bare number because code references are the expensive ones to move; this row takes
+the suffix. Per CLAUDE.md: **fix a duplicate id by SUFFIX, never by renumbering** — renumbering breaks
+every citation that already points at it.
 🔴 OPEN — measured 2026-08-21 from a worktree PINNED to `origin/main` with no uncommitted work, so it is
 attributable by construction. `python3 tools/check-contract-sizes.py`, 33 deployable contracts:
 ```
