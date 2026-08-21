@@ -112,13 +112,26 @@ Verify with `git log origin/main..HEAD` (0), `git worktree list` (none), `git st
 
 ### Do these in this order
 
-1. 🔴🔴🔴 **§E257 — `main` cannot execute a swap.** `Core.swap()` staticcalls 1inch's
+⛔ **ITEMS 1 AND 2 WERE STALE AND ARE RE-POINTED (§E303, applied 2026-08-22). DO NOT START EITHER AS
+WRITTEN.** A thread following the old text rebuilds something built and re-plumbs a read that is
+unreachable. **This ordered list is a ✅-equivalent — it tells the next thread what to do first — so a
+stale entry costs what a stale marker costs, and neither sweep covers it because it is prose.**
+▶️ **READ ITEM 1b: it is what this slot should have pointed at all along.**
+1b. 🔴 **§C1 / §E294 — σ² ≡ 0 BECAUSE THE RING'S TWO WRITERS BOTH SIT IDLE.** Measured, not argued:
+   nine in-band pushes take `realizedVarianceWad` **0 → 7.7e17**
+   (`PushObservationFillsTheRing.t.sol`), and the 1inch↔Chainlink basis is **23 bps against the 50 bps
+   guard** (`PushSourceIsAdmissible.t.sol`), so a push IS admitted and the estimator works. **The
+   caller now exists** (`script/PushObservation.s.sol` — reads `getRate` in simulation so the 33.6M
+   half never becomes a transaction). ⚠️ **WHAT REMAINS IS CADENCE, AND IT IS A DECISION:** drive it
+   from band state (repack / swap / delever), never a bare timer — selective sampling is the one
+   manipulation the 50 bps band does not bound.
+1. ⏸️ **§E257 — MOOT BY CONFIGURATION, NOT FIXED (see its row).** `main` cannot execute a swap.** `Core.swap()` staticcalls 1inch's
    `getRate` with no gas cap; `cast estimate` refuses at the node's 2^24 ceiling and the fork test
    measures **33,084,355 gas against a 30M block**. `setObservationSource` is **pin-once**, so a
    fresh deploy is unrecoverable without a code change. **The fix is already written:**
    `ExternalTwap.curvePriceWad` — a Curve `price_oracle()` read at ~2–3k gas. **Nothing else on this
    list matters until this is done.**
-2. 🔴🔴 **§E258 — build `fillOOR` + the sorted set.** The spec is §0-BUILD below, complete: the index
+2. ✅ **§E258 — BUILT; the spec at §0-BUILD records landed work (§E303).** ~~build `fillOOR` + the sorted set.~~ The spec is §0-BUILD below, complete: the index
    key must be `(price << 96) | id` because `SortedSetLib.insert` **silently ignores duplicates**;
    the in-swap loop must be capped or a swapper can be griefed; the poke is therefore a liveness
    requirement, not a convenience. Out-of-range orders currently **cannot execute at all**.
@@ -234,7 +247,17 @@ either closure.**
 
 ---
 
-## 0-BUILD. 🔴🔴 §E258 — `fillOOR` + THE SORTED SET: THE BUILD SPEC
+## 0-BUILD. ✅ §E258-spec — **BUILT. THIS IS A RECORD OF A LANDED DESIGN, NOT A TASK**
+✅ **CLOSED 2026-08-22 (§E303), against code:** `fillOOR`, `sweepOor` and `openOor` exist in
+`Quid.sol` and `BandLib.sol` — with the packed key, near-edge trigger, `maxFills` cap, permissionless
+poke and seeding watermark this spec asked for. **Every requirement below was met.** Kept in full
+because the REASONING is what a future reader needs (why the key is packed, why the cap forces the
+poke); only the status changes. ⚠️ **§E266's offer-tree successor is DEAD** (§E266-moot) — this is the
+surviving design, not an interim one.
+
+*(original spec follows)*
+
+## ~~0-BUILD.~~ §E258 — `fillOOR` + THE SORTED SET: THE BUILD SPEC
 
 **This is the top of the document because it is the one piece of DESIGN work this thread produced,
 chose, and then failed to build.** Everything else here is a finding; this is a specification.
@@ -304,7 +327,21 @@ building either first bakes the wrong assumption into the share maths.
 
 ---
 
-## 0-CRITICAL. 🔴🔴🔴 §E257 — `main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK
+## 0-CRITICAL. ⏸️ §E257 — **NO LONGER SHIPPING: MOOT BY CONFIGURATION, AND STILL LATENT**
+⏸️ **RE-POINTED 2026-08-22 (§E303) — NOT CLOSED, DELIBERATELY.** The headline below is false today:
+`setObservationSource` has **zero call sites in `DeployLib`**, so `_observeIfSourced` returns at its
+`src == address(0)` guard and the 33.6M read is never reached; every surviving `getRate` in `Core.sol`
+is a comment. 🔴 **But it returns the instant anyone pins 1inch, and §C1 is actively choosing a
+source** — so the protection is *"nothing is pinned"* plus `OneInchGasProbe.t.sol` as a tripwire, not
+a fix. **Rule 16: conditional on a choice not yet made ⇒ ⏸️, never ✅.**
+⭐ **THE PATH FORWARD IS NO LONGER THIS ROW'S.** The pull source stays unset; §E294's PUSH path is the
+live mechanism, its caller now exists (`script/PushObservation.s.sol`), and σ² has been measured
+moving **0 → 7.7e17** through it. ⛔ **Do not resurrect `curvePriceWad` on the strength of the text
+below** — a single Curve pool was pinned and then removed on the owner's instruction.
+
+*(original finding follows — its gas measurement is still why 1inch cannot be a PULL source)*
+
+## ~~0-CRITICAL.~~ §E257 — `main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK
 
 **Found 2026-08-17 while auditing the queue. It is one hour old, it is on `main`, and it is not mine
 — but it is the most important line in this document, so it goes first.**
