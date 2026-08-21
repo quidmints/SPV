@@ -4374,7 +4374,26 @@ curve is **NOT monotonic in runs**: 1→+68, 50→+107, 200→−74, 466→−14
 
 ### `§E270` (none)
 
-## §E270 — ⏸️ **NAMING HALF LANDED; THE `targetUSD` DIVERGENCE IS STILL OPEN**
+## §E270 — ✅ **CLOSED: BOTH HALVES. THE DIVERGENCE WAS DRIFT, AND IS NOW ONE SHARED HELPER**
+✅ **CLASSIFIED AND UNIFIED 2026-08-21.** The `targetUSD` divergence is **DRIFT, not a per-asset
+requirement** — proved from `sizeBySurplus`'s own exits rather than by inspection:
+  • unclamped, `targetUSD = deltaTok·price/WAD` by construction;
+  • surplus-clamped, `deltaOut = surplus·WAD/price` so `deltaOut·price/WAD == surplus == targetUSD`.
+⇒ The invariant `targetUSD == deltaOut·price/WAD` holds on BOTH exits, so ETH's `capped·price/WAD` and
+BTC's `targetUSD·capped/deltaTok` are **the same quantity**. ETH's form wins on merit: ONE rounding from
+clean inputs instead of compounding the earlier one and dividing by a `deltaTok` that is itself rounded
+in the clamped case, and `fullMulDiv` instead of an unguarded `*` then `/`.
+⭐ **NOT copied onto BTC — EXTRACTED.** `BtcLib` had neither `SoladyMath` nor `WAD`, so importing them
+would have re-added the duplicate `WAD` the fold exists to remove. Instead `SwapLib.usdForTok(tok,
+price)` is the ONE token→USD conversion at a band price, now used by all THREE sites that had written
+it inline (`sizeBySurplus` and each band's post-clamp recompute). `internal pure` ⇒ it inlines, so no
+new bytecode and no delegatecall.
+**Verified:** build exit 0 / 0 errors; `check-contract-sizes` exit 0 with `Quid` unchanged at 24,490;
+and the two BTC lev suites hold their baselines EXACTLY — `LevCascade` 7 passed / 9 failed,
+`VBtcLevFeeLane` 19 / 2. **The prediction was stated before the run** (rule 10): if a BTC test moved,
+the rescale was load-bearing and 'drift' was wrong. None moved.
+
+### (history) NAMING HALF LANDED; THE `targetUSD` DIVERGENCE WAS OPEN
 ⏸️ **PARTLY LANDED.** The naming half is fixed, and the fix was smaller than this row assumed:
 **BTC WAS ALREADY CORRECT** — `addLiqChannel` keeps its request in `sats` and reassigns only
 `deltaTok`. Only ETH took `deltaTok` AS ITS PARAMETER and destroyed it, so past `sizeBySurplus` the
