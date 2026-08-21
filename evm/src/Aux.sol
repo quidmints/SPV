@@ -19,7 +19,7 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
-import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBandManager, IBTCChannels} from "./imports/Interfaces.sol";
+import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, IBand, IBTCChannels} from "./imports/Interfaces.sol";
 import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, NotBTCChannels, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 
 
@@ -1351,7 +1351,7 @@ contract Aux is // Auxiliary
         // liquidity).
         // ON THE BTC VAULT, not `ethVenue`: those were one address until the venue carve, and
         // `setBTCChannels` is a BTC-BAND function. Read the vault from Core so there is no second pin.
-        IBandManager(CORE.btcVault()).setBTCChannels(b);
+        IBand(CORE.btcVault()).setBTCChannels(b);
     }
 
     // moved to EthVenue (the ETH-venue custody home).

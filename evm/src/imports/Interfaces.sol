@@ -515,152 +515,6 @@ interface ICore {
     function swap(address sender, bool inputIsUsd, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 }
 
-/// Canonical IEthVenue — the WHOLE external surface of `Vault`, not just its ETH-venue half.
-/// Union of IEthVenue, IEthVenue_VG, IEthVenueCL and (2026-07) `IVaultCtx_V` (BtcLib's
-/// self-callback surface).
-/// ⛔ §E301 — THIS HEADER SAID `Vault` IS "the merged EthVenue+BtcVault" AND THAT MERGE IS UNDONE.
-///    ETH-venue custody was extracted to `EthVenue`; measured in `Vault.sol`, every one of
-///    `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `aaveEthBalance`
-///    `deliverableETH` `_supplyETH` `_withdrawETH` `ETHERFI` `WEETH` `AAVE_SPOKE` is now ZERO
-///    references. `Vault` is the BTC band manager and nothing else. The reads below do NOT live
-///    on one shared address any more, and a reader who believes they do will look for ETH-venue
-///    state in the BTC band. The name stays `IBandManager` because that is what it now IS —
-///    not, as this said, a historical accident awaiting a rename to `IVault`.
-/// ⚠️ TWO INTERFACES DESCRIBE THE SAME PAIR OF OBJECTS AND SHARE NO MEMBERS: this one (7, the
-///    state/control surface) and `IBand` (9, the settlement surface), both implemented by `Quid`
-///    and `Vault`. That is not duplication to delete — nothing is declared twice — but it is two
-///    faces where the stated goal is one band manager, and a caller has no way to know which to
-///    reach for. Merging them is the same move §E21 made when `IAux` absorbed `LevMath.IAuxM`,
-///    `LevManager.ISwapAux` and `FeeLib.IAuxFee`. Left as a decision, not taken silently.
-///
-/// WHY the BTC members belong here: the second declaration could not drift-detect. `IVaultCtx_V`
-/// named Vault's own functions, so a return-shape change in Vault.sol would compile clean and
-/// mis-decode at runtime in the delegatecalled library instead of failing the build.
-/// Canonical view — union of the former per-file variants (`IEthVenueV`). Two declarations
-/// described ONE contract, so a signature change had to be made twice and a missed one still compiled.
-/// @notice The BAND MANAGER surface — implemented by BOTH `Quid` (ETH) and `Vault` (BTC), which is why
-///         every dispatch site already casts both to ONE type: `IBandManager(v4).repack(false)` vs
-///         `IBandManager(btcVault).repack(true)`. Callers therefore do NOT block the one-band-manager
-///         merge; they already treat the two as a single type.
-/// @dev    Split out of `IEthVenue` (2026-08-14), which had fused these with ETH-VENUE CUSTODY under a
-///         name that asserted ETH while declaring `feesPerShare`/`USD_FEES`/`derivedThetaWadBtc`.
-///         `Aux.sol` called it "the merged Vault (ETH+BTC)" in a comment. The split follows the same
-///         fault line the `Vault` contract splits on, so extracting ETH-venue custody becomes a matter
-///         of repointing `ethVenue` rather than re-typing call sites.
-interface IBandManager {
-    /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
-    function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
-    /// §ONE-ANCHOR — the derived range, from the single stored anchor.
-    function bandBounds() external view returns (uint lo, uint hi);
-    function feesPerShare() external view returns (uint);
-    function USD_FEES() external view returns (uint);
-    /// This band's engine. Without it a caller holding two band managers cannot reach the second
-    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
-    function CORE() external view returns (address);
-    function derivedThetaWad() external view returns (uint);
-    function setBTCChannels(address b) external;
-}
-
-/// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
-///         implements this; the slice is being extracted to its own contract, and because callers
-///         already speak this interface at an `ethVenue` pointer, that extraction repoints a pointer
-///         instead of re-typing every site.
-interface IEthVenue {
-    function bandETH() external view returns (uint);
-    function deliverableETH() external view returns (uint);
-    function supplyFromAux(uint amount) external returns (uint);
-    function withdrawForAux(uint amount, address to) external returns (uint);
-    function bandOp(uint amount, uint8 op) external returns (uint);
-    function supplyEtherFi(uint amount) external returns (uint);
-    function offrampEtherFi(uint amount, address recipient) external returns (uint);
-}
-
-/// Canonical IAux — union of IAux, IAux.
-
-/// @notice §E5 — the per-band sink that routes a retained scarcity premium into that band's LP
-///         fee accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME
-///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
-/// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
-interface IBTCChannels { function btcRecipientOf(address user) external view returns (bytes32); }
-
-
-/// G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with
-/// swap-out). Frees levered net-equity into the sink value-neutrally. (was BasketLib.ILevSweepB)
-interface ILevSweep { function deleverBook(uint256 usdWanted, address sink, uint256 minOut) external returns (uint256 freed); }
-
-/// Deploy-finalize linkage cross-check on the BASKET. Kept as its own interface rather than folded
-/// into `IAux`: `AUX()` is a getter ON Basket, so hanging it off the Aux surface would have made the
-/// canonical file assert a member Aux does not have — the compiler caught exactly that.
-interface IWiredBasket { function AUX() external view returns (address);
-                         function BTC_VAULT() external view returns (address); }
-
-/// Deploy-finalize linkage cross-check on the Vault (BasketLib.assertFullyWired).
-interface IWiredVault { function btcChannels() external view returns (address);
-                        function LEV_MANAGER() external view returns (address); }
-
-/// Canonical Basket turn/maturity view (was BasketLib.IBasketTurn, itself already a union of two
-/// earlier per-file variants).
-interface IBasketTurn {
-    function turn(address from, uint value) external returns (uint sent, uint seedBurned);
-    function matureSupply() external view returns (uint);
-    function immatureBalanceOf(address who) external view returns (uint);
-}
-interface IBasketMint { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
-interface IQuidTarget { function target() external view returns (uint); }
-
-/// BTC swap-out de-lever surface on the BTC LevManager. (was SwapLib.ILevManagerDeliver)
-interface ILevManagerDeliver {
-    function swapOutDeleverAmt(address lp, uint maxUsd18)
-        external view returns (address venue, address stable, uint amtNative);
-    function swapOutDelever(address lp, uint stableUsd, uint freeSats)
-        external returns (uint usedUsd, uint freedSats);
-}
-/// M.1 ETH delivery-side de-lever. Distinct from BTC's `swapOutDelever` (ETH DELIVERS WETH to a
-/// recipient; BTC un-encumbers spliced sats), and ETH is POOLED so it walks the book.
-/// (was SwapLib.ILevEthDeliver)
-interface ILevEthDeliver {
-    function openLevCount() external view returns (uint);
-    function openLpAt(uint i) external view returns (address);
-    function swapOutDeleverAmt(address lp, uint maxUsd18)
-        external view returns (address venue, address stable, uint amtNative);
-    function swapOutDelever(address lp, uint stableUsd, address recipient, uint minWethOut)
-        external returns (uint usedUsd, uint wethDelivered);
-    function swapOutDeliverUnlevered(address lp, uint wethWanted, address recipient, uint minWethOut)
-        external returns (uint wethDelivered);
-}
-
-interface IBtcVaultBridge {
-    // BTC LP position: open/close/splice (driven on channel open/close).
-    function requestDeposit(address lpEth, uint sats) external;
-    function requestRedeem(address lpEth, uint lpPayoutSats) external;
-    // (E145) `settleBtcFeesOwed` REMOVED — the BTC fee leg compounds into `pooled` in sats,
-    // so there is no owed ledger to clear. Leaving the DECLARATION here is what let a deleted
-    // implementation still compile at the call site; the two must be removed together.
-    // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
-    // 0 ⇒ LP-withdrawal splice-out (all native).
-    // §EIP-7540 — NOT given a `request*` name, deliberately. 7540 has requestDeposit and
-    // requestRedeem and NOTHING for a PARTIAL close: this shrinks a position by `shrinkSats`
-    // without retiring the channel, which the standard does not model. Inventing `requestResize`
-    // would dress a non-standard operation in standard vocabulary, which is worse than a plain
-    // name. The `Btc` suffix goes because that is the band-instance cleanup, not the 7540 one.
-    function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
-    // BTC↔USD swap settlement (the swap-IN credit + on-curve swap-OUT buy).
-    function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd) external returns (uint consumedSats);
-    function creditSwapOut(address swapper, address token, uint usdAmount, uint minSats)
-        external returns (uint sats, uint usd6);
-    // Record / clear an on-chain swap-out obligation's USD in pendingSwapOutUsd.
-    function addPendingSwapOut(uint usd6) external;
-    function subPendingSwapOut(uint usd6) external;
-}
-
-interface IVaultExposeB {
-    function exposeBtcToLev(address lp, uint sats) external returns (bool);
-    function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
-}
-
-interface IVBtcToken { function VAULT() external view returns (address); }
-
-
 /// §ISBTC-SPLIT — THE BAND MANAGER'S FACE, SO `Core` STOPS ASKING WHICH ASSET IT IS.
 ///
 /// Every remaining `IS_BTC` branch on Core's money path was Core reaching into ONE OF TWO band
@@ -704,6 +558,28 @@ interface IBand {
     function onShortfall(address sender, uint shortfall) external;
     /// Pay the volatile leg out to `who`. See the no-op note above.
     function deliverVolatile(uint amount, address who) external returns (uint sent);
+    // ═══ §E302 — `IBand`'s SEVEN MEMBERS, MERGED IN. ONE BAND FACE, NOT TWO ═══
+    // Measured before merging: the two interfaces shared ZERO member names, and `Quid` and `Vault`
+    // each implement BOTH — so they were never two objects, only two names for one. Nothing was
+    // declared twice, which is why standing rule 2 never flagged it; the defect was that a caller
+    // holding a band had no way to know which of two faces to reach for. 36 `IBand` sites
+    // and 14 `IBand` sites now cast to the same type. The surviving name is the one that matches
+    // the variable it types (`Core.BAND`), and it is the face whose header already called itself
+    // "the precondition for the two managers becoming one implementation with two instances".
+    // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions — their
+    //    getters are auto-generated, which is why grepping `function feesPerShare(` in `Quid.sol`
+    //    returns 0 and the members are still implemented.
+    /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
+    function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
+    /// §ONE-ANCHOR — the derived range, from the single stored anchor.
+    function bandBounds() external view returns (uint lo, uint hi);
+    function feesPerShare() external view returns (uint);
+    function USD_FEES() external view returns (uint);
+    /// This band's engine. Without it a caller holding two band managers cannot reach the second
+    /// band's `POOLED`/`POOLED_USD`, which is what silently made cross-band isolation untestable.
+    function CORE() external view returns (address);
+    function derivedThetaWad() external view returns (uint);
+    function setBTCChannels(address b) external;
 }
 
 /// @notice §E297 — the last five interfaces that lived outside this file (standing rule 2).

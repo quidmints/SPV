@@ -87,7 +87,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
     /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
-    ///      could reach THIS band's engine -- `IBandManager` had no `core()` either -- so a test
+    ///      could reach THIS band's engine -- `IBand` had no `core()` either -- so a test
     ///      wanting to compare the two bands had no handle for the second one and read the ETH core
     ///      TWICE. That is how `PooledUsdRepackMatrix`'s cross-band isolation assertions became
     ///      comparisons of a value to itself: vacuously true, in the very file whose docblock warns

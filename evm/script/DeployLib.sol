@@ -216,7 +216,7 @@ library DeployLib {
         // assignment was wrong, which is the exact shape CLAUDE.md records for this split.
         Vault eth = _newVault(cfg, address(v4), a.btcCore, address(aux));  // own frame (no via_ir)
         // The ETH-venue pointers now target the CUSTODY contract, not the Vault. Every
-        // `IBandManager(...)` call site follows the pin, so nothing else moves.
+        // `IBand(...)` call site follows the pin, so nothing else moves.
         // §ETHVENUE-FOLD — the ETH yield venue IS Quid. One fewer deployable contract, and one
         // fewer pin: `setEthVenueContract` is gone with the separate address it existed to name.
         // `aux.setEthVenue` still runs, now pointing at the band manager itself.

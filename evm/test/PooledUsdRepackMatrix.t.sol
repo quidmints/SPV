@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {IBandManager} from "../src/imports/Interfaces.sol";
+import {IBand} from "../src/imports/Interfaces.sol";
 import {Core} from "../src/Core.sol";
 
 /// @notice #12 PREREQUISITE MATRIX — BOTH BANDS. Is the LP-owned claim well defined?
@@ -54,10 +54,10 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// fields. `_snap(band)` takes the instance, so the band-qualified spelling cannot be written.
     ///
     /// 🔴 AND THE OLD SHAPE HID A LIVE DEFECT. `usdBtc`/`btcLeg` were assigned from `CORE` -- the
-    /// ETH engine -- because `Vault.CORE` was `internal` and `IBandManager` had no `core()`, so the
+    /// ETH engine -- because `Vault.CORE` was `internal` and `IBand` had no `core()`, so the
     /// BTC engine was UNREACHABLE from a test. Every "ETH flow must not move the BTC band's USD
     /// leg" assertion therefore compared a value to ITSELF. Both are now read through
-    /// `IBandManager(band).CORE()`, which is why that accessor was made public.
+    /// `IBand(band).CORE()`, which is why that accessor was made public.
     ///
     /// `epoch` is DELETED: a keccak of (LOWER_PRICE, UPPER_PRICE) that nothing asserted on. The
     /// bounds it hashed are read directly where they are wanted, and a hash of two values you can
@@ -71,7 +71,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     }
 
     /// @param band the band manager to snapshot. ONE instance in, one Snap out.
-    function _snap(IBandManager band) internal view returns (Snap memory s) {
+    function _snap(IBand band) internal view returns (Snap memory s) {
         Core c = Core(payable(band.CORE()));
         s.usd = c.POOLED_USD();  s.leg = c.POOLED();
         s.committed = c.committedUsd18();          // joint by construction; same on both bands
@@ -82,8 +82,8 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// INSTANCES of it, which is the distinction the whole refactor turns on.
     struct Pair { Snap eth; Snap btc; }
     function _snap() internal view returns (Pair memory p) {
-        p.eth = _snap(IBandManager(address(V4)));
-        p.btc = _snap(IBandManager(address(BTC)));
+        p.eth = _snap(IBand(address(V4)));
+        p.btc = _snap(IBand(address(BTC)));
         // §ONE-REPACK-STAMP — ETH ONLY, and deliberately not mirrored. `LAST_REPACK` exists on
         // Quid and not on Vault, which looks like an asymmetry to close until you check who reads
         // it: NO CONTRACT DOES. It is stamped by the rebalance forwarder and consumed only by

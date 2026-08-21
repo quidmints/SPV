@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
-import {IBandManager} from "./Interfaces.sol";
+import {IBand} from "./Interfaces.sol";
 import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IQuid, ILevHost} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
@@ -1123,10 +1123,10 @@ library BasketLib {
         // expression the compiler cannot object to. Now it reads the two INSTANCES.
         bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();
         // ETH pool repack → Quid (v4); BTC pool repack → BtcVault (regrouped).
-        IBandManager(ethFirst ? v4 : btcVault).repack();   // repack the LARGER pool first
+        IBand(ethFirst ? v4 : btcVault).repack();   // repack the LARGER pool first
         committedSum = ICore(core).committedUsd18();
         if (committedSum > totalLiquid) {
-            IBandManager(ethFirst ? btcVault : v4).repack();   // then the other one
+            IBand(ethFirst ? btcVault : v4).repack();   // then the other one
             committedSum = ICore(core).committedUsd18();
         }
     }
@@ -1134,7 +1134,7 @@ library BasketLib {
     // ⛔ `_repackPool` IS DELETED — it wrapped ONE external call and added nothing.
     // Its own docstring recorded why it had stopped doing work: it used to ROUTE by boolean, and
     // "a boolean plus both addresses was a dispatch the caller had already made". Once the target
-    // became the band address itself, the body was `IBandManager(band).repack()` and the wrapper
+    // became the band address itself, the body was `IBand(band).repack()` and the wrapper
     // was a second name for `.repack()`. Both call sites now say that directly, and the choice of
     // WHICH band stays where it was always made — in the `ethFirst` ternary at the call site.
 

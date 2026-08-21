@@ -10,7 +10,7 @@ import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is t
 import {ICore} from "./Interfaces.sol";
 import {ILevManagerDeliver, ILevEthDeliver} from "./Interfaces.sol";
 import {IBTCChannels} from "./Interfaces.sol";
-import {IBandManager} from "./Interfaces.sol";
+import {IBand} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -373,7 +373,7 @@ library SwapLib {
         uint v4p;   // §DE-TICK: `bandTicks` deleted — it packed a band-edge PRICE LIMIT for v4's
                     // swap, and settlement is at oracle bounded by inventory, so there is no limit to pack.
         {
-            (,,,, uint p) = IBandManager(c.band).repack();
+            (,,,, uint p) = IBand(c.band).repack();
             v4p = p;
         }
         {
@@ -656,7 +656,7 @@ library SwapLib {
         uint v4p;
         Types.RouteParams memory rp;
         {
-            (,,,, uint p_) = IBandManager(bandVault).repack();
+            (,,,, uint p_) = IBand(bandVault).repack();
             v4p = p_;
         }
         rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
@@ -1632,7 +1632,7 @@ library SwapLib {
         // §E9 — packed band ticks, not a price (see creditSwapInBody). Block-scoped for stack.
         uint v4p;
         {
-            (,,,, uint p_) = IBandManager(address(this)).repack();
+            (,,,, uint p_) = IBand(address(this)).repack();
             v4p = p_;
         }
         rp.inputIsUsd   = true;    // USD→BTC buy: USD is the INPUT (mirror of the sell)

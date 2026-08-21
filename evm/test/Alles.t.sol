@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 import {ForkPin} from "./utils/ForkPin.sol";
-import {ICurvePool, IBandManager} from "../src/imports/Interfaces.sol";
+import {ICurvePool, IBand} from "../src/imports/Interfaces.sol";
 import {ChannelLib} from "../src/imports/ChannelLib.sol";
 import {BasketLib} from "../src/imports/BasketLib.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
@@ -1311,8 +1311,8 @@ contract AllesFixture is ForkPin, ExitFixture {
 
     /// §ONE-ANCHOR — the band stores ONE anchor and derives `[lo, hi]`, so tests read the pair via
     /// `bandBounds()`. These two exist so the files that want a single leg do not each destructure it.
-    function _bLo(address band) internal view returns (uint) { (uint l,) = IBandManager(band).bandBounds(); return l; }
-    function _bHi(address band) internal view returns (uint) { (, uint h) = IBandManager(band).bandBounds(); return h; }
+    function _bLo(address band) internal view returns (uint) { (uint l,) = IBand(band).bandBounds(); return l; }
+    function _bHi(address band) internal view returns (uint) { (, uint h) = IBand(band).bandBounds(); return h; }
 
 
     // ════════════════════════════════════════════════════════════════════════════════════════
