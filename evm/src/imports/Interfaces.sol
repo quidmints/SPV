@@ -515,6 +515,106 @@ interface ICore {
     function swap(address sender, bool inputIsUsd, address token, uint amount) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 }
 
+/// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
+///         implements this; the slice is being extracted to its own contract, and because callers
+///         already speak this interface at an `ethVenue` pointer, that extraction repoints a pointer
+///         instead of re-typing every site.
+interface IEthVenue {
+    function bandETH() external view returns (uint);
+    function deliverableETH() external view returns (uint);
+    function supplyFromAux(uint amount) external returns (uint);
+    function withdrawForAux(uint amount, address to) external returns (uint);
+    function bandOp(uint amount, uint8 op) external returns (uint);
+    function supplyEtherFi(uint amount) external returns (uint);
+    function offrampEtherFi(uint amount, address recipient) external returns (uint);
+}
+
+/// Canonical IAux — union of IAux, IAux.
+
+/// @notice §E5 — the per-band sink that routes a retained scarcity premium into that band's LP
+///         fee accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME
+///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
+/// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
+interface IBTCChannels { function btcRecipientOf(address user) external view returns (bytes32); }
+
+
+/// G.6 redeem shortfall sweep: the ETH LevManager's ONE reactive de-lever entry (SHARED with
+/// swap-out). Frees levered net-equity into the sink value-neutrally. (was BasketLib.ILevSweepB)
+interface ILevSweep { function deleverBook(uint256 usdWanted, address sink, uint256 minOut) external returns (uint256 freed); }
+
+/// Deploy-finalize linkage cross-check on the BASKET. Kept as its own interface rather than folded
+/// into `IAux`: `AUX()` is a getter ON Basket, so hanging it off the Aux surface would have made the
+/// canonical file assert a member Aux does not have — the compiler caught exactly that.
+interface IWiredBasket { function AUX() external view returns (address);
+                         function BTC_VAULT() external view returns (address); }
+
+/// Deploy-finalize linkage cross-check on the Vault (BasketLib.assertFullyWired).
+interface IWiredVault { function btcChannels() external view returns (address);
+                        function LEV_MANAGER() external view returns (address); }
+
+/// Canonical Basket turn/maturity view (was BasketLib.IBasketTurn, itself already a union of two
+/// earlier per-file variants).
+interface IBasketTurn {
+    function turn(address from, uint value) external returns (uint sent, uint seedBurned);
+    function matureSupply() external view returns (uint);
+    function immatureBalanceOf(address who) external view returns (uint);
+}
+interface IBasketMint { function mint(address pledge, uint amount, address token, uint when) external returns (uint); }
+interface IQuidTarget { function target() external view returns (uint); }
+
+/// BTC swap-out de-lever surface on the BTC LevManager. (was SwapLib.ILevManagerDeliver)
+interface ILevManagerDeliver {
+    function swapOutDeleverAmt(address lp, uint maxUsd18)
+        external view returns (address venue, address stable, uint amtNative);
+    function swapOutDelever(address lp, uint stableUsd, uint freeSats)
+        external returns (uint usedUsd, uint freedSats);
+}
+/// M.1 ETH delivery-side de-lever. Distinct from BTC's `swapOutDelever` (ETH DELIVERS WETH to a
+/// recipient; BTC un-encumbers spliced sats), and ETH is POOLED so it walks the book.
+/// (was SwapLib.ILevEthDeliver)
+interface ILevEthDeliver {
+    function openLevCount() external view returns (uint);
+    function openLpAt(uint i) external view returns (address);
+    function swapOutDeleverAmt(address lp, uint maxUsd18)
+        external view returns (address venue, address stable, uint amtNative);
+    function swapOutDelever(address lp, uint stableUsd, address recipient, uint minWethOut)
+        external returns (uint usedUsd, uint wethDelivered);
+    function swapOutDeliverUnlevered(address lp, uint wethWanted, address recipient, uint minWethOut)
+        external returns (uint wethDelivered);
+}
+
+interface IBtcVaultBridge {
+    // BTC LP position: open/close/splice (driven on channel open/close).
+    function requestDeposit(address lpEth, uint sats) external;
+    function requestRedeem(address lpEth, uint lpPayoutSats) external;
+    // (E145) `settleBtcFeesOwed` REMOVED — the BTC fee leg compounds into `pooled` in sats,
+    // so there is no owed ledger to clear. Leaving the DECLARATION here is what let a deleted
+    // implementation still compile at the call site; the two must be removed together.
+    // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
+    // 0 ⇒ LP-withdrawal splice-out (all native).
+    // §EIP-7540 — NOT given a `request*` name, deliberately. 7540 has requestDeposit and
+    // requestRedeem and NOTHING for a PARTIAL close: this shrinks a position by `shrinkSats`
+    // without retiring the channel, which the standard does not model. Inventing `requestResize`
+    // would dress a non-standard operation in standard vocabulary, which is worse than a plain
+    // name. The `Btc` suffix goes because that is the band-instance cleanup, not the 7540 one.
+    function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd) external;
+    // BTC↔USD swap settlement (the swap-IN credit + on-curve swap-OUT buy).
+    function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd) external returns (uint consumedSats);
+    function creditSwapOut(address swapper, address token, uint usdAmount, uint minSats)
+        external returns (uint sats, uint usd6);
+    // Record / clear an on-chain swap-out obligation's USD in pendingSwapOutUsd.
+    function addPendingSwapOut(uint usd6) external;
+    function subPendingSwapOut(uint usd6) external;
+}
+
+interface IVaultExposeB {
+    function exposeBtcToLev(address lp, uint sats) external returns (bool);
+    function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
+}
+
+interface IVBtcToken { function VAULT() external view returns (address); }
+
+
 /// §ISBTC-SPLIT — THE BAND MANAGER'S FACE, SO `Core` STOPS ASKING WHICH ASSET IT IS.
 ///
 /// Every remaining `IS_BTC` branch on Core's money path was Core reaching into ONE OF TWO band
@@ -558,17 +658,15 @@ interface IBand {
     function onShortfall(address sender, uint shortfall) external;
     /// Pay the volatile leg out to `who`. See the no-op note above.
     function deliverVolatile(uint amount, address who) external returns (uint sent);
-    // ═══ §E302 — `IBand`'s SEVEN MEMBERS, MERGED IN. ONE BAND FACE, NOT TWO ═══
-    // Measured before merging: the two interfaces shared ZERO member names, and `Quid` and `Vault`
-    // each implement BOTH — so they were never two objects, only two names for one. Nothing was
-    // declared twice, which is why standing rule 2 never flagged it; the defect was that a caller
-    // holding a band had no way to know which of two faces to reach for. 36 `IBand` sites
-    // and 14 `IBand` sites now cast to the same type. The surviving name is the one that matches
-    // the variable it types (`Core.BAND`), and it is the face whose header already called itself
-    // "the precondition for the two managers becoming one implementation with two instances".
-    // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions — their
-    //    getters are auto-generated, which is why grepping `function feesPerShare(` in `Quid.sol`
-    //    returns 0 and the members are still implemented.
+
+    // ═══ §E302 — `IBandManager`'s SEVEN MEMBERS, MERGED IN. ONE BAND FACE, NOT TWO ═══
+    // The two interfaces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
+    // they were never two objects - only two names for one. Nothing was declared twice, which is
+    // why standing rule 2 never flagged it; the defect was that a caller holding a band had no way
+    // to know which of two faces to reach for, in a codebase whose target is ONE band manager.
+    // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions - their
+    //    getters are auto-generated, so grepping for their `function` form in `Quid.sol` returns 0
+    //    while the members are fully implemented.
     /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
     /// §ONE-ANCHOR — the derived range, from the single stored anchor.
