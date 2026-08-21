@@ -545,6 +545,40 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
 | Rust (`quid-ln`) | **Does not build on macOS at all** — `quid-cvm` is Linux-only and transitive. Use the image: `docker build -t quid-ln:dev quid-ln` then `docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev`. **VERIFIED GREEN: 624 passed / 0 failed (2026-08-07).** Was recorded as 532; the count grew AND the tree was red in between — two `quid-tls` shared-seed snapshot tests encoded pre-`QUID-REALM` values (see `quid-tls/src/shared_seed/certs.rs`). A recorded pass count goes stale silently; re-run before trusting it. `quid-ln/Dockerfile` is the single source for the commands — it pins rust 1.90 to `rust-toolchain.toml` and bakes Bitcoin Core **30.2, the same version `regtest/env.sh` uses** (a split would mean Docker and host harnesses disagreeing on consensus). |
 | Docker VM memory | `docker info` MemTotal is a **VM allocation, not host free RAM** — closing apps does nothing. Default is ~2 GB; **raised to ~5 GB 2026-08-02, and measured at ~13.6 GB on 2026-08-08** (`docker info` MemTotal 13,618,397,184 — re-read it rather than trusting this line, which was already stale once). Change at Docker Desktop → Settings → Resources → Memory. **Not scriptable:** `~/Library/Group Containers/group.com.docker/settings.json` is TCC-protected, so a shell gets `Operation not permitted` even as its owner without Full Disk Access. ⚠️ **Under-memory `rustc` is OOM-killed with NO diagnostic** — just `process didn't exit successfully`, no error code or span. That reads exactly like a compile error and is not one. Escape hatch: `-e CARGO_BUILD_JOBS=1 -e RUSTFLAGS="-C debuginfo=0"`. |
 
+## Before writing ANY primitive: four libraries are already linked
+
+⛔ **DO NOT ROLL YOUR OWN** (owner, 2026-08-21: *"do not roll your own code from scratch, copy over
+audited files"*). `evm/remappings.txt` already links **solady**, **@solarity/solidity-lib**,
+**OpenZeppelin** and **morpho-blue**. Grep those before reaching for anything.
+- **Merkle proofs / trees → `@solarity/solidity-lib`**, already used by `ChannelLib`, `ExitLib`,
+  `MuSig2Agg`, `SPVGateway`, `ISPVGateway`. It has `libs/bitcoin/TxMerkleProof.sol` (`processProof`),
+  `access/AMerkleWhitelisted.sol`, and Cartesian / Incremental / Sparse Merkle trees.
+  ⚠️ I was one command from copying Midnight's `HashLib` in beside it — **a second Merkle
+  implementation next to one we already depend on**, which is the duplication this whole refactor
+  exists to delete. Check what the tree ALREADY links before proposing an import.
+- **Fixed-point → solady's `FixedPointMathLib`** (`SoladyMath.fullMulDiv` throughout).
+- **Morpho Blue → `lib/morpho-blue`**, vendored as tracked files. `LevVenueBase` imports its
+  `IMorphoStaticTyping`/`MarketParams`/`MarketParamsLib` rather than restating them; 15 hand-rolled
+  Morpho declarations were collapsed to 2, and those 2 are Morpho **Vaults V2**, a different protocol.
+⚠️ **TAKE THE PIECES, NOT THE REPO.** Vendoring Midnight wholesale forced a hand-rewrite of
+`UtilsLib.msb` because its `clz` is an **Osaka** opcode and we pin solc 0.8.30 / cancun. The offer path
+never touches `UtilsLib` — taking less would have meant hand-rolling nothing.
+
+## ⛔ THERE ARE NO TICKS. THE GREP SAYS OTHERWISE AND IT IS WRONG.
+
+`evm/src` has **~185 case-insensitive `tick` matches and EVERY ONE IS A COMMENT.** Zero live tick code.
+They are `§DE-TICK` / `§TICK-REMOVAL` markers recording the removal: *"band bounds as PRICES"*,
+*"carries the PRICE now, not a sqrt price"*, *"`bandTicks` deleted — it packed a band-edge PRICE LIMIT
+for v4's swap"*.
+⚠️ **THE HIT COUNT LIES BY VOLUME**: 185 reads as heavy usage, and the density exists *because* the
+removal was documented carefully. **Filter comments before concluding anything about tick usage** — the
+inverse of "an empty grep proves nothing", and it costs the same wrong conclusion.
+⇒ **Band bounds are ABSOLUTE PRICES** (`loPrice`/`upPrice`); the fill settles at the oracle; out-of-range
+orders carry absolute `lower`/`upper`. **Midnight's `TickLib` is therefore irrelevant to us** — it
+quantises onto a log grid in a (0,1) DISCOUNT domain and we neither quantise nor price in discounts. I
+nearly booked "tick normalisation" as unavoidable new work; there is none, because there is no tick on
+our side to normalise to.
+
 ## Decimal bases — the single most common source of bugs here
 
 Three bases coexist: **6** (USD stables), **8** (sats/WBTC), **18** (ETH/QU!D/internal USD).
