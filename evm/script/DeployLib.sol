@@ -136,16 +136,22 @@ library DeployLib {
             core          = new Core(cfg.weth, SwapLib.ethRisk());
             Core btcCore  = new Core(cfg.wbtc, SwapLib.btcRisk());
             a.btcCore = address(btcCore);
-            // (§E222) The ring's independent observation source: Curve TriCrypto-USDC,
-            // `price_oracle(1)`. Index 1 is derived, not chosen — Curve prices coin `k+1` in coin-0
-            // units and this pool is USDC=0, WBTC=1, WETH=2, so `1` is WETH/USDC, already USD·1e18,
-            // which is why `_observeIfSourced` applies no scaling. One storage read: it sits on the
-            // swap path, so an aggregating source that iterates venues cannot be used here.
-            // ⚠️ REQUIRED. Unset, `_observeIfSourced` returns early and the ring records nothing, so
-            // σ² is never measured and §E213 prices at the ceiling — safe, and silent.
-            core.setObservationSource(
-                0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B,
-                abi.encodeWithSignature("price_oracle(uint256)", uint256(1)));
+            // §E222 — NO OBSERVATION SOURCE IS PINNED. TriCrypto-USDC was pinned here and is
+            // REMOVED ON THE OWNER'S INSTRUCTION (2026-08-21, said three times).
+            // ⇒ CONSEQUENCE, STATED RATHER THAN LEFT TO BE FOUND: `_observeIfSourced` returns early,
+            //   the ring is never written, `ringVariance` returns 0, and §E213's sentinel prices
+            //   unmeasured variance at the CEILING. Safe, and silent — so it is written down here.
+            // ⚠️ WHY NOT JUST RE-PIN IT: a single pool makes THAT pool's depth and its own depeg mode
+            //   an input to σ², the skew and liquidation. `ExternalTwap`'s own header states the rule
+            //   ("correlated sources are one source") and one venue fails it on its own terms.
+            // ⛔ RULED OUT, so nobody re-tries them: 1inch's OffchainOracle iterates 14 venues at
+            //   31,722,803 gas — above the 30M block limit, unexecutable on the swap path. A v3 TWAP
+            //   needs `1.0001^tick`, i.e. `TickMath`, which the v4 cut removed.
+            // ▶️ WHAT WOULD WORK: several on-pool EMAs in DIFFERENT quote assets, median-of-N with a
+            //   spread cap. Measured 2026-08-21 — WETH/USDC $2,384.81 · WETH/USDT $2,386.52 ·
+            //   WETH/crvUSD $2,384.83, a 7.2 bps spread, one storage read each. The index is PER-POOL
+            //   (`price_oracle(1)` on TriCryptos, `price_oracle(0)` on TriCRV), so it must be pinned
+            //   WITH the source or a shared index prices ETH as WBTC.
             // ⚠️ The BTC instance is deliberately left unset: every on-chain venue quotes WRAPPED
             // BTC, so observing one makes a WBTC depeg indistinguishable from bitcoin moving. Unset
             // ⇒ σ² unmeasured ⇒ §E213 at the ceiling, which is the honest reading. The BTC anchor is
