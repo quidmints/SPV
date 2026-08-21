@@ -8205,16 +8205,42 @@ is **BELOW** the 77.50% available in one hop. **The product of two high LTVs is 
 LTV**, so the eMode 93% — the whole reason for going through WETH — is spent on a step that gives the
 dollar leg a *smaller* base than it started with.
 
-| per 1 weETH of own capital | max net ETH exposure | ETH drop that liquidates @ 2× | accounts | eMode needed |
-|---|---|---|---|---|
-| **direct: weETH → USDC** | **4.44×** | **37.5%** | **1** | **no** |
-| two-leg: weETH → WETH → USDC | 3.98× | **3.0%** at minimum `w`; 35.2% at maximum `w`, but acct A health is then **1.02** | 2 | yes |
+🔴 **THE FIRST VERSION OF THIS TABLE WAS MISLEADING AND IS REPLACED (owner pushback, 2026-08-22 —
+*"not sure if you are calculating this correctly"*, and they were right).** It headlined a **3.0%**
+liquidation buffer for the two-leg, which is the buffer only when the WETH borrow is sized at its
+**MINIMUM** — a sizing that pins account B at 100% of its LTV capacity. That is an artifact of the
+choice, not a property of the design. **It also compared two different risks as if they were one:**
+account A is weETH-against-WETH and carries **no ETH price delta at all**, so its "health 1.02" is not
+a price number.
 
-⚠️ **READ THE LIQUIDATION COLUMN, IT IS THE SHARPEST PART.** At 2× the two-leg's dollar debt sits on a
-**1.24 WETH** collateral base rather than on the whole **2 weETH** stack, so **a 3% ETH move liquidates
-it.** Pushing `w` to its maximum recovers the buffer to 35.2% — still short of direct — only by driving
-account A to health **1.02**, where a ~2% weETH/ETH dislocation liquidates *that*. **There is no sizing
-of the two-leg that beats the one-hop on both accounts at once.**
+⚠️ **AND THE ORACLE SETTLES WHICH RISK ACCOUNT A ACTUALLY RUNS. Measured: Aave's weETH source is
+`0x8762…6d4C`, `description() = "Capped weETH / eETH(ETH) / USD"`** — a **capped exchange-rate (CAPO)**
+feed, not a market price (implied ratio **1.1020** = 279169246317 / 253337014201, both 8-dec USD).
+⇒ **A DEX depeg cannot liquidate account A; only the eETH exchange rate falling can, which means a
+SLASHING event.** The ratio otherwise rises monotonically with staking yield.
+
+**CORRECTED — AT 2× NET EXPOSURE, TWO SEPARATE AXES:**
+
+| sizing (own capital 1, x = 2) | survives ETH price drop | survives exchange-rate drop |
+|---|---|---|
+| **DIRECT weETH → USDC, 1 account** | **37.5%** | **37.5%** |
+| two-leg, `w` at min (1.24) | 3.0% | 34.6% |
+| two-leg, `w` balanced (1.51) | 20.4% | 20.4% |
+| two-leg, `w` at max (1.86) | 35.2% | 2.1% |
+
+⇒ **THE TWO-LEG HAS A CONSERVATION LAW: `w` TRADES BUFFER BETWEEN THE TWO ACCOUNTS AND CANNOT RAISE
+BOTH.** The best balanced sizing is 20.4%/20.4%. **Direct beats EVERY two-leg sizing on BOTH axes at
+once** — its two columns are equal precisely because one collateral carries both risks together,
+instead of splitting one risk budget across two positions.
+⚠️ **The direct route's exchange-rate column is 37.5%, not "not applicable"** — weETH collateral is
+priced by that same CAPO feed there too. Direct is not avoiding slashing risk; it is holding the same
+risk with a far larger buffer.
+
+**AND THE ONE-LINE REASON CHAINING LOSES, which is the part worth keeping:** step 1 keeps only
+**0.930** of the collateral value and step 2 lends **0.805** of *that*. **The 7.0 pp haircut at step 1
+outweighs the +3.0 pp LTV gain at step 2.** Per unit of collateral value WETH does borrow MORE dollars
+than weETH (80.50% vs 77.50%, exactly because it has no wrapper risk) — that intuition is correct, and
+it is still not enough.
 
 ⇒ **RECOMMENDATION: drop the WETH intermediate for the LEVERAGE objective.** It makes the "threeway"
 a two-way — weETH collateral, USDC debt, one Aave account per LP — which is **what `AaveV3Venue`
