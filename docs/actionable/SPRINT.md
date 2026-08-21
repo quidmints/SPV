@@ -7284,3 +7284,36 @@ Adding `bytes swapData` to those means:
 ▶️ **ORDER: settle the `cascadeDelever` batch-calldata question FIRST** — it is the one that can make
 the whole design unworkable, and everything else is mechanical once it is answered.
 
+
+## 🔴🔴 §E298 — **"THE SOLVER ROUTES WHAT WE DECLINE" IS TWO DIFFERENT MECHANISMS, AND THE ONE I LANDED IS THE WRONG ONE**
+Owner asked, 2026-08-22: *"what we decline?"* — and the phrase does not survive the question. **I wrote
+it repeatedly (§E272, §E275, §E293 #3) without checking which primitive implements it.**
+
+| mechanism | what the counterparty receives | is there a "remainder" to route? |
+|---|---|---|
+| **PARTIAL FILL** — `_refundExcess:495-497`: `excess = r.amount − consumed`, returned to the swapper | the fill we could serve **+ their unspent input back** | 🟢 **YES — that IS the remainder** |
+| **DECLINE** — `revert QuoteUnfillable` (§E275, landed today) | **NOTHING. The whole tx reverts.** | ⛔ **NO. There is no remainder, only a failed trade** |
+⇒ **VERIFIED: nothing catches `QuoteUnfillable`** — zero `try`/`catch` around `wellSkew`/`sellSkew`
+anywhere in `src`, so it propagates to the top. **A REVERT IS NOT "DECLINING A PORTION"; IT IS REFUSING
+THE WHOLE TRADE.**
+
+🔴 **SO THE OWNER'S DESIGN REQUIRES THE PARTIAL FILL AND *NOT* THE DECLINE, AND §E275 REPLACED THE FIRST
+WITH THE SECOND AT THE POLE.** That is §E278-partialfill restated from the counterparty's side, and it is
+worse than a lost fill: **a revert inside a solver's bundle can fail their whole multi-hop route, not
+just our leg.** ⇒ **We become maximally hostile to route through at exactly the moment we are scarce —
+the opposite of what quoting a steep-but-fillable price achieves.** A partial fill plus refund is what an
+RFQ engine or aggregator already expects; a revert is the one response they cannot use.
+⚠️ **AND IT UNDERMINES THE ARGUMENT I USED TO JUSTIFY THE DECLINE.** §E275 reasoned *"an unbounded quote
+at zero inventory is an unfillable one, so declining is the honest encoding"* — **honest about the LAST
+unit, wrong about the FIRST.** The band can serve up to its inventory at a finite price; only the
+marginal unit beyond it is unfillable. **Declining the whole request prices the fillable part at
+infinity.**
+
+▶️ **WHAT THIS DOES NOT CHANGE:** the decline is still correct where there is genuinely NOTHING to fill
+(`poolVolUsd == 0`), and it is still correct that no finite price empties the band (§E274, §E288-CORRECTED
+— A&S's pole at the inventory bound). **The error is applying a boundary condition to the whole order.**
+▶️ **THE FIX IS THE PRICE-BOUNDED SOLVE §E278-partialfill ALREADY NAMES** — serve the largest amount whose
+skew stays fillable, refund the rest — **and §E285 says it is NOT blocked on §E276.** ⇒ **This is now the
+top skew item: it is not a refinement, it is the difference between being routable and not.**
+📌 **AND IT SHARPENS §E293's OPEN CHOICE:** #3 (*"the solver routes what we decline"*) is only coherent
+under the partial fill. **As the code stands today, #3 does not describe anything the contract does.**
