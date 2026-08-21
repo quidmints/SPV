@@ -296,6 +296,10 @@ library SwapLib {
 
     error BadAsset();
     error NoShedPath();   // §E56: an overshoot in a pool that has traded before and has now gone dead
+    /// §E275 — the skew reached/exceeded 100%, so the premium would consume the trade. NOT an error
+    /// condition in the band: it is the honest answer at that scarcity, and under solver routing the
+    /// counterparty fills that leg elsewhere. Carries the rate so the caller can see how far past.
+    error QuoteUnfillable(uint skewWadValue);
     error BtcInflowsViaChannels();
     error NoBtcRecipient();
     error StableMissingS();
@@ -715,17 +719,32 @@ library SwapLib {
         // the protocol directly, so the swapper-facing bonus is redundant. Refill settles at the honest oracle.
     }
 
-    // Skew curve bounds. MAX_WELL_SKEW is the hard TWAP-anchor cap: the
-    // effective-rate premium can never exceed this regardless of how scarce/volatile the
-    // pool gets, so oracle-lag can't be amplified into a toxic overpay at the edge. Sized to
-    // cover a native-BTC MM's real drain-edge cost (splice fee + capital-through-confirmation
-    // ~ a few %).
-    /// §E62 — NO LONGER A CAP ON THE DERIVED CURVE. Its ONE remaining job is to price the case we
-    /// cannot measure: `_maxWellSkew` returns it when `σ² == 0` (unknown, not calm — §E59), and the
-    /// kernel uses it as the Γ scale. The derived path (`σ²·confFrac/8`) is now UNCLAMPED, because
-    /// clamping a measured expected cost at an asserted number could only make us UNDER-charge, and
-    /// it bound precisely in the high-vol regime where the skew matters most.
-    uint internal constant MAX_WELL_SKEW = 3e16;   // 3% — the UNKNOWN-variance value
+    /// §E275 — **`MAX_WELL_SKEW` IS DELETED. IT WAS ONE NUMBER DOING THREE JOBS**, and the cap job
+    /// was the one that could not be justified: the curve was CALIBRATED TO LAND ON IT
+    /// (`Γ ≡ MAX_WELL_SKEW` exactly), so it never bounded anything it did not also define.
+    /// The two honest jobs are separated below. They hold the SAME VALUE TODAY BY INHERITANCE, NOT
+    /// BY DERIVATION — §E274 derives Γ = 5.48e15 from `FLOW_DECAY`'s 48h half-life, and splitting
+    /// them is what lets Γ move without silently repricing the unknown-variance case.
+    ///
+    /// Γ — the Avellaneda–Stoikov scale, folding risk-aversion γ and the horizon (T−t) into one
+    /// coefficient. THIS IS PRICING, NOT A BOUND: it multiplies `σ²·qBar` (`skewWad`, `sellSkew`).
+    /// ⚠️ Still the inherited 3e16 (⇒ a 10.95-day horizon nobody chose). §E274 measured the
+    /// replacement but does NOT land it here — that is a separate money-path change, deliberately
+    /// not bundled with the cap removal so a regression can be attributed to one of them.
+    uint internal constant GAMMA_WAD = 3e16;
+    /// The conservative charge for `σ² == 0` — "we could not MEASURE the variance", never "there
+    /// was none" (§E59/§E79). A POLICY price for absent information, not a ceiling on a computed
+    /// one: nothing is compared against it, it is only ever RETURNED.
+    uint internal constant UNKNOWN_VARIANCE_SKEW = 3e16;
+    /// The arithmetic limit of a rate haircut. `retainSkewPremium` computes
+    /// `premium = amount·skew/1e18` then `amount -= premium`, so `skew > 1e18` means a premium
+    /// exceeding the trade — checked arithmetic, i.e. **panic 0x11** (§E273, measured).
+    /// §E274 MEASURED that the kernel crosses this at FINITE scarcity — q ≥ 0.893 at 200% vol under
+    /// today's Γ — so this is REACHED IN NORMAL OPERATION once the cap is gone, not at the pole only.
+    /// ⇒ It is the DECLINE THRESHOLD, not a clamp: past it the quote is unfillable and is refused by
+    /// name instead of arriving as a panic from inside a subtraction. **Under solver routing an
+    /// unfillable quote is the honest answer** — the solver routes that leg elsewhere (§E272).
+    uint internal constant SKEW_UNFILLABLE = 1e18;
     /// §E216 — the σ²-FREE component: the cost of inventory that WAS there and LEFT.
     /// **NOT A NEW CONSTANT.** 210 ppm = 2.1e14 WAD is `Aux.swapFeePpm()/2`, already derived and
     /// tested for `imbalanceFeeUsd6` (half the pool tier; revenue-neutral because a drain from
@@ -998,7 +1017,7 @@ library SwapLib {
         // ⚠️ AND IT IS REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE MEASURED σ² AS ATTACKER-
         // STRETCHABLE — 4h spacing drove σ² 24× down and the charge 93.3% down. Suppress σ² to the
         // sentinel, then drain up to 90% of the band for free. That is the vector this closes.
-        if (sigmaSqWad == 0) return MAX_WELL_SKEW;
+        if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;
         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
         uint oneMinusQ = 1e18 - q1;                       // pole is on the ENDING inventory
@@ -1065,12 +1084,23 @@ library SwapLib {
         // than to a sentinel that must survive arithmetic. The finite branch is clamped too: near
         // the pole `qBar` is large and the product can exceed the ceiling on its own, which would
         // overflow the same way once the base is summed.
-        if (qBar == type(uint).max) {
-            skew = MAX_WELL_SKEW;
-        } else {
-            skew = SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), qBar, 1e18);
-            if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
-        }
+        // §E275 — THE POLE RETURNS DATA. IT DOES NOT REVERT, AND THAT DISTINCTION IS LOAD-BEARING.
+        // ⛔ BOTH OF MY EARLIER ATTEMPTS WERE MEASURED AND BOTH FAILED, IN OPPOSITE DIRECTIONS:
+        //   1. `return type(uint).max` with no producer guard reproduced §E104's panic one frame out
+        //      — `sellSkew` hands this to `_composePrice` as `kernel`, which does `kernel + risk`,
+        //      so it overflowed on the ADD instead of on the base (`panic 0x11`,
+        //      `testMatrix_S5_UnfillableSwapMovesPriceForFree`).
+        //   2. `revert QuoteUnfillable(...)` HERE broke the REFILL TRIGGER: `skewWad` is read
+        //      DIRECTLY as an observation by `test_TriggerFiresExactlyWhenTheSkewLeavesFlush`,
+        //      `test_E104_ConstantSensitivity` and `test_E105_BoundarySweep`. A reverting read cannot
+        //      report that the band is empty — **at exactly the moment the refill exists for.** Same
+        //      principle `Core.sol` states for the observation source: THE READ MUST NOT BE ABLE TO
+        //      HALT THE BAND.
+        // ⇒ `skewWad` is the MEASUREMENT and says "unfillable" by returning the sentinel; the
+        // PRODUCERS (`wellSkew`/`sellSkew`) are the fill path and decline before touching it. The
+        // early return is what makes the sentinel safe: nothing is added to it here.
+        if (qBar == type(uint).max) return type(uint).max;
+        skew = SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
         // §E79 — CAP-TO-BASE INVERSION. `_maxWellSkew` = σ²·confFrac/8 is an EXPECTED-LOSS RATE over
         // the settlement window. Using a rate as a price CEILING was a category error, and it was
         // MEASURED crushing the whole curve: at a plausible σ²=1e16 the skew came out 4.75e-10, i.e.
@@ -1132,7 +1162,6 @@ library SwapLib {
             // this file's convention — 32 call sites to OZ's 2.
             skew += SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
         }
-        if (skew > MAX_WELL_SKEW) skew = MAX_WELL_SKEW;
     }
 
     /// @notice The live well skew (WAD) for a pool — gathers deliverable inventory (at
@@ -1217,8 +1246,28 @@ library SwapLib {
     ///      having ONE composer means the two legs cannot drift apart again — they already did once
     ///      (E68b: the sell leg priced at the endpoint for a whole session after the drain leg was
     ///      fixed). Callers pass the bare kernel; everything else is decided here.
+    /// §E275 — **THE DECLINE LIVES AT THE PRODUCER, WHICH IS WHY IT IS ONE ROUTINE AND NOT THREE
+    /// GUARDS** (standing rule 17). Deleting the cap exposed THREE consumers that apply the rate by
+    /// checked arithmetic — `retainSkewPremium` (`amount -= premium`), `Core.sol:1241`
+    /// (`out -= out·skew/1e18`) and `FixedRateFill._applySkew:140` (`base - base·skew/1e18`) — so
+    /// §E273's "one choke point" was WRONG (verified by enumeration, 2026-08-21). Guarding each
+    /// consumer would be three bounds for one class of thing; refusing to PRODUCE an unfillable rate
+    /// is the state fix, and every consumer inherits it including any added later.
+    /// ⚠️ Reverting here means a QUOTE read can revert (`Aux:690`, `FixedRateFill:113/127`). That is
+    /// intended: at this scarcity there is no fillable price, and a solver that asked for one needs
+    /// to route that leg elsewhere rather than receive a number it cannot trade on.
+    function _declineIfUnfillable(uint skew) private pure returns (uint) {
+        if (skew >= SKEW_UNFILLABLE) revert QuoteUnfillable(skew);
+        return skew;
+    }
+
     function _composePrice(address core, uint kernel, uint sigmaSqWad)
         private view returns (uint) {
+        // §E275 — DECLINE BEFORE THE ARITHMETIC, NOT AFTER. `kernel` may carry `skewWad`'s pole
+        // sentinel, and `kernel + risk` below is a checked ADD: reaching it panics 0x11 with no
+        // name, four frames down (MEASURED — see the pole comment in `skewWad`). The exit guard
+        // cannot help, because the overflow happens before any value reaches it.
+        kernel = _declineIfUnfillable(kernel);
         // §ISBTC-SPLIT: derived HERE, not threaded in — the same argument the note below already
         // makes about the exposure clock. Dropping the parameter CUTS a live value from two
         // stack-tight call sites rather than adding one; `sellSkew` does not compile otherwise.
@@ -1228,7 +1277,7 @@ library SwapLib {
         // exists to RELIEVE stack pressure (no via_ir), so a fifth parameter would work against it.
         uint risk = _maxWellSkew(sigmaSqWad, rk) - splice;
         uint out = SoladyMath.fullMulDiv(kernel + risk, _sharedScarcityWad(core), 1e18) + splice;
-        return out > MAX_WELL_SKEW ? MAX_WELL_SKEW : out;
+        return _declineIfUnfillable(out);   // §E275 — uncapped; declined at the producer
     }
 
     function _sharedScarcityWad(address core) private view returns (uint) {
@@ -1273,6 +1322,9 @@ library SwapLib {
             poolVolUsd,
             ICore(core).flowEwmaUsd(),
             ICore(core).realizedVarianceWad(), rk, drainUsd6);
+        // §E275 — same reason as `_composePrice`: `raw` may be the pole sentinel, and the
+        // amplifier below does checked arithmetic on it. Decline before touching it.
+        raw = _declineIfUnfillable(raw);
         // §E53: amplify by how much of the SHARED bound the other band already holds, then re-cap —
         // the amplifier must never lift the skew past the same ceiling the raw curve obeys.
         // §E89b — THE AMPLIFIER SCALES RISK, NOT FEES. E89 made the base additive, which silently put
@@ -1295,7 +1347,7 @@ library SwapLib {
         // §E79: the re-cap after the amplifier is now the ABSOLUTE ceiling. The expected-loss FLOOR
         // was already applied inside `skewWad`, and re-clamping to it here would undo the inversion
         // by pulling an amplified premium straight back down to the base charge.
-        return amp > MAX_WELL_SKEW ? MAX_WELL_SKEW : amp;
+        return _declineIfUnfillable(amp);   // §E275 — uncapped; declined at the producer
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
@@ -1427,7 +1479,7 @@ library SwapLib {
         // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
         // which is the conservative reading E59 intended and now says so in the right units.
         uint skew = SoladyMath.fullMulDiv(
-            SoladyMath.fullMulDiv(MAX_WELL_SKEW, sigmaSqWad, 1e18), q, 1e18);
+            SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
         // inventory is dearer to shed when the OTHER band has already spoken for the shared backing.
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
@@ -1806,6 +1858,9 @@ library SwapLib {
     function retainSkewPremium(address core, SwapReq memory r, uint skew, bool nativeAmount)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal {
         if (skew == 0) return;
+        // §E275 — NO GUARD HERE BY DESIGN. `skew` reaches this function only from `wellSkew` /
+        // `sellSkew`, both of which decline an unfillable rate at the producer, so a second bound
+        // would be the clamp standing rule 17 warns about rather than a defence.
         uint premium = SoladyMath.fullMulDiv(r.amount, skew, 1e18);
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
