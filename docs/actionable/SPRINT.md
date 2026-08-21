@@ -2531,6 +2531,45 @@ while changing nothing.
 ⚠️ **The morpho `debt 0 <= 0` cluster is NOT endpoint noise — it is 40 on BOTH arms.** I read it as 20
 mid-run and briefly reported the root as half-explained; it is not. That cluster is real and unowned.
 
+## ✅ §E183-FIXTURES (`#21`) — **CLOSED 2026-08-22 (`d05afe05`). DO NOT RE-DO IT.**
+
+`NotPubkeyHash` **20 → 0**, verified on the archive endpoint with **zero `setUp` failures**. All ten
+tests now get past `openChannel`; **five pass, five reach downstream assertions the early revert had
+made unreachable** (below). Landed: `mkAuth` takes the CHANNEL PUBKEY and derives `lpEth` itself
+(mismatch unconstructible, rule 17); the dead `lpSig` param and `BtcLpMintStress`'s private duplicate
+deleted; `_openFromFixture` + three `Alles` sites derive at the ORIGIN, not just where the value is
+used; `_signOpen`/`_signDigest`/`lpPk` residue of the deleted EVM signature removed (rule 1);
+`ExitFixture._popDigest` calls `IBTCChannels.btcRecipientPoPDigest` instead of recomputing.
+
+⚠️ **THE MISTAKE THAT COST TWO EXTRA PASSES, because it generalises:** I fixed the derivation where
+the value is USED before fixing where it ORIGINATES. Pass 1 fixed what `mkAuth` signs; pass 2 fixed
+`_submitOpen`'s local — and the assertions compare a value returned by `_openFromFixture`, which was
+still `makeAddrAndKey`. **The failing message printed BOTH addresses side by side and I read it as
+"the fix did not take" rather than "there is a second source."** When an equality assertion names two
+concrete values, enumerate every producer of each side before editing either.
+
+## 🔴 §E183-UNMASKED — **FIVE FAILURES `#21` REVEALED. THEY ARE NOT REGRESSIONS AND MUST NOT BE READ AS ONE**
+
+These tests died at `openChannel` with `NotPubkeyHash` for as long as that bug existed, so **the lines
+below were never executed**. Fixing the fixture did not break them; it made them reachable.
+
+| test | now fails at | note |
+|---|---|---|
+| `testBtcChannels_OpenAndCloseEndToEnd` | `close minted ~no QUI (all-native, no proceeds): 5999994000000000000 >= 0` | 🔴 **SEE BELOW — a MINT** |
+| `testCrossChain_FullE2E` | `POOLED_USD funded: 0 <= 0` | six `AUX.swap` calls fund nothing |
+| `testSwapOut_RequestCreditAndFailureReversal` | `pendingSwapOutUsd rose by exactly the swapper's USD: 0 != 499000000` | |
+| `testSwapOut_SwapperSelfRefundAfterTimeout` | `panic: arithmetic underflow or overflow (0x11)` | undiagnosable as-is |
+| `testStrand4_SwapInFloor_RevertsShort_UnwindsUsed` | `next call did not revert as expected` | a guard that no longer fires |
+
+🔴🔴 **TRIAGE THE FIRST ONE FIRST, ON STANDING RULE 8b.** *"close minted ~no QUI (all-native, no
+proceeds)"* is asserting that an all-native close mints NOTHING, and it measured **~6 QU!D**. Rule 8b
+says a mint creates a liability against the basket and is a LAST RESORT; an unexplained one on the
+close path is the highest-value item in this table by a wide margin. ⚠️ **Do NOT assume it is new** —
+this assertion has not run in a long time, so it may be long-standing. Establish WHEN it last held
+before treating it as a fresh defect, and do not "fix" it by widening the tolerance (rule 4).
+⚠️ **`testSwapOut_SwapperSelfRefundAfterTimeout`'s `panic 0x11` is a bare arithmetic revert with no
+name** — the same undiagnosable shape `§LAZY-OPEN-SHRINK` was fixed for. Trace it before theorising.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
