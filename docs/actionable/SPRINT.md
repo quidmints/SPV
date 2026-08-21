@@ -5247,3 +5247,35 @@ why "are the finished ones finished?" is a question the ledger cannot answer abo
 ⚠️ **METHOD NOTE (my own error, kept so it is not repeated): I first flagged `BtcLpMintStress.t.sol` as
 missing by grepping a FILENAME against file CONTENTS. It exists. Grep contents for symbols, `ls`/`git
 grep -l` for files.**
+
+### ⛔ §E277-CORRECTED — **THREE OF MY FOUR "VANISHED TESTS" WERE FALSE POSITIVES (owner challenged, 2026-08-21)**
+Owner: *"are you sure the tests arent false positives?"* **They were, and I broke this repo's own rule
+to produce them: a zero-hit grep is evidence of a RENAME, never of a removal.** I asserted absence from
+a search — the single failure mode CLAUDE.md's verification section opens with.
+| I claimed gone | actually |
+|---|---|
+| `testReal_Euler_OpenAndDelever` | 🔴 **RENAMED** → `testReal_Morpho_OpenAndDelever` (§E266's Morpho consolidation). `testReal_Euler_CloseUnwindsFully` still carries the Euler prefix, so BOTH coexist and the grep could not distinguish |
+| `testReal_Euler_CloseBeatsHodlModuloCosts` | 🟠 no successor found, but the Euler→Morpho rename makes "deleted" unproven either way |
+| `test_UNIT_HowOftenDoesChainlinkCrossTheDeadband` | 🟠 **SUPERSEDED, not invalidated** — `5b6e96c9`: *"superseded by the cumulative version, which measures the gate `twapResolve` actually uses"* |
+| `test_UNIT_PoolVarianceVsChainlinkVariance` | ✅ **the one real case** — and I know it from the COMMIT MESSAGE retracting the instrument, **not from the grep** |
+⇒ **THE GREP CONTRIBUTED NOTHING TO THE ONE TRUE FINDING.** It produced four candidates of which one was
+real, and the discriminator in every case was reading the deleting commit. **§E277's shape stands; its
+count was 4 and is 1.**
+
+### ✅ §UNIT-SERIES-MEASURED — **RE-DERIVED ON THE HALF THAT MATTERS; THE COMPARISON HALF IS RETIRED**
+The row asserted TWO things and only one was load-bearing.
+- 🔴 **"OURS REPORTS EXACTLY ZERO" — RE-DERIVED, AND ON A LIVE RED TEST.** `DrainAtomicity.t.sol:1372`
+  (`test_UNITA_FixtureDrivesRealVariance`) asserts the tick driver must move the ring and FAILS:
+  **σ² = 1, 1, 1, 0 wad across four independent full-suite runs on BOTH arms** (baseline ×2, change ×2).
+  **Deterministic where the rest of this suite is not** — the ±2-test noise floor never touched it.
+  ⇒ **The failing assertion IS the measurement.** `realizedVarianceWad()` is pinned at ~0 and the driver
+  cannot budge it. **This is stronger evidence than the deleted fixture ever produced**, and it needs no
+  cross-series scaling to be valid.
+- ⛔ **"THE MARKET SERIES HAS REAL VARIANCE OVER ~8 HOURS" — CITATION WITHDRAWN, CLAIM NOT REBUILT.**
+  That half required making two series COMMENSURABLE, which is exactly what `5b6e96c9` says the port
+  failed at across three scaling attempts. **It is also not load-bearing:** the consequence downstream
+  (a σ²-LINEAR kernel is blind when σ² is pinned near zero) follows from OUR side alone. **Do not
+  re-port the Chainlink estimator to prop up a conclusion that does not rest on it.**
+⇒ **ROW ACTION: keep the consequence, re-point the citation at `DrainAtomicity.t.sol:1372`, and DELETE
+the market-comparison sentence.** ⚠️ **AND NOTE WHAT THIS COSTS: the red test is load-bearing evidence,
+so anyone who "fixes" it by weakening the assertion destroys the measurement** — rule 4 exactly.
