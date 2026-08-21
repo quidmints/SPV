@@ -7,7 +7,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 import {ILevSyncHook, IAux, IWeETH, IWiredVault,
         IDepositAdapter, ILevVenueColl, ILevMintVenue} from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONE_INCH_ROUTER, V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
+import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool,
         CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX,
         CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
@@ -546,43 +546,6 @@ library LevMath {
         if (stable == PYUSD_TOKEN) return (CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX);
         // Absent ⇒ (0,0,0). Deliberately does NOT revert: this predicate serves `_routableStable`,
         // which must be able to ASK without failing (an unroutable slice is skipped and refunded).
-    }
-
-    /// @notice §V-R — EXECUTE A SWAP THROUGH 1inch's AggregationRouterV6, replacing the V3 router.
-    ///
-    /// @dev **WHY THE CALLDATA IS AN ARGUMENT.** Pathfinder returns a WEIGHTED SPLIT across Uni V3/V4,
-    ///      Balancer, Curve and others as one atomic blob. There is nothing to derive on-chain — and
-    ///      the same aggregator's PRICE reader costs 33.6M gas (above the block limit), which is why
-    ///      the split is computed off-chain and only EXECUTED here. Aggregation is what makes the
-    ///      floor clearable at sizes no single pool can serve; the V3 router mainlines into ONE pool.
-    ///
-    /// @dev **ALL THREE PoolManager INVARIANTS, WHICH V4's LOCK USED TO GIVE FOR FREE — with an
-    ///      external router each is ours, and each fails SILENTLY if unenforced:**
-    ///      **① SETTLEMENT** — `out` is a MEASURED balance delta, never the router's return value.
-    ///        The router "returns a number"; the whole precedent list (§V-R10 sUSDE, the refill that
-    ///        took 20 ETH and returned ZERO) is defects that passed a build while trusting one.
-    ///      **② DELTA SIGN** — the caller owns direction; `out` is unsigned and read from OUR balance,
-    ///        so it cannot disagree with what actually moved.
-    ///      **③ REENTRANCY** — the router executes arbitrary code with our approval live. Approval is
-    ///        EXACT-AMOUNT and zeroed on EVERY exit including the failure path; the address is a
-    ///        pinned constant, never an argument. Callers must hold `nonReentrant`.
-    ///
-    /// @dev **A FAILED CALL IS A SHORTFALL, NOT A REVERT** (§V-R11). Returning 0 lets the caller
-    ///      re-target next tick — `targetDebt = E0·soldFrac` is recomputed every call and
-    ///      `RebalanceFailed` already signals it — so a partial fill CONVERGES rather than drifts.
-    ///      ⛔ The floor bounds the PRICE, never the SIZE: `minOut` still reverts a bad rate. Widening
-    ///      it to admit a small fill would be rule 4, a tolerance hiding the defect.
-    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut,
-                      bytes memory swapData) internal returns (uint256 out) {
-        if (amountIn == 0 || swapData.length == 0) return 0;
-        uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
-        IERC20Min(tokenIn).approve(ONE_INCH_ROUTER, 0);          // ③ clear any residue first
-        IERC20Min(tokenIn).approve(ONE_INCH_ROUTER, amountIn);   // ③ exact amount
-        (bool ok,) = ONE_INCH_ROUTER.call(swapData);
-        IERC20Min(tokenIn).approve(ONE_INCH_ROUTER, 0);          // ③ zeroed on EVERY exit
-        if (!ok) return 0;                                       // shortfall, not a revert
-        out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;   // ① MEASURED, not returned
-        if (out < minOut) revert Slippage();                     // price floor, not a size floor
     }
 
     /// @dev stable → USDC on Curve stableswap.
