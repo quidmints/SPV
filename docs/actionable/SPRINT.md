@@ -5766,7 +5766,11 @@ carries the evidence — this is an index, not a restatement.** Read this before
 | **No finite Γ makes the curve safe** | §E274, measured. `q/(1−q)` diverges, so dividing Γ by 5.475 changes nothing: at 200% vol the kernel passes 1e18 at **q ≥ 0.893**, i.e. in normal operation. **Margin is the wrong concept for a pole.** |
 | **The 1e18 boundary is an ARTIFACT, not a property** | §E276. A *shift* of any size still clears; a *spread* of 100% leaves the taker nothing. We feed the shift formula into the spread slot. **Under a real mid-shift there is nothing to cross.** |
 | **The curve was FLAT-TOPPED almost everywhere it mattered** | §E274. At σ²=1e18, live skew was pinned at exactly 3e16 from q₁=0.6 through 0.95 while the uncapped kernel ran 3.69e16 → 12.35e16. ⇒ **Every §UNIT-B / §UNIT-SKEW-IS-NOISE number above q≈0.6 was measuring THE CONSTANT, not the curve.** |
-| **σ² is pinned at ~0 and cannot be moved** | §E277. `DrainAtomicity.t.sol:1372` fails with σ² = **1,1,1,0 wad across four runs on both arms**. ⛔ **ITS FAILURE IS THE MEASUREMENT — "fixing" it destroys the evidence.** |
+| **σ² is pinned at ~0 and cannot be moved** | §E277. `DrainAtomicity.t.sol:1372` fails with σ² = **1,1,1,0 wad across four runs on both arms**. ⛔ **ITS FAILURE IS THE MEASUREMENT — "fixing" it destroys the evidence.** ⚠️ **And the DEPLOY side is now asymmetric (`d10d7b8b`): ETH is sourced (`DeployLib:146`, Curve `price_oracle(1)`), BTC is deliberately UNSET. So σ²≡0 is BTC's steady state, and ETH's whenever its ring is cold or its read fails — `Core:1318-1322` degrades to unmeasured BY DESIGN.** |
+| 🔴 **`sellSkew` HAS NO σ²=0 GUARD, SO TOXIC INFLOW PRICES AT ZERO** | §E278 (the σ²-sentinel row — **not** §E278-partialfill). `UNKNOWN_VARIANCE_SKEW` has **exactly one consumption site in the tree**, `SwapLib:1020`, inside `skewWad` — the DRAIN leg. `sellSkew` computes `Γ·σ²·q` = 0 and `_composePrice` returns `SPLICE`, **which is 0 on ETH**, while its own comment at `:1476-1480` says in §E59's words that unmeasured variance must price at the CEILING. ⇒ **The free cell is the TOXIC one** — an inventory-increasing sell is somebody dumping the falling asset into the band. Live on BTC today. |
+| 🔴 **THE SKEW IS APPLIED TWICE ON `Aux.swap` — the realised rate is 5.91%, not 3%** | §E279, confirmed **by construction**, no execution needed. `_finishSwap` builds `RouteParams` with `amount: r.amount` (`SwapLib:473`) — the value `retainSkewPremium` **already reduced** — and `routeSwap` derives `pooled` from it before `ICore.swap` → `_fillDelta:1240` applies the skew **again**. Both legs, neither call conditional. ⛔ **It survived because every assertion here is `assertGt` (`Alles.t.sol:1904`, `:1911`), which cannot distinguish `s` from `s·(2−s)`.** ⚠️ The fix is NOT deleting one call — `retainSkewPremium` is what ROUTES the premium to LPs (§E280). |
+| **The 3% is an inherited constant, and it is the wrong SHAPE** | §E283. §E275 deleted `MAX_WELL_SKEW` as unjustifiable; the split kept `UNKNOWN_VARIANCE_SKEW` at the same 3e16 **"BY INHERITANCE, NOT BY DERIVATION"** (its own docblock). A sentinel is FLAT: it discards `q`, defeats §E68's size-awareness, and **produces the cliff** — one unit above the flow target pays 0, one unit below pays 300–600 bps on the whole ticket. **No value of the constant fixes that; only a live σ² does.** |
+| **The premium DOES reach the LPs** | §E280, one hop: `Core.recordSkewPremium:359` → `BAND.creditSkewPremium`. Settles the `E121`/`E122` pair in **E122's** favour with a code citation. ⚠️ Scoped to the SKEW premium — the 420 ppm is a different charge on a different route (§E226). |
 
 ## THE REFILL — SETTLED, AND SMALLER THAN IT LOOKED
 - **Trigger = EXHAUSTION, not a clock or a threshold.** A contract cannot know it is end-of-block; and
@@ -5779,6 +5783,21 @@ carries the evidence — this is an index, not a restatement.** Read this before
 - ⚠️ **STILL AMBIGUOUS AND IT DECIDES WHO PAYS:** *"paid against 1inch"* — solver routes (we pay
   nothing) vs we pay 1inch (the 48× question reopens). **I inferred this once and retracted a CORRECT
   finding on it. Do not infer it again.**
+- 🔴 **BUT "THE SOLVER ROUTES WHAT WE DECLINE" IS NOT EXECUTABLE AS BUILT — §E285.** `wellSkew` is
+  `public view`, so `_declineIfUnfillable` makes a **QUOTE READ REVERT** (§E275 already flags
+  `Aux:690`, `FixedRateFill:113/127`). **A reverting quote tells a solver nothing** — it cannot size
+  down, cannot split the route, and must drop us for the whole leg. **You cannot route the part we
+  decline unless we say how big it is.**
+- ⭐ **THE BOUND IS AN INVENTORY RESIDUAL, AND IT IS NOT BLOCKED ON §E276 — §E285.** §E278-partialfill
+  proposes bounding the fill by *"skew under 100%"*, which bounds **the artifact two rows up** (rule 3).
+  `plan2.pdf` specifies the other kind: *"**MAX_SKEW** — if inventory hits this boundary, the vault
+  stops quoting one side entirely until arbs clear it."* **A residual floor never asks what the price
+  is, so it reads the same under a spread and under a shift.**
+  🔴 **And it is FORCED, not chosen: §E68's integral `[ln((1−q0)/(1−q1)) − Δ]/Δ` DIVERGES as q₁→1**
+  (`SwapLib:1064` — *"ends at inv=0 ⇒ pole → ∞"*). ⇒ **No finite price serves a drain that empties the
+  band, under any of the four combinations of integrated/endpoint × spread/shift.** Serve
+  `inv1 ≥ residual`, refund the rest through `_refundExcess`, decline **only** at `fillable == 0`.
+  ⚠️ **Size from `inv0`; clamping `drainUsd6` is the no-op §E278-partialfill already paid for.**
 
 ## 🔴 THE TRAPS — each cost real time in THIS thread
 1. **THE SENTINEL HAS NO SAFE VALUE — it must be DATA at the measurement and DECLINED at the fill.**
@@ -5806,7 +5825,21 @@ carries the evidence — this is an index, not a restatement.** Read this before
 6. **CHECK THE MECHANISM FIRST — it was already built, three times.** Partial fill + refund
    (`_refundExcess`, #105) existed; the "cannot cover" predicate went live as a side effect of the cap
    deletion; and `fillOOR` folded into `rebalanceCore`, which already runs on every swap.
-7. ⛔ **MY OWN FAILURE MODE, NAMED: I WROTE THE EXPLANATION BEFORE RUNNING THE CHECK.** §E278's fix
-   was a **no-op** (`skewWad:980` already clamped `inv1` to 0) shipped under twelve lines asserting it
-   repaired a regression, with a test calling `wellSkewPure` — **an API I invented to fit the test I
-   wanted**. Reverted. **Everything I caught, I caught by running something.**
+7. ⛔ **MY OWN FAILURE MODE, NAMED: I WROTE THE EXPLANATION BEFORE RUNNING THE CHECK.**
+   **§E278-partialfill**'s fix was a **no-op** (`skewWad:980` already clamped `inv1` to 0) shipped under
+   twelve lines asserting it repaired a regression, with a test calling `wellSkewPure` — **an API I
+   invented to fit the test I wanted**. Reverted. **Everything I caught, I caught by running something.**
+8. ⚠️ **`§E278` NAMED TWO ROWS FOR AN HOUR, AND THIS INDEX CITED THE AMBIGUOUS FORM.** Two threads
+   booked against it the same afternoon: the **σ²-sentinel** row and the **partial-fill** row. Suffixed
+   per §E124 (newer row takes the suffix, never renumber). ⇒ **In this file `§E278` means the sentinel
+   row and `§E278-partialfill` means the other.** The trap generalises: **an INDEX inherits every
+   ambiguous id it cites, and multiplies it** — this document's whole job is to tell the next thread
+   what NOT to re-read, so a citation that resolves two ways sends them to the wrong evidence.
+9. 🔴 **AN INDEX IS A STRONGER `✅` — AND THIS ONE SHIPPED WITH THE TWO LIVE MONEY-PATH DEFECTS MISSING.**
+   As first written it said *"read this before touching `skewWad`, `wellSkew`, `sellSkew`,
+   `_composePrice` or the refill"* while carrying **neither** §E278 (`sellSkew` has no σ²=0 guard — a
+   function it names by hand) **nor** §E279 (the skew applied twice, 5.91% realised). Both were on
+   `main`, booked, hours old. ⇒ **§E276 and §E277 are about a ✅ closing the wrong thing; this is the
+   same failure one level up, because an index is READ INSTEAD OF the rows.** **Before consolidating,
+   diff the index's citation list against the open rows for the subsystem** — mechanically, not from
+   memory. That check is three lines of `grep` and it is the only thing that catches an omission.
