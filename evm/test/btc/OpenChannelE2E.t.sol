@@ -116,12 +116,18 @@ contract OpenChannelE2ETest is Test, ExitFixture {
             ? payoutOverride
             : payoutKeyOnly(abi.encode(p.lpPubkey));
         // (§E183 item 1) The LP's consent rides with the open as a BITCOIN signature — the payout
-        // PoP inside `mkAuth`, whose digest commits to the DERIVED `lpEth`. It pins + LOCKS
-        // btcRecipientOf[lpEth]=payout and credits the position to that same derived address,
-        // which the caller computes (`_openFromFixture`) because the assertions compare it.
-        // ⚠️ Nothing here signs on the EVM any more: §E183 deleted `lpEth`/`lpSig` from `OpenAuth`,
-        // so the `_signOpen`/`dsig` pair that used to live here is GONE rather than relocated —
-        // computing a signature no entrypoint reads is dead work (standing rule 1).
+        // PoP inside `mkAuth`, whose digest commits to `lpEth`. It pins + LOCKS
+        // btcRecipientOf[lpEth]=payout and credits the position to lpEth.
+        // 🔑 (#21) `lpEth` IS DERIVED FROM THE CHANNEL KEY, NOT `vm.addr(lpPk)`. The contract does
+        // `ChannelLib.lpEthOf(p.lpPubkey)`, and `p.lpPubkey` comes from the Python generator — a
+        // key with NO relation to the Foundry-local `lpPk`. Using the Foundry address here made
+        // every assertion below compare against an address the contract never touches ("channel
+        // owned by the lpAuth signer", "requestDeposit credited the LP"), on top of signing the
+        // PoP over a digest the contract never computes.
+        // ⚠️ The `_signOpen`/`dsig` pair that used to live here is GONE, not relocated: §E183
+        // deleted `lpEth`/`lpSig` from `OpenAuth`, so the LP signs NOTHING on the EVM. Computing
+        // an EVM signature no entrypoint reads is dead work (standing rule 1).
+        address lpEth = ChannelLib.lpEthOf(p.lpPubkey);
         // (E128) Built BEFORE the prank: `signedExitFull` runs an FFI cheatcode, and a cheatcode
         // call CONSUMES a pending prank — as a call argument it would send `openChannel` from the
         // test contract instead of 0xB0B.
