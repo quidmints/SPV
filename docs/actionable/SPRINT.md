@@ -6231,3 +6231,72 @@ CONFIDENT-SOUNDING CLAIM WAS THE UNVERIFIED ONE, AND BOTH TIMES THE OWNER ASKED 
 papers live in `../` (SPV's PARENT — outside the `mcp__pdf` root, which is why "not on disk" was wrong
 too); A&S is fetchable from `math.nyu.edu/~avellane/HighFrequencyTrading.pdf` and this repo has no
 `pdftotext`, so decompress the streams with `zlib` and regex the text operators.
+
+---
+
+## ⭐ §E289 — **A–S's ω HAS AN EXACT ANALOGUE HERE: MOVE THE POLE OFF THE REACHABLE RANGE. ONE PARAMETER, `κ`, AND `κ=1` IS TODAY.**
+
+**§E288's find, carried to a design. A&S NEVER CLAMP — they place the singularity where the agent
+cannot go.** *"ω may therefore be interpreted as an upper bound on the inventory position our agent is
+allowed to take. The natural choice of `ω = ½γ²σ²(q_max+1)²` would ensure that the prices defined
+above are bounded."* ⇒ **The bound is a PARAMETER CHOICE, not a clamp — standing rule 17 reached
+independently by the source.**
+
+### THE ANALOGUE, AND IT IS A ONE-CHARACTER GENERALISATION OF WHAT WE ALREADY RUN
+Our kernel is `q/(1−q)`, a pole at `q = 1`. And `q = (target − inv)/target`, so **`q = 1` IS `inv = 0`
+— the pole sits exactly ON the reachable boundary**, which is the one thing A&S take care to avoid.
+Generalise the pole location to `κ`:
+
+```
+    kernel(q) = q / (1 − q/κ) = κq / (κ − q)          κ > 1
+```
+`q = κ` ⇔ `inv = (1−κ)·target`, i.e. **NEGATIVE inventory — unreachable by construction.** A&S's
+natural choice is one unit beyond the maximum; in our normalisation one unit IS one flow-window, so
+the direct analogue is **`κ = 2`: the singularity sits one full flow-window MORE depleted than empty.**
+
+**AND THE INTEGRAL KEEPS ITS SHAPE — §E68 survives untouched.** With `∫q/(κ−q)dq = (κ−q) − κ·ln(κ−q)`:
+```
+    qBar(q0,q1) = κ · [ κ·ln((κ−q0)/(κ−q1)) − Δ ] / Δ ,      Δ = q1 − q0
+```
+🔴 **AT `κ = 1` THIS IS THE CURRENT LINE, CHARACTER FOR CHARACTER**: `[ln((1−q0)/(1−q1)) − Δ]/Δ`. So the
+diff is `1e18 - q` → `κ - q`, plus one outer `κ·`. **`lnWad` stays, the branch structure stays, the
+convexity stays.** Nothing is deleted to make this work, which is why it is worth preferring to both
+things tried today.
+
+### ⭐ AND `κ` DISSOLVES THE ORDERING OBJECTION THAT KILLED §E287
+§E287's fatal flaw was deleting the only brake before its replacement existed. **`κ` separates the
+STRUCTURAL change from the ECONOMIC one:** land the generalisation at `κ = 1` and the behaviour is
+provably identical (same expression), then move `κ` as a single-constant change **gated on the refill
+or the shift existing**. ⇒ **Rule 10 satisfied by construction rather than by care** — the first run
+changes no economics, so a regression is attributable to the refactor alone.
+
+### THE NUMBERS — Γ = 3e16, σ² = 1e18 (100% ann. vol)
+
+| | instantaneous at `q = 0.9` | at `q = 1` (empty) | average over a FULL drain |
+|---|---|---|---|
+| **κ = 1 (today)** | 27% | **∞ ⇒ decline** | **∞ ⇒ cannot be emptied at any price** |
+| **κ = 2 (A&S's analogue)** | 4.9% | **6%** | **2.32%** (`qBar = 2[2ln2 − 1] = 0.773`) |
+| linear (`ρ=0`) | 2.7% | 3% | 1.5% |
+| ~~`Γσ²q²`~~ (§E287, refuted) | 2.4% | 3% | 1.0% |
+
+⇒ **κ=2 is a REAL brake** — dearer than linear everywhere and 2.3× the refuted `q²` on a full drain —
+**while being finite, so a quote is a number rather than a revert.**
+
+### ⭐ WHAT IT MAKES DELETABLE — BY UNREACHABILITY, WHICH IS RULE 1's OWN TEST
+Max kernel is `κ/(κ−1)·Γσ²`. At κ=2, Γ=3e16 that is `6e16·σ²/1e18`, which crosses `SKEW_UNFILLABLE`
+(1e18) only at **σ² ≈ 1.67e19, i.e. ~408% annualised vol**. ⇒ **`_declineIfUnfillable` becomes
+unreachable below that**, and rule 1 then deletes it — *"if a branch can't be hit, delete it"*.
+⚠️ **STATE THE BOUND, DO NOT SAY "UNREACHABLE BY CONSTRUCTION".** It is unreachable *below a measurable
+volatility*, and that number moves with Γ. **If Γ lands at §E274's 5.48e15 the headroom rises ~5.5×**
+(crossing near 2200% vol). A row claiming unconditional unreachability would be the exact
+plausible-but-wrong constraint rule 15 warns about.
+
+### ⚠️ THREE THINGS THIS DOES NOT SETTLE
+1. **A&S damp the pole inside `ln(1 + ·)`; we do not.** §E288 flagged it and **nobody has costed it.**
+   That is a THIRD difference from the paper, independent of ρ and of where `q²` sits.
+2. **It does not touch §E276.** We still apply the result as a SPREAD where A&S apply a SHIFT, and κ
+   changes only where the singularity lives. **If the shift lands, re-derive κ — a shift has no 100%
+   boundary, so the pressure that makes κ attractive is partly an artifact of the spread form.**
+3. **`κ` needs a derivation, not just A&S's "+1".** Their `+1` is one share; our `1` is one
+   flow-window, and that those coincide is an analogy, not a result. ▶️ **The honest first landing is
+   `κ = 1` (a pure refactor); `κ = 2` is a SECOND, economic commit with its own prediction.**
