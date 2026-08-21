@@ -86,9 +86,6 @@ contract LevManager is LevBase {
     ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
 
 
-    event Opened(address indexed lp, address venue, uint256 targetLtvBps);
-    event Closed(address indexed lp, uint256 weethReturned);
-    event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
 
     error AlreadyOpen();
@@ -99,7 +96,6 @@ contract LevManager is LevBase {
     error Slippage();
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
-    event ProtectedFromQuid(address indexed lp, uint256 quidRedeemed, uint256 debtRepaid);
 
     uint256 private _lock = 1;
     modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
@@ -111,7 +107,6 @@ contract LevManager is LevBase {
     address internal immutable GOV;
     mapping(address => bool) public allowedVenue;
     bool internal venuesFrozen;                              // set by pinVenues → allowlist immutable thereafter
-    event VenueAllowed(address indexed venue, bool ok);
 
     /// PIN-ONCE via `init` (below), then frozen (not rotatable) — matches the renounce-everything posture.
 

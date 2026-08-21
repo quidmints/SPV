@@ -59,7 +59,6 @@ contract BtcLevManager is LevBase {
     mapping(address => bool) public allowedVenue;
     bool    public venuesFrozen;
     address public flashProvider;   // Morpho zero-fee flash (set in init) — powers the WBTC flash-repay-first de-lever
-    event VenueAllowed(address venue);
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic. Wires the audited venue ALLOWLIST
     ///         (`venues`, then frozen) and the band sync-hook (`hook` = Vault.syncLev, poked by
     ///         closeBtcLev) together. NOT rotatable (a new venue/hook ⇒ deploy a new BtcLevManager). No flash
@@ -76,18 +75,14 @@ contract BtcLevManager is LevBase {
             // (the rug the frozen allowlist guards). LevMath.vetVenue reverts an unvaluable one even for GOV, and
             // rejects a SHORT ({stable,WBTC}) mis-pinned as a long (returns true). c1=WBTC ⇒ WBTC venue allowed.
             if (LevMath.vetVenue(v, WBTC, address(VBTC), WBTC)) revert BadAuth();
-            allowedVenue[v] = true; emit VenueAllowed(v);
+            allowedVenue[v] = true; emit VenueAllowed(v, true);
         }
     }
 
-    event Opened(address indexed lp, uint targetLtvCapBps);
     event Borrowed(address indexed lp, uint stableOut);
     event Supplied(address indexed lp, uint vbtcIn);
     event Withdrawn(address indexed lp, uint vbtcOut);
     event Repaid(address indexed lp, uint stableIn);
-    event Closed(address indexed lp, uint vbtcReturned);
-    event ProtectedFromQuid(address indexed lp, uint quidRedeemed, uint debtRepaid);
-    event DeleverFailed(address indexed lp, uint ltvBps);   // #10: a batch member skipped (couldn't source / native-only)
 
     error AlreadyOpen();
     error BadAuth();
@@ -186,7 +181,7 @@ contract BtcLevManager is LevBase {
             IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialVbtc);  // WBTC-mode: LP-brought equity
         }
         venue.supply(msg.sender, initialVbtc);
-        emit Opened(msg.sender, cap);
+        emit Opened(msg.sender, address(venue), cap);
     }
 
     /// @notice Adjust the caller's max-leverage cap (the IL target is auto-computed and never exceeds it).

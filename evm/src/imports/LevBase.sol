@@ -84,6 +84,24 @@ abstract contract LevBase {
     address public BAND;
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
+
+    /// @notice §E298 — the five events `LevManager` and `BtcLevManager` each declared separately.
+    ///         Both inherit this contract, so one declaration here reaches both and an inherited
+    ///         event still appears in each child's ABI. Three were already byte-identical at every
+    ///         emit site. Two had DRIFTED and are reconciled to the richer ETH shape:
+    ///         `Opened` lacked `venue` on the BTC side even though BTC picks a venue too
+    ///         (`ILevVenueColl(address(venue)).COLLATERAL()` decides vBTC vs WBTC mode), and
+    ///         `VenueAllowed` lacked the `ok` flag, so a BTC de-authorisation was indistinguishable
+    ///         from an authorisation in the log.
+    /// ⚠️ `Closed`'s two declarations shared a SELECTOR while meaning different things — the ETH
+    ///         one named `weethReturned`, the BTC one `vbtcReturned`. Identical topic0, different
+    ///         asset: an indexer reading both managers could not tell them apart. The parameter is
+    ///         now `assetReturned`, which is what it always was — the venue's own collateral token.
+    event Opened(address indexed lp, address venue, uint256 targetLtvBps);
+    event Closed(address indexed lp, uint256 assetReturned);
+    event VenueAllowed(address indexed venue, bool ok);
+    event DeleverFailed(address indexed lp, uint256 ltvBps);
+    event ProtectedFromQuid(address indexed lp, uint256 quidRedeemed, uint256 debtRepaid);
     event ReanchoredToBand(address indexed lp, uint entryPrice, uint256 e0);
 
     error NotOpen();
