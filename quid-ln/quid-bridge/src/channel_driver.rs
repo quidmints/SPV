@@ -773,6 +773,14 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
         );
     }
     info!(cid = %hex::encode(cid), %funding_txid, "opened channel on EVM");
+    // (§LAZY-OPEN) NO CLAIM CALL HERE, DELIBERATELY. `openChannel` credits the LP's pool position
+    // INLINE whenever the basket is healthy, and only books `pendingClaimSats` + emits
+    // `ChannelClaimDeferred` when the claim leg itself reverts. So an unconditional
+    // `registerChannelClaim` right here would revert `NothingToClaim()` on every healthy open —
+    // a warn line per channel that means nothing, which is how a log stops being read.
+    // ⚠️ **THE RETRY IS THEREFORE OWED SOMEWHERE ELSE, AND IS BOOKED, NOT ASSUMED:** the deferred
+    // state is announced by the event and is completable by ANYONE, so nothing is lost while it
+    // waits — but nothing retries it automatically yet either. See §LAZY-OPEN-RETRY in SPRINT.md.
     // (B) Prune the funding→lpEth binding now the open is mirrored — `by_funding` only
     // holds in-flight opens, so it can't grow unbounded over the daemon's lifetime.
     registry.clear_inflight(&funding_txid.to_string(), funding_vout);

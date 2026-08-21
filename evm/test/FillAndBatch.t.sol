@@ -67,7 +67,7 @@ contract FillAndBatchTest is Test {
     }
 
     /// 🔴 THE POINT OF THE CHECK: a weight that is SAFE at one Curve fee is GRINDABLE at another,
-    /// and a Curve crypto-pool's fee is dynamic across that range. 50% passes at 5bp and must fail at 10bp.
+    /// and TriCrypto's fee is dynamic across that range. 50% passes at 5bp and must fail at 10bp.
     function test_sameWeightSafeAtOneFeeAndGrindableAtAnother() public {
         FixedRateFill.requireNonAbusable(5000, 420, 500);      // 5bp: floor 16%, 50% clears it
         vm.expectRevert(FixedRateFill.SplitIsGrindable.selector);

@@ -93,6 +93,12 @@ pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
 (uint64[],bytes[],uint64,uint256,bytes))";
 pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
     "requestSwapOutOnchain(address,uint256,uint256,bytes32)";
+/// (§LAZY-OPEN) Credit the LP's BTC pool position for a channel whose custody `openChannel`
+/// already recorded. ⚠️ **PERMISSIONLESS on-chain — listing it here grants the hop NOTHING it
+/// did not already have**, it only lets the daemon be the one that normally calls it, in the
+/// same block as the open. The safety property is that ANY observer can call it if the hop does
+/// not, which is what stops a deferred claim becoming a hop-withheld claim.
+pub const SIG_REGISTER_CHANNEL_CLAIM: &str = "registerChannelClaim(bytes32)";
 /// (T1-c) The PROVEN on-chain swap-in credit. Note what is NOT a parameter: `sats`. The
 /// contract recomputes it from `rawDepositTx` by finding the output that pays the address it
 /// derives itself from the pinned `BTC_DEPOSIT_KEY` and the swap's own CLTV leaf — so the
@@ -131,6 +137,7 @@ pub const HOP_BTCCHANNELS_SIGS: &[&str] = &[
     SIG_REVERSE_SWAP_OUT,
     SIG_SETTLE_SWAP_IN_PROVEN,
     SIG_SETTLE_SWAP_IN_BUFFERED,
+    SIG_REGISTER_CHANNEL_CLAIM,
 ];
 
 /// An ABI token. Static tokens contribute one 32-byte word to the head; dynamic
@@ -905,6 +912,17 @@ pub fn encode_emit_dead_man_exit(
             Tok::Tuple(exit.tokens()),
         ],
     )
+}
+
+/// `registerChannelClaim(bytes32)` calldata — (§LAZY-OPEN) credit the LP's BTC pool position
+/// for a channel whose custody `openChannel` already recorded.
+///
+/// ⚠️ **THE CHANNEL ID IS THE ONLY INPUT, AND THAT IS THE POINT.** The contract reads the amount
+/// from the custody record it wrote under an SPV proof, so this call carries no economic number
+/// a caller could get wrong or lie about — it chooses only the TIMING. That is what makes the
+/// on-chain function safe to leave permissionless, and it is why this encoder takes nothing else.
+pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
+    encode_call(SIG_REGISTER_CHANNEL_CLAIM, &[Tok::FixedBytes32(channel_id)])
 }
 
 /// `requestSwapOutOnchain(address,uint256,uint256,bytes32,bytes)` calldata — the

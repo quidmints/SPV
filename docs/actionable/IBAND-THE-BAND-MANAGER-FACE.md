@@ -22,7 +22,7 @@ know which:
 | `:1013` payout | `!IS_BTC && VOGUE.takeETH(...)` | pay the volatile leg |
 
 **`ISkewSink` already proved the shape works.** Both managers expose `creditSkewPremium`, and
-`Vault.sol:322` records why: *"SAME NAME as `Quid.creditSkewPremium` so Core dispatches by ADDRESS
+`Vault.sol:322` records why: *"SAME NAME as `Vogue.creditSkewPremium` so Core dispatches by ADDRESS
 through one interface and one call site — two branch-local calls cost 180 bytes of Core's EIP-170."*
 `IBand` is that argument applied to the remaining six.
 
@@ -40,7 +40,7 @@ interface IBand {
 }
 ```
 
-| member | `Quid` (ETH) | `Vault` (BTC) |
+| member | `Vogue` (ETH) | `Vault` (BTC) |
 |---|---|---|
 | `creditSkewPremium` | exists | exists |
 | `levManager` | `ILevHost(EV()).LEV_MANAGER()` | `LEV_MANAGER_BTC` |
@@ -71,7 +71,7 @@ settlement, not in a boolean the caller must carry.
 ## Wiring
 
 `Core` needs one `BAND` handle instead of `VOGUE`/`BTCVAULT` + a flag:
-- ETH: set in `setup()` (Quid exists by then).
+- ETH: set in `setup()` (Vogue exists by then).
 - BTC: set in `setBtcVault()` — `Vault` is deployed AFTER `Core` (it takes Core's address at
   construction), which is exactly why that setter already exists.
 
@@ -87,8 +87,8 @@ run.
 
 ## What it unlocks
 
-`Quid` 21,339 + `Core` 13,587 = 34,926 > 24,576, so the managers still cannot merge into one
-contract directly — the route runs through the library layer (`QuidLib` 15,340 ∥ `BtcLib`
+`Vogue` 21,339 + `Core` 13,587 = 34,926 > 24,576, so the managers still cannot merge into one
+contract directly — the route runs through the library layer (`VogueLib` 15,340 ∥ `BtcVaultLib`
 16,369, the ETH/BTC pair of one logic). **But `IBand` is the step that makes the merge expressible
 at all**: once `Core` talks to a band through one face, "one implementation, two instances" is a
 refactor of the two managers alone, with no consumer changes.

@@ -2,14 +2,14 @@
 
 Every ETH deposit becomes **weETH**, earning the full ether.fi staking rate.
 
-There is no venue choice. `Quid.deposit(assets, receiver)` takes no venue argument, and
-`QuidLib._supplyEtherFi` is the single destination — no dispatch, no default sink, no per-address
+There is no venue choice. `Vogue.deposit(assets, receiver)` takes no venue argument, and
+`VogueLib._supplyEtherFi` is the single destination — no dispatch, no default sink, no per-address
 setting. A placement of 0 reverts `VenueUnavailable` rather than silently redirecting.
 
 ## Exit
 
-Withdrawals run the ladder in `QuidLib.withdrawETH`; the ether.fi slice offramps through
-`QuidLib.offrampBody` — the Curve weETH/WETH pool, else a multi-day no-fee withdrawal NFT minted to
+Withdrawals run the ladder in `VaultLib.withdrawETH`; the ether.fi slice offramps through
+`VaultLib.offrampBody` — the Curve weETH/WETH pool, else a multi-day no-fee withdrawal NFT minted to
 the withdrawer.
 
 Exits are **not** walled per depositor: the ETH leg is served from the aggregate ETH position
@@ -18,5 +18,5 @@ Exits are **not** walled per depositor: the ETH leg is served from the aggregate
 
 ## Source of truth
 
-`imports/QuidLib.sol` (`_supplyEtherFi`), `imports/QuidLib.sol` (`vogueETH`, `deliverableETH`,
+`imports/VogueLib.sol` (`_supplyEtherFi`), `imports/VaultLib.sol` (`vogueETH`, `deliverableETH`,
 `withdrawETH`, `offrampBody`).

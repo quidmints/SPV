@@ -96,5 +96,5 @@ utilisation-bounded. **The asynchronicity is a property of the PROTOCOL, not of 
    `preview*`-reverts rule), keeping the 1:1 ratio where a ratio is genuinely wanted.
 3. Only then decide `asset()`.
 
-⚠️ **Cross-repo:** `../ibiza` pins SPV as a submodule and depends on four Quid/Basket signatures
+⚠️ **Cross-repo:** `../ibiza` pins SPV as a submodule and depends on four Vogue/Basket signatures
 staying permissionless and stable. Confirm none of them is on the vBTC face before changing it.

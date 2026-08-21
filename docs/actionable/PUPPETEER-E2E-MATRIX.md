@@ -159,14 +159,14 @@ Mature-only; per-QD `min(par, solvent-share)` cap; stables-only (band-unwind fre
 |3c.1| BTC→QUID | poll → credited; CLTV refund path | hop API off (`hopApiConfigured`=false) → gated |
 |3c.2| Underpay / timeout | refund via CLTV; no partial credit unless signalled | replay / double-spend rejected |
 
-## 4. DEPOSIT (LP — ETH venues via `Quid.deposit(amt, recip, venue)`)
+## 4. DEPOSIT (LP — ETH venues via `Vogue.deposit(amt, recip, venue)`)
 Venues: Galaxy(0), ether.fi, Aave-v4, Rover, Euler, Split (per-LP hard-wall, #37/ETH-multivenue).
 |4.1| Deposit per venue | LP share ↑ at chosen venue, net-equity accounting | venue maxWithdraw=0 mock (Galaxy) handled |
 |4.2| Split ETH/WETH (`splitEthForDeposit`) | raw ETH wrapped + WETH combined | mismatch raw/weth amounts |
 |4.3| Allocation slider + comfort knob | maps to venue + magnitude | slider 0 (passive LP) = pure in-range |
 |4.4| Deposit 0 / > balance | — | reverts / disabled |
 
-## 5. WITHDRAW (LP — `Quid.withdraw`, instant vs queued)
+## 5. WITHDRAW (LP — `Vogue.withdraw`, instant vs queued)
 |5.1| Withdraw (instant) | `setWithdrawInstant(true)` → immediate | withdraw > deposited |
 |5.2| Withdraw (queued) | ether.fi redeem buffer / queue fallback (#38) | venue illiquid → queue, not revert |
 |5.3| Partial / full | share math correct, IL realized on repack | withdraw 0 |

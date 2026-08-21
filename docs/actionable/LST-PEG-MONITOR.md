@@ -36,7 +36,7 @@ Lesson: nearly every LST "depeg" in history was a *temporary liquidity discount 
 
 **Leverage side — per-LP ISOLATED.** `LevManager` is *"a per-LP, isolated, weETH-collateral leverage overlay… isolated liquidation (that LP only, never the basket)… own liquidation, never socialized"* (`:68-77`, `:201`), on Morpho/Euler-native per-LP escrow. A levered LP's weETH impairment hits **only that LP**.
 
-**Plain side — value loss is SOCIALIZED.** The withdraw path is explicit (`Quid:572-575`): *"already IL-adjusted, since convertToAssets = pro-rata of vogueETH — the loss is socialized fairly via the share price, no first-out advantage."* `vogueETH()` sums all venues incl. the ether.fi/weETH slice (`Vault:423`); one share price. So a weETH value drop reduces `vogueETH` → every ETH LP's share drops pro-rata. The **"hard wall"** (`ethfiBacked`/offramp, `Quid:497-521`) is **exit-liquidity routing** (your withdrawal is *physically served* from your venue), **not** loss isolation.
+**Plain side — value loss is SOCIALIZED.** The withdraw path is explicit (`Vogue:572-575`): *"already IL-adjusted, since convertToAssets = pro-rata of vogueETH — the loss is socialized fairly via the share price, no first-out advantage."* `vogueETH()` sums all venues incl. the ether.fi/weETH slice (`Vault:423`); one share price. So a weETH value drop reduces `vogueETH` → every ETH LP's share drops pro-rata. The **"hard wall"** (`ethfiBacked`/offramp, `Vogue:497-521`) is **exit-liquidity routing** (your withdrawal is *physically served* from your venue), **not** loss isolation.
 
 **Mode 1 is handled** (`Vault:357-365`): the *"no cap — structural non-problem"* stance is about a **dead/manipulated pool** — Rover is fair-gated (`_nearFair`/`_fairMinOut`), unwinds without a counterparty, and *"degrades a venue-4 slice exactly like the plain ether.fi venue (instant-redeem / wait-NFT), **never into principal extraction**."* i.e. a discount/liquidity event realizes at intrinsic, no principal loss.
 
@@ -46,7 +46,7 @@ Lesson: nearly every LST "depeg" in history was a *temporary liquidity discount 
 
 ## 5. Why a reactive monitor is the WRONG tool (don't build it)
 
-Because the plain-side loss lands on the share price with **no first-out advantage** (`Quid:574`):
+Because the plain-side loss lands on the share price with **no first-out advantage** (`Vogue:574`):
 1. A **discrete slash is already realized** the instant `getRate` drops — evacuating weETH→WETH afterward just converts an already-marked-down asset, for no benefit, at a cost.
 2. You **can't escape by exiting** — the share price already reflects it for everyone, by design. So a reactive de-risk gives no LP an edge.
 3. A **fast exploit** outruns any poke (exit liquidity gone; `getRate` can even lag an unbacked-mint drain).

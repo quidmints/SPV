@@ -374,6 +374,24 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     mapping(bytes32 => uint) public checkpointOf;
     mapping(bytes32 => uint) public paidOutSinceCheckpoint;
 
+    /// @notice (§LAZY-OPEN) Sats custodied by `openChannel` whose LP pool CLAIM has not been
+    ///         registered yet. Non-zero ⇒ **custody is recorded and the EVM position is not**,
+    ///         which is the only state this split introduces. Zeroed by `registerChannelClaim`.
+    /// @dev **Why the claim is deferred at all, since the split is otherwise pure cost:** the
+    ///      funding output is SPV-PROVEN, so the LP's sats are already locked in the 2-of-2 on
+    ///      Bitcoin before this contract ever runs. The claim leg reverts on PROTOCOL-WIDE state
+    ///      (`checkBacking`, `repack`, `ZeroTwap` in `BtcLib.requestDeposit`) — none of it about
+    ///      this channel. Fused, that put a revertible step in front of `_armLadder`, so a stale
+    ///      TWAP or an unhealthy basket left a FUNDED channel with NO ARMED EXIT. The open is
+    ///      retryable (the merkle proof stays valid), so nothing stranded permanently — but the
+    ///      window is open exactly during stress, which is when a hop is most likely to go dark,
+    ///      and a hop that vanishes inside it makes the loss permanent because no ladder was armed.
+    /// ⚠️ **CONSERVATIVE FOR THE BASKET, WHICH IS WHY THE ORDER IS THIS WAY ROUND AND NOT THE
+    ///      OTHER:** custody-without-claim counts sats into `totalSatsLocked` with no shares
+    ///      issued, so the basket is OVER-backed while this is non-zero. The mirror state
+    ///      (shares without custody) would be under-backed, and is unconstructible here.
+    mapping(bytes32 => uint) public pendingClaimSats;
+
 
     // Swap-in replay guard: the Lightning HTLC hashlock (payment hash) of each
     // settled BTC→USD swap-in, marked used so a buggy/compromised/double-
@@ -427,6 +445,8 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     error SwapInPartialRejected();   // requireFull swap-in (LN rail) that the pool could only partially fill
     error BadSPV();
     error AlreadyOpen();
+    error NothingToClaim();    // (§LAZY-OPEN) no unregistered custody for this channel: never opened,
+                               // already claimed, or closed before the claim was registered
     error WrongBtcRecipient(); // open's payout hash != the LP's already-registered one
     error OneChannelPerLp();   // lpEth already has an open channel (splice to resize)
     error BtcRecipientLockedErr(); // can't setBtcRecipient once a channel locked it
@@ -622,7 +642,15 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         _releasePoolSats(channelId, 0);   // the channel is gone: ALL its pool inventory left
         delete poolOwnedSats[channelId];
         delete poolSatsParker[channelId];
-        btcVault.requestRedeem(ch.lpEth, lpPayoutSats);
+        // (§LAZY-OPEN) A channel closed before its claim was registered has NO EVM position, so
+        // there is nothing to retire and `requestRedeem` would be retiring one that was never
+        // created. The LP's BTC is recovered by the close tx itself, off this path, exactly as for
+        // a claimed channel — the deferred credit is the only thing it never received.
+        // ⚠️ **THE CLEAR MUST HAPPEN ON EVERY CLOSE, NOT ONLY IN THAT BRANCH:** leaving it set
+        // would let `registerChannelClaim` credit a position for custody that has already left.
+        bool claimed = pendingClaimSats[channelId] == 0;
+        delete pendingClaimSats[channelId];
+        if (claimed) btcVault.requestRedeem(ch.lpEth, lpPayoutSats);
     }
 
     /// @notice The LP's remaining channel balance read from a cooperative-close
@@ -937,12 +965,76 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // deadline, so no channel can exist without a live escape.
         _armLadder(channelId, p, exits);
 
-        // Channel locks back the pool: credit the LP's BTC pool position with
-        // the locked sats. One channel per lpEth (the position aggregates per
-        // address; close retires it in full).
-        btcVault.requestDeposit(channel.lpEth, channel.amountSats);
+        // (§LAZY-OPEN) Channel locks back the pool: the LP's BTC pool position is credited with
+        // the locked sats. One channel per lpEth (the position aggregates per address; close
+        // retires it in full). ⚠️ **BOOKED HERE, CREDITED IN `registerChannelClaim`** — this used
+        // to be an inline `btcVault.requestDeposit`, which put a leg that reverts on PROTOCOL-WIDE
+        // state (`checkBacking`/`repack`/`ZeroTwap`) in the same transaction as `_armLadder` above.
+        // The consequence was the opposite of what the arming is for: an unhealthy basket meant a
+        // channel whose funding is already final on Bitcoin could not record its escape.
+        // ⇒ **CUSTODY AND THE LADDER NOW DEPEND ONLY ON FACTS ABOUT THIS CHANNEL** (the SPV proof),
+        // which cannot fail for a reason elsewhere in the protocol.
+        //
+        // ⭐ **WHY THIS IS A `try`, NOT AN UNCONDITIONAL DEFERRAL — MEASURED, NOT REASONED.** The
+        // first version booked the claim ALWAYS and made `registerChannelClaim` the only way to
+        // credit it. Two arms of the full suite on an isolated worktree priced that: baseline
+        // 433 passed / 86 failed, unconditional-deferral 419 / 97, with **13 tests failing on that
+        // arm alone** — including `test_SpliceOut_ShrinksPositionAndChannel`, because a partial
+        // shrink does `LP.pooled -= shrinkSats` and underflows against a position that was never
+        // opened. ⇒ **If essentially every caller must claim in the next breath, the deferral is
+        // friction in the normal path and a new hazard in the shrink path.** The defect was only
+        // ever that an IRREVERSIBLE record (custody + ladder) was rolled back by a REVERTIBLE leg,
+        // so the fix is to stop the rollback — not to restructure who credits whom.
+        // ⚠️ **THIS IS NOT A SWALLOWED ERROR** (standing rule 4): the failure is recorded in public
+        // state, announced by an event, and retryable by anyone. What it must never become is a
+        // `catch` that lets the channel proceed as if credited — the whole point is that
+        // `pendingClaimSats` stays non-zero until someone actually credits it.
+        try btcVault.requestDeposit(channel.lpEth, channel.amountSats) {
+            // Healthy basket: credited inline, byte-for-byte the behaviour that shipped before.
+        } catch {
+            pendingClaimSats[channelId] = channel.amountSats;
+            emit ChannelClaimDeferred(channelId, channel.lpEth, channel.amountSats);
+        }
 
         _emitOpened(channelId, channel, p);
+    }
+
+    /// @notice (§LAZY-OPEN) Credit the LP's BTC pool position for a channel whose custody this
+    ///         contract has already recorded. Idempotent, and **PERMISSIONLESS BY DESIGN**.
+    /// @dev 🔒 **THE PERMISSIONLESSNESS IS THE WHOLE SAFETY ARGUMENT, NOT A CONVENIENCE.** Deferring
+    ///      the claim would otherwise hand the hop a power it does not have today — "custody
+    ///      arrives, the claim arrives IF the enclave cooperates" — a griefing vector introduced BY
+    ///      the split rather than found by it. Because ANYONE may call this (the LP, a watchtower,
+    ///      any observer), withholding is not available to a compromised enclave at all, so the
+    ///      split leaves it with strictly LESS influence than the fused version it replaces.
+    /// ⚠️  **IT TAKES NO CALLER-SUPPLIED ECONOMIC INPUT**, which is what makes opening it up safe:
+    ///      the amount comes from the custody record THIS contract wrote under an SPV proof, so an
+    ///      untrusted caller chooses only the TIMING, never the number.
+    /// @dev Normally called in the same block as the open (even by the same submitter), so the
+    ///      deferral is a SAFETY VALVE, not a normal-path delay — which is why no back-dated fee
+    ///      accrual is needed: the LP earns from the claim, and anyone can make claim = custody + 0
+    ///      blocks whenever the protocol is healthy. ⛔ **DO NOT "IMPROVE" THIS BY BACK-DATING THE
+    ///      CREDIT TO THE CUSTODY MOMENT** — joining a `feesPerShare` pool with a stale checkpoint
+    ///      claims fees already distributed to the other LPs, moving the loss instead of removing it.
+    /// @dev No status check: `_finalizeClose` clears `pendingClaimSats`, so a closed channel already
+    ///      reverts through the zero branch and a redundant `_whenOpen` would only cost bytes.
+    /// @dev ⚠️ **CREDITS WHAT IS STILL CUSTODIED, NOT WHAT WAS CUSTODIED AT OPEN — a correctness
+    ///      rule, not a defensive clamp.** Custody can move between the open and the claim:
+    ///      `parkProvenSats` adds pool inventory and `deliverSwapOutOnchain` shrinks the channel,
+    ///      both without registering anything. Crediting the open-time figure after a shrink would
+    ///      issue shares against sats that have LEFT — silently under-backing the basket, which is
+    ///      exactly the failure standing rule 3 says a check earns its place for. The entitlement is
+    ///      `amountSats − poolOwnedSats`, the SAME rule `_finalizeClose` uses to size `lpEntitled`.
+    function registerChannelClaim(bytes32 channelId) external nonReentrant {
+        uint sats = pendingClaimSats[channelId];
+        if (sats == 0) revert NothingToClaim();
+        uint total = channels[channelId].amountSats;
+        uint booked = poolOwnedSats[channelId];
+        uint entitled = total - (booked > total ? total : booked);
+        if (sats > entitled) sats = entitled;
+        delete pendingClaimSats[channelId];
+        if (sats == 0) revert NothingToClaim();   // shrunk to nothing: no position to open
+        btcVault.requestDeposit(channels[channelId].lpEth, sats);
     }
 
     /// @dev The 9-field ChannelOpened emit in its own frame — keeps openChannel
@@ -1240,6 +1332,14 @@ contract BTCChannels is Ownable, ReentrancyGuard {
 
     /// A close paid the LP more than its entitlement — `over` sats of pool inventory left with it.
     event PoolSatsLeftWithLp(bytes32 indexed channelId, address indexed lpEth, uint over);
+
+    /// @notice (§LAZY-OPEN) The channel is custodied and its ladder armed, but the LP's pool claim
+    ///         could not be credited because the CLAIM leg reverted on protocol-wide state
+    ///         (`checkBacking`/`repack`/`ZeroTwap`). Anyone may complete it via
+    ///         `registerChannelClaim`. ⚠️ **THIS IS THE ONLY ANNOUNCEMENT OF A STATE THAT WOULD
+    ///         OTHERWISE BE SILENT** — the open succeeded, so nothing else about the transaction
+    ///         says the LP is not yet earning. Alert on it.
+    event ChannelClaimDeferred(bytes32 indexed channelId, address indexed lpEth, uint sats);
 
     /// (M1#1) Sats this hop has SPV-proven into custody and not yet credited against.
     ///
