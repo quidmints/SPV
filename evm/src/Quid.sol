@@ -16,7 +16,7 @@ import {BandLib} from "./imports/BandLib.sol";
 import {Types} from "./imports/Types.sol";
 
 import {Basket} from "./Basket.sol";
-import {State} from "./Shares.sol";
+import {Shares} from "./Shares.sol";
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 
@@ -30,7 +30,7 @@ import {Aux} from "./Aux.sol";
     // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
-contract Quid is State,
+contract Quid is Shares,
     Ownable, ReentrancyGuard {
     error AlreadyInitialized();
     error WrongQuid();

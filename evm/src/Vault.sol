@@ -13,7 +13,7 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types} from "./imports/Types.sol";
-import {State} from "./Shares.sol";
+import {Shares} from "./Shares.sol";
 
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 
@@ -84,7 +84,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
     // §E252 — the THIRTEEN shared band-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
-contract Vault is Ownable, ReentrancyGuard, State {
+contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
     Quid     internal immutable BAND;    // the ETH LP contract

@@ -54,11 +54,14 @@ import {OorBook} from "./imports/SortedSet.sol";
 ///         would produce two contracts that cannot share an implementation at all.
 ///
 /// @dev    ⚠️ DELIBERATELY EXCLUDES THE ERC-20 FACE. `name`, `symbol`, `decimals`, `totalSupply`
-///         and `allowance` are declared in `Shares` AND in `Quid`, but NOT in `Vault` — the BTC
+///         ⚠️ CORRECTED: the ERC-20 allowance machinery is declared ONLY in `Quid`, NOT here.
+///         This file declares STATE and no functions at all — a previous version of this line
+///         claimed a duplication across `Shares` and `Quid` that does not exist, in the one file
+///         whose purpose is preventing duplication.
 ///         band's share face is `VBtc`, a separate token. Hoisting those five would collide with
 ///         Quid and give Vault a face it does not use. The band STATE is shared; the share FACE
 ///         is per-asset, and that asymmetry is real (§A.19b: vBTC has no bearer redemption).
-abstract contract State {
+abstract contract Shares {
     /// The band's leverage manager. GOV pin-once, then frozen.
     address public LEV_MANAGER;
 
