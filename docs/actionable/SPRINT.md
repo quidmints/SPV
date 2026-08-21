@@ -4926,3 +4926,41 @@ worst case against 1e18 before deleting — that check is not done here.**
 ⚠️ §E104's other lesson stands: 4,308 tests stayed green over the sentinel panic because the suite never
 drains a band to zero. **Whatever mechanism lands, the test that proves it must drain a band to zero** —
 otherwise the suite will be green over the successor bug too.
+
+
+## 🔴🔴 §MIDNIGHT-SUBMODULE-HALF-DONE — **THE WORKING TREE'S 54-FILE CHANGE CANNOT BE PUSHED, AND IT DELETES THE FILE THAT SAYS WHY** (measured 2026-08-21)
+
+The owner asked me to push the shared tree's uncommitted work. **I did not, because it does not
+build — and the reason is not a straggler, it is the premise.**
+
+**What the change does:** deletes 20 vendored Midnight files from `evm/src/imports/`
+(`Midnight.sol`, `UtilsLib`, `TickLib`, `ConstantsLib`, `EventsLib`, `HashLib`, `IdLib`,
+`SafeTransferLib`, the ratifiers and interfaces) plus `evm/src/State.sol`, adds
+`evm/lib/morpho-v2` as a **submodule** with remapping `morpho-v2/=lib/morpho-v2/src/`, and adds
+`Shares.sol`, `LevBookLib.sol`, `OorFillsOnTouch.t.sol`.
+
+**Measured, in this order:**
+1. `forge build` fails: `test/MidnightMsb.t.sol:4` still imports the deleted
+   `../src/midnight/libraries/UtilsLib.sol`.
+2. Repointing that one import at the submodule **also fails**, and this is the finding:
+   upstream's `UtilsLib.msb` is `res := sub(255, clz(bitmap))` and **`clz` is unknown to
+   `solc 0.8.30`** (`Error (4619): Function "clz" not found`), which `foundry.toml` pins.
+3. **`morpho-v2/` is imported by NOTHING** — zero import sites across `src`, `test`, `script` — while
+   the deleted vendored copies still have a live importer.
+
+⛔ **AND THE DELETED `MIDNIGHT-FORK.md` STATES THE POLICY THIS REVERSES**, in its own words:
+*"⚠️ **THAT REPO IS NOT A SUBMODULE.** Nothing in `src/`, `test/` or `script/` ever compiled against
+it — its only job was to be diffed against — so carrying it was weight."* The vendored copies are
+*"minimally adapted"* and flattened precisely so they compile here; the submodule is the **diff
+baseline**, not a dependency. ⇒ **The change adds the weight that file says to avoid and deletes the
+adaptation that makes the code compile.**
+
+▶️ **For whoever owns this work — the decision is yours, not mine, and it is one of two:**
+either **restore the vendored copies** (the submodule stays a clone-on-demand audit baseline, per
+`MIDNIGHT-FORK.md`), or **keep the submodule and adapt upstream for `solc 0.8.30`** — which is
+re-doing the fork, i.e. what the vendored files already are. ⚠️ Note the second needs more than a
+`clz` polyfill: `CLAUDE.md` records that `ConstantsLib` carries `via_ir = true` / `runs = 50` and
+**compilation restrictions propagate through imports**, which is the same trap in a different file.
+
+📌 **`State.sol`'s deletion is unstaged, so it is not armed** — but it belongs to this change set, and
+rule 14b says a deletion and its replacement land together or the deletion waits. It is waiting.
