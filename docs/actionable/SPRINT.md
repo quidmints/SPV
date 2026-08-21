@@ -8060,3 +8060,39 @@ borrow-only on Aave today.
 2. **Key `escrowOf` on the (collateral, stable) pair** so the 2× loop's two legs get two accounts.
 3. **Then** point the vBTC market's supply side at our depositors, once the stable is chosen.
 ⚠️ Each is a money-path change needing its own verified run (rule 10), so they do not batch.
+
+## ✅ §E308 — **THE INTERFACE FOLD IS EXHAUSTED. FIVE LANDED; EVERY REMAINING CANDIDATE IS A FALSE POSITIVE, AND HERE IS WHY.**
+Owner: *"are there any more folds?"* **No. Recorded with the negative evidence so the scan is not re-run
+from scratch** — the method matters more than the count, because the obvious metric is wrong twice.
+
+### THE FIVE THAT LANDED (41 → 35 declarations this session)
+| fold | the evidence it was ONE contract |
+|---|---|
+| `IQuidTarget` → `IBasketTurn` | `target()` is in `Basket.sol` beside `turn`/`matureSupply` |
+| `ILevMintVenue` **deleted** | Liquity capability; venue removed (`c11cb40f`); path unreachable |
+| `ILevSyncHook` → `IBand`(→`ICore`) | `BAND` assigned from the same address; **`bandBounds` declared on BOTH** |
+| `ILevHost` → `IEthVenue` | all three sites resolved `IAux(...).ethVenue()` |
+| `IBasketMint` → `IBasketTurn` | both cast on `quid`; `Basket.sol` implements `mint` |
+(+ `IBand` → `ICore` by another thread, `c372f7b0`.)
+
+### ⛔ THE FIVE REJECTED — EACH LOOKED FOLDABLE BY VARIABLE NAME
+| candidate | why NOT |
+|---|---|
+| `ILevManagerDeliver` vs `ILevEthDeliver` | **same method name, DIFFERENT signature**: `swapOutDelever(lp, stableUsd, **freeSats**)` vs `(lp, stableUsd, recipient, minWethOut)`. **BTC vs ETH manager** |
+| the four Aave interfaces | `dataProvider`, `pool`, `aaveHub`, `aaveSpoke` — **four distinct addresses** |
+| `pool` → `IAaveV3Pool` + `ICurvePool` + `ICurveOracle` | a GENERIC variable name in three different files |
+| `range` → `IAux` + `ICore` | same: `IAux(range)` in `FeeLib` is a different local from `ICore(range)` in `LevMath` |
+| `IWeETH` / `IVBtcToken` vs `IERC20Min` | they redeclare **ZERO** ERC-20 functions — no overlap to fold |
+
+### 🔴 TWO METRICS THAT LIE, AND BOTH FOOLED ME BEFORE I CHECKED
+1. **"CAST ON THE SAME VARIABLE NAME" ≠ same contract.** `pool` and `range` are generic locals; the
+   discriminator is the ASSIGNMENT and the SIGNATURE, never the name. Same lesson as `IBtcVault`/
+   `ethVenue`: *merge on what things ARE, not what they are called.*
+2. **"ZERO CASTS" ≠ dead.** `ISwap` has **0 casts and is live** — `Aux.sol:37` is
+   `contract Aux is … ISwap` and `Interfaces.sol:292` is `interface IAux is ISwap`. **Inheritance does
+   not appear as a cast.** ⇒ It is the SOLVER-FACING surface (`swap`, `getTWAPforAsset`, `resolvedTwap`,
+   `wellSkew`, `swapFeePpm`) — exactly what an RFQ engine consumes, and deliberately separate from the
+   52-member `IAux`. **Deleting it on a cast count would have removed the external API.**
+▶️ **THE SCAN THAT FINDS ANY FUTURE ONE**, if new interfaces land: group every `IFoo(x)` cast by `x`,
+report groups with >1 interface, then **check signatures and assignment sites per group before believing
+it** — 5 of 10 groups were false positives.
