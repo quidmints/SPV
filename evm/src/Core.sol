@@ -1343,7 +1343,7 @@ contract Core {
         // trades), and that is what the deviation test needs to mean anything.
         // 🔴 NO SOURCE IS PINNED (see `DeployLib`), so this body does not run today. The SELECTOR
         //    and any index belong TO THE CHOSEN SOURCE and must be decided WITH it — a pool index is
-        //    meaningless without the pool, and carrying TriCrypto's `1` forward would silently price
+        //    meaningless without the pool, and carrying a previous pool's `1` forward would silently price
         //    ETH as WBTC on any pool ordered differently. Left as a raw call so the next source
         //    supplies its own encoding rather than inheriting a rejected pool's.
         (bool ok, bytes memory out) = src.staticcall(OBS_CALLDATA);

@@ -41,7 +41,7 @@ import {QuidLib} from "./QuidLib.sol";
 ///         come in via the cfg structs. Routing is SPLIT BY LEG TYPE and no longer "all Curve":
 ///         the STABLE hops (stable↔USDC) are Curve stableswap, and every VOLATILE hop
 ///         (USDC↔WETH, USDC↔WBTC) is a pinned Uniswap V3 pool via `_poolSwap` (§V-R1-MIN).
-///         TriCrypto is GONE from this file — only weETH→WETH (`ETHERFI_CURVE_POOL`) remains
+///         The USDC<->volatile Curve leg is GONE from this file — only weETH→WETH (`ETHERFI_CURVE_POOL`) remains
 ///         Curve-on-a-volatile-pair, and that is a dedicated LST pool, not a router.
 ///         (The below-entry SHORT / inverse-venue subsystem was removed — up-side-only is the design.)
 library LevMath {
@@ -337,7 +337,7 @@ library LevMath {
     error NoStableRoute();
     error NoOptIn();
     error Slippage();
-    /// §E240-tri — no on-chain USDC<->volatile venue exists. TriCrypto is removed (too shallow: both
+    /// §E240-tri — no on-chain USDC<->volatile venue exists. The Curve route was removed (too shallow: both
     /// legs breached the 1% floor between $10k and $25k) and no replacement is wired. §V-R1 (1inch
     /// AggregationRouterV6) is the route that closes this.
     error NoVolatileRoute();
@@ -389,7 +389,7 @@ library LevMath {
         // §SLOP — NINE DEAD LINES DELETED BELOW THIS `return`: the OLD body, left behind when it
         // was replaced by the `sellWeeth` delegation. An UNCONDITIONAL return followed by an
         // orphaned implementation — solc reported `Unreachable code` and it shipped as bytecode
-        // nobody could reach. PRE-EXISTING, not the TriCrypto removal: the reimburse/floor/
+        // nobody could reach. PRE-EXISTING, not the venue removal: the reimburse/floor/
         // `_wethToStableDex` sequence it held all lives inside `sellWeeth`.
         return sellWeeth(c, stable, pulled, minOut, assets);
     }
@@ -525,7 +525,7 @@ library LevMath {
                           / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
                          * (10_000 - SELL_SLIP_BPS) / 10_000;
         return _poolSwap(USDC, c.weth, V3_FEE_WETH, _toUsdc(stable, stableAmt), floor_);
-        // §V-R1-MIN — the pinned-pool venue below replaced TriCrypto; see `_poolSwap`.
+        // §V-R1-MIN — the pinned-pool venue below replaced the Curve route; see `_poolSwap`.
     }
 
     /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
@@ -583,7 +583,7 @@ library LevMath {
     ///      `minOut` is applied on the LAST hop so it bounds the whole route.
     /// @dev §V-R1-MIN — TWO HOPS, AND THE FIRST IS NOT OPTIONAL. The pinned pools are USDC-paired
     ///      (USDC/WETH, WBTC/USDC), so a venue stable that is NOT USDC has no direct pool and the
-    ///      swap would revert in the router. `_toUsdc` is the stableswap hub hop the TriCrypto version
+    ///      swap would revert in the router. `_toUsdc` is the stableswap hub hop the previous version
     ///      also had; only the SECOND leg changed venue. Dropping it was my bug, caught by
     ///      `testReal_WbtcLev_FoldUp_Then_FlashDelever` failing `transferFrom reverted` rather than
     ///      `NoVolatileRoute` -- i.e. it reached the router and the router had no pool.

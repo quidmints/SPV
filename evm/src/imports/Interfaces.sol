@@ -92,7 +92,10 @@ interface ICurvePool {
     function balances(uint256 i) external view returns (uint256);
 }
 
-// Curve TriCryptoUSDC — the ONLY external route to WETH/WBTC. VERIFIED LIVE 2026-08-15 on mainnet:
+// §SCRUB-TRI (2026-08-21) — the block that stood here described the removed Curve 3-coin pool as "the ONLY
+// external route to WETH/WBTC" in the PRESENT tense, twelve lines above the note recording that it
+// was REMOVED. Its verified coins/`get_dy` figures are preserved in §E292. The venue below is the
+// live one.
 //   coins(0)=USDC 0xA0b8…eB48 · coins(1)=WBTC 0x2260…C599 · coins(2)=WETH 0xC02a…6Cc2
 //   get_dy(0→2, 10_000 USDC) = 5.293e18   (~$1,889/ETH)
 //   get_dy(0→1, 10_000 USDC) = 1.584e7 sats (~$63.1k/BTC)
@@ -100,10 +103,11 @@ interface ICurvePool {
 // there is no id to assert against, unlike the Morpho markets.
 // (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
 // §V-R1-MIN — THE VOLATILE VENUE, PINNED ON-CHAIN. Uniswap V3 SwapRouter02.
-// MEASURED 2026-08-17, which is the whole argument for choosing these over TriCrypto:
-//     USDC/WETH 0.05%  32,497 WETH + 36.9M USDC   — 46x TriCrypto's 698 WETH
-//     WBTC/USDC 0.30%   262.9 WBTC + 10.3M USDC   — 12.7x TriCrypto's 20.72 WBTC
-// TriCrypto was removed because BOTH legs breached the 1% floor between $10k and $25k. That was a
+// MEASURED 2026-08-17, and this depth IS the argument for these pools (the predecessor venue was
+// removed for breaching the 1% floor between $10k and $25k — a DEPTH problem, §E292):
+//     USDC/WETH 0.05%  32,497 WETH + 36.9M USDC   — 46x the predecessor's 698 WETH
+//     WBTC/USDC 0.30%   262.9 WBTC + 10.3M USDC   — 12.7x the predecessor's 20.72 WBTC
+// It was removed because BOTH legs breached the 1% floor between $10k and $25k. That was a
 // DEPTH problem, and a deeper pool solves it. It did NOT require an aggregator.
 //
 // ⚠️ WHY PINNED AND NOT AGGREGATED — THIS IS A KEEPER-SCOPE DECISION, NOT A ROUTING PREFERENCE.
@@ -126,21 +130,21 @@ interface IV3Router {
     function exactInputSingle(ExactInputSingleParams calldata p) external payable returns (uint256);
 }
 
-// §E240-tri — TriCrypto's POOL ADDRESS and its three coin indices are DELETED with the four legs
+// §E240-tri — the removed pool's ADDRESS and its three coin indices are DELETED with the four legs
 // that used them. It held 698 WETH / 20.72 WBTC, so BOTH legs breached the 1% floor between $10k and
 // $25k: shallow enough that the venue was the defect, not the sizing. The stableswap hub constants
 // below STAY -- stable<->USDC is a different, deep market and those legs still work.
 
-// Stableswap legs: the borrowed stable → USDC, before TriCrypto takes USDC → WETH/WBTC.
+// Stableswap legs: the borrowed stable → USDC, before the volatile venue takes USDC → WETH/WBTC.
 // 🔴 THE TWO POOLS ARE ORDERED OPPOSITELY. Read from mainnet 2026-08-15:
 //     0xD001aE43…  coins(0)=USDC  coins(1)=RLUSD   ⇒ RLUSD is 1, USDC is 0
 //     0x383E6b44…  coins(0)=PYUSD coins(1)=USDC    ⇒ PYUSD is 0, USDC is 1
 // A SHARED index constant would therefore be silently wrong for one of them — wrong-pair swap at
 // size, no revert, no id to assert against. Each pool carries its own pair of indices for that reason.
-// Token handles for the routing branch (the basket's own stables; USDC is TriCrypto's coin 0).
-// USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): was `CURVE_TRICRYPTO_USDC_TOKEN`, which named
+// Token handles for the routing branch (the basket's own stables; USDC is the routing hub).
+// USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): its old name embedded a venue, which named
 // it after a pool it has nothing to do with — it is used as the hub in `_toUsdc`/`_fromUsdc`/
-// `_routableStable`, where no TriCrypto is involved. The genuine TriCrypto names below are the POOL
+// `_routableStable`, where that venue is not involved. The genuine venue names below are the POOL
 // and its coin indices, and those stay. Also the ONE declaration (rule 2): `SOR.USDC_HUB` was a
 // second private copy of this same address.
 // (`///` is a DOC tag; solc rejects it on a file-level variable, so these are plain `//`.)
@@ -154,7 +158,7 @@ address constant CURVE_PYUSD_USDC      = 0x383E6b4437b59fff47B619CBA855CA29342A8
 int128  constant CRV_PYUSD_IDX         = 0;
 int128  constant CRV_PYUSD_USDC_IDX    = 1;
 
-/// @notice Curve crypto-swap (TriCrypto). Uniswap is gone from every leg: stable→stable goes through
+/// @notice Curve crypto-swap. Uniswap is gone from every leg: stable→stable goes through
 ///         the stableswap pools via `ICurvePool` (int128), stable→volatile through this one (uint256).
 /// @dev    🔴 A SEPARATE INTERFACE, NOT AN OVERLOAD ON `ICurvePool`, DELIBERATELY. Curve's two families
 ///         encode indices differently — stableswap `int128`, crypto-swap `uint256` — and calling the
@@ -162,7 +166,7 @@ int128  constant CRV_PYUSD_USDC_IDX    = 1;
 ///         pool). Overloading both on one interface would let a caller pick the wrong ABI by
 ///         integer-literal inference. Two named types make the choice explicit, and reverting is the
 ///         SAFE failure: a mis-encoded index would otherwise swap the wrong pair.
-// §E240-tri — `ICurveTriCrypto` DELETED: no caller. `ICurvePool` (int128 stableswap) stays, and
+// §E240-tri — the 3-coin crypto-swap interface DELETED: no caller. `ICurvePool` (int128 stableswap) stays, and
 // `ICurveOracle` in `ExternalTwap` is a separate, still-live price surface -- do not confuse them.
 
 /// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
