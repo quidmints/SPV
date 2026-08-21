@@ -1365,6 +1365,12 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
     // mirror-only (fees not flushed; e.g. tests / a read-only reconciler).
     hop_wallet: Option<quid_ln::wallet::OnchainWallet>,
     rebalance: Option<quid_hop::rebalancer::RebalanceConfig>,
+    // (§LP-LIVENESS) The routing gate, if this deployment collects LP heartbeats. This pass
+    // already resolves every channel's on-chain `cid` AND its `lpEth`, which is exactly the pair
+    // the gate needs to map LDK's channel id to the one the heartbeat signs — so binding here
+    // costs one call and keeps the map as fresh as the reconciler itself.
+    // `None` = no gate: `invoicer` is then ungated and every channel keeps its route hint.
+    gate: Option<Arc<quid_hop::liveness::RoutingGate>>,
     period_secs: u64,
     // The SHARED in-flight set (keyed by on-chain cid), also held by
     // `run_channel_driver`. Tracks channels with a drive ALREADY in flight on
@@ -1440,6 +1446,13 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
                     _ => continue, // RPC blip → try again next pass
                 }
             };
+            // (§LP-LIVENESS) Bind this channel for the routing gate. Idempotent, and done on every
+            // pass so a re-keyed or re-read `lpEth` cannot leave the gate pointing at a stale
+            // signer. Until a channel is bound the gate treats it as unroutable, so this is what
+            // lets an LP be routed at all — the gate fails closed by design.
+            if let Some(g) = gate.as_ref() {
+                g.bind(ch_id.0, alloy_primitives::B256::from(cid), state.lp_eth);
+            }
             // Is the funding output already spent (channel closed on Bitcoin)?
             // Capture the FULL outspend so we can hand the close txid to
             // drive_close below (it would otherwise re-poll esplora for the same

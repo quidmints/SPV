@@ -465,6 +465,13 @@ pub async fn run(
         // by passing the hop wallet + rebalance config (nothing runs LP-side).
         Some(reconcile_wallet),
         Some(quid_hop::rebalancer::RebalanceConfig::default()),
+        // (§LP-LIVENESS) `None` until the phone actually posts heartbeats. The gate FAILS CLOSED —
+        // an empty book makes every channel unroutable — so switching it on before the LP side
+        // ships would issue invoices with no route hints and strand every swap-in. Turn it on
+        // together with the phone, not before: pass `Some(gate)` here and hand the SAME `Arc` to
+        // `HopNode::invoicer_gated`, so the pass that binds channels and the filter that reads
+        // them share one book.
+        None,
         cfg.channel_reconcile_secs,
         channel_active.clone(),
     ));
