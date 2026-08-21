@@ -6552,3 +6552,37 @@ references and a control, not from reading rows. `FixedRateFill` reads as a buil
 documents and is a `library` declaration with no caller; `creditSwapIn` reads as a plan in a comment
 and is four wired call sites. **Both ledgers were wrong in opposite directions about the same
 subsystem** — which is what "check the mechanism before building around it" is for.
+
+### C13. 🔴 `pushObservation` IS BUILT AND UNTESTED — the last thing this thread started (2026-08-21)
+
+`Core.pushObservation(uint256)` is **written, compiling and pushed** (`e82fff4a`), and **nothing
+tests it and nothing calls it.** Booked because a half-wired money path that looks finished is worse
+than an open row.
+
+**What it is.** The ring needs a reading independent of Chainlink, since Chainlink is already the
+ANCHOR `twapResolve` checks against (§C1). The best independent source is 1inch's aggregator, and it
+**cannot be read on-chain** — `getRate` = **33,573,664 gas** vs a 30M limit, corroborated by the
+node's own `eth_estimateGas` refusing past its 16.7M ceiling. **That is not a defect: the contract is
+`OffchainOracle`, built for `eth_call` where the caller sets its own gas cap.** So it is read
+off-chain and pushed on-chain. Pinned by `test/OneInchGasProbe.t.sol`, which **asserts the gas exceeds
+a block** — a tripwire that FAILS if 1inch ever becomes affordable, rather than a comment that would
+be believed forever.
+
+**Design, so it is not re-litigated.** *Permissionless*, following `cascadeDelever`'s precedent — the
+BOUND is the security, not a keeper role, so there is no privilege to steal, no key to rotate and no
+liveness dependency on one operator. *Every failure degrades*: no pusher, dark feed, or out-of-band
+value all leave the ring unwritten → `ringVariance` 0 → the sentinel. **Never a revert** — a revert
+here lets a stalled oracle halt the band, which was the defect in the first attempt. *Band = 50 bps*,
+against a **measured 8 bps** 1inch-vs-Chainlink basis (~6× headroom), capping an adversary's σ²
+inflation at ±0.5%/block since the ring takes one write per timestamp.
+
+▶️ **WHAT IS LEFT — this is the "proper fix" to finish elsewhere:**
+1. **No off-chain caller.** `quid-bridge` has `lev_keeper.rs` / `lev_keeper_btc.rs` but no observation
+   pusher. That crate is being edited by another thread.
+2. **No test at all** — not the band, not the degrade paths, not the `isWbtc` derivation
+   (`VOL_DECIMALS != 18`), not the raw-anchor trick (`twapResolve(feed, **0**, …)` returns the anchor
+   because §A.13 made a zero price fall through instead of short-circuiting).
+3. **It does not yet retire `UNKNOWN_VARIANCE_SKEW`** (§C12). Only once σ² is genuinely measured does
+   that policy price become unreachable and deletable — and **not one moment before**, since §E59
+   measured the free-drain it closes.
+
