@@ -7595,3 +7595,49 @@ do, so a stale entry costs the same as a stale marker** — and it is not covere
 because it is prose, not a row.
 ▶️ **Row action:** re-point `§0-HANDOFF` items 1 and 2, suffix the two `§E258` rows, and mark §E257 ⏸️
 against §C1 rather than ✅.
+
+---
+
+## ⛔ §E266-moot — **THE MIDNIGHT OFFER-TREE PLAN DIED WITH THE FORK. §E267 WAS MARKED; §E266 WAS NOT.**
+
+**Owner asked 2026-08-22: *"I thought the Morpho Midnight approach was going to take `fillOOR`,
+`sweepOor` and `openOor` into a different layer?"* — it was, and that plan is gone. The row never
+said so, which is why the question had to be asked.**
+
+§E266 reads **🟡 OPEN**, *"design measured 2026-08-19 against `evm/lib/morpho-v2` @ `709dab35`"*, and
+proposes that Midnight's offer tree **delete** `Types.SelfManaged`, the `selfManaged` mapping,
+`positions[]`, `ID` and *"the matching / partial-fill half of §E258"*. Measured today:
+
+| premise | state |
+|---|---|
+| `evm/lib/morpho-v2` | **absent** |
+| `morpho-v2` in `.gitmodules` | **0** |
+| `Midnight` / `IRatifier` / `isRootRatified` in `evm/src` | **0 files** |
+| `Types.SelfManaged` | **live**, in `Shares.sol` |
+
+⇒ **Every object the design was measured against is gone** (`0776fc57`, owner: *"we are not forking
+Midnight"*), **and the thing it proposed to delete is still there and is now the shipped mechanism.**
+
+🔴 **THE TELL IS THAT ITS SIBLING WAS MARKED AND IT WAS NOT.** `§E267` — the compilation-restrictions
+row from the same measurement session, killed by the same commit — carries **✅ MOOT: THE FORK AND ITS
+RESTRICTIONS ARE BOTH GONE**. §E266 was left 🟡. **One removal, two rows, one of them updated.** That
+is the §E276/§E277 failure with the markers swapped: not a ✅ over a live defect, but an OPEN over a
+dead premise, and it misdirects just as reliably.
+
+### ⇒ THIS CORRECTS §E303, WHICH IS MINE AND ONE DAY OLD
+§E303 says *"§E258 is built; the spec at `:237` specifies work that has landed."* **True, and
+incomplete without this**: a reader who then finds §E266 concludes the built `fillOOR`/`sweepOor`/
+`openOor` are INTERIM and slated for deletion into another layer. **They are not.** With Midnight gone,
+**§E258's implementation is the surviving design, not a placeholder.**
+⚠️ **AND THE TWO ROWS AGREE ONLY BY ACCIDENT OF WHICH IS STALE** — §E266 says most of §E258 deletes,
+§E303 says §E258 is done. **Whoever read them in that order would have concluded the opposite of the
+truth**, which is what an unmarked dead premise buys.
+
+### 📌 WHAT SURVIVES, BECAUSE IT IS NOT NOTHING
+The row's two design observations are independent of the vendor and worth keeping if an order book is
+ever revisited: **(1)** a maker ratifying ONE Merkle root rests an entire TREE of offers — *one
+`SSTORE` for arbitrarily many orders* — against our per-order struct plus two container writes; and
+**(2)** the RANGE-vs-LIMIT problem, since `SelfManaged` carries `lower`+`upper` while an offer carries
+one tick, so a range becomes a ladder of N offers. ⛔ **But do not re-derive them from `morpho-v2` —
+the checkout is gone, and §E267 records that importing those sources propagated `via_ir`/`runs=50`
+into nine money-path files and broke the build.**
