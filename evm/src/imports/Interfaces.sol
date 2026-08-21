@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+// §E266 — flashLoan comes from Morpho Blue itself; this was a hand-rolled restatement of
+// IMorphoBase.flashLoan(address,uint256,bytes), identical in signature.
+import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
+
 /// @title  Interfaces — the ONE declaration site for external ABIs shared across the tree.
 ///
 /// @notice STANDING RULE: one declaration per interface. Before this file the same external ABI was
@@ -177,9 +181,6 @@ interface IAaveV4Hub {
 }
 
 /// Canonical IMorphoFlash — union of the former per-file variants.
-interface IMorphoFlash {
-    function flashLoan(address token, uint256 assets, bytes calldata data) external;
-}
 
 /// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
 /// ILevEquity_VG and the former `ILevEquityBtc`/`ILevBtc_V`.

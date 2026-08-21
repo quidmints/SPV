@@ -5,6 +5,12 @@ pragma solidity ^0.8.28;
 import {ILevVenue} from "./ILevVenue.sol";
 import {QuidLib} from "./QuidLib.sol";
 
+/// @dev §FOLD-BOOK — ONE declaration. They were declared in `LevBase` AND the old
+///      the old `LevBookLib`; splitting the book across `BandLib` and `BtcLib` would have made it FOUR.
+///      File-level so every user imports the same selector.
+error NotOpen();
+error BadTarget();
+
 library Types {
 
     /// @notice One LP's isolated leverage position. §A.71: LevManager and BtcLevManager

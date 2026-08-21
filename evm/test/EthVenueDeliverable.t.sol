@@ -119,6 +119,7 @@ contract EthVenueDeliverableProbe is AllesFixture {
 }
 
 /// Probe-local copy of the Morpho-V2 surface (the diagnostic must not import from src/imports).
+/// @dev NOT Morpho Blue — Morpho VAULTS V2 surface; no lib declaration exists to import.
 interface IMorphoV2Probe {
     function liquidityAdapter() external view returns (address);
     function liquidityData() external view returns (bytes memory);

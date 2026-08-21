@@ -2,10 +2,12 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
+import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
+import {IOracle as IMorphoOraclePrice} from "morpho-blue/interfaces/IOracle.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/ILevVenue.sol";
-import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
+import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 
 interface IERC20R {
@@ -18,17 +20,6 @@ interface IChainlinkFeedT { function latestRoundData() external view returns (ui
 interface IWeETHRateT { function getEETHByWeETH(uint) external view returns (uint); }
 
 /// Fuller Morpho Blue surface (create a real market + seed borrow liquidity + authorize + liquidate).
-interface IMorphoTest {
-    function createMarket(MarketParams memory m) external;
-    function supply(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)
-        external returns (uint256, uint256);
-    function setAuthorization(address authorized, bool newIsAuthorized) external;
-    function accrueInterest(MarketParams memory m) external;
-    function liquidate(MarketParams memory m, address borrower, uint256 seizedAssets, uint256 repaidShares, bytes memory data)
-        external returns (uint256, uint256);
-    function position(bytes32 id, address user) external view returns (uint256, uint128, uint128);
-}
-interface IMorphoOraclePrice { function price() external view returns (uint256); }
 interface IVaultRoverT { function ROVER() external view returns (address); }
 
 /// Morpho IOracle (`price()` = collateral→loan, 1e36-scaled). NOT a mock — REAL sources: weETH→ETH (ether.fi

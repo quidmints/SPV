@@ -2,10 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
+import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
-import {LevBookLib} from "./imports/LevBookLib.sol";
 import {ILevVenue, IERC20Min} from "./imports/ILevVenue.sol";
 import {IMorphoFlash} from "./imports/Interfaces.sol";
 import {ILevSyncHook} from "./imports/Interfaces.sol";
@@ -175,7 +175,7 @@ contract BtcLevManager is LevBase {
         // the 2× leverage, so E0 (the FIXED IL base) = the DEPOSIT ITSELF (in sats — vBTC IS sats, no conversion),
         // NOT a separate unlevered band-BTC position. LEVERAGE-INVARIANT (over-hedge fix): collateral grows as the
         // keeper levers, but E0 does not. ⚠️ E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to
-        // `netEquity(lp)` (LevBookLib:109) on every band reseat. SAFE because levering moves collateral and debt
+        // `netEquity(lp)` (BandLib.reanchorIfReseated) on every band reseat. SAFE because levering moves collateral and debt
         // by the SAME amount, so net equity is leverage-invariant; sizing against GROSS collateral is what
         // re-opens the 1/(1−t) over-hedge. SAFETY: the up-side clamp de-levers toward 0 debt below entry.
         uint e0 = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
@@ -212,38 +212,38 @@ contract BtcLevManager is LevBase {
     /// @notice Borrow `stableUsd`-worth of the venue stable against the position; sent to the LP/keeper to
     ///         source BTC externally. Clamped to the debt-delta-to-target so it can only move toward the IL
     ///         target (never past the LP's LTV cap, ≤ 7500 bps).
-    /// @notice §FOLD-LEGS — body in `LevBookLib`. `debtDeltaToTarget` is resolved HERE because it
+    /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK). `debtDeltaToTarget` is resolved HERE because it
     ///         routes through the `_collToBase` virtual, which a library cannot call on its caller.
     function leverBorrow(uint stableUsd) external nonReentrant returns (uint got) {
         _reanchorIfReseated(msg.sender);
         (bool levUp, uint room) = debtDeltaToTarget(msg.sender);
-        got = LevBookLib.leverBorrow(pos, address(AUX), msg.sender, stableUsd, levUp, room);
+        got = BtcLib.leverBorrow(pos, address(AUX), msg.sender, stableUsd, levUp, room);
         _syncBand(msg.sender);
     }
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
     ///         the second half of a lever-up step, after the keeper has sourced+minted the BTC.
-    /// @notice §FOLD-LEGS — body in `LevBookLib`. `VBTC` is passed as the collateral token; the same
+    /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK). `VBTC` is passed as the collateral token; the same
     ///         library body serves weETH on the ETH side, which is why this was never BTC-specific.
     function leverSupply(uint vbtc) external nonReentrant {
-        LevBookLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
+        BtcLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
         _syncBand(msg.sender);
     }
 
     /// @notice Withdraw `vbtc` collateral to the LP/keeper (for delever/close: burn + enclave-spend the UTXO →
     ///         sell BTC → repay). Capped at the position by the venue.
-    /// @notice §FOLD-LEGS — body in `LevBookLib`, parameterised by the collateral token.
+    /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK), parameterised by the collateral token.
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
         _reanchorIfReseated(msg.sender);
-        out = LevBookLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
+        out = BtcLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
         _syncBand(msg.sender);
     }
 
     /// @notice Repay `stableUsd`-worth of the position's debt (stable already transferred in / approved).
-    /// @notice §FOLD-LEGS — body in `LevBookLib`. A WRAPPER: reentrancy lock, then the shared leg,
+    /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK). A WRAPPER: reentrancy lock, then the shared leg,
     ///         then the band poke. The poke must follow the venue move, which is why it stays here.
     function repay(uint stableUsd) external nonReentrant returns (uint repaid) {
-        repaid = LevBookLib.repay(pos, address(AUX), msg.sender, stableUsd);
+        repaid = BtcLib.repay(pos, address(AUX), msg.sender, stableUsd);
         _syncBand(msg.sender);
     }
 

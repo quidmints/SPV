@@ -1785,6 +1785,15 @@ library SwapLib {
     ///      themselves — keeps the large get_deposits ABI decode in the contract,
     ///      off the legacy-pipeline headStart path. `surplus == 0` ⇒ caller
     ///      early-returns. Every mulDiv floors → commits ≤ requested, never more.
+    /// @notice §E270 — THE ONE token→USD conversion at a band price. Three sites had it inline:
+    ///         `sizeBySurplus` below and the post-theta-clamp recompute on EACH band. The BTC band had
+    ///         drifted to `targetUSD*capped/deltaTok`, which computes the SAME quantity with two
+    ///         compounded roundings and an unguarded `*`/`/`. Classified DRIFT and unified here.
+    /// @dev    `internal pure` ⇒ inlines. No new bytecode, no delegatecall.
+    function usdForTok(uint tok, uint price) internal pure returns (uint) {
+        return SoladyMath.fullMulDiv(tok, price, WAD);
+    }
+
     function sizeBySurplus(
         uint liquidTotal, uint committedBoth,
         uint deltaTok, uint price
@@ -1797,7 +1806,7 @@ library SwapLib {
         surplus = liquidTotal > committedBoth ? liquidTotal - committedBoth : 0;
         if (surplus == 0) return (0, 0, 0);
         deltaOut  = deltaTok;
-        targetUSD = SoladyMath.fullMulDiv(deltaTok, price, WAD);
+        targetUSD = usdForTok(deltaTok, price);
         if (targetUSD > surplus) {
             targetUSD = surplus;
             deltaOut  = SoladyMath.fullMulDiv(surplus, WAD, price);

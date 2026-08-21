@@ -2,10 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
+import {BandLib} from "./BandLib.sol";
 import {ILevVenue} from "./ILevVenue.sol";
 import {IAux, ILevSyncHook} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
-import {LevBookLib} from "./LevBookLib.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
 ///
@@ -116,30 +116,30 @@ abstract contract LevBase {
     ///         shape written twice, and a struct literal is not cheap in bytecode.
     /// @param  e0  the IL base, FIXED at open. Caller computes it because it is the one genuinely
     ///             per-asset quantity here; passing it in is what lets the rest be shared.
-    /// @notice §FOLD-MEASURE — body in `LevBookLib`. `_bandPrice()` is resolved HERE because it
+    /// @notice §FOLD-MEASURE — body in `BandLib` (§FOLD-BOOK). `_bandPrice()` is resolved HERE because it
     ///         try/catches a call to `BAND`, and the struct is built here so the library takes one
     ///         memory pointer rather than five scalars (cheaper seam, and `Types.Pos`'s field order
     ///         stays owned by one place).
     function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint e0) internal {
-        LevBookLib.openPos(pos, _openLps, _lpIdx, msg.sender,
+        BandLib.openPos(pos, _openLps, _lpIdx, msg.sender,
             Types.Pos({venue: venue, targetLtvCapBps: capBps, entryPriceWad: uint128(entryPx),
                        e0: uint128(e0), entryPrice: _bandPrice(), open: true}));
     }
 
     function _trackOpen(address lp) internal {
-        LevBookLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
+        BandLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     function _untrackOpen(address lp) internal {
-        LevBookLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
+        BandLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS).
-    /// @notice §FOLD-MEASURE — body in `LevBookLib`. The ceiling is PASSED, not duplicated there:
+    /// @notice §FOLD-MEASURE — body in `BandLib` (§FOLD-BOOK). The ceiling is PASSED, not duplicated there:
     ///         `TARGET_LTV_CAP_BPS` is a constant and constants live in the caller's code, so one
     ///         definition stays here and the library reads whatever it is given.
     function setTargetLtv(uint64 capBps) external {
-        LevBookLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
+        BandLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
@@ -366,7 +366,7 @@ abstract contract LevBase {
     /// @dev    The over-hedge fix still holds: `E0` tracks NET-EQUITY, never the growing collateral.
     ///         IDENTICAL on both sides once `netEquity` replaced the two per-asset accessors — the
     ///         bodies differed only in `uint` vs `uint256` spelling and comment framing.
-    /// @notice §FOLD-MEASURE — body in `LevBookLib`. `px` and `base` are computed HERE and passed BY
+    /// @notice §FOLD-MEASURE — body in `BandLib` (§FOLD-BOOK). `px` and `base` are computed HERE and passed BY
     ///         VALUE because a library cannot reach the caller's immutables (`AUX`, `ORACLE_KEY`) or
     ///         its virtuals (`netEquity` routes through `_collToBase`). That is the hard boundary on
     ///         what can move, and it is why the guard is re-checked in the library rather than here:
@@ -374,7 +374,7 @@ abstract contract LevBase {
     ///         `open` check in the library is cheaper than two.
     function _reanchorIfReseated(address lp) internal {
         if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
-        LevBookLib.reanchorIfReseated(pos, BAND, lp,
+        BandLib.reanchorIfReseated(pos, BAND, lp,
             AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), netEquity(lp));
     }
 }

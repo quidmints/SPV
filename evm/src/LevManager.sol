@@ -309,7 +309,7 @@ contract LevManager is LevBase {
         // separate unlevered band position. LEVERAGE-INVARIANT (the over-hedge fix): the collateral grows as the keeper
         // levers, but E0 does not, so `targetDebt = E0·soldFrac` cancels the band's IL exactly instead of chasing a
         // 1/(1−t) fixed point. ⚠️ E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to `netEquity(lp)`
-        // (LevBookLib:109) whenever the band reseats. That is SAFE and is the actual invariant: levering moves
+        // (BandLib.reanchorIfReseated) whenever the band reseats. That is SAFE and is the actual invariant: levering moves
         // collateral and debt by the SAME amount, so net equity is LEVERAGE-INVARIANT. Sizing against GROSS
         // collateral is what re-opens the over-hedge; any future base must be leverage-invariant, not "fixed". (Unlike
         // the old (B) two-pool model, there is no separate deliverable principal band — that isolation is traded

@@ -44,7 +44,9 @@ import {IDepositAdapter} from "./Interfaces.sol";
 
 /// and the vault's assets sit in others. ~113k gas per pull, freeing nothing.
 /// It is also unnecessary — `withdraw()` self-deallocates (see `_withdrawableOf`).
-interface IMorphoV2 {
+/// @dev NOT Morpho Blue — Morpho VAULTS V2 (`liquidityAdapter`), a different protocol with no
+///      declaration in `lib/morpho-blue`, so it stays local.
+interface IMorphoVaultsV2 {
     function liquidityAdapter() external view returns (address);
 }
 
@@ -304,13 +306,17 @@ library QuidLib {
     //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Quid
     //  forwarder. Byte-identical to the in-Quid body.
     // ════════════════════════════════════════════════════════════════════
-    function addLiq(address core, address aux, uint deltaTok, uint price, uint grossBuffer)
+    /// @dev §E270 — `wantTok` is the REQUEST and is never written; `deltaTok` is the evolving value
+    ///      (surplus-sized, then theta/backing-capped). Mirrors the BTC band, which already kept its
+    ///      request in `sats`. Before this the ETH PARAMETER was overwritten, so past `sizeBySurplus`
+    ///      the requested amount existed nowhere in the frame.
+    function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
         (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
         uint committedBoth = ICore(core).committedUsd18();
-        uint targetUSD; uint surplus;
+        uint deltaTok; uint targetUSD; uint surplus;
         (deltaTok, targetUSD, surplus) =
-            SwapLib.sizeBySurplus(deposits[14], committedBoth, deltaTok, price);
+            SwapLib.sizeBySurplus(deposits[14], committedBoth, wantTok, price);
         if (surplus == 0) return (0, 0);
 
         // ETH: bandETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
@@ -330,7 +336,7 @@ library QuidLib {
             deltaTok);
         if (capped < deltaTok) {
             deltaTok = capped;
-            targetUSD = SoladyMath.fullMulDiv(deltaTok, price, WAD);
+            targetUSD = SwapLib.usdForTok(deltaTok, price);
         }
         usdOut = targetUSD / 1e12;
         if (usdOut == 0) return (0, 0);
@@ -678,7 +684,7 @@ library QuidLib {
     ///         vaults are Morpho-V2 — measured, holding ~124M of ~126M total stable TVL — so the stable
     ///         side had the same understatement, and there it feeds the REDEMPTION haircut.
     function _withdrawableOf(address vault, address holder) internal view returns (uint) {
-        try IMorphoV2(vault).liquidityAdapter() returns (address adapter) {
+        try IMorphoVaultsV2(vault).liquidityAdapter() returns (address adapter) {
             if (adapter != address(0)) {
                 try IERC20(vault).balanceOf(holder) returns (uint shares) {
                     if (shares == 0) return 0;
