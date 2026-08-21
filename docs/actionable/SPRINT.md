@@ -7070,3 +7070,49 @@ against the real state before using it as a gate.
 `PUPPETEER-E2E-MATRIX` · `TRAPDOORS` · `GAS-AND-CORRECTNESS-AUDIT` (partly stale: it audits
 `BtcVaultLib`, which is gone, but also `BasketLib`/`FeeLib`/`SwapLib`, which are not).
 
+
+## 🧵 §E295 — **WHAT IS ACTUALLY FOLDABLE, MEASURED: ONE REAL DUPLICATION, AND ~580 LINES PARKED BEHIND ONE DECISION**
+Owner, 2026-08-21: *"there seems to be a lot of logic that can get folded."* Measured rather than
+eyeballed. **The two categories are different and must not be treated alike.**
+
+### 1️⃣ THE ONE GENUINE DUPLICATION — TWO COMPOSERS FOR ONE EXPRESSION
+`wellSkew`'s tail and `_composePrice` are **the same operation written twice**:
+```
+wellSkew:       amp = raw > splice ? (raw − splice)·scarcity + splice : raw ;  return decline(amp)
+_composePrice:  out = (kernel + risk)·scarcity + splice ;                      return decline(out)
+                     where risk = _maxWellSkew(σ²) − splice
+```
+⇒ **BOTH ARE `(X − splice)·scarcity + splice`, THEN DECLINE.** They differ ONLY in `X`: `wellSkew`
+passes `raw` (which `skewWad` has already summed: kernel + base + depletion), while `_composePrice`
+re-adds the base itself. **Substitute and they are the same algebra.**
+🔴 **AND THE FILE ALREADY KNOWS THIS IS A HAZARD:** *"§E89b — written here so both legs compose their
+price identically; **they had already drifted apart once (E68b)**."* **The duplication IS the drift
+risk, still present.** ⇒ **FOLD: one composer taking the full pre-amplifier value; `sellSkew` adds its
+own base before calling.**
+⚠️ **PRESERVE ON THE WAY:** (a) the `raw > splice` guard — `skewWad`'s early returns (`target == 0`,
+the flush branch) leave `raw == 0`, and assuming otherwise *"underflowed on a BALANCED band — the
+common case — and cost **782 failures**"*; (b) **depletion is DRAIN-ONLY** — you cannot deplete the
+band by selling into it, so it must not follow the sell leg through a shared composer.
+
+### 2️⃣ ~580 LINES ARE PARKED, NOT DEAD — AND EVERY ONE CARRIES A "DECIDE FIRST" MARKER
+| unit | lines | callers in `evm/src` |
+|---|---|---|
+| `refillPlacement` | 22 | **0** (the `function` line only) |
+| `proRataShortfall` | 8 | **0** |
+| `refillNeeded` | 8 | **0** |
+| `imbalanceFeeUsd6` | 6 | **0** |
+| **`FixedRateFill.sol`** | **270** | **0** — the whole library; it *calls* `wellSkew`/`sellSkew` and wraps them in a TTL'd quote, so it is a FAÇADE, not a third pricing copy |
+| `RefillTriggerAndProRata.t.sol` + `RefillPlacement.t.sol` | 266 | tests for code nothing calls |
+⛔ **DO NOT DELETE THESE UNDER RULE 1.** `git log -S` shows `refillNeeded` landed in *"UNIT-C… the
+decided logic lands as pure arithmetic"* — **deliberately parked awaiting wiring** — and
+`FixedRateFill`'s own docblock says **"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH."** This is
+the `create_sweep_tx` pattern exactly: a maintained, tested function whose caller is a decision nobody
+has made. **Rule 1 deletes UNREACHABLE code; it does not delete code awaiting a choice.**
+
+### ⇒ THE WHOLE ~580 LINES SIT BEHIND **ONE** QUESTION — §E293's #2 vs #3
+Whether *"paid against 1inch"* means **we pay the router** (#2) or **the solver routes what we decline**
+(#3). Under #3, §E278-partialfill's reading holds and **`refillPlacement` and `proRataShortfall` may
+have NO JOB AT ALL** — they size and apportion a restoration we never perform, and the fold is a
+DELETION. Under #2 they are the sizing layer and the fold is a WIRING. ⇒ **The same 580 lines are
+either dead weight or the next feature, and one sentence decides which.** **That is the highest-leverage
+open item in the skew area — not because it is hard, but because everything downstream is blocked on it.**
