@@ -4,7 +4,6 @@ pragma solidity ^0.8.26;
 // §E266 — flashLoan comes from Morpho Blue itself; this was a hand-rolled restatement of
 // IMorphoBase.flashLoan(address,uint256,bytes), identical in signature.
 import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
-import {IStabilityPool, ICurveOracle, IOffchainOracle, IAaveV3Pool, IAaveV3DataProvider} from "./Interfaces.sol";
 
 /// @title  Interfaces — the ONE declaration site for external ABIs shared across the tree.
 ///
