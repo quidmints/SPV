@@ -143,6 +143,9 @@ library DeployLib {
             // swap path, so an aggregating source that iterates venues cannot be used here.
             // ⚠️ REQUIRED. Unset, `_observeIfSourced` returns early and the ring records nothing, so
             // σ² is never measured and §E213 prices at the ceiling — safe, and silent.
+            core.setObservationSource(
+                0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B,
+                abi.encodeWithSignature("price_oracle(uint256)", uint256(1)));
             // ⚠️ The BTC instance is deliberately left unset: every on-chain venue quotes WRAPPED
             // BTC, so observing one makes a WBTC depeg indistinguishable from bitcoin moving. Unset
             // ⇒ σ² unmeasured ⇒ §E213 at the ceiling, which is the honest reading. The BTC anchor is
