@@ -246,20 +246,25 @@ contract BtcLevManager is LevBase {
     // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses the async legs).
-    function rebalanceWbtc(address lp, uint minOut) external nonReentrant {
-        _reanchorIfReseated(lp);                                          // (B) realize + re-anchor on a band reseat
-        Types.Pos memory p = pos[lp];
-        if (!p.open) revert NotOpen();
-        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget(); // WBTC-mode ONLY — a native vBTC
-        //   venue would get WBTC supplied into it (collateral mismatch). Native positions use the async legs above.
-        address stable = p.venue.stable();
-        (bool levUp, uint deltaUsd) = debtDeltaToTarget(lp);             // deltaUsd = curDebt−targetDebt on the FIXED E0
-        if (deltaUsd != 0) {
-            if (levUp) _leverUpBuyWbtc(p.venue, lp, stable, deltaUsd, minOut);
-            else if (flashProvider != address(0)) _flashDeleverWbtc(p.venue, lp, stable, deltaUsd, minOut); // repay-FIRST: always health-safe
-            else       _deleverWbtc(p.venue, lp, stable, deltaUsd, minOut);                                 // graceful fallback (no flash provider)
-        }
-        _syncBand(lp);
+    /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position.
+    ///         §FOLD-REBALANCE — the body is `LevBase._rebalance`, shared with the ETH band.
+    function rebalanceWbtc(address lp, uint minOut) external nonReentrant { _rebalance(lp, minOut); }
+
+    /// @dev WBTC-mode ONLY — a native vBTC venue would get WBTC supplied into it (collateral
+    ///      mismatch). Native positions use the async legs.
+    function _requireRebalancable(Types.Pos memory p) internal view override {
+        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
+    }
+
+    function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)
+        internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut); }
+
+    /// @dev Repay-FIRST when a flash provider is pinned (always health-safe); otherwise the graceful
+    ///      withdraw-then-repay fallback. The ETH band has no fallback: its provider is not optional.
+    function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)
+        internal override {
+        if (flashProvider != address(0)) _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut);
+        else                             _deleverWbtc(venue, lp, stable, deltaUsd, minOut);
     }
 
     /// @notice #10 SYSTEMIC batch de-lever for WBTC-mode positions — the BTC analog of ETH `LevManager.cascadeDelever`.

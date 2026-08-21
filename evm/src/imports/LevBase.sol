@@ -110,6 +110,43 @@ abstract contract LevBase {
     ///         is not defensive dressing either: `BAND` is pin-once and genuinely unset between
     ///         deploy and wiring, and a call to address(0) SUCCEEDS silently rather than reverting,
     ///         so without it an unwired deploy would look reconciled and not be.
+    /// @notice §FOLD-REBALANCE — THE ONE REBALANCE, FOR BOTH BANDS.
+    /// @dev Both managers ran this identical shape: reanchor, require open, read the target, branch on
+    ///      direction, sync the band. FOUR things actually differed and each is now a seam:
+    ///        • an extra per-asset precondition (BTC requires WBTC collateral)  -> `_requireRebalancable`
+    ///        • which lever-up leg runs                                          -> `_leverUp`
+    ///        • which de-lever leg runs                                          -> `_delever`
+    ///        • ETH emitted `Rebalanced`, BTC emitted NOTHING. That was an OBSERVABILITY GAP, not a
+    ///          per-asset fact, so the shared body emits for both. ⚠️ A BTC rebalance now logs where it
+    ///          previously did not — an ADDED event, which no consumer can break on, but say so.
+    ///      ⚠️ `_delever` RECEIVES `deltaUsd` AND IS FREE TO IGNORE IT: ETH re-derives the closed-form
+    ///      `Δ/(1−t)` via `deleverRepayUsd` so one flash lands on target with no withdraw-before-repay
+    ///      health breach, while BTC repays the delta directly. The two bands size the repay differently
+    ///      and that is REAL, not drift.
+    /// @dev Order note: ETH checked `open` BEFORE reanchoring and BTC after. Immaterial —
+    ///      `_reanchorIfReseated` already early-returns on a closed position.
+    function _rebalance(address lp, uint256 minOut) internal {
+        _reanchorIfReseated(lp);
+        Types.Pos memory p = pos[lp];
+        if (!p.open) revert NotOpen();
+        _requireRebalancable(p);
+        address stable = p.venue.stable();
+        (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
+        if (deltaUsd != 0) {
+            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut);
+            else       _delever(p.venue, lp, stable, deltaUsd, minOut);
+            emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
+        }
+        _syncBand(lp);
+    }
+
+    event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
+
+    /// @dev Per-asset precondition. ETH has none; BTC requires WBTC collateral.
+    function _requireRebalancable(Types.Pos memory p) internal view virtual {}
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
+    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
+
     function _syncBand(address lp) internal {
         if (BAND != address(0)) { try ILevSyncHook(BAND).syncLev(lp) {} catch {} }
     }

@@ -86,7 +86,6 @@ contract LevManager is LevBase {
 
 
     event Opened(address indexed lp, address venue, uint256 targetLtvBps);
-    event Rebalanced(address indexed lp, bool levUp, uint256 amount, uint256 ltvBps);
     event Closed(address indexed lp, uint256 weethReturned);
     event DeleverFailed(address indexed lp, uint256 ltvBps);    // cascade skipped this LP → its venue liquidates it
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
@@ -333,7 +332,7 @@ contract LevManager is LevBase {
     /// PERMISSIONLESS single-LP rebalance toward the IL target. Sets `_activeKeeper` so the flash reimburses the caller.
     function rebalance(address lp, uint256 minOut) external nonReentrant {
         _activeKeeper = msg.sender;
-        _rebalanceBody(lp, minOut);
+        _rebalance(lp, minOut);
     }
 
     /// @notice BATCH rebalance — hold every out-of-band LP at its IL target in ONE tx (mirrors `cascadeDelever`),
@@ -356,40 +355,16 @@ contract LevManager is LevBase {
     ///         reimbursement still targets the real keeper.
     function rebalanceOne(address lp, uint256 minOut) external {
         if (msg.sender != address(this) && msg.sender != lp) revert Auth();
-        _rebalanceBody(lp, minOut);
+        _rebalance(lp, minOut);
     }
 
-    function _rebalanceBody(address lp, uint256 minOut) internal {
-        if (!pos[lp].open) revert NotOpen();
-        _reanchorIfReseated(lp);                 // (B) realize + re-anchor E0/entryPrice if the band recentered
-        ILevVenue venue = pos[lp].venue;
-        address stable = venue.stable();
-        (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
-        // `deltaUsd == 0` means already on target, so both branches below are skipped. (This line used to
-        // explain the absence of an early return by pointing at "the bidirectional short below" — that
-        // subsystem was REMOVED 2026-07-24, see the note under this block. The sync hook at the end of the
-        // function is the only remaining reason there is no early return.)
-        if (deltaUsd != 0) {
-            if (levUp) {
-                _leverUpBuy(venue, lp, stable, deltaUsd, minOut);
-            } else {
-                // Flash-repay-first: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so one flash lands on target
-                // with NO withdraw-before-repay health breach. (It used to also return 0 while a SHORT was open,
-                // so the de-lever would not fight the short leg's funding — that case is DEAD, the short
-                // subsystem was removed 2026-07-24 and no short can be open.)
-                _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut);
-            }
-            emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
-        }
-        // SHORT SUBSYSTEM REMOVED (2026-07-24): the below-entry "restore delta-1" short REALIZES the down-side LVR
-        // (sells the over-hold into the fall, forfeits the recovery) — down-side IL is IMPERMANENT and heals on
-        // its own, so for a long-biased LP holding strictly dominates over any round-trip; same fees, minus the
-        // realized leak. It's a bet AGAINST the LP's long thesis (the up-side overlay bets WITH it — that stays).
-        // Up-side-only is the correct design, not just the default. See docs §J.4 (settled verdict).
-        // full-2×: reconcile the band to the NEW gross/debt atomically so each levBufferUsd ≤ its debt and the
-        // band depth stay exact after a lever-up/de-lever — correct-by-construction, not reliant on a poke.
-        _syncBand(lp);
-    }
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut)
+        internal override { _leverUpBuy(venue, lp, stable, deltaUsd, minOut); }
+
+    /// @dev IGNORES `deltaUsd` deliberately: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so ONE
+    ///      flash lands on target with no withdraw-before-repay health breach.
+    function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut)
+        internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut); }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
 
