@@ -2910,74 +2910,33 @@ tasks** — recorded so nobody re-opens them:
   instruction that no attestation gate may exist anywhere.
 - **LDK's `TODO(dual_funding)`** — superseded: `§SECOND-FUNDING-HALF` was closed by owner decision
   (the phone SIGNS, the daemon FUNDS).
-### C10e. 🔴 THE 6909 VINTAGE'S *PURPOSE* EXISTS ONLY IN AGENT MEMORY — grep "midnight" returns NOTHING
-**Checked 2026-08-18: `midnight` appears in NO file under `docs/`, `evm/src/` or `CLAUDE.md`.** The
-rationale below was stated by the owner on 2026-08-16 and was living **only** in a machine-local
-agent-memory directory — which is verbatim the failure `CLAUDE.md`'s own opening line exists to
-prevent (*"these facts were living only in one machine's agent-memory directory"*).
+### C10e. ⛔ MIDNIGHT — THE VENDORING IS GONE, AND I COULD NOT NAME WHAT WANTED THE DEFINITION
 
+**RETRACTED AND CORRECTED 2026-08-21.** This row twice claimed a "seam" between the 6909 vintage and
+Morpho Midnight. Two things are now true and neither supports that claim.
+
+🔴 **① I COULD NOT ANSWER THE ONLY QUESTION THAT MATTERED.** Asked *what in Midnight consumes
+`avgYield` + an upfront mint*, I had no answer — no function, no struct, no call site. I had asserted
+a seam from the SHAPE of the owner's sentence, never from Midnight's surface. That is
+`cite-the-mechanism-or-label-it-a-hypothesis`: everything I caught this session I caught by running
+something, and this I reasoned to.
+
+🔴 **② THE VENDORING NO LONGER EXISTS.** `evm/src/midnight/` is **absent from the working tree and
+from `origin/main` (0 files)** — another thread removed it. When I described it as vendored it WAS
+there; it is not now, and a row that asserts present-tense state is wrong the moment it goes stale.
+
+✅ **WHAT SURVIVES, because the owner said it and it is not mine to retract** (2026-08-16):
 > *"the point of the midnight integration is so 6909 vintage has a definition with `avgYield` and
 > upfront mint for input into morpho midnight, once duration is tradeable you can rebuild repo,
 > commercial paper and structured credit onchain without asking anyone's permission."*
 
-**The chain, which is NOT visible from the contracts:** a 6909 token id **is a monthly vintage** (a
-dated cohort, not a bucket) → a vintage needs a **definition** to be a tradeable instrument, namely
-`avgYield` **plus an upfront mint** → that definition is the **input to Morpho Midnight** → once
-duration is tradeable, repo / commercial paper / structured credit are rebuildable onchain
-permissionlessly.
+⇒ **That remains the stated PURPOSE of the `avgYield` work (§E155 dimensionless factor, §E190 tranche
+distortion, §E196 the unbuilt cross-sectional filter) — the reason those are not mere accuracy
+chores.** It is recorded here so the intent is not lost with the code.
 
-⇒ **This is the WHY behind the `avgYield` work this thread spent days on** (§E155's dimensionless
-factor, §E190's tranche fix, §E196's unbuilt cross-sectional filter). Without it those read as
-accuracy chores rather than as making a vintage *definable*. 🔴 **CORRECTED 2026-08-19 — MORPHO MIDNIGHT IS VENDORED IN THE REPO AND I SAID IT WAS ABSENT.** `evm/src/midnight/` holds `Midnight.sol`, `libraries/` (Tick/Constants/Id/Events/SafeTransfer/Utils), `ratifiers/`, `interfaces/` and a README, plus `test/MidnightMsb.t.sol`. My earlier grep reported it absent — **the code was there the whole time.** ⇒ **The gap is INTEGRATION, not the vendoring:** nothing outside `src/midnight/` imports it, it is in **no deploy script**, and it references **none** of `avgYield` / 6909 / vintage / Basket / Quid — it is standalone Morpho code sitting beside the protocol. **What is missing is the SEAM**: the 6909 vintage definition (`avgYield` + upfront mint) that Midnight consumes as input. It also frames §C10b: an ETH-denominated 6909 leg is part of this, not a
-separate feature.
-
-## C11. QUEUE.md rows that are STILL ACTIONABLE and had no home here — INDEX, not a copy
-
-Mechanical audit (2026-08-18): **343 rows, 209 without a `✅`, and 19 of those referenced nowhere in
-this file.** Most of the 19 are correctly absent — `⛔ retracted` (E66/E66a/E67/E78/E136/E148),
-`📌 reference` (E49), `🧹 reconciled` (E139), `📋 audit partial` (E87), `🔎 lead only` (E90).
-**Seven are genuinely live and are indexed below.** *Deliberately one line each — the bodies stay in
-`QUEUE.md`; duplicating them is how two documents start to drift.*
-
-| row | what it is | why it is not finished |
-|---|---|---|
-| **E70** | 📖 **All refill / band-restoration work** — the row is only a pointer: *"START THERE, NOT IN THIS TABLE"* → `docs/actionable/REFILL-AND-RESTORATION.md`, written to be executed **COLD**. | A whole workstream living in a second document that nothing in this sprint referenced. |
-| **E94** | LP **provisioning + migration authority**. Its own "separate operator / own enclave" framing is **superseded — do not plan from it**; the half in question is the **LP's** node. | Open, and the superseding note makes the original row actively misleading. |
-| **E134 / E134-r** | The **modexp precompile** switch (`staticcall(0x05)`) — both reference implementations use it, ours is the outlier. | **E134-r says it does NOT land**, blocked on an *uncharacterised side effect*. Blocked, not abandoned. |
-| **E133-skew** | The refill's funding constraint — a decision the owner had **already overturned** was resurrected and re-blocked the refill. | The lesson is recorded; whether the refill is actually unblocked now is **not** stated. Check before planning refill work. |
-| **E189-skew-horizon** | Skew **horizon** design; gap verified by grep + code. | *"nothing built"*, and **one half is another thread's live work** — read their entries first. |
-| **E151** | **LP-authority architecture** for EOAs *and* smart wallets, consolidated from four entries. | Two findings survived scrutiny, one did not; the surviving design is not implemented. |
-
-⚠️ **This index is a snapshot.** `QUEUE.md`'s status column is unreliable by its own admission — re-run
-the audit rather than trusting these seven to still be the whole set.
-
-
----
-
-## MIGRATION GAP — rows still live in QUEUE.md that did NOT reach SPRINT.md (checked 2026-08-18)
-
-⚠️ **THE FIRST VERSION OF THIS SECTION UNDERSTATED THE GAP AND IS CORRECTED HERE.** It said
-"120/148 matched, three by hand". That id-matcher silently EXCLUDED 54 rows whose id is prose rather
-than a code (`FABRICATED CONSENSUS PARAMS`, `0.63% LP "leak"`, `§A.71`, …), and it ran against a
-figure taken before `QUEUE.md` was rewritten at Aug 18 00:11. A sample that agrees with a hypothesis
-is not the hypothesis verified — that error is the reason this paragraph exists.
-
-**RE-RUN with a matcher handling prose ids, `§`-refs and code symbols:** 203 open rows → **41 are
-table fragments** (bare numbers, tallies, comparison-table citations), **145 MATCHED** in
-`SPRINT.md`, **17 did not**. Of those 17, five are not items (a summary tally, an already-⛔
-`UNIT-B-VERIFIED`, three code-citation rows, one ether.fi contract). **~12 are real and unmigrated,
-listed below.** `§A.59` was checked separately and is RESOLVED (contradiction → resolved →
-corrected, evidenced live at `Vogue.sol:36` and `:483`) — historical.
-
-| id | item |
-|---|---|
-| **A8** | 🔗 **CROSS-TRACK — sizing constraint on any E2 fix.** #12 and E5 BOTH remove subsidies that flow silently to QU!D holders today (the LP's sale proceeds; the retained skew premium). Both make `perShare` run **LOWER** than today. ⇒ **Track B makes Track A's bleed WORSE.** Any E2 fix must be sized against **POST-#12 `perShare`, never today's**, or it is calibrated against a number that is about to move. |
-| **F1** | 🔴 **control-LP redeem delivers 0.** Likely a FIXTURE warp — **verify before fixing.** (Same family as the refill zero-return and the sUSDE valuation/delivery split: a path that reports success and delivers nothing.) |
-| **E93-KILLER** | 🔴 The decided part (`skewPremiumCum` over a tick measure, because `reseat()` is permissionless so tick history is adversarially destructible — monotonicity IS the history-preservation property) is ✅. **The 🔴 remainder is a defect at `Vogue.sol:1138`, found by the verification pass rather than by reasoning.** Re-read that line before treating E93 as closed. |
-
-⚠️ **`QUEUE.md` IS THEREFORE NOT PURELY HISTORICAL YET.** 120/148 migrated by id, most of the rest by
-symbol, and the three above by hand. Anyone declaring the queue archive-only should re-run the
-id+symbol match first — a sample that agrees is not the whole set verified.
+▶️ **BEFORE ANY RE-VENDORING, ANSWER THE QUESTION FIRST:** name the Midnight entrypoint that takes a
+vintage definition, and what it does with `avgYield`. **If that cannot be named, there is nothing to
+integrate and the code should stay out** — which is what the owner said, and what has now happened.
 
 ### C11-note. ⛔ §E229 — `deleverToVault` MUST NOT BE DELETED (a guard, not a task)
 Listed here only so a future "unused indirection" sweep does not remove it. `deleverBook:743` calls
