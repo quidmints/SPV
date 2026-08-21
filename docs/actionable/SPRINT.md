@@ -2668,6 +2668,41 @@ has never been shown to fail is not known to work.
 ▶️ Second candidate when a runner exists: `swap::decode_swap_out_requested_onchain` — the other live
 decoder of untrusted input.
 
+## ✅ §THREAT-MODEL-2026-08-22 — **RESIDUAL RISK AFTER THIS THREAD, AND A RETRACTION**
+
+⛔ **RETRACTED: "a compromised fleet can move the LP's in-channel balance."** I asserted this from
+*"the LP runs nothing"* (`vault.rs:915`) and it is WRONG. Owner's correction: **the LP has no node —
+only the wallet app, and that app is the security boundary.** The code agrees, on four independent
+paths:
+- **Every path that changes `amountSats`** (`splice`, `parkProvenSats`, `deliverSwapOutOnchain`) arms
+  a fresh ladder, and a rung is BIP-340 under the 2-of-2 aggregate `Q`. `vault.rs:205` states the
+  invariant outright: *"A fleet that could construct these would, by definition, still hold the LP half."*
+- **A cooperative close** spends the 2-of-2 and needs the LP half by construction.
+- **A force close** is documented as *"exactly when the hop is dead/offline"*, settling
+  `delivered=0`/`lpPayout=funded` — *"non-gameable — it only retires the position to its on-chain
+  reality, minting nothing."* It protects QU!D HOLDERS from an LP squatting a dead position; it is
+  not a route to LP funds.
+- **B0** defaults `QUID_FLEET_COHOSTS_VAULT` OFF, so no LP vault node is booted by the fleet at all.
+⇒ **A HACKED ENCLAVE CANNOT TAKE LP FUNDS.** It never holds a key that moves them.
+⚠️ **Why the mistake is worth recording rather than deleting:** it would have sent the next thread
+hardening a boundary that is already sound, and *"the LP runs nothing"* is the exact sentence that
+invites it — it describes an OPERATIONAL fact (no daemon) and reads like a CUSTODY one.
+
+**WHAT ACTUALLY REMAINS, re-ranked by what the retraction changes:**
+
+| | residual | shape |
+|---|---|---|
+| **1** | **`#14` — no key recovery** | 🔴 **NOW THE DOMINANT ONE.** With theft off the table, an LP losing its own seed is the main way it ends up unable to reach its BTC: every rung pays `btcRecipientOf`, derived from the phone's key, so the escape confirms, pays, and pays an address nobody can spend. |
+| 2 | denial of service | A compromised enclave can refuse to open/splice/deliver. Funds safe, liveness not. Includes the §LAZY-OPEN window (a hop declining to submit an open leaves proven custody unrecorded) and the gate shipping `None`. |
+| 3 | `§E183-UNMASKED` ×5 | one asserts an all-native close mints no QU!D and measures ~6. |
+| 4 | morpho `debt 0 <= 0` ×40 | real on both endpoints, unowned. |
+| ~~5~~ | ~~fuzzing~~ | ✅ closed — `§FUZZ-WAS-DEAD`, target repointed + CI gate with a control. |
+
+🔑 **THE SHAPE OF THE REMAINING RISK CHANGED CATEGORY, AND THAT IS THE HEADLINE:** it is no longer
+"can an attacker take funds" (no) but "can the LP lose access to its own" (yes, `#14`) and "can an
+attacker deny service" (yes, bounded). Those want different work — recovery and liveness — not more
+custody hardening.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
