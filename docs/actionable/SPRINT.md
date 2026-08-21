@@ -8263,3 +8263,57 @@ venue until the gate covers this path"*, describing `vetVenue`'s `stable() == ba
 skipping the `BadCollateral` check. **That hole is CLOSED** — `LevMath.sol:315-319` now reads the
 collateral and reverts `BadCollateral()` **before** returning `stable() == base`. The comment described
 past state; the gate is unconditional today. Destaled in the same commit as this row.
+---
+
+## 📋 §E304 — **THE LIBRARY SWEEP: NONE IS DELETABLE, AND TWO FUNCTIONS INSIDE ONE ARE**
+
+**Owner, 2026-08-22: *"if there is a library remove its presence if it is unused."* Ran it. The answer
+is that no library qualifies — and the sweep found something better on the way.**
+
+**Method, with the control, because the first attempt returned a uniform zero:** `--include=*.sol`
+glob-expands in zsh and silently broke the count. Re-run without it and controlled against a
+known-live case (`SwapLib.` = **13** production files). 17 libraries in `evm/src/imports`:
+
+| library | prod callers | verdict |
+|---|---|---|
+| `Types` 20 · `BasketLib` 9 · `BtcLib` 9 · `QuidLib` 9 · `BandLib` 8 · `LevMath` 8 · `ChannelLib` 6 · `FeeLib` 6 · `MuSig2Agg` 4 · `BitcoinTx` 4 · `SortedSetLib` 3 · `OracleLib` 2 · `ShareMath` 2 · `SwapLib` 13 | many | in use |
+| `ExitLib` | **1 REAL CALL** — `BTCChannels.sol:1655` `ExitLib.verifyDeadManExit` | in use (§E141's ✅ holds) |
+| `ExternalTwap` | 0 — its only `evm/src` hit is a COMMENT (`Core.sol:1314`) | ⛔ **KEEP — see below** |
+| `FixedRateFill` | 0 — its only `evm/src` hit is a COMMENT (`SwapLib.sol:1264`) | ⛔ **KEEP — see below** |
+
+### ⛔ WHY THE TWO CALLER-LESS ONES STAY — *"no caller"* IS NOT THE TEST; *"no caller AND no reason"* IS
+- **`ExternalTwap` has a JOB IT IS DOING RIGHT NOW.** `oneInchRateWad` is the instrument behind
+  `PushSourceIsAdmissible.t.sol` and `OneInchObserverIsIndependent.t.sol` — the pair that measures the
+  1inch↔Chainlink basis (**23 bps**, §E294) against `pushObservation`'s 50 bps band. **Deleting it
+  removes the only way to detect that basis drifting out of the band**, which fails SILENTLY: past 50
+  bps every push is refused, the ring never fills and σ² stays 0.
+- **`FixedRateFill` IS MOSTLY THE UNWIRED FIRM-QUOTE SURFACE, WHICH THE DESIGN DEPENDS ON.** 270 lines,
+  7 functions: `quoteDrain` / `quoteFill` (a `Quote` with a **TTL**), `enforce`, `assertConserved`,
+  `_applySkew` — that is the solver-facing quote machinery §E293 #3 and §E285 both require, and §E275
+  already cites `FixedRateFill:113/127` as a live quote-read path. **It is `create_sweep_tx`'s shape
+  exactly: maintained, tested, uncalled, marking work not yet wired.**
+⚠️ **It is `internal`-only — ZERO `external`/`public` functions — so it is INLINED, never deployed.
+Deleting it would free no deployed bytecode from anything**, which removes the one argument that could
+have outweighed the above.
+
+### ⭐ WHAT THE SWEEP ACTUALLY FOUND: §E301's DELETABLE FAMILY HAS A THIRD AND FOURTH MEMBER
+§E301 settled that **the swapper pays**, we never source inventory, and *"the question 'who affords the
+restoration' … has no referent. There is no restoration we perform."* On that basis it declared
+`refillPlacement` and `proRataShortfall` deletable — *"they size and apportion a restoration we do not
+perform."* **The same sentence retires two more, in `FixedRateFill`:**
+- **`splitCost`** (`:223`) apportions **`realisedCost` — "measured cost of the rebalance"** three ways
+  between swapper, LP and basket, with a written analysis of why each pure answer is a corner
+  solution. ⇒ **§E301 does not choose a corner; it removes the quantity.** With no rebalance, there is
+  no `realisedCost` to split.
+- **`requireNonAbusable`** (`:194`) guards that split's weights (`swapperBps`, `feePpm`, `costPpm`) and
+  has nothing to guard once the split is gone.
+⇒ **~40 lines plus `FillAndBatch.t.sol`'s `Split`/`splitCost` cases** (`:15`, `:16`, `:28`).
+⚠️ **THE REST OF THE LIBRARY MUST SURVIVE THAT CUT** — this is a partial deletion inside a file that
+stays, so `git rm` is wrong here and rule 14b's *deletion-and-replacement-together* applies to the test
+cases, which must go in the same commit or the suite breaks.
+
+▶️ **NOT DONE, AND WHY:** six money-path files (`DeployLib`, `Aux`, `Core`, `BasketLib`, `Interfaces`,
+`DeployL1_s`) are mid-edit by another thread, so **any build or test I run measures their in-flight
+work rather than `main`.** Rule 15 on a money-path-adjacent deletion needs a clean tree or a detached
+worktree; **the finding is landed here so it is not lost, and the cut is one bounded commit when the
+tree settles.**
