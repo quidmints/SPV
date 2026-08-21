@@ -357,7 +357,20 @@ would have caught it at any of the three points.**
 
 ---
 
-## 0-CRITICAL-B. 🔴🔴 §E258 — THE v4 CUT TURNED LIMIT ORDERS INTO OPTIONS, SILENTLY
+## 0-CRITICAL-B. ✅ §E258-options — **CLOSED: THE CAPABILITY IS RESTORED. ORDERS EXECUTE ON TOUCH AGAIN.**
+✅ **CLOSED 2026-08-22 (§E303), against code.** This row's finding was that the v4 cut removed
+automatic execution and left *"an option the owner must exercise"*. `sweepOor` now consumes resting
+orders inside the fill and `fillOOR(id)` is the permissionless poke — **the automatic-fill property
+the row says users bought is back**.
+⭐ **KEEP THE LESSON, WHICH OUTLIVES THE DEFECT:** *"A CAPABILITY REGRESSION LEAVES NO BROKEN SYMBOL
+TO FIND."* `outOfRange` still compiled, still stored, still tested while the behaviour was gone —
+every tool in use looked for a vanished name or a stale row, and **nothing looks for a behaviour that
+used to be supplied by a dependency you deleted.** That is why this survived a full queue audit, a
+deletions scan and a five-day sweep, and it is the reason to keep the row rather than delete it.
+
+*(the original finding follows)*
+
+## ~~0-CRITICAL-B.~~ 🔴🔴 §E258 — THE v4 CUT TURNED LIMIT ORDERS INTO OPTIONS, SILENTLY
 
 **Owner asked, 2026-08-17: *"you planned a replacement method for outofrange orders that would
 autoexecute them?"* Yes. It was designed, it was the right design, and it was never built — and what
