@@ -7420,3 +7420,50 @@ result (§E294, 23 bps): sources far enough apart to be genuinely independent ar
 sit outside the band and be refused.** Independence and admissibility pull opposite ways — **that
 trade-off is the actual content of §C1's "which source", and neither this row nor §E291's measurement
 settles it.**
+
+## C16. ⭐ THE ROOT FIX — STOP ROUTING. THE BTC BAND ALREADY DOES THIS (owner-prompted, 2026-08-22)
+
+Owner: *"there may be an even more elegant solution … which resolves the root cause rather than
+treating the symptom and can even fold the code."* There is, and it is already in the tree.
+
+🔴 **THE ROOT CAUSE IS NOT THE CALLDATA — IT IS THAT THE CONTRACT SOURCES LIQUIDITY AT ALL.** Every
+symptom traces to that one decision: it needs a route (`_routeOf`, the Curve tables), a venue
+(`V3_SWAP_ROUTER`, `_poolSwap`), a quote it cannot compute on-chain (hence `swapData` and the ABI
+ripple), a price floor per hop, approval hygiene, a reentrancy surface, and a flash loan to repay
+before it can withdraw. **Per-LP calldata (C15) treats the symptom.**
+
+✅ **THE BTC BAND NEVER ROUTES, AND IT WORKS: `grep` counts ZERO venue calls in `Vault.sol`.**
+`creditSwapIn(seller, sats, token, minDeliveredUsd)` — an **external party DELIVERS** value; the
+contract **prices the delivery** against its own oracle and credits it. `creditSwapOut` is the mirror.
+No router, no calldata, no approval, no flash.
+
+▶️ **APPLY THE SAME SHAPE TO DE-LEVER.** Instead of the contract selling collateral through a venue,
+a **filler delivers the stable and takes the collateral**, at an oracle-priced rate with a bounded
+discount. The keeper who calls the cascade is naturally the filler — they source liquidity off-chain
+however they like (1inch, own inventory, a CEX) and the protocol never learns how.
+
+**WHAT THIS FOLDS — the reason it is a root fix and not a redesign:**
+- **`swapData` never enters the ABI.** No SPA change, no Rust client change, no
+  `check-client-abis.py` drift, no `cascadeDelever` array triple.
+- **`_poolSwap` and `_aggSwap` both become deletable**, with `V3_SWAP_ROUTER` / `IV3Router` /
+  `V3_FEE_*` and `ONE_INCH_ROUTER` behind them. §C15's four call sites stop existing rather than
+  getting converted.
+- **PM-invariant ③ largely evaporates** — there is no external call made with our approval live, so
+  the reentrancy surface the v4 lock used to cover is not re-created, it is *absent*.
+- ⭐ **THE FLASH LOAN GOES TOO.** `_deleverFlash` exists because debt must be repaid before collateral
+  can be withdrawn without breaching health. **The filler's delivered stable IS the flash** — deliver,
+  repay, withdraw, hand over, one atomic tx. `flashProvider` and its callback path fold out.
+- **Per-LP isolation is preserved trivially** — each fill is its own settlement, so §E229's `this.`
+  self-call pattern keeps working unchanged.
+- **It is SYMMETRIC WITH THE BTC BAND**, which is the "one implementation, two instances" direction
+  the whole refactor is pushing toward — the ETH side stops being the odd one out.
+
+⚠️ **WHAT MUST BE DESIGNED, and it is the whole risk:** the **discount** a filler earns. Too small and
+nobody fills in a crash (liveness — exactly when it matters); too large and LPs are handed value.
+That is a Dutch-auction/keeper-fill problem with mature precedent (Maker's clipper, Aave's
+liquidation bonus) — **and note the protocol already prices a delivery this way on the BTC side, so
+the machinery to copy is in-repo, not in a paper.**
+⚠️ **DO NOT read this as "1inch was wrong."** 1inch remains the right way for the FILLER to source
+liquidity. The change is that it moves OFF the protocol's critical path, where its calldata,
+its outages and its gas were never affordable.
+
