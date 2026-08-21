@@ -103,7 +103,7 @@ to the LP who bears it. That is the Avellaneda–Stoikov reservation premium —
 risk.
 
 **This is also why "refill" is not a component.** Representing inventory we already hold is the
-repack's existing pairing step (`VogueLib.addLiq:341-372`, which ends `targetUSD = deltaTok·price`
+repack's existing pairing step (`QuidLib.addLiq:341-372`, which ends `targetUSD = deltaTok·price`
 — equal value on both legs). Acquiring inventory we do **not** hold cannot be done by any reseat;
 it needs a counterparty bringing real BTC or ETH, priced by the skew.
 

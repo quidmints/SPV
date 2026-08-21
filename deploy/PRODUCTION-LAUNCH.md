@@ -17,7 +17,7 @@ the master sequence.
 - Channel/enclave internals (spec): [`docs/actionable/TAPROOT-CHANNELS-BUILD-SPEC.md`](../docs/actionable/TAPROOT-CHANNELS-BUILD-SPEC.md) §11
 
 ## Three deployable units
-1. **L1 contracts** (one deployment) — Core/Vault/Basket/Vogue/BTCChannels/SPVGateway + feeds.
+1. **L1 contracts** (one deployment) — Core/Vault/Basket/Quid/BTCChannels/SPVGateway + feeds.
 2. **Hop enclave** (one instance) — `quid-bridge-daemon`, the Lightning↔EVM custody hub, runs **inside SGX**.
 3. **LP enclaves** (many) — `quid-lp-daemon`, each self-hosted by an LP (own SGX, or own laptop+watchtower). LPs are their **own** trust root; they do not provision into foundation infra. See [[LP hosting modes]] (`project-quid-lp-hosting-modes`).
 

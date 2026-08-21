@@ -70,7 +70,7 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     (`VEth.sol`, `VEthIdentity.t.sol`, `LevOracles.sol`) sat in the index while the code REPLACING
     them was still unstaged. Another thread committed, picked up the whole index, and landed my
     deletions inside `8debdb7` — *"Routing fees are absent by design: the node is unannounced"*, a
-    Lightning change. For that window `main` had the contract DELETED, `Vogue` without the
+    Lightning change. For that window `main` had the contract DELETED, `Quid` without the
     replacement face, and `DeployL1_s` importing a file that no longer existed: **it could not
     compile, and the history attributes a Solidity deletion to a commit about Lightning.**
     ⇒ **A DELETION AND ITS REPLACEMENT MUST BE STAGED AND COMMITTED TOGETHER**, or the deletion
@@ -222,7 +222,7 @@ the signature of this, and nothing else produces it.
   `tsc` cannot run at all: `spa/` has NO `node_modules`, so the ABI checker is the ONLY client-side
   gate available.** That is why its coverage matters: until 2026-08-10 it skipped any declared name
   matching nothing in `evm/out` as "not ours", so **argument drift was caught while a function being
-  DELETED OUTRIGHT was invisible** — the SPA was encoding a call to a removed `Vogue.exitInstant`
+  DELETED OUTRIGHT was invisible** — the SPA was encoding a call to a removed `Quid.exitInstant`
   (§E154-client-ghosts). Unmatched names are now `ORPHAN` failures. **Chaining the check ahead of a
   commit in one command is not gating it — I read "2 drifted" and committed anyway.**
 
@@ -253,7 +253,7 @@ the signature of this, and nothing else produces it.
   multiply by the credit site's OWN share base, and "own" now means THAT INSTANCE'S — which the name used to
   tell you and no longer does. Reading the ETH instance's base against the BTC instance's accumulator is the
   successor to the exact bug this warning was written for.**
-  **Live credit sites: `Vault.sol:351`, `Vogue.sol:1180`, `Vogue.sol:1276`** (`USD_FEES += usdInc`).
+  **Live credit sites: `Vault.sol:351`, `Quid.sol:1180`, `Quid.sol:1276`** (`USD_FEES += usdInc`).
   ⇒ The hazard this note exists to prevent is unchanged and still real; only its coordinates rotted.
   **A trap-note that points at deleted symbols causes the exact misreading it was written to stop**,
   because the reader concludes the concern is obsolete rather than that the names moved.
@@ -271,7 +271,7 @@ the signature of this, and nothing else produces it.
 12,953 are `.rs`, 33 `.sh`, 5 `.h`, and **none `.sol`**. It indexed `quid-ln/` including vendored
 `lib/rust-lightning`, and skipped `evm/src/` entirely. This matters because the graphify skill instructs
 a session to answer any codebase question from that graph *before doing anything else* when
-`graphify-out/graph.json` exists — so a question about `Vogue`, `Aux`, `LevManager` or anything else
+`graphify-out/graph.json` exists — so a question about `Quid`, `Aux`, `LevManager` or anything else
 on the money path would be answered from a graph that does not contain it. **Use the graph for the Rust
 bridge. Never use it for Solidity.**
 
@@ -291,52 +291,47 @@ ownership/renounce posture that `docs/FAQ.md` Part 6 argues to counsel. `.dot` f
 `dot -Tsvg`. Slither is also a static analyser, so a bare `slither ..` surfaces real findings on the
 same compile.
 
-## 🔴 RENAMES THAT LANDED IN CODE AND NOT IN THE LEDGERS (2026-08-21) — read before trusting a name below
+## ✅ RENAMES: THE DOCS ARE DESTALED — THIS TABLE IS NOW A KEY FOR READING GIT HISTORY (2026-08-21)
 
-`22ec766f` renamed the core contracts and **every document still uses the old names**, including this
-one. The text below is kept as written because rewriting it wholesale would break the arguments it
-makes; read it through this table instead.
+`22ec766f` renamed the core contracts and every document kept the old names. **That is fixed: 1,020
+substitutions across 20 tracked `.md` files, so a name in the docs now resolves in the tree.** This
+table stays because it is still needed for **commits, PR bodies and archived output written before
+the destale** — and because `../ibiza` pins this repo as a submodule and may still use the old names.
 
-| the docs say | the tree actually has | stale citations |
-|---|---|---|
-| `Vogue` / `Vogue.sol` / `VogueCore.sol` | **`Quid` / `Quid.sol`** (QU!D stays the token) | 146 |
-| `VogueLib` / `VogueLib.sol` | **`QuidLib` / `QuidLib.sol`** | 34 |
-| `VaultLib` / `VaultLib.sol` | **`QuidLib`** — it was FOLDED IN and deleted, not renamed | 33 |
-| `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** | 20 |
-| `BandState`, then `State`, then `State.sol` | **`Shares` / `Shares.sol`** — ⚠️ **TWO HOPS** | 3 |
+| written before the destale | the tree has |
+|---|---|
+| `Vogue` / `Vogue.sol` / `VogueCore.sol` / `IVogue` | **`Quid` / `Quid.sol` / `IQuid`** (QU!D stays the token) |
+| `VogueLib` / `VogueLib.sol` | **`QuidLib` / `QuidLib.sol`** |
+| `VaultLib` / `VaultLib.sol` | **`QuidLib`** — FOLDED IN and deleted, not renamed |
+| `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** |
+| `BandState`, then `State` / `State.sol` | **`Shares` / `Shares.sol`** — ⚠️ **TWO HOPS** |
 
-⛔ **THE `BandState` ROW HAD ONE HOP AND NOW HAS TWO, AND THIS TABLE WAS WRONG UNTIL 2026-08-21.** It
-read *"`BandState` → `State`"*; the contract was then renamed **`State` → `Shares`** (`94f63006`, so the
-file and the contract finally agree — `Shares.sol` had been declaring `contract State`). **A rename
-table is itself a document that goes stale, and this one went stale the moment its own advice was
-followed.** Anything citing `State` or `State.sol` means today's `Shares`.
+⛔ **A RENAME TABLE IS ITSELF A DOCUMENT THAT GOES STALE, AND THIS ONE DID.** It read *"`BandState` →
+`State`"* until 2026-08-21; the contract was then renamed **`State` → `Shares`** (so file and contract
+finally agree — `Shares.sol` had been declaring `contract State`), which left the key pointing at a
+symbol that no longer existed. **It went stale the moment its own advice was followed.** If you rename
+anything, this table is part of the change.
 
-⚠️ **DO NOT BULK-REWRITE THE 236 CITATIONS.** 58 of them are in `docs/actionable/BUILD-QUEUE-AND-107.md`,
-which this file declares **append-only** — its value is that its evidence is exactly as recorded. The
-rest sit inside arguments that name the old symbol as part of their reasoning. **Fix the KEY, not the
-references**: that is why this table exists, and it is cheaper and safer than 236 edits across five
-threads' rows.
+🔴 **WHAT WAS DELIBERATELY *NOT* RENAMED, AND WHY IT MUST STAY THAT WAY.** A blind `Vogue`→`Quid` pass
+would have rewritten ~20 more tokens into names that **resolve to nothing**, which is strictly worse
+than an obviously-old name: a reader trusts `IQuidShares` and searches for it, where `IVogueShares`
+announces its own age. **Measured before the pass: `quidETH` `quidBTC` `quidSyncHook` `quidOp`
+`quidAvail` `quidWithdraw` `quidCoreBtc` all have ZERO references in `evm/src`, and `IQuidCore`
+`IQuidShares` `IQuidLP` are declared ZERO times.** They are DELETED symbols, not renamed ones. Left
+as-is on purpose: **`onlyVogue`, `IVogueCore`, `IVogueShares`, `IVogueLP`, `IVogue_VG`,
+`IVogueView_VG`, `NotVogueCore`**, the 211 lowercase `vogue*` members (`vogueETH` alone was 77), and
+every `Vogue`-named test.
+⇒ **THE DISCRIMINATOR IS WHETHER THE NEW NAME EXISTS, NOT WHETHER THE OLD ONE IS OLD.** Renaming a
+tombstone does not destale it; it disguises it.
 
-⚠️ **`Vogue.sol` is cited in SIX files including this one, and `State.sol` is cited as if it exists —
-it was DELETED, not renamed into.** A row naming a file the tree does not have is not a small
-inaccuracy: it is a row the next thread cannot act on, and it reads as current.
+⚠️ **`docs/actionable/wip/UNIT-A-derive-fee-bound.patch` STILL SAYS `BtcVaultLib` AND MUST.** It is a
+diff — rewriting a symbol inside it means it no longer applies. Patches are frozen by construction.
 
-▶️ **`tools/check-doc-symbols.py` now finds this class.** It reports every `Something.sol` the docs
-cite that is not in the tree — **56 on the day it was written**. Most are legitimate tombstones
-(`AttestedHopRegistry`, the Midnight files); the RENAMES above are the live rot, because a reader
-follows them somewhere that exists under a different name. Run it after any rename.
-
-✅ **`evm/lib/morpho-blue` IS DELETED (23 files, owner's call 2026-08-21).** It was carried on a
-claim that had gone stale: `MIDNIGHT-FORK.md` said *"Blue v1 IS carried … because `LevVenueBase`,
-`DeployL1_s` and four tests import it"*, and by the time it was checked **nothing referenced it at
-all** — no import, no remapping, not a submodule; every Morpho import resolves to our own
-`src/imports/` declarations (`IMorphoFlash` in `Interfaces.sol`, `IMorpho` declared inline in
-`LevVenueBase.sol:64`). `forge build` clean without it.
-⚠️ **THE PATTERN, SINCE IT HAS NOW HAPPENED TWICE IN ONE WEEK:** both morpho-v2 and morpho-blue were
-kept alive by a SENTENCE claiming importers, not by importers. **A vendored dependency's
-justification is a testable claim — `grep -rn "<lib>" evm/src evm/test evm/script` — and it should be
-re-run before the weight is carried another month**, because the code that once imported it can be
-deleted without anyone revisiting the note that explains why it is there.
+▶️ **`tools/check-doc-symbols.py` reports every `Something.sol` the docs cite that is not in the tree.
+The renames are now clear; what it still lists are genuine TOMBSTONES** — `VEth.sol`, `LevBookLib.sol`,
+`LevOracles.sol`, `TickLib.sol`, `Midnight.sol`, `AttestedHopRegistry.sol`, `QuidLens.sol`,
+`EthVenue.sol` — files that were deleted with no successor, so the citation is history, not rot. **Run
+it after any rename, and classify each new row as RENAME or TOMBSTONE before touching anything.**
 
 ## The central structural fact — read this before proposing any refactor
 
@@ -345,9 +340,9 @@ single source of bulk.** ~5,500 lines sit in **four ETH/BTC pairs**:
 
 | ETH side | BTC side | role |
 |---|---|---|
-| `Vogue` 1,557 | `Vault` 991 | band manager — ⚠️ **but see the caveat below: this row is unconfirmed** |
+| `Quid` 1,557 | `Vault` 991 | band manager — ⚠️ **but see the caveat below: this row is unconfirmed** |
 | `LevManager` 908 | `BtcLevManager` 579 | lev manager (`§A.71`: `LevManager.Pos == BtcLevManager.Pos`) |
-| `QuidLib` (was `VogueLib`) | `BtcLib` (was `BtcVaultLib`) | delegatecall bodies — ⚠️ **RENAMED 2026-08-18**, and `VaultLib` folded INTO `QuidLib` and was deleted |
+| `QuidLib` (was `QuidLib`) | `BtcLib` (was `BtcLib`) | delegatecall bodies — ⚠️ **RENAMED 2026-08-18**, and `QuidLib` folded INTO `QuidLib` and was deleted |
 | ~~`VEth` 116~~ | `VBtc` 105 | ⛔ **THIS PAIR NO LONGER EXISTS — `VEth.sol` IS DELETED (2026-08-18: `ls` confirms, and the only `VEth` strings left in `evm/src` are 3 comments in `Quid.sol` recording the removal).** It is listed here only so the count of four is not read as current. See the RESOLVED note below: the ETH band manager IS the 4626, so there is no ETH face to pair with. |
 
 **`Core` is the one place that got it right** — it parameterises the same distinction with a bool
@@ -382,9 +377,9 @@ lev distinction, or the socialised-liquidation race in `§A.16b` reopens.
 | slice | what it is | members |
 |---|---|---|
 | **ETH venue custody** | 4626 venue positions | `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `vogueETH` (`:444`) `deliverableETH` `_ethCfg` + every venue address (`AAVE_SPOKE` `ETHERFI_*` `WEETH`) |
-| **BTC band accounting** | the actual counterpart of `Vogue` | `registerBtcLp` `resize` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLev` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` — plus the band state now inherited from `Shares.sol`'s `BandState`: `lpShares` `autoManaged` `levPooled` `totalBuffer` ⚠️ **SIX NAMES IN THIS ROW WENT STALE ON 2026-08-17/18 AND ARE CORRECTED ABOVE — `resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, and `totalSharesBTC` `bandBtcOf` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` all now **0 references in `evm/src`**.** The BTC suffix was deleted (`d2dc8b78` *one name per concept, two instances*, `088d2640`, `e0d72836`) and the per-band state moved into `BandState`, ⛔ **AND "0 REFERENCES" MEANS RENAMED, NOT REMOVED — READ THIS BEFORE CONCLUDING ANYTHING FROM SUCH A GREP (owner's correction, 2026-08-18).** The BTC band is a SEPARATE INSTANCE carrying the SAME names without the suffix: `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)`, so **`lpShares` ON THE BTC INSTANCE *IS* WHAT `lpSharesBTC` NAMED** — same slot, same meaning, different address. ⇒ **THE DISCRIMINATOR MOVED FROM THE NAME TO THE ADDRESS, WHICH IS THE ENTIRE POINT OF THE `isBTC` REFACTOR.** Nothing was deleted; the suffix was, because the instance already carries the distinction. ⚠️ **A ZERO-HIT GREP FOR A SUFFIXED NAME IS EVIDENCE OF A RENAME, NEVER OF A REMOVAL — this file asserted the opposite until the owner caught it.** ⚠️ **THE ROW'S POINT SURVIVES INTACT AND IS WHY IT IS CORRECTED RATHER THAN DELETED: `Vault` IS still two things fused, and this list is still the BTC-band slice.** Only the spelling moved. |
+| **BTC band accounting** | the actual counterpart of `Quid` | `registerBtcLp` `resize` `unregisterBtcLp` `exposeBtcToLev` `unexposeBtcFromLev` `syncLev` `_settleBtcLp` `settleBtcFeesOwed` `derivedThetaWadBtc` — plus the band state now inherited from `Shares.sol`'s `Shares`: `lpShares` `autoManaged` `levPooled` `totalBuffer` ⚠️ **SIX NAMES IN THIS ROW WENT STALE ON 2026-08-17/18 AND ARE CORRECTED ABOVE — `resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, and `totalSharesBTC` `bandBtcOf` `lpSharesBTC` `autoManagedBTC` `levPooledBTC` all now **0 references in `evm/src`**.** The BTC suffix was deleted (`d2dc8b78` *one name per concept, two instances*, `088d2640`, `e0d72836`) and the per-band state moved into `Shares`, ⛔ **AND "0 REFERENCES" MEANS RENAMED, NOT REMOVED — READ THIS BEFORE CONCLUDING ANYTHING FROM SUCH A GREP (owner's correction, 2026-08-18).** The BTC band is a SEPARATE INSTANCE carrying the SAME names without the suffix: `DeployLib.sol:136-137` constructs `new Core(cfg.weth, …)` **and** `new Core(cfg.wbtc, …)`, so **`lpShares` ON THE BTC INSTANCE *IS* WHAT `lpSharesBTC` NAMED** — same slot, same meaning, different address. ⇒ **THE DISCRIMINATOR MOVED FROM THE NAME TO THE ADDRESS, WHICH IS THE ENTIRE POINT OF THE `isBTC` REFACTOR.** Nothing was deleted; the suffix was, because the instance already carries the distinction. ⚠️ **A ZERO-HIT GREP FOR A SUFFIXED NAME IS EVIDENCE OF A RENAME, NEVER OF A REMOVAL — this file asserted the opposite until the owner caught it.** ⚠️ **THE ROW'S POINT SURVIVES INTACT AND IS WHY IT IS CORRECTED RATHER THAN DELETED: `Vault` IS still two things fused, and this list is still the BTC-band slice.** Only the spelling moved. |
 
-⇒ **`Vogue`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
+⇒ **`Quid`'s pair is the BTC-band SLICE of `Vault`, not `Vault`.** The ETH-venue slice is a THIRD
 concern with **no BTC counterpart — correctly**, because ETH venues are 4626 vaults while BTC custody
 is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it is REAL.
 🔴 **`VBtc` MUST SURVIVE THE CONSOLIDATION — do not "delete it into" the band manager.** The BTC band's
@@ -449,7 +444,7 @@ names: an open Morpho/Euler market, where a liquidator who seizes vBTC has no wa
 before deciding, and reconcile the two documents whichever way it goes.
 
 ⇒ **Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`. Only then does
-`Vogue` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
+`Quid` ∥ `Vault`-BTC-slice become one band manager with two instances. The 1,557-vs-991 size gap is
 explained by this fusion, not by drift — which is exactly why every gap must be classified before
 merging.
 
@@ -587,8 +582,8 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
 | solc | `0.8.30`, optimizer on, **200 runs** (`evm/foundry.toml`) |
 | `via_ir` | **`false`, deliberately.** Stack-too-deep is solved by moving locals into struct fields (one memory pointer costs less stack than two values), not by turning on the IR pipeline. |
 | remappings | `evm/remappings.txt` only — there is deliberately no `remappings = [...]` in `foundry.toml` |
-| **EIP-170** | `forge test` does **not** enforce the 24,576-byte limit. **`forge build --sizes` does not either, for the contracts that matter most** — measured 2026-08-05: `Core` has **no row in that table at all** (278 rows; `SwapLib`, `Aux`, `BasketLib`, `LevManager`, `LevMath`, `VogueLib` all present). The cause is *not* library linking — `SwapLib`, `Aux`, `LevManager` and `Vogue` are all linked and all appear — and remains **unknown**. **Use `python3 tools/check-contract-sizes.py` instead**: it reads `deployedBytecode.object` from `evm/out/**` for every contract declared in `evm/src`, which is exact (a link placeholder `__$…$__` is 40 hex chars = the 20 bytes its address occupies). **MEASURED MARGINS — RE-MEASURED 2026-08-15 (35 deployable contracts). RE-RUN THE SCRIPT; DO NOT TRUST ANY NUMBER WRITTEN HERE: `LevMath` 24,503 (73 left) · `Vogue` 24,386 (190) · `Core` 24,025 (551) · `BTCChannels` 23,939 (637) · `LevManager` 23,918 (658).** Prior readings: 2026-08-14 LevManager 252 / Core 920 / LevMath 978 / BTCChannels 1,048 / Vogue 1,267; 2026-08-12 Core 148 / LevManager 224 / LevMath 228 / Vogue 968; 2026-08-05 Core 38 / LevManager 70 / LevMath 20 / Vogue 416. **FOUR readings, no two alike** — headroom both returns (deletions: the WETH-4626 venue removal freed ~770 on `Core`, ~750 on `LevMath`) and DISAPPEARS (consolidations). **A stale margin is worse than none: it either blocks an affordable change or waves through an unaffordable one.**
-🔴 **THE BINDING CONTRACT IS NOW `Vogue` (190), AND IT IS ALONE.** Re-measured 2026-08-16: **`LevMath` 24,068 (508 left)** — it went 73 → 508 when `_toUsdc`/`_fromUsdc`'s per-stable `if` chains collapsed into one `_routeOf` table (§E210), **freeing 435 bytes**. That is the second time a *consolidation* handed back a large block on this contract, and it is the counter-example to the "consolidations cost bytes" reading of the `Vogue` entry below: **folding a whole CONTRACT in costs bytes (its code must land somewhere); folding N INLINED BODIES into one routine gives them back.** `LevManager` is no longer tight either — it went 252 → 658 as the Uniswap/venue removals landed. ⚠️ **`Vogue` LOST ~1,077 BYTES IN ONE CHANGE** (1,267 → 190): folding `VEth` in deleted a whole deployed contract, but its 4626 identity and ERC-20 mutators are bytecode that had to land somewhere, and it landed here. **Net tree code went DOWN while `Vogue` went UP** — that is the axis a "we deleted a contract" summary hides, and it is exactly why the size gate runs BEFORE the suite. Do not plan an addition to `Vogue` against any older figure. This repo has already shipped a `Core` at −126 bytes (undeployable) with a fully green suite; a ~52-byte addition to `Core` on 2026-08-05 consumed more than half the remaining margin before anyone measured it. |
+| **EIP-170** | `forge test` does **not** enforce the 24,576-byte limit. **`forge build --sizes` does not either, for the contracts that matter most** — measured 2026-08-05: `Core` has **no row in that table at all** (278 rows; `SwapLib`, `Aux`, `BasketLib`, `LevManager`, `LevMath`, `QuidLib` all present). The cause is *not* library linking — `SwapLib`, `Aux`, `LevManager` and `Quid` are all linked and all appear — and remains **unknown**. **Use `python3 tools/check-contract-sizes.py` instead**: it reads `deployedBytecode.object` from `evm/out/**` for every contract declared in `evm/src`, which is exact (a link placeholder `__$…$__` is 40 hex chars = the 20 bytes its address occupies). **MEASURED MARGINS — RE-MEASURED 2026-08-15 (35 deployable contracts). RE-RUN THE SCRIPT; DO NOT TRUST ANY NUMBER WRITTEN HERE: `LevMath` 24,503 (73 left) · `Quid` 24,386 (190) · `Core` 24,025 (551) · `BTCChannels` 23,939 (637) · `LevManager` 23,918 (658).** Prior readings: 2026-08-14 LevManager 252 / Core 920 / LevMath 978 / BTCChannels 1,048 / Quid 1,267; 2026-08-12 Core 148 / LevManager 224 / LevMath 228 / Quid 968; 2026-08-05 Core 38 / LevManager 70 / LevMath 20 / Quid 416. **FOUR readings, no two alike** — headroom both returns (deletions: the WETH-4626 venue removal freed ~770 on `Core`, ~750 on `LevMath`) and DISAPPEARS (consolidations). **A stale margin is worse than none: it either blocks an affordable change or waves through an unaffordable one.**
+🔴 **THE BINDING CONTRACT IS NOW `Quid` (190), AND IT IS ALONE.** Re-measured 2026-08-16: **`LevMath` 24,068 (508 left)** — it went 73 → 508 when `_toUsdc`/`_fromUsdc`'s per-stable `if` chains collapsed into one `_routeOf` table (§E210), **freeing 435 bytes**. That is the second time a *consolidation* handed back a large block on this contract, and it is the counter-example to the "consolidations cost bytes" reading of the `Quid` entry below: **folding a whole CONTRACT in costs bytes (its code must land somewhere); folding N INLINED BODIES into one routine gives them back.** `LevManager` is no longer tight either — it went 252 → 658 as the Uniswap/venue removals landed. ⚠️ **`Quid` LOST ~1,077 BYTES IN ONE CHANGE** (1,267 → 190): folding `VEth` in deleted a whole deployed contract, but its 4626 identity and ERC-20 mutators are bytecode that had to land somewhere, and it landed here. **Net tree code went DOWN while `Quid` went UP** — that is the axis a "we deleted a contract" summary hides, and it is exactly why the size gate runs BEFORE the suite. Do not plan an addition to `Quid` against any older figure. This repo has already shipped a `Core` at −126 bytes (undeployable) with a fully green suite; a ~52-byte addition to `Core` on 2026-08-05 consumed more than half the remaining margin before anyone measured it. |
 | library bodies | Delegatecalled library functions must be `external`/`public`. That is why the external surface is large; it is not accidental API. |
 | fork tests | ⚠️ **`FOUNDRY_RPC_ENDPOINTS_MAINNET` DOES NOT WORK — it is silently ignored.** `foundry.toml` resolves `mainnet = "${ETH_RPC_URL}"`, so the override is **`ETH_RPC_URL=<url> FORK_BLOCK=<n> forge test`**. Measured 2026-08-10: two full suites reported 3,318 and 1,623 failures, **all 403/429, zero assertions**, because the ignored variable left forge on the non-archival public node while `FORK_BLOCK` was pinned. **A PINNED BLOCK REQUIRES THE ARCHIVE ENDPOINT** (`ETH_RPC_URL=$ANKR_RPC_URL`); publicnode is keyless but head-only. Public nodes are not archival; a stale `FORK_BLOCK` fails to fetch rather than failing a test. ⚠️ **A DEAD RPC KEY LOOKS LIKE A BROKEN TEST SUITE.** On 2026-08-06 the ankr key in `evm/.env` returned `HTTP 401 "API key disabled"`, which fails inside `setUp()` — so **every fork test in the repo reported FAIL** with no assertion involved. Read the failure text before believing a mass regression: `could not instantiate forked environment` is an endpoint problem, not a code one. **Verified live and keyless 2026-08-06** (block 25,697,138): `ethereum-rpc.publicnode.com`, `rpc.flashbots.net`, `eth.drpc.org`. Dead: `eth.llamarpc.com` (521), `cloudflare-eth.com` (-32046). `foundry.toml:44` already names publicnode as the keyless fallback; `evm/.env` now points there. This is also the likeliest thing CI was mailing about. ⚠️ **BUT THE KEYLESS NODE RATE-LIMITS UNDER A FULL-SUITE RUN.** Measured 2026-08-08: three tests failed with `HTTP 429 "Rate limit exceeded"` from publicnode — `test_ClassifyAllVenues`, `test_RunSim_IL_Baseline_ChopIsBenign`, `testGrindRemoval_DrainPaysRetainedSkewPremium`. **That is an ENDPOINT failure wearing a test's name, same category as the 401 above**, and it moves between runs, so treat any `Max retries exceeded HTTP error 429` line as environmental before attributing it to code. ▶️ **A replacement archive key is banked as `ANKR_RPC_URL` in `evm/.env` (gitignored; NEVER put it in `foundry.toml`, which is committed).** Verified live 2026-08-08 — `eth_blockNumber` → `0x1885000`, and `eth_getBalance` at block `0xF4240` returns a real value rather than a missing-trie-node error, so it **is** archive-capable. **It is deliberately NOT wired into `ETH_RPC_URL`:** publicnode stays primary, and this is for archive needs or when 429s appear — `FOUNDRY_RPC_ENDPOINTS_MAINNET=$ANKR_RPC_URL forge test` uses it for one run with no file edit. |
 | Rust (`quid-ln`) | **Does not build on macOS at all** — `quid-cvm` is Linux-only and transitive. Use the image: `docker build -t quid-ln:dev quid-ln` then `docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev`. **VERIFIED GREEN: 624 passed / 0 failed (2026-08-07).** Was recorded as 532; the count grew AND the tree was red in between — two `quid-tls` shared-seed snapshot tests encoded pre-`QUID-REALM` values (see `quid-tls/src/shared_seed/certs.rs`). A recorded pass count goes stale silently; re-run before trusting it. `quid-ln/Dockerfile` is the single source for the commands — it pins rust 1.90 to `rust-toolchain.toml` and bakes Bitcoin Core **30.2, the same version `regtest/env.sh` uses** (a split would mean Docker and host harnesses disagreeing on consensus). |
@@ -678,7 +673,7 @@ JURISDICTION-SCOPED, not a contradiction of this.
 
 ## Cross-repo
 
-- **`../ibiza` consumes SPV as a pinned git submodule** and depends on exactly four Vogue/Basket
+- **`../ibiza` consumes SPV as a pinned git submodule** and depends on exactly four Quid/Basket
   signatures staying permissionless and stable. Changing them is a breaking change for a repo that
   isn't in this working tree.
 - 📱 **THE LP SIGNER APP SPEC LIVES IN `../ibiza/TODO.md` §3b, NOT HERE** (owner, 2026-08-13:

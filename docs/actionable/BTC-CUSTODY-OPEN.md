@@ -71,7 +71,7 @@ The one exception is in-flight HTLCs at departure, which is exactly what the qui
 
 ### 2.2 🔴 Routing-fee ATTRIBUTION (pool-wide vs per-channel)
 Mechanics are settled and need no new rail: **fees are not paid out at all** — they compound into
-the position (`BtcVaultLib.feeCompounded` → `Vault.sol:543` `lpSharesBTC += feeCompounded`) and
+the position (`BtcLib.feeCompounded` → `Vault.sol:543` `lpSharesBTC += feeCompounded`) and
 settle at resize/close. The **credit calculation** is
 `weight = LP.pooled + levBufBTC[lp]`, `owed = weight × accumulator / WAD`, `reward = owed − bookmark`,
 denominator `lpSharesBTC + totalBufferBTC`.

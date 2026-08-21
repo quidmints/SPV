@@ -1,6 +1,6 @@
-# JIT depth-guarantee — deterministic swap impact → forbidden sandwich (Vogue `_withdraw` TODO)
+# JIT depth-guarantee — deterministic swap impact → forbidden sandwich (Quid `_withdraw` TODO)
 
-Status: **SPEC / actionable.** Grounds the Vogue `_withdraw:393` TODO ("one function that does `_repack`… feeds `tryPair` by redeeming liquid QUID… JIT guarantee the dollars are there for any total size of swaps… so we know exactly how much it will move the price → MEV eliminated at the block guarantee"). Written against the real code, with the backing-invariant safety worked out. No code yet.
+Status: **SPEC / actionable.** Grounds the Quid `_withdraw:393` TODO ("one function that does `_repack`… feeds `tryPair` by redeeming liquid QUID… JIT guarantee the dollars are there for any total size of swaps… so we know exactly how much it will move the price → MEV eliminated at the block guarantee"). Written against the real code, with the backing-invariant safety worked out. No code yet.
 
 ---
 
@@ -23,13 +23,13 @@ Not a substitute for the SPA's Flashbots-Protect (that covers retail-via-SPA); t
 
 ## 1. Existing pieces it composes from (no net-new minting)
 
-- **`Vogue.unwindForRedeem(usdWanted) → usdFreed`** (`Vogue.sol:896`, `onlyUs`) — burns in-range band liquidity by the band's OWN USD/ETH ratio to release EXACTLY `usdWanted` USD (oracle-free). This is the **USD-OUT** primitive.
-- **`Vogue.addLiq(amount, price, …)`** (`Vogue.sol:783`) — pairs USD+ETH back into the band (the **USD-IN** primitive), headroom-bounded by `surplus`/backing.
+- **`Quid.unwindForRedeem(usdWanted) → usdFreed`** (`Quid.sol:896`, `onlyUs`) — burns in-range band liquidity by the band's OWN USD/ETH ratio to release EXACTLY `usdWanted` USD (oracle-free). This is the **USD-OUT** primitive.
+- **`Quid.addLiq(amount, price, …)`** (`Quid.sol:783`) — pairs USD+ETH back into the band (the **USD-IN** primitive), headroom-bounded by `surplus`/backing.
 - **`Aux.redeem` / `BasketLib.redeemAsBody`** (`Aux.sol:872`, `BasketLib.sol:853`) — burns QUID, frees basket USD (mature-share priced, depeg-haircut). The **QUID→USD** primitive.
 - **`matureSupply()`** (restored) — the senior, dollar-redeemable-now cohort; only mature QUID is redeemable at par (the "liquid QUID").
 - **lev-keeper intent** (`lev_keeper.rs`) — the fleet signer that already drives `rebalance`/`protect`/`compound`; it holds/authorizes the QUID the guarantee redeems.
 
-`tryPair` is NOT a new function — it's `Vogue.outOfRange` (`:270`, places a single-sided USD position at a chosen distance — the USD-side-depth primitive the redeem feeds) / `addLiq` (the paired variant, volatile-in). Both are BTC-capable via `isBTC`/token. The guarantee is a thin driver over them: given a target USD depth, pull it from the cheapest source (idle band USD first, then `unwindForRedeem`'s inverse, then redeem liquid QUID) and place it via `outOfRange` — no net-new function, no net-new minting.
+`tryPair` is NOT a new function — it's `Quid.outOfRange` (`:270`, places a single-sided USD position at a chosen distance — the USD-side-depth primitive the redeem feeds) / `addLiq` (the paired variant, volatile-in). Both are BTC-capable via `isBTC`/token. The guarantee is a thin driver over them: given a target USD depth, pull it from the cheapest source (idle band USD first, then `unwindForRedeem`'s inverse, then redeem liquid QUID) and place it via `outOfRange` — no net-new function, no net-new minting.
 
 ---
 
@@ -67,7 +67,7 @@ Recommendation: **(A)** for the guarantee (must be always-available), with (B) a
 ## 4. The `_withdraw` folding (the rest of the TODO)
 
 > ✅ **STATUS CORRECTED 2026-07-27 (MISS 1): ALL THREE ARE BUILT.** This section had marked them TODO
-> long after they shipped, which is why MISS 1 kept resurfacing. Verified in `Vogue.sol`:
+> long after they shipped, which is why MISS 1 kept resurfacing. Verified in `Quid.sol`:
 > 1. **Compound the QD** — BUILT. `_settlePending` is called with `mintRecipient == 0`, so the USD fee
 >    leg accrues to `usd_owed` (a deferred, unrealized claim — no mint) and is realized only on a FULL
 >    exit. The code carries the `§4.1 COMPOUND-not-transfer` marker.
@@ -77,10 +77,10 @@ Recommendation: **(A)** for the guarantee (must be always-available), with (B) a
 > 3. **CEI-ordering fix** — BUILT on the main path: `LP.pooled -= amount; lpShares -= amount;` (`:562`)
 >    precedes the `_burnInRange` send (`:566`), so state is decremented before the external call.
 >
-> The section is kept for its DESIGN rationale (Vogue:419 cites §4.1 for live semantics); only the
+> The section is kept for its DESIGN rationale (Quid:419 cites §4.1 for live semantics); only the
 > status was wrong.
 
-Independent of the JIT core, three `_withdraw` (`Vogue.sol:403`) changes from the TODO:
+Independent of the JIT core, three `_withdraw` (`Quid.sol:403`) changes from the TODO:
 1. **Compound the QD, don't transfer it** — `_settlePending` (`:340`) currently `QUID.mint(recipient, usdR)` for the USD-fee leg. On a **partial** withdraw, compound `usdR` into the remaining position (mirror the token leg's `LP.pooled += tokR`) instead of minting out; only mint-out the fee on a **full** exit. (Money-path: compounding = not realizing the mint, strictly conservative.)
 2. **Cover open levers first** — before the free-ladder burn, ensure the LP's open lev (`levPooled[msg.sender]`) is settled/covered (today the withdraw only *caps* at `pooled − levPooled`; the TODO wants it to actively cover/close first so a withdrawing LP can't strand a lever).
 3. **CEI-ordering fix** — today native-ETH sends (`_burnInRange(…recipient)` `:455`, `_sendETH` `:473`) precede `LP.pooled/lpShares -= amount` (`:485`). Restructure to **debit `amount` first, send, then re-credit any undelivered shortfall** (`LP.pooled += shortfall`) — so a re-entrant sees the debited per-LP state. (Cross-contract reentrancy is bounded today because Aux doesn't read the lagging per-LP state, but this removes the smell without a shared guard that could break the V4 `unlock` callback.)

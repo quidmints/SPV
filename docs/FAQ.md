@@ -1949,13 +1949,13 @@ that claim complete.
 | claim | location |
 |---|---|
 | Aux renounces at finalize | `evm/src/Aux.sol:598-604` |
-| Vogue renounces at setup | `evm/src/Vogue.sol:309-313` |
+| Quid renounces at setup | `evm/src/Quid.sol:309-313` |
 | evacuate / setVault / setStableFeed / setAssetFeed are onlyOwner | `evm/src/Aux.sol:487`, `:497`, `:167`, `:191` |
 | basket constituents fixed at deploy, no permissionless binder | `evm/src/Aux.sol:177` |
 | lev venue allowlist pin-once then frozen | `evm/src/LevManager.sol:146`, `:208-210` |
 | pokeVaultHealth permissionless, ERC-4626 ground truth only | `docs/informational/VAULT-WATCHER.md` |
 | graded haircut removed because owner-only | `docs/informational/VAULT-WATCHER.md` |
-| depositor picks venue, no setter | `evm/src/Vogue.sol:1277-1281` |
+| depositor picks venue, no setter | `evm/src/Quid.sol:1277-1281` |
 | Safe governs measurement whitelist only, moves no funds | `evm/src/AttestedHopRegistry.sol:47-53` |
 | **Vault setters with no renounce found** | `evm/src/Vault.sol:355`, `:362`, `:372` |
 | IL target closed-form, zero at or below entry | `evm/src/imports/LevMath.sol:109-125` |
@@ -2122,7 +2122,7 @@ external position and effectuates no exchange for a customer. The weakest of the
 does not carry over. `COMPLIANCE-THESIS.md`'s argument that nobody but the note-holder can authorise a
 withdrawal is a *custody* argument, and CARF is not a custody test. It is an intermediation test.
 
-**Ownerless contracts.** They may well place `Aux`, `Vogue` and the rest outside scope. They say nothing
+**Ownerless contracts.** They may well place `Aux`, `Quid` and the rest outside scope. They say nothing
 about the hop.
 
 ### The collision, which is the thing to take to counsel first
