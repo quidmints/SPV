@@ -6847,3 +6847,43 @@ push rather than the content.** An ambiguous id makes exactly that failure harde
 who follows `§E287` may land on any of three rows, one of which recommends a refuted design.
 ⇒ **Ambiguity and staleness compound. The id is the address of the evidence; when it resolves two
 ways, every other verification discipline in this file loses its anchor.**
+
+---
+
+## 🔴 §E293 — **"1inch" NAMES FOUR DIFFERENT THINGS HERE. THREE ARE SETTLED AND THE FOURTH IS THE DECISION.**
+
+**Booked because the conflation has already produced wrong conclusions twice** (§6b: *"reasoning from
+the vendor's NAME instead of the ADDRESS"* — the router and the oracle *"sit one letter apart in
+prose"*). There are now **four** objects sharing the word, and each has a different answer.
+
+| # | object | role | status |
+|---|---|---|---|
+| 1 | **OffchainOracle** `0x0AdDd25a…F9B8` | read-only `getRate` → the σ² observation source | ⛔ **RULED OUT, MEASURED TWICE.** 31,722,803 gas (§E232) and **33.6M in isolation** (`a9c44003`, `OneInchGasProbe.t.sol`) against a 30M block. A tripwire test now pins it so nobody re-proposes it from the address being live. |
+| 2 | **AggregationRouterV6** `0x1111111254…2A65` | the swap VENUE — the lev legs and/or the refill route (§V-R1) | ⛔ **NOT IN CODE.** `Aux.sol:801` records it *"at the site the code occupied"*. It is a comment naming an intended route, and §E286-v3 depends on whether it ever becomes one. |
+| 3 | **1inch as the SOLVER that routes flow TO us** | we quote, it routes | 🟢 **ASSUMED LIVE BY THE DESIGN** — `Core.sol:1229`: *"We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a price."* Requires **nothing on-chain from us** except a firm quote. |
+| 4 | **Fusion resolver / PMM endpoint** | we become a registered resolver and fill intents | ⛔ **NEVER BUILT, NEVER BOOKED.** It is `plan2.pdf`'s design (stake 1INCH, Unicorn Power, win the Dutch auction, settle from our inventory). Recorded here so its absence is visible. |
+
+🔴 **§E276's OPEN QUESTION IS A CHOICE BETWEEN #2 AND #3, AND IT DECIDES WHO PAYS THE SPREAD.**
+*"Paid against 1inch"* reads both ways: **#3** — the solver routes what we decline, we pay nothing,
+and §E285's 48× retraction stands; **#2** — we pay 1inch to route our own rebalance, we bear the
+routing cost, and the 48× question reopens as originally posed. **Do not infer it again** (that
+inference already retracted a correct finding once).
+
+### ⭐ AND #3 IS NOT FREE — IT IMPOSES A REQUIREMENT WE DO NOT CURRENTLY MEET
+If we are quoting into solvers, **a reverting quote is unusable**: a solver cannot size down, cannot
+split the route, and must drop us for the whole leg. `wellSkew` is `public view` and
+`_declineIfUnfillable` makes the quote READ revert (§E275 flags `Aux:690`, `FixedRateFill:113/127`).
+⇒ **Choosing #3 makes §E285's finite-quote requirement MANDATORY rather than a refinement**, and it is
+the strongest argument for §E289's κ — a bounded kernel means the quote is a number at every
+reachable inventory. **You cannot route the part we decline unless we say how big it is.**
+
+### 📌 WHAT IS ACTUALLY DECIDABLE TODAY, IN ORDER
+1. **#1 needs no decision — it is closed by measurement**, and the tripwire keeps it closed.
+2. **#3 needs no new integration**, only that our quote surface stops reverting. That is §E285 + §E289
+   and both are already scoped.
+3. **#2 is the live decision** and it is the same one as §E286-v3's venue question. ⚠️ **They must be
+   answered TOGETHER**: if the router is wired, it is both the lev-leg route AND the refill route; if
+   it is not, §E286-v3 falls back to our own inventory and the refill has no external leg at all.
+4. **#4 should be booked or explicitly ruled out.** It is the only one of the four that would give us
+   *order flow* rather than *execution*, which is the thing neither PDF's architecture supplies —
+   and it carries a capital requirement (staked 1INCH) that no other option here does.
