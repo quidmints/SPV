@@ -4428,7 +4428,23 @@ The rename costs nothing at runtime (locals) and makes the audit question expres
 
 ### `§E272` 🔴
 
-## §E272 — 🔴 **BURN-THEN-ADD: A SYNC THAT CANNOT RE-ADD DESTROYS THE LP'S BAND DEPTH, SILENTLY**
+## §E272 — 🟡 **OVERSTATED AND NARROWED: THE SYNC IS TRANSIENT, NOT DESTRUCTIVE**
+⛔ **CORRECTION (owner's challenge, 2026-08-21): *"what are you trying to prove about the sync?"***
+This row said the LP *"ends the call with LESS depth than it started with"*, framed as terminal. **It
+is not.** `_syncBand` is called at **13 sites** across both managers — every lever, delever, repay,
+close and rebalance path. A failed add is therefore **TRANSIENT**: the next touch re-runs burn-then-add
+and restores the depth once surplus returns. Nothing is permanently lost.
+⇒ **THE DEFENSIBLE CLAIM IS NARROWER:** between touches, an LP can hold venue debt whose depth is not
+in the band, earning no band fees while still paying borrow cost — and **nothing records that it
+happened** (`levAddNet` has zero `emit` on the declining path; `_syncBand` is `try {} catch {}`).
+That is an OBSERVABILITY gap over a transient state, not depth destruction. Priority drops accordingly;
+the fix is an event on the declining path, not a re-architecture of the burn.
+⚠️ **WHAT I GOT WRONG, since it is the reusable part:** I traced the mechanism correctly and never
+asked how often the mechanism RUNS. One grep for `_syncBand(` — 13 hits — reframes the whole row.
+**A sequence that is destructive in isolation can be self-healing in context, and the context is the
+call-site count.**
+
+### (original, mechanism still accurate) BURN-THEN-ADD
 🔴 OPEN — found 2026-08-19 answering the owner's "find the root issue behind the clamps". **The clamps
 are not the defect** (see the §E271 retraction — they are two independent solvency bounds plus a derived
 risk budget, all legitimate). The defect is what happens to a clamp's ANSWER.
@@ -5074,3 +5090,29 @@ this is `tools/check-contract-sizes.py`, and it must run before any change that 
 shared library calls. Hoisting them into `State` was measured at **+41 bytes and zero saved** (an
 abstract base copies into every inheritor), so that is NOT the lever — but a delegatecalled library
 would be, at the cost of one call per use. Measure before adopting.
+
+## §E275-HYGIENE — **THE REFACTOR'S SUBSTANCE IS DONE; ITS NAMING AND PROSE ARE NOT**
+🟡 OPEN — measured 2026-08-21 against `origin/main` after the owner observed the refactor looked
+unfinished. **The substance IS finished and I want that on record before the defects:** `Shares.sol`'s
+abstract base is inherited by BOTH bands (`contract Quid is State`, `contract Vault is Ownable,
+ReentrancyGuard, State`), and `Vault` USES the inherited `autoManaged`/`levPooled`/`lpShares` rather
+than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
+
+**What is NOT finished is hygiene, and it is what makes the refactor LOOK half-done:**
+1. 🔴 **`evm/src/Shares.sol` DECLARES `abstract contract State`.** The rename moved the FILE and not the
+   CONTRACT. Every inheritor says `is State` while the file says `Shares` — and CLAUDE.md already warns
+   that deriving a name from its filename is how `SortedSet.sol`/`SortedSetLib` produced a wrong
+   "callers: none" inventory. Pick one name.
+2. 🔴 **`Shares.sol:57` IS FALSE.** It states `allowance` is *"declared in `Shares` AND in `Quid`"*.
+   `Shares.sol` declares NO ERC-20 machinery — only state. A stale comment asserting a duplication that
+   does not exist, in the one file whose job is to prevent duplication.
+3. **48 `uniswap`/`v4`/`poolManager`/`slot0` mentions in `evm/src`, ALL of them comments, ZERO live
+   code.** The bands are entirely independent of Uniswap (owner's point, verified). The residue is
+   historical prose, and it is why a reader concludes the v4 cut is unfinished when it is complete.
+4. `Quid`'s ERC-20 face is the deliberate PROJECTION (`totalSupply → lpShares`, `balanceOf →
+   autoManaged[u].pooled`, `transfer → _transferShares`) and must NOT be folded away — CLAUDE.md
+   measures the abstract-base alternative at +41 bytes and zero saved. But `approve`/`allowance`/
+   `transferFrom` ARE stock, and `Shares.sol:29` says so: *"Only the allowance machinery is stock."*
+   ⇒ With `Quid` at **86 bytes** of margin (§E274-SIZE), that stock machinery is the one ERC-20 piece
+   worth pricing for removal — IF nothing external calls it. **Check the SPA and the Rust clients before
+   touching it; do not assume an ERC-20 method is unused because our own contracts skip it.**
