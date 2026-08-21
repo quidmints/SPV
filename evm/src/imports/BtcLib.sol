@@ -9,7 +9,7 @@ import {RangeLib} from "./RangeLib.sol";
 import {LevMath} from "./LevMath.sol";
 import {ICore} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
-import {IBasketTurn} from "./Interfaces.sol";
+import {IBasket} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
@@ -73,7 +73,7 @@ library BtcLib {
             // §A.57: `usdR` is 6-dec USD (the V4 USD-side token is 6-dec; `feeIncrements` does not
             // scale), but QU!D is 18-dec. Minting it raw under-paid LP fee revenue by 1e12x. Mirrors
             // the sibling `settleDelivered`, which already does `exactUsd * 1e12`.
-            if (usdR > 0) IBasketTurn(quid).mint(payTo, usdR * 1e12, quid, 0);
+            if (usdR > 0) IBasket(quid).mint(payTo, usdR * 1e12, quid, 0);
         } else if (usdR > 0) {
             LP.usd_owed += usdR;
         }
@@ -90,7 +90,7 @@ library BtcLib {
         if (exactUsd == 0) return deliveredSlice; // close/withdrawal: all native
         ICore(core).drawPooledUsdBtc(exactUsd);          // proceeds leave POOLED_USD
         ICore(core).subPendingSwapOut(exactUsd);         // obligation cleared (matches request +=)
-        IBasketTurn(quid).mint(lpEth, exactUsd * 1e12, quid, 0); // 6-dec → 18-dec QUI
+        IBasket(quid).mint(lpEth, exactUsd * 1e12, quid, 0); // 6-dec → 18-dec QUI
     }
 
     /// @notice Body of Vault._addLiqChannel — channel-lock liquidity sizer.

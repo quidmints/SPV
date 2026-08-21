@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {WAD, BadAsset} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IBasketTurn2`).
-import {IBasketTurn} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the canonical declaration site
+import {IBasket} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the canonical declaration site
                                                      // (BasketLib only RE-imports it, so importing from there does not resolve)
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
@@ -531,13 +531,13 @@ library SwapLib {
     ///      USD value; the dropped ≤1e12 sub-unit dust is immaterial to a USD amount.
     function _consumeQdIn(IAux aux, address quid, uint amount, address[] memory stables)
         private returns (uint) {
-        (uint burned, uint seedBurned) = IBasketTurn(quid).turn(msg.sender, amount);
+        (uint burned, uint seedBurned) = IBasket(quid).turn(msg.sender, amount);
         uint solvent;
         {   (uint[15] memory d, uint[15] memory yW,, uint dl) = aux.get_deposits();
             // yW[0] = Σ balance×rate (the annualised-rate numerator), NOT d[0] = Σ yieldWeighted.
             (solvent,) = aux.get_metricsWith(d[14], yW[0]);
             solvent = solvent > dl ? solvent - dl : 0; }
-        amount = BasketLib.qdShareValue(burned, solvent, IBasketTurn(quid).matureSupply() + burned) / 1e12;
+        amount = BasketLib.qdShareValue(burned, solvent, IBasket(quid).matureSupply() + burned) / 1e12;
         if (seedBurned > 0) {
             uint n = stables.length;
             for (uint i = 0; i < n; i++) {

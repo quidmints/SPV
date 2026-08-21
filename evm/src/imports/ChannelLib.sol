@@ -5,7 +5,7 @@ import {Types, BadSPV, ChannelKeysMismatch, GHOIsAaveWired, GHONotOnAAVE, Invali
 import {WAD} from "./Types.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {IAux, IStabilityPool} from "./Interfaces.sol";
-import {IBasketTurn} from "./Interfaces.sol";
+import {IBasket} from "./Interfaces.sol";
 import {BitcoinTx} from "./BitcoinTx.sol";
 // (E128/§E140-r) `BitcoinTx._assertLegacy` REJECTS any witness-carrying tx, so it cannot parse a
 // fully-signed key-path taproot exit at all — not even its locktime. `TxParser` can, and exposes
@@ -412,7 +412,7 @@ library ChannelLib {
         uint rf = aux.riskFactor(token);
         if (rf < 10000) usd = SoladyMath.fullMulDiv(usd, rf, 10000);
 
-        uint _target = IBasketTurn(quid).target();
+        uint _target = IBasket(quid).target();
         if (aux.trancheTotal() < _target && msg.sender == quid) {
             aux.get_metrics(false);
             uint fee = BasketLib.seedFee(usd, aux.trancheTotal(), _target, aux.avgYield());

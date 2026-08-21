@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {IBasketTurn} from "../src/imports/Interfaces.sol";
+import {IBasket} from "../src/imports/Interfaces.sol";
 
 interface ISPq { function getCompoundedBoldDeposit(address) external view returns (uint); }
 
@@ -92,7 +92,7 @@ contract LeveragePnLProbe is AllesFixture {
         // matureSupply == 0 there is NO valuation haircut, and the shortfall must be the OTHER term:
         // `freeUsd = solvent − max(il, committedUsd18)`, which is a COMMITMENT/LIQUIDITY bound, not a
         // price. Those are different defects with different fixes, so measure which one is live.
-        emit log_named_uint("   matureSupply  ", IBasketTurn(address(QUID)).matureSupply());
+        emit log_named_uint("   matureSupply  ", IBasket(address(QUID)).matureSupply());
     }
 
     /// TOTAL LP value in USD18 at a given ETH price (USD18 per 1e18 BTC): redeem the

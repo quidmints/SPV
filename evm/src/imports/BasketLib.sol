@@ -6,7 +6,7 @@ import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
-import {IBasketTurn, IWiredVault, IWiredBasket, ILevSweep, IQuid, IEthVenue} from "./Interfaces.sol";
+import {IBasket, IWiredVault, IWiredBasket, ILevSweep, IQuid, IEthVenue} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -1014,7 +1014,7 @@ library BasketLib {
         private returns (uint perShare, uint freeUsd) {
         (uint solvent,) = IAux(address(this)).get_metricsWith(raw, rateWeighted);
         solvent = solvent > depegLossIn ? solvent - depegLossIn : 0;
-        uint mature = IBasketTurn(r.quid).matureSupply();
+        uint mature = IBasket(r.quid).matureSupply();
         // ONE valuation for redeem AND swap (no swap↔redeem arb): per-share = qdShareValue of a single share.
         // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
         perShare = BasketLib.qdShareValue(WAD, solvent, mature);
@@ -1052,7 +1052,7 @@ library BasketLib {
         private returns (uint usdPart, uint seedBurned, bool unwound) {
         if (perShare == 0) return (0, 0, false);                        // fully depegged → nothing deliverable
         uint mature = IERC20(r.quid).balanceOf(r.source);
-        { uint imm = IBasketTurn(r.quid).immatureBalanceOf(r.source); mature = mature > imm ? mature - imm : 0; }
+        { uint imm = IBasket(r.quid).immatureBalanceOf(r.source); mature = mature > imm ? mature - imm : 0; }
         uint wantUsd = SoladyMath.fullMulDiv(Math.min(r.amount, mature), perShare, WAD);   // value the holder wants out
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
@@ -1066,7 +1066,7 @@ library BasketLib {
             unwound = true;
         }
         uint burned;
-        (burned, seedBurned) = IBasketTurn(r.quid).turn(r.source, SoladyMath.fullMulDiv(delivered, WAD, perShare));
+        (burned, seedBurned) = IBasket(r.quid).turn(r.source, SoladyMath.fullMulDiv(delivered, WAD, perShare));
         usdPart = SoladyMath.fullMulDiv(burned, perShare, WAD);              // == delivered (turn burns mature-only, <= ask)
     }
 

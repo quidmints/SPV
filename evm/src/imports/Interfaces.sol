@@ -600,9 +600,12 @@ interface IWiredBasket { function AUX() external view returns (address);
 interface IWiredVault { function btcChannels() external view returns (address);
                         function LEV_MANAGER() external view returns (address); }
 
-/// Canonical Basket turn/maturity view (was BasketLib.IBasketTurn, itself already a union of two
+/// Canonical Basket turn/maturity view (was BasketLib.IBasket, itself already a union of two
 /// earlier per-file variants).
-interface IBasketTurn {
+/// §E309 — was `IBasketTurn`. It held one job when named; it now carries `turn`, `matureSupply`,
+/// `immatureBalanceOf`, `target` and `mint` — the Basket's face, not one operation on it. A name that
+/// describes a single member is a name that goes stale the moment a second one is folded in.
+interface IBasket {
     function turn(address from, uint value) external returns (uint sent, uint seedBurned);
     function matureSupply() external view returns (uint);
     function immatureBalanceOf(address who) external view returns (uint);
@@ -612,12 +615,12 @@ interface IBasketTurn {
     /// variables that hold it are named `quid` accordingly — `DeployLib:171` `Basket quid = new
     /// Basket(...)`. The contract *named* `Quid` is the ETH RANGE (`DeployLib:118` `Quid ethRange = new
     /// Quid()`). **Deliberate and correct: the type names the implementation, the variable names the
-    /// role.** So `IBasketTurn(quid)` reads the QU!D token, which is what `turn`, `matureSupply`,
+    /// role.** So `IBasket(quid)` reads the QU!D token, which is what `turn`, `matureSupply`,
     /// `immatureBalanceOf` and `target` all belong to.
     /// ⇒ Interfaces here are named for the CONTRACT they address, never for the variable at the call
     /// site — which is why the `IQuid*` name was the one to retire, not this one.
     function target() external view returns (uint);
-    /// §E306 — folded in from `IBasketTurn`, a one-function face over this SAME contract. Both were cast
+    /// §E306 — folded in from `IBasket`, a one-function face over this SAME contract. Both were cast
     /// on `quid`, and `Basket.sol` implements `mint` alongside `turn` / `matureSupply` / `target`.
     /// @notice Mint `amount` against `pledge`'s deposit of `token`, dated `when`.
     function mint(address pledge, uint amount, address token, uint when) external returns (uint);
