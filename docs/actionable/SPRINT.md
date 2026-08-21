@@ -1863,6 +1863,8 @@ limit** — every ETH swap and repack would have exceeded a whole block. WRONG, 
 
 ⛔ **§E220 IS SUPERSEDED — DO NOT BUILD IT.** That row proposed sourcing the ring from **Chainlink**, which is itself circular: Chainlink is already the ANCHOR `twapResolve` checks against, so feeding it in makes the anchor test a smoothed copy of itself — the very defect §E222 names.
 
+🔴 **BOTH CANDIDATE SOURCES ARE NOW RULED OUT, AND NOTHING IS PINNED (2026-08-21).** 1inch: **31,722,803 gas**, above the block limit. Curve TriCrypto-USDC: pinned, then **removed on the owner's instruction** — pricing the band off a single pool makes that pool's depth and depeg mode an input to σ², the skew and liquidation, which is `ExternalTwap`'s own *"correlated sources are one source"* objection turned on the pool itself. ⇒ **`observationSource` is unset, so the ring is NEVER WRITTEN: `ringVariance` returns 0 and §E213 prices at the ceiling — on BOTH instances, so the old ETH/BTC asymmetry is gone.** ✅ The circularity is gone regardless (no self-write from `getTWAPforAsset`); what is open is **which source**. ⚠️ `Core`'s `OBS_POOL_IDX` was DELETED with the pin — a TriCrypto-ordering index that would have priced ETH as WBTC on any differently-ordered pool. **The read shape is now pinned WITH the source (`setObservationSource(src, calldata)`); do not hardcode a venue's encoding again.**
+
 **Kick off from `ExternalTwap.curvePriceWad`** (already written, ~one storage read):
 - **ETH: `price_oracle(1)` on `CURVE_TRICRYPTO_USDC`.** 🔴 **k=1 is WETH, k=0 is WBTC** — the file's
   comment said the opposite and was corrected in `6e442a4c`. Verified on-chain against `coins()`:
