@@ -49,36 +49,4 @@ contract RefillTriggerAndProRataTest is Test {
         (, uint total) = SwapLib.refillNeeded(POOL, FLOW, POOL);
         assertEq(total, FLOW, "with inventory at zero the shortfall is the entire target");
     }
-
-    // ── §UNIT-ROUNDTRIP-LIVE: pro-rata removes the first-out prize ──────────────────────────
-
-    /// @notice 🔴 THE PROPERTY THAT KILLS THE ATTACK: exit ORDER cannot change what you bear.
-    ///         The entrant's 15.2 bps came from exiting FIRST and escaping a shortfall the incumbent
-    ///         then ate. Under pro-rata, two identical holders bear identical amounts whichever goes
-    ///         first — so there is no prize to race for and nothing to extract.
-    function test_ExitOrderCannotChangeWhatYouBear() public pure {
-        uint shortfall = 10_000e6;
-        uint each = 500e18;                 // two identical holders
-        uint first  = SwapLib.proRataShortfall(shortfall, each, each * 2);
-        uint second = SwapLib.proRataShortfall(shortfall, each, each * 2);
-        assertEq(first, second, "identical holders must bear identical shortfall regardless of order");
-        assertEq(first + second, shortfall, "and together they must bear ALL of it, none escaping");
-    }
-
-    /// @notice IT IS PROPORTIONAL, NOT FIRST-OUT. A holder with twice the shares bears twice as much.
-    function test_ShareOfShortfallIsProportional() public pure {
-        uint shortfall = 9_000e6;
-        uint small = SwapLib.proRataShortfall(shortfall, 100e18, 900e18);
-        uint big   = SwapLib.proRataShortfall(shortfall, 200e18, 900e18);
-        assertApproxEqAbs(big, small * 2, 1, "twice the shares must bear twice the shortfall");
-    }
-
-    /// @notice NOBODY BEARS MORE THAN THE WHOLE, AND A SOLE EXITER BEARS ALL OF IT.
-    function test_SoleExiterBearsAllAndNeverMore() public pure {
-        uint shortfall = 7_777e6;
-        assertEq(SwapLib.proRataShortfall(shortfall, 100e18, 100e18), shortfall, "sole exiter bears all");
-        assertEq(SwapLib.proRataShortfall(shortfall, 999e18, 100e18), shortfall, "and never more than all");
-        assertEq(SwapLib.proRataShortfall(0, 100e18, 900e18), 0, "no shortfall, nothing borne");
-        assertEq(SwapLib.proRataShortfall(shortfall, 0, 900e18), 0, "exiting nothing bears nothing");
-    }
 }

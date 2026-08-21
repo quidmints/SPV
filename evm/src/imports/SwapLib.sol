@@ -928,30 +928,6 @@ library SwapLib {
         shortfallUsd6 = fire ? flowUsd - inv1 : 0;
     }
 
-    /// @notice §UNIT-ROUNDTRIP-LIVE — PRO-RATA SHORTFALL. Decided on evidence 2026-08-16 after the
-    ///         owner could not pick between this and the forella brake.
-    ///         **THE MECHANISM IS THE EXIT RACE, NOT THE PATH.** An entrant buys volatile out, redeposits
-    ///         as an LP, and EXITS FIRST — escaping a shortfall the incumbent then eats. MEASURED:
-    ///         incumbent seeds 500 ETH and withdraws 499.2385, i.e. **15.2 bps of principal** taken.
-    ///         ⛔ THE FORELLA BRAKE IS REFUTED BY ITS OWN FRAME-CHECK (§UNIT-FORELLA-FRAMECHECK: *"the
-    ///         coincide-on-monotone premise is refuted"*) — a total-variation charge does NOT leave
-    ///         honest monotone flow untouched, so it taxes everyone to stop one attack, and it prices
-    ///         a symptom.
-    ///         ⭐ SHARING THE SHORTFALL REMOVES THE PRIZE INSTEAD OF PRICING IT (rule 17: make the bad
-    ///         state UNCONSTRUCTIBLE, not merely costly). With no first-out advantage the round trip
-    ///         has nothing to extract, and the brake becomes unnecessary rather than tuned.
-    /// @param shortfallUsd6  the whole shortfall to be shared, 6-dec USD
-    /// @param exitShares     the shares this exiter is redeeming
-    /// @param totalShares    total shares outstanding BEFORE this exit
-    function proRataShortfall(uint shortfallUsd6, uint exitShares, uint totalShares)
-        internal pure returns (uint bornUsd6)
-    {
-        if (totalShares == 0 || exitShares == 0 || shortfallUsd6 == 0) return 0;
-        // Cap at the full shortfall: an exiter redeeming everything bears all of it, never more.
-        if (exitShares >= totalShares) return shortfallUsd6;
-        bornUsd6 = SoladyMath.mulDiv(shortfallUsd6, exitShares, totalShares);
-    }
-
     function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
         public pure returns (uint skew)
     {
@@ -2027,91 +2003,6 @@ library SwapLib {
     {
         created = idleAfter > idleBefore ? idleAfter - idleBefore : 0;
         feeUsd6 = SoladyMath.fullMulDiv(created, ratePpm, 1e6);
-    }
-
-    /// @notice §E48 REFILL PLACEMENT — the refill's core arithmetic, and it is NOT A TRADE.
-    ///         Given what the band ALREADY HOLDS and the current price, decide how much of it can be
-    ///         REPRESENTED in a band centred on that price, and where the bounds go.
-    ///
-    ///         WHY THIS IS THE WHOLE OPERATION. Once liquidity settles against inventory rather than
-    ///         a pool position, "putting ETH into the band" is crediting inventory, and the RANGE is
-    ///         a pricing parameter rather than a custody boundary. So a refill is a PLACEMENT
-    ///         COMPUTATION, not an acquisition — which is exactly why the owner ruled buying ETH
-    ///         out-of-band a misuse: *"it's not repairing of assets we already hold because that just
-    ///         makes the pool smaller"*, and *"maximise representation of the ETH already held"*.
-    ///
-    ///         1:1 IS STATED DIRECTLY IN INVENTORY TERMS. The whole rule is `tokPlaced·px == usd6Placed`
-    ///         — equal VALUE on both legs — and the scarcer leg caps how much of that can be reached.
-    ///         No square root, no width, no curve.
-    ///         ⇒ **THE BOUNDS AND `deltaBps` WERE DELETED (owner, 2026-08-16): *"why is there a bound
-    ///         at all, we dont care to store upper and lower — we just know that the width is within
-    ///         twap average of eth/usdt on v4 and eth/usdc on v3, twap weighted."*** `deltaBps` fed
-    ///         nothing but `pLower`/`pUpper`, and those fed nothing at all.
-    ///         ⛔ **THE GEOMETRIC-MEAN DERIVATION WAS ALSO DELETED, AND NOT ONLY FOR BREVITY.** It ran:
-    ///         a concentrated position is 1:1 exactly when `P = √(Pa·Pb)`, which ratio-symmetric bounds
-    ///         satisfy for every δ. True — but it is UNISWAP'S geometry: it presumes an `L` and a curve,
-    ///         via `x = L(1/√P − 1/√Pb)`, `y = L(√P − √Pa)`. Once liquidity settles against INVENTORY
-    ///         there is no `L`, no `Pa` and no `Pb` to take a mean of, so the derivation describes a
-    ///         representation we are removing.
-    ///         🔴 **AND IT CARRIED AN ASSUMPTION THE NEW DESIGN NEED NOT SATISFY: RATIO SYMMETRY.**
-    ///         If the half-width comes from an EXTERNAL blended reference (ETH/USDT on v4 with
-    ///         ETH/USDC on v3, TWAP-weighted), those bounds are not necessarily symmetric in ratio
-    ///         about our `px` — at which point `px ≠ √(Pa·Pb)` and the justification is FALSE while
-    ///         this code stays CORRECT, because the code never used it. A comment that fails exactly
-    ///         when someone checks it is worse than no comment (cf. the stale-mechanism correction in
-    ///         `skewWad`, §E213, the same day). The invariant above needs no symmetry assumption: it
-    ///         is value equality, and it holds whatever the external reference does with the width.
-    ///
-    ///         MAXIMISING REPRESENTATION IS A MIN, AND THE SURPLUS IS THE ANSWER TO "SHORT ETH".
-    ///         A 1:1 band consumes the two legs in equal VALUE, so the placeable amount is set by the
-    ///         SCARCER side and the remainder stays idle. If the band is short ETH outright, no
-    ///         placement fixes it — `tokIdle` will be 0 and `usd6Idle` positive, and that is the
-    ///         honest report rather than a failure. **This is where "restore to 1:1" and "maximise
-    ///         representation of what we hold" diverge, and the caller must not confuse them.**
-    ///         🔴 PRECONDITION — `invTok`/`invUsd6` MUST BE DELIVERABLE FIGURES, NOT NOMINAL ONES.
-    ///         Holding is not the same as being able to source: `QuidLib.deliverableETH` already
-    ///         subtracts the weETH slice beyond what Curve can pay for (`balances(0)·9/10`) and the
-    ///         leverage net-equity, which is unwind-only and never drawn by redemption. Feed this
-    ///         `bandETH()` and the band quotes depth it cannot honour — which does NOT revert and
-    ///         fails no test; it surfaces as a partial fill wearing the costume of a normal one.
-    ///         There is a measured precedent: deleting the three `_deliverableCap` venue caps left
-    ///         `_bandETH` counting weETH at full oracle value while the exit could realise at most
-    ///         the pool's WETH, and delivery was overstated until they were re-derived.
-    ///         ⚠️ THIS IS A PRECONDITION, NOT A CLAMP, AND THAT IS DELIBERATE (standing rule 17).
-    ///         An earlier revision took `min(nominal, realisable)` here. That is a second bound over
-    ///         the same class of thing `deliverableETH` already bounds, and rule 17's test applies:
-    ///         a root fix makes the previous fix DELETABLE. Passing the deliverable figure at the
-    ///         SOURCE makes the min unconstructible rather than merely detectable, and the deferred
-    ///         slice (`nominal − deliverable`) is already known where it is computed, so reporting
-    ///         it here would be a second copy of a number that already has an owner.
-    ///         ⚠️ The BTC leg is NOT the ETH leg's mirror: BTC custody is Lightning channels, so a
-    ///         sats figure depends on free channel capacity and, for an LP withdrawal, on the LP's
-    ///         own secp256k1 signature. Do not synthesise one to make this call site symmetric.
-    /// @param invTok   DELIVERABLE inventory of the volatile leg, raw (1e18 ETH / 1e8 sats)
-    /// @param invUsd6  DELIVERABLE inventory of the USD leg, 6-dec
-    /// @param px       USD18 per 1e18 raw volatile — the SAME base the skew takes (the WBTC ×1e10
-    ///                 lift already closes the 8↔18 gap, so one flat scale serves both legs)
-    function refillPlacement(uint invTok, uint invUsd6, uint px)
-        internal pure returns (uint tokPlaced, uint usd6Placed,
-                               uint tokIdle, uint usd6Idle)
-    {
-        if (px == 0) return (0, 0, invTok, invUsd6);
-        // Each leg expressed in the OTHER's unit, so the binding side is a plain comparison.
-        uint tokAsUsd6 = SoladyMath.fullMulDiv(invTok, px, 1e30);   // raw·USD18/1e30 -> 6-dec USD
-        if (tokAsUsd6 <= invUsd6) {
-            // volatile is the scarce leg: place ALL of it, match its value in USD, idle the rest
-            tokPlaced  = invTok;
-            usd6Placed = tokAsUsd6;
-        } else {
-            // USD is the scarce leg: place ALL of it, match its value in volatile, idle the rest
-            usd6Placed = invUsd6;
-            tokPlaced  = SoladyMath.fullMulDiv(invUsd6, 1e30, px);
-        }
-        tokIdle  = invTok  - tokPlaced;
-        usd6Idle = invUsd6 - usd6Placed;
-        // No bounds are computed. Ratio-symmetry makes px the geometric mean for ANY half-width, so
-        // the split above is already 1:1 at px whatever width the external TWAP-weighted reference
-        // implies. Re-deriving Pa/Pb here would emit two numbers nothing reads.
     }
 
     function paddedSqrtPrice(uint spotPrice, bool up, uint delta)
