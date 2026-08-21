@@ -11,6 +11,9 @@ pub use quid_ln;
 pub(crate) mod abi;
 pub mod ffs;
 pub mod freshness;
+/// (§LP-LIVENESS) The routing gate: an LP that has not posted a recent heartbeat stops being
+/// routed NEW swappers, which is what makes per-splice ladder re-arming opt-in for a phone.
+pub mod liveness;
 /// Reusable regtest harness (bitcoind + esplora-electrs + node boot helpers),
 /// shared by `tests/e2e.rs` and the `e2e_ffi` bin. Feature-gated so the
 /// download/electrsd surface isn't pulled into a normal hop build.
