@@ -8996,3 +8996,39 @@ on pristine `origin/main` with no C22 applied. **`ilTargetLive` has ZERO referen
 Measured inventory fell ~69% over a +100% move where the estimate gives 29.3%. **Not booked as a defect
 — `POOLED` moves for deposits, withdrawals and the levered buffer too, so the comparison is not yet
 apples-to-apples.** Isolate it with a single-LP, no-leverage rally before concluding anything.
+
+### C22-CAL. ⛔ NEGATIVE RESULT — the IL-calibration probe was INVALID. Recorded so nobody repeats it.
+
+Question: is `1 − √(entry/now)` correctly SIZED for a ±0.2% recentring band? **Still unanswered.** What
+follows is what the attempt cost, because the failure mode is now four-for-four in this session.
+
+⛔ **THE PROBE'S ORACLE NEVER MOVED.** A bare `AllesFixture` probe injected +2%/rung via
+`_setLiveEthFeed(px/1e10)` + `CORE.pushObservation(px)`. Measured: `AUX.getTWAPforAsset(WETH, 1800)`
+returned **2511440000000000000000 at EVERY rung** while the injected `px` climbed to 2828. **The same
+injection works inside `LevYbReal._rallyRange`** (ring TWAP moved 2501 → 2626), so the difference is in
+the fixture, NOT the technique. **Unresolved: why it does not take in a bare fixture** — candidates are
+the `pushObservation` 50 bps anchor bound, the 1800s window against a 31-minute warp cadence, and
+`assetPriceFeed` resolution. **Find that before writing another probe.**
+
+⚠️ **AND HERE IS WHY IT MATTERS — THE INVALID PROBE PRODUCED A CLEAN, PLAUSIBLE, FALSE FINDING.** With
+the oracle frozen, the LP's mark-to-market stayed flat while the range's inventory drained, and the
+arithmetic backed out an implied valuation price of **exactly 2511.44 at every rung, to the cent** —
+which reads unmistakably as *"`_pricingBacking()` values the LP-owned USD leg at a STALE entry price,
+so the LP's claim conceals 4.7% of impermanent loss."* **That conclusion is FALSE.** The oracle WAS
+2511.44, so valuing the USD leg there is valuing it at the live oracle, exactly as the code says.
+**`_pricingBacking()` is correct and there is no hidden IL.** It was one step from being booked as a
+money-path defect.
+▶️ **THE CHECK THAT CAUGHT IT IS ONE LOG LINE — `emit log_named_uint("oracle", AUX.getTWAPforAsset(...))`
+— AND IT BELONGS IN EVERY PRICE-DRIVEN PROBE BEFORE ANY OTHER ASSERTION.** A perfect fit to a constant
+is the signature of a frozen input, not of a discovery.
+
+✅ **TWO FACTS WORTH KEEPING, both independently verified:**
+1. **`Quid.balanceOf` DOES NOT MOVE WITH IL.** It is `autoManaged[u].pooled`, a static share record —
+   it read **10.000000 ETH at every rung** while `POOLED` drained 10 → ~0. **Never use it as an IL
+   probe.** `convertToAssets(balanceOf(lp))` is the only per-LP mark-to-market.
+2. **The LP-owned USD leg is exactly `POOLED_USD − basketUsd`** and equals the swap proceeds to the
+   cent (1000, 2000, 3000, 4000 …), confirming `_pricingBacking()`'s own comment.
+
+▶️ **TO ACTUALLY ANSWER THE CALIBRATION QUESTION:** fix the injection in a bare fixture (or run the
+probe inside a fixture where it is known to work), assert the oracle moved FIRST, then compare the
+LP's `convertToAssets` path against `1 − √(entry/now)` over a one-directional rally.
