@@ -437,30 +437,6 @@ contract Core {
     // observation state is grouped in `_obsState` (ABI-preserving: the old
     // public obs getters were unread externally; only the array getters and
     // POOLED_* getters, which stay, are read by tests).
-    // §V4-CUT — `_poolId()` DELETED: no callers. It selected between two ids of pools that are
-    // never created.
-    /// @notice DUST SWEEP — mock tokens held OUTSIDE the allowed set, which must never count
-    ///         toward shares or P&L attribution.
-    ///
-    ///         The mocks are Core-minted and live in exactly two places: the PoolManager (as pool
-    ///         reserves) and Core itself (transiently, between `take` and `burn`). They cannot
-    ///         bootstrap outward — swapping this pool requires SETTLING one of them as input, and
-    ///         only Core can mint them.
-    ///
-    ///         ONE path breaks that containment: a v4 PROTOCOL FEE. `Pool.sol` takes the protocol
-    ///         slice OUT of the LP fee (`step.feeAmount -= delta`) and accrues it to
-    ///         `protocolFeesAccrued[currency]` — OUR mock — and `collectProtocolFees` then does
-    ///         `currency.transfer(recipient, …)`, making the collector the FIRST external holder.
-    ///
-    ///         Nothing in this system reconciles mock SUPPLY against `POOLED_*`, so such dust is
-    ///         inert today and cannot trip any gate. This view exists so it is OBSERVABLE rather
-    ///         than merely harmless: an external holder is the precondition for a direct swap on
-    ///         our key that would bypass Core's `_handleDelta` mirror, and it is the quantity we
-    ///         would owe if the fee is ever settled voluntarily at LP withdrawal.
-    // §E60 — `externalMockDust` (the two-leg MONITOR) was DELETED from Core: with the count-out
-    // landing in `_rangeEquityUsd18`, keeping a second external for monitoring put Core 37 bytes
-    // over EIP-170, and the production path must not pay for the observability one. Tests read the
-    // mock addresses straight from storage (they already do for the fee flip) and compute it there.
 
 
 

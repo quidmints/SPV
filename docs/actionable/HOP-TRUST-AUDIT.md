@@ -132,7 +132,7 @@ transaction: **put them in the deposit address.** The address is already a commi
 commits to too little.
 
 🔑 **THE DEPOSIT ADDRESS BECOMES THE CONTRACT.** Today `swapInDepositKey` tweaks the internal key
-by a SINGLE leaf hash (`MuSig2Agg.sol:191` — `taggedHash("TapTweak", internalX ‖ leafHash)`), and
+by a SINGLE leaf hash (`BitcoinTx.sol:191` — `taggedHash("TapTweak", internalX ‖ leafHash)`), and
 that leaf is the spendable CLTV refund path. Taproot permits a TREE, so add a second, deliberately
 unspendable leaf that commits to the terms:
 
