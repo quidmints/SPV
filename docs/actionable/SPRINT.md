@@ -407,7 +407,7 @@ deletions scan and a five-day sweep, and it is the reason to keep the row rather
 
 *(the original finding follows)*
 
-## ~~0-CRITICAL-B.~~ 🔴🔴 §E258 — THE v4 CUT TURNED LIMIT ORDERS INTO OPTIONS, SILENTLY
+## ~~0-CRITICAL-B.~~ §E258 — THE v4 CUT TURNED LIMIT ORDERS INTO OPTIONS, SILENTLY *(marker stripped: the row above is the live one; a struck-through heading must not carry a severity, or it keeps counting)*
 
 **Owner asked, 2026-08-17: *"you planned a replacement method for outofrange orders that would
 autoexecute them?"* Yes. It was designed, it was the right design, and it was never built — and what
@@ -3138,7 +3138,21 @@ pinned at `origin/main`: **exit 0, zero errors.** The shadowed-declaration failu
 The four answers that follow (E141's mutability cascade, ExitLib's EIP-170 justification, the
 duplication findings, and the environment-limited baseline) all still stand.
 
-### 🔴🔴 FIRST, THE URGENT ONE: `main` fails `forge build`, and the fix is UNCOMMITTED in the shared tree
+### ✅ RESOLVED — `main` BUILDS. **The uncommitted adaptation landed; both shadows are gone.**
+✅ **CLOSED 2026-08-22.** Verified repeatedly today: `forge build` exits **0** on `main`, with the size
+gate clean and `check-client-abis` clean on the Rust side. The two `deny_warnings` shadows this row
+names (`Alles.t.sol` `aaveSpoke`, `BtcSelfManaged.t.sol` `lpEth`) no longer abort the compile, and
+`D8`'s own parent header has already been re-pointed to *"`origin/main` builds again"*.
+⭐ **KEEP THE SHAPE, WHICH IS THE PART THAT RECURS:** *"the source is committed and the adaptation is
+not"* — a build that PASSES in the shared tree because someone's fix is sitting there DIRTY, while
+`origin/main` cannot compile. **That is not a stale row, it is a standing hazard**, and it happened
+again today in the other direction: `5af1aeb0` left a duplicate `interface ILevVenue` in an unpushed
+commit, and my own §E287 test landed while its kernel did not. ⇒ **A green build in this tree is
+evidence about the tree, never about `main`** — pin a worktree or check the SHA you actually built.
+
+*(original follows)*
+
+### ~~FIRST, THE URGENT ONE:~~ `main` fails `forge build`, and the fix is UNCOMMITTED in the shared tree
 Measured on a worktree pinned at `origin/main` with **nothing of mine in it**: the compile aborts on
 **shadowed declarations under `deny_warnings`** — `test/Alles.t.sol:945` (`address aaveSpoke` shadows
 the `public aaveSpoke` at `:482`) and `test/btc/BtcSelfManaged.t.sol:372` (`address lpEth`). ⚠️ **A
