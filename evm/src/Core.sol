@@ -814,7 +814,15 @@ contract Core {
         {
             int256 usdLeg = delta.usd;
             uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
-            if (usd6 != 0) _bumpFlow(usd6);
+            if (usd6 != 0) {
+                _bumpFlow(usd6);
+                // §E320-SSRN — KEEP THE SIGN. The line above is where it was being destroyed: the
+                // magnitude drives the EWMA that `skewWad`/`sellSkew` read as `target`, and the
+                // direction — the whole of what the basket↔volatile travel WAS — went nowhere.
+                // `usdLeg` already carries it under the delta convention, so this needs no branch
+                // and cannot disagree with the settlement legs about which way the trade went.
+                netFlowUsd += usdLeg;
+            }
         }
 
         // (4) §E258 — EXECUTE THE RESTING ORDERS THIS MOVE CROSSED. Under v4 the PoolManager did
@@ -1232,6 +1240,39 @@ contract Core {
     ///      (Curve takes a coin index, a feed takes none), and hardcoding one venue's shape is how a
     ///      rejected pool's index survives into its replacement.
     bytes public OBS_CALLDATA;
+
+    /// @notice §E320-SSRN — **SIGNED NET FLOW, 6-dec USD. THE COMPANION TO `flowEwmaUsd`, WHICH IS UNSIGNED.**
+    ///
+    /// Lyons & Viswanath-Natraj (SSRN 3508006) model peg restoration as `θ̇s = ω(p−1)`, where `θs` is
+    /// the share of wealth using the coin as the VEHICLE into a risky asset, and their empirical
+    /// instrument for it is signed order flow — `OF = Σ V·(1[buy] − 1[sell])` (their eq. 25),
+    /// reconstructed from three exchanges' tape with a taker-side flag. **We produce the same
+    /// quantity as a by-product of settling a swap, and until now we deleted its sign one line after
+    /// computing it:** `swap`'s flow bump takes `uint(usdLeg < 0 ? -usdLeg : usdLeg)` and feeds the
+    /// magnitude to `_bumpFlow`. `skewPremium` is likewise `+=` only. So a range being drained and
+    /// one being refilled were INDISTINGUISHABLE in stored state — the two conditions that call for
+    /// opposite responses.
+    ///
+    /// SIGN — inherited from the delta convention above ("POSITIVE = leaves the pool"), NOT chosen
+    /// here, so the two cannot drift apart:
+    ///   • `> 0` — USD left the pool: the user was PAID dollars, having sold the volatile leg to us.
+    ///     Volatile → basket travel, i.e. **net buying pressure on the stable side** (their +OF).
+    ///   • `< 0` — USD entered the pool: the user BOUGHT the volatile leg with dollars.
+    ///     Basket → volatile travel (their −OF).
+    /// It is therefore the paper's sign convention exactly, and `netFlowUsd` rising is the state in
+    /// which their Table 7 measures the LARGEST price impact (β 35.07 at a premium vs 9.19 at parity).
+    ///
+    /// ⚠️ THIS IS AN INSTRUMENT, NOT A PRICE. Nothing reads it on the money path and nothing should
+    /// until the mapping is derived on OUR balance sheet — their risky asset sits OUTSIDE the reserve
+    /// and ours sits INSIDE it, so travel changes the basket's COMPOSITION rather than its size and
+    /// their eq. (15) cannot be lifted. It earns its slot under standing rule 3 because the failure it
+    /// exposes is SILENT: a basket draining steadily in one direction reads, today, exactly like a
+    /// balanced one.
+    /// ⚠️ DECLARED LAST ON PURPOSE. `DrainAtomicity._flowTs` reads Core slots 262/263 (`_flow`,
+    /// `_prem`) by RAW INDEX, and its own guard says a stale slot does NOT fail — `vm.load` reads the
+    /// wrong variable and the test passes while measuring something else. Appending keeps every
+    /// existing slot fixed. **Do not move this declaration up.**
+    int256 public netFlowUsd;
 
 
     function setObservationSource(address src, bytes calldata call_) external {

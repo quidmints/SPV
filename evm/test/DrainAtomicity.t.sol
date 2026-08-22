@@ -1346,17 +1346,34 @@ contract DrainAtomicity is AllesFixture {
         vm.startPrank(t);
         USDC.approve(address(AUX), type(uint).max);
         WETH.approve(address(AUX), type(uint).max);
+        // 🔴 §E323 — THE SELL ARM HAD ITS ARGUMENTS SWAPPED AND HAS THEREFORE NEVER RUN.
+        // It read `AUX.swap(address(WETH), address(USDC), true, ...)`, but the signature is
+        // `swap(token, asset, forVolatile, ...)` where `asset` MUST be WETH or WBTC
+        // (`SwapLib.sol:335` — `if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset()`).
+        // Passing USDC as `asset` reverts `BadAsset()` on EVERY odd round, and the `catch {}`
+        // swallowed it. ⇒ **Half of every call to this helper was a no-op, and the docblock above
+        // promises the opposite** — *"alternates direction … so the tick moves BOTH ways"*. The ring
+        // has only ever seen one-directional buys, so "the driver cannot budge σ²" was measured on a
+        // series that was never two-sided. A sell is the SAME pair with `forVolatile = false`.
+        // ⚠️ THE `try/catch` IS WHAT MADE IT SILENT (standing rule 4). It stays, because a transient
+        // revert on one round is legitimate and should not fail the fixture — but the counters below
+        // make a PERMANENTLY dead arm impossible to hide again.
+        uint buys; uint sells;
         for (uint i = 0; i < rounds; ++i) {
             if (i % 2 == 0) {
                 try AUX.swap(address(USDC), address(WETH), true,
-                    (4_000 + (i % 5) * 1_500) * USDC_PRECISION, 0, true) {} catch {}
+                    (4_000 + (i % 5) * 1_500) * USDC_PRECISION, 0, true) { ++buys; } catch {}
             } else {
-                try AUX.swap(address(WETH), address(USDC), true,
-                    (1 + (i % 4)) * 1e18, 0, true) {} catch {}
+                try AUX.swap(address(USDC), address(WETH), false,
+                    (1 + (i % 4)) * 1e18, 0, true) { ++sells; } catch {}
             }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 90 seconds);
         }
         vm.stopPrank();
+        if (rounds >= 2) {
+            assertGt(buys,  0, "tick driver: the BUY arm never executed - the series is not two-sided");
+            assertGt(sells, 0, "tick driver: the SELL arm never executed - this is the E323 defect returning");
+        }
     }
 
     /// Does the fixture actually reach a plausible volatility? Reports, and asserts only that it

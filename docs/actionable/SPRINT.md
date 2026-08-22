@@ -9556,12 +9556,27 @@ reduction in `ω` on the redemption side.** That may well be the right trade for
 design — but it is a trade, it has a measured price in the literature, and it is currently made
 silently. ▶️ **Book it as a known cost of the maturity ladder; do not let it be re-discovered as a bug.**
 
-### ▶️ WHAT TO ACTUALLY DO, CHEAPEST FIRST — NONE OF IT IS DONE
-1. **Retain the sign.** A signed net-travel accumulator (or two counters) beside `Core.skewPremium`.
-   Without it every item below is unbuildable. ⚠️ Costs `Core` bytes — measure against
-   `check-contract-sizes.py` first; `Core` is not the binding contract today but has been twice.
-2. **Give `Basket` a way to read it.** Today `Basket` holds only `AUX`, so `mint` is flow-blind BY
-   CONSTRUCTION. `Aux` can already reach `Core`; route it rather than adding a second handle.
+### ▶️ WHAT TO ACTUALLY DO, CHEAPEST FIRST
+1. ✅ **DONE — `Core.netFlowUsd`, an `int256` in 6-dec USD.** Wired at the ONE place the sign already
+   existed and was being destroyed: `swap`'s flow bump computes `uint(usdLeg < 0 ? -usdLeg : usdLeg)`
+   and hands the magnitude to `_bumpFlow`, so `netFlowUsd += usdLeg` sits beside it and needs no
+   branch — it cannot disagree with the settlement legs about which way the trade went.
+   **MEASURED, `SignedNetFlow.t.sol`, 4/4 green:** a $50,000 buy drives it to **−49,999,999,999**; the
+   sell back returns it to **−5,945,945** (the round-trip skew premium, ~11.9 bps — it does not
+   return to zero, and asserting that it would would be asserting a zero-fee AMM).
+   ⭐ **AND THE DISCRIMINATOR, WHICH IS THE WHOLE JUSTIFICATION: over the same two trades
+   `flowEwmaUsd` went 0 → 49,999,999,999 → 99,994,054,053.** It ADDED the opposite legs, because it
+   is fed a magnitude — reporting ~$100k of flow for a position that netted to ~$6. The old
+   instrument cannot subtract, so a one-directional drain and a balanced round trip look identical
+   to it. That is the SILENT failure standing rule 3 asks for.
+   📌 Sizes unchanged where it matters (tightest still `Quid`, 472 to spare) and **`forge inspect Core
+   storageLayout` confirms `_flow` is still slot 262 and `_prem` 263** — `DrainAtomicity._flowTs`
+   reads those by RAW INDEX and its own guard says a stale slot does NOT fail, so the variable is
+   declared LAST on purpose. `netFlowUsd` landed at 273. **Do not move that declaration up.**
+2. ⏸️ **DELIBERATELY NOT DONE — no `Aux` passthrough yet.** `Core.netFlowUsd` is `public`, so tests
+   and off-chain readers already have it, which is all an INSTRUMENT needs. Adding an `Aux` accessor
+   now would be an external function with ZERO callers until step 3 exists — the dead-surface rule 1
+   deletes. Route it when there is something to route it to.
 3. **Then, and only then, a regime-split rule** for `calcMintYield` — which is `pure` today and would
    have to stop being. **That is the expensive step and it is the one to argue about**, because it puts
    a flow term on the money path. Steps 1–2 are pure instrumentation and are worth doing regardless:
@@ -9569,6 +9584,48 @@ silently. ▶️ **Book it as a known cost of the maturity ladder; do not let it
 ⚠️ **This row proposes no coefficient and no clamp.** Per standing rule 3, the instrument earns its
 place because the failure it exposes is SILENT — a basket draining steadily in one direction is today
 indistinguishable, in stored state, from one that is balanced.
+
+
+---
+
+## 🔴 §E323 — **THE VARIANCE DRIVER'S SELL ARM HAD ITS ARGUMENTS SWAPPED AND HAS NEVER RUN. ITS DOCBLOCK PROMISES THE OPPOSITE.**
+
+**Found 2026-08-22 while writing `SignedNetFlow.t.sol`** — my own sell leg reverted `BadAsset()` and
+grepping for the same shape turned up exactly one other site, in the fixture that exists to create
+volatility.
+
+`DrainAtomicity._driveTick` (`:1342`) alternates buy and sell rounds. The sell round read:
+```solidity
+try AUX.swap(address(WETH), address(USDC), true, (1 + (i % 4)) * 1e18, 0, true) {} catch {}
+```
+The signature is `swap(token, asset, forVolatile, …)` and **`asset` must be WETH or WBTC** —
+`SwapLib.sol:335`: `if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset();`. Passing USDC as
+`asset` reverts on **every odd round**, and `catch {}` ate it. A sell is the SAME pair with
+`forVolatile = false`, not reversed arguments.
+
+⇒ **Half of every call to this helper was a no-op, and the helper's own docblock says
+*"alternates direction with varying size so the tick moves BOTH ways and the ring stores real second
+differences rather than a straight line."*** The series has only ever been one-directional buys.
+🔴 **SO EVERY CONCLUSION DRAWN FROM IT ABOUT VARIANCE WAS MEASURED ON A SERIES THAT WAS NEVER
+TWO-SIDED** — including §E277 / §UNIT-SERIES-MEASURED's *"20 driven ticks cannot budge σ²"*, already
+under suspicion from §E308 for a DIFFERENT reason.
+
+### ✅ FIXED, AND MADE UNREPEATABLE
+`forVolatile = false`, plus per-arm success counters and `assertGt(buys, 0)` / `assertGt(sells, 0)`.
+The `try/catch` STAYS — a transient revert on one round is legitimate and should not fail the fixture
+— but a PERMANENTLY dead arm can no longer hide inside it. **Standing rule 4 exactly: the skip is
+what made the defect invisible, so the fix is to keep the skip and instrument it, not to remove it.**
+
+### ⚠️ NECESSARY BUT NOT SUFFICIENT — AND THIS CONFIRMS §E308 RATHER THAN REPLACING IT
+With both arms live, `test_UNITA_FixtureDrivesRealVariance` **still reports σ² 0 → 0**. The residual
+cause is the one §E308 named and is INDEPENDENT of direction: `_observeIfSourced` returns at
+`if (src == address(0)) return;` and `AllesFixture`/`DeployLib` pin no source, so the ring is not
+written at all. ⛔ **AND THE HELPER'S OTHER SENTENCE IS ALSO WRONG:** it says *"the ring advances ONLY
+ON A SWAP"*. The ring stores an INDEPENDENT observation (§E222 — *"never `px`, which READ this
+ring"*), precisely so the oracle is not self-referential (§E310/§E314). **A swap can therefore never
+move the ring by itself, with any argument order.** Driving swaps to create variance is not a fixture
+bug to fix twice; it is the wrong mechanism. ▶️ Pin a source (as `PushObservationFillsTheRing`
+does) or call `pushObservation` — which is §E294's keeper, still with zero production callers.
 
 
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE

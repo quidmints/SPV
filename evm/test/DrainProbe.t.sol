@@ -258,18 +258,18 @@ contract DrainProbe is AllesFixture {
         AUX.checkBacking();
     }
 
-    /// An invalid preferred (not a basket stable, or WETH) must revert — the targeted
-    /// bool can only name a real stable leg.
-    function testRedeemTargetedRejectsBadPreferred() public {
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), 1000 * USDC_PRECISION);
-        QUID.mint(User01, 1000 * USDC_PRECISION, address(USDC), 0);
-        vm.expectRevert(bytes("bad-preferred"));
-        AUX.redeem(100 * WAD);     // QUID is not a basket stable
-        vm.expectRevert(bytes("bad-preferred"));
-        AUX.redeem(100 * WAD);     // WETH is the volatile leg, not a stable
-        vm.stopPrank();
-    }
+    // §E313 — `testRedeemTargetedRejectsBadPreferred` IS DELETED, AND THE WAY IT DIED IS THE POINT.
+    // It asserted that `redeem(amount, preferred)` reverts `bad-preferred` when handed QU!D or WETH.
+    // §E313 removed the `preferred` argument, and the mechanical edit that dropped it left BOTH
+    // `vm.expectRevert(bytes("bad-preferred"))` lines standing over two now-IDENTICAL calls to
+    // `AUX.redeem(100 * WAD)` — with the old comments ("QUID is not a basket stable", "WETH is the
+    // volatile leg") still naming arguments that were no longer passed.
+    // ⇒ THE TEST HAD NO SUBJECT LEFT. `_redeemRequire` is deleted, nothing validates a preferred
+    // stable because no preferred stable can be named, so there is no revert to expect. It is not
+    // repairable into an assertion about something else without inventing a new claim.
+    // ⚠️ The discriminator that DOES survive is two functions above: `testRedeemNamedStableNoLongerShedsFirst`
+    // asserts `daiTgt <= daiPro` — that naming a stable cannot shed more of it than pro-rata does.
+    // That is the property §E313 actually changed, and it is still tested.
 
     /// redeemTo: burn the CALLER's QUI but deliver proceeds to a DIFFERENT recipient
     /// (the blacklist-evasion mirror of swapTo's recipient overload). source stays
