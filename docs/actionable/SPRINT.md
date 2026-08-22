@@ -9753,6 +9753,24 @@ Fails `assertion failed: 0 <= 0` in `DrainProbe`. ⚠️ CLAUDE.md books the **E
 **BTC** variant is a different test and is booked nowhere. ▶️ Classify it — same root as the ETH one, or
 its own.
 
+### 6. 📌 THE CURRENT WHOLE-SUITE NUMBER, BECAUSE NOTHING IN THIS FILE CARRIES ONE
+`forge test` at **`37664182`** (a tip whose only later commits touched `CLAUDE.md`/`SPRINT.md` — zero
+`.sol`, so it describes today's source):
+| | |
+|---|---|
+| unique failing tests | **73** |
+| `PREMISE:` / `CONTROL:` failure lines | **38** |
+| RPC / environmental lines (`Max retries`, `HTTP error`, `database error`) | **4** |
+⚠️ **The nearest existing figures in this file are STALE or absent** — §E242 records *"57 shared
+pre-existing failures"* against a different tip, and D1's suite-state group still says *"No suite was
+run this pass."* ⇒ **73 is the number to diff against**, and the log it came from is gone, so re-measure
+rather than trusting a recollection of it.
+📌 Changes since that run, both verified in isolation: `testRedeemTargetedRejectsBadPreferred` DELETED
+(§E313 casualty, subject no longer exists) so the count should fall by one; `DrainProbe` re-run at
+**6 passed / 1 failed**, `DrainAtomicity` at **25 passed / 8 failed** — the SAME 8 as before §E323, so
+the driver fix regressed nothing. ⛔ **A FULL SUITE HAS NOT BEEN RE-RUN SINCE.** Do not read the gates
+(build + sizes + ABIs, all green) as a green suite; they are three different questions.
+
 ### ✅ AND ONE CODE CORRECTION LANDED WITH THIS ROW
 `Core.sol`'s §E311 comment read *"Draining flow pays exactly what it paid."* **That is false** —
 draining flow now pays roughly HALF, the intended charge once. The 420 was retained in `POOLED_*` and
