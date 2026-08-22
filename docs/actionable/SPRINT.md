@@ -8828,6 +8828,16 @@ IL event is the question to answer FIRST** — the cheapest reproduction is open
 no venue, no liquidation and no Morpho involved.
 ▶️ **NEXT: reproduce the gap with rally alone**, then decide whether the invariant or the accounting
 is wrong. Rule 8d applies — say which, with a reason, before changing either.
+**C21-a. 🔴 THE DE-LEVER DOES NOT REPAY.** Debt goes in at **564,189,029** (6-dec USDC) and comes out
+at **564,189,029** — unchanged. `deleverRepayUsd` is the closed-form `Δ/(1−t)` and `_delever`
+deliberately IGNORES `deltaUsd` because of it (`LevManager.sol:347`). **This path has never once run
+against real debt**, because until §C19 no debt could exist.
+
+**C21-b. 🔴🔴 LIQUIDATION LEAVES THE BASKET SHORT — 0.115715 ETH, 2.34% of the range.** Deliverable
+**4.838625** against a range of **4.954341**, so the assertion *"honest LPs whole"* is violated by a
+real amount. ⚠️ **This is in liquidation accounting that §C19 does not touch** — the change only stops
+overwriting a price basis. It is **revealed, not caused**: the baseline could not reach it because
+`position is healthy` short-circuits when debt is 0.
 
 ⭐ **THE STRUCTURAL FINDING BEHIND ALL OF IT — THE LEVERAGE SUITE IS TWO DISJOINT WORLDS AND THE GREEN
 ONE CANNOT SEE THE BUG.** `test_Economic_LeversToProvenIlTarget` PASSES, and has always passed, because
