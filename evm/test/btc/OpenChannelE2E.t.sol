@@ -8,7 +8,6 @@ import {BTCChannels} from "../../src/BTCChannels.sol";
 import {Types} from "../../src/imports/Types.sol";
 import {SPVGateway} from "../../src/spv/SPVGateway.sol";
 import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
-import {MuSig2Agg} from "../../src/imports/MuSig2Agg.sol";
 
 /// @notice END-TO-END openChannel against a REAL Bitcoin funding tx.
 ///
@@ -236,7 +235,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
             string.concat(vm.projectRoot(), "/test/btc/open_channel_fixture.json"));
         // The top-level entry the E2E open actually consumes.
         assertEq(
-            MuSig2Agg.computeOutputKey(
+            BitcoinTx.computeOutputKey(
                 vm.parseJsonBytes(json, ".lpPubkey"), vm.parseJsonBytes(json, ".hopPubkey")),
             vm.parseJsonBytes32(json, ".fundingTaproot"),
             "fundingTaproot is not KeyAgg(lpPubkey, hopPubkey)"
@@ -252,7 +251,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
         for (uint i = 0; i < keys.length; ++i) {
             string memory at = string.concat(".bySeed.", keys[i]);
             assertEq(
-                MuSig2Agg.computeOutputKey(
+                BitcoinTx.computeOutputKey(
                     vm.parseJsonBytes(json, string.concat(at, ".lpPubkey")),
                     vm.parseJsonBytes(json, string.concat(at, ".hopPubkey"))),
                 vm.parseJsonBytes32(json, string.concat(at, ".fundingTaproot")),
@@ -264,7 +263,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
     /// (E147-i) THE FIRST TEST EVER TO DRIVE `splice()` FROM REAL BITCOIN DATA.
     ///
     /// Its absence is the direct cause of E147: the E129 KeyAgg gate was wired, went green on
-    /// fixtures that built `Q` with `MuSig2Agg` itself, and would have REJECTED EVERY REAL
+    /// fixtures that built `Q` with `BitcoinTx` itself, and would have REJECTED EVERY REAL
     /// SPLICE in production — funds stuck in channels that could neither grow nor shrink.
     /// Nothing could have caught that except exercising the real splice path.
     ///

@@ -9,7 +9,6 @@ import {BitcoinTx} from "./BitcoinTx.sol";
 // §E140-r2 measured that its `previousHash` is byte-REVERSED relative to its own `calculateTxId`
 // and to our `BitcoinTx`, so it is not a drop-in for outpoint logic.
 import {TxParser} from "@solarity/solidity-lib/libs/bitcoin/TxParser.sol";
-import {MuSig2Agg} from "./MuSig2Agg.sol";
 import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 
 /// @title  ExitLib — BIP-341 verification of PRE-SIGNED Bitcoin spends: the dead-man channel exit
@@ -121,7 +120,7 @@ library ExitLib {
         prevScripts[idx] = abi.encodePacked(hex"5120", c.q);
         (bytes32 r, bytes32 sig) = _keyPathSig(t, idx);
         bytes32 m = _sighash(signedExitTx, prevValues, prevScripts, uint32(idx));
-        if (!MuSig2Agg.schnorrVerify(c.q, r, sig, m)) revert ExitSignatureInvalid();
+        if (!BitcoinTx.schnorrVerify(c.q, r, sig, m)) revert ExitSignatureInvalid();
     }
 
     error DepositNotPaid();          // no output pays the recomputed deposit address
@@ -165,8 +164,8 @@ library ExitLib {
     function swapInDepositKey(
         bytes32 internalKey, Types.Terms calldata terms, bytes32 userRefund, uint32 cltvHeight
     ) public view returns (bytes32) {
-        return MuSig2Agg.taprootOutputKeyWithLeaf(
-            internalKey, MuSig2Agg.tapLeafHash(_cltvRefundLeaf(terms, userRefund, cltvHeight)));
+        return BitcoinTx.taprootOutputKeyWithLeaf(
+            internalKey, BitcoinTx.tapLeafHash(_cltvRefundLeaf(terms, userRefund, cltvHeight)));
     }
 
     /// @notice (§T2) The terms a deposit address commits to. ONE leaf, no `tapBranch`: the prefix
@@ -335,7 +334,7 @@ library ExitLib {
         uint32 inputIndex
     ) private pure returns (bytes32) {
         SigParts memory q = _sigParts(rawTx, prevValues, prevScripts);
-        return MuSig2Agg.taggedHash("TapSighash", abi.encodePacked(
+        return BitcoinTx.taggedHash("TapSighash", abi.encodePacked(
             bytes1(0x00),          // epoch
             bytes1(0x00),          // hash_type = SIGHASH_DEFAULT
             _le4(q.version), _le4(q.locktime),

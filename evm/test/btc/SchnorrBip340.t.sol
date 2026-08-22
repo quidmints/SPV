@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {MuSig2Agg} from "../../src/imports/MuSig2Agg.sol";
+import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice (E128) BIP-340 verification, checked against the OFFICIAL vectors from
 ///         `bitcoin/bips/bip-0340/test-vectors.csv` — not against anything this repo generated.
@@ -18,7 +18,7 @@ import {MuSig2Agg} from "../../src/imports/MuSig2Agg.sol";
 ///         signatures are rejected and, worse, the shape of what IS accepted is not BIP-340 at all.
 contract SchnorrBip340Test is Test {
     function _check(bytes32 pk, bytes32 r, bytes32 s, bytes32 m) internal view returns (bool) {
-        return MuSig2Agg.schnorrVerify(pk, r, s, m);
+        return BitcoinTx.schnorrVerify(pk, r, s, m);
     }
 
     /// Vector 0 — secret key 3, message all-zero.

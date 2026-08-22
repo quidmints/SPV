@@ -187,9 +187,18 @@ contract LevYbRealProbe is AllesFixture {
             // later on `debt == 0`, blaming Morpho — which the trace shows was never asked to borrow.
             uint _sf = ETH.soldFractionWad(syncKeyPx);
             if (_sf >= targetWad) { emit log_named_uint("RALLY EXIT soldFraction>=target", _sf); break; }
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-            if (px == 0) { emit log_named_uint("RALLY EXIT twap==0 at step", i); break; }
-            _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows
+            // 🔴 §E310 — THE OBSERVATION MUST COME FROM THE POOL. This read `AUX.getTWAPforAsset`,
+            // which reads the observation RING, and then set the Chainlink mock FROM it -- so the
+            // anchor was a copy of the thing it anchors and NOTHING could ever move. Measured (§C18):
+            // ring TWAP, Chainlink and the pinned `ilBasisPx` were all 2501.13975863 after TEN
+            // successful swaps, so `ilTargetBps` returned 0, `debtDeltaToTarget` returned 0, and
+            // `venue.borrow` was never invoked -- which reads as "Morpho will not lend".
+            // `rangePrice()` is `CORE.poolStats()`, the TRUE range price, and its own natspec says it
+            // exists so IL is measured "from the true range price (not the oracle)".
+            uint px = ETH.rangePrice();
+            if (px == 0) { emit log_named_uint("RALLY EXIT rangePrice==0 at step", i); break; }
+            _setEthFeed(px / 1e10);                 // anchor follows the POOL ...
+            CORE.pushObservation(px);               // ... so this bounded push is admissible
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {}
             catch (bytes memory err) { emit log_named_bytes("RALLY SWAP REVERTED", err); break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);

@@ -365,7 +365,7 @@ contract BtcLpMintStress is AllesFixture {
     /// record a close, because the contract could not tell a splice tx from a close tx — both
     /// spend the same funding UTXO — so a third party could replay the hop's confirmed splice
     /// to force-retire an OPEN channel. That gate was a proxy for a missing discriminator.
-    /// `MuSig2Agg` supplies the discriminator, so the gate is gone and ANYONE may record a
+    /// `BitcoinTx` supplies the discriminator, so the gate is gone and ANYONE may record a
     /// genuine close. Two properties now matter, and both are asserted:
     ///   (a) a stranger CAN record a real close — the liveness win, and the whole point;
     ///   (b) a tx paying a continuing 2-of-2 is REFUSED as a splice, whoever submits it.

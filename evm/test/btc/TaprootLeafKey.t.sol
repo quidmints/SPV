@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {MuSig2Agg} from "../../src/imports/MuSig2Agg.sol";
+import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice (E159) BIP-341 output key for an internal key committing to a SINGLE leaf — the
 ///         shape a swap-in deposit address has (key path = the hop's claim, one leaf = the
@@ -54,7 +54,7 @@ contract TaprootLeafKeyTest is Test {
 
     function test_tapLeafHashMatchesBip341() public pure {
         assertEq(
-            MuSig2Agg.tapLeafHash(_leafScript()),
+            BitcoinTx.tapLeafHash(_leafScript()),
             bytes32(0x3f4c19fe35422362757a3e4d12cb9ee71713dd4fae1a776b7b085312fb4048cc),
             "TapLeaf = tagged_hash(TapLeaf, 0xc0 || compactSize || script)"
         );
@@ -62,9 +62,9 @@ contract TaprootLeafKeyTest is Test {
 
     /// The whole point: `Q = lift_x_even(P) + H_TapTweak(x(P) || leafHash)*G`.
     function test_outputKeyMatchesBip341() public view {
-        bytes32 leaf = MuSig2Agg.tapLeafHash(_leafScript());
+        bytes32 leaf = BitcoinTx.tapLeafHash(_leafScript());
         assertEq(
-            MuSig2Agg.taprootOutputKeyWithLeaf(INTERNAL, leaf),
+            BitcoinTx.taprootOutputKeyWithLeaf(INTERNAL, leaf),
             bytes32(0xd0d16740ae143319f7883497b4b76efd9bb829725cf7e885c37dacff3be4e4ca),
             "single-leaf taproot output key"
         );
@@ -75,9 +75,9 @@ contract TaprootLeafKeyTest is Test {
     /// deposit ever pays. If this ever equals the real output key, the tweak is not committing
     /// to the leaf and every downstream proof is checking the wrong address.
     function test_omittingTheLeafGivesADifferentKey() public view {
-        bytes32 leaf = MuSig2Agg.tapLeafHash(_leafScript());
-        bytes32 withLeaf = MuSig2Agg.taprootOutputKeyWithLeaf(INTERNAL, leaf);
-        bytes32 withoutLeaf = MuSig2Agg.taprootOutputKeyWithLeaf(INTERNAL, bytes32(0));
+        bytes32 leaf = BitcoinTx.tapLeafHash(_leafScript());
+        bytes32 withLeaf = BitcoinTx.taprootOutputKeyWithLeaf(INTERNAL, leaf);
+        bytes32 withoutLeaf = BitcoinTx.taprootOutputKeyWithLeaf(INTERNAL, bytes32(0));
         assertTrue(withLeaf != withoutLeaf, "TapTweak MUST commit to the merkle root");
     }
 
@@ -85,11 +85,11 @@ contract TaprootLeafKeyTest is Test {
     /// per-swap uniqueness rests entirely on the leaf once the internal key is pinned and
     /// shared across every swap.
     function test_leafUniquenessCarriesPerSwapIdentity() public view {
-        bytes32 a = MuSig2Agg.taprootOutputKeyWithLeaf(INTERNAL, MuSig2Agg.tapLeafHash(_leafScript()));
+        bytes32 a = BitcoinTx.taprootOutputKeyWithLeaf(INTERNAL, BitcoinTx.tapLeafHash(_leafScript()));
         bytes memory other = abi.encodePacked(
             bytes1(0x03), bytes3(0x02350c), bytes1(0xb1), bytes1(0x75),
             bytes1(0x20), REFUND, bytes1(0xac));      // cltv + 1
-        bytes32 b = MuSig2Agg.taprootOutputKeyWithLeaf(INTERNAL, MuSig2Agg.tapLeafHash(other));
+        bytes32 b = BitcoinTx.taprootOutputKeyWithLeaf(INTERNAL, BitcoinTx.tapLeafHash(other));
         assertTrue(a != b, "a different timelock must yield a different deposit address");
     }
 
@@ -100,14 +100,14 @@ contract TaprootLeafKeyTest is Test {
     /// recorded the curve check as tested when it had never been exercised.
     function test_offCurveInternalKeyReverts() public {
         vm.expectRevert();
-        MuSig2Agg.taprootOutputKeyWithLeaf(bytes32(uint256(5)), bytes32(0));
+        BitcoinTx.taprootOutputKeyWithLeaf(bytes32(uint256(5)), bytes32(0));
     }
 
     /// The companion to the above: x = 1 is a REAL point, so it must be accepted. Without this
     /// the revert test could be satisfied by a guard that rejects everything.
     function test_onCurveInternalKeyIsAccepted() public view {
         assertTrue(
-            MuSig2Agg.taprootOutputKeyWithLeaf(bytes32(uint256(1)), bytes32(0)) != bytes32(0),
+            BitcoinTx.taprootOutputKeyWithLeaf(bytes32(uint256(1)), bytes32(0)) != bytes32(0),
             "x=1 is on secp256k1 (y^2 = 8, a QR) and must not be rejected"
         );
     }

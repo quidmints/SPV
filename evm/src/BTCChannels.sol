@@ -10,7 +10,6 @@ import {ExitLib} from "./imports/ExitLib.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {MuSig2Agg} from "./imports/MuSig2Agg.sol";
 // (E125-d) ERC-1271 + ECDSA in one call, so a SMART-WALLET LP can register. Tries ECDSA
 // first, so the EOA path — the common one — keeps its cost.
 
@@ -65,7 +64,7 @@ import {MuSig2Agg} from "./imports/MuSig2Agg.sol";
 //  `Q = lift_x(KeyAgg(KeySort(lpPubkey, hopPubkey))) + H_TapTweak·G` of the two
 //  33-byte funding keys (BitcoinTx.buildTaprootScriptPubKey). The contract does
 //  ⚠️ CORRECTED (E129/E142): this said "NO secp256k1 EC … so it does NOT prove". BOTH halves
-//  are now false. `MuSig2Agg.isTwoOfTwoOutputKey` PROVES Q == TapTweak(KeyAgg(lp,hop)) at the
+//  are now false. `BitcoinTx.isTwoOfTwoOutputKey` PROVES Q == TapTweak(KeyAgg(lp,hop)) at the
 //  OPEN and at every SPLICE, and `lpAuth` is retired (see (B) below). Left as a marker because
 //  three separate notes in this file described the pre-delegation, pre-EC world as current.
 //
@@ -854,7 +853,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///
     /// 🔑 WHY CONSENT CANNOT BE DELETED BY secp256k1, THOUGH HALF OF §E125 DID LAND. E125's route
     ///    had two halves: (1) prove `Q == KeyAgg(lpPubkey, hopPubkey)` and (2) derive `lpEth` from
-    ///    `lpPubkey`. **(1) IS LIVE** — `MuSig2Agg.isTwoOfTwoOutputKey` in `openChannel` — and it
+    ///    `lpPubkey`. **(1) IS LIVE** — `BitcoinTx.isTwoOfTwoOutputKey` in `openChannel` — and it
     ///    closed the hole where a hop opened with ANY Q. **(2) IS REFUTED TWICE**: §E125-r measured
     ///    that `lpPubkey` is the PER-CHANNEL funding key (folded into `channelId`), so deriving
     ///    yields a different EVM address per channel and FRAGMENTS the LP's position; §E125-d
@@ -1570,7 +1569,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ///      ARRAY for the exit ladder (two more stack slots) and went over the legacy limit.
     ///      Frame, never `via_ir`.
     function _proveFundingKeys(Types.OpenParams calldata p) private view {
-        if (!MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
+        if (!BitcoinTx.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
             revert FundingKeyNotTwoOfTwo();
     }
 
@@ -1640,7 +1639,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
                 fundingTxId: channels[channelId].fundingTxId,
                 fundingVout: channels[channelId].fundingVout,
                 fundingSats: channels[channelId].amountSats,
-                q:           MuSig2Agg.computeOutputKey(p.lpPubkey, p.hopPubkey),
+                q:           BitcoinTx.computeOutputKey(p.lpPubkey, p.hopPubkey),
                 cltvDeadline: exit.cltvDeadline
             }),
             _lpPayoutScript(channels[channelId].lpEth),
@@ -1689,7 +1688,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         //
         // ⚠️ 631,432 gas on the accepting path — MEASURED, not estimated. Splices are rare and
         //    operator-initiated, so it is affordable here as it would not be per-swap.
-        if (!MuSig2Agg.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
+        if (!BitcoinTx.isTwoOfTwoOutputKey(p.lpPubkey, p.hopPubkey, p.fundingTaproot))
             revert SpliceKeyNotTwoOfTwo();
     }
 
@@ -1812,7 +1811,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         _requireChannelKeys(channelId, p);
         if (BitcoinTx.sumOutputValuesToScript(rawTx,
                 abi.encodePacked(hex"5120",
-                    MuSig2Agg.computeOutputKey(p.lpPubkey, p.hopPubkey))) > 0)
+                    BitcoinTx.computeOutputKey(p.lpPubkey, p.hopPubkey))) > 0)
             revert SpliceIsNotAClose();
     }
 
@@ -1856,7 +1855,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // therefore restricted recording to the hop or the LP, because a third party could
         // otherwise replay the hop's confirmed SPLICE tx here to force-retire an OPEN channel
         // (delivered=0, splice()/deliver() bricked on whenOpen, an in-flight swap-out stranded).
-        // `MuSig2Agg` reconstructs exactly those keys (E129/E142), so the ambiguity is gone:
+        // `BitcoinTx` reconstructs exactly those keys (E129/E142), so the ambiguity is gone:
         // a SPLICE leaves a continuing 2-of-2 output; a CLOSE does not.
         // ⇒ Attacking the cause means the gate no longer trusts WHO calls, so recording is
         //   PERMISSIONLESS — a channel can be retired once Bitcoin confirms the close, with no
@@ -2423,7 +2422,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (sig.length != 64) revert NotPubkeyHash();
         bytes32 r; bytes32 s_;
         assembly { r := calldataload(sig.offset) s_ := calldataload(add(sig.offset, 32)) }
-        if (!MuSig2Agg.schnorrVerify(xOnlyKey, r, s_, btcRecipientPoPDigest(lpEth)))
+        if (!BitcoinTx.schnorrVerify(xOnlyKey, r, s_, btcRecipientPoPDigest(lpEth)))
             revert NotPubkeyHash();
     }
 

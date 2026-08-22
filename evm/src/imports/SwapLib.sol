@@ -2319,7 +2319,9 @@ library SwapLib {
     //    removes UNREACHABLE code; it does not remove a maintained primitive awaiting a wiring,
     //    which is the mistake this repo has already reverted twice (`create_sweep_tx`).
     //    It imported `SwapLib`; folding it here dissolves that edge.
-    /// @title  SwapLib — the settlement primitive that replaces the v4 AMM (§28, Phase 3 step 1)
+    /// @notice THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title). It describes THIS
+    ///         SECTION, not `SwapLib` as a whole -- the §E310 fold carried the header across and the
+    ///         rename made it read as a title for the whole library, which it is not.
     ///
     /// @notice ONE PRICE, NO TRAVERSAL. The swapper is quoted a SINGLE rate for a SINGLE size, bounded by
     ///         inventory, and that rate is what settles. There is no curve to walk, no tick to cross, and
@@ -2449,10 +2451,10 @@ library SwapLib {
     ///      directional view. On a drain the range parts with scarce inventory and charges MORE per
     ///      unit; on a fill the range absorbs unwanted inventory and pays LESS per unit. Symmetric by
     ///      construction, which is what makes it a spread rather than a fee with a sign bug.
-    function _applySkew(uint base, uint skewWad, bool draining) private pure returns (uint) {
+    function _applySkew(uint base, uint skewAmt, bool draining) private pure returns (uint) {
         return draining
-            ? base + (base * skewWad) / 1e18
-            : base - (base * skewWad) / 1e18;
+            ? base + (base * skewAmt) / 1e18
+            : base - (base * skewAmt) / 1e18;
     }
 
     /// @notice Enforce a quote at settlement time. Both bounds, or the commitment is not a commitment.

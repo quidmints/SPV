@@ -2,9 +2,9 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
+import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
 
-/// @notice (E129) `MuSig2Agg.isTwoOfTwoOutputKey` against a ground-truth vector produced by
+/// @notice (E129) `BitcoinTx.isTwoOfTwoOutputKey` against a ground-truth vector produced by
 ///         the BIP-327 REFERENCE IMPLEMENTATION (bitcoin/bips bip-0327/reference.py), not by
 ///         reading my own code back to itself.
 ///
@@ -29,7 +29,7 @@ contract MuSig2AggTest is Test {
     /// The whole point of the library: `Q` is accepted only if BOTH named keys are in it.
     function test_matches_the_bip327_reference_vector() public view {
         assertTrue(
-            MuSig2Agg.isTwoOfTwoOutputKey(PK_A, PK_B, EXPECTED_Q),
+            BitcoinTx.isTwoOfTwoOutputKey(PK_A, PK_B, EXPECTED_Q),
             "Q == TapTweak(KeyAgg(KeySort(A,B)))"
         );
     }
@@ -37,7 +37,7 @@ contract MuSig2AggTest is Test {
     /// KeySort means argument order must not matter.
     function test_argument_order_is_irrelevant() public view {
         assertTrue(
-            MuSig2Agg.isTwoOfTwoOutputKey(PK_B, PK_A, EXPECTED_Q),
+            BitcoinTx.isTwoOfTwoOutputKey(PK_B, PK_A, EXPECTED_Q),
             "KeySort makes (B,A) identical to (A,B)"
         );
     }
@@ -48,12 +48,12 @@ contract MuSig2AggTest is Test {
     ///    (E129) the library exists to stop.
     function test_rejects_a_Q_the_keys_are_not_in() public view {
         assertFalse(
-            MuSig2Agg.isTwoOfTwoOutputKey(PK_A, PK_B, bytes32(uint256(EXPECTED_Q) ^ 1)),
+            BitcoinTx.isTwoOfTwoOutputKey(PK_A, PK_B, bytes32(uint256(EXPECTED_Q) ^ 1)),
             "a one-bit-different Q must be refused"
         );
         // A real curve point that simply is not this aggregate: the generator's x.
         assertFalse(
-            MuSig2Agg.isTwoOfTwoOutputKey(PK_A, PK_B,
+            BitcoinTx.isTwoOfTwoOutputKey(PK_A, PK_B,
                 bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798))),
             "G.x is a valid point but not this 2-of-2"
         );
@@ -63,13 +63,13 @@ contract MuSig2AggTest is Test {
     function test_rejects_a_substituted_key() public view {
         bytes memory other =
             hex"023590A94E768F8E1815C2F24B4D80A8E3149316C3518CE7B7AD338368D038CA66";
-        assertFalse(MuSig2Agg.isTwoOfTwoOutputKey(PK_A, other, EXPECTED_Q), "B swapped out");
-        assertFalse(MuSig2Agg.isTwoOfTwoOutputKey(other, PK_B, EXPECTED_Q), "A swapped out");
+        assertFalse(BitcoinTx.isTwoOfTwoOutputKey(PK_A, other, EXPECTED_Q), "B swapped out");
+        assertFalse(BitcoinTx.isTwoOfTwoOutputKey(other, PK_B, EXPECTED_Q), "A swapped out");
     }
 
     /// Malformed input is refused rather than silently mis-decoded.
     function test_rejects_malformed_pubkeys() public {
-        vm.expectRevert(bytes("MuSig2Agg: bad SEC1 prefix"));
+        vm.expectRevert(bytes("BitcoinTx: bad SEC1 prefix"));
         this.callIsTwoOfTwo(hex"04F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9", PK_B, EXPECTED_Q);
     }
 
@@ -78,7 +78,7 @@ contract MuSig2AggTest is Test {
         // x >= p: outside the field entirely.
         bytes memory oob = abi.encodePacked(hex"02",
             bytes32(uint256(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F)));
-        vm.expectRevert(bytes("MuSig2Agg: x out of field"));
+        vm.expectRevert(bytes("BitcoinTx: x out of field"));
         this.callIsTwoOfTwo(oob, PK_B, EXPECTED_Q);
 
         // x = 5: 5³+7 = 132, and 132 is NOT a quadratic residue mod p, so no point has this x.
@@ -86,16 +86,16 @@ contract MuSig2AggTest is Test {
         //    so 2 is a residue and 8 = 2³ is too — x = 1 is a perfectly good curve point.
         //    Checked against the Legendre symbol rather than assumed.
         bytes memory nonResidue = abi.encodePacked(hex"02", bytes32(uint256(5)));
-        vm.expectRevert(bytes("MuSig2Agg: x is not on the curve"));
+        vm.expectRevert(bytes("BitcoinTx: x is not on the curve"));
         this.callIsTwoOfTwo(nonResidue, PK_B, EXPECTED_Q);
     }
 
     /// A short key must revert with a REASON, not panic inside the 33-byte KeySort loop.
     function test_short_pubkey_reverts_with_a_reason() public {
-        vm.expectRevert(bytes("MuSig2Agg: pubkey must be 33 bytes"));
+        vm.expectRevert(bytes("BitcoinTx: pubkey must be 33 bytes"));
         this.callIsTwoOfTwo(hex"0201", PK_B, EXPECTED_Q);
     }
 
     function callIsTwoOfTwo(bytes memory a, bytes memory b, bytes32 q)
-        external view returns (bool) { return MuSig2Agg.isTwoOfTwoOutputKey(a, b, q); }
+        external view returns (bool) { return BitcoinTx.isTwoOfTwoOutputKey(a, b, q); }
 }

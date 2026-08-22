@@ -31,7 +31,6 @@ import {Core} from "../src/Core.sol";
 
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BitcoinTx} from "../src/imports/BitcoinTx.sol";
-import {MuSig2Agg} from "../src/imports/MuSig2Agg.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {QuidLib} from "../src/imports/QuidLib.sol";
 
@@ -173,8 +172,8 @@ contract AllesFixture is ForkPin, ExitFixture {
     ///    look untestable rather than untested.
     ///
     /// Now the REAL aggregate, from the same library the contract uses. See
-    /// `MuSig2Agg.computeOutputKey` on why that circularity is safe: the BIP-327 reference
-    /// vector in `MuSig2Agg.t.sol` pins the math from outside, these fixtures pin the wiring.
+    /// `BitcoinTx.computeOutputKey` on why that circularity is safe: the BIP-327 reference
+    /// vector in `BitcoinTx.t.sol` pins the math from outside, these fixtures pin the wiring.
     ///
     /// NAMED `_taprootQ`, NOT `testTaprootQ`: it is a fixture builder, not a test. The
     /// old `test` prefix made it read as a test case in every listing and grep of this
@@ -196,11 +195,11 @@ contract AllesFixture is ForkPin, ExitFixture {
     function _taprootQ(bytes memory lpPubkey, bytes memory hopPubkey)
         internal view returns (bytes32)
     {
-        return MuSig2Agg.computeOutputKey(lpPubkey, hopPubkey);
+        return BitcoinTx.computeOutputKey(lpPubkey, hopPubkey);
     }
 
     /// Test-only: a 33-byte SEC1 COMPRESSED pubkey that is a genuine curve point, for
-    /// fixtures that must survive `MuSig2Agg.decompress`. `_validXOnly` already grinds to an
+    /// fixtures that must survive `BitcoinTx.decompress`. `_validXOnly` already grinds to an
     /// x with an even-y solution, which is exactly what the `0x02` prefix declares — so the
     /// two helpers agree by construction rather than by coincidence.
     /// ⚠️ The old fixtures used `0x02 || keccak256(seed)` directly, which is off the curve

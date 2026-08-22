@@ -178,7 +178,7 @@ library Types {
     /// aggregate `Q = lift_x(KeyAgg(KeySort(lp,hop))) + H_TapTweak(agg)·G` (empty
     /// merkle root). The contract byte-matches the SPV-proven funding output against
     /// `0x5120||Q` AND proves `Q == TapTweak(KeyAgg(KeySort(lp,hop)))` on-chain via
-    /// `MuSig2Agg` (E129/E142), so both named keys are provably inside it.
+    /// `BitcoinTx` (E129/E142), so both named keys are provably inside it.
     /// ⚠️ TWO CLAIMS THAT STOOD HERE ARE RETIRED, NOT RELOCATED: "the contract does NO
     /// secp256k1 EC math" is false, and "the LP's lpAuth signs the whole OpenParams"
     /// describes a mechanism removed when `openChannel` moved to `(…, address lpEth)` gated

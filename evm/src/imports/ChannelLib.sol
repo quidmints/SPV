@@ -13,7 +13,6 @@ import {BitcoinTx} from "./BitcoinTx.sol";
 // §E140-r2 measured that its `previousHash` is byte-REVERSED relative to its own `calculateTxId`
 // and to our `BitcoinTx`, so it is not a drop-in for outpoint logic.
 import {TxParser} from "@solarity/solidity-lib/libs/bitcoin/TxParser.sol";
-import {MuSig2Agg} from "./MuSig2Agg.sol";
 // (E182) Same checker the open path uses, so an EOA and a smart-wallet LP authorize alike.
 import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
@@ -643,7 +642,7 @@ library ChannelLib {
     ///         hopPubkey are only length-validated HERE, and the funding output is located
     ///         purely by `Q` (key-path taproot reveals no script on-chain) — **but that is no
     ///         longer the whole story, and this note claimed it was.** The (keys ↔ Q) binding
-    ///         is PROVEN on-chain by `MuSig2Agg.isTwoOfTwoOutputKey` at BOTH call sites
+    ///         is PROVEN on-chain by `BitcoinTx.isTwoOfTwoOutputKey` at BOTH call sites
     ///         (`BTCChannels.openChannel` E142, `_verifySplice` E129). The retired text named
     ///         "the LP's lpAuth + off-chain MuSig2 keygen" as the binding; `lpAuth` no longer
     ///         exists as a parameter anywhere (E149).
