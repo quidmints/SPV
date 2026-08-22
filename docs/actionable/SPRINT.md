@@ -5163,9 +5163,14 @@ is the `function` declaration itself** — `SwapLib.sol:886` `refillNeeded`, `:9
 
 ### ⛔ WHAT THE OWNER'S DESIGN DELETED, BEFORE ANYONE "FINISHES" THESE
 Under *"refill only when not enough in the pool to cover a swap, paid against 1inch (routes the swap)…
-so a keeper is not needed"*, **we never source inventory**. ⇒ **`refillPlacement` and
-`proRataShortfall` may have NO JOB AT ALL** — they size and apportion a restoration we do not perform.
-**Wiring them would be building the deleted design.** ⇒ **AUDIT THEM FOR DELETION FIRST, WIRE SECOND.**
+so a keeper is not needed"*, **we never source inventory**. ⇒ **`refillPlacement` may have NO JOB AT
+ALL** — it sizes a placement of a restoration we do not perform. **Wiring it would be building the
+deleted design.** ⇒ **AUDIT FOR DELETION FIRST, WIRE SECOND.**
+⛔ **CORRECTED BY §E313 — THIS SENTENCE ORIGINALLY NAMED `proRataShortfall` TOO AND WAS WRONG.** That one
+apportions a SHORTFALL ACROSS EXITING LPs — the rule-17 root fix for the round-trip exit attack (15.2 bps
+measured) — which has nothing to do with sourcing inventory. **It was deleted on this sentence and has
+been restored.** ⚠️ And `SPRINT:1942` already said *"**Wire `proRataShortfall`** into the redeem path"*,
+so this sentence overrode a standing instruction that pre-dated it.
 `refillNeeded` is the one with a future: it IS `skewWad`'s flush test, and the new predicate
 ("inventory cannot cover THIS swap") is a near relative of it.
 
