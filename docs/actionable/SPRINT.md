@@ -33,8 +33,8 @@ open findings (`test_UNIT_PremiumRecordedEqualsPremiumPaid` is §SKEW-DOUBLE's d
 | # | decision | blocks |
 |---|---|---|
 | a | **§SKEW-DOUBLE** — which of the two skew charges is intended (`_fillDelta` vs `retainSkewPremium`) | the named test, and 3 findings retire together with the cut |
-| b | **§E327** — what pins the observation source (a pool? the 1inch-read signed at deploy?) | σ² is 0 today ⇒ §E283's 3% is the only price we quote, §E326's mark, §ORACLE-FRESHNESS |
-| c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? | a standing unpriced maker discount on every crossed resting order |
+| b | ✅ **ANSWERED BY §E343 — no source needed.** σ² from Chainlink's OWN rounds (measured: 57 updates/day, 20.5-min median gap, implied σ 95.5%). §E222's independent-source rule is scoped to the DEVIATION GUARD, not to variance. ⚠️ Keep the ring for smoothing; feed it from Chainlink. ⛔ *"Sign the 1inch read at deploy" does not work — σ² needs a SERIES and a deploy-time value is one number.* | was: §E283, §E326, §ORACLE-FRESHNESS(a) — now unblocked |
+| c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? ▶️ **§E343 found the clean form: price it into where the order RESTS, not into the fill** — the trigger includes it, the fill honours its stated price, limit semantics intact. Cheapest of the four. | a standing unpriced maker discount on every crossed resting order |
 | d | **§E330** — should a range deep relative to its flow earn NOTHING? | it is why "PREMISE: fees actually accrued" fails; §E326 depends on the answer |
 
 ## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 12,187 BYTES OVER** (§E330). `Quid` 24,104 + `Vault` 12,659 =
@@ -10983,6 +10983,72 @@ borrow" — a number that scales with the basket rather than against it.**
 swap-out size the current design supports.** That is measurable today from the existing lev fixtures —
 no new book, no assumption, unlike everything in §E340/§E341. **That is the measurement I should have
 run instead of fetching a year of ETH prices.**
+
+
+---
+
+## ✅ §E343 — **σ² CAN COME FROM CHAINLINK'S OWN ROUNDS. MEASURED, AND IT RETIRES §E327's WHOLE BLOCKER.** ⛔ **THE "UNIFIED SOLUTION" IT CAME WRAPPED IN DOES NOT SURVIVE — RECORDED SO IT IS NOT RE-PROPOSED.**
+
+Hunting one change that would dissolve §SKEW-DOUBLE, §E327, §E332 and §E330 together. **One quarter of it
+is real and validated; three quarters collapsed under my own stress test.** Both halves are booked,
+because the collapsed half is the more re-proposable one.
+
+### ✅ THE PART THAT HOLDS — VARIANCE NEEDS NO INDEPENDENT SOURCE
+**§E222's objection is scoped, and reading it precisely is what unlocks this.** It requires an
+independent ring source because the ring feeds **`twapResolve`'s deviation test and
+`BasketLib.isManipulated`** — guards that need two sources able to DISAGREE (*"they had simply lost the
+ability to disagree"*). **It says nothing about variance.** σ² is a property of ONE series, not a
+cross-check between two, so estimating it from the anchor is not the self-reference §E222 forbids.
+
+**MEASURED — 60 consecutive Chainlink ETH/USD rounds via `getRoundData`, archive endpoint:**
+| | |
+|---|---|
+| updates/day | **57.3** |
+| inter-update gap min / median / max | 30 s / **20.5 min** / 61 min (the heartbeat) |
+| median absolute move | **0.53%** (matches the 0.5% deviation threshold) |
+| implied annualised σ | **95.5%** — right order for ETH |
+⚠️ **I EXPECTED THE 0.5% THRESHOLD TO STARVE THE ESTIMATE. IT DOES NOT**, and the reason is the
+heartbeat: it forces an update through quiet periods, so quiet times ARE sampled and the
+censored-sampling bias is bounded rather than open-ended.
+⇒ **Accumulate squared log-returns of the Chainlink read into an EWMA on each swap — the same O(1)
+pattern `_bumpFlow` already uses.** No ring source, no keeper, no `pushObservation`, no
+`setObservationSource`, and **no "which pool" decision — the one the owner rejected three times.**
+📌 **This unblocks §E283 (σ²=0 makes the 3% sentinel the only price we quote) and §E326 (the mark's
+volatility input) immediately, and it dissolves §ORACLE-FRESHNESS (a).**
+⛔ **BUT DO NOT DELETE THE RING.** I proposed that and it is wrong: `twapResolve` reads it, so removing
+it leaves a SINGLE Chainlink round as the settle price and loses TWAP smoothing. **The ring's SMOOTHING
+job survives; only its INDEPENDENT-SOURCE job is v4 residue.** Feed it from Chainlink and retire the
+deviation guard that needed a second source — that is the correct version.
+
+### ⛔ THE PART THAT COLLAPSED — "QUOTE THE RESERVATION PRICE" REINTRODUCES A REJECTED DESIGN
+The wrapper idea was to stop bolting a charge onto an oracle price and quote A&S's
+`r = s − qγσ²(T−t)` directly, so (a) one price-formation site makes a double charge unconstructible,
+(c) an OOR order rests against `r` and pays the inventory term without breaking limit semantics, and
+(d) reframes to spread-vs-shift.
+🔴 **IT FAILS ON SYMMETRY, AND THE TREE ALREADY SAYS SO.** `r` is symmetric in `q`: when the range is
+SHORT inventory (`q < 0`) then `r > s`, i.e. **we quote ABOVE oracle and PAY the balancing trader.**
+`Core.sol:1166` records that exact thing as rejected — *"The skew was rejected as compensation paid to
+arbitrageurs we do not need, and that reasoning still holds — we restore 1:1 ourselves."*
+⇒ Make it one-sided to avoid paying, and it becomes `sellSkew` exempting refill — **which is the
+current design.** So the unification was largely a restatement:
+| claim | verdict |
+|---|---|
+| (b) σ² without a source | ✅ **real, validated above** |
+| (a) one price site | ⛔ restatement — it is "delete one of the two charges", i.e. §SKEW-DOUBLE |
+| (c) OOR rests against a skew-inclusive trigger | ✅ **genuinely new, and survives independently** |
+| (d) deep range earns nothing | ⛔ reframed, not resolved — still §E276/§E312 spread-vs-shift |
+
+### 🟢 §E332-c SURVIVES ON ITS OWN — PRICE THE OOR TRIGGER, DO NOT CHARGE THE FILL
+The objection to charging OOR skew was that a limit order filling BELOW its limit breaks the
+abstraction (§E332). **Baking the inventory term into where the order RESTS avoids that entirely**: the
+trigger already includes it, the fill honours the stated price, and the maker still pays for the
+inventory it consumes. ▶️ This is independent of everything above and is the cheapest of the four.
+
+### ⚠️ METHOD NOTE — WHY THIS ROW HAS TWO HALVES
+The owner asked *"make sure it's definitely the best solution"* and it was not. **The check that broke it
+was applying my own §E332 reasoning back to my own proposal** — the same "does the tree already reject
+this?" question. ⇒ A proposal that dissolves four open items at once should be assumed to be a
+restatement of three of them until each is checked separately.
 
 
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
