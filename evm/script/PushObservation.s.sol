@@ -24,12 +24,12 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///
 ///         **MEASURED PREMISES, so this is not hopeful:** the 1inch↔Chainlink basis is **23 bps**
 ///         against the 50 bps guard (`PushSourceIsAdmissible.t.sol`), so a push IS admitted; and nine
-///         in-band pushes move σ² from 0 to **7.7e17** (`PushObservationFillsTheRing.t.sol`), so the
+///         in-range pushes move σ² from 0 to **7.7e17** (`PushObservationFillsTheRing.t.sol`), so the
 ///         estimator works.
 ///
 ///         ⚠️ **CADENCE IS THE PART THIS FILE DOES NOT DECIDE.** A caller that chooses WHEN to push
 ///         chooses which prices the ring sees, and selective sampling is the one manipulation the
-///         50 bps band does not bound (§E294). **Drive it from band state — a repack, a swap, a
+///         50 bps range does not bound (§E294). **Drive it from range state — a repack, a swap, a
 ///         delever — not from a discretionary loop.** Running it on a bare timer is the sampling
 ///         vector, not a schedule.
 ///
@@ -51,7 +51,7 @@ contract PushObservationScript is Script {
         require(px != 0, "1inch returned 0 - refusing to push a zero");
 
         // ── PREVIEW the guard, so a refused push is visible instead of a silent no-op ──
-        // `pushObservation` swallows an out-of-band price by design (that silence is what makes it
+        // `pushObservation` swallows an out-of-range price by design (that silence is what makes it
         // safe to attach to a carrier), so without this the operator cannot tell success from nothing.
         (uint256 anchor,) = SwapLib.twapResolve(
             _feed(core), 0, false, OBS_PUSH_MAX_BPS, 1 days);
@@ -64,7 +64,7 @@ contract PushObservationScript is Script {
         console2.log("basis     (bps):", bps);
         console2.log("admitted       :", bps < OBS_PUSH_MAX_BPS ? 1 : 0);
         require(bps < OBS_PUSH_MAX_BPS,
-            "basis outside the push band - the write would be silently refused, so it is not sent");
+            "basis outside the push range - the write would be silently refused, so it is not sent");
 
         // ── WRITE (the only broadcast leg: one SSTORE, permissionless, no auth needed) ──
         vm.startBroadcast();

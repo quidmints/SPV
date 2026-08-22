@@ -118,13 +118,13 @@ unreachable. **This ordered list is a ✅-equivalent — it tells the next threa
 stale entry costs what a stale marker costs, and neither sweep covers it because it is prose.**
 ▶️ **READ ITEM 1b: it is what this slot should have pointed at all along.**
 1b. 🔴 **§C1 / §E294 — σ² ≡ 0 BECAUSE THE RING'S TWO WRITERS BOTH SIT IDLE.** Measured, not argued:
-   nine in-band pushes take `realizedVarianceWad` **0 → 7.7e17**
+   nine in-range pushes take `realizedVarianceWad` **0 → 7.7e17**
    (`PushObservationFillsTheRing.t.sol`), and the 1inch↔Chainlink basis is **23 bps against the 50 bps
    guard** (`PushSourceIsAdmissible.t.sol`), so a push IS admitted and the estimator works. **The
    caller now exists** (`script/PushObservation.s.sol` — reads `getRate` in simulation so the 33.6M
    half never becomes a transaction). ⚠️ **WHAT REMAINS IS CADENCE, AND IT IS A DECISION:** drive it
-   from band state (repack / swap / delever), never a bare timer — selective sampling is the one
-   manipulation the 50 bps band does not bound.
+   from range state (repack / swap / delever), never a bare timer — selective sampling is the one
+   manipulation the 50 bps range does not bound.
 1. ⏸️ **§E257 — MOOT BY CONFIGURATION, NOT FIXED (see its row).** `main` cannot execute a swap.** `Core.swap()` staticcalls 1inch's
    `getRate` with no gas cap; `cast estimate` refuses at the node's 2^24 ceiling and the fork test
    measures **33,084,355 gas against a 30M block**. `setObservationSource` is **pin-once**, so a
@@ -8073,10 +8073,10 @@ the lightning bitcoin collateral."*
 1. **The vBTC market is ALREADY CREATED BY US.** `DeployL1_s:556-568` — `loanToken: USDC`,
    `collateralToken: ETH.VBTC()`, 86% LLTV, `createMarket` if unlisted. "Our own listed market" is
    not new work; **what is new is who SUPPLIES it.**
-2. **Double-use is ALREADY PREVENTED, so "band and collateral at once" is answered: NO, by design.**
+2. **Double-use is ALREADY PREVENTED, so "range and collateral at once" is answered: NO, by design.**
    `Vault.exposeBtcToLev(lp, sats)` moves sats `autoManaged → levPooled` and THEN mints vBTC 1:1
    (`Vault:306-310`). The sats are RECLASSIFIED, not shared — swap-backing sats cannot also back a
-   loan, or the band is under-collateralised exactly when the loan is drawn.
+   loan, or the range is under-collateralised exactly when the loan is drawn.
 3. **The LP never sells BTC to get dollar collateral — that is already true today** and is the point
    of `exposeBtcToLev`. What the owner's change alters is where the borrowed dollars COME FROM.
 4. 🔴 **AND IT DISSOLVES THE ONE RECORDED BLOCKER ON THE vBTC MARKET, which is why this is the right
@@ -8191,7 +8191,7 @@ from scratch** — the method matters more than the count, because the obvious m
 |---|---|
 | `IQuidTarget` → `IBasketTurn` | `target()` is in `Basket.sol` beside `turn`/`matureSupply` |
 | `ILevMintVenue` **deleted** | Liquity capability; venue removed (`c11cb40f`); path unreachable |
-| `ILevSyncHook` → `IBand`(→`ICore`) | `BAND` assigned from the same address; **`bandBounds` declared on BOTH** |
+| `ILevSyncHook` → (the former range-manager face) → `ICore` | `RANGE` assigned from the same address; **`rangeBounds` declared on BOTH** |
 | `ILevHost` → `IEthVenue` | all three sites resolved `IAux(...).ethVenue()` |
 | `IBasketMint` → `IBasketTurn` | both cast on `quid`; `Basket.sol` implements `mint` |
 (+ `IBand` → `ICore` by another thread, `c372f7b0`.)
@@ -8319,8 +8319,8 @@ known-live case (`SwapLib.` = **13** production files). 17 libraries in `evm/src
 ### ⛔ WHY THE TWO CALLER-LESS ONES STAY — *"no caller"* IS NOT THE TEST; *"no caller AND no reason"* IS
 - **`ExternalTwap` has a JOB IT IS DOING RIGHT NOW.** `oneInchRateWad` is the instrument behind
   `PushSourceIsAdmissible.t.sol` and `OneInchObserverIsIndependent.t.sol` — the pair that measures the
-  1inch↔Chainlink basis (**23 bps**, §E294) against `pushObservation`'s 50 bps band. **Deleting it
-  removes the only way to detect that basis drifting out of the band**, which fails SILENTLY: past 50
+  1inch↔Chainlink basis (**23 bps**, §E294) against `pushObservation`'s 50 bps range. **Deleting it
+  removes the only way to detect that basis drifting out of the range**, which fails SILENTLY: past 50
   bps every push is refused, the ring never fills and σ² stays 0.
 - **`FixedRateFill` IS MOSTLY THE UNWIRED FIRM-QUOTE SURFACE, WHICH THE DESIGN DEPENDS ON.** 270 lines,
   7 functions: `quoteDrain` / `quoteFill` (a `Quote` with a **TTL**), `enforce`, `assertConserved`,
@@ -8352,3 +8352,20 @@ cases, which must go in the same commit or the suite breaks.
 work rather than `main`.** Rule 15 on a money-path-adjacent deletion needs a clean tree or a detached
 worktree; **the finding is landed here so it is not lost, and the cut is one bounded commit when the
 tree settles.**
+
+---
+
+## RECOVERED — §C17 — lend our own dollars against our own Lightning BTC
+
+*Landed from `rescue/c17-lend-own-dollars`, an unpushed commit displaced by a reset. Only the lines absent
+from this file are reproduced, with the range rename applied so the symbols resolve.*
+
+| `IRANGE-THE-RANGE-MANAGER-FACE.md` | *"NOT yet implemented or wired"* | **`IRange` is in 9 src files.** Wired. |
+1. **Extend `AaveV3Venue` to the ETH side and retire the Morpho ETH borrow.** Measured 2026-08-22:
+   Aave eMode cat 1 = **LTV 93.00%, liq threshold 95.00%, $808M free**; the Morpho weETH/WETH 94.5%
+   market has **$1.55M free at 90% utilisation**. Aave's threshold is HIGHER at **520× the depth**,
+   weETH is active/unfrozen with a 1,350,000 supply cap, and **`AaveV3Venue` already exists and is
+   fork-verified** (`test/AaveV3Venue.t.sol`) — today wired only for the WBTC leg.
+2. **Then** point the vBTC market's supply side at our depositors, once the stable is chosen.
+⚠️ Both are money-path changes needing their own verified runs — and the tree does not currently
+build (another thread's uncommitted `IBtcRange` import), so neither can be verified right now.
