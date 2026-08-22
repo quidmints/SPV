@@ -8677,3 +8677,42 @@ composability* boundary, not a missing feature.
    loss is IN the pro-rata leg or in a conversion the frontend now owns** — a haircut measured across
    a boundary that has since moved is not a contract defect. ⛔ **Do not re-run those rows without
    settling that first, or the number will be attributed to the wrong layer.**
+
+## ⛔⛔ §E312 — **RETRACT §E276. "WE NEVER MOVE THE BID" IS NOT A DEFECT — IT IS §E6, AND I REOPENED A CORRECTLY-CLOSED ITEM BY READING HALF A ROW.**
+Owner asked whether the asymmetric two-sided tilt was ever finished, or deliberately dropped — *"make
+sure not to cancel any of it unless you have good reason"*. **Checking that found my own error.**
+
+### THE REBUTTAL, WHICH PRE-DATES MY PROPOSAL AND SITS IN THE ROW I QUOTED
+§UNIT-WHY-ONESIDED gives TWO reasons for one-sided. **I quoted reason 1 (MEV: a discrete `payRefillBonus`
+jackpot is a race) and never read reason 2, which the row labels THE DECISIVE ONE.** It is §E6
+(`QUEUE.md:1228`):
+> *"Booking a refill PROFIT to LPs would be incoherent — **any profit a refiller makes comes from the
+> pool paying above-oracle for the scarce asset, i.e. EXTRACTED FROM THE LP'S OWN CURVE**, so 'gain to
+> LPs' would be the LPs paying themselves and losing the spread. `_swapInSettle` already settles the
+> refill at the honest `v4Price` for exactly this reason… **DO NOT BUILD A REFILL THAT EARNS A SPREAD.**"*
+🔴 **AND THE ROW ALREADY RECORDS A PREVIOUS SESSION MAKING MY EXACT PROPOSAL AND WITHDRAWING IT:**
+*"MY ENTIRE A–S 'MOVE THE BID UP TO ATTRACT A REFILLER' PROPOSAL IS THE PRECISE THING §E6 FORBIDS, AND
+THE REBUTTAL PRE-DATED MY PROPOSAL BY DAYS, IN THIS FILE, IN AN ENTRY I HAD ALREADY LISTED AS OPEN."*
+⇒ **THE SAME PROPOSAL HAS NOW BEEN MADE AND REFUTED TWICE, BY THE SAME EVIDENCE, IN THE SAME FILE.**
+
+### ⇒ THE ECONOMICS, WHICH IS WHY THIS IS NOT A CLOSE CALL
+A–S's mid-shift pays the balancing counterparty **better than reference**. For a dealer with an external
+book that is a transfer to a third party. **For us the pool IS the LPs**, so paying above-oracle for the
+scarce asset is the LPs buying their own inventory back at a premium — **they pay themselves and lose the
+spread.** ⇒ **We are not "missing" the shift; a shift is incoherent for a pool that IS the counterparty.**
+📌 The LP's gain is the RETAINED PREMIUM (§E5 attribution), not a spread earned on a refill.
+
+### ✅ AND THE ANSWER TO THE ACTUAL QUESTION: THE ASYMMETRIC TWO-SIDED TILT IS **FINISHED**, AND INTACT
+Verified in code today, after a week of churn:
+| piece | state |
+|---|---|
+| two legs, both wired | ✅ `sellSkew` (`SwapLib:418`), `wellSkew` (`:440`) |
+| **asymmetric by direction** | ✅ drain = pole `q/(1−q)`; sell = **linear** `q`, saturating at 2× target |
+| why the asymmetry is REAL | ✅ `Core:1240` — *"you CAN run out"* of inventory; *"you cannot run out of surplus"* |
+| both integrate over their OWN displacement | ✅ §E68 log integral on the drain; §E68b `q = (q0+q1)/2` on the sell |
+| one composer | ✅ §E295's `_amplify`, both legs |
+| per-asset asymmetry | ✅ `ethRisk()` / `btcRisk()` — the asymmetry §UNIT-CURVE-SPEC calls the REAL one |
+⇒ **NOTHING WAS CANCELLED. What is absent — the bid-side shift — was never part of it, and is forbidden
+by §E6.** §E276 conflated "two legs with different curves" (built) with "a two-sided mid shift"
+(forbidden). ⚠️ **§E276 must not be acted on. Its only surviving true statement is descriptive: the
+refill direction is exempt rather than paid — which is the DESIGN, not a defect.**
