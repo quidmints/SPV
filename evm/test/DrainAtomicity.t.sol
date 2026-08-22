@@ -1358,8 +1358,30 @@ contract DrainAtomicity is AllesFixture {
         // ⚠️ THE `try/catch` IS WHAT MADE IT SILENT (standing rule 4). It stays, because a transient
         // revert on one round is legitimate and should not fail the fixture — but the counters below
         // make a PERMANENTLY dead arm impossible to hide again.
+        vm.stopPrank();
+        // 🔴 §E327 — PIN AN OBSERVATION SOURCE, BECAUSE WITHOUT ONE THE RING IS NEVER WRITTEN AND
+        // NOTHING THIS HELPER DOES CAN MOVE σ². `Core._observeIfSourced` returns at
+        // `if (src == address(0)) return;`, and `setObservationSource` has ZERO callers in the whole
+        // tree — no deploy script, no fixture. So "20 driven ticks cannot budge σ²" (§E277/§UNITA) was
+        // never a fact about the estimator or the series; it was a fact about an unpinned source.
+        // ⚠️ THE LEVEL IS SEEDED FROM LIVE, THE MOVES ARE INJECTED. Seeding an initial level from the
+        // live price is initialisation (§E310 marks that pattern CORRECT); reading each subsequent
+        // move from the protocol is the circularity that made `_rallyRange` inert. Every step below
+        // comes from a fixed series, so the ring records a move the protocol did not author.
+        InjectedObservationSource obs = new InjectedObservationSource();
+        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        obs.set(px0);
+        if (CORE.observationSource() == address(0))
+            CORE.setObservationSource(address(obs),
+                abi.encodeWithSignature("price_oracle(uint256)", uint256(1)));
+        vm.startPrank(t);
         uint buys; uint sells;
         for (uint i = 0; i < rounds; ++i) {
+            // Injected walk: ±0.6% alternating with a drift, so successive observations differ and the
+            // ring stores real second differences rather than a flat line.
+            uint step = 60 * (1 + (i % 3));                       // 60 / 120 / 180 bps
+            uint bps   = i % 2 == 0 ? 10_000 + step : 10_000 - step;
+            vm.stopPrank(); obs.set(px0 * bps / 10_000); vm.startPrank(t);
             if (i % 2 == 0) {
                 try AUX.swap(address(USDC), address(WETH), true,
                     (4_000 + (i % 5) * 1_500) * USDC_PRECISION, 0, true) { ++buys; } catch {}
@@ -1825,4 +1847,17 @@ contract DrainAtomicity is AllesFixture {
     /// substitution implies `sigma^2 = 8 · lossFraction / 0.0079 = 1012 · lossFraction`, and the 3%
     /// `MAX_WELL_SKEW` cap binds around `sigma^2 ~ 1`, so **`lossFraction` must stay under ~0.1%**.
     /// This measures the fraction at REALISTIC sizes with NO contract change (the register is live;
+}
+
+/// §E327 — **AN INDEPENDENT, TEST-DRIVEN OBSERVATION SOURCE.**
+/// `_observeIfSourced` staticcalls `OBS_CALLDATA` on the pinned source and writes the result to the
+/// ring. In production that is a Curve pool's `price_oracle(k)`; here it is a level the TEST sets, so
+/// the series is **INJECTED, never read back from the protocol** — §E310's rule, and the exact thing
+/// `_rallyRange` got wrong when it set the Chainlink mock from `AUX.getTWAPforAsset` and made the
+/// anchor a copy of the thing it anchored.
+contract InjectedObservationSource {
+    uint256 private px;
+    function set(uint256 p) external { px = p; }
+    /// Same selector/shape the Curve source would present.
+    function price_oracle(uint256) external view returns (uint256) { return px; }
 }

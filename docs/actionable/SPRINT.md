@@ -10064,6 +10064,22 @@ lapses the ring freezes"*. A swap-driven ring has no stream to lapse. It does **
 §ORACLE-FRESHNESS **(b)** — the ±50 bps admission bound against a ~23 bps live basis (~2.2× margin) is a
 separate calibration and stays open.
 
+### ✅ PROVEN IN-TREE — PINNING A SOURCE MAKES σ² REAL, AND `test_UNITA_FixtureDrivesRealVariance` IS GREEN
+The claim above is no longer analysis. `DrainAtomicity._driveTick` now deploys an
+`InjectedObservationSource` (a settable `price_oracle(uint256)` — the same selector/shape a Curve source
+presents) and pins it via `setObservationSource`. **σ² moved `0 → 23598713149014421874` (≈23.6 wad) and
+the assertion went green on its own** — which is exactly the remedy the test's own comment demanded:
+*"The correct way to retire this red is to FIX THE RING so a driven tick moves σ², then watch this
+assertion go green on its own."* `DrainAtomicity` went **25 passed / 8 failed → 26 / 7**, no regressions.
+⇒ **So §E277 / §UNIT-SERIES-MEASURED's *"20 driven ticks cannot budge σ²"* is now positively refuted, not
+merely doubted.** It was never a fact about the estimator or the series — it was a fact about an unpinned
+source, and §E323's one-directional sell arm was a SECOND defect in the same helper.
+⚠️ **THE LEVEL IS SEEDED FROM LIVE; EVERY MOVE IS INJECTED.** Seeding an initial level from the live price
+is initialisation (§E310 marks that pattern ✅ CORRECT); reading each subsequent move from the protocol is
+the circularity that made `_rallyRange` inert. The walk is a fixed ±60/120/180 bps series, so the ring
+records a move the protocol did not author.
+📌 This is a FIXTURE source. It does not choose a production pool — that is still the decision below.
+
 ### ⛔ WHAT I DID NOT DO, AND WHY — THE SOURCE CHOICE IS THE OWNER'S
 `Core.sol:1320-1324` refuses to carry an index forward, in its own words: *"The SELECTOR and any index
 belong TO THE CHOSEN SOURCE and must be decided WITH it — a pool index is meaningless without the pool,
