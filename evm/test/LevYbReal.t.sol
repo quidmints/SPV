@@ -182,10 +182,16 @@ contract LevYbRealProbe is AllesFixture {
         deal(address(USDC), address(this), maxSteps * usdcPerStep);
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
-            if (ETH.soldFractionWad(syncKeyPx) >= targetWad) break;
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
-            _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows, no 5% anchor trip
-            try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }
+            // (§RALLY-MASK) EVERY exit is announced. `catch { break; }` swallowed the swap's revert,
+            // so a failing venue looked like "no IL accrued" and 40 leverage tests failed 20 lines
+            // later on `debt == 0`, blaming Morpho — which the trace shows was never asked to borrow.
+            uint _sf = ETH.soldFractionWad(syncKeyPx);
+            if (_sf >= targetWad) { emit log_named_uint("RALLY EXIT soldFraction>=target", _sf); break; }
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            if (px == 0) { emit log_named_uint("RALLY EXIT twap==0 at step", i); break; }
+            _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows
+            try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {}
+            catch (bytes memory err) { emit log_named_bytes("RALLY SWAP REVERTED", err); break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
     }
