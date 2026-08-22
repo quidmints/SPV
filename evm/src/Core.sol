@@ -867,7 +867,7 @@ contract Core {
         }
 
         // (4) §E258 — EXECUTE THE RESTING ORDERS THIS MOVE CROSSED. Under v4 the PoolManager did
-        // this as part of any swap through the range; `FixedRateFill` has one price and no
+        // this as part of any swap through the range; `SwapLib` has one price and no
         // traversal, so without this a boundary order is an option its owner must exercise rather
         // than the limit order it was sold as. It runs AFTER settlement so the fills price against
         // inventory this swap has already moved, and it is capped inside the range — see

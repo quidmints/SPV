@@ -76,7 +76,7 @@ abstract contract Shares {
     uint internal ID;
 
     /// §E258 — THE BOUNDARY-ORDER INDEX, KEYED BY TRIGGER PRICE. Under v4 the PoolManager filled a
-    /// resting order as part of any swap that crossed its range; `FixedRateFill` has one price and
+    /// resting order as part of any swap that crossed its range; `SwapLib` has one price and
     /// no traversal, so that crossing stopped happening and a boundary order silently became an
     /// option the owner had to exercise. This is the replacement: orders sorted by the price at
     /// which they become fillable, so a fill can find the ones the price just crossed in a binary

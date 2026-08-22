@@ -119,6 +119,24 @@ interface IAngelF8N {
 /// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
 /// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
 contract AllesFixture is ForkPin, ExitFixture {
+    /// 🔴 §E309 — WITHOUT THIS, THE PROTOCOL CANNOT PAY THE TEST, AND THE FAILURE LANDS ON THE
+    ///    WRONG CONTRACT ENTIRELY. `Quid.deliverVolatile` is documented "ETH sends real ether"
+    ///    (Quid.sol:1216) and routes through `QuidLib.sendEth`, whose last line is
+    ///    `(bool success,) = payable(toWhom).call{value: sent}(""); require(success, "ethSend")`.
+    ///    A contract with no `receive()` CANNOT be that recipient, so every buy-ETH-out-of-the-range
+    ///    swap reverts with `Error("ethSend")` -- and no test file in this repo declared one.
+    /// ⚠️ THE REASON THIS COST SO MUCH: THE REVERT IS SWALLOWED AND SURFACES ~20 LINES LATER AS A
+    ///    MORPHO BUG. `_rallyRange` catches the swap revert and breaks, so the price never moves;
+    ///    `ilTargetBps` returns 0 for `pxNow <= ilBasisPx`; `debtDeltaToTarget` returns 0; `openLev`'s
+    ///    lever loop breaks on iteration 0; and `MorphoEscrowVenue::borrow` is NEVER INVOKED. The
+    ///    trace then shows `Position({supplyShares: 0, borrowShares: 0, collateral: 5e18})` and the
+    ///    test fails on `debt == 0`, which reads as "the venue will not lend" when the truth is that
+    ///    the venue was never asked. `LevYbReal._rallyRange`'s own §RALLY-MASK note records the same
+    ///    misattribution across 40 leverage tests.
+    /// ⇒ AN EOA CAN ALWAYS RECEIVE ETH, so the unrealistic party was the HARNESS, not the protocol.
+    ///    This adds the capability every real recipient has; it is not a tolerance that hides a defect.
+    receive() external payable {}
+
     /// (E128) FIXED dead-man deadline — the BIP-341 sighash commits to nLockTime, so the exit must
     /// be signed for a height known before the funding tx is built. `block.number + n` cannot work.
     uint64 constant EXIT_DEADLINE_ALLES = 900_000;

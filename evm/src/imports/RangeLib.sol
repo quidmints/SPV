@@ -304,7 +304,7 @@ library RangeLib {
     /// @dev    THE ORDER SETTLES AT ITS OWN LIMIT PRICE, NOT AT THE RANGE'S FILL PRICE. That is the
     ///         whole difference between a limit order and a participant in the swap. ⚠️ **WHERE THE
     ///         DIFFERENCE BETWEEN THE TWO ACCRUES IS NOT DECIDED HERE, ON PURPOSE** — it is the same
-    ///         question as `FixedRateFill`'s two suppliers (LP inventory vs basket capital) and is
+    ///         question as `SwapLib`'s two suppliers (LP inventory vs basket capital) and is
     ///         flagged there as having to be settled WITH #12. `OorFilled` carries both prices so
     ///         the quantity is observable while the split is still open; inventing an answer here
     ///         would bake it into the share maths before the question is asked.
