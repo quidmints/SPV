@@ -20,22 +20,25 @@
 //! can redirect the export, AND losing one key does not brick upgrades. This is
 //! NOT governance/a DAO — it is narrow operator key custody for one operation.
 //!
-//! WHY A SAFE (not the old baked `ed25519 OPERATOR_PUBKEYS`):
-//!   * operators sign in the standard Safe{Wallet} UI with their own wallets —
-//!     no bespoke CLI, no bespoke keygen;
-//!   * we pin the Safe ADDRESS ([`OPERATOR_SAFE`]), not raw keys, so operators
-//!     can add/remove/rotate members in the Safe WITHOUT rebuilding the enclave
-//!     (the old scheme baked pubkeys into MRENCLAVE → rotation changed MRENCLAVE);
-//!   * one primitive: operator and family msigs verify identically (k-of-n
-//!     EIP-712 owner sigs vs a Safe), just a different pinned Safe.
+//! ⛔ **NO SAFE. A PLAIN k-of-n msig, and that is the OWNER'S STANDING DECISION** ("we are not using
+//! a Safe anymore, just a simple msig"). The block here used to be headed "WHY A SAFE" and argued
+//! for Safe{Wallet} as the signing UI. **The MECHANISM never depended on one and still does not:**
+//! [`verify_migration_auth`] takes an owner list and a threshold and checks k-of-n EIP-712
+//! signatures. Nothing calls a Safe contract; nothing reads Safe storage.
 //!
-//! OWNER-SET SOURCE — interim (B) vs target (A): the enclave verifies signatures
-//! against [`OPERATOR_OWNERS`] — a **sealed-config snapshot** of the Safe's
-//! owners (NOT baked into MRENCLAVE; strictly better than the old scheme, and
-//! self-contained — no RPC trust). The target is (A): verify the LIVE owner-set
-//! via an EVM state proof of [`OPERATOR_SAFE`] against a trusted block, so owner
-//! rotation needs no config step. `verify_migration_auth` already takes the
-//! owner-set as a parameter, so swapping the source in is local to the caller.
+//! WHY AN ADDRESS-PINNED OWNER SET (not the old baked `ed25519 OPERATOR_PUBKEYS`):
+//!   * operators sign EIP-712 with their own wallets — no bespoke keygen;
+//!   * the owner set lives in SEALED CONFIG, not in MRENCLAVE, so rotating a member does NOT change
+//!     the measurement (the old scheme baked pubkeys in, so rotation changed MRENCLAVE);
+//!   * one primitive: the operator msig and the family msig verify IDENTICALLY.
+//!
+//! OWNER-SET SOURCE — [`OPERATOR_OWNERS`], a sealed-config snapshot. Self-contained, no RPC trust.
+//! ⛔ **THE OLD "TARGET (A)" IS WITHDRAWN, NOT DEFERRED:** it proposed reading the LIVE owner set via
+//! an EVM STATE PROOF OF A SAFE, which requires a Safe's storage layout — the thing that is ruled
+//! out. It was never built (no `eth_getProof`, no storage-proof code in this file), so nothing is
+//! lost by withdrawing it. **Do not re-open it as "the target" without re-deriving it for a msig**;
+//! a plain msig exposes no owner-set storage to prove against, so live rotation would need a
+//! different mechanism entirely, not a swapped source.
 
 use std::collections::HashSet;
 
@@ -55,8 +58,11 @@ use serde::{Deserialize, Serialize};
 /// replayed against a different Safe), and the anchor for the target (A)
 /// state-proof owner-set verification.
 ///
-/// PLACEHOLDER (dev). Replace with the real operator Safe before mainnet, like
-/// [`Measurement::PROD_SIGNER`].
+/// The EIP-712 domain's `verifyingContract` — it SCOPES the signature domain so an operator
+/// signature for this deployment cannot be replayed against another. ⚠️ **It is NOT a Safe and
+/// nothing calls it**; the name is historical (see the module header: no Safe).
+/// PLACEHOLDER (dev). Replace with the real operator msig address before mainnet, like
+/// [`Measurement::PROD_SIGNER`] — the boot guard below refuses to run until you do.
 pub const OPERATOR_SAFE: Address = address!("000000000000000000000000000000000000dEaD");
 
 /// The EVM chain the operator Safe lives on (EIP-712 domain `chainId`).
@@ -105,7 +111,7 @@ pub fn guard_prod_trust_anchors(deploy_env: DeployEnv) -> anyhow::Result<()> {
     }
     ensure!(
         OPERATOR_SAFE != address!("000000000000000000000000000000000000dEaD"),
-        "OPERATOR_SAFE is still the dev placeholder (0x…dEaD) — refuse to boot in {}",
+        "OPERATOR_SAFE (the EIP-712 verifyingContract) is still the dev placeholder (0x…dEaD) — refuse to boot in {}",
         deploy_env.as_str()
     );
     // The dev owner set == the addresses of secp256k1 secret keys 1/2/3 (public).
