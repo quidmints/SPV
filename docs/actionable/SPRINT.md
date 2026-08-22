@@ -9390,3 +9390,37 @@ source.** It spliced two `ICore` declarations into `function mo.  t amount, addr
 `ICore` declaring neither `modLP` nor `outOfRange` while both are called through it — **and I pushed it,
 because I verified the rebase succeeded rather than the build** (§E315). ⇒ **Never auto-resolve a `.sol`
 conflict; at minimum refuse to join two lines that each end in a semicolon.**
+### C23. 🟠 THE REMAINDER OF §E310 — every site still reading its own oracle, and what is left of my thread
+
+**§E310's defect is one shape: a helper reads `AUX.getTWAPforAsset` (the observation RING) and sets
+the Chainlink mock FROM it, so the anchor is a copy of the thing it anchors and NEITHER can move.**
+⛔ **`rangePrice()` is NOT an escape** — `CORE.poolStats().priceWad` **IS** `obsState.lastPrice`.
+§V4-CUT settles fills AT ORACLE against inventory (*"one price, no traversal, no discovery"*), so **a
+swap moves NO price**. The move must be **INJECTED**, never read.
+
+**FIXED (this thread):** `LevYbReal._rallyRange`, `LevCascade._rallyRange`,
+`LeverageCrossSubsidyProbe._rallyRange`, `LevYbReal._crashRange`, `LevCascade._crashRange`.
+🔴 **STILL CIRCULAR — 6 sites, 3 files, NOT fixed:**
+- `Alles._moveEth` and `Alles.t.sol:1042` — ⚠️ **both carry comments claiming *"feed tracks pool
+  pre-swap"*, which is FALSE (it tracks the RING). That false comment is probably why this survived.**
+- `BufferSwapDrain.t.sol` ×2
+- `PremiumIsCarryNotIncome.t.sol` ×3
+⇒ Apply the same injection: read a base, **add/subtract an exogenous step**, `_setLiveEthFeed`, then
+`CORE.pushObservation`. **Not done here because `Alles.t.sol` is the shared fixture and two other
+threads have it in flight** — a collision there breaks every suite at once.
+
+⚠️ **AND THE SECOND HALF OF THE SAME DEFECT, which bit three times: `_setEthFeed` targets the
+`0xE7F0FEED` SENTINEL**, which only becomes the anchor after `AUX.setAssetFeed(WETH, ETH_FEED)`.
+Fixtures that never pin it read REAL Chainlink and **`_setEthFeed` is completely inert**.
+`_setLiveEthFeed` (added to `AllesFixture`) mocks whatever `AUX.assetPriceFeed(WETH)` actually
+returns. **Every remaining site above needs the LIVE variant, not `_setEthFeed`.**
+
+▶️ **THE ONE-LINE RULE THIS THREAD PAID FOUR TIMES TO LEARN, and it belongs at the top of any
+price-driven probe:**
+```solidity
+emit log_named_uint("oracle", AUX.getTWAPforAsset(address(WETH), 1800));   // BEFORE any assertion
+```
+**Four separate false findings** came from an unverified injection — *"Morpho will not lend"*, *"the
+manager skips the borrow"*, *"the de-lever does not repay"*, *"the LP's claim conceals 4.7% IL"* —
+each with a tidy story and the wrong subject. **A quantity that fits a constant perfectly across a
+supposedly varying input is a FROZEN INPUT, not a discovery.**

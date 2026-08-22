@@ -141,9 +141,17 @@ contract LevCascadeProbe is AllesFixture {
         uint start = AUX.getTWAPforAsset(address(WETH), 1800);
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
+            // 🔴 §E310 (DOWN-SIDE TWIN) — the last circular crash helper, fixed to match
+            // `LevYbReal._crashRange`. It read the observation RING and set the Chainlink mock FROM
+            // it, so `px` never changed and `px <= start - drop` was UNREACHABLE: the loop burned
+            // every step and MOVED NOTHING. ⛔ `rangePrice()` is not an escape either —
+            // `CORE.poolStats().priceWad` IS `obsState.lastPrice`. §V4-CUT settles fills AT ORACLE
+            // against inventory, so a swap moves no price: the move must be INJECTED.
+            uint px = ETH.rangePrice(); if (px == 0) break;
             if (px <= start - start * dropBps / 10000) break;
-            _setEthFeed(px / 1e10);
+            px -= px * 2 / 100;                     // -2%: the MARKET moves, EXOGENOUSLY
+            _setLiveEthFeed(px / 1e10);             // the LIVE feed, not the 0xE7F0FEED sentinel
+            CORE.pushObservation(px);               // ring records it (deviation 0 => admissible)
             try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
