@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
-import {IVaultV2 as IMorphoV2Probe} from "morpho-vaults-v2/interfaces/IVaultV2.sol";
+import {IVaultV2 as IMorphoV2Probe} from "../src/imports/Interfaces.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {QuidLib} from "../src/imports/QuidLib.sol";

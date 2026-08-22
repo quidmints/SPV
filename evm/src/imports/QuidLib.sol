@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {WAD} from "./Types.sol";
 // §E266 — Morpho VAULTS V2 is a different protocol from Blue; import ITS interface rather than
 // restating three signatures. A hand-rolled restatement is what drifts silently.
-import {IVaultV2} from "morpho-vaults-v2/interfaces/IVaultV2.sol";
+import {IVaultV2} from "./Interfaces.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";

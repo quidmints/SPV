@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ForkPin} from "./utils/ForkPin.sol";
-import {IMorphoStaticTyping as IMorphoMarketRead, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
+import {IMorphoStaticTyping as IMorphoMarketRead, MarketParams, Id} from "../src/imports/Interfaces.sol";
 import {Deploy} from "../script/DeployL1_s.sol";
 import {IAaveV4Spoke} from "../src/imports/Interfaces.sol";
 
