@@ -9658,6 +9658,40 @@ bug to fix twice; it is the wrong mechanism. ▶️ Pin a source (as `PushObserv
 does) or call `pushObservation` — which is §E294's keeper, still with zero production callers.
 
 
+---
+
+## ✅ §E324 — **THREE SILENT SKIPS DISABLED THE ONLY MONITOR §E304 CALLS LOAD-BEARING. FIXED.**
+
+**From the loose-ends scanner's "5 silent skips".** Triaged, and they are NOT five of a kind: two
+(`btc/BtcSelfManaged.t.sol:127`, `:320`) are ordinary in-test skips. **The other three are a defect**,
+and they sit on the observation path:
+
+`CurveObserverIsCheapAndSane`, `OneInchObserverIsIndependent`, `OneInchGasProbe` all had:
+```solidity
+try vm.envString("ETH_RPC_URL") returns (string memory u) { vm.createSelectFork(u); }
+catch { vm.skip(true); }
+```
+**`vm.createSelectFork` is INSIDE the `try` body**, so a 401 / 429 / dead key is caught by the SAME
+handler as an unset variable, and the suite reports **SKIPPED**.
+⚠️ **That is the inverse of the trap CLAUDE.md already records** — *"A DEAD RPC KEY LOOKS LIKE A BROKEN
+TEST SUITE"*, where every fork test FAILS and you at least look. This fails the other way, and a skip
+reports identically to a pass.
+
+🔴 **AND IT DISABLES A DETECTOR THIS LEDGER ARGUES IS ESSENTIAL.** §E304 keeps `ExternalTwap` on the
+explicit grounds that deleting it *"removes the only way to detect that basis drifting out of the
+range, which fails SILENTLY: past 50 bps every push is refused, the ring never fills and σ² stays 0."*
+**These three tests ARE that detector** (the 23 bps 1inch↔Chainlink basis against `pushObservation`'s
+50 bps band, §E294). A silent skip had already removed it — the library was kept and its only consumer
+could quietly stop running.
+
+### ✅ THE FIX, AND IT IS THE DISCRIMINATOR NOT A TOLERANCE
+The read is separated from the fork: an **unset** variable still skips (genuinely unconfigured —
+nothing to measure), a **broken** endpoint now reverts in `setUp` and fails loudly.
+**VERIFIED against the live endpoint: 3 + 4 tests PASS, 0 skipped**, and `OneInchGasProbe` compiles and
+lists. So the change is not merely "stricter" — the tests it protects were already running, and the
+protection now cannot be lost without someone seeing it.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
