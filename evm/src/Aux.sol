@@ -866,7 +866,7 @@ contract Aux is // Auxiliary
     /// caller's address.
     /// @param amount of tokens to redeem, 1e18
     function redeem(uint amount) external nonReentrant {
-        _redeemAs(amount, msg.sender, msg.sender, address(0));
+        _redeemAs(amount, msg.sender, msg.sender);
     }
 
     /// @notice Targeted redemption: shed `preferred` (a basket stable) FIRST, then
@@ -877,10 +877,6 @@ contract Aux is // Auxiliary
     ///         naming a `preferred` stable additionally pays the per-stable
     ///         concentration fee on that leg — the redemption mirror of choosing an
     ///         output stable on a swap. Lets a holder shed a depegged/low-yield leg.
-    function redeem(uint amount, address preferred) external nonReentrant {
-        _redeemRequire(preferred);
-        _redeemAs(amount, msg.sender, msg.sender, preferred);
-    }
 
     /// @notice Redeem to a DIFFERENT recipient. `source` stays msg.sender — you can
     ///         only ever burn your OWN QUI (turn burns msg.sender's mature batches),
@@ -889,21 +885,15 @@ contract Aux is // Auxiliary
     ///         cites "redeem's recipient overload"): a holder blacklisted by a stable
     ///         issuer (USDC/USDT) can take proceeds at a fresh address instead of
     ///         being stranded. `preferred` (0 = pro-rata) behaves as in redeem/2.
-    function redeemTo(uint amount, address recipient, address preferred) external nonReentrant {
+    function redeemTo(uint amount, address recipient) external nonReentrant {
         require(recipient != address(0), "bad-recipient");
-        _redeemRequire(preferred);
-        _redeemAs(amount, msg.sender, recipient, preferred);
+        _redeemAs(amount, msg.sender, recipient);
     }
 
     /// @dev Shared targeted-draw validation: `preferred` must be a real basket stable
     ///      (not the volatile WETH leg, not QUID), or address(0) for pure pro-rata.
-    function _redeemRequire(address preferred) internal view {
-        if (preferred != address(0)) {
-            require(preferred != address(WETH) && toIndex[preferred] > 0, "bad-preferred");
-        }
-    }
 
-    function _redeemAs(uint amount, address source, address recipient, address preferred) internal {
+    function _redeemAs(uint amount, address source, address recipient) internal {
         // Depeg severity is read live from each stable's pinned Chainlink feed
         // (getDepegSeverityBps → liveDepegBps) inside redeemAsBody's haircut, so
         // there is no off-chain "signal dark" state to gate on anymore. A stale or
@@ -916,7 +906,7 @@ contract Aux is // Auxiliary
         _requireFreshHoldings();
         BasketLib.redeemAsBody(BasketLib.RedeemArgs(
             amount, source, recipient,
-            address(CORE), address(QUID), address(RANGE), address(WETH), preferred));
+            address(CORE), address(QUID), address(RANGE), address(WETH)));
         // cache: redeem does a FULL refresh to recapture yield drift across
         // ALL stables (the pro-rata draw touched some; this covers the rest).
         _refreshAllHoldings();
@@ -976,7 +966,7 @@ contract Aux is // Auxiliary
     ///         _redeemAs (basket redemption).
     function take(address who, uint amount, address token, uint seed)
         public onlyUs returns (uint sent) {
-        return take(who, amount, token, seed, address(0));
+        return BasketLib.takeBody(_takeArgs(who, amount, token, seed));
     }
 
     /// @notice Targeted-draw overload. `preferred` (a basket stable, or address(0)
@@ -985,27 +975,13 @@ contract Aux is // Auxiliary
     ///         redeem path passes a non-zero `preferred`; Core's swap drain uses the
     ///         4-arg form (preferred=0). Behavior with preferred=0 is byte-identical
     ///         to the prior pro-rata redeem (regression-safe).
-    function take(address who, uint amount, address token, uint seed, address preferred)
-        public onlyUs returns (uint sent) {
-        // Body extracted to BasketLib.takeBody. Wrapper holds the onlyUs
-        // gate, pre-reads cheap state (toIndex, stables) and DELEGATECALLs the
-        // library. Library calls back via withdrawSelf / tipSelf / checkBacking
-        // (all self-gated) and reads depeg severity via getDepegSeverityBps on Aux
-        // (handed `address(this)`).
-        // DIRECTIONAL fee: the redemption path (token==QUID) accrues the decaying
-        // §SCRUB: this said the fee covered `baseRate` for BOTH draw modes. `baseRate` is gone; the
-        // pro-rata/targeted distinction below is real, the toll is not. A targeted redeem is
-        // still a redemption. A swap taking USD out as one specific stable
-        // (token!=QUID) is normal flow, not a redemption, so brBps=0.
-        return BasketLib.takeBody(_takeArgs(who, amount, token, seed, preferred));
-    }
 
     /// @dev Shared TakeArgs builder for take()/5 and takeWith()/7 (identical
     ///      12-field construction). §SCRUB: claimed it "accrues the directional baseRate HERE" --
     ///      nothing accrues, `baseRate` having been removed. Kept the construction note, which is
     ///      true, and dropped the accrual, which named a deleted mechanism at a specific site (state
     ///      mutation) so both callers stay thin — one copy of the struct build.
-    function _takeArgs(address who, uint amount, address token, uint seed, address preferred)
+    function _takeArgs(address who, uint amount, address token, uint seed)
         internal view returns (BasketLib.TakeArgs memory) {
         // baseRate REMOVED. It was a Liquity-style DIRECTIONAL redemption velocity toll: a decaying rate
         // (12h half-life via BR_DECAY) that heated by `redeemedUsd/(2·supply)` on every QUID redemption to
@@ -1019,7 +995,7 @@ contract Aux is // Auxiliary
             who, amount, token, seed,
             address(WETH), address(QUID),
             toIndex[token], stables, address(this),
-            preferred, toIndex[preferred], false          // softBacking: strict for every user-facing drain
+            false          // softBacking: strict for every user-facing drain
         );
     }
 

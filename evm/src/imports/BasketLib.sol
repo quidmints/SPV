@@ -618,10 +618,7 @@ library BasketLib {
         uint    index;
         address[] stables;
         address linkAddr;
-        // Targeted redemption (token==quid + preferred!=0): the stable to shed
         // FIRST, and its 1-indexed slot. address(0)/0 ⇒ pure pro-rata (default).
-        address preferred;
-        uint    prefIndex;
         // Trusted swap-out SETTLE drain (delivery-side de-lever): the terminal solvency check uses the
         // non-reverting tryCheckBacking instead of the strict checkBacking, because the drain is IMMEDIATELY
         // offset by an in-tx debt-repay so the FINAL state is solvent even though the mid-drain instant is not.
@@ -1000,7 +997,6 @@ library BasketLib {
         address weth;
         // Optional targeted draw: a basket stable to shed FIRST (then pro-rata
         // remainder), or address(0) for the default cherry-pick-free pro-rata draw.
-        address preferred;
     }
 
     /// @dev Pre-burn redemption quote, own stack frame (redeemAsBody stays within the legacy pipeline, no via_ir).
@@ -1100,9 +1096,9 @@ library BasketLib {
         // take can withdraw the already-in-vault stables) — the pre-fetch vectors don't reflect the relaxed gate,
         // so re-fetch to be safe. (No real stables move on unwind; deposits[14] is unchanged.)
         if (seedBurned == 0 && !fresh) {
-            IAux(address(this)).takeWith(r.recipient, usdPart, r.quid, 0, r.preferred, amts, yW);
+            IAux(address(this)).takeWith(r.recipient, usdPart, r.quid, 0, amts, yW);
         } else {
-            IAux(address(this)).take(r.recipient, usdPart, r.quid, seedBurned, r.preferred);
+            IAux(address(this)).take(r.recipient, usdPart, r.quid, seedBurned);
         }
     }
 
