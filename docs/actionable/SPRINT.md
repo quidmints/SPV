@@ -10747,6 +10747,50 @@ dispersion of `ilBasisPx` across open LPs. Tight dispersion ⇒ the gap is negli
 close to free; wide dispersion ⇒ it is not.
 
 
+---
+
+## 🟠 §E339 — **THERE ARE NO "MULTIPLE ENTRIES" TO WEIGHT: TOP-UPS ARE FORBIDDEN. `openPos` IS A LATENT LANDMINE FOR THE DAY THEY ARE NOT.**
+
+Owner: *"entry should be a weighted average by the way over multiple entries."* **Checked. The
+capability that premise assumes does not exist — and the code that would implement it wrongly is
+already written.**
+
+### 1. ✅ NO BUG TODAY — BUT ONLY BECAUSE TOP-UPS ARE REFUSED
+`RangeLib.openPos` (`:444`) does a **wholesale overwrite**: `pos[lp] = p;`, with the `lpIdx` guard
+covering only the index push, not the position. A second open would therefore **replace `ilBasisPx`
+outright**, not blend it. It is unreachable: `LevManager.openLev:242` is
+`if (pos[msg.sender].open) revert AlreadyOpen();`.
+⇒ **One position, one entry, and the only way to add is close-and-reopen — which REALISES the IL and
+re-anchors at the current price.** That is a real product limitation and it is nowhere stated as a
+decision; it falls out of a guard.
+
+### 2. 🔴 THE LANDMINE, AND IT CUTS BOTH WAYS
+The moment a top-up path is added — and *"entry should be a weighted average"* is a request for one —
+`openPos`'s `pos[lp] = p` silently resets the basis. Both directions are wrong and one is an attack:
+- **top up after a RISE** ⇒ basis re-anchors UP ⇒ the LP **destroys its own protection** on the whole
+  position (protection is `0` at/below entry);
+- **dust top-up at a local LOW** ⇒ basis re-anchors DOWN ⇒ `1 − √(entry/now)` inflates across the
+  **entire** position ⇒ **the protocol pays protection the LP never bought.**
+▶️ **Any top-up feature must blend `ilBasisPx` size-weighted at the same commit that opens the path.**
+Book it against `openPos`, not against the caller: the overwrite is the defect.
+
+### 3. ⭐ AND THIS REFINES §E338 — WEIGHTED-AVERAGE ENTRY *IS* THE POOLING APPROXIMATION, AT SMALLER SCALE
+§E338 argued against pooling because `1 − √(entry/now)` is concave, so a position sized on an AVERAGE
+entry under-hedges the sum of per-entry obligations. **A weighted-average entry within one LP is the
+same approximation.** Measured — one LP with 100 units at 2,000 and 1 at 4,000, price 5,000:
+| | protection |
+|---|---|
+| per-tranche (exact) | 0.364951 |
+| weighted-average entry | 0.364421 |
+| **error** | **−5.3 bps of notional** |
+⇒ **So the owner's proposal implicitly accepts the concavity cost — and once accepted within an LP, the
+objection to accepting it ACROSS LPs is one of DEGREE, not of kind.** §E338's Jensen argument therefore
+does not rule pooling out; it prices it. **The deciding number is dispersion:** tranches within one LP
+are usually close (5.3 bps here), entries across all LPs need not be (40 bps in §E338's two-LP case, and
+wider as the book ages). ▶️ **Measure `ilBasisPx` dispersion across open positions — that single number
+decides pooled-vs-per-LP, and it is cheap to compute off-chain from the existing `openLpAt` accessor.**
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
