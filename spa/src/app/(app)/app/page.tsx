@@ -87,8 +87,6 @@ const enc = {
                 iface.encodeFunctionData('requestSwapOutOnchain', [token, usd, minSats, swapId, script]),
   recordClose: (id: string, rawTx: string, blk: string, proof: string[], txIndex: number) =>
                 iface.encodeFunctionData('recordClose', [id, rawTx, blk, proof, txIndex]),
-  openChannelDigest: (p: unknown, rawTx: string, hop: string) =>
-                iface.encodeFunctionData('openChannelDigest', [p, rawTx, hop]),
   // LevManager (YB leverage overlay, #65). Full sigs (merged iface has overloads).
   // openLev passes an EMPTY minWethOut[] — the open borrows nothing (opens at zero
   // leverage); the keeper levers up afterward, so there's no swap to floor here.
@@ -923,26 +921,30 @@ export default function QuidApp() {
     }
   }, [ocParams])
 
-  const computeChannelDigest = useCallback(async (): Promise<{ digest: string; lp: string }> => {
+  // (§E183 item 1) THE CHANNEL OWNER IS DERIVED, NOT RECOVERED — and this is a LOCAL computation,
+  // so it needs no contract call at all.
+  //
+  // ⚠️ This used to call `openChannelDigest` and then `recoverAddress(digest, lpAuth)`. BOTH halves
+  // are gone: §E183 deleted `lpEth`/`lpSig` from `OpenAuth` (the LP signs NOTHING on the EVM), and
+  // the public `openChannelDigest` accessor was deleted with the domain tags. The SPA was encoding a
+  // call to a function that no longer exists — caught by `tools/check-client-abis.py` as an ORPHAN,
+  // which is the §E154-client-ghosts failure that gate was written for.
+  // ⇒ The contract now does `ChannelLib.lpEthOf(p.lpPubkey)` = `evmAddressOfCompressed`, which is
+  // exactly `ethers.computeAddress` over the 33-byte compressed key. Same answer, no round-trip.
+  const computeChannelOwner = useCallback(async (): Promise<{ digest: string; lp: string }> => {
     const p = buildOpenParams()
-    // openChannelDigest now binds the hop (EVM submitter) address the LP signed against
-    // — the node supplies it in the pasted params as `o.hop`. Without the matching hop
-    // the recovered owner won't equal the intended lpEth (that's the anti-replay point).
-    const hop = (JSON.parse(ocParams).hop as string) ?? ethers.ZeroAddress
-    const res = await ethCall(CONTRACTS.btcChannels, enc.openChannelDigest(p, ocRawTx.trim(), hop))
-    const [digest] = iface.decodeFunctionResult('openChannelDigest', res)
-    const lp = ethers.recoverAddress(digest, ocLpAuth.trim())
-    return { digest, lp }
-  }, [buildOpenParams, ocParams, ocRawTx, ocLpAuth])
+    const lp = ethers.computeAddress(p.lpPubkey as string)
+    return { digest: '', lp }
+  }, [buildOpenParams])
 
   const doVerifyChannel = useCallback(async () => {
     setError(null)
     try {
-      const { digest, lp } = await computeChannelDigest()
+      const { digest, lp } = await computeChannelOwner()
       setOcDigest(digest); setOcRecovered(lp)
-      setStatus(`lpAuth → channel owner ${lp}`); setTimeout(() => setStatus(null), 8000)
+      setStatus(`channel owner (derived from lpPubkey) ${lp}`); setTimeout(() => setStatus(null), 8000)
     } catch (e: any) { setError(e.message || 'verify failed') }
-  }, [computeChannelDigest])
+  }, [computeChannelOwner])
 
   // openChannel is HOP-ONLY submit on-chain (§9b): a user wallet can't land it.
   // So the SPA hands the artifacts to the hop, which relays the tx. We still

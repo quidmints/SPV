@@ -8,7 +8,7 @@ import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
-import {IMorphoFlash} from "./imports/Interfaces.sol";
+import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {ICore} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.

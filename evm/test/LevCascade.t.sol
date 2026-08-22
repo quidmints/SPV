@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
-import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
-import {IOracle as IMorphoOraclePrice} from "morpho-blue/interfaces/IOracle.sol";
+import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "../src/imports/Interfaces.sol";
+import {IOracle as IMorphoOraclePrice} from "../src/imports/Interfaces.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/Interfaces.sol";

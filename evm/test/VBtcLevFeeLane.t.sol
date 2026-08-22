@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {AllesFixture, MockSPV} from "./Alles.t.sol";
-import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
-import {IOracle as IMorphoOraclePrice} from "morpho-blue/interfaces/IOracle.sol";
+import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "../src/imports/Interfaces.sol";
+import {IOracle as IMorphoOraclePrice} from "../src/imports/Interfaces.sol";
 import {LevBase} from "../src/imports/LevBase.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";

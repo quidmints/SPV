@@ -3,7 +3,6 @@ pragma solidity ^0.8.26;
 
 // §E266 — flashLoan comes from Morpho Blue itself; this was a hand-rolled restatement of
 // IMorphoBase.flashLoan(address,uint256,bytes), identical in signature.
-import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
 
 /// @title  Interfaces — the ONE declaration site for external ABIs shared across the tree.
 ///
@@ -32,6 +31,61 @@ import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
 
 // (there is no wrapper type here: a Solidity file may hold interfaces alone, and the empty
 //  `library Interfaces {}` that used to sit on this line was a no-op that only produced an artifact)
+
+
+// ═════════════════ MORPHO — minimal, un-vendored (§MORPHO-UNVENDOR 2026-08-22) ═════════════════
+// `lib/morpho-blue` (23 files) and `lib/morpho-vaults-v2` are GONE. They were carried for FOURTEEN
+// `IMorpho` members, ONE `MarketParamsLib.id()`, ONE `IOracle.price()` and ONE
+// `IVaultV2.liquidityAdapter()`. "TAKE THE PIECES, NOT THE REPO" applied to the last two places it
+// had not been: an interface emits ZERO bytecode, so vendoring bought nothing a declaration does not.
+// ⚠️ Need a member that is not here? ADD IT HERE. Do not re-vendor the repo to get it.
+type Id is bytes32;
+
+struct MarketParams { address loanToken; address collateralToken; address oracle; address irm; uint256 lltv; }
+
+interface IMorphoBase {
+    function isAuthorized(address authorizer, address authorized) external view returns (bool);
+    function createMarket(MarketParams memory marketParams) external;
+    function supply(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)
+        external returns (uint256 assetsSupplied, uint256 sharesSupplied);
+    function borrow(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, address receiver)
+        external returns (uint256 assetsBorrowed, uint256 sharesBorrowed);
+    function repay(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)
+        external returns (uint256 assetsRepaid, uint256 sharesRepaid);
+    function supplyCollateral(MarketParams memory m, uint256 assets, address onBehalf, bytes memory data) external;
+    function withdrawCollateral(MarketParams memory m, uint256 assets, address onBehalf, address receiver) external;
+    function liquidate(MarketParams memory m, address borrower, uint256 seizedAssets, uint256 repaidShares, bytes memory data)
+        external returns (uint256, uint256);
+    function flashLoan(address token, uint256 assets, bytes calldata data) external;
+    function setAuthorization(address authorized, bool newIsAuthorized) external;
+    function accrueInterest(MarketParams memory marketParams) external;
+}
+
+/// ⚠️ **THE TUPLE-RETURNING VARIANT, AND THAT IS LOAD-BEARING.** Upstream also ships an `IMorpho`
+/// whose getters return STRUCTS. This tree imports StaticTyping everywhere; swapping them would
+/// COMPILE and then MIS-DECODE at runtime.
+interface IMorphoStaticTyping is IMorphoBase {
+    function position(Id id, address user)
+        external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral);
+    function market(Id id) external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares,
+        uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee);
+    function idToMarketParams(Id id)
+        external view returns (address loanToken, address collateralToken, address oracle, address irm, uint256 lltv);
+}
+
+interface IOracle { function price() external view returns (uint256); }
+
+/// `internal pure` ⇒ inlines, no deployed bytecode. ⚠️ Hashes `MarketParams`' 5 words IN DECLARATION
+/// ORDER — reorder that struct and every market id changes.
+library MarketParamsLib {
+    uint256 internal constant MARKET_PARAMS_BYTES_LENGTH = 5 * 32;
+    function id(MarketParams memory marketParams) internal pure returns (Id marketParamsId) {
+        assembly ("memory-safe") { marketParamsId := keccak256(marketParams, MARKET_PARAMS_BYTES_LENGTH) }
+    }
+}
+
+/// Morpho **Vaults V2** — a DIFFERENT protocol from Blue above, and the tree calls ONE member.
+interface IVaultV2 { function liquidityAdapter() external view returns (address); }
 
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
 /// `IAaveV4Spoke_V` (QuidLib), `IAaveV4SpokeCL` (ChannelLib).
@@ -175,8 +229,6 @@ interface IDepositAdapter {
 interface IAaveV4Hub {
     function getAssetId(address underlying) external view returns (uint256);
 }
-
-/// Canonical IMorphoFlash — union of the former per-file variants.
 
 /// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
 /// ILevEquity_VG and the former `ILevEquityBtc`/`ILevBtc_V`.

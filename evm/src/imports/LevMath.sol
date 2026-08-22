@@ -10,7 +10,7 @@ import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool, CURVE_U
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
-import {IMorphoFlash} from "../imports/Interfaces.sol";
+import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
 /// @dev Token/SOR surfaces the leg mechanics touch. IERC20Min + IWETH9 come from ILevVenue (shared).

@@ -195,15 +195,15 @@ export const RANGE_ABI = [
 //   uint    amountSats          // LP's locked sats == BTC pool-backing position
 //   bytes32 fundingTaproot      // 32-byte x-only MuSig2 key-path aggregate Q
 export const BTCCHANNELS_ABI = [
-  // openChannel takes lpAuth: the LP signs openChannelDigest(p, rawFundingTx, hop)
-  // with the EVM key that should OWN the channel + pool position. `hop` is the EVM
-  // address that will SUBMIT the open (msg.sender), bound into the digest so a
-  // valid lpAuth can't be replayed through a different submitter (multi-hop open —
-  // there is no longer a single global hopNode; whoever submits becomes THIS
-  // channel's hop). The recovered signer (not msg.sender) becomes lpEth. Compute
-  // the digest on-chain via openChannelDigest so the client signs exactly what the
-  // contract checks. OpenParams: 7 fields incl. hopPubkey + fundingTaproot.
-  'function openChannelDigest(tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawFundingTx, address hop) view returns (bytes32)',
+  // ⛔ (§E183 item 1 + §NO-DOMAIN-TAGS) `openChannelDigest` IS DELETED FROM THE CONTRACT and its
+  // declaration is removed here. The block that stood here described lpAuth: "the LP signs
+  // openChannelDigest … the recovered signer becomes lpEth". NONE of that is true any more —
+  // `OpenAuth` no longer carries `lpEth`/`lpSig`, the LP signs NOTHING on the EVM, and `lpEth` is
+  // DERIVED on-chain from `p.lpPubkey` via `ChannelLib.lpEthOf`. A client wanting the owner computes
+  // `ethers.computeAddress(lpPubkey)` locally — no call, no signature.
+  // ⚠️ This declaration was an ORPHAN: `check-client-abis.py` flagged it because no contract has a
+  // function of this name. That is the §E154-client-ghosts shape, and the gate is the ONLY
+  // client-side check this tree can run (`spa/` has no `node_modules`, so `tsc` cannot run at all).
   // openChannel takes lpBtcPayoutHash (5th arg) and is HOP-ONLY submit (§9b spoof
   // fix) — the hop relays it, not the user's wallet (full hop-mediated flow = task #8).
   // Close folded into ONE entrypoint: recordClose branches on the tx locktime
