@@ -415,7 +415,12 @@ interface ICore {
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
-    function mo.  t amount, address token) external returns (uint);
+    /// §E315 — RESTORED. A conflict auto-merge spliced TWO declarations into one broken line,
+    /// `function mo.  t amount, address token)`, which left `ICore` declaring NEITHER `modLP`
+    /// nor `outOfRange` while both are called through it. Signatures recovered from `Core.sol`
+    /// (`:716` and `:738`) and from the live call sites, not reconstructed by guess.
+    function modLP(int256 delta, int256 deltaUSD, address sender) external returns (uint sent);
+    function outOfRange(address sender, int amount, address token) external returns (uint tokOut);
     /// §E258 — settle ONE filled boundary order. Both legs at once, because a fill is a TRADE and
     /// `outOfRange` can only express a one-sided open or close.
     function settleOor(address owner, int256 usdDelta, int256 volDelta) external;
