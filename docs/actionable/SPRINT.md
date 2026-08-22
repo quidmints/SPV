@@ -10842,6 +10842,46 @@ single LP exists. **That is the input to fetch, and it is the only honest way to
 whatever dispersion you assume, so an assumed CV produces an assumed answer wearing a decimal point.
 
 
+---
+
+## ✅ §E341 — **THE DISPERSION INPUT IS NOW MEASURED FROM REAL CHAINLINK DATA. POOLING COSTS 13–15 bp OR 147 bp, AND THE VARIABLE IS HOLDING PERIOD.**
+
+§E340 said the unknown reduces to *"CV of the price path over the deposit window — a property of ETH,
+not of our users."* **Fetched it.** 52 weekly samples of Chainlink ETH/USD
+(`0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`) read at historical blocks over the archive endpoint,
+head `25813494`. Range over the year: **$1,564.71 – $4,601.73**, spot $2,409.03.
+
+| deposit window | n | mean | **CV** | pooling gap `(CV²/8)·√(ē/p)` |
+|---|---|---|---|---|
+| 4 weeks | 4 | $2,011 | 0.115 | **15.1 bp** |
+| 13 weeks (3m) | 13 | $1,845 | 0.110 | **13.3 bp** |
+| 26 weeks (6m) | 26 | $1,997 | 0.116 | **15.4 bp** |
+| **52 weeks (1y)** | 52 | $2,685 | **0.333** | **🔴 146.7 bp** |
+
+### ⭐ THE RESULT — IT IS FLAT TO SIX MONTHS AND THEN EXPLODES
+CV sits at ~0.11 for every window up to 26 weeks and jumps to 0.333 at 52. **The gap is quadratic in
+CV, so that 3× in dispersion is a 10× in cost.** The cause is visible in the data: the year window
+spans a drawdown from ~$4,500 to ~$1,900, while the last six months are range-bound.
+⇒ **The deciding variable is not calendar time — it is HOW LONG POSITIONS STAY OPEN**, because an LP
+who closes and reopens re-anchors `ilBasisPx` at the current price (§E339: there are no top-ups, so
+close-and-reopen is the only way to add). **A book that turns over quarterly is cheap to pool (~14 bp);
+one that accumulates across a full cycle is not (~147 bp).**
+▶️ So the pooled-hedge design (§E338) is viable **iff** typical holding period stays inside ~6 months,
+and the thing to monitor is not dispersion directly but **position age**. That is observable from day
+one, unlike the gap itself.
+
+### ⚠️ THE ASSUMPTION THAT REMAINS, AND ITS DIRECTION
+Equal-weighting each week assumes **uniform deposit flow**. Real flow is not uniform — it clusters with
+price action. **This is a much weaker assumption than inventing the price distribution** (the prices
+are real), but it is still one: if deposits cluster in rallies, entries concentrate at high prices,
+CV falls and the gap is **over-stated** here; if flow is steady through a drawdown, it is about right.
+⇒ Re-run weighted by actual deposit volume once there is any. **The method is now fixed and the only
+missing term is the weights.**
+
+📌 Method note for whoever repeats it: `cast call <feed> "latestAnswer()(int256)" --block N` against the
+archive endpoint in `evm/.env` (`ANKR_RPC_URL`) — publicnode is head-only and cannot serve this.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
