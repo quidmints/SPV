@@ -2463,97 +2463,17 @@ library SwapLib {
         if (sizeIn > q.maxSizeIn)         revert SizeExceedsInventory();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // THE THREE-WAY SPLIT — weights are INPUTS, and the OOR case cannot be skipped
-    // ─────────────────────────────────────────────────────────────────────────────
-    /// Basis-point weights for apportioning a realised rebalance cost. MUST sum to 10_000.
-    struct Split { uint16 swapperBps; uint16 lpBps; uint16 basketBps; }
-
-    error WeightsMustSumToOne();
-    error SplitIsGrindable();
-    error NoExternalCostToBound();
-
-    /// @notice Reject a split the swapper can GRIND against. **NO FIXED WEIGHT IS SAFE**, which is
-    ///         why this is a runtime check on live cost rather than a constant chosen once.
-    ///
-    /// @dev THE ARITHMETIC (from the skew thread, verified against its four data points). A grinder
-    ///      with no price view displaces the range and reverts it, paying our fee TWICE while we pay
-    ///      the restoration leg twice:
-    ///          trader pays 2·(fee + w·C)   ·   we pay 2·C   ·   non-abusable iff 2·fee + 2C(w−1) ≥ 0
-    ///      ⇒   **w ≥ 1 − fee/C**   (w = swapper's share, C = per-leg restoration cost, fee = 420 ppm)
-    ///
-    ///          C = 4.2bp → w ≥ 0%        C = 10bp → w ≥ 58.0%
-    ///          C = 5bp   → w ≥ 16.0%     C = 26bp → w ≥ 83.8%
-    ///
-    ///      🔴 **a Curve crypto-pool's fee is DYNAMIC across roughly that whole 4–26bp range**, so a constant
-    ///      w is safe at 5bp and grindable at 10bp+. The weights being INPUTS is not sufficient —
-    ///      they must clear this floor at the cost that actually applies.
-    ///
-    ///      ⚠️ IN-RANGE ONLY. The derivation assumes TWO supplier legs. Out of range the range holds a
-    ///      SINGLE asset, so the round-trip it models does not exist and this bound says nothing —
-    ///      do not apply it to the OOR split.
-    ///      ⚠️ `costPpm` READ LIVE IS A TOLERANCE, NOT A CAPACITY READ. An attacker who moves Curve so
-    ///      the cost reads CHEAP lowers this floor exactly when it needs to hold — the same hazard
-    ///      `Interfaces.sol:74-77` records for `balances()`. FLOOR the cost conservatively; never
-    ///      pass a naked `get_dy`.
-    ///      🔴 **EXTERNALLY-SOURCED RESTORATION ONLY — A SECOND PRECONDITION, ADDED AFTER THE FACT.**
-    ///      `C` is an EXTERNAL per-leg cost. The recorded refill spec (§UNIT-C-OWNER-SPEC / §E48)
-    ///      says restoration is INTERNAL — repositioning ETH already held, not buying more
-    ///      (*"uncommitted dollars shouldnt be sold for ETH out of range… that would be a misuse"*).
-    ///      With an internal restoration there is NO Curve leg, so `C == 0` and this bound has NO
-    ///      REFERENT. It therefore **REVERTS on a zero cost instead of passing**: an early `return`
-    ///      would make the guard a silent no-op that reads as protection while checking nothing —
-    ///      exactly the failure the paragraph above warns about. A caller whose restoration is
-    ///      internal must not call this at all; it needs a different rule, not a free pass.
-    ///      ⚠️ WHICH MODEL GOVERNS IS AN OPEN CONFLICT (spec dated 2026-08-06 vs this week's
-    ///      "restore inventories to 1:1"), and is the owner's to settle — not something to resolve
-    ///      by choosing the reading that makes this compile.
-    function requireNonAbusable(uint16 swapperBps, uint feePpm, uint costPpm) internal pure {
-        if (costPpm == 0) revert NoExternalCostToBound();
-        if (feePpm >= costPpm) return;                   // fee alone already covers the round trip
-        uint floorBps = 10_000 - (feePpm * 10_000) / costPpm;
-        if (swapperBps < floorBps) revert SplitIsGrindable();
-    }
-
-    /// @notice Apportion a realised rebalance cost across the three parties with a stake in it.
-    ///
-    /// @dev  ⚠️ TAKES **BOTH** SPLITS AND SELECTS ON `inRange`, DELIBERATELY. The obvious signature
-    ///       takes ONE `Split` and lets the caller decide which to pass — and that is precisely how
-    ///       out-of-range silently inherits the in-range weights. When the range is OOR it holds a
-    ///       SINGLE asset: the two supplier legs have collapsed into one, so "who supplied what" has
-    ///       a different answer, and the operation is not *restore 1:1* but *RE-ENTER RANGE* — a
-    ///       different cost with a different beneficiary. An in-range split applied out of range
-    ///       still returns three plausible numbers against the wrong basis, and NOTHING ANNOUNCES IT.
-    ///       Requiring both makes the OOR decision a compile-time obligation rather than an omission.
-    ///
-    ///       WHY THREE PARTIES (owner, 2026-08-15, correcting a causer-pays-only reading): a range
-    ///       trade has TWO SUPPLIERS — the volatile leg is LP inventory, the USD leg is basket
-    ///       capital — so the cost lands on capital both provided, and causation is only one axis.
-    ///       Each pure answer is a corner solution: swapper-only ignores that LPs are paid via the
-    ///       fee lane *for* carrying inventory risk; LP-only socialises one swapper's imbalance onto
-    ///       LPs who did not cause it; basket-only makes the basket fund a rebalance of depth it
-    ///       already supplied, paying twice for one trade.
-    ///
-    /// @param realisedCost measured cost of the rebalance (a BALANCE DELTA over the Curve legs —
-    ///        never a number the swap path reports about itself).
-    /// @param inRange  whether the range was in range for this batch. Selects which weights apply.
-    function splitCost(uint realisedCost, Split memory inRangeSplit, Split memory oorSplit, bool inRange)
-        internal pure returns (uint swapperShare, uint lpShare, uint basketShare)
-    {
-        Split memory s = inRange ? inRangeSplit : oorSplit;
-        unchecked {
-            if (uint(s.swapperBps) + s.lpBps + s.basketBps != 10_000) revert WeightsMustSumToOne();
-        }
-        swapperShare = (realisedCost * s.swapperBps) / 10_000;
-        lpShare      = (realisedCost * s.lpBps)      / 10_000;
-        // REMAINDER, not a third multiply: integer division truncates each share, so three
-        // independent mulDivs lose up to 2 wei and the parts stop summing to the whole. The basket
-        // absorbs the dust because it is the residual claimant on the balance sheet — and a
-        // conservation check downstream would otherwise fail on rounding rather than on a real defect,
-        // which is exactly the false positive that teaches people to add tolerances.
-        basketShare  = realisedCost - swapperShare - lpShare;
-    }
-
+    // §E304 — THE THREE-WAY SPLIT IS DELETED: `Split`, `splitCost`, `requireNonAbusable` and their
+    // three errors, ~95 lines, plus `FillAndBatch.t.sol` which tested nothing else.
+    // §E301 settled that **the swapper pays** and that *"the question 'who affords the restoration'
+    // … has no referent. There is no restoration we perform."* `splitCost` apportioned a
+    // `realisedCost` — "measured cost of the rebalance" — three ways, and `requireNonAbusable` guarded
+    // that split's weights. **With no rebalance there is no `realisedCost` to split and nothing to
+    // guard.** Both were `internal pure` with ZERO production callers, so this frees no deployed
+    // bytecode from any contract; it removes a mechanism the design retired and a test that pinned it.
+    // ⚠️ The anti-grinding bound `w >= 1 - fee/C` lived HERE and nowhere else. §E226 cited it as a
+    // reason to keep the flat 420 ppm; it gated nothing on the fill path then and is gone now
+    // (`Core.sol:1179` records that). Do not re-derive it from that comment.
 
     // ─────────────────────────────────────────────────────────────────────────────
     // CONSERVATION — the ONE property worth keeping from v4's `unlockCallback`
