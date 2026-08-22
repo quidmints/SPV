@@ -687,7 +687,7 @@ contract BtcLpMintStress is AllesFixture {
             assertGt(owedUsd, 0, "pending records the swapper's USD obligation");
         }
         // The request bumped pendingSwapOutUsd by exactly the owed USD.
-        assertEq(CORE.pendingSwapOutUsd(), owedUsd, "request recorded the obligation in pendingSwapOutUsd");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), owedUsd, "request recorded the obligation in pendingSwapOutUsd");
         uint locked0 = ch.totalSatsLocked();
         // (E152-f) DRAIN THE FEE BOOKMARK FIRST, so the delta below measures ONE THING.
         // Delivery mints TWICE to this address: `settleDelivered` pays the proceeds
@@ -737,7 +737,7 @@ contract BtcLpMintStress is AllesFixture {
             "LP minted EXACTLY the swapper's USD as proceeds at delivery (fees drained first)");
         assertGe(QUID.balanceOf(s.lpEth) - qdBefore, owedUsd * 1e12,
             "LP minted AT LEAST its full proceeds");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "obligation cleared on delivery (matched -=)");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "obligation cleared on delivery (matched -=)");
         _assertSolvent("on-chain swap-out keeps backing solvent");
     }
 
@@ -837,7 +837,7 @@ contract BtcLpMintStress is AllesFixture {
             "deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "all delivered obligations cleared");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "all delivered obligations cleared");
 
         // A close is now all-native: it mints ZERO additional proceeds.
         uint qdBeforeClose = QUID.balanceOf(lpEth);
@@ -912,7 +912,7 @@ contract BtcLpMintStress is AllesFixture {
             uint proceeds = _swapOuts(ch, cid, ftx, 100 + i, lpPk, lpEth, n, usdcEach);
             cumProceeds += proceeds;
             // Every recorded obligation was delivered → pendingSwapOutUsd back to 0.
-            assertEq(CORE.pendingSwapOutUsd(), 0,
+            assertEq(BTC.CORE().pendingSwapOutUsd(), 0,
                 string(abi.encodePacked("pending cleared after cycle ", i)));
 
             // Close is all-native; total LP gain over the cycle is the deliver-time
@@ -987,7 +987,7 @@ contract BtcLpMintStress is AllesFixture {
                 vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
             } catch { break; }
         }
-        uint pending = CORE.pendingSwapOutUsd();
+        uint pending = BTC.CORE().pendingSwapOutUsd();
         assertGt(pending, 0, "obligations recorded");
         assertGe(CORE.POOLED_USD(), pending, "free reserve non-negative before the swap-ins");
 
@@ -1130,7 +1130,7 @@ contract BtcLpMintStress is AllesFixture {
             assertLe(QUID.balanceOf(k[i].lp) - k[i].q0, k[i].proceeds * 1e12 + 4e18,
                 string.concat("per-channel mint<=own proceeds @ ", tag));
         }
-        assertGe(CORE.POOLED_USD(), CORE.pendingSwapOutUsd(), string.concat("POOLED_USD>=pending @ ", tag));
+        assertGe(CORE.POOLED_USD(), BTC.CORE().pendingSwapOutUsd(), string.concat("POOLED_USD>=pending @ ", tag));
         _assertSolvent(string.concat("solvent @ ", tag));
     }
 
@@ -1246,7 +1246,7 @@ contract BtcLpMintStress is AllesFixture {
         }
 
         uint btcUsd0   = CORE.POOLED_USD();
-        uint pending0  = CORE.pendingSwapOutUsd();
+        uint pending0  = BTC.CORE().pendingSwapOutUsd();
         uint free0     = btcUsd0 > pending0 ? btcUsd0 - pending0 : 0;
         emit log_named_uint("BTC USD leg        ", btcUsd0);
         emit log_named_uint("pendingSwapOutUsd  ", pending0);
@@ -1268,15 +1268,15 @@ contract BtcLpMintStress is AllesFixture {
         }
 
         emit log_named_uint("BTC USD leg  after ", CORE.POOLED_USD());
-        emit log_named_uint("pending      after ", CORE.pendingSwapOutUsd());
+        emit log_named_uint("pending      after ", BTC.CORE().pendingSwapOutUsd());
 
         // THE CONTROL. ETH-side flow must leave the BTC range's obligation accounting bit-identical.
-        assertEq(CORE.pendingSwapOutUsd(), pending0,
+        assertEq(BTC.CORE().pendingSwapOutUsd(), pending0,
             "ETH-side flow must not change the BTC range's undelivered swap-out obligations");
         assertEq(CORE.POOLED_USD(), btcUsd0,
             "ETH-side flow must not draw the BTC range's USD leg -- the free reserve is RANGE-LOCAL");
-        uint free1 = CORE.POOLED_USD() > CORE.pendingSwapOutUsd()
-            ? CORE.POOLED_USD() - CORE.pendingSwapOutUsd() : 0;
+        uint free1 = CORE.POOLED_USD() > BTC.CORE().pendingSwapOutUsd()
+            ? CORE.POOLED_USD() - BTC.CORE().pendingSwapOutUsd() : 0;
         assertEq(free1, free0,
             "the BTC free reserve (POOLED_USD - pendingSwapOutUsd) must be untouched by ETH activity");
     }

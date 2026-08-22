@@ -478,7 +478,7 @@ contract UnificationControls is AllesFixture {
 
         uint ethUsd1 = CORE.POOLED_USD();
         uint btcUsd1 = CORE.POOLED_USD();
-        uint pending = CORE.pendingSwapOutUsd();
+        uint pending = BTC.CORE().pendingSwapOutUsd();
         uint btcFree = btcUsd1 > pending ? btcUsd1 - pending : 0;
 
         // THE RESERVOIR THAT ACTUALLY MATTERS: uncommitted BASKET surplus. `SwapLib.sizeBySurplus`

@@ -179,7 +179,7 @@ contract DrainProbe is AllesFixture {
         vm.stopPrank();
         uint poolUsd = CORE.POOLED_USD();   // primed dollars (no shared proceeds pool)
         assertGt(poolUsd, 0);
-        assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 
         // LATE entrant LP-B becomes an LP AFTER the priming (the "redeposit" step).
         BTC.requestDeposit(User02, funded);
@@ -205,7 +205,7 @@ contract DrainProbe is AllesFixture {
         assertLt(paidA, feeBound, "incumbent extracted primed dollars at close");
         // (a) NO RACE / conserved: no swap-out obligations were ever created, so
         // there is no shared proceeds pool for either close to race over.
-        assertEq(CORE.pendingSwapOutUsd(), 0, "no proceeds obligation created or drained across both closes");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "no proceeds obligation created or drained across both closes");
     }
 
     /// §E313 — **INVERTED: THE REDEEM PREFERENCE IS GONE, AND THIS NOW GUARDS ITS ABSENCE.**

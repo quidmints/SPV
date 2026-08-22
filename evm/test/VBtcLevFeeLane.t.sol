@@ -1080,7 +1080,7 @@ contract VBtcLevFeeLane is AllesFixture {
         vm.stopPrank();
         (,,,, uint96 owedU,) = d.ch.pendingOnchainSwapOut(_levDelivSwapId());
         d.owedUsd = uint(owedU);
-        d.pending = CORE.pendingSwapOutUsd();
+        d.pending = BTC.CORE().pendingSwapOutUsd();
     }
 
     /// @notice #54 (the active build): a native swap-out delivery whose sats draw PAST the LP's FREE channel range
@@ -1138,7 +1138,7 @@ contract VBtcLevFeeLane is AllesFixture {
         assertLt(qdMinted, d.owedUsd * 1e12, "QUI < full proceeds (de-levered slice not double-paid as QUI)");
         assertApproxEqRel(qdMinted, (d.owedUsd * 1e12) * d.funded / d.sats, 0.05e18, "QUI ~= funded-share of proceeds");
         // (f) the obligation is FULLY cleared (debt-share drawn in Delever54Lib + funded-share in settleDelivered).
-        assertEq(CORE.pendingSwapOutUsd(), d.pending - d.owedUsd, "obligation fully cleared on delivery");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), d.pending - d.owedUsd, "obligation fully cleared on delivery");
         // (g) the swapper was delivered ONCE and the basket stays solvent.
         assertTrue(d.ch.swapInUsed(_levDelivSwapId()), "delivery marked (blocks deliver->reverse double-pay)");
         _assertSolvent("delever-54: basket solvent after value-neutral de-lever");

@@ -2603,7 +2603,7 @@ contract Alles is AllesFixture {
         assertFalse(ch.swapOutUsed(id2), "reverted swap-out did not burn the id");
 
         uint pooledUsdBefore = BCORE().POOLED_USD();
-        uint pendingBefore   = CORE.pendingSwapOutUsd();
+        uint pendingBefore   = BTC.CORE().pendingSwapOutUsd();
         uint qdBefore        = QUID.balanceOf(swapper);
         uint usdcBefore      = USDC.balanceOf(swapper);
 
@@ -2617,7 +2617,7 @@ contract Alles is AllesFixture {
         // The obligation owed to whichever LP delivers is recorded in pendingSwapOutUsd.
         uint owedUsd; { (,,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
         assertGt(owedUsd, 0, "pending obligation recorded the swapper's USD");
-        assertEq(CORE.pendingSwapOutUsd(), pendingBefore + owedUsd,
+        assertEq(BTC.CORE().pendingSwapOutUsd(), pendingBefore + owedUsd,
             "pendingSwapOutUsd rose by exactly the swapper's USD");
 
         // Edge: replaying the SAME (now-used) swapId reverts before any curve
@@ -2635,13 +2635,13 @@ contract Alles is AllesFixture {
         // The swapper gets a basket stable back, the pending obligation is cleared,
         // and pendingSwapOutUsd falls back by exactly the recorded USD. No bespoke
         // refund path: this is creditSwapIn run on the swap-out's id.
-        uint pendingAfterReq = CORE.pendingSwapOutUsd();
+        uint pendingAfterReq = BTC.CORE().pendingSwapOutUsd();
         uint swapperUsdcBeforeRefund = USDC.balanceOf(swapper);
         vm.prank(hop);
         ch.reverseSwapOut(swapId, 0, false);
         assertGt(USDC.balanceOf(swapper), swapperUsdcBeforeRefund,
             "reversal returned a basket stable to the swapper");
-        assertEq(CORE.pendingSwapOutUsd(), pendingAfterReq - owedUsd,
+        assertEq(BTC.CORE().pendingSwapOutUsd(), pendingAfterReq - owedUsd,
             "reversal unwound the pending obligation (matched -= for the request +=)");
         { (address sw,,,,,) = ch.pendingOnchainSwapOut(swapId);
           assertEq(sw, address(0), "pending swap-out cleared on reversal"); }
@@ -2680,7 +2680,7 @@ contract Alles is AllesFixture {
         uint sats = ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, swapId);
         assertGt(sats, 0, "curve bought BTC for the swapper");
         uint owedUsd; { (,,,, uint96 u,) = ch.pendingOnchainSwapOut(swapId); owedUsd = uint(u); }
-        uint pendingAfterReq = CORE.pendingSwapOutUsd();
+        uint pendingAfterReq = BTC.CORE().pendingSwapOutUsd();
 
         // GUARD 1: cannot self-refund before the timeout.
         vm.prank(swapper);
@@ -2700,7 +2700,7 @@ contract Alles is AllesFixture {
         vm.prank(swapper);
         ch.refundExpiredSwapOut(swapId, address(USDC), 0);
         assertGt(USDC.balanceOf(swapper), usdcBefore, "swapper recovered principal with NO hop");
-        assertEq(CORE.pendingSwapOutUsd(), pendingAfterReq - owedUsd, "pending obligation unwound");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), pendingAfterReq - owedUsd, "pending obligation unwound");
         { (address sw,,,,,) = ch.pendingOnchainSwapOut(swapId);
           assertEq(sw, address(0), "pending cleared after self-refund"); }
 
@@ -4290,7 +4290,7 @@ contract Alles is AllesFixture {
 
         uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "curve buys primed POOLED_USD (headroom)");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "priming buys record NO swap-out obligation");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "priming buys record NO swap-out obligation");
 
         // Close the channel. A close is all-native: it pays the LP its BTC payout
         // (finalBalance) plus only its accrued USD-leg trading fees (tiny) — it mints
@@ -4302,7 +4302,7 @@ contract Alles is AllesFixture {
         BTC.requestRedeem(User01, finalBalance);
         uint paid = QUID.balanceOf(User01) - qBefore;
 
-        assertEq(CORE.pendingSwapOutUsd(), 0, "close leaves pendingSwapOutUsd untouched");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "close leaves pendingSwapOutUsd untouched");
         // No proceeds at close: the LP minted only its USD-leg fees, ≪ the primed
         // basket headroom that a pool-fraction close would have leaked. (poolUsd is
         // 6-dec; the proceeds an old close-spot model could leak is ~poolUsd*1e12.)
@@ -4337,7 +4337,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
         uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "priming funded POOLED_USD");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 
         // Neither LP delivered, so neither close mints proceeds. (A pool-fraction
         // model would split ~poolUsd between A and B at close.)
@@ -4346,7 +4346,7 @@ contract Alles is AllesFixture {
         BTC.requestRedeem(User01, funded); // delivered_A = 0
         uint paidA = QUID.balanceOf(User01) - qA;
         assertLt(paidA, feeBound, "PER-CHANNEL: A delivered nothing -> mints ~no proceeds (fees only)");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "A's close leaves pendingSwapOutUsd untouched");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "A's close leaves pendingSwapOutUsd untouched");
 
         uint qB = QUID.balanceOf(User02);
         BTC.requestRedeem(User02, funded); // delivered_B = 0
@@ -4378,7 +4378,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
         uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "priming funded POOLED_USD");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "priming records no obligation");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "priming records no obligation");
         uint feeBound = poolUsd / 100 * 1e12; // ≫ USD-leg fees, ≪ any proceeds leak
 
         // Splice out HALF the funding as a pure LP withdrawal (exactUsd=0): the LP
@@ -4390,7 +4390,7 @@ contract Alles is AllesFixture {
         assertEq(pooledAfter, funded - shrink, "position shrank by exactly shrinkSats");
         assertLt(QUID.balanceOf(User01) - qBefore, feeBound,
             "withdrawal splice minted ~no proceeds (all native; fees only)");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "withdrawal splice left pendingSwapOutUsd untouched");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "withdrawal splice left pendingSwapOutUsd untouched");
 
         // Close the remainder, also all-native.
         uint qMid = QUID.balanceOf(User01);
@@ -4399,7 +4399,7 @@ contract Alles is AllesFixture {
         assertEq(pooledEnd, 0, "remainder retired");
         assertLt(QUID.balanceOf(User01) - qMid, feeBound,
             "close of remainder also minted ~no proceeds (all native)");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "close left pendingSwapOutUsd untouched (conserved)");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "close left pendingSwapOutUsd untouched (conserved)");
     }
 
     /// @notice COLLAPSE: a close is oracle-INDEPENDENT and cannot over-mint —
@@ -4445,7 +4445,7 @@ contract Alles is AllesFixture {
         // tiny USD-leg fees, ≪ the funded×3×price an old close-spot model would mint.
         assertLt(principalMinted, poolUsd / 100 * 1e12, "adversarial close + 3x oracle still mints ~no QUI (no over-mint)");
         assertLt(paid, poolUsd / 100 * 1e12, "closing LP got ~no QUI proceeds (fees only)");
-        assertEq(CORE.pendingSwapOutUsd(), 0, "no obligation created or settled by the close");
+        assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "no obligation created or settled by the close");
     }
 
     /// @notice BTC-LP via channel lock: register (open) -> unregister (close),
