@@ -9346,3 +9346,47 @@ references · `band` gone from `evm/src`, `evm/test`, `evm/script`, `spa/src` (t
 `autoManaged`, `levPooled`) reads unused within its own file but is INHERITED by `Quid` and `Vault`;
 `name`/`symbol`/`decimals` are ERC-20 getters; `LevMath:853`'s `f` is read on the line it is
 assigned. A single-file scan would have deleted live state.
+
+# 📋 §E316 — **EVERY UNFINISHED THING THIS THREAD STARTED, WITH ITS EXACT STATE**
+Owner asked for all unfinished refactor work booked before the thread closes. **Measured against
+`origin/main`, not recalled.** Anything not listed here was finished and verified.
+
+## ✅ FINISHED AND VERIFIED (do not re-open)
+| item | evidence |
+|---|---|
+| §E275 cap deletion | verified regression-free, 2 runs/arm, identical failure sets |
+| §E295 `_amplify` fold | A/B in isolated worktrees, 45/8 both arms |
+| §E300 no-revert skew + `_fillableDrain` | build clean; identical failure set vs control |
+| §E304-mintclose | dead flash-mode + a permissionless WETH trap deleted |
+| interface folds (41 → 35) | §E308-interfaces; five landed, five rejected with reasons |
+| "hook" purge | 0 occurrences in `evm/src`, case-insensitive |
+| §E311 `imbalanceFeeUsd6` | redundant with depletion + `sellSkew`; constant made self-explaining |
+| §E312 / §E313 | two of my own wrong calls retracted and restored |
+
+## 🔴 STARTED, NOT FINISHED — EXACT STATE
+1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
+   flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
+   fillable bound INSIDE `wellSkew` instead**, so the predicate now lives in the pricing path and
+   `refillNeeded` was never needed there. ⇒ **DECIDE: wire it, or delete it as superseded by
+   `_fillableDrain`.** Do not leave it as a third opinion on the same question.
+2. **`FixedRateFill.sol` — 270 lines, 0 call sites, whole library.** A TTL'd quote façade over
+   `wellSkew`/`sellSkew`. Its own docblock says **"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"**.
+   ⚠️ **§E300 changed what it would wire**: the skew path no longer reverts, so a quote it returns is
+   always usable. **That removes its stated blocker — nobody has re-read it since.**
+3. **`proRataShortfall` — restored (§E313), still unwired**, and `SPRINT:1942` carries a STANDING
+   instruction to wire it into the redeem path. 🔴 **OPEN MEASUREMENT, booked not assumed: is the
+   15.2 bps first-out advantage still real once the ~25.6 bps offramp floor (`QUEUE:7486`) is
+   subtracted?** That answer decides wire-or-park. **Do not close it by citing the offramp number.**
+4. **§E274's derived Γ = 5.48e15 — measured, NOT landed.** Deliberately unbundled from the cap removal
+   so a regression is attributable. §E289's `κ` is the mechanism; §E290 says κ cannot move because the
+   curve and its restoration rail are on opposite ranges. ⇒ **Blocked on that, not on effort.**
+5. **The 30 `PREMISE:` / 14 `CONTROL:` suite failures.** Characterised as fixture preconditions that
+   never establish state (not one root cause), and they sit in the lev/morpho area another session is
+   actively rewriting. **Not mine to touch; booked so the count is not mistaken for skew damage.**
+
+## ⚠️ AND THE MISTAKE THAT COST THE MOST TODAY, SO IT IS NOT REPEATED
+**A conflict auto-merge that concatenates both sides is correct for an append-only ledger and WRONG for
+source.** It spliced two `ICore` declarations into `function mo.  t amount, address token)`, leaving
+`ICore` declaring neither `modLP` nor `outOfRange` while both are called through it — **and I pushed it,
+because I verified the rebase succeeded rather than the build** (§E315). ⇒ **Never auto-resolve a `.sol`
+conflict; at minimum refuse to join two lines that each end in a semicolon.**
