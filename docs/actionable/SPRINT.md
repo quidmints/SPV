@@ -9931,3 +9931,45 @@ question.** The question is which ADDRESS the interface is cast onto, and that i
 call site. This is the same shape as the `EthVenue` extraction that planted three bugs: **merge on what
 things ARE, never on a name or an address they happen to share.** The audit method that works there
 works here — grep the CASTS, not the declarations.
+
+---
+
+## 🔴 §E322 — **A PUSH-RETRY LOOP FINISHED ANOTHER THREAD'S IN-FLIGHT REBASE. IT RESOLVED CORRECTLY BY LUCK, NOT BY DESIGN.**
+
+Booked because the outcome was clean and the mechanism is not, which is the combination that gets a
+practice repeated until it costs something.
+
+**THE LOOP.** To land a commit against a branch several threads push to, I used:
+`git fetch; git rebase origin/main || { strip conflict markers from every UU file; git add; git rebase --continue; }; git push`
+— with the marker-stripping justified by the fact that `SPRINT.md` conflicts here are almost always
+two threads APPENDING different sections to the end of one file, where "keep both sides" is right.
+
+**WHAT ACTUALLY HAPPENED (times from the `HEAD` reflog).** At **17:41:27** another thread ran
+`pull --rebase -q origin main`. That detaches `HEAD` onto `origin/main` and, on conflict, leaves
+`docs/actionable/SPRINT.md` at `UU`. At **17:42:00** my loop ran. My `git rebase origin/main` failed —
+**not because MY rebase conflicted, but because THEIRS was already in progress** — and the fallback
+fired anyway: it stripped the markers from **their** conflicted file, staged it, and ran
+`rebase --continue`, which replayed **their** `C26` commit. The reflog records it plainly:
+`rebase (continue): C26: book two facts that lived only in commit messages`, a commit I did not write.
+
+**THE OUTCOME WAS FINE, AND VERIFIED RATHER THAN ASSUMED:** `C26` is on `origin/main` as `6901c7fe`
+with all 22 insertions, both their section and `§E321` are present, zero conflict markers remain, and
+the file matches `origin` byte for byte.
+
+⛔ **BUT IT WAS RIGHT ONLY BECAUSE BOTH SIDES WERE ADDITIVE APPENDS TO ONE MARKDOWN FILE.** Against a
+semantic conflict — two threads editing the same function, the same row, the same signature — that
+fallback produces a **silently wrong merge inside an operation the author never started and cannot
+see**. The failure would surface as a correct-looking commit with someone else's name on it, which is
+the hardest kind to trace back.
+⇒ **THE FIX, AND IT IS ONE LINE: A RETRY LOOP MUST REFUSE TO ACT WHEN AN OPERATION IS ALREADY IN
+FLIGHT.** Before any `rebase --continue`, check for `.git/rebase-merge`, `.git/rebase-apply`,
+`.git/MERGE_HEAD` and `.git/CHERRY_PICK_HEAD`; if one exists and you did not create it, **stop and
+leave it alone** — the state belongs to another thread, and the correct move is to wait, not to tidy.
+⚠️ **AND THE STRUCTURAL LESSON, WHICH THIS FILE ALREADY KNOWS IN ANOTHER FORM: DO THE WORK IN A
+WORKTREE.** A rebase-and-push loop in the SHARED checkout can reach into a neighbour's operation. The
+same loop in `git worktree add --detach` cannot, because the in-progress state lives in that
+worktree's own admin directory. This is the same conclusion as the rules 11/15 resolution at the head
+of `CLAUDE.md`, arriving from a third direction — **the shared checkout is the hazard, every time.**
+📌 An observer flagged the detached `HEAD` and the `UU` marker and deliberately left both alone.
+**That instinct was correct** and is the behaviour to keep: an unexplained in-flight git state in a
+shared tree is someone else's, until the reflog says otherwise.
