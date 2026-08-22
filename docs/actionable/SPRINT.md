@@ -8845,3 +8845,58 @@ one argument, and the argument only fitted one of them. **Rule 1 asks whether co
 not ask whether the reason for deleting it is the reason it exists.** Check each deletion against the
 thing's OWN stated purpose, not against its neighbour's.
 
+### C22. 🔴🔴 `ilTargetLive` HAS TWO BRANCHES THAT DISAGREE BY 13×, AND THE ONE THAT RUNS TODAY RUNS BY ACCIDENT
+
+Audit prompted by the owner (*"make sure we have the most efficient solution for IL that is humanly
+feasible"*). **The most important thing found is a LANDMINE FOR THE NEXT FIX, not an inefficiency.**
+
+```solidity
+function ilTargetLive(range, syncKeyPx, ilBasisPx, px, capBps) public view returns (uint256) {
+    if (syncKeyPx != 0 && range != address(0)) {
+        try ICore(range).soldFractionWad(syncKeyPx) returns (uint256 sf) {
+            if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }   // PRIMARY
+        } catch {}
+    }
+    return ilTargetBps(ilBasisPx, px, capBps);                                              // FALLBACK
+}
+```
+
+**MEASURED AT THE +8% MOVE THAT §C19 MADE REACHABLE:**
+
+| branch | measure | target |
+|---|---|---|
+| **PRIMARY** `soldFractionWad(syncKeyPx)` | in-band inventory, clamped into `[lo,hi]` | **5007 bps → capped 5000** |
+| **FALLBACK** `ilTargetBps(ilBasisPx, px)` | `1 − √(entry/now)` | **377.5 bps** |
+
+⇒ **13×.** And the PRIMARY is *"0 → 100% across 0.4% of price"* — `holdingRatioWad` clamps `p0` into the
+current band, so it reads 0% at the band centre, 50% mid-band and 100% at the top, **then resets to 0
+on the next reseat.** Hedging on it means borrowing and repaying across every 0.2% of price.
+
+🔴 **THE PRIMARY BRANCH HAS NEVER FIRED, AND §C19 IS WHY THAT MATTERS NOW.** The reanchor kept
+`syncKeyPx == spot`, so `soldFractionWad` returned **0** and the `if (sf != 0)` guard fell through to
+the fallback **every time**. §C19 pinned `ilBasisPx`, which made the FALLBACK meaningful — the 377.5
+bps that produced the first ever `venue.borrow`. **The system is therefore running on its fallback
+branch, correctly, by accident.**
+⛔ **AND HERE IS THE LANDMINE. The natural next step after §C19 — "the reanchor shouldn't reset
+`syncKeyPx` either" — ACTIVATES THE PRIMARY BRANCH and jumps the hedge from 377.5 bps to the 5000 bps
+cap on the same price path.** Anyone reading §C19 and finishing the job will 13× the leverage of every
+position in the book, and the tests will not catch it because the assertions are written against
+whatever the code does. **Do not touch `syncKeyPx` in the reanchor without settling C22 first.**
+
+⚠️ **WHICH BRANCH IS CORRECT IS UNRESOLVED, AND I AM NOT GUESSING.** I tried to settle it by simulating
+a band that recentres on spot against the constant-product path, and **the simulation was WRONG and its
+result is discarded**: it modelled selling within each seat but **ignored the RE-BUY when the band
+recentres**, so it reported "100% sold" at every horizon, which is obviously false for a range that
+tracks spot. **Settling this needs the repack's re-provisioning modelled** — what fraction of the
+volatile leg the range re-acquires when `RANGE_ANCHOR` moves to the new spot. Until that exists, the
+honest position is: **two defensible measures, a 13× gap, and no derivation for either.**
+▶️ **THE EXPERIMENT THAT DECIDES IT, and it needs no contracts:** simulate the actual repack rule
+(recentre at spot, re-provision 50/50) over a price path, integrate the volatile actually sold, and
+compare against BOTH branches at several horizons. Whichever the integral matches is the hedge; the
+other is a bug. **That is a Python afternoon, not a Solidity change.**
+
+⚠️ **SECOND, INDEPENDENT AND ALREADY KNOWN (§C19): `RANGE_BPS = 300` AGAINST A ±20 bps BAND IS
+DIMENSIONALLY MISMATCHED.** On the FALLBACK branch the deadband means leverage does not engage until
+`1 − √(entry/now) > 3%`, i.e. **a +6.28% move**, and unwinds only outside a 3%-of-equity corridor. On
+the PRIMARY branch the same 300 bps is crossed within the first **0.012%** of band traverse. **One
+constant cannot be right for both branches**, which is itself evidence the two were never reconciled.
