@@ -9902,9 +9902,33 @@ of the thing it anchored and nothing could move. **A mint mark fed by a protocol
 fed by an exogenous price or an exogenous flow is not.** (`§LOOSE-ENDS-SCAN` item 4 states this rule for
 mocks; it is the same rule for marks.)
 ⇒ **ORDER OF WORK, and it is instrument-before-price for exactly this reason:**
-1. **Measure issuance velocity.** A mint/redeem flow register — signed, decayed, the SAME `Flow` struct
-   and `FLOW_DECAY` the swap side already uses (`Core.sol:200-210` argues a third decay constant would
-   be an unjustified magic number; the same argument applies here).
+1. ✅ **DONE — `Aux.netIssuanceUsd`, an `int256` in 18-dec USD.** `+` = net mint, `−` = net redeem.
+   Bumped on the mint leg in `Aux.deposit` and on the redeem leg in `_redeemAs` (before the body, so a
+   revert rolls the record back with it). **`NetIssuance.t.sol`, 4/4 green.**
+   ⛔ **CUMULATIVE, NOT AN EWMA — A DELIBERATE DEPARTURE FROM THIS ROW'S OWN SKETCH.** Reusing `Flow`
+   /`FLOW_DECAY` fails twice: they are `internal` to `Core` and `Core` is TWO INSTANCES while issuance
+   is global (so it needs a duplicated constant — the exact thing `Core.sol:200-210` argues against —
+   or a new cross-contract getter); and **48h is the INTRADAY SWAP window, while mint/redeem carry
+   monthly maturities**, so reusing it would silently assert the two share a time constant. A
+   cumulative counter is strictly more informative (any window derives from a series of readings; a
+   series cannot be recovered from an EWMA) and commits to no constant. Pick the half-life at step 3.
+   🔴 **AND THE CONTROL CAUGHT A REAL DEFECT IN THE FIRST CUT, WHICH IS THE PART WORTH KEEPING.** I
+   grepped `AUX.deposit(` — the EXTERNAL call shape — found the single site at `Basket.sol:244`, and
+   wrote in the code that `deposit` "has exactly ONE caller". **It has five.** The other four reach it
+   from library bodies delegatecalled in Aux's own context: `SwapLib.sol:514` (swap-in),
+   `SwapLib.sol:1632` (swap-out), `QuidLib.sol:508`, `BtcLib.sol:313`. `deposit` is the shared
+   *pull-the-stable-into-the-basket* primitive, not the mint path. **Measured: a $20,000 USDC→WETH swap
+   moved the issuance register by exactly `20000e18`.** Fixed by gating the bump on
+   `msg.sender == address(QUID)` — `Basket.mint` calls in from OUTSIDE, every library caller is a
+   self-call, so the discriminator is exact.
+   ⚠️ **THE LESSON IS THE GREP, NOT THE GATE — it is `§SPLITTING ONE CONTRACT INTO TWO` again: I
+   enumerated CALL SITES in one syntactic shape and missed the ones written another way.** Searching
+   `AUX.deposit(` can never find `aux.deposit(`, `IAux(aux).deposit(` or `IAux(c.aux).deposit(`.
+   ⇒ **Grep the BARE MEMBER NAME (`.deposit(`) across `src`, never the handle-qualified form.**
+   📌 **PROVEN ORTHOGONAL, which is the whole premise of this row:** over a mint+redeem,
+   `Core.netFlowUsd` and `Core.flowEwmaUsd` both stay at **0**; over a swap, `netFlowUsd` moves
+   −19,999,999,999 and `netIssuanceUsd` moves **0**. The decimal control is pinned too (a $1,000 mint
+   registers ~`1000e18`, not `1000e6`) because a missing 1e12 lift would pass a direction-only assertion.
 2. **Make σ² real** (§E294's keeper). Without it the discount regime — the dangerous one — has no input
    at all, and Table 8 says that is where it matters most.
 3. **Only then** argue the mark. It is a money-path change to the price of every mint and redeem, and

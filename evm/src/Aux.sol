@@ -891,6 +891,11 @@ contract Aux is // Auxiliary
         // dollars (Quid.unwindForRedeem) -- no volatile leg, no LP ETH sold.
         // §A.5e: value against a bounded-fresh cache. MUST precede redeemAsBody — that is the whole bug.
         _requireFreshHoldings();
+        // §E326 — the REDEEM leg of net issuance. `amount` is 18-dec QU!D being burned, so it needs no
+        // scaling. Bumped BEFORE the body: `redeemAsBody` can revert (insolvent, immature, nothing
+        // deliverable), and a revert rolls this back with it — recording after would need a success
+        // check that the revert already provides.
+        netIssuanceUsd -= int256(amount);
         BasketLib.redeemAsBody(BasketLib.RedeemArgs(
             amount, source, recipient,
             address(CORE), address(QUID), address(RANGE), address(WETH)));
@@ -1122,7 +1127,25 @@ contract Aux is // Auxiliary
         // address(this)==Aux and msg.sender is preserved across delegatecall, so
         // the QUID seed-fee + full-refresh gates are unchanged; all mutation
         // routes via supplySelf/tipSelf/refresh*Self, all reads via Aux getters.
-        return ChannelLib.depositBody(from, token, amount, address(QUID), stables.length);
+        usd = ChannelLib.depositBody(from, token, amount, address(QUID), stables.length);
+        // §E326 — the MINT leg of net issuance, GATED ON THE CALLER.
+        // ⛔ **`deposit` IS NOT A MINT-ONLY PATH, AND ASSUMING IT WAS PUT TRADING FLOW IN THE ISSUANCE
+        // REGISTER.** I grepped `AUX.deposit(` — the EXTERNAL shape — found the single call at
+        // `Basket.sol:244`, and concluded it had one caller. It has four more, all reaching it from
+        // library bodies delegatecalled in this contract's own context: `SwapLib.sol:514` (the swap-in
+        // leg), `SwapLib.sol:1632` (swap-out), `QuidLib.sol:508` and `BtcLib.sol:313`. `deposit` is the
+        // shared "pull the stable into the basket" primitive, not the mint path.
+        // ⇒ **MEASURED, and the control test is what caught it: a $20,000 USDC→WETH swap moved this
+        // register by exactly 20,000e18** before the gate below existed.
+        // THE DISCRIMINATOR IS `msg.sender`, and it separates the two cleanly: `Basket.mint` calls in
+        // from OUTSIDE, so `msg.sender == address(QUID)`; every library caller is a self-call made
+        // while `address(this) == Aux`, so `msg.sender` is Aux (or the range manager), never the token.
+        // `Basket.sol:244` is `Basket`'s only call to `deposit`, and it is the user-facing branch of
+        // `mint` — so protocol-internal fee/swap-out mints stay excluded too.
+        // `usd` comes back in the token's NATIVE units, so it is lifted to 18-dec here.
+        if (msg.sender == address(QUID))
+            netIssuanceUsd += int256(BasketLib.scaleTokenAmount(usd, token, true));
+        return usd;
     } function _tip(uint cut, address token, int sign) internal {
         // Body in BasketLib.tipBody (delegatecall — EIP-170 headroom); tranche mapping mutated via storage ref,
         // trancheTotal (value type) written back here. Logic unchanged.
@@ -1267,6 +1290,42 @@ contract Aux is // Auxiliary
     // amount upstream → total supply conserved. LP BTC stays in their
     // own 2-of-2 channel; Aux never touches it.
     address internal _btcChannels;
+
+    /// @notice §E326 — **NET ISSUANCE, 18-dec USD, SIGNED. THE PRIMARY-MARKET FLOW REGISTER.**
+    ///         `+` = net MINT of basket shares · `−` = net REDEEM.
+    ///
+    /// 🔴 **THIS IS A DIFFERENT QUANTITY FROM `Core.netFlowUsd`, AND CONFLATING THEM IS THE MISTAKE
+    /// §E326 WAS OPENED TO CORRECT.** `Core._bumpFlow` has exactly ONE call site — inside `Core.swap` —
+    /// so `flowEwmaUsd` and `netFlowUsd` measure SECONDARY/TRADING travel (basket ↔ volatile). Neither
+    /// says anything about issuance. Until this register there was **no measurement of mint/redeem flow
+    /// anywhere in `evm/src`**: `baseRate`, the Liquity-style redemption velocity toll, was the only one
+    /// and it was deleted (see `_takeArgs`). This is `θ̇s` in Lyons & Viswanath-Natraj (SSRN 3508006) —
+    /// the state variable their whole model turns on.
+    ///
+    /// ⚠️ **UNITS DIFFER FROM `netFlowUsd` ON PURPOSE AND A READER WILL ASSUME THEY MATCH.** This is
+    /// **18-dec** because both legs are natively 18-dec basket-share quantities (redeem burns 18-dec
+    /// QU!D; the mint leg is lifted through `BasketLib.scaleTokenAmount(…, true)`), whereas
+    /// `Core.netFlowUsd` is **6-dec** because it mirrors the 6-dec `usdLeg` of a swap delta. Three
+    /// decimal bases coexist in this repo and mixing them is its most common bug — do not net these two
+    /// registers against each other without converting.
+    ///
+    /// 📌 **CUMULATIVE, NOT AN EWMA, AND THAT IS A DELIBERATE DEPARTURE FROM §E326's OWN SKETCH.** That
+    /// row proposed reusing `Core`'s `Flow` struct and `FLOW_DECAY`. Two reasons not to: (1) `Flow`,
+    /// `FLOW_DECAY` and `_decayed*` are `internal` to `Core`, and `Core` is TWO INSTANCES (ETH + BTC)
+    /// while issuance is global — so it would need either a duplicated constant (the exact thing
+    /// `Core.sol:200-210` argues against) or a new cross-contract getter; (2) **a half-life is a
+    /// CALIBRATION, and 48h is the intraday swap window.** Mint/redeem carry monthly maturities, so
+    /// reusing 48h would silently assert that issuance and trading share a time constant, which nobody
+    /// has argued. A cumulative counter is strictly MORE informative — any window can be derived from a
+    /// series of readings, while a series cannot be recovered from an EWMA — and it commits to no
+    /// constant. ⇒ Pick the half-life when there is something to calibrate it against (§E326 step 3).
+    ///
+    /// ⛔ **INSTRUMENT ONLY. NOTHING PRICES OFF THIS, AND NOTHING SHOULD YET.** A mint mark fed by a
+    /// protocol read of our own flow has no exogenous anchor — the `_rallyRange` shape (§E310/§E314),
+    /// where the Chainlink mock was set from `AUX.getTWAPforAsset` so the anchor was a copy of the thing
+    /// it anchored and nothing could move. The paper's control variable is a SECONDARY-MARKET deviation
+    /// `p − 1` that QU!D does not yet have. Measure first; §E326 carries the order of work.
+    int256 public netIssuanceUsd;
 
     modifier onlyBTCChannels() {
         if (msg.sender != _btcChannels) revert NotBTCChannels(); _;
