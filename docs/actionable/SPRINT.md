@@ -1,5 +1,54 @@
 # SPRINT — what two sessions leave open
 
+---
+# 🔝 DO THESE FIRST — ordered, 2026-08-23
+
+## 1. 🔴🔴 **REPLACE PER-LP VENUE POSITIONS WITH ONE POOLED POSITION PER RANGE — BOTH ETH AND BTC**
+**A REPLACEMENT, NOT AN ADDITION.** One Morpho/venue position per range, held by the protocol. **Per-LP
+accounting stays exactly as it is** — `ilBasisPx`, entry equity, the IL claim, and the guarantee
+(*deposit back plus earnings, never less*). Only the VENUE side pools.
+**WHY, and it is one reason:** `SwapLib.deleverEthOnDelivery:1830` frees WETH by repaying **each LP's
+own position**, and a repay cannot be aggregated across N separate positions. Every iteration is a
+basket draw + a venue repay, the loop runs `while deliveredEth < shortfallEth`, so **swap size is capped
+by how many LP repays fit in a block, and the cap tightens as the book grows** (§E342). The keeper then
+walks the same LPs again to re-lever (§E331, hand-off untested).
+**WHAT IT RETIRES AT THE ROOT** — rule 17, these delete themselves rather than getting another guard:
+the O(LPs) delever loop · the re-lever pass · `LevBase`'s four unbounded `_openLps` loops (§E332/§E334,
+`totalNetEquity` alone has 15 callers) · §E331's missing keeper hand-off · the swap-size ceiling.
+⚠️ **THE PRICE, MEASURED (§E338/§E341):** one hedge against many entries is short the convexity of
+`1 − √(entry/now)`. Real Chainlink data: **~13–15 bp while typical holding period is ≤6 months, ~147 bp
+across a full cycle.** ⇒ **Monitor POSITION AGE, not dispersion** — it is observable from day one.
+⛔ **DO NOT deal IL protect out pro-rata like `feesPerShare`** — the payoff is concave with a kink at
+entry, so pro-rata systematically under-pays exactly the LPs the guarantee exists for (§E338).
+
+## 2. 🔴🔴 **THE 59 TEST FAILURES — 39 REGRESSIONS + 23 NEVER-GREEN, AND THEY NEED OPPOSITE TREATMENTS** (§E328)
+Both lists are named in full in §E328. **The suite was 3,893 passed / 1 failed at `0f8570f`, which is
+1,568 commits back** — so the 39 are attributable refactor debt and a bisect, not fixture noise. The 23
+were written after and have never passed; some encode a model the code never adopted (§E313's deleted
+test was exactly that). **14 fixed this thread** (§E329 wrong-Core-instance ×11, §E327 σ² ×1, §E331 stale
+cap ×1, §E313 ×1). ⛔ **Do not close these by loosening assertions** — several ARE the live evidence for
+open findings (`test_UNIT_PremiumRecordedEqualsPremiumPaid` is §SKEW-DOUBLE's decisive experiment).
+
+## 3. 🟠 **FOUR OWNER DECISIONS GATE MOST OF THE REST — NO ENGINEERING NEEDED, JUST THE CALL**
+| # | decision | blocks |
+|---|---|---|
+| a | **§SKEW-DOUBLE** — which of the two skew charges is intended (`_fillDelta` vs `retainSkewPremium`) | the named test, and 3 findings retire together with the cut |
+| b | **§E327** — what pins the observation source (a pool? the 1inch-read signed at deploy?) | σ² is 0 today ⇒ §E283's 3% is the only price we quote, §E326's mark, §ORACLE-FRESHNESS |
+| c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? | a standing unpriced maker discount on every crossed resting order |
+| d | **§E330** — should a range deep relative to its flow earn NOTHING? | it is why "PREMISE: fees actually accrued" fails; §E326 depends on the answer |
+
+## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 12,187 BYTES OVER** (§E330). `Quid` 24,104 + `Vault` 12,659 =
+36,763 vs 24,576. §E315's remedy (delete the 4626 face) is 12 selectors against a 12 KB gap. **Re-plan
+against the real number**; the `setBtcVault` ×3 consolidation and the lib merges sit behind it.
+
+## 5. 📌 **LANDMINE, ZERO COST TO PREVENT** (§E339): `RangeLib.openPos:444` does `pos[lp] = p` — a
+wholesale overwrite. Unreachable today (`openLev` reverts `AlreadyOpen`), so **there are no top-ups at
+all**. The day one is added, that line silently resets `ilBasisPx`: top up after a rise and the LP
+destroys its own protection; dust top-up at a low and the protocol pays protection nobody bought.
+**Blend size-weighted in the same commit that opens the path.**
+
+---
+
 ⚠️ **TWO SESSIONS WRITE HERE.** Part A is session `d669393d` (range-manager merge, bytecode).
 Part B is session `391df7b6` (the Bitcoin/secp256k1 thread). Kept in ONE file deliberately:
 two sprint files drift, and this repo has paid for that twice today.
