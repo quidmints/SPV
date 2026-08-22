@@ -9176,3 +9176,51 @@ the same if the thing I am measuring were absent?* For this row the answer was *
 self-referential ring and a genuinely calm market produce the same σ², and nothing in the measurement
 separated them. **That question is already the repo's stated rule; what is missing is running it
 against the INSTRUMENT rather than against the finding.**
+
+---
+
+## 🔴 §C19-REGRESSION — **`b4e192c1` COSTS 7 TESTS IN `BtcLpMintStress`, AND THE REVERT PROVES IT**
+
+Measured 2026-08-22 by isolating one commit, not by reading the diff:
+
+| tree | `BtcLpMintStress` |
+|---|---|
+| clean `origin/main` | **14 passed / 8 failed** |
+| local HEAD (carries `b4e192c1`) | **7 passed / 15 failed** |
+| local HEAD with **only `b4e192c1` reverted** | **14 passed / 8 failed** — baseline restored exactly |
+
+⇒ **The 7 extra failures are `b4e192c1` "C19/C21: stop re-basing the IL price basis on a band
+reseat".** Nothing else in the nine local commits moves this number; reverting that one and
+nothing else returns the suite to its `origin/main` counts.
+
+⚠️ **WHY THIS IS THE COMMIT TO SUSPECT ANYWAY:** it removes `q.ilBasisPx = uint128(px)` from
+`RangeLib.reanchorIfReseated`, and `ilBasisPx` is exactly what the leverage gate reads —
+`LevMath.ilTargetBps` opens with `if (ilBasisPx == 0 || pxNow <= ilBasisPx) return 0;`. A stale or
+unset basis makes that return 0 forever, `debtDeltaToTarget` returns 0, and `openLev`'s lever loop
+breaks on iteration 0.
+
+🔎 **THE TRACE, so the next reader does not re-derive it:** `MorphoEscrowVenue::collateralOf`
+returns `Position({supplyShares: 0, borrowShares: 0, collateral: 5e18})`. **Collateral IS supplied
+and the borrow is NEVER ISSUED.** The test then fails on `precondition: levered debt > 0: 0 <= 0`,
+which reads as "the venue will not lend" when the venue was never asked — the same misattribution
+`AllesFixture`'s §E309 note records across 40 leverage tests, and `LevYbReal._rallyRange`'s
+§RALLY-MASK note records again.
+
+⇒ **NOT REVERTED HERE.** `b4e192c1` is another thread's unpushed commit and `spv-rally` has SIX
+in-flight commits on this same chain (`WIP rally raises feed`, `WIP soldFraction diag`,
+`WIP receive() in fixture`, `WIP rally step size` — all marked unverified). Two agents editing the
+IL basis at once is how a plausible-but-wrong money path ships. This row is the handoff, not a fix.
+
+### THE REST OF THE SUITE, SEPARATED SO THE NUMBER IS NOT MISREAD
+A full run reported **418 passed / 92 failed**. About **45 of those 92 were RPC contention, not
+defects** — suites reporting `0 passed / 3 failed` in the full run pass **3/3 in isolation on the
+identical commit** (`OneInchObserverIsIndependent`, `PushSourceIsAdmissible`,
+`EthVenueDeliverable`, `RoundTripNeutrality`). This repo forks mainnet through the keyless
+head-only endpoint that `CLAUDE.md` already warns **rate-limits under a full-suite run**, and four
+other test sessions were competing for it.
+⇒ **Judge the tree with ISOLATED runs, or with `ETH_RPC_URL=$ANKR_RPC_URL` (the archive key
+`evm/.env` already banks).** A full-suite failure count against publicnode is not about the code.
+
+**Confirmed PRE-EXISTING on clean `origin/main`, byte-identical both sides:** `BufferSwapDrain`
+7/11, `DrainAtomicity` 24/9, `LevCascade` 7/9, `VBtcLevFeeLane` 19/2, `BtcLpMintStress` 14/8,
+`LevYbReal` 0/3. ≈42 failures that predate every local commit.
