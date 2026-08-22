@@ -10436,6 +10436,52 @@ the existing one, showing up on a second path.** ▶️ Owner's call; booked wit
 a coefficient, because §E326's mark work depends on the same split.
 
 
+---
+
+## ⛔ §E333 — **THE INCREMENTAL-ACCUMULATOR FIX FOR `totalNetEquity` IS WRONG. IT WOULD SOCIALISE LOSSES. NOT IMPLEMENTED.**
+
+§E332 prescribed *"the three totals maintained on open/close/rebalance instead of recomputed — the same
+move §E320's `netFlowUsd` made."* **I checked before writing it, and for `totalNetEquity` that is a
+defect, not an optimisation.**
+
+### THE REASON, IN ONE LINE OF `LevMath`
+`netEquityBase` (`LevMath.sol:262-269`) floors **PER POSITION**:
+```solidity
+return collBase > debtBase ? collBase - debtBase : 0;
+```
+So the quantity is `Σᵢ max(0, cᵢ − dᵢ/px)`, and an accumulator can only ever maintain
+`max(0, Σcᵢ − Σdᵢ/px)`. **Those are not equal whenever ANY position is underwater** — and they diverge
+in the one direction that matters: the accumulator lets an underwater LP's negative equity CANCEL a
+healthy LP's positive equity, **over-stating total equity exactly during a crash**, which is when
+`totalNetEquity`'s fifteen callers are making solvency decisions.
+
+### ⭐ AND THE FLOOR IS NOT AN IMPLEMENTATION DETAIL — IT **IS** THE ISOLATION INVARIANT
+Per-LP flooring is what makes one LP's loss unable to reach another. The tree tests exactly that:
+`LevCascade.test_Isolation_StuckLpDoesNotTouchAnother` and
+`LeverageCrossSubsidyProbe.test_PassiveLp_NotExpensedByLeveredLpLifecycle`, and `LevBase.sol:71` calls
+the position *"Per-LP, one isolated position."*
+⇒ **Replacing the loop with a scalar accumulator would silently convert isolated positions into a
+pooled one.** The loop is not naive code; it is the shape the isolation property forces. `§E320`'s
+`netFlowUsd` was separable (a plain signed sum with no per-item floor) — this is not, and *"do what
+§E320 did"* was reasoning from a resemblance rather than from the arithmetic.
+
+### ▶️ WHAT WOULD ACTUALLY WORK, RANKED
+1. **Paginate.** `openLevCount()` / `openLpAt(i)` already exist (`:425`, `:428`), so off-chain readers
+   need nothing new. Exact, no semantic change; the on-chain callers are the work.
+2. **Σcoll and Σdebt PLUS an underwater set.**
+   `total = (Σc − Σd/px) + Σ_{underwater}(dᵢ/px − cᵢ)` is exact and normally O(0) extra. ⚠️ But
+   membership of that set changes with `px` **with no transaction**, so it cannot be maintained
+   incrementally either — it only helps if recomputed, which is the loop again.
+3. **Cap `_openLps`.** Honest and crude: bounds the cost, refuses new positions past the bound. Trades
+   a liveness cliff for an admission limit, which is at least a stated policy rather than a surprise.
+⇒ **(1) is the only one that is both exact and bounded.** Booked; not attempted, because changing
+fifteen call sites is its own change with its own suite run.
+
+📌 **`totalDebtUsd` and `totalGrossCollateral` ARE separable** — plain sums with no per-item floor
+(`:433`, `:475`) — so accumulators are valid for those two. The prescription was right for two of the
+three and wrong for the one with fifteen callers.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
