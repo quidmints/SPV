@@ -302,7 +302,7 @@ abstract contract LevBase {
     ///
     /// §PROTECT-FOLD (2026-08-22) — ONE body for both managers. The two copies were identical except
     /// for (a) `QUID`'s DECLARED TYPE (`IERC20Min` on ETH, `address` on BTC) and (b) the ETH side
-    /// reimbursing the keeper. Both are now hooks, so the gate, the `LevMath.protectExec` call and
+    /// reimbursing the keeper. Both are now parameters, so the gate, the `LevMath.protectExec` call and
     /// the event live once.
     /// ⚠️ **THE MECHANICS WERE ALREADY SHARED** — both copies delegated to the SAME
     /// `LevMath.protectExec`. What was duplicated was the WRAPPER, which is the part that drifts
