@@ -9229,7 +9229,27 @@ against the INSTRUMENT rather than against the finding.**
 
 ---
 
-## 🔴 §C19-REGRESSION — **`b4e192c1` COSTS 7 TESTS IN `BtcLpMintStress`, AND THE REVERT PROVES IT**
+## ❌ §C19-REGRESSION — **WITHDRAWN BY ITS AUTHOR. THE ISOLATION WAS CONTAMINATED; §C24 IS RIGHT**
+
+⛔ **DO NOT ACT ON THE CONCLUSION BELOW.** It claimed `b4e192c1` costs seven tests. It does not.
+§C24 re-measured on `origin/main` — where the change IS present and the six unverified WIP rally
+commits are NOT — and got **14 passed / 8 failed**, identical to this row's own clean baseline. A
+change cannot cost seven tests in a tree where it is present and the count matches.
+⇒ **THE DEFECT IN MY METHOD, worth more than the retraction:** the treatment arm was a local HEAD
+carrying another agent's six WIP commits, several touching the same rally and feed machinery.
+Reverting ONE commit out of an interacting chain shows only that it is NECESSARY for the
+interaction, never that it is SUFFICIENT as the cause. Two arms differing by one commit are not
+an isolation when the base differs by six. That is the shared-tree confound `CLAUDE.md` opens with.
+⚠️ **And a second error §C24 caught:** the trace quoted below is from `BufferSwapDrain`, while the
+counts are from `BtcLpMintStress`. Evidence from two suites presented as one.
+▶️ If the count reappears, **bisect the WIP rally commits first** (`rescue/spv-rally`).
+
+The RPC-contention half of this row STANDS and is unaffected: ~45 of 92 full-suite failures are
+contention, proven by suites passing 3/3 in isolation on the identical commit.
+
+<details><summary>original row, retained so the reasoning can be audited</summary>
+
+## (WITHDRAWN) `b4e192c1` COSTS 7 TESTS IN `BtcLpMintStress`
 
 Measured 2026-08-22 by isolating one commit, not by reading the diff:
 
@@ -9274,6 +9294,8 @@ other test sessions were competing for it.
 **Confirmed PRE-EXISTING on clean `origin/main`, byte-identical both sides:** `BufferSwapDrain`
 7/11, `DrainAtomicity` 24/9, `LevCascade` 7/9, `VBtcLevFeeLane` 19/2, `BtcLpMintStress` 14/8,
 `LevYbReal` 0/3. ≈42 failures that predate every local commit.
+
+</details>
 
 ---
 
