@@ -2788,6 +2788,41 @@ invites it — it describes an OPERATIONAL fact (no daemon) and reads like a CUS
 attacker deny service" (yes, bounded). Those want different work — recovery and liveness — not more
 custody hardening.
 
+## 🔴 §IL-ACCOUNTING-SIX — **SIX REAL ASSERTIONS NOW RUN FOR THE FIRST TIME, AND ONE LOOKS STRUCTURAL** (2026-08-22)
+
+Context: `§E310` fixed the rally's price injection, and `§CASCADE-SIZING` (`54cef06e`) fixed the
+deadband sizing it left behind in `LevCascade.t.sol`. **`LevCascade` is now 10 passed / 6 failed, and
+the failures CHANGED KIND** — no remaining `debt == 0`. These six assertions never executed while the
+rally was inert, so they are **unmasked, not regressed** (same shape as `§E183-UNMASKED`).
+✅ `test_ProtectFromQuid_HostileOperatorNetsZero` PASSES, which restores the ETH-side coverage the
+`protectFromQuid` fold needs.
+
+🔴🔴 **TRIAGE THIS ONE FIRST — IT IS EXACTLY THE NET-EQUITY/BUFFER SEPARATION, AND THE RATIO IS EXACT:**
+```
+(3b) full-2x: committed EXCLUDES the debt-funded buffer (committed == basket depth - live debt)
+     136639667880000000000000  !=  273279335760000000000000
+```
+**273279335760000000000000 / 136639667880000000000000 = 2.000000 EXACTLY.** At full-2x leverage
+`equity + debt-funded buffer = 2 x equity`, so `committed` is carrying the buffer the invariant says
+it must exclude. ⚠️ **THAT IS THE WHOLE POINT OF THE SPLIT:** `pooled`/`lpShares` are NET equity and
+`levBuf`/`totalBuffer` are debt-funded depth that EARNS but cannot be withdrawn. Counting the buffer
+as committed OVERSTATES BACKING — it claims the basket is covered by dollars the LP does not own.
+⇒ An exact 2.0 at a 2x position is structural, not drift or a sizing artifact. Do not chase it as a
+tolerance.
+
+**The other five, all now reachable:**
+| assertion | reads as |
+|---|---|
+| `cascade made no net de-lever progress (no sell->repay ran): 1352207495 >= 1352207495` | the cascade ran and moved NOTHING — equal, not merely short |
+| `ETH range equity == its OWN BASKET DEPTH less its OWN debt, floored at 0` | same equity identity as (3b), other side |
+| `levered: deliverable ETH still covers the range: 7578459382303077440 < 7785605672215116220` | deliverability short by ~2.7% |
+| `PREMISE: the ETH range's debt must EXCEED its own USD leg` | a test PREMISE unmet — the fixture may not reach the state it means to test |
+| `the stuck LP must emit exactly one DeleverFailed: 0 != 1` | the stuck-LP path emits nothing |
+
+⚠️ **DO NOT ASSUME THE SIX SHARE A ROOT.** Three touch the equity/committed identity and could be one
+bug; `DeleverFailed` and the PREMISE one look independent. Trace before grouping — this cluster has
+already cost one wrong grouping today (40 "Morpho" failures that were a pinned oracle).
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
