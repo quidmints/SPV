@@ -1049,15 +1049,27 @@ contract AllesFixture is ForkPin, ExitFixture {
             abi.encode(uint80(1), int256(usd8), uint(0), block.timestamp, uint80(1)));
     }
 
-    /// Push the ETH pool one direction via real swaps, feed tracking the pool
-    /// pre-swap each step (so the 5% anchor never false-trips). down=true sells
-    /// ETH (price down); else buys ETH with USDC (price up). Returns steps that
-    /// landed (a revert = pool exhausted / observe-underflow boundary).
+    /// Push the ETH pool one direction via real swaps. down=true sells ETH (price down); else buys
+    /// ETH with USDC (price up). Returns steps that landed (a revert = pool exhausted /
+    /// observe-underflow boundary).
+    /// 🔴 §E310/§C23 — THIS MOVED NO PRICE, AND ITS OWN COMMENT SAID THE OPPOSITE. It read
+    ///    `AUX.getTWAPforAsset` (the observation RING) and then set the Chainlink mock FROM it,
+    ///    claiming *"feed = pre-swap pool price"* — it was the pre-swap RING price, so the anchor was
+    ///    a copy of the thing it anchors and NEITHER could move.
+    /// ⛔ `rangePrice()` is no escape: `CORE.poolStats().priceWad` IS `obsState.lastPrice`. §V4-CUT
+    ///    settles fills AT ORACLE against inventory ("one price, no traversal, no discovery"), so a
+    ///    swap moves NO price. The move must be INJECTED.
+    /// ⚠️ AND `_setEthFeed` WAS INERT WHEREVER THE SENTINEL WAS NEVER PINNED (see its note), so this
+    ///    helper could fail twice over. `_setLiveEthFeed` targets whatever `assetPriceFeed` returns.
+    /// ⇒ CALLERS THAT NEED VARIANCE DEPEND ON THIS: `DerivedTheta` reads θ = yield/(K·σ²), and σ² is
+    ///    0 unless the ring actually records a moving price.
     function _moveEth(bool down, uint perStep, uint steps, address actor) internal returns (uint moved) {
         for (uint i; i < steps; i++) {
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            uint px = ETH.rangePrice();
             if (px == 0) break;
-            _setEthFeed(px / 1e10);                 // feed = pre-swap pool price (no deviation)
+            px = down ? px - px * 2 / 100 : px + px * 2 / 100;   // -/+2%: the MARKET moves, EXOGENOUSLY
+            _setLiveEthFeed(px / 1e10);             // the LIVE feed ...
+            CORE.pushObservation(px);               // ... so this bounded push is admissible
             vm.prank(actor);
             if (down) {
                 try AUX.swap{value: perStep}(address(USDC), address(WETH), false, 0, 0, true) { moved++; }

@@ -9470,6 +9470,21 @@ next thread to "fix" correct code:
 `_crashRange` and `_moveEth` are; a setup pin and a drain loop are not. **A grep for the pattern
 cannot tell those apart, and I published the grep's answer before reading the code** — the same error
 as `§DE-TICK`'s 185 comment-only `tick` hits.
+✅ **VERIFIED, and the one failure it touches is PRE-EXISTING.** `DerivedTheta` **passes**. `_moveEth`'s
+only other callers are `Alles`'s two IL simulations; A/B with the fix toggled and nothing else:
+
+| test | control (no fix) | treatment |
+|---|---|---|
+| `test_RunSim_IL_Baseline_TrendDownIL` | PASS | PASS |
+| `test_RunSim_IL_Baseline_ChopIsBenign` | **FAIL** 0.710935 stuck | **FAIL** 0.744110 stuck |
+
+**`ChopIsBenign` fails in BOTH arms** — *"LP position fully realized (no stuck bag)"* against a
+**0.05 ETH** tolerance, ~15× over either way. **Pre-existing; not caused by this fix.** ⚠️ It is
+nonetheless a live row: a test named *"chop is benign"* strands **0.71 ETH** of an LP's position, and
+until now it did so over a price that never chopped. **Whether the tolerance is stale or the range
+genuinely corners inventory under oscillation is unanswered — do not read the pre-existing verdict as
+"fine".**
+
 ⚠️ **`_moveEth`'s callers make it load-bearing:** `DerivedTheta` reads θ = yield/(K·σ²), and **σ² is 0
 unless the ring records a moving price**, so those tests were measuring a frozen oracle.
 
