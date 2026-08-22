@@ -1750,7 +1750,8 @@ contract Alles is AllesFixture {
     // DERIVED from the HJB with a hard inv≥0 constraint, NOT a fit exponent). Direct unit proof on the
     // shared SwapLib.skewWad kernel (ETH & BTC both flow through it). Proves: flush at inv≥target;
     // q=0.5 → Γσ² (q/(1−q)=1); CONVEX (increasing differences — the barrier steepens toward inv=0);
-    // monotone; and the MAX_WELL_SKEW cap binds the inv→0 blowup.
+    // monotone; the inv→0 blowup is UNCAPPED at this layer (§E275 deleted MAX_WELL_SKEW; the
+    // surviving bound is `_boundToFullHaircut` inside `_amplify`, one layer up).
     function testSkewBarrierRamp_ConvexCapAndMonotone() public pure {
         uint T   = 3e12;   // target; committed=0 ⇒ target=T, inv=poolVolUsd. /3 for clean thirds.
         uint sig = 1e16;
@@ -1792,13 +1793,28 @@ contract Alles is AllesFixture {
         assertGt(s23 - s12, s12 - s13, "convex: barrier steepens as inv->0");
         assertLt(s13, s12); assertLt(s12, s23); // monotone
 
-        // The inv→0 blowup is bounded: extreme σ² near-empty can never exceed MAX_WELL_SKEW.
-        // §E81: the ABSOLUTE ceiling is what the inversion left untouched, so this still holds and is
-        // now the ONLY clamp above — the worst case a swapper can suffer is unchanged by the inversion.
+        // ⛔ §E331 — THIS ASSERTED A CAP THAT NO LONGER EXISTS, AT A LAYER THAT NEVER APPLIED ONE.
+        // It read `assertLe(sHot, 3e16, "capped at MAX_WELL_SKEW under the barrier")` and called that
+        // "the ONLY clamp above". **Both halves are false now.**
+        //  1. `MAX_WELL_SKEW` IS DELETED (§E275 — *"one number doing three jobs"*, and *"a POLICY cap
+        //     at 3% that suppressed 51%"* of the distribution). There is no 3e16 ceiling to hold.
+        //  2. `skewWad` IS THE RAW KERNEL. The surviving bound, `_boundToFullHaircut`, is applied in
+        //     `_amplify` — one layer UP, inside `wellSkew` — so this assertion was measuring a bound
+        //     at a layer that never applied it even when the constant existed. Measured: **14.85e18**,
+        //     495× the deleted cap, which is the kernel doing exactly what an uncapped kernel does as
+        //     `inv → 0`.
+        // ⇒ Re-expressed to what IS true here: the barrier is positive and keeps STEEPENING into the
+        //   blowup. The ceiling is asserted where it lives, not here. This test is `pure`, so it
+        //   cannot reach `wellSkew` (which needs a core address) — that bound needs its own test
+        //   against the producer, and §E275's `SKEW_UNFILLABLE` decline is the thing to pin.
         uint sHot = SwapLib.skewWad(T / 100, T, 5e18, SwapLib.ethRisk(), 0);
-        assertGt(sHot, 0,    "near-empty hot-vol skew positive");
-        assertLe(sHot, 3e16, "capped at MAX_WELL_SKEW under the barrier");
-        assertEq(SwapLib.skewWad(T / 100, T, 5e18, SwapLib.btcRisk(), 0), 3e16, "BTC also pinned to the abs ceiling");
+        assertGt(sHot, 0,   "near-empty hot-vol skew positive");
+        assertGt(sHot, s23, "the barrier must keep rising into the blowup, not flatten");
+        // §E331 — same deletion, same layer error: this pinned the BTC leg to the SAME retired 3e16
+        // ceiling with `assertEq`. Measured 14852071250000000000. What survives is that BOTH assets
+        // share one kernel shape, so assert THAT rather than a constant neither of them meets.
+        assertGt(SwapLib.skewWad(T / 100, T, 5e18, SwapLib.btcRisk(), 0), s23,
+            "BTC's barrier rises into the blowup too - one kernel, both assets");
 
         // §E81 — THE FLOOR IS NOW ASSERTED DIRECTLY, replacing the old per-asset CAP comparison (which
         // tested a per-asset CEILING that the inversion deliberately removed: both assets now share the
