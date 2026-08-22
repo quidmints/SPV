@@ -8457,3 +8457,23 @@ the same misattribution across **40 leverage tests**. **The venue was never aske
 ▶️ **Book separately: `pushObservation` refusing out-of-band pushes by `return` is correct** (a revert
 would let a stalled oracle halt the range) **but leaves a misconfigured pusher indistinguishable from no
 pusher.** There is no counter or event for a refused push. That is what made defect 3 invisible.
+
+### 🗑️ §E310 — **`fuzz_targets/lp_auth.rs` WAS AN UNTRACKED CORPSE THAT WOULD HAVE READ AS LIVE COVERAGE**
+Found while clearing the working tree for close-out. It was the last untracked file and looked like new
+fuzz work; it is the residue of a target the repo had already removed **and documented removing**.
+- **It imports `quid_hop::lp_auth::read_lp_auth`, and that function does not exist** — 0 definitions
+  anywhere in `quid-ln/`. §E183 deleted the module.
+- **It is not registered**: `fuzz/Cargo.toml` declares one `[[bin]]`, `heartbeat`.
+- **`Cargo.toml:32-35` already says so:** *"WAS `lp_auth`, WHICH FUZZED A MODULE §E183 HAD DELETED. This
+  crate is `exclude`d from the parent workspace, so a target importing a nonexistent module **NEVER
+  BUILDS** — the repo's only fuzz target was dead and nothing could report it."*
+⇒ **Committing it would have re-added the file that comment records deleting**, and because the crate is
+workspace-excluded it would never fail — it would sit there as fuzz coverage that does not exist.
+📌 **THE `create_sweep_tx` TRAP RUNNING THE OTHER WAY.** That rule says a `dead_code` warning can be a
+deliberate marker for an unbuilt feature, so `git log -S` before deleting. **Here the same evidence
+points the opposite way: the removing note is IN THE BUILD FILE, naming the deleted module.** The
+discriminator is the same one §E304-mintclose used — *is there a commit/comment recording the removal, or
+only an absence of callers?* **A marker for a gap that has not opened ≠ a corpse from a door that closed.**
+⚠️ **AND THE REAL EXPOSURE IS THE ONE `Cargo.toml` FLAGS AND NOBODY HAS FIXED:** the crate is
+`exclude`d from the workspace, so **no fuzz target is built by CI at all**. `heartbeat` is registered and
+unverified by the same argument. **Booked: add the fuzz crate to CI, or the next target rots identically.**
