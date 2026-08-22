@@ -2970,10 +2970,35 @@ using a Safe anymore, just a simple msig"*. ⇒ **These are not just unfilled co
 DESIGN THAT WAS RETIRED**, and `migration.rs` is the file `#14` (key recovery) would build on — so
 this is directly upstream of the dominant residual, not incidental.
 
-### 4. ⚠️ **96 MOCK-ON-A-REAL-PATH + 29 FABRICATED CONSENSUS PARAMS** — against standing rule 5
-(*don't mock; use real addresses*). Not triaged here; recorded so the count is known rather than
-rediscovered. A fabricated consensus param is rejected by a real gateway, so these bound how much the
-suite proves about production.
+### 4. ✅ **96 MOCKS + 29 FABRICATED PARAMS — TRIAGED 2026-08-22. NEITHER IS A RULE-5 VIOLATION, AND THE REASON IS COVERAGE, NOT TOLERANCE.**
+
+**THE 29 FABRICATED CONSENSUS PARAMS ARE FINE, BECAUSE THE REAL GATEWAY IS COVERED SEPARATELY.**
+Every one is a synthetic `fundingBlockHash: bytes32(uint(0x…))` / `fundingBlockHeight: 800000` in
+`VBtcLevFeeLane`, `BTCChannelsAuth` or `Alles` — tests whose SUBJECT is the lev fee lane, the auth
+gate or the basket, **not SPV**. They stub the gateway (`MockSPV`) precisely so a fabricated header
+never reaches consensus logic.
+✅ **The real `SPVGateway` has FIVE dedicated files**, including adversarial and real-regtest e2e:
+`SPVGateway.t.sol`, `SPVGatewayAdversarial.t.sol`, `btc/OpenChannelE2E.t.sol` (a LIVE regtest funding
+tx through the ACTUAL gateway), `btc/BtcSelfManaged.t.sol`, and `Alles.t.sol` (`new SPVGateway`).
+⇒ **The scanner's heuristic is TRUE and not a defect: a real gateway WOULD reject these, which is why
+they are never given to one.** That is the correct division of labour, not a shortcut.
+⚠️ `BTCChannelsAuth` uses neither — its own comment says *"Minimal deploy… we only call"* the auth
+paths, so no SPV verification is reached at all.
+
+**THE 96 MOCKS ARE PRICE-SOURCE STUBS, NOT MOCKED CONTRACTS-UNDER-TEST.** The concentration says it:
+**35 × `address(AUX)`**, **9 × `feed`**, **3 × `CL_ETH_USD`**, plus venue/link handles. These drive a
+DETERMINISTIC price scenario (crash, rally, depeg) — you cannot test a liquidation cascade against a
+live oracle. **Standing rule 5 forbids mocking the thing under test; an exogenous price is not that.**
+
+🔴 **BUT THERE IS A REAL HAZARD IN THIS PATTERN, AND THIS THREAD PAID FOR IT — SEE `§E310`.** Mocking
+a price source is safe ONLY while the mock is EXOGENOUS. `_rallyRange` set the Chainlink mock FROM
+`AUX.getTWAPforAsset`, which reads the observation ring — **so the anchor was a copy of the thing it
+anchors, and NOTHING could move.** 60 swaps, 71M gas, price byte-identical, and it presented as
+*"Morpho will not lend"* for 40 tests.
+⇒ **THE RULE THAT ACTUALLY MATTERS HERE, and it is not "don't mock": A MOCKED PRICE MUST BE INJECTED,
+NEVER DERIVED FROM STATE THE SYSTEM ALSO DERIVES FROM.** Audit each of the 96 against THAT question —
+"where does this mocked value come from?" — not against whether a mock exists. A mock fed by a
+constant or a test-chosen delta is sound; one fed by a protocol read is circular.
 
 ⇒ **RUN THIS SCANNER AT EVERY CLOSE-OUT.** Every item above was invisible to `git status`, the ABI
 gate, the fuzz gate and a green suite — the four things this thread otherwise used to declare itself
