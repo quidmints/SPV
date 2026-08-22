@@ -10386,6 +10386,56 @@ state across contracts, which is what §E329's instance bug was.
   call `rebalance` afterwards, and no test covers that hand-off.** ▶️ Confirm the keeper does it.
 
 
+---
+
+## 🔴🔴 §E332 — **TWO CORRECTIONS TO §E331, BOTH FROM CHECKING RATHER THAN ASSERTING. ONE IS WORSE, ONE IS WEAKER.**
+
+### 1. 🔴 THE UNBOUNDED LOOP: I NAMED THE ONE WITH **ZERO** CALLERS AND MISSED THE ONE WITH **FIFTEEN**
+§E331 flagged `LevBase.totalDeliverableDollars` (`:231`). Re-measured — there are **FOUR** unbounded
+loops over `_openLps` in that file, and the one I named is the least dangerous:
+| function | line | loops over every open LP | **in-`src` callers** |
+|---|---|---|---|
+| `totalDeliverableDollars` | 231 | ✔ | **0** (one TEST caller) |
+| `totalDebtUsd` | 430 | ✔ | **5** |
+| `totalGrossCollateral` | 472 | ✔ | **3** |
+| **`totalNetEquity`** | **478** | ✔ | **🔴 15** |
+⇒ **`totalNetEquity` is the real cliff**: fifteen call sites, O(open LPs) each, reachable from
+state-changing paths. `totalDeliverableDollars` is a view nothing in `src` calls, so it can only ever
+break an off-chain `eth_call`. **I flagged the harmless one.**
+⚠️ **AND THIS IS THE SHAPE THAT PASSES EVERY TEST**: cost scales with LP COUNT, and fixtures run a
+handful of LPs. It gets closer to the ceiling the more the protocol succeeds.
+▶️ **THE FIX IS INCREMENTAL ACCUMULATORS, AND THE PRIMITIVES ALREADY EXIST.** `openLevCount()` and
+`openLpAt(i)` are already declared (`:425`, `:428`), so paginated reads are available today for
+off-chain callers. The on-chain path needs the three totals maintained on open/close/rebalance instead
+of recomputed — the same move §E320's `netFlowUsd` made (accumulate at the mutation, don't re-derive).
+**Not attempted here: it is a money-path refactor of `LevBase` and needs its own change + suite run.**
+
+### 2. 🟠 OOR SKEW: THE MECHANIC HOLDS, THE "GRINDING VECTOR" FRAMING DOES NOT
+§E331 called the missing OOR skew *"a grinding vector … park a resting order just across the band."*
+**The self-fill attack does not work, and the reason is structural:** §V4-CUT settles fills AT ORACLE
+against inventory — *"one price, no traversal"* — so **a swap moves NO price.** `sweepOor` is handed
+`px` from `Core.swap`, which came from the oracle. A grinder therefore cannot walk the price into their
+own resting order; the external market has to genuinely arrive. There is no same-block arb here.
+✅ **WHAT SURVIVES, AND IT IS STILL REAL:** `settleOor` routes through the **same `_handleDelta`** as a
+swap, so an OOR fill moves `POOLED_*` identically — but it never passes through `_fillDelta`, which is
+where the skew is applied. ⇒ **Two paths, identical inventory effect, one charge.** It is not an
+exploit; it is a **standing, unpriced maker discount.**
+### ⇒ SO: DOES OOR NEED A SKEW AT ALL? THE ANSWER IS "NOT THE SAME ONE", AND THE PDFs SAY WHY
+The skew is an **Avellaneda–Stoikov reservation-price shift** — `r = s − qγσ²(T−t)` — and it prices the
+**inventory risk of being made to hold `q` RIGHT NOW**. A taker demands immediacy in size; that
+immediacy is what the premium sells.
+**A resting OOR order bought none of it.** It committed capital at a price and waited, bearing the risk
+the market never came — that is maker behaviour, and makers conventionally pay less than takers. So:
+- charging OOR the **full** skew over-charges, because it bills an immediacy premium nobody consumed;
+- charging **zero** under-charges, because the fill still hands over scarce inventory and `_handleDelta`
+  moves `POOLED_*` by exactly the same amount a swap would.
+⇒ **The economically right charge is the inventory term WITHOUT the immediacy term** — in A&S language,
+the reservation-price shift but not the spread `δ`. 📌 **That is the same distinction §E276/§E312
+fought over (we implement A&S's spread δ and call it A&S's shift r), so this is not a new axis — it is
+the existing one, showing up on a second path.** ▶️ Owner's call; booked with the reasoning rather than
+a coefficient, because §E326's mark work depends on the same split.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
