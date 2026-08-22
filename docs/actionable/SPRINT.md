@@ -10791,6 +10791,57 @@ wider as the book ages). ▶️ **Measure `ilBasisPx` dispersion across open pos
 decides pooled-vs-per-LP, and it is cheap to compute off-chain from the existing `openLpAt` accessor.**
 
 
+---
+
+## 🟡 §E340 — **§E339'S "MEASURE THE DISPERSION" CANNOT BE MEASURED. WHAT IS DERIVABLE IS THE GAP'S FORM, AND THAT IS VALIDATED.**
+
+Owner: *"how do you know your measurement isnt actually blind and just a contrived number, what gives it
+accuracy."* **It would have been contrived, and the challenge is correct.**
+
+### ⛔ WHY THE MEASUREMENT I PROMISED IS NOT AVAILABLE
+`ilBasisPx` dispersion is a property of the OPEN BOOK, and **there is no book — the protocol is
+pre-launch, so `_openLps` is empty outside fixtures.** Simulating entries requires assuming a
+distribution, and the Jensen gap is a FUNCTION of that assumption ⇒ the "measurement" would return my
+own input. **It fails the standing control exactly: it would look identical whether or not I were
+right.** Fixture entries are no better — they are values a test author picked to exercise a branch.
+
+### ✅ WHAT *IS* ACCURATE — THE FORM IS DERIVABLE, NOT SIMULATED, AND IT WAS CHECKED
+For `f(e) = 1 − √(e/p)`, a second-order expansion gives
+```
+gap  =  E[f(e)] − f(E[e])  ≈  (CV² / 8) · √(ē/p)
+```
+**Validated against brute force** (no distribution assumed — the identity is per-sample):
+| case | exact | formula | err |
+|---|---|---|---|
+| two LPs 2000/3000, p=4000 | 0.004003 | 0.003953 | **−1.3%** |
+| within-LP 2000/4000, p=5000 | 0.011155 | 0.010758 | −3.6% |
+| tight 2400–2600, p=3000 | 0.000122 | 0.000122 | −0.1% |
+| 50 LPs lognormal CV=0.30 | 0.006212 | 0.006541 | +5.3% |
+| wide 1000–5000, p=6000 (CV≈0.58) | 0.031031 | 0.026189 | −15.6% |
+⇒ Accurate to ~5% for `CV ≤ 0.3`; degrades beyond, as a 2nd-order expansion must. **That error bar is
+itself measured, not asserted.**
+
+### ⭐ THE DECISION STRUCTURE, WHICH IS THE PART THAT DOES NOT DEPEND ON THE UNKNOWN
+**The gap is QUADRATIC in dispersion and SHRINKS as price runs.** Doubling entry dispersion quadruples
+the pooling cost:
+| CV | p = 1.5× | p = 2× | p = 4× |
+|---|---|---|---|
+| 0.05 | 2.6 bp | 2.2 bp | 1.6 bp |
+| 0.10 | 10.2 bp | 8.8 bp | 6.3 bp |
+| 0.20 | 40.8 bp | 35.4 bp | 25.0 bp |
+| 0.30 | 91.9 bp | 79.5 bp | 56.2 bp |
+| 0.50 | 255.2 bp | 221.0 bp | 156.2 bp |
+⇒ **Pooling is effectively free below ~10% entry dispersion and material above ~30%.** That threshold is
+a real result and needs no book to state.
+
+### ▶️ AND THE UNKNOWN REDUCES TO SOMETHING KNOWABLE
+Entry prices ARE the ETH price at each deposit, so **CV of entries = CV of the price path over the
+deposit window** — a property of ETH, not of our users, and computable from any price series before a
+single LP exists. **That is the input to fetch, and it is the only honest way to close this.**
+⚠️ Do not substitute a plausible number for it: the whole point of this row is that the gap inherits
+whatever dispersion you assume, so an assumed CV produces an assumed answer wearing a decimal point.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
