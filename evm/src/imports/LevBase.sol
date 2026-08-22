@@ -320,8 +320,11 @@ abstract contract LevBase {
         return LevMath.ltvBps(debtUsd(lp), LevMath.entryEquityUsd(pos[lp].entryEquity, px));
     }
 
-    /// @notice The live IL target in bps. §FOLD-LTV. NOT `view`: `_ilTargetLive` reaches the range's
-    ///         `soldFractionWad`, which is not a view call on that side.
+    /// @notice The live IL target in bps. §FOLD-LTV.
+    /// ⚠️ THE NOTE HERE SAID *"NOT `view`: `_ilTargetLive` reaches the range's `soldFractionWad`"* —
+    ///    and it was ALREADY FALSE when written, because the function below is declared `public
+    ///    view`. §C22 then removed the reason as well: `_ilTargetLive` no longer touches the range
+    ///    at all, so there is no non-view call anywhere on this path.
     function ilTargetLtvBps(address lp) public view returns (uint) {
         return _ilTargetLive(pos[lp], AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
     }
@@ -401,7 +404,11 @@ abstract contract LevBase {
     /// `LevMath.ilTargetLive` was, which is the same shape as the dead-variable cascade earlier
     /// today. Tightening a callee is what lets the caller tighten.
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
-        return LevMath.ilTargetLive(RANGE, p.syncKeyPx, p.ilBasisPx, px, p.targetLtvCapBps);
+        // §C22 — was `LevMath.ilTargetLive(RANGE, p.syncKeyPx, …)`. That function preferred
+        // `soldFractionWad(syncKeyPx)`, which is a CONSTANT (0.500750000 = f(RANGE_DELTA) alone —
+        // the band recentres on spot, so the price cancels out of the ratio). It is gone; the
+        // estimate on the entry-pinned basis is the target.
+        return LevMath.ilTargetBps(p.ilBasisPx, px, p.targetLtvCapBps);
     }
 
     // ─── §LEV-FOLD-2 — the last three per-asset accessors, folded through `_collNative` ────────

@@ -83,7 +83,7 @@ library LevMath {
     ///         ZERO when flat/down (no IL accrued ⇒ no leverage). `ilBasisPx`/`pxNow` are
     ///         USD-per-base (1e18). Identical to `LevManager._ilTargetBps`.
     function ilTargetBps(uint128 ilBasisPx, uint256 pxNow, uint64 capBps)
-        internal pure returns (uint256)
+        public pure returns (uint256)
     {
         // at/below entry → no UP-SIDE IL → no up-side overlay. (There IS down-side IL below entry — the range
         // over-holds the falling asset — but a long LP does NOT hedge it: the up-side-only LP just HOLDS long
@@ -133,29 +133,26 @@ library LevMath {
         go = true;
     }
 
-    /// @notice The live IL target (bps) with the range read folded out of both managers' `_ilTargetLive`. `public`
-    ///         (delegatecall) ⇒ state-call-classed ⇒ the forwarders are non-view (BTC's `ilTargetLtvBps`/
-    ///         `debtDeltaToTarget` drop `view` — no on-chain view caller depends on them; off-chain eth_call is
-    ///         fine). Range's ACTUAL sold fraction (capped), else the 1−√(entry/now) estimate.
-    /// @dev The `bool active` gate was DELETED 2026-08-09. It was `LevManager.soldFractionActive`, a GOV-only
-    ///      flag defaulting FALSE that the deploy script never set — so in production this ALWAYS fell through
-    ///      to the estimate and the range's measured sold fraction was never read, while three test suites
-    ///      flipped it true in setUp and verified the path production did not run. The remaining conditions
-    ///      (`syncKeyPx != 0 && range != address(0)`) already ARE the availability test the flag stood in for:
-    ///      use ground truth whenever it can be obtained, else the estimate. Adaptive by construction, no latch.
-    /// §E309 — these two were `entryPrice` and `entryPriceWad`, which read as ONE value at two
-    ///        scalings. They are not: `syncKeyPx` is a LOOKUP KEY into the sync hook, `ilBasisPx`
-    ///        is the IL math BASIS, and they are set from different sources at open. The old
-    ///        names invited a dedup that would have silently changed the IL target.
-    function ilTargetLive(address range, uint syncKeyPx, uint128 ilBasisPx, uint256 px, uint64 capBps)
-        public view returns (uint256) {
-        if (syncKeyPx != 0 && range != address(0)) {
-            try ICore(range).soldFractionWad(syncKeyPx) returns (uint256 sf) {
-                if (sf != 0) { uint256 bps = sf / 1e14; return bps > capBps ? capBps : bps; }
-            } catch {}
-        }
-        return ilTargetBps(ilBasisPx, px, capBps);
-    }
+    // §C22 — `ilTargetLive` IS DELETED. Its PRIMARY branch read `ICore(range).soldFractionWad(
+    //   syncKeyPx)` and preferred it over the estimate whenever it was non-zero. THAT BRANCH WAS A
+    //   CONSTANT, and the proof is two lines of algebra plus a measurement that agrees to nine
+    //   significant figures:
+    //     `holdingRatioWad` CLAMPS `p0` into the live band, and `RANGE_ANCHOR = spotPrice` is set
+    //     unconditionally on every repack, so the band recentres and the triple is always
+    //     (lo, P, hi) = (P(1-d), P, P(1+d)). P CANCELS:
+    //         holdingRatio = sqrt(1-d) * (sqrt(1+d) - 1) / (sqrt(1+d) - sqrt(1-d))
+    //     With RANGE_DELTA = 20 bps that is 0.499250000, i.e. soldFraction = **0.500750000** — a
+    //     function of BAND WIDTH ALONE, with no price in it.
+    //   MEASURED over a rally that doubled the price (2716.84 -> 5430.99, ten steps): the range's
+    //   real inventory `POOLED` fell 7.566 -> 2.331 ETH while `soldFractionWad` returned
+    //   0.500750000312500535 at EVERY step, moving only in the 18th decimal.
+    //   => It is not a measure of IL. It reported a 50.075% hedge at open, at +100%, and it would
+    //      report the same on the way down. It never fired in production only because the reanchor
+    //      kept `syncKeyPx == spot` and `sf` came back 0 — so the estimate ran, correctly, BY
+    //      ACCIDENT. Restoring `syncKeyPx` (the natural next step after §C19) would have switched
+    //      every position in the book to a constant 50% hedge, capped at `capBps`.
+    //   `ilTargetBps` below is now the ONLY target, and it is `public` so the body stays in this
+    //   delegatecalled library rather than inlining into the size-critical managers.
 
     /// @notice (§3) The stable (USD 1e18) to REPAY to bring a position to target LTV on the FIXED E0 (over-hedge
     ///         fix): `curDebt − targetDebt`, ZERO inside the de-lever range. Pure; folded out of `deleverRepayUsd`.

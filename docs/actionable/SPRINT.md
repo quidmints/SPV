@@ -8945,3 +8945,49 @@ the same if the thing I am measuring were absent?* For this row the answer was *
 self-referential ring and a genuinely calm market produce the same σ², and nothing in the measurement
 separated them. **That question is already the repo's stated rule; what is missing is running it
 against the INSTRUMENT rather than against the finding.**
+
+### C22-RESOLVED. ✅ `ilTargetLive` IS DELETED — ITS PRIMARY BRANCH WAS A CONSTANT, PROVEN AND MEASURED
+
+**THE PROOF, and it is two lines.** `holdingRatioWad` CLAMPS `p0` into the live band, and
+`RANGE_ANCHOR = spotPrice` is unconditional (`Quid._rebalance`), so the band recentres and the triple
+is always `(P(1−d), P, P(1+d))`. **`P` cancels:**
+```
+holdingRatio = √(1−d) · (√(1+d) − 1) / (√(1+d) − √(1−d))
+```
+With `RANGE_DELTA = 20 bps` ⇒ `0.499250000` ⇒ **soldFraction = 0.500750000**, a function of **BAND
+WIDTH ALONE, with no price in it.**
+
+**THE MEASUREMENT, over a rally that DOUBLED the price (2716.84 → 5430.99, ten steps):** the range's
+real inventory `POOLED` fell **7.566 → 2.331 ETH** while `soldFractionWad` returned
+**0.500750000312500535 at every step**, moving only in the 18th decimal. **Algebra and measurement
+agree to nine significant figures.**
+⇒ It is not a measure of IL. It reported a 50.075% hedge at open, at +100%, and would report the same
+on the way down. It never fired in production only because the reanchor kept `syncKeyPx == spot` so
+`sf` came back 0 — **the estimate ran, correctly, BY ACCIDENT** (§C22's landmine, now defused).
+
+✅ **VERIFIED BY A ONE-VARIABLE A/B — same worktree, same harness, only the source toggled:**
+
+| arm | passed | failed |
+|---|---|---|
+| baseline (`ilTargetLive` restored) | 38 | 14 |
+| treatment (deleted) | 38 | 14 |
+
+**13 of 14 failure messages BYTE-IDENTICAL**; the 14th differs by **0.000283 ETH (0.006%)** on an
+already-failing assertion — noise. **Behaviourally neutral, which is exactly what deleting a branch
+that never fires must look like.**
+⚠️ **TWO EARLIER A/Bs ON THIS CHANGE WERE INVALID AND ARE DISCARDED, both for the same reason: an
+UNPUSHED harness fix.** The first compared a worktree built from `origin/main` (5% ramp ⇒ 241 bps ⇒
+under the 300 deadband ⇒ no leverage at all) against a tree carrying the 8% ramp, and the four
+"regressions" were every pre-C19 symptom returning. The second compared against a log captured before
+the `_crashRange` fix existed. **A stale baseline is a different experiment wearing the same filename.**
+⇒ **The ramp is pushed with this commit precisely so it stops being a floating local difference.**
+
+**GATES:** `check-contract-sizes.py` OK — tightest `Quid` **452 bytes** spare, `LevManager` **2,441**.
+`check-client-abis.py` reports **1 SPA drift, `openChannelDigest`, which is PRE-EXISTING** — reproduced
+on pristine `origin/main` with no C22 applied. **`ilTargetLive` has ZERO references in `spa/` and
+`quid-ln/`**, so the deletion breaks no client.
+
+▶️ **STILL OPEN, and it is the real remaining question: is `1 − √(entry/now)` CALIBRATED for this band?**
+Measured inventory fell ~69% over a +100% move where the estimate gives 29.3%. **Not booked as a defect
+— `POOLED` moves for deposits, withdrawals and the levered buffer too, so the comparison is not yet
+apples-to-apples.** Isolate it with a single-LP, no-leverage rally before concluding anything.
