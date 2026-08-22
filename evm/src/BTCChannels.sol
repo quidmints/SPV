@@ -825,8 +825,12 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // removing rather than assumed: ZERO callers in `evm/src`, ZERO in `evm/test`, and the only
     // client mentions are Rust DOC COMMENTS on `evm_codec.rs`'s own local reimplementations
     // (`splice_digest`, `swap_out_deliver_digest`), which recompute the preimage off-chain and
-    // never call these accessors. `openChannelDigest` is KEPT — six tests call it — and
-    // `openAuthDigest` is KEPT because the open path genuinely verifies against it (`:911`).
+    // never call these accessors. ⛔ THIS SENTENCE USED TO SAY `openChannelDigest` WAS "KEPT — six
+    // tests call it" AND `openAuthDigest` "KEPT because the open path genuinely verifies against
+    // it". BOTH ARE DELETED, and zero tests call either: every surviving mention in `evm/src`,
+    // `evm/test` and `spa/src` is a comment (§E307, re-measured 2026-08-22 with the ABI gate green
+    // at 0 drifted). ⚠️ The paragraph above already corrects the identical claim for `openAuthDigest`
+    // — the block was documenting this failure mode in one breath and committing it in the next.
     //
     // ⚠️ THIS IS THE `create_sweep_tx` TEST APPLIED IN THE OTHER DIRECTION, so the reasoning is
     // written down: that symbol was restored twice because its "dead" warning MARKED A REAL GAP —
