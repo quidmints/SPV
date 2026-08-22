@@ -407,7 +407,10 @@ library RangeLib {
     // read the caller's IMMUTABLES (`AUX`, `ORACLE_KEY` live in the caller's code, not its storage)
     // and cannot call the caller's VIRTUALS (`_collToBase`). So every value derived from those must
     // be computed by the caller and passed BY VALUE. That is exactly what `LevBase`'s own note
-    // predicted. It is why `_reanchorIfReseated` takes `px` and `base` instead of reading them.
+    // predicted. It is why `_reanchorIfReseated` takes `base` instead of reading it.
+    // ⚠️ IT TOOK `px` TOO UNTIL §C19. That argument was `AUX.getTWAPforAsset(...)` -- a LIVE ORACLE
+    // READ ON EVERY RESEAT -- and its only use was `q.ilBasisPx = uint128(px)`, the write that made
+    // the levered book inert. Deleting the write deleted the reason to read the oracle here at all.
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);
     event ReanchoredToRange(address indexed lp, uint syncKeyPx, uint256 entryEquity);
@@ -451,7 +454,6 @@ library RangeLib {
         mapping(address => Types.Pos) storage pos,
         address range,
         address lp,
-        uint256 px,
         uint256 base
     ) external returns (bool fired) {
         Types.Pos storage q = pos[lp];
@@ -459,7 +461,19 @@ library RangeLib {
         (bool go, uint s) = LevMath.reanchorCompute(range, q.syncKeyPx);
         if (!go) return false;
         q.syncKeyPx    = s;
-        q.ilBasisPx = uint128(px);
+        // 🔴 §C19 — `q.ilBasisPx = uint128(px)` WAS HERE AND IT MADE THE LEVERED BOOK INERT.
+        // `RANGE_ANCHOR = o.spotPrice` is unconditional (`Quid._rebalance`), so the band recenters on
+        // spot at every repack and this reseat fires on any drift past `RANGE_DELTA` (20 bps). Writing
+        // the CURRENT price into the IL basis then reset the very quantity the hedge measures: the
+        // most IL that could ever accumulate was one half-band, `1 - sqrt(1/1.002)` = **9.99 bps**,
+        // against `debtDelta`'s `RANGE_BPS` = **300 bps** deadband -- so `debtDelta` returned
+        // `(false, 0)` on EVERY path and `venue.borrow` was UNREACHABLE BY CONSTRUCTION.
+        // ⚠️ THE INVARIANT THAT DEFENDS THIS RESEAT COVERS `entryEquity` ONLY. It reads: levering
+        // moves collateral and debt by the SAME amount, so NET EQUITY is leverage-invariant -- true,
+        // and it says nothing about a PRICE basis. A leverage-invariant equity base does not imply a
+        // resettable price base, and the note has been read as blessing both.
+        // ⇒ The seat moved, so `syncKeyPx` is re-based; the equity is leverage-invariant, so
+        //   `entryEquity` is re-based. THE ENTRY PRICE IS NEITHER, so it stays pinned at open.
         q.entryEquity            = uint128(base);
         emit ReanchoredToRange(lp, s, base);
         return true;

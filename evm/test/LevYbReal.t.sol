@@ -200,7 +200,11 @@ contract LevYbRealProbe is AllesFixture {
             // endogenous price to read: the move must be INJECTED.
             uint px = ETH.rangePrice();
             if (px == 0) { emit log_named_uint("RALLY EXIT rangePrice==0 at step", i); break; }
-            px += px / 20;                          // +5%: the MARKET moves, EXOGENOUSLY
+            px += px * 8 / 100;                     // +8%: the MARKET moves, EXOGENOUSLY.
+            // 8 and not 5 because the DEADBAND sets the floor: `debtDelta` no-ops below
+            // `RANGE_BPS` = 300 bps, and `1 - sqrt(1/1.05)` = 241 bps does not reach it. +8% gives
+            // 377 bps. The rally exits after ONE step here (soldFraction hits 50% > the 20% target),
+            // so the whole move has to land in that one step.
             _setLiveEthFeed(px / 1e10);             // Chainlink follows the market (LIVE feed, §E310) ...
             CORE.pushObservation(px);               // ... and the ring records it (deviation 0 => admissible)
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {}

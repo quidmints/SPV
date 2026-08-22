@@ -457,8 +457,9 @@ abstract contract LevBase {
     ///         `open` check in the library is cheaper than two.
     function _reanchorIfReseated(address lp) internal {
         if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
-        RangeLib.reanchorIfReseated(pos, RANGE, lp,
-            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), netEquity(lp));
+        // §C19 — the `getTWAPforAsset` argument is GONE with the `ilBasisPx` write it fed; the reseat
+        // re-bases the seat and the equity, never the entry price, so it needs no oracle read.
+        RangeLib.reanchorIfReseated(pos, RANGE, lp, netEquity(lp));
     }
 }
 
