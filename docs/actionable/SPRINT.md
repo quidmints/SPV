@@ -10536,6 +10536,61 @@ remedy is what gets quoted downstream, and §E332's wrong prescription is what p
 implement it.
 
 
+---
+
+## ⛔ §E335 — **"LEVER THE BASKET INSTEAD OF DELEVERING LPs": IT ADDS COST TO SWAPS AND BUYS NOTHING, BECAUSE THE SWAPPER DOES NOT PAY FOR THE DELEVER TODAY**
+
+Owner's proposal (2026-08-23): *"instead of delevering individual LPs what if we levered the stables in
+the basket instead temporarily and paid off the debt … how many costs would that add to the cost of
+swapping (we should be providing better execution than uniswap or no one will use this)."*
+
+### 🔴 THE PREMISE TO CHECK FIRST — AND IT DOES NOT HOLD. THE DELEVER IS **FREE TO THE SWAPPER**.
+`SwapLib.deleverOnDelivery` (`:1744`) never touches the swapper's price. It computes
+```solidity
+uint wantUsd6 = exactUsd6 * want / deliveredRaw;   // proceeds share for the levered sats
+```
+— **a share of the LP's OWN delivery proceeds** — and `_sourceRepayFree` draws it from `POOLED_USD`,
+repays `min(wantUsd, debt)` and un-encumbers the sats. The swapper's price is set earlier and
+elsewhere, in `Core._fillDelta`: oracle minus skew, committed as a firm quote.
+⇒ **Marginal cost of the current delever to a swap: ZERO.** So the proposal cannot IMPROVE execution —
+there is no charge on the swapper to relieve. **It can only add cost.**
+
+### THE COSTS IT WOULD ADD, AND ONE IS FATAL ON ITS OWN
+1. 🔴 **IT IS A REFINANCE AT THE SAME RATE, FROM THE SAME LENDER.** The LP's debt is
+   `MORPHO.borrow` / `POOL.borrow` via `LevVenueBase` (`:148`, `:244`). A basket-level borrow to repay
+   it would draw on **the same Morpho/Aave markets**. Borrowing at rate `r` to retire a debt at rate
+   `r` saves nothing and pays **two sets of gas** plus an unwind later. There is no rate arbitrage to
+   harvest, because there is no second lender.
+2. 🔴 **THE CARRY IS A PURE SPREAD LOSS WHILE IT LASTS.** The basket's stables are already SUPPLIED and
+   earning. Borrowing against them means paying borrow APR while earning supply APR on the same
+   principal — the basket eats `borrow − supply` for the whole duration, for a debt that was already
+   being retired for free out of proceeds.
+3. ⛔ **IT BREAKS THE ISOLATION INVARIANT — this is the fatal one.** Today the delever touches exactly
+   the LP whose channel shrank. A basket borrow is a liability of **every QU!D holder**. §E333
+   established that the per-LP floor in `netEquityBase` **is** the isolation property, tested by
+   `test_Isolation_StuckLpDoesNotTouchAnother` and
+   `test_PassiveLp_NotExpensedByLeveredLpLifecycle`. ⇒ **This converts an isolated, self-funding
+   unwind into a socialised one** — and it is standing rule 8b's shape: a liability against the basket
+   in place of value that already exists (the LP's own proceeds).
+
+### ⭐ AND ON EXECUTION vs UNISWAP — THE ADVANTAGE IS STRUCTURAL, NOT FEE-LEVEL
+Our edge does not come from this mechanism and cannot be improved by it. `Core._fillDelta` settles the
+**whole size at one oracle price** — *"one price, no traversal, no discovery"* — so there is **no price
+impact term at all**, which is exactly what a v3/v4 swapper pays and what grows with size. A swapper
+here pays the skew (an inventory charge, A&S) and, since §E311, nothing else. **A Uniswap swapper pays
+a fee tier PLUS impact that scales with notional.** ⇒ For large size we win by construction; the delever
+path is not on that axis.
+▶️ **If the goal is better execution, the live levers are `§E332`'s unpriced OOR discount and `§E330`'s
+flush exemption (a deep range charges ZERO), not the delever.** Both are already booked, and both are
+about what the swapper pays — which this proposal is not.
+
+### 📌 WHERE THE IDEA **WOULD** APPLY, IF IT IS RESCUED
+The one thing per-LP delever genuinely costs is that the LP **loses IL-protect exposure** at delivery,
+and §E331 established nothing re-levers it — `LevManager.rebalance` is keeper-driven and untested for
+that hand-off. **If the aim is keeping LPs protected through a swap-out, the cheap fix is the missing
+keeper hand-off, not a basket-level borrow.** Same outcome, no new liability, no socialisation.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
