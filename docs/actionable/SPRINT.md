@@ -9083,3 +9083,51 @@ is the signature of a frozen input, not of a discovery.
 ▶️ **TO ACTUALLY ANSWER THE CALIBRATION QUESTION:** fix the injection in a bare fixture (or run the
 probe inside a fixture where it is known to work), assert the oracle moved FIRST, then compare the
 LP's `convertToAssets` path against `1 − √(entry/now)` over a one-directional rally.
+## 🔴 §E313 — **DELETE THE PREFERRED-STABLE PATH: `_takePreferred` AND THE `preferred` PARAMETER. SCOPED AND MEASURED; NOT EXECUTED.**
+
+**Owner, 2026-08-22: *"there should be no more `_takePreferred` because we can do the multicall thing
+off chain, my goal is to get this solidity contract as thin as humanly possible."*** ⇒ **This follows
+from §E312-redeem rather than being a new decision**: if the frontend converges the pro-rata basket
+into one stable by multicall, the contract has no reason to know a preferred stable at all.
+
+### THE FOOTPRINT — measured, with the client control run
+| symbol | `evm/src` | `evm/test` | `spa/src` | `quid-ln` |
+|---|---|---|---|---|
+| `_takePreferred` | 2 | **0** | **0** | **0** |
+| `prefIndex` | 1 | **0** | **0** | **0** |
+| `preferred` | 5 | 1 | *(0 real)* | *(0 real)* |
+
+✅ **CONTROL RUN ON THE TWO NON-ZERO COLUMNS, because both are the English word rather than the
+parameter:** the `spa/src` hits are prose in `learn/page.tsx` (*"…ordered from most-preferred"*-style
+copy), and both `quid-ln` hits are in **vendored `lib/rust-lightning`** (BOLT12 `invoice_request.rs`,
+`refund.rs`). ⇒ **NO CLIENT ENCODES THE PREFERRED PARAMETER.** The `redeem` hits that looked like
+client call sites are `graphify-out` AST **cache files**, not source.
+
+### WHAT COMES OUT
+- `BasketLib._takePreferred` (`:745-770`) — **and with it the first of §E91-r5's two `try/catch`
+  sites**, since that swallow lives inside it.
+- Its caller branch: the `skip` / `viaToken` / `idx` block that precedes `_takeProRata`, plus the
+  `require(idx > 0 && idx <= a.stables.length, "unknown-stable")`.
+- `Aux._redeemRequire` (whole function — it exists only to validate `preferred`).
+- The parameter itself on **`Aux.redeem(uint,address)` → `redeem(uint)`** and
+  **`Aux.redeemTo(uint,address,address)` → `redeemTo(uint,address)`**, and through `_redeemAs`.
+- `prefIndex`, and whatever `Types`/`Interfaces` declarations carry them.
+
+⇒ **A PUBLIC ABI BREAK ON TWO REDEMPTION ENTRYPOINTS, WHICH IS ACCEPTABLE HERE ONLY BECAUSE THE
+CONTROL ABOVE SHOWS NOTHING CALLS THEM WITH IT.** `check-client-abis.py` must be green **before** the
+commit, not after (§E307 is the live cost of an ignored ORPHAN).
+
+### ⭐ WHAT IT SIMPLIFIES BEYOND THE LINE COUNT
+`_takePreferred`'s shortfall becomes `a.amount` and **falls through to `_takeProRata`** — that
+fall-through is the only reason the preferred leg is not a swallowed delivery today (see §E91-r5's
+narrowing below). **Removing the leg removes the fall-through AND the thing it compensates for**, so
+the redemption path becomes: pro-rata, capped by `_illiquidLoss`, and nothing else. **That is a root
+simplification, not a clamp removal** — one path instead of two, and the surviving path is the one the
+owner's design keeps.
+
+### 🔴 NOT EXECUTED, AND THE REASON IS NOT JUDGEMENT
+**`evm/src/Aux.sol` is DIRTY — under another session's edit as this was written** (it is one of the
+two files the change needs). Editing it would either collide or be clobbered; **that has happened
+three times today** (three of four §E303 edits lost, `IBtcVaultBridge` dropped from `Interfaces.sol`,
+§E304 duplicated). ▶️ **Execute in ONE commit when `Aux.sol` is clean**, with build + sizes + ABI gate,
+and expect `Quid`/`BTCChannels` margin to move in the right direction.
