@@ -262,7 +262,12 @@ contract LevYbRealProbe is AllesFixture {
         rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins); // cap = 2×
         vm.stopPrank();
         // Real rally: buy ETH out of the range so it sells ETH ⇒ real IL accrues since the pinned entry.
-        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        // (§RALLY-MASK) STEP SIZE MUST BE SMALL RELATIVE TO THE RANGE'S INVENTORY. The range holds
+        // 5 ETH; an 8_000-USDC step buys ~4 ETH at current marks, so step 1 drained it and step 2
+        // got `max == 0` → `SlippageMaxS()` (the name misleads: with minOut==0 the only trigger is a
+        // DRY POOL, as SwapLib's own comment says). More, smaller steps reach the same 20% sold
+        // fraction without asking for more inventory than exists in a single swap.
+        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 60, 500 * USDC_PRECISION);
         rlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
     }
 
