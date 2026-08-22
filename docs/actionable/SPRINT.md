@@ -8844,3 +8844,4 @@ PLACEMENT of deliverable inventory, which §E301 genuinely does dissolve.
 one argument, and the argument only fitted one of them. **Rule 1 asks whether code is reachable; it does
 not ask whether the reason for deleting it is the reason it exists.** Check each deletion against the
 thing's OWN stated purpose, not against its neighbour's.
+
