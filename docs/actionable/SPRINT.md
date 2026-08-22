@@ -10145,6 +10145,121 @@ attribution is right, not because the other one credits nobody.**
 its whole life, and §E311 had to be corrected once already for describing its removal as free.
 
 
+---
+
+## 🔴🔴 §E328 — **THE 66 ARE NOT FIXTURE DEBT. 39 ARE REGRESSIONS AGAINST A SUITE THAT WAS GREEN, AND 23 WERE NEVER GREEN.**
+
+Asked to "fix the 66", I classified them instead of patching, because the classification changes what
+the work IS — and it turns an opaque number into a bisect.
+
+### THE BASELINE THAT CHANGES EVERYTHING
+`QUEUE.md:7677` records, from a **PINNED WORKTREE** (so not a shared-tree artefact):
+> *"COMPOSITION VERIFIED AT `0f8570f`: **3,893 passed / 1 failed / 1 skipped** — the SAME single
+> pre-existing failure (`testRoundTripNoRaceNoDrain`) as the baseline."*
+
+**`0f8570f` is 1,568 commits behind HEAD.** So the suite was effectively GREEN, and everything since —
+the v4 cut, the `isBTC`/one-instance refactor, the venue removals, the `EthVenue` extraction — landed
+on top of it. ⇒ **This is accumulated refactor debt, not eternal fixture noise, and it is ATTRIBUTABLE.**
+
+### THE SPLIT — measured, not estimated (`git grep <test> 0f8570f -- evm/test`)
+`forge test --rerun` @`83ab7bb7` on `$ANKR_RPC_URL`: **66 failing instances, 62 distinct test names,
+0 passed on rerun — stable, not flaky.** Of those 62:
+
+| | count | meaning |
+|---|---|---|
+| 🔴 **REGRESSIONS** | **39** | existed at `0f8570f`, where the suite was green ⇒ something between then and now broke them |
+| 🟠 **NEVER-GREEN** | **23** | written AFTER the baseline; never part of a passing run ⇒ they encode intent that was never satisfied |
+
+⇒ **These need OPPOSITE treatments and conflating them is why "fix the failures" has stalled twice.**
+A regression is a bisect: the test was right and the code moved. A never-green test is a
+specification question: nobody has ever seen it pass, so it may encode a model the code never adopted
+(`§E313`'s deleted `testRedeemTargetedRejectsBadPreferred` was exactly that shape).
+
+### 🔴 THE 39 REGRESSIONS
+- `test_BufferConsumingSwap_CommittedTracksLiveDebt_NoDrain`
+- `test_CascadeDelever_CorrelatedCrash`
+- `test_E36_CommittedNoLongerCountsDollarsTheBasketNeverSupplied`
+- `test_E42_RedeemableIsInvariantToPureBtcTradingFlow`
+- `test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy`
+- `test_Isolation_StuckLpDoesNotTouchAnother`
+- `test_LevFeeLaneBTC_EarnsFees_UnwindOnly_SeizureBurnsClean`
+- `test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact`
+- `test_PassiveLp_NotExpensedByLeveredLpLifecycle`
+- `test_PendingSwapETHInflatesAvailable`
+- `test_PROVE_PooledIsDerivableFromPoolState`
+- `test_RunSim_AllExit_BtcLp`
+- `test_RunSim_BtcLpClose_AdversarialFinalBalance_CannotOverMint`
+- `test_RunSim_BtcLpClose_MintBoundedByProceeds`
+- `test_RunSim_BtcLpClose_RepeatedCycles_ConserveBacking`
+- `test_RunSim_IL_Baseline_ChopIsBenign`
+- `test_SwapInGate_RevertsIfDrainsPendingProceeds`
+- `test_SwapOutOnchain_DeliversViaSplice`
+- `test_V2_EqualLpsEarnEqualFees`
+- `test_V2_LateJoinerEarnsNoRetroactiveFees`
+- `test_V5_WithdrawShrinksCommitted`
+- `test_V7_EthFlowCannotConsumeTheBtcFreeReserve`
+- `testBtcChannels_OpenAndCloseEndToEnd`
+- `testLeverage_LvrControlVsTreatment`
+- `testOutOfRangeBtc_USDPosition`
+- `testOutOfRangeUSDPosition`
+- `testPartialPullOutOfRange`
+- `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`
+- `testReal_Morpho_LiquidationLeavesBasketIntact`
+- `testReal_Morpho_OpenAndDelever`
+- `testRegularSwaps`
+- `testRoundTripNoRaceNoDrain_BTC`
+- `testSkewBarrierRamp_ConvexCapAndMonotone`
+- `testStrand4_SwapInFloor_RevertsShort_UnwindsUsed`
+- `testSwapIn_RealLightningHTLC`
+- `testSwapOut_RequestCreditAndFailureReversal`
+- `testSwapOut_SwapperSelfRefundAfterTimeout`
+- `testSwapPricing_EthSellInRange_PaysAboutOracle`
+- `testTwapAnchorDeadlock_FullFix`
+
+### 🟠 THE 23 NEVER-GREEN
+- `test_BtcRange_ThetaThrottlesInRangePairing`
+- `test_E131_PremiumFundsLvrOverItsPricedWindow`
+- `test_E31a_BtcIncrementIsNeverCountedAsRangeEquity`
+- `test_E31b_ClosingBtcLpIsNotPaidTheRangesUsdIncrement`
+- `test_E39_EthTradingNoLongerStarvesTheBtcRangesCapacity`
+- `test_E41_SwapCapacityAndPerRangePnlAttribution`
+- `test_FORELLA_ScarcitySurvivesAPermissionlessReseat`
+- `test_Redeem_UnwindsRangeToFreeCommittedDollars`
+- `test_UNIT_PremiumRecordedEqualsPremiumPaid`
+- `test_UNITB_CounterMatchesWhatTheSwapperLoses`
+- `test_UNITB_FrozenTargetInvertsTheConsolidationDiscount`
+- `test_UNITB_PatienceBackground_DoesOtherFlowDefendThePool`
+- `test_UNITB_PatienceCurve_WhatWaitingBuysTheChopper`
+- `test_UNITB_PinnedEntry_ConsolidationDiscount`
+- `test_UNITB_ProbeSwapIsEntryHistoryIndependent`
+- `test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt`
+- `test_V1bdisc_OneRangesDebtExceedingItsOwnLegMustNotEatTheOther`
+- `test_V4_DepositGrowsCommittedByExactlyTheRangeedUsd`
+- `test_V6_UnwindIsLpEquityNeutralAndCannotReachTheBtcRange`
+- `testBtcLp_swapInAccruesTheBtcLegFee`
+- `testGrindRemoval_LargeSwapThenReseatRerangesSkewed`
+- `testMatrix_S1_EthIncrementalFlow_BothRanges`
+- `testMatrix_S4_BothRangesDriven_NoCrossCredit`
+
+### ▶️ THE METHOD, AND WHY I DID NOT START PATCHING
+**`git bisect` is available and cheap per step relative to guessing**: the endpoints are known
+(`0f8570f` green, `HEAD` red), each regression is a named `--match-test`, and a pinned worktree removes
+the shared-tree contamination that has invalidated every count before this one.
+⛔ **DO NOT "fix" these by adjusting assertions.** Several ARE the live evidence for open findings —
+`test_UNIT_PremiumRecordedEqualsPremiumPaid` is §SKEW-DOUBLE's decisive experiment, and
+`test_UNITB_PinnedEntry_ConsolidationDiscount` is §E325 item 1's `skew BIG = 0`. Loosening them turns
+the row green and deletes the finding, which is standing rule 4 exactly.
+⚠️ **AND THE COUNTS BEFORE THIS ONE ARE NOT COMPARABLE.** `QUEUE.md:7405` already warned it —
+*"publicnode rate-limits a full-suite run … Only NAMED failures are comparable; totals are not"* — and
+this session re-derived it the hard way when a run STALLED at suite 77 (0.5% CPU, six minutes, no log
+write) instead of failing. **Named lists, pinned worktree, archive endpoint. Nothing else counts.**
+
+### 📌 CORRECTION TO §E325 ITEM 5
+It says `testRoundTripNoRaceNoDrain_BTC` *"is booked nowhere"*. **It is booked — in `QUEUE.md`, not
+`SPRINT.md`**, and it is in the REGRESSION set above. I grepped only SPRINT. ⇒ **`QUEUE.md` holds
+suite-state history that `SPRINT.md` does not**; grep both before calling anything unbooked.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
