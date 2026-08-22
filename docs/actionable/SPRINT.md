@@ -1529,7 +1529,25 @@ naming itself as the LP. It protects the pool credit. **This protects the sats.*
 
 ---
 
-## B1. 🔴🔴🔴 REOPENED — §E222's SOURCE IS UNEXECUTABLE: `getRate` COSTS MORE THAN A BLOCK
+## B1. ⏸️ §E222 — **MOOT BY CONFIGURATION, LIKE §E257. SAME CAUSE, SAME STATUS, SAME WARNING.**
+⏸️ **RE-POINTED 2026-08-22. NOT CLOSED.** This row and §E257 are **one defect seen from two lanes** —
+both say the ring's source is a `getRate` read that cannot fit in a block. Measured today:
+`setObservationSource` has **zero call sites in `DeployLib`**, so `_observeIfSourced` returns at its
+`src == address(0)` guard and the read is unreachable; `ExternalTwap` has **zero production callers**
+(its one `evm/src` mention is a comment). ⇒ **Nothing on `main` executes it.**
+🔴 **STILL LATENT: it returns the instant anyone pins 1inch, and §C1 is actively choosing a source.**
+Rule 16 ⇒ ⏸️, never ✅.
+⛔ **AND THE ORDER OF WORK THIS ROW PRESCRIBES IS SUPERSEDED.** Its steps (1) wire the ETH ring to an
+external observation and (3) delete the self-write are **both overtaken**: the self-write is gone, and
+the live mechanism is the PUSH path (§E294), not a pinned pull source. Step (2) — *what does the BTC
+ring record* — **survives and is still open** (§E223: no wrapper-free BTC spot on-chain).
+📌 **Two rows, one defect: fix them together or neither.** They drifted apart because one lane was
+bytecode and the other was Bitcoin, which is exactly how §E124's id collisions happen at the concept
+level rather than the label level.
+
+*(original follows — its gas measurement is why 1inch cannot be a PULL source, and that is unchanged)*
+
+## ~~B1.~~ REOPENED — §E222's SOURCE IS UNEXECUTABLE: `getRate` COSTS MORE THAN A BLOCK
 
 
 🔴🔴🔴 **REOPENED 2026-08-18 — `main` CARRIES AN UNEXECUTABLE SWAP PATH, AND I CLOSED THIS ITEM WITHOUT MEASURING IT.** The fix's SHAPE is right and its SOURCE is fatal: `Core._observeIfSourced` raw-staticcalls 1inch OffchainOracle `getRate(address,address,bool)` (pinned at `DeployLib.sol:170`, `0x0AdDd25a…`) **on the swap path**. `getRate` iterates all fourteen registered DEX oracles and their connectors — a full multi-venue aggregation, not a quote lookup — **measured at 31,722,803 gas against a 30M block limit**, so every ETH swap and repack exceeds a whole block. ⇒ **REPRODUCED ON `main` 2026-08-18**, running the two suites the refutation names: `SkewCalibration::test_E58_SkewMagnitudeOnAFixedFixture` → `EvmError: OutOfGas`, `VarPrecision::test_E63_WhatCalmTradingMeasures` → `EvmError: ReentrancySentryOOG`. Both FAILED. ⚠️ **HOW IT REACHED `main`: TWO THREADS IMPLEMENTED E222 INDEPENDENTLY.** One landed `1e54a2fc`; the other landed its own `82662f19`, MEASURED the gas, and reverted in `df3c5e13` — on a lineage that never merged. **The refutation exists only on the tag `rescue/E222-revert`.** Divergent lineages do not exchange negative results, and the one that measured is the one that did not ship. ⛔ **AND MY OWN CLOSURE IS THE SECOND HALF OF THE FAILURE.** I marked this ✅ after enumerating the write path — one chain, external source only — which is a proof about SHAPE and says nothing about COST. *A passing test whose gas number exceeds a block is not a pass; it is a design refutation wearing a green tick.* I never ran one. ▶️ **THE VIABLE SOURCE IS ALREADY WRITTEN AND STILL UNWIRED:** `ExternalTwap.curvePriceWad` reads a Curve pool's `price_oracle` — a single storage read of a few thousand gas, a plain WAD price needing no decoding, and a mechanism genuinely independent of Chainlink's pushed feeds. **This is why `ExternalTwap` looks deletable and must not be deleted.**
@@ -3855,7 +3873,20 @@ pending behind it — unlike everything else left in this file.
 
 ### `§E55` 🔴
 
-### 🔴🔴 UNIT-B-MIN-IS-NOOP — `min(fast, slow)` is UNCONDITIONALLY the fast leg. The §E55 defence does not operate.
+### ✅ UNIT-B-MIN-IS-NOOP — **CLOSED: THE SLOW LEG IS DELETED, SO THERE IS NO `min` LEFT TO BE A NO-OP**
+✅ **CLOSED 2026-08-22 against code (rule 16's axiomatic case: the code it described no longer
+exists).** `_flowSlowBTC`, `_flowSlowETH` and `FLOW_SLOW_N` are gone — the only four hits in `evm/src`
+are comments in `Core.sol:180-193` RECORDING the deletion, which is the good case (prose outliving
+code on purpose). With no slow register there is no `min(fast, slow)`, so the defect this row names
+is unconstructible rather than merely unobserved.
+⚠️ **IT CLOSED BY REMOVAL, NOT BY REPAIR — and that distinction is the row's remaining value.** The
+§E55 defence did not start operating; the adaptive-flow estimate lost its slow half entirely. **If a
+slow leg is ever reintroduced, this row reopens on day one**, and `Core.sol:193` already carries the
+matching warning against reading that comment block as describing live state.
+
+*(original follows)*
+
+### ~~UNIT-B-MIN-IS-NOOP~~ — `min(fast, slow)` is UNCONDITIONALLY the fast leg. The §E55 defence does not operate.
 
 **Derived by inspection from three call sites, all of them shown — this is arithmetic, not a guess:**
 - `Core.sol:234-235` — `_bumpFlow` bumps BOTH registers with the **same `usd6`**, through the **same
