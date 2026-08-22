@@ -10591,6 +10591,66 @@ that hand-off. **If the aim is keeping LPs protected through a swap-out, the che
 keeper hand-off, not a basket-level borrow.** Same outcome, no new liability, no socialisation.
 
 
+---
+
+## 🔁 §E336 — **§E335 IS PARTLY WITHDRAWN. I ASSUMED SOCIALISATION WHERE THE OWNER MEANT NOVATION, AND THAT REVERSES THE ISOLATION ARGUMENT.**
+
+Owner, pushing back: *"otherwise we have to relever LPs individually anyways, this is much less code and
+a better solution … the alternative is to reduce moving parts."* **Both halves check out.**
+
+### ⛔ WHAT I GOT WRONG
+§E335's fatal objection was *"it breaks the isolation invariant — a basket borrow is a liability of every
+QU!D holder."* **That assumed the LP's debt is FORGIVEN.** Under **novation** — the basket borrows once
+and becomes the LP's creditor in Morpho's place — the LP still owes, so isolation is **preserved**; the
+basket carries external debt against an offsetting internal claim. I dismissed the proposal on a
+mechanism the owner did not propose.
+The other two objections also weaken once the goal is stated correctly:
+- *"Refinance at the same rate saves nothing"* — true, and **irrelevant**: the saving claimed is not a
+  rate spread, it is **N positions collapsing to 1**.
+- *"The carry is a pure spread loss"* — only if the basket eats it. A creditor charges its cost of funds
+  **plus** a margin, so the spread is passed through and the basket earns rather than pays.
+
+### ⭐ AND THE ARGUMENT I MISSED ENTIRELY, WHICH IS THE STRONGEST ONE FOR IT
+**Today an LP borrows STABLES against weETH — the collateral has price risk, which is the entire source
+of per-LP liquidation.** A basket borrowing **stables against stables** has near-zero liquidation risk:
+the collateral and the debt are the same asset class. ⇒ **The proposal does not relocate liquidation
+risk, it largely DISSOLVES it** — and with it the per-LP seizure machinery, the LTV tracking, the
+cascade tests, and §E331's missing keeper re-lever hand-off, which only exists because each LP has its
+own position to restore.
+
+### 📏 THE CODE-SURFACE CLAIM, MEASURED
+| file | lines |
+|---|---|
+| `LevMath.sol` | 977 |
+| `LevManager.sol` | 640 |
+| `LevBase.sol` | 543 |
+| `BtcLevManager.sol` | 378 |
+| `LevVenueBase.sol` | 346 |
+| **total** | **2,884** |
+Not all of it goes — IL-protect sizing and the fee lane survive whoever holds the debt — but the share
+that exists **solely because every LP has its own venue position** (per-LP borrow/repay, per-LP LTV,
+per-LP liquidation, `_openLps` iteration, the relever hand-off) is a large fraction of it. ⇒ **"Much
+less code" is well founded**, and it also retires §E334's unbounded-loop problem at the root rather than
+capping it — which is standing rule 17 exactly: *a root fix makes the previous fix deletable.*
+
+### ⚠️ THE REAL TRADE, STATED HONESTLY — IT IS NOT FREE
+What actually moves is **where the market risk sits**. The borrowed stables buy weETH for IL protection;
+somebody holds that exposure. Today it is the LP, ring-fenced by their own position. Under novation the
+**basket** holds it, with an internal claim on the LP for the shortfall. ⇒ **The question is no longer
+"is isolation broken" but "is the basket's internal claim ENFORCEABLE when an LP is underwater"** — i.e.
+can the basket seize LP range shares. **That is one mechanism to build instead of five to maintain**, and
+it is where the design review should go.
+⚠️ **AND ONE CONCENTRATION RISK STAYS REAL:** a single basket-level borrow is one position whose
+liquidation, however unlikely at stables-vs-stables LTV, is not ring-fenced. Size the LTV for that, and
+say the number.
+
+### 📌 §E335'S ONE SURVIVING CLAIM
+The swapper still pays **nothing** for the delever today (`deleverOnDelivery` uses the LP's own proceeds
+share via `exactUsd6 * want / deliveredRaw`), so **this change is not an execution-quality improvement
+and should not be sold as one.** It is a moving-parts reduction. The live levers on what a swapper pays
+remain §E332's unpriced OOR discount and §E330's flush exemption.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
