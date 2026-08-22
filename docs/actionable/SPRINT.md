@@ -9692,6 +9692,76 @@ lists. So the change is not merely "stricter" — the tests it protects were alr
 protection now cannot be lost without someone seeing it.
 
 
+---
+
+## 🔴 §E325 — **FIVE FINDINGS THIS THREAD MADE AND LEFT IN PROSE. BOOKED SO THEY SURVIVE THE CONTEXT WINDOW (rule 12).**
+
+Each was measured, none was written down. They are unrelated to each other; the only thing they share
+is that they were stated in a message and would have died there.
+
+### 1. 🔴 THE BIG LEG IS CHARGED **ZERO** SKEW WHILE THE SPLIT LEGS ARE CHARGED 600 USD6
+`test_UNITB_PinnedEntry_ConsolidationDiscount`, run with `-vv` (2026-08-22):
+```
+pinned entry target : 380432109336
+skew BIG   (usd6)   : 0
+skew SPLIT (usd6)   : 600000000
+discount bps        : 10000
+```
+⛔ **I NEARLY BOOKED THIS AS "σ²=0 SO ALL SKEW IS ZERO" AND THE NUMBERS REFUTE THAT** — the split legs
+ARE charged, so the estimator is working; it is the BIG leg specifically that pays nothing, and
+`discount bps` is pinned at its 10000 ceiling. ⇒ **Consolidating into one large swap is FREE while
+splitting costs 6 bps, which inverts the anti-grinding intent**: the grinder's cheapest route is one
+big trade. ▶️ Find why the large leg returns 0 — the inventory bound clamping `out` to `held` (so the
+charge is computed on a partial), `SKEW_UNFILLABLE`, or the `over == 0` refill exemption. **Do not
+assume σ²; it is measurably not that.** Sits in the §UNITB probes another session is active in.
+
+### 2. 🟠 `refillNeeded` — THE DECISION `STARTED, NOT FINISHED` #1 ASKS FOR, NOW MEASURED
+**Zero production callers** (`SwapLib.sol:949` is the `function` line; the only other references are
+6 call sites inside `RefillTriggerAndProRata.t.sol`). §E300 built the fillable bound INSIDE `wellSkew`,
+so the predicate already lives on the pricing path. ⇒ **It is superseded, not unwired.** ▶️ Delete it
+with its test file, OR state what it answers that `_fillableDrain` does not. It is currently a third
+opinion on one question, which is what that row warns against. ⚠️ `create_sweep_tx` check applied:
+`git log -S` shows no security feature waiting on it, and §E300's own note explains the supersession —
+this is not a marker for an unbuilt gap.
+
+### 3. 🟠 THE 54 SWALLOWED FAILURES REDUCE TO **11**, AND THERE IS A MECHANICAL DISCRIMINATOR
+From triaging the scanner's finding, with §E323 and `LevCascade:634` as the two poles:
+> **A swallowed revert is SAFE when an assertion after the block depends on whether it happened. It is
+> a DEFECT when nothing downstream observes the outcome.**
+`LevCascade:634` swallows eight `rebalance` reverts and then asserts `ltv <= 5000 + 300` and
+`open == true` — the reverts ARE the mechanism, and rewriting it would invert the test.
+`_driveTick` swallowed a revert with **nothing** after the loop observing it, and was the §E323 defect.
+⇒ **Measured queue: 31 sites where BOTH the `try` body and the `catch` are empty (`{} catch {}`), of
+which 11 sit INSIDE A LOOP** — the shape where a permanently dead arm is invisible. ▶️ Read those 11.
+⛔ **DO NOT BULK-REWRITE THE 54** (owner said so, and `LevCascade:634` proves why).
+
+### 4. 🟡 THE MOCK COUNT IS NOT REPRODUCIBLE, AND "29 CONSENSUS PARAMS" LOOKS MISLABELLED
+Re-measured 2026-08-22: **`vm.mockCall` in `evm/test` = 78**; `vm.mockCallRevert`, `vm.etch`,
+`vm.mockFunction` = **0 each**; `vm.mockCall` in `evm/src`/`evm/script` = **0**; `contract *Mock*`
+declarations across `evm` = **261**; `mock`-mentioning lines in `quid-ln` = **186**. **No definition
+reproduces 96.** ⇒ A count that swings 78 → 261 on predicate alone cannot be ratcheted against.
+📌 **The "29 fabricated consensus params" exactly equals the count of
+`encodeWithSignature("getDepegSeverityBps")` mocks (29)** — a depeg-severity oracle read, not a
+consensus parameter. The genuine synthetic-consensus material is `0x207fffff` regtest headers in **two**
+files (`SPVFixtures.sol`, `SPVGatewayAdversarial.t.sol`) and is **correct by construction**: a
+difficulty-retarget clamp or wrong-target rejection cannot be tested without fabricating headers.
+▶️ Re-run with the predicate written down BEFORE this becomes a tracked number.
+
+### 5. 🟡 `testRoundTripNoRaceNoDrain_BTC` IS FAILING AND HAS **ZERO** MENTIONS IN THIS FILE
+Fails `assertion failed: 0 <= 0` in `DrainProbe`. ⚠️ CLAUDE.md books the **ETH** variant
+(`testRoundTripNoRaceNoDrain`, at `499224755743233795668`) as a long-standing pre-existing failure; the
+**BTC** variant is a different test and is booked nowhere. ▶️ Classify it — same root as the ETH one, or
+its own.
+
+### ✅ AND ONE CODE CORRECTION LANDED WITH THIS ROW
+`Core.sol`'s §E311 comment read *"Draining flow pays exactly what it paid."* **That is false** —
+draining flow now pays roughly HALF, the intended charge once. The 420 was retained in `POOLED_*` and
+did reach LPs by compounding, so the deletion IS a real revenue reduction against the code as it stood,
+and free only against a derivation that never authorised charging twice. **The correction was written
+during this thread, lost to a working-tree reset, and the uncorrected sentence is what another thread
+committed** — so a fee cut was documented as a no-op on the money path. Fixed in place.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the

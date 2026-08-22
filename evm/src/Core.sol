@@ -1178,13 +1178,18 @@ contract Core {
         // fee lane is `recordSkewPremium` → `Quid.creditSkewPremium` (§E280), and the anti-grinding
         // bound `w >= 1 - fee/C` it cited is computed by `SwapLib.requireNonAbusable`, which has ZERO
         // production callers: it gates nothing on the fill path.
-        // ⭐ AND IT COSTS NO REVENUE, BY THE FLAT FEE'S OWN DERIVATION. `DEPLETION_RATE_WAD` is 210
-        // ppm because a drain of D from balance creates 2·D·px of idle inventory, so
+        // ⭐ WHAT IT WAS, BY THE FLAT FEE'S OWN DERIVATION: A DOUBLE CHARGE. `DEPLETION_RATE_WAD` is
+        // 210 ppm because a drain of D from balance creates 2·D·px of idle inventory, so
         // 210 ppm × 2·D·px == 420 ppm × D·px (§E48) — the depletion term inside the skew is the
         // inventory-proportional form of THIS charge, and levying both was charging it twice.
-        // ⇒ Draining flow pays exactly what it paid. Flow that RESTORES balance now pays no flat
-        // toll, which is the intended behaviour: the curve tilts to price inventory, so the trade
-        // that un-tilts it should not be taxed for doing so.
+        // ⚠️ BE EXACT ABOUT THE REVENUE. This comment previously read *"draining flow pays exactly
+        // what it paid"*, and that is FALSE: draining flow now pays ROUGHLY HALF what the code
+        // charged before, i.e. the intended charge ONCE. The 420 was retained in `POOLED_*` and DID
+        // reach LPs by compounding, so this IS a real reduction against the code AS IT STOOD — it is
+        // only "free" against the derivation, which never authorised levying it twice. Saying
+        // otherwise made a fee cut read as a no-op, which is how a revenue change ships unnoticed.
+        // ⇒ And flow that RESTORES balance now pays no flat toll at all, which is the point: the
+        // curve tilts to price inventory, so the trade that un-tilts it should not be taxed for it.
         // BOUNDED BY WHAT WE HOLD. At oracle price with no curve, nothing else stops a drain: the
         // traversal used to run out of liquidity, this runs out of inventory. Partial fill, never a
         // revert — `minOut` upstream carries the caller's tolerance.
