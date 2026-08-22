@@ -10482,6 +10482,60 @@ fifteen call sites is its own change with its own suite run.
 three and wrong for the one with fifteen callers.
 
 
+---
+
+## ⛔ §E334 — **§E333 HAD THE INEQUALITY BACKWARDS. AND PAGINATION CANNOT HELP, BECAUSE THE CALLERS ARE ON-CHAIN.**
+
+Asked to paginate `totalNetEquity` and update the fifteen call sites, I re-derived first. **Neither my
+diagnosis nor my prescription survives.**
+
+### 1. ⛔ THE DIRECTION IS THE OPPOSITE OF WHAT §E333 CLAIMS
+§E333 says the accumulator *"lets an underwater LP's negative equity cancel a healthy LP's positive
+equity, **over-stating** total equity exactly during a crash."* **Wrong.** For LPs at `+100` and `−50`:
+| | value |
+|---|---|
+| per-LP floored (the truth) — `Σ max(0, xᵢ)` | **100** |
+| accumulator — `max(0, Σ xᵢ)` | **50** |
+`Σ max(0,xᵢ) ≥ max(0, Σxᵢ)` **always**, so the cheap accumulator **UNDER-states**. My "fails dangerous"
+conclusion was exactly inverted. ⚠️ The floor still makes the sum non-separable and §E333's isolation
+argument still stands — **only the direction of the error was wrong, and that reverses the remedy.**
+
+### 2. 🔴 SO WHY NOT JUST USE THE UNDER-STATING BOUND? **BECAUSE THE QUANTITY IS USED WITH BOTH SIGNS.**
+| site | use | effect of under-stating |
+|---|---|---|
+| `QuidLib.sol:629` | `total += n` | backing smaller ⇒ **conservative, safe** |
+| `Quid.sol:964` | `total = total > n ? total - n : 0` | subtracting LESS ⇒ backing **LARGER** ⇒ **over-stated solvency, UNSAFE** |
+⇒ **There is no single direction of safety, so no one-sided bound is admissible.** A cheap approximation
+would be conservative in `rangeX + levEquity` and dangerous in `rangeETH − levEquity`, in the same
+transaction, on the same number. **That is the real reason the exact O(n) sum exists** — not naivety.
+
+### 3. ⛔ AND PAGINATION DOES NOT APPLY — THE FIFTEEN CALLERS ARE **ON-CHAIN**
+Pagination is a technique for readers who can make MANY calls. `_venueBalance`, `rangeOp`, `redeemable`
+and the rest need the total **inside one transaction**; there is no second call to page into.
+`openLevCount()`/`openLpAt(i)` already serve off-chain readers, and off-chain is the one place the loop
+was never a problem (`eth_call` sets its own gas). ⇒ **The instruction I gave in §E332, and the one I
+was asked to execute here, cannot be carried out as stated. Not implemented.**
+
+### ▶️ WHAT IS ACTUALLY AVAILABLE
+1. **Cap `_openLps`.** Exact, bounded, and a STATED admission policy instead of a surprise liveness
+   cliff. Crude, and the only option that is simultaneously exact, cheap and on-chain.
+2. **Stop needing a global total.** The two consumers are `rangeETH − levNetEquity` and
+   `rangeX + levNetEquity`; if the netted figure were maintained where positions change, the sum
+   disappears. ⚠️ **But the per-LP floor moves with `px` and no transaction fires**, so "maintain it at
+   the mutation sites" cannot be exact either — the same wall §E333 hit.
+3. **Accept O(n) and document the LP-count ceiling**, with a measured figure for how many open LPs fit
+   in a block. **Nobody has measured that number, and it is the one fact that would size the risk.**
+📌 `totalDebtUsd` (5 callers) and `totalGrossCollateral` (3) have no per-item floor, so accumulators ARE
+valid there — that half of §E332 survives.
+
+### ⚠️ FOURTH SELF-CORRECTION IN THIS AREA, AND THE PATTERN IS NOW THE FINDING
+The 4.18 bps coincidence, the "29 mislabelled" claim, §E333's socialised-losses claim, and now its
+inverted inequality. **Every one was a conclusion reached by RESEMBLANCE and overturned by two minutes
+of arithmetic or a control.** ⇒ In this codebase, derive the inequality before naming the remedy — the
+remedy is what gets quoted downstream, and §E332's wrong prescription is what produced the request to
+implement it.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
