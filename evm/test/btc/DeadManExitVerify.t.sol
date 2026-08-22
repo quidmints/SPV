@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ChannelLib} from "../../src/imports/ChannelLib.sol";
-import {ExitLib} from "../../src/imports/ExitLib.sol";
+import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice (E128) The THREE verified pieces, joined: structure → BIP-341 sighash → BIP-340
 ///         signature. This is what turns `emitDeadManExit` from *"record whatever bytes the hop
@@ -43,8 +43,8 @@ contract DeadManExitVerifyTest is Test {
                hex"9ab8942d7514acd75dcbc9c31f16640e65967756935434f555f96d79a42b73102a350c00";
     }
 
-    function _check() internal pure returns (ExitLib.ExitCheck memory) {
-        return ExitLib.ExitCheck({
+    function _check() internal pure returns (BitcoinTx.ExitCheck memory) {
+        return BitcoinTx.ExitCheck({
             fundingTxId: FUNDING_TXID, fundingVout: FUNDING_VOUT,
             fundingSats: FUNDING_SATS, q: Q, cltvDeadline: DEADLINE });
     }
@@ -56,7 +56,7 @@ contract DeadManExitVerifyTest is Test {
     function test_verifiesAGenuinelySignedExit() public view {
         (uint64[] memory v, bytes[] memory s) = _prev();
         assertEq(
-            ExitLib.verifyDeadManExit(_signedExit(), _check(), _payoutScript(), v, s),
+            BitcoinTx.verifyDeadManExit(_signedExit(), _check(), _payoutScript(), v, s),
             PAYS_LP, "sats the exit pays the LP's committed script"
         );
     }
@@ -71,7 +71,7 @@ contract DeadManExitVerifyTest is Test {
         v[0] = 999_999_999;                             // a lie
         s[0] = hex"0014deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";   // also a lie
         assertEq(
-            ExitLib.verifyDeadManExit(_signedExit(), _check(), _payoutScript(), v, s),
+            BitcoinTx.verifyDeadManExit(_signedExit(), _check(), _payoutScript(), v, s),
             PAYS_LP, "the contract pins the funding prevout itself"
         );
     }
@@ -80,20 +80,20 @@ contract DeadManExitVerifyTest is Test {
     /// signature would pass them all. Claiming a different funding VALUE changes the sighash, so
     /// the signature must stop verifying.
     function test_aWrongFundingValueBreaksTheSignature() public {
-        ExitLib.ExitCheck memory c = _check();
+        BitcoinTx.ExitCheck memory c = _check();
         c.fundingSats = FUNDING_SATS + 1;
         (uint64[] memory v, bytes[] memory s) = _prev();
-        vm.expectRevert(ExitLib.ExitSignatureInvalid.selector);
-        ExitLib.verifyDeadManExit(_signedExit(), c, _payoutScript(), v, s);
+        vm.expectRevert(BitcoinTx.ExitSignatureInvalid.selector);
+        BitcoinTx.verifyDeadManExit(_signedExit(), c, _payoutScript(), v, s);
     }
 
     /// The signature is bound to Q. A different key must not verify.
     function test_aDifferentFundingKeyIsRejected() public {
-        ExitLib.ExitCheck memory c = _check();
+        BitcoinTx.ExitCheck memory c = _check();
         c.q = bytes32(0xf9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9);
         (uint64[] memory v, bytes[] memory s) = _prev();
-        vm.expectRevert(ExitLib.ExitSignatureInvalid.selector);
-        ExitLib.verifyDeadManExit(_signedExit(), c, _payoutScript(), v, s);
+        vm.expectRevert(BitcoinTx.ExitSignatureInvalid.selector);
+        BitcoinTx.verifyDeadManExit(_signedExit(), c, _payoutScript(), v, s);
     }
 
     /// A key-path spend carries exactly one 64-byte witness item. Anything else is not the shape
@@ -102,8 +102,8 @@ contract DeadManExitVerifyTest is Test {
         bytes memory raw = _signedExit();
         raw[raw.length - 6] ^= bytes1(0x01);      // flip a bit inside `s`
         (uint64[] memory v, bytes[] memory s_) = _prev();
-        vm.expectRevert(ExitLib.ExitSignatureInvalid.selector);
-        ExitLib.verifyDeadManExit(raw, _check(), _payoutScript(), v, s_);
+        vm.expectRevert(BitcoinTx.ExitSignatureInvalid.selector);
+        BitcoinTx.verifyDeadManExit(raw, _check(), _payoutScript(), v, s_);
     }
 
     /// (E128) THE GENERATED FIXTURE — a channel whose funding key `Q` is a real MuSig2 aggregate
@@ -114,7 +114,7 @@ contract DeadManExitVerifyTest is Test {
     function test_generatedFixtureVerifies() public view {
         string memory j = vm.readFile(
             string.concat(vm.projectRoot(), "/test/btc/deadman_exit_fixture.json"));
-        ExitLib.ExitCheck memory c = ExitLib.ExitCheck({
+        BitcoinTx.ExitCheck memory c = BitcoinTx.ExitCheck({
             fundingTxId:  vm.parseJsonBytes32(j, ".exits[0].fundingTxId"),
             fundingVout:  uint32(vm.parseJsonUint(j, ".exits[0].fundingVout")),
             fundingSats:  vm.parseJsonUint(j, ".exits[0].fundingSats"),
@@ -123,7 +123,7 @@ contract DeadManExitVerifyTest is Test {
         });
         uint64[] memory v = new uint64[](1); bytes[] memory s_ = new bytes[](1);
         assertEq(
-            ExitLib.verifyDeadManExit(
+            BitcoinTx.verifyDeadManExit(
                 vm.parseJsonBytes(j, ".exits[0].signedExitTx"), c, _payoutScript(), v, s_),
             vm.parseJsonUint(j, ".exits[0].paysLp"),
             "a fixture-generated exit must verify against the aggregate key Q"

@@ -1259,7 +1259,7 @@ contract Core {
         observationSource = src; OBS_CALLDATA = call_;
     }
 
-    /// @dev THE READ MUST NOT BE ABLE TO HALT THE RANGE. `ExternalTwap.oneInchRateWad` reverts on a
+    /// @dev THE READ MUST NOT BE ABLE TO HALT THE RANGE. `OracleLib.oneInchRateWad` reverts on a
     ///      zero/failed read, and this sits on the SWAP path — using it directly would turn an
     ///      oracle outage into "every swap and repack reverts", trading a silent measurement fault
     ///      for a hard liveness one. So the call is a raw `staticcall` and ANY failure (revert, short
@@ -1285,7 +1285,7 @@ contract Core {
         // why `CurveObserverIsCheapAndSane` asserts against Chainlink rather than trusting this note.
         //
         // ⚠️ AND THE INDEPENDENCE CLAIM IS WEAKER THAN 1inch's — SAY SO RATHER THAN INHERIT IT.
-        // `ExternalTwap`'s header argues "correlated sources are one source" and that a single Curve
+        // `OracleLib`'s header argues "correlated sources are one source" and that a single Curve
         // pool is one venue with one depeg mode, which is TRUE and is why 1inch was chosen. It is
         // also moot: an aggregation that cannot be called is not a source at all. This is one venue,
         // genuinely different in MECHANISM from Chainlink's pushed feeds (an on-pool EMA of executed

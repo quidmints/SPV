@@ -6,7 +6,6 @@ import {Types, AlreadyOpen, BadSPV, ChannelKeysMismatch, InvalidParam} from "./i
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
-import {ExitLib} from "./imports/ExitLib.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -157,7 +156,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // ✅ (2026-08-14) THIS SENTENCE USED TO END "resolved by SGX attestation", AND THAT IS BOTH
     // DEAD AND AN UNDERSTATEMENT. Attestation gates nothing here (§M1/§E185) — but the residual
     // was closed by §E165 as a side effect, after this comment was written. `openChannel` REQUIRES
-    // a non-empty exit ladder, and every rung is verified by `ExitLib.verifyDeadManExit` against
+    // a non-empty exit ladder, and every rung is verified by `BitcoinTx.verifyDeadManExit` against
     // `Q` recomputed from the pinned pubkeys — a BIP-340 signature under a 2-of-2 aggregate.
     // ⇒ TO OPEN A CHANNEL YOU MUST PRODUCE A VALID SIGNATURE UNDER `KeyAgg(lpPubkey, hopPubkey)`
     // OVER A SPEND OF THE CITED FUNDING OUTPOINT. A party citing a UTXO it does not control
@@ -1633,9 +1632,9 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // The escape would exist, verify, and be worthless. Requiring it to honour the arming's
         // own `checkpointSats` ties the two numbers together: claim more than you pay and the
         // arming reverts; claim less and the stale-close guard you fed is the one that suffers.
-        uint paid = ExitLib.verifyDeadManExit(
+        uint paid = BitcoinTx.verifyDeadManExit(
             exit.signedExitTx,
-            ExitLib.ExitCheck({
+            BitcoinTx.ExitCheck({
                 fundingTxId: channels[channelId].fundingTxId,
                 fundingVout: channels[channelId].fundingVout,
                 fundingSats: channels[channelId].amountSats,
@@ -1648,7 +1647,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();
 
         // Armed against the channel's CURRENT funding scope — the same outpoint
-        // `ExitLib.verifyDeadManExit` just proved these bytes spend. A later rotation makes this
+        // `BitcoinTx.verifyDeadManExit` just proved these bytes spend. A later rotation makes this
         // entry unreachable rather than stale (see `exitArmedOnOutpoint`).
         exitArmedOnOutpoint[_currentOutpointKey(channelId)][exit.cltvDeadline] = true;
         paidOutSinceCheckpoint[channelId] = 0;
@@ -2066,7 +2065,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // all-or-nothing LN rail cannot.
         // (§T2) The floor is DERIVED from the committed rate and the proven sats — never supplied.
         uint consumed = btc.creditSwapIn(
-            terms.seller, sats, terms.token, ExitLib.settleFloorUsd(terms, sats));
+            terms.seller, sats, terms.token, BitcoinTx.settleFloorUsd(terms, sats));
         emit SwapInSettled(terms.seller, txid, sats, consumed, terms.token);
     }
 
@@ -2084,7 +2083,7 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         swapInUsed[txid] = true;
         if (!spv.checkTxInclusion(proof.merkleProof, proof.blockHash, txid, proof.txIndex,
                                   ChannelLib.MIN_CONFIRMATIONS)) revert BadSPV();
-        sats = ExitLib.verifySwapInDeposit(
+        sats = BitcoinTx.verifySwapInDeposit(
             BTC_DEPOSIT_KEY, terms, proof.userRefund, proof.cltvHeight, rawDepositTx);
     }
 

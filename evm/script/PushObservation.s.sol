@@ -3,7 +3,7 @@ pragma solidity ^0.8.30;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
-import {ExternalTwap} from "../src/imports/ExternalTwap.sol";
+import {OracleLib} from "../src/imports/OracleLib.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 
 /// @title  §E294 — **THE MISSING CALLER.** Read 1inch off-chain, push it on-chain.
@@ -47,7 +47,7 @@ contract PushObservationScript is Script {
         Core core = Core(payable(vm.envAddress("CORE")));
 
         // ── READ (simulation only — this is the 33.6M-gas call that must never be broadcast) ──
-        uint256 px = ExternalTwap.oneInchRateWad(ONE_INCH_ORACLE, WETH, USDC, 18, 6);
+        uint256 px = OracleLib.oneInchRateWad(ONE_INCH_ORACLE, WETH, USDC, 18, 6);
         require(px != 0, "1inch returned 0 - refusing to push a zero");
 
         // ── PREVIEW the guard, so a refused push is visible instead of a silent no-op ──

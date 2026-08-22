@@ -214,7 +214,7 @@ int128  constant CRV_PYUSD_USDC_IDX    = 1;
 ///         integer-literal inference. Two named types make the choice explicit, and reverting is the
 ///         SAFE failure: a mis-encoded index would otherwise swap the wrong pair.
 // §E240-tri — the 3-coin crypto-swap interface DELETED: no caller. `ICurvePool` (int128 stableswap) stays, and
-// `ICurveOracle` in `ExternalTwap` is a separate, still-live price surface -- do not confuse them.
+// `ICurveOracle` in `OracleLib` is a separate, still-live price surface -- do not confuse them.
 
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 
@@ -733,7 +733,7 @@ interface ICurveOracle {
     function price_oracle() external view returns (uint256);   // two-coin pools take no index
 }
 
-/// @title  ExternalTwap — the INDEPENDENT price observer, restoring what the v4 cut deleted
+/// @title  OracleLib — the INDEPENDENT price observer, restoring what the v4 cut deleted
 ///
 /// @notice **WHY THIS EXISTS.** Before the cut, the observation ring recorded the RANGE POOL'S SPOT
 ///         PRICE — an actual observation of executed trades — and Chainlink was the ANCHOR checking

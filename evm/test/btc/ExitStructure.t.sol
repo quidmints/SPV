@@ -3,7 +3,6 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ChannelLib} from "../../src/imports/ChannelLib.sol";
-import {ExitLib} from "../../src/imports/ExitLib.sol";
 import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice (E128) STRUCTURAL verification of a pre-signed dead-man exit.
@@ -75,7 +74,7 @@ contract ExitStructureTest is Test {
 
     function test_acceptsAWellFormedExitAndReturnsThePayout() public view {
         bytes memory raw = _signedExit(FUNDING_TXID, FUNDING_VOUT, 50_000, uint32(DEADLINE));
-        uint paid = ExitLib.verifyExitStructure(
+        uint paid = BitcoinTx.verifyExitStructure(
             raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
         assertEq(paid, 50_000, "sats paid to the LP's committed script");
     }
@@ -89,20 +88,20 @@ contract ExitStructureTest is Test {
         for (uint i; i < 32; ++i)
             reversed |= bytes32(bytes1(FUNDING_TXID[31 - i])) >> (8 * i);
         bytes memory raw = _signedExit(reversed, FUNDING_VOUT, 50_000, uint32(DEADLINE));
-        vm.expectRevert(ExitLib.ExitNotForThisChannel.selector);
-        ExitLib.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
+        vm.expectRevert(BitcoinTx.ExitNotForThisChannel.selector);
+        BitcoinTx.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
     }
 
     function test_wrongVoutIsRejected() public {
         bytes memory raw = _signedExit(FUNDING_TXID, FUNDING_VOUT + 1, 50_000, uint32(DEADLINE));
-        vm.expectRevert(ExitLib.ExitNotForThisChannel.selector);
-        ExitLib.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
+        vm.expectRevert(BitcoinTx.ExitNotForThisChannel.selector);
+        BitcoinTx.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
     }
 
     function test_wrongLocktimeIsRejected() public {
         bytes memory raw = _signedExit(FUNDING_TXID, FUNDING_VOUT, 50_000, uint32(DEADLINE) + 1);
-        vm.expectRevert(ExitLib.ExitLocktimeMismatch.selector);
-        ExitLib.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
+        vm.expectRevert(BitcoinTx.ExitLocktimeMismatch.selector);
+        BitcoinTx.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, _payoutScript(), DEADLINE);
     }
 
     /// An exit paying somewhere else is structurally valid but pays the LP ZERO. It does NOT
@@ -111,7 +110,7 @@ contract ExitStructureTest is Test {
         bytes memory raw = _signedExit(FUNDING_TXID, FUNDING_VOUT, 50_000, uint32(DEADLINE));
         bytes memory otherScript = abi.encodePacked(bytes1(0x51), bytes1(0x20), bytes32(uint256(7)));
         assertEq(
-            ExitLib.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, otherScript, DEADLINE),
+            BitcoinTx.verifyExitStructure(raw, FUNDING_TXID, FUNDING_VOUT, otherScript, DEADLINE),
             0, "an exit paying elsewhere credits the LP nothing"
         );
     }

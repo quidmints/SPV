@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ChannelLib} from "../../src/imports/ChannelLib.sol";
 import {Types} from "../../src/imports/Types.sol";
-import {ExitLib} from "../../src/imports/ExitLib.sol";
+import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice (E159) Recomputing an on-chain swap-in DEPOSIT address, so a credit can be PROVEN
 ///         rather than attested.
@@ -72,7 +72,7 @@ contract SwapInDepositTest is Test {
     function test_derivesTheDepositAddressAndReturnsTheSats() public view {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
         assertEq(
-            ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV, _depositTx(spk, 1_500_000)),
+            BitcoinTx.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV, _depositTx(spk, 1_500_000)),
             1_500_000, "sats paid to the derived deposit address"
         );
     }
@@ -82,8 +82,8 @@ contract SwapInDepositTest is Test {
     /// proof is real and worthless.
     function test_paymentToAnotherScriptIsRefused() public {
         bytes memory foreign = abi.encodePacked(hex"5120", bytes32(uint256(0xC0FFEE)));
-        vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV, _depositTx(foreign, 1_500_000));
+        vm.expectRevert(BitcoinTx.DepositNotPaid.selector);
+        BitcoinTx.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV, _depositTx(foreign, 1_500_000));
     }
 
     /// The leaf carries the per-swap identity: a different refund key is a different address, so
@@ -92,15 +92,15 @@ contract SwapInDepositTest is Test {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
         bytes32 otherRefund =
             bytes32(uint256(0xDFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659));
-        vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, _terms(), otherRefund, CLTV, _depositTx(spk, 1_500_000));
+        vm.expectRevert(BitcoinTx.DepositNotPaid.selector);
+        BitcoinTx.verifySwapInDeposit(INTERNAL, _terms(), otherRefund, CLTV, _depositTx(spk, 1_500_000));
     }
 
     /// Same for the timelock — it is the other half of the leaf.
     function test_aDifferentTimelockDerivesADifferentAddress() public {
         bytes memory spk = abi.encodePacked(hex"5120", EXPECTED_Q);
-        vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV + 1, _depositTx(spk, 1_500_000));
+        vm.expectRevert(BitcoinTx.DepositNotPaid.selector);
+        BitcoinTx.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV + 1, _depositTx(spk, 1_500_000));
     }
 
     /// ⚠️ MINIMAL SCRIPT-NUMBER ENCODING IS LOAD-BEARING AND EASY TO GET WRONG. A height whose
@@ -113,11 +113,11 @@ contract SwapInDepositTest is Test {
     /// what makes it a test: if the pad were dropped, 0x80 would encode as one byte and collide
     /// with a different height's leaf instead of standing apart.
     function test_scriptNumPaddingBoundary() public view {
-        bytes32 padded   = ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x80);
-        bytes32 unpadded = ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x7F);
+        bytes32 padded   = BitcoinTx.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x80);
+        bytes32 unpadded = BitcoinTx.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x7F);
         assertTrue(padded != unpadded, "0x80 and 0x7F must derive different addresses");
         // And neither may collide with a three-byte height that shares their low bytes.
-        assertTrue(padded != ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x8000),
+        assertTrue(padded != BitcoinTx.swapInDepositKey(INTERNAL, _terms(), REFUND, 0x8000),
                    "byte-length must be part of the encoding, not just the value");
     }
 
@@ -134,8 +134,8 @@ contract SwapInDepositTest is Test {
             pricePerBtc: 1 * 1_000_000,   // quote the seller $1/BTC instead of $50k
             slippageBps: 100
         });
-        vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, worseRate, REFUND, CLTV, _depositTx(spk, 1_500_000));
+        vm.expectRevert(BitcoinTx.DepositNotPaid.selector);
+        BitcoinTx.verifySwapInDeposit(INTERNAL, worseRate, REFUND, CLTV, _depositTx(spk, 1_500_000));
     }
 
     function test_aDifferentSellerDerivesADifferentAddress() public {
@@ -144,8 +144,8 @@ contract SwapInDepositTest is Test {
             seller: address(0xA2), token: address(0xB2),
             pricePerBtc: 50_000 * 1_000_000, slippageBps: 100
         });
-        vm.expectRevert(ExitLib.DepositNotPaid.selector);
-        ExitLib.verifySwapInDeposit(INTERNAL, otherSeller, REFUND, CLTV, _depositTx(spk, 1_500_000));
+        vm.expectRevert(BitcoinTx.DepositNotPaid.selector);
+        BitcoinTx.verifySwapInDeposit(INTERNAL, otherSeller, REFUND, CLTV, _depositTx(spk, 1_500_000));
     }
 
     /// The commitment is the documented hash of the documented fields — pinned so a change to
@@ -156,12 +156,12 @@ contract SwapInDepositTest is Test {
     ///    address commits the RATE and the chain applies it to SPV-proven sats.
     ///    1,500,000 sats × $50,000/BTC ÷ 1e8 = $750.00; less 100 bps = $742.50 (6-dec).
     function test_theFloorIsDerivedFromTheCommittedRate() public view {
-        assertEq(ExitLib.settleFloorUsd(_terms(), 1_500_000), 742_500_000, "floor = sats*price/1e8, less slippage");
-        assertEq(ExitLib.settleFloorUsd(_terms(), 0), 0, "no sats, no floor");
+        assertEq(BitcoinTx.settleFloorUsd(_terms(), 1_500_000), 742_500_000, "floor = sats*price/1e8, less slippage");
+        assertEq(BitcoinTx.settleFloorUsd(_terms(), 0), 0, "no sats, no floor");
     }
 
     function test_termsCommitmentIsPinned() public view {
-        assertEq(ExitLib.termsCommitment(_terms()), TERMS, "terms commitment vector");
+        assertEq(BitcoinTx.termsCommitment(_terms()), TERMS, "terms commitment vector");
         assertTrue(EXPECTED_Q != Q_WITHOUT_TERMS, "the prefix must move the address");
     }
 
@@ -169,10 +169,10 @@ contract SwapInDepositTest is Test {
     /// function — asserted, because two copies of this arithmetic drifting apart is exactly the
     /// failure that would send a deposit somewhere the contract never looks.
     function test_exposedKeyMatchesWhatVerifyLooksFor() public view {
-        bytes32 q = ExitLib.swapInDepositKey(INTERNAL, _terms(), REFUND, CLTV);
+        bytes32 q = BitcoinTx.swapInDepositKey(INTERNAL, _terms(), REFUND, CLTV);
         assertEq(q, EXPECTED_Q, "exposed key == the BIP-341 vector");
         assertEq(
-            ExitLib.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV,
+            BitcoinTx.verifySwapInDeposit(INTERNAL, _terms(), REFUND, CLTV,
                 _depositTx(abi.encodePacked(hex"5120", q), 777)),
             777, "verify finds exactly what the exposed derivation names"
         );

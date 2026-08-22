@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ChannelLib} from "../../src/imports/ChannelLib.sol";
-import {ExitLib} from "../../src/imports/ExitLib.sol";
+import {BitcoinTx} from "../../src/imports/BitcoinTx.sol";
 
 /// @notice (E128) BIP-341 key-path sighash, `SIGHASH_DEFAULT`, checked against the OFFICIAL
 ///         `bip-0341/wallet-test-vectors.json` — `keyPathSpending[0]`, `inputSpending[3]`
@@ -60,7 +60,7 @@ contract TapSighashTest is Test {
     /// THE assertion: input 4, `hashType = 0`.
     function test_matchesTheOfficialBip341Vector() public view {
         assertEq(
-            ExitLib.taprootKeyPathSighash(_rawTx(), _prevValues(), _prevScripts(), 4),
+            BitcoinTx.taprootKeyPathSighash(_rawTx(), _prevValues(), _prevScripts(), 4),
             bytes32(0x4f900a0bae3f1446fd48490c2958b5a023228f01661cda3496a11da502a7f7ef),
             "BIP-341 keyPathSpending[0] / inputSpending[3] (txin 4, SIGHASH_DEFAULT)"
         );
@@ -69,8 +69,8 @@ contract TapSighashTest is Test {
     /// ⚠️ CONTROL — the sighash must DEPEND on the input index. A "hash only the spent input"
     /// shortcut, or an `input_index` left at 0, would still produce a stable-looking 32 bytes.
     function test_theSighashDependsOnTheInputIndex() public view {
-        bytes32 a = ExitLib.taprootKeyPathSighash(_rawTx(), _prevValues(), _prevScripts(), 4);
-        bytes32 b = ExitLib.taprootKeyPathSighash(_rawTx(), _prevValues(), _prevScripts(), 5);
+        bytes32 a = BitcoinTx.taprootKeyPathSighash(_rawTx(), _prevValues(), _prevScripts(), 4);
+        bytes32 b = BitcoinTx.taprootKeyPathSighash(_rawTx(), _prevValues(), _prevScripts(), 5);
         assertTrue(a != b, "input_index is committed");
     }
 
@@ -80,9 +80,9 @@ contract TapSighashTest is Test {
     /// would no longer invalidate outstanding exits.
     function test_everyPrevoutIsCommittedNotOnlyTheSpentOne() public view {
         uint64[] memory v = _prevValues();
-        bytes32 before_ = ExitLib.taprootKeyPathSighash(_rawTx(), v, _prevScripts(), 4);
+        bytes32 before_ = BitcoinTx.taprootKeyPathSighash(_rawTx(), v, _prevScripts(), 4);
         v[0] += 1;                                   // a DIFFERENT input's amount
-        bytes32 after_ = ExitLib.taprootKeyPathSighash(_rawTx(), v, _prevScripts(), 4);
+        bytes32 after_ = BitcoinTx.taprootKeyPathSighash(_rawTx(), v, _prevScripts(), 4);
         assertTrue(before_ != after_, "Prevouts::All must commit to input 0 while signing input 4");
     }
 
@@ -90,7 +90,7 @@ contract TapSighashTest is Test {
     /// out of bounds or silently hash fewer commitments.
     function test_prevoutArityIsChecked() public {
         uint64[] memory short_ = new uint64[](8);
-        vm.expectRevert(ExitLib.PrevoutCountMismatch.selector);
-        ExitLib.taprootKeyPathSighash(_rawTx(), short_, _prevScripts(), 4);
+        vm.expectRevert(BitcoinTx.PrevoutCountMismatch.selector);
+        BitcoinTx.taprootKeyPathSighash(_rawTx(), short_, _prevScripts(), 4);
     }
 }

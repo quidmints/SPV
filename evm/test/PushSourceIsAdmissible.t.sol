@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {ExternalTwap} from "../src/imports/ExternalTwap.sol";
+import {OracleLib} from "../src/imports/OracleLib.sol";
 
 interface IAggV3 { function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80); }
 
@@ -40,7 +40,7 @@ contract PushSourceIsAdmissibleTest is Test {
     }
 
     function _basisBps() internal view returns (uint256 bps, uint256 oneInch, uint256 cl) {
-        oneInch = ExternalTwap.oneInchRateWad(ORACLE, WETH, USDC, 18, 6);
+        oneInch = OracleLib.oneInchRateWad(ORACLE, WETH, USDC, 18, 6);
         cl = _clWad();
         (uint256 lo, uint256 hi) = oneInch < cl ? (oneInch, cl) : (cl, oneInch);
         bps = (hi - lo) * 10_000 / lo;

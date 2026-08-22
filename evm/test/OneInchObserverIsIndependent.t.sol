@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
-import {ExternalTwap} from "../src/imports/ExternalTwap.sol";
+import {OracleLib} from "../src/imports/OracleLib.sol";
 
 interface IAggV3 {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
@@ -49,7 +49,7 @@ contract OneInchObserverIsIndependentTest is Test {
     ///         `getRate`'s raw-unit definition; if it were wrong it would be wrong by a power of ten,
     ///         which a 5% range against Chainlink catches immediately.
     function test_EthUsd_ScalingIsCorrect_andTracksChainlink() public view {
-        uint oneInch = ExternalTwap.oneInchRateWad(ORACLE, WETH, USDC, 18, 6);
+        uint oneInch = OracleLib.oneInchRateWad(ORACLE, WETH, USDC, 18, 6);
         uint chainlink = _clWad(CL_ETHUSD);
         assertGt(oneInch, 100e18,     "sanity: ETH is not worth <$100 - scaling is off by a power of ten");
         assertLt(oneInch, 100_000e18, "sanity: ETH is not worth >$100k - scaling is off by a power of ten");
@@ -62,7 +62,7 @@ contract OneInchObserverIsIndependentTest is Test {
     ///         A nonzero gap is what makes it usable as the ring's second source at all — this is
     ///         the assertion §E222's whole fix rests on.
     function test_ItIsNotChainlinkRepublished() public view {
-        assertTrue(ExternalTwap.oneInchRateWad(ORACLE, WETH, USDC, 18, 6) != _clWad(CL_ETHUSD),
+        assertTrue(OracleLib.oneInchRateWad(ORACLE, WETH, USDC, 18, 6) != _clWad(CL_ETHUSD),
             "1inch EXACTLY equals Chainlink - it is not an independent observation, and the ring stays circular");
     }
 
@@ -70,7 +70,7 @@ contract OneInchObserverIsIndependentTest is Test {
     ///         Asserted as a RELATIONSHIP between three live reads in one call, so it holds whatever
     ///         the market does: (Chainlink ETH/BTC) / (1inch ETH/WBTC) should track WBTC/BTC.
     function test_OneInchBtcIsWrapped_andTheGapIsTheWbtcBasis() public view {
-        uint oneInchEthWbtc = ExternalTwap.oneInchRateWad(ORACLE, WETH, WBTC, 18, 8);
+        uint oneInchEthWbtc = OracleLib.oneInchRateWad(ORACLE, WETH, WBTC, 18, 8);
         uint clEthBtc  = _clWad(CL_ETHBTC);
         uint wbtcBtc   = _clWad(CL_WBTCBTC);          // ~1.0004e18: WBTC in BTC terms
         assertGt(wbtcBtc, 0.9e18, "premise: WBTC/BTC feed is live and sane");
@@ -84,7 +84,7 @@ contract OneInchObserverIsIndependentTest is Test {
 
         // Both are small; what matters is that the ETH-quoted gap is NOT materially larger than the
         // wrapper basis plus DEX spread. If it ever is, the two readings are not measuring the same
-        // asset pair and the "cross-check = depeg detector" reading in ExternalTwap is wrong.
+        // asset pair and the "cross-check = depeg detector" reading in OracleLib is wrong.
         assertLt(impliedBps, feedBps + 50,
             "the 1inch-vs-Chainlink BTC gap exceeds the WBTC basis + 50bps: they are not the same pair");
     }

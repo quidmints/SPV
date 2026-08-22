@@ -142,7 +142,7 @@ library DeployLib {
             //   the ring is never written, `ringVariance` returns 0, and §E213's sentinel prices
             //   unmeasured variance at the CEILING. Safe, and silent — so it is written down here.
             // ⚠️ WHY NOT JUST RE-PIN IT: a single pool makes THAT pool's depth and its own depeg mode
-            //   an input to σ², the skew and liquidation. `ExternalTwap`'s own header states the rule
+            //   an input to σ², the skew and liquidation. `OracleLib`'s own header states the rule
             //   ("correlated sources are one source") and one venue fails it on its own terms.
             // ⛔ RULED OUT, so nobody re-tries them: 1inch's OffchainOracle iterates 14 venues at
             //   31,722,803 gas — above the 30M block limit, unexecutable on the swap path. A v3 TWAP
@@ -185,7 +185,7 @@ library DeployLib {
         // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
         // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the range off one pool
         // makes that pool's depth and its own depeg mode an input to σ², the skew and liquidation —
-        // and `ExternalTwap`'s own header says a single venue is one observer, not an independent one.
+        // and `OracleLib`'s own header says a single venue is one observer, not an independent one.
         // Two candidates were tried and both are ruled out: 1inch's OffchainOracle costs 31,722,803
         // gas per read against a 30M block limit (unexecutable), and a single pool is this.
         // ⇒ WITH NO SOURCE, `_observeIfSourced` RETURNS IMMEDIATELY: the ring is never written,
