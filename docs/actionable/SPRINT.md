@@ -10038,6 +10038,73 @@ so travel changes the basket's composition rather than its size (§E320). The pa
 SHAPE of the response — signed, regime-split, flow-vs-volatility — never about magnitudes.
 
 
+---
+
+## 🔴 §E327 — **σ² ≡ 0 HAS A ONE-LINE ROOT CAUSE: `setObservationSource` HAS ZERO CALLERS. THE MACHINERY IS COMPLETE.**
+
+Chasing §E326 step 2 ("make σ² real") to its root. Every prior row treated this as a KEEPER problem —
+§E294 (*"`pushObservation` … zero callers"*), §E306, §E308 (*"the tick driver writes nothing"*). **All
+true, and all downstream of something simpler.**
+
+### THE MEASUREMENT
+`grep -rn "setObservationSource" evm/src evm/script evm/test` → **the declaration at `Core.sol:1283`
+and NOTHING ELSE.** Zero calls in the deploy scripts, zero in the fixtures, zero in the tree.
+⇒ `observationSource == address(0)` on **every deployment and in every test**, so `_observeIfSourced`
+returns at `Core.sol:1299` on **every swap and every repack**, and the swap path writes the ring
+**never** — regardless of keepers, 1inch, or the estimator.
+
+### ⭐ WHY THIS IS THE ROOT AND THE OTHERS ARE SYMPTOMS
+`_observeIfSourced` is a COMPLETE implementation: it staticcalls `OBS_CALLDATA` on the pinned source,
+decodes a plain WAD, and writes the ring — and `Core.sol:1300-1319` records that the source was already
+chosen in principle (Curve's on-pool EMA `price_oracle(k)`, picked precisely because 1inch's aggregator
+costs **31.7M gas** and cannot be read on-chain). **With a source pinned, the ring fills as a SIDE
+EFFECT OF TRADING — no keeper, no incentive problem, no unattended push stream.**
+⇒ That also collapses §ORACLE-FRESHNESS **(a)**: *"if the (collective, unincentivized) push stream
+lapses the ring freezes"*. A swap-driven ring has no stream to lapse. It does **not** touch
+§ORACLE-FRESHNESS **(b)** — the ±50 bps admission bound against a ~23 bps live basis (~2.2× margin) is a
+separate calibration and stays open.
+
+### ⛔ WHAT I DID NOT DO, AND WHY — THE SOURCE CHOICE IS THE OWNER'S
+`Core.sol:1320-1324` refuses to carry an index forward, in its own words: *"The SELECTOR and any index
+belong TO THE CHOSEN SOURCE and must be decided WITH it — a pool index is meaningless without the pool,
+and carrying a previous pool's `1` forward would silently price ETH as WBTC on any pool ordered
+differently."* **So pinning a pool is a design decision, not a wiring task**, and picking one unilaterally
+is exactly the failure that comment exists to prevent.
+▶️ **WHAT IS NEEDED — three things, and only the first is a decision:** (1) choose the pool; (2) derive
+its coin ordering ON-CHAIN and encode `price_oracle(k)` accordingly (`Core.sol:1308-1312` warns a wrong
+index prices ETH at the BTC price); (3) call `setObservationSource(pool, calldata)` from
+`DeployL1_s.sol` — and **also from `DeployLib.sol`, or every fixture stays blind and §E308 persists in
+the suite while production works**. ⚠️ `setObservationSource` is one-shot
+(`require(observationSource == address(0))`), so a wrong pin is permanent on that instance.
+📌 `CurveObserverIsCheapAndSane` already exists to validate a Curve source against Chainlink — the
+acceptance test for step (2) is written.
+
+---
+
+## 📌 §SKEW-DOUBLE — **THE RESOLUTION IS RIGHT, BUT ITS FIRST TELL IS FALSE. CORRECTING IT BEFORE ANYONE BUILDS ON IT.**
+
+The proposed call — **keep `retainSkewPremium`, delete the skew in `_fillDelta`** — is supported by the
+call graph, the decisive test's own arithmetic, both docblocks, and rule 17 (one cut retires
+§SKEW-DOUBLE, §SWAPIN-FLAT-VS-SKEW and §STALE-SKEW-DOCBLOCK together). **That verdict stands.**
+
+⛔ **BUT TELL #1 — *"`_fillDelta` is a `view`, it cannot credit LPs, ever"* — IS WRONG, and it is the one
+offered as decisive on its own.** A `view` that returns a smaller `out` makes the CALLER settle a
+smaller payout; the difference stays in `POOLED_*`, which is LP principal. **Core says so in that very
+function**, about the 420 ppm that occupied the same line: *"The 420 was retained in `POOLED_*` and DID
+reach LPs by compounding"* (`Core.sol:1187-1188`; `Quid.sol:136` calls `POOLED_*` *"principal + ALL
+compounded fees"*).
+⇒ **Both charges reach LPs. The difference is TIMING, not existence** — per-share accrual
+(`recordSkewPremium`) credits the LP present AT THE SWAP; `POOLED_*` compounding credits the holder at
+CLAIM. §E311's comment names exactly this: *"a difference of TIMING (holder at claim vs holder at swap)"*.
+⭐ **And once stated correctly the timing argument STRENGTHENS the same conclusion:** a market-making
+premium is compensation for carrying inventory risk *at that moment*, so it belongs to the LP who was
+there — which is per-share accrual, i.e. `retainSkewPremium`. **Keep the crediting path because its
+attribution is right, not because the other one credits nobody.**
+⚠️ **Why this matters beyond pedantry:** "a `view` cannot charge" would license deleting other
+`_fillDelta` reductions as no-ops. They are not no-ops — that is precisely how the 420 was charged for
+its whole life, and §E311 had to be corrected once already for describing its removal as free.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
