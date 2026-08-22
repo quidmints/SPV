@@ -10309,6 +10309,83 @@ to drive scarcity first; or (b) LPs should earn on ordinary flow, and the flush 
 question. §E326's mint/redeem mark work depends on which way this goes.
 
 
+---
+
+## 🔴🔴 §E331 — **ELEVEN FOLD/SLOP QUESTIONS ANSWERED FROM THE TREE. TWO ARE WORSE THAN THE QUESTION IMPLIED; TWO PREMISES ARE FALSE.**
+
+### 🔴 1. OUT-OF-RANGE FILLS PAY **NO SKEW AT ALL** — AND THAT IS A GRINDING VECTOR
+Owner: *"skew is only for in-range, and not out of range orders?"* **Confirmed, and it is not benign.**
+`RangeLib.sweepOor` contains **ZERO** occurrences of `skew` (measured). It fills every crossed resting
+order at `pxNew`, the oracle price, with no inventory charge — while an in-range swap through
+`_fillDelta` pays `wellSkew`/`sellSkew`.
+⇒ **Two prices for the same inventory, and the cheaper one is reachable on purpose:** park a resting
+order just across the band and let `sweepOor` fill it at oracle instead of swapping and paying the
+premium. `Core.swap` calls `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` on every swap, so the OOR book is
+swept by the very flow that pays the charge the OOR filler avoids. ▶️ Either OOR fills owe the same
+skew, or there is a stated reason they do not. **Nothing in the tree states one.**
+
+### 🔴 2. `LevBase.totalDeliverableDollars` IS AN UNBOUNDED LOOP OVER **EVERY OPEN LP** — WORSE THAN THE ONE ASKED ABOUT
+Owner flagged `SwapLib.sol:1834` (`for (uint i; i < n && deliveredEth < shortfallEth; i++)`). That one
+has an **early exit** on the shortfall. `LevBase.sol:231-236` does not:
+```solidity
+uint n = _openLps.length;
+for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
+```
+**No cap, no early exit, and each iteration is a per-LP valuation.** It grows with adoption, so it is a
+liveness cliff that gets closer the more successful the protocol is — the worst shape of gas bug,
+because it passes every test at fixture scale. ▶️ Bound it, paginate it, or maintain the total
+incrementally on open/close. 📌 The other four (`FeeLib:269/284/296`, `SwapLib:1834`) all carry either a
+`remaining > 0` or a shortfall early-exit; this is the only naked one.
+
+### ⛔ 3. FALSE PREMISE — `setVaultHealth` IS LIVE AND LOAD-BEARING
+Owner: *"we no longer need setVaultHealth."* **It has real callers and gates the lev open path.**
+`LevManager.sol:243` and `BtcLevManager.sol:143` both refuse a NEW position onto an *"incident-flagged
+(GOV `setVaultHealth`)"* venue, `BasketLib.setVaultHealthBody` is the shared body called by
+`pokeVaultHealth` and the evacuate path, and three tests use it as the real flag
+(`AaveReserveHealthKey:58`, `VBtcLevFeeLane:1266`, `LevCascade:727`). Deleting it removes the ability to
+de-allowlist a compromised venue. ⚠️ **What WAS removed is the CRE `onReport` forwarder**
+(`Alles.t.sol:2240` — *"setVaultHealth is owner-ONLY (the CRE onReport forwarder path was …)"*); if that
+is what the instruction meant, it is already gone.
+
+### ⛔ 4. FALSE PREMISE — `transferShares` IS NOT ASYMMETRY, IT IS A PROJECTION vs A LEDGER
+Owner: *"why does quid have a transferShares and vault doesnt?"* **Because their ERC-20 faces are
+different KINDS of object, and `CLAUDE.md` already records it:** `Quid.totalSupply()` returns
+`lpShares`, `Quid.balanceOf(u)` returns `autoManaged[u].pooled`, and `Quid.transfer` calls
+`_transferShares` — **there is no balances mapping, because the range's own accounting IS the balance.**
+`VBtc` declares `mapping(address => uint) balanceOf` and moves plain balances.
+⇒ *"`Quid.balanceOf ∥ VBtc.balanceOf` IS NOT A DUPLICATED PAIR … Folding them would duplicate state,
+which is the exact thing `Shares.sol`'s header says it exists to delete."* **This one is not slop.**
+
+### 🟠 5. THE LEV FUNCTIONS IN `RangeLib` ARE RANGE STATE, NOT LEV LOGIC — BUT THE NAMING HIDES IT
+`levBurnAll`, `levAddNet`, `levAddBuf`, `levAddGross`, `setTargetLtv` (`RangeLib.sol:45/74/94/111/423`).
+These mutate the RANGE's `levPooled` exposure, which is per-range state and belongs with the range —
+the same reason `POOLED_USD` lives on `Core`. **The smell is real but it is a NAMING problem:** a
+`lev`-prefixed function in a file called `RangeLib` reads as a layering violation every time someone
+opens it. ▶️ Rename to the range concept they mutate (`exposureBurnAll`, `exposureAdd*`) or move them
+behind one `Shares`-level accessor. Do not move them to a lev manager — that would split per-range
+state across contracts, which is what §E329's instance bug was.
+
+### 📌 6-11. THE REST, WITH THEIR REAL COST
+- **`setBtcVault` ×3 at deploy** (`core`, `a.btcCore`, `quid`) — three pins because three objects each
+  need the address and none can derive it. Consolidatable only once one of them can ask another;
+  that is the same fold that is 12,187 bytes over (§E330). **Booked, not attempted.**
+- **`SwapLib.ethRisk()`/`btcRisk()` constants in the constructor** — agreed, this is slop. It is the
+  `struct Risk` question too: **all structs belong in `Types.sol`** and the risk parameters belong in
+  config, not a library function returning a literal.
+- **Merge the libs** — 17 libraries in `evm/src/imports`. §E304 just removed one dead surface; the
+  remaining merges are blocked by the same EIP-170 arithmetic as the fold.
+- **1inch result signed into the deploy** — this is the honest answer to §E327's *"choose the pool"*: if
+  the observation source cannot be a single Curve pool (owner, said three times) and 1inch cannot be
+  read on-chain (31.7M gas), then pinning an **off-chain-read, signed-at-deploy** median is the
+  remaining shape. ▶️ **This is the design decision §E327 is waiting on**, and the median-of-N sketch is
+  already measured there (WETH/USDC $2,384.81 · USDT $2,386.52 · crvUSD $2,384.83, 7.2 bps spread).
+- **Swap-out delever → does it restore leverage for IL-protected LPs?** `SwapLib.deleverOnDelivery`
+  (`:1744`) SOURCES the venue debt stable and REPAYS — it de-levers. **Nothing in that path re-levers.**
+  Restoration is `LevManager.rebalance` / `rebalanceMany` / `rebalanceOne`, which are external and
+  keeper-driven. ⇒ **The swapper's incoming asset does NOT restore IL-protect leverage; a keeper must
+  call `rebalance` afterwards, and no test covers that hand-off.** ▶️ Confirm the keeper does it.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
