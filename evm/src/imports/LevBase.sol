@@ -406,7 +406,7 @@ abstract contract LevBase {
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
         // §C22 — was `LevMath.ilTargetLive(RANGE, p.syncKeyPx, …)`. That function preferred
         // `soldFractionWad(syncKeyPx)`, which is a CONSTANT (0.500750000 = f(RANGE_DELTA) alone —
-        // the band recentres on spot, so the price cancels out of the ratio). It is gone; the
+        // the range recentres on spot, so the price cancels out of the ratio). It is gone; the
         // estimate on the entry-pinned basis is the target.
         return LevMath.ilTargetBps(p.ilBasisPx, px, p.targetLtvCapBps);
     }

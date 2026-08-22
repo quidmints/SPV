@@ -462,10 +462,10 @@ library RangeLib {
         if (!go) return false;
         q.syncKeyPx    = s;
         // 🔴 §C19 — `q.ilBasisPx = uint128(px)` WAS HERE AND IT MADE THE LEVERED BOOK INERT.
-        // `RANGE_ANCHOR = o.spotPrice` is unconditional (`Quid._rebalance`), so the band recenters on
+        // `RANGE_ANCHOR = o.spotPrice` is unconditional (`Quid._rebalance`), so the range recenters on
         // spot at every repack and this reseat fires on any drift past `RANGE_DELTA` (20 bps). Writing
         // the CURRENT price into the IL basis then reset the very quantity the hedge measures: the
-        // most IL that could ever accumulate was one half-band, `1 - sqrt(1/1.002)` = **9.99 bps**,
+        // most IL that could ever accumulate was one half-range, `1 - sqrt(1/1.002)` = **9.99 bps**,
         // against `debtDelta`'s `RANGE_BPS` = **300 bps** deadband -- so `debtDelta` returned
         // `(false, 0)` on EVERY path and `venue.borrow` was UNREACHABLE BY CONSTRUCTION.
         // ⚠️ THE INVARIANT THAT DEFENDS THIS RESEAT COVERS `entryEquity` ONLY. It reads: levering

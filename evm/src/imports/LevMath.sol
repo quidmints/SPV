@@ -137,12 +137,12 @@ library LevMath {
     //   syncKeyPx)` and preferred it over the estimate whenever it was non-zero. THAT BRANCH WAS A
     //   CONSTANT, and the proof is two lines of algebra plus a measurement that agrees to nine
     //   significant figures:
-    //     `holdingRatioWad` CLAMPS `p0` into the live band, and `RANGE_ANCHOR = spotPrice` is set
-    //     unconditionally on every repack, so the band recentres and the triple is always
+    //     `holdingRatioWad` CLAMPS `p0` into the live range, and `RANGE_ANCHOR = spotPrice` is set
+    //     unconditionally on every repack, so the range recentres and the triple is always
     //     (lo, P, hi) = (P(1-d), P, P(1+d)). P CANCELS:
     //         holdingRatio = sqrt(1-d) * (sqrt(1+d) - 1) / (sqrt(1+d) - sqrt(1-d))
     //     With RANGE_DELTA = 20 bps that is 0.499250000, i.e. soldFraction = **0.500750000** — a
-    //     function of BAND WIDTH ALONE, with no price in it.
+    //     function of RANGE WIDTH ALONE, with no price in it.
     //   MEASURED over a rally that doubled the price (2716.84 -> 5430.99, ten steps): the range's
     //   real inventory `POOLED` fell 7.566 -> 2.331 ETH while `soldFractionWad` returned
     //   0.500750000312500535 at EVERY step, moving only in the 18th decimal.
