@@ -2739,8 +2739,17 @@ message-dependent and a fixed heartbeat would exercise one message forever.
 ⚠️ **Audited by hand first and it holds** — length-checked, recovery id validated, no `unwrap`, both
 slices provably in bounds. **That is an argument, not a proof, which is the whole reason to fuzz it.**
 
-✅ **THE STRUCTURAL PROBLEM IS NOW FIXED TOO (2026-08-22): `tools/check-fuzz-targets.py`, wired into
-`ci.yml` right after `cargo test`.** It resolves every `use <our-crate>::<path>` in every fuzz target
+✅ **THE STRUCTURAL PROBLEM IS FIXED (2026-08-22): `tools/check-fuzz-targets.py`, wired into `ci.yml`
+right after `cargo test`.**
+🔴 **AND IT WAS SILENTLY DELETED ONCE ALREADY, THE SAME DAY — RESTORED, AND THE ROW SAYS SO BECAUSE
+THIS ROW WAS BRIEFLY A FALSE ✅.** `48244397` ("E308: load-balance consent is a swap parameter") removed
+BOTH the 92-line script and the 9-line CI step. **Its message never mentions fuzzing or CI** — the
+deletion was swept into an unrelated commit, which is the `§14b` landmine, and nothing announced it.
+⚠️ **The failure mode is exact and worth internalising: `ci.yml` and the script went TOGETHER, so CI
+stayed GREEN and CONSISTENT — a missing step cannot fail.** Deleting a guard removes its alarm along
+with it. The only thing that caught it was running the gate by hand and getting `No such file`.
+⇒ **A ✅ that names a file is a testable claim. Re-run it, do not read it** — this row asserted a CI
+gate that had not existed for hours. It resolves every `use <our-crate>::<path>` in every fuzz target
 against the `pub` items actually declared in that crate's `src`, and exits 1 naming any that vanished.
 ⭐ **IT IS A REFERENCE CHECK, NOT A COMPILE, AND THAT IS THE DESIGN — NOT A COMPROMISE.** Compiling
 the crate needs nightly + `cargo-fuzz`, which CI does not install; that is precisely why the rot
