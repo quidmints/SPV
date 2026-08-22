@@ -9973,3 +9973,34 @@ of `CLAUDE.md`, arriving from a third direction — **the shared checkout is the
 📌 An observer flagged the detached `HEAD` and the `UU` marker and deliberately left both alone.
 **That instinct was correct** and is the behaviour to keep: an unexplained in-flight git state in a
 shared tree is someone else's, until the reflog says otherwise.
+
+### C27. ✅ ALL SEVEN `tools/*.py` GATES GREEN — two were RED on `main` and both were real
+
+Run at close. **Five were already green; two failed, and neither was noise.**
+
+**C27-a. 🔴 `check-signer-allowlist` — an UNCLASSIFIED selector, which the enclave REFUSES by default.**
+`pendingClaimSats(bytes32)`, built at `quid-ln/quid-bridge/src/channel_driver.rs:254` (§LAZY-OPEN claim
+retry), was in neither `HOP_SIGNED_FN_SIGS` nor `READ_ONLY`. **Classified READ_ONLY, and the evidence is
+conclusive rather than a judgement call:** `BTCChannels.sol:385` declares `mapping(bytes32 => uint)
+public pendingClaimSats`, so this is **solc's auto-generated view getter — there is no state-changing
+function of that name to sign**; the bridge reads it through `eth_call_raw` in `read_pending_claim`,
+whose own comment says the figure *"only ever gates whether we submit a retry"*. ⇒ 40 signatures, 14
+hop-signed, 26 read-only, **clean**.
+
+**C27-b. 🔴 `check-pnl-agnostic` — SIX ratchet entries with ZERO write sites.** The check refuses to pass
+over a vanished symbol, correctly, and its instruction is *"update the baseline deliberately; do not
+drop the entry."* Both halves resolved with evidence:
+- `skewPremiumETH` / `skewPremiumBTC` → **`skewPremium`. A RENAME.** `Core.sol:346` declares it,
+  `:358` writes `skewPremium += premiumUsd`. **The ETH/BTC suffix moved from the NAME to the
+  INSTANCE** (Core is deployed twice) — the standing one-name-two-instances pattern — so one entry
+  now covers both books. ⚠️ This is exactly the case `CLAUDE.md` warns about: **a zero-hit grep on a
+  suffixed name is evidence of a RENAME, never of a removal.**
+- `_flowETH` / `_flowBTC` / `_premETH` / `_premBTC` → **NO SUCCESSOR.** No `flow*`/`prem*` accumulator
+  takes `+=`/`-=` anywhere in `evm/src`. The quantity is computed and **discarded**, which is precisely
+  what **§E320-SSRN** books (*"we compute the sign on every swap and throw it away"*). Removed from the
+  ratchet because the symbol is gone — **not because the gate was inconvenient. If a flow accumulator
+  is ever added back it MUST be re-listed**, and the reasoning is recorded in the script itself.
+
+⇒ **`check-contract-sizes` OK (tightest `Quid`, 472 bytes spare) · `check-client-abis` 0 drifted (the
+`openChannelDigest` ORPHAN reported earlier is now resolved) · `check-doc-symbols`, `check-fuzz-targets`,
+`check-skew-agnostic` clean.**

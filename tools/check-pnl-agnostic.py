@@ -40,7 +40,20 @@ V4_TOKENS = ["BalanceDelta", "feesAccrued", "poolManager", "PoolKey", "CurrencyS
 
 # Baseline measured 2026-08-16 against Core.sol. CLEAN entries are protected; COUPLED
 # entries are the remaining work. Tighten COUPLED -> CLEAN in the same commit that frees one.
-CLEAN   = ["skewPremiumETH", "skewPremiumBTC", "_flowETH", "_flowBTC", "_premETH", "_premBTC"]
+# §C27 — BASELINE UPDATED DELIBERATELY, with the evidence, per this file's own instruction
+# ("update the baseline deliberately; do not drop the entry"). All six former entries had ZERO write
+# sites, which this check correctly refused to pass over silently.
+#   • skewPremiumETH / skewPremiumBTC -> `skewPremium`. A RENAME, not a removal: `Core.sol:346`
+#     declares `uint public skewPremium` and `:358` writes `skewPremium += premiumUsd`. The ETH/BTC
+#     suffix moved from the NAME to the INSTANCE (Core is deployed twice), which is the standing
+#     "one name per concept, two instances" pattern -- so ONE entry now covers both books.
+#   • _flowETH / _flowBTC / _premETH / _premBTC -> NO SUCCESSOR. Not renamed: there is no
+#     `flow*`/`prem*` accumulator taking `+=`/`-=` anywhere in `evm/src`. The quantity is computed
+#     and discarded rather than accumulated, which is precisely what §E320-SSRN books ("we compute
+#     the sign on every swap and throw it away"). They are removed from the ratchet because the
+#     symbol is gone, NOT because the check was inconvenient -- if a flow accumulator is ever added
+#     back, it must be re-listed here.
+CLEAN   = ["skewPremium"]
 COUPLED = ["POOLED_ETH", "POOLED_BTC", "POOLED_USD_ETH", "POOLED_USD_BTC"]
 
 

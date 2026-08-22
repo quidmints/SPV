@@ -63,6 +63,12 @@ READ_ONLY = {
     "pendingOnchainSwapOut(bytes32)",
     "migrationNonceUsed(bytes32)",
     "freshnessSeq(bytes32)",
+    # §LAZY-OPEN claim retry. `pendingClaimSats` is a PUBLIC MAPPING on `BTCChannels`
+    # (BTCChannels.sol:385), so this is solc's auto-generated view getter -- there is no
+    # state-changing function of this name to sign. The bridge reads it in
+    # `channel_driver::read_pending_claim` via `eth_call_raw`, and its own comment says the figure
+    # "only ever gates whether we submit a retry". Never sent as a transaction.
+    "pendingClaimSats(bytes32)",
     "managerFreshnessSeq(address)",
     # lev keeper position/venue reads
     "pos(address)",
