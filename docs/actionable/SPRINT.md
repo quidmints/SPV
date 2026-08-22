@@ -9133,12 +9133,45 @@ is the signature of a frozen input, not of a discovery.
 ▶️ **TO ACTUALLY ANSWER THE CALIBRATION QUESTION:** fix the injection in a bare fixture (or run the
 probe inside a fixture where it is known to work), assert the oracle moved FIRST, then compare the
 LP's `convertToAssets` path against `1 − √(entry/now)` over a one-directional rally.
-## 🔴 §E313 — **DELETE THE PREFERRED-STABLE PATH: `_takePreferred` AND THE `preferred` PARAMETER. SCOPED AND MEASURED; NOT EXECUTED.**
+## ⏸️ §E313 — **THE `preferred` PARAMETER IS DELETED (DONE). DELETING `_takePreferred` ITSELF IS REFUTED — IT HAS THREE CALLERS AND ONLY ONE IS A PREFERENCE.**
 
 **Owner, 2026-08-22: *"there should be no more `_takePreferred` because we can do the multicall thing
 off chain, my goal is to get this solidity contract as thin as humanly possible."*** ⇒ **This follows
 from §E312-redeem rather than being a new decision**: if the frontend converges the pro-rata basket
 into one stable by multicall, the contract has no reason to know a preferred stable at all.
+
+### ✅ EXECUTED — `edd0d5ed` (part 1) + `a67b9b3e` (part 2), both on `origin/main`
+The **redeem preference** is gone and so is every parameter that carried it: `Aux.take/5`,
+`Aux.redeem/2`, `Aux.redeemTo/3`, `Aux._redeemRequire`, `takeWith`'s `preferred`, `TakeArgs.preferred`,
+`TakeArgs.prefIndex`, `RedeemArgs.preferred`, and the `IAux.take/5` declaration. **Measured across the
+three source files: 70 deletions / 37 insertions**, and the orphaned docblocks for the removed
+overloads went with them. `forge build` exit 0, `check-contract-sizes.py` OK (tightest `Quid`, 472 to
+spare), `check-client-abis.py` unchanged at the one pre-existing §E307 `openChannelDigest` ORPHAN.
+
+### ⛔ REFUTED — *"there should be no more `_takePreferred`"* CANNOT BE SATISFIED, BECAUSE THE FUNCTION WAS NEVER ONLY A PREFERENCE
+The owner's rule — *"if you ever want one specific stable as your output … the frontend has to do the
+multicall"* — is about a **user choosing an output**. `_takePreferred` is reached by three callers and
+**only the second is that**:
+
+| # | caller | what the named stable is | multicall-able? |
+|---|---|---|---|
+| 1 | `Core.refundUnfilled` (`Core.sol:386`) | the swapper's **OWN INPUT**, returned unfilled | ❌ a refund must return what was paid in |
+| 2 | `Core._settleUsdSide` (`Core.sol:1014`) | the swapper's **requested output** | ✅ this is the one the rule targets |
+| 3 | `Aux.takeToSettle` (`SwapLib.sol:1798`, `:1850`) | the **lev venue's debt denomination** | ❌ contract→venue, no frontend in the loop |
+
+Caller 3 is load-bearing and the code already says so (`SwapLib.sol:1762`): the draw is
+*"held-clamped so `takeToSettle` never falls to the pro-rata leg — **which would deliver OTHER stables
+the venue can't repay with**"*. A Morpho/AAVE position denominated in one stable cannot be repaid with
+a basket bundle, and there is no off-chain step available to converge it: the recipient is a venue.
+
+⇒ **THE COST/BENEFIT INVERTS ONCE THAT IS SEEN.** Removing caller 2 would drop the swap's output-token
+plumbing (a breaking client change: the SPA's `swap` loses its output selection) while **`_takePreferred`
+survives for callers 1 and 3 regardless** — so the thinness the change was proposed to buy is not
+available. It trades worse swap UX and a client break for **zero deleted function**.
+⇒ **OPEN QUESTION FOR THE OWNER, and it is the only live part of this row:** was the intent (a) the
+`preferred` parameter, which is done, or (b) also the swap's named output? If (b), it is executable,
+but it is a swap-signature change priced on its own merits, not a code deletion.
+
 
 ### THE FOOTPRINT — measured, with the client control run
 | symbol | `evm/src` | `evm/test` | `spa/src` | `quid-ln` |
@@ -9422,14 +9455,23 @@ swap moves NO price**. The move must be **INJECTED**, never read.
 
 **FIXED (this thread):** `LevYbReal._rallyRange`, `LevCascade._rallyRange`,
 `LeverageCrossSubsidyProbe._rallyRange`, `LevYbReal._crashRange`, `LevCascade._crashRange`.
-🔴 **STILL CIRCULAR — 6 sites, 3 files, NOT fixed:**
-- `Alles._moveEth` and `Alles.t.sol:1042` — ⚠️ **both carry comments claiming *"feed tracks pool
-  pre-swap"*, which is FALSE (it tracks the RING). That false comment is probably why this survived.**
-- `BufferSwapDrain.t.sol` ×2
-- `PremiumIsCarryNotIncome.t.sol` ×3
-⇒ Apply the same injection: read a base, **add/subtract an exogenous step**, `_setLiveEthFeed`, then
-`CORE.pushObservation`. **Not done here because `Alles.t.sol` is the shared fixture and two other
-threads have it in flight** — a collision there breaks every suite at once.
+⛔ **I BOOKED "6 SITES STILL CIRCULAR" FROM A GREP AND IT WAS AN OVER-CLAIM. Reading each one, only
+ONE is a defect** — the rest are deliberate or harmless, and calling them defects would have sent the
+next thread to "fix" correct code:
+
+| site | verdict |
+|---|---|
+| **`Alles._moveEth`** | 🔴 **REAL DEFECT — FIXED.** It is a price-MOVER by name and by use, and it moved no price. |
+| `Alles.t.sol` setup site | ✅ **CORRECT.** One-time `_setEthFeed` then `AUX.setAssetFeed(WETH, ETH_FEED)` — initialising the sentinel to the live price *before* pinning it. Not a loop. |
+| `PremiumIsCarryNotIncome` ×3 | ✅ **CORRECT, AND DELIBERATE.** Same pin, and its own comment gives the reason: *"Pin the external anchor and HOLD it: production-faithful, since draining OUR pool does not move Chainlink."* **Freezing the anchor is the point of those tests.** |
+| `BufferSwapDrain` ×2 | 🟢 **NOT A DEFECT, but dead code.** Drain loops whose goal is to consume INVENTORY, not move price; the per-step `_setEthFeed` was only *"so the 5% anchor never false-trips"* and, since the price cannot move, re-writing the feed to the same value each step does nothing. Harmless, misleading, deletable. |
+
+⇒ **THE DISCRIMINATOR IS WHETHER THE HELPER IS SUPPOSED TO MOVE THE PRICE.** `_rallyRange`,
+`_crashRange` and `_moveEth` are; a setup pin and a drain loop are not. **A grep for the pattern
+cannot tell those apart, and I published the grep's answer before reading the code** — the same error
+as `§DE-TICK`'s 185 comment-only `tick` hits.
+⚠️ **`_moveEth`'s callers make it load-bearing:** `DerivedTheta` reads θ = yield/(K·σ²), and **σ² is 0
+unless the ring records a moving price**, so those tests were measuring a frozen oracle.
 
 ⚠️ **AND THE SECOND HALF OF THE SAME DEFECT, which bit three times: `_setEthFeed` targets the
 `0xE7F0FEED` SENTINEL**, which only becomes the anchor after `AUX.setAssetFeed(WETH, ETH_FEED)`.
