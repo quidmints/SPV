@@ -8716,3 +8716,57 @@ Verified in code today, after a week of churn:
 by §E6.** §E276 conflated "two legs with different curves" (built) with "a two-sided mid shift"
 (forbidden). ⚠️ **§E276 must not be acted on. Its only surviving true statement is descriptive: the
 refill direction is exempt rather than paid — which is the DESIGN, not a defect.**
+### C21. ✅ THE §C19 FIX IS VERIFIED — 0 REGRESSIONS — AND IT UNMASKS TWO DEFECTS THAT WERE UNREACHABLE
+
+**A/B on `test/*Lev*.t.sol`, same worktree, same warm build, treatment = `HEAD`, baseline = `HEAD~1`:**
+
+| arm | passed | failed |
+|---|---|---|
+| baseline (`ilBasisPx` still overwritten) | 36 | **16** |
+| treatment (§C19 fix) | **37** | 15 |
+
+**Fixed: `testReal_VenueYield_LevExcludedFromDenominator`. Broken: NONE. Failing in both: 15.**
+⚠️ **Diffed on failure MESSAGE, not just test name** — a name-only diff would have hidden the two rows
+below, which fail in *both* arms **for different reasons**.
+
+🔴 **AND THAT MESSAGE DIFF IS THE REAL RESULT. TWO TESTS ADVANCED TO A DEEPER ASSERTION, i.e. the fix
+made code reachable that had never run:**
+
+| test | baseline failure | treatment failure |
+|---|---|---|
+| `testReal_Morpho_OpenAndDelever` | *"**open** must take on real Morpho debt: 0 <= 0"* | *"**de-lever** must repay real Morpho debt: **564189029 >= 564189029**"* |
+| `testReal_Morpho_LiquidationLeavesBasketIntact` | *"position is healthy"* (no debt ⇒ nothing to liquidate) | *"deliverable ETH must still cover the range: **4838625281132197493 < 4954340753474905760**"* |
+
+**C21-a. 🔴 THE DE-LEVER DOES NOT REPAY.** Debt goes in at **564,189,029** (6-dec USDC) and comes out
+at **564,189,029** — unchanged. `deleverRepayUsd` is the closed-form `Δ/(1−t)` and `_delever`
+deliberately IGNORES `deltaUsd` because of it (`LevManager.sol:347`). **This path has never once run
+against real debt**, because until §C19 no debt could exist.
+
+**C21-b. 🔴🔴 LIQUIDATION LEAVES THE BASKET SHORT — 0.115715 ETH, 2.34% of the range.** Deliverable
+**4.838625** against a range of **4.954341**, so the assertion *"honest LPs whole"* is violated by a
+real amount. ⚠️ **This is in liquidation accounting that §C19 does not touch** — the change only stops
+overwriting a price basis. It is **revealed, not caused**: the baseline could not reach it because
+`position is healthy` short-circuits when debt is 0.
+
+⭐ **THE STRUCTURAL FINDING BEHIND ALL OF IT — THE LEVERAGE SUITE IS TWO DISJOINT WORLDS AND THE GREEN
+ONE CANNOT SEE THE BUG.** `test_Economic_LeversToProvenIlTarget` PASSES, and has always passed, because
+it does this:
+```solidity
+vm.mockCall(address(AUX),
+    abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)),
+    abi.encode(px * 2));                       // oracle 2x, range UNTOUCHED
+```
+⇒ **It moves the ORACLE without moving the RANGE.** `reanchorCompute` reads `rangePrice()` and
+`rangeBounds()` (`LevMath.sol:120/127`) — **never `getTWAPforAsset`** — so with the range still, the
+bounds are still, `syncKeyPx` stays inside them, and **the reseat CANNOT FIRE.** The mocked world
+therefore proves the sizing math (IL target 2929 bps = `1 − 1/√2`, correct) **while being structurally
+incapable of observing the `ilBasisPx` wipe.** The real-rally world hits the wipe and has been red.
+⚠️ **Both worlds live in ONE FILE**: `LevCascade.t.sol` has **2 oracle mocks** and **11 `_rallyRange`
+uses**, passing and failing respectively. **7 oracle mocks across 3 files** (`Alles` 1, `LevCascade` 2,
+`VBtcLevFeeLane` 4) — counted with a MULTILINE regex, because `vm.mockCall(` and `getTWAPforAsset` sit
+on **different lines** and a single-line `grep` reports only 4 of the 7.
+⇒ **This is exactly what standing rule 5 ("don't mock") exists to prevent**, and the cost is precise:
+a green suite asserting the leverage design works, over a book that had never opened a position.
+▶️ **DO NOT delete the mocked tests** — their sizing proof is real and independently useful. **Make each
+one state that it exercises the oracle path ONLY**, and pair it with a real-rally twin, so the two
+worlds can never again disagree silently.
