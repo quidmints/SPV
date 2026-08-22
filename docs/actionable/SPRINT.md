@@ -852,7 +852,39 @@ rather than from the tree will re-open finished work and under-report the one ga
 
 ---
 
-## 14. 🔴🔴 THE BRANCH CLEANUP LOST HALF A COMMIT — RESCUED, NOT YET RESOLVED
+## 14. ✅ **RESOLVED — BOTH HALVES. The refs are clean, and the money-path question is VOID.**
+✅ **CLOSED 2026-08-22, and the two halves closed for different reasons.**
+
+**(a) THE REFS — clean.** `git ls-remote --heads origin` returns **1** (main). No rescue tags, no
+`wt/*`, no orphan branches. The `rescue/E194` tag was deleted, correctly: **it was right while the
+content lived only on the tag and wrong once the content was on `main`** — a ref buys time to copy
+the reasoning and is spent once you have.
+
+**(b) THE MONEY-PATH QUESTION — VOID, not answered.** The row asks whether today's skew credits the
+swapper for **range slippage**, at full width or half. **It credits neither, because the swapper
+never traverses anything.** `Core._fillDelta(inputIsUsd, amount, px)` computes
+`out = convert(amount, px, …)` from **one oracle price**, then subtracts the skew and the 420 ppm —
+`Core.swap` states it outright: *"Settles AT ORACLE against inventory: one price, no traversal, no
+discovery."* The range half-width (`SwapLib:783`) is consumed by `paddedSqrtPrice` to SET the range;
+**it never enters the fill.**
+⇒ The ~10 bps under-collection the lost commit found was a property of **curve traversal**, and the
+v4 cut deleted traversal. `BAND_FRAC_WAD` does not exist because the quantity it scaled does not
+exist. ⛔ **DO NOT RE-DERIVE IT AGAINST THE CURRENT FORMULA** — the row's instruction to do so predates
+the cut, and the answer is that the question has no referent (the same shape as §E301 retiring
+`refillPlacement`: not a corner chosen, a quantity removed).
+⚠️ **AND THE SKEW IS NOT A SLIPPAGE CREDIT AT ALL** (§E79): it is the market-maker spread. Reading it
+as a traversal charge is what made this question look answerable.
+
+⭐ **THE LESSON SURVIVES BOTH CLOSURES AND IS WHY THIS ROW IS KEPT IN FULL:** *"the content landed"
+must be verified **PER FILE-KIND, NOT PER COMMIT**.* A commit touching docs AND code can have its
+docs arrive through someone's later edit while its code never does — and grepping for the prose finds
+exactly the half that survived. **It recurred TWICE on 2026-08-22:** `5af1aeb0` landed a fold whose
+duplicate `interface ILevVenue` broke the build, and §E287's test landed while its kernel did not, so
+`main` carried five failing tests asserting code that was not there.
+
+*(original follows)*
+
+## ~~14.~~ THE BRANCH CLEANUP LOST HALF A COMMIT — RESCUED, NOT YET RESOLVED
 
 **Found 2026-08-17 while auditing every open `QUEUE.md` row. This is the one item in this document
 that is a LIVE RISK created BY this thread rather than merely left open by it.**
