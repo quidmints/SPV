@@ -5327,7 +5327,11 @@ Under solver routing we do not.**
 2. 🔴 **MAKE "CANNOT COVER THIS SWAP" THE PREDICATE**, at the `_handleDelta` seam where `fillOOR` was
    already folded (`4c111fa8` — into `rebalanceCore`, which runs on every swap via repack-first).
 3. 🟠 **RE-AUDIT THE FOUR PRIMITIVES FOR DELETION** (see above).
-4. 🔴 **§E241-obsidx** (`6c97595a`) — booked, unfixed, and **independent of all the above**.
+4. ✅ **§E241-obsidx — FIXED BY ANOTHER THREAD, ROW CLOSED 2026-08-22.** `Core.sol` now pins the call
+   WITH the address (`setObservationSource(src, call_)`, `OBS_CALLDATA` ×3) and **`OBS_POOL_IDX` has 0
+   references** — exactly the invariant the row demanded, that *"the index and the pool cannot
+   diverge"*. ⚠️ **This row read 🔴 "booked, unfixed" for a day after the fix landed** — the
+   stale-row failure this thread documented three times, arriving in my own row.
 
 ### ⚠️ WHAT I RETRACTED, SO NOBODY REBUILDS IT
 - **`1cf471af` (48× shortfall) — MOOT.** Priced a restoration spread we never pay. Right arithmetic,
@@ -9829,3 +9833,21 @@ unrelated; `ReentrancyProbe.t.sol:45,52` assert `NotBTCChannels()`, which is the
 one call (rule 8c — a modifier inlines at all 7 sites, a function is one routine and 7 jumps), then
 delete `onlyBtcChannels`.** Left undone here for the same reason as the renames above: it is the BTC
 thread's file-region and this thread would collide with it.
+
+## 🔴 §E319 — **TWO THINGS I NAMED IN PROSE AND NEVER BOOKED AS ROWS**
+Found by grepping this ledger for my own open items at close-out. **Both are the failure rule 12 exists
+to prevent: a finding stated in a sentence dies with the context window.**
+
+1. 🔴 **THE TEST THAT DRAINS A RANGE TO ZERO DOES NOT EXIST — and two separate findings depend on it.**
+   §E104 recorded that a full-drain panic survived **4,308 green tests** because *"the suite never drains
+   a range to zero"*; §E278-partialfill then regressed with **four full-suite runs across both arms
+   agreeing**, for the same reason. **Measured at close-out: no test in `evm/test` drives a range to
+   zero inventory.** ⇒ Any change to the pole, the decline, or the fillable bound is unverifiable
+   without it, and a green suite over that region means nothing. ⚠️ **It must be a FIXTURE test** — the
+   inventory bound lives in the swap path, so a pure-function test cannot reach it.
+2. 🟠 **THE 20 EMPTY `catch {}` SITES ARE STILL UNAUDITED** (§E272 flagged them; nobody has read one).
+   ⚠️ **The reason I gave for urgency is now GONE and the audit is not:** I argued they mattered because
+   `QuoteUnfillable` was a new revert they could swallow — **§E300 deleted that error**, so that
+   specific hazard no longer exists. **The general one does:** an empty catch converts any future revert
+   into a silent fallback, and this file's whole history is failures that *"do not revert and fail no
+   test"*. **Do not close this by citing §E300.**
