@@ -8522,3 +8522,29 @@ only an absence of callers?* **A marker for a gap that has not opened ≠ a corp
 ⚠️ **AND THE REAL EXPOSURE IS THE ONE `Cargo.toml` FLAGS AND NOBODY HAS FIXED:** the crate is
 `exclude`d from the workspace, so **no fuzz target is built by CI at all**. `heartbeat` is registered and
 unverified by the same argument. **Booked: add the fuzz crate to CI, or the next target rots identically.**
+
+### C20. 🟠 A REFUSED PUSH AND NO PUSHER ARE INDISTINGUISHABLE — the gap that hid §C19's defect 3
+
+`Core.pushObservation` validates the pushed price against `AUX.assetPriceFeed(ASSET)` within
+`OBS_PUSH_MAX_BPS = 50` and, when it is outside, **`return`s**. That is the RIGHT call and the header
+argues it correctly: *"EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS … a revert here would let a
+stalled oracle halt the range."* **Do not change it to revert.**
+
+🔴 **BUT THE REFUSAL LEAVES NO TRACE, AND THAT IS WHAT COST §C19 A FULL DEBUG CYCLE.** Eleven
+consecutive pushes were refused (5% pushed vs a 50 bps bound) and the only observable difference
+between *"the pusher is misconfigured"* and *"nobody is pushing"* was **nothing at all** — same ring,
+same variance of 0, same `UNKNOWN_VARIANCE_SKEW` ceiling, same zero IL target, same
+`borrowShares: 0` on a Morpho position. **Three distinct operational states collapse to one
+observation.** In production this is worse than in a test: a keeper whose feed drifts out of band
+stops feeding the ring and **nothing anywhere reports it**.
+
+▶️ **THE CANDIDATE, AND ITS COST IS THE WHOLE QUESTION.** An `event ObservationRefused(uint pushed,
+uint anchor)` on the refusal branch makes the three states distinguishable off-chain at zero
+storage cost. ⚠️ **PRICE IT AGAINST `Core`'s DEPLOY MARGIN FIRST** — `Core` is the contract this repo
+has already shipped at **−126 bytes** (undeployable) with a fully green suite, and an event's ABI
+entry plus the emit are real bytes. **Measure with `python3 tools/check-contract-sizes.py` BEFORE and
+AFTER; if it does not fit, the finding still stands and the answer is an off-chain check** (compare
+`observe()`'s cumulatives across blocks against the pusher's own logs), **not a silent gap.**
+⚠️ **AND CHECK `_observeIfSourced` FOR THE SAME SHAPE:** it also swallows (`if (!ok || out.length <
+32) return;`), so a PULL source that starts reverting is equally invisible. **One event on a shared
+helper covers both branches**; two separate emits pay for the same information twice.
