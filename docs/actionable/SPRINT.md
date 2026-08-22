@@ -2873,6 +2873,21 @@ Written so the thread can be closed without re-deriving what is done. **✅ = la
 ⚠️ **THE ONE THING A READER SHOULD NOT MISREAD:** items 6 and 10 look like "nearly done" and are not.
 The gate is inert until a phone exists, and the un-vendoring has to be redone from scratch.
 
+## 🔁 §GUARD-DUP — 🔴 **OPEN. `nonReentrant` IS DECLARED TWICE, AND FOLDING IT IS A STORAGE MIGRATION**
+
+Found while folding `protectFromQuid` (§PROTECT-FOLD, `664c6236`). `LevManager:89` and
+`BtcLevManager:90` each declare their OWN `nonReentrant` over their OWN `_lock` slot; `LevBase` has
+neither. That is why the folded body had to stay `internal` with a thin guarded wrapper per manager
+instead of moving wholesale.
+
+⚠️ **THIS IS NOT A DEDUP TASK. Moving `_lock` into `LevBase` RELOCATES STORAGE and changes the layout
+of BOTH deployed contracts** — it must be planned as a migration, with the slot order checked against
+anything that reads raw slots (`UnificationControls.t.sol` already reads `Core`'s slots by index, so
+the practice exists in this tree and would bite here).
+⇒ **Do not fold it as part of a cleanup commit.** Four saved lines are not worth a silent layout
+change in two live contracts. Standing rule 8c also applies: a modifier INLINES at every use site, so
+moving it saves no bytecode either — the only gain is one declaration.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
