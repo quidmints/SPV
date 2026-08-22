@@ -246,7 +246,7 @@ contract DrainProbe is AllesFixture {
 
         // ---- TARGETED: redeem(amount, DAI) sheds DAI first. ----
         u0 = USDC.balanceOf(User01); d0 = DAI.balanceOf(User01);
-        vm.prank(User01); AUX.redeem(1000 * WAD, address(DAI));
+        vm.prank(User01); AUX.redeem(1000 * WAD);
         uint usdcTgt = USDC.balanceOf(User01) - u0;
         uint daiTgt  = (DAI.balanceOf(User01) - d0) / 1e12;
 
@@ -265,9 +265,9 @@ contract DrainProbe is AllesFixture {
         USDC.approve(address(AUX), 1000 * USDC_PRECISION);
         QUID.mint(User01, 1000 * USDC_PRECISION, address(USDC), 0);
         vm.expectRevert(bytes("bad-preferred"));
-        AUX.redeem(100 * WAD, address(QUID));     // QUID is not a basket stable
+        AUX.redeem(100 * WAD);     // QUID is not a basket stable
         vm.expectRevert(bytes("bad-preferred"));
-        AUX.redeem(100 * WAD, address(WETH));     // WETH is the volatile leg, not a stable
+        AUX.redeem(100 * WAD);     // WETH is the volatile leg, not a stable
         vm.stopPrank();
     }
 
@@ -289,7 +289,7 @@ contract DrainProbe is AllesFixture {
         uint callerQd0   = QUID.balanceOf(User01);
 
         vm.prank(User01);
-        AUX.redeemTo(1000 * WAD, recipient, address(0)); // pro-rata, paid to User03
+        AUX.redeemTo(1000 * WAD, recipient); // pro-rata, paid to User03
 
         assertEq(callerQd0 - QUID.balanceOf(User01), 1000 * WAD, "burns the CALLER's QUI");
         assertGt(USDC.balanceOf(recipient) - recipUsdc0, 0, "RECIPIENT received the proceeds");
@@ -303,7 +303,7 @@ contract DrainProbe is AllesFixture {
         USDC.approve(address(AUX), 1000 * USDC_PRECISION);
         QUID.mint(User01, 1000 * USDC_PRECISION, address(USDC), 0);
         vm.expectRevert(bytes("bad-recipient"));
-        AUX.redeemTo(100 * WAD, address(0), address(0));
+        AUX.redeemTo(100 * WAD, address(0));
         vm.stopPrank();
     }
 }

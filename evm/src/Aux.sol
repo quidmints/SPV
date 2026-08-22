@@ -869,29 +869,17 @@ contract Aux is // Auxiliary
         _redeemAs(amount, msg.sender, msg.sender);
     }
 
-    /// @notice Targeted redemption: shed `preferred` (a basket stable) FIRST, then
-    ///         pro-rata for any remainder. The strict pro-rata default (the 1-arg
-    ///         redeem) is cherry-pick-free. §SCRUB: this said it "pays only the directional
-    ///         baseRate" -- `baseRate` was REMOVED (recorded below in this same file) and no code
-    ///         implements it, so the sentence described a toll that is not charged.
-    ///         naming a `preferred` stable additionally pays the per-stable
-    ///         concentration fee on that leg — the redemption mirror of choosing an
-    ///         output stable on a swap. Lets a holder shed a depegged/low-yield leg.
-
     /// @notice Redeem to a DIFFERENT recipient. `source` stays msg.sender — you can
     ///         only ever burn your OWN QUI (turn burns msg.sender's mature batches),
     ///         so this can never drain another holder. It just retargets the payout.
     ///         The mirror of swapTo's recipient overload (whose docblock already
     ///         cites "redeem's recipient overload"): a holder blacklisted by a stable
     ///         issuer (USDC/USDT) can take proceeds at a fresh address instead of
-    ///         being stranded. `preferred` (0 = pro-rata) behaves as in redeem/2.
+    ///         being stranded. Redemption is always pro-rata (§E313).
     function redeemTo(uint amount, address recipient) external nonReentrant {
         require(recipient != address(0), "bad-recipient");
         _redeemAs(amount, msg.sender, recipient);
     }
-
-    /// @dev Shared targeted-draw validation: `preferred` must be a real basket stable
-    ///      (not the volatile WETH leg, not QUID), or address(0) for pure pro-rata.
 
     function _redeemAs(uint amount, address source, address recipient) internal {
         // Depeg severity is read live from each stable's pinned Chainlink feed
@@ -969,15 +957,8 @@ contract Aux is // Auxiliary
         return BasketLib.takeBody(_takeArgs(who, amount, token, seed));
     }
 
-    /// @notice Targeted-draw overload. `preferred` (a basket stable, or address(0)
-    ///         for pure pro-rata) is shed FIRST, then the remainder pro-rata —
-    ///         the redemption analog of the swap path's named-stable take. Only the
-    ///         redeem path passes a non-zero `preferred`; Core's swap drain uses the
-    ///         4-arg form (preferred=0). Behavior with preferred=0 is byte-identical
-    ///         to the prior pro-rata redeem (regression-safe).
-
-    /// @dev Shared TakeArgs builder for take()/5 and takeWith()/7 (identical
-    ///      12-field construction). §SCRUB: claimed it "accrues the directional baseRate HERE" --
+    /// @dev Shared TakeArgs builder for take()/4 and takeWith()/6 (identical
+    ///      construction). §SCRUB: claimed it "accrues the directional baseRate HERE" --
     ///      nothing accrues, `baseRate` having been removed. Kept the construction note, which is
     ///      true, and dropped the accrual, which named a deleted mechanism at a specific site (state
     ///      mutation) so both callers stay thin — one copy of the struct build.
@@ -1005,7 +986,7 @@ contract Aux is // Auxiliary
     ///         IMMEDIATELY offset by an in-tx debt-repay so solvency holds at the FINAL state, not the mid-drain
     ///         instant. onlyUs (the Vault settle path routes through Core, which is `us`).
     function takeToSettle(address who, uint amount, address token) external onlyUs returns (uint sent) {
-        BasketLib.TakeArgs memory a = _takeArgs(who, amount, token, 0, address(0));
+        BasketLib.TakeArgs memory a = _takeArgs(who, amount, token, 0);
         a.softBacking = true;
         return BasketLib.takeBody(a);
     }
@@ -1017,10 +998,11 @@ contract Aux is // Auxiliary
     ///         so the pre-burn fetch is exactly what a fresh fetch would return). Builds
     ///         the same TakeArgs as take()/5. §SCRUB: "the directional baseRate still accrues" was
     ///         the strongest of the four stale claims -- "still" asserts a live mechanism by name.
-    function takeWith(address who, uint amount, address token, uint seed, address preferred,
+    /// §E313 — `preferred` removed from the TAKE path (the swap keeps its named stable).
+    function takeWith(address who, uint amount, address token, uint seed,
         uint[15] memory amounts, uint[15] memory yieldW) public onlyUs returns (uint sent) {
         return BasketLib.takeBodyWith(
-            _takeArgs(who, amount, token, seed, preferred), amounts, yieldW);
+            _takeArgs(who, amount, token, seed), amounts, yieldW);
     }
 
 

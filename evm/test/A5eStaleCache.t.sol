@@ -36,7 +36,7 @@ contract A5eStaleCache is AllesFixture {
         vm.warp(block.timestamp + 3 hours);                   // past HOLDINGS_MAX_STALE
         vm.mockCall(v, abi.encodeWithSignature("balanceOf(address)", address(AUX)), abi.encode(halved));
         uint b0 = USDC.balanceOf(User01);
-        vm.prank(User01); try AUX.redeem(50_000e18, address(USDC)) {} catch {}
+        vm.prank(User01); try AUX.redeem(50_000e18) {} catch {}
         uint paidStale = USDC.balanceOf(User01) - b0;
 
         vm.revertToState(snap);
@@ -44,7 +44,7 @@ contract A5eStaleCache is AllesFixture {
         vm.mockCall(v, abi.encodeWithSignature("balanceOf(address)", address(AUX)), abi.encode(halved));
         AUX.get_deposits();                                   // refresh: nothing stale
         uint c0 = USDC.balanceOf(User01);
-        vm.prank(User01); try AUX.redeem(50_000e18, address(USDC)) {} catch {}
+        vm.prank(User01); try AUX.redeem(50_000e18) {} catch {}
         uint paidFresh = USDC.balanceOf(User01) - c0;
 
         emit log_named_uint("paid via STALE cache", paidStale);

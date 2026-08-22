@@ -256,7 +256,7 @@ contract EconAttackProbe is AllesFixture {
         vm.revertToState(snap);
 
         u0 = USDC.balanceOf(User01); d0 = DAI.balanceOf(User01);
-        try AUX.redeem(amt, address(USDC)) {} catch (bytes memory e) { emit log_named_bytes("D: cherry revert", e); }
+        try AUX.redeem(amt) {} catch (bytes memory e) { emit log_named_bytes("D: cherry revert", e); }
         emit log_named_uint("D: [cherry ] USDC out (6d)", USDC.balanceOf(User01) - u0);
         emit log_named_uint("D: [cherry ] DAI  out (18d)", DAI.balanceOf(User01) - d0);
         emit log_named_uint("D: [cherry ] QUID burned    ", qStart - QUID.balanceOf(User01));
