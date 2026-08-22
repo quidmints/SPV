@@ -9598,3 +9598,28 @@ to size delivery by what the venue can SOURCE, not by a fraction of the request.
 ⚠️ **THE TEST IS LEFT FAILING ON PURPOSE.** Looping it to exit-until-drained makes it pass and would
 have buried a real usability defect behind a green tick — rule 4. **Its 0.05 tolerance is the right
 assertion; the exit path is what should change.**
+
+## ✅ §E318 — **THE 13 UNREACHABLE COMMITS ARE NOT LOST WORK. EACH IS SUPERSEDED, WITHDRAWN, OR ALREADY LANDED — CHECKED ONE BY ONE.**
+Owner: *"make sure they are reachable… make sure they land into main"*. **Checked before merging, and
+merging would have been wrong: two of them REVERT fixes that are on main.**
+
+| chain | verdict | evidence |
+|---|---|---|
+| `16d54a8d → … → 61456610` (rally/diag, 6) | ⛔ **SUPERSEDED BY §E310 — merging REVERTS the fix** | the conflict IS the fix: main reads `ETH.rangePrice()` + `_setLiveEthFeed` + `pushObservation`; the WIP holds the circular `AUX.getTWAPforAsset` → `_setEthFeed` that §E310 records as *"the anchor was a copy of the thing it anchors and NOTHING could ever move"* |
+| `f14553c6 → d43e1f91`, `f6f91219` (un-vendor morpho, 3) | ✅ **ALREADY LANDED** | `evm/lib/morpho-blue` is **gone from main**; `f6f91219` cherry-picks **EMPTY** |
+| `e2d46efa` (C19 fix) | ⛔ **WITHDRAWN BY ITS OWN AUTHOR** | `e2544537` *"Withdraw §C19-REGRESSION: my isolation was contaminated"* + `551376d9` *"the C19 regression does not reproduce"* |
+| `0c280d10 → 1e92fa91` (PoP, 2) | ✅ **ALREADY LANDED** | `0c280d10` cherry-picks EMPTY; `popDigest` is in `Interfaces.sol` |
+| `6f980005` (C17) | ✅ **CONTENT LANDED** | the finding is in SPRINT; its 76 sol files were a `band`→`range` sweep another thread landed |
+
+🔴 **THE DECISIVE CHECK, AND IT IS CHEAP: NO FILE ADDED BY ANY OF THE 13 IS ABSENT FROM `origin/main`.**
+Every `--diff-filter=A` path across all thirteen resolves on main. ⇒ **Nothing is lost.** The large
+`git diff <wip> origin/main` figures are MAIN'S NEWER WORK (interface folds, the `preferred` removal, the
+rename) — **a big diff against main measures how far main has MOVED, not what the commit is carrying.**
+⚠️ **I nearly read those numbers the other way**, which would have justified force-merging superseded
+scaffolding over two live fixes.
+
+⇒ **THEY ARE SAFE TO GARBAGE-COLLECT AND MUST NOT BE MERGED.** A dangling commit is not evidence of lost
+work; **an unreachable WIP whose conclusion has landed is the NORMAL end state of an investigation.**
+📌 **THE GENERAL RULE THIS EARNS:** before merging any unreachable commit, ask whether the CONFLICT IS
+THE FIX. Twice here the file main holds is the corrected version and the WIP holds the bug it corrects —
+and a conflict resolver that keeps "theirs" would silently reinstate it.
