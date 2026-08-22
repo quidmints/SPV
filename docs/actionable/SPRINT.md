@@ -2401,7 +2401,22 @@ route hints) and reversibly.
   tolerance. That is a real option if the owner wants offline depth > 0 without a fork, and it is NOT a
   replacement for the gate — it moves the cliff, it does not remove it.
 
-## 🔁 §LAZY-OPEN-CLOSE — **THE FOLD IS SYMMETRIC, IT IS THE 7540 FOLD, AND IT REDUCES ENCLAVE POWER**
+## 🔁 §LAZY-OPEN-CLOSE — 🟡 **OPEN HALF LANDED. THE FOLD IS *NOT* SYMMETRIC, AND THE 7540 FOLD (`#9`) IS STILL OPEN**
+
+⛔ **THIS TITLE USED TO READ "THE FOLD IS SYMMETRIC, IT IS THE 7540 FOLD" AND THAT OVERSTATED WHAT
+LANDED.** Corrected 2026-08-22. Two things it got wrong:
+1. **NOT symmetric.** Deferring a CREDIT is safe — custody-without-claim leaves the basket OVER-backed.
+   Deferring a RETIREMENT is not: the LP would hold shares against BTC that has left the channel,
+   which is UNDER-backed. So `openChannel` got the `try`/`catch` and `_finalizeClose` keeps its
+   retirement INLINE, gaining only a skip for channels that never had a position. **The close half
+   was never going to be the mirror image, and saying so in a title invited exactly the assumption
+   that it had landed.**
+2. **NOT the 7540 fold.** The two are the same work seen from two ends, and only the `#7` end is done.
+   `Vault.requestDeposit` is still `lpShares += …` — a SYNCHRONOUS credit wearing an async name.
+   **`#9` remains 🟡 and the 7540 SEMANTICS are still missing**; what landed is a safety valve on one
+   entrypoint, not async request/fulfil accounting.
+⇒ Status markers were honest throughout (`#7` 🔴, `#9` 🟡); the TITLE was the false claim. **A heading
+is read far more often than the row under it, which is what made this worth correcting.**
 
 Owner, 2026-08-21: *"you were supposed to fold openChannel and closeChannel to be lazy. we can't be
 custodial or introduce any attack surface that could make a compromised enclave do any real damage."*
