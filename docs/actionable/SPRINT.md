@@ -10882,6 +10882,60 @@ missing term is the weights.**
 archive endpoint in `evm/.env` (`ANKR_RPC_URL`) — publicnode is head-only and cannot serve this.
 
 
+---
+
+## 🔴🔴 §E342 — **THE ACTUAL PROBLEM, WHICH §E338–§E341 DRIFTED AWAY FROM: A LARGE SWAP DELEVERS LPs IN A LOOP, AND SWAP SIZE IS CAPPED BY LP COUNT.**
+
+Owner: *"do you understand the problem was too many LPs to loop through for a large swap that has to
+delever a lot of them and then relever."* **I did not, and four rows went to the wrong question.**
+§E338–§E341 analysed whether a POOLED HEDGE is cheap (convexity, entry weighting, ETH dispersion). That
+is a different design I invented by misreading the proposal as pooling. **It does not bear on this.**
+
+### THE PATH — `SwapLib.deleverEthOnDelivery` (`:1830`)
+```solidity
+uint n = ILevEthDeliver(mgr).openLevCount();
+for (uint i; i < n && deliveredEth < shortfallEth; i++) {
+    ... swapOutDeleverAmt(lp, needUsd)                       // external view
+    ... IAux(aux).takeToSettle(venue, ..., stable)           // BASKET DRAW  (write)
+    ... ILevEthDeliver(mgr).swapOutDelever(lp, fundUsd, ...) // VENUE REPAY + withdraw + deliver (writes)
+}
+```
+⛔ **This is not §E334's read-only loop. Every iteration performs a basket draw and a venue repay** —
+Morpho/Aave writes, external calls, token transfers. **Cost per LP is on the order of a full lending
+repay, not a few thousand gas.**
+
+### 🔴 THE CONSEQUENCE, AND IT IS THE ONE THAT MATTERS COMMERCIALLY
+The loop runs `while deliveredEth < shortfallEth` — **the bigger the swap, the more LPs it must
+delever.** ⇒ **Swap size is bounded by how many LP repays fit in a block.** And the LP count grows with
+adoption, so the ceiling does not improve with scale — the book gets longer, each large swap walks more
+of it.
+⇒ **This directly contradicts the execution thesis.** §E335 argued our edge over Uniswap is that
+`_fillDelta` settles the whole size at one oracle price with no impact term. **True for the QUOTE and
+false for the SETTLEMENT**: a large swap-out that outruns `deliverableETH` degrades into an O(LPs)
+delever, and past some size it does not fit at all — it becomes a partial fill (`#105`). **Uniswap's
+cost grows smoothly with size; ours hits a wall.**
+📌 **And there is a SECOND pass:** the docblock says *"the keeper re-levers next tick"*. So the same LPs
+are walked again, off-chain-triggered — and §E331 established that hand-off is untested.
+
+### ✅ SO THE OWNER'S PROPOSAL IS AIMED CORRECTLY, AND MY OBJECTIONS WERE ABOUT THE WRONG THING
+A basket-level borrow retires the shortfall in **ONE** action: no LP is delevered, so **no loop, no
+relever pass, and every LP keeps its leverage AND its IL protection through the swap.** It converts an
+O(LPs) settlement into O(1).
+- **It is a GAS/SCALABILITY fix, not an economics change** — which is why §E338's convexity work was
+  irrelevant: nothing is pooled, per-LP protection is untouched.
+- **§E338's "the bridge cannot replace delever" still holds and is now a FEATURE, not an objection:**
+  borrow capacity covers the common case in O(1); the loop survives as the tail fallback for the
+  remainder. **Common case O(1), rare case O(k) where k is only the uncovered excess.**
+⇒ **The cap on swap size moves from "how many LP repays fit in a block" to "how much the basket can
+borrow" — a number that scales with the basket rather than against it.**
+
+### ▶️ WHAT TO MEASURE NEXT, AND IT IS THE ONLY NUMBER THAT DECIDES THE DESIGN
+**Gas per LP iteration of `deleverEthOnDelivery`, and therefore the max LPs per block ⇒ the max
+swap-out size the current design supports.** That is measurable today from the existing lev fixtures —
+no new book, no assumption, unlike everything in §E340/§E341. **That is the measurement I should have
+run instead of fetching a year of ETH prices.**
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
