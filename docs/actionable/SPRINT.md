@@ -9557,3 +9557,44 @@ different suites.
 ✅ **The row's OTHER half stands and is valuable: ~45 of the 92 full-suite failures are RPC contention,
 not defects** — suites reporting `0/3` in a full run pass `3/3` in isolation on the identical commit.
 **Judge the tree with isolated runs or `ETH_RPC_URL=$ANKR_RPC_URL`.**
+
+### C25. 🔴 THE EXIT PATH DRAINS ASYMPTOTICALLY — `ChopIsBenign`'s "stuck bag" is ~63 TRANSACTIONS, not a bag
+
+`test_RunSim_IL_Baseline_ChopIsBenign` fails on *"LP position fully realized (no stuck bag)"* with
+**0.744 ETH residual against a 0.05 tolerance**. §C23 established it fails in BOTH arms of the
+`_moveEth` A/B, so it is **pre-existing**. This characterises it, because "pre-existing" is not a
+diagnosis.
+
+**MEASURED — the LP's residual claim after each successive full-size `withdraw`:**
+
+| exits | residual | per-exit ratio |
+|---|---|---|
+| 1 | **0.744640 ETH** | — |
+| 4 | 0.620431 | 0.937 → |
+| 20 | **0.328337** | → **0.971** |
+
+⇒ **55.9% cleared over TWENTY exits, and the per-exit ratio RISES toward 1.** At the geometric mean
+(0.9578) reaching the 0.05 tolerance takes **~63 transactions**, and because the ratio is rising that
+is a **LOWER BOUND**. **The position is not stuck and it is not permanently lost** — `got` was
+**55.21 ETH on a 50 ETH stake**, so the LP is over-recovered on principal — **but a full exit costs
+tens of transactions.**
+
+🔎 **WHY THE ONE-CALL ASSERTION WAS NEVER THE CONTRACT'S PROMISE.** `Quid.redeem` and
+`Quid.withdraw` BOTH route through `_withdraw(assets)`, so switching to the by-shares primitive
+changes nothing. `Quid.sol`'s own note states the mechanism and the intended remedy: *"its
+`shortfall` re-credit exists for a SINGLE cause, venue illiquidity, which is **temporary and
+recoverable**"*, and the 4626 path *"defaults to WAIT (no forced haircut)"*. **A residual after one
+call is BY DESIGN.** What is NOT by design is that re-exiting clears only ~4% of what remains each
+time.
+⇒ **THE DEFECT IS THE RATE, NOT THE RESIDUAL.** Each `withdraw` appears to deliver a FRACTION of the
+outstanding claim rather than everything the venue can currently source — the signature of a
+proportional cap (`_deliverVenueShortfall`'s `vaultShare = venueBal · amount / plainDepth` is the
+prime suspect) applied to a shrinking `amount`, so the delivered slice shrinks with the claim and the
+tail never closes.
+
+▶️ **NEXT, and it is a contained investigation:** instrument `_withdraw`'s delivered-vs-requested per
+call over these 20 exits and find which cap binds. **If it is the proportional venue share, the fix is
+to size delivery by what the venue can SOURCE, not by a fraction of the request.**
+⚠️ **THE TEST IS LEFT FAILING ON PURPOSE.** Looping it to exit-until-drained makes it pass and would
+have buried a real usability defect behind a green tick — rule 4. **Its 0.05 tolerance is the right
+assertion; the exit path is what should change.**
