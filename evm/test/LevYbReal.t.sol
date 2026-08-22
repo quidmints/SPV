@@ -268,6 +268,8 @@ contract LevYbRealProbe is AllesFixture {
         // DRY POOL, as SwapLib's own comment says). More, smaller steps reach the same 20% sold
         // fraction without asking for more inventory than exists in a single swap.
         _rallyRange(_entryPrice(rlm, LP), 0.2e18, 60, 500 * USDC_PRECISION);
+        emit log_named_uint("soldFraction after rally (target 0.2e18)", ETH.soldFractionWad(_entryPrice(rlm, LP)));
+        emit log_named_uint("getCurrentLtvBps before rebalance", rlm.getCurrentLtvBps(LP));
         rlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
     }
 
