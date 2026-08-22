@@ -9873,3 +9873,61 @@ Read the `Compiler run …` line instead. Two solc warnings also surface (`Unuse
 `RangeLib.sol:152-153`) and are **pre-existing on `origin/main`** — not introduced by any change in
 this thread. **This is the same class as the traps in `CLAUDE.md`'s tooling section: an exit code that
 lies about what happened.**
+
+---
+
+## §E321 — **FOUR BYTE-IDENTICAL BODIES ACROSS `Quid` AND `Vault`, AND ONE INTERFACE MERGE THAT LOOKS RIGHT AND IS NOT**
+
+Two findings from the close-out audit of `origin/main`. The first is fold evidence; the second is a
+**refuted** proposal, written down so it is not re-derived.
+
+### 1. The only duplicated function bodies in the whole tree are the `Quid` ∥ `Vault` pair — all four
+
+Normalising every function in `evm/src` (comments and whitespace stripped, bodies hashed) yields
+**exactly four collisions, and all four are the same pair of contracts**:
+
+| `Quid` | `Vault` | body |
+|---|---|---|
+| `rangeOf` `:236` | `rangeOf` `:384` | `SwapLib.plainNet(autoManaged[lp].pooled, levPooled[lp])` |
+| `soldFractionWad` `:1000` | `soldFractionWad` `:400` | `SwapLib.soldFractionWad(syncKeyPx, priceWad, _lo(), _hi())` |
+| `pull` `:1081` | `pullBtc` `:667` | `RangeLib.pull(CORE, oorBook, selfManaged, positions, …)` |
+| `creditSkewPremium` `:1163` | `creditSkewPremium` `:331` | `SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer)` |
+
+**This is the `isBTC` duplication in its purest observable form** — one concept, two contracts, and in
+the `pull`/`pullBtc` row *two names for identical code*. Every operand already lives in the shared base:
+`lpShares`, `USD_FEES` and `totalBuffer` are declared in `Shares.sol` (`:71`, `:97`, `:104`) and
+`oorBook` at `:92`. **Both contracts inherit `Shares`** (`Quid.sol:34`, `Vault.sol:86`).
+
+⛔ **BUT MOVING THEM UP SAVES ZERO BYTES, SO DO NOT SELL IT AS A SIZE WIN.** An abstract base COPIES its
+bodies into every inheritor — this file already measured that at **+41 bytes, zero saved**. Hoisting
+these four into `Shares` is **byte-neutral**: it deletes four duplicate DECLARATIONS (standing rule 2)
+and nothing else. The size lever remains `Quid`'s 93 ABI selectors, unchanged by this.
+⚠️ **AND TWO OF THE FOUR ARE NOT MECHANICAL.** `creditSkewPremium` carries a DIFFERENT modifier on each
+side (`onlyUs` vs `onlyUsBtc` — byte-identical bodies, see §E319), and `soldFractionWad` is `public` on
+`Quid` and `external` on `Vault`. Hoisting must settle both, not paper over them. The guard operands
+(`CORE`, `AUX`) are **per-contract immutables** — `Vault.sol:97-98` has them `immutable`, `Quid.sol:48`
+does not — so the guard itself cannot move up without making `Vault`'s reads SLOADs, which is a gas
+REGRESSION on every gated call. **Hoist the four bodies; leave the guards where they are.**
+
+### 2. ❌ REFUTED — **`ILevEquity` + `IVaultExposeB` ARE NOT MERGEABLE. THEY ARE FACES OF DIFFERENT OBJECTS.**
+
+Booked because the automated grouping that proposed it is convincing and wrong, and rule 13 says a
+dismissal needs the same evidence as a finding.
+
+**The proposal:** group the interfaces in `Interfaces.sol` by implementing contract; `ILevEquity` (7
+members) and `IVaultExposeB` (2) both scored as "implemented by `Vault`", zero member overlap — a
+textbook merge.
+
+**Why it is wrong, from the call sites rather than from the member names:**
+- `IVaultExposeB` is cast onto **the Vault**: `BtcLevManager.sol:170,349,374` → `IVaultExposeB(VAULT)`.
+- `ILevEquity` is cast onto **the LEV MANAGER**: `Core.sol:143` `ILevEquity(mgr)`, `Quid.sol:847,964,
+  1181,1486` `ILevEquity(lm)`, `Quid.sol:104` / `Vault.sol:255` `ILevEquity(m)`. Six of its seven
+  members are implemented in **`LevBase.sol`**, not in `Vault`.
+- The single overlap that produced the false grouping is **`totalNetEquity`, a NAME COINCIDENCE**:
+  `Vault` declares one and so does `LevBase`, and the grouper matched on the name.
+
+⇒ **The grouping heuristic answers "which contract declares a function of this name", which is not the
+question.** The question is which ADDRESS the interface is cast onto, and that is answered only at the
+call site. This is the same shape as the `EthVenue` extraction that planted three bugs: **merge on what
+things ARE, never on a name or an address they happen to share.** The audit method that works there
+works here — grep the CASTS, not the declarations.
