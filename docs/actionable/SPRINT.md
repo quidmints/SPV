@@ -2127,7 +2127,18 @@ inverted, saturating and — pre-§E155 — sorted by token decimals.
 ⚠️ `ROUTING-AGGREGATION.md`'s §V-R1–R11 still specifies router pinning and the four call sites; that
 spec is unaffected by the objective being wrong.
 
-### C10b. 🟠 weETH ERC-6909 MINT, **ETH-denominated** — considered, never built
+### C10b. ⛔ weETH ERC-6909 MINT — **RULED OUT (owner, 2026-08-22: *"forget the fixed rate lending stuff"*)**
+⛔ **CLOSED WITHOUT BEING BUILT, WHICH IS THE CHEAPEST WAY A ROW CAN CLOSE.** Its whole context was
+EIP-8363 / fixed-rate lending — ether.fi lending us WETH at a fixed rate against minted vintages.
+That direction is out, so the ETH-denominated 6909 leg has no consumer. **Nothing to unwind: `grep`
+still finds no weETH 6909 path in `src`.**
+⚠️ **ONE THING SURVIVES AND SHOULD NOT BE LOST WITH IT** — the row noted this interacts with §C3:
+*what does the vault's `asset()` actually denominate?* **That question is about vBTC and the 7540
+face, not about lending, and it stays open** (§C3, §E295).
+
+*(original follows)*
+
+### ~~C10b.~~ weETH ERC-6909 MINT, **ETH-denominated** — considered, never built
 Owner asked for it to be **considered before building** (EIP-8363 context), and corrected the unit
 explicitly: *"not usd denominated… **eth denominated**."* Nothing landed — `grep` finds no weETH 6909
 path in `src`. **This never got past consideration and has no row anywhere else.** Note it interacts
@@ -4610,7 +4621,19 @@ caught this.
 
 ### `§E263` (none)
 
-## §E263 — ⏸️ **THE ZERO-COUPON FRAMING IS LATENT, NOT LIVE — AND THE JOIN HAS NO COUNTERPARTY NOW**
+## ⛔ §E263 — **RULED OUT (owner, 2026-08-22: *"forget the fixed rate lending stuff"*). CLOSED, NOT PARKED.**
+⛔ **This was ⏸️ pending a counterparty. The owner has now removed the direction itself, so the pause
+resolves to a RULE-OUT rather than to a wait.** The zero-coupon framing existed to price an immature
+vintage as a discounted claim so it could be LENT AGAINST at a fixed rate; with fixed-rate lending
+out of scope there is nothing left asking what an immature vintage is worth before maturity.
+⇒ **Rule 16 is satisfied the strong way: this is closed because the code it described no longer has a
+purpose, not because a decision went a particular way that a later one could reverse.** The three
+`matureSupply`/`immatureSupply` uses are unaffected — they are a redemption denominator and always
+were. ⚠️ **Do not delete them on the strength of this closure.**
+
+*(original, kept for the reasoning about what those three uses actually are)*
+
+## ~~§E263~~ — ⏸️ THE ZERO-COUPON FRAMING IS LATENT, NOT LIVE — AND THE JOIN HAS NO COUNTERPARTY NOW
 ⏸️ **SCOPED DOWN 2026-08-21 (owner: *"why mention zero coupon at all, doesn't seem applicable to us"*).
 Correct, and the code says so.** `matureSupply`/`immatureSupply` have exactly THREE non-comment uses
 (`Basket.sol:319`, `BasketLib.sol:1018`, `SwapLib.sol:545`) and all three are the SAME use — a
