@@ -615,6 +615,17 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
   in this section.
 - **`grep -A5 "^Error (" file` EXITS NON-ZERO ON A CLEAN BUILD LOG** — no matches is failure to grep.
   Twice read as "the build was killed". Check the build's OWN exit code, captured separately.
+- 🔴 **THE AGENT SHELL'S CWD PERSISTS BETWEEN CALLS, SO A BARE `forge build` CAN RUN WHERE THERE IS NO
+  `foundry.toml`, PRINT `Nothing to compile`, AND EXIT 0** (measured 2026-08-22, it produced a false
+  "all gates green" on a money-path change). `foundry.toml` exists ONLY in `evm/`. One earlier
+  `cd evm` makes bare `forge build` correct; one later `cd /…/SPV && python3 tools/…` silently moves
+  it back, and every `forge` call after that is a no-op that still exits 0.
+  ⚠️ **AND THE NEXT COMMAND LAUNDERS IT: `check-contract-sizes.py` reads `evm/out`, which the LAST
+  REAL build left behind, so it reports plausible fresh-looking numbers for a build that never ran.**
+  Same shape as "`evm/out` OUTLIVES `evm/src`" above, reached from a new direction — there the source
+  vanished, here the compiler never ran, and both end in a green measurement describing nothing.
+  ⇒ **`cd <abs>/evm && forge …` IN EVERY CALL, and treat `Nothing to compile` on a changed tree as a
+  FAILURE, not a cache hit.** `forge test` is the louder tell: it runs zero tests and still exits 0.
 - **`forge build 2>&1 | grep …; echo $(forge build …)` RUNS THE COMPILER TWICE.** Every "one build"
   in that shape is two, at ~8 min each. Capture ONCE to a file, then read the file as many times as
   needed.
