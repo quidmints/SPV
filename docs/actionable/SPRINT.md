@@ -63,6 +63,17 @@ Settle price = `getTWAPforAsset(ASSET,1800)` (internal ring TWAP) → `twapResol
 
 12-auditor pass (taproot signing · on-chain resolution · SGX core · attestation · seed/migration · rollback-freshness · completeness · BTCChannels · ChannelLib+BitcoinTx · SPV gateway · bridge/hop Rust · BTC-lev). Exclusion list = SPRINT §D2/§C2.3/§B + memory. Every 🔴 re-verified BY HAND at `e21bad4a` (all anchors confirmed present after the E326/skew push). NONE of the 6 new commits fixed any of these. `netIssuanceUsd` (E326) delta audited: SOUND (msg.sender-gated, control-tested, instrument-only). Split by assumption-dependence, per rule "a dismissal is a conclusion" + the owner's "correct regardless of assumptions?" question:
 
+### ▶️ PRIORITY & KEYSTONE ACTION (the synthesis — read before working any row below)
+- **FIX-FIRST — assumption-free 🔴 (true regardless of threat model; act on these no matter how §C2.3② settles):**
+  ① `§AUDIT-PUSHOBS` (permissionless `pushObservation` → live Morpho oracle, gas-only) — highest value, cheapest attack.
+  ② `§AUDIT-DELIVER-KEYS` (add `_requireChannelKeys` to `deliverSwapOutOnchain` — one line, matches every sibling).
+  ③ `§AUDIT-SPV-RETARGET` (enforce `%2016` checkpoint alignment — bricks the real deploy path otherwise).
+  ④ `§AUDIT-JUSTICE-WEIGHT` (taproot-aware weight or the `assert!` panics on a breach).
+  ⑤ `§AUDIT-54-DELEVER` (implement the documented debt-clamp / capture the discarded returns).
+  ⑥ `§AUDIT-OPENLPS-DOS` (cap/paginate the `_openLps` walks).
+- **KEYSTONE — resolve `§C2.3②` FIRST for the assumption-dependent set.** Reconcile `vault.rs:244` ("fleet does NOT hold the LP funding half") vs `taproot_signer.rs:439` ("fleet holds BOTH under Option B") so the code states ONE consistent answer. That single decision settles the reachability (live-bug vs unreachable) of `§AUDIT-POOLPARKER-PHANTOM`, `§AUDIT-SWAPOUT-DOUBLEPAY`, and `§AUDIT-SWAPOUT-CONCURRENT`. Until it is resolved, do NOT rate those three — the fixes (per-(channel,hop) ledger; per-`swapId` cross-hop serialization + reconcilable losing channel) are correct to prepare either way.
+- **DO NOT RE-OPEN (verified resolved/better this pass):** rollback-freshness P0, EVM-key-born-in-enclave, migration replay. `netIssuanceUsd` (E326) audited sound.
+
 ### ✅ VERIFIED BETTER SINCE PRIOR STATE (do not re-open)
 - Rollback-freshness **P0 RESOLVED** — on-chain-anchored per-channelId `freshnessSeq`/`commitFreshness`, WIRED into `node::boot` monitor+manager load (`node.rs:862-877/920-953`), seq inside sealed plaintext, fail-closed, e2e vs real anvil. Not the InMemory+None-consumer trap.
 - EVM onlyHop/LP key **born-in-enclave** (`boot.rs:77-93`, `QUID_HOT_KEY` refused under SGX) — old "foundational M11 gap" closed. Migration replay closed (2-of-3 EIP-712, nonce consumed on-chain one-shot). Coop-close restart-mid-close nonce leak closed (persisted `closing_round` TLV71/73, reload-bump `channel.rs:16456-16470`).
