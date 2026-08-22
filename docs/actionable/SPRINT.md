@@ -9578,3 +9578,23 @@ work; **an unreachable WIP whose conclusion has landed is the NORMAL end state o
 📌 **THE GENERAL RULE THIS EARNS:** before merging any unreachable commit, ask whether the CONFLICT IS
 THE FIX. Twice here the file main holds is the corrected version and the WIP holds the bug it corrects —
 and a conflict resolver that keeps "theirs" would silently reinstate it.
+
+### ✅ §E317 — **COMMITTING HALF OF ANOTHER SESSION'S REFACTOR BROKE MAIN. FINISHING IT WAS RIGHT; THE ORDER WAS NOT.**
+Booked because the code landed and only the commit message carried the reasoning — the gap this repo
+calls *"closing the work is not closing the row"*, arriving in my own close-out.
+
+**WHAT HAPPENED.** At close-out I committed two orphaned working-tree files (`Aux.sol`,
+`BasketLib.sol`) so they would not be lost. They were the MIDDLE of another session's §E313 —
+*"remove the redeem preference from the take path"* — and half of it does not compile: **12 arity
+errors**. ⚠️ **Committing was still correct** (uncommitted work in this checkout does not survive —
+three of my own edits were destroyed by resets today). **The error was verifying the PUSH instead of
+the BUILD**, the same order that produced §E315 an hour earlier.
+
+**HOW IT WAS FINISHED — BY READING THE TREE, NOT BY CHOOSING.** The landed half stated the direction:
+`_takeArgs` had already dropped `preferred` (4 params) and `BasketLib:1099` already called the 6-arg
+`takeWith`. So the unfinished half was `Aux.takeWith` + `IAux.takeWith` + their forwarding call, and
+then `redeem`/`redeemTo` had lost a trailing stable the same way, so five test files followed. **12 → 0.
+No signature was chosen by me; each was read off the half already on main.**
+📌 **THE RULE:** if you must commit someone's in-flight tree to save it — and here you must — **build
+before you push, and finish the refactor in the direction the landed half already states.** A
+half-landed signature change is not a merge conflict; it is a compile error waiting for whoever pulls.
