@@ -9912,9 +9912,33 @@ its own.
 `.sol`, so it describes today's source):
 | | |
 |---|---|
-| unique failing tests | **73** |
-| `PREMISE:` / `CONTROL:` failure lines | **38** |
-| RPC / environmental lines (`Max retries`, `HTTP error`, `database error`) | **4** |
+| unique failing tests | **73** → ✅ **67** (re-measured @`56e1816f`) |
+| `PREMISE:` / `CONTROL:` failure lines | **38** → **38** (unchanged) |
+| RPC / environmental lines (`Max retries`, `HTTP error`, `database error`) | **4** → ✅ **0** |
+
+### ✅ THE DIFF, AND THE ARITHMETIC CLOSES EXACTLY — 73 → 67, ALL SIX ACCOUNTED FOR
+`forge test` @`56e1816f`, **84 suites, 140 failing instances, 67 unique**. Every one of the six is
+named, so nothing is "probably fixed":
+| −1 | `testRedeemTargetedRejectsBadPreferred` | DELETED — §E313 casualty, its subject no longer exists |
+| −1 | `test_UNITA_FixtureDrivesRealVariance` | **`[PASS]`** — §E327 pinned a fixture observation source, σ² `0 → 23.6 wad` |
+| −4 | four RPC/environmental failures | **0** — re-run on `$ANKR_RPC_URL` instead of publicnode |
+⚠️ **THE 4 WERE NEVER CODE, AND THE FIRST RUN OF THIS RE-MEASUREMENT PROVED IT THE HARD WAY:** on
+publicnode `forge` STALLED — 0.5% CPU, no log write for six minutes at suite 77 — rather than failing.
+**A rate-limited fork test hangs; it does not report.** ⇒ Any suite number taken on publicnode is
+suspect in BOTH directions (inflated by 429s, or truncated by a stall). Use the archive endpoint:
+`ETH_RPC_URL=$ANKR_RPC_URL forge test`.
+⇒ **67 is the number to diff against now.** `PREMISE:`/`CONTROL:` is unmoved at 38, which is the honest
+read: the remainder is fixture-precondition work, not skew or issuance damage.
+
+### ⛔ AND A HYPOTHESIS FOR FIXING THE SKEW CLUSTER, REFUTED BEFORE IT COST ANYONE A DAY
+Only **8** of the 67 are skew/variance-shaped. The obvious fix — extend §E327's pinned source from
+`_driveTick` to the shared `AllesFixture` so every test writes the ring — **would fix NONE of them.**
+`_moveEth` (`Alles.t.sol:1072`), `_rallyRange` and `_crashRange` already write the ring directly via
+`CORE.pushObservation(px)`, so those tests are not blind; their σ² is fed. ⇒ **The skew-zero cluster
+has a different cause, still unidentified**, and §E325 item 1 is the sharpest evidence: in
+`test_UNITB_PinnedEntry_ConsolidationDiscount` the SPLIT legs are charged `600000000` while the BIG leg
+is charged `0`. Skew fires; it is the large leg specifically that pays nothing. **Do not "fix" this by
+pinning a source.**
 ⚠️ **The nearest existing figures in this file are STALE or absent** — §E242 records *"57 shared
 pre-existing failures"* against a different tip, and D1's suite-state group still says *"No suite was
 run this pass."* ⇒ **73 is the number to diff against**, and the log it came from is gone, so re-measure
