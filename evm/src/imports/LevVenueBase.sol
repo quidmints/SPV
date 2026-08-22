@@ -4,8 +4,7 @@ pragma solidity ^0.8.28;
 // `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
 // signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
 import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider} from "./Interfaces.sol";
-import {IMorphoStaticTyping as IMorpho, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
-import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
+import {IMorphoStaticTyping as IMorpho, MarketParams, Id, MarketParamsLib} from "./Interfaces.sol";
 // §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled
 // `keccak256(abi.encode(m))` market id all lived here. `MarketParams` was compared FIELD-FOR-FIELD
 // against Blue before swapping, because that order is hashed into the market Id and a mismatch

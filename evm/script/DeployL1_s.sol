@@ -3,7 +3,7 @@
 pragma solidity ^0.8.28;
 
 import "forge-std/console.sol";
-import {IMorphoStaticTyping as IMorphoMkt, MarketParams, Id} from "morpho-blue/interfaces/IMorpho.sol";
+import {IMorphoStaticTyping as IMorphoMkt, MarketParams, Id} from "../src/imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 
