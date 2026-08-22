@@ -2924,6 +2924,10 @@ Run at close-out, because "is everything booked?" is answered by the scanner, no
   was swallowed as "no ETH_RPC_URL set"** — an endpoint failure presenting as a deliberate absence,
   which is `§SUITE-RPC-INFLATION` in miniature. Now: unset env ⇒ ANNOUNCED skip; fork FAILS ⇒ a real
   failure. The `createSelectFork` is deliberately UNGUARDED and says so at each site.
+  🔴 **WHY IT WAS URGENT — see §E324:** these three tests are the detector §E304 cites when it argues
+  `ExternalTwap` must be KEPT (*"the only way to detect that basis drifting out of the range, which
+  fails SILENTLY"*). The library was being preserved while its sole consumer could quietly stop
+  running. ⚠️ Fixed twice in parallel by two threads; this is the version that landed.
 - ✅ **CORRECT AS-IS, do not "fix"** — `BtcSelfManaged:127,320` test an explicit `SKIP` sentinel from
   the fixture generator and `emit log` the reason (regtest binaries absent). **A skip that announces a
   genuine ABSENCE is right; a skip that can absorb a FAILURE is not.** That is the discriminator.
@@ -9685,7 +9689,12 @@ does) or call `pushObservation` — which is §E294's keeper, still with zero pr
 
 ---
 
-## ✅ §E324 — **THREE SILENT SKIPS DISABLED THE ONLY MONITOR §E304 CALLS LOAD-BEARING. FIXED.**
+## ✅ §E324 — **WHY THOSE THREE SKIPS MATTERED: THEY DISABLED THE ONLY MONITOR §E304 CALLS ESSENTIAL**
+⚠️ **THE FIX ON `main` IS `§LOOSE-ENDS-SCAN`'s, NOT THIS ROW'S — TWO THREADS FIXED IT INDEPENDENTLY
+WITHIN THE HOUR.** Both separate the env read from the fork; theirs additionally `emit log`s the
+skip reason, which is strictly better, so theirs is what landed and this row's patch is superseded.
+**Kept, because the CONSEQUENCE below is not recorded there and is the reason the fix was urgent.**
+Cross-referenced both ways so the next reader does not investigate this twice.
 
 **From the loose-ends scanner's "5 silent skips".** Triaged, and they are NOT five of a kind: two
 (`btc/BtcSelfManaged.t.sol:127`, `:320`) are ordinary in-test skips. **The other three are a defect**,
@@ -9709,9 +9718,9 @@ range, which fails SILENTLY: past 50 bps every push is refused, the ring never f
 50 bps band, §E294). A silent skip had already removed it — the library was kept and its only consumer
 could quietly stop running.
 
-### ✅ THE FIX, AND IT IS THE DISCRIMINATOR NOT A TOLERANCE
-The read is separated from the fork: an **unset** variable still skips (genuinely unconfigured —
-nothing to measure), a **broken** endpoint now reverts in `setUp` and fails loudly.
+### ✅ THE FIX AS IT STANDS ON `main` (authored by §LOOSE-ENDS-SCAN)
+The read is separated from the fork: an **unset** variable skips **and says so** (genuinely
+unconfigured — nothing to measure), a **broken** endpoint now reverts in `setUp` and fails loudly.
 **VERIFIED against the live endpoint: 3 + 4 tests PASS, 0 skipped**, and `OneInchGasProbe` compiles and
 lists. So the change is not merely "stricter" — the tests it protects were already running, and the
 protection now cannot be lost without someone seeing it.
