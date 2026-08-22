@@ -10651,6 +10651,53 @@ and should not be sold as one.** It is a moving-parts reduction. The live levers
 remain §E332's unpriced OOR discount and §E330's flush exemption.
 
 
+---
+
+## ⛔ §E337 — **§E336 IS WITHDRAWN TOO. I EXTRAPOLATED A TEMPORARY BRIDGE INTO ABOLISHING IL PROTECT, WHICH IS THE PRODUCT.**
+
+Owner, correcting me: *"are you telling me we can get rid of IL protect entirely … unless im wrong we
+cant get rid of IL protect, and i am not proposing to make the whole protocol one LP on behalf of
+everyone."* **Both corrections land. §E336 is wrong in scope, and the error is worse than §E335's.**
+
+### ⛔ WHAT I DID
+The proposal was *"lever the stables in the basket **TEMPORARILY** and pay off the debt"* — scoped to
+**the delever moment**. I read "temporarily" past and wrote up a **permanent novation of every LP's debt
+to the basket**, then priced THAT: 2,884 lines deleted, per-LP liquidation "largely dissolved", LTV
+tracking gone. ⇒ **That is one pooled position holding everyone's exposure — precisely the thing the
+owner said they were not proposing — and it would abolish IL protect, which is the PRODUCT** (the
+depositor gets their deposit back plus earnings, never less; the leverage exists only to deliver that).
+📌 **§E335 dismissed the idea by assuming socialisation; §E336 endorsed a DIFFERENT idea by assuming
+novation. Neither engaged with the word "temporarily", which is the entire specification.**
+
+### ✅ WHAT THE PROPOSAL ACTUALLY IS — A LIQUIDITY BRIDGE AT DELIVERY, AND IT IS NARROW
+Today a swap-out shrink forces `SwapLib.deleverOnDelivery` (`:1744`) → `_sourceRepayFree` (`:1768`),
+which *"repays min(wantUsd,debt) + un-encumbers `want` sats"* — **the LP's leverage is UNWOUND, so the
+LP loses IL protection**, and §E331 established nothing re-levers it (`LevManager.rebalance` is
+keeper-driven and the hand-off is untested).
+⇒ **The bridge keeps the LP's position intact**: the basket funds the repayment temporarily so the
+delivery can settle without unwinding the LP, and the LP's leverage — and its IL protection — survives
+the swap-out.
+**PER-LP POSITIONS, LTV TRACKING, LIQUIDATION AND IL PROTECT ALL STAY.** What it replaces is the
+delever-on-delivery path and the relever hand-off that path makes necessary. That is a genuine
+moving-parts reduction and it is the one the owner asked for — **two functions and a missing keeper,
+not 2,884 lines.**
+
+### ▶️ THE QUESTION THAT ACTUALLY DECIDES IT — WHAT RETIRES THE BRIDGE
+A temporary borrow needs a defined repayment event. Candidates: the LP's next delivery proceeds, a
+keeper rebalance, or the LP's own position when the channel refills. ⚠️ **If nothing retires it on a
+bounded clock, "temporary" becomes permanent and it degenerates into the §E336 design I wrongly
+endorsed.** ⇒ **Specify the retirement trigger FIRST; the cost question is secondary to it.**
+📌 Costs, at this true scope: the basket pays borrow-minus-supply carry **only for the bridge's
+duration**, against stables-vs-stables collateral (near-zero liquidation risk). **Still nothing on the
+swapper's quote** — §E335's one surviving fact: `deleverOnDelivery` is funded from the LP's own proceeds
+share (`exactUsd6 * want / deliveredRaw`), so this is not an execution-quality change either way.
+
+### ⚠️ THREE READINGS OF ONE SENTENCE, TWO OF THEM WRONG — THE LESSON IS THE PROCESS
+Dismissed it, then over-endorsed it, then got the scope right only after being corrected twice.
+**Both errors came from supplying a mechanism the owner had not specified instead of asking which one
+they meant.** ⇒ When a proposal's cost depends on its scope, pin the scope before pricing it.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
