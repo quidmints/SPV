@@ -9131,3 +9131,48 @@ two files the change needs). Editing it would either collide or be clobbered; **
 three times today** (three of four §E303 edits lost, `IBtcVaultBridge` dropped from `Interfaces.sol`,
 §E304 duplicated). ▶️ **Execute in ONE commit when `Aux.sol` is clean**, with build + sizes + ABI gate,
 and expect `Quid`/`BTCChannels` margin to move in the right direction.
+
+---
+
+## 🔴🔴 §E314 — **`§UNIT-SKEW-IS-NOISE` MEASURED A SELF-REFERENTIAL ORACLE, NOT THE SKEW. `SKEW-PRIORITY`'s ORDERING RESTS ON IT.**
+
+**Dates settle this, and they were sitting in the file the whole time.**
+
+`§UNIT-SKEW-IS-NOISE` reports the skew at **\$0.025 of a \$63.35 swapper cost — 0.04%, cushion
+dominating ~2,500×**, and `SKEW-PRIORITY-2026-08-10` promotes it to *"THE GATE … it outranks
+§UNIT-B."* **Both are dated 2026-08-10.**
+🔴 **THE SELF-WRITE WAS NOT DELETED UNTIL 2026-08-17** — `1e54a2fc` *"E222: give the ring an
+independent source, and delete the self-write"*. **Seven days later.**
+
+⇒ **On the day of that measurement, `Core.swap` read `px = getTWAPforAsset(…)` — which reads the
+observation ring — and wrote that same value straight back** (`:878`/`:988`). §E222 states the
+consequence exactly: *"the deviation test compares a value against a smoothed copy of itself"*, and
+*"a green suite is exactly what this produces."*
+⇒ **σ² was the variance of a smoothed copy of itself: structurally near-zero regardless of real
+market volatility.** And `skew = Γ·σ²·qBar` is **identically 0 when σ² is 0, no matter how scarce the
+band is** (§E59's own words). ⇒ **"The skew is noise" was not a property of the curve. It was a
+property of the oracle feeding it.**
+
+### 🔴 WHAT THIS INVALIDATES
+1. **`§UNIT-SKEW-IS-NOISE`'s headline number and its 2,500× cushion ratio.** ⛔ **Do not re-quote
+   either.** ▶️ Re-measure only after §C1 — and note the measurement is now *possible* for the first
+   time: §E308 showed nine pushes take σ² from **0 → 7.7e17**, so a real variance can be put into the
+   ring on demand.
+2. **`SKEW-PRIORITY-2026-08-10`'s ordering.** It ranks `§UNIT-SKEW-IS-NOISE` above `§UNIT-B` **because
+   that row's measurement made the skew look negligible.** With the measurement withdrawn the ranking
+   has no basis — ⇒ **the priority is unset, not reversed.** ⚠️ **Do not read this as promoting
+   §UNIT-B instead:** §E274 already established that every §UNIT-B number above q ≈ 0.6 was measuring
+   **the constant**, because the cap flat-topped the curve there. **Both rows' instruments are gone,
+   by two DIFFERENT mechanisms** — self-referential σ² before 08-17, cap saturation after.
+
+### ⭐ THE PATTERN, AND IT IS THE FIFTH TODAY
+`GammaRederived` mirrors the kernel instead of calling it · its "control" clears by four orders of
+magnitude on an unrelated term · `DrainAtomicity`'s tick driver writes nothing · `AllesFixture` pins
+no feed so every push is refused · **and now a whole skew-calibration conclusion measured an oracle
+reading itself.** ⇒ **Every one is an instrument whose stated subject is not what it measures**, and
+in four of five the suite was GREEN throughout.
+📌 **THE DISCRIMINATOR THAT WOULD HAVE CAUGHT ALL FIVE IS THE SAME ONE:** *would this measurement look
+the same if the thing I am measuring were absent?* For this row the answer was **yes** — a
+self-referential ring and a genuinely calm market produce the same σ², and nothing in the measurement
+separated them. **That question is already the repo's stated rule; what is missing is running it
+against the INSTRUMENT rather than against the finding.**
