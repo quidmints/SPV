@@ -9769,17 +9769,31 @@ From triaging the scanner's finding, with §E323 and `LevCascade:634` as the two
 which 11 sit INSIDE A LOOP** — the shape where a permanently dead arm is invisible. ▶️ Read those 11.
 ⛔ **DO NOT BULK-REWRITE THE 54** (owner said so, and `LevCascade:634` proves why).
 
-### 4. 🟡 THE MOCK COUNT IS NOT REPRODUCIBLE, AND "29 CONSENSUS PARAMS" LOOKS MISLABELLED
-Re-measured 2026-08-22: **`vm.mockCall` in `evm/test` = 78**; `vm.mockCallRevert`, `vm.etch`,
-`vm.mockFunction` = **0 each**; `vm.mockCall` in `evm/src`/`evm/script` = **0**; `contract *Mock*`
-declarations across `evm` = **261**; `mock`-mentioning lines in `quid-ln` = **186**. **No definition
-reproduces 96.** ⇒ A count that swings 78 → 261 on predicate alone cannot be ratcheted against.
-📌 **The "29 fabricated consensus params" exactly equals the count of
-`encodeWithSignature("getDepegSeverityBps")` mocks (29)** — a depeg-severity oracle read, not a
-consensus parameter. The genuine synthetic-consensus material is `0x207fffff` regtest headers in **two**
-files (`SPVFixtures.sol`, `SPVGatewayAdversarial.t.sol`) and is **correct by construction**: a
-difficulty-retarget clamp or wrong-target rejection cannot be tested without fabricating headers.
-▶️ Re-run with the predicate written down BEFORE this becomes a tracked number.
+### 4. 🟡 THE MOCK COUNT IS NOT REPRODUCIBLE — ⛔ **AND MY "THE 29 IS MISLABELLED" CLAIM IS RETRACTED**
+**STANDS:** re-measured 2026-08-22, **`vm.mockCall` in `evm/test` = 78**; `vm.mockCallRevert`,
+`vm.etch`, `vm.mockFunction` = **0 each**; `vm.mockCall` in `evm/src`/`evm/script` = **0**;
+`contract *Mock*` declarations across `evm` = **261**; `mock`-mentioning lines in `quid-ln` = **186**.
+**No definition reproduces 96**, and a count that swings 78 → 261 on predicate alone cannot be
+ratcheted against. ▶️ Write the predicate down before this becomes a tracked number.
+
+⛔ **RETRACTED:** this item claimed the *"29 fabricated consensus params"* was a mislabelling, because
+it *exactly equals* the count of `getDepegSeverityBps` calls inside a `vm.mockCall` (**29**). **The
+measurement refutes that.** The synthetic funding params in the three files §LOOSE-ENDS-SCAN names
+count **31** (`VBtcLevFeeLane` 10, `BTCChannelsAuth` 10, `Alles` 11, on
+`fundingBlockHash|fundingBlockHeight|800000`). ⇒ **Two DIFFERENT sets that both land near 29.** The
+scanner's category is real; only my inference was not.
+✅ **The verdict on it is `§LOOSE-ENDS-SCAN` item 4 (`:2977`) — read that, not this:** those params are
+fine because the tests carrying them stub the gateway with `MockSPV`, so a fabricated header never
+reaches consensus logic, while the real `SPVGateway` has its own dedicated files. That row also carries
+the rule that matters for the 96 — **a price mock is safe only while it is EXOGENOUS; `_rallyRange`
+fed the Chainlink mock FROM `AUX.getTWAPforAsset` and was therefore circular.**
+
+🔴 **AND THE PATTERN, BECAUSE THIS IS THE SECOND TIME IN ONE THREAD.** Earlier I attributed
+`testBtcLp_swapInAccruesTheBtcLegFee`'s failure to the 420 ppm removal because 209 sats / 500,000 =
+4.18 bps ≈ 420 ppm; restoring the line left `feesPerShare` at 0 → 0. Both errors are the same move:
+**a numeric coincidence read as a shared mechanism.** The 4.18 bps one was caught by a control, this
+one by a count. ⇒ **Two independent quantities in a codebase this size WILL collide numerically. A
+matching number is a reason to run the control, never a substitute for it.**
 
 ### 5. 🟡 `testRoundTripNoRaceNoDrain_BTC` IS FAILING AND HAS **ZERO** MENTIONS IN THIS FILE
 Fails `assertion failed: 0 <= 0` in `DrainProbe`. ⚠️ CLAUDE.md books the **ETH** variant
