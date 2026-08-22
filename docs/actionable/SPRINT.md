@@ -9619,3 +9619,97 @@ No signature was chosen by me; each was read off the half already on main.**
 📌 **THE RULE:** if you must commit someone's in-flight tree to save it — and here you must — **build
 before you push, and finish the refactor in the direction the landed half already states.** A
 half-landed signature change is not a merge conflict; it is a compile error waiting for whoever pulls.
+---
+
+## ✅ §E319 — **FOLD KEY: THE NINE FOLDED FILES AND THEIR HOSTS. `check-doc-symbols.py` LISTS THEM AS MISSING AND THEY ARE NOT TOMBSTONES.**
+
+`tools/check-doc-symbols.py` reports 68 cited-but-absent `.sol` files. CLAUDE.md says to classify each
+row as **RENAME** or **TOMBSTONE** before touching anything. Nine of those rows are neither: they are
+**FOLDS** — the file is gone, the code is live inside a host. A reader who checks one of these against
+the tree finds nothing and concludes the concern is obsolete, **which is the exact misreading the
+citation existed to prevent**. Verified against `origin/main`, not recalled:
+
+| cited file | code now lives in | landed as |
+|---|---|---|
+| `ISwap.sol` | `imports/Interfaces.sol` (symbol `ISwap` intact) | `5af1aeb0` §E296 |
+| `ILevVenue.sol` | `imports/Interfaces.sol` (symbol `ILevVenue` intact) | `5af1aeb0` §E296 |
+| `FixedRateFill.sol` | `imports/SwapLib.sol` | `5b56c4a6` §E310 |
+| `SortedSet.sol` | `imports/Types.sol` (`SortedSetLib` + `OorBook` intact) | `9ddd31da` §E311 |
+| `MuSig2Agg.sol` | `imports/BitcoinTx.sol` | `a5816ea8` §E312 |
+| `ExitLib.sol` | `imports/BitcoinTx.sol` | `d3262881` §E318 |
+| `ExternalTwap.sol` | `imports/OracleLib.sol` | `d3262881` §E318 |
+| `ShareMath.sol` | `imports/BasketLib.sol` (`qdShareValue`) | see the ⚠️ below |
+| `BandLib.sol` | `imports/RangeLib.sol` (a RENAME, not a fold) | see the ⚠️ below |
+
+⚠️ **THE LAST TWO ROWS ARE A WORKED EXAMPLE OF RULE 14b, AND THE HISTORY NOW LIES ABOUT THEM.**
+`git log --diff-filter=D` attributes `ShareMath.sol`'s deletion to **`1b21ca09` *"C17: correct an Aave
+listing claim I asserted without measuring"*** and `BandLib.sol`'s to **`df0cbf1c` *"C17: Morpho is the
+only permissionless listing"*** — two commits from a DIFFERENT thread, about Aave and Morpho, that
+have nothing to do with either file. The deletions sat `git rm`-staged in the shared index and rode
+out under whoever committed next. **The work landed and the tree is correct; only the attribution is
+wrong**, so this is recorded rather than repaired — rewriting that history would cost more than it buys.
+⇒ The rule that prevents it is unchanged and worth re-reading: **a deletion and its replacement must be
+staged and committed together, or the deletion waits.** `git status --short` showing no `D ` rows does
+NOT mean your deletion is safe; it can mean someone already committed it for you.
+
+### Verified state of `origin/main` at `a047ca59` — built in an ISOLATED worktree, not in the shared tree
+
+The shared checkout had four of another thread's files dirty (`Aux`, `Core`, `Interfaces`, `SwapLib`),
+so any number measured there would have described code that is not on `main`. Measured at `a047ca59`
+in `git worktree add --detach`:
+
+- **`forge build` → 0 errors.**
+- **All 35 deployable contracts under EIP-170**; tightest is **`Quid` 24,104 (472 to spare)**,
+  then `BTCChannels` 23,403 (1,173), `LevManager` 22,063 (2,513).
+- **`tools/check-client-abis.py` → 116 Rust signatures, 0 drifted; 68 SPA signatures, 0 drifted.**
+- **Zero duplicate top-level declarations** (`interface`/`library`/`struct`/`error`/`event`) across
+  `evm/src` — standing rule 2 holds tree-wide, not just in `Interfaces.sol`.
+- **Zero occurrences of `band` (any case) in `evm/src`** — the noun is gone, as instructed.
+- `imports/` is **14 files, from 22**.
+
+### The nine `rescue/*` tags are all superseded — checked one by one, none is an ancestor of `main`
+
+Not being an ancestor is **not** evidence of lost work: each tag's content was located in `main` by its
+own distinctive text. `wt-c19` (the `ilBasisPx`-on-reseat write that made the levered book inert, plus
+the oracle read that fed it) is in `main` — the signature takes no `px`, the caller passes none, the
+write is gone and only its comment remains. `spv-dd`'s `btcRecipientPoPDigest` declaration is at
+`Interfaces.sol:620`. `weeth-morpho-not-deep`'s `DeployL1_s` rewrite is at `:211`/`:442` with the eMode
+measurement at `:674`/`:689`. `e304-library-sweep`'s section is in this file. The rest are `WIP …
+(unverified)` diagnostics superseded by landed commits. **The tags are kept as the backup they were;
+they are not pending work.**
+
+### 🔴 STILL OPEN — the next fold's blocker, measured
+
+`Quid` ∥ `Vault` and `LevManager` ∥ `BtcLevManager` remain unfolded. **The blocker is NOT body
+placement** — `Quid` is ~1,700 lines but only ~631 are code. It is the **93 ABI selectors** on `Quid`
+(9 ERC-20, 12 ERC-4626, 72 other) against a 472-byte margin. The 4626 face is the lever, and it ties to
+the 7540 finding that both ranges are **async**, so `preview*` must revert. **Do that before attempting
+either fold.**
+
+⚠️ **AND A SECOND BLOCKER FOUND WHILE AUDITING, WHICH IS CHEAPER AND SHOULD GO FIRST — four
+BTC-suffixed members of `Vault` have UNSUFFIXED TWINS on `Quid`, so the two contracts cannot fold
+while their members are spelled differently:** `collectBtcFees`∥`collectFees` (11 external refs),
+`outOfRangeBtc`∥`outOfRange` (9), `pullBtc`∥`pull` (6, none outside `evm/test` — no SPA hits), and
+`onlyUsBtc`∥`onlyUs` (**0 external refs**). The established direction is already *one name per concept,
+two instances* (`resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, `d2dc8b78`), and these are separate
+INSTANCES so the shared name is correct. **Not done here on purpose: it is squarely the BTC thread's
+area and would collide.** `onlyUsBtc` is free whenever someone wants it.
+
+### 🔴 AND ONE CONFIRMED DUPLICATION LEFT IN `Vault`, WITH THE MERGE ALREADY COSTED
+
+`Vault` declares **two modifiers that gate the same address on adjacent lines** — its own comment says
+so: *"same gate, distinct name kept from Aux."*
+- `onlyBtcChannels` (`:199`) — `require(msg.sender == btcChannels && btcChannels != address(0), "403")`,
+  gates 3 functions (`requestDeposit` `:487`, `:555`, `:566`).
+- `onlyBTCChannels` (`:203`) — `if (msg.sender != btcChannels) revert NotBTCChannels()`, gates 4
+  (`:703`, `:715`, `:726`, `:727`).
+
+The `btcChannels != address(0)` half is **dead**: `msg.sender` is never `address(0)`, so
+`msg.sender == btcChannels` already implies it — a clamp giving false safety (rule 3). **The merge is
+behaviour-preserving except the revert selector on the three `require` sites, and nothing asserts it:**
+the only `expectRevert(bytes("403"))` in the suite is `Alles.t.sol:2245` on **`Aux.setVaultHealth`**,
+unrelated; `ReentrancyProbe.t.sol:45,52` assert `NotBTCChannels()`, which is the modifier that SURVIVES.
+⇒ **Keep `onlyBTCChannels`'s body, back it with a `private view _onlyChannels()` and make the modifier
+one call (rule 8c — a modifier inlines at all 7 sites, a function is one routine and 7 jumps), then
+delete `onlyBtcChannels`.** Left undone here for the same reason as the renames above: it is the BTC
+thread's file-region and this thread would collide with it.
