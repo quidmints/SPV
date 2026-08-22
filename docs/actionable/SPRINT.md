@@ -2912,6 +2912,43 @@ the practice exists in this tree and would bite here).
 change in two live contracts. Standing rule 8c also applies: a modifier INLINES at every use site, so
 moving it saves no bytecode either — the only gain is one declaration.
 
+## 🔴 §LOOSE-ENDS-SCAN — **`tools/scan-loose-ends.py` FINDS FOUR THINGS THIS THREAD DID NOT BOOK** (2026-08-22)
+
+Run at close-out, because "is everything booked?" is answered by the scanner, not by memory.
+
+### 1. 🔴🔴 **54 SWALLOWED FAILURES — and one of them cost this entire session**
+`[54] try/catch or \`|| echo\` collapsing an error into a sentinel`, almost all
+`try AUX.swap(...) {} catch {}` in tests. **This is not a style finding.** `§RALLY-MASK` was ONE
+instance: `catch { break; }` swallowed a swap revert, so a pinned oracle presented as *"Morpho will
+not lend"*, 40 tests were read as an unowned leverage root for hours, and the real cause was four
+layers away. ⇒ **A swallowed failure does not hide a bug, it RELOCATES it** — which is worse, because
+the error message then actively misdirects.
+▶️ The cheap fix is the one that worked: `catch (bytes memory err) { emit log_named_bytes(...); }`.
+⚠️ **Do NOT bulk-rewrite all 54.** Some are deliberate (a probe that tolerates a revert BY DESIGN).
+Each needs the question *"can a real failure reach this, and would anyone notice?"*
+
+### 2. 🔴 **5 SILENT SKIPS — `catch { vm.skip(true); }`**
+`CurveObserverIsCheapAndSane:38`, `OneInchObserverIsIndependent:39`, `OneInchGasProbe:45`,
+`BtcSelfManaged:127,320`. ⚠️ **A test that SKIPS on failure reports the same as one that passes.**
+These sit on the observer/gas probes — exactly the paths where an RPC failure and a real regression
+look identical (see `§SUITE-RPC-INFLATION`). At minimum the skip must announce WHY it skipped.
+
+### 3. 🔴 **`migration.rs` PLACEHOLDERS NAME AN OPERATOR *SAFE* — WHICH THE OWNER RULED OUT**
+`OPERATOR_SAFE = 0x…dEaD` with *"Replace with the real operator Safe before mainnet"*, plus 3 more
+placeholders and **39 `Safe` references in that file**. The owner's standing decision is *"we are not
+using a Safe anymore, just a simple msig"*. ⇒ **These are not just unfilled constants, they encode a
+DESIGN THAT WAS RETIRED**, and `migration.rs` is the file `#14` (key recovery) would build on — so
+this is directly upstream of the dominant residual, not incidental.
+
+### 4. ⚠️ **96 MOCK-ON-A-REAL-PATH + 29 FABRICATED CONSENSUS PARAMS** — against standing rule 5
+(*don't mock; use real addresses*). Not triaged here; recorded so the count is known rather than
+rediscovered. A fabricated consensus param is rejected by a real gateway, so these bound how much the
+suite proves about production.
+
+⇒ **RUN THIS SCANNER AT EVERY CLOSE-OUT.** Every item above was invisible to `git status`, the ABI
+gate, the fuzz gate and a green suite — the four things this thread otherwise used to declare itself
+finished.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
