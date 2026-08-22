@@ -8604,3 +8604,76 @@ AFTER; if it does not fit, the finding still stands and the answer is an off-cha
 ⚠️ **AND CHECK `_observeIfSourced` FOR THE SAME SHAPE:** it also swallows (`if (!ok || out.length <
 32) return;`), so a PULL source that starts reverting is equally invisible. **One event on a shared
 helper covers both branches**; two separate emits pay for the same information twice.
+
+---
+
+## 🔴 §E311 — **THE 420 ppm IS DELETABLE: §E226's BLOCKER RESTED ON TWO CLAIMS AND §E280 KILLED BOTH**
+
+**Owner, 2026-08-22: *"there is no 420 ppm, it's always the skew premium."* That is the DESIGN. The
+CODE charges both, so this is a live divergence, not a preference.**
+
+🔴 **STILL LIVE, MEASURED TODAY:** `Core.sol:1198` — **`out -= (out * 420) / 1_000_000;`**, a
+hardcoded literal on the fill path, immediately after the skew is applied. Plus
+`Aux.swapFeePpm() => 420` and **5 references** across `evm/src`, `spa/src` and `quid-ln`.
+⇒ **The same flow pays the skew premium AND a flat 4.2 bps.**
+
+### ⭐ §E226 SAID IT "CANNOT SIMPLY BE DELETED". BOTH REASONS ARE NOW FALSE.
+Its blocker was `Core.sol:1194`'s note: *"without this the fill charges NOTHING — the LP fee lane
+earns zero, and the anti-grinding bound `w >= 1 - fee/C` degenerates to w = 100%."*
+
+| the claim | status |
+|---|---|
+| *"the LP fee lane earns zero"* | ⛔ **FALSE — §E280.** `Core.recordSkewPremium` → **`BAND.creditSkewPremium`**. The SKEW premium is the LP fee lane; the 420 was never the only thing funding it. |
+| *"the anti-grinding bound degenerates"* | ⛔ **THERE IS NO SUCH BOUND IN CODE.** `w >= 1 - fee/C` appears **once, in that comment**. Nothing computes it. A bound that exists only in prose cannot degenerate. |
+
+⇒ **The blocker was two sentences in one comment, and neither survives contact with the tree.**
+📌 **AND `swapFeePpm()` IS NEVER COMPUTED WITH** — it is an accessor plus two doc mentions. The charge
+is the hardcoded literal, so the accessor and the charge can drift and already have (§E226's
+"declared twice, no link").
+
+### ⚠️ ONE REAL CONSEQUENCE, AND IT IS NOT A BLOCKER BUT MUST NOT BE DISCOVERED LATER
+**`DEPLETION_RATE_WAD = 2.1e14` IS DERIVED FROM THE 420** — `SwapLib:761`: *"NOT A NEW CONSTANT. 210
+ppm is `Aux.swapFeePpm()/2`"*, from §E48's revenue-neutrality argument (a drain of D from a balanced
+range creates 2·D·px of idle inventory, so 210 ppm × 2·D·px == 420 ppm × D·px). **Delete the 420 and
+that derivation loses its base** — 2.1e14 becomes another inherited constant with no sentence behind
+it, exactly like Γ (§E274) and `UNKNOWN_VARIANCE_SKEW` (§E283).
+⇒ **Decide the depletion term IN THE SAME CHANGE**, or the deletion trades one un-derived number for
+another. ▶️ Either re-derive it independently, or drop it too and let the skew carry the whole charge
+— which is what *"it's always the skew premium"* implies if taken literally.
+⚠️ **AND IT IS A CLIENT-VISIBLE ABI CHANGE:** removing `swapFeePpm()` orphans it in the SPA and Rust
+(5 refs). `check-client-abis.py` will fail it as an ORPHAN — **that gate must go green before the
+commit, not after** (§E307 is a live example of what an ignored ORPHAN costs).
+
+---
+
+## 📌 §E312 — **A SINGLE-STABLE REDEMPTION CANNOT BE ONE TRANSACTION: LAND THE PRO-RATA, MULTICALL THE REST**
+
+**Owner, 2026-08-22, recording a design decision so it is not re-litigated:** *"if you ever want one
+specific stable as your output we have to route many stables out of the pro-rata altogether, but we
+can't do all of that in one on-chain tx — we have to land those pro-rata and the frontend has to do
+the multicall."*
+
+### THE SHAPE
+| leg | where it runs |
+|---|---|
+| **the pro-rata redemption** — the basket's own composition, paid out as it stands | **on-chain, one tx** |
+| **converging that basket into ONE chosen stable** | **off-chain orchestration: the frontend issues a multicall** |
+
+⇒ **The contract never promises a single-asset exit.** Asking it to would mean routing many stables
+out of the pro-rata inside one transaction, which does not fit — so the split is a *gas and
+composability* boundary, not a missing feature.
+
+### WHY THIS IS WORTH A ROW
+1. **It closes a question that keeps reappearing as a defect.** "The redeemer did not get the asset
+   they asked for" is BY DESIGN at the contract boundary; the single-asset guarantee lives one layer
+   up. Anything reading a mixed payout as a bug is reading the wrong layer.
+2. ⚠️ **It is the same shape as §E301, and that is not a coincidence** — there, the swapper carries
+   the remainder to another venue at their own cost; here, the redeemer's client carries the
+   conversion. **Both push the last mile off the contract, and both were settled by the owner rather
+   than derived.** ⇒ **A pattern worth naming: this protocol settles at oracle and hands the caller a
+   position, not a preference.**
+3. 🔴 **IT BEARS ON `E2-REAL-REDEEM` / `E2-DEPOSIT-HAIRCUT`** (~3.745% lost between the USD legs),
+   which are tier-1 measurements still open. **Before re-running them, establish whether the measured
+   loss is IN the pro-rata leg or in a conversion the frontend now owns** — a haircut measured across
+   a boundary that has since moved is not a contract defect. ⛔ **Do not re-run those rows without
+   settling that first, or the number will be attributed to the wrong layer.**
