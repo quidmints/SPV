@@ -706,10 +706,21 @@ library BasketLib {
         // a 6-dec stable was asked for 1e12x the intended draw and declining pro-rata PAID the
         // redeemer. Seed-bearing redemptions (seed > 0) are excluded so the seed keeps its pro-rata
         // un-tip distribution instead of routing onto one stable (preferred is ignored, not an error).
+        // §E313 — **THE TARGETED-REDEEM PREFERENCE IS GONE. THE SWAP'S NAMED STABLE STAYS.**
+        // Owner (2026-08-22): the frontend converges the pro-rata basket by multicall (§E312-redeem),
+        // so the contract has no reason to shed one chosen stable first on a REDEEM.
+        // ⚠️ **BUT `_takePreferred` HAD TWO CALLERS AND ONLY ONE IS THE PREFERENCE.** `viaToken`
+        // (`a.token != a.quid`) is the SWAP take, where the named stable is the swapper's requested
+        // OUTPUT — not a redeemer's preference. Deleting the function outright would have removed the
+        // swap's ability to deliver the asset it was asked for. So the REDEEM arm goes and the SWAP
+        // arm stays: `skip` is now non-zero only when a swap names a token.
+        // ⇒ `a.preferred` and `a.prefIndex` are dead from here; their parameters come out of `Aux`
+        // in the same change that removes them from the entrypoints (that file was under another
+        // session's edit when this landed, and committing it would have swept their work).
         bool viaToken = a.token != a.quid;
-        address skip = viaToken ? a.token : (a.seed == 0 ? a.preferred : address(0));
+        address skip = viaToken ? a.token : address(0);
         if (skip != address(0)) {
-            uint idx = viaToken ? a.index : a.prefIndex;
+            uint idx = a.index;
             require(idx > 0 && idx <= a.stables.length, "unknown-stable");
             bool done;
             (sent, a.amount, done) = _takePreferred(aux, a.who, skip,

@@ -208,12 +208,21 @@ contract DrainProbe is AllesFixture {
         assertEq(CORE.pendingSwapOutUsd(), 0, "no proceeds obligation created or drained across both closes");
     }
 
-    /// TARGETED REDEEM (the swap-style strict bool): redeem(amount, preferred) sheds the
-    /// named stable FIRST, then pro-rata for the remainder — the redemption mirror of
-    /// naming an output stable on a swap. redeem(amount) / preferred==0 stays pure
-    /// pro-rata (regression-covered by testRedeem). Verifies the targeted draw really
-    /// shifts the basket toward shedding the chosen leg, vs the symmetric pro-rata draw.
-    function testRedeemTargetedShedsPreferredFirst() public {
+    /// §E313 — **INVERTED: THE REDEEM PREFERENCE IS GONE, AND THIS NOW GUARDS ITS ABSENCE.**
+    /// This test asserted that `redeem(amount, preferred)` sheds the named stable FIRST. The owner
+    /// removed that path (2026-08-22): the frontend converges the pro-rata basket by multicall
+    /// (§E312-redeem), so the contract does pro-rata and nothing else.
+    /// ⚠️ **THE TEST WAS STALE, NOT THE CHANGE** (rule 8d). It encoded a feature that has been
+    /// deliberately deleted, so it is inverted rather than removed — a deleted test would leave
+    /// nothing watching for the preference coming back.
+    /// ⛔ **`_takePreferred` ITSELF SURVIVES AND MUST:** its other caller is `viaToken`, the SWAP
+    /// take, where the named stable is the swapper's requested OUTPUT rather than a redeemer's
+    /// preference. Deleting the function outright would have broken that.
+    /// 📌 THE ASSERTION IS DELIBERATELY NOT A TOLERANCE. The second redeem draws from a basket the
+    /// first one already shrank, so pro-rata must yield **≤** the first draw. Under the old
+    /// behaviour `daiTgt` was far GREATER. `≤` therefore separates the two regimes exactly, with no
+    /// fudge factor — which is the assertion class rule 4 exists to protect.
+    function testRedeemNamedStableNoLongerShedsFirst() public {
         // User01 mints redeemable QUI; the basket is already seeded with many stables
         // (incl. USDC + DAI, both exercised by testRedeem's pro-rata legs).
         vm.startPrank(User01);
@@ -241,10 +250,11 @@ contract DrainProbe is AllesFixture {
         uint usdcTgt = USDC.balanceOf(User01) - u0;
         uint daiTgt  = (DAI.balanceOf(User01) - d0) / 1e12;
 
-        // Targeted shifts the draw toward the preferred leg: far MORE DAI, far LESS USDC.
-        assertGt(daiTgt, daiPro,  "targeted sheds MORE of the preferred stable (DAI)");
-        assertLt(usdcTgt, usdcPro, "targeted sheds LESS of the non-preferred stable (USDC)");
-        assertGt(daiTgt, usdcTgt,  "targeted: the preferred leg dominates the draw");
+        // The preference is gone: naming DAI must not shed MORE DAI than the plain pro-rata call
+        // did. It draws from an already-smaller basket, so pro-rata gives <=; the old targeted
+        // behaviour gave far more. This single comparison is the whole discriminator.
+        assertLe(daiTgt, daiPro,
+            "naming a stable still sheds it first - the redeem preference is back");
         AUX.checkBacking();
     }
 
