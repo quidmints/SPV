@@ -1386,6 +1386,30 @@ duplicated ids, 8 still ambiguous among open rows — see §16) · `E6` · `E50`
   `0f22a6e4` and `19ee5ba7` — **are** ancestors. The hazard was one unpushed object and it stayed
   unpushed.
 
+### ✅ THREE MORE ADJUDICATED 2026-08-22 — two close, one is CONFIRMED OPEN with the grep that shows it
+
+- ✅ **`E121` AND `E122` CLOSE TOGETHER, IN `E122`'s FAVOUR — see §E280.** §16 carried them as a
+  contradictory pair (*"the premium lands in the LP fee accumulator, NOT QU!D backing"* vs *"the
+  premium reaches the LPs"*) and §18 routed both to the skew cluster as orphans. **Settled by code,
+  one hop:** `Core.recordSkewPremium` increments the audit counter and then calls
+  **`BAND.creditSkewPremium(premiumUsd)`** — 3 hits in `Core.sol` — dispatched by address so `Quid`
+  and `Vault` both receive it. Its own note is the discriminator: *"the counters below are an AUDIT
+  RECORD … the CREDIT is what actually reaches LPs."* ⚠️ **Scoped: this settles the SKEW premium
+  only.** The 420 ppm is a different charge on a different route (§E226) and stays open.
+- 🔴 **`E91-r5` DOES NOT CLOSE, AND HERE IS THE MEASUREMENT.** `try aux.withdrawSelf(...)` is **still
+  present, twice**, in `BasketLib.sol`. A failed delivery is still swallowed. ⚠️ **It is the last live
+  member of the delivery cluster** — `E91`, `E91-ROOT` and `E130` closed, `E135` became an accepted
+  risk — so what was *"the largest cluster, and nobody owns it"* is now **one row**. That is worth
+  saying plainly: **the cluster shrank from five to one, and the one that remains is the one whose
+  own root note explains why the aggregate `NothingDelivered` guard cannot see it** (*"`sent` being
+  non-zero is exactly why…"*). ▶️ **Ownable in isolation now.**
+- 🟡 **`E104` IS CONTAINED, NOT REMOVED.** Its overflow lived in the pole sentinel reaching checked
+  arithmetic. §E275 deleted the cap and moved the decline to the producers, and §E289 made the pole's
+  LOCATION a parameter — but `type(uint).max` still appears **6 times** in `SwapLib.sol` and the
+  sentinel branch is still reachable at `κ = 1e18`. ⇒ **The failure mode is guarded, the machinery is
+  not gone.** It retires by construction when κ moves (the branch becomes dead, rule 1 deletes it) —
+  **so E104 is downstream of κ, not of a fix of its own.**
+
 **FIVE MORE ORPHANS CLOSED THE SAME WAY, all verified in code on 2026-08-18** — see `QUEUE.md`:
 **`E130`** (fixed by §E138's proof-of-possession at `BTCChannels.sol:962` *and* `:2309`) · **`E91-ROOT`**
 (`ChannelLib.sol:328` delivers) · **`E91`** (`_unlockCallback` is zero hits — the code is gone) ·
