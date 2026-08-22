@@ -553,7 +553,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     address public morphoAusdVault  = 0x32401B9fb79065Bc15949DE0BD43927492f02F0C;
     address constant F8N = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
 
-    function setUp() public {
+    function setUp() public virtual {
         uint mainnetFork = _forkMainnet();
         vm.selectFork(mainnetFork);
 
