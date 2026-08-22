@@ -242,7 +242,23 @@ pub struct VaultRegistry {
     /// pre-granted to the fleet, and §E165 made a pre-signed exit ladder mandatory at open.
     /// `OpenAuth.btc_recipient_pop` is the LP's BIP-340 proof-of-possession, and the ladder
     /// rungs are spends of the 2-of-2 — **both require the LP funding half, which after §E175
-    /// the fleet does not have.** So the fleet RELAYS consent; it never manufactures it.
+    /// the fleet does not have IN THE DEFAULT (LP-HOSTED) TOPOLOGY.** So the fleet RELAYS
+    /// consent; it never manufactures it.
+    ///
+    /// ⚠️ §C2.3② — STATE THE TOPOLOGY, NOT AN ABSOLUTE. "The fleet does not have the LP half"
+    /// is true exactly when this process has NO vault node. That is decided at boot by
+    /// `QUID_FLEET_COHOSTS_VAULT` (`quid-bridge-daemon`, DEFAULT FALSE) and carried at runtime
+    /// as `vault: Option<Arc<VaultNode>>`:
+    ///   - `None` (default, LP-hosted): the LP half lives on the LP's own box via
+    ///     `quid-lp-daemon`; the fleet cannot produce a PoP or a ladder rung, and
+    ///     `run_deadman_exit_heartbeat` disables itself. The sentence above holds.
+    ///   - `Some` (opt-in single custodian): `boot_vault` is seeded with
+    ///     `derive_vault_seed(&root_seed)` — a function of the SAME enclave seed as the hop —
+    ///     so the fleet DOES hold both halves, `presign_deadman_exit` runs, and the boot path
+    ///     logs a `warn!` saying the 2-of-2 is nominal. Every `VaultNode` method on this type
+    ///     (including [`VaultNode::deliver_swap_out`]) exists only in that mode.
+    /// Anything reachable only through a `VaultNode` is therefore co-hosted-mode-only; do not
+    /// read this doc as proof that such a path is unreachable.
     ///
     /// ⚠️ The witness is a Schnorr PoP rather than an EVM signature: `lpEth` is DERIVED from
     /// `lpPubkey` on chain (§E183), so there is no EVM signature for the LP to produce.

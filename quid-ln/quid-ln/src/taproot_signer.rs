@@ -98,9 +98,10 @@ pub fn derive_secnonce_seed_domain(
     *mac.as_byte_array()
 }
 
-/// Domain separator for the DEAD-MAN EXIT (#114) pre-signing. The fleet (which
-/// holds BOTH key halves under Option B) pre-signs a unilateral-exit tx OUTSIDE the
-/// live commitment/close flow, so its secret nonce MUST be unable to collide with a
+/// Domain separator for the DEAD-MAN EXIT (#114) pre-signing. The pre-signing party
+/// (§C2.3② — the fleet ONLY when it co-hosts the vault, see
+/// [`crate::deadman_exit::presign_deadman_exit`]) signs a unilateral-exit tx OUTSIDE
+/// the live commitment/close flow, so its secret nonce MUST be unable to collide with a
 /// holder (untagged) or counterparty (`COUNTERPARTY_COMMITMENT_NONCE_TAG`) commitment
 /// nonce at ANY height — else two partials over different sighashes could share a
 /// secret nonce and leak the funding key (`x = (s1-s2)/(e1-e2)`). This tag guarantees
@@ -562,10 +563,20 @@ pub fn key_path_sign_2of2(
 }
 
 /// DEAD-MAN EXIT (#114): drive a **complete** 2-party MuSig2 key-path sign over the
-/// exit-tx `message` (its BIP341 key-path sighash) from BOTH funding secret keys —
-/// which the FLEET holds under Option B (the hop-node key + the vault-node key both
-/// descend from the one enclave seed). Returns the aggregated BIP340 signature that
-/// spends the `0x5120||Q` funding output, plus the x-only `Q`.
+/// exit-tx `message` (its BIP341 key-path sighash) from BOTH funding secret keys.
+///
+/// ⚠️ §C2.3② — WHO HOLDS BOTH HALVES IS A DEPLOYMENT TOPOLOGY, NOT A FIXED FACT.
+/// A single caller can only supply both seckeys when it holds both, and after §E175/§M1#2
+/// the fleet holds both **only** in the co-hosted deployment
+/// (`QUID_FLEET_COHOSTS_VAULT=true` in `quid-bridge-daemon`, DEFAULT FALSE, where the vault
+/// seed is `derive_vault_seed(&root_seed)` — a function of the same enclave seed as the hop).
+/// In the default LP-hosted topology the fleet process has no vault node and no vault seed,
+/// `quid_bridge::deadman_exit::run_deadman_exit_heartbeat` early-returns on `vault == None`,
+/// and this function is unreachable from the fleet — its callers there are the co-hosted
+/// daemon and the e2e harness, both of which hold both halves on purpose.
+///
+/// Returns the aggregated BIP340 signature that spends the `0x5120||Q` funding output,
+/// plus the x-only `Q`.
 ///
 /// This mirrors [`key_path_sign_2of2`] but derives each party's secret nonce via
 /// [`KeyPathFirstRound::new_deadman`] (domain-separated + message-bound), so the

@@ -437,6 +437,12 @@ impl SgxQuoteVerifier {
         // verification methods directly.
 
         let key_usage = webpki::KeyUsage::server_auth();
+        // 🔴 §AUDIT-TCB-CRL: `None` ⇒ NO revocation checking. A PCK cert that Intel has
+        // REVOKED (platform TCB recovery, compromised platform) still passes this chain
+        // validation. MRENCLAVE-pinning does NOT cover this — see the long note above
+        // `EnclavePolicy` for exactly what is and is not covered, and what plumbing a real
+        // CRL/TCB-Info gate needs. Fixing it means supplying `webpki::RevocationOptions`
+        // built from Intel's PCK CRLs.
         let revocation = None;
         let verify_path = None;
         pck_cert
@@ -540,13 +546,40 @@ impl std::error::Error for DisplayErr {
 
 // TODO(phlip9): expand functionality. parse+verify sig from QE3 Identity json
 // and convert to an `EnclavePolicy`.
-// SVN/prodid gating (cpusvn/isvsvn/isvprodid) is INTENTIONALLY not enforced here: the
-// production policy pins the exact MRENCLAVE (`trust_measurements_with_signer`, see
-// attest_client.rs), and a TCB-downgraded or wrong-product enclave is DIFFERENT code ⇒ a
-// DIFFERENT MRENCLAVE, already rejected by the measurement check in `verify`. SVN/prodid
-// gating would only add value on an MRSIGNER-only trust path (`trusted_mrenclaves == None`),
-// which QU!D does not use for its own enclaves; add per-policy `min_isvsvn`/`expected_isvprodid`
-// fields + `verify` checks if such a path is ever introduced.
+//
+// §AUDIT-TCB-CRL — WHAT MRENCLAVE-PINNING DOES AND DOES NOT COVER. The previous version of
+// this note said SVN/prodid gating "is intentionally not enforced" because MRENCLAVE-pinning
+// subsumes it. That is TRUE FOR `isvsvn`/`isvprodid` ONLY, and the note is narrowed here
+// because it was being read as covering the platform TCB as well.
+//
+// ✅ COVERED by pinning the exact MRENCLAVE (`trust_measurements_with_signer`, see
+//    attest_client.rs): `isvsvn` and `isvprodid` are properties of the ENCLAVE BINARY. A
+//    downgraded-ISVSVN or wrong-product enclave is different code ⇒ a different MRENCLAVE,
+//    already rejected by the measurement check in `EnclavePolicy::verify`. Per-policy
+//    `min_isvsvn`/`expected_isvprodid` would only add value on an MRSIGNER-only trust path
+//    (`trusted_mrenclaves == None`), which QU!D does not use for its own enclaves.
+//
+// 🔴 NOT COVERED — two independent gaps, both still OPEN:
+//
+//   1. **PLATFORM TCB / `cpusvn`.** `cpusvn` is a property of the HOST (CPU microcode + SGX
+//      PSW/QE TCB level), not of the enclave binary. The SAME MRENCLAVE runs unchanged on a
+//      platform whose microcode is vulnerable and later revoked by an Intel TCB Recovery, so
+//      the measurement check cannot see it. A correct gate needs Intel's signed **TCB Info**
+//      for the PCK's `fmspc` (`.../sgx/certification/v4/tcb?fmspc=...`), matched against the
+//      PCK cert's SGX extension (`fmspc`, `pcesvn`, the 16 `cpusvn` components) and the
+//      quote's `cpusvn`, rejecting `tcbStatus` of `Revoked`/`OutOfDate` per deploy policy.
+//      NONE of that is parsed or fetched today.
+//
+//   2. **PCK CERT REVOCATION.** `verify_pck_cert_chain` above passes `revocation = None` to
+//      `EndEntityCert::verify_for_usage`, so a PCK cert that Intel has REVOKED still validates
+//      as long as it chains to the pinned SGX root CA and is inside its validity window. A
+//      correct gate needs the Intel PCK CRLs (root CA CRL + the `platform`/`processor` CA CRL)
+//      supplied as `webpki::RevocationOptions`.
+//
+// Both require fetching + caching signed Intel PCS collateral (and a freshness policy for it),
+// which the verifier has no plumbing for — it is a pure in-enclave function over quote bytes
+// today. Until that collateral path exists, DO NOT claim this verifier detects a revoked
+// platform or a stale platform TCB: it does not.
 
 /// A verifier's policy for which enclaves it should trust.
 #[derive(Debug)]

@@ -158,10 +158,22 @@ pub fn finalize_exit_tx(
     bitcoin::consensus::encode::serialize(&exit_tx)
 }
 
-/// DEAD-MAN EXIT (#114) — the 2-signer pre-sign orchestrator. The fleet holds BOTH
-/// funding halves (the hop-node signer + the vault-node signer for the SAME channel,
-/// same process, Option B). This drives the full one-round MuSig2 key-path sign of
-/// the pre-signed exit tx entirely in-place and returns the FULLY-signed raw tx bytes.
+/// DEAD-MAN EXIT (#114) — the 2-signer pre-sign orchestrator. It takes BOTH funding
+/// halves (the hop-node signer AND the vault-node signer for the SAME channel, in one
+/// process) and drives the full one-round MuSig2 key-path sign of the pre-signed exit
+/// tx entirely in-place, returning the FULLY-signed raw tx bytes.
+///
+/// ⚠️ §C2.3② — CALLING THIS *IS* THE BOTH-HALVES PROPERTY, AND IT IS OPT-IN.
+/// After §E175/§M1#2 the fleet holds the LP funding half **only** in the co-hosted
+/// deployment: `quid-bridge-daemon` boots a vault node solely under
+/// `QUID_FLEET_COHOSTS_VAULT=true` (DEFAULT FALSE), deriving its seed as
+/// `derive_vault_seed(&root_seed)` from the same enclave seed as the hop, and logs a
+/// `warn!` that the 2-of-2 is nominal there. In the DEFAULT LP-hosted topology the vault
+/// half lives on the LP's own host, the fleet's `vault` is `None`, and
+/// `quid_bridge::deadman_exit::run_deadman_exit_heartbeat` returns before ever reaching
+/// here (exits come from the §E165 pre-signed ladder instead). So this function is
+/// reachable from the fleet ONLY in the co-hosted mode — do not read it as a statement
+/// that the fleet always holds both halves.
 ///
 /// Flow (each `deadman_exit_*` call reads its own funding seckey internally — the key
 /// NEVER leaves either signer):

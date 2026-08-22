@@ -119,6 +119,39 @@ pub(crate) fn verify_channel_type_features(channel_type_features: &Option<Channe
 // number_of_witness_elements + sig_length + revocation_sig + true_length + op_true + witness_script_length + witness_script
 pub(crate) const WEIGHT_REVOKED_OUTPUT: u64 = 1 + 1 + 73 + 1 + 1 + 1 + 77;
 
+/// Witness weight of a justice (breach-remedy) spend of a **simple-taproot**
+/// revoked `to_local` output.
+///
+/// `RevokedOutput::finalize_input` takes the BIP341 *script path* through the
+/// revoke tapleaf, so the witness is `[schnorr_sig, revoke_leaf, control_block]`:
+///
+/// - `number_of_witness_elements`: 1
+/// - `sig_length` + `schnorr_sig`: 1 + 64 (`SIGHASH_DEFAULT`, no sighash byte —
+///   see `taproot_schnorr_witness_element`)
+/// - `leaf_length` + `revoke_leaf`: 1 + 68, where the leaf built by
+///   `get_taproot_to_local_revoke_script` is
+///   `<32B delayed> OP_DROP <32B revocation> OP_CHECKSIG` = 33 + 1 + 33 + 1
+/// - `control_block_length` + `control_block`: 1 + 65, where the control block is
+///   `33 + 32 * depth` and the `to_local` tree (`taproot_to_local_spend_info`) has
+///   two leaves, so depth = 1.
+///
+/// This is LARGER than the legacy P2WSH [`WEIGHT_REVOKED_OUTPUT`] (155), so using
+/// the legacy constant on a taproot channel under-estimates the justice tx and
+/// trips the `predicted_weight >= tx.weight()` assertion in
+/// `OnchainTxHandler::generate_claim` — i.e. it panics the breach-remedy path
+/// instead of broadcasting. Keep this an exact-or-over estimate.
+pub(crate) const WEIGHT_REVOKED_OUTPUT_TAPROOT: u64 = 1 + 1 + 64 + 1 + 68 + 1 + 65;
+
+/// Witness weight of a justice spend of a revoked `to_local` output, for the
+/// commitment format actually in use on this channel.
+pub(crate) fn weight_revoked_output(channel_type_features: &ChannelTypeFeatures) -> u64 {
+	if channel_type_features.supports_simple_taproot() {
+		WEIGHT_REVOKED_OUTPUT_TAPROOT
+	} else {
+		WEIGHT_REVOKED_OUTPUT
+	}
+}
+
 #[cfg(not(any(test, feature = "_test_utils")))]
 /// Height delay at which transactions are fee-bumped/rebroadcasted with a low priority.
 const LOW_FREQUENCY_BUMP_INTERVAL: u32 = 15;
@@ -162,12 +195,17 @@ impl RevokedOutput {
 		let counterparty_delayed_payment_base_key = counterparty_keys.delayed_payment_basepoint;
 		let counterparty_htlc_base_key = counterparty_keys.htlc_basepoint;
 		let on_counterparty_tx_csv = directed_params.contest_delay();
+		// The justice witness shape depends on the commitment format: legacy P2WSH ECDSA
+		// vs. a BIP341 script-path Schnorr spend of the revoke tapleaf (M9e). Using the
+		// legacy constant on a taproot channel under-estimates the tx and panics
+		// `generate_claim`'s `predicted_weight >= tx.weight()` assertion.
+		let weight = weight_revoked_output(&channel_parameters.channel_type_features);
 		RevokedOutput {
 			per_commitment_point,
 			counterparty_delayed_payment_base_key,
 			counterparty_htlc_base_key,
 			per_commitment_key,
-			weight: WEIGHT_REVOKED_OUTPUT,
+			weight,
 			amount,
 			on_counterparty_tx_csv,
 			channel_parameters: Some(channel_parameters),
@@ -2029,6 +2067,7 @@ mod tests {
 		feerate_bump, weight_offered_htlc, weight_received_htlc, CounterpartyOfferedHTLCOutput,
 		CounterpartyReceivedHTLCOutput, HolderFundingOutput, HolderHTLCOutput, PackageSolvingData,
 		PackageTemplate, RevokedHTLCOutput, RevokedOutput, WEIGHT_REVOKED_OUTPUT,
+		WEIGHT_REVOKED_OUTPUT_TAPROOT,
 	};
 	use crate::chain::Txid;
 	use crate::ln::chan_utils::{
@@ -2077,6 +2116,30 @@ mod tests {
 				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
 				let channel_parameters = ChannelTransactionParameters::test_dummy(0);
+				PackageSolvingData::RevokedOutput(RevokedOutput::build(dumb_point, dumb_scalar, Amount::ZERO, channel_parameters, 0))
+			}
+		}
+	}
+
+	/// The channel type an `option_simple_taproot` channel actually negotiates
+	/// (`only_static_remote_key` + taproot + anchors) — see
+	/// `channel::channel_type_from_open_channel`.
+	fn simple_taproot_channel_type() -> ChannelTypeFeatures {
+		let mut features = ChannelTypeFeatures::only_static_remote_key();
+		features.set_simple_taproot_required();
+		features.set_anchors_zero_fee_htlc_tx_required();
+		features
+	}
+
+	#[rustfmt::skip]
+	macro_rules! dumb_taproot_revk_output {
+		() => {
+			{
+				let secp_ctx = Secp256k1::new();
+				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
+				let mut channel_parameters = ChannelTransactionParameters::test_dummy(0);
+				channel_parameters.channel_type_features = simple_taproot_channel_type();
 				PackageSolvingData::RevokedOutput(RevokedOutput::build(dumb_point, dumb_scalar, Amount::ZERO, channel_parameters, 0))
 			}
 		}
@@ -2459,6 +2522,75 @@ mod tests {
 				assert_eq!(package.package_weight(&ScriptBuf::new()), weight_sans_output + weight_offered_htlc(channel_type_features));
 			}
 		}
+
+		{
+			// AUDIT-JUSTICE-WEIGHT: a simple-taproot revoked `to_local` must be predicted
+			// with the taproot script-path witness size, not the legacy P2WSH one.
+			let revk_outp = dumb_taproot_revk_output!();
+			let package = PackageTemplate::build_package(fake_txid(1), 0, revk_outp, 0);
+			assert_eq!(
+				package.package_weight(&ScriptBuf::new()),
+				weight_sans_output + WEIGHT_REVOKED_OUTPUT_TAPROOT,
+			);
+			// ...and it must NOT be the legacy value, which is an *under*-estimate here.
+			assert!(WEIGHT_REVOKED_OUTPUT_TAPROOT > WEIGHT_REVOKED_OUTPUT);
+		}
+	}
+
+	/// The predicted justice weight for a simple-taproot revoked `to_local` must be
+	/// at least the weight of the witness `finalize_input` actually assembles
+	/// (`[schnorr_sig, revoke_leaf, control_block]`). If it is not,
+	/// `OnchainTxHandler::generate_claim`'s release-mode
+	/// `assert!(predicted_weight >= transaction.weight())` panics on the breach-remedy
+	/// path — the justice transaction is never broadcast.
+	#[test]
+	fn test_taproot_revoked_output_weight_matches_real_witness() {
+		use crate::ln::chan_utils::{
+			build_taproot_script_path_witness, get_taproot_to_local_revoke_script,
+			taproot_to_local_spend_info, TxCreationKeys,
+		};
+
+		let secp_ctx = Secp256k1::new();
+		let dumb_scalar = SecretKey::from_slice(
+			&<Vec<u8>>::from_hex(
+				"0101010101010101010101010101010101010101010101010101010101010101",
+			)
+			.unwrap()[..],
+		)
+		.unwrap();
+		let per_commitment_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
+
+		let mut channel_parameters = ChannelTransactionParameters::test_dummy(0);
+		channel_parameters.channel_type_features = simple_taproot_channel_type();
+		let directed = channel_parameters.as_counterparty_broadcastable();
+		let on_counterparty_tx_csv = directed.contest_delay();
+		let chan_keys = TxCreationKeys::from_channel_static_keys(
+			&per_commitment_point,
+			directed.broadcaster_pubkeys(),
+			directed.countersignatory_pubkeys(),
+			&secp_ctx,
+		);
+
+		// Exactly the leaf + tree `RevokedOutput::finalize_input` uses.
+		let leaf = get_taproot_to_local_revoke_script(
+			&chan_keys.revocation_key,
+			&chan_keys.broadcaster_delayed_payment_key,
+		);
+		let spend_info = taproot_to_local_spend_info(
+			&secp_ctx,
+			&chan_keys.revocation_key,
+			on_counterparty_tx_csv,
+			&chan_keys.broadcaster_delayed_payment_key,
+		);
+		// `SIGHASH_DEFAULT` ⇒ the sig element is the bare 64 bytes.
+		let witness = build_taproot_script_path_witness(vec![0u8; 64], &leaf, &spend_info)
+			.expect("revoke leaf is in the to_local tree");
+
+		// `package_weight` already accounts for the 2 WU segwit marker+flag separately,
+		// so the per-input contribution is exactly the serialized witness.
+		assert_eq!(witness.size() as u64, WEIGHT_REVOKED_OUTPUT_TAPROOT);
+		// The legacy constant would under-predict by 46 WU and trip the assertion.
+		assert!(WEIGHT_REVOKED_OUTPUT < witness.size() as u64);
 	}
 
 	struct TestFeeEstimator {
