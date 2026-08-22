@@ -9224,3 +9224,75 @@ other test sessions were competing for it.
 **Confirmed PRE-EXISTING on clean `origin/main`, byte-identical both sides:** `BufferSwapDrain`
 7/11, `DrainAtomicity` 24/9, `LevCascade` 7/9, `VBtcLevFeeLane` 19/2, `BtcLpMintStress` 14/8,
 `LevYbReal` 0/3. ≈42 failures that predate every local commit.
+
+---
+
+## 📋 §E315-HANDOFF — **UNFINISHED WORK FROM THE REFACTOR THREAD, WITH THE MEASUREMENT THAT BLOCKS EACH**
+
+Everything below was STARTED and not finished. Each row carries the number that stops it, so the
+next thread re-measures rather than re-discovers.
+
+### 🔴 BLOCKED ON EIP-170 — the two big folds, and they share ONE prerequisite
+| fold | merged size | limit | over by |
+|---|---|---|---|
+| `Quid` ∥ `Vault` | ~30,000 | 24,576 | **~5.4 KB** |
+| `LevManager` ∥ `BtcLevManager` | ~33,300 | 24,576 | **~8.8 KB** |
+
+`LevManager` 22,313 + `BtcLevManager` 17,473, with only **7 of 32/19 functions shared**
+(`_delever` `_leverUp` `init` `protectFromQuid` `onMorphoFlashLoan` `_collToBase` `swapOutDelever`);
+12 are genuinely BTC-only. Collapsing the 7 saves ~6.4 KB and is not enough.
+
+⛔ **"MOVE THE BODIES INTO LIBRARIES" DOES NOT UNBLOCK THIS, AND THAT IS THE FINDING.** Measured:
+`Quid` is 1,700 lines but only **631 are CODE**; `_withdraw` is 180 lines of which only **56 are
+code**; and its helpers are ALREADY 4-8 line forwarders (`_burnInRange` 4, `_burnAndDeliverUsdLeg`
+6, `_deliverVenueShortfall` 8, `_venueBalance` 8). The bodies are already delegated. `Quid` is
+24,124 bytes from 631 code lines because it carries **93 ABI selectors** — 9 ERC-20, 12 ERC-4626,
+72 other. ⇒ **The lever is the external SURFACE, not body placement.** Deleting the 4626 face is
+the one move that frees KBs, which ties this to the 7540 row below.
+
+### 🔴 THE 4626 FACE IS THE WRONG FACE, AND CUTTING IT IS ALSO THE FOLD PREREQUISITE
+`docs/actionable/VBTC-ASSET-AND-7540.md`: **both ranges are asynchronous**, so the honest face is
+**7540, not 4626** — and 7540 requires `preview*` to REVERT for async flows. `Quid.sol` returns
+values from all four (`previewDeposit` `previewMint` `previewWithdraw` `previewRedeem`) plus
+`maxDeposit`/`maxMint` = `type(uint).max`. `Vault` already carries the async pair
+(`requestDeposit`/`requestRedeem`). ⇒ One 7540 face can serve BOTH instances; the 12 4626 selectors
+on `Quid` are what pays for the `Quid`∥`Vault` merge.
+
+### 🟡 THE COMMENTS PASS — ATTEMPTED MECHANICALLY, REVERTED, AND THE REASON MATTERS
+A rule of "keep natspec + the first two lines of each block" cut **60% (11,155 → 4,370 lines)** and
+left **880 of 1,732 blocks ENDING MID-SENTENCE**. This codebase carries a claim ACROSS lines — the
+subject on line 1, the finding on line 4 — so any line-count rule shreds it, and a truncated
+comment is worse than a verbose one because it reads as complete. It also mangled another thread's
+§C19 note mid-sentence: the only record of a deliberate money-path decision.
+⇒ **Only 230 lines were kept removed — pure tombstones** ("X was renamed", "REMOVED: y"), chosen so
+that no line carrying ⚠️/⛔/🔴/MUST/DO NOT/invariant/natspec was touched. Verified by control:
+**code lines identical before and after**. Reducing further means rewriting blocks BY MEANING, file
+by file, heaviest first (`SwapLib` 1,645 comment lines, `BTCChannels` 1,615, `Core` 1,018).
+
+### 🟡 FILE FOLDS — 22 → 17 DONE, THE REMAINDER AND WHY THEY STOPPED
+Folded away: `ISwap.sol` `ILevVenue.sol` `ShareMath.sol` `FixedRateFill.sol` `SortedSet.sol`
+`MuSig2Agg.sol`; `BandLib.sol` → `RangeLib.sol`.
+- **`ExternalTwap.sol`** (88 lines) — NOT folded: another thread is live inside `oneInchRateWad`.
+- **`ExitLib.sol`** (396) — was blocked by a cycle: folding it into `BitcoinTx` would have gone
+  through `MuSig2Agg` → `BitcoinTx`. ⚠️ **`MuSig2Agg` is now folded INTO `BitcoinTx`, so re-check
+  this — the cycle may be gone.**
+- `ExitLib` ∥ `ChannelLib` reference each other **ZERO** times: co-location, not deduplication.
+
+### 🟡 BTC GAS — CORRECT AND EXPENSIVE, AND CALLDATA IS NOT THE PROBLEM
+`openChannel` **3.65M gas**, `splice` **3.10M**. Per-call calldata is only ~363 bytes (`rawFundingTx`
+137 + `merkleBranch` 160 + two 33-byte pubkeys) ≈ 5.8K gas — **0.2% of the cost**. The 99,680-byte
+`headers` blob is SPV fixture setup, not call data. The cost is **secp256k1 in pure Solidity**: one
+BIP-340 verify ~388K, taproot output-key derivation ~281K.
+▶️ **`sha256` (0x02) IS used; `ecrecover` (0x01) is NOT, and it is the only secp256k1 precompile.**
+solarity's `EC256` is pure Solidity (0 `staticcall`, 46 `mulmod`/`addmod`) and already uses Shamir's
+trick (`jMultShamir2`). The remaining lever is the ecrecover-as-scalar-mult trick for the VERIFY
+step; key AGGREGATION still needs real point math. Not attempted — booked, not guessed.
+
+### ✅ SWEPT CLEAN, so nobody redoes it
+Zero unused function parameters · zero dead locals · zero ignored return values · zero live `tick`
+references · `band` gone from `evm/src`, `evm/test`, `evm/script`, `spa/src` (the five
+`docs/actionable/wip/*.patch` keep it deliberately — a diff with a rewritten symbol stops applying).
+⚠️ **The apparent hits were false positives worth naming:** `Shares.sol`'s state (`lpShares`,
+`autoManaged`, `levPooled`) reads unused within its own file but is INHERITED by `Quid` and `Vault`;
+`name`/`symbol`/`decimals` are ERC-20 getters; `LevMath:853`'s `f` is read on the line it is
+assigned. A single-file scan would have deleted live state.
