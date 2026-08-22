@@ -41,8 +41,13 @@ contract OneInchGasProbe is Test {
     uint256 constant BLOCK_GAS_LIMIT = 30_000_000;
 
     function setUp() public {
-        try vm.envString("ETH_RPC_URL") returns (string memory u) { vm.createSelectFork(u); }
-        catch { vm.skip(true); }
+        // (§LOOSE-ENDS-SCAN) THE SKIP COVERS THE ENV VAR ONLY — NOT THE FORK. Wrapping
+        // `createSelectFork` in the same `try` swallowed a DEAD RPC as "no ETH_RPC_URL set", so an
+        // endpoint failure looked like a deliberate absence (§SUITE-RPC-INFLATION in miniature).
+        string memory url;
+        try vm.envString("ETH_RPC_URL") returns (string memory u) { url = u; }
+        catch { emit log("SKIP: ETH_RPC_URL unset - this is a fork test"); vm.skip(true); return; }
+        vm.createSelectFork(url);   // deliberately UNGUARDED: a fork failure must fail, not skip
     }
 
     /// @notice MEASURED 2026-08-21: `getRate` 33,573,664 · `getRateToEth` 28,776,424.

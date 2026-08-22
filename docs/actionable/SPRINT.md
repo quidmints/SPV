@@ -2916,7 +2916,37 @@ moving it saves no bytecode either — the only gain is one declaration.
 
 Run at close-out, because "is everything booked?" is answered by the scanner, not by memory.
 
-### 1. 🔴🔴 **54 SWALLOWED FAILURES — and one of them cost this entire session**
+### 0. ✅ **TRIAGED 2026-08-22 — THE CLASSIFICATION, SO NOBODY RE-JUDGES THESE ONE AT A TIME**
+
+**SILENT SKIPS: 3 fixed, 2 were already correct.**
+- ✅ **FIXED** — `CurveObserverIsCheapAndSane`, `OneInchObserverIsIndependent`, `OneInchGasProbe`. All
+  three wrapped `vm.createSelectFork` in the SAME `try` as `vm.envString`, so **a dead RPC or bad URL
+  was swallowed as "no ETH_RPC_URL set"** — an endpoint failure presenting as a deliberate absence,
+  which is `§SUITE-RPC-INFLATION` in miniature. Now: unset env ⇒ ANNOUNCED skip; fork FAILS ⇒ a real
+  failure. The `createSelectFork` is deliberately UNGUARDED and says so at each site.
+- ✅ **CORRECT AS-IS, do not "fix"** — `BtcSelfManaged:127,320` test an explicit `SKIP` sentinel from
+  the fixture generator and `emit log` the reason (regtest binaries absent). **A skip that announces a
+  genuine ABSENCE is right; a skip that can absorb a FAILURE is not.** That is the discriminator.
+
+**SWALLOWED FAILURES: the 54 split by WHERE they sit, and the split is the answer.**
+- **In best-effort SETUP helpers (`_calmVol`, `_trade`, `_swap`, `_driveTick`, `_sellEth`,
+  `_passiveValueUsd`) — DEFENSIBLE.** These churn state to reach a precondition; one failed churn step
+  does not change what the test asserts afterwards.
+- **In TEST BODIES — each needs reading, and at least one is DELIBERATE AND LOAD-BEARING.**
+  ⭐ `LevCascade:634` (`try lm.rebalance(...) {} catch {}` ×8) is the clearest example and the reason
+  **this list must not be bulk-rewritten**: its own comment says *"the borrow hits 'insufficient
+  collateral' and stops. That IS the buffer exhausting… (The keeper's rebalance reverts are
+  swallowed.)"* **The swallow IS the mechanism under test** — the assertions after it prove the LP
+  cannot over-lever. Rewriting it to emit would not break the test; it would delete the point of it.
+⚠️ **AND ONE HYPOTHESIS THAT LOOKED OBVIOUS WAS WRONG:** I expected `LevCascade:634`'s swallow to
+explain the *"cascade made no net de-lever progress"* failure. It does not — that assertion is in a
+DIFFERENT test (`test_CascadeDelever_CorrelatedCrash:458`) and is a plain `totalAfter < totalBefore`
+comparison with no `catch` involved. **It is a real behavioural failure, tracked in
+`§IL-ACCOUNTING-SIX`, not a masking artefact.**
+⇒ **RULE FOR THIS LIST: read the enclosing function before touching any entry.** Setup helper ⇒ leave.
+Test body ⇒ read the comment; the swallow may be the assertion.
+
+### 1. 🔴 **54 SWALLOWED FAILURES — and one of them cost this entire session**
 `[54] try/catch or \`|| echo\` collapsing an error into a sentinel`, almost all
 `try AUX.swap(...) {} catch {}` in tests. **This is not a style finding.** `§RALLY-MASK` was ONE
 instance: `catch { break; }` swallowed a swap revert, so a pinned oracle presented as *"Morpho will

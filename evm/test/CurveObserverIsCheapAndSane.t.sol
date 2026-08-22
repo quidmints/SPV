@@ -34,8 +34,15 @@ contract CurveObserverIsCheapAndSaneTest is Test {
     address constant USDC       = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
     function setUp() public {
-        try vm.envString("ETH_RPC_URL") returns (string memory url) { vm.createSelectFork(url); }
-        catch { vm.skip(true); }
+        // (§LOOSE-ENDS-SCAN) THE SKIP COVERS THE ENV VAR ONLY — NOT THE FORK.
+        // This used to wrap `createSelectFork` in the same `try`, so a DEAD RPC or a bad URL was
+        // swallowed as "no ETH_RPC_URL set" and the suite reported a skip. An endpoint failure then
+        // looks exactly like a deliberate absence, which is §SUITE-RPC-INFLATION in miniature.
+        // Now: no env var ⇒ announced skip; env var present but the fork FAILS ⇒ a real failure.
+        string memory url;
+        try vm.envString("ETH_RPC_URL") returns (string memory u) { url = u; }
+        catch { emit log("SKIP: ETH_RPC_URL unset - this is a fork test"); vm.skip(true); return; }
+        vm.createSelectFork(url);   // deliberately UNGUARDED: a fork failure must fail, not skip
     }
 
     function _clWad(address feed) internal view returns (uint) {
