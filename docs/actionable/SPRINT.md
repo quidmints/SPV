@@ -2823,6 +2823,30 @@ tolerance.
 bug; `DeleverFailed` and the PREMISE one look independent. Trace before grouping — this cluster has
 already cost one wrong grouping today (40 "Morpho" failures that were a pinned oracle).
 
+## 💱 §BORROW-ROUTE — **WHY THE STABLE BORROW, ANSWERED BY THE OWNER (2026-08-22). IT IS A VENUE FACT, NOT A DESIGN PREFERENCE.**
+
+I had framed this as "the stable borrow is directional BY DESIGN, to restore the ETH exposure the
+range sold" and asked whether a weETH/WETH loop on Aave v3 would be simpler. Both halves of the
+owner's answer matter, and the second one supersedes my framing:
+
+⭐ **WETH CANNOT BE BORROWED ON MORPHO** for this collateral, so the choice is not stable-vs-WETH at
+all. **We borrow the HIGHEST-UTILISATION stable available, which today is `RLUSD` and `PYUSD`.**
+Utilisation is the selector because it is what the venue actually lends at depth; picking a "nicer"
+stable with no utilisation just means the borrow does not fill.
+▶️ **THE ROUTE, and it is why the swap leg looks indirect:** borrowed `RLUSD`/`PYUSD` → **Curve**
+(the stable→WETH hop; these pairs are Curve-native, not Uniswap-native) → **WETH** → **weETH**.
+⚠️ **The Curve hop is BUNDLED INSIDE 1INCH, not a separate call we make** — we hand 1inch the input
+and take the result. So a reader looking for an explicit Curve call in our code will not find one,
+and should not conclude the route is Uniswap-only. §E294 measured the 1inch basis at 23 bps.
+⇒ ⛔ **DO NOT "SIMPLIFY" THE SWAP LEG TO A DIRECT UNISWAP HOP.** The stables we can actually borrow
+at size route through Curve, and that routing is the aggregator's job.
+
+⚠️ **AND THE ALTERNATIVE WAS ALREADY MEASURED AND REJECTED BY ANOTHER THREAD** — a dangling commit
+reads *"The weETH/WETH Morpho market is not deep, and Aave…"*. So the weETH/WETH loop is not merely
+a different product (my point: it is exposure-NEUTRAL and cannot restore sold ETH exposure); the
+venue for it is also thin. **Two independent reasons, either sufficient.** Read that thread's work
+before re-opening this.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
