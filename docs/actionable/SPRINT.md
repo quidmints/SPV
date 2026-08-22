@@ -8335,3 +8335,53 @@ from this file are reproduced, with the range rename applied so the symbols reso
 2. **Then** point the vBTC market's supply side at our depositors, once the stable is chosen.
 ⚠️ Both are money-path changes needing their own verified runs — and the tree does not currently
 build (another thread's uncommitted `IBtcRange` import), so neither can be verified right now.
+
+### C18. ⭐ WHY `MorphoEscrowVenue::borrow` IS NEVER INVOKED — PROVEN END TO END (2026-08-22)
+
+Owner's trace: *"Morpho shows `Position({supplyShares: 0, borrowShares: 0, collateral: 5e18})` —
+collateral is supplied, borrow never executed. `MorphoEscrowVenue::borrow` is never invoked (only
+`borrowRate` reads). Finding why the manager skips it."*
+
+🔴 **THE MANAGER IS NOT SKIPPING IT. IT IS CORRECTLY DECLINING TO HEDGE AN IL OF EXACTLY ZERO, BECAUSE
+THE ORACLE SAYS THE PRICE NEVER MOVED.** Measured from a `-vvv` run of
+`LevYbReal::testReal_VenueYield_LevExcludedFromDenominator`, the chain is:
+
+1. `setObservationSource` has **zero call sites** (§E257), so the observation ring has **no source**.
+2. ⇒ `Core::observe([1800,0])` replays cumulatives whose 1800s difference is **constant**:
+   `(51025752215810630000000000 − 46523700650276630000000000) / 1800` = **2501.13975863**.
+3. ⇒ `SwapLib::twapResolve` then anchors against Chainlink, which reads **250113975863** (8-dec) =
+   **2501.13975863** — *the identical number*, because `_rallyRange` sets the mock feed from the ring's
+   own price (`_setEthFeed(px / 1e10)` where `px = getTWAPforAsset(...)`). **The anchor is a copy of
+   the thing it anchors.**
+4. ⇒ `getTWAPforAsset` returns **2501139758630000000000**, byte-identical to the `ilBasisPx`/`syncKeyPx`
+   pinned at open.
+5. ⇒ `LevMath.ilTargetBps` hits its first line — `if (ilBasisPx == 0 || pxNow <= ilBasisPx) return 0`
+   — and returns **0**. Up-side-only is the design; at `pxNow == ilBasisPx` there is no up-side IL.
+6. ⇒ `debtDeltaToTarget` returns `(false, 0)`; `openLev`'s `for (i < MAX_LOOPS)` breaks on iteration 0
+   and `rebalance` no-ops.
+7. ⇒ **`venue.borrow` is never reached, so `borrowShares` stays 0 while `collateral` is 5e18.**
+
+⚠️ **THE FAILURE IS ATTRIBUTED TO THE WRONG CONTRACT AT EVERY STEP, WHICH IS WHY IT HAS COST SO MUCH.**
+The visible symptom is a Morpho `Position` with zero debt, so it reads as *"the venue will not lend"* —
+`LevYbReal._rallyRange`'s own §RALLY-MASK note records the same misattribution **across 40 leverage
+tests**. The venue was never asked. **Book the mechanism, not the symptom.**
+
+✅ **ONE REAL DEFECT FIXED ON THE WAY, AND IT WAS MASKING THE ABOVE.** Every rally swap was reverting
+with `Error("ethSend")` before this run: `Quid.deliverVolatile` is documented *"ETH sends real ether"*
+and ends in `payable(toWhom).call{value: sent}("")` + `require(success, "ethSend")`, and **no test file
+in this repo declared `receive() external payable`** — so the harness could not be paid.
+`AllesFixture` now declares one (§E309), which took the rally from **0 successful swaps to 10** (gas
+6.07M → 16.67M). ⇒ **It is a real fix and it is NOT the fix for the borrow**: with the pool now
+genuinely drained, the rally still ends on `SlippageMaxS()` (`max == 0`, a dry volatile pool) and the
+oracle still reads 2501.13975863. **Two independent blockers were stacked, and the first hid the
+second.**
+
+▶️ **CONSEQUENCE FOR THE OWNER'S 2× LOOP — and it is the reason to read C18 before C17-c.** The
+recursive lever loop **is already built**: `LevManager.openLev` runs
+`_leverUpBuy` (= `venue.borrow` → `LevMath.stableToColl` buys collateral → `venue.supply`) up to
+`MAX_LOOPS` times, which is exactly borrow → buy → supply → repeat. **Nothing needs writing for the
+loop itself.** It cannot execute — at 2× or at any leverage — until the ring has a source, because the
+IL target that drives it is identically zero while the oracle is frozen.
+⇒ **§E257 (the ring source) is the blocker for the leverage product, not just for pricing.** That
+raises its priority above the routing work: it is currently the reason the lev book cannot open a
+single levered position.
