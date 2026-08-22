@@ -14,6 +14,10 @@ import {Vault} from "../../src/Vault.sol";
 ///         `Alles.testOutOfRangeUSDPosition` on the BTC (USD/WBTC) curve: place a
 ///         single-sided USD limit order outside range, then pull it back.
 contract BtcSelfManagedTest is AllesFixture {
+
+    /// §E329 — this file tests the BTC range, so its `CORE` is the BTC instance. See
+    /// `BtcLpMintStress` for why reading the ETH one is silent rather than an error.
+    function setUp() public override { super.setUp(); CORE = BTC.CORE(); }
     /// Create a USD-funded boundary order on the BTC curve, then fully pull it.
     function testOutOfRangeBtc_USDPosition() public {
         vm.startPrank(User01);

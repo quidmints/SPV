@@ -16,6 +16,10 @@ import {QuidLib} from "../src/imports/QuidLib.sol";
 ///   is throttled, while the fail-open baseline pairs fully. The theta VALUE's live-ness itself is
 ///   covered by the same QuidLib.derivedThetaWad path DerivedTheta.t.sol exercises for ETH.
 contract BtcRangeThetaProbe is AllesFixture {
+
+    /// §E329 — this file tests the BTC range, so its `CORE` is the BTC instance. See
+    /// `BtcLpMintStress` for why reading the ETH one is silent rather than an error.
+    function setUp() public override { super.setUp(); CORE = BTC.CORE(); }
     function test_BtcRange_ThetaThrottlesInRangePairing() public {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels (requestDeposit is gated)
 

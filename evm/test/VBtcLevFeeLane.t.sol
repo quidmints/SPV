@@ -55,6 +55,10 @@ interface IAaveV3AddrProviderT { function getPoolDataProvider() external view re
 ///             (net-equity == collateral); the "levered-but-equity-intact" self-financing sub-step
 ///             from the ETH test has no synchronous analogue and is out of scope for a unit test.
 contract VBtcLevFeeLane is AllesFixture {
+
+    /// §E329 — this file tests the BTC range, so its `CORE` is the BTC instance. See
+    /// `BtcLpMintStress` for why reading the ETH one is silent rather than an error.
+    function setUp() public override { super.setUp(); CORE = BTC.CORE(); }
     /// (E128) A FIXED dead-man deadline. `block.number + n` cannot be used: the BIP-341 sighash
     /// commits to nLockTime, so the exit must be signed for a height known before the tx is built.
     uint64 constant EXIT_DEADLINE = 900_000;
