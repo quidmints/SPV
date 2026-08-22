@@ -91,8 +91,18 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
             if (ETH.soldFractionWad(syncKeyPx) >= targetWad) break;
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
-            _setEthFeed(px / 1e10);
+            // 🔴 §E310 — READ THE POOL, NOT THE RING. This read `AUX.getTWAPforAsset` (the
+            // observation ring) and set the Chainlink mock FROM it, so the anchor was a copy of the
+            // thing it anchors and NEITHER could move. Measured (§C18): ring TWAP, Chainlink and the
+            // pinned `ilBasisPx` were all 2501.13975863 after TEN successful swaps, so `ilTargetBps`
+            // returned 0 and `venue.borrow` was NEVER INVOKED -- which reads as "Morpho will not
+            // lend". ⛔ `rangePrice()` is NOT an escape: `CORE.poolStats().priceWad` IS
+            // `obsState.lastPrice`, the ring again. §V4-CUT settles fills AT ORACLE against
+            // inventory, so A SWAP MOVES NO PRICE -- the move must be INJECTED, not read.
+            uint px = ETH.rangePrice(); if (px == 0) break;
+            px += px / 20;                          // +5%: the MARKET moves, EXOGENOUSLY
+            _setLiveEthFeed(px / 1e10);             // Chainlink follows the market (LIVE feed, §E310) ...
+            CORE.pushObservation(px);               // ... and the ring records it (deviation 0 => admissible)
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }

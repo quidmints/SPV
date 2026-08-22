@@ -193,12 +193,16 @@ contract LevYbRealProbe is AllesFixture {
             // ring TWAP, Chainlink and the pinned `ilBasisPx` were all 2501.13975863 after TEN
             // successful swaps, so `ilTargetBps` returned 0, `debtDeltaToTarget` returned 0, and
             // `venue.borrow` was never invoked -- which reads as "Morpho will not lend".
-            // `rangePrice()` is `CORE.poolStats()`, the TRUE range price, and its own natspec says it
-            // exists so IL is measured "from the true range price (not the oracle)".
+            // ⛔ AND THE FIRST ATTEMPT AT THIS FIX WAS ALSO CIRCULAR, so do not "simplify" it back:
+            // `rangePrice()` is `CORE.poolStats()`, whose `priceWad` IS `obsState.lastPrice` -- the
+            // ring again. §V4-CUT settles fills AT ORACLE against inventory ("one price, no
+            // traversal, no discovery"), so A SWAP DRAINS INVENTORY AND MOVES NO PRICE. There is no
+            // endogenous price to read: the move must be INJECTED.
             uint px = ETH.rangePrice();
             if (px == 0) { emit log_named_uint("RALLY EXIT rangePrice==0 at step", i); break; }
-            _setEthFeed(px / 1e10);                 // anchor follows the POOL ...
-            CORE.pushObservation(px);               // ... so this bounded push is admissible
+            px += px / 20;                          // +5%: the MARKET moves, EXOGENOUSLY
+            _setLiveEthFeed(px / 1e10);             // Chainlink follows the market (LIVE feed, §E310) ...
+            CORE.pushObservation(px);               // ... and the ring records it (deviation 0 => admissible)
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {}
             catch (bytes memory err) { emit log_named_bytes("RALLY SWAP REVERTED", err); break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);

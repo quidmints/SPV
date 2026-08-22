@@ -8385,3 +8385,75 @@ IL target that drives it is identically zero while the oracle is frozen.
 ⇒ **§E257 (the ring source) is the blocker for the leverage product, not just for pricing.** That
 raises its priority above the routing work: it is currently the reason the lev book cannot open a
 single levered position.
+
+### C19. 🔴🔴 THE LEVERED BOOK CANNOT OPEN A POSITION AT ANY PRICE PATH — THE IL TARGET IS 30× BELOW ITS OWN DEADBAND (2026-08-22)
+
+C18 concluded the borrow was skipped because the oracle never moved. **That was true and it was not the
+bottom.** Three test-harness defects were stacked on top of a PRODUCTION defect, and each one hid the
+next. With all three removed and the oracle demonstrably moving (ring TWAP 2501.13975863 → 2626.19674656
+across the rally, two distinct values where C18 measured one), **`venue.borrow` is STILL never invoked.**
+
+🔴 **THE PRODUCTION DEFECT, MEASURED FROM CONSTANTS RATHER THAN INFERRED:**
+
+| quantity | value | where |
+|---|---|---|
+| band half-width `RANGE_DELTA` | **20 bps** (±0.2%) | `SwapLib.sol:789` |
+| action deadband `RANGE_BPS` | **300 bps** | `LevBase.sol:45` |
+| max `ilTargetBps` before the basis is wiped | **9.99 bps** | derived below |
+
+1. **`RANGE_ANCHOR = o.spotPrice` is UNCONDITIONAL** (`Quid.sol:1259`, in `_rebalance`) — the band
+   recenters on the current oracle price at **every** repack. `rangeBounds()` is
+   `updateBounds(RANGE_ANCHOR, 20)`, so the band is always ±0.2% around spot.
+2. ⇒ once the price drifts >0.2%, the position's pinned `syncKeyPx` sits outside `[lo, hi]`, so
+   `LevMath.reanchorCompute` returns **true**.
+3. ⇒ `RangeLib.reanchorIfReseated` then executes **`q.ilBasisPx = uint128(px)`** — it overwrites the
+   IL basis with the **CURRENT** price. Measured in-trace: `reanchorCompute(Quid, 2501.13975863)` →
+   `(true, 2626.19674656)`, and the very next call is
+   `ilTargetLive(range, 2626.19674656, 2626.19674656, 2626.19674656, 5000)` — **all three arguments
+   equal**, so `ilTargetBps` returns 0 on its first line.
+4. ⇒ the most IL that can ever accumulate is one half-band of drift: `1 − √(1/1.002)` = **9.99 bps**
+   (a full 0.4% traverse still only reaches 19.94 bps).
+5. ⇒ `LevMath.debtDelta`'s first line is
+   `if (cur + rangeBps >= targetBps && cur <= targetBps + rangeBps) return (false, 0)`. With `cur = 0`
+   and `rangeBps = 300`, **any `targetBps ≤ 300` returns no-action.** 9.99 ≪ 300.
+
+⇒ **THE ACHIEVABLE IL TARGET IS 30× BELOW THE THRESHOLD REQUIRED TO ACT, SO `debtDelta` RETURNS
+`(false, 0)` ON EVERY PATH AND `venue.borrow` IS UNREACHABLE.** Not "not yet exercised" — **unreachable
+by construction**, for any price path, at any leverage, on both the ETH and BTC books.
+
+⚠️ **AND THE ONE PART THAT IS *NOT* JUSTIFIED BY THE DOCUMENTED INVARIANT.** `CLAUDE.md` defends the
+reanchor: *"E0 IS NOT FIXED AT OPEN — `_reanchorIfReseated` re-bases it to `netEquity(lp)` … levering
+moves collateral and debt by the SAME amount, so net equity is LEVERAGE-INVARIANT."* **That argument
+covers `q.entryEquity` and ONLY `q.entryEquity`.** `reanchorIfReseated` writes **three** fields, and
+re-basing **`q.ilBasisPx`** means *forgetting the price we entered at* — which is precisely the quantity
+the IL hedge exists to measure. **A leverage-invariant equity base does not imply a resettable price
+base**, and the note has been read as blessing both.
+▶️ **THE CANDIDATE FIX IS THEREFORE NARROW: stop writing `q.ilBasisPx` in the reanchor.** Re-base
+`syncKeyPx` (it tracks the range seat, which genuinely moved) and `entryEquity` (leverage-invariant,
+justified) and leave the IL basis pinned at open. **Unverified — it is a money-path change and needs its
+own run.** ⚠️ Second, independent question, do NOT bundle it: **a 300 bps deadband against a ±20 bps
+band is dimensionally mismatched** even with the basis fixed, and the two constants have never been
+calibrated against each other (§C2/§C12 already hold the range-recalibration item).
+
+✅ **THE THREE HARNESS DEFECTS FOUND ON THE WAY — all real, all landed or staged, none of them the fix:**
+1. **`ethSend` (§E309, landed).** `Quid.deliverVolatile` sends *real ether* and **no test file declared
+   `receive() external payable`**, so every rally swap reverted. `AllesFixture` now has one → rally went
+   from **0 successful swaps to 10**.
+2. **The rally read its own oracle (§E310).** `px = AUX.getTWAPforAsset(...)` then
+   `_setEthFeed(px / 1e10)` — **the anchor was a copy of the thing it anchors**, in **16 sites across 6
+   files**. ⛔ And `rangePrice()` is NOT an escape: `CORE.poolStats().priceWad` **IS** `obsState.lastPrice`,
+   the same ring. **§V4-CUT settles fills AT ORACLE against inventory — "one price, no traversal, no
+   discovery" — so a swap moves NO price.** The move must be **injected**, never read.
+3. **`_setEthFeed` was INERT in these fixtures.** `ETH_FEED = address(0xE7F0FEED)` is a sentinel that
+   only becomes the anchor after `AUX.setAssetFeed(WETH, ETH_FEED)`; `LevYbReal`, `LevCascade` and
+   `LeverageCrossSubsidyProbe` never pin it, so they read **real Chainlink** and every `_setEthFeed` call
+   did nothing. `pushObservation` then refused all 11 pushes (5% pushed price vs a **50 bps**
+   `OBS_PUSH_MAX_BPS` bound) — **silently, by `return`**. `_setLiveEthFeed` mocks whatever
+   `AUX.assetPriceFeed(WETH)` actually returns.
+
+⚠️ **EVERY ONE OF THE FOUR FAILS SILENTLY AND SURFACES ON THE WRONG CONTRACT** — a Morpho `Position` with
+`borrowShares: 0`, which reads as *"the venue will not lend"*. `_rallyRange`'s §RALLY-MASK note records
+the same misattribution across **40 leverage tests**. **The venue was never asked, four times over.**
+▶️ **Book separately: `pushObservation` refusing out-of-band pushes by `return` is correct** (a revert
+would let a stalled oracle halt the range) **but leaves a misconfigured pusher indistinguishable from no
+pusher.** There is no counter or event for a refused push. That is what made defect 3 invisible.

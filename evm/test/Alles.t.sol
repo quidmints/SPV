@@ -1025,6 +1025,24 @@ contract AllesFixture is ForkPin, ExitFixture {
     address constant ETH_FEED = address(0xE7F0FEED);
 
     /// Mock the WETH Chainlink feed at `usd8` (8-dec). Re-mock to move it.
+    /// 🔴 §E310 — MOCK THE FEED THE PROTOCOL ACTUALLY READS. `_setEthFeed` targets the
+    ///    `0xE7F0FEED` SENTINEL, which only becomes the anchor after a fixture calls
+    ///    `AUX.setAssetFeed(WETH, ETH_FEED)` (this file does so at two sites). A fixture that never
+    ///    pins it -- `LevYbReal`, `LevCascade`, `LeverageCrossSubsidyProbe` -- reads REAL Chainlink,
+    ///    and `_setEthFeed` is then completely INERT.
+    /// ⚠️ THE FAILURE IS SILENT AND LANDS ON ANOTHER CONTRACT. `Core.pushObservation` validates the
+    ///    pushed price against `AUX.assetPriceFeed(ASSET)` within `OBS_PUSH_MAX_BPS = 50`, and
+    ///    RETURNS (never reverts) when it is outside. So an inert `_setEthFeed` leaves the anchor at
+    ///    real Chainlink while the pushed price ramps away from it, every push is refused with no
+    ///    signal, the ring never moves, `ilTargetBps` stays 0, and `venue.borrow` is never invoked --
+    ///    which reads as "Morpho will not lend" (§C18).
+    function _setLiveEthFeed(uint usd8) internal {
+        address f = AUX.assetPriceFeed(address(WETH));
+        vm.mockCall(f, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
+        vm.mockCall(f, abi.encodeWithSignature("latestRoundData()"),
+            abi.encode(uint80(1), int256(usd8), uint(0), block.timestamp, uint80(1)));
+    }
+
     function _setEthFeed(uint usd8) internal {
         vm.mockCall(ETH_FEED, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
         vm.mockCall(ETH_FEED, abi.encodeWithSignature("latestRoundData()"),
