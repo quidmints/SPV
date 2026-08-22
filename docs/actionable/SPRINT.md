@@ -2847,6 +2847,32 @@ a different product (my point: it is exposure-NEUTRAL and cannot restore sold ET
 venue for it is also thin. **Two independent reasons, either sufficient.** Read that thread's work
 before re-opening this.
 
+## 📋 §BITCOIN-CLOSEOUT — **EVERY BITCOIN ITEM THIS THREAD TOUCHED, AND ITS TRUE STATE (2026-08-22)**
+
+Written so the thread can be closed without re-deriving what is done. **✅ = landed AND verified;
+🔴 = open with its blocker named.** Nothing here is "probably fine".
+
+| # | item | state |
+|---|---|---|
+| 1 | **B0 — fleet no longer co-hosts the LP vault** | ✅ `QUID_FLEET_COHOSTS_VAULT`, default OFF |
+| 2 | **§E182 rekey** | ✅ landed; **§REKEY-FOLD** removed its `lpSig` — the LP now signs NOTHING on the EVM, without exception |
+| 3 | **§E183 item 1 — `lpEth` derived from the channel key** | ✅ contract; **`#21`** fixed every fixture (`NotPubkeyHash` 20→0) |
+| 4 | **§T2 terms commitment** | ✅ Solidity + Rust + ibiza wallet |
+| 5 | **§LAZY-OPEN** (try/catch claim) + **-RETRY** (reconciler) + **-SHRINK** (named error) | ✅ all three, suite at baseline |
+| 6 | **§LP-LIVENESS gate** | ⚠️ **BUILT AND SHIPS OFF.** Fails closed, so it CANNOT be enabled until the phone posts heartbeats. **The threshold is a required arg with NO default and must be MEASURED from the slowest co-sign — do not pick one.** |
+| 7 | **§TEST-RECONSTRUCTIONS** | ✅ closed — 1 deduped, 1 correctly kept (it is a control), 1 dissolved with `§REKEY-FOLD` |
+| 8 | **§FUZZ-WAS-DEAD** | ✅ target repointed + `tools/check-fuzz-targets.py` in CI, control-verified |
+| 9 | **domain tags** | ✅ all four gone; the two dead digest accessors deleted first, which is what made it safe |
+| 10 | **§MORPHO-UNVENDOR** | 🔴 **DONE ONCE AND LOST** — built clean, worktree removed before push. Redo: the surface is 14 `IMorpho` members, `MarketParamsLib.id`, `IOracle.price`, `IVaultV2.liquidityAdapter`. ⚠️ Use the **StaticTyping (tuple-returning)** variant or it compiles and mis-decodes. |
+| 11 | **`#14` key recovery** | 🔴 **THE DOMINANT RESIDUAL.** Blocked on ONE owner decision: what is the recovery trust anchor (Shamir/family-plan, delayed co-signer, or a second registered key). Each gives a different contract surface. |
+| 12 | **`#4` §LN-SWAPIN-REMAINDER** | 🔴 owner decision: who bears the gap (seller, pool, or hop) |
+| 13 | **§E183-UNMASKED ×5** | 🔴 incl. an all-native close measuring **~6 QU!D minted** — rule 8b makes that the highest-value one |
+| 14 | **`PUPPETEER-E2E-MATRIX.md`** | 🔴 still specifies the two-leaf `tapBranch` verifier; should point at the one-leaf shape. **Named at the start of this thread and never touched.** |
+| 15 | **ibiza handover** | ✅ heartbeats + web/app split pushed; the rekey-signing ask **retracted** the same day when §REKEY-FOLD deleted it |
+
+⚠️ **THE ONE THING A READER SHOULD NOT MISREAD:** items 6 and 10 look like "nearly done" and are not.
+The gate is inert until a phone exists, and the un-vendoring has to be redone from scratch.
+
 ▶️ **WHERE TO LOOK FIRST — REWRITTEN 2026-08-18, because nine of the seventeen rows above are now
 closed and the old order pointed mostly at those.**
 0. **`#22` — the liveness gate.** Above everything else: `§E233-ladder` already landed the half
