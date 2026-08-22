@@ -7529,8 +7529,8 @@ has made. **Rule 1 deletes UNREACHABLE code; it does not delete code awaiting a 
 
 ### ⇒ THE WHOLE ~580 LINES SIT BEHIND **ONE** QUESTION — §E293's #2 vs #3
 Whether *"paid against 1inch"* means **we pay the router** (#2) or **the solver routes what we decline**
-(#3). Under #3, §E278-partialfill's reading holds and **`refillPlacement` and `proRataShortfall` may
-have NO JOB AT ALL** — they size and apportion a restoration we never perform, and the fold is a
+(#3). Under #3, §E278-partialfill's reading holds and **`refillPlacement` may
+have NO JOB AT ALL** (⛔ §E313: `proRataShortfall` DOES — exit ordering, not restoration)** — they size and apportion a restoration we never perform, and the fold is a
 DELETION. Under #2 they are the sizing layer and the fold is a WIRING. ⇒ **The same 580 lines are
 either dead weight or the next feature, and one sentence decides which.** **That is the highest-leverage
 open item in the skew area — not because it is hard, but because everything downstream is blocked on it.**
@@ -7708,7 +7708,9 @@ does not have a hard answer — **it has no referent.** There is no restoration 
 2. ✅ **§E285's 48× RETRACTION IS CONFIRMED CORRECT** — and for a stronger reason than I gave. I
    retracted it because *the solver routes what we decline*; the real reason is that **no party on our
    side ever buys inventory back**, so a "restoration spread" was never a cost we could underpay.
-3. 🔴 **`refillPlacement` AND `proRataShortfall` HAVE NO JOB — THEY ARE DELETABLE, NOT PARKED.** They
+3. 🔴 **`refillPlacement` HAS NO JOB — IT IS DELETABLE, NOT PARKED.** ⛔ **CORRECTED BY §E313: this
+   row originally named `proRataShortfall` too and WAS WRONG. That one is the rule-17 root fix for the
+   round-trip EXIT-ORDERING attack (15.2 bps measured), which this argument does not touch. RESTORED.** They
    size and apportion a restoration we do not perform. §E278-partialfill predicted exactly this under
    this reading; the reading is now confirmed. ⇒ **~30 lines + `RefillPlacement.t.sol` (182) +
    `RefillTriggerAndProRata.t.sol` (84).** ⚠️ **`refillNeeded` is the survivor** — it IS `skewWad`'s
@@ -7831,7 +7833,7 @@ are what this pass covers.
 | §LAZY-OPEN-SHRINK | `_requireClaimRegistered` is a private view | ✅ ×3 |
 | §E141 / `ExitLib` | the library is justified | ✅ exists |
 | §E300 | `_fillableDrain` prices what we can serve | ✅ ×2 |
-| §E301 | `refillPlacement`/`proRataShortfall` are deletable | ✅ **already deleted, and cleanly** |
+| §E301 | `refillPlacement` deletable; ~~`proRataShortfall`~~ | ⛔ **HALF WRONG — §E313 restored `proRataShortfall`; only `refillPlacement` was deletable** |
 | **§6b** | ***"`contract Shares` — DELETED 2026-08-17"*** | 🔴 **reads FALSE — see below** |
 
 ### 🔴 §6b IS A NAME TRAP, AND IT IS THE MIRROR OF THE ONE CLAUDE.md WARNS ABOUT
@@ -8033,7 +8035,7 @@ have outweighed the above.
 ### ⭐ WHAT THE SWEEP ACTUALLY FOUND: §E301's DELETABLE FAMILY HAS A THIRD AND FOURTH MEMBER
 §E301 settled that **the swapper pays**, we never source inventory, and *"the question 'who affords the
 restoration' … has no referent. There is no restoration we perform."* On that basis it declared
-`refillPlacement` and `proRataShortfall` deletable — *"they size and apportion a restoration we do not
+`refillPlacement` deletable (⛔ §E313: NOT `proRataShortfall`) — *"they size and apportion a restoration we do not
 perform."* **The same sentence retires two more, in `FixedRateFill`:**
 - **`splitCost`** (`:223`) apportions **`realisedCost` — "measured cost of the rebalance"** three ways
   between swapper, LP and basket, with a written analysis of why each pure answer is a corner
