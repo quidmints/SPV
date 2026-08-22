@@ -9616,6 +9616,12 @@ design — but it is a trade, it has a measured price in the literature, and it 
 silently. ▶️ **Book it as a known cost of the maturity ladder; do not let it be re-discovered as a bug.**
 
 ### ▶️ WHAT TO ACTUALLY DO, CHEAPEST FIRST
+⛔ **SCOPE CORRECTION — READ §E326 FIRST.** This section treats `netFlowUsd` as the input `Basket.mint`
+wants. It is not: `_bumpFlow` has ONE call site, inside `swap`, so `netFlowUsd` measures **swap** travel
+(basket ↔ volatile), while the mint/redeem mark question is about **issuance** flow, which is measured
+NOWHERE. The counter below is real and earns its place for the SWAP path; it does not answer the mark
+question, and step 2's *"give `Basket.mint` a way to read it"* would have pointed `mint` at the wrong
+quantity.
 1. ✅ **DONE — `Core.netFlowUsd`, an `int256` in 6-dec USD.** Wired at the ONE place the sign already
    existed and was being destroyed: `swap`'s flow bump computes `uint(usdLeg < 0 ? -usdLeg : usdLeg)`
    and hands the magnitude to `_bumpFlow`, so `netFlowUsd += usdLeg` sits beside it and needs no
@@ -9826,6 +9832,86 @@ did reach LPs by compounding, so the deletion IS a real revenue reduction agains
 and free only against a derivation that never authorised charging twice. **The correction was written
 during this thread, lost to a working-tree reset, and the uncorrected sentence is what another thread
 committed** — so a fee cut was documented as a no-op on the money path. Fixed in place.
+
+
+---
+
+## 🔴 §E326 — **THE SSRN QUESTION IS ABOUT THE MINT/REDEEM *MARK*, AND §E320 ANSWERED A DIFFERENT ONE. `netFlowUsd` IS SWAP FLOW, NOT ISSUANCE FLOW.**
+
+**Owner, 2026-08-22:** *"the ssrn was supposed to be applicable to the mark or whatever we use for mint
+and redeem of the basket shares vs the trading activity of BTC and ETH and the velocity of minting and
+redemption (right now all we take into account are the staking yields of the constituent in the
+basket's vaults where they are deployed)."*
+
+### ⛔ FIRST, THE CORRECTION TO MY OWN WORK — TWO DIFFERENT FLOWS, AND I SHIPPED THE OTHER ONE
+`Core._bumpFlow` has **exactly ONE call site: `Core.sol:818`, inside `swap`.** So `flowEwmaUsd` and the
+new `netFlowUsd` (§E320) both measure **secondary/trading travel — basket ↔ volatile**. They say
+nothing about issuance. ⇒ **PRIMARY-MARKET FLOW — the mint and redeem of basket shares — IS MEASURED
+NOWHERE IN `evm/src`.** Zero registers (`grep` for any `mint|redeem` × `Usd|Volume|Ewma|Flow|Velocity`
+accumulator returns nothing outside comments). §E320's *"give `Basket.mint` a way to read it"* therefore
+pointed `mint` at the wrong quantity; the instrument it needs does not exist yet.
+
+### THE MARK TODAY IS PURE CARRY
+`BasketLib.calcMintYield(deposited, decimals, when, nextMonth, avgYieldIn, isSeed)` is `external pure`:
+```
+normalized += normalized · yield · (month − nextMonth + 1) / (WAD · 12)
+```
+**Duration × observed vault yield, and nothing else** — exactly as the owner says. No flow term, no
+volatility term, no velocity term, on either the mint or the redeem side.
+
+### ⭐ AND THE FRAMING THAT MAKES THIS SHARP: OUR PRIMARY MARK ALREADY VARIES. TETHER'S DOES NOT.
+The paper's whole mechanism rests on the issuer being **passive at par** — the Treasury mints and
+redeems at exactly 1.0, and *private arbitrageurs* move `θs` until the secondary price returns
+(`θ̇s = ω(p−1)`, eq. 17). **We are not that.** `calcMintYield` sets a NON-PAR primary mark already.
+⇒ **So the question is not "should the primary mark respond to something?" — it already does. It is
+"why does it respond to CARRY and not to FLOW?"** Carry is the one input that says nothing about
+whether the basket currently needs more shares outstanding or fewer.
+
+### 🔴 THE VELOCITY TERM EXISTED AND WAS DELETED, AND SSRN CHALLENGES THE STATED REASON
+`Aux.sol:966-973` records `baseRate`: a **Liquity-style DIRECTIONAL redemption velocity toll**, decaying
+on a 12h half-life (`BR_DECAY`), heating by `redeemedUsd/(2·supply)` on every QU!D redemption, clamped
+at `MAX_FEE`. **That is precisely the mechanism the owner is asking about, and it is gone.** The removal
+rationale:
+> *"QU!D has NO such peg-arb loop: redemption is a NAV basket-share claim … not a market-peg defense —
+> so the toll had no peg to protect."*
+
+⚠️ **THE PAPER'S CENTRAL FINDING IS THAT THIS DISTINCTION DOES NOT HOLD.** Tether's Treasury is *also*
+"just a par/NAV claim" in intent — it defends nothing, it merely issues and redeems — and Lyons &
+Viswanath-Natraj's result is that **that IS the peg-defence loop**, executed by private arbitrageurs
+while the issuer stays passive (their explicit contrast with central-bank intervention). A NAV claim
+and a peg-arb loop are not alternatives; the first BECOMES the second the moment a secondary price
+exists to deviate from it.
+⇒ **The removal was justified by QU!D having no secondary market — true today, FALSE AT LISTING.** The
+toll had no peg to protect *yet*. ▶️ **Nothing in this repo tracks that trigger.** Book the condition,
+not a date: when QU!D has a secondary quote, the `baseRate` deletion must be re-argued, and this row is
+the argument against it.
+
+### THE TWO INPUTS THE OWNER NAMES, MAPPED TO WHAT WE HAVE
+| owner's input | paper's channel | our state | verdict |
+|---|---|---|---|
+| **trading activity of BTC/ETH** | `σ²m/σ²s` — the latency/safety premium (eq. 14); Table 8's `σBTC` | `Core.realizedVarianceWad()` | 🔴 **EXISTS AND IS IDENTICALLY 0** (§E294/§E306/§E308 — `pushObservation` has no callers). Table 8 puts `σBTC` at **115.10\*\*\*** in the DISCOUNT regime, the largest coefficient in the paper, and the discount regime is the one where a peg actually breaks. |
+| **velocity of mint/redeem** | `θ̇s` — the state variable of the whole model | **nothing** | 🔴 **NEVER MEASURED.** `_bumpFlow` is swap-only; `baseRate` was the only issuance-velocity register and was deleted. |
+| (what we DO use) | — | `avgYieldIn` | 🟡 Carry. Real, but orthogonal to both. |
+
+### ⛔ THE BLOCKER, AND IT IS THE SAME SHAPE AS `_rallyRange`
+The paper's control variable is **`p − 1`, a SECONDARY-MARKET deviation**. QU!D has no deep secondary
+market, so we cannot observe it and cannot close their loop. Inferring the deviation from our OWN flow
+and then pricing our OWN mint off that inference is **self-referential in exactly the way §E310/§E314
+warn about** — `_rallyRange` set the Chainlink mock from `AUX.getTWAPforAsset`, so the anchor was a copy
+of the thing it anchored and nothing could move. **A mint mark fed by a protocol read is circular; one
+fed by an exogenous price or an exogenous flow is not.** (`§LOOSE-ENDS-SCAN` item 4 states this rule for
+mocks; it is the same rule for marks.)
+⇒ **ORDER OF WORK, and it is instrument-before-price for exactly this reason:**
+1. **Measure issuance velocity.** A mint/redeem flow register — signed, decayed, the SAME `Flow` struct
+   and `FLOW_DECAY` the swap side already uses (`Core.sol:200-210` argues a third decay constant would
+   be an unjustified magic number; the same argument applies here).
+2. **Make σ² real** (§E294's keeper). Without it the discount regime — the dangerous one — has no input
+   at all, and Table 8 says that is where it matters most.
+3. **Only then** argue the mark. It is a money-path change to the price of every mint and redeem, and
+   it cannot be calibrated on two dead inputs.
+⚠️ **And do not lift the coefficients.** Their risky asset sits OUTSIDE the reserve; ours sits INSIDE it,
+so travel changes the basket's composition rather than its size (§E320). The paper is evidence about the
+SHAPE of the response — signed, regime-split, flow-vs-volatility — never about magnitudes.
 
 
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
