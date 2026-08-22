@@ -9435,6 +9435,101 @@ Owner asked for all unfinished refactor work booked before the thread closes. **
 | §E311 `imbalanceFeeUsd6` | redundant with depletion + `sellSkew`; constant made self-explaining |
 | §E312 / §E313 | two of my own wrong calls retracted and restored |
 
+---
+
+## 🟡 §E320-SSRN — **THE PAPER'S CENTRAL INSTRUMENT IS A *SIGNED* FLOW ACCUMULATOR. WE COMPUTE THE SIGN ON EVERY SWAP AND THROW IT AWAY.**
+
+**Source:** Lyons & Viswanath-Natraj, *What Keeps Stablecoins Stable?* (SSRN 3508006, July 2020 version,
+72pp) — `quidmint/SSRN.pdf`. Read in full for this row. Owner's question: what does its theory add to
+`Basket.mint`, given that our skew already observes travel between the basket and the volatile leg.
+
+### THE MODEL, IN ONE LINE EACH
+The stablecoin price is `p = E[p'] · ((1−θs)/θs) · (E[Rs]/(E[Rm]−φ'(C))) · (σ²m/σ²s)` (eq. 14), where
+`θs` is the share of wealth using the coin as the VEHICLE for buying a risky cryptoasset. Peg
+restoration is **entirely private-arbitrage**, not issuer intervention: `θ̇s = ω(p−1)` (eq. 17), where
+**ω is nothing but arbitrageurs' ACCESS to the primary market**. The issuer is passive.
+
+### WHY THIS IS ABOUT US AND NOT JUST ANALOGY
+`θs` is *"dollars travelling into the risky asset via the coin"*. **That is the exact quantity our skew
+is computed from** — `wellSkew` prices basket→volatile travel, `sellSkew` prices volatile→basket. The
+paper had to RECONSTRUCT this from exchange tape (eq. 25: `OF = Σ V·(1[buy] − 1[sell])`, three
+exchanges, a vendor feed and a taker-side flag). **We generate it as a side effect of settling a swap.**
+
+### 🔴 THE FINDING — WE HAVE THE OBSERVABLE AND WE DISCARD ITS SIGN
+| what | where | state |
+|---|---|---|
+| direction of travel | `SwapLib.wellSkew` ∥ `SwapLib.sellSkew` | **known per swap, never stored** |
+| the only persisted trace | `Core.skewPremium` (`:346`, `:358`) | **`+=` ONLY — a monotonic UNSIGNED sum** |
+| what `Basket.mint` can read | `Basket.sol:33` declares `Aux public AUX;` **and nothing else** | **no `Core` handle at all** |
+| what sets the mint terms | `BasketLib.calcMintYield` — `external pure`, inputs `(deposited, decimals, when, nextMonth, avgYieldIn, isSeed)` | **duration and vault yield. No flow term, no price term.** |
+⇒ **`skewPremium` is `Σ|premium|` where the paper's instrument is `Σ sign·volume`.** An unsigned sum
+cannot distinguish a basket being drained from a basket being filled — the two states that call for
+OPPOSITE mint behaviour. The information exists for one instruction and is destroyed in the next.
+
+### ⭐ AND THE EVIDENCE SAYS THE RESPONSE MUST BE ASYMMETRIC, WHICH IS THE PART THAT WOULD HAVE BEEN GOT WRONG
+Their Table 7 regresses the daily price change on signed order flow, split by regime:
+
+| regime | β on order flow | reading |
+|---|---|---|
+| full sample | **9.49\*\*\*** | flow moves price |
+| within 1sd of parity | **9.19\*\*\*** | same |
+| **discount** (`p−1 < −1sd`) | 11.97, **s.e. 11.60 — NOT significant** | **flow carries no information** |
+| **premium** (`p−1 > +1sd`) | **35.07\*\*\*** | **~4× the parity impact** |
+
+And Table 8 adds 10-day BTC volatility `σBTC` to the same split — **the two observables swap roles**:
+
+| regime | β on flow | β on σBTC |
+|---|---|---|
+| near parity | 13.60\*\*\* | 6.07\*\*\* |
+| **discount** | 23.45 **(n.s.)** | **115.10\*\*\*** |
+| **premium** | 19.36\* | −5.63 **(n.s.)** |
+
+⇒ **Flow is the informative variable at and above parity; VOLATILITY is the informative one at a
+discount, where flow is noise.** A mint policy that reads net travel linearly would be calibrated on
+the one regime where the signal is statistically absent. **Any rule built here must be regime-split.**
+
+### 🔴 THE UNCOMFORTABLE HALF: THE SECOND OBSERVABLE IS THE ONE WE HAVE MEASURED AS DEAD
+The discount regime — the dangerous one, where a peg actually breaks — is governed by `σBTC` at
+**115.10\*\*\***, the largest coefficient anywhere in the paper. Our counterpart is
+`Core.realizedVarianceWad()` (`:307`), and **§E294 / §E306 / §E308 establish that it is ≡ 0 because
+`pushObservation` has ZERO callers and the ring is never written.** ⇒ **The variable the literature
+says dominates precisely when it matters most is, in this tree, a constant.** That is an independent
+argument for §E294's keeper, arriving from outside the codebase, and it should be read alongside
+§E283 (σ²=0 makes `UNKNOWN_VARIANCE_SKEW`'s 3% the only price we quote).
+
+### ⛔ WHERE THE ANALOGY BREAKS, AND IT IS LOAD-BEARING — DO NOT LIFT EQUATION (15)
+In the paper the risky asset is **outside** the reserve: the investor takes coins to an exchange, and
+`θs` rising means wealth has LEFT for a venue Tether does not hold. **Our volatile leg is INSIDE the
+backing.** Basket→volatile travel changes the reserve's COMPOSITION, not its size, so `θs` and the
+collateral ratio move together in a way eq. (14) has no term for. **The mapping must be re-derived on
+our own balance sheet before any coefficient is chosen.** Treat the paper as evidence about the SHAPE
+of the response (signed, regime-split, flow-vs-volatility) and never as a source of magnitudes.
+
+### 📌 AND A COST OF OUR OWN DESIGN THAT THIS PAPER PRICES, WHICH NOBODY HAS BOOKED
+The paper's whole identification is a natural experiment in **ω alone**: Tether's Omni→Ethereum
+migration changed no collateral and improved only arbitrageur ACCESS, and it cut absolute peg
+deviations by **45–50 bps** and the half-life from **6.5 days to 3.3**. Nothing else in the paper moves
+the peg that much. ⇒ **`ω` is the dominant policy variable, and our dated maturity schedule
+(`Basket.mint`'s `when` / `nextMonth`, and the headroom DEFERRAL to `nextMonth + 1`) is a deliberate
+reduction in `ω` on the redemption side.** That may well be the right trade for a dated-liability
+design — but it is a trade, it has a measured price in the literature, and it is currently made
+silently. ▶️ **Book it as a known cost of the maturity ladder; do not let it be re-discovered as a bug.**
+
+### ▶️ WHAT TO ACTUALLY DO, CHEAPEST FIRST — NONE OF IT IS DONE
+1. **Retain the sign.** A signed net-travel accumulator (or two counters) beside `Core.skewPremium`.
+   Without it every item below is unbuildable. ⚠️ Costs `Core` bytes — measure against
+   `check-contract-sizes.py` first; `Core` is not the binding contract today but has been twice.
+2. **Give `Basket` a way to read it.** Today `Basket` holds only `AUX`, so `mint` is flow-blind BY
+   CONSTRUCTION. `Aux` can already reach `Core`; route it rather than adding a second handle.
+3. **Then, and only then, a regime-split rule** for `calcMintYield` — which is `pure` today and would
+   have to stop being. **That is the expensive step and it is the one to argue about**, because it puts
+   a flow term on the money path. Steps 1–2 are pure instrumentation and are worth doing regardless:
+   they make the travel OBSERVABLE, which is the precondition for deciding whether it should be PRICED.
+⚠️ **This row proposes no coefficient and no clamp.** Per standing rule 3, the instrument earns its
+place because the failure it exposes is SILENT — a basket draining steadily in one direction is today
+indistinguishable, in stored state, from one that is balanced.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
