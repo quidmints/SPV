@@ -388,7 +388,6 @@ contract Aux is // Auxiliary
     // into others. The haircut already protects backing VALUATION immediately;
     // moving the funds is the part that needs a reaction window. The owner keeps
     // an un-dwelled emergency override for a genuine fast failure.
-    uint public constant EVAC_DWELL = 30 minutes;
     // (flaggedAt now lives in vaultHealth[vault].flaggedAt — see VaultHealth.)
 
     /// @notice MANUAL vault-health override (owner-only). The automated CRE

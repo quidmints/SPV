@@ -55,7 +55,6 @@ contract LevManager is LevBase {
     IWeETH    internal immutable RATE;    // weETH→ETH rate (== WEETH addr; getEETHByWeETH)
     IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
     // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our range.
-    address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
 
     // ── leverage range ──
