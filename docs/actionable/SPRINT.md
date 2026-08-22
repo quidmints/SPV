@@ -9424,3 +9424,33 @@ emit log_named_uint("oracle", AUX.getTWAPforAsset(address(WETH), 1800));   // BE
 manager skips the borrow"*, *"the de-lever does not repay"*, *"the LP's claim conceals 4.7% IL"* —
 each with a tidy story and the wrong subject. **A quantity that fits a constant perfectly across a
 supposedly varying input is a FROZEN INPUT, not a discovery.**
+
+### C24. ⛔ §C19-REGRESSION IS NOT REPRODUCIBLE — `BtcLpMintStress` IS 14/8 **WITH** THE COMMIT IN THE TREE
+
+§C19-REGRESSION concludes *"`b4e192c1` COSTS 7 TESTS IN `BtcLpMintStress`, AND THE REVERT PROVES IT"*,
+from `14/8` clean → `7/15` local → `14/8` with only that commit reverted. **Re-measured 2026-08-22 on
+`origin/main`, which ALREADY CONTAINS the change (`04fcceda`, the pushed form of the same content):**
+
+| tree | `BtcLpMintStress` |
+|---|---|
+| `origin/main`, C19 change **present** (verified: zero executable `q.ilBasisPx` writes) | **14 passed / 8 failed** |
+
+⇒ **IDENTICAL TO THE ROW'S OWN "CLEAN" BASELINE.** The change cannot cost 7 tests in a tree where it
+is present and the count matches the baseline.
+
+⚠️ **THE ISOLATION WAS INCOMPLETE, AND THE ROW SAYS SO ITSELF.** Its treatment arm was *"local HEAD"*
+carrying **six `spv-rally` WIP commits** — *"WIP rally raises feed"*, *"WIP soldFraction diag"*, *"WIP
+receive() in fixture"*, *"WIP rally step size"*, **all marked unverified** — several of which touch the
+**same rally/feed machinery** (§E310/§E309). **Reverting one commit from a chain of interacting
+changes restores the baseline whenever that commit is NECESSARY for the interaction; it does not show
+it is SUFFICIENT.** With the WIP commits absent, the change is inert on this suite.
+⇒ **This is the shared-tree confound `CLAUDE.md` opens with: *"A SHARED TREE INVALIDATES EVERY
+FULL-SUITE NUMBER."*** The row's method (isolate one commit, re-run) is right; the tree it ran in had
+five other people's uncommitted hypotheses in it.
+▶️ **DO NOT REVERT `04fcceda` on the strength of that row.** If `7/15` reappears, bisect the **WIP
+rally commits** first — and note the row's quoted assertion, *"precondition: levered debt > 0"*, is in
+**`BufferSwapDrain.t.sol:42`, NOT `BtcLpMintStress`**, so the trace and the counts in it come from two
+different suites.
+✅ **The row's OTHER half stands and is valuable: ~45 of the 92 full-suite failures are RPC contention,
+not defects** — suites reporting `0/3` in a full run pass `3/3` in isolation on the identical commit.
+**Judge the tree with isolated runs or `ETH_RPC_URL=$ANKR_RPC_URL`.**
