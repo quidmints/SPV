@@ -36,10 +36,6 @@ import {IMorphoBase as IMorphoFlash} from "morpho-blue/interfaces/IMorpho.sol";
 /// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
 /// `IAaveV4Spoke_V` (QuidLib), `IAaveV4SpokeCL` (ChannelLib).
 /// Canonical Aave **v4** spoke view — union of the former per-file variants
-/// (formerly also `AaveV4Venue::IAaveSpoke`, removed 2026-08-13). NOTE `getReserveId` is `view`: the declarations DISAGREED on
-/// mutability, and `view` is correct — four live call sites (`Aux`, `Vault`, `ChannelLib`) already
-/// STATICCALL it in production. Aave **v3** is a DIFFERENT protocol with its own ABI
-/// (`AaveV3Venue::IAaveV3Pool`/`IAaveV3DataProvider`, WBTC-only) and is deliberately NOT merged here.
 interface IAaveV4Spoke {
     function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
     function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
@@ -131,10 +127,6 @@ interface IV3Router {
     function exactInputSingle(ExactInputSingleParams calldata p) external payable returns (uint256);
 }
 
-// §E240-tri — the removed pool's ADDRESS and its three coin indices are DELETED with the four legs
-// that used them. It held 698 WETH / 20.72 WBTC, so BOTH legs breached the 1% floor between $10k and
-// $25k: shallow enough that the venue was the defect, not the sizing. The stableswap hub constants
-// below STAY -- stable<->USDC is a different, deep market and those legs still work.
 
 // Stableswap legs: the borrowed stable → USDC, before the volatile venue takes USDC → WETH/WBTC.
 // 🔴 THE TWO POOLS ARE ORDERED OPPOSITELY. Read from mainnet 2026-08-15:
@@ -170,7 +162,6 @@ int128  constant CRV_PYUSD_USDC_IDX    = 1;
 // §E240-tri — the 3-coin crypto-swap interface DELETED: no caller. `ICurvePool` (int128 stableswap) stays, and
 // `ICurveOracle` in `ExternalTwap` is a separate, still-live price surface -- do not confuse them.
 
-/// Canonical ether.fi LiquidityPool view — was `SwapLib::ILiq_L`.
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 
 
@@ -218,8 +209,6 @@ interface ILevEquity {
     function totalDebtUsd() external view returns (uint256);          // §E21: was Core.ILevDebtTotal
 }
 
-/// §E21: was `Quid.ILevClose`. Kept as its own interface rather than folded into
-/// `ILevEquity` -- that one is a VIEW surface and this is a mutator.
 interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
 
@@ -327,9 +316,6 @@ interface IAux is ISwap {
     function withdrawSelf(address token, uint amount, address to) external returns (uint);
     function checkBacking() external returns (uint committedSum, uint totalLiquid);
     function takeToSettle(address who, uint amount, address token) external returns (uint);
-    // §E233-sor — `auxSwap(uint,address,address,uint)` DECLARATION DELETED with the SOR. The
-    // surviving `auxSwap(address,address,uint,address,uint)` is a DIFFERENT, SwapLib-backed function
-    // that shares only the name; it is client-facing and is deliberately not declared here.
     function WBTC() external view returns (address);
     /// Rule 2: declared HERE, not as a file-local restatement. `Aux.WETH` is a public
     /// `WETH9` state var; over the ABI that is an address, which is all any caller needs.
@@ -354,10 +340,6 @@ interface IAux is ISwap {
     /// the wrong selector never fired — which is exactly why a per-file restatement is
     /// dangerous: it drifts silently and only breaks the first time someone uses it.
     function redeem(uint amount) external;
-    // §E233-sor — `sorSelfFunded` / `sorSelfFundedReverse` DECLARATIONS DELETED with `SOR.sol`.
-    // Their only callers anywhere were two tests, deleted with them; nothing in `src` ever called
-    // either. A live interface declaration for a removed function is a promise this codebase cannot
-    // keep, and it is exactly what `check-client-abis.py` flags as an ORPHAN.
 }
 /// Shared token surfaces for the whole leverage cluster (LevManager / LevMath / BtcLevManager) — was three
 /// byte-identical ERC-20 slices (IERC20Min / IErc20M / IERC20B) + three WETH slices. One each now.
@@ -543,8 +525,6 @@ interface ICore {
     // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
     // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
     // state (Quid:92-93, Vault:214-215); no new contract code implements them.
-    /// §ONE-ANCHOR — was `LOWER_PRICE()` + `UPPER_PRICE()`. One call returns the pair, derived from
-    /// the single stored anchor, so a reader cannot obtain one leg without the other.
 }
 
 /// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
@@ -602,9 +582,6 @@ interface IWiredVault { function btcChannels() external view returns (address);
 
 /// Canonical Basket turn/maturity view (was BasketLib.IBasket, itself already a union of two
 /// earlier per-file variants).
-/// §E309 — was `IBasketTurn`. It held one job when named; it now carries `turn`, `matureSupply`,
-/// `immatureBalanceOf`, `target` and `mint` — the Basket's face, not one operation on it. A name that
-/// describes a single member is a name that goes stale the moment a second one is folded in.
 interface IBasket {
     function turn(address from, uint value) external returns (uint sent, uint seedBurned);
     function matureSupply() external view returns (uint);

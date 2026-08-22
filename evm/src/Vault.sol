@@ -110,14 +110,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         (§SLOP: said `rangeETH`, which is Quid's ETH-side accessor, not this contract's).
     ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
 
-    // §SLOP — `NotQuidCore` DELETED: zero reverts. `git log -S` traces it to `a3225031`
-    // ("Extract ETH-venue custody out of Vault into EthVenue") and `8720a35d` ("EthVenue IS Quid"),
-    // i.e. it gated a split that was subsequently folded back -- the gate went, the error stayed.
     error NotSelf();
     error NotAux();
     error NoBtcPosition();
 
-    // ─── BTC-side state (formerly BtcVault) ─────────────────────────────
     Basket QUID;
 
     /// @notice BTC-side LP accounting — parallel to the ETH-side trio in Quid.
@@ -391,8 +387,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return SwapLib.plainNet(p, lev);
     }
 
-    // §DE-TICK — `token1isVol()` DELETED. It forwarded Core's v4 leg ordering, which no longer
-    // exists: `Delta`'s fields are named for what they hold and the OOR guard is symmetric.
 
     /// @notice (B) The BTC range's current spot √P (Q96) — recorded as `syncKeyPx` at `openBtcLev`. `isBTC` is
     ///         accepted for interface-parity with `Quid.rangePrice`; the Vault is BTC-only, so it always reads
@@ -444,10 +438,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
-    // (S4) public paddedSqrtPrice removed — dead (Core uses RANGE.paddedSqrtPrice;
-    // _rebalance here calls SwapLib.paddedSqrtPrice directly).
 
-    /// §DE-TICK — forwards to the price-space range-bound helper. Was `_updateTicks`.
     function _updateBounds(uint price, uint delta)
         internal pure returns (uint lower, uint upper) {
         return SwapLib.updateBounds(price, delta);
@@ -538,10 +529,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         (the range-θ math home) with the BTC ticks so BtcLib.addLiqChannel can risk-budget the
     ///         BTC range exactly like the ETH range -- without QuidLib linking QuidLib.
     function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both ranges
-        // §E301 — was `RANGE.derivedThetaWadAt(...)`, an EXTERNAL call into the ETH range manager to
-        // reach a body that reads NO ETH state: `Quid.derivedThetaWadAt` was a one-line pass-through
-        // to this same library, taking the core and bounds as ARGUMENTS. This range passed its OWN
-        // `CORE` and its OWN bounds, so the hop bought nothing and cost a CALL.
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH range's
     }
 

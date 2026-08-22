@@ -250,9 +250,6 @@ library OracleLib {
         return isWbtc ? p * 1e10 : p;
     }
 
-    // §E253-mock — `deployMocks` DELETED with `mock.sol`. Its own doc noted the ~3.9 KB of `mock`
-    // creation-code lived in THIS library's bytecode to keep it out of Core; that 3.9 KB now leaves
-    // the tree entirely rather than moving somewhere else.
 
     /// @notice §E59 — REALIZED TICK VARIANCE FROM THE **STORED OBSERVATIONS**, not a wall-clock grid.
     ///

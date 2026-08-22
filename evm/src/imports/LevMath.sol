@@ -120,7 +120,6 @@ library LevMath {
         try ICore(range).rangePrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
         if (newSqrtP == 0) return (false, 0);
         // ONE accessor pair. The range is per-asset and answers for its own range, so there is no name
-        // to select — which is all the removed `isBTC` did here.
         uint lo; uint hi;
         // §ONE-ANCHOR — ONE call, ONE try/catch. Two reads meant two chances to half-fail and a
         // caller left holding a lower bound with no upper; the pair now arrives together or not at
@@ -334,9 +333,6 @@ library LevMath {
     error NoStableRoute();
     error NoOptIn();
     error Slippage();
-    /// §E240-tri — no on-chain USDC<->volatile venue exists. The Curve route was removed (too shallow: both
-    /// legs breached the 1% floor between $10k and $25k) and no replacement is wired. §V-R1 (1inch
-    /// AggregationRouterV6) is the route that closes this.
     error NoVolatileRoute();
     error NotNearLiq();
     error NoDebt();
@@ -383,11 +379,6 @@ library LevMath {
     function sellColl(SellCtx memory c, address stable, uint256 pulled, uint256 minOut, uint256 assets)
         public returns (uint256 stableOut, uint256 reserveOut)
     {
-        // §SLOP — NINE DEAD LINES DELETED BELOW THIS `return`: the OLD body, left behind when it
-        // was replaced by the `sellWeeth` delegation. An UNCONDITIONAL return followed by an
-        // orphaned implementation — solc reported `Unreachable code` and it shipped as bytecode
-        // nobody could reach. PRE-EXISTING, not the venue removal: the reimburse/floor/
-        // `_wethToStableDex` sequence it held all lives inside `sellWeeth`.
         return sellWeeth(c, stable, pulled, minOut, assets);
     }
 
@@ -432,8 +423,6 @@ library LevMath {
     function stableToColl(SellCtx memory c, address stable, uint256 stableAmt, uint256 minOut)
         public returns (uint256)
     {
-        // §SLOP — three dead lines deleted below this `return`, same shape as `sellColl`: the old
-        // WETH-terminal body outlived its replacement by `_stableToWeeth`.
         return _stableToWeeth(c, stable, stableAmt, minOut);
     }
 
@@ -611,13 +600,6 @@ library LevMath {
     ///      `_stableToWethSor`. `minOut` is unused on that branch because no trade occurs.
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
-        // (2026-08-16) The `approve(c.aux, wethIn)` that stood here is DELETED. It was vestigial from
-        // the pre-`084bc5c` SOR version, where the swap really did go through Aux
-        // (`sorSelfFundedReverse`). `_wethToStable` approves the V3 router itself (and zeroes the
-        // allowance after) and never touches Aux, so the grant was made on EVERY de-lever and never
-        // consumed —
-        // a standing WETH approval accruing as a side effect of a line that read as necessary.
-        // The buy-side twin `_stableToWethSor` never had it: it approves the pool directly.
         return _wethToStable(c.weth, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
     }
 

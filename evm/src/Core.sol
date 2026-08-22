@@ -24,11 +24,6 @@ import {IERC20Min} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 import {Types, BtcVaultPinned} from "./imports/Types.sol";  // §E299: file-level errors
 
-// §RANGEBACKING-FOLD — `interface IRangeBacking` DELETED FROM HERE, and it was declared TWICE: once
-// above and once in Interfaces.sol, which standing rule 2 forbids and which the note above that
-// second copy warns about explicitly ("a duplicate interface surfaces as forge's `Error writing
-// output JSON`, NOT as a redeclaration error"). Both copies go with the contract: the range now
-// calls `AUX` directly, which Core already holds as a concrete type.
 
 /// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
 ///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
@@ -63,11 +58,7 @@ contract Core {
     OracleLib.ObsState internal obsState;
     OracleLib.Observation[RING] internal observations;
 
-    // §V4-CUT — `VANILLA_ETH`/`VANILLA_BTC` DELETED. Write-only: assembled at setup for a pool
-    // that `initPool` stopped creating, then read by `_key()`, which had no callers.
 
-    // §V4-CUT — `POOL_ID_VANILLA_*` DELETED. Their last external reader was the protocol-fee
-    // monitor, retired with the fee switch we no longer touch; `_poolId()` is gone too.
 
     /// @notice In-range USD slice held against the ETH/USD pool. Sum of
     /// this plus POOLED_USD is the total in-range USD; out-of-range
@@ -385,10 +376,6 @@ contract Core {
         emit SkewPremiumRetained(premiumUsd, cum);
     }
 
-    // payRefillBonus REMOVED (2026-07-22): the swap-in refill no longer pays the refiller a bonus. Refill is a
-    // self-funding fleet op (JIT Morpho-flash BTC → creditSwapIn → repay; gas via #87 peel-WETH), so the
-    // drainer's retained skew premium accrues to LPs as backing (skewPremium* above) instead of being drawn out
-    // and paid to a refiller. The skewPremium counters are now a pure LP-retained-profit record, never decremented.
 
     /// @notice Refund a swap's UNFILLED input remainder (amount − consumed) to the swapper. An inventory-
     ///         bounded partial takes the full input up front but only `consumed` drives the swap; this returns
@@ -424,10 +411,6 @@ contract Core {
     /// branch. Not immutable only because `AUX` is wired in `setup`, not in the constructor.
     address public ASSET;
     /// §ISBTC-SPLIT — THIS INSTANCE'S RANGE MANAGER, through `ICore`. Every money-path `IS_BTC`
-    /// branch below was `Core` reaching into one of two managers for the same fact and having to
-    /// know which; the facts differ per range, so they live in the range. ETH is pinned at `setup`
-    /// (Quid exists by then); BTC at `setBtcVault`, because `Vault` is deployed AFTER `Core` and
-    /// takes its address at construction -- which is exactly why that setter already exists.
     ICore public RANGE;
 
     /// §V4-CUT — THE RANGE'S RANGE, now OURS to store. It used to live inside the v4 position, which
@@ -445,15 +428,7 @@ contract Core {
     /// slot instead of two.
     uint public RANGE_ANCHOR;
 
-    // §RANGEBACKING-FOLD — `BACKING` DELETED. The shared accountant held the ONE thing two instances
-    // still share (the joint committed equity the backing gate reads, and the cross-range input
-    // `SwapLib._sharedScarcityWad` needs) — but that state now lives in `AUX`, which this contract
-    // already holds and which owns the gate that consumes it. One fewer address to wire, one fewer
-    // immutable, and one fewer constructor argument a deployer can get wrong.
 
-    // §DE-TICK — `token1is()` DELETED with the state it exposed. No caller remained: leg ordering
-    // is carried by `Delta`'s field NAMES and the OOR guard is symmetric, so there is no question
-    // left for an external reader to ask.
 
     // ─── IS_BTC storage-ref selectors (EIP-170 dedup) ─────────────────
     // Each picks the per-pool slot/array so the swap/repack/delta/observation
@@ -923,14 +898,6 @@ contract Core {
     }
 
 
-    // REMOVED: refillETH() / ETHRefillRequest — the eager, permissionless ETH-pool
-    // refill from basket surplus. It was toxic (spent the SHARED safety margin to
-    // chase a usually-impermanent shortfall, realizing IL at every LP's expense) AND
-    // griefable (no access control, magnitude-only 1% gate, so anyone could force the
-    // speculative buy) AND redundant (TWAP pricing needs no pre-balanced inventory; LP
-    // exits read pro-rata of rangeETH at withdrawal). The fair model is the redemption
-    // path (BasketLib._depegLoss: pro-rata, no first-out-at-par); withdrawal now matches
-    // it (see Quid._withdraw). BTC keeps its hop delivery rail (Aux.btcShortfall).
 
     /// @notice Fused repack — replaces separate repack/repackBTC. Pass
     ///         IS_BTC=true to repack the BTC/USD pool, false for ETH/USD.
@@ -963,11 +930,6 @@ contract Core {
         _observeIfSourced();   // §E222: `price` is RETURNED for pricing; the ring records an independent read
     }
 
-    // §V4-CUT — `reseat` DELETED: it had become BYTE-IDENTICAL to `repack` above. Both stored the
-    // new bounds, read the TWAP and wrote an observation. They were distinct while v4 hosted the
-    // range -- `repack` adjusted an existing position, `reseat` tore one down and rebuilt it at a new
-    // range -- and that difference lived entirely in the `modifyLiquidity` calls both have lost.
-    // Two names for one behaviour is drift waiting to happen; one behaviour gets one name.
 
     /// §V4-CUT — NOTHING TO COLLECT. This drained v4's fee accrual into `feesPerShare` before every
     /// bookmark update, as anti-dilution: v4 fees sat OUTSIDE `POOLED_*`, so NAV did not reflect them
@@ -982,7 +944,6 @@ contract Core {
         return (0, 0);
     }
 
-    // §V4-CUT — `_key()` DELETED: no callers. It returned the PoolKey of a pool never created.
 
     /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a
     /// SINGLE PACKED int256; two `int256` parameters added a stack slot per call site and blew the
@@ -1201,12 +1162,6 @@ contract Core {
     }
 
 
-    // §V4-CUT — `_writeObservation(spotPrice)` DELETED HERE: it had no callers left. It existed
-    // to convert v4's sqrt-price once, at the write, so the ring stored plain price. Nothing hands
-    // us a sqrt-price any more -- every live write goes through `_writeObservationPrice` with a
-    // price the range already has -- so the conversion had nothing to convert. It was the last
-    // `BasketLib.getPrice` consumer on the write path, and the last place a sqrt-price could enter
-    // storage.
 
     /// @dev §V4-CUT — the fill, in its OWN FRAME so `swap` stays under the stack limit.
     ///      Settles AT ORACLE against inventory: one price, no traversal, no discovery.
@@ -1218,9 +1173,6 @@ contract Core {
     function _fillDelta(bool inputIsUsd, uint amount, uint px)
         private view returns (Delta memory d, uint out) {
         // §DE-TICK — THE CALLER SAYS WHICH SIDE IT IS PAYING, rather than handing over v4's
-        // `zeroForOne` for us to re-derive. That derivation was `token1isVol ? forOne : !forOne`
-        // against a `zeroForOne` the caller had itself built from `token1isVol` -- two flips that
-        // CANCELLED for both values of the flag, so the pair only ever transported `forVolatile`.
         out = BasketLib.convert(amount, px, inputIsUsd);
         // 🔴 FIRM QUOTE (owner) — THE IMBALANCE CHARGE IS IN THE PRICE, NOT TRUED UP AFTERWARDS.
         // We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a

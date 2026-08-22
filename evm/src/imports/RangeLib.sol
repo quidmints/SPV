@@ -7,7 +7,7 @@ import {ICore, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {BasketLib} from "./BasketLib.sol";
-import {SortedSetLib, OorBook} from "./SortedSet.sol";
+import {SortedSetLib, OorBook} from "./Types.sol";
 
 /// @title  RangeLib — the ONE implementation of each range-manager body, for both ranges.
 ///
@@ -371,9 +371,6 @@ library RangeLib {
     error NotFillable();
 
 
-    // ═════════ §FOLD-BOOK — WAS `LevBookLib`'s POSITION BOOK ═════════
-    // Range-neutral: reached from `LevBase`, so it serves BOTH lev managers. Not in `LevMath`:
-    // measured, that put LevMath at 27,431 bytes, 2,855 OVER EIP-170.
 
     /// @notice Enrol `lp` in the open-position book. `lpIdx` is 1-BASED so 0 means absent.
     function trackOpen(

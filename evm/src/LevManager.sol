@@ -56,8 +56,6 @@ contract LevManager is LevBase {
     IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
     // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our range.
     address public constant ETHERFI_ADAPTER  = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
-    // (ETHERFI_REDEEMER + ETHFI_NATIVE_ETH removed 2026-08-09 — the instant-redeem leg they addressed was
-    //  deleted 2026-08-06 and neither constant had a use site after it.)
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
 
     // ── leverage range ──
@@ -122,11 +120,6 @@ contract LevManager is LevBase {
      event FlashProviderSet(address provider);
     // flashProvider is pinned atomically alongside the range + venues in `init` (below).
 
-    // LIVE AND LOAD-BEARING — do not delete on the strength of the comment that used to be here (it named the
-    // ether.fi instant-redeem, removed 2026-08-06, and a `_sellWeeth` that never existed in this contract).
-    // The REAL producer is `LevMath._reimburse:663`: `IWETH9(weth).withdraw(pay)` runs under DELEGATECALL, so
-    // WETH sends native ETH to THIS address before it is forwarded to the keeper. Removing this reverts the
-    // keeper-gas peel on every de-lever.
     receive() external payable {}
 
     constructor(address weeth, address aux, address weth, address gov, address quid) LevBase(aux, weth) {

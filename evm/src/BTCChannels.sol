@@ -211,11 +211,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // so a griefer can bump only their own counter — never the hop's. Strict monotonic.
     mapping(address => uint64) public managerFreshnessSeq;
 
-    // The LP-FEE IDEMPOTENCY set (`lpFeePaid`) + `markLpFeePaid` were REMOVED: the
-    // BTC-leg fee is no longer paid OFF-chain by a settler (whose double-pay-on-rollback risk
-    // this F4 guard existed for). It now compounds into LP.pooled via the fee-splice, and any
-    // exit residual is forgone to the pool (dust) — see Vault.BtcLpFeesForgone. With no native
-    // off-chain payout there is nothing to dedup on-chain.
 
     // MIGRATION-AUTH ANTI-REPLAY: a rollback-proof one-shot set for
     // an operator-signed MigrationAuth's `nonce`. The SGX seed-migration bundle (transfer
@@ -396,8 +391,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     // settled BTC→USD swap-in, marked used so a buggy/compromised/double-
     // submitting hop can't credit the same swap-in twice (which would drain
     // POOLED_USD for the seller — the old per-call `BtcInflowCap` bound was
-    // REMOVED (SwapLib:701-702), so this replay guard + the soft-backing check
-    // are the protection; the residual hop-trust drain is tracked as §A #22).
     mapping(bytes32 => bool) public swapInUsed;
 
     // Swap-OUT request guard: one swap-out per swapId, ever. Symmetric with
@@ -643,9 +636,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         // fees + the deferred swap-out principal (funded − final) as QUID. The
         // LP's remaining BTC is recovered by the close tx itself, off this path.
         // (§T1-f-general) The LP is entitled to the channel MINUS the pool's inventory in it.
-        // `Math.min` on the ledger keeps this safe if a shrink ever removed pool sats without
-        // decrementing it — a decrement path is still owed, and an underflow here would brick
-        // every close on the channel.
         uint booked = poolOwnedSats[channelId];
         uint pool = booked > totalSats ? totalSats : booked;
         uint lpEntitled = totalSats - pool;
@@ -1731,8 +1721,6 @@ contract BTCChannels is Ownable, ReentrancyGuard {
         emit ManagerFreshnessCommitted(msg.sender, seq);
     }
 
-    // markLpFeePaid REMOVED — see the lpFeePaid note above. The BTC-leg fee compounds
-    // in-channel (no off-chain native payout ⇒ no double-pay-on-rollback risk ⇒ nothing to mark).
 
     /// @notice Consume an operator-signed MigrationAuth `nonce` — a
     ///         rollback-proof, ONE-SHOT anti-replay guard for the enclave seed-migration

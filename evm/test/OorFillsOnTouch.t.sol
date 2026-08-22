@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {RangeLib} from "../src/imports/RangeLib.sol";
-import {SortedSetLib} from "../src/imports/SortedSet.sol";
+import {SortedSetLib} from "../src/imports/Types.sol";
 
 /// @notice Exercises `SortedSetLib` on its own, as the CONTROL for the key-packing decision.
 ///         Not a mock of anything: it is the real library, called directly, which is the only way

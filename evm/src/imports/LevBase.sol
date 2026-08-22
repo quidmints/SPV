@@ -78,9 +78,6 @@ abstract contract LevBase {
 
     /// The range's sync range (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
-    /// §SLOP — was `rangeSyncRange`, the FOURTH name for one concept (after `V4`, `CORE` and
-    /// `RANGE` in Core). It is the range manager: set to Quid for the ETH lev book and to the
-    /// Vault for the BTC one, used for `rangePrice`, `syncLev` and as the settle-path auth gate.
     address public RANGE;
 
     event TargetSet(address indexed lp, uint256 targetLtvBps);

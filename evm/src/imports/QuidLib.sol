@@ -144,8 +144,6 @@ library QuidLib {
             bool attrib = pledge != address(0);
             uint placed = _supplyEtherFi(ev, toDeposit);
             if (placed == 0) revert VenueUnavailable();   // chosen venue placed nothing ⇒ paused/unwired ⇒ NO fallback
-            // Attribution DELETED 2026-08-07: every deposit is ether.fi-sourced, so a per-LP
-            // "which slice came from ether.fi" mapping recorded a constant equal to `pooled`.
             attrib;
         }
     }

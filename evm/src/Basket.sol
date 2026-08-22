@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {Aux} from "./Aux.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
-import {SortedSetLib} from "./imports/SortedSet.sol";
+import {SortedSetLib} from "./imports/Types.sol";
 
 import {ERC6909} from "solmate/src/tokens/ERC6909.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -76,10 +76,6 @@ contract Basket is ERC20, ERC6909,
     // Basket composition (the stable set + tranche rules) is fixed at deploy: ownership
     // is renounced after `setup`, so there is no on-chain curation/governance surface to
     // re-weight, add, or remove stables post-launch. Any change is a fresh deploy.
-    // (L2-basket bridge feature removed — QU!D has no admin/governance, so the
-    // owner-gated `setL2Basket` mint-against-bridge-receipt surface was deleted
-    // along with `isL2Basket` / `l2Deposits`. Basket ownership is renounced after
-    // `setup`. If an L2 expansion is ever needed it will be a separate deploy.)
 
     // ─── tranche-supply view ──────────────────────────────────────
     // ALL burns (to == address(0)) gate on maturity via BasketLib.matureBatches

@@ -514,13 +514,6 @@ library BasketLib {
     function routeSwap(Types.AuxContext memory ctx,
         Types.RouteParams memory p) external returns
         (uint out, uint poolSupplied, uint consumed) {
-        // GRINDING REMOVED: no pre-swap manipulation revert. A swap executes even when
-        // the pool spot is off the TWAP — it pays the real curve slippage, and VALUE reads use
-        // the anchored getTWAPforAsset (30-min TWAP + 5% Chainlink anchor), never this spot.
-        // The old revert DoS'd every swap after a large move until the 30-min TWAP caught up;
-        // the anchor + curve-reseat are the actual protection. minOut absorbs partial fills.
-        // `consumed` = the caller-input amount actually routed to the swap (before any 4626 revaluation);
-        // the excess p.amount-consumed is a partial fill the caller must reclaim/cap (#105).
         consumed = Math.min(p.amount, convert(p.pooled,
                         p.fillPrice, p.token != address(0)));
         uint pooled = consumed;
@@ -1113,13 +1106,6 @@ library BasketLib {
         totalLiquid = deposits[14];
         committedSum = ICore(core).committedUsd18();
         if (committedSum <= totalLiquid) return (committedSum, totalLiquid);
-        // §ISBTC-SPLIT — THIS COMPARED A VALUE TO ITSELF. It was `POOLED_USD_ETH >= POOLED_USD_BTC`
-        // before the fields collapsed to one per instance, and the collapse rewrote both sides to the
-        // same expression -- so `ethFirst` was unconditionally true and the "repack the LARGER pool
-        // first" intent was dead. Not a solvency break (both pools repack if the first is not enough,
-        // and `committedUsd18` is the shared sum either way), but the ordering it chose was never the
-        // one it claimed. Same shape as `token1isVol = token1isVol`: a rename/collapse producing an
-        // expression the compiler cannot object to. Now it reads the two INSTANCES.
         bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();
         // ETH pool repack → Quid (ETH); BTC pool repack → BtcVault (regrouped).
         ICore(ethFirst ? ETH : btc).repack();   // repack the LARGER pool first
@@ -1144,16 +1130,10 @@ library BasketLib {
     function assertFullyWired(address q, address ethVenue, address btcChannels,
         address core, address ETH) external view {
         // ETH-VENUE CUSTODY AND THE BTC RANGE MANAGER ARE DIFFERENT CONTRACTS since the venue carve.
-        // This assert used to take one address for both because they used to BE one address; each
-        // fact is now checked against the contract that actually holds it. `btc` is derived
-        // from Core rather than passed, so a caller cannot supply a mismatched pair.
         address btc = ICore(core).btc();
         require(q != address(0),                                    "wire:quid");
         require(ethVenue != address(0),                             "wire:ethv");
         require(btc != address(0),                              "wire:vault");
-        // §ETHVENUE-FOLD — was `IQuid(ETH).EV() == ethVenue`, checking that Quid's venue pointer and
-        // Aux's agreed. Quid IS the venue now, so the pointer is gone; what still needs asserting is
-        // that Aux's pin names the range manager and not some other address.
         require(ethVenue == ETH,                                     "wire:range");
         require(btcChannels != address(0)
              && IWiredVault(btc).btcChannels() == btcChannels,  "wire:chan");  // Vault→Channels
@@ -1182,8 +1162,6 @@ library BasketLib {
         return total > btcCommitted ? total - btcCommitted : 0;
     }
 
-    // (ethToStableFallback removed -- redemption is stables-only; the committed dollars
-    //  are freed by unwinding the range, Quid.unwindForRedeem, not by selling an LP's venue ETH.)
 
     // ─── CRE vault-health watcher bodies (extracted from Aux) ────────────
     // DELEGATECALL'd — address(this)==Aux, so every IERC4626/IAaveV4Spoke
@@ -1304,7 +1282,6 @@ library BasketLib {
 
     function evacuateBody(
         address vault, VaultHealthCfg memory /*cfg*/,   // §V4-RESIDUE 2026-08-18: unread. Name commented
-        // rather than removed: `public` library function, so dropping it changes the SELECTOR.
         mapping(address => VaultHealth) storage vaultHealth,
         mapping(address => address[]) storage vaultsOf,
         mapping(address => address) storage tokens

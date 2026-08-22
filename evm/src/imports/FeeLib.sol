@@ -53,8 +53,6 @@ library FeeLib {
     }
 
     // baseRate (Liquity-style directional redemption velocity toll) + BR_DECAY/BR_MAX_MIN + touchBaseRate
-    // REMOVED — QU!D has no peg-arb loop to defend (see Aux._takeArgs); peg-defense redemptions are scheduled
-    // by 6909. `decPow` is KEPT (Core still uses it for the 48h FLOW_DECAY flow-EWMA).
 
     uint public constant DEPEG_DEADZONE_BPS = 50; // live-feed peg tolerance (bps);
                                             // below this a stable is "healthy" (absorbs
@@ -176,8 +174,6 @@ library FeeLib {
         if (amount == 0) return 0;
         // Pro-rata draws the SAME fraction of every stable → the basket mix (and its weighted-avg yield) is
         // unchanged → ZERO cherry-pick externality, so NO fee here (the concentration/cherry-pick fee is priced
-        // only on a PREFERRED draw; the baseRate velocity toll was removed — no peg-arb loop). Only the depeg
-        // haircut grosses up an impaired leg (more units of the cheap collateral for the same value).
         amount = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 

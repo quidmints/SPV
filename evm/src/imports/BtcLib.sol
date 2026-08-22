@@ -45,8 +45,6 @@ library BtcLib {
         Types.Deposit storage LP,
         address /*lpEth*/, address payTo, address quid,   // §V4-RESIDUE 2026-08-18: `lpEth` unread here — the
         // attribution it carried is done by the CALLER before this body runs. Name commented rather than the
-        // parameter removed: this is a `public` library function, so dropping it would change the SELECTOR and
-        // every delegatecall encoding with it, for a warning.
         uint feesPerShare, uint usdFees, uint weight
     ) public returns (uint compoundedSats) {
         // `weight` is the GROSS fee depth: net pooled + the debt-funded levered buffer (levBuf).
@@ -526,9 +524,6 @@ library BtcLib {
     ///      address(0) (tokenless burn); buffer USD un-pairs from POOLED_USD as part of the gross burn.
 
 
-    // ═════════ §FOLD-BOOK — WAS `LevBookLib`'s VENUE LEGS ═════════
-    // Split by CALLER, which is also the semantic split: every one is reached only from
-    // `BtcLevManager`.
 
 
     // ── §FOLD-LEGS — THE FOUR VENUE LEGS, ASSET-AGNOSTIC ─────────────────────────────────────────

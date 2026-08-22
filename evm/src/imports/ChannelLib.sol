@@ -659,7 +659,6 @@ library ChannelLib {
         if (lpPubkey.length != 33 || hopPubkey.length != 33) revert InvalidParam();
         // SIMPLE-TAPROOT: locate the key-path P2TR funding output `0x5120||Q`. No
         // secp256k1 EC math HERE — Q is proven `== TapTweak(KeyAgg(lp,hop))` by the caller's
-        // `isTwoOfTwoOutputKey` gate (§E129/§E142), NOT by an LP signature (§E183 deleted it).
         uint outputSats;
         (vout, outputSats) = BitcoinTx.findOutputByScript(
             rawTx, BitcoinTx.buildTaprootScriptPubKey(fundingTaproot));
@@ -688,7 +687,6 @@ library ChannelLib {
         // SIMPLE-TAPROOT: locate the key-path MuSig2 P2TR funding output
         // `0x5120||Q` (Q = p.fundingTaproot). The contract does NO EC math; Q is
         // KeyAgg-proven (`isTwoOfTwoOutputKey`, §E129/§E142) and byte-matched. NOT signed by
-        // the LP — §E183 item 1 removed the EVM signature this line used to name.
         uint outputSats;
         (vout, outputSats) = BitcoinTx.findOutputByScript(
             rawFundingTx,

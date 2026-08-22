@@ -165,7 +165,6 @@ contract Aux is // Auxiliary
     // which doesn't market-depeg (Liquity redemption floor) — so there is nothing a
     // post-renounce binder would ever usefully wire, and the basket set is frozen at
     // deploy (no new stables can appear). A permissionless binder was considered and
-    // removed as dead weight + needless surface.
 
     // Per-asset EXTERNAL price feed (Chainlink ETH/USD, WBTC/USD) that
     // anchors the internal observation-ring TWAP. The internal TWAP feeds
@@ -198,9 +197,6 @@ contract Aux is // Auxiliary
     }
 
 
-    // §E233-sor — the `_pathEncodings` doc block stood here, describing state that is deleted.
-    // `SorPath` was its element type and died with `SOR.sol`; nothing replaced either, because the
-    // array had no reader outside the three SOR bodies.
 
     error LengthMismatch();
     error QuidPinned();
@@ -208,9 +204,6 @@ contract Aux is // Auxiliary
     error NotSelf();
     error OverCommitted();
     error BtcInflowsViaChannels();
-    // §SLOP — `BadV4Terminal`, `BadV4SourceVault`, `BadV4Last` DELETED: all three were SOR's
-    // path-VALIDATION errors (`git log -S` traces them to the v4-cut commits `4d1256fa`/`22c67108`),
-    // and with `SOR.sol` gone none can be reverted. Zero reverts each, verified comments-stripped.
     error UnknownStable();
     // Body extracted to a private function (deployed ONCE) so the 13 onlyUs sites carry a cheap CALL
     // instead of inlining the 5-address comparison chain each — reclaims ~1 KB of Aux EIP-170 headroom.
@@ -338,9 +331,6 @@ contract Aux is // Auxiliary
     function vaultBlocked(address vault) external view returns (bool) {
         return vaultHealth[vault].blocked;
     }
-    // (S1) vaultHealthHaircutBps / vaultFlaggedAt getters removed — dead
-    // duplicates of the auto-generated `vaultHealth(vault)` tuple; relieves the
-    // Aux EIP-170 ceiling.
 
     // ─── Stored-holdings cache ──────────────────────────────────────────
     // Per-stable cached value of the EXPENSIVE vault-sum (BasketLib._valueStable
@@ -441,9 +431,6 @@ contract Aux is // Auxiliary
     /// @dev Vault-health config from Aux immutables (the delegatecalled
     ///      library can't read them). Shared by poke / evacuate.
     function _vaultHealthCfg() internal view returns (BasketLib.VaultHealthCfg memory) {
-        // The WETH-4626 curator venues were deleted 2026-08-14 (their VENUE_* selectors were already
-        // gone, so no deposit could reach them), so the health path has no ETH branch left: every vault
-        // it sees is a basket STABLE vault held by Aux. `ethVenue` is all the cfg still carries.
         return BasketLib.VaultHealthCfg({ ethVenue: ethVenue });
     }
 
@@ -854,9 +841,6 @@ contract Aux is // Auxiliary
         return IEthVenue(ethVenue).deliverableETH();
     }
 
-    // REMOVED: arbETH forwarder — its only callers (Core.refillETH, Quid._withdraw)
-    // were removed as the toxic surplus-funded make-whole. No replacement: ETH-pool
-    // shortfalls are borne fairly via the share price, never patched from surplus.
 
     /// @notice BTC shortfall settlement. ONLY path: emit the Lightning hop request
     ///         (real BTC sent on L1 by the hop daemon, consuming NO basket stables —
@@ -1064,11 +1048,6 @@ contract Aux is // Auxiliary
             _takeArgs(who, amount, token, seed, preferred), amounts, yieldW);
     }
 
-    // ─── REMOVED: the directional redemption fee (Liquity-style decaying baseRate) ────────────
-    // baseRate storage (`_br`) + `_touchBaseRate` + BR_DECAY/BR_MAX_MIN REMOVED here — the Liquity-style
-    // directional redemption velocity toll. See `_takeArgs` above for the full rationale: QU!D has no peg-arb
-    // loop to defend (unlike Liquity), so the toll had no peg to protect; peg-defense redemptions are scheduled
-    // by 6909. Outflow control is now the depeg haircut only.
 
     // ─── The range accountant. Was a separate `RangeBacking` contract; folded in here ───────────
     //
@@ -1356,9 +1335,6 @@ contract Aux is // Auxiliary
 
     // moved to EthVenue (the ETH-venue custody home).
 
-    // creditSwapIn / creditSwapOut (BTC swap-IN/OUT settle) REGROUPED into
-    // BtcVault.sol. Their bodies (SwapLib.creditSwap{In,Out}Body) now run in
-    // BtcVault's context; the onlyBTCChannels gate moved with them.
 
 
     /// @notice Asset-supply dispatcher. WETH → the ETH venue (weETH) +

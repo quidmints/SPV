@@ -51,11 +51,6 @@ contract Quid is Shares,
     // deposit becomes weETH. `QuidLib._supplyEtherFi` is the single destination, and a placement of
     // 0 reverts `VenueUnavailable` rather than redirecting.
 
-    // §DE-TICK — `token1isVol` DELETED. It mirrored Core's v4 leg ordering, itself derived from
-    // the lex order of freshly-deployed MOCK addresses. Nothing orders legs by token identity now.
-    // range = between ticks
-    /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, RANGE_DELTA)`
-    /// of one another. Two slots for one number; `rangeBounds()` derives the pair on read.
     uint public LAST_REPACK;
     // ^ timestamp allows us
     // to measure APY% for
@@ -483,7 +478,6 @@ contract Quid is Shares,
         if (venueOwed > venueBm[user]) tokReward += venueOwed - venueBm[user];
     }
 
-    // _settleBtcLp regrouped into BtcVault.sol.
 
     /// @dev Burn `amount` of in-range virtual liquidity (capped at the pool's
     ///      active slice) and return what was actually delivered. ETH passes the
@@ -1080,7 +1074,6 @@ contract Quid is Shares,
         return QuidLib.addLiq(address(CORE), address(AUX), deltaTok, price, totalBuffer);   // §ISBTC-SPLIT: Quid IS the ETH range, so the flag was always false
     }
 
-    // _addLiqChannel (channel-lock liquidity sizer) regrouped into BtcVault.sol.
 
      // pull liquidity from. . .
     /// @dev Thin forwarder: body in QuidLib.pullBody (delegatecall — EIP-170); the nonReentrant guard stays here,
@@ -1118,9 +1111,6 @@ contract Quid is Shares,
             sender, pledge, amount);
     }
 
-    // §RULE-1 — `takeETH` DELETED. `external`, declared in NO interface, and ZERO references
-    // anywhere in src/, test/ or script/ -- inside this contract or out. A one-line forwarder to
-    // `_sendETH` that nothing could reach.
 
     /// @notice Redemption unwind. QU!D's dollars work as the range's USD side (capital
     ///         efficiency); when a redemption exceeds the FREE stables, free them back out by
@@ -1241,11 +1231,6 @@ contract Quid is Shares,
 
 
     // ════════════════════════════════════════════════════════════════
-    //  BTC LP path REGROUPED into BtcVault.sol (requestDeposit /
-    //  requestRedeem / resize / _resize). The shared isBTC-
-    //  parameterized helpers above stay here for the ETH side; the BTC
-    //  repack is now driven by BtcVault.repack(true).
-    // ════════════════════════════════════════════════════════════════
 
 
     /// @notice ETH (isBTC=false) is the live entrypoint; the wrapper keeps the
@@ -1300,10 +1285,6 @@ contract Quid is Shares,
     }
 
 
-    // §ONE-ANCHOR — `_updateBounds` DELETED. It forwarded to `SwapLib.updateBounds`, and every
-    // caller went away when the range bounds became derived from `RANGE_ANCHOR`: `rangeBounds()` calls
-    // the library directly. Zero call sites left in this contract. (The BTC range manager has its own
-    // copy, which is a separate contract's business.)
 
     // ════════════════════════════════════════════════════════════════
     //          ERC-20 TRANSFER FACE + NATIVE LP ENTRYPOINTS

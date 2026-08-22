@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./imports/Types.sol";
-import {OorBook} from "./imports/SortedSet.sol";
+import {OorBook} from "./imports/Types.sol";
 
 /// @title  Shares — the range's share token. ONE declaration of the per-LP state, TWO instances.
 ///

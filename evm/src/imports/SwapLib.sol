@@ -59,12 +59,6 @@ import {QuidLib} from "./QuidLib.sol";
 library SwapLib {
     using SafeERC20 for IERC20OZ;
 
-    // REMOVED: arbBody — the shared ETH/BTC shortfall buy from basket free surplus
-    // (the "arbETH"/"arbBTC" body). Both callers were removed as the toxic surplus-
-    // funded make-whole: spending the SHARED safety margin to patch a usually-
-    // impermanent inventory shortfall compensates the flow at every claimholder's
-    // expense. ETH-pool IL is borne fairly via the share price; BTC settles only via
-    // the hop (real BTC, no basket stables). Frees library bytecode (helps EIP-170).
 
     /// @notice Body of Aux.getTWAPforAsset — moved here to free Aux
     /// bytecode. `core` is Core; reads its observation ring.
@@ -556,8 +550,6 @@ library SwapLib {
     // Immutables/consts passed in via OfframpCfg (the library can't read Aux's
     // immutables). The msg.sender==V4 gate stays in the Aux wrapper; these bodies
     // run via DELEGATECALL so address(this)==Aux (its weETH, its caller id).
-    // (ETHFI_NATIVE_ETH removed 2026-08-09 — it was the RedemptionManager output-token sentinel for the
-    //  instant-redeem rung deleted 2026-08-05/06, and had no use site after that.)
 
     /// @dev `curvePool` REPLACED `v3router`+`poolFee`+`poolFee2` (2026-08-09). Measured live against the
     ///      weETH/WETH oracle, Curve vs the Uniswap 0.01% tier: −1.39 vs −17.55 bps at size 1, −1.51 vs
@@ -822,8 +814,6 @@ library SwapLib {
     function btcRisk() internal pure returns (Risk memory) { return Risk(CONF_FRAC_WAD, SPLICE_FLOOR); }
     function ethRisk() internal pure returns (Risk memory) { return Risk(ETH_CONF_FRAC_WAD, 0); }
 
-    /// Read this instance's risk profile. One external call, exactly where `IS_BTC()` used to be
-    /// read -- so this costs no more than the flag it replaces.
     function _risk(address core) private view returns (Risk memory rk) {
         (rk.confFracWad, rk.spliceFloor) = ICore(core).riskParams();
     }
@@ -2073,8 +2063,6 @@ library SwapLib {
         return r < 1e18 ? 1e18 - r : 0;
     }
 
-    // boughtFractionWad REMOVED (2026-07-24): it fed the below-entry SHORT hedge (its sole consumer), which was
-    // removed as an LVR leak (see docs §J.4). `soldFractionWad`/`holdingRatioWad` stay — the UP-SIDE overlay reads them.
 
 
 
