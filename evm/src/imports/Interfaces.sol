@@ -251,8 +251,6 @@ interface IAaveV4Hub {
     function getAssetId(address underlying) external view returns (uint256);
 }
 
-/// Canonical IMorphoFlash — union of the former per-file variants.
-
 /// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
 /// ILevEquity_VG and the former `ILevEquityBtc`/`ILevBtc_V`.
 ///

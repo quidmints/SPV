@@ -7,7 +7,7 @@ import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IWeETH} from "./imports/Interfaces.sol";
-import {IMorphoFlash} from "./imports/Interfaces.sol";
+import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {ICore} from "./imports/Interfaces.sol";
 
 
