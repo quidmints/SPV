@@ -327,7 +327,6 @@ interface ISwap {
     // to say they meant zero size. Inventory, not `L`, separates a full range from a drained one at
     // the same price, and a size-blind quote cannot express that difference at all.
     function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 skewWad);
-    function swapFeePpm() external pure returns (uint24 feePpm);   // flat V4 pool tier (420 = 0.042%)
 }
 
 interface IAux is ISwap {

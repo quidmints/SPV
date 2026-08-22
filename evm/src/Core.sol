@@ -884,8 +884,8 @@ contract Core {
     /// ⚠️ `POOLED_*` IS NOT ZEROED HERE ANY MORE. `_handleRepack` used to clear it and rebuild from
     /// the re-added position, which was correct while the position WAS the inventory. Zeroing it now
     /// would delete the range's holdings on a bookkeeping operation.
-    /// Fees return 0 because there is no v4 accrual to harvest: the 420 ppm is charged in the fill
-    /// and compounds into `POOLED_*` at swap time.
+    /// Fees return 0 because there is no v4 accrual to harvest: the charge is the SKEW PREMIUM, taken
+    /// in the fill (§E311 deleted the flat 420 ppm), and it compounds into `POOLED_*` at swap time.
     /// §DE-TICK — the four dead parameters are GONE, not widened. `myLiquidity` and the old bounds
     /// described a v4 position being burned and re-added; there is no burn. Keeping them as ignored
     /// arguments would cost calldata on every repack to describe an operation that no longer happens.
@@ -910,7 +910,7 @@ contract Core {
     /// §V4-CUT — NOTHING TO COLLECT. This drained v4's fee accrual into `feesPerShare` before every
     /// bookmark update, as anti-dilution: v4 fees sat OUTSIDE `POOLED_*`, so NAV did not reflect them
     /// and a depositor arriving in the same block as a large swap would capture fees they had not
-    /// earned. Under compounding the 420 ppm lands in `POOLED_*` AT SWAP TIME, and shares are minted
+    /// earned. Under compounding the skew premium lands in `POOLED_*` AT SWAP TIME, and shares are minted
     /// against `_pricingBacking()` which includes it — so a new depositor buys in at the fee-inclusive
     /// price and dilutes nobody. **The protection now holds BY CONSTRUCTION rather than by a pre-mint
     /// drain**, and the window this guarded closes on its own.
@@ -1164,14 +1164,19 @@ contract Core {
         out -= (out * (inputIsUsd
             ? SwapLib.wellSkew(address(this), px, amount)
             : SwapLib.sellSkew(address(this), px, amount))) / 1e18;
-        // THE 420 PPM, CHARGED HERE BECAUSE v4 WAS CHARGING IT. `OracleLib:180` set `k.fee = 420` as
-        // the POOL TIER; v4 collected it and `Collect` harvested it into `feesPerShare`/`USD_FEES`.
-        // Deleting v4 deletes the collector, so without this the fill charges NOTHING: the LP fee
-        // lane earns zero, and the anti-grinding bound `w >= 1 - fee/C` degenerates to w = 100%.
-        // Retained in `POOLED_*`, which `Quid.sol:136` calls "principal + ALL compounded fees" —
-        // so it DOES reach LP claims, by compounding rather than per-share accrual. That difference
-        // is one of TIMING (holder at claim vs holder at swap) and is decided when `Collect` goes.
-        out -= (out * 420) / 1_000_000;
+        // §E311 — THE FLAT 420 ppm IS GONE. Owner: *"there is no 420 ppm, it's always the skew
+        // premium."* It was here only because v4 charged it (`OracleLib:180` set `k.fee = 420` as the
+        // pool tier); the two reasons §E226 gave for keeping it are both false in this tree — the LP
+        // fee lane is `recordSkewPremium` → `Quid.creditSkewPremium` (§E280), and the anti-grinding
+        // bound `w >= 1 - fee/C` it cited is computed by `SwapLib.requireNonAbusable`, which has ZERO
+        // production callers: it gates nothing on the fill path.
+        // ⭐ AND IT COSTS NO REVENUE, BY THE FLAT FEE'S OWN DERIVATION. `DEPLETION_RATE_WAD` is 210
+        // ppm because a drain of D from balance creates 2·D·px of idle inventory, so
+        // 210 ppm × 2·D·px == 420 ppm × D·px (§E48) — the depletion term inside the skew is the
+        // inventory-proportional form of THIS charge, and levying both was charging it twice.
+        // ⇒ Draining flow pays exactly what it paid. Flow that RESTORES balance now pays no flat
+        // toll, which is the intended behaviour: the curve tilts to price inventory, so the trade
+        // that un-tilts it should not be taxed for doing so.
         // BOUNDED BY WHAT WE HOLD. At oracle price with no curve, nothing else stops a drain: the
         // traversal used to run out of liquidity, this runs out of inventory. Partial fill, never a
         // revert — `minOut` upstream carries the caller's tolerance.

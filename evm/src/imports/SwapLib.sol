@@ -758,11 +758,14 @@ library SwapLib {
     /// unfillable quote is the honest answer** — the solver routes that leg elsewhere (§E272).
     uint internal constant SKEW_UNFILLABLE = 1e18;
     /// §E216 — the σ²-FREE component: the cost of inventory that WAS there and LEFT.
-    /// **NOT A NEW CONSTANT.** 210 ppm = 2.1e14 WAD is `Aux.swapFeePpm()/2` — HALF THE POOL TIER, and
-    /// revenue-neutral because a drain from balance creates exactly 2× its own value in idle inventory.
-    /// §E311 — the derivation is stated HERE rather than cited from `imbalanceFeeUsd6`, which carried it
-    /// and is now deleted: **a constant explained by pointing at a function becomes unexplained the
-    /// moment that function goes.**
+    /// **210 ppm = 2.1e14 WAD, AND IT IS NOW THE WHOLE CHARGE.** A drain of D from a balanced range
+    /// creates exactly 2·D·px of idle inventory, so 210 ppm on that base equals 420 ppm on D itself
+    /// (§E48) — which is why deleting the flat 420 (§E311) took no revenue with it: this term already
+    /// WAS that charge, in inventory-proportional form, and the fill was paying both.
+    /// ⚠️ THE DERIVATION IS STATED HERE, NOT CITED. It used to read `Aux.swapFeePpm()/2`; that
+    /// accessor is deleted, and **a constant explained by pointing at a symbol becomes unexplained the
+    /// moment the symbol goes** — this is the second time this same constant lost its citation
+    /// (`imbalanceFeeUsd6` carried it before).
     /// Scaled by the FRACTION DRAINED, so it is bounded BY this value: a full drain owes 2.1 bps,
     /// half a drain 1.05 bps, and a range that was never funded owes nothing at all.
     uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm = half the pool fee tier

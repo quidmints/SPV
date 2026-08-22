@@ -675,7 +675,7 @@ contract Aux is // Auxiliary
     /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,
     ///         exposed on the unified seam so an RFQ maker / solver can reconstruct the fill:
     ///
-    ///             out ≈ base·(1 − swapFeePpm/1e6),  then the `riskFactor(token)` depeg haircut.
+    ///             out ≈ base·(1 − skew),  then the `riskFactor(token)` depeg haircut.
     ///
     /// 🔴 §V4-CUT — **THE SKEW TERM IS GONE FROM THIS COMPOSITION, AND NO SIGNATURE DIFF CAN SHOW
     ///         THAT.** It used to read `out ≈ base·(1 − wellSkew)·(1 − fee/1e6)`, which was true
@@ -693,7 +693,6 @@ contract Aux is // Auxiliary
     ///
     ///         The fee is FLAT (`calcFeeL1` is the redeem/draw degradation fee, not charged here);
     ///         the remaining DYNAMIC axis is `riskFactor` (depeg).
-    function swapFeePpm() external pure returns (uint24) { return 420; }
 
     // _buildContext moved into SwapLib.swapToBody (the only consumer) — its
     // AuxContext is now constructed inline there.
