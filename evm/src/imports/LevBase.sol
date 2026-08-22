@@ -297,6 +297,40 @@ abstract contract LevBase {
         return LevMath._toUsd18(address(AUX), v.stable(), v.debtOf(lp));
     }
 
+    /// @notice Delegated QU!D-protect: redeem the LP's OWN opted-in QU!D to repay the LP's OWN debt
+    ///         when the position nears venue liquidation. Moves NO value to the caller.
+    ///
+    /// §PROTECT-FOLD (2026-08-22) — ONE body for both managers. The two copies were identical except
+    /// for (a) `QUID`'s DECLARED TYPE (`IERC20Min` on ETH, `address` on BTC) and (b) the ETH side
+    /// reimbursing the keeper. Both are now hooks, so the gate, the `LevMath.protectExec` call and
+    /// the event live once.
+    /// ⚠️ **THE MECHANICS WERE ALREADY SHARED** — both copies delegated to the SAME
+    /// `LevMath.protectExec`. What was duplicated was the WRAPPER, which is the part that drifts
+    /// silently: a gate added to one side and not the other reads as a per-asset decision.
+    /// ⚠️ **`internal`, AND THE GUARD STAYS WITH THE CALLER — deliberately.** Each manager defines
+    /// its OWN `nonReentrant` (its own `_lock` slot); `LevBase` has none. Moving the guard here would
+    /// relocate that storage into the base and change the layout of BOTH deployed contracts, which is
+    /// not worth the four lines it would save. So the managers keep a thin `external nonReentrant`
+    /// wrapper and THE BODY — the gate, the `protectExec` call, the event — lives once, which is the
+    /// part that drifts silently.
+    /// 🔎 `nonReentrant` itself IS duplicated across the two managers. Folding it is a storage-layout
+    /// change and is booked separately, not smuggled in here.
+    function _protectFromQuidBody(address lp, uint256 minStableOut) internal returns (uint256 repaid) {
+        if (!pos[lp].open) revert NotOpen();
+        uint256 pull;
+        (pull, repaid) = LevMath.protectExec(
+            _quidAddr(), address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+        _afterProtect(msg.sender);
+        emit ProtectedFromQuid(lp, pull, repaid);
+    }
+
+    /// @dev QU!D as an address. ETH declares it `IERC20Min`, BTC `address` — one cast, one place.
+    function _quidAddr() internal view virtual returns (address);
+
+    /// @dev Post-protect keeper settlement. ETH reimburses from the WETH gas reserve; BTC has no
+    ///      reserve to draw on, so the default is a NO-OP and that asymmetry is REAL, not drift.
+    function _afterProtect(address keeper) internal virtual {}
+
     /// @notice Live LTV against CURRENT collateral value (the venue-liquidation view).
     /// @dev    §FOLD-LTV. ⚠️ THE `if (!open) return 0` EARLY-OUTS FROM THE ETH COPIES ARE DROPPED,
     ///         AND THAT IS A DELETION OF DEAD CHECKS, NOT A WEAKENING — traced through every layer

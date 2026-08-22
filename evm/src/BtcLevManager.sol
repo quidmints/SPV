@@ -120,19 +120,14 @@ contract BtcLevManager is LevBase {
     ///         backing in the range-pairing sizer (sizeBySurplus addend). Reads the oracle ONCE (price-consistent).
 
 
-    /// @notice Delegated QU!D-protect for a BTC-levered LP — the BTC counterpart of `LevManager.protectFromQuid`
-    ///         — the previously-stubbed keeper path. Redeems the LP's OWN opted-in QUID (`approve` = opt-in) to
-    ///         repay the LP's OWN BTC-lev debt near liquidation; moves NO value to the caller (excess refunds to
-    ///         `lp`). Asset-agnostic: the SAME `LevMath.protectExec` the ETH side uses — the venue abstracts
-    ///         collateral/stable, so there is ZERO BTC-specific glue. Permissionless + near-liq-gated (anti-grief).
-    function protectFromQuid(address lp, uint minStableOut) external nonReentrant returns (uint repaid) {
-        if (!pos[lp].open) revert NotOpen();
-        uint pull;
-        (pull, repaid) = LevMath.protectExec(
-            QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
-        emit ProtectedFromQuid(lp, pull, repaid);
-    }
+    /// §PROTECT-FOLD — BTC declares QU!D as a plain address, and has no gas reserve, so it inherits
+    /// the no-op `_afterProtect`.
+    function _quidAddr() internal view override returns (address) { return QUID; }
 
+    /// §PROTECT-FOLD — the guard is here (this contract owns `_lock`); the body is in `LevBase`.
+    function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256) {
+        return _protectFromQuidBody(lp, minStableOut);
+    }
 
     /// @notice Stable delta (USD 1e18) + direction to re-hit the IL target; oracle read ONCE.
     // ═══════════════════════════ OPEN / CONFIG (LP) ═══════════════════════════

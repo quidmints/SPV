@@ -216,25 +216,15 @@ contract LevManager is LevBase {
 
 
 
-    /// @notice Delegated QU!D-protect (autonomous layer): redeem the LP's OWN opted-in QUID to repay the LP's
-    ///         OWN debt when the position nears venue liquidation. Moves NO value to the caller — proceeds only
-    ///         ever reduce `lp`'s debt; any excess stable is refunded to `lp`. Opt-in = the LP's QUID `approve`
-    ///         to this manager (an EOA for solo, the n-of-m family Safe for a family plan — either works, the
-    ///         allowance is just a `transferFrom` source). The amount redeemed is DERIVED from the debt (and
-    ///         capped by the allowance), so a hostile operator can neither over-redeem the LP's QUID nor extract
-    ///         a wei. Permissionless (the fleet keeper / enclave calls it), near-liq-gated (anti-grief). No
-    ///         per-action quorum or cap — safety is by construction. Reuses `venue.repayFor`.
-    function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256 repaid) {
-        if (!pos[lp].open) revert NotOpen();
-        // Gate (near-liq anti-grief) + mechanics (redeem the LP's opted-in QUID → repay the LP's OWN debt → refund
-        // excess to the LP) live in LevMath (public, delegatecall — bytecode OUTSIDE this contract, run in-context).
-        uint256 pull;
-        (pull, repaid) = LevMath.protectExec(
-            address(QUID), address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
-        _reimburseKeeper(msg.sender, 0);   // the refund is stable (no WETH to peel) ⇒ keeper gas drawn from gasReserve
-        emit ProtectedFromQuid(lp, pull, repaid);
-    }
+    /// §PROTECT-FOLD — the two per-asset facts the shared `protectFromQuid` needs.
+    function _quidAddr() internal view override returns (address) { return address(QUID); }
 
+    /// §PROTECT-FOLD — the guard is here (this contract owns `_lock`); the body is in `LevBase`.
+    function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256) {
+        return _protectFromQuidBody(lp, minStableOut);
+    }
+    /// The refund is stable (no WETH to peel), so the keeper's gas comes from the reserve.
+    function _afterProtect(address keeper) internal override { _reimburseKeeper(keeper, 0); }
 
     /// @notice Stable delta (USD, 1e18) + direction to re-hit target LTV. Inside the range ⇒ (false,0).
     ///         Reads the oracle ONCE (price-consistent — avoids the getTWAPforAsset-mutates-mid-call flip).
