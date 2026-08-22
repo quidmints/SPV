@@ -9851,3 +9851,25 @@ to prevent: a finding stated in a sentence dies with the context window.**
    specific hazard no longer exists. **The general one does:** an empty catch converts any future revert
    into a silent fallback, and this file's whole history is failures that *"do not revert and fail no
    test"*. **Do not close this by citing §E300.**
+### C26. 🔴 TWO FACTS THAT LIVED ONLY IN COMMIT MESSAGES — booked before this thread closes
+
+Rule 12: *a finding in prose dies with the context window.* Both of these were stated in commit
+messages and nowhere a future reader would look.
+
+**C26-a. 🔴 THE 420 ppm REMOVAL (§E311) HAS HAD NO TEST RUN.** `swapFeePpm()`, its `ILevVenue`-side
+declaration and the line `out -= (out * 420) / 1_000_000` are deleted; **zero live references remain
+in `evm/src`**, and the compile is clean (`Compiling 5 files with Solc 0.8.30` → *"Compiler run
+successful with warnings"*). ⚠️ **THAT IS A COMPILE, NOT A VERIFICATION. It removes a fee from the
+swap OUTPUT — a money path — and no suite has been run against it.** The commits that landed it
+(`Restore §E311…`, and the shared-checkout commit before it) both say so, and a commit message is not
+where the next thread looks. ▶️ **Run the swap/fee suites before treating the skew premium as the only
+charge.**
+
+**C26-b. ⚠️ `forge build` EXITS 1 ON A HEALTHY TREE — IT IS `forge lint`, NOT THE COMPILER.** Measured
+on green `origin/main`: **0 compile errors**, no `Compiler run failed`, artifacts written — and exit
+code **1**, from ~190 lint warnings (`unsafe-typecast` ×136, `erc20-unchecked-transfer` ×46,
+`divide-before-multiply` ×7). ⇒ **`echo $?` after `forge build` DOES NOT MEAN THE TREE IS BROKEN.**
+Read the `Compiler run …` line instead. Two solc warnings also surface (`Unused local variable`,
+`RangeLib.sol:152-153`) and are **pre-existing on `origin/main`** — not introduced by any change in
+this thread. **This is the same class as the traps in `CLAUDE.md`'s tooling section: an exit code that
+lies about what happened.**
