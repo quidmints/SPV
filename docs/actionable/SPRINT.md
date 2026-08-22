@@ -8776,3 +8776,36 @@ a green suite asserting the leverage design works, over a book that had never op
 ▶️ **DO NOT delete the mocked tests** — their sizing proof is real and independently useful. **Make each
 one state that it exercises the oracle path ONLY**, and pair it with a real-rally twin, so the two
 worlds can never again disagree silently.
+
+## ⛔ §E313 — **RESTORE `proRataShortfall`: I DELETED A RULE-17 ROOT FIX FOR A MEASURED ATTACK, ON AN ARGUMENT THAT DID NOT APPLY TO IT**
+Owner asked whether any of my retractions should not have been made. **This one.** §E301 deleted
+`proRataShortfall` alongside `refillPlacement` as "restoration sizing". **It is not restoration anything.**
+
+### WHAT IT ACTUALLY IS — FROM ITS OWN DOCBLOCK, WHICH I HAD READ
+> *"…enters as an LP, and **EXITS FIRST** — escaping a shortfall the incumbent then eats. **MEASURED:
+> incumbent seeds 500 ETH and withdraws 499.2385, i.e. 15.2 bps of principal taken.**"*
+> *"⭐ **SHARING THE SHORTFALL REMOVES THE PRIZE INSTEAD OF PRICING IT** (rule 17: make the bad state
+> UNCONSTRUCTIBLE, not merely costly). With no first-out advantage the round trip has nothing to
+> extract, and the brake becomes unnecessary rather than tuned."*
+⇒ It is the **round-trip EXIT-ORDERING** fix, and the recorded alternative (the Forella total-variation
+brake) is **refuted by its own frame-check**. ⇒ **§E301's argument — *"we never source inventory"* — is
+about VENUE RESTORATION and says NOTHING about exit ordering.** I deleted it because it sat in the same
+file and the same test file as `refillPlacement`. **That is proximity, not a reason.**
+
+### ⚠️ THE NEAR-MISS THAT ALMOST TALKED ME OUT OF RESTORING IT
+`QUEUE.md:7486` reattributes `testRoundTripNoRaceNoDrain`'s **~40 bps** to *"the offramp's weETH→WETH
+conversion (measured floor ~25.6 bps)"* after universal attribution routed every exit through the
+offramp. **That is a LATER, LARGER, DIFFERENT cost — it masks the 15.2 bps first-out advantage rather
+than refuting it.** 🔴 **BOOKED, NOT ASSUMED: is the first-out advantage still real once the ~25.6 bps
+offramp floor is subtracted?** Nobody has measured that, and the answer decides whether this stays parked
+or gets wired. **Do not close it by pointing at the offramp number again.**
+
+### RESTORED AND GREEN
+`proRataShortfall` (23 lines) plus its three tests — `test_ExitOrderCannotChangeWhatYouBear`,
+`test_ShareOfShortfallIsProportional`, `test_SoleExiterBearsAllAndNeverMore`. **Suite: 6 passed / 0
+failed.** Build clean. ✅ **`refillPlacement`'s deletion STANDS** — its docblock is about sizing a
+PLACEMENT of deliverable inventory, which §E301 genuinely does dissolve.
+📌 **THE LESSON, AND IT IS THE ONE THIS REPO KEEPS PAYING FOR:** two functions in one file, deleted by
+one argument, and the argument only fitted one of them. **Rule 1 asks whether code is reachable; it does
+not ask whether the reason for deleting it is the reason it exists.** Check each deletion against the
+thing's OWN stated purpose, not against its neighbour's.

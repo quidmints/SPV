@@ -869,6 +869,36 @@ library SwapLib {
         return SoladyMath.fullMulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
     }
 
+    /// ⚠️ §E313 — RESTORED. Deleted by §E301 as "restoration sizing"; it is not. This is the rule-17
+    /// root fix for the ROUND-TRIP EXIT ATTACK — an attacker enters as an LP and EXITS FIRST, escaping a
+    /// shortfall the incumbent eats. Sharing it removes the PRIZE rather than pricing it, so the attack
+    /// has nothing to extract. §E301's argument ("we never source inventory") is about VENUE restoration
+    /// and says nothing about EXIT ORDERING. It was deleted for sitting in the same file and tests as
+    /// `refillPlacement`, which is proximity, not a reason.
+    /// @notice §UNIT-ROUNDTRIP-LIVE — PRO-RATA SHORTFALL. Decided on evidence 2026-08-16 after the
+    ///         owner could not pick between this and the forella brake.
+    ///         **THE MECHANISM IS THE EXIT RACE, NOT THE PATH.** An entrant buys volatile out, redeposits
+    ///         as an LP, and EXITS FIRST — escaping a shortfall the incumbent then eats. MEASURED:
+    ///         incumbent seeds 500 ETH and withdraws 499.2385, i.e. **15.2 bps of principal** taken.
+    ///         ⛔ THE FORELLA BRAKE IS REFUTED BY ITS OWN FRAME-CHECK (§UNIT-FORELLA-FRAMECHECK: *"the
+    ///         coincide-on-monotone premise is refuted"*) — a total-variation charge does NOT leave
+    ///         honest monotone flow untouched, so it taxes everyone to stop one attack, and it prices
+    ///         a symptom.
+    ///         ⭐ SHARING THE SHORTFALL REMOVES THE PRIZE INSTEAD OF PRICING IT (rule 17: make the bad
+    ///         state UNCONSTRUCTIBLE, not merely costly). With no first-out advantage the round trip
+    ///         has nothing to extract, and the brake becomes unnecessary rather than tuned.
+    /// @param shortfallUsd6  the whole shortfall to be shared, 6-dec USD
+    /// @param exitShares     the shares this exiter is redeeming
+    /// @param totalShares    total shares outstanding BEFORE this exit
+    function proRataShortfall(uint shortfallUsd6, uint exitShares, uint totalShares)
+        internal pure returns (uint bornUsd6)
+    {
+        if (totalShares == 0 || exitShares == 0 || shortfallUsd6 == 0) return 0;
+        // Cap at the full shortfall: an exiter redeeming everything bears all of it, never more.
+        if (exitShares >= totalShares) return shortfallUsd6;
+        bornUsd6 = SoladyMath.mulDiv(shortfallUsd6, exitShares, totalShares);
+    }
+
     /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION
     ///         (0..MAX_WELL_SKEW), not a price. Applied as an effective-rate scalar on the
     ///         swap-OUT (drain) leg: a scarce pool hands out less volatile per unit input, so
