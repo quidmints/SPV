@@ -8216,7 +8216,7 @@ nothing takes.
 
 ---
 
-## 🔴🔴 §E307 — **`openChannelDigest` IS DELETED, 3 SPA FILES AND 2 TEST FILES STILL CALL IT, AND A COMMENT SAYS IT WAS KEPT**
+## 🟠 §E307 — **THE CLIENT HALF IS FIXED AND THE ABI GATE IS GREEN. WHAT REMAINS IS THE COMMENT THAT SAYS THE OPPOSITE.**
 
 **Found 2026-08-22 while gating another thread's rename — the ABI gate is RED on `origin/main` and
 this is why.** `check-client-abis.py`: **`DRIFT openChannelDigest(...) — spa declares: (ORPHAN — no
@@ -8242,6 +8242,23 @@ tests actually execute the call.**
 correct to push it over a red gate rather than block a clean commit on someone else's break.
 ▶️ Restore the function or update the three SPA call sites; and **fix `:839`, which will otherwise
 tell the next reader the opposite of the truth.**
+
+### ✅ RE-MEASURED 2026-08-22, AND THE ROW'S HEADLINE CLAIM IS NOW FALSE
+`python3 tools/check-client-abis.py` → **`checked 68 SPA signatures against evm/out; 0 drifted`** and
+**`116 Rust signatures; 0 drifted`**. The declaration is gone from `spa/src/lib/abi.ts`, replaced by a
+comment recording why. **Every surviving `openChannelDigest` hit in `spa/src`, `evm/test` and `evm/src`
+is a COMMENT** — nothing calls it, so the two test files named above no longer do either.
+⇒ **The gate this row was opened on is green, and this is the sweep CLAUDE.md prescribes working:**
+the row stated a falsifiable fact (*"the ABI gate is RED on `origin/main`"*), so the row could be
+tested, and it failed. **It was not found by its author.**
+
+### ✅ AND THE COMMENT IS FIXED — `BTCChannels.sol:828`
+It read *"`openChannelDigest` is **KEPT** — six tests call it"* and *"`openAuthDigest` is KEPT because
+the open path genuinely verifies against it"*. Both are deleted and zero tests call either. ⚠️ **The
+same comment block already corrects that identical claim for `openAuthDigest` two lines above** — it
+was documenting this failure mode in one breath and committing it in the next, which is why the
+correction now names the pattern rather than just the fact.
+
 
 ---
 
@@ -9403,10 +9420,14 @@ Owner asked for all unfinished refactor work booked before the thread closes. **
    fillable bound INSIDE `wellSkew` instead**, so the predicate now lives in the pricing path and
    `refillNeeded` was never needed there. ⇒ **DECIDE: wire it, or delete it as superseded by
    `_fillableDrain`.** Do not leave it as a third opinion on the same question.
-2. **`FixedRateFill.sol` — 270 lines, 0 call sites, whole library.** A TTL'd quote façade over
-   `wellSkew`/`sellSkew`. Its own docblock says **"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"**.
-   ⚠️ **§E300 changed what it would wire**: the skew path no longer reverts, so a quote it returns is
-   always usable. **That removes its stated blocker — nobody has re-read it since.**
+2. ⛔ **STALE — `FixedRateFill.sol` DOES NOT EXIST** (re-measured 2026-08-22: `ls` says no such file;
+   its only remaining mention in `evm/src` is `SwapLib.sol:2322`, a docblock noting it *"was
+   `FixedRateFill`'s @title"*). The library was FOLDED INTO `SwapLib`, which the §E315 handoff records
+   two sections up — *"Folded away: … `FixedRateFill.sol`"* — so this row and that one contradicted
+   each other inside one document. **The quote surface itself survives** (`Quote`, `quoteDrain`,
+   `quoteFill`, `enforce`, `assertConserved`), still with zero production callers, and §E300 still
+   removes its stated blocker. ⇒ **The decision it asks for is live; the file it names is not.**
+   ▶️ Re-read it at its new address before acting: the row's coordinates rotted, not its question.
 3. **`proRataShortfall` — restored (§E313), still unwired**, and `SPRINT:1942` carries a STANDING
    instruction to wire it into the redeem path. 🔴 **OPEN MEASUREMENT, booked not assumed: is the
    15.2 bps first-out advantage still real once the ~25.6 bps offramp floor (`QUEUE:7486`) is
