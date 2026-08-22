@@ -10260,6 +10260,55 @@ It says `testRoundTripNoRaceNoDrain_BTC` *"is booked nowhere"*. **It is booked �
 suite-state history that `SPRINT.md` does not**; grep both before calling anything unbooked.
 
 
+---
+
+## 🔴🔴 §E330 — **THE FOLD'S BLOCKER FIGURE IS STALE BY 2.2×, AND THE "FEES DID NOT ACCRUE" CLUSTER IS A DESIGN CONSEQUENCE, NOT A TEST BUG**
+
+### 1. 🔴 `Quid` ∥ `Vault` IS **12,187 BYTES OVER**, NOT ~5.4 KB — MEASURED, NOT PLANNED
+`§E315-HANDOFF` records the merged pair at *"~30,000 vs 24,576, over by **~5.4 KB**"*. Re-measured from
+`deployedBytecode.object` at `6cc35b71`:
+| | bytes |
+|---|---|
+| `Quid` | **24,104** |
+| `Vault` | **12,659** |
+| naive merge | **36,763** |
+| EIP-170 | 24,576 |
+| **over by** | **12,187** |
+⇒ **The gap has MORE THAN DOUBLED** (`Quid` alone grew ~1,077 when `VEth` folded in). §E315's remedy —
+*"deleting the 4626 face is the one move that frees KBs"* — is **12 selectors against a 12 KB gap**, so
+it cannot close this on its own. ⚠️ **This is the "a stale margin is worse than none" hazard applied to
+a PLAN rather than a contract: anyone scheduling the fold off 5.4 KB is scheduling against a number
+that is less than half the real one.** ⇒ The fold is not finishable as scoped; re-derive the plan
+against 12,187 before committing to it.
+
+### 2. 🔴 WHY "PREMISE: fees actually accrued" FAILS — AND IT IS NOT `§E311`, PROVEN TWICE
+`test_V2_EqualLpsEarnEqualFees` deposits 200 ETH across two LPs, runs 6 × $3,000 trades, and asserts
+`pendingRewards > 0`. It fails at **0**.
+**Ruled out by control, not by argument:**
+- **The swaps are not reverting.** `_trade` swallows with `try … {} catch {}`; removing the catch
+  changed nothing, so the trades execute.
+- **§E311 is not the cause.** Restoring the flat 420 ppm left both tests failing identically. (⚠️ **The
+  second time this session a §E311 hypothesis died to a control** — the first was
+  `testBtcLp_swapInAccruesTheBtcLegFee`. The reason is structural and worth keeping: the 420 was
+  retained in `POOLED_*` and reached LPs by **compounding**, so it never fed `feesPerShare`/`USD_FEES`,
+  which is what `pendingRewards` reads.)
+
+**THE ACTUAL MECHANISM.** `pendingRewards` is fed ONLY by `recordSkewPremium` → `creditSkewPremium`
+(§E280 — the skew premium IS the LP fee lane). And `skewWad` has **early returns that leave `raw == 0`:
+`target == 0`, and the FLUSH branch `inv1 >= target`** (`SwapLib.sol:1453-1455` records both). `target`
+is `flowEwmaUsd`. **These fixtures hold 200 ETH of inventory against $3k trades, so `inv1` towers over
+the flow target and every swap takes the FLUSH branch — exempt, by design.**
+⇒ **In a range that is deep relative to its flow, a swap pays NOTHING and LPs accrue NOTHING.** That is
+not a fixture artefact; it is what "the skew premium is the whole charge" means once the flat fee is
+gone, and it is the same fact §E325 item 1 saw from the other side (the BIG leg charged 0 while SPLIT
+legs paid 600000000).
+🔴 **THIS IS AN OWNER DECISION, NOT A TEST FIX.** Either (a) a deep range genuinely should earn nothing
+on ordinary flow — in which case these premises encode the retired flat-fee model and must be rewritten
+to drive scarcity first; or (b) LPs should earn on ordinary flow, and the flush exemption is too broad.
+⛔ **Do not "fix" these by lowering the premise to `>= 0`** — that deletes the only evidence of the
+question. §E326's mint/redeem mark work depends on which way this goes.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
