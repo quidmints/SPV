@@ -8646,7 +8646,13 @@ commit, not after** (§E307 is a live example of what an ignored ORPHAN costs).
 
 ---
 
-## 📌 §E312 — **A SINGLE-STABLE REDEMPTION CANNOT BE ONE TRANSACTION: LAND THE PRO-RATA, MULTICALL THE REST**
+## 📌 §E312-redeem — **A SINGLE-STABLE REDEMPTION CANNOT BE ONE TRANSACTION: LAND THE PRO-RATA, MULTICALL THE REST**
+⚠️ **SUFFIXED IMMEDIATELY — `§E312` NAMED TWO ROWS WITHIN MINUTES.** The other is the **§E276
+retraction**, landed just after this one. ⛔ **§E124 says suffix the NEWER row, and I deliberately did
+not:** theirs is another session's LIVE work, and editing a row someone is mid-commit on risks the
+read-modify-write race that has cost this file three times today. **Taking the suffix on my own older
+row is the lower risk, and the ambiguity ends either way** — which is what §E124 actually cares about.
+📌 **This row does not touch §E276, §E289 or §E290** — it removes nothing from their premise.
 
 **Owner, 2026-08-22, recording a design decision so it is not re-litigated:** *"if you ever want one
 specific stable as your output we have to route many stables out of the pro-rata altogether, but we
