@@ -416,7 +416,7 @@ interface ICore {
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
     function modLP(int256 delta, int256 deltaUSD, address sender) external returns (uint);
-    function outOfRange(address sender, int amount, uint loPrice, uint upPrice, address token) external returns (uint);
+    function outOfRange(address sender, int amount, address token) external returns (uint);
     /// §E258 — settle ONE filled boundary order. Both legs at once, because a fill is a TRADE and
     /// `outOfRange` can only express a one-sided open or close.
     function settleOor(address owner, int256 usdDelta, int256 volDelta) external;

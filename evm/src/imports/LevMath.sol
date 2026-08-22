@@ -925,7 +925,7 @@ library LevMath {
     ///         mint-close (BOLD/Liquity) venue, flashing WETH sized to mint the BOLD at the protocol trove's safe
     ///         LTV (mode-1). VERBATIM of the manager's former `_deleverFlash`+`_deleverMint`; reuses `ExtractCfg`
     ///         (weth/aux/flashProvider). `protocolMintLtvBps` = the safe LTV the protocol trove mints BOLD at.
-    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, uint256 protocolMintLtvBps)
+    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut)
         public {
         if (repayUsd == 0 || cfg.flashProvider == address(0)) return;
         uint256 debt = venue.debtOf(lp);

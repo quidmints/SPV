@@ -166,7 +166,7 @@ library RangeLib {
             position.amt -= closed;
             if (position.amt == 0) revert Dust();
         }
-        ICore(core).outOfRange(owner, -closed, lower, upper, token);
+        ICore(core).outOfRange(owner, -closed, token);
     }
 
     // ═══════════════════ §E258 — RESTING BOUNDARY ORDERS EXECUTE AGAIN ═══════════════════

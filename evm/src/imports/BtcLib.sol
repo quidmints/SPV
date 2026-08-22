@@ -329,7 +329,7 @@ library BtcLib {
         positions[a.owner].push(next);
         // `liquidity` is still computed and still gates on Dust -- it is the sizer's own validity
         // check (a range that can hold nothing yields zero) -- but the POSITION is the amount.
-        ICore(c.core).outOfRange(a.owner, int(amt), t.newLo, t.newUp, address(0));
+        ICore(c.core).outOfRange(a.owner, int(amt), address(0));
     }
 
     /// @notice Body of Vault.pullBtc — close/partially-reduce a self-managed BTC

@@ -636,8 +636,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// @notice Place a USD-funded single-sided boundary order on the BTC curve.
     /// @param amount  Stable amount to provide.
     /// @param token   Basket stable (must be nonzero — USD-funded only).
-    /// @param distance Ticks from current price (±100..±5000, step 100; sign = side).
-    /// @param range   Order width in ticks (100..1000, step 50).
+    /// @param distance Price offset from current (sign = side). §DE-TICK: a PRICE offset, not a
+    ///        tick count -- there is no tick grid to quantise onto.
+    /// @param range   Order width, as a price span.
     /// @return next   The new position id.
     function outOfRangeBtc(uint amount, address token, int distance, uint range)
         external nonReentrant returns (uint next) {

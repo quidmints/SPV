@@ -405,7 +405,7 @@ contract Quid is Shares,
         // not recoverable later (see the note on `Types.SelfManaged.usdFunded`).
         RangeLib.openOor(oorBook, selfManaged, positions,
             next, msg.sender, token != address(0), t.newLo, t.newUp, int(placed));
-        CORE.outOfRange(msg.sender, int(placed), t.newLo, t.newUp, address(0));
+        CORE.outOfRange(msg.sender, int(placed), address(0));
     } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
     // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple
     // of 50 ≥ 100, so lower<upper always (no degenerate/inverted range); liquidity cast

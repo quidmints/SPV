@@ -69,7 +69,6 @@ contract LevManager is LevBase {
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
-    uint256 internal constant PROTOCOL_MINT_LTV_BPS = 8000;
     /// Min collateral to OPEN — keeps the `_openLps` book (iterated in rangeETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
@@ -464,7 +463,7 @@ contract LevManager is LevBase {
     function _deleverFlash(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut) internal {
         // repay-first flash (mode 0), or for a mint-close (BOLD) venue flash-WETH→mint-BOLD (mode 1): body in LevMath
         // (delegatecall — bytecode OUTSIDE this contract). The flash re-enters this manager's own onMorphoFlashLoan.
-        LevMath.deleverFlashBody(_extractCfg(), venue, lp, stable, repayUsd, minOut, PROTOCOL_MINT_LTV_BPS);
+        LevMath.deleverFlashBody(_extractCfg(), venue, lp, stable, repayUsd, minOut);
     }
 
     /// Transient handoff for the mode-2 (`deleverToVault`) callback's freed-stable result. Auto-clears at tx end.

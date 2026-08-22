@@ -735,7 +735,7 @@ contract Core {
     /// ⇒ THIS WAS THE LAST `poolManager.unlock` AND THE LAST `_modifyLiquidity`. With it gone the
     /// range's tokens are ours, custody and accounting are one thing again, and the transitional
     /// divergence marked in `swap` is CLOSED.
-    function outOfRange(address sender, int amount, uint /*lower*/, uint /*upper*/, address token)
+    function outOfRange(address sender, int amount, address token)
         public onlyUs returns (uint tokOut) {
         // Single-sided by construction: a boundary order rests entirely on one side of spot, so the
         // amount belongs to the volatile leg when `token == 0` and to the USD leg otherwise.
