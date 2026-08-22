@@ -8743,16 +8743,49 @@ made code reachable that had never run:**
 | `testReal_Morpho_OpenAndDelever` | *"**open** must take on real Morpho debt: 0 <= 0"* | *"**de-lever** must repay real Morpho debt: **564189029 >= 564189029**"* |
 | `testReal_Morpho_LiquidationLeavesBasketIntact` | *"position is healthy"* (no debt ⇒ nothing to liquidate) | *"deliverable ETH must still cover the range: **4838625281132197493 < 4954340753474905760**"* |
 
-**C21-a. 🔴 THE DE-LEVER DOES NOT REPAY.** Debt goes in at **564,189,029** (6-dec USDC) and comes out
-at **564,189,029** — unchanged. `deleverRepayUsd` is the closed-form `Δ/(1−t)` and `_delever`
-deliberately IGNORES `deltaUsd` because of it (`LevManager.sol:347`). **This path has never once run
-against real debt**, because until §C19 no debt could exist.
+⛔ **C21-a IS WITHDRAWN — IT WAS NEVER A CONTRACT DEFECT, IT WAS MY OWN UNFINISHED HARNESS WORK.**
+I booked *"the de-lever does not repay"* from `564189029 >= 564189029`. The cause was `_crashRange`,
+the DOWN-SIDE twin of §E310 that I had **booked as unfixed two turns earlier** and then failed to
+connect to a test whose second line calls it. Its circularity has an extra consequence the rally's did
+not: the exit test is `px <= start - start*dropBps/10000`, and with `px` frozen **that condition is
+UNREACHABLE**, so the loop burned all 12 steps and moved nothing. **The crash never happened**, the
+price stayed at the rally peak, `ilTargetBps` stayed 377.5, `targetDebt` still equalled `curDebt`, and
+`LevMath.deleverRepay` **correctly returned 0**.
+✅ **With the same injection applied to `_crashRange`, the de-lever works on its first real run:**
 
-**C21-b. 🔴🔴 LIQUIDATION LEAVES THE BASKET SHORT — 0.115715 ETH, 2.34% of the range.** Deliverable
-**4.838625** against a range of **4.954341**, so the assertion *"honest LPs whole"* is violated by a
-real amount. ⚠️ **This is in liquidation accounting that §C19 does not touch** — the change only stops
-overwriting a price basis. It is **revealed, not caused**: the baseline could not reach it because
-`position is healthy` short-circuits when debt is 0.
+| | before | after |
+|---|---|---|
+| LTV after open | 362 | 362 |
+| **LTV after crash** | **362** (identical ⇒ no crash) | **408** |
+| **debt after de-lever** | **564,352,008** | **1,975** |
+| LTV after de-lever | 362 | **0** |
+
+**99.99965% repaid.** `testReal_Morpho_OpenAndDelever` now PASSES.
+
+🔴 **C21-b IS REAL BUT WAS MISATTRIBUTED — IT IS NOT A LIQUIDATION DEFECT. Instrumented at five points:**
+
+| point | `rangeETH() − POOLED()` |
+|---|---|
+| **after open+rally** | **−0.215919 ETH** |
+| after `syncLev` | −0.215919 |
+| after liquidation | −5.404627 |
+| after realign | −2.983121 |
+| after final `syncLev` | **−0.115735** |
+
+⇒ **THE GAP IS ALREADY OPEN AFTER THE RALLY, BEFORE ANY LIQUIDATION — and the liquidation NARROWS it
+(−0.2159 → −0.1157).** The failing assertion sits at the end of a liquidation test, which is why it
+reads as a liquidation bug; it is not. **The subject is the RANGE'S OWN IL EVENT**: once the range
+really sells ETH, deliverable ETH falls below pooled ETH by **~4.3% of the range**.
+⚠️ **NEWLY REACHABLE, NOT NEW.** The baseline rally never moved the price, so the range never took IL
+and the gap could not form. **Nothing here is caused by the §C19 fix** — it is caused by the range
+finally doing the thing it exists to do.
+⚠️ **AND THE INVARIANT ITSELF IS UNSETTLED, so do NOT "fix" the code to satisfy it yet.** The
+assertion's own inline comment hedges: *"POOLED_USD legitimately un-pairs to the free reserve after
+the range IL event — not a loss."* **Whether `rangeETH() >= POOLED()` is the right invariant after an
+IL event is the question to answer FIRST** — the cheapest reproduction is open + rally + assert, with
+no venue, no liquidation and no Morpho involved.
+▶️ **NEXT: reproduce the gap with rally alone**, then decide whether the invariant or the accounting
+is wrong. Rule 8d applies — say which, with a reason, before changing either.
 
 ⭐ **THE STRUCTURAL FINDING BEHIND ALL OF IT — THE LEVERAGE SUITE IS TWO DISJOINT WORLDS AND THE GREEN
 ONE CANNOT SEE THE BUG.** `test_Economic_LeversToProvenIlTarget` PASSES, and has always passed, because

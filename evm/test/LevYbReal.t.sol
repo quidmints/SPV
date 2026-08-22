@@ -215,9 +215,20 @@ contract LevYbRealProbe is AllesFixture {
         uint start = AUX.getTWAPforAsset(address(WETH), 1800);
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
+            // 🔴 §E310 (DOWN-SIDE TWIN) — the same circularity the rally had, and it made the exit
+            // test unreachable: `px` came from the observation RING and `_setEthFeed` wrote the
+            // Chainlink mock FROM it, so `px` never changed and `px <= start - drop` could never
+            // fire. THE CRASH NEVER HAPPENED. That is why §C21-a read as "the de-lever does not
+            // repay": the price stayed at the rally peak, so `ilTargetBps` stayed 377.5, `targetDebt`
+            // still equalled `curDebt`, and `LevMath.deleverRepay` CORRECTLY returned 0.
+            // ⛔ `rangePrice()` is not an escape either -- `CORE.poolStats().priceWad` IS
+            // `obsState.lastPrice`. §V4-CUT settles fills AT ORACLE against inventory, so a swap
+            // moves no price: the move must be INJECTED.
+            uint px = ETH.rangePrice(); if (px == 0) break;
             if (px <= start - start * dropBps / 10000) break;
-            _setEthFeed(px / 1e10);
+            px -= px * 2 / 100;                     // -2%: the MARKET moves, EXOGENOUSLY
+            _setLiveEthFeed(px / 1e10);             // the LIVE feed, not the 0xE7F0FEED sentinel
+            CORE.pushObservation(px);               // ring records it (deviation 0 => admissible)
             try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
