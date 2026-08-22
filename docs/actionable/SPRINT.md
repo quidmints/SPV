@@ -10698,6 +10698,55 @@ Dismissed it, then over-endorsed it, then got the scope right only after being c
 they meant.** ⇒ When a proposal's cost depends on its scope, pin the scope before pricing it.
 
 
+---
+
+## 🟠 §E338 — **THE BRIDGE IS CAPACITY-LIMITED, SO DELEVER SURVIVES. AND "DEAL IT OUT LIKE THE FEE ACCUMULATORS" FAILS ON CONVEXITY — BUT A POOLED *HEDGE* WITH PER-LP *CLAIMS* DOES WORK.**
+
+Owner: *"you can never borrow the whole amount anyway … then we have no choice but to delever that final
+difference … we might have to be one huge LP on behalf of everyone and deal it out like we do with the
+fee accumulators."* **First half: correct, and it has a consequence. Second half: not as a fee-style
+accumulator — but the underlying instinct is sound in a different form.**
+
+### 1. ✅ THE BRIDGE CANNOT REPLACE DELEVER — IT CAN ONLY SHRINK IT
+A borrow against basket stables is bounded by available stables × LTV. Whenever the repayment exceeds
+that, the remainder must still unwind through `deleverOnDelivery`. ⇒ **The bridge ADDS a path rather
+than retiring one**, so the "much less code" argument (§E336) weakens further: you keep the delever
+fallback AND add borrow/retire machinery. ▶️ Worth it only if the bridge covers the COMMON case and the
+delever tail is rare — **that is a distributional question about shrink sizes vs basket depth, and
+nobody has measured it.**
+
+### 2. ⛔ A FEE-STYLE ACCUMULATOR CANNOT DEAL OUT IL PROTECT — `√` AND A KINK
+`LevMath.ilTargetBps` (`:85-97`) is `1 − √(entry/now)`, capped, and **`0` at or below entry**. A
+`feesPerShare`-style accumulator distributes a pooled quantity **linearly and pro-rata**, with bookmarks
+handling *join time*. IL protect is not that:
+- it keys on each LP's **entry PRICE** (`ilBasisPx`), not join time;
+- it is **concave** in that entry, so by Jensen a pooled position sized on the AVERAGE entry
+  **under-hedges the sum of the individual obligations**. Measured, two equal LPs entering at 2000 and
+  3000 with price now 4000: per-LP obligation **0.213434**, pooled-on-average **0.209431** —
+  **40 bps of notional short**, and the gap widens as entries disperse;
+- there is a **kink at entry** — below it an LP is owed nothing. One pooled position cannot be
+  simultaneously on for some LPs and off for others.
+⇒ **Dealing it out pro-rata would systematically under-pay exactly the LPs the guarantee exists for.**
+📌 **This is why the per-LP positions are there. It is convexity, not slop** — which retires the
+`§E331`/`§E336` "asymmetry and bloat" reading of the lev stack.
+
+### 3. ⭐ WHAT DOES WORK — POOL THE **HEDGE**, KEEP THE **CLAIMS** PER-LP (an insurance model)
+The instinct survives if the pooling happens on the venue side only:
+- **per-LP** accounting stays: entry price, obligation `1 − √(eᵢ/p)`, and the guarantee *deposit back
+  plus earnings, never less*;
+- **one** venue position hedges the **aggregate** obligation `Σᵢ owedᵢ` — which still needs each `eᵢ` to
+  compute, but needs only ONE borrow, ONE collateral position, ONE liquidation surface;
+- LPs are paid their **claim**, not a share of the hedge. The protocol keeps the surplus and eats the
+  deficit — it is the insurer.
+⇒ **This is "one huge LP on behalf of everyone" done correctly**, and it kills `§E334`'s unbounded
+`_openLps` loop at the root while keeping IL protect intact.
+🔴 **THE PRICE, STATED:** the protocol is then **short the basis** between one pooled hedge and the sum
+of individual guarantees — the Jensen gap above, plus rebalancing error. **That is a real risk the
+basket absorbs, and it must be sized before this is chosen.** ▶️ The measurement that decides it: the
+dispersion of `ilBasisPx` across open LPs. Tight dispersion ⇒ the gap is negligible and pooling is
+close to free; wide dispersion ⇒ it is not.
+
+
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
