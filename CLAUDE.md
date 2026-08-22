@@ -286,8 +286,22 @@ the signature of this, and nothing else produces it.
 
 ## Code navigation — read this before answering a "how does X work" question
 
-⚠️ **`graphify-out/graph.json` contains ZERO Solidity.** Measured 2026-08-03: 17,624 nodes, of which
-12,953 are `.rs`, 33 `.sh`, 5 `.h`, and **none `.sol`**. It indexed `quid-ln/` including vendored
+⚠️ **`graphify-out/graph.json` contains ZERO Solidity.** ⭐ **REGENERATED 2026-08-22 at `892c5b78`:
+17,974 nodes · 58,786 links · 568 communities, and now `directed=true` — the old build was UNDIRECTED,
+so it could not answer "what calls X" versus "what X calls", which is the only thing that makes
+caller/callee asymmetries visible.** (Prior: 17,624 / 57,511, built 2026-08-01 at `74e2a5e3` — **2,008
+commits stale**, describing a tree without §E183, B0, the liveness gate or either fold.)
+🔴 **AND IT IS MOSTLY NOT OUR CODE: `lib/` is 410 of 646 files (63% vendored LDK).** Our four crates
+are ~236 files, so **quote whole-graph node counts and you flatter the coverage of the code you care
+about** — scope any query to `quid-hop/`, `quid-bridge/`, `quid-ln/`, `quid-common/`.
+⚠️ **Health: 4,717 dangling-endpoint edges + 4,837 collapsed directed edges**, overwhelmingly vendored
+LDK referencing `Option`/`Arc`/`PublicKey` — symbols that never become nodes. Expected for AST
+extraction, but **edge counts are NOT call counts**.
+⛔ **AND THE REGENERATION ITSELF CARRIES A TRAP: `to_json` REPORTED SUCCESS AND WROTE NOTHING.** The
+first run printed the new node count, returned truthy, updated the file's mtime — and left the
+3-week-old graph in place. Only reading `built_at_commit` back out of the file caught it; `force=True`
+fixed it. **Verify a regenerated graph by its `built_at_commit`, never by the run's own output.**
+It still indexes `quid-ln/` including vendored
 `lib/rust-lightning`, and skipped `evm/src/` entirely. This matters because the graphify skill instructs
 a session to answer any codebase question from that graph *before doing anything else* when
 `graphify-out/graph.json` exists — so a question about `Quid`, `Aux`, `LevManager` or anything else
