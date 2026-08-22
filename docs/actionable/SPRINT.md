@@ -8273,6 +8273,12 @@ the open path genuinely verifies against it"*. Both are deleted and zero tests c
 same comment block already corrects that identical claim for `openAuthDigest` two lines above** — it
 was documenting this failure mode in one breath and committing it in the next, which is why the
 correction now names the pattern rather than just the fact.
+### 🟠 STILL OPEN — ONE COMMENT, AND IT IS THE HALF THAT MISLEADS
+`BTCChannels.sol:828` still reads *"`openChannelDigest` is **KEPT** — six tests call it"*. Both halves
+are false: it is deleted, and zero tests call it. That is the same shape as the sentence two lines
+above it, which the SAME comment block already corrects for `openAuthDigest` (*"the comment that used
+to sit here claimed `openAuthDigest` was 'KEPT' … it did not"*) — so the block documents this exact
+failure mode while committing it.
 
 
 ---
