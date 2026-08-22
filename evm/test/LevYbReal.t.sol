@@ -189,7 +189,12 @@ contract LevYbRealProbe is AllesFixture {
             if (_sf >= targetWad) { emit log_named_uint("RALLY EXIT soldFraction>=target", _sf); break; }
             uint px = AUX.getTWAPforAsset(address(WETH), 1800);
             if (px == 0) { emit log_named_uint("RALLY EXIT twap==0 at step", i); break; }
-            _setEthFeed(px / 1e10);                 // feed tracks pool pre-swap ⇒ getTWAPforAsset follows
+            // (§RALLY-PREMISE) RAISE the feed; do not track it. §V4-CUT made `swap` settle AT ORACLE
+            // ("one price, no traversal, no discovery") and `poolStats().priceWad` IS
+            // `obsState.lastPrice` — so a swap CANNOT move the mark any more. This line used to set
+            // the feed to the PRE-SWAP price every step, which pinned the mark exactly where the
+            // rally was trying to move it: 60 swaps, 71M gas, price byte-identical, soldFraction 0.
+            _setEthFeed((px * 10_150 / 10_000) / 1e10);   // +1.5%/step — the mark now actually rises
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {}
             catch (bytes memory err) { emit log_named_bytes("RALLY SWAP REVERTED", err); break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
