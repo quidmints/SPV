@@ -120,7 +120,15 @@ contract LevCascadeProbe is AllesFixture {
             // `obsState.lastPrice`, the ring again. §V4-CUT settles fills AT ORACLE against
             // inventory, so A SWAP MOVES NO PRICE -- the move must be INJECTED, not read.
             uint px = ETH.rangePrice(); if (px == 0) break;
-            px += px / 20;                          // +5%: the MARKET moves, EXOGENOUSLY
+            // ⚠️ +8%, NOT +5% — THE DEADBAND SETS THE FLOOR, and this file had the §E310 mechanism
+            // with the WRONG SIZE. `debtDelta` no-ops below `RANGE_BPS` = 300 bps, and a +5% move is
+            // `1 - sqrt(1/1.05)` = 241 bps of sold fraction, which never reaches it: `ilTargetBps`
+            // stayed 0, `venue.borrow` was never invoked, and it read as "Morpho will not lend" —
+            // the SAME symptom §E310 fixed, surviving in this file because only the mechanism was
+            // copied across and not the sizing. +8% gives `1 - sqrt(1/1.08)` = 377 bps.
+            // ⇒ The number is DERIVED from `RANGE_BPS`, not tuned: if that deadband moves, redo the
+            // arithmetic here and in `LevYbReal._rallyRange`, which carries the same constant.
+            px += px * 8 / 100;                     // +8%: the MARKET moves, EXOGENOUSLY
             _setLiveEthFeed(px / 1e10);             // Chainlink follows the market (LIVE feed, §E310) ...
             CORE.pushObservation(px);               // ... and the ring records it (deviation 0 => admissible)
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }
