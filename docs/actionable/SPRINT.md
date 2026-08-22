@@ -6,6 +6,37 @@ two sprint files drift, and this repo has paid for that twice today.
 
 ---
 
+## 🔎 AUDIT — retained-skew → passive-LP credit → 2× IL-protect chain (booked 2026-08-22; audited @`214c3f50`, anchors re-verified @`cf6b897e`)
+
+Read-only audit + independent mutation-site verification of the owner's chain: *"skew cost → retained → credited to passive LPs → compounding; 2× lever = ~2× yield (≥5% → ~10%)."* **Booked from all sides — NOT prejudged correct/incorrect against either the OLD (payRefillBonus / BatchLedger / pre-cut) or the NEW (§V4-CUT firm-quote) picture.** Design authority for the IL/YB verdicts is session `1f505948`; §SKEW-DOUBLE below is a §V4-CUT-era implementation detail (§E280/§E311/§E48) — a current-code correctness question, NOT a re-litigation of a settled verdict.
+
+### ✅ SOUND (verified at mutation sites — no gap in the chain the owner described)
+- **Skew → credit lane:** `wellSkew`/`sellSkew` → `SwapLib.retainSkewPremium` (`:1975-1987`) → `Core.recordSkewPremium` (`Core.sol:352`; `skewPremium +=`, §E42 `POOLED_USD +=` backing-netting, `_bumpEwma` θ) → `Quid.creditSkewPremium`(`:1163`) / `Vault.creditSkewPremium`(`:331`) → `SwapLib.feeIncrements` → `USD_FEES` (the SAME accumulator trading fees use). Complete across its 3 retain sites (`SwapLib:419,441,1652`), backing-neutral, `onlyUs`/`onlyUsBtc`, decimals correct (native `/1e30`, drain 6-dec verbatim), per-instance dispatch correct. **Passive LPs compound automatically — no gap here.**
+- **2× IL-protect:** `LevMath.ilTargetBps` (`:85`; `1−√(entry/now)`, `0` below entry, the ONLY target — `ilTargetLive` deleted §C22). Per-LP ISOLATED (own venue liquidation, never socialized), de-lever flash-repay-FIRST (LTV only ever drops mid-op), `deleverRepayUsd` closed-form (never over-repays), WBTC legs floor `minOut` vs on-chain TWAP (anti-sandwich), LTV reads `getTWAPforAsset` (flash-resistant). Net-equity folded into `rangeETH` as delta-1 depth ⇒ levered LP earns ~2× the passive fee yield (**the 5%→10% link is genuinely wired**). No stubs. **No gap here.**
+- **The ≥5% / ~10% target is intact** — NOT starved by §SKEW-DOUBLE (if anything LPs are over-credited).
+
+### 🔴 §SKEW-DOUBLE (HIGH — correctness/economics; NOT a backing/solvency leak). Scarcity skew applied TWICE on a volatile swap; the second application is UNCREDITED. **OPEN — do not close (rule 16).**
+**Call graph, verified at mutation sites (not agent-reported), re-verified @`cf6b897e`:** `swapToBody` charges skew on BOTH legs — sell (`SwapLib:418-419`), drain (`:439-441`) — via `retainSkewPremium`, which does `r.amount -= premium` AND `recordSkewPremium(premium)` = **haircut #1, CREDITED to LPs** (`SwapLib:1981-1987`). It then `_finishSwap` → `routeSwap` → `ICore(core).swap(...)` (`BasketLib.sol:544`) → `Core.swap` → `_fillDelta`, which does `out -= out·skew` (`Core.sol:1172-1174`) = **haircut #2, UNCREDITED** (`_fillDelta` is `view` ⇒ cannot record; the withheld value stays in `POOLED` as raw depth, NOT in `skewPremium`/`USD_FEES`/θ-EWMA). Net swapper charge ≈ `base·(1−skew)²`.
+
+**FROM ALL SIDES — which application (if either) is the intended single charge is genuinely OPEN:**
+- **(i) `_fillDelta` is the accidental duplicate.** Two docblocks say the settlement leg is skew-free: `swapToBody:437` (*"executes at the honest oracle through routeSwap"*) + `Core.swap:762-766` (*"skew deliberately NOT folded into this rate … never a charge applied here"*). ⇒ favors deleting `Core.sol:1172-1174`.
+- **(ii) `retainSkewPremium` is the stale duplicate.** `_fillDelta`'s own §E311/§E48 comments (`:1161-1189`) argue the skew IS the in-price firm-quote charge (*"it's always the skew premium"*; the flat-420 double was removed) and name `recordSkewPremium → creditSkewPremium (§E280)` as the fee lane. ⇒ favors dropping the `swapToBody` haircut and routing `_fillDelta`'s charge to `recordSkewPremium` (which it currently CANNOT, being `view`).
+- **(iii) Role-blur after `BatchLedger` deletion.** `Core.swap:765` calls skew the "ATTRIBUTION KEY for the realised restoration cost (`BatchLedger`)"; `_fillDelta:1165` says `BatchLedger` was DELETED. Skew had two roles (a CHARGE and an ATTRIBUTION key); the attribution consumer is gone, so which role each application now serves is unclear.
+- **(iv) Possible path-inconsistency, not universal double — UNVERIFIED.** Confirm whether a direct-to-`Core.swap` entry (RFQ/solver) bypasses `swapToBody` (⇒ single charge) while the SOR/retail path double-charges; the discrepancy may be BETWEEN paths, not universal.
+- **(v) Old vs new picture — NOT reconciled.** Old (`1f505948`/pre-cut): one charge in the swap body + retained (payRefillBonus→creditSkewPremium). New (§V4-CUT): firm-quote-in-price. Each picture nominates a different "real" charge.
+
+**Impact (holds regardless of interpretation):** swapper over-charged ~2× the intended A&S premium ⇒ breaks the solver firm quote `out ≈ base·(1−skew)` (`Aux:678-687`) ⇒ routing-around risk. Second skew absent from `skewPremium`/`USD_FEES`/θ-EWMA ⇒ θ under-sizes range depth vs the real premium ⇒ mild yield drag (opposite of a safety hole). NOT a QUID/backing leak (full input lands in `POOLED`; both skews accrue to LP share value).
+
+**Decisive experiment (in-tree, UNRUN — no build in the worktree):** `PremiumIsCarryNotIncome::test_UNIT_PremiumRecordedEqualsPremiumPaid` already computes `borne` vs `recorded` + their ratio but only `assertGt(premium,0)`. Add `assertApproxEqRel(borne, recorded, tol)` and run at realistic σ² (its own `test_UNIT_FixtureProducesRealisticVariance`; fork σ²≈0 MASKS this). `borne≈recorded` ⇒ single charge (finding wrong); `borne≈2×recorded` ⇒ double confirmed.
+
+### 🟡 §SWAPIN-FLAT-VS-SKEW (LOW/INFO). `creditSwapInBody` docblock (`SwapLib:661`) says a BTC swap-IN "settles FLAT at the honest oracle, and that is FINAL", but its `routeSwap`→`_fillDelta` still applies `sellSkew`. Benign in the common case (swap-IN is inventory-refilling ⇒ `sellSkew`→0 via the mirror/flush exemption), so only an inventory-INCREASING swap-in is silently skewed (uncredited). Same root as §SKEW-DOUBLE.
+
+### ℹ️ §STALE-SKEW-DOCBLOCK (INFO). `Core.swap:762-766` (skew "never a charge applied here", cites the deleted `BatchLedger`) directly contradicts `_fillDelta:1161-1174` (applies it). Whichever way §SKEW-DOUBLE resolves, one comment is wrong; `SwapLib:677-679` notes stale comments here have "cost three findings."
+
+*(Method: read-only, mutation-site verified; the two ✅ verdicts ran the coverage control — every retain site traced, every credit-lane branch read. NOT verified without a build: the ~`(1−skew)²` magnitude and the intent — see the decisive experiment.)*
+
+---
+
 ## 0-TOPOLOGY. 🔴 **OWNER DECISION 2026-08-18 — SPV STAYS A SEPARATE REPO, BECAUSE IT IS THE ONE THAT HAS A HOST**
 
 **The decision (owner, 2026-08-18):** SPV is **not** folded into `../ibiza`. It stays separate so a
