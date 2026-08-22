@@ -119,6 +119,19 @@ interface IAngelF8N {
 /// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
 /// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
 contract AllesFixture is ForkPin, ExitFixture {
+
+    /// (§RALLY-MASK 2026-08-22) THE FIXTURE MUST BE ABLE TO RECEIVE NATIVE ETH.
+    ///
+    /// `Aux.swap(..., forVolatile: true, ...)` sends the volatile proceeds to `msg.sender` as NATIVE
+    /// ETH (`QuidLib` ends in `payable(toWhom).call{value: sent}("")`, `require(success, "ethSend")`).
+    /// A test contract with no `receive()` REJECTS that transfer, so every such swap reverted —
+    /// and `_rallyRange`/`_crashRange` swallowed it with `catch { break; }`, so the rally silently
+    /// did nothing and 40 leverage tests failed 20 lines later on `debt == 0`, naming Morpho, which
+    /// the trace shows was never asked to borrow.
+    /// ⚠️ There was NO `receive()` anywhere in `evm/test/` — this is the first, so the whole class
+    /// was unreachable rather than one fixture being unlucky.
+    receive() external payable {}
+
     /// (E128) FIXED dead-man deadline — the BIP-341 sighash commits to nLockTime, so the exit must
     /// be signed for a height known before the funding tx is built. `block.number + n` cannot work.
     uint64 constant EXIT_DEADLINE_ALLES = 900_000;
