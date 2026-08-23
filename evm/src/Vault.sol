@@ -431,9 +431,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         BtcLib.RebalOut memory o = BtcLib.rebalanceBody(
-            _btcCfg(), _lo(), _hi(),
-            feesPerShare, USD_FEES, lpShares + totalBuffer);
-        feesPerShare = o.feesPerShare; USD_FEES = o.usdFees;   // §RANGE-MERGE: RebalOut's fields lost the redundant BTC suffix
+            _btcCfg(), _lo(), _hi(), lpShares + totalBuffer);
+        // §REBAL-VERB: `+=` on increments, matching Quid._rebalance. Exactly equivalent to the old
+        // `= o.feesPerShare` because the library seeded its output from these same two slots.
+        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;
         RANGE_ANCHOR = o.spotPrice;   // §ONE-ANCHOR
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }

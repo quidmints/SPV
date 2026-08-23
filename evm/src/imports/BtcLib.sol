@@ -474,12 +474,17 @@ library BtcLib {
         levPooled[lp] = sats >= lev ? 0 : lev - sats;      // lev → funded; LP.pooled untouched
     }
 
-    /// @dev rebalanceBody output — the 5 caller returns + the 3 value-type storage slots the forwarder writes
-    ///      back (feesPerShare, USD_FEES, reseatEpochBTC). One memory pointer keeps the frame off the
+    /// @dev rebalanceBody output — the 5 caller returns + the fee increments the forwarder adds to
+    ///      `feesPerShare` / `USD_FEES`. One memory pointer keeps the frame off the
     ///      legacy stack (no via_ir).
+    /// ⚠️ §REBAL-VERB: the fee fields are INCREMENTS, exactly as in `QuidLib.RebalOut`, and both
+    ///    forwarders therefore apply them with `+=`. They used to be ABSOLUTES here — two structs
+    ///    sharing one name while one was assigned and the other added, which is silent money loss
+    ///    in whichever direction a future fold got wrong. The library only ever seeded `o` from the
+    ///    caller's values and added to it, so dropping the two seed params is exact.
     struct RebalOut {
         uint spotPrice; uint    loPrice; uint    upPrice; uint myLiquidity; uint resolvedTwap;
-        uint feesPerShare; uint usdFees;
+        uint feesPerShareInc; uint usdFeesInc;
     }
 
     /// @notice Body of Vault._rebalance (BTC side) — VERBATIM relocation (SwapLib.rebalanceCore + the repack/JIT
@@ -490,23 +495,22 @@ library BtcLib {
     ///         forwarder writes back feesPerShare/USD_FEES/reseatEpochBTC/LOWER_TICK_BTC/UPPER_TICK_BTC.
     function rebalanceBody(
         Types.RangeCfg memory c, uint loPrice, uint upPrice,
-        uint feesPerShare, uint usdFees, uint feeDenom
+        uint feeDenom
     ) public returns (RebalOut memory o) {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
             c.core, c.aux, IAux(c.aux).WBTC(), upPrice, loPrice);
-        o.feesPerShare = feesPerShare; o.usdFees = usdFees;
         if (r.didRepack) {
             // §DE-TICK: `repack`/`reseat` return zero fee legs (v4 collects nothing), so this
             // reordered two zeros. Canonical (USD, tok) taken directly -- see QuidLib's note.
             uint feesTok = r.fees1;
             uint feesUsd = r.fees0;
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(feesTok, feesUsd, feeDenom);
-            o.feesPerShare += tokInc; o.usdFees += usdInc;
+            o.feesPerShareInc += tokInc; o.usdFeesInc += usdInc;
         } else if (r.jitFees) {
             // collectFees returns canonical (feesUSD, feesTok) — USD first.
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(r.jitFeesTok, r.jitFeesUsd, feeDenom);
-            o.feesPerShare += tokInc; o.usdFees += usdInc;
+            o.feesPerShareInc += tokInc; o.usdFeesInc += usdInc;
         }
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
