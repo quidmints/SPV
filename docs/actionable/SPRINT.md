@@ -6588,6 +6588,28 @@ state; that trace is the task.**
 (2026-08-21). ⚠️ **AN EMPTY GREP PROVES NOTHING ABOUT THE TREE** — this is a bounded claim about the
 two files that would carry it, not an assertion that no such logic exists anywhere.
 
+✅ **RE-RUN AND WIDENED 2026-08-22, AND THE FINDING SURVIVES IN A STRONGER FORM — IT IS NOW STRUCTURAL,
+NOT AN ABSENCE.** The original grep was bounded to two files and the row said so; the whole `Lev`
+family now measures: `LevManager.sol` 0, `BtcLevManager.sol` 0, `LevMath.sol` 0, `LevBase.sol` 1,
+`LevVenueBase.sol` 4. **All five surviving hits are prose or a Morpho enum** — `LevBase.sol:259`
+("carrying it" = a function signature), `LevVenueBase.sol:122/:177/:178` (three `@dev` notes on why a
+`view` cannot `accrueInterest`), `LevVenueBase.sol:212` `VARIABLE_RATE = 2` (Aave's
+`interestRateMode` selector, not a rate). **No file in the tree re-evaluates the hedge against what
+the debt costs.**
+🔴 **AND THE NEAR-MISS IS THE PART WORTH KEEPING, because it makes this un-fixable by a one-line call:
+the IRM ADDRESS IS HELD AND NEVER ASKED ANYTHING.** `LevVenueBase.sol:88` stores
+`address private immutable IRM`, `:96` assigns it from `m.irm`, and `:102` hands it straight back to
+Morpho inside `MarketParams` — required by the venue's API, so it is **plumbed through, never read**.
+There is **no `interface IIrm`, no `borrowRate`, no `borrowRateView`** declared anywhere in
+`evm/src` (0 hits repo-wide, control: `accrueInterest` and `totalBorrowAssets` ARE declared in
+`Interfaces.sol:61`/`:71`, so the sweep can see Morpho's surface when it exists). ⇒ **The protocol
+cannot read its own borrow rate today.** Answering this row's question with "unwind on negative carry"
+therefore costs a new interface declaration plus a keeper read — not a comparison against a number
+already in hand, which is what the row's shape implies.
+⚠️ `MORPHO.accrueInterest` IS called (`LevVenueBase.sol:126`, `:132`), which is why "interest" appears
+at all: **the position pays and settles interest correctly, and simply never prices it.** Accrual is
+not observation — reading one as the other is how this looks handled.
+
 The hedge borrows the venue stable to restore ETH the range already sold. In a flat, low-volume regime
 the position pays borrow interest while the range generates little fee income, so net carry goes
 negative and nothing observed here re-evaluates it: `debtDeltaToTarget` targets `E0·soldFractionWad`,
