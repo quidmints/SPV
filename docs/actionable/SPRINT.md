@@ -46,9 +46,14 @@ the test's CLAIM or its PREMISE.
 | c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? ▶️ **§E343 found the clean form: price it into where the order RESTS, not into the fill** — the trigger includes it, the fill honours its stated price, limit semantics intact. Cheapest of the four. | a standing unpriced maker discount on every crossed resting order |
 | d | **§E330** — should a range deep relative to its flow earn NOTHING? | it is why "PREMISE: fees actually accrued" fails; §E326 depends on the answer |
 
-## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 12,187 BYTES OVER** (§E330). `Quid` 24,104 + `Vault` 12,659 =
-36,763 vs 24,576. §E315's remedy (delete the 4626 face) is 12 selectors against a 12 KB gap. **Re-plan
-against the real number**; the `setBtcVault` ×3 consolidation and the lib merges sit behind it.
+## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 11,887 BYTES OVER** (§E330, re-measured 2026-08-23 @`ed10bc01`).
+`Quid` **23,788** + `Vault` **12,675** = **36,463** vs 24,576. §E315's remedy (delete the 4626 face) is
+12 selectors against a ~12 KB gap. **Re-plan against the real number**; the `setBtcVault` ×3
+consolidation and the lib merges sit behind it.
+⚠️ **The row read `24,104 + 12,659 = 36,763, over by 12,187` until this sweep. §E346 (`7e32eb48`) moved
+`onlyUs`'s body into a private view and took `Quid` 24,104 → 23,788, so the headline number was 300
+bytes stale within the hour.** The gap moves every time anyone lands on either contract — **re-run
+`python3 tools/check-contract-sizes.py` before quoting it**, do not read it from here.
 
 ## 3b. 🟢 **§E345 — LANDED THIS SESSION, AND IT CARRIES A SECOND DEFECT THAT WAS NOT BOOKED ANYWHERE**
 Beyond turning σ² on (row b/b″ above), the same read had a live sentinel bug. `realizedVarianceWad`
@@ -90,7 +95,7 @@ the fixtures that DO pin the anchor (`Alles.t.sol:1096,1945`), and specifically 
 `DrainAtomicity` controls that were VOID at σ²=0 now have a live premise** — that is the cheapest
 existing-test confirmation that σ² is really non-zero on the money path.
 
-## 4b. 🔵 **THE MARGIN TABLE EVERY SIZE ARGUMENT IN THIS REPO RESTS ON IS STALE BY 13.4 KB — `Core` HAS 13,911 BYTES FREE, NOT 551** (§E344, measured 2026-08-23 @`9896c5be`)
+## 4b. 🔵 **THE MARGIN TABLE EVERY SIZE ARGUMENT IN THIS REPO RESTS ON IS STALE BY ~13 KB — `Core` HAS ~13.3 KB FREE, NOT 551** (§E344, measured 2026-08-23 @`9896c5be`; re-measured @`ed10bc01` at **11,304 / 13,272** after §E345)
 `python3 tools/check-contract-sizes.py` against a warm, verified-fresh `evm/out` (artifact 13:49 > source
 06:04, `forge build` = *No files changed*): **`Core` 10,665 / margin 13,911** — against CLAUDE.md's
 **24,025 / 551** and QUEUE §E219's **24,025**. The cause is §V4-CUT: `contract Core {` no longer says
@@ -100,17 +105,46 @@ with it. **305 code lines after comment-stripping.**
 ① CLAUDE.md's *"`Core` CANNOT AFFORD A GETTER — a two-address getter costs 91 bytes"* is off by **25×**;
 it is why the dust monitor reads Core by RAW SLOT and why the harness is coupled to Core's state ORDER.
 ② QUEUE §E219's collapse arithmetic — *"`Core` 24,025 + `Quid` 24,386 = 48,411, over EIP-170 by
-23,835 … the deletions are what MAKES the merge exist"* — is now **`Core` 10,665 + `Quid` 24,104 =
-34,769, over by 10,193.** Its own **falsifiable checkpoint** (*"measure the freed total once the
-deletions land"*) has been reached and **passed**: the deletions freed ~13.4 KB, so the gap more than
-halved. The merge is not near-impossible; it is 10 KB of work.
+23,835 … the deletions are what MAKES the merge exist"* — was, at §E344's reading, **`Core` 10,665 +
+`Quid` 24,104 = 34,769, over by 10,193.** Its own **falsifiable checkpoint** (*"measure the freed total
+once the deletions land"*) has been reached and **passed**: the deletions freed ~13.4 KB, so the gap
+more than halved. The merge is not near-impossible; it is ~10 KB of work.
+⚠️ **RE-MEASURED THE SAME DAY @`ed10bc01`: `Core` 11,304 + `Quid` 23,788 = 35,092, over by 10,516** —
+§E345 put +639 on `Core` and §E346 took −316 off `Quid`, net +323 on the gap. **The conclusion is
+unchanged and the arithmetic is not; quote the script, not this line.**
 ⛔ **BUT DO NOT READ "13.9 KB FREE" AS "`Core` IS CHEAP AGAIN" IN THE ONE PLACE IT STILL BINDS:**
 `Core`'s STATE ORDER is load-bearing (`DrainAtomicity` reads slots 262/263 by raw index, and
 `netFlowUsd` is *declared last on purpose*). **Bytecode headroom bought nothing there — append-only
 still holds, and a raw-slot read that names the wrong variable still passes.**
-▶️ Current full table (30 deployable, tightest first): `Quid` 24,104 (472) · `BTCChannels` 23,413
-(1,163) · `LevManager` 22,063 (2,513) · `Aux` 21,210 (3,366) · `BtcLevManager` 17,228 · `Vault` 12,675
-· `Core` 10,665. **`Quid` is the sole binding contract and `LevMath` is no longer in the top five.**
+▶️ **AUTHORITATIVE TABLE — measured @`7e32eb48`, 30 deployable contracts, tightest first. STAMPED, AND
+ALREADY PROVISIONAL: six lanes are landing bytecode reductions right now (modifier-body folds and
+dead-surface removal across `Quid`, `Core`, `Aux`, `Basket`, `Vault`, `VBtc`, `SwapLib`,
+`Interfaces`), so read this as *before the §E346-technique sweep lands*, not as final.**
+
+| contract | bytes | margin |
+|---|---|---|
+| `Quid` | **23,788** | **788** |
+| `BTCChannels` | 23,413 | 1,163 |
+| `LevManager` | 22,063 | 2,513 |
+| `BasketLib` | 21,713 | 2,863 |
+| `SwapLib` | 21,434 | 3,142 |
+| `Aux` | 21,210 | 3,366 |
+| `LevMath` | 20,204 | 4,372 |
+| `BitcoinTx` | 19,262 | 5,314 |
+| `QuidLib` | 17,512 | 7,064 |
+| `BtcLevManager` | 17,228 | 7,348 |
+| `BtcLib` | 16,172 | 8,404 |
+| `ChannelLib` | 16,037 | 8,539 |
+| `Vault` | 12,675 | 11,901 |
+| `Core` | **11,304** | **13,272** |
+
+**`Quid` is the sole binding contract; `LevMath` (was 24,503 / 73 in CLAUDE.md) is no longer in the top
+five; `Core` (was 24,025 / 551) is second-loosest.**
+🔴 **RE-RUN `python3 tools/check-contract-sizes.py`; DO NOT TRUST ANY NUMBER WRITTEN HERE — THIS TABLE
+HAS NOW BEEN WRONG TWICE IN ONE DAY.** §E344 published `Core` 10,665 (13,911) and `Quid` 24,104 (472) at
+`9896c5be`; §E345 put **+639** on `Core` and §E346 took **−316** off `Quid` within the same session, so
+both headline figures were stale before anyone read them. **A stale margin is worse than none: it either
+blocks an affordable change or waves through an unaffordable one.**
 
 ## 5. 📌 **LANDMINE, ZERO COST TO PREVENT** (§E339): `RangeLib.openPos:444` does `pos[lp] = p` — a
 wholesale overwrite. Unreachable today (`openLev` reverts `AlreadyOpen`), so **there are no top-ups at
@@ -213,7 +247,8 @@ Settle price = `getTWAPforAsset(ASSET,1800)` (internal ring TWAP) → `twapResol
 3 confirmed 🔴 + 1 suspected 🔴 + 1 🟠 + 1 🟡. Full evidence in the AUDIT file.
 - 🔴 **§AUDIT-DELIVER-KEYS (auth, HAND-VERIFIED).** `deliverSwapOutOnchain`/`_deliverSwapOut` (`BTCChannels.sol:2258-2341`) OMITS `_requireChannelKeys` — every sibling key-rotating path has it (`splice:1126`, `parkProvenSats:1384`, `emitDeadManExit:1559`, `recordClose-retire:1814`); `_verifySplice`'s only key check is `isTwoOfTwoOutputKey` on the CALLER-SUPPLIED pair (`:1694`, comment `:1676-1681` says exactly this). ⇒ a malicious hop rotates the funding output to `Q'=KeyAgg(fakeLP,fakeHop)` it alone controls under cover of a delivery → custody migrates off the LP; close mints QUID vs stolen notional. FIX: add `_requireChannelKeys(channelId,p)`. (Reachability rides on §C2.3² but this is a defense-in-depth consistency gap by the code's own standard.) ✅ **LANDED 2026-08-23** — one line, in the **outer** frame beside `_onlyHop()` (the inner frame's calldata live-range constraint is explicit and previously reverted four tests). Control run: `VBtcLevFeeLane` fails **identically** on pristine `585085e1` and on the changed tree — same two test names, byte-identical assertion payload (`18603851223 >= 18218953435`) — so the two reds are pre-existing and NOT this gate. Both test call sites already build `p` from the channel's registered pair.
 - 🔴 **§AUDIT-PUSHOBS (oracle, HAND-VERIFIED mechanism).** `Core.pushObservation` (`Core.sol:1374`) is permissionless + instance-agnostic (no modifier, no `observationSource` guard, `isWbtc` derived) → REACTIVATES the BTC ring the "ring is simply not written" safety (`Core.sol:1229`) assumes dead. Bias ≤50bps/block; within the 500bps window `getTWAPforAsset(WBTC)` returns the manipulated ring → `RealRateBtcMorphoOracle.price()` (`LevBase.sol:534`) → mis-liquidation (rescue underwater / snipe healthy), gas-only, ≤~5%. FIX — ⚠️ **THE REMEDY ORIGINALLY WRITTEN HERE WAS WRONG AND WOULD HAVE DEEPENED THE FINDING.** It read *"gate `pushObservation` to `observationSource!=0`"*. Measured 2026-08-23: `setObservationSource` has **exactly one caller in the tree and it is a test** (`test/DrainAtomicity.t.sol:1375`); `DeployLib.sol:139` deliberately pins no source (§E222). So `observationSource == address(0)` on **BOTH** instances, that predicate is false everywhere, and the gate would have refused **every** push — including the ETH ones — while `pushObservation` is the ring's ONLY live writer (§E294/§E308: σ² ≡ 0 precisely because neither writer runs). It would also have gone red in `LevCascade`, `LevYbReal`, `LeverageCrossSubsidyProbe`, `PushObservationFillsTheRing` and `Alles`'s ramps. ⇒ **LANDED INSTEAD as an instance-identity gate: `if (VOL_DECIMALS != 18) return;`** (`Core.sol:1409`) — the same derivation the function already used one line below for `isWbtc`, so it is free and local; `isWbtc` is now the literal `false` because after the gate the expression is provably false. Controls run: **zero** test call sites hit the gate (every `pushObservation` in `test/` goes through `CORE` = the WETH instance; `Alles.t.sol:673`), and the one production caller (`script/PushObservation.s.sol:71`) is hardcoded WETH/USDC and `require`s anchor agreement first, so pointing it at BTC already failed LOUDLY before this change. ▶️ When a wrapper-free BTC source exists, **delete** this line together with the `observationSource` note it enforces — do not weaken it.
-- 🔴 **§AUDIT-OPENLPS-DOS (griefing, HAND-VERIFIED crux).** `_openLps` (`LevBase.sol:76`, shared by both lev mgrs) unbounded + attacker-growable (`MIN_OPEN_VBTC` ~$30-50 × N EOAs, recoverable). `deleverEthOnDelivery` (`SwapLib.sol:1830-1858`) loops `i<openLevCount()` with no outer bound → OOG bricks the ETH swap-out liquidity-crunch fallback; the same array's `catch{}→0` in `Core._levDebtUsd18`(`:143`)/`Quid._venueBalance`(`:960-967`) fail-OPEN → phantom yield credited to plain LPs. (Generic "_openLps unbounded" ~ SCAN §1.B/L19680; the hard-DoS + phantom-yield-flip are new.) FIX: cap the book / bound+paginate / cache aggregates. ⏸️ **PARTIALLY LANDED 2026-08-23 — AND IT IS A RULE-17 CLAMP, SO DO NOT READ IT AS CLOSED.** `MAX_OPEN_LPS = 128` + `BookFull()` enforced at **both** push sites (`RangeLib.trackOpen`, `RangeLib.openPos`), i.e. at the WRITER not the loops — truncating `totalNetEquity`/`totalDeliverableDollars` would silently under-report backing, which is the failure that does not announce itself. Measured cost to the size-pressured managers: **0 bytes** (already external library calls); `Quid` 24,104 with 472 to spare. ▶️ The clamp survives only until the pooling redesign makes an unbounded book unconstructible; per standing rule 17 that root fix must **delete** this bound, not add a third one.
+- 🔴 **§AUDIT-OPENLPS-DOS (griefing, HAND-VERIFIED crux).** `_openLps` (`LevBase.sol:76`, shared by both lev mgrs) unbounded + attacker-growable (`MIN_OPEN_VBTC` ~$30-50 × N EOAs, recoverable). `deleverEthOnDelivery` (`SwapLib.sol:1830-1858`) loops `i<openLevCount()` with no outer bound → OOG bricks the ETH swap-out liquidity-crunch fallback; the same array's `catch{}→0` in `Core._levDebtUsd18`(`:143`)/`Quid._venueBalance`(`:960-967`) fail-OPEN → phantom yield credited to plain LPs. (Generic "_openLps unbounded" ~ SCAN §1.B/L19680; the hard-DoS + phantom-yield-flip are new.) FIX: cap the book / bound+paginate / cache aggregates. ⏸️ **PARTIALLY LANDED 2026-08-23 — AND IT IS A RULE-17 CLAMP, SO DO NOT READ IT AS CLOSED.** `MAX_OPEN_LPS = 128` + `BookFull()` enforced at **both** push sites (`RangeLib.trackOpen`, `RangeLib.openPos`), i.e. at the WRITER not the loops — truncating `totalNetEquity`/`totalDeliverableDollars` would silently under-report backing, which is the failure that does not announce itself. Measured cost to the size-pressured managers: **0 bytes** (already external library calls); `Quid` 24,104 with 472 to spare **at the time of that measurement —
+now 23,788 with 788, §E346**. ▶️ The clamp survives only until the pooling redesign makes an unbounded book unconstructible; per standing rule 17 that root fix must **delete** this bound, not add a third one.
 - 🔴 **§AUDIT-SWAPOUT-CONCURRENT (MEV, suspected; COMPANION to §AUDIT-SWAPOUT-DOUBLEPAY, different root).** Two authorized hop instances (MAIN+FALLBACK, normal HA — `_onlyHop` accepts either on ANY channel; no cross-process swapId lock in `swap_out_onchain.rs:180-314`) both deliver one `swapId` via DIFFERENT channels → swapper paid 2× on Bitcoin; only the first `deliverSwapOutOnchain` lands, the losing channel is **PERMANENTLY UNRETIRABLE** (`_withdrawalPayout`/`_requireNotSplice`/`recordForceClosePermissionless` all reject the abandoned splice shape) holding phantom backing. No timeout/cancel needed. FIX: serialize per-`swapId` across hops before the BTC broadcast; make the losing channel reconcilable.
   ⇒ **RE-GRADED 🟠 2026-08-23 (the keystone `§C2.3②` is resolved, so this is now rateable — and the EVM half of the premise is true while the BITCOIN half is not).** `_onlyHop` really does accept either address on any channel, and the session dedup really is per-process (`handled: HashMap`, `swap_out_onchain.rs:380`) — but **submitting is not delivering**. Rail B requires the fleet's own `VaultNode` to co-sign the channel's 2-of-2 splice (`drive_swap_out_onchain` takes a NON-optional `Arc<VaultNode>`; `daemon.rs:432` spawns the watcher only under `.filter(|_| onchain_enabled)`, and `onchain_rail_enabled` requires `vault.is_some()`, default `QUID_FLEET_COHOSTS_VAULT=false`). The vault's LP-side keys are `derive_vault_seed(&root_seed)` (`quid-bridge-daemon.rs:366`) and the hop's EVM identity is `evm_signing_key(&root_seed, "QUID_HOT_KEY")` (`:176`, derived-from-seed by default — `boot.rs:77`, its own test `evm_signing_key_derives_from_seed_when_env_unset`). The constructor **requires** `MAIN_HOP != FALLBACK_HOP` (`BTCChannels.sol:724`). ⇒ In the enclave/derived default, two distinct hop addresses imply two distinct `root_seed`s imply two distinct vault seeds — **the fallback holds no LP key for any channel main funded, so it cannot produce a competing splice at all.** The "deliver via DIFFERENT channels" step has no mechanism.
   ⚠️ **IT IS NOT CLOSED, BECAUSE ONE CONFIGURATION DOES REACH IT — AND THAT CONFIGURATION IS ALREADY WORSE THAN THE FINDING.** Off-SGX, `QUID_HOT_KEY` may override the derivation (`boot.rs:74-76`, deliberately, for self-host/dev/e2e). Two daemons with the SAME `root_seed` and DIFFERENT `QUID_HOT_KEY` therefore satisfy both premises. But identical `root_seed` means identical `derive_vault_seed`, i.e. **two live LDK nodes sharing one channel state** — whose first consequence is a revoked-commitment broadcast and self-justice, not a double-pay. ⇒ **The reachable config is independently catastrophic, so the double-pay is a SYMPTOM of it rather than a separate live bug.**
@@ -379,10 +414,11 @@ stale entry costs what a stale marker costs, and neither sweep covers it because
    minted on a delivery of **zero**. Not a stale row.
 4. 🔴 **§E255 / the manager merge — both are blocked by BYTECODE, not design.** ⚠️ **RE-MEASURED
    2026-08-22 FROM ARTIFACTS, AND THE TWO GAPS MOVED IN OPPOSITE DIRECTIONS — SO NEITHER NUMBER
-   BELOW SHOULD BE QUOTED WITHOUT RE-RUNNING IT.** §E255 union `Quid 24,104 + Vault 12,675 = 36,779`
-   ⇒ **12,203 over** (was ~11,986: **217 WORSE**). Manager merge `LevManager 22,063 +
+   BELOW SHOULD BE QUOTED WITHOUT RE-RUNNING IT.** ⚠️ **RE-MEASURED AGAIN 2026-08-23 @`7e32eb48`
+   (before the §E346-technique sweep lands, so it will move again): §E255 union `Quid 23,788 +
+   Vault 12,675 = 36,463` ⇒ **11,887 over**. Manager merge `LevManager 22,063 +
    BtcLevManager 17,228 = 39,291` ⇒ **14,715 over** (was 15,532: **817 BETTER**). ⇒ The extraction
-   target is **~12.2k**, and the two folds are not tracking each other — every landed change on
+   target is **~11.9k**, and the two folds are not tracking each other — every landed change on
    either range moves one gap without touching the other, which is exactly why a stale figure here
    would misprice the work. Stale figures, kept for the delta: ~11,986 and 15,532
    bytes over EIP-170. **Every design question is settled (§E256).** ⚠️ §E255's old blocker
@@ -4993,13 +5029,17 @@ dissolve on measurement (the first was *"`Vault` is two things fused"*), which i
 has been re-derived twice and its blocker line was never re-run either time.** The live text above
 carries the correction; the archive is left verbatim on purpose.
 
-⚠️ **NUMBERS RE-MEASURED FROM `evm/out` ARTIFACTS 2026-08-22 — the row below quotes
-`Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 24,104 + Vault 12,675 =
-36,779` ⇒ **12,203 over**. The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
-39,291` ⇒ **14,715 over** (the row says 15,532). One gap widened by 217, the other narrowed by 817.
+⚠️ **NUMBERS RE-MEASURED FROM `evm/out` ARTIFACTS 2026-08-23 @`ed10bc01` — the row below quotes
+`Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 23,788 + Vault 12,675 =
+36,463` ⇒ **11,887 over**. The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
+39,291` ⇒ **14,715 over** (the row says 15,532).
 ▶️ **The blocker and the argument are unchanged and still correct — only the price moved.** Re-run
 `tools/check-contract-sizes.py` before planning against either figure; `Quid` currently has just
-**472 bytes** of margin, so an extraction pass has no room to be approximately right.**
+**788 bytes** of margin (§E346 gave back 316), so an extraction pass has no room to be approximately
+right.
+⚠️ **This block itself read `24,104 / 36,779 / 12,203 over / 472 bytes` — measured 2026-08-22 and false
+by the next morning.** Three separate numbers in one paragraph, all invalidated by one 12-line commit.
+**Do not re-state a margin here; state the command.**
 
 
 | §E255-two-instances | 🔴 **RE-MEASURED 2026-08-18 — THE RECORDED BLOCKER IS GONE, AND THE REAL ONE IS EIP-170 BY ~11,986 BYTES.** ⛔ **THE STALE BLOCKER: *"`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED"* IS NO LONGER TRUE.** Enumerated the whole ETH-venue slice against `Vault` today: `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `deliverableETH` `AAVE_SPOKE` `WEETH` — **ZERO references in `Vault.sol`, all of them in `Quid`.** The only three left (`:64`, `:111`, `:559`) are COMMENTS that say so outright — *"`vogueETH` is VOGUE's accessor, not this contract's"*. ⇒ **§E231's EthVenue fold resolved the precondition by going the OTHER WAY — into `Quid` rather than out of `Vault` — so the split everyone was waiting to do had already happened, under a different row.** `Vault` IS the BTC range manager now. 🔴 **WHAT ACTUALLY BLOCKS IT, MEASURED: `Quid` 23,953 + `Vault` 12,609 = 36,562 against the 24,576 limit ⇒ ~11,986 OVER.** One implementation with two instances means ONE contract carrying both ranges' behaviour and deployed twice, so the union must fit in a single EIP-170 envelope — and it does not, before even counting that ETH-venue custody would ride as dead weight on the BTC instance (the permanent asymmetry `CLAUDE.md` records). ⭐ **THIS IS THE SAME WALL AS THE `LevManager`+`BtcLevManager` FOLD (15,532 over), AND THAT IS THE POINT: BOTH REMAINING FOLDS ARE BLOCKED BY BYTECODE, NOT BY DESIGN AMBIGUITY.** The design questions — which base, whose `totalSupply`, who owns `oorShares` — are settled (§E256). ▶️ **SO THE NEXT STEP IS NOT THE MERGE, IT IS ~12k OF DELEGATECALLED-LIBRARY EXTRACTION, priced by §E245's measured rate (~100 B per small body, ~514 B per large one).** Attempting the merge first produces a contract that compiles, tests, and cannot be deployed — which this repo has shipped once already at −126 bytes with a green suite. ⚠️ **DO NOT START THE MERGE UNTIL THE UNION FITS.** Original text: **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each range, calling each lev library it needs."*** ⇒ ONE range manager; TWO `Shares` INSTANCES (ETH + BTC); each instance delevers its own range through the lev libraries. Today the share FACE is IMPLEMENTED THREE TIMES instead of INSTANTIATED TWICE: inline in `Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same `isBTC` argument one level up from `Core`, which already IS one implementation with two instances. ✅ **WHAT IS ALREADY IN PLACE:** `Shares` (§E252) gives both ranges an IDENTICAL storage layout — the precondition; `LevBookLib` (§E246) holds the four venue legs parameterised by collateral token; `Core` is the working precedent. 🔴 **THE BLOCKER IS A SEMANTIC DISAGREEMENT, NOT PLUMBING:** `Shares.totalSupply()` = `lpShares + oorShares` and SPANS both position kinds (*"disjoint by construction… the sum cannot double-count"*); `Quid.totalSupply()` = `lpShares` alone and **`oorShares` does not exist in `Quid` at all**, so out-of-range positions are absent from the share supply. The owner's design says totalSupply INCLUDES the out-of-range locked liquidity (and §E251 wants it lendable). Instantiating `Shares` twice ADOPTS its semantics — **changing what every ERC-20/4626 client reads**. ▶️ Settle that first; it is the same decision §E251 turns on. |
@@ -10571,7 +10611,11 @@ suite-state history that `SPRINT.md` does not**; grep both before calling anythi
 it cannot close this on its own. ⚠️ **This is the "a stale margin is worse than none" hazard applied to
 a PLAN rather than a contract: anyone scheduling the fold off 5.4 KB is scheduling against a number
 that is less than half the real one.** ⇒ The fold is not finishable as scoped; re-derive the plan
-against 12,187 before committing to it.
+against the CURRENT gap before committing to it.
+📌 **AND THE SAME HAZARD ATE THIS ROW'S OWN NUMBER: re-measured 2026-08-23 @`ed10bc01`, `Quid` **23,788**
++ `Vault` **12,675** = **36,463**, over by **11,887** — §E346 took 316 bytes off `Quid` hours after
+`6cc35b71`.** The table above is kept as the `6cc35b71` measurement it is labelled as; **the planning
+number is whatever `python3 tools/check-contract-sizes.py` says today, and nothing in this file.**
 
 ### 2. 🔴 WHY "PREMISE: fees actually accrued" FAILS — AND IT IS NOT `§E311`, PROVEN TWICE
 `test_V2_EqualLpsEarnEqualFees` deposits 200 ETH across two LPs, runs 6 × $3,000 trades, and asserts
@@ -10660,7 +10704,8 @@ state across contracts, which is what §E329's instance bug was.
 ### 📌 6-11. THE REST, WITH THEIR REAL COST
 - **`setBtcVault` ×3 at deploy** (`core`, `a.btcCore`, `quid`) — three pins because three objects each
   need the address and none can derive it. Consolidatable only once one of them can ask another;
-  that is the same fold that is 12,187 bytes over (§E330). **Booked, not attempted.**
+  that is the same fold that is **11,887** bytes over (§E330, re-measured @`7e32eb48`; the row's old
+  12,187 was pre-§E346). **Booked, not attempted.**
 - **`SwapLib.ethRisk()`/`btcRisk()` constants in the constructor** — agreed, this is slop. It is the
   `struct Risk` question too: **all structs belong in `Types.sol`** and the risk parameters belong in
   config, not a library function returning a literal.
@@ -11563,6 +11608,9 @@ in `git worktree add --detach`:
 - **`forge build` → 0 errors.**
 - **All 35 deployable contracts under EIP-170**; tightest is **`Quid` 24,104 (472 to spare)**,
   then `BTCChannels` 23,403 (1,173), `LevManager` 22,063 (2,513).
+  ⚠️ **Anchored to `a047ca59` and kept as that reading. TODAY @`7e32eb48` the script measures **30**
+  deployable contracts, tightest `Quid` **23,788 (788)**, then `BTCChannels` 23,413 (1,163). The count
+  fell because contracts were folded away, not because the check narrowed.**
 - **`tools/check-client-abis.py` → 116 Rust signatures, 0 drifted; 68 SPA signatures, 0 drifted.**
 - **Zero duplicate top-level declarations** (`interface`/`library`/`struct`/`error`/`event`) across
   `evm/src` — standing rule 2 holds tree-wide, not just in `Interfaces.sol`.
