@@ -20,7 +20,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, ICore, IBTCChannels} from "./imports/Interfaces.sol";
-import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, NotBTCChannels, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
+import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 
 
 /// AAVE-v4 GHO spoke. Aux self-supplies via the self-allow trampoline.
@@ -236,6 +236,20 @@ contract Aux is // Auxiliary
             revert Unauthorized();
     }
     modifier onlyUs { _requireUs(); _; }
+
+    /// @dev §FOLD-ONLYSELF — the SAME extraction as `_requireUs` above, one rung down. Ten
+    ///      self-gated trampolines (`_depositVol`, `bumpQuidBTC`, `_withdrawAaveUnsafe`,
+    ///      `withdrawAaveLeg`, `supplySelf`, `withdrawSelf`, `flagIlliquidSelf`, `tipSelf`,
+    ///      `refreshHoldingsSelf`, `refreshAllHoldingsSelf`) each carried a byte-identical inline
+    ///      copy of this comparison-and-revert. Deployed ONCE, called ten times.
+    ///      ⚠️ A `private view` and DELIBERATELY NOT A MODIFIER (rule 8c): a modifier body is
+    ///      inlined at every use site, so wrapping this in one would put the ten copies straight
+    ///      back. The call sequence is what makes it cheaper than what it replaces.
+    ///      Behaviour is verbatim — same predicate, same error, same position (first statement in
+    ///      every body), so a self-call still passes and every external caller still reverts.
+    function _onlySelf() private view {
+        if (msg.sender != address(this)) revert NotSelf();
+    }
 
     /// @notice init (plug) Aux with addresses
     /// @param _range       Quid contract (V4 LP wrapper)
@@ -744,11 +758,11 @@ contract Aux is // Auxiliary
     ///         (tipSelf already exists below; swapToBody reuses it.)
     function _depositVol(address asset, address sender, uint amount)
         external payable returns (uint) {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         return _deposit(asset, sender, amount);
     }
     function bumpQuidBTC(uint amount) external {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         rangeBTC += amount;
     }
 
@@ -1158,7 +1172,7 @@ contract Aux is // Auxiliary
     ///         (Solidity's try/catch only works on external calls).
     ///         `onlySelf` gate.
     function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint drawn) {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         // Body folded into ChannelLib.aaveWithdrawTo (shared with withdrawAaveLeg);
         // reserveId maps to its GHO/USDG token for the post-withdraw transfer.
         return ChannelLib.aaveWithdrawTo(
@@ -1176,7 +1190,7 @@ contract Aux is // Auxiliary
     ///         pro-rata sweep absorbs any per-venue shortfall.
     function withdrawAaveLeg(address stable, uint amount, address to)
         external returns (uint drawn) {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         // Body folded into ChannelLib.aaveWithdrawTo (shared with _withdrawAaveUnsafe);
         // the dual-venue stable IS its own post-withdraw transfer token.
         return ChannelLib.aaveWithdrawTo(
@@ -1191,12 +1205,12 @@ contract Aux is // Auxiliary
     ///         address, never Aux's). Must be `external` (not `public`);
     ///         must NOT carry `nonReentrant` (outer entry holds the lock).
     function supplySelf(address token, uint amount) external returns (uint deposited) {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         return _supply(token, amount);
     }
 
     function withdrawSelf(address token, uint amount, address to) external returns (uint sent) {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         return _withdraw(token, amount, to);
     }
 
@@ -1207,23 +1221,23 @@ contract Aux is // Auxiliary
     ///         thrown away, so the health clock now starts on organic traffic instead of waiting for
     ///         somebody to call `pokeVaultHealth`. Evacuation still requires that deliberate call.
     function flagIlliquidSelf(address vault, bool illiquid) external {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         BasketLib.flagIlliquidBody(vault, illiquid, vaultHealth);
     }
 
     function tipSelf(uint cut, address token, int sign) external {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         _tip(cut, token, sign);
     }
 
     /// @notice Self-gated cache refreshers — let ChannelLib.depositBody
     ///         (delegatecall, msg.sender==this) invoke the internal refreshes.
     function refreshHoldingsSelf(address stable) external {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         _refreshHoldings(stable);
     }
     function refreshAllHoldingsSelf() external {
-        if (msg.sender != address(this)) revert NotSelf();
+        _onlySelf();
         _refreshAllHoldings();
     }
 
@@ -1284,11 +1298,17 @@ contract Aux is // Auxiliary
     }
 
     // ─── Native BTC LP integration ──────────────────────────────────
-    // Entrypoints called by BTCChannels.sol (gated via onlyBTCChannels).
-    // creditLPForSwap settles the LP's QUID credit after they prove a
-    // swap-out BTC delivery via SPV. Swap-out user burned the same
-    // amount upstream → total supply conserved. LP BTC stays in their
-    // own 2-of-2 channel; Aux never touches it.
+    // ⚠️ **Aux HAS NO BTCChannels-GATED ENTRYPOINT. THE PIN IS A READ HANDLE, NOT A GATE.**
+    // The swap-in/swap-out credit entrypoints (`creditSwapIn` / `creditSwapOut`) were REGROUPED
+    // into `Vault` (the BTC side) and their `onlyBTCChannels` gate went with them — `Vault.sol`
+    // declares its own, and `Vault.sol:204` is where the comparison now lives. Aux was left
+    // holding a modifier with ZERO use sites (an extraction leaving its handle behind); it is
+    // deleted, and `NotBTCChannels` is no longer imported here because nothing in this file
+    // reverts with it.
+    // `_btcChannels` itself STAYS — it has three live readers and is not dead with the gate:
+    //   `assertFullyWired` (the deploy-completeness check), the swap-cfg struct it is passed
+    //   into, and `IBTCChannels(_btcChannels).btcRecipientOf(sender)` on the shortfall path.
+    // LP BTC stays in the LP's own 2-of-2 channel; Aux never touches it.
     address internal _btcChannels;
 
     /// @notice §E326 — **NET ISSUANCE, 18-dec USD, SIGNED. THE PRIMARY-MARKET FLOW REGISTER.**
@@ -1326,10 +1346,6 @@ contract Aux is // Auxiliary
     /// it anchored and nothing could move. The paper's control variable is a SECONDARY-MARKET deviation
     /// `p − 1` that QU!D does not yet have. Measure first; §E326 carries the order of work.
     int256 public netIssuanceUsd;
-
-    modifier onlyBTCChannels() {
-        if (msg.sender != _btcChannels) revert NotBTCChannels(); _;
-    }
 
     // The BTC side rides the SAME merged Vault as the ETH side, so it reuses the
     // `ethVenue` pin — the ETH-VENUE CUSTODY contract. Distinct from Core's `btc` since the
