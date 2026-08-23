@@ -1395,8 +1395,14 @@ contract Aux is // Auxiliary
     function setBTCChannels(address b) external onlyOwner {
         if (_btcChannels != address(0)) revert BtcChannelsPinned();
         _btcChannels = b;
-        // Pin the BTCChannels address on BtcVault (its onlyBtcChannels /
-        // onlyBTCChannels gates read it). Channel sats and POOLED_USD are
+        // Pin the BTCChannels address on `Vault` (its `onlyBTCChannels` gate reads it).
+        // §MODFOLD — THIS COMMENT NAMED **TWO** GATES, `onlyBtcChannels` AND `onlyBTCChannels`,
+        // AND THERE IS NOW ONE: they were the same rule under two spellings and were merged onto
+        // the custom-error form. ⚠️ CLAUDE.md cites THIS LINE as the comment that was RIGHT while
+        // the code was WRONG during the `EthVenue` extraction (it said "pin on BtcVault" directly
+        // above a call passing `ethVenue`), so it is corrected rather than deleted — the record of
+        // what one address serving two roles does to prose is the reason the note exists.
+        // Channel sats and POOLED_USD are
         // independent accounting domains (channels store sats for routing/
         // swap-out, the V4 BTC pool holds mockBTC/mockUSD_BTC for spot
         // liquidity).

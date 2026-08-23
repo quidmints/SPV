@@ -99,9 +99,13 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @notice The bridge into the BTC pool position — now BtcVault (the BTC side
 ///         was regrouped out of Quid + Aux). requestDeposit / requestRedeem /
-///         resize are gated `onlyBtcChannels` and creditSwapIn /
-///         creditSwapOut `onlyBTCChannels` on BtcVault (msg.sender == its pinned
-///         btcChannels), so only this contract can drive them.
+///         resize / creditSwapIn / creditSwapOut are ALL gated `onlyBTCChannels`
+///         on `Vault` (msg.sender == its pinned btcChannels), so only this
+///         contract can drive them.
+/// §MODFOLD — THIS LINE NAMED TWO GATES AND THERE IS ONE. `onlyBtcChannels` and
+///         `onlyBTCChannels` differed only in the spelling of BTC and in their revert data;
+///         they were merged onto the custom-error form. The split spelling is what made a
+///         reader believe the deposit legs and the credit legs answered to different rules.
 /// ⛔ (M1) THE MRENCLAVE WHITELIST GATES NOTHING HERE — this doc described `isAttested(hop)` as
 /// gating "who may become a shared-pool hop", and §E185 deleted every call site. The registry is
 /// referenced by NO code in this contract. It is left described only so the next reader knows the
