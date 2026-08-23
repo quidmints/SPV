@@ -24,9 +24,16 @@ Status legend: **[A]** asserted somewhere today · **[U]** unasserted anywhere.
 
 ## 1. Supply ↔ backing conservation
 
-- **[U] `Σ_lp levPooledBTC[lp] == VBtc.totalSupply()`** at all times.
+- **[U] `Σ_lp levPooled[lp]` READ ON THE BTC RANGE `== VBtc.totalSupply()`** at all times.
   One line; drift is a double-spend of the levered slice. (Queue §A10 — *"UNASSERTED
-  ANYWHERE"*.) **Highest value on this list.**
+  ANYWHERE"*.) **Highest value on this list.** ⚠️ **This read `levPooledBTC` until 2026-08-23, and
+  that name has ZERO references in `evm/src` — it was RENAMED, not removed.** The suffix went when
+  the ranges became two INSTANCES of one implementation, so `levPooled` on the BTC instance IS what
+  `levPooledBTC` named: same slot, same meaning, different address (`DeployLib.sol` constructs
+  `new Core(cfg.weth,…)` and `new Core(cfg.wbtc,…)`). **Whoever writes this invariant must bind the
+  BTC instance explicitly — reading the ETH instance's `levPooled` against `VBtc.totalSupply()` would
+  compare two different ranges and is the successor to exactly the bug this line guards.**
+  (`VBtc.totalSupply` re-verified live at `VBtc.sol:75`, moved at `:148`/`:155`.)
 - **[U] `Σ registered BTC positions == Σ confirmed funding UTXO value`** — the account-vs-UTXO
   pair §E179 exists to audit. Any divergence is phantom backing.
 - **[U] QU!D supply never exceeds solvent basket value + immature projections.** Mint sites
@@ -52,10 +59,22 @@ Status legend: **[A]** asserted somewhere today · **[U]** unasserted anywhere.
 
 ## 4. Swap-in / swap-out
 
-- **[U] Credited sats ≤ sats provably paid to the derived deposit address.** ⚠️ Only holds on
+- **[U] Credited sats ≤ sats provably paid to the derived deposit address.** ~~⚠️ Only holds on
   the proven path — **T1 says the unproven `settleSwapIn` still exists**, so this invariant
-  is *how you would detect* that trapdoor being used. ✅ The on-chain deposit rail now settles
+  is *how you would detect* that trapdoor being used.~~ ✅ The on-chain deposit rail now settles
   through `settleSwapInProven` (§T1-c), so it holds there; the LN rail is the remaining hole.
+  🔴 **RE-RUN 2026-08-23 @`7e32eb48`: THE UNPROVEN `settleSwapIn` NO LONGER EXISTS.** `BTCChannels.sol`
+  declares exactly two: `settleSwapInBuffered` (`:1417`) and `settleSwapInProven` (`:2059`); `:2138`
+  records the removal — *"REPLACED, not merely removed: `parkProvenSats` + `settleSwapInBuffered`"*.
+  **So the trapdoor this invariant was to detect is closed by construction, and the invariant's JOB
+  changes rather than disappearing.** ⚠️ **The LN hole is still open and is now a DIFFERENT shape:**
+  `settleSwapInBuffered`'s supply side is `parkProvenSats` (`:1375`), which has **zero production
+  callers** — no `SIG_PARK`, no `evm_codec` calldata builder, only two Rust comments
+  (`quid-hop/src/evm_codec.rs:118`, `swap.rs:31`), against the positive control that
+  `settleSwapInProven` IS wired (`evm_codec.rs:110`, `client.rs:667`). So the buffered rail reverts
+  `InsufficientProvenSats` on the first real LN swap-in. ⇒ **Fail-safe, not a leak — the invariant
+  cannot be violated on a rail that cannot execute, and it becomes live the moment `parkProvenSats`
+  is wired.** State it now; it is the acceptance test for that wiring.
 - **[U] `Σ swap-in credits issued ≤ Σ SPV-proven sats spliced into custody`, per hop.** 🎯 This
   is the whole of §T1-e-r stated as one property, and it is the reason that design needs no
   bond: if it holds at every moment, **no credit was ever issued against sats that were not

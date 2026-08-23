@@ -14,9 +14,15 @@ section at the end -- the earlier reading of this document is wrong on that poin
 
 | line | code | what it claims |
 |---|---|---|
-| `:82` | `asset() => WBTC` | the underlying is WBTC |
-| `:83` | `convertToAssets(shares) => shares` | shares convert 1:1, **now** |
-| `:84` | `convertToShares(assets) => assets` | and back again, **now** |
+| ~~`:82`~~ **`:110`** | `asset() => WBTC` | the underlying is WBTC |
+| ~~`:83`~~ **`:111`** | `convertToAssets(shares) => shares` | shares convert 1:1, **now** |
+| ~~`:84`~~ **`:112`** | `convertToShares(assets) => assets` | and back again, **now** |
+
+📌 **RE-VERIFIED @`7e32eb48`: all three bodies are byte-for-byte what this table says, so the defect is
+unchanged and STILL OPEN — only the line numbers drifted (+28).** `VBtc.sol` is 158 lines and declares
+no `preview*`, no `requestRedeem` and no pending/claimable state, so nothing of the 7540 shape below has
+been started. **The `:80` docblock still calls WBTC *"`asset()` handle for the 4626 face"* in the present
+tense, which is the false promise this document exists to retire.**
 
 **Both claims are false, in different ways.**
 
