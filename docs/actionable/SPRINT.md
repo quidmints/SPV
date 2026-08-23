@@ -79,7 +79,22 @@ why a per-test "has assertions" check cannot find this class.
 so nobody re-runs the naive version and reports 334 findings.
 
 ---
-## 0j. 🔴 **§WRONG-RANGE IS STILL LIVE IN `LevCascade` — TWO "DIFFERENT" LEGS ARE THE IDENTICAL
+## 0j. ✅ **§WRONG-RANGE — FIXED, AND ONE OF THE SIX `LevCascade` FAILURES CLOSED. IT WAS NEVER A
+CODE DEFECT.** Four reads repointed `CORE` → `BTC.CORE()`.
+**`test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt` now PASSES**, reconciling to the wei:
+ETH leg **120,474.42e18** · BTC leg **15,455.14e18** (previously the ETH value) · committed
+**135,382.51e18** · ETH equity **119,927.37e18** · BTC equity **15,455.14e18**, with
+`committed − btcEquity = ethPooled18 − debt` exactly. **The per-range decomposition was always
+correct; the test was reading the wrong instance.**
+⭐ **FIX AND RESULTING VALUE LANDED IN ONE COMMIT, deliberately** — correcting the read changes what
+the assertion compares, and a green test asserting a number nobody chose is worse than a red one.
+⚠️ Its sibling `test_V1bdisc` still fails, and now LEGIBLY: *"PREMISE: the ETH range's debt must EXCEED
+its own USD leg"*, debt **547e18** against a leg of **79,187e18**. That is a fixture-magnitude premise
+needing a far larger debt — consistent with §0h's dead-band limiting how much leverage accrues, and
+NOT a wrong-instance read.
+
+*(original finding, kept for the method — the ratio predicted the cause:)*
+### 🔴 §WRONG-RANGE WAS STILL LIVE IN `LevCascade` — TWO "DIFFERENT" LEGS ARE THE IDENTICAL
 EXPRESSION, AND ITS PREMISE GUARD CANNOT SEE IT** (found 2026-08-23 by predicting the SHAPE first)
 
 `LevCascade.t.sol:790-791`:
