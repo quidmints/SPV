@@ -60,6 +60,18 @@ abstract contract LevVenueBase is ILevVenue {
     ///      mint site re-opens the whole attack, because the attacker picks which one to enter through.
     uint256 internal constant UNIT_OFFSET = 1e6;
 
+    /// @dev §POOL-UNITS — THE UNIT LEDGER, DECLARED ONCE FOR BOTH VENUES. `MorphoEscrowVenue` and
+    ///      `AaveV3Venue` each grew their own copy (`collUnits/totalCollUnits` and `collUnits/totalCollUnits`)
+    ///      — the SAME four quantities under two spellings, in ONE file. That is standing rule 2, and
+    ///      it is worse than cosmetic here: the donation-inflation fix had to reach every mint site,
+    ///      and two ledgers is two places to miss one.
+    /// ⚠️   `internal`, not `private`, ONLY so the derived venues can read them; neither visibility
+    ///      emits a getter, so there is no ABI consequence.
+    mapping(address => uint256) internal collUnits;   // LP -> units of the pooled COLLATERAL
+    uint256 internal totalCollUnits;
+    mapping(address => uint256) internal debtUnits;   // LP -> units of the pooled DEBT
+    uint256 internal totalDebtUnits;
+
     /// @dev units minted for `amt` against a pool holding `bal` with `tot` units outstanding.
     function _mintUnits(uint256 amt, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return SoladyMath.fullMulDiv(amt, tot + UNIT_OFFSET, bal + 1);
@@ -158,10 +170,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     // semantics, not merely the cheap one: the swapper's input repaid every LP's debt in proportion, so
     // the collateral it frees must leave in the same proportion. Each position shrinks on both sides by
     // its own share, which is what "value-neutral per LP" means once the position is genuinely pooled.
-    mapping(address => uint256) private _collUnits;   // LP -> units of the pooled collateral
-    uint256 private _totalCollUnits;
-    mapping(address => uint256) private _debtUnits;   // LP -> units of the pooled debt
-    uint256 private _totalDebtUnits;
+    // §POOL-UNITS — the four unit variables that stood here are declared ONCE on `LevVenueBase`.
 
     /// @dev The pool's live Morpho collateral (raw assets — Morpho never accrues collateral).
     function _poolColl() internal view returns (uint256) {
@@ -228,8 +237,8 @@ contract MorphoEscrowVenue is LevVenueBase {
         MORPHO.supplyCollateral(_params(), collAmount, address(this), "");
         // Mint units against what the pool held BEFORE, so an LP joining a pool that has already been
         // drawn down buys in at the CURRENT per-unit value rather than the original one.
-        uint256 mint = _mintUnits(collAmount, _totalCollUnits, before);   // §POOL-DONATION
-        _collUnits[lp] += mint; _totalCollUnits += mint;
+        uint256 mint = _mintUnits(collAmount, totalCollUnits, before);   // §POOL-DONATION
+        collUnits[lp] += mint; totalCollUnits += mint;
         return collAmount;
     }
 
@@ -240,8 +249,8 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 before = _poolShares();
         (uint256 got, uint256 sharesUp) = MORPHO.borrow(_params(), stableAmount, 0, address(this), address(this));
         // Mint units against the shares this borrow added. First borrow anchors 1 unit = 1 share.
-        uint256 mint = _mintUnits(sharesUp, _totalDebtUnits, before);      // §POOL-DONATION
-        _debtUnits[lp] += mint; _totalDebtUnits += mint;
+        uint256 mint = _mintUnits(sharesUp, totalDebtUnits, before);      // §POOL-DONATION
+        debtUnits[lp] += mint; totalDebtUnits += mint;
         if (got > 0) IERC20Min(STABLE).transfer(MANAGER, got);
         return got;
     }
@@ -264,15 +273,15 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 before = _poolShares();
         uint256 sharesDown;
         (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");
-        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(sharesDown, _totalDebtUnits, before);
-        if (burn > _debtUnits[lp]) burn = _debtUnits[lp];
-        _debtUnits[lp] -= burn; _totalDebtUnits -= burn;
+        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(sharesDown, totalDebtUnits, before);
+        if (burn > debtUnits[lp]) burn = debtUnits[lp];
+        debtUnits[lp] -= burn; totalDebtUnits -= burn;
     }
 
     /// @notice §POOL-VENUE — THE AGGREGATE REPAY THIS WHOLE CHANGE EXISTS FOR. Repays the POOL without
     ///         naming an LP, in ONE call. ⭐ No per-LP write and no loop: `debtOf` converts units through
     ///         the pool's LIVE shares, so burning pool shares lowers EVERY LP's debt pro-rata by
-    ///         construction. `_totalDebtUnits` is deliberately UNTOUCHED — units are a claim on the pool,
+    ///         construction. `totalDebtUnits` is deliberately UNTOUCHED — units are a claim on the pool,
     ///         and the pool got smaller, which is exactly what a pro-rata repay means.
     /// ⇒ This is what removes the swap-size ceiling: size is now bounded by stable liquidity, not by
     ///   how many LP repays fit in a block.
@@ -293,9 +302,9 @@ contract MorphoEscrowVenue is LevVenueBase {
         if (w == 0) return 0;
         {   // burn the units this withdrawal represents, before the pool shrinks under them
             uint256 pc = _poolColl();
-            uint256 burn = pc == 0 ? _collUnits[lp] : SoladyMath.fullMulDiv(w, _totalCollUnits, pc);
-            if (burn > _collUnits[lp]) burn = _collUnits[lp];
-            _collUnits[lp] -= burn; _totalCollUnits -= burn;
+            uint256 burn = pc == 0 ? collUnits[lp] : SoladyMath.fullMulDiv(w, totalCollUnits, pc);
+            if (burn > collUnits[lp]) burn = collUnits[lp];
+            collUnits[lp] -= burn; totalCollUnits -= burn;
         }
         uint256 before = IERC20Min(COLLATERAL).balanceOf(address(this));
         MORPHO.withdrawCollateral(_params(), w, address(this), address(this)); // weETH → adapter
@@ -310,11 +319,11 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///      keeper's ~15% (`safety_margin_bps`) urgent margin, and the next tick re-reads. A position genuinely
     ///      near liquidation is caught by that margin regardless of the drift.
     function debtOf(address lp) public view returns (uint256) {
-        uint256 u = _debtUnits[lp];
-        if (u == 0 || _totalDebtUnits == 0) return 0;
+        uint256 u = debtUnits[lp];
+        if (u == 0 || totalDebtUnits == 0) return 0;
         // §POOL-VENUE: this LP's slice of the POOL's live shares. Interest accrues to the pool, so it
         // reaches every LP through this one conversion — no per-LP accrual bookkeeping exists or is needed.
-        return _sharesToAssetsUp(_unitSlice(u, _totalDebtUnits, _poolShares()));
+        return _sharesToAssetsUp(_unitSlice(u, totalDebtUnits, _poolShares()));
     }
 
     /// @notice The POOL's total debt — O(1), and the reason `LevBase`'s Sigma-loops over `_openLps` can go.
@@ -331,7 +340,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     }
 
     function collateralOf(address lp) public view returns (uint256) {
-        return _unitSlice(_collUnits[lp], _totalCollUnits, _poolColl());   // §POOL-DONATION
+        return _unitSlice(collUnits[lp], totalCollUnits, _poolColl());   // §POOL-DONATION
     }
 
     /// @notice The POOL's total collateral — O(1) companion to `totalDebt`.
@@ -339,7 +348,7 @@ contract MorphoEscrowVenue is LevVenueBase {
 
     /// @notice §POOL-VENUE — THE AGGREGATE COLLATERAL WITHDRAW, the mirror of `repayPool` and the other
     ///         half of a one-call de-lever. Frees `collAmount` from the POOL and hands it to the manager.
-    ///         ⭐ No per-LP write: `_totalCollUnits` is untouched, so every LP's `collateralOf` falls
+    ///         ⭐ No per-LP write: `totalCollUnits` is untouched, so every LP's `collateralOf` falls
     ///         pro-rata by construction — the same trick that makes `repayPool` O(1).
     /// ⚠️      MUST be paired with a `repayPool` of the matching value. Alone it would free collateral
     ///         while leaving the debt, i.e. raise the pool's LTV toward the liquidation threshold that
@@ -450,8 +459,7 @@ contract AaveV3Venue is LevVenueBase {
     // LP's slice grows with them through one conversion — there is no per-LP accrual bookkeeping to
     // write, and none to get wrong.
     AaveV3Escrow public poolEscrow;                  // the ONE Aave account this venue owns
-    mapping(address => uint256) private _cUnits; uint256 private _tcUnits;   // collateral units
-    mapping(address => uint256) private _dUnits; uint256 private _tdUnits;   // debt units
+    // §POOL-UNITS — same four variables as the Morpho venue, so they live on the shared base.
 
     /// @param pool Aave V3 Pool. @param dataProvider Aave V3 ProtocolDataProvider (per-asset position reads).
     /// @param coll collateral underlying. @param stable the borrowed stable (== stable()). @param manager sole caller.
@@ -471,8 +479,8 @@ contract AaveV3Venue is LevVenueBase {
         uint256 before = _poolReserve(false);
         IERC20Min(COLLATERAL).transfer(address(e), collAmount); // MANAGER already sent it to the venue
         e.supplyColl(collAmount);
-        uint256 mint = _mintUnits(collAmount, _tcUnits, before);          // §POOL-DONATION
-        _cUnits[lp] += mint; _tcUnits += mint;
+        uint256 mint = _mintUnits(collAmount, totalCollUnits, before);          // §POOL-DONATION
+        collUnits[lp] += mint; totalCollUnits += mint;
         return collAmount;
     }
 
@@ -481,8 +489,8 @@ contract AaveV3Venue is LevVenueBase {
         if (address(e) == address(0) || stableAmount == 0) return 0;
         uint256 before = _poolReserve(true);
         uint256 got = e.borrowStable(stableAmount, MANAGER);
-        uint256 mint = _mintUnits(got, _tdUnits, before);                 // §POOL-DONATION
-        _dUnits[lp] += mint; _tdUnits += mint;
+        uint256 mint = _mintUnits(got, totalDebtUnits, before);                 // §POOL-DONATION
+        debtUnits[lp] += mint; totalDebtUnits += mint;
         return got;
     }
 
@@ -496,9 +504,9 @@ contract AaveV3Venue is LevVenueBase {
         IERC20Min(STABLE).transfer(address(e), r);          // stable already transferred in by MANAGER
         uint256 spent = e.repayStable(r);
         // Burn the units this LP's repayment represents, so sum(units) stays == total.
-        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(spent, _tdUnits, before);
-        if (burn > _dUnits[lp]) burn = _dUnits[lp];
-        _dUnits[lp] -= burn; _tdUnits -= burn;
+        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(spent, totalDebtUnits, before);
+        if (burn > debtUnits[lp]) burn = debtUnits[lp];
+        debtUnits[lp] -= burn; totalDebtUnits -= burn;
         return spent;
     }
 
@@ -534,9 +542,9 @@ contract AaveV3Venue is LevVenueBase {
         uint256 w = collAmount > bal ? bal : collAmount;    // capped at THIS LP's slice of the pool
         if (w == 0) return 0;
         {   uint256 pc = _poolReserve(false);
-            uint256 burn = pc == 0 ? _cUnits[lp] : SoladyMath.fullMulDiv(w, _tcUnits, pc);
-            if (burn > _cUnits[lp]) burn = _cUnits[lp];
-            _cUnits[lp] -= burn; _tcUnits -= burn;
+            uint256 burn = pc == 0 ? collUnits[lp] : SoladyMath.fullMulDiv(w, totalCollUnits, pc);
+            if (burn > collUnits[lp]) burn = collUnits[lp];
+            collUnits[lp] -= burn; totalCollUnits -= burn;
         }
         return e.withdrawColl(w, MANAGER);
     }
@@ -544,12 +552,12 @@ contract AaveV3Venue is LevVenueBase {
     /// @notice Amount OWED — ProtocolDataProvider's `currentVariableDebt` (Amp's proven source; exact block-fresh
     ///         underlying-unit debt, one asset, no vToken.balanceOf / no hardcoded index).
     function debtOf(address lp) public view returns (uint256) {
-        return _slice(_dUnits[lp], _tdUnits, _poolReserve(true));
+        return _slice(debtUnits[lp], totalDebtUnits, _poolReserve(true));
     }
 
     /// @notice Collateral supplied — ProtocolDataProvider's `currentATokenBalance` (block-fresh underlying units).
     function collateralOf(address lp) public view returns (uint256) {
-        return _slice(_cUnits[lp], _tcUnits, _poolReserve(false));
+        return _slice(collUnits[lp], totalCollUnits, _poolReserve(false));
     }
 
     /// @dev ONE conversion for both sides — units → the LP's slice of a pooled balance.

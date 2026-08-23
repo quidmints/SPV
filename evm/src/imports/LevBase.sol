@@ -209,6 +209,10 @@ abstract contract LevBase {
     ///         memory pointer rather than five scalars (cheaper seam, and `Types.Pos`'s field order
     ///         stays owned by one place).
     function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint entryEquity) internal {
+        // §POOL-VENUE — pin the pool on the FIRST open; refuse any second venue for this range.
+        // One position means one venue, and this is the only place that can be enforced cheaply.
+        if (poolVenue == address(0)) poolVenue = address(venue);
+        else if (poolVenue != address(venue)) revert VenueNotPooled();
         RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
             Types.Pos({venue: venue, targetLtvCapBps: capBps, ilBasisPx: uint128(entryPx),
                        entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
@@ -297,9 +301,25 @@ abstract contract LevBase {
     ///      admitted for one range, EVERY aggregate below silently reports only the first pool — so
     ///      that admission must come WITH a per-venue walk, not after it.
     function _pool() internal view returns (address) {
-        if (_openLps.length == 0) return address(0);
-        return address(pos[_openLps[0]].venue);
+        return poolVenue;
     }
+
+    /// @notice §POOL-VENUE — THE PINNED POOL. Set on the FIRST open and never cleared.
+    /// ⛔ THIS REPLACES `pos[_openLps[0]].venue`, WHICH CARRIED A SILENT UNDER-REPORT. Reading the
+    ///    book's first entry is correct only while the book is non-empty — and the pool can hold
+    ///    residual collateral or debt after the LAST position closes (a rounding remainder, or an
+    ///    LP closed while the pool was mid-de-lever). The book is then empty, the old `_pool()`
+    ///    returned `address(0)`, and EVERY aggregate — `totalDebtUsd`, `totalNetEquity`,
+    ///    `totalGrossCollateral`, `totalDeliverableDollars` — reported **0 for a pool that is not
+    ///    empty**. Nothing reverts; the backing math simply stops seeing the position.
+    /// ⇒ A pinned venue cannot go stale that way: it is the pool's identity, not a fact about who
+    ///   currently holds a claim on it. It also makes the one-venue-per-range assumption EXPLICIT
+    ///   rather than incidental — see the warning below, which is now enforceable.
+    /// ⚠️ If a second venue is ever admitted for one range, this pin is where it breaks, loudly and
+    ///    in one place: `_openPos` reverts rather than silently pooling two positions into one set of
+    ///    aggregates. That is the failure we want.
+    address public poolVenue;
+    error VenueNotPooled();
 
     /// §POOL-VENUE — O(1), and the LAST of the four Sigma-loops. The pool is one position, so its
     /// deliverable dollars are computed from the pool's own collateral, debt and liquidation

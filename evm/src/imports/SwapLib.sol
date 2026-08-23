@@ -9,6 +9,7 @@ import {IBasket} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the c
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {ILevManagerDeliver, ILevEthDeliver} from "./Interfaces.sol";
+import {ILevPooled, ILevVenue} from "./Interfaces.sol";   // §POOL-VENUE
 import {IBTCChannels} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -2056,11 +2057,26 @@ library SwapLib {
         // ⚠️ THE BOOK IS STILL WALKED FOR *ONE* THING — picking the venue. Every open LP shares the
         // pooled position, so the FIRST open LP's venue is the pool's venue; the walk stops there and
         // never touches a second. If the book is empty there is nothing levered to de-lever.
-        uint n = ILevEthDeliver(mgr).openLevCount();
-        if (n == 0) return 0;
+        // §POOL-VENUE — READ THE PINNED VENUE, NOT THE BOOK. This gated on `openLevCount() == 0` and
+        // took the venue from `openLpAt(0)`, which is correct only while the book is NON-EMPTY. A pool
+        // can still hold collateral and debt after its last position closes (a rounding remainder, or
+        // a close mid-de-lever), and this then returned 0 — refusing to de-lever a pool that was not
+        // empty, silently, exactly when a swap-out needed it. `poolVenue` is the pool's identity and
+        // cannot go stale that way.
+        address venue = ILevEthDeliver(mgr).poolVenue();
+        if (venue == address(0)) return 0;
+        // ⛔ NOT `swapOutDeleverAmt(venue, …)` — THAT FUNCTION TAKES AN **LP**, AND BOTH ARE `address`,
+        // SO THE COMPILER CANNOT TELL THEM APART. Passing the venue where an LP is expected reads a
+        // position that does not exist and returns zeros: a silent no-de-lever, not a revert. This is
+        // the same class as the `btcVault`/`ethVenue` mix-up that shipped once here — MERGE ON WHAT
+        // THINGS ARE, never on what type they share.
+        // ⇒ The pooled amounts come from the POOL directly: the stable is the venue's, and the
+        //   repayable size is the shortfall bounded by what the pool actually owes.
+        address stable = ILevVenue(venue).stable();
         uint needUsd = SoladyMath.fullMulDiv(shortfallEth, px, 1e18);      // WETH → USD 1e18
-        (address venue, address stable, uint amtNative) =
-            ILevEthDeliver(mgr).swapOutDeleverAmt(ILevEthDeliver(mgr).openLpAt(0), needUsd);
+        uint poolDebtUsd = LevMath._toUsd18(aux, stable, ILevPooled(venue).totalDebt());
+        uint amtNative = poolDebtUsd == 0 ? 0 : LevMath._fromUsd(aux, stable,
+                            needUsd > poolDebtUsd ? poolDebtUsd : needUsd);
         if (venue == address(0) || amtNative == 0) return 0;
         uint fundUsd = LevMath._toUsd18(aux, stable, amtNative);
         if (fundUsd > needUsd) fundUsd = needUsd;

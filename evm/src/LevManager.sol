@@ -608,7 +608,10 @@ contract LevManager is LevBase {
         // is now the aggregate bound, evaluated once on the pool, and is what this passes.
         // ⛔ THE `try/catch` STAYS: a venue that cannot source must leave the redeem short rather than
         // revert it, which is the same fault-tolerance the per-LP walk had.
-        if (_openLps.length == 0) return 0;
+        // §POOL-VENUE — same correction as the delivery path: gate on the PINNED pool, not on the
+        // book being non-empty. A pool holding a remainder after its last LP closed still owes a
+        // de-lever, and `_openLps.length == 0` refused it without saying so.
+        if (poolVenue == address(0)) return 0;
         uint256 cap = this.totalDeliverableDollars();
         uint256 want = usdWanted > cap ? cap : usdWanted;
         if (want == 0) return 0;
