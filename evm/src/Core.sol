@@ -1328,7 +1328,9 @@ contract Core {
         if (priceWad != 0) _writeObservationPrice(priceWad);
     }
 
-    /// @notice PUSH AN OBSERVATION. Permissionless, and bounded by the Chainlink anchor.
+    /// @notice PUSH AN OBSERVATION. Permissionless, bounded by the Chainlink anchor, and — since
+    ///         §AUDIT-PUSHOBS — accepted ONLY on the instance whose ring is meant to be live. See
+    ///         the gate in the body for why "permissionless" was never the same as "instance-free".
     ///
     /// @dev §E232 — WHY A PUSH AT ALL. The ring needs a reading INDEPENDENT of Chainlink, because
     ///      Chainlink is already the ANCHOR `twapResolve` checks against — source the ring from it
@@ -1373,12 +1375,47 @@ contract Core {
 
     function pushObservation(uint256 priceWad) external {
         if (priceWad == 0) return;
+        // 🔴 §AUDIT-PUSHOBS — THE INSTANCE GATE. THIS FUNCTION IS PERMISSIONLESS *AND WAS
+        // INSTANCE-AGNOSTIC*, WHICH SILENTLY UNDID THE DECISION `observationSource` DOCUMENTS AT
+        // LENGTH ABOVE. That note says the BTC ring is DELIBERATELY UNSOURCED — not "unsourced for
+        // now": with no source the ring is never written, `ringVariance` returns 0, and §E213's
+        // sentinel prices UNMEASURED variance at the CEILING, which is the honest reading of "we
+        // cannot observe BTC on-chain without importing a wrapper's basis". `_observeIfSourced`
+        // honours that (`if (src == address(0)) return`). This function did not: ANYONE could push
+        // a WBTC-derived price at the BTC `Core` and it would be accepted, because the only test
+        // it had to pass was agreement with Chainlink BTC/USD — which a WBTC quote passes right up
+        // until the wrapper depegs, i.e. exactly when the distinction matters.
+        // ⚠️ AND THE DAMAGE IS THE *OPPOSITE* OF AN ORACLE ATTACK, WHICH IS WHY THE 50 bps BOUND
+        // DOES NOT COVER IT. The bound stops a pusher moving the LEVEL; it does nothing about
+        // pushing a stream of in-range values, which fills the ring, makes σ² small-but-MEASURED,
+        // and so REPLACES the ceiling sentinel with a floor-ish number. An attacker buys a cheap
+        // BTC skew by being helpful. Nothing reverts and nothing looks wrong.
+        //
+        // ⚠️ THE GATE IS NOT `observationSource != 0`, AND THAT WAS THE FIRST ANSWER I REACHED.
+        // It is wrong: NO source is pinned on EITHER instance today (`DeployLib:139`,
+        // `setObservationSource` has no production caller), so that gate would refuse EVERY push
+        // including the ETH ones — and the push path is the ring's *only* live writer (§E294/§E308:
+        // σ² ≡ 0 precisely because neither writer runs). It would deepen the very finding it was
+        // meant to close, and it would go red in `LevCascade`, `LevYbReal`,
+        // `LeverageCrossSubsidyProbe`, `PushObservationFillsTheRing` and `Alles`'s ramps, all of
+        // which push into a Core with no source pinned.
+        // ⇒ So the gate is INSTANCE IDENTITY, and `VOL_DECIMALS` is the discriminator this very
+        // function already used one line below to derive `isWbtc`. `Core.sol:567` warns against
+        // inferring the RISK PROFILE from it, and that warning stands — a profile is configuration
+        // and can be wrong in ways decimals cannot express. "Is the volatile leg a wrapped 8-dec
+        // asset with no wrapper-free on-chain quote" is not configuration; it is the same fact the
+        // lift below reads.
+        // ▶️ WHEN A WRAPPER-FREE BTC SOURCE EXISTS this line is DELETED, not weakened, and it goes
+        //    with the `observationSource` note it enforces.
+        if (VOL_DECIMALS != 18) return;
         // `twapResolve(feed, 0, ...)` returns the RAW anchor: §A.13 made `price == 0` fall through to
         // Chainlink rather than short-circuit, so this reuses tested machinery instead of adding a
-        // second `latestRoundData` reader to Core. `isWbtc` is DERIVED — the lift exists to close the
-        // 8-vs-18-dec gap, so it is exactly `VOL_DECIMALS != 18`, which keeps Core asset-agnostic.
+        // second `latestRoundData` reader to Core.
+        // ⚠️ THE `isWbtc` LIFT IS `false` HERE *BECAUSE OF THE GATE ABOVE*, not because the lift is
+        // unnecessary: the 8-vs-18-dec gap is real, and the one instance that has it just returned.
+        // Passing `VOL_DECIMALS != 18` would be provably-false code (standing rule: none).
         (uint256 anchorPx,) = SwapLib.twapResolve(
-            AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
+            AUX.assetPriceFeed(ASSET), 0, false, OBS_PUSH_MAX_BPS, 1 days);
         if (anchorPx == 0) return;                       // no anchor => cannot validate => refuse
         (uint256 lo, uint256 hi) = priceWad < anchorPx ? (priceWad, anchorPx) : (anchorPx, priceWad);
         if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;   // outside the range => refuse

@@ -2268,6 +2268,29 @@ contract BTCChannels is Ownable, ReentrancyGuard {
     ) external nonReentrant {
         _whenOpen(channelId);
         _onlyHop();
+        // 🔴 §AUDIT-DELIVER-KEYS — THE PIN EVERY OTHER KEY-ROTATING PATH HAD AND THIS ONE DID NOT.
+        // `_deliverSwapOut` rotates the funding outpoint (it assigns `fundingTxId`/`fundingVout`
+        // and calls `_useOutpoint`), and it proves the rotation with `_verifySplice`, which
+        // "proves KeyAgg over WHATEVER PAIR IT IS GIVEN" (`splice:1123`). So without this line the
+        // hop supplies `p.lpPubkey`/`p.hopPubkey` of its OWN choosing, the aggregate verifies
+        // against those, and custody moves to a 2-of-2 the LP is not half of — the exact attack
+        // `_requireChannelKeys`'s own docblock (:1832) describes: *"a compromised hop splices to
+        // keys it solely controls and CUTS THE LP OUT of its own 2-of-2."*
+        // ⚠️ AND THE SECOND HALF IS AS BAD AS THE FIRST: `keysHash` would be left STALE against a
+        // rotated outpoint, which is §E153's *unretirable forever* regression verbatim (:1258) —
+        // both retirement paths then revert and the position can never be closed.
+        // The four siblings that already do this: `splice:1126`, `parkProvenSats:1384`,
+        // `emitDeadManExit:1559`, `_requireNotSplice:1814` (the recordClose/retire path). This was
+        // the fifth rotation site and the only unpinned one — found the same way §T1-f-general
+        // was: by diffing the writers of the funding outpoint against the sites that gate it.
+        // ⚠️ IT SITS IN THE **OUTER** FRAME, WITH THE `_armLadder` CALL AND FOR THE SAME REASON.
+        // `_deliverSwapOut`'s note is explicit that its calldata params must go DEAD before the
+        // settlement tail or the legacy stack (no via_ir) overflows — a prior attempt to extend
+        // one live range in there reverted four tests. `p` is ALREADY live out here (it is passed
+        // on to both `_deliverSwapOut` and `_armLadder`), so reading it here extends nothing.
+        // ⚠️ THIS DOES NOT REKEY: rotating to a NEW pair is `rekey` (§E182), which updates
+        // `keysHash` under its own gate. A delivery must keep the pair it opened with.
+        _requireChannelKeys(channelId, p);
         // (B) Authorization = the channel's HOP GATE (channel.hop was fixed at open to a
         // delegated hop). The retired per-delivery lpAuth was redundant: the swapper's BTC
         // payment is SPV-proven below, the shrink pins the delivered slice to the on-chain

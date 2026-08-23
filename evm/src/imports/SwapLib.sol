@@ -1830,6 +1830,13 @@ library SwapLib {
     function deleverEthOnDelivery(address mgr, address aux, uint px, uint shortfallEth, address recipient)
         public returns (uint deliveredEth) {
         if (px == 0 || shortfallEth == 0) return 0;
+        // §AUDIT-OPENLPS-DOS — `n` IS BOUNDED NOW, AND NOT BY ANYTHING WRITTEN HERE. This loop ran
+        // `i < openLevCount()` with no outer limit over a book anyone could grow, and it is the
+        // most expensive walk of that book (several external calls per LP). The bound is
+        // `RangeLib.MAX_OPEN_LPS`, enforced at the two sites that PUSH to `_openLps`, because a
+        // limit applied here would just truncate the sweep and leave the shortfall unfilled while
+        // the Σ-views stayed unbounded. Do NOT add a second clamp here: read that note first — it
+        // records why the cap is at the writer and why the cap is temporary.
         uint n = ILevEthDeliver(mgr).openLevCount();
         for (uint i; i < n && deliveredEth < shortfallEth; i++) {
             address lp = ILevEthDeliver(mgr).openLpAt(i);

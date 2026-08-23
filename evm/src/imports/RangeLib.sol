@@ -372,13 +372,60 @@ library RangeLib {
 
 
 
+    /// 🔴 §AUDIT-OPENLPS-DOS — THE CEILING ON THE OPEN-POSITION BOOK, AND WHY IT SITS AT THE PUSH.
+    ///
+    /// `_openLps` was UNBOUNDED and ATTACKER-GROWABLE, and it is walked in full by
+    /// `totalDeliverableDollars`, `totalNetEquity`, `totalDebtUsd`, `totalGrossCollateral`,
+    /// `LevManager.sweepDelever` and `SwapLib.deleverEthOnDelivery` — several of them on the money
+    /// path of every deposit, withdraw and swap. Grow the book past what fits in a block and those
+    /// stop being expensive and start being IMPOSSIBLE: the range halts for everyone.
+    ///
+    /// ⚠️ **THE BOUND CANNOT GO ON THE LOOPS, AND THAT IS THE WHOLE REASON IT IS HERE.** Truncating
+    /// `totalNetEquity` or `totalDeliverableDollars` at N would not bound a cost — it would return
+    /// a WRONG SMALLER NUMBER for the book's equity and deliverable dollars, silently, on the
+    /// backing math. A gas clamp that under-reports backing is worse than the DoS it prevents.
+    /// The only place a bound is both effective and truthful is the one write that makes the loops
+    /// longer.
+    ///
+    /// ⚠️ **AND IT TRADES ONE DENIAL FOR A SMALLER ONE — SAY SO PLAINLY.** At the cap, a new LP
+    /// cannot open until someone closes. An attacker can reach the cap for `MAX_OPEN_LPS ×
+    /// MIN_OPEN_WEETH` (~6.4 weETH) of REAL collateral, at risk, in levered positions it must keep
+    /// solvent. That buys "no new levered opens". Without the cap the same spend, continued, buys
+    /// "no deposits, no withdrawals, no swaps, for anyone, permanently". The second is the one
+    /// worth refusing. `MIN_OPEN_WEETH` is the dial that prices the first.
+    ///
+    /// ⛔ **THIS IS A CLAMP (standing rule 17) AND IT IS MEANT TO BE DELETED.** The root fix is to
+    /// stop keeping one venue position PER LP at all — pool the venue exposure and hold per-LP
+    /// SHARES of it, after which there is no book to walk, no cap to hit, and this whole seam
+    /// (`_openLps`, `_lpIdx`, `trackOpen`, `untrackOpen`, four Σ-loops) goes away. Until that
+    /// lands the range must not be haltable by a stranger with 7 ETH. When it lands, delete this.
+    ///
+    /// @dev 128 is chosen from the WORST loop, not the cheapest: `deleverEthOnDelivery` does
+    ///      several external calls per LP (~50k gas) and, when nothing delivers, does them for
+    ///      every entry — 128 × ~50k ≈ 6.4M, which fits a block with room for the swap that
+    ///      triggered it. The Σ-views cost ~6k per entry (~0.8M). Raising this is a GAS
+    ///      measurement, not a preference.
+    uint256 internal constant MAX_OPEN_LPS = 128;
+
+    /// @notice The open-position book is full — see `MAX_OPEN_LPS`.
+    error BookFull();
+
     /// @notice Enrol `lp` in the open-position book. `lpIdx` is 1-BASED so 0 means absent.
     function trackOpen(
         address[] storage openLps,
         mapping(address => uint256) storage lpIdx,
         address lp
     ) external {
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
+        if (lpIdx[lp] == 0) { _requireRoom(openLps); openLps.push(lp); lpIdx[lp] = openLps.length; }
+    }
+
+    /// @dev The cap, in ONE place, so the two push sites cannot drift. Reverts rather than
+    ///      silently skipping the enrolment: an LP whose position exists but is absent from the
+    ///      book would be invisible to every Σ-loop and to the de-lever sweep — an under-reported
+    ///      backing figure and an un-sweepable position, which is exactly the silent failure the
+    ///      cap exists to avoid.
+    function _requireRoom(address[] storage openLps) private view {
+        if (openLps.length >= MAX_OPEN_LPS) revert BookFull();
     }
 
     /// @notice Remove `lp` from the book by SWAP-AND-POP, keeping the 1-based index consistent.
@@ -442,7 +489,9 @@ library RangeLib {
         Types.Pos memory p
     ) external {
         pos[lp] = p;
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
+        // §AUDIT-OPENLPS-DOS — the OTHER push site. Both are capped by `_requireRoom`; a cap on
+        // one of two writers is not a cap.
+        if (lpIdx[lp] == 0) { _requireRoom(openLps); openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
     /// @notice Re-anchor a position to the range's current price if the range has reseated.

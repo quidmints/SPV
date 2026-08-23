@@ -18,6 +18,12 @@ contract SPVGateway is ISPVGateway, Initializable {
     using TargetsHelper for bytes32;
     using EndianConverter for bytes32;
 
+    /// @notice §AUDIT-SPV-RETARGET — the checkpoint height is not a multiple of
+    ///         `DIFFICULTY_ADJUSTMENT_INTERVAL`, so the first retarget would read an epoch-start
+    ///         block below the checkpoint and brick the chain. Declared HERE and not in
+    ///         `ISPVGateway`: that interface is vendored, and this constraint is ours.
+    error UnalignedCheckpointHeight(uint64 blockHeight);
+
     uint8 public constant MEDIAN_PAST_BLOCKS = 11;
 
     bytes32 public constant SPV_GATEWAY_STORAGE_SLOT =
@@ -75,6 +81,36 @@ contract SPVGateway is ISPVGateway, Initializable {
         uint64 blockHeight_,
         uint256 cumulativeWork_
     ) external initializer {
+        // 🔴 §AUDIT-SPV-RETARGET — THE CHECKPOINT MUST BE AN EPOCH START, AND THE FAILURE IF IT IS
+        // NOT IS *DELAYED*, WHICH IS WHY NOTHING CAUGHT IT. `_retargetIfEpochBoundary` fires at
+        // every `h % 2016 == 0`, and `_getEpochPassedTime(h)` reads
+        // `getBlockHash(h - DIFFICULTY_ADJUSTMENT_INTERVAL)` — the header 2016 blocks BACK. Init at
+        // an unaligned height H and the first retarget block above it is H' = ceil(H/2016)·2016,
+        // whose epoch start H' - 2016 lies STRICTLY BELOW H: a height this gateway has never seen.
+        // `getBlockHash` returns `bytes32(0)`, `_getBlockHeaderTime` reads an empty `BlockData`,
+        // and the new target is computed from a zero timestamp — so every header at and after the
+        // first retarget is rejected on `InvalidTarget`, permanently. `initializer` means it can
+        // never be re-run. **The gateway syncs happily for up to 2016 blocks (~2 weeks) and then
+        // bricks the whole BTC path, with no way back.**
+        // ⚠️ THE EXISTING SUITE CANNOT SEE THIS: every gateway in the tree inits at height 0
+        // (regtest/synthetic genesis) or at signet 304416 = 2016·151 — both already aligned, and
+        // aligned by luck of the fixture rather than by any rule. `SPVGatewayInitAlignment.t.sol`
+        // is the test that asserts the rule instead of the fixtures' habit.
+        // ⚠️ SIBLING, NOT DUPLICATE, OF THE BURIAL CHECK. `DeployLib:289` requires the checkpoint
+        // be BURIED (followers supplied); that is about the checkpoint being CANONICAL. This is
+        // about it being USABLE by the retarget arithmetic. A buried unaligned checkpoint passes
+        // that one and still bricks here, so the check belongs on the gateway — where every
+        // caller, including a test or a future deployer that never goes through `DeployLib`, must
+        // pass it — rather than beside it.
+        // ▶️ ALIGNMENT IS THE CHEAPER OF THE TWO FIXES NAMED IN THE FINDING. The other is to seed
+        //    the epoch-start block alongside the checkpoint, which needs a second header, a second
+        //    PoW check and a storage write for a block that is otherwise never referenced. Picking
+        //    an epoch boundary costs a deployer nothing: they are choosing a buried block anyway.
+        require(
+            blockHeight_ % TargetsHelper.DIFFICULTY_ADJUSTMENT_INTERVAL == 0,
+            UnalignedCheckpointHeight(blockHeight_)
+        );
+
         (BlockHeader.HeaderData memory blockHeader_, bytes32 blockHash_) = _parseBlockHeaderRaw(
             blockHeaderRaw_
         );
