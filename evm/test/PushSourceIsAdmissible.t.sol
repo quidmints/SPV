@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Test, console2} from "forge-std/Test.sol";
+import {ForkPin} from "./utils/ForkPin.sol";
 import {OracleLib} from "../src/imports/OracleLib.sol";
 
 interface IAggV3 { function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80); }
@@ -24,7 +25,7 @@ interface IAggV3 { function latestRoundData() external view returns (uint80,int2
 ///         file tests. Independence says the two sources disagree enough to be worth crossing;
 ///         admissibility says they agree enough for the push to be accepted. **The design needs BOTH,
 ///         and they pull in opposite directions** — which is exactly why neither implies the other.
-contract PushSourceIsAdmissibleTest is Test {
+contract PushSourceIsAdmissibleTest is ForkPin {
     address constant ORACLE    = 0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8;  // 1inch OffchainOracle
     address constant WETH      = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant USDC      = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
@@ -32,7 +33,9 @@ contract PushSourceIsAdmissibleTest is Test {
     /// Mirrors `Core.OBS_PUSH_MAX_BPS` (internal). If Core's moves and this does not, this fails.
     uint256 constant OBS_PUSH_MAX_BPS = 50;
 
-    function setUp() public { vm.createSelectFork(vm.envString("ETH_RPC_URL")); }
+    /// See `PushObservationAnchor.t.sol` — forks via `ForkPin` so an exported `FORK_BLOCK` reaches
+    /// this suite instead of being silently ignored. Default (unset) behaviour is unchanged.
+    function setUp() public { vm.selectFork(_forkMainnet()); }
 
     function _clWad() internal view returns (uint256) {
         (, int256 a,,,) = IAggV3(CL_ETHUSD).latestRoundData();

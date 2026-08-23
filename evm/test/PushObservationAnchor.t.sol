@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {ForkPin} from "./utils/ForkPin.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 
 /// @title  §E294 — THE ANCHOR `pushObservation` RESTS ON, ASSERTED FOR THE FIRST TIME
@@ -29,13 +30,18 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///         ⛔ **AND IT IS NOT A MIRROR.** It calls the real `SwapLib.twapResolve` against a real
 ///         Chainlink feed. Today's lesson is that a test which reimplements the thing it checks
 ///         (`GammaRederived`'s `_kernel`) passes through a whole rewrite of the subject.
-contract PushObservationAnchorTest is Test {
+contract PushObservationAnchorTest is ForkPin {
     address constant CL_ETHUSD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
     /// `OBS_PUSH_MAX_BPS` in `Core` — mirrored because it is `internal`. If Core's moves and this
     /// does not, `test_E294_RangeIsTightEnoughToBoundAPusher` fails loudly. That coupling is intended.
     uint256 constant OBS_PUSH_MAX_BPS = 50;
 
-    function setUp() public { vm.createSelectFork(vm.envString("ETH_RPC_URL")); }
+    /// Forks through `ForkPin` rather than a bare `createSelectFork`, so an exported `FORK_BLOCK`
+    /// actually reaches this suite. `ForkPin` promises "every fork in the run uses THAT block, so N
+    /// runs are byte-identical"; a file that forks directly makes that promise silently false for
+    /// itself, which is the §E214 failure mode one level up — the pin looks applied and is not.
+    /// Unset `FORK_BLOCK` (the default) is unchanged: latest block, live state.
+    function setUp() public { vm.selectFork(_forkMainnet()); }
 
     /// 🔴 THE LOAD-BEARING ONE. `price == 0` must fall through to the feed and return a real anchor.
     function test_E294_ZeroPriceFallsThroughToTheChainlinkAnchor() public view {
