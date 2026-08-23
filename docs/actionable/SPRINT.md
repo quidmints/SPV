@@ -3,6 +3,43 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0e. 🟠 **§SILENT-SETUP — 25 OF 40 EMPTY `catch {}` BLOCKS IN THE SUITE RECORD NOTHING, AND THE
+ONES THAT MATTER ARE IN FIXTURE SETUP** (2026-08-23; same family as §VACUOUS-BOUNDS)
+
+Scan of `evm/test/**` for `catch {}` with no success signal in the surrounding frame: **40 empty
+catches, 25 recording nothing.** The pattern is `try AUX.swap(...) {} catch {}` inside a `_swap`/
+`_seed` helper — so **if every call reverts, the fixture establishes NO state and the test proceeds as
+though it had.**
+
+> ⚠️ **THIS IS §VACUOUS-BOUNDS ONE LAYER EARLIER.** There, the ASSERTION could not fail; here, the
+> PREMISE never holds and nothing says so. Both produce a green test that never exercised its subject.
+
+**FIRST-HAND, TODAY, and it is why this is booked rather than theorised:** `VarPrecision._swap`
+(`:32`) is `try AUX.swap(bold, WETH, true, amt, 0, true) {} catch {}`. Working on §E345 I could not
+tell whether σ² read 0 because the sampler was broken or because no swap had landed — **the helper
+destroys exactly the fact needed to tell those apart.** It took an added
+`emit log_named_uint("step POOLED_USD", …)` to establish the swaps WERE landing (POOLED_USD rose 300
+per step) and that the real cause was an unpinned `assetPriceFeed`. That instrumentation should not
+have been necessary; the helper should have counted.
+
+⭐ **THE TREE ALREADY KNOWS THE RIGHT PATTERN, WHICH IS WHAT MAKES THIS A DEFECT AND NOT A STYLE
+CHOICE.** `DrainAtomicity:1387/1390` does `try … { ++buys; } catch {}` / `{ ++sells; }`, and
+`Alles._moveEth` returns `moved`. **Same construct, one line longer, and the difference is whether the
+test can distinguish "it ran" from "it reverted 16 times".**
+
+**Highest-value sites — all fixture setup, all currently silent:** `VarPrecision:32` ·
+`SkewCalibration:35` · `UnificationControls:64` · `DrainAtomicity:225` · `PooledUsdRepackMatrix:159` ·
+`LevCascade:311,853` (`ETH.withdraw`) · `LeveragePnLProbe:113` (`ETH.redeem`) · `Alles:3660,3713`.
+
+▶️ **THE FIX IS ONE LINE EACH AND IT IS NOT A NEW TEST:** make the helper return or count landings, and
+have the caller assert the count is what it expected. ⛔ **DO NOT convert them to un-caught calls** —
+several of these fixtures legitimately expect SOME reverts (`DrainAtomicity:1353` documents
+`BadAsset()` on every odd round by design). **The requirement is a COUNT, not a revert.**
+⚠️ **AND EXPECT REDS.** A counted helper will show some of these fixtures have been establishing less
+state than their tests assume — which is the point, and is how §VACUOUS-BOUNDS' row 5 (a sim whose
+invariant is vacuous if nothing was committed) most likely arises.
+
+---
 ## 0d. 🟠 **§VACUOUS-BOUNDS — THE AUDIT §0c ASKED FOR, RUN. 38 TESTS ASSERT ONLY A ONE-SIDED BOUND;
 FIVE OF THEM CAN BE SATISFIED BY THE DEFECT THEY GUARD** (2026-08-23)
 
