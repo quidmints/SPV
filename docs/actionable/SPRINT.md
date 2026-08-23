@@ -653,6 +653,43 @@ status column.
 is measuring effort, not truth.
 
 ---
+## 🔬 **§POOL-SEIZE — THE LAST TWO POOLED-MODEL FAILURES, MEASURED AND NARROWED** (2026-08-24)
+
+SPRINT #1 is landed and the suite is back to **48 unique failures = the pre-pooling baseline** (2 new,
+2 pre-existing FIXED). These are the 2 new, both on the BTC path, both stable across seven gates.
+
+### 1. `test_LevFeeLaneBTC_EarnsFees_UnwindOnly_SeizureBurnsClean`
+**MEASURED at the assertion:** `POOLED_USD` **18,350,719,229 → 18,738,990,109** across `BTC.syncLev`
+— it **ROSE by $388 (+2.1%)** where the test asserts it must FALL. The sibling assertion
+(`levPooled` SHRANK) **passes**, so `syncLev` shrank the slice and grew `POOLED_USD` in the same call.
+⇒ **`netEquity(lp)` reads HIGHER after a liquidation than before it**, which is the opposite of what a
+seizure produces, and it is the thing to chase — not the assertion.
+▶️ **DECISIVE NEXT READ:** log `collateralOf(lp)`, `debtOf(lp)` and `netEquity(lp)` immediately either
+side of `_seizeRealBtc`. Liquidation seizes collateral worth debt PLUS the bonus, so collateral must
+fall by MORE than debt and net equity must fall. If `debtOf` falls faster than `collateralOf`, the
+defect is in the unit conversion; if both move correctly and `netEquity` still rises, it is in
+`netEquityBase`'s inputs, not in the pool.
+⚠️ **THE VIRTUAL OFFSET IS THE FIRST SUSPECT AND MUST BE RULED IN OR OUT EXPLICITLY.**
+`_unitSlice(u,tot,bal) = u·(bal+1)/(tot+OFFSET)` round-trips EXACTLY at the boundaries I checked
+(first deposit, equal LPs, donation attack) — but I checked those with `bal` UNCHANGED. **A seizure
+is the first case where `bal` FALLS while `tot` stays**, and that is precisely the case none of the
+boundary checks covered.
+
+### 2. `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` — `[FAIL: backing]`
+Same family: `checkBacking` reverts because `committedUsd18` and the basket disagree after a pooled
+de-lever on the BTC path.
+
+### ⛔ WHAT NOT TO DO WITH THESE
+- **DO NOT flip `assertLt` to `assertGt`.** A test that asserts whatever the code does has stopped
+  being evidence. The property — *a seizure un-pairs lev-slice USD from `POOLED_USD`* — is correct
+  under pooling too; only its magnitude changed.
+- **DO NOT collapse the BTC delivery path the way the ETH one was collapsed.** It repays through
+  `venue.repay(lp, …)`, which burns THAT LP's units, and that is RIGHT: only one LP's channel is
+  shrinking. `repayPool` there would gift every other LP a debt reduction funded by this LP's
+  proceeds. **Two paths, two correct answers** — the ETH delivery serves a swap-out against the whole
+  range, the BTC one serves a single channel.
+
+---
 ## 🚀 **TODAY'S SCHEDULE — 4 VERIFICATION CYCLES TOTAL, WORK BATCHED INTO THEM** (2026-08-23)
 
 ⚠️ **"90 cycles" BELOW IS THE ANTI-PLAN, NOT THE PLAN.** It is what working the file top-to-bottom
