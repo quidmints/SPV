@@ -218,14 +218,25 @@ contract DrainAtomicity is AllesFixture {
         }
         // DRIVE REAL BTC FLOW INTO SCARCITY. A populated range is not enough (E98): the base is only
         // reached once `flowEwmaUsd(true) > 0` AND `inv < target`. Buying BTC drains the BTC range.
+        // §SILENT-SETUP — COUNT THE LANDINGS. This loop IS the premise: the comment two lines up
+        // says the base is reached only once `flowEwmaUsd > 0` AND `inv < target`, and `flowEwmaUsd`
+        // moves ONLY when a swap actually settles. With `catch {}` silent, three reverts produced
+        // the same state as three fills — a flat, unskewed range — and the assertion below then
+        // measured the splice floor of a range that had never been drained.
+        // ⚠️ THIS TEST IS ALSO A ONE-SIDED BOUND (§VACUOUS-BOUNDS): its single `assertGe` is
+        // satisfied by the very collapse a dead premise produces, so the two defects compounded —
+        // nothing could fail, and nothing said the setup had not run.
+        uint drained;
         for (uint i = 0; i < 3; ++i) {   // §E98-r: MILD scarcity -- 14 rounds pinned `live` at the
             deal(bold, drainer, 3_000 * 1e18);   // 3% ceiling and destroyed the discriminator.
             vm.startPrank(drainer);
             IERC20(bold).approve(address(AUX), 3_000 * 1e18);
-            try AUX.swap(bold, address(WBTC), true, 3_000 * 1e18, 0, true) {} catch {}
+            try AUX.swap(bold, address(WBTC), true, 3_000 * 1e18, 0, true) { ++drained; } catch {}
             vm.stopPrank();
             _settle();
         }
+        emit log_named_uint("BTC drains landed / 3      ", drained);
+        assertGt(drained, 0, "PREMISE: the BTC range must actually be drained, else the base is unreachable");
         uint pB     = AUX.getTWAPforAsset(address(WBTC), 1800);
         uint invBtc = CORE.POOLED() * pB / 1e30;
         uint tgtBtc = CORE.flowEwmaUsd();
