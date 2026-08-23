@@ -1027,7 +1027,11 @@ contract Core {
         // consequence.
         // Semantics are otherwise identical: both operands are pure reads and `&&` already
         // short-circuited, so no state and no ordering changes — only who pays for the reads.
-        if (!loadBalance) return;
+        // ⚠️ `return out;`, NOT a bare `return;` — solc 0.8.30 rejects the bare form here (6777,
+        // "Return arguments required") and the fill result is already in `out` from `_fillDelta`
+        // above, so naming it is both required and the honest statement of what the early exit
+        // yields: an opted-out swap returns its fill, having declined only the load-balance.
+        if (!loadBalance) return out;
 
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
         // identical across pools; only the remediation differs. Both
