@@ -1146,7 +1146,7 @@ lever measured to be large enough. So the sequence is **wire `Shares` → then f
 
 An **internal-only** library is copied into every consumer; making it `external` deploys it once.
 `BitcoinTx` proved it: **−1,985 B across four consumers**, and `BTCChannels` went 144 → 815 bytes of
-headroom, moving the binding constraint to `Quid` (558).
+headroom, moving the binding constraint to `Quid` (558). ⛔ **NO LONGER TRUE (2026-08-23): the fold sweep took `Quid` to 21,856 (2,720) and `BTCChannels` is now the binding contract at 1,163 — the constraint moved BACK. The `BitcoinTx` de-inlining result itself is unaffected; only where the pressure sits.**
 
 ⚠️ **Only pays with MULTIPLE consumers.** Measured: `ShareMath` 2 consumers but ONE function of 29
 lines (marginal); `SortedSetLib` 1 consumer (converting would **add** a seam and save nothing);
@@ -6384,6 +6384,12 @@ wrong now:** `Quid` has since grown ~476 bytes on `main`. A clean measurement ha
 §E264's did not survive four days.
 ⇒ **DO NOT PLAN ANY ADDITION TO `Quid` AGAINST 562.** The binding contract is `Quid`, alone, at 86 —
 `BTCChannels` is the next tightest at 893, an order of magnitude further away.
+⛔ **AND THIS ROW HAS NOW DONE THE SAME THING TO ITSELF, TWICE OVER (re-measured 2026-08-23):
+`Quid` is **21,856 with 2,720 to spare**, and it is NOT the binding contract — **`BTCChannels` (23,413,
+1,163) is**, so the two contracts have swapped places entirely. The row's own warning that *"a clean
+measurement has a shelf life"* is the only durable line in it.** ⇒ **Do not plan against 86, 562, 472,
+788 or 2,720; run `tools/check-contract-sizes.py`.** The lever the row goes on to name is still worth
+reading — that part is an argument, not a reading.
 ⚠️ This repo has already shipped a `Core` at **−126 bytes** (undeployable) with a fully green suite, and
 `forge build --sizes` cannot see `Quid` at all because it is library-linked. **The only gate that sees
 this is `tools/check-contract-sizes.py`, and it must run before any change that touches `Quid`.**
