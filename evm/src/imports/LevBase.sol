@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 import {ILevVenue} from "./Interfaces.sol";
+import {ILevPooled} from "./Interfaces.sol";   // §POOL-VENUE
 import {IAux, ICore} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
@@ -288,6 +289,18 @@ abstract contract LevBase {
     ///         Safe over `_openLps` because _untrackOpen is called UNCONDITIONALLY on close
     ///         (LevManager:659, BtcLevManager:529), including the ETH keepState branch that
     ///         retains the Pos with open=false. So this never iterates a closed position.
+
+    /// @dev §POOL-VENUE — THE POOL EVERY LP SHARES. All open LPs sit in ONE venue position, so the
+    ///      first open LP's venue IS the pool's venue. Returns 0 when the book is empty.
+    /// ⚠️   This is the same assumption `SwapLib.deleverEthOnDelivery` makes after its loop collapse:
+    ///      one venue per range, frozen by `vetVenue` + the allowlist. If a second venue is ever
+    ///      admitted for one range, EVERY aggregate below silently reports only the first pool — so
+    ///      that admission must come WITH a per-venue walk, not after it.
+    function _pool() internal view returns (address) {
+        if (_openLps.length == 0) return address(0);
+        return address(pos[_openLps[0]].venue);
+    }
+
     function totalDeliverableDollars() external view returns (uint total) {
         uint n = _openLps.length;
         if (n == 0) return 0;
@@ -488,9 +501,14 @@ abstract contract LevBase {
     function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
 
     /// @notice Live sum of every open position's debt (USD 1e18).
-    function totalDebtUsd() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        for (uint256 i; i < n; i++) if (pos[_openLps[i]].open) total += debtUsd(_openLps[i]);
+    /// §POOL-VENUE — O(1). This walked every open LP summing `debtUsd(lp)`; with one pooled position
+    /// the pool's own total IS the sum, read in a single call. §E332 measured this function's siblings
+    /// at up to 18 callers apiece, each O(open LPs) and reachable from state-changing paths — the
+    /// cliff that got closer the more the protocol succeeded. It is gone by construction, not clamped.
+    function totalDebtUsd() external view returns (uint256) {
+        address v = _pool();
+        if (v == address(0)) return 0;
+        return LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
     }
 
     /// @dev The IL target at the live price, for a position already in memory.
@@ -530,17 +548,36 @@ abstract contract LevBase {
     }
 
     /// @notice LIVE sum of every open position's GROSS collateral, native unit.
-    function totalGrossCollateral() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        for (uint256 i; i < n; i++) total += grossCollateral(_openLps[i]);
+    /// §POOL-VENUE — O(1), same reasoning as `totalDebtUsd`.
+    function totalGrossCollateral() external view returns (uint256) {
+        address v = _pool();
+        return v == address(0) ? 0 : _collNativePool(v);
     }
 
     /// @notice LIVE sum of every open position's NET equity, native unit. Oracle read ONCE.
-    function totalNetEquity() external view returns (uint256 total) {
-        uint256 n = _openLps.length;
-        if (n == 0) return 0;
+    /// §POOL-VENUE — O(1), AND IT DISSOLVES §E333 RATHER THAN IMPLEMENTING IT.
+    /// §E333 refused to accumulate this because `LevMath.netEquityBase` floors PER POSITION, so a
+    /// running total would socialise one LP's underwater slice across the book. **With one pooled
+    /// position there is exactly ONE position to floor**, so the floor applies once, where it belongs —
+    /// the objection was to accumulating N floors, and there are no longer N of them.
+    /// ⚠️ AND THE SUM-OF-FLOORS WAS THE LIVE DEFECT, not merely a refused optimisation: summing
+    /// per-LP floored equity over a POOLED position over-counts, which is what drove `committedUsd18`
+    /// high enough to trip `checkBacking` on the BTC delivery path.
+    function totalNetEquity() external view returns (uint256) {
+        address v = _pool();
+        if (v == address(0)) return 0;
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint256 i; i < n; i++) total += _netEquityAt(_openLps[i], px);
+        return LevMath.netEquityBase(
+            _collNativePool(v),
+            LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt()),
+            px);
+    }
+
+    /// @dev The pool's gross collateral in the range's NATIVE unit. Uses the SAME `_collToBase`
+    ///      conversion `_collNative` applies per LP (weETH→ETH on the ETH side, the identity on BTC),
+    ///      so the aggregate and the per-LP reads cannot drift apart by a unit.
+    function _collNativePool(address v) internal view returns (uint256) {
+        return _collToBase(ILevPooled(v).totalCollateral());
     }
 
     /// @notice A range reseat REALIZES accrued IL, so re-anchor `E0` to the position's CURRENT

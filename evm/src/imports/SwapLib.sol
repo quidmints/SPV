@@ -2048,39 +2048,31 @@ library SwapLib {
     function deleverEthOnDelivery(address mgr, address aux, uint px, uint shortfallEth, address recipient)
         public returns (uint deliveredEth) {
         if (px == 0 || shortfallEth == 0) return 0;
-        // §AUDIT-OPENLPS-DOS — `n` IS BOUNDED NOW, AND NOT BY ANYTHING WRITTEN HERE. This loop ran
-        // `i < openLevCount()` with no outer limit over a book anyone could grow, and it is the
-        // most expensive walk of that book (several external calls per LP). The bound is
-        // `RangeLib.MAX_OPEN_LPS`, enforced at the two sites that PUSH to `_openLps`, because a
-        // limit applied here would just truncate the sweep and leave the shortfall unfilled while
-        // the Σ-views stayed unbounded. Do NOT add a second clamp here: read that note first — it
-        // records why the cap is at the writer and why the cap is temporary.
+        // §POOL-VENUE — ONE CALL, NOT A WALK. This body used to loop `openLevCount()` LPs, doing a
+        // basket draw plus a venue repay PER LP, so the swap it served was capped by how many repays
+        // fit in a block and the cap tightened as the book grew (§E342). The venue holds ONE position
+        // now, so the whole shortfall is sourced and repaid once and the ceiling is liquidity, not
+        // cardinality.
+        // ⚠️ THE BOOK IS STILL WALKED FOR *ONE* THING — picking the venue. Every open LP shares the
+        // pooled position, so the FIRST open LP's venue is the pool's venue; the walk stops there and
+        // never touches a second. If the book is empty there is nothing levered to de-lever.
         uint n = ILevEthDeliver(mgr).openLevCount();
-        for (uint i; i < n && deliveredEth < shortfallEth; i++) {
-            address lp = ILevEthDeliver(mgr).openLpAt(i);
-            uint needUsd = SoladyMath.fullMulDiv(shortfallEth - deliveredEth, px, 1e18);   // remaining WETH → USD 1e18
-            (address venue, address stable, uint amtNative) = ILevEthDeliver(mgr).swapOutDeleverAmt(lp, needUsd);
-            if (venue == address(0)) continue;
-            if (amtNative == 0) {
-                // 0-debt UNLEVERED net-equity (the HODL slice) — no repay/takeToSettle, just withdraw+deliver.
-                try ILevEthDeliver(mgr).swapOutDeliverUnlevered(lp, shortfallEth - deliveredEth, recipient, 0)
-                    returns (uint w) { deliveredEth += w; } catch {}
-                continue;
-            }
-            uint fundUsd = LevMath._toUsd18(aux,stable, amtNative);      // USD the clamped debt-repay represents
-            if (fundUsd > needUsd) fundUsd = needUsd;
-            if (fundUsd == 0) continue;
-            // Route the swap's OWN proceeds → venue directly (Quid==address(this) IS `takeToSettle`-authorized),
-            // then repay+free+deliver. try/catch: a stuck LP (illiquid collateral / venue revert) is skipped,
-            // leaving the residual to the #105 partial-fill.
-            // §A.55: native units for the take (see above). `fundUsd` stays 18-dec for `swapOutDelever`
-            // below, so ONLY the argument is converted — not the variable.
-            try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
-                try ILevEthDeliver(mgr).swapOutDelever(lp, fundUsd, recipient, 0) returns (uint, uint w) {
-                    deliveredEth += w;
-                } catch { emit DeliverDeleverSkipped(lp, venue, fundUsd, false); }
-            } catch { emit DeliverDeleverSkipped(lp, venue, fundUsd, true); }
-        }
+        if (n == 0) return 0;
+        uint needUsd = SoladyMath.fullMulDiv(shortfallEth, px, 1e18);      // WETH → USD 1e18
+        (address venue, address stable, uint amtNative) =
+            ILevEthDeliver(mgr).swapOutDeleverAmt(ILevEthDeliver(mgr).openLpAt(0), needUsd);
+        if (venue == address(0) || amtNative == 0) return 0;
+        uint fundUsd = LevMath._toUsd18(aux, stable, amtNative);
+        if (fundUsd > needUsd) fundUsd = needUsd;
+        if (fundUsd == 0) return 0;
+        // Source the swap's OWN proceeds into the venue, then repay the pool and free the matching
+        // collateral in one manager call. try/catch preserved: a venue that cannot source must leave a
+        // partial fill (#105), never revert the settle — and the skip is ANNOUNCED (§SILENT-SKIP).
+        try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
+            try ILevEthDeliver(mgr).swapOutDeleverPooled(venue, fundUsd, recipient, 0) returns (uint, uint w) {
+                deliveredEth = w;
+            } catch { emit DeliverDeleverSkipped(venue, venue, fundUsd, false); }
+        } catch { emit DeliverDeleverSkipped(venue, venue, fundUsd, true); }
     }
 
     // ── In-range burn ─────────────────────────────────────────────────

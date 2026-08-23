@@ -745,6 +745,10 @@ interface ILevEthDeliver {
         external view returns (address venue, address stable, uint amtNative);
     function swapOutDelever(address lp, uint stableUsd, address recipient, uint minWethOut)
         external returns (uint usedUsd, uint wethDelivered);
+    /// §POOL-VENUE — the AGGREGATE delivery de-lever. Takes a VENUE, not an LP: the position is pooled,
+    /// so there is no per-LP repay to name. Replaces the O(LPs) walk `deleverEthOnDelivery` used to do.
+    function swapOutDeleverPooled(address venue, uint stableUsd, address recipient, uint minWethOut)
+        external returns (uint usedUsd, uint wethDelivered);
     function swapOutDeliverUnlevered(address lp, uint wethWanted, address recipient, uint minWethOut)
         external returns (uint wethDelivered);
 }
