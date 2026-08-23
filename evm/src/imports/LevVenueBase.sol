@@ -328,18 +328,24 @@ contract AaveV3Venue is LevVenueBase {
     /// @notice Amount OWED — ProtocolDataProvider's `currentVariableDebt` (Amp's proven source; exact block-fresh
     ///         underlying-unit debt, one asset, no vToken.balanceOf / no hardcoded index).
     function debtOf(address lp) public view returns (uint256) {
-        AaveV3Escrow e = escrowOf[lp];
-        if (address(e) == address(0)) return 0;
-        (,, uint256 currentVariableDebt,,,,,,) = DATA.getUserReserveData(STABLE, address(e));
-        return currentVariableDebt;
+        return _escrowReserve(lp, true);
     }
 
     /// @notice Collateral supplied — ProtocolDataProvider's `currentATokenBalance` (block-fresh underlying units).
     function collateralOf(address lp) public view returns (uint256) {
+        return _escrowReserve(lp, false);
+    }
+
+    /// @dev ONE escrow-resolution body. Both reads MUST agree on which escrow they are
+    ///      describing — a debt read against one escrow and a collateral read against
+    ///      another would produce a plausible LTV for a position that does not exist.
+    ///      `wantDebt` picks BOTH the asset and the slot, so they cannot be mismatched.
+    function _escrowReserve(address lp, bool wantDebt) private view returns (uint256) {
         AaveV3Escrow e = escrowOf[lp];
         if (address(e) == address(0)) return 0;
-        (uint256 currentATokenBalance,,,,,,,,) = DATA.getUserReserveData(COLLATERAL, address(e));
-        return currentATokenBalance;
+        (uint256 aTokenBal,, uint256 variableDebt,,,,,,) =
+            DATA.getUserReserveData(wantDebt ? STABLE : COLLATERAL, address(e));
+        return wantDebt ? variableDebt : aTokenBal;
     }
 
     function liqThresholdBps() external view returns (uint256) { return LIQ_THRESHOLD_BPS; }

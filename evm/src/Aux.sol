@@ -672,13 +672,11 @@ contract Aux is // Auxiliary
         revert BadAsset();
     }
 
+    /// @notice `resolvedTwap` without the staleness flag. ONE body: this is that
+    ///         function with `stale` dropped, so the two cannot answer differently.
     function getTWAPforAsset(address asset, uint32 period)
         public view returns (uint price) {
-        price = SwapLib.twapBody(address(_rangeOf(asset)), period);   // §ISBTC-SPLIT: the asset picks the range
-
-        (price,) = SwapLib.twapResolve(assetPriceFeed[asset], price, 
-                    asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, 
-                    ASSET_FEED_MAX_AGE); // 
+        (price,) = resolvedTwap(asset, period);
     }
 
     /// @notice Like getTWAPforAsset but also reports `stale` = the internal TWAP
@@ -1292,21 +1290,25 @@ contract Aux is // Auxiliary
         return _reserveIdOf(token);
     }
 
-    function aaveBalance(address token) public view returns (uint) {
+    /// @dev ONE reserve-resolution body for both reads. They MUST resolve the same
+    ///      reserve id or `aaveBalance/aaveShares` is not the liquidity index; two
+    ///      copies could drift apart silently, which is the whole reason for the fold.
+    function _aaveUser(address token, bool wantShares) private view returns (uint) {
         uint256 reserveId = _aaveReserve(token);
         if (reserveId == 0) return 0;
-        return IAaveV4Spoke(AAVE_SPOKE).getUserSuppliedAssets(
-            reserveId, address(this));
+        return wantShares
+            ? IAaveV4Spoke(AAVE_SPOKE).getUserSuppliedShares(reserveId, address(this))
+            : IAaveV4Spoke(AAVE_SPOKE).getUserSuppliedAssets(reserveId, address(this));
+    }
+
+    function aaveBalance(address token) public view returns (uint) {
+        return _aaveUser(token, false);
     }
 
     /// @notice Scaled supply shares (principal basis) for the yield factor — the
-    ///         Aave-v4 analog of a 4626 `balanceOf`. Mirrors `aaveBalance`'s
-    ///         reserve-id resolution. `aaveBalance/aaveShares` = liquidity index.
+    ///         Aave-v4 analog of a 4626 `balanceOf`. `aaveBalance/aaveShares` = liquidity index.
     function aaveShares(address token) public view returns (uint) {
-        uint256 reserveId = _aaveReserve(token);
-        if (reserveId == 0) return 0;
-        return IAaveV4Spoke(AAVE_SPOKE).getUserSuppliedShares(
-            reserveId, address(this));
+        return _aaveUser(token, true);
     }
 
     /// @notice Fused volatile-deposit helper. ETH path accepts native via

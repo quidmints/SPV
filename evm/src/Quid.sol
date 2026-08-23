@@ -1583,17 +1583,22 @@ contract Quid is Shares,
         } catch {}
     }
 
-    function convertToShares(uint assets) 
-        public view returns (uint) {
+    /// @dev ONE conversion body, both directions. The bootstrap identity (`lpShares == 0
+    ///      || total == 0` ⇒ 1:1) MUST be the same on both sides or a deposit and its
+    ///      matching redeem disagree at the empty-vault boundary; two copies could drift.
+    function _convert(uint amt, bool toShares) private view returns (uint) {
         uint total = _pricingBacking();
-        if (lpShares == 0 || total == 0) return assets;
-        return SoladyMath.fullMulDiv(assets, lpShares, total);
+        if (lpShares == 0 || total == 0) return amt;
+        return toShares ? SoladyMath.fullMulDiv(amt, lpShares, total)
+                        : SoladyMath.fullMulDiv(amt, total, lpShares);
+    }
+
+    function convertToShares(uint assets) public view returns (uint) {
+        return _convert(assets, true);
     }
 
     function convertToAssets(uint shares) public view returns (uint) {
-        uint total = _pricingBacking();
-        if (lpShares == 0 || total == 0) return shares;
-        return SoladyMath.fullMulDiv(shares, total, lpShares);
+        return _convert(shares, false);
     }
 
     // ─── ERC-4626 deposit / redeem (thin wrappers) ──────────────────

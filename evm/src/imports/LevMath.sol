@@ -209,7 +209,7 @@ library LevMath {
             uint256 floorStable = _fromUsd(cfg.aux, stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 got = _wbtcToStable(cfg.wbtc, stable, pulled, minOut);
+        uint256 got = _volToStable(cfg.wbtc, V3_FEE_WBTC, stable, pulled, minOut);
         { uint256 debt = venue.debtOf(lp); if (got > debt) got = debt; }   // never over-repay
         if (got == 0) return (pulled, 0);
         IERC20Min(stable).transfer(address(venue), got);
@@ -249,7 +249,7 @@ library LevMath {
                                   * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 stableOut = _wbtcToStable(cfg.wbtc, stable, pulled, minOut);
+        uint256 stableOut = _volToStable(cfg.wbtc, V3_FEE_WBTC, stable, pulled, minOut);
         IERC20Min(stable).approve(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);   // realized surplus → LP
     }
@@ -572,17 +572,12 @@ library LevMath {
     /// @dev Mirror of `_stableToWbtc`: pinned pool to USDC, stableswap hub back out. `minOut` is
     ///      applied to the FINAL stable amount, not the USDC intermediate, so the floor bounds what
     ///      the caller actually receives.
-    function _wbtcToStable(address wbtc, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
-        uint256 usdc = _poolSwap(wbtc, USDC, V3_FEE_WBTC, amt, 0);
-        uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
-        if (out < minOut) revert Slippage();
-        return out;
-    }
-
-    /// @dev WETH → stable (the sell leg's down-leg tail), via USDC: Uniswap V3 on the WETH→USDC
-    ///      hop, Curve stableswap on USDC→stable.
-    function _wethToStable(address weth, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
-        uint256 usdc = _poolSwap(weth, USDC, V3_FEE_WETH, amt, 0);
+    ///      ONE body for BOTH volatiles: the WBTC and WETH down-legs differed only in the V3 fee
+    ///      tier, so `fee` is now an argument. `internal` in a library is copied into every caller,
+    ///      so collapsing two bodies to one multiplies by the caller count.
+    function _volToStable(address vol, uint24 fee, address stable, uint256 amt, uint256 minOut)
+        internal returns (uint256) {
+        uint256 usdc = _poolSwap(vol, USDC, fee, amt, 0);
         uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
         if (out < minOut) revert Slippage();
         return out;
@@ -592,7 +587,7 @@ library LevMath {
     ///      `_stableToWethSor`. `minOut` is unused on that branch because no trade occurs.
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
-        return _wethToStable(c.weth, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
+        return _volToStable(c.weth, V3_FEE_WETH, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal view returns (uint256) {
