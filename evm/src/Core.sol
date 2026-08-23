@@ -358,6 +358,29 @@ contract Core {
         //
         // 0 from BOTH still means UNMEASURED and still charges the ceiling — the fail-conservative
         // default is unchanged, and it is now the ONLY thing 0 can mean.
+        //
+        // §E346-ZERO — WHY THE RING LEG GETS NO §E88 FLOOR, WRITTEN DOWN SO IT IS NOT "FIXED".
+        // `anchorVarianceWad` floors a measured zero at 1 wei and the ring leg conspicuously does
+        // not, which reads like an oversight. It is not, and BOTH halves of the reason are needed:
+        //   • THE FLOOR WOULD BE INERT HERE. The `mulDiv(·, 31536000, 1e18)` above truncates every
+        //     raw below **31,709,791,984** to 0, so a `return 1` inside `ringVariance` never
+        //     survives to this line — a fix that looks landed and changes nothing. (The anchor leg's
+        //     floor works precisely because it is applied AFTER its own scaling, not before.)
+        //   • AND IT WOULD BE UNSAFE. `ringVariance` genuinely computes 0 on a FLAT ring (constant
+        //     price ⇒ every interval rate identical ⇒ every return 0), and `pushObservation` is
+        //     PERMISSIONLESS within ±50 bps of the anchor, so a constant series is cheap to
+        //     construct. Flooring it would restore the §E345 attack through a new door: σ² reads
+        //     "measured, calm", `skewWad`'s `sigmaSqWad == 0` guard stops firing, and the 3%
+        //     unknown-variance drain charge switches off.
+        // ⇒ The `max` below is what actually resolves it: the ring's honest zero and its
+        //   could-not-estimate zero contribute IDENTICALLY (nothing), so the distinction is not
+        //   observable here BY CONSTRUCTION. Full seven-exit enumeration at `OracleLib.ringVariance`.
+        // ⚠️ CROSS-FILE, NOT FIXED HERE (it is `SwapLib`'s file): the `sigmaSqWad == 0` guard at
+        //   `SwapLib.sol:1021-1025` still justifies itself with *"`realizedVarianceWad` calls
+        //   `OracleLib.ringVariance` DIRECTLY"* — untrue since §E345 put this `max` in front of it —
+        //   and enumerates only four exits, omitting `rate == 0` and the flat-ring zero, then
+        //   concludes *"None of them means 'measured, and calm'"*. The GUARD stays correct (0 from
+        //   both legs really is unmeasured); its stated PREMISE is stale. Behaviour is unaffected.
         uint a = anchorVarianceWad();
         return v > a ? v : a;
     }

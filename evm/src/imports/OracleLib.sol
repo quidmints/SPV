@@ -267,8 +267,58 @@ library OracleLib {
     /// Intervals are UNEVEN by nature, so each return is normalised by its OWN elapsed time and the
     /// annualisation uses the MEASURED span — no fixed step to mis-match the swap cadence.
     ///
-    /// Returns tick-variance per second (WAD). **0 means UNKNOWN — too few real updates — NOT calm**;
-    /// the span is not returned because it is redundant (it is 0 exactly when this is).
+    /// Returns RELATIVE-return variance per second (WAD). (It said "tick-variance"; §TICK-REMOVAL
+    /// retired the ticks and the body's own notes say so — the name outlived the quantity.)
+    /// The span is not returned because it is redundant (it is 0 exactly when this is).
+    ///
+    /// 🔴 §E346-ZERO — **THIS FUNCTION RETURNS 0 FOR SEVEN DISTINCT REASONS AND THE CALLER CANNOT
+    /// TELL THEM APART. SIX ARE "COULD NOT ESTIMATE"; THE SEVENTH IS "ESTIMATED, AND IT IS ZERO".**
+    /// The docstring used to assert the seventh does not exist ("0 means UNKNOWN — too few real
+    /// updates — NOT calm"), and `SwapLib`'s `sigmaSqWad == 0` guard still repeats that claim in
+    /// stronger words. It is false. Enumerated against the body, in the order they are reached:
+    ///   1. `card < 3 || n < 3`      — too few slots.
+    ///   2. `m < 2` (⇒ `card < 4`)   — too few DISTINCT samples. §E345 measured that this, not
+    ///                                 `card >= 2`, is the real threshold, and the two-short gap was
+    ///                                 a live defect.
+    ///   3. `!lo.initialized`        — an unwritten slot inside the window.
+    ///   4. `lo.blockTimestamp >= hi.blockTimestamp` — non-advancing timestamps.
+    ///   5. `rate == 0`              — the OLDER interval is the divisor. ⚠️ NOT a sample-count
+    ///                                 condition; `SwapLib`'s enumeration omits it entirely.
+    ///   6. `newest <= oldest`       — the measured span collapsed.
+    ///   7. **`acc == 0` — A GENUINELY FLAT RING.** Constant price ⇒ `priceCumulative` advances by
+    ///      exactly `P` per second ⇒ every interval `rate == P` exactly (the division is exact) ⇒
+    ///      every `ret[i] == 0`, `mean == 0`, and the §E63 drift term `mean*mean == 0` too. This is
+    ///      a REAL MEASUREMENT of a REAL zero, and it is REACHABLE.
+    ///
+    /// ⛔ **DO NOT "FIX" THIS WITH THE §E88 ONE-WEI FLOOR THAT `Core.anchorVarianceWad` USES. IT IS
+    ///    BOTH UNSAFE AND INERT, AND THE INERTNESS IS WHAT MAKES IT DANGEROUS TO TRY.**
+    ///   • UNSAFE: **this ring is PERMISSIONLESS.** `Core.pushObservation` is `external` with no
+    ///     auth, bounded only to ±`OBS_PUSH_MAX_BPS` (50 bps) of the Chainlink anchor — and a
+    ///     CONSTANT price is trivially inside that bound. So exit 7 is not merely reachable, it is
+    ///     cheaply ATTACKER-CONSTRUCTIBLE. Flooring it to 1 would hand that attacker a free
+    ///     "declare the market calm" primitive: `SwapLib`'s `if (sigmaSqWad == 0) return
+    ///     UNKNOWN_VARIANCE_SKEW` stops firing and the 3% unknown-variance drain charge switches
+    ///     off. That is EXACTLY the §E345 attack, re-entering through the floor instead of through
+    ///     the deleted `cardinality >= 2` sentinel.
+    ///   • INERT: the floor could not even reach the caller. `Core.realizedVarianceWad` scales this
+    ///     by `mulDiv(raw, 31536000, 1e18)`, and **`mulDiv(1, 31536000, 1e18) == 0`** — every raw
+    ///     below 31,709,791,984 truncates away. So the floor would be silently annihilated one frame
+    ///     up: a fix that looks landed, changes nothing, and leaves the next reader believing the
+    ///     ambiguity is resolved. (That threshold is annualised σ² = 1e-18, i.e. σ = 1e-9 — one part
+    ///     per billion — so the truncation window IS the exact-zero case and hides no real reading.)
+    ///
+    /// ✅ **THE AMBIGUITY IS ALREADY RESOLVED, AND NOT HERE — IT IS RESOLVED AT THE SEAM, BY §E345.**
+    ///    `Core.realizedVarianceWad` returns `max(ringLeg, anchorVarianceWad())`. Under a `max` the
+    ///    ring's honest zero and its could-not-estimate zero contribute IDENTICALLY — nothing — so
+    ///    the six-vs-one distinction is not observable at the only consumer, BY CONSTRUCTION. The
+    ///    Chainlink anchor is the leg that carries the §E88 floor, and it can, because Chainlink is
+    ///    not attacker-writable. **The ring may move σ² only UPWARD, i.e. only in the direction that
+    ///    costs whoever writes it.** Making this function's zero self-describing would therefore buy
+    ///    a distinction nothing is allowed to act on, at the price of the vector above.
+    /// ⇒ A signature change (returning a `bool measured`) is the ONLY way to surface it, it is not
+    ///   warranted for the reason just given, and it would be a cross-file arity change — which in
+    ///   this tree reports as a bare `Error: Error writing output JSON.` with no file, line or
+    ///   symbol. Left deliberately unresolved, and documented so it is not re-opened a fourth time.
     function ringVariance(Observation[RING] storage obs, ObsState storage st, uint n)
         external view returns (uint varPerSecWad)
     {
