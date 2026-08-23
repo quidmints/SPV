@@ -5,7 +5,6 @@ pragma solidity ^0.8.28;
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";
 import {IEthVenue, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -32,7 +31,7 @@ import {Aux} from "./Aux.sol";
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Quid is Shares,
-    Ownable, ReentrancyGuard {
+    Ownable {
     error WrongQuid();
     error Dust();
     error NoPosition();
@@ -41,6 +40,32 @@ contract Quid is Shares,
     error ZeroTwap();
     error NotOwner();
     error BadPercent();
+
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    //  §E347b — THE REENTRANCY GUARD IS DECLARED HERE, NOT INHERITED, FOR ONE REASON: SOLMATE'S
+    //  `nonReentrant` IS A MODIFIER, AND A MODIFIER'S BODY IS COPIED INTO EVERY USE SITE.
+    //
+    //  Standing rule 8c, and the same trade §E346 measured on `onlyUs` (316 bytes back over SIX
+    //  sites) and §E164 on `BTCChannels._onlyHop` (200 over four). `Quid` uses `nonReentrant` at
+    //  TWELVE: outOfRange, pull, fillOOR, reseat, transfer, transferFrom, deposit, mint, redeem,
+    //  withdraw, collectFees, compound. Each carried its own copy of an SLOAD, a comparison, the
+    //  `"REENTRANCY"` revert and TWO SSTOREs. One routine each way and twelve jumps instead.
+    //
+    //  WHY IT COULD NOT BE DONE BY OVERRIDING: solmate declares `uint256 private locked = 1`, so a
+    //  derived contract cannot read it and cannot write the split modifier. The base had to go.
+    //
+    //  ⚠️ THE STORAGE SLOT IS UNCHANGED, AND THAT IS LOAD-BEARING, NOT INCIDENTAL. Base variables
+    //  are laid out most-base-first, so solmate's `locked` sat immediately after `Ownable._owner`
+    //  and immediately before `Quid`'s own state. Declaring it as the FIRST member of `Quid`'s body
+    //  puts it at exactly that slot: same slot, same name, same initial value, same 1/2 discipline
+    //  (never 0/1 — a 0→1 SSTORE is 20k gas, which is the whole reason solmate uses 1 and 2), and
+    //  the same `"REENTRANCY"` revert string, so no revert-data consumer moves either. Every slot
+    //  after it is where it was; no call site changes; the modifier keeps its name.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    uint private locked = 1;
+    function _lock()   private { require(locked == 1, "REENTRANCY"); locked = 2; }
+    function _unlock() private { locked = 1; }
+    modifier nonReentrant { _lock(); _; _unlock(); }
 
     // §NAMING — was `V4`, which read as Uniswap v4. It is the Core range engine and always was.
     /// @dev `CORE` is PUBLIC for the reason spelled out on `Vault.CORE`: each range must be able to
