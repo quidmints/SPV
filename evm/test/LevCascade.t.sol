@@ -481,6 +481,15 @@ contract LevCascadeProbe is AllesFixture {
 
         address[] memory batch = new address[](2); batch[0] = lps[0]; batch[1] = lps[1];
         uint[] memory mins = new uint[](2);
+        // §LEVCASCADE-STUCK — THE DECISIVE PAIR. This test asserts a stuck LP emits DeleverFailed and
+        // gets 0. By elimination the only remaining explanation is that `deleverOne` RETURNS before it
+        // ever touches Morpho, so the revoked authorization is never reached. These two numbers say
+        // which: NON-ZERO debt with a ZERO target ⇒ the crash killed the target (`ilTargetBps` is 0 at
+        // or below entry, `LevMath:92`) and the no-op success is a real finding about the down-leg;
+        // ZERO debt ⇒ the rally never levered and this is a fixture problem.
+        emit log_named_uint("lp0 debt before cascade    ", venue.debtOf(lps[0]));
+        emit log_named_uint("lp0 ilTarget bps           ", lm.ilTargetLtvBps(lps[0]));
+        emit log_named_uint("lp1 debt before cascade    ", venue.debtOf(lps[1]));
         vm.recordLogs();
         lm.cascadeDelever(batch, mins);
 

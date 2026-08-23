@@ -3,8 +3,49 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
-## 0h. 🔬 **§LEVCASCADE-STUCK — THE CHAIN NARROWED TO ONE LINK. `deleverOne` SUCCEEDS WHERE THE TEST
-NEEDS IT TO REVERT** (2026-08-23; four of the seven clustered lev failures)
+## 0h. ✅ **§LEVCASCADE-STUCK — ANSWERED BY MEASUREMENT. THE POSITION IS INSIDE THE DEAD-BAND, SO
+NOTHING IS ATTEMPTED, SO NOTHING CAN FAIL** (2026-08-23; four of the seven clustered lev failures)
+
+**MEASURED at the cascade call site** (`lm.ilTargetLtvBps` + `venue.debtOf`, logged in-fixture):
+| | |
+|---|---|
+| lp0 debt before cascade | **547,054,531** (6-dec USDC — so a borrow DID happen during the rally) |
+| lp0 IL target | **279 bps** |
+| `RANGE_BPS` dead-band | **300 bps** |
+| lp1 debt | 437,643,369 |
+
+`debtDelta`'s no-action test is `cur + rangeBps >= targetBps && cur <= targetBps + rangeBps`
+(`LevMath:826`). With `targetBps = 279` and `rangeBps = 300` the first clause is **unconditionally
+true for any `cur >= 0`**, and the second holds up to `cur <= 579`. lp0's collateral is 5 ETH of weETH
+against 547 USDC of debt ⇒ LTV ≈ **365 bps**, inside 579. ⇒ **`deleverOne` correctly does nothing,
+returns successfully, never touches Morpho — so the revoked authorization is never reached and no
+`DeleverFailed` is emitted.** The contract is right; the FIXTURE's premise is wrong.
+
+🔴 **THE FIXTURE PREMISE, NEVER ASSERTED:** the test needs the crash to leave the position **outside**
+the ±300 bps dead-band. `_crashRange(3000, 24, 40 ether)` does not — it leaves it at 365 vs a 579
+ceiling. **A crash REDUCES the up-side IL target** (`ilTargetBps = 1−√(entry/now)`, and `0` at or
+below entry, `LevMath:92`), so a deeper crash moves the target DOWN toward 0 and the LP toward
+"nothing to hedge", not toward a forced de-lever. **The test is asking the crash to do something a
+crash does not do.**
+▶️ **Fix is the premise, not the brick:** assert the position is genuinely out of band before
+`cascadeDelever`, and construct the stuck case from one that is.
+⛔ **DO NOT brick the LP a different way** — a different brick would be equally unreached, and would
+convert a diagnosable failure into a silent pass.
+
+### ⚖️ AND THIS PARTLY VINDICATES WORKSTREAM A, WHICH I REFUTED THIS MORNING — BOTH HALVES STAND
+§WSA-LEV-INERT refuted the *mechanism* ("the target is derived inside a ±20 bps range"): `RANGE_DELTA`
+never reaches this path, `ilBasisPx` is the pinned entry with one write site, and the dead-band is
+crossed at ~+6.3% above entry. **All of that is still true.** But the *observation* — that the target
+sits under the dead-band and nothing fires — is **confirmed here at 279 vs 300.**
+⭐ **THE STRUCTURAL CONSEQUENCE, WHICH NEITHER ROW STATED: WHENEVER `targetBps <= rangeBps`, LEVERING
+UP IS UNREACHABLE BY CONSTRUCTION.** From `cur = 0`, `0 + 300 >= 279` is true, so `debtDelta` returns
+in-range and never evaluates `targetDebt > curDebtUsd`. **A fresh position cannot lever at all until
+the target exceeds 300 bps**, i.e. until price is ~+6.3% above entry. That is a DESIGN property (a
+dead-band wider than the target it brackets), not a bug — but it is the true form of "the levered book
+does not act", and it belongs as a calibration question about `RANGE_BPS` rather than being
+rediscovered as inertness.
+
+*(Superseded elimination chain, kept because it is what made the measurement worth taking:)*
 
 `test_Isolation_StuckLpDoesNotTouchAnother` fails `assertEq(failed, 1)` with **0**. Established, not
 assumed:
