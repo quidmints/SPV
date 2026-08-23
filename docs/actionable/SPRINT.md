@@ -3,6 +3,42 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0f. ⛔ **§FEWER-FILES — MEASURED AND RULED OUT. ZERO LIBRARIES ARE FOLDABLE, AND EACH IS BLOCKED
+FOR A DIFFERENT REASON** (owner asked 2026-08-23: *"minimise libraries and state, we could probably do
+everything in the contracts themselves and not have so many files"*)
+
+**163,587 bytes of library code against a 24,576-byte per-contract ceiling.** Enumerated so this is not
+re-proposed from intuition:
+
+| library | bytes | why it cannot fold |
+|---|---|---|
+| `SwapLib` 22,286 · `BasketLib` 21,713 · `LevMath` 20,204 · `BitcoinTx` 19,262 · `QuidLib` 16,819 · `ChannelLib` 16,037 · `BtcLib` 15,456 | 131,777 | **each is near or over what a WHOLE CONTRACT may be.** They exist because the code has nowhere else to live — EIP-170, not file taste |
+| `RangeLib` 10,025 · `ExitLib` 10,484 | 20,509 | same ceiling once combined with any host |
+| `FeeLib` 5,773 | | **5 importers** (`Aux`, `Core`, `BasketLib`, `ChannelLib`, `SwapLib`). Folding COPIES it into each — it costs ~5× |
+| `OracleLib` 5,143 | | **2 real consumers** (`Core`, and `SwapLib.ringVariance`) plus 4 test files. Folding into `Core` breaks `SwapLib` |
+| `TargetsHelper` 385 | | 🔴 **VENDORED.** `evm/src/spv/` mirrors solarity's layout and `SPVGateway` imports three solarity libs directly. **Its separateness IS the feature** — folding it destroys diffability against upstream and violates *"copy over audited files, do not roll your own"* |
+
+⚠️ **AND THE ERROR I MADE REACHING THE FIRST ANSWER, BECAUSE IT IS THE THIRD TIME TODAY:** I first
+scored consumers by `import` statements and concluded three libraries were foldable. **Grepping CALL
+SITES instead**, `FeeLib` has five consumers and `OracleLib` two — both disqualified. The same
+import-vs-call-site error put three tombstones in a lane and made `Core` look like the fix site for ten
+items when it was the fix site for none. ⇒ **`import` tells you what a file MENTIONS; only a call-site
+grep tells you what it USES.**
+
+▶️ **WHAT REMAINS ACHIEVABLE FOR THE OWNER'S ACTUAL GOAL, and it is the STATE half, not the FILE half:**
+the **~18 wiring entrypoints** across 7 contracts. Those are not blocked by EIP-170. They are forced by
+two things, both fixable: (1) `Quid.setup` **renounces ownership on its last line**, so every later pin
+must invent its own auth — which is exactly why `setLevManager` is gated on `DEPLOYER` rather than
+`onlyOwner`; and (2) `Core` ↔ `Vault` are **constructor-circular** (`Core.setup` records that `RANGE`
+may be zero because `Vault` is deployed after it and pins later via `setBtcVault`; `Vault.setup` reads
+`CORE.poolStats()`).
+⇒ A `Wiring` contract deployed empty, taken as ONE immutable by every contract, populated in ONE call,
+collapses all 18, converts wiring storage to a single pointer per contract, and makes
+`assertFullyWired` **delete itself** (rule 17 — mis-wiring becomes unconstructible rather than
+asserted). ⚠️ **THE PRICE IS REAL AND UNAVOIDABLE: every wiring read becomes an external call on hot
+paths.** That is the decision; the engineering is not the hard part.
+
+---
 ## 0e. 🟠 **§SILENT-SETUP — 25 OF 40 EMPTY `catch {}` BLOCKS IN THE SUITE RECORD NOTHING, AND THE
 ONES THAT MATTER ARE IN FIXTURE SETUP** (2026-08-23; same family as §VACUOUS-BOUNDS)
 
