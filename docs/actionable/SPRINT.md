@@ -523,6 +523,68 @@ The same defect put three tombstones in a lane earlier today; this is its genera
 `Γ·σ²·q` with no `sigmaSqWad == 0` guard — not in `Core` where the row files it.
 
 ---
+## ⏱️ **THE EXECUTION ORDER — MINIMISE FULL RUNS, NOT ITEM COUNT** (2026-08-23, from measured timings)
+
+**The cost of this file is not the items, it is the VERIFICATION CYCLES.** Measured today:
+| operation | cost |
+|---|---|
+| cold `forge build` | ~6 min · warm ~1–2 min |
+| full suite, **archive endpoint** (`ETH_RPC_URL=$ANKR_RPC_URL`) | **272–460 s** |
+| full suite, publicnode | **785–1386 s** + 10–25 spurious 429 failures |
+| ⇒ one build + suite cycle | **~8–12 min** |
+🔴 **ALWAYS USE THE ARCHIVE ENDPOINT. It is 3–5× faster AND removes the RPC noise that made every
+comparison unreadable earlier today** — five arms were run before the endpoint switch and not one of
+them could attribute a failure.
+⭐ **AND KEEP A PRISTINE BASELINE FILE.** `comm -13 pristine.txt run.txt` turns ONE run into an
+attributable result. Without it a run tells you 56 tests fail; with it, it tells you which ONE changed.
+Today's baseline: **49 unique failures** at `9896c5be`+session.
+
+### ⇒ THE ORDERING RULE: BATCH BY VERIFICATION CLASS, NOT BY TOPIC
+Items in the same class share one cycle; items in different classes cannot. **Topic is irrelevant to
+cost.**
+
+| wave | class | items | cycles |
+|---|---|---|---|
+| **A** | **OWNER DECISIONS** — zero compute | 11 | **0** |
+| **B** | **comment / doc only** | ~47 file-less + all rotted coordinates | **1 build, 0 suites** |
+| **C** | **test-only edits** (fixtures, assertions, counters) | §SILENT-SETUP ×23, §VACUOUS-BOUNDS ×5, §LEV-CLUSTER ×3 | **1 build + 1 suite** |
+| **D** | **non-money-path code** (events, dead code, getters) | §SILENT-SKIP, dead-symbol deletions | **1 build + 1 suite** |
+| **E** | **money-path arithmetic** | §E278/§E352, §E330, §E332-c, §E251 | **1 suite EACH** (rule 10) |
+| **F** | **structural** | #1 pooled venue, #4 the fold | multi-session |
+
+### 🔴 WAVE A FIRST, AND IT IS NOT A PREFERENCE — IT IS THE ONLY LEVER ON WAVE E's COST
+**Wave E costs one full suite PER CHANGE** (rule 10: two money-path changes at once cannot be
+attributed). So total time is dominated by **how many separate arithmetic changes there are**, and the
+decisions determine that. ⇒ **Decide §E278/§E352 and §C1 TOGETHER — they are coupled** (§E278's flush
+half is gated on which σ² source), so deciding them together lands ONE change instead of two and saves
+a whole cycle. Same for §C3 + §E297-residual (both are the 4626-vs-7540 face).
+📌 **Wave A costs nothing and can happen while B/C/D run.** It is pure parallelism against a serial
+bottleneck.
+
+### ⭐ AND ONE SCHEDULING CONSEQUENCE OF RULE 17 THAT REORDERS THE BIG ITEMS
+**A root fix makes downstream fixes DELETABLE — including their verification cycles.** SPRINT #1
+(pooled venue position) retires the four `LevBase` Σ-loops, §E331's keeper hand-off, §E332's swap-size
+cliff and `MAX_OPEN_LPS` **by construction**. Each of those, done separately, is its own money-path
+change and its own suite run. ⇒ **#1 EARLY is cheaper than #1 LATE**, even though it is the largest
+item — doing the small ones first means paying for cycles that #1 then deletes.
+⛔ **The inverse for #4 (the fold):** it is DOWNSTREAM of size work and gets cheaper as margins grow
+(12,187 → 9,113 bytes over in one day, entirely from Wave B/D-class folds). **Do #4 LAST.**
+
+### ▶️ THE PLAN, IN ORDER
+1. **Wave A** — the 11 decisions, batched into coupled pairs. Zero cycles. **Start here.**
+2. **Wave B** — every comment/coordinate fix in ONE build. No suite (comments cannot change
+   behaviour). ⚠️ **The build IS mandatory: an at-prefixed word in docblock prose broke the build
+   3× today** and the error names neither the word nor its line.
+3. **Wave C** — all test edits, ONE suite. They cannot affect each other's contracts, so a regression
+   is attributable by file.
+4. **Wave D** — non-money-path code, ONE suite.
+5. **Wave E** — arithmetic, one suite each, ordered by how many rows each unblocks (§E278 first: it
+   alone frees 5 void controls).
+6. **#1**, then **#4**.
+⇒ **~4 cycles for waves B–D (≈40 min) + 1 per Wave-E change.** The alternative — working the file
+top-to-bottom by row number — is **one cycle per item**, i.e. 90 cycles, ~12 hours of pure waiting.
+
+---
 ## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
 
 **90 open items**, not the ~210 or 227 quoted earlier. Both larger figures counted `##` and `###`
