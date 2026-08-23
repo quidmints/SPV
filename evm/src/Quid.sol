@@ -508,14 +508,36 @@ contract Quid is Shares,
     /// @dev Refresh LP's fee bookmarks against current per-share accumulators.
     ///      Called whenever LP.pooled changes (deposit, withdraw, reward
     ///      settlement) to mark the LP as up-to-date through this point.
-    function _refreshBookmarks(address user, 
+    function _refreshBookmarks(address user,
         uint tokAccum, uint usdAccum) internal {
         Types.Deposit storage LP = autoManaged[user];
         // GROSS fee weight = net pooled + the debt-funded levered buffer (see levBuf) -- TRADING fees.
         SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], tokAccum, usdAccum);
         // VENUE yield: PLAIN weight only (excludes the lev slice's net-equity + buffer).
-        uint plainW = SwapLib.plainNet(LP.pooled, levPooled[user]);
-        venueBm[user] = SoladyMath.fullMulDiv(plainW, venueFeesPerShare, WAD);
+        venueBm[user] = _venueAccrued(user, LP.pooled);
+    }
+
+    /// @dev §E347c — the VENUE-yield term, which `_refreshBookmarks` WRITES as the bookmark and
+    ///      `_pendingFor` READS to compare against it. Both computed it from the same three
+    ///      inputs; a drift between the two would not revert, it would silently pay or withhold
+    ///      venue yield, so the two sides being ONE expression is worth more here than the bytes.
+    ///      PLAIN weight only: the levered slice earns its own yield through the LevManager, and
+    ///      crediting it here would skim the plain LPs.
+    function _venueAccrued(address user, uint pooled) private view returns (uint) {
+        return SoladyMath.fullMulDiv(
+            SwapLib.plainNet(pooled, levPooled[user]), venueFeesPerShare, WAD);
+    }
+
+    /// @dev §E347c — the per-LP and global share legs move TOGETHER or the pool is mispriced, and
+    ///      they were written as two adjacent statements at eight sites (five credits, three
+    ///      debits). One routine each, eight jumps. Rule 3's inverse applies to why they are a
+    ///      PAIR rather than two helpers: `pooled` without `lpShares` is exactly the silent
+    ///      divergence — every other LP's claim reprices and nothing announces it.
+    function _creditShares(Types.Deposit storage LP, uint amount) private {
+        LP.pooled += amount; lpShares += amount;
+    }
+    function _debitShares(Types.Deposit storage LP, uint amount) private {
+        LP.pooled -= amount; lpShares -= amount;
     }
 
     /// @dev Settle pending rewards. `mintRecipient == address(0)` accumulates
@@ -527,10 +549,7 @@ contract Quid is Shares,
         if (LP.pooled == 0) return;
         (uint tokR, 
          uint usdR) = _pendingFor(user);
-        if (tokR > 0) {
-            LP.pooled += tokR;
-            lpShares  += tokR;
-        }
+        if (tokR > 0) _creditShares(LP, tokR);
         if (mintRecipient != address(0)) {
             usdR += LP.usd_owed;
             if (usdR > 0) {
@@ -551,8 +570,7 @@ contract Quid is Shares,
         (tokReward, usdReward) = SwapLib.pendingFor(LP, LP.pooled + levBuf[user], feesPerShare, USD_FEES);
         // VENUE yield: PLAIN weight only. The lev slice earns its own yield via the
         // LevManager, not this Morpho position, so crediting it here would skim plain LPs.
-        uint plainW = SwapLib.plainNet(LP.pooled, levPooled[user]);
-        uint venueOwed = SoladyMath.fullMulDiv(plainW, venueFeesPerShare, WAD);
+        uint venueOwed = _venueAccrued(user, LP.pooled);
         if (venueOwed > venueBm[user]) tokReward += venueOwed - venueBm[user];
     }
 
@@ -774,8 +792,7 @@ contract Quid is Shares,
                     // but the USD leg it burned away is LP-OWNED and must still be paid. Skipping it
                     // was the leak the LVR probe measured (7,809.44 USD of a 60,000 increment).
                     _payUsdLeg(incrPre, lpShares, served, recipient);
-                    LP.pooled -= served; 
-                    lpShares -= served;
+                    _debitShares(LP, served);
                     amount -= served;
                 } else if (incrPre > 0) {
                     // THE USD LEG MUST BE PAYABLE INDEPENDENTLY OF THE ETH LEG.
@@ -793,9 +810,8 @@ contract Quid is Shares,
                     uint usdEq = _payUsdLeg(incrPre, lpShares, ethfiPart, recipient);
                     if (usdEq > 0) {
                         _burnInRange(usdEq, address(0));
-                        LP.pooled -= usdEq;
-                        lpShares  -= usdEq;
-                        amount    -= usdEq;
+                        _debitShares(LP, usdEq);
+                        amount -= usdEq;
                     }
                 }
             }
@@ -824,7 +840,7 @@ contract Quid is Shares,
             // RE-CREDITED after the sends — net decrement == what was actually delivered,
             // byte-for-byte the same end state as the prior send-then-debit ordering, but
             // with no window where a reentrant sees full `pooled` after ETH already left.
-            LP.pooled -= amount; lpShares -= amount;
+            _debitShares(LP, amount);
 
             uint deliverable = AUX.deliverableETH();
             uint firstBurn = amount > deliverable ? deliverable : amount;
@@ -850,7 +866,7 @@ contract Quid is Shares,
       // exactly the denominator uses for venue YIELD. Gross would dilute LPs.
      // whatever the burn + venue-share could NOT deliver stays
     // as the LP's recoverable `pooled` deferral (re-withdrawn on venue thaw).
-            if (shortfall > 0) { LP.pooled += shortfall; lpShares += shortfall; }
+            if (shortfall > 0) _creditShares(LP, shortfall);
                                                     bookmark = _venueBalance();
             }
         }
@@ -1002,9 +1018,8 @@ contract Quid is Shares,
         _settlePending(LP, pledge, address(0));
         (deltaUSD, deltaETH) = this.addLiq(                      amount, price);
         if (deltaETH > 0) {
-            LP.pooled += deltaETH;
-            lpShares += deltaETH;
-            _refreshBookmarks(pledge, 
+            _creditShares(LP, deltaETH);
+            _refreshBookmarks(pledge,
             feesPerShare, USD_FEES);
 
             _modLpEth(deltaETH, deltaUSD, pledge);
@@ -1017,8 +1032,7 @@ contract Quid is Shares,
             // discarded and the LP can withdraw + earn fees
             // proportionally. Withdrawals always honour the full
             // pooled position regardless of pairing state.
-            LP.pooled += unpaired;
-            lpShares += unpaired;
+            _creditShares(LP, unpaired);
             _refreshBookmarks(pledge, feesPerShare, USD_FEES);
         }
         // Re-sync the yield bookmark to the REALIZED aggregate venue balance
@@ -1762,7 +1776,7 @@ contract Quid is Shares,
 
         // EFFECTS: compound only what was NOT paid to the cranker; carry the USD leg (nothing leaves).
         uint net = tokR > sent ? tokR - sent : 0;
-        if (net > 0) { LP.pooled += net; lpShares += net; }
+        if (net > 0) _creditShares(LP, net);
         if (usdR > 0) LP.usd_owed += usdR;
         _refreshBookmarks(lp, eth_fees, usd_fees);   // rebaseline → next pending is 0
     }
