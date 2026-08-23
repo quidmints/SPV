@@ -339,6 +339,30 @@ the destale** — and because `../ibiza` pins this repo as a submodule and may s
 | `BtcVaultLib` / `BtcVaultLib.sol` | **`BtcLib` / `BtcLib.sol`** |
 | `RangeState`, then `State` / `State.sol` | **`Shares` / `Shares.sol`** — ⚠️ **TWO HOPS** |
 
+🔴 **AND THE SECOND HALF OF THE KEY, WHICH DID NOT EXIST UNTIL NOW: SIX LIBRARIES WERE *FOLDED INTO*
+ANOTHER FILE, NOT RENAMED AND NOT DELETED. `docs/actionable/` CITES THEM ~190 TIMES AND EVERY ONE OF
+THOSE GREPS RETURNS A COMMENT** (measured 2026-08-23 @`7e32eb48`: `ExternalTwap` 50, `FixedRateFill` 45,
+`SOR` 41, `MuSig2Agg` 30, `ExitLib` 27, `ShareMath` 17). **This is the most dangerous class in the file**,
+because unlike a tombstone the CODE IS STILL LIVE and the reader who greps the old name concludes the
+feature was removed:
+
+| the docs say | the tree has | fold |
+|---|---|---|
+| `ExitLib` / `ExitLib.sol` (`verifyDeadManExit`, `termsCommitment`, `settleFloorUsd`, `_cltvRefundLeaf`) | **`BitcoinTx`** (`imports/BitcoinTx.sol:661-837`) | §E318, one-way dep, 0 reverse refs |
+| `MuSig2Agg` / `MuSig2Agg.sol` (`computeOutputKey`, `taprootOutputKeyWithLeaf`, `tapLeafHash`, `isTwoOfTwoOutputKey`, `decompress`) | **`BitcoinTx`** (`:424-525`) | §E312 |
+| `ExternalTwap` / `ExternalTwap.sol` (`curvePriceWad`, `oneInchRateWad`) | **`OracleLib`** (`imports/OracleLib.sol:405`, `curvePriceWad` at `:428`/`:434`) | §E318 |
+| `FixedRateFill` / `FixedRateFill.sol` (`quoteFill`, `quoteDrain`, `_applySkew`, `enforce`) | **`SwapLib`** (`imports/SwapLib.sol:2511`, `quoteFill` at `:2629`) | §E310 |
+| `ShareMath` / `ShareMath.sol` | **`SwapLib`** | §E310 |
+| `SortedSet.sol` (the FILE) | **`SortedSetLib`, declared in `imports/`** — symbol survives, file does not | — |
+
+⚠️ **A FOLD DOES NOT SETTLE THE ROW'S VERDICT EITHER WAY, AND CONFLATING THE TWO IS THE TRAP.**
+`FixedRateFill` is the worked example: the FILE is gone, and `SwapLib.quoteFill` still has **zero callers
+in `src`, `test` and `script`** — so *"unwired, a marker for unbuilt work, do not delete"* is as true as
+the day it was written. **Destale the coordinate; re-run the claim separately.**
+⛔ **`SOR` / `SOR.sol` IS THE OPPOSITE CASE AND MUST NOT BE ADDED TO THE TABLE ABOVE: it is a genuine
+TOMBSTONE** — the file is deleted, no successor holds its routing, and `evm/src` has no `_pickBestPath`
+outside one `FeeLib.sol:147` comment. Its 41 citations are history.
+
 ⛔ **A RENAME TABLE IS ITSELF A DOCUMENT THAT GOES STALE, AND THIS ONE DID.** It read *"`RangeState` →
 `State`"* until 2026-08-21; the contract was then renamed **`State` → `Shares`** (so file and contract
 finally agree — `Shares.sol` had been declaring `contract State`), which left the key pointing at a
@@ -365,6 +389,16 @@ The renames are now clear; what it still lists are genuine TOMBSTONES** — `VEt
 `LevOracles.sol`, `TickLib.sol`, `Midnight.sol`, `AttestedHopRegistry.sol`, `QuidLens.sol`,
 `EthVenue.sol` — files that were deleted with no successor, so the citation is history, not rot. **Run
 it after any rename, and classify each new row as RENAME or TOMBSTONE before touching anything.**
+🔴 **RE-RUN 2026-08-23 @`7e32eb48`: 69 rows, and "TOMBSTONE" is now WRONG for a third of them — the
+binary in the sentence above is the defect.** Classify into THREE buckets, in this order:
+| bucket | how to tell | what to do |
+|---|---|---|
+| **VENDORED / NEVER OURS** (~24 rows) | it lives under `evm/lib`, or it is a Uniswap-v4 / v3 / OZ / solarity / Midnight / EtherFi name | leave it; the checker cannot see `lib/`. `TxMerkleProof.sol` and `AMerkleWhitelisted.sol` are both present at `evm/lib/solidity-lib/…`. ⚠️ `Something.sol` is this tool's own example string in this file |
+| **FOLDED — CODE IS LIVE** (6 files, ~190 citations) | the successor file carries a `FOLDED IN` comment and the symbols still resolve | **destale the coordinate** — the six are in the fold table above. This is the bucket that misleads, because the grep looks identical to a tombstone |
+| **TOMBSTONE — no successor** | nothing in `evm/src` implements it | leave it; the citation is history. Adds since this list was written: **`SOR.sol`** (routing, deleted outright — `_pickBestPath` survives only in a `FeeLib.sol:147` comment), plus the v4-cut casualties (`Amp.sol`, `Rover.sol`, `BatchLedger.sol`, `Court.sol`, `Jury.sol`, `Solver.sol`, `TxParser.sol`) |
+⚠️ **Do NOT "fix" a vendored or tombstoned citation into a name that resolves to nothing** — that is
+strictly worse than an obviously-old name, per the rename-table rule above. **Only the FOLDED bucket is
+actionable.**
 
 ## The central structural fact — read this before proposing any refactor
 
