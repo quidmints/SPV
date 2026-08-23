@@ -327,8 +327,117 @@ contract Core {
         //   variance itself can. A populated ring that computes a true zero returns 1 wei, so the
         //   two states are distinguishable downstream at ZERO extra storage, calls, or gas on the
         //   money path, and the E59 sentinel keeps its exact meaning for the case it was written for.
-        if (v == 0 && obsState.cardinality >= 2) return 1;
-        return v;
+        //
+        // 🔴 §E345 — THAT SENTINEL IS DELETED, AND ITS THRESHOLD WAS WRONG BY TWO IN THE DIRECTION
+        // THAT MATTERS. `cardinality >= 2` was meant to say "we have looked", but `ringVariance`
+        // cannot produce an estimate until `cardinality >= 4`: it needs `card >= 3` AND `m = n-2 >= 2`
+        // with `n = min(9, card)`. So for `cardinality` ∈ {2,3} this returned 1 — *"measured, and
+        // genuinely calm"* — for a ring that had measured NOTHING. That is exactly the sentinel error
+        // §E59 named (a value meaning "no data" consumed as if it meant "none of the thing"),
+        // reintroduced inside the function whose job is to resolve it. ⚠️ AND IT IS REACHABLE
+        // WITHOUT PERMISSION: `pushObservation` is permissionless, `seedRing` leaves `cardinality`
+        // at 1, so TWO honest pushes in distinct blocks land in the window — at which point
+        // `skewWad`'s `if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW` stops firing and the flat
+        // 3% unknown-variance charge on a drain silently becomes the §E216 depletion term alone.
+        //   ⭐ THE FIX IS NOT `>= 4`. Re-tuning the threshold leaves TWO functions that must agree
+        //   about what "measured" means, which is the drift this one already lost. `ringVariance`
+        //   has other honest-zero exits too (`!initialized`, non-advancing timestamps, `rate == 0`),
+        //   and no cardinality test can see them. Deleting the guess and falling through to a SECOND
+        //   REAL MEASUREMENT resolves the ambiguity with data instead of with a manufactured 1.
+        //
+        // ⭐ MAX, NOT RING-PREFERRED, AND THE MONOTONICITY IS THE POINT. Both consumers move
+        // CONSERVATIVELY as σ² rises — `skewWad` charges a wider spread, and `QuidLib.derivedThetaWad`
+        // (Merton `avgYield/(K·σ²)`) deploys LESS depth. Taking the max therefore leaves the ring's
+        // permissionless writer able to move σ² only UPWARD, i.e. only in the direction that costs
+        // him. Preferring the ring whenever it is non-zero would hand him the profitable direction
+        // back: he could not suppress to 0 any more, but he could still pin a low non-zero reading
+        // UNDER the anchor's, which is the same drain-for-cheap trade with one extra step.
+        // ⚠️ Residual, named rather than implied: he can still INFLATE σ² and widen the spread other
+        // traders pay. That grief predates this change and is bounded by the ±50 bps push range; it
+        // is not made worse here, and it is the direction an attacker pays for rather than profits by.
+        //
+        // 0 from BOTH still means UNMEASURED and still charges the ceiling — the fail-conservative
+        // default is unchanged, and it is now the ONLY thing 0 can mean.
+        uint a = anchorVarianceWad();
+        return v > a ? v : a;
+    }
+
+    /// @notice §E345 — annualized realized variance (WAD) of the CHAINLINK ANCHOR, from the two
+    ///         `Flow` registers `_sampleAnchorVariance` feeds. 0 = never sampled (UNMEASURED);
+    ///         1 wei = sampled and computed zero, which is the §E88 floor doing the job it was
+    ///         written for, now on a series that was actually observed.
+    /// @dev    UNITS, CHECKED RATHER THAN ASSUMED, because this must land on the same basis as the
+    ///         ring leg it is maxed against. `_varSq` accumulates `r²/1e18` where `r` is a WAD
+    ///         relative return, so its unit is a WAD squared-return; `_varDt` accumulates plain
+    ///         seconds. The ratio is WAD variance PER SECOND — precisely what `ringVariance` returns
+    ///         after its own `/1e18` — and one multiplication by 31,536,000 annualizes it. Γ
+    ///         (`MAX_WELL_SKEW`) needs no recalibration for the same reason §TICK-REMOVAL did not.
+    function anchorVarianceWad() public view returns (uint) {
+        uint dt = _varDt.vol;
+        if (dt == 0) return 0;                        // never sampled ⇒ UNMEASURED, charge the ceiling
+        uint v = Math.mulDiv(_varSq.vol, 31536000, dt);
+        return v == 0 ? 1 : v;                        // sampled, computed zero ⇒ the §E88 floor
+    }
+
+    /// @notice §E345 — fold one Chainlink-anchor observation into the variance registers. Called
+    ///         once per swap, beside `_observeIfSourced`, and deliberately NOT from `px`.
+    ///
+    /// @dev ⛔ IT MUST NOT READ `px`, EVEN THOUGH `px` IS THE ANCHOR TODAY. `Core.swap`'s `px` is
+    ///      `AUX.getTWAPforAsset`, which returns the RING's TWAP and only falls through to Chainlink
+    ///      while the ring is unusable — which is the state today and is exactly the state this
+    ///      change exists to end. Sampling `px` would therefore work now and quietly become
+    ///      self-referential the moment a ring source is pinned, which is the §E222 trap the call
+    ///      site's own comment warns about one line up. The extra read is the price of that not
+    ///      happening.
+    ///
+    /// @dev THE GATE IS "THE ANCHOR MOVED", AND IT IS WHAT MAKES THIS ESTIMATOR HONEST RATHER THAN
+    ///      MERELY CHEAP. §E343 measured Chainlink ETH/USD at 57.3 updates/day with a 20.5-min median
+    ///      gap, and its central finding was that the series must be read PER ROUND: *"read on a
+    ///      fixed grid, the gaps ARE flat and σ² collapses; read per round, every sample is a move
+    ///      that already cleared the 0.5% deviation trigger."* Swaps arrive far faster than rounds,
+    ///      so sampling every swap IS a fixed grid in the only sense that matters — it would pad the
+    ///      series with zero returns and drive the estimate toward the flat-line collapse §E343
+    ///      predicts. Skipping an unmoved anchor rebuilds the per-round series exactly, and the
+    ///      elapsed quiet time still enters through `Δt`, so the denominator is not flattered either.
+    ///      A round that repeats the previous price contributes `r = 0` and is correctly skipped.
+    ///
+    /// @dev EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS — the same rule `pushObservation` and
+    ///      `_observeIfSourced` state: a dead or stale feed makes `twapResolve` return 0 here, the
+    ///      registers stand still, and the ceiling sentinel prices the ignorance. THE READ MUST NOT
+    ///      BE ABLE TO HALT THE RANGE.
+    function _sampleAnchorVariance() internal {
+        // `price = 0` returns the RAW anchor: §A.13 made a zero price fall THROUGH to Chainlink
+        // rather than short-circuit past it, so this reuses the tested reader — with its decimals
+        // handling and its ×1e10 WBTC lift — instead of adding a second `latestRoundData` to Core.
+        // That reuse is not tidiness: hand-rolling the scaling is how an 8↔18 decimal gap becomes a
+        // price ten orders of magnitude out, which `seedRing`'s header records happening once already.
+        (uint px,) = SwapLib.twapResolve(
+            AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
+        if (px == 0) return;                          // no fresh anchor ⇒ nothing to sample
+        uint prev = _varPx;
+        if (px == prev) return;                       // the anchor has not moved ⇒ no new information
+        // FIRST sample carries no return: there is nothing to difference against, and `_varSq.ts` is
+        // still 0, so an elapsed time computed from it would be the whole unix epoch. Bumping both
+        // registers with 0 sets that `ts` through the SAME helper every later sample uses, rather
+        // than writing the timestamp by hand in a second place that could then disagree with it.
+        if (prev == 0) {
+            _varPx = px;
+            _bumpEwma(_varSq, 0);
+            _bumpEwma(_varDt, 0);
+            return;
+        }
+        uint dt = block.timestamp - _varSq.ts;
+        // ⚠️ SAME BLOCK ⇒ RETURN WITHOUT ADVANCING `_varPx`, WHICH IS THE OPPOSITE OF WHAT THE FIRST
+        // version did. Advancing it here and skipping the accumulation would DISCARD this move's
+        // return while still letting its elapsed seconds reach the denominator through the next
+        // sample — a one-sided loss that biases σ² DOWNWARD, i.e. toward the cheap-drain reading this
+        // whole change exists to remove. Keeping `prev` defers the move intact to the next block.
+        if (dt == 0) return;
+        _varPx = px;
+        uint lo = px < prev ? px : prev;
+        uint r = (px < prev ? prev - px : px - prev) * 1e18 / lo;   // |relative return|, WAD
+        _bumpEwma(_varSq, (r * r) / 1e18);            // squared return, back on WAD
+        _bumpEwma(_varDt, dt);
     }
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
@@ -802,6 +911,14 @@ contract Core {
         // over; the ring has stored PLAIN PRICE since §TICK-REMOVAL, and we now HAVE the price, so
         // it goes in directly with no conversion. This is the whole of the oracle repoint.
         _observeIfSourced();   // §E222: an independent OBSERVATION -- never `px`, which READ this ring
+        // §E345 — AND THE VARIANCE SAMPLE, WHICH IS A DIFFERENT QUESTION WITH A DIFFERENT SOURCE.
+        // The line above needs a source INDEPENDENT of Chainlink because the ring feeds `twapResolve`'s
+        // deviation test, and two sources that cannot disagree are one source (§E222). σ² is a property
+        // of ONE series, so that rule does not reach it — and the ring's permissionless writer makes
+        // the anchor the SAFER series to measure, not merely an admissible one. Both calls sit here
+        // because this is the one seam every range and well swap routes through, the same argument
+        // that makes (3) below the single flow-bump point.
+        _sampleAnchorVariance();
 
         // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
         _handleDelta(delta, true, false, sender, token);
@@ -1310,6 +1427,43 @@ contract Core {
     /// existing slot fixed. **Do not move this declaration up.**
     int256 public netFlowUsd;
 
+    /// @notice §E345 — σ² MEASURED OFF THE CHAINLINK ANCHOR, BECAUSE THE RING IS WRITABLE BY THE
+    ///         PARTY WHO PROFITS FROM SUPPRESSING IT AND THE ANCHOR IS NOT.
+    ///
+    /// ⚠️ APPENDED, FOR THE REASON THE BLOCK DIRECTLY ABOVE GIVES. `netFlowUsd` is declared last on
+    /// purpose and these three go AFTER it; every pre-existing slot keeps its index, so the raw-slot
+    /// reads in `DrainAtomicity` still name the variables they think they name.
+    ///
+    /// WHY NOT THE RING (this is the whole finding, and §E343 only got half of it). §E343 established
+    /// that σ² needs no INDEPENDENT source — variance is a property of one series, so §E222's
+    /// two-sources-must-be-able-to-disagree rule is scoped to the deviation guard and does not reach
+    /// here. That is true and it is not the binding reason. The binding reason is TRUST: the ring's
+    /// only live writer is `pushObservation`, which is PERMISSIONLESS, and `pushObservation`'s own
+    /// §AUDIT-PUSHOBS note already spells the attack out — *"pushing a stream of in-range values
+    /// fills the ring, makes σ² small-but-MEASURED, and so REPLACES the ceiling sentinel with a
+    /// floor-ish number. An attacker buys a cheap skew by being helpful."* That note gated the BTC
+    /// instance (`VOL_DECIMALS != 18`) and left ETH — the larger range — ungated, because it read the
+    /// hazard as a WBTC-basis problem rather than a writability problem.
+    ///   ⛔ AND THE ±50 bps BOUND DOES NOT COVER IT, WHICH IS THE PART THAT IS EASY TO GET WRONG:
+    ///   that bound constrains the LEVEL of each push against a fresh anchor. σ² is a property of the
+    ///   SECOND differences, and a pusher can track the anchor's level inside 50 bps while emitting a
+    ///   smooth series whose return variance is near zero. Bounding where the series IS says nothing
+    ///   about how much it SHAKES.
+    /// ⇒ The anchor has no writer we do not already trust for the settle price itself, so sourcing σ²
+    ///   from it removes the write access instead of adding a guard against its use (rule 17).
+    ///
+    /// THE ESTIMATOR IS TWO EXISTING REGISTERS, NOT NEW MATHS. `Flow` + `_bumpEwma` + `FLOW_DECAY`
+    /// already implement "decay-then-add with a 48h half-life"; running the SAME helper over squared
+    /// returns and over their elapsed seconds gives Σw·r² and Σw·Δt with IDENTICAL weights (both are
+    /// bumped at the same instants from the same `ts`), so the ratio is a time-weighted realized
+    /// variance per second with no third decay constant to justify.
+    ///   ⚠️ THE READ DELIBERATELY DOES NOT CALL `_decayed`. Both registers carry the same `ts` and the
+    ///   same constant, so a decay applied at read time CANCELS in the ratio — calling it would cost
+    ///   two `decPow` walks to divide a number by itself. A quiet spell therefore does not corrupt the
+    ///   estimate and does not fade it either; only a new sample moves it.
+    Flow internal _varSq;   // vol = Σ decayed squared anchor returns (WAD) · ts = last sample taken
+    Flow internal _varDt;   // vol = Σ decayed seconds spanned by those samples · ts = the same instant
+    uint internal _varPx;   // the anchor price at the last sample (0 = never sampled)
 
     function setObservationSource(address src, bytes calldata call_) external {
         require(msg.sender == DEPLOYER, "403");
