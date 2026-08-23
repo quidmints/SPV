@@ -531,11 +531,31 @@ before deciding, and reconcile the two documents whichever way it goes.
 ⇒ ~~**Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`.~~ ✅ **DONE** — see the
 re-measurement at the head of this section. `Quid` ∥ `Vault` are now two range managers with no ETH-venue
 slice fused into either, so the remaining question really is the one-implementation-two-instances merge.
-⚠️ **What is NOT settled: there are still TWO polymorphic range faces over the same pair of objects** —
-`IRangeManager` (7 members, state/control) and `IRange` (9, settlement), zero overlap, both implemented by
-`Quid` and `Vault`. Nothing is declared twice, so this is not the duplication rule 2 catches; it is two
-faces where the goal is one manager, and a caller cannot tell which to reach for. Merging them is the
-§E21 move (`IAux` absorbing `LevMath.IAuxM`, `LevManager.ISwapAux`, `FeeLib.IAuxFee`).
+✅ **THE "TWO POLYMORPHIC RANGE FACES" ARE MERGED, AND THIS PARAGRAPH WAS THIS FILE'S OWN TOMBSTONE
+TRAP FIRING ON ITSELF (§E325, verified 2026-08-23).** It read: *"there are still TWO polymorphic range
+faces over the same pair of objects — `IRangeManager` (7 members, state/control) and `IRange` (9,
+settlement), zero overlap, both implemented by `Quid` and `Vault` … merging them is the §E21 move."*
+🔴 **NEITHER SYMBOL HAS EVER BEEN DECLARED IN THIS TREE.** `grep -rnE "IRangeManager|\bIRange\b"
+evm/{src,test,script}` returns only comments inside `Interfaces.sol`. The real pair was
+**`IBandManager` (7) and `IBand` (9)**; `7f3b1f93` merged them, `c372f7b0` folded `IBand` into
+**`ICore`**, and `1b21ca09` folded a second leftover `IBand` in. **Measured: `ICore` now declares 46
+functions and carries all 16 members — `repack`, `rangeBounds`, `feesPerShare`, `USD_FEES`, `CORE`,
+`derivedThetaWad`, `setBTCChannels`, `addLiq`, `creditSkewPremium`, `sweepOor`, `levManager`,
+`levGrossNative`, `sharesForShortfall`, `realInventory`, `onShortfall`, `deliverVolatile`.**
+⛔ **HOW THE STALENESS WAS MANUFACTURED, AND IT IS THE EXACT MECHANISM THIS FILE WARNS ABOUT TWO
+SECTIONS DOWN:** the Band→Range rename (`1b21ca09`) rewrote the **dead** name `IBandManager` inside a
+*comment* into `IRangeManager` — a name that resolves to nothing. *"Renaming a tombstone does not
+destale it; it disguises it."* A disguised tombstone reads as outstanding work, and this one was
+quoted as live for two days and nearly commissioned as a refactor.
+⇒ **THE DISCRIMINATOR IS WHETHER THE NEW NAME EXISTS, NOT WHETHER THE OLD ONE LOOKS OLD** — already
+stated in the RENAMES section, and violated here by the same commit that stated it.
+▶️ **What IS still open, and it is much smaller:** `IQuid`→`ICore` (`derivedThetaWad` is byte-identical
+in both, so it dedupes rather than collides; `unwindForRedeem`/`pendingRewards` are new) and
+`ILevVenueColl`→`ILevVenue` (`stable()` dedupes; all three `LevVenueBase` variants already declare
+`COLLATERAL`). ⛔ **`ILevManagerDeliver` ∥ `ILevEthDeliver` CANNOT merge** — `swapOutDelever` is
+`(address,uint,uint)` on `BtcLevManager` and `(address,uint,address,uint)` on `LevManager`, so merging
+creates an **overload**, which is what the `ICurvePool` note forbids (integer-literal inference picking
+the wrong ABI). That arity split is also the blocker on collapsing the five lev faces into one.
 
 ## 🔴 SPLITTING ONE CONTRACT INTO TWO: audit ASSIGNMENTS, not call sites (measured 2026-08-15)
 
