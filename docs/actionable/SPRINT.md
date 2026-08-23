@@ -3,6 +3,47 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0j. 🔴 **§WRONG-RANGE IS STILL LIVE IN `LevCascade` — TWO "DIFFERENT" LEGS ARE THE IDENTICAL
+EXPRESSION, AND ITS PREMISE GUARD CANNOT SEE IT** (found 2026-08-23 by predicting the SHAPE first)
+
+`LevCascade.t.sol:790-791`:
+```solidity
+uint ethPooled18 = CORE.basketUsd() * 1e12;
+uint btcPooled18 = CORE.basketUsd() * 1e12;   // ← same handle, same call, same value
+```
+`btcPooled18 == ethPooled18` **by construction** — the BTC leg is never read from the BTC engine. Then
+`btcEquity = CORE.rangeEquityUsd18()` is likewise the **ETH** range's equity, and `ethEquity =
+committed − btcEquity` subtracts a number from itself's sibling on one instance. That is why
+`assertEq(ethEquity, ethPooled18 − debt)` misses by **~8×** rather than by a few percent.
+
+⭐ **THE SHAPE PREDICTED THE CAUSE, WHICH IS WHY THIS IS WORTH RECORDING AS A METHOD.** §0i grouped six
+`LevCascade` reds and flagged this one as *"probably NOT the same root — the two sides differ by ~8×,
+not a few percent; that is a DEFINITION disagreement, not a magnitude shortfall. Do not fold it into
+this cluster."* It was not the dead-band. **A magnitude miss and a wrong-operand miss have different
+signatures, and the ratio is the tell.**
+
+🔴 **AND ITS OWN PREMISE GUARD IS VACUOUS — §VACUOUS-BOUNDS, THIRD INSTANCE.**
+`assertGt(btcPooled18, 0, "PREMISE: the BTC range must be SEEDED, else the cross-range assertion below
+is 0 == 0")` **passes because `btcPooled18` is really the ETH value.** The guard written to catch an
+unseeded BTC range cannot fire, because the variable it checks was never the BTC range's.
+
+⚠️ **THIS CLASS HAS A DOCUMENTED BODY COUNT IN THIS REPO.** `Alles.t.sol:1404` (§WRONG-RANGE):
+*"`_rangeOf(WBTC) == BTC_CORE`, so a test that primes with WBTC swaps and then reads
+`CORE.POOLED_USD()` is reading the ETH engine and can only ever see 0. That was **246** `priming funded
+POOLED_USD: 0 <= 0` failures plus four sibling buckets — an assertion about the WRONG CONTRACT, not a
+defect in the code under test."* It was fixed by making `Vault.CORE` public so fixtures could reach the
+second engine — **and this test never adopted the fix.**
+▶️ **THE REMEDY ALREADY EXISTS AND IS ONE TOKEN:** `Vault.sol:96` is `Core public immutable CORE`, and
+`BtcBandTheta:22` / `BtcLpMintStress:35` already do `CORE = BTC.CORE();`. Here it is
+`BTC.CORE().basketUsd()` for the BTC leg and `BTC.CORE().rangeEquityUsd18()` for BTC equity.
+⛔ **DO NOT apply it blind.** Fixing the read will change what the assertion compares, and the
+assertion may then be wrong in its own right — the point of the row is that **nobody has yet seen this
+test's real numbers.** Land the read fix and the resulting value in the same commit.
+📌 **AND SWEEP FOR SIBLINGS:** the signature is two locals assigned the same expression under different
+names. `grep -n "CORE\." evm/test/LevCascade.t.sol` and check every pair — this one survived because
+the names say ETH and BTC while the code says neither.
+
+---
 ## 0i. 🔬 **§LEV-CLUSTER — SIX FAILURES IN ONE SUITE, AND A PASSING TEST SETTLES WHAT THEY ARE NOT**
 (2026-08-23)
 
