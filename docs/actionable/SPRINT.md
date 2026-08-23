@@ -3,6 +3,43 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0l. ⚠️ **§NO-ASSERTION SWEEP — RAN, AND ITS PRECISION IS TOO LOW TO NAME DEFECTS. RECORDED SO IT
+IS NOT RE-RUN AND REPORTED AS 47 FINDINGS** (2026-08-23)
+
+**500 `test*` functions; 47 contain no `assert`/`expectRevert`/`expectEmit` in their own body** (~9% of
+the suite's green count). Tempting to report as "47 tests that cannot fail". **It is not, and three
+distinct false-positive classes ate most of it** — each found by opening the file rather than trusting
+the count:
+
+1. **ASSERTION IN A HELPER (one level).** Excluding tests that call a `_`-prefixed helper which itself
+   asserts drops 47 → 41.
+2. **ASSERTION TWO HELPER LEVELS DEEP.** `test_openChannel_shallowLadder_reverts` survives even that
+   filter: it calls `_openExpectShallow` → `_submitShallow`, and the `expectRevert` is in the second.
+   A one-level filter cannot see it, and a full call-graph is more machinery than the finding is worth.
+3. **"DID NOT REVERT" *IS* THE ASSERTION.** `ApproveInvariant::test_Accepts_UsdtStyle_NoReturndata`
+   and `test_Accepts_StandardTrueReturn` call a function that reverts on failure. **For a test named
+   `_Accepts_`, completing without reverting is the check** — weak, but not vacuous.
+
+✅ **AND THE LARGEST HONEST CATEGORY IS DELIBERATE:** 21 of the 41 are QUESTION-named —
+`test_E109_DoesReseatMoveTheRatio`, `test_E108b_HowMuchRepairIsOptimal`,
+`testBtcLp_forgoneClaim_whatDoRemainingLpsActuallyGet`. **These are measurement harnesses, and this
+repo uses them on purpose** (§E63's `VarPrecision` is one). A probe that asks a question and logs the
+answer SHOULD NOT assert; asserting would freeze an unknown.
+
+⇒ **THE ONE DEFENSIBLE STATEMENT: roughly 8% of the pass count comes from tests with no in-body
+assertion, and separating the deliberate instruments from the genuinely empty needs per-test READING,
+not a grep.** Do not open 47 rows from this.
+📌 **What it IS good for — the recurring question of what a green number means.** "460 passed" is not
+460 verified properties. Alongside §VACUOUS-BOUNDS (5 assertions satisfied by their own defect) and
+§SILENT-SETUP (25 fixtures that cannot tell "it ran" from "it reverted"), the pass count overstates
+coverage by an amount nobody has bounded. **That is the finding — a caveat on the metric, not a list
+of broken tests.**
+⚠️ **METHOD NOTE, THIRD TIME TODAY:** the naive sweep said 47, the same-expression sweep said 334, and
+the import-based library scan said three libraries could fold. **All three collapsed once the
+false-positive class was named.** A sweep is not a finding until its false positives are characterised,
+and reporting the raw count is how a real signal gets ignored.
+
+---
 ## 0k. ✅ **§SAME-EXPRESSION SWEEP — 334 CANDIDATES, 4 REAL, AND IT FOUND A SECOND INSTANCE OF THE
 BUG THAT PROMPTED IT** (2026-08-23)
 
