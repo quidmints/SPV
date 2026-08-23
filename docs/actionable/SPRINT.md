@@ -496,8 +496,10 @@ execution path with the split parameterised and settle it with #12.
 
 ### Why this outranks the rest of the document
 
-§E255 puts `oorShares` into `totalSupply`; §E251 wants out-of-range BTC minted as vBTC and lent on
-Morpho. **Both price out-of-range liquidity as live inventory.** Until orders can execute, that
+⚠️ **CORRECTED 2026-08-23: the §E255 half of this clause is void** — `oorShares` has 0 references in
+`evm/src`/`evm/test` and `Shares` declares no `totalSupply`, so §E255 puts nothing into anything (see
+its row). **§E251 alone carries the dependency**: it wants out-of-range BTC minted as vBTC and lent on
+Morpho. **That prices out-of-range liquidity as live inventory.** Until orders can execute, that
 inventory has no settlement path — so both items are valuing a claim that cannot be realised, and
 building either first bakes the wrong assumption into the share maths.
 
@@ -620,8 +622,10 @@ that went stale; **nothing looks for a behaviour that used to be supplied by a d
 deleted.** The v4 rows carefully record what was removed and what replaced it — this is the one thing
 removed with **no replacement built and no row saying so**.
 
-▶️ **AND IT GATES TWO OPEN ITEMS ABOVE.** §E255 puts `oorShares` into `totalSupply`; §E251 wants
-out-of-range BTC mintable as vBTC and lent on Morpho. **Both treat OOR as live inventory.** If those
+▶️ **AND IT GATES ONE OPEN ITEM ABOVE** (⚠️ **corrected 2026-08-23 — it said TWO; the §E255 clause
+*"puts `oorShares` into `totalSupply`"* is void, `oorShares` having 0 references and `Shares` no
+`totalSupply`).** §E251 wants
+out-of-range BTC mintable as vBTC and lent on Morpho. **That treats OOR as live inventory.** If those
 orders can never execute, "locked liquidity" is permanently locked rather than resting — and both
 items are pricing a claim with no settlement path. **Settle §E258 before either.**
 
@@ -661,14 +665,27 @@ Today the share **face is implemented three times instead of instantiated twice*
 - `LevBookLib` (§E246) — the four venue legs, parameterised by collateral token.
 - `Core` — the working precedent for one implementation, two instances.
 
-**🔴 THE BLOCKER IS SEMANTIC, NOT PLUMBING.** `Shares.totalSupply()` returns `lpShares + oorShares`
-and spans both position kinds (*"disjoint by construction … the sum cannot double-count"*).
-`Quid.totalSupply()` returns `lpShares` alone, and **`oorShares` does not exist in `Quid` at all**
-— out-of-range positions are absent from the share supply. The owner's design says totalSupply
-*includes* the out-of-range locked liquidity. Instantiating `Shares` twice **adopts its semantics and
-changes what every ERC-20/4626 client reads.**
+⛔ **THE RECORDED SEMANTIC BLOCKER IS FALSE, RE-MEASURED 2026-08-23 — AND IT WAS THE SECOND FALSE
+BLOCKER ON THIS ROW.** It read: *"`Shares.totalSupply()` returns `lpShares + oorShares` and spans
+both position kinds; `Quid.totalSupply()` returns `lpShares` alone … settle the semantics first."*
+**Neither term exists.** `oorShares`: **0 references in `evm/src` AND `evm/test`** (last touched by
+`63e96e5d`, *"three declarations nothing referenced, deleted"*). `Shares.totalSupply()`: **not
+declared** — `Shares.sol` is state-only, and its own header says so (*"This file declares STATE and
+no functions at all"*), so the file was contradicting itself in two adjacent `@dev` blocks.
+⇒ **THERE IS NO DISAGREEMENT TO SETTLE.** The live face is `Quid.totalSupply() = lpShares`
+(`Quid.sol:1366`) and `VBtc` declares none; the OOR book is `selfManaged`/`positions`/`oorBook`,
+per-order with **no aggregate share count**, so boundary orders are outside every share total
+*by construction* — not by an unmade decision. Instantiating `Shares` twice adopts **no** share
+semantics, because `Shares` has none to adopt. The stale `@dev` in `Shares.sol` is corrected in the
+same commit as this row.
+⚠️ **AND IT PROPAGATED:** §E258 lists *"§E255 puts `oorShares` INTO `totalSupply`"* among the two
+items it gates. That clause is void for the same reason — §E258's real gating claim is §E251's, that
+OOR inventory needs a settlement path, which stands on its own.
 
-▶️ **Settle the `totalSupply` semantics first.** It is the same decision §E251 turns on.
+🔴 **WHAT ACTUALLY BLOCKS IT IS BYTECODE, AND ONLY BYTECODE: the union is 12,203 over EIP-170**
+(re-measured 2026-08-23 from `evm/out`; the recorded ~11,986 was 217 stale). Design is settled
+(§E256). ▶️ Next step is library extraction, **not** the merge — attempting the merge first yields a
+contract that compiles, tests green, and cannot be deployed.
 
 ---
 
@@ -4885,6 +4902,14 @@ on `costPpm == 0` rather than passing.
 
 ### `§E255-two-instances` 🔴
 
+⛔ **AND ITS "SEMANTIC DISAGREEMENT" BLOCKER IS FALSE TOO (2026-08-23).** The archived row below ends
+*"`Shares.totalSupply()` = `lpShares + oorShares` … settle that first"*. **`oorShares`: 0 references
+in `evm/src` and `evm/test`. `Shares.totalSupply()`: not declared — the file is state-only.** Neither
+term exists, so the decision it demands has no subject. This is the SECOND blocker on this row to
+dissolve on measurement (the first was *"`Vault` is two things fused"*), which is the tell: **the row
+has been re-derived twice and its blocker line was never re-run either time.** The live text above
+carries the correction; the archive is left verbatim on purpose.
+
 ⚠️ **NUMBERS RE-MEASURED FROM `evm/out` ARTIFACTS 2026-08-22 — the row below quotes
 `Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 24,104 + Vault 12,675 =
 36,779` ⇒ **12,203 over**. The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
@@ -6539,10 +6564,14 @@ price** — there is no out-of-range capital by construction, and §E58 goes fur
 depth as range depth (*"in the range is in the range alike"*). That is the structural answer to
 concentrated liquidity leaving most supply unused, and it is the strongest claim this architecture has.
 
-**But `selfManaged` positions are idle until price touches their trigger, and `oorShares` are not in
+**But `selfManaged` positions are idle until price touches their trigger, and they are absent from
 `Quid.totalSupply()`.** §E258's `fillOOR`/`sweepOor` now consumes them ON TOUCH, so they are no longer
 permanently stranded — but between placement and touch they are exactly the category the design
-claims to have removed, and §E255 still has to settle whether they count as supply.
+claims to have removed.
+⚠️ **CORRECTED 2026-08-23: this used to end *"and §E255 still has to settle whether they count as
+supply"*, naming `oorShares` as the quantity.** There is no `oorShares` (0 references) and no
+aggregate OOR share count at all — the book is per-order (`selfManaged`/`positions`/`oorBook`), so
+"do they count as supply" is answered BY CONSTRUCTION (they do not) and is not a §E255 decision.
 
 ▶️ **AND THERE IS A SECOND, UNMEASURED AXIS: VALUED ≠ DELIVERABLE.** `_skewBasis:1211` prices off
 `ICore(core).POOLED()`, while `QuidLib.deliverableETH:727` applies partial-liquidity haircuts and

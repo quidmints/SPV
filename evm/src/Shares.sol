@@ -28,11 +28,17 @@ import {OorBook} from "./imports/Types.sol";
 ///         be kept in sync with `pooled`: precisely the drift class this refactor exists to delete.
 ///         Only the allowance machinery is stock, and that is not worth a base class.
 ///
-/// @dev    `totalSupply` SPANS BOTH POSITION KINDS. `lpShares` is the in-range book (against the
-///         engine's `POOLED`); the remainder is the out-of-range boundary orders. They are DISJOINT
-///         BY CONSTRUCTION — `sizeOorUsd` requires a boundary order to sit wholly outside the active
-///         range — so the sum cannot double-count. Anything reading `totalSupply` as "depth in the
-///         range" is reading it wrong.
+/// @dev    ⚠️ CORRECTED 2026-08-23 — A PREVIOUS VERSION OF THIS BLOCK DESCRIBED A `totalSupply`
+///         THAT SPANS BOTH POSITION KINDS, `lpShares + oorShares`. NEITHER HALF EXISTS.
+///         `oorShares` has ZERO references in `evm/src` and `evm/test`, and this file declares no
+///         functions at all (see the ERC-20-face note below), so it has no `totalSupply` to span
+///         anything. The live face is `Quid.totalSupply() = lpShares` (`Quid.sol:1366`); `VBtc`
+///         declares none. The out-of-range book is `selfManaged` / `positions` / `oorBook` — a
+///         per-order structure with NO aggregate share count, so boundary orders are absent from
+///         every share total by construction, not by a decision anyone took.
+///         ⇒ THE CONSEQUENCE, BECAUSE THAT STALE BLOCK WAS LOAD-BEARING: §E255 carried
+///         "settle the `totalSupply` semantics first" as its blocker, and that disagreement had
+///         no subject. What blocks the merge is EIP-170 (§E255), nothing here.
 ///
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the range
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
