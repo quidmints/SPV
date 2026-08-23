@@ -1028,8 +1028,23 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// 🔴 §E310 — MOCK THE FEED THE PROTOCOL ACTUALLY READS. `_setEthFeed` targets the
     ///    `0xE7F0FEED` SENTINEL, which only becomes the anchor after a fixture calls
     ///    `AUX.setAssetFeed(WETH, ETH_FEED)` (this file does so at two sites). A fixture that never
-    ///    pins it -- `LevYbReal`, `LevCascade`, `LeverageCrossSubsidyProbe` -- reads REAL Chainlink,
-    ///    and `_setEthFeed` is then completely INERT.
+    ///    pins it reads REAL Chainlink, and `_setEthFeed` is then completely INERT.
+    /// ⛔ **THE THREE FIXTURES THIS NOTE NAMED ALL PIN IT NOW, AND THE STALE LIST COSTS A WRONG
+    ///    DIAGNOSIS — IT COST ONE TODAY.** It read *"a fixture that never pins it -- `LevYbReal`,
+    ///    `LevCascade`, `LeverageCrossSubsidyProbe` --"*. Re-measured 2026-08-23: `LevCascade:94`
+    ///    and `LeverageCrossSubsidyProbe:78` both call `AUX.setAssetFeed(WETH, ETH_FEED)`, and
+    ///    `LevYbReal:151` pins `CL_ETH_USD` behind an `if (assetPriceFeed(WETH) == address(0))`
+    ///    guard. **All three are pinned.**
+    /// ⚠️ WHY IT MATTERS MORE THAN AN ORDINARY STALE COMMENT: the sentence below is a complete,
+    ///    correct causal chain ending in *"`venue.borrow` is never invoked"*, and the lev suites do
+    ///    still fail. Naming three specific fixtures as the ones with the defect makes this note
+    ///    read as the diagnosis for those failures. It is not — the mechanism is real and these
+    ///    three are not where it fires. **A stale list attached to a live mechanism is worse than a
+    ///    stale mechanism, because the mechanism keeps vouching for the list.**
+    /// ⇒ Keep the mechanism, and re-derive WHICH fixture is unpinned by grepping, never from here:
+    ///    `grep -L setAssetFeed evm/test/*.t.sol`. The bare `AllesFixture` itself leaves
+    ///    `assetPriceFeed(WETH)` at `address(0)` — that part is live, and it is what made §E345's
+    ///    variance sampler read 0 across eight injected 2% moves.
     /// ⚠️ THE FAILURE IS SILENT AND LANDS ON ANOTHER CONTRACT. `Core.pushObservation` validates the
     ///    pushed price against `AUX.assetPriceFeed(ASSET)` within `OBS_PUSH_MAX_BPS = 50`, and
     ///    RETURNS (never reverts) when it is outside. So an inert `_setEthFeed` leaves the anchor at
