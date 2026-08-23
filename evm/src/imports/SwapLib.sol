@@ -656,7 +656,7 @@ library SwapLib {
         // 5th return — the resolved oracle price (`:40`) — and lands in `rp.fillPrice` below via
         // `_priceOr`. MEASURED: `sqrtPriceLimitX96`, `InvalidTick`, `PriceLimitAlreadyExceeded` and
         // `rangeTicks` have ZERO code references in `evm/src`; the surviving hits are comments, and
-        // `:369` records `rangeTicks` being deleted because it *"packed a range-edge PRICE LIMIT"*.
+        // `:374` records `rangeTicks` being deleted because it *"packed a range-edge PRICE LIMIT"*.
         // ⇒ A reader who trusted this would have converted a price to a tick that nothing unpacks.
         // The "all three producers must agree" instruction survives INTACT, with the subject
         // inverted: this one, `_swapOutPrep` and `_finishSwap` must all pass the PRICE.
@@ -794,13 +794,13 @@ library SwapLib {
     //    code references in `evm/src`** — every hit is a comment — and the ×1e10 was deleted with
     //    the ticks (`Core.realizedVarianceWad`'s §TICK-REMOVAL note: a tick was 1 bp, so 1e-8 × 1e18
     //    = 1e10 exactly, and `ringVariance` now returns WAD relative variance directly).
-    // ⚠️ SO THE CALIBRATION SENTENCE WAS CIRCULAR BEFORE IT WAS STALE, AND `:1049` ALREADY SAYS SO:
+    // ⚠️ SO THE CALIBRATION SENTENCE WAS CIRCULAR BEFORE IT WAS STALE, AND `:1184` ALREADY SAYS SO:
     //    Γ was defined as `MAX_WELL_SKEW·1e18/SIGMA_REF` with `SIGMA_REF = 1e18`, i.e. **Γ ≡
     //    MAX_WELL_SKEW exactly — the cap under a second name**, which makes "fixed so skew saturates
     //    the cap" a restatement rather than a choice. Both constants are now deleted and Γ stands on
     //    its own as the inherited 3e16 that `GAMMA_WAD`'s own docblock flags as unchosen (§E274).
     // ⇒ **A constant explained by pointing at a symbol becomes unexplained the moment the symbol
-    //    goes** — `DEPLETION_RATE_WAD`'s header (`:760`) records that exact loss happening twice
+    //    goes** — `DEPLETION_RATE_WAD`'s header (`:773`) records that exact loss happening twice
     //    already. The units are therefore stated here rather than cited.
     // STABLENESS = ρ, the DEPLETION-BARRIER ORDER (derived, NOT a fit exponent). The skew is
     // Γ·σ²·q / (1−q)^ρ: the A-S linear reservation premium Γσ²q amplified by the shadow price of the
@@ -809,12 +809,12 @@ library SwapLib {
     // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
     // ⚠️ READ THAT AS THE DERIVATION OF WHY THE EXPONENT IS 1, NOT AS A LIVE DIAL. `STABLENESS` has
-    // ZERO code references in `evm/src`; `:1049` records it deleted along with `SIGMA_REF` and the
+    // ZERO code references in `evm/src`; `:1188` records it deleted along with `SIGMA_REF` and the
     // old `GAMMA_WAD` definition, with byte-identical behaviour, because ρ was 1 and its loop
     // (`for (i = 1; i < 1; …)`) never executed. The kernel below is the simple pole written out —
     // which is what A&S §2.3 derives anyway, the exponent fixed at 1 by the CARA value function
     // rather than fitted. The tunable that DID survive is `KAPPA_WAD`, the pole's LOCATION (§E289).
-    // Volatile range half-width, in bps of price. `updateBounds(price, delta)` (`:2234`) reads it as
+    // Volatile range half-width, in bps of price. `updateBounds(price, delta)` (`:2325`) reads it as
     // `price·(10000∓delta)/10000` — the ONLY consumer, and it works in absolute PRICES.
     // THIN range (±0.2%). Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width
     // like a static position: at delta = 0 the reseat re-add collapses `lower == upper`. 0.2% is the
@@ -828,7 +828,7 @@ library SwapLib {
     // there is no V4 to revert. **The delta=10 figure went with them**: it described a TICK-SPACING
     // degeneracy, not a price one, and `updateBounds` is degenerate only at delta = 0. Quoting a
     // measured-looking threshold that no live code can produce is how a comment becomes the premise
-    // of a re-tune (§E18 at `:677`).
+    // of a re-tune (§E18 at `:690`).
     uint internal constant RANGE_DELTA = 20;
 
     // DYNAMIC CAP calibration. Instead of a fixed 3%, the ceiling tracks the native-BTC MM's
@@ -879,7 +879,7 @@ library SwapLib {
     ///     2× was folded away with the cap, and §E62 forty lines below already records that the hard
     ///     3% stopped bounding this path. ⇒ The header survived four separate changes that each
     ///     falsified one of its clauses, which is exactly how a comment becomes the premise of new
-    ///     work (§E18: *"THIS EXACT LINE COST THREE FINDINGS"*, `:677`).
+    ///     work (§E18: *"THIS EXACT LINE COST THREE FINDINGS"*, `:690`).
     function _maxWellSkew(uint sigmaSqWad, Risk memory rk) internal pure returns (uint) {
         // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
         // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
@@ -915,8 +915,8 @@ library SwapLib {
         // ⛔ CORRECTED — THIS PARAGRAPH NAMED A MECHANISM THIS FILE ITSELF RETIRED 200 LINES BELOW,
         // AND THE TWO SENTINEL CONSUMERS THEREFORE DISAGREED ABOUT WHY ZERO HAPPENS. It read
         // *"`realizedVarianceWad` samples `observe` on a WALL-CLOCK grid … and `observe` LINEARLY
-        // INTERPOLATES between stored points"*. `skewWad`'s §E213 note (`:1026`) already says that
-        // story is **RETIRED**: `observe` has ONE consumer left in the tree, the TWAP price at `:74`,
+        // INTERPOLATES between stored points"*. `skewWad`'s §E213 note (`:1145`) already says that
+        // story is **RETIRED**: `observe` has ONE consumer left in the tree, the TWAP price at `:79`,
         // and it never touches the variance path — `Core.realizedVarianceWad` calls
         // `OracleLib.ringVariance` DIRECTLY. The correction STRENGTHENS this guard for the same
         // reason it strengthened that one: under the interpolation story a zero could come from a
@@ -1022,6 +1022,44 @@ library SwapLib {
     ///         tests.
     ///         `shortfallUsd6` is what must be sourced to clear the imbalance — the input to the
     ///         profitability half (fire when the retained premium covers the cost of sourcing).
+    ///
+    /// ✅ **VERDICT 2026-08-23 — KEEP. IT IS NOT SUPERSEDED BY `_fillableDrain`, AND THE TWO ARE NOT
+    ///     TWO OPINIONS ON ONE QUESTION.** The `STARTED, NOT FINISHED` row asked to *"wire it, or
+    ///     delete it as superseded"*, and a later row concluded *"superseded, not unwired"* on the
+    ///     strength of §E300 building the fillable bound inside `wellSkew`. **That conclusion is true
+    ///     of the ETH pricing path and false as a statement about the tree.** Measured, not argued:
+    ///       • **DIFFERENT THRESHOLD.** This fires at `inv1 < target`. `_fillableDrain` bounds at
+    ///         `invFloor = target/(1+R)`, `R = SKEW_UNFILLABLE/(Γ·σ²)` — strictly BELOW `target` for
+    ///         any positive `Γ·σ²`. A range between the two is imbalanced (this fires) and perfectly
+    ///         fillable (that clamps nothing). They coincide nowhere.
+    ///       • **DIFFERENT TYPE AND DIFFERENT JOB.** This returns `(bool fire, uint shortfallUsd6)` —
+    ///         a TRIGGER plus the size to source. `_fillableDrain` returns a clamped DRAIN SIZE: it
+    ///         decides what we can serve inside a quote, never whether anything should be restored.
+    ///       • **DIFFERENT REACHABILITY.** `_fillableDrain` is `private`. No daemon, keeper or
+    ///         off-chain consumer can call it, which is precisely what a restoration trigger must be.
+    ///       • **AND `wellSkew`'S OUTPUT CANNOT SUBSTITUTE FOR IT.** On the flush branch `skewWad`
+    ///         returns `_maxWellSkew(…)`, the BASE — not 0 — so a caller reading the skew cannot tell
+    ///         "flush" from "scarce". After §E79's cap→base inversion there is no output value that
+    ///         encodes this predicate. It has to be asked directly.
+    /// ⭐ **WHAT IT IS FOR, AND WHY §E301 DOES NOT REACH IT.** §E301 retired `refillPlacement` because
+    ///     *"there is no restoration we perform"* — the swapper carries the unfilled remainder to
+    ///     another venue. **That argument is explicitly scoped to the ETH side.** The BTC side has a
+    ///     REAL, WIRED restoration rail, and it is not prose: `BTCChannels.sol:1431/2071/2123/2159`
+    ///     all call `btc.creditSwapIn(…)` → `Vault.sol:703` → `creditSwapInBody` (`:610`), declared at
+    ///     `Interfaces.sol:697`, and §E18 at `:690` records it as *"driven off-chain by the hop
+    ///     daemon"* — the exact consumer this predicate was built for.
+    /// ⛔ **DO NOT DELETE IT WITH ITS TEST FILE.** `git log -S "refillNeeded"` shows one landing
+    ///     commit, `0be4dc21` *"UNIT-C … the decided logic lands as pure arithmetic"* — parked
+    ///     awaiting wiring, on an owner instruction quoted verbatim above. That is the `create_sweep_tx`
+    ///     shape: a maintained, TESTED function whose caller is a feature not yet built. Standing
+    ///     rule 1 removes UNREACHABLE code; this is reachable, correct, and covered by
+    ///     `RefillTriggerAndProRata.t.sol`, which treats it as the refill trigger.
+    /// ⚠️ **THE ONE REAL COST OF KEEPING IT, NAMED SO IT IS NOT DISCOVERED AS A SURPRISE:** the
+    ///     predicate `inv1 < target` is now written TWICE — here and in `skewWad`'s flush branch.
+    ///     That duplication is DELIBERATE (the owner's *"no second definition of imbalanced"*), but
+    ///     deliberate is not self-enforcing: nothing makes them fail together if one is edited. **If
+    ///     `skewWad`'s flush test ever changes, this line changes in the same commit** — the drift
+    ///     they were made identical to prevent is a silent one, which is exactly when it matters.
     /// @param poolVolUsd  pre-swap deliverable inventory, 6-dec USD (`inv0`)
     /// @param flowUsd     the shed target the range is measured against (`target`)
     /// @param drainUsd6   the swap's volatile-side draw, 6-dec USD
@@ -1105,7 +1143,7 @@ library SwapLib {
         // ⛔ CORRECTED 2026-08-16 (§E213, caught by a parallel thread). This comment first cited the
         // old story — wall-clock sampling plus `observe`'s linear interpolation manufacturing zeros.
         // That mechanism is RETIRED: `observe` has exactly ONE consumer left in the tree, the TWAP
-        // price at `:74` (the note said `:80`; re-measured 2026-08-23 — a rotted coordinate inside a
+        // price at `:79` (the note said `:80`; re-measured 2026-08-23 — a rotted coordinate inside a
         // note whose whole subject is a claim going stale), and it never touches the variance path. The correction STRENGTHENS this
         // guard rather than weakening it: under the interpolation story a zero could come from a
         // quiet but well-sampled ring, which is the one reading that would make charging the ceiling
@@ -1378,15 +1416,29 @@ library SwapLib {
     ///      (E68b: the sell leg priced at the endpoint for a whole session after the drain leg was
     ///      fixed). Callers pass the bare kernel; everything else is decided here.
     /// §E275 — **THE DECLINE LIVES AT THE PRODUCER, WHICH IS WHY IT IS ONE ROUTINE AND NOT THREE
-    /// GUARDS** (standing rule 17). Deleting the cap exposed THREE consumers that apply the rate by
-    /// checked arithmetic — `retainSkewPremium` (`amount -= premium`), `Core.sol:1241`
-    /// (`out -= out·skew/1e18`) and `_applySkew:140` (`base - base·skew/1e18`) — so
-    /// §E273's "one choke point" was WRONG (verified by enumeration, 2026-08-21). Guarding each
-    /// consumer would be three bounds for one class of thing; refusing to PRODUCE an unfillable rate
-    /// is the state fix, and every consumer inherits it including any added later.
-    /// ⚠️ Reverting here means a QUOTE read can revert (`Aux:690`, `SwapLib:113/127`). That is
-    /// intended: at this scarcity there is no fillable price, and a solver that asked for one needs
-    /// to route that leg elsewhere rather than receive a number it cannot trade on.
+    /// GUARDS** (standing rule 17). Deleting the cap exposed consumers that apply the rate by checked
+    /// arithmetic, so §E273's "one choke point" was WRONG at the time (verified by enumeration,
+    /// 2026-08-21). Guarding each consumer would be N bounds for one class of thing; refusing to
+    /// PRODUCE an unfillable rate is the state fix, and every consumer inherits it including any
+    /// added later — which is why the count below can fall without weakening the argument.
+    /// ⛔ **RE-ENUMERATED 2026-08-23 — THE LIST WAS THREE AND IS NOW TWO, ONE OF THEM UNCALLED.**
+    /// It named `retainSkewPremium` (`amount -= premium`), **`Core.sol:1241` (`out -= out·skew/1e18`)**
+    /// and `_applySkew:140` (`base − base·skew/1e18`). **`Core.sol:1241` NO LONGER APPLIES THE SKEW:**
+    /// `f5499659` (§E279) deleted it as a DUPLICATE — the input reaching that frame had already been
+    /// scaled by `(1−s)` in `retainSkewPremium`, so every swapper was charged `s + s'(1−s)` while only
+    /// `s` was credited to LPs. ⇒ Live consumers today: `retainSkewPremium` (the real one, and the
+    /// only caller of `recordSkewPremium`, i.e. the whole LP fee lane) and `_applySkew` (`:2643`),
+    /// **which has ZERO callers** — the parked quote surface. So the enumeration that refuted "one
+    /// choke point" now has exactly one live member again. **The producer-side decline still earns
+    /// its place**: it is what makes the count irrelevant, and §E279's fix removed a consumer rather
+    /// than proving consumers cannot reappear.
+    /// ⚠️ COORDINATES REPAIRED: `_applySkew:140` and `SwapLib:113/127` below were `FixedRateFill.sol`
+    /// line numbers carried across the §E310 fold unchanged. That file is deleted; in THIS file
+    /// `:113/:127` is `twapResolve`'s Chainlink body and has nothing to do with a quote read.
+    /// ⚠️ Reverting here means a QUOTE read can revert (`Aux:690`, `quoteDrain`/`quoteFill` at
+    /// `:2615`/`:2629`). That is intended: at this scarcity there is no fillable price, and a solver
+    /// that asked for one needs to route that leg elsewhere rather than receive a number it cannot
+    /// trade on.
     /// §E300 — **THE SKEW PATH NEVER REVERTS** (owner, 2026-08-22: *"dont revert at the pole"*, and
     /// *"any rfq engine [must] smoothly work with us and not fail on the multihop"*).
     /// §E275 declined past 100%; §E298 showed that was the wrong primitive — a revert hands the
@@ -2422,6 +2474,40 @@ library SwapLib {
     //    removes UNREACHABLE code; it does not remove a maintained primitive awaiting a wiring,
     //    which is the mistake this repo has already reverted twice (`create_sweep_tx`).
     //    It imported `SwapLib`; folding it here dissolves that edge.
+    //
+    // ✅ VERDICT 2026-08-23 — KEEP, AND THE REASON HAS CHANGED: IT IS NO LONGER BLOCKED.
+    //    RE-MEASURED in `evm/src` / `evm/test` / `evm/script`: `quoteDrain` and `quoteFill` appear
+    //    only at their own `function` lines; `assertConserved` likewise; **`enforce(` has exactly ONE
+    //    hit repo-wide, its own declaration**; the errors `QuoteExpired`, `SizeExceedsInventory` and
+    //    `ConservationViolated` are declared and never revert; `NoQuote` reverts only inside the two
+    //    quoters. Zero production callers, confirmed — and the `of` named above no longer exists.
+    // ⭐ THE BLOCKER THIS SURFACE WAS PARKED BEHIND IS RESOLVED, IN THE DIRECTION THAT MAKES IT
+    //    REQUIRED. The stated wait was *"the 'paid against 1inch' decision"* (§E293 #2 vs #3).
+    //    That resolved to **#3 — the taker routes their own remainder; `AggregationRouterV6` is not
+    //    our dependency at all.** #3 is precisely the reading that NEEDS a firm quote: a solver
+    //    routing a multi-hop through us must be handed a committed rate with a TTL and a size bound,
+    //    and §E298's rule that *"a revert hands the solver nothing"* is a statement about this
+    //    surface. §E300 then built `_fillableDrain` so a quote can be steep-but-fillable instead of
+    //    unfillable. ⇒ **The surface is wire-READY, not blocked.** What remains is an entrypoint on
+    //    `Aux`/`Core` to expose it, which is a cross-contract change, not a change here.
+    // 🔴 AND THE TRAP TO CLEAR FIRST, WHICH WENT LIVE YESTERDAY AND IS NOT THE ONE THE HEADER WARNS
+    //    ABOUT. `_applySkew` folds the skew into `q.rateWad` (`base ± base·skew/1e18`). The
+    //    SETTLEMENT path already charges the skew by a different mechanism: `retainSkewPremium`
+    //    subtracts the premium from the INPUT before `routeSwap` derives `pooled` from it. **Wiring
+    //    these quoters into a live path that also settles through `retainSkewPremium` re-creates the
+    //    §E279 double-charge exactly** — `f5499659` deleted the twin of this in `Core._fillDelta`
+    //    on 2026-08-23, where the realised rate was `s + s'(1−s)` and only `s` reached LPs, the
+    //    excess sitting in the pool as unattributed backing. The quote surface is the SECOND way in
+    //    to the same defect and nothing currently prevents it. ⇒ **Decide which layer owns the
+    //    charge — the quoted rate or the retained premium — BEFORE either quoter has a caller.**
+    //    The existing *"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"* below is about a
+    //    different question (final price vs estimate-plus-true-up); this one is arithmetic, and it
+    //    has a measured precedent.
+    // ⚠️ `assertConserved` IS NOT PART OF THIS SURFACE AND MUST NOT BE JUDGED WITH IT. It is a
+    //    settlement-time conservation PROOF, not a quote primitive, and its own docblock argues it
+    //    under standing rule 3 — the failure it catches is SILENT (a plausible balance with a wrong
+    //    `POOLED_*`, compounding into share pricing where nobody can attribute it later). Its wiring
+    //    is independent of the 1inch question and always was.
     /// @notice THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title). It describes THIS
     ///         SECTION, not `SwapLib` as a whole -- the §E310 fold carried the header across and the
     ///         rename made it read as a title for the whole library, which it is not.
