@@ -277,15 +277,25 @@ interface ILevVenueColl {
     function stable() external view returns (address);   // E21: was LevMath.ILevVenueVet
 }
 
-/// Canonical IAux — union of IAux, IAux.
+// §E325 — a DANGLING `/// Canonical IAux — union of IAux, IAux.` stood here, attached to no
+// declaration at all, so a reader takes it for `ICollection`'s docblock. Deleted, with its twin
+// above `IBTCChannels`. See the note on `ICollection` for where the degenerate text comes from.
 
-/// Canonical ICollection — union of ICollection, ICollection.
+/// Canonical ICollection view.
+/// ⚠️ §E325 — this read "union of ICollection, ICollection". `b748857f` GENERATED these
+///    "union of A, B" lines mechanically for every consolidated pair, and where the two variants
+///    had already collapsed to one spelling it emitted the same name twice. There is no earlier,
+///    non-degenerate form to restore: the sentence was born saying nothing. The pre-consolidation
+///    variants are recoverable from `b748857f^` if they are ever needed.
+/// ⚠️ `transferFrom` here is ERC-721 (`tokenId`) and shares its ABI signature with
+///    `IERC20Min.transferFrom` (`amount`). Same selector, different meaning — do not merge them.
 interface ICollection {
     function transferFrom(address from, address to, uint256 tokenId) external;
     function getApproved(uint tokenId) external view returns (address);
 }
 
-/// Canonical IAggregatorV3 — union of IAggregatorV3, IAggregatorV3.
+/// Canonical Chainlink aggregator view. (§E325: was "union of IAggregatorV3, IAggregatorV3" —
+/// same `b748857f` generator as `ICollection` above.)
 interface IAggregatorV3 {
     function decimals() external view returns (uint8);
     function latestRoundData() external view returns ( uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
@@ -298,10 +308,14 @@ interface IAggregatorV3 {
 ///         `IUniswapV3SwapCallback` (implemented by pools) is deliberately not inherited.
 // §SLOP — `IV3Router` DELETED with the router constant above: zero references after the SOR cut.
 
-/// Canonical IAux — union of IAux, IAux_VG.
-/// Canonical Aux view — union of the former per-file variants (`IAux`, `IAux`,
-/// `ChannelLib::IAux`, `BasketLib::IAux`). FIVE declarations described
-/// ONE contract; a signature change had to be made up to six times and a missed one still compiled.
+/// Canonical Aux view — union of FIVE former per-file variants, which described ONE contract, so a
+/// signature change had to be made up to six times and a missed one still compiled.
+/// ⚠️ §E325 — the variant list here read `(IAux, IAux, ChannelLib::IAux, BasketLib::IAux)` plus a
+///    header line "union of IAux, IAux_VG". The later suffix-stripping passes rewrote each variant
+///    into the surviving name, so the list stopped naming what was merged and started asserting
+///    that `IAux` was merged with itself. `19072701` ("Consolidate six Aux interface views into one
+///    canonical IAux") holds the real names; they are NOT restated here, because a name that no
+///    longer resolves is exactly what CLAUDE.md's rename table says to leave in history.
 /// @notice §E296 — `ISwap.sol` and `ILevVenue.sol` folded in (standing rule 2: one declaration per
 ///         interface, in THIS file). Both files existed ONLY to hold interfaces, so both are deleted.
 ///         `IAux is ISwap` rather than restating its three members: `getTWAPforAsset`, `resolvedTwap`
@@ -465,10 +479,10 @@ interface ILevVenue {
 }
 
 
-/// Canonical ICore — union of ICore_V, ICore_VG.
-/// Canonical Core view — union of the former per-file variants (`SwapLib::ICore`,
-/// `SwapLib::ICore`, `BasketLib::ICore`). FOUR declarations described ONE contract, so a
+/// Canonical Core view — union of FOUR former per-file variants, which described ONE contract, so a
 /// signature change had to be made up to four times and any missed one still compiled.
+/// (§E325: the variant list read `SwapLib::ICore, SwapLib::ICore, BasketLib::ICore` — the same
+///  rename flattening as `IAux` above. Real names in `b748857f^`.)
 interface ICore {
     // §E325 — `BACKING()` removed: THE SUBJECT OF THIS ACCESSOR NO LONGER EXISTS. It arrived with
     // `6b4de0ee` as the pointer to the `IBandBacking`/`IRangeBacking` accountant, and
@@ -525,11 +539,16 @@ interface ICore {
     function rangeEquityUsd18() external view returns (uint);
     function swap(address sender, bool inputIsUsd, address token, uint amount, bool loadBalance) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 
-    // ═══ §E305 — `ICore` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH RANGE MANAGERS ═══
-    // `ICore` named the same objects this does, from the other side, so the two were one concept
+    // ═══ §E305 — `IBand` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH RANGE MANAGERS ═══
+    // 🔴 §E325 — THIS NOTE SAID "`ICore` FOLDED IN … `ICore` named the same objects this does",
+    //    INSIDE `interface ICore`, WHICH NAMES NOTHING. `c372f7b0` ("E305: … and IBand folds into
+    //    ICore") wrote the sentence with the folded interface ALREADY spelled as its destination,
+    //    so the note lost the only fact it existed to carry. The absorbed interface was **`IBand`**.
+    // `IBand` named the same objects this does, from the other side, so the two were one concept
     // wearing two nouns. Its 16 members are below; `Core`, `Quid` and `Vault` all cast to `ICore`.
     // ⚠️ THIS INTERFACE DELIBERATELY OVER-PROMISES, AND THAT IS THE COST OF ONE NOUN. No single
-    //    contract implements all 43 members: `Core` has the pool surface, `Quid` and `Vault` the
+    //    contract implements all 44 members (43 when this was written; §E307 added three and §E325
+    //    removed `BACKING`): `Core` has the pool surface, `Quid` and `Vault` the
     //    range surface. A call to a member the target does not implement COMPILES and reverts at
     //    runtime with no matching selector (~195 gas, the dispatcher falling through). If that
     //    ever bites, the tell is the gas number, not the message.
@@ -539,6 +558,10 @@ interface ICore {
     /// Size and commit `deltaTok` of the range's volatile at `price`. ETH routes through the venue,
     /// BTC through channels -- the ONE genuine difference in the merged `levAddNet`.
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
+    /// §E5 — the per-range sink that routes a retained scarcity premium into that range's LP fee
+    /// accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME signature, so
+    /// `Core.recordSkewPremium` dispatches by ADDRESS through one call site. (§E325: this docblock
+    /// had been stranded above `interface IBTCChannels`, which does not implement it.)
     function creditSkewPremium(uint premium6) external;
     /// §E258 — execute the resting boundary orders `px` has crossed since the last sweep, capped.
     /// ⚠️ THE TWO INSTANCES ANSWER DIFFERENTLY AND BOTH ANSWERS ARE CORRECT, for the same reason
@@ -561,7 +584,15 @@ interface ICore {
     /// Pay the volatile leg out to `who`. See the no-op note above.
     function deliverVolatile(uint amount, address who) external returns (uint sent);
 
-    // ═══ §E302 — `IRangeManager`'s SEVEN MEMBERS, MERGED IN. ONE RANGE FACE, NOT TWO ═══
+    // ═══ §E302 — `IBandManager`'s SEVEN MEMBERS, MERGED IN. ONE RANGE FACE, NOT TWO ═══
+    // 🔴 §E325 — THIS ROW SAID `IRangeManager`, AND NO SUCH SYMBOL HAS EVER BEEN DECLARED IN THIS
+    //    TREE. The merge happened as `7f3b1f93` while the pair was still spelled `IBandManager` +
+    //    `IBand`; the Band→Range pass (`1b21ca09`) then rewrote the DEAD name in this comment into
+    //    the live vocabulary, which is CLAUDE.md's own warning arriving from inside the source:
+    //    *"Renaming a tombstone does not destale it; it disguises it."* The cost was measured —
+    //    the merge below reads as OUTSTANDING WORK to anyone who greps `IRangeManager`, and it is
+    //    DONE. Verified 2026-08-23: `grep -rn "IRangeManager\|IRange\b" src test script` returns
+    //    exactly this file's comments, and all 16 members are present in `ICore` below.
     // The two interfaces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
     // they were never two objects - only two names for one. Nothing was declared twice, which is
     // why standing rule 2 never flagged it; the defect was that a caller holding a range had no way
@@ -581,8 +612,12 @@ interface ICore {
     function derivedThetaWad() external view returns (uint);
     function setBTCChannels(address b) external;
 
-    // §E307 — `ICore` folded in; members ICore already had are not duplicated.
-    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLev` for the same
+    // §E307 — the LEFTOVER `IBand` folded in; members `ICore` already had are not duplicated
+    // (that is why `bandBounds`, which both carried, appears once above as `rangeBounds`).
+    // 🔴 §E325 — this line said "`ICore` folded in", naming its own destination again. `1b21ca09`
+    //    absorbed a SECOND interface still called `IBand` — `{syncLev, soldFractionWad, bandPrice,
+    //    bandBounds}` — which had survived §E305's fold of the first one.
+    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLevBTC` for the same
     /// operation, so the two ranges could not be called through one method even though the
     /// interface existed precisely to make that possible. The interface IS the polymorphism;
     /// a second name for the same call defeats it.
@@ -611,17 +646,20 @@ interface IEthVenue {
     // (`Quid.sol:131`, `public`, and `Quid` IS the ethVenue — `DeployL1_s:534,546` cast
     // `Quid(payable(AUX.ethVenue()))`). Nothing ever reached it THROUGH `IEthVenue`: its one
     // caller is `Quid.sol:702`, an internal call, and the scripts hold the concrete type.
-    /// §E306 — folded in from `IEthVenue`, a one-function face over this SAME contract: all three of its
+    /// §E306 — folded in from `ILevHost`, a one-function face over this SAME contract: all three of its
     /// call sites resolved `IAux(...).ethVenue()`, which is what `IEthVenue` is already cast on.
+    /// (§E325: this said "folded in from `IEthVenue`" — its own name. `892c5b78` is titled
+    ///  *"fold ILevHost and IBasketMint away"*, which is where both real names come from.)
     /// @notice The lev manager this venue hosts.
     function LEV_MANAGER() external view returns (address);
 }
 
-/// Canonical IAux — union of IAux, IAux.
+// §E325 — the second dangling `/// Canonical IAux — union of IAux, IAux.` stood here, and above it
+// the §E5 docblock describing `creditSkewPremium` — a member of `ICore`, not of `IBTCChannels`.
+// Both were left behind when their subjects were folded away, and a `///` block immediately above
+// `interface IBTCChannels` reads as ITS documentation. The §E5 prose moved to the member it
+// describes; only the line that is actually about this interface stays.
 
-/// @notice §E5 — the per-range sink that routes a retained scarcity premium into that range's LP
-///         fee accumulator. Implemented by BOTH `Quid` (ETH) and `Vault` (BTC) under the SAME
-///         signature so `Core.recordSkewPremium` dispatches by ADDRESS through one call site.
 /// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
 interface IBTCChannels {
     function btcRecipientOf(address user) external view returns (bytes32);
@@ -652,8 +690,8 @@ interface IWiredBasket { function AUX() external view returns (address);
 interface IWiredVault { function btcChannels() external view returns (address);
                         function LEV_MANAGER() external view returns (address); }
 
-/// Canonical Basket turn/maturity view (was BasketLib.IBasket, itself already a union of two
-/// earlier per-file variants).
+/// Canonical Basket turn/maturity view (was `BasketLib.IBasketTurn`, itself already a union of two
+/// earlier per-file variants). §E325: read `BasketLib.IBasket` — this interface's own name.
 interface IBasket {
     function turn(address from, uint value) external returns (uint sent, uint seedBurned);
     function matureSupply() external view returns (uint);
@@ -669,7 +707,8 @@ interface IBasket {
     /// ⇒ Interfaces here are named for the CONTRACT they address, never for the variable at the call
     /// site — which is why the `IQuid*` name was the one to retire, not this one.
     function target() external view returns (uint);
-    /// §E306 — folded in from `IBasket`, a one-function face over this SAME contract. Both were cast
+    /// §E306 — folded in from `IBasketMint` (§E325: the note said `IBasket`, its own name; the real
+    /// one is in `892c5b78`), a one-function face over this SAME contract. Both were cast
     /// on `quid`, and `Basket.sol` implements `mint` alongside `turn` / `matureSupply` / `target`.
     /// @notice Mint `amount` against `pledge`'s deposit of `token`, dated `when`.
     function mint(address pledge, uint amount, address token, uint when) external returns (uint);
