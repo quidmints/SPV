@@ -597,11 +597,23 @@ contract LevManager is LevBase {
         external nonReentrant returns (uint256 freed)
     {
         if (msg.sender != RANGE) revert NotGov();
-        uint256 n = _openLps.length;
-        for (uint256 i; i < n && freed < usdWanted; i++) {
-            try this.deleverToVault(_openLps[i], usdWanted - freed, sink, minOut) returns (uint256 f) { freed += f; }
-            catch { /* stuck position skipped → falls to the keeper cascade / venue liquidation */ }
-        }
+        // §POOL-VENUE — ONE EXTRACTION, NOT A WALK. This looped every open LP, extracting from each
+        // until `usdWanted` was met, so the redeem-side sweep carried the same O(open LPs) cost the
+        // delivery side did — and it is the LAST walk of `_openLps` on a state-changing path.
+        // With one pooled position an extraction against ANY open LP repays the pool and frees pool
+        // collateral, so naming one is naming all of them; the book is read only to find the venue.
+        // ⚠️ AND THE CAP IS NOW THE POOL'S, WHICH IS WHY THIS DOES NOT UNDER-EXTRACT. `deleverToVault`
+        // bounds itself by `deliverableDollars(lp)`, which pooled is that LP's PROPORTIONAL slice —
+        // extracting through one LP would have capped at ~1/N of the pool. `totalDeliverableDollars`
+        // is now the aggregate bound, evaluated once on the pool, and is what this passes.
+        // ⛔ THE `try/catch` STAYS: a venue that cannot source must leave the redeem short rather than
+        // revert it, which is the same fault-tolerance the per-LP walk had.
+        if (_openLps.length == 0) return 0;
+        uint256 cap = this.totalDeliverableDollars();
+        uint256 want = usdWanted > cap ? cap : usdWanted;
+        if (want == 0) return 0;
+        try this.deleverToVault(_openLps[0], want, sink, minOut) returns (uint256 f) { freed = f; }
+        catch { /* pool could not source → redeem falls short, never reverts (keeper cascade picks it up) */ }
     }
 
     /// @notice Morpho flash-loan callback. ONLY the pinned provider may call it, and Morpho invokes it solely

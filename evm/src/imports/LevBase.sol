@@ -301,11 +301,22 @@ abstract contract LevBase {
         return address(pos[_openLps[0]].venue);
     }
 
-    function totalDeliverableDollars() external view returns (uint total) {
-        uint n = _openLps.length;
-        if (n == 0) return 0;
+    /// §POOL-VENUE — O(1), and the LAST of the four Sigma-loops. The pool is one position, so its
+    /// deliverable dollars are computed from the pool's own collateral, debt and liquidation
+    /// threshold — exactly the per-LP formula, evaluated once on the aggregate.
+    /// ⚠️ THIS IS NOT THE SAME NUMBER THE OLD SUM PRODUCED, AND THE DIFFERENCE IS THE POINT.
+    /// `LevMath.deliverableDollars` is NON-LINEAR in LTV (it bounds the extraction so the position
+    /// stays under its liquidation threshold), so a sum of per-LP results systematically DIFFERS
+    /// from the aggregate — the same sum-of-floors error that made `totalNetEquity` over-count and
+    /// tripped `checkBacking`. One position means one evaluation, which is now the honest one.
+    function totalDeliverableDollars() external view returns (uint) {
+        address v = _pool();
+        if (v == address(0)) return 0;
         uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
+        uint collUsd = (_collNativePool(v) * px) / 1e18;
+        uint d = LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
+        uint netEq = collUsd > d ? collUsd - d : 0;
+        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), ILevVenue(v).liqThresholdBps());
     }
 
     /// @dev ⚠️ WHEN THESE MOVE TO A DELEGATECALL LIBRARY, THE CALLER COMPUTES THIS AND PASSES IT AS

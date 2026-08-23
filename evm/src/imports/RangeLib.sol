@@ -405,27 +405,31 @@ library RangeLib {
     ///      every entry — 128 × ~50k ≈ 6.4M, which fits a block with room for the swap that
     ///      triggered it. The Σ-views cost ~6k per entry (~0.8M). Raising this is a GAS
     ///      measurement, not a preference.
-    uint256 internal constant MAX_OPEN_LPS = 128;
+    // ✅ §AUDIT-OPENLPS-DOS — `MAX_OPEN_LPS = 128`, `error BookFull()` and `_requireRoom` are DELETED
+    //    (2026-08-24), and this is standing rule 17 completing rather than a guard being dropped.
+    //    The block that stood here said so itself: *"THIS IS A CLAMP AND IT IS MEANT TO BE DELETED.
+    //    The root fix is to stop keeping one venue position PER LP at all — pool the venue exposure
+    //    and hold per-LP SHARES of it, after which there is no book to walk, no cap to hit."*
+    //    §POOL-VENUE did exactly that, so the condition the clamp named is met.
+    // ⚠️ THE DELETION WAS GATED ON A MEASUREMENT, NOT ON THE COMMENT MATCHING. Checked first, and it
+    //    was NOT safe on the first attempt: `LevManager.deleverBook` still walked the whole book on a
+    //    state-changing path. Only after that and all four `LevBase` Sigma-loops became O(1) pool
+    //    reads did `grep '_openLps.length'` return nothing but length checks, a push, a swap-and-pop
+    //    and `openLevCount`. **A guard whose reason is still live must not be removed because its
+    //    description matches.**
+    // ⇒ WHAT THIS GIVES BACK: the cap traded one denial for a smaller one — at 128 open positions a
+    //    new LP could not open until someone closed, and an attacker could reach that for ~6.4 weETH
+    //    of real collateral. That griefing surface is gone with the loops it was protecting.
 
-    /// @notice The open-position book is full — see `MAX_OPEN_LPS`.
-    error BookFull();
-
-    /// @notice Enrol `lp` in the open-position book. `lpIdx` is 1-BASED so 0 means absent.
+    /// @notice Add `lp` to the open-position book if absent. `lpIdx` is 1-based (0 = absent).
+    /// §POOL-VENUE — the room check is gone with `MAX_OPEN_LPS` (see the tombstone above): the book
+    /// is no longer walked anywhere, so its length no longer prices anything.
     function trackOpen(
         address[] storage openLps,
         mapping(address => uint256) storage lpIdx,
         address lp
     ) external {
-        if (lpIdx[lp] == 0) { _requireRoom(openLps); openLps.push(lp); lpIdx[lp] = openLps.length; }
-    }
-
-    /// @dev The cap, in ONE place, so the two push sites cannot drift. Reverts rather than
-    ///      silently skipping the enrolment: an LP whose position exists but is absent from the
-    ///      book would be invisible to every Σ-loop and to the de-lever sweep — an under-reported
-    ///      backing figure and an un-sweepable position, which is exactly the silent failure the
-    ///      cap exists to avoid.
-    function _requireRoom(address[] storage openLps) private view {
-        if (openLps.length >= MAX_OPEN_LPS) revert BookFull();
+        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
     /// @notice Remove `lp` from the book by SWAP-AND-POP, keeping the 1-based index consistent.
@@ -499,7 +503,7 @@ library RangeLib {
         pos[lp] = p;
         // §AUDIT-OPENLPS-DOS — the OTHER push site. Both are capped by `_requireRoom`; a cap on
         // one of two writers is not a cap.
-        if (lpIdx[lp] == 0) { _requireRoom(openLps); openLps.push(lp); lpIdx[lp] = openLps.length; }
+        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
     /// @notice Re-anchor a position to the range's current price if the range has reseated.
