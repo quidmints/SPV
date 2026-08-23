@@ -14,7 +14,7 @@ import {VBtc} from "./VBtc.sol";
 import {Types, AlreadyInitialized, BtcChannelsPinned, LevManagerPinned, NotBTCChannels, Unauthorized, WrongRangeManager} from "./imports/Types.sol";
 import {Shares} from "./Shares.sol";
 
-import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
+// §E326: the `solmate WETH as WETH9` import went with the dead `WETH` immutable — its only user.
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
@@ -22,42 +22,41 @@ import {ILevEquity} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 
 // ════════════════════════════════════════════════════════════════════════
-//  Vault — the unified ETH-venue custody + BTC LP/hop side, merged from the
-//  formerly-separate EthVenue and BtcVault (5→4 deployable contracts). The
-//  two had disjoint state, disjoint function names, and only differed in
-//  their "V4" handle (EthVenue→Quid, BtcVault→Core); here Quid stays
-//  `V4` and Core is `CORE` (the slot EthVenue already carried). Both
-//  init paths are preserved: the EthVenue constructor pins the ETH-venue
-//  immutables + approvals; `setup(quid)` does BtcVault's post-CORE-init
-//  poolStats read + BTC tick seed. Ownership is renounced at deploy, once both
-//  lev-manager slots are pinned — they are the only owner-gated functions here.
+//  Vault — THE BTC RANGE MANAGER, and only that. `Quid` is the ETH-side counterpart; the two are
+//  one implementation waiting to become two instances (CLAUDE.md's §J.2 consolidation).
 //
-//  GATES stay SPLIT, byte-for-byte with the originals — no widening:
-//    • onlyUs    = {Quid(V4), AUX, this}      → ETH-side venue ops (supply/withdraw/deliverable)
-//      §E233-sor: this line named `arbETH`, which DOES NOT EXIST -- `Aux` states its forwarder was
-//      REMOVED along with its only callers (Core.refillETH, Quid._withdraw). The gate is real; the
-//      consumer it cited is not, and a gate documented by a dead caller reads as dead surface.
-//    • onlyUsBtc = {Core(CORE), AUX, this} → repack / setBTCChannels
-//    • onlyBtcChannels / onlyBTCChannels       → BTC LP register/close + swap
-//  Address-specific gates mean every interface-wired caller (Aux.ethVenue /
-//  Aux.btc / Quid.EV / Core.BTC / BTCChannels.btc /
-//  Basket.BTC_VAULT) just points at this one address — no caller changes.
+//  🔴 §E301/§E326 — THIS HEADER USED TO DESCRIBE A CONTRACT THAT NO LONGER EXISTS, AND THAT IS THE
+//  ONE THING WORTH REMEMBERING ABOUT IT. It opened "the unified ETH-venue custody + BTC LP/hop
+//  side, merged from the formerly-separate EthVenue and BtcVault (5→4 deployable contracts)", and
+//  its gate list led with `onlyUs = {Quid(V4), AUX, this} → ETH-side venue ops
+//  (supply/withdraw/deliverable)`. ETH-venue custody was extracted BACK OUT into `EthVenue`;
+//  `onlyUs` went with it, and so did every function the paragraph named. What survived the
+//  extraction was the PROSE, which then read as a live description of a fused contract — the exact
+//  trap CLAUDE.md records after `RANGE` outlived the same extraction by eight days: AN EXTRACTION
+//  LEAVES THE HANDLES AND THE COMMENTS BEHIND EVEN WHEN THE FUNCTIONS MOVE, and a stale comment
+//  beside a stale handle is what makes the handle read as load-bearing.
+//  `contract Vault is Ownable, ReentrancyGuard, Shares` and nothing else.
+//
+//  `setup(quid)` pins the basket and does the post-CORE-init `poolStats` read that seeds
+//  RANGE_ANCHOR. The owner-gated surface is exactly `setup` and `setLevManager`, both one-shot.
+//
+//  GATES — TWO, both address-specific, neither widened:
+//    • onlyUsBtc       = {Core(CORE), AUX, this} → repack · setBTCChannels · addLiq ·
+//                                                   creditSkewPremium · onShortfall
+//    • onlyBTCChannels = {btcChannels}           → requestDeposit/requestRedeem/resize ·
+//                                                   swap-in/swap-out credit · pendingSwapOut
+//  Address-specific gates mean every interface-wired caller (Aux.btc / Core.BTC /
+//  BTCChannels.btc / Basket.BTC_VAULT) just points at this one address.
 // ════════════════════════════════════════════════════════════════════════
 
-/// AAVE-v4 GHO spoke. Vault self-supplies WETH (ETH venue 2).
-
-/// Canonical Permit2's allowance-grant surface — the ONLY part of it we need. Euler's `EVault.deposit`
-/// pulls via `Permit2.transferFrom`, so the depositor must both approve Permit2 on the token AND grant
-/// Permit2 an allowance naming the vault as spender. Declared minimally rather than importing
-/// `IAllowanceTransfer` (which drags the whole permit/signature surface we never touch).
-
-/// ether.fi venue (ETH-side, depositor-chosen). Stake WETH → weETH (restaking
-/// yield); value weETH in ETH via getEETHByWeETH. ⚠️ THERE IS NO DETERMINISTIC EXIT: the instant-redeem
-/// (0.3%) this line used to name was removed 2026-08-05/06 (zero measured capacity). The exit is the
-/// two-rung offramp ladder — v3 pool sale, else a multi-day wait NFT (`QuidLib.offrampBody`).
-
-/// Aux read surface the Vault needs: WBTC handle (for the shared arbBody
-/// signature); vault-health state stays Aux-owned.
+// §E326 — FOUR ORPHANED DOCBLOCKS DELETED HERE, AND WHAT THEY DOCUMENTED IS THE POINT. They headed
+// the AAVE-v4 GHO spoke interface, the Permit2 allowance-grant slice, the ether.fi venue interface,
+// and a file-local Aux read surface citing `arbBody`. All four DECLARATIONS are gone — Permit2 and
+// its interface with the WETH-4626 curator venues (655e7d65, which says so in its own message), the
+// venue interfaces with the `EthVenue` extraction, the Aux variant into `Interfaces.sol` (§A.52),
+// and `arbETH`/`arbBTC` were removed outright (`Aux.sol:848`). The COMMENTS stayed, describing an
+// ETH yield venue inside a BTC-only contract, each one attached to nothing at all. A docblock whose
+// subject has been deleted does not read as dead — it reads as a feature you have not found yet.
 
 /// §SLOP — THIS PARAGRAPH WAS ETH-SIDE TEXT LEFT IN THE BTC CONTRACT by the EthVenue fusion. It said
 /// the book's collateral is "ETH, 1e18", that "the weETH lives on external Euler/Morpho", and that net
@@ -85,7 +84,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Vault is Ownable, ReentrancyGuard, Shares {
 
-    // ─── ETH-venue immutables (formerly EthVenue) ───────────────────────
+    // ─── immutables ─────────────────────────────────────────────────────
     /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
     ///      could reach THIS range's engine -- `ICore` had no `core()` either -- so a test
     ///      wanting to compare the two ranges had no handle for the second one and read the ETH core
@@ -96,7 +95,16 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///      check is separate.
     Core public immutable CORE;  // the PM (was BtcVault's "RANGE")
     Aux       internal immutable AUX;
-    WETH9     public    immutable WETH;
+    // 🔴 §E326 — `WETH9 public immutable WETH` LIVED HERE AND WAS READ NOWHERE. It is the same
+    //    survivor as `RANGE` (§E301): the WETH-4626 curator venues took the standing approvals with
+    //    them (655e7d65) and the `EthVenue` extraction took the supply/withdraw ladder, but the
+    //    HANDLE stayed — a WETH pointer on a contract whose settlement rail is a Lightning
+    //    cooperative close. Zero reads in this file, and zero `.WETH()` calls at this address across
+    //    `evm/src`, `evm/test`, `evm/script` and `spa/` (both tree-wide hits resolve on `Aux`).
+    //    The public getter goes with it; the constructor still TAKES the third address so
+    //    `DeployLib.sol:246`'s `new Vault(core, aux, cfg.weth)` is untouched — the parameter is
+    //    left unnamed rather than the argument removed, because a constructor is a signature.
+    //    ⇒ GREP FOR THE OLD COLLABORATOR'S TYPE AFTER ANY EXTRACTION, not just the moved functions.
 
 
 
@@ -106,12 +114,19 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
 
 
-    /// @notice The IL-protect orchestrator. Its leveraged book's LIVE net-equity counts in `POOLED`
-    ///         (§SLOP: said `rangeETH`, which is Quid's ETH-side accessor, not this contract's).
-    ///         Pinned once post-deploy (LevManager needs Aux/weETH first). 0 = leverage disabled.
+    /// @notice The IL-protect orchestrator (`Shares.LEV_MANAGER`). Its leveraged book's LIVE
+    ///         net-equity counts in `POOLED` (§SLOP: said `rangeETH`, which is Quid's ETH-side
+    ///         accessor, not this contract's). Pinned once post-deploy by `setLevManager`, which
+    ///         checks the manager's own `ORACLE_KEY` is WBTC — so the ETH one cannot be installed
+    ///         here. 0 = leverage disabled. (§E326: this line read "LevManager needs Aux/weETH
+    ///         first", which is the ETH manager's construction ordering, not the BTC one's.)
 
-    error NotSelf();
-    error NotAux();
+    // §E326 — `error NotSelf()` and `error NotAux()` DELETED: zero references anywhere in this
+    // contract, and `git log -S` puts both squarely in the EthVenue extraction commits (a3225031,
+    // 2ae0bbba, 8720a35d). The live declarations are `Aux.sol:204` and `Quid.sol:90-91`, which do
+    // still revert with them. An unused error costs no bytecode, so this is a rule-1 deletion and
+    // not a size one — but a declared error IS api surface: it tells a reader this contract can
+    // reject them that way, and neither of these can.
     error NoBtcPosition();
 
     Basket QUID;
@@ -184,37 +199,59 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     address public btcChannels;
 
-    /// ETH-side trusted callers: Quid (V4), Aux, self.
-
-    /// BTC-side trusted callers: Core (CORE), Aux, self. Kept distinct
-    /// from onlyUs so neither gate is widened by the merge.
-    modifier onlyUsBtc {
+    /// BTC-side trusted callers: Core (CORE), Aux, self.
+    /// @dev §MODFOLD — THE BODY LIVES IN A `private view` HELPER AND THE MODIFIER IS THE JUMP.
+    ///      A modifier is INLINED at every use site, so five uses meant five copies of a three-way
+    ///      address compare PLUS five copies of the `Error(string)` ABI encoding of "403" — the
+    ///      string is the expensive half. One routine and five jumps instead (CLAUDE.md rule 8c,
+    ///      measured there at +968 bytes for the inlined form on `BTCChannels`).
+    ///      THE MODIFIER IS KEPT rather than calling `_onlyUsBtc()` from each body: a modifier is
+    ///      positionally FIRST by construction, where a body call can later be reordered after a
+    ///      state read. The fold is a bytecode change, not a control-flow one.
+    function _onlyUsBtc() private view {
         require(msg.sender == address(AUX)
              || msg.sender == address(CORE)
-             || msg.sender == address(this), "403"); _;
+             || msg.sender == address(this), "403");
     }
+    modifier onlyUsBtc { _onlyUsBtc(); _; }
 
-    /// BTC-LP register/decrement/exit are driven by channel locks, so they're
-    /// gated to BTCChannels (not the public 4626 surface).
-    modifier onlyBtcChannels() {
-        require(msg.sender == btcChannels && btcChannels != address(0), "403"); _;
+    /// BTC-LP deposit/redeem/resize are driven by channel locks, and the swap-in/swap-out credit is
+    /// attested by the same contract, so both are gated to the pinned `BTCChannels` — never the
+    /// public 4626 surface.
+    /// @dev §MODFOLD — WAS **TWO** MODIFIERS, `onlyBtcChannels` and `onlyBTCChannels`, differing
+    ///      only in the case of "BTC" (rule 2: one declaration per concept). They were the SAME
+    ///      RULE — the older comment said so outright ("same gate, distinct name kept from Aux") —
+    ///      and differed in exactly two ways, both resolved in favour of the surviving spelling:
+    ///        1. REVERT DATA. The lowercase one raised `Error("403")`, this one raises the custom
+    ///           `NotBTCChannels()`. The custom error is what `Aux` raises for the identical gate
+    ///           (`Aux.sol`) and what the only tests asserting this gate expect
+    ///           (`ReentrancyProbe.t.sol` on `creditSwapIn`/`creditSwapOut`). No test asserted the
+    ///           string form on any of the three sites that carried it.
+    ///        2. A `btcChannels != address(0)` CLAUSE, which discriminated only when
+    ///           `msg.sender == address(0)` AND the pin was unset. `msg.sender` is never the zero
+    ///           address in EVM execution — there is no account that can originate a call from it —
+    ///           so the clause could not fire on chain, and an unset pin already rejects every real
+    ///           caller through the address compare alone. Dropped under rule 1 (no unreachable
+    ///           code) and rule 3 (a clamp that only looks like safety).
+    function _onlyBTCChannels() private view {
+        if (msg.sender != btcChannels) revert NotBTCChannels();
     }
-    /// onlyBTCChannels (swap credit gate) — same gate, distinct name kept from Aux.
-    modifier onlyBTCChannels() {
-        if (msg.sender != btcChannels) revert NotBTCChannels(); _;
-    }
+    modifier onlyBTCChannels() { _onlyBTCChannels(); _; }
 
-    /// @notice Pins the ETH-venue wiring. AAVE-v4 WETH (ETH venue 2) is optional —
-    /// resolved + approved only if the spoke lists WETH; else venue 2 stays inert.
-    /// ether.fi is wired from the fixed mainnet adapter + v3 pool fees, with the
-    /// standing approvals set once.
-    constructor(address _core, address _aux, address _weth)
+    /// @notice Pins the engine + Aux handles and DEPLOYS the vBTC token face, so
+    ///         `VBtc.VAULT == address(this)` holds by construction (no setter, no deploy-ordering
+    ///         hazard, supply authority cannot be misconfigured).
+    /// @dev    The third parameter is UNNAMED and unused. It was `address _weth`, assigned to a
+    ///         `WETH` immutable this contract never read; see the note above the `AUX` slot. It is
+    ///         kept in the signature so `DeployLib`'s `new Vault(core, aux, cfg.weth)` still binds.
+    ///         §E326 — the docblock here previously described AAVE-v4 WETH resolution, an optional
+    ///         "venue 2", and ether.fi adapter wiring with standing approvals. The constructor did
+    ///         none of those even before the extraction removed the venues.
+    constructor(address _core, address _aux, address)
         Ownable(msg.sender) {
         CORE = Core(_core);
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
-        WETH = WETH9(payable(_weth));
-
     }
     receive() external payable {}
     fallback() external payable {}
@@ -236,7 +273,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     // ════════════════════════════════════════════════════════════════
-    //                    ETH yield-venue side (was EthVenue)
+    //                    BTC leverage book — the pin and its live read
+    //  §E326: this banner said "ETH yield-venue side (was EthVenue)". There is no ETH yield venue
+    //  here; the two functions below are `setLevManager` and `totalNetEquity`, both BTC. The banner
+    //  outlived the section it named, so it filed BTC code under an ETH heading.
     // ════════════════════════════════════════════════════════════════
 
     /// @notice Pin the BtcLevManager (one-shot) so `rangeBTC` counts the BTC leveraged book's
@@ -480,12 +520,12 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         for exactly that shape. The old name hid the lifecycle from anyone reading the
     ///         interface; this one states it.
     /// @dev    ⚠️ THE SIGNATURE IS DELIBERATELY NOT 7540's `(uint256 assets, address controller,
-    ///         address owner)`. This entrypoint is `onlyBtcChannels`, not integrator-facing: the
+    ///         address owner)`. This entrypoint is `onlyBTCChannels`, not integrator-facing: the
     ///         REQUEST is the on-chain funding transaction and `BTCChannels` is what observes it.
     ///         Taking the standard argument list would advertise a public request path that does
     ///         not exist. The NAME is adopted because it tells the truth about the lifecycle; the
     ///         signature is not, because it would tell a lie about the caller.
-    function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBtcChannels {
+    function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBTCChannels {
         // Whole body (checkBacking/TWAP/_rebalance-via-repack + settle + in-range
         // pairing + out-of-range remainder) in BtcLib.requestDeposit (delegatecall):
         // it operates on the Vault's storage via the passed refs and drives the tick
@@ -553,7 +593,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         which is why this cannot be the synchronous 4626 `redeem` -- the assets are claimable
     ///         only after L1 confirmations. Same signature note as `requestDeposit`.
     function requestRedeem(address lpEth, uint lpPayoutSats)
-        external nonReentrant onlyBtcChannels {
+        external nonReentrant onlyBTCChannels {
         _resize(lpEth, 0, lpPayoutSats, true, 0);   // full close — all native
     }
 
@@ -565,7 +605,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// `exactUsd` > 0 ⇒ on-chain swap-out delivery: pay the LP exactly that USD as
     /// proceeds. `exactUsd` == 0 ⇒ LP-withdrawal splice-out: all native, no proceeds.
     function resize(address lpEth, uint shrinkSats, uint lpPayoutSats, uint exactUsd)
-        external nonReentrant onlyBtcChannels {
+        external nonReentrant onlyBTCChannels {
         _resize(lpEth, shrinkSats, lpPayoutSats, false, exactUsd);
     }
 
