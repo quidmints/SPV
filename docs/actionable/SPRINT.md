@@ -11880,3 +11880,63 @@ times, and a register billed 70.**
    were suffixed on this pass). A bare `see §E257` currently resolves to two different rows ~7,900
    lines apart, so **every citation in this file is ambiguous until this is done** — which is also why
    renumbering is forbidden: it breaks the citations that do resolve.
+
+---
+
+## 🔴 §E326-WORKSTREAMS — **THE 227 OPEN ROWS ARE 7 WORKSTREAMS. TWO OF THEM MEAN A CORE FEATURE DOES NOT WORK.**
+
+Asked whether the remaining TODOs are a day's work and how far this is from a complete protocol.
+Clustered every open row by the defect it feeds rather than by the thread that found it, so the answer
+is about the PROTOCOL and not about the document.
+
+| # | workstream | rows | lines | what actually blocks it |
+|---|---|---|---|---|
+| **A** | **Levered book is INERT** | 8 | 240 | constants mismatch — **verified live today** |
+| **B** | **No channel can be opened** | 17 | 436 | LP consent ladder — blocked on an app in ANOTHER repo |
+| **C** | Value leaks (deposit haircut, free drain) | 9 | 240 | ~3.745% between arrival and `normalized`; zero-charge partial drain at σ²=0 |
+| **D** | Venue + routing (v3 / 1inch / Aave eMode) | 28 | 815 | owner: *"no v3 in this code at all"*; eMode forbids the second borrow |
+| **E** | Test suite (39 regressions + 23 never-green) | 10 | 272 | ⚠️ counts inflated by RPC contention — see `§SUITE-RPC-INFLATION` |
+| **F** | Size + folds (EIP-170, 4626→7540) | 45 | 1,204 | the margin moves hourly; **re-measure, never quote** |
+| **G** | Skew / σ² derivation | 66 | 1,457 | mostly DERIVATION and MEASUREMENT, not code |
+| — | unclustered (process notes, traps, records) | 96 | 914 | largely `record-only` — no code change implied |
+
+### 🔴 A — **THE LEVERED BOOK CANNOT OPEN A POSITION. RE-VERIFIED FROM THE CONSTANTS 2026-08-23.**
+
+Not relayed from the row — read out of the tree today:
+- `SwapLib.sol:832` — `uint internal constant RANGE_DELTA = 20;` (the range half-width, **±20 bps**)
+- `LevBase.sol:45` — `uint256 internal constant RANGE_BPS = 300;` (the action deadband, **300 bps**)
+- and it is **still wired**: `LevBase.sol:59` and `LevManager.sol:442` both pass `RANGE_BPS` into
+  `LevMath.debtDelta` / `LevMath.deleverRepay`.
+
+⇒ The IL target is derived inside a ±20 bps range and then compared against a 300 bps deadband, so it
+**cannot reach the threshold that would trigger a borrow at any price path.** `venue.borrow` is never
+invoked. This is one constant-level decision plus a re-derivation of the IL target's scale, and it is
+**the single highest-value item in the file** — leverage is a headline feature and it does not run.
+⚠️ `C22` says `ilTargetLive`'s two branches disagree by **13×** and the one that executes does so **by
+accident**. **Fix the scale before the branch**, or the 13× just re-anchors on a wrong basis.
+
+### 🔴 B — **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, AND IT IS NOT FIXABLE IN THIS REPO**
+
+`openChannel` arms a ladder (`BTCChannels.sol:999`) that reverts `LadderTooShallow` on `< 2` rungs or
+one shared deadline; the fleet **will not synthesise one by design** (`channel_driver.rs:741-746`
+returns early with no LP consent — it *relays* consent, it does not mint it); and the thing that
+produces that consent is **the LP signer app, whose spec lives in `../ibiza/TODO.md §3b` and which does
+not exist yet.** ⚠️ **Relayed from the row, NOT re-verified today** — unlike A. Verify before planning.
+⇒ **This is the one item a day of Solidity cannot touch.** It is a mobile-client build in another repo.
+
+### ⇒ THE HONEST ANSWER: **NO, AND THE DOCUMENT WAS HIDING WHY**
+
+**What IS done and is worth stating plainly:** the tree builds with 0 errors, all 30 deployable
+contracts are under EIP-170, all six mechanical gates are green, client ABIs are 0-drifted, and there
+are zero duplicate top-level declarations. **The structure is sound.**
+**What is NOT done is not polish.** Two features do not work — leverage cannot open a position, and a
+channel cannot be opened — and one of those is blocked on software in a different repository. Workstream
+**D** additionally carries an owner instruction (*"there should be no v3 in this code at all"*) that is
+still unexecuted, and **C** is a measured value leak on the deposit path.
+
+⚠️ **THE ROW COUNT WAS NEVER THE MEASURE, AND CHASING IT WOULD HAVE COST THE MOST HERE.** 96 of 227
+imply no code change at all, and **G** — the single largest cluster at 66 rows — is mostly derivation.
+Meanwhile **A is EIGHT rows** and is the thing standing between this and a working levered product.
+⇒ **Order the work by A → C → D → B, and let F and G follow the code rather than lead it.** Closing
+rows fastest and closing the protocol fastest are opposite strategies, and this file made the first one
+look like progress.
