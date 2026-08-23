@@ -2996,7 +2996,12 @@ before treating it as a fresh defect, and do not "fix" it by widening the tolera
 ⚠️ **`testSwapOut_SwapperSelfRefundAfterTimeout`'s `panic 0x11` is a bare arithmetic revert with no
 name** — the same undiagnosable shape `§LAZY-OPEN-SHRINK` was fixed for. Trace it before theorising.
 
-## 🔴 §FUZZ-WAS-DEAD — **THE REPO'S ONLY FUZZ TARGET HAD BEEN DEAD SINCE §E183, AND NOTHING COULD REPORT IT** (found 2026-08-22 by the regenerated graph)
+## ✅ §FUZZ-WAS-DEAD — **THE TARGET IS ALIVE AGAIN AND A GATE NOW GUARDS IT. CLOSED 2026-08-23.**
+🔄 **RE-RUN 2026-08-23: `checked 1 fuzz target(s) across 1 directory(ies)` → `every fuzz target's
+imports resolve`.** The gate itself was deleted by an unrelated commit and restored by `1adf7a08`
+(*"Restore the fuzz gate an unrelated commit deleted"*), which is the same shared-checkout collateral
+damage this file documents elsewhere — **the row's own fix needed re-fixing, and nothing announced
+that either.** The finding below is kept: it is why `tools/check-fuzz-targets.py` exists.
 
 `quid-hop/fuzz/fuzz_targets/lp_auth.rs` fuzzed `quid_hop::lp_auth::read_lp_auth`. **§E183 item 1
 deleted that module** with the EVM signature it decoded: no `lp_auth.rs`, no `mod lp_auth`, zero
@@ -3954,7 +3959,14 @@ call sites stopped being inlined. Verified against an unmodified baseline at the
 code-caused new failures across 482 tests (the only three names unique to the run are `HTTP 403`
 archive-gating), zero arming-verification errors, Rust 712/0.
 
-### 🔴 THE `isBTC`-FOLD RENAMES NEVER REACHED THE CLIENTS — `check-client-abis.py` IS RED, AND ONE HALF WAS A LIVE MONEY-PATH CALL (2026-08-17)
+### ✅ THE `isBTC`-FOLD RENAMES REACHED THE CLIENTS — **`check-client-abis.py` IS GREEN. CLOSED 2026-08-23.**
+🔄 **RE-RUN 2026-08-23: `116 Rust signatures, 0 drifted` · `68 SPA signatures, 0 drifted`.** This row
+opened at **4 Rust + 11 SPA drifted** and its body already recorded the Rust half as fixed; the SPA
+half has since landed too, so the header's claim — *"NEVER REACHED THE CLIENTS … IS RED"* — is false
+as written and was the first thing a reader saw. **Closed on a re-run, not on an argument.**
+⚠️ Closing the GATE is what is closed here, not the discipline: the gate is the only client-side check
+this tree has (`spa/` has no `node_modules`, so `tsc` cannot run at all), so it stays a commit gate.
+The original evidence is kept below because it is the worked example of what the ORPHAN check catches.
 
 Run at `c7da4686`: **4 Rust drifted, 11 SPA drifted.** None of it is the §E233-ladder change (the gate
 reports my new 5-parameter `splice` selector as MATCHING, which is the positive result — the encoder
@@ -6266,7 +6278,17 @@ threshold must land in the SAME change, or the first deep drain panics `0x11` in
 `retainSkewPremium`. ⚠️ §E104's lesson stands and now has a number: **the test that proves it must
 drive q past the threshold above**, not merely to zero.
 
-## §E274-SIZE — 🔴 **`Quid` IS AT 86 BYTES OF EIP-170 MARGIN ON `main`, MEASURED CLEAN**
+## §E274-SIZE — 🔴 **`Quid`'s EIP-170 MARGIN IS THE BINDING CONSTRAINT. THE NUMBER MOVES; RE-MEASURE, NEVER QUOTE.**
+🔄 **RE-MEASURED 2026-08-23: `Quid` 23,788 — 788 BYTES TO SPARE.** The header of this row said **86**
+and was that stale for two days. It read **472** earlier in the SAME SESSION that re-measured it, then
+**788** an hour later when §E346 moved `onlyUs`'s body out of the modifier. **86 → 472 → 788 with no
+action from the row's own owner** — the margin is moved by whoever last touched the contract, so a
+figure written here describes a tree that no longer exists by the time it is read.
+⇒ **THE ROW STAYS OPEN AND THE NUMBER LEAVES IT.** The constraint is real (`Quid` is still tightest of
+30 deployable contracts); the FIGURE is not a status, it is a reading. Run
+`python3 tools/check-contract-sizes.py` — it takes seconds and is the only trustworthy answer.
+⚠️ This is standing rule 16 arriving through a number instead of a checkbox: a stale margin either
+blocks an affordable change or waves through an unaffordable one, and both failures are silent.
 ⚠️ **RENAMED FROM §E274 — ID COLLISION.** Another thread was already using §E274 for the Γ derivation
 (`Γ = 5.48e15` from `FLOW_DECAY`'s 48h half-life) and cites it FROM SOURCE COMMENTS in `SwapLib.sol`.
 Theirs keeps the bare number because code references are the expensive ones to move; this row takes
@@ -11479,7 +11501,7 @@ before you push, and finish the refactor in the direction the landed half alread
 half-landed signature change is not a merge conflict; it is a compile error waiting for whoever pulls.
 ---
 
-## ✅ §E319 — **FOLD KEY: THE NINE FOLDED FILES AND THEIR HOSTS. `check-doc-symbols.py` LISTS THEM AS MISSING AND THEY ARE NOT TOMBSTONES.**
+## ✅ §E319-FOLDKEY — **FOLD KEY: THE NINE FOLDED FILES AND THEIR HOSTS. `check-doc-symbols.py` LISTS THEM AS MISSING AND THEY ARE NOT TOMBSTONES.**
 
 `tools/check-doc-symbols.py` reports 68 cited-but-absent `.sol` files. CLAUDE.md says to classify each
 row as **RENAME** or **TOMBSTONE** before touching anything. Nine of those rows are neither: they are
@@ -11663,7 +11685,7 @@ bodies into every inheritor — this file already measured that at **+41 bytes, 
 these four into `Shares` is **byte-neutral**: it deletes four duplicate DECLARATIONS (standing rule 2)
 and nothing else. The size lever remains `Quid`'s 93 ABI selectors, unchanged by this.
 ⚠️ **AND TWO OF THE FOUR ARE NOT MECHANICAL.** `creditSkewPremium` carries a DIFFERENT modifier on each
-side (`onlyUs` vs `onlyUsBtc` — byte-identical bodies, see §E319), and `soldFractionWad` is `public` on
+side (`onlyUs` vs `onlyUsBtc` — byte-identical bodies, see §E319-FOLDKEY), and `soldFractionWad` is `public` on
 `Quid` and `external` on `Vault`. Hoisting must settle both, not paper over them. The guard operands
 (`CORE`, `AUX`) are **per-contract immutables** — `Vault.sol:97-98` has them `immutable`, `Quid.sol:48`
 does not — so the guard itself cannot move up without making `Vault`'s reads SLOADs, which is a gas
@@ -11767,7 +11789,7 @@ drop the entry."* Both halves resolved with evidence:
 
 ---
 
-## §E323 — **TWO FOLD FACTS THAT LIVED ONLY IN A COMMIT MESSAGE, AND ONE OF THEM IS A REPEAT LOSS**
+## §E323-FOLDFACTS — **TWO FOLD FACTS THAT LIVED ONLY IN A COMMIT MESSAGE, AND ONE OF THEM IS A REPEAT LOSS**
 
 Found by grepping `SPRINT.md` for the substance of `d3262881`'s body and getting **zero hits** — the
 same audit `§C26` ran, arriving at the same class of gap from the other side of the tree. A commit
@@ -11816,3 +11838,62 @@ every symbol the source got from its own imports. Neither is caught by reading t
 defects are about what is ABSENT from the new context.
 📌 Also: a carried `/// @title` becomes **invalid natspec on a function** and mislabels the host file.
 Relabel it to a section `@notice` in the same edit (done for `ExitLib`'s).
+
+---
+
+## 🔴 §E324-SPRINT-ROT — **THE OPEN COUNT IS 262 AND IT IS NOT TRUSTWORTHY. THREE ROWS RE-RUN, THREE WERE STALE.**
+
+Asked directly whether the open items are really open. Measured rather than estimated, and the answer
+is that **the file has caught the disease `CLAUDE.md` already documents for `QUEUE.md`** — *"the
+STATUS-MARKER COLUMN IS UNRELIABLE — PLAN FROM ROW BODIES"*. It is now true here too.
+
+### The shape of the file, measured 2026-08-23
+
+| | |
+|---|---|
+| lines | **~11,800** |
+| `##`/`###` sections | **707** |
+| marked OPEN (🔴/🟠/⏸️) | **262** |
+| open sections stating a FALSIFIABLE fact | **77** |
+| distinct `§E` ids in headings | 148 |
+| ids reused by two headings **>200 lines apart** (true collisions, not sub-headings) | **22** |
+
+### What re-running the falsifiable ones found — 3 for 3
+
+Only the subset whose claim maps to a mechanical gate was re-run. **Every one was stale:**
+
+| row | claimed | re-measured 2026-08-23 |
+|---|---|---|
+| `§FUZZ-WAS-DEAD` | *"the repo's only fuzz target had been DEAD"* | `every fuzz target's imports resolve` — and the GATE itself had been deleted and restored by `1adf7a08` |
+| *"`isBTC`-fold renames NEVER reached the clients"* | **4 Rust + 11 SPA drifted** | **0 drifted / 0 drifted** |
+| `§E274-SIZE` | *"`Quid` IS AT **86 BYTES** of EIP-170 margin"* | **788** — and it read **472** earlier in the same session, before §E346 |
+
+**All six mechanical gates are green right now:** `forge build` 0 errors · `check-client-abis` 0/0 ·
+`check-fuzz-targets` resolves · `check-pnl-agnostic` clean · `check-signer-allowlist` clean ·
+`check-skew-agnostic` clean. **Any open row asserting one of those is failing is stale by construction.**
+
+⚠️ **THE THIRD ROW IS THE INSTRUCTIVE ONE, BECAUSE ITS NUMBER WENT STALE TWICE IN ONE DAY.** `Quid`'s
+margin read 86 → 472 → 788 with no action from the row's owner: **whoever last touches the contract
+moves it.** A figure like that is not a status, it is a reading, and putting a reading in a heading
+guarantees the heading is wrong. That row now carries the instruction to re-measure instead of a number.
+
+### 🔴 WHAT THIS DOES *NOT* LICENSE, AND IT IS THE WHOLE RISK OF ACTING ON IT
+
+**Only ~6 of the 77 were re-run** — the ones a gate can answer in seconds. **The other ~71 assert
+things no tool checks** (a design decision, a trace, an owner ruling), and *"three of the cheap ones
+were stale"* is **not** evidence the expensive ones are. Standing rule 16 binds hardest exactly here:
+a ✅ is how the next thread decides what not to read, so a sweep that closes rows by *sampling* deletes
+live work silently. **Close a row only by re-running ITS OWN claim.**
+
+### ⇒ The consolidation this argues for, in order, none of it done here
+
+1. **Re-run the remaining ~71 falsifiable open rows**, one by one, closing only what its own check
+   refutes. The greppable tells are already known: *"does not build"*, *"zero references"*,
+   *"NOT BUILT"*, *"cannot"*, *"never"*.
+2. **Split archive from sprint.** 707 sections is not a sprint; it is `BUILD-QUEUE-AND-107.md`'s role
+   — append-only, evidence authoritative, **status markers not**. The live set should be the handful
+   a thread can hold, with everything else moved and marked archival **in the same commit**.
+3. **Fix the 22 id collisions by SUFFIX, never by renumbering** (`§E319-FOLDKEY`, `§E323-FOLDFACTS`
+   were suffixed on this pass). A bare `see §E257` currently resolves to two different rows ~7,900
+   lines apart, so **every citation in this file is ambiguous until this is done** — which is also why
+   renumbering is forbidden: it breaks the citations that do resolve.
