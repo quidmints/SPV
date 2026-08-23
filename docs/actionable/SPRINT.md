@@ -40,15 +40,55 @@ the test's CLAIM or its PREMISE.
 |---|---|---|
 | a | ✅ **DECIDED AND LANDED (`f5499659`, §E279).** `retainSkewPremium` is the intended charge; `_fillDelta`'s was the duplicate and is **deleted** (`Core.sol` now carries `wellSkew`/`sellSkew` in **prose only** — verified: zero application sites). The decision was forced by enumeration, not preference: `retainSkewPremium` is the ONLY caller of `recordSkewPremium`, so cutting it would have silently stopped the LP credit (§E280). **All 3 dependent findings retire with it** — see (a′) below. | ~~the named test, and 3 findings~~ — retired |
 | a′ | ⚠️ **THE ROW'S HEADLINE NUMBER WAS WRONG AND THE CORRECTION MATTERS MORE THAN THE FIX.** "5.91% realised" assumes `s` = the flat 3e16 sentinel, but `wellSkew` **caps** at `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and at σ²=0 with ETH's zero splice floor that is **0**. Zero charged twice is zero ⇒ **the live over-charge on the ETH path in the title was 0%.** It is real on BTC (`SPLICE_FLOOR` ⇒ 0.2% realised as 0.3996%) and **arms the moment σ² becomes non-zero** (row b). ⇒ Closing (b) without (a) landed would have SILENTLY DOUBLED the ETH drain charge. | — |
-| b | ⏸️ **ANSWERED, NOT BUILT — AND THE ✅ THAT STOOD HERE WAS A RULE-16 VIOLATION.** The DESIGN is settled by §E343 (σ² from Chainlink's OWN rounds: 57.3 updates/day, 20.5-min median gap, implied σ 95.5%; §E222's independent-source rule is scoped to the DEVIATION GUARD, not to variance). **The CODE is unchanged: σ² ≡ 0 on both instances, live, today.** Measured 2026-08-23 — `pushObservation` has exactly one production caller and it is a **manual forge script** (`script/PushObservation.s.sol`), `_observeIfSourced` has no source pinned (`DeployLib.sol:139`), so the ring's two writers still both never run (§E294/§E308). ⇒ **A design decision is not a closure (rule 16).** ⛔ *"Sign the 1inch read at deploy" does not work — σ² needs a SERIES and a deploy-time value is one number.* | §E283, §E326, §ORACLE-FRESHNESS(a) — **still blocked**, plus row (a′) and the 5 void controls below |
+| b | ✅ **BUILT AND LANDED (§E345).** σ² is no longer identically 0: `Core._sampleAnchorVariance` folds squared Chainlink-anchor returns into two `Flow` registers on each swap, and `realizedVarianceWad` returns `max(ring, anchor)`. **The row's own falsifiable claim — *"the ring's two writers still both never run"* — is still TRUE and no longer matters**, because the estimate no longer depends on either. ⭐ **AND THE ORDERING CONSTRAINT ROW (a′) NAMES WAS SATISFIED, WHICH IS THE ONLY REASON THIS COULD LAND TODAY:** *"closing (b) without (a) landed would have SILENTLY DOUBLED the ETH drain charge"* — (a) landed in `f5499659`, so arming σ² arms ONE charge, not two. Landing these in the other order would have doubled the ETH drain charge at the moment σ² went live, with nothing to announce it. | §E283, §E326, §ORACLE-FRESHNESS(a) — **unblocked**; the 5 void controls below should now have a live premise |
 | b′ | 🔬 **THE DOWNSTREAM EVIDENCE, MEASURED, SO THIS IS NOT A PAPER ROW.** σ²=0 is not merely theoretical: **5 of the 7 pre-existing `DrainAtomicity` failures are its direct consequence**, each failing its OWN `CONTROL:` guard with `0 <= 0` — *"the range must actually be skewed before the reseat"*, *"the big leg must actually be charged skew"*, *"the target move must change the skew"*, and both patience arms. ⚠️ **THEY ARE NOT BROKEN TESTS AND MUST NOT BE "FIXED".** They are correctly written and **VOID** — including `test_UNITB_CounterMatchesWhatTheSwapperLoses`, which is exactly the non-`assertGt` instrument §E279 asks for and already exists. They unblock on σ²>0, i.e. on THIS row, and on no test edit. | writing a second instrument here would also be void |
-| b″ | ▶️ **NEXT BUILD, SCOPED — and it needs no keeper, no source pin, no "which pool" decision (the one the owner rejected three times).** Accumulate squared log-returns of the Chainlink anchor into an EWMA on each swap — the same O(1) pattern `_bumpFlow` already uses, one call site (`Core.swap`). ⛔ **DO NOT DELETE THE RING**: `twapResolve` reads it, so removing it leaves a single Chainlink round as the settle price and loses TWAP smoothing. The ring's SMOOTHING job survives; only its INDEPENDENT-SOURCE job is v4 residue. ⚠️ `Core.sol:1385` carried the sentence that refutes this approach (*"a ring sourced from [Chainlink] would measure σ² ≈ 0"*) — **corrected in-code 2026-08-23 with §E343's measurement**, because a builder reading it goes back to a 1inch keeper, whose CADENCE is the one manipulation the 50 bps range does not bound. | — |
+| b″ | ✅ **BUILT — §E345, AND IT FOUND A REASON §E343 DID NOT HAVE.** §E343's argument was that variance needs no INDEPENDENT source (one series, so §E222's disagreement rule does not reach it). True, and not the binding reason. **The binding reason is that `pushObservation` is PERMISSIONLESS, so the ring is written by the party who profits from suppressing σ².** `pushObservation`'s own §AUDIT-PUSHOBS note describes exactly that attack — *"a stream of in-range values fills the ring, makes σ² small-but-MEASURED, and REPLACES the ceiling sentinel with a floor-ish number"* — and gated only the BTC instance, because it read the hazard as a WBTC-basis problem rather than a WRITABILITY one. ⛔ **The ±50 bps bound does not cover it: it constrains where the series IS, not how much it SHAKES.** ⇒ sourcing σ² from the anchor removes the write access rather than guarding its use (rule 17). The ring was NOT deleted, as instructed. | — |
 | c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? ▶️ **§E343 found the clean form: price it into where the order RESTS, not into the fill** — the trigger includes it, the fill honours its stated price, limit semantics intact. Cheapest of the four. | a standing unpriced maker discount on every crossed resting order |
 | d | **§E330** — should a range deep relative to its flow earn NOTHING? | it is why "PREMISE: fees actually accrued" fails; §E326 depends on the answer |
 
 ## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 12,187 BYTES OVER** (§E330). `Quid` 24,104 + `Vault` 12,659 =
 36,763 vs 24,576. §E315's remedy (delete the 4626 face) is 12 selectors against a 12 KB gap. **Re-plan
 against the real number**; the `setBtcVault` ×3 consolidation and the lib merges sit behind it.
+
+## 3b. 🟢 **§E345 — LANDED THIS SESSION, AND IT CARRIES A SECOND DEFECT THAT WAS NOT BOOKED ANYWHERE**
+Beyond turning σ² on (row b/b″ above), the same read had a live sentinel bug. `realizedVarianceWad`
+resolved *"unmeasured"* vs *"measured and calm"* with `cardinality >= 2`, but **`ringVariance` cannot
+estimate until `cardinality >= 4`** (it needs `card >= 3` AND `m = n-2 >= 2` with `n = min(9, card)`).
+So for `cardinality` ∈ {2,3} it returned **1** — *"measured, genuinely calm"* — for a ring that had
+measured **nothing**, which stops `skewWad`'s `if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW` from
+firing and drops the flat 3% unknown-variance charge on a drain to the §E216 depletion term alone.
+🔴 **REACHABLE WITHOUT PERMISSION:** `seedRing` leaves `cardinality` at 1 and `pushObservation` is
+permissionless, so **two honest pushes in distinct blocks land in the window.**
+⚠️ **THE TREE ALREADY RECORDED THE SYMPTOM AND READ IT AS DATA.** §E216's comment says *"the patience
+instrument logs σ² = 1 — real data, so the `== 0` sentinel does NOT fire — with `wellSkew` = 0 at every
+slice. A free drain needing no patience, only calm."* **1 is not real data; 1 is the manufactured
+sentinel.** The instrument was reading this bug and the note explained it away — a dismissal that was
+never checked (rule 13), sitting in-code for anyone to inherit.
+⭐ **THE FIX IS NOT `>= 4`.** Re-tuning leaves two functions that must agree on what *measured* means —
+the drift this one already lost — and `ringVariance` has other honest-zero exits (`!initialized`,
+non-advancing timestamps, `rate == 0`) that **no cardinality test can see**. The guess is deleted and
+the ambiguity resolved with a second real measurement instead (rule 17: the clamp deletes itself).
+▶️ **AND THE COMBINATION RULE IS `max(ring, anchor)`, NOT RING-PREFERRED.** Both consumers move
+CONSERVATIVELY as σ² rises (`skewWad` widens; `QuidLib.derivedThetaWad`, Merton `avgYield/(K·σ²)`,
+deploys less depth), so `max` leaves the permissionless writer able to move σ² only UPWARD — the
+direction that costs him. Ring-preferred hands the profitable direction back: he could no longer
+suppress to 0, but he could still pin a low non-zero reading UNDER the anchor's. **0 from both still
+means UNMEASURED and still charges the ceiling.**
+⚠️ **RESIDUAL, NAMED RATHER THAN IMPLIED:** he can still INFLATE σ² and widen the spread other traders
+pay. That grief predates this change, is bounded by the ±50 bps push range, and is the direction an
+attacker pays for rather than profits by. **Not closed here.**
+📌 **COST: `Core` +639 bytes (10,665 → 11,304), margin 13,272. `Quid` untouched.** The per-swap read is
+a `twapResolve` delegatecall reusing the tested anchor reader — deliberately NOT a second
+`latestRoundData` in `Core`, and deliberately NOT `px` (which is the RING's TWAP and would become
+self-referential the moment a source is pinned).
+🔴 **STILL OPEN AND IT IS THE HONEST GAP: NOT VERIFIED BY A FIXTURE THAT EXERCISES IT.** The bare
+`AllesFixture` leaves `AUX.assetPriceFeed(WETH)` at `address(0)`, so `twapResolve` takes its
+`feed == 0` exit and the sampler is INERT — **eight injected 2% moves and eight landed swaps produced
+σ² = 0** before the anchor was pinned with `AUX.setAssetFeed`. Production DOES pin both feeds
+(`DeployL1_s.sol:356-357`), so the path is live there. ⇒ **The remaining check is a regression diff on
+the fixtures that DO pin the anchor (`Alles.t.sol:1096,1945`), and specifically whether the 5
+`DrainAtomicity` controls that were VOID at σ²=0 now have a live premise** — that is the cheapest
+existing-test confirmation that σ² is really non-zero on the money path.
 
 ## 4b. 🔵 **THE MARGIN TABLE EVERY SIZE ARGUMENT IN THIS REPO RESTS ON IS STALE BY 13.4 KB — `Core` HAS 13,911 BYTES FREE, NOT 551** (§E344, measured 2026-08-23 @`9896c5be`)
 `python3 tools/check-contract-sizes.py` against a warm, verified-fresh `evm/out` (artifact 13:49 > source
