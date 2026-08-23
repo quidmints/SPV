@@ -1000,7 +1000,7 @@ exceeds a block is not a pass — it is a design refutation wearing a green tick
 instead of the ADDRESS**:
 "1inch was removed" is true of one of these and false of the other, and the two sit one letter apart
 in prose. Same shape as this repo's rule about auditing by structure rather than by type name.
-| `FixedRateFill` | tested (`FillAndBatch.t.sol`), **no production caller** | Its own landing commit says so on purpose — `5d710605`: *"the fixed-rate fill, **unbuilt and with no callers**"*. It is the settlement primitive meant to replace the v4 AMM (§28, Phase 3 step 1). **A marker for work not yet built, which is exactly the `create_sweep_tx` shape.** |
+| `FixedRateFill` | tested (`FillAndBatch.t.sol`), **no production caller** | Its own landing commit says so on purpose — `5d710605`: *"the fixed-rate fill, **unbuilt and with no callers**"*. It is the settlement primitive meant to replace the v4 AMM (§28, Phase 3 step 1). **A marker for work not yet built, which is exactly the `create_sweep_tx` shape.** 📌 **COORDINATE @`7e32eb48`: `FixedRateFill.sol` no longer exists — folded into `SwapLib` by §E310. The primitive is `SwapLib.quoteFill` (`:2629`) and the @title moved to `SwapLib.sol:2511`. Re-verified: still ZERO callers in `src`, `test` and `script`, so the "marker for unbuilt work, do not delete" verdict is unchanged — only the file is.** |
 
 ⇒ **"No caller" is not the test; "no caller AND no reason" is.** The three I deleted had neither a
 caller nor a job. These two have a job that has not been wired yet, and the reason is written down in
@@ -1022,6 +1022,17 @@ headroom, moving the binding constraint to `Quid` (558).
 lines (marginal); `SortedSetLib` 1 consumer (converting would **add** a seam and save nothing);
 `ExternalTwap`/`FixedRateFill` 0 consumers — see §E243/E222, they are *unwired*, not
 inlining-expensive.
+📌 **THREE OF THOSE FOUR CANDIDATES NO LONGER EXIST AS FILES (verified @`7e32eb48`), so this de-inlining
+row has shrunk to `SortedSetLib`.** `ExternalTwap.sol` was folded into `OracleLib` (§E318 — the only
+`ExternalTwap` string left in `evm/src` is `OracleLib.sol:405` recording the fold); `FixedRateFill.sol`
+and `ShareMath.sol` were folded into `SwapLib` (§E310; the surviving mentions are `SwapLib.sol:1435`
+and `:2511`, the latter *"THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title)"*). **The
+`unwired` VERDICT still holds for the primitive itself — `quoteFill` (`SwapLib.sol:2629`) has zero
+callers in `src`, `test` or `script` — so the row below about not deleting it is unchanged. Only the
+de-inlining question is moot, because there is no separate library left to de-inline.**
+⚠️ **And the headroom figures in the paragraph above are stale: `BTCChannels` is **1,163** and `Quid`
+**788** @`7e32eb48`, not 815 and 558.** `Quid` is still the binding constraint, which is the part that
+mattered.
 
 ---
 

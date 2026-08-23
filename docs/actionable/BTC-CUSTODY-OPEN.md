@@ -159,7 +159,20 @@ documented, and the mnemonic kept as the system of record.
    `spa/src/lib/regime.ts` documents itself as source-agnostic and says the LP-facing regime "must
    COMBINE" internal-pool and external-market sources because pool state alone is circular.
    `lib/market.ts` grew its own `marketRegime` and does not import it. `fetchRegime` /
-   `classifyRegime` / `decodeTwapTicks` have **no caller**. ⇒ Wire it into the combination, or
+   `classifyRegime` / `decodeTwapTicks` have **no caller**.
+   📌 **RE-VERIFIED 2026-08-23 — THE FINDING HOLDS AND TWO OF ITS THREE COORDINATES DO NOT.**
+   (a) `decodeTwapTicks` **does not exist anywhere in the tree**; the function is
+   `regime.decodeTwapLogPrices` (`spa/src/lib/regime.ts:83`), and it too has no caller outside
+   `regime.ts:137` plus one comment in `abi.ts:19`. (b) The competing classifier is
+   **`quant.ts:128`, not `market.ts`** — `market.ts:4` imports only the `Regime` TYPE from
+   `regime.ts` — and unlike the three above it **IS** called, at
+   `spa/src/app/api/market/route.ts:150,152`. (c) `fetchRegime` (`regime.ts:127`) and
+   `classifyRegime` (`:109`) confirmed callerless: `classifyRegime`'s only reference is
+   `fetchRegime`'s own body, and `fetchRegime` has none at all.
+   ⇒ **The asymmetry the item describes is exactly right — the shared, source-agnostic classifier is
+   dead while a private one serves the live route.** Only the file and function names had rotted, and
+   a reader who greps `decodeTwapTicks`, finds nothing, and concludes the item is obsolete would be
+   wrong twice over. ⇒ Wire it into the combination, or
    delete it and drop the framing. Leaving it reads as a live half of a combination that does not
    exist. **Do NOT wire it into the keeper** — the keeper's dwell gates on the position's own LTV,
    which is the right basis for an action whose cost is that position's gas.
