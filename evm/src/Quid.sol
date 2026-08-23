@@ -168,8 +168,16 @@ contract Quid is Shares,
     ///      `_pricingBacking` both need the PAIR; only what they do with the difference differs
     ///      (unsigned there, signed here), so the two external reads are what is shared.
     function _usdLegs6() private view returns (uint usd6, uint base6) {
-        usd6 = CORE.POOLED_USD(); base6 = CORE.basketUsd();
+        usd6 = _corePooledUsd6(); base6 = CORE.basketUsd();
     }
+
+    /// @dev §E347d — the three `Core` reads `Quid` makes from more than one place. Each call site
+    ///      of an external `view` is its own encode + STATICCALL + decode; these are the last
+    ///      repeated ones left in the file. `_corePrice` also drops `poolStats`'s second return in
+    ///      ONE place instead of at both sites that wanted only the price.
+    function _corePooled()     private view returns (uint) { return CORE.POOLED(); }
+    function _corePooledUsd6() private view returns (uint) { return CORE.POOLED_USD(); }
+    function _corePrice()      private view returns (uint p) { (p,) = CORE.poolStats(); }
 
     /// @dev §E347 — the 6-dec-USD → 18-dec QU!D mint, one copy instead of three
     ///      (`_settlePending`'s fee leg, `_payUsdLeg`'s range-increment leg, `_withdraw`'s
@@ -628,7 +636,7 @@ contract Quid is Shares,
         private returns (uint excess) {
         uint venueBal = _venueBalance();
         uint vaultShare = plainDepth > 0 ? SoladyMath.fullMulDiv(venueBal, amount, plainDepth) : venueBal;
-        uint inPool = CORE.POOLED();
+        uint inPool = _corePooled();
         excess = Math.min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0);
         if (excess > 0) excess = _sendETH(excess, recipient);
     }
@@ -1089,8 +1097,7 @@ contract Quid is Shares,
     ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate range.
     ///         ETH range (the BTC parallel lives on the Vault with the BTC ticks/ordering).
     function soldFractionWad(uint syncKeyPx) public view returns (uint) {
-        (uint priceWad,) = CORE.poolStats();
-        return SwapLib.soldFractionWad(syncKeyPx, priceWad, _lo(), _hi());
+        return SwapLib.soldFractionWad(syncKeyPx, _corePrice(), _lo(), _hi());
     }
 
     /// @notice The range's current spot √P (Q96) — the leverage records this as its `syncKeyPx` at open so
@@ -1102,7 +1109,7 @@ contract Quid is Shares,
     ///      mis-pricing waiting on a range mis-wiring: it returns the wrong asset's price rather than
     ///      reverting. Each side now names its own asset and cannot be asked for the other's.
     function rangePrice() external view returns (uint priceWad) {
-        (priceWad,) = CORE.poolStats();
+        return _corePrice();
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in QuidLib
@@ -1216,8 +1223,8 @@ contract Quid is Shares,
     /// @param usdWanted 18-dec USD shortfall to free. @return usdFreed 18-dec USD actually freed.
     function unwindForRedeem(uint usdWanted) external onlyUs returns (uint usdFreed) {
         if (usdWanted == 0) return 0;
-        uint usd6 = CORE.POOLED_USD();     // range's in-range USD leg (6-dec)
-        uint eth  = CORE.POOLED();         // range's in-range ETH leg (18-dec)
+        uint usd6 = _corePooledUsd6();     // range's in-range USD leg (6-dec)
+        uint eth  = _corePooled();         // range's in-range ETH leg (18-dec)
         if (usd6 == 0 || eth == 0) return 0; // empty range -> free stables only
         _rebalance();   // §V4-RESIDUE 2026-08-18: kept for its EFFECT; returns are all unused now.
         // ROOT-PRECISE: size the ETH removal by the range's OWN in-range USD/ETH ratio, NOT an external TWAP.
@@ -1226,7 +1233,7 @@ contract Quid is Shares,
         // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
         // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
         _burnInRange(SoladyMath.fullMulDiv(usdWanted, eth, usd6 * 1e12), address(0));
-        uint after6 = CORE.POOLED_USD();
+        uint after6 = _corePooledUsd6();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;
     }
 
