@@ -545,6 +545,40 @@ The same defect put three tombstones in a lane earlier today; this is its genera
 `Γ·σ²·q` with no `sigmaSqWad == 0` guard — not in `Core` where the row files it.
 
 ---
+## 🔬 **§CONSOLIDATION-TARGETS — WHERE THE BLOAT ACTUALLY IS, MEASURED** (2026-08-23; owner: *"less
+functions, less variables, less libraries … still too much bloat, slop, inefficient spread of syntax"*)
+
+**592 implemented functions in `evm/src`. EXACT-duplicate bodies: THREE pairs, 11 lines total** —
+`Quid.rangeOf ∥ Vault.rangeOf`, `Quid._onlyUs ∥ Vault._onlyUsBtc`, `Quid.creditSkewPremium ∥
+Vault.creditSkewPremium` (compared after normalising `Btc`/`Eth` out of identifiers). ⇒ **Exact
+duplication is EXHAUSTED. It is not where the bloat is, and any plan that starts by hunting copy-paste
+will find 11 lines.** All three are the `Quid ∥ Vault` pair, i.e. they die with §J.2 / SPRINT #4, not
+before.
+
+### ▶️ WHERE IT IS: 7 NEAR-DUPLICATE PAIRS (≥80% similar, ≥200 chars), AND THEY CLUSTER
+| sim | pair | note |
+|---|---|---|
+| **0.92 / 0.90 / 0.83** | `BitcoinTx`: `sumOutputValuesToScript` ~ `findOutputByScript` ~ `sumOutputValuesExcept` | 🔴 **THE BIGGEST WIN — ONE output-walking loop written THREE TIMES**, ~600–690 chars each, in a 19,262-byte library. Three functions → one walker + a predicate/accumulator |
+| 0.95 | `Aux._withdraw` ~ `Aux._supply` | 207 chars, near-identical; same file, inverse direction |
+| 0.94 | `LevManager.deleverRepayUsd` ~ `LevBase.debtDeltaToTarget` | **cross-file** — a manager body that is 94% a base-class body it already inherits |
+| 0.88 | `LevMath._sellAndRoute` ~ `_sellAndReturn` | |
+| 0.88 | `LevMath._toUsdc` ~ `_fromUsdc` | ⚠️ §E210 already collapsed the per-stable `if` chains here into `_routeOf` and got **435 bytes** back — this is the residue, and the same technique applies |
+
+⭐ **AND THE MEASURED PRECEDENT FOR WHAT THIS IS WORTH:** folding N INLINED bodies into one routine
+GIVES bytes back (§E210 **+435** on `LevMath`, §E346 **+316** on `Quid`, §DELTATOK-FOLD **+557** net);
+folding a whole CONTRACT in COSTS them (`VEth` cost `Quid` ~1,077). **These 7 are the first kind.**
+⚠️ **BUT `BitcoinTx`, `LevMath` and `LevBase` are LIBRARIES, so `internal` bodies are COPIED INTO EVERY
+CALLER** — the saving multiplies by caller count, and a `public` fold moves the body into the linked
+deployment entirely (the §DELTATOK-FOLD trade).
+⛔ **DO NOT chase "fewer FILES" — measured separately (§FEWER-FILES): zero libraries are foldable.
+Fewer FUNCTIONS and fewer VARIABLES are reachable; fewer FILES is not.**
+▶️ **Detector, so this is re-runnable rather than re-derived:** normalise each function body (strip
+comments/whitespace, strip `Btc`/`Eth` from identifiers), hash for exact groups, then `difflib` ratio
+≥0.80 within a ±25% length band. ⚠️ **EXCLUDE `Interfaces.sol` — declarations have NO body, so a naive
+brace-search grabs the NEXT function's and reports every declaration as a duplicate.** That false
+positive produced 21 bogus groups before it was excluded.
+
+---
 ## ⛔ **HOW TO CLOSE A ROW — A STALE REFERENCE IS A RE-AUDIT TRIGGER, NOT A CLOSURE** (owner,
 2026-08-23, after catching me doing the opposite)
 
