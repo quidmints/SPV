@@ -787,10 +787,15 @@ contract LevCascadeProbe is AllesFixture {
         assertGt(debt, 0, "PREMISE: leverage debt must be outstanding, else the floor has nothing to floor");
 
         // §#12: the per-range floor now applies to the BASKET's contribution, not the curve leg.
+        // §WRONG-RANGE — BOTH LEGS WERE `CORE.basketUsd()`, i.e. the SAME handle, the SAME call, so
+        // `btcPooled18 == ethPooled18` BY CONSTRUCTION and the BTC leg was never read from the BTC
+        // engine. `Aux.swap(USDC, WBTC, …)` settles on `_rangeOf(WBTC)`, which is the OTHER `Core`;
+        // `Alles.t.sol:1404` records this exact class costing **246** failures plus four sibling
+        // buckets, and it was fixed by making `Vault.CORE` public — a fix this file never adopted.
         uint ethPooled18 = CORE.basketUsd() * 1e12;
-        uint btcPooled18 = CORE.basketUsd() * 1e12;
+        uint btcPooled18 = BTC.CORE().basketUsd() * 1e12;
         uint committed   = CORE.committedUsd18();
-        uint btcEquity   = CORE.rangeEquityUsd18();
+        uint btcEquity   = BTC.CORE().rangeEquityUsd18();   // §WRONG-RANGE: the BTC engine's equity
         uint ethEquity   = committed - btcEquity;
         emit log_named_uint("ETH USD leg (18d)", ethPooled18);
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);
@@ -863,11 +868,16 @@ contract LevCascadeProbe is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
 
         // §#12: the per-range floor now applies to the BASKET's contribution, not the curve leg.
+        // §WRONG-RANGE — BOTH LEGS WERE `CORE.basketUsd()`, i.e. the SAME handle, the SAME call, so
+        // `btcPooled18 == ethPooled18` BY CONSTRUCTION and the BTC leg was never read from the BTC
+        // engine. `Aux.swap(USDC, WBTC, …)` settles on `_rangeOf(WBTC)`, which is the OTHER `Core`;
+        // `Alles.t.sol:1404` records this exact class costing **246** failures plus four sibling
+        // buckets, and it was fixed by making `Vault.CORE` public — a fix this file never adopted.
         uint ethPooled18 = CORE.basketUsd() * 1e12;
-        uint btcPooled18 = CORE.basketUsd() * 1e12;
+        uint btcPooled18 = BTC.CORE().basketUsd() * 1e12;
         debt = lm.totalDebtUsd();                             // re-read: the drain may have moved it
         uint committed = CORE.committedUsd18();
-        uint btcEquity = CORE.rangeEquityUsd18();
+        uint btcEquity = BTC.CORE().rangeEquityUsd18();     // §WRONG-RANGE: the BTC engine's equity
         emit log_named_uint("ETH USD leg (18d)", ethPooled18);
         emit log_named_uint("ETH debt    (18d)", debt);
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);
