@@ -154,6 +154,33 @@ attacker pays for rather than profits by. **Not closed here.**
 a `twapResolve` delegatecall reusing the tested anchor reader — deliberately NOT a second
 `latestRoundData` in `Core`, and deliberately NOT `px` (which is the RING's TWAP and would become
 self-referential the moment a source is pinned).
+✅ **MEASURED 2026-08-23, AND THE PREDICTION IN ROW (b′) IS NOT MET — THE REASON IS THE FIXTURE, NOT
+THE FEATURE, AND THAT DISTINCTION IS THE WHOLE RESULT.** A clean like-for-like pair on the ARCHIVE
+endpoint (`ETH_RPC_URL=$ANKR_RPC_URL`, which removes the 429 noise that made every prior comparison
+unreadable) gives **pristine `9896c5be` and the full session's work each failing the SAME 50 tests —
+zero new, zero fixed.** So §E345 introduced no regression, and it also did NOT light up the five void
+`DrainAtomicity` controls.
+🔴 **WHY: `DrainAtomicity` HAS ZERO `setAssetFeed` CALLS.** `AUX.assetPriceFeed(WETH)` is therefore
+`address(0)` in that fixture, `SwapLib.twapResolve` takes its `feed == 0 ⇒ return (price, false)`
+exit, and `_sampleAnchorVariance` reads 0 and declines to sample. **σ² is live in PRODUCTION — both
+feeds are pinned at `DeployL1_s.sol:356-357` — and identically 0 in this suite.** The five controls
+still fail `0 <= 0` verbatim.
+⇒ **ROW (b′) SAID THEY UNBLOCK "ON σ²>0, i.e. ON ROW (b), AND ON NO TEST EDIT". THAT IS NOW FALSIFIED
+IN ITS SECOND HALF.** Row (b) is built and landed; the controls are still void, and the remaining
+step IS a test edit — one line of fixture setup, `AUX.setAssetFeed(WETH, ETH_FEED)` in
+`DrainAtomicity`'s `setUp`.
+⚠️ **AND THAT EDIT IS NOT THE ASSERTION-LOOSENING RULE 4 FORBIDS — IT IS THE EXACT OPPOSITE, WHICH IS
+WHY IT IS SAFE TO SAY SO PLAINLY.** Each of these tests declares its own premise (*"CONTROL: the range
+must actually be skewed before the reseat"*, *"the big leg must actually be charged skew"*). Pinning
+the anchor is what lets that premise HOLD so the test can finally evaluate its CLAIM. Loosening would
+be deleting the control; this establishes it. ▶️ **Expect some of the five to then fail on their real
+claims — that is the point, and those failures are findings.**
+📌 **THE GENERAL LESSON, THIRD INSTANCE IN ONE DAY:** an unpinned `assetPriceFeed` silently disables
+anything reading the anchor and the failure is indistinguishable from a dead feature. It read as
+"σ² does not work" here, as "Morpho will not lend" in §C18, and as "the estimator is broken" when
+§E345 measured 0 across eight injected 2% moves. **Check `assetPriceFeed(ASSET) != 0` before
+concluding any anchor-reading feature is inert.**
+
 🔴 **STILL OPEN AND IT IS THE HONEST GAP: NOT VERIFIED BY A FIXTURE THAT EXERCISES IT.** The bare
 `AllesFixture` leaves `AUX.assetPriceFeed(WETH)` at `address(0)`, so `twapResolve` takes its
 `feed == 0` exit and the sampler is INERT — **eight injected 2% moves and eight landed swaps produced
