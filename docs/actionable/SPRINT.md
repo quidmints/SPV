@@ -3,6 +3,58 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0b. ✅ **WAVE RESULTS — L1/L2/L4 (2026-08-23, single shared tree, no worktrees)**
+
+**Rows closed as ALREADY-DONE by re-measurement, not by re-reading:** `§AUDIT-SPV-RETARGET`
+(`UnalignedCheckpointHeight` @`SPVGateway:25`, its `require` @`:110`) · `§AUDIT-DELIVER-KEYS`
+(`_requireChannelKeys` in the outer frame, 5 siblings intact) · `§E307` residual (`:832-866` corrects
+both digests) · `D2#8` `SignatureChecker` (landed `9896c5be`) · `§E294` *"caller: ZERO in
+src/script/test"* — **false**: `script/PushObservation.s.sol:71` plus 5 test files call it ·
+`§E304-mintclose` (every unit greps 0) · `§WSA-LEV-INERT` (all three of its own actionables landed in
+`46ceab98`).
+
+**Premise-withdrawn:** `§E276` spread-vs-shift — its lead evidence, `Core.sol:1241`'s
+`out -= out*skew`, was **deleted by `f5499659`** · `§E287-init` — ETH's "missing" venue check is
+REDUNDANT, not missing: `vetVenue:316` calls `ILevVenueColl(v).COLLATERAL()`, a returning external
+call, so solc's `extcodesize` guard reverts on `address(0)` before `allowedVenue[v] = true`. **Rule 3:
+do not add it, and do not delete BTC's either** — a typed `BadAuth()` is better diagnostics.
+🔴 **`§E326-WORKSTREAMS` item "A" is REFUTED BY A ROW 100 LINES AWAY IN THIS FILE.** It asserts the
+levered book cannot open a position and **orders the entire sprint `A→C→D→B` on that**. §WSA-LEV-INERT
+measured it false. ⇒ **a sprint ordering derived from a refuted premise is worse than no ordering**,
+because it is followed.
+
+**The one bytecode change in the wave:** `_finalizeClose` did `delete poolOwnedSats[channelId]` after
+`_releasePoolSats(channelId, 0)`. Verified dead at the mutation site — with `remaining == 0` the helper
+either returns at `booked <= remaining` (slot already 0) or assigns `remaining` (0), so **both exits
+leave the slot at zero**. Removed with a note so it is not re-added. `delete poolSatsParker` STAYS:
+different slot, read-only in the helper.
+
+**Doc debris that had reattached natspec to the WRONG member** — 3 of 9 blocks in `LevManager`:
+`event FlashProviderSet` had inherited the deleted BOLD reserve's docblock; a truncated mode-1 block
+sat over `_sellCtx`; `onFlashMintBody`'s sat over `_reimburse`. ⚠️ **This is worse than a stale
+comment: tooling and readers attribute the text to the member below it**, so a deleted feature's
+documentation becomes a live member's specification. One sentence had broken off mid-word at
+`"(mirrors"`.
+
+**Also corrected:** `realizedVarianceWad`'s `@notice` still said *"read DIRECTLY from the observation
+ring"* — the exact sentence its own body complains about `SwapLib` carrying, one frame closer to
+§E345 · `// 9 ring points → 8 returns` is off by one (7), which **under-states §E345's `card >= 4`
+threshold** · `OracleLib`'s header said *"TWO rings … `Observation[65535]`"*, both numbers wrong in one
+sentence · `seedPrices` claimed *"the reference pools are still READ, deliberately"* while `evm/src`
+has **zero** `slot0`/`IPoolManager`/`PoolKey`.
+
+**§E339 got its first in-code marker.** The landmine (`RangeLib:491`, `pos[lp] = p` wholesale
+overwrite silently resetting `ilBasisPx`) had **no note at the site at all** — the only record was in
+SPRINT, so anyone opening the path would never see it. Logic correctly withheld (rule 1: the path is
+unreachable today).
+
+▶️ **Hand-offs the wave produced:** `ILevMintVenue` (`Interfaces.sol:262-265`) greps **0 everywhere** —
+deletable · `§E278`'s σ²=0 sentinel gap is in **`SwapLib.sellSkew`**, which reaches `Γ·σ²·q` with no
+`sigmaSqWad == 0` guard · `IWiredVault.LEV_MANAGER()` is a marker for an unwritten wiring check —
+`BasketLib.assertFullyWired` should assert it, **but verify `setLevManager` (`DeployL1_s:546/:607`)
+precedes `Aux.finalize` first**; today an unwired pin fails SILENTLY (`Vault:302/:384` return 0).
+
+---
 ## 0a. ✅ **§E324-TRIAGE — THE ~47 FILE-LESS ROWS, RE-RUN BY EFFECT (2026-08-23). FOUR DESCRIBE WORK
 THAT ALREADY SHIPPED, AND ONE ✅ WAS FALSE.**
 
