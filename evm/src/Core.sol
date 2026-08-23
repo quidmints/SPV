@@ -950,6 +950,23 @@ contract Core {
         // `RangeLib.sweepOor` for why that cap makes the permissionless poke a liveness requirement.
         RANGE.sweepOor(px, MAX_FILLS_PER_SWAP);
 
+        // §E347 — THE CONSENT GATE MOVES **ABOVE** THE TWO READS IT GOVERNS. `loadBalance` was the
+        // right-hand operand of the `&&` below, so `sharesForShortfall()` and `realInventory()` —
+        // two external `view` calls into the range manager — were made on EVERY swap and their
+        // results discarded whenever the swapper had opted out. `realInventory()` is not a cheap
+        // getter on the ETH side: it aggregates the AAVE / ether.fi venue positions, so an opted-out
+        // swap was paying for a multi-venue traversal it had already declined to act on.
+        // ⚠️ IT IS ALSO A LIVENESS FIX, AND THAT IS THE HALF WORTH KEEPING. Those reads reach
+        // external venues, so a paused or reverting venue made `realInventory()` revert — and
+        // because the call sat OUTSIDE the consent test, that revert bricked EVERY swap, including
+        // the ones that wanted nothing to do with the load-balance. `_observeIfSourced` and
+        // `_sampleAnchorVariance` both state the rule this restores: A READ MUST NOT BE ABLE TO HALT
+        // THE RANGE. Opting out now genuinely opts out of the venue dependency, not merely of its
+        // consequence.
+        // Semantics are otherwise identical: both operands are pure reads and `&&` already
+        // short-circuited, so no state and no ordering changes — only who pays for the reads.
+        if (!loadBalance) return;
+
         // Per-pool shortfall arb. Threshold (1%) and trigger logic are
         // identical across pools; only the remediation differs. Both
         // sides bootstrap symmetrically: at deploy POOLED_X = 0 and
@@ -982,7 +999,8 @@ contract Core {
         // to their own fill, and the LP-side analysis says firing it on every wiggle realizes
         // impermanent loss. So it only fires if `sender` has NOT opted out (default = consent,
         // preserving behavior; the SPA exposes a toggle). Symmetric for WETH and WBTC.
-        if (pooledTok < totalSharesPool && loadBalance) {
+        // §E347 — the consent test is the early return above; only the inventory test remains here.
+        if (pooledTok < totalSharesPool) {
             uint shortfall = totalSharesPool - pooledTok;
             if (shortfall * 100 >= totalSharesPool) {
                 // BTC: route to the hop — real-BTC delivery on L1, consuming NO
