@@ -25,11 +25,27 @@ contract VarPrecision is AllesFixture {
         vm.stopPrank();
     }
 
+    /// §SILENT-SETUP — THE CATCH STAYS, THE SILENCE DOES NOT. This helper was
+    /// `try AUX.swap(...) {} catch {}` with nothing recorded, so a run in which EVERY swap reverted
+    /// was indistinguishable from one in which all 76 landed — and the test below then reports what
+    /// a range with no flow measures, while claiming to report what a CALMLY TRADING one does.
+    /// ⚠️ IT COST REAL TIME, WHICH IS WHY IT IS FIXED HERE FIRST: working §E345 I could not tell
+    /// whether σ² read 0 because the estimator was broken or because no swap had landed. The answer
+    /// needed an ad-hoc `POOLED_USD` log; it should have needed a counter.
+    /// ⛔ THE CATCH IS NOT REMOVED, DELIBERATELY. A drain that exhausts the range SHOULD revert, and
+    /// the size ladder below depends on that — the requirement is a COUNT, not a hard failure.
+    /// ⭐ The pattern is already in this tree: `DrainAtomicity` does `try … { ++buys; } catch {}` and
+    /// `Alles._moveEth` returns `moved`. One line longer, and the test can tell "it ran" from "it
+    /// reverted 76 times".
+    uint internal swapsAttempted;
+    uint internal swapsLanded;
+
     function _swap(uint amt, uint warpMin) internal {
         deal(bold, trader, amt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), amt);
-        try AUX.swap(bold, address(WETH), true, amt, 0, true) {} catch {}
+        ++swapsAttempted;
+        try AUX.swap(bold, address(WETH), true, amt, 0, true) { ++swapsLanded; } catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpMin * 60);
     }
@@ -64,6 +80,14 @@ contract VarPrecision is AllesFixture {
 
         // PREMISE: the calm leg must actually trade, else "0" says nothing about precision.
         assertGt(CORE.POOLED_USD(), 0, "PREMISE: the range is live");
+        // §SILENT-SETUP — AND THE PREMISE THIS FILE ACTUALLY RESTS ON, WHICH WAS NEVER ASSERTED.
+        // `POOLED_USD > 0` says the range was FUNDED; it says nothing about whether a single swap
+        // landed, and every conclusion below is about what TRADING measures. With the helper's
+        // `catch {}` silent, a run where all 76 reverted produced the same "variance 0" line as a
+        // run where none did — and "0" would then be the honest answer to a question nobody asked.
+        emit log_named_uint("swaps landed / attempted   ", swapsLanded);
+        emit log_named_uint("  attempted                ", swapsAttempted);
+        assertGt(swapsLanded, 0, "PREMISE: the fixture actually traded (else this measures nothing)");
         emit log_string("If tick MOVED but variance reads 0 => PRECISION. If tick did not move => the");
         emit log_string("swaps are too small to shift a tick at all, and 0 is the honest answer.");
     }
