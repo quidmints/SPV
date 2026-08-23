@@ -2053,6 +2053,27 @@ library SwapLib {
         return amts[idx];
     }
 
+    /// @notice §SILENT-SKIP — A STUCK LP ON THE DELIVERY PATH IS NOW ANNOUNCED. Its twin already was:
+    ///         `LevManager.cascadeDelever:369` and `BtcLevManager:271` both do
+    ///         `catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }`, while the two catches below
+    ///         were bare. The SKIP is intended on all three (this function's own docblock: *"a stuck
+    ///         LP is skipped, leaving the residual to the #105 partial-fill"*); being UNOBSERVABLE was
+    ///         not. This is the path reached when a swap-out cannot be covered, so a stuck LP here
+    ///         silently becomes a partial fill whose only trace is a shortfall the caller must infer —
+    ///         standing rule 3's case exactly, a failure that is silent and produces plausible-but-
+    ///         wrong output.
+    /// ⚠️      DELIBERATELY **NOT** `DeleverFailed`, AND THE REASON IS THE EMITTER, NOT THE NAME.
+    ///         `DeleverFailed` is declared on `LevBase` and fires from a MANAGER's address. This
+    ///         function is delegatecalled by `Quid`, so anything emitted here comes from **Quid's**
+    ///         address — an indexer filtering `DeleverFailed` by the LevManager would never see it,
+    ///         and one filtering by topic alone would attribute a delivery-side skip to the LTV
+    ///         cascade. Two different faults, two different emitters ⇒ two different events.
+    /// @param  takeFailed distinguishes the two catches: `true` = the basket draw (`takeToSettle`)
+    ///         reverted, so nothing was moved; `false` = the draw SUCCEEDED and the repay/deliver
+    ///         reverted, which means stable has already left the basket for the venue. **They are not
+    ///         the same incident and must not share a flag** — the second leaves state to reconcile.
+    event DeliverDeleverSkipped(address indexed lp, address indexed venue, uint fundUsd, bool takeFailed);
+
     /// @notice §M.1 ETH swap-out DELIVERY-SIDE de-lever ORCHESTRATOR (aggregate; the ETH mirror of BTC
     ///   `deleverOnDelivery`). DELEGATECALL'd by Quid (address(this)==Quid==the LevManager's `RANGE`) from
     ///   `_sendETH` when the venue base (deliverableETH) can't cover a swap-out delivery. Walks the open lev book;
@@ -2097,8 +2118,8 @@ library SwapLib {
             try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
                 try ILevEthDeliver(mgr).swapOutDelever(lp, fundUsd, recipient, 0) returns (uint, uint w) {
                     deliveredEth += w;
-                } catch {}
-            } catch {}
+                } catch { emit DeliverDeleverSkipped(lp, venue, fundUsd, false); }
+            } catch { emit DeliverDeleverSkipped(lp, venue, fundUsd, true); }
         }
     }
 
