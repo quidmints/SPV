@@ -10645,7 +10645,7 @@ suite-state history that `SPRINT.md` does not**; grep both before calling anythi
 
 ## 🔴🔴 §E330 — **THE FOLD'S BLOCKER FIGURE IS STALE BY 2.2×, AND THE "FEES DID NOT ACCRUE" CLUSTER IS A DESIGN CONSEQUENCE, NOT A TEST BUG**
 
-### 1. 🔴 `Quid` ∥ `Vault` IS **12,187 BYTES OVER**, NOT ~5.4 KB — MEASURED, NOT PLANNED
+### 1. ⏸️ `Quid` ∥ `Vault` WAS **12,187 BYTES OVER** AT `6cc35b71`, NOT ~5.4 KB — MEASURED, NOT PLANNED. **IT IS 9,113 TODAY; SEE THE 📌 BELOW THE TABLE.**
 `§E315-HANDOFF` records the merged pair at *"~30,000 vs 24,576, over by **~5.4 KB**"*. Re-measured from
 `deployedBytecode.object` at `6cc35b71`:
 | | bytes |
@@ -10661,10 +10661,10 @@ it cannot close this on its own. ⚠️ **This is the "a stale margin is worse t
 a PLAN rather than a contract: anyone scheduling the fold off 5.4 KB is scheduling against a number
 that is less than half the real one.** ⇒ The fold is not finishable as scoped; re-derive the plan
 against the CURRENT gap before committing to it.
-📌 **AND THE SAME HAZARD ATE THIS ROW'S OWN NUMBER: re-measured 2026-08-23 @`ed10bc01`, `Quid` **23,788**
-+ `Vault` **11,833** = **33,689**, over by **9,113** — §E346 then §E347-QUID took 1,932 off `Quid` and
-842 off `Vault` within hours of
-`6cc35b71`.** The table above is kept as the `6cc35b71` measurement it is labelled as; **the planning
+📌 **AND THE SAME HAZARD ATE THIS ROW'S OWN NUMBER, TWICE IN ONE DAY: re-measured 2026-08-23 from the
+green batched build, `Quid` **21,856** + `Vault` **11,833** = **33,689**, over by **9,113** — §E346 took
+316 off `Quid`, then §E347-QUID another 1,932 and lane D 842 off `Vault`, all within hours of
+`6cc35b71`. The headline went `12,187` → `11,887` → `9,113`.** The table above is kept as the `6cc35b71` measurement it is labelled as; **the planning
 number is whatever `python3 tools/check-contract-sizes.py` says today, and nothing in this file.**
 
 ### 2. 🔴 WHY "PREMISE: fees actually accrued" FAILS — AND IT IS NOT `§E311`, PROVEN TWICE
@@ -10754,8 +10754,8 @@ state across contracts, which is what §E329's instance bug was.
 ### 📌 6-11. THE REST, WITH THEIR REAL COST
 - **`setBtcVault` ×3 at deploy** (`core`, `a.btcCore`, `quid`) — three pins because three objects each
   need the address and none can derive it. Consolidatable only once one of them can ask another;
-  that is the same fold that is **9,113** bytes over (§E330, re-measured after the fleet fold sweep; the row's old
-  12,187 was pre-§E346). **Booked, not attempted.**
+  that is the same fold that is **9,113** bytes over (§E330, re-measured after the fleet fold sweep;
+  the row's old 12,187 predates §E346 and §E347-QUID). **Booked, not attempted.**
 - **`SwapLib.ethRisk()`/`btcRisk()` constants in the constructor** — agreed, this is slop. It is the
   `struct Risk` question too: **all structs belong in `Types.sol`** and the risk parameters belong in
   config, not a library function returning a literal.
