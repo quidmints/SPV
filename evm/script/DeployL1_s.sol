@@ -671,64 +671,24 @@ contract Deploy is Script {
     ///    not read this as clearance. See SPRINT §C17-c: chaining weETH->WETH->USDC multiplies the LTVs
     ///    (0.93 x 0.805 = 74.87%, BELOW the 77.50% available in ONE hop), and at 2x exposure the dollar
     ///    debt lands on a 1.24 WETH base instead of the whole 2 weETH stack, so a 3% ETH move liquidates
-    ///    it. A weETH->USDC borrow reaches 4.44x with a 37.5% buffer in one account and no eMode.
+    ///    it. A weETH->USDC borrow reaches 4.44x with a 37.5% buffer in one account.
     ///
-    /// 📌 EVERY VENUE HERE BORROWS **USDC/RLUSD/PYUSD**, which is why an ETH-denominated IL-protect borrow
-    ///    pays a stable→WETH round trip — the `WETH→USDC` V3 hop exists ONLY because the debt is a stable.
-    ///    With ETH-denominated debt, de-lever is `weETH→WETH` on Curve and the hop disappears.
-    ///
-    /// 🔴 THE MORPHO weETH/WETH MARKET IS **NOT** THE WAY TO GET THAT — THIS NOTE USED TO SAY IT WAS, AND
-    ///    THE NUMBER IT CITED HAS DECAYED 63% IN TWO WEEKS. It read *"EXISTS and is deep … 1,770 WETH
-    ///    liquid, verified 2026-08-08"*. RE-MEASURED 2026-08-22 (id `0x37e7484d…472ba7`):
-    ///      supply 6,519 WETH ($15.5M) · borrowed 5,868 ($14.0M) · **FREE 652 WETH ($1.55M)** · util **90%**
-    ///    ⚠️ "Deep" was a snapshot, and a borrowable-depth snapshot is the fastest-rotting number in this
-    ///    file — utilisation moves it without anyone touching the market.
-    ///
-    /// ✅ **AAVE v3 eMODE DOMINATES IT ON BOTH AXES** (measured 2026-08-22, `getEModeCategoryData(1)`,
-    ///    decoding past the ABI offset word — the naive decode reports a nonsense 0.32% LTV):
-    ///      Aave eMode cat 1 : LTV **93.00%**, liq threshold **95.00%**, bonus 1.00%, **free $808M**
-    ///      Morpho 94.5%     : LLTV 94.50%,                                            free $1.55M
-    ///    Aave's liquidation threshold is HIGHER (95.00 vs 94.50) at **520× the free liquidity**, weETH is
-    ///    active/unfrozen with a 1,350,000 supply cap, and `AaveV3Venue` ALREADY EXISTS and is fork-verified
-    ///    (`test/AaveV3Venue.t.sol`) — it is used for the WBTC leg, not yet for ETH-denominated debt.
-    ///
-    /// ⚠️ WHICH DIRECTION IS CONSTRAINED, because the 90% utilisation is easy to misread: **DE-LEVERING
-    ///    REPAYS, so it can never be blocked by low availability** — repaying ADDS liquidity. The $1.55M
-    ///    caps LEVERING UP only. So the WETH-debt route removes the V3 hop from de-lever unconditionally;
-    ///    what it cannot do is absorb new levered demand past ~$1.55M, at which point positions fall back
-    ///    to the stable markets and the hop returns.
-    /// ▶️ NOT WIRED. `MORPHO_LLTV_945` / `WEETH_WETH_ORACLE` are the market's coordinates and have a LIVE
-    ///    TEST consumer (`LevVenueMarketPins.t.sol` asserts both against the on-chain market and that the
-    ///    LLTV has not collapsed onto the 86% stable-leg one), so they are the `create_sweep_tx` shape —
-    ///    a maintained, tested marker for an unbuilt feature, NOT litter. Do not delete them.
-    ///
-    /// ⛔ **AND THE FEATURE THEY MARK SHOULD NOT BE BUILT: ETH-DENOMINATED DEBT IS NOT MERELY UNNECESSARY
-    ///    HERE, IT IS THE WRONG SIGN FOR THIS PRODUCT** (owner, 2026-08-23; derived below, not measured).
-    ///    Everything above argues eMode as the cheapest ROUTE to WETH debt, and treats "can we borrow WETH
-    ///    against weETH" as the open question — a LIQUIDITY question. That framing is what makes the note
-    ///    read as live work. The binding question is not liquidity, it is DIRECTION:
-    ///      • The hedge exists to offset UP-SIDE IL, `1 − √(entry/now)` (`LevMath.ilTargetBps`), which is
-    ///        the range's under-exposure as price RISES. Offsetting it means being **LONG ETH**.
-    ///      • Borrow DOLLARS against weETH ⇒ you hold ETH and owe USD ⇒ **long ETH**. That is the hedge.
-    ///      • Borrow WETH against weETH ⇒ you hold ETH and owe ETH ⇒ **delta-flat**. It does not offset the
-    ///        IL; it cancels the very exposure the overlay is trying to add.
-    ///    ⇒ **The dollar leg is structural, not a workaround for a shallow market**, and the live code says
-    ///    so at every borrow site: `LevVenueBase:148` `MORPHO.borrow(_params(), stableAmount, …)`, `:244`
-    ///    `POOL.borrow(STABLE, …)`, `LevMath:186` and `BtcLib:587` `venue.borrow(lp, _fromUsd(…, stable, usd))`,
-    ///    `LevManager:618` the same. `QuidLib.sol:934` already reached this conclusion from the other side —
-    ///    *"MorphoEscrowVenue.borrow(lp, stableAmount) lends STABLE, not WETH, so 'borrow WETH against
-    ///    weETH' has no market behind it … the SOR double-charge the design exists to avoid"* — and that
-    ///    note records a mis-repoint that delivered withdrawers NOTHING, caught by three tests.
-    /// ⚠️ **WHAT THE eMODE MEASUREMENT IS STILL GOOD FOR, so it is corrected rather than deleted:** it is a
-    ///    correct comparison of two markets for a leg we do not want. The 93/95% eMode numbers and the
-    ///    Morpho decay (1,770 → 652 free WETH in two weeks) stay as the record of why a borrowable-depth
-    ///    snapshot is the fastest-rotting number in this file. **They are not a reason to wire eMode.**
-    ///    ⚠️ ONE CLAIM ABOVE SURVIVES INTACT AND IS WORTH KEEPING SEPARATE: *"de-levering REPAYS, so it can
-    ///    never be blocked by low availability."* True, and it is why the liquidity axis was never the
-    ///    blocker in the first place — which is the same conclusion this note now reaches from direction.
-    /// 🔴 **IF ANYONE REOPENS THIS, THE THING TO FALSIFY IS THE DIRECTION ARGUMENT, NOT THE DEPTH NUMBERS.**
-    ///    Show a construction where WETH debt still leaves the position long ETH, or that the overlay is
-    ///    meant to be delta-flat. Re-measuring Morpho's free WETH answers a question nobody is asking.
+    /// ⛔ **eMODE / ETH-DENOMINATED DEBT: RULED OUT BY THE OWNER (2026-08-23). DO NOT WIRE IT, AND
+    ///    DO NOT RE-MEASURE MORPHO'S FREE WETH TO REOPEN IT — THAT ANSWERS A QUESTION NOBODY IS ASKING.**
+    ///    A ~50-line argument stood here comparing Aave v3 eMode (93/95% LTV, $808M free) against the
+    ///    Morpho weETH/WETH market ($1.55M free, 90% utilised) as the cheapest ROUTE to WETH debt. It
+    ///    framed the open question as LIQUIDITY. **The question is DIRECTION, and it settles the matter:**
+    ///    the overlay offsets UP-SIDE IL, `1 − √(entry/now)` (`LevMath.ilTargetBps`), so offsetting it
+    ///    means being **long ETH**. Borrow dollars against weETH ⇒ hold ETH, owe USD ⇒ long ETH: the
+    ///    hedge. Borrow WETH against weETH ⇒ hold ETH, owe ETH ⇒ **delta-flat**, which cancels the very
+    ///    exposure the overlay exists to add. **The dollar leg is structural, not a workaround for a
+    ///    shallow market**, and every live borrow site is a stable (`LevVenueBase:148,244`, `LevMath:186`,
+    ///    `BtcLib:587`, `LevManager:618`). `QuidLib.sol:934` reached the same conclusion from the other
+    ///    side and records a mis-repoint that delivered withdrawers NOTHING, caught by three tests.
+    /// ⚠️ CONSEQUENCE, NOT YET ACTIONED: `MORPHO_LLTV_945` / `WEETH_WETH_ORACLE` (`:120-121`) pin a market
+    ///    we will now never use, so their premise is WITHDRAWN rather than pending — they are no longer the
+    ///    `create_sweep_tx` shape. Deleting them also means deleting the assertions in
+    ///    `test/LevVenueMarketPins.t.sol` that pin them, which is a test edit and needs its own call.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
         // MORPHO ONLY. Euler v2 and Aave v4 BORROWING are removed; the BTC side keeps Aave V3 for WBTC.
         // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
