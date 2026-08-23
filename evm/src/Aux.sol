@@ -93,8 +93,49 @@ contract Aux is // Auxiliary
     // set is what _supply/_withdraw/_take iterate over for the per-vault
     // (inner) pro-rata dimension. Each entry is self-validated by
     // asset()==stable in setVault. Cap bounds the inner loop.
+    //
+    // ⚠️ **`vaults` IS PROVABLY DERIVABLE FROM `vaultsOf`, AND IT IS KEPT ANYWAY. DO NOT FOLD IT.**
+    // The invariant above is not aspirational — it holds at every writer, checked one by one:
+    //   `ChannelLib.initVaultsBody:517`  `tokens[v]=s; vaults[s]=v; vaultsOf[s].push(v);` together
+    //   `ChannelLib.setVaultBody:456`    `if (vaults[s]==0) vaults[s]=aaveSpoke; set.push(aaveSpoke);`
+    //   `ChannelLib.setVaultBody:464`    `if (vaults[s]==0) vaults[s]=vault;      set.push(vault);`
+    // Every write to `vaults[s]` is guarded by "was zero" and immediately followed by the matching
+    // push, and there is no push that skips the guard — so `vaults[s]` is exactly
+    // `vaultsOf[s].length == 0 ? address(0) : vaultsOf[s][0]`, always. One slot is redundant.
+    // ⇒ **REFUSED ON THE GAS AXIS, WHICH IS THE ONE A "DELETE THE DUPLICATE" ARGUMENT SKIPS.**
+    // Replacing the mapping with that expression turns every read into TWO SLOADs (array length,
+    // then element) where it is now ONE, and the reads sit on the deposit/withdraw hot path
+    // (`ChannelLib:213`, `:296`). Trading a per-stable one-off SSTORE for a permanent extra SLOAD
+    // per deposit is the wrong direction. The ABI would survive unchanged (a public mapping getter
+    // and a `public view` of the same signature share a selector), so the ABI is NOT the blocker —
+    // the blocker is that `vaults` is a PARAMETER of two `ChannelLib` bodies, making removal a
+    // cross-file arity change, and those are the ones solc reports only as
+    // "Error: Error writing output JSON." with no file, line or symbol.
     mapping(address => address[]) public vaultsOf;
 
+    /// @notice The seed-fee RESERVE: Σ over stables of `tranche[stable]`, 18-dec USD. Credited by
+    ///         `_tip(+1)` when `ChannelLib.depositBody` charges a seed fee, drained by `_tip(-1)`
+    ///         pro-rata as holders redeem. It is what FUNDS the senior tranche.
+    ///
+    /// 🔴 **ONE NAME, TWO QUANTITIES — AND BOTH ARE REACHABLE AS `.trancheTotal()`. THIS IS THE
+    /// MIRROR IMAGE OF THE DUPLICATION RULE 2 CATCHES: not one concept declared twice, but two
+    /// concepts sharing one selector on two contracts.**
+    ///   • `Aux.trancheTotal` (here)      = seed fees COLLECTED so far, i.e. the reserve.
+    ///   • `Basket.trancheTotal()`        = `Basket.seeded`, the senior-tranche QU!D OUTSTANDING,
+    ///                                      i.e. what was PROMISED. Same 18-dec base, opposite side
+    ///                                      of the same ledger.
+    /// A reader who grabs the wrong one gets a plausible number of the right magnitude and the
+    /// wrong meaning — the silent-wrong-value class this repo has shipped before.
+    ///
+    /// ✅ **THE ONE PLACE THEY MEET IS CORRECT, and it was checked rather than assumed.**
+    /// `ChannelLib.depositBody` gates on `aux.trancheTotal() < IBasket(quid).target()` and then
+    /// calls `BasketLib.seedFee(usd, aux.trancheTotal(), _target, aux.avgYield())`, which clamps to
+    /// `target - trancheTotal`. Read as collected-vs-promised that is exactly right: keep charging
+    /// the seed fee until the reserve covers the outstanding tranche, and never charge past it.
+    /// It is NOT the same number compared against itself, and it is NOT a units mismatch — both
+    /// are 18-dec and QU!D is $1-denominated. Do not "fix" it into one variable.
+    /// ⚠️ Renaming this to `seedReserve` (the honest name) is a CROSS-FILE change: the selector is
+    /// declared in `imports/Interfaces.sol:381` (`IAux`) and consumed by `ChannelLib`. Not done here.
     uint public trancheTotal;
 
     /// @notice AAVE v4 wiring — GHO + USDG. Both are first-class assets

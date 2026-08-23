@@ -876,7 +876,7 @@ library BasketLib {
     ///         view, so the flag costs NOTHING EXTRA: no additional external call, no additional read.
     ///         ⚠️ NARROW, AND DELIBERATELY SO — do not read this as "mint drives detection". Its one
     ///         call site sits behind TWO gates: `if (auth(msg.sender))`, i.e. the PROTOCOL-INTERNAL mint
-    ///         path only (fee mints, `creditLPForSwap` swap-out reissuance, Quid fee distribution) and
+    ///         path only (fee mints, `Vault.creditSwapOut` swap-out reissuance, Quid fee distribution) and
     ///         NOT user deposits; and `if (currentMonth() >= 12)`, so it is DORMANT FOR THE FIRST YEAR.
     ///         The USER deposit path (`_finishMint`) intentionally does not compute `illiquidLoss` at
     ///         all, and wiring it would be a NEW read plus a change to the documented mint↔redeem
