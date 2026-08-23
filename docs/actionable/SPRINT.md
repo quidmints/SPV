@@ -11764,3 +11764,55 @@ drop the entry."* Both halves resolved with evidence:
 ⇒ **`check-contract-sizes` OK (tightest `Quid`, 472 bytes spare) · `check-client-abis` 0 drifted (the
 `openChannelDigest` ORPHAN reported earlier is now resolved) · `check-doc-symbols`, `check-fuzz-targets`,
 `check-skew-agnostic` clean.**
+
+---
+
+## §E323 — **TWO FOLD FACTS THAT LIVED ONLY IN A COMMIT MESSAGE, AND ONE OF THEM IS A REPEAT LOSS**
+
+Found by grepping `SPRINT.md` for the substance of `d3262881`'s body and getting **zero hits** — the
+same audit `§C26` ran, arriving at the same class of gap from the other side of the tree. A commit
+message is not a booking: it is findable only by someone who already knows which commit to read.
+
+### 1. 🔴 THE §E318 FOLD WAS MADE, VERIFIED, AND ERASED — THEN MADE AGAIN. THIS IS THE SECOND TIME.
+
+`ExitLib`→`BitcoinTx` and `ExternalTwap`→`OracleLib` were edited, `forge build` returned **0 errors**,
+and `check-contract-sizes.py` measured the tree. Another thread then reset the shared checkout, and
+the work was gone from the working tree **and** absent from `HEAD`.
+
+⚠️ **THE TELL LOOKED LIKE SUCCESS, WHICH IS WHY IT COST A SECOND CYCLE.** `git status` said
+`nothing to commit, working tree clean`; `git rev-list` said `ahead 0 behind 0`. Both are exactly what
+a *finished, pushed* change looks like. The one query that separated them was re-checking the
+**artefact of the change itself** — `ls evm/src/imports/ExitLib.sol` returning **`yes`**, and
+`imports/` counting **16** where the fold had left **14**.
+⇒ **AFTER ANY SUSPICIOUS `git status`, RE-TEST THE CHANGE'S OWN ARTEFACT — the file you deleted, the
+symbol you added — NEVER the porcelain.** `CLAUDE.md` already states this for a green MEASUREMENT
+surviving a reset (`evm/out` outlives `evm/src`); this is the same trap reached through a CLEAN STATUS
+instead, and the clean status is more convincing than the stale number.
+
+**WHAT WORKED THE SECOND TIME, AND IT IS THE RULES 11/15 RESOLUTION WITHOUT A WORKTREE:** make the
+edits, **`git commit` LOCALLY FIRST**, and only then build. A local commit is not a publication, so it
+satisfies rule 11 (the edit outlives the command) without violating rule 15 (nothing unverified is
+pushed). It survived; the redo cost one build cycle instead of the work.
+⚠️ **IT IS STILL THE WEAKER FORM.** A local commit in the SHARED checkout is safe from a `reset` of the
+working tree but NOT from every history operation a neighbour can run there — see `§E322`, where a
+neighbour's in-flight rebase and my own retry loop met in this same checkout. **The worktree remains
+the actual fix; the local-commit-first ordering is what to do when you are already in the shared tree.**
+
+### 2. ⚠️ THE FOLD HAZARD IS THREE FOR THREE: A MOVED BODY CARRIES NAMES ITS NEW HOME HAS ALREADY TAKEN
+
+Not booked anywhere, and it has now fired on **every single fold attempted**. A library body is written
+against the namespace of the file it lived in. Move it, and two things break silently:
+
+| fold | what the moved body carried | collision in the new home |
+|---|---|---|
+| `FixedRateFill` → `SwapLib` (§E310) | a parameter named `skewWad` | shadowed **`SwapLib.skewWad()`** |
+| `MuSig2Agg` → `BitcoinTx` (§E312) | uses of `EC256` / `Math` | `BitcoinTx` was a **leaf with no imports** — they were LOST |
+| `ExitLib` → `BitcoinTx` (§E318) | a parameter named `txid` | shadowed **`BitcoinTx.txid()`**, fixed as `fundingTxid` |
+
+⇒ **THE TWO CHECKS THAT CATCH ALL THREE, AND THEY ARE CHEAP.** Before folding: (a) intersect the moved
+body's **parameter and local names** with the destination's **function names** — a shadow compiles and
+changes meaning; (b) diff the two files' **import lists** — a fold INTO a leaf file silently drops
+every symbol the source got from its own imports. Neither is caught by reading the diff, because both
+defects are about what is ABSENT from the new context.
+📌 Also: a carried `/// @title` becomes **invalid natspec on a function** and mislabels the host file.
+Relabel it to a section `@notice` in the same edit (done for `ExitLib`'s).
