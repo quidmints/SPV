@@ -158,20 +158,33 @@ library BitcoinTx {
 
     // ─── Output search by scriptPubKey ────────────────────────────────
 
-    /// @notice Sum of the values of ALL outputs paying `spk` (0 if none). Summing every
-    ///         match (not first-only) stops a close tx from under-reporting a payee's
-    ///         total by splitting it across multiple outputs to the same script
-    ///         (under-reported LP balance → over-claim). NOTE: kept as its own loop
-    ///         (not folded with findOutputByScript via a shared `_scanOutputs`) — the
-    ///         3-tuple helper return tipped the legacy stack in a downstream caller and
-    ///         via_ir is off-limits.
-    function sumOutputValuesToScript(
-        bytes calldata raw,
-        bytes memory spk
-    ) public pure returns (uint satoshis) {
+    uint8 private constant _SUM_TO      = 0;   // sum every output paying `spk`
+    uint8 private constant _FIRST_TO    = 1;   // first output paying `spk`, else revert
+    uint8 private constant _SUM_FOREIGN = 2;   // sum outputs that are neither `exceptVout` nor `spk`
+
+
+    /// @dev THE ONE OUTPUT WALKER behind all three searches below. The parse loop
+    ///      (bounds-check, 8-byte LE value, varint script length, bounds-check, script compare,
+    ///      advance) was written out three times; a parser copied three times is three places to
+    ///      get Bitcoin consensus decoding wrong, on the SPV proof path.
+    ///
+    ///      ⚠ IT RETURNS ONE PACKED WORD, `(vout << 64) | satoshis`, AND THAT IS THE WHOLE REASON
+    ///      THIS FOLD IS POSSIBLE NOW. The previous attempt returned a 3-tuple and tipped the legacy
+    ///      stack in a downstream caller (`via_ir` is off-limits here), which is why the old note
+    ///      said the loops were "kept as their own". A single return word cannot tip anything.
+    ///      The packing is lossless BY CONSTRUCTION, not by an assumed bound: an output value is
+    ///      exactly 8 bytes on the wire, so it occupies the low 64 bits exactly and can never
+    ///      collide with the vout field — even for a crafted `0xffffffffffffffff` value.
+    function _scanOutputs(bytes calldata raw, bytes memory spk, uint8 mode, uint32 exceptVout)
+        private pure returns (uint256 packed)
+    {
         uint offset = _skipInputs(raw);
         (uint outputCount, uint consumed) = readVarInt(raw, offset);
         offset += consumed;
+        // The excepted index must be a real output; otherwise the caller's "new funding output"
+        // reference is bogus and every output would be counted as foreign. Fail closed rather than
+        // silently treating an out-of-range index as "exclude nothing".
+        if (mode == _SUM_FOREIGN && exceptVout >= outputCount) revert OutputNotFound();
         for (uint i = 0; i < outputCount; i++) {
             if (offset + 8 > raw.length) revert TruncatedTx();
             uint value = _readLE(raw, offset, 8);
@@ -179,15 +192,32 @@ library BitcoinTx {
             (uint scriptLen, uint sLenBytes) = readVarInt(raw, offset);
             offset += sLenBytes;
             if (offset + scriptLen > raw.length) revert TruncatedTx();
-            if (scriptLen == spk.length) {
-                bool match_ = true;
+            bool match_ = scriptLen == spk.length;
+            if (match_) {
                 for (uint j = 0; j < scriptLen; j++) {
                     if (raw[offset + j] != spk[j]) { match_ = false; break; }
                 }
-                if (match_) satoshis += value;
+            }
+            if (mode == _SUM_FOREIGN) {
+                if (i != exceptVout && !match_) packed += value;   // a foreign (non-payout, non-funding) output
+            } else if (match_) {
+                if (mode == _FIRST_TO) return (uint256(i) << 64) | value;
+                packed += value;
             }
             offset += scriptLen;
         }
+        if (mode == _FIRST_TO) revert OutputNotFound();
+    }
+
+    /// @notice Sum of the values of ALL outputs paying `spk` (0 if none). Summing every
+    ///         match (not first-only) stops a close tx from under-reporting a payee's
+    ///         total by splitting it across multiple outputs to the same script
+    ///         (under-reported LP balance → over-claim).
+    function sumOutputValuesToScript(
+        bytes calldata raw,
+        bytes memory spk
+    ) public pure returns (uint satoshis) {
+        return _scanOutputs(raw, spk, _SUM_TO, 0);
     }
 
     /// @notice Sum of the values of all outputs that are NEITHER output index
@@ -203,31 +233,7 @@ library BitcoinTx {
         uint32 exceptVout,
         bytes memory spk
     ) public pure returns (uint satoshis) {
-        uint offset = _skipInputs(raw);
-        (uint outputCount, uint consumed) = readVarInt(raw, offset);
-        offset += consumed;
-        // The excepted index must be a real output; otherwise the caller's "new funding
-        // output" reference is bogus and every output would be counted as foreign. Fail
-        // closed rather than silently treating an out-of-range index as "exclude nothing".
-        if (exceptVout >= outputCount) revert OutputNotFound();
-        for (uint i = 0; i < outputCount; i++) {
-            if (offset + 8 > raw.length) revert TruncatedTx();
-            uint value = _readLE(raw, offset, 8);
-            offset += 8;
-            (uint scriptLen, uint sLenBytes) = readVarInt(raw, offset);
-            offset += sLenBytes;
-            if (offset + scriptLen > raw.length) revert TruncatedTx();
-            if (i != exceptVout) {
-                bool match_ = scriptLen == spk.length;
-                if (match_) {
-                    for (uint j = 0; j < scriptLen; j++) {
-                        if (raw[offset + j] != spk[j]) { match_ = false; break; }
-                    }
-                }
-                if (!match_) satoshis += value; // a foreign (non-payout, non-funding) output
-            }
-            offset += scriptLen;
-        }
+        return _scanOutputs(raw, spk, _SUM_FOREIGN, exceptVout);
     }
 
     /// @dev Find the FIRST output matching `expectedScriptPubKey`. Returns
@@ -245,26 +251,8 @@ library BitcoinTx {
         bytes calldata raw,
         bytes memory expectedScriptPubKey
     ) public pure returns (uint32 vout, uint satoshis) {
-        uint offset = _skipInputs(raw);
-        (uint outputCount, uint consumed) = readVarInt(raw, offset);
-        offset += consumed;
-        for (uint i = 0; i < outputCount; i++) {
-            if (offset + 8 > raw.length) revert TruncatedTx();
-            uint value = _readLE(raw, offset, 8);
-            offset += 8;
-            (uint scriptLen, uint sLenBytes) = readVarInt(raw, offset);
-            offset += sLenBytes;
-            if (offset + scriptLen > raw.length) revert TruncatedTx();
-            if (scriptLen == expectedScriptPubKey.length) {
-                bool match_ = true;
-                for (uint j = 0; j < scriptLen; j++) {
-                    if (raw[offset + j] != expectedScriptPubKey[j]) { match_ = false; break; }
-                }
-                if (match_) return (uint32(i), value);
-            }
-            offset += scriptLen;
-        }
-        revert OutputNotFound();
+        uint256 packed = _scanOutputs(raw, expectedScriptPubKey, _FIRST_TO, 0);
+        return (uint32(packed >> 64), packed & type(uint64).max);
     }
 
     /// @dev Skip version + input section. Returns offset of output_count.

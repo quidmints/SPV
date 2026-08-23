@@ -196,7 +196,7 @@ interface IV3Router {
 // size, no revert, no id to assert against. Each pool carries its own pair of indices for that reason.
 // Token handles for the routing branch (the basket's own stables; USDC is the routing hub).
 // USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): its old name embedded a venue, which named
-// it after a pool it has nothing to do with — it is used as the hub in `_toUsdc`/`_fromUsdc`/
+// it after a pool it has nothing to do with — it is used as the hub in `_hubSwap`/
 // `_routableStable`, where that venue is not involved. The genuine venue names below are the POOL
 // and its coin indices, and those stay. Also the ONE declaration (rule 2): `SOR.USDC_HUB` was a
 // second private copy of this same address.

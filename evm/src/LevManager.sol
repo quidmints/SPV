@@ -18,7 +18,7 @@ import {ICore} from "./imports/Interfaces.sol";
 
 
 /// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is routed through CURVE —
-///         `LevMath._wethToStable` / `_toUsdc`; it was the basket SOR until 084bc5c).
+///         `LevMath._wethToStable` / `_hubSwap`; it was the basket SOR until 084bc5c).
 ///         UP: MINT weETH via the ether.fi adapter at the fair rate (zero-slippage; never the thin pool).
 ///         DOWN: SELL weETH → WETH on the deep v3 pool (`LevMath._weethToWethDex`, two tiers cheapest-first,
 ///         floored at `getEETHByWeETH` − `SELL_SLIP_BPS`). ⚠️ THE LEGS ARE NOT SYMMETRIC: the up-leg mints at
@@ -431,14 +431,13 @@ contract LevManager is LevBase {
     ///         chunked path had to loop); the closed form that lands ON target is `Δ/(1−t)`. Zero when the
     ///         position is inside the de-lever range (or below target). One consistent oracle read.
     function deleverRepayUsd(address lp) internal view returns (uint256) {
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return 0;
+        (bool open, uint256 e0, uint256 debtNow, uint256 target) = _targetInputs(lp);
+        if (!open) return 0;
         // (Self-funded short holds stable collateral, not debt, so the keeper de-lever no longer needs to be gated
         // on an open short — below entry the long debt is 0, so de-lever is a natural no-op there anyway.)
         // Compare-math folded to LevMath.deleverRepay: on the FIXED E0 the repay is simply curDebt − targetDebt
         // (no Δ/(1−t) inflation — that was only needed when the target tracked the shrinking collateral).
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return LevMath.deleverRepay(LevMath.entryEquityUsd(p.entryEquity, px), debtUsd(lp), _ilTargetLive(p, px), RANGE_BPS);
+        return LevMath.deleverRepay(e0, debtNow, target, RANGE_BPS);
     }
 
     // ════════════════════════════ DE-LEVER — flash-repay-FIRST (no health breach by construction) ══════════

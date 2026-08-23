@@ -53,10 +53,26 @@ abstract contract LevBase {
     ///      only ETH needed the gate. A REAL asymmetry; the shared body keeps the gate because it is
     ///      correct for both and strictly cheaper than reaching `debtUsd` for a closed position.
     function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
+        (bool open, uint256 e0, uint256 debtNow, uint256 target) = _targetInputs(lp);
+        if (!open) return (false, 0);
+        return LevMath.debtDelta(e0, debtNow, target, RANGE_BPS);
+    }
+
+    /// @dev The four inputs EVERY target comparison needs, resolved in ONE place. `debtDeltaToTarget`
+    ///      here and `LevManager.deleverRepayUsd` each rebuilt this preamble verbatim — load the
+    ///      position, refuse a closed one, read the TWAP, derive E0 and the live IL target. Two
+    ///      assemblies of the same comparison inputs can drift apart without reverting: they would
+    ///      simply answer "lever up" and "repay this much" from different targets.
+    ///      ⚠ `open == false` ⇒ the other three are zero and MUST NOT be read. This helper
+    ///      deliberately does NOT decide what a closed position means, because the two callers
+    ///      disagree on the shape of "nothing to do" (`(false, 0)` here, plain `0` there).
+    function _targetInputs(address lp)
+        internal view returns (bool open, uint256 e0, uint256 debtNow, uint256 target)
+    {
         Types.Pos memory p = pos[lp];
-        if (!p.open) return (false, 0);
+        if (!p.open) return (false, 0, 0, 0);
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return LevMath.debtDelta(LevMath.entryEquityUsd(p.entryEquity, px), debtUsd(lp), _ilTargetLive(p, px), RANGE_BPS);
+        return (true, LevMath.entryEquityUsd(p.entryEquity, px), debtUsd(lp), _ilTargetLive(p, px));
     }
 
     /// Oracle (`getTWAPforAsset`) + the caller-funded paths both managers reach through.

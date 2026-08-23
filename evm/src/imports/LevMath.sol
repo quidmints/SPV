@@ -507,7 +507,7 @@ library LevMath {
         uint256 floor_ = (_toUsd18(c.aux, stable, stableAmt) * 1e18
                           / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
                          * (10_000 - SELL_SLIP_BPS) / 10_000;
-        return _poolSwap(USDC, c.weth, V3_FEE_WETH, _toUsdc(stable, stableAmt), floor_);
+        return _poolSwap(USDC, c.weth, V3_FEE_WETH, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_);
         // §V-R1-MIN — the pinned-pool venue below replaced the Curve route; see `_poolSwap`.
     }
 
@@ -532,14 +532,19 @@ library LevMath {
         // which must be able to ASK without failing (an unroutable slice is skipped and refunded).
     }
 
-    /// @dev stable → USDC on Curve stableswap.
-    function _toUsdc(address stable, uint256 amt) internal returns (uint256) {
+    /// @dev Curve stableswap hub hop, BOTH directions: `toUsdc ? stable→USDC : USDC→stable`.
+    ///      One body where there were two (`_toUsdc`/`_fromUsdc`) — the legs differed only in which
+    ///      token is approved and the index order. Call it with named arguments so the direction is
+    ///      readable at the site (`_hubSwap({stable: s, amt: a, toUsdc: true})`), not a bare bool.
+    function _hubSwap(address stable, uint256 amt, bool toUsdc) internal returns (uint256) {
         if (amt == 0) return 0;
-        if (stable == USDC) return amt;            // already USDC
+        if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
         (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
         if (pool == address(0)) revert NoStableRoute();  // fail closed — a silent 0 would leave the position unhedged
-        IERC20Min(stable).approve(pool, amt);
-        return ICurvePool(pool).exchange(iStable, iUsdc, amt, 0);
+        IERC20Min(toUsdc ? stable : USDC).approve(pool, amt);
+        return toUsdc
+            ? ICurvePool(pool).exchange(iStable, iUsdc, amt, 0)
+            : ICurvePool(pool).exchange(iUsdc, iStable, amt, 0);
     }
 
     /// @dev Is this stable on the Curve routing table? Checked rather than caught: an unroutable
@@ -550,28 +555,18 @@ library LevMath {
         return pool != address(0);
     }
 
-    /// @dev USDC → stable, the inverse leg. Same table, indices swapped.
-    function _fromUsdc(address stable, uint256 usdcAmt) internal returns (uint256) {
-        if (usdcAmt == 0) return 0;
-        if (stable == USDC) return usdcAmt;
-        (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
-        if (pool == address(0)) revert NoStableRoute();
-        IERC20Min(USDC).approve(pool, usdcAmt);
-        return ICurvePool(pool).exchange(iUsdc, iStable, usdcAmt, 0);
-    }
-
     /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both VIA USDC — and the two
     ///      hops sit on DIFFERENT venues: stable↔USDC is Curve stableswap, USDC↔WBTC is a pinned
     ///      Uniswap V3 pool.
     ///      `minOut` is applied on the LAST hop so it bounds the whole route.
     /// @dev §V-R1-MIN — TWO HOPS, AND THE FIRST IS NOT OPTIONAL. The pinned pools are USDC-paired
     ///      (USDC/WETH, WBTC/USDC), so a venue stable that is NOT USDC has no direct pool and the
-    ///      swap would revert in the router. `_toUsdc` is the stableswap hub hop the previous version
+    ///      swap would revert in the router. `_hubSwap` is the stableswap hub hop the previous version
     ///      also had; only the SECOND leg changed venue. Dropping it was my bug, caught by
     ///      `testReal_WbtcLev_FoldUp_Then_FlashDelever` failing `transferFrom reverted` rather than
     ///      `NoVolatileRoute` -- i.e. it reached the router and the router had no pool.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc) internal returns (uint256) {
-        return _poolSwap(USDC, wbtc, V3_FEE_WBTC, _toUsdc(stable, amt), minOut);
+        return _poolSwap(USDC, wbtc, V3_FEE_WBTC, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut);
     }
 
     /// @dev Mirror of `_stableToWbtc`: pinned pool to USDC, stableswap hub back out. `minOut` is
@@ -579,7 +574,7 @@ library LevMath {
     ///      the caller actually receives.
     function _wbtcToStable(address wbtc, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
         uint256 usdc = _poolSwap(wbtc, USDC, V3_FEE_WBTC, amt, 0);
-        uint256 out = _fromUsdc(stable, usdc);
+        uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
         if (out < minOut) revert Slippage();
         return out;
     }
@@ -588,7 +583,7 @@ library LevMath {
     ///      hop, Curve stableswap on USDC→stable.
     function _wethToStable(address weth, address stable, uint256 amt, uint256 minOut) internal returns (uint256) {
         uint256 usdc = _poolSwap(weth, USDC, V3_FEE_WETH, amt, 0);
-        uint256 out = _fromUsdc(stable, usdc);
+        uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
         if (out < minOut) revert Slippage();
         return out;
     }
@@ -654,21 +649,24 @@ library LevMath {
         uint256 pulled = _pullForExtract(assets, lp, venueAddr, stable, extractUsd, cfg);   // repay-first + withdraw (own frame)
         // Sell + return-flash + route-surplus in its OWN frame (non-via_ir stack: keeps `lp`/`venueAddr`/`extractUsd`
         // — dead after the pull — from co-living with the sellColl call args).
-        return _sellAndRoute(pulled, stable, minOut, assets, vault, cfg);
+        return _sellAndPay(pulled, stable, minOut, assets, vault, cfg);
     }
 
-    /// @dev Sell the withdrawn collateral (oracle-floored on `assets`: reverts unless stableOut ≥ assets ⇒ flash
-    ///      always repayable), return `assets` to the flash (zero-fee pull-back), route the value-neutral surplus to
-    ///      the redeem sink `vault`. Own frame purely for the non-via_ir stack budget of `extractToVaultBody`.
-    function _sellAndRoute(uint256 pulled, address stable, uint256 minOut, uint256 assets, address vault, ExtractCfg memory cfg)
-        internal returns (uint256 newGasReserve, uint256 freed)
+    /// @dev Sell the withdrawn/freed collateral (oracle-floored on `assets`: reverts unless stableOut ≥ assets ⇒ the
+    ///      flash is always repayable), return `assets` to the flash provider (zero-fee pull-back), hand the
+    ///      value-neutral surplus to `recipient`. ONE body where there were two: `_sellAndRoute` (recipient = the
+    ///      redeem sink `vault`) and `_sellAndReturn` (recipient = `lp`) were byte-identical apart from that name —
+    ///      `stableOut > assets ? stableOut - assets : 0` is exactly the `if (stableOut > assets)` guard the second
+    ///      one wrote inline. Own frame purely for the non-via_ir stack budget of the two callers.
+    function _sellAndPay(uint256 pulled, address stable, uint256 minOut, uint256 assets, address recipient, ExtractCfg memory cfg)
+        private returns (uint256 newGasReserve, uint256 freed)
     {
         SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
         uint256 stableOut;
         (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         IERC20Min(stable).approve(cfg.flashProvider, assets);
         freed = stableOut > assets ? stableOut - assets : 0;
-        if (freed > 0) IERC20Min(stable).transfer(vault, freed);
+        if (freed > 0) IERC20Min(stable).transfer(recipient, freed);
     }
 
     /// @notice §M.1 — convert `collAmt` of freed leverage collateral to WETH and deliver it to `recipient` (the ETH
@@ -805,7 +803,7 @@ library LevMath {
             //    direction here — the old catch could silently leave a consolidate half-done, and the
             //    floor already refuses a bad price rather than trading at a loss.
             if (_routableStable(s) && _routableStable(target)) {
-                uint256 moved = _fromUsdc(target, _toUsdc(s, bal));
+                uint256 moved = _hubSwap({stable: target, amt: _hubSwap({stable: s, amt: bal, toUsdc: true}), toUsdc: false});
                 if (moved < floor) revert Slippage();
             }
             // If BOTH routes failed to move this slice (no pool at all), refund it to the LP — never strand the
@@ -891,7 +889,7 @@ library LevMath {
     function deleverSettleBody(uint256 assets, address lp, address venueAddr, address stable, uint256 minOut, uint256 pxWeth, ExtractCfg memory cfg)
         public returns (uint256 newGasReserve) {
         uint256 pulled = _repayAndFreeBody(assets, lp, venueAddr, stable, pxWeth, cfg);   // repay-first + withdraw (own frame)
-        return _sellAndReturn(pulled, stable, minOut, assets, lp, cfg);                   // sell + return-flash + surplus→LP (own frame)
+        (newGasReserve, ) = _sellAndPay(pulled, stable, minOut, assets, lp, cfg);   // sell + return-flash + surplus→LP (own frame)
     }
 
     /// @dev Repay `lp`'s debt with the flashed `assets` FIRST (LTV drops ⇒ the withdraw is always health-safe), then
@@ -905,19 +903,6 @@ library LevMath {
         uint256 ethAmt = (_toUsd18(cfg.aux,stable, repaid) * 1e18) / pxWeth;
         uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
-    }
-
-    /// @dev Sell the freed collateral (oracle-floored on `assets` ⇒ flash always repayable), return `assets` to the
-    ///      flash provider, hand the realized surplus to `lp`. Own frame for the non-via_ir stack budget.
-    function _sellAndReturn(uint256 pulled, address stable, uint256 minOut, uint256 assets, address lp, ExtractCfg memory cfg)
-        private returns (uint256 newGasReserve) {
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
-        uint256 stableOut;
-        (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
-        // Return `assets` to Morpho (approve the zero-fee pull-back) + surplus to the LP. stableOut < assets ⇒ short
-        // approve ⇒ Morpho's pull reverts the whole op (underwater-safe).
-        IERC20Min(stable).approve(cfg.flashProvider, assets);
-        if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);
     }
 
     /// @notice De-lever `lp` by flashing `repayUsd`-worth of the debt stable (repay-first, mode-0). VERBATIM of

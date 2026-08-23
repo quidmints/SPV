@@ -1158,13 +1158,7 @@ contract Aux is // Auxiliary
         // Body extracted to ChannelLib.withdrawBody (delegatecall → Aux's storage).
         // DRAIN path; WETH/GHO-USDG/BOLD-SP/multi-venue dispatch preserved verbatim
         // (incl. the AAVE try/catch fallthrough + SP WETH-gain re-supply).
-        return ChannelLib.withdrawBody(
-            token, amount, to,
-            ChannelLib.SupplyCfg(
-                address(WETH), GHO, USDG, AAVE_SPOKE,
-                GHO_RESERVE_ID, USDG_RESERVE_ID, ethVenue,
-                stables[stables.length - 1]),
-            vaults, vaultsOf, sp);
+        return ChannelLib.withdrawBody(token, amount, to, _supplyCfg(), vaults, vaultsOf, sp);
     }
 
     /// @notice Deposit entry. NO `nonReentrant` — external callers
@@ -1411,10 +1405,18 @@ contract Aux is // Auxiliary
     function _supply(address token, uint amount) internal returns (uint deposited) {
         // Body extracted to ChannelLib.supplyBody (delegatecall → Aux's storage).
         // WRITE path; dispatch + least-full-healthy routing preserved verbatim.
-        return ChannelLib.supplyBody(token, amount, ChannelLib.SupplyCfg(
-            address(WETH), GHO, USDG, AAVE_SPOKE, GHO_RESERVE_ID, 
-            USDG_RESERVE_ID, ethVenue, stables[stables.length - 1]), 
-            vaults, vaultsOf, sp);
+        return ChannelLib.supplyBody(token, amount, _supplyCfg(), vaults, vaultsOf, sp);
+    }
+
+    /// @dev The venue-routing config both dispatchers hand to ChannelLib. ONE constructor call where
+    ///      there were two: `_supply` and `_withdraw` built the identical 8-field struct, so a new
+    ///      venue field had to be added in two places or the two paths would silently disagree about
+    ///      where an asset lives — a divergence that reverts nowhere and mis-routes custody.
+    function _supplyCfg() private view returns (ChannelLib.SupplyCfg memory) {
+        return ChannelLib.SupplyCfg(
+            address(WETH), GHO, USDG, AAVE_SPOKE,
+            GHO_RESERVE_ID, USDG_RESERVE_ID, ethVenue,
+            stables[stables.length - 1]);
     }
 
     /// @notice Public twin of `_reserveIdOf` — lets ChannelLib.supplyBody resolve
