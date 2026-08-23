@@ -545,6 +545,40 @@ The same defect put three tombstones in a lane earlier today; this is its genera
 `Γ·σ²·q` with no `sigmaSqWad == 0` guard — not in `Core` where the row files it.
 
 ---
+## ⛔ **HOW TO CLOSE A ROW — A STALE REFERENCE IS A RE-AUDIT TRIGGER, NOT A CLOSURE** (owner,
+2026-08-23, after catching me doing the opposite)
+
+I closed ten rows in one pass and **four of them were wrong**, all the same way: I closed on the
+row's CITATION being stale rather than on its CONCERN being resolved. The owner's correction:
+*"don't just delete tasks — if they hint at real issues but maybe stale references, maybe the part of
+the code they talk about needs to be RE-AUDITED."*
+
+**THE DISCRIMINATOR, and it is two questions, not one:**
+| | |
+|---|---|
+| ✅ **CLOSE** | the CODE the row describes no longer exists, or the WORK is demonstrably done |
+| 🔴 **RE-AUDIT** | the code still exists and only the row's coordinates, counts or examples rotted |
+
+**The four I got wrong, kept as the worked examples:**
+- **§E294** — I closed it because its wording *"caller: ZERO in src/script/test"* is literally false (a
+  forge script and 7 test files call it). **But its CONCERN is PRODUCTION wiring, and
+  `pushObservation` has ZERO callers in `evm/src`.** A script and a harness are not production. **The
+  imprecise wording was not the finding; the unwired push is.**
+- **§A.71** — 2 of its 4 named pairs are tombstones, so I closed the row. **The other 2 are still
+  declared and still live work.** A row whose example list is half-stale is **half-open**.
+- **§E276** — its cited line was deleted, so I marked the premise withdrawn. **The deletion killed the
+  CITATION, not the design question**, which is live as §E330/§E332-c.
+- **§8** — its example is genuinely wrong, but *"this enumeration is a snapshot"* is a reason to
+  **RE-RUN it**, not to drop the task.
+
+⇒ **EVERY ROW CLOSED FOR A STALE REFERENCE NOW CARRIES A `RE-AUDIT TARGET:` NAMING THE CODE TO
+RE-READ.** A closure that deletes the pointer without checking the thing it pointed at is how a real
+defect leaves the ledger silently — the exact failure rule 16 exists to prevent, arriving through the
+status column.
+⚠️ **AND IT MAKES THE COUNT GO UP, WHICH IS CORRECT.** 81 → **85 open**. A number that only ever falls
+is measuring effort, not truth.
+
+---
 ## 🚀 **TODAY'S SCHEDULE — 4 VERIFICATION CYCLES TOTAL, WORK BATCHED INTO THEM** (2026-08-23)
 
 ⚠️ **"90 cycles" BELOW IS THE ANTI-PLAN, NOT THE PLAN.** It is what working the file top-to-bottom
@@ -1948,7 +1982,7 @@ mattered.
 
 ---
 
-## ✅ 8. RESIDUAL SLOP — **CLOSED 2026-08-23: its own example is wrong.** It says `approve` is *triplicated* across `Shares`/`Quid`/`VBtc`; measured, `Shares.sol` declares **ZERO** `function approve` while `Quid` and `VBtc` declare **one each**. It is duplicated in TWO, and those two are a PROJECTION and a LEDGER (CLAUDE.md: `Quid.balanceOf` is range state, `VBtc.balanceOf` is a mapping) — **not one concept declared twice, so rule 2 does not bite.** Compiler-enumerated slop is a snapshot; re-enumerate rather than working this list (compiler-enumerated)
+## 🟠 8. RESIDUAL SLOP — **EXAMPLE WRONG, TASK RE-SCOPED — not closed.** Its stated example fails: it says `approve` is *triplicated* across `Shares`/`Quid`/`VBtc`, and `Shares.sol` declares **ZERO** `function approve` while the other two declare one each — and those two are a PROJECTION and a LEDGER, so rule 2 does not bite. **But "the compiler-enumerated slop list is a snapshot" is a reason to RE-RUN it, not to drop it.** ▶️ **RE-AUDIT TARGET: re-run the compiler slop enumeration against HEAD and work the CURRENT list.** *(superseded closure text:)*  It says `approve` is *triplicated* across `Shares`/`Quid`/`VBtc`; measured, `Shares.sol` declares **ZERO** `function approve` while `Quid` and `VBtc` declare **one each**. It is duplicated in TWO, and those two are a PROJECTION and a LEDGER (CLAUDE.md: `Quid.balanceOf` is range state, `VBtc.balanceOf` is a mapping) — **not one concept declared twice, so rule 2 does not bite.** Compiler-enumerated slop is a snapshot; re-enumerate rather than working this list (compiler-enumerated)
 
 Unreachable-code warnings are at **0** (were 12; −2,652 B on `LevMath`). Remaining in `src`:
 
@@ -5265,7 +5299,7 @@ are the ones who supplied that WETH. So either:
 
 ### `§A.71` (none)
 
-## ✅ §A.71 DEDUP PASS — **CLOSED 2026-08-23: half its "remaining" list is already gone.** Of the four pairs it names, only `IEthVenue` and `IAaveV4Spoke` are declared (`^interface` = 1 each); **`IEthVenueV` and `IAaveSpoke` are declared ZERO times** — deleted symbols, not outstanding merges. ⚠️ Do not "fix" a tombstone by renaming it. STATUS
+## 🟠 §A.71 DEDUP PASS — **HALF-CLOSED, RE-SCOPED 2026-08-23 — I CLOSED IT WHOLE AND THAT WAS WRONG.** Of the four pairs it names, **two are TOMBSTONES** (`IEthVenueV`, `IAaveSpoke` — `^interface` = 0, deleted symbols, not outstanding merges) **and two ARE STILL DECLARED AND STILL LIVE WORK: `IEthVenue` and `IAaveV4Spoke` (1 each).** ⇒ **A row whose example list is half-stale is half-open, not closed.** ▶️ **RE-AUDIT TARGET: the two surviving interfaces — do they still have distinct consumers, or has the `EthVenue` extraction made `IEthVenue` foldable into `ICore` like §E325's pairs were?** *(superseded closure text:)*  Of the four pairs it names, only `IEthVenue` and `IAaveV4Spoke` are declared (`^interface` = 1 each); **`IEthVenueV` and `IAaveSpoke` are declared ZERO times** — deleted symbols, not outstanding merges. ⚠️ Do not "fix" a tombstone by renaming it. STATUS
 | target | outcome |
 |---|---|
 | underscore-suffixed interfaces | ✅ **7 → 0** |
@@ -7253,7 +7287,7 @@ than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
    worth pricing for removal — IF nothing external calls it. **Check the SPA and the Rust clients before
    touching it; do not assume an ERC-20 method is unused because our own contracts skip it.**
 
-## ✅ §E276 — **PREMISE WITHDRAWN 2026-08-23: its lead evidence was DELETED.** The row is built on `Core.sol`'s `out -= out*skew`, which `f5499659` (§E279) removed as the duplicate skew application. **The spread-vs-shift question survives as §E330/§E332-c and is an owner decision**; this row's specific argument no longer has a code referent. Original:  **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
+## ⏸️ §E276 — **NOT CLOSED. ITS EVIDENCE DIED; ITS QUESTION DID NOT.** `f5499659` deleted the `out -= out*skew` line the row argues from, so its CITATION is dead — but the design question (*do we implement A–S's spread δ and call it A–S's shift r?*) is untouched by that deletion and is live as §E330 / §E332-c. ⇒ **Parked ON those, not resolved.** ▶️ **RE-AUDIT TARGET: `SwapLib.skewWad` + `_composePrice` — with `_fillDelta`'s copy gone, is the single surviving charge a spread or a shift?** Nobody has re-read it since the deletion. *(superseded closure text:)*  The row is built on `Core.sol`'s `out -= out*skew`, which `f5499659` (§E279) removed as the duplicate skew application. **The spread-vs-shift question survives as §E330/§E332-c and is an owner decision**; this row's specific argument no longer has a code referent. Original:  **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
 Owner, 2026-08-21: *"True A-S moves the mid — `r = s − qγσ²(T−t)` — so the balancing side is quoted
 BETTER than reference. **We never go below mid.**"*
 
@@ -8846,7 +8880,7 @@ reachable inventory. **You cannot route the part we decline unless we say how bi
 
 ---
 
-## ✅ §E294 — **CLOSED 2026-08-23: its own falsifiable claim is FALSE.** The row says *"caller: ZERO in src/script/test"*; measured, `script/PushObservation.s.sol:71` plus FIVE test files call it, and `PushObservationFillsTheRing.t.sol` tests it. ⚠️ §E345 also made σ² ring-INDEPENDENT (`realizedVarianceWad` = `max(ring, anchor)`), so the row's consequence is retired even where its premise held. What remains is §C1 — which pool — and that is an OWNER DECISION, not this row. Original:  **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
+## 🔴 §E294 — **RE-OPENED 2026-08-23. I CLOSED THIS ON A TECHNICALITY AND THE CONCERN IS LIVE.** I closed it because the row's wording (*"caller: ZERO in src/script/test"*) is literally false — a forge script and SEVEN test files call it. **But the row's CONCERN is production wiring, and `pushObservation` has ZERO callers in `evm/src`** (measured, comments excluded). A manual script and a test harness are not production wiring; SPRINT says so itself elsewhere. ⇒ **The imprecise wording was not the finding. The unwired push is.** ▶️ **RE-AUDIT TARGET: `Core.pushObservation` + `_observeIfSourced` — is the ring meant to have a live writer at all now that §E345 made σ² ring-independent, or should the ring be fed only for `twapResolve`'s smoothing?** That is a real open question and §C1 (which source) gates it. *(superseded closure text:)*  The row says *"caller: ZERO in src/script/test"*; measured, `script/PushObservation.s.sol:71` plus FIVE test files call it, and `PushObservationFillsTheRing.t.sol` tests it. ⚠️ §E345 also made σ² ring-INDEPENDENT (`realizedVarianceWad` = `max(ring, anchor)`), so the row's consequence is retired even where its premise held. What remains is §C1 — which pool — and that is an OWNER DECISION, not this row. Original:  **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
 
 **Owner proposed 2026-08-21: cache `getRate` off-chain and submit it as an update alongside a trusted
 callback (a delever), using the EIP-712 permissions IL-protect and opt-in already carry. CHECKED THE
