@@ -7740,7 +7740,7 @@ not, the split above buys nothing and §C1's hard problem is the only problem.
 does NOT fix the sentinel (§E278 stands — a stale or failed read still yields σ² = 0 by design), and it
 does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
 
-## 🔴 §E278-partialfill — **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
+## ✅ §E278-partialfill — **SHIPPED. CLOSED BY MEASUREMENT 2026-08-23: its whole premise is `revert QuoteUnfillable`, which has **ZERO references in `evm/src`** — deleted by `94d94899` (*"§E300: the skew path never reverts — bound the quantity, not the price, so an RFQ…"*). `SwapLib._fillableDrain` IS the price-bounded solve this row asks for. ⚠️ The row below is kept as the DERIVATION, not as work.** ~~🔴~~  **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
 ⚠️ **SUFFIXED 2026-08-21 — `§E278` NAMED TWO ROWS.** Two threads booked against the same id within the
 hour: the other is the σ²-sentinel row above (`:5328`). Per `CLAUDE.md`/§E124 the fix is a **suffix on
 the NEWER row, never a renumber** — this one is newer, and no code cites either (the `§E278` comment in
@@ -7785,7 +7785,7 @@ manage a boundary that the correct object does not have.**
 
 ---
 
-## 🔴 §E285 — **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
+## ✅ §E285 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: the inventory-residual bound it specifies is built as `_fillableDrain`. Kept below as the derivation.** ~~🔴~~  **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
 
 **Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
 `plan2.pdf` (2026-08-21). Three of its four steps do; the prescription and the blocker do not.**
@@ -9043,7 +9043,7 @@ open item in the skew area — not because it is hard, but because everything do
 
 ---
 
-## 🟡 §E297 — **THE REDEMPTION-SIDE 4626 ACCESSORS ARE WORTH 194 BYTES ON `Quid`, AND THEY DESCRIBE AN ASYNC FLOW AS SYNCHRONOUS**
+## ✅ §E297 — **ALREADY DONE. CLOSED BY MEASUREMENT 2026-08-23: all four redemption-side accessors are **ZERO declarations in `Quid.sol`** (`maxWithdraw` `previewWithdraw` `maxRedeem` `previewRedeem`), while the four deposit-side ones survive (`maxDeposit` `previewDeposit` `maxMint` `previewMint`, 1 each) — exactly the asymmetry the row proposed. ⚠️ It also reasons from an 86→280-byte `Quid` margin; the margin is **3,453** today, so its cost argument is void as well as its work.** ~~🟡~~  **THE REDEMPTION-SIDE 4626 ACCESSORS ARE WORTH 194 BYTES ON `Quid`, AND THEY DESCRIBE AN ASYNC FLOW AS SYNCHRONOUS**
 
 **Measured 2026-08-21 in a worktree pinned to `origin/main`, both build exits confirmed 0.**
 
@@ -9173,7 +9173,7 @@ no distribution rule, no new accounting, and §E229's `this.` self-call isolatio
 the whole design unworkable, and everything else is mechanical once it is answered.
 
 
-## 🔴🔴 §E298 — **"THE SOLVER ROUTES WHAT WE DECLINE" IS TWO DIFFERENT MECHANISMS, AND THE ONE I LANDED IS THE WRONG ONE**
+## ✅ §E298 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: its entire mechanism is the `revert QuoteUnfillable` that no longer exists (0 refs in `evm/src`); partial-fill + refund is restored. Kept below as the derivation.** ~~🔴🔴~~  **"THE SOLVER ROUTES WHAT WE DECLINE" IS TWO DIFFERENT MECHANISMS, AND THE ONE I LANDED IS THE WRONG ONE**
 Owner asked, 2026-08-22: *"what we decline?"* — and the phrase does not survive the question. **I wrote
 it repeatedly (§E272, §E275, §E293 #3) without checking which primitive implements it.**
 
