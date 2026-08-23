@@ -90,7 +90,14 @@ library FeeLib {
     ///    has exactly ONE occurrence in all of `evm/src`, and it was that comment.** The very next
     ///    line says so outright — *"this REPLACES the old risk-weighted concentration term"* — so the
     ///    file described the old design and the new one in consecutive sentences, with the dead one
-    ///    first. A reader taking the first `@notice` as authoritative gets the retired fee model.
+    ///    first. A reader taking the FIRST notice tag as authoritative gets the retired fee model.
+    /// ⚠️ AND NEVER WRITE AN AT-PREFIXED TAG NAME INSIDE THE PROSE OF A DOCBLOCK — IT IS HOW THIS
+    ///    BLOCK BROKE THE BUILD TWICE, THE SECOND TIME IN THE SENTENCE WARNING ABOUT THE FIRST.
+    ///    solc parses an at-word as a natspec TAG wherever it appears, not only at the start of a
+    ///    line, and backticks do not escape it: the tag name simply absorbed the closing backtick.
+    ///    The failure reads `Documentation tag ... not valid for functions` and points at the FIRST
+    ///    line of the docblock, tens of lines above the offending word, so it names neither the
+    ///    word nor the line. Spell such tags out in words, as "the first notice tag" above.
     /// @notice Composite L1 fee on draining `idx`-th stable, driven by the
     ///         YIELD-vs-weighted-average BASELINE (this REPLACES the old
     ///         risk-weighted concentration term).

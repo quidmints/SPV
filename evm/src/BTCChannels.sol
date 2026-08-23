@@ -7,7 +7,6 @@ import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 // (E125-d) ERC-1271 + ECDSA in one call, so a SMART-WALLET LP can register. Tries ECDSA
 // first, so the EOA path — the common one — keeps its cost.
@@ -113,7 +112,38 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 /// only as strong as whoever controls the whitelist and buys nothing against the attacks that
 /// matter — every one of them is available to a hop running perfectly attested code (§M1).
 
-contract BTCChannels is Ownable, ReentrancyGuard {
+contract BTCChannels is Ownable {
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // §E347b-BTC — THE REENTRANCY GUARD IS DECLARED HERE, NOT INHERITED, AND `BTCChannels` IS NOW
+    // THE CONTRACT THAT NEEDS IT MOST. Measured 2026-08-23 after the fleet's folds: `Quid` fell to
+    // 21,856 (2,720 spare) and **`BTCChannels` became the tightest deployable contract at 23,413,
+    // with 1,163 left** — the binding constraint moved, so the same trade lane A made on `Quid`
+    // pays more here.
+    //  solmate's `nonReentrant` is a MODIFIER, so its body — an SLOAD, a comparison, the
+    //  `"REENTRANCY"` revert string and TWO SSTOREs — was copied into all THIRTEEN use sites. One
+    //  routine each way and thirteen jumps instead.
+    //
+    //  WHY IT COULD NOT BE DONE BY OVERRIDING: solmate declares `uint256 private locked = 1`, so a
+    //  derived contract cannot read it and cannot write the split modifier. The base had to go.
+    //
+    //  ⚠️ THE STORAGE SLOT IS UNCHANGED, AND IT IS A NO-OP HERE ONLY BECAUSE OF THE BASE ORDER.
+    //  `is Ownable, ReentrancyGuard` put solmate's `locked` LAST among the bases, i.e. immediately
+    //  after `Ownable._owner` and immediately before this contract's own state — so declaring it as
+    //  the FIRST member of the body lands it on exactly that slot. Same slot, same name, same
+    //  initial value, same 1/2 discipline (never 0/1 — a 0→1 SSTORE is 20k gas, which is why
+    //  solmate uses 1 and 2), same `"REENTRANCY"` string, so no revert-data consumer moves.
+    //  ⛔ THIS DOES NOT GENERALISE BY INSPECTION — CHECK THE BASE ORDER EVERY TIME. `Vault is
+    //  Ownable, ReentrancyGuard, Shares` and `Basket is ReentrancyGuard, Ownable` both put `locked`
+    //  BEFORE another base's state, so the identical edit there SHIFTS that base's slots. It is
+    //  still safe if nothing reads them by raw slot, but it is NOT a no-op and must not be landed
+    //  as one. VERIFIED for this contract by diffing `forge inspect BTCChannels storageLayout`
+    //  against the pristine parent — identical, which is the only acceptable evidence.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    uint private locked = 1;
+    function _lock()   private { require(locked == 1, "REENTRANCY"); locked = 2; }
+    function _unlock() private { locked = 1; }
+    modifier nonReentrant { _lock(); _; _unlock(); }
+
     // ─── Constants ────────────────────────────────────────────────────
     // SPV finality / reorg risk (ACCEPTED, by design): every tx this contract
     // consumes (openChannel / splice / recordClose) is gated on
