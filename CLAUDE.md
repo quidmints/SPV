@@ -163,6 +163,44 @@ the signature of this, and nothing else produces it.
 
 ## Verification discipline
 
+- 🔴 **A SWEEP IS NOT A FINDING UNTIL ITS FALSE-POSITIVE CLASS IS NAMED. THREE SWEEPS IN ONE DAY
+  (2026-08-23) EACH COLLAPSED THE MOMENT I LOOKED.** Raw counts were 47 assertion-free tests, 334
+  duplicate-expression locals, and 3 foldable libraries. **Real counts: ~20 (and mostly deliberate),
+  4, and 0.** The refinements that did it, each cheap and each found only by opening a file:
+  *assertions live in helpers, sometimes TWO levels deep* · *`before`/`after` pairs read the same
+  expression at different TIMES and that is correct* · *identical args to a NON-VIEW function are not
+  identical results* · *"did not revert" is a legitimate assertion for a test named `_Accepts_`*.
+  ⇒ **Report the refined number with the discarded class named, or the signal is ignored.** A row
+  saying "334 findings" is read as noise and closed; one saying "4, and here is why the other 330 are
+  correct" gets acted on.
+- 🔴 **`import` TELLS YOU WHAT A FILE MENTIONS. ONLY A CALL-SITE GREP TELLS YOU WHAT IT USES.** Same
+  day, three wrong conclusions from the same error: three TOMBSTONES were assigned to a work lane
+  (items *mention* a deleted file because an obituary names its subject repeatedly); `Core` looked
+  like the fix site for 10 items and was the fix site for **0** (it is where the σ² ARGUMENT happens —
+  cited constantly, edited rarely); and `FeeLib`/`OracleLib` looked foldable at 1 importer each and
+  have **5** and **2** real consumers. ⇒ **Before assigning work by file, `find` the file and grep its
+  CALLS.**
+- ⚠️ **A ONE-SIDED BOUND IS A RUBBER STAMP WHEN THE DEFECT DRIVES THE VALUE TOWARD THE ASSERTED SIDE**
+  (§VACUOUS-BOUNDS). `assertLt(x, CEIL)` cannot fail if the bug makes `x` zero; `assertGt(x, 0)` cannot
+  fail if the bug makes it huge. **The test's NAME is the tell — it claims what the assertion does not
+  check.** `test_FlushRangeStillOwesOnlyTheBase` asserts only `assertLt(flush, 3e16)` while `flush` is
+  **0**: it says *StillOwes* and never asserts the base is OWED. §E279's `assertGt(premium, 0)` was the
+  same shape and hid a double-charge. ⛔ **AND THE INVERSE IS NOT A DEFECT:** a PREMISE guard asserting
+  a curve is drained is correctly satisfied by 0, because there 0 IS the asserted condition. **The
+  discriminator is whether the extreme value MEANS the thing the message says.**
+- ⭐ **THE RATIO IS THE TELL: A MAGNITUDE MISS AND A WRONG-OPERAND MISS HAVE DIFFERENT SIGNATURES.**
+  Six failures in one suite looked like one cluster; five were within a few percent of expectation and
+  one was off by **~8×**. That one alone was a wrong-instance read (`ethPooled18` and `btcPooled18`
+  assigned the IDENTICAL expression — §WRONG-RANGE, the class with a documented 246-failure body
+  count). **Predicting the shape from the ratio, then confirming, beat grouping by symptom.**
+  ⇒ **A CLUSTER IS A HYPOTHESIS, NOT A FINDING.** Six reds in one file were carried in the census as
+  six defects; two turned out to be one non-defect and the rest shared only a filename.
+- ⚠️ **BOOK THE MECHANISM, NOT THE CONFESSION.** A row headed *"LAZY `openChannel` — never started, and
+  my ✅ was conditional"* survived months because its headline is about its AUTHOR'S PROCESS, so a
+  sweep hunting testable claims slides past it — while its falsifiable half was one
+  `grep -c "LAZY-OPEN"` away, returning **8**. **A status confession is not a status.**
+
+
 - 🔴 **CLOSING THE WORK IS NOT CLOSING THE ROW, AND THE ROW IS THE HALF THE NEXT THREAD READS.**
   Measured 2026-08-21: **three stale rows found in three consecutive questions**, all the same shape
   — the fix was landed, the commit message described it, and the ledger row still said 🔴.
