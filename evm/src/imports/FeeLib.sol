@@ -8,8 +8,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IAggregatorV3, IAux} from "./Interfaces.sol";
 
-/// @notice Aux surface the multi-venue withdraw cluster (relocated from BasketLib)
-///         calls back into via DELEGATECALL self-call (address(this)==Aux).
+// ⛔ AN ORPHANED `@notice` STOOD HERE — *"Aux surface the multi-venue withdraw cluster (relocated
+//    from BasketLib) calls back into via DELEGATECALL self-call (address(this)==Aux)"* — describing
+//    an `interface` declaration that has since moved to `Interfaces.sol` (rule 2). A natspec block
+//    with no subject does not merely go unread: the next declaration below it is `library FeeLib`,
+//    so tooling attaches an Aux-callback description to the fee library itself. Demoted to a plain
+//    comment recording where the surface went.
 
 
 /// @title  FeeLib — protocol fee model + depeg-aware haircut helpers
@@ -79,9 +83,14 @@ library FeeLib {
         }
     }
 
-    /// @notice Composite fee on a specific stable, factoring in
-    ///         basket-wide exposure (Σ share_i × risk_i).
-    ///         When no stable is depegged, totalExposure = 0 → BASE fee.
+    /// ⛔ THE DOCBLOCK THAT STOOD HERE WAS THE OBITUARY OF THE FUNCTION THIS ONE REPLACED, AND IT SAT
+    ///    DIRECTLY ABOVE ITS REPLACEMENT. It read *"Composite fee on a specific stable, factoring in
+    ///    basket-wide exposure (Σ share_i × risk_i). When no stable is depegged, totalExposure = 0 →
+    ///    BASE fee."* The body computes no exposure sum and holds no such variable: **`totalExposure`
+    ///    has exactly ONE occurrence in all of `evm/src`, and it was that comment.** The very next
+    ///    line says so outright — *"this REPLACES the old risk-weighted concentration term"* — so the
+    ///    file described the old design and the new one in consecutive sentences, with the dead one
+    ///    first. A reader taking the first `@notice` as authoritative gets the retired fee model.
     /// @notice Composite L1 fee on draining `idx`-th stable, driven by the
     ///         YIELD-vs-weighted-average BASELINE (this REPLACES the old
     ///         risk-weighted concentration term).
@@ -121,7 +130,7 @@ library FeeLib {
     ///         to compute the deposit size needed to honour a mint at
     ///         book value when the target stable is currently discounted.
     /// @notice Immutable fee-context bundle threaded through calcNeeded/allocate.
-    ///         Bundling these three (vs passing them individually) keeps the
+    ///         Bundling these TWO (vs passing them individually) keeps the
     ///         redemption path (BasketLib.takeBody) within the legacy stack — no
     ///         via_ir crutch. The MUTATED deps/yields arrays stay SEPARATE
     ///         by-reference args (a fixed-array member would be COPIED into the
@@ -143,10 +152,18 @@ library FeeLib {
         external view returns (uint needed)
     {
         // Concentration/cherry-pick fee is NO LONGER CHARGED to the user (baseRate already removed). The
-        // concentration `calcFeeL1` signal (yield-vs-baseline) survives ONLY as a ROUTING input: SOR
-        // (`_pickBestPath`) still ranks paths by concentration + hop-count for best-execution/rebalancing.
+        // concentration `calcFeeL1` signal (yield-vs-baseline) survives ONLY as a ROUTING input.
         // The sole outflow COST is the depeg haircut, and only during an actual depeg. deps/yields/c.stables
-        // are retained in the signature for the SOR/lens seam (unused here).
+        // are retained in the signature for the lens seam (unused here).
+        // 🔴 THE JUSTIFICATION FOR RETAINING THEM NAMED A COMPONENT THAT IS DELETED. It read *"SOR
+        // (`_pickBestPath`) still ranks paths by concentration + hop-count"*. `Aux.sol:819` is headed
+        // **"§E233-sor — THE SOR IS DELETED: PLUMBING FOR A CAPABILITY THAT WAS ALREADY GONE"**, and
+        // `_pickBestPath` has ZERO references anywhere in `evm/src`. ⇒ The "SOR seam" these unused
+        // parameters are held open for does not exist, so what is left is the lens seam alone.
+        // ⚠️ THAT MAKES THE RETENTION A LIVE QUESTION RATHER THAN A SETTLED ONE — booked, not fixed
+        // here: changing this signature is a cross-file edit (`BasketLib` calls it) and this lane
+        // cannot compile. See the report accompanying this commit for `calcFeeL1` itself, whose only
+        // remaining consumers are tests.
         deps; yields;
         needed = grossUpForDepeg(amount, calcRisk(token, c.range));
     }

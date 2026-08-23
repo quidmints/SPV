@@ -2101,8 +2101,20 @@ library SwapLib {
     /// @notice Withhold the A-S scarcity premium `amount·skew` from a drained/sold `amount`, record it as
     ///         retained backing (`recordSkewPremium` — the drainer's full USD entered the pool, they just take
     ///         less out), and return the reduced amount. ONE definition for all three retain sites (swap-out
-    ///         drain, sell-in, BtcVault drain). The retained premium stays in the basket as LP backing (the
-    ///         refiller-payout side was removed — the fleet self-funds the refill). skew==0 no-op.
+    ///         drain, sell-in, BtcVault drain). The refiller-payout side was removed — the fleet
+    ///         self-funds the refill. skew==0 no-op.
+    /// ⛔ **CORRECTED — THIS REPEATED THE EXACT WORDING `Core.sol` ALREADY CARRIES A HISTORICAL-NOTE
+    ///     WARNING ABOUT, AND ONLY THE `Core` COPY WAS EVER FIXED.** It said the premium *"stays in
+    ///     the basket as LP backing"*. `Core.recordSkewPremium`'s docblock (`:523`) flags that phrasing
+    ///     by name: *"this said the premium 'STAYS in the basket as pure LP backing (NAV)' — true
+    ///     pre-§E5, and the source of the §E42 leak. §E5 made it an LP CLAIM (`creditSkewPremium`),
+    ///     and §E42-netting moves its BACKING into the POOLED mirror to match."* The code agrees:
+    ///     `recordSkewPremium` (`Core.sol:523`) ends in `RANGE.creditSkewPremium(premiumUsd)`, which
+    ///     is implemented on BOTH ranges (`Quid.sol:1254`, `Vault.sol:371`). ⇒ It is a CLAIM credited
+    ///     to LPs, not undifferentiated basket NAV, and the difference is the leak §E42 closed.
+    ///     **A correction applied to one of two copies of a claim leaves the other copy authoritative
+    ///     for anyone who reads that file first** — which is the whole argument for rule 2, arriving
+    ///     through prose instead of through a declaration.
     /// @notice Plain (unlevered) net range equity = gross `pooled` minus the levered slice `lev`, zero-floored.
     ///         ONE definition for the hedge-E0 base (rangeOf/rangeOf), the venue-yield fee weight, and the
     ///         withdraw/transfer free-balance cap — a drifted copy (dropped floor / wrong slice) would make
@@ -2126,9 +2138,15 @@ library SwapLib {
     function retainSkewPremium(address core, SwapReq memory r, uint skew, bool nativeAmount)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal {
         if (skew == 0) return;
-        // §E275 — NO GUARD HERE BY DESIGN. `skew` reaches this function only from `wellSkew` /
-        // `sellSkew`, both of which decline an unfillable rate at the producer, so a second bound
-        // would be the clamp standing rule 17 warns about rather than a defence.
+        // §E275/§E300 — NO GUARD HERE BY DESIGN, AND THE REASON HAS CHANGED WHILE THE CONCLUSION
+        // HELD. This said `wellSkew`/`sellSkew` *"DECLINE an unfillable rate at the producer"*. They
+        // no longer decline: §E298 showed a revert hands a solver nothing, and §E300 replaced the
+        // refusal with `_boundToFullHaircut`, which SATURATES at `SKEW_UNFILLABLE == 1e18`
+        // (`:1456`). ⇒ The guarantee this frame relies on is now ARITHMETIC rather than a promise
+        // about the caller: `skew <= 1e18` makes `premium = amount·skew/1e18 <= amount`, so the
+        // `r.amount -= premium` below cannot underflow even at a 100% haircut. A second bound here
+        // would still be the clamp standing rule 17 warns about — but note the reason a reader must
+        // check has moved from "the producer refuses" to "the producer saturates".
         uint premium = SoladyMath.fullMulDiv(r.amount, skew, 1e18);
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
