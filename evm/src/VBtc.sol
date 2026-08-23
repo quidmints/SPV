@@ -31,41 +31,26 @@ import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: fi
 ///         below returns WBTC as a pricing handle, but under this design vBTC IS the range's asset
 ///         rather than having one. Do not carry that accessor across unexamined.
 ///
-/// 🔴 THE HEADER USED TO JUSTIFY THIS CONTRACT ON PRIVACY GROUNDS AND PROPOSE `redeemVBtc(sats,
-///    p2trScript)`. BOTH ARE RETIRED. Corrected 2026-08-23; the argument is recorded here rather
-///    than deleted, because a proposal that only *sounds* retired gets re-proposed.
-///
-///    WHAT IT SAID: that segregation was "a prerequisite, not cosmetics" (§A.19b + §A.45) because
-///    "the LP never receives loose vBTC" blocks BOTH an open Morpho/Euler market AND the privacy
-///    story; that swap-out "already proves the protocol can pay an arbitrary P2TR address whose
-///    owner has no channel"; and that a future `redeemVBtc(sats, p2trScript)` plus the aggregate
-///    invariant Sigma outstanding vBTC <= Sigma free channel capacity therefore belonged here.
-///
-///    WHY THE FEATURE IS DEAD — IT IS A THEFT VECTOR. The consuming repo analysed exactly that
-///    design and rejected it. `../ibiza/TODO.md` §2.4d, quoting `BTCChannels.sol:477-496`:
+/// ⛔ DO NOT BUILD `redeemVBtc(sats, p2trScript)`. This header used to propose it (on privacy
+///    grounds); the consuming repo analysed exactly that design and rejected it as a THEFT VECTOR.
+///    `../ibiza/TODO.md` §2.4d, quoting this repo's `BTCChannels._lpFinalBalance` docblock (cited
+///    there as `BTCChannels.sol:477-496`, since drifted — grep the symbol):
 ///      "We REJECT any other output: without this, a malicious LP could route its withdrawal to a
 ///       script != btcRecipientOf, making `_lpFinalBalance` read 0 -> `delivered = shrinkSats` ->
 ///       OVER-CLAIM THE SHARED SWAP-OUT PROCEEDS POOL (CROSS-LP THEFT)."
-///    The chain cannot see WHO was paid, only HOW MUCH reached the committed script. `btcRecipientOf`
-///    (the LP's upfront-shutdown P2TR key) is ONE source of truth for BOTH cooperative-close
-///    attribution and the splice path. Paying a caller-supplied script makes `delivered` forgeable.
-///    ibiza's verdict: "Unbinding it to gain anonymity would trade a cryptoeconomic invariant for a
-///    privacy property — the wrong direction."
-///    ⚠️ AND ITS PREMISE WAS NEVER CHECKED. "Swap-out already proves the protocol can pay an
-///    arbitrary P2TR address" — the whole "it's only a missing ENTRYPOINT" argument rests on the
-///    swap-out path and an LP-WITHDRAWAL path having the same attribution guarantees. That
-///    equivalence has never been established, and the quote above indicates they differ.
+///    The chain sees only HOW MUCH reached the committed script, never WHO was paid, so
+///    `btcRecipientOf` is ONE source of truth for both cooperative-close attribution and the splice
+///    path; a caller-supplied script makes `delivered` forgeable.
+///    ⚠️ AND THE PROPOSAL'S PREMISE WAS NEVER CHECKED — "swap-out already pays an arbitrary P2TR,
+///    so only an ENTRYPOINT is missing" assumes the swap-out and LP-WITHDRAWAL paths have the same
+///    attribution guarantees. That was never established, and the quote above suggests they differ.
+///    ⛔ THE PRIVACY MOTIVE IS ALSO DEAD: `exposeBtcToLev` mints to the LevManager, not the LP, so
+///    NOBODY EVER HOLDS vBTC (ibiza §2.4d) — there is no holder population to anonymise.
 ///
-///    WHY THE PRIVACY MOTIVE IS DEAD. ibiza §2.4d: "vBTC through PP — RULED OUT… NOBODY EVER HOLDS
-///    vBTC" — `exposeBtcToLev` mints to the LevManager, not the LP, which supplies it as venue
-///    collateral and burns it on close. There is no holder population to form an anonymity set
-///    from, so there is nothing to anonymise.
-///
-///    ⇒ ONE THING FROM THAT PARAGRAPH IS STILL LIVE, and it is a BLOCKER, not a reason to exist:
-///    an open Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit. Solve
-///    that on its own terms. Do NOT delete `VBtc` on privacy grounds either — the reason above is
-///    load-bearing and independent. Neither repo references the other, so nothing in SPV surfaces
-///    ibiza's verdict; hence the record here, in the file whose header made the proposal.
+///    ⇒ ONE BLOCKER FROM that paragraph is still live: an open Morpho/Euler market, where a
+///    liquidator who seizes vBTC has no way to exit. Solve it on its own terms. Do NOT delete
+///    `VBtc` on privacy grounds either — the mint-the-underlying reason above is independent.
+///    Neither repo references the other, so this is SPV's only record of ibiza's verdict.
 contract VBtc {
     string public constant name     = "QuidMint vBTC";
     string public constant symbol   = "vBTC";

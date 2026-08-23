@@ -562,12 +562,9 @@ contract BTCChannels is Ownable {
     error NotAShrink();      // an on-chain swap-out delivery must REDUCE the channel
 
     /// @dev (§E233-ladder) The live-channel gate. **A `private view`, NOT a modifier — standing rule 8c,
-    ///      and here it is the reason the §E233-ladder ladder fits at all.** As `modifier whenOpen` this
-    ///      check was INLINED at all EIGHT of its use sites; `_onlyHop`'s note directly below
-    ///      records the same conversion measured at **+968 bytes for six uses**, and `BTCChannels`
-    ///      had **138 bytes of margin** when this was measured (2026-08-17), having overtaken
-    ///      `Quid` as the binding contract. One routine plus eight JUMPs paid for the mandatory
-    ///      splice/rekey re-arming instead of blocking it.
+    ///      and here it is the reason the §E233-ladder ladder fits at all.** As `modifier whenOpen`
+    ///      this check inlined at all EIGHT use sites; the same conversion measured **+968 bytes for
+    ///      six uses** on `_onlyHop` below, against **138 bytes of margin** (snapshot, 2026-08-17).
     ///      ⚠️ CALL IT AS THE FIRST STATEMENT OF THE BODY. As a modifier it ran BEFORE everything
     ///      including `_onlyHop()`, so which revert a caller sees is part of the observed behaviour
     ///      (tests assert `WrongStatus` vs `NotChannelHop` on specific paths). Ordering it after any
@@ -584,7 +581,9 @@ contract BTCChannels is Ownable {
     ///      the caller must actually do instead. ⚠️ A FULL close needs no such guard and must not
     ///      get one: there `sharesRemoved = LP.pooled`, so the subtraction self-cancels at zero.
     /// @dev **A `private view`, NOT a modifier, deliberately** (standing rule 8c): a modifier's body
-    ///      is inlined at every use site, and `BTCChannels` has 356 bytes of margin.
+    ///      is inlined at every use site, and `BTCChannels` is the tightest contract in the tree.
+    ///      (This quoted "356 bytes of margin"; margins swing by thousands — run
+    ///      `tools/check-contract-sizes.py` rather than trusting any figure written here.)
     /// ⛔ **DO NOT "FIX" THIS BY AUTO-CLAIMING INSIDE THE SHRINK.** That rebuilds the coupling
     ///      §LAZY-OPEN removed — a claim leg that reverts on protocol-wide state, back on a path
     ///      where the swapper's BTC has ALREADY moved. Anyone can call `registerChannelClaim`
@@ -839,42 +838,25 @@ contract BTCChannels is Ownable {
     //
     // ⛔ ALL FOUR PUBLIC DIGEST ACCESSORS ARE DELETED, AND WITH THEM EVERY DOMAIN TAG.
     //
-    // (E182) `spliceDigest` and `swapOutDeliverDigest` went first: they computed the message for
-    // TWO LP CONSENTS THAT NO LONGER EXIST, and paid for it in deploy bytes on the one contract
-    // that could not afford them. (2026-08-22) `openChannelDigest` and `openAuthDigest` follow for
-    // the SAME measured reason — **zero call sites in `evm/src`**, the LP signature they served
-    // having been deleted by §E183 item 1. ⚠️ The comment that used to sit here claimed
-    // `openAuthDigest` was "KEPT because the open path genuinely verifies against it" — **it did
-    // not; nothing verified it after §E183**, and that sentence is exactly the misreading these
-    // accessors produce.
+    // `spliceDigest`, `swapOutDeliverDigest` (E182), `openChannelDigest` and `openAuthDigest`
+    // (§E307) all encoded LP CONSENTS THAT NO LONGER EXIST — `splice` and `deliverSwapOutOnchain`
+    // are `_onlyHop()`-gated and §E183 deleted the open's `lpSig`. Measured before removing: ZERO
+    // callers in `evm/src`/`evm/test`, and the only client mentions are Rust DOC COMMENTS on
+    // `evm_codec.rs`'s own local reimplementations, which never call these accessors.
     //
-    // 🔑 **WHY THE TAGS COULD THEN GO (owner: *"no tags"*), AND IT IS THE DELETIONS THAT EARNED IT.**
-    // A domain tag separates messages that would otherwise collide. With FOUR digests sharing one
-    // namespace, string separation was doing real work. Two remain — the payout PoP and `rekey` —
-    // and they are separated THREE ways without a tag: a different HASH (sha256 vs keccak256), a
-    // different FIELD COUNT (3 vs 5), and a different SIGNATURE SCHEME (BIP-340 Schnorr vs ECDSA).
-    // ⇒ **Removing the tags is safe BECAUSE the dead digests went first. Do not re-add a third
-    // verified digest without re-deriving this** — if a new one shares a hash AND an arity with an
-    // existing one, the separation is gone and something has to restore it.
+    // 🔑 **WHY THE DOMAIN TAGS COULD THEN GO** (owner: *"no tags"*): a tag separates messages that
+    // would otherwise collide, and with FOUR digests in one namespace it did real work. TWO remain
+    // — the payout PoP and `rekey` — separated three ways already: different HASH (sha256 vs
+    // keccak256), FIELD COUNT (3 vs 5), and SCHEME (BIP-340 Schnorr vs ECDSA).
+    // ⛔ **DO NOT RE-ADD A THIRD VERIFIED DIGEST WITHOUT RE-DERIVING THAT.** If a new one shares a
+    // hash AND an arity with an existing one, the separation is gone and something must restore it.
     //
-    // Both described themselves as "the digest the LP signs to authorize …". Neither consent is
-    // verified anywhere: `splice` and `deliverSwapOutOnchain` are both gated by `_onlyHop()`, and
-    // each records that its per-call `lpAuth` was "retired as redundant" (§E157). Measured before
-    // removing rather than assumed: ZERO callers in `evm/src`, ZERO in `evm/test`, and the only
-    // client mentions are Rust DOC COMMENTS on `evm_codec.rs`'s own local reimplementations
-    // (`splice_digest`, `swap_out_deliver_digest`), which recompute the preimage off-chain and
-    // never call these accessors. ⛔ THIS SENTENCE USED TO SAY `openChannelDigest` WAS "KEPT — six
-    // tests call it" AND `openAuthDigest` "KEPT because the open path genuinely verifies against
-    // it". BOTH ARE DELETED, and zero tests call either: every surviving mention in `evm/src`,
-    // `evm/test` and `spa/src` is a comment (§E307, re-measured 2026-08-22 with the ABI gate green
-    // at 0 drifted). ⚠️ The paragraph above already corrects the identical claim for `openAuthDigest`
-    // — the block was documenting this failure mode in one breath and committing it in the next.
-    //
-    // ⚠️ THIS IS THE `create_sweep_tx` TEST APPLIED IN THE OTHER DIRECTION, so the reasoning is
-    // written down: that symbol was restored twice because its "dead" warning MARKED A REAL GAP —
-    // a missing caller that was a security feature. These two are the opposite case. The consent
-    // they encode was not deferred, it was DELIBERATELY RETIRED, by commits that say so at the
-    // call sites. A digest for a signature nobody will ever check is not a gap marker.
+    // ⚠️ NOT THE `create_sweep_tx` CASE, and the distinction is why deleting these was right: that
+    // symbol was restored twice because its "dead" warning MARKED A REAL GAP (a missing caller that
+    // was a security feature). These consents were not deferred, they were DELIBERATELY RETIRED, by
+    // commits that say so at the call sites. A digest for a signature nobody will ever check is not
+    // a gap marker. ⛔ DO NOT RESTORE THEM ON A "KEPT — tests call it" READING: that sentence stood
+    // here, and it was false.
     //
     // 🔴 AND THEY WERE ACTIVELY MISLEADING. A reader auditing whether splices are LP-authorized
     // finds a public `spliceDigest` on the contract and reasonably concludes they are. THEY ARE
@@ -1259,11 +1241,11 @@ contract BTCChannels is Ownable {
 
     /// (§E182) The gate, in its own frame — a forwarder, deliberately.
     ///
-    /// ⚠️ THE DECISION LOGIC IS IN `ChannelLib.rekeyAuthBody`, NOT HERE, AND THE REASON IS
-    /// MEASURED: written inline in this contract the feature came to **25,295 bytes, 719 OVER
-    /// EIP-170** — undeployable — against 637 spare. Library functions are `external` and so are
-    /// DELEGATECALLED, putting their code in the library's own deployment. Two values are read
-    /// here and passed BY VALUE so the library never depends on this contract's storage layout.
+    /// ⛔ THE DECISION LOGIC MUST STAY IN `ChannelLib.rekeyAuthBody`. Written inline here it
+    /// measured **25,295 bytes — 719 OVER EIP-170, undeployable** (snapshot, 2026-08-22). Library
+    /// functions are `external` and so DELEGATECALLED, putting their code in the library's own
+    /// deployment. Two values are read here and passed BY VALUE so the library never depends on
+    /// this contract's storage layout.
     function _authorizeRekey(
         bytes32 channelId,
         Types.OpenParams calldata p,
@@ -2301,7 +2283,8 @@ contract BTCChannels is Ownable {
     ///         splices as the channel's hop and produces no per-call lpAuth
     ///         (`quid-bridge/swap_out_onchain.rs:221-223`).
     ///         ⚠️ **THIS ALSO SAID `swapOutDeliverDigest` "REMAINS as an off-chain-signing helper".
-    ///         IT DOES NOT — §E182 deleted it (see `:828`), and its Rust twin
+    ///         IT DOES NOT — §E182 deleted it (record: the "ALL FOUR PUBLIC DIGEST ACCESSORS ARE
+    ///         DELETED" block above; this cited `:828` and it drifted), and its Rust twin
     ///         `swap_out_deliver_digest` went with it on 2026-08-22 once the reason for keeping the
     ///         pair was re-tested and found expired.** The keep-reason was "the natural message for
     ///         an LP-consent gate that does not exist yet"; that gate arrived as §E182 `rekey` and

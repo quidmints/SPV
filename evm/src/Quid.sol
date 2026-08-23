@@ -137,29 +137,22 @@ contract Quid is Shares,
         });
     }
 
-    /// @dev §E347 — ONE call site for `QuidLib.levManager(AUX)`, which had FOUR (`_withdraw`'s
-    ///      auto-de-lever, `_reconcileLev`, `_venueBalance`, `_pricingBacking`). `QuidLib` is a
-    ///      LINKED library, so every one of those four was a full `PUSH20 <library address>` +
-    ///      argument encode + STATICCALL + returndata decode inlined at the site — the fattest
-    ///      repeated shape in this file. Standing rule 8c's arithmetic, applied to a library call
-    ///      instead of a modifier: N copies of a routine become one routine and N jumps.
-    ///      ⚠️ DELIBERATELY NOT shortcut to the `LEV_MANAGER` slot. `QuidLib.levManager` resolves
-    ///      `AUX.ethVenue()` and reads `LEV_MANAGER` off THAT address; those are the same address
-    ///      today only because §ETHVENUE-FOLD made the ETH venue this contract. Merging on a shared
-    ///      address rather than on identity is exactly what planted three runtime reverts during the
-    ///      `EthVenue` extraction (see CLAUDE.md §SPLITTING). The resolution stays where it is.
+    /// @dev §E347 — ONE call site for `QuidLib.levManager(AUX)`; `QuidLib` is a LINKED library, so
+    ///      each inlined call was a PUSH20 + encode + STATICCALL + decode (rule 8c's arithmetic).
+    ///      ⛔ DO NOT shortcut this to the `LEV_MANAGER` slot. It resolves `AUX.ethVenue()` and
+    ///      reads `LEV_MANAGER` off THAT address — the same address as this contract only because
+    ///      §ETHVENUE-FOLD made the ETH venue `Quid`. Merging on a SHARED ADDRESS rather than on
+    ///      identity planted three runtime reverts in the `EthVenue` extraction (CLAUDE.md §SPLITTING).
     function _levManager() private view returns (address) {
         return QuidLib.levManager(address(AUX));
     }
 
-    /// @dev §E347 — the ETH-range TWAP read, one copy instead of three (`_payUsdLeg`,
-    ///      `_depositImpl`, `_pricingBacking` all asked for the same asset over the same window).
+    /// @dev §E347 — the ETH-range TWAP read (WETH, 1800s), one copy for all askers.
     function _wethTwap() private view returns (uint) {
         return AUX.getTWAPforAsset(address(WETH), 1800);
     }
 
-    /// @dev §E347 — `AUX.rangeETH()` had three call sites (`realInventory`, `totalAssets`,
-    ///      `_pricingBacking`), two of which were whole one-line function bodies.
+    /// @dev §E347 — `AUX.rangeETH()`, one copy for all askers.
     function _auxRangeETH() private view returns (uint) {
         return AUX.rangeETH();
     }
@@ -171,10 +164,8 @@ contract Quid is Shares,
         usd6 = _corePooledUsd6(); base6 = CORE.basketUsd();
     }
 
-    /// @dev §E347d — the three `Core` reads `Quid` makes from more than one place. Each call site
-    ///      of an external `view` is its own encode + STATICCALL + decode; these are the last
-    ///      repeated ones left in the file. `_corePrice` also drops `poolStats`'s second return in
-    ///      ONE place instead of at both sites that wanted only the price.
+    /// @dev §E347d — the `Core` reads made from more than one place; each external `view` call site
+    ///      is its own encode + STATICCALL + decode. ⚠️ These hit the ETH `Core` instance.
     function _corePooled()     private view returns (uint) { return CORE.POOLED(); }
     function _corePooledUsd6() private view returns (uint) { return CORE.POOLED_USD(); }
     function _corePrice()      private view returns (uint p) { (p,) = CORE.poolStats(); }
@@ -1491,8 +1482,8 @@ contract Quid is Shares,
     // immediately, so `previewDeposit`/`previewMint`/`maxDeposit`/`maxMint` describe a genuinely
     // SYNCHRONOUS flow and are honest 4626. **It was never "both faces deny it" — it is the
     // redemption half, and which half is decided by which side defers.**
-    // ⚠️ SAFE TO DELETE, CONTROLLED: zero references in `spa/src` and `quid-ln`, where the same
-    // search finds `redeem` (6 / 43) and `totalSupply` (3 / 0) — so the method sees client usage
+    // ⚠️ SAFE TO DELETE, CONTROLLED: zero references in `spa/src` and `quid-ln` — and the CONTROL is
+    // that the same search DOES find `redeem` and `totalSupply` there, so it can see client usage
     // where it exists. `check-client-abis.py` is the gate and was run.
 
     mapping(address => mapping(address => uint)) public allowance;
@@ -1667,28 +1658,19 @@ contract Quid is Shares,
         external nonReentrant returns (uint shares) {
         if (owner != msg.sender) revert AllowanceFlow();
         _requirePinnedRecipient(owner, receiver);
-        // CAP FIRST, then convert (2026-07-26). `convertToShares` used to run on the RAW `assets`, so
-        // the standard "exit everything" sentinel `withdraw(type(uint).max)` REVERTED with no message:
-        // it is `SoladyMath.fullMulDiv(assets, lpShares, rangeETH())`, whose overflow guard is a bare
-        // `require`, and `type(uint).max * lpShares` trips it unconditionally. 10+ call sites use the
-        // sentinel, so this reverted in NORMAL operation.
+        // CAP FIRST, then convert. `convertToShares` on the RAW `assets` made the "exit everything"
+        // sentinel `withdraw(type(uint).max)` revert unconditionally (`fullMulDiv`'s bare overflow
+        // `require`) — in NORMAL operation, since most call sites use the sentinel.
         //
-        // The cap is the LP's FULL position (≡ `maxWithdraw`), NOT their free/plain slice. That
-        // distinction is load-bearing: `_withdraw` fires #109's auto-de-lever on the strict test
-        // `amount > plainNet(pooled, levPooled)` (:504) and only THEN clamps (:511), re-reading
-        // `plainNet` after `_reconcileLev` has zeroed the closed slice. Capping to `plainNet` here
-        // would make that test unsatisfiable by construction and silently disable auto-de-lever on
-        // the whole 4626 path — a levered LP could never exit past their free depth. Capping to the
-        // full position keeps `amount > plainNet` reachable, bounds the conversion, and makes the
-        // sentinel mean "exit my entire position", which is exactly what `maxWithdraw` advertises.
-        // UNITS: cap in POOLED units, which is what `_withdraw` itself clamps in (`amount` vs
-        // `plainNet(LP.pooled, levPooled)`, :511) — NOT through `convertToAssets`. Routing the cap
-        // through the share-conversion made the payout depend on `rangeETH()`, so once the redeem
-        // turns had unwound the range the ceiling floored to 0 and a full-exit LP received NOTHING
-        // (measured: `test_RunSim_AllExit_Normal`, LP1 got 0 of 8 ETH — a test that PASSES upstream).
-        // Capping at the raw `pooled` reproduces upstream's effective behaviour exactly (upstream left
-        // `assets` huge and let `_withdraw` clamp it) while still bounding `convertToShares`, and it
-        // keeps `amount > plainNet` reachable whenever `levPooled > 0` so #109 still fires.
+        // ⛔ THE CAP IS THE LP'S FULL POSITION, NOT `plainNet`, AND NOT VIA `convertToAssets`. Both
+        // alternatives were tried and both fail SILENTLY:
+        //  • Capping to `plainNet` makes `_withdraw`'s auto-de-lever test (`amount > plainNet(pooled,
+        //    levPooled)`, which fires BEFORE its own clamp) unsatisfiable by construction — #109 dies
+        //    on the whole 4626 path and a levered LP can never exit past their free depth.
+        //  • Routing through the share-conversion makes the ceiling depend on `rangeETH()`, so once
+        //    redeem turns unwind the range it floors to 0 and a full-exit LP receives NOTHING
+        //    (measured: `test_RunSim_AllExit_Normal`, LP1 got 0 of 8 ETH).
+        // UNITS: POOLED, matching what `_withdraw` clamps in.
         uint ceiling = autoManaged[msg.sender].pooled;
         if (assets > ceiling) assets = ceiling;
         shares = convertToShares(assets);

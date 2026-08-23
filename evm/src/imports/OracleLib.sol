@@ -13,20 +13,18 @@ import {IAggregatorV3} from "./Interfaces.sol";
 // one. The requirement, measured:
 //   • the ring advances AT MOST once per block (a same-timestamp write only updates `lastPrice`),
 //     so a 1800s window needs 1800/12 = 150 observations, worst case;
-//   • `ringVariance` needs only `cardinality >= 3` (`:269`), subsumed entirely by that.
+//   • `ringVariance`'s body needs only `cardinality >= 3`, subsumed entirely by that.
 // 256 covers the 150 with ~70% headroom (3,072s ≈ 51 min of one-per-block history) and keeps
 // `index`/`cardinality` inside `uint16`. Raise it only when a LONGER window is actually requested:
 // the number follows the requirement, not the other way round.
 //
-// ⚠️ THE CLAIM "THE ONLY WINDOW REQUESTED IS 1800" IS THE LOAD-BEARING ONE, AND A GREP FOR LITERALS
-// DOES NOT ESTABLISH IT -- two indirections hide the value and both were resolved before this landed:
-//   • `TWAP_WINDOW` (`LevBase:37`) = 1800 and `TWAP_WIN_M` (`LevMath:341`) = 1800;
-//   • `WbtcCfg.twapWindow` is a STRUCT FIELD, i.e. potentially any value -- but all three
-//     construction sites (`BtcLevManager:318/327/347`) pass `TWAP_WINDOW`.
-// So no caller asks for more than 1800s. A config field that COULD exceed 3,072s is the thing to
-// re-check before trusting this number again: if one ever does, the ring silently covers less span
-// than the window requests, and `twapResolve`'s Chainlink cross-check is then the only thing
-// bounding the answer -- a backstop, not a substitute.
+// ⚠️ THE LOAD-BEARING CLAIM IS "THE ONLY WINDOW REQUESTED IS 1800", AND A GREP FOR LITERALS DOES
+// NOT ESTABLISH IT -- two indirections hide the value: `LevBase.TWAP_WINDOW` and
+// `LevMath.TWAP_WIN_M` are both 1800, and `LevMath.WbtcCfg.twapWindow` is a STRUCT FIELD (any
+// value) whose construction sites are ALL in `BtcLevManager` and ALL pass `TWAP_WINDOW`.
+// ⇒ Re-check that ZERO before trusting this number again. If a config field ever exceeds 3,072s the
+// ring silently covers less span than the window requests, and `twapResolve`'s Chainlink
+// cross-check becomes the only thing bounding the answer -- a backstop, not a substitute.
 //
 // ⚠️ THE WIN IS LAYOUT, NOT GAS: unwritten storage slots cost nothing, so 65,535 never paid rent.
 // What it DID do was reserve 65,535 slots, pushing every later variable past slot 65,541 and making
@@ -44,11 +42,11 @@ uint256 constant RING = 256;
 /// is range-agnostic, so it lives here ONCE and Core passes its own `storage` refs in. `external`
 /// library functions run via DELEGATECALL in Core's storage context, so this engine is deployed
 /// once and shared — saving Core's bytecode.
-/// ⚠️ THIS SAID *"Core runs TWO independent rings … each is a `Observation[65535]` array"*, AND BOTH
-/// NUMBERS WERE WRONG IN THE SAME SENTENCE. §ISBTC-SPLIT gave each instance ONE ring (`Core.sol:58`
-/// declares exactly one `ObsState` and one `Observation[RING]`), and §RING-SIZE took the length to
-/// `RING = 256`. The discriminator between the two rings is now the ADDRESS, not a field — which is
-/// the whole point of the split, and is invisible to a reader trusting this header.
+/// ⚠️ ONE RING PER `Core` INSTANCE, LENGTH `RING = 256` — `Core` declares exactly one `ObsState`
+/// and one `Observation[RING]`. The discriminator between the ETH and BTC rings is the ADDRESS,
+/// not a field (§ISBTC-SPLIT). ⛔ Do not restore *"Core runs TWO independent rings … each a
+/// `Observation[65535]` array"*: both numbers were wrong, and the address is invisible to a
+/// reader who trusts the header instead.
 library OracleLib {
     /// §TICK-REMOVAL (2026-08-15) — THE RING STORES PLAIN PRICE, NOT TICKS AND NOT SQRT-PRICES.
     /// Both encodings are leaving the tree, and every consumer of this ring already wanted a price:
@@ -189,21 +187,14 @@ library OracleLib {
     ///    NOT escape it — the tag name absorbs the closing backtick. The error is
     ///    `Documentation tag ... not valid for functions` pointing at the docblock''s FIRST line,
     ///    so it names neither the offending word nor its line. Spell them out: "the dev tag".
-    ///    ⚠️ It only fires above a FUNCTION — `Core.sol:190` carries one above a VARIABLE and
-    ///    compiles, which is why the pattern looks safe until it is not.
-    /// ⚠️ THE dev-TAG BLOCK THAT STOOD HERE DESCRIBED A FUNCTION THAT NO LONGER EXISTS, IN THE PRESENT
-    /// TENSE, DIRECTLY ABOVE THE THREE-LINE BODY BELOW: *"Deploy Core's four per-pool mocks here …
-    /// so the ~3.9 KB of `mock` creation-code lives in THIS library's bytecode."* §E253-mock deleted
-    /// the mocks and `deployMocks` with them — there is no `mock` string left in this file and no
-    /// caller anywhere in `evm/src`, `evm/script` or `evm/test`. Read as current it says `seedRing`
-    /// deploys four ERC20s, which would make anyone sizing this library's bytecode wrong by ~3.9 KB.
-    /// §V4-CUT — THIS IS A RING SEEDER NOW, AND THE NAME SAYS SO. It used to assemble a lex-sorted
-    /// PoolKey, derive its PoolId, align a reference tick to the grid and call `pm.initialize` so v4
-    /// would host the range. Nothing calls the PoolManager any more, so the pool was never created --
-    /// which made the PoolKey, the PoolId and the `volMock > usdMock` ordering all write-only
-    /// vestigia of a pool that does not exist. `VANILLA_*` and `POOL_ID_VANILLA_*` went with them.
-    /// What actually mattered was always these three lines: seed `lastPrice` from the reference
-    /// price and open the ring.
+    ///    ⚠️ It only fires above a FUNCTION — `Core`'s `FLOW_DECAY` docblock carries one above a
+    ///    VARIABLE and compiles, which is why the pattern looks safe until it is not.
+    /// §V4-CUT — A RING SEEDER, NOTHING ELSE: seed `lastPrice` from the reference price and open
+    /// the ring. It used to build a PoolKey/PoolId and call `pm.initialize`; with no PoolManager
+    /// those became write-only vestigia and went, along with `VANILLA_*` / `POOL_ID_VANILLA_*`.
+    /// ⚠️ §E253-mock also deleted `deployMocks` and Core's four per-pool mocks. ⛔ Do not restore
+    /// *"the ~3.9 KB of `mock` creation-code lives in THIS library's bytecode"* — it makes anyone
+    /// sizing this library wrong by ~3.9 KB, and there is no `mock` string left in this file.
     function seedRing(ObsState storage st, Observation[RING] storage obs, uint refPrice)
         external {
         st.lastPrice = refPrice;
@@ -221,14 +212,11 @@ library OracleLib {
     /// later on an arithmetic underflow. A tick and a price are both `uint` after the cast, so
     /// nothing objected. ⇒ Returning a PRICE, in the same scaling `twapResolve` uses, is what makes
     /// that class unconstructible rather than merely fixed.
-    /// ⚠️ THREE CLAIMS THAT STOOD HERE WERE FALSE AND ONE CONTRADICTED THE dev-TAG SIX LINES BELOW.
-    /// They described `prepRefs`, not this function: *"`wbtc` is passed in rather than read here"*
-    /// (there is no `wbtc` parameter — the signature is `(ethFeed, btcFeed)`, and `_feed18` applies
-    /// the ×1e10 lift from a bool); *"the orientation probes are CONSUMED HERE now"* (there are no
-    /// probes, and no pool to orient); and *"the reference pools are still READ, deliberately"* —
-    /// which §V4-ZERO below flatly denies, and a grep confirms: **zero occurrences of `slot0`,
-    /// `IPoolManager`, `PoolKey` or `StateLibrary` anywhere in `evm/src`.** The paragraph recording
-    /// the deleted PoolManager approvals went with them; it documented `prepRefs`'s body.
+    /// ⚠️ NO REFERENCE POOL IS READ AND NONE EXISTS: `slot0`, `IPoolManager`, `PoolKey` and
+    /// `StateLibrary` have ZERO CODE occurrences in `evm/src` — every remaining hit is a comment,
+    /// so grep by structure, not by name. ⛔ Do not restore *"the reference pools are still READ,
+    /// deliberately"*, *"the orientation probes are CONSUMED HERE"*, or *"`wbtc` is passed in"* —
+    /// all three described `prepRefs`, and `_feed18` applies the ×1e10 lift from a bool.
     /// @notice Deploy-time seed price for each range, read from CHAINLINK.
     /// @dev    §V4-ZERO — was `prepRefs`, which read `slot0` from two UNISWAP V4 REFERENCE POOLS and
     ///         was the last thing in `src/` needing `IPoolManager`, `PoolKey`, `PoolIdLibrary`,
@@ -481,10 +469,9 @@ library OracleLib {
     ///         two, so neither source is privileged. An asymmetric test — always dividing by "ours"
     ///         — lets a manipulated external reading pass more easily in one direction than the
     ///         other, which is the direction an attacker gets to choose.
-    /// @dev    ⚠️ THIS IS A CAPACITY-STYLE CHECK, NOT A TOLERANCE INPUT. It compares two prices and
-    ///         REFUSES; it must never be used to SIZE anything. Sizing from a live external read is
-    ///         the trap `Interfaces.sol:74-77` records — manipulation widens the guard exactly when
-    ///         it needs to hold.
+    /// @dev    ⚠️ CAPACITY-STYLE CHECK, NOT A TOLERANCE INPUT. It compares two prices and REFUSES;
+    ///         ⛔ never use it to SIZE anything. Same trap `ICurvePool.balances` records: sizing off
+    ///         a live external read lets manipulation WIDEN the guard exactly when it must hold.
     function requireAgrees(uint ours, uint theirs, uint maxBps) internal pure {
         if (ours == 0 || theirs == 0) revert NoExternalPrice();
         (uint lo, uint hi) = ours < theirs ? (ours, theirs) : (theirs, ours);

@@ -28,17 +28,14 @@ import {OorBook} from "./imports/Types.sol";
 ///         be kept in sync with `pooled`: precisely the drift class this refactor exists to delete.
 ///         Only the allowance machinery is stock, and that is not worth a base class.
 ///
-/// @dev    ⚠️ CORRECTED 2026-08-23 — A PREVIOUS VERSION OF THIS BLOCK DESCRIBED A `totalSupply`
-///         THAT SPANS BOTH POSITION KINDS, `lpShares + oorShares`. NEITHER HALF EXISTS.
-///         `oorShares` has ZERO references in `evm/src` and `evm/test`, and this file declares no
-///         functions at all (see the ERC-20-face note below), so it has no `totalSupply` to span
-///         anything. The live face is `Quid.totalSupply() = lpShares` (`Quid.sol:1366`); `VBtc`
-///         declares none. The out-of-range book is `selfManaged` / `positions` / `oorBook` — a
-///         per-order structure with NO aggregate share count, so boundary orders are absent from
-///         every share total by construction, not by a decision anyone took.
-///         ⇒ THE CONSEQUENCE, BECAUSE THAT STALE BLOCK WAS LOAD-BEARING: §E255 carried
-///         "settle the `totalSupply` semantics first" as its blocker, and that disagreement had
-///         no subject. What blocks the merge is EIP-170 (§E255), nothing here.
+/// @dev    ⛔ THIS FILE HAS NO `totalSupply` AND NO `oorShares` — it declares STATE and zero
+///         functions. A previous version described a `totalSupply` spanning `lpShares + oorShares`;
+///         neither half exists (`oorShares`: zero references in `evm/src` and `evm/test`). The live
+///         face is `Quid.totalSupply() { return lpShares; }` — grep the SYMBOL, a line cite here
+///         drifted within days. The out-of-range book (`selfManaged`/`positions`/`oorBook`) is
+///         per-order with NO aggregate count, so boundary orders are absent from every share total
+///         by construction. ⇒ §E255's "settle the `totalSupply` semantics first" blocker had no
+///         subject; what blocks the merge is EIP-170, nothing here.
 ///
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the range
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
@@ -93,8 +90,10 @@ abstract contract Shares {
     /// permanently unfillable, stranding its funds with nothing reverting. The id makes every key
     /// unique while leaving the sort order by price intact.
     /// The index and its sweep watermark travel together as ONE storage pointer, which is what
-    /// lets `RangeLib` own the whole mechanism — `Quid` has the tightest EIP-170 margin in the tree
-    /// and cannot afford to hold the logic, only the forwarder.
+    /// lets `RangeLib` own the whole mechanism — the range managers hold only the forwarder and pay
+    /// ZERO deployed bytes for it. ⛔ Do not inline it back. (This read "`Quid` has the tightest
+    /// EIP-170 margin in the tree"; that is no longer true — `tools/check-contract-sizes.py` is the
+    /// only current answer, and the zero-bytes invariant holds whichever contract is tightest.)
     OorBook internal oorBook;
 
     // ─── fee accumulators — PER-SHARE, not dollars (see CLAUDE.md: multiply back by the

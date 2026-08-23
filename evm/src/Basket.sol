@@ -56,15 +56,16 @@ contract Basket is ERC20, ERC6909,
         // over-privilege; minting is AUX + V4 (fees) +
         // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's, plus
         // `Vault.creditSwapOut` — the swap-out reissuance leg).
-        // ⚠️ This named `creditLPForSwap` as AUX's mint. THAT FUNCTION DOES NOT EXIST — zero
-        // declarations anywhere in the tree, and `git log -S "function creditLPForSwap"` returns
-        // nothing, so it never existed post-snapshot; it is an inherited name from pre-`0af7f6db`
-        // internal history. The live swap-out credit is `Vault.creditSwapIn`/`creditSwapOut`,
-        // which is why BTC_VAULT is in the `auth` set below and not just AUX.
+        // ⛔ `creditLPForSwap` DOES NOT EXIST — zero declarations tree-wide and `git log -S` finds
+        // nothing; it is an inherited name from pre-`0af7f6db` history. The live swap-out credit is
+        // `Vault.creditSwapIn`/`creditSwapOut`, which is why BTC_VAULT is in `auth`, not just AUX.
         return (who == address(AUX) || who == RANGE || who == BTC_VAULT);
-    } // BTC_VAULT is Vault.sol — the BTC-side vault (range + channels). It also HOSTS both
-      // LevManagers (ETH LEV_MANAGER + BTC LEV_MANAGER) as a deploy consolidation, but the
-      // ETH range liquidity itself lives in Quid (V4). The name reflects its primary BTC role.
+    } // BTC_VAULT is `Vault` — the BTC RANGE MANAGER and only that; `Quid` is its ETH twin.
+      // ⚠️ CORRECTED: this said `Vault` holds "range + channels" and "HOSTS both LevManagers".
+      // It holds NEITHER. Channels are `BTCChannels`; `Vault.LEV_MANAGER` is the BTC one ALONE
+      // (see its own docblock: "Distinct from the ETH LEV_MANAGER"), and the ETH manager is
+      // resolved by `Quid` off `AUX.ethVenue()`. Wiring the wrong instance is this repo's
+      // recurring bug class — do not restore the fused reading.
 
     /// @notice BtcVault — the regrouped BTC side. Its BTC-LP fee + close-time
     ///         USD-leg mints (formerly Quid's) need the same auth Quid has.
@@ -195,8 +196,6 @@ contract Basket is ERC20, ERC6909,
         if (auth(msg.sender)) { // ETH LP swap fee dollar half...
             // protocol-internal mint + `Vault.creditSwapOut` for BTC
             // swap-out reissuance; Quid for V4 fee distribution.
-            // (Was "Aux.creditLPForSwap" — a name with zero declarations in
-            // the tree. The swap-out credit lives on the BTC Vault.)
             // The supply cap is the structural defense against a
             // compromised hop signer: even with valid LP+hop
             // signatures, a protocol mint can only credit up to the

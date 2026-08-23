@@ -135,7 +135,8 @@ contract Aux is // Auxiliary
     /// It is NOT the same number compared against itself, and it is NOT a units mismatch — both
     /// are 18-dec and QU!D is $1-denominated. Do not "fix" it into one variable.
     /// ⚠️ Renaming this to `seedReserve` (the honest name) is a CROSS-FILE change: the selector is
-    /// declared in `imports/Interfaces.sol:381` (`IAux`) and consumed by `ChannelLib`. Not done here.
+    /// declared on `interface IAux` in `imports/Interfaces.sol` and consumed by `ChannelLib`. Not
+    /// done here. (This cited `Interfaces.sol:381`; grep `interface IAux` — the line drifted.)
     uint public trancheTotal;
 
     /// @notice AAVE v4 wiring — GHO + USDG. Both are first-class assets
@@ -394,12 +395,10 @@ contract Aux is // Auxiliary
     // storage on reads — moving the external-call cost off the hot read path
     // (every swap/mint/redeem/checkBacking/LP-op calls get_deposits). The CHEAP
     // per-read adjustments (tranche subtraction, depeg discount) stay LIVE.
-    // READ FLIPPED (step 5 DONE): get_deposits now SERVES the vault-sum from this
-    // cache (BasketLib.sol:205-207), not the old live convertToAssets loop — that's
-    // the realized gas win. Maintained on every mutator (_refreshHoldings) + full-
-    // refreshed at mint/redeem; the reconciliation invariant
-    // `test_HoldingsCache_ReconcilesToLive` gates it (cache == live vault-sum after
-    // any op), so a missed mutator surfaces as a test failure, not silent under-backing.
+    // READ FLIPPED: get_deposits SERVES the vault-sum from this cache (`BasketLib.Holding`), not a
+    // live convertToAssets loop. Maintained on every mutator (`_refreshHoldings`), full-refreshed at
+    // mint/redeem; `test_HoldingsCache_ReconcilesToLive` gates cache == live, so a missed mutator is
+    // a test failure, not silent under-backing.
     mapping(address => BasketLib.Holding) public storedHoldings;
 
     /// @notice Thin wrappers; the bodies live in BasketLib (delegatecall →
@@ -866,11 +865,9 @@ contract Aux is // Auxiliary
     // (supplyETH/withdrawETH, supplyEtherFi/supplyAaveEth, offrampEtherFi,
     // aaveEthBalance) now live on the ETH range manager. Aux keeps a pinned handle +
     // thin forwarders only where callers must not change target.
-    // §E233-sor — THIS LINE LISTED `arbETH` AS ONE OF THEM, TWICE WRONG: `arbETH` does not exist
-    // (its forwarder and both callers -- Core.refillETH, Quid._withdraw -- were removed, as noted
-    // below), and `EthVenue` no longer exists either, having been folded into `Quid`. A comment
-    // naming a deleted function AND a deleted contract is how a reader concludes a capability is
-    // present when nothing implements it.
+    // §E233-sor — `arbETH` does NOT exist (its forwarder and both callers, Core.refillETH and
+    // Quid._withdraw, were removed), and neither does the `EthVenue` CONTRACT: §ETHVENUE-FOLD folded
+    // it into `Quid`, so the `ethVenue` pin below points at the ETH range manager itself.
 
     /// @notice EthVenue — pinned once, then driven for the ETH-venue ops.
     address public ethVenue;
@@ -1184,19 +1181,15 @@ contract Aux is // Auxiliary
         // routes via supplySelf/tipSelf/refresh*Self, all reads via Aux getters.
         usd = ChannelLib.depositBody(from, token, amount, address(QUID), stables.length);
         // §E326 — the MINT leg of net issuance, GATED ON THE CALLER.
-        // ⛔ **`deposit` IS NOT A MINT-ONLY PATH, AND ASSUMING IT WAS PUT TRADING FLOW IN THE ISSUANCE
-        // REGISTER.** I grepped `AUX.deposit(` — the EXTERNAL shape — found the single call at
-        // `Basket.sol:244`, and concluded it had one caller. It has four more, all reaching it from
-        // library bodies delegatecalled in this contract's own context: `SwapLib.sol:514` (the swap-in
-        // leg), `SwapLib.sol:1632` (swap-out), `QuidLib.sol:508` and `BtcLib.sol:313`. `deposit` is the
-        // shared "pull the stable into the basket" primitive, not the mint path.
-        // ⇒ **MEASURED, and the control test is what caught it: a $20,000 USDC→WETH swap moved this
-        // register by exactly 20,000e18** before the gate below existed.
-        // THE DISCRIMINATOR IS `msg.sender`, and it separates the two cleanly: `Basket.mint` calls in
-        // from OUTSIDE, so `msg.sender == address(QUID)`; every library caller is a self-call made
-        // while `address(this) == Aux`, so `msg.sender` is Aux (or the range manager), never the token.
-        // `Basket.sol:244` is `Basket`'s only call to `deposit`, and it is the user-facing branch of
-        // `mint` — so protocol-internal fee/swap-out mints stay excluded too.
+        // ⛔ **`deposit` IS NOT A MINT-ONLY PATH.** Grepping the EXTERNAL shape `AUX.deposit(` finds
+        // only `Basket.mint`'s user-facing branch and MISSES FOUR MORE — `SwapLib` (swap-in and
+        // swap-out legs), `QuidLib` and `BtcLib` — which reach it from library bodies DELEGATECALLED
+        // in this contract's own context. `deposit` is the shared "pull the stable into the basket"
+        // primitive. Measured before the gate below: a $20,000 USDC→WETH swap moved this register by
+        // exactly 20,000e18.
+        // THE DISCRIMINATOR IS `msg.sender`: `Basket.mint` calls in from OUTSIDE so it is
+        // `address(QUID)`; every library caller is a self-call under `address(this) == Aux`, so it is
+        // Aux (or the range manager), never the token. Protocol-internal fee/swap-out mints stay out.
         // `usd` comes back in the token's NATIVE units, so it is lifted to 18-dec here.
         if (msg.sender == address(QUID))
             netIssuanceUsd += int256(BasketLib.scaleTokenAmount(usd, token, true));
@@ -1340,15 +1333,11 @@ contract Aux is // Auxiliary
 
     // ─── Native BTC LP integration ──────────────────────────────────
     // ⚠️ **Aux HAS NO BTCChannels-GATED ENTRYPOINT. THE PIN IS A READ HANDLE, NOT A GATE.**
-    // The swap-in/swap-out credit entrypoints (`creditSwapIn` / `creditSwapOut`) were REGROUPED
-    // into `Vault` (the BTC side) and their `onlyBTCChannels` gate went with them — `Vault.sol`
-    // declares its own, and `Vault.sol:204` is where the comparison now lives. Aux was left
-    // holding a modifier with ZERO use sites (an extraction leaving its handle behind); it is
-    // deleted, and `NotBTCChannels` is no longer imported here because nothing in this file
-    // reverts with it.
-    // `_btcChannels` itself STAYS — it has three live readers and is not dead with the gate:
-    //   `assertFullyWired` (the deploy-completeness check), the swap-cfg struct it is passed
-    //   into, and `IBTCChannels(_btcChannels).btcRecipientOf(sender)` on the shortfall path.
+    // `creditSwapIn`/`creditSwapOut` were REGROUPED into `Vault`, and the `onlyBTCChannels` gate
+    // went with them — `Vault._onlyBTCChannels` holds the comparison now. Aux's copy had ZERO use
+    // sites and is deleted, along with the `NotBTCChannels` import.
+    // ⛔ `_btcChannels` STAYS — it is a READ HANDLE, not dead with the gate: `assertFullyWired`, the
+    // swap-cfg struct, and `IBTCChannels(_btcChannels).btcRecipientOf(sender)` on the shortfall path.
     // LP BTC stays in the LP's own 2-of-2 channel; Aux never touches it.
     address internal _btcChannels;
 

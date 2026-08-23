@@ -25,17 +25,14 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  Vault — THE BTC RANGE MANAGER, and only that. `Quid` is the ETH-side counterpart; the two are
 //  one implementation waiting to become two instances (CLAUDE.md's §J.2 consolidation).
 //
-//  🔴 §E301/§ETHVENUE-GHOSTS — THIS HEADER USED TO DESCRIBE A CONTRACT THAT NO LONGER EXISTS, AND THAT IS THE
-//  ONE THING WORTH REMEMBERING ABOUT IT. It opened "the unified ETH-venue custody + BTC LP/hop
-//  side, merged from the formerly-separate EthVenue and BtcVault (5→4 deployable contracts)", and
-//  its gate list led with `onlyUs = {Quid(V4), AUX, this} → ETH-side venue ops
-//  (supply/withdraw/deliverable)`. ETH-venue custody was extracted BACK OUT into `EthVenue`;
-//  `onlyUs` went with it, and so did every function the paragraph named. What survived the
-//  extraction was the PROSE, which then read as a live description of a fused contract — the exact
-//  trap CLAUDE.md records after `RANGE` outlived the same extraction by eight days: AN EXTRACTION
-//  LEAVES THE HANDLES AND THE COMMENTS BEHIND EVEN WHEN THE FUNCTIONS MOVE, and a stale comment
-//  beside a stale handle is what makes the handle read as load-bearing.
-//  `contract Vault is Ownable, ReentrancyGuard, Shares` and nothing else.
+//  🔴 §E301/§ETHVENUE-GHOSTS — NO ETH-VENUE CUSTODY LIVES HERE, and do NOT go looking for
+//  `EthVenue.sol`: it does not exist either. ETH-venue custody was extracted out of this contract
+//  and then folded into `Quid` (the ETH range manager IS the ETH venue), so `Aux.ethVenue` is
+//  pinned to the range manager — `DeployLib` runs `aux.setEthVenue(address(ETH))`. This header, its
+//  `onlyUs` gate and every ETH function it named are gone; `contract Vault is Ownable,
+//  ReentrancyGuard, Shares` and nothing else.
+//  ⚠️ AN EXTRACTION LEAVES THE HANDLES AND THE COMMENTS BEHIND: grep the old collaborator's TYPE
+//  after any move, not just the moved functions (`RANGE` outlived this one by eight days).
 //
 //  `setup(quid)` pins the basket and does the post-CORE-init `poolStats` read that seeds
 //  RANGE_ANCHOR. The owner-gated surface is exactly `setup` and `setLevManager`, both one-shot.
@@ -49,21 +46,11 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  BTCChannels.btc / Basket.BTC_VAULT) just points at this one address.
 // ════════════════════════════════════════════════════════════════════════
 
-// §ETHVENUE-GHOSTS — FOUR ORPHANED DOCBLOCKS DELETED HERE, AND WHAT THEY DOCUMENTED IS THE POINT. They headed
-// the AAVE-v4 GHO spoke interface, the Permit2 allowance-grant slice, the ether.fi venue interface,
-// and a file-local Aux read surface citing `arbBody`. All four DECLARATIONS are gone — Permit2 and
-// its interface with the WETH-4626 curator venues (655e7d65, which says so in its own message), the
-// venue interfaces with the `EthVenue` extraction, the Aux variant into `Interfaces.sol` (§A.52),
-// and `arbETH`/`arbBTC` were removed outright (`Aux.sol:848`). The COMMENTS stayed, describing an
-// ETH yield venue inside a BTC-only contract, each one attached to nothing at all. A docblock whose
-// subject has been deleted does not read as dead — it reads as a feature you have not found yet.
+// §ETHVENUE-GHOSTS — the Permit2 slice, the AAVE-v4 GHO spoke and ether.fi venue interfaces, and
+// `arbETH`/`arbBTC` are ALL DELETED (the arb record is `Aux`'s §E233-sor block, under its "ETH yield
+// venue (AAVE/ether.fi)" banner). Their docblocks outlived them here, reading as live ETH features
+// inside a BTC-only contract. A docblock whose subject is gone reads as a feature you have not found.
 
-/// §SLOP — THIS PARAGRAPH WAS ETH-SIDE TEXT LEFT IN THE BTC CONTRACT by the EthVenue fusion. It said
-/// the book's collateral is "ETH, 1e18", that "the weETH lives on external Euler/Morpho", and that net
-/// equity counts "in `rangeETH`". None of that is this contract: `rangeETH` is RANGE's accessor, and
-/// line 70 below states what actually happens here — `syncLev` pairs the BTC book as tokenless depth
-/// INTO `POOLED`. Corrected rather than deleted, because the SHAPE it describes is right and is what
-/// makes the two ranges mirror images.
 /// BtcLevManager read surface: the leveraged book's collateral (vBTC, 8-dec sats). The collateral lives
 /// on external Euler/Morpho per-LP (the Vault never holds it). The book is counted at NET equity
 /// (gross − debt) in both `POOLED` and `lpShares`; the debt-funded buffer (gross − net) is EXCLUDED from
@@ -85,26 +72,15 @@ import {QuidLib} from "./imports/QuidLib.sol";
 contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ─── immutables ─────────────────────────────────────────────────────
-    /// @dev PUBLIC, and the getter earns its ~50 bytes. While this was `internal` NOTHING outside
-    ///      could reach THIS range's engine -- `ICore` had no `core()` either -- so a test
-    ///      wanting to compare the two ranges had no handle for the second one and read the ETH core
-    ///      TWICE. That is how `PooledUsdRepackMatrix`'s cross-range isolation assertions became
-    ///      comparisons of a value to itself: vacuously true, in the very file whose docblock warns
-    ///      that an unseeded range makes isolation assertions vacuous. The seeding was fixed; the
-    ///      READS still both pointed here. An instance you cannot address is an instance you cannot
-    ///      check is separate.
+    /// @dev ⛔ MUST STAY PUBLIC. While `internal`, nothing outside could address the BTC `Core`, so
+    ///      cross-range isolation tests read the ETH core TWICE and compared a value to itself —
+    ///      vacuously true. An instance you cannot address is an instance you cannot check.
     Core public immutable CORE;  // the PM (was BtcVault's "RANGE")
     Aux       internal immutable AUX;
-    // 🔴 §ETHVENUE-GHOSTS — `WETH9 public immutable WETH` LIVED HERE AND WAS READ NOWHERE. It is the same
-    //    survivor as `RANGE` (§E301): the WETH-4626 curator venues took the standing approvals with
-    //    them (655e7d65) and the `EthVenue` extraction took the supply/withdraw ladder, but the
-    //    HANDLE stayed — a WETH pointer on a contract whose settlement rail is a Lightning
-    //    cooperative close. Zero reads in this file, and zero `.WETH()` calls at this address across
-    //    `evm/src`, `evm/test`, `evm/script` and `spa/` (both tree-wide hits resolve on `Aux`).
-    //    The public getter goes with it; the constructor still TAKES the third address so
-    //    `DeployLib.sol:246`'s `new Vault(core, aux, cfg.weth)` is untouched — the parameter is
-    //    left unnamed rather than the argument removed, because a constructor is a signature.
-    //    ⇒ GREP FOR THE OLD COLLABORATOR'S TYPE AFTER ANY EXTRACTION, not just the moved functions.
+    // 🔴 §ETHVENUE-GHOSTS — `WETH9 public immutable WETH` is DELETED: zero reads here, and every
+    //    tree-wide `.WETH()` resolves on `Aux`. ⛔ The constructor still TAKES that third address
+    //    (unnamed) so `DeployLib`'s `new Vault(core, aux, cfg.weth)` still binds — a constructor is
+    //    a signature. Do not drop the parameter without changing `DeployLib` in the same commit.
 
 
 
@@ -123,8 +99,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // §ETHVENUE-GHOSTS — `error NotSelf()` and `error NotAux()` DELETED: zero references anywhere in this
     // contract, and `git log -S` puts both squarely in the EthVenue extraction commits (a3225031,
-    // 2ae0bbba, 8720a35d). The live declarations are `Aux.sol:204` and `Quid.sol:90-91`, which do
-    // still revert with them. An unused error costs no bytecode, so this is a rule-1 deletion and
+    // 2ae0bbba, 8720a35d). The live declarations are `error NotSelf()` in `Aux` and `error NotSelf()`
+    // / `error NotAux()` in `Quid`, which do still revert with them. ⚠️ This used to cite
+    // `Aux.sol:204` and `Quid.sol:90-91`; BOTH had drifted by ~40 and ~25 lines within days. The
+    // durable claim is the ZERO — zero references in THIS file — and the names, not the coordinates. An unused error costs no bytecode, so this is a rule-1 deletion and
     // not a size one — but a declared error IS api surface: it tells a reader this contract can
     // reject them that way, and neither of these can.
     error NoBtcPosition();
@@ -200,14 +178,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     address public btcChannels;
 
     /// BTC-side trusted callers: Core (CORE), Aux, self.
-    /// @dev §MODFOLD — THE BODY LIVES IN A `private view` HELPER AND THE MODIFIER IS THE JUMP.
-    ///      A modifier is INLINED at every use site, so five uses meant five copies of a three-way
-    ///      address compare PLUS five copies of the `Error(string)` ABI encoding of "403" — the
-    ///      string is the expensive half. One routine and five jumps instead (CLAUDE.md rule 8c,
-    ///      measured there at +968 bytes for the inlined form on `BTCChannels`).
-    ///      THE MODIFIER IS KEPT rather than calling `_onlyUsBtc()` from each body: a modifier is
-    ///      positionally FIRST by construction, where a body call can later be reordered after a
-    ///      state read. The fold is a bytecode change, not a control-flow one.
+    /// @dev §MODFOLD — body in a `private view`, modifier is the JUMP (rule 8c: a modifier inlines
+    ///      at every site; the `Error(string)` "403" encoding is the expensive half).
+    ///      ⛔ KEEP THE MODIFIER — do not call `_onlyUsBtc()` from each body: a modifier is
+    ///      positionally FIRST by construction, a body call can be reordered after a state read.
     function _onlyUsBtc() private view {
         require(msg.sender == address(AUX)
              || msg.sender == address(CORE)

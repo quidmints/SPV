@@ -396,12 +396,10 @@ contract Core {
         // ⇒ The `max` below is what actually resolves it: the ring's honest zero and its
         //   could-not-estimate zero contribute IDENTICALLY (nothing), so the distinction is not
         //   observable here BY CONSTRUCTION. Full seven-exit enumeration at `OracleLib.ringVariance`.
-        // ⚠️ CROSS-FILE, NOT FIXED HERE (it is `SwapLib`'s file): the `sigmaSqWad == 0` guard at
-        //   `SwapLib.sol:1021-1025` still justifies itself with *"`realizedVarianceWad` calls
-        //   `OracleLib.ringVariance` DIRECTLY"* — untrue since §E345 put this `max` in front of it —
-        //   and enumerates only four exits, omitting `rate == 0` and the flat-ring zero, then
-        //   concludes *"None of them means 'measured, and calm'"*. The GUARD stays correct (0 from
-        //   both legs really is unmeasured); its stated PREMISE is stale. Behaviour is unaffected.
+        // ✅ CROSS-FILE HAND-OFF TAKEN 2026-08-23: `SwapLib`'s `sigmaSqWad == 0` guard (§E346-ZERO,
+        //   just above `_maxWellSkew`'s scarcity branch) no longer claims `realizedVarianceWad` calls
+        //   `ringVariance` DIRECTLY, and now enumerates all seven exits. Guard unchanged — 0 from
+        //   both legs really is unmeasured. ⛔ Do not restore "None of them means measured, and calm".
         uint a = anchorVarianceWad();
         return v > a ? v : a;
     }
@@ -632,32 +630,20 @@ contract Core {
 
 
 
-    // §E253-mock — `mocks()` DELETED. Its only caller anywhere was a TEST
-    // (`UnificationControls._mockDust`), and its own doc said it "EXISTS SO THE HARNESS STOPS
-    // READING RAW SLOTS" — a production getter kept alive to serve a harness, measuring a quantity
-    // that is structurally zero. The harness's own comment already conceded the mechanism was gone:
-    // "no pool of ours exists, the approvals to the PM were deleted, and nothing can transfer a mock
-    // there." Deleting the mocks deletes the reason the getter existed.
-    // §ISBTC-SPLIT — THESE WERE `if (IS_BTC) x; else x;`: BOTH ARMS IDENTICAL. An earlier pass
-    // collapsed POOLED/POOLED_USD to one field per instance but left the selector standing over
-    // arms that no longer differed, so the branch cost bytecode and gas to decide nothing. The
-    // Math.min floors are the real content and are unchanged.
-    // ⛔ `_addPooledUsd` / `_subPooledUsd` / `_addPooledTok` / `_subPooledTok` ARE DELETED — four
-    // one-line wrappers over two plain state variables, with FIVE call sites between them.
+    // ⛔ ABSENT BY DECISION, SO THEIR ABSENCE IS NOT AN OVERSIGHT — do not re-add:
+    //  • §E253-mock — `mocks()`. A production getter whose only caller was a TEST
+    //    (`UnificationControls._mockDust`), reporting a quantity that is structurally zero.
+    //  • §ISBTC-SPLIT — the `if (IS_BTC) x; else x;` selectors. Both arms were IDENTICAL once
+    //    `POOLED`/`POOLED_USD` became one field per instance; the branch decided nothing.
+    //  • `_addPooledUsd` / `_subPooledUsd` / `_addPooledTok` / `_subPooledTok` — one-line wrappers
+    //    over two plain state variables. They existed to select `POOLED_ETH` vs `POOLED_BTC`; the
+    //    v4 cut collapsed each pair to ONE variable, so they became a name in front of `+=`.
     //
-    // They earned their keep while the pooled state was PER-ASSET: `POOLED_ETH`/`POOLED_BTC` and
-    // `POOLED_USD_ETH`/`POOLED_USD_BTC` meant every touch had to select an arm, and a helper was
-    // the place that selection lived. The v4 cut collapsed each pair to ONE variable, so the
-    // wrappers now select between nothing — they are a name in front of `+=`. Inlined, each site
-    // reads as what it is and there is one less layer between the assertion and the assignment.
-    //
-    // ⚠️ THE CLAMPS MOVED WITH THEM, DELIBERATELY, AND THEY ARE NO LONGER DECORATIVE. `-= Math.min(a, X)`
-    // now sits at the two subtraction sites. While the v4 pool leg existed it was redundant: flash
-    // accounting required deltas to net at unlock, so an inconsistent subtraction REVERTED and the
-    // clamp never bound. That cross-check is gone with the pool, which makes the clamp the only
-    // thing between an accounting error and a silently wrong `POOLED` — and a clamp does not
-    // announce itself. Keeping it is correct for now; it is ALSO the thing to revisit first if
-    // pooled state ever disagrees with the basket (see §V4-REMOVAL-POOLED-STATE).
+    // ⚠️ BUT THE `-= Math.min(a, X)` CLAMPS AT THE TWO SUBTRACTION SITES STAY, AND ARE NO LONGER
+    // DECORATIVE. v4's flash accounting used to REVERT an inconsistent subtraction at unlock; with
+    // the pool gone that cross-check is gone, so the clamp is the only thing between an accounting
+    // error and a silently wrong `POOLED`. It is also the FIRST thing to revisit if pooled state
+    // ever disagrees with the basket (§V4-REMOVAL-POOLED-STATE) — a clamp does not announce itself.
 
     Aux AUX; Basket BASKET; Vault BTC;
 
@@ -721,7 +707,7 @@ contract Core {
     /// the shape CLAUDE.md records as having planted three bugs in the EthVenue split: the call
     /// site reads correctly while the ASSIGNMENT points somewhere else.
     ///   • BTC: `setup(v4, 0, …)` pinned `RANGE` to the **ETH** range manager, so the BTC engine's
-    ///     `onlyUs` admitted a FOREIGN range. `Quid` holds ONE `Core` handle (`:57`) and no BTC-core
+    ///     `onlyUs` admitted a FOREIGN range. `Quid` holds ONE `Core` handle and no BTC-core
     ///     reference, so it never used that privilege — an unexercised grant, which is the kind that
     ///     survives review because nothing fails when you remove it and nothing fails when you don't.
     /// ⇒ `RANGE` is THIS instance's range manager on BOTH: ETH `RANGE = v4`, BTC `RANGE = Vault` (pinned
@@ -808,11 +794,12 @@ contract Core {
     /// @notice Draw down the BTC pool's committed USD side when an on-chain
     ///         swap-out delivery pays the LP its exact proceeds. `usd6` is 6-dec.
     function drawPooledUsdBtc(uint usd6) external onlyUs {
-        // FAIL-LOUD, not silent-clamp: the sole caller (BtcLib.settleDelivered) mints QUI for the FULL
-        // `exactUsd` it draws here, so a `Math.min` under-draw would leave that excess QUI unbacked. The
-        // request/gate invariant (exactUsd ≤ pendingSwapOutUsd ≤ POOLED_USD) makes this subtraction never
-        // underflow in correct operation; checked math reverts the whole settlement if a future change breaks
-        // it — the draw and the mint can never disagree by construction.
+        // ⛔ FAIL-LOUD, not silent-clamp. TWO callers, both pairing this draw with a mint/clear of the
+        // SAME amount: `BtcLib.settleDelivered` (mints QUI for the full `exactUsd`) and
+        // `SwapLib.deleverOnDelivery` (`drawPooledUsdBtc(deLeverUsd6)` + `subPendingSwapOut`).
+        // ⚠️ Was "the sole caller" until 2026-08-23 — a `Math.min` here under-draws and leaves that
+        // excess QUI unbacked. `exactUsd ≤ pendingSwapOutUsd ≤ POOLED_USD` makes checked math never
+        // underflow in correct operation; if it does, the settlement reverts rather than diverging.
         POOLED_USD -= usd6;
     }
 
@@ -826,16 +813,16 @@ contract Core {
     /// @notice Clear an obligation's USD when it is delivered (paid exact to the
     ///         LP) or reversed. FAIL-LOUD, matching its sibling `drawPooledUsdBtc`
     ///         above — the two take the same argument in the same transaction
-    ///         (`BtcLib.sol:85-86`) and must not disagree on discipline.
+    ///         (`BtcLib.settleDelivered`) and must not disagree on discipline.
     ///         Every clearing path subtracts EXACTLY what its request added:
     ///         delivery is one-LP-per-slice with the swapId consumed
     ///         (`BTCChannels._settleSwapOutSlice`), and the de-lever split is a
-    ///         partition — `Vault.sol:539` hands `resize` the remainder
-    ///         `exactUsd - delevUsd` with `delevUsd` clamped to `[0, exactUsd]`,
-    ///         so the round-UP at `SwapLib.sol:1456` moves the SPLIT POINT and
-    ///         never the total. A clamp here could only hide a reserve that was
-    ///         already understated — which silently overstates free USD and lets
-    ///         the pool commit capacity it owes. Checked math surfaces that.
+    ///         partition — `Vault._resize` hands `resize` the remainder
+    ///         `exactUsd - delevUsd`, `delevUsd` clamped to `[0, exactUsd]`, so
+    ///         `SwapLib.deleverOnDelivery`'s round-UP moves the SPLIT POINT and
+    ///         never the total. ⛔ A clamp here could only hide an understated
+    ///         reserve, which overstates free USD and lets the pool commit
+    ///         capacity it owes. Checked math surfaces that.
     function subPendingSwapOut(uint usd6) external onlyUs {
         pendingSwapOutUsd -= usd6;
     }
@@ -1189,8 +1176,8 @@ contract Core {
 
     /// @dev USD-leg of _handleDelta. delta>0 → take+burn; delta<0 → mint+settle and
     ///      (in-range) pool it under the backing invariant.
-    ///      ⚠️ This used to say "under the BTC share cap" — a comment describing PAST state. The
-    ///      `btcShareBps` median-vote cap was REMOVED in §H (2026-07); see `SwapLib.sol:1304`.
+    ///      ⚠️ NOT "under the BTC share cap": the `btcShareBps` median-vote cap was REMOVED in §H
+    ///      (2026-07) — `SwapLib`'s "BTC allocation cap REMOVED" note is the only mention left.
     ///      There is NO per-range cap and NO fixed ETH/BTC split: the ONLY shared bound is the SUM
     ///      (`committedUsd18() <= haircutTvl`), so either range may draw the whole free surplus if
     ///      the other is not using it. Neither side is limited to a share, still less to the
@@ -1208,12 +1195,12 @@ contract Core {
             usdAmount = uint(usdDelta);
             if (inRange) _poolUsdInRange(usdAmount, false, basketLeg);
             if (!keep && token != address(0))
-                // §A.50/C2: `usdAmount` is the 6-dec mockUSD leg, but `AUX.take` wants the payout
-                // token's NATIVE units (`BasketLib.sol:620-628`; the two callers that already convert
-                // are `SwapLib.sol:1170` and `:1222`). The CREATE side of the same position already
-                // scales (`QuidLib.sol:662`), so without this the round trip was ASYMMETRIC and an
-                // 18-dec redeemer was paid 1e12x too little. `minOut` cannot catch it: `Core.swap`
-                // returns the 6-dec delta, a different basis than delivery.
+                // §A.50/C2 — UNITS: `usdAmount` is the 6-dec USD leg; `AUX.take` wants the payout
+                // token's NATIVE units. Every other `take`/`takeToSettle` site converts too
+                // (`BasketLib.from6` / `BasketLib.scaleTokenAmount`), and the CREATE side scales via
+                // `SwapLib.scaleTo6`. ⛔ Drop this and the round trip is ASYMMETRIC — an 18-dec
+                // redeemer is paid 1e12x too little, and `minOut` cannot catch it because
+                // `Core.swap` returns the 6-dec delta, a different basis than delivery.
                 AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
         } else if (usdDelta < 0) {
             usdAmount = uint(-usdDelta);
@@ -1390,7 +1377,7 @@ contract Core {
         // What is charged here is OUR COST OF DOING THE TRADE, recovered on a price we commit to.
         // Same formula, different economic role.
         // §E279 — THE SKEW IS **NOT** APPLIED HERE, AND THIS IS THE SECOND STATEMENT OF THAT RULE.
-        // `swap`'s own docstring (`:763`) already says *"the skew is deliberately NOT folded into
+        // `swap`'s own docstring already says *"the skew is deliberately NOT folded into
         // this rate … never a charge applied here"* — and until 2026-08-22 the line below did
         // exactly that, so the contract contradicted itself and every swapper paid TWICE.
         // ⛔ THE DUPLICATE WAS REAL. The input reaching this frame has ALREADY been scaled by
@@ -1417,11 +1404,11 @@ contract Core {
         // charge is fixed, not which leg carries it. It is fixed pre-fill on the INPUT, so the
         // quote a solver receives is still committed and never trued up afterwards.
         // ⚠️ THE PREMISE THAT MAKES THIS SAFE, AND IT MUST BE RE-RUN IF A CALLER IS ADDED:
-        // `BasketLib.routeSwap:544` is the ONLY call site of this `onlyUs` `swap` in the tree, and
-        // all three of ITS callers are accounted for — `_finishSwap:463` (both legs charge at
-        // `SwapLib:419`/`:441`), `_swapOutSettle:1668` (charged in `_swapOutPrep:1652`), and
-        // `_swapInSettle:703`, the refill leg, which settles FLAT at the honest oracle BY DESIGN
-        // and was the one path this line charged with no `retainSkewPremium` at all.
+        // `BasketLib.routeSwap` is the ONLY call site of this `onlyUs` `swap` in the tree, and all
+        // three of ITS callers are accounted for — `SwapLib._finishSwap` (both legs charge in its
+        // own drain/fill arms), `SwapLib._swapOutSettle` (charged in `_swapOutPrep`), and
+        // `SwapLib._swapInSettle`, the refill leg, which settles FLAT at the honest oracle BY
+        // DESIGN and was the one path this line charged with no `retainSkewPremium` at all.
         // DRAIN vs FILL, kept for the reader because the producers still encode it: buying volatile
         // drains the scarce side (`wellSkew`, A&S pole — you CAN run out); selling into us grows
         // inventory (`sellSkew`, linear — you cannot run out of surplus).
@@ -1461,7 +1448,7 @@ contract Core {
     /// §TICK-REMOVAL; `getSlot0` only ever handed over a sqrt-price because that was v4's API, and
     /// the docblock above said so outright ("stays until the PM is ours"). The fill computes the
     /// price directly, so it goes straight in with NO conversion — no `getPrice`, no sqrt, no tick.
-    /// ⚠️ `observe`, `ringVariance` and all ~54 `getTWAPforAsset` call sites are UNTOUCHED: the
+    /// ⚠️ `observe`, `ringVariance` and EVERY `getTWAPforAsset` call site are UNTOUCHED: the
     /// variance estimator was already price-based, so nothing downstream needs re-deriving.
     /// @notice The ring's INDEPENDENT observation source for THIS instance. `address(0)` = none,
     ///         and this instance then records NO observations at all.
@@ -1699,15 +1686,15 @@ contract Core {
         // BTC skew by being helpful. Nothing reverts and nothing looks wrong.
         //
         // ⚠️ THE GATE IS NOT `observationSource != 0`, AND THAT WAS THE FIRST ANSWER I REACHED.
-        // It is wrong: NO source is pinned on EITHER instance today (`DeployLib:139`,
-        // `setObservationSource` has no production caller), so that gate would refuse EVERY push
+        // It is wrong: NO source is pinned on EITHER instance today (`script/DeployLib.sol`'s §E222
+        // block; `setObservationSource` has ZERO non-test callers), so that gate would refuse EVERY push
         // including the ETH ones — and the push path is the ring's *only* live writer (§E294/§E308:
         // σ² ≡ 0 precisely because neither writer runs). It would deepen the very finding it was
         // meant to close, and it would go red in `LevCascade`, `LevYbReal`,
         // `LeverageCrossSubsidyProbe`, `PushObservationFillsTheRing` and `Alles`'s ramps, all of
         // which push into a Core with no source pinned.
         // ⇒ So the gate is INSTANCE IDENTITY, and `VOL_DECIMALS` is the discriminator this very
-        // function already used one line below to derive `isWbtc`. `Core.sol:567` warns against
+        // function already used one line below to derive `isWbtc`. `VOL_DECIMALS`'s own docblock warns against
         // inferring the RISK PROFILE from it, and that warning stands — a profile is configuration
         // and can be wrong in ways decimals cannot express. "Is the volatile leg a wrapped 8-dec
         // asset with no wrapper-free on-chain quote" is not configuration; it is the same fact the
@@ -1740,8 +1727,8 @@ contract Core {
     /// @dev    This one clears the relocation threshold the other attempts did not (§E63): it
     ///         DELETES a surface rather than moving a small body, and moving small bodies out of
     ///         Core has measured WORSE three times (−73, −207, −471) because the caller pays the
-    ///         call overhead. Not client-facing — `tools/check-client-abis.py` has zero references
-    ///         to either name; the only callers are `SwapLib:104-105`.
+    ///         call overhead. Not client-facing — `tools/check-client-abis.py` has ZERO references
+    ///         to either name, and the only caller in the tree is `SwapLib.twapBody`.
     function observe(uint32[] calldata secondsAgos)
         external view returns (uint192[] memory) {
         return OracleLib.observe(observations, obsState, secondsAgos);

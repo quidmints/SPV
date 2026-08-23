@@ -786,22 +786,15 @@ library SwapLib {
     // a fraction² scaled 1e18, e.g. 80%-annualized vol ⇒ σ² ≈ 0.64 ⇒ ~6.4e17. Γ folds the
     // risk-aversion γ and the horizon (T−t) into ONE coefficient (the horizon is already carried by
     // the FLOW_DECAY-smoothed flow/scarcity).
-    // ⛔ CORRECTED — THE UNIT DERIVATION CITED A LINE RANGE THAT IS NOW A DIFFERENT FUNCTION, AND
-    //    ANCHORED ITSELF ON TWO CONSTANTS THAT NO LONGER EXIST. It read *"(QuidLib:294-318:
-    //    tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 …)"* and calibrated Γ *"so skew(q=1,
-    //    σ²=SIGMA_REF) = Γ·SIGMA_REF = MAX_WELL_SKEW"*. MEASURED: `QuidLib:294-318` is `addLiq`'s
-    //    header, not a variance derivation; **`SIGMA_REF`, `MAX_WELL_SKEW` and `tickVar` have ZERO
-    //    code references in `evm/src`** — every hit is a comment — and the ×1e10 was deleted with
-    //    the ticks (`Core.realizedVarianceWad`'s §TICK-REMOVAL note: a tick was 1 bp, so 1e-8 × 1e18
-    //    = 1e10 exactly, and `ringVariance` now returns WAD relative variance directly).
-    // ⚠️ SO THE CALIBRATION SENTENCE WAS CIRCULAR BEFORE IT WAS STALE, AND `:1184` ALREADY SAYS SO:
-    //    Γ was defined as `MAX_WELL_SKEW·1e18/SIGMA_REF` with `SIGMA_REF = 1e18`, i.e. **Γ ≡
-    //    MAX_WELL_SKEW exactly — the cap under a second name**, which makes "fixed so skew saturates
-    //    the cap" a restatement rather than a choice. Both constants are now deleted and Γ stands on
-    //    its own as the inherited 3e16 that `GAMMA_WAD`'s own docblock flags as unchosen (§E274).
-    // ⇒ **A constant explained by pointing at a symbol becomes unexplained the moment the symbol
-    //    goes** — `DEPLETION_RATE_WAD`'s header (`:773`) records that exact loss happening twice
-    //    already. The units are therefore stated here rather than cited.
+    // ⛔ Do not restore the old calibration *"Γ fixed so skew(q=1, σ²=SIGMA_REF) = MAX_WELL_SKEW"*
+    //    or the `tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10` unit derivation. `SIGMA_REF`,
+    //    `MAX_WELL_SKEW` and `tickVar` have ZERO CODE references in `evm/src` (every hit is a
+    //    comment), the ×1e10 died with the ticks (a tick was 1 bp ⇒ 1e-8 × 1e18 = 1e10;
+    //    `ringVariance` now returns WAD relative variance directly), and the calibration was
+    //    CIRCULAR anyway: `SIGMA_REF = 1e18` made Γ ≡ MAX_WELL_SKEW, the cap under a second name.
+    //    Γ now stands alone as the inherited 3e16 its own docblock flags as unchosen (§E274).
+    // ⇒ **A constant explained by pointing at a symbol becomes unexplained when the symbol goes** —
+    //    `DEPLETION_RATE_WAD`'s header records that same loss twice. State units, do not cite them.
     // STABLENESS = ρ, the DEPLETION-BARRIER ORDER (derived, NOT a fit exponent). The skew is
     // Γ·σ²·q / (1−q)^ρ: the A-S linear reservation premium Γσ²q amplified by the shadow price of the
     // last inventory units. Derived from the HJB with a HARD inv≥0 constraint — a −log(inv) barrier
@@ -809,12 +802,12 @@ library SwapLib {
     // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
     // ⚠️ READ THAT AS THE DERIVATION OF WHY THE EXPONENT IS 1, NOT AS A LIVE DIAL. `STABLENESS` has
-    // ZERO code references in `evm/src`; `:1188` records it deleted along with `SIGMA_REF` and the
-    // old `GAMMA_WAD` definition, with byte-identical behaviour, because ρ was 1 and its loop
+    // ZERO code references in `evm/src`; it was deleted with `SIGMA_REF` and the old `GAMMA_WAD`
+    // definition, byte-identically, because ρ was 1 and its loop
     // (`for (i = 1; i < 1; …)`) never executed. The kernel below is the simple pole written out —
     // which is what A&S §2.3 derives anyway, the exponent fixed at 1 by the CARA value function
     // rather than fitted. The tunable that DID survive is `KAPPA_WAD`, the pole's LOCATION (§E289).
-    // Volatile range half-width, in bps of price. `updateBounds(price, delta)` (`:2325`) reads it as
+    // Volatile range half-width, in bps of price. `updateBounds(price, delta)` reads it as
     // `price·(10000∓delta)/10000` — the ONLY consumer, and it works in absolute PRICES.
     // THIN range (±0.2%). Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width
     // like a static position: at delta = 0 the reseat re-add collapses `lower == upper`. 0.2% is the
@@ -1056,10 +1049,9 @@ library SwapLib {
     /// ⭐ **WHAT IT IS FOR, AND WHY §E301 DOES NOT REACH IT.** §E301 retired `refillPlacement` because
     ///     *"there is no restoration we perform"* — the swapper carries the unfilled remainder to
     ///     another venue. **That argument is explicitly scoped to the ETH side.** The BTC side has a
-    ///     REAL, WIRED restoration rail, and it is not prose: `BTCChannels.sol:1431/2071/2123/2159`
-    ///     all call `btc.creditSwapIn(…)` → `Vault.sol:703` → `creditSwapInBody` (`:610`), declared at
-    ///     `Interfaces.sol:697`, and §E18 at `:690` records it as *"driven off-chain by the hop
-    ///     daemon"* — the exact consumer this predicate was built for.
+    ///     REAL, WIRED restoration rail, and it is not prose: FOUR `BTCChannels` sites call
+    ///     `btc.creditSwapIn(…)` → `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`, driven
+    ///     off-chain by the hop daemon (§E18) — the exact consumer this predicate was built for.
     /// ⛔ **DO NOT DELETE IT WITH ITS TEST FILE.** `git log -S "refillNeeded"` shows one landing
     ///     commit, `0be4dc21` *"UNIT-C … the decided logic lands as pure arithmetic"* — parked
     ///     awaiting wiring, on an owner instruction quoted verbatim above. That is the `create_sweep_tx`
@@ -1171,58 +1163,30 @@ library SwapLib {
         // [the base] here would re-open the free-drain hole E59 closed."
         // 🔴 IT HAD RE-OPENED. MEASURED 2026-08-16 on a $1m range with a $2m shed target: at σ²=0 the
         // ETH charge was 0 at 10%, 50% AND 90% drains, and only a 100% drain reached the ceiling
-        // (via the separate `qBar == type(uint).max` pole at `:941`). BTC returned SPLICE_FLOOR
+        // (via the separate `qBar = type(uint).max` pole inside `skewWad`). BTC returned SPLICE_FLOOR
         // alone. The kernel is `Γ·σ²·qBar`, which is identically 0 when σ² is 0 NO MATTER HOW SCARCE
         // the range is — so the guard §E59 added had to live outside the product, and after the §E79
         // inversion moved `_maxWellSkew` from ceiling to base there was nothing left holding it.
         // ⚠️ WHY THIS IS NOT A CLAMP (standing rule 3 / rule 17). It does not bound a computed
         // number; it declines to run a formula on an input that carries NO INFORMATION.
-        // ⛔ CORRECTED 2026-08-23 (§E346-ZERO) — THE PREMISE STATED HERE WAS FALSE IN BOTH HALVES,
-        // AND TWO OTHER FILES HAD ALREADY WRITTEN THE CORRECTION DOWN WAITING FOR THIS ONE TO TAKE
-        // IT. It read: *"post-tick-removal that is UNAMBIGUOUS: `realizedVarianceWad` calls
-        // `OracleLib.ringVariance` DIRECTLY … `card < 3 || n < 3`, `m < 2`, and an uninitialised /
-        // non-advancing timestamp pair. Every one of those means TOO FEW DISTINCT SAMPLES. None of
-        // them means 'measured, and calm'."*
-        //   • **IT IS NOT DIRECT.** §E345 put a `max` in front of it: `Core.realizedVarianceWad`
-        //     returns `max(ringVariance(), anchorVarianceWad())`, and `Core.sol`'s §E346-ZERO note
-        //     names THIS comment as the stale one, in this file, as a cross-file hand-off.
-        //   • **AND "MEASURED, AND CALM" DOES EXIST.** `ringVariance` returns 0 for SEVEN distinct
-        //     reasons, enumerated against its body in `OracleLib`'s own §E346-ZERO docblock. Six are
-        //     could-not-estimate — `card < 3 || n < 3`, `m < 2`, `!lo.initialized`, non-advancing
-        //     timestamps, `rate == 0` (which the enumeration above OMITTED ENTIRELY) and
-        //     `newest <= oldest` — and the seventh, `acc == 0`, is a GENUINELY FLAT RING: constant
-        //     price ⇒ every interval rate identical ⇒ every return 0. A real measurement of a real
-        //     zero, and REACHABLE.
-        // ⭐ **THE GUARD SURVIVES ITS OWN PREMISE — WHICH IS WHY THIS IS A COMMENT FIX AND THE LINE
-        //     BELOW DOES NOT MOVE.** Two independent reasons, and they are the reasons `Core` and
-        //     `OracleLib` give: (1) the `max` makes the ring's honest zero and its could-not-estimate
-        //     zero contribute IDENTICALLY (nothing), so at THIS frame the seventh exit is not
-        //     observable BY CONSTRUCTION; (2) the anchor leg floors a *sampled* zero at 1 wei (§E88),
-        //     so a calm market that has actually been observed arrives here as 1, never as 0.
-        //     ⇒ `sigmaSqWad == 0` still means BOTH legs are silent, which is still "unmeasured", and
-        //     unmeasured still prices at the ceiling. Only the derivation is restated.
-        // ⛔ AND DO NOT "REPAIR" THE ASYMMETRY BY FLOORING THE RING LEG TO MATCH THE ANCHOR'S.
-        //     `OracleLib` and `Core` both record it as INERT (the annualising `mulDiv` truncates a
-        //     returned 1 back to 0 before it reaches any caller — a fix that looks landed and changes
-        //     nothing) and UNSAFE (`Core.pushObservation` is PERMISSIONLESS within ±50 bps of the
-        //     anchor, so a constant series is cheap to construct; flooring it would hand an attacker
-        //     a "declare the market calm" primitive that switches THIS charge off).
-        // ⛔ PARTIALLY CORRECTED 2026-08-16 (§E213, caught by a parallel thread). This comment cited the
-        // old story — wall-clock sampling plus `observe`'s linear interpolation manufacturing zeros.
-        // That mechanism is RETIRED: `observe` has exactly ONE consumer left in the tree, the TWAP
-        // price at `:79` (the note said `:80`; re-measured 2026-08-23 — a rotted coordinate inside a
-        // note whose whole subject is a claim going stale), and it never touches the variance path. The correction STRENGTHENS this
-        // guard rather than weakening it: under the interpolation story a zero could come from a
-        // quiet but well-sampled ring, which is the one reading that would make charging the ceiling
-        // look punitive.
-        // ⚠️ ITS LAST SENTENCE — *"Under the real mechanism that reading does not exist"* — IS THE
-        // HALF §E346-ZERO REFUTES, AND IT IS STRUCK. Exit 7 (`acc == 0`, the flat ring) is EXACTLY a
-        // quiet well-sampled ring. What replaces it is narrower and true: that reading cannot reach
-        // this line, because a ring zero of either kind loses the `max` to any sampled anchor, and an
-        // anchor that has been sampled at all reports ≥ 1 wei. The punitive-looking case is therefore
-        // unreachable HERE while remaining constructible THERE — which is a property of the composition,
-        // not of `ringVariance`, and it is the reason the enumeration had to be corrected rather than
-        // the guard moved.
+        // §E346-ZERO — WHY `sigmaSqWad == 0` STILL MEANS "UNMEASURED", AND WHY THE LINE BELOW DOES
+        // NOT MOVE. `Core.realizedVarianceWad` is `max(ringVariance(), anchorVarianceWad())`, NOT a
+        // direct `ringVariance` call (§E345). `ringVariance` returns 0 for SEVEN reasons — six are
+        // could-not-estimate, the seventh (`acc == 0`, a genuinely FLAT ring) is a real measurement
+        // of a real zero and IS reachable; `OracleLib`'s own docblock enumerates all seven.
+        //   ⇒ It is still unreachable HERE, by composition: (1) the `max` makes both kinds of ring
+        //     zero contribute IDENTICALLY (nothing); (2) the anchor floors a *sampled* zero at 1 wei
+        //     (§E88), so an observed calm market arrives as 1. Zero ⇒ BOTH legs silent ⇒ ceiling.
+        // ⛔ DO NOT restore *"`realizedVarianceWad` calls `ringVariance` DIRECTLY"*, *"none of them
+        //     means measured and calm"*, or *"under the real mechanism that reading does not exist"*.
+        // ⛔ DO NOT "repair" the asymmetry by flooring the ring leg to match the anchor's. It is
+        //     INERT (the annualising `mulDiv` truncates a returned 1 back to 0 before any caller
+        //     sees it — a fix that looks landed and changes nothing) and UNSAFE
+        //     (`Core.pushObservation` is PERMISSIONLESS within ±50 bps of the anchor, so a constant
+        //     series is cheap to build; flooring hands an attacker a "declare the market calm"
+        //     primitive that switches THIS charge off).
+        // ⚠️ `observe` has exactly ONE consumer in the tree — `twapBody`'s TWAP price — and it never
+        //     touches the variance path, so the retired interpolation story cannot manufacture zeros.
         // So feeding it through a multiplicative kernel prices "unknown" as "none" — the sentinel
         // error §E59 named: a value meaning "no data" must never be consumed as if it meant "none of
         // the thing". Resolving it BEFORE the multiply is the root fix; bounding the product after
@@ -1498,22 +1462,16 @@ library SwapLib {
     /// 2026-08-21). Guarding each consumer would be N bounds for one class of thing; refusing to
     /// PRODUCE an unfillable rate is the state fix, and every consumer inherits it including any
     /// added later — which is why the count below can fall without weakening the argument.
-    /// ⛔ **RE-ENUMERATED 2026-08-23 — THE LIST WAS THREE AND IS NOW TWO, ONE OF THEM UNCALLED.**
-    /// It named `retainSkewPremium` (`amount -= premium`), **`Core.sol:1241` (`out -= out·skew/1e18`)**
-    /// and `_applySkew:140` (`base − base·skew/1e18`). **`Core.sol:1241` NO LONGER APPLIES THE SKEW:**
-    /// `f5499659` (§E279) deleted it as a DUPLICATE — the input reaching that frame had already been
-    /// scaled by `(1−s)` in `retainSkewPremium`, so every swapper was charged `s + s'(1−s)` while only
-    /// `s` was credited to LPs. ⇒ Live consumers today: `retainSkewPremium` (the real one, and the
-    /// only caller of `recordSkewPremium`, i.e. the whole LP fee lane) and `_applySkew` (`:2643`),
-    /// **which has ZERO callers** — the parked quote surface. So the enumeration that refuted "one
-    /// choke point" now has exactly one live member again. **The producer-side decline still earns
-    /// its place**: it is what makes the count irrelevant, and §E279's fix removed a consumer rather
-    /// than proving consumers cannot reappear.
-    /// ⚠️ COORDINATES REPAIRED: `_applySkew:140` and `SwapLib:113/127` below were `FixedRateFill.sol`
-    /// line numbers carried across the §E310 fold unchanged. That file is deleted; in THIS file
-    /// `:113/:127` is `twapResolve`'s Chainlink body and has nothing to do with a quote read.
-    /// ⚠️ Reverting here means a QUOTE read can revert (`Aux:690`, `quoteDrain`/`quoteFill` at
-    /// `:2615`/`:2629`). That is intended: at this scarcity there is no fillable price, and a solver
+    /// ⛔ **RE-ENUMERATED 2026-08-23 — EXACTLY ONE LIVE SKEW CONSUMER.** `retainSkewPremium`
+    /// (`amount -= premium`; also the ONLY caller of `Core.recordSkewPremium`, i.e. the whole LP fee
+    /// lane) is live; `_applySkew` (`base ± base·skew/1e18`) has ZERO callers — the parked quote
+    /// surface. `Core._fillDelta`'s `out -= out·skew/1e18` was the third and `f5499659` (§E279)
+    /// deleted it as a DUPLICATE: its input had already been scaled by `(1−s)`, so swappers paid
+    /// `s + s'(1−s)` while LPs were credited only `s`.
+    /// ⇒ **The producer-side decline still earns its place** — it makes the count irrelevant, and
+    /// §E279 removed a consumer rather than proving consumers cannot reappear.
+    /// ⚠️ Reverting here means a QUOTE read can revert (`quoteDrain`/`quoteFill` below). Intended:
+    /// at this scarcity there is no fillable price, and a solver
     /// that asked for one needs to route that leg elsewhere rather than receive a number it cannot
     /// trade on.
     /// §E300 — **THE SKEW PATH NEVER REVERTS** (owner, 2026-08-22: *"dont revert at the pole"*, and
@@ -2219,18 +2177,13 @@ library SwapLib {
     ///         less out), and return the reduced amount. ONE definition for all three retain sites (swap-out
     ///         drain, sell-in, BtcVault drain). The refiller-payout side was removed — the fleet
     ///         self-funds the refill. skew==0 no-op.
-    /// ⛔ **CORRECTED — THIS REPEATED THE EXACT WORDING `Core.sol` ALREADY CARRIES A HISTORICAL-NOTE
-    ///     WARNING ABOUT, AND ONLY THE `Core` COPY WAS EVER FIXED.** It said the premium *"stays in
-    ///     the basket as LP backing"*. `Core.recordSkewPremium`'s docblock (`:523`) flags that phrasing
-    ///     by name: *"this said the premium 'STAYS in the basket as pure LP backing (NAV)' — true
-    ///     pre-§E5, and the source of the §E42 leak. §E5 made it an LP CLAIM (`creditSkewPremium`),
-    ///     and §E42-netting moves its BACKING into the POOLED mirror to match."* The code agrees:
-    ///     `recordSkewPremium` (`Core.sol:523`) ends in `RANGE.creditSkewPremium(premiumUsd)`, which
-    ///     is implemented on BOTH ranges (`Quid.sol:1254`, `Vault.sol:371`). ⇒ It is a CLAIM credited
-    ///     to LPs, not undifferentiated basket NAV, and the difference is the leak §E42 closed.
-    ///     **A correction applied to one of two copies of a claim leaves the other copy authoritative
-    ///     for anyone who reads that file first** — which is the whole argument for rule 2, arriving
-    ///     through prose instead of through a declaration.
+    /// ⛔ The premium is an LP **CLAIM**, not undifferentiated basket NAV: `Core.recordSkewPremium`
+    ///     ends in `RANGE.creditSkewPremium(premiumUsd)`, implemented on BOTH ranges
+    ///     (`Quid.creditSkewPremium`, `Vault.creditSkewPremium`), and §E42-netting moves its BACKING
+    ///     into the POOLED mirror to match. ⛔ Do not restore *"stays in the basket as LP backing"* —
+    ///     that wording is pre-§E5 and IS the §E42 leak. `Core`'s copy of this warning was fixed
+    ///     first and this one was not, which left the wrong copy authoritative for whoever read this
+    ///     file first.
     /// @notice Plain (unlevered) net range equity = gross `pooled` minus the levered slice `lev`, zero-floored.
     ///         ONE definition for the hedge-E0 base (rangeOf/rangeOf), the venue-yield fee weight, and the
     ///         withdraw/transfer free-balance cap — a drifted copy (dropped floor / wrong slice) would make
@@ -2257,8 +2210,8 @@ library SwapLib {
         // §E275/§E300 — NO GUARD HERE BY DESIGN, AND THE REASON HAS CHANGED WHILE THE CONCLUSION
         // HELD. This said `wellSkew`/`sellSkew` *"DECLINE an unfillable rate at the producer"*. They
         // no longer decline: §E298 showed a revert hands a solver nothing, and §E300 replaced the
-        // refusal with `_boundToFullHaircut`, which SATURATES at `SKEW_UNFILLABLE == 1e18`
-        // (`:1456`). ⇒ The guarantee this frame relies on is now ARITHMETIC rather than a promise
+        // refusal with `_boundToFullHaircut`, which SATURATES at `SKEW_UNFILLABLE == 1e18`.
+        // ⇒ The guarantee this frame relies on is now ARITHMETIC rather than a promise
         // about the caller: `skew <= 1e18` makes `premium = amount·skew/1e18 <= amount`, so the
         // `r.amount -= premium` below cannot underflow even at a 100% haircut. A second bound here
         // would still be the clamp standing rule 17 warns about — but note the reason a reader must
@@ -2331,15 +2284,13 @@ library SwapLib {
     // (rule 1: unreachable code goes). It returned a `uint160` — a v4 `sqrtPriceX96` — from two
     // `FixedPointMathLib.sqrt` expansions, which is §DE-TICK residue: the band is a PRICE range now
     // (`updateBounds(targetPrice, RANGE_DELTA)`), so nothing needs a padded SQRT price.
-    // ⚠️ THE create_sweep_tx CHECK WAS RUN AND ANSWERED, NOT WAIVED. §E347 (`Quid.sol:1334`) deleted
-    // the `public pure` forwarder one commit earlier on the strength of an exhaustive census —
-    // `evm/src`, `evm/test`, `evm/script`, `spa/`, `quid-ln/`, `tools/`, plus the raw selector
-    // `0x60fd0b8d` as the control for a call-by-selector a name grep would miss — and recorded the
-    // discriminator: *"an asymmetric leftover of §DE-TICK rather than a deliberate marker"*
-    // (`Vault` never had a counterpart). Removing that forwarder left THIS body with zero references
-    // anywhere. It marks a design that was RETIRED, not a gap that has not opened yet — which is the
+    // ⚠️ THE create_sweep_tx CHECK WAS RUN AND ANSWERED, NOT WAIVED. §E347 deleted `Quid`'s
+    // `public pure` forwarder one commit earlier on an exhaustive census (`evm/src|test|script`,
+    // `spa/`, `quid-ln/`, `tools/`, plus the raw selector `0x60fd0b8d` to catch a call-by-selector),
+    // leaving this body at ZERO references. Discriminator: an asymmetric §DE-TICK leftover (`Vault`
+    // never had a counterpart), i.e. a RETIRED design — not a gap nobody has built yet, which is the
     // one distinction separating rule 1 from the deletion this repo has reverted twice.
-    // It was `internal`, so it was inlined and never deployed: this frees no bytecode from anything.
+    // It was `internal`, so inlined and never deployed: this frees no bytecode from anything.
 
     /// @notice (B — IL-protect) The range's ACTUAL sold-volatile fraction (WAD) between `syncKeyPx` and the
     ///         current `spotPrice`, straight from the concentrated-position geometry — the ground-truth IL the
@@ -2854,7 +2805,7 @@ library SwapLib {
     // bytecode from any contract; it removes a mechanism the design retired and a test that pinned it.
     // ⚠️ The anti-grinding bound `w >= 1 - fee/C` lived HERE and nowhere else. §E226 cited it as a
     // reason to keep the flat 420 ppm; it gated nothing on the fill path then and is gone now
-    // (`Core.sol:1179` records that). Do not re-derive it from that comment.
+    // (`Core._handleDelta`'s clamp note records that). Do not re-derive it from that comment.
 
     // ─────────────────────────────────────────────────────────────────────────────
     // CONSERVATION — the ONE property worth keeping from v4's `unlockCallback`
