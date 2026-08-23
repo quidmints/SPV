@@ -43,11 +43,16 @@ import {QuidLib} from "./QuidLib.sol";
 ///         IQuidRepack2/IQuidRepackRet — now collapsed onto the CANONICAL `IEthVenue.repack`
 ///         in `Interfaces.sol` (rule 2), which already declared this exact signature.)
 
-/// @title  SwapLib — non-V4-callback bodies extracted from Aux to free
-///         bytecode under the EIP-170 limit. unlockCallback itself stays
-///         in Aux directly (PoolManager calls Aux.unlockCallback by
-///         interface; the DELEGATECALL-to-library pattern doesn't
-///         compose with V4's unlock semantics — established prior).
+/// @title  SwapLib — swap/settlement bodies extracted from Aux to free bytecode under the EIP-170
+///         limit. The extraction reason is unchanged and still binding; the V4 framing around it is
+///         not.
+/// ⛔ CORRECTED — THE TITLE DEFINED THIS LIBRARY BY ITS RELATION TO A CALLBACK THAT NO LONGER EXISTS.
+///     It read *"non-V4-callback bodies … unlockCallback itself stays in Aux directly (PoolManager
+///     calls Aux.unlockCallback by interface; the DELEGATECALL-to-library pattern doesn't compose
+///     with V4's unlock semantics)"*. MEASURED: **`unlockCallback` appears ZERO times in `Aux.sol`**,
+///     and the only `unlockCallback` left in `evm/src` is one comment in `BasketLib`. There is no
+///     PoolManager and no unlock semantics to fail to compose with. ⇒ "non-V4-callback" no longer
+///     names a subset of anything — the exclusion it drew is now the whole file.
 ///
 /// LIBRARY SEMANTICS:
 ///   External library functions are DELEGATECALL'd by the caller. Inside
@@ -643,10 +648,18 @@ library SwapLib {
         // 1e18 for both assets, so the reserve converts to its true sats-equivalent directly. The
         // former ×1e10 pre-scale here CANCELLED convert's 1e18/1e8 under-scaling — two wrongs that
         // agreed on this path only; both are removed together, leaving this path unit-neutral.
-        // §E9 — this field now carries the RANGE'S PACKED TICKS, not a price. `Core._handleSwap`
-        // unpacks it into the swap's `sqrtPriceLimitX96`. ALL THREE producers must agree: this one,
-        // `_swapOutPrep` below, and `_finishSwap`. Passing a real spotPrice here is what broke
-        // 132 tests (`InvalidTick` / `PriceLimitAlreadyExceeded`) when only one was converted.
+        // ⛔ §E9's NOTE IS REVERSED BY §DE-TICK, AND IT SAT ON THE LIVE BTC SWAP-IN MONEY PATH.
+        // It read *"this field now carries the RANGE'S PACKED TICKS, not a price. `Core._handleSwap`
+        // unpacks it into the swap's `sqrtPriceLimitX96`"*, and warned that *"passing a real
+        // spotPrice here is what broke 132 tests (`InvalidTick` / `PriceLimitAlreadyExceeded`)"*.
+        // **A real spotPrice is now the ONLY correct thing to pass.** `priceHint` takes `repack`'s
+        // 5th return — the resolved oracle price (`:40`) — and lands in `rp.fillPrice` below via
+        // `_priceOr`. MEASURED: `sqrtPriceLimitX96`, `InvalidTick`, `PriceLimitAlreadyExceeded` and
+        // `rangeTicks` have ZERO code references in `evm/src`; the surviving hits are comments, and
+        // `:369` records `rangeTicks` being deleted because it *"packed a range-edge PRICE LIMIT"*.
+        // ⇒ A reader who trusted this would have converted a price to a tick that nothing unpacks.
+        // The "all three producers must agree" instruction survives INTACT, with the subject
+        // inverted: this one, `_swapOutPrep` and `_finishSwap` must all pass the PRICE.
         // Block-scoped: these bodies are stack-tight by design (`via_ir = false`).
         uint priceHint;
         Types.RouteParams memory rp;
@@ -769,27 +782,53 @@ library SwapLib {
     /// Scaled by the FRACTION DRAINED, so it is bounded BY this value: a full drain owes 2.1 bps,
     /// half a drain 1.05 bps, and a range that was never funded owes nothing at all.
     uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm = half the pool fee tier
-    // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized
-    // variance in WAD (QuidLib:294-318: tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 ⇒ a
-    // fraction² scaled 1e18; e.g. 80%-annualized vol ⇒ σ²≈0.64 ⇒ ~6.4e17). SIGMA_REF is
-    // the REFERENCE variance = 1e18 (variance 1.0 = 100% annualized vol) at which full
-    // scarcity saturates the cap — picking the per-interval-scale 1e16 instead would peg
-    // skew at the cap for any real crypto vol (>10% ann), so the annualized 1e18 is the
-    // unit-correct anchor. Γ folds the risk-aversion γ and the horizon (T−t) into ONE
-    // coefficient (the horizon is already carried by the FLOW_DECAY-smoothed flow/scarcity),
-    // fixed so skew(q=1, σ²=SIGMA_REF)=Γ·SIGMA_REF=MAX_WELL_SKEW.
+    // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized variance in WAD:
+    // a fraction² scaled 1e18, e.g. 80%-annualized vol ⇒ σ² ≈ 0.64 ⇒ ~6.4e17. Γ folds the
+    // risk-aversion γ and the horizon (T−t) into ONE coefficient (the horizon is already carried by
+    // the FLOW_DECAY-smoothed flow/scarcity).
+    // ⛔ CORRECTED — THE UNIT DERIVATION CITED A LINE RANGE THAT IS NOW A DIFFERENT FUNCTION, AND
+    //    ANCHORED ITSELF ON TWO CONSTANTS THAT NO LONGER EXIST. It read *"(QuidLib:294-318:
+    //    tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10 …)"* and calibrated Γ *"so skew(q=1,
+    //    σ²=SIGMA_REF) = Γ·SIGMA_REF = MAX_WELL_SKEW"*. MEASURED: `QuidLib:294-318` is `addLiq`'s
+    //    header, not a variance derivation; **`SIGMA_REF`, `MAX_WELL_SKEW` and `tickVar` have ZERO
+    //    code references in `evm/src`** — every hit is a comment — and the ×1e10 was deleted with
+    //    the ticks (`Core.realizedVarianceWad`'s §TICK-REMOVAL note: a tick was 1 bp, so 1e-8 × 1e18
+    //    = 1e10 exactly, and `ringVariance` now returns WAD relative variance directly).
+    // ⚠️ SO THE CALIBRATION SENTENCE WAS CIRCULAR BEFORE IT WAS STALE, AND `:1049` ALREADY SAYS SO:
+    //    Γ was defined as `MAX_WELL_SKEW·1e18/SIGMA_REF` with `SIGMA_REF = 1e18`, i.e. **Γ ≡
+    //    MAX_WELL_SKEW exactly — the cap under a second name**, which makes "fixed so skew saturates
+    //    the cap" a restatement rather than a choice. Both constants are now deleted and Γ stands on
+    //    its own as the inherited 3e16 that `GAMMA_WAD`'s own docblock flags as unchosen (§E274).
+    // ⇒ **A constant explained by pointing at a symbol becomes unexplained the moment the symbol
+    //    goes** — `DEPLETION_RATE_WAD`'s header (`:760`) records that exact loss happening twice
+    //    already. The units are therefore stated here rather than cited.
     // STABLENESS = ρ, the DEPLETION-BARRIER ORDER (derived, NOT a fit exponent). The skew is
     // Γ·σ²·q / (1−q)^ρ: the A-S linear reservation premium Γσ²q amplified by the shadow price of the
     // last inventory units. Derived from the HJB with a HARD inv≥0 constraint — a −log(inv) barrier
     // (the LP physically cannot serve at inv=0) whose marginal ∝ 1/inv makes depletion convexly
     // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
     // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
-    // Volatile range half-width, in bps of price (paddedSqrtPrice reads it as (10000±delta)/10000).
-    // THIN range (±0.2%). Quid SERVES swaps and RESEATS, so it can't go to a literal one-tick like a static
-    // static position: at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses lower==upper and V4
-    // reverts. 0.2% is the thinnest that keeps the reseat re-add non-degenerate while staying maximally thin
-    // (near-zero natural slippage, whale-friendly). Frequent repacks are covered by repack-first (swapper-paid)
-    // + the self-funded reseat keeper — no separate gas budget needed.
+    // ⚠️ READ THAT AS THE DERIVATION OF WHY THE EXPONENT IS 1, NOT AS A LIVE DIAL. `STABLENESS` has
+    // ZERO code references in `evm/src`; `:1049` records it deleted along with `SIGMA_REF` and the
+    // old `GAMMA_WAD` definition, with byte-identical behaviour, because ρ was 1 and its loop
+    // (`for (i = 1; i < 1; …)`) never executed. The kernel below is the simple pole written out —
+    // which is what A&S §2.3 derives anyway, the exponent fixed at 1 by the CARA value function
+    // rather than fitted. The tunable that DID survive is `KAPPA_WAD`, the pole's LOCATION (§E289).
+    // Volatile range half-width, in bps of price. `updateBounds(price, delta)` (`:2234`) reads it as
+    // `price·(10000∓delta)/10000` — the ONLY consumer, and it works in absolute PRICES.
+    // THIN range (±0.2%). Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width
+    // like a static position: at delta = 0 the reseat re-add collapses `lower == upper`. 0.2% is the
+    // thinnest that keeps the re-add non-degenerate while staying maximally thin (near-zero natural
+    // slippage, whale-friendly). Frequent repacks are covered by repack-first (swapper-paid) + the
+    // self-funded reseat keeper — no separate gas budget needed.
+    // ⛔ CORRECTED — THIS NAMED TWO DEAD SYMBOLS AND A DEAD ENGINE. It read *"paddedSqrtPrice reads
+    // it as …"* and *"at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses
+    // lower==upper and V4 reverts"*. `paddedSqrtPrice` is deleted (§E347/§E347b); `updateTicks` and
+    // `targetSqrt` have ZERO code references in `evm/src` — every remaining hit is a comment; and
+    // there is no V4 to revert. **The delta=10 figure went with them**: it described a TICK-SPACING
+    // degeneracy, not a price one, and `updateBounds` is degenerate only at delta = 0. Quoting a
+    // measured-looking threshold that no live code can produce is how a comment becomes the premise
+    // of a re-tune (§E18 at `:677`).
     uint internal constant RANGE_DELTA = 20;
 
     // DYNAMIC CAP calibration. Instead of a fixed 3%, the ceiling tracks the native-BTC MM's
@@ -2055,15 +2094,19 @@ library SwapLib {
         return want < available ? want : available;
     }
 
-    // ── Tick math (pure/view) ─────────────────────────────────────────
-
-
-    function paddedSqrtPrice(uint spotPrice, bool up, uint delta)
-        internal pure returns (uint160) {
-        uint factor = up ? FixedPointMathLib.sqrt((10000 + delta) * 1e18 / 10000)
-                         : FixedPointMathLib.sqrt((10000 - delta) * 1e18 / 10000);
-        return uint160(FixedPointMathLib.mulDivDown(spotPrice, factor, 1e9));
-    }
+    // §E347b — `paddedSqrtPrice` DELETED, and with it the last "Tick math" section in this file
+    // (rule 1: unreachable code goes). It returned a `uint160` — a v4 `sqrtPriceX96` — from two
+    // `FixedPointMathLib.sqrt` expansions, which is §DE-TICK residue: the band is a PRICE range now
+    // (`updateBounds(targetPrice, RANGE_DELTA)`), so nothing needs a padded SQRT price.
+    // ⚠️ THE create_sweep_tx CHECK WAS RUN AND ANSWERED, NOT WAIVED. §E347 (`Quid.sol:1334`) deleted
+    // the `public pure` forwarder one commit earlier on the strength of an exhaustive census —
+    // `evm/src`, `evm/test`, `evm/script`, `spa/`, `quid-ln/`, `tools/`, plus the raw selector
+    // `0x60fd0b8d` as the control for a call-by-selector a name grep would miss — and recorded the
+    // discriminator: *"an asymmetric leftover of §DE-TICK rather than a deliberate marker"*
+    // (`Vault` never had a counterpart). Removing that forwarder left THIS body with zero references
+    // anywhere. It marks a design that was RETIRED, not a gap that has not opened yet — which is the
+    // one distinction separating rule 1 from the deletion this repo has reverted twice.
+    // It was `internal`, so it was inlined and never deployed: this frees no bytecode from anything.
 
     /// @notice (B — IL-protect) The range's ACTUAL sold-volatile fraction (WAD) between `syncKeyPx` and the
     ///         current `spotPrice`, straight from the concentrated-position geometry — the ground-truth IL the
