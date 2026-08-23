@@ -1383,10 +1383,27 @@ contract Core {
     ///      because a revert here would let a stalled oracle halt the range.
     ///
     /// @dev **WHAT THE RANGE STILL LETS THROUGH IS THE POINT.** Chainlink updates on a heartbeat or a
-    ///      deviation threshold, so BETWEEN updates it reports a flat line while the market moves —
-    ///      a ring sourced from it would measure σ² ≈ 0 through real volatility. A DEX-aggregated
-    ///      push carries that intra-update movement, which is exactly what σ² is for. The bound
-    ///      constrains the LEVEL; the information is in the PATH.
+    ///      deviation threshold, so BETWEEN updates it reports a flat line while the market moves.
+    ///      A DEX-aggregated push carries that intra-update movement. The bound constrains the
+    ///      LEVEL; the information is in the PATH.
+    ///      ⛔ **THE SENTENCE THAT STOOD HERE — *"a ring sourced from [Chainlink] would measure
+    ///      σ² ≈ 0 through real volatility"* — IS REFUTED BY MEASUREMENT (§E343, 2026-08-23) AND
+    ///      MUST NOT BE RESTORED.** It is a reasoned assertion; §E343 sampled 60 consecutive
+    ///      ETH/USD rounds via `getRoundData` on an archive endpoint and got **57.3 updates/day,
+    ///      20.5-min median gap, 0.53% median absolute move, implied annualised σ = 95.5%** — the
+    ///      right order for ETH, not ≈ 0. **The flat-line intuition fails because it assumes a
+    ///      WALL-CLOCK sample: read on a fixed grid, the gaps ARE flat and σ² collapses; read
+    ///      PER ROUND, every sample is a move that already cleared the 0.5% deviation trigger.**
+    ///      ⚠️ I expected the trigger to starve the estimate by censoring quiet periods. It does
+    ///      not — the 61-min heartbeat forces an update through them, so quiet times are sampled
+    ///      and the censoring bias is bounded rather than open-ended.
+    ///      ⇒ **CONSEQUENCE FOR ANYONE SIZING THIS WORK: σ² NEEDS NO INDEPENDENT SOURCE.** §E222's
+    ///      independent-source rule is scoped to `twapResolve`'s deviation test and
+    ///      `BasketLib.isManipulated` — guards that need two sources able to DISAGREE. σ² is a
+    ///      property of ONE series, so estimating it from the anchor is not the self-reference
+    ///      §E222 forbids. Reading the deleted sentence as "Chainlink cannot feed σ²" is what
+    ///      sends the next builder back to a 1inch keeper, whose CADENCE is the one manipulation
+    ///      the 50 bps range does not bound (`script/PushObservation.s.sol`, "Usage" note).
     ///
     /// @dev Range = 50 bps. ⛔ **THE "8 bps ⇒ ~6x headroom" FIGURE THAT STOOD HERE IS STALE.
     ///      RE-MEASURED 2026-08-22: the live 1inch-vs-Chainlink ETH/USD basis is 23 bps** — so the
