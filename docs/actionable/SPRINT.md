@@ -750,7 +750,7 @@ another 1,608 off `Quid` and 842 off `Vault`, closing **3,074 bytes of the gap i
 dead-surface folds, and at this rate the arithmetic is the LEAST stable thing in this section.**
 **Re-run `python3 tools/check-contract-sizes.py` before quoting it**; do not read it from here.
 
-## 🔴 §WSA-LEV-INERT — **"THE LEVERED BOOK IS INERT ON A CONSTANTS MISMATCH" DOES NOT SURVIVE THE TREE. THE SYMPTOM IS REAL; THE MECHANISM IS THE UNPINNED-ANCHOR FIXTURE TRAP** (checked 2026-08-23, no build required)
+## ✅ §WSA-LEV-INERT — **CLOSED 2026-08-23: all three of its own actionables landed in `46ceab98`** (docstring now reads `ilBasisPx`; `_requireTargetLtv` floors the cap at `RANGE_BPS`; constants deliberately untouched). ⚠️ **AND ITS OBSERVATION WAS LATER CONFIRMED WHERE ITS MECHANISM WAS NOT** — see §0h: a live position measured a target of **279 bps against a 300 bps dead-band**, so nothing fires. The mechanism it blamed (`RANGE_DELTA`) is still not the cause; the calibration question about `RANGE_BPS` is real and is now an owner decision. Original:  **"THE LEVERED BOOK IS INERT ON A CONSTANTS MISMATCH" DOES NOT SURVIVE THE TREE. THE SYMPTOM IS REAL; THE MECHANISM IS THE UNPINNED-ANCHOR FIXTURE TRAP** (checked 2026-08-23, no build required)
 
 **The claim:** `SwapLib.sol:832` sets `RANGE_DELTA = 20` (±20 bps range half-width) and `LevBase.sol:45`
 sets `RANGE_BPS = 300` (action deadband), so "the IL target is derived inside a ±20 bps range and
@@ -1948,7 +1948,7 @@ mattered.
 
 ---
 
-## 8. 🟡 RESIDUAL SLOP (compiler-enumerated)
+## ✅ 8. RESIDUAL SLOP — **CLOSED 2026-08-23: its own example is wrong.** It says `approve` is *triplicated* across `Shares`/`Quid`/`VBtc`; measured, `Shares.sol` declares **ZERO** `function approve` while `Quid` and `VBtc` declare **one each**. It is duplicated in TWO, and those two are a PROJECTION and a LEDGER (CLAUDE.md: `Quid.balanceOf` is range state, `VBtc.balanceOf` is a mapping) — **not one concept declared twice, so rule 2 does not bite.** Compiler-enumerated slop is a snapshot; re-enumerate rather than working this list (compiler-enumerated)
 
 Unreachable-code warnings are at **0** (were 12; −2,652 B on `LevMath`). Remaining in `src`:
 
@@ -3062,7 +3062,7 @@ shrink-`splice` and `recordClose` are **requestRedeem** + claim; `requestSwapOut
 `recordForceClosePenalty` sit outside — escape paths, not vault operations; do not force them in.
 **B2's `Terms` fold is the first instance of this, not a separate task.**
 
-## B9. 🟡 STALE MARKER — `§OVERCOMMITTED-MEASURED` still reads 🔴
+## ✅ B9. STALE MARKER — **CLOSED 2026-08-23: the row it points at does not exist.** It says `§OVERCOMMITTED-MEASURED` still reads 🔴 in `QUEUE.md`; measured, that tag appears **3× in SPRINT.md and ZERO times in QUEUE.md**. A row instructing an edit to a nonexistent row is not work — `§OVERCOMMITTED-MEASURED` still reads 🔴
 
 E230 fixed it and `POOLED_USD` funds again (`Alles` went 71/33 → 89/13, and the canary
 `testSwapIn_QuidOrStrictStable` passes). The row needs updating, not work.
@@ -3938,7 +3938,7 @@ costs bytes on a contract at **292 spare**. Either expose it from `ChannelLib` (
 link) or leave the copy WITH A POINTER at the source — do not add a `BTCChannels` getter for a test's
 convenience without measuring first.
 
-## 🔴 §SUITE-RPC-INFLATION — **THE SUITE'S FAILURE COUNT HAS BEEN INFLATED BY THE ENDPOINT, AND A `setUp` FAILURE HIDES 25 TESTS** (measured 2026-08-22)
+## ✅ §SUITE-RPC-INFLATION — **CLOSED 2026-08-23: its remedy is now standing practice and is MEASURED.** Every arm today ran `ETH_RPC_URL=$ANKR_RPC_URL`: **272–460 s and ~0–1 rate-limit failures**, against **785–1386 s and 10–25** on publicnode. The inflation it describes was real and is removed; the baseline is **49 unique failures**. Original:  **THE SUITE'S FAILURE COUNT HAS BEEN INFLATED BY THE ENDPOINT, AND A `setUp` FAILURE HIDES 25 TESTS** (measured 2026-08-22)
 
 Two full-suite arms on the SAME tree, differing ONLY in RPC endpoint:
 
@@ -5265,7 +5265,7 @@ are the ones who supplied that WETH. So either:
 
 ### `§A.71` (none)
 
-## 📊 §A.71 DEDUP PASS — STATUS
+## ✅ §A.71 DEDUP PASS — **CLOSED 2026-08-23: half its "remaining" list is already gone.** Of the four pairs it names, only `IEthVenue` and `IAaveV4Spoke` are declared (`^interface` = 1 each); **`IEthVenueV` and `IAaveSpoke` are declared ZERO times** — deleted symbols, not outstanding merges. ⚠️ Do not "fix" a tombstone by renaming it. STATUS
 | target | outcome |
 |---|---|
 | underscore-suffixed interfaces | ✅ **7 → 0** |
@@ -7253,7 +7253,7 @@ than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
    worth pricing for removal — IF nothing external calls it. **Check the SPA and the Rust clients before
    touching it; do not assume an ERC-20 method is unused because our own contracts skip it.**
 
-## 🔴 §E276 — **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
+## ✅ §E276 — **PREMISE WITHDRAWN 2026-08-23: its lead evidence was DELETED.** The row is built on `Core.sol`'s `out -= out*skew`, which `f5499659` (§E279) removed as the duplicate skew application. **The spread-vs-shift question survives as §E330/§E332-c and is an owner decision**; this row's specific argument no longer has a code referent. Original:  **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
 Owner, 2026-08-21: *"True A-S moves the mid — `r = s − qγσ²(T−t)` — so the balancing side is quoted
 BETTER than reference. **We never go below mid.**"*
 
@@ -8846,7 +8846,7 @@ reachable inventory. **You cannot route the part we decline unless we say how bi
 
 ---
 
-## 🔴🔴 §E294 — **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
+## ✅ §E294 — **CLOSED 2026-08-23: its own falsifiable claim is FALSE.** The row says *"caller: ZERO in src/script/test"*; measured, `script/PushObservation.s.sol:71` plus FIVE test files call it, and `PushObservationFillsTheRing.t.sol` tests it. ⚠️ §E345 also made σ² ring-INDEPENDENT (`realizedVarianceWad` = `max(ring, anchor)`), so the row's consequence is retired even where its premise held. What remains is §C1 — which pool — and that is an OWNER DECISION, not this row. Original:  **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
 
 **Owner proposed 2026-08-21: cache `getRate` off-chain and submit it as an update alongside a trusted
 callback (a delever), using the EIP-712 permissions IL-protect and opt-in already carry. CHECKED THE
@@ -9458,7 +9458,7 @@ one tick, so a range becomes a ladder of N offers. ⛔ **But do not re-derive th
 the checkout is gone, and §E267 records that importing those sources propagated `via_ir`/`runs=50`
 into nine money-path files and broke the build.**
 
-## 🔴🔴 §E304-mintclose — **THE MINT-CLOSE PATH IS A WHOLE DEAD FLASH-MODE FOR A VENUE THAT WAS REMOVED. `ILevMintVenue` IS ITS INTERFACE.**
+## ✅ §E304-mintclose — **CLOSED 2026-08-23: the code is already gone; every unit it names greps ZERO in `src`/`test`/`script`.** What survived was doc debris, and 3 of its 9 blocks had REATTACHED natspec to the WRONG member (`event FlashProviderSet` had inherited the deleted BOLD reserve's docblock; `onFlashMintBody`'s sat over `_reimburse`) — worse than a stale comment, because tooling attributes a block DOWNWARD, so a deleted feature's docs had become a live member's spec. All 9 fixed. Original:  **THE MINT-CLOSE PATH IS A WHOLE DEAD FLASH-MODE FOR A VENUE THAT WAS REMOVED. `ILevMintVenue` IS ITS INTERFACE.**
 Owner asked, 2026-08-22: *"what do you mean by minting or nonminting adapters? are you sure these arent
 making up any capabilities that actual morpho dosnt have"* — **the question is exactly right, and the
 answer is that they are not Morpho's capabilities at all.**
@@ -9620,7 +9620,7 @@ nothing takes.
 
 ---
 
-## 🟠 §E307 — **THE CLIENT HALF IS FIXED AND THE ABI GATE IS GREEN. WHAT REMAINS IS THE COMMENT THAT SAYS THE OPPOSITE.**
+## ✅ §E307 — **CLOSED 2026-08-23: the residual comment it tracks is already corrected** (both digests fixed in-file), and the ABI gate is green — `check-client-abis.py` reports 116 Rust + 68 SPA, 0 drifted. Original:  **THE CLIENT HALF IS FIXED AND THE ABI GATE IS GREEN. WHAT REMAINS IS THE COMMENT THAT SAYS THE OPPOSITE.**
 
 **Found 2026-08-22 while gating another thread's rename — the ABI gate is RED on `origin/main` and
 this is why.** `check-client-abis.py`: **`DRIFT openChannelDigest(...) — spa declares: (ORPHAN — no
@@ -12760,7 +12760,7 @@ Relabel it to a section `@notice` in the same edit (done for `ExitLib`'s).
 
 ---
 
-## 🔴 §E324-SPRINT-ROT — **THE OPEN COUNT IS 262 AND IT IS NOT TRUSTWORTHY. THREE ROWS RE-RUN, THREE WERE STALE.**
+## ✅ §E324-SPRINT-ROT — **EXECUTED 2026-08-23. This row asked for a trust audit of the open count; §0a is that audit.** Its own figure (262) was itself wrong — the real count was 90 `##` items, because 262 counted `###` SUB-SECTIONS of single items as items. Four rows were found already-shipped, one ✅ was found FALSE (`_aggSwap`, zero references), and eleven owner decisions were separated from the work. Original:  **THE OPEN COUNT IS 262 AND IT IS NOT TRUSTWORTHY. THREE ROWS RE-RUN, THREE WERE STALE.**
 
 Asked directly whether the open items are really open. Measured rather than estimated, and the answer
 is that **the file has caught the disease `CLAUDE.md` already documents for `QUEUE.md`** — *"the
