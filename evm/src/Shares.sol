@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./imports/Types.sol";
 import {OorBook} from "./imports/Types.sol";
+import {ILevEquity} from "./imports/Interfaces.sol";   // §FOLD-LEVGROSS
 
 /// @title  Shares — the range's share token. ONE declaration of the per-LP state, TWO instances.
 ///
@@ -67,6 +68,21 @@ import {OorBook} from "./imports/Types.sol";
 abstract contract Shares {
     /// The range's leverage manager. GOV pin-once, then frozen.
     address public LEV_MANAGER;
+
+    /// @notice §FOLD-LEVGROSS — ONE DEFINITION FOR BOTH RANGES. `Quid.levGrossNative` and
+    ///         `Vault.levGrossNative` were the same three statements against the same `LEV_MANAGER`
+    ///         slot that already lives HERE — a fail-open read of the lev book's gross collateral.
+    ///         They differed only in whether the pin was copied to a local first.
+    /// @dev    FAIL-OPEN IS LOAD-BEARING, NOT DEFENSIVE: this feeds the well skew's locked-inventory
+    ///         basis, and a revert in a venue-iterating read must never brick a swap. Returning 0
+    ///         relaxes the skew toward the base oracle curve — a pricing signal, not a backing gate.
+    /// ⚠️      The unit is the RANGE'S OWN native one — wei on the ETH instance, sats on the BTC one.
+    ///         It is not comparable across instances, and nothing should sum the two.
+    function levGrossNative() external view returns (uint) {
+        address m = LEV_MANAGER;
+        if (m == address(0)) return 0;
+        try ILevEquity(m).totalGrossCollateral() returns (uint g) { return g; } catch { return 0; }
+    }
 
     // ─── the position book: `pooled` IS the LP's balance ───
     mapping(address => Types.Deposit) public autoManaged;

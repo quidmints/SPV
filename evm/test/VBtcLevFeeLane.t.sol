@@ -595,8 +595,16 @@ contract VBtcLevFeeLane is AllesFixture {
     /// Morpho debt that `venue.debtOf`/`netEquityBtc`/`getCurrentLtvBps` read. (The manager's `leverBorrow`
     /// keeper step is IL-clamped — it borrows nothing at flat price — so for a static valuation/liquidation
     /// proof the debt is sourced on Morpho directly; the clamped keeper flow is covered by the Rust e2e.)
+    /// §POOL-VENUE — DEBT IS CREATED THROUGH THE VENUE NOW, NOT BY THE LP DIRECTLY.
+    /// This was `vm.prank(lp); MORPHO.borrow(mp, usdc6, 0, lp, lp)` — the LP borrowing on its OWN
+    /// behalf, which only worked while each LP OWNED its Morpho position. With one pooled position the
+    /// LP holds no collateral of its own and Morpho correctly answers `insufficient collateral`.
+    /// ⚠️ THIS IS NOT A WORKAROUND FOR A BROKEN CHANGE — it is the capability change itself, made
+    /// visible: an LP can no longer reach its venue position directly, and every interaction must route
+    /// through the manager. The helper now uses that real path (`onlyManager`, reached by pranking the
+    /// manager) instead of one that no longer exists.
     function _borrowMorpho(address lp, uint usdc6) internal {
-        vm.prank(lp); IMorphoTest(MORPHO).borrow(mp, usdc6, 0, lp, lp);
+        vm.prank(address(lm)); venue.borrow(lp, usdc6);
     }
 
     /// REAL Morpho seizure of `lp` (must have real debt): crash the vBTC oracle (one getTWAPforAsset(WBTC)
@@ -610,10 +618,18 @@ contract VBtcLevFeeLane is AllesFixture {
         uint crashed = px * vdebtUsd * 100 / (collValueUsd * 92);
         vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.getTWAPforAsset.selector, address(WBTC), uint32(1800)),
             abi.encode(crashed));
-        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), lp);
+        // §POOL-VENUE — THE SEIZED BORROWER IS THE VENUE, BECAUSE THAT IS WHO HOLDS THE POSITION NOW.
+        // This read `position(MARKET_ID, lp)` and liquidated `lp`. There is no per-LP Morpho position
+        // to seize any more, so naming `lp` would liquidate an empty account and assert nothing.
+        // 🔴 AND THE GUARANTEE THIS TEST CHECKS IS GENUINELY WEAKER NOW. It used to prove a seizure
+        // hits ONE LP and "never another LP and never the QU!D basket". Pooled, a seizure hits the
+        // pool and therefore EVERY LP pro-rata. The test still proves a REAL Morpho liquidation is
+        // survived cleanly; it can no longer prove containment, because containment is no longer a
+        // property of the venue. It is now protocol-enforced by `cascadeDelever` + the LTV hysteresis.
+        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20V(address(USDC)).approve(MORPHO, type(uint).max);
-        IMorphoTest(MORPHO).liquidate(mp, lp, 0, uint256(borrowShares) * numer / denom, "");
+        IMorphoTest(MORPHO).liquidate(mp, address(venue), 0, uint256(borrowShares) * numer / denom, "");
         vm.clearMockedCalls();
     }
 

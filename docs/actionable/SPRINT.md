@@ -3015,7 +3015,8 @@ because a real source beside a surviving self-write re-creates the circularity a
 
 ---
 
-## B2. 🔴 §T2 — TERMS COMMITMENT: **I DESTROYED THE WORKING SOLIDITY HALF.** Design intact, code gone.
+## B2. ✅ §T2 — TERMS COMMITMENT: **CLOSED 2026-08-24. THE CODE EXISTS AGAIN, ON BOTH SIDES, AND IN THE SHAPE THE OWNER ASKED FOR.** The row's headline claim — *"not on `main`, not in the shared tree, not on disk"* — is falsified by four greps. **Solidity:** `BitcoinTx.termsCommitment(Types.Terms)` at `src/imports/BitcoinTx.sol:838`; `_cltvRefundLeaf` at `:860` emits exactly the recorded prefix `bytes1(0x20), termsCommitment(terms), bytes1(0x75)` in front of the CLTV refund leaf; `test/btc/SwapInDeposit.t.sol:163` is the known-answer test (`test_termsCommitmentIsPinned` → `assertEq(BitcoinTx.termsCommitment(_terms()), TERMS)`). **Rust:** `quid-hop/src/swap_in_onchain.rs:100` is `refund_leaf(user_refund, cltv, terms)` with all five call sites (`:126`, `:506`, `:641`, `:667`, `:687`) passing the third argument — the `E0061` cascade this row records is a **stale `target/debug` fingerprint**, not the source. ⛔ **AND THE OWNER'S SHAPE OBJECTION IS SATISFIED, NOT WORKED AROUND:** `BTCChannels.settleSwapInProven(Types.Terms, Types.DepositProof, bytes)` is **3 parameters**, exactly the `5 → 3` fold demanded, and the Rust side threads one `terms` value rather than a bare hash through five signatures. The pinned vectors (`TERMS`, `EXPECTED_Q`, and the no-prefix control `0xd0d16740…`) survive in both files as the cross-language tie. *(original booking below — its constants are still the re-derivation control)*
+### B2. §T2 — TERMS COMMITMENT: **I DESTROYED THE WORKING SOLIDITY HALF.** Design intact, code gone.
 
 🔴 **READ THIS BEFORE BELIEVING THE PARAGRAPH BELOW: THE CODE NO LONGER EXISTS.** I built and
 verified the Solidity half in a scratch worktree, **never committed it**, and then removed that
@@ -6191,6 +6192,7 @@ directory. One names it, the other must mount it.
 ### `§OPEN-PATH-HAS-NO-PRODUCER` 🔴
 
 ## §OPEN-PATH-HAS-NO-PRODUCER — 🔴🔴 **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
+▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs:196` constructs `crate::vault::LpConsent { … }` and `:207` calls `registry.bind_consent(&txid, req.funding_vout, consent)`, and the file's own header notes it *"had zero production callers"* in the past tense. **④ still holds exactly as written:** `vault.rs:208` is still `#[derive(Clone, Debug, PartialEq)]` — **no serde on `LpConsent`**, so there is still no wire format for an LP to SUPPLY one. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
 
 🔴🔴 **OPEN — found 2026-08-18 by reading `§SPRINT-B0`, `§SPRINT-B4` and the `bind_consent` gap
 TOGETHER.** Each row alone reads as low-drama; the severity exists only in the product.
@@ -7426,6 +7428,7 @@ EVIDENCE OF ANYTHING** — run each arm twice, or say nothing. Cheap rule, and i
 reversals.
 
 ## 🔴 §E277 — **FOUR ✅ UNIT ROWS ARE CERTIFIED BY TESTS THAT NO LONGER EXIST**
+▶️ **RE-AUDIT TARGET (2026-08-24): `QUEUE.md`'s `§UNIT-SERIES-MEASURED` row + `test_UNITA_FixtureDrivesRealVariance` (`test/DrainAtomicity.t.sol`).** The row stays OPEN — the ✅✅ in `QUEUE.md` still rests on a withdrawn instrument and nobody has re-pointed it. **What rotted is the REPLACEMENT evidence this row substituted.** Its re-derivation reads *"σ² = 1, 1, 1, 0 wad across four runs … the failing assertion IS the measurement"*; that assertion now **passes** — §E327 pinned a source in `_driveTick` and measured **σ² 0 → ≈23.6 wad**. ⇒ *"20 driven ticks cannot budge σ²"* was never a fact about the estimator or the series; it was a fact about an unpinned source. **Re-point the row at the GREEN test and delete the pinned-at-zero sentence**, or the ledger swaps one retracted instrument for another.
 Owner asked whether the finished UNIT items are actually finished. Audited the 53 ✅ UNIT rows in
 `QUEUE.md` by extracting every test function they cite as evidence (24 distinct) and checking each
 against `HEAD`. **Four are gone**, and one was deleted *for being invalid*:
@@ -8353,6 +8356,7 @@ size-awareness survives **and gets cheaper** than the current `lnWad` branch.
    then have nothing to bound. ⚠️ **Deleting them earlier hides whether step 2 worked.**
 
 ## §E286-v3 — 🔴 **THE LEV PATH STILL ROUTES THROUGH UNISWAP V3, AND REMOVING IT IS A LIVENESS DECISION**
+▶️ **RE-AUDIT TARGET (2026-08-24): `src/imports/LevMath.sol:485-500` (`_poolSwap`). THE CLAIM HOLDS; ONLY THE COORDINATES ROTTED — re-verified rather than assumed, because this row exists because a grep once said the opposite.** `V3_SWAP_ROUTER` is at **`Interfaces.sol:177`**, not `:117`; `V3_FEE_WETH` at `:179`; `interface IV3Router` at `:182`; `exactInputSingle` at `:187`. `LevMath._poolSwap` (`:485`) still calls `IV3Router(V3_SWAP_ROUTER).exactInputSingle` at `:492`, reached from `:510` (USDC→WETH), `:569` (USDC→WBTC), `:580`/`:590` (volatile→USDC). ⚠️ **AND `Interfaces.sol:305`/`:309` CARRY `§SLOP` COMMENTS SAYING `V3_SWAP_ROUTER` AND `IV3Router` WERE "DELETED … zero references after the SOR cut"** — they are not; both are live six lines above. **That comment is the exact trap this row was written about (searching a SPELLING, not a DEPENDENCY), now inverted: an obituary sitting beside its living subject.** The decision (a)/(b)/(c) is untouched.
 ⚠️ **SUFFIXED 2026-08-21 — the last bare `§E286`.** Three findings shared it: `§E286-integral`,
 `§E286-floor` (withdrawn) and this one. Prose across the file has been calling this row `§E286-v3`
 for some time, so the suffix makes the citation real rather than inventing a new one. See §E291.
@@ -9780,7 +9784,8 @@ failure mode while committing it.
 
 ---
 
-## 🔴🔴 §E308 — **THE "σ² IS PINNED" EVIDENCE IS MISSING ITS CONTROL: THE TICK DRIVER WRITES NOTHING**
+## ✅ §E308 — **CLOSED 2026-08-24: THE DISCRIMINATOR WAS BUILT *AND RUN*, AND IT LANDED ON THE FIRST ROW OF ITS OWN TABLE.** Both of this row's falsifiable claims are now false. (1) *"THE TICK DRIVER WRITES NOTHING"* — `DrainAtomicity._driveTick` (`test/DrainAtomicity.t.sol:1382-1387`) deploys an `InjectedObservationSource` and calls `CORE.setObservationSource(...)`, so `_observeIfSourced` no longer takes its `src == address(0)` exit; §E327 measured **σ² 0 → ≈23.6 wad with the assertion going green on its own**. (2) *"NOT YET RUN — four source files are in state `UU` with conflict markers"* — measured: **zero conflict markers in `Quid.sol`**, and `test/PushObservationFillsTheRing.t.sol` is present. ⇒ **The table resolves to row one: nothing was written, the estimator is fine.** The residual this row named — *"an operations gap: a permissionless function with no process calling it"* — is no longer this row's either: `script/PushObservation.s.sol` now exists for the PUSH path, and §E345 landed `realizedVarianceWad = max(ring, anchorVarianceWad())` so **σ² is live in production off the Chainlink anchor with no ring source pinned at all**. The remaining PULL-source choice is §E327/§C1. *(original booking below)*
+### §E308 — **THE "σ² IS PINNED" EVIDENCE IS MISSING ITS CONTROL: THE TICK DRIVER WRITES NOTHING**
 
 **Owner, 2026-08-22: *"why is it zero? … it shouldn't be zero."* Auditing the observation path to
 answer that turned up a defect in the EVIDENCE, not just in the wiring.**
@@ -11057,7 +11062,8 @@ indistinguishable, in stored state, from one that is balanced.
 
 ---
 
-## 🔴 §E323 — **THE VARIANCE DRIVER'S SELL ARM HAD ITS ARGUMENTS SWAPPED AND HAS NEVER RUN. ITS DOCBLOCK PROMISES THE OPPOSITE.**
+## ✅ §E323 — **CLOSED 2026-08-24: BOTH HALVES ARE IN THE TREE.** The measurement: `DrainAtomicity.t.sol:1400-1402` now calls `AUX.swap(USDC, WETH, false, …)` for the sell arm — SAME pair, `forVolatile = false`, not reversed arguments — and `:1407-1409` asserts `assertGt(buys, 0)` / `assertGt(sells, 0, "this is the E323 defect returning")`, so a permanently dead arm can no longer hide inside the `try/catch` (rule 4: the skip stays, instrumented). Its own residual — *"still reports σ² 0 → 0 because no source is pinned"* — is also discharged in the same helper: `:1382-1387` deploys `InjectedObservationSource` and pins it, and §E327 measured **σ² 0 → 23598713149014421874 (≈23.6 wad), assertion green**. What remains (choose a PRODUCTION source) is §E327's ▶️, not this row's. *(original booking below)*
+### §E323 — **THE VARIANCE DRIVER'S SELL ARM HAD ITS ARGUMENTS SWAPPED AND HAS NEVER RUN. ITS DOCBLOCK PROMISES THE OPPOSITE.**
 
 **Found 2026-08-22 while writing `SignedNetFlow.t.sol`** — my own sell leg reverted `BadAsset()` and
 grepping for the same shape turned up exactly one other site, in the fixture that exists to create
@@ -11369,6 +11375,7 @@ SHAPE of the response — signed, regime-split, flow-vs-volatility — never abo
 ---
 
 ## 🔴 §E327 — **σ² ≡ 0 HAS A ONE-LINE ROOT CAUSE: `setObservationSource` HAS ZERO CALLERS. THE MACHINERY IS COMPLETE.**
+▶️ **RE-AUDIT TARGET (2026-08-24): `Core.realizedVarianceWad` / `Core.anchorVarianceWad` (`src/Core.sol:320`, `:417`) — THE HEADLINE PREMISE IS STALE, THE ACTIONABLE IS NOT.** Re-run: `setObservationSource` still has **zero non-test callers** (declaration at `Core.sol:1560`, one call at `DrainAtomicity.t.sol:1386`, nothing in `script/`), so this row's ▶️ (choose a pool, derive its ordering, pin it in `DeployL1_s` AND `DeployLib`) is untouched and the row stays OPEN. **But "σ² ≡ 0" is no longer true of production:** §E345 landed `realizedVarianceWad() = max(ringVariance(), anchorVarianceWad())` and both feeds are pinned at `DeployL1_s.sol:356-357`, so σ² is live off the Chainlink anchor with no ring source at all — and §E343 measured that leg (57.3 updates/day, implied annualised σ **95.5%**). ⇒ **Do not re-derive "σ² is zero, therefore X" from this header.** What the missing PULL source now costs is the RING's smoothing/TWAP leg, not the variance itself.
 
 Chasing §E326 step 2 ("make σ² real") to its root. Every prior row treated this as a KEEPER problem —
 §E294 (*"`pushObservation` … zero callers"*), §E306, §E308 (*"the tick driver writes nothing"*). **All
@@ -12015,7 +12022,8 @@ they meant.** ⇒ When a proposal's cost depends on its scope, pin the scope bef
 
 ---
 
-## 🟠 §E338 — **THE BRIDGE IS CAPACITY-LIMITED, SO DELEVER SURVIVES. AND "DEAL IT OUT LIKE THE FEE ACCUMULATORS" FAILS ON CONVEXITY — BUT A POOLED *HEDGE* WITH PER-LP *CLAIMS* DOES WORK.**
+## ⏸️ §E338 — **RETIRED BY `#1`, IN FLIGHT (2026-08-24).** Its two surviving conclusions are already carried IN `#1`'s body, verbatim: the price of one hedge against many entries (*"~13–15 bp while typical holding period is ≤6 months, ~147 bp across a full cycle"*, §E338/§E341) and the ⛔ *"DO NOT deal IL protect out pro-rata like `feesPerShare` — the payoff is concave with a kink at entry"*. `#1` is a pooled VENUE position with per-LP claims untouched, which is exactly this row's *"pooled hedge with per-LP claims"* verdict. ⛔ **NOT CLOSED** — the convexity price is a live design constraint on `#1`, not a finished item. *(original booking below)*
+### §E338 — **THE BRIDGE IS CAPACITY-LIMITED, SO DELEVER SURVIVES. AND "DEAL IT OUT LIKE THE FEE ACCUMULATORS" FAILS ON CONVEXITY — BUT A POOLED *HEDGE* WITH PER-LP *CLAIMS* DOES WORK.**
 
 Owner: *"you can never borrow the whole amount anyway … then we have no choice but to delever that final
 difference … we might have to be one huge LP on behalf of everyone and deal it out like we do with the
@@ -12108,7 +12116,8 @@ decides pooled-vs-per-LP, and it is cheap to compute off-chain from the existing
 
 ---
 
-## 🟡 §E340 — **§E339'S "MEASURE THE DISPERSION" CANNOT BE MEASURED. WHAT IS DERIVABLE IS THE GAP'S FORM, AND THAT IS VALIDATED.**
+## ⏸️ §E340 — **RETIRED BY `#1`, IN FLIGHT (2026-08-24).** Its question — how to measure the entry dispersion a pooled hedge would cost — is answered inside `#1` and answered AGAINST measuring it: *"⇒ **Monitor POSITION AGE, not dispersion** — it is observable from day one."* §E342 records the same verdict from the other side (the dispersion line *"drifted away from"* the real problem). ⛔ **NOT CLOSED** — the age monitor is not built. *(original booking below)*
+### §E340 — **§E339'S "MEASURE THE DISPERSION" CANNOT BE MEASURED. WHAT IS DERIVABLE IS THE GAP'S FORM, AND THAT IS VALIDATED.**
 
 Owner: *"how do you know your measurement isnt actually blind and just a contrived number, what gives it
 accuracy."* **It would have been contrived, and the challenge is correct.**
@@ -12199,7 +12208,8 @@ archive endpoint in `evm/.env` (`ANKR_RPC_URL`) — publicnode is head-only and 
 
 ---
 
-## 🔴🔴 §E342 — **THE ACTUAL PROBLEM, WHICH §E338–§E341 DRIFTED AWAY FROM: A LARGE SWAP DELEVERS LPs IN A LOOP, AND SWAP SIZE IS CAPPED BY LP COUNT.**
+## ⏸️ §E342 — **RETIRED BY `#1`, IN FLIGHT (2026-08-24).** `#1` (one pooled venue position per range) is being implemented now and names this row's mechanism as its single WHY — *"a repay cannot be aggregated across N separate positions … swap size is capped by how many LP repays fit in a block (§E342)"* — and lists **the O(LPs) delever loop, the re-lever pass, and the swap-size ceiling** among what it retires AT THE ROOT. Rule 17: do not propose a separate fix and do not measure gas-per-iteration to size a loop that is being deleted. ⛔ **NOT CLOSED** — it re-opens if `#1` is abandoned. *(original booking below)*
+### §E342 — **THE ACTUAL PROBLEM, WHICH §E338–§E341 DRIFTED AWAY FROM: A LARGE SWAP DELEVERS LPs IN A LOOP, AND SWAP SIZE IS CAPPED BY LP COUNT.**
 
 Owner: *"do you understand the problem was too many LPs to loop through for a large swap that has to
 delever a lot of them and then relever."* **I did not, and four rows went to the wrong question.**

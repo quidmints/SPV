@@ -615,19 +615,43 @@ library LevMath {
     /// worst execution. Collateral units are always weETH-rate: raw WETH collateral is dominated and gone.
     struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; }
 
-    /// @dev Repay-first + withdraw the paired collateral, in its OWN frame so `extractToVaultBody`'s stack stays
-    ///      shallow (no via_ir). Flashed `assets` → venue → repay; then withdraw collateral worth (repaid +
-    ///      extractUsd) of ETH, grossed by max slippage so the sale covers the flash at worst execution. WETH
+    /// @dev Repay-first + withdraw the paired collateral, in its OWN frame so both callers' stacks stay shallow
+    ///      (no via_ir). Flashed `assets` → venue → repay; then withdraw collateral worth (repaid + `extractUsd`)
+    ///      of ETH at `pxWeth`, grossed by max slippage so the sale covers the flash at worst execution. WETH
     ///      venue = 1:1 ETH; weETH venue = via the ether.fi rate.
-    function _pullForExtract(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
+    ///      ONE body where there were two: `_pullForExtract` (§G.3 extraction) and `_repayAndFree` (mode-0 settle)
+    ///      differed in exactly ONE scalar — the extra `extractUsd` of value to free beyond what was repaid, which
+    ///      the settle path passes as 0 — plus WHERE `pxWeth` came from, a live TWAP read on one side and the
+    ///      caller's already-resolved price on the other. Both still resolve it the same way they always did —
+    ///      the extraction's live TWAP read simply moved down into `_pullForExtract` — so the arithmetic here is
+    ///      byte-identical to what each of the two bodies computed before.
+    ///      ⚠️ The `NoPrice` guard was on the settle side only; the extraction side divided by a raw TWAP and
+    ///      would have PANICKED on a zero anchor. `Aux.getTWAPforAsset` deliberately never reverts, so that is
+    ///      reachable — see `freeAndDeliverBody`'s note, which argues the named revert for exactly this divisor.
+    ///      ⛔ `extractToVaultBody` REACHES THIS THROUGH `_pullForExtract`, WHICH EXISTS PURELY FOR THE
+    ///      NON-via_ir STACK AND MUST NOT BE INLINED AWAY. That caller carries 8 params + 2 named returns, and
+    ///      its own `_sellAndPay` call already peaks at the legacy DUP limit — a SEVENTH argument evaluated in
+    ///      that frame (worse, one whose value is a nested external call) is where stack-too-deep starts.
+    ///      `deleverSettleBody` is 7 params + 1 return, so it calls this directly and has room to.
+    function _repayAndPull(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, uint256 pxWeth, ExtractCfg memory cfg)
         private returns (uint256 pulled)
     {
         IERC20Min(stable).transfer(venueAddr, assets);
-        uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);
-        uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M);
+        uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);       // == assets when capped ≤ debt upstream
+        if (pxWeth == 0) revert NoPrice();
+        uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / pxWeth;
         uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
-        collUnits = (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps);
-        pulled = ILevVenue(venueAddr).withdraw(lp, collUnits);
+        pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
+    }
+
+    /// @dev The §G.3 extraction's shim onto `_repayAndPull`: resolves the live WETH TWAP HERE, in a shallow
+    ///      frame, so `extractToVaultBody` keeps making the same 6-argument call it always did. See the stack
+    ///      note on `_repayAndPull` — this wrapper is load-bearing for the legacy codegen, not decoration.
+    function _pullForExtract(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
+        private returns (uint256 pulled)
+    {
+        return _repayAndPull(assets, lp, venueAddr, stable, extractUsd,
+            IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M), cfg);
     }
 
     /// @notice REDEEM/SWAP-OUT value-neutral partial de-lever (§G.3, the ETH analog of BTC `deleverOnDelivery`/#54),
@@ -883,21 +907,8 @@ library LevMath {
     ///         after the keeper peel (the thin forwarder writes it back).
     function deleverSettleBody(uint256 assets, address lp, address venueAddr, address stable, uint256 minOut, uint256 pxWeth, ExtractCfg memory cfg)
         public returns (uint256 newGasReserve) {
-        uint256 pulled = _repayAndFreeBody(assets, lp, venueAddr, stable, pxWeth, cfg);   // repay-first + withdraw (own frame)
+        uint256 pulled = _repayAndPull(assets, lp, venueAddr, stable, 0, pxWeth, cfg);   // repay-first + withdraw (own frame)
         (newGasReserve, ) = _sellAndPay(pulled, stable, minOut, assets, lp, cfg);   // sell + return-flash + surplus→LP (own frame)
-    }
-
-    /// @dev Repay `lp`'s debt with the flashed `assets` FIRST (LTV drops ⇒ the withdraw is always health-safe), then
-    ///      withdraw the freed collateral grossed up by the slippage buffer so the sale covers `assets`. Own frame so
-    ///      `deleverSettleBody`'s stack stays shallow (no via_ir). VERBATIM of the manager's former `_repayAndFree`.
-    function _repayAndFreeBody(uint256 assets, address lp, address venueAddr, address stable, uint256 pxWeth, ExtractCfg memory cfg)
-        private returns (uint256 pulled) {
-        IERC20Min(stable).transfer(venueAddr, assets);
-        uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);                 // == assets (capped ≤ debt upstream)
-        if (pxWeth == 0) revert NoPrice();     // see the note above — never panic on a zero anchor
-        uint256 ethAmt = (_toUsd18(cfg.aux,stable, repaid) * 1e18) / pxWeth;
-        uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
-        pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
 
     /// @notice De-lever `lp` by flashing `repayUsd`-worth of the debt stable (repay-first, mode-0). VERBATIM of

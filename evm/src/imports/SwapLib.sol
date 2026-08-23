@@ -2758,11 +2758,7 @@ library SwapLib {
     function quoteDrain(address core, uint base, uint wantUsd6, uint64 ttl)
         internal view returns (Quote memory q)
     {
-        if (wantUsd6 == 0) revert NoQuote();          // a zero-size settlement quote is a category error
-        q.skewWad   = wellSkew(core, base, wantUsd6);
-        q.rateWad   = _applySkew(base, q.skewWad, true);
-        q.maxSizeIn = wantUsd6;                        // the quote is valid for THIS size, not more
-        q.deadline  = uint64(block.timestamp) + ttl;
+        return _quote(core, base, wantUsd6, ttl, true);
     }
 
     /// @notice Quote a FILL — volatile into the range, the abundant direction.
@@ -2772,10 +2768,25 @@ library SwapLib {
     function quoteFill(address core, uint base, uint addedTok, uint64 ttl)
         internal view returns (Quote memory q)
     {
-        if (addedTok == 0) revert NoQuote();
-        q.skewWad   = sellSkew(core, base, addedTok);
-        q.rateWad   = _applySkew(base, q.skewWad, false);
-        q.maxSizeIn = addedTok;
+        return _quote(core, base, addedTok, ttl, false);
+    }
+
+    /// @dev ONE quote body where there were two. `quoteDrain` and `quoteFill` differed in exactly the
+    ///      DIRECTION — which skew reads the imbalance (`wellSkew` scarce / `sellSkew` abundant) and
+    ///      which way `_applySkew` moves the rate — so the two are folded onto one flag. That coupling
+    ///      is the point: the skew source and the sign of the charge must never drift apart, and while
+    ///      they were written twice nothing said so.
+    ///      ⚠️ `size` IS NOT ONE UNIT. Draining it is 6-dec USD out; filling it is volatile tokens in.
+    ///      Nothing here does arithmetic on it — it is forwarded to the matching skew and recorded as
+    ///      the size bound — so the basis stays where it is documented, on the two typed wrappers.
+    ///      Do NOT add a computation on `size` in this body.
+    function _quote(address core, uint base, uint size, uint64 ttl, bool draining)
+        private view returns (Quote memory q)
+    {
+        if (size == 0) revert NoQuote();              // a zero-size settlement quote is a category error
+        q.skewWad   = draining ? wellSkew(core, base, size) : sellSkew(core, base, size);
+        q.rateWad   = _applySkew(base, q.skewWad, draining);
+        q.maxSizeIn = size;                            // the quote is valid for THIS size, not more
         q.deadline  = uint64(block.timestamp) + ttl;
     }
 

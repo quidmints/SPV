@@ -354,11 +354,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function levManager() external view returns (address) { return LEV_MANAGER; }
 
     /// @notice Gross levered collateral in the range's NATIVE unit -- SATS here.
-    function levGrossNative() external view returns (uint) {
-        if (LEV_MANAGER == address(0)) return 0;
-        try ILevEquity(LEV_MANAGER).totalGrossCollateral() returns (uint g) { return g; }
-        catch { return 0; }
-    }
+    // §FOLD-LEVGROSS — `levGrossNative` now lives ONCE on `Shares`, the base that already
+    // declares `LEV_MANAGER`. Both ranges inherit it; neither declares its own copy.
+
 
     /// @notice Share base for the shortfall trigger. `totalShares` is NET, so the levered buffer
     ///         is added to match `POOLED` (which is GROSS -- `levAddBtc` pairs the gross buffer in),

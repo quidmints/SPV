@@ -1047,13 +1047,14 @@ contract Quid is Shares,
     ///      pure plain-venue value: the lev collateral earns its own yield via the LevManager, so
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
+    /// §FOLD-VENUEBAL — ONE DEFINITION. This body and `QuidLib._venueBalanceLib` were the same four
+    /// statements, and they must agree: the two are read on the SAME quantity (plain venue depth net of
+    /// the levered slice) by the compound path here and the rebalance path there. A drift between them
+    /// would not revert — it would mis-price venue yield per share, silently, in one direction only.
+    /// ⇒ Quid now calls the library's copy. `address(this)` IS `Quid` here, which is what the lib's
+    /// `ev` parameter wants; `AUX` is the same handle the lib resolves `levManager` through.
     function _venueBalance() internal returns (uint) {
-        uint total = rangeOp(0, 2);   // rangeETH (all plain venues + lev net-equity)
-        address lm = _levManager();
-        if (lm != address(0)) {
-            try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
-        }
-        return total;
+        return QuidLib._venueBalanceLib(address(this), address(AUX));
     }
 
     // ───────── θ DERIVED LIVE from the sizing inequality (no owner, no synthetic const) ─────────
@@ -1264,11 +1265,9 @@ contract Quid is Shares,
     }
 
     /// @notice Gross levered collateral in the range's NATIVE unit (wei here, sats on the BTC side).
-    function levGrossNative() external view returns (uint) {
-        address m = LEV_MANAGER;
-        if (m == address(0)) return 0;
-        try ILevEquity(m).totalGrossCollateral() returns (uint g) { return g; } catch { return 0; }
-    }
+    // §FOLD-LEVGROSS — `levGrossNative` now lives ONCE on `Shares`, the base that already
+    // declares `LEV_MANAGER`. Both ranges inherit it; neither declares its own copy.
+
 
     /// @notice Share base the shortfall trigger compares against. NET here: `rangeETH()` (the
     ///         inventory side) already adds the lev book's NET equity, so both sides are net and no

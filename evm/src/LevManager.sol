@@ -6,6 +6,7 @@ import {WAD, AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed} from "./imports
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
+import {ILevPooled} from "./imports/Interfaces.sol";   // §POOL-VENUE
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {ICore} from "./imports/Interfaces.sol";
@@ -538,6 +539,47 @@ contract LevManager is LevBase {
             p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
         // Reconcile the shrunk slice into the range (try/catch: never block the settle).
         _syncRange(lp);
+    }
+
+    /// @notice §POOL-VENUE — THE ONE-CALL DELIVERY-SIDE DE-LEVER. This is what SPRINT #1 exists for.
+    ///
+    /// ⛔ WHAT IT REPLACES, AND WHY THE OLD SHAPE HAD A CEILING: `SwapLib.deleverEthOnDelivery` walked
+    /// the open-lev book and repaid EACH LP's own Morpho position, because a repay cannot be aggregated
+    /// across N `onBehalf` accounts. Every iteration was a basket draw plus a venue repay, the loop ran
+    /// `while deliveredEth < shortfallEth`, so **swap size was capped by how many LP repays fit in a
+    /// block, and the cap TIGHTENED AS THE BOOK GREW** (§E342). One position makes it two calls whose
+    /// size is bounded by stable liquidity instead.
+    ///
+    /// @dev THE PAIR IS THE INVARIANT. `repayPool` lowers the pool's debt; `withdrawPool` frees the
+    ///      collateral that repayment un-encumbers. Doing the second without the first RAISES the pool's
+    ///      LTV toward a liquidation threshold that Morpho no longer enforces per-LP — see the
+    ///      §POOL-VENUE header. They are ordered repay-FIRST here for the same reason the per-LP path
+    ///      was: LTV may only ever fall mid-operation.
+    /// @dev VALUE-NEUTRAL PER LP, BY CONSTRUCTION RATHER THAN BY BOOKKEEPING. Neither call writes a
+    ///      per-LP slot: both sides are UNITS of the pool, so the repay lowers every LP's debt in
+    ///      proportion and the withdraw lowers every LP's collateral in the same proportion. That is
+    ///      what makes this O(1) and what makes it fair — the two effects cancel per LP.
+    /// ⚠️   NOT venue-agnostic, deliberately. `ILevPooled` is cast, not added to `ILevVenue`, because
+    ///      `AaveV3Venue` (the WBTC leg) is still per-LP escrowed. A venue that is not pooled must fail
+    ///      loudly here, not silently do something else.
+    /// @param stableUsd USD 1e18 the range pre-transferred to the venue for the repay.
+    /// @return usedUsd USD actually applied to the pool's debt. @return wethDelivered WETH to `recipient`.
+    function swapOutDeleverPooled(address venue, uint256 stableUsd, address recipient, uint256 minWethOut)
+        external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
+        if (msg.sender != RANGE) revert NotGov();
+        if (stableUsd == 0) return (0, 0);
+        address stable = ILevVenue(venue).stable();
+        uint256 repaid = ILevPooled(venue).repayPool(LevMath._fromUsd(address(AUX), stable, stableUsd));
+        if (repaid == 0) return (0, 0);
+        usedUsd = LevMath._toUsd18(address(AUX), stable, repaid);
+        // Free exactly the repaid VALUE of collateral: USD -> ETH at the anchor, ETH -> weETH at the
+        // ether.fi rate. `getWeETHByeETH` is the inverse of the `getEETHByWeETH` every valuation here
+        // uses, so the round trip cannot drift the two apart.
+        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        if (px == 0) return (usedUsd, 0);          // no anchor: repay stands, deliver nothing (never divide by 0)
+        uint256 freeWeeth = IWeETH(address(WEETH)).getWeETHByeETH((usedUsd * 1e18) / px);
+        uint256 got = ILevPooled(venue).withdrawPool(freeWeeth);
+        if (got > 0) wethDelivered = LevMath.collToWethDeliver(got, recipient, minWethOut, _extractCfg());
     }
 
     /// @notice §G.3/§G.6 REACTIVE de-lever sweep — the ONE mechanism the redeem AND swap-out settle paths share

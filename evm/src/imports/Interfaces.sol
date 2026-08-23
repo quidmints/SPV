@@ -269,6 +269,20 @@ interface ILevEquity {
 
 interface ILevClose { function closeLevFor(address lp, uint256 minOut) external; }
 
+/// @notice §POOL-VENUE — the AGGREGATE surface of a pooled lev venue. Declared NARROWLY and
+///         deliberately NOT added to `ILevVenue`: `AaveV3Venue` (the WBTC leg) is still per-LP
+///         escrowed, and widening the shared interface would make it claim an aggregate it does not
+///         have. One interface per capability, not per contract.
+/// ⚠️      `repayPool` and `withdrawPool` are a PAIR. Repaying alone lowers the pool's LTV (safe);
+///         withdrawing alone RAISES it toward a liquidation threshold that Morpho no longer enforces
+///         per-LP since the position was pooled. Never call the second without the first.
+interface ILevPooled {
+    function repayPool(uint256 stableAmount) external returns (uint256 repaid);
+    function withdrawPool(uint256 collAmount) external returns (uint256 got);
+    function totalDebt() external view returns (uint256);
+    function totalCollateral() external view returns (uint256);
+}
+
 
 
 /// Canonical ILevVenueColl — union of ILevVenueColl, ILevVenueCollB.
