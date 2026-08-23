@@ -7,21 +7,21 @@ import {ILevVenue, IERC20Min} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 import {LevMath} from "./LevMath.sol";
-import {ICore} from "./Interfaces.sol";   // §E326: was declared twice, on consecutive lines
+import {ICore} from "./Interfaces.sol";   // §ETHVENUE-GHOSTS: was declared twice, on consecutive lines
 import {IBasket} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
 // External surfaces used below all come from Interfaces.sol now (§A.52):
-//   • ILevEquity — BtcLevManager's per-LP book. ⚠️ §E326: this bullet said `ILevEquityBtc`, which
+//   • ILevEquity — BtcLevManager's per-LP book. ⚠️ §ETHVENUE-GHOSTS: this bullet said `ILevEquityBtc`, which
 //                      is DECLARED NOWHERE — the suffixed face was folded into `ILevEquity`
 //                      (Interfaces.sol:234, "ILevEquity_VG and the former ILevEquityBtc/ILevBtc_V"),
 //                      and that is the name the bodies below actually import and cast.
 //   • ICore      — the Vault's own engine surface, reached by self-call because these bodies are
 //                      DELEGATECALL'd (address(this)==Vault) and the value-type fee accumulators
 //                      can't be handed over as storage refs (was `IVaultCtx_V`).
-//                      ⚠️ §E326: this bullet said `IEthVenue`. That interface still exists but is
+//                      ⚠️ §ETHVENUE-GHOSTS: this bullet said `IEthVenue`. That interface still exists but is
 //                      the ETH-VENUE CUSTODY face (Interfaces.sol:588 — rangeETH, deliverableETH,
 //                      supplyEtherFi), it is implemented at a DIFFERENT ADDRESS since the EthVenue
 //                      extraction, and it appears nowhere in this library. A BTC library documented
@@ -36,7 +36,7 @@ import {QuidLib} from "./QuidLib.sol";
 ///         QuidLib: `address(this)`==Vault, so all storage/custody are the Vault's. Byte-identical
 ///         to the former in-QuidLib BTC bodies -- only the home moved. Pairs with QuidLib, the ETH
 ///         range's mirror.
-///         ⚠️ §E326: this line called QuidLib "now purely the ETH venue custody ladder", which
+///         ⚠️ §ETHVENUE-GHOSTS: this line called QuidLib "now purely the ETH venue custody ladder", which
 ///         contradicted its own closing clause one sentence later and is not what QuidLib is. Of
 ///         its 26 functions the venue ladder is six (supplyVenueBody, withdrawETH, offrampBody,
 ///         waitNft, deliverableETH, rangeETH); the rest are the ETH RANGE bodies this library
@@ -55,7 +55,7 @@ library BtcLib {
     /// @notice Body of Vault._settleBtcLp. Per-LP pro-rata: USD-leg → QUID (or banked to `usd_owed`
     ///         when payTo==0); BTC-leg → COMPOUNDED INTO `LP.pooled` in native sats, as the body
     ///         below does and explains (E145).
-    /// @dev    ⚠️ §E326 — THIS BLOCK READ "BTC-leg → native sats (btcFeesOwedSats), settled by the
+    /// @dev    ⚠️ §ETHVENUE-GHOSTS — THIS BLOCK READ "BTC-leg → native sats (btcFeesOwedSats), settled by the
     ///         hop at channel close", which is the model E145 DELETED: `btcFeesOwedSats` no longer
     ///         exists, and the two remaining mentions are inside this function's own body,
     ///         describing what it stopped doing. `Vault.sol` carries the same correction with an

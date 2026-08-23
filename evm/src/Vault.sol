@@ -14,7 +14,7 @@ import {VBtc} from "./VBtc.sol";
 import {Types, AlreadyInitialized, BtcChannelsPinned, LevManagerPinned, NotBTCChannels, Unauthorized, WrongRangeManager} from "./imports/Types.sol";
 import {Shares} from "./Shares.sol";
 
-// §E326: the `solmate WETH as WETH9` import went with the dead `WETH` immutable — its only user.
+// §ETHVENUE-GHOSTS: the `solmate WETH as WETH9` import went with the dead `WETH` immutable — its only user.
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
@@ -25,7 +25,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  Vault — THE BTC RANGE MANAGER, and only that. `Quid` is the ETH-side counterpart; the two are
 //  one implementation waiting to become two instances (CLAUDE.md's §J.2 consolidation).
 //
-//  🔴 §E301/§E326 — THIS HEADER USED TO DESCRIBE A CONTRACT THAT NO LONGER EXISTS, AND THAT IS THE
+//  🔴 §E301/§ETHVENUE-GHOSTS — THIS HEADER USED TO DESCRIBE A CONTRACT THAT NO LONGER EXISTS, AND THAT IS THE
 //  ONE THING WORTH REMEMBERING ABOUT IT. It opened "the unified ETH-venue custody + BTC LP/hop
 //  side, merged from the formerly-separate EthVenue and BtcVault (5→4 deployable contracts)", and
 //  its gate list led with `onlyUs = {Quid(V4), AUX, this} → ETH-side venue ops
@@ -49,7 +49,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  BTCChannels.btc / Basket.BTC_VAULT) just points at this one address.
 // ════════════════════════════════════════════════════════════════════════
 
-// §E326 — FOUR ORPHANED DOCBLOCKS DELETED HERE, AND WHAT THEY DOCUMENTED IS THE POINT. They headed
+// §ETHVENUE-GHOSTS — FOUR ORPHANED DOCBLOCKS DELETED HERE, AND WHAT THEY DOCUMENTED IS THE POINT. They headed
 // the AAVE-v4 GHO spoke interface, the Permit2 allowance-grant slice, the ether.fi venue interface,
 // and a file-local Aux read surface citing `arbBody`. All four DECLARATIONS are gone — Permit2 and
 // its interface with the WETH-4626 curator venues (655e7d65, which says so in its own message), the
@@ -95,7 +95,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///      check is separate.
     Core public immutable CORE;  // the PM (was BtcVault's "RANGE")
     Aux       internal immutable AUX;
-    // 🔴 §E326 — `WETH9 public immutable WETH` LIVED HERE AND WAS READ NOWHERE. It is the same
+    // 🔴 §ETHVENUE-GHOSTS — `WETH9 public immutable WETH` LIVED HERE AND WAS READ NOWHERE. It is the same
     //    survivor as `RANGE` (§E301): the WETH-4626 curator venues took the standing approvals with
     //    them (655e7d65) and the `EthVenue` extraction took the supply/withdraw ladder, but the
     //    HANDLE stayed — a WETH pointer on a contract whose settlement rail is a Lightning
@@ -118,10 +118,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         net-equity counts in `POOLED` (§SLOP: said `rangeETH`, which is Quid's ETH-side
     ///         accessor, not this contract's). Pinned once post-deploy by `setLevManager`, which
     ///         checks the manager's own `ORACLE_KEY` is WBTC — so the ETH one cannot be installed
-    ///         here. 0 = leverage disabled. (§E326: this line read "LevManager needs Aux/weETH
+    ///         here. 0 = leverage disabled. (§ETHVENUE-GHOSTS: this line read "LevManager needs Aux/weETH
     ///         first", which is the ETH manager's construction ordering, not the BTC one's.)
 
-    // §E326 — `error NotSelf()` and `error NotAux()` DELETED: zero references anywhere in this
+    // §ETHVENUE-GHOSTS — `error NotSelf()` and `error NotAux()` DELETED: zero references anywhere in this
     // contract, and `git log -S` puts both squarely in the EthVenue extraction commits (a3225031,
     // 2ae0bbba, 8720a35d). The live declarations are `Aux.sol:204` and `Quid.sol:90-91`, which do
     // still revert with them. An unused error costs no bytecode, so this is a rule-1 deletion and
@@ -244,7 +244,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// @dev    The third parameter is UNNAMED and unused. It was `address _weth`, assigned to a
     ///         `WETH` immutable this contract never read; see the note above the `AUX` slot. It is
     ///         kept in the signature so `DeployLib`'s `new Vault(core, aux, cfg.weth)` still binds.
-    ///         §E326 — the docblock here previously described AAVE-v4 WETH resolution, an optional
+    ///         §ETHVENUE-GHOSTS — the docblock here previously described AAVE-v4 WETH resolution, an optional
     ///         "venue 2", and ether.fi adapter wiring with standing approvals. The constructor did
     ///         none of those even before the extraction removed the venues.
     constructor(address _core, address _aux, address)
@@ -274,7 +274,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ════════════════════════════════════════════════════════════════
     //                    BTC leverage book — the pin and its live read
-    //  §E326: this banner said "ETH yield-venue side (was EthVenue)". There is no ETH yield venue
+    //  §ETHVENUE-GHOSTS: this banner said "ETH yield-venue side (was EthVenue)". There is no ETH yield venue
     //  here; the two functions below are `setLevManager` and `totalNetEquity`, both BTC. The banner
     //  outlived the section it named, so it filed BTC code under an ETH heading.
     // ════════════════════════════════════════════════════════════════

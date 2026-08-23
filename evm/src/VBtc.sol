@@ -16,7 +16,7 @@ import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: fi
 ///         delegates here is the supply mutation. `LP.pooled` remains untouched, so the single-count
 ///         property that made the merge worth having is preserved.
 ///
-///         WHY THIS CONTRACT EXISTS, and it is NOT the reason the header used to give (§E326). The
+///         WHY THIS CONTRACT EXISTS, and it is NOT the reason the header used to give (§ETHVENUE-GHOSTS). The
 ///         discriminator between `VEth` — deleted — and `VBtc` — kept — is simply WHETHER AN ERC-20
 ///         UNDERLYING ALREADY EXISTS. On the ETH side one does: WETH is a real token, independently
 ///         held and redeemable, so the ETH range names `asset() = WETH` and IS the 4626 outright,
