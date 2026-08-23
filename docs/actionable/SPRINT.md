@@ -3,6 +3,53 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0a. ✅ **§E324-TRIAGE — THE ~47 FILE-LESS ROWS, RE-RUN BY EFFECT (2026-08-23). FOUR DESCRIBE WORK
+THAT ALREADY SHIPPED, AND ONE ✅ WAS FALSE.**
+
+Every row's own falsifiable claim was re-executed against the tree rather than re-read. Results:
+
+### 🟢 SHIPPED — close these, the work exists
+| row | the measurement that closed it |
+|---|---|
+| **§E278-partialfill** | its whole premise is `revert QuoteUnfillable`, which has **0 references in `evm/src`**. `git log -S` → `94d94899` *"§E300: the skew path never reverts — bound the quantity, not the price"*. `SwapLib._fillableDrain` IS the price-bounded solve it asks for |
+| **§E298** | same premise, same commit — partial-fill + refund is restored |
+| **§E285** | the inventory-residual bound it argued for is built, by the same change |
+| **§E297** | `maxWithdraw`/`previewWithdraw`/`maxRedeem`/`previewRedeem` are **0 declarations in `Quid.sol`**; only the deposit-side four remain. It also reasons from an 86→280-byte margin against **2,720** today |
+
+### 🔴 THE ONE THAT WENT THE OTHER WAY — A ✅ THAT WAS NEVER TRUE
+**C15 / §1INCH-MIGRATION** claimed *"✅ LANDED `LevMath._aggSwap`"*. **`_aggSwap` and `ONE_INCH_ROUTER`
+are 0 references; `V3_SWAP_ROUTER` and `_poolSwap` are 8 each.** Corrected in place. ⛔ **The tell was
+that its evidence — an on-chain codesize of 24,294 — is a measurement of the LIVE 1inch router, i.e.
+true about the WORLD and silent about our tree. A measurement of an external contract is not evidence
+that we call it**, and it is the most convincing-looking kind of wrong evidence there is.
+
+### 🟠 COORDINATES ROTTED (work live, citation dead) — re-point before starting
+`§1`/`§E342` cite `SwapLib.deleverEthOnDelivery:1830`, actual **`:2007`** · `§E332` is off ~45 lines
+throughout (`231→275`, `430→475`, `472→517`, `478→523`) and `totalNetEquity` now has **18** callers,
+not 15 · `§E339` cites `RangeLib:444`, actual **`:491`**; `AlreadyOpen` is `LevManager:241` not `:242`
+· `§T3` cites `paidOutSinceCheckpoint` writers at `:1349/:2151`, actual **`:1555/:2432`** · `§C1`
+cites `curvePriceWad:378/384`, actual **`OracleLib:428/434`** · `§6` quotes a manager-merge margin of
+1,746; today it is **2,513**.
+
+### ⚖️ GENUINE OWNER DECISIONS — the real gate, and there are ELEVEN, not four
+The four standing (**§E352**, **§E332-c**, **§E330**, **VBtc's Morpho/Euler liquidator-exit**) plus:
+**§E251** which range's BTC is mintable · **B6** on-chain TWAP vs off-chain σ/φ as source of truth,
+then delete the loser · **B7** ratify the smart-wallet capability removal · **§C1/§E294-sources**
+which σ² source · **§C3 + §E297 residual** partial 4626 face vs one 7540 face for both instances ·
+**§LADDER-VALUE-IS-CONDITIONAL** fund `#14` key recovery, or the ladder pays a dead address ·
+**§E244** mock router vs `expectRevert`.
+
+### ⛔ AND THE METHOD FINDING, WHICH INVALIDATES PART OF §0's LANE TABLE
+The Core/OracleLib lane worked its 10 items and found **a file-local fix in 0 of 10**: `Core` and
+`OracleLib` are where the σ² ARGUMENT happens, so they are cited constantly and edited rarely — every
+item mentioning them most proposes to change `SwapLib`, `DeployLib`, `Aux`, `quid-bridge` or SPRINT
+itself. **Attribution by MENTION COUNT disagreed with attribution by FIX SITE 10 times out of 10.**
+⇒ §0's table allocates agents acceptably but **must not be read as "these items change these files"**.
+The same defect put three tombstones in a lane earlier today; this is its general form.
+▶️ Concrete hand-off it produced: **§E278's σ²=0 sentinel gap is in `SwapLib.sellSkew`**, which reaches
+`Γ·σ²·q` with no `sigmaSqWad == 0` guard — not in `Core` where the row files it.
+
+---
 ## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
 
 **90 open items**, not the ~210 or 227 quoted earlier. Both larger figures counted `##` and `###`
