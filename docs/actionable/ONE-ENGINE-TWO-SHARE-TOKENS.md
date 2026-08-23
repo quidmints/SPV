@@ -85,19 +85,41 @@ exactly this. It is one source of truth for cooperative-close attribution AND th
 3. **Merge the remains of `Quid` into `Core`** — by then it is range bounds + fee accumulators.
 4. **Mirror for BTC**: `vBTC` already exists as a contract; give it the same face and per-LP state.
 
-## The size arithmetic, current
+## The size arithmetic
 
-| | bytes |
-|---|---|
-| `Quid` | 21,902 |
-| `Core` | **10,260** (was 15,339: SafeCallback, PoolManager, PoolKey, the v4 identity layer and one of two rings all removed) |
-| sum | **32,162** vs the 24,576 limit ⇒ **over by 7,586** |
+🔴 **RE-MEASURED ON `main` @`7e32eb48` (2026-08-23) — AND THE TABLE THIS SECTION CARRIED WAS FROM A
+PROTOTYPE TREE, NOT FROM `main`.**
 
-⚠️ Any plan computed from `main`'s old numbers (`24,386 + 24,025`, over by 23,835) is STALE by
-~16KB. The gap is now roughly what the share-face extraction plus the library merge should free.
+| | bytes on `main` @`7e32eb48` | what this section used to say |
+|---|---|---|
+| `Quid` | **23,788** (788 to spare) | 21,902 |
+| `Core` | **11,304** (13,272 to spare) | 10,260 |
+| sum | **35,092** vs the 24,576 limit ⇒ **over by 10,516** | 32,162 ⇒ over by 7,586 |
+
+⚠️ Any plan computed from `main`'s OLDEST numbers (`24,386 + 24,025 = 48,411`, over by 23,835) is stale
+by ~13 KB — that is §E344's finding, and it stands: `Core` fell to ~11 KB when §V4-CUT took
+`SafeCallback` and the 12 `_unlockCallback` Actions with it. **But the ~7,586 figure above was equally
+wrong in the other direction**, because it priced `Quid` at 21,902 — ~1.9 KB below anything `main` has
+measured. The real gap is **~10.5 KB**, which is what the share-face extraction plus the library merge
+must free.
+🔴 **RE-RUN `python3 tools/check-contract-sizes.py`. DO NOT PLAN AGAINST EITHER COLUMN** — six lanes are
+landing bytecode reductions as this is written, and this table has been wrong in both directions.
 
 
 ## The eight pairs, classified (measured 2026-08-16)
+
+✅ **THE FOUR LEV PAIRS BELOW HAVE SINCE MERGED — verified in the tree @`7e32eb48`, and this section was
+still describing them as a live diff.** `RangeLib.levBurnAll`, `RangeLib.levAddGross`,
+`RangeLib.levAddNet` and `RangeLib.levAddBuf` are ONE `public` (delegatecalled, one deployed copy) body
+each, called from BOTH sides — `BtcLib.syncLev:420-422` calls `RangeLib.levBurnAll` / `levAddGross`
+directly. **`levAddNetBtc`, `levAddBufBtc`, `levAddGrossBtc` and `levBurnAllBtc` now survive ONLY in
+four comments** (`Vault.sol:131`, `Core.sol:1053`, `RangeLib.sol:39`, `BtcLib.sol:432`) — zero code
+references, and `RangeLib.sol:39` says so outright: *"THE MERGED PAIR … one body rather than a
+parameterised compromise."* ⇒ **The classification below is the record of HOW the merge was reasoned
+through, not a list of outstanding work.** The bookmark-placement row in particular was the merge's
+stated risk and it was resolved as written.
+⚠️ **The verdicts still matter for the FOUR OTHER pairs this section counts but does not name** — do not
+read this ✅ as closing all eight. Re-derive the remaining four against the tree before planning.
 
 `Types.RangeCfg`/`Types.RangeP` now serve both libraries, so the pairs differ ONLY in their bodies.
 Diffing `levAddNet`∥`levAddNetBtc`, `levAddBuf`∥`levAddBufBtc`, `levAddGross`∥`levAddGrossBtc` and
@@ -133,6 +155,13 @@ load-bearing.
 refresh: it settles, calls `levBurnAllBtc`, then `levAddGrossBtc`, and returns. **BTC genuinely
 relies on the inline refreshes**, so deleting them without compensation would leave the bookmark at
 a pre-move weight and over-credit by `Δweight · fps`.
+📌 **COORDINATES DESTALED @`7e32eb48` — all three names in that sentence have moved.** `syncLevBTC` is
+`Vault.syncLev` (`Vault.sol:517`, body at `BtcLib.sol:398`): the suffix went with the one-name-per-
+concept pass, and the ranges are told apart by INSTANCE, not by name. `levBurnAllBtc`/`levAddGrossBtc`
+are `RangeLib.levBurnAll`/`RangeLib.levAddGross`, called at `BtcLib.sol:420-422`. **The ORDERING claim
+re-verified against that body and is still exactly true: settle → burn → add, no trailing refresh — so
+the ⚠️ stands.** Only the spelling rotted, which is the failure mode that makes a reader grep, find
+nothing, and conclude the concern is obsolete.
 
 ⇒ **THE MERGE IS STILL SAFE, and here is the actual argument:** within ONE transaction
 `feesPerShare` cannot move (it only advances on a swap/repack), so N intermediate refreshes and ONE
