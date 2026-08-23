@@ -163,6 +163,127 @@ destroys its own protection; dust top-up at a low and the protocol pays protecti
 
 ---
 
+# 🚦 FLEET SWEEP 2026-08-23 — FIVE LANES, LANDED. New rows, relayed by the coordinator and booked here in the same turn (rule 12).
+
+⚠️ **TAG COLLISION, AND IT IS THE PROCESS FINDING, NOT A CLERICAL ONE: LANES A AND B BOTH TOOK `§E347`
+FOR DIFFERENT CHANGES.** Disambiguated below as **`§E347-QUID`** and **`§E347-CORE`**. Lane D hit the
+same thing from the other side — it renamed its own tag after discovering `§E326` was already taken by
+a parallel lane. ⇒ **IN A PARALLEL FLEET A FREE E-NUMBER IS NOT FREE FOR LONG. Prefer a DESCRIPTIVE tag
+(`§FOLD-ONLYSELF`, `§ETHVENUE-GHOSTS`) over the next integer** — a descriptive tag cannot collide,
+and the integer buys nothing the tag does not.
+
+## 🅰️ `§E347-QUID` — ✅ **LANDED. `Quid` −1,932 BYTES, AND THE ESTIMATE WAS HONEST**
+Five call shapes turned into routines, solmate's `ReentrancyGuard` replaced with an in-contract
+`_lock()`/`_unlock()` split (solmate's `locked` is `private`, so the modifier could not be split
+otherwise), and the dead `paddedSqrtPrice` deleted. **Estimate 1,800–1,950 B; MEASURED −1,932** —
+`Quid` 23,788 → 21,856. This is §E346's technique generalised, and it is why `Quid` stopped being the
+binding contract.
+✅ **THE LANE'S OWN LOWEST-CONFIDENCE ITEM WAS VERIFIED, NOT ASSUMED:** `forge inspect Quid
+storageLayout` diffed against pristine `9896c5be` is **BYTE-IDENTICAL**. Replacing an inherited guard's
+storage with your own is exactly the change that silently reorders slots, and this repo couples a
+harness to slot order.
+▶️ **TWO FOLLOW-UPS IT COULD NOT DO, both booked rather than left in prose:**
+- 🟠 **Dropping `Ownable` from `Quid` is ~400–600 B and is a GOVERNANCE CALL, NOT A REFACTOR.** It
+  removes `owner()` from the ABI, which contradicts the *"renounces at setup"* trust argument the FAQ
+  makes. **Do not take it on size grounds alone.**
+- 🟢 **`Quid.realizedAlphaWad` has ZERO callers repo-wide** — confirmed independently: the only hits in
+  `evm/src` + `evm/test` are its own `public` declaration (`Quid.sol:1087`), its one-line body
+  delegating to `QuidLib.realizedAlphaWad` (`QuidLib.sol:187`), and a comment. **`public` means it is
+  DEPLOYED, so it is paid-for bytecode on the contract this lane was shrinking.** ⛔ **Before deleting:
+  `git log -S "realizedAlphaWad"`.** This repo has deleted `create_sweep_tx` twice on exactly this
+  evidence and restored it twice; a maintained function marking an unbuilt caller is not litter.
+  ⚠️ **And note it is a PAIR** — deleting the `Quid` face without `QuidLib.realizedAlphaWad` frees the
+  smaller half.
+
+## 🅱️ `§E347-CORE` + `§E348` — ✅ **LANDED, AND ONE IS A LIVENESS FIX WEARING A REFACTOR'S CLOTHES**
+- **`§E347-CORE`: the consent gate hoisted above two venue reads.** Not cosmetic — **a reverting venue
+  was bricking every swap, including swaps by users who had opted OUT.** A third party's revert
+  reaching an opted-out user's fill is the fail-open/fail-closed asymmetry this repo keeps paying for.
+- **`§E348`: two identical `FeeLib.decPow` DELEGATECALLs folded into one `_bumpVar`.** ⭐ **The size win
+  is the smaller half. The real gain is that the two variance registers' SHARED DECAY CLOCK is now true
+  BY CONSTRUCTION rather than by call adjacency** — it used to hold because the two calls sat next to
+  each other, which is a property any future edit could break silently. Rule 17: the invariant stopped
+  needing a guard because the state that could violate it is unconstructible.
+⚠️ **LANE B'S HOIST DID NOT COMPILE — bare `return;` where solc needs `return out;`. Fixed in
+`d5d75b58`.** Booked deliberately: **that is the price of the no-build lane discipline, and it is the
+CHEAP kind of failure** — a compiler error that announces itself, not a green suite describing code
+that was never built. The trade is still correct; six concurrent `solc` runs thrash the machine.
+
+## 🅲 `§FOLD-ONLYSELF` — ✅ **LANDED**, ten inlined `NotSelf` guards → one routine (`Aux._onlySelf`,
+`Aux.sol:291`).
+⛔ **AND ONE CLAIM IN THE RELAY IS FALSE AS WRITTEN — CHECKED BEFORE BOOKING IT, BECAUSE A WRONG ROW
+COSTS THE NEXT THREAD AN INVESTIGATION.** The relay said *"the dead `onlyBTCChannels` modifier
+deleted"*. **`onlyBTCChannels` IS NOT DEAD: it is declared at `Vault.sol:239` and gates SIX functions**
+(`requestDeposit:528`, `:596`, `:608`, `:744`, `:756`, …). What actually happened is **`§MODFOLD`: there
+were TWO modifiers, `onlyBtcChannels` and `onlyBTCChannels`, differing only in capitalisation, they
+were THE SAME RULE, and they were merged onto the custom-error form** (`Vault.sol:221` says so
+outright; `BTCChannels.sol:105` and `Aux.sol:1399` carry the same note). ⭐ **THAT IS A BETTER FINDING
+THAN THE ONE RELAYED, and it is this repo's recurring shape one more time: two names for one rule, told
+apart by nothing a compiler can see.** `Aux.sol:1399` even records that CLAUDE.md cites that exact line
+as *the comment that was RIGHT while the code was WRONG* during the `EthVenue` extraction.
+⇒ **Book §MODFOLD as the change; do not go looking for a deleted `onlyBTCChannels`.**
+**Two new rows it raised, and both are NAME hazards rather than arithmetic ones — the class this
+repo's rule 7 exists for:**
+- 🟠 **`§TRANCHE-COLLISION` — ONE NAME, TWO QUANTITIES, AND BOTH REACHABLE AS `.trancheTotal()`.**
+  `Aux.trancheTotal` = **seed fees COLLECTED so far, i.e. the reserve** (`Aux.sol:120-124`);
+  `Basket.trancheTotal()` = **`Basket.seeded`, the senior-tranche QU!D OUTSTANDING** (`Basket.sol:115`).
+  ✅ **The arithmetic was verified CORRECT at every site** — nothing is broken today. **The hazard is
+  entirely the name**, and it bites the next reader rather than the current one. ✅ **VERIFIED IN THE
+  TREE: both files now carry the disambiguation in their own docblocks** (`Aux.sol:120` opens *"🔴 ONE
+  NAME, TWO QUANTITIES"*; `Basket.sol:96-112` spells out the mirror and names *"old-Aux `trancheTotal`
+  semantics"*), and `ChannelLib.depositBody` gates on `aux.trancheTotal() < IBasket(quid).target()` —
+  a comparison that reads two different quantities' names identically. ⇒ **Rename one of them; do not
+  "fix" the maths.** ⚠️ A docblock is a mitigation, not the fix: it is only read by someone who already
+  suspected there was a problem.
+- 🟠 **`§BOLD-LAST-SLOT` — BOLD'S IDENTITY IS ENCODED POSITIONALLY IN 5 PLACES.**
+  `stables[stables.length-1]` with **no constructor check** that the last slot is actually BOLD.
+  🔴 **THIS IS THE SAME CLASS AS THE POSITIONAL-DECIMALS BUG THAT ALREADY SHIPPED HERE** (CLAUDE.md:
+  *"Never infer a stable's decimals from its slot index"* — `i < 4 || i == 11 ? 1e12 : 1` broke when a
+  6-dec stable joined at a later slot). **A precedent that already cost a production bug is not a
+  theoretical concern.** ⇒ Assert the identity in the constructor, or address it by address.
+- ⛔ **`§VAULTS-DERIVABLE` — CLOSED AS REFUSED, on the GAS axis.** Recorded so it is not re-proposed.
+
+## 🅳 `§ETHVENUE-GHOSTS` — ✅ **LANDED.** The two `Vault` gates were **ONE rule** and were merged; three
+modifier bodies folded; **six extraction survivors removed, including a dead `WETH` immutable**.
+⭐ **THIS IS THE `derivedThetaWadAt` LESSON REPEATING ON SCHEDULE, AND CLAUDE.md ALREADY PREDICTED IT:**
+*"AN EXTRACTION LEAVES THE HANDLES BEHIND … grep for the OLD collaborator's type after any extraction,
+not just for the moved functions."* `EthVenue` was extracted from `Vault` on 2026-08-15; a dead `WETH`
+immutable and five other survivors were still there on 2026-08-23. ⇒ **The grep is not a one-time step
+at extraction; schedule it as a follow-up pass, because the survivors read as load-bearing.**
+
+## 🅴 TWO "DELETE IT?" QUESTIONS DECIDED **KEEP** — and the reasoning is worth more than the verdicts
+- ✅ **`§refillNeeded` — KEEP. NOT superseded by `_fillableDrain`.** Three independent discriminators:
+  `_fillableDrain` uses a **strictly lower threshold**, it returns a **size** where `refillNeeded`
+  returns a **trigger**, and it is **`private`** so no daemon can reach it. ⭐ **And the consumer was
+  established BY CALL CHAIN — the BTC `creditSwapIn` rail — not by citing the queue row that claimed
+  it.** That is the control CLAUDE.md asks for: the row was the thing under test, so it could not also
+  be the evidence.
+- ⏸️ **`§FixedRateFill-quote-surface` — KEEP AND UNBLOCKED, BUT BLOCKED AGAIN ONE STEP LATER.** §E293
+  resolved to #3, which **requires** a firm quote, and §E300 removed the fillability blocker. 🔴 **THE
+  NEW BLOCKER, AND IT IS A ONE-DAY-OLD LESSON REPEATING: wiring the quoters re-creates the §E279
+  double-charge through `_applySkew` — the exact twin of what `f5499659` deleted yesterday.** ⇒ **Settle
+  which layer owns the skew charge BEFORE wiring any quoter**, or the deletion is undone by the next
+  feature. Not a paper risk: the same mechanism, in a second call path.
+- 🟢 **`FeeLib.calcFeeL1` has ZERO production callers and is `public`, so it is DEPLOYED** — paid-for
+  bytecode with no caller. ⛔ `git log -S` before deleting (the `create_sweep_tx` rule).
+- 🟢 **`FeeLib.calcNeeded` retains THREE unused parameters for the deleted `SOR` seam.** A tombstone in
+  a signature: every caller passes arguments that go nowhere. Cheap to fix, and it is ABI surface.
+
+## 📋 GATES, AS MEASURED — quotable, unlike the suite count
+- **`forge build` exit 0** across all lanes.
+- **`tools/check-client-abis.py`: 116 Rust signatures 0 drifted; 68 SPA signatures 0 drifted.** Lane D
+  removed `Vault`'s public `WETH` getter and **no client broke** — which is what that gate exists to
+  answer, since `spa/` has no `node_modules` and `tsc` cannot run in this tree at all.
+- **`forge inspect Quid storageLayout` vs pristine `9896c5be`: BYTE-IDENTICAL.**
+- ⏸️ **FULL-SUITE REGRESSION IS IN FLIGHT** against a control of **432 passed / 55 failed / 2 skipped,
+  83 suites** at `9896c5be`. 🔴 **NO TEST-COUNT CLAIM IS QUOTABLE UNTIL IT REPORTS** — and see the
+  4,402-vs-489 discrepancy booked in CLAUDE.md's shared-tree trap note, which this control surfaced and
+  which nobody has yet explained.
+
+---
+
+---
+
 ⚠️ **TWO SESSIONS WRITE HERE.** Part A is session `d669393d` (range-manager merge, bytecode).
 Part B is session `391df7b6` (the Bitcoin/secp256k1 thread). Kept in ONE file deliberately:
 two sprint files drift, and this repo has paid for that twice today.
