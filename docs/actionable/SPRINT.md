@@ -6477,7 +6477,51 @@ samples all return σ² = 0 by design (`Core.sol:1318-1322`: *"Degrade to unmeas
 
 ---
 
-## 🔴🔴 §E279 — **THE SKEW IS APPLIED TWICE ON THE `Aux.swap` PATH — CONFIRMED IN SERIES BY CONSTRUCTION**
+## ✅ §E279 — **THE SKEW IS APPLIED TWICE ON THE `Aux.swap` PATH — CONFIRMED IN SERIES BY CONSTRUCTION**
+
+✅ **FIXED 2026-08-22 — THE SECOND APPLICATION IS DELETED FROM `Core._fillDelta`, AND THE FIX IS ONE
+STATEMENT, NOT THE TWO-PART CHANGE THIS ROW PRESCRIBED.** The row said *"separate the RECORD from the
+SUBTRACT before removing either"*, which is real work on the LP fee lane. It was unnecessary:
+`retainSkewPremium` is untouched, so `Core.recordSkewPremium → RANGE.creditSkewPremium` (§E280) is
+byte-for-byte the same and **cannot** have stopped crediting. What was deleted is the DOWNSTREAM
+re-application, `out -= out·wellSkew/sellSkew`, which charged the already-reduced input a second time.
+▶️ **THE PREMISE THAT PICKS THAT SITE, AND IT IS THE WHOLE PROOF:** `BasketLib.routeSwap:544` is the
+**only** call site of the `onlyUs` `Core.swap` in the tree, and all three of *its* callers are
+accounted for — `_finishSwap:463` (both legs charge at `SwapLib:419`/`:441`), `_swapOutSettle:1668`
+(charged in `_swapOutPrep:1652`), and `_swapInSettle:703`, the refill leg, which *"settles FLAT at the
+honest oracle, and that is FINAL"* by design and was the one path `_fillDelta` charged with no
+`retainSkewPremium` at all. ⇒ Re-run that enumeration if a caller is ever added; it is what makes the
+deletion safe rather than merely smaller.
+⭐ **AND `Core.swap` ALREADY SAID SO — THE CONTRACT WAS CONTRADICTING ITSELF.** Its docstring at
+`Core.sol:763` reads *"the skew is deliberately NOT folded into this rate … never a charge applied
+here"*, thirty lines above the code that folded it in. The §V4-CUT rewrite added the application and
+left the prohibition standing, so the file documented the correct behaviour and implemented the wrong
+one. **Neither half was stale; they were simply never read together.**
+
+🔴 **THIS ROW'S HEADLINE NUMBER IS WRONG, AND CORRECTING IT IS THE MORE USEFUL HALF.** *"The realised
+rate is 5.91%, not 3%"* assumes `s` is the flat `UNKNOWN_VARIANCE_SKEW` (3e16) sentinel. It is not:
+`wellSkew` **caps** at `_maxWellSkew = σ²·confFrac/8 + spliceFloor` (`SwapLib:872`), and at today's
+σ² = 0 with ETH's `spliceFloor == 0` that cap is **0** — the §E278 hole. **Zero charged twice is
+still zero, so the live over-charge on the `Aux.swap`/ETH path named in the title was 0%.**
+⇒ **MEASURED, NOT ARGUED:** the seven `DrainAtomicity` controls that read `CONTROL: … 0 <= 0` are
+that same zero, and they fail **identically on pristine `HEAD`** (byte-identical failure sets across
+both arms, 26 passed / 7 failed each) — so they are pre-existing and are ALSO the evidence.
+⛔ **WHICH MAKES THIS A DEFECT ARMED BY A FUTURE FIX, THE MOST EXPENSIVE KIND TO LEAVE IN.** It bites
+wherever the cap is non-zero — **BTC today** (`SPLICE_FLOOR = 2e15` ⇒ 0.2% realised as 0.3996%) and
+**every asset the moment §E222 pins a source and σ² goes positive**. Closing §E222 would have silently
+doubled the ETH drain charge, and the row that would have explained why says 5.91% on a path charging
+nothing. *A magnitude quoted from a constant rather than from the value that constant is capped to is
+how a real finding acquires an unbelievable number — and an unbelievable number is what gets a row
+dismissed.*
+
+⚠️ **THE INSTRUMENT THIS ROW ASKED FOR ALREADY EXISTS AND IS VOID — DO NOT WRITE A SECOND ONE.** It
+prescribes *"assert the realised haircut EQUALS the quoted `wellSkew` … do not write it as
+`assertGt`"*. That test is `DrainAtomicity::test_UNITB_CounterMatchesWhatTheSwapperLoses`, it is
+written exactly that way, and it is one of the seven reds — failing its OWN control
+(*"the target move must change the skew, else the arms are identical"*) because the skew is 0 on both
+arms. **A correctly-designed test that cannot run is indistinguishable from a missing one in a
+status column, and this row recorded it as missing.** It unblocks on σ² > 0, i.e. §E222 — not on new
+test code.
 
 ⬆️ **UPGRADED FROM 🔴 THE SAME DAY IT WAS BOOKED, and no execution was needed.** It was written as a
 reading; **one line closes it**. `_finishSwap` builds its `RouteParams` with **`amount: r.amount`
@@ -6841,7 +6885,7 @@ carries the evidence — this is an index, not a restatement.** Read this before
 | **The curve was FLAT-TOPPED almost everywhere it mattered** | §E274. At σ²=1e18, live skew was pinned at exactly 3e16 from q₁=0.6 through 0.95 while the uncapped kernel ran 3.69e16 → 12.35e16. ⇒ **Every §UNIT-B / §UNIT-SKEW-IS-NOISE number above q≈0.6 was measuring THE CONSTANT, not the curve.** |
 | **σ² is pinned at ~0 and cannot be moved** | §E277. `DrainAtomicity.t.sol:1372` fails with σ² = **1,1,1,0 wad across four runs on both arms**. ⛔ **ITS FAILURE IS THE MEASUREMENT — "fixing" it destroys the evidence.** ⚠️ **And the DEPLOY side is now asymmetric (`d10d7b8b`): ETH is sourced (`DeployLib:146`, Curve `price_oracle(1)`), BTC is deliberately UNSET. So σ²≡0 is BTC's steady state, and ETH's whenever its ring is cold or its read fails — `Core:1318-1322` degrades to unmeasured BY DESIGN.** |
 | 🔴 **`sellSkew` HAS NO σ²=0 GUARD, SO TOXIC INFLOW PRICES AT ZERO** | §E278 (the σ²-sentinel row — **not** §E278-partialfill). `UNKNOWN_VARIANCE_SKEW` has **exactly one consumption site in the tree**, `SwapLib:1020`, inside `skewWad` — the DRAIN leg. `sellSkew` computes `Γ·σ²·q` = 0 and `_composePrice` returns `SPLICE`, **which is 0 on ETH**, while its own comment at `:1476-1480` says in §E59's words that unmeasured variance must price at the CEILING. ⇒ **The free cell is the TOXIC one** — an inventory-increasing sell is somebody dumping the falling asset into the range. Live on BTC today. |
-| 🔴 **THE SKEW IS APPLIED TWICE ON `Aux.swap` — the realised rate is 5.91%, not 3%** | §E279, confirmed **by construction**, no execution needed. `_finishSwap` builds `RouteParams` with `amount: r.amount` (`SwapLib:473`) — the value `retainSkewPremium` **already reduced** — and `routeSwap` derives `pooled` from it before `ICore.swap` → `_fillDelta:1240` applies the skew **again**. Both legs, neither call conditional. ⛔ **It survived because every assertion here is `assertGt` (`Alles.t.sol:1904`, `:1911`), which cannot distinguish `s` from `s·(2−s)`.** ⚠️ The fix is NOT deleting one call — `retainSkewPremium` is what ROUTES the premium to LPs (§E280). |
+| ✅ **THE SKEW IS APPLIED TWICE ON `Aux.swap`** — FIXED 2026-08-22; ⚠️ **the "5.91%" in this row's own title is WRONG**, see §E279 | ✅ The second application is deleted from `Core._fillDelta`; `retainSkewPremium` (and with it the entire LP credit lane) is untouched, so the two-part change this row demanded was never needed. **The live over-charge on the ETH path was 0%, not 5.91%** — `wellSkew` caps at `_maxWellSkew`, which is 0 at σ² = 0 with ETH's zero `spliceFloor`. Real on **BTC** (0.2% → 0.3996%) and on everything once §E222 pins a source. Verified against a pristine-`HEAD` control: byte-identical failure sets, 26 passed / 7 failed on both arms. ⚠️ The instrument this row calls missing — `test_UNITB_CounterMatchesWhatTheSwapperLoses` — **exists, is written correctly, and is void** because its own control needs σ² > 0. *Original text below.* · §E279, confirmed **by construction**, no execution needed. `_finishSwap` builds `RouteParams` with `amount: r.amount` (`SwapLib:473`) — the value `retainSkewPremium` **already reduced** — and `routeSwap` derives `pooled` from it before `ICore.swap` → `_fillDelta:1240` applies the skew **again**. Both legs, neither call conditional. ⛔ **It survived because every assertion here is `assertGt` (`Alles.t.sol:1904`, `:1911`), which cannot distinguish `s` from `s·(2−s)`.** ⚠️ The fix is NOT deleting one call — `retainSkewPremium` is what ROUTES the premium to LPs (§E280). |
 | **The 3% is an inherited constant, and it is the wrong SHAPE** | §E283. §E275 deleted `MAX_WELL_SKEW` as unjustifiable; the split kept `UNKNOWN_VARIANCE_SKEW` at the same 3e16 **"BY INHERITANCE, NOT BY DERIVATION"** (its own docblock). A sentinel is FLAT: it discards `q`, defeats §E68's size-awareness, and **produces the cliff** — one unit above the flow target pays 0, one unit below pays 300–600 bps on the whole ticket. **No value of the constant fixes that; only a live σ² does.** |
 | **The premium DOES reach the LPs** | §E280, one hop: `Core.recordSkewPremium:359` → `RANGE.creditSkewPremium`. Settles the `E121`/`E122` pair in **E122's** favour with a code citation. ⚠️ Scoped to the SKEW premium — the 420 ppm is a different charge on a different route (§E226). |
 

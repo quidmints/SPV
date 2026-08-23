@@ -1167,11 +1167,42 @@ contract Core {
         // arbitrageurs we do not need, and that reasoning still holds — we restore 1:1 ourselves.
         // What is charged here is OUR COST OF DOING THE TRADE, recovered on a price we commit to.
         // Same formula, different economic role.
-        // DRAIN vs FILL: buying volatile drains the scarce side (`wellSkew`, A&S pole — you CAN run
-        // out); selling into us grows inventory (`sellSkew`, linear — you cannot run out of surplus).
-        out -= (out * (inputIsUsd
-            ? SwapLib.wellSkew(address(this), px, amount)
-            : SwapLib.sellSkew(address(this), px, amount))) / 1e18;
+        // §E279 — THE SKEW IS **NOT** APPLIED HERE, AND THIS IS THE SECOND STATEMENT OF THAT RULE.
+        // `swap`'s own docstring (`:763`) already says *"the skew is deliberately NOT folded into
+        // this rate … never a charge applied here"* — and until 2026-08-22 the line below did
+        // exactly that, so the contract contradicted itself and every swapper paid TWICE.
+        // ⛔ THE DUPLICATE WAS REAL. The input reaching this frame has ALREADY been scaled by
+        // `(1−s)`: `SwapLib.retainSkewPremium` subtracts the premium from `r.amount` before
+        // `routeSwap` derives `pooled` from it. Re-scaling `out` here realised `s + s'·(1−s)`,
+        // where `s'` is the skew RE-EVALUATED on the reduced amount — strictly below `(1−s)²`, and
+        // equal to it only in the Δ→0 limit. Only `s` was ever credited to LPs, so the excess sat
+        // in the pool as UNATTRIBUTED backing.
+        // ⚠️ **ITS LIVE MAGNITUDE ON THIS PATH IS ZERO TODAY, AND §E279 SAYS 5.91% — THE ROW IS
+        // WRONG.** That figure assumes `s` is the flat `UNKNOWN_VARIANCE_SKEW` (3e16) sentinel, but
+        // `wellSkew` CAPS at `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and at σ² = 0 with ETH's
+        // `spliceFloor == 0` that cap is **0** — the §E278 hole. Zero charged twice is still zero.
+        // It bites where the cap is non-zero: BTC (`SPLICE_FLOOR = 2e15` ⇒ 0.2% realised as 0.3996%)
+        // and EVERY asset the moment a source is pinned and σ² goes positive (§E222).
+        // ⇒ **So this was a live defect ARMED BY A FUTURE FIX**: closing §E222 would have silently
+        // doubled the ETH drain charge. Measured, not argued — the seven `DrainAtomicity` controls
+        // that read `0 <= 0` are the same zero, and they fail identically without this change.
+        // ⭐ WHY THE CUT BELONGS HERE AND NOT AT `retainSkewPremium` (the row's own warning):
+        // that function is the ONLY caller of `recordSkewPremium`, i.e. the entire LP fee lane
+        // (§E280), AND its `r.amount -= premium` is what sizes the swap-out leg's `usd6` proceeds
+        // and the swapper's `refundUnfilled` remainder. Deleting it would pay the premium to the
+        // delivering LP as proceeds while still crediting it, which is the same defect mirrored.
+        // ⇒ THE CHARGE IS STILL IN THE PRICE — the firm-quote requirement above is about WHEN the
+        // charge is fixed, not which leg carries it. It is fixed pre-fill on the INPUT, so the
+        // quote a solver receives is still committed and never trued up afterwards.
+        // ⚠️ THE PREMISE THAT MAKES THIS SAFE, AND IT MUST BE RE-RUN IF A CALLER IS ADDED:
+        // `BasketLib.routeSwap:544` is the ONLY call site of this `onlyUs` `swap` in the tree, and
+        // all three of ITS callers are accounted for — `_finishSwap:463` (both legs charge at
+        // `SwapLib:419`/`:441`), `_swapOutSettle:1668` (charged in `_swapOutPrep:1652`), and
+        // `_swapInSettle:703`, the refill leg, which settles FLAT at the honest oracle BY DESIGN
+        // and was the one path this line charged with no `retainSkewPremium` at all.
+        // DRAIN vs FILL, kept for the reader because the producers still encode it: buying volatile
+        // drains the scarce side (`wellSkew`, A&S pole — you CAN run out); selling into us grows
+        // inventory (`sellSkew`, linear — you cannot run out of surplus).
         // §E311 — THE FLAT 420 ppm IS GONE. Owner: *"there is no 420 ppm, it's always the skew
         // premium."* It was here only because v4 charged it (`OracleLib:180` set `k.fee = 420` as the
         // pool tier); the two reasons §E226 gave for keeping it are both false in this tree — the LP
