@@ -90,18 +90,19 @@ exactly this. It is one source of truth for cooperative-close attribution AND th
 🔴 **RE-MEASURED ON `main` @`7e32eb48` (2026-08-23) — AND THE TABLE THIS SECTION CARRIED WAS FROM A
 PROTOTYPE TREE, NOT FROM `main`.**
 
-| | bytes on `main` @`7e32eb48` | what this section used to say |
+| | bytes on `main`, GREEN build after the fleet fold sweep | what this section used to say |
 |---|---|---|
-| `Quid` | **23,788** (788 to spare) | 21,902 |
-| `Core` | **11,304** (13,272 to spare) | 10,260 |
-| sum | **35,092** vs the 24,576 limit ⇒ **over by 10,516** | 32,162 ⇒ over by 7,586 |
+| `Quid` | **21,856** (2,720 to spare) | 21,902 |
+| `Core` | **11,637** (12,939 to spare) | 10,260 |
+| sum | **33,493** vs the 24,576 limit ⇒ **over by 8,917** | 32,162 ⇒ over by 7,586 |
 
 ⚠️ Any plan computed from `main`'s OLDEST numbers (`24,386 + 24,025 = 48,411`, over by 23,835) is stale
 by ~13 KB — that is §E344's finding, and it stands: `Core` fell to ~11 KB when §V4-CUT took
 `SafeCallback` and the 12 `_unlockCallback` Actions with it. **But the ~7,586 figure above was equally
-wrong in the other direction**, because it priced `Quid` at 21,902 — ~1.9 KB below anything `main` has
-measured. The real gap is **~10.5 KB**, which is what the share-face extraction plus the library merge
-must free.
+wrong in the other direction** when it was written, because it priced `Quid` at 21,902 while `main`
+carried 24,104. **The gap is now ~8.9 KB and closing fast** — the fleet's fold sweep took `Quid` to
+21,856 in one pass, which is finally within ~50 bytes of the prototype figure this section always
+quoted. That is what the share-face extraction plus the library merge must free.
 🔴 **RE-RUN `python3 tools/check-contract-sizes.py`. DO NOT PLAN AGAINST EITHER COLUMN** — six lanes are
 landing bytecode reductions as this is written, and this table has been wrong in both directions.
 

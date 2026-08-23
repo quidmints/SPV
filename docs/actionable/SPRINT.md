@@ -48,14 +48,16 @@ the test's CLAIM or its PREMISE.
 | c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? ▶️ **§E343 found the clean form: price it into where the order RESTS, not into the fill** — the trigger includes it, the fill honours its stated price, limit semantics intact. Cheapest of the four. | a standing unpriced maker discount on every crossed resting order |
 | d | **§E330** — should a range deep relative to its flow earn NOTHING? | it is why "PREMISE: fees actually accrued" fails; §E326 depends on the answer |
 
-## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 11,887 BYTES OVER** (§E330, re-measured 2026-08-23 @`ed10bc01`).
-`Quid` **23,788** + `Vault` **12,675** = **36,463** vs 24,576. §E315's remedy (delete the 4626 face) is
-12 selectors against a ~12 KB gap. **Re-plan against the real number**; the `setBtcVault` ×3
-consolidation and the lib merges sit behind it.
-⚠️ **The row read `24,104 + 12,659 = 36,763, over by 12,187` until this sweep. §E346 (`7e32eb48`) moved
-`onlyUs`'s body into a private view and took `Quid` 24,104 → 23,788, so the headline number was 300
-bytes stale within the hour.** The gap moves every time anyone lands on either contract — **re-run
-`python3 tools/check-contract-sizes.py` before quoting it**, do not read it from here.
+## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 9,113 BYTES OVER** (§E330, re-measured 2026-08-23 from the
+GREEN batched build after lanes A/B/C/D/E). `Quid` **21,856** + `Vault` **11,833** = **33,689** vs
+24,576. §E315's remedy (delete the 4626 face) is 12 selectors against a ~9 KB gap. **Re-plan against
+the real number**; the `setBtcVault` ×3 consolidation and the lib merges sit behind it.
+🔴 **THIS ONE HEADLINE HAS BEEN RESTATED THREE TIMES IN ONE DAY AND THE TREND IS THE FINDING:
+`12,187` → `11,887` → `9,113`.** §E346 took 316 bytes off `Quid`; the fleet's fold sweep then took
+another 1,608 off `Quid` and 842 off `Vault`, closing **3,074 bytes of the gap in about an hour**.
+⇒ **The fold is not blocked by an immovable wall — it is being eaten by ordinary modifier-body and
+dead-surface folds, and at this rate the arithmetic is the LEAST stable thing in this section.**
+**Re-run `python3 tools/check-contract-sizes.py` before quoting it**; do not read it from here.
 
 ## 3b. 🟢 **§E345 — LANDED THIS SESSION, AND IT CARRIES A SECOND DEFECT THAT WAS NOT BOOKED ANYWHERE**
 Beyond turning σ² on (row b/b″ above), the same read had a live sentinel bug. `realizedVarianceWad`
@@ -111,37 +113,42 @@ it is why the dust monitor reads Core by RAW SLOT and why the harness is coupled
 `Quid` 24,104 = 34,769, over by 10,193.** Its own **falsifiable checkpoint** (*"measure the freed total
 once the deletions land"*) has been reached and **passed**: the deletions freed ~13.4 KB, so the gap
 more than halved. The merge is not near-impossible; it is ~10 KB of work.
-⚠️ **RE-MEASURED THE SAME DAY @`ed10bc01`: `Core` 11,304 + `Quid` 23,788 = 35,092, over by 10,516** —
-§E345 put +639 on `Core` and §E346 took −316 off `Quid`, net +323 on the gap. **The conclusion is
-unchanged and the arithmetic is not; quote the script, not this line.**
+⚠️ **RE-MEASURED TWICE MORE THE SAME DAY. Second reading @`7e32eb48`: `Core` 11,304 + `Quid` 23,788 =
+35,092, over by 10,516. THIRD AND CURRENT, after the fleet's fold sweep: `Core` 11,637 + `Quid` 21,856
+= 33,493, over by 8,917** — so §E219's *"48,411, over by 23,835"* is now wrong by **14,918 bytes**.
+**The conclusion is unchanged and the arithmetic is not; quote the script, not this line.**
 ⛔ **BUT DO NOT READ "13.9 KB FREE" AS "`Core` IS CHEAP AGAIN" IN THE ONE PLACE IT STILL BINDS:**
 `Core`'s STATE ORDER is load-bearing (`DrainAtomicity` reads slots 262/263 by raw index, and
 `netFlowUsd` is *declared last on purpose*). **Bytecode headroom bought nothing there — append-only
 still holds, and a raw-slot read that names the wrong variable still passes.**
-▶️ **AUTHORITATIVE TABLE — measured @`7e32eb48`, 30 deployable contracts, tightest first. STAMPED, AND
-ALREADY PROVISIONAL: six lanes are landing bytecode reductions right now (modifier-body folds and
-dead-surface removal across `Quid`, `Core`, `Aux`, `Basket`, `Vault`, `VBtc`, `SwapLib`,
-`Interfaces`), so read this as *before the §E346-technique sweep lands*, not as final.**
+▶️ **AUTHORITATIVE TABLE — 30 deployable contracts, tightest first, measured 2026-08-23 from a GREEN
+batched build (`forge build` exit 0) AFTER lanes A/B/C/D/E landed. Net across the fleet: −2,649 bytes.**
 
-| contract | bytes | margin |
-|---|---|---|
-| `Quid` | **23,788** | **788** |
-| `BTCChannels` | 23,413 | 1,163 |
-| `LevManager` | 22,063 | 2,513 |
-| `BasketLib` | 21,713 | 2,863 |
-| `SwapLib` | 21,434 | 3,142 |
-| `Aux` | 21,210 | 3,366 |
-| `LevMath` | 20,204 | 4,372 |
-| `BitcoinTx` | 19,262 | 5,314 |
-| `QuidLib` | 17,512 | 7,064 |
-| `BtcLevManager` | 17,228 | 7,348 |
-| `BtcLib` | 16,172 | 8,404 |
-| `ChannelLib` | 16,037 | 8,539 |
-| `Vault` | 12,675 | 11,901 |
-| `Core` | **11,304** | **13,272** |
+| contract | bytes | margin | Δ this sweep |
+|---|---|---|---|
+| `BTCChannels` | **23,413** | **1,163** | — 🔴 **now the tightest** |
+| `LevManager` | 22,063 | 2,513 | — |
+| `Quid` | **21,856** | **2,720** | **−1,932** (§E347-QUID) |
+| `BasketLib` | 21,713 | 2,863 | — |
+| `SwapLib` | 21,434 | 3,142 | — |
+| `Aux` | 21,002 | 3,574 | −208 |
+| `LevMath` | 20,204 | 4,372 | — |
+| `BitcoinTx` | 19,262 | 5,314 | — |
+| `QuidLib` | 17,512 | 7,064 | — |
+| `BtcLevManager` | 17,228 | 7,348 | — |
+| `BtcLib` | 16,172 | 8,404 | — |
+| `ChannelLib` | 16,037 | 8,539 | — |
+| `Vault` | **11,833** | 12,743 | −842 |
+| `Core` | **11,637** | 12,939 | +333 (§E345 registers + §E347-CORE hoist) |
 
-**`Quid` is the sole binding contract; `LevMath` (was 24,503 / 73 in CLAUDE.md) is no longer in the top
-five; `Core` (was 24,025 / 551) is second-loosest.**
+🔴🔴 **THE HEADLINE IS NOT A NUMBER, IT IS THAT THE BINDING CONTRACT CHANGED: `BTCChannels` (1,163)
+IS TIGHTEST; `Quid` HAS 2,720.** Every row that says *"`Quid` is the sole binding contract"* or prices
+a change against `Quid`'s margin is now wrong — **including the sentence that stood on this line
+earlier today, written by the same hand that measured it.** `LevMath` (was 24,503 / 73 in CLAUDE.md) is
+long gone from the top five, and `Core` (was 24,025 / 551) is second-loosest.
+⚠️ **THIS TABLE HAS BEEN REPLACED THREE TIMES TODAY** — §E344's, §E345/§E346's, and this one. **The
+useful invariant is not any row; it is that a margin AND the identity of the binding contract are both
+readings with timestamps.** Re-run `python3 tools/check-contract-sizes.py`.
 🔴 **RE-RUN `python3 tools/check-contract-sizes.py`; DO NOT TRUST ANY NUMBER WRITTEN HERE — THIS TABLE
 HAS NOW BEEN WRONG TWICE IN ONE DAY.** §E344 published `Core` 10,665 (13,911) and `Quid` 24,104 (472) at
 `9896c5be`; §E345 put **+639** on `Core` and §E346 took **−316** off `Quid` within the same session, so
@@ -250,7 +257,8 @@ Settle price = `getTWAPforAsset(ASSET,1800)` (internal ring TWAP) → `twapResol
 - 🔴 **§AUDIT-DELIVER-KEYS (auth, HAND-VERIFIED).** `deliverSwapOutOnchain`/`_deliverSwapOut` (`BTCChannels.sol:2258-2341`) OMITS `_requireChannelKeys` — every sibling key-rotating path has it (`splice:1126`, `parkProvenSats:1384`, `emitDeadManExit:1559`, `recordClose-retire:1814`); `_verifySplice`'s only key check is `isTwoOfTwoOutputKey` on the CALLER-SUPPLIED pair (`:1694`, comment `:1676-1681` says exactly this). ⇒ a malicious hop rotates the funding output to `Q'=KeyAgg(fakeLP,fakeHop)` it alone controls under cover of a delivery → custody migrates off the LP; close mints QUID vs stolen notional. FIX: add `_requireChannelKeys(channelId,p)`. (Reachability rides on §C2.3² but this is a defense-in-depth consistency gap by the code's own standard.) ✅ **LANDED 2026-08-23** — one line, in the **outer** frame beside `_onlyHop()` (the inner frame's calldata live-range constraint is explicit and previously reverted four tests). Control run: `VBtcLevFeeLane` fails **identically** on pristine `585085e1` and on the changed tree — same two test names, byte-identical assertion payload (`18603851223 >= 18218953435`) — so the two reds are pre-existing and NOT this gate. Both test call sites already build `p` from the channel's registered pair.
 - 🔴 **§AUDIT-PUSHOBS (oracle, HAND-VERIFIED mechanism).** `Core.pushObservation` (`Core.sol:1374`) is permissionless + instance-agnostic (no modifier, no `observationSource` guard, `isWbtc` derived) → REACTIVATES the BTC ring the "ring is simply not written" safety (`Core.sol:1229`) assumes dead. Bias ≤50bps/block; within the 500bps window `getTWAPforAsset(WBTC)` returns the manipulated ring → `RealRateBtcMorphoOracle.price()` (`LevBase.sol:534`) → mis-liquidation (rescue underwater / snipe healthy), gas-only, ≤~5%. FIX — ⚠️ **THE REMEDY ORIGINALLY WRITTEN HERE WAS WRONG AND WOULD HAVE DEEPENED THE FINDING.** It read *"gate `pushObservation` to `observationSource!=0`"*. Measured 2026-08-23: `setObservationSource` has **exactly one caller in the tree and it is a test** (`test/DrainAtomicity.t.sol:1375`); `DeployLib.sol:139` deliberately pins no source (§E222). So `observationSource == address(0)` on **BOTH** instances, that predicate is false everywhere, and the gate would have refused **every** push — including the ETH ones — while `pushObservation` is the ring's ONLY live writer (§E294/§E308: σ² ≡ 0 precisely because neither writer runs). It would also have gone red in `LevCascade`, `LevYbReal`, `LeverageCrossSubsidyProbe`, `PushObservationFillsTheRing` and `Alles`'s ramps. ⇒ **LANDED INSTEAD as an instance-identity gate: `if (VOL_DECIMALS != 18) return;`** (`Core.sol:1409`) — the same derivation the function already used one line below for `isWbtc`, so it is free and local; `isWbtc` is now the literal `false` because after the gate the expression is provably false. Controls run: **zero** test call sites hit the gate (every `pushObservation` in `test/` goes through `CORE` = the WETH instance; `Alles.t.sol:673`), and the one production caller (`script/PushObservation.s.sol:71`) is hardcoded WETH/USDC and `require`s anchor agreement first, so pointing it at BTC already failed LOUDLY before this change. ▶️ When a wrapper-free BTC source exists, **delete** this line together with the `observationSource` note it enforces — do not weaken it.
 - 🔴 **§AUDIT-OPENLPS-DOS (griefing, HAND-VERIFIED crux).** `_openLps` (`LevBase.sol:76`, shared by both lev mgrs) unbounded + attacker-growable (`MIN_OPEN_VBTC` ~$30-50 × N EOAs, recoverable). `deleverEthOnDelivery` (`SwapLib.sol:1830-1858`) loops `i<openLevCount()` with no outer bound → OOG bricks the ETH swap-out liquidity-crunch fallback; the same array's `catch{}→0` in `Core._levDebtUsd18`(`:143`)/`Quid._venueBalance`(`:960-967`) fail-OPEN → phantom yield credited to plain LPs. (Generic "_openLps unbounded" ~ SCAN §1.B/L19680; the hard-DoS + phantom-yield-flip are new.) FIX: cap the book / bound+paginate / cache aggregates. ⏸️ **PARTIALLY LANDED 2026-08-23 — AND IT IS A RULE-17 CLAMP, SO DO NOT READ IT AS CLOSED.** `MAX_OPEN_LPS = 128` + `BookFull()` enforced at **both** push sites (`RangeLib.trackOpen`, `RangeLib.openPos`), i.e. at the WRITER not the loops — truncating `totalNetEquity`/`totalDeliverableDollars` would silently under-report backing, which is the failure that does not announce itself. Measured cost to the size-pressured managers: **0 bytes** (already external library calls); `Quid` 24,104 with 472 to spare **at the time of that measurement —
-now 23,788 with 788, §E346**. ▶️ The clamp survives only until the pooling redesign makes an unbounded book unconstructible; per standing rule 17 that root fix must **delete** this bound, not add a third one.
+now **21,856 with 2,720** after §E346 and §E347-QUID, and `Quid` is no longer the binding contract at
+all — `BTCChannels` (1,163) is**. ▶️ The clamp survives only until the pooling redesign makes an unbounded book unconstructible; per standing rule 17 that root fix must **delete** this bound, not add a third one.
 - 🔴 **§AUDIT-SWAPOUT-CONCURRENT (MEV, suspected; COMPANION to §AUDIT-SWAPOUT-DOUBLEPAY, different root).** Two authorized hop instances (MAIN+FALLBACK, normal HA — `_onlyHop` accepts either on ANY channel; no cross-process swapId lock in `swap_out_onchain.rs:180-314`) both deliver one `swapId` via DIFFERENT channels → swapper paid 2× on Bitcoin; only the first `deliverSwapOutOnchain` lands, the losing channel is **PERMANENTLY UNRETIRABLE** (`_withdrawalPayout`/`_requireNotSplice`/`recordForceClosePermissionless` all reject the abandoned splice shape) holding phantom backing. No timeout/cancel needed. FIX: serialize per-`swapId` across hops before the BTC broadcast; make the losing channel reconcilable.
   ⇒ **RE-GRADED 🟠 2026-08-23 (the keystone `§C2.3②` is resolved, so this is now rateable — and the EVM half of the premise is true while the BITCOIN half is not).** `_onlyHop` really does accept either address on any channel, and the session dedup really is per-process (`handled: HashMap`, `swap_out_onchain.rs:380`) — but **submitting is not delivering**. Rail B requires the fleet's own `VaultNode` to co-sign the channel's 2-of-2 splice (`drive_swap_out_onchain` takes a NON-optional `Arc<VaultNode>`; `daemon.rs:432` spawns the watcher only under `.filter(|_| onchain_enabled)`, and `onchain_rail_enabled` requires `vault.is_some()`, default `QUID_FLEET_COHOSTS_VAULT=false`). The vault's LP-side keys are `derive_vault_seed(&root_seed)` (`quid-bridge-daemon.rs:366`) and the hop's EVM identity is `evm_signing_key(&root_seed, "QUID_HOT_KEY")` (`:176`, derived-from-seed by default — `boot.rs:77`, its own test `evm_signing_key_derives_from_seed_when_env_unset`). The constructor **requires** `MAIN_HOP != FALLBACK_HOP` (`BTCChannels.sol:724`). ⇒ In the enclave/derived default, two distinct hop addresses imply two distinct `root_seed`s imply two distinct vault seeds — **the fallback holds no LP key for any channel main funded, so it cannot produce a competing splice at all.** The "deliver via DIFFERENT channels" step has no mechanism.
   ⚠️ **IT IS NOT CLOSED, BECAUSE ONE CONFIGURATION DOES REACH IT — AND THAT CONFIGURATION IS ALREADY WORSE THAN THE FINDING.** Off-SGX, `QUID_HOT_KEY` may override the derivation (`boot.rs:74-76`, deliberately, for self-host/dev/e2e). Two daemons with the SAME `root_seed` and DIFFERENT `QUID_HOT_KEY` therefore satisfy both premises. But identical `root_seed` means identical `derive_vault_seed`, i.e. **two live LDK nodes sharing one channel state** — whose first consequence is a revoked-commitment broadcast and self-justice, not a double-pay. ⇒ **The reachable config is independently catastrophic, so the double-pay is a SYMPTOM of it rather than a separate live bug.**
@@ -428,9 +436,10 @@ stale entry costs what a stale marker costs, and neither sweep covers it because
    minted on a delivery of **zero**. Not a stale row.
 4. 🔴 **§E255 / the manager merge — both are blocked by BYTECODE, not design.** ⚠️ **RE-MEASURED
    2026-08-22 FROM ARTIFACTS, AND THE TWO GAPS MOVED IN OPPOSITE DIRECTIONS — SO NEITHER NUMBER
-   BELOW SHOULD BE QUOTED WITHOUT RE-RUNNING IT.** ⚠️ **RE-MEASURED AGAIN 2026-08-23 @`7e32eb48`
-   (before the §E346-technique sweep lands, so it will move again): §E255 union `Quid 23,788 +
-   Vault 12,675 = 36,463` ⇒ **11,887 over**. Manager merge `LevManager 22,063 +
+   BELOW SHOULD BE QUOTED WITHOUT RE-RUNNING IT.** ⚠️ **RE-MEASURED TWICE MORE ON 2026-08-23, MOST RECENTLY FROM
+   THE GREEN BATCHED BUILD AFTER THE FLEET'S FOLD SWEEP: §E255 union `Quid 21,856 +
+   Vault 11,833 = 33,689` ⇒ **9,113 over** (third reading of the day; was 12,203, then 11,887).**
+   Manager merge `LevManager 22,063 +
    BtcLevManager 17,228 = 39,291` ⇒ **14,715 over** (was 15,532: **817 BETTER**). ⇒ The extraction
    target is **~11.9k**, and the two folds are not tracking each other — every landed change on
    either range moves one gap without touching the other, which is exactly why a stale figure here
@@ -4928,8 +4937,9 @@ has been re-derived twice and its blocker line was never re-run either time.** T
 carries the correction; the archive is left verbatim on purpose.
 
 ⚠️ **NUMBERS RE-MEASURED FROM `evm/out` ARTIFACTS 2026-08-23 @`ed10bc01` — the row below quotes
-`Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 23,788 + Vault 12,675 =
-36,463` ⇒ **11,887 over**. The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
+`Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 21,856 + Vault 11,833 =
+33,689` ⇒ **9,113 over** (third reading today: 12,203 → 11,887 → 9,113, the fleet's fold sweep
+taking 3,074 of it in about an hour). The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
 39,291` ⇒ **14,715 over** (the row says 15,532).
 ▶️ **The blocker and the argument are unchanged and still correct — only the price moved.** Re-run
 `tools/check-contract-sizes.py` before planning against either figure; `Quid` currently has just
@@ -6217,12 +6227,18 @@ threshold must land in the SAME change, or the first deep drain panics `0x11` in
 `retainSkewPremium`. ⚠️ §E104's lesson stands and now has a number: **the test that proves it must
 drive q past the threshold above**, not merely to zero.
 
-## §E274-SIZE — 🔴 **`Quid`'s EIP-170 MARGIN IS THE BINDING CONSTRAINT. THE NUMBER MOVES; RE-MEASURE, NEVER QUOTE.**
-🔄 **RE-MEASURED 2026-08-23: `Quid` 23,788 — 788 BYTES TO SPARE.** The header of this row said **86**
-and was that stale for two days. It read **472** earlier in the SAME SESSION that re-measured it, then
-**788** an hour later when §E346 moved `onlyUs`'s body out of the modifier. **86 → 472 → 788 with no
-action from the row's own owner** — the margin is moved by whoever last touched the contract, so a
-figure written here describes a tree that no longer exists by the time it is read.
+## §E274-SIZE — ⛔ **`Quid` IS NO LONGER THE BINDING CONSTRAINT. `BTCChannels` IS (1,163 vs `Quid`'s 2,720). THE NUMBER MOVES *AND SO DOES WHICH CONTRACT IT IS ABOUT*; RE-MEASURE, NEVER QUOTE.**
+🔄 **RE-MEASURED 2026-08-23, FOURTH READING: `Quid` 21,856 — 2,720 BYTES TO SPARE, and it is the THIRD
+loosest of the top five.** The header of this row said **86** and was that stale for two days. It read
+**472** earlier in the SAME SESSION that re-measured it, **788** an hour later when §E346 moved
+`onlyUs`'s body out of the modifier, and **2,720** an hour after that when §E347-QUID took another
+1,932. **86 → 472 → 788 → 2,720 with no action from the row's own owner** — the margin is moved by
+whoever last touched the contract, so a figure written here describes a tree that no longer exists by
+the time it is read.
+🔴 **AND THIS ROW'S SUBJECT CHANGED, WHICH IS THE PART A MARGIN-CHASING ROW CANNOT SURVIVE: the thing
+worth tracking was never `Quid`'s number, it was WHICH CONTRACT BINDS.** That is now `BTCChannels`, and
+nobody has priced a fold pass against it. ▶️ **Retarget this row at `BTCChannels` or retire it; keeping
+it pointed at `Quid` makes it argue for headroom that already exists.**
 ⇒ **THE ROW STAYS OPEN AND THE NUMBER LEAVES IT.** The constraint is real (`Quid` is still tightest of
 30 deployable contracts); the FIGURE is not a status, it is a reading. Run
 `python3 tools/check-contract-sizes.py` — it takes seconds and is the only trustworthy answer.
@@ -10519,7 +10535,8 @@ a PLAN rather than a contract: anyone scheduling the fold off 5.4 KB is scheduli
 that is less than half the real one.** ⇒ The fold is not finishable as scoped; re-derive the plan
 against the CURRENT gap before committing to it.
 📌 **AND THE SAME HAZARD ATE THIS ROW'S OWN NUMBER: re-measured 2026-08-23 @`ed10bc01`, `Quid` **23,788**
-+ `Vault` **12,675** = **36,463**, over by **11,887** — §E346 took 316 bytes off `Quid` hours after
++ `Vault` **11,833** = **33,689**, over by **9,113** — §E346 then §E347-QUID took 1,932 off `Quid` and
+842 off `Vault` within hours of
 `6cc35b71`.** The table above is kept as the `6cc35b71` measurement it is labelled as; **the planning
 number is whatever `python3 tools/check-contract-sizes.py` says today, and nothing in this file.**
 
@@ -10610,7 +10627,7 @@ state across contracts, which is what §E329's instance bug was.
 ### 📌 6-11. THE REST, WITH THEIR REAL COST
 - **`setBtcVault` ×3 at deploy** (`core`, `a.btcCore`, `quid`) — three pins because three objects each
   need the address and none can derive it. Consolidatable only once one of them can ask another;
-  that is the same fold that is **11,887** bytes over (§E330, re-measured @`7e32eb48`; the row's old
+  that is the same fold that is **9,113** bytes over (§E330, re-measured after the fleet fold sweep; the row's old
   12,187 was pre-§E346). **Booked, not attempted.**
 - **`SwapLib.ethRisk()`/`btcRisk()` constants in the constructor** — agreed, this is slop. It is the
   `struct Risk` question too: **all structs belong in `Types.sol`** and the risk parameters belong in
@@ -11515,8 +11532,9 @@ in `git worktree add --detach`:
 - **All 35 deployable contracts under EIP-170**; tightest is **`Quid` 24,104 (472 to spare)**,
   then `BTCChannels` 23,403 (1,173), `LevManager` 22,063 (2,513).
   ⚠️ **Anchored to `a047ca59` and kept as that reading. TODAY @`7e32eb48` the script measures **30**
-  deployable contracts, tightest `Quid` **23,788 (788)**, then `BTCChannels` 23,413 (1,163). The count
-  fell because contracts were folded away, not because the check narrowed.**
+  deployable contracts, and after the fleet's fold sweep the tightest is **`BTCChannels` 23,413
+  (1,163)**, with `Quid` down to **21,856 (2,720)** — i.e. the BINDING CONTRACT CHANGED, not just the
+  numbers. The count fell because contracts were folded away, not because the check narrowed.**
 - **`tools/check-client-abis.py` → 116 Rust signatures, 0 drifted; 68 SPA signatures, 0 drifted.**
 - **Zero duplicate top-level declarations** (`interface`/`library`/`struct`/`error`/`event`) across
   `evm/src` — standing rule 2 holds tree-wide, not just in `Interfaces.sol`.
