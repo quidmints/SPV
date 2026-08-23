@@ -2364,12 +2364,38 @@ variants stay legal beyond the first two. Fixtures updated across all six opener
 here — a full regtest run of `testCrossChain_FullE2E` — is compile-verified only (needs the
 `quid-ln:dev` image / native bitcoind).
 
-## B5. 🟡 LAZY `openChannel` — never started, and my ✅ was conditional
+## B5. ✅ LAZY `openChannel` — **BUILT AND LIVE. THE ROW'S OWN HEADLINE — *"never started"* — IS FALSE
+AT HEAD** (re-measured 2026-08-23, and it is exactly the falsifiable-claim class the verification
+section says to re-run).
 
-Phase 4's second half. I closed §E166 arguing every open is LP-funded so there is nothing to defer.
-**§E183 item 1 removes that premise**: with the LP signing nothing at open, the open no longer
-carries LP consent *at the moment it happens*, which is exactly when deferring the CLAIM starts to
-matter. Under rule 16 that closure should have been ⏸️, not ✅.
+**Measured in `evm/src/BTCChannels.sol`:** `openChannel` custodies sats whose LP pool CLAIM is
+DEFERRED (`:403`, *"Sats custodied by `openChannel` whose LP pool CLAIM has not been"*), the deferred
+claim is redeemed by a separate `registerChannelClaim` (`:1037`, *"Credit the LP's BTC pool position
+for a channel whose custody this"*), and the split has its own error surface — `NothingToClaim()`
+(`:470`, *"no unregistered custody for this channel: never opened"*) and `ClaimNotRegistered()`
+(`:472`, *"this channel's claim is still deferred"*). The close path knows about it too (`:683`:
+*"A channel closed before its claim was registered has NO EVM position"*), and so does the shrink path
+(`§LAZY-OPEN-SHRINK`, `:580`, `:589`).
+⇒ **The deferral this row asks for is the shipped design.** Eight `§LAZY-OPEN` markers across custody,
+claim, close and shrink.
+
+⚠️ **THE REASONING IN THE ROW WAS RIGHT AND IS WHY IT SHIPPED — keep it.** *"§E183 item 1 removes that
+premise: with the LP signing nothing at open, the open no longer carries LP consent at the moment it
+happens, which is exactly when deferring the CLAIM starts to matter."* That is the argument for
+`registerChannelClaim` existing, and it is now implemented. Under rule 16 the §E166 closure should
+indeed have been ⏸️ rather than ✅ — **and the correction is that it has since been BUILT, not that it
+is still open.**
+
+⛔ **WHY THIS ROW SURVIVED SO LONG, WHICH IS THE TRANSFERABLE PART: A ROW WHOSE HEADLINE IS ABOUT ITS
+AUTHOR'S PROCESS (*"my ✅ was conditional"*) READS AS A META-NOTE AND NEVER GETS RE-RUN.** The
+falsifiable claim (*"never started"*) is one `grep -c "LAZY-OPEN" evm/src/BTCChannels.sol` away — it
+returns 8 — but the sentence around it is about a status marker, so a sweep looking for testable
+statements slides past it. **Book the MECHANISM, not the confession.**
+
+▶️ **WHAT IS ACTUALLY STILL OPEN HERE IS THE OTHER HALF OF PHASE 4, AND IT IS NOT SOLIDITY:** an open
+still needs the LP's second funding half, and the thing producing that consent is the LP signer
+specified in `../ibiza/TODO.md` §3b. See §B-SIGNER-SPA below for the MetaMask-Bitcoin question that
+now bears on it.
 
 ## B6. 🟡 REGIME — TWO CLASSIFIERS, ONE UNREACHABLE
 
