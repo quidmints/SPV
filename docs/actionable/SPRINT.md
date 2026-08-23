@@ -50,6 +50,28 @@ the test's CLAIM or its PREMISE.
 36,763 vs 24,576. §E315's remedy (delete the 4626 face) is 12 selectors against a 12 KB gap. **Re-plan
 against the real number**; the `setBtcVault` ×3 consolidation and the lib merges sit behind it.
 
+## 4b. 🔵 **THE MARGIN TABLE EVERY SIZE ARGUMENT IN THIS REPO RESTS ON IS STALE BY 13.4 KB — `Core` HAS 13,911 BYTES FREE, NOT 551** (§E344, measured 2026-08-23 @`9896c5be`)
+`python3 tools/check-contract-sizes.py` against a warm, verified-fresh `evm/out` (artifact 13:49 > source
+06:04, `forge build` = *No files changed*): **`Core` 10,665 / margin 13,911** — against CLAUDE.md's
+**24,025 / 551** and QUEUE §E219's **24,025**. The cause is §V4-CUT: `contract Core {` no longer says
+`is SafeCallback`, and the 12 `_unlockCallback` Actions, both callbacks and the tick/sqrt geometry left
+with it. **305 code lines after comment-stripping.**
+⚠️ **TWO STANDING CONCLUSIONS ARE VOIDED BY THIS, AND BOTH ARE QUOTED AS SETTLED FACT:**
+① CLAUDE.md's *"`Core` CANNOT AFFORD A GETTER — a two-address getter costs 91 bytes"* is off by **25×**;
+it is why the dust monitor reads Core by RAW SLOT and why the harness is coupled to Core's state ORDER.
+② QUEUE §E219's collapse arithmetic — *"`Core` 24,025 + `Quid` 24,386 = 48,411, over EIP-170 by
+23,835 … the deletions are what MAKES the merge exist"* — is now **`Core` 10,665 + `Quid` 24,104 =
+34,769, over by 10,193.** Its own **falsifiable checkpoint** (*"measure the freed total once the
+deletions land"*) has been reached and **passed**: the deletions freed ~13.4 KB, so the gap more than
+halved. The merge is not near-impossible; it is 10 KB of work.
+⛔ **BUT DO NOT READ "13.9 KB FREE" AS "`Core` IS CHEAP AGAIN" IN THE ONE PLACE IT STILL BINDS:**
+`Core`'s STATE ORDER is load-bearing (`DrainAtomicity` reads slots 262/263 by raw index, and
+`netFlowUsd` is *declared last on purpose*). **Bytecode headroom bought nothing there — append-only
+still holds, and a raw-slot read that names the wrong variable still passes.**
+▶️ Current full table (30 deployable, tightest first): `Quid` 24,104 (472) · `BTCChannels` 23,413
+(1,163) · `LevManager` 22,063 (2,513) · `Aux` 21,210 (3,366) · `BtcLevManager` 17,228 · `Vault` 12,675
+· `Core` 10,665. **`Quid` is the sole binding contract and `LevMath` is no longer in the top five.**
+
 ## 5. 📌 **LANDMINE, ZERO COST TO PREVENT** (§E339): `RangeLib.openPos:444` does `pos[lp] = p` — a
 wholesale overwrite. Unreachable today (`openLev` reverts `AlreadyOpen`), so **there are no top-ups at
 all**. The day one is added, that line silently resets `ilBasisPx`: top up after a rise and the LP
