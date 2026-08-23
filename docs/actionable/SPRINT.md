@@ -279,19 +279,41 @@ stale entry costs what a stale marker costs, and neither sweep covers it because
    half never becomes a transaction). ⚠️ **WHAT REMAINS IS CADENCE, AND IT IS A DECISION:** drive it
    from range state (repack / swap / delever), never a bare timer — selective sampling is the one
    manipulation the 50 bps range does not bound.
-1. ⏸️ **§E257 — MOOT BY CONFIGURATION, NOT FIXED (see its row).** `main` cannot execute a swap.** `Core.swap()` staticcalls 1inch's
+1. ✅ **§E257 — THE CODE FIX LANDED; THE GAS DEFECT IS GONE BY STRUCTURE, NOT BY CONFIGURATION
+   (re-measured 2026-08-22).** ⛔ **THE PREVIOUS CORRECTION — *"MOOT BY CONFIGURATION, NOT FIXED"* —
+   WAS ITSELF WRONG, AND WRONG IN THE DIRECTION THAT COSTS SOMEBODY A BLOCK.** It implies the 33M-gas
+   call still stands in `Core` and only an unpinned source saves us, so the next thread to pin a
+   source reintroduces the defect. **Measured instead: `getRate` HAS NO PRODUCTION CALLER AT ALL.**
+   `OracleLib.oneInchRateWad` (the only live `getRate` in `evm/src`, `:417`) is referenced from
+   **zero** production sites — one comment in `Core.sol:1289` and two tests
+   (`OneInchObserverIsIndependent`, `PushSourceIsAdmissible`). `_observeIfSourced`
+   (`Core.sol:1297`) now issues `src.staticcall(OBS_CALLDATA)` — a source-supplied encoding — and
+   its body documents the Curve on-pool EMA replacement (§E232). Earlier in this lane a fresh
+   `DeployLib` deploy executed a swap in **1,881,636 gas**, and the Curve read measured
+   **32,563–48,582 gas** against 1inch's ~33.0M. ⇒ Pinning a source today pins a cheap raw call;
+   it does **not** resurrect the aggregator. ▶️ **THE REMAINDER IS §E222's, NOT THIS ROW'S:** no
+   source is pinned on either instance (`setObservationSource` has one caller and it is a test), so
+   the ring still has no independent observation and §E222's ✅ remains untrustworthy. That is a
+   MISSING SOURCE, a different defect from an UNCALLABLE one. ~~`main` cannot execute a swap.** `Core.swap()` staticcalls 1inch's
    `getRate` with no gas cap; `cast estimate` refuses at the node's 2^24 ceiling and the fork test
    measures **33,084,355 gas against a 30M block**. `setObservationSource` is **pin-once**, so a
    fresh deploy is unrecoverable without a code change. **The fix is already written:**
    `ExternalTwap.curvePriceWad` — a Curve `price_oracle()` read at ~2–3k gas. **Nothing else on this
-   list matters until this is done.**
+   list matters until this is done.**~~
 2. ✅ **§E258 — BUILT; the spec at §0-BUILD records landed work (§E303).** ~~build `fillOOR` + the sorted set.~~ The spec is §0-BUILD below, complete: the index
    key must be `(price << 96) | id` because `SortedSetLib.insert` **silently ignores duplicates**;
    the in-swap loop must be capped or a swapper can be griefed; the poke is therefore a liveness
    requirement, not a convenience. Out-of-range orders currently **cannot execute at all**.
 3. 🔴🔴 **§E50 — the over-mint class is live**, reproduced 2026-08-18: three assertions plus QU!D
    minted on a delivery of **zero**. Not a stale row.
-4. 🔴 **§E255 / the manager merge — both are blocked by BYTECODE, not design.** ~11,986 and 15,532
+4. 🔴 **§E255 / the manager merge — both are blocked by BYTECODE, not design.** ⚠️ **RE-MEASURED
+   2026-08-22 FROM ARTIFACTS, AND THE TWO GAPS MOVED IN OPPOSITE DIRECTIONS — SO NEITHER NUMBER
+   BELOW SHOULD BE QUOTED WITHOUT RE-RUNNING IT.** §E255 union `Quid 24,104 + Vault 12,675 = 36,779`
+   ⇒ **12,203 over** (was ~11,986: **217 WORSE**). Manager merge `LevManager 22,063 +
+   BtcLevManager 17,228 = 39,291` ⇒ **14,715 over** (was 15,532: **817 BETTER**). ⇒ The extraction
+   target is **~12.2k**, and the two folds are not tracking each other — every landed change on
+   either range moves one gap without touching the other, which is exactly why a stale figure here
+   would misprice the work. Stale figures, kept for the delta: ~11,986 and 15,532
    bytes over EIP-170. **Every design question is settled (§E256).** ⚠️ §E255's old blocker
    (*"`Vault` is two things fused"*) is **false and corrected in its row** — §E231's fold resolved it
    by going into `Quid`. The next step is **~12k of delegatecalled-library extraction**, priced by
@@ -4863,6 +4885,15 @@ on `costPpm == 0` rather than passing.
 
 ### `§E255-two-instances` 🔴
 
+⚠️ **NUMBERS RE-MEASURED FROM `evm/out` ARTIFACTS 2026-08-22 — the row below quotes
+`Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 24,104 + Vault 12,675 =
+36,779` ⇒ **12,203 over**. The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
+39,291` ⇒ **14,715 over** (the row says 15,532). One gap widened by 217, the other narrowed by 817.
+▶️ **The blocker and the argument are unchanged and still correct — only the price moved.** Re-run
+`tools/check-contract-sizes.py` before planning against either figure; `Quid` currently has just
+**472 bytes** of margin, so an extraction pass has no room to be approximately right.**
+
+
 | §E255-two-instances | 🔴 **RE-MEASURED 2026-08-18 — THE RECORDED BLOCKER IS GONE, AND THE REAL ONE IS EIP-170 BY ~11,986 BYTES.** ⛔ **THE STALE BLOCKER: *"`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED"* IS NO LONGER TRUE.** Enumerated the whole ETH-venue slice against `Vault` today: `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `deliverableETH` `AAVE_SPOKE` `WEETH` — **ZERO references in `Vault.sol`, all of them in `Quid`.** The only three left (`:64`, `:111`, `:559`) are COMMENTS that say so outright — *"`vogueETH` is VOGUE's accessor, not this contract's"*. ⇒ **§E231's EthVenue fold resolved the precondition by going the OTHER WAY — into `Quid` rather than out of `Vault` — so the split everyone was waiting to do had already happened, under a different row.** `Vault` IS the BTC range manager now. 🔴 **WHAT ACTUALLY BLOCKS IT, MEASURED: `Quid` 23,953 + `Vault` 12,609 = 36,562 against the 24,576 limit ⇒ ~11,986 OVER.** One implementation with two instances means ONE contract carrying both ranges' behaviour and deployed twice, so the union must fit in a single EIP-170 envelope — and it does not, before even counting that ETH-venue custody would ride as dead weight on the BTC instance (the permanent asymmetry `CLAUDE.md` records). ⭐ **THIS IS THE SAME WALL AS THE `LevManager`+`BtcLevManager` FOLD (15,532 over), AND THAT IS THE POINT: BOTH REMAINING FOLDS ARE BLOCKED BY BYTECODE, NOT BY DESIGN AMBIGUITY.** The design questions — which base, whose `totalSupply`, who owns `oorShares` — are settled (§E256). ▶️ **SO THE NEXT STEP IS NOT THE MERGE, IT IS ~12k OF DELEGATECALLED-LIBRARY EXTRACTION, priced by §E245's measured rate (~100 B per small body, ~514 B per large one).** Attempting the merge first produces a contract that compiles, tests, and cannot be deployed — which this repo has shipped once already at −126 bytes with a green suite. ⚠️ **DO NOT START THE MERGE UNTIL THE UNION FITS.** Original text: **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each range, calling each lev library it needs."*** ⇒ ONE range manager; TWO `Shares` INSTANCES (ETH + BTC); each instance delevers its own range through the lev libraries. Today the share FACE is IMPLEMENTED THREE TIMES instead of INSTANTIATED TWICE: inline in `Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same `isBTC` argument one level up from `Core`, which already IS one implementation with two instances. ✅ **WHAT IS ALREADY IN PLACE:** `Shares` (§E252) gives both ranges an IDENTICAL storage layout — the precondition; `LevBookLib` (§E246) holds the four venue legs parameterised by collateral token; `Core` is the working precedent. 🔴 **THE BLOCKER IS A SEMANTIC DISAGREEMENT, NOT PLUMBING:** `Shares.totalSupply()` = `lpShares + oorShares` and SPANS both position kinds (*"disjoint by construction… the sum cannot double-count"*); `Quid.totalSupply()` = `lpShares` alone and **`oorShares` does not exist in `Quid` at all**, so out-of-range positions are absent from the share supply. The owner's design says totalSupply INCLUDES the out-of-range locked liquidity (and §E251 wants it lendable). Instantiating `Shares` twice ADOPTS its semantics — **changing what every ERC-20/4626 client reads**. ▶️ Settle that first; it is the same decision §E251 turns on. |
 
 ### `§QUEUE-RECONCILED-2026-08-17` (none)
@@ -4966,7 +4997,21 @@ mistake this section documents.
 
 | §E257-observation-source-cannot-fit | 🔴🔴🔴 **`main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK, AND IT IS PIN-ONCE SO NO OPERATOR CAN UNDO IT (measured 2026-08-17).** §E222 was closed by pinning 1inch's OffchainOracle as the ring's independent source. The wiring is real and correct in shape: `DeployLib.sol:170` sets `0x0AdDd25a…F9B8`; `Core.swap()` (`:776`) calls `_observeIfSourced()` at **`:822`**, `repack()` at `:932`; and `_observeIfSourced` (`:1288`) does `src.staticcall("getRate(address,address,bool)")` **with NO GAS CAP**. ⛔ **MEASURED ON MAINNET, NOT INFERRED — `cast estimate` against the live contract: `Error -32003: out of gas: gas required exceeds 16777216`.** The node refuses at its own 2^24 ceiling. §E232 independently measured the same call at **31,722,803 gas against a 30M block limit**: `getRate` iterates all 14 registered DEX oracles and their connectors, so one "read" is a full multi-venue aggregation executed on-chain. ⇒ **EVERY ETH SWAP AND EVERY REPACK FORWARDS 63/64 OF ITS GAS INTO A CALL THAT CANNOT COMPLETE.** The `if (!ok \|\| out.length < 32) return;` guard makes it fail SOFT, which does not save the transaction — the sub-call burns everything it is handed and the 1/64 left behind cannot finish a swap. 🔴 **AND IT IS UNRECOVERABLE IN PLACE: `setObservationSource` is pin-once (`require(observationSource == address(0), "!")`, `Core.sol:1276`)** — no re-point, no clear. A fresh deploy is dead on arrival and needs a CODE change, which is the difference between a config mistake and this one. ⚠️ **WHY IT PASSED REVIEW THREE TIMES, AND THIS IS THE TRANSFERABLE PART: `cast call` RETURNS A HEALTHY VALUE (`1906014527`) BECAUSE `eth_call` RUNS WITH AN EFFECTIVELY UNBOUNDED GAS ALLOWANCE.** The session that wired it, the session that closed it, and I all confirmed the contract EXISTS and RETURNS THE RIGHT NUMBER. **Nobody priced the CALL.** A live address says nothing about whether invoking it fits in a block, and `cast estimate` costs one second. ▶️ **THE FIX IS ALREADY WRITTEN AND WAS OVERRIDDEN ONCE — `ExternalTwap.curvePriceWad`**: a Curve `price_oracle()` storage read at **~2–3k gas**, a plain WAD needing no decoding, and a genuinely different MECHANISM from Chainlink (an EMA over executed trades vs a signed off-chain report). Open questions are its own: which pool per instance, and a deviation bound derived from Curve's EMA HALF-LIFE rather than inherited from a 30-minute-window bound. ⚠️ **BTC gains nothing from the change of venue** — Curve quotes WBTC, so §E223's wrapper objection survives and the BTC ring stays deliberately unset either way. ⛔ **§E222 IS NOT CLOSED: the self-write is genuinely gone (half the fix), the replacement source is unusable (the other half). Do not trust its ✅.** |
 
-### `§E258-oor-never-executes` 🔴
+### `§E258-oor-never-executes` ✅ **BUILT (§E303) — THE ROW BELOW STATES A FACT THAT IS NOW FALSE**
+
+⛔ **DO NOT READ THE ROW'S HEADLINE MEASUREMENT AS CURRENT.** It says *"`fillOOR` returns ZERO hits
+repo-wide"*, and that was the whole basis of the finding. **Re-measured 2026-08-22:
+`Quid.sol:1096` — `function fillOOR(uint id) external nonReentrant`**, body in `RangeLib`, with the
+in-swap drain documented at `Quid.sol:1088` and a test file covering it. One source file and one
+test file reference it. ⇒ The capability regression the row describes is **closed**; the row is
+retained because its *reasoning* is the specification (fill-on-touch backed by the sorted set, the
+`(price << 96) | id` key, the in-swap cap, the poke as liveness backstop) and because its two
+dependants — §E255's `oorShares`-in-`totalSupply` and §E251's vBTC lending — were gated on OOR
+having a settlement path, which it now has. ⚠️ **This is the row-vs-code drift `CLAUDE.md` warns
+about arriving through a MEASUREMENT rather than a status marker: the ✅ was missing AND the
+evidence sentence was still asserting absence, which is the more expensive half — a reader
+re-deriving from that sentence concludes the feature does not exist and builds it twice.**
+
 
 | §E258-oor-never-executes | 🔴🔴 **THE v4 CUT SILENTLY TURNED LIMIT ORDERS INTO OPTIONS — AND I SHIPPED THE EXACT VARIANT I HAD REJECTED IN WRITING (owner asked 2026-08-17: *"you planned a replacement method for outofrange orders that would autoexecute them?"*).** MEASURED, not recalled: `selfManaged` has exactly **two** kinds of consumer in `evm/src` — `Quid.outOfRange` / `BtcLib.outOfRangeBtc` **CREATE** a position, and `RangeLib.pull` **CLOSES** it behind `if (position.owner != owner) revert NotOwner()`. **`fillOOR` returns ZERO hits repo-wide. Nothing consumes a resting order when price crosses it.** Under v4 the PoolManager filled a boundary order automatically as part of any swap that crossed the range; `FixedRateFill` is explicitly *"ONE PRICE, NO TRAVERSAL … no tick to cross"*, so **the crossing that used to execute these orders no longer happens anywhere.** ⇒ **A boundary order placed below spot will NOT execute when price falls through it. The owner pulls back what they put in.** ⛔ **AND THE PLAN WAS RIGHT — IT JUST WAS NOT BUILT.** On 2026-08-13 I enumerated three replacements and chose one: *"**fill-on-touch backed by the sorted set**, with the poke as the liveness backstop for orders nobody's swap happens to cross. **That preserves the automatic-fill property, which is the thing users actually bought**"* — resting orders between the old and new price consumed as part of the fill, findable by price via **`SortedSetLib` (`evm/src/imports/SortedSet.sol`), WHICH ALREADY EXISTS** (`Basket` uses it for `perMonth`), with gas *"bounded by how many orders lie between old and new price, which for a ±20 bps range and two-tick moves is usually **zero**"*, plus a permissionless **`fillOOR(id)`** tipped from the fill. On 2026-08-15 the same conclusion was restated as the unification: *"a boundary order is a fill with a limit rate, quoted but not yet executed"*. 🔴 **THE VARIANT THAT SHIPPED IS THE ONE I EXPLICITLY REJECTED IN THE SAME PARAGRAPH: *"Claims rather than liquidity … Simplest, but it STOPS BEING A LIMIT ORDER (no execution guarantee at the moment of crossing) and becomes AN OPTION THE OWNER MUST EXERCISE."*** ⚠️ **NOTHING BOOKED THE DOWNGRADE.** The v4 cut's rows record what was deleted and what replaced it; this is a capability that was deleted with **no replacement built and no row saying so** — which is why it survived a full queue audit, a deletions scan and a five-day transcript sweep. **A capability regression leaves no broken symbol to find: `outOfRange` still compiles, still stores, still tests.** ▶️ **BUILD: the sorted set of resting orders keyed by price, consumption inside the fill between old and new price, and `fillOOR(id)` as the backstop.** ⚠️ **AND IT GATES TWO OPEN ITEMS: §E255 puts `oorShares` INTO `totalSupply`, and §E251 wants out-of-range BTC mintable as vBTC and lent on Morpho — both treat OOR as live inventory. If those orders can never execute, "locked liquidity" is permanently locked rather than resting, and both items are pricing a claim that has no settlement path.** |
 
