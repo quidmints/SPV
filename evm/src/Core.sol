@@ -445,8 +445,7 @@ contract Core {
         // than writing the timestamp by hand in a second place that could then disagree with it.
         if (prev == 0) {
             _varPx = px;
-            _bumpEwma(_varSq, 0);
-            _bumpEwma(_varDt, 0);
+            _bumpVar(0, 0);
             return;
         }
         uint dt = block.timestamp - _varSq.ts;
@@ -459,8 +458,48 @@ contract Core {
         _varPx = px;
         uint lo = px < prev ? px : prev;
         uint r = (px < prev ? prev - px : px - prev) * 1e18 / lo;   // |relative return|, WAD
-        _bumpEwma(_varSq, (r * r) / 1e18);            // squared return, back on WAD
-        _bumpEwma(_varDt, dt);
+        _bumpVar((r * r) / 1e18, dt);                 // squared return (back on WAD) + its seconds
+    }
+
+    /// @dev §E348 — BUMP BOTH VARIANCE REGISTERS THROUGH **ONE** DECAY EVALUATION, AND MAKE THE
+    ///      SHARED CLOCK TRUE BY CONSTRUCTION RATHER THAN BY CALL ORDER.
+    ///
+    ///      GAS. This was `_bumpEwma(_varSq, …); _bumpEwma(_varDt, …);`, and each of those calls
+    ///      `_decayed` → `_decayedBy` → **`FeeLib.decPow`, which is a `public` library function and
+    ///      therefore a DELEGATECALL** — with a binary-exponentiation loop inside it. The two calls
+    ///      took IDENTICAL arguments (`FLOW_DECAY`, the same `mins`, `FLOW_MAX_MIN`) and `decPow` is
+    ///      `pure`, so one of the two delegatecalls was pure waste on every anchor-moving swap.
+    ///
+    ///      ⭐ AND IT IS A CORRECTNESS HARDENING, WHICH IS THE HALF WORTH KEEPING. `anchorVarianceWad`
+    ///      is a RATIO of these two registers (`_varSq.vol · 31536000 / _varDt.vol`), and it reads
+    ///      them RAW — which is only sound because both were last decayed by the SAME factor, so the
+    ///      factor cancels. That was true only because the two `_bumpEwma` calls happened to sit
+    ///      adjacent in one transaction: an invariant maintained by call ORDER, which a later edit
+    ///      could separate with nothing failing loudly. σ² would then drift by the ratio of two
+    ///      decay factors — a plausible-but-wrong number on the drain-charge path, i.e. exactly the
+    ///      silent class §A.16b names ("numerator and denominator must share a reconciliation
+    ///      clock"). One writer that touches both registers with one factor makes the divergence
+    ///      UNCONSTRUCTIBLE instead of merely unlikely (standing rule 17).
+    ///
+    ///      BIT-IDENTICAL: `_decayedBy(f, 1)` is `mulDiv(f.vol, decPow(FLOW_DECAY, mins, cap), 1e18)`
+    ///      with `mins = (block.timestamp − f.ts) / 60`, and `_varSq.ts == _varDt.ts` always — they
+    ///      are written ONLY here, always as a pair, in one transaction, and both start at 0. The
+    ///      `ts == 0` arm returns the register unscaled, which `factor = 1e18` reproduces exactly.
+    function _bumpVar(uint sqInc, uint dtInc) private {
+        uint ts = _varSq.ts;                          // ONE clock for both registers
+        uint factor = 1e18;                           // ts == 0 ⇒ no decay, matching `_decayedBy`
+        if (ts != 0) factor = FeeLib.decPow(FLOW_DECAY, (block.timestamp - ts) / 60, FLOW_MAX_MIN);
+        _decayInto(_varSq, factor, sqInc);
+        _decayInto(_varDt, factor, dtInc);
+    }
+
+    /// @dev Apply an ALREADY-COMPUTED decay factor and add. Mirrors `_bumpEwma`'s uint128 saturation
+    ///      exactly; it differs only in taking the factor rather than deriving it, so the caller can
+    ///      derive it once for a pair of registers that share a clock.
+    function _decayInto(Flow storage f, uint factor, uint inc) private {
+        uint v = Math.mulDiv(f.vol, factor, 1e18) + inc;
+        f.vol = v > type(uint128).max ? type(uint128).max : uint128(v);
+        f.ts  = uint64(block.timestamp);
     }
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
