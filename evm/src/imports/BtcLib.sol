@@ -7,27 +7,41 @@ import {ILevVenue, IERC20Min} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 import {LevMath} from "./LevMath.sol";
-import {ICore} from "./Interfaces.sol";
-import {ICore} from "./Interfaces.sol";
+import {ICore} from "./Interfaces.sol";   // §E326: was declared twice, on consecutive lines
 import {IBasket} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
 // External surfaces used below all come from Interfaces.sol now (§A.52):
-//   • ILevEquityBtc — BtcLevManager's per-LP book (was `ILevBtc_V`, a 3-of-4 subset).
-//   • IEthVenue     — the Vault's own surface, reached by self-call because these bodies are
+//   • ILevEquity — BtcLevManager's per-LP book. ⚠️ §E326: this bullet said `ILevEquityBtc`, which
+//                      is DECLARED NOWHERE — the suffixed face was folded into `ILevEquity`
+//                      (Interfaces.sol:234, "ILevEquity_VG and the former ILevEquityBtc/ILevBtc_V"),
+//                      and that is the name the bodies below actually import and cast.
+//   • ICore      — the Vault's own engine surface, reached by self-call because these bodies are
 //                      DELEGATECALL'd (address(this)==Vault) and the value-type fee accumulators
 //                      can't be handed over as storage refs (was `IVaultCtx_V`).
+//                      ⚠️ §E326: this bullet said `IEthVenue`. That interface still exists but is
+//                      the ETH-VENUE CUSTODY face (Interfaces.sol:588 — rangeETH, deliverableETH,
+//                      supplyEtherFi), it is implemented at a DIFFERENT ADDRESS since the EthVenue
+//                      extraction, and it appears nowhere in this library. A BTC library documented
+//                      as self-calling through an ETH-venue interface is the extraction leaving its
+//                      prose behind, and the misreading it invites is that the two share an address.
 //   • IAux      — the Aux surface (was `IAuxBtc_V` + `IAuxDeposits_V`, both strict subsets;
 //                      IAuxDeposits_V's lone `get_deposits` is byte-identical to IAux's).
 // The Basket mint callback stays local: `mint` is Basket's only member any consumer in this
 // subtree needs, and it is declared exactly once tree-wide, so there is nothing to dedup.
-/// @title  BtcLib — the BTC range / leverage / channel accounting extracted from QuidLib
-///         (now purely the ETH venue custody ladder) for EIP-170 headroom. DELEGATECALL'd by the
-///         Vault exactly as the BTC bodies were when they lived in QuidLib: `address(this)`==Vault,
-///         so all storage/custody are the Vault's. Byte-identical to the former in-QuidLib BTC
-///         bodies -- only the home moved. Pairs with QuidLib (the ETH range's mirror).
+/// @title  BtcLib — the BTC range / leverage / channel accounting extracted from QuidLib for EIP-170
+///         headroom. DELEGATECALL'd by the Vault exactly as the BTC bodies were when they lived in
+///         QuidLib: `address(this)`==Vault, so all storage/custody are the Vault's. Byte-identical
+///         to the former in-QuidLib BTC bodies -- only the home moved. Pairs with QuidLib, the ETH
+///         range's mirror.
+///         ⚠️ §E326: this line called QuidLib "now purely the ETH venue custody ladder", which
+///         contradicted its own closing clause one sentence later and is not what QuidLib is. Of
+///         its 26 functions the venue ladder is six (supplyVenueBody, withdrawETH, offrampBody,
+///         waitNft, deliverableETH, rangeETH); the rest are the ETH RANGE bodies this library
+///         mirrors one-for-one — rebalanceBody, addLiq, derivedThetaWad, transferSharesBody,
+///         sizeOutOfRange, depositETH. Read as written, it says the mirror has no mirror.
 library BtcLib {
 
     // Mirror Vault's custom errors so reverts from delegatecalled bodies carry the SAME 4-byte selector.
@@ -38,9 +52,16 @@ library BtcLib {
     error ZeroTwap();
     error InsufficientChannelBtc();   // mirror Vault's selector (name-derived) for the delegatecalled expose body
 
-    /// @notice Body of Vault._settleBtcLp. Per-LP pro-rata: USD-leg → QUID (or
-    ///         banked to usd_owed when payTo==0); BTC-leg → native sats
-    ///         (btcFeesOwedSats), settled by the hop at channel close.
+    /// @notice Body of Vault._settleBtcLp. Per-LP pro-rata: USD-leg → QUID (or banked to `usd_owed`
+    ///         when payTo==0); BTC-leg → COMPOUNDED INTO `LP.pooled` in native sats, as the body
+    ///         below does and explains (E145).
+    /// @dev    ⚠️ §E326 — THIS BLOCK READ "BTC-leg → native sats (btcFeesOwedSats), settled by the
+    ///         hop at channel close", which is the model E145 DELETED: `btcFeesOwedSats` no longer
+    ///         exists, and the two remaining mentions are inside this function's own body,
+    ///         describing what it stopped doing. `Vault.sol` carries the same correction with an
+    ///         explicit "do not restore it" — this docblock is the copy that was missed, so the
+    ///         retired model was still being asserted in the @notice of the function that retired
+    ///         it. A docblock and its body disagreeing is how a fixed thing gets re-read as broken.
     function settleBtcLp(
         Types.Deposit storage LP,
         address /*lpEth*/, address payTo, address quid,   // §V4-RESIDUE 2026-08-18: `lpEth` unread here — the
