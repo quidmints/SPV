@@ -3,6 +3,45 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0k. ✅ **§SAME-EXPRESSION SWEEP — 334 CANDIDATES, 4 REAL, AND IT FOUND A SECOND INSTANCE OF THE
+BUG THAT PROMPTED IT** (2026-08-23)
+
+Signature from §0j: two locals assigned the IDENTICAL expression under different names. The naive
+scan returns **334** — useless, because `before`/`after` pairs read the same expression at different
+TIMES and that is correct. **The discriminator is ADJACENCY plus non-temporal names:** consecutive
+lines, no state change between them, names that denote different SUBJECTS rather than different
+moments. That cuts 334 → **4**, and all four are decided:
+
+| site | verdict |
+|---|---|
+| `LevCascade:790,791` `ethPooled18`/`btcPooled18` | 🔴 **§WRONG-RANGE** (booked §0j) |
+| **`LevCascade:866,867` `ethPooled18`/`btcPooled18`** | 🔴 **SECOND INSTANCE, NEW — the same defect in a different test in the same file.** Found only by the sweep; reading §0j's test alone would have missed it |
+| `RefillTriggerAndProRata:60,61` `first`/`second` | 🟠 **VACUOUS ASSERTION** — see below |
+| `OorFillsOnTouch:140,141` `a`/`b` | ✅ **NOT A BUG.** `Quid.outOfRange` is state-CHANGING, so two identical calls legitimately create two positions with different ids. **The sweep's own false-positive class: identical args to a non-view function are not identical results** |
+
+### 🟠 `test_ExitOrderCannotChangeWhatYouBear` CANNOT FAIL, AND ITS NAME IS THE CLAIM IT DROPS
+```solidity
+uint first  = SwapLib.proRataShortfall(shortfall, each, each * 2);
+uint second = SwapLib.proRataShortfall(shortfall, each, each * 2);
+assertEq(first, second, "identical holders must bear identical shortfall regardless of order");
+```
+`proRataShortfall` is **`pure`**, and the test itself is `pure`. Calling a pure function twice with
+identical arguments returns identical values **by referential transparency** — the assertion is a
+tautology and cannot fail for any implementation, correct or not. ⇒ **It does not test exit ORDER; it
+tests that Solidity is deterministic.**
+⭐ **WHAT ORDER-INDEPENDENCE ACTUALLY REQUIRES, and why the current form misses it:** the second
+exiter faces a *reduced* `totalShares` and a *reduced* remaining shortfall. The claim is that
+`proRataShortfall(shortfall, each, 2·each)` equals `proRataShortfall(shortfall − first, each, each)`
+— **two DIFFERENT calls whose equality is a real property of the formula.** That is the test that can
+fail, and it is the one §E313/§SPRINT:1942's first-out-advantage question needs.
+✅ **Its SECOND assertion is genuine and should stay:** `assertEq(first + second, shortfall)` — the two
+halves bear all of it, none escaping. **One vacuous assertion and one real one in the same test** is
+why a per-test "has assertions" check cannot find this class.
+
+▶️ **Sweep is complete for this signature. The remaining 330 are legitimate temporal pairs** — recorded
+so nobody re-runs the naive version and reports 334 findings.
+
+---
 ## 0j. 🔴 **§WRONG-RANGE IS STILL LIVE IN `LevCascade` — TWO "DIFFERENT" LEGS ARE THE IDENTICAL
 EXPRESSION, AND ITS PREMISE GUARD CANNOT SEE IT** (found 2026-08-23 by predicting the SHAPE first)
 
