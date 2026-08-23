@@ -8460,7 +8460,19 @@ there is **no 1inch execution router anywhere in `src`** — the only 1inch surf
 at all"*: **V3 cannot be removed until 1inch replaces it, so the directive and `ROUTING-AGGREGATION.md`
 are ONE task.**
 
-✅ **LANDED: `LevMath._aggSwap`** — router pinned (`ONE_INCH_ROUTER`, verified on-chain codesize
+🔴 **NOT LANDED — THIS ✅ IS FALSE AT HEAD, AND A FALSE ✅ IS HOW WORK DISAPPEARS (re-measured
+2026-08-23, §E324-TRIAGE).** `grep -rn` over `evm/src`: **`_aggSwap` 0 references · `ONE_INCH_ROUTER`
+0 references**, while **`V3_SWAP_ROUTER` has 8 and `_poolSwap` has 8** — so the V3 hop this row says
+was replaced is still the ONLY router, and the 1inch leg does not exist in the tree. ⚠️ **THE PROSE
+BELOW IS A DESIGN SPEC WRITTEN IN THE PAST TENSE**, which is exactly what makes it dangerous: every
+property it asserts (measured balance delta, exact-amount approval zeroed on failure, shortfall-not-
+revert) is a REQUIREMENT for the function, not a description of one. ⇒ Under rule 16 this is 🔴, and
+whoever builds it should treat the text below as the acceptance criteria it actually is.
+⛔ **DO NOT "VERIFY" THIS BY RE-READING THE ROW.** Its own falsifiable claim — a pinned router with a
+named constant — is one grep, and it returns nothing. The 24,294 codesize was measured against the
+LIVE 1inch router on-chain, so it is true about the WORLD and says nothing about our tree; that is why
+it reads as evidence. **A measurement of an external contract is not evidence that we call it.**
+✅ ~~**LANDED: `LevMath._aggSwap`**~~ — original text, kept as the spec: router pinned (`ONE_INCH_ROUTER`, verified on-chain codesize
 **24,294**), calldata as an ARGUMENT because Pathfinder's weighted split has nothing to derive
 on-chain. Enforces all three PM invariants explicitly: `out` is a **MEASURED balance delta** (never the
 router's return value), direction is the caller's, and approval is exact-amount and **zeroed on every
