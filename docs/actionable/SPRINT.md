@@ -577,6 +577,46 @@ comments/whitespace, strip `Btc`/`Eth` from identifiers), hash for exact groups,
 ≥0.80 within a ±25% length band. ⚠️ **EXCLUDE `Interfaces.sol` — declarations have NO body, so a naive
 brace-search grabs the NEXT function's and reports every declaration as a duplicate.** That false
 positive produced 21 bogus groups before it was excluded.
+▶️ **It is now a checked-in tool: `tools/find-duplicate-bodies.py`.** Re-running it after batch 1
+reported **29 pairs**, i.e. the static table above was never the whole set — batch 2 came from the
+tool, not from re-reading the table.
+
+### ✅ **NINE FOLDS LANDED (batches 1–2, 2026-08-23)** — all five table rows, plus four the tool found
+| fold | shape |
+|---|---|
+| `BitcoinTx` ×3 | one `_scanOutputs` walker + three thin wrappers; ABI unchanged |
+| `LevMath._toUsdc` ~ `_fromUsdc` | `_hubSwap({stable, amt, toUsdc})` |
+| `LevMath._sellAndRoute` ~ `_sellAndReturn` | one `_sellAndPay(…, recipient, …)` |
+| `LevMath._wbtcToStable` ~ `_wethToStable` | `_volToStable(vol, fee, …)` — the legs differed only in the V3 fee tier |
+| `Aux._withdraw` ~ `_supply` | one `_supplyCfg()` |
+| `Aux.aaveBalance` ~ `aaveShares` | `_aaveUser(token, wantShares)` |
+| `Aux.getTWAPforAsset` ~ `resolvedTwap` | forwards; `stale` dropped |
+| `LevManager.deleverRepayUsd` ~ `LevBase.debtDeltaToTarget` | one `_targetInputs()` |
+| `Quid.convertToShares` ~ `convertToAssets` | `_convert(amt, toShares)` |
+| `LevVenueBase.debtOf` ~ `collateralOf` | `_escrowReserve(lp, wantDebt)` |
+
+⭐ **`BitcoinTx` is the one worth reading, because the file recorded a PRIOR FAILED ATTEMPT at exactly
+this fold:** *"kept as its own loop (not folded … via a shared `_scanOutputs`) — the 3-tuple helper
+return tipped the legacy stack in a downstream caller and via_ir is off-limits."* The walker returns
+**ONE PACKED WORD**, `(vout << 64) | satoshis`, which cannot tip a stack — and the packing is lossless
+**BY CONSTRUCTION, not by an assumed bound**: an output value is exactly 8 bytes on the wire, so it
+fills the low 64 bits exactly and can never collide with the vout field, even for a crafted
+`0xffffffffffffffff`. **A recorded blocker is a design constraint, not a prohibition — but only if you
+sidestep the mechanism it names rather than retrying the shape that failed.**
+⭐ **Three of these are folds where the DUPLICATION ITSELF was the hazard, not the byte count:**
+`aaveBalance/aaveShares` must resolve the SAME reserve id or their ratio is not the liquidity index;
+`convertToShares/convertToAssets` must carry the IDENTICAL bootstrap 1:1 identity or a deposit and its
+matching redeem disagree at the empty-vault boundary; `_escrowReserve`'s single flag now picks BOTH
+the asset and the slot, so a debt read and a collateral read cannot describe different escrows and
+hand back a plausible LTV for a position that does not exist.
+
+### ⛔ **FOUR CANDIDATES DECLINED — a 0.9+ similarity score says NOTHING about whether folding is SAFE**
+| pair | why not |
+|---|---|
+| `LevMath._fromUsd` ~ `_toUsd18` | the comment 4 lines above records THIS EXACT FRAME blowing the stack in `sellForStable` with `via_ir` off **by choice**; a tuple-returning helper is precisely what reintroduces it |
+| `Quid._venueBalance` ~ `QuidLib._venueBalanceLib` | the lib copy reaches the venue via `IEthVenue(ev).rangeOp(…)`, so routing through it turns an internal call into an **external self-call** — different gas, different reentrancy surface, on a hot path. **A behaviour change wearing a dedup costume** |
+| `LevMath._stableToWbtc` ~ `_stableToWethSor` | one carries a slippage-floor computation the other lacks |
+| `LevVenueBase.borrowStable` ~ `repayStable` | differ in the POOL call **and** the delta direction **and** a transfer — three branches to save four lines |
 
 ---
 ## ⛔ **HOW TO CLOSE A ROW — A STALE REFERENCE IS A RE-AUDIT TRIGGER, NOT A CLOSURE** (owner,
