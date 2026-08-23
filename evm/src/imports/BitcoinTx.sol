@@ -41,7 +41,10 @@ library BitcoinTx {
     /// "duplicated `BitcoinTx` surface" to delete once `TxParser` took over witness
     /// parsing. Counting real callers says otherwise: **every other function here has at
     /// least one live use**, so there is no dead surface to subtract. `readVarInt` was the
-    /// only one used purely INTERNALLY (13 call sites in this file, zero outside), so the
+    /// only one used purely INTERNALLY — **zero call sites outside this file**, which is the half
+    /// that justifies `private`; the in-file count is 15 today and is deliberately NOT pinned here,
+    /// because an absolute count in a comment rots on the next edit (it said 13). Re-derive with
+    /// `grep -c readVarInt`. **The claim that survives edits is the ZERO, not the 13.** So the
     /// whole available subtraction is this visibility tightening.
     /// ⇒ §E140 is CLOSED BY MEASUREMENT: the two parsers are not redundant. `TxParser`
     /// reads witness-carrying txs (which `_assertLegacy` rejects outright), and §E140-r2

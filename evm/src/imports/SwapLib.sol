@@ -1403,7 +1403,9 @@ library SwapLib {
         // the ceiling, conservative); this handles data that is real and tiny. Different inputs.
         if (inv0 != 0 && inv1 < inv0) {
             // `SoladyMath`, not `FullMath` (which left with core-core) and not OZ `Math`: solady is
-            // this file's convention — 32 call sites to OZ's 2.
+            // this file's convention — solady outnumbers OZ `Math` in this file by roughly 5:1
+            // (37 to 7 today; it said "32 to 2", so BOTH numbers drifted while the conclusion did
+            // not). State the RATIO, not the tally: a count is a citation with a half-life.
             skew += SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
         }
     }
