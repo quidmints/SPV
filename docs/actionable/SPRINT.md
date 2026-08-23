@@ -3,6 +3,38 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0c. 🔴 **§E352 IS NOT NEW — IT IS §E278's SECOND HALF, AND ITS GUARD TEST PASSES *BECAUSE OF* THE
+DEFECT** (verified 2026-08-23; corrects my own booking from earlier today)
+
+I booked §E352 this morning as a fresh finding: *"`skewWad`'s sentinel says unmeasured ⇒ charge the
+ceiling, `_maxWellSkew` says unmeasured ⇒ charge nothing, and on the flush branch the permissive one
+wins."* **That is true, and it was already booked as §E278 on 2026-08-21.** Fold them; do not carry two
+IDs for one defect, and note that §E278 carries a gate my booking lacked — the flush half is also
+gated on §C1 (which σ² source).
+
+### ⭐ THE REASON IT SURVIVED TWO SESSIONS, AND IT IS THE FINDING WORTH KEEPING
+`test/SkewUnmeasuredVariance.t.sol:67` — `test_FlushRangeStillOwesOnlyTheBase` — is the guard for
+exactly this, and **its only assertion is discharged by the bug it exists to catch.** Verified at the
+call site:
+```solidity
+uint flush = SwapLib.skewWad(POOL, POOL / 10, 0, SwapLib.ethRisk(), 0);   // σ² = 0, size = 0
+assertLt(flush, CEIL, "a flush range must not be charged the unknown-variance ceiling");
+```
+`target = POOL/10 < POOL = inv1`, so it takes the flush branch and returns `_maxWellSkew(0, ethRisk)`
+= `0·confFrac/8 + 0` = **0** on ETH. `assertLt(0, 3e16)` passes. ⇒ **The test cannot distinguish
+"charged the base" from "charged NOTHING", which is the whole question its name asks** — it says
+*StillOwesOnlyTheBase* and never asserts that the base is OWED.
+🔴 **SAME SHAPE AS §E279's `assertGt`, AND THAT IS TWICE NOW.** A one-sided bound on a quantity whose
+defect moves it to the permissive side is not a guard; it is a rubber stamp. **The missing assertion is
+`assertGt(flush, 0)` — or, once §C1 lands, `assertEq(flush, expectedBase)`.**
+⚠️ **DO NOT ADD IT AS A LOOSENING-IN-REVERSE WITHOUT THE ARITHMETIC FIX**: on ETH today the honest
+value IS 0 (zero splice floor × zero σ²), so a strengthened assertion goes red immediately and
+correctly. That red is the finding, not a regression — but it must land WITH the decision, not before
+it, or it reads as a broken test to the next thread.
+▶️ **AUDIT ACTION THIS GENERALISES TO:** grep the suite for one-sided bounds (`assertLt`/`assertGt`)
+on quantities that a suspected defect drives to the asserted side. Two of two found so far were real.
+
+---
 ## 0b. ✅ **WAVE RESULTS — L1/L2/L4 (2026-08-23, single shared tree, no worktrees)**
 
 **Rows closed as ALREADY-DONE by re-measurement, not by re-reading:** `§AUDIT-SPV-RETARGET`
