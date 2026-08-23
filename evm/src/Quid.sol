@@ -313,11 +313,21 @@ contract Quid is Shares,
         DEPLOYER = msg.sender;
     }   fallback() external payable {}
 
-     modifier onlyUs {
+    /// §E346 — THE MODIFIER STAYS; ITS BODY DOES NOT (standing rule 8c). A modifier is INLINED at
+    /// every use site, so the three storage reads, the two comparisons and the `"403"` string were
+    /// six copies in bytecode for one rule. Moving the body into a `private view` leaves the
+    /// modifier as one `JUMP` per site and the rule as one routine — the same trade §E164 measured
+    /// on `BTCChannels`, where `_onlyHop()` gave back 200 bytes over four sites.
+    /// ⚠️ Deliberately NOT done by rewriting the six signatures to call `_onlyUs()` in their bodies:
+    /// that moves the guard from the DECLARATION into the body, where a later edit can reorder it
+    /// after a state read. The modifier keeps the guard positionally first by construction and the
+    /// saving is identical — what costs bytes is the body being copied, not the modifier existing.
+    function _onlyUs() private view {
         require(msg.sender == address(AUX)
              || msg.sender == address(CORE)
-             || msg.sender == address(this), "403"); _;
+             || msg.sender == address(this), "403");
     }
+    modifier onlyUs { _onlyUs(); _; }
 
     function setup(address _quid,
         address _aux, address _core) external onlyOwner {
