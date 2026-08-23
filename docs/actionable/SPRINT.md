@@ -3,6 +3,51 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0h. 🔬 **§LEVCASCADE-STUCK — THE CHAIN NARROWED TO ONE LINK. `deleverOne` SUCCEEDS WHERE THE TEST
+NEEDS IT TO REVERT** (2026-08-23; four of the seven clustered lev failures)
+
+`test_Isolation_StuckLpDoesNotTouchAnother` fails `assertEq(failed, 1)` with **0**. Established, not
+assumed:
+1. **It is not the missing emit.** It drives `lm.cascadeDelever(batch, mins)` (`:485`), and that path
+   DOES emit (`LevManager:369`). §SILENT-SKIP's missing emit is on the DELIVERY path and is unrelated.
+2. **It is not a skipped iteration.** `cascadeDelever`'s only `continue` is `if (!pos[lp].open)`;
+   everything else reaches `try this.deleverOne(...) catch { emit DeleverFailed(...) }`.
+3. **It is not a fixture that failed to open.** `_openLevOnly` calls `lm.openLev(5000, …)` with **no
+   try/catch**, so a failed open would fail the test AT THAT LINE with a revert, not here with `0 != 1`.
+4. **The cap clears today's new floor.** `openLev(5000, …)` against `_requireTargetLtv`'s
+   `capBps > RANGE_BPS(300)` — checked, because I added that floor hours earlier and it could have
+   caused exactly this signature.
+⇒ **By elimination: `deleverOne(lps[0], 0)` RETURNS SUCCESSFULLY even though the LP has revoked the
+venue's Morpho authorization.** The revocation is a sound brick in principle — `MorphoEscrowVenue`
+borrows and withdraws with `onBehalf = lp` (`LevVenueBase:148,170`), which Morpho requires
+authorization for — so the only way it is never hit is that **`deleverOne` returns before touching
+Morpho at all.**
+
+### ▶️ THE LEADING HYPOTHESIS, AND IT IS TESTABLE IN ONE READ
+`ilTargetBps` returns **0 when `pxNow <= ilBasisPx`** (`LevMath:92` — at or below entry there is no
+UP-SIDE IL, and a long LP does not hedge the downside). The fixture ends with
+`_crashRange(3000, 24, 40 ether)` — **a crash**. If the crash leaves price at or below each LP's pinned
+entry, the target is 0, `debtDelta` reports in-range, and `deleverOne` is a **no-op that succeeds** —
+no Morpho call, no revert, no `DeleverFailed`.
+**This would explain the sibling failures with one cause**, which is why it is worth settling before
+anything else in the cluster: *"cascade made no net de-lever progress (no sell→repay ran)"*, *"de-lever
+must repay real Morpho debt"*, and *"cascade de-levered no position"* are all what a zero target
+produces.
+⚠️ **THE COMPLICATION THAT MAKES IT A HYPOTHESIS RATHER THAN A FINDING:** the fixture RALLIES first
+(`_rallyRange(entry, 0.2e18, 24, …)`) and calls `lm.rebalance` for each LP before crashing, so debt
+SHOULD exist by then — at +20% the target is `1−√(1/1.2)` ≈ **871 bps**, well over the 300 dead-band.
+So either the rally does not move the price these positions actually see, or the crash unwinds the
+debt legitimately and the test's premise (a position still owing something at cascade time) no longer
+holds.
+▶️ **DECISIVE EXPERIMENT, one line and no new test:** log `venue.debtOf(lps[0])` and
+`lm.ilTargetLtvBps(lps[0])` immediately before `cascadeDelever`. **Non-zero debt + zero target ⇒ the
+crash killed the target** (a real finding about the down-leg). **Zero debt ⇒ the rally never levered**
+(a fixture/anchor problem, and the same family as §SILENT-SETUP).
+⛔ **DO NOT "FIX" THIS BY MAKING THE LP STUCK ANOTHER WAY.** The revocation mechanism is correct; if
+`deleverOne` never reaches Morpho, a different brick would be equally unreached and would only hide
+which of the two answers above is true.
+
+---
 ## 0g. 🟠 **§SILENT-SKIP — THE SAME FAULT IS ANNOUNCED ON ONE DE-LEVER PATH AND INVISIBLE ON ITS
 TWIN** (2026-08-23)
 
