@@ -3,6 +3,39 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0g. 🟠 **§SILENT-SKIP — THE SAME FAULT IS ANNOUNCED ON ONE DE-LEVER PATH AND INVISIBLE ON ITS
+TWIN** (2026-08-23)
+
+`evm/src` has **97 `catch` sites, 93 emitting nothing** — and the raw count is NOT the finding, because
+most are the documented fail-open policy (*"THE READ MUST NOT BE ABLE TO HALT THE RANGE"* — degrade to
+unmeasured, never revert). **The discriminator is whether the swallowed call was a READ or a
+SETTLEMENT.** On that test, one pair stands out:
+
+| path | on a stuck LP | |
+|---|---|---|
+| `LevManager.cascadeDelever:369` | `catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }` | ✅ announced |
+| `BtcLevManager:271` | same | ✅ announced |
+| **`SwapLib.deleverEthOnDelivery`** | `try IAux(aux).takeToSettle(…) { try …swapOutDelever(…) {…} catch {} } catch {}` | 🔴 **silent** |
+
+**The SKIP is intended on both** — `deleverEthOnDelivery`'s own docblock says *"fault-tolerant (a stuck
+LP is skipped → residual #105 partial-fill)"*. **What is not obviously intended is that one of the two
+is unobservable.** The delivery path is the one reached when a swap-out cannot be covered, so a stuck
+LP there silently becomes a partial fill, and the only trace is a shortfall the caller must infer.
+⇒ Standing rule 3 is exactly on point: a check earns its place when the failure would otherwise be
+SILENT and produce plausible-but-wrong output. `DeleverFailed` already exists on `LevBase:100` and is
+inherited by both managers, so this is an `emit`, not a design.
+
+⚠️ **MY FIRST HYPOTHESIS WAS THAT THIS CAUSES THE FAILING TEST, AND IT IS WRONG — RECORDED SO NOBODY
+RE-DERIVES IT.** `LevCascade.t.sol:491` (*"the stuck LP must emit exactly one DeleverFailed"*, failing
+`0 != 1`, ×4) drives `lm.cascadeDelever(batch, mins)` at `:485` — **the path that DOES emit.** So the
+failure is that the LP was never actually stuck (a fixture premise), not that the emit is missing.
+**Same family as §SILENT-SETUP, different instance**, and it is one of the seven clustered lev
+failures still without a root cause.
+▶️ Two separate items, do not merge them: **(1)** add the `emit` to the delivery path (small, and it
+makes the residual observable); **(2)** find why `LevCascade`'s stuck-LP fixture produces an LP that
+de-levers successfully — that is where four of the failures live.
+
+---
 ## 0f. ⛔ **§FEWER-FILES — MEASURED AND RULED OUT. ZERO LIBRARIES ARE FOLDABLE, AND EACH IS BLOCKED
 FOR A DIFFERENT REASON** (owner asked 2026-08-23: *"minimise libraries and state, we could probably do
 everything in the contracts themselves and not have so many files"*)
