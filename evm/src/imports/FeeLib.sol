@@ -116,6 +116,33 @@ library FeeLib {
     ///         separate risk term. All inputs are in memory (no vault re-
     ///         read): `yields` is the per-stable yield-weighted array that
     ///         get_deposits already computed.
+    /// 🔴 **BOOKED 2026-08-23 — ZERO PRODUCTION CALLERS, AND `public`, SO IT IS DEPLOYED BYTECODE
+    ///     NOTHING CAN REACH.** Not fixed here: removing it is an ABI change (a selector leaves
+    ///     `FeeLib`'s dispatch table), and the lane that measured it could not run the client gate.
+    ///   • **MEASURED SURFACE.** In `evm/src` and `evm/script` every `calcFeeL1` occurrence is a
+    ///     COMMENT (`Aux.sol`, `BasketLib.sol`, `DeployL1_s.sol`); the only executable references
+    ///     are three in `test/Alles.t.sol`, which call it directly as a unit under test. Because it
+    ///     is `public`, it appears in `out/FeeLib.sol/FeeLib.json`'s `methodIdentifiers` — a live
+    ///     dispatch entry on every deployment. **Visibility, not caller count, is what makes an
+    ///     unwired function cost bytes** (contrast `SwapLib`'s parked quote surface, which is
+    ///     entirely `internal` and therefore free).
+    ///   • **`git log -S` RUN, AND IT ANSWERS THE `create_sweep_tx` QUESTION IN THE OPPOSITE
+    ///     DIRECTION — WHICH IS THE WHOLE POINT OF RUNNING IT.** This is NOT a marker for a feature
+    ///     nobody has built yet. Its last production consumer was the concentration SHED-RANK, and
+    ///     `4583a21e` (§E228/§E229) deleted that deliberately — *"wrong in six ways, not one"* —
+    ///     taking `CONC_GATE_BPS` with it; `09fedf18` then deleted the SOR and *"purged what
+    ///     described it"*. A function whose caller was removed ON PURPOSE is a TOMBSTONE; one whose
+    ///     caller is a security feature not yet written is a MARKER. Only the second is protected.
+    ///   • ▶️ **THE PLAN, FOR WHOEVER OWNS THE ABI GATE.** Delete `calcFeeL1` together with its three
+    ///     `Alles.t.sol` call sites and the assertions around them; `BASE` and `MAX_FEE` stay (they
+    ///     are read by `grossUpForDepeg`'s neighbours and quoted in prose). Then run
+    ///     `tools/check-client-abis.py` and let it GATE the commit — a deleted declared name is an
+    ///     `ORPHAN` failure there by design (§E154-client-ghosts), which is exactly the signal wanted.
+    /// ⚠️ **AND WHILE HERE: `BASE`, `MAX_FEE` AND `DEPEG_DEADZONE_BPS` ARE `public constant`, WHICH IN
+    ///     A LIBRARY MINTS A GETTER SELECTOR EACH — all three are in `methodIdentifiers` above, and
+    ///     `grep` finds NO `FeeLib.BASE` / `FeeLib.MAX_FEE` / `FeeLib.DEPEG_DEADZONE_BPS` call in
+    ///     `src`, `test` or `script` (the tests assert the literal `30`). `internal constant` would
+    ///     drop three dispatch entries with no source change anywhere else. Same ABI-gate caveat.**
     function calcFeeL1(uint idx, uint[15] memory deps, uint[15] memory yields)
         public pure returns (uint)
     {
@@ -132,10 +159,16 @@ library FeeLib {
     }
 
 
-    /// @notice Gross-up the amount a depositor must send to net the
-    ///         requested amount after fee + depeg haircut. Aux uses this
-    ///         to compute the deposit size needed to honour a mint at
-    ///         book value when the target stable is currently discounted.
+    // ⛔ A SECOND ORPHANED `@notice` STOOD HERE, AND IT WAS THE FIRST OF TWO ON ONE DECLARATION —
+    //    THE EXACT DEFECT THE HEADER OF THIS FILE ALREADY RECORDS, REPEATED 130 LINES LOWER. It read
+    //    *"Gross-up the amount a depositor must send to net the requested amount after fee + depeg
+    //    haircut. Aux uses this to compute the deposit size needed to honour a mint at book value
+    //    when the target stable is currently discounted."* — a description of **`calcNeeded`**, which
+    //    is declared BELOW the struct, not of the struct it was attached to. solc binds a docblock to
+    //    the next declaration, so `FeeCtx` carried two `@notice` tags and the first one described a
+    //    function; `calcNeeded` itself carried none. Moved onto `calcNeeded` where it belongs.
+    //    ⚠️ THE TELL IS TWO `@notice` TAGS ON ONE DECLARATION. Nothing warns about it — the build is
+    //    green either way — so grep for a repeated tag rather than expecting a diagnostic.
     /// @notice Immutable fee-context bundle threaded through calcNeeded/allocate.
     ///         Bundling these TWO (vs passing them individually) keeps the
     ///         redemption path (BasketLib.takeBody) within the legacy stack — no
@@ -154,12 +187,19 @@ library FeeLib {
         return (sev > 0 && sev < 10000) ? SoladyMath.fullMulDiv(amount, 10000, 10000 - sev) : amount;
     }
 
+    /// @notice Gross-up the amount a depositor must send to net the
+    ///         requested amount after fee + depeg haircut. Aux uses this
+    ///         to compute the deposit size needed to honour a mint at
+    ///         book value when the target stable is currently discounted.
     function calcNeeded(address token, uint amount,
         uint[15] memory deps, uint[15] memory yields, FeeCtx memory c)
         external view returns (uint needed)
     {
-        // Concentration/cherry-pick fee is NO LONGER CHARGED to the user (baseRate already removed). The
-        // concentration `calcFeeL1` signal (yield-vs-baseline) survives ONLY as a ROUTING input.
+        // Concentration/cherry-pick fee is NO LONGER CHARGED to the user (baseRate already removed).
+        // ⛔ *"The concentration `calcFeeL1` signal (yield-vs-baseline) survives ONLY as a ROUTING
+        // input"* IS STRUCK (2026-08-23): the routing it names is the SOR, and the paragraph three
+        // lines below already establishes the SOR is deleted. The signal survives as NOTHING — see
+        // the tombstone note on `calcFeeL1` itself.
         // The sole outflow COST is the depeg haircut, and only during an actual depeg. deps/yields/c.stables
         // are retained in the signature for the lens seam (unused here).
         // 🔴 THE JUSTIFICATION FOR RETAINING THEM NAMED A COMPONENT THAT IS DELETED. It read *"SOR
@@ -169,8 +209,22 @@ library FeeLib {
         // parameters are held open for does not exist, so what is left is the lens seam alone.
         // ⚠️ THAT MAKES THE RETENTION A LIVE QUESTION RATHER THAN A SETTLED ONE — booked, not fixed
         // here: changing this signature is a cross-file edit (`BasketLib` calls it) and this lane
-        // cannot compile. See the report accompanying this commit for `calcFeeL1` itself, whose only
-        // remaining consumers are tests.
+        // cannot compile. See the tombstone note on `calcFeeL1` itself, whose only remaining
+        // consumers are tests.
+        // 📌 **THE PLAN, MEASURED 2026-08-23 — AND ONE OF THE THREE PARAMETERS ABOVE IS NOT DEAD,
+        // WHICH IS WHY THE OBVIOUS EDIT WOULD HAVE BROKEN THE CALLER.** The sentence above names
+        // *"deps/yields/c.stables"*. Only the first two are unused surface:
+        //   • `deps`, `yields` — genuinely unread here, and read by nobody through this frame. They
+        //     are the two that leave. **`FeeLib.calcNeeded` has exactly ONE production call site**
+        //     (`BasketLib._takePreferred`), so the edit is one declaration and one call.
+        //   • `c` — **STAYS.** `c.range` is read on the next line, and `c.stables` is live AT THE
+        //     CALLER: `BasketLib._takeProRata` iterates `fc.stables.length` / `fc.stables[i-1]` over
+        //     the same struct. It is a shared carrier, not a seam held open for a deleted component,
+        //     so "unused in this body" and "unused" are different claims about it — the control that
+        //     separates them is grepping the STRUCT MEMBER at every consumer, not the parameter here.
+        // ⇒ Target signature: `calcNeeded(address token, uint amount, FeeCtx memory c)`. It is an ABI
+        //   change (this function is `external`), so it must be landed with `tools/check-client-abis.py`
+        //   GATING the commit, not chained after it.
         deps; yields;
         needed = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
@@ -181,7 +235,16 @@ library FeeLib {
         address range) external view returns (uint)
     {
         // Concentration/cherry-pick fee no longer charged (only the depeg haircut is). idx/deps/yields kept in
-        // the signature for callers; concentration survives as a SOR routing signal only.
+        // the signature for callers.
+        // 🔴 CORRECTED 2026-08-23 — THE SECOND CLAUSE NAMED A COMPONENT THAT IS DELETED, AND IT IS THE
+        // SAME FALSE JUSTIFICATION `calcNeeded` ALREADY CARRIES A CORRECTION FOR, TWENTY LINES ABOVE.
+        // It read *"concentration survives as a SOR routing signal only"*. `Aux.sol`'s §E233-sor block
+        // is headed **"THE SOR IS DELETED: PLUMBING FOR A CAPABILITY THAT WAS ALREADY GONE"**, and
+        // `_pickBestPath` has ZERO references anywhere in `evm/src`. ⇒ There is no routing consumer;
+        // `idx`/`deps`/`yields` are held open for the lens seam alone, exactly as next door.
+        // ⚠️ **ONE CORRECTION LANDING IN ONE OF TWO IDENTICAL COMMENTS IS HOW THIS FILE GOT HERE.**
+        // The `calcNeeded` note was written when the SOR went and this twin was not touched, so the
+        // file asserted the SOR both dead and live, forty lines apart. Fix the class, not the instance.
         idx; deps; yields;
         return grossUpForDepeg(amount, calcRisk(token, range));
     }
@@ -197,7 +260,13 @@ library FeeLib {
             SoladyMath.fullMulDiv(WAD, slotDep, totalDep), WAD);
         if (amount == 0) return 0;
         // Pro-rata draws the SAME fraction of every stable → the basket mix (and its weighted-avg yield) is
-        // unchanged → ZERO cherry-pick externality, so NO fee here (the concentration/cherry-pick fee is priced
+        // unchanged → ZERO cherry-pick externality, so NO fee here.
+        // ⛔ THAT SENTENCE ENDED MID-CLAUSE — *"(the concentration/cherry-pick fee is priced"* — WITH NO
+        // CLOSING PAREN AND NO PREDICATE, AND THE MISSING HALF NAMED THE SINGLE-STABLE DRAW IT WAS
+        // CONTRASTING AGAINST. Completed rather than deleted, because the contrast is the reason there
+        // is no fee on this path: the concentration signal is priced on the SINGLE-STABLE leg
+        // (`calcFeeL1`'s yield-vs-baseline), which is the draw that can move the basket mix. A truncated
+        // comment reads as a whole one to anyone who does not count the parentheses.
         amount = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 

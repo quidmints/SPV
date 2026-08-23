@@ -45,11 +45,14 @@ import {Types, BtcVaultPinned} from "./imports/Types.sol";  // §E299: file-leve
 /// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
 contract Core {
 
-    /// Per-pool oracle rings — the engine now lives in OracleLib (delegatecall),
-    /// so the structs come from there. The scalar trio is grouped per pool so
-    /// the helpers take one `ObsState storage` ref (IS_BTC-dispatched via
-    /// `_obsState`). These were never read externally; only POOLED_* getters
-    /// (kept) are.
+    /// This instance's oracle ring — the engine lives in OracleLib (delegatecall), so the structs
+    /// come from there. Neither field is read externally; only the POOLED_* getters (kept) are.
+    /// ⚠️ THE PARAGRAPH THAT STOOD HERE DESCRIBED THE PRE-SPLIT SHAPE IN THE PRESENT TENSE — *"the
+    /// scalar trio is grouped per pool so the helpers take one `ObsState storage` ref (IS_BTC-
+    /// dispatched via `_obsState`)"* — and was contradicted by the §ISBTC-SPLIT note immediately
+    /// below it, which records that those helpers were DELETED. Removed rather than corrected: the
+    /// note below already carries the history, and two accounts of one fact is how the wrong one
+    /// gets believed.
     /// §ISBTC-SPLIT — ONE RING PER INSTANCE, AND THE SELECTORS ARE GONE WITH THE SECOND COPY.
     /// This held BOTH ranges' rings and picked between them on every access, so each deployed
     /// instance reserved TWO `Observation[65535]` arrays and used exactly one. The `obsState` /
@@ -297,15 +300,33 @@ contract Core {
     ///         `realizedVarianceWad`); exposed here so the skew reads ONE source for both
     ///         pools regardless of which range contract drives the swap. Fails-open to 0
     ///         (insufficient history) ⇒ no steepening, base convex curve still applies.
-    /// @notice §E59 — annualized realized tick variance (WAD), read DIRECTLY from the observation
-    ///         ring. Was a round trip (Core → QuidLib → back into Core) sampling `observe` on a
-    ///         wall-clock grid; that grid was the bug — `observe` INTERPOLATES between stored points
-    ///         and linear interpolation has zero second derivative, so any stretch quieter than the
-    ///         sample interval measured EXACTLY 0 however far price moved. One hop now, one source.
-    ///         **0 means UNKNOWN (too few real updates), NEVER "calm"** — `SwapLib._maxWellSkew`
-    ///         charges the ceiling on it and theta fails open, and both readers agree on that.
+    /// @notice §E59/§E345 — annualized realized variance (WAD), the **MAX of two legs**: the
+    ///         observation ring and the Chainlink anchor. ⚠️ THIS SAID *"read DIRECTLY from the
+    ///         observation ring"*, WHICH §E345 MADE FALSE AND WHICH IS THE EXACT SENTENCE THE
+    ///         §E346-ZERO NOTE IN THE BODY COMPLAINS ABOUT `SwapLib` STILL CARRYING — it was here
+    ///         too, one frame closer to the change. The ring leg alone was the pre-§E345 shape.
+    ///         §E59's original point survives and is why the ring is read from storage rather than
+    ///         through `observe`: the old estimator was a round trip (Core → QuidLib → back into
+    ///         Core) sampling `observe` on a wall-clock grid, and that grid was the bug — `observe`
+    ///         INTERPOLATES between stored points and linear interpolation has zero second
+    ///         derivative, so any stretch quieter than the sample interval measured EXACTLY 0
+    ///         however far price moved.
+    ///         **0 means UNKNOWN, NEVER "calm"** — `SwapLib._maxWellSkew` charges the ceiling on it
+    ///         and theta fails open, and both readers agree on that. ⚠️ The gloss *"(too few real
+    ///         updates)"* was dropped: it named the ring's shortfall as the only way to reach 0, and
+    ///         since §E345 the anchor leg reaches it a different way (`_varDt.vol == 0`, never
+    ///         sampled). 0 now means BOTH legs are unmeasured, which is stricter than the old
+    ///         reading, not looser — see the enumeration in the body.
     function realizedVarianceWad() external view returns (uint) {
-        // 9 ring points → 8 returns.
+        // 9 ring points → 8 intervals → **7** returns. ⚠️ THIS SAID "8 returns" AND IT IS OFF BY ONE,
+        // WHICH MATTERS BECAUSE THE COUNT IS WHAT DECIDES WHETHER THE ESTIMATE EXISTS AT ALL. A
+        // return is the ratio of two CONSECUTIVE INTERVAL RATES, so `n` points give `n-1` intervals
+        // and `n-2` returns — `ringVariance` says exactly that (`uint m = n - 2; // returns =
+        // intervals − 1`) and refuses below `m < 2`. Reading "8 returns" off this line makes the
+        // `card >= 4` threshold §E345 measured look like `card >= 3`, i.e. it under-states by one
+        // the ring depth needed before σ² can be non-zero — the same one-short arithmetic that made
+        // the deleted `cardinality >= 2` sentinel report "measured, and calm" for a ring that had
+        // measured nothing.
         // §TICK-REMOVAL — THE 1e10 WENT WITH THE TICKS, AND THE UNITS ARE UNCHANGED. It was never
         // a tuning constant: a tick is 1 bp, so tick²→relative² is 1e-8 and WAD is 1e18, giving
         // exactly 1e-8 × 1e18 = 1e10. `ringVariance` now returns (WAD relative return)² per second,
@@ -765,20 +786,17 @@ contract Core {
         if (_range != address(0)) RANGE = ICore(_range);
         BASKET = Basket(_basket);
 
-        // Both reference pools' live ticks are read in ONE library call so they
-        // reflect a single consistent block snapshot, and the four mock approvals
-        // ride along — see `OracleLib.prepRefs`. Every byte of that was deploy-time
-        // code sitting in Core's RUNTIME against a hard EIP-170 deficit.
-        // The ref-pool direction probes come back from the same call: they are pure
-        // reads of the ref keys, so computing them HERE only put `Currency.unwrap`
-        // in Core's runtime twice. `AUX.WBTC()` is queryable because AUX was wired
-        // above, and is passed in so OracleLib need not import Aux for one getter.
-        // §V4-CUT — THE REFERENCE READ MOVED OUT OF CORE. `prepRefs` is a read of pools we do NOT
+        // §V4-CUT — THE REFERENCE READ MOVED OUT OF CORE. `prepRefs` was a read of pools we do NOT
         // own, and its result is needed exactly ONCE, to seed the ring. Keeping it here forced Core
         // to hold an `IPoolManager` and two `PoolKey`s for a deploy-time lookup -- which is why this
         // contract still looked "responsive to the PoolManager" long after it stopped trading on it.
-        // The DEPLOYER does the lookup (`OracleLib.prepRefs`) and passes the price. The ONGOING
-        // v3/v4-vs-Chainlink cross-check lives where the GUARD lives, not in the range engine.
+        // ⚠️ `prepRefs` NO LONGER EXISTS AND ITS SUCCESSOR IS NOT A POOL READ. `DeployLib:183` calls
+        // `OracleLib.seedPrices(ethFeed, btcFeed)`, which reads CHAINLINK and passes the price in as
+        // `seedPrice`. The paragraph that stood above this one still described the deleted version in
+        // the present tense — "both reference pools' live ticks are read in ONE library call … and the
+        // four mock approvals ride along" — naming three things (`prepRefs`, the ref-pool direction
+        // probes, the mock approvals) that are all gone, in the tense that says they are current.
+        // The ONGOING v3/v4-vs-Chainlink cross-check lives where the GUARD lives, not in the range engine.
 
         // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE. `_initPool` is gone: it existed to assemble a
         // lex-sorted PoolKey, initialise a v4 pool and record its id, and none of that happens any
@@ -1339,8 +1357,11 @@ contract Core {
     ///   • BOOTSTRAP: at deploy the ring holds ONE observation stamped `now`, so a read 1800s back
     ///     has no history and reverts `twap: pre-history`. That is what `Quid.setup` hit, and it
     ///     took every fixture's setUp down with it.
-    /// `lastPrice` is seeded from the reference pool in `OracleLib.initPool` and updated by every
-    /// observation write, so it is defined from the first block and never needs history.
+    /// `lastPrice` is seeded in `OracleLib.seedRing` from the CHAINLINK-derived price the deployer
+    /// passes to `setup`, and updated by every observation write, so it is defined from the first
+    /// block and never needs history. ⚠️ This said *"seeded from the reference pool in
+    /// `OracleLib.initPool`"* — both halves wrong since §V4-CUT: `initPool` was renamed `seedRing`,
+    /// and the source is `OracleLib.seedPrices` (Chainlink), not a v4 reference pool.
     function poolStats() public view returns (uint priceWad, uint liquidity) {
         priceWad = obsState.lastPrice;
         liquidity = POOLED;

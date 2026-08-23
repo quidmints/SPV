@@ -50,7 +50,10 @@ contract SPVGateway is ISPVGateway, Initializable {
     ///         ⚠️ THIS IS A REAL TRUST ASSUMPTION AND IT USED TO BE OBSCURED. A companion
     ///         `__SPVGateway_init_genesis()` hardcoding Bitcoin block 0 sat here until
     ///         2026-08-08, called by NOTHING — production goes through this function
-    ///         (`DeployLib.sol:160`, from `cfg.spvCheckpointHeader`) and so does every test.
+    ///         (`script/DeployLib.sol:253`, from `cfg.spvCheckpointHeader`) and so does every
+    ///         test. ⚠️ The coordinate used to read `DeployLib.sol:160`, which is wrong TWICE:
+    ///         `DeployLib.sol` lives under `script/`, not `src/imports/`, so a reader greps
+    ///         `src` and concludes the caller is gone.
     ///         Both carried `initializer`, so once this ran the genesis one could never fire:
     ///         unreachable by construction. Its presence implied the gateway syncs from
     ///         genesis. **It does not.** Everything FORWARD of the checkpoint is trustless by
@@ -347,6 +350,27 @@ contract SPVGateway is ISPVGateway, Initializable {
             + blockTarget_.countBlockWork();
     }
 
+    /// 🔴 **§AUDIT-REORG-DOS — THE FORK-SWITCH WALK-BACK IS O(depth) IN ONE ATOMIC TX, AND THE
+    ///    DEPTH IS THE ATTACKER'S / THE NETWORK'S TO CHOOSE.** The `do…while` below re-points
+    ///    `blocksHeightToBlockHash` one height at a time until it meets the height the two chains
+    ///    already agree on: an SSTORE plus two SLOADs per block of divergence, all inside the
+    ///    single `addBlockHeader` call that first OVERTAKES the current head on cumulative work.
+    ///    Past roughly 1–3k blocks of divergence that call exceeds the block gas limit, and it
+    ///    does so DETERMINISTICALLY — the same tx will OOG on every retry, so the heavier chain
+    ///    can never be adopted.
+    /// ⚠️ **THE CONSEQUENCE IS NOT "THE SWITCH IS SLOW", IT IS THAT THE GATEWAY KEEPS ANSWERING
+    ///    FROM AN ORPHANED CHAIN.** `checkTxInclusion` reads `blocksHeightToBlockHash`, which
+    ///    still describes the abandoned branch, and nothing in this contract can say so. The
+    ///    headers of the honest chain are still accepted and stored; only the HEAD refuses to move.
+    /// ⛔ **A `MAX_REORG_DEPTH` REVERT IS NOT THE FIX AND IS DELIBERATELY ABSENT.** It converts an
+    ///    out-of-gas into a named revert and leaves the outcome identical — the heavier chain is
+    ///    still not adopted — so it buys a better error message on the tightest bytecode budget in
+    ///    the tree while adding a second bound on one failure (standing rules 3 and 17). The fix
+    ///    that changes the OUTCOME is a RESUMABLE switch: record the pending fork head and let the
+    ///    re-pointing be driven to completion across several transactions. That needs new storage
+    ///    and a new entrypoint, so it is a change to make deliberately, not a clamp to bolt on.
+    ///    Until then the exposure is bounded by Bitcoin itself: a >1k-block reorg is an event the
+    ///    whole BTC path would have to be re-anchored after in any case.
     function _updateMainchainHead(
         BlockHeader.HeaderData memory blockHeader_,
         bytes32 blockHash_,

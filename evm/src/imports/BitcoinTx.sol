@@ -428,7 +428,10 @@ library BitcoinTx {
     /// @title  MuSig2Agg — prove a taproot output key IS the 2-of-2 of two named pubkeys
     /// @notice Closes the gap `BTCChannels.sol` has always admitted: *"The contract does NO
     ///         secp256k1 EC, so it does NOT prove Q == KeyAgg(lpPubkey, hopPubkey)"*. Until now
-    ///         `lpPubkey`/`hopPubkey` were only LENGTH-validated (`ChannelLib.sol:494`) and the
+    ///         `lpPubkey`/`hopPubkey` were only LENGTH-validated (`ChannelLib.sol:601` on the open
+    ///         path, `:658` in `locateChannelOutput`, `:562` for the hop half on rekey — the
+    ///         citation here used to read `:494`, which drifted onto `_approveMax`'s
+    ///         `ret.length == 0` and reads as an unrelated ERC-20 guard) and the
     ///         funding output was located purely by the caller-supplied `Q` — so a hop could
     ///         open, or splice into, a `Q` it solely controls. In fleet mode the operator holds
     ///         both halves and can do that alone (E129).
@@ -543,6 +546,25 @@ library BitcoinTx {
         //    `key_agg_coeff_internal` returns 1 — NOT a hash — for the second key (the first
         //    entry differing from `pubkeys[0]`). Hashing both yields a plausible-looking
         //    aggregate that is simply a different point: invisible by inspection.
+        //
+        // ⚠️ AND THE RULE HAS A CASE THIS IMPLEMENTATION DOES NOT REPRODUCE: `pkA33 == pkB33`.
+        //    BIP-327's `GetSecondKey` returns ⊥ when every key is equal, so NEITHER entry gets
+        //    the coefficient 1 and BIP-327 computes `2a·P`. The line below assigns 1 to `v.p2`
+        //    unconditionally, so we compute `(a1 + 1)·P` — a DIFFERENT point, and one no
+        //    BIP-327 signer will ever produce.
+        //    ⇒ **The divergence FAILS CLOSED against the attack this gate exists to stop.** A
+        //    channel is only accepted if the Bitcoin funding output equals what this function
+        //    computes, and the real MuSig2 signers are BIP-327, so a degenerate pair produces an
+        //    on-chain `Q` we reject rather than one we wrongly accept. The mirror case — a hop
+        //    naming its OWN key for BOTH halves and funding the `Q` this function returns — is a
+        //    channel whose `lpEth` (`ChannelLib.lpEthOf(p.lpPubkey)`) IS the hop, so the only
+        //    party whose custody a sole key-holder could take is itself. There is no second party
+        //    to defraud, which is why the open path does not reject `lpPubkey == hopPubkey`: a
+        //    revert there would be a bound on a state with no victim (standing rule 3).
+        //    ▶️ **RE-DERIVE THIS BEFORE ADDING ANY CALLER THAT DOES NOT DERIVE ITS COUNTERPARTY
+        //    IDENTITY FROM `lpPubkey`.** The safety here is not in the arithmetic; it is in
+        //    `lpEth` being a FUNCTION of `lpPubkey`, so equal keys collapse the two roles into
+        //    one identity. A caller that names the LP separately breaks that and reopens it.
         v.a1 = uint256(taggedHash(
             "KeyAgg coefficient",
             abi.encodePacked(taggedHash("KeyAgg list", abi.encodePacked(v.p1, v.p2)), v.p1)

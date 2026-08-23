@@ -111,11 +111,10 @@ contract LevManager is LevBase {
     ///         venue-allowlist / renounce-everything posture. 0 = unset (de-lever disabled until pinned).
     address public flashProvider;
 
-    /// WETH reserve that funds the Liquity over-collateralization when closing a BOLD-levered LP (see
-    /// from protocol capital / accrued leverage fees. The reserve balance is ITSELF the bound — NO governance cap:
-    /// a close whose over-collateralization exceeds it simply reverts (fail-closed) and the LP falls to Liquity's
-    /// own liquidation, never socialized. Permissionless top-up (only ever adds protocol WETH).
-     event FlashProviderSet(address provider);
+    /// §E304-mintclose: a truncated docblock for the BOLD-close WETH reserve sat here and described the
+    /// event below it. The reserve, the mint-close mode and their venue (Liquity V2, `c11cb40f`) are gone;
+    /// the only WETH reserve left is `gasReserve`, which is keeper gas and documents itself.
+    event FlashProviderSet(address provider);
     // flashProvider is pinned atomically alongside the range + venues in `init` (below).
 
     receive() external payable {}
@@ -450,7 +449,7 @@ contract LevManager is LevBase {
     ///         a "withdraw breaches health" (the bug the old withdraw-then-repay chunk hit near liquidation).
     ///         Atomic and single-shot at any depth. Shared by rebalance-down, deleverOne, and close.
     function _deleverFlash(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut) internal {
-        // repay-first flash (mode 0), or for a mint-close (BOLD) venue flash-WETH→mint-BOLD (mode 1): body in LevMath
+        // repay-first flash (mode 0) — the ONLY mode this path emits; body in LevMath
         // (delegatecall — bytecode OUTSIDE this contract). The flash re-enters this manager's own onMorphoFlashLoan.
         LevMath.deleverFlashBody(_extractCfg(), venue, lp, stable, repayUsd, minOut);
     }
@@ -572,7 +571,9 @@ contract LevManager is LevBase {
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
         if (msg.sender != flashProvider) revert NotFlash();
         // Both layouts share the shape (uint8 mode, address lp, address venue, address stable, uint256): the
-        // trailing word is `minOut` (mode 0, flashed stable) or `repayBold` (mode 1, flashed WETH).
+        // trailing word is `minOut`. §E304-mintclose: mode 1 (flash WETH → mint BOLD) is DELETED, so the
+        // live tags are 0 (generic flash-stable) and 2 (§G.3 extraction); the `uint8` stays because mode 2
+        // carries a WIDER layout and the tag is what tells the two apart.
         (uint8 mode, address lp, address venueAddr, address stable, uint256 last) =
             abi.decode(data, (uint8, address, address, address, uint256));
         if (mode == 2) { _extractSettle(assets, data); return; }             // §G.3 redeem/swap-out — own frame
@@ -598,12 +599,6 @@ contract LevManager is LevBase {
             AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
     }
 
-    /// @notice mode-1 (BOLD) callback: flashed `wethFlashed` WETH in hand. Mint `repayBold` BOLD at face value via
-    ///         gets FULL fair equity and the protocol funds the Liquity over-collateralization from
-    /// @notice mode-1 (BOLD) callback: flashed `wethFlashed` WETH in hand. Mint `repayBold` BOLD at face value via
-    ///         gets FULL fair equity and the protocol funds the Liquity over-collateralization from
-    ///      and writes the updated reserves back here (value-type deltas). Logic unchanged.
- 
     /// The ETH sell/buy machinery lives in LevMath now (delegatecall, bytecode OUTSIDE this contract, so the
     /// manager fits EIP-170). This builds the context it needs: the manager's runtime addresses + the crank keeper
     /// + the live WETH gas-reserve (threaded in, returned updated).
@@ -621,7 +616,10 @@ contract LevManager is LevBase {
     }
 
     // ════════════════════════ SELF-FUNDING KEEPER GAS (no operator subsidy) ════════════════════════
-    /// WETH reserve covering a keeper's de-lever/protect gas when the freed value's own headroom can't (mirrors
+    /// WETH reserve covering a keeper's de-lever/protect gas when the freed value's own headroom can't. The
+    /// balance is ITSELF the bound (`LevMath._reimburse` clamps the shortfall to it and never reverts, so a
+    /// safety unwind is never blocked by an empty reserve); permissionless top-up via `fundGasReserve`.
+    /// §E304-mintclose: the sentence broke off at "(mirrors" — it pointed at the BOLD-close reserve, deleted.
     uint256 public gasReserve;
     function fundGasReserve(uint256 amount) external {
         if (amount == 0) return;

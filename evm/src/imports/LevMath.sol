@@ -611,8 +611,9 @@ library LevMath {
         return (weth * 10_000) / (10_000 - SELL_SLIP_BPS);
     }
 
-    /// @notice Self-funding keeper-gas — external entry for the manager's direct reimburse points (BOLD-close
-    ///         WETH equity, protect). Delegatecall ⇒ WETH unwrapped + ETH sent are the MANAGER's. See `_reimburse`.
+    /// @notice Self-funding keeper-gas — external entry for the manager's direct reimburse points (the de-lever
+    ///         settle's freed WETH, protect). Delegatecall ⇒ WETH unwrapped + ETH sent are the MANAGER's. See
+    ///         `_reimburse`. (§E304-mintclose: the BOLD-close entry named here went with the Liquity venue.)
     function reimburseKeeper(address weth, address keeper, uint256 availWeth, uint256 reserveIn)
         public returns (uint256 skimmed, uint256 reserveOut)
     {
@@ -708,11 +709,9 @@ library LevMath {
         wethDelivered = collToWethDeliver(got, recipient, floor, cfg);
     }
 
- 
-    ///         delegatecall-linked, bytecode OUTSIDE the manager) so the manager fits EIP-170. Runs in the
-    ///         MANAGER's context (address(this)==manager). Flashed `wethFlashed` WETH in hand: mint `repayBold`
-    ///         flash — the LP gets FULL fair equity and the protocol funds the Liquity over-collateralization from
- 
+    // §E304-mintclose: the `onFlashMintBody` (mode-1 BOLD) docblock was left here after its body went with the
+    // Liquity V2 venue (`c11cb40f`); it had no declaration under it and read as `_reimburse`'s natspec. Deleted.
+
     /// Pay `keeper` its gas as native ETH: skim from `availWeth` (freed WETH headroom) first, shortfall from
     /// `reserveIn`; skim an extra 1× into the reserve when the headroom covers 2× the gas. Bounded by the reserve —
     /// NEVER reverts (a safety unwind must complete). `keeper==0` ⇒ no-op. Returns (WETH skimmed, new reserve).
@@ -921,10 +920,12 @@ library LevMath {
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);
     }
 
-    /// @notice De-lever `lp` by flashing `repayUsd`-worth of the debt stable (repay-first, mode-0) — or, for a
-    ///         mint-close (BOLD/Liquity) venue, flashing WETH sized to mint the BOLD at the protocol trove's safe
-    ///         LTV (mode-1). VERBATIM of the manager's former `_deleverFlash`+`_deleverMint`; reuses `ExtractCfg`
-    ///         (weth/aux/flashProvider). `protocolMintLtvBps` = the safe LTV the protocol trove mints BOLD at.
+    /// @notice De-lever `lp` by flashing `repayUsd`-worth of the debt stable (repay-first, mode-0). VERBATIM of
+    ///         the manager's former `_deleverFlash`; reuses `ExtractCfg` (weth/aux/flashProvider).
+    /// @dev    §E304-mintclose: this used to fork to a mint-close (BOLD/Liquity) mode-1 that flashed WETH and
+    ///         minted BOLD at the trove's `protocolMintLtvBps`. Morpho does not mint — you borrow what exists —
+    ///         and Liquity went with `c11cb40f` because a trove cannot take weETH, which `ILevVenue` is
+    ///         denominated in. The detector was unconditionally false, so mode-0 is the only path and always was.
     function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut)
         public {
         if (repayUsd == 0 || cfg.flashProvider == address(0)) return;
@@ -937,8 +938,10 @@ library LevMath {
         IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut));
     }
 
-    /// try/catch mint-close detection — every non-BOLD venue lacks the marker ⇒ false ⇒ the generic flash-stable path.
- 
+    // §E304-mintclose: `_isMintVenueM`'s natspec outlived the detector and hung over `_fromUsd`. The
+    // try/catch was itself the tell — you only wrap a capability probe in `try` when you expect the
+    // callee not to have it, and after Liquity's removal NO venue had it.
+
     /// USD(1e18) <-> `stable` native units (decimals). Canonical here so both managers can dedup onto them.
     /// @notice USD(1e18) -> native token units, at `pxUsd18` = the USD price of ONE WHOLE token,
     ///         1e18-scaled. `tokens = usd * 10^dec / px`.

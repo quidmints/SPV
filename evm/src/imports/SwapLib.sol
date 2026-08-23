@@ -915,14 +915,19 @@ library SwapLib {
         // ⛔ CORRECTED — THIS PARAGRAPH NAMED A MECHANISM THIS FILE ITSELF RETIRED 200 LINES BELOW,
         // AND THE TWO SENTINEL CONSUMERS THEREFORE DISAGREED ABOUT WHY ZERO HAPPENS. It read
         // *"`realizedVarianceWad` samples `observe` on a WALL-CLOCK grid … and `observe` LINEARLY
-        // INTERPOLATES between stored points"*. `skewWad`'s §E213 note (`:1145`) already says that
-        // story is **RETIRED**: `observe` has ONE consumer left in the tree, the TWAP price at `:79`,
-        // and it never touches the variance path — `Core.realizedVarianceWad` calls
-        // `OracleLib.ringVariance` DIRECTLY. The correction STRENGTHENS this guard for the same
-        // reason it strengthened that one: under the interpolation story a zero could come from a
-        // quiet but well-sampled ring, the one reading that would make charging the ceiling look
-        // punitive; under the real mechanism (`card < 3`, `m < 2`, uninitialised/non-advancing
-        // timestamps) every zero means TOO FEW DISTINCT SAMPLES and none means "measured, and calm".
+        // INTERPOLATES between stored points"*. `skewWad`'s §E213 note already says that story is
+        // **RETIRED**: `observe` has ONE consumer left in the tree, the TWAP price at `:79`, and it
+        // never touches the variance path. The correction STRENGTHENS this guard for the same reason
+        // it strengthened that one: under the interpolation story a zero could come from a quiet but
+        // well-sampled ring, the one reading that would make charging the ceiling look punitive.
+        // ⛔ **BUT ITS TAIL — *"`Core.realizedVarianceWad` calls `OracleLib.ringVariance` DIRECTLY …
+        //     every zero means TOO FEW DISTINCT SAMPLES and none means 'measured, and calm'"* — IS
+        //     ITSELF NOW FALSE, AND IS STRUCK (§E346-ZERO, 2026-08-23).** It is not direct (§E345's
+        //     `max` sits in front of it), and `ringVariance`'s SEVENTH zero-exit — `acc == 0`, a
+        //     genuinely flat ring — IS "measured, and calm". **The full correction, with all seven
+        //     exits and the two reasons this guard survives its own premise anyway, is written once
+        //     in `skewWad`'s §E346-ZERO block; it is not repeated here, because two copies of one
+        //     correction is how this pair of comments disagreed in the first place.**
         // 🔴 §E345 — AND ZERO NOW REQUIRES **BOTH** LEGS TO BE SILENT, WHICH IS A STRICTLY NARROWER
         // STATE THAN THIS COMMENT WAS WRITTEN AGAINST. `Core.realizedVarianceWad` returns
         // `max(ringVariance, anchorVarianceWad)`: the anchor leg accumulates squared CHAINLINK
@@ -1038,9 +1043,16 @@ library SwapLib {
     ///       • **DIFFERENT REACHABILITY.** `_fillableDrain` is `private`. No daemon, keeper or
     ///         off-chain consumer can call it, which is precisely what a restoration trigger must be.
     ///       • **AND `wellSkew`'S OUTPUT CANNOT SUBSTITUTE FOR IT.** On the flush branch `skewWad`
-    ///         returns `_maxWellSkew(…)`, the BASE — not 0 — so a caller reading the skew cannot tell
+    ///         returns `_maxWellSkew(…)`, the BASE — so a caller reading the skew cannot tell
     ///         "flush" from "scarce". After §E79's cap→base inversion there is no output value that
     ///         encodes this predicate. It has to be asked directly.
+    ///         ⚠️ **AND THE ONE CELL WHERE THAT ARGUMENT IS STRONGEST IS THE ONE THIS BULLET FIRST
+    ///         GOT WRONG: it said the base is "not 0".** At σ² == 0 on ETH (`spliceFloor == 0`) the
+    ///         base IS 0 — see §E352 at the flush branch — so in that cell the skew reads 0 for a
+    ///         flush range and, on the drain leg, 3e16 for a scarce one. The predicate is *accidentally*
+    ///         recoverable there and nowhere else, which is worse than never: a consumer that derived
+    ///         it from the skew would work in exactly the configuration §E278 wants changed, and
+    ///         silently invert the day a variance source lands. **Ask this function.**
     /// ⭐ **WHAT IT IS FOR, AND WHY §E301 DOES NOT REACH IT.** §E301 retired `refillPlacement` because
     ///     *"there is no restoration we perform"* — the swapper carries the unfilled remainder to
     ///     another venue. **That argument is explicitly scoped to the ETH side.** The BTC side has a
@@ -1121,6 +1133,36 @@ library SwapLib {
         // §UNIT-A — THE FLUSH OWES THE BASE TOO. A well-stocked range is not an UNEXPOSED one: the
         // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
         // (kernel) term flushes away, never the adverse-selection floor.
+        // 🔴 §E352 — **THIS RETURN AND THE `target == 0` TWIN ABOVE SIT *BEFORE* THE σ² SENTINEL, SO
+        //    ON THESE TWO BRANCHES THE PERMISSIVE RESOLUTION WINS AND THE 3e16 SENTINEL NEVER FIRES.**
+        //    Two consumers of ONE input disagree about what "unmeasured" costs: the guard below says
+        //    σ² == 0 ⇒ charge the ceiling, `_maxWellSkew` says σ² == 0 ⇒ charge `rk.spliceFloor`, and
+        //    branch ORDER — not a decision — picks the second. At σ² == 0 both lines return **0 on
+        //    ETH** (profile `(ETH_CONF_FRAC_WAD, 0)`) and `SPLICE_FLOOR` alone on BTC.
+        //    ⇒ §UNIT-A's *"RETURN THE BASE, NOT ZERO"* is NEUTRALISED exactly when variance is
+        //    unmeasured, because at σ² == 0 **the base IS zero** — the §E59 free-drain hole arriving
+        //    through a door §E59 did not close.
+        //    ⚠️ **THIS IS NOT A NEW FINDING. §E278 BOOKED IT ON 2026-08-21** as the second of its two
+        //    halves, alongside `sellSkew`'s missing guard (see the §E278 block there): *"the flush
+        //    branch is a separate half — do not fix one and call it done."* Recorded at the site
+        //    because the row is the half that goes unread.
+        //    ⭐ **THE SHAPE IS THE ONE §E345 DELETED ELSEWHERE**: a sentinel whose meaning is decided
+        //    by which of two resolvers is reached first, rather than by what the input means.
+        //    🔴 **AND THE TEST THAT IS CITED AS COVERING THIS CELL CANNOT SEE IT — MEASURED, NOT
+        //    ARGUED.** `test/SkewUnmeasuredVariance.t.sol`'s `test_FlushRangeStillOwesOnlyTheBase`
+        //    calls `skewWad(POOL, POOL/10, 0, ethRisk(), 0)` and asserts only
+        //    `assertLt(flush, CEIL)`. On ETH at σ² == 0 that value is **0**, so the assertion is
+        //    satisfied BY THE DEFECT: `0 < 3e16` holds exactly as well as "the base" would. Its
+        //    docstring — *"still owes only the base"* — is a claim the assertion does not test, and
+        //    the suite therefore reports this branch as covered. Same failure as §E279's, which
+        //    survived because *"every assertion here is `assertGt`, which cannot distinguish `s`
+        //    from `s·(2−s)`"*. **`assertEq(flush, 0)` — with a message saying that zero IS the §E352
+        //    cell and not "the base" — separates them, passes today, and turns red the moment the
+        //    arithmetic is decided either way. That is the instrument to add BEFORE the owner call,
+        //    not after: an inequality that a fix cannot fail is not coverage of the fix.**
+        //    ⛔ **THE ARITHMETIC IS UNCHANGED AND MUST STAY SO PENDING THE OWNER CALL** (rule 10: this
+        //    and `sellSkew` are two money-path changes, not one; and §E278 records the flush half as
+        //    additionally gated on §C1, since a live source stops this branch being zero on its own).
         if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk);
         // §E59/§E79 — THE SENTINEL IS RESOLVED HERE, BEFORE IT REACHES THE ARITHMETIC.
         // Past this line scarcity is REAL (inv1 < target ⇒ q1 > 0). §E59 part 2 states the rule:
@@ -1134,20 +1176,53 @@ library SwapLib {
         // the range is — so the guard §E59 added had to live outside the product, and after the §E79
         // inversion moved `_maxWellSkew` from ceiling to base there was nothing left holding it.
         // ⚠️ WHY THIS IS NOT A CLAMP (standing rule 3 / rule 17). It does not bound a computed
-        // number; it declines to run a formula on an input that carries NO INFORMATION. σ² == 0 is
-        // "we could not measure it", and post-tick-removal that is UNAMBIGUOUS: `realizedVarianceWad`
-        // calls `OracleLib.ringVariance` DIRECTLY, and `ringVariance` returns 0 only where the ring
-        // cannot support an estimate at all — `card < 3 || n < 3` (too few slots), `m < 2` (too few
-        // DISTINCT samples), and an uninitialised / non-advancing timestamp pair. Every one of those
-        // means TOO FEW DISTINCT SAMPLES. None of them means "measured, and calm".
-        // ⛔ CORRECTED 2026-08-16 (§E213, caught by a parallel thread). This comment first cited the
+        // number; it declines to run a formula on an input that carries NO INFORMATION.
+        // ⛔ CORRECTED 2026-08-23 (§E346-ZERO) — THE PREMISE STATED HERE WAS FALSE IN BOTH HALVES,
+        // AND TWO OTHER FILES HAD ALREADY WRITTEN THE CORRECTION DOWN WAITING FOR THIS ONE TO TAKE
+        // IT. It read: *"post-tick-removal that is UNAMBIGUOUS: `realizedVarianceWad` calls
+        // `OracleLib.ringVariance` DIRECTLY … `card < 3 || n < 3`, `m < 2`, and an uninitialised /
+        // non-advancing timestamp pair. Every one of those means TOO FEW DISTINCT SAMPLES. None of
+        // them means 'measured, and calm'."*
+        //   • **IT IS NOT DIRECT.** §E345 put a `max` in front of it: `Core.realizedVarianceWad`
+        //     returns `max(ringVariance(), anchorVarianceWad())`, and `Core.sol`'s §E346-ZERO note
+        //     names THIS comment as the stale one, in this file, as a cross-file hand-off.
+        //   • **AND "MEASURED, AND CALM" DOES EXIST.** `ringVariance` returns 0 for SEVEN distinct
+        //     reasons, enumerated against its body in `OracleLib`'s own §E346-ZERO docblock. Six are
+        //     could-not-estimate — `card < 3 || n < 3`, `m < 2`, `!lo.initialized`, non-advancing
+        //     timestamps, `rate == 0` (which the enumeration above OMITTED ENTIRELY) and
+        //     `newest <= oldest` — and the seventh, `acc == 0`, is a GENUINELY FLAT RING: constant
+        //     price ⇒ every interval rate identical ⇒ every return 0. A real measurement of a real
+        //     zero, and REACHABLE.
+        // ⭐ **THE GUARD SURVIVES ITS OWN PREMISE — WHICH IS WHY THIS IS A COMMENT FIX AND THE LINE
+        //     BELOW DOES NOT MOVE.** Two independent reasons, and they are the reasons `Core` and
+        //     `OracleLib` give: (1) the `max` makes the ring's honest zero and its could-not-estimate
+        //     zero contribute IDENTICALLY (nothing), so at THIS frame the seventh exit is not
+        //     observable BY CONSTRUCTION; (2) the anchor leg floors a *sampled* zero at 1 wei (§E88),
+        //     so a calm market that has actually been observed arrives here as 1, never as 0.
+        //     ⇒ `sigmaSqWad == 0` still means BOTH legs are silent, which is still "unmeasured", and
+        //     unmeasured still prices at the ceiling. Only the derivation is restated.
+        // ⛔ AND DO NOT "REPAIR" THE ASYMMETRY BY FLOORING THE RING LEG TO MATCH THE ANCHOR'S.
+        //     `OracleLib` and `Core` both record it as INERT (the annualising `mulDiv` truncates a
+        //     returned 1 back to 0 before it reaches any caller — a fix that looks landed and changes
+        //     nothing) and UNSAFE (`Core.pushObservation` is PERMISSIONLESS within ±50 bps of the
+        //     anchor, so a constant series is cheap to construct; flooring it would hand an attacker
+        //     a "declare the market calm" primitive that switches THIS charge off).
+        // ⛔ PARTIALLY CORRECTED 2026-08-16 (§E213, caught by a parallel thread). This comment cited the
         // old story — wall-clock sampling plus `observe`'s linear interpolation manufacturing zeros.
         // That mechanism is RETIRED: `observe` has exactly ONE consumer left in the tree, the TWAP
         // price at `:79` (the note said `:80`; re-measured 2026-08-23 — a rotted coordinate inside a
         // note whose whole subject is a claim going stale), and it never touches the variance path. The correction STRENGTHENS this
         // guard rather than weakening it: under the interpolation story a zero could come from a
         // quiet but well-sampled ring, which is the one reading that would make charging the ceiling
-        // look punitive. Under the real mechanism that reading does not exist.
+        // look punitive.
+        // ⚠️ ITS LAST SENTENCE — *"Under the real mechanism that reading does not exist"* — IS THE
+        // HALF §E346-ZERO REFUTES, AND IT IS STRUCK. Exit 7 (`acc == 0`, the flat ring) is EXACTLY a
+        // quiet well-sampled ring. What replaces it is narrower and true: that reading cannot reach
+        // this line, because a ring zero of either kind loses the `max` to any sampled anchor, and an
+        // anchor that has been sampled at all reports ≥ 1 wei. The punitive-looking case is therefore
+        // unreachable HERE while remaining constructible THERE — which is a property of the composition,
+        // not of `ringVariance`, and it is the reason the enumeration had to be corrected rather than
+        // the guard moved.
         // So feeding it through a multiplicative kernel prices "unknown" as "none" — the sentinel
         // error §E59 named: a value meaning "no data" must never be consumed as if it meant "none of
         // the thing". Resolving it BEFORE the multiply is the root fix; bounding the product after
@@ -1726,11 +1801,29 @@ library SwapLib {
         // assets, two different returns; I imported the number because it was conveniently in-system,
         // not because it measured the quantity. Same error as valuing the USD increment at the range's
         // leg ratio (§E28): a number that is *available* is not thereby the *right* one.
-        // §E59: same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must not
-        // price an inventory-increasing sell at nothing. Scarcity is real (q > 0) by this point.
-        // §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here would
-        // re-open the free-drain hole E59 closed. UNMEASURED variance must price at the CEILING,
-        // which is the conservative reading E59 intended and now says so in the right units.
+        // 🔴 §E278 — **READ THE NEXT THREE LINES AS A DESCRIPTION OF WHAT IS MISSING, NOT OF WHAT IS
+        //    HERE. THE PROSE IS RIGHT AND THE CODE DOES THE OPPOSITE, AND THAT WAS THE WHOLE FINDING**
+        //    (corrected 2026-08-23; the paragraph read as a statement of installed behaviour and had
+        //    already been cited as evidence that the guard exists):
+        //      §E59: same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must not
+        //      price an inventory-increasing sell at nothing. Scarcity is real (q > 0) by this point.
+        //      §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here
+        //      would re-open the free-drain hole E59 closed. UNMEASURED variance must price at the
+        //      CEILING, which is the conservative reading E59 intended, in the right units.
+        //    ⚠️ **THERE IS NO `sigmaSqWad == 0` GUARD ON THIS LEG.** `UNKNOWN_VARIANCE_SKEW` has
+        //    exactly ONE consumption site in the tree and it is `skewWad`'s, on the DRAIN leg. Below,
+        //    `skew = Γ·σ²·q/1e18` is EXACTLY 0 at σ² == 0 however large `q` is, and `_composePrice`
+        //    then returns `0·sharedScarcity + _maxWellSkew(0, rk)` = `rk.spliceFloor` — **0 on ETH**
+        //    (whose profile is `(ETH_CONF_FRAC_WAD, 0)`), `SPLICE_FLOOR` alone on BTC.
+        //    ⇒ **AN INVENTORY-INCREASING SELL — SOMEBODY DUMPING THE FALLING ASSET INTO THE RANGE,
+        //    i.e. THE TOXIC DIRECTION — PRICES AT ZERO WHENEVER σ² IS UNMEASURED.** That is the
+        //    sentinel error §E59 named, surviving on the leg §E59 did not reach.
+        //    ▶️ THE FIX IS THE GUARD THIS PARAGRAPH ALREADY DESCRIBES, at the producer (§E275's rule:
+        //    the decline lives at the producer, not at three consumers) — resolve `σ² == 0` to
+        //    `UNKNOWN_VARIANCE_SKEW` BEFORE the multiply, exactly as `skewWad` does.
+        //    ⛔ **NOT LANDED HERE DELIBERATELY: it is a MONEY-PATH change (rule 10, one per run) and
+        //    it is one of TWO halves — see §E352 at `skewWad`'s flush branch. Fixing one and calling
+        //    the row closed is the failure mode §E278 explicitly warns about.**
         uint skew = SoladyMath.fullMulDiv(
             SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), q, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
@@ -2546,6 +2639,17 @@ library SwapLib {
     //    hit repo-wide, its own declaration**; the errors `QuoteExpired`, `SizeExceedsInventory` and
     //    `ConservationViolated` are declared and never revert; `NoQuote` reverts only inside the two
     //    quoters. Zero production callers, confirmed — and the `of` named above no longer exists.
+    // ⭐ **AND THE COST OF KEEPING IT IS ZERO BYTES, MEASURED — WHICH RETIRES THE ONE ARGUMENT THAT
+    //    COULD OUTWEIGH THE KEEP.** `quoteDrain`, `quoteFill`, `enforce` and `assertConserved` are
+    //    `internal`, `_applySkew` is `private`, and an uncalled internal library function is inlined
+    //    into nothing: **none of them appears in `out/SwapLib.sol/SwapLib.json`'s
+    //    `methodIdentifiers`**, which lists exactly the 16 `public`/`external` bodies the deployed
+    //    library dispatches. So this surface is not paid-for bytecode — it costs source lines only.
+    //    ⚠️ **CONTRAST, BECAUSE THE TWO KEEP/DELETE QUESTIONS LOOK ALIKE AND ARE NOT: `FeeLib.calcFeeL1`
+    //    IS `public` WITH ZERO PRODUCTION CALLERS, SO IT *IS* IN ITS LIBRARY'S SELECTOR TABLE AND IS
+    //    DEPLOYED.** The discriminator between an unwired primitive that is free to park and one that
+    //    is billed every deployment is VISIBILITY, not caller count — check the artifact's
+    //    `methodIdentifiers` before arguing either from "zero callers" alone.
     // ⭐ THE BLOCKER THIS SURFACE WAS PARKED BEHIND IS RESOLVED, IN THE DIRECTION THAT MAKES IT
     //    REQUIRED. The stated wait was *"the 'paid against 1inch' decision"* (§E293 #2 vs #3).
     //    That resolved to **#3 — the taker routes their own remainder; `AggregationRouterV6` is not

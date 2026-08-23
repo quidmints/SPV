@@ -39,12 +39,16 @@ uint256 constant RING = 256;
 /// @title  OracleLib — the per-pool V4 TWAP observation ring, extracted from
 ///         Core to free its deployed bytecode under EIP-170.
 ///
-/// Core runs TWO independent rings (ETH/USD and BTC/USD). Each is a
-/// `Observation[65535]` array plus an `ObsState` scalar trio. The write +
-/// observe/interpolate logic is pool-agnostic, so it lives here ONCE and
-/// Core passes the relevant pool's `storage` refs in. `external` library
-/// functions run via DELEGATECALL in Core's storage context, so this
-/// engine is deployed once and shared — saving Core's bytecode.
+/// There are TWO `Core` INSTANCES (ETH/USD and BTC/USD) and EACH RUNS ONE RING — an
+/// `Observation[RING]` array plus an `ObsState` scalar trio. The write + observe/interpolate logic
+/// is range-agnostic, so it lives here ONCE and Core passes its own `storage` refs in. `external`
+/// library functions run via DELEGATECALL in Core's storage context, so this engine is deployed
+/// once and shared — saving Core's bytecode.
+/// ⚠️ THIS SAID *"Core runs TWO independent rings … each is a `Observation[65535]` array"*, AND BOTH
+/// NUMBERS WERE WRONG IN THE SAME SENTENCE. §ISBTC-SPLIT gave each instance ONE ring (`Core.sol:58`
+/// declares exactly one `ObsState` and one `Observation[RING]`), and §RING-SIZE took the length to
+/// `RING = 256`. The discriminator between the two rings is now the ADDRESS, not a field — which is
+/// the whole point of the split, and is invisible to a reader trusting this header.
 library OracleLib {
     /// §TICK-REMOVAL (2026-08-15) — THE RING STORES PLAIN PRICE, NOT TICKS AND NOT SQRT-PRICES.
     /// Both encodings are leaving the tree, and every consumer of this ring already wanted a price:
@@ -53,15 +57,12 @@ library OracleLib {
     /// the `int56` walks, and the per-read orientation flag — orientation is resolved ONCE at write.
     /// `uint192` is ample: the BTC leg's usd18 price carries the ×1e10 WBTC lift (~6.3e32) and an
     /// elapsed-seconds accumulator over a decade (~3e8) reaches ~2e41, against a 6.3e57 ceiling.
-    // §RING-SIZE — 1024, NOT 65,535. The old size was Uniswap v3's MAXIMUM CARDINALITY, inherited
-    /// wholesale; nothing here ever needed it. The ring advances AT MOST once per block (a
-    /// same-timestamp write only updates `lastPrice`), so the requirement is
-    ///     window / blockTime = 1800s / 12s = 150 observations
-    /// for the default TWAP window. 1024 is ~3.4 HOURS of one-per-block history -- 6.8x the default
-    /// window -- and still leaves `cardinality`/`index` inside `uint16`.
-    /// ⚠️ THE WIN IS LAYOUT, NOT GAS: unwritten storage slots cost nothing, so 65,535 was never
-    /// paying rent. What it DID do was reserve 65,535 slots in the layout, pushing every later
-    /// variable past slot 65,541 and making the harness's raw-slot arithmetic absurd.
+    /// ⚠️ A SECOND §RING-SIZE BLOCK STOOD HERE QUOTING **1024** AND *"~3.4 HOURS"*, WHICH IS THE
+    /// INTERMEDIATE SIZE, NOT THE LIVE ONE. `RING = 256` is declared at file scope forty lines above
+    /// with its own derivation, and the two blocks disagreed by 4x on the one number a reader comes
+    /// here for. Deleted rather than corrected: an array length has exactly one declaration site
+    /// (`RING`), so a prose copy of it can only ever go stale again — and this one had, silently,
+    /// while reading as the authoritative note because it sits on the struct.
     struct Observation {
         uint32 blockTimestamp;
         uint192 priceCumulative;
@@ -182,12 +183,20 @@ library OracleLib {
                 / uint256(totalDelta));
     }
 
-    /// @dev Deploy Core's four per-pool mocks here (not in Core) so the ~3.9 KB
-    ///      of `mock` creation-code lives in THIS library's bytecode, shedding it
-    ///      from Core under EIP-170. Runs via DELEGATECALL in Core's context, so
-    ///      owner (rover) == address(this) == Core. Decimals mirror the originals:
-    ///      ETH 18, BTC 8, USD_ETH/USD_BTC 6. (Homed here only because OracleLib
-    ///      is the one existing Core-lib with bytecode headroom — no new file.)
+    /// ⛔ NEVER WRITE AN AT-PREFIXED TAG NAME INSIDE DOCBLOCK PROSE — THIS FILE BROKE THE BUILD
+    ///    ON IT, AND IT IS THE THIRD TIME TODAY (twice in `FeeLib`, once here). solc parses an
+    ///    at-word as a natspec TAG wherever it appears, not only at line start, and backticks do
+    ///    NOT escape it — the tag name absorbs the closing backtick. The error is
+    ///    `Documentation tag ... not valid for functions` pointing at the docblock''s FIRST line,
+    ///    so it names neither the offending word nor its line. Spell them out: "the dev tag".
+    ///    ⚠️ It only fires above a FUNCTION — `Core.sol:190` carries one above a VARIABLE and
+    ///    compiles, which is why the pattern looks safe until it is not.
+    /// ⚠️ THE dev-TAG BLOCK THAT STOOD HERE DESCRIBED A FUNCTION THAT NO LONGER EXISTS, IN THE PRESENT
+    /// TENSE, DIRECTLY ABOVE THE THREE-LINE BODY BELOW: *"Deploy Core's four per-pool mocks here …
+    /// so the ~3.9 KB of `mock` creation-code lives in THIS library's bytecode."* §E253-mock deleted
+    /// the mocks and `deployMocks` with them — there is no `mock` string left in this file and no
+    /// caller anywhere in `evm/src`, `evm/script` or `evm/test`. Read as current it says `seedRing`
+    /// deploys four ERC20s, which would make anyone sizing this library's bytecode wrong by ~3.9 KB.
     /// §V4-CUT — THIS IS A RING SEEDER NOW, AND THE NAME SAYS SO. It used to assemble a lex-sorted
     /// PoolKey, derive its PoolId, align a reference tick to the grid and call `pm.initialize` so v4
     /// would host the range. Nothing calls the PoolManager any more, so the pool was never created --
@@ -203,26 +212,23 @@ library OracleLib {
             priceCumulative: 0, initialized: true });
     }
 
-    /// `wbtc` is passed in rather than read here so OracleLib does not have to import
-    /// `Aux` for one getter; Core already holds the pin.
-    ///
-    /// 🔴 §DE-TICK — RETURNS PRICES, NOT TICKS. THIS WAS A LIVE UNIT BUG. These reads used to hand
-    /// back the reference pools' `slot0` TICKS, and `initPool` converted them to a sqrt price to
-    /// initialise our own v4 pool at the same ratio. That pool is gone, so the tick travelled
-    /// straight into `st.lastPrice` through a `uint(int(refTick))` cast -- seeding the observation
-    /// ring with a TICK reinterpreted as a WAD price, which for a NEGATIVE tick is ~2^256.
-    /// MEASURED: `poolStats()` returned 1.157e77 and every fixture's setUp died one step later on
-    /// an arithmetic underflow. A tick and a price are both `uint` after the cast, so nothing
-    /// objected.
-    /// The orientation probes are CONSUMED HERE now (`token0isUSD == !volIsC0`) instead of
-    /// travelling onward, so writer and reader cannot disagree about which way up the price is --
-    /// the same argument `cumsToPrice` already makes for the ring.
-    /// ⚠️ The reference pools are still READ, deliberately: they are the independent v3/v4
-    /// observation the Chainlink cross-check is measured against.
-    /// §V4-CUT — THE FOUR MOCK APPROVALS ARE GONE. They approved the PoolManager to move our mock
-    /// tokens, which mattered while v4 hosted the range. No pool of ours is ever created now, so the
-    /// allowances had no spender that could use them -- and granting `type(uint).max` to a contract
-    /// that will never call `transferFrom` is a standing approval for no reason.
+    /// 🔴 §DE-TICK, KEPT AS THE RECORD OF A LIVE UNIT BUG THIS FUNCTION'S SHAPE EXISTS TO PREVENT.
+    /// The predecessor (`prepRefs`) handed back two reference pools' `slot0` TICKS, and `initPool`
+    /// converted them to a sqrt price to initialise our own v4 pool at the same ratio. That pool
+    /// went away, so the tick travelled straight into `st.lastPrice` through a `uint(int(refTick))`
+    /// cast -- seeding the ring with a TICK reinterpreted as a WAD price, which for a NEGATIVE tick
+    /// is ~2^256. MEASURED: `poolStats()` returned 1.157e77 and every fixture's setUp died one step
+    /// later on an arithmetic underflow. A tick and a price are both `uint` after the cast, so
+    /// nothing objected. ⇒ Returning a PRICE, in the same scaling `twapResolve` uses, is what makes
+    /// that class unconstructible rather than merely fixed.
+    /// ⚠️ THREE CLAIMS THAT STOOD HERE WERE FALSE AND ONE CONTRADICTED THE dev-TAG SIX LINES BELOW.
+    /// They described `prepRefs`, not this function: *"`wbtc` is passed in rather than read here"*
+    /// (there is no `wbtc` parameter — the signature is `(ethFeed, btcFeed)`, and `_feed18` applies
+    /// the ×1e10 lift from a bool); *"the orientation probes are CONSUMED HERE now"* (there are no
+    /// probes, and no pool to orient); and *"the reference pools are still READ, deliberately"* —
+    /// which §V4-ZERO below flatly denies, and a grep confirms: **zero occurrences of `slot0`,
+    /// `IPoolManager`, `PoolKey` or `StateLibrary` anywhere in `evm/src`.** The paragraph recording
+    /// the deleted PoolManager approvals went with them; it documented `prepRefs`'s body.
     /// @notice Deploy-time seed price for each range, read from CHAINLINK.
     /// @dev    §V4-ZERO — was `prepRefs`, which read `slot0` from two UNISWAP V4 REFERENCE POOLS and
     ///         was the last thing in `src/` needing `IPoolManager`, `PoolKey`, `PoolIdLibrary`,

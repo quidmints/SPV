@@ -678,7 +678,11 @@ contract BTCChannels is Ownable {
             lpPayoutSats = lpEntitled;
         }
         _releasePoolSats(channelId, 0);   // the channel is gone: ALL its pool inventory left
-        delete poolOwnedSats[channelId];
+        // ⛔ `delete poolOwnedSats[channelId]` USED TO SIT HERE AND WAS A PROVABLY DEAD SSTORE.
+        // `_releasePoolSats(channelId, 0)` has exactly two exits and BOTH leave the slot at zero:
+        // `booked <= 0` returns early (it was already zero), otherwise it assigns `= remaining`,
+        // which is the literal 0 passed on the line above. There is no third path. The parker
+        // handle is a DIFFERENT slot that `_releasePoolSats` only reads, so its delete stays.
         delete poolSatsParker[channelId];
         // (§LAZY-OPEN) A channel closed before its claim was registered has NO EVM position, so
         // there is nothing to retire and `requestRedeem` would be retiring one that was never
@@ -1187,7 +1191,9 @@ contract BTCChannels is Ownable {
         //
         // 🔴 IT WAS WORSE THAN DEAD WEIGHT: `channel_driver.rs` computed it by RPC-reading
         // `Vault.btcFeesOwedSats(address)` on EVERY splice — a function §E145 DELETED
-        // (`Vault.sol:210`). So each splice made a round-trip to a nonexistent selector,
+        // (it stood at `Vault.sol:210` WHEN IT WAS DELETED; that line now holds an unrelated
+        // live guard, so do not follow the coordinate — grep the NAME, which is zero-hit).
+        // So each splice made a round-trip to a nonexistent selector,
         // swallowed the revert with `.unwrap_or(0)`, and passed the zero to a parameter the
         // contract discarded. A dead read feeding a dead argument, invisible because both
         // halves failed quietly.
@@ -1340,6 +1346,26 @@ contract BTCChannels is Ownable {
     /// Which hop parked the inventory in a channel, so its ALLOWANCE can be reduced when that
     /// inventory leaves. Without this the two ledgers drift apart and the phantom returns: see
     /// `_releasePoolSats`.
+    ///
+    /// 🔴 **§AUDIT-POOLPARKER-PHANTOM — THIS SLOT ASSUMES ONE PARKER PER CHANNEL AND NOTHING
+    /// ENFORCES IT.** `parkProvenSats` ACCUMULATES `poolOwnedSats[cid] += grewBy` but OVERWRITES
+    /// `poolSatsParker[cid] = msg.sender`, while `_releasePoolSats` debits the WHOLE released
+    /// amount from that one address. Two different hops parking one channel ⇒ the earlier one's
+    /// `provenSatsAvailable` is never reduced when its sats leave, and it keeps crediting sellers
+    /// against sats that have left custody — the exact phantom `_releasePoolSats` exists to close,
+    /// re-entering through the identity of the parker rather than through the amount.
+    ///
+    /// ⚠️ **IT IS NOT REACHABLE TODAY, AND THE REASON IS WHY NOTHING IS CLAMPED HERE.** Three
+    /// things each block it: the buffered rail has no Rust caller (`§LN-SWAPIN-REMAINDER`), a park
+    /// must carry a splice the channel's 2-of-2 signed — which the FALLBACK hop cannot produce for
+    /// a channel MAIN funded, because both identities derive from one `root_seed` and the
+    /// constructor requires `MAIN_HOP != FALLBACK_HOP` (§AUDIT-SWAPOUT-CONCURRENT's re-grade) —
+    /// and no third attested hop exists. Adding `revert` here would be a second bound on a state
+    /// the code cannot construct, which standing rule 17 says is not the fix.
+    /// ▶️ **THE ROOT FIX IS A PER-`(channelId, hop)` LEDGER, AND IT MUST LAND *WITH* WHATEVER MAKES
+    /// A SECOND PARKER POSSIBLE** — wiring the buffered rail, or admitting a hop whose identity is
+    /// not seed-derived from MAIN's. Do not wire either without it: the failure is silent, so it
+    /// would arrive as an over-issued credit, not as a revert.
     mapping(bytes32 => address) public poolSatsParker;
 
     /// @dev Pool inventory in `channelId` is leaving custody, down to `remaining`. Reduces BOTH

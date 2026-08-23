@@ -488,6 +488,14 @@ library RangeLib {
         address lp,
         Types.Pos memory p
     ) external {
+        // ⚠️ §E339 — WHOLESALE OVERWRITE, AND IT IS ONLY SAFE BECAUSE TOP-UPS ARE REFUSED.
+        // `LevManager.openLev` reverts `AlreadyOpen` on a second open, so `lp` is always fresh here and
+        // there is nothing to blend. THE DAY A TOP-UP PATH EXISTS, this line silently re-anchors
+        // `ilBasisPx`: top up after a rise and the LP destroys its own protection (it is 0 at/below
+        // entry); dust top-up at a low and the protocol pays protection nobody bought. Both directions
+        // are wrong and the second is an attack. ⇒ Blend `ilBasisPx` SIZE-WEIGHTED here, in the SAME
+        // commit that opens the path — the defect is this assignment, not its caller. No blending is
+        // added now because the branch would be unreachable (standing rule 1).
         pos[lp] = p;
         // §AUDIT-OPENLPS-DOS — the OTHER push site. Both are capped by `_requireRoom`; a cap on
         // one of two writers is not a cap.
