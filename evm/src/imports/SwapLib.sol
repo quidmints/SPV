@@ -822,12 +822,25 @@ library SwapLib {
         (rk.confFracWad, rk.spliceFloor) = ICore(core).riskParams();
     }
 
-    /// @notice DYNAMIC skew cap — the MM's real refill cost DERIVED from live volatility, not a
-    ///         fixed 3%: √(σ²_annual · T_confs/yr) (the price σ over the window the MM's capital
-    ///         is at risk) · CAP_SAFETY + SPLICE_FLOOR, hard-capped at MAX_WELL_SKEW (the
-    ///         TWAP-anchor safety ceiling). Low vol ⇒ low cap (don't overpay refill); high vol ⇒
-    ///         higher cap (real cost is higher); never above 3%. `pure`; reuses
-    ///         FixedPointMathLib.sqrt (a WAD variance → WAD std needs the ×1e18 inside the root).
+    /// @notice THE ADVERSE-SELECTION BASE — the MM's settlement-window loss DERIVED from live
+    ///         volatility: `σ²_annual · T_settle/yr / 8` (LVR over the window the MM's capital is at
+    ///         risk, MMRZ eq.16) **plus** the per-asset `SPLICE_FLOOR`. Low vol ⇒ small base; high
+    ///         vol ⇒ larger base; no ceiling of any kind. See the §E62 note in the body.
+    /// ⛔ **THE NAME SAYS "MAX" AND THE FUNCTION IS NOT A MAXIMUM. §E79 INVERTED IT FROM CEILING TO
+    ///     BASE** and the name did not follow. Every caller ADDS it (`skew += _maxWellSkew(…)` at the
+    ///     kernel's tail, `kernel + _maxWellSkew(…)` in `_composePrice`) or RETURNS it as the whole
+    ///     charge (`skewWad`'s `target == 0` and flush branches). Nothing is ever compared against it.
+    /// 🔴 **CORRECTED — THIS DOCBLOCK DESCRIBED A FORMULA THE BODY DOES NOT CONTAIN, IN FIVE PLACES,
+    ///     AND EVERY SYMBOL IT NAMED IS NOW COMMENT-ONLY.** It read *"√(σ²·T) · CAP_SAFETY +
+    ///     SPLICE_FLOOR, hard-capped at MAX_WELL_SKEW … never above 3% … reuses
+    ///     FixedPointMathLib.sqrt"*. MEASURED in `evm/src`: **`MAX_WELL_SKEW`, `CAP_SAFETY`,
+    ///     `SIGMA_REF` and `STABLENESS` have ZERO code references — every remaining hit is a comment**,
+    ///     the body takes NO square root (it is LINEAR in σ², which is the whole reason the
+    ///     clock-stretching vector is linear too — see the kernel's §E68/§E289 notes), CAP_SAFETY's
+    ///     2× was folded away with the cap, and §E62 forty lines below already records that the hard
+    ///     3% stopped bounding this path. ⇒ The header survived four separate changes that each
+    ///     falsified one of its clauses, which is exactly how a comment becomes the premise of new
+    ///     work (§E18: *"THIS EXACT LINE COST THREE FINDINGS"*, `:677`).
     function _maxWellSkew(uint sigmaSqWad, Risk memory rk) internal pure returns (uint) {
         // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
         // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
@@ -838,6 +851,17 @@ library SwapLib {
         // window was built and measured: it moves the charge ~1% because the base is ~0.002% of it, and
         // it cost 378 bytes + 2 staticcalls/swap, so it was REVERTED. The vector sits in the KERNEL's
         // σ² linearity. See §UNIT-B-PATIENCE / §UNIT-B-PATIENCE-STEP2 before attempting either again.
+        // ⚠️ §E345 — "σ² IS ATTACKER-STRETCHABLE" IS NOW A STATEMENT ABOUT **ONE OF TWO LEGS**, AND
+        // NOT THE ONE THAT BINDS. The 24×/93.3% measurement was taken when `realizedVarianceWad` WAS
+        // `ringVariance`. It now returns `max(ringVariance, anchorVarianceWad)`, and the anchor leg
+        // divides accumulated squared Chainlink returns by accumulated ELAPSED SECONDS while skipping
+        // rounds where the anchor did not move — so widening the gap between swaps enlarges numerator
+        // and denominator together instead of padding the series with zero returns. ⇒ **Stretching
+        // the clock still collapses the RING; it no longer collapses σ², because `max` means the
+        // suppressible leg can only ever raise the answer.** ⛔ Do NOT read that as "the vector is
+        // closed" — the anchor is a floor, not a proof, and the residual named in `Core`'s own §E345
+        // note is the opposite direction: the ring's permissionless writer can still INFLATE σ² and
+        // widen the spread other traders pay, bounded by the ±50 bps push range.
         // LVR = σ²/8 per unit time (Milionis-Moallemi-Roughgarden-Zhang arXiv:2208.06046 eq.16: for a
         // constant-product pool the loss per unit time as a fraction of pool value is exactly σ²/8).
         // This is the EXPECTED cost of the displacement being arbitrageable over the settlement
@@ -846,12 +870,28 @@ library SwapLib {
         // expected cost. The /8 is constant-product geometry, derived; the window is chain physics.
         // §E59 — UNKNOWN VARIANCE MUST NOT PRICE AS ZERO VARIANCE.
         //
-        // `sigmaSqWad == 0` is overwhelmingly the "we could not measure it" sentinel, not a reading
-        // of a genuinely still market: `realizedVarianceWad` samples `observe` on a WALL-CLOCK grid
-        // while the observation ring only advances ON A SWAP, and `observe` LINEARLY INTERPOLATES
-        // between stored points — so any stretch quieter than the sample interval has zero second
-        // difference and yields EXACTLY 0. MEASURED: a drain that took POOLED from 400 to
+        // `sigmaSqWad == 0` is the "we could not measure it" sentinel, not a reading of a genuinely
+        // still market. MEASURED under the original mechanism: a drain that took POOLED from 400 to
         // 0.00097 ETH — a total inventory wipe — reported variance 0.
+        // ⛔ CORRECTED — THIS PARAGRAPH NAMED A MECHANISM THIS FILE ITSELF RETIRED 200 LINES BELOW,
+        // AND THE TWO SENTINEL CONSUMERS THEREFORE DISAGREED ABOUT WHY ZERO HAPPENS. It read
+        // *"`realizedVarianceWad` samples `observe` on a WALL-CLOCK grid … and `observe` LINEARLY
+        // INTERPOLATES between stored points"*. `skewWad`'s §E213 note (`:1026`) already says that
+        // story is **RETIRED**: `observe` has ONE consumer left in the tree, the TWAP price at `:74`,
+        // and it never touches the variance path — `Core.realizedVarianceWad` calls
+        // `OracleLib.ringVariance` DIRECTLY. The correction STRENGTHENS this guard for the same
+        // reason it strengthened that one: under the interpolation story a zero could come from a
+        // quiet but well-sampled ring, the one reading that would make charging the ceiling look
+        // punitive; under the real mechanism (`card < 3`, `m < 2`, uninitialised/non-advancing
+        // timestamps) every zero means TOO FEW DISTINCT SAMPLES and none means "measured, and calm".
+        // 🔴 §E345 — AND ZERO NOW REQUIRES **BOTH** LEGS TO BE SILENT, WHICH IS A STRICTLY NARROWER
+        // STATE THAN THIS COMMENT WAS WRITTEN AGAINST. `Core.realizedVarianceWad` returns
+        // `max(ringVariance, anchorVarianceWad)`: the anchor leg accumulates squared CHAINLINK
+        // returns into two `Flow` registers, sampled once per swap and gated on the anchor having
+        // MOVED. So σ² == 0 no longer means only "the ring is thin" — it means the ring is thin AND
+        // the Chainlink anchor has never been sampled. ⚠️ **THE SENTINEL'S BEHAVIOUR IS UNCHANGED AND
+        // DELIBERATELY SO**: zero still means unmeasured, and unmeasured still prices at the ceiling.
+        // What changed is how rare the state is and who can produce it, not what it means.
         //
         // Feeding that 0 through the formula gave `cap = 0` on ETH (which, unlike BTC, has no
         // SPLICE_FLOOR), and a zero cap means **a fully drained range charges NOTHING at maximum
@@ -1026,7 +1066,8 @@ library SwapLib {
         // ⛔ CORRECTED 2026-08-16 (§E213, caught by a parallel thread). This comment first cited the
         // old story — wall-clock sampling plus `observe`'s linear interpolation manufacturing zeros.
         // That mechanism is RETIRED: `observe` has exactly ONE consumer left in the tree, the TWAP
-        // price at `:80`, and it never touches the variance path. The correction STRENGTHENS this
+        // price at `:74` (the note said `:80`; re-measured 2026-08-23 — a rotted coordinate inside a
+        // note whose whole subject is a claim going stale), and it never touches the variance path. The correction STRENGTHENS this
         // guard rather than weakening it: under the interpolation story a zero could come from a
         // quiet but well-sampled ring, which is the one reading that would make charging the ceiling
         // look punitive. Under the real mechanism that reading does not exist.
@@ -1034,9 +1075,21 @@ library SwapLib {
         // error §E59 named: a value meaning "no data" must never be consumed as if it meant "none of
         // the thing". Resolving it BEFORE the multiply is the root fix; bounding the product after
         // would be the clamp.
-        // ⚠️ AND IT IS REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE MEASURED σ² AS ATTACKER-
+        // ⚠️ AND IT WAS REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE MEASURED σ² AS ATTACKER-
         // STRETCHABLE — 4h spacing drove σ² 24× down and the charge 93.3% down. Suppress σ² to the
         // sentinel, then drain up to 90% of the range for free. That is the vector this closes.
+        // 🔴 §E345 — THAT ROUTE TO THE SENTINEL IS NOW SHUT, AND THIS GUARD IS KEPT ANYWAY.
+        // `Core.realizedVarianceWad` returns `max(ringVariance, anchorVarianceWad)`, so a drainer who
+        // stretches the clock suppresses only the RING leg; the Chainlink-anchor leg accumulates
+        // squared per-round returns over real elapsed seconds and `max` takes whichever is larger.
+        // Reaching `sigmaSqWad == 0` now requires the ring to be thin AND the anchor never to have
+        // been sampled — a fresh deployment or a dead feed, not a patient attacker.
+        // ⛔ **THE GUARD DOES NOT MOVE, AND "IT IS NO LONGER REACHABLE" IS NOT A REASON TO DELETE IT
+        // (standing rule 1 vs the §E88/§E59 sentinel rule).** Rule 1 removes code that CANNOT be hit;
+        // this branch is hit by exactly the states the sentinel was written for, and it is the only
+        // thing standing between "we have no variance estimate" and a kernel that prices no estimate
+        // as no risk. The correct reading of §E345 is that the branch got RARER, not wrong: an
+        // unmeasured σ² still charges the ceiling, deliberately, and that is unchanged.
         if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;
         uint q1 = (target - inv1) * 1e18 / target;        // post-swap scarcity ∈ (0, 1e18]
         uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;  // pre-swap, 0 if flush
