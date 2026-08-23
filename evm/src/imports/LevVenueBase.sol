@@ -76,6 +76,18 @@ abstract contract LevVenueBase is ILevVenue {
     function _mintUnits(uint256 amt, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return SoladyMath.fullMulDiv(amt, tot + UNIT_OFFSET, bal + 1);
     }
+    /// @dev units BURNED for `amt` of pool balance leaving. ⚠️ THIS IS DELIBERATELY THE SAME
+    ///      CONVERSION AS `_mintUnits`, AND IT WAS NOT. The burn sites used the RAW form
+    ///      `amt·tot/bal` while the mint sites used the OFFSET form `amt·(tot+OFFSET)/(bal+1)`, so
+    ///      minting and burning units for the SAME quantity of pool balance disagreed — the ledger
+    ///      drifted away from the pool on every borrow→repay cycle, and `debtOf` then read LOW,
+    ///      which makes `netEquity` read HIGH. That is the direction that grows `POOLED_USD` when a
+    ///      seizure should shrink it. **Mint and burn must be one function or they will diverge
+    ///      again.**
+    function _burnUnits(uint256 amt, uint256 tot, uint256 bal) internal pure returns (uint256) {
+        return _mintUnits(amt, tot, bal);
+    }
+
     /// @dev the assets `u` units claim from a pool holding `bal` with `tot` units outstanding.
     function _unitSlice(uint256 u, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return u == 0 ? 0 : SoladyMath.fullMulDiv(u, bal + 1, tot + UNIT_OFFSET);
@@ -273,7 +285,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 before = _poolShares();
         uint256 sharesDown;
         (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");
-        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(sharesDown, totalDebtUnits, before);
+        uint256 burn = _burnUnits(sharesDown, totalDebtUnits, before);   // §POOL-UNITS: same conversion as the mint
         if (burn > debtUnits[lp]) burn = debtUnits[lp];
         debtUnits[lp] -= burn; totalDebtUnits -= burn;
     }
@@ -302,7 +314,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         if (w == 0) return 0;
         {   // burn the units this withdrawal represents, before the pool shrinks under them
             uint256 pc = _poolColl();
-            uint256 burn = pc == 0 ? collUnits[lp] : SoladyMath.fullMulDiv(w, totalCollUnits, pc);
+            uint256 burn = _burnUnits(w, totalCollUnits, pc);            // §POOL-UNITS: same conversion as the mint
             if (burn > collUnits[lp]) burn = collUnits[lp];
             collUnits[lp] -= burn; totalCollUnits -= burn;
         }
@@ -504,7 +516,7 @@ contract AaveV3Venue is LevVenueBase {
         IERC20Min(STABLE).transfer(address(e), r);          // stable already transferred in by MANAGER
         uint256 spent = e.repayStable(r);
         // Burn the units this LP's repayment represents, so sum(units) stays == total.
-        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(spent, totalDebtUnits, before);
+        uint256 burn = _burnUnits(spent, totalDebtUnits, before);        // §POOL-UNITS: same conversion as the mint
         if (burn > debtUnits[lp]) burn = debtUnits[lp];
         debtUnits[lp] -= burn; totalDebtUnits -= burn;
         return spent;
@@ -542,7 +554,7 @@ contract AaveV3Venue is LevVenueBase {
         uint256 w = collAmount > bal ? bal : collAmount;    // capped at THIS LP's slice of the pool
         if (w == 0) return 0;
         {   uint256 pc = _poolReserve(false);
-            uint256 burn = pc == 0 ? collUnits[lp] : SoladyMath.fullMulDiv(w, totalCollUnits, pc);
+            uint256 burn = _burnUnits(w, totalCollUnits, pc);            // §POOL-UNITS: same conversion as the mint
             if (burn > collUnits[lp]) burn = collUnits[lp];
             collUnits[lp] -= burn; totalCollUnits -= burn;
         }

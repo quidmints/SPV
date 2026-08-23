@@ -669,7 +669,25 @@ side of `_seizeRealBtc`. Liquidation seizes collateral worth debt PLUS the bonus
 fall by MORE than debt and net equity must fall. If `debtOf` falls faster than `collateralOf`, the
 defect is in the unit conversion; if both move correctly and `netEquity` still rises, it is in
 `netEquityBase`'s inputs, not in the pool.
-⚠️ **THE VIRTUAL OFFSET IS THE FIRST SUSPECT AND MUST BE RULED IN OR OUT EXPLICITLY.**
+✅ **TWO SUSPECTS NOW RULED OUT BY MEASUREMENT, so nobody re-tries them:**
+**(i) MINT/BURN ASYMMETRY — REAL BUG, FIXED, NOT THIS ONE.** The four burn sites used the RAW form
+`amt·tot/bal` while the four mint sites used the OFFSET form `amt·(tot+OFFSET)/(bal+1)`, so units
+minted and burned for the same pool balance disagreed and the ledger drifted on every borrow→repay
+cycle. Fixed (`_burnUnits` is `_mintUnits`). **The failing numbers are BYTE-IDENTICAL before and
+after** — `18738990109 >= 18350719229` both times — so it is not the cause here.
+**(ii) …AND THAT IDENTITY EXPLAINS WHY: A LIQUIDATION BURNS NO UNITS AT ALL.** It reduces pool shares
+and pool collateral directly through Morpho; it never routes through `repay` or `withdraw`, so no burn
+site is exercised in this scenario. **Any hypothesis about burn arithmetic is therefore dead on
+arrival here** — the units are untouched and only the pool's two balances move.
+▶️ **WHICH LEAVES THE MOCK, AND IT IS NOW THE LEADING SUSPECT.** `_seizeRealBtc` `vm.mockCall`s the
+TWAP to a CRASHED price to make the position liquidatable, liquidates, then `vm.clearMockedCalls()`.
+`syncLev` therefore runs at the RESTORED price while the collateral was seized at the CRASHED one —
+so the remaining collateral is re-valued UPWARD after the seizure. Under per-LP positions that
+re-valuation applied to one LP's own collateral; pooled, it applies to a proportional slice of a pool
+whose balance moved during the mock. **Check whether `netEquity` rises purely from the price restore
+before touching the unit maths again.**
+
+⚠️ **THE VIRTUAL OFFSET REMAINS A SUSPECT AND MUST BE RULED IN OR OUT EXPLICITLY.**
 `_unitSlice(u,tot,bal) = u·(bal+1)/(tot+OFFSET)` round-trips EXACTLY at the boundaries I checked
 (first deposit, equal LPs, donation attack) — but I checked those with `bal` UNCHANGED. **A seizure
 is the first case where `bal` FALLS while `tot` stays**, and that is precisely the case none of the
