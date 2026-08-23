@@ -212,10 +212,11 @@ library Types {
     /// ⇒ The counter's other job (revocation) is also covered: an unused signature binds an
     /// outpoint the LP simply never funds, and a smart wallet can invalidate it by rotating owners.
     ///
-    /// `lpSig` is checked with `SignatureChecker`, so ONE path serves both LP kinds — EOAs take the
-    /// cheap ECDSA branch, Safes take ERC-1271. The EOA/smart-wallet entrypoint split existed only
-    /// because `ECDSA.recover` RETURNS a signer while ERC-1271 can only CONFIRM one; supplying
-    /// `lpEth` explicitly (as the `For` variant already did) removes the asymmetry that forced two.
+    /// ⛔ THE PARAGRAPH THAT STOOD HERE DESCRIBED `lpSig` AS CHECKED WITH `SignatureChecker` —
+    /// it described code that §E183 item 1 deleted, eight lines above the struct field that says
+    /// so. There is no `lpSig` and no `isValidSignatureNow` anywhere in `evm/src`: the LP signs
+    /// NOTHING on the EVM, so the EOA/smart-wallet split that one path existed to serve has no
+    /// referent. Do not "restore" it — that would re-add a check for a signature that is gone.
     struct OpenAuth {
         bytes32 btcRecipient;  // x-only P2TR payout key, pinned + locked at open
         /// (E138) BIP-340 signature BY `btcRecipient` over `btcRecipientPoPDigest(lpEth)`.

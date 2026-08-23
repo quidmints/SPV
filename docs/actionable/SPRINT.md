@@ -307,7 +307,7 @@ stale entry costs what a stale marker costs, and neither sweep covers it because
    `getRate` with no gas cap; `cast estimate` refuses at the node's 2^24 ceiling and the fork test
    measures **33,084,355 gas against a 30M block**. `setObservationSource` is **pin-once**, so a
    fresh deploy is unrecoverable without a code change. **The fix is already written:**
-   `ExternalTwap.curvePriceWad` — a Curve `price_oracle()` read at ~2–3k gas. **Nothing else on this
+   `OracleLib.curvePriceWad` (`:378`/`:384` — the FILE `ExternalTwap.sol` was folded away by §E318, so grepping it returns a comment) — a Curve `price_oracle()` read at ~2–3k gas. **Nothing else on this
    list matters until this is done.**~~
 2. ✅ **§E258 — BUILT; the spec at §0-BUILD records landed work (§E303).** ~~build `fillOOR` + the sorted set.~~ The spec is §0-BUILD below, complete: the index
    key must be `(price << 96) | id` because `SortedSetLib.insert` **silently ignores duplicates**;
@@ -561,7 +561,7 @@ sub-call burns everything it is given, and the 1/64 left behind is not enough to
 elsewhere and no way to clear it. **A fresh deploy would be dead on arrival and unrecoverable without
 a code change**, which is the difference between a config mistake and this.
 
-▶️ **THE FIX IS ALREADY WRITTEN AND WAS OVERRIDDEN ONCE:** `ExternalTwap.curvePriceWad` reads a Curve
+▶️ **THE FIX IS ALREADY WRITTEN AND WAS OVERRIDDEN ONCE:** `OracleLib.curvePriceWad` (`:378`/`:384`; the file `ExternalTwap.sol` is gone — §E318 fold) reads a Curve
 pool's `price_oracle()` — **one storage read, ~2–3k gas**, a plain WAD needing no decoding, and a
 genuinely different *mechanism* from Chainlink (an EMA over executed trades vs a signed off-chain
 report). Its open questions are its own: which pool per instance, and a deviation bound derived from
@@ -872,7 +872,7 @@ limit**. They wired it, saw every ETH swap and repack exceed a whole block, and 
 (`82662f19` → `df3c5e13`). **Their row never reached `main`; I found it as an unreachable commit
 and landed it as `§E232-1inch-is-unusable-on-chain`.**
 
-▶️ **THE VIABLE SOURCE IS `ExternalTwap.curvePriceWad`** — a Curve `price_oracle()` storage read at
+▶️ **THE VIABLE SOURCE IS `OracleLib.curvePriceWad` (`:378`/`:384`; file folded away by §E318)** — a Curve `price_oracle()` storage read at
 ~2–3k gas, and a genuinely different *mechanism* from Chainlink (an EMA over executed trades vs a
 signed off-chain report). Its open questions are its own: which pool per instance, and a deviation
 bound derived from Curve's EMA **half-life** rather than inherited from a 30-minute-window bound.
@@ -2191,7 +2191,7 @@ limit** — every ETH swap and repack would have exceeded a whole block. WRONG, 
 
 🔴 **BOTH CANDIDATE SOURCES ARE NOW RULED OUT, AND NOTHING IS PINNED (2026-08-21).** 1inch: **31,722,803 gas**, above the block limit. Curve TriCrypto-USDC: pinned, then **removed on the owner's instruction** — pricing the range off a single pool makes that pool's depth and depeg mode an input to σ², the skew and liquidation, which is `ExternalTwap`'s own *"correlated sources are one source"* objection turned on the pool itself. ⇒ **`observationSource` is unset, so the ring is NEVER WRITTEN: `ringVariance` returns 0 and §E213 prices at the ceiling — on BOTH instances, so the old ETH/BTC asymmetry is gone.** ✅ The circularity is gone regardless (no self-write from `getTWAPforAsset`); what is open is **which source**. ⚠️ `Core`'s `OBS_POOL_IDX` was DELETED with the pin — a TriCrypto-ordering index that would have priced ETH as WBTC on any differently-ordered pool. **The read shape is now pinned WITH the source (`setObservationSource(src, calldata)`); do not hardcode a venue's encoding again.**
 
-**Kick off from `ExternalTwap.curvePriceWad`** (already written, ~one storage read):
+**Kick off from `OracleLib.curvePriceWad` (`:378`/`:384`; file folded away by §E318)** (already written, ~one storage read):
 - **ETH: `price_oracle(1)` on `CURVE_TRICRYPTO_USDC`.** 🔴 **k=1 is WETH, k=0 is WBTC** — the file's
   comment said the opposite and was corrected in `6e442a4c`. Verified on-chain against `coins()`:
   `price_oracle(0)` = **\$64,280.15**, `price_oracle(1)` = **\$1,906.53**. Wiring ETH from the old
@@ -11447,6 +11447,28 @@ wrong**, so this is recorded rather than repaired — rewriting that history wou
 ⇒ The rule that prevents it is unchanged and worth re-reading: **a deletion and its replacement must be
 staged and committed together, or the deletion waits.** `git status --short` showing no `D ` rows does
 NOT mean your deletion is safe; it can mean someone already committed it for you.
+
+⛔ **AND THE COUNTEREXAMPLE THAT BREAKS THE RULE THIS TABLE TEACHES — `SignatureChecker` WAS REALLY
+DELETED (measured 2026-08-23).** The standing shorthand *"a zero-hit grep on a name means RENAMED,
+not removed — check the table"* is right about every row above and **wrong here**, and the two live
+handoff traps are the worked example. §0-HANDOFF says *"do not delete `ExternalTwap` or
+`SignatureChecker` as unwired — both are the `create_sweep_tx` shape."* Re-run today:
+
+| trap subject | grep in `evm/src` | what actually happened | live coordinate |
+|---|---|---|---|
+| `ExternalTwap` | 1 hit, a **comment** (`OracleLib.sol:355`) | **renamed/folded** — the trap holds, the file does not | `OracleLib.curvePriceWad` **`:378` / `:384`** |
+| `SignatureChecker` | 2 hits, **both comments** (`BTCChannels.sol:920`, `Types.sol:215`) | **deleted on purpose** by §REKEY-FOLD (`5b62de87`) — **zero `isValidSignatureNow` in the tree**, the sole hit being the comment that records its removal | none — and there should be none |
+
+⇒ **Applying the rule blindly protects a symbol whose removal was CORRECT.** The trap's reasoning —
+*"`lpEth` is key-derived so it looks unreachable, but EIP-7702 means that address can carry code"* —
+was answered by deleting the LP's EVM signature outright (§E183 item 1, `7d11fe22`): the LP now signs
+**nothing** on the EVM, so the EOA/smart-wallet split that justified `SignatureChecker` has no
+referent. A future thread "restoring" it would re-add a signature check for a signature that no
+longer exists. **The discriminator is not the hit count — both read as ~0 — it is whether the
+surviving hits are a POINTER (a fold note naming the new home) or an OBITUARY (a note explaining why
+nothing should be there).** `OracleLib.sol:355` is the first; `BTCChannels.sol:920` is the second.
+⚠️ Both traps are still worth carrying, and neither is worth carrying **as written**: the first now
+needs the `OracleLib` coordinate or its grep returns a comment, and the second must be inverted.
 
 ### Verified state of `origin/main` at `a047ca59` — built in an ISOLATED worktree, not in the shared tree
 
