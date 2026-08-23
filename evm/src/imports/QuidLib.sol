@@ -306,35 +306,14 @@ library QuidLib {
     ///      the requested amount existed nowhere in the frame.
     function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
-        (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
-        uint committedBoth = ICore(core).committedUsd18();
-        uint deltaTok; uint targetUSD; uint surplus;
-        (deltaTok, targetUSD, surplus) =
-            SwapLib.sizeBySurplus(deposits[14], committedBoth, wantTok, price);
-        if (surplus == 0) return (0, 0);
-
-        // ETH: rangeETH (NET venue principal) + grossBuffer (totalBuffer) = gross-consistent with POOLED.
-        // BTC: native backing = Core.btcThetaBacking() (lpShares net + totalBuffer gross) -- the SAME
-        // source the LP-add clamp (BtcLib._thetaClampBtc) uses, so this reseat throttles on the real
-        // risk capital and can't collapse the range to ~0. NOT the disjoint WBTC-donation rangeBTC, and NOT
-        // Quid's ETH `grossBuffer` (wrong asset for a BTC range; btcThetaBacking carries the BTC buffer).
-        // ONE principle (SwapLib.clampByBacking): physical backing HEADROOM (backing − pooled) AND the theta
-        // risk-budget (θ·backing − pooled) — shared verbatim with the BTC LP-add clamp
-        // (BtcLib._thetaClampBtc). `backing` = the IL-bearing capital (ETH: rangeETH venue principal +
-        // gross buffer; BTC: Core.btcThetaBacking = lpShares + gross buffer). rangeAvail/pooled inlined into
-        // the call to keep this frame off the legacy-pipeline stack (no via-IR).
-        uint capped = SwapLib.clampByBacking(
-            _liveTheta(),
-            IAux(aux).rangeETH() + grossBuffer,   // §ISBTC-SPLIT: only caller passed isBTC=false, so the BTC arm was unreachable
-            ICore(core).POOLED(),
-            deltaTok);
-        if (capped < deltaTok) {
-            deltaTok = capped;
-            targetUSD = SwapLib.usdForTok(deltaTok, price);
-        }
-        usdOut = targetUSD / 1e12;
-        if (usdOut == 0) return (0, 0);
-        outDelta = deltaTok;
+        // §DELTATOK-FOLD — THE BODY IS `SwapLib.addLiqBody`, SHARED WITH `BtcLib.addLiqChannel`.
+        // What stood here was seven statements identical to the BTC copy; the only difference was the
+        // two scalars below, so they are all that is passed. θ is computed HERE and not in the shared
+        // body because `_liveTheta` reads `IQuid(address(this))`, and `address(this)` is `Quid` only
+        // under this library's delegatecall — see the warning on `addLiqBody`.
+        return SwapLib.addLiqBody(core, aux, wantTok, price,
+            _liveTheta(),                        // fails OPEN at θ=1e18 when vol is unmeasurable
+            IAux(aux).rangeETH() + grossBuffer); // §ISBTC-SPLIT: NET venue principal + gross buffer
     }
 
     /// @dev addLiq's live θ: derivedThetaWad, fail-OPEN (θ=1) when the oracle ring

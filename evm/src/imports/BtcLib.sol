@@ -123,46 +123,23 @@ library BtcLib {
     ///         remainder is still tracked as fee-earning share by the caller.
     function addLiqChannel(address core, address aux, uint sats, uint price)
         public returns (uint usdOut, uint outDelta) {
-        (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
-        uint committedBoth = ICore(core).committedUsd18();
-        (uint deltaTok, uint targetUSD, uint surplus) =
-            SwapLib.sizeBySurplus(deposits[14], committedBoth, sats, price);
-        if (surplus == 0) return (0, 0);
-        uint capped = _thetaClampBtc(core, deltaTok, sats);   // own frame (legacy stack)
-        // §E270 — RECOMPUTE, matching ETH, rather than rescaling by the clamp ratio. DRIFT, not a
-        // per-asset requirement: `sizeBySurplus` maintains `targetUSD == deltaOut*price/WAD` on BOTH
-        // exits, so the two forms are the same quantity — and recomputing has one rounding instead of
-        // compounding the earlier one and dividing by a `deltaTok` itself rounded in the clamped case.
-        if (capped < deltaTok) {
-            deltaTok = capped;
-            targetUSD = SwapLib.usdForTok(deltaTok, price);
-        }
-        usdOut = targetUSD / 1e12;
-        if (usdOut == 0) return (0, 0);
-        outDelta = deltaTok;
-    }
-
-    /// @dev BTC range theta clamp in its OWN frame (legacy-pipeline stack). Caps the paired depth at
-    ///      `theta * backing` -- the live yield/(K*sigma^2) throttle over the BTC range's own ticks +
-    ///      variance ring (Vault.derivedThetaWadBtc asks Quid). Fails OPEN (theta>=1e18 -> no-op),
-    ///      including when yield is unmeasured (theta 0 -> 1e18), matching ETH's _liveTheta. `available`
-    ///      base is the full `deltaTok` (locked backing skips the physical clamp); only theta bites here.
-    ///      BACKING = `Core.btcThetaBacking()` (aggregate locked sats lpShares + gross buffer -- the ONE
-    ///      source of truth shared with the reseat clamp in QuidLib.addLiq, so a repack can't re-throttle
-    ///      the range this add just built) + THIS add's `sats` (requestDeposit/levAddBtc credit lpShares
-    ///      only AFTER this clamp -- unlike ETH, where _depositETH bumps rangeETH BEFORE addLiq; add it here
-    ///      for parity + first-deposit bootstrap). NOT rangeBTC: that is a disjoint WBTC-donation pool,
-    ///      structurally unrelated to the range's risk capital -- basing theta on it throttled the range to ~0
-    ///      whenever donations were thin (the opposite of what scarcity should do).
-    function _thetaClampBtc(address core, uint deltaTok, uint sats) private view returns (uint) {
+        // §DELTATOK-FOLD — THE BODY IS `SwapLib.addLiqBody`, SHARED WITH `QuidLib.addLiq`. The two
+        // were the same seven statements, including the §E270 recompute and its comment; only the θ
+        // and `backing` scalars below ever differed, and that asymmetry is REAL (a BTC range's
+        // IL-bearing capital is `btcThetaBacking`, not `rangeETH`).
+        // θ is read HERE, not in the shared body: `ICore(address(this))` is `Vault` only under this
+        // library's delegatecall — see the warning on `addLiqBody`.
         uint thetaEff = ICore(address(this)).derivedThetaWad();
-        if (thetaEff == 0) thetaEff = 1e18;
-        // ONE principle (SwapLib.clampByBacking): bound by both the physical backing headroom AND theta —
-        // shared verbatim with the reseat clamp (QuidLib.addLiq) and the ETH range. backing = the native
-        // capital (Core.btcThetaBacking = lpShares + gross buffer) + THIS add's `sats` (not yet credited
-        // to lpShares at clamp time — see the long note above).
-        return SwapLib.clampByBacking(thetaEff, ICore(core).btcThetaBacking() + sats, ICore(core).POOLED(), deltaTok);
+        if (thetaEff == 0) thetaEff = 1e18;        // fail OPEN, matching ETH's `_liveTheta`
+        // `+ sats`: THIS add is not yet credited to `lpShares` at clamp time, so the backing it
+        // brings must be counted or the range clamps against its own pre-deposit size.
+        return SwapLib.addLiqBody(core, aux, sats, price,
+            thetaEff, ICore(core).btcThetaBacking() + sats);
     }
+    /// §DELTATOK-FOLD — `_thetaClampBtc` DELETED (standing rule 1: unreachable code goes, it is not
+    /// kept "for safety"). Its whole body was one `SwapLib.clampByBacking` call plus the θ fail-open,
+    /// and both now sit inline in `addLiqChannel` above where the two scalars are assembled. Its one
+    /// caller became `SwapLib.addLiqBody`, so the helper was left with zero.
 
     /// @dev Scalar args for the resize/close tail, bundled to keep the Vault
     ///      forwarder + this body off the legacy stack.

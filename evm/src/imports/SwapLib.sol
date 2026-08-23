@@ -2156,6 +2156,53 @@ library SwapLib {
         r.amount -= premium;
     }
 
+    /// @notice §DELTATOK-FOLD — THE ONE `addLiq` BODY. `QuidLib.addLiq` and `BtcLib.addLiqChannel`
+    ///         were the same seven statements twice, and the ONLY thing that differed was two
+    ///         SCALARS: the live θ and the native `backing` the clamp is measured against. Everything
+    ///         else — the `get_deposits` read, `committedUsd18`, `sizeBySurplus`, the surplus early
+    ///         exit, the clamp, the §E270 `targetUSD` RECOMPUTE, the `/1e12` and the zero exit — was
+    ///         byte-for-byte identical, down to the comment explaining the recompute.
+    /// ⭐ WHY IT IS A `public` BODY AND NOT AN `internal` HELPER, WHICH IS THE WHOLE SIZE ARGUMENT:
+    ///         an `internal` library function is CODE-COPIED into every calling contract, so
+    ///         `sizeBySurplus`, `clampByBacking` and `usdForTok` each existed twice in deployed
+    ///         bytecode — once inside `QuidLib`'s copy and once inside `BtcLib`'s. A `public` one is
+    ///         DELEGATECALLED, so this body is deployed once in `SwapLib` and both callers lose
+    ///         their copies. Same trade §E346 made with modifier bodies, one level up.
+    /// ⚠️ θ AND `backing` ARE COMPUTED BY THE CALLER, DELIBERATELY, AND MUST STAY THERE. Both θ reads
+    ///         go through `address(this)` — `IQuid(address(this)).derivedThetaWad()` on the ETH side,
+    ///         `ICore(address(this)).derivedThetaWad()` on the BTC side — and `address(this)` is the
+    ///         RANGE only because these libraries run under its delegatecall. Moving either read in
+    ///         here would still resolve, which is exactly what makes it dangerous: it would work now
+    ///         and silently bind to the wrong identity the first time this is called from anywhere
+    ///         else. The asymmetry is real (`rangeETH() + grossBuffer` vs `btcThetaBacking() + sats`)
+    ///         and it is the ONLY real one — passing it as two numbers is what proves that.
+    /// @param  want    the REQUEST (wei on ETH, sats on BTC). Never written — §E270: the parameter used
+    ///                 to be overwritten, so past `sizeBySurplus` the requested amount existed nowhere.
+    /// @param  backing the IL-bearing capital the θ budget is measured against, in the range's NATIVE
+    ///                 unit. ETH: `rangeETH()` (net venue principal) + the gross buffer. BTC:
+    ///                 `btcThetaBacking()` (lpShares net + gross buffer) + THIS add's `sats`, which is
+    ///                 not yet credited to `lpShares` at clamp time.
+    function addLiqBody(address core, address aux, uint want, uint price,
+        uint thetaWad, uint backing) public returns (uint usdOut, uint outDelta)
+    {
+        (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
+        (uint deltaTok, uint targetUSD, uint surplus) =
+            sizeBySurplus(deposits[14], ICore(core).committedUsd18(), want, price);
+        if (surplus == 0) return (0, 0);
+        // ONE principle: bound by the physical backing HEADROOM (backing − pooled) AND the θ
+        // risk-budget (θ·backing − pooled). Shared verbatim by both ranges — it always was, via two
+        // copies of this call; now via one.
+        uint capped = clampByBacking(thetaWad, backing, ICore(core).POOLED(), deltaTok);
+        // §E270 — RECOMPUTE rather than rescaling by the clamp ratio. `sizeBySurplus` maintains
+        // `targetUSD == deltaOut·price/WAD` on BOTH exits, so the two forms are the same quantity, and
+        // recomputing has ONE rounding instead of compounding the earlier one and dividing by a
+        // `deltaTok` that is itself rounded in the clamped case.
+        if (capped < deltaTok) { deltaTok = capped; targetUSD = usdForTok(deltaTok, price); }
+        usdOut = targetUSD / 1e12;
+        if (usdOut == 0) return (0, 0);
+        outDelta = deltaTok;
+    }
+
     function clampByBacking(uint thetaEff, uint backing, uint pooled, uint want)
         internal pure returns (uint)
     {
