@@ -3,6 +3,40 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0d. 🟠 **§VACUOUS-BOUNDS — THE AUDIT §0c ASKED FOR, RUN. 38 TESTS ASSERT ONLY A ONE-SIDED BOUND;
+FIVE OF THEM CAN BE SATISFIED BY THE DEFECT THEY GUARD** (2026-08-23)
+
+Mechanical scan of `evm/test/**`: parse each `test*` body, keep those whose **only** assertion is
+`assertLt/Gt/Le/Ge`. **38 hits.** Most are fine — `assertGt(x, 0)` as a liveness check is exactly
+right. The defective shape is narrower and worth stating precisely:
+
+> ⚠️ **A one-sided bound is a RUBBER STAMP when the suspected defect drives the value TOWARD the
+> asserted side.** `assertLt(x, CEIL)` cannot fail if the bug makes `x` zero; `assertGt(x, 0)` cannot
+> fail if the bug makes `x` huge. The test then passes *because* of the defect, and its NAME is
+> usually the tell — it claims something the assertion does not check.
+
+| test | assertion | why the defect satisfies it |
+|---|---|---|
+| `SkewUnmeasuredVariance:67` `test_FlushRangeStillOwesOnlyTheBase` | `assertLt(flush, 3e16)` | flush is **0** on ETH (§E278). Says *StillOwes* and never asserts the base is OWED. **Confirmed** |
+| `PremiumIsCarryNotIncome` `test_UNIT_PremiumRecordedEqualsPremiumPaid` | `assertGt(premium, 0)` | the §E279 double-charge raised it; only the ratio would have caught it. **Confirmed, historical** |
+| `UnificationControls:166` `test_V5_OverAskClampsToPosition` | `assertLt(balanceOf(lpA), pooled)` — *"the sentinel must actually reduce the position"* | a defect that WIPES the position to 0 passes. **0 is not a reduction, it is a destruction**, and the message says *reduce* |
+| `UnificationControls:602` `test_CHECK_FullExitResidualIsRecoverable` | `assertLt(balanceOf(lpA), pooled1)` | 0 passes, and 0 means EITHER "fully recovered" (intended) OR "position destroyed". Cannot tell them apart |
+| `Alles:3631` `test_RunSim_IL_Baseline_TrendDownIL` | `assertLe(committedUsd18(), dep[14])` | the INVARIANT is correct; it is **vacuous if the sim committed nothing**. A no-op run passes |
+
+⚠️ **THE FIXES ARE NOT THE SAME, WHICH IS WHY THIS IS NOT ONE ROW.** Rows 1–2 need the *other side* of
+the bound (`assertGt(flush, 0)`, a ratio). Rows 3–4 need the value's meaning pinned (`assertEq` against
+an expected residual), because "smaller" was never the claim. Row 5's invariant is right and simply
+needs a **PREMISE guard beside it** (`assertGt(committed, 0)`) — do NOT weaken or replace it.
+⛔ **AND NONE OF THESE MAY BE STRENGTHENED BEFORE THE ARITHMETIC THEY GUARD IS DECIDED** (§E278/§C1 for
+row 1): on ETH today the honest flush value IS 0, so a corrected assertion goes red immediately and
+CORRECTLY. Landing that red alone reads as a broken test to the next thread. **Assertion and decision
+in the same commit.**
+✅ **NOT DEFECTIVE, checked and left:** `UnificationControls:541`'s `assertLt(POOLED_USD, ethUsd0/100,
+"PREMISE: the curve really is drained")` — here 0 genuinely IS the asserted condition, so the bound is
+the claim rather than a proxy for it. **The discriminator is whether the extreme value means the thing
+the message says**, not whether the bound is one-sided.
+
+---
 ## 0c. 🔴 **§E352 IS NOT NEW — IT IS §E278's SECOND HALF, AND ITS GUARD TEST PASSES *BECAUSE OF* THE
 DEFECT** (verified 2026-08-23; corrects my own booking from earlier today)
 
