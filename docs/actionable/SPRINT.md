@@ -3,6 +3,54 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
+
+**90 open items**, not the ~210 or 227 quoted earlier. Both larger figures counted `##` and `###`
+headings together, and **118 of those are `###` SUB-SECTIONS INSIDE one item's writeup** — *"THE
+CONSEQUENCE"*, *"WHAT IS ACTUALLY MISSING"*, *"THE MECHANISM"*. They are paragraphs of an argument,
+not work. Counts: 232 `##` headings (90 open-marked, 40 done-marked) · 427 `###` (118 open-marked).
+
+### ▶️ THE 43 THAT ARE ASSIGNABLE RIGHT NOW — GROUPED BY FILE, NOT BY TOPIC
+⭐ **THIS IS THE GROUPING THAT PARALLELISES, AND THE DISCRIMINATOR IS EMPIRICAL.** A 7-lane fleet ran
+today partitioned by FILE OWNERSHIP and produced zero conflicts and zero regressions (verified: pristine
+`9896c5be` and the full session's work fail the SAME 50 tests on the archive endpoint). A TOPIC
+clustering of the same rows left **114 of 206 unclassified** — the headings are written as prose
+findings, not tagged by subsystem. ⇒ **Two agents collide over a FILE, never over a theme.**
+
+| lane | files it owns | open items |
+|---|---|---|
+| L1 | `Core.sol` + `OracleLib.sol` | 10 |
+| L2 | `BTCChannels.sol` + `ChannelLib.sol` + `SPVGateway.sol` | 9 |
+| L3 | `SwapLib.sol` + `FeeLib.sol` | 7 |
+| L4 | `LevBase` · `LevVenueBase` · `RangeLib` · `Shares` | 6 |
+| L5 | `Aux` · `Basket` · `BasketLib` · `Quid` · `DeployLib` | 5 |
+| L6 | `Interfaces.sol` | 2 |
+
+### 🔴 THE 47 THAT NAME NO FILE ARE NOT A SEVENTH LANE — THEY NEED READING, NOT AGENTS
+They split three ways that the status marker **cannot** distinguish: (a) the owner decisions (§E352,
+§E332-c, §E330, `VBtc`'s Morpho/Euler blocker); (b) items whose coordinates rotted; (c) record-only rows
+implying no code. ⚠️ **Four items were found ALREADY DONE today purely by re-reading** — `/tmp/A56-partial.patch`
+already struck, the `IRangeManager` merge already landed under names that never existed, #9 `closeLevFor`
+already shipped, CLAUDE.md's *"`Core` cannot afford a getter"* off by 25×. ⇒ **The 90 is an UPPER BOUND.**
+
+### ⛔ THREE FILES IN THAT ATTRIBUTION ARE TOMBSTONES, AND THE ERROR WAS THE METHOD, NOT THE ROWS
+A first pass assigned items to **`AttestedHopRegistry.sol`, `Midnight.sol` and `HonkVerifier.sol`** —
+**none of which exists anywhere in this repo** (`find` returns nothing; CLAUDE.md's tombstone list
+already names the first two). **The rows are FINE.** Every one of those citations is a RECORD of a
+deletion, not a task: *"`AttestedHopRegistry.sol` was deleted by `812e6822`"* (`§E238-scan`), *"phase 4's
+attestation half is ✅ — `AttestedHopRegistry` and every `_requireAttested` deleted"* (`D2-PHASES`), *"the
+vendored fork is deleted, so there is no counterparty to join"* (`§E263`, already ⏸️). `HonkVerifier` is
+not ours at all — it is `TreeRoot{8,16,32}HonkVerifier.sol` under `contracts/pool/verifiers/` in the **PP
+repo**, cited in the SPV-stays-separate topology decision.
+⇒ **THE DEFECT WAS THE ATTRIBUTION RULE: "the most-mentioned `.sol` in the body" FILES AN ITEM UNDER A
+FILE IT MERELY MENTIONS.** An item is about the file it proposes to CHANGE, and a tombstone is the
+easiest thing to mention because obituaries name their subject repeatedly. **Before assigning any lane,
+`find evm/src -name "<X>.sol"` on every file the grouping produced** — three of seventeen were dead, and
+each would have cost an agent a full cold start to discover.
+
+---
+
+
 ## 1. 🔴🔴 **REPLACE PER-LP VENUE POSITIONS WITH ONE POOLED POSITION PER RANGE — BOTH ETH AND BTC**
 **A REPLACEMENT, NOT AN ADDITION.** One Morpho/venue position per range, held by the protocol. **Per-LP
 accounting stays exactly as it is** — `ilBasisPx`, entry equity, the IL claim, and the guarantee
