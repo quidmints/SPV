@@ -98,10 +98,13 @@ interface IAaveV4Spoke {
     function getUserSuppliedShares(uint256 reserveId, address user) external view returns (uint256);
     function getReserveSuppliedAssets(uint256 reserveId) external view returns (uint256);
     function getReserveTotalDebt(uint256 reserveId) external view returns (uint256);
-    function setUsingAsCollateral(uint256 reserveId, bool useAsCollateral, address onBehalfOf) external;
-    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
-    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256);
-    function getUserDebt(uint256 reserveId, address user) external view returns (uint256);
+    // §E325 — THE BORROW SURFACE IS GONE, AND IT WENT WITH THE FEATURE, NOT WITH A GREP.
+    // `setUsingAsCollateral` / `borrow` / `repay` / `getUserDebt` were declared here.
+    // `cbbc0993` ("Drop Euler v2 and Aave V4 borrowing") deleted their only call sites —
+    // `SPOKE.setUsingAsCollateral(COLL_RESERVE, true, address(this))` and
+    // `SPOKE.getUserDebt(STABLE_RESERVE, address(e))` are both in that diff — and left the
+    // four declarations behind. Its own message says why the rest of this interface stays:
+    // *"Aave V4 BORROWING is gone; Aave V4 SUPPLY is not."*
     // Risk config. `collateralRisk` is a CONFIG ID, not a risk magnitude -- it is the second argument to
     // getDynamicReserveConfig. Reading it as a number makes an ordinary reserve look unconfigured (0).
     function getReserveConfig(uint256 reserveId)
@@ -123,7 +126,10 @@ interface IWeETH {
 /// `IQuidView_VG`), which split ONE contract's surface across two declarations so a signature
 /// change had to be made twice and a missed one still compiled.
 interface IQuid {
-    function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
+    // §E325 — `addLiq` removed from THIS face only; `ICore` still declares it and that is the one
+    // the tree calls. `RangeLib:81` is `ICore(address(this)).addLiq(netEq, price)`, and `RangeLib:68`
+    // records the migration in prose (*"the SIZING CALL -- `IQuid(this).addLiq`"*) — a COMMENT, which
+    // is the only thing a name-grep was still finding. Zero live call sites through `IQuid`.
     function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IQuidUnwind                              // E21: was BasketLib.IWiredQuid
     function derivedThetaWad() external view returns (uint);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
@@ -360,7 +366,10 @@ interface IAux is ISwap {
     function deposit(address from, address token, uint amount) external returns (uint);
     function avgYield() external view returns (uint);
     function vaultBlocked(address vault) external view returns (bool);
-    function _tryPath(bytes calldata encodedPath, uint amountIn, address output, address recipient, uint minOut) external returns (uint);
+    // §E325 — `_tryPath` removed. `09fedf18` ("Delete the SOR…") deleted the BODY from `Aux.sol` and
+    // left this declaration; `Aux.sol:765` names it in the removal list. That is the exact shape
+    // §E145 warns about six interfaces down — *"Leaving the DECLARATION here is what let a deleted
+    // implementation still compile at the call site; the two must be removed together."*
     function toIndex(address token) external view returns (uint);
     function supplySelf(address token, uint amount) external returns (uint);
     function withdrawSelf(address token, uint amount, address to) external returns (uint);
@@ -461,7 +470,13 @@ interface ILevVenue {
 /// `SwapLib::ICore`, `BasketLib::ICore`). FOUR declarations described ONE contract, so a
 /// signature change had to be made up to four times and any missed one still compiled.
 interface ICore {
-    function BACKING() external view returns (address);
+    // §E325 — `BACKING()` removed: THE SUBJECT OF THIS ACCESSOR NO LONGER EXISTS. It arrived with
+    // `6b4de0ee` as the pointer to the `IBandBacking`/`IRangeBacking` accountant, and
+    // §RANGEBACKING-FOLD (top of this file) deleted that interface *"along with the contract it
+    // described"*, moving `report`/`committedTotal` onto `Aux`. No contract in `evm/src` declares
+    // `BACKING` — not as a function, not as public state — so a call through this handle would have
+    // fallen through the dispatcher at ~195 gas, the failure mode this interface's own header warns
+    // about 60 lines below. Every other `BACKING` in the tree is English prose in a comment.
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
@@ -592,7 +607,10 @@ interface IEthVenue {
     function withdrawForAux(uint amount, address to) external returns (uint);
     function rangeOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
-    function offrampEtherFi(uint amount, address recipient) external returns (uint);
+    // §E325 — `offrampEtherFi` removed from this FACE; the function is alive and stays
+    // (`Quid.sol:131`, `public`, and `Quid` IS the ethVenue — `DeployL1_s:534,546` cast
+    // `Quid(payable(AUX.ethVenue()))`). Nothing ever reached it THROUGH `IEthVenue`: its one
+    // caller is `Quid.sol:702`, an internal call, and the scripts hold the concrete type.
     /// §E306 — folded in from `IEthVenue`, a one-function face over this SAME contract: all three of its
     /// call sites resolved `IAux(...).ethVenue()`, which is what `IEthVenue` is already cast on.
     /// @notice The lev manager this venue hosts.
