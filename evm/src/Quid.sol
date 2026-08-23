@@ -112,6 +112,50 @@ contract Quid is Shares,
         });
     }
 
+    /// @dev §E347 — ONE call site for `QuidLib.levManager(AUX)`, which had FOUR (`_withdraw`'s
+    ///      auto-de-lever, `_reconcileLev`, `_venueBalance`, `_pricingBacking`). `QuidLib` is a
+    ///      LINKED library, so every one of those four was a full `PUSH20 <library address>` +
+    ///      argument encode + STATICCALL + returndata decode inlined at the site — the fattest
+    ///      repeated shape in this file. Standing rule 8c's arithmetic, applied to a library call
+    ///      instead of a modifier: N copies of a routine become one routine and N jumps.
+    ///      ⚠️ DELIBERATELY NOT shortcut to the `LEV_MANAGER` slot. `QuidLib.levManager` resolves
+    ///      `AUX.ethVenue()` and reads `LEV_MANAGER` off THAT address; those are the same address
+    ///      today only because §ETHVENUE-FOLD made the ETH venue this contract. Merging on a shared
+    ///      address rather than on identity is exactly what planted three runtime reverts during the
+    ///      `EthVenue` extraction (see CLAUDE.md §SPLITTING). The resolution stays where it is.
+    function _levManager() private view returns (address) {
+        return QuidLib.levManager(address(AUX));
+    }
+
+    /// @dev §E347 — the ETH-range TWAP read, one copy instead of three (`_payUsdLeg`,
+    ///      `_depositImpl`, `_pricingBacking` all asked for the same asset over the same window).
+    function _wethTwap() private view returns (uint) {
+        return AUX.getTWAPforAsset(address(WETH), 1800);
+    }
+
+    /// @dev §E347 — `AUX.rangeETH()` had three call sites (`realInventory`, `totalAssets`,
+    ///      `_pricingBacking`), two of which were whole one-line function bodies.
+    function _auxRangeETH() private view returns (uint) {
+        return AUX.rangeETH();
+    }
+
+    /// @dev §E347 — the range's two USD legs, read together. `_rangeIncrement6` and
+    ///      `_pricingBacking` both need the PAIR; only what they do with the difference differs
+    ///      (unsigned there, signed here), so the two external reads are what is shared.
+    function _usdLegs6() private view returns (uint usd6, uint base6) {
+        usd6 = CORE.POOLED_USD(); base6 = CORE.basketUsd();
+    }
+
+    /// @dev §E347 — the 6-dec-USD → 18-dec QU!D mint, one copy instead of three
+    ///      (`_settlePending`'s fee leg, `_payUsdLeg`'s range-increment leg, `_withdraw`'s
+    ///      full-exit realization of `usd_owed`). All three passed the identical
+    ///      `(usd6 * 1e12, address(QUID), 0)` tail; the ×1e12 lift lives here now, which is also
+    ///      where a fourth sibling can no longer forget it — §A.57/C5 is the record of the one
+    ///      that did, and it was found only after it had shipped.
+    function _mintQuid(address to, uint usd6) private {
+        QUID.mint(to, usd6 * 1e12, address(QUID), 0);
+    }
+
     /// @dev Immutables gathered for the delegatecalled `QuidLib` (it cannot read them itself).
     function _ethCfg() internal view returns (QuidLib.EthCfg memory) {
         return QuidLib.EthCfg({
@@ -468,8 +512,7 @@ contract Quid is Shares,
                 LP.usd_owed = 0;
                 // §A.57: 6-dec USD fee accumulator → 18-dec QU!D. Same fix as BtcLib.settleBtcLp;
                 // both paths shared the missing scale-up, so both move together.
-                QUID.mint(mintRecipient,
-                usdR * 1e12, address(QUID), 0);
+                _mintQuid(mintRecipient, usdR);
             }
         } else if (usdR > 0) {
             LP.usd_owed += usdR;
@@ -590,7 +633,7 @@ contract Quid is Shares,
     ///      BASKET put there. Signed-safe — a range that BOUGHT ETH with basket dollars reads 0 here
     ///      (the negative case is priced, not paid: see `_pricingBacking`).
     function _rangeIncrement6() private view returns (uint) {
-        uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
+        (uint usd6, uint base6) = _usdLegs6();
         return usd6 > base6 ? usd6 - base6 : 0;
     }
 
@@ -611,14 +654,14 @@ contract Quid is Shares,
         if (incrPre == 0 || denom == 0 || claimAmt == 0) return 0;
         uint owed6 = claimAmt >= denom ? incrPre : SoladyMath.fullMulDiv(incrPre, claimAmt, denom);
         if (owed6 == 0) return 0;
-        QUID.mint(recipient, owed6 * 1e12, address(QUID), 0);
+        _mintQuid(recipient, owed6);
         // Re-anchor the mirror: what the LP still owns is what it owned MINUS what was just paid,
         // NOT whatever the burn happened to release. See `Core.absorbPaidUsd` for the measurement.
         CORE.absorbPaidUsd(incrPre - owed6);
         // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the range's leg
         // ratio, which is not a price for a concentrated position (measured: it implied ~840
         // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = _wethTwap();
         if (px > 0) ethEquiv = SoladyMath.fullMulDiv(owed6 * 1e12, 1e18, px);
     }
 
@@ -685,7 +728,7 @@ contract Quid is Shares,
         // re-reads to the full remaining pooled. Full-close (not partial): reuses the existing closeLevFor
         // primitive — a past-free withdraw crystallizes the whole in-range lever, which is the opt-in.
         if (levPooled[msg.sender] > 0 && amount > SwapLib.plainNet(LP.pooled, levPooled[msg.sender])) {
-            ILevClose(QuidLib.levManager(address(AUX))).closeLevFor(msg.sender, 0);
+            ILevClose(_levManager()).closeLevFor(msg.sender, 0);
             _reconcileLev(msg.sender);                      // range re-entrancy was blocked → clear the slice here
         }
         // Cap withdrawal at the user's FREE (non-levered) balance. The levered slice (levPooled) leaves via the
@@ -798,7 +841,7 @@ contract Quid is Shares,
             // mint and the ONLY one missing the scale-up (cf. `_settlePending:439`,
             // `BtcLib.settleBtcLp:57`, `settleDelivered:74`). Without it, an LP whose fees were
             // DEFERRED by a partial exit and who then FULLY exits was paid 1e-12 of the leg.
-            QUID.mint(recipient, owed * 1e12, address(QUID), 0);
+            _mintQuid(recipient, owed);
         }
         _onExit(LP, msg.sender);
     }
@@ -853,7 +896,7 @@ contract Quid is Shares,
     function syncLev(address lp) external { _reconcileLev(lp); }
 
     function _reconcileLev(address lp) internal {
-        address lm = QuidLib.levManager(address(AUX));
+        address lm = _levManager();
         uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
         // full-2×: reconcile range CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
         // the debt-funded buffer, so the live gross depth is their sum. Skip only when the gross depth AND
@@ -896,9 +939,8 @@ contract Quid is Shares,
         // Reverts if backing can't be restored.
         AUX.checkBacking();
 
-        uint price = AUX.getTWAPforAsset(
-                     address(WETH), 1800);
-        
+        uint price = _wethTwap();
+
         if (price == 0) revert ZeroTwap();
         uint deltaETH; uint deltaUSD;
         
@@ -969,7 +1011,7 @@ contract Quid is Shares,
     ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
     function _venueBalance() internal returns (uint) {
         uint total = rangeOp(0, 2);   // rangeETH (all plain venues + lev net-equity)
-        address lm = QuidLib.levManager(address(AUX));
+        address lm = _levManager();
         if (lm != address(0)) {
             try ILevEquity(lm).totalNetEquity() returns (uint n) { total = total > n ? total - n : 0; } catch {}
         }
@@ -1199,7 +1241,7 @@ contract Quid is Shares,
     /// @notice REAL inventory, never just the in-pool token: in-range POOLED plus AAVE/ether.fi
     ///         venue retention plus idle. Comparing raw POOLED over-fired the shortfall arb on
     ///         off-range retention.
-    function realInventory() external view returns (uint) { return AUX.rangeETH(); }
+    function realInventory() external view returns (uint) { return _auxRangeETH(); }
 
     /// @notice 🔴 A DELIBERATE NO-OP, AND NOT AN OMISSION. BTC routes a shortfall to the hop, which
     ///         delivers real BTC and consumes no basket stables. ETH must NOT: a surplus-funded
@@ -1289,10 +1331,15 @@ contract Quid is Shares,
         _rebalance();
     }
 
-    function paddedSqrtPrice(uint spotPrice,
-        bool up, uint delta) public pure returns (uint160) {
-        return SwapLib.paddedSqrtPrice(spotPrice, up, delta);
-    }
+    // §E347 — `paddedSqrtPrice` DELETED (rule 1: unreachable code goes). It was a `public pure`
+    // forwarder to `SwapLib.paddedSqrtPrice` with ZERO callers anywhere: `evm/src`, `evm/test`,
+    // `evm/script`, `spa/`, `quid-ln/` and `tools/` contain the identifier only at SwapLib's own
+    // definition, and the selector `0x60fd0b8d` appears nowhere either (the control for a
+    // call-by-raw-selector, which a name grep would miss). `Vault` never had a counterpart, so this
+    // was an asymmetric leftover of §DE-TICK rather than a deliberate marker.
+    // WHY IT WAS WORTH THE BYTES: `SwapLib.paddedSqrtPrice` is `internal`, so its body — including
+    // TWO `FixedPointMathLib.sqrt` expansions — was INLINED here, and nothing else in `Quid` pulls
+    // solady's `sqrt` in. Deleting the wrapper takes the whole sqrt routine with it.
 
 
 
@@ -1371,7 +1418,7 @@ contract Quid is Shares,
     ///         `_pricingBacking()`, which restates the levered book onto the denominator's
     ///         clock for SHARE PRICING (§A.16b); the conversions below carry that
     ///         restatement, so applying it here too would double-count it.
-    function totalAssets() external view returns (uint) { return AUX.rangeETH(); }
+    function totalAssets() external view returns (uint) { return _auxRangeETH(); }
 
     function totalSupply() external view returns (uint) { return lpShares; }
 
@@ -1465,7 +1512,7 @@ contract Quid is Shares,
     ///      In steady state (`totalNetEquity == totalLevPooled`) this is EXACTLY `rangeETH`, so
     ///      normal-case pricing is byte-identical to before.
     function _pricingBacking() internal view returns (uint total) {
-        total = AUX.rangeETH();
+        total = _auxRangeETH();
         // §#12 — READ BOTH LEGS. `rangeETH` is the ETH leg of a TWO-legged range position; the USD
         // leg beyond what the BASKET supplied (`basketUsd`) is LP-owned and was invisible here,
         // so a range that sold LP ETH for USD priced the LP down by the whole sale.
@@ -1474,14 +1521,14 @@ contract Quid is Shares,
         // SIGNED: when the range has BOUGHT ETH with basket dollars the increment is NEGATIVE and
         // must REDUCE the claim (B11) — flooring at zero would gift the LP the basket's capital.
         {
-            uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
+            (uint usd6, uint base6) = _usdLegs6();
             // ⚠️ VALUED AT THE ORACLE, NOT THE RANGE'S LEG RATIO. `POOLED / POOLED_USD` is
             // NOT a price for a CONCENTRATED position — measured, it implied ~840 USD/ETH against
             // an actual 1,854, valuing the increment ~2.2x too high and inflating a 400-share claim
             // to 439.44 ETH (a 73,116 USD over-price). `unwindForRedeem` uses that ratio to size a
             // PROPORTIONAL BURN, where it is correct; it is not a price, and I carried its
             // oracle-free justification across without checking the property held.
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            uint px = _wethTwap();
             if (px > 0 && usd6 != base6) {
                 if (usd6 > base6) total += SoladyMath.fullMulDiv((usd6 - base6) * 1e12, 1e18, px);
                 else {
@@ -1490,7 +1537,7 @@ contract Quid is Shares,
                 }
             }
         }
-        address lm = QuidLib.levManager(address(AUX));
+        address lm = _levManager();
         if (lm == address(0)) return total;
         // GUARDED like every other lev read: a broken manager must not brick share pricing.
         try ILevEquity(lm).totalNetEquity() returns (uint live) {
@@ -1536,21 +1583,23 @@ contract Quid is Shares,
         return _mint4626(shares, receiver);
     }
 
-    function _mint4626(uint shares, 
-        address receiver)
-        internal returns (uint assets) {
-        require(receiver != address(0), "receiver");
+    /// §E347 — `mint` IS `deposit` PLUS A FLOOR. The two bodies were the same five statements
+    /// (zero-receiver check, pre-balance snapshot, `_depositImpl`, share delta, `Deposit` event);
+    /// only the conversion in front and the `mint:short` floor behind differed, so the shared five
+    /// are called instead of copied. `_deposit4626` returns exactly the `actualShares` this used to
+    /// compute, and emits exactly the same `Deposit(msg.sender, receiver, assets, actualShares)`.
+    /// ⚠️ The event now fires BEFORE the floor check rather than after. That is not observable: a
+    /// revert discards the whole log set, so the only trace either ordering can leave is the
+    /// successful one, where both orderings emit the identical event.
+    /// ⚠️ The redundant `receiver != 0` check is NOT kept "for safety" (rule 1) — `_deposit4626`
+    /// performs it, and it performs it before anything can be written.
+    function _mint4626(uint shares, address receiver) internal returns (uint assets) {
         assets = convertToAssets(shares);
-        uint preShares = autoManaged[receiver].pooled;
-        
-        _depositImpl(assets, receiver);
-        uint actualShares = autoManaged[receiver].pooled - preShares;
         // 4626-compliance: mint must yield AT LEAST the requested shares.
         // If the caller's allowance/balance falls short, _depositImpl pulls
         // less than `assets` and actualShares < shares — revert to surface
         // the underdelivery rather than silently returning a stale `assets`.
-        require(actualShares >= shares, "mint:short");
-        emit Deposit(msg.sender, receiver, assets, actualShares);
+        require(_deposit4626(assets, receiver) >= shares, "mint:short");
     }
 
     function redeem(uint shares, address receiver, address owner)
