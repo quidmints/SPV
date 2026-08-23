@@ -59,6 +59,14 @@ contract LevCascadeProbe is AllesFixture {
     MarketParams mp;
     address[3] lps = [address(0xBEEF1), address(0xBEEF2), address(0xBEEF3)];
 
+    // §SILENT-SETUP — `try ETH.withdraw(...) {} catch {}` records NOTHING, so a run where the
+    // withdraw REVERTED is indistinguishable from one where it moved the range. Both uses below are
+    // load-bearing SETUP (one asserts the levered slice survived a free withdraw, the other shrinks
+    // the plain base so the debt can exceed the leg), so a swallowed revert makes the case vacuous
+    // rather than failing it. Same shape as `VarPrecision.swapsLanded`.
+    uint internal withdrawsAttempted;
+    uint internal withdrawsLanded;
+
     // ─────────────────────────── real-stack setup ───────────────────────────
 
     function _setupLev() internal {
@@ -250,6 +258,20 @@ contract LevCascadeProbe is AllesFixture {
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0);
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
+        // §LEV-CLUSTER INSTRUMENT — the ~2.7% shortfall here (7500… vs 7707…) is a DIFFERENT
+        // SIGNATURE from the 8x miss elsewhere in this file, so do not assume a shared cause. The
+        // trio below is the one that answered the stuck-LP question (target 279 bps against a
+        // 300 bps dead-band): if `ilTarget` is UNDER 300 the rally never levered the position as
+        // far as this fixture assumes and `rangeETH` is simply short of the net-equity credit the
+        // assertion budgets for — one CALIBRATION cause. If `ilTarget` is OVER 300 while `debtOf`
+        // and `currentLtv` stay low, the position failed to LEVER and that is a different defect.
+        emit log_named_uint("levered: lp0 ilTargetLtvBps ", lm.ilTargetLtvBps(lps[0]));
+        emit log_named_uint("levered: lp0 venue.debtOf   ", venue.debtOf(lps[0]));
+        emit log_named_uint("levered: lp0 currentLtvBps  ", lm.getCurrentLtvBps(lps[0]));
+        emit log_named_uint("levered: AUX.rangeETH()     ", AUX.rangeETH());
+        emit log_named_uint("levered: CORE.POOLED()      ", CORE.POOLED());
+        emit log_named_uint("levered: lm.netEquity(lp0)  ", lm.netEquity(lps[0]));
+        emit log_named_uint("levered: lm.grossColl(lp0)  ", lm.grossCollateral(lps[0]));
         assertGe(AUX.rangeETH(), CORE.POOLED(), "levered: deliverable ETH still covers the range");
 
         // SEIZE via a REAL Morpho liquidation (repay half the debt by shares — see `_seizeReal`).
@@ -308,7 +330,13 @@ contract LevCascadeProbe is AllesFixture {
 
         // (b) UNWIND-ONLY: the free ladder cannot pull the levered slice.
         vm.prank(lps[0]);
-        try ETH.withdraw(type(uint).max, lps[0], lps[0]) {} catch {}
+        ++withdrawsAttempted;
+        try ETH.withdraw(type(uint).max, lps[0], lps[0]) { ++withdrawsLanded; } catch {}
+        emit log_named_uint("(b) free withdraws landed  ", withdrawsLanded);
+        emit log_named_uint("(b)           attempted    ", withdrawsAttempted);
+        // PREMISE: if the free withdraw never executed, "the free ladder cannot pull the levered
+        // slice" is proven by NOTHING — the slice is untouched because nothing touched anything.
+        assertGt(withdrawsLanded, 0, "PREMISE: the free withdraw actually ran (else UNWIND-ONLY is vacuous)");
         assertEq(ETH.levPooled(lps[0]), lev, "free withdraw leaves the levered slice untouched");
 
         // (c) SEIZE via REAL Morpho liquidation → syncLev burns the slice clean.
@@ -600,6 +628,21 @@ contract LevCascadeProbe is AllesFixture {
         // against BASKET-SUPPLIED depth rather than curve inventory, because committed no longer
         // tracks what a swap put in the curve. The buffer folds into `basketUsd*` at `addLiq`
         // (mod path) exactly as it used to fold into `POOLED_USD_*`, so the identity still bites.
+        // §LEV-CLUSTER INSTRUMENT — this identity is stated in DOLLARS, so it fails either because
+        // `totalDebtUsd` is too small (the position never levered to the target the fixture assumes)
+        // or because `committedUsd18` is not the quantity the identity names. The trio separates
+        // them: `ilTarget` UNDER the 300 bps dead-band means the manager had no reason to borrow, so
+        // the "debt-funded buffer" this assertion subtracts barely exists — a CALIBRATION cause
+        // shared with the two siblings. `ilTarget` OVER 300 with `debtOf`/`currentLtv` still low is a
+        // levering bug and belongs to a separate investigation.
+        emit log_named_uint("(3b) lp0 ilTargetLtvBps    ", lm.ilTargetLtvBps(lps[0]));
+        emit log_named_uint("(3b) lp0 venue.debtOf      ", venue.debtOf(lps[0]));
+        emit log_named_uint("(3b) lp0 currentLtvBps     ", lm.getCurrentLtvBps(lps[0]));
+        emit log_named_uint("(3b) lm.totalDebtUsd       ", lm.totalDebtUsd());
+        emit log_named_uint("(3b) CORE.committedUsd18   ", CORE.committedUsd18());
+        emit log_named_uint("(3b) CORE.basketUsd (6d)   ", CORE.basketUsd());
+        emit log_named_uint("(3b) ETH.levPooled(lp0)    ", ETH.levPooled(lps[0]));
+        emit log_named_uint("(3b) ETH.levBuf(lp0)       ", ETH.levBuf(lps[0]));
         assertEq(CORE.committedUsd18() + lm.totalDebtUsd(),
                  (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
             "(3b) full-2x: committed EXCLUDES the debt-funded buffer (committed == basket depth - live debt)");
@@ -864,7 +907,14 @@ contract LevCascadeProbe is AllesFixture {
         // while leaving the basket leg alone, exactly because of (1).
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.prank(address(this));
-        try ETH.withdraw(2 ether, address(this), address(this)) {} catch {}
+        ++withdrawsAttempted;
+        try ETH.withdraw(2 ether, address(this), address(this)) { ++withdrawsLanded; } catch {}
+        emit log_named_uint("shrink withdraws landed    ", withdrawsLanded);
+        emit log_named_uint("               attempted   ", withdrawsAttempted);
+        // PREMISE: this withdraw IS the construction — it shrinks the plain base so the debt can
+        // exceed the ETH leg. A swallowed revert leaves the base at full size and the premise
+        // assertion below then fails for a reason that has nothing to do with leverage.
+        assertGt(withdrawsLanded, 0, "PREMISE: the shrink withdraw actually ran (else the construction never happened)");
         vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
 
         // §#12: the per-range floor now applies to the BASKET's contribution, not the curve leg.
@@ -883,6 +933,21 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("BTC USD leg (18d)", btcPooled18);
         emit log_named_uint("committedUsd18   ", committed);
         emit log_named_uint("  BTC range equity", btcEquity);
+        // §LEV-CLUSTER INSTRUMENT — the measured miss is 8x in the OPPOSITE direction from the
+        // construction's intent (debt 547e18 against a 79,187e18 leg), i.e. the DEBT is tiny, not the
+        // leg large. Two candidate causes and this trio tells them apart. (i) `ilTarget` UNDER the
+        // 300 bps dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed, and
+        // `totalDebtUsd` is only entry dust — the CALIBRATION cause the two siblings may share.
+        // (ii) `ilTarget` OVER 300 with `debtOf`/`currentLtv` still near zero ⇒ the borrow was
+        // attempted and did not land: a levering defect, NOT shared with them.
+        // ⚠️ `totalDebtUsd` is protocol-wide while `debtOf`/`currentLtv` are per-LP. If those two
+        // disagree the fault is an aggregation or wrong-instance read — a THIRD cause, and the same
+        // class the §WRONG-RANGE note above records. Do not group the three until these numbers say so.
+        emit log_named_uint("  lp0 ilTargetLtvBps", lm.ilTargetLtvBps(lps[0]));
+        emit log_named_uint("  lp0 venue.debtOf  ", venue.debtOf(lps[0]));
+        emit log_named_uint("  lp0 currentLtvBps ", lm.getCurrentLtvBps(lps[0]));
+        emit log_named_uint("  lp0 netEquity     ", lm.netEquity(lps[0]));
+        emit log_named_uint("  lp0 grossColl     ", lm.grossCollateral(lps[0]));
 
         // PREMISES — without BOTH of these the case is not the discriminating one and the
         // assertions below hold under either definition.

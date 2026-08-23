@@ -26,6 +26,15 @@ contract LeveragePnLProbe is AllesFixture {
     address bold; address sp; address lp = User02; address trader = User03;
     uint lpShares;
 
+    // §SILENT-SETUP — `try ETH.redeem(...) {} catch {}` inside `_lpValueUsd` records NOTHING, and a
+    // swallowed revert yields ethG == quidG == 0, i.e. a VALUATION OF ZERO that composes silently
+    // into every arm of the LVR comparison. Same shape as `VarPrecision.swapsLanded`.
+    // ⚠️ These are incremented AFTER `vm.revertToState`, deliberately: the snapshot revert would
+    // undo any storage write made inside the measured region, so a counter bumped next to the
+    // `try` would read 0 no matter what happened. The outcome is carried out on the STACK.
+    uint internal redeemsAttempted;
+    uint internal redeemsLanded;
+
     function _seed(uint ethDeposit) internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
         sp   = AUX.getVaults(bold)[0];
@@ -105,12 +114,17 @@ contract LeveragePnLProbe is AllesFixture {
         // 2026-08-16, 31.833 surviving shares priced at 0.0134 ETH (~$25) when the same LP had
         // deposited 400 ETH for ~400 shares. That is the husk, not the claim — so the per-share
         // basis is captured HERE, before anything is burned.
-        uint preShares = ETH.balanceOf(lp);
-        uint preAssets = ETH.convertToAssets(preShares);
-        emit log_named_uint("  pre  shares   ", preShares);
-        emit log_named_uint("  pre  assets   ", preAssets);
+        // Scoped: these two are emitted and never read again, and `via_ir` is off here, so keeping
+        // them live to the end of the function costs two stack slots for nothing.
+        {
+            uint preShares = ETH.balanceOf(lp);
+            uint preAssets = ETH.convertToAssets(preShares);
+            emit log_named_uint("  pre  shares   ", preShares);
+            emit log_named_uint("  pre  assets   ", preAssets);
+        }
         vm.prank(lp);
-        try ETH.redeem(lpShares, lp, lp) {} catch {}
+        bool redeemLanded;
+        try ETH.redeem(lpShares, lp, lp) { redeemLanded = true; } catch {}
         uint ethG  = (lp.balance - eth0) + (WETH.balanceOf(lp) - weth0);
         uint quidG = QUID.balanceOf(lp) - q0;
         // §WHICH-BRANCH — DID THE REDEEM BURN EVERYTHING? `BasketLib:1023` is UNWIND-FIRST,
@@ -146,6 +160,12 @@ contract LeveragePnLProbe is AllesFixture {
         // is where the 0.63% was reported — is exact, because there ethPx18 IS the live price.
         usd = (ethG + residEth) * ethPx18 / 1e18 + quidG;
         vm.revertToState(snap);
+        // Storage is restored by the line above, so the counters are written HERE, from stack state.
+        ++redeemsAttempted;
+        if (redeemLanded) ++redeemsLanded;
+        emit log_named_uint("  redeems landed", redeemsLanded);
+        emit log_named_uint("  redeems attempt", redeemsAttempted);
+        assertGt(redeemsLanded, 0, "PREMISE: the valuation redeem actually ran (else this LP is valued at ZERO)");
     }
 
     // ───────────────────────────────────────────────────────────────────────────

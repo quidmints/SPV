@@ -141,12 +141,31 @@ contract PooledUsdRepackMatrix is AllesFixture {
         BTC.requestDeposit(LP_Alice, sats);
     }
 
+    /// §SILENT-SETUP — ALL THREE SWAP HELPERS HERE SWALLOW THEIR REVERTS, SO COUNT THEM.
+    /// The `catch {}`s stay: S5 exists PRECISELY to drive the range to exhaustion, and the swap
+    /// after exhaustion is expected to fail. The requirement is a COUNT, not a hard failure. Without
+    /// one, a run where every `_sellEth` reverted produces the same "the BTC accumulators did not
+    /// move" lines as a run where all of them landed — and the cross-range ISOLATION assertions then
+    /// hold for the reason an empty set holds anything, while reading as proof of isolation.
+    /// ⚠️ `_open` already reports per-call (it returns 0 on revert, which S1/S3/S4/S6 loop on); the
+    /// ETH-in `_sellEth` reported NOTHING at all, and it is the leg every scenario ends on.
+    uint internal swapsAttempted;
+    uint internal swapsLanded;
+
+    /// One premise, asserted identically wherever a scenario's conclusion rests on flow.
+    function _assertTraded() internal {
+        emit log_named_uint("swaps landed        ", swapsLanded);
+        emit log_named_uint("swaps attempted     ", swapsAttempted);
+        assertGt(swapsLanded, 0, "PREMISE: the fixture actually traded (else this measures nothing)");
+    }
+
     /// BOLD → WETH: the range SELLS the LP's ETH and takes USD in (grows the ETH-range claim).
     function _open(uint boldAmt) internal returns (uint wethOut) {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) returns (uint w) { wethOut = w; }
+        ++swapsAttempted;
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) returns (uint w) { wethOut = w; ++swapsLanded; }
         catch { wethOut = 0; }
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
@@ -156,7 +175,8 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// range in range, one-shot walks it past the 300-bps repack tolerance and strands it.
     function _sellEth(uint size) internal {
         vm.prank(User01);
-        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+        ++swapsAttempted;
+        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0, true) { ++swapsLanded; } catch {}
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
@@ -208,6 +228,9 @@ contract PooledUsdRepackMatrix is AllesFixture {
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; landed++; }
         for (uint r = 0; r < 6; r++) _sellEth(4 ether);
         assertGt(landed, 0, "PREMISE: ETH-range flow landed");
+        // §SILENT-SETUP — `landed` counts the OPENS only. The six `_sellEth` calls above are the
+        // other half of the flow and reported nothing at all until now.
+        _assertTraded();
 
         Pair memory s1 = _snap();
         _log("S1 t1", s1);
@@ -265,6 +288,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _oracleTrace("S3 t1 oracle");
 
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
+        _assertTraded();
         ETH.reseat();
 
         Pair memory s2 = _snap();
@@ -314,6 +338,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         for (uint r = 0; r < 6; r++) { if (_open(3_000e18) == 0) break; }
         BTC.requestDeposit(User01, 2e7);
         for (uint r = 0; r < 3; r++) _sellEth(4 ether);
+        _assertTraded();
         BTC.requestDeposit(User03, 1e7);
 
         Pair memory s1 = _snap();
@@ -360,6 +385,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
 
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; }
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
+        _assertTraded();
         ETH.reseat();
 
         Pair memory s2 = _snap();
@@ -391,6 +417,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         uint opens;
         for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; opens++; }
         for (uint i = 0; i < 6; i++) _sellEth(30 ether);
+        _assertTraded();
         ETH.reseat();
 
         Pair memory s2 = _snap();
@@ -423,6 +450,9 @@ contract PooledUsdRepackMatrix is AllesFixture {
         // (30 ETH in, 25,168.89 USDC out, USD leg 25,185.75 -> 16.85, tick +1), so the teleport is
         // the swap AFTER exhaustion -- that is the one this isolates.
         for (uint i = 0; i < 5; i++) _sellEth(30 ether);
+        // §SILENT-SETUP — the whole scenario is "the swap AFTER exhaustion", so the five that
+        // EXHAUST it must have landed. If none did, the "marginal" swap is just the first one.
+        _assertTraded();
 
         Pair memory a = _snap();
         uint ethBefore  = User01.balance;
@@ -472,7 +502,8 @@ contract PooledUsdRepackMatrix is AllesFixture {
         (uint spA,) = CORE.poolStats();   // §DETICK: price is now the FIRST element, and it is a uint
         uint uA = CORE.POOLED_USD(); uint eA = CORE.POOLED();
         vm.prank(User01);
-        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0, true) { ok = true; } catch { ok = false; }
+        ++swapsAttempted;
+        try AUX.swap{value: size}(address(USDC), address(WETH), false, 0, 0, true) { ok = true; ++swapsLanded; } catch { ok = false; }
         (uint spB,) = CORE.poolStats();   // §DETICK: price is now the FIRST element, and it is a uint
         emit log_named_uint("--- sell #", i);
         emit log_named_uint("    reverted?      ", ok ? 0 : 1);
@@ -512,5 +543,6 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("LOWER_PRICE after opens", _bLo(address(ETH)));
 
         for (uint i = 1; i <= 6; i++) _sellEthLogged(i, 30 ether);
+        _assertTraded();
     }
 }

@@ -28,11 +28,21 @@ contract SkewCalibration is AllesFixture {
         vm.stopPrank();
     }
 
+    /// §SILENT-SETUP — THE `catch {}` BELOW RECORDS NOTHING, SO COUNT IT.
+    /// A drain fixture legitimately expects SOME reverts (the 120-swap ladder below is sized to
+    /// overshoot deliberately), so the requirement is a COUNT, not a hard failure. Without it a run
+    /// where EVERY swap reverted prints the same "wellSkew 0" line as a run where all 120 landed,
+    /// and the test then reports what a range with NO FLOW measures while claiming to report what a
+    /// drained one does.
+    uint internal swapsAttempted;
+    uint internal swapsLanded;
+
     function _trade(uint boldAmt) internal {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) {} catch {}
+        ++swapsAttempted;
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) { ++swapsLanded; } catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
     }
@@ -59,6 +69,11 @@ contract SkewCalibration is AllesFixture {
         // No assertion on the VALUE — the value is the output. Only a premise, so a zeroed
         // fixture cannot masquerade as "the skew is small".
         assertGt(CORE.POOLED(), 0, "PREMISE: the range must hold inventory, else 0 means nothing");
+        // §SILENT-SETUP — "the range holds inventory" says it was FUNDED, not that it TRADED. Every
+        // number printed above is about what the drain did, so the drain has to have happened.
+        emit log_named_uint("swaps landed         ", swapsLanded);
+        emit log_named_uint("swaps attempted      ", swapsAttempted);
+        assertGt(swapsLanded, 0, "PREMISE: the fixture actually traded (else this measures nothing)");
 
         // §E48/E58 — THE REGIME QUESTION IN ONE NUMBER. `wellSkew` is 0 above because
         // `target = flow + levClaimUsd6` is tiny against range inventory, so the scarcity curve never

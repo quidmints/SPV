@@ -56,12 +56,30 @@ contract UnificationControls is AllesFixture {
         vm.stopPrank();
     }
 
+    /// §SILENT-SETUP — EVERY SWAP HELPER IN THIS FILE SWALLOWS ITS REVERT, SO COUNT THEM.
+    /// The `catch {}` stays: the drain loops below are deliberately sized to exhaust the range, and
+    /// the swap that exhausts it SHOULD revert. What was missing is the COUNT — with nothing
+    /// recorded, a run where all 20 trades reverted prints the same accumulator deltas (zero) as a
+    /// run where none did, and each test then reports what a range with NO FLOW measures while
+    /// claiming to report what a trading one does.
+    uint internal swapsAttempted;
+    uint internal swapsLanded;
+
+    /// The single premise every flow-dependent test here rests on, asserted identically so no test
+    /// can quietly opt out of it. Not a new test — an instrument on the existing ones.
+    function _assertTraded() internal {
+        emit log_named_uint("swaps landed        ", swapsLanded);
+        emit log_named_uint("swaps attempted     ", swapsAttempted);
+        assertGt(swapsLanded, 0, "PREMISE: the fixture actually traded (else this measures nothing)");
+    }
+
     /// Drive real trading so the fee accumulators actually move.
     function _trade(uint boldAmt) internal {
         deal(bold, trader, boldAmt);
         vm.startPrank(trader);
         IERC20(bold).approve(address(AUX), boldAmt);
-        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) {} catch {}
+        ++swapsAttempted;
+        try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) { ++swapsLanded; } catch {}
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
     }
@@ -217,6 +235,7 @@ contract UnificationControls is AllesFixture {
         vm.roll(block.number + 1);
 
         for (uint i; i < 6; i++) _trade(3_000e18);
+        _assertTraded();
 
         (uint tokA, uint usdA) = ETH.pendingRewards(lpA);
         (uint tokB, uint usdB) = ETH.pendingRewards(lpB);
@@ -239,6 +258,7 @@ contract UnificationControls is AllesFixture {
         vm.roll(block.number + 1);
 
         for (uint i; i < 6; i++) _trade(3_000e18);
+        _assertTraded();
         (uint tokA0, uint usdA0) = ETH.pendingRewards(lpA);
         assertTrue(tokA0 > 0 || usdA0 > 0, "PREMISE: fees accrued BEFORE the late joiner arrives");
 
@@ -257,6 +277,7 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
+        _assertTraded();
 
         (uint tok, uint usd) = ETH.pendingRewards(address(0xDEAD));
         assertEq(tok, 0, "a non-depositor must have no token claim");
@@ -270,6 +291,7 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 6; i++) _trade(3_000e18);
+        _assertTraded();
 
         vm.prank(lpA); ETH.collectFees();
         uint q1 = QUID.balanceOf(lpA);
@@ -287,6 +309,7 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 50 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         for (uint i; i < 4; i++) _trade(3_000e18);
+        _assertTraded();
 
         vm.prank(lpA); ETH.withdraw(type(uint).max, lpA, lpA);
         emit log_named_uint("pooled after full exit", ETH.balanceOf(lpA));
@@ -418,10 +441,12 @@ contract UnificationControls is AllesFixture {
         vm.deal(User01, 3_000 ether);
         for (uint i; i < 8; i++) {
             vm.prank(User01);
-            try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0, true) {} catch {}
+            ++swapsAttempted;
+            try AUX.swap(address(USDC), address(WETH), true, 60_000 * USDC_PRECISION, 0, true) { ++swapsLanded; } catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
         }
 
+        _assertTraded();
         uint prem1 = CORE.skewPremium();
         uint usdFees1 = ETH.USD_FEES();
         emit log_named_uint("skewPremium after ", prem1);
@@ -471,11 +496,13 @@ contract UnificationControls is AllesFixture {
         uint steps;
         for (uint i; i < 20 && CORE.POOLED_USD() > ethUsd0 / 100; i++) {
             vm.prank(User01);
-            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+            ++swapsAttempted;
+            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true) { ++swapsLanded; } catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
             steps++;
         }
 
+        _assertTraded();
         uint ethUsd1 = CORE.POOLED_USD();
         uint btcUsd1 = CORE.POOLED_USD();
         uint pending = BTC.CORE().pendingSwapOutUsd();
@@ -551,10 +578,12 @@ contract UnificationControls is AllesFixture {
         vm.deal(User01, 5_000 ether);
         for (uint i; i < 20 && CORE.POOLED_USD() > ethUsd0 / 100; i++) {
             vm.prank(User01);
-            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+            ++swapsAttempted;
+            try AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true) { ++swapsLanded; } catch {}
             vm.roll(block.number + 1); vm.warp(block.timestamp + 10 minutes);
         }
 
+        _assertTraded();
         _logDeployGap("AFTER DRAIN (pre-refill)");
         assertLt(CORE.POOLED_USD(), ethUsd0 / 100, "PREMISE: the curve really is drained");
 
@@ -604,6 +633,7 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 8; i++) _trade(3_000e18);
+        _assertTraded();
         vm.warp(block.timestamp + 1 hours);
 
         uint pooled0 = ETH.balanceOf(lpA);
@@ -641,6 +671,7 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 4; i++) _trade(3_000e18);
+        _assertTraded();
 
         // §ETH-CUT — THE ORIGINAL QUESTION IS DISSOLVED, AND HALF THE OLD CHECK WOULD NOW BE VACUOUS.
         // This derived both legs from a concentrated-liquidity position via
@@ -692,6 +723,7 @@ contract UnificationControls is AllesFixture {
         vm.roll(block.number + 1);
         for (uint i; i < 20; i++) _trade(3_000e18);
 
+        _assertTraded();
         uint pooled0 = ETH.balanceOf(lpA);
         uint entryEquity = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
         vm.prank(lpA); ETH.redeem(pooled0, lpA, lpA);
@@ -724,6 +756,7 @@ contract UnificationControls is AllesFixture {
         vm.roll(block.number + 1);
         for (uint i; i < 20; i++) _trade(3_000e18);
 
+        _assertTraded();
         uint px      = AUX.getTWAPforAsset(address(WETH), 1800);
         uint shares  = ETH.balanceOf(lpA);
         uint claimEth = ETH.convertToAssets(shares);
@@ -779,6 +812,7 @@ contract UnificationControls is AllesFixture {
 
         for (uint i; i < 20; i++) _trade(3_000e18);
 
+        _assertTraded();
         uint oldAfter = CORE.POOLED_USD() + CORE.POOLED_USD();
         uint newAfter = CORE.basketUsd() + CORE.basketUsd();
         (uint[15] memory d,,, ) = AUX.get_deposits();
@@ -837,6 +871,7 @@ contract UnificationControls is AllesFixture {
 
         for (uint i; i < 20; i++) _trade(3_000e18);
 
+        _assertTraded();
         (uint[15] memory d1,,, uint depeg1) = AUX.get_deposits();
         uint tvl1 = d1[14] > depeg1 ? d1[14] - depeg1 : 0;
         uint oldCommitted1 = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
@@ -906,6 +941,8 @@ contract UnificationControls is AllesFixture {
         uint tvl = d0[14] > dp0 ? d0[14] - dp0 : 0;
 
         for (uint i; i < 20; i++) _trade(3_000e18);
+
+        _assertTraded();
 
         // ── AXIS: SWAP CAPACITY ────────────────────────────────────────────────────────────
         uint oldCommitted = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
@@ -1026,6 +1063,7 @@ contract UnificationControls is AllesFixture {
 
         // (a) PURE TRADING — the curve mirror moves, the basket's leg does not.
         for (uint i; i < 10; i++) _trade(3_000e18);
+        _assertTraded();
         uint pooled1 = CORE.POOLED_USD();
         uint basket1 = CORE.basketUsd();
         emit log_named_uint("after trading: POOLED_USD", pooled1);
@@ -1080,6 +1118,7 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         for (uint i; i < 10; i++) _trade(3_000e18);   // real harvest for the tip to come out of
+        _assertTraded();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
         uint COMPOUND_GAS = 200_000;                  // Quid.sol:1504 (raised from 140,000, E46)
