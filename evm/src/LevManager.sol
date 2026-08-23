@@ -245,7 +245,7 @@ contract LevManager is LevBase {
         // critical manager). Only OPEN is gated: close/rebalance stay open so the keeper can unwind OUT of a block.
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
         if (collWeeth < MIN_OPEN_WEETH) revert BadTarget();           // anti-Sybil: no free zero-collateral book entries
-        if (targetLtvBps == 0 || targetLtvBps > TARGET_LTV_CAP_BPS) revert BadTarget();
+        _requireTargetLtv(targetLtvBps);   // §WSA-LEV-INERT: one rule, and it now has a FLOOR at RANGE_BPS
         // `targetLtvBps` is the LP's max-leverage CAP; the live target is the entry-price-driven IL target.
         // Pin the entry price so the position opens at ZERO leverage and levers only as the range sells.
         uint256 entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);

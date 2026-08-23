@@ -209,8 +209,52 @@ abstract contract LevBase {
     /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). The ceiling is PASSED, not duplicated there:
     ///         `TARGET_LTV_CAP_BPS` is a constant and constants live in the caller's code, so one
     ///         definition stays here and the library reads whatever it is given.
+    /// 🔴 §WSA-LEV-INERT — AND A FLOOR, BECAUSE A CAP AT OR BELOW THE DEADBAND BUYS A POSITION THAT
+    ///    CAN NEVER LEVER AND SAYS NOTHING ABOUT IT. `RangeLib.setTargetLtv` enforces only
+    ///    `0 < capBps <= TARGET_LTV_CAP_BPS`, so `capBps <= RANGE_BPS` was admissible — and
+    ///    `ilTargetBps` clamps its result to `capBps` (`LevMath.sol:96`) while `debtDelta`'s
+    ///    no-action test reduces, on a fresh position with `cur == 0`, to exactly
+    ///    `targetBps <= rangeBps` (`LevMath.sol:826`). So such a position sits inside the deadband
+    ///    at EVERY price, `venue.borrow` is never reached, and the LP sees an overlay that silently
+    ///    does nothing rather than a rejected setting.
+    /// ⚠️ THIS EARNS ITS PLACE UNDER STANDING RULE 3 PRECISELY BECAUSE THE FAILURE IS SILENT — it is
+    ///    not a clamp on a computed number, it refuses a configuration that is unreachable by
+    ///    construction. The check is at the CALLER because `RANGE_BPS` is this contract's constant;
+    ///    the library reads what it is given, which is the same argument the note above makes for
+    ///    `TARGET_LTV_CAP_BPS`.
+    /// ⛔ DO NOT "FIX" THIS BY RAISING `RANGE_BPS` OR LOWERING `RANGE_DELTA`. The claim that the book
+    ///    is inert on a constants mismatch does NOT survive the tree (§WSA-LEV-INERT): `RANGE_DELTA`
+    ///    never reaches this path, `ilBasisPx` is the PINNED entry price with one write site, and the
+    ///    deadband is crossed at about +6.3% above entry. Only the LP-chosen cap could pin it shut,
+    ///    and that is what this line closes.
     function setTargetLtv(uint64 capBps) external {
+        _requireTargetLtv(capBps);
         RangeLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
+    }
+
+    /// @notice §WSA-LEV-INERT — ONE RULE FOR AN ADMISSIBLE LEVERAGE CAP, AT THE THREE SITES THAT
+    ///         SET ONE. `LevManager.openLev`, `BtcLevManager.openBtcLev` and `setTargetLtv` above
+    ///         each carried their own `if (x == 0 || x > TARGET_LTV_CAP_BPS) revert BadTarget();`
+    ///         — one concept declared three times (standing rule 2), and the floor below had to
+    ///         land at all three or the hole stays open at whichever one was missed.
+    /// @dev    THE FLOOR IS THE NEW HALF. `ilTargetBps` clamps its result to `capBps`
+    ///         (`LevMath.sol:96`), and `debtDelta`'s no-action test reduces on a fresh position
+    ///         (`cur == 0`) to exactly `targetBps <= rangeBps` (`LevMath.sol:826`). So a cap at or
+    ///         below `RANGE_BPS` pins the position inside the deadband at EVERY price: `venue.borrow`
+    ///         is never reached and the LP is sold an overlay that silently does nothing. It was
+    ///         admissible everywhere — both open paths bound only the ceiling, and `openLev` accepts
+    ///         `targetLtvBps = 1`.
+    /// ⚠️      IT IS NOT A CLAMP (standing rule 3): it does not bound a computed number, it refuses a
+    ///         CONFIGURATION that is unreachable by construction, and the failure it prevents is
+    ///         silent — which is the whole discriminator. Rule 17 applies too: making the state
+    ///         unconstructible at the three writers beats detecting it later at the reader.
+    /// ⛔      DO NOT INSTEAD RAISE `RANGE_BPS` OR LOWER `RANGE_DELTA`. The claim that the levered
+    ///         book is inert on a constants mismatch does NOT survive the tree (§WSA-LEV-INERT):
+    ///         `RANGE_DELTA` never reaches this path, `ilBasisPx` is the PINNED entry price with
+    ///         exactly one write site (`:196`), and the deadband is crossed at about +6.3% above
+    ///         entry. The LP-chosen cap was the only thing that could pin it shut.
+    function _requireTargetLtv(uint64 capBps) internal pure {
+        if (capBps <= RANGE_BPS || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.

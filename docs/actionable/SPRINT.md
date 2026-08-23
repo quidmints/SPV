@@ -59,6 +59,70 @@ another 1,608 off `Quid` and 842 off `Vault`, closing **3,074 bytes of the gap i
 dead-surface folds, and at this rate the arithmetic is the LEAST stable thing in this section.**
 **Re-run `python3 tools/check-contract-sizes.py` before quoting it**; do not read it from here.
 
+## 🔴 §WSA-LEV-INERT — **"THE LEVERED BOOK IS INERT ON A CONSTANTS MISMATCH" DOES NOT SURVIVE THE TREE. THE SYMPTOM IS REAL; THE MECHANISM IS THE UNPINNED-ANCHOR FIXTURE TRAP** (checked 2026-08-23, no build required)
+
+**The claim:** `SwapLib.sol:832` sets `RANGE_DELTA = 20` (±20 bps range half-width) and `LevBase.sol:45`
+sets `RANGE_BPS = 300` (action deadband), so "the IL target is derived inside a ±20 bps range and
+compared against a 300 bps deadband, so it cannot reach the threshold that triggers a borrow at any
+price path. `venue.borrow` is never invoked."
+
+**Every constant in that sentence is correctly quoted. The inference does not hold, for three
+independent reasons, each verified at its mutation site.**
+
+### 1. `RANGE_DELTA` DOES NOT BOUND THE IL BASIS. IT BOUNDS THE RANGE.
+`_ilTargetLive` (`LevBase.sol:440-445`) is `LevMath.ilTargetBps(p.ilBasisPx, px, p.targetLtvCapBps)`.
+`px` is the live oracle (`AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)`, `:363`) and `ilBasisPx` is the
+**pinned entry price**. Neither is a range bound. **`ilBasisPx` has exactly ONE write site in all of
+`evm/src` — `LevBase.sol:196`, position open** — so it is never re-anchored and `1 − √(entry/now)`
+grows without bound as price rises. `RANGE_DELTA` reaches this path nowhere.
+
+### 2. THE DEADBAND IS CROSSED AT ≈ +6.3%, AND THE ARITHMETIC IS ONE LINE.
+`debtDelta` (`LevMath.sol:822-830`) returns "no action" iff `cur + rangeBps >= targetBps && cur <=
+targetBps + rangeBps`. On a fresh position `curDebtUsd = 0 ⇒ cur = 0`, so the second clause is
+vacuously true and the first reduces to **`targetBps <= 300`**. Solving `1 − √(entry/now) > 0.03`
+gives `now > entry / 0.9409`, i.e. **a borrow triggers at ~+6.28% above entry.** Reachable on any
+real tape. The per-position cap does not block it either: `TARGET_LTV_CAP_BPS = 7500` (~4×,
+`LevManager.sol:75`) and `RangeLib.sol:477` admits any `0 < capBps <= 7500`.
+⚠️ **The one genuinely inert case, and it is LP-chosen, not systemic:** an LP setting `capBps <= 300`
+caps `targetBps` at or below the deadband forever, so their position can never borrow at any price.
+`setTargetLtv` permits it. **Worth a floor at `RANGE_BPS`, because the failure is silent** — the
+position simply never levers and nothing announces why.
+
+### 3. ⭐ THE CLAIM DESCRIBES A BUG THAT §C22 ALREADY FIXED, AND THE COMMENT SAYS SO VERBATIM.
+`LevBase.sol:441-444`: *"§C22 — was `LevMath.ilTargetLive(RANGE, p.syncKeyPx, …)`. That function
+preferred `soldFractionWad(syncKeyPx)`, which is **a CONSTANT (0.500750000 = f(RANGE_DELTA) alone — the
+range recentres on spot, so the price cancels out of the ratio)**. It is gone; the estimate on the
+entry-pinned basis is the target."*
+⇒ **A target that is a function of `RANGE_DELTA` alone and therefore cannot respond to price is
+EXACTLY the inertness the claim describes** — and it is the *superseded* implementation. The claim is
+a correct reading of the code as it was before §C22.
+⚠️ **AND THE DOCSTRING STILL POINTS AT THE OLD BASIS, WHICH IS HOW A READER GETS BACK HERE:**
+`LevMath.sol:82` says the target is *"`1 − √(syncKeyPx/pxNow)`"* while the body takes `ilBasisPx`.
+`syncKeyPx` **is** re-anchored on reseat; `ilBasisPx` is not. **Read the docstring and the claim
+follows; read the body and it does not.** Fix the docstring — it is the live half of this finding.
+
+### ⇒ SO WHY WAS `venue.borrow` OBSERVED NEVER TO FIRE? BECAUSE THE FIXTURE'S ANCHOR IS UNPINNED.
+`Alles.t.sol:1026-1037` (§E310) already records this exact chain: *"a fixture that never pins it —
+`LevYbReal`, `LevCascade`, `LeverageCrossSubsidyProbe` — reads REAL Chainlink, and `_setEthFeed` is
+then completely INERT … every push is refused with no signal, the ring never moves, **`ilTargetBps`
+stays 0, and `venue.borrow` is never invoked — which reads as 'Morpho will not lend' (§C18)."***
+**The symptom in the claim and the symptom in that note are the same symptom, and that note names the
+cause.** ⭐ **Independently re-confirmed today from a different direction:** `AUX.assetPriceFeed(WETH)`
+is `address(0)` in the bare `AllesFixture`, which is why §E345's `_sampleAnchorVariance` measured
+σ² = 0 across eight injected 2% moves and eight landed swaps until `AUX.setAssetFeed` was called.
+**Two different features, same fixture, same false "it is inert" reading in one day.**
+▶️ **THE DECISIVE EXPERIMENT, and it needs no code change:** pin the anchor
+(`AUX.setAssetFeed(WETH, ETH_FEED)`), drive price >6.3% above entry, and assert `venue.borrow` fired.
+If it does not fire *then*, the constants claim is back and this row is wrong.
+
+### 📌 WHAT IS ACTUALLY ACTIONABLE HERE (small, and none of it is a constants change)
+1. **Fix `LevMath.sol:82`'s docstring** — `syncKeyPx` → `ilBasisPx`. It is the reason this keeps being
+   re-derived, and it is a one-word edit. (Same class as the four stale-comment findings `SwapLib.sol:677`
+   already tallies.)
+2. **Floor `setTargetLtv` at `RANGE_BPS`** so an LP cannot silently buy a position that can never lever.
+3. **Do NOT change `RANGE_DELTA` or `RANGE_BPS`.** Nothing measured here says either is wrong, and a
+   constants change made against this claim would be made against a mechanism that is not live.
+
 ## 3b. 🟢 **§E345 — LANDED THIS SESSION, AND IT CARRIES A SECOND DEFECT THAT WAS NOT BOOKED ANYWHERE**
 Beyond turning σ² on (row b/b″ above), the same read had a live sentinel bug. `realizedVarianceWad`
 resolved *"unmeasured"* vs *"measured and calm"* with `cardinality >= 2`, but **`ringVariance` cannot

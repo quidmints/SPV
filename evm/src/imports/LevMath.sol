@@ -79,7 +79,7 @@ library LevMath {
     error BadCollateral();    // a pinned LONG venue whose collateral the manager cannot value/custody
     error VenueBlocked();     // open onto an incident-flagged venue
 
-    /// @notice IL-cancelling target LTV (bps) = `1 − √(syncKeyPx/pxNow)`, clamped to `capBps`.
+    /// @notice IL-cancelling target LTV (bps) = `1 − √(ilBasisPx/pxNow)`, clamped to `capBps`.
     ///         ZERO when flat/down (no IL accrued ⇒ no leverage). `ilBasisPx`/`pxNow` are
     ///         USD-per-base (1e18). Identical to `LevManager._ilTargetBps`.
     function ilTargetBps(uint128 ilBasisPx, uint256 pxNow, uint64 capBps)
