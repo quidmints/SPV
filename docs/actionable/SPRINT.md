@@ -3,6 +3,37 @@
 ---
 # 🔝 DO THESE FIRST — ordered, 2026-08-23
 
+## 0i. 🔬 **§LEV-CLUSTER — SIX FAILURES IN ONE SUITE, AND A PASSING TEST SETTLES WHAT THEY ARE NOT**
+(2026-08-23)
+
+`LevCascade` at HEAD: **10 pass, 6 fail.** ⭐ **THE CONTROL IS THE PASS, NOT THE FAILS:
+`test_Economic_LeversToProvenIlTarget` PASSES.** So leverage is opened, levered to target, and
+accounted — **the levered book is NOT inert, and any row still saying so is refuted by a green test in
+the same file.** That closes the framing §E326-WORKSTREAMS item "A" ordered the whole sprint on.
+
+| # | failure | status |
+|---|---|---|
+| 1 | *"cascade made no net de-lever progress (no sell→repay ran)"* — `1317412869 >= 1317412869`, debt **byte-identical** before and after | ✅ **SAME ROOT as §0h**: nothing to do, position inside the ±300 bps dead-band. Not a de-lever bug |
+| 2 | *"the stuck LP must emit exactly one DeleverFailed"* `0 != 1` | ✅ **ANSWERED, §0h** |
+| 3 | *"PREMISE: the ETH range's debt must EXCEED its own USD leg"* — `548917950000000000000 <=` | 🟠 **CONSISTENT with the same root**: it is a PREMISE, and it fails because the position carries LESS debt than the fixture assumes — which is what a dead-band that gates levering produces |
+| 4 | *"(3b) full-2x: committed EXCLUDES the debt-funded buffer"* | 🔴 **UNVERIFIED** — the name says *full-2x*, so it likely assumes a leverage level the dead-band never reaches, but that is a guess and must be measured |
+| 5 | *"levered: deliverable ETH still covers the range"* — `7500… < 7707…`, ~2.7% short | 🔴 **UNVERIFIED** — a magnitude miss, not a sign error |
+| 6 | *"ETH range equity == its OWN BASKET DEPTH less its OWN debt"* — `15475e18 != 120341…` | 🔴 **UNVERIFIED and the ODD ONE OUT: the two sides differ by ~8×, not by a few percent.** That is not a "less debt than assumed" shape; it looks like a DEFINITION disagreement. **Do not fold it into this cluster without measuring** |
+
+⇒ **THE UNIFYING HYPOTHESIS, STATED SO IT CAN BE KILLED:** fixtures assume positions reach a leverage
+the ±300 bps dead-band prevents them from reaching, so every assertion keyed to an expected MAGNITUDE
+comes in low. It is confirmed for 1–2, consistent for 3, unverified for 4–5, and **probably wrong for
+6**, whose 8× gap is a different animal.
+▶️ **Cheapest next step, one line and it discriminates all of them:** log
+`lm.ilTargetLtvBps(lp)`, `venue.debtOf(lp)` and `getCurrentLtvBps(lp)` in `_setupLev`, exactly as §0h
+did at the cascade site. **If the target is under 300 in each fixture, the cluster is one calibration
+question; if it is over 300 and the debt is still low, it is a levering bug and a different
+investigation.**
+⚠️ **AND THE REASON THIS ORDERING MATTERS:** six reds in one suite read as six defects and were
+carried that way in the census. Two are now one non-defect, and the remaining four have not been
+shown to share anything except a file. **A cluster is a hypothesis, not a finding.**
+
+---
 ## 0h. ✅ **§LEVCASCADE-STUCK — ANSWERED BY MEASUREMENT. THE POSITION IS INSIDE THE DEAD-BAND, SO
 NOTHING IS ATTEMPTED, SO NOTHING CAN FAIL** (2026-08-23; four of the seven clustered lev failures)
 
