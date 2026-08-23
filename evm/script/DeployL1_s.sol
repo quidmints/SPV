@@ -697,9 +697,38 @@ contract Deploy is Script {
     ///    caps LEVERING UP only. So the WETH-debt route removes the V3 hop from de-lever unconditionally;
     ///    what it cannot do is absorb new levered demand past ~$1.55M, at which point positions fall back
     ///    to the stable markets and the hop returns.
-    /// ▶️ NOT WIRED, and `MORPHO_LLTV_945` / `WEETH_WETH_ORACLE` are ORPHAN CONSTANTS (0 uses) kept only
-    ///    as the market's coordinates. Extend `AaveV3Venue` to the ETH side instead — same money-path
-    ///    caution applies, and it needs its own verified run.
+    /// ▶️ NOT WIRED. `MORPHO_LLTV_945` / `WEETH_WETH_ORACLE` are the market's coordinates and have a LIVE
+    ///    TEST consumer (`LevVenueMarketPins.t.sol` asserts both against the on-chain market and that the
+    ///    LLTV has not collapsed onto the 86% stable-leg one), so they are the `create_sweep_tx` shape —
+    ///    a maintained, tested marker for an unbuilt feature, NOT litter. Do not delete them.
+    ///
+    /// ⛔ **AND THE FEATURE THEY MARK SHOULD NOT BE BUILT: ETH-DENOMINATED DEBT IS NOT MERELY UNNECESSARY
+    ///    HERE, IT IS THE WRONG SIGN FOR THIS PRODUCT** (owner, 2026-08-23; derived below, not measured).
+    ///    Everything above argues eMode as the cheapest ROUTE to WETH debt, and treats "can we borrow WETH
+    ///    against weETH" as the open question — a LIQUIDITY question. That framing is what makes the note
+    ///    read as live work. The binding question is not liquidity, it is DIRECTION:
+    ///      • The hedge exists to offset UP-SIDE IL, `1 − √(entry/now)` (`LevMath.ilTargetBps`), which is
+    ///        the range's under-exposure as price RISES. Offsetting it means being **LONG ETH**.
+    ///      • Borrow DOLLARS against weETH ⇒ you hold ETH and owe USD ⇒ **long ETH**. That is the hedge.
+    ///      • Borrow WETH against weETH ⇒ you hold ETH and owe ETH ⇒ **delta-flat**. It does not offset the
+    ///        IL; it cancels the very exposure the overlay is trying to add.
+    ///    ⇒ **The dollar leg is structural, not a workaround for a shallow market**, and the live code says
+    ///    so at every borrow site: `LevVenueBase:148` `MORPHO.borrow(_params(), stableAmount, …)`, `:244`
+    ///    `POOL.borrow(STABLE, …)`, `LevMath:186` and `BtcLib:587` `venue.borrow(lp, _fromUsd(…, stable, usd))`,
+    ///    `LevManager:618` the same. `QuidLib.sol:934` already reached this conclusion from the other side —
+    ///    *"MorphoEscrowVenue.borrow(lp, stableAmount) lends STABLE, not WETH, so 'borrow WETH against
+    ///    weETH' has no market behind it … the SOR double-charge the design exists to avoid"* — and that
+    ///    note records a mis-repoint that delivered withdrawers NOTHING, caught by three tests.
+    /// ⚠️ **WHAT THE eMODE MEASUREMENT IS STILL GOOD FOR, so it is corrected rather than deleted:** it is a
+    ///    correct comparison of two markets for a leg we do not want. The 93/95% eMode numbers and the
+    ///    Morpho decay (1,770 → 652 free WETH in two weeks) stay as the record of why a borrowable-depth
+    ///    snapshot is the fastest-rotting number in this file. **They are not a reason to wire eMode.**
+    ///    ⚠️ ONE CLAIM ABOVE SURVIVES INTACT AND IS WORTH KEEPING SEPARATE: *"de-levering REPAYS, so it can
+    ///    never be blocked by low availability."* True, and it is why the liquidity axis was never the
+    ///    blocker in the first place — which is the same conclusion this note now reaches from direction.
+    /// 🔴 **IF ANYONE REOPENS THIS, THE THING TO FALSIFY IS THE DIRECTION ARGUMENT, NOT THE DEPTH NUMBERS.**
+    ///    Show a construction where WETH debt still leaves the position long ETH, or that the overlay is
+    ///    meant to be delta-flat. Re-measuring Morpho's free WETH answers a question nobody is asking.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
         // MORPHO ONLY. Euler v2 and Aave v4 BORROWING are removed; the BTC side keeps Aave V3 for WBTC.
         // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
