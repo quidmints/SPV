@@ -496,7 +496,29 @@ that its evidence — an on-chain codesize of 24,294 — is a measurement of the
 true about the WORLD and silent about our tree. A measurement of an external contract is not evidence
 that we call it**, and it is the most convincing-looking kind of wrong evidence there is.
 
-### 🟠 COORDINATES ROTTED (work live, citation dead) — re-point before starting
+### 🟠 COORDINATES ROTTED — ⛔ **AND THE FIX IS NOT TO UPDATE THE NUMBERS. CITE SYMBOLS.**
+🔴 **RE-MEASURED HOURS AFTER THIS LIST WAS WRITTEN: 4 OF 7 HAD ALREADY MOVED AGAIN**, by this
+session's own edits — `deleverEthOnDelivery` 1830 → 2007 → **2088** (the §SILENT-SKIP event pushed it
+down), `pos[lp] = p` 444 → 491 → **499**, `curvePriceWad` 378/384 → 428/434 → **434/440**,
+`paidOutSinceCheckpoint` 1349/2151 → 1555/2432 → **1581/1717/1958/2458**. **A line number is a
+citation with a half-life measured in hours in an active tree**, so a row that carries one is
+guaranteed to be wrong before anyone reads it, and the reader then cannot tell a MOVED symbol from a
+DELETED one — which is exactly how three tombstones ended up in a work lane today.
+⇒ **CITE THE SYMBOL, OPTIONALLY WITH A LINE AS A HINT: `SwapLib.deleverEthOnDelivery` (~:2088).**
+`grep -n 'function deleverEthOnDelivery'` is one command and cannot rot. **Current values below are a
+snapshot for convenience and will be wrong again; the symbols will not.**
+
+| row | symbol to grep | value at this commit |
+|---|---|---|
+| §1 / §E342 | `SwapLib.deleverEthOnDelivery` | ~2088 |
+| §E332 | `LevBase.totalDeliverableDollars` · `totalDebtUsd` · `totalGrossCollateral` · `totalNetEquity` | 275 · 475 · 517 · 523 |
+| §E332 | `totalNetEquity` callers in `evm/src` | **18** (row says 15) |
+| §E339 | `RangeLib` `pos[lp] = p;` | ~499 |
+| §C1 | `OracleLib.curvePriceWad` | 434, 440 |
+| §T3 | `BTCChannels.paidOutSinceCheckpoint` writers | 1581, 1717, 1958, 2458 |
+| §6 | manager-merge margin | **2,513** (row says 1,746) |
+
+*(original list, superseded above:)*
 `§1`/`§E342` cite `SwapLib.deleverEthOnDelivery:1830`, actual **`:2007`** · `§E332` is off ~45 lines
 throughout (`231→275`, `430→475`, `472→517`, `478→523`) and `totalNetEquity` now has **18** callers,
 not 15 · `§E339` cites `RangeLib:444`, actual **`:491`**; `AlreadyOpen` is `LevManager:241` not `:242`
