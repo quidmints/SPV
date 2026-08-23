@@ -44,6 +44,31 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 ///         `BORROWER_OPS`, no `openTrove`, verified by structure 2026-08-15 -- and BOLD survives ONLY
 ///         as basket stable slot 11, SUPPLIED to the Liquity Stability Pool. Held, never minted.)
 abstract contract LevVenueBase is ILevVenue {
+    /// @dev §POOL-DONATION — VIRTUAL UNIT OFFSET. Without it the pooled unit model carries the classic
+    ///      FIRST-DEPOSITOR INFLATION ATTACK, and it is reachable here because BOTH venues' pool
+    ///      balances can be raised by a STRANGER: Morpho's `supplyCollateral(m, assets, onBehalf, data)`
+    ///      takes an arbitrary `onBehalf` and is permissionless, and Aave's `supply` likewise.
+    ///      THE ATTACK, concretely: LP1 supplies 1 wei and gets 1 unit; the attacker donates X directly
+    ///      to the venue's position so the pool balance is X+1 while total units is still 1; LP2 then
+    ///      supplies Y and mints `Y·1/(X+1)` = **ZERO units** for any Y ≤ X. LP2's collateral becomes
+    ///      LP1's claim. Real theft, not rounding dust.
+    ///      THE FIX is the standard virtual offset (OpenZeppelin's ERC-4626 mitigation): price units
+    ///      against `total + OFFSET` over `balance + 1`, so an attacker must donate ~OFFSET times the
+    ///      victim's deposit to round it to zero — and forfeits every wei of it. 1e6 puts that cost
+    ///      beyond any griefing budget while costing nothing in precision.
+    /// ⚠️   IT MUST BE APPLIED ON BOTH SIDES OF BOTH VENUES OR IT IS NOT APPLIED. A single un-offset
+    ///      mint site re-opens the whole attack, because the attacker picks which one to enter through.
+    uint256 internal constant UNIT_OFFSET = 1e6;
+
+    /// @dev units minted for `amt` against a pool holding `bal` with `tot` units outstanding.
+    function _mintUnits(uint256 amt, uint256 tot, uint256 bal) internal pure returns (uint256) {
+        return SoladyMath.fullMulDiv(amt, tot + UNIT_OFFSET, bal + 1);
+    }
+    /// @dev the assets `u` units claim from a pool holding `bal` with `tot` units outstanding.
+    function _unitSlice(uint256 u, uint256 tot, uint256 bal) internal pure returns (uint256) {
+        return u == 0 ? 0 : SoladyMath.fullMulDiv(u, bal + 1, tot + UNIT_OFFSET);
+    }
+
     address public immutable MANAGER;   // the only caller (LevManager)
     address public immutable STABLE;    // the debt asset this venue lends
 
@@ -203,8 +228,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         MORPHO.supplyCollateral(_params(), collAmount, address(this), "");
         // Mint units against what the pool held BEFORE, so an LP joining a pool that has already been
         // drawn down buys in at the CURRENT per-unit value rather than the original one.
-        uint256 mint = (_totalCollUnits == 0 || before == 0) ? collAmount
-                     : SoladyMath.fullMulDiv(collAmount, _totalCollUnits, before);
+        uint256 mint = _mintUnits(collAmount, _totalCollUnits, before);   // §POOL-DONATION
         _collUnits[lp] += mint; _totalCollUnits += mint;
         return collAmount;
     }
@@ -216,8 +240,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 before = _poolShares();
         (uint256 got, uint256 sharesUp) = MORPHO.borrow(_params(), stableAmount, 0, address(this), address(this));
         // Mint units against the shares this borrow added. First borrow anchors 1 unit = 1 share.
-        uint256 mint = (_totalDebtUnits == 0 || before == 0) ? sharesUp
-                     : SoladyMath.fullMulDiv(sharesUp, _totalDebtUnits, before);
+        uint256 mint = _mintUnits(sharesUp, _totalDebtUnits, before);      // §POOL-DONATION
         _debtUnits[lp] += mint; _totalDebtUnits += mint;
         if (got > 0) IERC20Min(STABLE).transfer(MANAGER, got);
         return got;
@@ -291,7 +314,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         if (u == 0 || _totalDebtUnits == 0) return 0;
         // §POOL-VENUE: this LP's slice of the POOL's live shares. Interest accrues to the pool, so it
         // reaches every LP through this one conversion — no per-LP accrual bookkeeping exists or is needed.
-        return _sharesToAssetsUp(SoladyMath.fullMulDiv(_poolShares(), u, _totalDebtUnits));
+        return _sharesToAssetsUp(_unitSlice(u, _totalDebtUnits, _poolShares()));
     }
 
     /// @notice The POOL's total debt — O(1), and the reason `LevBase`'s Sigma-loops over `_openLps` can go.
@@ -308,9 +331,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     }
 
     function collateralOf(address lp) public view returns (uint256) {
-        uint256 u = _collUnits[lp];
-        if (u == 0 || _totalCollUnits == 0) return 0;
-        return SoladyMath.fullMulDiv(_poolColl(), u, _totalCollUnits);
+        return _unitSlice(_collUnits[lp], _totalCollUnits, _poolColl());   // §POOL-DONATION
     }
 
     /// @notice The POOL's total collateral — O(1) companion to `totalDebt`.
@@ -418,7 +439,19 @@ contract AaveV3Venue is LevVenueBase {
     address             public immutable COLLATERAL;
     uint256             public immutable LIQ_THRESHOLD_BPS; // collateral reserve liquidation threshold (Aave gov param)
 
-    mapping(address => AaveV3Escrow) public escrowOf; // lp → isolated Aave account (0 = none yet)
+    // §POOL-VENUE (2026-08-24) — ONE ESCROW FOR THE VENUE, NOT ONE PER LP. Aave V3 keys a position by
+    // the CALLER, so an escrow IS a position; `mapping(address => AaveV3Escrow) escrowOf` therefore
+    // WAS the per-LP isolation, exactly as `onBehalf = lp` was on Morpho. Same trade, same reasons:
+    // the delever loop could not aggregate across N escrows, so swap size was capped by how many
+    // repays fit in a block. Isolation is now protocol-enforced (`cascadeDelever` + the LTV
+    // hysteresis), not venue-enforced.
+    // ⭐ THE UNIT MODEL FITS AAVE BETTER THAN MORPHO, WHICH IS WORTH SAYING: aTokens REBASE and the
+    // variable-debt balance ACCRUES, so BOTH sides of the pool grow on their own. Units mean every
+    // LP's slice grows with them through one conversion — there is no per-LP accrual bookkeeping to
+    // write, and none to get wrong.
+    AaveV3Escrow public poolEscrow;                  // the ONE Aave account this venue owns
+    mapping(address => uint256) private _cUnits; uint256 private _tcUnits;   // collateral units
+    mapping(address => uint256) private _dUnits; uint256 private _tdUnits;   // debt units
 
     /// @param pool Aave V3 Pool. @param dataProvider Aave V3 ProtocolDataProvider (per-asset position reads).
     /// @param coll collateral underlying. @param stable the borrowed stable (== stable()). @param manager sole caller.
@@ -433,55 +466,103 @@ contract AaveV3Venue is LevVenueBase {
     // ── ILevVenue ────────────────────────────────────────────────────────────────
     function supply(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
         if (collAmount == 0) return 0;
-        AaveV3Escrow e = escrowOf[lp];
-        if (address(e) == address(0)) { e = new AaveV3Escrow(POOL, COLLATERAL, STABLE); escrowOf[lp] = e; }
+        AaveV3Escrow e = poolEscrow;
+        if (address(e) == address(0)) { e = new AaveV3Escrow(POOL, COLLATERAL, STABLE); poolEscrow = e; }
+        uint256 before = _poolReserve(false);
         IERC20Min(COLLATERAL).transfer(address(e), collAmount); // MANAGER already sent it to the venue
         e.supplyColl(collAmount);
+        uint256 mint = _mintUnits(collAmount, _tcUnits, before);          // §POOL-DONATION
+        _cUnits[lp] += mint; _tcUnits += mint;
         return collAmount;
     }
 
     function borrow(address lp, uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
-        AaveV3Escrow e = escrowOf[lp];
+        AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || stableAmount == 0) return 0;
-        return e.borrowStable(stableAmount, MANAGER);
+        uint256 before = _poolReserve(true);
+        uint256 got = e.borrowStable(stableAmount, MANAGER);
+        uint256 mint = _mintUnits(got, _tdUnits, before);                 // §POOL-DONATION
+        _dUnits[lp] += mint; _tdUnits += mint;
+        return got;
     }
 
     function repay(address lp, uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
-        AaveV3Escrow e = escrowOf[lp];
+        AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || stableAmount == 0) return 0;
         uint256 d = debtOf(lp);
-        uint256 r = stableAmount > d ? d : stableAmount;   // never over-repay (clamp to current debt)
+        uint256 r = stableAmount > d ? d : stableAmount;   // never over-repay (clamp to THIS LP's slice)
         if (r == 0) return 0;
+        uint256 before = _poolReserve(true);
         IERC20Min(STABLE).transfer(address(e), r);          // stable already transferred in by MANAGER
+        uint256 spent = e.repayStable(r);
+        // Burn the units this LP's repayment represents, so sum(units) stays == total.
+        uint256 burn = before == 0 ? 0 : SoladyMath.fullMulDiv(spent, _tdUnits, before);
+        if (burn > _dUnits[lp]) burn = _dUnits[lp];
+        _dUnits[lp] -= burn; _tdUnits -= burn;
+        return spent;
+    }
+
+    /// @notice §POOL-VENUE — aggregate repay. No per-LP write: `debtOf` reads through the pool, so a
+    ///         pooled repay lowers every LP's debt pro-rata by construction. Mirror of Morpho's.
+    function repayPool(uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
+        AaveV3Escrow e = poolEscrow;
+        if (address(e) == address(0) || stableAmount == 0) return 0;
+        uint256 d = _poolReserve(true);
+        uint256 r = stableAmount > d ? d : stableAmount;
+        if (r == 0) return 0;
+        IERC20Min(STABLE).transfer(address(e), r);
         return e.repayStable(r);
     }
 
+    /// @notice §POOL-VENUE — aggregate collateral withdraw. ⚠️ MUST follow a matching `repayPool`;
+    ///         alone it raises the pool's LTV toward a threshold Aave no longer enforces per-LP.
+    function withdrawPool(uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
+        AaveV3Escrow e = poolEscrow;
+        if (address(e) == address(0) || collAmount == 0) return 0;
+        uint256 c = _poolReserve(false);
+        uint256 w = collAmount > c ? c : collAmount;
+        return w == 0 ? 0 : e.withdrawColl(w, MANAGER);
+    }
+
+    function totalDebt() external view returns (uint256) { return _poolReserve(true); }
+    function totalCollateral() external view returns (uint256) { return _poolReserve(false); }
+
     function withdraw(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
-        AaveV3Escrow e = escrowOf[lp];
+        AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || collAmount == 0) return 0;
         uint256 bal = collateralOf(lp);
-        uint256 w = collAmount > bal ? bal : collAmount;    // capped at the position
+        uint256 w = collAmount > bal ? bal : collAmount;    // capped at THIS LP's slice of the pool
         if (w == 0) return 0;
+        {   uint256 pc = _poolReserve(false);
+            uint256 burn = pc == 0 ? _cUnits[lp] : SoladyMath.fullMulDiv(w, _tcUnits, pc);
+            if (burn > _cUnits[lp]) burn = _cUnits[lp];
+            _cUnits[lp] -= burn; _tcUnits -= burn;
+        }
         return e.withdrawColl(w, MANAGER);
     }
 
     /// @notice Amount OWED — ProtocolDataProvider's `currentVariableDebt` (Amp's proven source; exact block-fresh
     ///         underlying-unit debt, one asset, no vToken.balanceOf / no hardcoded index).
     function debtOf(address lp) public view returns (uint256) {
-        return _escrowReserve(lp, true);
+        return _slice(_dUnits[lp], _tdUnits, _poolReserve(true));
     }
 
     /// @notice Collateral supplied — ProtocolDataProvider's `currentATokenBalance` (block-fresh underlying units).
     function collateralOf(address lp) public view returns (uint256) {
-        return _escrowReserve(lp, false);
+        return _slice(_cUnits[lp], _tcUnits, _poolReserve(false));
+    }
+
+    /// @dev ONE conversion for both sides — units → the LP's slice of a pooled balance.
+    function _slice(uint256 u, uint256 tot, uint256 poolBal) private pure returns (uint256) {
+        return _unitSlice(u, tot, poolBal);   // §POOL-DONATION — one offset, defined once on the base
     }
 
     /// @dev ONE escrow-resolution body. Both reads MUST agree on which escrow they are
     ///      describing — a debt read against one escrow and a collateral read against
     ///      another would produce a plausible LTV for a position that does not exist.
     ///      `wantDebt` picks BOTH the asset and the slot, so they cannot be mismatched.
-    function _escrowReserve(address lp, bool wantDebt) private view returns (uint256) {
-        AaveV3Escrow e = escrowOf[lp];
+    function _poolReserve(bool wantDebt) private view returns (uint256) {
+        AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0)) return 0;
         (uint256 aTokenBal,, uint256 variableDebt,,,,,,) =
             DATA.getUserReserveData(wantDebt ? STABLE : COLLATERAL, address(e));

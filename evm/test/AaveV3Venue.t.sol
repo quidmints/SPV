@@ -39,7 +39,9 @@ contract AaveV3VenueTest is ForkPin {
         deal(WBTC, address(venue), coll);
         uint256 supplied = venue.supply(lp, coll);
         assertEq(supplied, coll, "supply credited");
-        assertTrue(address(venue.escrowOf(lp)) != address(0), "per-LP escrow deployed");
+        // §POOL-VENUE — ONE escrow for the venue, not one per LP. Was
+        // `assertTrue(address(venue.escrowOf(lp)) != address(0), "per-LP escrow deployed")`.
+        assertTrue(address(venue.poolEscrow()) != address(0), "pool escrow deployed");
         // (#112) collateralOf via getUserReserveData.currentATokenBalance == supplied underlying.
         assertApproxEqAbs(venue.collateralOf(lp), coll, 1e4, "collateralOf ~1 WBTC");
         assertEq(venue.debtOf(lp), 0, "no debt before borrow");
@@ -79,8 +81,25 @@ contract AaveV3VenueTest is ForkPin {
         venue.supply(lp, 0.5e8);
         deal(WBTC, address(venue), 0.5e8);
         venue.supply(lp2, 0.5e8);
-        assertTrue(address(venue.escrowOf(lp)) != address(venue.escrowOf(lp2)), "distinct isolated accounts");
-        assertGt(venue.collateralOf(lp), 0.4e8, "lp1 isolated collateral");
-        assertGt(venue.collateralOf(lp2), 0.4e8, "lp2 isolated collateral");
+        // 🔴 §POOL-VENUE — THIS TEST'S SUBJECT CHANGED, AND THE ASSERTION SAYS SO RATHER THAN BEING
+        // DELETED. It asserted `escrowOf(lp) != escrowOf(lp2)` — "distinct isolated accounts" — which
+        // was the venue-enforced isolation. There is ONE Aave account now, so distinctness is FALSE by
+        // construction and asserting it would only prove the change had not happened.
+        // What is still true, and is what the pooled model must guarantee, is that the two LPs' CLAIMS
+        // on that one account stay separate and proportional. That is what is checked now.
+        // ⛔ AND THE REASON THE PER-LP MODEL WENT IS NOT THE ONE SPRINT #1 GAVE — ISOLATION WAS NOT
+        // FREE CONTAINMENT, IT WAS ITSELF A DENIAL-OF-SERVICE SURFACE (owner, 2026-08-24). Many DUST
+        // LPs mean many de-levers in a row to free the same value, so a swap-out cannot be filled at
+        // all: **the book's LENGTH, not its size, priced the protocol's ability to settle.**
+        // `MAX_OPEN_LPS` was that disease's symptom treatment — it traded "no new opens" for "no
+        // swaps", which is exactly why its own comment called it a clamp meant to die. Pooling removes
+        // the need for either, and the cap went with it.
+        // ⚠️ Containment is NO LONGER proven here: a liquidation hits the pool and therefore both LPs
+        // pro-rata. It is protocol-enforced by `cascadeDelever` + the LTV hysteresis instead.
+        assertTrue(address(venue.poolEscrow()) != address(0), "one pooled Aave account");
+        assertGt(venue.collateralOf(lp), 0.4e8, "lp1's proportional claim");
+        assertGt(venue.collateralOf(lp2), 0.4e8, "lp2's proportional claim");
+        assertApproxEqRel(venue.collateralOf(lp), venue.collateralOf(lp2), 0.01e18,
+            "equal supplies must yield equal claims on the pool");
     }
 }
