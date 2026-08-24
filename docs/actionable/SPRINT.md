@@ -653,6 +653,45 @@ status column.
 is measuring effort, not truth.
 
 ---
+## ⏸️ **§FEES-COMPOUND-NOT-ACCRUE — FIVE "FEES NEVER ACCRUED" FAILURES ARE STALE TESTS, NOT A DEFECT** (2026-08-24)
+
+`QuidLib.rebalanceBody:368-378`, in the code's own words:
+> *"`repack`/`reseat` both return `(price, 0, 0, 0, 0)` now that **v4 collects nothing**, so the fee
+> legs are identically 0 … The fee LANE is untouched: **whether per-share accrual returns is the
+> deferred decision** recorded at `Core._fillDelta` (**fees currently compound into `POOLED_*`
+> instead**)."*
+⇒ **`feesPerShare` IS IDENTICALLY ZERO BY DESIGN SINCE §V4-CUT.** `_rebalance` applies
+`o.feesPerShareInc`, which `SwapLib.feeIncrements` computes from `(r.fees1, r.fees0)` — both hard 0
+because the PoolManager that produced them is gone. `_pendingFor` reads that accumulator, so
+`pendingRewards` returns 0 for every LP, correctly, under the CURRENT model.
+
+**Affected, and they all assert the PRE-v4 model:** `test_V2_EqualLpsEarnEqualFees`,
+`test_V2_LateJoinerEarnsNoRetroactiveFees`, `test_E41_SwapCapacityAndPerRangePnlAttribution`,
+`testMatrix_S1_EthIncrementalFlow_BothRanges`, `test_E42_RedeemableIsInvariantToPureBtcTradingFlow`.
+
+▶️ **MEASURED, NOT ASSUMED — the fixture was doing everything right.** `test_V2` traces
+**6 of 6 swaps landed**, `Core::swap` ran **6 times**, `_assertTraded` PASSED, and both LPs still
+read exactly 0. **The premise guard was correct and the thing it guards has been redefined.**
+
+⛔ **DO NOT "FIX" THESE BY REWRITING THE ASSERTIONS TO MATCH CURRENT BEHAVIOUR.** That is standing
+rule 4 — a change that makes the test pass is the tell that the real question is untouched. The real
+question is the DEFERRED DECISION the code names: **does per-share fee accrual come back, or is
+compounding into `POOLED_*` the permanent model?** These five tests are the specification of the old
+answer, and they are the cheapest existing statement of what the new answer must preserve.
+⏸️ **BLOCKED ON AN OWNER DECISION — ✅ IS FORBIDDEN HERE** (rule 16: anything landed conditional on a
+choice not yet made is ⏸️, never ✅). Whichever way it goes, these five move together:
+  • **accrual returns** ⇒ they pass again UNCHANGED and are the regression net that proves it;
+  • **compounding is permanent** ⇒ they must be REWRITTEN to assert LP value rose via `POOLED_*`
+    (equity per share), which is a DIFFERENT and still-real property — not deleted.
+
+⚠️ **HOW THIS CORRECTS TWO OF MY OWN CONCLUSIONS THIS SESSION, BOTH STATED CONFIDENTLY:**
+  1. *"the swaps aren't executing"* — **WRONG**, measured 6/6 landed. I inferred it from a cluster of
+     `0 <= 0` premises plus `try {} catch {}` in the fixtures. **`catch {}` makes a silent revert and a
+     silent no-op look identical, and I guessed which.**
+  2. *"`Core::swap` never ran"* — **WRONG**, it ran 6 times; my `head -18` truncated it out of a
+     frequency table and I read the absence as evidence. **An empty grep proves nothing — including
+     when the grep is my own truncated output.**
+
 ## 🔴 **§INIT-VETVENUE-ASYMMETRY — THE ETH MANAGER DISCARDS A RETURN VALUE THE BTC MANAGER REVERTS ON** (2026-08-24)
 
 ```solidity
