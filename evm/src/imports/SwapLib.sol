@@ -1700,22 +1700,22 @@ library SwapLib {
         //
         // This used to reflect `inv` about `target` (`mirror = 2·target − inv`) purely to reuse
         // `skewWad`. Reuse was the goal; the SINGULARITY came along with it. `skewWad`'s kernel is
-        // `Γσ²·q/(1−q)`, and that simple pole is A&S's infinite-horizon reservation price for the
+        // `Γσ²·qBar/(1−qBar)`, and that simple pole is A&S's infinite-horizon reservation price for the
         // SCARCE side — it blows up because you can RUN OUT of inventory and the last unit is
         // priceless. On the ABUNDANT side there is no such wall: YOU CANNOT RUN OUT OF SURPLUS.
         // Mirroring imported a barrier with no referent, so an ordinary sell into a heavy pool was
         // charged on a convex curve derived from a constraint it can never hit.
         //
-        // What is left is the linear A-S term the pole was multiplying: `Γσ²·q`, with q the
+        // What is left is the linear A-S term the pole was multiplying: `Γσ²·qBar`, with qBar the
         // OVERSHOOT as a fraction of target — and `target = flow + committed`, so the denominator is
         // FLOW. That is the derived basis (E54): the only real cost of taking volatile we did not
-        // want is that we must SHED it, shedding happens INTO FLOW, and the holding time is q/flow.
+        // want is that we must SHED it, shedding happens INTO FLOW, and the holding time is qBar/flow.
         // A refill (inv ≤ target) stays exempt, exactly as the mirror's flush branch made it.
         uint over = inv > target ? inv - target : 0;
         if (over == 0) return 0;                          // refill / at-target ⇒ EXEMPT
         // §E56 REFUSAL — WITH THE LIVENESS DISCRIMINATOR THAT THE FIRST ATTEMPT LACKED.
         //
-        // `tau = q/flow` is UNDEFINED at flow == 0, not merely large, so the honest response is to
+        // `tau = qBar/flow` is UNDEFINED at flow == 0, not merely large, so the honest response is to
         // refuse rather than clamp. But refusing on `flow == 0` ALONE is wrong and was MEASURED
         // wrong (644 failures): a zero EWMA is AMBIGUOUS between "the market is dead" and "we just
         // started", and a brand-new range has no flow HISTORY — refusing there bricks the pool at
@@ -1739,16 +1739,16 @@ library SwapLib {
         // identified — and the half that OVERCHARGES.
         //
         // `inv` already includes `addedTok` (see _skewBasis), so `over` is the POST-swap overshoot
-        // and `q` was q1: the sell was billed at the scarcity its LAST unit created, applied to
+        // and `qBar` was q1: the sell was billed at the scarcity its LAST unit created, applied to
         // EVERY unit. A seller arriving at a balanced range and pushing it to 2× target paid the
         // 2×-target rate on the whole ticket, including the first units that landed while the range
         // was still at target. Symmetrically to the drain leg, each unit must be billed at the
         // overshoot IT sees.
         //
-        // The drain leg needed a logarithm because its kernel is the pole q/(1−q). This kernel is
+        // The drain leg needed a logarithm because its kernel is the pole qBar/(1−qBar). This kernel is
         // LINEAR (E54: you cannot run out of surplus, so there is no barrier to integrate against),
         // and the mean of a linear function over an interval is its MIDPOINT:
-        //     (1/Δ)·∫[q0→q1] q dq = (q0 + q1)/2
+        //     (1/Δ)·∫[q0→q1] qBar dq = (q0 + q1)/2
         // No `lnWad`, no new import, no branch for Δ=0 — the midpoint of a degenerate interval is
         // the point itself, so a zero-size read still returns the instantaneous rate exactly as
         // before. E54's linearity is PRESERVED, not replaced: this is the same line, averaged.
@@ -1756,7 +1756,9 @@ library SwapLib {
         // — the same idiom this function already uses on its conversion locals. Adding them
         // unscoped overflows the stack (MEASURED: `Stack too deep` at the `_sharedScarcityWad`
         // call). `via_ir` stays false, deliberately (CLAUDE.md): shed stack, do not switch pipeline.
-        uint q;
+        // §NAME — was `q`. This IS `skewWad`'s `qBar`: the surplus ratio averaged over the sell.
+        // One quantity had two spellings across the two skew bodies.
+        uint qBar;
         {
             uint q1 = SoladyMath.fullMulDiv(over, 1e18, target);
             if (q1 > 1e18) q1 = 1e18;                     // ≥2× target: linear term saturates
@@ -1766,7 +1768,7 @@ library SwapLib {
             uint invBefore = inv > addedUsd ? inv - addedUsd : 0;
             uint q0 = invBefore > target ? SoladyMath.fullMulDiv(invBefore - target, 1e18, target) : 0;
             if (q0 > 1e18) q0 = 1e18;
-            q = (q0 + q1) / 2;                            // the integral's mean over THIS sell
+            qBar = (q0 + q1) / 2;                            // the integral's mean over THIS sell
         }
         uint sigmaSqWad = ICore(core).realizedVarianceWad();
         // §E54-r REMOVED (owner, 2026-08-04: *"avgYield has nothing to do with the range. it's a
@@ -1784,13 +1786,13 @@ library SwapLib {
         //    (corrected 2026-08-23; the paragraph read as a statement of installed behaviour and had
         //    already been cited as evidence that the guard exists):
         //      §E59: same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must not
-        //      price an inventory-increasing sell at nothing. Scarcity is real (q > 0) by this point.
+        //      price an inventory-increasing sell at nothing. Scarcity is real (qBar > 0) by this point.
         //      §E79: with the inversion, `_maxWellSkew(0)` is now a FLOOR of ~0 — returning it here
         //      would re-open the free-drain hole E59 closed. UNMEASURED variance must price at the
         //      CEILING, which is the conservative reading E59 intended, in the right units.
         //    ⚠️ **THERE IS NO `sigmaSqWad == 0` GUARD ON THIS LEG.** `UNKNOWN_VARIANCE_SKEW` has
         //    exactly ONE consumption site in the tree and it is `skewWad`'s, on the DRAIN leg. Below,
-        //    `skew = Γ·σ²·q/1e18` is EXACTLY 0 at σ² == 0 however large `q` is, and `_composePrice`
+        //    `skew = Γ·σ²·qBar/1e18` is EXACTLY 0 at σ² == 0 however large `qBar` is, and `_composePrice`
         //    then returns `0·sharedScarcity + _maxWellSkew(0, rk)` = `rk.spliceFloor` — **0 on ETH**
         //    (whose profile is `(ETH_CONF_FRAC_WAD, 0)`), `SPLICE_FLOOR` alone on BTC.
         //    ⇒ **AN INVENTORY-INCREASING SELL — SOMEBODY DUMPING THE FALLING ASSET INTO THE RANGE,
@@ -1803,7 +1805,7 @@ library SwapLib {
         //    it is one of TWO halves — see §E352 at `skewWad`'s flush branch. Fixing one and calling
         //    the row closed is the failure mode §E278 explicitly warns about.**
         uint skew = SoladyMath.fullMulDiv(
-            SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), q, 1e18);
+            SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
         // inventory is dearer to shed when the OTHER range has already spoken for the shared backing.
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier

@@ -177,7 +177,9 @@ contract DrainProbe is AllesFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD();   // primed dollars (no shared proceeds pool)
+        // §WRONG-RANGE — this test primes with USDC→WBTC, so the primed dollars land on the BTC
+        // instance. The very next line already reads `BTC.CORE()`; this one did not.
+        uint poolUsd = BTC.CORE().POOLED_USD();   // primed dollars (no shared proceeds pool)
         assertGt(poolUsd, 0);
         assertEq(BTC.CORE().pendingSwapOutUsd(), 0, "priming records no swap-out obligation");
 

@@ -2783,7 +2783,9 @@ contract Alles is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes); // settle TWAP
 
         uint price     = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint sats      = ((CORE.POOLED_USD() * 1e12) / 4 * 1e18) / price;
+        // §WRONG-RANGE — a BTC swap-in is paid from the BTC range's USD leg, so size against that
+        // instance. Sizing off `CORE` (ETH) measured a reserve this call never touches.
+        uint sats      = ((BTC.CORE().POOLED_USD() * 1e12) / 4 * 1e18) / price;
         address seller = address(0x5704);
         bytes32 hash   = keccak256("strand4-swapin");
 
@@ -2816,7 +2818,9 @@ contract Alles is AllesFixture {
         //     PARTIALLY fill reverts SwapInPartialRejected, the whole call rolls back, the hop
         //     delivers no USD and fails the HTLC, and the seller keeps 100% of their BTC.
         uint balBefore3 = ch.provenSatsAvailable(hopA);
-        uint bigSats = ((CORE.POOLED_USD() * 1e12 * 4) * 1e18) / price; // 4x the reserve
+        // §WRONG-RANGE — as above. "4x the reserve" has to be 4x the BTC reserve, or the request
+        // may still be FILLABLE and `SwapInPartialRejected` never fires ("did not revert").
+        uint bigSats = ((BTC.CORE().POOLED_USD() * 1e12 * 4) * 1e18) / price; // 4x the reserve
         vm.prank(hopA);
         vm.expectRevert(abi.encodeWithSignature("SwapInPartialRejected()"));
         ch.settleSwapInBuffered(seller, bigSats, address(USDC), keccak256("s4-atomic"), 0, true);
@@ -4586,7 +4590,10 @@ contract Alles is AllesFixture {
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
         vm.stopPrank();
-        uint poolUsd = CORE.POOLED_USD();
+        // §WRONG-RANGE — the loop above swaps USDC→WBTC, so the primed dollars land on the BTC
+        // instance. `poolUsd` is the BOUND for the mint assertion below (`poolUsd / 100 * 1e12`), so
+        // reading the unmoved ETH leg made that bound far too tight.
+        uint poolUsd = BTC.CORE().POOLED_USD();
 
         // Cooperative-close tx: spends the funding UTXO (vout 0), pays the LP's
         // full funding to their registered P2TR shutdown key (no delivery happened),
