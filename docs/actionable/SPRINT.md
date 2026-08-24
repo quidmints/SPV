@@ -785,7 +785,32 @@ asserting nothing (rule 4).
    **0**)` — **ETH has NO splice floor**, where `btcRisk()` carries `SPLICE_FLOOR`.
 ⇒ **A FLUSH ETH RANGE AT LOW σ² CHARGES EXACTLY ZERO. FREE TRADING, ZERO LP REVENUE.** §UNIT-A already
 recorded the symptom (*"§E99 measured a 30-day-old imbalance pricing at 0"*); this is its mechanism.
-⚠️ **HOW MUCH THIS BITES IN PRODUCTION IS UNMEASURED AND MUST NOT BE ASSERTED EITHER WAY.** Real σ² is
+✅ **MEASURED 2026-08-24 — IT BITES IN PRODUCTION, AND THE NUMBER IS ~10,000×.** `_maxWellSkew` is
+closed-form (`σ²·confFrac/8e18 + spliceFloor`), so no backtest was needed:
+| annual vol | ETH base | BTC base |
+|---|---|---|
+| 30% | **0.000043 bps** | 20.01 bps |
+| 70% | **0.000233 bps** | 20.07 bps |
+| 200% | **0.0019 bps** | 20.57 bps |
+Against `DEPLETION_RATE_WAD` = **2.1 bps** on a full drain, and `UNKNOWN_VARIANCE_SKEW` = **300 bps**.
+⇒ **A FLUSH ETH RANGE CHARGES A DRAIN ~0.0002 bps WHERE THE DERIVATION SAYS ~2.1 bps IS OWED.**
+⭐ **AND THE ~0 BASE IS *CORRECT*, WHICH IS WHY THIS HID.** ETH settles in ONE BLOCK
+(`ETH_CONF_FRAC_WAD` ≈ 12s/1yr), so there is almost no inventory-risk window to charge for; BTC's
+20 bps is essentially all `SPLICE_FLOOR`. **Nothing is mis-parameterised. The bug is that the flush
+branch skips the KERNEL and DEPLETION, and on ETH depletion is the only term with any magnitude.**
+⛔ **THIS IS WHY §UNIT-A'S RULE READS AS SOUND AND IS NOT, ON ETH:** *"only the DEPLETION (kernel)
+term flushes away, never the adverse-selection floor"* is defensible on BTC, where 20 bps of floor
+survives the flush. **On ETH the floor is ~0, so "only depletion flushes away" means EVERYTHING
+flushes away.** A rule stated per-asset-neutrally that is only true for one asset.
+⚠️ **AND IT PRICES MY OWN ARM 2: 300 bps where 2.1 bps was owed — WRONG BY ~143× IN THE OTHER
+DIRECTION**, on top of only ever affecting the first swap. Reverting it was right twice over.
+▶️ **CANDIDATE FIX, derivation-backed and NOT yet landed (it is a PRICE, so it is an owner call):**
+the flush branch adds `DEPLETION_RATE_WAD·(inv0−inv1)/inv0` when `inv1 < inv0`. §E311's own note says
+depletion IS the inventory-proportional form of the charge every drain owes, so this restores the
+authorised charge rather than inventing one. **~2.1 bps on a full drain, ~0 on a small one, 0 on a
+refill** — bounded by construction and directionally exactly what the curve is for.
+
+⚠️ **(superseded) HOW MUCH THIS BITES IN PRODUCTION IS UNMEASURED AND MUST NOT BE ASSERTED EITHER WAY.** Real σ² is
 non-zero, so the base is non-zero and some revenue exists; the fixtures use a STATIC mocked feed, which
 is why they read exactly 0. **The open question is whether `σ²·confFrac/8` at realistic volatility is a
 MATERIAL charge or a rounding artifact.** That is one backtest, and it has not been run.
