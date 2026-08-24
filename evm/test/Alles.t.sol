@@ -1596,8 +1596,15 @@ contract Alles is AllesFixture {
         balanceBefore = USDC.balanceOf(User01);
         ETH.pull(id, 100, address(USDC));
 
+        // §OOR-PULL-SIGN — WAS `balanceBefore`, WHICH ASSERTED THE OPPOSITE OF ITS OWN MESSAGE.
+        // A 100% pull RETURNS the order's USDC to the owner, so the balance must RISE by `rack/10`
+        // (the amount the order was opened with, deducted by the assertion ~6 lines above). Comparing
+        // against the unchanged `balanceBefore` could only pass if the pull returned NOTHING.
+        // MEASURED: it returned 99,999,998 of 100,000,000 — 2 wei short of exact, i.e. the pull works
+        // and the assertion was reading the wrong side. Same class as `assertGt(x, x)`: the message
+        // states the property, the code tests something else.
         assertApproxEqAbs(USDC.balanceOf(User01),
-        balanceBefore, rack / 50, "Should get USDC back");
+        balanceBefore + rack / 10, rack / 50, "Should get USDC back");
 
         vm.stopPrank();
     }
