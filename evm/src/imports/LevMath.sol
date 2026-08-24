@@ -955,7 +955,7 @@ library LevMath {
     ///         minted BOLD at the trove's `protocolMintLtvBps`. Morpho does not mint — you borrow what exists —
     ///         and Liquity went with `c11cb40f` because a trove cannot take weETH, which `ILevVenue` is
     ///         denominated in. The detector was unconditionally false, so mode-0 is the only path and always was.
-    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut)
+    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, bytes memory route)
         public {
         if (repayUsd == 0 || cfg.flashProvider == address(0)) return;
         uint256 debt = venue.debtOf(lp);
@@ -964,7 +964,7 @@ library LevMath {
         if (repayStable > debt) repayStable = debt;                              // never flash more than we can repay
         if (repayStable == 0) return;
         // mode 0 = the generic flash-the-stable → repay → withdraw → sell → return path.
-        IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut));
+        IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut, route));
     }
 
     // §E304-mintclose: `_isMintVenueM`'s natspec outlived the detector and hung over `_fromUsd`. The
