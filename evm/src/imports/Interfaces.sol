@@ -172,25 +172,17 @@ interface ICurvePool {
 // execution path. That moves the keeper from "picks WHEN" to "picks HOW", and every one of those is
 // a new moving part that can fail independently of the chain. A pinned pool needs none of it: the
 // keeper passes NOTHING and its entire role stays "decide the moment".
-// ⇒ The cost of pinning is that a pinned pool can be thin at size. The measurement above is what
-// makes that acceptable HERE and it is what must be re-checked before trusting this again.
-address constant V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+// §C2.1 — THE PINNED-V3-POOL RATIONALE ABOVE IS HISTORY. V3 is deleted; the volatile leg is a
+// keeper-supplied 1inch route, so "a pinned pool can be thin at size" is no longer the trade-off
+// being made. What replaces it: the ROUTE is chosen off-chain per swap, and the on-chain bound is
+// `minOut` on the balance delta.
 // 1inch AggregationRouterV6 (mainnet). §C2.1 — the volatile leg's route. PINNED AS A CONSTANT AND
 // THAT IS LOAD-BEARING: the executor `call`s it with keeper-supplied calldata, so the ONLY thing
 // standing between a malicious route and the protocol's funds is that the CALLEE cannot be chosen.
 // An `address` parameter here would make the whole design a rug vector.
 address constant ONEINCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
 
-uint24  constant V3_FEE_WETH    = 500;    // USDC/WETH 0.05%
-uint24  constant V3_FEE_WBTC    = 3000;   // WBTC/USDC 0.30%
 
-interface IV3Router {
-    struct ExactInputSingleParams {
-        address tokenIn; address tokenOut; uint24 fee; address recipient;
-        uint256 amountIn; uint256 amountOutMinimum; uint160 sqrtPriceLimitX96;
-    }
-    function exactInputSingle(ExactInputSingleParams calldata p) external payable returns (uint256);
-}
 
 
 // Stableswap legs: the borrowed stable → USDC, before the volatile venue takes USDC → WETH/WBTC.
@@ -322,6 +314,10 @@ interface IAggregatorV3 {
 
 // Uniswap V3 SwapRouter02. Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.
 // §SLOP — `V3_SWAP_ROUTER` DELETED: its only consumer was `SOR._v3Route`, removed with `SOR.sol`.
+// ⚠️ AND IT CAME BACK BEFORE GOING AGAIN — THIS TOMBSTONE WAS FALSE FOR MONTHS. `e4f9c512` re-pinned
+// the router days after `9eef279a` cut it, because deleting the only volatile route re-opened the
+// hole. It is deleted AGAIN under §C2.1, and this time the replacement (a keeper-supplied 1inch
+// route) landed FIRST. A tombstone is only true while nothing needs what it buried.
 
 /// @notice Uniswap V3 SwapRouter02 — the SOR's multi-hop route. Callers here only INITIATE swaps, so
 ///         `IUniswapV3SwapCallback` (implemented by pools) is deliberately not inherited.
