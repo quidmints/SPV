@@ -450,10 +450,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
 
-    function _updateBounds(uint price, uint delta)
-        internal pure returns (uint lower, uint upper) {
-        return SwapLib.updateBounds(price, delta);
-    }
+
 
     // ──── BTC LP path (parallel to ETH) ────
     //

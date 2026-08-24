@@ -2767,55 +2767,13 @@ library SwapLib {
         uint256 skewWad;
         uint64  deadline;
     }
-
-    error QuoteExpired();
-    error SizeExceedsInventory();
-    error ConservationViolated();
     error NoQuote();
 
-    /// @notice Quote a DRAIN — volatile out of the range, the scarce direction.
-    /// @param  core     the Core holding the pooled accumulators the skew reads.
-    /// @param  base     the oracle price (the SAME base `wellSkew` takes; the WBTC ×1e10 lift already
-    ///                  closes the 8↔18 gap, so one flat scale serves both assets — do NOT add a
-    ///                  second ×1e10 "to fix BTC", it double-counts).
-    /// @param  wantUsd6 the volatile-out this swap will take, 6-dec USD. Size-AWARE deliberately:
-    ///                  passing 0 gives the Δ→0 instantaneous rate, which is a DASHBOARD signal and
-    ///                  NOT a settlement quote. A settlement quote must pass its real size, or the
-    ///                  swapper is charged for an imbalance smaller than the one they create.
-    function quoteDrain(address core, uint base, uint wantUsd6, uint64 ttl)
-        internal view returns (Quote memory q)
-    {
-        return _quote(core, base, wantUsd6, ttl, true);
-    }
 
-    /// @notice Quote a FILL — volatile into the range, the abundant direction.
-    /// @param  addedTok the volatile being deposited. Passed so the sell is judged on inventory AFTER
-    ///         its own contribution — a pool sitting exactly at target would otherwise never charge
-    ///         any sell, however large (the §E54 note on `sellSkew`).
-    function quoteFill(address core, uint base, uint addedTok, uint64 ttl)
-        internal view returns (Quote memory q)
-    {
-        return _quote(core, base, addedTok, ttl, false);
-    }
 
-    /// @dev ONE quote body where there were two. `quoteDrain` and `quoteFill` differed in exactly the
-    ///      DIRECTION — which skew reads the imbalance (`wellSkew` scarce / `sellSkew` abundant) and
-    ///      which way `_applySkew` moves the rate — so the two are folded onto one flag. That coupling
-    ///      is the point: the skew source and the sign of the charge must never drift apart, and while
-    ///      they were written twice nothing said so.
-    ///      ⚠️ `size` IS NOT ONE UNIT. Draining it is 6-dec USD out; filling it is volatile tokens in.
-    ///      Nothing here does arithmetic on it — it is forwarded to the matching skew and recorded as
-    ///      the size bound — so the basis stays where it is documented, on the two typed wrappers.
-    ///      Do NOT add a computation on `size` in this body.
-    function _quote(address core, uint base, uint size, uint64 ttl, bool draining)
-        private view returns (Quote memory q)
-    {
-        if (size == 0) revert NoQuote();              // a zero-size settlement quote is a category error
-        q.skewWad   = draining ? wellSkew(core, base, size) : sellSkew(core, base, size);
-        q.rateWad   = _applySkew(base, q.skewWad, draining);
-        q.maxSizeIn = size;                            // the quote is valid for THIS size, not more
-        q.deadline  = uint64(block.timestamp) + ttl;
-    }
+
+
+
 
     /// @dev The skew moves the rate AGAINST the swapper in both directions — it is a spread, not a
     ///      directional view. On a drain the range parts with scarce inventory and charges MORE per
@@ -2827,11 +2785,7 @@ library SwapLib {
             : base - (base * skewAmt) / 1e18;
     }
 
-    /// @notice Enforce a quote at settlement time. Both bounds, or the commitment is not a commitment.
-    function enforce(Quote memory q, uint sizeIn) internal view {
-        if (block.timestamp > q.deadline) revert QuoteExpired();
-        if (sizeIn > q.maxSizeIn)         revert SizeExceedsInventory();
-    }
+
 
     // §E304 — THE THREE-WAY SPLIT IS DELETED: `Split`, `splitCost`, `requireNonAbusable` and their
     // three errors, ~95 lines, plus `FillAndBatch.t.sol` which tested nothing else.
@@ -2848,32 +2802,7 @@ library SwapLib {
     // ─────────────────────────────────────────────────────────────────────────────
     // CONSERVATION — the ONE property worth keeping from v4's `unlockCallback`
     // ─────────────────────────────────────────────────────────────────────────────
-    /// @notice v4's flash accounting reverts unless every delta nets to zero. That is a CONSERVATION
-    ///         PROOF, and it is SEPARABLE from the two things it was bundled with: PRICING (ticks,
-    ///         √P) and CUSTODY (the PoolManager holding the funds). We keep the proof and drop the
-    ///         other two — the accumulators it protects (`POOLED_*`) live in `Core`, never in v4, so
-    ///         nothing about them changes when the AMM leaves.
-    ///
-    ///         SHAPE: snapshot our own balances → run the settlement → assert the deltas net. Same
-    ///         guarantee, no external singleton, no callback re-entry surface.
-    ///
-    /// @dev    ⚠️ THIS EARNS ITS PLACE UNDER STANDING RULE 3 PRECISELY BECAUSE THE FAILURE IS SILENT.
-    ///         A settlement that moves the wrong amount does not announce itself: it produces a
-    ///         plausible balance and a wrong `POOLED_*`, and the error compounds into share pricing
-    ///         where nobody can attribute it later. That is the discriminator the rule names — a
-    ///         check is justified when violating it would be silent and produce plausible-but-wrong
-    ///         output. It is NOT a clamp on a reachable bad state; it is a proof obligation.
-    /// @param  expectedOut what the quote committed to deliver.
-    /// @param  actualOut   what the settlement actually moved, measured as a BALANCE DELTA — never a
-    ///                     number reported by the code under test, or the check reads its own output.
-    function assertConserved(uint expectedIn, uint actualIn, uint expectedOut, uint actualOut)
-        internal pure
-    {
-        // EXACT. No tolerance: a tolerance here is the thing that makes a real defect pass, and the
-        // amounts are integers under our own control on both legs — there is no rounding source that
-        // a correct settlement would produce.
-        if (actualIn != expectedIn || actualOut != expectedOut) revert ConservationViolated();
-    }
+
 
 }
 

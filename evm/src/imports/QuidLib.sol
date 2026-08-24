@@ -153,7 +153,6 @@ library QuidLib {
     //  math extracted for EIP-170 headroom; view fns (no state written), the
     //  live range ticks arrive as params. Byte-identical to the in-Quid bodies.
     // ════════════════════════════════════════════════════════════════════
-    uint32  constant THETA_STEP = 300;         // 5-min sample window
     // THETA_N (8 windows → a 40-min horizon) DELETED 2026-08-15: zero references anywhere, code or
     // comment. It described the OLD estimator's window count — `OracleLib:220` names that estimator in
     // the past tense ("the previous estimator sampled `observe` every THETA_STEP seconds") — and E61

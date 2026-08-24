@@ -253,23 +253,7 @@ contract BtcLevManager is LevBase {
         else                             _deleverWbtc(venue, lp, stable, deltaUsd, minOut);
     }
 
-    /// @notice #10 SYSTEMIC batch de-lever for WBTC-mode positions — the BTC analog of ETH `LevManager.cascadeDelever`.
-    ///         De-levers a keeper-supplied (LTV-ranked) batch in ONE tx via the atomic `rebalanceWbtc` (flash-repay-
-    ///         first, health-safe, direction decided on-chain). PERMISSIONLESS + only-toward-target. FAULT-TOLERANT:
-    ///         a member whose `rebalanceWbtc` can't source liquidity — OR a NATIVE vBTC position (those use the async
-    ///         keeper legs, not this atomic path, so `rebalanceWbtc` reverts `BadTarget`) — is SKIPPED (`DeleverFailed`)
-    ///         and the loop continues; one stuck LP can NEVER block the rest (it falls to its venue's own isolated
-    ///         liquidation). NOT `nonReentrant`: each `this.rebalanceWbtc` self-locks (mirrors ETH's cascade calling
-    ///         the per-LP entry). Keeper ranks by LTV off-chain and supplies the descending list + per-position minOut.
-    function cascadeDeleverMany(address[] calldata lps, uint[] calldata minOuts) external {
-        require(lps.length == minOuts.length, "len");
-        for (uint i; i < lps.length; i++) {
-            address lp = lps[i];
-            if (!pos[lp].open) continue;
-            try this.rebalanceWbtc(lp, minOuts[i]) {}
-            catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
-        }
-    }
+
 
     /// @dev Lever-UP: borrow stable → Curve to WBTC → supply. EXACT 4-step custody of `LevManager._leverUpBuy`
     ///      (borrow→manager, swap→manager, manager→venue transfer, venue.supply→escrow), collateral = WBTC.

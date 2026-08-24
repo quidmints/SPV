@@ -44,7 +44,6 @@ type Id is bytes32;
 struct MarketParams { address loanToken; address collateralToken; address oracle; address irm; uint256 lltv; }
 
 interface IMorphoBase {
-    function isAuthorized(address authorizer, address authorized) external view returns (bool);
     function createMarket(MarketParams memory marketParams) external;
     function supply(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)
         external returns (uint256 assetsSupplied, uint256 sharesSupplied);

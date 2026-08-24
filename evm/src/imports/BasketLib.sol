@@ -412,24 +412,7 @@ library BasketLib {
     ///         → higher fee → reserves build faster.
     ///         K=0 → 900bps (9%), K=32 → 100bps (1%)
 
-    /// @notice ETH price from spotPrice
-    /// @param spotPrice Square root price
-    /// @param token0isUSD Whether token0 is USD
-    /// @return price ETH price in USD 1e18
-    function getPrice(uint spotPrice, bool token0isUSD)
-        public pure returns (uint price) {
-        uint casted = uint(spotPrice);
-        uint ratioX128 = SoladyMath.fullMulDiv(
-               casted, casted, 1 << 64);
 
-        if (token0isUSD) {
-          price = SoladyMath.fullMulDiv(1 << 128,
-              WAD * 1e12, ratioX128);
-        } else {
-          price = SoladyMath.fullMulDiv(ratioX128,
-              WAD * 1e12, 1 << 128);
-        }
-    }
 
     /// §TICK-REMOVAL — the ring stores PLAIN PRICE, so the TWAP is just the cumulative difference
     /// over the period. This deletes the tick→sqrt→price round trip that was the single largest

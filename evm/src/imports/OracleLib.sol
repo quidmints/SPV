@@ -397,8 +397,6 @@ library OracleLib {
 
     // ═══ §E318 — `ExternalTwap` FOLDED IN: 88 lines of oracle reads beside the library that
     // already owns oracle concerns and shares its only src consumer (`Core`). ═══
-
-    error DeviationTooWide(uint ours, uint theirs, uint bps);
     error NoExternalPrice();
 
     /// @notice Curve's EMA price for a pool coin, in WAD.
@@ -463,19 +461,6 @@ library OracleLib {
         if (priceWad == 0) revert NoExternalPrice();
     }
 
-    /// @notice Reject when two independent prices disagree by more than `maxBps`.
-    /// @dev    **SYMMETRIC BY CONSTRUCTION.** The deviation is measured against the SMALLER of the
-    ///         two, so neither source is privileged. An asymmetric test — always dividing by "ours"
-    ///         — lets a manipulated external reading pass more easily in one direction than the
-    ///         other, which is the direction an attacker gets to choose.
-    /// @dev    ⚠️ CAPACITY-STYLE CHECK, NOT A TOLERANCE INPUT. It compares two prices and REFUSES;
-    ///         ⛔ never use it to SIZE anything. Same trap `ICurvePool.balances` records: sizing off
-    ///         a live external read lets manipulation WIDEN the guard exactly when it must hold.
-    function requireAgrees(uint ours, uint theirs, uint maxBps) internal pure {
-        if (ours == 0 || theirs == 0) revert NoExternalPrice();
-        (uint lo, uint hi) = ours < theirs ? (ours, theirs) : (theirs, ours);
-        uint bps = SoladyMath.fullMulDiv(hi - lo, 10_000, lo);
-        if (bps > maxBps) revert DeviationTooWide(ours, theirs, bps);
-    }
+
 
 }

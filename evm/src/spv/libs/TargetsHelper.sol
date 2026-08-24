@@ -118,12 +118,7 @@ library TargetsHelper {
      * @param blocksCount_ The number of blocks to count cumulative work for
      * @return The total cumulative work
      */
-    function countCumulativeWork(
-        bytes32 epochTarget_,
-        uint64 blocksCount_
-    ) internal pure returns (uint256) {
-        return countBlockWork(epochTarget_) * blocksCount_;
-    }
+
 
     /**
      * @notice Calculates the work required for a single block given its difficulty target.
@@ -152,45 +147,7 @@ library TargetsHelper {
         }
     }
 
-    function targetToBits(bytes32 target_) internal pure returns (bytes4 bits_) {
-        assembly {
-            let coefficientLength := 0x3
-            let coefficientStartIndex := 0
 
-            let bitsPtr := mload(0x40)
-            mstore(0x40, add(bitsPtr, 0x4))
-
-            for {
-                let i := 0
-            } lt(i, 0x20) {
-                i := add(i, 0x1)
-            } {
-                let currentByte := byte(i, target_)
-
-                if gt(currentByte, 0) {
-                    coefficientStartIndex := i
-
-                    if gt(currentByte, 0x80) {
-                        coefficientStartIndex := sub(coefficientStartIndex, 0x1)
-                    }
-
-                    break
-                }
-            }
-
-            mstore8(bitsPtr, sub(0x20, coefficientStartIndex))
-
-            for {
-                let i := 0
-            } lt(i, coefficientLength) {
-                i := add(i, 0x1)
-            } {
-                mstore8(add(bitsPtr, add(i, 0x1)), byte(add(coefficientStartIndex, i), target_))
-            }
-
-            bits_ := mload(bitsPtr)
-        }
-    }
 
     function roundTarget(bytes32 currentTarget_) internal pure returns (bytes32 roundedTarget_) {
         assembly {
