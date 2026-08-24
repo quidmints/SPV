@@ -1,3 +1,39 @@
+## 🔬 **§OOR-AUDIT — dust, width, and loop bounds on boundary orders** (owner questions, 2026-08-24)
+
+**Q: can a dust order stay stuck forever, given storage gas is only reclaimed on a FULL pull?**
+Mostly no, and the three gates are independent:
+1. **Creation refuses zero-size** — `Quid.sol:475` `if (liquidity == 0) revert Dust();`, so an order
+   that sizes to nothing cannot be opened.
+2. **Fill is ALL-OR-NOTHING** — `RangeLib.fillOne` either fills the whole `amt` and then
+   `deindexOor` + `delete selfManaged[id]` + swap-and-pops from `positions[owner]` (storage reclaimed,
+   gas refunded), or returns `false` and touches NOTHING. **There is no partial fill, so a fill can
+   never grind an order down to dust.**
+3. **`pull` refuses both ends** — `if (closed == 0) revert Dust();` and, on a partial,
+   `if (position.amt == 0) revert Dust();`.
+🔴 **RESIDUAL, AND THE OWNER'S PREMISE IS RIGHT ABOUT IT: only the CLOSED amount is floored, never the
+REMAINDER.** Repeated partial pulls (99%, then 99% of that, …) shrink an order arbitrarily close to
+zero while `amt != 0` holds, and each leaves a live entry in `selfManaged`, `positions[owner]` AND the
+sorted set. **Nobody will spend gas pulling a sub-economic remainder, so it persists.** It is bounded
+in COUNT (one per order, and opening cost gates the count) and it is not a correctness bug — but it is
+unreclaimed storage with no floor, and no sweeper collects it. ▶️ A `MIN_REMAINDER` on the partial
+branch — mirroring the `closed == 0` check already there — closes it in one line. **Not landed: it is
+a live-order policy change (it would force full closure), so it is an owner call, not a fix.**
+
+**Q: how is an order stopped from being too thin?** ✅ Enforced at creation, `SwapLib.validateOorParams`:
+`range >= 100 && range <= 1000 && range % 50 == 0`, and `distance % 100 == 0 && distance != 0 &&
+-5000 <= distance <= 5000`. Width has a hard floor of 100, a ceiling of 1000, and is quantised to 50 —
+so a thin-order griefing surface does not exist on the width axis.
+
+**Q: can the per-owner loop go out of bounds?** 🔴 **IT COULD, AND IT IS FIXED.** `RangeLib.pull` walked
+`for (uint i = 0; i <= lastIndex; i++)` where `lastIndex = myIds.length > 0 ? myIds.length - 1 : 0`.
+**On an EMPTY array that saturates to 0 and the loop still runs once, reading `myIds[0]` — an
+out-of-bounds PANIC (0x32), not a clean revert.** `fillOne`, a few lines below, already walked the SAME
+mapping with the correct `for (uint j = 0; j < myIds.length; j++)`. **Two shapes for one walk, and the
+unsafe one was in the user-callable path.** Now both use the bounded form; the empty case is a no-op.
+⚠️ Reachability is gated by `position.owner != owner ⇒ revert NotOwner()`, so an owner with a position
+should always have ≥1 id — i.e. it needs a broken invariant to fire. **Fixed anyway: the cost is zero
+and a panic is a worse failure than a revert** (no reason, and it reads as a compiler/ABI fault).
+
 # SPRINT — what two sessions leave open
 
 ---
