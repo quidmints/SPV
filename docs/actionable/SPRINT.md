@@ -737,7 +737,32 @@ bracket in `… "1000"] exited with code 1`, captured by a regex that assumed th
 test name. **A parser assumption became a phantom regression, reported three times.** Any future
 failure-name extraction must anchor on `] test…(`, not on the first word after `]`.
 
-## 🔴 **§DELEVER-NEEDS-THE-DOLLARS-A-CRASH-REMOVES — the ~16 cascade failures are ONE mechanism** (2026-08-24)
+## 🔴 **§CRASH-HELPER-NEVER-CRASHES — the ~16 cascade failures, RE-DIAGNOSED (the row below was wrong)**
+
+⛔ **THE ROW BELOW NAMED THE RIGHT MECHANISM ON THE WRONG PATH.** It said de-lever cannot sell because
+the range has no dollars. **The de-lever sell never touches the range**: `_wethToStableDex` →
+`_volToStable` → `_poolSwap(WETH, USDC, V3_FEE_WETH, …)` — **Uniswap V3**, then Curve for a non-USDC
+loan token. It has been external all along.
+▶️ **WHAT THE TRACE ACTUALLY SHOWS, and it was readable the whole time:**
+  • The `SlippageMaxS()` reverts are at lines **5488-5489**, and `cascadeDelever` begins at **5492**.
+    **They happen BEFORE the cascade** — they belong to the fixture's `_crashRange(3000, 24, 40 ether)`,
+    and the `routeSwap{value: 40 ether}` matches that argument exactly.
+  • Each `deleverOne` costs **34,934 gas**. A flash-loan + repay + withdraw + V3 sell cannot run in
+    that; it is the `if (repayUsd == 0) return;` early exit — *"inside range → done"*.
+⇒ **THE CHAIN: `_crashRange`'s swap reverts (the range has no USD leg to pay 40 ETH) → the price never
+crashes → every position stays INSIDE its range → `deleverRepayUsd` returns 0 → no de-lever runs → the
+test reports "cascade made no net de-lever progress".** The cascade is behaving CORRECTLY on a fixture
+that never reached the state it meant to test. **The PREMISE fails, and the progress assertion is its
+shadow** — the same shape as §WITHDRAW-RETURNS-ZERO.
+⚠️ **SO "restore an external route" (the owner call taken on the old row) IS ALREADY TRUE and fixes
+NOTHING here.** Do not build it on this evidence. The real question is why the fixture's range holds
+no dollars — `POOLED_USD() == 1` — which is upstream of both.
+⭐ **HOW I GOT IT WRONG, because the pattern has now repeated four times in one session: I read a
+revert reason and a nearby call and inferred the caller, instead of checking the LINE NUMBERS and the
+GAS.** Both discriminators were already in the trace file I had open. **A revert that appears near a
+function is not a revert inside it.**
+
+## 🔴 **(superseded, kept for the record) §DELEVER-NEEDS-THE-DOLLARS-A-CRASH-REMOVES** (2026-08-24)
 
 **Traced end to end on `test_CascadeDelever_CorrelatedCrash`:**
 `cascadeDelever` → sell collateral → `SwapLib` → `Core::swap` → **returns 0** → `max == 0` →
@@ -768,6 +793,25 @@ asserting nothing (rule 4).
   • **§E347's `if (!loadBalance) return out;` is NOT the cause, and it was my own edit, so it was the
     first thing checked.** `out` is assigned exactly ONCE (`Core.sol:967`, from `_fillDelta`) and
     never after, so the early return yields the true fill. **The comment claiming that is correct.**
+
+## ⚠️ **§SKEW-VS-V3 — COMPARING OUR CHARGE TO V3'S FEE TIER IS THE WRONG COMPARISON** (owner, 2026-08-24)
+
+I tabulated depletion (≤2.1 bps) against `V3_FEE_WETH = 500` (0.05% = **5 bps**) and concluded we are
+comfortably cheaper. **The owner's correction: that ignores V3's PRICE IMPACT.** A large misbalancing
+swap on V3 pays the fee PLUS the curve movement, which depends on the liquidity available at the
+current tick (`slot0`) — so for a big drain V3's EFFECTIVE cost is far above 5 bps.
+⇒ **THE DIRECTION OF THE ERROR MATTERS: it means we may be the CHEAPEST place to run a large
+misbalancing swap, which is adverse selection against our own LPs — the opposite of the reassurance I
+gave.** A fee comparison against a constant-product venue must be against ITS EFFECTIVE COST AT SIZE,
+never its fee tier.
+⏸️ **THE CEILING IS THEREFORE UNCHANGED** (`UNKNOWN_VARIANCE_SKEW`/`GAMMA_WAD` = 3e16 = 300 bps).
+Setting it from a fee-tier comparison would have been calibrating against the wrong number.
+▶️ **WHAT WOULD SETTLE IT:** quote V3's realised output for a drain of the size we care about at
+current `slot0` liquidity, and compare TOTAL cost, not fee. Until then the cap is a parameter with no
+derivation and must not be quoted as calibrated.
+⚠️ **UNITS, since they are 100× apart and this is where such a change goes wrong:** Uniswap fees are
+HUNDREDTHS OF A BASIS POINT — `500` is 0.05% = **5 bps**, `3000` is 0.30% = 30 bps. Our WAD cap 3e16
+is 3% = **300 bps**.
 
 ## 🔴🔴 **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE — THE SKEW PREMIUM IS THE *ONLY* LP REVENUE LANE, AND IT IS 0 IN THE NORMAL STATE** (2026-08-24)
 
