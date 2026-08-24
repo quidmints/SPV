@@ -653,6 +653,27 @@ status column.
 is measuring effort, not truth.
 
 ---
+## 🔴 **§FFI-DUST-EXIT — a 1-sat channel is armed with a 1,000-sat exit fee** (2026-08-24)
+
+`BtcLpMintStress` (`test_E31a`/`test_E31b`) shells out to
+`gen_deadman_exit_fixture.py sign mintstress-31 … sats=1 … fee=1000`, so `out_value = 1 - 1000 = -999`
+and the generator dies. **`sats=1` is the defect** — every `_open(ch, 31, …)` in the file funds
+1,000,000 sats, so the 1 is not the channel's real size and the caller is arming an exit for a channel
+that cannot fund its own fee.
+▶️ **LANDED NOW: the generator says so.** It raised `OverflowError: can't convert negative int to
+unsigned` from four frames inside `_le`'s byte packing, naming neither the amount nor the fee, and
+Foundry reported only `vm.ffi … exited with code 1` — a fixture crash with no hint the ARGUMENTS were
+economically impossible. It now exits naming `funding_sats`, `out_value` and the reason.
+⚠️ **NOT THE ROOT — the caller still passes 1**, and that is one `armingFor` argument to find. Booked
+open deliberately: a clearer error is an instrument, not a fix (standing rule 3's inverse — it earns
+its place because the failure was OPAQUE, and it does not make the bad call impossible).
+
+⛔ **AND IT EXPLAINS A GHOST THAT POLLUTED EVERY FAILURE DIFF THIS SESSION.** `exited` appeared as a
+"NEW failing test" in three separate comparisons. **It is not a test.** It is the word after the
+bracket in `… "1000"] exited with code 1`, captured by a regex that assumed the token after `]` is a
+test name. **A parser assumption became a phantom regression, reported three times.** Any future
+failure-name extraction must anchor on `] test…(`, not on the first word after `]`.
+
 ## 🔴 **§DELEVER-NEEDS-THE-DOLLARS-A-CRASH-REMOVES — the ~16 cascade failures are ONE mechanism** (2026-08-24)
 
 **Traced end to end on `test_CascadeDelever_CorrelatedCrash`:**

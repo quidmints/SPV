@@ -86,6 +86,16 @@ def _bip340_sign(d, msg):
 
 
 def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadline, out_value):
+    # A negative output is unrepresentable in Bitcoin, and without this the failure surfaces as
+    # `OverflowError: can't convert negative int to unsigned` from inside `_le`'s byte packing --
+    # four frames from the cause, naming neither the amount nor the fee. Foundry then reports only
+    # `vm.ffi ... exited with code 1`, so the Solidity side shows a fixture crash with no hint that
+    # the ARGUMENTS were economically impossible. Say what is wrong, in the units the caller passed.
+    if out_value < 0:
+        raise SystemExit(
+            f"gen_deadman_exit_fixture: fee exceeds the channel value -- funding_sats={funding_sats}, "
+            f"out_value={out_value}. A channel cannot pay an exit fee larger than it holds; the "
+            f"caller is arming an exit for a channel too small to fund it.")
     """The exit tx (segwit-serialised) plus its BIP-341 SIGHASH_DEFAULT sighash."""
     def tx(sig):
         return (bytes.fromhex("02000000") + b"\x00\x01" + b"\x01"
