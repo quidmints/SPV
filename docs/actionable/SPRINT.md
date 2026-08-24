@@ -4215,6 +4215,42 @@ of someone else's tier. It never has been. Belongs with §E227's recalibration, 
 
 ## PART C2 — **THE VOLATILE ROUTE IS THE BLOCKER, AND REMOVING V3 LEAVES A HOLE (2026-08-17)**
 
+## 🔴 **§C2.1-RESOLVED-TO-1INCH — owner: "remove tricrypto forever. 1inch only" (2026-08-24)**
+
+**DECISION TAKEN. It resolves C2.1 to option (c), and that is a bigger commitment than a deletion.**
+▶️ **STATE OF PLAY, MEASURED NOW — NOT ASSUMED:**
+  • **TriCrypto is ALREADY GONE** — `grep -rniE "tricrypto|0xD51a44…"` over `src`/`script`/`test`
+    returns **ZERO**. §V-R1/§E232-tri removed it. **Nothing to delete.**
+  • **1inch exists ONLY as a PRICE READ** — the single reference is `OracleLib.oneInchRateWad`, which
+    calls `IOffchainOracle.getRate`. **There is no 1inch swap executor on-chain, in `quid-bridge`, or
+    in the SPA.**
+  • **V3 `_poolSwap` (`LevMath:483`) is therefore the ONLY live route for USDC↔WETH/WBTC.**
+⛔ **THE OBSTACLE, AND IT IS STRUCTURAL, NOT EFFORT: A 1INCH SWAP NEEDS OFF-CHAIN-BUILT ROUTE
+CALLDATA.** The AggregationRouter takes a route a solver computed; **Solidity cannot construct one**.
+And the call it would replace runs **INSIDE A MORPHO FLASH-LOAN CALLBACK**
+(`onMorphoFlashLoan` → `deleverSettleBody` → `_sellAndPay` → `_volToStable` → `_poolSwap`), where no
+off-chain round-trip is possible mid-transaction.
+⇒ **"1inch only" NECESSARILY MAKES THE VOLATILE LEG KEEPER-DRIVEN.** That is C2.1 option (c) —
+*"source the volatile leg off-chain via the fleet"* — arrived at by instruction rather than by choice.
+
+▶️ **THE PATH THAT WORKS, and the machinery is already half-there:** `deleverFlashBody` ALREADY encodes
+`abi.encode(uint8(0), lp, venue, stable, minOut)` into the flash `data`. The keeper builds the 1inch
+route off-chain and passes the calldata through that same channel; the callback executes it against a
+PINNED router address.
+🔴 **SECURITY, STATED FIRST BECAUSE IT IS THE WHOLE RISK: THIS HANDS ARBITRARY CALLDATA TO AN EXTERNAL
+CONTRACT INSIDE A FLASH CALLBACK HOLDING PROTOCOL FUNDS.** It is only safe with (i) the router address
+**immutable/pinned**, (ii) `minOut` enforced on the BALANCE DELTA — as `_poolSwap` already does
+(`out = balanceAfter - before; if (out < minOut) revert Slippage()`), never on the router's return
+value, and (iii) approvals reset to 0 on both sides of the call. **Without (ii) a malicious route
+drains the position and reports success.**
+⛔ **DO NOT DELETE V3 FIRST.** `e4f9c512` re-pinned V3 days after `9eef279a` cut it, and this row's own
+history records why: *"the reversal was not carelessness — it was the hole reasserting itself"*.
+**Delete V3 in the SAME change that lands the 1inch executor, never before.**
+⚠️ **AND THE MEASUREMENT THAT EXCLUDED TRICRYPTO IS STALE, recorded so nobody re-litigates on old
+numbers:** this file cites **698 WETH / 20.72 WBTC**; measured live today the pool holds **1,544 WETH /
+49.09 WBTC / $3.83M USDT** — roughly **2.2× deeper**. The exclusion still stands BY INSTRUCTION, but
+it should not be defended with the old figure.
+
 ### 🔴 C2.1 — **OWNER: "there should be no v3 in this code at all." Complying leaves the volatile leg with NO ROUTE.**
 **14 live V3 references** (`V3_SWAP_ROUTER`, `IV3Router`, `V3_FEE_*`). `_poolSwap` (`LevMath:490`)
 is a V3 `exactInputSingle`, and its `catch` is where **`NoVolatileRoute()`** comes from.
