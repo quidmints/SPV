@@ -653,6 +653,31 @@ status column.
 is measuring effort, not truth.
 
 ---
+## ✅ **§OWNER-CALLS-2026-08-24 — THE THREE DECISIONS ARE MADE. ~35 FAILURES ARE NOW UNBLOCKED WORK.**
+
+Recorded verbatim as decisions, not as my reading of them. Each row below was ⏸️ purely on these.
+
+| # | Question | **DECISION** |
+|---|---|---|
+| 1 | De-lever cannot sell when the range's USD leg is drained (§DELEVER-NEEDS-THE-DOLLARS) | **RESTORE AN EXTERNAL ROUTE** — Curve/1inch fallback when `POOLED_USD` cannot cover the sell |
+| 2 | Does per-share fee accrual return? (§FEES-COMPOUND-NOT-ACCRUE) | **COMPOUNDING INTO `POOLED_*` IS PERMANENT** — rewrite the 5 tests to assert equity-per-share rose |
+| 3 | What does an unmeasured/flush range charge? (§E278/§E352/§E345-ANCHOR) | **BOTH, SEQUENCED** — σ² sentinel above the early branches AND make σ² genuinely measurable, as SEPARATE arms |
+
+▶️ **ORDER OF WORK, chosen to keep each arm attributable (rule 10) and to put the cheapest gate first:**
+1. **§E345-ANCHOR** — sample unchanged prices so `anchorVarianceWad`'s floor becomes reachable. Smallest
+   diff, it is MY regression, and it makes σ² measurable, which the §E352 arm then reasons about. One gate.
+2. **§E352 branch order** — σ² sentinel above `target == 0` / `inv1 >= target`. **Separate arm**: SwapLib's
+   own note says this and `sellSkew` are two money-path changes, not one. One gate.
+3. **§FEES tests** — rewrite the 5 to assert equity-per-share. ⚠️ **VERIFY, DO NOT ASSUME, that late-joiner
+   fairness survives**: under compounding it must hold via ENTRY PRICING rather than bookmarks, and
+   `test_V2_LateJoinerEarnsNoRetroactiveFees` is the test that would catch it if it does not. **If that
+   property does not hold under compounding, that is a FINDING about the model, not a test to rewrite.**
+4. **§DELEVER external route** — largest, and last on purpose: it is a NEW money path to external venues,
+   so it lands in its own arm with its own gate. `OracleLib.curvePriceWad`/`oneInchRateWad` already exist,
+   so the PRICE side is not new work; the SETTLEMENT side is.
+⛔ **NOT bundled.** Four money-path arms, four gates. Bundling any two makes a failure unattributable,
+which is the whole of rule 10 — and this session already paid for two contaminated measurements.
+
 ## 🔴 **§E345-ANCHOR-NEVER-SAMPLES — my own fix left its floor unreachable** (2026-08-24)
 
 `Core._sampleAnchorVariance`:
