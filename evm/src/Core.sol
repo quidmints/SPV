@@ -1586,7 +1586,27 @@ contract Core {
     ///      `priceWad = rate · 10^srcDec / 10^dstDec`; USDC is 6-dec.
     function _observeIfSourced() internal {
         address src = observationSource;
-        if (src == address(0)) return;
+        // 🔴 §OBSERVATION-SOURCE-UNSET — THE RING FEEDS ITSELF FROM THE CHAINLINK ANCHOR WHEN NO
+        // EXTERNAL SOURCE IS PINNED. `setObservationSource` has ZERO non-test callers and no deploy
+        // script calls it, so this returned immediately in PRODUCTION and `obsState.lastPrice` NEVER
+        // ADVANCED. One unset address froze `poolStats()` (curve spot measured 11% off the oracle),
+        // froze `_corePrice()` (so `soldFractionWad` read 0 after a 20% rally and IL was never
+        // recognised), and left `ringVariance` empty — which is why σ² read UNMEASURED forever and
+        // §E345/§E352 both spent their effort arguing about what "unmeasured" should COST instead of
+        // asking why nothing was measuring.
+        // ⇒ THE ANCHOR IS ALREADY HERE. `_sampleAnchorVariance` reads it with this exact call, and
+        //   `price = 0` returns the RAW feed — INDEPENDENT of the ring, which is the one property an
+        //   observation source must have. §E345's "must not read `px`" warns against the RING's own
+        //   TWAP (`AUX.getTWAPforAsset`); a raw feed read is the sanctioned path, not the banned one.
+        // ⚠️ NOT Curve's on-pool EMA (§E232's original pick): the only pool carrying ETH/USD is
+        //   TriCrypto, which is removed from this codebase entirely — as a venue AND as a read.
+        //   And NOT 1inch's `getRate`: §E232 measured it at 31.7M gas, past a whole block.
+        if (src == address(0)) {
+            (uint anchorPx,) = SwapLib.twapResolve(
+                AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
+            if (anchorPx != 0) _writeObservationPrice(anchorPx);
+            return;
+        }
         // (§E232) CURVE'S ON-POOL EMA, NOT 1inch's AGGREGATOR — because the aggregator DOES NOT FIT
         // IN A BLOCK. `getRate` stood here and iterates all fourteen registered DEX oracles and
         // their connectors, so one "observation" was a full multi-venue aggregation: **31,722,803
