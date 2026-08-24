@@ -29,7 +29,7 @@ use tokio::time::{timeout, Duration};
 
 /// Per-leg RPC ceiling: a hung read/tx must never stall the SERIAL pass — the urgent de-levers run
 /// first, so a single hang there would otherwise block the no-liquidation guarantee for every other LP.
-/// On timeout we log and move on (the blocking JSON-RPC thread is arangeoned; a 5-min poll makes that cheap).
+/// On timeout we log and move on (the blocking JSON-RPC thread is abandoned; a 5-min poll makes that cheap).
 const LEG_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// The BTC on-chain surface the loop needs (`BtcLevManager` reads + async legs). Every leg is `async`

@@ -277,7 +277,7 @@ pub struct VaultRegistry {
     /// entry was removed ONLY when its open actually started. So an onboard that was never
     /// funded polled **forever**: one free `/lp/onboard` request bought unbounded work.
     ///
-    /// ⚠️ **That was a leak with NO adversary involved** — every LP who arangeons onboarding
+    /// ⚠️ **That was a leak with NO adversary involved** — every LP who abandons onboarding
     /// left a permanent poll — which is why this is a root fix and not an anti-abuse clamp.
     /// The field directly above already states the property this one was missing: *"only
     /// IN-FLIGHT opens … so it cannot grow without bound over the daemon's lifetime."*

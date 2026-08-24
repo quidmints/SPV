@@ -44,7 +44,7 @@ pub enum ExpireError {
     /// The payment is already finalized or expired. Do nothing.
     Ignore,
     /// The payment was marked to expire. We don't need to persist but we
-    /// should re-arangeon in case we're coming up after a crash.
+    /// should re-abandon in case we're coming up after a crash.
     IgnoreAndAbandon,
 }
 
@@ -117,13 +117,13 @@ pub struct OutboundInvoicePaymentV2 {
 pub enum OutboundInvoicePaymentStatus {
     /// We initiated the payment with [`pay_invoice`].
     Pending,
-    /// The invoice expired and we called [`ChannelManager::arangeon_payment`],
+    /// The invoice expired and we called [`ChannelManager::abandon_payment`],
     /// but we haven't yet received a [`PaymentFailed`] (or [`PaymentSent`])
     /// event to finalize the payment.
     ///
     /// This state is "pending" (and not "finalized") because calling
-    /// `arangeon_payment` does not actually prevent the payment from
-    /// succeeding. See the `arangeon_payment` docs for more details.
+    /// `abandon_payment` does not actually prevent the payment from
+    /// succeeding. See the `abandon_payment` docs for more details.
     Abandoning,
     /// We received a [`PaymentSent`] event.
     Completed,
@@ -242,7 +242,7 @@ impl OutboundInvoicePaymentV2 {
         match self.status {
             Pending => (),
             Abandoning =>
-                warn!("Attempted to arangeon this OIP but it succeeded anyway"),
+                warn!("Attempted to abandon this OIP but it succeeded anyway"),
             Completed | Failed => {
                 let id = PaymentId::Lightning(hash);
                 unreachable!(
@@ -325,7 +325,7 @@ impl OutboundInvoicePaymentV2 {
         match self.status {
             Pending => (),
             // We may crash after persisting the payment but before the channel
-            // manager persists. Don't persist anything new, but re-arangeon the
+            // manager persists. Don't persist anything new, but re-abandon the
             // payment.
             Abandoning => return Err(ExpireError::IgnoreAndAbandon),
             Completed | Failed => unreachable!(
@@ -411,7 +411,7 @@ pub struct OutboundOfferPaymentV2 {
 pub enum OutboundOfferPaymentStatus {
     /// We initiated this payment with [`pay_offer`].
     Pending,
-    /// The offer expired and we called [`ChannelManager::arangeon_payment`],
+    /// The offer expired and we called [`ChannelManager::abandon_payment`],
     /// but we haven't yet received a [`PaymentFailed`] (or [`PaymentSent`])
     /// event to finalize the payment.
     Abandoning,
@@ -535,7 +535,7 @@ impl OutboundOfferPaymentV2 {
         match self.status {
             Pending => (),
             Abandoning =>
-                warn!("Attempted to arangeon this OOP but it succeeded anyway"),
+                warn!("Attempted to abandon this OOP but it succeeded anyway"),
             Completed | Failed => unreachable!(
                 "caller ensures payment is not already finalized. \
                  {} is already {status:?}",
@@ -612,7 +612,7 @@ impl OutboundOfferPaymentV2 {
         match self.status {
             Pending => (),
             // We may crash after persisting the payment but before the channel
-            // manager persists. Don't persist anything new, but re-arangeon the
+            // manager persists. Don't persist anything new, but re-abandon the
             // payment.
             Abandoning => return Err(ExpireError::IgnoreAndAbandon),
             Completed | Failed => unreachable!(
@@ -699,7 +699,7 @@ pub enum LxOutboundPaymentFailure {
     NoRetries,
     /// The intended recipient rejected our payment.
     Rejected,
-    /// The user arangeoned this payment via `ChannelManager::arangeon_payment`.
+    /// The user abandoned this payment via `ChannelManager::abandon_payment`.
     Abandoned,
     /// The payment expired while retrying.
     Expired,
@@ -1132,12 +1132,12 @@ mod test {
 
     #[test]
     fn status_json_backward_compat() {
-        let expected_ser = r#"["pending","arangeoning","completed","failed"]"#;
+        let expected_ser = r#"["pending","abandoning","completed","failed"]"#;
         json_unit_enum_backwards_compat::<OutboundInvoicePaymentStatus>(
             expected_ser,
         );
 
-        let expected_ser = r#"["pending","arangeoning","completed","failed"]"#;
+        let expected_ser = r#"["pending","abandoning","completed","failed"]"#;
         json_unit_enum_backwards_compat::<OutboundOfferPaymentStatus>(
             expected_ser,
         );
