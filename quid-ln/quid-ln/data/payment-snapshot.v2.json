@@ -327,7 +327,7 @@
       "kind": "invoice",
       "amount": "1707891659005125.189",
       "routing_fee": "134122579970412.62",
-      "status": "arangeoning",
+      "status": "abandoning",
       "expires_at": 12345763193000
     }
   },
@@ -360,7 +360,7 @@
       "kind": "offer",
       "amount": "631084065333463.362",
       "routing_fee": "468935017667976.282",
-      "status": "arangeoning",
+      "status": "abandoning",
       "expires_at": 1412677847751752878
     }
   },
