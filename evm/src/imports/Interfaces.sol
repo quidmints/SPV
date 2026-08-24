@@ -175,6 +175,11 @@ interface ICurvePool {
 // ⇒ The cost of pinning is that a pinned pool can be thin at size. The measurement above is what
 // makes that acceptable HERE and it is what must be re-checked before trusting this again.
 address constant V3_SWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+// 1inch AggregationRouterV6 (mainnet). §C2.1 — the volatile leg's route. PINNED AS A CONSTANT AND
+// THAT IS LOAD-BEARING: the executor `call`s it with keeper-supplied calldata, so the ONLY thing
+// standing between a malicious route and the protocol's funds is that the CALLEE cannot be chosen.
+// An `address` parameter here would make the whole design a rug vector.
+address constant ONEINCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
 
 uint24  constant V3_FEE_WETH    = 500;    // USDC/WETH 0.05%
 uint24  constant V3_FEE_WBTC    = 3000;   // WBTC/USDC 0.30%

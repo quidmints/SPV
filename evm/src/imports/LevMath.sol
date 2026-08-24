@@ -6,7 +6,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenueColl } from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {V3_SWAP_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+import {V3_SWAP_ROUTER, ONEINCH_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -367,7 +367,11 @@ library LevMath {
     uint256 internal constant KEEPER_MAX_GASPRICE = 200 gwei;                                     // anti-grief gasprice ceiling
 
     /// The manager's runtime addresses + the crank's keeper + the live WETH gas-reserve, threaded into the moved fns.
-    struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; }
+    /// §C2.1 — `route` is the 1inch AggregationRouterV6 calldata the KEEPER built off-chain. It rides
+    /// in `SellCtx` because that struct is already threaded `_sellAndPay → sellColl → sellWeeth →
+    /// _wethToStableDex`: one memory pointer, so it costs no extra stack in a no-via_ir build.
+    /// EMPTY means "no route supplied" and the leg falls back to V3 — see `_wethToStableDex`.
+    struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; bytes route; }
 
     /// @notice Sell `pulled` collateral → `stable` at the anti-MEV oracle floor, peeling the keeper's gas (native ETH)
     ///         from the over-collateralization headroom. `pulled` is always weETH — all collateral is weETH.
@@ -481,6 +485,34 @@ library LevMath {
     ///         permissionless, so the caller picks WHEN and the contract picks the PRICE BOUND —
     ///         that division is what makes a permissionless rebalance anti-sandwich, and it is
     ///         unchanged by dropping the aggregator.
+    /// @notice Execute a KEEPER-SUPPLIED 1inch route. §C2.1 (owner: "1inch only").
+    /// @dev  🔴 THIS `call`s AN EXTERNAL CONTRACT WITH CALLDATA THIS CONTRACT DID NOT BUILD, WHILE
+    ///       HOLDING FLASH-BORROWED FUNDS. Three things make that safe and ALL THREE ARE REQUIRED:
+    ///        1. THE CALLEE IS A PINNED CONSTANT (`ONEINCH_ROUTER`). The keeper chooses the ROUTE,
+    ///           never the DESTINATION. Making it a parameter would be a rug vector, not a feature.
+    ///        2. `minOut` IS ENFORCED ON THE BALANCE DELTA, NEVER ON THE ROUTER'S RETURN VALUE.
+    ///           A hostile route can return any number it likes; it cannot fake our own balance.
+    ///           This is the same discipline `_poolSwap` already uses, and the reason it is stated
+    ///           here is that the return value is the OBVIOUS thing to trust and is worthless.
+    ///        3. THE APPROVAL IS RESET ON BOTH SIDES, including the failure path — an allowance that
+    ///           survives a reverted swap is a standing claim on the next block's balance.
+    ///       ⚠️ An empty `route` is REFUSED rather than treated as a no-op: silently swapping nothing
+    ///       and returning 0 would surface as a slippage revert four frames away.
+    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, bytes memory route)
+        internal returns (uint256 out)
+    {
+        if (amountIn == 0) return 0;
+        if (route.length == 0) revert NoVolatileRoute();
+        uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
+        IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);
+        IERC20Min(tokenIn).approve(ONEINCH_ROUTER, amountIn);
+        (bool ok, ) = ONEINCH_ROUTER.call(route);
+        IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);      // reset on BOTH paths
+        if (!ok) revert NoVolatileRoute();
+        out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;
+        if (out < minOut) revert Slippage();
+    }
+
     function _poolSwap(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint256 minOut)
         internal returns (uint256 out)
     {
@@ -586,6 +618,11 @@ library LevMath {
     ///      `_stableToWethSor`. `minOut` is unused on that branch because no trade occurs.
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
+        // §C2.1 — 1INCH WHEN THE KEEPER SUPPLIED A ROUTE, V3 OTHERWISE. The fallback is deliberate and
+        // TEMPORARY: `e4f9c512` re-pinned V3 days after `9eef279a` cut it because deleting the only
+        // volatile route re-opens the hole. V3 is removed in the change that WIRES the keeper, not before.
+        if (c.route.length != 0)
+            return _hubSwap({stable: stable, amt: _aggSwap(c.weth, USDC, wethIn, 0, c.route), toUsdc: false});
         return _volToStable(c.weth, V3_FEE_WETH, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
     }
 
@@ -612,7 +649,9 @@ library LevMath {
     /// The manager's runtime addresses + gas-reserve, threaded into `extractToVaultBody` (delegatecall) and
     /// returned updated. `maxSlippageBps` grosses the collateral withdraw so the sale covers the flash even at
     /// worst execution. Collateral units are always weETH-rate: raw WETH collateral is dominated and gone.
-    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; }
+    /// §C2.1 — `route` is the keeper-built 1inch calldata, threaded from the flash `data` down to
+    /// `_wethToStableDex`. EMPTY means none was supplied and the leg falls back to V3.
+    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; bytes route; }
 
     /// @dev Repay-first + withdraw the paired collateral, in its OWN frame so both callers' stacks stay shallow
     ///      (no via_ir). Flashed `assets` → venue → repay; then withdraw collateral worth (repaid + `extractUsd`)
@@ -679,7 +718,7 @@ library LevMath {
     function _sellAndPay(uint256 pulled, address stable, uint256 minOut, uint256 assets, address recipient, ExtractCfg memory cfg)
         private returns (uint256 newGasReserve, uint256 freed)
     {
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, route: cfg.route});
         uint256 stableOut;
         (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         IERC20Min(stable).approve(cfg.flashProvider, assets);
@@ -696,7 +735,7 @@ library LevMath {
     function collToWethDeliver(uint256 collAmt, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 wethDelivered) {
         if (collAmt == 0) return 0;
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, route: cfg.route});
         wethDelivered = _weethToWeth(sc, collAmt);
         require(wethDelivered >= minOut, "swapDelever:minOut");
         if (wethDelivered > 0) IERC20Min(cfg.weth).transfer(recipient, wethDelivered);

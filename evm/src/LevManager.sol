@@ -453,7 +453,7 @@ contract LevManager is LevBase {
     function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
         return LevMath.ExtractCfg({ weth: WETH, weeth: address(WEETH), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
-            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS) });
+            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), route: "" });
     }
 
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
@@ -651,7 +651,7 @@ contract LevManager is LevBase {
     /// manager fits EIP-170). This builds the context it needs: the manager's runtime addresses + the crank keeper
     /// + the live WETH gas-reserve (threaded in, returned updated).
     function _sellCtx(address keeper) internal view returns (LevMath.SellCtx memory) {
-        return LevMath.SellCtx({ weth: WETH, weeth: address(WEETH), aux: address(AUX), keeper: keeper, reserveIn: gasReserve });
+        return LevMath.SellCtx({ weth: WETH, weeth: address(WEETH), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, route: "" });
     }
 
     /// Lever-UP BUY (own frame, no via_ir): borrow `usd` stable, swap → collateral (LevMath.stableToColl), supply
