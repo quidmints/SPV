@@ -6,7 +6,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenueColl } from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {V3_SWAP_ROUTER, ONEINCH_ROUTER, V3_FEE_WETH, V3_FEE_WBTC, IV3Router, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+import {ONEINCH_ROUTER, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -172,7 +172,7 @@ library LevMath {
     ///         is the debt-delta (USD18). Returns (borrowed, wbtcBought) for the manager to emit. Byte lives HERE so
     ///         the manager stays under EIP-170 (mirrors how the ETH lever mechanics live in this lib).
     /// @dev (WBTC-mode) config bundle — keeps the leg fns under the no-via_ir 16-slot stack limit (6 params, not 9).
-    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; }
+    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; bytes route; }
 
     /// @dev §E240-tri — PARAMETER NAMES ARE COMMENTED OUT, NOT REMOVED. The body reverts, so the
     ///      names are unused (solc 5667) -- but they are the restore contract for §V-R1 and deleting
@@ -189,7 +189,7 @@ library LevMath {
                                 * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorWbtc) minOut = floorWbtc;   // the oracle floor always wins
         }
-        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc);
+        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.route);
         IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);
         venue.supply(lp, wbtcBought);
     }
@@ -208,7 +208,7 @@ library LevMath {
             uint256 floorStable = _fromUsd(cfg.aux, stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 got = _volToStable(cfg.wbtc, V3_FEE_WBTC, stable, pulled, minOut);
+        uint256 got = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
         { uint256 debt = venue.debtOf(lp); if (got > debt) got = debt; }   // never over-repay
         if (got == 0) return (pulled, 0);
         IERC20Min(stable).transfer(address(venue), got);
@@ -248,7 +248,7 @@ library LevMath {
                                   * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 stableOut = _volToStable(cfg.wbtc, V3_FEE_WBTC, stable, pulled, minOut);
+        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
         IERC20Min(stable).approve(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);   // realized surplus → LP
     }
@@ -513,32 +513,17 @@ library LevMath {
         if (out < minOut) revert Slippage();
     }
 
-    function _poolSwap(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint256 minOut)
-        internal returns (uint256 out)
-    {
-        if (amountIn == 0) return 0;
-        uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
-        IERC20Min(tokenIn).approve(V3_SWAP_ROUTER, 0);
-        IERC20Min(tokenIn).approve(V3_SWAP_ROUTER, amountIn);
-        try IV3Router(V3_SWAP_ROUTER).exactInputSingle(IV3Router.ExactInputSingleParams({
-                tokenIn: tokenIn, tokenOut: tokenOut, fee: fee, recipient: address(this),
-                amountIn: amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0
-            })) returns (uint256) {
-        } catch {
-            IERC20Min(tokenIn).approve(V3_SWAP_ROUTER, 0);   // unwind before surfacing
-            revert NoVolatileRoute();
-        }
-        IERC20Min(tokenIn).approve(V3_SWAP_ROUTER, 0);
-        out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;
-        if (out < minOut) revert Slippage();
-    }
+    // §C2.1 — `_poolSwap` (Uniswap V3 `exactInputSingle`) IS DELETED. Owner: "we dont need v3
+    // anymore pull it out and delete it completley". Every volatile hop now goes through `_aggSwap`
+    // against the pinned 1inch router, and a hop with NO ROUTE REVERTS `NoVolatileRoute()` rather
+    // than silently returning 0 — see the warning on `_volToStable`.
 
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // already WETH: no venue needed
         uint256 floor_ = (_toUsd18(c.aux, stable, stableAmt) * 1e18
                           / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
                          * (10_000 - SELL_SLIP_BPS) / 10_000;
-        return _poolSwap(USDC, c.weth, V3_FEE_WETH, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_);
+        return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.route);
         // §V-R1-MIN — the pinned-pool venue below replaced the Curve route; see `_poolSwap`.
     }
 
@@ -596,8 +581,8 @@ library LevMath {
     ///      also had; only the SECOND leg changed venue. Dropping it was my bug, caught by
     ///      `testReal_WbtcLev_FoldUp_Then_FlashDelever` failing `transferFrom reverted` rather than
     ///      `NoVolatileRoute` -- i.e. it reached the router and the router had no pool.
-    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc) internal returns (uint256) {
-        return _poolSwap(USDC, wbtc, V3_FEE_WBTC, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut);
+    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, bytes memory route) internal returns (uint256) {
+        return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, route);
     }
 
     /// @dev Mirror of `_stableToWbtc`: pinned pool to USDC, stableswap hub back out. `minOut` is
@@ -606,9 +591,12 @@ library LevMath {
     ///      ONE body for BOTH volatiles: the WBTC and WETH down-legs differed only in the V3 fee
     ///      tier, so `fee` is now an argument. `internal` in a library is copied into every caller,
     ///      so collapsing two bodies to one multiplies by the caller count.
-    function _volToStable(address vol, uint24 fee, address stable, uint256 amt, uint256 minOut)
+    /// @dev ⚠️ `route` EMPTY ⇒ `_aggSwap` REVERTS `NoVolatileRoute()`. That is deliberate: with V3
+    ///      gone there is no fallback venue, so a caller that supplies no route CANNOT trade. The
+    ///      revert is the honest surface — a silent 0 would reappear as a slippage failure frames away.
+    function _volToStable(address vol, address stable, uint256 amt, uint256 minOut, bytes memory route)
         internal returns (uint256) {
-        uint256 usdc = _poolSwap(vol, USDC, fee, amt, 0);
+        uint256 usdc = _aggSwap(vol, USDC, amt, 0, route);
         uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
         if (out < minOut) revert Slippage();
         return out;
@@ -623,7 +611,7 @@ library LevMath {
         // volatile route re-opens the hole. V3 is removed in the change that WIRES the keeper, not before.
         if (c.route.length != 0)
             return _hubSwap({stable: stable, amt: _aggSwap(c.weth, USDC, wethIn, 0, c.route), toUsdc: false});
-        return _volToStable(c.weth, V3_FEE_WETH, stable, wethIn, minOut);   // V3: WETH→USDC, Curve: USDC→stable
+        return _volToStable(c.weth, stable, wethIn, minOut, c.route);   // 1inch: WETH→USDC, Curve: USDC→stable
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal view returns (uint256) {
