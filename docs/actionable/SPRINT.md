@@ -653,6 +653,44 @@ status column.
 is measuring effort, not truth.
 
 ---
+## 🔴 **§E345-ANCHOR-NEVER-SAMPLES — my own fix left its floor unreachable** (2026-08-24)
+
+`Core._sampleAnchorVariance`:
+```solidity
+if (px == prev) return;      // the anchor has not moved => no new information
+```
+**THAT COMMENT IS WRONG IN PRINCIPLE. A PRICE THAT DID NOT MOVE *IS* INFORMATION** — it is a zero
+return, which is exactly what a calm market contributes to realized variance. Because `_varDt` only
+advances when the price MOVES, `anchorVarianceWad()` can never reach its own floor:
+```solidity
+return v == 0 ? 1 : v;       // "sampled, computed zero => the SE88 floor"
+```
+⇒ **THE FLOOR IS UNREACHABLE CODE GUARDING A CASE THE GATE PREVENTS.** §E345 deleted the
+`cardinality >= 2` sentinel precisely because it conflated *"we have not looked"* with *"we looked and
+it is calm"* — and the replacement reintroduces the same conflation one level down, in the leg added
+to resolve it. **The §E59 sentinel error, arriving through the fix for the §E59 sentinel error.**
+
+▶️ **MEASURED — it is what makes two "crashes" crash.** Both were triaged as independent arithmetic
+bugs and neither is:
+  • `test_E131_PremiumFundsLvrOverItsPricedWindow` → `FullMulDivFailed()`, immediately after
+    `realizedVarianceWad()` returns **0** (`ringVariance` 0 AND anchor 0) — the test divides by σ².
+  • `test_UNITB_FrozenTargetInvertsTheConsolidationDiscount` → `panic 0x12`, after `skewPremium()`,
+    `skew BIG` and `skew SPLIT` all log **0**.
+⛔ **AND THEY ARE THE "KNOWN FLAKY PAIR" I CALLED THEM THREE TIMES THIS SESSION. THEY ARE NOT FLAKY.**
+They are σ²-dependent, and they flip according to whether a fixture happens to reach priced scarcity.
+**"Flaky" was a label for a mechanism I had not found**, and it is the most expensive kind of
+dismissal — rule 13: a dismissal is a conclusion and needs the same evidence as a finding.
+
+⚠️ **SCOPE, STATED HONESTLY AND NOT INFLATED: in PRODUCTION the Chainlink anchor moves, so the gate
+fires and σ² is measured.** The starved path is reached by FIXTURES with a static mocked feed, and by
+any genuinely flat market. So this is *"a floor that cannot be reached and a test environment that
+therefore cannot measure variance"*, **not** *"production charges the wrong skew"*.
+⏸️ **NOT FIXED, DELIBERATELY.** σ² feeds skew PRICING and θ DEPTH, and **what "unmeasured" should cost
+is exactly the §E278/§E352 decision already pending**. Sampling unchanged prices (record `dt`, accumulate
+a zero squared-return, let the existing floor turn it into *measured-and-calm*) is the obvious fix and
+is probably right — but landing it would pre-empt the owner call on the neighbouring cell, and rule 10
+forbids bundling it with `sellSkew` anyway. **Decide §E278 and this lands with it, in one arm.**
+
 ## 🔴 **§FFI-DUST-EXIT — a 1-sat channel is armed with a 1,000-sat exit fee** (2026-08-24)
 
 `BtcLpMintStress` (`test_E31a`/`test_E31b`) shells out to
