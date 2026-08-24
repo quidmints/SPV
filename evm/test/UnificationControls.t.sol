@@ -111,7 +111,10 @@ contract UnificationControls is AllesFixture {
         assertGt(u1, u0, "PREMISE: the deposit ranged USD, else nothing is being measured");
         assertEq(BTC.CORE().POOLED_USD(), b0, "an ETH deposit must not touch the BTC range's USD leg");
         // The identity the unification MUST preserve (or consciously redefine).
-        assertEq(c1, (u1 + CORE.POOLED_USD()) * 1e12,
+        // §WRONG-RANGE, THIRD INSTANCE IN THIS TEST — `u1` IS `CORE.POOLED_USD()`, so `u1 + CORE.…`
+        // was 2x the ETH leg while claiming to be "both USD legs". The earlier sweep missed this
+        // shape because it is a LOCAL plus a CALL, not two identical calls.
+        assertEq(c1, (u1 + BTC.CORE().POOLED_USD()) * 1e12,
             "committedUsd18 == (both USD legs) x 1e12 with no leverage debt outstanding");
     }
 
@@ -913,11 +916,13 @@ contract UnificationControls is AllesFixture {
 
         // ⓷ PROVE IT IS SPENDABLE, not just a number: a BTC LP registers AFTER the ETH flow and
         //    the BTC range commits real dollars. Under the old definition this capacity was reserved.
-        uint btcBefore = CORE.basketUsd();
+        // §WRONG-RANGE — the BTC range's commitment lives on the BTC INSTANCE. Reading `CORE` here
+        // measured the ETH leg, which a `BTC.requestDeposit` correctly does not move.
+        uint btcBefore = BTC.CORE().basketUsd();
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
-        emit log_named_uint("BTC range committed AFTER eth flow (6d)", CORE.basketUsd() - btcBefore);
-        assertGt(CORE.basketUsd(), btcBefore,
+        emit log_named_uint("BTC range committed AFTER eth flow (6d)", BTC.CORE().basketUsd() - btcBefore);
+        assertGt(BTC.CORE().basketUsd(), btcBefore,
             "the BTC range can still commit after heavy ETH trading -- no starvation, no min-of-two");
     }
 
@@ -1010,8 +1015,11 @@ contract UnificationControls is AllesFixture {
 
         { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem0 = AUX.redeemableAmount();
-        uint curve0 = CORE.POOLED_USD();
-        uint basket0 = CORE.basketUsd();
+        // §WRONG-RANGE — THIS TEST TRADES USDC->WBTC, SO THE MIRROR IT MEASURES IS THE **BTC**
+        // INSTANCE'S. All four legs read `CORE` (the ETH range), which BTC flow correctly does
+        // not move — so the premise read 0 and the test looked like a broken BTC fee lane.
+        uint curve0 = BTC.CORE().POOLED_USD();
+        uint basket0 = BTC.CORE().basketUsd();
         assertEq(curve0, basket0, "PREMISE: before BTC flow the curve mirror IS the basket's leg");
         assertGt(redeem0, 0, "PREMISE: something must be redeemable, else the delta is meaningless");
 
@@ -1026,8 +1034,8 @@ contract UnificationControls is AllesFixture {
 
         { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
         uint redeem1 = AUX.redeemableAmount();
-        uint curve1 = CORE.POOLED_USD();
-        uint basket1 = CORE.basketUsd();
+        uint curve1 = BTC.CORE().POOLED_USD();
+        uint basket1 = BTC.CORE().basketUsd();
 
         emit log_named_uint("BTC curve mirror  before", curve0);
         emit log_named_uint("BTC curve mirror  after ", curve1);

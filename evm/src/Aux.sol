@@ -972,7 +972,17 @@ contract Aux is // Auxiliary
     /// also clips internally so a stale read is safe (just leaves QUI on
     /// the user's wallet rather than reverting).
     function redeemableAmount() external returns (uint) {
-        return BasketLib.redeemableBody(address(CORE));
+        // 🔴 §REDEEM-WRONG-RANGE — THIS PASSED `CORE` (the ETH instance) INTO A BODY WHOSE ONLY USE
+        // OF IT IS `uint btcCommitted = ICore(core).POOLED_USD()`. The local is NAMED `btcCommitted`
+        // and the comment above it says *"EXCEPT what is committed to the BTC range (an ETH-side
+        // redemption cannot unwind the BTC range)"* — so name, comment and code disagreed, and the
+        // code lost. It subtracted the range a redemption CAN unwind and left the one it CANNOT.
+        // MEASURED (§E42): six USDC→WBTC swaps totalling $3,000 moved `redeemableAmount` by exactly
+        // 3e21 — the whole traded notional — because the BTC range's growing `POOLED_USD` was never
+        // subtracted, while the ETH range's (which pure BTC flow does not move) was.
+        // ⇒ It OVER-REPORTS redeemability by the BTC range's commitment. `redeemableAmount` is the
+        // holder-facing capacity quote, so over-reporting is the dangerous direction.
+        return BasketLib.redeemableBody(address(BTC_CORE));
     }
 
     function get_deposits() public
