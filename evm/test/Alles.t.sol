@@ -3970,7 +3970,10 @@ contract Alles is AllesFixture {
         AUX.setBTCChannels(address(this)); // impersonate BTCChannels -> drive register/unregister
         // §UNIT-A — the retained skew premium reaches a BTC LP through the USD FEE LEG (§E5 →
         // usdR → BtcLib:69), so once the base is reachable "fee dust" is fee + premium.
-        uint premBefore = CORE.skewPremiumCum();
+        // §WRONG-RANGE — this is test_RunSim_AllExit_BtcLp: a BTC LP's premium and pooled depth
+        // live on the BTC instance. `BCORE()` (= BTC.CORE()) already exists and line ~4285 of
+        // this same file declares an identically-named `pooledBtc0` using it correctly.
+        uint premBefore = BCORE().skewPremiumCum();
 
         // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
@@ -3984,7 +3987,7 @@ contract Alles is AllesFixture {
         }
         vm.stopPrank();
 
-        uint pooledBtc0 = CORE.POOLED();
+        uint pooledBtc0 = BCORE().POOLED();
         (uint p1,,,) = BTC.autoManaged(User01);
         (uint p2,,,) = BTC.autoManaged(User02);
         assertEq(p1, 2e7, "LP1 BTC position credited in full");
@@ -4014,10 +4017,10 @@ contract Alles is AllesFixture {
         // the premium reach the LP through the fee leg, so the proxy broke while the INVARIANT —
         // no proceeds were minted — still holds. Bound = the premium ACTUALLY CHARGED + the
         // original 1e18 dust allowance, so a real proceeds claim (orders larger) still fails.
-        assertLt(qdGain, (CORE.skewPremiumCum() - premBefore) * 1e12 + 1e18,
+        assertLt(qdGain, (BCORE().skewPremiumCum() - premBefore) * 1e12 + 1e18,
             "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
         // Virtual consistency: the shared POOLED didn't go negative / wrap.
-        assertLe(CORE.POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");
+        assertLe(BCORE().POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");
     }
 
     /// (B1) - SIMULTANEOUS rush, BOTH cohorts liquidity-bound (Galaxy etched
