@@ -113,10 +113,11 @@ library LevMath {
     /// §MUTABILITY 2026-08-18 — `view`: body reads only, verified it touches none of the
     /// cache-sensitive family (`get_deposits`/`get_metrics`/`refreshHoldings`/`redeemableAmount`).
     function reanchorCompute(address range, uint syncKeyPx)
-        public view returns (bool go, uint newSqrtP) {
+        public view returns (bool go, uint newPrice) {   // §DE-TICK — was `newSqrtP`; it is assigned from
+                                                 // `rangePrice()`, so it always held a PRICE.
         if (range == address(0) || syncKeyPx == 0) return (false, 0);
-        try ICore(range).rangePrice() returns (uint v) { newSqrtP = v; } catch { return (false, 0); }
-        if (newSqrtP == 0) return (false, 0);
+        try ICore(range).rangePrice() returns (uint v) { newPrice = v; } catch { return (false, 0); }
+        if (newPrice == 0) return (false, 0);
         // ONE accessor pair. The range is per-asset and answers for its own range, so there is no name
         uint lo; uint hi;
         // §ONE-ANCHOR — ONE call, ONE try/catch. Two reads meant two chances to half-fail and a

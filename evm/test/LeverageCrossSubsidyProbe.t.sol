@@ -15,7 +15,6 @@ interface IERC20R {
 }
 interface IChainlinkFeedT { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 interface IWeETHRateT { function getEETHByWeETH(uint) external view returns (uint); }
-interface ILevRangeView { function rangeSqrtP() external view returns (uint160); }
 
 /// Morpho IOracle from REAL sources (weETH→ETH ether.fi rate × real Chainlink ETH/USD), 1e36-scaled. No mock price.
 contract RealRateMorphoOracle {
@@ -171,7 +170,12 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         vm.deal(PASSIVE, 20 ether);
         vm.prank(PASSIVE); uint shares = ETH.deposit{value: 10 ether}(0, PASSIVE);
         require(shares > 0 && CORE.POOLED() > 0, "no in-range pool for the passive LP");
-        uint160 startSqrt = ILevRangeView(address(ETH)).rangeSqrtP();   // shared rally reference for both arms
+        // §DE-TICK — `rangeSqrtP()` DOES NOT EXIST. It was a sqrt-price accessor removed with the
+        // ticks, so this call hit `Quid`'s FALLBACK, returned empty, and decoding a uint160 from
+        // nothing reverted with a bare `EvmError: Revert` — no selector, no name, nothing pointing
+        // at a deleted function. The whole test died before its first assertion.
+        // `_rallyRange`'s own parameter is `syncKeyPx` — it wanted a PRICE all along.
+        uint startPx = ETH.rangePrice();                // shared rally reference for both arms
 
         uint snap = vm.snapshotState();
 
@@ -179,7 +183,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         EV.setLevManager(address(lm));                     // pin the leveraged book into rangeETH
         _rangeE0(LEVR, 5 ether);
         _openLevOnly(LEVR, 5 ether);
-        _rallyRange(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(startPx, 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(LEVR, 0);                              // real Morpho borrow + external Uniswap buy (NOT the range)
         require(venue.debtOf(LEVR) > 0, "precondition: levered position took real debt");
         _seizeReal(LEVR, 1, 1);                             // REAL Morpho liquidation of the levered LP
@@ -190,7 +194,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         vm.revertToState(snap);
 
         // ── CONTROL: the SAME range rally price path, NO levered LP at all ──
-        _rallyRange(startSqrt, 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _rallyRange(startPx, 0.2e18, 20, 8_000 * USDC_PRECISION);
         _realignRangeToReal();
         uint passiveC = _passiveValueUsd(shares);
         uint tvlC     = _tvl();

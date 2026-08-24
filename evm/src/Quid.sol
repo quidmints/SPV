@@ -447,7 +447,7 @@ contract Quid is Shares,
         SwapLib.validateOorParams(range, distance);
 
         SwapLib.Oor memory t;
-        {   // geometry in a scope so currentSqrtPrice frees before sizing.
+        {   // geometry in a scope so the price locals free before sizing (§DE-TICK: no sqrt price).
             // §J.8b: was an inline copy of `SwapLib.oorBounds` (identical branch structure, identical
             // alignment, same width 10) plus a local `_outOfRangeTicks`. The BTC path
             // (`BtcLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
