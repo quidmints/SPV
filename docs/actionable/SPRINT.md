@@ -653,6 +653,38 @@ status column.
 is measuring effort, not truth.
 
 ---
+## 🔴 **§DELEVER-NEEDS-THE-DOLLARS-A-CRASH-REMOVES — the ~16 cascade failures are ONE mechanism** (2026-08-24)
+
+**Traced end to end on `test_CascadeDelever_CorrelatedCrash`:**
+`cascadeDelever` → sell collateral → `SwapLib` → `Core::swap` → **returns 0** → `max == 0` →
+`revert SlippageMaxS()` → caught → `DeleverFailed` → *"cascade made no net de-lever progress"*.
+**Why the fill is 0, measured in the trace, not inferred: `Core::POOLED_USD()` returns `1`** — one
+unit of 6-dec USD. `committedTotal()` and `rangeEquityUsd18()` both return `1e12` (18-dec), i.e.
+`basketUsd ≈ 1`. **The range has no USD leg, so a volatile-IN swap cannot be paid in dollars that are
+not there.** `POOLED` is healthy at 23.1e18 — inventory is not the constraint, DOLLARS are.
+
+⇒ **THE GAP IS STRUCTURAL AND THE FIXTURE'S NAME IS THE ARGUMENT: de-levering sells volatile INTO the
+range, and a correlated crash is exactly the event that has already drained the range's dollars doing
+the same thing.** The mechanism that must work hardest in a crash depends on the resource a crash
+consumes first. `mins` is all zeros, so this is not a slippage-tolerance problem — there is no bid.
+⚠️ **AND THE FALLBACK THAT WOULD COVER IT IS GONE:** external routing lived in `SOR`, a genuine
+TOMBSTONE (`_pickBestPath` survives only in a `FeeLib.sol:147` comment). So the sell has exactly one
+venue, and the test asserts an outcome only a second venue could produce.
+▶️ **DIRECTION (not implemented — it is an architecture call, not a fix):** de-lever needs a route to
+external liquidity (Curve/1inch, already linked via `OracleLib.curvePriceWad`/`oneInchRateWad`) when
+`POOLED_USD` cannot cover the sell. **Booked, not built:** landing a new external-venue path on the
+money path unverified is precisely rule 15.
+⛔ **DO NOT "FIX" THESE BY RELAXING THE PROGRESS ASSERTION.** *"total batch debt strictly falls"* is
+the property that makes the cascade worth having; a test that tolerates zero progress in a crash is
+asserting nothing (rule 4).
+
+⭐ **TWO SUSPECTS CLEARED BY MEASUREMENT ALONG THE WAY, RECORDED SO NOBODY RE-RUNS THEM:**
+  • **The pool is NOT dry** — `POOLED` = 23.1e18. The `SlippageMaxS` comment says *"a dry volatile
+    pool delivers max==0"*, which is the OTHER way to reach this revert and the one a reader assumes.
+  • **§E347's `if (!loadBalance) return out;` is NOT the cause, and it was my own edit, so it was the
+    first thing checked.** `out` is assigned exactly ONCE (`Core.sol:967`, from `_fillDelta`) and
+    never after, so the early return yields the true fill. **The comment claiming that is correct.**
+
 ## ⏸️ **§FEES-COMPOUND-NOT-ACCRUE — FIVE "FEES NEVER ACCRUED" FAILURES ARE STALE TESTS, NOT A DEFECT** (2026-08-24)
 
 `QuidLib.rebalanceBody:368-378`, in the code's own words:

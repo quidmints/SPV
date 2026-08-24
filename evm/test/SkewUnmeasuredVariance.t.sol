@@ -68,5 +68,23 @@ contract SkewUnmeasuredVarianceTest is Test {
         // inv1 >= target ⇒ the §UNIT-A flush path, which returns `_maxWellSkew` and never the kernel.
         uint flush = SwapLib.skewWad(POOL, POOL / 10, 0, SwapLib.ethRisk(), 0);
         assertLt(flush, CEIL, "a flush range must not be charged the unknown-variance ceiling");
+        // 🔴 §E352 — PIN THE CELL, BECAUSE THE BOUND ABOVE IS SATISFIED **BY THE DEFECT**. On ETH at
+        // σ² == 0 this value is 0, so `0 < 3e16` holds exactly as well as "the base" would: the
+        // inequality cannot fail whichever way the arithmetic is decided, and the suite therefore
+        // reported this branch as covered while it was not. (§VACUOUS-BOUNDS: the test's NAME claims
+        // what the assertion does not check — it says *StillOwes* and never asserts anything is owed.)
+        //
+        // This assertion says what is ACTUALLY true today and names it as the open cell rather than
+        // as correct behaviour: `target == 0` and `inv1 >= target` both return `_maxWellSkew` BEFORE
+        // the σ² sentinel, and `_maxWellSkew(0, ethRisk)` is 0 because ETH's profile is
+        // `(ETH_CONF_FRAC_WAD, 0)` — no splice floor. So §UNIT-A's "return the BASE, not zero" is
+        // neutralised exactly when variance is unmeasured, because there the base IS zero.
+        //
+        // ⚠️ IT IS DELIBERATELY AN EQUALITY: it passes now and turns RED the moment §E278 is decided
+        // either way, which an inequality cannot do. **An assertion a fix cannot fail is not coverage
+        // of the fix.** Do NOT "repair" this by widening it back to a bound.
+        assertEq(flush, 0,
+            "SE352 CELL, NOT 'the base': an unmeasured flush range is charged ZERO on ETH. Pending the "
+            "SE278 owner call. When that lands this MUST go red -- update it to the decided value.");
     }
 }
