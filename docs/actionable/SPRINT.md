@@ -1,3 +1,42 @@
+## 🔴 **§WRONG-RANGE-CENSUS — 21 SITES, SIX DISGUISES, AND ONE OF THEM WAS IN `src`** (2026-08-24)
+
+**The dominant defect class in this tree.** Each disguise defeated the sweep written for the previous
+one, which is why a single regex kept "finding them all" and kept being wrong:
+| # | shape | sites |
+|---|---|---|
+| 1 | `CORE.f() + CORE.f()` — one range summed twice | 10 |
+| 2 | two locals with the IDENTICAL right-hand side, named `eth…`/`btc…` | 3 |
+| 3 | a local plus that same call — `u1 + CORE.POOLED_USD()` where `u1` IS that call | 1 |
+| 4 | a bare `CORE.f()` in a flow that is entirely WBTC | 4 |
+| 5 | a **BOUND** computed off the wrong instance (`poolUsd / 100 * 1e12`) | 2 |
+| 6 | **SIZING** computed off the wrong instance (`4x the reserve`) | 1 |
+⭐ **5 AND 6 ARE THE DANGEROUS ONES: THE WRONG VALUE DOES NOT PRODUCE A WRONG ASSERTION, IT PRODUCES
+A WRONG TEST INPUT.** `testStrand4` expected a revert that could not fire, because the request it
+BUILT from the ETH reserve was still fillable by the BTC pool. The test exercised a scenario it never
+intended and reported the code as broken.
+🔴 **AND ONE WAS IN `src`, NOT A TEST: §REDEEM-WRONG-RANGE.** `Aux.redeemableAmount()` fed the ETH core
+into a body whose only use of it is `uint btcCommitted = ICore(core).POOLED_USD()`. **It surfaced ONLY
+because fixing the test-side reads let `test_E42` reach its real assertion** — the premise guard was
+working the whole time and could not be reached while the fixture measured the wrong instance.
+⇒ **Fixing "just a test" is what exposed a live money-path defect.** That is the argument against
+treating test-side failures as lower value than source-side ones.
+
+⭐ **THE SWEEP REFINEMENT, AND IT IS WHY MASS-APPLYING WOULD HAVE BEEN A DISASTER: 16 RAW → 1 REAL.**
+A heuristic (test functions that trade WBTC yet read the ETH `CORE`) returned 16 candidates. After the
+confirmed fixes landed, **15 of them PASS** — they read BOTH instances deliberately, because comparing
+the two IS their subject (`test_V7_EthFlowCannotConsumeTheBtcFreeReserve`, `test_E31a/b`).
+⇒ **THE DISCRIMINATOR IS WHETHER THE READ'S FLOW IS BTC-ONLY, NOT WHETHER THE TEST MENTIONS WBTC.**
+Confirm each by what actually moved the state — the swap direction, and the assertion the value feeds.
+⛔ Bulk-editing on the raw list would have been the seventh symptom-based grouping failure of the
+session, and unlike the other six it would have landed in CODE rather than in a claim.
+
+▶️ **`test_V1bdisc` IS THE SURVIVOR AND IS *NOT* THIS CLASS.** Its premise is ETH-subject (*"the ETH
+range's debt must EXCEED its own USD leg"*), so reading `CORE` is CORRECT, and `ethPooled18` /
+`btcPooled18` are already correctly distinct. **The test's OWN comment diagnoses it:** *"300 bps
+dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* — the fixture no longer
+reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
+defect. **Do not "fix" it by lowering the premise.**
+
 ## 🔬 **§OOR-AUDIT — dust, width, and loop bounds on boundary orders** (owner questions, 2026-08-24)
 
 **Q: can a dust order stay stuck forever, given storage gas is only reclaimed on a FULL pull?**
