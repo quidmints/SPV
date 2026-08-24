@@ -1,5 +1,51 @@
 ## 🔴 **§NATIVE-ETH-NEVER-REFUNDS — unfilled ETH lands in POOLED, inflating in-range depth** (2026-08-24)
 
+## 📌 **SESSION RECORD 2026-08-24 — state, blockers, and the method lessons that cost the most**
+
+### Baseline (trustworthy, publicnode, 0 fork failures)
+**459 passed / 54 failed / 513 total — 36 distinct.** It reconciles exactly:
+**36 = 26 pre-existing + 10 caused by deleting V3** (each says `NoVolatileRoute()`). Started at 47.
+⚠️ 15 rate-limit lines: publicnode 429s under a full suite, documented and environmental.
+
+### Money-path defects found AND fixed (each gated)
+| § | what was wrong |
+|---|---|
+| **BUF-USD-RATCHET** | `levBurnAll` zeroed `levBufferUsd[lp]` but passed USD = 0 to `modLP`; buffer dollars never left `POOLED_USD`/`basketUsd`. A ratchet on every `syncLev`. |
+| **ZERO-REVENUE** | the flush branch skipped `DEPLETION_RATE_WAD`, and on ETH the adverse-selection base is ~0.0002 bps — a flush range under-charged a drain by **~10,000×**, with the skew premium being the ONLY LP revenue lane (§E311 deleted the flat fee). **10 tests fixed, 0 new.** |
+| **REDEEM-WRONG-RANGE** | `redeemableAmount()` fed the ETH core into a body whose only use is `uint btcCommitted`. Over-reported holder-facing redeemability by the entire traded notional. |
+| **INIT-VETVENUE** | `LevManager.init` discarded `vetVenue`'s return where `BtcLevManager` reverts on it. GOV-only ⇒ a deployment footgun. |
+| **OBSERVATION-SOURCE-UNSET** | `_observeIfSourced` no-ops when `observationSource == 0`, and NOTHING sets it. The ring never advanced in production. |
+
+### The one that reframes the rest
+**§OBSERVATION-SOURCE-UNSET is the root of four things fixed downstream as separate problems:**
+frozen `poolStats()` (11% off oracle), frozen `_corePrice()` (`soldFractionWad` = 0 ⇒ IL never
+recognised), an empty `ringVariance` (σ² permanently UNMEASURED), and the skew collapse that followed.
+⭐ **§E345 and §E352 BOTH argued about what an unmeasured σ² should COST. Neither asked why nothing
+was measuring.** I repeated that for most of a session. The owner's *"it shouldn't be unmeasured"* is
+what moved the question above the pricing layer. **Fixed by reusing the anchor read
+`_sampleAnchorVariance` already performs** — no adapter, no deploy change, no TriCrypto.
+
+### Blocked on the owner
+1. **A free-tier 1inch key** (`portal.1inch.dev`) — the 10 route failures need a route, and multihop /
+   many-stables-into-one is a SOLVER problem: no contract and no single pool can do it.
+2. **`LevManager` has 546 bytes of margin.** Routed entrypoints on `rebalance`/`openLev`/`closeLev`
+   will not fit; a fold has to come first.
+
+### Method lessons — these cost more than any single bug
+🔴 **A GATE CAN PASS WHILE THE FIX FIXES NOTHING.** Arm 2 (§E352 ceiling) cleared 4 tests, showed net
+−2, and passed a FULL suite — while correcting nothing, because it only ever charged a fixture's FIRST
+swap. It was reverted only because the owner asked whether the assessment was right.
+🔴 **SEVEN SYMPTOM-BASED GROUPINGS COLLAPSED.** Every one fell to arithmetic about the fixture's actual
+numbers rather than reading control flow. A shared message shape is not a shared cause.
+🔴 **THE RUNTIME IS THE TELL, NOT THE COUNT.** A dead ANKR key turned 519 tests into 190 in **7.58s**
+instead of ~250s. A fork suite finishing in seconds never reached a fork.
+🔴 **ZERO IN-TREE REFERENCES IS WHAT AN ENTRYPOINT LOOKS LIKE.** Eight functions with no Solidity
+callers have live callers in `quid-bridge`/the SPA. `enforce` appeared to have 50 — all prose.
+🔴 **OVERLOADS ARE INVISIBLE TO A NAME-COUNT DEAD-CODE SCAN.** `curvePriceWad` has two overloads, so
+its own declarations kept the count above 1 — and it is the exact primitive the ring fix needed.
+
+
+
 `SwapLib._refundExcess` first line:
 ```solidity
 if (r.inToken == address(0) || r.amount <= consumed) return;
