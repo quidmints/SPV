@@ -644,7 +644,7 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("(3b) ETH.levPooled(lp0)    ", ETH.levPooled(lps[0]));
         emit log_named_uint("(3b) ETH.levBuf(lp0)       ", ETH.levBuf(lps[0]));
         assertEq(CORE.committedUsd18() + lm.totalDebtUsd(),
-                 (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
+                 (CORE.basketUsd() + BTC.CORE().basketUsd()) * 1e12,
             "(3b) full-2x: committed EXCLUDES the debt-funded buffer (committed == basket depth - live debt)");
 
         // (4) NO RACE: syncLev idempotent — a second call with no equity change is a no-op (no double-credit).

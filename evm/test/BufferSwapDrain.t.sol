@@ -22,7 +22,7 @@ contract BufferSwapDrain is LevCascadeProbe {
     ///      `addLiq`/burn moves). Asserting against the curve leg now would pin the very coupling
     ///      #12 removed: it would demand that an LP's sale proceeds still count as basket depth.
     function _assertCommittedIdentity(string memory tag) internal {
-        uint pooled18 = (CORE.basketUsd() + CORE.basketUsd()) * 1e12;
+        uint pooled18 = (CORE.basketUsd() + BTC.CORE().basketUsd()) * 1e12;
         uint debt18   = lm.totalDebtUsd();
         uint expect   = pooled18 > debt18 ? pooled18 - debt18 : 0;
         assertEq(CORE.committedUsd18(), expect, tag);

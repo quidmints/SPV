@@ -653,6 +653,202 @@ status column.
 is measuring effort, not truth.
 
 ---
+## 🔴 **§INIT-VETVENUE-ASYMMETRY — THE ETH MANAGER DISCARDS A RETURN VALUE THE BTC MANAGER REVERTS ON** (2026-08-24)
+
+```solidity
+// BtcLevManager.init
+if (LevMath.vetVenue(v, WBTC, address(VBTC), WBTC)) revert BadAuth();
+// LevManager.init
+LevMath.vetVenue(v, WETH, WETH, address(WEETH));      // ← return DISCARDED
+```
+`vetVenue` returns TRUE for a stable-collateral **INVERSE** venue mis-pinned as a long. BTC refuses it;
+**ETH allowlists it.** The ETH comment justifies the discard — *"the short subsystem that consumed it
+was removed, so the classification is unused"* — and that reasoning is **backwards for this guard**:
+the consequence it prevents is not a short-subsystem feature, it is *"any other collateral silently
+misvalues into phantom ETH backing (the rug the frozen allowlist stops)"* — **ETH's own comment, two
+lines above the line that ignores it.**
+⇒ **RULE 3'S INVERSE EXACTLY: the check earns its place because the failure is SILENT.** A wrongly
+allowlisted venue does not announce itself; it prices phantom backing into `rangeETH`.
+⚠️ **BLAST RADIUS IS GOV-ONLY AND PIN-ONCE** (`msg.sender != GOV || venuesFrozen`), so this is not
+remotely reachable — it is a **deployment-time footgun**, not a live exploit. Booked accordingly:
+real, bounded, and worth one line.
+▶️ **FIX:** `if (LevMath.vetVenue(v, WETH, WETH, address(WEETH))) revert VenueNotAllowed();`
+⛔ **DO NOT FOLD THE TWO `init` BODIES UNTIL THIS IS SETTLED.** A naive merge silently picks one
+side's semantics — which is how an asymmetry becomes a behaviour change nobody reviewed. **Classify,
+then merge** (the standing rule for every ETH/BTC pair).
+▶️ Two smaller asymmetries in the same pair, both classified DRIFT: **BTC never emits
+`FlashProviderSet`** (an observability gap on one side only), and the zero-address venue check exists
+only on BTC (harmless — `vetVenue` makes external calls and would revert anyway).
+
+## ✅ **§FOLD-PINLEV / §FOLD-WIRE — ONE SETTER PER CONCEPT, AND WHAT BLOCKED GOING FURTHER** (2026-08-24)
+
+**`setLevManager` now exists ONCE, in `Shares`** — which already declared `LEV_MANAGER` and imported
+`ILevEquity`, so it was the only honest home. `Quid` and `Vault` each supply two lines: `_onlyPinner()`
+and `_rangeAsset()`. That is the `isBTC` thesis in miniature — **the INSTANCE carries the
+discriminator, so there is nothing left for the name to select between.**
+⚠️ **THE AUTH ASYMMETRY IS PRESERVED ON PURPOSE AND IS A FINDING IN ITS OWN RIGHT.** ETH pins from
+`DEPLOYER`, BTC from `Ownable`. **Unifying them would be a security change wearing a refactor's
+clothes**: one model hands the BTC pin to an address `Ownable` never granted, the other makes the ETH
+pin unreachable the moment ownership is renounced — and renouncement is a LIVE posture here
+(`docs/FAQ.md` Part 6). ▶️ **Which model is correct is an OWNER DECISION, booked, not silently taken.**
+
+**`Aux` wiring is ONE entrypoint**: `wire(quid, ethVenue, btcChannels)`, `address(0)` = "not yet".
+⛔ **THE PHASING IS FORCED BY DEPLOYMENT, NOT CHOSEN.** BTCChannels does not EXIST when QUID and the
+ETH venue are pinned (`DeployLib` :210/:223 vs :314), so a fixed-arity call demanding all three is
+**unsatisfiable**. Each field stays independently pin-once; re-pinning any one still reverts.
+⚠️ **`setBTCChannels` KEEPS ITS NAME AND LOSES ITS BODY — 45 TEST CALL SITES DRIVE IT** to impersonate
+the channel manager. Churning 45 fixtures to delete a name buys nothing the one-line delegation does
+not already give, on a suite the owner has explicitly called bloated. **One implementation ≠ one
+name; conflating them is how a refactor becomes a diff nobody can review.**
+▶️ Gates: `forge build` 0 errors · `check-client-abis.py` **0 drifted** across 116 Rust + 68 SPA
+signatures — the check that exists because deleting an external is invisible to `forge` and `tsc`.
+
+⛔ **AND THE FOLD THAT WAS REFUSED, WITH THE MEASUREMENT THAT REFUSED IT.** `Quid.transferFrom` ∥
+`VBtc.transferFrom` scored 0.60 similarity and is the third-largest remaining pair. **Verified in the
+tree today, not quoted from the docs:** `Quid.totalSupply()` returns `lpShares` and `Quid` declares NO
+balances mapping, while `VBtc` declares `mapping(address => uint) public balanceOf`. They are a
+**PROJECTION and a LEDGER wearing one ERC-20 signature**. Folding them either gives `Quid` a mirror
+mapping — duplicating the state `Shares.sol` exists to delete — or turns holder-held sats into range
+shares. **A similarity score measures spelling, not sameness.**
+
+📉 **THE FOLD BACKLOG IS SMALLER THAN THE DOCS IMPLY, MEASURED TODAY.** Across all of `evm/src`:
+**ZERO byte-identical function bodies** (independently reproducing `CONSOLIDATION-TARGETS`), and
+**THREE** near-duplicate pairs above 0.55 — `setLevManager` (0.86, **folded**), `init`
+(LevManager∥BtcLevManager, 0.63, open), `transferFrom` (0.60, **correctly refused**).
+⇒ **CLAUDE.md's "~5,500 lines in four ETH/BTC pairs" IS STALE AT THE BODY LEVEL** — `RangeLib`,
+`LevBase`, `LevVenueBase` and `BtcLib` already absorbed it. The remaining `Quid` (21,512) ∥ `Vault`
+gap is **structural, not duplicated bodies**, so closing it is §J.2 (one implementation, two
+instances) — an architecture change, and it must not be booked as "finishing the folds".
+
+## 🔴 **§WITHDRAW-RETURNS-ZERO — THE EQUALITY-STALL CLUSTER IS ONE FACT, AND IT IS NOT A COMMITTED BUG** (2026-08-24)
+
+Four failures show `committed` UNCHANGED to the wei across an operation that must shrink it:
+`V5_WithdrawShrinksCommitted` (`245091766676e12 >= 245091766676e12`), `V6` premise,
+`Redeem_UnwindsRangeToFreeCommittedDollars` (`1152000112324e12 >= …`), and — the one that names the
+cause — `LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean`:
+**`PREMISE: the free withdraw actually ran (else UNWIND-ONLY is vacuous): 0 <= 0`.**
+⇒ **THE WITHDRAW RETURNS 0.** Committed cannot fall because nothing left. The three `committed`
+assertions are DOWNSTREAM READINGS, not the defect — booking them as a committed/accounting bug would
+send the next thread to `_poolUsdInRange` and `AUX.report`, which are fine.
+
+⛔ **HYPOTHESIS RAISED AND KILLED IN THE SAME TURN, RECORDED SO IT IS NOT RE-RAISED.** I predicted
+`_reportEquity()` was missing from the BURN arm of `_poolUsdInRange` — a push-based cache that only
+ever ratchets up would produce exactly this signature. **It is present** (`Core.sol`, burn arm, right
+after `basketUsd = b - out_`). The mechanism was plausible, the code refutes it. *A push-cache
+staleness story fits these symptoms perfectly and is still wrong here.*
+
+⭐ **MECHANISM FOUND BY READING THE CODE PATH, AND IT REJOINS §BUF-USD-RATCHET — SO THIS MAY ALREADY
+BE FIXED.** The chain, each link verified in the tree:
+1. `withdraw(type(uint).max)` is a **documented sentinel**, explicitly capped
+   (`if (assets > ceiling) assets = ceiling`, ceiling = the LP's FULL position). **The test's usage is
+   correct and intended** — the comment above the cap says capping to `plainNet` instead would make
+   the auto-de-lever test "unsatisfiable by construction". So the revert is INSIDE `_withdraw`.
+2. `_withdraw` runs `AUX.tryCheckBacking()`, then `_reconcileLev` → `syncLev` → `levAddGross`, which
+   MINTS depth and therefore hits `require(committedUsd18() <= haircutTvl, "backing")`.
+3. **`backing` and `OverCommitted()` appear as standalone failure messages in the same suite**
+   (`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`, `testPartialPullOutOfRange`).
+⇒ **AN INFLATED `committed` REFUSES THE WITHDRAW, AND THE RATCHET IS WHAT INFLATES IT** — the unpaired
+buffer grew `basketUsd`, and `_rangeEquityUsd18` is built from `basketUsd`. **The four "committed never
+moved" failures, the two `backing`/`OverCommitted` failures and this premise are ONE defect seen from
+six angles.**
+⚠️ **STATED BEFORE THE GATE, SO IT CAN BE WRONG:** if §BUF-USD-RATCHET's fix clears these, the row
+closes; **if it does not, the ratchet was a SECOND leak and the inflation has another source** — in
+which case instrument `committedUsd18()` either side of `levAddGross`, do NOT relax the gate.
+⛔ **AND NOTE WHAT THIS RETRACTS:** the "(b) sized from a balance pooling relocated" guess below was
+reasoning from my own recent work rather than from the failure. **The path was one `sed -n` away.**
+
+▶️ **SUPERSEDED — kept as the record of a guess that was not checked first:** instrument the withdraw itself — not `committed`. Whatever helper
+`_LevFeeLane`'s "free withdraw" calls returns 0; find whether it is (a) refused by a guard, (b) sized
+from a balance that is 0 under the pooled venue, or (c) a fixture premise that stopped holding when
+positions moved to `address(this)`. **(b) is the leading candidate** — several fixtures read per-LP
+balances that pooling relocated, and a size computed from a 0 balance withdraws 0 SILENTLY, which is
+the §VACUOUS-BOUNDS shape: the assertion that would have caught it is the PREMISE guard, and that is
+the one test which actually reports it.
+⚠️ **DO NOT "FIX" THIS BY RELAXING THE PREMISE GUARD.** It is the only assertion in the cluster that
+names the real condition; the other three are its shadow.
+
+## 🔬 **§WRONG-RANGE-x10 — TEN TESTS SUMMED ONE RANGE TWICE AND CALLED IT "BOTH RANGES"** (2026-08-24)
+
+```solidity
+uint oldBefore = CORE.POOLED_USD() + CORE.POOLED_USD();   // SAME instance, twice
+uint newBefore = CORE.basketUsd()  + CORE.basketUsd();
+```
+`CORE` is the **ETH** range (`A.core`); the BTC range is `BTC.CORE()` — genuinely two instances
+(`DeployLib.sol:136-137` constructs `new Core(cfg.weth,…)` **and** `new Core(cfg.wbtc,…)`). So the
+expectation was **2 × ETH** where the contract returns **ETH + BTC**. Repaired at all 10 sites across
+`UnificationControls` (7), `LevCascade`, `PooledUsdRepackMatrix`, `BufferSwapDrain`.
+
+⭐ **THE RATIO NAMED IT BEFORE ANY FILE WAS OPENED, WHICH IS THE ⭐ RULE IN CLAUDE.md WORKING AS
+WRITTEN.** Three failures read `980367066707e12 != 1960734133414e12`, `986640552051e12 !=
+1973281104102e12`, `103091455982e12 != 206182911964e6` — **exactly 2×, three times.** A magnitude miss
+drifts by a few percent; an exact integer ratio is a WRONG-OPERAND signature. That is the §WRONG-RANGE
+class this file already carries a 246-failure body count for.
+
+⛔ **THE TEST WAS WRONG, NOT THE CONTRACT — AND THE ASSERTION MESSAGE IS THE PROOF, NOT MY JUDGEMENT.**
+It reads *"committed is the SUM of the two ranges, each derived on its own"* while the code sums one
+range twice. Rule 8d demands naming which side is wrong before touching either; here the test states
+its own intent and fails to implement it. **No tolerance was widened and no assertion was flipped** —
+the fix makes the code compute what the message already claimed.
+
+⚠️ **SCOPE IS LIMITED AND DELIBERATELY NOT OVERSOLD.** This explains the **2× cluster only**. The
+`X >= X` equality-stall failures — `V5_WithdrawShrinksCommitted`, `V6` premise, `Redeem_UnwindsRange`
+— have a DIFFERENT root and are **not** claimed by this row. Grouping them in would repeat the exact
+mistake §BUF-USD-RATCHET's result section records one section down.
+
+## ✅ **§BUF-USD-RATCHET — THE BUFFER LEG'S DOLLARS LEAKED INTO `POOLED_USD` ON EVERY SYNC** (2026-08-24)
+
+**`RangeLib.levBurnAll` zeroed `levBufferUsd[lp]` in storage and passed `USD = 0` to `modLP`.**
+`_settleUsdSide` does NOTHING on a zero delta — the flag `modLP` derives from `deltaUSD == 0` is
+`keep`, which only suppresses the PAYOUT; it does not re-derive the amount. So the buffer's dollars
+stayed in `POOLED_USD` with no per-LP record pointing at them, while `levAddBuf` paired a fresh
+buffer in on the very next line. **A RATCHET, not a one-off**: every `syncLev` added without ever
+giving back. Fixed by burning at the RECORDED figure — the same number `levAddBuf` added, so it can
+neither over- nor under-burn.
+
+▶️ **HOW IT WAS FOUND, because three plausible hypotheses died first and the way they died was the
+signal.** Mint/burn asymmetry, the borrow receiver, and the TWAP mock were each fixed or ruled out,
+and each produced **byte-identical** failure numbers. *A quantity that does not move across three
+changes does not depend on any of them* — that is what redirected the search from the pooled unit
+maths (which measured CORRECT on every axis: `netEquity` 1,000,001 → 539,667, `collateralOf`
+2,000,000 → 1,039,666, `debtOf` halving exactly) to the sync path.
+⭐ **THE DECIDING READ WAS ONE INSTRUMENT, AND THE RATIO NAMED THE TERM** (the ⭐ rule in CLAUDE.md):
+POOLED_USD rose **388,270,880** where it must fall, and old `levBufferUsd` 776,542,536 − new
+388,271,656 = **388,270,880 TO THE WEI**. Right magnitude, inverted sign ⇒ a missing subtraction,
+not a mis-sized one. Logging `levBufferUsd` either side of the seizure took one run and settled it;
+three rounds of reasoning had not.
+⚠️ **NOT A POOLING DEFECT — POOLING ONLY EXPOSED IT.** The leak predates the pooled venue; the
+liquidation halved the debt enough that the unpaired re-add finally exceeded the fall the assertion
+looks for. **A latent ratchet is invisible while its two legs happen to be the same size.**
+
+🔴 **RESULT — THE PREDICTION WAS HALF WRONG, AND THE HALF THAT FAILED IS THE INFORMATIVE ONE.**
+`test_LevFeeLaneBTC_EarnsFees_UnwindOnly_SeizureBurnsClean` **PASSES** — the fix cleared exactly the
+test it was derived from. **The other EIGHT committed/POOLED_USD failures did NOT move.** So the
+ratchet is REAL and FIXED, and it is **not** their shared root: they were grouped by symptom
+(`POOLED_USD`/`committed` in the assertion) and that grouping did not survive contact.
+⇒ **A CLUSTER IS A HYPOTHESIS, NOT A FINDING** — the CLAUDE.md rule, fired again, on nine tests this
+time. The mechanism I traced (`basketLeg = true` ⇒ the unpaired buffer ratchets `basketUsd`, which
+`_rangeEquityUsd18` is built from) is CORRECT and still does not make the other eight this defect:
+being *affected by* a quantity is not being *caused by* it. **Those eight are re-opened as
+unexplained, not carried as collateral damage of a fixed bug.**
+⚠️ **`test_E131_PremiumFundsLvrOverItsPricedWindow` and `test_UNIT_PremiumRecordedEqualsPremiumPaid`
+read as NEW here and are the KNOWN FLAKY PAIR** — they flipped the OTHER way earlier in the same
+session with no code change touching them. Per the noise-floor memory (±2 tests per arm), a
+single-run diff cannot attribute them. **Do not book them as a regression of this change.**
+⛔ **AND THE MEASUREMENT ITSELF WAS CONTAMINATED — RECORDED SO THE NUMBER IS NOT QUOTED AS CLEAN.**
+Two `forge test` runs overlapped (an interrupt did not kill the first; a second was launched into the
+same redirect), so the file held **114 `[FAIL]` lines against a 57-failure summary** — two interleaved
+runs. Distinct names: **49**. Both also hit the ANKR archive endpoint concurrently, doubling request
+rate, and one RPC-shaped error is present. **The FIXED/NEW diff above is by NAME and survives the
+interleaving; the COUNTS do not.** ⇒ Re-run one clean arm before quoting any total.
+
+🔬 **PREDICTION UNDER TEST (one gate, stated before the run):** the nine POOLED_USD/committed
+failures — `SeizureLeavesPooledUsdIntact`, `SeizureBurnsClean` (ETH **and** BTC),
+`CommittedNoLongerCountsDollarsTheBasketNeverSupplied`, `DepositGrowsCommittedByExactlyTheRangeedUsd`,
+`WithdrawShrinksCommitted`, `BufferConsumingSwap_CommittedTracksLiveDebt_NoDrain`,
+`PROVE_PooledIsDerivableFromPoolState`, `Redeem_UnwindsRangeToFreeCommittedDollars` — share this
+root, because an inflated `POOLED_USD` inflates `committedUsd18`. **If they do not move, the root is
+elsewhere and this fix is necessary but not sufficient; say so rather than re-closing the row.**
+
 ## 🔬 **§POOL-SEIZE — THE LAST TWO POOLED-MODEL FAILURES, MEASURED AND NARROWED** (2026-08-24)
 
 SPRINT #1 is landed and the suite is back to **48 unique failures = the pre-pooling baseline** (2 new,

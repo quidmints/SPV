@@ -605,6 +605,13 @@ contract VBtcLevFeeLane is AllesFixture {
     /// manager) instead of one that no longer exists.
     function _borrowMorpho(address lp, uint usdc6) internal {
         vm.prank(address(lm)); venue.borrow(lp, usdc6);
+        // ⚠️ AND HAND THE STABLE ON TO THE LP, BECAUSE THE VENUE PAYS THE **MANAGER**. The original
+        // helper was `MORPHO.borrow(mp, usdc6, 0, lp, lp)` — receiver `lp`. `venue.borrow` ends with
+        // `IERC20Min(STABLE).transfer(MANAGER, got)`, so without this line the borrowed USDC sits on
+        // the manager and the fixture's end-state differs from the one every assertion downstream was
+        // written against. A faithful translation has to reproduce WHERE THE MONEY ENDED UP, not just
+        // that a borrow happened.
+        vm.prank(address(lm)); IERC20V(address(USDC)).transfer(lp, usdc6);
     }
 
     /// REAL Morpho seizure of `lp` (must have real debt): crash the vBTC oracle (one getTWAPforAsset(WBTC)

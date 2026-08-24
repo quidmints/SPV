@@ -620,7 +620,19 @@ contract Aux is // Auxiliary
         returns (address[] memory) { return vaultsOf[stable];
     }
 
-    function setQuid(address _quid) external onlyOwner { _pinQuid(_quid); }
+    /// @notice §FOLD-WIRE — THE ONE WIRING ENTRYPOINT. `setQuid`, `setEthVenue` and
+    ///         `setBTCChannels` were three owner-gated pin-once setters of identical shape, each
+    ///         called exactly once by deployment.
+    /// @dev    ⚠️ `address(0)` MEANS "NOT YET", AND THAT IS FORCED BY DEPLOYMENT, NOT TASTE.
+    ///         BTCChannels does not EXIST when QUID and the ETH venue are pinned (`DeployLib` pins
+    ///         those at :210/:223 and channels only at :314), so a fixed-arity call demanding all
+    ///         three at once is unsatisfiable. Each field stays INDEPENDENTLY pin-once, so calling
+    ///         `wire` in phases is correct and re-pinning any single field still reverts.
+    function wire(address quid_, address ethVenue_, address btcChannels_) public onlyOwner {
+        if (quid_ != address(0))        _pinQuid(quid_);
+        if (ethVenue_ != address(0))    _pinEthVenue(ethVenue_);
+        if (btcChannels_ != address(0)) _pinBtcChannels(btcChannels_);
+    }
 
     /// @notice Deploy-finalize (Safe/deployer only): assert EVERY cross-contract linkage EQUALS Aux's owner-set
     ///         view — catching a front-runner's malicious-but-non-zero pin in an ungated setter — then BURN the
@@ -870,7 +882,7 @@ contract Aux is // Auxiliary
     /// @notice EthVenue — pinned once, then driven for the ETH-venue ops.
     address public ethVenue;
     error EthVenuePinned();
-    function setEthVenue(address e) external onlyOwner {
+    function _pinEthVenue(address e) private {
         if (ethVenue != address(0)) revert EthVenuePinned();
         ethVenue = e;
         // Standing WETH approval so EthVenue.supplyFromAux can pull the BOLD/SP
@@ -1377,7 +1389,12 @@ contract Aux is // Auxiliary
     // `ethVenue` pin — the ETH-VENUE CUSTODY contract. Distinct from Core's `btc` since the
     // venue carve; anything BTC-range must go through `CORE.btc()`, not this.
 
-    function setBTCChannels(address b) external onlyOwner {
+    /// @notice Retained NAME, single IMPLEMENTATION. 45 test call sites drive this to impersonate
+    ///         the channel manager, and it is a genuinely later deploy PHASE — renaming it would
+    ///         churn 45 fixtures to gain nothing the delegation does not already give.
+    function setBTCChannels(address b) external { wire(address(0), address(0), b); }
+
+    function _pinBtcChannels(address b) private {
         if (_btcChannels != address(0)) revert BtcChannelsPinned();
         _btcChannels = b;
         // Pin the BTCChannels address on `Vault` (its `onlyBTCChannels` gate reads it).

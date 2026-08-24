@@ -5,7 +5,6 @@ pragma solidity ^0.8.28;
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {ICurveOracle, IOffchainOracle} from "./Interfaces.sol";
 
-import {BasketLib} from "./BasketLib.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
 
 // §RING-SIZE — 256, DERIVED FROM WHAT IS ACTUALLY ASKED FOR. 65,535 was Uniswap v3's MAXIMUM

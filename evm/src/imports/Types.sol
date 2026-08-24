@@ -3,8 +3,6 @@
 pragma solidity ^0.8.28;
 
 import {ILevVenue} from "./Interfaces.sol";
-import {QuidLib} from "./QuidLib.sol";
-
 /// @dev §FOLD-BOOK — ONE declaration. They were declared in `LevBase` AND the old
 ///      the old `LevBookLib`; splitting the book across `RangeLib` and `BtcLib` would have made it FOUR.
 ///      File-level so every user imports the same selector.

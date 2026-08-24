@@ -15,7 +15,6 @@ import {IWETH9} from "./Interfaces.sol";
 import {IQuid} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
-import {LevMath} from "./LevMath.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
@@ -162,8 +161,6 @@ library QuidLib {
     // ⚠️ `THETA_STEP` STAYS even though no CODE reads it either: `SwapLib:713` cites it by name to
     //    explain the live variance conversion (tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10). Deleting it
     //    would orphan that explanation and leave 300 as a magic number.
-    uint    constant SECS_PER_YEAR = 31536000;
-
     /// @notice The LVR coefficient K (WAD), derived LIVE from range geometry.
     /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
     /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:

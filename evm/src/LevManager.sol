@@ -2,17 +2,13 @@
 pragma solidity ^0.8.28;
 
 import {LevMath} from "./imports/LevMath.sol";
-import {WAD, AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed} from "./imports/Types.sol";
+import { AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed } from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {ILevPooled} from "./imports/Interfaces.sol";   // §POOL-VENUE
 import {IWeETH} from "./imports/Interfaces.sol";
 import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
-import {ICore} from "./imports/Interfaces.sol";
-
-
-
 /// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
 ///         so the manager DERIVES the collateral type per position (weETH vs WETH) from the venue itself,
 ///         never storing it on `Pos` (the public struct ABI stays a stable 6-tuple).
@@ -146,7 +142,11 @@ contract LevManager is LevBase {
             // backing (the rug the frozen allowlist stops). `LevMath.vetVenue` reverts an unvaluable one even for
             // GOV. (It also classifies a stable-collateral INVERSE venue as exempt — harmless if one is
             // allowlisted; the short subsystem that consumed it was removed, so the classification is unused.)
-            LevMath.vetVenue(v, WETH, WETH, address(WEETH));
+            // §INIT-VETVENUE — RETURN VALUE HONOURED, MIRRORING `BtcLevManager`. `vetVenue` returns
+            // TRUE for a stable-collateral INVERSE venue mis-pinned as a long; discarding it allowlisted
+            // exactly the collateral the comment above says "silently misvalues into phantom ETH
+            // backing". Silent misvaluation is why the check earns its place (standing rule 3's inverse).
+            if (LevMath.vetVenue(v, WETH, WETH, address(WEETH))) revert VenueNotAllowed();
             allowedVenue[v] = true; emit VenueAllowed(v, true);
         }
     }
@@ -177,14 +177,6 @@ contract LevManager is LevBase {
     }
 
     // ════════════════════════════ VALUATION ════════════════════════════
-
-    /// @notice USD (1e18) value of `weethUnits` weETH = weETH→ETH (rate) × ETH→USD (oracle).
-    function weethValueUsd(uint256 weethUnits) public view returns (uint256) {
-        if (weethUnits == 0) return 0;
-        uint256 ethAmt = RATE.getEETHByWeETH(weethUnits);           // 1e18 ETH
-        uint256 pxUsd  = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);    // 1e18 USD/ETH
-        return (ethAmt * pxUsd) / 1e18;
-    }
 
 
     /// @notice LIVE sum of every open position's deliverableDollars — the aggregate #67 counts as available USD

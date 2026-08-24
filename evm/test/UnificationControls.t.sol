@@ -804,8 +804,8 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
-        uint oldBefore = CORE.POOLED_USD() + CORE.POOLED_USD();
-        uint newBefore = CORE.basketUsd() + CORE.basketUsd();
+        uint oldBefore = CORE.POOLED_USD() + BTC.CORE().POOLED_USD();
+        uint newBefore = CORE.basketUsd() + BTC.CORE().basketUsd();
         // PREMISE: with no flow yet the two definitions must AGREE — every committed dollar so far
         // came from the basket. If they differ here the fixture is not measuring what it claims.
         assertEq(oldBefore, newBefore, "PREMISE: pre-flow, curve inventory == basket contribution");
@@ -813,8 +813,8 @@ contract UnificationControls is AllesFixture {
         for (uint i; i < 20; i++) _trade(3_000e18);
 
         _assertTraded();
-        uint oldAfter = CORE.POOLED_USD() + CORE.POOLED_USD();
-        uint newAfter = CORE.basketUsd() + CORE.basketUsd();
+        uint oldAfter = CORE.POOLED_USD() + BTC.CORE().POOLED_USD();
+        uint newAfter = CORE.basketUsd() + BTC.CORE().basketUsd();
         (uint[15] memory d,,, ) = AUX.get_deposits();
         uint tvl = d[14];
 
@@ -840,9 +840,13 @@ contract UnificationControls is AllesFixture {
         // (Written first as `btc + (committed - btc)`, which is true of any two numbers and
         //  therefore measures nothing. The real check computes the ETH leg INDEPENDENTLY.)
         uint ethEquity = CORE.basketUsd() * 1e12;   // no ETH lev debt in this fixture
-        assertEq(CORE.committedUsd18(), ethEquity + CORE.rangeEquityUsd18(),
+        // §WRONG-RANGE — the SECOND leg must be the BTC instance. `CORE.rangeEquityUsd18()` is the
+        // ETH range's own equity, so this read `ethEquity + ethEquity` and asserted 2x ETH.
+        assertEq(CORE.committedUsd18(), ethEquity + BTC.CORE().rangeEquityUsd18(),
                  "committed is the SUM of the two ranges, each derived on its own");
-        assertGt(CORE.basketUsd(), CORE.basketUsd(),
+        // ⚠️ WAS `assertGt(CORE.basketUsd(), CORE.basketUsd())` — a value against ITSELF, which is
+        // unconditionally FALSE. The message names TWO ranges; only one instance was ever read.
+        assertGt(CORE.basketUsd(), BTC.CORE().basketUsd(),
             "ETH may hold MORE committed dollars than BTC -- neither is capped to the other");
     }
 
@@ -862,7 +866,7 @@ contract UnificationControls is AllesFixture {
 
         (uint[15] memory d0,,, uint depeg0) = AUX.get_deposits();
         uint tvl0 = d0[14] > depeg0 ? d0[14] - depeg0 : 0;
-        uint oldCommitted0 = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
+        uint oldCommitted0 = (CORE.POOLED_USD() + BTC.CORE().POOLED_USD()) * 1e12;
         uint newCommitted0 = CORE.committedUsd18();
         assertEq(oldCommitted0, newCommitted0, "PREMISE: pre-flow the two definitions agree");
 
@@ -874,7 +878,7 @@ contract UnificationControls is AllesFixture {
         _assertTraded();
         (uint[15] memory d1,,, uint depeg1) = AUX.get_deposits();
         uint tvl1 = d1[14] > depeg1 ? d1[14] - depeg1 : 0;
-        uint oldCommitted1 = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
+        uint oldCommitted1 = (CORE.POOLED_USD() + BTC.CORE().POOLED_USD()) * 1e12;
         uint newCommitted1 = CORE.committedUsd18();
 
         uint freeOld = tvl1 > oldCommitted1 ? tvl1 - oldCommitted1 : 0;
@@ -945,7 +949,7 @@ contract UnificationControls is AllesFixture {
         _assertTraded();
 
         // ── AXIS: SWAP CAPACITY ────────────────────────────────────────────────────────────
-        uint oldCommitted = (CORE.POOLED_USD() + CORE.POOLED_USD()) * 1e12;
+        uint oldCommitted = (CORE.POOLED_USD() + BTC.CORE().POOLED_USD()) * 1e12;
         uint newCommitted = CORE.committedUsd18();
         uint oldRoom = tvl > oldCommitted ? tvl - oldCommitted : 0;
         emit log_named_uint("further FLOW the OLD gate allows (18d)", oldRoom);

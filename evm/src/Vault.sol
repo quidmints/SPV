@@ -264,11 +264,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///      range asset in `ORACLE_KEY` (immutable, set at construction: WETH for the ETH book,
     ///      WBTC for the BTC one), so the wrong one simply cannot be installed.
     ///      Standing rule 17: the root fix is the one that makes the previous guard DELETABLE.
-    function setLevManager(address m) external onlyOwner {
-        if (LEV_MANAGER != address(0)) revert LevManagerPinned();
-        if (ILevEquity(m).ORACLE_KEY() != address(AUX.WBTC())) revert WrongRangeManager();
-        LEV_MANAGER = m;
-    }
+    /// §FOLD-PINLEV — setter in `Shares`; these two lines are all that is BTC-specific.
+    function _onlyPinner() internal view override { _checkOwner(); }
+    function _rangeAsset() internal view override returns (address) { return address(AUX.WBTC()); }
 
     /// @notice LIVE sum of the BTC leveraged book's net-equity (8-dec sats) — the BACKING term added to
     ///         `rangeBTC` (Core solvency). try/catch so a venue hiccup can't brick the backing read.

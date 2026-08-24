@@ -207,7 +207,8 @@ library DeployLib {
         Core(a.btcCore).setup(address(0), address(aux), address(quid), seedBtc);   // BTC range pins in setBtcVault (Vault deployed later)
         }
         ETH.setup(address(quid), address(aux), address(core));
-        aux.setQuid(address(quid));
+        // §FOLD-WIRE — QUID now; the ETH venue follows once `ETH.setup` has set WETH.
+        aux.wire(address(quid), address(0), address(0));
 
         // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Quid ──
         // §ISBTC-SPLIT — THE BTC RANGE MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
@@ -220,7 +221,7 @@ library DeployLib {
         // §ETHVENUE-FOLD — the ETH yield venue IS Quid. One fewer deployable contract, and one
         // fewer pin: `setEthVenueContract` is gone with the separate address it existed to name.
         // `aux.setEthVenue` still runs, now pointing at the range manager itself.
-        aux.setEthVenue(address(ETH));            // MUST run after ETH.setup (WETH set)
+        aux.wire(address(0), address(ETH), address(0));   // MUST run after ETH.setup (WETH set)
         BTC.setup(address(quid));                // reads BTC pool slot0 (needs CORE.setup)
         core.setBtcVault(address(BTC));
         Core(a.btcCore).setBtcVault(address(BTC));   // the BTC instance needs the same pin
@@ -311,7 +312,7 @@ library DeployLib {
         // first live swap-out. Covers the gap that shipped it: forge tests deploy channels
         // by hand, so nothing exercised deployQuidStack(deployChannels:true) until now.
         require(address(c.btc()) == BTC, "DeployLib: btc must be the Vault");
-        Aux(payable(aux)).setBTCChannels(address(c));
+        Aux(payable(aux)).wire(address(0), address(0), address(c));
         gw = address(spv);
         ch = address(c);
     }

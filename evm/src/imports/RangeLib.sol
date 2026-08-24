@@ -54,7 +54,18 @@ library RangeLib {
         bufBurned = levBuf[lp];
         uint grossRem = netRem + bufBurned;
         if (grossRem == 0) { levBufferUsd[lp] = 0; return (0, 0); }
-        ICore(c.core).modLP(int256(grossRem), 0, address(0));   // LEAVES ⇒ positive: tokenless burn of GROSS depth
+        // 🔴 §BUF-USD-RATCHET — THE USD ARGUMENT WAS `0` AND THE BUFFER'S DOLLARS LEAKED.
+        // `levAddBuf` pairs `bufUsd` INTO `POOLED_USD` (`modLP(-bufTok, -bufUsd)`); this burn zeroed
+        // `levBufferUsd[lp]` in storage but passed `0` here, and `_settleUsdSide` does NOTHING on a
+        // zero delta — the `deltaUSD == 0` flag `modLP` derives is `keep`, which only suppresses the
+        // PAYOUT, it does not re-derive the amount. So the dollars stayed in `POOLED_USD` with no
+        // per-LP record pointing at them, and every sync re-added a fresh buffer on top: a RATCHET,
+        // not a one-off. Burning at the RECORDED figure is exact by construction — it is the same
+        // number `levAddBuf` added — so this cannot over- or under-burn.
+        // Measured (VBtcLevFeeLane, post-liquidation sync): POOLED_USD ROSE 388,270,880 across a
+        // syncLev that must fall, and that is old bufUsd 776,542,536 − new 388,271,656 TO THE WEI.
+        uint bufUsd = levBufferUsd[lp];
+        ICore(c.core).modLP(int256(grossRem), int256(bufUsd), address(0));   // LEAVES ⇒ positive, both legs
         LP.pooled -= netRem; levPooled[lp] -= netRem;      // net leg leaves pooled / the share count
         levBuf[lp] = 0; levBufferUsd[lp] = 0;              // buffer leg leaves the fee weight
         // `levBuf[lp]` is now 0, so the GROSS fee weight is simply `LP.pooled`. Safe on both sides:
@@ -421,20 +432,9 @@ library RangeLib {
     //    new LP could not open until someone closed, and an attacker could reach that for ~6.4 weETH
     //    of real collateral. That griefing surface is gone with the loops it was protecting.
 
-    /// @notice Add `lp` to the open-position book if absent. `lpIdx` is 1-based (0 = absent).
-    /// §POOL-VENUE — the room check is gone with `MAX_OPEN_LPS` (see the tombstone above): the book
-    /// is no longer walked anywhere, so its length no longer prices anything.
-    function trackOpen(
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
-        address lp
-    ) external {
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
-    }
-
     /// @notice Remove `lp` from the book by SWAP-AND-POP, keeping the 1-based index consistent.
     /// @dev    The moved element's index must be rewritten BEFORE the pop, and `lpIdx[lp] = 0` after,
-    ///         or the book leaks a stale index that `trackOpen` would then treat as present.
+    ///         or the book leaks a stale index that `openPos`'s push would then treat as present.
     function untrackOpen(
         address[] storage openLps,
         mapping(address => uint256) storage lpIdx,
@@ -501,8 +501,10 @@ library RangeLib {
         // commit that opens the path — the defect is this assignment, not its caller. No blending is
         // added now because the branch would be unreachable (standing rule 1).
         pos[lp] = p;
-        // §AUDIT-OPENLPS-DOS — the OTHER push site. Both are capped by `_requireRoom`; a cap on
-        // one of two writers is not a cap.
+        // §AUDIT-OPENLPS-DOS is CLOSED, and by deletion on both sides: there is no longer an
+        // "other" push site (`trackOpen` was its own callerless duplicate and is gone), and no cap
+        // to evade (`_requireRoom`/`MAX_OPEN_LPS` went with the Sigma-loops — see the tombstone above).
+        // This is now the SOLE writer of the book.
         if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 

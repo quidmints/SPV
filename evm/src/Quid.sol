@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";
-import {IEthVenue, ILevEquity, ILevClose} from "./imports/Interfaces.sol";
+import { ILevEquity, ILevClose } from "./imports/Interfaces.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -123,12 +123,10 @@ contract Quid is Shares,
     ///      is made UNCONSTRUCTIBLE here instead, once: a manager carries its range asset in
     ///      `ORACLE_KEY` (immutable from construction), so the wrong one cannot be installed at all.
     ///      Standing rule 17 — the root fix is the one that makes the previous guard DELETABLE.
-    function setLevManager(address m) external {
-        require(msg.sender == DEPLOYER, "403");
-        if (LEV_MANAGER != address(0)) revert LevManagerPinned();
-        if (ILevEquity(m).ORACLE_KEY() != address(WETH)) revert WrongRangeManager();
-        LEV_MANAGER = m;
-    }
+    /// §FOLD-PINLEV — the setter itself is `Shares.setLevManager`; these two lines are all that is
+    /// ETH-specific about it.
+    function _onlyPinner() internal view override { require(msg.sender == DEPLOYER, "403"); }
+    function _rangeAsset() internal view override returns (address) { return address(WETH); }
 
     /// @dev ether.fi offramp config. Shared by `offrampEtherFi` and the opportunistic sourcing.
     function _etherfiCfg() internal view returns (SwapLib.OfframpCfg memory) {

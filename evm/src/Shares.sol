@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Types} from "./imports/Types.sol";
 import {OorBook} from "./imports/Types.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";   // §FOLD-LEVGROSS
+import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §FOLD-PINLEV
 
 /// @title  Shares — the range's share token. ONE declaration of the per-LP state, TWO instances.
 ///
@@ -68,6 +69,30 @@ import {ILevEquity} from "./imports/Interfaces.sol";   // §FOLD-LEVGROSS
 abstract contract Shares {
     /// The range's leverage manager. GOV pin-once, then frozen.
     address public LEV_MANAGER;
+
+    /// @notice §FOLD-PINLEV — ONE SETTER, TWO INSTANCES. `Quid.setLevManager` and
+    ///         `Vault.setLevManager` were the same three statements — pin-once, key-check, assign —
+    ///         against the `LEV_MANAGER` THIS contract already declares. Only two things genuinely
+    ///         differed, and both are now the ONLY things a face supplies.
+    /// @dev    ⚠️ THE AUTH ASYMMETRY IS REAL AND IS PRESERVED, NOT UNIFIED. ETH pins from `DEPLOYER`,
+    ///         BTC from `Ownable`. Collapsing them to one model would either hand the BTC pin to an
+    ///         address `Ownable` never granted, or make the ETH pin unreachable the moment ownership
+    ///         is renounced — a live posture here (`docs/FAQ.md` Part 6). A virtual keeps the
+    ///         difference DECLARED at each face instead of hidden in a shared branch.
+    function _onlyPinner() internal view virtual;
+
+    /// @dev The asset this range's manager must serve — the discriminator that used to be spelled
+    ///      `isBTC`. It is the INSTANCE that carries it now, which is the whole point of the fold.
+    function _rangeAsset() internal view virtual returns (address);
+
+    /// @notice Pin the leverage manager. Pin-once: a second call reverts rather than re-pointing a
+    ///         live money path at a new contract.
+    function setLevManager(address m) external {
+        _onlyPinner();
+        if (LEV_MANAGER != address(0)) revert LevManagerPinned();
+        if (ILevEquity(m).ORACLE_KEY() != _rangeAsset()) revert WrongRangeManager();
+        LEV_MANAGER = m;
+    }
 
     /// @notice §FOLD-LEVGROSS — ONE DEFINITION FOR BOTH RANGES. `Quid.levGrossNative` and
     ///         `Vault.levGrossNative` were the same three statements against the same `LEV_MANAGER`

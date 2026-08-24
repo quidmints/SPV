@@ -352,7 +352,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         // §#12 LANDED — this pin FIRED as designed and is now re-derived. committed tracks the
         // BASKET's contribution, so a swap moves the curve legs WITHOUT moving committed. That
         // separation IS #12; asserting the old equality would re-couple them.
-        assertEq(s1.eth.committed, (CORE.basketUsd() + CORE.basketUsd()) * 1e12,
+        assertEq(s1.eth.committed, (CORE.basketUsd() + BTC.CORE().basketUsd()) * 1e12,
             "committedUsd18 == (both BASKET depths) x 1e12 -- the #12 split, pinned in its new form");
     }
 

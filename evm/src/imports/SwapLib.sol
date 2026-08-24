@@ -30,8 +30,6 @@ import {Types} from "./Types.sol";
 import {LevMath} from "./LevMath.sol";
 import {IAux} from "./Interfaces.sol";
 import {IAggregatorV3} from "./Interfaces.sol";
-import {QuidLib} from "./QuidLib.sol";
-
 // ether.fi offramp interfaces (suffixed `_L` to avoid clashing with Aux's own
 // copies, since Aux imports SwapLib). Same signatures as Aux's.
 // outputToken ∈ {0xEeee…EEeE native-ETH sentinel, stETH} — else InvalidOutputToken.

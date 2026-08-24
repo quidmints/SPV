@@ -2,14 +2,13 @@
 pragma solidity ^0.8.28;
 
 import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
-import {WAD, AlreadyOpen, NotFlash, Reentrancy} from "./imports/Types.sol";
+import { AlreadyOpen, NotFlash, Reentrancy } from "./imports/Types.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
-import {ICore} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
 import {ILevVenueColl} from "./imports/Interfaces.sol";

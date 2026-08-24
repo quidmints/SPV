@@ -12,9 +12,7 @@ import {BitcoinTx} from "./BitcoinTx.sol";
 // `inputs[i].witnesses`, which is where a key-path Schnorr signature lives. Used ONLY for that:
 // §E140-r2 measured that its `previousHash` is byte-REVERSED relative to its own `calculateTxId`
 // and to our `BitcoinTx`, so it is not a drop-in for outpoint logic.
-import {TxParser} from "@solarity/solidity-lib/libs/bitcoin/TxParser.sol";
 // (E182) Same checker the open path uses, so an EOA and a smart-wallet LP authorize alike.
-import {EndianConverter} from "@solarity/solidity-lib/libs/utils/EndianConverter.sol";
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";

@@ -3,12 +3,10 @@
 pragma solidity ^0.8.28;
 
 import {Aux} from "./Aux.sol";
-import {Quid} from "./Quid.sol";
 import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
 import {OracleLib, RING} from "./imports/OracleLib.sol";
-import {USDC} from "./imports/Interfaces.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
@@ -21,7 +19,6 @@ import {ILevEquity, ICore} from "./imports/Interfaces.sol";
 // §E21: IERC20Min had TWO declarations (here and imports/ILevVenue.sol), then
 // one home in ILevVenue.sol; §E296 folded that file into Interfaces.sol, so the one home is there.
 import {IERC20Min} from "./imports/Interfaces.sol";
-import {QuidLib} from "./imports/QuidLib.sol";
 import {Types, BtcVaultPinned} from "./imports/Types.sol";  // §E299: file-level errors
 
 

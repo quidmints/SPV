@@ -145,7 +145,6 @@ contract MorphoEscrowVenue is LevVenueBase {
     address private immutable ORACLE;
     address private immutable IRM;
 
-    error NotAuthorized();
 
     // ═══════════════ §POOL-VENUE — ONE MORPHO POSITION, PER-LP CLAIMS TRACKED HERE ═══════════════
     //
@@ -231,14 +230,6 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///         calls this then `debtOf` — either way removing the pre-accrual drift `debtOf` documents.
     ///         Harmless to call anytime (idempotent within a block). No effect on Euler (its adapter has none).
     function accrue() external { MORPHO.accrueInterest(_params()); }
-
-    /// @notice `accrue()` then `debtOf(lp)` — NON-view so the keeper can read a FRESH (fully-accrued) debt via
-    ///         `eth_call` (the accrual runs in the simulation; no real tx / gas). Serves the health
-    ///         read without a per-tick accrue transaction.
-    function accrueAndDebtOf(address lp) external returns (uint256) {
-        MORPHO.accrueInterest(_params());
-        return debtOf(lp);
-    }
 
     // ── ILevVenue ────────────────────────────────────────────────────────────────
     function supply(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {

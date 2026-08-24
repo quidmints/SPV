@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SwapLib} from "./SwapLib.sol";
 import {NotOpen, BadTarget} from "./Types.sol";
-import {ILevVenue, IERC20Min} from "./Interfaces.sol";
+import { IERC20Min } from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 import {LevMath} from "./LevMath.sol";
@@ -11,8 +11,6 @@ import {ICore} from "./Interfaces.sol";   // §ETHVENUE-GHOSTS: was declared twi
 import {IBasket} from "./Interfaces.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
-import {QuidLib} from "./QuidLib.sol";
-
 // External surfaces used below all come from Interfaces.sol now (§A.52):
 //   • ILevEquity — BtcLevManager's per-LP book. ⚠️ §ETHVENUE-GHOSTS: this bullet said `ILevEquityBtc`, which
 //                      is DECLARED NOWHERE — the suffixed face was folded into `ILevEquity`

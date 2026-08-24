@@ -218,10 +218,6 @@ abstract contract LevBase {
                        entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
     }
 
-    function _trackOpen(address lp) internal {
-        RangeLib.trackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
-    }
-
     function _untrackOpen(address lp) internal {
         RangeLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
