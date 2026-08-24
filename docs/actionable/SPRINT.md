@@ -769,7 +769,79 @@ asserting nothing (rule 4).
     first thing checked.** `out` is assigned exactly ONCE (`Core.sol:967`, from `_fillDelta`) and
     never after, so the early return yields the true fill. **The comment claiming that is correct.**
 
-## ⏸️ **§FEES-COMPOUND-NOT-ACCRUE — FIVE "FEES NEVER ACCRUED" FAILURES ARE STALE TESTS, NOT A DEFECT** (2026-08-24)
+## 🔴🔴 **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE — THE SKEW PREMIUM IS THE *ONLY* LP REVENUE LANE, AND IT IS 0 IN THE NORMAL STATE** (2026-08-24)
+
+**Found only because the owner asked "are you sure your assessment is correct". It was not — three times.**
+
+**THE CHAIN, each link measured in the tree:**
+1. **§E311 DELETED THE FLAT 420 ppm FEE.** `Core.sol:1428`, owner: *"there is no 420 ppm, it's always
+   the skew premium."* And `feesPerShare` (the v4 trading-fee leg) has had no feed since §V4-CUT.
+   ⇒ **`recordSkewPremium → Quid.creditSkewPremium` is the ENTIRE LP revenue model.**
+2. **`skewWad` takes the FLUSH branch in the normal state.** `inv1 >= target` compares INVENTORY
+   (~$1.2M of WETH in the fee fixtures) against the FLOW EWMA (~$18k of trades). Inventory dwarfs
+   flow, so flush fires on essentially every swap and returns `_maxWellSkew` alone — no kernel, and
+   **no `DEPLETION_RATE_WAD`, which sits at `SwapLib:1397`, AFTER both early returns.**
+3. **`_maxWellSkew(σ², ethRisk)` is `σ²·ETH_CONF_FRAC_WAD/8 + 0`.** `ethRisk() = Risk(ETH_CONF_FRAC_WAD,
+   **0**)` — **ETH has NO splice floor**, where `btcRisk()` carries `SPLICE_FLOOR`.
+⇒ **A FLUSH ETH RANGE AT LOW σ² CHARGES EXACTLY ZERO. FREE TRADING, ZERO LP REVENUE.** §UNIT-A already
+recorded the symptom (*"§E99 measured a 30-day-old imbalance pricing at 0"*); this is its mechanism.
+⚠️ **HOW MUCH THIS BITES IN PRODUCTION IS UNMEASURED AND MUST NOT BE ASSERTED EITHER WAY.** Real σ² is
+non-zero, so the base is non-zero and some revenue exists; the fixtures use a STATIC mocked feed, which
+is why they read exactly 0. **The open question is whether `σ²·confFrac/8` at realistic volatility is a
+MATERIAL charge or a rounding artifact.** That is one backtest, and it has not been run.
+
+⛔ **ARM 2 IS REVERTED IN FULL, AND THE REASON IS THE POINT: IT MADE FOUR TESTS GREEN WITHOUT FIXING
+ANYTHING.** Charging `UNKNOWN_VARIANCE_SKEW` on `target == 0` only affects **the FIRST swap of a
+fixture** (`FLOW_DECAY` is a 48h half-life, so `target > 0` from swap 2 onward and never decays back).
+The fee tests assert only `pendingRewards > 0`, so **one charging swap flips them** while swaps 2-6 keep
+paying zero. **The revenue hole survived the fix that "fixed" it** — standing rule 4, and it would have
+shipped as a money-path change on a false premise.
+▶️ **THREE WRONG DIAGNOSES, RECORDED BECAUSE THE PATTERN IS THE LESSON:**
+  1. *"Fees are stale tests, the v4 cut moved to compounding"* — true facts, wrong conclusion; the
+     skew lane was alive and I never checked the OTHER feed into the same accumulator.
+  2. *"Retracted: the fee lane works, skew was the only problem"* — right that skew was the cause,
+     wrong that arm 2 fixed it.
+  3. *"`target == 0` is the unmeasured cell"* — the wrong BRANCH. The live one is FLUSH, and I only
+     found that by computing inventory-vs-flow instead of reading branch order.
+  ⇒ **Each was consistent with the evidence I had looked at, and each fell to one measurement I had
+    not taken.** The discriminator every time was arithmetic about the FIXTURE's actual numbers.
+
+▶️ **WHAT TO DO, AND IT IS AN OWNER CALL BECAUSE IT IS A PRICE:** either ETH gets a real
+adverse-selection floor (the `0` in `ethRisk()` becomes a parameter with a derivation, as BTC's
+`SPLICE_FLOOR` has), or the flush branch must still owe `DEPLETION_RATE_WAD` on a drain — §E311's own
+note says depletion IS the inventory-proportional form of the charge every drain owes, so skipping it
+on flush drops the charge the derivation authorises. **Do not pick one by making a test pass.**
+
+## 🔴 **§FEES-COMPOUND-NOT-ACCRUE — ⛔ THIS ROW'S CONCLUSION IS WRONG. THE FEE LANE WAS NEVER DEAD.**
+**RETRACTED 2026-08-24 by measurement, hours after it was written and after an OWNER DECISION was
+taken on the strength of it.** Arm 2 (§E352, σ² sentinel above `target == 0`) made **four of the five**
+pass UNCHANGED: `test_V2_EqualLpsEarnEqualFees`, `test_V2_LateJoinerEarnsNoRetroactiveFees`,
+`test_E41_SwapCapacityAndPerRangePnlAttribution`, `testMatrix_S1_EthIncrementalFlow_BothRanges`.
+
+⭐ **WHAT WAS ACTUALLY BROKEN, AND IT IS TWO LAYERS UP:** `USD_FEES` is fed by
+`recordSkewPremium → Quid.creditSkewPremium` (`Quid.sol:1253`), **not** by the v4 leg. **Skew was 0, so
+no premium was ever charged, so no fees accrued.** Fix the skew and the fees appear. The tests were
+measuring the fee lane correctly the whole time.
+
+⛔ **THE ERROR SHAPE, WHICH IS THE PART WORTH KEEPING: EVERY FACT IN THIS ROW WAS TRUE AND THE
+CONCLUSION WAS STILL FALSE.** `feesPerShare` *is* identically 0 by design since §V4-CUT; `rebalanceBody`
+*does* say so; `_pendingFor` *does* read that accumulator. I found a real dead leg, saw failures whose
+symptom matched it, and never checked whether the OTHER leg feeding the same accumulator was alive.
+⇒ **A TRUE MECHANISM THAT EXPLAINS THE SYMPTOM IS NOT THEREBY THE CAUSE.** The discriminator was one
+grep — `USD_FEES +=` has THREE live sites and only ONE is the v4 leg — and this file's own §USD_FEES
+trap-note lists all three (`Vault.sol:351`, `Quid.sol:1180`, `Quid.sol:1276`). **The refutation was
+already written down in CLAUDE.md and I did not read it against my own claim.**
+🔴 **AND IT COST AN OWNER DECISION.** "Compounding is permanent" was chosen on this row's framing.
+**That question is now moot for these tests** — they pass under per-share accrual as it stands. The
+decision must NOT be executed as booked: rewriting four passing tests to assert equity-per-share would
+DESTROY the coverage that just proved the lane works. ⇒ **Arm 3 is CANCELLED.** Re-ask the model
+question only if it matters for its own sake, not because these tests demanded it.
+⚠️ **STILL TRUE AND STILL OPEN:** the v4 TRADING-fee leg (`feesPerShare`) has no feed. Whether it
+should return is a real question — it just was never what these five failures were about.
+▶️ **The fifth, `test_E42_RedeemableIsInvariantToPureBtcTradingFlow`, has NOT been re-measured. Do not
+assume it joins them.**
+
+## ⏸️ **(superseded — original row kept below for the record)** (2026-08-24)
 
 `QuidLib.rebalanceBody:368-378`, in the code's own words:
 > *"`repack`/`reseat` both return `(price, 0, 0, 0, 0)` now that **v4 collects nothing**, so the fee
