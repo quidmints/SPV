@@ -454,7 +454,20 @@ contract Core {
             AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
         if (px == 0) return;                          // no fresh anchor ⇒ nothing to sample
         uint prev = _varPx;
-        if (px == prev) return;                       // the anchor has not moved ⇒ no new information
+        // 🔴 §E345-ANCHOR — THE `px == prev` EARLY RETURN MOVED **BELOW** `dt`, AND THAT IS THE FIX.
+        // It read *"the anchor has not moved ⇒ no new information"*, which is false: a price that did
+        // NOT move IS information — it is a zero return, exactly what a calm market contributes to
+        // realized variance. Because `_varDt` only advanced on a MOVE, `anchorVarianceWad`'s own floor
+        // (`return v == 0 ? 1 : v;  // sampled, computed zero ⇒ the §E88 floor`) was UNREACHABLE: dt
+        // was non-zero only when the price moved, in which case v was non-zero too. A floor guarding a
+        // case its own gate prevented.
+        // ⇒ §E345 deleted the `cardinality >= 2` sentinel precisely because it conflated *"we have not
+        //   looked"* with *"we looked and it is calm"* — and this reintroduced that conflation one level
+        //   down, inside the leg added to resolve it. The §E59 sentinel error via the fix for it.
+        // The calm sample below accumulates REAL SECONDS against a ZERO squared return, so σ² reads
+        // *measured, and genuinely calm* (floored to 1 wei) instead of *unmeasured* (0 ⇒ charge the
+        // ceiling). Decay is exponential in ELAPSED MINUTES and composes across sub-intervals, so
+        // bumping more often does not decay `_varSq` faster over the same wall-clock.
         // FIRST sample carries no return: there is nothing to difference against, and `_varSq.ts` is
         // still 0, so an elapsed time computed from it would be the whole unix epoch. Bumping both
         // registers with 0 sets that `ts` through the SAME helper every later sample uses, rather
@@ -471,6 +484,9 @@ contract Core {
         // sample — a one-sided loss that biases σ² DOWNWARD, i.e. toward the cheap-drain reading this
         // whole change exists to remove. Keeping `prev` defers the move intact to the next block.
         if (dt == 0) return;
+        // CALM: real elapsed seconds, zero squared return. `_varPx` is deliberately NOT re-assigned —
+        // it already equals `px`, so there is nothing to advance and no second writer to disagree.
+        if (px == prev) { _bumpVar(0, dt); return; }
         _varPx = px;
         uint lo = px < prev ? px : prev;
         uint r = (px < prev ? prev - px : px - prev) * 1e18 / lo;   // |relative return|, WAD
