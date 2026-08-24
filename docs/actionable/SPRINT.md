@@ -1,3 +1,29 @@
+## 🔴 **§NATIVE-ETH-NEVER-REFUNDS — unfilled ETH lands in POOLED, inflating in-range depth** (2026-08-24)
+
+`SwapLib._refundExcess` first line:
+```solidity
+if (r.inToken == address(0) || r.amount <= consumed) return;
+```
+**`address(0)` IS the native-ETH input.** So for `AUX.swap{value: N}` the refund path is skipped
+STRUCTURALLY — not because the fill was complete, but because the token is native. The unfilled
+remainder stays with the protocol and `_handleDelta`'s `tokDelta < 0` arm credits the WHOLE input to
+`POOLED`.
+▶️ **MEASURED by `test_PendingSwapETHInflatesAvailable`:** a 50-ETH swap against a range that fills
+~0.5% puts **all 50 ETH** into `POOLED` (`pooledFill >= 50 ether`).
+⇒ **`POOLED` IS IN-RANGE COUNTED DEPTH.** Every figure priced against it — `available`, the swap
+bound `max`, `_skewBasis`, the redeem capacity view — reads inventory the range did not actually take
+in-range. **The test's name is the consequence: it INFLATES AVAILABLE.**
+⚠️ **THE TEST DOES *NOT* OBJECT TO THE ETH BEING KEPT.** Its own comment accepts that: *"with minOut=0
+they set no slippage floor, so the unfilled portion becomes protocol backing rather than refunding —
+conservation-safe (D grows, S unchanged)"*. **The objection is WHERE it lands: vault backing, not
+in-range depth.** Conservation holds either way; the DEPTH FIGURE is what is wrong.
+▶️ **FIX SHAPE (not landed — it is a money-path routing change and needs its own arm/gate):** either
+credit only `consumed` to `POOLED` and settle the remainder to backing, or give native ETH a refund
+path (wrap and return). ⛔ **Do not "fix" it by relaxing the `< 50 ether` bound** — that bound IS the
+property, and widening it would leave every POOLED-priced figure overstated with nothing watching.
+⚠️ A swapper with a real `minOut` is protected (the fill reverts instead), so exposure is bounded to
+callers passing `minOut = 0`. **That bounds the blast radius; it does not make the depth figure right.**
+
 ## 🔬 **§RING-LAGS-ORACLE — a LEAD linking two failures, explicitly NOT yet confirmed** (2026-08-24)
 
 `Quid._corePrice()` → `CORE.poolStats()` → **`priceWad = obsState.lastPrice`** — the RING's last
