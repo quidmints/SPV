@@ -737,6 +737,31 @@ bracket in `… "1000"] exited with code 1`, captured by a regex that assumed th
 test name. **A parser assumption became a phantom regression, reported three times.** Any future
 failure-name extraction must anchor on `] test…(`, not on the first word after `]`.
 
+## 🔴 **§VAULT-DELIVERABILITY — "wrong price" failures are UNDRAWABLE VAULT LIQUIDITY** (2026-08-24)
+
+`testRegularSwaps` sells 1 ETH and receives **$2,000.005886** against a **$2,436.25** oracle — an 18%
+shortfall that reads exactly like a pricing bug. **It is not.** Traced:
+  • `CORE.poolStats()` and `Aux.getTWAPforAsset` **BOTH return 2436.25e18** — range and oracle AGREE,
+    so there is no divergence to explain it.
+  • `POOLED_USD()` = **$152,000** — the range is not short of dollars on the books.
+  • The full 1 ETH goes in (`value: 1000000000000000000`) and **no refund path runs** — not a partial fill.
+  • `Core::swap` computes the correct **`2436250000`** (6-dec) internally.
+  • The payout then sources through a vault: **`deallocate(...)` → `withdraw(...)` → `← [Return] 0`.**
+⇒ **THE DOLLARS EXIST AND CANNOT BE WITHDRAWN.** The USD leg is parked in yield vaults whose
+utilization on this fork block leaves nothing drawable, so the swap pays what it can DELIVER. That is
+the `illiquidLoss` distinction CLAUDE.md already draws — *"own − withdrawable-now … the GHO reserve
+sits ~78% utilized at rest"* — arriving as a swap output rather than as a redemption deferral.
+⚠️ **SO THE PROTOCOL IS ARGUABLY CORRECT AND THE TEST'S EXPECTATION IS THE UNSTATED ASSUMPTION:**
+`assertGt(usdcReceived, price/1e12 * 90/100)` assumes the whole USD leg is instantly deliverable. It
+is a LIVE-FORK dependency wearing a pricing assertion's name — same class as the documented "a dead
+RPC key looks like a broken test suite", and it will pass or fail with mainnet vault utilization.
+▶️ **LIKELY THE SAME ROOT (not yet each confirmed): `testOutOfRangeUSDPosition` ("Should get USDC
+back"), `testOutOfRangeBtc_USDPosition` ("USDC returned on full pull").** Confirm each before grouping
+— four symptom-based groupings have already collapsed this session.
+⛔ **DO NOT "FIX" BY WIDENING THE 90% BOUND.** That converts a real deliverability property into a
+tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
+**If anything, the assertion should read the DELIVERABLE figure and compare against that.**
+
 ## 🔴 **§CRASH-HELPER-NEVER-CRASHES — the ~16 cascade failures, RE-DIAGNOSED (the row below was wrong)**
 
 ⛔ **THE ROW BELOW NAMED THE RIGHT MECHANISM ON THE WRONG PATH.** It said de-lever cannot sell because
