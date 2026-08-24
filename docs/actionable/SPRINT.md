@@ -1,3 +1,29 @@
+## 🔬 **§RING-LAGS-ORACLE — a LEAD linking two failures, explicitly NOT yet confirmed** (2026-08-24)
+
+`Quid._corePrice()` → `CORE.poolStats()` → **`priceWad = obsState.lastPrice`** — the RING's last
+observed price, NOT the oracle. The ring advances only when observations are pushed
+(`_observeIfSourced` on a swap), so a fixture that mocks the Chainlink feed to simulate a move shifts
+the ORACLE while the range's spot stays where it was.
+▶️ **Two failures are consistent with that, and only that has been established:**
+  • `test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy` — `soldFractionWad(entry)` is
+    `1e18 - holdingRatio`, so 0 means the range still holds everything. After a 20% `_rallyRange` it
+    reads **0**, i.e. `_corePrice()` never rose above the entry key.
+  • `testTwapAnchorDeadlock_FullFix` — *"auto-reseat moved the curve spot onto the oracle price"*,
+    **real delta 11.x%** against a 3% tolerance. The curve spot is not tracking the anchor.
+⚠️ **THIS IS A HYPOTHESIS. IT IS BOOKED AS ONE BECAUSE SEVEN SYMPTOM-BASED GROUPINGS COLLAPSED IN THIS
+SESSION**, and two of them looked at least this coherent. **Do not act on it before tracing one of the
+two and reading `obsState.lastPrice` either side of the rally.**
+⛔ **AND THE OBVIOUS READING MAY BE WRONG BY DESIGN.** A ring price that diverges from the oracle is
+NOT automatically a defect: §DE-TICK made range bounds absolute PRICES and the range deliberately
+prices from its OWN observations, while the oracle is the SETTLEMENT anchor — `wellSkew` and
+`twapResolve` exist to reconcile the two. **So the real question is narrower: does the AUTO-RESEAT
+close the gap, as `testTwapAnchorDeadlock_FullFix`'s name asserts?** If it does not, either the reseat
+regressed or that assertion encodes an intent that was never implemented. **Settle which before
+touching either.**
+▶️ Cheapest discriminator: instrument `obsState.lastPrice` and `AUX.getTWAPforAsset` either side of
+`_rallyRange`, then again either side of the auto-reseat. One run, and it separates "the fixture never
+moved the ring" from "the reseat does not track".
+
 ## 🔴 **§WRONG-RANGE-CENSUS — 21 SITES, SIX DISGUISES, AND ONE OF THEM WAS IN `src`** (2026-08-24)
 
 **The dominant defect class in this tree.** Each disguise defeated the sweep written for the previous
