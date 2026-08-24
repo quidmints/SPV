@@ -24,6 +24,49 @@ property, and widening it would leave every POOLED-priced figure overstated with
 ⚠️ A swapper with a real `minOut` is protected (the fill reverts instead), so exposure is bounded to
 callers passing `minOut = 0`. **That bounds the blast radius; it does not make the depth figure right.**
 
+## 🔴🔴🔴 **§OBSERVATION-SOURCE-UNSET — ONE UNSET ADDRESS FREEZES THE RING, AND IT IS THE ROOT OF FOUR THINGS I FIXED DOWNSTREAM** (2026-08-24)
+
+```solidity
+function _observeIfSourced() internal {
+    address src = observationSource;
+    if (src == address(0)) return;      // ← unset ⇒ SILENT NO-OP
+```
+**`setObservationSource` HAS ZERO NON-TEST CALLERS — the tree says so itself in TWO places**
+(`Core.sol:1703`, `DrainAtomicity.t.sol:1375`) and no deploy script calls it. So in production
+`observationSource == address(0)`, `_observeIfSourced()` returns immediately, and **`obsState.lastPrice`
+NEVER ADVANCES.**
+
+⇒ **WHAT THAT ONE ADDRESS BREAKS, all of it measured this session before the cause was found:**
+| symptom | how it presents |
+|---|---|
+| `poolStats().priceWad` frozen | `testTwapAnchorDeadlock_FullFix`: curve spot **11%** off the oracle vs a 3% bound |
+| `_corePrice()` frozen | `test_IlProtection`: `soldFractionWad` = **0** after a 20% rally ⇒ IL never recognised |
+| `ringVariance` never populated | σ² reads **UNMEASURED** forever |
+| skew collapses | the whole §ZERO-REVENUE cascade — an unmeasured σ² is what made the base ~0 |
+
+⭐ **THIS IS WHY §E345 AND §E352 WERE BOTH FIGHTING THE SAME GHOST.** §E345 added an anchor-variance
+leg because the RING could not produce an estimate; §E352 argued about what an UNMEASURED σ² should
+cost. **Neither asked why the ring was empty.** It is empty because nothing ever pushes to it — the
+`repack` path that would (`repack → _observeIfSourced`) is gated on an address deployment never sets.
+⇒ **I fixed four downstream symptoms and the cause was one line above all of them.** Every one of
+those fixes is still correct — a calm anchor SHOULD measure, a flush range DOES owe depletion — but
+they were treating a starved ring as a pricing question.
+
+⚠️ **THE PUSH PATH IS NOT MISSING, ONLY UNWIRED.** §E345 records `pushObservation` as PERMISSIONLESS
+and `seedRing` as leaving `cardinality` at 1, so the ring CAN be fed — by a keeper, or by any caller.
+**Nothing does it automatically, and nothing in deployment points `observationSource` at a source.**
+⇒ Two candidate fixes, and they are NOT equivalent:
+  (a) **wire `observationSource` in `DeployLib`** — `repack`/`swap` then feed the ring themselves, and
+      `§E232` already chose the source: Curve's on-pool EMA (`price_oracle(k)`), a single storage read,
+      explicitly because 1inch's aggregator cost **31.7M gas** and does not fit in a block;
+  (b) have the keeper call `pushObservation` on a cadence — works, but makes a core pricing input
+      depend on liveness, and `poolStats` is read on the money path.
+⇒ **(a) is the one the code was designed for**: `_observeIfSourced` exists precisely to make the ring
+self-feeding, and it has been switched off since it was written.
+⛔ **DO NOT "FIX" THIS BY MAKING TESTS CALL `setObservationSource`.** Two tests already do, which is
+exactly why the defect survived — the suite proves the mechanism works when wired and says nothing
+about whether deployment wires it. **A test-only caller is how a production hole looks covered.**
+
 ## 🔬 **§RING-LAGS-ORACLE — a LEAD linking two failures, explicitly NOT yet confirmed** (2026-08-24)
 
 `Quid._corePrice()` → `CORE.poolStats()` → **`priceWad = obsState.lastPrice`** — the RING's last
