@@ -95,7 +95,10 @@ contract UnificationControls is AllesFixture {
         _seedBasket();
         uint c0 = CORE.committedUsd18();
         uint u0 = CORE.POOLED_USD();
-        uint b0 = CORE.POOLED_USD();
+        // §WRONG-RANGE — `b0` IS THE BTC LEG AND WAS READING THE ETH INSTANCE. Assigned the IDENTICAL
+        // expression as `u0`, so the assertion below claimed the SAME value both grew (`u1 > u0`) and
+        // stayed put (`== b0`) — contradictory by construction, and unfailable-in-the-wrong-direction.
+        uint b0 = BTC.CORE().POOLED_USD();
 
         vm.prank(lpA);
         ETH.deposit{value: 100 ether}(0, lpA);
@@ -106,7 +109,7 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("ETH USD leg delta", u1 - u0);
 
         assertGt(u1, u0, "PREMISE: the deposit ranged USD, else nothing is being measured");
-        assertEq(CORE.POOLED_USD(), b0, "an ETH deposit must not touch the BTC range's USD leg");
+        assertEq(BTC.CORE().POOLED_USD(), b0, "an ETH deposit must not touch the BTC range's USD leg");
         // The identity the unification MUST preserve (or consciously redefine).
         assertEq(c1, (u1 + CORE.POOLED_USD()) * 1e12,
             "committedUsd18 == (both USD legs) x 1e12 with no leverage debt outstanding");
@@ -485,7 +488,9 @@ contract UnificationControls is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
         uint ethUsd0 = CORE.POOLED_USD();
-        uint btcUsd0 = CORE.POOLED_USD();
+        // §WRONG-RANGE — the BTC leg reads the BTC INSTANCE. Both were `CORE`, so every
+        // eth-vs-btc comparison below was a value against ITSELF.
+        uint btcUsd0 = BTC.CORE().POOLED_USD();
         emit log_named_uint("ETH curve USD at rest", ethUsd0);
         emit log_named_uint("BTC curve USD at rest", btcUsd0);
         assertGt(ethUsd0, 0, "PREMISE: ETH curve is live");
@@ -504,7 +509,9 @@ contract UnificationControls is AllesFixture {
 
         _assertTraded();
         uint ethUsd1 = CORE.POOLED_USD();
-        uint btcUsd1 = CORE.POOLED_USD();
+        // §WRONG-RANGE — as above. The very next line already reads `BTC.CORE()` for
+        // `pendingSwapOutUsd`, so the correct handle was in use one statement away.
+        uint btcUsd1 = BTC.CORE().POOLED_USD();
         uint pending = BTC.CORE().pendingSwapOutUsd();
         uint btcFree = btcUsd1 > pending ? btcUsd1 - pending : 0;
 

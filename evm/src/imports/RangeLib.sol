@@ -163,13 +163,17 @@ library RangeLib {
         uint lower = position.lower;
         uint upper = position.upper;
         uint[] storage myIds = positions[owner];
-        uint lastIndex = myIds.length > 0 ? myIds.length - 1 : 0;
         if (percent == 100) {
             deindexOor(book, oorKey(oorTrigger(position), id));
             delete selfManaged[id];
-            for (uint i = 0; i <= lastIndex; i++) {
+            // ⚠️ `i < myIds.length`, NOT `i <= lastIndex` WITH A SATURATING `lastIndex`. The old form
+            // computed `myIds.length > 0 ? myIds.length - 1 : 0`, so an EMPTY array gave `lastIndex == 0`
+            // and the loop still ran once — reading `myIds[0]` and PANICKING (0x32) instead of reverting
+            // cleanly. `fillOne` a few lines down already uses this bounded form against the same
+            // mapping; the two disagreed about the same walk. One shape, and the empty case is a no-op.
+            for (uint i = 0; i < myIds.length; i++) {
                 if (myIds[i] == id) {
-                    if (i < lastIndex) myIds[i] = myIds[lastIndex];
+                    if (i < myIds.length - 1) myIds[i] = myIds[myIds.length - 1];
                     myIds.pop(); break;
                 }
             }

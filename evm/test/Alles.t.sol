@@ -2327,7 +2327,7 @@ contract Alles is AllesFixture {
     ///       when venue choice was removed: there is one destination, so nothing lands in Galaxy and
     ///       there is no alternate venue to evacuate TO.
     ///       ⚠️ ITS OLD FORM WAS LOAD-BEARING, and is why the collapse was attempted five times and
-    ///       arangeoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
+    ///       abandoned: folding Galaxy in with the four equivalent venues made it fail "ETH deposit
     ///       landed in Galaxy: 0 <= 0". That measurement proved Galaxy's `rangeOp` -> `Aux.supplySelf`
     ///       path was a REAL second destination, against a hand-trace that concluded the opposite.
     ///       Removing Galaxy was intentional, and as of 2026-08-14 the three WETH-4626 curator venues
