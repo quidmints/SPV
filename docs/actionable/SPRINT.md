@@ -737,6 +737,27 @@ bracket in `… "1000"] exited with code 1`, captured by a regex that assumed th
 test name. **A parser assumption became a phantom regression, reported three times.** Any future
 failure-name extraction must anchor on `] test…(`, not on the first word after `]`.
 
+## ✅ **§POOLED-KEEPER-PARITY — the Rust keeper needs NO change for the multi-LP → pooled move** (2026-08-24)
+
+**Asked by the owner, verified rather than assumed.** The pooled venue keeps ONE Morpho position, but
+the keeper still reasons per-LP — so the question is whether its reads still mean what it thinks.
+| keeper read (`lev_keeper.rs:465,470`) | still correct under pooling? |
+|---|---|
+| `getCurrentLtvBps(lp)` = `ltvBps(debtUsd(lp), collValueUsd(v.collateralOf(lp)))` | ✅ `debtOf`/`collateralOf` are PROPORTIONAL UNIT SLICES of the pool |
+| `netEquityUsd(lp)` | ✅ same unit path |
+⇒ **THE TWO-LAYER UNIT ACCOUNTING (per-LP units → pool shares → assets) EXISTS FOR EXACTLY THIS: the
+external per-LP API survives the internal pooling.** That is why the migration is keeper-transparent.
+▶️ Gates run: `cascadeDelever`/`rebalanceMany` signatures UNCHANGED (kept deliberately —
+`lev_keeper.rs:531,542` sends them); `check-client-abis.py` **0 drifted / 116 Rust sigs**;
+`check-signer-allowlist.py` **clean** (every built selector signable, every listed selector built).
+`swapOutDeleverPooled` is `msg.sender != RANGE → revert`, so it is not keeper surface.
+⚠️ **WHAT IS *NOT* VERIFIED, STATED SO IT IS NOT READ AS DONE: the Rust TEST SUITE HAS NOT BEEN RUN.**
+It needs Docker on macOS (`quid-cvm` is Linux-only). No Rust was edited, so its tests cannot have
+broken from these changes — **but "I did not edit it" is an ARGUMENT, not a RUN**, and this file
+records that exact argument failing twice (`create_sweep_tx`, and §E183's `cargo check --bins`).
+▶️ **Run `docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev cargo test -p quid-bridge` before
+treating this row as closed.**
+
 ## 🔴 **§VAULT-DELIVERABILITY — "wrong price" failures are UNDRAWABLE VAULT LIQUIDITY** (2026-08-24)
 
 `testRegularSwaps` sells 1 ETH and receives **$2,000.005886** against a **$2,436.25** oracle — an 18%
@@ -755,9 +776,14 @@ sits ~78% utilized at rest"* — arriving as a swap output rather than as a rede
 `assertGt(usdcReceived, price/1e12 * 90/100)` assumes the whole USD leg is instantly deliverable. It
 is a LIVE-FORK dependency wearing a pricing assertion's name — same class as the documented "a dead
 RPC key looks like a broken test suite", and it will pass or fail with mainnet vault utilization.
-▶️ **LIKELY THE SAME ROOT (not yet each confirmed): `testOutOfRangeUSDPosition` ("Should get USDC
-back"), `testOutOfRangeBtc_USDPosition` ("USDC returned on full pull").** Confirm each before grouping
-— four symptom-based groupings have already collapsed this session.
+⛔ **CONFIRMED NOT THE SAME ROOT — MY GUESS WAS WRONG, AND CHECKING IT IS THE ONLY REASON THAT IS
+KNOWN.** I named `testOutOfRangeUSDPosition` and `testOutOfRangeBtc_USDPosition` as "likely the same".
+Both actually fail at **`99997999999998 !~= 99997900000000`** — a delta of 99,999,998 against a
+`maxDelta` of 20,000,000, i.e. **~0.0001%**. That is a TOLERANCE/ROUNDING mismatch, nothing like an 18%
+deliverability shortfall. **Two adjacent USDC-shaped messages, two unrelated causes.**
+⇒ **SIXTH symptom-based grouping to collapse this session**, and the only one that cost nothing,
+because it was checked before being written up as fact. The others were each stated first.
+▶️ Their real root is unexamined: a ~1e8-wei discrepancy against a 2e7 tolerance.
 ⛔ **DO NOT "FIX" BY WIDENING THE 90% BOUND.** That converts a real deliverability property into a
 tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
 **If anything, the assertion should read the DELIVERABLE figure and compare against that.**
