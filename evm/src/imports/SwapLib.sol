@@ -872,6 +872,17 @@ library SwapLib {
     ///     3% stopped bounding this path. ⇒ The header survived four separate changes that each
     ///     falsified one of its clauses, which is exactly how a comment becomes the premise of new
     ///     work (§E18: *"THIS EXACT LINE COST THREE FINDINGS"*, `:690`).
+    /// @dev The DEPLETION term: `210 ppm · (drained / pre-swap inventory)`. §E311 derives it as the
+    ///      INVENTORY-PROPORTIONAL form of the charge every drain owes — a drain of D from balance
+    ///      creates 2·D·px of idle inventory, so `210ppm × 2·D·px == 420ppm × D·px`. 0 on a refill
+    ///      (`inv1 >= inv0`) by construction: flow that UN-tilts the curve is not taxed for it.
+    ///      ONE definition, two call sites (the flush branch and the kernel tail) — a pricing term
+    ///      written twice is a pricing term that drifts.
+    function _depletion(uint inv0, uint inv1) private pure returns (uint) {
+        if (inv0 == 0 || inv1 >= inv0) return 0;
+        return SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
+    }
+
     function _maxWellSkew(uint sigmaSqWad, Risk memory rk) internal pure returns (uint) {
         // PER-ASSET settlement window: BTC locks capital through ~1hr of confirmations (CONF_FRAC_WAD) + an
         // on-chain splice-fee floor; ETH settles in ~one block with no confirmation lock and no splice.
@@ -1154,7 +1165,19 @@ library SwapLib {
         //    ⛔ **THE ARITHMETIC IS UNCHANGED AND MUST STAY SO PENDING THE OWNER CALL** (rule 10: this
         //    and `sellSkew` are two money-path changes, not one; and §E278 records the flush half as
         //    additionally gated on §C1, since a live source stops this branch being zero on its own).
-        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk);
+        // ✅ §ZERO-REVENUE (owner, 2026-08-24) — THE FLUSH BRANCH OWES DEPLETION. §UNIT-A's rule
+        // ("only the DEPLETION term flushes away, never the adverse-selection floor") is sound on
+        // BTC, where ~20 bps of `SPLICE_FLOOR` survives a flush, and VACUOUS on ETH, where the floor
+        // is ~0 — so "only depletion flushes away" meant EVERYTHING flushed away.
+        // MEASURED: `_maxWellSkew(σ², ethRisk)` = σ²·(12s/1yr)/8 is **0.000233 bps at 70% annual
+        // vol** (0.0019 at 200%), against DEPLETION's **2.1 bps** on a full drain — so a flush ETH
+        // range was under-charging a drain by ~10,000×, and the skew premium is the ONLY LP revenue
+        // lane (§E311 deleted the flat 420 ppm).
+        // ⚠️ THE ~0 BASE IS CORRECT AND IS WHY THIS HID: ETH settles in ONE BLOCK, so there is
+        // almost no inventory-risk window to charge for. Nothing is mis-parameterised — the flush
+        // branch simply skipped the one term that has magnitude on ETH.
+        // Still 0 on a refill, and ≤ 2.1 bps by construction, so the flush arm cannot become a toll.
+        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
         // §E59/§E79 — THE SENTINEL IS RESOLVED HERE, BEFORE IT REACHES THE ARITHMETIC.
         // Past this line scarcity is REAL (inv1 < target ⇒ q1 > 0). §E59 part 2 states the rule:
         // "real scarcity (q > 0) plus UNMEASURED variance ⇒ charge the ceiling", and §E79 restates
@@ -1364,13 +1387,9 @@ library SwapLib {
         //   cannot blow up at the pole.
         // ⚠️ THE `sigmaSqWad == 0` SENTINEL STAYS AND IS NOT REDUNDANT: `== 0` means NO DATA (charge
         // the ceiling, conservative); this handles data that is real and tiny. Different inputs.
-        if (inv0 != 0 && inv1 < inv0) {
-            // `SoladyMath`, not `FullMath` (which left with core-core) and not OZ `Math`: solady is
-            // this file's convention — solady outnumbers OZ `Math` in this file by roughly 5:1
-            // (37 to 7 today; it said "32 to 2", so BOTH numbers drifted while the conclusion did
-            // not). State the RATIO, not the tally: a count is a citation with a half-life.
-            skew += SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
-        }
+        // The `inv0 != 0 && inv1 < inv0` guard that stood here is INSIDE `_depletion` now — keeping
+        // it too would be a condition that cannot change the result (standing rule 3).
+        skew += _depletion(inv0, inv1);
     }
 
     /// @notice The live well skew (WAD) for a pool — gathers deliverable inventory (at
