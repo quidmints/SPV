@@ -1282,6 +1282,30 @@ ETH residual, both residual tests passing — and it costs exactly one test,
 `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`, which reverts `"backing"` because `committed`
 ratchets. That is the price, it is measured, and it is one test rather than a money-path regression.
 
+## 🔴 **§UNITB-NEEDS-A-MOVING-FIXTURE — the two preconditions FIGHT under draining, measured** (2026-08-25)
+
+§UNITB-ARMS-IDENTICAL needs two things at once: **σ² > 0** (or the kernel vanishes) and
+**`inv < target`** (or the FLUSH branch skips the kernel and the target cannot enter at any value).
+I tried to reach the second by draining. **It cannot work, and here is why, so nobody repeats it:**
+
+| attempt | result |
+|---|---|
+| fixed **30** drain rounds | `SlippageMaxS()` — this fixture does not RE-SEED each round the way §E96b's does, so a round count copied between them is meaningless |
+| self-calibrating drain until `POOLED*price < target` | reached it (**459,725 vs 460,195**) and **the arms were STILL identical** |
+| …because the skew's `inv` is the **USD MIRROR**, and draining moves it the WRONG WAY | `POOLED_USD` went **1,379,628 → 1,515,723** while `target` only reached 460,195 — **deeper into flush** |
+| …and the drains **destroyed the variance** | `sigma^2` fell **4.274e17 → 1** (the §E88 floor): `_sampleAnchorVariance` runs on every swap against a feed pinned at ONE price, so every sample is a zero return |
+
+⇒ **REACHING SCARCITY NEEDS FLOW, AND FLOW AT A PINNED PRICE FLATTENS σ².** The two preconditions are
+in direct opposition under this fixture's only lever.
+✅ **WHAT THE ATTEMPT DID ESTABLISH, and it is worth keeping:** with σ² seeded the skew moves
+**321,992 → 322,187 usd6**, so **σ² DOES feed through** — it is simply not the blocker. **FLUSH is**,
+and it is not a defect: the target is deliberately unpriced when inventory exceeds it.
+▶️ **THE FIXTURE THAT WOULD WORK is already in the tree: `LevCascade._rallyRange` MOVES THE FEED WHILE
+IT TRADES** (`px += px * 8 / 100; _setLiveEthFeed(px / 1e10); CORE.pushObservation(px);` per step). That
+sustains σ² through the flow instead of flattening it. **Porting that shape here is the task** — a
+redesign of the fixture, not a tweak, which is why it is booked rather than attempted piecemeal.
+⛔ **DO NOT relax `premB != premA`.** It is still the only thing that noticed any of this.
+
 ## ⚠️ **§BASKET-COVERAGE-3-OF-14 — the fixture funds THREE vaults, and no test could see that** (2026-08-25)
 
 Two `Alles` tests inspected the basket and **both were structurally blind**:

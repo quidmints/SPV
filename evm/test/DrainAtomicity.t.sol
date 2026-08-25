@@ -1344,6 +1344,20 @@ contract DrainAtomicity is AllesFixture {
         }
         emit log_named_uint("seeded sigma^2", CORE.realizedVarianceWad());
 
+        // ⛔ §UNITB — "DRAIN INTO PRICED SCARCITY" WAS TRIED HERE AND IT CANNOT WORK. MEASURED, so
+        //   the next reader does not spend the same hour:
+        //     • The skew's `inv` is the USD MIRROR, and **draining moves it the WRONG WAY**:
+        //       `POOLED_USD` went 1,379,628 -> **1,515,723** usd6 across the loop while `target`
+        //       (flowEwma) only reached 460,195. Deeper into flush, not out of it.
+        //     • And the drains **destroyed the seeded variance**: `sigma^2` fell from **4.274e17 to
+        //       1** (the §E88 floor), because `_sampleAnchorVariance` runs on every swap against a
+        //       feed pinned at ONE price, so every sample is a zero return.
+        //     • A fixed 30 rounds also just died with `SlippageMaxS()` — this fixture does not
+        //       re-seed each round the way §E96b's does, so a round count copied across is meaningless.
+        //   ⇒ THE TWO PRECONDITIONS FIGHT EACH OTHER UNDER DRAINING: reaching scarcity needs flow,
+        //     and flow at a pinned price flattens sigma^2. **This needs a fixture that moves the
+        //     FEED while it trades** (the `LevCascade._rallyRange` shape), which is a redesign, not
+        //     a tweak. Booked as §UNITB-NEEDS-A-MOVING-FIXTURE.
         uint snap = vm.snapshotState();
 
         // ARM A — decayed target (LOWER q ⇒ LESS skew ⇒ MORE volatile received)
