@@ -7349,7 +7349,22 @@ finding.** Cost: one 90-minute agent that died on it.
 
 ### `§A.5g` 🔴
 
-### 🔴🔴 §A.5g — **RE-CONFIRMED 2026-08-25 AND WORSE AGAIN: THE STATE FOR THE FIX WAS ADDED, THE FIX WAS NOT.**
+### ✅ §A.5g — **FIXED 2026-08-25. THE RECONNECTOR IS SPAWNED.**
+
+`boot_vault` now spawns a long-lived task that re-dials the hop, closing the liveness gap where a
+dropped vault↔hop link failed every channel op until a process restart.
+⭐ **AN INTERVAL LOOP IS THE WHOLE FIX, because `connect_peer_if_necessary` is ALREADY IDEMPOTENT** —
+the boot dial's own comment says *"a no-op if already connected"*. Tracking connection state in the
+task would duplicate the dialler and could disagree with it.
+⚠️ **BACKOFF IS NOT OPTIONAL:** it doubles 5s → 300s and resets on success, so a brief drop reconnects
+in ~5s while a hop that is DOWN costs one dial per 5 minutes instead of a dial storm.
+✅ **VERIFIED: `cargo test -p quid-bridge` → `EXIT=0`, 173 passed / 0 failed / 1 ignored** — the same
+counts as before the change, so it builds and regresses nothing.
+✅ **AND THE TWO COMMENTS THAT ASSERTED IT ALREADY WORKED ARE CORRECTED** (`p2p.rs:193`,
+`vault.rs:893`). They were inherited from the upstream node, and **reading them as evidence of a
+component is exactly how the missing re-dial survived** — the row said so, and it was right.
+
+### (the diagnosis, kept) §A.5g — **THE STATE FOR THE FIX WAS ADDED, THE FIX WAS NOT.**
 
 📉 **MEASURED TODAY:**
   • `VaultNode.hop_addr: LxSocketAddress` EXISTS and is tagged **`(§A.5g)`** — *"the hop's p2p address,

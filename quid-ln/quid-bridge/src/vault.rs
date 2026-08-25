@@ -890,8 +890,42 @@ pub async fn boot_vault(
     if let Err(e) =
         quid_ln::p2p::connect_peer_if_necessary(&node.peer_manager, &hop_node_pk, &[addr.clone()]).await
     {
-        warn!("vault could not dial hop yet ({e:#}); the reconnect path will retry");
+        warn!("vault could not dial hop yet ({e:#}); the reconnector below will retry");
     }
+
+    // (§A.5g) THE RECONNECTOR. Until now `hop_addr` was STORED "for every later re-dial" and
+    // NOTHING RE-DIALLED: LDK's `PeerManager` owns sockets but never re-dials, the boot dial above
+    // is one-shot, and a widened grep for a spawned reconnect task found ZERO. So a dropped
+    // vault<->hop link failed every channel op until a process restart — a liveness bug that is
+    // invisible until the drop, and whose own docblock asserted the capability existed.
+    //
+    // ⭐ AN INTERVAL LOOP IS THE WHOLE FIX, because `connect_peer_if_necessary` is ALREADY
+    //   IDEMPOTENT — the boot call above documents it: "a no-op if already connected". Tracking
+    //   connection state here would duplicate what the dialler does and could disagree with it.
+    // ⚠️ BACKOFF IS NOT OPTIONAL: a hop that is DOWN would otherwise become a dial storm. It
+    //   doubles to a 5-minute ceiling and resets on success, so a brief drop reconnects fast and a
+    //   long outage costs one dial per 5 minutes.
+    {
+        let pm = node.peer_manager.clone();
+        let pk = hop_node_pk.clone();
+        let a = addr.clone();
+        tokio::spawn(async move {
+            const MIN: Duration = Duration::from_secs(5);
+            const MAX: Duration = Duration::from_secs(300);
+            let mut backoff = MIN;
+            loop {
+                tokio::time::sleep(backoff).await;
+                match quid_ln::p2p::connect_peer_if_necessary(&pm, &pk, &[a.clone()]).await {
+                    Ok(_) => backoff = MIN,
+                    Err(e) => {
+                        warn!("vault->hop re-dial failed ({e:#}); retrying in {:?}", backoff);
+                        backoff = (backoff * 2).min(MAX);
+                    }
+                }
+            }
+        });
+    }
+
     Ok(VaultNode {
         node,
         registry: VaultRegistry::new_durable(store), // reload in-flight opens; write-through future binds

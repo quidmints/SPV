@@ -191,6 +191,9 @@ where
 
     // Retry at least a couple times to mitigate an outbound connect race
     // between the reconnector and open_channel which has been observed.
+    // (§A.5g) THE RECONNECTOR IS REAL AS OF 2026-08-25 — `quid-bridge`'s `boot_vault` spawns it.
+    // Until then this comment described a component that did NOT exist, inherited from upstream,
+    // and reading it as evidence of one is how the missing re-dial survived unnoticed.
     for _ in 0..retries {
         let addr = addrs.next().expect("Cycling through a non-empty slice");
 
