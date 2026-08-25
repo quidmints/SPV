@@ -86,7 +86,7 @@ property, and widening it would leave every POOLED-priced figure overstated with
 ⚠️ A swapper with a real `minOut` is protected (the fill reverts instead), so exposure is bounded to
 callers passing `minOut = 0`. **That bounds the blast radius; it does not make the depth figure right.**
 
-## 🔴🔴🔴 **§OBSERVATION-SOURCE-UNSET — ONE UNSET ADDRESS FREEZES THE RING, AND IT IS THE ROOT OF FOUR THINGS I FIXED DOWNSTREAM** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — FIXED (`fae2201a`) — `_observeIfSourced` no longer returns on an unset source; it falls back to the Chainlink anchor and writes an observation]**  **§OBSERVATION-SOURCE-UNSET — ONE UNSET ADDRESS FREEZES THE RING, AND IT IS THE ROOT OF FOUR THINGS I FIXED DOWNSTREAM** (2026-08-24)
 
 ```solidity
 function _observeIfSourced() internal {
@@ -1047,7 +1047,7 @@ Recorded verbatim as decisions, not as my reading of them. Each row below was �
 ⛔ **NOT bundled.** Four money-path arms, four gates. Bundling any two makes a failure unattributable,
 which is the whole of rule 10 — and this session already paid for two contaminated measurements.
 
-## 🔴 **§E345-ANCHOR-NEVER-SAMPLES — my own fix left its floor unreachable** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — FIXED — the `px == prev` early return MOVED BELOW `dt` and now bumps `(0, dt)`, so a calm sample advances `_varDt` and the floor is reachable]**  **§E345-ANCHOR-NEVER-SAMPLES — my own fix left its floor unreachable** (2026-08-24)
 
 `Core._sampleAnchorVariance`:
 ```solidity
@@ -1145,7 +1145,7 @@ finding is made once. A second derivation is not a confirmation — it is the co
 its five excluded candidates are useful; but **it is a duplicate and should not be read as a second
 independent finding.**
 
-## 🔴 **(the original row, kept) §VAULT-DELIVERABILITY — "wrong price" failures are UNDRAWABLE VAULT LIQUIDITY** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — superseded by the closure above it — kept only as the record of the original 2026-08-24 diagnosis]**  **(the original row, kept) §VAULT-DELIVERABILITY — "wrong price" failures are UNDRAWABLE VAULT LIQUIDITY** (2026-08-24)
 
 `testRegularSwaps` sells 1 ETH and receives **$2,000.005886** against a **$2,436.25** oracle — an 18%
 shortfall that reads exactly like a pricing bug. **It is not.** Traced:
@@ -1231,7 +1231,7 @@ that noticed this.
 `2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
 skew change in this session.
 
-## 🔴🔴 **§BURN-RELEASE-CONFLICT — the fix requires REVERSING §E230-PHANTOM, and both sides are documented** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — RESOLVED and LANDED — `basketLeg` separates the withdrawal and swap callers, so both documented decisions hold; +2 tests, swap path green]**  **§BURN-RELEASE-CONFLICT — the fix requires REVERSING §E230-PHANTOM, and both sides are documented** (2026-08-25)
 
 §BURN-RELEASES-NO-USD's axis is closed (three arms measured), and the reason is now derived rather
 than observed. **THE MECHANISM, by arithmetic on `Core._poolUsdInRange`'s burn arm:**
@@ -1878,7 +1878,7 @@ derivation and must not be quoted as calibrated.
 HUNDREDTHS OF A BASIS POINT — `500` is 0.05% = **5 bps**, `3000` is 0.30% = 30 bps. Our WAD cap 3e16
 is 3% = **300 bps**.
 
-## 🔴🔴 **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE — THE SKEW PREMIUM IS THE *ONLY* LP REVENUE LANE, AND IT IS 0 IN THE NORMAL STATE** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — FIXED and MEASURED — the flush branch returns `_maxWellSkew(...) + _depletion(inv0, inv1)` (`SwapLib:1180`), and §E96b measures it charging 10,054 → 19,385 → 32,536 ppb, linear in depth, at σ² = 0]**  **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE — THE SKEW PREMIUM IS THE *ONLY* LP REVENUE LANE, AND IT IS 0 IN THE NORMAL STATE** (2026-08-24)
 
 **Found only because the owner asked "are you sure your assessment is correct". It was not — three times.**
 
@@ -2137,7 +2137,7 @@ returning can satisfy it.** That is a one-line rule for triaging any future fee 
 redefine what the test checks and delete the only remaining statement that the TRADING-fee leg is
 dead. **It is the last witness to that gap.**
 
-## 🔴🔴 **§BURN-RELEASES-NO-USD — the withdraw burn passes USD = 0, so `committed` can never fall** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — RESOLVED by §BURN-RELEASE-CONFLICT — the burn releases the basket share on the `basketLeg` arm and `incrPre` is preserved; `V5_WithdrawShrinksCommitted` and `Redeem_UnwindsRange` both PASS]**  **§BURN-RELEASES-NO-USD — the withdraw burn passes USD = 0, so `committed` can never fall** (2026-08-25)
 
 🔴 **UPDATE 2026-08-25 — THE ROW STAYS OPEN, AND THE `usdOut` AXIS IS NOW CLOSED AS A DEAD END.**
 `f0934722` "fixed" this by passing `basketUsd · pulled / POOLED`. **A control run at its own parent
