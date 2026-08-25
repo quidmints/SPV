@@ -1877,6 +1877,46 @@ deleting a tombstone's mention is how a reader concludes the feature was removed
 the 52/28 split shows a blanket sweep would have removed the fixtures that make depeg and liquidation
 testable at all.
 
+## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
+
+⛔ **CORRECTION FIRST: I described this as pool sats being STRANDED. THEY ARE NOT STRANDED — THEY LEAVE
+WITH THE LP, AND THE CONTRACT ALREADY SAYS SO.** Traced:
+  1. `parkProvenSats` books pool inventory by applying a **SPLICE THAT GROWS THE CHANNEL**
+     (`grewBy`), into the SAME funding UTXO — `poolOwnedSats[channelId] += grewBy`.
+  2. A splice **rotates the outpoint**, so the ladder is RE-ARMED — `_armAt(cid, stx, cur + parked, lp)`
+     — **at the FULL new amount, paying the LP's committed script.**
+  3. On a dead-man exit, `_lpFinalBalance` sums outputs to that script, so **the LP receives the pool's
+     sats on BITCOIN.**
+  4. `_finalizeClose` then caps the EVM credit and **ANNOUNCES the difference**:
+```solidity
+if (lpPayoutSats > lpEntitled) {
+    emit PoolSatsLeftWithLp(channelId, ch.lpEth, lpPayoutSats - lpEntitled);
+    lpPayoutSats = lpEntitled;
+}
+```
+⇒ **SO IT IS A MEASURED, ANNOUNCED LOSS — not a hidden one and not a liveness trap.** The protocol
+eats the difference and emits it. **That is standing rule 3's inverse done RIGHT: the failure
+announces itself**, which is why it survived unnoticed as a *silent* problem — it was never silent.
+⚠️ **AND IT IS STILL A LOSS.** `PoolSatsLeftWithLp` records value the basket paid for and did not get
+back. An event is an instrument, not a fix (rule 17).
+
+### THE THREE SEGREGATION SHAPES, cheapest first
+| # | shape | cost | what it breaks |
+|---|---|---|---|
+| **1** | **Pool sats never splice into an LP channel.** Park them in a POOL-ONLY UTXO (hop ∥ protocol key), so `poolOwnedSats` has no LP-claimable home at all | changes where `parkProvenSats` puts sats; **deletes `poolOwnedSats`, `poolSatsParker`, `PoolSatsLeftWithLp` and the `lpEntitled` subtraction** | swap-in liquidity can no longer ride an existing channel's capacity — it needs its own |
+| **2** | **Second pre-signed exit output paying the POOL's script.** Keep the shared UTXO; re-arm the ladder with TWO outputs, `lpEntitled` → LP and `poolOwnedSats` → pool | ladder arming and `_exitStructure` both grow an output | the LP must co-sign a rung that pays the pool — it already co-signs the rung, so this is arming, not trust |
+| **3** | **Refuse to park beyond what a close can attribute** — cap `grewBy` so `poolOwnedSats` stays 0 | trivial | it is a CLAMP: the loss becomes unreachable by making the feature unusable (rule 17 says this is not the fix) |
+
+⭐ **RECOMMENDATION: (1), and §T1-f-root already argued it** — *"pool sats may only enter where no LP
+can claim them — makes that ledger and both bounds delete themselves."* **(1) is the only one that
+DELETES code rather than adding it**, and the deleted set is exactly the machinery this row is about.
+⚠️ **(2) is the fallback if swap-in liquidity genuinely must ride LP capacity** — it preserves the
+feature but keeps the shared UTXO, so `poolOwnedSats` survives and must stay correct forever.
+⛔ **(3) is not a fix.** Listed only so it is rejected explicitly rather than re-proposed.
+▶️ **THE TEST, AFTER THE DECISION:** park a non-zero amount, arm+broadcast a dead-man exit, record it,
+assert **`PoolSatsLeftWithLp` is NEVER emitted**. That single assertion is the whole property, and it
+fails today. (§POOL-SATS-STRANDING-IS-UNTESTED has the fixture gap: 0 of 6 dead-man tests park.)
+
 ## 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it** (2026-08-25)
 
 §BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT establishes that a pre-signed LP-only exit leaves
