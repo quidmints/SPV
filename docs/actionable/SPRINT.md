@@ -1749,6 +1749,47 @@ then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing 
 de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
 will not carry all seven; route in call-frequency order and fold again when it binds.
 
+## 🔴🔴 **§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT — LP funds ARE immune to a full custody compromise; POOL sats are NOT** (2026-08-25, owner question)
+
+Owner asked whether BTC state is "fully immune" if the daemon **and** the fallback **and** the msig
+are all untrusted, and whether a **jury drawn from the basket** would be needed to drain stuck assets.
+**Traced. The answer splits, and the split is the whole point.**
+
+✅ **LP FUNDS: IMMUNE, AND THE MECHANISM NEEDS NO EVM PERMISSION AT ALL.**
+  • The **exit ladder is pre-signed AT OPEN** (`emitDeadManExit`'s own note: *"the LADDER is armed at
+    open… this path exists because a long-lived channel may outrun its pre-signed set"*). The LP
+    already holds MuSig2 2-of-2 signatures; nothing further is needed from the hop.
+  • Each rung carries a **CLTV deadline** (`if (t.locktime != cltvDeadline) revert
+    ExitLocktimeMismatch()`), so after it matures the LP broadcasts on **Bitcoin, unilaterally**.
+  • ⭐ **`recordDeadManExit` is `external nonReentrant` with NO `_onlyHop()`** — it is PERMISSIONLESS,
+    and gates on `exitArmedOnOutpoint[...][deadline]` plus an **SPV proof**
+    (`_verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex)`).
+  ⇒ **Anyone can settle the EVM side once the exit confirms on Bitcoin.** Daemon, fallback and msig
+    are all OUT of that path. **25 entrypoints are `_onlyHop()`-gated; this one deliberately is not.**
+
+🔴 **POOL-OWNED SATS: NOT IMMUNE, AND THIS IS A REAL GAP.**
+  • `_exitStructure` credits **only outputs paying the LP's committed script**
+    (`if (keccak256(t.outputs[i].script) == want) paidToLp += ...`), and `_finalizeClose` caps the
+    LP at `amountSats − poolOwnedSats` (`registerChannelClaim` uses the identical rule).
+  • ⇒ **A pre-signed LP-only exit leaves `poolOwnedSats` in the 2-of-2 funding UTXO with no
+    unilateral spender.** If the hop is gone, those sats are STUCK — the EVM correctly refuses to
+    credit them to the LP, and nothing else can move them.
+
+⛔ **AND THE ANSWER TO "SHOULD WE PICK JURIES FROM THE BASKET" IS: NOT AS THE FIX — THAT IS A CLAMP ON
+A STATE THIS REPO HAS ALREADY DECIDED SHOULD BE UNCONSTRUCTIBLE.** §T1-f-root (promoted into
+CLAUDE.md as standing rule 17's worked example) says it outright: pool inventory and LP sats sharing
+one funding UTXO is what forced `poolOwnedSats` to exist, and *"the root fix — **pool sats may only
+enter where no LP can claim them** — makes that ledger and both bounds delete themselves."*
+⇒ **A basket-drawn jury (minimum balance, minimum `deposit_seconds`) would be a NEW trusted quorum
+introduced to rescue funds from a shared-UTXO design we already know to be wrong** — and it would
+inherit exactly the trust assumption the dead-man ladder was built to remove. **Segregation makes the
+rescue unnecessary; a jury makes the bad state survivable and therefore permanent (rule 17).**
+▶️ **THE WORK, IN ORDER:** (1) make pool sats enter only a UTXO no LP-only exit can strand — a
+separate funding output, or a second pre-signed exit paying the pool's script; (2) once that holds,
+`poolOwnedSats` and its bounds delete themselves, per §T1-f-root; (3) re-ask the jury question only if
+(1) is shown impossible. ⚠️ **Until (1) lands the gap is LIVE**, and it is the honest answer to
+"are we fully immune": **for LP funds yes, for pool inventory no.**
+
 ## 🔴🔴 **§ROUTE-NEEDS-TWO-PHASE — the 32 failures are NOT blocked on a key. THE AMOUNT IS ONLY KNOWN MID-TRANSACTION** (2026-08-25)
 
 The owner supplied a 1inch dev-portal key and it WORKS — live quote `1 WETH -> 2,464.035528 USDC`,
