@@ -1,5 +1,43 @@
 ## ⛔ **§NATIVE-ETH-NEVER-REFUNDS — RETRACTED 2026-08-25. THE DIAGNOSIS WAS WRONG.**
 
+> ## ▶️ HANDOFF — READ THIS FIRST (2026-08-26). STATE IS CLEAN; HERE IS WHERE TO START.
+>
+> **HOW TO RUN THE SUITE. Do not use any other invocation in this file — they prescribe a dead endpoint:**
+> ```
+> FORK_BLOCK=25833279  ETH_RPC_URL=https://ethereum-rpc.publicnode.com  forge test -j 8
+> ```
+> **Expect exactly `480 passed / 39 failed / 519 total`, `setUp` failures 0, env errors 0.** Reproduced
+> byte-identically across three runs including one with a code change. **Any other total means the run
+> is contaminated — check `grep -cE '\[FAIL.*\] setUp'` and the RUNTIME before believing it.**
+>
+> **THE 39 ARE NOT 39 PROBLEMS.** 32 are ONE blocked input; 7 are real and every one is diagnosed:
+> | failure | why | who unblocks it |
+> |---|---|---|
+> | 32 × `NoVolatileRoute()` | §ROUTE-NEEDS-TWO-PHASE — the swap amount is `venue.borrow()`'s RETURN, known only mid-tx, and a 1inch route encodes its amount. **The key is banked and works**; what is missing is the simulate→fetch→execute keeper loop. **Not a credential problem.** | build the `lev_keeper` loop |
+> | `backing` | §BACKING-HEADROOM-3PCT — committed is 96.8% of TVL; the delivery crosses the last 3.2%. The gate is correct. | — |
+> | `ChopIsBenign` | §C25 — the exit drains asymptotically. **Deliberately left failing**; its 0.05 tolerance is the right assertion. | design |
+> | `UNITB` control | §UNITB — `skewWad` is FLOW-BLIND while `inv >= target`, proven by a `pure` call. The fill itself raises `POOLED_USD`, so the measurement destroys its own precondition. | design |
+> | `PassiveLp` precondition | route-blocked in disguise — fails on `debtOf == 0`, not on `NoVolatileRoute` | same as the 32 |
+> | `testLeverage_LvrControlVsTreatment` | §C3.1, cross-subsidy | open |
+> | `testBtcLp_swapInAccruesTheBtcLegFee` | §BTC-LEG-FEE — needs the v4 trading-fee decision | **owner** |
+>
+> **BLOCKED ON THE OWNER, NOT ON WORK:**
+> 1. **Pool-sats segregation** (§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT). LP funds ARE immune — three
+>    independent derivations agree. **Pool sats are NOT**, and §POOL-SATS-STRANDING-IS-UNTESTED shows
+>    the case has never executed in a test. ⛔ **Do not write a test asserting the stranding** — that
+>    encodes the defect. The test belongs after the decision.
+> 2. **v4 trading-fee leg** — releases §BTC-LEG-FEE.
+> 3. **§E230 scope** — the `basketLeg` fix narrowed it; swap arm byte-identical and green, but confirm
+>    *"a burn does not get to choose which dollars leave"* was always about SWAPS.
+> 4. **§E331.1** — narrower than written: a flush swap now pays DEPLETION (10,054→32,536 ppb, linear).
+>    The question is whether depletion alone is right, not whether a deep range earns nothing.
+>
+> ⚠️ **MEASURE SKEW IN ppb, NOT bps.** 0.325 bps integer-divides to 0; that rendering cost a wrong
+> "the tax is zero" finding. ⚠️ **A row's COORDINATES rot faster than its CONCLUSIONS** — line numbers,
+> counts that include comments, renamed symbols. Re-measure before acting on any figure here.
+
+
+
 > 🔴🔴 **BEFORE RUNNING ANYTHING IN THIS FILE: EVERY `ETH_RPC_URL=$ANKR_RPC_URL` INSTRUCTION BELOW IS
 > DEAD.** Re-probed 2026-08-25 — **BOTH** ankr keys in `evm/.env` return
 > `{"error":"message: API key disabled, json-rpc code: -32051, rest code: 403"}`: `ANKR_RPC_URL`
