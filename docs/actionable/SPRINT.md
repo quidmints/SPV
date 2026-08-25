@@ -1282,6 +1282,29 @@ ETH residual, both residual tests passing — and it costs exactly one test,
 `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`, which reverts `"backing"` because `committed`
 ratchets. That is the price, it is measured, and it is one test rather than a money-path regression.
 
+## 🔴 **§MIRROR-INVARIANT-IS-UNIMPLEMENTABLE — the two legs CANNOT stay equal under oracle-settled fills** (2026-08-25)
+
+`UnificationControls`' USD-mirror control asserts `POOLED * price ≈ POOLED_USD` within 1% and fails by
+**$23,999.99** after four `_trade(3_000e18)` calls. §MIRROR-SURVIVES-THE-REPACK already ruled out the
+obvious fix (a repack ALREADY runs inside the swap path, at 49,189 gas). **The reason is now derived,
+not observed.**
+
+⇒ **EVERY FILL SETTLES AT THE ORACLE**, so a trade of `X` dollars moves the legs in OPPOSITE
+directions: `POOLED_USD −= X` and `POOLED * price += X`. **The gap therefore grows by `2X` per
+one-way trade** — and the measurement is exactly that: **$24,000 across 4 × $3,000 = 8 × the trade
+size, i.e. 2× per trade.** The arithmetic is not approximate; it is the settlement rule.
+⇒ **THE EQUALITY CAN ONLY HOLD UNDER BALANCED FLOW**, and this fixture trades one way on purpose.
+▶️ **AND NOTHING IN `evm/src` ENFORCES IT** — no expression relates `POOLED_USD` to `POOLED * price`
+outside comments. ⚠️ **Control run for that empty grep, per the standing rule:** the invariant could
+have been maintained INDIRECTLY, so the derivation above is what settles it — an oracle-settled fill
+moves the legs apart BY CONSTRUCTION, so no enforcement could exist without fighting the fill.
+⇒ **THE TEST ENCODES A CONSTANT-PRODUCT INTUITION THAT AN ORACLE-PEGGED RANGE DOES NOT IMPLEMENT.**
+Its own comment claims the legs *"are restored afterwards"*; nothing restores them.
+▶️ **THE INVARIANT THAT IS ACTUALLY TRUE, and it is the one worth asserting:** total value is
+conserved across a fill — `Δ(POOLED_USD) + Δ(POOLED * price) ≈ 0` up to fees and the skew premium.
+That is what an oracle-settled swap guarantees, it catches a real leak, and it is satisfied by
+directional flow. ⛔ **Do NOT widen the 1% bound** — the bound is not the problem, the quantity is.
+
 ## 🔴 **§UNITB-NEEDS-A-MOVING-FIXTURE — the two preconditions FIGHT under draining, measured** (2026-08-25)
 
 §UNITB-ARMS-IDENTICAL needs two things at once: **σ² > 0** (or the kernel vanishes) and
