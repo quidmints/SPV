@@ -1213,6 +1213,45 @@ that noticed this.
 `2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
 skew change in this session.
 
+## 🔴🔴 **§BURN-RELEASE-CONFLICT — the fix requires REVERSING §E230-PHANTOM, and both sides are documented** (2026-08-25)
+
+§BURN-RELEASES-NO-USD's axis is closed (three arms measured), and the reason is now derived rather
+than observed. **THE MECHANISM, by arithmetic on `Core._poolUsdInRange`'s burn arm:**
+
+Passing `usdAmount = A` to a leaving `modLP` does:
+```
+POOLED_USD -= A
+basketUsd  -= b·A/pooledPre          (b = basketUsd, PROPORTIONAL — §E230-PHANTOM deleted the gate)
+⇒ incrPre = POOLED_USD − basketUsd   falls by  A·(1 − b/POOLED_USD) = A·incr/POOLED_USD
+```
+⇒ **RELEASING DOLLARS SHRINKS `incrPre`, AND `_withdraw` PAYS THE LP OUT OF `incrPre`** via
+`_payUsdLeg(incrPre, lpShares, …)`. So the USD leg the LP is owed gets smaller in exact proportion to
+what the burn released — which is why every nonzero `usdOut` made the exit strictly harder
+(0.990 → 9.42 ETH residual), and why the largest one made the residual UNCOLLECTABLE.
+
+🔴 **AND THAT IS A CONFLICT BETWEEN TWO DECISIONS THAT ARE EACH WRITTEN DOWN AT LENGTH, WHICH IS WHY
+THIS IS NOT A PATCH I SHOULD PICK:**
+| | says | evidence it cites |
+|---|---|---|
+| **`SwapLib.burnInRange`** | *"THE INCREMENT IS THE LP'S and is already managed"* — the burn's job is to release only the BASKET's paired dollars | an LP left holding **24.32 ETH** that returned 0 when the increment was released (§SETTLE-LvrResidual) |
+| **`Core._poolUsdInRange` §E230-PHANTOM** | *"a burn does not get to choose which dollars leave"* — the USD leg is ONE undivided balance, and the `basketLeg` gate is **deleted from this arm on purpose** | across eight swaps `committed` never moved while `POOLED_USD` fell 1,882.97 per swap; the phantom equalled EXACTLY the swapper's USDC out, and it drove `basketUsd` ABOVE `POOLED_USD`, an impossible state |
+
+⇒ **TO RELEASE THE BASKET'S DOLLARS WITHOUT TAKING THE LP'S INCREMENT, `basketUsd` MUST FALL BY THE
+FULL `A` RATHER THAN BY `b·A/pooledPre` — WHICH IS THE GATE §E230-PHANTOM DELETED.** Restoring it
+naively re-opens the phantom-backing defect on the SWAP path, because that arm is shared.
+▶️ **THE SHAPE THAT COULD SATISFY BOTH, AND IT IS UNBUILT AND UNVERIFIED: distinguish the CALLER, not
+the flag.** §E230-PHANTOM's evidence is entirely about SWAPS (*"a SWAP drained `POOLED_USD` while
+`basketUsd` stood still"*); `burnInRange`'s evidence is entirely about WITHDRAWALS. **They may not
+actually disagree — they may be two different callers that were forced to share one arm.** If a
+withdrawal's release is basket-only while a swap's stays proportional, both bodies of evidence hold.
+⛔ **DO NOT LAND THAT ON THIS REASONING ALONE.** It reverses a decision whose own note says a clamp
+there *"would have pinned the symptom and left the divergence generating it"*, and the §E230 measurement
+(`basketUsd > POOLED_USD`) is an impossible-state proof, not a preference. **This is an owner call.**
+✅ **WHAT IS SETTLED: the current state (`usdOut = 0`) is the best of the three MEASURED arms** — 0.990
+ETH residual, both residual tests passing — and it costs exactly one test,
+`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`, which reverts `"backing"` because `committed`
+ratchets. That is the price, it is measured, and it is one test rather than a money-path regression.
+
 ## ⚠️ **§BASKET-COVERAGE-3-OF-14 — the fixture funds THREE vaults, and no test could see that** (2026-08-25)
 
 Two `Alles` tests inspected the basket and **both were structurally blind**:
