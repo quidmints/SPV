@@ -1127,7 +1127,25 @@ records that exact argument failing twice (`create_sweep_tx`, and §E183's `carg
 ▶️ **Run `docker run --rm -v "$PWD/quid-ln":/w -w /w quid-ln:dev cargo test -p quid-bridge` before
 treating this row as closed.**
 
-## 🔴 **§VAULT-DELIVERABILITY — "wrong price" failures are UNDRAWABLE VAULT LIQUIDITY** (2026-08-24)
+## ✅ **§VAULT-DELIVERABILITY — CLOSED 2026-08-25: FIXED, and I RE-DERIVED IT FROM SCRATCH INSTEAD OF READING IT**
+
+✅ **THE FIX LANDED:** the fixture now loads the basket's USDC slice before the sell, and the payout
+goes from **$2,000.0055 to $2,461.877 against a $2,460.843 oracle** — `testRegularSwaps`,
+`testSwapPricing_EthSellInRange_PaysAboutOracle` and `testSwapPricing_EthInRange_PaysAboutOracle` all
+PASS. `POOLED_USD` is an ACCOUNTING depth; delivery pulls real USDC out of lending vaults, and the
+fixture had ~$2,000 of slice to free.
+⛔⛔ **AND THE PROCESS FAILURE, WHICH IS THE PART WORTH KEEPING: I SPENT HOURS TODAY RE-DERIVING THIS
+ROW AS "§SELL-SKEW-18PCT" WITHOUT READING IT.** The row below already had the whole diagnosis, from
+the same trace — *"`deallocate(...)` → `withdraw(...)` → `← [Return] 0`"*, *"THE DOLLARS EXIST AND
+CANNOT BE WITHDRAWN"* — and I re-ran the five-candidate elimination from zero, including publishing a
+wrong skew-premium conclusion on the way. **The row was one grep away** (`testRegularSwaps`).
+⇒ **BEFORE INVESTIGATING A FAILING TEST, GREP `SPRINT.md` FOR ITS NAME.** This file exists so a
+finding is made once. A second derivation is not a confirmation — it is the cost of not reading.
+⚠️ §SELL-SKEW-18PCT is kept as the record of the re-derivation, because its numbers are fresher and
+its five excluded candidates are useful; but **it is a duplicate and should not be read as a second
+independent finding.**
+
+## 🔴 **(the original row, kept) §VAULT-DELIVERABILITY — "wrong price" failures are UNDRAWABLE VAULT LIQUIDITY** (2026-08-24)
 
 `testRegularSwaps` sells 1 ETH and receives **$2,000.005886** against a **$2,436.25** oracle — an 18%
 shortfall that reads exactly like a pricing bug. **It is not.** Traced:
