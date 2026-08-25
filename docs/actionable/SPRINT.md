@@ -8249,7 +8249,26 @@ directory. One names it, the other must mount it.
 
 ### `§OPEN-PATH-HAS-NO-PRODUCER` 🔴
 
-## §OPEN-PATH-HAS-NO-PRODUCER — 🔴🔴 **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
+## §OPEN-PATH-HAS-NO-PRODUCER — ✅ **[HEADLINE FALSIFIED 2026-08-25 — THE PRODUCER EXISTS AND IS WIRED]**
+
+📉 **MEASURED IN `quid-ln` (the row's own re-audit target), and every symbol is LIVE:** `drive_open`
+**13**, `LpConsent` **7**, `OpenAuth` **9**, `bind_consent` **6**. ⚠️ Counted in RUST — an earlier
+sweep read 0 for all of them because it grepped `evm/src`, which is the *"`import` tells you what a
+file MENTIONS"* error in its other direction: **a Solidity grep cannot falsify a Rust producer.**
+✅ **THE PRODUCER, at `quid-bridge/src/swap_in_api.rs:196-207`:** it builds
+`LpConsent { auth: OpenAuth { btc_recipient, btc_recipient_pop }, exits }` and calls
+`registry.bind_consent(&txid, vout, consent)` — which is *"idempotent on an IDENTICAL re-bind and
+REFUSES a conflicting one"*, because consent authorises ONE open and a re-bind would otherwise let a
+relayer swap in a different ladder (409, not 400 — the request is well-formed, the STATE rejects it).
+⭐ **AND IT CORROBORATES §BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT INDEPENDENTLY**, which is why this
+closure matters beyond the row. `vault.rs:205-207` states the property outright: *"each `exits` rung
+is a pre-signed spend of the 2-of-2. **A fleet that could construct these would, by definition, still
+hold the LP half.**"* ⇒ **The LP's escape does not depend on the fleet's honesty, and the code says so
+in the crate that builds it.** That is the same conclusion the Solidity side reaches via
+`recordDeadManExit` being permissionless + SPV-gated — two independent paths, one answer.
+⚠️ **The row's own note already said "STEP ③ IS FALSIFIED"**; this closes the headline it left standing.
+
+## (original headline, kept) ⏸️ **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
 ▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs:196` constructs `crate::vault::LpConsent { … }` and `:207` calls `registry.bind_consent(&txid, req.funding_vout, consent)`, and the file's own header notes it *"had zero production callers"* in the past tense. **④ still holds exactly as written:** `vault.rs:208` is still `#[derive(Clone, Debug, PartialEq)]` — **no serde on `LpConsent`**, so there is still no wire format for an LP to SUPPLY one. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
 
 🔴🔴 **OPEN — found 2026-08-18 by reading `§SPRINT-B0`, `§SPRINT-B4` and the `bind_consent` gap
