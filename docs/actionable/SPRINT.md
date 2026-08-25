@@ -194,6 +194,27 @@ dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* �
 reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
 defect. **Do not "fix" it by lowering the premise.**
 
+## 🔴 **§OOR-PULL-OVERCOMMITTED — the pull's PAYOUT trips the backing gate, not the pull itself** (2026-08-25)
+
+`testPartialPullOutOfRange` reverts `OverCommitted()`. Traced: **the revert is inside `Quid::pull`,
+seven frames deep, on the PAYOUT leg — not on the position or the burn.**
+`RangeLib.pull` → `ICore.outOfRange(owner, -closed, USDC)` → `_handleDelta(…, inRange: FALSE …)`. With
+`inRange = false` the `_poolUsdInRange` arm is SKIPPED entirely, so the pull moves no mirror at all;
+what it does hit is `if (!keep && token != address(0)) AUX.take(…)`, and that path runs the backing
+check, which refuses.
+⇒ **THE PULL IS INNOCENT OF THE OVER-COMMITMENT IT DIES ON.** It commits nothing and releases
+nothing; it only tries to PAY, and payment is gated on a solvency figure some earlier operation left
+too high. The deposit's own `checkBacking` (`Quid.sol:978`) PASSES in the same test — measured, the
+trace proceeds into `depositETH` — so the range crosses the line between the deposit and the pull.
+⛔ **AND §BURN-RELEASES-NO-USD CANNOT HELP IT, WHICH IS WHY IT SURVIVED THAT FIX.** That fix makes
+`committed` fall on an IN-RANGE burn; `outOfRange` runs with `inRange = false` by design, precisely so
+a resting boundary order cannot inflate the in-range inventory every LP claim is priced against.
+**Two different accounting paths — do not expect a fix on one to reach the other.**
+▶️ **NEXT: instrument `_backingCore()`'s two figures either side of `outOfRange{value: 2 ether}`.**
+The question is which operation raises `committedSum` above `totalLiquid` — creating the boundary
+order, or the 50-ETH deposit that precedes it. **`OverCommitted` names the symptom and nothing else;
+the two numbers name the cause.**
+
 ## 🔬 **§OOR-AUDIT — dust, width, and loop bounds on boundary orders** (owner questions, 2026-08-24)
 
 **Q: can a dust order stay stuck forever, given storage gas is only reclaimed on a FULL pull?**
