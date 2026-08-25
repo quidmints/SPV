@@ -194,6 +194,24 @@ dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* �
 reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
 defect. **Do not "fix" it by lowering the premise.**
 
+## 🔴 **§V6-BTC-SEED — the premise fails HONESTLY, and seeding it is not one line** (2026-08-25)
+
+`test_V6`'s V6b half asserts an ETH-side redemption cannot reach the BTC range. Once the legs were
+pointed at the right instance (the 22nd §WRONG-RANGE site), its own premise started failing truthfully:
+**`BTC.CORE().POOLED_USD()` is 0 — the BTC range is not seeded.**
+▶️ **The fixture's comment states the intent** — *"Seed the BTC range so 'the unwind cannot reach it'
+is a real claim, not 0 == 0"* — and `BTC.requestDeposit(lpB, 2e7)` does not achieve it: **it credits
+SATS, and nothing pairs USD into the BTC mirror.**
+⛔ **THE OBVIOUS SEED DOES NOT WORK, MEASURED:** copying `test_E42`'s six `USDC→WBTC` buys reverts
+**`SlippageMaxS()`** — the BTC range has no deliverable inventory to sell, because `requestDeposit`'s
+sats do not become `POOLED` without a sync. **E42 reaches a non-zero BTC mirror through setup V6
+deliberately avoids** (its header explains that `_seedBasket` leaves free stables above the redemption
+size, so the range unwind never fires and the test measures nothing).
+⇒ **The two tests need OPPOSITE fixture conditions, which is why the seed cannot be copied across.**
+▶️ **NEXT:** find what actually moves `BTC.CORE().POOLED_USD()` off zero without adding free stables —
+likely a BTC-range sync/repack after `requestDeposit` rather than flow. **Reverted rather than left
+half-seeded: a fixture that reverts in setUp is worse than one failing a premise it states honestly.**
+
 ## ✅ **§OOR-PULL-OVERCOMMITTED — SOLVED 2026-08-25. IT WAS A LEG MISMATCH IN THE TEST, AND THE PROTOCOL IS EXONERATED.**
 **MEASURED, which is what settled it:** backing is HEALTHY either side of the boundary order and
 **identical** — `committed 123,370.9 / liquid 152,000` before AND after — so the order commits nothing
