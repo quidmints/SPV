@@ -1744,6 +1744,10 @@ contract Core {
     ///      (500) — that is calibrated for a 30-minute window against a pushed feed, and inheriting
     ///      it here would let a pusher move the level ten times as far.
     uint256 internal constant OBS_PUSH_MAX_BPS = 50;
+    /// @notice A permissionless `pushObservation` was REFUSED for deviating from the Chainlink
+    ///         anchor by more than `OBS_PUSH_MAX_BPS`. Emitted so a keeper can see the ring stop
+    ///         filling instead of inferring it from a flat sigma^2 (§E294, §PUSH-HEADROOM-1.85X).
+    event ObservationRefused(uint256 pushedWad, uint256 anchorWad, uint256 deviationBps);
 
     function pushObservation(uint256 priceWad) external {
         if (priceWad == 0) return;
@@ -1790,7 +1794,20 @@ contract Core {
             AUX.assetPriceFeed(ASSET), 0, false, OBS_PUSH_MAX_BPS, 1 days);
         if (anchorPx == 0) return;                       // no anchor => cannot validate => refuse
         (uint256 lo, uint256 hi) = priceWad < anchorPx ? (priceWad, anchorPx) : (anchorPx, priceWad);
-        if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;   // outside the range => refuse
+        // 🔴 §E294/§PUSH-HEADROOM — A REFUSAL MUST BE OBSERVABLE. This returned SILENTLY, and this
+        //    function's own docblock says so: *"Nothing reverts and nothing looks wrong."* A keeper
+        //    pushing an out-of-band price therefore could not tell ACCEPTED from REFUSED, and the
+        //    ring would simply stop filling.
+        // ⚠️ IT IS NOT HYPOTHETICAL: §PUSH-HEADROOM-1.85X measured the 1inch-vs-oracle basis at
+        //    **27 bps against this 50 bps guard** — 1.85x headroom where `Core` claims ~6x. As that
+        //    drifts, pushes START being refused, and without this event nothing reports it.
+        // ⇒ EVENT, NOT REVERT: a revert would make a batching keeper lose its whole transaction over
+        //    one stale quote, and the refusal is a NORMAL outcome of a moving basis, not an error.
+        //    Standing rule 3's inverse exactly — the check earns its place, and it must announce.
+        if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) {
+            emit ObservationRefused(priceWad, anchorPx, lo == 0 ? type(uint256).max : (hi - lo) * 10_000 / lo);
+            return;                                              // outside the range => refuse
+        }
         _writeObservationPrice(priceWad);
     }
 

@@ -1673,9 +1673,20 @@ hole arriving through market drift instead of through configuration.
 deviation test that makes a permissionless push safe), or the push source is re-chosen so the basis is
 smaller, or the ring gets a second admissible source. **Do not "fix" this by relaxing the 2× floor** —
 it is the only instrument that reports the margin at all.
-⚠️ **AND IT IS BLOCK-DEPENDENT, WHICH IS ITS OWN PROBLEM:** basis is a live market quantity, and with
-**both ankr keys disabled** there is no archive endpoint, so `FORK_BLOCK` cannot be pinned and this
-test's verdict moves run to run. **A tripwire that cannot be pinned cannot be regression-tested.**
+✅ **THE PINNING PROBLEM IS SOLVED, AND THE TRIPWIRE PROVED ITS OWN POINT.** This row said the verdict
+*"moves run to run"* and could not be regression-tested. **It then did exactly that: `bps*2 = 54` when
+first measured, and at `FORK_BLOCK=25833279` the same assertion PASSES.** ⇒ `FORK_BLOCK` pinning
+(§ForkPin) makes it deterministic without an archive key, so **this IS regression-testable now** — pin
+the block and the basis is fixed.
+✅ **AND THE REFUSAL IS NOW OBSERVABLE (landed 2026-08-25).** `pushObservation` returned SILENTLY when
+a price fell outside `OBS_PUSH_MAX_BPS` — its own docblock said *"Nothing reverts and nothing looks
+wrong"* — so a keeper could not tell ACCEPTED from REFUSED and the ring would just stop filling.
+`Core` now emits **`ObservationRefused(pushedWad, anchorWad, deviationBps)`**.
+⇒ **EVENT, NOT REVERT, DELIBERATELY:** a revert would make a batching keeper lose its whole
+transaction over one stale quote, and a refusal is a NORMAL outcome of a moving basis, not an error.
+⚠️ **The underlying margin question stays OPEN** — 1.85× headroom against `Core`'s claimed ~6× is
+still thin, and widening the guard weakens the deviation test that makes a permissionless push safe.
+**The event makes the drift visible; it does not decide the policy.**
 
 ## 🔴 **§ROUTE-THE-REST — SEVEN lev entrypoints are unrouted, and the byte budget to fix it now exists** (2026-08-25)
 
