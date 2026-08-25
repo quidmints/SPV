@@ -9417,9 +9417,20 @@ than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
    autoManaged[u].pooled`, `transfer → _transferShares`) and must NOT be folded away — CLAUDE.md
    measures the abstract-base alternative at +41 bytes and zero saved. But `approve`/`allowance`/
    `transferFrom` ARE stock, and `Shares.sol:29` says so: *"Only the allowance machinery is stock."*
-   ⇒ With `Quid` at **86 bytes** of margin (§E274-SIZE), that stock machinery is the one ERC-20 piece
-   worth pricing for removal — IF nothing external calls it. **Check the SPA and the Rust clients before
-   touching it; do not assume an ERC-20 method is unused because our own contracts skip it.**
+   ⛔ **CHECKED 2026-08-25, AND THE ANSWER IS DO NOT REMOVE IT — ON BOTH COUNTS. THE ROW'S OWN
+   "check before touching" INSTRUCTION IS WHAT SAVED IT.**
+   • **The byte pressure is gone.** This says `Quid` has **86 bytes** of margin; it has **2,951**
+     (`LevManager` is the binding contract, and it has 986). The removal was motivated entirely by a
+     margin that no longer exists.
+   • **And clients DO call it: 37 external sites** across `spa/src` and `quid-ln` — **26 `approve`,
+     11 `allowance`**, 0 `transferFrom`. ⚠️ Not all necessarily target the RANGE token (a `USDC.approve`
+     matches too), so this is an upper bound — **but an upper bound of 37 is the wrong side of a
+     decision to delete an ERC-20 method**, and the ABI checker is the only client-side gate this tree
+     has (`tsc` cannot run: `spa/` has no `node_modules`).
+   ⇒ **Both premises of the proposal are false. Do not re-commission it without re-measuring both.**
+   ✅ **Item 3 above VERIFIED at the same time: `uniswap`/`poolManager`/`slot0` are **0 LIVE** in
+   `evm/src` (43 mentions, every one a comment). The v4 cut IS complete**, exactly as the item claims —
+   and that residue is precisely why a reader keeps concluding otherwise.
 
 ## ⏸️ §E276 — **NOT CLOSED. ITS EVIDENCE DIED; ITS QUESTION DID NOT.** `f5499659` deleted the `out -= out*skew` line the row argues from, so its CITATION is dead — but the design question (*do we implement A–S's spread δ and call it A–S's shift r?*) is untouched by that deletion and is live as §E330 / §E332-c. ⇒ **Parked ON those, not resolved.** ▶️ **RE-AUDIT TARGET: `SwapLib.skewWad` + `_composePrice` — with `_fillDelta`'s copy gone, is the single surviving charge a spread or a shift?** Nobody has re-read it since the deletion. *(superseded closure text:)*  The row is built on `Core.sol`'s `out -= out*skew`, which `f5499659` (§E279) removed as the duplicate skew application. **The spread-vs-shift question survives as §E330/§E332-c and is an owner decision**; this row's specific argument no longer has a code referent. Original:  **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
 Owner, 2026-08-21: *"True A-S moves the mid — `r = s − qγσ²(T−t)` — so the balancing side is quoted
