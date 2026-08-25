@@ -1283,7 +1283,24 @@ shares. **A similarity score measures spelling, not sameness.**
 gap is **structural, not duplicated bodies**, so closing it is §J.2 (one implementation, two
 instances) — an architecture change, and it must not be booked as "finishing the folds".
 
-## 🔴 **§WITHDRAW-RETURNS-ZERO — THE EQUALITY-STALL CLUSTER IS ONE FACT, AND IT IS NOT A COMMITTED BUG** (2026-08-24)
+## 🔴 **§WITHDRAW-RETURNS-ZERO — RE-MEASURED 2026-08-25, AND TWO CANDIDATE ROOTS ARE NOW EXCLUDED**
+▶️ `test_V5_WithdrawShrinksCommitted` instrumented directly: **`committed before` == `committed after`
+to the wei, and `ETH delivered: 0`.** The LP holds ~100 ETH pooled (`99999999999999999998`), asks for
+40, receives NOTHING — and `Quid::withdraw` burns **348,011 gas**, so it is doing real work, not
+early-returning.
+⇒ **COMMITTED IS INNOCENT.** It does not move because nothing left; the three `committed` assertions
+(`V5`, `V6`, `Redeem`) are the SHADOW of the delivery, not the defect. Stop instrumenting `committed`.
+⛔ **EXCLUDED BY MEASUREMENT, so nobody re-runs them:**
+  • **NOT vault deliverability** (§VAULT-DELIVERABILITY's root) — the trace contains **no
+    `deallocate`** and no vault redemption at all. That root is real for `testRegularSwaps`; it is
+    NOT this one. Two failures with the same shape and different causes.
+  • **NOT a missing `_reportEquity`** — verified present on the burn arm of `_poolUsdInRange`.
+▶️ **NEXT, and it is the only thing left unmeasured:** instrument `SwapLib.burnInRange`'s return
+inside `Quid._withdraw`. Several reads inside the 348k-gas frame return 0 while `LP.pooled` is ~100e18;
+the question is which of them gates the burn. **A grep over the trace cannot separate them — this needs
+one `emit log_named_uint` at the burn site.**
+
+## 🔴 **(superseded) §WITHDRAW-RETURNS-ZERO — THE EQUALITY-STALL CLUSTER IS ONE FACT, AND IT IS NOT A COMMITTED BUG** (2026-08-24)
 
 Four failures show `committed` UNCHANGED to the wei across an operation that must shrink it:
 `V5_WithdrawShrinksCommitted` (`245091766676e12 >= 245091766676e12`), `V6` premise,
