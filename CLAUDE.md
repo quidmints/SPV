@@ -827,10 +827,20 @@ IT.** A full run on `eth.merkle.io` returned **190 tests in 29.51s with 141 envi
 0 `setUp` failures** — the DEAD-RPC SIGNATURE this file already describes (519 → 190 in 7.58s), just
 wearing a different endpoint's name. **A single `curl` proving archive capability says nothing about
 sustained concurrent load.**
-⇒ **SPLIT THE ROLES, and this is the rule:**
-  • **FULL SUITES → `https://ethereum-rpc.publicnode.com`** (head-only, but it survives the load).
-  • **ARCHIVE / PINNED-BLOCK / TARGETED runs → `eth.merkle.io`** et al:
-    `ETH_RPC_URL=https://eth.merkle.io FORK_BLOCK=<n> forge test --match-test <one>`.
+⛔⛔ **SECOND CORRECTION, AND IT KILLS THE PRACTICAL USE: ALL THREE FAIL UNDER A FORK TEST — EVEN A
+SINGLE TARGETED ONE.** Tested `FORK_BLOCK=25800000` with `--match-test` on one test:
+`eth.merkle.io` → *"could not instantiate forked environment … Max retries exceeded"*;
+`eth-pokt.nodies.app` and `rpc.mevblocker.io` → *"database error: failed to get storage … Max retries
+exceeded"*. **A fork test issues thousands of `eth_getStorageAt` calls, and a free endpoint throttles
+long before that.** ⇒ **THEY ARE ARCHIVE-CAPABLE AND THROUGHPUT-USELESS.** Do not reach for them
+expecting a pinned run to work; the capability probe and the workload are two different questions,
+which is the same lesson as the census above arriving one level down.
+⇒ **SO THE HONEST STATE: THERE IS STILL NO USABLE ARCHIVE ENDPOINT IN THIS TREE**, `FORK_BLOCK`
+remains unpinnable, and every fork run is head-only on `publicnode`. **The unblock is a key with real
+throughput — Alchemy and Infura both include archive on their FREE tiers**, which is the cheapest way
+to get pinned, deterministic fork tests back. Bank it in `evm/.env`, never in `foundry.toml`.
+⇒ **UNTIL THEN, THE RULE IS SIMPLY:**
+  • **EVERYTHING → `https://ethereum-rpc.publicnode.com`** (head-only, but it survives the load).
 ⚠️ **THE THREE TELLS OF A CONTAMINATED RUN, CHECK ALL THREE BEFORE QUOTING ANY TOTAL:**
   1. `grep -cE '\[FAIL.*\] setUp'` non-zero ⇒ the total is a FLOOR (drpc did this: 517 → 341).
   2. `grep -cE 'HTTP error|database error|Rate limit|instantiate forked'` non-zero ⇒ same.
