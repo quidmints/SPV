@@ -1441,10 +1441,26 @@ whether a route was supplied, not by the number.**
 **24,030 / 546 to spare** and concluded *"the remaining routed entrypoints do NOT fit without a fold"*.
 The §RULE-8C folds (`nonReentrant`'s body hoisted out of 15 inline copies; five identical `NotGov`
 gates folded to `_onlyRange()`) took it to **23,590 / 986** — **+440 bytes of headroom, measured.**
-▶️ **NEXT:** thread `bytes route` through `rebalance` → `_rebalance` → `_leverUp` → `_leverUpBuy`
-first — it is the one the cross-subsidy and cascade fixtures actually call — and re-measure the
-margin before adding the next. ⚠️ **The §C2.1 plumbing cost +1,967 bytes for the de-lever side alone**,
-so 986 will not carry all seven; route them in call-frequency order and fold again when it binds.
+⭐ **AND THERE IS A FAR CHEAPER SHAPE THAN THREADING SEVEN SIGNATURES — THE FILE ALREADY USES IT.**
+`rebalance` sets **`_activeKeeper = msg.sender`** as transient state and `_sellCtx` reads it back at
+`:679`; the same line hardcodes **`route: ""`**. So:
+```
+_sellCtx(keeper) -> LevMath.SellCtx({ …, keeper: keeper, route: _activeRoute })
+rebalanceRouted(lp, minOut, route) { _activeRoute = route; rebalance(...); delete _activeRoute; }
+```
+⇒ **ONE transient slot routes ALL SEVEN entrypoints**, with no change to `_rebalance`, `_leverUp`
+(a `virtual` in `LevBase`, so its signature is shared with `BtcLevManager`), or `_leverUpBuy`.
+**Threading `bytes` instead means changing the virtual, which drags the BTC manager in too.**
+🔴 **SECURITY REQUIREMENT, AND IT DOES NOT APPLY TO `_activeKeeper`: `_activeRoute` MUST BE CLEARED.**
+A stale keeper address is benign — it only redirects a gas reimbursement. **A stale ROUTE is arbitrary
+calldata that `_aggSwap` will execute against the pinned router on a LATER call**, so it must be
+`delete`d at the end of the entrypoint, not merely overwritten by the next caller. `nonReentrant`
+makes the set/clear pair safe within one call; without the clear this is strictly worse than the
+current empty-route revert.
+▶️ **NEXT:** `rebalance` first — it is the one the cross-subsidy and cascade fixtures actually call —
+then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing cost +1,967 bytes for the
+de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
+will not carry all seven; route in call-frequency order and fold again when it binds.
 
 ## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
 
