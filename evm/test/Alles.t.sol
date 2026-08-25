@@ -1689,8 +1689,12 @@ contract Alles is AllesFixture {
 
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
         // curve until the range's USD leg is exhausted at the upper edge.
+        // §STALE-SIZE-PREMISE — WAS 40 ETH, WHICH NO LONGER DRAINS THE LEG. Measured: 40 ETH is
+        // ~$97k against a ~$152k USD leg, so it consumed 64% and left 52.8k — the premise below
+        // wants >=99%. The fixture's range is deeper than when this size was chosen. 200 ETH is
+        // past the leg, and the fill is capped by it anyway, so this cannot over-swap.
         vm.prank(User02);
-        AUX.swap{value: 40 ether}(address(USDC), address(WETH), false, 0, 0, true);
+        AUX.swap{value: 200 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
         // PREMISE: the swap really did skew the pool's composition — without this the whole test
         // is inert, and nothing downstream would have noticed (it passed for both reasons before).
