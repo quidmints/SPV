@@ -375,12 +375,18 @@ contract UnificationControls is AllesFixture {
         vm.stopPrank();
         vm.warp(block.timestamp + 35 days);
 
-        vm.deal(lpA, 900 ether);
-        vm.prank(lpA); ETH.deposit{value: 700 ether}(0, lpA);
-
-        // Seed the BTC range so "the unwind cannot reach it" is a real claim, not 0 == 0.
+        // §V6-BTC-SEED — SEED THE BTC RANGE **BEFORE** THE ETH DEPOSIT, AND THE ORDER IS THE FIX.
+        // `requestDeposit` DOES pair USD into the BTC mirror (`BtcLib:361` → `addLiqChannel`), but
+        // only `if (deltaBTC > 0)`, and `addLiqChannel` sizes by SOLVENCY SURPLUS. The 700 ETH
+        // deposit claims that surplus first, so the BTC leg paired ZERO and
+        // `BTC.CORE().POOLED_USD()` stayed 0 — the premise then failed truthfully at `0 <= 0`.
+        // ⚠️ THE BASKET IS UNCHANGED, which is what the note above requires: reordering moves who
+        // claims the surplus, not how much free stable exists, so the redeem still unwinds the range.
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(lpB, 2e7);
+
+        vm.deal(lpA, 900 ether);
+        vm.prank(lpA); ETH.deposit{value: 700 ether}(0, lpA);
 
         (uint[15] memory d0,,,) = AUX.get_deposits();
         uint tvl0        = d0[14];

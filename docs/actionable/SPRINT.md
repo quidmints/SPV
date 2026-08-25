@@ -275,7 +275,7 @@ accept that a σ²-blind fixture cannot exercise a σ²-dependent control and re
 assert what depletion alone CAN distinguish. **Do not "fix" it by relaxing `premB != premA`** — that
 assertion is the only thing that noticed the arms were not being differentiated at all.
 
-## 🔴 **§V6-BTC-SEED — the premise fails HONESTLY, and seeding it is not one line** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — seeding the BTC range BEFORE the 700 ETH deposit fixes it; the test PASSES]**  **§V6-BTC-SEED — the premise fails HONESTLY, and seeding it is not one line** (2026-08-25)
 
 `test_V6`'s V6b half asserts an ETH-side redemption cannot reach the BTC range. Once the legs were
 pointed at the right instance (the 22nd §WRONG-RANGE site), its own premise started failing truthfully:
@@ -1446,9 +1446,27 @@ IT AS ONE THING.** `fairEth − ethOut` captures everything lost against an orac
 measured the basket paying what its lending vaults could free, **18.7% on one fixture** — and it is
 not a premium, is credited to nobody, and is *correct* in the sense that a `minOut` would have
 refused it. **So the 13.2× may be mostly delivery, and that is UNMEASURED.**
-▶️ **NEXT, and it is one instrumented run:** decompose (a) into fee / premium / delivery-shortfall at
-this call site. If delivery dominates, the number is explained and the row closes; if it does not,
-the skew is under-recording and LPs are under-credited on every drain.
+✅ **DECOMPOSED, AND THE ANSWER IS NOT THE ONE THE ROW EXPECTED — (a) IS SMALLER THAN THE FEE ALONE:**
+| | usd6 | on a **$30,000** swap |
+|---|---|---|
+| **(a) BORNE** by the swapper | **4,388,234** = $4.39 | **1.5 bps** |
+| (b) recorded skew premium | 329,778 = $0.33 | |
+| **(d) the 420 ppm FEE** | **12,600,000 = $12.60** | **4.2 bps** |
+| (e) unattributed `a − b − d` | **0** — because `a < b + d` | |
+
+🔴 **THE SWAPPER BORE ~A THIRD OF THE STATED FEE.** `paidUsd6 = fairEth − ethOut` priced at the oracle
+is the swapper's TOTAL loss against a fair fill, and it comes to **1.5 bps against a 4.2 bps posted
+fee**. ⇒ **The 13.2× "premium gap" was never the story: the whole haircut is too SMALL, not
+mis-attributed.** There is no unattributed residue to chase — the arithmetic closes at zero because
+(a) does not even cover (d).
+⇒ **TWO READINGS, AND THEY NEED DIFFERENT FIXES — do not pick one without measuring:**
+  1. **The fee is not fully landing** — a revenue leak: LPs are credited a 420 ppm fee the swapper is
+     not actually paying, which is §E279's defect with the sign flipped.
+  2. **`paidUsd6` UNDERSTATES the loss** — e.g. `fairEth` is computed against a `px` that already
+     moved with the fill, so part of the haircut is invisible to this estimator.
+▶️ **THE DISCRIMINATOR:** read the swapper's USDC in and volatile out against an oracle sampled BEFORE
+the fill (a quote, not a post-hoc read). If the haircut is still 1.5 bps, reading 1 is live and the
+fee lane leaks; if it grows toward 4.2 bps, the estimator was the problem and this row closes.
 ✅ **WHAT WAS ASSERTED INSTEAD, because it is the half that is a SOLVENCY question:**
 `assertLe(premium, paidUsd6)` — the record must never EXCEED what the swapper bore. That is §E279's
 actual defect (*"LPs are credited value no swapper paid"*), is true by construction if the accounting

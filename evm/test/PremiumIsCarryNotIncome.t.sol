@@ -358,6 +358,14 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             uint ratio = paidUsd6 * 10_000 / premium;
             emit log_named_uint("borne/recorded (bps, 10000 = exact)", ratio);
         }
+        // §PREMIUM-VS-BORNE — DECOMPOSE (a). `paidUsd6` is a COMPOSITE: skew premium + the 420ppm
+        // fee + the DELIVERY SHORTFALL (§SELL-SKEW-18PCT: the basket pays what its lending vaults
+        // can free, which is credited to nobody). Only the first is `premium`. Print the other two
+        // so the 13.2x gap is attributed instead of inferred.
+        uint feeUsd6 = usdcIn * 420 / 1e6;
+        emit log_named_uint("(d) 420ppm fee, usd6             ", feeUsd6);
+        emit log_named_uint("(e) UNATTRIBUTED = a - b - d     ",
+            paidUsd6 > premium + feeUsd6 ? paidUsd6 - premium - feeUsd6 : 0);
         assertGt(premium, 0, "no premium charged -- fixture never reached priced scarcity");
         // 🔴 §VACUOUS-BOUNDS — THIS TEST IS NAMED `...RecordedEqualsPremiumPaid`, ITS DOCSTRING WARNS
         //   *"if the record overstates, LPs are credited value no swapper paid"*, AND IT COMPUTED THE
