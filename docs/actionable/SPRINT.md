@@ -1157,6 +1157,43 @@ because it was checked before being written up as fact. The others were each sta
 tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
 **If anything, the assertion should read the DELIVERABLE figure and compare against that.**
 
+## 🔴🔴 **§SELL-SKEW-18PCT — an in-range 1 ETH sell pays 18.7% below oracle, and it is the SKEW PREMIUM** (2026-08-25)
+
+`testSwapPricing_EthSellInRange_PaysAboutOracle` and `testRegularSwaps` are **ONE defect**: both sell
+1 ETH and receive **2,000.0055 USDC** against an oracle value of **2,460.84**.
+
+⭐ **THE TELL THAT NAMES IT, AND IT TOOK FOUR RUNS TO SEE: THE PAYOUT IS PRICE-INDEPENDENT.** Across
+four gates the oracle moved **2,435 → 2,483 → 2,448 → 2,461** while `got` sat at
+**2000.005885 / 2000.005872 / 2000.005599 / 2000.005415**. A percentage charge tracks the oracle; a
+constant does not. **`1 − 2000.0055/2460.84 = 18.73%`.**
+
+▶️ **INSTRUMENTED, AND FOUR CANDIDATE CAUSES ARE NOW EXCLUDED — each was plausible and each died to
+one measurement:**
+| candidate | measurement | verdict |
+|---|---|---|
+| inventory cap (range too USD-poor to pay) | `POOLED_USD` = **151,999,999,998** ($152,000) against a $2,460 sell | ⛔ dead |
+| partial fill / `MAX_FILLS_PER_SWAP = 4` truncation | **`ETH spent = 1.000000e18`, `WETH delta = 0`** — the whole ETH was consumed | ⛔ dead |
+| mispricing / bad oracle scale | `Core.swap` reads `px = AUX.getTWAPforAsset(ASSET, 1800)`, and the BUY twin `testSwapPricing_EthInRange_PaysAboutOracle` **PASSES** on the same fixture; `testDiag_GenesisPriceRegime` passes too | ⛔ dead |
+| curve slippage | `Core.swap`'s own docstring: *"ONE price for the whole size"* — no traversal, and 1 ETH is 1.6% of the 61.74 ETH depth | ⛔ dead |
+
+⇒ **WHAT IS LEFT IS THE ONE THING `_fillDelta` DOCUMENTS: the input reaching it has ALREADY been
+scaled by `(1−s)` — *"`SwapLib.retainSkewPremium` subtracts the premium from `r.amount` before
+`routeSwap` derives `pooled` from it"*.** `out = BasketLib.convert(amount, px, inputIsUsd)` is an
+honest conversion of an amount that was already cut by **s ≈ 0.187**.
+🔴 **AND THE TEST'S PREMISE IS THAT s == 0**: its comment reads *"Sell 1 ETH into a deep fresh range
+(skew=0): must receive ≈ oracle price minus the 0.042% fee"*. **An 18.7% imbalance charge on a
+retail-size sell is either a fixture that is nowhere near balanced, or a skew that over-charges by
+~450×** relative to the 420 ppm fee it is supposed to sit beside.
+▶️ **NEXT, and it is one instrumented run:** log `sellSkew`'s inputs at this call — `flow`
+(`target`), `inv`, `qBar` and the realised `s`. `sellSkew` returns 0 at `target == 0` and prices
+`(inv − target)/target` otherwise, so **if `flow` is tiny relative to `inv` the charge saturates
+toward its pole `Γσ²·qBar/(1−qBar)`** — which is exactly the shape a near-constant 18.7% would take.
+⚠️ **DO NOT WIDEN THE 1.5% TOLERANCE.** It is the successor to an old 10% bound and is the only thing
+that noticed this.
+✅ **NOT MINE, CHECKED RATHER THAN ASSUMED:** `gate_batch` (written **06:55**) already shows
+`2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
+skew change in this session.
+
 ## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
 
 **Census at `15d2a4a2` (drpc, 219.87s): 468 passed / 48 failed / 516 total, 83 suites.** Authoritative

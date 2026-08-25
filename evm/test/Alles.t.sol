@@ -1925,10 +1925,26 @@ contract Alles is AllesFixture {
         uint base = AUX.getTWAPforAsset(address(WETH), 1800);        // USD18 per 1e18 raw ETH
         uint expectedUsdc = (base / 1e12) * (1e6 - 420) / 1e6;       // 1 ETH → USD6, minus 420ppm fee
 
+        // §SELL-CAP diagnostic: the BUY twin of this test PASSES on the same fixture, and the payout
+        // here sat at ~2000.0056 USDC across three gates while the ORACLE moved 2435 -> 2483 -> 2448.
+        // A payout that ignores the price is an INVENTORY CAP, not a mispricing — print the depth.
+        emit log_named_uint("oracle base (usd18)   ", base);
+        emit log_named_uint("range USD depth (6dec)", ICore(address(CORE)).POOLED_USD());
+        emit log_named_uint("range ETH depth (18dec)", ICore(address(CORE)).POOLED());
+        emit log_named_uint("AUX USDC balance      ", USDC.balanceOf(address(AUX)));
         uint before = USDC.balanceOf(User02);
+        uint ethBefore = User02.balance;
+        uint wethBefore = WETH.balanceOf(User02);
         vm.prank(User02);
         AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true); // sell 1 ETH → USDC
         uint got = USDC.balanceOf(User02) - before;
+        emit log_named_uint("got (usd6)            ", got);
+        emit log_named_uint("expected (usd6)       ", expectedUsdc);
+        // Was the whole 1 ETH actually SOLD? `MAX_FILLS_PER_SWAP = 4` truncates a swap, and a
+        // truncated sell refunds the remainder — which would make `got` correct for what was sold
+        // and the ASSERTION wrong about how much was sold.
+        emit log_named_uint("ETH spent (of 1e18)   ", ethBefore - User02.balance);
+        emit log_named_int ("WETH delta            ", int(WETH.balanceOf(User02)) - int(wethBefore));
 
         assertApproxEqRel(got, expectedUsdc, 0.015e18,
             "ETH in-range sell must pay ~oracle*(1-fee); tight successor to the old 10% bound");
