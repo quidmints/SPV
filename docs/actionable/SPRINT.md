@@ -155,7 +155,7 @@ touching either.**
 `_rallyRange`, then again either side of the auto-reseat. One run, and it separates "the fixture never
 moved the ring" from "the reseat does not track".
 
-## 🔴 **§WRONG-RANGE-CENSUS — 21 SITES, SIX DISGUISES, AND ONE OF THEM WAS IN `src`** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — the census was COMPLETED and its fixes landed: 16 raw candidates refined to 1 real, 15 read both instances deliberately, and the `src`-side §REDEEM-WRONG-RANGE was fixed. Independently re-swept today: shapes 1 (`CORE.f() + CORE.f()`) and 2 (identical eth/btc RHS) are **0 surviving**. ⚠️ That re-sweep is SINGLE-LINE only and cannot see shapes 3-6 — it corroborates, it does not replace the row's own refinement. `test_V1bdisc` is the named survivor and is NOT this class; it fails on `NoVolatileRoute`]**  **§WRONG-RANGE-CENSUS — 21 SITES, SIX DISGUISES, AND ONE OF THEM WAS IN `src`** (2026-08-24)
 
 **The dominant defect class in this tree.** Each disguise defeated the sweep written for the previous
 one, which is why a single regex kept "finding them all" and kept being wrong:
@@ -463,7 +463,7 @@ needing a far larger debt — consistent with §0h's dead-band limiting how much
 NOT a wrong-instance read.
 
 *(original finding, kept for the method — the ratio predicted the cause:)*
-### 🔴 §WRONG-RANGE WAS STILL LIVE IN `LevCascade` — TWO "DIFFERENT" LEGS ARE THE IDENTICAL
+### ✅ **[CLOSED 2026-08-25 — FIXED — `LevCascade.t.sol:788-793` is now explanatory prose about PER-RANGE equity floors, not the duplicated expression; the identical-RHS shape sweeps to 0 tree-wide]**  §WRONG-RANGE WAS STILL LIVE IN `LevCascade` — TWO "DIFFERENT" LEGS ARE THE IDENTICAL
 EXPRESSION, AND ITS PREMISE GUARD CANNOT SEE IT** (found 2026-08-23 by predicting the SHAPE first)
 
 `LevCascade.t.sol:790-791`:
@@ -1085,7 +1085,7 @@ a zero squared-return, let the existing floor turn it into *measured-and-calm*) 
 is probably right — but landing it would pre-empt the owner call on the neighbouring cell, and rule 10
 forbids bundling it with `sellSkew` anyway. **Decide §E278 and this lands with it, in one arm.**
 
-## 🔴 **§FFI-DUST-EXIT — a 1-sat channel is armed with a 1,000-sat exit fee** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — FIXED — `BtcLpMintStress` runs **22 passed / 0 failed** on a pinned run, so `test_E31a`/`test_E31b` no longer shell out with `sats=1`]**  **§FFI-DUST-EXIT — a 1-sat channel is armed with a 1,000-sat exit fee** (2026-08-24)
 
 `BtcLpMintStress` (`test_E31a`/`test_E31b`) shells out to
 `gen_deadman_exit_fixture.py sign mintstress-31 … sats=1 … fee=1000`, so `out_value = 1 - 1000 = -999`
@@ -1798,7 +1798,7 @@ inlined", and the DIFFERENCE was a missing revert — **an absence, which is wha
 The V3 comment then explained the branch's existence convincingly enough that nobody asked what the
 other arm did differently.
 
-## 🔴 **§CRASH-HELPER-NEVER-CRASHES — the ~16 cascade failures, RE-DIAGNOSED (the row below was wrong)**
+## ✅ **[CLOSED 2026-08-25 — SUBSUMED by §ROUTE-BLOCKED-24 — the ~16 cascade failures are now all `NoVolatileRoute()` on a pinned run, i.e. one missing route SOURCE, not a crash-helper defect. Its own re-diagnosis (the sell is EXTERNAL, so the range cannot starve it) stands]**  **§CRASH-HELPER-NEVER-CRASHES — the ~16 cascade failures, RE-DIAGNOSED (the row below was wrong)**
 
 ⛔ **THE ROW BELOW NAMED THE RIGHT MECHANISM ON THE WRONG PATH.** It said de-lever cannot sell because
 the range has no dollars. **The de-lever sell never touches the range**: `_wethToStableDex` →
