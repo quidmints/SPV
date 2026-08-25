@@ -1900,7 +1900,33 @@ announces itself**, which is why it survived unnoticed as a *silent* problem —
 ⚠️ **AND IT IS STILL A LOSS.** `PoolSatsLeftWithLp` records value the basket paid for and did not get
 back. An event is an instrument, not a fix (rule 17).
 
-### THE THREE SEGREGATION SHAPES, cheapest first
+### ⭐⭐ THE BETTER FIX (owner: *"why do we use channels and splicing at all"*) — **THE SPLICE IS A PROOF VEHICLE, NOT A CAPACITY ONE, SO MOVING IT COSTS NOTHING**
+
+**The question exposed that two concerns were fused, and the code separates them already:**
+| path | how it credits | cost |
+|---|---|---|
+| `settleSwapInProven` (`:2100`) | direct SPV: `spv.checkTxInclusion(merkleProof, blockHash, txid, txIndex, MIN_CONFIRMATIONS)` → `creditSwapIn`. **NO channel, NO splice, NO allowance** | `MIN_CONFIRMATIONS = 6` ⇒ the seller waits ~1 hour |
+| `settleSwapInBuffered` (`:1458`) | draws down `provenSatsAvailable`, which only a **spliced** deposit can raise | **instant** — its docblock: *"they settle INSTANTLY, out of inventory proven before they ever paid"* |
+
+⇒ **THE BUFFER IS RIGHT AND WORTH KEEPING — IT IS THE ATOMICITY THE SELLER GETS.** What is wrong is
+only **WHERE the proven inventory lives.**
+🔴 **AND THE DECISIVE OBSERVATION: `settleSwapInBuffered` CALLS ONLY `btc.creditSwapIn(...)` — pure EVM
+accounting. THE CHANNEL'S LIGHTNING CAPACITY IS NEVER USED.** The splice exists solely so an
+SPV-provable transaction raises the allowance. **It is a PROOF vehicle wearing a channel's clothes.**
+⇒ ⭐ **SO: KEEP `parkProvenSats` AND THE ALLOWANCE; PROVE INTO A POOL-OWNED OUTPOINT INSTEAD OF
+SPLICING AN LP'S CHANNEL.** Same instant settlement, same phantom-closing bound, and the entanglement
+is gone by construction rather than by a guard.
+⛔ **THIS CORRECTS THE COST I ATTRIBUTED TO SHAPE (1) BELOW.** I wrote that it *"breaks swap-in
+liquidity riding an existing channel's capacity"* — **there is no ride-along capacity to break.** The
+buffered credit never touches LN. That objection was mine, not the code's.
+📉 **WHAT DELETES, and it is the §T1-f-root prediction landing exactly:** the splice-on-park path, the
+**ladder re-arm on every park** (`_armAt`), `poolOwnedSats`, `poolSatsParker`, `_releasePoolSats`,
+`PoolSatsLeftWithLp`, and the `lpEntitled` subtraction in `_finalizeClose` and `registerChannelClaim`.
+⚠️ **ONE THING TO CHECK BEFORE BUILDING IT:** whether `_applySplice`'s SPV verification can be reused
+against a non-channel outpoint, or whether it is coupled to `channels[channelId]`. **That coupling, if
+real, is the whole cost of this fix** — and it is a proof-plumbing question, not an economic one.
+
+### THE THREE SEGREGATION SHAPES (superseded by the above; kept for the record), cheapest first
 | # | shape | cost | what it breaks |
 |---|---|---|---|
 | **1** | **Pool sats never splice into an LP channel.** Park them in a POOL-ONLY UTXO (hop ∥ protocol key), so `poolOwnedSats` has no LP-claimable home at all | changes where `parkProvenSats` puts sats; **deletes `poolOwnedSats`, `poolSatsParker`, `PoolSatsLeftWithLp` and the `lpEntitled` subtraction** | swap-in liquidity can no longer ride an existing channel's capacity — it needs its own |
