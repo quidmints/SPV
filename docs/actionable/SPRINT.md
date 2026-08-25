@@ -1415,6 +1415,37 @@ it is the only instrument that reports the margin at all.
 **both ankr keys disabled** there is no archive endpoint, so `FORK_BLOCK` cannot be pinned and this
 test's verdict moves run to run. **A tripwire that cannot be pinned cannot be regression-tested.**
 
+## 🔴 **§ROUTE-THE-REST — SEVEN lev entrypoints are unrouted, and the byte budget to fix it now exists** (2026-08-25)
+
+§ROUTE-BLOCKED-24 says the failures need "a route". **This row says WHERE.** Measured in
+`LevManager.sol`: exactly **ONE** entrypoint accepts a route.
+
+| takes `bytes route` | **`deleverOneRouted`** (`:349`) — and its internals `_deleverOne`, `_deleverFlash` |
+|---|---|
+| **UNROUTED** | **`rebalance` (:295) · `rebalanceMany` (:304) · `rebalanceOne` (:318) · `openLev` (:239) · `closeLev` (:390) · `closeLevFor` (:405) · `protectFromQuid` (:223)** |
+
+⇒ **Every one of those reaches `_aggSwap` with an EMPTY route on any path that must buy or sell
+volatile, and `_aggSwap` refuses it.** That is why the de-lever half of the suite can be driven and
+the rest cannot.
+▶️ **WORKED EXAMPLE — `test_PassiveLp_NotExpensedByLeveredLpLifecycle`, and its symptom is NOT the
+revert you would expect.** Sequence: `_openLevOnly` → `_rallyRange(0.2e18)` → **`lm.rebalance(LEVR, 0)`**
+→ `require(venue.debtOf(LEVR) > 0)`. The comment on that `rebalance` says *"real Morpho borrow +
+external Uniswap buy"* — the buy is now 1inch and there is no route to give it. **The test fails on
+its PRECONDITION, not on `NoVolatileRoute`**, so it does not appear in the route-blocked census at
+all. ⚠️ **The route-blocked count of 24 is therefore a FLOOR.**
+⛔ **DO NOT ASSUME THE SIZING TRAP INSTEAD.** `RANGE_BPS = 300` and CLAUDE.md's §E310 note (*"a +5%
+move is 241 bps and never reaches it"*) is a REAL and DIFFERENT cause of `debtOf == 0`; this fixture
+rallies to `0.2e18`, which clears it. **Both produce the identical symptom — distinguish them by
+whether a route was supplied, not by the number.**
+✅ **THE BUDGET NOW EXISTS, WHICH IS WHY THIS IS ACTIONABLE TODAY.** CLAUDE.md recorded `LevManager` at
+**24,030 / 546 to spare** and concluded *"the remaining routed entrypoints do NOT fit without a fold"*.
+The §RULE-8C folds (`nonReentrant`'s body hoisted out of 15 inline copies; five identical `NotGov`
+gates folded to `_onlyRange()`) took it to **23,590 / 986** — **+440 bytes of headroom, measured.**
+▶️ **NEXT:** thread `bytes route` through `rebalance` → `_rebalance` → `_leverUp` → `_leverUpBuy`
+first — it is the one the cross-subsidy and cascade fixtures actually call — and re-measure the
+margin before adding the next. ⚠️ **The §C2.1 plumbing cost +1,967 bytes for the de-lever side alone**,
+so 986 will not carry all seven; route them in call-frequency order and fold again when it binds.
+
 ## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
 
 **Census at `15d2a4a2` (drpc, 219.87s): 468 passed / 48 failed / 516 total, 83 suites.** Authoritative
