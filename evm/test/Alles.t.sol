@@ -1930,7 +1930,12 @@ contract Alles is AllesFixture {
         vm.roll(vm.getBlockNumber() + 1);
 
         uint base = AUX.getTWAPforAsset(address(WETH), 1800);        // USD18 per 1e18 raw ETH
-        uint expectedUsdc = (base / 1e12) * (1e6 - 420) / 1e6;       // 1 ETH → USD6, minus 420ppm fee
+        // 🔴 §E311 DELETED THE FLAT 420 ppm — owner: *"there is no 420 ppm, it's always the skew"*
+        //   (`Core.sol:1473`). This line still priced against it and PASSED only because 0.042%
+        //   hides inside its own 1.5% tolerance: **a wrong expectation that happens to be in range.**
+        // ⇒ Expect the ORACLE. The skew is the only charge, and on a fresh deep range it is ~0, so
+        //   the 1.5% band still absorbs slippage without encoding a constant that no longer exists.
+        uint expectedUsdc = base / 1e12;                             // 1 ETH → USD6 at the oracle
 
         // §SELL-CAP diagnostic: the BUY twin of this test PASSES on the same fixture, and the payout
         // here sat at ~2000.0056 USDC across three gates while the ORACLE moved 2435 -> 2483 -> 2448.
