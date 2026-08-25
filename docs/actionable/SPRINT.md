@@ -194,6 +194,30 @@ dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* �
 reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
 defect. **Do not "fix" it by lowering the premise.**
 
+## 🔴 **§UNITB-ARMS-IDENTICAL — σ² is 0 because the fixture never pins a feed AND never samples twice** (2026-08-25)
+
+`test_UNITB_CounterMatchesWhatTheSwapperLoses` fails its control *"the target move must change the
+skew"*. **Measured: both arms charge 321,992 EXACTLY, and `sigma^2 (wad)` is 0.**
+⇒ **THE CONTROL IS RIGHT AND THE CAUSE IS UPSTREAM.** With σ² == 0 the KERNEL term vanishes and only
+DEPLETION survives — and depletion is SIZE-based, so two arms trading the same size charge the same
+thing no matter what the target does. The arms are identical because the only live term cannot see
+the target.
+▶️ **TWO CAUSES, BOTH REQUIRED, AND FIXING ONE IS NOT ENOUGH — measured, not reasoned:**
+  1. **`DrainAtomicity.t.sol` never calls `setAssetFeed`** (`grep -L setAssetFeed evm/test/*.t.sol`
+     lists it). The bare `AllesFixture` leaves `assetPriceFeed(WETH)` at `address(0)`, which
+     `Alles.t.sol:1044` already records as what made **§E345's sampler read 0 across eight injected
+     2% moves**.
+  2. **Pinning the feed alone did NOT fix it — σ² stayed 0.** §E345-ANCHOR's calm sampling needs a
+     SECOND sample in a LATER block: the first call only sets `_varPx` and bumps `(0,0)`, so
+     `_varDt` is still 0 and `anchorVarianceWad` returns 0 before its 1-wei floor can apply. **This
+     test snapshots between arms, so each arm gets too few samples.**
+⇒ **The pin was reverted rather than left in as an unverified no-op.** It is correct per the repo's
+own note and it does not fix this test; landing a change that does neither is noise.
+▶️ **NEXT:** either give the fixture two anchor samples across blocks before the arms diverge, or
+accept that a σ²-blind fixture cannot exercise a σ²-dependent control and rewrite the control to
+assert what depletion alone CAN distinguish. **Do not "fix" it by relaxing `premB != premA`** — that
+assertion is the only thing that noticed the arms were not being differentiated at all.
+
 ## 🔴 **§V6-BTC-SEED — the premise fails HONESTLY, and seeding it is not one line** (2026-08-25)
 
 `test_V6`'s V6b half asserts an ETH-side redemption cannot reach the BTC range. Once the legs were
