@@ -1213,6 +1213,29 @@ that noticed this.
 `2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
 skew change in this session.
 
+## 🔴 **§PUSH-HEADROOM-1.85X — the push guard's margin is a third of what `Core` claims, and the tripwire fired** (2026-08-25)
+
+`test_E294_HeadroomIsNotMarginal` asserts `basisBps * 2 < OBS_PUSH_MAX_BPS`. **MEASURED: `bps*2 = 54`
+against a guard of `50`, i.e. the 1inch-vs-oracle basis is `27 bps` against a `50 bps` ceiling —
+**1.85× headroom**.** The test's own docstring says *"`Core`'s claim is ~6x"*.
+
+⭐ **THIS IS NOT A FAILING TEST, IT IS A FIRING ALARM, AND THE DISTINCTION DECIDES WHAT TO DO.** Its
+comment states the intent outright: *"assert a floor of 2x so a drift that eats the margin fails HERE
+before it silently starts refusing pushes in production"*. It caught the thing it was built for.
+⚠️ **WHY IT MATTERS RATHER THAN BEING A CURIOSITY:** §E257 records that the PULL source stays unset
+and **§E294's PUSH path is the live oracle mechanism** — σ² has been measured moving `0 → 7.7e17`
+through it. `pushObservation` admits a price only within `OBS_PUSH_MAX_BPS`, so if the basis crosses
+50 bps **every push is refused, the ring stops filling, and σ² decays to 0** — which is the §E278/§E222
+hole arriving through market drift instead of through configuration.
+⇒ **THE `~6x` FIGURE IN `Core` IS STALE AND SHOULD NOT BE QUOTED.** Today it is 1.85×.
+▶️ **THE DECISION THIS FORCES, and it is the owner's:** either the guard widens (weakening the
+deviation test that makes a permissionless push safe), or the push source is re-chosen so the basis is
+smaller, or the ring gets a second admissible source. **Do not "fix" this by relaxing the 2× floor** —
+it is the only instrument that reports the margin at all.
+⚠️ **AND IT IS BLOCK-DEPENDENT, WHICH IS ITS OWN PROBLEM:** basis is a live market quantity, and with
+**both ankr keys disabled** there is no archive endpoint, so `FORK_BLOCK` cannot be pinned and this
+test's verdict moves run to run. **A tripwire that cannot be pinned cannot be regression-tested.**
+
 ## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
 
 **Census at `15d2a4a2` (drpc, 219.87s): 468 passed / 48 failed / 516 total, 83 suites.** Authoritative
