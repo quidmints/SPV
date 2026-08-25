@@ -11,7 +11,7 @@ import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
 import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
-import {ILevVenueColl} from "./imports/Interfaces.sol";
+import {ILevVenue} from "./imports/Interfaces.sol";
 
    // branch open on the venue's collateral token
  // zero-fee flash (WBTC flash-repay-first de-lever)
@@ -165,7 +165,7 @@ contract BtcLevManager is LevBase {
         // tracks net-equity). vBTC (native #74): expose the LP's OWN free channel BTC (Vault mints the vBTC face to
         // this manager — no pre-mint/transferFrom roundtrip). WBTC (fallback): the caller/SPA already SOR'd its USD
         // equity → WBTC; pull it in. `initialVbtc` is the collateral amount (8-dec) in either token.
-        if (ILevVenueColl(address(venue)).COLLATERAL() == address(VBTC)) {
+        if (ILevVenue(address(venue)).COLLATERAL() == address(VBTC)) {
             IVaultExposeB(VAULT).exposeBtcToLev(msg.sender, initialVbtc);
             VBTC.transfer(address(venue), initialVbtc);
         } else {
@@ -239,7 +239,7 @@ contract BtcLevManager is LevBase {
     /// @dev WBTC-mode ONLY — a native vBTC venue would get WBTC supplied into it (collateral
     ///      mismatch). Native positions use the async legs.
     function _requireRebalancable(Types.Pos memory p) internal view override {
-        if (ILevVenueColl(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
+        if (ILevVenue(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
     }
 
     function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut)

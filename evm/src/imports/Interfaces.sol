@@ -124,15 +124,6 @@ interface IWeETH {
 /// Canonical Quid view — union of the former per-file variants (`QuidLib::IQuid_VG` +
 /// `IQuidView_VG`), which split ONE contract's surface across two declarations so a signature
 /// change had to be made twice and a missed one still compiled.
-interface IQuid {
-    // §E325 — `addLiq` removed from THIS face only; `ICore` still declares it and that is the one
-    // the tree calls. `RangeLib:81` is `ICore(address(this)).addLiq(netEq, price)`, and `RangeLib:68`
-    // records the migration in prose (*"the SIZING CALL -- `IQuid(this).addLiq`"*) — a COMMENT, which
-    // is the only thing a name-grep was still finding. Zero live call sites through `IQuid`.
-    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);  // E21: was BasketLib.IQuidUnwind                              // E21: was BasketLib.IWiredQuid
-    function derivedThetaWad() external view returns (uint);
-    function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
-}
 
 /// Curve `weETH/WETH-ng` (0xdb74dfdd…). ⚠️ THE `int128` SIGNATURE IS THE ONE THIS POOL ANSWERS — the
 /// uint256 `-ng` variant REVERTS on it (verified live 2026-08-09). coin0 = WETH, coin1 = weETH.
@@ -281,11 +272,7 @@ interface ILevPooled {
 
 
 
-/// Canonical ILevVenueColl — union of ILevVenueColl, ILevVenueCollB.
-interface ILevVenueColl {
-    function COLLATERAL() external view returns (address);
-    function stable() external view returns (address);   // E21: was LevMath.ILevVenueVet
-}
+/// Canonical ILevVenue — union of ILevVenue, ILevVenueB.
 
 // §E325 — a DANGLING `/// Canonical IAux — union of IAux, IAux.` stood here, attached to no
 // declaration at all, so a reader takes it for `ICollection`'s docblock. Deleted, with its twin
@@ -487,6 +474,11 @@ interface ILevVenue {
 
     /// @notice The stablecoin this venue lends (the debt asset).
     function stable() external view returns (address);
+    // §ILEVVENUE FOLD — `ILevVenue` is DELETED into this face. `stable()` above was declared
+    // identically in both, so the merge DEDUPES it; `COLLATERAL()` is the only member it added.
+    // Verified same implementor rather than same address (the `EthVenue`-split lesson):
+    // `LevVenueBase` provides BOTH `COLLATERAL()` and `supply(address,uint256)`.
+    function COLLATERAL() external view returns (address);
 
     /// @notice Venue liquidation threshold in bps of collateral value (e.g. 8000 = 80% LLTV).
     function liqThresholdBps() external view returns (uint256);
@@ -628,6 +620,13 @@ interface ICore {
     /// range's `POOLED`/`POOLED_USD`, which is what silently made cross-range isolation untestable.
     function CORE() external view returns (address);
     function derivedThetaWad() external view returns (uint);
+    // §E325-IQUID FOLD — the last two members of `IQuid`, which is now DELETED. `derivedThetaWad`
+    // above was declared IDENTICALLY in both, so the fold DEDUPES it rather than colliding.
+    // ⚠️ `Core` implements NONE of these three: `ICore` has been the polymorphic RANGE-MANAGER face
+    // since `IBand` was folded in, and its implementors are `Quid` and `Vault`. These two are
+    // `Quid`-only, which is ABI-legal and matches how the merged face already works.
+    function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);
+    function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
     function setBTCChannels(address b) external;
 
     // §E307 — the LEFTOVER `IBand` folded in; members `ICore` already had are not duplicated

@@ -104,7 +104,7 @@ abstract contract LevBase {
     ///         event still appears in each child's ABI. Three were already byte-identical at every
     ///         emit site. Two had DRIFTED and are reconciled to the richer ETH shape:
     ///         `Opened` lacked `venue` on the BTC side even though BTC picks a venue too
-    ///         (`ILevVenueColl(address(venue)).COLLATERAL()` decides vBTC vs WBTC mode), and
+    ///         (`ILevVenue(address(venue)).COLLATERAL()` decides vBTC vs WBTC mode), and
     ///         `VenueAllowed` lacked the `ok` flag, so a BTC de-authorisation was indistinguishable
     ///         from an authorisation in the log.
     /// ⚠️ `Closed`'s two declarations shared a SELECTOR while meaning different things — the ETH

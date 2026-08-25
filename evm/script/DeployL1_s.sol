@@ -655,7 +655,7 @@ contract Deploy is Script {
     /// ⚠️ RE-CORRECTED 2026-08-09 — an earlier correction on this line was itself WRONG and is retracted.
     ///    It claimed "`init` does NO such detection". THE `stable()==WETH` DETECTION DOES EXIST, one frame
     ///    down: `init` calls `LevMath.vetVenue(v, WETH, WETH, WEETH)` and `vetVenue` opens with
-    ///    `if (ILevVenueColl(v).stable() == base) return true;` (LevMath.sol:254) where `base` IS `WETH`.
+    ///    `if (ILevVenue(v).stable() == base) return true;` (LevMath.sol:254) where `base` IS `WETH`.
     ///    What is true is only the CONSEQUENCE: `init` DISCARDS the returned `isShort`, so no short
     ///    behaviour follows — the venue is simply allowlisted.
     ///
@@ -664,7 +664,7 @@ contract Deploy is Script {
     ///    gate, so any such venue was allowlistable with ARBITRARY collateral -- which `LevManager.sol`
     ///    calls "the rug the frozen allowlist stops", since collateral outside {WETH, weETH} silently
     ///    misvalues into phantom ETH backing via `_collToEth`. `LevMath.sol:315-319` now reads
-    ///    `ILevVenueColl(v).COLLATERAL()` and reverts `BadCollateral()` FIRST, then returns
+    ///    `ILevVenue(v).COLLATERAL()` and reverts `BadCollateral()` FIRST, then returns
     ///    `stable() == base`. The gate is unconditional, so the standing "do not add a second WETH-debt
     ///    venue" ban is lifted.
     /// ⚠️ THE BAN IS LIFTED, THE CASE AGAINST THE VENUE IS NOT -- and the reasons are unrelated, so do

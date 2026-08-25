@@ -2282,7 +2282,7 @@ library SwapLib {
     ///         DELEGATECALLED, so this body is deployed once in `SwapLib` and both callers lose
     ///         their copies. Same trade §E346 made with modifier bodies, one level up.
     /// ⚠️ θ AND `backing` ARE COMPUTED BY THE CALLER, DELIBERATELY, AND MUST STAY THERE. Both θ reads
-    ///         go through `address(this)` — `IQuid(address(this)).derivedThetaWad()` on the ETH side,
+    ///         go through `address(this)` — `ICore(address(this)).derivedThetaWad()` on the ETH side,
     ///         `ICore(address(this)).derivedThetaWad()` on the BTC side — and `address(this)` is the
     ///         RANGE only because these libraries run under its delegatecall. Moving either read in
     ///         here would still resolve, which is exactly what makes it dangerous: it would work now

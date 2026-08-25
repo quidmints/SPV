@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
-import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenueColl } from "./Interfaces.sol";
+import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenue } from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {ONEINCH_ROUTER, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
@@ -312,9 +312,9 @@ library LevMath {
     ///    `LevManager:210` calls the classification "unused" — true of THAT CALLER ONLY), but
     ///    `BtcLevManager:108` consumes it as `if (isShort) revert BadAuth()`. Deleting it opens the BTC side.
     function vetVenue(address v, address base, address c0, address c1) public view returns (bool isShort) {
-        address coll = ILevVenueColl(v).COLLATERAL();
+        address coll = ILevVenue(v).COLLATERAL();
         if (coll != c0 && coll != c1) revert BadCollateral();
-        return ILevVenueColl(v).stable() == base;
+        return ILevVenue(v).stable() == base;
     }
 
     /// @notice Gate a NEW levered open: the venue must be on the frozen allowlist AND not incident-flagged

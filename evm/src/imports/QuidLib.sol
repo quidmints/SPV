@@ -305,7 +305,7 @@ library QuidLib {
         // §DELTATOK-FOLD — THE BODY IS `SwapLib.addLiqBody`, SHARED WITH `BtcLib.addLiqChannel`.
         // What stood here was seven statements identical to the BTC copy; the only difference was the
         // two scalars below, so they are all that is passed. θ is computed HERE and not in the shared
-        // body because `_liveTheta` reads `IQuid(address(this))`, and `address(this)` is `Quid` only
+        // body because `_liveTheta` reads `ICore(address(this))`, and `address(this)` is `Quid` only
         // under this library's delegatecall — see the warning on `addLiqBody`.
         return SwapLib.addLiqBody(core, aux, wantTok, price,
             _liveTheta(),                        // fails OPEN at θ=1e18 when vol is unmeasurable
@@ -316,7 +316,7 @@ library QuidLib {
     ///      is too thin to measure vol. Self-call to Quid's forwarder (delegatecall
     ///      context: address(this) == Quid).
     function _liveTheta() private view returns (uint) {   // §ISBTC-SPLIT: the parameter was never read
-        try IQuid(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
+        try ICore(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
         catch { return 1e18; }
     }
 
@@ -429,14 +429,14 @@ library QuidLib {
 
         // Settle pending rewards for `from` — ETH compounds into pooled (grows lpShares), USD accrues to usd_owed.
         if (L.pooled > 0) {
-            (uint ethReward, uint usdReward) = IQuid(address(this)).pendingRewards(from);
+            (uint ethReward, uint usdReward) = ICore(address(this)).pendingRewards(from);
             if (ethReward > 0) { L.pooled += ethReward; lpSharesDelta += ethReward; }
             if (usdReward > 0) L.usd_owed += usdReward;
         }
         // Settle pending rewards for `to` (if they have a position).
         Types.Deposit storage R = autoManaged[to];
         if (R.pooled > 0) {
-            (uint ethReward, uint usdReward) = IQuid(address(this)).pendingRewards(to);
+            (uint ethReward, uint usdReward) = ICore(address(this)).pendingRewards(to);
             if (ethReward > 0) { R.pooled += ethReward; lpSharesDelta += ethReward; }
             if (usdReward > 0) R.usd_owed += usdReward;
         }

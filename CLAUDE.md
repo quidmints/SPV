@@ -626,10 +626,19 @@ destale it; it disguises it."* A disguised tombstone reads as outstanding work, 
 quoted as live for two days and nearly commissioned as a refactor.
 ⇒ **THE DISCRIMINATOR IS WHETHER THE NEW NAME EXISTS, NOT WHETHER THE OLD ONE LOOKS OLD** — already
 stated in the RENAMES section, and violated here by the same commit that stated it.
-▶️ **What IS still open, and it is much smaller:** `IQuid`→`ICore` (`derivedThetaWad` is byte-identical
-in both, so it dedupes rather than collides; `unwindForRedeem`/`pendingRewards` are new) and
-`ILevVenueColl`→`ILevVenue` (`stable()` dedupes; all three `LevVenueBase` variants already declare
-`COLLATERAL`). ⛔ **`ILevManagerDeliver` ∥ `ILevEthDeliver` CANNOT merge** — `swapOutDelever` is
+✅ **BOTH REMAINING FOLDS LANDED 2026-08-25, AND A SWEEP SAYS NOTHING ELSE IS LEFT.** `IQuid`→`ICore`
+(`derivedThetaWad` deduped as predicted; `unwindForRedeem`/`pendingRewards` moved across; 7 call sites
+retargeted, 0 residual) and `ILevVenueColl`→`ILevVenue` (`stable()` deduped, `COLLATERAL()` moved; 13
+refs retargeted). ⚠️ **The second was checked on IMPLEMENTOR, not on shared members** — `LevVenueBase`
+provides both `COLLATERAL()` and `supply(address,uint256)` — because merging two faces that merely
+share an address is the §EthVenue-split defect.
+▶️ **AND THE SWEEP THAT CLOSES THE QUESTION, with its false-positive class named per the sweep rule:
+7 signatures are declared in 2+ interfaces and REAL fold candidates are 0.** The discarded class is
+*same member name, different implementor or different standard*: `decimals()` (Chainlink feed vs
+ERC-20), `transferFrom` (ICollection vs IERC20Min), `rangeETH`/`deliverableETH` (`IAux` FORWARDS to
+`IEthVenue` — two contracts, verified in a live trace), `LEV_MANAGER`, `subPendingSwapOut`, and
+`swapOutDeleverAmt` (the arity split ruled out just below). ⇒ **Rule-2 consolidation of
+`Interfaces.sol` is DONE at 37 interfaces; do not re-commission it.** ⛔ **`ILevManagerDeliver` ∥ `ILevEthDeliver` CANNOT merge** — `swapOutDelever` is
 `(address,uint,uint)` on `BtcLevManager` and `(address,uint,address,uint)` on `LevManager`, so merging
 creates an **overload**, which is what the `ICurvePool` note forbids (integer-literal inference picking
 the wrong ABI). That arity split is also the blocker on collapsing the five lev faces into one.

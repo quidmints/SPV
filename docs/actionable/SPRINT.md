@@ -1412,6 +1412,31 @@ shares. **A similarity score measures spelling, not sameness.**
 gap is **structural, not duplicated bodies**, so closing it is §J.2 (one implementation, two
 instances) — an architecture change, and it must not be booked as "finishing the folds".
 
+## ⏸️ **§J2-LEV-ARITY — the documented blocker on merging the lev managers is a REAL asymmetry, not drift** (2026-08-25)
+
+CLAUDE.md records `swapOutDelever`'s arity split as *"the blocker on collapsing the five lev faces
+into one"* but never classified it, and §J.2 cannot proceed until every asymmetry is booked as REAL
+or DRIFT. **Classified now, by reading both signatures:**
+
+| | signature | why |
+|---|---|---|
+| `LevManager` | `(address lp, uint stableUsd, **address recipient, uint minWethOut**) → (usedUsd, wethDelivered)` | it TRANSFERS AN ERC-20 on-chain, so it needs a destination and a slippage bound |
+| `BtcLevManager` | `(address lp, uint stableUsd, **uint freeSats**) → (usedUsd, freedSats)` | it FREES SATS for a Lightning cooperative close — there is no on-chain recipient to name and no swap to bound |
+
+⇒ **REAL, NOT DRIFT.** It is the same LN-close-vs-on-chain-WETH settlement asymmetry CLAUDE.md
+already lists among the four that must NOT be deduped away. A merged signature would have to carry
+`recipient`/`minWethOut` as ignored arguments on the BTC path — inventing a uniformity the settlement
+layer does not have, which is the *"merge on what things ARE"* error in its purest form.
+⇒ **CONSEQUENCE FOR §J.2, AND IT MAKES THE TARGET SMALLER RATHER THAN BLOCKED:** one implementation
+with two instances is still reachable, but this member stays **per-asset** (a `virtual` the two
+instances override, or two entrypoints), and `ILevManagerDeliver` ∥ `ILevEthDeliver` therefore stay
+SEPARATE — merging them creates an overload, which the `ICurvePool` note forbids outright.
+📉 **MEASURED while classifying it:** `LevManager` 703 lines / 36 functions ∥ `BtcLevManager` 361 / 19,
+sharing only **8 function NAMES** (`_collToBase` `_delever` `_leverUp` `_quidAddr` `init`
+`onMorphoFlashLoan` `protectFromQuid` `swapOutDelever`). ⚠️ Names, not bodies — the body-level
+measurement above found `init` the only near-duplicate pair at 0.63. **The pair is far less duplicated
+than the "~5,500 lines in four pairs" headline suggests.**
+
 ## ⏸️ **§BTC-LEG-FEE — the ONE test that genuinely needs the v4 trading-fee leg back** (2026-08-25)
 
 `testBtcLp_swapInAccruesTheBtcLegFee` asserts `BTC.feesPerShare()` GREW across a swap-in. It cannot:
@@ -2719,9 +2744,14 @@ building either first bakes the wrong assumption into the share maths.
 
 ## 0-CRITICAL. ⏸️ §E257 — **NO LONGER SHIPPING: MOOT BY CONFIGURATION, AND STILL LATENT**
 ⏸️ **RE-POINTED 2026-08-22 (§E303) — NOT CLOSED, DELIBERATELY.** The headline below is false today:
-`setObservationSource` has **zero call sites in `DeployLib`**, so `_observeIfSourced` returns at its
-`src == address(0)` guard and the 33.6M read is never reached; every surviving `getRate` in `Core.sol`
-is a comment. 🔴 **But it returns the instant anyone pins 1inch, and §C1 is actively choosing a
+`setObservationSource` has **zero call sites in `DeployLib`**, so the 33.6M read is never reached;
+every surviving `getRate` in `Core.sol` is a comment.
+⚠️ **DESTALED 2026-08-25 — THE SECOND HALF OF THAT SENTENCE IS NOW FALSE AND ITS OLD FORM READ AS A
+GUARANTEE.** It said `_observeIfSourced` *"returns at its `src == address(0)` guard"*. It no longer
+does: §OBSERVATION-SOURCE-UNSET (`fae2201a`) made the unset case FALL BACK to the Chainlink anchor and
+write an observation, because returning early meant the ring never fed itself and σ² stayed 0. **The
+gas protection is unchanged** (the fallback is `SwapLib.twapResolve`, not `getRate`), but *"nothing is
+pinned ⇒ nothing happens"* is no longer a true description of that function. 🔴 **But it returns the instant anyone pins 1inch, and §C1 is actively choosing a
 source** — so the protection is *"nothing is pinned"* plus `OneInchGasProbe.t.sol` as a tripwire, not
 a fix. **Rule 16: conditional on a choice not yet made ⇒ ⏸️, never ✅.**
 ⭐ **THE PATH FORWARD IS NO LONGER THIS ROW'S.** The pull source stays unset; §E294's PUSH path is the
@@ -3118,12 +3148,16 @@ row has shrunk to `SortedSetLib`.** `ExternalTwap.sol` was folded into `OracleLi
 `ExternalTwap` string left in `evm/src` is `OracleLib.sol:405` recording the fold); `FixedRateFill.sol`
 and `ShareMath.sol` were folded into `SwapLib` (§E310; the surviving mentions are `SwapLib.sol:1435`
 and `:2511`, the latter *"THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title)"*). **The
-`unwired` VERDICT still holds for the primitive itself — `quoteFill` (`SwapLib.sol:2629`) has zero
-callers in `src`, `test` or `script` — so the row below about not deleting it is unchanged. Only the
-de-inlining question is moot, because there is no separate library left to de-inline.**
+`unwired` VERDICT held for the primitive itself, and it has now been ACTED ON: `quoteFill`,
+`quoteDrain`, `enforce`, `assertConserved` and `_quote` were DELETED in the dead-code sweep
+(`9bf33b9f`), so `evm/src` retains only the comments recording it (`SwapLib.sol:1491`, `:2647`,
+`:2655`). ⇒ THE ROW BELOW ABOUT NOT DELETING IT IS SUPERSEDED — the owner's *"remove all dead code
+everywhere"* settled the question the row was holding open. The de-inlining question was already moot.**
 ⚠️ **And the headroom figures in the paragraph above are stale: `BTCChannels` is **1,163** and `Quid`
-**788** @`7e32eb48`, not 815 and 558.** `Quid` is still the binding constraint, which is the part that
-mattered.
+**2,720**, not 815 and 558 — and the `788` this line itself carried is stale too.**
+⛔ **`Quid` IS NO LONGER THE BINDING CONSTRAINT — `BTCChannels` IS**, so the clause that *"`Quid` is
+still the binding constraint"* is exactly the memorised half CLAUDE.md warns is quoted wrong. **Re-run
+`tools/check-contract-sizes.py`; do not quote any number written here.**
 
 ---
 

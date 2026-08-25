@@ -1040,7 +1040,7 @@ library BasketLib {
         uint delivered = wantUsd < freeUsd ? wantUsd : freeUsd;         // pay from free vault stables first
         if (wantUsd > freeUsd) {
             uint need = wantUsd - freeUsd;
-            uint freed = IQuid(r.ETH).unwindForRedeem(need);      // PLAIN range first; frees the exact USD asked
+            uint freed = ICore(r.ETH).unwindForRedeem(need);      // PLAIN range first; frees the exact USD asked
             // §G.6: if the plain unwind came up SHORT, the residual is levered backing being unranged — de-lever
             // the in-range ETH levers (value-neutral, LTV-improving) to free it. Invariant (nothing leaves the range
             // without de-levering) holds; balanced unrange ⇒ NO JIT/skew. No-op when there are no open levers.

@@ -76,7 +76,7 @@ library RangeLib {
     }
 
     /// @notice NET-EQUITY leg. Grows `pooled` (and so the share count) and the levered net slice.
-    /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `IQuid(this).addLiq`
+    /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `ICore(this).addLiq`
     ///         on ETH versus the library-local `addLiqChannel` on BTC -- and that is now one method
     ///         on the range face (`ICore.addLiq`), because routing is exactly what belongs in the
     ///         range. The other three differences were drift: price passed vs read (read here,
