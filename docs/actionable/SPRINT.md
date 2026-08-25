@@ -1839,6 +1839,32 @@ deleting a tombstone's mention is how a reader concludes the feature was removed
 the 52/28 split shows a blanket sweep would have removed the fixtures that make depeg and liquidation
 testable at all.
 
+## 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it** (2026-08-25)
+
+§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT establishes that a pre-signed LP-only exit leaves
+`poolOwnedSats` in the 2-of-2 funding UTXO with no unilateral spender. **Measured today, nothing
+tests it — and the reason is structural, not an oversight:**
+| | |
+|---|---|
+| tests referencing `poolOwnedSats` | **0** |
+| `recordDeadManExit` call sites in tests | **6** (`BtcSelfManaged` 5, `VBtcLevFeeLane` 1) |
+| of those fixtures, ones that call `parkProvenSats` | **0** |
+
+⇒ **EVERY dead-man exit test runs on a channel where `poolOwnedSats == 0`**, so the subtraction
+`lpEntitled = amountSats − poolOwnedSats` is exercised only in the case where it is a no-op. **The
+branch that strands pool inventory has never executed in a test.**
+⛔ **AND DO NOT "FIX" THIS BY WRITING A TEST THAT ASSERTS THE STRANDING.** That would encode the
+defect as expected behaviour and make it permanent — the §T1-f-root failure mode exactly (a clamp that
+survives a root fix was never the fix). **The test belongs AFTER the segregation decision, asserting
+that pool sats ARE recoverable, not that they are lost.**
+▶️ **WHAT THE TEST LOOKS LIKE ONCE THE DECISION IS MADE:** open a channel, `parkProvenSats` a non-zero
+amount, arm and broadcast a dead-man exit, `recordDeadManExit`, then assert **(a)** the LP received
+exactly `amountSats − poolOwnedSats`, and **(b)** the pool's share is claimable by SOMEONE without
+hop cooperation. **(b) is the assertion that does not pass today**, and it is the whole question.
+⚠️ **THIS IS THE ONE PLACE THE "FULLY IMMUNE" ANSWER IS NOT YET DEFENSIBLE BY TEST.** The LP half is:
+`recordDeadManExit` is permissionless and SPV-gated, and `vault.rs:205-207` states that a fleet able
+to forge the ladder would already hold the LP half. **The pool half rests on reading the code.**
+
 ## 🔴🔴 **§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT — LP funds ARE immune to a full custody compromise; POOL sats are NOT** (2026-08-25, owner question)
 
 Owner asked whether BTC state is "fully immune" if the daemon **and** the fallback **and** the msig
