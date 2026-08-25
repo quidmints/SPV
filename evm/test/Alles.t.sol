@@ -3001,20 +3001,27 @@ contract Alles is AllesFixture {
     function testVaultBalanceDistribution() public {
         (uint[15] memory deposits, ,,) = AUX.get_deposits();
 
+        // 🔴 THREE DEFECTS, AND THE FIRST TWO MADE THIS TEST MEASURE HALF THE BASKET AND SAY SO
+        //   INCORRECTLY. `deposits` is `uint[15]` with `[14]` the TOTAL, so the VAULTS are `0..13`
+        //   — both loops ran `i = 1; i < 9`, covering **8 of 14** and silently skipping index 0 and
+        //   9..13. A test named `...AllVaults`-adjacent that inspects 57% of them cannot see a
+        //   vault that stopped receiving deposits, which is the only thing it is for.
+        // ⚠️ AND THE ASSERTION DISAGREED WITH ITS OWN MESSAGE: it said *"at least 3 vaults"* and
+        //   checked `>= 2`. **The message is the claim a reader trusts**, and off-by-one between
+        //   the two is the §VACUOUS-BOUNDS shape in miniature — the stated bound was never enforced.
+        // ⇒ Widening the loop can only INCREASE the count, so tightening 2 -> 3 to match the message
+        //   is safe in the direction it matters. Also folds the two identical loops into one.
         uint total = deposits[14];
-        for (uint i = 1; i < 9; i++) {
-            if (deposits[i] > 0) {
-                uint percentage = (deposits[i] * 100) / total;
-                console.log("Vault...", i);
-                console.log("deposits[i]", deposits[i]);
-                console.log("%", percentage);
-            }
-        }
         uint vaultsWithDeposits = 0;
-        for (uint i = 1; i < 9; i++) {
-            if (deposits[i] > 0) vaultsWithDeposits++;
+        for (uint i = 0; i < 14; i++) {
+            if (deposits[i] == 0) continue;
+            vaultsWithDeposits++;
+            console.log("Vault...", i);
+            console.log("deposits[i]", deposits[i]);
+            console.log("%", (deposits[i] * 100) / total);
         }
-        assertGe(vaultsWithDeposits, 2, "Should have deposits in at least 3 vaults");
+        emit log_named_uint("vaults with deposits (of 14)", vaultsWithDeposits);
+        assertGe(vaultsWithDeposits, 3, "Should have deposits in at least 3 vaults");
     }
 
     function testDepositVaultShares() public {
@@ -3056,15 +3063,28 @@ contract Alles is AllesFixture {
         uint userBalance = QUID.balanceOf(User01);
         uint redeemAmount = Math.min(userBalance / 2, 100000 * WAD);
 
+        // 🔴 THIS TEST IS NAMED `...AllVaults` AND OBSERVED **TWO** OF FOURTEEN. It counted only
+        //   USDC and DAI balance increases, so its `assertGe(vaultsUsed, 2)` was the MAXIMUM the
+        //   code could ever count — i.e. `assertEq(2, 2)` wearing a `Ge`. A redemption that drew
+        //   from those two and nothing else passed identically to one that drew from all fourteen,
+        //   and a vault that silently stopped being drawn from was invisible.
+        // ⇒ MEASURE THE VAULTS, NOT TWO OF THE PAYOUT TOKENS. `get_deposits()` reports per-vault
+        //   balances (index 14 is the TOTAL, so vaults are 0..13); count how many FELL across the
+        //   redemption. ⚠️ It is deliberately called BEFORE and AFTER rather than cached — it is
+        //   NOT `view` and refreshes the figures it returns, which is the §CACHE-SENSITIVE note.
+        (uint[15] memory before_, ,,) = AUX.get_deposits();
         uint usdcBefore = USDC.balanceOf(User01);
-        uint daiBefore = DAI.balanceOf(User01);
 
         AUX.redeem(redeemAmount);
 
+        (uint[15] memory after_, ,,) = AUX.get_deposits();
         uint vaultsUsed = 0;
-        if (USDC.balanceOf(User01) > usdcBefore) vaultsUsed++;
-        if (DAI.balanceOf(User01) > daiBefore) vaultsUsed++;
+        for (uint i = 0; i < 14; i++) if (after_[i] < before_[i]) vaultsUsed++;
+        emit log_named_uint("vaults DRAWN FROM (of 14)", vaultsUsed);
+        emit log_named_uint("total deposits before    ", before_[14]);
+        emit log_named_uint("total deposits after     ", after_[14]);
 
+        assertGt(USDC.balanceOf(User01), usdcBefore, "PREMISE: the redemption paid out at all");
         assertGe(vaultsUsed, 2, "Large redemption should pull from multiple vaults");
 
         vm.stopPrank();

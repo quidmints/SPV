@@ -1213,6 +1213,63 @@ that noticed this.
 `2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
 skew change in this session.
 
+## ⚠️ **§BASKET-COVERAGE-3-OF-14 — the fixture funds THREE vaults, and no test could see that** (2026-08-25)
+
+Two `Alles` tests inspected the basket and **both were structurally blind**:
+  • `testVaultBalanceDistribution` looped `i = 1; i < 9` over a `uint[15]` whose `[14]` is the TOTAL —
+    so it covered **8 of 14 vaults**, skipping index 0 and 9..13 — and its assertion checked `>= 2`
+    while its own message said *"at least 3 vaults"*.
+  • `testLargeRedemptionAllVaults` is named for ALL vaults and counted **two**: it watched USDC and
+    DAI balances only, so `assertGe(vaultsUsed, 2)` was the MAXIMUM the code could ever count —
+    `assertEq(2, 2)` wearing a `Ge`.
+✅ **FIXED — both now read `get_deposits()` across all 14** (the redemption one diffs before/after to
+count vaults actually DRAWN FROM), and the off-by-one between message and bound is closed.
+📉 **AND THE MEASUREMENT THEY IMMEDIATELY PRODUCED: only 3 OF 14 VAULTS ARE FUNDED.** The large
+redemption draws from **3**, and total deposits fall `151,999.99 → 76,161.26` (about half, which is
+what redeeming half the balance should do).
+⇒ **EVERY basket test in this fixture exercises ~21% of the basket.** That is not a defect on its own
+— a fixture may reasonably seed a few stables — but it means **per-vault behaviour (allocation
+ordering, a vault that stops receiving, decimals handling on the 6-vs-18 boundary) is UNTESTED for 11
+of them**, and until today nothing reported it. ⚠️ Relevant to `BasketLib.sol:282`'s note that a
+POSITIONAL divisor shipped once and broke when a 6-dec stable joined at a later slot: **a later slot
+is exactly what this fixture never populates.**
+
+## 🔴🔴 **§SIGMA-IS-ZERO-EVERYWHERE — one root under four open rows, and the backtest now gives the target** (2026-08-25)
+
+The repaired backtest (§BACKTEST-SAME-INSTANTS) prints all three σ² figures side by side, and the
+third is the finding:
+
+| series | annualised σ² (WAD) | ⇒ annualised σ |
+|---|---|---|
+| real WETH/USDC v3 pool | **5.035e16** | **22.4%** |
+| Chainlink ETH/USD | **1.004e17** | **31.7%** |
+| **OUR RANGE** | **0** | **0%** |
+
+⇒ **Both real-world numbers are physically sensible for ETH, and the range's own variance is ZERO.**
+That is now a MEASURED calibration target rather than an opinion, which is what the backtest is for —
+and it was unusable until today (it reverted on `OLD`, then compared a double-differenced series 13
+orders out, then compared mismatched windows).
+
+⭐ **FOUR OPEN ROWS ARE THE SAME ROOT SEEN FROM DIFFERENT SIDES, AND EACH WAS BOOKED SEPARATELY:**
+| row | what it reports | why σ² == 0 explains it |
+|---|---|---|
+| **§UNITB-ARMS-IDENTICAL** | both arms charge 321,992 exactly | kernel is `Γ·σ²·qBar`; at σ² = 0 it vanishes and only size-based depletion is left |
+| **§TAX-IS-ZERO-AT-DEPTH** | 20 rounds of draining tax **0 bps** | same term, same reason |
+| **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE** | the only LP revenue lane reads 0 | `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and ETH's `spliceFloor` is **0** |
+| **§E345-ANCHOR / §E257** | the ring never fills, the pull source is unset | no source ⇒ no samples ⇒ σ² stays 0 |
+⇒ **`ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)` MEANS ETH'S ENTIRE SKEW IS PROPORTIONAL TO σ², WITH NO
+FLOOR.** BTC has `SPLICE_FLOOR = 2e15` and is therefore never fully exempt; **ETH at σ² = 0 prices
+nothing at all.** That is not four defects, it is one input at zero and four instruments correctly
+reporting it.
+▶️ **WHAT THIS CHANGES ABOUT THE FIX ORDER:** chasing §UNITB or §TAX-IS-ZERO individually is chasing
+symptoms. **The lever is making σ² real** — §UNITB's fixture now does it locally (pin `ETH_FEED`, push
+**MOVING** samples across blocks: measured `0 → 4.274e17`, which is the right ORDER against the
+5.0e16–1.0e17 the market shows). ⚠️ **AND 4.274e17 IS ~4× THE REAL FIGURE**, so that seeding is a
+smoke test, not a calibration — do not treat it as realistic vol.
+⚠️ **In PRODUCTION the Chainlink anchor moves and §E294's push path is live, so this is a FIXTURE
+problem, not a shipping one — but every σ²-dependent test is measuring zero until it is fixed**, and
+`§PUSH-HEADROOM-1.85X` is the reminder that the production path has its own thinning margin.
+
 ## 🔴🔴 **§PREMIUM-VS-BORNE — 92% of what a swapper gives up is attributed to NOBODY** (2026-08-25)
 
 Found by adding the bound `test_UNIT_PremiumRecordedEqualsPremiumPaid` was named for. **MEASURED on
