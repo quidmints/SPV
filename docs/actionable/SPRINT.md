@@ -11848,7 +11848,7 @@ own argument confirmed by an independent measurement — the lever is the extern
 rising** — every routed entrypoint the 1inch work still needs (`rebalance`, `openLev`, `closeLev`)
 adds to it.
 
-### 🔴 (original row, superseded figures kept for the reasoning)
+#### 📎 (original row, superseded figures kept for the reasoning; NOT an open row)
 | fold | merged size | limit | over by |
 |---|---|---|---|
 | `Quid` ∥ `Vault` | ~30,000 | 24,576 | **~5.4 KB** |
@@ -11866,7 +11866,25 @@ code**; and its helpers are ALREADY 4-8 line forwarders (`_burnInRange` 4, `_bur
 72 other. ⇒ **The lever is the external SURFACE, not body placement.** Deleting the 4626 face is
 the one move that frees KBs, which ties this to the 7540 row below.
 
-### 🔴 THE 4626 FACE IS THE WRONG FACE, AND CUTTING IT IS ALSO THE FOLD PREREQUISITE
+### 🟡 **THE 4626 FACE — RE-MEASURED 2026-08-25, AND THE ROW IS HALF-STALE. THE REMAINING SURFACE IS HONEST.**
+▶️ **8 selectors remain on `Quid`, not 12** (`asset` `totalAssets` `convertToShares` `convertToAssets`
+`maxDeposit` `maxMint` `previewDeposit` `previewMint`), and **ZERO off-chain consumers** — no SPA, no
+`quid-ln` reference.
+⛔ **THE ROW SAYS ALL FOUR `preview*` MUST REVERT. ONLY TWO EVER APPLIED, AND §E295 ALREADY DELETED
+THEM.** `previewWithdraw`/`previewRedeem` are gone (§E295: *"THEY DESCRIBED AN ASYNC FLOW AS
+SYNCHRONOUS"*) — that is the redemption side, which genuinely defers (`_withdraw` "defaults to WAIT").
+**THE DEPOSIT SIDE IS SYNCHRONOUS AND THEREFORE HONEST:** `_deposit4626` computes
+`shares = pooled - preShares` and mints in the same call; every fixture receives shares immediately.
+⇒ **7540's "preview must revert" is a rule about ASYNC flows. A synchronous deposit is not one**, so
+`previewDeposit`/`previewMint` are correct as written.
+⇒ **CUTTING THEM WOULD BE A BYTE SAVING DRESSED AS A CORRECTNESS FIX** — deleting a standard, honest
+accessor to buy fold headroom. Standing rule 18: the best solution, not the one that helps the number.
+▶️ **WHAT SURVIVES OF THIS ROW:** the fold still needs ~2.4 KB on `Quid`∥`Vault` (re-measured above),
+and **the 4626 face is no longer where it comes from.** The surface lever is real — `Quid` carries 92
+selectors — but these 8 are not the dishonest ones. **Find the headroom elsewhere, or accept the fold
+is not free.**
+
+#### 📎 (original row, superseded — kept for its 7540 reasoning; NOT an open row)
 `docs/actionable/VBTC-ASSET-AND-7540.md`: **both ranges are asynchronous**, so the honest face is
 **7540, not 4626** — and 7540 requires `preview*` to REVERT for async flows. `Quid.sol` returns
 values from all four (`previewDeposit` `previewMint` `previewWithdraw` `previewRedeem`) plus
