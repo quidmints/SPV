@@ -194,6 +194,27 @@ dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* �
 reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
 defect. **Do not "fix" it by lowering the premise.**
 
+## 🔴 **§PROVE-MIRROR-GAP — the gap is EXACTLY 2× the traded volume, which is drift, not divergence** (2026-08-25)
+
+`test_PROVE_PooledIsDerivableFromPoolState` asserts the USD mirror equals the volatile inventory
+priced at the range price, within 1%. **Measured across two independent runs: the gap is
+`24,000e6` — EXACTLY — while the fixture trades `4 × 3,000 = 12,000`.**
+⇒ **A gap of 2× the traded volume is the signature of the two legs moving in OPPOSITE directions by
+the traded amount** — one leg gains what the other loses, so their DIFFERENCE moves by twice the flow.
+That is the range operating normally, not the mirror disagreeing with inventory.
+▶️ **AND IT IS INVARIANT TO MY CHANGES, which is why it is worth pinning:** pre-fix `483,986 vs
+507,986`, post-fix `481,483 vs 505,483` — both legs shifted ~2,500 TOGETHER and the gap did not move.
+The burn fix reduces `POOLED_USD`, so widening this was the obvious risk; it did not happen.
+⚠️ **THE TEST'S OWN COMMENT CONCEDES THE MECHANISM:** *"the legs drift with flow between rebalances
+and are restored afterwards, so a gap beyond that means the mirror and the inventory disagree."*
+⇒ **SO THE REAL QUESTION IS NARROW: does a rebalance actually restore the legs, and does this fixture
+ever trigger one?** `_trade` only rolls and warps; `_rebalance` runs on deposit/withdraw, not on
+swaps. **If nothing rebalances, 1% cannot hold after $12,000 of flow on a ~$500k range and the
+tolerance is simply wrong. If a rebalance WOULD restore it, the fixture is missing the trigger — and
+that is a real gap in the invariant's coverage, not a tolerance question.**
+⛔ **Do NOT widen the 1% to make it pass.** The comment is explicit that a gap beyond drift means a
+real defect; widening it deletes the only statement of the invariant the range is built on.
+
 ## 🔴 **§UNITB-ARMS-IDENTICAL — σ² is 0 because the fixture never pins a feed AND never samples twice** (2026-08-25)
 
 `test_UNITB_CounterMatchesWhatTheSwapperLoses` fails its control *"the target move must change the
