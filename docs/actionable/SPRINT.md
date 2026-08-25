@@ -7349,7 +7349,31 @@ finding.** Cost: one 90-minute agent that died on it.
 
 ### `§A.5g` 🔴
 
-### 🔴 §A.5g — **GENUINELY OPEN, and worse than recorded.**
+### 🔴🔴 §A.5g — **RE-CONFIRMED 2026-08-25 AND WORSE AGAIN: THE STATE FOR THE FIX WAS ADDED, THE FIX WAS NOT.**
+
+📉 **MEASURED TODAY:**
+  • `VaultNode.hop_addr: LxSocketAddress` EXISTS and is tagged **`(§A.5g)`** — *"the hop's p2p address,
+    kept so the link can be RE-DIALLED after a drop. LDK's `PeerManager` owns sockets but does NOT
+    re-dial on its own, and the initial dial below is one-shot."* It is set at `vault.rs:901`.
+  • **AND NOTHING RE-DIALS.** Widened grep across `quid-bridge/src` and `quid-ln/src` for a spawned
+    task matching `reconnect|redial|peer_conn|keep_alive|connect_peer`: **ZERO**. Every
+    `connect_peer_if_necessary` call site is boot-time or call-time with bounded `retries`.
+⇒ **THIS IS THE §BACKING-DEAD SHAPE IN RUST: state kept for a mechanism that was never wired**, and
+now the FIELD'S OWN DOCBLOCK asserts the capability — so the next reader concludes re-dialling exists
+because the address is "kept for every later re-dial". **That is strictly worse than the original row**,
+which at least described an absence.
+🔴 **IMPACT UNCHANGED AND REAL: if the vault↔hop link drops after startup, every channel op fails
+until a restart.** A liveness bug, not a missing feature — and it is invisible until the drop.
+▶️ **THE FIX, AND ITS SHAPE IS ALREADY DETERMINED BY WHAT EXISTS:** spawn ONE long-lived task at
+`boot_vault` that, on an interval, checks `PeerManager` for `hop_pk` and calls
+`connect_peer_if_necessary(hop_addr, hop_pk, …)` when absent. **Both halves are already there** — the
+address is stored and the dialler is written and retry-capable. ⚠️ **Backoff is required**, or a hop
+that is down turns into a dial storm; and the task must be cancel-safe with the node's shutdown.
+⚠️ **AND DELETE OR CORRECT THE TWO COMMENTS THAT ASSERT IT ALREADY WORKS** (`vault.rs:893` *"the
+reconnect path will retry"*, `p2p.rs:193` *"a race between the reconnector and open_channel"*) —
+inherited from the upstream node this code came from, and they are what made the gap survive.
+
+### (original) §A.5g — **GENUINELY OPEN, and worse than recorded.**
 `connect_peer_if_necessary` (`p2p.rs:154`) retries a few times **at call time** (bounded, `retries` param).
 **No long-lived reconnector task is spawned anywhere in the daemon** — `grep spawn … | grep -ci 'p2p|peer|
 connect'` in `daemon.rs` = **0**.
