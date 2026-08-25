@@ -1283,7 +1283,41 @@ shares. **A similarity score measures spelling, not sameness.**
 gap is **structural, not duplicated bodies**, so closing it is §J.2 (one implementation, two
 instances) — an architecture change, and it must not be booked as "finishing the folds".
 
-## 🔴 **§WITHDRAW-RETURNS-ZERO — RE-MEASURED 2026-08-25, AND TWO CANDIDATE ROOTS ARE NOW EXCLUDED**
+## 🔴🔴 **§EXIT-ASSUMES-WEETH — a withdraw that delivers NOTHING and reverts NOTHING (root found 2026-08-25)**
+
+**THE CHAIN, every link read in the tree:**
+```solidity
+uint served = offrampEtherFi(ethfiPart, recipient);       // Quid._withdraw
+if (served > 0) { _burnInRange(served, …); … }
+else if (incrPre > 0) { _payUsdLeg(…); }                  // ← the ONLY fallback
+```
+`QuidLib.offrampBody` sells **weETH**:
+```solidity
+uint bal = IERC20(c.weeth).balanceOf(address(this));
+if (weethIn > bal) weethIn = bal;                          // no weETH held ⇒ 0 ⇒ served = 0
+```
+**AND DEPOSITS DO NOT CREATE weETH.** `supplyEtherFi` is a SEPARATE public function; a deposit leaves
+the ETH as WETH until something deploys it for yield.
+⇒ **AN LP WHO DEPOSITS AND WITHDRAWS BEFORE ANY ether.fi DEPLOYMENT GETS NOTHING, SILENTLY** — no
+delivery, no burn, no revert. Both branches are skipped when `served == 0` and `incrPre == 0`.
+▶️ **MEASURED (`test_V5`): 100 ETH pooled, 40 requested, `ETH delivered: 0`, `committed` identical to
+the wei, and `Quid::withdraw` still burned 348,011 gas.** The work happens; the payout does not.
+🔴 **A SILENT NO-OP IS THE WORST AVAILABLE FAILURE MODE HERE: the LP's shares are NOT debited, so
+nothing is stolen — but the caller has no way to learn the withdrawal did not happen.** A revert is
+strictly better than success-that-did-nothing, which is standing rule 3's exact criterion.
+⇒ **EXPLAINS `V5`, `V6`, `Redeem`, and `LevFeeLane`'s UNWIND-ONLY premise.** The `committed`
+assertions were always downstream: committed cannot fall when nothing left.
+▶️ **THREE FIXES, ranked, and NONE landed — this is the exit path and it is an owner call:**
+  (a) **Pay from WETH when no weETH is held.** The range HOLDS the WETH; routing an exit through an
+      ether.fi round-trip that has nothing to sell is the actual bug. Substantive fix.
+  (b) **Revert when `served == 0 && incrPre == 0`.** Minimal, strictly better than silence, does not
+      make the LP whole. A one-line honesty fix, not a repair.
+  (c) Have a keeper guarantee `supplyEtherFi` before exits are possible — makes the money path
+      depend on liveness, and does nothing for the first LP out.
+⚠️ **(a) IS THE REAL ONE.** (b) converts three silent failures into three loud ones, which is
+progress in diagnosis and none in behaviour.
+
+## 🔴 **(superseded) §WITHDRAW-RETURNS-ZERO — RE-MEASURED 2026-08-25, AND TWO CANDIDATE ROOTS ARE NOW EXCLUDED**
 ▶️ `test_V5_WithdrawShrinksCommitted` instrumented directly: **`committed before` == `committed after`
 to the wei, and `ETH delivered: 0`.** The LP holds ~100 ETH pooled (`99999999999999999998`), asks for
 40, receives NOTHING — and `Quid::withdraw` burns **348,011 gas**, so it is doing real work, not
