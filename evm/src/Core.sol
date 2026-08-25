@@ -901,13 +901,22 @@ contract Core {
     ///   legs because they are depositing both.
     function modLP(int256 delta, int256 deltaUSD, address sender)
         public onlyUs returns (uint sent) {
-        if (deltaUSD == 0 && delta > 0) {
-            uint pooledTok = POOLED;
-            if (pooledTok != 0)
-                deltaUSD = int256(Math.mulDiv(POOLED_USD, uint(delta) > pooledTok ? pooledTok : uint(delta), pooledTok));
-        }
+        // 🔴 §MODLP-DERIVE REVERTED 2026-08-25 — IT MADE AN LP RESIDUAL UNCOLLECTABLE.
+        // Deriving the USD leg for a leaving move was correct about the MIRROR and wrong about the
+        // CLAIM: releasing the increment proportionally on the first exit left `incrPre == 0`, so a
+        // SECOND exit found no weETH to offramp AND no increment to pay, and `_withdraw` skipped both
+        // branches. MEASURED (`test_SETTLE_LvrResidualIsDeferralNotLeak`): 400 ETH in, 375.63
+        // delivered, **24.32 ETH of shares left and the second redeem a COMPLETE NO-OP** — pooled
+        // unchanged, 0 ETH, 0 QU!D. The LP could not collect.
+        // ⇒ AN UNCOLLECTABLE RESIDUAL IS WORSE THAN THE `committed` OVER-REPORT IT FIXED, so the
+        //   `committed`-never-falls defect is RESTORED here deliberately and stays booked
+        //   (§BURN-RELEASES-NO-USD). **The real fix must release the mirror AND keep the residual
+        //   payable — those are two requirements, and I shipped one.**
+        // ⚠️ Standing rule 18 in its own terms: this WAS the better-shaped fix (root, not clamp) and
+        //   it was still not the best SOLUTION, because "best" includes not breaking a second
+        //   property. A root fix that trades one defect for a worse one is not a root fix.
         Delta memory d = Delta(deltaUSD, delta);
-        _handleDelta(d, true, false, sender, address(0), true);
+        _handleDelta(d, true, deltaUSD == 0, sender, address(0), true);
         sent = 0;   // nothing is refused, so nothing comes back
     }
 
