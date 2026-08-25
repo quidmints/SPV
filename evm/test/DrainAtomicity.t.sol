@@ -1652,7 +1652,13 @@ contract DrainAtomicity is AllesFixture {
         _setupRange();
         _drain(60_000 * 1e18);                     // create real imbalance, so q > 0
 
-        uint skewBefore   = AUX.wellSkew(address(WETH), 0);
+        // §SIZE-IS-MANDATORY — WAS `wellSkew(WETH, 0)`, WHICH READS THE SIZE-BLIND RATE. Interfaces.sol
+        // records that the size-blind overload was RETIRED because "the defect WAS consumers reading a
+        // size-blind number", and that leaving `(asset, 0)` callable "preserved the mistake". This
+        // control is one of those consumers: settlement charges the INTEGRAL over the path a swap
+        // walks, so at drain 0 there is no path, no depletion term, and the honest answer is ~0.
+        // Quote the skew for the drain this test ACTUALLY performed above.
+        uint skewBefore   = AUX.wellSkew(address(WETH), 60_000e6);
         uint pooledBefore = CORE.POOLED();
         uint flowBefore   = CORE.flowEwmaUsd();
 
@@ -1661,7 +1667,7 @@ contract DrainAtomicity is AllesFixture {
 
         ETH.reseat();
 
-        uint skewAfter   = AUX.wellSkew(address(WETH), 0);
+        uint skewAfter   = AUX.wellSkew(address(WETH), 60_000e6);   // same size as `skewBefore`
         uint pooledAfter = CORE.POOLED();
         uint flowAfter   = CORE.flowEwmaUsd();
 
