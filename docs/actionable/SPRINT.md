@@ -1283,6 +1283,25 @@ shares. **A similarity score measures spelling, not sameness.**
 gap is **structural, not duplicated bodies**, so closing it is §J.2 (one implementation, two
 instances) — an architecture change, and it must not be booked as "finishing the folds".
 
+## ⏸️ **§BTC-LEG-FEE — the ONE test that genuinely needs the v4 trading-fee leg back** (2026-08-25)
+
+`testBtcLp_swapInAccruesTheBtcLegFee` asserts `BTC.feesPerShare()` GREW across a swap-in. It cannot:
+`BtcLib`'s increment comes from `feesTok = r.fees1; feesUsd = r.fees0` off `rebalanceCore`, and since
+§V4-CUT that returns `(price, 0, 0, 0, 0)`. **`feesPerShare` is permanently 0 on BOTH ranges.**
+⭐ **AND THIS IS WHY IT SURVIVED THE SKEW FIX WHILE THE ETH FEE TESTS DID NOT.** `V2_EqualLps`,
+`V2_LateJoiner`, `E41`, `Matrix_S1` all asserted `pendingRewards > 0`, which reads **both**
+`feesPerShare` AND `USD_FEES` — so crediting the skew premium (which lands in `USD_FEES` via
+`creditSkewPremium`) was enough. **This one names `feesPerShare` SPECIFICALLY, and the skew lane never
+touches it.**
+⇒ **THE CLEAN DISCRIMINATOR FOR THE WHOLE FEE QUESTION: a test that reads `pendingRewards` is
+satisfied by the skew lane; a test that reads `feesPerShare` is not, and only the v4 trading-fee leg
+returning can satisfy it.** That is a one-line rule for triaging any future fee failure.
+⏸️ **BLOCKED, NOT BROKEN.** `QuidLib.rebalanceBody` records the open decision in its own words —
+*"whether per-share accrual returns is the deferred decision … fees currently compound into
+`POOLED_*` instead"*. ⛔ Do NOT "fix" this by asserting `USD_FEES` instead: that would silently
+redefine what the test checks and delete the only remaining statement that the TRADING-fee leg is
+dead. **It is the last witness to that gap.**
+
 ## 🔴🔴 **§BURN-RELEASES-NO-USD — the withdraw burn passes USD = 0, so `committed` can never fall** (2026-08-25)
 
 ⛔ **THIS SUPERSEDES §EXIT-ASSUMES-WEETH BELOW, WHICH WAS WRONG.** I read `ETH delivered: 0` and
