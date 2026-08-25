@@ -1133,6 +1133,22 @@ contract VBtcLevFeeLane is AllesFixture {
         _requestLevSwapOut(d);
         assertGt(d.sats, d.funded, "swap-out draws PAST the free channel range into the levered slice (#54 fires)");
         assertLt(d.sats, 3e8, "delivery fits within the channel");
+        // §BURN-RELEASE-CONFLICT residue — this test reverts `"backing"`, i.e.
+        // `require(committedUsd18() <= haircutTvl)` in `Core._poolUsdInRange`'s MINT arm. Print both
+        // sides of that inequality for BOTH ranges: `burnInRange` is SHARED (it takes `core`), so the
+        // BTC range gets the same basketLeg release the ETH range does — which means a surviving
+        // ratchet here is a COMMIT WITHOUT A MATCHING BURN, not a missing release.
+        {
+            (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
+            emit log_named_uint("TVL (usd6)              ", dd[14]);
+            emit log_named_uint("depegLoss (usd6)        ", dpg);
+            emit log_named_uint("ETH committedUsd18      ", CORE.committedUsd18());
+            emit log_named_uint("BTC committedUsd18      ", BTC.CORE().committedUsd18());
+            emit log_named_uint("ETH POOLED_USD          ", CORE.POOLED_USD());
+            emit log_named_uint("BTC POOLED_USD          ", BTC.CORE().POOLED_USD());
+            emit log_named_address("ETH core address        ", address(CORE));
+            emit log_named_address("BTC core address        ", address(BTC.CORE()));
+        }
 
         // The vBTC withdraw inside swapOutDelever needs the LP to authorize the venue as its Morpho manager.
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);

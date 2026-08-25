@@ -251,7 +251,7 @@ is the only thing that noticed any of this.
 BLOCKER.** Fixing it was necessary work that moved the test not one inch, because the row had booked
 the first cause it found as the whole cause.
 
-## 🔴 **§UNITB-ARMS-IDENTICAL — σ² is 0 because the fixture never pins a feed AND never samples twice** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — SUPERSEDED by the re-diagnosis above: σ² was seeded (0 → 4.274e17) and the arms stayed identical; `skewWad` is FLOW-BLIND because its own flush branch fires]**  **§UNITB-ARMS-IDENTICAL — σ² is 0 because the fixture never pins a feed AND never samples twice** (2026-08-25)
 
 `test_UNITB_CounterMatchesWhatTheSwapperLoses` fails its control *"the target move must change the
 skew"*. **Measured: both arms charge 321,992 EXACTLY, and `sigma^2 (wad)` is 0.**
@@ -1307,6 +1307,33 @@ Its own comment claims the legs *"are restored afterwards"*; nothing restores th
 conserved across a fill — `Δ(POOLED_USD) + Δ(POOLED * price) ≈ 0` up to fees and the skew premium.
 That is what an oracle-settled swap guarantees, it catches a real leak, and it is satisfied by
 directional flow. ⛔ **Do NOT widen the 1% bound** — the bound is not the problem, the quantity is.
+
+## 🔴 **§BACKING-HEADROOM-3PCT — the `backing` revert is TIGHTNESS, not double-counting** (2026-08-25)
+
+`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` reverts `"backing"` —
+`require(committedUsd18() <= haircutTvl)` in `Core._poolUsdInRange`'s MINT arm. Instrumented both
+sides of that inequality:
+```
+TVL              157,000,005,408,999,999,999,999
+depegLoss                                      0
+committedUsd18   151,999,999,204,000,000,000,000    ⇒ headroom 5,000,006 = 3.2%
+POOLED_USD                       275,787,333,382
+```
+⇒ **The gate is not wrong and nothing is double-counted: the range is simply committed to 96.8% of
+TVL, and the delivery's own commit crosses the last 3.2%.**
+⛔ **AND A FALSE ALARM I ALMOST BOOKED, RECORDED BECAUSE THE SIGNATURE IS THE ONE THIS REPO HAS BEEN
+BURNED BY 246 TIMES:** the probe printed **ETH and BTC `committedUsd18` and `POOLED_USD` as
+byte-identical**, which is the §WRONG-RANGE signature exactly. **It is correct here.**
+`VBtcLevFeeLane:61` is `setUp() public override { super.setUp(); CORE = BTC.CORE(); }` — the suite
+DELIBERATELY re-points `CORE` at the BTC instance because it is a BTC-side suite, so both reads were
+of the same core by design. ⚠️ **Deployment was checked too and is right:** `DeployLib:218` is
+`_newVault(cfg, a.btcCore, …)`, and `:136-137` construct two distinct cores.
+⇒ **BEFORE CALLING IDENTICAL RANGE FIGURES A §WRONG-RANGE BUG, CHECK WHETHER THE SUITE REBOUND
+`CORE` IN `setUp`.** A `super.setUp()` override is invisible at the call site.
+▶️ **WHAT REMAINS REAL:** 3.2% headroom is thin, and §BURN-RELEASE-CONFLICT's ratchet is what consumes
+it — the burn now releases the basket's share on the ETH path via `basketLeg`, and `burnInRange` is
+SHARED, so the BTC range gets it too. **Next: measure whether this headroom GROWS across repeated
+deliver/burn cycles (fixed) or shrinks (still ratcheting).**
 
 ## 🔴 **§UNITB-NEEDS-A-MOVING-FIXTURE — the two preconditions FIGHT under draining, measured** (2026-08-25)
 
