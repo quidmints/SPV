@@ -1749,6 +1749,35 @@ then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing 
 de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
 will not carry all seven; route in call-frequency order and fold again when it binds.
 
+## ✅ **§MIGRATION-PLACEHOLDERS-ARE-FAIL-CLOSED — verified, and my own alarm was the false one** (2026-08-25)
+
+`scan-loose-ends.py` flags `quid-hop/src/migration.rs`'s `PLACEHOLDER` constants, and the row
+*"`migration.rs` PLACEHOLDERS NAME AN OPERATOR SAFE"* asks whether that is a live hazard. **It is not.**
+
+`OPERATOR_SAFE` and `BTC_CHANNELS` are both `0x…dEaD`, and `guard_prod_trust_anchors` refuses to boot
+on **four** distinct conditions:
+| refuses when | line |
+|---|---|
+| `OPERATOR_SAFE` is still the dev placeholder | `:113` |
+| `OPERATOR_OWNERS` are still well-known dev keys 1/2/3 | `:125` |
+| `BTC_CHANNELS` is still the dev placeholder | `:158` |
+| the observed chain id ≠ `PROTOCOL_CHAIN_ID` — *"host may be redirecting the protocol to a fork/testnet"* | `:166`, `:172` |
+
+✅ **AND IT IS INVOKED ON A REAL PATH, WHICH IS THE HALF THAT MATTERS:**
+`quid-hop/src/seed.rs:377` — `crate::migration::guard_prod_trust_anchors(deploy_env)?;` — sitting
+immediately after `enclave::require_backend_for_role(...)` on the seed-provision path, with the
+adjacent comment stating the stake: refusing the dev anchors *"which would otherwise let anyone forge
+a MigrationAuth and steal the seed."*
+
+⛔ **AND I NEARLY BOOKED THE OPPOSITE. RECORDED BECAUSE THE SHAPE IS THIS REPO'S MOST EXPENSIVE ONE.**
+My first grep for callers matched only `migration.rs:552-554` — the guard's OWN TESTS — and I was one
+step from booking *"a guard that is tested but never invoked at boot"*, i.e. the §BACKING-DEAD finding
+(`_reportEquity` had no callers, so its `require` compared `0 <= haircutTvl` and could never bind).
+**The pattern was so recognisable that it nearly manufactured its own evidence.** The real caller was
+in a DIFFERENT CRATE (`quid-hop/src/seed.rs`), which my filter excluded.
+⇒ **WHEN A GREP CONFIRMS A FAMILIAR DEFECT SHAPE, WIDEN IT BEFORE BELIEVING IT** — especially across
+crate boundaries. A guard's caller is often not in the guard's own file.
+
 ## 🔴 **§MOCK-CENSUS — 80 raw mock sites refine to 28, and the discriminator is CONDITION vs LOGIC** (2026-08-25)
 
 Owner's standing rule is *"no mocks, real mainnet fork only"*, and `scan-loose-ends.py` reports
