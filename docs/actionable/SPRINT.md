@@ -13812,7 +13812,23 @@ suite-state history that `SPRINT.md` does not**; grep both before calling anythi
 
 ## 🔴🔴 §E330 — **THE FOLD'S BLOCKER FIGURE IS STALE BY 2.2×, AND THE "FEES DID NOT ACCRUE" CLUSTER IS A DESIGN CONSEQUENCE, NOT A TEST BUG**
 
-### 1. ⏸️ `Quid` ∥ `Vault` WAS **12,187 BYTES OVER** AT `6cc35b71`, NOT ~5.4 KB — MEASURED, NOT PLANNED. **IT IS 9,113 TODAY; SEE THE 📌 BELOW THE TABLE.**
+### 1. ⏸️ **RE-MEASURED 2026-08-26: THE BLOCKER IS NOW 8,896 BYTES OVER, DOWN FROM 12,187 — THE FOLD GOT 3,291 BYTES CLOSER AND NOBODY BOOKED IT.**
+| | at `6cc35b71` | today |
+|---|---|---|
+| `Quid` | 24,104 | **21,625** |
+| `Vault` | 12,659 | **11,847** |
+| naive merge | 36,763 | **33,472** |
+| **over EIP-170** | **12,187** | **8,896** |
+⇒ **Both halves shrank** — `Quid` by 2,479 (§E347-QUID's fold sweep, §V4-CUT, the `derivedThetaWadAt`
+deletion) and `Vault` by 812 (the `EthVenue` extraction's leftovers). **A blocker figure is a reading
+with a timestamp, exactly like a size margin**, and this one has moved 27% without a single row
+recording it.
+⚠️ **STILL 8.9 KB OVER, so the conclusion is UNCHANGED: a naive merge does not fit.** What changes is
+the SIZE of the problem — a shared-implementation fold now needs to find ~8.9 KB, not ~12.2 KB, and
+the two folds that produced most of that saving (deleting a whole contract's worth of duplicated
+bodies) are the same technique.
+
+### 1-orig. ⏸️ `Quid` ∥ `Vault` WAS **12,187 BYTES OVER** AT `6cc35b71`, NOT ~5.4 KB — MEASURED, NOT PLANNED. **IT IS 9,113 TODAY; SEE THE 📌 BELOW THE TABLE.**
 `§E315-HANDOFF` records the merged pair at *"~30,000 vs 24,576, over by **~5.4 KB**"*. Re-measured from
 `deployedBytecode.object` at `6cc35b71`:
 | | bytes |
