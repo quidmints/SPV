@@ -839,7 +839,26 @@ which is the same lesson as the census above arriving one level down.
 remains unpinnable, and every fork run is head-only on `publicnode`. **The unblock is a key with real
 throughput — Alchemy and Infura both include archive on their FREE tiers**, which is the cheapest way
 to get pinned, deterministic fork tests back. Bank it in `evm/.env`, never in `foundry.toml`.
-⇒ **UNTIL THEN, THE RULE IS SIMPLY:**
+✅✅ **THE FLAKINESS IS SOLVED WITHOUT AN ARCHIVE KEY, AND THE FIX WAS ALREADY IN THE TREE — `ForkPin`
+(`evm/test/utils/ForkPin.sol`). PIN `FORK_BLOCK` TO A *CURRENT* BLOCK.** Its own docstring gives the
+recipe and I spent a day not using it:
+```
+FORK_BLOCK=$(cast block-number --rpc-url "$MAINNET_RPC")   # or head-20 via eth_blockNumber
+FORK_BLOCK=$PIN ETH_RPC_URL=https://ethereum-rpc.publicnode.com forge test -j 8
+```
+⇒ **WHY IT ENDS THE FLAKINESS, AND IT IS NOT ONLY DETERMINISM:** every fork in the run uses ONE block,
+so foundry's `~/.foundry/cache/rpc` (already **11 GB** here) caches that block's state to DISK. The
+first run warms it; later runs read locally instead of re-fetching, which is what was rate-limiting
+every endpoint. **A pinned block is servable by a NON-ARCHIVE node** as long as it is recent, so this
+needs no key at all.
+📉 **MEASURED 2026-08-25 at `FORK_BLOCK=25833279`: 480 passed / 39 failed / 519 total, and — for the
+first time all day — `setUp` failures **0** and environmental errors **0**.** Unpinned runs the same
+hour produced 32 `setUp` failures, totals swinging 341–517, and three stalled censuses.
+⇒ **QUOTE A PASS COUNT ONLY FROM A PINNED RUN.** An unpinned total is not a measurement of the tree.
+⚠️ Pin a block ~20 behind head so it is stable, and reuse the SAME pin across a comparison — that is
+the whole point (`§A.18`: three correct fixes were each blamed for 31 failures a clean tree reproduced).
+
+⇒ **AND THE ENDPOINT RULE, WHICH THE PIN MAKES ALMOST IRRELEVANT:**
   • **EVERYTHING → `https://ethereum-rpc.publicnode.com`** (head-only, but it survives the load).
 ⚠️ **THE THREE TELLS OF A CONTAMINATED RUN, CHECK ALL THREE BEFORE QUOTING ANY TOTAL:**
   1. `grep -cE '\[FAIL.*\] setUp'` non-zero ⇒ the total is a FLOOR (drpc did this: 517 → 341).
