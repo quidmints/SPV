@@ -1662,9 +1662,19 @@ is still trying to collect. Bigger release ⇒ strictly harder exit, monotonical
 ⇒ **THE MISSING HALF IS DELIVERY, NOT RELEASE SIZE.** The next attempt must make the burn *pay* the
 dollars it frees (the `§#12 DELIVERY LEG` / `_payUsdLeg` machinery is the shape); changing the
 argument again is already measured and cannot work.
-🔴 **AND THE PART THAT SETTLES IT: `f0934722` DID NOT FIX THE TESTS IT WAS WRITTEN FOR EITHER.** A
-full gate run taken WITH that change in the tree (`gate_burn`, 444 passed / 52 failed / 496) still
-shows **4 committed-family failures** — `test_V5_WithdrawShrinksCommitted`,
+⛔ **CORRECTION 2026-08-25, SELF-CAUGHT AND IT WEAKENS MY OWN CASE: `f0934722` DID FIX ONE REAL TEST,
+AND I WROTE THAT IT FIXED NOTHING.** `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` reverts
+`"backing"` — `require(committedUsd18() <= haircutTvl)` at `Core.sol:1285`, the §BACKING-DEAD gate
+that was ARMED. **Counted across three gates: `gate_burn` (WITH `f0934722`) has ZERO `backing`
+failures; `gate_batch` and the current gate (both WITHOUT it) have ONE each.** ⇒ **Releasing the
+basket's dollars on burn is what stops `committed` RATCHETING into the armed gate**, which is the
+mechanism the row was always about — it just does not show up in the three assertions everyone was
+watching. ⇒ **THE TRADE IS THEREFORE REAL, NOT ONE-SIDED: one test fixed against a 9.5× regression on
+the LP exit path.** Reverting is still right on those numbers, but *"it bought nothing"* was false and
+would have sent the next thread looking for a different root.
+🔴 **WHAT REMAINS TRUE: `f0934722` DID NOT FIX THE THREE ASSERTIONS IT WAS WRITTEN FOR.** A full gate
+run taken WITH that change in the tree (`gate_burn`, 444 passed / 52 failed / 496) still shows
+**4 committed-family failures** — `test_V5_WithdrawShrinksCommitted`,
 `test_Redeem_UnwindsRangeToFreeCommittedDollars`, `test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt`
 — the same count as the run before it. ⇒ **It bought NOTHING on the `committed` side and cost 9.5× on
 the exit side.** Reverting it is not a trade-off; it is strictly better on both axes.
