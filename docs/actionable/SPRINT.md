@@ -7387,9 +7387,13 @@ connect'` in `daemon.rs` = **0**.
 ### `§J.8b` 🔴
 
 ### 🔴 §J.8b (`outOfRange` dedup) — **GENUINELY OPEN + a confirmed DEDUP target.**
-SIX declarations, split by asset rather than parameterised:
-`Core.sol:551` · `Quid.sol:350` · `Vault.sol:939 (outOfRangeBtc)` · `Interfaces.sol:194` ·
-`BtcLib.sol:285 (outOfRangeBtc)` · `SwapLib.sol:1702` — 27 references tree-wide.
+⚠️ **RE-MEASURED 2026-08-25 — SMALLER THAN RECORDED, AND EVERY LINE NUMBER HAD MOVED.** **FIVE**
+declarations, not six, and **11 LIVE references**, not 27 (the 27 counted COMMENTS):
+`Core.sol:938` · `Quid.sol:438` · `Vault.sol:651 (outOfRangeBtc)` · `Interfaces.sol:508` ·
+`BtcLib.sol:299 (outOfRangeBtc)`. ⛔ **`SwapLib.sol:1702` IS GONE** — the sixth declaration no longer
+exists, so the target shrank without anyone booking it.
+⇒ **The shape is UNCHANGED and still a §J.2 feed:** `outOfRange` (Core / Quid / Interfaces) against
+`outOfRangeBtc` (Vault / BtcLib) is the same `isBTC` hand-polymorphism, now across 5 sites instead of 6.
 ⇒ The `outOfRange` / `outOfRangeBtc` pair is the SAME logic forked on asset — exactly the shape the deep
   dedup pass exists to collapse. **Feed it there rather than fixing in isolation.**
 
