@@ -5497,7 +5497,26 @@ here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `Q
 - `§E59-REOPENED`, `§E55`/`§UNIT-B-MIN-IS-NOOP` — `min(fast, slow)` is unconditionally the fast leg.
 - `§E247-allowlist-gate`, `§E251-vbtc-scope`, `§E244-tri-tests` (partly closed), `§A.65`, `§AAVE_SPOKE`.
 
-### 🔴 Suite / tree state — **needs one clean run to settle, not analysis**
+### ✅ Suite / tree state — **SETTLED 2026-08-25 BY THE RUN IT ASKED FOR**
+
+📉 **THE CLEAN NUMBER, ON ONE COMMIT, WITH ZERO ENVIRONMENTAL NOISE:**
+```
+FORK_BLOCK=25833279  ETH_RPC_URL=https://ethereum-rpc.publicnode.com  forge test -j 8
+480 passed / 39 failed / 519 total   ·   setUp failures 0   ·   env errors 0
+```
+⇒ **The 39 break down as 32 route-blocked (`NoVolatileRoute`, §ROUTE-BLOCKED-24) + 7 real**, and all
+7 are booked with diagnoses. ⭐ **THE PIN IS WHAT MADE IT CLEAN** — the row's premise was that a
+shared tree invalidates the number, but the dominant instability was the CHAIN, not the tree: unpinned
+runs the same hour gave **32 `setUp` failures and totals swinging 341–517**. `ForkPin` + `FORK_BLOCK`
+removes both, and warms foundry's disk cache so the run is repeatable.
+⚠️ **CAVEAT, STATED RATHER THAN GLOSSED:** this was run in the MAIN tree, not a detached worktree.
+`git status` was clean and no other thread was active, but the row's *"pinned worktree"* bar is met on
+the chain-state axis only. **Re-run in a worktree if another thread is live.**
+⇒ The seven rows this covers (`§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`,
+`§POOLED-USD-ROOT-CORRECTED`, `§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6`, `§TREE-UNSTABLE`) were one
+measurement, exactly as it says — and it has now been taken.
+
+### ⏸️ (original) Suite / tree state — needs one clean run to settle, not analysis
 `§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`, `§POOLED-USD-ROOT-CORRECTED`,
 `§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6` (the 4-gate verification bar), `§TREE-UNSTABLE`.
 ⇒ **These are one measurement, not seven items.** See `§9`/PART A: nobody has a clean full-suite
