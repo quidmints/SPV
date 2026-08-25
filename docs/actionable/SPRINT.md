@@ -1607,7 +1607,29 @@ storage, which does NOT self-clear, so it must be `delete`d at the end of the ro
 stale route is arbitrary calldata `_aggSwap` would execute against the pinned router on a LATER
 transaction** — unlike a stale `_activeKeeper`, which is `transient` (so it clears itself) and in any
 case only redirects a gas reimbursement.
-⇒ **THE SHAPE TO BUILD:**
+🔴🔴 **BUILT AND MEASURED, AND THE NUMBER KILLS THE PER-ENTRYPOINT SHAPE: +683 BYTES FOR *ONE*.**
+`rebalanceRouted` was wired exactly as below (slot + `_sellCtx` read + one wrapper, and `_sellCtx`'s
+dead `keeper` param deleted while there). Build green, and **`LevManager` went 23,590 → 24,273 —
+margin 986 → 303.** ⇒ **Six more entrypoints at that rate need ~4,000 bytes that do not exist**, and
+it fixed **ZERO tests**, because the fixtures still supply no route (§ROUTE-BLOCKED-24 is a route
+SOURCE problem, not a plumbing one). **Reverted rather than leave the binding contract at 303 bytes
+for no measurable gain.**
+⭐ **THE COST IS IN THE WRAPPER, NOT THE SLOT** — an `external` function taking `bytes calldata` pays
+for its own dispatch, copy and bounds checks. ⇒ **THE AFFORDABLE SHAPE IS ONE DISPATCHER FOR ALL
+SEVEN**, not seven wrappers:
+```solidity
+function runRouted(uint8 op, address lp, uint256 minOut, bytes calldata route) external nonReentrant {
+    _activeKeeper = msg.sender;  _activeRoute = route;
+    if      (op == 0) _rebalance(lp, minOut);
+    else if (op == 1) _closeLev(lp, minOut, false);
+    else …                                        // one calldata frame amortised over all ops
+    delete _activeRoute;
+}
+```
+⚠️ **Measure it before believing it too** — the branch table is not free either, and 303 bytes of
+headroom is what the last attempt left. **Re-measure `LevManager` FIRST; it may need a fold before
+either shape fits.**
+⇒ **THE PER-ENTRYPOINT SHAPE, kept as the record of what was measured:**
 ```solidity
 bytes private _activeRoute;                       // ordinary storage: transient rejects `bytes`
 function rebalanceRouted(address lp, uint minOut, bytes calldata route) external {
