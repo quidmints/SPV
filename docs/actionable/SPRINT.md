@@ -1877,6 +1877,56 @@ deleting a tombstone's mention is how a reader concludes the feature was removed
 the 52/28 split shows a blanket sweep would have removed the fixtures that make depeg and liquidation
 testable at all.
 
+## ⭐⭐ **§BTC-SCOPE-SYNTHESIS — the segregation fix, the unwired sweep, and the jury question are ONE item** (2026-08-26, owner)
+
+Owner asked: is anything else in the BTC scope fixable in light of this, and is the shape really more
+secure AND more efficient AND simpler at once. **Three-way wins deserve scrutiny, so here is the cost
+first, then the answer.**
+
+### THE COST, FOUND BY LOOKING FOR IT
+`_applySplice` **cannot** serve a non-channel outpoint — it opens with
+`Types.BTCChannel storage ch = channels[channelId]`, mutates `ch.amountSats`, and emits
+`ChannelSpliced(channelId, ch.lpEth, …)`. ⇒ **A pool-outpoint park needs different proof plumbing.**
+✅ **AND IT ALREADY EXISTS: `_provenDeposit(terms, proof, rawDepositTx)`** — used by
+`settleSwapInProven` — does channel-free SPV verification (`spv.checkTxInclusion(…, MIN_CONFIRMATIONS)`)
+with replay protection (`swapInUsed[txid]`). **So the cost is swapping one verifier for another that
+is already written and already in production use, not building one.**
+
+### ⭐ AND THE CUSTODY QUESTION ANSWERS ITSELF — NO NEW KEY IS NEEDED
+| piece | where | state |
+|---|---|---|
+| `create_sweep_tx(dest_address, …)` | `quid-ln/quid-ln/src/wallet.rs:1270` | **written, tested, UNWIRED** |
+| `SweepAuth` — EIP-712, `SWEEP_THRESHOLD = 2` (2-of-3) | `quid-hop/src/migration.rs:405` | **written** |
+⇒ **The "pool-owned outpoint plus an authorised drain" the segregation needs is ALREADY DESIGNED.**
+🔴 **AND THIS IS THE `create_sweep_tx` GAP CLAUDE.md WARNS ABOUT, FROM THE OTHER SIDE.** That note says
+the function *"has now been deleted TWICE and restored twice by people reading 'never used' as
+litter"*, and that its `dead_code` warning *"marks a real gap (missing authorized trigger)"*.
+**⇒ The missing trigger is exactly what pool custody would give it a reason to exist.** Two rows that
+looked unrelated are one item.
+
+### ⇒ THE JURY QUESTION IS NOW MUCH NARROWER THAN ASKED
+Owner originally asked whether basket-drawn juries are needed to drain stuck assets **if the daemon,
+fallback AND msig are all untrusted**. With this shape:
+  • **LP funds need NO quorum at all** — pre-signed CLTV ladder + permissionless SPV settlement. Three
+    independent derivations agree (§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT).
+  • **Pool inventory needs a drain authority, and `SweepAuth`'s 2-of-3 IS that authority.**
+⇒ **So a jury is only ever a question about the POOL half, and only if 2-of-3 is itself distrusted.**
+That is a far smaller blast radius than "drain any stuck assets" implied — **no LP is ever waiting on a
+quorum**, which is the property that actually matters.
+
+### IS IT MORE SECURE, MORE EFFICIENT *AND* SIMPLER? — YES, WITH ONE HONEST CAVEAT
+| axis | why | evidence |
+|---|---|---|
+| **Security** | removes the LP-takes-pool-sats path **by construction**, and removes the **ladder re-arm on every park** — a re-arm is a chance to arm the WRONG thing, and today it arms at `cur + parked`, which IS the bug | `PoolSatsLeftWithLp` becomes unreachable |
+| **Efficiency** | a splice is an **on-chain Bitcoin transaction**; proving an existing UTXO moves no coins. **One fewer BTC tx, fee and confirmation per park**, plus no FFI re-signing of a ladder | `parkProvenSats` currently requires `grewBy > 0`, i.e. a real splice |
+| **Simplicity** | deletes `poolOwnedSats`, `poolSatsParker`, `_releasePoolSats`, `PoolSatsLeftWithLp`, the splice-on-park path, the `_armAt` re-arm, and the `lpEntitled` subtraction in **two** places | — |
+⚠️ **THE CAVEAT, AND IT IS REAL: it CONCENTRATES pool inventory in one custody location** rather than
+scattering it across LP channels. A single larger target. ⭐ **But it was already the hop's inventory
+(`provenSatsAvailable[msg.sender]`), and scattering it across channels bought no safety — it bought a
+LEAK.** Concentration with a wired 2-of-3 drain is strictly better than dispersion with none.
+⚠️ **AND `create_sweep_tx` MUST BE WIRED AS PART OF THIS, not after.** Pool custody with no authorised
+drain would be the same shape one level up: state whose recovery mechanism exists but is not called.
+
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 
 ⛔ **CORRECTION FIRST: I described this as pool sats being STRANDED. THEY ARE NOT STRANDED — THEY LEAVE
