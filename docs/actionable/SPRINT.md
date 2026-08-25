@@ -9310,7 +9310,16 @@ size-awareness survives **and gets cheaper** than the current `lnWad` branch.
 5. **Then delete** `SKEW_UNFILLABLE`, `lnWad`, the saturation clamp and §E285's residual, which by
    then have nothing to bound. ⚠️ **Deleting them earlier hides whether step 2 worked.**
 
-## §E286-v3 — 🔴 **THE LEV PATH STILL ROUTES THROUGH UNISWAP V3, AND REMOVING IT IS A LIVENESS DECISION**
+## §E286-v3 — ✅ **CLOSED 2026-08-25: THERE IS NO UNISWAP V3 IN THE TREE.** Owner: *"we dont need v3
+anymore pull it out and delete it completley"*. `_poolSwap` is deleted, all four volatile hops go
+through `_aggSwap` against the pinned 1inch router, and `IV3Router`/`V3_SWAP_ROUTER`/`V3_FEE_*` are
+gone from `Interfaces.sol` — the only surviving `V3_SWAP_ROUTER` string is a tombstone comment.
+⚠️ **THE LIVENESS DECISION THIS ROW GUARDED WAS REAL AND WAS TAKEN, NOT DODGED:** removing V3 left the
+volatile leg with no on-chain venue, which is why 17 tests now revert `NoVolatileRoute()` and why the
+1inch API key is the blocking dependency. **Closed because the CLAIM is false, not because the
+consequence is resolved** — that consequence lives in §C2.1-RESOLVED-TO-1INCH.
+▶️ (original row, kept for its evidence)
+### 📎 THE LEV PATH ROUTED THROUGH UNISWAP V3 (historical evidence — NOT an open row)
 ▶️ **RE-AUDIT TARGET (2026-08-24): `src/imports/LevMath.sol:485-500` (`_poolSwap`). THE CLAIM HOLDS; ONLY THE COORDINATES ROTTED — re-verified rather than assumed, because this row exists because a grep once said the opposite.** `V3_SWAP_ROUTER` is at **`Interfaces.sol:177`**, not `:117`; `V3_FEE_WETH` at `:179`; `interface IV3Router` at `:182`; `exactInputSingle` at `:187`. `LevMath._poolSwap` (`:485`) still calls `IV3Router(V3_SWAP_ROUTER).exactInputSingle` at `:492`, reached from `:510` (USDC→WETH), `:569` (USDC→WBTC), `:580`/`:590` (volatile→USDC). ⚠️ **AND `Interfaces.sol:305`/`:309` CARRY `§SLOP` COMMENTS SAYING `V3_SWAP_ROUTER` AND `IV3Router` WERE "DELETED … zero references after the SOR cut"** — they are not; both are live six lines above. **That comment is the exact trap this row was written about (searching a SPELLING, not a DEPENDENCY), now inverted: an obituary sitting beside its living subject.** The decision (a)/(b)/(c) is untouched.
 ⚠️ **SUFFIXED 2026-08-21 — the last bare `§E286`.** Three findings shared it: `§E286-integral`,
 `§E286-floor` (withdrawn) and this one. Prose across the file has been calling this row `§E286-v3`
@@ -13589,7 +13598,17 @@ two instances* (`resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, `d2dc8b78`),
 INSTANCES so the shared name is correct. **Not done here on purpose: it is squarely the BTC thread's
 area and would collide.** `onlyUsBtc` is free whenever someone wants it.
 
-### 🔴 AND ONE CONFIRMED DUPLICATION LEFT IN `Vault`, WITH THE MERGE ALREADY COSTED
+### ✅ **CLOSED 2026-08-25 — THE `Vault` MODIFIER DUPLICATION IS ALREADY MERGED (§MODFOLD).**
+Verified in the tree: `onlyBtcChannels` has **zero declarations** and survives only inside the
+`§MODFOLD` comment recording its removal; `onlyBTCChannels` is the rule-8c form
+(`modifier onlyBTCChannels() { _onlyBTCChannels(); _; }` — one routine, N jumps) and gates all 14 uses.
+The dead `btcChannels != address(0)` clause is gone with it.
+⚠️ **THE ROW OUTLIVED THE WORK BY WEEKS**, and its own last line says why it was left: *"it is the BTC
+thread's file-region and this thread would collide with it."* The collision reason expired when the
+tree went single-worktree, and nobody re-read the row. **The exact failure CLAUDE.md names: a commit
+is not a closure, and the row is the half the next thread reads.**
+▶️ (original row, kept for its evidence)
+#### 📎 (historical evidence — NOT an open row) ONE CONFIRMED DUPLICATION LEFT IN `Vault`
 
 `Vault` declares **two modifiers that gate the same address on adjacent lines** — its own comment says
 so: *"same gate, distinct name kept from Aux."*
