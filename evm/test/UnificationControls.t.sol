@@ -698,6 +698,20 @@ contract UnificationControls is AllesFixture {
         // volatile inventory priced at the range price. Those are independent -- `POOLED_USD` is
         // accumulated by the settlement legs, `POOLED * price` comes from inventory and the oracle
         // -- so a divergence is a real defect rather than a rounding artefact.
+        // 🔴 §MIRROR-SURVIVES-THE-REPACK — MEASURED, AND IT RULES OUT THE OBVIOUS FIX. The gap is
+        //   **$23,999.99 across four `_trade(3_000e18)` calls = EXACTLY 2x the trade size per trade**,
+        //   which is what one-way flow does to `POOLED_USD - POOLED*price` by construction: buying
+        //   volatile RAISES the mirror and LOWERS the inventory, so the two terms separate at double
+        //   rate. This note's claim below that the legs "are restored afterwards" is the part that
+        //   does NOT hold.
+        // ⛔ I tried forcing the restore and it is not reachable from here: `Quid.repack()` is
+        //   `onlyUs` (AUX / CORE / self) and reverts `403` at 661 gas from a test. AND A REPACK
+        //   ALREADY RAN -- the trace shows `Quid::repack()` succeeding at 49,189 gas INSIDE the swap
+        //   path during these very trades. **So the divergence survives the restoration the comment
+        //   promises, and "the fixture forgot to rebalance" is excluded as an explanation.**
+        // ⇒ EITHER the equal-value invariant does not survive directional flow (and this assertion
+        //   encodes a model the range does not implement), OR `repack` does not re-equalise the legs
+        //   in VALUE. Do not widen the 1% bound until one of those two is established.
         (uint price, uint liq) = CORE.poolStats();
         // UNITS: POOLED is 18-dec volatile, `price` is WAD USD per unit, POOLED_USD is 6-dec.
         // 18 + 18 - 30 = 6 -- the same /1e30 the settlement path uses. A second scale here is
