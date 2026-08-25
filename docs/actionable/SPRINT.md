@@ -11903,7 +11903,20 @@ that no line carrying ⚠️/⛔/🔴/MUST/DO NOT/invariant/natspec was touched.
 **code lines identical before and after**. Reducing further means rewriting blocks BY MEANING, file
 by file, heaviest first (`SwapLib` 1,645 comment lines, `BTCChannels` 1,615, `Core` 1,018).
 
-### 🟡 FILE FOLDS — 22 → 17 DONE, THE REMAINDER AND WHY THEY STOPPED
+### ✅ **FILE FOLDS — CLOSED 2026-08-25. ALL THREE "REMAINDER" FILES ARE GONE; `imports/` IS 22 → 14.**
+Verified by `find`: **`ExitLib.sol`, `ExternalTwap.sol`, `MuSig2Agg.sol` and `BandLib.sol` do not
+exist.** The row listed the first two as blocked and asked for a re-check of the third's cycle — all
+three landed since, and `imports/` now holds **14** files against the 17 recorded.
+⚠️ **THE ROW'S OWN RE-CHECK NOTE WAS RIGHT AND NOBODY RAN IT:** *"`MuSig2Agg` is now folded INTO
+`BitcoinTx`, so re-check this — the cycle may be gone."* It was gone; `ExitLib` folded into
+`BitcoinTx` as §E318. **A row that names its own falsifiable check, and then waits weeks for someone
+to run it, is the exact waste the ▶️ sweep in CLAUDE.md exists to prevent** — the check took one
+`find`.
+⛔ **DO NOT READ "FOLDED" AS "DELETED" FOR ANY OF THESE.** CLAUDE.md's fold table is explicit: the CODE
+is live in `BitcoinTx`/`OracleLib`/`SwapLib`, and ~190 doc citations of the old names still resolve to
+comments. Grepping `ExitLib` and finding nothing means the FILE moved, not that the feature went.
+
+#### 📎 (original row, kept for the per-file reasoning; NOT an open row)
 Folded away: `ISwap.sol` `ILevVenue.sol` `ShareMath.sol` `FixedRateFill.sol` `SortedSet.sol`
 `BitcoinTx.sol`; `BandLib.sol` → `RangeLib.sol`.
 - **`ExternalTwap.sol`** (88 lines) — NOT folded: another thread is live inside `oneInchRateWad`.
