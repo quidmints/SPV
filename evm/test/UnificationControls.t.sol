@@ -193,11 +193,26 @@ contract UnificationControls is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
         uint pooled = ETH.balanceOf(lpA);
+        uint owed   = ETH.convertToAssets(pooled);   // what the position is WORTH, before the ask
+        uint e0 = lpA.balance; uint w0 = WETH.balanceOf(lpA);
         vm.prank(lpA);
         ETH.withdraw(type(uint).max, lpA, lpA);     // the "exit everything" sentinel
+        uint got = (lpA.balance - e0) + (WETH.balanceOf(lpA) - w0);
         emit log_named_uint("pooled before", pooled);
         emit log_named_uint("pooled after ", ETH.balanceOf(lpA));
+        emit log_named_uint("owed (assets)", owed);
+        emit log_named_uint("delivered    ", got);
         assertLt(ETH.balanceOf(lpA), pooled, "the sentinel must actually reduce the position");
+        // 🔴 §VACUOUS-BOUNDS — THE LINE ABOVE WAS THE ONLY ASSERTION AND IT CANNOT SEE THE DEFECT
+        //   THIS TEST IS NAMED FOR. Its docstring promises the over-ask *"must clamp to the position,
+        //   not revert and NOT OVER-DELIVER"*, and `after < before` is satisfied by ANY reduction —
+        //   including one that paid out MORE than the position was worth, which is the only outcome
+        //   here that costs the basket money. **The name claimed what the assertion did not check**,
+        //   which is exactly the shape CLAUDE.md's §VACUOUS-BOUNDS note describes.
+        // ⇒ The over-delivery half is now bounded. `type(uint).max` must not become a licence to
+        //   withdraw beyond the position: delivery is capped at what the shares convert to, with a
+        //   1% allowance for the oracle moving between `convertToAssets` and settlement.
+        assertLe(got, owed + owed / 100, "the over-ask must CLAMP: delivery cannot exceed the position");
     }
 
     /// EDGE: a withdraw of zero DELIVERS NOTHING — but it is NOT a no-op, and asserting that it

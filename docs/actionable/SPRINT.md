@@ -1213,6 +1213,51 @@ that noticed this.
 `2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
 skew change in this session.
 
+## 🔴🔴 **§PREMIUM-VS-BORNE — 92% of what a swapper gives up is attributed to NOBODY** (2026-08-25)
+
+Found by adding the bound `test_UNIT_PremiumRecordedEqualsPremiumPaid` was named for. **MEASURED on
+its own fixture:**
+
+| | usd6 | |
+|---|---|---|
+| **(a) BORNE** by the swapper (`fairEth − ethOut` at oracle) | **4,392,730** | $4.39 |
+| **(b) RECORDED** as skew premium (`skewPremiumCum` delta) | **331,695** | $0.33 |
+| ratio | **132,432 bps** | **13.2×** |
+
+⇒ **The swapper gave up 13.2× what the protocol recorded, so ~92% of the haircut is credited to
+nobody.** `USD_FEES` routes only (b) to LPs.
+⛔ **DO NOT READ THIS AS "THE PREMIUM IS UNDER-RECORDED" YET — (a) IS A COMPOSITE AND I NEARLY BOOKED
+IT AS ONE THING.** `fairEth − ethOut` captures everything lost against an oracle fill: **skew premium
++ the 420ppm fee + the DELIVERY SHORTFALL**. That third term is real and large — §SELL-SKEW-18PCT
+measured the basket paying what its lending vaults could free, **18.7% on one fixture** — and it is
+not a premium, is credited to nobody, and is *correct* in the sense that a `minOut` would have
+refused it. **So the 13.2× may be mostly delivery, and that is UNMEASURED.**
+▶️ **NEXT, and it is one instrumented run:** decompose (a) into fee / premium / delivery-shortfall at
+this call site. If delivery dominates, the number is explained and the row closes; if it does not,
+the skew is under-recording and LPs are under-credited on every drain.
+✅ **WHAT WAS ASSERTED INSTEAD, because it is the half that is a SOLVENCY question:**
+`assertLe(premium, paidUsd6)` — the record must never EXCEED what the swapper bore. That is §E279's
+actual defect (*"LPs are credited value no swapper paid"*), is true by construction if the accounting
+is honest, needs no decomposition, and **passes today**.
+
+## 🔴 **§TAX-IS-ZERO-AT-DEPTH — 20 rounds of draining produce NO imbalance tax** (2026-08-25)
+
+`test_E96b_TaxScalesWithImbalanceDepth` measured the tax at four depths and compared none of them. I
+added the comparison and **it passed while measuring nothing: `tax@6 rounds = 0` and
+`tax@20 rounds = 0`, so `assertGe(0, 0)` is trivially true.** ⇒ **A vacuous assertion can be
+introduced BY the fix for a vacuous assertion**, and only printing the operands caught it.
+
+▶️ A premise guard now asserts `taxBps[20 rounds] > 0`, and **it FAILS**, which is the honest state:
+the test's whole subject does not fire on its own fixture.
+⇒ **THIS IS THE §ZERO-REVENUE SHAPE IN A NEW PLACE.** The skew's KERNEL is skipped in the flush
+branch (`inv1 >= target`), and §UNITB-ARMS-IDENTICAL measured that fixture sitting at `inv1` ≈ 3.8×
+the target — so an imbalance these fixtures can actually reach never reaches the priced region. **Two
+independent tests now report the same thing from opposite directions: one says the arms are
+identical, this one says the tax is zero.**
+⛔ **DO NOT DELETE THE PREMISE GUARD TO RESTORE GREEN.** It converted a vacuous pass into a true
+failure, which is the whole point of rule 4. Either the fixture must reach priced scarcity or the
+flush branch's exemption is wider than intended.
+
 ## 🔴 **§VACUOUS-BOUNDS-3 — three tests COMPUTE their own verdict, PRINT it, and assert something weaker** (2026-08-25)
 
 CLAUDE.md's §VACUOUS-BOUNDS note says *"the test's NAME is the tell — it claims what the assertion

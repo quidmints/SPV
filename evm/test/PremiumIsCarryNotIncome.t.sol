@@ -280,6 +280,23 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         if (valueOut18 >= valueIn18) emit log_named_uint("SURPLUS (premium earned)", valueOut18 - valueIn18);
         else                         emit log_named_uint("SHORTFALL (LEAKAGE)     ", valueIn18 - valueOut18);
         assertGt(ethOut + usdOut, 0, "the LP received NOTHING -- delivery, not attribution");
+
+        // 🔴 §VACUOUS-BOUNDS — THIS TEST COMPUTED ITS OWN VERDICT, PRINTED IT AS "SHORTFALL
+        //   (LEAKAGE)", AND ASSERTED NOTHING ABOUT IT. `ethOut + usdOut > 0` is a DELIVERY check, and
+        //   the test is named `...IsValueNeutralAtFlatPrice`. Any leak short of total is invisible.
+        // ⚠️ AND THE REASON A NAIVE BOUND WOULD BE WRONG, which is presumably why none was added:
+        //   §C25 established that ONE exit leaves a RESIDUAL BY DESIGN (the exit path drains
+        //   asymptotically), so `valueOut18 < valueIn18` is expected and is a DEFERRAL, not leakage.
+        //   Asserting no-shortfall here would fail for a known-correct reason — which is worse than
+        //   no assertion, because it would be "fixed" by widening.
+        // ⇒ COUNT THE DEFERRAL. What the LP still holds a claim on is `convertToAssets(balanceOf)`,
+        //   and value-neutrality is `DELIVERED + STILL-CLAIMABLE >= WENT IN`. That distinguishes a
+        //   deferral (claim survives) from a leak (claim gone) — the exact distinction §C25 and
+        //   §SETTLE-LvrResidual are about, and the one this test was named for.
+        uint deferred18 = SoladyMath.fullMulDiv(ETH.convertToAssets(ETH.balanceOf(lp)), px, 1e18);
+        emit log_named_uint("LP still-claimable (usd18)", deferred18);
+        assertGe(valueOut18 + deferred18, valueIn18 - valueIn18 / 100,
+            "value NEUTRAL: delivered + still-claimable must cover what went in (1% for rounding)");
     }
 
     /// Sum of every basket stable plus QUID held by `who`, in 18-dec USD (§E69's lesson: the payout
@@ -342,6 +359,32 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             emit log_named_uint("borne/recorded (bps, 10000 = exact)", ratio);
         }
         assertGt(premium, 0, "no premium charged -- fixture never reached priced scarcity");
+        // 🔴 §VACUOUS-BOUNDS — THIS TEST IS NAMED `...RecordedEqualsPremiumPaid`, ITS DOCSTRING WARNS
+        //   *"if the record overstates, LPs are credited value no swapper paid"*, AND IT COMPUTED THE
+        //   DISCRIMINATOR ONE LINE ABOVE AND ONLY **PRINTED** IT. `assertGt(premium, 0)` is satisfied
+        //   by ANY premium, including one 1000x the swapper's actual haircut — which is precisely the
+        //   ~1000x disagreement the docstring says the event trace showed.
+        // ⚠️ §E279's precedent is this exact assertion on this exact quantity, and it hid a
+        //   DOUBLE-CHARGE. A bound that cannot fail in the direction of the defect is not a bound.
+        // ⇒ (a) BORNE vs (b) RECORDED, both usd6, must agree. 5% absorbs the oracle moving between
+        //   the fill and `px`, and the fee leg riding along; it does NOT absorb a doubling.
+        // ⛔ (c) `USD_FEES` IS DELIBERATELY NOT ASSERTED AGAINST THESE: it is a PER-SHARE ACCUMULATOR,
+        //   not dollars, so comparing it to a usd6 figure is the §A.50 units error. It stays logged.
+        // ⛔ EQUALITY IS THE WRONG BOUND HERE, AND MEASURING IT IS HOW I FOUND OUT. `paidUsd6` is
+        //   `fairEth - ethOut` priced at the oracle, so it captures EVERYTHING the swapper lost
+        //   against an oracle fill: the skew premium PLUS the 420ppm fee PLUS the DELIVERY
+        //   SHORTFALL (§SELL-SKEW-18PCT — the basket pays what its lending vaults can free, which is
+        //   not a premium and is credited to nobody). `premium` is only the first of the three.
+        //   MEASURED: borne **4,392,730** against recorded **331,695** usd6 — **13.2x**.
+        // ⇒ ASSERT THE DIRECTION THAT IS ACTUALLY A SOLVENCY QUESTION. §E279's defect was the record
+        //   OVERSTATING — *"LPs are credited value no swapper paid"* — and that is exactly
+        //   `premium > paidUsd6`. It is true by construction if the accounting is honest, it would
+        //   have caught the double-charge, and it does not depend on decomposing the other two legs.
+        // 🔴 THE 13.2x GAP IS BOOKED SEPARATELY (§PREMIUM-VS-BORNE) rather than asserted away: 92% of
+        //   what this swapper gave up is attributed to nobody, and whether that is the delivery
+        //   shortfall or something else is unmeasured.
+        assertLe(premium, paidUsd6,
+            "the premium RECORDED must not exceed what the swapper actually BORE (E279's defect)");
     }
 
     /// §UNIT-A-DECIDED — A FIXTURE THAT PRODUCES REALISTIC VARIANCE, WHICH NONE OF MINE DID.

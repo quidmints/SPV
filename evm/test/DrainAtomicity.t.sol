@@ -1126,6 +1126,7 @@ contract DrainAtomicity is AllesFixture {
         uint8[4] memory rounds = [0, 6, 12, 20];   // 0 = balanced reference
         uint refEth;
         uint refInv;
+        uint[4] memory taxBps;
         for (uint r = 0; r < 4; ++r) {
             uint snap = vm.snapshotState();
             _seedBasket();
@@ -1143,12 +1144,32 @@ contract DrainAtomicity is AllesFixture {
             emit log_named_uint("    inv (usd6)          ", inv);
             emit log_named_uint("    ETH for a 5k ticket ", got);
             if (r > 0 && refEth > 0 && got < refEth) {
-                emit log_named_uint("    TAX vs balanced, bps", (refEth - got) * 10_000 / refEth);
+                taxBps[r] = (refEth - got) * 10_000 / refEth;
+                emit log_named_uint("    TAX vs balanced, bps", taxBps[r]);
             } else if (r > 0) {
                 emit log("    TAX vs balanced, bps: 0 (no penalty at this depth)");
             }
             vm.revertToState(snap);
         }
+        // 🔴 §VACUOUS-BOUNDS — THE TEST IS NAMED `TaxScalesWithImbalanceDepth` AND MEASURED THE TAX
+        //   AT FOUR DEPTHS WITHOUT EVER COMPARING TWO OF THEM. Its only assertion was one-sided
+        //   against a constant, so a tax that was FLAT — or that shrank with depth, the exact
+        //   inversion the name denies — passed silently. **The comparison is the whole claim.**
+        // ⚠️ Deliberately the WEAKEST TRUE FORM of "scales", not monotonicity across all four: real
+        //   fork fixtures carry noise, and a strict chain would fail on it and get widened away.
+        //   Deepest-vs-shallowest is the claim that cannot be satisfied by a flat or inverted tax.
+        emit log_named_uint("tax @6 rounds  (bps)", taxBps[1]);
+        emit log_named_uint("tax @20 rounds (bps)", taxBps[3]);
+        assertGe(taxBps[3], taxBps[1],
+            "the tax must SCALE with imbalance depth: 20 rounds cannot tax less than 6");
+        // ⚠️ AND THE PREMISE, WITHOUT WHICH THE LINE ABOVE IS `assertGe(0, 0)` — MEASURED, BOTH ARE
+        //   **0**, so the comparison I just added passes while measuring NOTHING. That is the same
+        //   vacuity one level up, and catching it needed the numbers printed, not the assertion.
+        // 🔴 A ZERO TAX AT **20 ROUNDS** OF DRAINING IS THE §ZERO-REVENUE SHAPE ARRIVING HERE: the
+        //   skew's kernel is skipped in the flush branch, so an imbalance the fixture can reach does
+        //   not price. Booked as §TAX-IS-ZERO-AT-DEPTH; do not delete this guard to make it green.
+        assertGt(taxBps[3], 0,
+            "PREMISE: 20 rounds of draining must produce SOME tax, else this test measures nothing");
         emit log_named_uint("reference inv (balanced)", refInv);
         assertGt(refEth, 0, "reference leg must receive volatile or the sweep is void");
     }
