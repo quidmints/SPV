@@ -473,31 +473,61 @@ contract PremiumIsCarryNotIncome is AllesFixture {
     /// the oracle's variance, or is our pegged range structurally deaf to it?
     function test_UNIT_BacktestV3TickVarianceVsChainlink() public {
         IUniV3Pool POOL = IUniV3Pool(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640); // WETH/USDC 0.05%
-        uint32[] memory ago = new uint32[](9);
-        for (uint i; i < 9; ++i) ago[i] = uint32((8 - i) * 3600);      // 9 points, 1h apart, 8h span
-        (int56[] memory tc,) = POOL.observe(ago);
+        // 🔴 §BACKTEST-OLD — `observe()` REVERTS `"OLD"` WHEN THE LOOKBACK EXCEEDS THE POOL'S
+        //   OBSERVATION CARDINALITY, AND THAT IS A UNISWAP REVERT, NOT A DEFECT HERE. A fixed 8h
+        //   span assumed a cardinality this pool does not always carry at the fork head, so the
+        //   whole diagnostic died on external data. Shrink the INTERVAL until the pool can serve it
+        //   (the point count stays 9, so `rate[8]` and `_e63Variance` are unchanged) and report the
+        //   window actually used — a backtest over the longest AVAILABLE window is the honest
+        //   measurement; one that reverts is no measurement at all.
+        // ⚠️ This test carries NO assertions by design: it PRINTS realised variance from a real
+        //   mainnet pool beside Chainlink. Do not add one without deciding what it should bound.
+        uint32 interval = 3600;
+        int56[] memory tc;
+        for (uint attempt; attempt < 5; ++attempt) {
+            uint32[] memory ago = new uint32[](9);
+            for (uint i; i < 9; ++i) ago[i] = uint32((8 - i) * interval);
+            try POOL.observe(ago) returns (int56[] memory t, uint160[] memory) { tc = t; break; }
+            catch { interval /= 2; }
+        }
+        if (tc.length == 0) { emit log("v3 pool cannot serve even a 225s window - nothing to backtest"); return; }
+        emit log_named_uint("v3 interval used (s)    ", interval);
 
         int[8] memory rate;
-        for (uint i; i < 8; ++i) rate[i] = (int(tc[i + 1] - tc[i]) * 1e9) / int(uint(3600));
-        emit log_named_int("v3 avg tick, oldest hour", rate[0] / 1e9);
-        emit log_named_int("v3 avg tick, newest hour", rate[7] / 1e9);
-        emit log_named_uint("V3 POOL annualised sigma^2", _e63Variance(rate, 8 * 3600));
+        for (uint i; i < 8; ++i) rate[i] = (int(tc[i + 1] - tc[i]) * 1e9) / int(uint(interval));
+        emit log_named_int("v3 avg tick, oldest step", rate[0] / 1e9);
+        emit log_named_int("v3 avg tick, newest step", rate[7] / 1e9);
+        emit log_named_uint("V3 POOL annualised sigma^2", _e63Variance(rate, 8 * interval));
 
         // Chainlink over the same 8h, converted to TICK space so the two are directly comparable.
+        // 🔴 §BACKTEST-DOUBLE-DIFFERENCE — THIS SIDE WAS PRE-DIFFERENCED AND `_e63Variance`
+        //   DIFFERENCES AGAIN, SO THE TWO SERIES WERE NEVER COMPARABLE — which is the whole point of
+        //   this test. `_e63Variance` takes `rate[i] - rate[i+1]` internally, i.e. it wants LEVELS.
+        //   The V3 side passes levels (an average tick per interval) and is right. This side passed
+        //   `((tkHi - tk) * 1e9) / dt` — a RETURN PER SECOND — so the variance was taken of a second
+        //   difference, in units 1e9 apart from the V3 series on top of that.
+        //   MEASURED BEFORE THE FIX: V3 2.12e16 against Chainlink 1.86e29, ~13 orders apart, printed
+        //   side by side under a comment claiming they are *"directly comparable"*.
+        // ⇒ Pass tick LEVELS and let `_e63Variance` do the differencing, exactly as the V3 side does,
+        //   and annualise over the span the rounds ACTUALLY cover (Chainlink rounds are irregular, so
+        //   the span cannot be assumed).
         (uint80 rid,,,,) = AggregatorV3Interface(AGG).latestRoundData();
-        int[8] memory clRate; uint got;
+        int[8] memory clRate; uint got; uint32 clSpan;
         {
-            int tkHi; uint tHi;
-            for (uint i; i < 9; ++i) {
+            uint tsNewest; uint tsOldest;
+            for (uint i; i < 8; ++i) {
                 (, int px,, uint ts,) = AggregatorV3Interface(AGG).getRoundData(uint80(uint(rid) - i));
                 if (px <= 0 || ts == 0) break;
-                int tk = SoladyMath.lnWad(int(uint(px) * 1e10)) / 99995;   // ln(p)*1e18 / (ln(1.0001)*1e18) scaled to ticks*1e9  // ln(1.0001)
-                if (i > 0 && tHi > ts) { clRate[i - 1] = ((tkHi - tk) * 1e9) / int(tHi - ts); ++got; }
-                tkHi = tk; tHi = ts;
+                // ln(p)*1e18 / (ln(1.0001)*1e18) => ticks*1e9, the SAME scale the V3 side uses.
+                clRate[i] = SoladyMath.lnWad(int(uint(px) * 1e10)) / 99995;
+                if (i == 0) tsNewest = ts;
+                tsOldest = ts; ++got;
             }
+            clSpan = tsNewest > tsOldest ? uint32(tsNewest - tsOldest) : 0;
         }
+        emit log_named_uint("chainlink span (s)      ", clSpan);
         emit log_named_uint("chainlink intervals used ", got);
-        if (got >= 3) emit log_named_uint("CHAINLINK annualised sigma^2", _e63Variance(clRate, uint32(8 * 3600)));
+        if (got >= 3 && clSpan > 0) emit log_named_uint("CHAINLINK annualised sigma^2", _e63Variance(clRate, clSpan));
         emit log_named_uint("OUR RANGE sigma^2 (for scale)", CORE.realizedVarianceWad());
     }
 
