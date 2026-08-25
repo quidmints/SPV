@@ -1318,9 +1318,26 @@ ABOVE it ⇒ NOT flush. **One arm in the flush branch and one out of it, and the
 ⇒ **FLUSH WAS NOT THE WHOLE EXPLANATION**, and §SIGMA-IS-ZERO-EVERYWHERE's account of this row is
 therefore incomplete: σ² is real (3.775e18), scarcity is real, the arms straddle the branch, and the
 skew does not move. **Something downstream of the branch is size-driven only.**
-▶️ **NEXT: instrument `skewWad`/`sellSkew` INSIDE the two arms** — print `qBar`, the kernel term and
-the depletion term separately — rather than inferring the regime from `inv` and `target` outside them.
-That is the one measurement never taken here, and every hypothesis so far has died to it.
+✅✅ **THAT MEASUREMENT IS NOW TAKEN, AND IT SETTLES THE ROW. `skewWad` IS CALLED DIRECTLY IN EACH ARM
+— IT IS `pure`, SO NOTHING ELSE CAN INTERFERE:**
+```
+A target 182,150,571,119   ->  skewWad(direct) = 4,560,112,127,142
+B target 364,301,142,238   ->  skewWad(direct) = 4,560,112,127,142     IDENTICAL
+```
+⇒ **THE FUNCTION IS FLOW-BLIND AT THESE VALUES — a 2× move in `flowUsd` changes its output by ZERO.**
+Not the swap path, not the fixture's plumbing, not an attribution bug: `skewWad` itself, on inputs
+taken from the live arms.
+⭐ **AND THE REASON IS ITS OWN FLUSH BRANCH, WHICH CLOSES THE LOOP WITH THE SELL-LOOP EXPERIMENT ABOVE.**
+`POOLED_USD` is ~1.5M against targets of 182k/364k, so `inv >= target` INSIDE the pure call and the
+kernel — the only flow-sensitive term — is skipped. **And it explains why the sell loop failed even at
+`POOLED_USD 811,919 < target 873,701`: that reading is PRE-ARM, and each arm's own `_drain(SIZE)`
+pushes `POOLED_USD` back up before the skew is read.**
+🔴 **⇒ THE CONTROL REQUIRES `POOLED_USD < flowEwmaUsd` AT THE MOMENT OF THE FILL, AND THE FILL ITSELF
+RAISES `POOLED_USD`.** That is a structural obstacle, not a fixture-tuning problem: the measurement
+destroys the condition it needs. **Any fix must either measure the skew BEFORE the fill (quote, not
+settle) or start far enough below the target that one fill cannot cross back.**
+▶️ **The direct `skewWad` probe is LEFT IN THE TEST** so the next reader inherits the discriminator
+rather than re-deriving it.
 ⛔ **THE LOOP IS NOT LANDED, for a reason worth knowing:** a ~1.7%/step crash over ~30 steps decouples
 the POOL price from the oracle, the swapper ends up AHEAD (`received 15.372e18` vs `oracle 12.149e18`),
 and the test's own `cost = oracle − received` UNDERFLOWS (panic 0x11). **A panicking test is worse than

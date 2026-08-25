@@ -1383,6 +1383,14 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("A POOLED  ", CORE.POOLED());
         emit log_named_uint("A POOLED_USD  ", CORE.POOLED_USD());
         uint pooledEthA = CORE.POOLED(); uint pooledUsdA = CORE.POOLED_USD();
+        // §UNITB — CALL `skewWad` DIRECTLY WITH THIS ARM'S INPUTS. It is `pure`, so this isolates
+        // the question completely: if A and B disagree here, the function DOES discriminate on flow
+        // and the defect is in what the swap path PASSES it; if they agree, the function is
+        // flow-blind at these values and the control can never fire. Every prior hypothesis inferred
+        // the regime from `inv`/`target` OUTSIDE the call and died to a measurement.
+        emit log_named_uint("A skewWad(direct)     ", SwapLib.skewWad(
+            CORE.POOLED_USD(), CORE.flowEwmaUsd(), CORE.realizedVarianceWad(),
+            SwapLib.ethRisk(), SIZE / 1e12));
         uint premA = CORE.skewPremium();
         uint ethA = _drain(SIZE);
         premA = CORE.skewPremium() - premA;
@@ -1399,6 +1407,9 @@ contract DrainAtomicity is AllesFixture {
         assertEq(CORE.POOLED(), pooledEthA, "CONTROL: identical volatile depth across arms, "
             "else the range cushion does not cancel and this measures the wrong thing");
         assertEq(CORE.POOLED_USD(), pooledUsdA, "CONTROL: identical USD depth across arms");
+        emit log_named_uint("B skewWad(direct)     ", SwapLib.skewWad(
+            CORE.POOLED_USD(), CORE.flowEwmaUsd(), CORE.realizedVarianceWad(),
+            SwapLib.ethRisk(), SIZE / 1e12));
         uint premB = CORE.skewPremium();
         uint ethB = _drain(SIZE);
         premB = CORE.skewPremium() - premB;
