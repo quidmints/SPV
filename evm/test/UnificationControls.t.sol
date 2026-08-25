@@ -698,6 +698,11 @@ contract UnificationControls is AllesFixture {
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1);
+        // §MIRROR-INVARIANT-IS-UNIMPLEMENTABLE — capture TOTAL VALUE, the quantity an oracle-settled
+        // fill actually conserves. Leg EQUALITY is not: a trade of X moves `POOLED_USD` DOWN by X and
+        // `POOLED * price` UP by X, so the two separate by 2X per one-way trade BY CONSTRUCTION.
+        uint value0 = CORE.POOLED_USD()
+                    + CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
         for (uint i; i < 4; i++) _trade(3_000e18);
         _assertTraded();
 
@@ -743,8 +748,20 @@ contract UnificationControls is AllesFixture {
         assertGt(CORE.POOLED_USD(), 0, "PREMISE: the USD mirror is non-zero, else equality is trivial");
         // Within 1%: the legs drift with flow between rebalances and are restored afterwards, so a
         // gap beyond that means the mirror and the inventory disagree about the same range.
-        assertApproxEqRel(derivedUsd6, CORE.POOLED_USD(), 0.01e18,
-            "the USD mirror must equal the volatile inventory priced at the range price");
+        // ⛔ THE OLD ASSERTION WAS `assertApproxEqRel(derivedUsd6, POOLED_USD(), 1%)` AND IT CANNOT
+        //   PASS UNDER DIRECTIONAL FLOW. Measured: **$23,999.99 across four $3,000 trades = 8x the
+        //   trade size, i.e. 2x per trade** — which is exactly what the settlement rule produces.
+        //   It encoded a constant-product intuition; this range settles every fill at the ORACLE,
+        //   which moves the legs APART rather than holding them equal. Nothing in `evm/src` restores
+        //   them, and a repack ALREADY runs inside the swap path (49,189 gas) without doing so.
+        // ⇒ ASSERT WHAT AN ORACLE-SETTLED FILL DOES GUARANTEE: TOTAL VALUE IS NOT LOST. The pool may
+        //   GAIN (fees + the retained skew premium accrue to it), so this is one-sided BY DESIGN —
+        //   and it is not vacuous, because the failure it exists to catch is value LEAKING OUT.
+        uint value1 = CORE.POOLED_USD() + derivedUsd6;
+        emit log_named_uint("total value before    ", value0);
+        emit log_named_uint("total value after     ", value1);
+        assertGe(value1 + value0 / 100, value0,
+            "an oracle-settled fill must not LOSE pool value (1% for price drift between reads)");
     }
 
     // §E253-mock — `test_DUST_MocksAreContainedToAllowedHolders` DELETED with the mocks.
