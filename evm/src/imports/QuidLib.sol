@@ -12,7 +12,7 @@ import {SwapLib} from "./SwapLib.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./Interfaces.sol";
 // §A.52: ONE canonical Quid view (was two file-local variants, `IQuid_VG` + `IQuidView_VG`).
-import {IQuid} from "./Interfaces.sol";
+import {ICore} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 import {ILevEquity} from "./Interfaces.sol";

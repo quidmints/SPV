@@ -215,6 +215,42 @@ that is a real gap in the invariant's coverage, not a tolerance question.**
 ⛔ **Do NOT widen the 1% to make it pass.** The comment is explicit that a gap beyond drift means a
 real defect; widening it deletes the only statement of the invariant the range is built on.
 
+## 🔴 **§UNITB-ARMS-IDENTICAL — RE-DIAGNOSED 2026-08-25: σ² WAS a cause, and the REMAINING one is FLUSH**
+
+⛔ **THE ROW BELOW SAID "TWO CAUSES, BOTH REQUIRED". BOTH ARE NOW FIXED AND THE TEST STILL FAILS, SO
+THERE WAS A THIRD — AND IT IS THE ONLY ONE THAT MATTERS.**
+✅ **The σ² half is DONE and verified**: the fixture now pins `ETH_FEED` and pushes **six MOVING
+samples across blocks** (`LevCascade._rallyRange`'s idiom — Chainlink follows each push, because
+`pushObservation` admits a price only within 50 bps of the anchor and silently rejects otherwise).
+**MEASURED: `seeded sigma^2` 0 → 4.274e17, in-arm σ² 3.927e17.** ⚠️ The row's prescription — *"two
+samples"* — is NOT sufficient and reads as if it were: I pushed the SAME price twice first and got
+**exactly 0**, because a zero return carries no variance. **The samples must MOVE, not merely repeat.**
+
+🔴 **THE ACTUAL CAUSE, BY ARITHMETIC ON THE FIXTURE'S OWN NUMBERS:**
+| quantity | value |
+|---|---|
+| `POOLED_USD` (the inventory `inv1`) | **1,379,627,999,999** = $1,379,628 |
+| arm A target (`flowEwmaUsd`, decayed 2 days) | 182,150,560,843 = $182,150 |
+| arm B target (undecayed) | 364,301,121,686 = $364,301 |
+| skew charged, BOTH arms | **326,679 — identical** |
+
+⇒ **`inv1 >= target` IN BOTH ARMS, SO BOTH TAKE THE FLUSH BRANCH**, which returns
+`_maxWellSkew(σ², rk) + _depletion(inv0, inv1)` and **skips the kernel entirely**. The kernel is the
+only target-sensitive term. **With inventory ~3.8× the larger target, NO value of the target in this
+range can change the price — that is the design, not a defect.** Arm B's target is 2× arm A's and
+both are still far below `inv1`, which is why doubling it changes nothing.
+⇒ **THE CONTROL ASSERTS SOMETHING THE FLUSH STATE DELIBERATELY DOES NOT PROVIDE.** It is not wrong
+about the code; it is pointed at a fixture that can never leave flush.
+▶️ **NEXT, AND IT IS NOW A PRECISE ASK RATHER THAN "give it more samples":** seed the fixture BELOW
+flush before `vm.snapshotState()` — inventory must end under ~$182k, an ~87% drain of `POOLED_USD`, or
+the flow must be driven above $1.38M. **Seed it before the snapshot for the same reason σ² is seeded
+there: `vm.revertToState` would otherwise undo it for arm B and the arms would disagree on the
+precondition instead of on the target.** ⛔ **Still do NOT relax `premB != premA`** — that assertion
+is the only thing that noticed any of this.
+⚠️ **AND THE COST OF THE OLD FRAMING, WORTH KEEPING: "σ² is 0" was TRUE, FIXABLE, AND NOT THE
+BLOCKER.** Fixing it was necessary work that moved the test not one inch, because the row had booked
+the first cause it found as the whole cause.
+
 ## 🔴 **§UNITB-ARMS-IDENTICAL — σ² is 0 because the fixture never pins a feed AND never samples twice** (2026-08-25)
 
 `test_UNITB_CounterMatchesWhatTheSwapperLoses` fails its control *"the target move must change the
@@ -1121,12 +1157,49 @@ because it was checked before being written up as fact. The others were each sta
 tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
 **If anything, the assertion should read the DELIVERABLE figure and compare against that.**
 
+## 🔴 **§MINOUT-DROPPED — the keeper's routed sell ran with NO slippage bound, and the "fallback" could only revert** (2026-08-25)
+
+Found while destaling the row below, which still described this call path as Uniswap V3.
+`LevMath._wethToStableDex` read:
+```solidity
+if (c.route.length != 0)
+    return _hubSwap({stable: stable, amt: _aggSwap(c.weth, USDC, wethIn, 0, c.route), toUsdc: false});
+return _volToStable(c.weth, stable, wethIn, minOut, c.route);   // reached only when route IS empty
+```
+**TWO DEFECTS, AND THEY HIDE EACH OTHER:**
+1. 🔴 **THE LIVE ARM DISCARDED `minOut`.** `_volToStable` is *exactly* that `_hubSwap(_aggSwap(...))`
+   pair **plus** `if (out < minOut) revert Slippage()`. So the branch that actually ran was the
+   UNBOUNDED one: `_wethToStableDex` accepted a `minOut` parameter and silently threw it away, and a
+   keeper-supplied route executed with no bound at the stable leg. **`_aggSwap`'s own `minOut` was
+   passed as `0` on that line**, so nothing downstream caught it either.
+2. ⛔ **THE "FALLBACK" WAS A GUARANTEED REVERT.** It is reached only when `c.route.length == 0`, and
+   it passes that empty route to `_aggSwap`, which rejects it with `NoVolatileRoute()`. The comment
+   called V3 the fallback — but `V3_FEE_WETH` has **0 references** and `_poolSwap` survives only in
+   comments, so the arm the prose promised had already been deleted (§C2.1, owner: *"we dont need v3
+   anymore"*). **A fallback that can only revert is not a fallback.**
+⇒ **FIX: delete the fast path; every call goes through `_volToStable`, which is the same operation
+with the bound restored.** One branch removed, one money-path check un-dropped — rule 1 and standing
+rule 3's inverse at once.
+✅ **CORROBORATED BY ITS OWN MIRROR, which is what makes this a defect rather than a design choice:**
+the OPEN leg `_stableToWethSor` computes an oracle floor —
+`_toUsd18(...) * 1e18 / getTWAPforAsset(weth) * (10_000 - SELL_SLIP_BPS) / 10_000` — and passes it to
+`_aggSwap` as a real bound. **One direction of the same round trip bounds the swap and the other
+trusted the keeper's route outright.** The asymmetry is the evidence.
+⭐ **HOW IT STAYED HIDDEN:** the two arms are byte-similar enough to read as "the same thing, one
+inlined", and the DIFFERENCE was a missing revert — **an absence, which is what a diff shows least.**
+The V3 comment then explained the branch's existence convincingly enough that nobody asked what the
+other arm did differently.
+
 ## 🔴 **§CRASH-HELPER-NEVER-CRASHES — the ~16 cascade failures, RE-DIAGNOSED (the row below was wrong)**
 
 ⛔ **THE ROW BELOW NAMED THE RIGHT MECHANISM ON THE WRONG PATH.** It said de-lever cannot sell because
 the range has no dollars. **The de-lever sell never touches the range**: `_wethToStableDex` →
-`_volToStable` → `_poolSwap(WETH, USDC, V3_FEE_WETH, …)` — **Uniswap V3**, then Curve for a non-USDC
-loan token. It has been external all along.
+`_volToStable` → an EXTERNAL venue, then Curve for a non-USDC loan token. It has been external all along.
+⚠️ **DESTALED 2026-08-25 — THE VENUE NAMED HERE NO LONGER EXISTS.** This read `_poolSwap(WETH, USDC,
+V3_FEE_WETH, …)` — **Uniswap V3**; §C2.1 deleted it (`V3_FEE_WETH`: 0 refs, `_poolSwap`: comments
+only) and the leg is now `_aggSwap` against pinned 1inch. **The row's CONCLUSION is unaffected** (the
+sell is external either way, so it still cannot be starved by the range), but the mechanism sentence
+would send the next reader to a deleted function. See §MINOUT-DROPPED above, which this destale found.
 ▶️ **WHAT THE TRACE ACTUALLY SHOWS, and it was readable the whole time:**
   • The `SlippageMaxS()` reverts are at lines **5488-5489**, and `cascadeDelever` begins at **5492**.
     **They happen BEFORE the cascade** — they belong to the fixture's `_crashRange(3000, 24, 40 ether)`,

@@ -1283,6 +1283,33 @@ contract DrainAtomicity is AllesFixture {
         _setupRange();
         uint SIZE = 30_000 * 1e18;
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+
+        // §UNITB-ARMS-IDENTICAL — BOTH ARMS CHARGED 321,992 EXACTLY BECAUSE sigma^2 WAS 0, so the
+        // KERNEL term vanished and only SIZE-based depletion survived: two arms trading one size
+        // charge the same thing no matter what the target does. The control was right; the fixture
+        // could not feed it. Two causes, and the row records that fixing EITHER ALONE does nothing:
+        //   1. `AllesFixture` leaves `assetPriceFeed(WETH)` at address(0), so the sampler reads 0.
+        //   2. One sample is not enough — the first call only sets `_varPx` and bumps (0,0), leaving
+        //      `_varDt` at 0, so `anchorVarianceWad` returns 0 BEFORE its 1-wei floor can apply.
+        // ⭐ SEEDED **BEFORE** THE SNAPSHOT ON PURPOSE: `vm.revertToState(snap)` would otherwise undo
+        //   it for arm B, and arms that disagree on sigma^2 would make the comparison meaningless in
+        //   the OTHER direction. Both arms inherit the same variance; only the TARGET differs, which
+        //   is the one thing this test is trying to isolate.
+        // ⚠️ PUSHING THE SAME PRICE TWICE GIVES sigma^2 == 0, MEASURED — a zero return carries no
+        //    variance, so the samples must actually MOVE. This is the `LevCascade._rallyRange`
+        //    idiom: Chainlink FOLLOWS each push, because `pushObservation` admits a price only
+        //    within 50 bps of the anchor and would otherwise reject the whole sequence silently.
+        _setEthFeed(px / 1e10);
+        AUX.setAssetFeed(address(WETH), ETH_FEED);       // pin the anchor (same order as AllesFixture)
+        uint spx = px;
+        for (uint i; i < 6; ++i) {
+            spx = i % 2 == 0 ? spx + spx / 50 : spx - spx / 51;   // ~+2% / ~-2%, returning near px
+            _setEthFeed(spx / 1e10);                              // anchor follows, so the push is admissible
+            CORE.pushObservation(spx);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
+        }
+        emit log_named_uint("seeded sigma^2", CORE.realizedVarianceWad());
+
         uint snap = vm.snapshotState();
 
         // ARM A — decayed target (LOWER q ⇒ LESS skew ⇒ MORE volatile received)

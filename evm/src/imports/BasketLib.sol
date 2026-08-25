@@ -6,7 +6,7 @@ import {WAD} from "./Types.sol";
 // §A.52: the canonical Core view (was a file-local variant).
 import {ICore} from "./Interfaces.sol";
 import {ICore} from "./Interfaces.sol";
-import {IBasket, IWiredVault, IWiredBasket, ILevSweep, IQuid, IEthVenue} from "./Interfaces.sol";
+import {IBasket, IWiredVault, IWiredBasket, ILevSweep, ICore, IEthVenue} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";

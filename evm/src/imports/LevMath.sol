@@ -523,8 +523,11 @@ library LevMath {
         uint256 floor_ = (_toUsd18(c.aux, stable, stableAmt) * 1e18
                           / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
                          * (10_000 - SELL_SLIP_BPS) / 10_000;
+        // ⭐ NOTE THE `floor_`: THIS SIDE BOUNDS THE SWAP, AND ITS MIRROR DID NOT. `_wethToStableDex`
+        //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
+        //    open/close asymmetry is what identified it: one direction derives an oracle floor at
+        //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
         return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.route);
-        // §V-R1-MIN — the pinned-pool venue below replaced the Curve route; see `_poolSwap`.
     }
 
     /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
@@ -606,11 +609,17 @@ library LevMath {
     ///      `_stableToWethSor`. `minOut` is unused on that branch because no trade occurs.
     function _wethToStableDex(SellCtx memory c, address stable, uint256 wethIn, uint256 minOut) internal returns (uint256) {
         if (stable == c.weth) return wethIn;              // loan token IS WETH — nothing to convert
-        // §C2.1 — 1INCH WHEN THE KEEPER SUPPLIED A ROUTE, V3 OTHERWISE. The fallback is deliberate and
-        // TEMPORARY: `e4f9c512` re-pinned V3 days after `9eef279a` cut it because deleting the only
-        // volatile route re-opens the hole. V3 is removed in the change that WIRES the keeper, not before.
-        if (c.route.length != 0)
-            return _hubSwap({stable: stable, amt: _aggSwap(c.weth, USDC, wethIn, 0, c.route), toUsdc: false});
+        // 🔴 §MINOUT-DROPPED — THE `route.length != 0` FAST PATH IS DELETED, AND IT WAS THE LIVE ONE.
+        // Its comment described *"1INCH WHEN THE KEEPER SUPPLIED A ROUTE, V3 OTHERWISE"*, but V3 is
+        // GONE (`V3_FEE_WETH`: 0 refs; `_poolSwap`: comments only), so the "otherwise" arm called
+        // `_volToStable` with an EMPTY route — which `_aggSwap` rejects with `NoVolatileRoute()`.
+        // A fallback that can only revert is not a fallback.
+        // ⭐ AND THE TWO ARMS WERE THE SAME OPERATION, WHICH IS WHY THIS IS A FIX AND NOT JUST A
+        //   DELETION: `_hubSwap(stable, _aggSwap(weth, USDC, wethIn, **0**, route), false)` is
+        //   `_volToStable` MINUS its `if (out < minOut) revert Slippage()`. So the arm that actually
+        //   ran was the UNBOUNDED one — a keeper-supplied route executed with NO slippage bound at
+        //   the stable leg, `minOut` accepted as a parameter and silently discarded.
+        // ⇒ One call, bound restored. `minOut` is now honoured on every path through here.
         return _volToStable(c.weth, stable, wethIn, minOut, c.route);   // 1inch: WETH→USDC, Curve: USDC→stable
     }
 
