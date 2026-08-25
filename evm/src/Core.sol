@@ -1320,7 +1320,17 @@ contract Core {
             // callers, so `total()` was 0 and the require compared `0 <= haircutTvl` -- always true.
             // The drift had been accumulating silently the whole time; arming the bound exposed it.
             uint b = basketUsd;
-            uint out_ = pooledPre <= usdAmount ? b   // whole leg left: basket leaves with it
+            // §EXPERIMENT §BURN-RELEASE-CONFLICT — the two documented decisions may be two CALLERS
+            // sharing one arm, not a disagreement. `basketLeg` already separates them: `modLP`
+            // (a WITHDRAWAL) passes TRUE, a swap passes FALSE. §E230-PHANTOM's evidence is entirely
+            // about SWAPS, so keep those proportional; `burnInRange`'s is entirely about
+            // WITHDRAWALS, where the caller has ALREADY sized `usdAmount` as the basket's own share.
+            // Releasing that share in FULL leaves `incrPre = POOLED_USD - basketUsd` unchanged,
+            // which is the LP increment `_payUsdLeg` pays out of.
+            // `min` already covers "the whole leg left" on the basketLeg arm: `b <= POOLED_USD`, so
+            // when `usdAmount >= pooledPre` it returns `b` — one branch instead of a nested pair.
+            uint out_ = basketLeg ? Math.min(b, usdAmount)
+                      : pooledPre <= usdAmount ? b            // whole leg left: basket leaves with it
                       : Math.mulDiv(b, usdAmount, pooledPre);
             basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             // The burn side moves equity DOWN. Reporting here keeps the accountant on the same

@@ -1247,7 +1247,37 @@ withdrawal's release is basket-only while a swap's stays proportional, both bodi
 ⛔ **DO NOT LAND THAT ON THIS REASONING ALONE.** It reverses a decision whose own note says a clamp
 there *"would have pinned the symptom and left the divergence generating it"*, and the §E230 measurement
 (`basketUsd > POOLED_USD`) is an impossible-state proof, not a preference. **This is an owner call.**
-✅ **WHAT IS SETTLED: the current state (`usdOut = 0`) is the best of the three MEASURED arms** — 0.990
+✅✅ **RESOLVED AND LANDED 2026-08-25 — THE TWO DECISIONS WERE TWO CALLERS SHARING ONE ARM, EXACTLY AS
+THE SHAPE ABOVE PREDICTED, AND IT WAS MEASURED RATHER THAN ARGUED.** `basketLeg` ALREADY separates
+them: `modLP` (a WITHDRAWAL) passes **true**, a swap passes **false**. So the burn arm now reads
+```solidity
+uint out_ = basketLeg ? Math.min(b, usdAmount)          // withdrawal: the caller already sized it
+          : pooledPre <= usdAmount ? b                  // swap: unchanged, proportional (§E230)
+          : Math.mulDiv(b, usdAmount, pooledPre);
+```
+and `burnInRange` passes the basket's own share again. **`POOLED_USD` and `basketUsd` then fall by the
+SAME `A`, so `incrPre` is preserved exactly — which is why the exit no longer regresses.**
+📉 **MEASURED, and the swap-path evidence is the half that mattered:**
+| | before | after |
+|---|---|---|
+| `test_V5_WithdrawShrinksCommitted` | FAIL | **PASS** |
+| `test_Redeem_UnwindsRangeToFreeCommittedDollars` | FAIL | **PASS** |
+| `Alles` suite | 99 / 3 | **100 / 2** |
+| `UnificationControls` suite | 23 / 3 | **24 / 2** |
+| `ChopIsBenign` residual | 0.990 ETH | **0.988** (no regression) |
+| `BackingGateSplit` · `PooledUsdRepackMatrix` · `SignedNetFlow` | — | **1/1 · 8/8 · 8/8, all green** |
+| `test_V6_…` | failed on `committed` | now fails on **§V6-BTC-SEED**, a different, already-booked premise |
+⚠️ **`Quid` grew +131 bytes** (21,512 → 21,643; 2,933 margin left).
+⏸️ **NOT MARKED ✅ ON THE ROW ITSELF — RULE 16.** This NARROWS the scope of §E230-PHANTOM's deletion,
+and §E230's evidence (`basketUsd` driven ABOVE `POOLED_USD`, an impossible state) is a proof, not a
+preference. The swap arm is byte-for-byte unchanged and its three suites are green, **but the owner
+should confirm that "a burn does not get to choose which dollars leave" was always about SWAPS.**
+⛔ **AND A CORRECTION TO MY OWN VERIFICATION, because I nearly reported it: I first compared two
+PARTIAL censuses (78 vs 59 suites) and read "committed-family 2 → 0" as the fix working.
+`UnificationControls` HAD NOT RUN in the shorter one.** The comparison was invalid; the numbers above
+come from running the owning suites directly. **A partial census makes an absence look like a fix.**
+
+✅ **PRIOR STATE, kept as the record: `usdOut = 0` was the best of the three MEASURED arms** — 0.990
 ETH residual, both residual tests passing — and it costs exactly one test,
 `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`, which reverts `"backing"` because `committed`
 ratchets. That is the price, it is measured, and it is one test rather than a money-path regression.

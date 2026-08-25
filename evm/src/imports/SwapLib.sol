@@ -2144,7 +2144,11 @@ library SwapLib {
             // ⇒ THE FIX BELONGS AT THE DELIVERY SITE, NOT THE RELEASE SIZE. Until a burn can pay the
             //   dollars it frees, 0 is the only value that does not take value from the LP, and the
             //   `committedUsd18()`-never-falls defect stays booked rather than traded for a worse one.
-            sent = ICore(core).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive
+            // The BASKET's own share of the depth being burned. `pooled > 0` here (`pulled` is
+            // `min(amount, pooled)` and a zero `pulled` already returned), and `fullMulDiv(0, …)` is
+            // 0, so neither a divide-by-zero guard nor a `basketUsd == 0` branch is needed.
+            uint usdOut = SoladyMath.fullMulDiv(ICore(core).basketUsd(), pulled, pooled);
+            sent = ICore(core).modLP(int256(pulled), int256(usdOut), recipient);   // LEAVES ⇒ positive
         }
     }
 
