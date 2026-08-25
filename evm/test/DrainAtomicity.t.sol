@@ -1126,7 +1126,7 @@ contract DrainAtomicity is AllesFixture {
         uint8[4] memory rounds = [0, 6, 12, 20];   // 0 = balanced reference
         uint refEth;
         uint refInv;
-        uint[4] memory taxBps;
+        uint[4] memory taxPpb;   // parts per BILLION: the penalty here is sub-bps
         for (uint r = 0; r < 4; ++r) {
             uint snap = vm.snapshotState();
             _seedBasket();
@@ -1134,6 +1134,10 @@ contract DrainAtomicity is AllesFixture {
             _settle();
             for (uint i = 0; i < rounds[r]; ++i) _drain(20_000 * 1e18);
             uint inv = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+            // §TAX-IS-ZERO-AT-DEPTH: is the tax 0 because sigma^2 is 0 (kernel term vanishes) or
+            // because `inv >= target` (FLUSH branch skips the kernel entirely)? Print both operands.
+            emit log_named_uint("    flowEwmaUsd (target)", CORE.flowEwmaUsd());
+            emit log_named_uint("    realizedVarianceWad ", CORE.realizedVarianceWad());
             uint got = _drain(SMALL);
             if (r == 0) { refEth = got; refInv = inv; }
             // §E93-b GATE: does the TICK (hence price) track COMPOSITION? If the range is
@@ -1143,11 +1147,20 @@ contract DrainAtomicity is AllesFixture {
             emit log_named_uint("--- drain rounds        ", rounds[r]);
             emit log_named_uint("    inv (usd6)          ", inv);
             emit log_named_uint("    ETH for a 5k ticket ", got);
+            // 🔴 THE TAX WAS NEVER ZERO — **BPS HAS TOO FEW DIGITS TO SEE IT.** At 20 rounds the
+            //   ticket goes 2.024652375810083208 -> 2.024586501202922170 ETH, a real penalty of
+            //   **0.325 bps**, and `(refEth - got) * 10_000 / refEth` INTEGER-DIVIDES that to 0.
+            //   Four depths all printed "0" and the difference was in the numbers on the same line.
+            // ⇒ PARTS PER BILLION. The economics are separately explained and NOT a defect here:
+            //   `inv` is 987,723 -> 587,725 usd6 while `target` (flow) only reaches 380,430, so
+            //   `inv >= target` at EVERY depth and the FLUSH branch skips the kernel — and σ² reads
+            //   0 throughout, so the kernel would vanish anyway (§SIGMA-IS-ZERO-EVERYWHERE).
+            //   What remains is size-based depletion, which is real, monotone, and sub-bps.
             if (r > 0 && refEth > 0 && got < refEth) {
-                taxBps[r] = (refEth - got) * 10_000 / refEth;
-                emit log_named_uint("    TAX vs balanced, bps", taxBps[r]);
+                taxPpb[r] = (refEth - got) * 1e9 / refEth;
+                emit log_named_uint("    TAX vs balanced, ppb", taxPpb[r]);
             } else if (r > 0) {
-                emit log("    TAX vs balanced, bps: 0 (no penalty at this depth)");
+                emit log("    TAX vs balanced, ppb: 0 (no penalty at this depth)");
             }
             vm.revertToState(snap);
         }
@@ -1158,9 +1171,9 @@ contract DrainAtomicity is AllesFixture {
         // ⚠️ Deliberately the WEAKEST TRUE FORM of "scales", not monotonicity across all four: real
         //   fork fixtures carry noise, and a strict chain would fail on it and get widened away.
         //   Deepest-vs-shallowest is the claim that cannot be satisfied by a flat or inverted tax.
-        emit log_named_uint("tax @6 rounds  (bps)", taxBps[1]);
-        emit log_named_uint("tax @20 rounds (bps)", taxBps[3]);
-        assertGe(taxBps[3], taxBps[1],
+        emit log_named_uint("tax @6 rounds  (ppb)", taxPpb[1]);
+        emit log_named_uint("tax @20 rounds (ppb)", taxPpb[3]);
+        assertGe(taxPpb[3], taxPpb[1],
             "the tax must SCALE with imbalance depth: 20 rounds cannot tax less than 6");
         // ⚠️ AND THE PREMISE, WITHOUT WHICH THE LINE ABOVE IS `assertGe(0, 0)` — MEASURED, BOTH ARE
         //   **0**, so the comparison I just added passes while measuring NOTHING. That is the same
@@ -1168,7 +1181,7 @@ contract DrainAtomicity is AllesFixture {
         // 🔴 A ZERO TAX AT **20 ROUNDS** OF DRAINING IS THE §ZERO-REVENUE SHAPE ARRIVING HERE: the
         //   skew's kernel is skipped in the flush branch, so an imbalance the fixture can reach does
         //   not price. Booked as §TAX-IS-ZERO-AT-DEPTH; do not delete this guard to make it green.
-        assertGt(taxBps[3], 0,
+        assertGt(taxPpb[3], 0,
             "PREMISE: 20 rounds of draining must produce SOME tax, else this test measures nothing");
         emit log_named_uint("reference inv (balanced)", refInv);
         assertGt(refEth, 0, "reference leg must receive volatile or the sweep is void");

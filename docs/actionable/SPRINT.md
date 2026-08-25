@@ -1323,7 +1323,7 @@ orders out, then compared mismatched windows).
 | row | what it reports | why σ² == 0 explains it |
 |---|---|---|
 | **§UNITB-ARMS-IDENTICAL** | both arms charge 321,992 exactly | kernel is `Γ·σ²·qBar`; at σ² = 0 it vanishes and only size-based depletion is left |
-| **§TAX-IS-ZERO-AT-DEPTH** | 20 rounds of draining tax **0 bps** | same term, same reason |
+| ~~**§TAX-IS-ZERO-AT-DEPTH**~~ | ⛔ **REFUTED — a bps rounding artefact.** Re-measured in ppb the tax is **10,054 → 19,385 → 32,536**, linear in depth, and it is DEPLETION doing it at σ² = 0 | **this row is evidence the OTHER way**: it shows the flush branch still charges after §ZERO-REVENUE |
 | **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE** | the only LP revenue lane reads 0 | `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and ETH's `spliceFloor` is **0** |
 | **§E345-ANCHOR / §E257** | the ring never fills, the pull source is unset | no source ⇒ no samples ⇒ σ² stays 0 |
 ⇒ **`ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)` MEANS ETH'S ENTIRE SKEW IS PROPORTIONAL TO σ², WITH NO
@@ -1366,7 +1366,31 @@ the skew is under-recording and LPs are under-credited on every drain.
 actual defect (*"LPs are credited value no swapper paid"*), is true by construction if the accounting
 is honest, needs no decomposition, and **passes today**.
 
-## 🔴 **§TAX-IS-ZERO-AT-DEPTH — 20 rounds of draining produce NO imbalance tax** (2026-08-25)
+## ✅ **§TAX-IS-ZERO-AT-DEPTH — REFUTED BY MEASUREMENT, AND IT WAS MY OWN ROW. THE TAX IS REAL, LINEAR AND SUB-BPS** (2026-08-25)
+
+⛔ **I BOOKED "THE TAX IS ZERO" AND IT WAS A UNITS ARTEFACT — `bps` HAS TOO FEW DIGITS.** At 20 rounds
+the 5k ticket goes `2.024652375810083208 → 2.024586501202922170` ETH. That is a **real penalty of
+0.325 bps**, and `(refEth - got) * 10_000 / refEth` INTEGER-DIVIDES it to **0**. Four depths all
+printed `0` while the difference sat in the numbers on the same log line.
+⇒ **RE-MEASURED IN PARTS PER BILLION, AND THE TEST'S CLAIM IS TRUE:**
+| rounds | tax (ppb) | per round |
+|---|---|---|
+| 6 | **10,054** | 1,676 |
+| 12 | **19,385** | 1,615 |
+| 20 | **32,536** | 1,627 |
+**Near-perfectly LINEAR in depth** — `assertGe(taxPpb[3], taxPpb[1])` passes on a real signal, and the
+premise guard passes too.
+⭐ **AND IT VALIDATES §ZERO-REVENUE'S FIX, WHICH IS THE PART WORTH KEEPING.** The tax is produced at
+**σ² = 0 and INSIDE THE FLUSH BRANCH** (`inv` 987,723 → 587,725 usd6 while `target` only reaches
+380,430, so `inv >= target` at every depth). With the kernel skipped and σ² zero, **the only surviving
+term is the DEPLETION charge §ZERO-REVENUE added to that branch** — and it is measurably doing its
+job at ~1,630 ppb per drain round. Before that fix this would have been a true zero.
+⚠️ **THE LESSON, and it is rule 13 pointing at me: a dismissal AND an alarm both need the same
+evidence.** I raised "the tax is zero" from a number that four independent log lines contradicted, and
+only re-deriving it from the raw ETH amounts caught it. **A displayed 0 is a rendering, not a
+measurement.**
+
+## ⛔ **(superseded, kept for the record) §TAX-IS-ZERO-AT-DEPTH — 20 rounds of draining produce NO imbalance tax**
 
 `test_E96b_TaxScalesWithImbalanceDepth` measured the tax at four depths and compared none of them. I
 added the comparison and **it passed while measuring nothing: `tax@6 rounds = 0` and
