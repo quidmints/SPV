@@ -90,6 +90,25 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     from the project's attention while the work is still undone, and the loss is silent — the exact
     failure mode rules 12 and 13 exist to prevent, arriving through the status column instead of prose.
 
+18. **BUILD ONLY THE BEST SOLUTION AVAILABLE — A WORKING FIX IS NOT AUTOMATICALLY THE RIGHT ONE**
+    (owner, 2026-08-25). **Before landing anything, ask explicitly: is there a better version of this?**
+    Not "does it pass" — *is this the best available*. A patch that works, is verified, and is green
+    can still be the WRONG change if a smaller or more structural one exists.
+    *Worked example (§BURN-RELEASES-NO-USD):* a burn passed `0` for the USD leg, so `committedUsd18`
+    could never fall. I fixed it at the call site, measured two tests green, and was ready to ship —
+    **it was the SECOND site-specific patch for the SAME class** (`levBurnAll` was the first). The
+    root was one level down: `modLP` overloads `deltaUSD == 0` as a `keep` flag that is INERT on that
+    path (it hardcodes `token = address(0)`, and `keep` only gates `token != address(0)`), so passing
+    zero LOOKED deliberate. Deriving the leg in `Core` makes every call site unable to forget and
+    makes both patches deletable. **The owner asked "is there a better one?" and there was.**
+    ⇒ **THE TEST IS RULE 17'S, APPLIED BEFORE LANDING RATHER THAN AFTER: if the fix would still be
+    needed after a root fix, it is a clamp.** Two patches for one class is the signal, and the second
+    one is where it becomes unmistakable — do not wait for a third.
+    ⚠️ **THIS DOES NOT LICENSE GOLD-PLATING OR SCOPE CREEP.** "Best" means the smallest change that
+    removes the CAUSE, not the largest change that touches the most code. A root fix that cannot be
+    verified is worse than a site fix that can — land the verifiable one, then replace it, and DELETE
+    the clamp when the root lands. Leaving both is how a clamp becomes permanent.
+
 17. **A ROOT FIX MAKES THE PREVIOUS FIX DELETABLE; A CLAMP ADDS ANOTHER BOUND** (owner,
     2026-08-14, promoted to a standing rule). This is the operational test for standing rule 3 —
     apply it to your own landed work, not only to proposals. *Worked example (§T1-f-root):* pool
