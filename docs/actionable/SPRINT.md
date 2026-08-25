@@ -1599,18 +1599,28 @@ the contrast. **It clears itself at the end of every transaction**, which is why
 for it. So:
   • ✅ **The cross-transaction staleness risk largely evaporates IF `_activeRoute` is also transient** —
     a stale route cannot survive into a later tx.
-  • 🔴 **BUT `bytes` MAY NOT BE DECLARABLE `transient` at solc 0.8.30** — transient storage support is
-    limited to value types in several versions, and `bytes` is dynamic. **THIS IS UNVERIFIED AND IS
-    THE FIRST THING TO CHECK**, because it decides the whole shape:
-      – if `bytes transient` compiles: one slot, auto-cleared, no `delete` needed.
-      – if it does NOT: use ordinary storage and `delete` it at the end of the entrypoint, since a
-        stale ROUTE is arbitrary calldata `_aggSwap` would execute against the pinned router on a
-        LATER call — unlike a stale keeper, which only redirects a gas reimbursement.
-  • ⚠️ A third option if `bytes` is unusable: keep the route in CALLDATA and store only its **hash**
-    transiently, re-supplying the bytes at the callback and checking the hash. More moving parts;
-    reach for it only if the first two fail.
-⇒ **Verify the `bytes transient` question with a one-line compile BEFORE designing around either
-branch.** I nearly booked a security requirement that the storage class already satisfies.
+  • 🔴🔴 **SETTLED BY COMPILE, AND `bytes transient` IS OUT: solc 0.8.30 rejects it —
+    `Error (1834): Transient data location is only supported for value types.`** Probed by adding
+    `bytes private transient _probeBytesTransient;` beside `_activeKeeper` and building; reverted after.
+⇒ **SO THE SECURITY REQUIREMENT I ALMOST RETRACTED DOES APPLY.** `_activeRoute` must live in ORDINARY
+storage, which does NOT self-clear, so it must be `delete`d at the end of the routed entrypoint. **A
+stale route is arbitrary calldata `_aggSwap` would execute against the pinned router on a LATER
+transaction** — unlike a stale `_activeKeeper`, which is `transient` (so it clears itself) and in any
+case only redirects a gas reimbursement.
+⇒ **THE SHAPE TO BUILD:**
+```solidity
+bytes private _activeRoute;                       // ordinary storage: transient rejects `bytes`
+function rebalanceRouted(address lp, uint minOut, bytes calldata route) external {
+    _activeRoute = route;  rebalance(lp, minOut);  delete _activeRoute;   // clear is MANDATORY
+}
+// _sellCtx: route: _activeRoute        (was: route: "")
+```
+⚠️ **Cost: one SSTORE of dynamic bytes per routed call, partly refunded by the `delete`.** Acceptable
+for a keeper operation, and far cheaper in BYTECODE than threading `bytes` through seven signatures —
+which would also change `_leverUp`, a `virtual` in `LevBase` shared with `BtcLevManager`.
+⚠️ **A hash-only variant** (store `keccak256(route)` in a `bytes32 transient`, re-supply the bytes
+lower down) avoids the SSTORE but needs the bytes to reach `_sellCtx` some other way — more moving
+parts for a gas saving on a keeper path. **Not worth it unless the SSTORE measures badly.**
 ▶️ **NEXT:** `rebalance` first — it is the one the cross-subsidy and cascade fixtures actually call —
 then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing cost +1,967 bytes for the
 de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
