@@ -1433,6 +1433,29 @@ dead. **It is the last witness to that gap.**
 
 ## 🔴🔴 **§BURN-RELEASES-NO-USD — the withdraw burn passes USD = 0, so `committed` can never fall** (2026-08-25)
 
+🔴 **UPDATE 2026-08-25 — THE ROW STAYS OPEN, AND THE `usdOut` AXIS IS NOW CLOSED AS A DEAD END.**
+`f0934722` "fixed" this by passing `basketUsd · pulled / POOLED`. **A control run at its own parent
+proves it regressed the LP exit path 9.5×** — and it was committed without one, which is rule 15.
+
+| `usdOut` passed to `modLP` | `ChopIsBenign` residual | `SETTLE_LvrResidual` + `CHECK_FullExitResidual` |
+|---|---|---|
+| **`0`** (restored — `c6609195` and today byte-identical at `990386428856583127`) | **0.990 ETH** | **both PASS** |
+| `basketUsd · pulled / POOLED` (`f0934722`) | **9.42 ETH** | both pass |
+| `POOLED_USD · pulled / POOLED` (arm C, = `4fcf6fdc`'s shape) | **9.46 ETH** | **both FAIL** |
+
+⭐ **WHY NO VALUE ON THIS AXIS WORKS, WHICH IS THE PART THAT MOVES THE ROW.** `Core.modLP` hardcodes
+`token = address(0)`, so `_settleUsdSide`'s payout `AUX.take(who, …)` is **UNREACHABLE from this
+path**. A positive `usdOut` therefore RETIRES dollars — `POOLED_USD` falls, and `_poolUsdInRange`'s
+burn arm drops `basketUsd` with it — **and delivers them to nobody**, shrinking the very claim the LP
+is still trying to collect. Bigger release ⇒ strictly harder exit, monotonically.
+⇒ **THE MISSING HALF IS DELIVERY, NOT RELEASE SIZE.** The next attempt must make the burn *pay* the
+dollars it frees (the `§#12 DELIVERY LEG` / `_payUsdLeg` machinery is the shape); changing the
+argument again is already measured and cannot work.
+⚠️ **AND MY DOUBLE-PRORATION DIAGNOSIS WAS WRONG** — `_poolUsdInRange` does prorate a second time,
+but arm C (which removes the double) is the WORST arm, so that was never the driver. Recorded because
+a plausible mechanism that survives one reading and dies to one run is exactly what rule 13 is for.
+
+
 ⛔ **THIS SUPERSEDES §EXIT-ASSUMES-WEETH BELOW, WHICH WAS WRONG.** I read `ETH delivered: 0` and
 concluded the exit served nothing. **The test logs the NATIVE balance while the offramp pays WETH —
 its own comment says so.** Re-instrumented: **`WETH delivered: 39.996`**, **`LP pooled after: 60e18`**
@@ -13603,7 +13626,7 @@ diagnosis.
 
 | exits | residual | per-exit ratio |
 |---|---|---|
-| 1 | **0.744640 ETH** | — |
+| 1 | **0.744640 ETH** (⚠️ **0.990386 today** — re-measured 2026-08-25; the per-exit ratios below were never re-derived at the new baseline) | — |
 | 4 | 0.620431 | 0.937 → |
 | 20 | **0.328337** | → **0.971** |
 

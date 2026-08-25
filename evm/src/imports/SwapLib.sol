@@ -2127,18 +2127,24 @@ library SwapLib {
         if (pulled == 0) return 0;
         (, uint posLiquidity) = ICore(core).poolStats();
         if (posLiquidity > 0) {
-            // §BURN-RELEASES-NO-USD — RELEASE THE **BASKET'S** SHARE ONLY, NOT THE WHOLE MIRROR.
-            // Passing 0 left `basketUsd` untouched, so `committedUsd18()` could never fall. Passing
-            // the FULL proportional `POOLED_USD` share over-released: it took the LP-OWNED INCREMENT
-            // with it, and a second exit then found no weETH to offramp AND no increment to pay —
-            // measured, an LP left holding 24.32 ETH of shares that returned 0 (§SETTLE-LvrResidual).
-            // ⇒ THE INCREMENT IS THE LP'S AND IS ALREADY MANAGED: `_payUsdLeg` pays their pro-rata
-            //   share as QU!D and `absorbPaidUsd` re-anchors what remains. The burn's job is only to
-            //   release the BASKET's paired dollars, which is what `committed` is built from.
-            // `basketUsd · pulled / POOLED` — the basket's share of the depth being burned.
-            uint basket6 = ICore(core).basketUsd();
-            uint usdOut = basket6 == 0 ? 0 : SoladyMath.fullMulDiv(basket6, pulled, pooled);
-            sent = ICore(core).modLP(int256(pulled), int256(usdOut), recipient);   // LEAVES ⇒ positive
+            // 🔴 §BURN-RELEASES-NO-USD — STILL OPEN, AND **IT CANNOT BE FIXED BY CHOOSING A
+            //   DIFFERENT `usdOut`.** Three arms were measured on `ChopIsBenign` (LP exit residual)
+            //   plus the two residual tests, each a control run at a real commit:
+            //     • `0`                            → **0.990 ETH**, both residual tests PASS  ← here
+            //     • `basketUsd · pulled / POOLED`  → 9.42 ETH (a **9.5x regression**), both pass
+            //     • `POOLED_USD · pulled / POOLED` → 9.46 ETH, and BOTH residual tests FAIL
+            //   ⇒ THE AXIS IS A DEAD END: every nonzero value makes the LP's exit strictly harder,
+            //     and the largest one also makes the residual UNCOLLECTABLE (the failure `4fcf6fdc`
+            //     was reverted for — its diagnosis was right).
+            // ⭐ WHY, AND THIS IS THE PART THAT MOVES THE ROW: `modLP` hardcodes `token =
+            //   address(0)`, so `_settleUsdSide`'s payout `AUX.take(who, ...)` is UNREACHABLE from
+            //   this path. A positive `usdOut` therefore RETIRES dollars (`POOLED_USD` and
+            //   `basketUsd` both fall) and DELIVERS THEM TO NOBODY — it shrinks the claim the LP is
+            //   still trying to collect. The release is not the missing half; the DELIVERY is.
+            // ⇒ THE FIX BELONGS AT THE DELIVERY SITE, NOT THE RELEASE SIZE. Until a burn can pay the
+            //   dollars it frees, 0 is the only value that does not take value from the LP, and the
+            //   `committedUsd18()`-never-falls defect stays booked rather than traded for a worse one.
+            sent = ICore(core).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive
         }
     }
 
