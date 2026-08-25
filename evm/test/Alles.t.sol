@@ -1620,11 +1620,18 @@ contract Alles is AllesFixture {
 
         vm.roll(vm.getBlockNumber() + 1000);
 
-        uint balanceBefore = USDC.balanceOf(User01);
-        ETH.pull(id, 50, address(USDC));
+        // §OOR-LEG-MISMATCH — THE POSITION IS ETH-FUNDED, SO IT MUST BE PULLED AS ETH.
+        // `Core.outOfRange` routes by token: `token == 0 ? Delta(0, -amount) : Delta(-amount, 0)`.
+        // Pulling an ETH-funded order with USDC puts the position's 18-dec TOKEN amount into the
+        // 6-dec USD slot, which reads as a colossal USD claim and trips `OverCommitted()` — measured:
+        // backing was HEALTHY either side of the open (committed 123,371 vs liquid 152,000, unchanged
+        // by the order), so the over-commitment was injected by the pull's own mis-legged delta.
+        // The sibling `testOutOfRangeUSDPosition` is self-consistent (USDC in, USDC out) and passes.
+        uint balanceBefore = User01.balance;
+        ETH.pull(id, 50, address(0));
 
-        uint received = USDC.balanceOf(User01) - balanceBefore;
-        assertGt(received, 0, "Should receive USDC");
+        uint received = User01.balance - balanceBefore;
+        assertGt(received, 0, "Should receive ETH back from an ETH-funded boundary order");
 
         vm.stopPrank();
     }

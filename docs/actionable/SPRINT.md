@@ -194,7 +194,24 @@ dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* �
 reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
 defect. **Do not "fix" it by lowering the premise.**
 
-## 🔴 **§OOR-PULL-OVERCOMMITTED — the pull's PAYOUT trips the backing gate, not the pull itself** (2026-08-25)
+## ✅ **§OOR-PULL-OVERCOMMITTED — SOLVED 2026-08-25. IT WAS A LEG MISMATCH IN THE TEST, AND THE PROTOCOL IS EXONERATED.**
+**MEASURED, which is what settled it:** backing is HEALTHY either side of the boundary order and
+**identical** — `committed 123,370.9 / liquid 152,000` before AND after — so the order commits nothing
+(`inRange = false`, exactly as designed) and there is **$28,629 of headroom when the pull begins**.
+⇒ **THE PULL INJECTED THE OVER-COMMITMENT ITSELF, VIA ITS TOKEN ARGUMENT.** The fixture opened an
+**ETH-funded** order (`outOfRange{value: 2 ether}(0, address(0), …)`) and pulled it as **USDC**.
+`Core.outOfRange` routes by token — `token == 0 ? Delta(0, -amount) : Delta(-amount, 0)` — so pulling
+with USDC puts the position's **18-dec TOKEN amount into the 6-dec USD slot**. A 1e18 wei claim reads
+as ~1e18 of 6-dec dollars and dwarfs any backing. Fixed by pulling as `address(0)`; **PASSES**.
+⭐ **THE SIBLING TEST IS THE CONTROL AND IT WAS ALWAYS GREEN:** `testOutOfRangeUSDPosition` is
+self-consistent — USDC in, USDC out. **One test mis-legged and one not, in the same file** — the same
+shape as the `pooledBtc0`/`btcUsd0` pairs found earlier: the correct form sitting a few lines away.
+⚠️ **WHAT IT SAYS ABOUT THE CONTRACT, and it is not nothing:** `outOfRange` accepts a payout token
+that does not match the funding leg and silently reinterprets the amount. The test was wrong, but the
+API let it be wrong. ▶️ **Booked as a candidate guard: reject a pull whose token disagrees with
+`usdFunded`.** Not landed — it is a live-order path and needs its own arm.
+
+
 
 `testPartialPullOutOfRange` reverts `OverCommitted()`. Traced: **the revert is inside `Quid::pull`,
 seven frames deep, on the PAYOUT leg — not on the position or the burn.**
