@@ -13871,6 +13871,21 @@ the flow target and every swap takes the FLUSH branch — exempt, by design.**
 not a fixture artefact; it is what "the skew premium is the whole charge" means once the flat fee is
 gone, and it is the same fact §E325 item 1 saw from the other side (the BIG leg charged 0 while SPLIT
 legs paid 600000000).
+⚠️⚠️ **THE PREMISE CHANGED 2026-08-25, AND IT MOVES THE DECISION: A FLUSH SWAP NO LONGER PAYS NOTHING.**
+§ZERO-REVENUE added the DEPLETION term to the flush branch — `SwapLib:1180` now returns
+`_maxWellSkew(σ², rk) + _depletion(inv0, inv1)` rather than the base alone. **MEASURED on §E96b, at
+σ² = 0 and INSIDE the flush branch: 10,054 → 19,385 → 32,536 ppb across 6/12/20 drain rounds — LINEAR
+in imbalance depth, ~1,630 ppb per round.**
+⇒ **So option (a) is no longer "earn nothing"; it is "earn a size-based depletion charge and no
+kernel".** The kernel — the only σ²- and target-sensitive term — is still skipped, which is what
+§UNITB-ARMS-IDENTICAL proves from the other side (`skewWad` is FLOW-BLIND while `inv >= target`).
+⛔ **AND THE MEASUREMENT WAS NEARLY MISSED: it reads 0 in BPS.** 0.325 bps integer-divides to zero, so
+four depths all printed `0` and I booked "the tax is zero" as a finding before re-deriving it from the
+raw ETH amounts. **A displayed 0 is a rendering, not a measurement** — anyone re-opening this row
+should measure in ppb.
+⇒ **THE DECISION IS NARROWER NOW:** not "should a deep range earn anything" but **"is depletion alone
+the right charge on ordinary flow, or should the kernel apply before scarcity?"**
+
 🔴 **THIS IS AN OWNER DECISION, NOT A TEST FIX.** Either (a) a deep range genuinely should earn nothing
 on ordinary flow — in which case these premises encode the retired flat-fee model and must be rewritten
 to drive scarcity first; or (b) LPs should earn on ordinary flow, and the flush exemption is too broad.
