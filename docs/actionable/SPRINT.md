@@ -1213,6 +1213,44 @@ that noticed this.
 `2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
 skew change in this session.
 
+## 🔴 **§VACUOUS-BOUNDS-3 — three tests COMPUTE their own verdict, PRINT it, and assert something weaker** (2026-08-25)
+
+CLAUDE.md's §VACUOUS-BOUNDS note says *"the test's NAME is the tell — it claims what the assertion
+does not check"*, and cites §E279 where **`assertGt(premium, 0)` hid a double-charge**. Swept for it.
+
+▶️ **SWEEP, WITH THE DISCARDED CLASSES NAMED (the sweep rule — a raw count is read as noise):**
+| stage | count | what was discarded |
+|---|---|---|
+| tests whose ONLY assertion is one-sided | 35 | — |
+| …bounded against a LITERAL CONSTANT | **13** | **21 discarded: `assertGt(errLarge, errSmall)` and friends are REAL comparisons** — my "one assertion" proxy counted them as one-sided when both operands are computed |
+| …where the test's OWN computed discriminator is logged but unasserted | **3** | the rest are legitimate PREMISE guards where the extreme value MEANS the message (`assertGt(sigma2, 0, "fixture never reached priced scarcity")`) |
+
+⭐ **THE THREE, AND THEY SHARE ONE SHAPE: THE CHECK IS ALREADY IN THE CODE, ONE LINE ABOVE THE
+ASSERTION, AS AN `emit`.**
+
+| test | it computes and prints | it asserted |
+|---|---|---|
+| **`test_UNIT_PremiumRecordedEqualsPremiumPaid`** | `paidUsd6 * 10_000 / premium` — *"borne/recorded (bps, 10000 = exact)"* | `assertGt(premium, 0)` |
+| **`test_UNIT_LpExitAcrossImbalanceIsValueNeutralAtFlatPrice`** | `valueIn18` vs `valueOut18`, printed as **`"SHORTFALL (LEAKAGE)"`** | `assertGt(ethOut + usdOut, 0)` |
+| **`test_E96b_TaxScalesWithImbalanceDepth`** | tax bps at **four** imbalance depths | one-sided vs a constant |
+
+🔴 **THE FIRST IS §E279's ASSERTION ON §E279's QUANTITY.** Its docstring warns *"if the record
+overstates, LPs are credited value no swapper paid"* and records that *"the event trace showed a
+~1000x disagreement"* — and `assertGt(premium, 0)` is satisfied by a premium 1000× the swapper's
+haircut. ⛔ **`USD_FEES` is deliberately NOT asserted against these: it is a PER-SHARE ACCUMULATOR,
+not dollars** (§A.50), so that comparison would be a units error, not a check.
+
+✅ **BOUNDS ADDED, AND ONE OF THEM NEEDED A REAL DISTINCTION RATHER THAN A NUMBER:**
+  • premium: `assertApproxEqRel(paidUsd6, premium, 5%)` — absorbs oracle drift, not a doubling.
+  • tax: `assertGe(taxBps[20 rounds], taxBps[6 rounds])` — the WEAKEST TRUE FORM of "scales", chosen
+    over monotonicity across all four because fork noise would fail a strict chain and it would then
+    be widened away. A flat or INVERTED tax — the thing the name denies — cannot pass it.
+  • value-neutrality: ⚠️ **a naive no-shortfall bound would be WRONG and is presumably why none
+    existed** — §C25 established one exit leaves a residual BY DESIGN, so `valueOut < valueIn` is a
+    DEFERRAL. The bound counts it: `delivered + convertToAssets(balanceOf) >= wentIn − 1%`, which
+    separates a deferral (claim survives) from a leak (claim gone) — the distinction the test is named
+    for and the one §SETTLE-LvrResidual turns on.
+
 ## 🔴 **§PUSH-HEADROOM-1.85X — the push guard's margin is a third of what `Core` claims, and the tripwire fired** (2026-08-25)
 
 `test_E294_HeadroomIsNotMarginal` asserts `basisBps * 2 < OBS_PUSH_MAX_BPS`. **MEASURED: `bps*2 = 54`
