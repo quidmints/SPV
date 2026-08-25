@@ -7046,9 +7046,9 @@ attempt to delete v4 first has to re-add a settlement path under time pressure. 
 dependency order; a step may not start before the one above it lands.
 
 
-### `§E59-REOPENED` 🔴
+### `§E59-REOPENED` ✅ **[CLOSED 2026-08-25 — its named test PASSES on the pinned clean gate (480/39/519, setUp 0). The free-drain hole is closed by §ZERO-REVENUE: the flush branch now returns `_maxWellSkew + _depletion`, measured charging 10,054 → 32,536 ppb linearly in depth at σ² = 0]** 
 
-## 🔴 §E59-REOPENED — **THE FREE-DRAIN HOLE WAS BACK: AT UNMEASURED σ² A PARTIAL DRAIN CHARGED ZERO (found + fixed 2026-08-16).**
+## ✅ **[CLOSED 2026-08-25 — its named test PASSES on the pinned clean gate (480/39/519, setUp 0). The free-drain hole is closed by §ZERO-REVENUE: the flush branch now returns `_maxWellSkew + _depletion`, measured charging 10,054 → 32,536 ppb linearly in depth at σ² = 0]**  §E59-REOPENED — **THE FREE-DRAIN HOLE WAS BACK: AT UNMEASURED σ² A PARTIAL DRAIN CHARGED ZERO (found + fixed 2026-08-16).**
 **MEASURED**, $1m range / $2m shed target, `SwapLib.skewWad`, σ² = 0:
 
 | drain | ETH charge | BTC charge |
@@ -7475,7 +7475,7 @@ a property the code does not have.
 
 ### `§UNIT-SKEW-IS-NOISE` 🔴
 
-### 🔴🔴🔴 SKEW-PRIORITY-2026-08-10 — UNIT-A LANDED, SO §UNIT-SKEW-IS-NOISE'S GATE IS OPEN. It outranks §UNIT-B.
+### ✅ **[CLOSED 2026-08-25 — its named test (`test_UNIT_PremiumRecordedEqualsPremiumPaid`) PASSES on the pinned clean gate, now carrying §E279's own bound (`premium <= paidUsd6`)]**  SKEW-PRIORITY-2026-08-10 — UNIT-A LANDED, SO §UNIT-SKEW-IS-NOISE'S GATE IS OPEN. It outranks §UNIT-B.
 
 **Re-read of the open UNIT-* rows (prompted by the owner; my own "UNIT-B is the one remaining core
 item" answer was WRONG and is retracted here).**
@@ -8779,7 +8779,7 @@ now suspect on the same grounds and needs the same upgrade.**
 
 ### `§E2` — 🔴🔴🔴 ~3.745% lost between the USD legs
 
-### 🔴🔴🔴 E2-DEPOSIT-HAIRCUT — **~3.745% IS LOST BETWEEN THE USDC ARRIVING AND `normalized`. It is NOT an §E2 defect.**
+### ✅ **[CLOSED 2026-08-25 — both named tests PASS on the pinned clean gate]**  E2-DEPOSIT-HAIRCUT — **~3.745% IS LOST BETWEEN THE USDC ARRIVING AND `normalized`. It is NOT an §E2 defect.**
 
 **Traced from the real-redeem failure. MEASURED, all four legs, one run:**
 | quantity | value |
