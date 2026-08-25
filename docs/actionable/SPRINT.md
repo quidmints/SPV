@@ -11827,7 +11827,28 @@ other test sessions were competing for it.
 Everything below was STARTED and not finished. Each row carries the number that stops it, so the
 next thread re-measures rather than re-discovers.
 
-### 🔴 BLOCKED ON EIP-170 — the two big folds, and they share ONE prerequisite
+### 🔴 BLOCKED ON EIP-170 — **RE-MEASURED 2026-08-25 AND BOTH FOLDS ARE FURTHER AWAY, NOT CLOSER**
+| fold | this row said | **measured 2026-08-25** (raw sum) | after the ~6.4 KB shared-function dedup |
+|---|---|---|---|
+| `Quid` ∥ `Vault` | ~5.4 KB over | **8,769 over** (21,512 + 11,847) | **~2.4 KB over** |
+| `LevManager` ∥ `BtcLevManager` | ~8.8 KB over | **16,682 over** (24,030 + 17,570) | **~10.3 KB over** |
+⚠️ **THE RAW SUM IS AN UPPER BOUND — a real merge dedupes the 7 shared functions (~6.4 KB by this
+row's own measurement), which is what the fourth column applies.** Quoting the raw sum alone
+overstates the gap; quoting the row's old figure understates it. Both columns are given so neither
+mistake is available.
+🔴 **AND ~766 BYTES OF THE `LevManager` GROWTH IS MINE**: the §C2.1 routed 1inch entrypoint
+(`deleverOneRouted`) landed this session and took the margin from 1,312 to **546**. **A fold blocker
+moved by ordinary feature work, and nothing flagged it** — the size gate reports margin per contract,
+never "this makes a planned merge harder".
+⇒ **`Quid` ∥ `Vault` IS THE NEAR ONE at ~2.4 KB, and the surface thesis SURVIVES re-measurement:**
+`Quid` carries **92 selectors** today against the 93 this row recorded, while having SHED 2,612 bytes
+(24,124 → 21,512). **Body work moved 2.6 KB; the selector count moved by one.** That is the row's
+own argument confirmed by an independent measurement — the lever is the external SURFACE.
+⛔ **Do NOT plan the `LevManager` fold from the old ~8.8 KB figure. It is ~10.3 KB after dedup and
+rising** — every routed entrypoint the 1inch work still needs (`rebalance`, `openLev`, `closeLev`)
+adds to it.
+
+### 🔴 (original row, superseded figures kept for the reasoning)
 | fold | merged size | limit | over by |
 |---|---|---|---|
 | `Quid` ∥ `Vault` | ~30,000 | 24,576 | **~5.4 KB** |
