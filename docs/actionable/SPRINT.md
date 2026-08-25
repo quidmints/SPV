@@ -1749,6 +1749,45 @@ then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing 
 de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
 will not carry all seven; route in call-frequency order and fold again when it binds.
 
+## 🔴🔴 **§ROUTE-NEEDS-TWO-PHASE — the 32 failures are NOT blocked on a key. THE AMOUNT IS ONLY KNOWN MID-TRANSACTION** (2026-08-25)
+
+The owner supplied a 1inch dev-portal key and it WORKS — live quote `1 WETH -> 2,464.035528 USDC`,
+and `/swap` returns **552-3,272 bytes** of calldata whose `tx.to` is `0x1111...2A65`, **exactly the
+`ONEINCH_ROUTER` pinned in `Interfaces.sol`**. `tools/fetch_1inch_route.py` is the `vm.ffi` bridge and
+is verified end-to-end. ⚠️ **It shells out to `curl`, not `urllib`: measured, the identical request via
+`urllib.request` returns HTTP 403 while `curl` succeeds — the API rejects urllib's User-Agent.**
+
+🔴 **AND THE TESTS STILL CANNOT USE IT, FOR A STRUCTURAL REASON NO KEY FIXES:**
+```solidity
+LevManager:711  uint256 coll = LevMath.stableToColl(
+                    _sellCtx(), stable, venue.borrow(who, _fromUsd(aux, stable, usd)), minOut);
+```
+**The swapped amount is `venue.borrow(...)`'s RETURN VALUE** — it exists only part-way through the
+transaction. **A 1inch route ENCODES its amount**, so a route fetched before the call does not match
+what the call will actually swap.
+⇒ **SOURCING A ROUTE IS INHERENTLY TWO-PHASE: simulate -> read the realised borrow -> fetch ->
+execute.** That is exactly what `quid-bridge`'s `lev_keeper` is for, and it is **not expressible
+inside a single-transaction fork test**. ⇒ **§ROUTE-BLOCKED-24's 32 failures are blocked on a KEEPER
+LOOP, not on a credential.**
+▶️ **THE TESTABLE SHAPES, increasing cost:** (1) assert the revert IS `NoVolatileRoute()` — honest but
+asserts an absence, which rule 4 warns about; (2) drive the two-phase flow from a Rust integration
+test in `quid-bridge` against anvil, where the simulate step is natural; (3) let the contract accept a
+route sized by a bound the caller CAN predict (max-in rather than exact) — a design change.
+
+⛔ **THE CONTRACT PLUMBING WAS BUILT, MEASURED, AND REVERTED — numbers so it is not re-derived:**
+| shape | `LevManager` | margin |
+|---|---|---|
+| baseline (after the §RULE-8C folds) | 23,590 | **986** |
+| one `rebalanceRouted(address,uint256,bytes)` | 24,273 | 303 (**+683**) |
+| `runRouted` dispatcher, **3 ops** | 24,396 | 180 (**+806**) |
+| `runRouted` dispatcher, **1 op** | 24,380 | 196 (**+790**) |
+⇒ **The dispatcher DOES amortise** (3 ops for 806 against 3x683 separately) **and scoping to one op
+saves only 16 bytes** — the cost is the `bytes calldata` frame and the `_activeRoute` SSTORE, not the
+branch table. ⇒ **Reverted: 196 bytes on the binding contract, spent on a path nothing can exercise,
+is the wrong trade (rule 18).** Land it with the keeper loop, and free bytes first.
+⚠️ `bytes transient` is NOT available (`Error 1834`), so `_activeRoute` needs ordinary storage and an
+explicit `delete`; `_activeKeeper` needs none because it IS transient.
+
 ## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
 
 **Census at `15d2a4a2` (drpc, 219.87s): 468 passed / 48 failed / 516 total, 83 suites.** Authoritative
