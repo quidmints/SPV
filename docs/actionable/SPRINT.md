@@ -1216,7 +1216,19 @@ choice not yet made is ⏸️, never ✅). Whichever way it goes, these five mov
      frequency table and I read the absence as evidence. **An empty grep proves nothing — including
      when the grep is my own truncated output.**
 
-## 🔴 **§INIT-VETVENUE-ASYMMETRY — THE ETH MANAGER DISCARDS A RETURN VALUE THE BTC MANAGER REVERTS ON** (2026-08-24)
+## ✅ **§INIT-VETVENUE-ASYMMETRY — FIXED AND LANDED (`LevManager.sol:149`), gated 2026-08-24**
+`if (LevMath.vetVenue(v, WETH, WETH, address(WEETH))) revert VenueNotAllowed();` — the ETH manager now
+honours the return value `BtcLevManager` already reverted on, so a stable-collateral INVERSE venue
+mis-pinned as a long can no longer be allowlisted into phantom ETH backing.
+🔴 **AND THE ROW SAT OPEN FOR A DAY WITH ITS `▶️ FIX:` LINE INTACT WHILE THE CODE WAS ALREADY IN.
+I DID THIS — in the same session in which I closed THREE other rows for exactly this.** Knowing the
+rule did not prevent it; only re-reading the row against the tree did.
+⇒ **That is the case FOR the mechanical sweep and against relying on discipline.** CLAUDE.md's
+▶️ staleness sweep (grep open rows for their own falsifiable claims and re-run each) found it in
+seconds. **The author is the worst-placed person to notice their own stale row**, because they
+remember doing the work and read the row as describing the past.
+
+#### 📎 (original row, kept for the evidence; NOT an open row)
 
 ```solidity
 // BtcLevManager.init
