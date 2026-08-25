@@ -3112,12 +3112,20 @@ contract Alles is AllesFixture {
         // grows, S unchanged), but a swapper protects themselves with a real
         // minOut. (The earlier ">26"/">30" thresholds were arbitrary; a deep range
         // legitimately fills several ETH at <=0.5%.)
+        // §STALE-FILL-PREMISE — WAS 50 ETH, WHICH THE RANGE COULD FILL IN FULL. The subject here is
+        // the UNFILLED remainder, so the swap has to EXCEED the USD leg's capacity or there is no
+        // remainder to test. Measured: `POOLED_USD` ~152k against 50 ETH ~122k, so `consumed` was the
+        // whole 50 and `pooledFill == 50 ether` was CORRECT — a full fill, not an inflation.
+        // ⚠️ AND THE ORIGINAL DIAGNOSIS OF THIS ROW WAS WRONG: `BasketLib:527` passes `consumed` (not
+        // the raw input) into `Core.swap`, so an unfilled remainder never reaches `POOLED` in the
+        // first place. It stays with the protocol as BACKING, which is what this test's own comment
+        // says should happen. 400 ETH (~975k) is comfortably past the leg.
         vm.prank(User02);
-        AUX.swap{value: 50 ether}(address(USDC), address(WETH), false, 0, 0, true);
+        AUX.swap{value: 400 ether}(address(USDC), address(WETH), false, 0, 0, true);
         uint pooledFill = CORE.POOLED() - initialPooledETH;
 
-        assertLt(pooledFill, 50 ether,
-            "unfilled swap ETH must NOT all land in POOLED (only the ~0.5% fill)");
+        assertLt(pooledFill, 400 ether,
+            "unfilled swap ETH must NOT all land in POOLED -- only the CONSUMED portion may");
         assertEq(QUID.totalSupply(), qdBefore, "an ETH->USDC swap mints no QUID");
 
         // And a subsequent real deposit grows the pool - by its in-range PAIRED

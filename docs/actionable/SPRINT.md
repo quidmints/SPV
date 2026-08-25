@@ -1,4 +1,20 @@
-## 🔴 **§NATIVE-ETH-NEVER-REFUNDS — unfilled ETH lands in POOLED, inflating in-range depth** (2026-08-24)
+## ⛔ **§NATIVE-ETH-NEVER-REFUNDS — RETRACTED 2026-08-25. THE DIAGNOSIS WAS WRONG.**
+I claimed the unfilled remainder of a native-ETH swap lands in `POOLED` and inflates in-range depth.
+**It does not.** `BasketLib:527` passes `pooled` — which IS `consumed` — into `ICore.swap`, so only
+the FILLED portion ever reaches `POOLED`. The remainder stays with the protocol as BACKING, which is
+exactly what the test's own comment says should happen.
+▶️ **WHAT WAS ACTUALLY WRONG: A STALE FIXTURE PREMISE.** `pooledFill` measured **exactly 50e18** —
+`consumed == 50 ETH`, i.e. the range filled the WHOLE swap. With `POOLED_USD` ~152k against 50 ETH
+~122k it had ample capacity, so a full fill was correct and the assertion's *"only the ~0.5% fill"*
+describes a shallower range than the fixture now builds. **The unfilled-remainder case the test exists
+to check was UNREACHABLE.** Fixed by swapping 400 ETH (~975k), comfortably past the leg.
+⭐ **HOW I GOT IT WRONG, and it is the same error twice in one session:** I read `_refundExcess`'s
+`if (r.inToken == address(0)) return;` — a real early-return for native ETH — and inferred the
+consequence without following where the amount actually goes. **A true fact about one function,
+combined with an assumption about its caller.** §EXIT-ASSUMES-WEETH was the identical shape.
+⇒ **The discriminator both times was one grep for the CALL SITE**, not more reading of the function.
+
+
 
 ## 📌 **SESSION RECORD 2026-08-24 — state, blockers, and the method lessons that cost the most**
 
