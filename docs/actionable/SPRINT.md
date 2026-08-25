@@ -13877,7 +13877,7 @@ premium. `Core.swap` calls `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` on every swa
 swept by the very flow that pays the charge the OOR filler avoids. ▶️ Either OOR fills owe the same
 skew, or there is a stated reason they do not. **Nothing in the tree states one.**
 
-### 🔴 2. `LevBase.totalDeliverableDollars` IS AN UNBOUNDED LOOP OVER **EVERY OPEN LP** — WORSE THAN THE ONE ASKED ABOUT
+### ✅ **[CLOSED 2026-08-25 — FIXED — see the §E332 correction below, and re-measured 2026-08-25: **0 functions loop over `_openLps`**; `totalDeliverableDollars` reads a single pinned venue]**  2. `LevBase.totalDeliverableDollars` IS AN UNBOUNDED LOOP OVER **EVERY OPEN LP** — WORSE THAN THE ONE ASKED ABOUT
 Owner flagged `SwapLib.sol:1834` (`for (uint i; i < n && deliveredEth < shortfallEth; i++)`). That one
 has an **early exit** on the shortfall. `LevBase.sol:231-236` does not:
 ```solidity
@@ -13944,7 +13944,7 @@ state across contracts, which is what §E329's instance bug was.
 
 ## 🔴🔴 §E332 — **TWO CORRECTIONS TO §E331, BOTH FROM CHECKING RATHER THAN ASSERTING. ONE IS WORSE, ONE IS WEAKER.**
 
-### 1. 🔴 THE UNBOUNDED LOOP: I NAMED THE ONE WITH **ZERO** CALLERS AND MISSED THE ONE WITH **FIFTEEN**
+### 1. ✅ **[CLOSED 2026-08-25 — FIXED — **ZERO functions loop over `_openLps` today.** The array survives only behind a PAGINATED ACCESSOR PAIR (`openLevCount()` `:525`, `openLpAt(uint)` `:528`), which moves iteration off-chain — the correct fix, not a bound. `totalDeliverableDollars` (`:328`) no longer loops either: it reads one pinned venue and returns. Verified by walking every `for (` in `LevBase.sol` against `_openLps`]**  THE UNBOUNDED LOOP: I NAMED THE ONE WITH **ZERO** CALLERS AND MISSED THE ONE WITH **FIFTEEN**
 §E331 flagged `LevBase.totalDeliverableDollars` (`:231`). Re-measured — there are **FOUR** unbounded
 loops over `_openLps` in that file, and the one I named is the least dangerous:
 | function | line | loops over every open LP | **in-`src` callers** |
