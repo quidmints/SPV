@@ -1356,8 +1356,25 @@ contract DrainAtomicity is AllesFixture {
         //       re-seed each round the way §E96b's does, so a round count copied across is meaningless.
         //   ⇒ THE TWO PRECONDITIONS FIGHT EACH OTHER UNDER DRAINING: reaching scarcity needs flow,
         //     and flow at a pinned price flattens sigma^2. **This needs a fixture that moves the
-        //     FEED while it trades** (the `LevCascade._rallyRange` shape), which is a redesign, not
-        //     a tweak. Booked as §UNITB-NEEDS-A-MOVING-FIXTURE.
+        //     FEED while it trades** (the `LevCascade._rallyRange` shape).
+        // ▶️ PORTED AND MEASURED, AND IT GETS **BOTH PRECONDITIONS AT ONCE** — which the paragraph
+        //   above said needed a redesign. `_sell` (not `_drain`) moves `POOLED_USD` DOWN toward the
+        //   target, and stepping the FEED down with each sell keeps sigma^2 alive through the flow:
+        //     `POOLED_USD` **811,919 < target 873,701**  ✅ priced scarcity
+        //     `sigma^2` **3.775e18** (vs 1 wei under plain draining) ✅ sustained
+        //   THE LOOP THAT DID IT (kept here so it is not re-derived):
+        //     spx -= spx/60; _setEthFeed(spx/1e10); CORE.pushObservation(spx);
+        //     roll+warp; _sell(20 ether);   ×40, breaking on `POOLED_USD < flowEwmaUsd`
+        // ⛔ AND IT IS **NOT LANDED**, because it breaks this test's own cost model: a ~1.7%/step
+        //   crash over ~30 steps decouples the POOL price from the oracle, and the swapper ends up
+        //   ahead — `ETH received (B) 15.372e18` against `ETH at oracle 12.149e18` — so the test's
+        //   `cost = oracle − received` UNDERFLOWS (panic 0x11). Leaving a panicking test is worse
+        //   than the honest CONTROL failure it replaces.
+        // 🔴 AND THE PART THAT MATTERS MOST: **EVEN WITH BOTH PRECONDITIONS MET THE ARMS WERE STILL
+        //   IDENTICAL (195,538 both)** — arm A's target halves to 436,850 (below the mirror, so
+        //   flush) while arm B's 873,701 is above it (not flush), and they STILL priced the same.
+        //   ⇒ **FLUSH IS THEREFORE NOT THE WHOLE EXPLANATION EITHER**, which is what this attempt
+        //     actually established. Booked in §UNITB-NEEDS-A-MOVING-FIXTURE.
         uint snap = vm.snapshotState();
 
         // ARM A — decayed target (LOWER q ⇒ LESS skew ⇒ MORE volatile received)

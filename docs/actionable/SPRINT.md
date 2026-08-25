@@ -1300,10 +1300,31 @@ in direct opposition under this fixture's only lever.
 ✅ **WHAT THE ATTEMPT DID ESTABLISH, and it is worth keeping:** with σ² seeded the skew moves
 **321,992 → 322,187 usd6**, so **σ² DOES feed through** — it is simply not the blocker. **FLUSH is**,
 and it is not a defect: the target is deliberately unpriced when inventory exceeds it.
-▶️ **THE FIXTURE THAT WOULD WORK is already in the tree: `LevCascade._rallyRange` MOVES THE FEED WHILE
-IT TRADES** (`px += px * 8 / 100; _setLiveEthFeed(px / 1e10); CORE.pushObservation(px);` per step). That
-sustains σ² through the flow instead of flattening it. **Porting that shape here is the task** — a
-redesign of the fixture, not a tweak, which is why it is booked rather than attempted piecemeal.
+✅ **THE MOVING-FEED SHAPE WAS PORTED AND IT WORKS — BOTH PRECONDITIONS AT ONCE, MEASURED.** The lever
+is `_sell` (NOT `_drain`: one lowers the USD mirror, the other raises it) with the feed stepped down
+each iteration:
+```
+spx -= spx/60;  _setEthFeed(spx/1e10);  CORE.pushObservation(spx);
+roll+warp;      _sell(20 ether);                    ×40, break on POOLED_USD < flowEwmaUsd
+```
+| | plain draining | this loop |
+|---|---|---|
+| `POOLED_USD` vs `target` | 1,515,723 vs 460,195 (deeper flush) | **811,919 vs 873,701 — SCARCITY REACHED** |
+| `sigma^2` | **1** (the §E88 floor) | **3.775e18 — sustained** |
+
+🔴🔴 **AND THE ARMS WERE STILL IDENTICAL — 195,538 BOTH. THAT IS THE REAL FINDING AND IT REOPENS THE
+ROW.** Arm A's target decays to **436,850**, BELOW the 811,919 mirror ⇒ flush; arm B's is **873,701**,
+ABOVE it ⇒ NOT flush. **One arm in the flush branch and one out of it, and they priced the same.**
+⇒ **FLUSH WAS NOT THE WHOLE EXPLANATION**, and §SIGMA-IS-ZERO-EVERYWHERE's account of this row is
+therefore incomplete: σ² is real (3.775e18), scarcity is real, the arms straddle the branch, and the
+skew does not move. **Something downstream of the branch is size-driven only.**
+▶️ **NEXT: instrument `skewWad`/`sellSkew` INSIDE the two arms** — print `qBar`, the kernel term and
+the depletion term separately — rather than inferring the regime from `inv` and `target` outside them.
+That is the one measurement never taken here, and every hypothesis so far has died to it.
+⛔ **THE LOOP IS NOT LANDED, for a reason worth knowing:** a ~1.7%/step crash over ~30 steps decouples
+the POOL price from the oracle, the swapper ends up AHEAD (`received 15.372e18` vs `oracle 12.149e18`),
+and the test's own `cost = oracle − received` UNDERFLOWS (panic 0x11). **A panicking test is worse than
+an honest control failure**, so the fixture needs a gentler path to the same state.
 ⛔ **DO NOT relax `premB != premA`.** It is still the only thing that noticed any of this.
 
 ## ⚠️ **§BASKET-COVERAGE-3-OF-14 — the fixture funds THREE vaults, and no test could see that** (2026-08-25)
