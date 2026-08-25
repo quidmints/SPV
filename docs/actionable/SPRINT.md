@@ -1871,6 +1871,20 @@ Owner asked whether BTC state is "fully immune" if the daemon **and** the fallba
 are all untrusted, and whether a **jury drawn from the basket** would be needed to drain stuck assets.
 **Traced. The answer splits, and the split is the whole point.**
 
+⭐⭐ **THREE INDEPENDENT PATHS NOW AGREE ON THE LP HALF, WHICH IS WHY IT IS THE DEFENSIBLE ONE:**
+  1. **Solidity** — `recordDeadManExit` is `external nonReentrant` with NO `_onlyHop()`, gated on the
+     arming record plus an SPV proof (this row).
+  2. **Rust** — `quid-bridge/src/vault.rs:205-207`: *"each `exits` rung is a pre-signed spend of the
+     2-of-2. **A fleet that could construct these would, by definition, still hold the LP half.**"*
+  3. **§IL-ACCOUNTING-SIX's enclave analysis**, reached separately and from the threat-model side:
+     *"**A HACKED ENCLAVE CANNOT TAKE LP FUNDS. It never holds a key that moves them.**"* — a
+     cooperative close needs the LP half by construction; a force close settles
+     `delivered=0`/`lpPayout=funded`, *"minting nothing"*; and `QUID_FLEET_COHOSTS_VAULT` defaults OFF
+     so no LP vault node is fleet-booted at all.
+⇒ **Three derivations, three starting points, one answer.** ⚠️ **And NONE of them covers the POOL
+half** — see §POOL-SATS-STRANDING-IS-UNTESTED. The asymmetry in confidence is real and should be
+stated whenever this is quoted.
+
 ✅ **LP FUNDS: IMMUNE, AND THE MECHANISM NEEDS NO EVM PERMISSION AT ALL.**
   • The **exit ladder is pre-signed AT OPEN** (`emitDeadManExit`'s own note: *"the LADDER is armed at
     open… this path exists because a long-lived channel may outrun its pre-signed set"*). The LP
