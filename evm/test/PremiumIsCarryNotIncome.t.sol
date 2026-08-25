@@ -337,6 +337,14 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint usdc0 = USDC.balanceOf(drainer);
         uint eth0  = drainer.balance + WETH.balanceOf(drainer);
 
+        // §PREMIUM-VS-BORNE — SAMPLE THE ORACLE **IMMEDIATELY BEFORE** THE MEASURED FILL. `px` above
+        // was read BEFORE 14 warm-up drains, and `fairEth` was priced against it — so any price the
+        // warm-ups moved was invisible to the estimator, which UNDERSTATES the haircut. The trade
+        // still uses `px` (changing it would change the fill); only the yardstick is refreshed.
+        uint pxNow = AUX.getTWAPforAsset(address(WETH), 1800);
+        emit log_named_uint("px at setup                      ", px);
+        emit log_named_uint("px just before the measured fill ", pxNow);
+
         _drainEth(30_000 * USDC_PRECISION, px);
 
         uint usdcIn  = usdc0 - USDC.balanceOf(drainer);
@@ -345,7 +353,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint feesDlt = ETH.USD_FEES() - fees0;
 
         // What the swapper ACTUALLY gave up vs an oracle fill of the same input, in usd6.
-        uint fairEth = SoladyMath.fullMulDiv(usdcIn * 1e12, 1e18, px);   // usd18 input / px -> ETH wei
+        uint fairEth = SoladyMath.fullMulDiv(usdcIn * 1e12, 1e18, pxNow); // usd18 input / FRESH px -> ETH wei
         uint paidUsd6 = fairEth > ethOut ? SoladyMath.fullMulDiv(fairEth - ethOut, px, 1e30) : 0;
 
         emit log_named_uint("swapper USDC in (6d)        ", usdcIn);
@@ -358,14 +366,15 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             uint ratio = paidUsd6 * 10_000 / premium;
             emit log_named_uint("borne/recorded (bps, 10000 = exact)", ratio);
         }
-        // §PREMIUM-VS-BORNE — DECOMPOSE (a). `paidUsd6` is a COMPOSITE: skew premium + the 420ppm
-        // fee + the DELIVERY SHORTFALL (§SELL-SKEW-18PCT: the basket pays what its lending vaults
-        // can free, which is credited to nobody). Only the first is `premium`. Print the other two
-        // so the 13.2x gap is attributed instead of inferred.
-        uint feeUsd6 = usdcIn * 420 / 1e6;
-        emit log_named_uint("(d) 420ppm fee, usd6             ", feeUsd6);
-        emit log_named_uint("(e) UNATTRIBUTED = a - b - d     ",
-            paidUsd6 > premium + feeUsd6 ? paidUsd6 - premium - feeUsd6 : 0);
+        // §PREMIUM-VS-BORNE — DECOMPOSE (a). ⛔ I FIRST SUBTRACTED A **420 ppm FEE THAT NO LONGER
+        // EXISTS**: `Core.sol:1473` — *"§E311 — THE FLAT 420 ppm IS GONE. Owner: 'there is no 420
+        // ppm, it's always the skew'"*. That made `a - b - fee` go NEGATIVE and print 0, which read
+        // as "fully attributed" when it meant "I subtracted a phantom".
+        // ⇒ THE ONLY CHARGE IS THE SKEW, so the whole of `(a) - (b)` is unattributed and the
+        //   candidate for it is the DELIVERY SHORTFALL (§SELL-SKEW-18PCT: the basket pays what its
+        //   lending vaults can free, credited to nobody).
+        emit log_named_uint("(e) UNATTRIBUTED = a - b, usd6   ",
+            paidUsd6 > premium ? paidUsd6 - premium : 0);
         assertGt(premium, 0, "no premium charged -- fixture never reached priced scarcity");
         // 🔴 §VACUOUS-BOUNDS — THIS TEST IS NAMED `...RecordedEqualsPremiumPaid`, ITS DOCSTRING WARNS
         //   *"if the record overstates, LPs are credited value no swapper paid"*, AND IT COMPUTED THE

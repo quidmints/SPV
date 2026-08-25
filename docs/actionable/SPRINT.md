@@ -1464,9 +1464,29 @@ mis-attributed.** There is no unattributed residue to chase — the arithmetic c
      not actually paying, which is §E279's defect with the sign flipped.
   2. **`paidUsd6` UNDERSTATES the loss** — e.g. `fairEth` is computed against a `px` that already
      moved with the fill, so part of the haircut is invisible to this estimator.
-▶️ **THE DISCRIMINATOR:** read the swapper's USDC in and volatile out against an oracle sampled BEFORE
-the fill (a quote, not a post-hoc read). If the haircut is still 1.5 bps, reading 1 is live and the
-fee lane leaks; if it grows toward 4.2 bps, the estimator was the problem and this row closes.
+✅ **THE DISCRIMINATOR WAS RUN, AND READING 2 IS REFUTED.** `px` was sampled again IMMEDIATELY before
+the measured fill and compared to the setup read:
+```
+px at setup                      2,482,771,833,900,000,000,000
+px just before the measured fill 2,482,771,833,900,000,000,000    IDENTICAL
+```
+**The oracle did not move across the 14 warm-up drains**, so `fairEth` was never priced against a
+stale yardstick and the estimator is sound. `(a)` stays 4,388,234 with the fresh read.
+⛔⛔ **AND THEN MY OWN "REVENUE LEAK" READING DIED TO THE CHEAP PREMISE CHECK — THERE IS NO 420 ppm
+FEE.** `Core.sol:1473`: *"§E311 — THE FLAT 420 ppm IS GONE. Owner: 'there is no 420 ppm, it's always
+the skew'"*. **I subtracted a phantom**, which drove `a − b − fee` negative so `(e)` printed **0** and
+read as "fully attributed" when it meant "the term I subtracted does not exist".
+⇒ **THE ONLY CHARGE IS THE SKEW, SO THE WHOLE OF `(a) − (b)` IS UNATTRIBUTED: $4.39 borne, $0.33
+recorded, ~$4.06 credited to nobody.** The 13.2× is real and the candidate is the DELIVERY SHORTFALL
+(§SELL-SKEW-18PCT: the basket pays what its lending vaults can free).
+🔴 **AND A SEPARATE STALE-TEST FINDING FELL OUT: `Alles` STILL PRICES AGAINST THE DELETED FEE** —
+`expectedUsdc = (base/1e12) * (1e6 − 420) / 1e6` in
+`testSwapPricing_EthSellInRange_PaysAboutOracle`. It PASSES only because 420 ppm (0.042%) hides
+inside its own 1.5% tolerance. **A test encoding a deleted constant is a wrong expectation that
+happens to be within tolerance** — booked, not silently "fixed", because tightening that bound is how
+the deleted fee would be caught.
+▶️ **NEXT:** measure the delivery shortfall at this call site directly (basket USDC freed vs USDC
+owed), which is the one remaining candidate for the ~$4.06.
 ✅ **WHAT WAS ASSERTED INSTEAD, because it is the half that is a SOLVENCY question:**
 `assertLe(premium, paidUsd6)` — the record must never EXCEED what the swapper bore. That is §E279's
 actual defect (*"LPs are credited value no swapper paid"*), is true by construction if the accounting
