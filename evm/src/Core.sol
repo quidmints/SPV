@@ -878,10 +878,36 @@ contract Core {
     /// **positive LEAVES the pool, negative ENTERS it**. That is this file's own stated rule
     /// ("SIGN CARRIES DIRECTION … one value, one meaning — no companion flag that can disagree with
     /// it"), and following it deletes the negation here rather than adding a boolean beside it.
+    /// @dev 🔴 §MODLP-PAIRS-BOTH-LEGS — A LEAVING MOVE WITH NO USD LEG NOW DERIVES ONE, BECAUSE
+    ///      FORGETTING IT WAS SILENT AND HAPPENED TWICE. `levBurnAll` and `burnInRange` both passed
+    ///      `0`, so the burn removed volatile depth and released NO dollars: `_settleUsdSide` no-ops
+    ///      on a zero delta, `basketUsd` never fell, and `committedUsd18()` ratcheted upward forever,
+    ///      tightening the backing gate permanently. Two site patches for one class is the signal
+    ///      standing rule 17 names — so the state is made UNCONSTRUCTIBLE here instead.
+    ///
+    /// ⭐ WHY `0` LOOKED DELIBERATE, which is the part worth keeping: it was ALSO the `keep` flag.
+    ///   `_handleDelta`'s third argument was `deltaUSD == 0`, and `keep` gates only
+    ///   `if (!keep && token != address(0))` — while this function hardcodes `token = address(0)`.
+    ///   **`keep` could never do anything here.** A zero carried phantom meaning, so passing it read
+    ///   as a choice rather than an omission. The overload is removed: `keep` is now plainly `false`.
+    ///
+    /// ⚠️ SAFE BECAUSE `modLP` IS THE IN-RANGE PATH ONLY, AND AN IN-RANGE POSITION IS TWO-LEGGED BY
+    ///   CONSTRUCTION. Single-sided moves go through `outOfRange`, which calls `_handleDelta` with
+    ///   `inRange = false` and never reaches here. So a zero USD leg on an in-range move is ALWAYS an
+    ///   omission, never a legitimate volatile-only burn.
+    /// ⚠️ AN EXPLICIT FIGURE STILL WINS. `levBurnAll` passes the RECORDED `levBufferUsd[lp]`, which is
+    ///   exact by construction and NOT the proportional share; the derivation fills in only when the
+    ///   caller supplied nothing. Entering moves (`delta < 0`) are untouched — they must supply both
+    ///   legs because they are depositing both.
     function modLP(int256 delta, int256 deltaUSD, address sender)
         public onlyUs returns (uint sent) {
+        if (deltaUSD == 0 && delta > 0) {
+            uint pooledTok = POOLED;
+            if (pooledTok != 0)
+                deltaUSD = int256(Math.mulDiv(POOLED_USD, uint(delta) > pooledTok ? pooledTok : uint(delta), pooledTok));
+        }
         Delta memory d = Delta(deltaUSD, delta);
-        _handleDelta(d, true, deltaUSD == 0, sender, address(0), true);
+        _handleDelta(d, true, false, sender, address(0), true);
         sent = 0;   // nothing is refused, so nothing comes back
     }
 

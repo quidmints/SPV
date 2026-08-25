@@ -2127,25 +2127,10 @@ library SwapLib {
         if (pulled == 0) return 0;
         (, uint posLiquidity) = ICore(core).poolStats();
         if (posLiquidity > 0) {
-            // 🔴 §BURN-RELEASES-NO-USD — THE USD ARGUMENT WAS `0`, SO A WITHDRAWAL BURNED VOLATILE
-            // DEPTH AND RELEASED NO DOLLARS. `_settleUsdSide` does nothing on a zero delta, so
-            // `POOLED_USD` and `basketUsd` never moved, `_rangeEquityUsd18` never moved, and
-            // `committedUsd18()` COULD NOT FALL — measured identical to the wei across a 40-ETH
-            // withdrawal that delivered 39.996 WETH and took the LP from 100 to 60 pooled.
-            // `_withdraw`'s own header asserts the opposite: *"LP withdrawal SHRINKS POOLED_USD …
-            // heals over-commit"*. The intent was stated and never implemented.
-            // ⇒ SECOND INSTANCE OF §BUF-USD-RATCHET (`levBurnAll` was the first): a burn passing 0.
-            //
-            // ⭐ PROPORTIONAL, AND IT CANNOT DOUBLE-RELEASE — THE REASON IS `absorbPaidUsd`.
-            //   `_payUsdLeg` runs AFTER this burn and re-anchors `basketUsd = POOLED_USD - lpOwned6`
-            //   ABSOLUTELY, reading the POST-burn `POOLED_USD`. So whatever split this performs is
-            //   overwritten from the corrected figure whenever an LP increment exists; and when
-            //   `incrPre == 0` that path returns early, leaving this proportional split standing —
-            //   correct, because there is then no increment to reallocate.
-            //   ⚠️ Unlike `levBurnAll`, the paired figure here is DERIVED, not recorded. The absolute
-            //   re-anchor is what makes deriving it safe; without it this would need the recorded form.
-            uint usdOut = SoladyMath.fullMulDiv(ICore(core).POOLED_USD(), pulled, pooled);
-            sent = ICore(core).modLP(int256(pulled), int256(usdOut), recipient);   // LEAVES ⇒ positive
+            // §MODLP-PAIRS-BOTH-LEGS — the proportional USD computed HERE is DELETED: `Core.modLP`
+            // derives it for any leaving move that supplies no USD leg. That is rule 17's test —
+            // a root fix makes the previous fix deletable, and this is the deletion.
+            sent = ICore(core).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive; Core pairs the USD
         }
     }
 
