@@ -373,8 +373,11 @@ contract UnificationControls is AllesFixture {
         uint rangeEth0   = AUX.rangeETH();
         uint lpShares0   = ETH.lpShares();
         uint pooledA0    = ETH.balanceOf(lpA);
-        uint btcUsd0     = CORE.POOLED_USD();
-        uint btcLeg0     = CORE.POOLED();
+        // §WRONG-RANGE — the BTC legs read the BTC INSTANCE. Both were `CORE` (the ETH range), so the
+        // V6b isolation assertions compared the ETH range against itself and could only pass while the
+        // ETH leg happened not to move. Line ~496 of this same file already reads `BTC.CORE()`.
+        uint btcUsd0     = BTC.CORE().POOLED_USD();
+        uint btcLeg0     = BTC.CORE().POOLED();
         uint btcFps0     = BTC.feesPerShare();
 
         emit log_named_uint("TVL before        ", tvl0);
@@ -404,8 +407,8 @@ contract UnificationControls is AllesFixture {
         // V6b — THE UNWIND IS ETH-ONLY AND MUST NOT REACH THE BTC RANGE. This is the assumption
         // `redeemableBody`'s `POOLED_USD` subtraction rests on.
         assertGt(btcUsd0, 0, "PREMISE: the BTC range is seeded, else this assertion is 0 == 0");
-        assertEq(CORE.POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC range's USD leg");
-        assertEq(CORE.POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC range's BTC leg");
+        assertEq(BTC.CORE().POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC range's USD leg");
+        assertEq(BTC.CORE().POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC range's BTC leg");
         assertEq(BTC.feesPerShare(), btcFps0, "an ETH-side redemption must NOT credit BTC-range LPs");
 
         // V8 — CROSS-RANGE REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a range to
