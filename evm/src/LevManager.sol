@@ -83,7 +83,15 @@ contract LevManager is LevBase {
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
 
     uint256 private _lock = 1;
-    modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
+    /// §RULE-8C — A MODIFIER'S BODY IS INLINED AT EVERY USE SITE, AND THIS ONE HAS **15**. The
+    /// check-and-set half is now ONE routine (15 jumps instead of 15 copies); the release stays
+    /// inline because it is a single `SSTORE` and a call would cost more than it saves.
+    /// ⚠️ THE STRUCTURE IS DELIBERATELY UNCHANGED — `_;` still sits between enter and release, so
+    /// every early return still releases the lock. Hoisting the RELEASE into a function would not.
+    function _enter() private { if (_lock != 1) revert Reentrancy(); _lock = 2; }
+    /// §RULE-8C, same reason: this exact line appeared **5** times.
+    function _onlyRange() private view { if (msg.sender != RANGE) revert NotGov(); }
+    modifier nonReentrant() { _enter(); _; _lock = 1; }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
     ///         collateralOf/debtOf into `totalNetEquity → rangeETH`, so an UNVETTED (fake) venue could
@@ -395,7 +403,7 @@ contract LevManager is LevBase {
     ///         `nonReentrant`: the tail `syncLev` range call-back is already try/catch-wrapped, so a re-entrant
     ///         range context degrades to the permissionless slice reconcile.
     function closeLevFor(address lp, uint256 minOut) external nonReentrant {
-        if (msg.sender != RANGE) revert NotGov();
+        _onlyRange();
         _closeLev(lp, minOut, true);            // INVOLUNTARY -- retain state so the LP can be restored
     }
 
@@ -516,7 +524,7 @@ contract LevManager is LevBase {
     ///         reconciles the shrunk net-equity; the keeper re-levers next tick. Gated to the range.
     function swapOutDeliverUnlevered(address lp, uint256 wethWanted, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 wethDelivered) {
-        if (msg.sender != RANGE) revert NotGov();          // range settle path only
+        _onlyRange();          // range settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open || wethWanted == 0) return 0;
         if (p.venue.debtOf(lp) != 0) return 0;                     // levered ⇒ use swapOutDelever (repay path)
@@ -534,7 +542,7 @@ contract LevManager is LevBase {
     ///         into REAL deliverable ETH. Gated to the Vault settle path. Returns (USD 1e18 repaid, WETH delivered).
     function swapOutDelever(address lp, uint256 stableUsd, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
-        if (msg.sender != RANGE) revert NotGov();          // Vault/range settle path only
+        _onlyRange();          // Vault/range settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
         // repay-with-the-Vault-pre-transferred-stable → free EXACTLY the repaid value of collateral → deliver as
@@ -570,7 +578,7 @@ contract LevManager is LevBase {
     /// @return usedUsd USD actually applied to the pool's debt. @return wethDelivered WETH to `recipient`.
     function swapOutDeleverPooled(address venue, uint256 stableUsd, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
-        if (msg.sender != RANGE) revert NotGov();
+        _onlyRange();
         if (stableUsd == 0) return (0, 0);
         address stable = ILevVenue(venue).stable();
         uint256 repaid = ILevPooled(venue).repayPool(LevMath._fromUsd(address(AUX), stable, stableUsd));
@@ -600,7 +608,7 @@ contract LevManager is LevBase {
     function deleverBook(uint256 usdWanted, address sink, uint256 minOut)
         external nonReentrant returns (uint256 freed)
     {
-        if (msg.sender != RANGE) revert NotGov();
+        _onlyRange();
         // §POOL-VENUE — ONE EXTRACTION, NOT A WALK. This looped every open LP, extracting from each
         // until `usdWanted` was met, so the redeem-side sweep carried the same O(open LPs) cost the
         // delivery side did — and it is the LAST walk of `_openLps` on a state-changing path.

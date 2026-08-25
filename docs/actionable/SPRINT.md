@@ -1157,6 +1157,40 @@ because it was checked before being written up as fact. The others were each sta
 tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
 **If anything, the assertion should read the DELIVERABLE figure and compare against that.**
 
+## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
+
+**Census at `15d2a4a2` (drpc, 219.87s): 468 passed / 48 failed / 516 total, 83 suites.** Authoritative
+per-suite counts from the run's OWN `Failing tests:` summary (they reconcile to 48):
+
+| suite | fails | |
+|---|---|---|
+| `BufferSwapDrain` | **13** | **every one `NoVolatileRoute()`** |
+| `LevCascade` | **11** | **every one `NoVolatileRoute()`** |
+| `Alles` | 5 | mixed |
+| `RoundTripNeutrality` | 4 | |
+| `UnificationControls` · `LevYbReal` | 3 each | |
+| `VBtcLevFeeLane` | 2 | |
+| 7 further suites | 1 each | incl. 1 environmental (drpc `HTTP 408`) |
+
+⇒ **24 of 48 — EXACTLY HALF — ARE THE SAME REVERT.** §C2.1 deleted Uniswap V3 (owner: *"we dont need
+v3 anymore"*), so the volatile leg is `_aggSwap` against pinned 1inch, and `_aggSwap` refuses an empty
+route. **No test in `evm/test` constructs a route** (checked: zero `hex"…"` / builder call sites), so
+every de-lever and cascade path reverts before it reaches the behaviour under test.
+⭐ **THEY ARE NOT ASSERTION FAILURES.** `test_MEV_OracleFloorRejectsSandwich` fails as
+*`NoVolatileRoute() != Slippage()`* — it EXPECTS the swap to execute and then be refused on the oracle
+floor. **The tests are correct and unreachable, which is why counting them as 24 findings would be
+wrong** (the sweep rule: name the class, report the refined number).
+▶️ **TWO UNBLOCKS, and the first is already built:**
+  1. **A 1inch key.** `quid-bridge/src/oneinch.rs` already fetches `/swap/v6.0` calldata and encodes
+     `deleverOneRouted` (3 tests green). `portal.1inch.dev` has a free tier. **This is a credential,
+     not code** — the owner has said they cannot pay, so free-tier signup is the whole gap.
+  2. **A test-side route builder** against AggregationRouterV6's `unoswap` family, which calls a real
+     Uniswap pool directly with no off-chain executor — real router, real pool, real fork, no mock.
+     ⚠️ **NOT ATTEMPTED: it needs V6's `dex`-word bit layout verified against the DEPLOYED router**,
+     and guessing that encoding produces a revert indistinguishable from the one we already have.
+⛔ **DO NOT "FIX" THESE BY EXPECTING THE REVERT.** Asserting `NoVolatileRoute()` would make 24 tests
+green while deleting everything they check — rule 4, at scale.
+
 ## 🔴 **§MINOUT-DROPPED — the keeper's routed sell ran with NO slippage bound, and the "fallback" could only revert** (2026-08-25)
 
 Found while destaling the row below, which still described this call path as Uniswap V3.
@@ -1549,6 +1583,16 @@ is still trying to collect. Bigger release ⇒ strictly harder exit, monotonical
 ⇒ **THE MISSING HALF IS DELIVERY, NOT RELEASE SIZE.** The next attempt must make the burn *pay* the
 dollars it frees (the `§#12 DELIVERY LEG` / `_payUsdLeg` machinery is the shape); changing the
 argument again is already measured and cannot work.
+🔴 **AND THE PART THAT SETTLES IT: `f0934722` DID NOT FIX THE TESTS IT WAS WRITTEN FOR EITHER.** A
+full gate run taken WITH that change in the tree (`gate_burn`, 444 passed / 52 failed / 496) still
+shows **4 committed-family failures** — `test_V5_WithdrawShrinksCommitted`,
+`test_Redeem_UnwindsRangeToFreeCommittedDollars`, `test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt`
+— the same count as the run before it. ⇒ **It bought NOTHING on the `committed` side and cost 9.5× on
+the exit side.** Reverting it is not a trade-off; it is strictly better on both axes.
+⚠️ **CONTROL DISCIPLINE, because one prior gate appears to contradict this:** `gate_final` shows ZERO
+committed failures and is WORTHLESS — 190 tests in **7.58s** against a 496-test suite, i.e. the
+dead-RPC run CLAUDE.md describes. **The runtime is the tell, not the count.** Do not read a clean
+number off a run that finished too fast to have executed.
 ⚠️ **AND MY DOUBLE-PRORATION DIAGNOSIS WAS WRONG** — `_poolUsdInRange` does prorate a second time,
 but arm C (which removes the double) is the WORST arm, so that was never the driver. Recorded because
 a plausible mechanism that survives one reading and dies to one run is exactly what rule 13 is for.
