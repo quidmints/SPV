@@ -1176,18 +1176,37 @@ one measurement:**
 | mispricing / bad oracle scale | `Core.swap` reads `px = AUX.getTWAPforAsset(ASSET, 1800)`, and the BUY twin `testSwapPricing_EthInRange_PaysAboutOracle` **PASSES** on the same fixture; `testDiag_GenesisPriceRegime` passes too | ⛔ dead |
 | curve slippage | `Core.swap`'s own docstring: *"ONE price for the whole size"* — no traversal, and 1 ETH is 1.6% of the 61.74 ETH depth | ⛔ dead |
 
-⇒ **WHAT IS LEFT IS THE ONE THING `_fillDelta` DOCUMENTS: the input reaching it has ALREADY been
-scaled by `(1−s)` — *"`SwapLib.retainSkewPremium` subtracts the premium from `r.amount` before
-`routeSwap` derives `pooled` from it"*.** `out = BasketLib.convert(amount, px, inputIsUsd)` is an
-honest conversion of an amount that was already cut by **s ≈ 0.187**.
-🔴 **AND THE TEST'S PREMISE IS THAT s == 0**: its comment reads *"Sell 1 ETH into a deep fresh range
-(skew=0): must receive ≈ oracle price minus the 0.042% fee"*. **An 18.7% imbalance charge on a
-retail-size sell is either a fixture that is nowhere near balanced, or a skew that over-charges by
-~450×** relative to the 420 ppm fee it is supposed to sit beside.
-▶️ **NEXT, and it is one instrumented run:** log `sellSkew`'s inputs at this call — `flow`
-(`target`), `inv`, `qBar` and the realised `s`. `sellSkew` returns 0 at `target == 0` and prices
-`(inv − target)/target` otherwise, so **if `flow` is tiny relative to `inv` the charge saturates
-toward its pole `Γσ²·qBar/(1−qBar)`** — which is exactly the shape a near-constant 18.7% would take.
+⛔ **AND THE SKEW WAS THE FIFTH DEAD CANDIDATE — THIS ROW SAID IT WAS THE ANSWER AND IT IS NOT.** I
+concluded `retainSkewPremium` had scaled the input by `(1-s)` with `s ~ 0.187`, booked it, and then
+ran the check I had booked. **MEASURED AT THE CALL: `flowEwmaUsd` = 0, `realizedVarianceWad` = 0,
+`skewPremium` = 0** - and `sellSkew` RETURNS 0 at `target == 0`. **The premium is exactly zero and
+takes none of the 18.7%.** Recorded rather than quietly edited, because the reasoning was plausible,
+matched the arithmetic, and was wrong - the one check that could falsify it settled it in one run.
+
+✅ **THE ACTUAL MECHANISM, FROM THE TRACE:**
+  • `BasketLib::convert(1e18, 2461.877e21, false)` -> **`2461877268`**. **The conversion is CORRECT.**
+    The swap prices the whole ETH at the oracle, exactly as `Core.swap` promises.
+  • The shortfall first appears **downstream, in DELIVERY**: `deallocate` -> Morpho
+    `0xBBBB...EEFFCb::withdraw(USDC ...)`, i.e. the payout is pulled OUT OF A LENDING VAULT, and
+    `2000005490` is what came back.
+⇒ **`POOLED_USD` = $152,000 IS AN ACCOUNTING DEPTH; THE BASKET COULD PHYSICALLY DELIVER ~$2,000 OF
+USDC.** That gap is exactly the deliverability haircut CLAUDE.md describes (`illiquidLoss` - the
+ever-present lending-utilization slice, *"SOLVENT and only defers per-redemption"*), and the fixture
+never funded the vaults enough to pay a $2.4k swap.
+⚠️ **SO THE CONTRACT IS NOT STEALING, AND A REAL USER IS PROTECTED: the test passes `minOut = 0`.**
+Any non-zero `minOut` reverts this swap instead of settling it short.
+⇒ **RECLASSIFIED: FIXTURE, NOT MONEY-PATH.** The fix is to fund the basket's USDC vault in the
+fixture (or assert against DELIVERABLE depth rather than `POOLED_USD`), not to change the swap.
+⛔ **BUT ONE REAL QUESTION SURVIVES AND SHOULD NOT BE CLOSED WITH IT:** a swap that settles 18.7%
+short at `minOut = 0` is indistinguishable, from the caller's side, from a swap that priced badly.
+**`Core.swap` returns the 6-dec delta, a different basis than delivery** (`_settleUsdSide`'s own
+note), so a router comparing the return value against what arrived would not see this.
+🔴 **THE TEST'S PREMISE IS *"a deep fresh range"* - AND IT IS DEEP IN THE WRONG LEDGER.** `POOLED_USD`
+says $152,000; the vaults could pay $2,000. **"Deep" was measured on the accounting side and spent on
+the delivery side**, the same split `deliverableETH` exists to express on the ETH leg.
+▶️ **NEXT:** fund the fixture's USDC vault so a $2.4k delivery is servable, then re-run both tests.
+The diagnostics stay in `Alles.t.sol` (depth, oracle base, flow, sigma^2, ETH spent, WETH delta) so
+the next thread does not repeat the five-candidate elimination.
 ⚠️ **DO NOT WIDEN THE 1.5% TOLERANCE.** It is the successor to an old 10% bound and is the only thing
 that noticed this.
 ✅ **NOT MINE, CHECKED RATHER THAN ASSUMED:** `gate_batch` (written **06:55**) already shows

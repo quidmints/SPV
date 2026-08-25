@@ -1929,6 +1929,11 @@ contract Alles is AllesFixture {
         // here sat at ~2000.0056 USDC across three gates while the ORACLE moved 2435 -> 2483 -> 2448.
         // A payout that ignores the price is an INVENTORY CAP, not a mispricing — print the depth.
         emit log_named_uint("oracle base (usd18)   ", base);
+        // §SELL-SKEW-18PCT: `sellSkew` returns 0 at `target == 0` and prices `(inv - target)/target`
+        // otherwise, so a tiny `flow` against a large `inv` saturates toward its pole. Print both.
+        emit log_named_uint("flowEwmaUsd (target)  ", ICore(address(CORE)).flowEwmaUsd());
+        emit log_named_uint("realizedVarianceWad   ", ICore(address(CORE)).realizedVarianceWad());
+        emit log_named_uint("skewPremium (accum)   ", CORE.skewPremium());
         emit log_named_uint("range USD depth (6dec)", ICore(address(CORE)).POOLED_USD());
         emit log_named_uint("range ETH depth (18dec)", ICore(address(CORE)).POOLED());
         emit log_named_uint("AUX USDC balance      ", USDC.balanceOf(address(AUX)));
