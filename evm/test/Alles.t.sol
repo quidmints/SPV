@@ -1434,6 +1434,13 @@ contract Alles is AllesFixture {
         uint price = spotPrice;   // §DE-TICK: poolStats returns the PRICE; no sqrt to decode
         console.log("ETH price:", price);
 
+        // §SELL-SKEW-18PCT — SAME FIXTURE GAP AS `testSwapPricing_EthSellInRange_PaysAboutOracle`,
+        // and this test is its twin: both sold 1 ETH and both received 2,000.0055 USDC while the
+        // ORACLE moved across runs. `POOLED_USD` is an ACCOUNTING depth; delivery pulls real USDC
+        // out of the basket's lending vaults, and the USDC slice could free only ~$2,000.
+        QUID.mint(User01, 300_000 * USDC_PRECISION, address(USDC), 0);
+        vm.roll(vm.getBlockNumber() + 1);
+
         uint usdcBefore = USDC.balanceOf(User01);
         AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
 
@@ -1928,6 +1935,14 @@ contract Alles is AllesFixture {
         // §SELL-CAP diagnostic: the BUY twin of this test PASSES on the same fixture, and the payout
         // here sat at ~2000.0056 USDC across three gates while the ORACLE moved 2435 -> 2483 -> 2448.
         // A payout that ignores the price is an INVENTORY CAP, not a mispricing — print the depth.
+        // §SELL-SKEW-18PCT: `POOLED_USD` is an ACCOUNTING depth; delivery pulls real USDC out of the
+        // basket's lending vaults. Load the USDC slice so a $2.4k payout is servable, otherwise the
+        // swap settles at what the vault can free (~$2,000) and the assertion measures the FIXTURE.
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 300_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+        vm.roll(vm.getBlockNumber() + 1);
         emit log_named_uint("oracle base (usd18)   ", base);
         // §SELL-SKEW-18PCT: `sellSkew` returns 0 at `target == 0` and prices `(inv - target)/target`
         // otherwise, so a tiny `flow` against a large `inv` saturates toward its pole. Print both.
