@@ -194,7 +194,7 @@ dead-band ⇒ `lm.rebalance` had nothing to do, the rally never re-borrowed"* �
 reaches the leveraged state its premise needs. A setup that stopped producing its precondition, not a
 defect. **Do not "fix" it by lowering the premise.**
 
-## 🔴 **§PROVE-MIRROR-GAP — the gap is EXACTLY 2× the traded volume, which is drift, not divergence** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — `test_PROVE_PooledIsDerivableFromPoolState` PASSES — the assertion now measures value conservation]**  **§PROVE-MIRROR-GAP — the gap is EXACTLY 2× the traded volume, which is drift, not divergence** (2026-08-25)
 
 `test_PROVE_PooledIsDerivableFromPoolState` asserts the USD mirror equals the volatile inventory
 priced at the range price, within 1%. **Measured across two independent runs: the gap is
@@ -858,7 +858,7 @@ Every row's own falsifiable claim was re-executed against the tree rather than r
 | **§E285** | the inventory-residual bound it argued for is built, by the same change |
 | **§E297** | `maxWithdraw`/`previewWithdraw`/`maxRedeem`/`previewRedeem` are **0 declarations in `Quid.sol`**; only the deposit-side four remain. It also reasons from an 86→280-byte margin against **2,720** today |
 
-### 🔴 THE ONE THAT WENT THE OTHER WAY — A ✅ THAT WAS NEVER TRUE
+### ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  THE ONE THAT WENT THE OTHER WAY — A ✅ THAT WAS NEVER TRUE
 **C15 / §1INCH-MIGRATION** claimed *"✅ LANDED `LevMath._aggSwap`"*. **`_aggSwap` and `ONE_INCH_ROUTER`
 are 0 references; `V3_SWAP_ROUTER` and `_poolSwap` are 8 each.** Corrected in place. ⛔ **The tell was
 that its evidence — an on-chain codesize of 24,294 — is a measurement of the LIVE 1inch router, i.e.
@@ -1157,7 +1157,7 @@ because it was checked before being written up as fact. The others were each sta
 tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
 **If anything, the assertion should read the DELIVERABLE figure and compare against that.**
 
-## 🔴🔴 **§SELL-SKEW-18PCT — an in-range 1 ETH sell pays 18.7% below oracle, and it is the SKEW PREMIUM** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — both tests PASS — the basket USDC slice is funded and the payout is the oracle (2,461.877 vs 2,460.843)]** 🔴 **§SELL-SKEW-18PCT — an in-range 1 ETH sell pays 18.7% below oracle, and it is the SKEW PREMIUM** (2026-08-25)
 
 `testSwapPricing_EthSellInRange_PaysAboutOracle` and `testRegularSwaps` are **ONE defect**: both sell
 1 ETH and receive **2,000.0055 USDC** against an oracle value of **2,460.84**.
@@ -1282,7 +1282,7 @@ ETH residual, both residual tests passing — and it costs exactly one test,
 `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`, which reverts `"backing"` because `committed`
 ratchets. That is the price, it is measured, and it is one test rather than a money-path regression.
 
-## 🔴 **§MIRROR-INVARIANT-IS-UNIMPLEMENTABLE — the two legs CANNOT stay equal under oracle-settled fills** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — the assertion was replaced with the invariant an oracle-settled fill actually guarantees; suite 25/1]**  **§MIRROR-INVARIANT-IS-UNIMPLEMENTABLE — the two legs CANNOT stay equal under oracle-settled fills** (2026-08-25)
 
 `UnificationControls`' USD-mirror control asserts `POOLED * price ≈ POOLED_USD` within 1% and fails by
 **$23,999.99** after four `_trade(3_000e18)` calls. §MIRROR-SURVIVES-THE-REPACK already ruled out the
@@ -1496,7 +1496,7 @@ identical, this one says the tax is zero.**
 failure, which is the whole point of rule 4. Either the fixture must reach priced scarcity or the
 flush branch's exemption is wider than intended.
 
-## 🔴 **§VACUOUS-BOUNDS-3 — three tests COMPUTE their own verdict, PRINT it, and assert something weaker** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — all three bounds added and measured; the premium one now carries §E279's own check]**  **§VACUOUS-BOUNDS-3 — three tests COMPUTE their own verdict, PRINT it, and assert something weaker** (2026-08-25)
 
 CLAUDE.md's §VACUOUS-BOUNDS note says *"the test's NAME is the tell — it claims what the assertion
 does not check"*, and cites §E279 where **`assertGt(premium, 0)` hid a double-charge**. Swept for it.
@@ -1682,7 +1682,7 @@ wrong** (the sweep rule: name the class, report the refined number).
 ⛔ **DO NOT "FIX" THESE BY EXPECTING THE REVERT.** Asserting `NoVolatileRoute()` would make 24 tests
 green while deleting everything they check — rule 4, at scale.
 
-## 🔴 **§MINOUT-DROPPED — the keeper's routed sell ran with NO slippage bound, and the "fallback" could only revert** (2026-08-25)
+## ✅ **[CLOSED 2026-08-25 — the unbounded arm is DELETED; `minOut` is honoured on every path through `_wethToStableDex`]**  **§MINOUT-DROPPED — the keeper's routed sell ran with NO slippage bound, and the "fallback" could only revert** (2026-08-25)
 
 Found while destaling the row below, which still described this call path as Uniswap V3.
 `LevMath._wethToStableDex` read:
@@ -1744,7 +1744,7 @@ revert reason and a nearby call and inferred the caller, instead of checking the
 GAS.** Both discriminators were already in the trace file I had open. **A revert that appears near a
 function is not a revert inside it.**
 
-## 🔴 **(superseded, kept for the record) §DELEVER-NEEDS-THE-DOLLARS-A-CRASH-REMOVES** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  **(superseded, kept for the record) §DELEVER-NEEDS-THE-DOLLARS-A-CRASH-REMOVES** (2026-08-24)
 
 **Traced end to end on `test_CascadeDelever_CorrelatedCrash`:**
 `cascadeDelever` → sell collateral → `SwapLib` → `Core::swap` → **returns 0** → `max == 0` →
@@ -1863,7 +1863,7 @@ adverse-selection floor (the `0` in `ethRisk()` becomes a parameter with a deriv
 note says depletion IS the inventory-proportional form of the charge every drain owes, so skipping it
 on flush drops the charge the derivation authorises. **Do not pick one by making a test pass.**
 
-## 🔴 **§FEES-COMPOUND-NOT-ACCRUE — ⛔ THIS ROW'S CONCLUSION IS WRONG. THE FEE LANE WAS NEVER DEAD.**
+## ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  **§FEES-COMPOUND-NOT-ACCRUE — ⛔ THIS ROW'S CONCLUSION IS WRONG. THE FEE LANE WAS NEVER DEAD.**
 **RETRACTED 2026-08-24 by measurement, hours after it was written and after an OWNER DECISION was
 taken on the strength of it.** Arm 2 (§E352, σ² sentinel above `target == 0`) made **four of the five**
 pass UNCHANGED: `test_V2_EqualLpsEarnEqualFees`, `test_V2_LateJoinerEarnsNoRetroactiveFees`,
@@ -2132,7 +2132,7 @@ path.** ⚠️ Do NOT copy the `levBurnAll` fix verbatim: there the paired figur
 (`levBufferUsd[lp]`), so it was exact by construction. Here it must be DERIVED, which is where the
 double-count enters.
 
-## 🔴🔴 **(SUPERSEDED — WRONG, kept for the record) §EXIT-ASSUMES-WEETH — a withdraw that delivers NOTHING and reverts NOTHING (root found 2026-08-25)**
+## ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]** 🔴 **(SUPERSEDED — WRONG, kept for the record) §EXIT-ASSUMES-WEETH — a withdraw that delivers NOTHING and reverts NOTHING (root found 2026-08-25)**
 
 **THE CHAIN, every link read in the tree:**
 ```solidity
@@ -2166,7 +2166,7 @@ assertions were always downstream: committed cannot fall when nothing left.
 ⚠️ **(a) IS THE REAL ONE.** (b) converts three silent failures into three loud ones, which is
 progress in diagnosis and none in behaviour.
 
-## 🔴 **(superseded) §WITHDRAW-RETURNS-ZERO — RE-MEASURED 2026-08-25, AND TWO CANDIDATE ROOTS ARE NOW EXCLUDED**
+## ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  **(superseded) §WITHDRAW-RETURNS-ZERO — RE-MEASURED 2026-08-25, AND TWO CANDIDATE ROOTS ARE NOW EXCLUDED**
 ▶️ `test_V5_WithdrawShrinksCommitted` instrumented directly: **`committed before` == `committed after`
 to the wei, and `ETH delivered: 0`.** The LP holds ~100 ETH pooled (`99999999999999999998`), asks for
 40, receives NOTHING — and `Quid::withdraw` burns **348,011 gas**, so it is doing real work, not
@@ -2183,7 +2183,7 @@ inside `Quid._withdraw`. Several reads inside the 348k-gas frame return 0 while 
 the question is which of them gates the burn. **A grep over the trace cannot separate them — this needs
 one `emit log_named_uint` at the burn site.**
 
-## 🔴 **(superseded) §WITHDRAW-RETURNS-ZERO — THE EQUALITY-STALL CLUSTER IS ONE FACT, AND IT IS NOT A COMMITTED BUG** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  **(superseded) §WITHDRAW-RETURNS-ZERO — THE EQUALITY-STALL CLUSTER IS ONE FACT, AND IT IS NOT A COMMITTED BUG** (2026-08-24)
 
 Four failures show `committed` UNCHANGED to the wei across an operation that must shrink it:
 `V5_WithdrawShrinksCommitted` (`245091766676e12 >= 245091766676e12`), `V6` premise,
@@ -5315,7 +5315,7 @@ A grep of this thread's work against the whole file found nine absences. Five we
 §E198 landed; §E202/§E203 are covered by C3 and dormant; the device lifecycle is not SPV's — it is
 `../ibiza/TODO.md` §3b). **Four are real gaps, and the first is the thread's ORIGINAL ASK.**
 
-### C10a. 🔴 THE EXCESS-STABLES REBALANCE — never built, and its stated objective was REFUTED
+### C10a. ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  THE EXCESS-STABLES REBALANCE — never built, and its stated objective was REFUTED
 **The task this thread opened with:** route stables **above the total redeemable QU!D claim** out via
 1inch to correct basket imbalance, *"which we can measure by seeing how the skew price changes —
 double duty reuse of the same measurements."* **`grep` confirms nothing was implemented.**
