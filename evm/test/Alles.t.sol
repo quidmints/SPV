@@ -1357,8 +1357,10 @@ contract AllesFixture is ForkPin, ExitFixture {
     // a mocked Rover).
     function _wireFinalizeLinkages() internal {
         AUX.setBTCChannels(address(0xBC));   // sets Aux._btcChannels + Vault.btcChannels
-        vm.mockCall(address(BTC), abi.encodeWithSignature("ROVER()"), abi.encode(address(0xB0)));
-        vm.mockCall(address(0xB0), abi.encodeWithSignature("AUX()"), abi.encode(address(BTC)));
+        // §MOCK-CENSUS — THE `ROVER()` MOCKS ARE DELETED. `Rover.sol` went with the §V4-CUT and
+        // `ROVER` is **0 live references in `evm/src`**, so these mocked a getter no contract has:
+        // inert scaffolding that still reads as a wired dependency. Rule 1, and the owner's
+        // no-mocks rule — a mock of a DELETED symbol cannot be exercising anything.
     }
 
 

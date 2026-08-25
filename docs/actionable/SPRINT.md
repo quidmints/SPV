@@ -1749,6 +1749,37 @@ then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing 
 de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
 will not carry all seven; route in call-frequency order and fold again when it binds.
 
+## 🔴 **§MOCK-CENSUS — 80 raw mock sites refine to 28, and the discriminator is CONDITION vs LOGIC** (2026-08-25)
+
+Owner's standing rule is *"no mocks, real mainnet fork only"*, and `scan-loose-ends.py` reports
+**98 MOCK ON A REAL PATH**. **A raw 98 is noise; here is the refinement, with the discarded class named.**
+
+| | count | |
+|---|---|---|
+| raw `vm.mockCall` / `vm.etch` in `evm/test` | **80** | (the tool's 98 counts some lines twice) |
+| **inject an EXTERNAL CONDITION a fork CANNOT produce** | **52 — LEGITIMATE** | a USDC depeg, a specific Chainlink round, an SPV header |
+| **may replace OUR OWN logic** | **28 — the real candidates** | each needs reading |
+
+⭐ **THE DISCRIMINATOR, and it is what makes the 52 defensible rather than excused: does the mock
+supply a CONDITION the fork cannot reach, or REPLACE a computation we own?**
+`vm.mockCall(AUX, getDepegSeverityBps(USDC), …)` is the clean case — **USDC is not depegged on
+mainnet and cannot be made to depeg on a fork**, so the mock injects the world, not the logic.
+`LevCascade:408` says so in its own comment: *"impractical on the fork's manipulation-guarded oracle
+… This IS the condition the fleet keeper acts on."*
+⇒ **A mock that replaces `Aux.get_metrics` is the other kind and is a real violation.**
+
+✅ **ONE FIXED IMMEDIATELY, AND IT WAS THE SHARPEST KIND: `Alles:1360-1361` MOCKED `BTC.ROVER()`.**
+`Rover.sol` went with the §V4-CUT and **`ROVER` has 0 live references in `evm/src`** — so the test
+mocked a getter no contract has. **Inert scaffolding that still read as a wired dependency.** Removed;
+`Alles` stays **100 passed / 2 failed**, confirming it was exercising nothing.
+⚠️ `LevCascade:24` still declares `interface IVaultRoverT { function ROVER() … }` and
+`UnificationControls:1245` still narrates it — **tombstone references, left because renaming or
+deleting a tombstone's mention is how a reader concludes the feature was removed when it was not**
+(the rename-table rule). The MOCK is the part that had to go.
+▶️ **NEXT:** read the remaining 27 candidates against the same discriminator. **Do not bulk-delete** —
+the 52/28 split shows a blanket sweep would have removed the fixtures that make depeg and liquidation
+testable at all.
+
 ## 🔴🔴 **§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT — LP funds ARE immune to a full custody compromise; POOL sats are NOT** (2026-08-25, owner question)
 
 Owner asked whether BTC state is "fully immune" if the daemon **and** the fallback **and** the msig
