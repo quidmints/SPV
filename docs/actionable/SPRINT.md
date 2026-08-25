@@ -1283,7 +1283,42 @@ shares. **A similarity score measures spelling, not sameness.**
 gap is **structural, not duplicated bodies**, so closing it is §J.2 (one implementation, two
 instances) — an architecture change, and it must not be booked as "finishing the folds".
 
-## 🔴🔴 **§EXIT-ASSUMES-WEETH — a withdraw that delivers NOTHING and reverts NOTHING (root found 2026-08-25)**
+## 🔴🔴 **§BURN-RELEASES-NO-USD — the withdraw burn passes USD = 0, so `committed` can never fall** (2026-08-25)
+
+⛔ **THIS SUPERSEDES §EXIT-ASSUMES-WEETH BELOW, WHICH WAS WRONG.** I read `ETH delivered: 0` and
+concluded the exit served nothing. **The test logs the NATIVE balance while the offramp pays WETH —
+its own comment says so.** Re-instrumented: **`WETH delivered: 39.996`**, **`LP pooled after: 60e18`**
+(down from 100). **The withdraw works perfectly.** My "committed is innocent" call was also wrong.
+
+**THE REAL DEFECT — `SwapLib.burnInRange`:**
+```solidity
+sent = ICore(core).modLP(int256(pulled), 0, recipient);   // ← USD argument is 0
+```
+`_settleUsdSide` does NOTHING on a zero delta, so the burn removes volatile depth (`POOLED`) and
+**never releases the paired USD**. `basketUsd` is untouched ⇒ `_rangeEquityUsd18` is untouched ⇒
+`committedUsd18()` cannot fall. Measured: identical to the wei across a 40-ETH withdrawal.
+⭐ **THE CODE ASSERTS THE OPPOSITE, at the top of `_withdraw`:** *"LP withdrawal SHRINKS POOLED_USD
+(Core lines 512-513) → shrinks committedSum → heals over-commit."* Same shape as `btcCommitted` and
+`rangeSqrtP`: **the comment states the intent and the code does not implement it.**
+⚠️ **AND `_payUsdLeg` CANNOT COMPENSATE:** `if (incrPre == 0 …) return 0;` — with no LP-owned
+increment (a fresh basket) it does nothing at all.
+⇒ **THE SECOND INSTANCE OF §BUF-USD-RATCHET'S EXACT BUG: a burn passing `0` for the USD leg.** The
+first was `levBurnAll`, found and fixed the same way. **Two sites, one class — worth a sweep for any
+other `modLP(…, 0, …)`.**
+⇒ **Explains `V5`, `V6`, `Redeem` — and plausibly the `backing`/`OverCommitted` pair**, since a
+`committed` that only ever ratchets up tightens the backing gate permanently.
+
+▶️ **NOT FIXED, and the reason is specific rather than caution:** the obvious fix — pass
+`POOLED_USD · pulled / POOLED` — risks DOUBLE-RELEASING. `_burnInRange` runs BEFORE
+`_payUsdLeg(incrPre, …)`, and `incrPre` is captured BEFORE the burn; `_poolUsdInRange`'s burn arm
+already splits a USD amount proportionally between basket and increment. Releasing the full
+proportional figure here and then paying the increment again in `_payUsdLeg` would credit the
+increment twice. **The fix must settle which of the two owns the increment — and that is the exit
+path.** ⚠️ Do NOT copy the `levBurnAll` fix verbatim: there the paired figure was RECORDED
+(`levBufferUsd[lp]`), so it was exact by construction. Here it must be DERIVED, which is where the
+double-count enters.
+
+## 🔴🔴 **(SUPERSEDED — WRONG, kept for the record) §EXIT-ASSUMES-WEETH — a withdraw that delivers NOTHING and reverts NOTHING (root found 2026-08-25)**
 
 **THE CHAIN, every link read in the tree:**
 ```solidity
