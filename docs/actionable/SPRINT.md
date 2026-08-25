@@ -1294,8 +1294,11 @@ directions: `POOLED_USD −= X` and `POOLED * price += X`. **The gap therefore g
 one-way trade** — and the measurement is exactly that: **$24,000 across 4 × $3,000 = 8 × the trade
 size, i.e. 2× per trade.** The arithmetic is not approximate; it is the settlement rule.
 ⇒ **THE EQUALITY CAN ONLY HOLD UNDER BALANCED FLOW**, and this fixture trades one way on purpose.
-▶️ **AND NOTHING IN `evm/src` ENFORCES IT** — no expression relates `POOLED_USD` to `POOLED * price`
-outside comments. ⚠️ **Control run for that empty grep, per the standing rule:** the invariant could
+▶️ **AND NOTHING IN `evm/src` CORRECTS AN EXISTING DIVERGENCE** — no expression relates `POOLED_USD`
+to `POOLED * price` outside comments. ⚠️ **Stated precisely, because `addLiq` is the one thing that
+comes close and it does NOT do this:** `Quid.addLiq(deltaTok, price)` → `QuidLib.addLiq` →
+`SwapLib.addLiqBody` ADDS new depth at the current price, so it dilutes a divergence in the ratio
+without ever correcting the absolute gap. **Adding balanced depth is not a restoration.** ⚠️ **Control run for that empty grep, per the standing rule:** the invariant could
 have been maintained INDIRECTLY, so the derivation above is what settles it — an oracle-settled fill
 moves the legs apart BY CONSTRUCTION, so no enforcement could exist without fighting the fill.
 ⇒ **THE TEST ENCODES A CONSTANT-PRODUCT INTUITION THAT AN ORACLE-PEGGED RANGE DOES NOT IMPLEMENT.**
@@ -1590,12 +1593,24 @@ rebalanceRouted(lp, minOut, route) { _activeRoute = route; rebalance(...); delet
 ⇒ **ONE transient slot routes ALL SEVEN entrypoints**, with no change to `_rebalance`, `_leverUp`
 (a `virtual` in `LevBase`, so its signature is shared with `BtcLevManager`), or `_leverUpBuy`.
 **Threading `bytes` instead means changing the virtual, which drags the BTC manager in too.**
-🔴 **SECURITY REQUIREMENT, AND IT DOES NOT APPLY TO `_activeKeeper`: `_activeRoute` MUST BE CLEARED.**
-A stale keeper address is benign — it only redirects a gas reimbursement. **A stale ROUTE is arbitrary
-calldata that `_aggSwap` will execute against the pinned router on a LATER call**, so it must be
-`delete`d at the end of the entrypoint, not merely overwritten by the next caller. `nonReentrant`
-makes the set/clear pair safe within one call; without the clear this is strictly worse than the
-current empty-route revert.
+⛔ **CORRECTION TO MY OWN NOTE, AND IT CUTS BOTH WAYS. `_activeKeeper` IS DECLARED
+`address private transient` (`:704`) — EIP-1153.** I wrote that it "is never cleared" and cited that as
+the contrast. **It clears itself at the end of every transaction**, which is why no `delete` appears
+for it. So:
+  • ✅ **The cross-transaction staleness risk largely evaporates IF `_activeRoute` is also transient** —
+    a stale route cannot survive into a later tx.
+  • 🔴 **BUT `bytes` MAY NOT BE DECLARABLE `transient` at solc 0.8.30** — transient storage support is
+    limited to value types in several versions, and `bytes` is dynamic. **THIS IS UNVERIFIED AND IS
+    THE FIRST THING TO CHECK**, because it decides the whole shape:
+      – if `bytes transient` compiles: one slot, auto-cleared, no `delete` needed.
+      – if it does NOT: use ordinary storage and `delete` it at the end of the entrypoint, since a
+        stale ROUTE is arbitrary calldata `_aggSwap` would execute against the pinned router on a
+        LATER call — unlike a stale keeper, which only redirects a gas reimbursement.
+  • ⚠️ A third option if `bytes` is unusable: keep the route in CALLDATA and store only its **hash**
+    transiently, re-supplying the bytes at the callback and checking the hash. More moving parts;
+    reach for it only if the first two fail.
+⇒ **Verify the `bytes transient` question with a one-line compile BEFORE designing around either
+branch.** I nearly booked a security requirement that the storage class already satisfies.
 ▶️ **NEXT:** `rebalance` first — it is the one the cross-subsidy and cascade fixtures actually call —
 then re-measure the margin before adding the next. ⚠️ **The §C2.1 plumbing cost +1,967 bytes for the
 de-lever side alone**, so if the transient shape is rejected and signatures are threaded instead, 986
