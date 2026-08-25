@@ -1877,6 +1877,44 @@ deleting a tombstone's mention is how a reader concludes the feature was removed
 the 52/28 split shows a blanket sweep would have removed the fixtures that make depeg and liquidation
 testable at all.
 
+## ⛔⛔ **§POOL-OUTPOINT-WAS-WRONG — the shared 2-of-2 is a SECURITY FEATURE, and I proposed removing it** (2026-08-26, owner caught it)
+
+Owner questioned "pool-owned outpoint". **The objection is correct and it inverts my recommendation.**
+
+🔴 **TODAY, POOL SATS SIT IN A 2-of-2 (LP + hop). A COMPROMISED HOP CANNOT TAKE THEM — IT NEEDS THE
+LP'S SIGNATURE.** A hop-controlled "pool-owned outpoint" **deletes that second factor**. ⇒ On the exact
+axis the owner has been asking about from the start — *daemon and fallback compromised* — **my proposal
+is WORSE than the status quo.** The shared UTXO is doing real work: the LP's key is a second factor on
+pool inventory.
+⇒ **THE LEAK (`PoolSatsLeftWithLp`) IS THE PRICE OF THAT PROTECTION, NOT A FREE DEFECT.** I read it as
+pure loss because I looked at the exit path and not at who can move the coins BEFORE the exit.
+
+### ✅ THE SHAPE THAT KEEPS BOTH: TWO OUTPUTS IN THE PRE-SIGNED EXIT
+**Keep the shared 2-of-2. Arm the ladder with TWO outputs instead of one:**
+```
+output 0 -> lpPayoutScript      amount = amountSats - poolOwnedSats   (the LP's entitlement)
+output 1 -> pool script         amount = poolOwnedSats
+```
+⭐ **AND `_exitStructure` NEEDS NO CHANGE — IT ALREADY SUPPORTS THIS.** It loops `t.outputs` summing
+only those whose script matches `want`, and **places no constraint on output count**; a non-matching
+output is simply ignored. **The entire change is in ARMING** (`_armAt` passes `cur` and the pool share
+as two outputs rather than `cur + parked` as one).
+⇒ **Two-party control preserved** (still a 2-of-2 spend, LP must co-sign the rung), **and the LP cannot
+take the pool's share** because the pre-signed transaction pays it elsewhere. `PoolSatsLeftWithLp`
+becomes unreachable **without** weakening custody.
+▶️ **THE ONE OPEN CHOICE — what `pool script` is.** It should require MORE than the hop alone, or the
+second factor is lost at exit time instead of before it. **`SweepAuth`'s 2-of-3 (`migration.rs:405`) is
+the natural answer**, and it gives the recovery path `create_sweep_tx` was written for — so the sweep
+gap closes as a side effect rather than as a prerequisite.
+⚠️ **AND THE EFFICIENCY CLAIM SURVIVES ONLY PARTLY:** this does NOT remove the splice (pool sats still
+enter the channel), so there is no on-chain-transaction saving. **It removes the LEAK and the
+mis-arming, not the splice.** The "one fewer BTC tx" claim belonged to the pool-outpoint shape and dies
+with it.
+⇒ **NET: simpler than the status quo (the `lpEntitled` subtraction and `PoolSatsLeftWithLp` go),
+strictly safer than BOTH the status quo and my pool-outpoint proposal, and efficiency-neutral.**
+**A two-out-of-three win, honestly counted, is a better answer than a three-out-of-three that was wrong
+about custody.**
+
 ## ⭐⭐ **§BTC-SCOPE-SYNTHESIS — the segregation fix, the unwired sweep, and the jury question are ONE item** (2026-08-26, owner)
 
 Owner asked: is anything else in the BTC scope fixable in light of this, and is the shape really more
