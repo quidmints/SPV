@@ -1353,6 +1353,24 @@ it — the burn now releases the basket's share on the ETH path via `basketLeg`,
 SHARED, so the BTC range gets it too. **Next: measure whether this headroom GROWS across repeated
 deliver/burn cycles (fixed) or shrinks (still ratcheting).**
 
+## ⏸️ **§SWALLOW-RESIDUAL — the 54 refine to 18, and they are the ones that need READING** (2026-08-25)
+
+§SWALLOWED-FAILURES split the 54 by WHERE they sit and said test-body swallows *"each need reading"*.
+**Sized today, so the residual is a number rather than an adjective:**
+| location | empty `catch {}` |
+|---|---|
+| helper / setup functions (`_trade`, `_drain`, `_sell`, `_settle`, …) | **15 — DEFENSIBLE**, they churn state to reach a precondition |
+| **TEST BODIES** | **18 — each needs reading** |
+
+⛔ **AND AT LEAST ONE OF THE 18 IS LOAD-BEARING, SO THIS MUST NOT BE BULK-REWRITTEN** — the parent row
+names `LevCascade:634` (`try lm.rebalance(...) {} catch {}` ×8), whose own comment says *"the borrow
+hits 'insufficient collateral' and stops. That IS the buffer exhausting"*. **The swallow IS the
+mechanism under test.** Rewriting it to emit would not break the test; it would delete its point.
+▶️ **THE 18, GROUPED BY SUITE:** `LevCascade` (4: `:325`, `:334`, `:686`, `:911`), `Alles` (4+),
+`UnificationControls` (3: `:475`, `:532`, `:616`), `DrainAtomicity` (`:234`), and the remainder.
+⚠️ **THE DISCRIMINATOR, from the parent row and worth restating: a swallow that announces a genuine
+ABSENCE is right; one that can absorb a FAILURE is not.** Read what the assertion AFTER it depends on.
+
 ## 🔴 **§UNITB-NEEDS-A-MOVING-FIXTURE — the two preconditions FIGHT under draining, measured** (2026-08-25)
 
 §UNITB-ARMS-IDENTICAL needs two things at once: **σ² > 0** (or the kernel vanishes) and
@@ -5505,7 +5523,11 @@ FORK_BLOCK=25833279  ETH_RPC_URL=https://ethereum-rpc.publicnode.com  forge test
 480 passed / 39 failed / 519 total   ·   setUp failures 0   ·   env errors 0
 ```
 ⇒ **The 39 break down as 32 route-blocked (`NoVolatileRoute`, §ROUTE-BLOCKED-24) + 7 real**, and all
-7 are booked with diagnoses. ⭐ **THE PIN IS WHAT MADE IT CLEAN** — the row's premise was that a
+7 are booked with diagnoses.
+✅✅ **AND IT REPRODUCES — WHICH IS THE POINT, NOT THE NUMBER. A SECOND INDEPENDENT PINNED RUN GAVE
+`480 passed / 39 failed / 519 total` AGAIN, BYTE-IDENTICAL**, in **347s** versus 749s for the first
+(the disk cache warming between them). ⇒ **A pinned run is now a MEASUREMENT rather than a sample**,
+which is what every A/B in this file has been missing. ⭐ **THE PIN IS WHAT MADE IT CLEAN** — the row's premise was that a
 shared tree invalidates the number, but the dominant instability was the CHAIN, not the tree: unpinned
 runs the same hour gave **32 `setUp` failures and totals swinging 341–517**. `ForkPin` + `FORK_BLOCK`
 removes both, and warms foundry's disk cache so the run is repeatable.
