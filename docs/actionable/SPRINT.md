@@ -5296,7 +5296,7 @@ of someone else's tier. It never has been. Belongs with §E227's recalibration, 
 
 ## PART C2 — **THE VOLATILE ROUTE IS THE BLOCKER, AND REMOVING V3 LEAVES A HOLE (2026-08-17)**
 
-## 🔴 **§C2.1-RESOLVED-TO-1INCH — owner: "remove tricrypto forever. 1inch only" (2026-08-24)**
+## ✅ **[CLOSED 2026-08-25 — DONE — measured in `evm/src`: `TriCrypto`, `tricrypto`, `V3_FEE`, `exactInputSingle`, `IUniV3` and `_poolSwap` are ALL **0 live** (comments only). The volatile leg is `_aggSwap` against the pinned 1inch router]**  **§C2.1-RESOLVED-TO-1INCH — owner: "remove tricrypto forever. 1inch only" (2026-08-24)**
 
 **DECISION TAKEN. It resolves C2.1 to option (c), and that is a bigger commitment than a deletion.**
 ▶️ **STATE OF PLAY, MEASURED NOW — NOT ASSUMED:**
@@ -6130,6 +6130,11 @@ Found while folding `protectFromQuid` (§PROTECT-FOLD, `664c6236`). `LevManager:
 neither. That is why the folded body had to stay `internal` with a thin guarded wrapper per manager
 instead of moving wholesale.
 
+⚠️ **STILL OPEN AND STILL CORRECTLY OPEN — but `LevManager`'s half CHANGED 2026-08-25 (§RULE-8C).**
+Its `nonReentrant` is now `{ _enter(); _; _lock = 1; }` with the check-and-set hoisted into a private
+`_enter()`, because the modifier body was being INLINED at 15 use sites. **The `_lock` SLOT is
+untouched, so this row's migration question is unaffected** — but a future fold must move `_enter()`
+as well as the modifier, and `BtcLevManager` still has the inline form.
 ⚠️ **THIS IS NOT A DEDUP TASK. Moving `_lock` into `LevBase` RELOCATES STORAGE and changes the layout
 of BOTH deployed contracts** — it must be planned as a migration, with the slot order checked against
 anything that reads raw slots (`UnificationControls.t.sol` already reads `Core`'s slots by index, so
