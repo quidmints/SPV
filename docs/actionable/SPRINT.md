@@ -6373,7 +6373,7 @@ the error message then actively misdirects.
 ⚠️ **Do NOT bulk-rewrite all 54.** Some are deliberate (a probe that tolerates a revert BY DESIGN).
 Each needs the question *"can a real failure reach this, and would anyone notice?"*
 
-### 2. 🔴 **5 SILENT SKIPS — `catch { vm.skip(true); }`**
+### 2. ✅ **[CLOSED 2026-08-25 — VERIFIED: none of the 5 is silent, and the dangerous half was already fixed. The 3 fork skips wrap ONLY `vm.envString`, with `vm.createSelectFork` left *"deliberately UNGUARDED: a fork failure must fail, not skip"* — the exact defect (a dead RPC read as "no ETH_RPC_URL set") is called out by name in all three files. The other 2 (`BtcSelfManaged:138,331`) test an explicit SKIP sentinel from the fixture generator and `emit log` the reason, which the parent row already marks CORRECT AS-IS. Discriminator holds: a skip announcing a genuine ABSENCE is right; one that can absorb a FAILURE is not]**  **5 SILENT SKIPS — `catch { vm.skip(true); }`**
 `CurveObserverIsCheapAndSane:38`, `OneInchObserverIsIndependent:39`, `OneInchGasProbe:45`,
 `BtcSelfManaged:127,320`. ⚠️ **A test that SKIPS on failure reports the same as one that passes.**
 These sit on the observer/gas probes — exactly the paths where an RPC failure and a real regression
