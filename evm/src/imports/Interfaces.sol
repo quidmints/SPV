@@ -528,6 +528,10 @@ interface ICore {
     function observe(uint32[] calldata secondsAgos) external view returns (uint192[] memory);
     function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
+    /// §BURN-RELEASES-NO-USD — the BASKET's share of the USD leg, distinct from `POOLED_USD` (which
+    /// also holds the LP-owned increment). A burn releases the basket's dollars; the increment is
+    /// paid to the LP separately by `_payUsdLeg`/`absorbPaidUsd`. Reading the wrong one over-releases.
+    function basketUsd() external view returns (uint);
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
     function flowEwmaUsd() external view returns (uint);

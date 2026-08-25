@@ -2127,10 +2127,18 @@ library SwapLib {
         if (pulled == 0) return 0;
         (, uint posLiquidity) = ICore(core).poolStats();
         if (posLiquidity > 0) {
-            // §MODLP-PAIRS-BOTH-LEGS — the proportional USD computed HERE is DELETED: `Core.modLP`
-            // derives it for any leaving move that supplies no USD leg. That is rule 17's test —
-            // a root fix makes the previous fix deletable, and this is the deletion.
-            sent = ICore(core).modLP(int256(pulled), 0, recipient);   // LEAVES ⇒ positive; Core pairs the USD
+            // §BURN-RELEASES-NO-USD — RELEASE THE **BASKET'S** SHARE ONLY, NOT THE WHOLE MIRROR.
+            // Passing 0 left `basketUsd` untouched, so `committedUsd18()` could never fall. Passing
+            // the FULL proportional `POOLED_USD` share over-released: it took the LP-OWNED INCREMENT
+            // with it, and a second exit then found no weETH to offramp AND no increment to pay —
+            // measured, an LP left holding 24.32 ETH of shares that returned 0 (§SETTLE-LvrResidual).
+            // ⇒ THE INCREMENT IS THE LP'S AND IS ALREADY MANAGED: `_payUsdLeg` pays their pro-rata
+            //   share as QU!D and `absorbPaidUsd` re-anchors what remains. The burn's job is only to
+            //   release the BASKET's paired dollars, which is what `committed` is built from.
+            // `basketUsd · pulled / POOLED` — the basket's share of the depth being burned.
+            uint basket6 = ICore(core).basketUsd();
+            uint usdOut = basket6 == 0 ? 0 : SoladyMath.fullMulDiv(basket6, pulled, pooled);
+            sent = ICore(core).modLP(int256(pulled), int256(usdOut), recipient);   // LEAVES ⇒ positive
         }
     }
 
