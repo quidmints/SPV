@@ -1,5 +1,24 @@
 # QUEUE — the single current-state list
 
+> 🔴🔴 **BEFORE RUNNING ANYTHING IN THIS FILE: EVERY `ETH_RPC_URL=$ANKR_RPC_URL` INSTRUCTION BELOW IS
+> DEAD.** Re-probed 2026-08-25 — **BOTH** ankr keys in `evm/.env` return
+> `{"error":"message: API key disabled, json-rpc code: -32051, rest code: 403"}`: `ANKR_RPC_URL`
+> **and** `QUID_FORK_RPC`. Following those lines produces `vm.createSelectFork: could not
+> instantiate`, i.e. **the exact false mass-failure this file repeatedly warns about**.
+>
+> ✅ **THE REPLACEMENT, AND IT IS BETTER THAN THE ARCHIVE KEY WAS — PIN THE BLOCK:**
+> ```
+> FORK_BLOCK=<head-20>  ETH_RPC_URL=https://ethereum-rpc.publicnode.com  forge test -j 8
+> ```
+> `ForkPin` has supported `FORK_BLOCK` all along. Pinning makes every fork in the run use ONE block,
+> so foundry's disk cache (`~/.foundry/cache/rpc`) serves later runs locally — which is what was
+> rate-limiting every endpoint. **MEASURED at `FORK_BLOCK=25833279`: `480 passed / 39 failed / 519
+> total`, `setUp` failures **0**, env errors **0**, and a SECOND run reproduced it byte-identically in
+> 347 s versus 749 s.** Unpinned runs the same hour gave 32 `setUp` failures and totals swinging
+> 341–517. ⇒ **Quote a pass count only from a pinned run.**
+
+
+
 **This file supersedes `BUILD-QUEUE-AND-107.md`**, which is now an ARCHIVE: append-only, 73 `A.x` items,
 several re-framed two or three times. Detail and evidence still live there and in
 `GAS-AND-CORRECTNESS-AUDIT.md`; **status lives HERE and is updated IN PLACE.**
