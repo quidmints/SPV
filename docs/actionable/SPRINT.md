@@ -22,10 +22,18 @@
 > | `testBtcLp_swapInAccruesTheBtcLegFee` | §BTC-LEG-FEE — needs the v4 trading-fee decision | **owner** |
 >
 > **BLOCKED ON THE OWNER, NOT ON WORK:**
-> 1. **Pool-sats segregation** (§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT). LP funds ARE immune — three
->    independent derivations agree. **Pool sats are NOT**, and §POOL-SATS-STRANDING-IS-UNTESTED shows
->    the case has never executed in a test. ⛔ **Do not write a test asserting the stranding** — that
->    encodes the defect. The test belongs after the decision.
+> 1. **Pool-sats leak — THE DESIGN IS SETTLED, ONE CHOICE REMAINS.** LP funds ARE immune (three
+>    independent derivations). Pool sats leak to the LP on a dead-man exit, and `PoolSatsLeftWithLp`
+>    already announces it. ⭐ **THE FIX: arm the ladder with TWO OUTPUTS** — `amountSats −
+>    poolOwnedSats` to `lpPayoutScript`, `poolOwnedSats` to a pool script. **`_exitStructure` needs NO
+>    change** (it sums script matches and does not constrain output count); the whole change is in
+>    `_armAt`. ⛔ **DO NOT move pool sats to a hop-owned outpoint** — the shared 2-of-2 is a SECURITY
+>    FEATURE (a compromised hop cannot spend without the LP), and removing it is worse than the leak.
+>    **That proposal was made and retracted here; see §POOL-OUTPOINT-WAS-WRONG.**
+>    ▶️ **THE ONE OPEN CHOICE: what `pool script` is.** It must require more than the hop alone, or the
+>    second factor is merely deferred to exit time. `SweepAuth`'s 2-of-3 fits and would give
+>    `create_sweep_tx` the trigger it was written for. ⛔ **Do not write a test asserting the leak** —
+>    the test is one assertion, `PoolSatsLeftWithLp` is NEVER emitted, and it belongs after this choice.
 > 2. **v4 trading-fee leg** — releases §BTC-LEG-FEE.
 > 3. **§E230 scope** — the `basketLeg` fix narrowed it; swap arm byte-identical and green, but confirm
 >    *"a burn does not get to choose which dollars leave"* was always about SWAPS.
