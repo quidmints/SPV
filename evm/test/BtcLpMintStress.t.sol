@@ -708,7 +708,7 @@ contract BtcLpMintStress is AllesFixture {
         // had to be a fee-rate estimate — and why it could not distinguish a fee defect from a
         // volume change from a haircut leak. Crystallising here zeroes the bookmark, so what
         // follows is the proceeds mint alone and can be asserted EXACTLY.
-        vm.prank(s.lpEth); BTC.collectBtcFees();
+        vm.prank(s.lpEth); BTC.collectFees();
         uint qdBefore = QUID.balanceOf(s.lpEth);
 
         // Hop delivers: splice-out the channel, paying the swapper their sats.

@@ -15143,6 +15143,31 @@ client-ABI gate is not the obstacle for any of them:
 | `outOfRangeBtc` | 4 | 1 | 🔴 **NOT FREE — see below** |
 | `pullBtc` | 4 | 1 | 🟠 unblocked, but bundled with the two above rather than landed alone |
 
+### ✅ **ALL FOUR DONE 2026-08-26 — THE `ICore` QUESTION BELOW WAS ANSWERED BY TRACING, AND THE ANSWER IS "NO".**
+
+The blocker was one factual question: *is a `Vault` ever passed where `ICore(core).collectFees()` is
+decoded?* **Traced: no.** `SwapLib.sol:2629` sits in `rebalanceCore`, whose only two callers are
+`BtcLib.sol:497` and `QuidLib.sol:365`, and **both pass `c.core`** — built at `Vault.sol:563` and
+`Quid.sol:1374` as `core: address(CORE)`, i.e. the **`Core` instance**, never the range manager. So
+the `(uint,uint)` decode only ever meets `Core.collectFees()`, which really does return two words.
+⇒ **A third claimant on the name is unreachable**, and the renames are spelling after all.
+
+| landed | note |
+|---|---|
+| `onlyUsBtc` → `onlyUs` | private modifier; `Shares` declares no twin |
+| `collectBtcFees` → `collectFees` | identical shapes (`external nonReentrant`, no return) on both instances |
+| `outOfRangeBtc` → `outOfRange` | same params and returns; ⚠️ **`Quid`'s is `payable` and `Vault`'s is not** — a REAL asymmetry (a BTC boundary order is USD-funded only), to be preserved by any fold |
+| `pullBtc` → `pull` | identical signatures |
+
+⛔ **THE `BtcLib` BODIES KEEP THEIR SUFFIX AND THAT IS NOT AN OVERSIGHT.** `BtcLib.outOfRangeBtc` and
+`BtcLib.pullBtc` are that library's own delegatecall bodies, mirroring how `Quid`'s members call
+`RangeLib.pull`. The blocker was about CONTRACT members colliding by concept, not about library
+spellings — a blanket rename would have hit both, so they were protected explicitly.
+📌 **AND IT SURFACED THE NEXT FOLD CANDIDATE:** `RangeLib.sol:140` records that `RangeLib.pull` and
+`BtcLib.pullBtc` are *"BYTE-IDENTICAL after normalising the storage PARAMETER"* — so the two library
+bodies are a pair too, one level below the one just cleared.
+
+*(original blocker text, kept — its reasoning is what the trace answered:)*
 🔴 **WHY THE OTHER TWO ARE NOT MECHANICAL, AND THE ROW MISSED IT: `ICore` ALREADY DECLARES BOTH
 UNSUFFIXED NAMES WITH DIFFERENT SHAPES.**
 `Interfaces.sol:535` is `collectFees() external returns (uint, uint)` while `Quid.collectFees()` and

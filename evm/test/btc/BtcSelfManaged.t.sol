@@ -9,7 +9,7 @@ import {ChannelLib} from "../../src/imports/ChannelLib.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Vault} from "../../src/Vault.sol";
 
-/// @notice BTC-pool self-managed boundary orders — `Vault.outOfRangeBtc`/`pullBtc`,
+/// @notice BTC-pool self-managed boundary orders — `Vault.outOfRange`/`pull`,
 ///         the USD-funded BTC twin of the ETH `Quid.outOfRange`/`pull` path. Mirrors
 ///         `Alles.testOutOfRangeUSDPosition` on the BTC (USD/WBTC) curve: place a
 ///         single-sided USD limit order outside range, then pull it back.
@@ -26,7 +26,7 @@ contract BtcSelfManagedTest is AllesFixture {
 
         // distance sign mirrors the ETH USD test; the BTC pool ordering is handled
         // inside oorTicks via token1isBTC (same shared geometry).
-        uint id = BTC.outOfRangeBtc(rack / 10, address(USDC), 1000, 100);
+        uint id = BTC.outOfRange(rack / 10, address(USDC), 1000, 100);
 
         assertGt(id, 0, "BTC self-managed position id > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -34,7 +34,7 @@ contract BtcSelfManagedTest is AllesFixture {
 
         vm.roll(vm.getBlockNumber() + 1000);
         balanceBefore = USDC.balanceOf(User01);
-        BTC.pullBtc(id, 100, address(USDC));
+        BTC.pull(id, 100, address(USDC));
         // §OOR-PULL-SIGN — WAS `balanceBefore`, WHICH ASSERTED THE OPPOSITE OF ITS OWN MESSAGE.
         // A 100% pull RETURNS the order's USDC to the owner, so the balance must RISE by `rack/10`
         // (the amount the order was opened with, deducted by the assertion ~6 lines above). Comparing
@@ -51,20 +51,20 @@ contract BtcSelfManagedTest is AllesFixture {
     function testOutOfRangeBtc_RejectsNative() public {
         vm.prank(User01);
         vm.expectRevert(Vault.NotAStable.selector);
-        BTC.outOfRangeBtc(0, address(0), 1000, 100);
+        BTC.outOfRange(0, address(0), 1000, 100);
     }
 
     /// Only the position owner can pull it.
     function testPullBtc_OnlyOwner() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = BTC.outOfRangeBtc(rack / 10, address(USDC), 1000, 100);
+        uint id = BTC.outOfRange(rack / 10, address(USDC), 1000, 100);
         vm.stopPrank();
 
         vm.roll(vm.getBlockNumber() + 1000);
         vm.prank(User02);
         vm.expectRevert(Vault.NotOwner.selector);
-        BTC.pullBtc(id, 100, address(USDC));
+        BTC.pull(id, 100, address(USDC));
     }
 
     // ─── REAL Lightning swap-in e2e — DELIBERATELY HOUSED HERE, not in `Alles.t.sol` ──────────

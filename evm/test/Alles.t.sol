@@ -4346,7 +4346,7 @@ contract Alles is AllesFixture {
     ///         channel. The USD-leg mints as QUID to the LP; the position (pooled)
     ///         is unchanged; a repeated call pays ~nothing; the channel still closes
     ///         cleanly afterward.
-    function testBtcLp_collectBtcFees_NoClose() public {
+    function testBtcLp_collectFees_NoClose() public {
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
         vm.startPrank(User03);
@@ -4373,7 +4373,7 @@ contract Alles is AllesFixture {
         //    be live before the comparison means anything.
         assertGt(pooledBtc0, 0, "control: POOLED is live, so the equality below is not vacuous");
         assertGt(pooledUsdBtc0, 0, "control: POOLED_USD is live, so the equality is not vacuous");
-        vm.prank(User01); BTC.collectBtcFees();
+        vm.prank(User01); BTC.collectFees();
         assertEq(BCORE().POOLED(), pooledBtc0,
             "fee collection must NOT move POOLED (else the fee-leg mint is unbacked)");
         assertEq(BCORE().POOLED_USD(), pooledUsdBtc0,
@@ -4384,7 +4384,7 @@ contract Alles is AllesFixture {
         assertEq(pooledAfter, pooledBefore, "BTC position unchanged (no close)");
         // Second collect → ~nothing (self-rebaselined; no double-pay).
         uint qb = QUID.balanceOf(User01);
-        vm.prank(User01); BTC.collectBtcFees();
+        vm.prank(User01); BTC.collectFees();
         assertApproxEqAbs(QUID.balanceOf(User01), qb, 1e12, "second collect pays ~nothing (no double-pay)");
         // The channel still closes cleanly after a fee claim.
         BTC.requestRedeem(User01, 2e7);
@@ -4986,7 +4986,7 @@ contract Alles is AllesFixture {
         }
         vm.stopPrank();
 
-        vm.prank(User01); BTC.collectBtcFees();      // crystallise whatever exists BEFORE
+        vm.prank(User01); BTC.collectFees();      // crystallise whatever exists BEFORE
         (uint pooledPre,,,) = BTC.autoManaged(User01);
         uint fpsBefore  = BTC.feesPerShare();
 
@@ -5002,7 +5002,7 @@ contract Alles is AllesFixture {
         emit log_named_uint("swap-in sats             ", 500_000);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
-        vm.prank(User01); BTC.collectBtcFees();      // crystallise AFTER
+        vm.prank(User01); BTC.collectFees();      // crystallise AFTER
         uint fpsAfter  = BTC.feesPerShare();
         emit log_named_uint("feesPerShare before", fpsBefore);
         emit log_named_uint("feesPerShare after ", fpsAfter);
@@ -5041,8 +5041,8 @@ contract Alles is AllesFixture {
         BTC.creditSwapIn(address(0x5E22), 500_000, address(USDC), 0);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
-        vm.prank(User01); BTC.collectBtcFees();
-        vm.prank(User02); BTC.collectBtcFees();
+        vm.prank(User01); BTC.collectFees();
+        vm.prank(User02); BTC.collectFees();
         // (E145) THE FORFEITURE IS GONE BECAUSE THE LEDGER IS. This test previously needed a
         // live claim to forgo, and MEASURED 209 sats vanishing at close with no remaining LP
         // gaining anything. The fee now compounds into `pooled` as it is earned, so there is
@@ -5052,7 +5052,7 @@ contract Alles is AllesFixture {
         BTC.requestRedeem(User01, 2e7);                 // LP1 exits fully
 
         // THE MEASUREMENT: does LP2 receive any of it?
-        vm.prank(User02); BTC.collectBtcFees();
+        vm.prank(User02); BTC.collectFees();
         emit log_named_uint("feesPerShare before", fpsBefore);
         emit log_named_uint("feesPerShare after ", BTC.feesPerShare());
         // Recorded, not asserted in a direction: this test exists to ESTABLISH the number.
@@ -5068,7 +5068,7 @@ contract Alles is AllesFixture {
     function testBtcPool_measureUsdLegFeeRateOnASingleSwap() public {
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
-        vm.prank(User01); BTC.collectBtcFees();          // zero the LP's bookmark first
+        vm.prank(User01); BTC.collectFees();          // zero the LP's bookmark first
 
         uint usdFees0 = BTC.USD_FEES();
         uint qd0 = QUID.balanceOf(User01);
@@ -5080,7 +5080,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
-        vm.prank(User01); BTC.collectBtcFees();          // crystallise -> QUID (18-dec)
+        vm.prank(User01); BTC.collectFees();          // crystallise -> QUID (18-dec)
         uint paid18 = QUID.balanceOf(User01) - qd0;
         emit log_named_uint("swap volume (6-dec)      ", volume6);
         emit log_named_uint("USD_FEES delta       ", BTC.USD_FEES() - usdFees0);

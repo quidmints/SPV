@@ -882,7 +882,7 @@ contract VBtcLevFeeLane is AllesFixture {
             vm.stopPrank();
             uint qd0      = QUID.balanceOf(lpEth);
             // (E145) the BTC leg compounds into `pooled`; there is no owed ledger to read.
-            // Same driver as the proven testBtcLp_collectBtcFees_NoClose: real (non-caught)
+            // Same driver as the proven testBtcLp_collectFees_NoClose: real (non-caught)
             // USDC->WBTC pool swaps generate BTC-range trading fees. Sizes kept modest so the
             // incoming USD stays under BtcShareCap (the lev slice already consumes headroom).
             for (uint i; i < 6; i++) {
@@ -891,7 +891,7 @@ contract VBtcLevFeeLane is AllesFixture {
                 vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
             }
             vm.prank(lpEth);
-            BTC.collectBtcFees();                              // USD-leg -> QUID; BTC-leg -> btcFeesOwedSats
+            BTC.collectFees();                              // USD-leg -> QUID; BTC-leg -> btcFeesOwedSats
             uint usdLeg = QUID.balanceOf(lpEth) - qd0;
             uint btcLeg = 0;   // (E145) retired: the leg compounds into pooled as it is earned
             // (E145-n) ⚠️ THIS USED TO BE `assertGt(usdLeg + btcLeg, 0)` — A SUM THE USD LEG
