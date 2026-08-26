@@ -58,8 +58,16 @@ contract BufferSwapDrain is LevCascadeProbe {
 
         // Sell WETH into the USD-heavy post-rally range, hard, in bounded (<=50bps) steps.
         for (uint i; i < 24; i++) {
+            // §C23 — the per-step `_setEthFeed(px / 1e10)` that stood here is DELETED. It existed
+            // "so the 5% anchor never false-trips", but §V4-CUT settles fills AT ORACLE against
+            // inventory, so a swap moves NO price: `px` is identical on every iteration and the
+            // write re-pinned the feed to the value it already held. The READ stays — it is the
+            // loop's break guard, not the feed's source.
+            // ⚠️ This loop consumes INVENTORY; it is not a price-MOVER. That is the discriminator
+            // §C23 landed on after a grep for the pattern mis-booked six sites as defects when only
+            // one was: `_rallyRange`/`_crashRange`/`_moveEth` are supposed to move the price and
+            // must INJECT it, a drain loop is not and must not.
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
-            _setEthFeed(px / 1e10);
             vm.prank(swapper);
             try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
@@ -108,8 +116,16 @@ contract BufferSwapDrain is LevCascadeProbe {
         address swapper = User03;
         vm.deal(swapper, 40 ether);
         for (uint i; i < 24; i++) {
+            // §C23 — the per-step `_setEthFeed(px / 1e10)` that stood here is DELETED. It existed
+            // "so the 5% anchor never false-trips", but §V4-CUT settles fills AT ORACLE against
+            // inventory, so a swap moves NO price: `px` is identical on every iteration and the
+            // write re-pinned the feed to the value it already held. The READ stays — it is the
+            // loop's break guard, not the feed's source.
+            // ⚠️ This loop consumes INVENTORY; it is not a price-MOVER. That is the discriminator
+            // §C23 landed on after a grep for the pattern mis-booked six sites as defects when only
+            // one was: `_rallyRange`/`_crashRange`/`_moveEth` are supposed to move the price and
+            // must INJECT it, a drain loop is not and must not.
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
-            _setEthFeed(px / 1e10);
             vm.prank(swapper);
             try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
