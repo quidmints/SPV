@@ -287,11 +287,11 @@ contract LevYbRealProbe is AllesFixture {
         // Open at the CURRENT real range price (entry pinned from ETH.rangeSqrtP); zero leverage at entry.
         vm.startPrank(LP);
         IERC20R(WEETH).approve(address(rlm), 5 ether);
-        rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether, mins); // cap = 2×
+        rlm.openLev(5000, ILevVenue(address(rvenue, new bytes[](0))), 5 ether, mins); // cap = 2×
         vm.stopPrank();
         // Real rally: buy ETH out of the range so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        rlm.rebalance(LP, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
+        rlm.rebalance(LP, 0, "");         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
     }
 
     /// @notice #55/#1 fork proof: the levered slice is STRUCTURALLY excluded from the VENUE-yield
@@ -366,7 +366,7 @@ contract LevYbRealProbe is AllesFixture {
         // De-lever through the real adapter: withdraw weETH (real Morpho) → sell (real Uniswap) → repay (real
         // Morpho). Called by the LP (self-de-risk path; the keeper uses permissionless cascadeDelever).
         vm.prank(LP);
-        rlm.deleverOne(LP, 0);
+        rlm.deleverOne(LP, 0, "");
 
         emit log_named_uint("Morpho debt (USDC) after delever", rvenue.debtOf(LP));
         emit log_named_uint("LTV after delever (bps)", rlm.getCurrentLtvBps(LP));

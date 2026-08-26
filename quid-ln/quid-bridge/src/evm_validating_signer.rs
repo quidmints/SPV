@@ -66,10 +66,13 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // nothing would accept is not harmless; it widens the signable surface while looking
     // deliberate. Do NOT re-add it as `repack(bool)` — `onlyUs` means the protocol calls it,
     // not the keeper.
-    "cascadeDelever(address[],uint256[])",
+    // §E357 — the volatile leg now carries an off-chain-built route, so BOTH batch
+    // selectors gained a `bytes[]`. This list and the keeper's builder must move together:
+    // a stale entry here makes the signer REJECT every call the keeper sends.
+    "cascadeDelever(address[],uint256[],bytes[])",
     // (§E247) `rebalanceMany` — the #84 whole-book batch (`LevManager:354`), sent by
     // `lev_keeper.rs` since the central rebalancer landed and never listed here.
-    "rebalanceMany(address[],uint256[])",
+    "rebalanceMany(address[],uint256[],bytes[])",
     // --- BTC leverage keeper (BtcLevManager) ---
     // §SLOP: `syncLevBTC(address)` was DELETED with the BTC suffix (`Vault.sol:536` — "one name
     // across both ranges"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist

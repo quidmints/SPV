@@ -228,10 +228,12 @@ pub trait LevKeeperEvm {
     async fn open_positions(&self) -> anyhow::Result<Vec<LpAddr>>;
     async fn position_view(&self, lp: LpAddr) -> anyhow::Result<PositionView>;
     async fn rebalance(&self, lp: LpAddr) -> anyhow::Result<()>;
-    async fn cascade_delever(&self, lps: &[LpAddr]) -> anyhow::Result<()>;
+    /// §E357 — `routes[i]` is LP `i`'s volatile-leg router calldata, built OFF-CHAIN.
+    /// ⚠️ An empty route is refused on chain, so a caller with none must not send the batch.
+    async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()>;
     /// BATCH IL-target rebalance: hold every out-of-range LP in ONE tx (`rebalanceMany`). On-chain
     /// fault-tolerant + syncs each LP's range slice internally, so no per-LP sync follow-up is needed.
-    async fn rebalance_many(&self, lps: &[LpAddr]) -> anyhow::Result<()>;
+    async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()>;
     /// Reconcile `lp`'s LEVERED range slice to its live net-equity (`Quid.syncLev`). Called after ANY
     /// position change (rebalance/de-lever) so the fee lane (`levPooled`) tracks the equity promptly instead
     /// of waiting for the next external poke. Permissionless on-chain, so a failure is non-fatal — the slice
@@ -370,7 +372,12 @@ pub async fn tick<E: LevKeeperEvm>(
     }
     // FLUSH URGENTS FIRST, unconditionally — the no-liquidation guarantee can't queue behind non-urgent work.
     if !urgent.is_empty() {
-        if let Err(e) = evm.cascade_delever(&urgent).await {
+        // §E357 — ROUTES ARE NOT SOURCED YET. `oneinch.rs::fetch_swap` needs a key; the
+        // keyless path is client-side discovery over multicall and is not built. Sending an
+        // all-empty batch would be N guaranteed `NoVolatileRoute` reverts, so the vector is
+        // threaded and left empty deliberately — the gap is visible at the call site.
+        let urgent_routes: Vec<Vec<u8>> = Vec::new();
+        if let Err(e) = evm.cascade_delever(&urgent, &urgent_routes).await {
             tracing::warn!(error = %e, "cascade_delever failed; the un-saved positions fall to the venue backstop");
         }
         for lp in &urgent {
@@ -383,7 +390,8 @@ pub async fn tick<E: LevKeeperEvm>(
     // tx, instead of N per-LP txs. On-chain it's fault-tolerant (a reverting LP is skipped) and syncs each
     // LP's range slice internally, so no per-LP syncLev follow-up is needed here.
     if !rebal.is_empty() {
-        if let Err(e) = evm.rebalance_many(&rebal).await {
+        let rebal_routes: Vec<Vec<u8>> = Vec::new();
+        if let Err(e) = evm.rebalance_many(&rebal, &rebal_routes).await {
             tracing::warn!(error = %e, "rebalance_many failed; retrying next interval");
         }
     }
@@ -525,10 +533,11 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         .await?
     }
 
-    async fn cascade_delever(&self, lps: &[LpAddr]) -> anyhow::Result<()> {
-        let (evm, lm, gas, lps) = (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
+    async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
+        let (evm, lm, gas, lps, routes) =
+            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(lm, encode_batch("cascadeDelever(address[],uint256[])", &lps), batch_gas(gas, lps.len()))?;
+            evm.send_tx(lm, encode_batch("cascadeDelever(address[],uint256[],bytes[])", &lps, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -536,10 +545,11 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
 
     /// Hold the whole book at its IL target in ONE tx. Gas scales with the batch (each LP is a flash-repay
     /// or lever-up), capped below the block limit; the on-chain loop is fault-tolerant + syncs each LP internally.
-    async fn rebalance_many(&self, lps: &[LpAddr]) -> anyhow::Result<()> {
-        let (evm, lm, gas, lps) = (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
+    async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
+        let (evm, lm, gas, lps, routes) =
+            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[])", &lps), batch_gas(gas, lps.len()))?;
+            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[],bytes[])", &lps, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -652,15 +662,45 @@ fn batch_gas(per_lp: u64, n: usize) -> u64 {
 
 /// ABI-encode a `fn(address[] lps, uint256[] minOuts)` batch with `minOuts` all 0 (the contract's oracle floor
 /// protects each swap). Shared by `cascadeDelever` + `rebalanceMany` — same two-dynamic-array shape.
-fn encode_batch(sig: &str, lps: &[LpAddr]) -> Vec<u8> {
+/// §E357 — THREE dynamic arrays now: `(address[] lps, uint256[] minOuts, bytes[] routes)`.
+///
+/// `routes[i]` is the volatile leg's router calldata for LP `i`, built off-chain. ⚠️ **AN EMPTY
+/// ROUTE IS REFUSED ON CHAIN** (`_aggSwap` reverts `NoVolatileRoute`), so a caller with no routes
+/// must NOT send this batch — an all-empty `routes` is a batch of guaranteed reverts, not a no-op.
+///
+/// The head is three offsets rather than two, and `bytes[]` is an array OF dynamic elements, so its
+/// body is itself a table of offsets followed by each element's (len, padded data). That is the part
+/// a two-array encoder cannot be extended to by adding one word.
+fn encode_batch(sig: &str, lps: &[LpAddr], routes: &[Vec<u8>]) -> Vec<u8> {
     let n = lps.len() as u64;
     let mut d = selector4(sig);
-    d.extend_from_slice(&u64_word(0x40)); // offset to lps (after the 2 head words)
-    d.extend_from_slice(&u64_word(0x40 + 32 * (1 + n))); // offset to minOuts (after lps: len + n elems)
+    let lps_at = 0x60u64;                       // after the 3 head words
+    let mins_at = lps_at + 32 * (1 + n);        // after lps: len + n elems
+    let routes_at = mins_at + 32 * (1 + n);     // after minOuts: len + n elems
+    d.extend_from_slice(&u64_word(lps_at));
+    d.extend_from_slice(&u64_word(mins_at));
+    d.extend_from_slice(&u64_word(routes_at));
     d.extend_from_slice(&u64_word(n));
     for lp in lps { d.extend_from_slice(&addr_word(*lp)); }
     d.extend_from_slice(&u64_word(n));
-    for _ in 0..n { d.extend_from_slice(&u64_word(0)); }
+    for _ in 0..n { d.extend_from_slice(&u64_word(0)); }   // minOuts: the oracle floor bounds each swap
+    // bytes[]: length, then one offset per element (relative to the start of this array's body),
+    // then each element as (length, data padded to 32).
+    d.extend_from_slice(&u64_word(n));
+    let mut off = 32 * n;                       // offsets table sits first
+    for i in 0..n as usize {
+        d.extend_from_slice(&u64_word(off));
+        let len = routes.get(i).map_or(0, |r| r.len()) as u64;
+        off += 32 + len.div_ceil(32) * 32;
+    }
+    for i in 0..n as usize {
+        let empty: Vec<u8> = Vec::new();
+        let r = routes.get(i).unwrap_or(&empty);
+        d.extend_from_slice(&u64_word(r.len() as u64));
+        d.extend_from_slice(r);
+        let pad = (32 - (r.len() % 32)) % 32;
+        d.extend(std::iter::repeat_n(0u8, pad));
+    }
     d
 }
 
@@ -797,13 +837,16 @@ mod tests {
         let w = addr_word(lp);
         assert_eq!(&w[..12], &[0u8; 12]);
         assert_eq!(&w[12..], &lp[..]);
-        // cascadeDelever(address[],uint256[]) for 2 LPs: 4 sel + head(2) + lps(len+2) + minOuts(len+2) = 4 + 32*8
-        let enc = encode_batch("cascadeDelever(address[],uint256[])", &[[0xAA; 20], [0xBB; 20]]);
-        assert_eq!(enc.len(), 4 + 32 * 8);
-        assert_eq!(&enc[..4], &selector4("cascadeDelever(address[],uint256[])")[..]);
-        assert_eq!(&enc[4..36], &u64_word(0x40));            // offset to lps
-        assert_eq!(&enc[36..68], &u64_word(0x40 + 32 * 3)); // offset to minOuts (head 0x40 + len + 2 elems)
-        assert_eq!(&enc[68..100], &u64_word(2));            // lps.length
+        // §E357 — three arrays: 4 sel + head(3) + lps(len+2) + minOuts(len+2) + routes(len + 2
+        // offsets + 2 empty elements of one word each) = 4 + 32*13.
+        const SIG: &str = "cascadeDelever(address[],uint256[],bytes[])";
+        let enc = encode_batch(SIG, &[[0xAA; 20], [0xBB; 20]], &[]);
+        assert_eq!(enc.len(), 4 + 32 * 13);
+        assert_eq!(&enc[..4], &selector4(SIG)[..]);
+        assert_eq!(&enc[4..36], &u64_word(0x60));            // offset to lps (3 head words)
+        assert_eq!(&enc[36..68], &u64_word(0x60 + 32 * 3));  // offset to minOuts
+        assert_eq!(&enc[68..100], &u64_word(0x60 + 32 * 6)); // offset to routes
+        assert_eq!(&enc[100..132], &u64_word(2));            // lps.length
     }
 
     #[test]
@@ -836,11 +879,11 @@ mod tests {
             self.rebalanced.borrow_mut().push(lp);
             Ok(())
         }
-        async fn cascade_delever(&self, lps: &[LpAddr]) -> anyhow::Result<()> {
+        async fn cascade_delever(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
             self.cascaded.borrow_mut().extend_from_slice(lps);
             Ok(())
         }
-        async fn rebalance_many(&self, lps: &[LpAddr]) -> anyhow::Result<()> {
+        async fn rebalance_many(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
             self.rebalanced.borrow_mut().extend_from_slice(lps);   // same sink as rebalance ⇒ existing assertions hold
             Ok(())
         }

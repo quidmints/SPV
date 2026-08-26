@@ -128,13 +128,14 @@ pub fn fetch_swap(
     Ok(Route { calldata, dst_amount })
 }
 
-/// ABI-encode `deleverOneRouted(address lp, uint256 minOut, bytes route)`.
+/// ABI-encode `deleverOne(address lp, uint256 minOut, bytes route)`.
+/// §E357 — was `deleverOneRouted`; the un-routed twin is gone, so there is one entrypoint.
 ///
 /// One dynamic tail, so the head is `[lp][minOut][offset=0x60]` and the tail is `[len][padded data]`.
 /// Written out rather than pulled from a codec because `lev_keeper`'s `encode_batch` already hand-rolls
 /// the same shape -- one idiom in this crate, not two.
 pub fn encode_delever_routed(lp: &[u8; 20], min_out: u128, route: &[u8]) -> Vec<u8> {
-    let mut d = selector4("deleverOneRouted(address,uint256,bytes)");
+    let mut d = selector4("deleverOne(address,uint256,bytes)");
     let mut lp_word = [0u8; 32];
     lp_word[12..].copy_from_slice(lp);
     d.extend_from_slice(&lp_word);
@@ -169,7 +170,7 @@ mod tests {
         let enc = encode_delever_routed(&lp, 7, &route);
         assert_eq!(
             &enc[..4],
-            &keccak256(b"deleverOneRouted(address,uint256,bytes)")[..4]
+            &keccak256(b"deleverOne(address,uint256,bytes)")[..4]
         );
         assert_eq!(&enc[4 + 12..4 + 32], &lp[..], "lp in the low 20 bytes");
         assert_eq!(enc[4 + 63], 7, "minOut in the second word");

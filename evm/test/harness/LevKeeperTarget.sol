@@ -26,10 +26,12 @@ contract LevKeeperTarget {
     function liqThresholdBps() external pure returns (uint256) { return 8600; }
 
     // ── write surface (recorded) ──
-    function cascadeDelever(address[] calldata lps, uint256[] calldata) external {
+    // §E357 — the selector the keeper sends now carries the routes array; a harness on the old
+    // arity would silently never be hit, which is the failure this target exists to catch.
+    function cascadeDelever(address[] calldata lps, uint256[] calldata, bytes[] calldata) external {
         cascaded = true;
         if (lps.length > 0) lastCascadeLp = lps[0];
     }
-    function rebalance(address, uint256) external {}
+    function rebalance(address, uint256, bytes calldata) external {}
     function syncLev(address lp) external { synced = true; lastSyncLp = lp; }
 }
