@@ -15496,3 +15496,99 @@ Meanwhile **A is EIGHT rows** and is the thing standing between this and a worki
 ⇒ **Order the work by A → C → D → B, and let F and G follow the code rather than lead it.** Closing
 rows fastest and closing the protocol fastest are opposite strategies, and this file made the first one
 look like progress.
+
+---
+
+## 🌉 LZ — make SPV's `Basket.sol` the Ethereum counterparty to quid-svm's `LZ.rs` (opened 2026-08-26)
+
+Scoped by reading both sides. The Solana half is built, tested against a mainnet
+fork, and pushed to `quidmints/quid@dev`; the Ethereum half **does not exist in
+this repo at all**. Verified, not assumed: `evm/src/Basket.sol` (458 lines) has
+zero matches for `LayerZero|lzReceive|OApp|OFT|endpoint`, and `evm/lib/` holds
+`forge-std`, `openzeppelin-contracts`, `solady`, `solidity-lib`, `solmate` —
+no LayerZero package.
+
+**This is not a port of the other Basket.** `quidmints/quid@dev:evm/src/Basket.sol`
+carries the LZ surface *and* `Link.sol`, `Court.sol`, `Jury.sol` and a Uniswap
+dependency. Per the owner: keep THIS repo's definition of Basket and Vogue —
+take the LZ wiring only, leave the prediction market and the AMM behind.
+
+### What the Solana side already fixes as the contract
+
+- **Message:** `to[32] ‖ amountSD[8]`, and **nothing else**. `wrap_in_oft_format`
+  emits exactly the 40-byte OFT header; the composeMsg is empty by design.
+  Anything trailing is ignored rather than rejected, because a revert inside
+  `lz_receive` makes a message undeliverable and strands the QD.
+- **Decimals:** `amountSD` is 6-dp shared; Solana multiplies by `SD_TO_LOCAL`
+  (1_000) to reach its 9-dp local mint. Ethereum is 18-dp, so its own
+  `decimalConversionRate` applies on this side.
+- **Maturity is derived, never sent.** There is no field for it. The receiving
+  side mints at `currentMonth() + 1` — which SPV's Basket already has at
+  `evm/src/Basket.sol:162`, with the same `(block.timestamp - _deployed) /
+  BasketLib.MONTH` derivation. `_mint(receiver, when, amount)` (`:173`) is the
+  other primitive needed, and it is already there.
+  ⇒ **No new state, and no way for a returning holder to name an
+  already-vested month and shorten their own lock by bridging twice.**
+- **Peer and endpoint are constants on the Solana side**, not config:
+  endpoint `76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6`, Solana eid `30168`,
+  Ethereum eid `30101`. `init_oapp_store` takes only the L1 peer, and asserts
+  the bridged mint equals `config.token_mint`.
+
+### 🔴 TO BUILD (Ethereum, this repo)
+
+1. **LayerZero into `evm/lib`,** then `Basket is OApp` (or OFTCore) alongside
+   its existing `ERC20, ERC6909, ReentrancyGuard, Ownable`. Watch bytecode:
+   this repo has contracts with tens of bytes to spare (§E210 measured
+   `LevMath` at 73), so measure `Basket` before and after with
+   `tools/check-contract-sizes.py`.
+2. **`_lzReceive`: empty composeMsg ⇒ plain transfer.** Mint
+   `_mint(to, currentMonth() + 1, amountReceivedLD)` and emit. Gate `srcEid`
+   to the Solana eid. Do **not** add a message-type byte: the sibling repo
+   carried one and it could not be satisfied — the dispatch read byte zero
+   while the decoder read the same bytes as `abi.encode(uint[],uint[])`, so no
+   encoding satisfied both and the branch had never been reached from any
+   chain.
+3. **Send path to Solana** — burn/lock here, `_lzSend` the 40-byte header with
+   the Solana peer as receiver.
+4. **2-of-2 DVNs, both directions.** `requiredDvnCount = 2` from two
+   independent operators, and **bind the send and receive libraries first** —
+   until an OApp does that it runs on endpoint defaults and a config written to
+   an unselected library changes nothing. That is how KelpDAO sat on 1-of-1
+   while looking configured, and 116,500 rsETH left through one compromised
+   verifier. Working references, both written and compiling:
+   `quidmints/quid@dev:evm/scripts/LZconfig.s.sol` and
+   `svm/scripts/lz-config.ts`.
+
+### 🔴 TO CHANGE (`evm/script/DeployL1_s.sol`, 738 lines)
+
+Add the LZ wiring **only**: endpoint address, `setPeer(SOLANA_EID, peer)`,
+library binding, DVN config. Nothing else about the topology changes — no
+`Link`, no Court/Jury, no Uniswap. Deploy-time addresses belong in the
+environment rather than as literals; the sibling script used `0x...`
+placeholders and consequently did not compile, unnoticed because `scripts`
+was outside foundry's compiled paths.
+
+### ⚠️ KNOWN, CARRIED FROM THE SOLANA SIDE
+
+- **Nothing has crossed.** Registration against the real endpoint is
+  exercised (the endpoint program and its settings account are cloned from
+  mainnet, and the OApp registry PDA comes back owned by it), but delivery
+  needs DVN attestations and executor delivery that no fork produces.
+  `cpi_clear` and `cpi_send` remain unexercised.
+- **Devnet is blocked on a key, not on code.** The program is already deployed
+  at `QDgHUZjtccRjKZ63MBvW8uzKR7qcqjpRfGhNSEGfDu9` with upgrade authority
+  `9HomVTtGt3N5uUAdnk7t1SKLqPWtVm4jMDLMGoM8usXX` holding 6.1 devnet SOL —
+  that keypair is not on this machine (searched every keypair-shaped file and
+  grepped the disk).
+- **The upgrade authority is a single key**, and it is the one worth moving to
+  Squads first: `config.admin` governs bounded things, whoever can upgrade the
+  binary can remove the bounds. Gate test `DEPLOY.1` is armed and fails against
+  a non-vault authority when `QUID_SQUADS_MULTISIG` is set.
+- **`MAX_PRICE_AGE` still differs between the tested and shipped binaries** —
+  5 minutes shipped, effectively unbounded under `testing`, so nothing
+  exercises the staleness guard. Two bugs of exactly that shape have already
+  been found and fixed here (mint whitelist behind a `mainnet` feature;
+  endpoint registration behind `testing`). Closing it needs a harness that
+  controls the clock, not a different constant.
+- Full list, kept beside the code it describes: `quidmints/quid@dev:README.md`,
+  back half.
