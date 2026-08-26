@@ -621,9 +621,9 @@ interface ICore {
     function CORE() external view returns (address);
     function derivedThetaWad() external view returns (uint);
     /// §DERIVED-BAND — the range's LVR coefficient, `1/(4(2 − √(P/Pb) − √(Pa/P)))`. Already the `K`
-    /// in `derivedThetaWad`'s `μ/(K·σ²)`; exposed on its own so the leverage overlay can derive its
-    /// no-trade band from the same geometry instead of carrying a second, hand-set risk number.
-    function lvrKWad() external view returns (uint);
+    /// in `derivedThetaWad`'s `μ/(K·σ²)`, and `Quid` has exposed it as `kLvrWad()` since that work —
+    /// declared here so the leverage overlay can reach it through `ICore` on EITHER range.
+    function kLvrWad() external view returns (uint);
     // §E325-IQUID FOLD — the last two members of `IQuid`, which is now DELETED. `derivedThetaWad`
     // above was declared IDENTICALLY in both, so the fold DEDUPES it rather than colliding.
     // ⚠️ `Core` implements NONE of these three: `ICore` has been the polymorphic RANGE-MANAGER face

@@ -182,6 +182,20 @@ the signature of this, and nothing else produces it.
 
 ## Verification discipline
 
+- 🔴 **BEFORE ADDING AN ACCESSOR OR HELPER, GREP FOR THE BODY YOU ARE ABOUT TO WRAP — NOT FOR THE
+  NAME YOU ARE ABOUT TO CREATE.** A name-grep cannot find a duplicate that already exists under a
+  different spelling, and it returns clean **precisely because** you are inventing the name. Grep the
+  CALLEE instead: the library function, the state variable, the expression. **Measured 2026-08-26:**
+  `Quid.kLvrWad()` had existed since the θ work; I added `Quid.lvrKWad()` — the same one-line body
+  `QuidLib.kLvrWad(address(CORE), _lo(), _hi())` under transposed letters — plus a matching `ICore`
+  declaration, and `grep lvrKWad` was empty every time I ran it. **One `grep -rn "QuidLib.kLvrWad"`
+  would have shown the wrapper on line 1072.** Only the BTC half was ever missing.
+  ⇒ **THE OWNER'S FRAMING IS THE TEST: "perhaps only semantically different but not functionally."**
+  Two names for one body is worse than either name alone, because a reader who finds one concludes
+  the other does not exist — and on a range pair it silently invites ETH and BTC to diverge.
+  ⚠️ Same shape as the tombstone/fold traps below: **the grep that returns nothing is the dangerous
+  one**, and this is the third distinct way this repo has produced that outcome.
+
 - 🔴 **A SWEEP IS NOT A FINDING UNTIL ITS FALSE-POSITIVE CLASS IS NAMED. THREE SWEEPS IN ONE DAY
   (2026-08-23) EACH COLLAPSED THE MOMENT I LOOKED.** Raw counts were 47 assertion-free tests, 334
   duplicate-expression locals, and 3 foldable libraries. **Real counts: ~20 (and mostly deliberate),

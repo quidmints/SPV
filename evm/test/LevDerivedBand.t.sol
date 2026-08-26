@@ -82,9 +82,9 @@ contract LevDerivedBandProbe is AllesFixture {
     ///    If this reverts or returns 0 the band fails open, so the value being real is what makes
     ///    the band real.
     function test_lvrK_isReadableFromTheLiveRange() public view {
-        uint k = ICore(address(ETH)).lvrKWad();
+        uint k = ICore(address(ETH)).kLvrWad();
         assertGt(k, 0, "ETH range reports no LVR coefficient");
-        assertGt(ICore(address(BTC)).lvrKWad(), 0, "BTC range reports no LVR coefficient");
+        assertGt(ICore(address(BTC)).kLvrWad(), 0, "BTC range reports no LVR coefficient");
         // K = 1/(4·(2 − √(P/Pb) − √(Pa/P))) is > 1/8 for any non-degenerate range and grows without
         // bound as the range narrows; a concentrated range sits far above 1.
         assertGt(k, WAD / 8, "K below its analytic floor");

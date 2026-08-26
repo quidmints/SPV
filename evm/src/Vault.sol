@@ -540,12 +540,14 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH range's
     }
 
-    /// @notice The LVR coefficient for THIS range, WAD. §DERIVED-BAND.
-    /// @dev    Same `(CORE, _lo(), _hi())` inputs as θ above, and the same body in `QuidLib` — this
-    ///         is the `K` that already sits in θ's denominator, surfaced because the leverage
-    ///         overlay's no-trade band is `∛(g/(C·K))` and must read the range's real geometry
-    ///         rather than repeat a number someone chose.
-    function lvrKWad() external view returns (uint) {
+    /// @notice The LVR coefficient for THIS range, WAD. §SLOP: one name across both ranges — `Quid`
+    ///         has carried `kLvrWad()` since the θ work, and this is the BTC range's copy of it, not
+    ///         a new accessor. ⚠️ I first added this to BOTH ranges as `lvrKWad()`, which duplicated
+    ///         `Quid.kLvrWad()` under a transposed name; only the BTC half was ever missing.
+    /// @dev    Same `(CORE, _lo(), _hi())` inputs and the same `QuidLib` body as θ above — this is
+    ///         the `K` already sitting in θ's denominator, surfaced so the leverage overlay's
+    ///         no-trade band `∛(g/(C·K))` reads the range's real geometry.
+    function kLvrWad() external view returns (uint) {
         return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
     }
 

@@ -106,7 +106,7 @@ library LevMath {
     ///         revert there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance,
     ///         which is the fail-open direction argued at `noTradeBandBps`.
     /// @param aux         the manager's `AUX`, for the ETH/USD TWAP that prices gas.
-    /// @param range       the pinned range, source of `lvrKWad()`. Zero ⇒ unmeasured ⇒ 0.
+    /// @param range       the pinned range, source of `kLvrWad()`. Zero ⇒ unmeasured ⇒ 0.
     /// @param twapWindow  the SAME window the IL target is priced with, so the band cannot be
     ///                    widened by a spot print the target ignores.
     /// @param gasRebalance measured gas for one rebalance; the live PRICE of it is `block.basefee`.
@@ -120,7 +120,7 @@ library LevMath {
     ) public view returns (uint256) {
         if (range == address(0)) return 0;
         uint256 kWad;
-        try ICore(range).lvrKWad() returns (uint256 k) { kWad = k; } catch { return 0; }
+        try ICore(range).kLvrWad() returns (uint256 k) { kWad = k; } catch { return 0; }
         if (kWad == 0) return 0;
         // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18.
         uint256 ethUsd = IAux(aux).getTWAPforAsset(IAux(aux).WETH(), twapWindow);

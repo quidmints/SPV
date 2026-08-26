@@ -1108,15 +1108,6 @@ contract Quid is Shares,
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice The LVR coefficient for THIS range, WAD. §DERIVED-BAND.
-    /// @dev    Same `(CORE, _lo(), _hi())` inputs as θ above, and the same body in `QuidLib` — this
-    ///         is the `K` that already sits in θ's denominator, surfaced because the leverage
-    ///         overlay's no-trade band is `∛(g/(C·K))` and must read the range's real geometry
-    ///         rather than repeat a number someone chose.
-    function lvrKWad() external view returns (uint) {
-        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
-    }
-
     /// @notice θ for an EXPLICIT range range. The BTC range ticks live in the Vault (LOWER_TICK_BTC/
     ///         UPPER_TICK_BTC), so it passes them in here -- Quid stays the single home of the range-θ
     ///         math for BOTH pools, and the Vault needs no QuidLib link of its own.
