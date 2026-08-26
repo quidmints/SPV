@@ -28,9 +28,15 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  🔴 §E301/§ETHVENUE-GHOSTS — NO ETH-VENUE CUSTODY LIVES HERE, and do NOT go looking for
 //  `EthVenue.sol`: it does not exist either. ETH-venue custody was extracted out of this contract
 //  and then folded into `Quid` (the ETH range manager IS the ETH venue), so `Aux.ethVenue` is
-//  pinned to the range manager — `DeployLib` runs `aux.setEthVenue(address(ETH))`. This header, its
-//  `onlyUs` gate and every ETH function it named are gone; `contract Vault is Ownable,
-//  ReentrancyGuard, Shares` and nothing else.
+//  pinned to the range manager — `DeployLib` runs `aux.setEthVenue(address(ETH))`. This header, the
+//  ETH-VENUE gate it described and every ETH function that gate named are gone; `contract Vault is
+//  Ownable, ReentrancyGuard, Shares` and nothing else.
+//  ⚠️ **THAT DELETED GATE WAS ALSO SPELLED `onlyUs`, AND THE NAME IS LIVE AGAIN — DO NOT READ THIS
+//  PARAGRAPH AS SAYING THE MODIFIER BELOW IS DEAD.** §E301 removed an ETH-venue `onlyUs` that gated
+//  ZERO functions; the modifier at `:190` is the BTC range's own gate, renamed here from
+//  `onlyUsBtc` (§FOLD-BLOCKER: one name per concept, two instances — the same direction as
+//  `resizeBtcLp`→`resize` and `syncLevBTC`→`syncLev`). Same concept as `Quid.onlyUs`, different
+//  instance, and it gates the five functions listed under GATES below.
 //  ⚠️ AN EXTRACTION LEAVES THE HANDLES AND THE COMMENTS BEHIND: grep the old collaborator's TYPE
 //  after any move, not just the moved functions (`RANGE` outlived this one by eight days).
 //
@@ -38,7 +44,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  RANGE_ANCHOR. The owner-gated surface is exactly `setup` and `setLevManager`, both one-shot.
 //
 //  GATES — TWO, both address-specific, neither widened:
-//    • onlyUsBtc       = {Core(CORE), AUX, this} → repack · setBTCChannels · addLiq ·
+//    • onlyUs       = {Core(CORE), AUX, this} → repack · setBTCChannels · addLiq ·
 //                                                   creditSkewPremium · onShortfall
 //    • onlyBTCChannels = {btcChannels}           → requestDeposit/requestRedeem/resize ·
 //                                                   swap-in/swap-out credit · pendingSwapOut
@@ -180,14 +186,14 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// BTC-side trusted callers: Core (CORE), Aux, self.
     /// @dev §MODFOLD — body in a `private view`, modifier is the JUMP (rule 8c: a modifier inlines
     ///      at every site; the `Error(string)` "403" encoding is the expensive half).
-    ///      ⛔ KEEP THE MODIFIER — do not call `_onlyUsBtc()` from each body: a modifier is
+    ///      ⛔ KEEP THE MODIFIER — do not call `_onlyUs()` from each body: a modifier is
     ///      positionally FIRST by construction, a body call can be reordered after a state read.
-    function _onlyUsBtc() private view {
+    function _onlyUs() private view {
         require(msg.sender == address(AUX)
              || msg.sender == address(CORE)
              || msg.sender == address(this), "403");
     }
-    modifier onlyUsBtc { _onlyUsBtc(); _; }
+    modifier onlyUs { _onlyUs(); _; }
 
     /// BTC-LP deposit/redeem/resize are driven by channel locks, and the swap-in/swap-out credit is
     /// attested by the same contract, so both are gated to the pinned `BTCChannels` — never the
@@ -281,7 +287,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     //                        BTC side (was BtcVault)
     // ════════════════════════════════════════════════════════════════
 
-    function setBTCChannels(address b) external onlyUsBtc {
+    function setBTCChannels(address b) external onlyUs {
         if (btcChannels != address(0)) revert BtcChannelsPinned();
         btcChannels = b;
     }
@@ -337,10 +343,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// @notice §E5 (BTC mirror of `Quid.creditSkewPremium`) — route the retained scarcity premium
     ///         to BTC-range LPs via the same per-share accumulator their trading fees use. GROSS fee
     ///         weight (`lpShares + totalBuffer`), matching the `feeDenom` the rebalance body
-    ///         already passes. `onlyUsBtc` because that is the gate naming CORE explicitly. SAME NAME as
+    ///         already passes. `onlyUs` because that is the gate naming CORE explicitly. SAME NAME as
     ///         `Quid.creditSkewPremium` so Core dispatches by ADDRESS through one interface and one call
     ///         site (rule 2: one declaration) — two branch-local calls cost 180 bytes of Core's EIP-170.
-    function creditSkewPremium(uint premium6) external onlyUsBtc {
+    function creditSkewPremium(uint premium6) external onlyUs {
         (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
         USD_FEES += usdInc;
     }
@@ -374,7 +380,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// @notice Route the shortfall to the hop -- real-BTC delivery on L1, consuming NO basket
     ///         stables. That is the legitimate delivery rail, which is why BTC acts here and ETH
     ///         deliberately does not (see Quid's counterpart).
-    function onShortfall(address sender, uint shortfall) external onlyUsBtc {
+    function onShortfall(address sender, uint shortfall) external onlyUs {
         AUX.btcShortfall(sender, shortfall);
     }
 
@@ -517,7 +523,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         with `Quid.addLiq` and BTC with the LIBRARY function `addLiqChannel`, which is why
     ///         the two `levAddNet` bodies could not be one. Same signature, same return shape --
     ///         only the routing differs, and routing is exactly what belongs in the range.
-    function addLiq(uint deltaTok, uint price) public onlyUsBtc returns (uint usdOut, uint outDelta) {
+    function addLiq(uint deltaTok, uint price) public onlyUs returns (uint usdOut, uint outDelta) {
         return BtcLib.addLiqChannel(address(CORE), address(AUX), deltaTok, price);
     }
 
@@ -704,7 +710,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
 
     /// @notice Repack the BTC pool's in-range LP position.
-    function repack() public onlyUsBtc returns (uint spotPrice,
+    function repack() public onlyUs returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
     }

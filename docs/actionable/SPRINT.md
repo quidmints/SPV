@@ -15129,6 +15129,38 @@ two instances* (`resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, `d2dc8b78`),
 INSTANCES so the shared name is correct. **Not done here on purpose: it is squarely the BTC thread's
 area and would collide.** `onlyUsBtc` is free whenever someone wants it.
 
+#### ⏸️ RE-MEASURED 2026-08-26 — **ONE OF THE FOUR IS DONE; THE OTHER THREE ARE NOT "FREE" AND THE ROW DID NOT KNOW WHY**
+
+The deferral reason expired: *"would collide with the BTC thread"* stopped being true when the tree
+went single-worktree — the same expiry the §MODFOLD row directly below records nobody noticing.
+Re-counted rather than relayed, and **none of the four has a single SPA or Rust reference**, so the
+client-ABI gate is not the obstacle for any of them:
+
+| member | evm/src | evm/test | verdict |
+|---|---|---|---|
+| `onlyUsBtc` | 1 file | 0 | ✅ **RENAMED to `onlyUs`.** Private modifier, no external surface, and `Shares` (its only non-OZ parent) declares no `onlyUs` — checked, not assumed |
+| `collectBtcFees` | 1 | 3 | 🔴 **NOT FREE — see below** |
+| `outOfRangeBtc` | 4 | 1 | 🔴 **NOT FREE — see below** |
+| `pullBtc` | 4 | 1 | 🟠 unblocked, but bundled with the two above rather than landed alone |
+
+🔴 **WHY THE OTHER TWO ARE NOT MECHANICAL, AND THE ROW MISSED IT: `ICore` ALREADY DECLARES BOTH
+UNSUFFIXED NAMES WITH DIFFERENT SHAPES.**
+`Interfaces.sol:535` is `collectFees() external returns (uint, uint)` while `Quid.collectFees()` and
+`Vault.collectBtcFees()` are BOTH `external nonReentrant` returning **nothing**; `:508` is
+`outOfRange(address,int,address)` against `Quid.outOfRange(uint,address,int,uint)`. Those `ICore`
+entries are **`Core`'s** members, not the range managers' — `Core.collectFees()` at `Core.sol:1181`
+does return `(uint,uint)`. ⇒ the names already mean two different things depending on which contract
+`ICore` is pointed at, so renaming `Vault`'s copies makes a THIRD claimant on each name. Whether that
+is safe turns on whether a `Vault` is ever passed where `ICore(core).collectFees()` is decoded
+(`SwapLib.sol:2629` decodes two words). **Establish that before renaming; it is not a spelling change.**
+
+📌 **AND ONE FINDING FROM READING IT: `Core.collectFees()` IS A CONSTANT-ZERO STUB** (`return (0, 0)`,
+`public view`). That is CORRECT post-§V4-CUT — CLAUDE.md records that the accumulators it fed were
+fed by v4 trading fees only and the cut removed the FEED — but it means `SwapLib.sol:2629`'s
+`(r.jitFeesUsd, r.jitFeesTok) = ICore(core).collectFees()` and everything downstream of those two
+values are **inert**. Booked, not deleted: rule 1 removes unreachable code, and this is reachable code
+whose SOURCE was removed, which is the `create_sweep_tx` shape.
+
 ### ✅ **CLOSED 2026-08-25 — THE `Vault` MODIFIER DUPLICATION IS ALREADY MERGED (§MODFOLD).**
 Verified in the tree: `onlyBtcChannels` has **zero declarations** and survives only inside the
 `§MODFOLD` comment recording its removal; `onlyBTCChannels` is the rule-8c form
