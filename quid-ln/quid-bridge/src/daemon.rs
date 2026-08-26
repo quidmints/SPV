@@ -452,6 +452,34 @@ pub async fn run(
     }
     // Restart/failure safety net: re-derive missed opens/closes from LDK
     // monitors + on-chain state and re-drive (idempotently).
+    // ── (§LP-LIVENESS) The routing gate ────────────────────────────────────────────────────
+    //
+    // ⚠️ **COLLECTING AND ENFORCING ARE SEPARATE SWITCHES, AND CONFLATING THEM IS WHY THIS SAT
+    // UNBUILT.** The gate fails closed, so a deployment that enforces before the phone posts
+    // heartbeats issues every invoice with no route hints and strands every swap-in. The previous
+    // note concluded "turn it on together with the phone" and passed `None` everywhere — which
+    // also left `RoutingGate::record` and `set_tip` with no callers at all, so the phone had
+    // nowhere to post and nothing to be measured against. **The producer side can and must land
+    // first**: bind the channels, feed the tip, accept the heartbeats, and let an operator watch
+    // them arrive. Enforcement is then one further switch, taken on evidence rather than on faith.
+    //
+    // 🔑 **THE THRESHOLD IS REQUIRED, NEVER DEFAULTED.** `LivenessBook::is_routable` refuses to
+    // invent one because it *"must be DERIVED from the slowest co-sign the LP must complete, not
+    // picked"*, and that measurement does not exist yet. So this reads it from the environment and
+    // collects nothing when it is unset — an operator states the number or gets no gate. A default
+    // here would quietly become the magic number the doc forbids.
+    let lp_gate = std::env::var("QUID_LP_HEARTBEAT_MAX_AGE_BLOCKS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|&n| n > 0)
+        .map(|max_age| Arc::new(quid_hop::liveness::RoutingGate::new(max_age)));
+    match &lp_gate {
+        Some(_) => info!("LP liveness: collecting heartbeats (routing NOT yet gated on them)"),
+        None => info!(
+            "LP liveness: off — set QUID_LP_HEARTBEAT_MAX_AGE_BLOCKS to start collecting heartbeats"
+        ),
+    }
+
     set.spawn(run_channel_reconciler(
         cfg.clone(),
         evm.clone(),
@@ -465,13 +493,9 @@ pub async fn run(
         // by passing the hop wallet + rebalance config (nothing runs LP-side).
         Some(reconcile_wallet),
         Some(quid_hop::rebalancer::RebalanceConfig::default()),
-        // (§LP-LIVENESS) `None` until the phone actually posts heartbeats. The gate FAILS CLOSED —
-        // an empty book makes every channel unroutable — so switching it on before the LP side
-        // ships would issue invoices with no route hints and strand every swap-in. Turn it on
-        // together with the phone, not before: pass `Some(gate)` here and hand the SAME `Arc` to
-        // `HopNode::invoicer_gated`, so the pass that binds channels and the filter that reads
-        // them share one book.
-        None,
+        // (§LP-LIVENESS) The gate now COLLECTS whenever a threshold is configured, while routing
+        // stays ungated until the phone ships. Those are two switches on purpose — see `lp_gate`.
+        lp_gate.clone(),
         cfg.channel_reconcile_secs,
         channel_active.clone(),
     ));
@@ -505,7 +529,7 @@ pub async fn run(
                 btc_channels: cfg.btc_channels,
             });
             set.spawn(crate::swap_in_api::serve(listen, invoicer,
-                token, onchain_ingrid, onboard_ingrid, api_vault_registry));
+                token, onchain_ingrid, onboard_ingrid, api_vault_registry, lp_gate.clone()));
         }
         (Some(_), None) => {
             anyhow::bail!(

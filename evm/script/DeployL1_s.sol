@@ -422,6 +422,12 @@ contract Deploy is Script {
         // (no lev-infra env required) for a core/fork deploy.
         _deployLeverageOverlay(deployer);
 
+        // ─── Solana pathway (opt-in, SAME script, and it MUST be here) ────
+        // Ordering is not stylistic. `setPeer` and `setDelegate` are both
+        // onlyOwner and the next block renounces Basket's owner forever, so
+        // whatever is not wired now can never be wired at all.
+        _wireSolana(deployer);
+
         // ─── All-or-nothing deploy finalize (NO governance handoff, adminless) ──────────
         // Every admin key is RENOUNCED — no multisig handoff. The ANGEL seed commitment already happened
         // mid-deploy: DeployLib approved Aux for the Foundation NFT and Basket's constructor REQUIRED that
@@ -525,6 +531,52 @@ contract Deploy is Script {
         string memory raw = vm.envOr("SPV_CHECKPOINT_FOLLOWERS", string(""));
         if (bytes(raw).length == 0) return new bytes[](0);
         return vm.parseJsonBytesArray(raw, "$");
+    }
+
+    /// Wire the LayerZero pathway to quid-svm, then give up the ability to
+    /// change it — because this deployment gives up everything else.
+    ///
+    /// Skipped entirely when `SOLANA_PEER` is unset; a Basket with no peer
+    /// cannot receive, since `_lzReceive` resolves the origin through
+    /// `_getPeerOrRevert` and there is nothing to resolve.
+    ///
+    /// ⚠️ THE DELEGATE IS THE WHOLE REASON THIS FUNCTION EXISTS.
+    ///
+    /// `OApp`'s constructor calls `endpoint.setDelegate(msg.sender)`, and the
+    /// endpoint's delegate — not the OApp's owner — is who may change the DVN
+    /// set on this pathway. That privilege lives at the ENDPOINT, so
+    /// renouncing Basket's ownership does not touch it; it only destroys the
+    /// `onlyOwner` setter that could have taken it back. Left alone, this
+    /// adminless deployment would hand the deployer key one permanent,
+    /// unrevokable lever, and it is the worst one available: whoever sets the
+    /// DVN set to a single verifier they control can forge a Solana message
+    /// and mint QU!D from nothing. That is not hypothetical — it is what
+    /// happened to KelpDAO, where a `requiredDVNCount` of 1 let one
+    /// compromised verifier move 116,500 rsETH.
+    ///
+    /// So the delegate is dropped to `address(0)` in the same breath, and the
+    /// cost of that is real and worth stating: the DVN set is then frozen for
+    /// good. If a required verifier stops attesting the pathway stalls, and
+    /// no one can repoint it. That is the trade this deployment makes
+    /// everywhere else, and the two verifiers are chosen to be as durable as
+    /// LayerZero itself; a lever that can mint the token is not worth keeping
+    /// for a liveness case that implies LayerZero is already broken.
+    function _wireSolana(address deployer) internal {
+        bytes32 peer = vm.envOr("SOLANA_PEER", bytes32(0));
+        if (peer == bytes32(0)) {
+            console.log("[SOLANA_PEER unset] Solana pathway not wired");
+            return;
+        }
+        // No defaults. Every one of these decides who may attest a mint, and a
+        // fallback would let a mis-set environment deploy a weaker pathway
+        // than the operator believes they configured.
+        DeployLib.wireSolanaPathway(address(QUID), peer,
+            vm.envAddress("LZ_SEND_LIB"), vm.envAddress("LZ_RECEIVE_LIB"),
+            vm.envAddress("LZ_DVN_A"),    vm.envAddress("LZ_DVN_B"));
+
+        QUID.setDelegate(address(0));
+        console.log("Solana pathway wired; LZ delegate renounced");
+        deployer;  // silences the unused-parameter warning without a cast
     }
 
     function _deployLeverageOverlay(address deployer) internal {

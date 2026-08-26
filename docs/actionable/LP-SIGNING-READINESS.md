@@ -48,9 +48,15 @@ intermittently-live one**, and the liveness gate is what makes that safe rather 
 
 ## The liveness gate
 
-**Shape:** the LP posts a signed, monotonically-numbered heartbeat (an EVM signature over
-`(channelId, height, nonce)` costs nothing and reuses the key `auth.lp_sig` already uses). The hop
-refuses to route NEW swappers to a channel whose latest heartbeat is older than a threshold.
+**Shape:** the LP posts a signed, monotonically-numbered heartbeat over `(channelId, height, seq)`.
+The hop refuses to route NEW swappers to a channel whose latest heartbeat is older than a threshold.
+
+⚠️ **THE KEY SENTENCE HERE WAS STALE AND IS CORRECTED.** It read *"reuses the key `auth.lp_sig`
+already uses"* — **§E183 deleted `OpenAuth.lp_sig`**, so that named something that no longer exists.
+It re-derives to the same place rather than to a new key: Bitcoin and the EVM share secp256k1, so a
+recoverable ECDSA signature by the LP's **channel key** recovers to `lpEthOf(lpPubkey)`, the very
+address the contract derives. No new key material, no MuSig2, and `ethers` produces it today.
+⇒ Built: `quid_hop::liveness` (`Heartbeat::digest`, domain-tagged `QUID-REALM::lp-liveness.v1`).
 
 **What it protects, stated precisely:**
 * **The swapper** — never routed into a channel whose LP cannot complete the co-signs the swap
@@ -62,15 +68,23 @@ refuses to route NEW swappers to a channel whose latest heartbeat is older than 
   rather than claiming the gate is trust-free.
 
 **Three things that decide the build, none of them yet answered:**
-1. **On-chain or hop-observed?** Hop-observed is free and instant; on-chain costs gas but lets an
-   LP PROVE liveness when a hop claims otherwise. ⇒ Suggest hop-observed for routing, with an
-   on-chain path reserved for dispute — but note the on-chain one only matters if being unrouted
-   is ever worth disputing, which is a fee question, not a safety one.
-2. **The threshold is a liveness/latency trade and must not be a magic number.** It should be
-   derived from the slowest co-sign the LP must complete, not picked. Measure that first.
-3. **Re-entry after staleness must be cheap and automatic**, or the gate becomes a trap: an LP
-   that missed a heartbeat by a minute should be routable again on its next one, with no operator
-   action.
+1. ✅ **ANSWERED — HOP-OBSERVED, AND THE TIP IS WHAT MAKES THAT HONEST.** Built hop-observed, no
+   on-chain record. The worry with hop-observed was that the hop authors the number an LP is judged
+   against; that is answered without gas by taking the tip from **`SPVGateway.getMainchainHeight()`**
+   — the height the CONTRACT believes, advanced by SPV-proven headers anyone may submit. So a hop
+   cannot manufacture staleness by claiming a tip the chain does not have. It can still simply
+   decline to route, which this gate has never claimed to prevent. The on-chain dispute path stays
+   unbuilt for the reason given: it is a fee question, not a safety one.
+2. 🔴 **STILL OPEN, AND DELIBERATELY UNANSWERED IN CODE.** The threshold must be derived from the
+   slowest co-sign the LP must complete, not picked. That measurement does not exist, so nothing
+   invents one: `LivenessBook::is_routable` takes `max_age_blocks` as a REQUIRED argument, and the
+   daemon reads `QUID_LP_HEARTBEAT_MAX_AGE_BLOCKS` with **no default** — unset means no gate at all.
+   An operator must state the number, which keeps the assumption visible instead of buried in a
+   constant. ▶️ Measure a full splice re-arm round trip to a real phone and derive it from that.
+3. ✅ **ANSWERED — AUTOMATIC, AND PINNED BY A TEST.** Freshness is a pure function of the latest
+   heartbeat against the tip, so the next heartbeat alone restores routing; there is no stale flag
+   to clear and no operator action. `the_gate_offers_no_path_to_an_lp_that_cannot_cosign` asserts
+   exactly that final step (*"re-entry must need nothing but a heartbeat"*).
 
 ## Order — this does NOT jump the phase queue
 
@@ -88,7 +102,12 @@ cannot happen yet, and would be a clamp on a state that is not reachable (rule 3
   the freshness 2-of-2; the splice re-arm handshake.
 * **SPV / Solidity** — the batch in `HOP-TRUST-AUDIT.md`; an on-chain liveness record only if (1)
   above chooses it.
-* **ibiza / phone** — the signer itself: `auth.lp_sig`, the ladder rungs, the freshness co-sign and
-  the heartbeat. ⚠️ Its `exits` ladder still needs an audited BIP-327 MuSig2 implementation
-  (`@scure/btc-signer`, per `ibiza/TODO.md`); the heartbeat and `lp_sig` do NOT — they are EVM
-  signatures `ethers` already produces, so **they can land first and independently.**
+* **ibiza / phone** — the signer itself: the ladder rungs, the freshness co-sign and the heartbeat.
+  (`auth.lp_sig` stood here and is **deleted by §E183** — do not build it.) ⚠️ The `exits` ladder
+  still needs an audited BIP-327 MuSig2 implementation; the heartbeat does NOT — it is a recoverable
+  ECDSA signature by the channel key that `ethers` produces today, so **it can land first and
+  independently.** ▶️ **POST IT TO `/lp/heartbeat`** (`{channel_id, height, seq, sig}`, bearer token,
+  answers `{"recorded": bool}`) — the intake exists and is waiting for a poster.
+  📌 On `@scure/btc-signer` for the ladder: its MuSig2 surface is confirmed against the real package
+  and it does **not** give the nonce-reuse-is-a-type-error property the Rust crate does — use
+  `deterministicSign`. See `ibiza/TODO.md §3b`.

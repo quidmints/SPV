@@ -15720,3 +15720,73 @@ UX decision about what an LP chooses now that routing is automatic.
 
 Per owner instruction, the batch is being implemented in full before a single build/test cycle. The
 Solidity above compiles in no one's tree yet. **Do not read a ✅ here as "green".**
+
+---
+
+## 🟢 §E354-LIVENESS-PRODUCER — **D2 #22's GATE WAS BUILT, BOUND AND READ, AND HAD NO PRODUCER. THAT IS WHY IT COULD ONLY EVER BE `None`.** (2026-08-26)
+
+Took D2 #22 as the top Bitcoin item (*"the liveness gate is not built, and I landed the half that
+needs it"*). **The row is out of date about what is missing, and the difference matters**, so it is
+re-derived from the code rather than relayed:
+
+| piece | state found |
+|---|---|
+| `Heartbeat`, `recover_heartbeat`, `LivenessBook`, `RoutingGate` | ✅ built, unit-tested, fuzzed |
+| `RoutingGate::bind` | ✅ wired — `channel_driver.rs:1486`, every reconciler pass |
+| `RoutingGate::is_routable_ldk` | ✅ wired — `node.rs:567`, filters swap-in route hints |
+| **`RoutingGate::set_tip`** | ❌ **zero callers** |
+| **`RoutingGate::record`** | ❌ **zero callers, and no endpoint to reach it** |
+
+⇒ **THE GATE HAD A CONSUMER AND NO PRODUCER**, which is the same shape §SPRINT-D2#18 found on the
+consent path (`bind_consent` with zero production callers, failing silently because absence reads as
+DORMANT). 🔑 **And `set_tip` is why the `None` was load-bearing rather than merely cautious:** with
+no tip feed the gate's tip stays `0`, so every heartbeat is future-dated, `is_routable` answers
+`false` for every channel, and switching the gate on would have stranded every swap-in — exactly as
+`daemon.rs` warned. The warning was right; the conclusion ("turn it on together with the phone") hid
+that **the phone could not have been built against it either — there was nowhere to POST.**
+
+### What landed — the producer side, with enforcement still off
+
+**Collecting and enforcing are now two switches, not one.** That separation is the fix: the book can
+fill, an operator can watch heartbeats arrive, and enforcement becomes a decision taken on evidence.
+
+1. **`set_tip`, from the SPV gateway** (`channel_driver.rs`, per pass). 🔑 **Not the hop's own view
+   of Bitcoin, on purpose.** Staleness decides whether an LP earns fees, so the hop must not author
+   the number it judges by. `getMainchainHeight()` is the height the CONTRACT believes, advanced by
+   SPV-proven headers anyone may submit ⇒ a hop cannot manufacture staleness. It can still decline
+   to route, which the gate never claimed to prevent. An RPC blip leaves the previous tip standing
+   rather than zeroing it — a blip must not mark every LP stale.
+2. **`POST /lp/heartbeat`** beside `/lp/consent` — `{channel_id, height, seq, sig}`, bearer-token
+   gated, answers `{"recorded": bool}`. ⚠️ **One answer for bad signature / wrong signer / replay /
+   unknown channel, deliberately:** per-cause codes would let an unauthenticated caller enumerate
+   which channels this hop serves and each LP's sequence. The book already makes that choice.
+3. **`RoutingGate::record_by_cid`** — the intake had to exist in a shape the LP can call. The phone
+   knows the CONTRACT's `channelId` (it signed a ladder against it) and has never seen LDK's
+   internal handle, so an endpoint keyed on the LDK id is uncallable by the only party that posts.
+   Guarded so a heartbeat naming another channel cannot be laundered through a cid this hop serves.
+4. **`QUID_LP_HEARTBEAT_MAX_AGE_BLOCKS`, with NO default.** The doc says the threshold *"must be
+   DERIVED from the slowest co-sign, not picked"* and that measurement does not exist — so unset
+   means **no gate at all** rather than a quietly-invented constant.
+
+### The three questions the doc left open — two answered, one deliberately not
+
+1. ✅ **on-chain vs hop-observed** — hop-observed, made honest by sourcing the tip from the gateway.
+   The on-chain dispute path stays unbuilt for the doc's own reason: a fee question, not a safety one.
+2. 🔴 **the threshold** — still open, and now *structurally* open: required argument, no default.
+   ▶️ Measure a full splice re-arm round trip to a real phone and derive it.
+3. ✅ **re-entry** — automatic and pinned by test; freshness is a pure function of the latest
+   heartbeat against the tip, so the next one restores routing with no operator action.
+
+### 📌 Two stale statements in `LP-SIGNING-READINESS.md`, corrected as #22 asked
+
+It named the heartbeat key as *"the key `auth.lp_sig` already uses"* and listed `auth.lp_sig` as
+phone work. **§E183 deleted `lp_sig`.** Corrected in place: the heartbeat is a recoverable ECDSA
+signature by the **channel key**, which recovers to `lpEthOf(lpPubkey)` — the address the contract
+already derives. No new key, no MuSig2, and it can ship before the ladder does.
+
+### ⚠️ WHAT IS STILL NOT DONE
+
+**Nothing is built or run** — the batch closes before any build/test cycle. And the gate remains
+**unenforced**: `HopNode::invoicer_gated` is still passed `None`, so route hints are unchanged.
+Flipping it needs (a) the phone posting, and (b) the threshold in (2) measured. **Do not read this
+row as "D2 #22 closed"** — it closes the half that was blocking the phone, and names what remains.

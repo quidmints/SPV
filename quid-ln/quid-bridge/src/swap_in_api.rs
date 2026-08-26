@@ -102,6 +102,11 @@ struct ApiState {
     /// has one — vault-less it is a fresh `VaultRegistry::new()` that `drive_open` reads anyway — so
     /// an `Option` would make its `None` arm unreachable (rule 1).
     consent: Arc<crate::vault::VaultRegistry>,
+    /// (§LP-LIVENESS) The routing gate the LP's heartbeats land in. `None` ⇒ this deployment does
+    /// not collect them and `/lp/heartbeat` reports so, rather than accepting posts into nothing —
+    /// which is the failure mode §SPRINT-D2#18 found on the consent path and is worth not
+    /// repeating.
+    gate: Option<Arc<quid_hop::liveness::RoutingGate>>,
 }
 
 /// (§SPRINT-D2#18) One rung of the pre-signed exit ladder, on the wire.
@@ -160,6 +165,60 @@ fn unhex(s: &str) -> Result<Vec<u8>, (StatusCode, String)> {
 /// `_armDeadManExit` verifies every rung's structure, sighash and BIP-340 signature against the
 /// funding key. A bad ladder fails LOUDLY at `openChannel` with a named revert; duplicating those
 /// here would clamp a failure that already announces itself, and leave a second copy to drift.
+/// (§LP-LIVENESS) One heartbeat, on the wire.
+///
+/// The LP signs `(channel_id, height, seq)` with its CHANNEL key — the same secp256k1 key the
+/// contract derives `lpEth` from — so this needs no new key material and no MuSig2. `seq` is what
+/// makes a captured heartbeat useless later: the book accepts only a strictly greater one.
+#[derive(serde::Deserialize)]
+struct HeartbeatReq {
+    /// OUR `channelId` (0x-hex, 32 bytes) — the id the contract and the phone agree on. LDK's
+    /// internal id is deliberately not accepted: the LP has no way to learn it.
+    channel_id: String,
+    /// The Bitcoin height the LP believes the tip to be at, measured against the SPV gateway's.
+    height: u32,
+    /// Strictly-increasing per channel.
+    seq: u64,
+    /// 65-byte recoverable ECDSA signature (0x-hex) over the heartbeat digest.
+    sig: String,
+}
+
+/// Post a heartbeat. Deliberately says as little as possible about WHY one was not accepted.
+///
+/// ⚠️ **A REJECTED HEARTBEAT IS `{"recorded": false}`, NOT AN ERROR CODE PER CAUSE.** Bad
+/// signature, wrong signer, replayed sequence and unknown channel are one answer to the poster —
+/// *this did not update your liveness* — and distinguishing them would let an unauthenticated
+/// caller probe which channels this hop serves and what sequence each LP has reached. The book
+/// makes the same choice for the same reason (`LivenessBook::record` returns a bare bool).
+async fn lp_heartbeat(
+    State(st): State<ApiState>,
+    headers: HeaderMap,
+    Json(req): Json<HeartbeatReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !token_ok(&headers, &st.auth_token) {
+        return Err((StatusCode::UNAUTHORIZED, "bad token".into()));
+    }
+    let Some(gate) = st.gate.as_ref() else {
+        // Not an error: a deployment that does not gate routing is a valid one, and the LP should
+        // learn that its posts are pointless rather than believing they landed.
+        return Ok(Json(serde_json::json!({ "recorded": false, "gate": "disabled" })));
+    };
+    let cid: [u8; 32] = unhex(&req.channel_id)?
+        .try_into()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "channel_id must be 32 bytes".into()))?;
+    let sig = unhex(&req.sig)?;
+    if sig.len() != 65 {
+        return Err((StatusCode::BAD_REQUEST, "sig must be 65 bytes (r‖s‖v)".into()));
+    }
+    let hb = quid_hop::liveness::Heartbeat {
+        channel_id: alloy_primitives::B256::from(cid),
+        height: req.height,
+        seq: req.seq,
+    };
+    let recorded = gate.record_by_cid(hb.channel_id, hb, &sig);
+    Ok(Json(serde_json::json!({ "recorded": recorded })))
+}
+
 async fn lp_consent(
     State(st): State<ApiState>,
     headers: HeaderMap,
@@ -555,6 +614,7 @@ pub async fn serve(
     onchain: Option<OnchainIngrid>,
     onboard: Option<OnboardIngrid>,
     consent: Arc<crate::vault::VaultRegistry>,
+    gate: Option<Arc<quid_hop::liveness::RoutingGate>>,
 ) {
     let onchain = onchain.map(|o| {
         // Restart-safe: resume the per-swap index ABOVE any persisted registration, so a
@@ -570,7 +630,8 @@ pub async fn serve(
         })
     });
     let onboard = onboard.map(Arc::new);
-    let state = ApiState { invoicer, auth_token: Arc::new(auth_token), onchain, onboard, consent };
+    let state =
+        ApiState { invoicer, auth_token: Arc::new(auth_token), onchain, onboard, consent, gate };
     let app = Router::new()
         .route("/swap-in", post(swap_in))
         .route("/swap-in/onchain", post(swap_in_onchain))
@@ -578,6 +639,10 @@ pub async fn serve(
         .route("/lp/withdraw", post(lp_withdraw))
         // (§SPRINT-D2#18) The LP's half arrives here.
         .route("/lp/consent", post(lp_consent))
+        // (§LP-LIVENESS) And the LP's heartbeats arrive here. `RoutingGate::record` had no caller
+        // at all before this — the gate could be bound and read but never FED, so the book stayed
+        // empty and, failing closed, made every channel unroutable.
+        .route("/lp/heartbeat", post(lp_heartbeat))
         .with_state(state);
     let listener = match tokio::net::TcpListener::bind(&listen).await {
         Ok(l) => l,

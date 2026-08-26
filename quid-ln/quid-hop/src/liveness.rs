@@ -278,6 +278,41 @@ mod tests {
         assert!(gate.is_routable_ldk(&ldk), "re-entry must need nothing but a heartbeat");
     }
 
+    /// 🔑 THE INTAKE'S OWN ADDRESSING, WHICH IS THE WHOLE REASON `record_by_cid` EXISTS.
+    /// `/lp/heartbeat` is called by a phone that knows the CONTRACT's `channelId` — the id it
+    /// signed a ladder against — and has never seen LDK's internal handle. An endpoint keyed on
+    /// the LDK id could not be called by the only party that posts heartbeats, so the gate has to
+    /// accept ours; this pins that it does, and that accepting it opens no cross-channel door.
+    #[test]
+    fn a_heartbeat_addressed_by_our_channel_id_lands_and_cannot_cross_channels() {
+        let (sk, lp) = signer(0x99);
+        let gate = RoutingGate::new(144);
+        let ldk = [0x02u8; 32];
+        let cid = B256::repeat_byte(0xAB); // the id `hb()` signs
+        gate.set_tip(1_000);
+
+        // Unbound: this hop does not serve that channel, so there is nothing to update — the same
+        // answer `record` gives, and deliberately not a distinguishable error (see `lp_heartbeat`).
+        let fresh = hb(1, 990);
+        assert!(!gate.record_by_cid(cid, fresh, &sign(&sk, &fresh)), "unbound cid accepted");
+
+        gate.bind(ldk, cid, lp);
+        assert!(gate.record_by_cid(cid, fresh, &sign(&sk, &fresh)), "bound cid refused");
+        assert!(gate.is_routable_ldk(&ldk), "recording by cid left the channel unroutable");
+
+        // ⚠️ Posting under a cid this hop serves must not launder a heartbeat that NAMES another
+        // channel: the signature would verify against a real LP, and the book keys on what was
+        // signed, so without the guard one LP could refresh a channel it does not own.
+        let elsewhere = Heartbeat { channel_id: B256::repeat_byte(0xCD), height: 999, seq: 2 };
+        assert!(
+            !gate.record_by_cid(cid, elsewhere, &sign(&sk, &elsewhere)),
+            "a heartbeat naming another channel was accepted under this one"
+        );
+
+        // A replay of the heartbeat already recorded buys nothing, by cid as by LDK id.
+        assert!(!gate.record_by_cid(cid, fresh, &sign(&sk, &fresh)), "replay accepted");
+    }
+
     #[test]
     fn a_malformed_signature_is_refused_not_panicking() {
         let h = hb(1, 10);
@@ -339,6 +374,30 @@ impl RoutingGate {
         let Some(&(cid, lp)) = g.known.get(&ldk_id) else { return false };
         // The heartbeat must name the channel it is posted for; otherwise one channel's heartbeat
         // would refresh another's liveness.
+        if hb.channel_id != cid {
+            return false;
+        }
+        g.book.record(hb, sig65, lp)
+    }
+
+    /// Record a heartbeat addressed by OUR channel id rather than LDK's.
+    ///
+    /// 🔑 **THIS IS THE SHAPE THE INTAKE NEEDS, AND [`Self::record`] IS NOT.** The phone signs the
+    /// contract's `channelId` — that is the id it can derive, the id in the ladder it already
+    /// signed, and the only one it has ever seen. LDK's id is an internal handle the LP has no way
+    /// to learn, so an endpoint keyed on it could not be called by the party that posts heartbeats.
+    /// The map is one-to-one, so resolving it here costs a short scan over this hop's own channels
+    /// and keeps `known` private.
+    ///
+    /// Returns false for an unbound channel exactly as [`Self::record`] does: a heartbeat for a
+    /// channel this hop does not serve updates nothing.
+    pub fn record_by_cid(&self, channel_id: B256, hb: Heartbeat, sig65: &[u8]) -> bool {
+        let Ok(mut g) = self.inner.write() else { return false };
+        let Some(&(cid, lp)) = g.known.values().find(|(c, _)| *c == channel_id) else {
+            return false;
+        };
+        // Same guard as `record`: the heartbeat must name the channel it is posted for, so one
+        // channel's heartbeat can never refresh another's.
         if hb.channel_id != cid {
             return false;
         }

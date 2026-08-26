@@ -13,7 +13,7 @@ import {ICore} from "../src/imports/Interfaces.sol";
 /// failure mode moves from "someone picked badly" to "someone reads badly", and these are the
 /// reads.
 contract LevDerivedBandProbe is AllesFixture {
-    uint constant WAD = 1e18;
+    /// `WAD` is inherited from `AllesFixture` -- redeclaring it here shadowed it and broke the build.
 
     /// A ±20bps range: K = 1/(4·(2 − √(P/Pb) − √(Pa/P))) ≈ 125.
     uint constant K_20BPS = 125 * WAD;

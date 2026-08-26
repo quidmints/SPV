@@ -1421,6 +1421,32 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
         // live `Spliced` drive was missed, e.g. across a restart).
         // (value, is_usable) per channel — value drives the mirror-catch-up compare;
         // is_usable gates the hop-funded fee-splice (only a live channel).
+        // (§LP-LIVENESS) Feed the gate the tip it measures staleness against. **Without this the
+        // gate cannot be switched on at all**: the tip defaults to 0, every heartbeat looks like it
+        // came from the future, `is_routable` answers false for every channel, and the only safe
+        // deployment is the `None` this parameter has always been passed. `bind` was wired and this
+        // was not, which is why the book could be filled and never read usefully.
+        //
+        // 🔑 THE TIP IS THE **GATEWAY'S**, NOT THE HOP'S OWN VIEW OF BITCOIN, AND THAT IS THE POINT.
+        // Staleness decides whether an LP earns fees, so the hop must not be the sole author of the
+        // number it is judged against. `getMainchainHeight()` is the height the CONTRACT believes,
+        // advanced by SPV-proven headers anyone can submit — so a hop that wants to starve an LP of
+        // routing cannot do it by claiming a tip the chain does not have. It can still simply
+        // decline to route, which the gate has never claimed to prevent.
+        //
+        // A failed read leaves the previous tip in place rather than zeroing it: an RPC blip must
+        // not mark every LP stale.
+        if let Some(g) = gate.as_ref() {
+            let rpc_tip = rpc.clone();
+            let gw = cfg.spv_gateway;
+            if let Ok(Ok(h)) =
+                tokio::task::spawn_blocking(move || read_gateway_height(&*rpc_tip, gw)).await
+            {
+                // The gateway counts Bitcoin blocks, so `u32` is the right width for the next
+                // ~80,000 years; saturate rather than wrap on a nonsense read.
+                g.set_tip(u32::try_from(h).unwrap_or(u32::MAX));
+            }
+        }
         let ldk_state: HashMap<[u8; 32], (u64, bool)> = channel_manager
             .list_channels()
             .into_iter()
