@@ -540,6 +540,15 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH range's
     }
 
+    /// @notice The LVR coefficient for THIS range, WAD. §DERIVED-BAND.
+    /// @dev    Same `(CORE, _lo(), _hi())` inputs as θ above, and the same body in `QuidLib` — this
+    ///         is the `K` that already sits in θ's denominator, surfaced because the leverage
+    ///         overlay's no-trade band is `∛(g/(C·K))` and must read the range's real geometry
+    ///         rather than repeat a number someone chose.
+    function lvrKWad() external view returns (uint) {
+        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
+    }
+
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled QuidLib
     ///      levered-range bodies (mirror of _ethCfg for the BTC cluster).
     function _btcCfg() internal view returns (Types.RangeCfg memory) {

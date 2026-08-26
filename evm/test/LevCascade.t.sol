@@ -288,6 +288,31 @@ contract LevCascadeProbe is AllesFixture {
 
     /// FEE-LANE PROOF: the levered weETH equity (a) EARNS range fees via the same machinery as a weETH deposit,
     /// (b) is UNWIND-ONLY (the free ladder can't pull it), and (c) a REAL seizure burns the slice clean.
+    /// §DERIVED-BAND — `LevBase.GAS_REBALANCE` is the ONE literal the derived band still carries,
+    /// and it is admissible only because it is a measured fact about the bytecode rather than a
+    /// judgement about risk. This is the measurement, on a real levered rebalance, and it lives
+    /// here because this suite already stands one up.
+    ///
+    /// Both bounds matter and for opposite reasons. Too LOW and the band under-prices gas, so the
+    /// book rebalances into fees it cannot cover. Too HIGH and it over-prices gas, widening the
+    /// band and re-creating — more quietly — the under-hedging that `RANGE_BPS = 300` caused.
+    function test_DerivedBand_GasRebalanceConstantMatchesARealRebalance() public {
+        _setupLev();
+        EV.setLevManager(address(lm));
+        vm.deal(address(this), 20 ether);
+        ETH.deposit{value: 10 ether}(0, address(this));
+        _openAtEntry(lps[0], 5 ether);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+
+        uint before = gasleft();
+        lm.rebalance(lps[0], 0);                  // the borrow leg included -- this is the real cost
+        uint used = before - gasleft();
+
+        assertLe(used, 400_000, "a real rebalance costs MORE than GAS_REBALANCE -- raise it in LevBase");
+        assertGe(used, 100_000, "GAS_REBALANCE now over-prices gas by 4x -- lower it in LevBase");
+        emit log_named_uint("measured rebalance gas", used);
+    }
+
     function test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean() public {
         _setupLev();
         EV.setLevManager(address(lm));

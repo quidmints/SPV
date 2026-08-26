@@ -142,7 +142,8 @@ contract BtcLevManager is LevBase {
         // OR incident-flagged (GOV setVaultHealth) venue; close/rebalance stay open so the keeper can unwind.
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
         if (initialVbtc < MIN_OPEN_VBTC) revert BadTarget();           // anti-Sybil
-        _requireTargetLtv(cap);            // §WSA-LEV-INERT: one rule, and it now has a FLOOR at RANGE_BPS
+        // §DERIVED-BAND — floored on this position's own band (vBTC IS sats, so no conversion).
+        _requireTargetLtv(cap, collValueUsd(initialVbtc));   // §WSA-LEV-INERT: one rule, derived FLOOR
         uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
         // IS the levered position — its net-equity is synced into the BTC range (levPooled) as delta-1 depth by

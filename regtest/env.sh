@@ -4,7 +4,7 @@
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPV_DIR="$(cd "$HARNESS_DIR/.." && pwd)"
 
-BITCOIN_VERSION="30.2"
+BITCOIN_VERSION="31.1"
 CORE_DIR="$HARNESS_DIR/.bitcoin-core/bitcoin-$BITCOIN_VERSION"
 BITCOIND="$CORE_DIR/bin/bitcoind"
 BITCOIN_CLI="$CORE_DIR/bin/bitcoin-cli"
@@ -25,7 +25,7 @@ mine() { wcli -generate "${1:-1}" >/dev/null; }
 node_up() { cli getblockchaininfo >/dev/null 2>&1; }
 require_node() { node_up || { echo "regtest not running — ./start.sh first" >&2; exit 1; }; }
 
-LND_VERSION="v0.21.1-beta"
+LND_VERSION="v0.21.2-beta"
 
 # ── Release-artifact platform — ONE table, both downloaders derive from it ──
 # bitcoin-core and LND name their releases differently (and bitcoin uses `aarch64`

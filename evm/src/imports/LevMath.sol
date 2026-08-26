@@ -53,6 +53,64 @@ library LevMath {
         return (debt * 10_000) / collValue;
     }
 
+    /// @notice The no-trade band around the IL target, DERIVED — half-width in LTV bps.
+    /// @dev    §DERIVED-BAND — replaces `LevBase.RANGE_BPS = 300`, whose own docstring said what it
+    ///         was supposed to be ("before a rebalance is worth its gas") and then froze it as a
+    ///         guess. A guess is not something a lender can rely on, and this one did not merely
+    ///         mis-size the band — it disabled the product. `ilTargetBps` is `1 − √(entry/now)`, so
+    ///         clearing 300 bps needs `√(entry/now) < 0.97`, i.e. a **6.3% move off entry** before
+    ///         the overlay borrows at all. The hedge only armed after the move it exists to protect
+    ///         against, and `venue.borrow` was never reached on any realistic path.
+    ///
+    ///         **The derivation.** The mis-hedge is not noise to be tolerated, it is a measurable
+    ///         leak. Being off target by a fraction `h` of collateral leaves that fraction of the
+    ///         LP's in-range depth unhedged, and unhedged in-range depth loses to arbitrage at
+    ///         exactly the LVR rate — `K·σ²` per year, the same `K·σ²` this protocol already
+    ///         computes for `derivedThetaWad` ("are fees beating LVR?"). So over a year the band
+    ///         costs `C·K·σ²·E|h|` in leak and `g` in gas each time the target escapes it.
+    ///
+    ///         The target is `1 − √(entry/p)`, so `∂target/∂ln p = ½`: it diffuses at `σ/2`, and a
+    ///         band of half-width `h` is escaped every `4h²/σ²` years. With `E|h| ≈ h/2`,
+    ///
+    ///             cost(h) = g·σ²/(4h²)  +  C·K·σ²·h/2
+    ///             dcost/dh = 0    ⇒    h³ = g / (C·K)
+    ///
+    ///         **`σ` cancels.** Higher volatility crosses the band sooner *and* makes the error
+    ///         costlier, and for this cost structure the two exactly offset — so the band needs no
+    ///         volatility estimate, and cannot be moved by anyone who can move a volatility
+    ///         estimate. What is left is a cube root of three quantities that are all read, never
+    ///         chosen: `g` from `block.basefee` and the ETH TWAP, `C` from the position, and `K`
+    ///         from `QuidLib.kLvrWad` — pure range geometry, `1/(4(2 − √(P/Pb) − √(Pa/P)))`.
+    ///         The cube root is not a coincidence either; it is the classic form of a no-trade
+    ///         region under a fixed transaction cost (Constantinides; Janeček–Shreve).
+    ///
+    ///         It behaves the way a hand-set band cannot: a $100k position at 3 gwei bands at ~62
+    ///         bps, a $1k position at ~288 bps — small positions rightly tolerate a wider error
+    ///         because gas dominates their economics, and both tighten as gas falls.
+    ///
+    ///         ⚠️ Returns 0 — rebalance ALWAYS — when any input is unmeasured. That is the fail-open
+    ///         direction on purpose, and it is the opposite of θ's: θ failing open means "do not
+    ///         throttle depth", and here the failure that costs money is *not hedging*, which is the
+    ///         defect this function exists to remove. A zero band cannot mis-size a borrow; it can
+    ///         only spend gas, and `LevMath.debtDelta` still sizes the borrow off the target.
+    /// @param gasUsdWad  cost of one rebalance, USD 1e18 — live basefee × measured gas × ETH TWAP.
+    /// @param collUsdWad position size, USD 1e18.
+    /// @param kLvrWad    the range's LVR coefficient (WAD), `QuidLib.kLvrWad`.
+    function noTradeBandBps(uint256 gasUsdWad, uint256 collUsdWad, uint256 kLvrWad)
+        internal pure returns (uint256)
+    {
+        if (gasUsdWad == 0 || collUsdWad == 0 || kLvrWad == 0) return 0;
+        // h³ = g/(C·K), every term WAD. `fullMulDiv` first so the product cannot overflow before
+        // the divide, and `cbrtWad` (solady, audited) carries the WAD through the root.
+        uint256 denom = FixedPointMathLib.fullMulDiv(collUsdWad, kLvrWad, WAD);
+        if (denom == 0) return 0;
+        uint256 hCubedWad = FixedPointMathLib.fullMulDiv(gasUsdWad, WAD, denom);
+        uint256 hWad = FixedPointMathLib.cbrtWad(hCubedWad);
+        // A band wider than the LTV cap would disable the overlay exactly as 300 bps did; at that
+        // point gas dominates the position so completely that there is nothing worth hedging.
+        return (hWad * 10_000) / WAD;
+    }
+
     /// @notice #67 deliverability (LEVERED-DELIVERABILITY-SPEC.md §1) — the USD a levered position can produce via
     ///         a bounded, VALUE-NEUTRAL de-lever, = the real USD backing the range's pairing may count. The MIN of:
     ///         (a) `netEquityUsd` — the proportional de-lever (sell a fraction of collateral pro-rata to debt):

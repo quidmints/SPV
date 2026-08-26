@@ -6,7 +6,7 @@ download** — everything lives under this folder and is gitignored.
 
 ```bash
 cd SPV/regtest
-./setup.sh         # one-time: download + checksum-verify bitcoin-core 28.1 → .bitcoin-core/
+./setup.sh         # one-time: download + checksum-verify bitcoin-core 31.1 → .bitcoin-core/
 ./start.sh         # boot regtest, create the "quid" wallet, mine 101 blocks (instant)
 ./gen-fixture.sh   # fund a real channel, confirm it, write the openChannel SPV fixture
 (cd ../evm && forge test --match-path test/btc/OpenChannelE2E.t.sol -vv)   # real proof → real verifier

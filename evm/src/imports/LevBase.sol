@@ -40,10 +40,39 @@ abstract contract LevBase {
 
     /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
-    /// @dev §FOLD-DELTA — ±3% LTV dead-range before a rebalance is worth its gas. Was declared on BOTH
-    ///      managers with the same value (ETH `internal`, BTC `public`; no reader of either outside
-    ///      the managers, checked across src/ test/ script/).
-    uint256 internal constant RANGE_BPS = 300;
+    /// @notice Gas one `rebalance` actually costs, MEASURED — not a risk parameter.
+    /// @dev    §DERIVED-BAND — the band below is a cube root of `g/(C·K)`, and `g` is the only term
+    ///         that cannot be read from chain state at decision time: the rebalance has not run yet,
+    ///         so `gasleft()` cannot price it and the call site is `view`. This is a fact about the
+    ///         bytecode rather than a judgement about risk, which is why it is admissible as a
+    ///         literal where `RANGE_BPS` was not — and `LevDerivedBand.t.sol` measures a real
+    ///         rebalance and fails if the figure drifts below what one costs, so it cannot rot into
+    ///         a guess. The live PRICE of that gas is never frozen: `block.basefee` and the ETH TWAP
+    ///         both move underneath it.
+    uint256 internal constant GAS_REBALANCE = 400_000;
+
+    /// @notice Half-width of the no-trade band around the IL target, in LTV bps, for a position of
+    ///         `collUsdWad`. DERIVED — see `LevMath.noTradeBandBps` for the economics.
+    /// @dev    §DERIVED-BAND — replaces `uint256 internal constant RANGE_BPS = 300`. Three inputs,
+    ///         all read: the live cost of a rebalance, the size of the thing being hedged, and the
+    ///         range's own LVR coefficient. Nothing here is anyone's choice, so nothing here is
+    ///         anyone's lever — which is the property a constant could not have.
+    ///
+    ///         `K` is read through the pinned `RANGE` in the same `try/catch` idiom as
+    ///         `_rangePrice()`: `RANGE` is genuinely unset between deploy and `init`, and a revert
+    ///         there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance, the
+    ///         fail-open direction argued at `LevMath.noTradeBandBps`.
+    function _bandBps(uint256 collUsdWad) internal view returns (uint256) {
+        if (RANGE == address(0)) return 0;
+        uint256 kWad;
+        try ICore(RANGE).lvrKWad() returns (uint256 k) { kWad = k; } catch { return 0; }
+        if (kWad == 0) return 0;
+        // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18. Priced off the SAME TWAP window the
+        // target is priced with, so the band cannot be widened by a spot print the target ignores.
+        uint256 ethUsd = AUX.getTWAPforAsset(AUX.WETH(), TWAP_WINDOW);
+        uint256 gasUsdWad = (block.basefee * GAS_REBALANCE * ethUsd) / 1e18;
+        return LevMath.noTradeBandBps(gasUsdWad, collUsdWad, kWad);
+    }
 
     /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.
     /// @dev §FOLD-DELTA — was duplicated on each manager (0.71 similarity). The two bodies computed
@@ -56,7 +85,7 @@ abstract contract LevBase {
     function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
         (bool open, uint256 e0, uint256 debtNow, uint256 target) = _targetInputs(lp);
         if (!open) return (false, 0);
-        return LevMath.debtDelta(e0, debtNow, target, RANGE_BPS);
+        return LevMath.debtDelta(e0, debtNow, target, _bandBps(e0));
     }
 
     /// @dev The four inputs EVERY target comparison needs, resolved in ONE place. `debtDeltaToTarget`
@@ -228,7 +257,7 @@ abstract contract LevBase {
     ///         definition stays here and the library reads whatever it is given.
     /// 🔴 §WSA-LEV-INERT — AND A FLOOR, BECAUSE A CAP AT OR BELOW THE DEADBAND BUYS A POSITION THAT
     ///    CAN NEVER LEVER AND SAYS NOTHING ABOUT IT. `RangeLib.setTargetLtv` enforces only
-    ///    `0 < capBps <= TARGET_LTV_CAP_BPS`, so `capBps <= RANGE_BPS` was admissible — and
+    ///    `0 < capBps <= TARGET_LTV_CAP_BPS`, so `capBps <= ` the band was admissible — and
     ///    `ilTargetBps` clamps its result to `capBps` (`LevMath.sol:96`) while `debtDelta`'s
     ///    no-action test reduces, on a fresh position with `cur == 0`, to exactly
     ///    `targetBps <= rangeBps` (`LevMath.sol:826`). So such a position sits inside the deadband
@@ -236,16 +265,20 @@ abstract contract LevBase {
     ///    does nothing rather than a rejected setting.
     /// ⚠️ THIS EARNS ITS PLACE UNDER STANDING RULE 3 PRECISELY BECAUSE THE FAILURE IS SILENT — it is
     ///    not a clamp on a computed number, it refuses a configuration that is unreachable by
-    ///    construction. The check is at the CALLER because `RANGE_BPS` is this contract's constant;
+    ///    construction. The check is at the CALLER because the band is this contract's to derive;
     ///    the library reads what it is given, which is the same argument the note above makes for
     ///    `TARGET_LTV_CAP_BPS`.
-    /// ⛔ DO NOT "FIX" THIS BY RAISING `RANGE_BPS` OR LOWERING `RANGE_DELTA`. The claim that the book
-    ///    is inert on a constants mismatch does NOT survive the tree (§WSA-LEV-INERT): `RANGE_DELTA`
-    ///    never reaches this path, `ilBasisPx` is the PINNED entry price with one write site, and the
-    ///    deadband is crossed at about +6.3% above entry. Only the LP-chosen cap could pin it shut,
-    ///    and that is what this line closes.
+    /// §DERIVED-BAND — THE FLOOR IS NOW DERIVED, AND SO IS WHAT IT FLOORS. This note used to end
+    ///    "DO NOT FIX THIS BY RAISING `RANGE_BPS` OR LOWERING `RANGE_DELTA`", and it was right on
+    ///    both counts: `RANGE_DELTA` never reaches this path, `ilBasisPx` is the PINNED entry price
+    ///    with one write site, so the book was never inert on a constants mismatch — it simply did
+    ///    not arm until about +6.3% above entry. That was still the wrong band, and the answer was
+    ///    neither of the two moves this note forbade: `RANGE_BPS` is gone, replaced by a band
+    ///    derived per position (`_bandBps`). The floor survives the change intact, because a cap at
+    ///    or below the band is silently inert whatever the band happens to be.
     function setTargetLtv(uint64 capBps) external {
-        _requireTargetLtv(capBps);
+        (, uint256 e0,,) = _targetInputs(msg.sender);
+        _requireTargetLtv(capBps, e0);
         RangeLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
     }
 
@@ -257,7 +290,7 @@ abstract contract LevBase {
     /// @dev    THE FLOOR IS THE NEW HALF. `ilTargetBps` clamps its result to `capBps`
     ///         (`LevMath.sol:96`), and `debtDelta`'s no-action test reduces on a fresh position
     ///         (`cur == 0`) to exactly `targetBps <= rangeBps` (`LevMath.sol:826`). So a cap at or
-    ///         below `RANGE_BPS` pins the position inside the deadband at EVERY price: `venue.borrow`
+    ///         below the band pins the position inside the deadband at EVERY price: `venue.borrow`
     ///         is never reached and the LP is sold an overlay that silently does nothing. It was
     ///         admissible everywhere — both open paths bound only the ceiling, and `openLev` accepts
     ///         `targetLtvBps = 1`.
@@ -265,13 +298,15 @@ abstract contract LevBase {
     ///         CONFIGURATION that is unreachable by construction, and the failure it prevents is
     ///         silent — which is the whole discriminator. Rule 17 applies too: making the state
     ///         unconstructible at the three writers beats detecting it later at the reader.
-    /// ⛔      DO NOT INSTEAD RAISE `RANGE_BPS` OR LOWER `RANGE_DELTA`. The claim that the levered
-    ///         book is inert on a constants mismatch does NOT survive the tree (§WSA-LEV-INERT):
-    ///         `RANGE_DELTA` never reaches this path, `ilBasisPx` is the PINNED entry price with
-    ///         exactly one write site (`:196`), and the deadband is crossed at about +6.3% above
-    ///         entry. The LP-chosen cap was the only thing that could pin it shut.
-    function _requireTargetLtv(uint64 capBps) internal pure {
-        if (capBps <= RANGE_BPS || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
+    /// §DERIVED-BAND — the band this floors is no longer a constant, and the floor is `view` rather
+    ///         than `pure` for that reason. The old note forbade "raise `RANGE_BPS` or lower
+    ///         `RANGE_DELTA`" and was correct that neither was the bug: `RANGE_DELTA` never reaches
+    ///         this path and `ilBasisPx` is the PINNED entry price with exactly one write site
+    ///         (`:196`), so the book was not inert — it armed only past about +6.3% above entry.
+    ///         The band is now `∛(g/(C·K))`, so a position's floor moves with its own size and the
+    ///         live cost of gas.
+    function _requireTargetLtv(uint64 capBps, uint256 collUsdWad) internal view {
+        if (capBps <= _bandBps(collUsdWad) || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.

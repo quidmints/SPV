@@ -245,7 +245,9 @@ contract LevManager is LevBase {
         // critical manager). Only OPEN is gated: close/rebalance stay open so the keeper can unwind OUT of a block.
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
         if (collWeeth < MIN_OPEN_WEETH) revert BadTarget();           // anti-Sybil: no free zero-collateral book entries
-        _requireTargetLtv(targetLtvBps);   // §WSA-LEV-INERT: one rule, and it now has a FLOOR at RANGE_BPS
+        // §DERIVED-BAND — the floor is the position's OWN band, so it is priced off the collateral
+        // actually being deposited rather than a constant every position shared.
+        _requireTargetLtv(targetLtvBps, collValueUsd(collWeeth));   // §WSA-LEV-INERT: one rule, and it has a derived FLOOR
         // `targetLtvBps` is the LP's max-leverage CAP; the live target is the entry-price-driven IL target.
         // Pin the entry price so the position opens at ZERO leverage and levers only as the range sells.
         uint256 entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
@@ -450,7 +452,7 @@ contract LevManager is LevBase {
         // on an open short — below entry the long debt is 0, so de-lever is a natural no-op there anyway.)
         // Compare-math folded to LevMath.deleverRepay: on the FIXED E0 the repay is simply curDebt − targetDebt
         // (no Δ/(1−t) inflation — that was only needed when the target tracked the shrinking collateral).
-        return LevMath.deleverRepay(e0, debtNow, target, RANGE_BPS);
+        return LevMath.deleverRepay(e0, debtNow, target, _bandBps(e0));
     }
 
     // ════════════════════════════ DE-LEVER — flash-repay-FIRST (no health breach by construction) ══════════
