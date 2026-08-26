@@ -96,8 +96,47 @@ library LevMath {
     /// @param gasUsdWad  cost of one rebalance, USD 1e18 — live basefee × measured gas × ETH TWAP.
     /// @param collUsdWad position size, USD 1e18.
     /// @param kLvrWad    the range's LVR coefficient (WAD), `QuidLib.kLvrWad`.
+    /// @notice The band for a live position — resolve `K` and the gas price, then derive.
+    /// @dev    §DERIVED-BAND — the body of `LevBase._bandBps`, moved here so it lands in this library
+    ///         rather than being inlined into both managers (see the note on `noTradeBandBps`). The
+    ///         caller's immutables are parameters because a delegatecalled library cannot read them.
+    ///
+    ///         `K` comes through the pinned range in the same `try/catch` idiom as
+    ///         `LevBase._rangePrice()`: the range is genuinely unset between deploy and `init`, and a
+    ///         revert there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance,
+    ///         which is the fail-open direction argued at `noTradeBandBps`.
+    /// @param aux         the manager's `AUX`, for the ETH/USD TWAP that prices gas.
+    /// @param range       the pinned range, source of `lvrKWad()`. Zero ⇒ unmeasured ⇒ 0.
+    /// @param twapWindow  the SAME window the IL target is priced with, so the band cannot be
+    ///                    widened by a spot print the target ignores.
+    /// @param gasRebalance measured gas for one rebalance; the live PRICE of it is `block.basefee`.
+    /// @param collUsdWad  position size, USD 1e18.
+    function bandBpsFor(
+        address aux,
+        address range,
+        uint32 twapWindow,
+        uint256 gasRebalance,
+        uint256 collUsdWad
+    ) public view returns (uint256) {
+        if (range == address(0)) return 0;
+        uint256 kWad;
+        try ICore(range).lvrKWad() returns (uint256 k) { kWad = k; } catch { return 0; }
+        if (kWad == 0) return 0;
+        // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18.
+        uint256 ethUsd = IAux(aux).getTWAPforAsset(IAux(aux).WETH(), twapWindow);
+        uint256 gasUsdWad = (block.basefee * gasRebalance * ethUsd) / 1e18;
+        return noTradeBandBps(gasUsdWad, collUsdWad, kWad);
+    }
+
+    /// @dev `public`, NOT `internal`, and that is an EIP-170 decision rather than a style one.
+    ///      `internal` INLINES the body into every inheritor, and `LevBase`'s inheritors are
+    ///      `LevManager` and `BtcLevManager` — `LevManager` being the binding contract in this tree
+    ///      (986 bytes spare at the last measurement). A `public` library body is delegatecall-linked
+    ///      and lands in `LevMath` (4,372 spare), which is the convention this file already states
+    ///      for exactly this reason. ⚠️ Re-measure with `tools/check-contract-sizes.py`; that margin
+    ///      is a reading with a timestamp, not a fact.
     function noTradeBandBps(uint256 gasUsdWad, uint256 collUsdWad, uint256 kLvrWad)
-        internal pure returns (uint256)
+        public pure returns (uint256)
     {
         if (gasUsdWad == 0 || collUsdWad == 0 || kLvrWad == 0) return 0;
         // h³ = g/(C·K), every term WAD. `fullMulDiv` first so the product cannot overflow before

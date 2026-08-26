@@ -62,16 +62,14 @@ abstract contract LevBase {
     ///         `_rangePrice()`: `RANGE` is genuinely unset between deploy and `init`, and a revert
     ///         there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance, the
     ///         fail-open direction argued at `LevMath.noTradeBandBps`.
+    /// ⚠️ A ONE-LINE FORWARDER, AND THE BODY IS IN `LevMath` FOR EIP-170 REASONS. This is `internal`,
+    ///     so whatever stands here is INLINED into `LevManager` AND `BtcLevManager` — and
+    ///     `LevManager` is the binding contract in this tree. The reads it needs (`AUX`, `RANGE`,
+    ///     `TWAP_WINDOW`) are this contract's immutables, which a delegatecalled library cannot
+    ///     reach, so they are PASSED rather than looked up. That is the same shape every other body
+    ///     moved out of these managers takes.
     function _bandBps(uint256 collUsdWad) internal view returns (uint256) {
-        if (RANGE == address(0)) return 0;
-        uint256 kWad;
-        try ICore(RANGE).lvrKWad() returns (uint256 k) { kWad = k; } catch { return 0; }
-        if (kWad == 0) return 0;
-        // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18. Priced off the SAME TWAP window the
-        // target is priced with, so the band cannot be widened by a spot print the target ignores.
-        uint256 ethUsd = AUX.getTWAPforAsset(AUX.WETH(), TWAP_WINDOW);
-        uint256 gasUsdWad = (block.basefee * GAS_REBALANCE * ethUsd) / 1e18;
-        return LevMath.noTradeBandBps(gasUsdWad, collUsdWad, kWad);
+        return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad);
     }
 
     /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.
