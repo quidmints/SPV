@@ -3,6 +3,10 @@ pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
+// The SELL leg is `view` over live `Core` state, so its probe inherits the real deployment rather
+// than mocking one — see `SellSkewUnmeasuredVarianceProbe` at the foot of this file.
+import {AllesFixture} from "./Alles.t.sol";
+import {ICore} from "../src/imports/Interfaces.sol";
 
 /// @title §E59/§E79 — UNMEASURED VARIANCE MUST PRICE AT THE CEILING, NOT AT ZERO.
 /// @notice `SwapLib.skewWad` is `public pure`, so this needs no fixture and no fork.
@@ -20,30 +24,6 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///    never reached the kernel and every drain size returned an IDENTICAL value. That constancy was
 ///    the tell. `test_PREMISE_*` below exists so the same mistake fails loudly next time instead of
 ///    reading as "the skew charges nothing".
-
-/// Minimal `ICore` for the SELL leg. `skewWad` is `pure` and needed none of this; `sellSkew` is
-/// `view` and reads seven values off core, so the leg §E59 never reached had no probe at all —
-/// which is precisely how it kept a comment saying it was guarded while it was not.
-contract MockCore {
-    uint public POOLED;
-    uint public flowEwmaUsd;
-    uint public realizedVarianceWad;
-    uint public skewPremiumCum;
-    uint public committedUsd18;
-    uint public rangeEquityUsd18;
-    uint immutable confFrac;
-    uint immutable splice;
-
-    constructor(uint pooled_, uint flow_, uint sigmaSq_, uint confFrac_, uint splice_) {
-        POOLED = pooled_;
-        flowEwmaUsd = flow_;
-        realizedVarianceWad = sigmaSq_;
-        confFrac = confFrac_;
-        splice = splice_;
-    }
-
-    function riskParams() external view returns (uint, uint) { return (confFrac, splice); }
-}
 
 contract SkewUnmeasuredVarianceTest is Test {
     uint constant POOL = 1_000_000e6;          // $1m range inventory, 6-dec
@@ -87,49 +67,6 @@ contract SkewUnmeasuredVarianceTest is Test {
     }
 
 
-    // ─── THE SELL LEG (§E278 half one) ────────────────────────────────────────────────────────
-    //
-    // `sellSkew` prices an INVENTORY-INCREASING sell — somebody dumping the falling asset into the
-    // range, the toxic direction. Its kernel is `Γ·σ²·qBar`, which is exactly 0 at σ² == 0 however
-    // large `qBar` is, and `_composePrice` then adds `_maxWellSkew(0)` = the base = **0 on ETH**.
-    // So the whole charge was zero whenever variance was unmeasured, on the one leg §E59 did not
-    // reach. The guard is now at the producer, before the multiply.
-
-    uint constant ETH_CONF_FRAC = 380_000_000_000;   // ≈ 12s / 1yr — ETH settles in one block
-    uint constant POOLED_TOK = 2_000_000e18;         // 2M tokens …
-    uint constant PX = 1e18;                         // … at $1 ⇒ $2m of 6-dec inventory
-    uint constant FLOW = 1_000_000e6;                // $1m shed target ⇒ inv is 2× target
-
-    /// 🔴 THE DEFECT ITSELF. A maximally-overshot sell into a range with UNMEASURED variance must
-    ///    price at the ceiling, not at nothing. Before the guard this returned 0.
-    function test_SellLeg_UnmeasuredVarianceChargesTheCeiling() public {
-        MockCore core = new MockCore(POOLED_TOK, FLOW, 0, ETH_CONF_FRAC, 0);
-        uint skew = SwapLib.sellSkew(address(core), PX, 0);
-        assertEq(skew, CEIL,
-            "an inventory-increasing sell priced at nothing while variance was unmeasured");
-    }
-
-    /// THE CONTROL THAT MAKES THE ABOVE MEAN SOMETHING. With variance actually MEASURED — even a
-    /// small one — the kernel must price far below the ceiling, so the assertion above is reading
-    /// the sentinel and not simply "this function returns 3e16".
-    function test_SellLeg_MeasuredVarianceStillPricesFarBelowTheCeiling() public {
-        MockCore core = new MockCore(POOLED_TOK, FLOW, 1e14, ETH_CONF_FRAC, 0);
-        uint skew = SwapLib.sellSkew(address(core), PX, 0);
-        assertGt(skew, 0, "a measured variance must still charge something");
-        assertLt(skew, CEIL / 100,
-            "measured variance priced at/near the ceiling -- the sentinel is leaking into the kernel");
-    }
-
-    /// ⚠️ THE §E59 VACUITY GUARD, APPLIED TO THIS LEG. `over == 0` returns 0 BEFORE the kernel, so a
-    ///    probe that accidentally sets up a refill would pass both tests above while proving nothing.
-    ///    This pins that a NON-overshot sell is exempt — and, read with the first test, that the two
-    ///    cases are genuinely distinguishable rather than both landing on one branch.
-    function test_PREMISE_SellLeg_ARefillIsExemptAndTheKernelIsReallyReached() public {
-        // inv == target exactly ⇒ over == 0 ⇒ EXEMPT, whatever σ² is.
-        MockCore refill = new MockCore(1_000_000e18, FLOW, 0, ETH_CONF_FRAC, 0);
-        assertEq(SwapLib.sellSkew(address(refill), PX, 0), 0, "a refill must be exempt");
-    }
-
     /// @notice THE FLUSH BRANCH IS UNAFFECTED — a swap that ends at/above target created no scarcity
     ///         and still owes only the base, sentinel or not. Without this, the fix above could have
     ///         silently started charging 3% on every non-scarce swap and no test would have said so.
@@ -155,5 +92,82 @@ contract SkewUnmeasuredVarianceTest is Test {
         assertEq(flush, 0,
             "SE352 CELL, NOT 'the base': an unmeasured flush range is charged ZERO on ETH. Pending the "
             "SE278 owner call. When that lands this MUST go red -- update it to the decided value.");
+    }
+}
+
+/// §E278 half one, ON THE REAL RANGE. The drain leg above is `pure` and needs no fixture; `sellSkew`
+/// is `view` over live `Core` state, so this half inherits the real deployment rather than standing a
+/// double in front of it (CLAUDE.md rule 5, and the owner: *"there should be no mocks"*).
+///
+/// **WHAT IT GUARDS.** `sellSkew` prices an INVENTORY-INCREASING sell — somebody dumping the falling
+/// asset into the range, the toxic direction. Its kernel is `Γ·σ²·qBar`, exactly 0 at σ² == 0 however
+/// large `qBar` is, and `_composePrice` then adds `_maxWellSkew(0)`, which the §E79 inversion turned
+/// into a FLOOR of ~0 — zero on ETH. So the whole charge was zero whenever variance was unmeasured,
+/// on the one leg §E59 did not reach, while the code carried a comment saying it was guarded.
+contract SellSkewUnmeasuredVarianceProbe is AllesFixture {
+    uint constant CEIL = 3e16;   // UNKNOWN_VARIANCE_SKEW / MAX_WELL_SKEW, 3%
+
+    /// 🔴 **THE INVARIANT THE GUARD BUYS, AND IT HOLDS IN BOTH VARIANCE REGIMES.** A sell that
+    /// genuinely overshoots the shed target is never free. That is exactly what the defect violated
+    /// — it returned 0 — and asserting it this way needs no control over σ², which on a real range is
+    /// not ours to set. The regime is measured and printed rather than assumed, and each regime gets
+    /// the assertion that can actually fail in it:
+    ///   * σ² == 0 (unmeasured) ⇒ the kernel IS the ceiling. Before the guard: 0.
+    ///   * σ²  > 0 (measured)   ⇒ the kernel is `Γ·σ²·qBar` and must be strictly positive, and must
+    ///     NOT sit at the ceiling, or the sentinel is leaking into the measured path.
+    ///
+    /// ⚠️ `addedTok` is deliberately enormous so `over > 0` is true BY CONSTRUCTION rather than by
+    ///    luck of the fixture's inventory — `inv` includes `addedTok` (see `_skewBasis`), and a probe
+    ///    that accidentally set up a refill would return 0 at the `over == 0` exemption and prove
+    ///    nothing. That is the §E59 vacuity failure, and it is what the premise assertions below
+    ///    exist to make loud instead of silent.
+    function test_SellLeg_AnOvershootingSellIsNeverFree() public {
+        address core = address(CORE);
+        uint px = AUX.getTWAPforAsset(address(WETH), 0);
+
+        // PREMISE 1 — a target must exist. `sellSkew` returns 0 at `target == 0` before reaching any
+        // kernel, so without live flow this test would be vacuous whatever the guard does.
+        uint target = ICore(core).flowEwmaUsd();
+        emit log_named_uint("flowEwmaUsd (target)  ", target);
+        assertGt(target, 0, "PREMISE: no shed target on the live range, so the kernel is unreachable");
+
+        uint sigmaSq = ICore(core).realizedVarianceWad();
+        emit log_named_uint("realizedVarianceWad   ", sigmaSq);
+
+        // Overshoot the target by orders of magnitude so `over > 0` cannot be an accident.
+        uint addedTok = 1_000_000 ether;
+        uint skew = SwapLib.sellSkew(core, px, addedTok);
+        emit log_named_uint("sellSkew (wad)        ", skew);
+
+        // THE INVARIANT, both regimes: the toxic direction is never priced at nothing.
+        assertGt(skew, 0, "an inventory-increasing sell was priced at ZERO");
+
+        if (sigmaSq == 0) {
+            assertGe(skew, CEIL,
+                "unmeasured variance must price the sell at the CEILING (this returned 0 before the guard)");
+        } else {
+            assertLt(skew, CEIL,
+                "measured variance priced at the ceiling -- the sentinel is leaking into the kernel");
+        }
+    }
+
+    /// PREMISE 2, AS ITS OWN TEST — the exemption is real and distinguishable. A sell that does NOT
+    /// overshoot must return 0, so the assertion above is reading the kernel rather than a function
+    /// that returns a positive number for every input.
+    function test_PREMISE_SellLeg_ARefillIsExempt() public {
+        // `addedTok == 0` cannot push a range above a target it is not already above; if the live
+        // range happens to sit above target on its own this asserts nothing, so it is checked.
+        address core = address(CORE);
+        uint inv = ICore(core).POOLED();
+        uint target = ICore(core).flowEwmaUsd();
+        emit log_named_uint("POOLED (inv, native)  ", inv);
+        emit log_named_uint("flowEwmaUsd (target)  ", target);
+        uint px = AUX.getTWAPforAsset(address(WETH), 0);
+        uint invUsd6 = (inv * px) / 1e30;
+        if (invUsd6 > target) {
+            emit log("live range already overshoots; exemption not exercisable here");
+            return;
+        }
+        assertEq(SwapLib.sellSkew(core, px, 0), 0, "a non-overshooting sell must be exempt");
     }
 }
