@@ -14947,6 +14947,38 @@ tail never closes.
 ▶️ **NEXT, and it is a contained investigation:** instrument `_withdraw`'s delivered-vs-requested per
 call over these 20 exits and find which cap binds. **If it is the proportional venue share, the fix is
 to size delivery by what the venue can SOURCE, not by a fraction of the request.**
+
+### ⏸️ §C25-FIX LANDED 2026-08-26, UNVERIFIED — **THE BINDING CAP WAS FOUND BY READING, NOT BY INSTRUMENTING**
+
+The prime suspect was named correctly and the mechanism is one level sharper than the row states. It
+was **not** that a proportional cap shrinks with the request — it is that the cap was **subtracting a
+POOL-WIDE balance from an LP-SPECIFIC slice of a DIFFERENT POT**:
+
+```solidity
+excess = min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0);   // inPool = CORE.POOLED()
+```
+
+`vaultShare` is this LP's pro-rata claim on the **external venue** (`_venueBalance` = `rangeOp(0,2)`
+− lev net-equity, i.e. the 4626 vaults). `inPool` is the **whole range's** ETH. ⇒ for any LP whose
+venue slice is smaller than the entire pool balance — nearly always, and more so on each exit as
+`amount` shrinks — `excess` was **0 and the venue leg delivered nothing at all**, leaving the tail to
+close through `deliverableETH` alone. That is the rising per-exit ratio.
+⭐ **AND THE COVER IT CLAIMED WAS ALREADY APPLIED ONE LEVEL UP:** `_withdraw` forms
+`shortfall = amount − sent` **after** burning `min(amount, AUX.deliverableETH())`, so `shortfall` IS
+"what POOLED could not cover". Subtracting the pool again double-counted it.
+
+⇒ **FIX: `excess = min(shortfall, vaultShare)`.** Neither removed bound was load-bearing —
+**fairness** is `vaultShare` itself (the call site's own note: *"`amount` ≤ `plainDepth`, so the share
+never over-delivers"*), and **solvency** is `QuidLib.sendEth`, which sources on-hand ETH → WETH →
+`rangeOp(·,1)` → de-lever and **returns what it actually delivered**, short-paying into the same
+`pooled` deferral this path is built around. Delivery is now sized by what the venue can SOURCE,
+which is what this row asked for.
+
+🔴 **STAYS OPEN (rule 16) — THE PREDICTION IS STATED AND NOT YET RUN.** `ChopIsBenign` fails on a
+**0.990386 ETH** residual against 0.05. If the diagnosis is right that collapses on the FIRST
+withdraw. **If it only improves the per-exit ratio, the proportional cap was one of two binds and
+`deliverableETH` is the other** — instrument then, as this row originally asked. ⚠️ **The test must
+not be loosened either way** (rule 4; it is left failing on purpose).
 ⚠️ **THE TEST IS LEFT FAILING ON PURPOSE.** Looping it to exit-until-drained makes it pass and would
 have buried a real usability defect behind a green tick — rule 4. **Its 0.05 tolerance is the right
 assertion; the exit path is what should change.**

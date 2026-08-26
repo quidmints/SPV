@@ -619,14 +619,51 @@ contract Quid is Shares,
     ///     swap-out path notes in SwapLib.swapToBody + the JIT-DEPTH handoff.
 
     /// @dev Venue-shortfall delivery frame, extracted from _withdraw to stay within the legacy
-    ///      stack (no via_ir): the LP's pro-rata share of the PLAIN venue balance, capped by what
-    ///      POOLED can't already cover. Returns the ETH actually sent to `recipient`.
+    ///      stack (no via_ir): the LP's pro-rata share of the PLAIN venue balance. Returns the ETH
+    ///      actually sent to `recipient`.
+    ///
+    /// 🔴 §C25 — **THE `- inPool` SUBTRACTION IS DELETED. IT WAS THE ASYMPTOTE.** This read
+    ///      `excess = min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0)` with
+    ///      `inPool = CORE.POOLED()`, described as *"capped by what POOLED can't already cover"*.
+    ///      **It subtracted a POOL-WIDE balance from an LP-SPECIFIC slice of a DIFFERENT pot.**
+    ///      `vaultShare` is this LP's pro-rata claim on the EXTERNAL venue
+    ///      (`_venueBalance` = `rangeOp(0,2)` − lev net-equity, i.e. the 4626 vaults); `inPool` is
+    ///      the whole range's ETH. For any LP whose venue slice is smaller than the entire pool
+    ///      balance — nearly always, and MORE so on each successive exit as `amount` shrinks —
+    ///      `excess` was 0 and the venue leg delivered nothing at all.
+    ///      ⇒ That is the measured tail: `ChopIsBenign` clears ~4% of the remaining claim per
+    ///      `withdraw`, the per-exit ratio RISING toward 1 (0.937 → 0.971), so a full exit costs
+    ///      ~63 transactions. The residual after ONE call is by design (venue illiquidity is a
+    ///      recoverable deferral); the RATE was the defect, exactly as §C25 states.
+    ///
+    /// ⭐ **AND THE COVER IT CLAIMED WAS ALREADY APPLIED ONE LEVEL UP.** `_withdraw` computes
+    ///      `deliverable = AUX.deliverableETH()`, burns `min(amount, deliverable)`, and only then
+    ///      forms `shortfall = amount − sent`. **`shortfall` IS "what POOLED could not cover"**, so
+    ///      subtracting the pool again double-counted it.
+    ///
+    /// 🔑 **NEITHER BOUND THIS REMOVES WAS LOAD-BEARING, and both survive elsewhere:**
+    ///      • FAIRNESS is `vaultShare` itself — the pro-rata cap on the venue, which stays. The call
+    ///        site's own note is the argument: *"`amount` ≤ `plainDepth`, so the share never
+    ///        over-delivers"*. No first-out advantage is created by removing `- inPool`.
+    ///      • SOLVENCY is `QuidLib.sendEth`, which sources on-hand ETH → WETH → `rangeOp(·,1)`
+    ///        (a real venue withdraw) → de-lever, and **returns what it ACTUALLY delivered**. A
+    ///        request the venue cannot source comes back short and is re-credited as `pooled`, which
+    ///        is the deferral this path is built around. Delivery is therefore sized by what the
+    ///        venue can SOURCE rather than by a fraction of a shrinking request — §C25's own
+    ///        prescription.
+    ///
+    /// ⚠️ **UNVERIFIED AGAINST A RUN AT THE TIME OF WRITING** (rule 15 — the batch is deliberately
+    ///      unbuilt). **Falsifiable prediction, stated before the run per rule 10:**
+    ///      `test_RunSim_IL_Baseline_ChopIsBenign` currently fails on a **0.990386 ETH** residual
+    ///      against a 0.05 tolerance. If this diagnosis is right that residual collapses on the
+    ///      FIRST withdraw; if it merely improves the per-exit ratio, the proportional cap was only
+    ///      part of it and `deliverableETH` binds too. **The test must NOT be loosened either way**
+    ///      (rule 4 — §C25 leaves it failing on purpose).
     function _deliverVenueShortfall(uint amount, uint shortfall, uint plainDepth, address recipient)
         private returns (uint excess) {
         uint venueBal = _venueBalance();
         uint vaultShare = plainDepth > 0 ? SoladyMath.fullMulDiv(venueBal, amount, plainDepth) : venueBal;
-        uint inPool = _corePooled();
-        excess = Math.min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0);
+        excess = Math.min(shortfall, vaultShare);
         if (excess > 0) excess = _sendETH(excess, recipient);
     }
 
