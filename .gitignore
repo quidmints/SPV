@@ -12,6 +12,10 @@ svm/target/*
 svm/test-ledger/*
 svm/.yarn/*
 svm/.anchor/*
+# Program key material. `keypair.json` is the secret key for QDgHUZ…Du9;
+# anyone holding it can redeploy over the program at that address.
+svm/keypair.json
+svm/**/*-keypair.json
 
 node_modules/*
 /.pnp
