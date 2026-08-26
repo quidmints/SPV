@@ -833,7 +833,13 @@ contract BTCChannels is Ownable {
     // LP's consent.
 
     // ═════════════════════════════════════════════════════════════════
-    //  OPEN — the LP's DELEGATED HOP submits the raw funding tx + SPV proof.
+    //  OPEN — an AUTHORIZED HOP submits the raw funding tx + SPV proof.
+    //
+    //  §SLOP — "the LP's DELEGATED HOP" stood here and named a relationship this contract no
+    //  longer has: `delegatedHop`, `delegationVersion`, `delegatedAuthority` and
+    //  `registerDelegation` are all deleted (see the deleted-state note above, zero live
+    //  references). The hop is authorized by `_onlyHop()` against the immutable
+    //  `MAIN_HOP`/`FALLBACK_HOP` pair, not delegated to by an LP.
     //
     // ⛔ ALL FOUR PUBLIC DIGEST ACCESSORS ARE DELETED, AND WITH THEM EVERY DOMAIN TAG.
     //

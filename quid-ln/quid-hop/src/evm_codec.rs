@@ -626,8 +626,12 @@ pub fn evm_address_of(pk: &bitcoin::secp256k1::PublicKey) -> Address {
 
 // ───────────────────────────── calldata builders ─────────────────────────────
 
-/// `openChannel(OpenParams,bytes,bytes32[],bytes)` calldata. `lp_auth` is the
-/// LP's 65-byte `r‖s‖v` ECDSA. ⚠️ VESTIGIAL: §E183 deleted `lpEth`/`lpSig` from `OpenAuth`.
+/// ⛔ **THE LINE HERE DESCRIBED A FIELD THAT DOES NOT EXIST.** It read *"`lp_auth` is the LP's
+/// 65-byte `r‖s‖v` ECDSA"* and then marked itself vestigial in the same breath — saying what a
+/// thing is and that it is gone leaves a reader with the wrong model either way. §E183 deleted
+/// `lpEth`/`lpSig` from `OpenAuth`: **the LP signs nothing on the EVM.** What `OpenAuth` carries
+/// now is the BIP-340 `btcRecipientPoP` — a BITCOIN signature proving the payout key — checked
+/// against the `lpEth` the contract derives from `p.lpPubkey`.
 /// (E178) `openChannel(OpenParams, bytes, bytes32[], OpenAuth, ExitArming[])`.
 ///
 /// ⚠️ **THIS SIGNATURE DRIFTED AND THE DAEMON WOULD HAVE ENCODED A DEAD SELECTOR.** The old

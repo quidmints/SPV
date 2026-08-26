@@ -465,8 +465,9 @@ async fn swap_in_onchain(
 struct OnboardReq {
     lp_eth: String,
     /// The LP's committed key-path P2TR payout: 32-byte BIP340 x-only OUTPUT key (hex).
-    /// MUST equal the `btcRecipient` it pinned in `registerDelegation` (the fleet does not
-    /// re-derive it — it is the LP's on-chain-committed value).
+    /// MUST equal the `btcRecipient` the LP pinned on chain via the BIP-340 `btcRecipientPoP`
+    /// in `OpenAuth` — the fleet does not re-derive it, it is the LP's committed value.
+    /// (⚠️ this named `registerDelegation`, which is deleted; the pin moved to the open itself.)
     btc_recipient: String,
     desired_sats: u64,
     /// "invoice" (default) or "raw_btc" — see [`PayoutMode`].

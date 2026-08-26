@@ -683,7 +683,9 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     //     attribution, so we refuse to register the channel (openChannel is
     //     hop-gated → an unregistered channel can never feed recordClose).
     // (B) Retained as a defensive cross-check source (the LP's committed shutdown) but no
-    // longer passed to openChannel — btcRecipientOf is pinned at registerDelegation.
+    // longer passed to openChannel. ⚠️ The clause here said `btcRecipientOf` *"is pinned at
+    // registerDelegation"* — that function is deleted. It is pinned by the BIP-340
+    // `btcRecipientPoP` inside `OpenAuth`, at the open itself.
     let _lp_btc_payout_hash = {
         let spk = quid_hop::node::channel_counterparty_shutdown_script(
             &channel_manager, funding_txid, funding_vout,
@@ -739,9 +741,25 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     // 5. (B) Resolve lpEth from the vault registry — the fleet opened this channel from
     //    THAT LP's on-chain BTC deposit (funding_outpoint → lpEth, bound at
     //    create_channel), so there is NO lpAuth round-trip: the LP runs nothing.
-    //    Authorization is on-chain (`delegatedAuthority[lpEth] == msg.sender`), and
-    //    `btcRecipientOf` was pinned at registerDelegation. If the binding hasn't landed
-    //    yet (or this isn't a vault-owned channel), skip — the reconciler retries.
+    //
+    //    ⚠️ **THIS LOOKUP IS BOOKKEEPING, NOT AUTHORIZATION** — the two sentences that stood here
+    //    said otherwise and named state that no longer exists. They read *"authorization is
+    //    on-chain (`delegatedAuthority[lpEth] == msg.sender`), and `btcRecipientOf` was pinned at
+    //    `registerDelegation`"*; §E157 deleted `registerDelegation` and §E183 deleted the whole
+    //    delegation surface, so `delegatedHop`, `delegationVersion` and `delegatedAuthority` are at
+    //    zero live references in `evm/src`. A comment describing a deleted gate as the live one is
+    //    the failure mode this contract calls out elsewhere — a reader auditing who may open a
+    //    channel would have audited nothing.
+    //
+    //    WHAT ACTUALLY AUTHORIZES AN OPEN, as of §E166-3/§E183:
+    //      * WHO may submit — `openChannel` calls `_onlyHop()` like every other hop entrypoint.
+    //      * WHOSE channel — the contract DERIVES `lpEth = ChannelLib.lpEthOf(p.lpPubkey)` rather
+    //        than accepting it, so this side cannot name someone else's LP even if it wanted to.
+    //      * THE LP's CONSENT — the BIP-340 `btcRecipientPoP` over that derived address, plus a
+    //        mandatory pre-signed exit ladder. The LP signs NOTHING on the EVM.
+    //    ⇒ so what we need `lp_eth` for here is to look up WHOSE consent to relay, and to log it.
+    //    If the binding hasn't landed yet (or this isn't a vault-owned channel), skip — the
+    //    reconciler retries.
     let Some(lp_eth) = registry.lp_for_funding(&funding_txid.to_string(), funding_vout) else {
         debug!(%funding_txid, "open: no vault funding→lpEth binding yet; skip (reconciler retries)");
         return Ok(());

@@ -15790,3 +15790,63 @@ already derives. No new key, no MuSig2, and it can ship before the ladder does.
 **unenforced**: `HopNode::invoicer_gated` is still passed `None`, so route hints are unchanged.
 Flipping it needs (a) the phone posting, and (b) the threshold in (2) measured. **Do not read this
 row as "D2 #22 closed"** — it closes the half that was blocking the phone, and names what remains.
+
+---
+
+## 🔵 §E355-METAMASK-BTC — **OWNER DIRECTION 2026-08-26: THE LP's SECOND FUNDING HALF MOVES INTO THE SPA VIA METAMASK BITCOIN. THIS RE-OPENS §E326-B, WHICH WAS BOOKED AS UNFIXABLE HERE.**
+
+Owner: *"we should be able to do all of what we planned to do with the mobile app (ibiza todo.md)
+that relates to the second funding half of the bitcoin key in sprint.md also within the single page
+app using metamask bitcoin (switch away from phantom…)"*.
+
+⇒ **§E326-B's blocker sentence is now in question.** It reads *"NO CHANNEL CAN BE OPENED IN THE
+DEFAULT DEPLOYMENT, AND IT IS NOT FIXABLE IN THIS REPO … it is a mobile-client build in another
+repo."* If the SPA can produce the LP's consent, then B stops being blocked on `ibiza` and becomes
+work this repo can finish. **Do not delete B's row on the strength of that** — it is contingent on
+the check below, which has not been run.
+
+### 🔴 THE ONE CHECK THAT DECIDES IT, AND IT IS THE SAME CHECK §E171-r WAS WRITTEN ABOUT
+
+**Does MetaMask's Bitcoin support expose MuSig2 / BIP-340 key-path signing with a two-round nonce
+exchange — or only send/receive?**
+
+This is not a detail. `quid-hop/src/funding.rs:48` builds the funding output *"per BIP327 +
+BOLT simple-taproot-channels"* — a **key-path-only MuSig2 aggregate over an EMPTY merkle root**,
+byte-matched on-chain as `0x5120||Q`. §E171-r already withdrew a proposal to drop MuSig2 for
+signing-UX reasons, and the reason it gave applies verbatim here: **a script-path retreat changes `Q`
+and breaks the byte-match with what LDK produces**, so "sign it some other way" is not a partial
+retreat, it is abandoning simple-taproot channels.
+⚠️ **§E171 recorded, 2026-08-11, that MuSig2 was signable by *Ledger only* and that "no browser
+extension wallet does" it.** MetaMask's Bitcoin support is newer than that note. **The note is
+evidence the question was live, NOT evidence of today's answer — re-check it against the shipped
+extension rather than against this row**, which is exactly the error §E171-r names ("I optimised for
+what works in a browser and let that outrank a load-bearing protocol dependency I had not checked").
+
+⇒ **Three outcomes, and they are not equally good:**
+1. **MetaMask signs MuSig2 key-path** ⇒ the SPA does the whole ceremony; B is fixable here; the
+   mobile client becomes optional rather than required.
+2. **MetaMask signs BIP-340 only** ⇒ it covers the `btcRecipientPoP` and the liveness heartbeat, but
+   **not** the `exits` ladder. B stays blocked on a MuSig2-capable signer.
+3. **MetaMask does neither** ⇒ nothing changes; the key stays where §E170/§E171-r put it.
+
+📌 In **all three** the heartbeat lands in the SPA regardless: it is a recoverable **ECDSA** signature
+by the channel key (§E354), which is an ordinary EVM signature MetaMask has always produced.
+
+### Sequencing — the owner set it explicitly
+
+*"this is at the end after you have finished all other sprint.md work that requires you to do your
+first forge test … until then no forge test at all, only implementations to solidity and rust."*
+⇒ **Phase 1 (now):** Solidity + Rust implementation only. No `forge test`, no puppeteer.
+⇒ **Phase 2 (end):** the first `forge test` run, then the Phantom → MetaMask-Bitcoin switch in the
+SPA, verified with puppeteer.
+⚠️ **The SPA may be stale** (owner) — measure it in phase 2 rather than trusting what it shows now.
+
+### 📌 Found while reading it, and left for phase 2 rather than fixed now
+
+The SPA's *"Legacy self-host / operator open"* panel is **dead three times over** and cannot succeed
+by any path: `doOpenChannel` calls `computeChannelDigest()`, an identifier that **no longer exists**
+(renamed to `computeChannelOwner`, and the rename missed this call site and its dep array); it gates
+on `ocLpAuth`, a parameter §E183 **deleted**; and it POSTs to `/open-channel`, which the hop **does
+not serve** (routes are `/swap-in`, `/swap-in/onchain`, `/lp/onboard`, `/lp/withdraw`, `/lp/consent`,
+`/lp/heartbeat`). ⇒ It goes when the SPA is reworked — not before, since the SPA is phase-2 work and
+possibly stale anyway.
