@@ -15592,3 +15592,131 @@ was outside foundry's compiled paths.
   controls the clock, not a different constant.
 - Full list, kept beside the code it describes: `quidmints/quid@dev:README.md`,
   back half.
+
+---
+
+## 🟢 §E353-BATCH — **A IS CLOSED BY DERIVATION, D's HEADLINE WAS ALREADY TRUE, AND C's REMAINDER IS ONE OWNER CALL** (2026-08-26)
+
+Worked §E326's own ordering (A → C → D → B) rather than the row count, per its warning that
+"closing rows fastest and closing the protocol fastest are opposite strategies".
+
+### ✅ A — CLOSED, and **§E326-A's DIAGNOSIS WAS WRONG WHILE ITS CONCLUSION WAS RIGHT**
+
+§E326-A says the book "cannot open a position" because a ±20bps range is compared against a 300bps
+deadband. **That is not the live path, and the tree already said so at §WSA-LEV-INERT**: `RANGE_DELTA`
+never reaches it, because `ilTargetBps` is driven by `p.ilBasisPx` — the PINNED entry price, one write
+site — not by the range width. Re-verified in the code, not relayed.
+⇒ The real defect is narrower and still real: the target is `1 − √(entry/now)`, so clearing 300bps
+needs a **+6.3% move off entry** before the overlay borrows at all. The hedge armed only after the
+move it exists to protect against. **A row can be right about the symptom and wrong about the
+mechanism, and acting on the mechanism would have re-tuned two constants that were never the bug** —
+which is exactly what §WSA-LEV-INERT's two ⛔ notes forbade.
+
+**The fix is a derivation, per the owner: *"this cannot be a constant. it has to be derived from first
+principle trustlessly in a way that can be relied on in solidity."*** A mis-hedge is not noise to be
+tolerated, it is a measurable leak: being off target by a fraction `h` leaves that fraction of the LP's
+in-range depth unhedged, and unhedged in-range depth loses at the LVR rate `K·σ²` — the same `K·σ²`
+already in `derivedThetaWad`'s denominator. With `∂/∂ln p [1 − √(entry/p)] = ½`:
+
+    cost(h) = g·σ²/(4h²) + C·K·σ²·h/2      ⇒      h³ = g / (C·K)
+
+**σ cancels** — higher vol crosses the band sooner *and* makes the error costlier, and they offset
+exactly. So the band needs no volatility estimate and cannot be moved by anyone who can move one. The
+cube root is the classic no-trade region under a fixed transaction cost (Constantinides;
+Janeček–Shreve). `g` from `block.basefee` + ETH TWAP, `C` from the position, `K` from
+`QuidLib.kLvrWad` (pure range geometry), newly surfaced as `lvrKWad()` beside `derivedThetaWad()` —
+**no second risk model enters the tree.**
+⇒ ~62bps for a $100k position at 3 gwei, ~288bps for $1k; arms at ~+1.2% instead of +6.3%.
+⇒ `_requireTargetLtv` follows the band (now `view`, takes the position's collateral). One literal
+survives — `GAS_REBALANCE` — admissible only because it is a fact about the bytecode, and
+`LevCascade` now measures a real rebalance and bounds it from BOTH sides.
+
+### ✅ D — **THE HEADLINE IS ALREADY SATISFIED. MEASURED, AND THE TRAP IS NAMED.**
+
+Owner: *"there should be no v3 in this code at all."* `grep -rc "V3" src/` returns 73 hits and **that
+number is a trap** — 25 of `LevVenueBase`'s 32 are **Aave** V3 and must not be touched. Grepping for
+Uniswap specifically (`IUniswapV3|UniswapV3|ISwapRouter|QuoterV2|V3_ROUTER`) leaves **exactly one hit
+in all of `src/`**, and it is a comment recording that `IUniswapV3SwapCallback` is *deliberately not
+inherited*. `script/` and `test/` are clean. ⇒ **D's headline needs no code change**; what remains
+under D is 1inch routing and the Aave eMode second-borrow, which are separate defects.
+
+### 🔴 C — HALF CLOSED, HALF **ONE OWNER CALL (§E352)**, AND IT IS THE SAME SHAPE AS A
+
+`E2-DEPOSIT-HAIRCUT` is marked **✅ CLOSED 2026-08-25** ("both named tests PASS on the pinned clean
+gate"). The §E326 workstream table was written **2026-08-23** and still bills it as open — the rot
+§E324 warned about, one row deep.
+⇒ What is left of C is **§E352**: `skewWad`'s sentinel says *unmeasured ⇒ charge the ceiling*, while
+`_maxWellSkew` says *unmeasured ⇒ charge nothing*, and on the flush branch `_maxWellSkew` wins. Two
+functions resolve the same "we could not measure it" in opposite directions **and the permissive one
+is what executes** — a free drain at σ²=0.
+📌 **THIS IS THE SAME DECISION A JUST MADE, AND IT SHOULD BE MADE THE SAME WAY.** The band chose its
+fail-open direction by asking which failure costs money: there, inaction. Here the costly failure is
+**under-charging**, so the two must agree in the conservative direction — or, better and per standing
+rule 17, the unmeasured state should be made unconstructible rather than priced. **⚠️ IT IS STILL AN
+OWNER CALL, because both routes change what users are charged, and reverting an unpriceable swap
+trades a value leak for a liveness stop.** Not taken unilaterally.
+
+### 🔴 B — UNBLOCKED ONE STEP: **THE §3b LIBRARY CHECK IS EXECUTED, AND IT MOVED THE DESIGN**
+
+`ibiza` is cloned at `ffdd95c` and its §3b named a check nobody had run ("Confirm its MuSig2 export
+surface against the INSTALLED package"). Run against `@scure/btc-signer` v2.3.0.
+✅ The route holds — `musig2.js` is a named entry in the `exports` map.
+🔴 **The safety argument does not.** §E171-r sanctions MuSig2 on the strength of the Rust crate's
+`FirstRound`/`SecondRound` consuming `self`, making nonce reuse a **type error**. `nonceGen` returns a
+plain value; signing twice under one secnonce type-checks. **That guarantee does not cross the
+language boundary**, and the bug it stops is the silent-and-total one — two partials under one
+secnonce leak the LP's key and hand the fleet both halves with every on-chain byte still correct.
+**This tree has shipped that bug once already.**
+⭐ ⇒ **`deterministicSign`, not `nonceGen` + `Session`**: it derives the nonce from secret + message +
+aggregated other-nonce, so there is no secnonce to persist or replay. Available only to the signer who
+goes LAST, which in our 2-of-2 is the LP. Recorded in `ibiza:TODO.md §3b`, per §E171-r's instruction
+to change §3b rather than that row.
+
+### 🟢 THE FORK SUITE IS RUNNABLE AGAIN — **`ETH_RPC_URL` WAS SIMPLY ABSENT**
+
+Every fork test died on `environment variable ETH_RPC_URL not found`, which reads like a broken suite
+and is not one. `https://ethereum-rpc.publicnode.com` answers; `evm/.env` now sets it and
+`DerivedTheta` passes in 21s.
+📌 **THIS BEARS DIRECTLY ON WORKSTREAM E** ("39 regressions + 23 never-green", already suspected of
+being inflated by RPC contention at §SUITE-RPC-INFLATION). **E's counts were never measured on a
+working endpoint. Re-measure before treating any of them as defects.**
+
+### 🟢 BITCOIN SIDE — LIVE, NO DOCKER, AND THE PINS WERE STALE
+
+`regtest/` needs no docker by design (`setup.sh` fetches Core natively). It pinned Core **30.2** and
+LND **v0.21.1-beta** with **31.1** and **v0.21.2-beta** released, and its README still said 28.1 —
+all three now agree. Real funding tx → merkle proof → the actual on-chain verifier:
+`test/btc/OpenChannelE2E.t.sol` **3/3 green**, including the taproot 2-of-2 output-key match and a
+real splice shrink.
+
+### 🟢 THE SOLANA PROGRAM MOVED IN, AND BECAME DEPLOYABLE
+
+`svm/` (no git of its own; its monorepo is gone from this machine) now lives beside `spa/`. Ticker
+tables left `etc.rs` (2,655 of 4,429 lines were data) for `tickers.rs`, with `tickers_slim.rs`
+generated from the `XSTOCK_MINTS` keys — 80 deliverable equities, not 935 — so the priceable set and
+the deliverable set cannot drift. With `opt-level="z"` + `strip`: **1,484,096 → 721,160 bytes (−51%)**,
+~20 SOL → ~10 SOL of rent. 52 suite tests green on a mainnet fork, so the size cut is measured against
+compute budget rather than assumed.
+🔴 **AND ONE HOLE FOUND IN MY OWN LZ WORK:** `OApp`'s constructor calls
+`endpoint.setDelegate(msg.sender)`, and that privilege lives at the ENDPOINT — so
+`renounceOwnership()` does not touch it, it only destroys the setter that could take it back. This
+adminless deployment would have kept the deployer one permanent, unrevokable lever, and it is the
+worst one available: a DVN set of one verifier you control mints QU!D from nothing. **That is the
+KelpDAO shape — 116,500 rsETH.** `_wireSolana` now wires the pathway and drops the delegate to zero
+in the same breath, before finalize, and `wireSolanaPathway` is actually *called* (it was defined and
+never invoked).
+
+### 🔴 NEW, FOUND IN PASSING — **THE SPA OFFERS A VENUE CHOICE THE CONTRACT NO LONGER ACCEPTS**
+
+`Rover.sol` is gone and there are **no `VENUE_*` constants left anywhere in `src/`** — the venue model
+moved to an address allowlist (`Aux.setVault` + the least-full router). `Quid.deposit(uint assets,
+address receiver)` is plain ERC-4626 with **no venue parameter**. `spa/src/lib/chains.ts` still ships a
+five-way picker including *"ether.fi Rover"*, consumed by six components.
+⇒ Not an ABI break — the SPA's deposit is `Aux.deposit(address,address,uint)`, which still exists —
+but it is a **live UI promise the protocol cannot keep**. Booked, not fixed: removing the picker is a
+UX decision about what an LP chooses now that routing is automatic.
+
+### ⚠️ METHOD NOTE — NOTHING IN THIS SECTION IS BUILT OR RUN
+
+Per owner instruction, the batch is being implemented in full before a single build/test cycle. The
+Solidity above compiles in no one's tree yet. **Do not read a ✅ here as "green".**
