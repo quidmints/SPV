@@ -1801,11 +1801,31 @@ library SwapLib {
         //    ▶️ THE FIX IS THE GUARD THIS PARAGRAPH ALREADY DESCRIBES, at the producer (§E275's rule:
         //    the decline lives at the producer, not at three consumers) — resolve `σ² == 0` to
         //    `UNKNOWN_VARIANCE_SKEW` BEFORE the multiply, exactly as `skewWad` does.
-        //    ⛔ **NOT LANDED HERE DELIBERATELY: it is a MONEY-PATH change (rule 10, one per run) and
-        //    it is one of TWO halves — see §E352 at `skewWad`'s flush branch. Fixing one and calling
-        //    the row closed is the failure mode §E278 explicitly warns about.**
-        uint skew = SoladyMath.fullMulDiv(
-            SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
+        //    ✅ **LANDED 2026-08-26 — the guard below is that fix, and NOTHING ELSE CHANGED HERE.**
+        //    It was held back as "one of TWO halves"; the halves are not the same KIND of thing, and
+        //    that is why this one moves and the other does not:
+        //      * THIS half had its semantics DECIDED by §E59 — *"an UNMEASURED variance must not
+        //        price an inventory-increasing sell at nothing … must price at the CEILING"* — and
+        //        the code simply did the opposite of its own comment. There is nothing to decide.
+        //      * §E352's flush half is a genuine DISAGREEMENT between two resolvers about what
+        //        "unmeasured" costs, and it stays untouched pending the owner call, exactly as its
+        //        block at `skewWad` says. Its instrument is already armed
+        //        (`SkewUnmeasuredVariance.t.sol`, `assertEq(flush, 0)`), so whichever way that lands
+        //        turns red on its own.
+        //    ⛔ **§E278 IS NOT CLOSED BY THIS.** Fixing one half and calling the row done is the
+        //    failure mode it warns about; the row stays open ON THE FLUSH HALF.
+        //
+        // §E59/§E79 — UNMEASURED VARIANCE PRICES AT THE CEILING, RESOLVED BEFORE THE MULTIPLY.
+        // `Γ·σ²·qBar` is exactly 0 at σ² == 0 however large `qBar` is, so without this an
+        // inventory-increasing sell — somebody dumping the falling asset into the range, the toxic
+        // direction — is free whenever variance is unmeasured. Returning `_maxWellSkew(0)` instead
+        // would NOT do: the §E79 inversion made it a FLOOR of ~0 (0 on ETH, `SPLICE_FLOOR` on BTC),
+        // which is the free-drain hole §E59 closed on the other leg, arriving through this door.
+        // The kernel is the ceiling; `_composePrice` adds the base to it as it does for any kernel.
+        uint skew = sigmaSqWad == 0
+            ? UNKNOWN_VARIANCE_SKEW
+            : SoladyMath.fullMulDiv(
+                SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
         // §E53: the SAME shared-scarcity amplifier the drain leg carries — a sell that grows our
         // inventory is dearer to shed when the OTHER range has already spoken for the shared backing.
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
