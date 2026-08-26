@@ -8,6 +8,8 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
 import {Basket} from "../src/Basket.sol";
+import {ILayerZeroEndpointV2} from "../src/imports/oapp/interfaces/ILayerZeroEndpointV2.sol";
+import {SetConfigParam} from "../src/imports/oapp/interfaces/IMessageLibManager.sol";
 import {Vault} from "../src/Vault.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
@@ -17,6 +19,17 @@ import {BTCChannels} from "../src/BTCChannels.sol";
 ///      predicted address (Aux is already deployed when approved). Aux burns it deployer→DEAD at finalize.
 interface IF8N { function approve(address to, uint256 tokenId) external; }
 address constant F8N_COLLECTION = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
+
+// LayerZero V2 endpoint — the same address on every EVM chain, from
+// LayerZero's own metadata service. Ethereum mainnet is eid 30101; the Solana
+// counterparty is eid 30168 and runs at
+// 76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6.
+address constant LZ_ENDPOINT_V2 = 0x1a44076050125825900e736c501f859c50fE728c;
+
+// The Solana counterparty's endpoint id. Its OApp is the program's Store PDA,
+// which the deploy takes as `solanaPeer` rather than deriving — a PDA is not
+// computable from this side.
+uint32 constant SOLANA_EID = 30168;
 uint constant ANGEL_ID = 16508; // == Basket.ANGEL
 
 /// @title DeployLib — the ONE canonical QU!D contract-deploy + wiring sequence.
@@ -168,7 +181,12 @@ library DeployLib {
         // ANGEL NFT — no predicted address needed. Basket's constructor requires this approval, so it can't be
         // born without the seed committed; Aux burns ANGEL deployer→DEAD at finalize via the same approval.
         IF8N(F8N_COLLECTION).approve(address(aux), ANGEL_ID);
-        Basket quid = new Basket(address(ETH), address(aux));
+        // LayerZero V2 endpoint, the same address on every EVM. Verified
+        // against LayerZero's own metadata service; Ethereum mainnet is eid
+        // 30101 and Solana is 30168. Basket takes it at construction because
+        // an OApp's endpoint is immutable — there is no setter to get wrong
+        // later, and no configuration under which it talks to another one.
+        Basket quid = new Basket(address(ETH), address(aux), LZ_ENDPOINT_V2);
 
         // Reference V4 PoolKeys — Core reads their slot0 ticks at setup and seeds
         // VANILLA_ETH / VANILLA_BTC at live market prices (built in its own frame).
@@ -322,6 +340,39 @@ library DeployLib {
     // §V4-ZERO — `_refKeys` DELETED. It built two `PoolKey`s naming Uniswap pools this protocol does
     // not own, trade on, or validate, purely so a deploy could read their `slot0` once. The seed now
     // comes from the same Chainlink feeds every runtime TWAP is anchored against.
+
+    /// @dev Wire the Solana pathway: peer, message libraries, then DVNs — in
+    ///      that order, because the order is the security property.
+    ///
+    ///      Until an OApp binds its own send and receive libraries it runs on
+    ///      the endpoint's defaults, and a DVN config written to a library the
+    ///      pathway never selected changes nothing at all. That is how KelpDAO
+    ///      sat on a single required verifier while looking configured, and
+    ///      116,500 rsETH left through one compromised DVN. Binding first is
+    ///      what makes the config below take effect.
+    ///
+    ///      Two required DVNs from independent operators, both directions.
+    ///      `confirmations` is explicit rather than 0, which means "whatever
+    ///      the library default is" — a number somebody else controls.
+    function wireSolanaPathway(address basket, bytes32 solanaPeer,
+        address sendLib, address recvLib, address dvnA, address dvnB) internal {
+        Basket(payable(basket)).setPeer(SOLANA_EID, solanaPeer);
+
+        ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(LZ_ENDPOINT_V2);
+        ep.setSendLibrary(basket, SOLANA_EID, sendLib);
+        ep.setReceiveLibrary(basket, SOLANA_EID, recvLib, 0);
+
+        address[] memory required = new address[](2);
+        // Sorted, because the message library compares the set by order.
+        (required[0], required[1]) = dvnA < dvnB ? (dvnA, dvnB) : (dvnB, dvnA);
+
+        bytes memory uln = abi.encode(uint64(15), uint8(2), uint8(0), uint8(0),
+                                      required, new address[](0));
+        SetConfigParam[] memory cfg = new SetConfigParam[](1);
+        cfg[0] = SetConfigParam({eid: SOLANA_EID, configType: 2, config: uln});
+        ep.setConfig(basket, sendLib, cfg);
+        ep.setConfig(basket, recvLib, cfg);
+    }
 
     // §E233-sor — THE 8 SOR PATH BUILDERS ARE DELETED (`_buildSORPaths`, `_ethPaths`, `_btcPaths`,
     // `_hop1`/`_hop2`/`_hop1B`/`_hop2B`/`_hop3B`) along with `imports/SOR.sol` and the four `Aux`

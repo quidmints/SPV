@@ -15,9 +15,31 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ICollection} from "./imports/Interfaces.sol";
 import {Types, BtcVaultPinned, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
+import {OApp, Origin, MessagingFee} from "./imports/oapp/OApp.sol";
 
 contract Basket is ERC20, ERC6909, 
-    ReentrancyGuard, Ownable {
+    ReentrancyGuard, OApp {
+    // ─── LayerZero: the Solana counterparty ──────────────────────────────────
+    //
+    // QU!D exists on both chains and is one supply. Locking here and minting
+    // there is the whole of it — `quid-svm`'s `LZ.rs` is the other half, and
+    // the wire format is fixed by what it already sends and accepts.
+    //
+    // Ownable arrives through OAppCore rather than being inherited twice; the
+    // delegate it takes is the endpoint-config authority, which is the same
+    // Safe that owns this contract.
+    uint32 public constant SOLANA_EID = 30168;
+    /// Shared-decimal amounts on the wire are 6-dp; QU!D is 18-dp here.
+    uint constant SD_RATE = 1e12;
+    /// `to[32] ‖ amountSD[8]`, and nothing else. The composeMsg is empty by
+    /// design: an earlier design put a message-type byte in front of an
+    /// `abi.encode(uint[],uint[])` body, and no encoding could satisfy both
+    /// the dispatch reading byte zero and the decoder reading the same bytes —
+    /// so that branch was never reached from any chain.
+    uint constant OFT_MSG_LEN = 40;
+
+    error BadBridgeMessage();
+    event BridgeReceived(bytes32 indexed guid, address indexed to, uint amount, uint month);
     using SortedSetLib for SortedSetLib.Set;
     error InsufficientUnlocked();
 
@@ -120,9 +142,9 @@ contract Basket is ERC20, ERC6909,
     /// @notice Constructor wires Quid + Aux and REQUIRES the Safe's ANGEL approval to Aux (the seed commitment,
     ///         made mid-deploy by DeployLib) — so Basket cannot exist unless the seed is committed. Aux burns
     ///         ANGEL and renounces at finalize; Basket is renounced by the Safe there too.
-    constructor(address _range, address _aux)
+    constructor(address _range, address _aux, address _lzEndpoint)
         ERC20("QU!D", "QUI")
-        Ownable(msg.sender) {
+        OApp(_lzEndpoint, msg.sender) {
         RANGE = payable(_range);
         AUX = Aux(payable(_aux));
         _deployed = block.timestamp;
@@ -132,6 +154,29 @@ contract Basket is ERC20, ERC6909,
         // address: the already-deployed Aux is the approve target, and this check makes the commitment atomic
         // with Basket's birth. This IS the deployer gate — no separate owner check needed anywhere else.
         require(ICollection(F8N).getApproved(ANGEL) == address(AUX), "angel");
+    }
+
+    /// Inbound from Solana: QU!D that was burned there, re-minted here.
+    ///
+    /// The message is the bare OFT header — recipient and a 6-dp amount — and
+    /// carries no maturity. That is deliberate on both sides: the vintage is
+    /// derived here, from this contract's own clock, so a returning holder
+    /// cannot name an already-vested month and shorten their own lock by
+    /// bridging twice. `currentMonth() + 1` is the same vintage a fresh mint
+    /// gets, which is the honest answer — the QU!D left, and what comes back
+    /// is new here.
+    function _lzReceive(Origin calldata _origin, bytes32 _guid,
+        bytes calldata _message, address, bytes calldata) internal override {
+        if (_origin.srcEid != SOLANA_EID) revert Unauthorized();
+        if (_message.length != OFT_MSG_LEN) revert BadBridgeMessage();
+
+        address to = address(uint160(uint(bytes32(_message[0:32]))));
+        uint amount = uint(uint64(bytes8(_message[32:40]))) * SD_RATE;
+        if (to == address(0) || amount == 0) revert BadBridgeMessage();
+
+        uint month = currentMonth() + 1;
+        _mint(to, month, amount);
+        emit BridgeReceived(_guid, to, amount, month);
     }
 
     /// @notice Term-locked (immature) QUI balance — vintages in
