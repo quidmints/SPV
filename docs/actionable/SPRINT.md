@@ -12264,6 +12264,28 @@ system. ⚠️ **A market we list is also the only market where we are both lend
 address that can burn the collateral. Those two properties arrive together or not at all**, which is
 why the flywheel and the liquidator-exit resolution are one design, not two.
 
+### ⛔ C17 — **CLOSED BY OWNER 2026-08-26: *"we dont need emode for anything."*** BOTH HALVES DROP.
+
+Neither C17-a (two Aave accounts, `escrowOf` keyed on the (collateral, stable) PAIR) nor C17-b
+(`setUserEMode` on the escrow) gets built. ⇒ **`setUserEMode` stays at ZERO occurrences in `evm/src`,
+`evm/test` and `evm/script`, and that is now the intended state rather than a gap.**
+
+⭐ **WHAT THIS ACTUALLY RESOLVES, BECAUSE IT IS MORE THAN A SCOPE CUT.** C17-b's own finding was that
+*"eMode 93% dominates Morpho's 94.5%"* described a configuration **nobody had made** — the escrow
+calls `supply`, `setUserUseReserveAsCollateral`, `borrow`, `repay`, `withdraw` and nothing else, so
+the Aave leg has always run at BASE LTV. The comparison that motivated moving off Morpho was
+therefore never live. **Dropping eMode does not forfeit 93% — it declines to chase a number the tree
+never had**, and the WBTC leg's behaviour is unchanged by this decision because it was already
+running at base LTV.
+⇒ Any row reasoning from "the eMode ceiling" is reasoning from an unmade configuration. **Do not
+re-derive the Morpho-vs-Aave comparison from those figures.**
+
+⚠️ Kept below rather than deleted: the on-chain measurements are still the record of what the Aave
+reserves ACTUALLY allow, and the two-account finding is still true about Aave's `validateBorrow` —
+it is simply no longer ours to work around.
+
+*(original rows, now closed:)*
+
 ### C17-a. 🔴 THE 2× LOOP NEEDS **TWO AAVE ACCOUNTS**, NOT TWO CALLS — eMode forbids the second borrow
 
 The loop is: weETH collateral → **borrow WETH** (eMode) → **borrow dollars against that WETH** →
