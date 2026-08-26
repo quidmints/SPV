@@ -111,12 +111,15 @@ library LevMath {
     ///                    widened by a spot print the target ignores.
     /// @param gasRebalance measured gas for one rebalance; the live PRICE of it is `block.basefee`.
     /// @param collUsdWad  position size, USD 1e18.
+    /// @param headroomBps `venue.liqThresholdBps() − targetLtvCapBps`, resolved by the caller because
+    ///        the VENUE is the caller's to know. §POOL-VENUE — see `noTradeBandBps`.
     function bandBpsFor(
         address aux,
         address range,
         uint32 twapWindow,
         uint256 gasRebalance,
-        uint256 collUsdWad
+        uint256 collUsdWad,
+        uint256 headroomBps
     ) public view returns (uint256) {
         if (range == address(0)) return 0;
         uint256 kWad;
@@ -125,7 +128,7 @@ library LevMath {
         // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18.
         uint256 ethUsd = IAux(aux).getTWAPforAsset(IAux(aux).WETH(), twapWindow);
         uint256 gasUsdWad = (block.basefee * gasRebalance * ethUsd) / 1e18;
-        return noTradeBandBps(gasUsdWad, collUsdWad, kWad);
+        return noTradeBandBps(gasUsdWad, collUsdWad, kWad, headroomBps);
     }
 
     /// @dev `public`, NOT `internal`, and that is an EIP-170 decision rather than a style one.
@@ -135,19 +138,46 @@ library LevMath {
     ///      and lands in `LevMath` (4,372 spare), which is the convention this file already states
     ///      for exactly this reason. ⚠️ Re-measure with `tools/check-contract-sizes.py`; that margin
     ///      is a reading with a timestamp, not a fact.
-    function noTradeBandBps(uint256 gasUsdWad, uint256 collUsdWad, uint256 kLvrWad)
+    /// @param headroomBps distance from the LP's LTV cap to the venue's liquidation threshold,
+    ///        `liqThresholdBps() − targetLtvCapBps`. §POOL-VENUE — **THIS PARAMETER EXISTS BECAUSE
+    ///        LIQUIDATION IS NO LONGER PER-LP.** `LevVenueBase:117` records the change: there is ONE
+    ///        position under the adapter and *"a liquidation hits every LP pro-rata"*, so
+    ///        `cascadeDelever` and this hysteresis are, in its words, *"the only things keeping the
+    ///        aggregate off the liquidation threshold"*. The economic band above was derived against
+    ///        a position's OWN tracking cost, which was the right model when a liquidation was that
+    ///        position's own problem and is not now.
+    ///
+    ///        🔑 **WHAT DOES NOT CHANGE, AND IT IS THE HALF THAT MATTERS: THE BAND NEVER GATED THE
+    ///        CRASH PATH.** `ilTargetBps` returns 0 at or below entry, so a falling price collapses
+    ///        the target to zero, `debtDelta` sees `cur ≫ 0`, and a FULL de-lever fires at any band
+    ///        width. Downside safety is gated by the keeper acting, never by this number — so a wide
+    ///        band was never the liquidation exposure it looked like.
+    ///
+    ///        ⇒ What the pool DOES add is an upside bound. `∛(g/(C·K))` grows as `C` shrinks — ~493
+    ///        bps at the minimum open — and a cluster of small positions parked at the top of a wide
+    ///        band lifts the AGGREGATE toward a threshold that now takes everyone with it.
+    ///
+    ///        **The two constraints combine in SERIES, which is a derivation and not a clamp:**
+    ///            1/h = 1/h_econ + 1/H   ⇒   h = h_econ·H / (h_econ + H)
+    ///        `h → h_econ` when headroom is ample (the normal case, behaviour unchanged), and
+    ///        `h < H` **by construction** — there is no branch to mis-order and no ceiling to breach,
+    ///        which is the whole difference between this and `min(h, H)`.
+    ///        ⚠️ `headroomBps == 0` ⇒ band 0 ⇒ rebalance ALWAYS. A position whose cap already sits at
+    ///        the liquidation threshold has no room to drift, and that is the fail-safe direction.
+    function noTradeBandBps(uint256 gasUsdWad, uint256 collUsdWad, uint256 kLvrWad, uint256 headroomBps)
         public pure returns (uint256)
     {
-        if (gasUsdWad == 0 || collUsdWad == 0 || kLvrWad == 0) return 0;
+        if (gasUsdWad == 0 || collUsdWad == 0 || kLvrWad == 0 || headroomBps == 0) return 0;
         // h³ = g/(C·K), every term WAD. `fullMulDiv` first so the product cannot overflow before
         // the divide, and `cbrtWad` (solady, audited) carries the WAD through the root.
         uint256 denom = FixedPointMathLib.fullMulDiv(collUsdWad, kLvrWad, WAD);
         if (denom == 0) return 0;
         uint256 hCubedWad = FixedPointMathLib.fullMulDiv(gasUsdWad, WAD, denom);
         uint256 hWad = FixedPointMathLib.cbrtWad(hCubedWad);
-        // A band wider than the LTV cap would disable the overlay exactly as 300 bps did; at that
-        // point gas dominates the position so completely that there is nothing worth hedging.
-        return (hWad * 10_000) / WAD;
+        uint256 econBps = (hWad * 10_000) / WAD;
+        // Series combination — see the `headroomBps` note. One `mulDiv`, no branch, and `< H` by
+        // construction rather than by a ceiling someone has to remember to apply.
+        return (econBps * headroomBps) / (econBps + headroomBps);
     }
 
     /// @notice #67 deliverability (LEVERED-DELIVERABILITY-SPEC.md §1) — the USD a levered position can produce via

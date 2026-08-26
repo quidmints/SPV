@@ -18,12 +18,20 @@ contract LevDerivedBandProbe is AllesFixture {
     /// A ±20bps range: K = 1/(4·(2 − √(P/Pb) − √(Pa/P))) ≈ 125.
     uint constant K_20BPS = 125 * WAD;
 
+    /// §POOL-VENUE — the liquidation headroom, `liqThresholdBps() − targetLtvCapBps`.
+    /// `AMPLE` makes the series combination the IDENTITY (`h·H/(h+H) → h` as `H → ∞`), which is what
+    /// lets the shape tests below measure the ECONOMICS alone. `LIVE` is the real figure at Morpho's
+    /// 86% LLTV against the 7500bps cap, and only the headroom test uses it — mixing the two is how a
+    /// test stops measuring the thing its name claims.
+    uint constant AMPLE = 1e9;
+    uint constant LIVE  = 8_600 - 7_500;
+
     /// 1. THE SHAPE. `h³ = g/(C·K)` is the whole claim, so assert the cube directly rather than a
     ///    remembered output — a test that only pins numbers cannot tell a rewrite from a regression.
     function test_band_isTheCubeRootOfGasOverSizeTimesK() public pure {
         uint g = 3 * WAD;              // $3 of gas
         uint c = 100_000 * WAD;        // $100k position
-        uint bps = LevMath.noTradeBandBps(g, c, K_20BPS);
+        uint bps = LevMath.noTradeBandBps(g, c, K_20BPS, AMPLE);
 
         // Recompose: (h)³·C·K should return g, within integer-root truncation.
         uint hWad = (bps * WAD) / 10_000;
@@ -36,9 +44,9 @@ contract LevDerivedBandProbe is AllesFixture {
     ///    charged a $1k position and a $10m position the same 300bps, which is the actual defect.
     function test_band_widensForSmallPositions() public pure {
         uint g = 3 * WAD;
-        uint small = LevMath.noTradeBandBps(g, 1_000 * WAD,   K_20BPS);
-        uint mid   = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS);
-        uint large = LevMath.noTradeBandBps(g, 10_000_000 * WAD, K_20BPS);
+        uint small = LevMath.noTradeBandBps(g, 1_000 * WAD,   K_20BPS, AMPLE);
+        uint mid   = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS, AMPLE);
+        uint large = LevMath.noTradeBandBps(g, 10_000_000 * WAD, K_20BPS, AMPLE);
 
         assertGt(small, mid,   "a small position must tolerate a wider error");
         assertGt(mid,   large, "a large position must rebalance tighter");
@@ -50,8 +58,8 @@ contract LevDerivedBandProbe is AllesFixture {
     /// 3. CHEAPER GAS ⇒ TIGHTER TRACKING, with no one deciding that.
     function test_band_tightensAsGasFalls() public pure {
         uint c = 100_000 * WAD;
-        assertGt(LevMath.noTradeBandBps(30 * WAD, c, K_20BPS),
-                 LevMath.noTradeBandBps(3 * WAD,  c, K_20BPS),
+        assertGt(LevMath.noTradeBandBps(30 * WAD, c, K_20BPS, AMPLE),
+                 LevMath.noTradeBandBps(3 * WAD,  c, K_20BPS, AMPLE),
                  "a 10x gas spike must widen the band");
     }
 
@@ -59,7 +67,7 @@ contract LevDerivedBandProbe is AllesFixture {
     ///    `1 − √(entry/now)`, so it arms at roughly a **1.2%** move rather than 6.3%. This is the
     ///    number that decides whether the product works, so it is asserted, not described.
     function test_band_armsTheHedgeLongBeforeTheOldConstant() public pure {
-        uint bps = LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, K_20BPS);
+        uint bps = LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, K_20BPS, AMPLE);
         assertLt(bps, 300, "the derived band must be tighter than the 300bps it replaced");
         assertApproxEqAbs(bps, 62, 12, "band moved off its derived value");
 
@@ -68,13 +76,44 @@ contract LevDerivedBandProbe is AllesFixture {
         assertLt(bps * 2, 634, "the arming move must be far inside the old 6.3%");
     }
 
+    /// 5b. §POOL-VENUE — **THE LIQUIDATION BOUND, AND WHY IT IS NOT A CLAMP.** Liquidation is no
+    ///     longer per-LP (`LevVenueBase:117`: one position, "a liquidation hits every LP pro-rata"),
+    ///     so a small position parked at the top of a wide band now lifts an aggregate that takes
+    ///     everyone with it. The economic band and the headroom combine in SERIES —
+    ///     `1/h = 1/h_econ + 1/H` — which is strictly below `H` for every input rather than being
+    ///     cut off at it.
+    /// ⚠️ THE DISCRIMINATOR AGAINST `min(h, H)`: a clamp is INERT until the ceiling and then
+    ///     discontinuous at it. This pulls DOWN everywhere, so there is no input at which behaviour
+    ///     jumps — assert both halves, because only the first distinguishes the two.
+    function test_PoolVenue_HeadroomBoundsTheBandWithoutClamping() public pure {
+        uint g = 3 * WAD;
+        // A tiny position: economically ~493bps, which is a large fraction of the 1100bps headroom.
+        uint econ  = LevMath.noTradeBandBps(g, 200 * WAD, K_20BPS, AMPLE);
+        uint bound = LevMath.noTradeBandBps(g, 200 * WAD, K_20BPS, LIVE);
+        assertLt(bound, LIVE, "the band must sit strictly inside the liquidation headroom");
+        assertLt(bound, econ, "the headroom must pull the band DOWN, not merely cap it");
+
+        // …and it is NOT a clamp: a band far below the headroom is still pulled down, slightly.
+        // `min(h, H)` would leave this one untouched, so this is the assertion that separates them.
+        uint bigEcon  = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS, AMPLE);
+        uint bigBound = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS, LIVE);
+        assertLt(bigBound, bigEcon, "a clamp would have left this untouched -- the series form must not");
+        assertApproxEqRel(bigBound, bigEcon, 0.10e18, "far from the threshold the bound must be nearly inert");
+    }
+
+    /// 5c. NO HEADROOM ⇒ REBALANCE ALWAYS. A cap already at the liquidation threshold has no room to
+    ///     drift, and the fail-safe direction there is to act, not to tolerate.
+    function test_PoolVenue_NoHeadroomMeansAlwaysRebalance() public pure {
+        assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, K_20BPS, 0), 0, "no headroom must not tolerate drift");
+    }
+
     /// 5. FAIL OPEN TOWARD HEDGING. Every unmeasured input yields a ZERO band — rebalance always —
     ///    because the failure this replaced was silent inaction, not churn. A zero band cannot
     ///    mis-size a borrow: `debtDelta` still sizes it off the target.
     function test_band_failsOpenOnAnyUnmeasuredInput() public pure {
-        assertEq(LevMath.noTradeBandBps(0, 100_000 * WAD, K_20BPS), 0, "no gas price");
-        assertEq(LevMath.noTradeBandBps(3 * WAD, 0, K_20BPS),       0, "no position");
-        assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, 0), 0, "no range geometry");
+        assertEq(LevMath.noTradeBandBps(0, 100_000 * WAD, K_20BPS, AMPLE), 0, "no gas price");
+        assertEq(LevMath.noTradeBandBps(3 * WAD, 0, K_20BPS, AMPLE),       0, "no position");
+        assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, 0, AMPLE), 0, "no range geometry");
     }
 
     /// 6. K COMES OFF THE LIVE RANGE, not a literal — and off BOTH of them, because the overlay is

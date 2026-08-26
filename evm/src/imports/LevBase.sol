@@ -68,8 +68,18 @@ abstract contract LevBase {
     ///     `TWAP_WINDOW`) are this contract's immutables, which a delegatecalled library cannot
     ///     reach, so they are PASSED rather than looked up. That is the same shape every other body
     ///     moved out of these managers takes.
-    function _bandBps(uint256 collUsdWad) internal view returns (uint256) {
-        return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad);
+    /// @dev §POOL-VENUE — the headroom is resolved HERE because the venue is this contract's to know,
+    ///      and it is READ off the venue rather than assumed. `ILevVenue.liqThresholdBps()` already
+    ///      exists on both adapters (Morpho converts its 1e18 `LLTV`, Aave returns its own), so this
+    ///      needs no new surface — and it retires the hardcoded 0.86 CLAUDE.md flags as *"hardcoded
+    ///      three times over … should be READ, never configured"*.
+    function _bandBps(uint256 collUsdWad, ILevVenue venue, uint256 capBps) internal view returns (uint256) {
+        uint256 lltv;
+        // Same `try` idiom as `_rangePrice`: a venue that cannot answer must not strand a position.
+        // Unanswered ⇒ zero headroom ⇒ band 0 ⇒ rebalance always, the fail-safe direction.
+        try venue.liqThresholdBps() returns (uint256 t) { lltv = t; } catch { return 0; }
+        uint256 headroom = lltv > capBps ? lltv - capBps : 0;
+        return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad, headroom);
     }
 
     /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.
@@ -83,7 +93,8 @@ abstract contract LevBase {
     function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
         (bool open, uint256 e0, uint256 debtNow, uint256 target) = _targetInputs(lp);
         if (!open) return (false, 0);
-        return LevMath.debtDelta(e0, debtNow, target, _bandBps(e0));
+        Types.Pos memory pb = pos[lp];
+        return LevMath.debtDelta(e0, debtNow, target, _bandBps(e0, pb.venue, pb.targetLtvCapBps));
     }
 
     /// @dev The four inputs EVERY target comparison needs, resolved in ONE place. `debtDeltaToTarget`
@@ -184,7 +195,20 @@ abstract contract LevBase {
     ///      and that is REAL, not drift.
     /// @dev Order note: ETH checked `open` BEFORE reanchoring and BTC after. Immaterial —
     ///      `_reanchorIfReseated` already early-returns on a closed position.
-    function _rebalance(address lp, uint256 minOut) internal {
+    /// @param route AggregationRouter calldata for the volatile leg, computed OFF-CHAIN and passed
+    ///        in. §E357 — **BOTH DIRECTIONS NEED ONE**, which is why it lives here and not on the
+    ///        de-lever alone: `_leverUp` reaches `_stableToWethSor` → `_aggSwap` (stable→WETH) and
+    ///        `_delever` reaches the sell twin, so a rebalance that levers UP was equally unable to
+    ///        execute. Every keeper entrypoint previously passed nothing at all and `_aggSwap`
+    ///        refuses an empty route, so **the whole keeper path reverted `NoVolatileRoute()`
+    ///        regardless of any API key** — the volatile-route hole that has now been re-opened
+    ///        three times (`Interfaces.sol:303`).
+    /// ⛔ **THE CONTRACT DOES NOT DISCOVER A ROUTE AND MUST NOT LEARN TO.** Under v4 a pool is
+    ///        `(currency0, currency1, fee, tickSpacing, hooks)` rather than an address, so liquidity
+    ///        is fragmented across pools by hook and no pinned address can even NAME the deepest
+    ///        one — which is precisely the job an aggregator does. Discovery is off-chain; the
+    ///        contract's only defence is the oracle floor, which is unchanged and venue-agnostic.
+    function _rebalance(address lp, uint256 minOut, bytes memory route) internal {
         _reanchorIfReseated(lp);
         Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
@@ -192,8 +216,8 @@ abstract contract LevBase {
         address stable = p.venue.stable();
         (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
         if (deltaUsd != 0) {
-            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut);
-            else       _delever(p.venue, lp, stable, deltaUsd, minOut);
+            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, route);
+            else       _delever(p.venue, lp, stable, deltaUsd, minOut, route);
             emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
         }
         _syncRange(lp);
@@ -203,8 +227,8 @@ abstract contract LevBase {
 
     /// @dev Per-asset precondition. ETH has none; BTC requires WBTC collateral.
     function _requireRebalancable(Types.Pos memory p) internal view virtual {}
-    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
-    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut) internal virtual;
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, bytes memory route) internal virtual;
+    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, bytes memory route) internal virtual;
 
     function _syncRange(address lp) internal {
         if (RANGE != address(0)) { try ICore(RANGE).syncLev(lp) {} catch {} }
@@ -276,7 +300,7 @@ abstract contract LevBase {
     ///    or below the band is silently inert whatever the band happens to be.
     function setTargetLtv(uint64 capBps) external {
         (, uint256 e0,,) = _targetInputs(msg.sender);
-        _requireTargetLtv(capBps, e0);
+        _requireTargetLtv(capBps, e0, pos[msg.sender].venue);
         RangeLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
     }
 
@@ -303,8 +327,8 @@ abstract contract LevBase {
     ///         (`:196`), so the book was not inert — it armed only past about +6.3% above entry.
     ///         The band is now `∛(g/(C·K))`, so a position's floor moves with its own size and the
     ///         live cost of gas.
-    function _requireTargetLtv(uint64 capBps, uint256 collUsdWad) internal view {
-        if (capBps <= _bandBps(collUsdWad) || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
+    function _requireTargetLtv(uint64 capBps, uint256 collUsdWad, ILevVenue venue) internal view {
+        if (capBps <= _bandBps(collUsdWad, venue, capBps) || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
     }
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
