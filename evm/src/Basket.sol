@@ -40,6 +40,7 @@ contract Basket is ERC20, ERC6909,
 
     error BadBridgeMessage();
     event BridgeReceived(bytes32 indexed guid, address indexed to, uint amount, uint month);
+    event BridgeSent(bytes32 indexed guid, address indexed from, bytes32 to, uint amount);
     using SortedSetLib for SortedSetLib.Set;
     error InsufficientUnlocked();
 
@@ -154,6 +155,48 @@ contract Basket is ERC20, ERC6909,
         // address: the already-deployed Aux is the approve target, and this check makes the commitment atomic
         // with Basket's birth. This IS the deployer gate — no separate owner check needed anywhere else.
         require(ICollection(F8N).getApproved(ANGEL) == address(AUX), "angel");
+    }
+
+    /// Outbound to Solana: burn here, mint there.
+    ///
+    /// `_transferHelper(·, 0, ·)` draws from MATURE batches only, which is the
+    /// property that makes the round trip honest rather than a way to launder
+    /// a vintage: term-locked QU!D cannot leave, and what comes back arrives
+    /// at `currentMonth() + 1` like any fresh mint. Bridging therefore costs a
+    /// holder their maturity — it can never shorten a lock.
+    ///
+    /// `to` is a Solana address: 32 bytes, not an EVM address, and there is no
+    /// narrowing that would make it one.
+    ///
+    /// Amounts are rounded down to the 6-dp shared decimals the wire carries.
+    /// The dust is not burned — rounding first and burning the rounded figure
+    /// is what stops value being destroyed here that could never arrive there.
+    function bridgeToSolana(bytes32 to, uint amount)
+        external payable nonReentrant returns (bytes32) {
+        if (to == bytes32(0)) revert BadBridgeMessage();
+        uint amountSD = amount / SD_RATE;
+        if (amountSD == 0) revert BadBridgeMessage();
+
+        uint burned = _transferHelper(msg.sender, address(0), amountSD * SD_RATE);
+        if (burned == 0) revert InsufficientUnlocked();
+        // Send only what was actually burned, re-rounded: `_transferHelper`
+        // returns short when the mature batches cannot cover the request, and
+        // minting the requested figure on the far side would be unbacked.
+        uint sentSD = burned / SD_RATE;
+        if (sentSD == 0) revert InsufficientUnlocked();
+
+        bytes memory message = abi.encodePacked(to, uint64(sentSD));
+        bytes memory options = "";
+        MessagingFee memory fee = _quote(SOLANA_EID, message, options, false);
+        require(msg.value >= fee.nativeFee, "fee");
+
+        bytes32 guid = _lzSend(SOLANA_EID, message, options, fee, msg.sender).guid;
+        if (msg.value > fee.nativeFee) {
+            (bool ok,) = payable(msg.sender).call{value: msg.value - fee.nativeFee}("");
+            require(ok);
+        }
+        emit BridgeSent(guid, msg.sender, to, sentSD * SD_RATE);
+        return guid;
     }
 
     /// Inbound from Solana: QU!D that was burned there, re-minted here.
