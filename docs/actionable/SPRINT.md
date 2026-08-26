@@ -15185,6 +15185,36 @@ the `(uint,uint)` decode only ever meets `Core.collectFees()`, which really does
 `BtcLib.pullBtc` are that library's own delegatecall bodies, mirroring how `Quid`'s members call
 `RangeLib.pull`. The blocker was about CONTRACT members colliding by concept, not about library
 spellings — a blanket rename would have hit both, so they were protected explicitly.
+🔴 **CORRECTION TO MY OWN RATIONALE ABOVE, ASKED FOR BY THE OWNER (*"outOfRangeBtc was not merged?"*)
+— THE TWO LIBRARY BODIES ARE NOT THE SAME CASE, AND I TREATED THEM AS ONE.**
+I protected both `BtcLib.pullBtc` and `BtcLib.outOfRangeBtc` from the rename as "the library's own
+delegatecall bodies". **That is true of one of them and false of the other:**
+
+| pair | state |
+|---|---|
+| `pull` | ✅ **ALREADY MERGED.** `BtcLib.pullBtc` **does not exist** — `RangeLib.pull` is the single body and BOTH `Vault.pull:697` and `Quid.pull:1208` call it. ⇒ what I "protected" was a **STALE COMMENT** at `Vault.sol:693` reading *"Body in BtcLib.pullBtc"* directly above a line calling `RangeLib.pull`. **Fixed.** The comment survived its own subject, which is this file's most-repeated failure. |
+| `outOfRange` | 🟢 **NOT MERGED, AND CORRECTLY SO.** `BtcLib.outOfRangeBtc:299` is live and `Vault.outOfRange:675` calls it. |
+
+⇒ **WHY `outOfRange` CANNOT FOLD THE WAY `pull` DID — three differences, and the third is decisive:**
+1. **BTC is USD-funded only** — `if (a.token == address(0)) revert NotAStable();`. This is the same
+   asymmetry as `Quid.outOfRange` being `payable` and `Vault`'s not.
+2. **Price is PASSED, not read.** ETH runs `_rebalance()` inside the body; the library cannot.
+3. ⭐ **BTC DELIBERATELY DOES NOT INDEX THE ORDER.** ETH ends at `RangeLib.openOor(...)`, which writes
+   the position, pushes to `positions` **and inserts into `book.index` by trigger price**. BtcLib
+   writes and pushes and **stops**. That reads exactly like a missing line, and it is not:
+   `Vault.sweepOor` is `external pure returns (uint) { return 0; }` with a docblock saying
+   *"BTC orders are deliberately not indexed and never swept"* — every BTC order is a bid filling
+   INTO BTC, this range has no on-chain BTC delivery (settlement is a Lightning cooperative close),
+   so `_handleDelta` would hand the filled leg to a `deliverVolatile` returning 0 and **burn it**.
+   ⇒ Auto-filling would convert a loss the owner currently CHOOSES at `pull` into one the protocol
+   inflicts on its own schedule.
+⚠️ **SO THE MISSING `book.index.insert` IS THE §E258 ASYMMETRY, NOT A BUG — AND ANY FOLD MUST CARRY
+IT.** A merged body that indexed unconditionally would silently arm sweeping on a range that cannot
+deliver. **The residual dedup is three lines (write + push) and is not worth an `index` flag** on
+`openOor` under the owner's *"only if considerably cleaner"* bar.
+📌 **This stays live until native BTC delivery attributes the off-chain fill channel**, which is what
+`Vault.sweepOor`'s own last line says.
+
 📌 **AND IT SURFACED THE NEXT FOLD CANDIDATE:** `RangeLib.sol:140` records that `RangeLib.pull` and
 `BtcLib.pullBtc` are *"BYTE-IDENTICAL after normalising the storage PARAMETER"* — so the two library
 bodies are a pair too, one level below the one just cleared.
