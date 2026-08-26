@@ -122,10 +122,9 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
     }
     function _openLevOnly(address lp, uint sizeEth) internal {
-        uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), sizeEth);
-        lm.openLev(5000, ILevVenue(address(venue, new bytes[](0))), sizeEth, mins);
+        lm.openLev(5000, ILevVenue(address(venue)), sizeEth);
         vm.stopPrank();
     }
 

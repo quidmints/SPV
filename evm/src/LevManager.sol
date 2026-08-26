@@ -233,12 +233,12 @@ contract LevManager is LevBase {
     // ════════════════════════════ OPEN ════════════════════════════
 
     /// @notice Open an isolated leveraged position. The LP supplies `collWeeth` weETH (approved here) as
-    ///         equity; the loop borrows the venue stable, buys weETH via Curve + the converter, and supplies it
-    ///         back until LTV reaches `targetLtvBps`. `minWethOut[i]` bounds each loop's stable→WETH swap
-    ///         (off-chain quoted). `targetLtvBps` must sit inside `[1, TARGET_LTV_CAP_BPS]` (7500 bps = 75% LTV → up to ~4×).
-    /// @param routes one per lever-up RUNG (see the loop below). Empty is valid and is the normal
-    ///        case: an open starts at ZERO leverage, so no rung executes and no swap happens.
-    function openLev(uint64 targetLtvBps, ILevVenue venue, uint256 collWeeth, uint256[] calldata minWethOut, bytes[] calldata routes)
+    ///         equity, and that is ALL an open does — it takes NO debt and performs NO swap.
+    ///         `targetLtvBps` is the LP's max-leverage CAP, not a target to reach now: it must sit inside
+    ///         `[1, TARGET_LTV_CAP_BPS]` (7500 bps = 75% LTV → up to ~4×), and leverage is taken later by
+    ///         `rebalance` as the range actually sells. §E357 — this said "the loop borrows … until LTV
+    ///         reaches `targetLtvBps`" and described a ladder that could never run.
+    function openLev(uint64 targetLtvBps, ILevVenue venue, uint256 collWeeth)
         external nonReentrant
     {
         if (pos[msg.sender].open) revert AlreadyOpen();
@@ -274,24 +274,15 @@ contract LevManager is LevBase {
         // 1. Pull equity collateral (weETH OR WETH, per the venue) and supply as isolated collateral.
         _supplyCollFrom(venue, msg.sender, collWeeth);
 
-        // 2. Loop: borrow toward target, buy collateral, supply, until inside range (or MAX_LOOPS).
-        address stable = venue.stable();
-        for (uint256 i; i < MAX_LOOPS; i++) {
-            (bool levUp, uint256 needUsd) = debtDeltaToTarget(msg.sender);
-            if (!levUp || needUsd == 0) break;
-            uint256 minOut = i < minWethOut.length ? minWethOut[i] : 0;
-            // §E357 — one route per RUNG, because each rung borrows and swaps its own size. Beyond
-            // the supplied length the route is empty and `_aggSwap` refuses it, which is the correct
-            // failure: a rung with no route cannot execute, and pretending otherwise is the
-            // fallback this design removes. ⚠️ The ZERO-LEVERAGE open is unaffected — the IL target
-            // is 0 at entry, so `levUp` is false and this loop breaks on iteration 0 without ever
-            // reaching a swap. That is the path the SPA uses (it passes an empty `minWethOut`).
-            // Explicit, not a ternary: `routes[i]` is `calldata` and the empty default is `memory`,
-            // and mixing the two in one conditional does not type-check.
-            bytes memory rung;
-            if (i < routes.length) rung = routes[i];
-            _leverUpBuy(venue, msg.sender, stable, needUsd, minOut, rung);
-        }
+        // §E357 — **THE LEVER-UP LADDER IS DELETED, AND IT WAS UNREACHABLE BY CONSTRUCTION.**
+        // `_openPos` pins `ilBasisPx = entryPx`, and `debtDeltaToTarget` immediately re-reads the
+        // SAME TWAP — so `pxNow <= ilBasisPx`, `ilTargetBps` returns 0, and `debtDelta` answers
+        // `(false, 0)`. The loop broke on `i == 0` on EVERY path, always. That is not an accident of
+        // arguments; it is the design the next comment already states — an open is at ZERO leverage,
+        // and a ladder that runs once the target has moved is `rebalance`, which is where it lives.
+        // ⇒ `minWethOut` and the routes array went with it: both existed ONLY to feed rungs that
+        // never execute. Rule 1, and it is why this signature got SIMPLER while every other
+        // entrypoint gained a route.
         // No MIN-debt floor: the corrected design opens at ZERO leverage (IL target = 0 at entry) and levers
         // up only as the range sells. The MAX bound is the per-position LTV cap (≤ 7500 bps ≈ 4×), enforced by the target.
         emit Opened(msg.sender, address(venue), targetLtvBps);

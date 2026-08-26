@@ -290,10 +290,10 @@ export const LEV_MANAGER_ABI = [
   //    with `collWeeth` of the venue's collateral (weETH or WETH) already approved+pulled; the keeper then levers
   //    it to the LP's cap as the range sells. setTargetLtv picks the leverage level (≤ TARGET_LTV_CAP_BPS; 5000 =
   //    2× IL-neutral, higher = opt-in directional). closeLev fully unwinds (short first, then long) back to the LP.
-  // §E357 — `routes` is the volatile leg's router calldata, one per lever-up RUNG, built
-  //   off-chain. EMPTY is the normal case here: an open starts at ZERO leverage, so no rung
-  //   executes and no swap happens. `closeLev` always sells, so its route is NOT optional.
-  'function openLev(uint64 targetLtvBps, address venue, uint256 collWeeth, uint256[] minWethOut, bytes[] routes)',
+  // §E357 — `openLev` LOST two parameters rather than gaining one: an open takes no debt and
+  //   performs no swap, so the ladder `minWethOut`/`routes` fed was unreachable and is deleted.
+  //   `closeLev` always sells, so its route is NOT optional.
+  'function openLev(uint64 targetLtvBps, address venue, uint256 collWeeth)',
   'function setTargetLtv(uint64 capBps)',
   'function closeLev(uint256 minOut, bytes route)',
 ] as const

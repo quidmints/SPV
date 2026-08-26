@@ -283,11 +283,10 @@ contract LevYbRealProbe is AllesFixture {
         vm.deal(LP, 6 ether);
         vm.prank(LP); ETH.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
         deal(WEETH, LP, 5 ether);
-        uint[] memory mins = new uint[](8);
         // Open at the CURRENT real range price (entry pinned from ETH.rangeSqrtP); zero leverage at entry.
         vm.startPrank(LP);
         IERC20R(WEETH).approve(address(rlm), 5 ether);
-        rlm.openLev(5000, ILevVenue(address(rvenue, new bytes[](0))), 5 ether, mins); // cap = 2×
+        rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether); // cap = 2×
         vm.stopPrank();
         // Real rally: buy ETH out of the range so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);

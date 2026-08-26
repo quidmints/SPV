@@ -223,10 +223,9 @@ contract LevCascadeProbe is AllesFixture {
 
     /// Open at ZERO leverage against the already-established range position (entry pinned from ETH.rangeSqrtP).
     function _openLevOnly(address lp, uint sizeEth) internal {
-        uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), sizeEth);
-        lm.openLev(5000, ILevVenue(address(venue, new bytes[](0))), sizeEth, mins); // cap = 2x; opens at ZERO leverage
+        lm.openLev(5000, ILevVenue(address(venue)), sizeEth); // cap = 2x; opens at ZERO leverage
         vm.stopPrank();
     }
 
@@ -382,11 +381,10 @@ contract LevCascadeProbe is AllesFixture {
         vm.prank(lp); ETH.deposit{value: 5 ether}(0, lp);
         deal(WEETH, lp, 5 ether);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(rogue), true);
-        uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), 5 ether);
         vm.expectRevert(VenueNotAllowed.selector);
-        lm.openLev(5000, ILevVenue(address(rogue, new bytes[](0))), 5 ether, mins);
+        lm.openLev(5000, ILevVenue(address(rogue)), 5 ether);
         vm.stopPrank();
     }
 
@@ -760,10 +758,9 @@ contract LevCascadeProbe is AllesFixture {
         // (A): ONE deposit — mint weETH + openLev. Deliberately NO ETH.deposit (the LP has no separate range).
         deal(WEETH, lp, 5 ether);
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        uint[] memory mins = new uint[](8);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), 5 ether);
-        lm.openLev(5000, ILevVenue(address(venue, new bytes[](0))), 5 ether, mins);
+        lm.openLev(5000, ILevVenue(address(venue)), 5 ether);
         vm.stopPrank();
 
         // E0 = the deposit itself (weETH→ETH via the ether.fi rate), NOT a separate range position (there is none).
@@ -802,10 +799,9 @@ contract LevCascadeProbe is AllesFixture {
         _setupLev();
         EV.setLevManager(address(lm));
         AUX.setVaultHealth(address(venue), true);   // real incident flag (AUX owner == this test)
-        uint256[] memory mins = new uint256[](0);
         vm.prank(lps[0]);
         vm.expectRevert(LevMath.VenueBlocked.selector);
-        lm.openLev(5000, ILevVenue(address(venue, new bytes[](0))), 5 ether, mins);
+        lm.openLev(5000, ILevVenue(address(venue)), 5 ether);
     }
 
     // ═════════════════════════ V1b — PRE-UNIFICATION CONTROL ═════════════════════════

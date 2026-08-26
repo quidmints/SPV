@@ -65,6 +65,13 @@ contract BtcLevManager is LevBase {
     ///         sourcing). Matches LevManager.init (allowlist so a WBTC venue can sit beside the vBTC one).
     function init(address range, address flash, address[] calldata venues) external {
         if (msg.sender != GOV || venuesFrozen) revert BadAuth();
+        // §E357 — THE PROVIDER IS NOT OPTIONAL HERE EITHER. Without it `_delever` fell back to a
+        // withdraw-THEN-repay ordering, which raises LTV mid-operation — and under §POOL-VENUE a
+        // liquidation hits EVERY LP pro-rata, so that hazard is no longer the one LP's to carry.
+        // Refusing zero makes the fallback unconstructible instead of merely unused (rule 17),
+        // which is what lets it be deleted rather than kept "for safety". `init` is one-shot and
+        // pins the venue allowlist in the same call, so no position can predate this check.
+        if (flash == address(0)) revert BadAuth();
         venuesFrozen = true; RANGE = range; flashProvider = flash;
         for (uint i; i < venues.length; i++) {
             address v = venues[i];
@@ -249,12 +256,13 @@ contract BtcLevManager is LevBase {
     function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, bytes memory route)
         internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut, route); }
 
-    /// @dev Repay-FIRST when a flash provider is pinned (always health-safe); otherwise the graceful
-    ///      withdraw-then-repay fallback. The ETH range has no fallback: its provider is not optional.
+    /// @dev Repay-FIRST, always. §E357 — the `flashProvider == 0` fallback that stood here is DELETED
+    ///      along with `_deleverWbtc`: `init` now refuses a zero provider, so the branch was
+    ///      unreachable, and what it fell back to was the withdraw-THEN-repay ordering the flash
+    ///      exists to dissolve. The ETH range never had a fallback; the two now match.
     function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, bytes memory route)
         internal override {
-        if (flashProvider != address(0)) _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut, route);
-        else                             _deleverWbtc(venue, lp, stable, deltaUsd, minOut, route);
+        _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut, route);
     }
 
 
@@ -270,11 +278,6 @@ contract BtcLevManager is LevBase {
     ///      DIRECT — health-safe at the low LTV the IL target holds (opens at 0, levers as IL accrues). A near-liq
     ///      flash-repay-first hardening (mirror `LevManager._deleverFlash`) is the follow-on if the venue's withdraw
     ///      LTV-gate ever blocks the pre-repay withdraw. Swap slippage ⇒ slightly under-target; next tick finishes.
-    function _deleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut, bytes memory route) internal {
-        (uint pulled, uint repaid) = LevMath.deleverWbtc(venue, lp, stable, repayUsd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), route));
-        if (pulled > 0) { emit Withdrawn(lp, pulled); emit Repaid(lp, repaid); }       // body + oracle floor in LevMath (EIP-170)
-    }
-
     /// @dev FLASH-repay-first de-lever: flash `repayUsd`-worth stable from the provider; the callback repays FIRST
     ///      (LTV drops ⇒ withdraw always health-safe — kills the direct path's near-liq wall), then withdraws freed
     ///      WBTC → Curve→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.

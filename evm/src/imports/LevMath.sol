@@ -53,6 +53,47 @@ library LevMath {
         return (debt * 10_000) / collValue;
     }
 
+    /// @dev    §DERIVED-BAND — the body of `LevBase._bandBps`, moved here so it lands in this library
+    ///         rather than being inlined into both managers (see the note on `noTradeBandBps`). The
+    ///         caller's immutables are parameters because a delegatecalled library cannot read them.
+    ///
+    ///         `K` comes through the pinned range in the same `try/catch` idiom as
+    ///         `LevBase._rangePrice()`: the range is genuinely unset between deploy and `init`, and a
+    ///         revert there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance,
+    ///         which is the fail-open direction argued at `noTradeBandBps`.
+    /// @param aux         the manager's `AUX`, for the ETH/USD TWAP that prices gas.
+    /// @param range       the pinned range, source of `kLvrWad()`. Zero ⇒ unmeasured ⇒ 0.
+    /// @param twapWindow  the SAME window the IL target is priced with, so the band cannot be
+    ///                    widened by a spot print the target ignores.
+    /// @param gasRebalance measured gas for one rebalance; the live PRICE of it is `block.basefee`.
+    /// @param collUsdWad  position size, USD 1e18.
+    /// @param headroomBps `venue.liqThresholdBps() − targetLtvCapBps`, resolved by the caller because
+    ///        the VENUE is the caller's to know. §POOL-VENUE — see `noTradeBandBps`.
+    function bandBpsFor(
+        address aux,
+        address range,
+        uint32 twapWindow,
+        uint256 gasRebalance,
+        uint256 collUsdWad,
+        uint256 headroomBps
+    ) public view returns (uint256) {
+        if (range == address(0)) return 0;
+        uint256 kWad;
+        try ICore(range).kLvrWad() returns (uint256 k) { kWad = k; } catch { return 0; }
+        if (kWad == 0) return 0;
+        // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18.
+        uint256 ethUsd = IAux(aux).getTWAPforAsset(IAux(aux).WETH(), twapWindow);
+        uint256 gasUsdWad = (block.basefee * gasRebalance * ethUsd) / 1e18;
+        return noTradeBandBps(gasUsdWad, collUsdWad, kWad, headroomBps);
+    }
+
+    /// @dev `public`, NOT `internal`, and that is an EIP-170 decision rather than a style one.
+    ///      `internal` INLINES the body into every inheritor, and `LevBase`'s inheritors are
+    ///      `LevManager` and `BtcLevManager` — `LevManager` being the binding contract in this tree
+    ///      (986 bytes spare at the last measurement). A `public` library body is delegatecall-linked
+    ///      and lands in `LevMath` (4,372 spare), which is the convention this file already states
+    ///      for exactly this reason. ⚠️ Re-measure with `tools/check-contract-sizes.py`; that margin
+    ///      is a reading with a timestamp, not a fact.
     /// @notice The no-trade band around the IL target, DERIVED — half-width in LTV bps.
     /// @dev    §DERIVED-BAND — replaces `LevBase.RANGE_BPS = 300`, whose own docstring said what it
     ///         was supposed to be ("before a rebalance is worth its gas") and then froze it as a
@@ -97,47 +138,6 @@ library LevMath {
     /// @param collUsdWad position size, USD 1e18.
     /// @param kLvrWad    the range's LVR coefficient (WAD), `QuidLib.kLvrWad`.
     /// @notice The band for a live position — resolve `K` and the gas price, then derive.
-    /// @dev    §DERIVED-BAND — the body of `LevBase._bandBps`, moved here so it lands in this library
-    ///         rather than being inlined into both managers (see the note on `noTradeBandBps`). The
-    ///         caller's immutables are parameters because a delegatecalled library cannot read them.
-    ///
-    ///         `K` comes through the pinned range in the same `try/catch` idiom as
-    ///         `LevBase._rangePrice()`: the range is genuinely unset between deploy and `init`, and a
-    ///         revert there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance,
-    ///         which is the fail-open direction argued at `noTradeBandBps`.
-    /// @param aux         the manager's `AUX`, for the ETH/USD TWAP that prices gas.
-    /// @param range       the pinned range, source of `kLvrWad()`. Zero ⇒ unmeasured ⇒ 0.
-    /// @param twapWindow  the SAME window the IL target is priced with, so the band cannot be
-    ///                    widened by a spot print the target ignores.
-    /// @param gasRebalance measured gas for one rebalance; the live PRICE of it is `block.basefee`.
-    /// @param collUsdWad  position size, USD 1e18.
-    /// @param headroomBps `venue.liqThresholdBps() − targetLtvCapBps`, resolved by the caller because
-    ///        the VENUE is the caller's to know. §POOL-VENUE — see `noTradeBandBps`.
-    function bandBpsFor(
-        address aux,
-        address range,
-        uint32 twapWindow,
-        uint256 gasRebalance,
-        uint256 collUsdWad,
-        uint256 headroomBps
-    ) public view returns (uint256) {
-        if (range == address(0)) return 0;
-        uint256 kWad;
-        try ICore(range).kLvrWad() returns (uint256 k) { kWad = k; } catch { return 0; }
-        if (kWad == 0) return 0;
-        // basefee × gas = wei; × ETH/USD ÷ 1e18 = USD 1e18.
-        uint256 ethUsd = IAux(aux).getTWAPforAsset(IAux(aux).WETH(), twapWindow);
-        uint256 gasUsdWad = (block.basefee * gasRebalance * ethUsd) / 1e18;
-        return noTradeBandBps(gasUsdWad, collUsdWad, kWad, headroomBps);
-    }
-
-    /// @dev `public`, NOT `internal`, and that is an EIP-170 decision rather than a style one.
-    ///      `internal` INLINES the body into every inheritor, and `LevBase`'s inheritors are
-    ///      `LevManager` and `BtcLevManager` — `LevManager` being the binding contract in this tree
-    ///      (986 bytes spare at the last measurement). A `public` library body is delegatecall-linked
-    ///      and lands in `LevMath` (4,372 spare), which is the convention this file already states
-    ///      for exactly this reason. ⚠️ Re-measure with `tools/check-contract-sizes.py`; that margin
-    ///      is a reading with a timestamp, not a fact.
     /// @param headroomBps distance from the LP's LTV cap to the venue's liquidation threshold,
     ///        `liqThresholdBps() − targetLtvCapBps`. §POOL-VENUE — **THIS PARAMETER EXISTS BECAUSE
     ///        LIQUIDATION IS NO LONGER PER-LP.** `LevVenueBase:117` records the change: there is ONE
@@ -321,26 +321,14 @@ library LevMath {
         venue.supply(lp, wbtcBought);
     }
 
-    /// @notice (WBTC-mode) De-lever: withdraw `repayUsd`-worth WBTC → reverse-SOR to stable → repay (clamp-before-
-    ///         transfer). ON-CHAIN oracle floor (anti-sandwich). DIRECT — health-safe at the IL-target LTV. Returns
-    ///         (pulled, repaid) for the manager to emit.
-    /// @notice §V-R1-MIN RESTORED — withdraw WBTC collateral, sell on the pinned pool, repay.
-    function deleverWbtc(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, WbtcCfg memory cfg)
-        public returns (uint256 pulled, uint256 repaid) {
-        if (repayUsd == 0) return (0, 0);
-        uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);
-        pulled = venue.withdraw(lp, repayUsd * 1e18 / px);
-        if (pulled == 0) return (0, 0);
-        {
-            uint256 floorStable = _fromUsd(cfg.aux, stable, pulled * px / 1e18) * (10_000 - cfg.slipBps) / 10_000;
-            if (minOut < floorStable) minOut = floorStable;
-        }
-        uint256 got = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
-        { uint256 debt = venue.debtOf(lp); if (got > debt) got = debt; }   // never over-repay
-        if (got == 0) return (pulled, 0);
-        IERC20Min(stable).transfer(address(venue), got);
-        repaid = venue.repay(lp, got);
-    }
+    // §E357 — `deleverWbtc` (the DIRECT, non-flash WBTC de-lever) is DELETED. Its only caller was
+    // `BtcLevManager._deleverWbtc`, which existed for the `flashProvider == address(0)` branch;
+    // `init` now refuses a zero provider, so both went. What it did was withdraw collateral and THEN
+    // sell to repay — the withdraw-before-repay ordering the flash path exists to dissolve, and one
+    // that under §POOL-VENUE would raise the LTV of a position every LP shares.
+    // ⚠️ NOT a rule-1 deletion of something merely unused: the STATE that reached it is now
+    // unconstructible, which is what makes deleting it safe rather than merely tidy (rule 17).
+
 
     /// @notice (WBTC-mode) FLASH-repay-first de-lever settle (mirror of LevManager._deleverSettle) — runs inside the
     ///         manager's `onMorphoFlashLoan` callback with `assets` flashed stable in hand: repay the LP's debt FIRST

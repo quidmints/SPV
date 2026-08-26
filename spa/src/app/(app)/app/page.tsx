@@ -90,8 +90,8 @@ const enc = {
   // LevManager (YB leverage overlay, #65). Full sigs (merged iface has overloads).
   // openLev passes an EMPTY minWethOut[] — the open borrows nothing (opens at zero
   // leverage); the keeper levers up afterward, so there's no swap to floor here.
-  openLev:      (targetLtvBps: number, venue: string, coll: bigint, minWethOut: bigint[], routes: string[] = []) =>
-                iface.encodeFunctionData('openLev(uint64,address,uint256,uint256[],bytes[])', [targetLtvBps, venue, coll, minWethOut, routes]),
+  openLev:      (targetLtvBps: number, venue: string, coll: bigint) =>
+                iface.encodeFunctionData('openLev(uint64,address,uint256)', [targetLtvBps, venue, coll]),
   setTargetLtv: (capBps: number) => iface.encodeFunctionData('setTargetLtv(uint64)', [capBps]),
   closeLev:     (minOut: bigint, route: string = '0x') => iface.encodeFunctionData('closeLev(uint256,bytes)', [minOut, route]),
   levCap:       () => iface.encodeFunctionData('TARGET_LTV_CAP_BPS', []),
