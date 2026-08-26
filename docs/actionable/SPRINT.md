@@ -16057,3 +16057,83 @@ answers "how big is the document", not "how much is left". **Do not quote 170, o
 The band, the sell-leg guard and §C25. **Rule 10 wants one per run for attribution** — if the first
 run comes back red on the money path, those three are the candidates, in that order of blast radius.
 Nothing in this pass has been built or run; that is deliberate and the owner set it.
+
+---
+
+## 🔴🔴 §E357-VOLATILE-ROUTE — **THE HOLE THAT FORCED THE V3 RESTORE IS OPEN A THIRD TIME, AND NO API KEY WOULD CLOSE IT** (2026-08-26)
+
+Owner asked what could substitute for 1inch without an API key, then *"we should be able to find the
+best route onchain directly"*, then *"the mev protection was important"*. Answering those needed four
+measurements, and each one moved the answer.
+
+### 1. 🔴 **THE KEEPER CANNOT SUPPLY A ROUTE AT ALL — SO THE KEY WAS NEVER THE BLOCKER**
+
+`§ROUTE-BLOCKED-24` says the unblock is *"a 1inch key … a credential, not code"*. **It is code.**
+`rebalance(address,uint256)` and `cascadeDelever(address[],uint256[])` **take no route parameter**,
+and `_delever` passes an empty one literally:
+`_deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, "")`. Only `deleverOneRouted` carries
+bytes. ⇒ **`_aggSwap` reverts `NoVolatileRoute()` on every keeper path regardless of any key**, and
+`fetch_1inch_route.py` — the `vm.ffi` bridge built for this — has **zero callers in `evm/test`**.
+⛔ **So neither of that row's "two unblocks" closes it.** A key with no call site and a call site with
+no route parameter are the same nothing.
+⭐ **AND `Interfaces.sol:303` ALREADY WARNED THIS WOULD HAPPEN:** the v3 router was cut (`9eef279a`),
+**restored days later** (`e4f9c512`) *"because deleting the only volatile route re-opened the hole"*,
+then cut again under §C2.1 — *"and this time the replacement … landed FIRST."* **The replacement
+landed on ONE entrypoint out of three.** *"A tombstone is only true while nothing needs what it
+buried"*, and something needs it.
+
+### 2. ✅ **THE MEV PROTECTION IS OURS AND IS VENUE-INDEPENDENT — SWITCHING VENUE COSTS NOTHING**
+
+Checked because the owner flagged it. `SELL_SLIP_BPS = 100` (1%) floors the fill at
+`oracleValue · (10_000 − maxSlippageBps) / 10_000` — **derived from the ORACLE, never from a venue
+quote** — and `_aggSwap` enforces it on the **measured balance delta**
+(`if (out < minOut) revert Slippage()`). `LevCascade.test_MEV_OracleFloorRejectsSandwich` pins it.
+🔑 **AND 1inch ADDS NO MEV PROTECTION TODAY:** the route is executed by our own contract inside the
+keeper's ordinary public transaction (`ONEINCH_ROUTER.call(route)`) — there is no Fusion and no
+private orderflow. ⇒ **aggregation buys basis points; the floor is what stops a sandwich, and it
+survives any venue change.**
+⚠️ **The floor protects VALUE, NOT LIVENESS** — a sandwicher can push a pool past the floor to force
+a revert and deny a de-lever. That is equally true today, so it is not a regression, but it is the
+real argument for private orderflow on the crash path. **Booked separately; it is not route
+discovery.**
+
+### 3. 📊 **DEPTH, MEASURED LIVE — CURVE IS NOT AN OPTION FOR WETH↔STABLE AND THE OWNER'S "SO THIN" WAS RIGHT**
+
+Mainnet balances, read directly (not quoted from memory):
+
+| venue | WETH | native ETH | USDC |
+|---|---:|---:|---:|
+| Curve TriCryptoUSDC | 0 | **633** | **1,588,787** |
+| Curve TriCrypto2 | 1,535 | 0 | 0 (USDT pool) |
+| Curve TriCRV | 0 | 361 | 0 (crvUSD pool) |
+| **Uniswap V3 0.05%** | **11,077** | — | **79,228,591** |
+| Balancer V2 vault (ALL pools) | 1,173 | — | 290,931 |
+| `ETHERFI_CURVE_POOL` (weETH/WETH) | 2,207 | — | — |
+
+⇒ Curve's WETH↔USDC side is **~1/17th of V3's ETH and ~1/50th of its USDC**; Balancer's ENTIRE vault
+holds less WETH than one Curve pool. **I had recommended Curve before measuring and the measurement
+refuted it** — the weETH↔WETH leg is already direct Curve (`LevMath:513`, no API), so only WETH↔stable
+was ever in question, and that is the leg Curve cannot serve. **Depth is scarcest in a cascade, which
+is exactly when this path runs.**
+
+### ⇒ 4. THE SHAPE OF THE FIX — **A DEFAULT VENUE INSIDE `_delever`, NOT A CALLER ARGUMENT**
+
+Route DISCOVERY was never load-bearing: `minOut` comes from the oracle and bounds the fill on a
+balance delta, so the guarantee is *"no worse than the floor"*, not *"optimal"*. What is needed is one
+deep venue reachable without an off-chain call:
+- **1inch `unoswap`** — calls a real Uniswap pool directly from the ALREADY-PINNED `ONEINCH_ROUTER`
+  with an on-chain-encodable `dex` word. No solver, no new pinned address, and no v3 interface in our
+  source. ⚠️ **V6's `dex`-word bit layout must be verified against the deployed router** — a wrong
+  encoding reverts identically to the empty route we have now, so verify on a fork, do not guess.
+- **SwapRouter02 `exactInputSingle`** — same depth, and `Interfaces.sol:308` records why it is cheap
+  for us: *"callers here only INITIATE swaps, so `IUniswapV3SwapCallback` … is deliberately not
+  inherited"* — the router owns the callback. Reopens the "no v3" question the owner settled, which is
+  why `unoswap` is worth trying first.
+- **On-chain best-of-N** (quote a small pinned set via `get_dy` / a static quoter, take the max) is
+  real routing with no API — but it is an optimisation on top of either of the above, not a
+  prerequisite. ⚠️ `SOR.sol` is a TOMBSTONE; rebuilding one is re-adding deleted code and needs the
+  owner's word.
+
+▶️ **Whatever is chosen must be the DEFAULT inside `_delever`**, with `deleverOneRouted` kept as the
+optional aggregator override for when a key does exist. That is what makes the keeper work, and it is
+what §C2.1 left undone.
