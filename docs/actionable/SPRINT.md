@@ -15914,3 +15914,69 @@ on `ocLpAuth`, a parameter §E183 **deleted**; and it POSTs to `/open-channel`, 
 not serve** (routes are `/swap-in`, `/swap-in/onchain`, `/lp/onboard`, `/lp/withdraw`, `/lp/consent`,
 `/lp/heartbeat`). ⇒ It goes when the SPA is reworked — not before, since the SPA is phase-2 work and
 possibly stale anyway.
+
+---
+
+## 📊 §E356-REMAINDER — **WHAT IS ACTUALLY LEFT, MEASURED. THE OPEN COUNT IS NOT THE WORK COUNT, AND FOUR OWNER DECISIONS ARE THE REAL BLOCKER.** (2026-08-26)
+
+Worked §E326's ordering (A → C → D → B) and then kept going row by row. **Ten open rows were opened
+and read against the code. Only three were open work.** That hit rate is the finding — it is the same
+one §E324 measured from the other direction ("96 of 227 imply no code change") and it has not been
+acted on since.
+
+### The file, counted mechanically
+
+| | count |
+|---|---|
+| `##` sections | **313** |
+| marked open (🔴🟠⛔) | 95 |
+| marked closed (✅🟢) | 99 |
+| **archival by title** (PART x / session / HANDOFF / DIGEST / SCHEDULE / "what landed" / process notes) | **54** |
+| struck through (`~~`) | 6 |
+
+⚠️ **The 54 are not work and never were** — they are session records. A count that includes them
+answers "how big is the document", not "how much is left". **Do not quote 170, or 227, or 95.**
+
+### What ten opened rows actually contained
+
+| outcome | rows |
+|---|---|
+| **ALREADY DONE, row stale** | D2 `#21` (`NotPubkeyHash` ×20 — `mkAuth` derives `lpEth` now, which is why `OpenChannelE2E` is 3/3) · D2 `#7` (§LAZY-OPEN landed, and the unconditional-deferral alternative was MEASURED worse) · `#22` gate (built, bound, read — only its PRODUCER was missing) · STARTED-NOT-FINISHED item 1 (`refillNeeded`'s "wire or delete" was answered AT the site) · item 2 (the file it names was folded away) · **D's headline** (`grep -rc V3` returns 73 and 25 of `LevVenueBase`'s are **Aave**; Uniswap v3 is ONE comment in all of `src/`) · **C's first half** (closed 2026-08-25; the §E326 table predates it by two days) |
+| **LANDED THIS PASS** | **A** (band derived, `∛(g/(C·K))`) · **§E278 half one** (unmeasured variance no longer prices a toxic sell at zero — live on BTC) · **§C25** (the exit tail: a pool-wide balance subtracted from an LP-sized slice) · **§C23** (two dead feed writes) · **`#22` producer side** (`set_tip` + `/lp/heartbeat`; the gate could not be switched on without them) · one of four fold blockers |
+| **BLOCKED ON A DECISION** | §E352 · OOR skew · C17 eMode · the three remaining fold renames |
+
+### 🔴 THE FOUR DECISIONS, IN ONE PLACE — this is the critical path, not the row count
+
+1. **§E352 — the flush branch.** `skewWad`'s sentinel says *unmeasured ⇒ charge the ceiling*,
+   `_maxWellSkew` says *unmeasured ⇒ charge nothing*, and branch ORDER picks the second. A free drain
+   at σ²=0. Both routes change what users are charged; making the state unconstructible instead trades
+   a value leak for a liveness stop. **Instrument already armed** (`assertEq(flush, 0)`), so whichever
+   way it lands turns red on its own.
+2. **OOR skew.** The mechanic is real (a resting fill moves `POOLED_*` identically and pays nothing —
+   *"two paths, identical inventory effect, one charge"*) but it is a maker discount, not an exploit.
+   The row's own answer: charge the **inventory** term without the **immediacy** term. Same axis as
+   §E276/§E312, so deciding it once settles both.
+3. **C17 eMode.** `setUserEMode` has **zero occurrences** in `src`, `test` and `script` — so the Aave
+   leg runs at BASE LTV and "eMode's 93% beats Morpho's 94.5%" describes a configuration **never
+   made**. Turning it on re-prices every existing position's health factor, and C17-a's real change is
+   keying `escrowOf` on the (collateral, stable) PAIR.
+4. **The three fold renames** (`collectBtcFees`/`outOfRangeBtc`/`pullBtc`). Blocked on one factual
+   question, not on taste: `ICore` already declares both unsuffixed names with **`Core`'s** shapes, so
+   renaming `Vault`'s copies makes a third claimant. Answer *"is a `Vault` ever decoded at
+   `SwapLib.sol:2629`?"* and all three become mechanical.
+
+### 📌 Two stale claims corrected in passing, both load-bearing for planning
+
+- **1inch is WIRED.** SPRINT says §V-R1 was withdrawn and the volatile legs *"route pinned Uniswap
+  V3"*. `LevMath.sol:606` calls `ONEINCH_ROUTER` with approve-and-reset on both paths, there is a real
+  `tools/fetch_1inch_route.py`, and `CurveObserverIsCheapAndSane.t.sol` exercises live 1inch on a fork.
+  **Both halves of that sentence are wrong, and workstream D is smaller than it reads.**
+- **The fork suite was never broken** — `ETH_RPC_URL` was simply absent from `evm/.env`. Workstream E's
+  "39 regressions + 23 never-green" has **never been measured on a working endpoint**. Re-measure
+  before treating any of them as defects.
+
+### ⚠️ THREE UNBUILT MONEY-PATH CHANGES ARE IN FLIGHT
+
+The band, the sell-leg guard and §C25. **Rule 10 wants one per run for attribution** — if the first
+run comes back red on the money path, those three are the candidates, in that order of blast radius.
+Nothing in this pass has been built or run; that is deliberate and the owner set it.
