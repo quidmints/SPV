@@ -13,12 +13,13 @@
 //!
 //! The native async BTC↔stable acquirer was REMOVED (#8): that rail (#59/#74) was never wired, and WBTC-mode
 //! positions rebalance fully on-chain via `rebalance_wbtc` (atomic). A native position (should one exist) now
-//! fails SAFE inline in do_delever/do_relever — a loud no-op → the venue's ISOLATED liquidation. The on-chain
+//! fails SAFE inline in do_delever/do_relever — a loud no-op → the venue's liquidation. The on-chain
 //! legs live behind [`BtcLevKeeperEvm`], mocked in the unit tests.
 //!
 //! Fault-tolerance mirrors the ETH tick: one LP's failing read/leg must never abort the pass (a persistently
 //! reverting LP can't stall the no-venue-liquidation guarantee for the rest of the book), and every un-sourced
-//! de-lever `warn!`s loudly (the position falls to the venue's OWN isolated liquidation — that LP only, never
+//! de-lever `warn!`s loudly (the position falls to the venue's OWN liquidation — §POOL-VENUE: pooled, so
+//! pro-rata across the WHOLE book, never
 //! the basket).
 
 use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr};
@@ -74,7 +75,7 @@ pub trait BtcLevKeeperEvm {
 // (2026-07-22, #8): the native channel-vBTC rail (#59/#74) was never wired and WBTC-mode positions rebalance
 // fully on-chain via `rebalance_wbtc` (atomic, no async legs), so the acquirer indirection was dead. A native
 // position (should one exist) now fails SAFE INLINE in do_delever/do_relever — a loud no-op that lets it fall
-// to the venue's ISOLATED liquidation — instead of routing through a bailing stub.
+// to the venue's liquidation (pooled ⇒ pro-rata, §POOL-VENUE) — instead of routing through a bailing stub.
 
 #[allow(dead_code)] // reserved for the #59/#74 native rail
 /// USD(1e18) → vBTC sats(8-dec), given `px` = USD(1e18) per 1 BTC. `sats = usd · 1e8 / px`. Saturates to 0
@@ -166,7 +167,8 @@ pub async fn btc_tick<E: BtcLevKeeperEvm>(
         match timeout(LEG_TIMEOUT, do_delever(evm, *lp, true)).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => tracing::warn!(?lp, error = %e,
-                "URGENT btc de-lever could not be sourced; position falls to the venue's ISOLATED liquidation"),
+                "URGENT btc de-lever could not be sourced; position falls to the venue's POOLED liquidation \
+                 (hits every LP pro-rata, not just this one)"),
             Err(_) => tracing::error!(?lp, timeout_s = LEG_TIMEOUT.as_secs(),
                 "URGENT btc de-lever TIMED OUT; moving on so a hung RPC can't stall the rest of the safety pass"),
         }
@@ -193,7 +195,7 @@ pub async fn btc_tick<E: BtcLevKeeperEvm>(
 /// NATIVE de-lever — needs the async BTC↔stable rail (#59/#74), which is NOT wired (WBTC-mode positions never
 /// reach here; they de-lever atomically via `rebalance_wbtc`). So this is the INLINED fail-safe: a native
 /// position can't be sourced, so it's a LOUD no-op (leave full collateral on the venue) and lets a near-liq
-/// position fall to the venue's ISOLATED liquidation — the same outcome the removed acquirer stub produced,
+/// position fall to the venue's POOLED liquidation — the same outcome the removed acquirer stub produced,
 /// without the indirection. `debt_delta` is still read so the log distinguishes "at target" from "unsourceable".
 async fn do_delever<E: BtcLevKeeperEvm>(evm: &E, lp: LpAddr, urgent: bool) -> anyhow::Result<()> {
     let (lev_up, amount_usd) = evm.debt_delta(lp).await?;
@@ -202,7 +204,7 @@ async fn do_delever<E: BtcLevKeeperEvm>(evm: &E, lp: LpAddr, urgent: bool) -> an
     }
     if urgent {
         tracing::error!(?lp, "URGENT native btc de-lever needs the #59/#74 async rail (unwired); \
-            position falls to the venue's ISOLATED liquidation");
+            position falls to the venue's POOLED liquidation (hits every LP pro-rata)");
     } else {
         tracing::warn!(?lp, "native btc de-lever needs the #59/#74 async rail (unwired); skipping this tick");
     }
@@ -322,8 +324,18 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
             })()
             .unwrap_or((vliq_cfg, false)); // read failure ⇒ treat as native (fail-safe to the proven vBTC legs)
             let il_ltv: u32 = word_to_uint(&evm.eth_read(bm, "ilLtvBps(address)", Some(&a))?, "ilLtvBps")?;
+            // §POOL-VENUE — see `PositionView::pool_ltv_bps`. Falls back to this LP's own LTV on a
+            // read failure (the old behaviour), never to zero.
+            // ⚠️ `.ok()` ON THE READ ITSELF, NOT ONLY ON THE DECODE. Written with `?` first, a
+            // node that cannot serve `poolLtvBps()` (an older deployment, a reverting call)
+            // would abort the WHOLE snapshot rather than degrade — turning a fail-safe into a
+            // fail-stop. Caught by the anvil e2e, whose target had no such selector.
+            let pool_ltv: u32 = evm.eth_read(bm, "poolLtvBps()", None).ok()
+                .and_then(|w| word_to_uint::<u32>(&w, "poolLtvBps").ok())
+                .unwrap_or(cur);
             Ok(PositionView {
                 current_ltv_bps: cur,
+                pool_ltv_bps: pool_ltv,
                 il_ltv_bps: il_ltv, // debt/E0 (BtcLevManager.ilLtvBps) — IL-track basis, distinct from cur (venue safety)
 
                 target_ltv_bps: tgt,
@@ -453,6 +465,10 @@ mod tests {
     fn base() -> PositionView {
         PositionView {
             current_ltv_bps: 3000,
+            // Fixtures mirror the per-LP LTV into the pool figure, so every PRE-EXISTING case
+            // keeps its old meaning: `max(pool, lp)` reduces to the per-LP gate it replaced.
+            // The pooled-risk cases set them APART deliberately.
+            pool_ltv_bps: 3000,
             il_ltv_bps: 3000,
             target_ltv_bps: 3000,
             venue_liq_ltv_bps: 8000,

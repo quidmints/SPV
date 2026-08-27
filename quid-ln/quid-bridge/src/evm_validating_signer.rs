@@ -51,7 +51,12 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // --- SPV gateway ---
     "addBlockHeaderBatch(bytes[])",
     // --- ETH leverage keeper (LevManager / Quid / Rover) ---
-    "rebalance(address,uint256,bytes)",
+    // §C2.1 — the third argument is a POOL WORD (`uint256`), not `bytes` calldata. An allowlist
+    // entry is matched by SELECTOR, so a stale signature here does not merely read wrong: it
+    // computes a different selector and the signer refuses every keeper tx. Fails CLOSED, which
+    // is the right direction and is also why it can sit broken without anyone noticing until the
+    // keeper goes quiet.
+    "rebalance(address,uint256,uint256)",
     "syncLev(address)",
     "protectFromQuid(address,uint256)",
     // (§E247) `compound(address)` was NEVER listed while `lev_keeper.rs` has always built it —
@@ -69,10 +74,10 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // §E357 — the volatile leg now carries an off-chain-built route, so BOTH batch
     // selectors gained a `bytes[]`. This list and the keeper's builder must move together:
     // a stale entry here makes the signer REJECT every call the keeper sends.
-    "cascadeDelever(address[],uint256[],bytes[])",
+    "cascadeDelever(address[],uint256[],uint256[])",
     // (§E247) `rebalanceMany` — the #84 whole-book batch (`LevManager:354`), sent by
     // `lev_keeper.rs` since the central rebalancer landed and never listed here.
-    "rebalanceMany(address[],uint256[],bytes[])",
+    "rebalanceMany(address[],uint256[],uint256[])",
     // --- BTC leverage keeper (BtcLevManager) ---
     // §SLOP: `syncLevBTC(address)` was DELETED with the BTC suffix (`Vault.sol:536` — "one name
     // across both ranges"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist
@@ -93,7 +98,7 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // (`lev_keeper_btc.rs`) kept building the routeless form, so every WBTC-mode atomic
     // rebalance was again refused at the signing chokepoint. The gate that catches this
     // class either way: `tools/check-signer-allowlist.py`.
-    "rebalanceWbtc(address,uint256,bytes)",
+    "rebalanceWbtc(address,uint256,uint256)",
 ];
 
 /// The signing policy: which contracts + selectors the hop may sign for.

@@ -17,7 +17,13 @@ contract LevKeeperTarget {
     // ── read surface (lev_manager) ──
     function openLevCount() external pure returns (uint256) { return 1; }
     function openLpAt(uint256) external pure returns (address) { return LP; }
-    function getCurrentLtvBps(address) external pure returns (uint256) { return 9000; } // near the 8600 liq → urgent
+    // §POOL-VENUE — **THIS LP IS HEALTHY AND THE BOOK IS NOT, WHICH IS THE POINT.** It returned 9000
+    // (urgent on the per-LP gate). The venue holds ONE pooled Morpho position, so Morpho liquidates on
+    // the AGGREGATE — the case that actually threatens every LP is a comfortable LP inside a stressed
+    // pool, and the old keeper held straight through it. Splitting the two numbers here makes the e2e
+    // prove the SYSTEMIC trigger over real RPC, not just the per-LP one it already covered.
+    function getCurrentLtvBps(address) external pure returns (uint256) { return 3000; } // comfortable
+    function poolLtvBps() external pure returns (uint256) { return 9000; }              // book near the 8600 liq → urgent
     function ilLtvBps(address) external pure returns (uint256) { return 9000; } // debt/E0 IL-track LTV — keeper reads it in position_view (net-equity/YB rewrite); the urgent path ignores it, but a missing selector reverts the whole read
     function ilTargetLtvBps(address) external pure returns (uint256) { return 2000; }
     function netEquityUsd(address) external pure returns (uint256) { return 100_000e18; }
@@ -28,10 +34,10 @@ contract LevKeeperTarget {
     // ── write surface (recorded) ──
     // §E357 — the selector the keeper sends now carries the routes array; a harness on the old
     // arity would silently never be hit, which is the failure this target exists to catch.
-    function cascadeDelever(address[] calldata lps, uint256[] calldata, bytes[] calldata) external {
+    function cascadeDelever(address[] calldata lps, uint256[] calldata, uint256[] calldata) external {
         cascaded = true;
         if (lps.length > 0) lastCascadeLp = lps[0];
     }
-    function rebalance(address, uint256, bytes calldata) external {}
+    function rebalance(address, uint256, uint256) external {}
     function syncLev(address lp) external { synced = true; lastSyncLp = lp; }
 }

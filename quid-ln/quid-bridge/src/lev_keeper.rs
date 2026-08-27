@@ -13,9 +13,21 @@
 //! PROACTIVELY — always a [`LevKeeperConfig::safety_margin_bps`] below the venue's
 //! liquidation LTV. So the venue's engine is a *never-triggered backstop*; we never
 //! write one. A position the keeper genuinely cannot save (collateral momentarily
-//! un-redeemable — the redemption-non-atomicity edge) simply falls to the venue's
-//! ISOLATED liquidation: it hits that one LP, never the basket. That isolation is
-//! the whole reason the lender must be external, not internal.
+//! un-redeemable — the redemption-non-atomicity edge) falls to the venue's own
+//! liquidation, which still never touches the QU!D basket — the lender is external,
+//! and that is the reason it must be.
+//!
+//! 🔴 **BUT IT IS NO LONGER ISOLATED TO ONE LP, AND THIS PARAGRAPH SAID IT WAS.** It
+//! read *"it hits that one LP, never the basket"*. Under §POOL-VENUE the venue runs
+//! ONE Morpho position under `address(this)`, so a seizure hits the pool and
+//! therefore **every LP pro-rata** — `LevVenueBase:117` states exactly that. The
+//! basket half of the claim survives; the per-LP half does not.
+//! ⇒ **THE CONSEQUENCE IS THAT THIS KEEPER MATTERS MORE, NOT LESS.** When a
+//! liquidation was one LP's own problem, a keeper miss cost that LP. Pooled, a miss
+//! is socialised across the book, so "the venue's engine is a never-triggered
+//! backstop" is now a guarantee the keeper owes EVERY LP jointly. That is why the
+//! safety gate reads [`PositionView::pool_ltv_bps`] — the aggregate Morpho actually
+//! liquidates on — and not only the per-LP LTV it used to read.
 //!
 //! # The target is `L = 1/α`, never a pinned 2x
 //! `α` = the realized range concavity (how √p-like the position is), measured from
@@ -102,6 +114,20 @@ pub struct PositionView {
     /// The CONTRACT's IL target LTV in bps = `1 − √(entry/now)` (read from `LevManager.ilTargetLtvBps`).
     /// Authoritative — the keeper does NOT compute it; [`il_target_ltv_bps`] only mirrors it for logging.
     pub target_ltv_bps: u32,
+    /// §POOL-VENUE — THE LTV THE VENUE ACTUALLY LIQUIDATES ON (`LevManager.poolLtvBps`): debt and
+    /// collateral of the ONE pooled Morpho position, not of any single LP.
+    ///
+    /// 🔴 THIS FIELD EXISTS BECAUSE THE KEEPER'S SAFETY GATE WAS READING THE WRONG NUMBER. The venue
+    /// holds a single position under `address(this)`, so Morpho's health check is on the AGGREGATE —
+    /// an LP can be individually comfortable while the pool sits one tick from liquidation, and a
+    /// keeper gated on `current_ltv_bps` alone HOLDS straight through it. That is the
+    /// no-liquidation guarantee failing OPEN: nothing reverts and nothing logs until the pool is
+    /// seized, and then it lands on EVERY LP pro-rata rather than on the one that caused it.
+    ///
+    /// ⚠️ It does not replace `current_ltv_bps`. This is the TRIGGER (is the book in danger); that
+    /// is the TARGET (which LP is dragging it). `decide` takes the max, so neither can mask the
+    /// other and the old per-LP behaviour is preserved rather than swapped out.
+    pub pool_ltv_bps: u32,
     /// The EXTERNAL venue's liquidation LTV in bps (e.g. weETH E-mode ≈ 9000).
     pub venue_liq_ltv_bps: u32,
     /// `collateral − debt` notional, 6-dec USD — sizes the rebalance + the economic floor.
@@ -159,10 +185,15 @@ pub fn il_target_ltv_bps(entry_price: f64, now_price: f64) -> u32 {
 ///      (`move_persisted`); this is the lazy/anti-churn policy that stops chop realizing impermanent IL.
 ///   3. Otherwise hold.
 pub fn decide(v: &PositionView, cfg: &LevKeeperConfig) -> KeeperAction {
-    // (1) Safety first — immediate, ignores both the economic floor and the dwell. Keyed off the
-    // VENUE-SAFETY LTV (debt/actual-collateral), which is the basis the venue liquidates on.
+    // (1) Safety first — immediate, ignores both the economic floor and the dwell.
+    // §POOL-VENUE — GATED ON THE MAX OF THE POOL'S LTV AND THIS LP'S. The pool figure is the one
+    // Morpho liquidates on, so it is what the no-liquidation guarantee is actually about; the per-LP
+    // figure identifies the position dragging it and is what we then de-lever. Taking the MAX means
+    // neither can mask the other: a systemic build-up fires even when this LP looks fine, and a
+    // single blown-out LP still fires even when the pool average hides it. Strictly a superset of
+    // the previous per-LP-only gate, so this cannot make the keeper act LESS often.
     let urgent_threshold = v.venue_liq_ltv_bps.saturating_sub(cfg.safety_margin_bps);
-    if v.current_ltv_bps >= urgent_threshold {
+    if v.pool_ltv_bps.max(v.current_ltv_bps) >= urgent_threshold {
         // PROTECT the LP's collateral first — if they hold mature QUID, repay debt by redeeming it
         // (mature-only; unmatured is untouchable on-chain, so no par-burn abuse) instead of selling their
         // ETH/BTC. Repay up to what QUID covers; a next tick re-evaluates and de-levers only the residual.
@@ -491,8 +522,20 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
                 word_to_uint::<u32>(&b, "liqThresholdBps").ok()
             })()
             .unwrap_or(vliq_cfg);
+            // §POOL-VENUE — the aggregate the venue is liquidated on. A read failure falls back to
+            // this LP's own LTV, which degrades to the OLD behaviour rather than to zero: zero would
+            // silently disarm the systemic half of the safety gate, which is the failure this field
+            // was added to close.
+            // ⚠️ `.ok()` ON THE READ ITSELF, NOT ONLY ON THE DECODE. Written with `?` first, a
+            // node that cannot serve `poolLtvBps()` (an older deployment, a reverting call)
+            // would abort the WHOLE snapshot rather than degrade — turning a fail-safe into a
+            // fail-stop. Caught by the anvil e2e, whose target had no such selector.
+            let pool_ltv: u32 = evm.eth_read(lm, "poolLtvBps()", None).ok()
+                .and_then(|w| word_to_uint::<u32>(&w, "poolLtvBps").ok())
+                .unwrap_or(cur);
             Ok(PositionView {
                 current_ltv_bps: cur,
+                pool_ltv_bps: pool_ltv,
                 il_ltv_bps: il_ltv,
                 target_ltv_bps: tgt,
                 venue_liq_ltv_bps: vliq,
@@ -524,26 +567,25 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         let (evm, lm, gas) = (self.evm.clone(), self.lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             // minOut=0: the contract's oracle-derived MAX_SLIPPAGE floor protects every swap (anti-MEV).
-            let mut data = selector4("rebalance(address,uint256,bytes)");
+            // §C2.1 — three STATIC words now: (lp, minOut, dex). The `bytes route` tail is gone,
+            // and with it the offset word that made this the only hand-rolled dynamic head in the
+            // keeper. The venue word is real, so this call no longer reverts `NoVolatileRoute()`.
+            let mut data = selector4("rebalance(address,uint256,uint256)");
             data.extend_from_slice(&addr_word(lp));
             data.extend_from_slice(&u64_word(0));
-            // §E357 — the `bytes route` tail: head is (addr, minOut, offset), then the element's
-            // length. Offset 0x60 = three head words. The route is EMPTY here because nothing
-            // sources one yet, and an empty route is refused on chain — so this call reverts
-            // until discovery lands. Encoding it correctly is the half that has to be right first.
-            data.extend_from_slice(&u64_word(0x60));
-            data.extend_from_slice(&u64_word(0));
+            data.extend_from_slice(&dex_word());
             evm.send_tx(lm, data, gas)?;
             Ok(())
         })
         .await?
     }
 
-    async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        let (evm, lm, gas, lps, routes) =
-            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
+    async fn cascade_delever(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
+        let (evm, lm, gas, lps) =
+            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(lm, encode_batch("cascadeDelever(address[],uint256[],bytes[])", &lps, &routes), batch_gas(gas, lps.len()))?;
+            let dexes = vec![dex_word(); lps.len()];
+            evm.send_tx(lm, encode_batch("cascadeDelever(address[],uint256[],uint256[])", &lps, &dexes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -551,11 +593,12 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
 
     /// Hold the whole book at its IL target in ONE tx. Gas scales with the batch (each LP is a flash-repay
     /// or lever-up), capped below the block limit; the on-chain loop is fault-tolerant + syncs each LP internally.
-    async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        let (evm, lm, gas, lps, routes) =
-            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
+    async fn rebalance_many(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
+        let (evm, lm, gas, lps) =
+            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[],bytes[])", &lps, &routes), batch_gas(gas, lps.len()))?;
+            let dexes = vec![dex_word(); lps.len()];
+            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[],uint256[])", &lps, &dexes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -677,36 +720,73 @@ fn batch_gas(per_lp: u64, n: usize) -> u64 {
 /// The head is three offsets rather than two, and `bytes[]` is an array OF dynamic elements, so its
 /// body is itself a table of offsets followed by each element's (len, padded data). That is the part
 /// a two-array encoder cannot be extended to by adding one word.
-fn encode_batch(sig: &str, lps: &[LpAddr], routes: &[Vec<u8>]) -> Vec<u8> {
+/// §C2.1 — **THE POOL WORD THE KEEPER SENDS.** 1inch AggregationRouterV6 `Address` encoding:
+/// protocol in bits 253-255 (`1` = UniswapV3), pool in the low 160. The contract derives
+/// `zeroForOne` from `tokenIn` itself, so ONE word serves the lever-up and the de-lever alike.
+///
+/// ⭐ **THIS IS THE GAP THAT JUST CLOSED.** While the entrypoints took `bytes route`, this keeper
+/// encoded an EMPTY one and the code said so: *"the route is EMPTY here because nothing sources one
+/// yet, and an empty route is refused on chain — so this call reverts until discovery lands."* Every
+/// keeper tx reverted `NoVolatileRoute()`. Route DISCOVERY was the blocker because full calldata
+/// embeds an `amount`, and the amounts are computed on-chain (a Curve output, a `borrow` return) —
+/// unknowable off-chain to the wei. A POOL WORD has no amount in it, so there is nothing to
+/// discover and nothing to go stale: the keeper names a venue and the contract sizes the trade.
+///
+/// Uniswap V3 WETH/USDC 0.05%, the deepest ETH/USDC pool on mainnet. Override with
+/// `QUID_LEV_DEX_WORD` if a deeper venue appears; the contract validates the pool by executing
+/// against it and bounds the result on its own balance delta either way.
+/// The venue word, env-overridable. Returns the FULL 256-bit value as big-endian bytes because the
+/// protocol bits live at 253-255 and cannot fit a u64.
+fn dex_word() -> [u8; 32] {
+    if let Ok(v) = std::env::var("QUID_LEV_DEX_WORD") {
+        if let Ok(n) = v.parse::<u128>() {
+            let mut w = [0u8; 32];
+            w[16..].copy_from_slice(&n.to_be_bytes());
+            return w;
+        }
+    }
+    let mut w = [0u8; 32];
+    // pool address in the low 160 bits
+    w[12..].copy_from_slice(&hex_lit_pool());
+    // protocol = UniswapV3 (1) at bits 253-255 => byte 0 gets 1 << 5
+    w[0] |= 1 << 5;
+    w
+}
+
+/// Uniswap V3 WETH/USDC 0.05% — `0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`.
+fn hex_lit_pool() -> [u8; 20] {
+    [0x88,0xe6,0xA0,0xc2,0xdD,0xD2,0x6F,0xEE,0xb6,0x4F,
+     0x03,0x9a,0x2c,0x41,0x29,0x6F,0xcB,0x3f,0x56,0x40]
+}
+
+/// ABI-encode `f(address[], uint256[], uint256[])` — the batch keeper entrypoints
+/// (`rebalanceMany`, `cascadeDelever`).
+///
+/// ⭐ §C2.1 — **THIS USED TO ENCODE A `bytes[]` AND THAT SHAPE IS GONE.** The third argument was a
+/// per-LP 1inch ROUTE, so this function had to lay out a dynamic array of dynamic elements: a
+/// length, an offsets table, then each element as `(len, data)` padded to 32. It is now a per-LP
+/// POOL WORD (`uint256`), because 1inch calldata embeds its own `amount` and every amount the
+/// contract swaps is computed on-chain — a pre-built route could never match. See `_aggSwap`.
+/// ⇒ The offsets table, the running `off` accumulator and the per-element padding all DELETE: three
+/// static arrays, one layout, and no way to get an offset wrong. `dexes` is the same length as
+/// `lps` because `_batch` requires it (`LenMismatch()`), which is asserted here rather than assumed.
+fn encode_batch(sig: &str, lps: &[LpAddr], dexes: &[[u8; 32]]) -> Vec<u8> {
+    debug_assert!(dexes.is_empty() || dexes.len() == lps.len(),
+        "dexes must be per-LP or empty: `_batch` reverts LenMismatch() otherwise");
     let n = lps.len() as u64;
     let mut d = selector4(sig);
     let lps_at = 0x60u64;                       // after the 3 head words
     let mins_at = lps_at + 32 * (1 + n);        // after lps: len + n elems
-    let routes_at = mins_at + 32 * (1 + n);     // after minOuts: len + n elems
+    let dexes_at = mins_at + 32 * (1 + n);      // after minOuts: len + n elems
     d.extend_from_slice(&u64_word(lps_at));
     d.extend_from_slice(&u64_word(mins_at));
-    d.extend_from_slice(&u64_word(routes_at));
+    d.extend_from_slice(&u64_word(dexes_at));
     d.extend_from_slice(&u64_word(n));
     for lp in lps { d.extend_from_slice(&addr_word(*lp)); }
     d.extend_from_slice(&u64_word(n));
     for _ in 0..n { d.extend_from_slice(&u64_word(0)); }   // minOuts: the oracle floor bounds each swap
-    // bytes[]: length, then one offset per element (relative to the start of this array's body),
-    // then each element as (length, data padded to 32).
     d.extend_from_slice(&u64_word(n));
-    let mut off = 32 * n;                       // offsets table sits first
-    for i in 0..n as usize {
-        d.extend_from_slice(&u64_word(off));
-        let len = routes.get(i).map_or(0, |r| r.len()) as u64;
-        off += 32 + len.div_ceil(32) * 32;
-    }
-    for i in 0..n as usize {
-        let empty: Vec<u8> = Vec::new();
-        let r = routes.get(i).unwrap_or(&empty);
-        d.extend_from_slice(&u64_word(r.len() as u64));
-        d.extend_from_slice(r);
-        let pad = (32 - (r.len() % 32)) % 32;
-        d.extend(std::iter::repeat_n(0u8, pad));
-    }
+    for i in 0..n as usize { d.extend_from_slice(&dexes.get(i).copied().unwrap_or([0u8; 32])); }
     d
 }
 
@@ -715,9 +795,57 @@ mod tests {
     use super::*;
     use alloy_primitives::keccak256;
 
+    /// §POOL-VENUE — **THE POOL IS IN DANGER WHILE THIS LP LOOKS FINE, AND THE KEEPER MUST STILL ACT.**
+    /// This is the case the old per-LP-only gate held straight through, and it is the whole reason
+    /// `pool_ltv_bps` exists: the venue runs ONE Morpho position, so Morpho's health check reads the
+    /// aggregate. A keeper that waits for THIS LP to look unhealthy is waiting for a signal that may
+    /// never come before the pool is seized — and a pooled seizure hits every LP pro-rata.
+    #[test]
+    fn pooled_risk_triggers_urgent_delever_even_when_this_lp_is_healthy() {
+        let mut v = base();
+        v.current_ltv_bps = 3000;                 // this LP is comfortable
+        v.pool_ltv_bps = 8600;                    // the BOOK is one tick from liquidation
+        v.venue_liq_ltv_bps = 8600;
+        v.mature_quid_usd = 0;                    // no QUID to protect with => straight to de-lever
+        let cfg = LevKeeperConfig::default();
+        assert!(
+            matches!(decide(&v, &cfg), KeeperAction::DeLever { urgent: true, .. }),
+            "a pool at the liquidation threshold must fire an URGENT de-lever regardless of \
+             how healthy the individual LP looks"
+        );
+    }
+
+    /// The CONTROL, and it is what makes the test above mean anything: with the pool figure at the
+    /// LP's own level, the decision is byte-identical to the old per-LP gate. `max(pool, lp)` is a
+    /// SUPERSET of the previous behaviour, never a replacement — so this cannot make the keeper act
+    /// less often, only more.
+    #[test]
+    fn pooled_gate_is_a_superset_never_a_substitute() {
+        let mut healthy = base();
+        healthy.current_ltv_bps = 3000;
+        healthy.pool_ltv_bps = 3000;
+        healthy.venue_liq_ltv_bps = 8600;
+        let cfg = LevKeeperConfig::default();
+        assert!(!matches!(decide(&healthy, &cfg), KeeperAction::DeLever { urgent: true, .. }),
+            "a healthy pool AND a healthy LP must not fire the urgent track");
+
+        // And the mirror: this LP blown out while the pool average hides it still fires.
+        let mut blown = base();
+        blown.current_ltv_bps = 8600;
+        blown.pool_ltv_bps = 2000;
+        blown.venue_liq_ltv_bps = 8600;
+        blown.mature_quid_usd = 0;
+        assert!(matches!(decide(&blown, &cfg), KeeperAction::DeLever { urgent: true, .. }),
+            "a single blown-out LP must still fire even when the pool average hides it");
+    }
+
     fn base() -> PositionView {
         PositionView {
             current_ltv_bps: 5000,
+            // Fixtures mirror the per-LP LTV into the pool figure, so every PRE-EXISTING case
+            // keeps its old meaning: `max(pool, lp)` reduces to the per-LP gate it replaced.
+            // The pooled-risk cases set them APART deliberately.
+            pool_ltv_bps: 5000,
             il_ltv_bps: 5000,
             target_ltv_bps: 5000,
             venue_liq_ltv_bps: 9000,
@@ -837,22 +965,39 @@ mod tests {
     fn calldata_encoding_is_abi_correct() {
         // selectors match keccak256(sig)[..4]
         assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
-        assert_eq!(selector4("rebalance(address,uint256,bytes)"), keccak256(b"rebalance(address,uint256,bytes)")[..4].to_vec());
+        assert_eq!(selector4("rebalance(address,uint256,uint256)"),
+                   keccak256(b"rebalance(address,uint256,uint256)")[..4].to_vec());
         // address word = 12 zero bytes + 20-byte address (right-aligned)
         let lp: LpAddr = [0x11; 20];
         let w = addr_word(lp);
         assert_eq!(&w[..12], &[0u8; 12]);
         assert_eq!(&w[12..], &lp[..]);
-        // §E357 — three arrays: 4 sel + head(3) + lps(len+2) + minOuts(len+2) + routes(len + 2
-        // offsets + 2 empty elements of one word each) = 4 + 32*13.
-        const SIG: &str = "cascadeDelever(address[],uint256[],bytes[])";
-        let enc = encode_batch(SIG, &[[0xAA; 20], [0xBB; 20]], &[]);
-        assert_eq!(enc.len(), 4 + 32 * 13);
+
+        // §C2.1 — THREE STATIC ARRAYS. Was `bytes[]`, which needed an offsets table and per-element
+        // (len, padded data); a pool word is one 32-byte value, so the tail is `len + n` like the
+        // other two. 4 sel + head(3) + 3 * (len + 2 elems) = 4 + 32*12.
+        const SIG: &str = "cascadeDelever(address[],uint256[],uint256[])";
+        let dexes = vec![dex_word(); 2];
+        let enc = encode_batch(SIG, &[[0xAA; 20], [0xBB; 20]], &dexes);
+        assert_eq!(enc.len(), 4 + 32 * 12);
         assert_eq!(&enc[..4], &selector4(SIG)[..]);
         assert_eq!(&enc[4..36], &u64_word(0x60));            // offset to lps (3 head words)
         assert_eq!(&enc[36..68], &u64_word(0x60 + 32 * 3));  // offset to minOuts
-        assert_eq!(&enc[68..100], &u64_word(0x60 + 32 * 6)); // offset to routes
+        assert_eq!(&enc[68..100], &u64_word(0x60 + 32 * 6)); // offset to dexes
         assert_eq!(&enc[100..132], &u64_word(2));            // lps.length
+        assert_eq!(&enc[132..164][12..], &[0xAAu8; 20]);     // lps[0], right-aligned
+        assert_eq!(&enc[196..228], &u64_word(2));            // minOuts.length
+        assert_eq!(&enc[292..324], &u64_word(2));            // dexes.length
+        assert_eq!(&enc[324..356], &dex_word()[..]);         // dexes[0] IS the venue word
+        assert_eq!(&enc[356..388], &dex_word()[..]);         // dexes[1] — one venue per LP
+
+        // 🔴 THE ONE THAT MATTERS: the word is NON-ZERO. `_aggSwap` refuses `dex == 0` with
+        // `NoVolatileRoute()`, and for the whole life of the `bytes route` interface this keeper
+        // sent an empty tail and every tx reverted. A zero here is that outage, silently restored.
+        assert_ne!(dex_word(), [0u8; 32], "the keeper must name a venue or every swap reverts");
+        // Layout: UniswapV3 (protocol 1 at bits 253-255) in the top byte, pool in the low 160.
+        assert_eq!(dex_word()[0], 1 << 5, "protocol bits must encode UniswapV3");
+        assert_eq!(&dex_word()[12..], &hex_lit_pool()[..], "low 160 bits must be the pool");
     }
 
     #[test]

@@ -515,6 +515,28 @@ abstract contract LevBase {
         return LevMath.ltvBps(debtUsd(lp), collValueUsd(v.collateralOf(lp)));
     }
 
+    /// @notice §POOL-VENUE — THE LTV THE VENUE ACTUALLY LIQUIDATES ON. Debt and collateral of the ONE
+    ///         pooled position, not of any LP.
+    /// @dev 🔴 **`getCurrentLtvBps` IS NOT THIS NUMBER, AND THE KEEPER WAS WATCHING THAT ONE.** Since
+    ///      the venue holds a single Morpho position (`address(this)` on every call), Morpho's health
+    ///      check reads the AGGREGATE — so an LP can be individually comfortable while the pool sits
+    ///      one tick from liquidation, and a keeper gated on the per-LP figure HOLDS through it. That
+    ///      is the no-liquidation guarantee failing OPEN, which is the direction that does not
+    ///      announce itself: nothing reverts, nothing logs, until the pool is seized and
+    ///      `LevVenueBase:117`'s "a liquidation hits every LP pro-rata" lands on the whole book.
+    ///      ⚠️ The per-LP view is still correct FOR WHAT IT MEASURES and is still the right input for
+    ///      choosing WHICH LP to de-lever — it is the contributor. This is the trigger; that is the
+    ///      target. Both are needed and neither substitutes for the other.
+    ///      Reuses `LevMath.ltvBps` + `collValueUsd` — the same two bodies `getCurrentLtvBps` uses, so
+    ///      the aggregate and the per-LP reads cannot drift apart by a convention.
+    function poolLtvBps() public view returns (uint) {
+        address v = _pool();
+        if (v == address(0)) return 0;
+        return LevMath.ltvBps(
+            LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt()),
+            collValueUsd(ILevPooled(v).totalCollateral()));
+    }
+
     /// @notice LTV against the FIXED IL base `entryEquity` — the reference the IL target is measured against,
     ///         which is why it does NOT move with collateral. §FOLD-LTV.
     function ilLtvBps(address lp) public view returns (uint) {
