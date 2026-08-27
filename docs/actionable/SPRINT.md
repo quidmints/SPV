@@ -15,7 +15,7 @@
 > |---|---|---|
 > | ~~32 × `NoVolatileRoute()`~~ ✅ **CLOSED 2026-08-26** | The diagnosis was right and the proposed fix was not needed: because a 1inch route encodes its amount and the amount is only known mid-tx, the answer was to stop sending routes. Entrypoints take a `uint256 dex` (one pool); the contract builds the calldata. No key, no loop, no fetch. | — |
 > | `backing` | §BACKING-HEADROOM-3PCT — committed is 96.8% of TVL; the delivery crosses the last 3.2%. The gate is correct. | — |
-> | ~~`ChopIsBenign`~~ ✅ **§C25 CLOSED 2026-08-26** | the shortfall is `levBuf`, the debt-funded buffer: `POOLED` is capacity (`levPooled + levBuf`), `rangeETH` counts only ETH a venue holds. Measured gap 0.100497 vs levBuf 0.107576. | — |
+> | `ChopIsBenign` | 🔴 **STILL OPEN — MY ✅ WAS PREMATURE (rule 16).** The `levBuf` finding closed the `rangeETH >= POOLED` family (LevYbReal/LevCascade, both green). `ChopIsBenign` asserts something ELSE — *"LP position fully realized (no stuck bag)"*, residual **0.974 ETH** — and its LP is UNLEVERED, so `levBuf` is 0 and that explanation cannot apply to it. Two assertions, one section number; closing the section closed a row it never covered. | measure |
 > | `UNITB` control | §UNITB — `skewWad` is FLOW-BLIND while `inv >= target`, proven by a `pure` call. The fill itself raises `POOLED_USD`, so the measurement destroys its own precondition. | design |
 > | ~~`PassiveLp` precondition~~ ✅ **CLOSED 2026-08-26** | was route-blocked in disguise; `test_PassiveLp_NotExpensedByLeveredLpLifecycle` passes | — |
 > | `testLeverage_LvrControlVsTreatment` | §C3.1, cross-subsidy | open |
@@ -433,6 +433,44 @@ should always have ≥1 id — i.e. it needs a broken invariant to fire. **Fixed
 and a panic is a worse failure than a revert** (no reason, and it reads as a compiler/ABI fault).
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
+
+## 🔴🔴 **§COMMITTED-DRIFTS-UP — `OverCommitted()` IS NOT INSOLVENCY, IT IS ~10 CENTS PER WITHDRAWAL ACCUMULATING INTO A STRICT INEQUALITY** (2026-08-26)
+
+`test_EthLp_RedeemConservationAndFairness` and `test_FeeAttributionWithMultipleLPs` both revert
+`OverCommitted()` — `committedSum > totalLiquid` in `Aux._checkBacking`, which gates **every DRAIN
+path** (redemption, arb, LP withdraw).
+
+⭐ **MEASURED AT THE REVERT — the excess is $0.396 on $142,162, i.e. 0.00028%:**
+```
+committedTotal()  142,162.381481          (basketUsd 6-dec, scaled 1e12)
+totalLiquid       142,161.985355514650…   (true 18-dec)
+excess                   0.396125485349…
+```
+⇒ **NOT structural insolvency.** The comment on the `revert` calls it *"structurally over-committed"*;
+at 2.8e-6 of the balance sheet it is nothing of the kind.
+
+⭐⭐ **AND IT ACCUMULATES, WHICH IS THE PART THAT MAKES IT SERIOUS.** `committedTotal()` across the
+run's four withdrawals: **151,999.999998 → 149,482.072251 → 147,040.915927 → 144,601.012397 →
+142,162.381481**, i.e. −2,517.93, −2,441.16, −2,439.90, −2,438.63 against withdrawals of ~$2,440.
+**Committed falls roughly $0.099 LESS than TVL does on each one — about 0.004% of the amount.**
+⇒ **THE DRIFT IS A RATE, NOT A ROUNDING.** 0.099 dollars is 99,000 six-dec units; a `mulDiv`
+round-down is 1. So the burn arm's proportional release (`out_ = mulDiv(b, usdAmount, pooledPre)`)
+under-releases `basketUsd` by a FRACTION of each withdrawal, not by a unit.
+🔴 **THE CONSEQUENCE: the protocol serves a BOUNDED NUMBER OF REDEMPTIONS AND THEN BLOCKS EVERY
+DRAIN.** Nothing heals it — the gate is strict and the drift is monotone — so this is a liveness
+failure that scales with usage and would present in production as "redemptions worked for a while,
+then stopped." Here it took four.
+⛔ **RULED OUT, so the next reader does not re-walk them:**
+  • *Stale PUSH accounting* — both arms report: `Core.sol:1284` (mint) and `:1339` (burn). The figure
+    IS current at the check.
+  • *6-dec vs 18-dec quantisation* — real (committed is `basketUsd * 1e12`) but bounded by 1e-6
+    dollars, four orders of magnitude too small to explain $0.396.
+▶️ **NEXT:** find the fraction. Instrument `basketUsd` before/after ONE burn against the actual stable
+outflow; the ratio is ~4e-5 and should name itself (a fee leg credited to `basketUsd` without matching
+assets, or the proportional release using a stale `pooledPre`).
+⚠️ **DO NOT ADD A TOLERANCE TO THE GATE.** It would convert a monotone accumulating drift into a
+silent one, and the drift is the defect — the inequality is only the messenger.
+
 
 ## 🔴 **§DELIVER-BACKING — `committedUsd18` JUMPS BY THE LEVERED COLLATERAL DURING A SWAP-OUT DELIVERY, ON A BASKET THAT CANNOT COVER IT. DECOMPOSED, NOT FIXED** (2026-08-26)
 
@@ -15264,7 +15302,13 @@ simply was not what held the tail open.
 2. ⭐ **THE LEVERAGE NET-EQUITY IS NOT DELIVERABLE AT ALL** — *"solvency backing … but NOT
    deliverable from this Vault (unwind-only via closeLev — the LP gets it back by repaying debt +
    withdrawing coll)"*.
-✅ **§C25 IS CLOSED, AND THE ANSWER WAS A THIRD QUANTITY NEITHER HYPOTHESIS NAMED** (2026-08-26).
+✅ **§C25's `rangeETH >= POOLED` HALF IS CLOSED, AND THE ANSWER WAS A THIRD QUANTITY NEITHER
+HYPOTHESIS NAMED** (2026-08-26).
+⚠️ **SCOPE, because I over-claimed this once already: this closes the `rangeETH >= POOLED` assertions
+in `LevYbReal` and `LevCascade` (both green). It does NOT close `ChopIsBenign`**, which asserts *"LP
+position fully realized (no stuck bag)"* on an UNLEVERED LP — `levBuf` is 0 there, so the finding
+below cannot be its cause. One section number over two different assertions is how the ✅ leaked
+across; the table row at the head is corrected.
 The row's own instruction — instrument, do not reason — is what produced it. Two candidates were
 eliminated by reading, and the cause was neither:
 - ⛔ **(2) REFUTED — THE LP IS NOT LEVERED.** `_stageIL` does a plain `ETH.deposit` and calls itself
