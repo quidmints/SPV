@@ -77,6 +77,17 @@ pub enum Arm {
     /// other is a time integral. Both are therefore suboptimal BY CONSTRUCTION,
     /// and comparing them to each other could never have revealed that.
     DerivedBand,
+    /// 🔴 THE COMPARISON THAT WAS MISSING ENTIRELY: the facility had only ever
+    /// been measured against NOTHING. These two are what a pool without a hedge
+    /// actually does, and both are FREE of the round trip, the basis, the
+    /// weekend, and the issuer — the four costs that dominate the hedging arms.
+    ///
+    /// Charge more as the book crowds, so the imbalance shrinks endogenously.
+    /// `crowding_bps` and `info_mult` already exist; this is turning them up.
+    PriceTheImbalance,
+    /// Refuse the marginal one-sided trade past a hard per-ticker cap. Costs the
+    /// revenue on flow not written, and nothing else.
+    PerTickerCap,
     /// 🔴 NOT A POLICY — A BENCHMARK. Knows the next `LOOKAHEAD` steps of the
     /// price path and hedges only when that move will actually pay for the round
     /// trip. Unimplementable, and that is the point: the gap between a rule and
@@ -223,9 +234,34 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
         px = new_px;
 
         // ── the pool's own book ────────────────────────────────────────────
-        let net_bps = net_path(cell.net, t);
+        let raw_bps = net_path(cell.net, t);
+        // The two no-hedge alternatives act on the NET ITSELF rather than
+        // laying it off — which is why they cost revenue instead of spread.
+        let (net_bps, refused_bps) = match arm {
+            // A convex premium damps the crowded side. Modelled as the net that
+            // survives a charge rising with imbalance: the marginal borrower on
+            // the crowded side stops showing up.
+            Arm::PriceTheImbalance => {
+                let damp = (raw_bps.abs() * raw_bps.abs() / (B * 2)).min(6_000);
+                let kept = raw_bps * (B - damp) / B;
+                (kept, raw_bps.abs() - kept.abs())
+            }
+            Arm::PerTickerCap => {
+                let cap = 1_800;
+                (raw_bps.clamp(-cap, cap), (raw_bps.abs() - cap).max(0))
+            }
+            _ => (raw_bps, 0),
+        };
         let net_dollars = DEPOSITS / 2 * net_bps / B;
         a.net_exposure = net_dollars;
+
+        // Flow not written earns nothing. This is the ENTIRE cost of both
+        // alternatives, and it is why they are not free lunches.
+        if refused_bps > 0 {
+            let refused = DEPOSITS / 2 * refused_bps / B;
+            let carry_now = rate_bps((a.total_exposure * B / DEPOSITS).clamp(0, B), 150, &a);
+            pnl -= refused * carry_now / B / 100;
+        }
 
         // Revenue: borrowers pay carry on the book, continuously.
         let util = (a.total_exposure * B / DEPOSITS).clamp(0, B);
@@ -268,6 +304,7 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
 
             // Perfect foresight over LOOKAHEAD steps: hedge only if the move
             // ahead pays for the round trip on this notional.
+            Arm::PriceTheImbalance | Arm::PerTickerCap => 0,   // never buys a share
             Arm::Clairvoyant => {
                 let mut fwd = 0i64;
                 for k in 0..LOOKAHEAD {

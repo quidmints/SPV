@@ -295,3 +295,52 @@ fn regret_under_plausible_weights_and_the_ratio_the_sweep_actually_favours() {
         }
     }
 }
+
+/// 🔴 THE COMPARISON THAT DECIDES IT, AND IT HAD NEVER BEEN RUN. Every previous
+/// sweep measured the facility against NOTHING — a pool that carries the net for
+/// free. That is not an option. The real choice is between laying the risk off
+/// (hedge), pricing it away (charge more as the book crowds), and refusing it
+/// (cap per ticker). The last two are free of the round trip, the basis, the
+/// weekend and the issuer; they cost only the flow not written.
+#[test]
+fn the_facility_against_its_actual_alternatives_not_against_nothing() {
+    let w = |c: &Cell| -> i64 {
+        let mut p: i64 = 10_000;
+        if c.issuer == Issuer::Paused    { p = p * 2 / 100; }
+        if c.flow == Flow::RedemptionRun { p = p * 15 / 100; }
+        if c.basis == Basis::Widening    { p = p * 30 / 100; }
+        p.max(1)
+    };
+    let wstats = |arm: Arm, cfg: Cfg| -> (i64, i64) {
+        let (mut num, mut den) = (0i64, 0i64);
+        let mut v = Vec::new();
+        for c in &grid() {
+            let k = w(c); let x = run_cfg(*c, arm, cfg).depositor_bps;
+            num += x * k; den += k; v.push((x, k));
+        }
+        let mean = num / den;
+        let mad = v.iter().map(|(x, k)| (x - mean).abs() * k).sum::<i64>() / den;
+        (mean, mad)
+    };
+
+    for (label, ratio) in [("100% hedge ratio", 10_000i64), ("25% hedge ratio", 2_500)] {
+        let cfg = Cfg { ratio_bps: ratio, ..Cfg::default() };
+        let oracle = wstats(Arm::Clairvoyant, cfg).0;
+        println!("\n=== weighted, {} — vs REAL alternatives ===", label);
+        println!("  {:<20} {:>7} {:>8} {:>8}", "arm", "mean", "disp", "regret");
+        for arm in [Arm::NoFacility, Arm::PriceTheImbalance, Arm::PerTickerCap,
+                    Arm::PersistenceGated, Arm::DerivedBand, Arm::LevelTrigger] {
+            let (m, d) = wstats(arm, cfg);
+            println!("  {:<20?} {:>7} {:>8} {:>8}", arm, m, d, oracle - m);
+        }
+    }
+
+    // The claim that must not be assumed: is hedging actually the best option?
+    let cfg = Cfg { ratio_bps: 2_500, ..Cfg::default() };
+    let hedge = wstats(Arm::PersistenceGated, cfg).0;
+    let price = wstats(Arm::PriceTheImbalance, cfg).0;
+    let cap   = wstats(Arm::PerTickerCap, cfg).0;
+    println!("\n  best non-hedging alternative: {}", price.max(cap));
+    println!("  best hedging arm:             {}", hedge);
+    assert!(price != 0 || cap != 0, "alternatives must actually do something");
+}
