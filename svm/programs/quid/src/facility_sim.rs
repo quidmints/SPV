@@ -201,10 +201,37 @@ pub struct Cfg {
     /// assumption that makes a cap look free. `attrition_bps` is the fraction of
     /// refused flow that does not come back, per refusal.
     pub attrition_bps: i64,
+
+    /// 🔴 THE SIM HEDGED 100% OF THE BOOK. Only **80 of 1,063 tickers** have a
+    /// token on Solana, so the facility can cover a FRACTION of the net and the
+    /// rest is carried no matter which arm is chosen. Assuming full coverage
+    /// flattered every hedging arm in every run so far. (By notional the
+    /// deliverable set is richer than 7.5% — it is the megacaps — so this is a
+    /// knob, not a constant.)
+    pub hedgeable_bps: i64,
+
+    /// 🔴 AND IT NETTED PER TICKER AS IF TICKERS WERE INDEPENDENT. They are not:
+    /// in stress everything loads on one market factor, so the offsetting
+    /// positions that make the net small stop offsetting EXACTLY when the net
+    /// matters. `max_liability` already sums collars for this reason; the sim did
+    /// not. Beta is the share of exposure that is common rather than
+    /// idiosyncratic.
+    pub beta_bps: i64,
+
+    /// 🔴 LIQUIDATION REVENUE WAS NEVER MODELLED AT ALL, and the owner named it
+    /// as a depositor income stream. It is not a hedge: borrowers are net LONG,
+    /// so they liquidate on FALLS — which is when the short pool is ALREADY
+    /// winning. Income that arrives only in the good state amplifies the
+    /// asymmetry rather than offsetting it, which is the opposite of what an
+    /// unmodelled income stream is usually assumed to do.
+    pub liq_penalty_bps: i64,
+    /// Swap fees earned on turnover, per step, in bps of the book.
+    pub swap_fee_bps: i64,
 }
 
 impl Default for Cfg {
-    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0, attrition_bps: 0 } }
+    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0, attrition_bps: 0,
+            hedgeable_bps: 10_000, beta_bps: 0, liq_penalty_bps: 0, swap_fee_bps: 0 } }
 }
 
 pub struct Outcome {
@@ -270,8 +297,34 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
             }
             _ => (raw_bps, 0),
         };
+        // ⚠️ CORRELATION: a share `beta` of every ticker's exposure is COMMON, so
+        //    it does not net away against another ticker. The book's effective
+        //    net is therefore larger than the per-ticker net suggests, and the
+        //    gap widens precisely in the regimes that produce large moves.
+        let common = net_bps.abs() * cfg.beta_bps / B;
+        let net_bps = net_bps + if net_bps >= 0 { common } else { -common };
         let net_dollars = DEPOSITS / 2 * net_bps / B;
         a.net_exposure = net_dollars;
+
+        // Swap fees: earned on turnover regardless of arm, so they lift every
+        // arm equally and cannot change an ORDERING — recorded for realism, not
+        // as a differentiator.
+        if cfg.swap_fee_bps > 0 { pnl += DEPOSITS * cfg.swap_fee_bps / B / STEPS; }
+
+        // Liquidations. Borrowers are net long, so a fall past the collar
+        // liquidates them — and a fall is when a short pool already profits.
+        if cfg.liq_penalty_bps > 0 && net_dollars > 0 {
+            // ⚠️ THE THRESHOLD WAS `collar/4` AND NEVER FIRED — the collar runs to
+            //    hundreds of bps while a step move is tens, so the branch was
+            //    dead and its test passed as `0 >= 0`. A vacuous bound is worse
+            //    than none: it reads as evidence. Liquidations trigger on the
+            //    CUMULATIVE drawdown against the borrower, which is what a collar
+            //    is measured against in the first place.
+            let collar = collar_bps(150, &a);
+            if a.max_drawdown_bps > collar / 2 && d < 0 {
+                pnl += net_dollars * cfg.liq_penalty_bps / B / 10;
+            }
+        }
 
         // Flow not written earns nothing. This is the ENTIRE cost of both
         // alternatives, and it is why they are not free lunches.
@@ -306,7 +359,10 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
         let excess = net_bps.abs() - THETA_BPS;
         if excess > 0 { persist_acc += excess; } else { persist_acc = 0; }
 
-        let target = net_dollars * cfg.ratio_bps / B;
+        // Only the deliverable slice can ever be hedged; the rest is carried by
+        // every arm alike.
+        let hedgeable = net_dollars * cfg.hedgeable_bps / B;
+        let target = hedgeable * cfg.ratio_bps / B;
         let want = match arm {
             Arm::NoFacility => 0,
             Arm::LevelTrigger => if net_bps.abs() > THETA_BPS { target } else { 0 },

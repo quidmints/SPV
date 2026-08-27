@@ -398,3 +398,89 @@ fn capacity_is_an_output_not_an_input_and_the_cap_pays_for_its_variance_in_growt
 }
 
 const B_LOCAL: i64 = 10_000;
+
+fn wt(c: &Cell) -> i64 {
+    let mut p: i64 = 10_000;
+    if c.issuer == Issuer::Paused    { p = p * 2 / 100; }
+    if c.flow == Flow::RedemptionRun { p = p * 15 / 100; }
+    if c.basis == Basis::Widening    { p = p * 30 / 100; }
+    p.max(1)
+}
+fn wrun2(arm: Arm, cfg: Cfg) -> (i64, i64) {
+    let (mut pnl, mut cap, mut den) = (0i64, 0i64, 0i64);
+    for c in &grid() {
+        let k = wt(c); let o = run_cfg(*c, arm, cfg);
+        pnl += o.depositor_bps * k; cap += o.capacity_bps * k; den += k;
+    }
+    (pnl / den, cap / den)
+}
+
+/// 🔴 COVERAGE. Every run so far hedged 100% of the book. Only 80 of 1,063
+/// tickers have a token, so the facility can lay off a FRACTION and the rest is
+/// carried by every arm alike. Full coverage flattered the hedging arms in every
+/// previous result.
+#[test]
+fn only_part_of_the_book_is_hedgeable_and_the_sim_assumed_all_of_it() {
+    println!("\n=== hedgeable share of the net (weighted, 25% ratio, 20% attrition) ===");
+    println!("  {:<10} {:>18} {:>18} {:>16}", "coverage", "PersistenceGated", "PerTickerCap", "NoFacility");
+    for cov in [750i64, 2_500, 5_000, 10_000] {
+        let cfg = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: cov, ..Cfg::default() };
+        let (g, gc) = wrun2(Arm::PersistenceGated, cfg);
+        let (p, pc) = wrun2(Arm::PerTickerCap, cfg);
+        let (n, _)  = wrun2(Arm::NoFacility, cfg);
+        println!("  {:>5}bps   {:>7} / cap {:>5}   {:>7} / cap {:>5}   {:>7}", cov, g, gc, p, pc, n);
+    }
+    let thin = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 750, ..Cfg::default() };
+    let full = Cfg { hedgeable_bps: 10_000, ..thin };
+    assert!(wrun2(Arm::PersistenceGated, thin).0 <= wrun2(Arm::PersistenceGated, full).0,
+        "a hedge that can only reach part of the book cannot beat one that reaches all of it");
+}
+
+/// 🔴 CORRELATION. The sim netted per ticker as though tickers were independent.
+/// In stress they load on one factor, so the offsetting positions stop
+/// offsetting EXACTLY when the net matters. `max_liability` already sums collars
+/// for this reason; the simulation did not.
+#[test]
+fn per_ticker_netting_fails_under_a_common_factor() {
+    println!("\n=== market beta (weighted, 25% ratio, 20% attrition, 25% coverage) ===");
+    println!("  {:<8} {:>18} {:>16} {:>14}", "beta", "PersistenceGated", "PerTickerCap", "NoFacility");
+    for beta in [0i64, 2_500, 5_000, 8_000] {
+        let cfg = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 2_500,
+                        beta_bps: beta, ..Cfg::default() };
+        println!("  {:>5}bps   {:>13} {:>16} {:>14}", beta,
+                 wrun2(Arm::PersistenceGated, cfg).0,
+                 wrun2(Arm::PerTickerCap, cfg).0,
+                 wrun2(Arm::NoFacility, cfg).0);
+    }
+}
+
+/// 🔴 LIQUIDATION REVENUE, named by the owner as depositor income and never
+/// modelled. The surprise is its SIGN CORRELATION: borrowers are net long, so
+/// they liquidate on FALLS — which is when a short pool is already winning.
+/// Income that arrives only in the good state AMPLIFIES the asymmetry instead of
+/// offsetting it, which is the opposite of the usual intuition about an omitted
+/// income stream.
+#[test]
+fn liquidation_income_arrives_in_the_state_the_pool_was_already_winning() {
+    let base = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 2_500, ..Cfg::default() };
+    println!("\n=== liquidation penalty (weighted) ===");
+    for liq in [0i64, 200, 500] {
+        let cfg = Cfg { liq_penalty_bps: liq, ..base };
+        println!("  penalty {:>4}bps   NoFacility {:>6}   PersistenceGated {:>6}",
+                 liq, wrun2(Arm::NoFacility, cfg).0, wrun2(Arm::PersistenceGated, cfg).0);
+    }
+    // Does it help MORE in up-paths (where the pool loses) or down-paths?
+    let up   = Cell { price: Price::TrendUp,   net: Net::PersistentLong, flow: Flow::Calm,
+                      basis: Basis::Tight, clock: Clock::Continuous, issuer: Issuer::Normal };
+    let down = Cell { price: Price::TrendDown, ..up };
+    let with = Cfg { liq_penalty_bps: 500, ..base };
+    let gain_up   = run_cfg(up,   Arm::NoFacility, with).depositor_bps
+                  - run_cfg(up,   Arm::NoFacility, base).depositor_bps;
+    let gain_down = run_cfg(down, Arm::NoFacility, with).depositor_bps
+                  - run_cfg(down, Arm::NoFacility, base).depositor_bps;
+    println!("  liquidation income in a RALLY (pool loses): {} bps", gain_up);
+    println!("  liquidation income in a CRASH (pool wins):  {} bps", gain_down);
+    assert!(gain_down >= gain_up,
+        "borrowers are long, so liquidation income must concentrate in falls: {} vs {}",
+        gain_down, gain_up);
+}
