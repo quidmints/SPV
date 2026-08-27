@@ -403,12 +403,14 @@ pub async fn tick<E: LevKeeperEvm>(
     }
     // FLUSH URGENTS FIRST, unconditionally — the no-liquidation guarantee can't queue behind non-urgent work.
     if !urgent.is_empty() {
-        // §E357 — ROUTES ARE NOT SOURCED YET. `oneinch.rs::fetch_swap` needs a key; the
-        // keyless path is client-side discovery over multicall and is not built. Sending an
-        // all-empty batch would be N guaranteed `NoVolatileRoute` reverts, so the vector is
-        // threaded and left empty deliberately — the gap is visible at the call site.
-        let urgent_routes: Vec<Vec<u8>> = Vec::new();
-        if let Err(e) = evm.cascade_delever(&urgent, &urgent_routes).await {
+        // §C2.1 — **THE GAP THIS COMMENT DESCRIBED IS CLOSED, AND NOT BY BUILDING WHAT IT ASKED
+        // FOR.** It read: *"ROUTES ARE NOT SOURCED YET. `oneinch.rs::fetch_swap` needs a key; the
+        // keyless path is client-side discovery over multicall and is not built"* — so this batch
+        // was N guaranteed `NoVolatileRoute` reverts and the urgent track could never fire. Route
+        // discovery was never buildable: 1inch calldata embeds its own `amount` and every amount is
+        // computed on-chain, so a fetched route is stale before it lands. `cascade_delever` now
+        // sends a POOL WORD per LP, which has no amount in it and needs no API and no key.
+        if let Err(e) = evm.cascade_delever(&urgent, &[]).await {
             tracing::warn!(error = %e, "cascade_delever failed; the un-saved positions fall to the venue backstop");
         }
         for lp in &urgent {
@@ -709,17 +711,6 @@ fn batch_gas(per_lp: u64, n: usize) -> u64 {
     ((per_lp as u128) * (n.max(1) as u128)).min(28_000_000) as u64
 }
 
-/// ABI-encode a `fn(address[] lps, uint256[] minOuts)` batch with `minOuts` all 0 (the contract's oracle floor
-/// protects each swap). Shared by `cascadeDelever` + `rebalanceMany` — same two-dynamic-array shape.
-/// §E357 — THREE dynamic arrays now: `(address[] lps, uint256[] minOuts, bytes[] routes)`.
-///
-/// `routes[i]` is the volatile leg's router calldata for LP `i`, built off-chain. ⚠️ **AN EMPTY
-/// ROUTE IS REFUSED ON CHAIN** (`_aggSwap` reverts `NoVolatileRoute`), so a caller with no routes
-/// must NOT send this batch — an all-empty `routes` is a batch of guaranteed reverts, not a no-op.
-///
-/// The head is three offsets rather than two, and `bytes[]` is an array OF dynamic elements, so its
-/// body is itself a table of offsets followed by each element's (len, padded data). That is the part
-/// a two-array encoder cannot be extended to by adding one word.
 /// §C2.1 — **THE POOL WORD THE KEEPER SENDS.** 1inch AggregationRouterV6 `Address` encoding:
 /// protocol in bits 253-255 (`1` = UniswapV3), pool in the low 160. The contract derives
 /// `zeroForOne` from `tokenIn` itself, so ONE word serves the lever-up and the de-lever alike.
@@ -737,7 +728,7 @@ fn batch_gas(per_lp: u64, n: usize) -> u64 {
 /// against it and bounds the result on its own balance delta either way.
 /// The venue word, env-overridable. Returns the FULL 256-bit value as big-endian bytes because the
 /// protocol bits live at 253-255 and cannot fit a u64.
-fn dex_word() -> [u8; 32] {
+pub fn dex_word() -> [u8; 32] {
     if let Ok(v) = std::env::var("QUID_LEV_DEX_WORD") {
         if let Ok(n) = v.parse::<u128>() {
             let mut w = [0u8; 32];
@@ -750,6 +741,27 @@ fn dex_word() -> [u8; 32] {
     w[12..].copy_from_slice(&hex_lit_pool());
     // protocol = UniswapV3 (1) at bits 253-255 => byte 0 gets 1 << 5
     w[0] |= 1 << 5;
+    w
+}
+
+/// §C2.1 — the BTC keeper's venue. **A DIFFERENT POOL, AND IT MUST BE:** `_stableToWbtc` swaps
+/// `USDC -> WBTC`, so pointing it at the WETH/USDC pool would send a token that pool does not hold.
+/// Uniswap V3 WBTC/USDC 0.30% — `0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35`, whose `token0` is
+/// WBTC (verified on-chain), which is why the contract deriving `zeroForOne` from `tokenIn` rather
+/// than trusting a keeper bit matters here: the two pools have OPPOSITE orderings.
+/// Override with `QUID_BTC_LEV_DEX_WORD`.
+pub fn dex_word_wbtc() -> [u8; 32] {
+    if let Ok(v) = std::env::var("QUID_BTC_LEV_DEX_WORD") {
+        if let Ok(n) = v.parse::<u128>() {
+            let mut w = [0u8; 32];
+            w[16..].copy_from_slice(&n.to_be_bytes());
+            return w;
+        }
+    }
+    let mut w = [0u8; 32];
+    w[12..].copy_from_slice(&[0x99,0xac,0x8c,0xA7,0x08,0x7f,0xA4,0xA2,0xA1,0xFB,
+                             0x63,0x57,0x26,0x99,0x65,0xA2,0x01,0x4A,0xBc,0x35]);
+    w[0] |= 1 << 5;   // protocol = UniswapV3
     w
 }
 
@@ -998,6 +1010,12 @@ mod tests {
         // Layout: UniswapV3 (protocol 1 at bits 253-255) in the top byte, pool in the low 160.
         assert_eq!(dex_word()[0], 1 << 5, "protocol bits must encode UniswapV3");
         assert_eq!(&dex_word()[12..], &hex_lit_pool()[..], "low 160 bits must be the pool");
+
+        // 🔴 THE BTC KEEPER MUST NOT SEND THE ETH POOL. `_stableToWbtc` swaps USDC -> WBTC, so the
+        // WETH/USDC pool would be handed a token it does not hold. Two venues, two words.
+        assert_ne!(dex_word_wbtc(), dex_word(), "the WBTC keeper needs its own pool, not the WETH one");
+        assert_eq!(dex_word_wbtc()[0], 1 << 5, "WBTC venue must also encode UniswapV3");
+        assert_ne!(dex_word_wbtc(), [0u8; 32], "a zero word reverts NoVolatileRoute on arrival");
     }
 
     #[test]

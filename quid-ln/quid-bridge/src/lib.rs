@@ -44,7 +44,6 @@ pub mod daemon;
 pub mod eth_logs;
 pub mod evm;
 pub mod evm_validating_signer;
-pub mod oneinch;
 pub mod freshness_ledger;
 /// YB IL-protect keeper: proactive de-lever loop so the venue's liquidation engine
 /// never fires (we build none of our own). Decision core; EVM I/O loop wires to the

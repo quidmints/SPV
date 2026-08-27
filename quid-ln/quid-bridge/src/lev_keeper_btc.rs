@@ -424,12 +424,13 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
         // `debtDeltaToTarget`; a revert is fail-safe (retried next tick).
         let (evm, bm, gas) = (self.evm.clone(), self.btc_lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let mut d = selector4("rebalanceWbtc(address,uint256,bytes)");
+            // §C2.1 — three STATIC words: (lp, minStableOut, dex). The hand-rolled `bytes` tail
+            // (an offset word of 0x60 then a zero length) is gone, and with it the empty route that
+            // made every one of these calls revert `NoVolatileRoute()` on arrival.
+            let mut d = selector4("rebalanceWbtc(address,uint256,uint256)");
             d.extend_from_slice(&addr_word(lp));
             d.extend_from_slice(&[0u8; 32]);   // minStableOut = 0 (contract floors against the oracle)
-            // §E357 — empty `bytes route` tail: offset (3 head words) then zero length.
-            d.extend_from_slice(&[0u8; 31]); d.push(0x60);
-            d.extend_from_slice(&[0u8; 32]);
+            d.extend_from_slice(&crate::lev_keeper::dex_word_wbtc());   // WBTC/USDC, NOT the WETH pool
             evm.send_tx(bm, d, gas)?;
             Ok(())
         })

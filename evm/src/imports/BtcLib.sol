@@ -402,6 +402,12 @@ library BtcLib {
         // NET model (mirror of Quid): levPooled is the NET leg (in pooled/lpShares); levBuf is the
         // debt-funded buffer (fee weight only). Live gross depth = their sum.
         uint gross = mgr == address(0) ? 0 : ILevEquity(mgr).grossCollateral(lp);
+        // ⭐ THE ALL-ZERO FAST PATH — mirror of `Quid._reconcileLev`'s. An LP that has never levered
+        //    has nothing to reconcile, and the general check below would still pay for a `debtUsd`
+        //    external call to learn that. Three local SLOADs answer it, which is what makes this
+        //    callable UNCONDITIONALLY from the BTC crystallisation points rather than gated on the
+        //    stale mirror it exists to refresh.
+        if (gross == 0 && levPooled[lp] == 0 && levBuf[lp] == 0 && levBufferUsd[lp] == 0) return d;
         if (gross == levPooled[lp] + levBuf[lp] &&
             levBufferUsd[lp] == (mgr == address(0) ? 0 : ILevEquity(mgr).debtUsd(lp) / 1e12)) return d;
         // Precompute the GROSS fee weight while the stack is still empty (before p) so the 8-arg settle call

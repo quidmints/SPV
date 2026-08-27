@@ -294,9 +294,16 @@ export const LEV_MANAGER_ABI = [
   //    2× IL-neutral, higher = opt-in directional). closeLev fully unwinds (short first, then long) back to the LP.
   // §E357 — `openLev` LOST two parameters rather than gaining one: an open takes no debt and
   //   performs no swap, so the ladder `minWethOut`/`routes` fed was unreachable and is deleted.
-  //   `closeLev` always sells, so its route is NOT optional.
+  // §C2.1 — `closeLev`'s last argument is a POOL WORD (`uint256`), NOT router calldata. It always
+  //   sells, so it is not optional; but the SPA does not build a route for it and never could —
+  //   1inch calldata embeds its own `amount`, and the amount `closeLev` swaps is decided on-chain
+  //   (the collateral freed after a flash-repay). A pre-built route would be stale by the time the
+  //   tx lands. The wallet passes a VENUE and the contract sizes the trade against it.
+  //   Encoding: protocol in bits 253-255 (`1` = UniswapV3), pool in the low 160; the contract
+  //   derives `zeroForOne` from `tokenIn` itself, so one word covers both legs. `DEX_WETH_USDC`
+  //   below is the deepest ETH/USDC pool on mainnet.
   'function openLev(address venue, uint256 collWeeth)',
-  'function closeLev(uint256 minOut, bytes route)',
+  'function closeLev(uint256 minOut, uint256 dex)',
 ] as const
 
 // The per-LP borrow venue adapter (Euler/Morpho) — only the risk-param the SPA

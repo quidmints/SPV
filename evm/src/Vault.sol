@@ -528,6 +528,20 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     function syncLev(address lp) external nonReentrant {   // §SLOP: one name across both ranges
+        _syncLev(lp);
+    }
+
+    /// @dev §SLOP — the internal half, so the BTC crystallisation points can reconcile BEFORE they
+    ///      settle. They cannot call `syncLev` itself: it is `nonReentrant` and so are they.
+    /// 🔴 **WHY THEY MUST: THE BTC FEE WEIGHT IS `pooled + levBuf[lpEth]`** (`:435`, `:509`), so a
+    ///      stale mirror crystallises fees on a stale weight — the same defect the ETH side had, and
+    ///      the same reason it is fixed the same way. The VENUE is already live (`collateralOf` and
+    ///      `debtOf` are pro-rata slices of the pooled position, so a seizure or interest reaches
+    ///      every LP with no per-LP bookkeeping); only this range's mirror of it lags, and only
+    ///      because nothing forced it forward before a payout.
+    ///      ⇒ Reconcile first, settle second. Then a BTC LP's crystallisation is accurate whenever it
+    ///      happens, regardless of when that LP last moved — which is the ETH guarantee, on BTC.
+    function _syncLev(address lp) internal {
         // Whole body (skip-check + _rebalance-via-repack + fee-settle + FULL-RESYNC:
         // burn all, re-add gross as two legs) in BtcLib.syncLev (delegatecall)
         // over the Vault's storage via the passed refs (incl. levBufferUsd).
@@ -620,6 +634,13 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         // fallback: delivery is inherently two-phase (the splice pays the swapper BEFORE this settles), so a
         // revert just re-tries the EVM leg against a still-valid SPV proof after the basket refills; the swapper
         // already holds their BTC and nothing is lost. Fork-proved: testReal_DeliverSideDelever_SwapOutTapsLeveredSlice.
+        // §SLOP — RECONCILE BEFORE ANY OF THIS READS THE MIRROR. Every quantity below is derived from
+        // `LP.pooled` and `levPooled`/`levBuf`: `deleverOnDelivery` sizes the shortfall off
+        // `pooled − levPooled`, `BtcLib.resize` settles fees on `pooled + levBuf`, and the clamp
+        // decides how much is deliverable. If the venue moved underneath them — a seizure, accrued
+        // interest — those are stale, and this is the LP's EXIT, i.e. the last moment it can be
+        // corrected for them. The ETH twin does the same at the head of `_withdraw`.
+        _syncLev(lpEth);
         uint delevUsd;
         if (!full && exactUsd > 0 && LEV_MANAGER != address(0))
             delevUsd = SwapLib.deleverOnDelivery(address(CORE), address(AUX), LEV_MANAGER,
@@ -646,6 +667,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function collectFees() external nonReentrant {
         if (autoManaged[msg.sender].pooled == 0) revert NoBtcPosition();
         _rebalance();                     // harvest BTC pool fees into the accumulators
+        _syncLev(msg.sender);             // reconcile the levered mirror BEFORE settling on its weight
         _settleBtcLp(msg.sender, msg.sender); // USD-leg → QUID; BTC-leg → compounds into pooled; rebaselines
     }
 

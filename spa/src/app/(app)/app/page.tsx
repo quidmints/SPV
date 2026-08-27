@@ -40,6 +40,13 @@ const iface = new ethers.Interface([
   ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...RANGE_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
 ])
 
+// §C2.1 — the venue word the contract executes against: protocol in bits 253-255 (`1` =
+// UniswapV3), pool in the low 160. Uniswap V3 WETH/USDC 0.05%, the deepest ETH/USDC pool on
+// mainnet. The contract derives `zeroForOne` from `tokenIn` against the pool's own `token0`, so
+// one word serves both directions and the browser cannot get the direction wrong.
+const DEX_WETH_USDC =
+  (1n << 253n) | BigInt('0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640')
+
 const enc = {
   // ERC20
   balanceOf:  (a: string) => iface.encodeFunctionData('balanceOf(address)', [a]),
@@ -92,7 +99,15 @@ const enc = {
   // leverage); the keeper levers up afterward, so there's no swap to floor here.
   openLev:      (venue: string, coll: bigint) =>
                 iface.encodeFunctionData('openLev(address,uint256)', [venue, coll]),
-  closeLev:     (minOut: bigint, route: string = '0x') => iface.encodeFunctionData('closeLev(uint256,bytes)', [minOut, route]),
+  // §C2.1 — `closeLev` takes a POOL WORD, not router calldata, and the default is a REAL venue.
+  //   It used to encode `closeLev(uint256,bytes)` with `route = '0x'`, and an EMPTY route is
+  //   REFUSED on chain (`_aggSwap` reverts `NoVolatileRoute`) — so this button reverted every
+  //   time it was pressed. It could not have been fixed by building a route here either: 1inch
+  //   calldata embeds its own `amount`, and the amount `closeLev` sells is decided on-chain (the
+  //   collateral freed after the flash-repay), so anything built in the browser is stale before
+  //   the tx lands. Naming a VENUE has no amount in it and cannot go stale.
+  closeLev:     (minOut: bigint, dex: bigint = DEX_WETH_USDC) =>
+                iface.encodeFunctionData('closeLev(uint256,uint256)', [minOut, dex]),
   levCap:       () => iface.encodeFunctionData('TARGET_LTV_CAP_BPS', []),
 }
 
