@@ -873,15 +873,13 @@ Recorded so they are not re-litigated.
    makes the run deterministic and disk-cacheable but not archival.
 8. **The `LevManager` byte margin**, which has been the binding contract at last measurement. Re-run
    `tools/check-contract-sizes.py` rather than trusting any figure written down anywhere.
-9. **Two pre-existing client defects, both in the `/app` half that §5.2 replaces**, surfaced the
-   first time `tsc` was run in `spa/`. Neither is fixed here, because each needs its own change:
-   `computeChannelDigest` is called twice in `(app)/app/page.tsx` and defined nowhere, so the
-   openChannel flow cannot run; and `evm/deployments/l1.json` still keys the ETH range manager as
-   `vogue` while `chains.ts` reads `l1.range`, so `CONTRACTS.range` resolves to the zero address.
-   The second is the `Vogue`→`Quid` rename never reaching the deploy record, and the fix belongs in
-   `DeployL1_s`'s JSON writer plus a redeploy — the file's own comment forbids hand-editing it,
-   because CREATE addresses are a function of deployer and nonce and an invented one silently
-   answers nothing.
+9. **`evm/deployments/l1.json` is stale and only a deploy run can fix it.** `DeployL1_s.sol`
+   already writes `range` (`:466`) and `btcCore` (`:477`); the committed record carries neither and
+   still keys the ETH range manager as `vogue`. So the client code is correct and the artifact is
+   behind. `chains.ts` now reads the record as a loose map, which makes an absent key resolve to the
+   zero address and **fail loudly** rather than becoming a compile error in a file that is right.
+   ⛔ Do not hand-edit the record: CREATE addresses are a function of deployer and nonce, so an
+   invented one is a fabricated address that silently answers nothing. Re-run the deploy.
 
 ---
 
