@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import { AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed, Types } from "./imports/Types.sol";
+import { ILevVenue, IERC20Min, ILevPooled, IWeETH, IMorphoBase as IMorphoFlash } from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
-import { AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed } from "./imports/Types.sol";
 import {LevBase} from "./imports/LevBase.sol";
-import {Types} from "./imports/Types.sol";
-import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
-import {ILevPooled} from "./imports/Interfaces.sol";   // §POOL-VENUE
-import {IWeETH} from "./imports/Interfaces.sol";
-import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 /// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
 ///         so the manager DERIVES the collateral type per position (weETH vs WETH) from the venue itself,
 ///         never storing it on `Pos` (the public struct ABI stays a stable 6-tuple).
@@ -48,9 +44,6 @@ import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 ///         `POOLED_USD`. (The old LEVERAGE-ENGINE-SPEC.md is gone; this file is the canonical design.)
 contract LevManager is LevBase {
     // ── immutables ──
-    IERC20Min public immutable WEETH;   // collateral token (ether.fi weETH)
-    IWeETH    internal immutable RATE;    // weETH→ETH rate (== WEETH addr; getEETHByWeETH)
-    IERC20Min public immutable QUID;    // the basket stablecoin — redeemed (via AUX) to protect a levered LP's debt
     // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our range.
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
 
@@ -64,10 +57,8 @@ contract LevManager is LevBase {
     // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
     uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
-    uint256 internal constant MAX_SLIPPAGE_BPS   = 100;  // 1% oracle-derived floor on EVERY swap (anti-MEV; see _floor)
     /// Min collateral to OPEN — keeps the `_openLps` book (iterated in rangeETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
-    uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
 
     /// @dev §E358 — this described `targetLtvCapBps` as "the LP's max-leverage LTV cap … 2× is the
     ///      IL-neutral value, higher is opt-in directional". That field is DELETED: IL-protect is a
@@ -91,24 +82,19 @@ contract LevManager is LevBase {
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
 
-    uint256 private _lock = 1;
     /// §RULE-8C — A MODIFIER'S BODY IS INLINED AT EVERY USE SITE, AND THIS ONE HAS **15**. The
     /// check-and-set half is now ONE routine (15 jumps instead of 15 copies); the release stays
     /// inline because it is a single `SSTORE` and a call would cost more than it saves.
     /// ⚠️ THE STRUCTURE IS DELIBERATELY UNCHANGED — `_;` still sits between enter and release, so
     /// every early return still releases the lock. Hoisting the RELEASE into a function would not.
-    function _enter() private { if (_lock != 1) revert Reentrancy(); _lock = 2; }
     /// §RULE-8C, same reason: this exact line appeared **5** times.
     function _onlyRange() private view { if (msg.sender != RANGE) revert NotGov(); }
-    modifier nonReentrant() { _enter(); _; _lock = 1; }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
     ///         collateralOf/debtOf into `totalNetEquity → rangeETH`, so an UNVETTED (fake) venue could
     ///         inject arbitrary phantom ETH backing and drain real ETH-LP principal on redemption. Only the
     ///         deployed Euler/Morpho adapters may ever be allowed. Pinned at construction.
-    address internal immutable GOV;
     mapping(address => bool) public allowedVenue;
-    bool internal venuesFrozen;                              // set by pinVenues → allowlist immutable thereafter
 
     /// PIN-ONCE via `init` (below), then frozen (not rotatable) — matches the renounce-everything posture.
 
@@ -123,7 +109,6 @@ contract LevManager is LevBase {
     ///         Morpho, then immutable in effect. A flash source can't inject phantom backing (unlike a
     ///         venue), but pin-once keeps it off the governance attack surface entirely, matching the
     ///         venue-allowlist / renounce-everything posture. 0 = unset (de-lever disabled until pinned).
-    address public flashProvider;
 
     /// §E304-mintclose: a truncated docblock for the BOLD-close WETH reserve sat here and described the
     /// event below it. The reserve, the mint-close mode and their venue (Liquity V2, `c11cb40f`) are gone;
@@ -133,10 +118,12 @@ contract LevManager is LevBase {
 
     receive() external payable {}
 
-    constructor(address weeth, address aux, address weth, address gov, address quid) LevBase(aux, weth) {
-        WEETH = IERC20Min(weeth); RATE = IWeETH(weeth); WETH = weth;
-        GOV = gov; QUID = IERC20Min(quid);
-    }
+    /// §J.2 — the public arity is UNCHANGED so no deploy site moves; everything it used to assign
+    /// locally now lands on `LevBase`. `weeth` is passed twice on purpose: it is both the collateral
+    /// AND its own rate source (`IWeETH(weETH).getEETHByWeETH`), which is exactly the fact the BTC
+    /// side expresses by passing `address(0)` there.
+    constructor(address weeth, address aux, address weth, address gov, address quid)
+        LevBase(aux, weth, gov, quid, weeth, weeth, 0.05 ether) { WETH = weth; }
 
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic (no partial-config window). Wires together:
     ///         the range sync-range (`range` = Quid — closeLev re-syncs the fee slice + the RANGE-ONLY E0 source),
@@ -163,7 +150,7 @@ contract LevManager is LevBase {
             // TRUE for a stable-collateral INVERSE venue mis-pinned as a long; discarding it allowlisted
             // exactly the collateral the comment above says "silently misvalues into phantom ETH
             // backing". Silent misvaluation is why the check earns its place (standing rule 3's inverse).
-            if (LevMath.vetVenue(v, WETH, WETH, address(WEETH))) revert VenueNotAllowed();
+            if (LevMath.vetVenue(v, WETH, WETH, address(COLL))) revert VenueNotAllowed();
             allowedVenue[v] = true; emit VenueAllowed(v, true);
         }
     }
@@ -182,7 +169,7 @@ contract LevManager is LevBase {
     ///         ⚠️ Anything bought as WETH is minted straight into weETH (`LevMath._stableToWeeth`);
     ///         WETH is a TRANSIT asset here and never rests as collateral.
     function _collToken(ILevVenue) internal view returns (address) {
-        return address(WEETH);
+        return address(COLL);
     }
     /// @notice Pull `amount` of the venue's equity collateral (weETH OR WETH) from `lp` and supply it as `lp`'s
     ///         isolated collateral. Own frame so `openLev` stays under the no-via_ir stack limit.
@@ -209,10 +196,6 @@ contract LevManager is LevBase {
     ///         `_collNative`, `debtUsd`, `getCurrentLtvBps`, `ilLtvBps`, `ilTargetLtvBps`) is shared
     ///         in `LevBase`; this three-line override is what used to justify seven duplicated
     ///         functions. Was `_collToEth(ILevVenue, uint)` whose venue parameter was never read.
-    function _collToBase(uint units) internal view override returns (uint) {
-        if (units == 0) return 0;
-        return RATE.getEETHByWeETH(units);
-    }
 
     function netEquityUsd(address lp) public view returns (uint256) {
         if (!pos[lp].open) return 0;
@@ -226,7 +209,6 @@ contract LevManager is LevBase {
 
 
     /// §PROTECT-FOLD — the two per-asset facts the shared `protectFromQuid` needs.
-    function _quidAddr() internal view override returns (address) { return address(QUID); }
 
     /// §PROTECT-FOLD — the guard is here (this contract owns `_lock`); the body is in `LevBase`.
     function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256) {
@@ -255,7 +237,7 @@ contract LevManager is LevBase {
         // collateral must never land on an unvetted or broken market. Reverts live in LevMath (off this EIP-170-
         // critical manager). Only OPEN is gated: close/rebalance stay open so the keeper can unwind OUT of a block.
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
-        if (collWeeth < MIN_OPEN_WEETH) revert BadTarget();           // anti-Sybil: no free zero-collateral book entries
+        if (collWeeth < MIN_OPEN) revert BadTarget();           // anti-Sybil: no free zero-collateral book entries
         // §DERIVED-BAND — the floor is the position's OWN band, so it is priced off the collateral
         // actually being deposited rather than a constant every position shared.
         // Pin the entry price so the position opens at ZERO leverage and levers only as the range sells.
@@ -542,7 +524,7 @@ contract LevManager is LevBase {
 
     /// The manager's runtime addresses + gas-reserve for the mode-2 extraction body (delegatecall → LevMath).
     function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
-        return LevMath.ExtractCfg({ weth: WETH, weeth: address(WEETH), aux: address(AUX),
+        return LevMath.ExtractCfg({ weth: WETH, weeth: address(COLL), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
             maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), dex: 0 });
     }
@@ -568,7 +550,7 @@ contract LevManager is LevBase {
         
         uint256 repayStable = LevMath.sizeRepayStable(// d/netEq/clamp in LevMath 
             p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, 
-                                    TWAP_WINDOW), address(WEETH), address(AUX));
+                                    TWAP_WINDOW), address(COLL), address(AUX));
         if (repayStable == 0) return 0;
 
         // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
@@ -660,7 +642,7 @@ contract LevManager is LevBase {
         // uses, so the round trip cannot drift the two apart.
         uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         if (px == 0) return (usedUsd, 0);          // no anchor: repay stands, deliver nothing (never divide by 0)
-        uint256 freeWeeth = IWeETH(address(WEETH)).getWeETHByeETH((usedUsd * 1e18) / px);
+        uint256 freeWeeth = IWeETH(address(COLL)).getWeETHByeETH((usedUsd * 1e18) / px);
         uint256 got = ILevPooled(venue).withdrawPool(freeWeeth);
         if (got > 0) wethDelivered = LevMath.collToWethDeliver(got, recipient, minWethOut, _extractCfg());
     }
@@ -751,7 +733,7 @@ contract LevManager is LevBase {
     ///      empty route, so `stableToColl` → `_stableToWethSor` → `_aggSwap` could never execute:
     ///      the lever-up leg was dead at the source, not at the entrypoints.
     function _sellCtx(address keeper, uint256 dex) internal view returns (LevMath.SellCtx memory) {
-        return LevMath.SellCtx({ weth: WETH, weeth: address(WEETH), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex });
+        return LevMath.SellCtx({ weth: WETH, weeth: address(COLL), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex });
     }
 
     /// Lever-UP BUY (own frame, no via_ir): borrow `usd` stable, swap → collateral (LevMath.stableToColl), supply

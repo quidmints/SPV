@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Types} from "./Types.sol";
+// `Reentrancy` is a FILE-LEVEL error in Types.sol — imported, not redeclared. I nearly added a
+// second declaration here; one grep for the existing body is what caught it (CLAUDE.md's first
+// verification rule: grep the body you are about to wrap, not the name you are about to create).
+import {Types, Reentrancy} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
-import {ILevVenue, DEFAULT_UNWIND_DEX} from "./Interfaces.sol";
-import {ILevPooled} from "./Interfaces.sol";   // §POOL-VENUE
-import {IAux, ICore} from "./Interfaces.sol";
+// §J.2 — ONE import from `Interfaces.sol`, not three. Rule 2 is "one declaration per interface in a
+// shared file"; three import statements from the SAME file is the same fragmentation on the consumer
+// side, and it is how `ILevPooled` came to look like a separate concern with its own line.
+import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
@@ -146,6 +150,68 @@ abstract contract LevBase {
     ///         what kept ~20 otherwise-identical lines from being one implementation.
     address public immutable ORACLE_KEY;
 
+    // ─── §J.2 UNIFICATION — state that was declared TWICE, once per manager ──────────────────────
+    // Every field below existed identically (or near-identically) in BOTH `LevManager` and
+    // `BtcLevManager`. They are hoisted here as the first half of collapsing the pair into ONE
+    // implementation with TWO INSTANCES — CLAUDE.md's §J.2 target, and the thing `isBTC`
+    // polymorphism-by-hand exists to avoid.
+    // ⚠️ HOISTING STATE INTO AN ABSTRACT BASE IS NOT ITSELF A BYTE SAVING (CLAUDE.md measured a fold
+    //    of BODIES into a base at +41 bytes, zero saved) — immutables inline at each use exactly as
+    //    before. What it buys is that the two managers stop DIVERGING, and that the merge has one
+    //    place to merge INTO. The bytes come at the merge, when the second copy stops existing.
+
+    /// Governance — the only party that may `init`. Was `address immutable GOV` in both managers.
+    address public immutable GOV;
+
+    /// The basket stablecoin, redeemed via `AUX` to repay a levered LP's OWN debt.
+    /// §DEDUP-TYPES — `LevManager` held this as `IERC20Min` and `BtcLevManager` as `address`, for one
+    /// `address(QUID)` use and zero direct uses respectively. The ADDRESS is the honest type: nothing
+    /// on either side ever called an ERC-20 method on it.
+    address public immutable QUID;
+
+    /// The collateral this instance levers: weETH on the ETH side, vBTC on the BTC side. Was `WEETH`
+    /// and `VBTC` — two names for "the venue's collateral token", neither read off the manager
+    /// externally (`WEETH()` is read off `Quid`/`EthVenue`, which is a different contract).
+    IERC20Min public immutable COLL;
+
+    /// @notice weETH→ETH rate source. **ZERO MEANS `COLL` IS ALREADY BASE-DENOMINATED**, which is the
+    ///         BTC case (vBTC IS sats, so the conversion is the identity).
+    /// @dev §SEAM — this immutable is what DELETES the `_collToBase` virtual and both of its
+    ///      overrides. They were `RATE.getEETHByWeETH(units)` and `return units` — a difference in
+    ///      DATA (is there a rate source?) that had been encoded as a difference in CODE. One
+    ///      immutable and one body replaces a virtual plus two overrides, and removes a seam point
+    ///      the merge would otherwise have to reconcile.
+    IWeETH internal immutable RATE;
+
+    /// Anti-Sybil floor on an open, in `COLL` units: 0.05e18 weETH on ETH, 50_000 sats (0.0005 BTC)
+    /// on BTC. Same role, different denomination — so it is DATA, not a per-manager constant.
+    uint256 public immutable MIN_OPEN;
+
+    /// 1% oracle-derived floor on EVERY swap (anti-MEV). Was declared with the SAME VALUE in both.
+    uint256 internal constant MAX_SLIPPAGE_BPS = 100;
+
+    /// Venue allowlist freeze — pin-once in `init`, then immutable. Both managers had it.
+    bool public venuesFrozen;
+
+    /// Morpho zero-fee flash provider (set in `init`), powering the flash-repay-first de-lever.
+    address public flashProvider;
+
+    uint256 private _lock = 1;
+
+    /// @dev §RULE-8C — the GUARD IS A FUNCTION, THE MODIFIER IS TWO JUMPS. `BtcLevManager` still
+    ///      inlined `if (_lock != 1) revert Reentrancy(); _lock = 2;` at every use site; hoisting
+    ///      `LevManager`'s already-folded shape gives the BTC side the same win that measured
+    ///      **+440 bytes** on the ETH side when it was folded there.
+    modifier nonReentrant() { _enter(); _; _lock = 1; }
+    function _enter() private { if (_lock != 1) revert Reentrancy(); _lock = 2; }
+
+    /// @notice `COLL` units → the range's base unit (ETH wei / sats).
+    /// @dev NO LONGER `virtual`: see `RATE`. Identity when there is no rate source.
+    function _collToBase(uint units) internal view returns (uint) {
+        if (units == 0 || address(RATE) == address(0)) return units;
+        return RATE.getEETHByWeETH(units);
+    }
+
     /// Per-LP, one isolated position. PUBLIC ⇒ ABI-visible 6-tuple getter (see note above).
     mapping(address => Types.Pos) public pos;
 
@@ -214,7 +280,14 @@ abstract contract LevBase {
     error NotOpen();
     error BadTarget();
 
-    constructor(address aux, address oracleKey) { AUX = IAux(aux); ORACLE_KEY = oracleKey; }
+    /// §J.2 — ONE constructor for both instances. `rate == 0` means `coll` is already denominated in
+    /// the range's base unit (the BTC case: vBTC IS sats), which is the whole of what used to be a
+    /// `_collToBase` virtual with two overrides.
+    constructor(address aux, address oracleKey, address gov, address quid,
+                address coll, address rate, uint256 minOpen) {
+        AUX = IAux(aux); ORACLE_KEY = oracleKey;
+        GOV = gov; QUID = quid; COLL = IERC20Min(coll); RATE = IWeETH(rate); MIN_OPEN = minOpen;
+    }
 
     /// @notice Poke the range to reconcile `lp`'s levered slice to live net equity. ONE routine for
     ///         what was THIRTEEN byte-identical inlined copies (6 in `LevManager`, 7 in
@@ -425,7 +498,6 @@ abstract contract LevBase {
     /// @dev    Takes UNITS, not `(venue, units)`. The ETH implementation's venue parameter was
     ///         UNNAMED — i.e. declared and never read — so it was never a per-venue conversion, and
     ///         carrying it would have made the shared signature wider than the work it does.
-    function _collToBase(uint units) internal view virtual returns (uint);
 
     /// @notice Collateral units → USD(1e18) at the instance's own oracle key. §FOLD-COLL: was
     ///         `LevManager._collValueUsd(venue, units)` and `BtcLevManager.vBtcValueUsd(units)` —
@@ -487,13 +559,12 @@ abstract contract LevBase {
         if (!pos[lp].open) revert NotOpen();
         uint256 pull;
         (pull, repaid) = LevMath.protectExec(
-            _quidAddr(), address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+            QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
         _afterProtect(msg.sender);
         emit ProtectedFromQuid(lp, pull, repaid);
     }
 
     /// @dev QU!D as an address. ETH declares it `IERC20Min`, BTC `address` — one cast, one place.
-    function _quidAddr() internal view virtual returns (address);
 
     /// @dev Post-protect keeper settlement. ETH reimburses from the WETH gas reserve; BTC has no
     ///      reserve to draw on, so the default is a NO-OP and that asymmetry is REAL, not drift.

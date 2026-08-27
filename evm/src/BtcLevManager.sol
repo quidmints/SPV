@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IVaultExposeB, IVBtcToken} from "./imports/Interfaces.sol";
-import { AlreadyOpen, NotFlash, Reentrancy } from "./imports/Types.sol";
+import { AlreadyOpen, NotFlash, Reentrancy, Types } from "./imports/Types.sol";
+import { IVaultExposeB, IVBtcToken, ILevVenue, IERC20Min, IMorphoBase as IMorphoFlash } from "./imports/Interfaces.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
-import {Types} from "./imports/Types.sol";
 import {LevMath} from "./imports/LevMath.sol";
-import {ILevVenue, IERC20Min} from "./imports/Interfaces.sol";
-import {IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 // §A.52: use the SHARED `IAux` rather than a file-local `IAuxTWAP_BView` that restated the
 // same signature — one declaration, so a change to it cannot silently miss this consumer.
-import {ILevVenue} from "./imports/Interfaces.sol";
 
    // branch open on the venue's collateral token
  // zero-fee flash (WBTC flash-repay-first de-lever)
@@ -35,17 +31,12 @@ import {ILevVenue} from "./imports/Interfaces.sol";
 ///         renamed collateral-agnostic `Euler/MorphoEscrowVenue`, deployed against a vBTC market). Acquisition
 ///         is EXTERNAL (never the swap-out rail → the range is never traded → no encroachment on other LPs).
 contract BtcLevManager is LevBase {
-    IERC20Min public immutable VBTC;   // collateral (8-dec, 1e8 = 1 BTC = 1 sat-unit)
     address public immutable WBTC;   // oracle key
-    address public immutable GOV;
-    address public immutable QUID;
-    /// The Vault behind `VBTC` — range authority for expose/unexpose. Distinct from `VBTC` since §J.2
+    /// The Vault behind `COLL` — range authority for expose/unexpose. Distinct from `COLL` since §J.2
     /// split the token face out of the Vault; before that split one address served as both.
     address public immutable VAULT;   // basket stablecoin — redeemed via AUX to repay a levered LP's OWN debt
     // QU!D policy ceiling on the LP's CHOSEN target LTV. 50%=2× is IL-neutral (delta-1); above = opt-in
     // DIRECTIONAL (LP's own risk, isolated). 7500=75%≈4×, headroom below the 86% venue LLTV. Tunable. (ETH parity.)
-    uint256 internal constant MAX_SLIPPAGE_BPS = 100;       // 1% anti-MEV floor on the leg's Curve swaps
-    uint256 public constant MIN_OPEN_VBTC      = 50_000;   // anti-Sybil: 0.0005 BTC in 8-dec sats (real confirmed collateral to join)
 
 
     /// @notice (B) Sold-fraction target activation. Default OFF ⇒ the PROVEN 1−√(entry/now) target stays active.
@@ -56,8 +47,6 @@ contract BtcLevManager is LevBase {
     ///         phantom-backing surface). Set ONCE by GOV then frozen (handles the manager↔venue circular
     ///         deploy dependency); mirrors LevManager so a WBTC venue can sit beside the vBTC one. New venue ⇒ new manager.
     mapping(address => bool) public allowedVenue;
-    bool    public venuesFrozen;
-    address public flashProvider;   // Morpho zero-fee flash (set in init) — powers the WBTC flash-repay-first de-lever
     /// @notice ONE-SHOT GOV config — pin-once, then FROZEN, atomic. Wires the audited venue ALLOWLIST
     ///         (`venues`, then frozen) and the range sync-range (`range` = Vault.syncLev, poked by
     ///         closeBtcLev) together. NOT rotatable (a new venue/range ⇒ deploy a new BtcLevManager). No flash
@@ -80,7 +69,7 @@ contract BtcLevManager is LevBase {
             // price, so valuation is identical); any OTHER collateral silently misvalues into phantom BTC backing
             // (the rug the frozen allowlist guards). LevMath.vetVenue reverts an unvaluable one even for GOV, and
             // rejects a SHORT ({stable,WBTC}) mis-pinned as a long (returns true). c1=WBTC ⇒ WBTC venue allowed.
-            if (LevMath.vetVenue(v, WBTC, address(VBTC), WBTC)) revert BadAuth();
+            if (LevMath.vetVenue(v, WBTC, address(COLL), WBTC)) revert BadAuth();
             allowedVenue[v] = true; emit VenueAllowed(v, true);
         }
     }
@@ -92,11 +81,13 @@ contract BtcLevManager is LevBase {
 
     error BadAuth();
 
-    uint private _lock = 1;
-    modifier nonReentrant() { if (_lock != 1) revert Reentrancy(); _lock = 2; _; _lock = 1; }
 
-    constructor(address vbtc, address aux, address wbtc, address gov, address quid) LevBase(aux, wbtc) {
-        VBTC = IERC20Min(vbtc); VAULT = IVBtcToken(vbtc).VAULT(); WBTC = wbtc; GOV = gov; QUID = quid;
+    /// §J.2 — arity unchanged; the shared fields land on `LevBase`. `address(0)` for the rate source
+    /// IS the statement that vBTC is already sats: the conversion is the identity, and expressing
+    /// that as DATA is what removed the `_collToBase` virtual and both overrides.
+    constructor(address vbtc, address aux, address wbtc, address gov, address quid)
+        LevBase(aux, wbtc, gov, quid, vbtc, address(0), 50_000) {
+        VAULT = IVBtcToken(vbtc).VAULT(); WBTC = wbtc;
     }
 
     // ═══════════════════════════ VALUATION (8-dec vBTC / sats basis) ═══════════════════════════
@@ -116,7 +107,6 @@ contract BtcLevManager is LevBase {
     ///         `ilTargetLtvBps` are all shared in `LevBase` on top of this.
     /// §MUTABILITY 2026-08-18 — `pure`, not `view`: vBTC IS sats, so this is the identity and reads
     /// nothing. Narrowing an override below its `view` virtual is legal and is what solc asked for.
-    function _collToBase(uint units) internal pure override returns (uint) { return units; }
 
 
 
@@ -128,7 +118,6 @@ contract BtcLevManager is LevBase {
 
     /// §PROTECT-FOLD — BTC declares QU!D as a plain address, and has no gas reserve, so it inherits
     /// the no-op `_afterProtect`.
-    function _quidAddr() internal view override returns (address) { return QUID; }
 
     /// §PROTECT-FOLD — the guard is here (this contract owns `_lock`); the body is in `LevBase`.
     function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256) {
@@ -148,7 +137,7 @@ contract BtcLevManager is LevBase {
         // caller picks from the frozen allowlist (no phantom backing). requireOpenable reverts a non-allowlisted
         // OR incident-flagged (GOV setVaultHealth) venue; close/rebalance stay open so the keeper can unwind.
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
-        if (initialVbtc < MIN_OPEN_VBTC) revert BadTarget();           // anti-Sybil
+        if (initialVbtc < MIN_OPEN) revert BadTarget();           // anti-Sybil
         // §DERIVED-BAND — floored on this position's own band (vBTC IS sats, so no conversion).
         uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
@@ -172,9 +161,9 @@ contract BtcLevManager is LevBase {
         // tracks net-equity). vBTC (native #74): expose the LP's OWN free channel BTC (Vault mints the vBTC face to
         // this manager — no pre-mint/transferFrom roundtrip). WBTC (fallback): the caller/SPA already SOR'd its USD
         // equity → WBTC; pull it in. `initialVbtc` is the collateral amount (8-dec) in either token.
-        if (ILevVenue(address(venue)).COLLATERAL() == address(VBTC)) {
+        if (ILevVenue(address(venue)).COLLATERAL() == address(COLL)) {
             IVaultExposeB(VAULT).exposeBtcToLev(msg.sender, initialVbtc);
-            VBTC.transfer(address(venue), initialVbtc);
+            COLL.transfer(address(venue), initialVbtc);
         } else {
             IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialVbtc);  // WBTC-mode: LP-brought equity
         }
@@ -204,10 +193,10 @@ contract BtcLevManager is LevBase {
 
     /// @notice Supply `vbtc` (minted against the LP's dedicated UTXO, approved here) as additional collateral —
     ///         the second half of a lever-up step, after the keeper has sourced+minted the BTC.
-    /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK). `VBTC` is passed as the collateral token; the same
+    /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK). `COLL` is passed as the collateral token; the same
     ///         library body serves weETH on the ETH side, which is why this was never BTC-specific.
     function leverSupply(uint vbtc) external nonReentrant {
-        BtcLib.leverSupply(pos, address(VBTC), msg.sender, vbtc);
+        BtcLib.leverSupply(pos, address(COLL), msg.sender, vbtc);
         _syncRange(msg.sender);
     }
 
@@ -216,7 +205,7 @@ contract BtcLevManager is LevBase {
     /// @notice §FOLD-LEGS — body in `BtcLib` (§FOLD-BOOK), parameterised by the collateral token.
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
         _reanchorIfReseated(msg.sender);
-        out = BtcLib.deleverWithdraw(pos, address(VBTC), msg.sender, vbtc);
+        out = BtcLib.deleverWithdraw(pos, address(COLL), msg.sender, vbtc);
         _syncRange(msg.sender);
     }
 
