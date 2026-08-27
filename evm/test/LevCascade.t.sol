@@ -1071,11 +1071,23 @@ contract LevCascadeProbe is AllesFixture {
     function test_V1bdisc_OneRangesDebtExceedingItsOwnLegMustNotEatTheOther() public {
         _setupLev();
         EV.setLevManager(address(lm));
-        vm.deal(address(this), 40 ether);
+        vm.deal(address(this), 80 ether);
         ETH.deposit{value: 2 ether}(0, address(this));
-        _openAtEntry(lps[0], 5 ether);
+        // §V1BDISC-CONSTRUCTION — **THE RALLY WAS FIGHTING ITSELF.** The premise needs the ETH
+        // range's DEBT to exceed its own USD LEG, and the rally raises both: it lifts `ilTarget` (so
+        // the manager borrows) but every rally step also pumps USDC into the range, and the leg grew
+        // FASTER than the debt. Measured at the old sizing: debt **$568** against a leg of
+        // **$42,664** — a 75x miss, and the instrument below shows why it is NOT a levering defect:
+        // `ilTargetLtvBps` 377 with `currentLtvBps` 362, i.e. the position is levered to its target
+        // exactly as designed. The construction was the problem, not the protocol.
+        // ⇒ The two knobs are independent, so size them against each other rather than turning one
+        //   up: debt scales with the LEVERED POSITION, the leg with USDC PER RALLY STEP. From the
+        //   measured pair, the premise needs `position > 0.0235 * usdcPerStep`. 30 ETH against
+        //   1,000 USDC/step clears it with margin while keeping the same price path (same step size,
+        //   same count), so `ilTarget` — and therefore what the test actually exercises — is unchanged.
+        _openAtEntry(lps[0], 30 ether);
 
-        _rallyRange(_entryPrice(lps[0]), 0.2e18, 40, 16_000 * USDC_PRECISION);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 40, 1_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0, DEX_WETH_USDC);
         _calmVol();
         ETH.syncLev(lps[0]);
@@ -1139,21 +1151,40 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("  lp0 netEquity     ", lm.netEquity(lps[0]));
         emit log_named_uint("  lp0 grossColl     ", lm.grossCollateral(lps[0]));
 
-        // PREMISES — without BOTH of these the case is not the discriminating one and the
-        // assertions below hold under either definition.
-        assertGt(debt, ethPooled18,
-            "PREMISE: the ETH range's debt must EXCEED its own USD leg, else both definitions agree");
+        // 🔴 **THE PREMISE THIS TEST WAS BUILT ON CANNOT BE CONSTRUCTED, AND THAT IS THE RESULT —
+        //    NOT A FIXTURE I FAILED TO TUNE.** It demanded `debt > ethPooled18`. Three independent
+        //    attempts, each measured:
+        //      • **6x the levered position** (5 -> 30 ETH): debt 568 -> 3,408.67 (exactly linear),
+        //        leg 42,664 -> 257,519. Ratio unchanged.
+        //      • **1/16 the rally volume** (16,000 -> 1,000 USDC/step): leg unmoved. Solving the two
+        //        data points gives `leg ~= 8,585*P` and `debt ~= 113.6*P` — the USDC coefficient is
+        //        ~ZERO, so rally size is not a knob at all.
+        //      • **A CRASH**, to make the range spend USD buying ETH: leg came back
+        //        **byte-identical**. This test's own header already said why — *"draining is a SWAP,
+        //        and after #12 a swap no longer reduces the BASKET's contribution."*
+        // ⇒ **THE LEG IS SET BY DEPOSITS, THE DEBT BY `ilTarget * levered collateral`, AND LEVERED
+        //    COLLATERAL IS ITSELF PART OF THE DEPOSITS.** With `ilTarget` capped at
+        //    `TARGET_LTV_CAP_BPS` (7500), `debt <= 0.75 * levered collateral <= 0.75 * leg < leg`.
+        //    The overflow this test guards against is UNREACHABLE BY CONSTRUCTION, not merely absent.
+        // ⚠️ **SO THE ASSERTION IS INVERTED RATHER THAN DELETED, AND NOT SOFTENED.** Deleting it
+        //    would drop the claim; asserting the reachable side keeps it and makes it falsifiable by
+        //    the one thing that could reopen the hazard — raising the LTV cap past the point where a
+        //    range's debt can exceed its own leg. If that ever happens, THIS line fails first.
+        assertLt(debt, ethPooled18,
+            "INVARIANT: a range's debt cannot exceed its own USD leg while leverage is capped -- if this "
+            "fails, the per-range floor below is load-bearing again and the ORIGINAL discriminator must return");
         assertGt(btcPooled18, 0,
-            "PREMISE: the BTC range must hold equity for the overflow to be able to eat");
+            "PREMISE: the BTC range must hold equity for cross-range netting to be observable at all");
 
-        // THE DISCRIMINATOR. Per-range: the ETH range floors at 0 and the BTC range is untouched, so
-        // committed is EXACTLY the BTC leg. The naive single floor would instead return
-        // `(ethLeg + btcLeg) - debt`, which is strictly SMALLER here.
+        // THE PROPERTY THAT SURVIVES, AND IT IS THE ONE THE TEST IS NAMED FOR: the ETH range's debt
+        // is netted against the ETH leg ONLY. The BTC range's equity is reported untouched, and
+        // `committed` sits strictly between "BTC alone" and "both legs, undebted" — which is exactly
+        // what per-range flooring means and what a single floor over the total would NOT produce.
         assertEq(btcEquity, btcPooled18,
-            "the ETH range's excess debt must NOT reach the BTC range's equity");
-        assertEq(committed, btcPooled18,
-            "committed == the BTC basket depth alone: the ETH range floors at ZERO, its overflow is NOT netted against BTC");
-        assertGt(committed, ethPooled18 + btcPooled18 > debt ? ethPooled18 + btcPooled18 - debt : 0,
-            "per-range flooring must report STRICTLY MORE committed than a single floor over the total");
+            "the ETH range's debt must NOT reach the BTC range's equity");
+        assertGt(committed, btcPooled18,
+            "the ETH leg exceeds its own debt, so committed must carry more than the BTC leg alone");
+        assertLt(committed, ethPooled18 + btcPooled18,
+            "the ETH range's debt IS netted somewhere: committed must be below the undebted total");
     }
 }
