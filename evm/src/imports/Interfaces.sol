@@ -189,6 +189,12 @@ bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
 uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
 uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
 
+// §RANGE-UNWIND — the venue the RANGE falls back to when it force-closes a lever with no keeper to
+// name one (see `LevBase.rangeUnwindDex`). Uniswap V3 WETH/USDC 0.05%, the deepest ETH/USDC pool on
+// mainnet; `_aggSwap` derives the direction, so ONE word serves both legs. GOV-overridable.
+uint256 constant DEFAULT_UNWIND_DEX =
+    (PROTO_UNIV3 << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640));
+
 /// @dev The one V3 accessor `_aggSwap` needs: which token a pool calls `token0`, so the direction
 ///      flag is computed from `tokenIn` instead of taken on trust from a keeper.
 interface IUniV3PoolMin { function token0() external view returns (address); }

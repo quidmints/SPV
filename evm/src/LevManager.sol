@@ -463,9 +463,13 @@ contract LevManager is LevBase {
     ///         extract value nor redirect it — at worst it forces a close the LP could do themselves.
     ///         `nonReentrant`: the tail `syncLev` range call-back is already try/catch-wrapped, so a re-entrant
     ///         range context degrades to the permissionless slice reconcile.
-    function closeLevFor(address lp, uint256 minOut, uint256 dex) external nonReentrant {
+    /// ⚠️ **NO `dex` PARAMETER, DELIBERATELY.** `_onlyRange()` means the sole caller is the range,
+    ///    and the range has no route to supply — see `LevBase.rangeUnwindDex`. A parameter with no
+    ///    possible supplier is API surface that can only ever be passed `0`; taking the venue from
+    ///    the pinned slot instead keeps `ILevClose`'s two-argument signature intact.
+    function closeLevFor(address lp, uint256 minOut) external nonReentrant {
         _onlyRange();
-        _closeLev(lp, minOut, true, dex);     // INVOLUNTARY -- retain state so the LP can be restored
+        _closeLev(lp, minOut, true, _unwindDex());   // INVOLUNTARY -- retain state so the LP can be restored
     }
 
     /// @dev Shared close body — parameterized by `lp` so the LP-only `closeLev` and the permissioned

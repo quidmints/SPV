@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
-import {ILevVenue} from "./Interfaces.sol";
+import {ILevVenue, DEFAULT_UNWIND_DEX} from "./Interfaces.sol";
 import {ILevPooled} from "./Interfaces.sol";   // §POOL-VENUE
 import {IAux, ICore} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
@@ -157,6 +157,37 @@ abstract contract LevBase {
     /// The range's sync range (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
     address public RANGE;
+
+    /// @notice §RANGE-UNWIND — the venue the RANGE uses when it force-closes a lever for an LP.
+    /// @dev 🔴 **THE RANGE IS NOT A KEEPER AND CANNOT DISCOVER A ROUTE, AND §G.7 REQUIRES IT TO
+    ///      TRADE ANYWAY.** `Quid.withdraw` auto-de-levers a withdrawal that reaches past an LP's
+    ///      free depth into its own in-range levered slice (`Quid.sol:807`, #109), and that unwind's
+    ///      debt-repay leg has to SELL. Every other volatile hop is fed a pool word by whoever
+    ///      submits the tx; this one has no such caller — the range is executing the LP's own exit
+    ///      inside `withdraw`, with no off-chain step to consult.
+    ///      ⚠️ **THIS IS NOT THE "FALLBACK ROUTE MACHINERY" THAT WAS DELETED.** That was a SECOND
+    ///      venue tried when a keeper's first choice failed — a silent downgrade of execution on a
+    ///      path that already had a router. This is the ONLY venue on a path that has no router at
+    ///      all, and it is not consulted anywhere a keeper can supply one: `closeLevFor` is
+    ///      `_onlyRange()`, so `msg.sender == RANGE` is the whole audience.
+    ///      Zero ⇒ `DEFAULT_UNWIND_DEX`, so a fresh deploy trades without a governance step; GOV can
+    ///      repoint it if that pool ever stops being the deepest, which a constant could not.
+    uint256 public rangeUnwindDex;
+
+    /// @dev `NotRange` rather than the children's `NotGov`: this gate is `msg.sender == RANGE`, and
+    ///      both managers declare `NotGov` separately, so naming it here would collide on inherit.
+    error NotRange();
+
+    function setRangeUnwindDex(uint256 d) external {
+        if (msg.sender != RANGE) revert NotRange();
+        rangeUnwindDex = d;
+    }
+
+    /// The venue actually used — see `rangeUnwindDex`.
+    function _unwindDex() internal view returns (uint256 d) {
+        d = rangeUnwindDex;
+        if (d == 0) d = DEFAULT_UNWIND_DEX;
+    }
 
     // §E358 — `TargetSet` DELETED with the per-LP cap it announced. An event nothing emits is
     // API surface telling a reader this contract has a setting it does not have.

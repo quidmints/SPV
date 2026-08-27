@@ -394,7 +394,8 @@ contract LevCascadeProbe is AllesFixture {
         // (b) UNWIND-ONLY: the free ladder cannot pull the levered slice.
         vm.prank(lps[0]);
         ++withdrawsAttempted;
-        try ETH.withdraw(type(uint).max, lps[0], lps[0]) { ++withdrawsLanded; } catch {}
+        try ETH.withdraw(type(uint).max, lps[0], lps[0]) { ++withdrawsLanded; }
+        catch (bytes memory e) { emit log_named_bytes("(b) withdraw reverted with ", e); }
         emit log_named_uint("(b) free withdraws landed  ", withdrawsLanded);
         emit log_named_uint("(b)           attempted    ", withdrawsAttempted);
         // PREMISE: if the free withdraw never executed, "the free ladder cannot pull the levered

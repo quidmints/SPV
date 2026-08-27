@@ -730,7 +730,7 @@ contract VBtcLevFeeLane is AllesFixture {
         lmW.rebalanceWbtc(lp, 0, DEX_WBTC_USDC);                     // permissionless + self-flooring (what the keeper sends)
         uint debtAfterUp = wvenue.debtOf(lp);
         assertGt(debtAfterUp, 0, "folded up: real USDC debt on Morpho");
-        assertGt(wvenue.collateralOf(lp), coll, "folded up: SOR'd WBTC added to collateral");
+        assertGt(wvenue.collateralOf(lp), coll, "folded up: swapped WBTC added to collateral");
         vm.clearMockedCalls();
 
         // ── FLASH-DE-LEVER: price back to entry ⇒ ilTarget→0 ⇒ target debt 0 ⇒ full de-lever via Morpho flash. ──
