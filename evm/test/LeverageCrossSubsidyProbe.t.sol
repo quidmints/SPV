@@ -138,10 +138,14 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         uint crashed = uint256(p) * vdebt * 100 / (collValue * 92);
         vm.mockCall(CL_ETH_USD, abi.encodeWithSelector(IChainlinkFeedT.latestRoundData.selector),
             abi.encode(rid, int256(crashed), ut, ut, ar));
-        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), lp);
+        // §POOL-VENUE — the Morpho borrower is the VENUE (`LevVenueBase` passes `address(this)`
+        // everywhere), so `position(MARKET_ID, lp)` is an empty slot: 0 shares, then
+        // `liquidate(..., 0, 0, "")`, which Morpho rejects as `inconsistent input`. Fourth site of
+        // this one stale premise; `VBtcLevFeeLane._seizeRealBtc` is the migrated model.
+        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
-        IMorphoTest(MORPHO).liquidate(mp, lp, 0, uint256(borrowShares) * numer / denom, "");
+        IMorphoTest(MORPHO).liquidate(mp, address(venue), 0, uint256(borrowShares) * numer / denom, "");
         vm.clearMockedCalls();
         _realignRangeToReal();
     }

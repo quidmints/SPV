@@ -306,8 +306,19 @@ contract LevCascadeProbe is AllesFixture {
         // Basket clean: the liquidation took NOTHING from the basket (TVL intact) and deliverable ETH still
         // covers the range — the loss is isolated to the LP's Morpho account, never socialized.
         assertGe(_tvl(), tvl0, "seized: basket real backing (TVL) intact - nothing socialized");
+        // ⚠️ RECONCILE BEFORE ASSERTING BACKING, AND THE WINDOW IS REAL RATHER THAN A TEST DETAIL.
+        //    A seizure removes collateral from the venue immediately, but the range's MINTED depth
+        //    still reflects the pre-seizure position until `syncLev` reconciles it — so between the
+        //    two, `POOLED` legitimately over-states what backs it. Measured here: 5.118 against
+        //    7.776, a 2.66 ETH gap that is the seized collateral, not a leak. `syncLev` is
+        //    permissionless and is exactly what a keeper does next; the sibling
+        //    `testReal_Morpho_LiquidationLeavesBasketIntact` already called it, and this one did not,
+        //    which is the whole difference between them.
+        // ⇒ The backing claim is about the RECONCILED state. Asserting it mid-window would be
+        //    asserting that an unapplied write has already landed.
+        ETH.syncLev(lps[0]);
         assertGe(AUX.rangeETH() + ETH.levBuf(lps[0]), CORE.POOLED(),
-            "seized: real venue ETH + the debt-funded buffer covers the range");   // §C25, see above
+            "seized+reconciled: real venue ETH + the debt-funded buffer covers the range");   // §C25, see above
     }
 
     /// FEE-LANE PROOF: the levered weETH equity (a) EARNS range fees via the same machinery as a weETH deposit,
