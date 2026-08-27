@@ -484,3 +484,121 @@ fn liquidation_income_arrives_in_the_state_the_pool_was_already_winning() {
         "borrowers are long, so liquidation income must concentrate in falls: {} vs {}",
         gain_down, gain_up);
 }
+
+/// ⭐ THE INSTRUMENT COMPARISON, which is a different question from the policy
+/// comparison and had never been asked. Every earlier arm hedged by buying SPOT,
+/// and most of what those arms were charged for is a property of spot rather
+/// than of hedging: the $100k ticket, the weekend hole, and the issuer's power
+/// to seize. A perp has none of them, and equity perps on single US names are
+/// live today.
+#[test]
+fn the_instrument_matters_more_than_the_policy() {
+    println!("\n=== spot vs perp (weighted, 25% ratio, 20% attrition) ===");
+    println!("  {:<10} {:>18} {:>14} {:>14}", "coverage", "PersistenceGated", "PerpHedge", "NoFacility");
+    for cov in [750i64, 2_500, 5_000, 10_000] {
+        let cfg = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: cov,
+                        perp_venue_loss_bps: 3_000, ..Cfg::default() };
+        println!("  {:>5}bps {:>16} {:>14} {:>14}", cov,
+                 wrun2(Arm::PersistenceGated, cfg).0,
+                 wrun2(Arm::PerpHedge, cfg).0,
+                 wrun2(Arm::NoFacility, cfg).0);
+    }
+
+    // The perp's own risk, priced rather than waved through: venue failure is the
+    // counterpart of issuer seizure and it is the one thing a perp ADDS.
+    println!("\n=== perp venue-failure severity (25% coverage) ===");
+    for loss in [0i64, 3_000, 7_200] {
+        let cfg = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 2_500,
+                        perp_venue_loss_bps: loss, ..Cfg::default() };
+        println!("  loss {:>5}bps   PerpHedge {:>6}", loss, wrun2(Arm::PerpHedge, cfg).0);
+    }
+
+    let cfg = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 2_500,
+                    perp_venue_loss_bps: 3_000, ..Cfg::default() };
+    assert!(wrun2(Arm::PerpHedge, cfg).1 == 10_000,
+        "a perp refuses nobody, so it must preserve capacity like any hedging arm");
+}
+
+/// 🔴 THE NUMBER THE DECISION ACTUALLY TURNS ON: how much notional coverage the
+/// deliverable set gives, and where the hedge starts to pay. Reported as a
+/// break-even rather than argued, so it can be checked against a real book.
+#[test]
+fn break_even_coverage_is_the_one_input_that_decides_this() {
+    let base = |cov| Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: cov,
+                           perp_venue_loss_bps: 3_000, ..Cfg::default() };
+    let carry = wrun2(Arm::NoFacility, base(0)).0;
+    println!("\n=== break-even coverage (carrying = {}) ===", carry);
+    let (mut be_spot, mut be_perp) = (0i64, 0i64);
+    for cov in (500..=10_000).step_by(500) {
+        let c = cov as i64;
+        let spot = wrun2(Arm::PersistenceGated, base(c)).0;
+        let perp = wrun2(Arm::PerpHedge, base(c)).0;
+        if be_spot == 0 && spot > carry { be_spot = c; }
+        if be_perp == 0 && perp > carry { be_perp = c; }
+    }
+    println!("  spot hedge beats carrying from {} bps coverage", be_spot);
+    println!("  perp hedge beats carrying from {} bps coverage", be_perp);
+    println!("  (the deliverable ticker set is 80/1063 = 753 bps by COUNT;");
+    println!("   by NOTIONAL it is the megacaps, so the real figure is higher");
+    println!("   and is the one number that decides this.)");
+}
+
+/// ⭐ THE SCOPE THE OWNER SET: assume we have BOTH capabilities with Backed —
+/// buy real paper spot, and borrow it to short. No competitor venue.
+///
+/// 🔴 THE SHORT LEG WAS FREE IN EVERY EARLIER RUN, AND THAT WAS WRONG. `target`
+/// is signed, so every arm already flipped short when the book flipped — paying
+/// only the round trip. A real short pays a BORROW FEE for every step it is open
+/// and carries RECALL risk, which lands in stress because that is when lenders
+/// call. Those two costs land entirely on one side of the book, so they change
+/// which imbalances are worth hedging, not merely how much it costs.
+#[test]
+fn both_legs_priced_a_short_in_real_paper_is_not_the_mirror_of_a_long() {
+    let base = |borrow, recall| Cfg {
+        // ⚠️ 100% coverage here ON PURPOSE. At 25% the hedge is inert, so a
+        //    borrow-cost sweep there measures nothing and reports zeros that read
+        //    like "borrow cost is irrelevant". Isolate the leg being priced.
+        ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 10_000,
+        borrow_fee_bps: borrow, recall_bps: recall, ..Cfg::default() };
+
+    println!("\n=== borrow cost on the short leg (weighted, 25% cov) ===");
+    println!("  {:<22} {:>10} {:>10}", "borrow fee / step", "gated", "carry");
+    for (b, r) in [(0i64, 0i64), (1, 200), (4, 500), (10, 1_000)] {
+        let cfg = base(b, r);
+        println!("  {:>3}bps + recall {:>4}   {:>8} {:>10}", b, r,
+                 wrun2(Arm::PersistenceGated, cfg).0, wrun2(Arm::NoFacility, cfg).0);
+    }
+
+    // General collateral vs hard-to-borrow is the asymmetry that matters: the
+    // SAME policy is worth having on one name and not on another.
+    let gc  = wrun2(Arm::PersistenceGated, base(1, 200)).0;
+    let htb = wrun2(Arm::PersistenceGated, base(10, 1_000)).0;
+    println!("\n  general collateral {}   hard-to-borrow {}   spread {}", gc, htb, gc - htb);
+    assert!(htb <= gc,
+        "a hard-to-borrow name cannot be cheaper to hedge than general collateral: {} vs {}",
+        htb, gc);
+}
+
+/// The decision number, recomputed under the owner's scope: both legs, real
+/// paper, Backed-direct, borrow priced.
+#[test]
+fn break_even_coverage_with_both_legs_and_a_priced_borrow() {
+    let mk = |cov, borrow, recall| Cfg {
+        ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: cov,
+        borrow_fee_bps: borrow, recall_bps: recall, ..Cfg::default() };
+    let carry = wrun2(Arm::NoFacility, mk(0, 0, 0)).0;
+    println!("\n=== break-even coverage, BOTH LEGS (carrying = {}) ===", carry);
+    for (label, b, r) in [("free short (the old, wrong assumption)", 0i64, 0i64),
+                          ("general collateral", 1, 200),
+                          ("hard-to-borrow", 10, 1_000)] {
+        let mut be = 0i64;
+        for cov in (500..=10_000).step_by(500) {
+            let c = cov as i64;
+            if be == 0 && wrun2(Arm::PersistenceGated, mk(c, b, r)).0 > carry { be = c; }
+        }
+        println!("  {:<38} break-even {} bps coverage",
+                 label, if be == 0 { -1 } else { be });
+    }
+    println!("  (deliverable set = 80/1063 = 753 bps by COUNT; by NOTIONAL it is");
+    println!("   the megacaps, and that figure is what decides this.)");
+}

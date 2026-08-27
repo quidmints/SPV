@@ -34,7 +34,19 @@ pub enum Price { TrendUp, TrendDown, Chop, Jump, CrashRecover }
 /// How the pool's NET exposure evolves. This is the borrowers' behaviour, and
 /// `AdversarialInduced` is the attack: push past the trigger, then withdraw.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Net { PersistentLong, MeanReverting, AdversarialInduced }
+pub enum Net {
+    PersistentLong, MeanReverting, AdversarialInduced,
+    /// 🔴 THE CASE THAT WAS MISSING, AND ITS ABSENCE MADE THE BORROW LEG
+    /// UNTESTABLE. `PersistentLong` and `AdversarialInduced` are always positive
+    /// and `MeanReverting` flips every 6 steps — too fast for the persistence
+    /// gate to accumulate — so NO ARM EVER HELD A SHORT HEDGE in any run before
+    /// this. Every borrow-cost sweep returned identical numbers and read as
+    /// "borrow cost does not matter", when it meant "the short leg never fired".
+    /// A book that is persistently net SHORT (borrowers bearish) puts the pool
+    /// net LONG, and hedging THAT requires borrowing real paper and selling it —
+    /// which is the capability the owner scoped in.
+    PersistentShort,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Flow { Calm, RedemptionRun }
@@ -88,6 +100,29 @@ pub enum Arm {
     /// Refuse the marginal one-sided trade past a hard per-ticker cap. Costs the
     /// revenue on flow not written, and nothing else.
     PerTickerCap,
+    /// ⛔ **REJECTED BY THE OWNER (2026-08-27) — KEPT ONLY AS THE MEASURED
+    /// BASELINE IT PROVIDES, AND SO NOBODY RE-PROPOSES IT.** The reason is not
+    /// economic: *"i dont believe in using a competitor for this, we will have to
+    /// work something out with backed ourselves."* Routing our hedge through
+    /// Ostium or Hyperliquid makes a competing venue the counterparty to our own
+    /// book and hands it our flow. The numbers below stand — a perp does dominate
+    /// spot on every axis the sim measures — and the decision overrides them,
+    /// which is the correct order for a decision of this kind.
+    ///
+    /// ⭐ THE INSTRUMENT THE ANALYSIS HAD NOT CONSIDERED. Every arm above
+    /// hedges by BUYING A SPOT TOKEN, and most of what those arms were charged
+    /// for is a property of spot, not of hedging:
+    ///   • the $100k primary ticket        → a perp has no minimum
+    ///   • the weekend hole                 → perps trade 24/7
+    ///   • issuer PermanentDelegate/Pausable → nothing is held to seize
+    ///   • thin xStock secondary depth       → RWA perps run >$15B/day
+    /// Equity perps on individual US names are LIVE (Ostium on Arbitrum, Nasdaq
+    /// data, >$50B cumulative; Hyperliquid with S&P 500 licensed).
+    /// ⚠️ THE COSTS MOVE RATHER THAN VANISH: funding replaces the round-trip
+    /// spread, and VENUE risk replaces ISSUER risk — which is not hypothetical,
+    /// since Ostium lost $23.75M on 2026-07-15 to a compromised off-chain price
+    /// signer with LPs absorbing 100%.
+    PerpHedge,
     /// 🔴 NOT A POLICY — A BENCHMARK. Knows the next `LOOKAHEAD` steps of the
     /// price path and hedges only when that move will actually pay for the round
     /// trip. Unimplementable, and that is the point: the gap between a rule and
@@ -160,6 +195,7 @@ fn net_path(n: Net, t: i64) -> i64 {
             let phase = t % 16;
             if phase < 3 { 3_400 } else { 200 }
         }
+        Net::PersistentShort => -2_600,
     }
 }
 
@@ -227,11 +263,37 @@ pub struct Cfg {
     pub liq_penalty_bps: i64,
     /// Swap fees earned on turnover, per step, in bps of the book.
     pub swap_fee_bps: i64,
+    /// Perp funding paid per step, in bps of hedged notional. Replaces the spot
+    /// round trip: a running cost instead of a lumpy one.
+    pub perp_funding_bps: i64,
+    /// Probability-weighted venue failure, charged once mid-run as a fraction of
+    /// notional at risk. Ostium's LPs lost 72% of the vault; this is the
+    /// counterpart of `Issuer::Paused` for a perp venue, and it must be priced
+    /// or the perp arm gets a free pass on the one risk it actually adds.
+    pub perp_venue_loss_bps: i64,
+
+    /// 🔴 SHORTING REAL PAPER IS NOT THE MIRROR OF BUYING IT, AND THE SIM HAD
+    /// TREATED IT AS ONE. `target` is signed, so every arm already "shorted" when
+    /// the book flipped — for free. It is not free:
+    ///   • a borrow fee accrues EVERY STEP the short is open (the securities
+    ///     lending rate), where a long pays its cost once at entry;
+    ///   • the fee is wildly asymmetric across names — general collateral is a
+    ///     few bps, hard-to-borrow is hundreds;
+    ///   • and the lender can RECALL, forcing a buy-in at a moment we do not
+    ///     choose, which is the same shape as issuer seizure but arrives through
+    ///     the lending desk instead.
+    /// Charged per step on SHORT notional only.
+    pub borrow_fee_bps: i64,
+    /// Cost of a forced buy-in when a borrow is recalled, as bps of short
+    /// notional. Fires in the stressed cells, because that is when lenders call.
+    pub recall_bps: i64,
 }
 
 impl Default for Cfg {
     fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0, attrition_bps: 0,
-            hedgeable_bps: 10_000, beta_bps: 0, liq_penalty_bps: 0, swap_fee_bps: 0 } }
+            hedgeable_bps: 10_000, beta_bps: 0, liq_penalty_bps: 0, swap_fee_bps: 0,
+            perp_funding_bps: 2, perp_venue_loss_bps: 0,
+            borrow_fee_bps: 0, recall_bps: 0 } }
 }
 
 pub struct Outcome {
@@ -387,6 +449,9 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
             // Perfect foresight over LOOKAHEAD steps: hedge only if the move
             // ahead pays for the round trip on this notional.
             Arm::PriceTheImbalance | Arm::PerTickerCap => 0,   // never buys a share
+            // Same persistence discipline, different instrument.
+            Arm::PerpHedge =>
+                if persist_acc > PERSIST_BUDGET { target } else { hedge_notional },
             Arm::Clairvoyant => {
                 let mut fwd = 0i64;
                 for k in 0..LOOKAHEAD {
@@ -412,9 +477,14 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
         //    Gating the TRADE on `Issuer::Normal` silently turned every paused
         //    cell into the no-facility arm, so the pause column measured nothing.
         let delta = want - hedge_notional;
-        if tradable && delta.abs() >= TICKET {
-            // Spread + impact, plus the cost of being a PREDICTABLE buyer.
-            pnl -= delta.abs() * (cfg.rt_bps + cfg.adverse_fill_bps) / B;
+        let is_perp = arm == Arm::PerpHedge;
+        // A perp has no primary-market minimum and no closing bell, so BOTH of
+        // the constraints that shaped every spot result simply do not apply.
+        if (tradable || is_perp) && (delta.abs() >= TICKET || (is_perp && delta != 0)) {
+            // Perps pay a much thinner taker fee than an xStock round trip; the
+            // cost lives in funding, charged below while the position is open.
+            let cost = if is_perp { cfg.rt_bps / 6 } else { cfg.rt_bps };
+            pnl -= delta.abs() * (cost + cfg.adverse_fill_bps) / B;
             hedge_notional = want;
             hedges += 1;
             hedged_total += delta.abs();
@@ -422,7 +492,24 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
 
         // ── carrying the hedge is not free ─────────────────────────────────
         if hedge_notional != 0 {
-            if cell.basis == Basis::Widening {
+            if is_perp {
+                pnl -= hedge_notional.abs() * cfg.perp_funding_bps / B;
+                // Venue failure: the counterpart of issuer seizure, and it is the
+                // one risk the perp ADDS rather than removes.
+                if cell.issuer == Issuer::Paused && t == STEPS / 2 {
+                    pnl -= hedge_notional.abs() * cfg.perp_venue_loss_bps / B;
+                }
+            }
+            // ── the SHORT leg costs what a long does not ──────────────────
+            if !is_perp && hedge_notional < 0 {
+                pnl -= (-hedge_notional) * cfg.borrow_fee_bps / B;
+                // Recall lands in stress: a lender calls the stock back exactly
+                // when everyone wants it, and the buy-in is not optional.
+                if cfg.recall_bps > 0 && cell.flow == Flow::RedemptionRun && t == STEPS / 3 {
+                    pnl -= (-hedge_notional) * cfg.recall_bps / B;
+                }
+            }
+            if !is_perp && cell.basis == Basis::Widening {
                 pnl -= hedge_notional.abs() * BASIS_DRIFT_BPS / B;
             }
             // A redemption run needs dollars; the pool is holding shares.
@@ -430,7 +517,7 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
                 pnl -= hedge_notional.abs() * RUN_ILLIQUIDITY_BPS / B / STEPS;
             }
             // The issuer can freeze or seize. The liability does not freeze with it.
-            if cell.issuer == Issuer::Paused && t == STEPS / 2 {
+            if !is_perp && cell.issuer == Issuer::Paused && t == STEPS / 2 {
                 // Seized/frozen: the hedge stops offsetting, the liability does not.
                 pnl -= hedge_notional.abs() / 2;
                 hedge_notional = 0;
@@ -444,7 +531,7 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
 pub fn grid() -> Vec<Cell> {
     let mut v = Vec::new();
     for price in [Price::TrendUp, Price::TrendDown, Price::Chop, Price::Jump, Price::CrashRecover] {
-    for net in [Net::PersistentLong, Net::MeanReverting, Net::AdversarialInduced] {
+    for net in [Net::PersistentLong, Net::MeanReverting, Net::AdversarialInduced, Net::PersistentShort] {
     for flow in [Flow::Calm, Flow::RedemptionRun] {
     for basis in [Basis::Tight, Basis::Widening] {
     for clock in [Clock::Continuous, Clock::WeekendGapped] {
