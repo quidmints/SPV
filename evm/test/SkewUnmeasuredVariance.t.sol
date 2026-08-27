@@ -125,6 +125,22 @@ contract SellSkewUnmeasuredVarianceProbe is AllesFixture {
         address core = address(CORE);
         uint px = AUX.getTWAPforAsset(address(WETH), 0);
 
+        // §E357 — ESTABLISH FLOW FIRST. `sellSkew`'s target IS `flowEwmaUsd`, and on the bare fixture
+        // that is ZERO: nothing has traded, so the EWMA has never been fed. The first version of this
+        // test asserted straight into that and its own PREMISE guard caught it — which is what the
+        // guard is for, but a probe that cannot reach its kernel is not coverage. One real swap
+        // through the range feeds the EWMA, exactly as `Alles.t.sol` does when it needs live flow.
+        // ⚠️ THICKEN THE RANGE BEFORE SWAPPING. A bare fixture range is thin enough that even 1 ETH
+        // trips its slippage guard (`SlippageMaxS`) — measured. The deposit is not scenery: the swap
+        // has to SETTLE for the EWMA to move, and a reverted swap feeds it nothing. Same preparation
+        // `Alles.t.sol` does whenever it needs a swap to clear the manipulation guard.
+        vm.deal(address(this), 20 ether);
+        ETH.deposit{value: 10 ether}(0, address(this));
+        vm.deal(User03, 5 ether);
+        vm.prank(User03);
+        AUX.swap{value: 0.25 ether}(address(USDC), address(WETH), false, 0, 0, true);   // sell ETH -> USDC
+        vm.roll(block.number + 1);
+
         // PREMISE 1 — a target must exist. `sellSkew` returns 0 at `target == 0` before reaching any
         // kernel, so without live flow this test would be vacuous whatever the guard does.
         uint target = ICore(core).flowEwmaUsd();

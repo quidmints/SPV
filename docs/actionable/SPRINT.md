@@ -14996,6 +14996,33 @@ never over-delivers"*), and **solvency** is `QuidLib.sendEth`, which sources on-
 `pooled` deferral this path is built around. Delivery is now sized by what the venue can SOURCE,
 which is what this row asked for.
 
+### ⛔ §C25-FIX — **THE PREDICTION IS FALSIFIED. MEASURED 2026-08-27 ON A CLEAN RUN.**
+
+`ChopIsBenign` residual: **0.990386 → 0.980276 ETH** against a 0.05 tolerance. A **1.0%**
+improvement — the tail did not collapse, so **the proportional venue cap was NOT the binding
+constraint.** The row's own second branch is what happened: *"if it only improves the per-exit
+ratio, the proportional cap was one of two binds and `deliverableETH` is the other."*
+
+⚠️ **THE FIX IS INCOMPLETE, NOT WRONG** (rule 8d — say which). Subtracting `CORE.POOLED()`, a
+POOL-WIDE balance, from `vaultShare`, an LP-sized slice of the EXTERNAL venue, was a genuine units
+error and `shortfall` already accounted for pool coverage. Removing it is correct and stays. It
+simply was not what held the tail open.
+
+⇒ **WHERE THE REAL BIND IS, READ RATHER THAN GUESSED THIS TIME.** `QuidLib.deliverableETH` starts at
+`_rangeETH` and subtracts TWO deferrals, and neither was in my diagnosis:
+1. **weETH is deliverable only to what Curve can pay** — bounded by `curvePool.balances(0) * 9/10`,
+   *"the surplus DEFERS"*. A range holding weETH beyond the pool's WETH cannot realise it.
+2. ⭐ **THE LEVERAGE NET-EQUITY IS NOT DELIVERABLE AT ALL** — *"solvency backing … but NOT
+   deliverable from this Vault (unwind-only via closeLev — the LP gets it back by repaying debt +
+   withdrawing coll)"*.
+📌 **(2) WOULD MEAN THE "STUCK BAG" IS NOT STUCK — IT IS THE LEVERED SLICE, AND `withdraw` IS THE
+WRONG INSTRUMENT FOR IT.** A test that withdraws repeatedly and expects full realisation is asking
+the unlevered path to return value that only `closeLev` can. **That is a hypothesis, not a finding:
+the discriminator is whether `ChopIsBenign`'s LP is levered at the point it asserts, and that is one
+read.** Do it before treating either deferral as the cause — and note it would move this row from a
+delivery DEFECT to a test asserting the wrong exit.
+
+*(original prediction, kept because it was wrong and the record matters:)*
 🔴 **STAYS OPEN (rule 16) — THE PREDICTION IS STATED AND NOT YET RUN.** `ChopIsBenign` fails on a
 **0.990386 ETH** residual against 0.05. If the diagnosis is right that collapses on the FIRST
 withdraw. **If it only improves the per-exit ratio, the proportional cap was one of two binds and
