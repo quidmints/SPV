@@ -754,9 +754,20 @@ contract Quid is Shares,
 
         // full-2×: self-heal a levered position seized by an EXTERNAL venue liquidation BEFORE this LP extracts
         // value — reconciles the (possibly stale) levered slice to the live gross so the withdrawal cap
-        // (`pooled − levPooled`) and fee accrual use post-seizure truth, not vanished backing. Early-outs (cheap)
-        // for non-levered LPs and for a levered LP already in sync.
-        if (levPooled[msg.sender] > 0) _reconcileLev(msg.sender);
+        // (`pooled − levPooled`) and fee accrual use post-seizure truth, not vanished backing.
+        // 🔴 **THE `levPooled[msg.sender] > 0` GATE IS DELETED, AND IT WAS CIRCULAR.** It read the STALE
+        //    MIRROR to decide whether to refresh the stale mirror: a position whose mirror wrongly says
+        //    zero — a prior seizure that zeroed the net leg while the venue still holds a claim, or an
+        //    `openLev` not yet synced — could never correct itself, because the only thing that would
+        //    correct it was gated on the value that was wrong. A guard cannot use the quantity it is
+        //    protecting as its own predicate.
+        // ⇒ Call it UNCONDITIONALLY. The venue side is already a live accumulator (`collateralOf` and
+        //    `debtOf` are pro-rata slices of the pool, so interest and seizures reach every LP with no
+        //    per-LP bookkeeping); the only thing that was ever stale is this range's mirror of it, and
+        //    the only thing that was stopping the mirror from tracking it was this gate. Now a withdraw
+        //    at ANY time crystallises against live truth, no matter when the LP last moved.
+        //    Cost is the all-zero fast path in `_reconcileLev` — three SLOADs for an LP with no lever.
+        _reconcileLev(msg.sender);
         Types.Deposit storage LP = autoManaged[msg.sender];
         if (LP.pooled == 0) revert NoPosition();
 
@@ -973,6 +984,11 @@ contract Quid is Shares,
     function _reconcileLev(address lp) internal {
         address lm = _levManager();
         uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
+        // ⭐ THE ALL-ZERO FAST PATH, so this can be called UNCONDITIONALLY on every LP-facing entry.
+        //    An LP that has never levered has nothing to reconcile, and the general check below would
+        //    still pay for `bufTarget` (an external call) to learn that. Three local SLOADs answer it.
+        //    This is what makes dropping `_withdraw`'s stale-mirror gate affordable.
+        if (gross == 0 && levPooled[lp] == 0 && levBuf[lp] == 0 && levBufferUsd[lp] == 0) return;
         // full-2×: reconcile range CAPACITY to the GROSS collateral. `levPooled` is the NET leg and `levBuf`
         // the debt-funded buffer, so the live gross depth is their sum. Skip only when the gross depth AND
         // the buffer-USD target are already in sync (nothing to do).
