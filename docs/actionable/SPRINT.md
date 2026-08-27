@@ -434,7 +434,7 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
-## 🔴🔴 **§COMMITTED-DRIFTS-UP — `OverCommitted()` WAS NOT INSOLVENCY, IT WAS A MONOTONE DRIFT INTO A STRICT INEQUALITY** (2026-08-26)
+## ✅ **[CLOSED 2026-08-28 — FIXED AND VERIFIED. The burn arm debits `min(b, usdAmount)` — what actually left the basket — so `committed` tracks TVL and the drift is zero by construction. BOTH `OverCommitted()` tests pass; Alles 101/102 (the one failure is the owner-gated BTC-leg fee). Every §E230/§E28-r guard green: BackingGateSplit 3/3, UnificationControls 26/26 incl. `test_E36_Committed…`, RoundTripNeutrality 4/4. **AND THE +0.507 ETH IS ACCOUNTED FOR — it was never a leak:** `ChopIsBenign` delivers 57.7625 + retains 1.0363 under full release vs 57.2585 + 0.9707 under proportional, and PASSES `delivered + retained ≈ maxW` in BOTH arms. `maxW` marks higher under full release because `_pricingBacking` prices the share off the increment; conservation holds either way, which is precisely what that assertion was rewritten to distinguish]**  **§COMMITTED-DRIFTS-UP — `OverCommitted()` WAS NOT INSOLVENCY, IT WAS A MONOTONE DRIFT INTO A STRICT INEQUALITY** (2026-08-26)
 
 `test_EthLp_RedeemConservationAndFairness` and `test_FeeAttributionWithMultipleLPs` both revert
 `OverCommitted()` — `committedSum > totalLiquid` in `Aux._checkBacking`, which gates **every DRAIN

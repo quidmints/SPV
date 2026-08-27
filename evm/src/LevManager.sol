@@ -680,6 +680,26 @@ contract LevManager is LevBase {
         uint256 cap = this.totalDeliverableDollars();
         uint256 want = usdWanted > cap ? cap : usdWanted;
         if (want == 0) return 0;
+        // 🔴 §POOL-VENUE — **THE GATE ABOVE WAS CORRECTED AND THIS LINE DEFEATS IT.** The comment
+        //    directly above records changing the guard from `_openLps.length == 0` to
+        //    `poolVenue == address(0)` so that *"a pool holding a remainder after its last LP closed
+        //    still owes a de-lever"*. But `_openLps[0]` on an EMPTY book is an out-of-bounds panic,
+        //    and it is evaluated HERE, in this frame, BEFORE the external call — so the `try/catch`
+        //    below cannot absorb it. The redeem REVERTS in precisely the case the gate was widened
+        //    to admit, which is worse than the refusal it replaced.
+        // ⇒ Guard the index. This restores the graceful `freed = 0` the `try/catch` intends, and a
+        //   revert can no longer escape a path whose entire contract is "fall short, never revert".
+        // ⏸️ IT DOES NOT YET SERVE THE POOL-REMAINDER CASE, and that is booked rather than faked:
+        //    `deleverToVault` needs `pos[lp].open` and sizes off `deliverableDollars(lp)`, so with no
+        //    open LP there is nothing to route through. Serving it needs a POOL-LEVEL extraction
+        //    (venue from `poolVenue`, size from `totalDeliverableDollars`), which is the book-level
+        //    collapse — not a line change here.
+        // ⚠️ AND A SECOND DEFECT ON THIS PATH, MEASURED BY READING: the caller computes the AGGREGATE
+        //    bound (`this.totalDeliverableDollars()`) and the comment says that is "what this passes"
+        //    — but `deleverToVault` then re-clamps to `deliverableDollars(lp)`, the LP's PROPORTIONAL
+        //    slice. So the aggregate is capped back to ~1/N inside the callee, which is the exact
+        //    under-extraction the aggregate was introduced to remove. Also the collapse's job.
+        if (_openLps.length == 0) return 0;
         try this.deleverToVault(_openLps[0], want, sink, minOut) returns (uint256 f) { freed = f; }
         catch { /* pool could not source → redeem falls short, never reverts (keeper cascade picks it up) */ }
     }

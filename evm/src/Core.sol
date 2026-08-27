@@ -1329,9 +1329,35 @@ contract Core {
             // which is the LP increment `_payUsdLeg` pays out of.
             // `min` already covers "the whole leg left" on the basketLeg arm: `b <= POOLED_USD`, so
             // when `usdAmount >= pooledPre` it returns `b` — one branch instead of a nested pair.
-            uint out_ = basketLeg ? Math.min(b, usdAmount)
-                      : pooledPre <= usdAmount ? b            // whole leg left: basket leaves with it
-                      : Math.mulDiv(b, usdAmount, pooledPre);
+            // 🔴 §COMMITTED-DRIFTS-UP — **THE PROPORTIONAL ARM UNDER-DEBITS BY EXACTLY
+            //    `usdAmount × increment / POOLED_USD`, AND THAT IS THE WHOLE DRIFT.** Measured by
+            //    aligning the REAL basket outflow (`Aux::take`) against the `committed` delta, swap
+            //    by swap:
+            //      take 2,517.927747 → committed −2,517.927747  shortfall 0        (incr 0)
+            //      take 2,442.389915 → committed −2,441.156324  shortfall 1.233591 (74.278/147,116)
+            //      take 2,442.389915 → committed −2,439.903530  shortfall 2.486385 (147.304/144,750)
+            //    Predicted and observed agree to three decimals, and the FIRST swap matches to the
+            //    wei because `b == P` there — the one point where the two arms are algebraically the
+            //    same. The divergence starts at precisely the swap they stop agreeing.
+            //    ⇒ The shortfall accumulates monotonically into `committed > totalLiquid`, which
+            //    `Aux._checkBacking` refuses — blocking EVERY drain path (redemption, arb, LP
+            //    withdraw) after a bounded number of swaps. In production: "redemptions worked for a
+            //    while, then stopped."
+            // ⭐ **THE INCREMENT GROWS FOR A CORRECT REASON, WHICH IS WHY THIS ACCELERATES.** The fee
+            //    mint (`basketLeg = false` on the MINT arm) adds to `POOLED_USD` without adding to
+            //    `basketUsd` — fees are LP-owned, not basket-owned, so that is right. But a growing
+            //    increment makes the proportional under-debit grow with it.
+            // ⇒ **DEBIT WHAT ACTUALLY LEFT.** `_settleUsdSide` pays the swapper
+            //    `BasketLib.from6(usdAmount, token)` out of the basket, so the basket's claim must
+            //    fall by `usdAmount` — capped at what it owns.
+            // ⚠️ **`min` IS ALSO THE EXHAUSTION-CORRECT ANSWER, so §E28-r needs no separate branch.**
+            //    When `usdAmount > b` the basket owns less than the payout: `b → 0` and
+            //    `POOLED_USD -= usdAmount`, so the increment FALLS by `usdAmount − b` — the LP
+            //    increment funding the remainder, which is exactly what happened. It cannot grow the
+            //    increment in any regime, which is what §E28-r's note feared.
+            // ⛔ AND IT SUBSUMES THE `pooledPre <= usdAmount` BRANCH: `b <= POOLED_USD` makes `min`
+            //    return `b` exactly there. Three branches become one.
+            uint out_ = b < usdAmount ? b : usdAmount;
             basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             // The burn side moves equity DOWN. Reporting here keeps the accountant on the same
             // clock as the mint side -- a sum of per-range figures is only meaningful if every term
