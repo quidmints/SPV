@@ -434,7 +434,7 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
-## 🔴 **§DUST-BLOCKS-THE-LAST-EXIT — THE LAST LP OUT OF A POOLED VENUE CANNOT LEAVE. FOUND, CHARACTERISED, AND *NOT* FIXED — MY FIX REGRESSED TWO TESTS AND IS REVERTED** (2026-08-26)
+## ✅ **[CLOSED 2026-08-26 — FIXED WITH `accrueInterest` FIRST, EXACTLY AS THE ROW'S OWN FIRST CANDIDATE SAID. `MorphoEscrowVenue.accrue()` ALREADY EXISTED and nothing in `src` had ever called it — its docblock names this very drift (*"removing the pre-accrual drift `debtOf` documents"*) but was written as advice to a KEEPER, so the money path was never obliged to. It is now `override` on `ILevVenue`; `_closeLev` calls it BEFORE sizing the flash (`debtUsd` reads `MORPHO.market()` raw, so it under-reported and the flash was borrowed short), `repay` calls it before reading `debtOf`, and `_repayCreditingLp` then repays the LP's exact SHARE slice when it can afford it — landing on zero rather than on rounding luck. The accrual is what makes the share path safe: quote and execution now read the SAME market, which is precisely what the earlier attempt lacked. `test_LevFeeLane_…` green, the two tests that regressed before stay green, and a new `test_G7_WithdrawPastFreeDepthAutoDeLevers` binds the full close end-to-end: slice 0, debt 0, position closed]**  **§DUST-BLOCKS-THE-LAST-EXIT — THE LAST LP OUT OF A POOLED VENUE COULD NOT LEAVE** (2026-08-26)
 
 **THE BUG IS REAL AND IT IS A LIVENESS BUG, NOT A ROUNDING NUISANCE.** `_repayCreditingLp` repays
 Morpho by ASSETS (`MORPHO.repay(_params(), r, 0, …)`), so Morpho burns `toSharesDown(assets)` and a

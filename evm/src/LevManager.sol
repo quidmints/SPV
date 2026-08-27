@@ -486,6 +486,12 @@ contract LevManager is LevBase {
         // breaches health — dissolving the withdraw-before-repay bug the real-Euler close test surfaced,
         // with no per-pass health-safe clamp or loop. A truly underwater position can't cover the flash, so
         // this reverts and the position falls to the venue's isolated liquidation (as it should).
+        // §DUST-BLOCKS-THE-LAST-EXIT — ACCRUE BEFORE SIZING, not just before repaying. `debtUsd`
+        // reads `MORPHO.market(...)` raw, so with interest pending it UNDER-REPORTS and the flash
+        // below is borrowed short of what the position actually owes — the repay then cannot clear
+        // it no matter how it is denominated. Accruing here makes every read in this transaction,
+        // and the venue's own repay, agree on one market state.
+        venue.accrue();
         uint256 d = debtUsd(lp);
         if (d > 0) _deleverFlash(venue, lp, stable, d, minOut, dex);
         uint256 remaining = venue.collateralOf(lp);

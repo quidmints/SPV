@@ -44,6 +44,12 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 ///         `BORROWER_OPS`, no `openTrove`, verified by structure 2026-08-15 -- and BOLD survives ONLY
 ///         as basket stable slot 11, SUPPLIED to the Liquity Stability Pool. Held, never minted.)
 abstract contract LevVenueBase is ILevVenue {
+    /// @inheritdoc ILevVenue
+    /// @dev Default NO-OP: a venue whose debt view already reflects accrued interest at read time
+    ///      (Aave) has nothing to do here. `MorphoEscrowVenue` overrides it, because Morpho's
+    ///      `market()` is raw until someone pokes it.
+    function accrue() external virtual override {}
+
     /// @dev §POOL-DONATION — VIRTUAL UNIT OFFSET. Without it the pooled unit model carries the classic
     ///      FIRST-DEPOSITOR INFLATION ATTACK, and it is reachable here because BOTH venues' pool
     ///      balances can be raised by a STRANGER: Morpho's `supplyCollateral(m, assets, onBehalf, data)`
@@ -229,7 +235,14 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///         either sends this before a health tick, or reads a fresh debt via `eth_call` on a wrapper that
     ///         calls this then `debtOf` — either way removing the pre-accrual drift `debtOf` documents.
     ///         Harmless to call anytime (idempotent within a block). No effect on Euler (its adapter has none).
-    function accrue() external { MORPHO.accrueInterest(_params()); }
+    /// 🔴 §DUST-BLOCKS-THE-LAST-EXIT — **THIS EXISTED AND NOTHING CALLED IT, AND THAT IS THE BUG.**
+    ///    The docblock above already names the exact defect ("removing the pre-accrual drift `debtOf`
+    ///    documents"), but it was written as advice to a KEEPER — *"either sends this before a health
+    ///    tick, or reads a fresh debt via `eth_call`"* — so nothing on the money path was obliged to.
+    ///    A full close then sized its flash off an UNDER-REPORTED `debtOf`, repaid by assets, and left
+    ///    sub-unit shares that `withdrawCollateral` refuses to withdraw the last collateral against.
+    ///    It is now `override` and `_closeLev` calls it BEFORE reading the debt it is about to repay.
+    function accrue() external override { MORPHO.accrueInterest(_params()); }
 
     // ── ILevVenue ────────────────────────────────────────────────────────────────
     function supply(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
@@ -260,6 +273,7 @@ contract MorphoEscrowVenue is LevVenueBase {
 
     function repay(address lp, uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
         if (stableAmount == 0) return 0;
+        MORPHO.accrueInterest(_params());   // §DUST — `debtOf` below must be post-accrual, not stale
         uint256 d = debtOf(lp);
         uint256 r = stableAmount > d ? d : stableAmount; // never over-repay (clamp to THIS LP's share)
         if (r == 0) return 0;
@@ -271,11 +285,37 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///      POOL and burn the named LP's units. Folding them means the unit arithmetic — the part that
     ///      must keep `sum(units) == totalUnits` — exists once. ⛔ `repayPool` deliberately does NOT
     ///      route through here: it credits nobody and burns no units, which is what makes it O(1).
+    /// 🔴 §DUST-BLOCKS-THE-LAST-EXIT — **A FULL REPAY MUST BURN SHARES, OR THE LAST LP NEVER LEAVES.**
+    ///    Repaying by ASSETS makes Morpho burn `toSharesDown(assets)`, so even a full repay leaves
+    ///    sub-unit shares. That dust is economically nothing and structurally fatal:
+    ///    `withdrawCollateral` refuses to take the pool to zero collateral while ANY debt remains,
+    ///    and the LAST LP's slice IS the whole pool's collateral. Measured: `borrowShares =
+    ///    1,018,998,152` after repaying the LP's entire `debtOf` — ~a tenth of a cent at Morpho's
+    ///    1e6 `VIRTUAL_SHARES` — blocking **4.998 weETH**, permanently, with no retry that helps.
+    ///    ⚠️ IT ONLY BITES AT 100% OWNERSHIP, WHICH IS WHY IT SURVIVED: with two or more LPs a close
+    ///    withdraws a slice strictly below the pool's collateral and the dust is invisible. Dormant
+    ///    for the pool's whole life, fires on the way out.
+    /// ⭐ **AND WHY THE SHARE PATH IS ONLY SAFE BECAUSE OF THE ACCRUAL ABOVE.** A first attempt at
+    ///    this regressed two green tests, because **Morpho accrues interest INSIDE `repay`**: with a
+    ///    stale market, `toAssetsUp(shares)` at execution exceeds the amount quoted before the call,
+    ///    and an exact approval no longer covers it. `accrue()` first makes the quote and the
+    ///    execution read the SAME market, so `need` is exact rather than a racing estimate. That is
+    ///    the whole reason the ordering is load-bearing and not a tidiness preference.
+    ///    ⛔ The alternative — approving a cushion — would hide an accrual race behind a tolerance
+    ///    (standing rule 3), and would still not guarantee zero.
     function _repayCreditingLp(address lp, uint256 r) private returns (uint256 repaid) {
-        IERC20Min(STABLE).approve(address(MORPHO), r);
         uint256 before = _poolShares();
         uint256 sharesDown;
-        (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");
+        uint256 mine = _unitSlice(debtUnits[lp], totalDebtUnits, before);   // this LP's exact share slice
+        uint256 need = mine == 0 ? 0 : _sharesToAssetsUp(mine);
+        if (mine > 0 && r >= need && IERC20Min(STABLE).balanceOf(address(this)) >= need) {
+            IERC20Min(STABLE).approve(address(MORPHO), need);
+            (repaid, sharesDown) = MORPHO.repay(_params(), 0, mine, address(this), "");  // lands on ZERO
+            IERC20Min(STABLE).approve(address(MORPHO), 0);
+        } else {
+            IERC20Min(STABLE).approve(address(MORPHO), r);
+            (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");     // partial: assets
+        }
         uint256 burn = _burnUnits(sharesDown, totalDebtUnits, before);   // §POOL-UNITS: same conversion as the mint
         if (burn > debtUnits[lp]) burn = debtUnits[lp];
         debtUnits[lp] -= burn; totalDebtUnits -= burn;

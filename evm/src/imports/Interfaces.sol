@@ -483,11 +483,20 @@ interface ILevVenue {
     /// @return borrowed `stable()` actually drawn.
     function borrow(address lp, uint256 stableAmount) external returns (uint256 borrowed);
 
+    /// @notice §DUST — bring the venue's debt accounting up to NOW before anything READS it.
+    /// @dev    Surfaced on the interface so `LevManager` can call it before it SIZES anything.
+    ///         `MorphoEscrowVenue.accrue` has existed since the keeper work and was never called
+    ///         from `src`; it is the fix for the pre-accrual drift its own docblock describes.
+    ///         Permissionless (Morpho's `accrueInterest` is), idempotent within a block, and a
+    ///         NO-OP on a venue whose debt view already reflects accrued interest at read time.
+    function accrue() external;
+
     /// @notice Repay `stableAmount` of `lp`'s debt (the stable was already transferred in). Repays at most
     ///         the outstanding debt; the caller (`LevManager._deleverChunk`) clamps the transfer IN to the
     ///         current debt, so no cross-LP excess is ever left sitting on the adapter.
     /// @return repaid `stable()` actually applied to debt.
     function repay(address lp, uint256 stableAmount) external returns (uint256 repaid);
+
 
     /// @notice Withdraw `collAmount` weETH of `lp`'s collateral to the caller (capped at the position).
     /// @return withdrawn weETH actually returned.

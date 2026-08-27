@@ -351,6 +351,47 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("measured rebalance gas", used);
     }
 
+    /// @notice §G.7/#109 — **A WITHDRAW PAST FREE DEPTH CRYSTALLISES THE LEVER.** The other half of
+    ///   UNWIND-ONLY, and it needs its own test rather than a tail on the fee-lane one.
+    /// ⚠️ IT WAS ASSERTED BACKWARDS AND NOTHING NOTICED. `test_LevFeeLane_…` asked for
+    ///   `type(uint).max` — an ask that exceeds free depth BY CONSTRUCTION — and then asserted the
+    ///   levered slice was UNTOUCHED, i.e. that the opt-in auto-close must not fire on the exact
+    ///   input that defines it. `Quid.sol:807` gates it on `amount > plainNet(pooled, levPooled)`
+    ///   and says so outright. The claim survived only because the withdraw REVERTED before
+    ///   reaching the assertion, so a PREMISE guard fired first for months — a stale assertion
+    ///   sitting behind a failing precondition is invisible by construction, and fixing the revert
+    ///   is what exposed it.
+    /// ⛔ WHY IT IS NOT FOLDED BACK INTO THAT TEST: the auto-close CLOSES the position, and the
+    ///   seizure arm there divides by `collateralOf`, which is then 0. Sequencing them in one test
+    ///   makes each one's setup a hazard for the other; the properties are independent, so the
+    ///   tests are too.
+    function test_G7_WithdrawPastFreeDepthAutoDeLevers() public {
+        _setupLev();
+        EV.setLevManager(address(lm));
+        vm.deal(address(this), 20 ether);
+        ETH.deposit{value: 10 ether}(0, address(this));
+        _openAtEntry(lps[0], 5 ether);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC);
+        _calmVol();
+        ETH.syncLev(lps[0]);
+
+        // PREMISE: there IS a levered slice to crystallise, else the assertion below is vacuous.
+        assertGt(ETH.levPooled(lps[0]), 0, "PREMISE: a levered range slice exists");
+        assertGt(venue.debtOf(lps[0]), 0, "PREMISE: the position carries real venue debt");
+        // The sell leg is real, so the range oracle must describe the venue it reaches — see the
+        // note in the fee-lane test: `_rallyRange` moves the MOCK range and the real pool does not.
+        _realignRangeToReal();
+
+        vm.prank(lps[0]);
+        ETH.withdraw(type(uint).max, lps[0], lps[0]);
+
+        assertEq(ETH.levPooled(lps[0]), 0, "#109: past free depth, the levered slice is crystallised");
+        assertEq(venue.debtOf(lps[0]), 0, "#109: the auto-de-lever repaid the venue debt in full");
+        ( , , , , bool stillOpen) = lm.pos(lps[0]);
+        assertTrue(!stillOpen, "#109: the position is closed, not left half-unwound");
+    }
+
     function test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean() public {
         _setupLev();
         EV.setLevManager(address(lm));
@@ -404,16 +445,49 @@ contract LevCascadeProbe is AllesFixture {
         //    documents at `:827`. The anti-MEV floor is being exercised honestly either way; what
         //    changes is that the oracle now describes the venue the trade actually reaches.
         _realignRangeToReal();
+        // 🔴 **THIS ASKED FOR `type(uint).max` AND THEN ASSERTED THE LEVER WAS UNTOUCHED — WHICH IS
+        //    THE ONE CASE THE PROTOCOL DELIBERATELY DOES TOUCH.** `Quid.sol:807` gates the §G.7/#109
+        //    auto-de-lever on `amount > plainNet(pooled, levPooled)` and says so: *"Fires ONLY when
+        //    the ask exceeds free depth … a free-only withdraw never touches the lever."* A MAX ask
+        //    exceeds free depth by construction, so the test was demanding that the opt-in
+        //    auto-close NOT happen on the exact input that defines it.
+        //    ⚠️ It never surfaced because the withdraw reverted before reaching the assertion, so
+        //    the PREMISE guard fired first for months. Fixing the revert is what exposed it — a
+        //    stale assertion sitting behind a failing precondition is invisible by construction.
+        // ⇒ Bind BOTH halves, because they are different claims and only together are they the
+        //    property: a withdraw WITHIN free depth leaves the lever alone (UNWIND-ONLY), and a
+        //    withdraw PAST it crystallises the lever (#109). Asserting only the first would let a
+        //    regression that silently disabled #109 pass.
+        // The DECISIVE reads: a "pull" would have repaid debt and withdrawn collateral at the venue.
+        uint vColl0 = venue.collateralOf(lps[0]);
+        uint vDebt0 = venue.debtOf(lps[0]);
+        (uint pooledNow,,,) = ETH.autoManaged(lps[0]);
+        uint freeDepth = pooledNow > ETH.levPooled(lps[0]) ? pooledNow - ETH.levPooled(lps[0]) : 0;
+        assertGt(freeDepth, 0, "PREMISE: there is free depth to withdraw (else UNWIND-ONLY is vacuous)");
         vm.prank(lps[0]);
         ++withdrawsAttempted;
-        try ETH.withdraw(type(uint).max, lps[0], lps[0]) { ++withdrawsLanded; }
-        catch (bytes memory e) { emit log_named_bytes("(b) withdraw reverted with ", e); }
+        try ETH.withdraw(freeDepth, lps[0], lps[0]) { ++withdrawsLanded; }
+        catch (bytes memory e) { emit log_named_bytes("(b) free withdraw reverted with ", e); }
         emit log_named_uint("(b) free withdraws landed  ", withdrawsLanded);
         emit log_named_uint("(b)           attempted    ", withdrawsAttempted);
         // PREMISE: if the free withdraw never executed, "the free ladder cannot pull the levered
         // slice" is proven by NOTHING — the slice is untouched because nothing touched anything.
         assertGt(withdrawsLanded, 0, "PREMISE: the free withdraw actually ran (else UNWIND-ONLY is vacuous)");
-        assertEq(ETH.levPooled(lps[0]), lev, "free withdraw leaves the levered slice untouched");
+        // ⭐ **ASSERT THE VENUE, NOT THE MIRROR — AND THAT IS A SHARPER TEST, NOT A SOFTER ONE.**
+        //    `levPooled` is the RANGE's mirror of the position, and `_withdraw` now reconciles it to
+        //    live gross on every call, so it legitimately RE-MARKS (measured: 5.528887 → 5.512264,
+        //    0.30%, from accrued interest and the price move). Asserting equality on it would now be
+        //    asserting that reconciliation did not happen.
+        //    ⛔ THE FIX IS NOT A TOLERANCE. A tolerance here would mask exactly the thing the test
+        //    exists to catch (rule 4): a partial pull hides inside any epsilon wide enough to absorb
+        //    a re-mark. The property is "the free ladder cannot PULL the levered slice", and a pull
+        //    means repaying debt and withdrawing collateral AT THE VENUE. Morpho collateral does not
+        //    accrue, so that read is EXACT and admits no epsilon at all.
+        assertEq(venue.collateralOf(lps[0]), vColl0,
+            "UNWIND-ONLY: a free withdraw must not withdraw one wei of venue collateral");
+        assertGe(venue.debtOf(lps[0]), vDebt0,
+            "UNWIND-ONLY: a free withdraw must not repay debt (it may only drift UP with interest)");
+        assertTrue(ETH.levPooled(lps[0]) > 0, "the levered slice still exists after a free withdraw");
 
         // (c) SEIZE via REAL Morpho liquidation → syncLev burns the slice clean.
         _seizeReal(lps[0], 1, 2);
