@@ -23,8 +23,12 @@ mod facility_sim_report;
 /// a ticker nobody can settle against is not worth either; `all-tickers`
 /// builds it for tests that want the whole surface. Widening what is *live*
 /// is a program upgrade, which is the multisig's decision to make.
-#[cfg_attr(feature = "all-tickers", path = "tickers.rs")]
-#[cfg_attr(not(feature = "all-tickers"), path = "tickers_slim.rs")]
+// ⚠️ ONE TICKER FILE. This used to swap `tickers_slim.rs` in unless
+// `--features all-tickers`, which meant the 29 tests inside `tickers.rs` NEVER
+// RAN in a default `cargo test` — and did not even compile under the feature.
+// A suite that neither runs nor builds reads exactly like one that passes.
+// The non-deliverable equities are COMMENTED, not deleted: restoring one is
+// uncommenting a line, and the delivery set is what `XSTOCK_MINTS` says it is.
 pub mod tickers;
 use etc::*;
 
