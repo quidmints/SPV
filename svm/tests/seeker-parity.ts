@@ -42,6 +42,14 @@ function findSeeker(): string | null {
   return null;
 }
 const SEEKER = findSeeker();
+// 🔴 THIS GUARD WAS INERT FOR AN ENTIRE SESSION OF PROGRAM CHANGES, AND IT
+//    PASSED WHILE INERT — which is worse than failing. `findSeeker` looks in
+//    `svm/seeker` and `<repo>/seeker`; the app actually lives OUTSIDE this repo
+//    at `/home/rico/projects/seeker-main`, and `target/idl/quid.json` is only
+//    present after an `anchor build`. So both sides of the comparison were
+//    missing and every parity assertion was skipped silently.
+//    Set `QUID_SEEKER_DIR=/home/rico/projects/seeker-main` and run `anchor build`
+//    before trusting a green run here.
 
 const camel = (s: string) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
@@ -106,7 +114,7 @@ describe("Seeker ↔ program parity", function () {
     // Liquidation is permissionless keeper work, flash loans are a settlement
     // concern, and config is admin-only. None of them belong behind a tap.
     for (const forbidden of ["liquidate", "sweep", "flashBorrow", "flashRepay",
-                             "initConfig", "updateConfig", "setKestrel"]) {
+                             "initConfig", "updateConfig"]   // setKestrel folded into updateConfig) {
       expect(hook.includes(`.${forbidden}(`), `app should not call ${forbidden}`).to.be.false;
     }
     console.log("  ✓ No keeper, settlement or admin instructions in the app");
