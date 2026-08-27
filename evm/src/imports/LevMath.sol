@@ -174,10 +174,16 @@ library LevMath {
         if (denom == 0) return 0;
         uint256 hCubedWad = FixedPointMathLib.fullMulDiv(gasUsdWad, WAD, denom);
         uint256 hWad = FixedPointMathLib.cbrtWad(hCubedWad);
-        uint256 econBps = (hWad * 10_000) / WAD;
         // Series combination — see the `headroomBps` note. One `mulDiv`, no branch, and `< H` by
         // construction rather than by a ceiling someone has to remember to apply.
-        return (econBps * headroomBps) / (econBps + headroomBps);
+        // ⚠️ COMBINED IN WAD, CONVERTED TO BPS ONCE. Doing it the other way round truncates twice —
+        // measured: a 62.1bps band became 62 at the first conversion and 61 at the second, and since
+        // the quantity is a CUBE ROOT that 1.6% error is ~4.9% in `g/(C·K)`. Precision loss compounds
+        // in the direction that makes the band tighter, i.e. more rebalances, so it degraded safely
+        // and would not have announced itself.
+        uint256 headWad = (headroomBps * WAD) / 10_000;
+        hWad = (hWad * headWad) / (hWad + headWad);
+        return (hWad * 10_000) / WAD;
     }
 
     /// @notice #67 deliverability (LEVERED-DELIVERABILITY-SPEC.md §1) — the USD a levered position can produce via

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import "forge-std/Test.sol";
 import {AllesFixture} from "./Alles.t.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {ICore} from "../src/imports/Interfaces.sol";
@@ -12,8 +13,15 @@ import {ICore} from "../src/imports/Interfaces.sol";
 /// before the IL overlay borrowed anything. The band is now read from three live quantities, so the
 /// failure mode moves from "someone picked badly" to "someone reads badly", and these are the
 /// reads.
-contract LevDerivedBandProbe is AllesFixture {
-    /// `WAD` is inherited from `AllesFixture` -- redeclaring it here shadowed it and broke the build.
+/// ⚠️ `is Test`, NOT the fork fixture. The band is DERIVED arithmetic — `∛(g/(C·K))` combined in
+/// series with the liquidation headroom — and none of it needs a chain. Standing this on
+/// `AllesFixture` (as I first did) made the derivation unverifiable whenever the RPC was
+/// unavailable, which is exactly when you most want to check your own algebra. The ONE assertion
+/// that genuinely needs a live range is split out below.
+contract LevDerivedBandProbe is Test {
+    /// Declared locally: this contract no longer inherits the fork fixture, so it no longer inherits
+    /// the fixture's `WAD` either.
+    uint constant WAD = 1e18;
 
     /// A ±20bps range: K = 1/(4·(2 − √(P/Pb) − √(Pa/P))) ≈ 125.
     uint constant K_20BPS = 125 * WAD;
@@ -115,7 +123,11 @@ contract LevDerivedBandProbe is AllesFixture {
         assertEq(LevMath.noTradeBandBps(3 * WAD, 0, K_20BPS, AMPLE),       0, "no position");
         assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, 0, AMPLE), 0, "no range geometry");
     }
+}
 
+/// The one band assertion that needs a live chain: `K` must come off the REAL range, on BOTH of
+/// them, or the derivation above is arithmetic about a number nothing produces.
+contract LevDerivedBandLiveK is AllesFixture {
     /// 6. K COMES OFF THE LIVE RANGE, not a literal — and off BOTH of them, because the overlay is
     ///    asset-agnostic and a band that only resolves on the ETH side would strand the BTC book.
     ///    If this reverts or returns 0 the band fails open, so the value being real is what makes
