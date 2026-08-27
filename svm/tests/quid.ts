@@ -377,20 +377,23 @@ describe("QU!D Protocol — Depository Suite", () => {
 
     it("1.2 Updates config", async () => {
       // The keeper is gone — parking folded into handle_in, which was its last
-      // power — so bebop_authority is what update_config still rotates.
-      const newBebop = Keypair.generate().publicKey;
+      // power. `bebop_authority` is now `flash_authority`: the account it gates
+      // was always named that, and Bebop is one prospective integration, not the
+      // role. `set_kestrel` folded in here too, so this is the ONLY config ix.
+      const newFlash = Keypair.generate().publicKey;
 
       await program.methods
-        .updateConfig(null, newBebop)
+        .updateConfig(null, newFlash, null)
         .accountsStrict({
           admin: payer.publicKey,
           config: configPDA,
+          bank: bankPDA,
         })
         .rpc();
 
       const config = await program.account.programConfig.fetch(configPDA);
-      expect(config.bebopAuthority.toString()).to.equal(newBebop.toString());
-      console.log("  ✓ bebop_authority rotated");
+      expect(config.flashAuthority.toString()).to.equal(newFlash.toString());
+      console.log("  ✓ flash_authority rotated");
     });  });
 
   // =========================================================================
@@ -1044,12 +1047,12 @@ describe("QU!D Protocol — Depository Suite", () => {
   // =========================================================================
 
   describe("FL. Flash Loans", () => {
-    // flash_authority must be a keypair signer whose pubkey matches config.bebop_authority.
-    // Set bebop_authority to payer before the suite, then restore to default after.
-    let bebopAuthKp: anchor.web3.Keypair;
+    // flash_authority must be a keypair signer whose pubkey matches config.flash_authority.
+    // Set it to payer before the suite, then restore to default after.
+    let flashAuthKp: anchor.web3.Keypair;
 
     before(async () => {
-      bebopAuthKp = payer; // reuse payer as flash authority in tests
+      flashAuthKp = payer; // reuse payer as flash authority in tests
       await program.methods
         .updateConfig(null, payer.publicKey)
         .accountsStrict({ admin: payer.publicKey, config: configPDA })
@@ -1078,7 +1081,7 @@ describe("QU!D Protocol — Depository Suite", () => {
         })
         .remainingAccounts(pyth.getAccountMetas(["SOL"]))
         .rpc();
-      console.log("  ✓ bebop_authority set to payer, 2 SOL deposited into flash loan vault");
+      console.log("  ✓ flash_authority set to payer, 2 SOL deposited into flash loan vault");
     });
 
     it("FL.1 SOL flash borrow and repay round-trip succeeds", async () => {
@@ -1094,7 +1097,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       const borrowIx = await program.methods
         .flashBorrow(BORROW_SOL, new BN(0), 0)
         .accountsStrict({
-          flashAuthority: bebopAuthKp.publicKey,
+          flashAuthority: flashAuthKp.publicKey,
           borrower:       payer.publicKey,
           bank:           bankPDA,
           flashLoan:      flashLoanPDA,
@@ -1119,7 +1122,7 @@ describe("QU!D Protocol — Depository Suite", () => {
         .instruction();
 
       const tx = new anchor.web3.Transaction().add(borrowIx, repayIx);
-      await provider.sendAndConfirm(tx, [payer, bebopAuthKp]);
+      await provider.sendAndConfirm(tx, [payer, flashAuthKp]);
 
       const bankAfter  = await program.account.depository.fetch(bankPDA);
       const flashAfter = await program.account.flashLoan.fetch(flashLoanPDA);
@@ -1139,7 +1142,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       const borrowIx = await program.methods
         .flashBorrow(BORROW_SOL, new BN(0), 0)
         .accountsStrict({
-          flashAuthority: bebopAuthKp.publicKey,
+          flashAuthority: flashAuthKp.publicKey,
           borrower:       payer.publicKey,
           bank:           bankPDA,
           flashLoan:      flashLoanPDA,
@@ -1164,7 +1167,7 @@ describe("QU!D Protocol — Depository Suite", () => {
         .instruction();
 
       const tx = new anchor.web3.Transaction().add(borrowIx, repayIx);
-      await provider.sendAndConfirm(tx, [payer, bebopAuthKp]);
+      await provider.sendAndConfirm(tx, [payer, flashAuthKp]);
 
       const bankAfter  = await program.account.depository.fetch(bankPDA);
       const flashAfter = await program.account.flashLoan.fetch(flashLoanPDA);
@@ -1188,7 +1191,7 @@ describe("QU!D Protocol — Depository Suite", () => {
         const borrowIx = await program.methods
           .flashBorrow(new BN(100_000_000), new BN(0), 0)
           .accountsStrict({
-            flashAuthority: bebopAuthKp.publicKey,
+            flashAuthority: flashAuthKp.publicKey,
             borrower:       payer.publicKey,
             bank:           bankPDA,
             flashLoan:      flashLoanPDA,
@@ -1224,7 +1227,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       const borrowIx = await program.methods
         .flashBorrow(new BN(0), new BN(1_000_000), 0) // SPL borrow attempt
         .accountsStrict({
-          flashAuthority: bebopAuthKp.publicKey,
+          flashAuthority: flashAuthKp.publicKey,
           borrower:       payer.publicKey,
           bank:           bankPDA,
           flashLoan:      flashLoanPDA,
@@ -1313,7 +1316,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       const borrowIx = await program.methods
         .flashBorrow(new BN(0), LOAN, starBump)
         .accountsStrict({
-          flashAuthority: bebopAuthKp.publicKey, borrower: payer.publicKey,
+          flashAuthority: flashAuthKp.publicKey, borrower: payer.publicKey,
           bank: bankPDA, flashLoan: flashLoanPDA, config: configPDA,
           solPool: deriveSolPool(), ixSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           systemProgram: SystemProgram.programId,
@@ -1330,7 +1333,7 @@ describe("QU!D Protocol — Depository Suite", () => {
         .remainingAccounts(legs).instruction();
 
       await provider.sendAndConfirm(
-        new anchor.web3.Transaction().add(borrowIx, repayIx), [bebopAuthKp]);
+        new anchor.web3.Transaction().add(borrowIx, repayIx), [flashAuthKp]);
 
       const flash = await program.account.flashLoan.fetch(flashLoanPDA);
       expect(flash.flashTokenAmount.toNumber()).to.equal(0,
@@ -1348,7 +1351,7 @@ describe("QU!D Protocol — Depository Suite", () => {
         const borrowIx = await program.methods
           .flashBorrow(new BN(0), new BN(1_000_000), 0)
           .accountsStrict({
-            flashAuthority: bebopAuthKp.publicKey,
+            flashAuthority: flashAuthKp.publicKey,
             borrower:       payer.publicKey,
             bank:           bankPDA,
             flashLoan:      flashLoanPDA,
@@ -1839,7 +1842,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       // QUID_SQUADS_MULTISIG set and it becomes a hard assertion.
       //
       // The authority matters more than `config.admin`. Admin governs bounded
-      // things — rotate the bebop authority, point SOL* at an issuer, set
+      // things — rotate the flash authority, point SOL* at an issuer, set
       // buffer parameters. Whoever can upgrade the binary can remove any of
       // those bounds, extend the ticker table, or take out a gate.
       const [programData] = PublicKey.findProgramAddressSync(

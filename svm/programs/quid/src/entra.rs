@@ -51,7 +51,7 @@ pub fn init_config(ctx: Context<InitConfig>,
     config.bump = ctx.bumps.config;
     config.registered_mints = [
           token_mint, USD_STAR];
-    // SOL* parking starts off; admin turns it on with set_kestrel once the
+    // SOL* parking starts off; admin turns it on via `update_config`'s kestrel arm once the
     // deployment is pinned. Defaults are sized from the measured ~40 bps round
     // trip: a 10%-of-pool deadband and a 21-day hold clear break-even (~17 days
     // at ~8.5% APY) with margin. Buffer refills are exempt from the hold.
@@ -64,6 +64,15 @@ pub fn init_config(ctx: Context<InitConfig>,
     Ok(())
 }
 
+/// THE ONE CONFIG INSTRUCTION. Every settable field on `ProgramConfig` is an
+/// `Option` here: `None` leaves it alone, `Some` writes it.
+///
+/// ⚠️ `set_kestrel` USED TO BE A SECOND ENTRYPOINT ONTO THIS SAME ACCOUNT — not a
+/// second config, which is what made it easy to miss. It wrote six `ProgramConfig`
+/// fields through its own `SetKestrel` accounts struct, its own `lib.rs` export,
+/// and its own spelling of the admin gate (`address = config.admin` where this one
+/// says `constraint = admin.key() == config.admin` — the same check, written twice,
+/// which is two places for it to drift). One account, one instruction.
 #[derive(Accounts)]
 pub struct UpdateConfig<'info> {
     #[account(mut,
@@ -74,29 +83,80 @@ pub struct UpdateConfig<'info> {
         seeds = [b"program_config"],
         bump = config.bump)]
     pub config: Box<Account<'info, ProgramConfig>>,
+
+    /// Read only, and only to answer one question: is anything still parked?
+    /// Required on every call rather than only on a kestrel disable — one extra
+    /// account on an admin-only path is cheaper than an optional-account dance,
+    /// and it cannot then be omitted on the one call where it matters.
+    #[account(seeds = [b"depository"], bump)]
+    pub bank: Box<Account<'info, Depository>>,
+}
+
+/// Kestrel/SOL* settings, folded out of `set_kestrel`. All-or-nothing: passing
+/// `Some` means every parking field is being written together, because they are
+/// validated against each other and a partial write could leave the band wider
+/// than the non-buffer share.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
+pub struct KestrelCfg {
+    pub kestrel_program: Pubkey,
+    pub sol_star_mint: Pubkey,
+    pub buffer_bps: u16,
+    pub haircut_bps: u16,
+    pub park_band_bps: u16,
+    pub min_park_secs: i64,
 }
 
 pub fn update_config(ctx: Context<UpdateConfig>,
     new_admin: Option<Pubkey>,
-    set_bebop_authority: Option<Pubkey>) -> Result<()> {
+    set_flash_authority: Option<Pubkey>,
+    kestrel: Option<KestrelCfg>) -> Result<()> {
+    // Validate everything BEFORE the first write: a config instruction that
+    // half-applies leaves the pool in a state no caller asked for.
+    if let Some(k) = kestrel {
+        require!(k.buffer_bps >= MIN_BUFFER_BPS, PithyQuip::InvalidParameters);
+        require!(k.buffer_bps <= 10_000 && k.haircut_bps <= 10_000,
+                 PithyQuip::InvalidParameters);
+        // The band must fit under the non-buffer share, or park_sol can never
+        // satisfy both "move at least a band" and "leave the floor intact".
+        require!((k.park_band_bps as u32) <= (10_000 - k.buffer_bps as u32),
+                 PithyQuip::InvalidParameters);
+        require!(k.min_park_secs >= 0 && k.min_park_secs <= MAX_MIN_PARK_SECS,
+                 PithyQuip::InvalidParameters);
+        // Enabling requires both halves; disabling clears both.
+        if k.kestrel_program != Pubkey::default() {
+            require!(k.sol_star_mint != Pubkey::default(), PithyQuip::InvalidParameters);
+        } else {
+            // Switching the issuer off while the pool still holds its token would
+            // strand that balance: every unwind is addressed to the program named
+            // here, so clearing it removes the only route back to lamports. Wind
+            // the position down first, then disable.
+            require!(ctx.accounts.bank.sol_star_shares == 0, PithyQuip::FlashLoanActive);
+        }
+    }
+
     let config = &mut ctx.accounts.config;
     if let Some(admin) = new_admin {
         config.admin = admin;
     }
-    if let Some(authority) = set_bebop_authority {
-        // bebop_authority controls who can call flash_borrow. Flash loans are
-        // atomic (borrow + repay must balance within the same TX, enforced by
-        // the flash_loan PDA's state machine and the sysvar co-presence check
-        // in flash_repay), so a malicious rotation can't drain the pool — the
-        // worst a new authority can do is execute a flash that must still
-        // repay. No on-chain timelock needed; the admin path is the real
-        // protection (Squads multisig with its own proposal delay).
-        config.bebop_authority = authority;
+    if let Some(authority) = set_flash_authority {
+        // Who may call flash_borrow. Flash loans are atomic (borrow + repay must
+        // balance within the same TX, enforced by the flash_loan PDA's state
+        // machine and the sysvar co-presence check in flash_repay), so a malicious
+        // rotation can't drain the pool — the worst a new authority can do is
+        // execute a flash that must still repay. No on-chain timelock needed; the
+        // admin path is the real protection (Squads, with its own proposal delay).
+        config.flash_authority = authority;
+    }
+    if let Some(k) = kestrel {
+        config.kestrel_program     = k.kestrel_program;
+        config.sol_star_mint       = k.sol_star_mint;
+        config.sol_buffer_bps      = k.buffer_bps;
+        config.sol_star_haircut_bps = k.haircut_bps;
+        config.sol_park_band_bps   = k.park_band_bps;
+        config.sol_min_park_secs   = k.min_park_secs;
     }
     Ok(())
 }
-
-/// Minimum seconds between proposing and committing a bebop_authority rotation.
 
 
 #[derive(Accounts)]
@@ -298,9 +358,9 @@ pub fn handle_in<'info>(ctx: Context<'_, '_, 'info, 'info, Stockup<'info>>,
 #[derive(Accounts)]
 pub struct FlashBorrow<'info> {
     /// JAM authority PDA — equivalent of require(msg.sender == JAM) in Aux.sol.
-    /// CHECK: address == config.bebop_authority
+    /// CHECK: address == config.flash_authority
     #[account(signer,
-        address = config.bebop_authority @ PithyQuip::InvalidSettlementProgram,
+        address = config.flash_authority @ PithyQuip::InvalidSettlementProgram,
     )]
     pub flash_authority: AccountInfo<'info>,
 
@@ -417,56 +477,8 @@ pub fn handle_flash_borrow<'info>(ctx: Context<'_, '_, '_,
 // SOL* PARKING — config + park
 // =============================================================================
 
-#[derive(Accounts)]
-pub struct SetKestrel<'info> {
-    #[account(mut, address = config.admin @ PithyQuip::Unauthorized)]
-    pub admin: Signer<'info>,
+// (config lives in `update_config` above — see the note on `KestrelCfg`.)
 
-    #[account(mut, seeds = [b"program_config"], bump = config.bump)]
-    pub config: Box<Account<'info, ProgramConfig>>,
-
-    /// Read only, and only to answer one question: is anything still parked?
-    #[account(seeds = [b"depository"], bump)]
-    pub bank: Box<Account<'info, Depository>>,
-}
-
-/// Point SOL* parking at the issuer. `kestrel_program = Pubkey::default()`
-/// disables parking: `park_sol` fails closed while `unpark_sol` keeps working,
-/// so a live position can always be wound down.
-pub fn set_kestrel(ctx: Context<SetKestrel>, kestrel_program: Pubkey,
-    sol_star_mint: Pubkey, buffer_bps: u16, haircut_bps: u16,
-    park_band_bps: u16, min_park_secs: i64) -> Result<()> {
-    require!(buffer_bps >= MIN_BUFFER_BPS, PithyQuip::InvalidParameters);
-    require!(buffer_bps <= 10_000 && haircut_bps <= 10_000,
-             PithyQuip::InvalidParameters);
-
-    // The band must fit under the non-buffer share, or park_sol can never
-    // satisfy both "move at least a band" and "leave the floor intact".
-    require!((park_band_bps as u32) <= (10_000 - buffer_bps as u32),
-             PithyQuip::InvalidParameters);
-
-    require!(min_park_secs >= 0 && min_park_secs <= MAX_MIN_PARK_SECS,
-             PithyQuip::InvalidParameters);
-
-    // Enabling requires both halves; disabling clears both.
-    if kestrel_program != Pubkey::default() {
-        require!(sol_star_mint != Pubkey::default(), PithyQuip::InvalidParameters);
-    } else {
-        // Switching the issuer off while the pool still holds its token would
-        // strand that balance: every unwind is addressed to the program named
-        // here, so clearing it removes the only route back to lamports. Wind
-        // the position down first, then disable.
-        require!(ctx.accounts.bank.sol_star_shares == 0, PithyQuip::FlashLoanActive);
-    }
-    let config = &mut ctx.accounts.config;
-    config.kestrel_program = kestrel_program;
-    config.sol_star_mint = sol_star_mint;
-    config.sol_buffer_bps = buffer_bps;
-    config.sol_star_haircut_bps = haircut_bps;
-    config.sol_park_band_bps = park_band_bps;
-    config.sol_min_park_secs = min_park_secs;
-    Ok(())
-}
 
 // =============================================================================
 // PROTOCOL STATE — config, vaults, device enrollment
@@ -571,7 +583,7 @@ pub const FLASH_REPAY_DISC: [u8; 8] = [0xb6, 0x8f, 0x13, 0x17, 0x27, 0xdd, 0xb8,
 #[account]
 pub struct ProgramConfig {
     /// Protocol admin. After init_config, should be a Squads v4 vault PDA.
-    /// Controls: bebop_authority, registered_mints, the SOL* settings.
+    /// Controls: flash_authority, registered_mints, the SOL* settings.
     pub admin: Pubkey,
     pub token_mint: Pubkey,
     /// Exactly two mints are ever acceptable, and neither is chosen after the
@@ -585,15 +597,40 @@ pub struct ProgramConfig {
     /// that reaches `registered_mints` is credited as dollars at face value.
     pub registered_mints: [Pubkey; 2], // [token_mint, USD*]
     pub bump: u8,
-    /// JAM settlement program authority PDA.
-    /// flash_borrow requires flash_authority.key() == this field.
-    /// Pubkey::default() = flash loans disabled.
-    /// SENSITIVE: rotated by `update_config`. A flash loan must balance
-    /// within its own transaction, so the worst a rotated authority can do is
-    /// execute a flash that still has to repay — the admin path (Squads, with
-    /// its own proposal delay) is the real protection, and a second on-chain
-    /// timelock on top of it bought nothing.
-    pub bebop_authority: Pubkey,
+    /// Who may call `flash_borrow`. `Pubkey::default()` = flash loans disabled.
+    ///
+    /// ⚠️ WAS `bebop_authority`, AND THE NAME WAS THE ONLY THING STILL SAYING SO.
+    /// The account it is checked against is already `flash_authority`
+    /// (`FlashBorrow` below) and the error was `InvalidSettlementProgram` — three
+    /// names for one role. Bebop is one prospective integration living in its own
+    /// repo (`quidmints/bebop_solana`); naming a core config field after it made
+    /// the field read as Bebop-specific when the gate is venue-agnostic.
+    ///
+    /// 🔴 **WE PIN AN ADDRESS; WE DO NOT OWN THE KEY.** `FlashBorrow` requires
+    /// `#[account(signer, address = config.flash_authority)]`, and on Solana only
+    /// two things sign: a keypair, or a **PDA signing via `invoke_signed` from the
+    /// program that owns it**. The intended shape is the second — the settlement
+    /// program's own signer PDA, which is why the original comment read
+    /// *"equivalent of `require(msg.sender == JAM)` in `Aux.sol`"*. Setting this
+    /// field chooses WHICH PROGRAM is trusted to open a flash; it does not mint a
+    /// credential we hold.
+    /// ⚠️ **BUT THE CONSTRAINT DOES NOT ENFORCE PDA-NESS — A PLAIN KEYPAIR
+    /// SATISFIES IT IDENTICALLY**, and the TypeScript suite depends on that
+    /// (`tests/quid.ts` points this at `payer` to drive the flash path directly).
+    /// So read the field as "the configured flash caller", which is what the error
+    /// now says; the venue-program framing is the intent, not an invariant.
+    ///
+    /// SENSITIVE, but bounded: rotated by `update_config`, and a flash loan must
+    /// balance inside its own transaction, so the worst a rotated authority can do
+    /// is execute a flash that still has to repay. The admin path (Squads, with its
+    /// own proposal delay) is the real protection; a second on-chain timelock on
+    /// top of it bought nothing.
+    pub flash_authority: Pubkey,
+    // NO xStocks primary-market key, deliberately — see `DISCRETION-POLICY.md`.
+    // Minting for users is agency and batching does not dilute it; delivery, if it
+    // happens at all, is as PRINCIPAL for the pool's own book, which is an off-chain
+    // treasury operation with the issuer and needs no program-level authority. A field
+    // here would be a stub inviting the one wiring that analysis rules out.
     pub config_version: u32,
 
     /// Kestrel `long_yield_carry` — the SOL* issuer. Pubkey::default() = parking
@@ -617,20 +654,31 @@ pub struct ProgramConfig {
 }
 
 impl ProgramConfig {
+    /// ⚠️ **THIS COUNTED A FIELD THAT DOES NOT EXIST, AND ITS STATED TOTAL WAS WRONG
+    /// TWICE OVER.** It carried `+ 32 // keeper` while `ProgramConfig` has no
+    /// `keeper` (grep: zero hits), and it claimed `total 324` while the terms
+    /// summed to 283 against a real need of 251. Over-allocation is harmless at
+    /// runtime — which is exactly why it survived — but it is the number the next
+    /// person sizing a `realloc` would trust.
+    ///
+    /// ⚠️ CORRECTING IT SHRINKS THE ACCOUNT, WHICH IS SAFE IN ONE DIRECTION ONLY.
+    /// Already-deployed configs were allocated 283 bytes and now need 251, so they
+    /// keep 32 bytes of slack — harmless, and no migration. But a FRESH deploy
+    /// allocates 251, so any field added later needs a real `realloc`; do not
+    /// assume the old slack is still there.
     pub const SPACE: usize = 8
         + 32  // admin
-        + 32  // keeper
         + 32  // token_mint
         + 64  // registered_mints [2]
         + 1   // bump
-        + 32  // bebop_authority
+        + 32  // flash_authority
         + 4   // config_version
         + 32  // kestrel_program
         + 32  // sol_star_mint
         + 2   // sol_buffer_bps
         + 2   // sol_star_haircut_bps
         + 2   // sol_park_band_bps
-        + 8;  // sol_min_park_secs → total 324
+        + 8;  // sol_min_park_secs → total 251
 }
 
 

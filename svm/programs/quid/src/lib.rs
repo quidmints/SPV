@@ -56,13 +56,16 @@ pub mod quid {
         entra::init_config(ctx, token_mint)
     }
 
-    /// Rotate admin, or stage a bebop_authority rotation.
-    /// Pass None for any field to leave it unchanged.
+    /// THE ONLY CONFIG INSTRUCTION. Rotate the admin, the flash authority, or the
+    /// SOL*/Kestrel parking settings.
+    /// `None` leaves a field unchanged. `set_kestrel` was folded in here — it was
+    /// a second entrypoint onto this same `ProgramConfig`, with its own accounts
+    /// struct and its own spelling of the admin gate.
     pub fn update_config(ctx: Context<UpdateConfig>,
         new_admin: Option<Pubkey>,
-        set_bebop_authority: Option<Pubkey>) -> Result<()> {
-        entra::update_config(ctx,
-            new_admin, set_bebop_authority)
+        set_flash_authority: Option<Pubkey>,
+        kestrel: Option<KestrelCfg>) -> Result<()> {
+        entra::update_config(ctx, new_admin, set_flash_authority, kestrel)
     }
 
 
@@ -89,14 +92,6 @@ pub mod quid {
         clutch::handle_refresh_sol_collateral(ctx)
     }
 
-    /// Point SOL* parking at the issuer (admin only).
-    /// `kestrel_program = Pubkey::default()` disables parking.
-    pub fn set_kestrel(ctx: Context<SetKestrel>, kestrel_program: Pubkey,
-        sol_star_mint: Pubkey, buffer_bps: u16, haircut_bps: u16,
-        park_band_bps: u16, min_park_secs: i64) -> Result<()> {
-        entra::set_kestrel(ctx, kestrel_program, sol_star_mint,
-                           buffer_bps, haircut_bps, park_band_bps, min_park_secs)
-    }
 
 
 

@@ -194,7 +194,7 @@ pub enum PithyQuip {
     #[msg("flash_repay instruction not found in transaction")]
     FlashRepayMissing,
 
-    #[msg("caller is not the authorised JAM settlement program")]
+    #[msg("caller is not the configured flash authority")]
     InvalidSettlementProgram,
 
     #[msg("no active flash loan to repay")]
@@ -309,7 +309,7 @@ pub struct Actuary {
     // === Manipulation Resistance (8 bytes) ===
     /// EMA smoothed price for manipulation detection.
     /// Slower than spot price — large deviations indicate potential manipulation.
-    /// Also the TWAP overlay that makes prediction market manipulation
+    /// Also the TWAP overlay that makes price manipulation
     /// prohibitively expensive: sustaining artificial price pressure across
     /// the full TWAP window requires keeping that capital at risk the entire
     /// time — the attacker is the natural short against their own manipulation.
@@ -664,14 +664,15 @@ impl Actuary {
     /// exposure embedded in its composition: Morpho vaults on L2 (Base &
     /// Polygon), AAVE on Arbitrum, generate yield while bridging to L1 
     ///
-    /// Step 2: What needs to exist is a maker network quoting & physically
-    /// delivering tokenised FX, equity, or commodity positions; Bebop's
-    /// Solana RFQ program is currently crypto-only physical delivery...
+    /// Step 2 — NOT BUILT, and stated that way on purpose. What would need to
+    /// exist is a maker network quoting and physically delivering tokenised FX,
+    /// equity or commodity positions. No such network is wired here; the flash
+    /// gate is venue-agnostic and holds no integration.
     ///
     /// The competitive distinction is composability vs proprietary stack;
-    /// Circle's StableFX runs on Arc — Circle's own L1 — with Circle as
-    /// the settlement counterparty. QU!D's basket is open: the flash loan
-    /// gate is available to any JAM-settled solver, the constituent issuers'
+    /// Circle's StableFX runs on Arc — Circle's own L1 — with Circle as the
+    /// settlement counterparty. QU!D's basket is open: the flash gate is
+    /// available to whoever holds `flash_authority`, the constituent issuers'
     /// redemption mechanics are exposed as PMM quotes without requiring a
     /// proprietary chain, and the risk floor is the distributed stablecoin
     /// ecosystem rather than only Circle/Hashnote overnight repo rate...
@@ -691,25 +692,17 @@ impl Actuary {
     /// regime. This rate is published on-chain before any position is opened.
     ///
     /// The core tension in order book design is between commitment credibility
-    /// and adverse selection protection. A solver who quotes a price commits to
-    /// filling at that price. If the solver can revoke that commitment freely,
-    /// as HFT firms do by cancelling limit orders faster than anyone can react,
-    /// the quote isn't a commitment per se, more like an option that the solver
-    /// holds at the taker's expense. JAM's design addresses this directly.
+    /// and adverse selection protection. A maker who quotes commits to filling at
+    /// that price; if the commitment can be revoked freely — as HFT firms revoke
+    /// resting limit orders — the quote is not a commitment but a free option
+    /// written against the taker. RFQ removes the cancel game by construction:
+    /// the quote answers one taker request, the commitment is point-in-time, and
+    /// execution is atomic, so there is no resting order to pull.
     ///
-    /// Solvers compete on an RFQ basis — they respond to a specific taker request
-    /// rather than posting resting orders. The commitment is point-in-time and
-    /// execution is atomic. There is no cancel window because there's no resting
-    /// order to cancel. The solver either wins the auction and executes, or loses
-    /// and nothing happens. The HFT cancel game does not apply because the game
-    /// structure is different: it is a sealed-bid execution auction, not a CLOB.
-    ///
-    /// The controversy that does carry over is around what happens when a solver
-    /// wins the auction but conditions move adversely before the transaction is
-    /// included in a block. The solver has committed to a price, the taker has
-    /// signed against it, but block inclusion takes time. If ETH moves 2% between
-    /// the solver committing and the block landing, the solver takes that loss.
-    ///
+    /// ⚠️ WHAT ATOMIC SETTLEMENT DOES NOT FIX, AND WHY IT MOTIVATES `rate_bps()`:
+    /// a maker who wins the auction still carries the move between committing and
+    /// block inclusion. That narrows the exposure window to about one block; it
+    /// does not close it, and it does nothing at all over multi-day horizons.
     /// This is the residual adverse selection problem that atomic settlement does
     /// not fully eliminate — narrows the window to 1 block time but doen't close it.
     /// The situation becomes considerably more tricky over longer time horizons...
@@ -751,7 +744,7 @@ impl Actuary {
     /// What still needs to be built for RWA unwinds
     /// across physical delivery sequences:
     ///
-    /// (a) keeper called daily as each physical
+    /// (a) a permissionless crank called daily as each physical
     ///     delivery reduces residual exposure, or
     ///     automatically as confirmed deliveries arrive.
     ///
@@ -829,7 +822,7 @@ impl Actuary {
     /// locked against redemption for dollars, but not locked against
     /// movement or rehypothecation through synthetic exposure...
     ///
-    /// bonded dollars can be borrowed by a solver within
+    /// bonded dollars can be borrowed by a flash caller within
     /// a single block, routed through multi-hop sequence,
     /// and repaid from the proceeds of cleared execution.
     /// capitalize on the rhythm at your own frequency...
@@ -1038,7 +1031,7 @@ impl Actuary {
     /// - pool: total pool size for relative sizing
     ///
     /// The velocity field is therefore a real-time signal of the scale
-    /// of solver activity relative to pool depth — a size-weighted
+    /// of flash-borrow activity relative to pool depth — a size-weighted
     /// intensity measure that scales correctly across pool sizes.
     /// Record a trade against this ticker's risk state.
     ///
