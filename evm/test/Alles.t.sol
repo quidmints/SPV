@@ -3710,6 +3710,20 @@ contract Alles is AllesFixture {
         // argument would consume the vm.prank, so the withdraw would run as the
         // test contract (owner != msg.sender → AllowanceFlow).
         uint maxW = ETH.convertToAssets(ETH.balanceOf(lp));
+        // §C25 — WHICH CAP BINDS. The row asked for delivered-vs-requested and never got it; these
+        // five reads are that measurement. `deliverableETH` is the solvency-side figure the ladder
+        // sources against, `rangeETH` the gross venue ETH, `POOLED` the range's own inventory.
+        emit log_named_uint("C25 requested (maxW)     ", maxW);
+        emit log_named_uint("C25 AUX.deliverableETH   ", AUX.deliverableETH());
+        emit log_named_uint("C25 AUX.rangeETH         ", AUX.rangeETH());
+        emit log_named_uint("C25 CORE.POOLED          ", CORE.POOLED());
+        emit log_named_uint("C25 WETH held by EthVenue", WETH.balanceOf(AUX.ethVenue()));
+        // §E28-r CONTROL — its defect signature is the basket leg draining FIRST: `basketUsd`
+        // floored to 0 while `POOLED_USD` still holds a residue, so `POOLED_USD - basketUsd` (the
+        // LP increment `_pricingBacking` prices into the share) grows by the whole released slice.
+        // If full release reintroduced that, basketUsd is 0 here against a non-zero POOLED_USD.
+        emit log_named_uint("E28r POOLED_USD          ", CORE.POOLED_USD());
+        emit log_named_uint("E28r basketUsd           ", CORE.basketUsd());
         uint e = lp.balance; uint w = WETH.balanceOf(lp); uint q = QUID.balanceOf(lp);
         vm.prank(lp); ETH.withdraw(maxW, lp, lp);
         uint got = _lpReceived(lp, e, w, q);

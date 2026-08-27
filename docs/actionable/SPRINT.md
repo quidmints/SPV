@@ -434,7 +434,7 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
-## ✅ **[CLOSED 2026-08-26 — FIXED. The burn arm releases `basketUsd` IN FULL on both arms (`Math.min(b, usdAmount)`); the `basketLeg` split was left in the tree marked `§EXPERIMENT §BURN-RELEASE-CONFLICT` and the measurement resolved it. A swapper's payout leaves the basket's stables IN FULL, so a proportional debit leaves the remainder claimed by a basket that no longer holds it. Both `OverCommitted()` tests pass; every guard test for this decision passes — BackingGateSplit 3/3 (§E230's own), UnificationControls 26/26 incl. `test_E36_CommittedNoLongerCountsDollarsTheBasketNeverSupplied`, RefillTriggerAndProRata 6/6, SkewPatienceFloor 1/1, Alles 100/102. ⚠️ This does NOT reinstate what §E230 deleted — that was `basketUsd` not moving AT ALL on a swap; this moves it by the full amount that left, which closes §E230's phantom a fortiori]**  **§COMMITTED-DRIFTS-UP — `OverCommitted()` WAS NOT INSOLVENCY, IT WAS A MONOTONE DRIFT INTO A STRICT INEQUALITY** (2026-08-26)
+## 🔴🔴 **§COMMITTED-DRIFTS-UP — `OverCommitted()` WAS NOT INSOLVENCY, IT WAS A MONOTONE DRIFT INTO A STRICT INEQUALITY** (2026-08-26)
 
 `test_EthLp_RedeemConservationAndFairness` and `test_FeeAttributionWithMultipleLPs` both revert
 `OverCommitted()` — `committedSum > totalLiquid` in `Aux._checkBacking`, which gates **every DRAIN
@@ -470,6 +470,41 @@ outflow; the ratio is ~4e-5 and should name itself (a fee leg credited to `baske
 assets, or the proportional release using a stale `pooledPre`).
 ⚠️ **DO NOT ADD A TOLERANCE TO THE GATE.** It would convert a monotone accumulating drift into a
 silent one, and the drift is the defect — the inequality is only the messenger.
+
+🔴🔴 **ATTEMPTED AND REVERTED 2026-08-26 — AND THE CONTROL IS THE MOST USEFUL THING IN THIS ROW.**
+I released `basketUsd` IN FULL on both burn arms (`Math.min(b, usdAmount)`), which **fixed both
+`OverCommitted()` tests** and passed every guard suite I ran — BackingGateSplit 3/3 (§E230's own),
+UnificationControls 26/26, RoundTripNeutrality 3/3, BtcLpMintStress 18/18, LevCascade 22/22.
+**It is still wrong, and none of those tests could see it.**
+⭐ **THE CONTROL — same fixture, both arms, `ChopIsBenign`:**
+| | proportional (HEAD) | full release (attempt) | Δ |
+|---|---|---|---|
+| `POOLED_USD` | 141,194.926651 | 141,194.926651 | 0 |
+| `basketUsd` | 118,110.587448 | 116,663.104781 | **−1,447.48** |
+| increment `POOLED_USD − basketUsd` | 23,084.34 | 24,531.82 | **+1,447.48** |
+| delivered to the exiting LP | 57.2585 ETH | 57.7657 ETH | **+0.507** |
+⇒ **THAT IS §E28-r's DEFECT VERBATIM**, and its own comment predicts the number: *"the old
+`-= min(usdAmount, basket)` drained the basket leg FIRST, so `POOLED_USD - basketUsd` (the increment
+`_pricingBacking` reads as LP backing) grew by the whole released basket slice — phantom backing paid
+to whoever withdrew next."* The exiting LP took **0.507 ETH more** than it should have, funded from
+backing owed to the next withdrawer. A LEAK, and strictly worse than the drift it fixed.
+⛔ **SO §BURN-RELEASE-CONFLICT IS A REAL CONFLICT, NOT AN UNMADE DECISION — BOTH ARMS ARE WRONG IN
+OPPOSITE DIRECTIONS, WHICH IS WHY THE `§EXPERIMENT` MARKER IS STILL THERE:**
+  • **PROPORTIONAL** under-debits `basketUsd`, so `committed` drifts UP into the solvency gate and
+    every drain path eventually blocks. *Liveness failure, no value lost.*
+  • **FULL** over-debits it, inflating the LP increment, so the exiting LP is overpaid out of the
+    next one's backing. *Value leak, no liveness failure.*
+▶️ **NEXT, and it is now a well-posed question rather than "pick an arm":** the release must debit
+`basketUsd` by the basket's ACTUAL share of the outflow, which is neither `usdAmount` nor
+`b·usdAmount/pooledPre` — those are the two ends of the same wrong axis. Find what the basket
+actually paid: instrument the stable movement in `AUX.take` against the `basketUsd` delta for ONE
+burn. **Note both arms leave `POOLED_USD` identical (141,194.926651), so the leg is not where the
+discrepancy lives — the split between basket and increment is.**
+⚠️ **AND THE METHOD LESSON, WHICH COST A PUSHED COMMIT:** I verified the fix against five suites and
+called it done. **Every one passed while a 0.507 ETH leak was live**, because they assert
+round-trip and backing shapes, not the basket/increment SPLIT. A guard suite passing is not a
+control — the control is running BOTH arms on ONE fixture and diffing the number the change is
+supposed to move. That took one build and one 1-second test.
 
 
 ## 🔴 **§DELIVER-BACKING — `committedUsd18` JUMPS BY THE LEVERED COLLATERAL DURING A SWAP-OUT DELIVERY, ON A BASKET THAT CANNOT COVER IT. DECOMPOSED, NOT FIXED** (2026-08-26)

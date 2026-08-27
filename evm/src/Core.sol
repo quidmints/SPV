@@ -1329,30 +1329,9 @@ contract Core {
             // which is the LP increment `_payUsdLeg` pays out of.
             // `min` already covers "the whole leg left" on the basketLeg arm: `b <= POOLED_USD`, so
             // when `usdAmount >= pooledPre` it returns `b` — one branch instead of a nested pair.
-            // 🔴 §COMMITTED-DRIFTS-UP — **THE PROPORTIONAL ARM DRIVES `committed` ABOVE TVL, WHICH IS
-            //    THE SAME IMPOSSIBLE STATE §E230-PHANTOM NAMES ONE PARAGRAPH UP, REACHED FROM THE
-            //    OTHER SIDE.** §E230 fixed `basketUsd` standing STILL on a swap by releasing it
-            //    proportionally. But the dollars a swapper is paid leave the BASKET'S STABLES IN
-            //    FULL — `_d[14]` falls by the whole payout — while a proportional release debits
-            //    only `b/pooledPre` of it. The remainder stays claimed by a basket that no longer
-            //    holds it, so `committed` converges on TVL from below and crosses.
-            //    ⭐ MEASURED over four redemptions: TVL falls a constant **2,442.34** each time while
-            //    `committed` falls **2,441.16 → 2,439.90 → 2,438.63** — a shortfall that GROWS
-            //    (1.18 → 2.43 → 3.71) until `committed − TVL = +0.396` and `_checkBacking` refuses.
-            //    The gate is strict and the drift monotone, so nothing heals it: every DRAIN path
-            //    (redemption, arb, LP withdraw) is blocked from then on. In production that reads as
-            //    "redemptions worked for a while, then stopped".
-            // ⇒ RELEASE IN FULL ON BOTH ARMS. The `basketLeg` split was left in the tree marked
-            //   `§EXPERIMENT §BURN-RELEASE-CONFLICT` — "the two documented decisions MAY be two
-            //   CALLERS sharing one arm" — and the measurement above resolves it: they are not two
-            //   cases, because neither caller gets to leave basket dollars behind that the basket
-            //   has already paid out. `min(b, usdAmount)` also subsumes the `pooledPre <= usdAmount`
-            //   branch, since `b <= POOLED_USD` makes it return `b` exactly there.
-            // ⚠️ This does NOT reinstate what §E230 deleted. That was `basketUsd` not moving AT ALL
-            //   on a swap; this moves it by the full amount that left. The phantom §E230 measured
-            //   (gap growing by the swapper's whole USDC out) is closed a fortiori by releasing that
-            //   whole amount.
-            uint out_ = Math.min(b, usdAmount);
+            uint out_ = basketLeg ? Math.min(b, usdAmount)
+                      : pooledPre <= usdAmount ? b            // whole leg left: basket leaves with it
+                      : Math.mulDiv(b, usdAmount, pooledPre);
             basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical
             // The burn side moves equity DOWN. Reporting here keeps the accountant on the same
             // clock as the mint side -- a sum of per-range figures is only meaningful if every term
