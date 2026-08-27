@@ -632,9 +632,11 @@ contract LevCascadeProbe is AllesFixture {
         _rangeE0(lps[1], 5 ether);             // unlevered: identical range deposit, NO openLev
         uint principalEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
         (uint unlevPooled0,,,) = ETH.autoManaged(lps[1]);
+        uint invBeforeRally = CORE.POOLED();   // the range's REAL ETH inventory — see (2)
 
         // ONE shared REAL rally ⇒ identical price-path IL on BOTH range positions.
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        uint invAfterRally = CORE.POOLED();
         lm.rebalance(lps[0], 0, DEX_WETH_USDC);
         assertGt(venue.debtOf(lps[0]), 0, "levered LP hedged: debt = IL target > 0");
 
@@ -696,15 +698,31 @@ contract LevCascadeProbe is AllesFixture {
         //     on the fork: the mock range moves but takeETH delivers from real venues at the real price, so the
         //     price would have to be reseated to deliver — which round-trips the move and erases the IL. The
         //     deterministic proof is the sold fraction + the hedge differential.)
-        uint sold = ETH.soldFractionWad(_entryPrice(lps[0]));
-        assertGt(sold, 0, "(2) the range SOLD ETH on the rally => IL accrued to every range LP");
-        // The UNLEVERED LP has NO leverage position => zero hedge => it bears the full sold fraction as IL.
+        // 🔴 §C22 — **THIS ASSERTED AGAINST `soldFractionWad`, WHICH THIS REPO HAS ALREADY PROVEN IS
+        //    NOT A MEASURE OF IL.** `LevMath:269-288` deleted `ilTargetLive` for exactly that: with
+        //    `RANGE_ANCHOR = spotPrice` reset on every repack, the triple is always
+        //    `(P(1-d), P, P(1+d))`, `P` cancels, and the value is `f(RANGE_DELTA)` ALONE —
+        //    a constant 0.500750000 at open, at +100%, and on the way back down. It reads 0 here
+        //    only because the reanchor keeps `syncKeyPx == spot`, which is MEASURED at this line:
+        //    pin and range price were byte-identical (2702.8296) already at rebalance time.
+        //    ⇒ Both of its outputs are useless: 0.50075 is a constant, and 0 is a tautology. This
+        //    test was the last consumer of the deleted idea.
+        // ⭐ THE REPLACEMENT IS THE MEASUREMENT §C22 ITSELF USED — the range's REAL inventory. Its
+        //    proof cited *"`POOLED` fell 7.566 -> 2.331 ETH"* while the formula sat still, so the
+        //    inventory is the quantity that was moving all along. A rally makes a concentrated range
+        //    sell ETH for stables; that is the IL, and it is directly observable.
+        emit log_named_uint("(2) POOLED before rally    ", invBeforeRally);
+        emit log_named_uint("(2) POOLED after rally     ", invAfterRally);
+        assertLt(invAfterRally, invBeforeRally,
+            "(2) the range SOLD ETH on the rally => IL accrued to every range LP");
+        // The UNLEVERED LP has NO leverage position => zero hedge => it bears that IL in full.
         ( , , , , bool unlevOpen) = lm.pos(lps[1]);
-        assertTrue(!unlevOpen, "(2) unlevered LP is unhedged (no lev position) => bears the full sold-fraction IL");
-        // The LEVERED LP DOES hedge exactly that sold fraction (debt/E0 == sold fraction), so its ETH exposure is
-        // preserved per (1) — one takes the IL, the other doesn't, from the SAME shared range move.
-        assertApproxEqAbs(lm.ilLtvBps(lps[0]) * 1e14, sold, 0.06e18,
-            "(2) levered: the hedge (debt/E0) tracks the sold fraction => IL cancelled");
+        assertTrue(!unlevOpen, "(2) unlevered LP is unhedged (no lev position) => bears the full IL");
+        // The LEVERED LP hedges to the REAL target `1 - sqrt(entry/now)` — `ilTargetLtvBps`, the one
+        // §C22 left standing — so its ETH exposure is preserved per (1). One takes the IL, the other
+        // does not, from the SAME shared range move.
+        assertApproxEqAbs(lm.ilLtvBps(lps[0]), lm.ilTargetLtvBps(lps[0]), 400,
+            "(2) levered: the hedge (debt/E0) tracks the IL target => IL cancelled");
         assertLt(unlevPooled0, 5 ether + 1, "sanity: unlevered opened with ~5 ETH pooled");
     }
 
