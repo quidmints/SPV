@@ -143,14 +143,13 @@ contract BtcLevManager is LevBase {
     ///         async steps as the range sells. `cap` is the LP's max-leverage LTV ceiling (≤ TARGET_LTV_CAP_BPS
     ///         = 7500 bps ≈ 4×; 2× is the IL-neutral value). Venue is the
     ///         pin-once venue (no caller-supplied venue ⇒ no phantom backing).
-    function openBtcLev(uint64 cap, uint initialVbtc, ILevVenue venue) external nonReentrant {
+    function openBtcLev(uint initialVbtc, ILevVenue venue) external nonReentrant {
         if (pos[msg.sender].open) revert AlreadyOpen();
         // caller picks from the frozen allowlist (no phantom backing). requireOpenable reverts a non-allowlisted
         // OR incident-flagged (GOV setVaultHealth) venue; close/rebalance stay open so the keeper can unwind.
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
         if (initialVbtc < MIN_OPEN_VBTC) revert BadTarget();           // anti-Sybil
         // §DERIVED-BAND — floored on this position's own band (vBTC IS sats, so no conversion).
-        _requireTargetLtv(cap, collValueUsd(initialVbtc), venue);   // §WSA-LEV-INERT: one rule, derived FLOOR
         uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03, mirror of LevManager): the LP's ONE deposit (`initialVbtc`)
         // IS the levered position — its net-equity is synced into the BTC range (levPooled) as delta-1 depth by
@@ -163,7 +162,7 @@ contract BtcLevManager is LevBase {
         uint entryEquity = initialVbtc;                                         // (A): the deposit (vBTC sats) is the IL base
         // §FOLD-OPEN — shared tail in `LevBase._openPos`. Only `entryEquity` above is per-asset (sats as-is,
         // because vBTC IS sats and needs no conversion).
-        _openPos(venue, cap, entryPx, entryEquity);
+        _openPos(venue, entryPx, entryEquity);
         // SAME-BTC: expose `initialVbtc` of the LP's OWN free channel range BTC as the levered slice — the Vault
         // mints the vBTC face straight to this manager (no LP pre-mint / transferFrom roundtrip). Opens at zero
         // debt; the range isn't re-paired here (levPooled marks it withdrawal-excluded, LP.pooled unchanged),
@@ -180,7 +179,7 @@ contract BtcLevManager is LevBase {
             IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialVbtc);  // WBTC-mode: LP-brought equity
         }
         venue.supply(msg.sender, initialVbtc);
-        emit Opened(msg.sender, address(venue), cap);
+        emit Opened(msg.sender, address(venue), TARGET_LTV_CAP_BPS);   // §E358 — the protocol's cap, not the LP's
     }
 
     /// @notice Adjust the caller's max-leverage cap (the IL target is auto-computed and never exceeds it).

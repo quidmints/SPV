@@ -67,7 +67,7 @@ library LevMath {
     ///                    widened by a spot print the target ignores.
     /// @param gasRebalance measured gas for one rebalance; the live PRICE of it is `block.basefee`.
     /// @param collUsdWad  position size, USD 1e18.
-    /// @param headroomBps `venue.liqThresholdBps() − targetLtvCapBps`, resolved by the caller because
+    /// @param headroomBps `venue.liqThresholdBps() − TARGET_LTV_CAP_BPS`, resolved by the caller because
     ///        the VENUE is the caller's to know. §POOL-VENUE — see `noTradeBandBps`.
     function bandBpsFor(
         address aux,
@@ -139,7 +139,7 @@ library LevMath {
     /// @param kLvrWad    the range's LVR coefficient (WAD), `QuidLib.kLvrWad`.
     /// @notice The band for a live position — resolve `K` and the gas price, then derive.
     /// @param headroomBps distance from the LP's LTV cap to the venue's liquidation threshold,
-    ///        `liqThresholdBps() − targetLtvCapBps`. §POOL-VENUE — **THIS PARAMETER EXISTS BECAUSE
+    ///        `liqThresholdBps() − TARGET_LTV_CAP_BPS`. §POOL-VENUE — **THIS PARAMETER EXISTS BECAUSE
     ///        LIQUIDATION IS NO LONGER PER-LP.** `LevVenueBase:117` records the change: there is ONE
     ///        position under the adapter and *"a liquidation hits every LP pro-rata"*, so
     ///        `cascadeDelever` and this hysteresis are, in its words, *"the only things keeping the

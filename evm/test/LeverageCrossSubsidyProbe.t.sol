@@ -113,7 +113,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     }
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
-    function _entryPrice(address lp) internal view returns (uint s) { ( , , , , s, ) = lm.pos(lp); }
+    function _entryPrice(address lp) internal view returns (uint s) { ( , , , s, ) = lm.pos(lp); }
 
     function _rangeE0(address lp, uint sizeEth) internal {
         vm.deal(lp, sizeEth + 1 ether);
@@ -124,7 +124,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     function _openLevOnly(address lp, uint sizeEth) internal {
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), sizeEth);
-        lm.openLev(5000, ILevVenue(address(venue)), sizeEth);
+        lm.openLev(ILevVenue(address(venue)), sizeEth);
         vm.stopPrank();
     }
 

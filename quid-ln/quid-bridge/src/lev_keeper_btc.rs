@@ -412,9 +412,12 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
         // `debtDeltaToTarget`; a revert is fail-safe (retried next tick).
         let (evm, bm, gas) = (self.evm.clone(), self.btc_lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let mut d = selector4("rebalanceWbtc(address,uint256)");
+            let mut d = selector4("rebalanceWbtc(address,uint256,bytes)");
             d.extend_from_slice(&addr_word(lp));
             d.extend_from_slice(&[0u8; 32]);   // minStableOut = 0 (contract floors against the oracle)
+            // §E357 — empty `bytes route` tail: offset (3 head words) then zero length.
+            d.extend_from_slice(&[0u8; 31]); d.push(0x60);
+            d.extend_from_slice(&[0u8; 32]);
             evm.send_tx(bm, d, gas)?;
             Ok(())
         })

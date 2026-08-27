@@ -467,25 +467,13 @@ library RangeLib {
     // READ ON EVERY RESEAT -- and its only use was `q.ilBasisPx = uint128(px)`, the write that made
     // the levered book inert. Deleting the write deleted the reason to read the oracle here at all.
 
-    event TargetSet(address indexed lp, uint256 targetLtvBps);
+    // §E358 — `TargetSet` DELETED with the per-LP cap it announced. An event nothing emits is
+    // API surface telling a reader this contract has a setting it does not have.
     event ReanchoredToRange(address indexed lp, uint syncKeyPx, uint256 entryEquity);
 
 
-    /// @notice An LP sets its own max-leverage LTV cap.
-    /// @dev    `cap` is passed rather than read: `TARGET_LTV_CAP_BPS` is a caller CONSTANT, and a
-    ///         constant lives in the caller's code. Passing it keeps ONE ceiling definition instead
-    ///         of a second copy here that could silently diverge.
-    function setTargetLtv(
-        mapping(address => Types.Pos) storage pos,
-        address lp,
-        uint64 capBps,
-        uint256 cap
-    ) external {
-        if (!pos[lp].open) revert NotOpen();
-        if (capBps == 0 || capBps > cap) revert BadTarget();
-        pos[lp].targetLtvCapBps = capBps;
-        emit TargetSet(lp, capBps);
-    }
+    // §E358 — `setTargetLtv` DELETED: its only caller was `LevBase.setTargetLtv`, and an LP
+    // choosing its own debt-to-collateral ratio is the thing protocol-wide IL-protect removes.
 
     /// @notice Write a fresh position and enrol the LP, in one call.
     /// @dev    `rangePx` is passed because `_rangePrice()` try/catches a call to the caller's `RANGE`.

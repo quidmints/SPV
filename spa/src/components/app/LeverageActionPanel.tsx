@@ -28,7 +28,7 @@ const bpsToL = (bps: number) => (bps >= 10000 ? Infinity : 10000 / (10000 - bps)
 
 export default function LeverageActionPanel({
   connected, address, pos, capBps, ethPxUsd, busy,
-  onOpen, onAdjust, onClose,
+  onOpen, onClose,
 }: {
   connected: boolean
   address: string
@@ -37,7 +37,6 @@ export default function LeverageActionPanel({
   ethPxUsd: number
   busy: boolean
   onOpen: (targetLtvBps: number, venue: LevVenue, amount: bigint) => void
-  onAdjust: (capBps: number) => void
   onClose: () => void
 }) {
   const deployed = CONTRACTS.levManager !== ZERO_ADDR && LEV_VENUES.length > 0
@@ -159,11 +158,10 @@ export default function LeverageActionPanel({
 
       {/* Actions */}
       {isOpen ? (
+        {/* §E358 — the "Set leverage to N×" control is GONE. IL-protect is a protocol-wide
+            liability on behalf of all LPs, so an LP has no debt-to-collateral ratio of its own to
+            choose; `setTargetLtv` was deleted with it. Closing remains the LP's own action. */}
         <div className="flex gap-2">
-          <button onClick={() => onAdjust(targetBps)} disabled={busy || !connected}
-            className="flex-1 py-3 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:opacity-90 disabled:opacity-40 font-semibold text-sm">
-            {busy ? 'Working…' : `Set leverage to ${levL.toFixed(1)}×`}
-          </button>
           <button onClick={onClose} disabled={busy || !connected}
             className="flex-1 py-3 rounded-lg bg-gradient-to-r from-orange-600 to-red-600 hover:opacity-90 disabled:opacity-40 font-semibold text-sm">
             {busy ? 'Working…' : 'Close position'}

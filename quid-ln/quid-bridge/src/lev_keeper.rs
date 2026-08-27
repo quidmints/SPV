@@ -524,8 +524,14 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         let (evm, lm, gas) = (self.evm.clone(), self.lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             // minOut=0: the contract's oracle-derived MAX_SLIPPAGE floor protects every swap (anti-MEV).
-            let mut data = selector4("rebalance(address,uint256)");
+            let mut data = selector4("rebalance(address,uint256,bytes)");
             data.extend_from_slice(&addr_word(lp));
+            data.extend_from_slice(&u64_word(0));
+            // §E357 — the `bytes route` tail: head is (addr, minOut, offset), then the element's
+            // length. Offset 0x60 = three head words. The route is EMPTY here because nothing
+            // sources one yet, and an empty route is refused on chain — so this call reverts
+            // until discovery lands. Encoding it correctly is the half that has to be right first.
+            data.extend_from_slice(&u64_word(0x60));
             data.extend_from_slice(&u64_word(0));
             evm.send_tx(lm, data, gas)?;
             Ok(())
@@ -831,7 +837,7 @@ mod tests {
     fn calldata_encoding_is_abi_correct() {
         // selectors match keccak256(sig)[..4]
         assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
-        assert_eq!(selector4("rebalance(address,uint256)"), keccak256(b"rebalance(address,uint256)")[..4].to_vec());
+        assert_eq!(selector4("rebalance(address,uint256,bytes)"), keccak256(b"rebalance(address,uint256,bytes)")[..4].to_vec());
         // address word = 12 zero bytes + 20-byte address (right-aligned)
         let lp: LpAddr = [0x11; 20];
         let w = addr_word(lp);

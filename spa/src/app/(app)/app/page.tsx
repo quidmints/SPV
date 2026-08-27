@@ -90,9 +90,8 @@ const enc = {
   // LevManager (YB leverage overlay, #65). Full sigs (merged iface has overloads).
   // openLev passes an EMPTY minWethOut[] — the open borrows nothing (opens at zero
   // leverage); the keeper levers up afterward, so there's no swap to floor here.
-  openLev:      (targetLtvBps: number, venue: string, coll: bigint) =>
-                iface.encodeFunctionData('openLev(uint64,address,uint256)', [targetLtvBps, venue, coll]),
-  setTargetLtv: (capBps: number) => iface.encodeFunctionData('setTargetLtv(uint64)', [capBps]),
+  openLev:      (venue: string, coll: bigint) =>
+                iface.encodeFunctionData('openLev(address,uint256)', [venue, coll]),
   closeLev:     (minOut: bigint, route: string = '0x') => iface.encodeFunctionData('closeLev(uint256,bytes)', [minOut, route]),
   levCap:       () => iface.encodeFunctionData('TARGET_LTV_CAP_BPS', []),
 }
@@ -553,8 +552,8 @@ export default function QuidApp() {
   // ═══════════════════════════════════════════════════════════════════
   //   LEVERAGE OVERLAY (YB IL-protect, #65) — open / adjust / close.
   //   open: approve the venue's collateral (weETH or WETH) to LevManager, then
-  //   openLev(targetLtvBps, venue, coll, []) — opens at zero leverage; the keeper
-  //   levers up to the cap as the range sells. adjust: setTargetLtv(capBps). close:
+  //   openLev(venue, coll) — opens at zero leverage; the keeper levers the PROTOCOL
+  //   position as the range sells (§E358: no per-LP level to adjust). close:
   //   closeLev(0) fully unwinds (short leg first, then long) back to the LP.
   // ═══════════════════════════════════════════════════════════════════
   const doOpenLev = useCallback(async (targetLtvBps: number, venue: LevVenue, amount: bigint) => {
@@ -567,7 +566,7 @@ export default function QuidApp() {
       setStatus('Opening leverage position…')
       const tx = await sendTx({
           from: address, to: CONTRACTS.levManager,
-          data: enc.openLev(targetLtvBps, venue.address, amount, []),
+          data: enc.openLev(venue.address, amount),
         })
       setLastTx(tx); setStatus('Submitted, waiting…')
       await waitTx(tx); setStatus('Leverage position opened — the keeper levers up from here.')
@@ -576,17 +575,7 @@ export default function QuidApp() {
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
   }, [connected, txMutex, address, fetchLevPos, fetchBalances])
 
-  const doAdjustLev = useCallback(async (capBps: number) => {
-    if (!connected || txMutex) return
-    setTxMutex(true); setBusy(true); setError(null); setLastTx(null)
-    try {
-      setStatus('Adjusting leverage level…')
-      const tx = await sendTx({ from: address, to: CONTRACTS.levManager, data: enc.setTargetLtv(capBps) })
-      setLastTx(tx); await waitTx(tx); setStatus('Leverage level updated.')
-      void fetchLevPos()
-    } catch (e: any) { setError(e.message || 'adjust leverage failed') }
-    finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [connected, txMutex, address, fetchLevPos])
+  // §E358 — `doAdjustLev` deleted with `setTargetLtv`: there is no per-LP leverage level.
 
   const doCloseLev = useCallback(async () => {
     if (!connected || txMutex) return
@@ -1109,7 +1098,7 @@ export default function QuidApp() {
           <LeverageActionPanel
             connected={connected} address={address}
             pos={levPos} capBps={levCap} ethPxUsd={ethTwap} busy={busy}
-            onOpen={doOpenLev} onAdjust={doAdjustLev} onClose={doCloseLev} />
+            onOpen={doOpenLev} onClose={doCloseLev} />
           <PnLPanel address={address} />
         </div>
       )}

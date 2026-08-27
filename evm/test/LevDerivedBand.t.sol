@@ -18,7 +18,7 @@ contract LevDerivedBandProbe is AllesFixture {
     /// A ±20bps range: K = 1/(4·(2 − √(P/Pb) − √(Pa/P))) ≈ 125.
     uint constant K_20BPS = 125 * WAD;
 
-    /// §POOL-VENUE — the liquidation headroom, `liqThresholdBps() − targetLtvCapBps`.
+    /// §POOL-VENUE — the liquidation headroom, `liqThresholdBps() − TARGET_LTV_CAP_BPS`.
     /// `AMPLE` makes the series combination the IDENTITY (`h·H/(h+H) → h` as `H → ∞`), which is what
     /// lets the shape tests below measure the ECONOMICS alone. `LIVE` is the real figure at Morpho's
     /// 86% LLTV against the 7500bps cap, and only the headroom test uses it — mixing the two is how a

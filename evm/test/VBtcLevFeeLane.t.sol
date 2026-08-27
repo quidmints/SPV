@@ -652,7 +652,7 @@ contract VBtcLevFeeLane is AllesFixture {
     function _openLev(address lp, uint vbtcSats) internal {
         if (!_levLpSeen[lp]) { _levLpSeen[lp] = true; _levLps.push(lp); }
         vm.prank(lp);
-        lm.openBtcLev(5000, vbtcSats, venue);       // cap 50% (unused at zero leverage)
+        lm.openBtcLev(vbtcSats, venue);       // cap 50% (unused at zero leverage)
         _assertVBtcSupplyMatchesLevMarker();
     }
 
@@ -716,7 +716,7 @@ contract VBtcLevFeeLane is AllesFixture {
         deal(address(WBTC), lp, coll);
         vm.startPrank(lp);
         IERC20V(address(WBTC)).approve(address(lmW), coll);
-        lmW.openBtcLev(7500, coll, wvenue);          // cap 75% (AaveV3Venue = per-LP escrow, no Morpho auth needed)
+        lmW.openBtcLev(coll, wvenue);          // cap 75% (AaveV3Venue = per-LP escrow, no Morpho auth needed)
         vm.stopPrank();
         assertApproxEqAbs(wvenue.collateralOf(lp), coll, 1e4, "opened with ~1 WBTC collateral");
         assertEq(wvenue.debtOf(lp), 0, "opens at zero debt");
@@ -1229,7 +1229,7 @@ contract VBtcLevFeeLane is AllesFixture {
         assertEq(venue.collateralOf(lp), 0, "close: all vBTC withdrawn from Morpho");
         assertEq(BTC.levPooled(lp), 0, "close: unexposeBtcFromLev un-folded the levered slice (lev to funded)");
         assertEq(lm.netEquity(lp), 0, "close: no live net-equity for a deleted position");
-        (,,,,, bool open) = lm.pos(lp);
+        (,,,, bool open) = lm.pos(lp);
         assertTrue(!open, "close: position deleted");
         assertEq(lm.openLevCount(), 0, "close: LP de-tracked from the open book");
         (uint pooledClose,,,) = BTC.autoManaged(lp);
@@ -1305,6 +1305,6 @@ contract VBtcLevFeeLane is AllesFixture {
         AUX.setVaultHealth(address(venue), true);   // real incident flag (AUX owner == this test)
         vm.prank(address(0xB0B));
         vm.expectRevert(LevMath.VenueBlocked.selector);
-        lm.openBtcLev(5000, 1e8, venue);                    // reverts at the health gate, before the MIN_OPEN/expose steps
+        lm.openBtcLev(1e8, venue);                    // reverts at the health gate, before the MIN_OPEN/expose steps
     }
 }

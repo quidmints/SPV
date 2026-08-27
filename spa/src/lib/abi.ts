@@ -275,7 +275,9 @@ export const LEV_MANAGER_ABI = [
   // §E235-spa — `Types.Pos` last non-bool member is `uint entryPrice`, not `uint160 entrySqrtP`
   // (`Types.sol:14`). A sqrtPriceX96 is a v4 quantity and the position now records a plain price,
   // so both the width and the name were carrying the old model.
-  'function pos(address lp) view returns (address venue, uint64 targetLtvCapBps, uint128 entryPriceWad, uint128 e0Eth, uint entryPrice, bool open)',
+  // §E358 — the `uint64 targetLtvCapBps` slot is GONE: IL-protect is a protocol-wide liability, so
+  //   no LP carries a debt-to-collateral ratio. This getter is a 5-tuple now and decodes BY POSITION.
+  'function pos(address lp) view returns (address venue, uint128 entryPriceWad, uint128 e0Eth, uint entryPrice, bool open)',
   'function getCurrentLtvBps(address lp) returns (uint256)',   // venue-safety LTV (debt / actual collateral), bps
   'function ilTargetLtvBps(address lp) returns (uint256)',     // IL-cancelling target (range's sold fraction, capped), bps
   'function netEquityUsd(address lp) returns (uint256)',       // collateral − debt, USD 1e18
@@ -293,8 +295,7 @@ export const LEV_MANAGER_ABI = [
   // §E357 — `openLev` LOST two parameters rather than gaining one: an open takes no debt and
   //   performs no swap, so the ladder `minWethOut`/`routes` fed was unreachable and is deleted.
   //   `closeLev` always sells, so its route is NOT optional.
-  'function openLev(uint64 targetLtvBps, address venue, uint256 collWeeth)',
-  'function setTargetLtv(uint64 capBps)',
+  'function openLev(address venue, uint256 collWeeth)',
   'function closeLev(uint256 minOut, bytes route)',
 ] as const
 

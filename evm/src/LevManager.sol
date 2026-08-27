@@ -69,10 +69,19 @@ contract LevManager is LevBase {
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
     uint256 internal constant MIN_OPEN_WEETH     = 0.05 ether;
 
-    /// @dev `targetLtvCapBps` = the LP's max-leverage LTV cap (≤ TARGET_LTV_CAP_BPS = 7500 bps ≈ 4×; 2× / 5000
-    ///      bps is the IL-neutral value, higher is opt-in directional). `ilBasisPx` = ETH/USD at open: the IL
-    ///      target is `1 − √(syncKeyPx/pxNow)` = the ETH the range has sold since entry (capped). Opens at
-    ///      ZERO leverage and grows only with the realized move — proven in test/LevYbPnl.t.sol.
+    /// @dev §E358 — this described `targetLtvCapBps` as "the LP's max-leverage LTV cap … 2× is the
+    ///      IL-neutral value, higher is opt-in directional". That field is DELETED: IL-protect is a
+    ///      protocol-wide liability, so no LP carries a debt-to-collateral ratio and there is no
+    ///      per-LP directional opt-in to carry one. `TARGET_LTV_CAP_BPS` bounds the book.
+    ///      `ilBasisPx` = ETH/USD at open: the IL target is `1 − √(ilBasisPx/pxNow)` = the ETH the
+    ///      range has sold since entry (capped). Opens at ZERO leverage and grows only with the
+    ///      realized move — proven in test/LevYbPnl.t.sol.
+    /// ⚠️ `ilBasisPx` AND `entryEquity` ARE STILL PER-LP AND THAT IS THE REMAINING HALF. A
+    ///      protocol-wide liability wants a protocol-wide IL BASIS too, and §C22 already found the
+    ///      obvious candidate empty: the range-level `soldFractionWad(syncKeyPx)` is a CONSTANT
+    ///      (~0.5008 = f(RANGE_DELTA)) because the range recentres on spot, so the price cancels.
+    ///      Replacing per-LP entry pinning needs a real aggregate basis, which is design, not a
+    ///      deletion — do not remove these two by symmetry with the cap.
 
 
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
@@ -234,11 +243,11 @@ contract LevManager is LevBase {
 
     /// @notice Open an isolated leveraged position. The LP supplies `collWeeth` weETH (approved here) as
     ///         equity, and that is ALL an open does — it takes NO debt and performs NO swap.
-    ///         `targetLtvBps` is the LP's max-leverage CAP, not a target to reach now: it must sit inside
-    ///         `[1, TARGET_LTV_CAP_BPS]` (7500 bps = 75% LTV → up to ~4×), and leverage is taken later by
+    ///         §E358 — the LP names NO leverage cap: IL-protect is a protocol-wide liability, so the
+    ///         single `TARGET_LTV_CAP_BPS` bounds the whole book and leverage is taken later by
     ///         `rebalance` as the range actually sells. §E357 — this said "the loop borrows … until LTV
     ///         reaches `targetLtvBps`" and described a ladder that could never run.
-    function openLev(uint64 targetLtvBps, ILevVenue venue, uint256 collWeeth)
+    function openLev(ILevVenue venue, uint256 collWeeth)
         external nonReentrant
     {
         if (pos[msg.sender].open) revert AlreadyOpen();
@@ -249,8 +258,6 @@ contract LevManager is LevBase {
         if (collWeeth < MIN_OPEN_WEETH) revert BadTarget();           // anti-Sybil: no free zero-collateral book entries
         // §DERIVED-BAND — the floor is the position's OWN band, so it is priced off the collateral
         // actually being deposited rather than a constant every position shared.
-        _requireTargetLtv(targetLtvBps, collValueUsd(collWeeth), venue);   // §WSA-LEV-INERT: one rule, derived FLOOR
-        // `targetLtvBps` is the LP's max-leverage CAP; the live target is the entry-price-driven IL target.
         // Pin the entry price so the position opens at ZERO leverage and levers only as the range sells.
         uint256 entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
         // (A) INTRINSIC deposit model (2026-07-03): the LP's ONE deposit (`collWeeth`) IS the levered position.
@@ -269,7 +276,7 @@ contract LevManager is LevBase {
         uint256 entryEquity = _collToBase(collWeeth);   // (A) the deposit (weETH->ETH rate, or WETH 1:1) is the IL base
         // §FOLD-OPEN — range-price read + Pos literal + book enrolment are `LevBase._openPos`, shared
         // with the BTC side. Only `entryEquity` above is per-asset.
-        _openPos(venue, targetLtvBps, entryPx, entryEquity);   // joins the book the Vault sums net-equity over
+        _openPos(venue, entryPx, entryEquity);   // joins the book the Vault sums net-equity over
 
         // 1. Pull equity collateral (weETH OR WETH, per the venue) and supply as isolated collateral.
         _supplyCollFrom(venue, msg.sender, collWeeth);
@@ -285,7 +292,7 @@ contract LevManager is LevBase {
         // entrypoint gained a route.
         // No MIN-debt floor: the corrected design opens at ZERO leverage (IL target = 0 at entry) and levers
         // up only as the range sells. The MAX bound is the per-position LTV cap (≤ 7500 bps ≈ 4×), enforced by the target.
-        emit Opened(msg.sender, address(venue), targetLtvBps);
+        emit Opened(msg.sender, address(venue), TARGET_LTV_CAP_BPS);
     }
 
     /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS = 7500 ≈ 4×). The live IL target = the range's sold
@@ -318,12 +325,40 @@ contract LevManager is LevBase {
     ///        oracle floor would then revert those legs rather than mis-price them, turning a batch
     ///        into a single success and N `RebalanceFailed` events.
     function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts, bytes[] calldata routes) external nonReentrant {
+        _batch(lps, minOuts, routes, false);
+    }
+
+    /// @dev §RULE-8C, APPLIED TO A BODY RATHER THAN A MODIFIER. `find-duplicate-bodies.py` scores
+    ///      `rebalanceMany` and `cascadeDelever` at **86.5%** — they differed only in which
+    ///      `this.X(...)` they called and which event they emitted, while both carried their own
+    ///      copy of the length triple-check, the `_activeKeeper` write, the loop scaffolding and the
+    ///      `pos[lp].open` read. One routine and two jumps instead of two inlined copies, which is
+    ///      the same trade that gave this contract back 440 bytes when `nonReentrant`'s body was
+    ///      hoisted out of 15 sites.
+    /// ⚠️ BOTH EXTERNAL ENTRYPOINTS STAY. They are pinned in the keeper's validating-signer
+    ///      allowlist, and merging them into one selector with a flag would widen what that hot key
+    ///      can sign — a de-lever and a rebalance are not the same authority.
+    /// ⚠️ THE TWO `try/catch` ARMS ARE THE IRREDUCIBLE DIFFERENCE and are deliberately NOT collapsed
+    ///      behind one event: `RebalanceFailed` and `DeleverFailed` are separate signals the indexer
+    ///      reads, and folding them would trade bytecode for a blind spot in exactly the path that
+    ///      only speaks when something has gone wrong.
+    /// @param delever true ⇒ the cascade (de-lever) arm; false ⇒ the IL-target rebalance arm.
+    function _batch(address[] calldata lps, uint256[] calldata minOuts, bytes[] calldata routes, bool delever)
+        private
+    {
         if (lps.length != minOuts.length || lps.length != routes.length) revert LenMismatch();
-        _activeKeeper = msg.sender;              // set ONCE for the batch (transient; each rebalanceOne's flash reads it)
+        // Set ONCE for the batch (transient): each inner call's flash reads it to reimburse gas.
+        _activeKeeper = msg.sender;
         for (uint256 i; i < lps.length; i++) {
-            if (!pos[lps[i]].open) continue;
-            try this.rebalanceOne(lps[i], minOuts[i], routes[i]) {}
-            catch { emit RebalanceFailed(lps[i], getCurrentLtvBps(lps[i])); }
+            address lp = lps[i];
+            if (!pos[lp].open) continue;
+            if (delever) {
+                try this.deleverOne(lp, minOuts[i], routes[i]) {}
+                catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
+            } else {
+                try this.rebalanceOne(lp, minOuts[i], routes[i]) {}
+                catch { emit RebalanceFailed(lp, getCurrentLtvBps(lp)); }
+            }
         }
     }
 
@@ -404,14 +439,7 @@ contract LevManager is LevBase {
     ///    must move with it in the same commit, or the keeper's own signer refuses to sign the call
     ///    it is built to send.
     function cascadeDelever(address[] calldata lps, uint256[] calldata minOuts, bytes[] calldata routes) external nonReentrant {
-        if (lps.length != minOuts.length || lps.length != routes.length) revert LenMismatch();
-        _activeKeeper = msg.sender;              // each deleverOne's flash callback reimburses this keeper's gas
-        for (uint256 i; i < lps.length; i++) {
-            address lp = lps[i];
-            if (!pos[lp].open) continue;
-            try this.deleverOne(lp, minOuts[i], routes[i]) {}
-            catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
-        }
+        _batch(lps, minOuts, routes, true);
     }
 
     // ════════════════════════════ CLOSE ════════════════════════════
@@ -483,8 +511,7 @@ contract LevManager is LevBase {
         // on an open short — below entry the long debt is 0, so de-lever is a natural no-op there anyway.)
         // Compare-math folded to LevMath.deleverRepay: on the FIXED E0 the repay is simply curDebt − targetDebt
         // (no Δ/(1−t) inflation — that was only needed when the target tracked the shrinking collateral).
-        Types.Pos memory pd = pos[lp];
-        return LevMath.deleverRepay(e0, debtNow, target, _bandBps(e0, pd.venue, pd.targetLtvCapBps));
+        return LevMath.deleverRepay(e0, debtNow, target, _bandFor(lp, e0));
     }
 
     // ════════════════════════════ DE-LEVER — flash-repay-FIRST (no health breach by construction) ══════════

@@ -53,7 +53,11 @@ library Types {
     ///         e0Eth vs e0Btc). ONE declaration now, per the shared-file rule.
     ///         ⚠️ FIELD ORDER IS ABI-VISIBLE: `pos` is a PUBLIC mapping, so its generated
     ///         getter is a 6-tuple. Reordering or retyping breaks every client that decodes it.
-    struct Pos { ILevVenue venue; uint64 targetLtvCapBps; uint128 ilBasisPx; uint128 entryEquity; uint syncKeyPx; bool open; }
+    /// §E358 — `uint64 targetLtvCapBps` REMOVED. IL-protect is a protocol-wide liability, so no LP
+    /// carries a debt-to-collateral ratio of its own; the single `LevBase.TARGET_LTV_CAP_BPS` is the
+    /// cap for the whole book. ⚠️ `pos` is PUBLIC, so this shrinks its generated getter from a
+    /// 6-tuple to a 5-tuple — clients decode by position and must move with it.
+    struct Pos { ILevVenue venue; uint128 ilBasisPx; uint128 entryEquity; uint syncKeyPx; bool open; }
 
     /// @notice Quid
     /// self-managed LP

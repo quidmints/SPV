@@ -188,7 +188,7 @@ contract LevCascadeProbe is AllesFixture {
     }
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
-    function _entryPrice(address lp) internal view returns (uint s) { ( , , , , s, ) = lm.pos(lp); }
+    function _entryPrice(address lp) internal view returns (uint s) { ( , , , s, ) = lm.pos(lp); }
 
     /// REAL Morpho seizure of `lp`: realign the range oracle to the market, crash the SHARED Chainlink feed so the
     /// position lands ~92% LTV (liquidatable per lltv 0.86, not deep bad debt), then liquidate by REPAID SHARES
@@ -225,7 +225,7 @@ contract LevCascadeProbe is AllesFixture {
     function _openLevOnly(address lp, uint sizeEth) internal {
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), sizeEth);
-        lm.openLev(5000, ILevVenue(address(venue)), sizeEth); // cap = 2x; opens at ZERO leverage
+        lm.openLev(ILevVenue(address(venue)), sizeEth); // cap = 2x; opens at ZERO leverage
         vm.stopPrank();
     }
 
@@ -384,7 +384,7 @@ contract LevCascadeProbe is AllesFixture {
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), 5 ether);
         vm.expectRevert(VenueNotAllowed.selector);
-        lm.openLev(5000, ILevVenue(address(rogue)), 5 ether);
+        lm.openLev(ILevVenue(address(rogue)), 5 ether);
         vm.stopPrank();
     }
 
@@ -498,7 +498,7 @@ contract LevCascadeProbe is AllesFixture {
 
         uint totalBefore; uint totalAfter; uint deLevered;
         for (uint i; i < 3; i++) {
-            (, , , , , bool open) = lm.pos(lps[i]);
+            (, , , , bool open) = lm.pos(lps[i]);
             assertTrue(open, "position must remain open (isolated, never force-closed)");
             uint dAfter = venue.debtOf(lps[i]);
             uint tol = dbtBefore[i] / 100;   // Morpho interest accrues market-wide during the cascade tx (real market)
@@ -556,7 +556,7 @@ contract LevCascadeProbe is AllesFixture {
         assertEq(venue.collateralOf(lps[0]), coll0, "stuck LP collateral UNTOUCHED (no withdraw)");
         // lp1: de-levered for real DESPITE lp0 being stuck (no blocking, no corruption).
         assertLt(venue.debtOf(lps[1]), dbt1, "the other LP must de-lever despite the stuck one (isolation)");
-        ( , , , , , bool open0) = lm.pos(lps[0]); ( , , , , , bool open1) = lm.pos(lps[1]);
+        ( , , , , bool open0) = lm.pos(lps[0]); ( , , , , bool open1) = lm.pos(lps[1]);
         assertTrue(open0 && open1, "both positions remain open (no force-close)");
     }
 
@@ -682,7 +682,7 @@ contract LevCascadeProbe is AllesFixture {
         uint sold = ETH.soldFractionWad(_entryPrice(lps[0]));
         assertGt(sold, 0, "(2) the range SOLD ETH on the rally => IL accrued to every range LP");
         // The UNLEVERED LP has NO leverage position => zero hedge => it bears the full sold fraction as IL.
-        ( , , , , , bool unlevOpen) = lm.pos(lps[1]);
+        ( , , , , bool unlevOpen) = lm.pos(lps[1]);
         assertTrue(!unlevOpen, "(2) unlevered LP is unhedged (no lev position) => bears the full sold-fraction IL");
         // The LEVERED LP DOES hedge exactly that sold fraction (debt/E0 == sold fraction), so its ETH exposure is
         // preserved per (1) — one takes the IL, the other doesn't, from the SAME shared range move.
@@ -710,7 +710,7 @@ contract LevCascadeProbe is AllesFixture {
         uint ltv = lm.getCurrentLtvBps(lps[0]);
         emit log_named_uint("levered LTV at 9x (real Morpho caps the borrow)", ltv);
         assertLe(ltv, 5000 + 300, "must NOT lever past the 2x cap (residual IL borne by the LP)");
-        ( , , , , , bool open) = lm.pos(lps[0]);
+        ( , , , , bool open) = lm.pos(lps[0]);
         assertTrue(open, "position stays open (LP bears the residual, isolated - no force-close)");
         vm.clearMockedCalls();
     }
@@ -760,12 +760,12 @@ contract LevCascadeProbe is AllesFixture {
         vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
         vm.startPrank(lp);
         IERC20R(WEETH).approve(address(lm), 5 ether);
-        lm.openLev(5000, ILevVenue(address(venue)), 5 ether);
+        lm.openLev(ILevVenue(address(venue)), 5 ether);
         vm.stopPrank();
 
         // E0 = the deposit itself (weETH→ETH via the ether.fi rate), NOT a separate range position (there is none).
         uint depositEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
-        ( , , , uint128 entryEquity, , ) = lm.pos(lp);
+        ( , , uint128 entryEquity, , ) = lm.pos(lp);
         assertApproxEqAbs(uint(entryEquity), depositEth, 1e15, "(A): E0 == the single deposit, not a separate range slice");
         // Zero leverage at open ⇒ the deposit's net-equity == the deposit; it IS the LP's entire range presence.
         assertApproxEqAbs(lm.netEquity(lp), depositEth, 1e15, "(A): net-equity == the single deposit");
@@ -801,7 +801,7 @@ contract LevCascadeProbe is AllesFixture {
         AUX.setVaultHealth(address(venue), true);   // real incident flag (AUX owner == this test)
         vm.prank(lps[0]);
         vm.expectRevert(LevMath.VenueBlocked.selector);
-        lm.openLev(5000, ILevVenue(address(venue)), 5 ether);
+        lm.openLev(ILevVenue(address(venue)), 5 ether);
     }
 
     // ═════════════════════════ V1b — PRE-UNIFICATION CONTROL ═════════════════════════

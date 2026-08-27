@@ -73,12 +73,13 @@ abstract contract LevBase {
     ///      exists on both adapters (Morpho converts its 1e18 `LLTV`, Aave returns its own), so this
     ///      needs no new surface — and it retires the hardcoded 0.86 CLAUDE.md flags as *"hardcoded
     ///      three times over … should be READ, never configured"*.
-    function _bandBps(uint256 collUsdWad, ILevVenue venue, uint256 capBps) internal view returns (uint256) {
+    function _bandBps(uint256 collUsdWad, ILevVenue venue) internal view returns (uint256) {
         uint256 lltv;
         // Same `try` idiom as `_rangePrice`: a venue that cannot answer must not strand a position.
         // Unanswered ⇒ zero headroom ⇒ band 0 ⇒ rebalance always, the fail-safe direction.
         try venue.liqThresholdBps() returns (uint256 t) { lltv = t; } catch { return 0; }
-        uint256 headroom = lltv > capBps ? lltv - capBps : 0;
+        // §E358 — the headroom is the PROTOCOL's, not a position's: one cap for the whole book.
+        uint256 headroom = lltv > TARGET_LTV_CAP_BPS ? lltv - TARGET_LTV_CAP_BPS : 0;
         return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad, headroom);
     }
 
@@ -93,8 +94,18 @@ abstract contract LevBase {
     function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
         (bool open, uint256 e0, uint256 debtNow, uint256 target) = _targetInputs(lp);
         if (!open) return (false, 0);
-        Types.Pos memory pb = pos[lp];
-        return LevMath.debtDelta(e0, debtNow, target, _bandBps(e0, pb.venue, pb.targetLtvCapBps));
+        return LevMath.debtDelta(e0, debtNow, target, _bandFor(lp, e0));
+    }
+
+    /// @dev The band for `lp`'s OWN position — the venue it borrows from and the cap it chose.
+    ///      §E357 — one routine because `debtDeltaToTarget` and `LevManager.deleverRepayUsd` each
+    ///      grew an identical copy of it (`find-duplicate-bodies.py` scores the pair at 73.9%). They
+    ///      already shared `_targetInputs`; this is the other half, and keeping it in one place also
+    ///      means the band a position is JUDGED by and the band it is REPAID to cannot drift apart —
+    ///      which is the same failure `_targetInputs`' own docblock exists to prevent.
+    function _bandFor(address lp, uint256 collUsdWad) internal view returns (uint256) {
+        Types.Pos memory p = pos[lp];
+        return _bandBps(collUsdWad, p.venue);
     }
 
     /// @dev The four inputs EVERY target comparison needs, resolved in ONE place. `debtDeltaToTarget`
@@ -135,7 +146,8 @@ abstract contract LevBase {
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
     address public RANGE;
 
-    event TargetSet(address indexed lp, uint256 targetLtvBps);
+    // §E358 — `TargetSet` DELETED with the per-LP cap it announced. An event nothing emits is
+    // API surface telling a reader this contract has a setting it does not have.
 
     /// @notice §E298 — the five events `LevManager` and `BtcLevManager` each declared separately.
     ///         Both inherit this contract, so one declaration here reaches both and an inherited
@@ -259,13 +271,13 @@ abstract contract LevBase {
     ///         try/catches a call to `RANGE`, and the struct is built here so the library takes one
     ///         memory pointer rather than five scalars (cheaper seam, and `Types.Pos`'s field order
     ///         stays owned by one place).
-    function _openPos(ILevVenue venue, uint64 capBps, uint entryPx, uint entryEquity) internal {
+    function _openPos(ILevVenue venue, uint entryPx, uint entryEquity) internal {
         // §POOL-VENUE — pin the pool on the FIRST open; refuse any second venue for this range.
         // One position means one venue, and this is the only place that can be enforced cheaply.
         if (poolVenue == address(0)) poolVenue = address(venue);
         else if (poolVenue != address(venue)) revert VenueNotPooled();
         RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
-            Types.Pos({venue: venue, targetLtvCapBps: capBps, ilBasisPx: uint128(entryPx),
+            Types.Pos({venue: venue, ilBasisPx: uint128(entryPx),
                        entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
     }
 
@@ -273,63 +285,19 @@ abstract contract LevBase {
         RangeLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
-    /// @notice Adjust the caller's max-leverage CAP (bps LTV, ≤ TARGET_LTV_CAP_BPS).
-    /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). The ceiling is PASSED, not duplicated there:
-    ///         `TARGET_LTV_CAP_BPS` is a constant and constants live in the caller's code, so one
-    ///         definition stays here and the library reads whatever it is given.
-    /// 🔴 §WSA-LEV-INERT — AND A FLOOR, BECAUSE A CAP AT OR BELOW THE DEADBAND BUYS A POSITION THAT
-    ///    CAN NEVER LEVER AND SAYS NOTHING ABOUT IT. `RangeLib.setTargetLtv` enforces only
-    ///    `0 < capBps <= TARGET_LTV_CAP_BPS`, so `capBps <= ` the band was admissible — and
-    ///    `ilTargetBps` clamps its result to `capBps` (`LevMath.sol:96`) while `debtDelta`'s
-    ///    no-action test reduces, on a fresh position with `cur == 0`, to exactly
-    ///    `targetBps <= rangeBps` (`LevMath.sol:826`). So such a position sits inside the deadband
-    ///    at EVERY price, `venue.borrow` is never reached, and the LP sees an overlay that silently
-    ///    does nothing rather than a rejected setting.
-    /// ⚠️ THIS EARNS ITS PLACE UNDER STANDING RULE 3 PRECISELY BECAUSE THE FAILURE IS SILENT — it is
-    ///    not a clamp on a computed number, it refuses a configuration that is unreachable by
-    ///    construction. The check is at the CALLER because the band is this contract's to derive;
-    ///    the library reads what it is given, which is the same argument the note above makes for
-    ///    `TARGET_LTV_CAP_BPS`.
-    /// §DERIVED-BAND — THE FLOOR IS NOW DERIVED, AND SO IS WHAT IT FLOORS. This note used to end
-    ///    "DO NOT FIX THIS BY RAISING `RANGE_BPS` OR LOWERING `RANGE_DELTA`", and it was right on
-    ///    both counts: `RANGE_DELTA` never reaches this path, `ilBasisPx` is the PINNED entry price
-    ///    with one write site, so the book was never inert on a constants mismatch — it simply did
-    ///    not arm until about +6.3% above entry. That was still the wrong band, and the answer was
-    ///    neither of the two moves this note forbade: `RANGE_BPS` is gone, replaced by a band
-    ///    derived per position (`_bandBps`). The floor survives the change intact, because a cap at
-    ///    or below the band is silently inert whatever the band happens to be.
-    function setTargetLtv(uint64 capBps) external {
-        (, uint256 e0,,) = _targetInputs(msg.sender);
-        _requireTargetLtv(capBps, e0, pos[msg.sender].venue);
-        RangeLib.setTargetLtv(pos, msg.sender, capBps, TARGET_LTV_CAP_BPS);
-    }
-
-    /// @notice §WSA-LEV-INERT — ONE RULE FOR AN ADMISSIBLE LEVERAGE CAP, AT THE THREE SITES THAT
-    ///         SET ONE. `LevManager.openLev`, `BtcLevManager.openBtcLev` and `setTargetLtv` above
-    ///         each carried their own `if (x == 0 || x > TARGET_LTV_CAP_BPS) revert BadTarget();`
-    ///         — one concept declared three times (standing rule 2), and the floor below had to
-    ///         land at all three or the hole stays open at whichever one was missed.
-    /// @dev    THE FLOOR IS THE NEW HALF. `ilTargetBps` clamps its result to `capBps`
-    ///         (`LevMath.sol:96`), and `debtDelta`'s no-action test reduces on a fresh position
-    ///         (`cur == 0`) to exactly `targetBps <= rangeBps` (`LevMath.sol:826`). So a cap at or
-    ///         below the band pins the position inside the deadband at EVERY price: `venue.borrow`
-    ///         is never reached and the LP is sold an overlay that silently does nothing. It was
-    ///         admissible everywhere — both open paths bound only the ceiling, and `openLev` accepts
-    ///         `targetLtvBps = 1`.
-    /// ⚠️      IT IS NOT A CLAMP (standing rule 3): it does not bound a computed number, it refuses a
-    ///         CONFIGURATION that is unreachable by construction, and the failure it prevents is
-    ///         silent — which is the whole discriminator. Rule 17 applies too: making the state
-    ///         unconstructible at the three writers beats detecting it later at the reader.
-    /// §DERIVED-BAND — the band this floors is no longer a constant, and the floor is `view` rather
-    ///         than `pure` for that reason. The old note forbade "raise `RANGE_BPS` or lower
-    ///         `RANGE_DELTA`" and was correct that neither was the bug: `RANGE_DELTA` never reaches
-    ///         this path and `ilBasisPx` is the PINNED entry price with exactly one write site
-    ///         (`:196`), so the book was not inert — it armed only past about +6.3% above entry.
-    ///         The band is now `∛(g/(C·K))`, so a position's floor moves with its own size and the
-    ///         live cost of gas.
-    function _requireTargetLtv(uint64 capBps, uint256 collUsdWad, ILevVenue venue) internal view {
-        if (capBps <= _bandBps(collUsdWad, venue, capBps) || capBps > TARGET_LTV_CAP_BPS) revert BadTarget();
-    }
+    // §E358 — **`setTargetLtv` AND `_requireTargetLtv` ARE DELETED, AND SO IS THE CHOICE THEY
+    // GUARDED.** IL-protect is a PROTOCOL-WIDE liability on behalf of all LPs, so no LP carries a
+    // debt-to-collateral ratio of its own to set, and a floor protecting a per-LP cap from being
+    // set below the band protects a setting that no longer exists.
+    //
+    // ⚠️ WHAT THE DELETED FLOOR WAS FOR, KEPT BECAUSE THE HAZARD IS NOT GONE, ONLY RELOCATED
+    // (§WSA-LEV-INERT): a cap at or below the band pins a position inside the deadband at EVERY
+    // price, so `venue.borrow` is never reached and the overlay silently does nothing rather than
+    // rejecting the setting. That failure is SILENT, which is what earned it a check under rule 3.
+    // The same arithmetic now applies to the PROTOCOL's single cap: `TARGET_LTV_CAP_BPS` must stay
+    // above the band, or the whole book is inert and says nothing about it. It is 7500 bps against
+    // a band measured in tens, so it holds by a wide margin today — but it is an invariant on a
+    // constant now, not a per-call check, and moving either number has to preserve it.
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
     function swapOutDeleverAmt(address lp, uint256 maxUsd18)
@@ -604,7 +572,7 @@ abstract contract LevBase {
         // `soldFractionWad(syncKeyPx)`, which is a CONSTANT (0.500750000 = f(RANGE_DELTA) alone —
         // the range recentres on spot, so the price cancels out of the ratio). It is gone; the
         // estimate on the entry-pinned basis is the target.
-        return LevMath.ilTargetBps(p.ilBasisPx, px, p.targetLtvCapBps);
+        return LevMath.ilTargetBps(p.ilBasisPx, px, uint64(TARGET_LTV_CAP_BPS));
     }
 
     // ─── §LEV-FOLD-2 — the last three per-asset accessors, folded through `_collNative` ────────

@@ -276,7 +276,7 @@ contract LevYbRealProbe is AllesFixture {
 
     function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
 
-    function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , , s, ) = m.pos(lp); }
+    function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , s, ) = m.pos(lp); }
 
     function _openLp() internal {
         // REAL range position (the E0 IL base) — rangeOf(LP) == 5 ETH deposit, read live from ETH.
@@ -286,7 +286,7 @@ contract LevYbRealProbe is AllesFixture {
         // Open at the CURRENT real range price (entry pinned from ETH.rangeSqrtP); zero leverage at entry.
         vm.startPrank(LP);
         IERC20R(WEETH).approve(address(rlm), 5 ether);
-        rlm.openLev(5000, ILevVenue(address(rvenue)), 5 ether); // cap = 2×
+        rlm.openLev(ILevVenue(address(rvenue)), 5 ether); // cap = 2×
         vm.stopPrank();
         // Real rally: buy ETH out of the range so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
