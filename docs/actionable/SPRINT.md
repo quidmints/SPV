@@ -434,7 +434,7 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
-## 🔴🔴 **§COMMITTED-DRIFTS-UP — `OverCommitted()` IS NOT INSOLVENCY, IT IS ~10 CENTS PER WITHDRAWAL ACCUMULATING INTO A STRICT INEQUALITY** (2026-08-26)
+## ✅ **[CLOSED 2026-08-26 — FIXED. The burn arm releases `basketUsd` IN FULL on both arms (`Math.min(b, usdAmount)`); the `basketLeg` split was left in the tree marked `§EXPERIMENT §BURN-RELEASE-CONFLICT` and the measurement resolved it. A swapper's payout leaves the basket's stables IN FULL, so a proportional debit leaves the remainder claimed by a basket that no longer holds it. Both `OverCommitted()` tests pass; every guard test for this decision passes — BackingGateSplit 3/3 (§E230's own), UnificationControls 26/26 incl. `test_E36_CommittedNoLongerCountsDollarsTheBasketNeverSupplied`, RefillTriggerAndProRata 6/6, SkewPatienceFloor 1/1, Alles 100/102. ⚠️ This does NOT reinstate what §E230 deleted — that was `basketUsd` not moving AT ALL on a swap; this moves it by the full amount that left, which closes §E230's phantom a fortiori]**  **§COMMITTED-DRIFTS-UP — `OverCommitted()` WAS NOT INSOLVENCY, IT WAS A MONOTONE DRIFT INTO A STRICT INEQUALITY** (2026-08-26)
 
 `test_EthLp_RedeemConservationAndFairness` and `test_FeeAttributionWithMultipleLPs` both revert
 `OverCommitted()` — `committedSum > totalLiquid` in `Aux._checkBacking`, which gates **every DRAIN
