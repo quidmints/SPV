@@ -191,13 +191,29 @@ pub struct Cfg {
     /// someone can stand in front of it. Zero models a private (and therefore
     /// signalling) rule; `ADVERSE_FILL_BPS` models a published one.
     pub adverse_fill_bps: i64,
+    /// 🔴 THE DIMENSION THE WHOLE SIM WAS BLIND TO. Flow was an INPUT: every arm
+    /// faced the identical net path, which silently assumed that refusing a user
+    /// costs one period of carry and nothing else. It costs the user.
+    ///
+    /// A cap removes risk BY REFUSING BUSINESS; a hedge removes it by paying to
+    /// KEEP the business. Both cut variance, only one preserves growth — so
+    /// measuring depositor P&L per unit of a FIXED book is precisely the
+    /// assumption that makes a cap look free. `attrition_bps` is the fraction of
+    /// refused flow that does not come back, per refusal.
+    pub attrition_bps: i64,
 }
 
 impl Default for Cfg {
-    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0 } }
+    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0, attrition_bps: 0 } }
 }
 
-pub struct Outcome { pub depositor_bps: i64, pub hedges: i64, pub hedged_notional: i64 }
+pub struct Outcome {
+    pub depositor_bps: i64, pub hedges: i64, pub hedged_notional: i64,
+    /// Business the pool still supports at the end, in bps of its starting book.
+    /// The output that distinguishes "removed the risk" from "removed the
+    /// customer", and the reason a cap cannot be scored on P&L alone.
+    pub capacity_bps: i64,
+}
 
 /// One (cell, arm) run. Returns depositor P&L in bps of deposits.
 pub fn run(cell: Cell, arm: Arm) -> Outcome { run_cfg(cell, arm, Cfg::default()) }
@@ -221,6 +237,8 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
     let mut persist_acc: i64 = 0;
     let mut hedges: i64 = 0;
     let mut hedged_total: i64 = 0;
+    // Starts whole; every refusal permanently removes a slice.
+    let mut capacity: i64 = B;
 
     for t in 0..STEPS {
         // ── price ──────────────────────────────────────────────────────────
@@ -261,6 +279,14 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
             let refused = DEPOSITS / 2 * refused_bps / B;
             let carry_now = rate_bps((a.total_exposure * B / DEPOSITS).clamp(0, B), 150, &a);
             pnl -= refused * carry_now / B / 100;
+            // ⚠️ AND THE USER DOES NOT COME BACK. This is the term that was
+            // missing: a refusal is not a deferred trade, it is a lost account,
+            // and it shrinks every future period's revenue too.
+            if cfg.attrition_bps > 0 {
+                let lost = refused_bps * cfg.attrition_bps / B;
+                capacity = (capacity - lost).max(0);
+                a.total_exposure = a.total_exposure * (B - lost).max(0) / B;
+            }
         }
 
         // Revenue: borrowers pay carry on the book, continuously.
@@ -355,7 +381,8 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
             }
         }
     }
-    Outcome { depositor_bps: pnl * B / DEPOSITS, hedges, hedged_notional: hedged_total }
+    Outcome { depositor_bps: pnl * B / DEPOSITS, hedges,
+              hedged_notional: hedged_total, capacity_bps: capacity }
 }
 
 pub fn grid() -> Vec<Cell> {

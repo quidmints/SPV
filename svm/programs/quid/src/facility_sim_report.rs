@@ -344,3 +344,57 @@ fn the_facility_against_its_actual_alternatives_not_against_nothing() {
     println!("  best hedging arm:             {}", hedge);
     assert!(price != 0 || cap != 0, "alternatives must actually do something");
 }
+
+/// 🔴 THE BLIND SPOT, AND IT INVERTED THE PREVIOUS ANSWER. Flow was an INPUT, so
+/// every arm faced the same book and a refusal cost one period of carry. In
+/// reality a refusal costs the USER — and a cap refuses precisely when demand is
+/// strongest. Scoring depositor P&L per unit of a FIXED book is the assumption
+/// that made the cap look free.
+///
+/// A cap removes risk BY REFUSING BUSINESS. A hedge removes it by PAYING TO KEEP
+/// the business. Both cut variance; only one preserves growth.
+#[test]
+fn capacity_is_an_output_not_an_input_and_the_cap_pays_for_its_variance_in_growth() {
+    let w = |c: &Cell| -> i64 {
+        let mut p: i64 = 10_000;
+        if c.issuer == Issuer::Paused    { p = p * 2 / 100; }
+        if c.flow == Flow::RedemptionRun { p = p * 15 / 100; }
+        if c.basis == Basis::Widening    { p = p * 30 / 100; }
+        p.max(1)
+    };
+    let wrun = |arm: Arm, cfg: Cfg| -> (i64, i64) {
+        let (mut pnl, mut cap, mut den) = (0i64, 0i64, 0i64);
+        for c in &grid() {
+            let k = w(c); let o = run_cfg(*c, arm, cfg);
+            pnl += o.depositor_bps * k; cap += o.capacity_bps * k; den += k;
+        }
+        (pnl / den, cap / den)
+    };
+
+    for att in [0i64, 2_000, 5_000] {
+        let cfg = Cfg { ratio_bps: 2_500, attrition_bps: att, ..Cfg::default() };
+        println!("\n=== attrition {}bps of refused flow — weighted, 25% ratio ===", att);
+        println!("  {:<20} {:>7} {:>10} {:>12}", "arm", "mean", "capacity", "mean x cap");
+        for arm in [Arm::NoFacility, Arm::PerTickerCap, Arm::PriceTheImbalance,
+                    Arm::PersistenceGated, Arm::DerivedBand] {
+            let (m, c) = wrun(arm, cfg);
+            println!("  {:<20?} {:>7} {:>9}  {:>11}", arm, m, c, m * c / B_LOCAL);
+        }
+    }
+
+    // At zero attrition the cap must look best — that is the old result. With
+    // attrition it must lose ground, or the term is not doing anything.
+    let no_att  = Cfg { ratio_bps: 2_500, attrition_bps: 0, ..Cfg::default() };
+    let att     = Cfg { ratio_bps: 2_500, attrition_bps: 5_000, ..Cfg::default() };
+    let cap_0 = wrun(Arm::PerTickerCap, no_att).1;
+    let cap_a = wrun(Arm::PerTickerCap, att).1;
+    let hedge_a = wrun(Arm::PersistenceGated, att).1;
+    println!("\n  cap capacity: {} (no attrition) -> {} (with)", cap_0, cap_a);
+    println!("  hedge capacity under the same attrition: {}", hedge_a);
+    assert!(cap_a < cap_0, "attrition must actually shrink the capped book");
+    assert!(hedge_a >= cap_a,
+        "a hedging arm refuses nobody, so it cannot lose more capacity than a cap: {} vs {}",
+        hedge_a, cap_a);
+}
+
+const B_LOCAL: i64 = 10_000;
