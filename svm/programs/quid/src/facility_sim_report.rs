@@ -1,6 +1,7 @@
 //! §FACILITY-SIM REPORT — the sign map, and the hunt for negative cells.
 
 use crate::facility_sim::*;
+use crate::etc::{Actuary, COLLAR_BREACH_BPS, collar_bps, lgd_bps, MAX_TRANCHE_BPS};
 
 fn delta(cell: Cell, arm: Arm) -> i64 {
     run(cell, arm).depositor_bps - run(cell, Arm::NoFacility).depositor_bps
@@ -764,4 +765,275 @@ fn the_facility_is_a_funding_match_and_the_ratio_sets_the_move_it_survives() {
     // And the asymmetry that makes leverage the whole story:
     assert!(shortfall(500, 4_000, 0) > shortfall(200, 4_000, 0),
         "more leverage must reach further past the pledge on the same move");
+}
+
+/// 🔴 THE IMPLIED HEDGE RATIO, DERIVED — and it is not a number, it is a
+/// function, exactly as the owner said.
+///
+/// Self-funding requires `L·P·m·(1−r) ≤ P`, i.e.
+///
+///     r_required = 1 − 1/(L·m)
+///
+/// where `L` is the position's leverage and `m` the move to survive. NEITHER is
+/// a constant, and both are already computed by the program:
+///   • `L` is capped by `max_leverage_pct`, which falls with volatility and
+///     oracle staleness;
+///   • `m` is that TICKER'S OWN fitted tail — `expected_shortfall_bps` off the
+///     GPD in its own `Actuary` — so a quiet name and a violent one imply
+///     different ratios for the identical position.
+/// Direction, per-ticker utilisation and total utilisation enter through the
+/// COST of holding the ratio (borrow fee on the short leg, `rate_bps` and
+/// `solvency_bps` on the premium funding it) rather than through the ratio.
+///
+/// ⚠️ AND THE TRANCHING DOES NOT REDUCE IT. `stay.rs:1011` computes
+/// `from_pool = redeem_dollars − pledged − accrued_interest` on a full
+/// take-profit, with NO CAP. Partial TP capitalises into `deposited_quid`, which
+/// DEFERS the draw at the borrower's option; it does not bound it.
+#[test]
+fn implied_hedge_ratio_is_a_function_of_leverage_and_that_tickers_own_tail() {
+    let ratio_bps = |lev_pct: i64, tail_bps: i64| -> i64 {
+        // r = 1 − 1/(L·m), in bps, clamped to [0, 10000].
+        let lm = lev_pct * tail_bps / 100;            // L·m in bps
+        if lm <= B_LOCAL { 0 } else { B_LOCAL - (B_LOCAL * B_LOCAL / lm) }
+    };
+
+    // Tails taken from the REAL fitted model at three volatility regimes, so the
+    // table is the program's own numbers rather than invented ones.
+    println!("\n=== implied hedge ratio r = 1 − 1/(L·m) ===");
+    println!("  {:<26} {:>8} {:>10} {:>10} {:>10}", "regime (sigma -> ES tail)", "2x", "3x", "5x", "10x");
+    for (label, sigma) in [("calm      (sigma 80bps)", 80i64),
+                           ("normal    (sigma 220bps)", 220),
+                           ("stressed  (sigma 600bps)", 600)] {
+        // ⚠️ `obs_count` MATTERS AND ITS ABSENCE MADE THE FIRST TABLE VACUOUS.
+        //    `eff_sigma` is `vol_floor`, which BLENDS `observed_vol_bps` with a
+        //    prior weighted by `pow_bps(9512, obs_count)`. At `obs_count = 0` the
+        //    decay is 1.0 and the prior dominates COMPLETELY — so setting the
+        //    observed vol did nothing and calm and normal printed the identical
+        //    tail (m=796 twice), which reads as "volatility does not matter".
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma;
+        a.max_drawdown_bps = sigma * 3;
+        a.obs_count = 200;                 // let the empirical dominate the prior
+        let m = a.expected_shortfall_bps(COLLAR_BREACH_BPS);
+        println!("  {:<20} m={:>4}  {:>7}% {:>9}% {:>9}% {:>9}%",
+                 label, m,
+                 ratio_bps(200, m) / 100, ratio_bps(300, m) / 100,
+                 ratio_bps(500, m) / 100, ratio_bps(1000, m) / 100);
+    }
+
+    // The two properties that make this a function and not a policy knob.
+    let mut calm = Actuary::default();
+    calm.observed_vol_bps = 80; calm.max_drawdown_bps = 240; calm.obs_count = 200;
+    let mut wild = Actuary::default();
+    wild.observed_vol_bps = 600; wild.max_drawdown_bps = 1_800; wild.obs_count = 200;
+    let (mc, mw) = (calm.expected_shortfall_bps(COLLAR_BREACH_BPS),
+                    wild.expected_shortfall_bps(COLLAR_BREACH_BPS));
+    println!("\n  same 3x position: calm ticker needs {}bps, wild ticker needs {}bps",
+             ratio_bps(300, mc), ratio_bps(300, mw));
+    assert!(ratio_bps(300, mw) >= ratio_bps(300, mc),
+        "a fatter-tailed ticker must require at least as much coverage: {} vs {}",
+        ratio_bps(300, mw), ratio_bps(300, mc));
+    assert!(ratio_bps(1000, mc) >= ratio_bps(200, mc),
+        "more leverage must require more coverage on the same ticker");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §BAND-BOUND — what actually sets the facility policy, and it is not any of
+// the things measured so far.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 🔴 I TOLD THE OWNER THE PROFIT OBLIGATION WAS UNBOUNDED. IT IS NOT, AND THE
+/// BOUND IS THE WHOLE POLICY.
+///
+/// `stay.rs:938` sets `upper = pledged + collar`, and `:944` forces a position
+/// past it to either post variation margin from `deposited_quid` or be worked off
+/// by `unwind_a_tranche`. So a winner cannot run: the most it can owe beyond its
+/// pledge is ONE COLLAR plus whatever accrues while the ladder unwinds it.
+///
+/// That residual is what a facility would have to fund, and it is small and
+/// computable — `lgd_bps` already computes its shape:
+///     overshoot = mean_excess_bps(collar)         // GPD mean excess past the barrier
+///     residual  = BPS − MAX_TRANCHE_BPS           // still exposed per window
+#[test]
+fn the_band_bounds_the_payout_and_that_is_what_the_facility_must_fund() {
+    println!("\n=== uncovered profit past the band (bps of exposure) ===");
+    println!("  {:<24} {:>8} {:>12} {:>14} {:>12}", "regime", "collar", "overshoot", "per-window", "windows to flat");
+    for (label, sigma) in [("calm      (sigma 80)", 80i64),
+                           ("normal    (sigma 220)", 220),
+                           ("stressed  (sigma 600)", 600),
+                           ("crisis    (sigma 1200)", 1_200)] {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3; a.obs_count = 200;
+        let collar = collar_bps(300, &a);
+        let overshoot = a.mean_excess_bps(collar);
+        let lgd = lgd_bps(collar, &a);
+        // The ladder removes up to MAX_TRANCHE_BPS of the position per window.
+        let windows = (B_LOCAL + MAX_TRANCHE_BPS - 1) / MAX_TRANCHE_BPS;
+        println!("  {:<24} {:>8} {:>12} {:>14} {:>12}", label, collar, overshoot, lgd, windows);
+    }
+
+    // The facility only has to fund what the band lets escape, not the whole
+    // position — which is the difference between a sizing question and an
+    // existential one.
+    let mut a = Actuary::default();
+    a.observed_vol_bps = 600; a.max_drawdown_bps = 1_800; a.obs_count = 200;
+    let collar = collar_bps(300, &a);
+    assert!(collar > 0 && collar < 10_000, "the collar must be a real bound: {}", collar);
+    assert!(lgd_bps(collar, &a) < collar + a.mean_excess_bps(collar) + 1,
+        "loss-given-breach cannot exceed the barrier plus its own overshoot");
+}
+
+/// 🔴 THE HORIZON MISMATCH, WHICH IS THE ACTUAL FINDING AND WHICH BOTH OF MY
+/// EARLIER STATEMENTS MISSED.
+///
+/// `LIQ_GRACE_SECS = 3600`, and the ladder is calibrated to `N = 7d/3600 = 168`
+/// windows. So an unwind takes A WEEK, and the pool carries the position's
+/// exposure — decaying at 1.85%/window — for the whole of it.
+///
+/// But `collar_bps` is sized off `expected_shortfall_bps(COLLAR_BREACH_BPS)`,
+/// which is the tail of a SINGLE OBSERVATION. The exposure being collateralised
+/// is a 168-OBSERVATION exposure. Under a random walk those differ by √168 ≈ 13×.
+/// ⇒ **The collar answers "how far can it move before we act"; the facility must
+/// answer "how far can it move while we are acting", and nothing in the sizing
+/// currently reconciles the two horizons.**
+#[test]
+fn the_collar_is_a_one_step_tail_but_the_unwind_is_a_168_step_exposure() {
+    const N: i64 = 168;                     // 7d / LIQ_GRACE_SECS
+    // Mean open fraction over the unwind: (1-r)^n decaying at MAX_TRANCHE_BPS.
+    let mut open = B_LOCAL; let mut area = 0i64;
+    for _ in 0..N { area += open; open -= open * MAX_TRANCHE_BPS / B_LOCAL; }
+    let mean_open = area / N;               // bps of the original position
+
+    println!("\n=== one-step collar vs the exposure it is asked to cover ===");
+    println!("  ladder: {} windows of 1h, mean open fraction {} bps ({}% of position)",
+             N, mean_open, mean_open / 100);
+    println!("  {:<24} {:>10} {:>16} {:>16}", "regime", "collar(1 obs)", "7d tail (sqrt-N)", "shortfall");
+    for (label, sigma) in [("calm      (sigma 80)", 80i64),
+                           ("normal    (sigma 220)", 220),
+                           ("stressed  (sigma 600)", 600),
+                           ("crisis    (sigma 1200)", 1_200)] {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3; a.obs_count = 200;
+        let collar = collar_bps(300, &a);
+        // sqrt(168) ~ 12.96, in integer bps.
+        let tail_7d = collar * 1296 / 100;
+        // What the pool actually carries: the 7d tail on the mean open fraction.
+        let carried = tail_7d * mean_open / B_LOCAL;
+        println!("  {:<24} {:>10} {:>16} {:>16}", label, collar, tail_7d,
+                 carried.saturating_sub(collar).max(0));
+    }
+    println!("  (shortfall = what escapes past the collar while the ladder runs.)");
+
+    // The claim: a one-step tail cannot bound a 168-step exposure.
+    let mut a = Actuary::default();
+    a.observed_vol_bps = 600; a.max_drawdown_bps = 1_800; a.obs_count = 200;
+    let collar = collar_bps(300, &a);
+    let carried = (collar * 1296 / 100) * mean_open / B_LOCAL;
+    assert!(carried > collar,
+        "a 7-day exposure must exceed a 1-hour collar, or the horizons already agree: {} vs {}",
+        carried, collar);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §COLLAR-CALIBRATION — everything above is built on `collar_bps`, and nothing
+// had ever checked that `collar_bps` does what it says.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 🔴 THE COLLAR STATES ITS OWN FALSIFIABLE TARGET AND NOBODY HAD TESTED IT.
+/// `COLLAR_BREACH_BPS = 100` — *"1% of moves are expected to carry through the
+/// band"*. If the realised breach rate is not ~1%, every risk number in this
+/// file inherits the error, because they are all built on `collar_bps`.
+///
+/// Deterministic LCG, fat-tailed returns (a Gaussian-ish core with a rare jump),
+/// so a failure reproduces exactly and the tail is not an artefact of `rand`.
+#[test]
+fn the_collar_breach_rate_should_be_the_one_percent_it_claims() {
+    // Student-t-ish: sum of uniforms for the core, plus a heavy jump tail.
+    let draw = |st: &mut u64, scale: i64| -> i64 {
+        let mut acc = 0i64;
+        for _ in 0..4 {
+            *st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            acc += ((*st >> 33) % 2001) as i64 - 1000;
+        }
+        let core = acc * scale / 4000;
+        *st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let u = ((*st >> 33) % 10_000) as i64;
+        if u < 30 { core * 8 } else if u < 200 { core * 3 } else { core }   // fat tail
+    };
+
+    println!("\n=== realised breach rate vs the 1% the collar is sized to ===");
+    println!("  {:<19} {:>8} {:>12} {:>14} {:>10}", "regime / lev", "collar", "breaches", "of samples", "rate");
+    let mut worst_ratio = 0i64;
+    for (label, scale) in [("calm     (scale 80)", 80i64),
+                           ("normal   (scale 220)", 220),
+                           ("stressed (scale 600)", 600)] {
+        let mut a = Actuary::default();
+        a.last_price = 1_000_000; a.last_price_slot = 0;
+        let mut st: u64 = 0xC0FFEE;
+        let mut px: i64 = 1_000_000;
+        // Warm up so the tail is fitted rather than assumed.
+        for i in 1..600i64 {
+            let d = draw(&mut st, scale);
+            px = (px as i128 * (10_000 + d as i128) / 10_000).max(1) as i64;
+            a.update_price(px, i * 10);
+        }
+        // ⚠️ MEASURE AT EVERY LEVERAGE, because the collar is NOT monotone in it
+        //    the way its docstring implies — it is pinned at the sigma FLOOR for
+        //    everything at or above 2x, so 1x and 10x are different instruments.
+        //    A first version of this test measured 1x only, saw zero breaches,
+        //    and would have reported "the collar is conservative".
+        for lev in [100i64, 200, 500, 1_000] {
+            let collar = collar_bps(lev, &a);
+            let (mut breach, mut n) = (0i64, 0i64);
+            let mut s2 = st; let mut p2 = px;
+            for i in 600..5_600i64 {
+                let d = draw(&mut s2, scale);
+                if d.abs() > collar { breach += 1; }
+                n += 1;
+                p2 = (p2 as i128 * (10_000 + d as i128) / 10_000).max(1) as i64;
+                let _ = i;
+            }
+            let rate = breach * 10_000 / n.max(1);
+            let ratio = rate * 100 / COLLAR_BREACH_BPS.max(1);
+            if ratio > worst_ratio { worst_ratio = ratio; }
+            println!("  {:<16} {}x {:>8} {:>12} {:>14} {:>7}bps", label, lev / 100,
+                     collar, breach, n, rate);
+        }
+        for i in 600..5_600i64 {
+            let d = draw(&mut st, scale);
+            px = (px as i128 * (10_000 + d as i128) / 10_000).max(1) as i64;
+            a.update_price(px, i * 10);
+        }
+    }
+    println!("  target {} bps (1%). worst regime is {}% of target.", COLLAR_BREACH_BPS, worst_ratio);
+    println!("  >100% means the collar is TOO TIGHT (breaches more than designed);");
+    println!("  <100% means it is too wide (over-collateralised, LPs over-charged).");
+
+    // Not an assertion on the exact number — the point is to REPORT it, because
+    // a calibration claim nobody measures is the definition of a blindfold.
+    assert!(worst_ratio > 0, "the harness must actually produce breaches to measure");
+}
+
+/// The collar's own docstring claims two monotonicities. Neither had been tested,
+/// and they are the properties a borrower would call FAIR: more volatility buys
+/// more room, more leverage buys less.
+#[test]
+fn the_collar_is_monotone_in_the_two_things_it_claims_to_be_monotone_in() {
+    let mk = |sigma: i64| {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3; a.obs_count = 200;
+        a
+    };
+    println!("\n=== collar monotonicity ===");
+    println!("  {:<12} {:>8} {:>8} {:>8} {:>8}", "sigma", "1x", "2x", "5x", "10x");
+    for s in [80i64, 220, 600, 1_200] {
+        let a = mk(s);
+        println!("  {:<12} {:>8} {:>8} {:>8} {:>8}", s,
+                 collar_bps(100, &a), collar_bps(200, &a), collar_bps(500, &a), collar_bps(1000, &a));
+    }
+    let (calm, wild) = (mk(80), mk(1_200));
+    assert!(collar_bps(100, &wild) >= collar_bps(100, &calm),
+        "higher vol must not buy a NARROWER collar");
+    assert!(collar_bps(1000, &calm) <= collar_bps(100, &calm),
+        "higher leverage must not buy a WIDER collar");
 }
