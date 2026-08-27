@@ -514,10 +514,22 @@ contract LevCascadeProbe is AllesFixture {
         assertEq(deLevered + skipped, 3, "every position de-levered OR gracefully skipped (DeleverFailed)");
     }
 
-    /// @notice ISOLATION: a STUCK LP (its de-lever can source nothing) must be skipped + left UNTOUCHED, and must
-    ///   NOT block or corrupt another LP's de-lever in the same cascade tx. REAL stuck mechanism: the LP REVOKES
-    ///   the venue's Morpho authorization → the adapter's withdraw/borrow revert `NotAuthorized` → `deleverOne`
-    ///   reverts atomically (repay-first is rolled back) → `cascadeDelever` catches it. Deterministic, no mock.
+    /// @notice ISOLATION: a STUCK LP must be skipped + left UNTOUCHED, and must NOT block or corrupt another
+    ///   LP's de-lever in the same cascade tx.
+    /// 🔴 §POOL-VENUE — **THE OLD STUCK MECHANISM STOPPED EXISTING, AND THE TEST FAILING IS THE GOOD NEWS.**
+    ///   This used to brick lp0 by pranking it to `setAuthorization(venue, false)`, on the stated premise that
+    ///   *"each LP's position lives under the LP's own address (`onBehalf = lp`)"*. That premise is dead:
+    ///   `LevVenueBase` now runs ONE POOLED position and every Morpho call passes `address(this)`
+    ///   (`:240` `supplyCollateral`, `:253` `borrow`, `:278`/`:297` `repay`, `:313`/`:364` `withdrawCollateral`)
+    ///   — the file records the correction itself at `:118`. So the revoke targeted an authorization lp0 never
+    ///   granted and the venue never reads: **a no-op**, and `deleverOne` sailed past it emitting nothing.
+    ///   ⇒ The assertion was right and its FIXTURE was stale. **An individual LP can no longer brick the
+    ///   venue at all**, which is strictly stronger than the isolation this test was written to prove.
+    /// ⚠️ WHY NOT DELETE IT: the isolation property is unchanged and still worth binding — `cascadeDelever`
+    ///   must catch a per-LP failure, skip it, and finish the batch. Only the way to MAKE one fail moved.
+    ///   The surviving mechanism is the batch's own per-LP `minOut`: an unsatisfiable floor on lp0 alone makes
+    ///   its de-lever revert `Slippage()` ATOMICALLY (repay-first is rolled back) with lp1's untouched.
+    ///   Deterministic, no mock, and it exercises the same `try/catch` the old revoke did.
     function test_Isolation_StuckLpDoesNotTouchAnother() public {
         _setupLev();
         _openAtEntry(lps[0], 5 ether);
@@ -527,14 +539,14 @@ contract LevCascadeProbe is AllesFixture {
         lm.rebalance(lps[1], 0, DEX_WETH_USDC); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         _crashRange(3000, 24, 40 ether);   // ~30%: full de-lever; hybrid down-leg services the redeem
 
-        // BRICK lp0: revoke the adapter's Morpho authorization ⇒ its withdraw can source nothing.
-        vm.prank(lps[0]); IMorphoTest(MORPHO).setAuthorization(address(venue), false);
-
         uint dbt0 = venue.debtOf(lps[0]); uint coll0 = venue.collateralOf(lps[0]);
         uint dbt1 = venue.debtOf(lps[1]);
 
         address[] memory batch = new address[](2); batch[0] = lps[0]; batch[1] = lps[1];
         uint[] memory mins = new uint[](2);
+        // BRICK lp0 AND ONLY lp0: an unsatisfiable stable floor on its slot. The sell leg cannot clear it,
+        // `deleverOne` reverts `Slippage()`, and repay-first means the revert unwinds the repay with it.
+        mins[0] = type(uint128).max;   // lp1 keeps mins[1] == 0
         // §LEVCASCADE-STUCK — THE DECISIVE PAIR. This test asserts a stuck LP emits DeleverFailed and
         // gets 0. By elimination the only remaining explanation is that `deleverOne` RETURNS before it
         // ever touches Morpho, so the revoked authorization is never reached. These two numbers say
@@ -556,7 +568,9 @@ contract LevCascadeProbe is AllesFixture {
         // unchanged (Morpho collateral doesn't accrue); its DEBT only drifts up by market-wide interest that
         // lp1's real Morpho ops accrued — NOT a repay. So: collateral exact, debt within a small interest range.
         assertApproxEqAbs(venue.debtOf(lps[0]), dbt0, dbt0 / 100 + 1, "stuck LP debt only drifts by market interest (no repay)");
-        assertEq(venue.collateralOf(lps[0]), coll0, "stuck LP collateral UNTOUCHED (no withdraw)");
+        // ⚠️ §POOL-VENUE — `collateralOf` is now a per-LP CLAIM on one pooled position, not a Morpho balance.
+        // lp1's real withdraw moves the POOL, so only lp0's own claim is asserted exact.
+        assertEq(venue.collateralOf(lps[0]), coll0, "stuck LP collateral claim UNTOUCHED (no withdraw)");
         // lp1: de-levered for real DESPITE lp0 being stuck (no blocking, no corruption).
         assertLt(venue.debtOf(lps[1]), dbt1, "the other LP must de-lever despite the stuck one (isolation)");
         ( , , , , bool open0) = lm.pos(lps[0]); ( , , , , bool open1) = lm.pos(lps[1]);
