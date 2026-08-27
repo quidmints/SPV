@@ -970,8 +970,12 @@ export default function QuidApp() {
     try {
       const p = buildOpenParams()
       const proof: string[] = ocProof.trim() ? JSON.parse(ocProof) : []
-      const { digest, lp } = await computeChannelDigest()
-      if (lp === ethers.ZeroAddress) throw new Error('lpAuth recovers to zero address')
+      // §E183 — `computeChannelDigest` was RENAMED `computeChannelOwner` when the digest stopped
+      // existing (the owner is DERIVED from lpPubkey now, not recovered from a signature). Two
+      // consumers were missed: this call and the dependency array below. `doVerifyChannel` above was
+      // updated, which is why the rename looked complete.
+      const { digest, lp } = await computeChannelOwner()
+      if (lp === ethers.ZeroAddress) throw new Error('lpPubkey derives to the zero address')
       setOcDigest(digest); setOcRecovered(lp)
       if (!hopApiConfigured()) throw new Error('LP onboarding is coming online — the hop endpoint isn’t configured yet.')
       setStatus(`Handing channel-open to the hop — owner ${lp}…`)
@@ -998,7 +1002,7 @@ export default function QuidApp() {
       }
     } catch (e: any) { setError(e.message || 'openChannel failed') }
     finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 8000) }
-  }, [ocParams, ocRawTx, ocProof, ocLpAuth, ocLpBtcPayout, connected, txMutex, buildOpenParams, computeChannelDigest, ocRelay?.status])
+  }, [ocParams, ocRawTx, ocProof, ocLpAuth, ocLpBtcPayout, connected, txMutex, buildOpenParams, computeChannelOwner, ocRelay?.status])
 
   // ═══════════════════════════════════════════════════════════════════
   //   RENDER
