@@ -11,6 +11,11 @@ use clutch::*;
 
 pub mod etc;
 
+#[cfg(test)]
+mod facility_sim;
+#[cfg(test)]
+mod facility_sim_report;
+
 /// The ticker tables ship trimmed to what can actually be delivered. The full
 /// set is four times the binary and roughly four times the rent to deploy, and
 /// a ticker nobody can settle against is not worth either; `all-tickers`
