@@ -494,6 +494,36 @@ OPPOSITE DIRECTIONS, WHICH IS WHY THE `§EXPERIMENT` MARKER IS STILL THERE:**
     every drain path eventually blocks. *Liveness failure, no value lost.*
   • **FULL** over-debits it, inflating the LP increment, so the exiting LP is overpaid out of the
     next one's backing. *Value leak, no liveness failure.*
+⛔ **CORRECTION 2026-08-28 — THE THIRD WRITER IS REAL BUT IS *NOT* THIS DRIFT'S CAUSE, AND I BOOKED IT
+AS IF IT WERE.** Measured on the failing trace: `absorbPaidUsd` **0 calls**, `_payUsdLeg` **0 calls**.
+The top-level reverting call is `Aux::swap{value: 1 ether}` — the `Aux::deposit` frames I read as the
+reverting op were SETUP. So the withdraw-path re-anchor cannot be involved, and the clock argument
+below, while true of that function, explains nothing here. **The drift is in the mint/burn arms after
+all.** Keeping the finding because the clock mismatch is real and worth fixing on its own path;
+demoting it from cause to observation.
+
+⭐⭐ **THE DECOMPOSITION, AND IT CLOSES THE ARITHMETIC** (2026-08-28). Per swap:
+| quantity | measured |
+|---|---|
+| `ΔPOOLED_USD` | 2,365.999 |
+| `ΔbasketUsd`  | 2,440.277 |
+| `ΔTVL`        | 2,442.34 |
+⇒ **`Δb > ΔP` IS IMPOSSIBLE FOR THE BURN ARM ALONE** (`out_ = mulDiv(b, usdAmount, P) ≤ usdAmount = ΔP`),
+so two writes happen per swap. It fits a BURN of ~2,440 followed by a MINT of ~74 with
+`basketLeg=false` — `POOLED_USD += 74` with `basketUsd` untouched. That mint is the FEE being paired
+back into the range as LP-owned increment, and it is CORRECT: fees are not basket-owned. It is also
+exactly the +73/swap increment growth the `_burnSplitProbe` series shows (0 → 74.28 → 147.30).
+🔴 **THE DRIFT IS THE REMAINING ~2.06 PER SWAP: TVL falls 2,442.34 while `basketUsd` falls only
+2,440.277.** That slice leaves the basket's stables but is never debited from the basket's CLAIM, so
+`committed` closes on TVL from below and crosses. Starting gap −6.93, closing ~2.06/swap, crossing at
++0.396 on the fourth — which is the observed trajectory.
+▶️ **NEXT, and it is one read:** identify the 2.06. It is the difference between what the swapper is
+PAID (TVL's decrement) and what the USD leg RELEASES (`usdAmount`). Instrument `_settleUsdSide`'s
+`usdAmount` against `AUX.take`'s actual token amount for ONE swap; if they differ by the fee, the fix
+is to debit `basketUsd` by the paid amount rather than by the leg's release.
+⚠️ **DO NOT re-attempt the full-release change on the strength of this** — it addresses a DIFFERENT
+term (`out_`'s formula), not the 2.06 gap between `usdAmount` and the payout.
+
 🔴🔴 **THE THIRD WRITER — `basketUsd` HAS THREE, AND I HAD ONLY EVER ARGUED ABOUT TWO** (2026-08-28).
 `sed 's://.*::' Core.sol | grep -E "basketUsd\s*(=|\+=|-=)"` returns exactly three sites:
 | site | shape |
