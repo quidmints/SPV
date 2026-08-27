@@ -456,16 +456,29 @@ behind DEBT, not in the basket.
 ~50% LTV, so the net slice is ≈$60,331 and the total would still be ≈$212,331 against $157,000. There
 is a SECOND term unaccounted for, and `POOLED_USD` on this range reads **$277,662** against a
 **$157,000** basket — i.e. the fixture is already over-committed before the delivery mints anything.
-▶️ **NEXT, and it is the burn side, not the commit side:** the test's own header names the hypothesis
-— *"a surviving ratchet here is a COMMIT WITHOUT A MATCHING BURN"* — and `burnInRange` is SHARED
-(it takes `core`), so the BTC range gets the same `basketLeg` release the ETH range does. Establish
-whether `POOLED_USD > TVL` is reachable in production or is a fixture artefact BEFORE touching the
-gate; if it is reachable, the defect is upstream of this require and the require is correct to fire.
-⛔ **DO NOT LOOSEN THE `require`.** It is the only thing standing between two ranges and
-over-committing one basket, and `Core.sol:1279-1284` records that it was DEAD for a period
-(`_reportEquity` had no callers, so `total()` was permanently 0 and the check was `0 <= tvl`,
-always true). A gate that has already been silently inert once should not be relaxed to make a test
-pass.
+⭐ **RE-MEASURED 2026-08-26 — THE CAUSE IS A TRANSIENT PEAK INSIDE ONE OPERATION, NOT A STEADY-STATE
+OVER-COMMIT, AND TWO EARLIER READINGS OF IT WERE WRONG.**
+| candidate | measured | verdict |
+|---|---|---|
+| the delivery repaid debt, so `levDebtUsd18` fell to 0 | `totalDebtUsd()` returns **$120,662.10** at the revert — healthy | ⛔ REFUTED |
+| `_levDebtUsd18`'s `try/catch` swallowed a revert and returned 0 | it never reverts; the staticcall returns cleanly | ⛔ REFUTED |
+| `deleverOnDelivery` over-committed | **it is called ZERO times in the trace** — the revert fires before it | ⛔ REFUTED |
+⇒ **`basketUsd` ITSELF GROWS, from $272,662 to $393,324, INSIDE `repack`'s FULL-RESYNC.** The trace
+order is `modLP(+149499999, +120662103868)` — an **ADD** — followed by TWO burns of ~$120,662 each.
+**The resync ADDS BEFORE IT BURNS, and `require(committedUsd18() <= haircutTvl)` is evaluated on the
+ADD.** Steady state is fine ($152,000 against $157,000); only the intermediate state breaches.
+⚠️ **THAT IS WHY EVERY FIX AIMED AT THE DE-LEVER MISSED.** Two were tried and both are reverted: a
+reconcile between the repay and the repack (`deleverOnDelivery` never runs, so there is nothing to
+reconcile), and moving the reconcile off the head of `_resize` (same trace, same revert). The
+sequencing is inside `repack`, one level below anything `_resize` can reorder.
+▶️ **NEXT, and it is now a narrow question:** either make the resync BURN-BEFORE-ADD, or evaluate the
+solvency gate at the END of an operation rather than on each mint. The second is the more general
+fix — a gate that fires on an intermediate state is checking a value that was never simultaneously
+true, which is the exact objection `Core.sol:98-101` raises about PUSH-vs-PULL for this very number.
+⚠️ **DO NOT re-attempt a fix in `Vault._resize` — the two obvious ones are already measured and
+reverted.** The `_syncLev` position committed there is the crystallisation fix and is CORRECT for
+that purpose; it is not the lever for this row.
+
 ✅ **FIXED IN PASSING (test-side, §WRONG-RANGE):** the instrument block printed "ETH" and "BTC"
 `committedUsd18`/`POOLED_USD` rows that were ONE range read twice — `CORE` and `BTC.CORE()` are the
 same address in this fixture, and `committedUsd18()` is a TOTAL over both ranges by design so it
