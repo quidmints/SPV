@@ -494,6 +494,31 @@ OPPOSITE DIRECTIONS, WHICH IS WHY THE `§EXPERIMENT` MARKER IS STILL THERE:**
     every drain path eventually blocks. *Liveness failure, no value lost.*
   • **FULL** over-debits it, inflating the LP increment, so the exiting LP is overpaid out of the
     next one's backing. *Value leak, no liveness failure.*
+🔴🔴 **THE THIRD WRITER — `basketUsd` HAS THREE, AND I HAD ONLY EVER ARGUED ABOUT TWO** (2026-08-28).
+`sed 's://.*::' Core.sol | grep -E "basketUsd\s*(=|\+=|-=)"` returns exactly three sites:
+| site | shape |
+|---|---|
+| `Core.sol:1277` mint arm | `if (basketLeg) basketUsd += usdAmount` |
+| `Core.sol:1335` burn arm | `basketUsd = b - out_` ← the whole §BURN-RELEASE-CONFLICT argument |
+| **`Core.sol:1360` `absorbPaidUsd`** | **`basketUsd = POOLED_USD - lpOwned6`** — an ABSOLUTE assignment |
+⇒ **ON THE WITHDRAW PATH THE BURN ARM'S CHOICE IS OVERWRITTEN.** `Quid._payUsdLeg:737` calls
+`CORE.absorbPaidUsd(incrPre - owed6)` right after `_burnInRange`, and its own docblock says so:
+*"Re-anchors `basketUsd*` to `POOLED_USD_* - lpOwned6` INSTEAD OF LEAVING IT TO WHATEVER THE BURN
+HAPPENED TO RELEASE."* So proportional-vs-full only decides the outcome on paths that do NOT pay a
+USD leg — which is why two controls of mine disagreed and why the +0.507 never reconciled.
+🔴 **AND ITS TWO INPUTS ARE ON DIFFERENT CLOCKS.** `incrPre` is captured BEFORE the burn
+(`Quid._withdraw`: *"uint incrPre = _rangeIncrement6(); // BEFORE the burn shrinks it"*), while the
+`POOLED_USD` that `absorbPaidUsd` subtracts from is read AFTER `_burnInRange` has already shrunk it.
+`basketUsd = POOLED_USD_post − (incrPre_pre − owed6)` mixes a pre-burn numerator with a post-burn
+base — the exact clock-consistency defect §A.16b exists to name (*"a sum of per-range figures is only
+meaningful if every term is on the same clock"*), one level down.
+⇒ If `incrPre − owed6` is too small, `basketUsd` is set too HIGH and `committed` drifts UP, which is
+the observed direction.
+▶️ **NEXT:** capture `incrPre` AFTER the burn, or subtract the burn's own release from it before
+re-anchoring — and measure `basketUsd` across ONE `_payUsdLeg` against the actual QU!D minted.
+⚠️ **THIS DOES NOT VINDICATE EITHER BURN ARM.** It says the burn-arm question is SEPARATE from this
+drift and was never the whole story; §BURN-RELEASE-CONFLICT stays open on its own terms.
+
 ⭐⭐ **THE CLEAN SINGLE-BURN CONTROL RAN 2026-08-26, AND IT REVERSES THE REASON I GAVE FOR THE REVERT.**
 My first control diffed END STATES after the two arms had already paid out different amounts — it
 could not attribute the increment gap to the release rule at all. This one holds the state fixed and
