@@ -1,54 +1,63 @@
-# QU!D SPA
+# spa
 
-Browser frontend for the SPV/evm contracts. Next.js 14 + ethers v6 + TailwindCSS.
+Two things live here, and they have opposite futures.
 
-## What it does
+## `/` — the landing page
 
-Five tabs that drive the merged-port contract surface in `../evm/src/`:
+The whole of the web product. Own components under `src/components/site/`, own copy, no third-party
+assets. The wordmark is set in type rather than shipped as a file, so there is nothing to license.
 
-| Tab | Contract → call |
-|---|---|
-| **Mint** | `Basket.mint(pledge, amount, token, when)` after ERC20 approve to `Aux` (USDT reset-to-0 handled). `when = currentMonth + 1 + months`. |
-| **ETH LP** | `Quid.deposit(assets, receiver)` payable / `Quid.withdraw(assets, receiver, owner)`. Reads `autoManaged(user)`. *(Stub — wiring next.)* |
-| **Swap** | `Aux.swap(token, asset, forVolatile, amount, minOut)` — USD↔ETH and USD→BTC. The on-chain `asset` for the BTC direction is **lnBTC** (the V4 BTC pool's volatile leg, conceptually distinct from BitGo WBTC which is the Aux-internal SOR fallback inventory; same address pre-split). BTC→USD intentionally not supported (BTC inflows route through channel state changes). |
-| **Redeem** | `Aux.redeem(amount)`; shows `Aux.redeemableAmount()` so the slider clamps client-side. |
-| **BTC Channel** | `BTCChannels.openChannel(OpenParams, rawFundingTx, merkleProof)` — LP submits direct from this wallet (no stealth, no meta-tx). *(Stub — needs `bitcoinjs-lib` + mempool.space client.)* |
+⚠️ **What this replaced, so nobody restores it.** Until 2026-08-28 the landing was a clone of
+`savewithcastle.com` — their wordmark, their investors' logos, photographs of two of their named
+employees, a self-hosted commercial typeface, and a claim that banking services were provided
+through partner banks. Every sub-page (`about`, `security`, `learn`, `faqs`, `integrations`, four
+`sales/*`, `privacy-policy`, `terms-and-conditions`) was the same site with the name find-replaced,
+which is how a FAQ explaining Plaid bank-account linking ended up describing a protocol that has no
+bank accounts. The scraped source HTML under `docs/research/` went with it.
 
-## Explicitly dropped vs `old/`
+**There are no legal pages any more.** Shipping another company's terms was worse than shipping
+none. Real ones need drafting before launch.
 
-- **No Solana / Phantom / SPL.** No `@solana/web3.js`, `@coral-xyz/anchor`, `bs58`, `mongodb`.
-- **No prediction market, stocks tab, evidence tab.** `Link.sol` exists on-chain for depeg detection but is not user-facing here.
-- **No Uniswap V3 / Rover.** V4-only via Quid.
-- **No `leverETH` / `leverUSD` wait-path.** Removed from swap UI; the contract entrypoints exist but the SPA only does instant swaps.
-- **No stealth address / EIP-5564 derivation.** msg.sender = LP everywhere.
-- **No meta-tx / hosted relayer / `lpAuth` / `redeemBySig` / `setBtcRecipientWithSig`.** The contract surface for those wasn't merged in (see `MEMORY.md` → `project-quid-frontend-meta-tx-gap`); SPA submits everything direct from the user's wallet.
+## `/app` — transitional
+
+The browser build of the depositor surface. It is being ported to React Native and this copy goes
+away when that lands; see `../spec.md` §5.2. Everything that touches the LP channel key belongs in
+the app regardless, because the web page cannot hold that key.
+
+`src/lib/` is the chain layer the port should be taken from. It is **closer to the contracts than
+the React Native copy, and it is not clean either** — port from it with both gates below, never by
+copying.
+
+## Gates — run BOTH, and let both decide the commit
+
+```
+cd .. && python3 tools/check-client-abis.py     # hand-written ABI signatures vs evm/out
+cd spa && npx tsc --noEmit                       # everything the above cannot see
+```
+
+⚠️ **`check-client-abis.py` passing does not mean the client works, and that was measured.** It
+reads `src/lib/abi.ts` and nothing else: it cannot see a second declaration of the same call
+elsewhere, it does not parse TSX, and it does not read `evm/deployments/l1.json`. The first time
+`tsc` ran here it found four things that gate had passed over — a JSX comment in an expression
+position so the leverage panel did not compile at all, a local `outOfRange` encoder still carrying a
+fifth `venue` argument that `abi.ts:166` had already recorded as never having existed, a
+`computeChannelDigest`→`computeChannelOwner` rename with two consumers missed, and `chains.ts`
+reading a deploy-record key the committed artifact does not have.
+
+⛔ **`CLAUDE.md` says `tsc` cannot run in this tree because `spa/` has no `node_modules`. That is
+stale** — it does, and that staleness is the reason the ABI checker was believed to be the only
+client-side gate available.
 
 ## Setup
 
 ```bash
-cd SPV/spa
-npm install   # or pnpm / yarn
-npm run dev   # http://localhost:3000
+npm install
+npm run dev
 ```
 
-The wallet auto-prompts to switch to Ethereum mainnet (`chainId 1`).
-Fill in real addresses in `src/lib/chains.ts:CONTRACTS` after deploying
-`SPV/evm/scripts/DeployL1_s.sol`.
-
-## Stables list
-
-11 entries, **BOLD last** (Liquity SP special-case at `stables[length-1]`):
-
-```
-USDC, USDT, PYUSD, GHO, RLUSD, USDG, DAI, USDS, USDE, AUSD, BOLD
-```
-
-DeployL1_s.sol currently puts AUSD last — that has to flip in the deploy
-script to match the runtime expectation (see project memory).
-
-## Status
-
-- Scaffold + Mint + Redeem: **functional**.
-- ETH LP, Swap, BTC Channel: **stubbed** with the exact calls they'll drive.
-
-Build out order is whatever the next message says.
+Addresses come from the committed `../evm/deployments/l1.json`, overridable per address at build
+time by `NEXT_PUBLIC_*` in `.env.local`. **That record is regenerated by a deploy run and must not be
+hand-edited** — CREATE addresses are a function of deployer and nonce, so an invented one is a
+fabricated address that silently answers nothing. It is currently behind the deploy script: it still
+keys the ETH range manager as `vogue` and has no `btcCore`, so those two resolve to the zero address
+and fail loudly until someone redeploys.

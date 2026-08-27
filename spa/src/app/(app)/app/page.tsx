@@ -82,8 +82,17 @@ const enc = {
   rangeTotalShares: () => iface.encodeFunctionData('totalShares', []),
   rangeLpShares:    () => iface.encodeFunctionData('lpShares', []),
   // Self-managed
-  outOfRange: (amt: bigint, token: string, distance: number, range: number, venue: number) =>
-                iface.encodeFunctionData('outOfRange', [amt, token, distance, range, venue]),
+  // §E235-spa — FOUR ARGUMENTS, NOT FIVE. `lib/abi.ts:166` declares the live signature
+  // `outOfRange(uint,address,int,uint)` and its comment records that the "gained a uint8 venue 5th
+  // arg" claim was wrong. This LOCAL encoder was the stale copy that claim came from: it took a
+  // `venue` and pushed five values at a four-input ABI, so `encodeFunctionData` would have thrown
+  // even if the call site had supplied one. It never did, which is the TS2554 that surfaced the day
+  // `tsc` first ran here.
+  // ⚠️ `check-client-abis.py` could not catch this: it reads `abi.ts`, where the declaration is
+  // CORRECT, and never parses this file. One concept declared twice, and the copy nothing checks is
+  // the one that drifted.
+  outOfRange: (amt: bigint, token: string, distance: number, range: number) =>
+                iface.encodeFunctionData('outOfRange', [amt, token, distance, range]),
   pull:       (id: bigint, percent: number, token: string) =>
                 iface.encodeFunctionData('pull', [id, percent, token]),
   positions:  (u: string, i: number) => iface.encodeFunctionData('positions', [u, i]),

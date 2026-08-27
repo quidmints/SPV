@@ -157,10 +157,13 @@ export default function LeverageActionPanel({
       )}
 
       {/* Actions */}
+      {/* §E358 — the "Set leverage to N×" control is GONE. IL-protect is a protocol-wide liability
+          on behalf of all LPs, so an LP has no debt-to-collateral ratio of its own to choose;
+          `setTargetLtv` was deleted with it. Closing remains the LP's own action.
+          ⚠️ This comment sat INSIDE the ternary's consequent, where a braced JSX comment is not a
+          child but an object literal in an expression position. It did not compile, and reached main
+          because `tools/check-client-abis.py` compares ABI SIGNATURES and never parses TSX. */}
       {isOpen ? (
-        {/* §E358 — the "Set leverage to N×" control is GONE. IL-protect is a protocol-wide
-            liability on behalf of all LPs, so an LP has no debt-to-collateral ratio of its own to
-            choose; `setTargetLtv` was deleted with it. Closing remains the LP's own action. */}
         <div className="flex gap-2">
           <button onClick={onClose} disabled={busy || !connected}
             className="flex-1 py-3 rounded-lg bg-gradient-to-r from-orange-600 to-red-600 hover:opacity-90 disabled:opacity-40 font-semibold text-sm">

@@ -738,9 +738,20 @@ Three things to fix in the merge rather than carry:
   `lib/` taken *before* the `Vogue`→`Quid` rename and the `isBTC`→two-instances split. It still
   declares `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_ETH`/`POOLED_USD_BTC` as four selectors,
   `observe(uint32[], bool isBTC)`, `vogueETH`, `autoManagedBTC`, `lpSharesBTC` and a 5-argument
-  `swap`. Re-port from `spa/src/lib/`, which `tools/check-client-abis.py` currently reports clean at
-  67 signatures, 0 drifted. **Let that checker gate the commit** — `forge` and `tsc` both green does
-  not mean the clients still work.
+  `swap`. Re-port from `spa/src/lib/`, which is closer but **is not clean either**, so port from it
+  with the checks below rather than by copying.
+  ⚠️ **`tools/check-client-abis.py` reporting "67 signatures, 0 drifted" does NOT mean the client
+  works, and this was measured rather than argued.** The checker reads `spa/src/lib/abi.ts` and
+  nothing else. It cannot see a second declaration of the same call elsewhere in the client, it does
+  not parse TSX, and it does not read `evm/deployments/l1.json`. With `spa/node_modules` present,
+  `npx tsc --noEmit` found three things it had passed over: a JSX comment placed in an expression
+  position so the leverage panel did not compile at all; a LOCAL `outOfRange` encoder in
+  `(app)/app/page.tsx` still taking the `venue` fifth argument that `abi.ts:166` had already recorded
+  as never having existed; and `chains.ts` reading `l1.range` from a deploy record whose key is still
+  `vogue`, so the ETH range manager silently resolves to the zero address.
+  ⇒ **`CLAUDE.md`'s "in this tree `tsc` cannot run at all: `spa/` has NO `node_modules`" is stale**,
+  and that staleness is why the ABI checker was described as the only client-side gate available. Run
+  both, and let both gate the commit.
 - **`seeker-main/utils/deriveEthKey.ts` is broken.** It derives what it calls an Ethereum address
   using **NIST P-256** and hashes with **sha256**. Ethereum is secp256k1 and keccak256, so no
   signature from that key will ever recover to that address.
@@ -862,6 +873,15 @@ Recorded so they are not re-litigated.
    makes the run deterministic and disk-cacheable but not archival.
 8. **The `LevManager` byte margin**, which has been the binding contract at last measurement. Re-run
    `tools/check-contract-sizes.py` rather than trusting any figure written down anywhere.
+9. **Two pre-existing client defects, both in the `/app` half that §5.2 replaces**, surfaced the
+   first time `tsc` was run in `spa/`. Neither is fixed here, because each needs its own change:
+   `computeChannelDigest` is called twice in `(app)/app/page.tsx` and defined nowhere, so the
+   openChannel flow cannot run; and `evm/deployments/l1.json` still keys the ETH range manager as
+   `vogue` while `chains.ts` reads `l1.range`, so `CONTRACTS.range` resolves to the zero address.
+   The second is the `Vogue`→`Quid` rename never reaching the deploy record, and the fix belongs in
+   `DeployL1_s`'s JSON writer plus a redeploy — the file's own comment forbids hand-editing it,
+   because CREATE addresses are a function of deployer and nonce and an invented one silently
+   answers nothing.
 
 ---
 

@@ -3,46 +3,22 @@
 @tailwind utilities;
 
 /* ── Fonts ────────────────────────────────────────────────────────────
-   Castle landing (/) → Inter (body) + PX Grotesk (display, self-hosted).
-   QU!D dashboard (/app) → JetBrains Mono, scoped to .app-shell so it never
-   leaks into the landing. */
-@font-face {
-  font-family: 'PX Grotesk';
-  src: url('/castle/fonts/Px-Grotesk-Light.woff2') format('woff2');
-  font-weight: 300; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'PX Grotesk';
-  src: url('/castle/fonts/Px-Grotesk-Regular.woff2') format('woff2');
-  font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'PX Grotesk';
-  src: url('/castle/fonts/Px-Grotesk-Regular-Italic.woff2') format('woff2');
-  font-weight: 400; font-style: italic; font-display: swap;
-}
-@font-face {
-  font-family: 'PX Grotesk';
-  src: url('/castle/fonts/Px-Grotesk-Bold.woff2') format('woff2');
-  font-weight: 700; font-style: normal; font-display: swap;
-}
+   Landing (/)          -> Inter.
+   QU!D dashboard (/app)-> JetBrains Mono, scoped to .app-shell so it never leaks into the landing.
+
+   ⛔ THE SELF-HOSTED PX GROTESK @font-face BLOCK IS DELETED AND MUST NOT COME BACK. It served the
+   cloned landing page and it is a COMMERCIAL typeface (Optimo) whose .woff2 files were being
+   redistributed from public/castle/fonts/. The `.font-px-grotesk` and `.font-clash-display`
+   utilities went with it; nothing in src/ references either any more. */
 
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Default (Castle landing) typeface */
+/* Landing typeface */
 body {
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-}
-
-/* Castle display utilities — these class names appear verbatim in the cloned markup */
-.font-px-grotesk {
-  font-family: 'PX Grotesk', 'Inter', system-ui, sans-serif;
-}
-.font-clash-display {
-  font-family: 'Clash Display', 'PX Grotesk', 'Inter', system-ui, sans-serif;
 }
 
 /* QU!D dashboard keeps its monospace aesthetic, scoped to its shell only */
