@@ -509,16 +509,31 @@ library LevMath {
         internal returns (uint256 stableOut, uint256 reserveOut)
     {
         reserveOut = c.reserveIn;
-        uint256 wethGot = _weethToWeth(c, pulled);
-        uint256 floorOut = _stableFloor(c, stable, pulled);
-        { // peel from headroom (own frame — no via_ir), then scale the anti-MEV floor to the post-peel amount.
+        uint256 wethGot = _weethToWeth(c, pulled);      // LEG 1 — bounded inside `_weethToWethDex`
+        { // peel keeper gas from headroom (own frame — no via_ir)
             uint256 need = _wethForAssets(c, stable, assets);
-            uint256 wethBefore = wethGot;
             uint256 skimmed;
             (skimmed, reserveOut) = _reimburse(c.weth, c.keeper, wethGot > need ? wethGot - need : 0, reserveOut);
             wethGot -= skimmed;
-            if (wethGot < wethBefore) floorOut = (floorOut * wethGot) / wethBefore;
         }
+        // 🔴 **THE TWO LEGS WERE SHARING ONE SLIPPAGE BUDGET WHILE EACH WAS BOUNDED AS IF IT HAD ALL
+        //    OF IT.** This read `_stableFloor(c, stable, pulled)` — the floor for the WETH→stable leg
+        //    derived from `pulled`, which is LEG 1'S INPUT. But `_weethToWethDex` already enforces
+        //    `getEETHByWeETH(pulled) * (1 − SELL_SLIP_BPS)` on that leg, so leg 1 may legitimately
+        //    return up to `SELL_SLIP_BPS` less WETH than oracle — and leg 2 was then required to
+        //    deliver the FULL oracle value of `pulled` out of that reduced amount. If leg 1 used any
+        //    of its allowance, leg 2 had to be PERFECT; if it used all of it, leg 2 could not pass at
+        //    any price. The bounds overlapped instead of composing.
+        // ⭐ MEASURED: the sell executed at the TRUE market rate — 0.209873 WETH → 523.880428 USDC,
+        //    $2,496/ETH, the real V3 price that block — and still reverted `Slippage()`. A floor that
+        //    a correctly-priced trade cannot clear is not protecting anything; it is a liveness bug
+        //    wearing a safety bound's name. It broke §G.7/#109 (`Quid.withdraw`'s auto-de-lever) and
+        //    every keeper close.
+        // ⇒ Derive leg 2's floor from `wethGot`, THE WETH ACTUALLY IN HAND, so each leg is bounded
+        //    against its own input and the two allowances compose. Standing rule 17: this also makes
+        //    the old peel-rescale line (`floorOut = floorOut * wethGot / wethBefore`) DELETABLE —
+        //    computing the floor after the peel is what that line was approximating.
+        uint256 floorOut = _wethStableFloor(c, stable, wethGot);   // LEG 2 — its own input, its own bound
         stableOut = _wethToStableDex(c, stable, wethGot, minOut > floorOut ? minOut : floorOut);
     }
 
@@ -772,9 +787,14 @@ library LevMath {
         return _volToStable(c.weth, stable, wethIn, minOut, c.dex);   // 1inch: WETH→USDC, Curve: USDC→stable
     }
 
-    function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal view returns (uint256) {
-        uint256 usd18 = (IWeETH(c.weeth).getEETHByWeETH(weethAmt) * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
-        return (_fromUsd(c.aux,stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
+    /// @dev The anti-MEV floor for the **WETH → stable** leg, priced off the WETH being sold.
+    ///      §SLIP-BUDGET — was `_stableFloor(c, stable, weethAmt)`, which took the weETH and ran it
+    ///      through `getEETHByWeETH` first. That made it the floor for a leg it does not guard: the
+    ///      weETH→WETH conversion is leg 1 and carries its own bound. Taking WETH directly is both
+    ///      the correct quantity and one external call cheaper.
+    function _wethStableFloor(SellCtx memory c, address stable, uint256 wethAmt) internal view returns (uint256) {
+        uint256 usd18 = (wethAmt * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
+        return (_fromUsd(c.aux, stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
     }
 
     /// The WETH that must remain to repay `assets` (flashed stable) at worst-case slippage — above it is skimmable headroom.

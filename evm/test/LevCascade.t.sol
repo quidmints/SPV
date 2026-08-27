@@ -392,6 +392,18 @@ contract LevCascadeProbe is AllesFixture {
         assertGt(ethR + usdR, 0, "(a) levered LP ACCRUES range fees on its equity");
 
         // (b) UNWIND-ONLY: the free ladder cannot pull the levered slice.
+        // ⚠️ **REALIGN FIRST, OR THE WITHDRAW CANNOT PHYSICALLY SUCCEED — AND THAT IS A FIXTURE FACT,
+        //    NOT A PROTOCOL ONE.** `_rallyRange` moves the MOCK range's oracle; the real mainnet V3
+        //    pool the sell executes against does not move with it. Measured from the trace here: the
+        //    oracle said **$2,719.6/ETH** while the pool traded at **$2,498.8** — 8.8% apart. The
+        //    BUY leg passes on that divergence (a high oracle floor is easy to beat when the pool is
+        //    cheap) and the SELL leg cannot: no correctly-priced sale clears a floor set 8.8% above
+        //    the market it sells into. The withdraw's auto-de-lever has to sell, so it reverted
+        //    `Slippage()` — a true statement about an unsatisfiable premise.
+        // ⇒ Same reason `LevYbReal` realigns before its close, and the same class this file already
+        //    documents at `:827`. The anti-MEV floor is being exercised honestly either way; what
+        //    changes is that the oracle now describes the venue the trade actually reaches.
+        _realignRangeToReal();
         vm.prank(lps[0]);
         ++withdrawsAttempted;
         try ETH.withdraw(type(uint).max, lps[0], lps[0]) { ++withdrawsLanded; }

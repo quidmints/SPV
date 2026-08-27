@@ -434,6 +434,61 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
+## 🔴 **§DUST-BLOCKS-THE-LAST-EXIT — THE LAST LP OUT OF A POOLED VENUE CANNOT LEAVE. FOUND, CHARACTERISED, AND *NOT* FIXED — MY FIX REGRESSED TWO TESTS AND IS REVERTED** (2026-08-26)
+
+**THE BUG IS REAL AND IT IS A LIVENESS BUG, NOT A ROUNDING NUISANCE.** `_repayCreditingLp` repays
+Morpho by ASSETS (`MORPHO.repay(_params(), r, 0, …)`), so Morpho burns `toSharesDown(assets)` and a
+full repay still leaves sub-unit SHARES. `withdrawCollateral` refuses to take the pool to zero
+collateral while ANY debt remains — and **the last LP's slice IS the whole pool's collateral**. Its
+exit reverts `insufficient collateral`, permanently: no retry and no top-up helps, because repaying
+by assets can never reach zero shares.
+
+⚠️ **IT ONLY BITES AT 100% OWNERSHIP, WHICH IS WHY IT SURVIVED.** With two or more LPs a close
+withdraws a slice strictly below the pool's collateral and the dust is invisible. The bug is dormant
+for the whole life of the pool and fires on the way out.
+
+⭐ **MEASURED** (`test_LevFeeLane_…`, mainnet fork): after repaying the LP's entire `debtOf`
+(562,266,213), the pool sat at `borrowShares = 1,018,998,152` — ~1,019 asset-units at Morpho's 1e6
+`VIRTUAL_SHARES`, i.e. **a tenth of a cent** — blocking **4.998 weETH** of collateral.
+
+⛔ **THE OBVIOUS FIX IS WRONG, AND THIS IS THE PART WORTH KEEPING.** Repaying the LP's exact SHARE
+slice (`MORPHO.repay(_params(), 0, mine, …)`) lands on zero by construction — and **regressed
+`test_CascadeDelever_CorrelatedCrash` and `test_Isolation_StuckLpDoesNotTouchAnother` (15 → 13)**.
+Cause: **Morpho ACCRUES INTEREST INSIDE `repay`**, so `toAssetsUp(shares)` at execution exceeds the
+`need` computed before the call, and the exact-amount approval no longer covers it. **Repaying by
+ASSETS is accrual-immune; repaying by SHARES is not.** Reverted rather than clamped with an approval
+cushion, which would have been a tolerance hiding an accrual race (standing rule 3).
+
+▶️ **WHAT A REAL FIX HAS TO SATISFY, so the next attempt does not repeat mine:** (1) reach zero
+shares, (2) without quoting an asset amount before an accruing call, (3) without approving more than
+the position can owe. Candidates not yet tried: repay by shares with the approval derived AFTER an
+explicit `MORPHO.accrueInterest()` in the same tx; or let the FULL-CLOSE path use `repayPool` for the
+pool's whole remaining share balance once the closing LP owns 100% of both units.
+⚠️ **DO NOT "FIX" IT BY TOLERATING DUST AT THE WITHDRAW SITE** — that clamp leaves the pool
+permanently unable to reach zero and moves the problem to whoever reads `totalDebt()`.
+
+## ✅ **§SLIP-BUDGET — TWO LEGS SHARED ONE SLIPPAGE ALLOWANCE WHILE EACH WAS BOUNDED AS IF IT HAD ALL OF IT** (2026-08-26, FIXED)
+
+`sellWeeth` derived the WETH→stable floor from `pulled` — **leg 1's INPUT**. But `_weethToWethDex`
+already enforces `getEETHByWeETH(pulled) * (1 − SELL_SLIP_BPS)` on leg 1, so leg 1 may legitimately
+return up to `SELL_SLIP_BPS` less than oracle, and leg 2 was then required to deliver the FULL oracle
+value of `pulled` out of that reduced amount. **If leg 1 used any of its allowance, leg 2 had to be
+perfect; if it used all of it, leg 2 could not pass at any price.**
+⭐ **MEASURED: the sell executed at the TRUE market rate — 0.209873 WETH → 523.880428 USDC, $2,496/ETH,
+the real V3 price that block — and still reverted `Slippage()`.** A floor a correctly-priced trade
+cannot clear is a liveness bug wearing a safety bound's name. It broke §G.7/#109 and every keeper close.
+⇒ Leg 2's floor now comes from `wethGot`, the WETH actually in hand, so each leg is bounded against
+its own input and the allowances compose. Rule 17: this made the old peel-rescale line deletable.
+
+## ⚠️ **§FIXTURE-ORACLE-DIVERGES — a mock range and a real pool, 8.8% apart** (2026-08-26)
+
+`_rallyRange` moves the MOCK range's oracle; the real mainnet V3 pool the sell executes against does
+not move with it. **Derived from one trace: the oracle said $2,719.6/ETH while the pool traded at
+$2,498.8.** The BUY leg passes on that divergence (a high floor is easy to beat when the pool is
+cheap) and the SELL leg cannot. `_realignRangeToReal()` before any test that must SELL, as
+`LevYbReal` already does and as this file documents at `:827`.
+
+
 ## ✅ **§POOL-VENUE-PREMISE — ONE DELETED ASSUMPTION, FIVE LIVE SITES, AND TWO OF THEM WERE THE SAFETY NET**
 
 `LevVenueBase` runs ONE Morpho position under `address(this)`. Five places still assumed the old
