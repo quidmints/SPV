@@ -8068,6 +8068,8 @@ are the ones who supplied that WETH. So either:
 ### `§A.71` (none)
 
 ## 🟠 §A.71 DEDUP PASS — **HALF-CLOSED, RE-SCOPED 2026-08-23 — I CLOSED IT WHOLE AND THAT WAS WRONG.** Of the four pairs it names, **two are TOMBSTONES** (`IEthVenueV`, `IAaveSpoke` — `^interface` = 0, deleted symbols, not outstanding merges) **and two ARE STILL DECLARED AND STILL LIVE WORK: `IEthVenue` and `IAaveV4Spoke` (1 each).** ⇒ **A row whose example list is half-stale is half-open, not closed.** ▶️ **RE-AUDIT TARGET: the two surviving interfaces — do they still have distinct consumers, or has the `EthVenue` extraction made `IEthVenue` foldable into `ICore` like §E325's pairs were?** *(superseded closure text:)*  Of the four pairs it names, only `IEthVenue` and `IAaveV4Spoke` are declared (`^interface` = 1 each); **`IEthVenueV` and `IAaveSpoke` are declared ZERO times** — deleted symbols, not outstanding merges. ⚠️ Do not "fix" a tombstone by renaming it. STATUS
+
+✅ **THE ROW'S OWN CLAIM RE-VERIFIED 2026-08-26 and it HOLDS: `IAaveSpoke` and `IEthVenueV` are declared ZERO times** — they are tombstones, exactly as the row says, not outstanding merges. The absence CONFIRMS this row rather than staling it. Only `IEthVenue` and `IAaveV4Spoke` remain live work.
 | target | outcome |
 |---|---|
 | underscore-suffixed interfaces | ✅ **7 → 0** |
@@ -8187,6 +8189,8 @@ IDs that appear only in the archive, nor its 59 `OPEN` / 43 `TODO` / 14 `UNVERIF
 ### `§AAVE` 🔴
 
 ### 🔴 §AAVE_SPOKE — **DELIVERABILITY IS A PER-VENUE PREDICATE, DISTINCT FROM VALUATION.**
+
+⚠️ **`StakedUSDeV2` / `ensureCooldownOff` have 0 references.** Establish whether this row predates the venue set it names before working it.
 **The only gap found by scanning all 20 subjects of that thread against this queue.** Generalised
 deliberately: it is NOT an Ethena/sUSDe special case.
 | source | what makes it undeliverable |
@@ -8658,6 +8662,8 @@ on `costPpm == 0` rather than passing.
 | §E252-shares-merge | 🟢 **READY — THE 13 RANGE-STATE DECLARATIONS ARE BYTE-IDENTICAL IN ALL THREE FILES, so the merge is mechanical (verified 2026-08-17).** `Shares.sol` is a written-but-UNWIRED prototype: **nothing imports or inherits it**, yet it compiles to 2,301 bytes of deployable contract. Declared identically in `Shares`+`Vault`+`Quid`: `LEV_MANAGER` `autoManaged` `lpShares` `selfManaged` `positions` `ID` `feesPerShare` `USD_FEES` `levPooled` `levBuf` `levBufferUsd` `totalBuffer`, plus `RANGE_ANCHOR` in `Vault`+`Quid` — checked declaration-by-declaration, not by name (an earlier pass flagged `autoManaged` as differing; that was a regex hitting a USAGE line, and the real declarations match). ⇒ Convert `Shares` to an ABSTRACT base both managers inherit. ⚠️ **THE POINT IS NOT SOURCE TIDINESS — IT IS STORAGE LAYOUT.** State costs no bytecode, so this frees nothing directly; what it buys is that both managers' layouts become IDENTICAL for these members, which is the PRECONDITION for one-implementation-two-instances. Merging the managers without it means two contracts whose slots disagree. ⚠️ Check no test reads `Quid`/`Vault` by RAW SLOT first (only `DrainAtomicity` does raw-slot reads today, and it reads `Core`). |
 
 ### `§E255-two-instances` 🔴
+
+⚠️ **BOTH NAMED SYMBOLS ARE TOMBSTONES (0 refs, 2026-08-26): `supplyEulerEth`** (Euler borrowing removed 2026-08-13) **and `vogueETH`** (the Vogue→Quid rename; CLAUDE.md lists it among the ~20 tokens deliberately NOT renamed because they resolve to nothing).
 
 ⛔ **AND ITS "SEMANTIC DISAGREEMENT" BLOCKER IS FALSE TOO (2026-08-23).** The archived row below ends
 *"`Shares.totalSupply()` = `lpShares + oorShares` … settle that first"*. **`oorShares`: 0 references
@@ -9511,6 +9517,8 @@ whose depth backed the mint.
 **Recording this so it cannot be lost or re-misread as a small finish.**
 
 ### 🔴 THE MISLABEL — and why acting on it would have been the bug
+
+⚠️ **`vogueSyncHook` has 0 references** — one of the deliberately-unrenamed Vogue tokens CLAUDE.md lists as resolving to nothing. Renaming it would DISGUISE a tombstone, not destale it.
 I called §A.5f "PARTIAL", which implies a finishing touch. It is not:
  • **Landed:** the *timelocked withdrawal-recipient pin* (`Quid.sol:225`) — a genuinely SEPARATE, small
    control that merely **shares the section number**. It is done and closes nothing of the real item.
@@ -10151,6 +10159,8 @@ EVIDENCE OF ANYTHING** — run each arm twice, or say nothing. Cheap rule, and i
 reversals.
 
 ## 🔴 §E277 — **FOUR ✅ UNIT ROWS ARE CERTIFIED BY TESTS THAT NO LONGER EXIST**
+
+⚠️ **NAMES TWO TESTS THAT DO NOT EXIST** (`testReal_Euler_CloseBeatsHodlModuloCosts`, `test_UNIT_HowOftenDoesChainlinkCrossTheDeadband`). The first is a EULER test and **Euler borrowing was removed 2026-08-13** (`supplyEulerEth`: 0 refs), so that half is a tombstone, not outstanding work.
 ▶️ **RE-AUDIT TARGET (2026-08-24): `QUEUE.md`'s `§UNIT-SERIES-MEASURED` row + `test_UNITA_FixtureDrivesRealVariance` (`test/DrainAtomicity.t.sol`).** The row stays OPEN — the ✅✅ in `QUEUE.md` still rests on a withdrawn instrument and nobody has re-pointed it. **What rotted is the REPLACEMENT evidence this row substituted.** Its re-derivation reads *"σ² = 1, 1, 1, 0 wad across four runs … the failing assertion IS the measurement"*; that assertion now **passes** — §E327 pinned a source in `_driveTick` and measured **σ² 0 → ≈23.6 wad**. ⇒ *"20 driven ticks cannot budge σ²"* was never a fact about the estimator or the series; it was a fact about an unpinned source. **Re-point the row at the GREEN test and delete the pinned-at-zero sentence**, or the ledger swaps one retracted instrument for another.
 Owner asked whether the finished UNIT items are actually finished. Audited the 53 ✅ UNIT rows in
 `QUEUE.md` by extracting every test function they cite as evidence (24 distinct) and checking each
@@ -11939,6 +11949,8 @@ stage's, and every build check in this file that pipes into `grep` is measuring 
 
 ## C15. 🔴 THE 1inch EXECUTION MIGRATION — the seam is ONE function, the cost is CLIENT-SIDE (2026-08-21)
 
+⚠️ **LARGELY DONE, AND THE NAME IS WRONG. 2026-08-26:** the constant is `ONEINCH_ROUTER` (`Interfaces.sol:173`), not `ONE_INCH_ROUTER`, and the migration this row describes LANDED under §C2.1 — but NOT as `swapData`. Keeper-supplied calldata was replaced by a single `uint256 dex` POOL WORD, because 1inch calldata embeds its own `amount` and every amount is computed on-chain. Re-read §C2.1 before actioning.
+
 **V3 is still the live execution path.** `V3_SWAP_ROUTER.exactInputSingle` at `LevMath._poolSwap`, and
 there is **no 1inch execution router anywhere in `src`** — the only 1inch surface is the
 `OffchainOracle` PRICE reader. This is the work behind PART C2's *"there should be no v3 in this code
@@ -12199,6 +12211,8 @@ are what this pass covers.
 | **§6b** | ***"`contract Shares` — DELETED 2026-08-17"*** | 🔴 **reads FALSE — see below** |
 
 ### 🔴 §6b IS A NAME TRAP, AND IT IS THE MIRROR OF THE ONE CLAUDE.md WARNS ABOUT
+
+⚠️ **COORDINATE STALE — `RangeState` has 0 references.** It went `RangeState` → `State` → `Shares` (TWO hops; CLAUDE.md's rename table records that this key itself went stale mid-way). The live contract is `Shares` in `Shares.sol`.
 `Shares.sol:64` declares **`abstract contract Shares`**, so a reader checking §6b's claim finds the
 thing it says was deleted and concludes the row is stale. **It is not.** The CONCRETE `contract Shares`
 (2,300 bytes, unwired) *was* deleted; `94f63006` *"Finish the rename: `Shares.sol` now declares
@@ -12640,6 +12654,8 @@ it is simply no longer ours to work around.
 
 ### C17-a. 🔴 THE 2× LOOP NEEDS **TWO AAVE ACCOUNTS**, NOT TWO CALLS — eMode forbids the second borrow
 
+⛔ **SUPERSEDED — eMode is ruled out by the owner** (*'we dont need emode for anyhting'*), and the measured eMode two-hop yielded **74.9%** dollar debt per unit collateral against **77.5%** borrowing directly, so it was dominated on the numbers too. See the note at the §C17-c row for the 5 surviving references that should be deleted.
+
 The loop is: weETH collateral → **borrow WETH** (eMode) → **borrow dollars against that WETH** →
 dollars buy WETH → wrap → weETH → redeposit. **Measured on-chain 2026-08-22** (`getConfiguration`
 bitmap, Pool `0x8787…4E2`):
@@ -12753,6 +12769,8 @@ report groups with >1 interface, then **check signatures and assignment sites pe
 it** — 5 of 10 groups were false positives.
 
 ### C17-c. 🔴 THE WETH INTERMEDIATE MAKES THE LOOP **STRICTLY WORSE**. THE DIRECT BORROW DOMINATES IT ON EVERY AXIS
+
+⛔ **SUPERSEDED BY AN OWNER DECISION — *'we dont need emode for anyhting'*.** This row's mechanism is Aave eMode (`setUserEMode`). ⚠️ **BUT THE CODE IS NOT CLEAN: 5 eMode references survive in `imports/LevVenueBase.sol` and `imports/Interfaces.sol` (measured 2026-08-26).** That is standing-rule-1 dead code, and removing it is the only work this row still implies.
 
 The owner's loop is weETH → **borrow WETH** (eMode) → **borrow dollars against that WETH** → buy WETH →
 wrap → redeposit. It works, and it reaches 2×. **But a single-account weETH→USDC borrow beats it on
@@ -14387,6 +14405,8 @@ suite-state history that `SPRINT.md` does not**; grep both before calling anythi
 ## 🔴🔴 §E330 — **THE FOLD'S BLOCKER FIGURE IS STALE BY 2.2×, AND THE "FEES DID NOT ACCRUE" CLUSTER IS A DESIGN CONSEQUENCE, NOT A TEST BUG**
 
 ### 1. ⏸️ **RE-MEASURED 2026-08-26: THE BLOCKER IS NOW 8,896 BYTES OVER, DOWN FROM 12,187 — THE FOLD GOT 3,291 BYTES CLOSER AND NOBODY BOOKED IT.**
+
+⚠️ **`derivedThetaWadAt` IS DELETED (§E301) — 0 references in `evm/src` (checked 2026-08-26).** It was a one-line pass-through to `QuidLib.derivedThetaWad(core, lo, up)`; removing its last caller gave `Quid` 181 bytes back. Any step in this row that assumes it exists is already done.
 | | at `6cc35b71` | today |
 |---|---|---|
 | `Quid` | 24,104 | **21,625** |
@@ -15165,6 +15185,8 @@ restatement of three of them until each is checked separately.
 
 
 ## 🔴 STARTED, NOT FINISHED — EXACT STATE
+
+⚠️ **COORDINATE STALE 2026-08-26 — `FixedRateFill.sol` IS FOLDED into `imports/SwapLib.sol:2511` (§E310), not deleted.** ⛔ But per CLAUDE.md this does NOT settle the row either way: `SwapLib.quoteFill` still has ZERO callers in `src`/`test`/`script`, so 'unwired, a marker for unbuilt work' remains as true as when it was written. Destale the coordinate; re-run the claim separately.
 1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
    flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
    fillable bound INSIDE `wellSkew` instead**, so the predicate now lives in the pricing path and
@@ -15538,6 +15560,8 @@ they are not pending work.**
 
 ### 🔴 STILL OPEN — the next fold's blocker, measured
 
+⚠️ **COORDINATE STALE 2026-08-26 — `collectBtcFees` is now `Vault.collectFees()` (`Vault.sol:667`).** Renamed in the §SLOP pass; substance unaffected.
+
 `Quid` ∥ `Vault` and `LevManager` ∥ `BtcLevManager` remain unfolded. **The blocker is NOT body
 placement** — `Quid` is ~1,700 lines but only ~631 are code. It is the **93 ABI selectors** on `Quid`
 (9 ERC-20, 12 ERC-4626, 72 other) against a 472-byte margin. The 4626 face is the lever, and it ties to
@@ -15554,6 +15578,8 @@ INSTANCES so the shared name is correct. **Not done here on purpose: it is squar
 area and would collide.** `onlyUsBtc` is free whenever someone wants it.
 
 #### ⏸️ RE-MEASURED 2026-08-26 — **ONE OF THE FOUR IS DONE; THE OTHER THREE ARE NOT "FREE" AND THE ROW DID NOT KNOW WHY**
+
+⚠️ **COORDINATE STALE 2026-08-26 — `collectBtcFees` NO LONGER EXISTS. It is `Vault.collectFees()` (`Vault.sol:667`), renamed in this session's §SLOP pass** (one name across both ranges). The row's substance is untouched; only the name is.
 
 The deferral reason expired: *"would collide with the BTC thread"* stopped being true when the tree
 went single-worktree — the same expiry the §MODFOLD row directly below records nobody noticing.
@@ -15670,6 +15696,8 @@ delete `onlyBtcChannels`.** Left undone here for the same reason as the renames 
 thread's file-region and this thread would collide with it.
 
 ## 🔴 §E319 — **TWO THINGS I NAMED IN PROSE AND NEVER BOOKED AS ROWS**
+
+⚠️ **`QuoteUnfillable` has ZERO references in the tree (checked 2026-08-26).** Either the symbol was renamed or it was never built — establish which BEFORE working this row; a row naming a symbol that does not exist cannot be actioned as written.
 Found by grepping this ledger for my own open items at close-out. **Both are the failure rule 12 exists
 to prevent: a finding stated in a sentence dies with the context window.**
 
@@ -15849,6 +15877,8 @@ same audit `§C26` ran, arriving at the same class of gap from the other side of
 message is not a booking: it is findable only by someone who already knows which commit to read.
 
 ### 1. 🔴 THE §E318 FOLD WAS MADE, VERIFIED, AND ERASED — THEN MADE AGAIN. THIS IS THE SECOND TIME.
+
+⚠️ **COORDINATE STALE 2026-08-26 — `ExitLib.sol` IS FOLDED, NOT DELETED.** Its bodies live in `imports/BitcoinTx.sol:661-837` (§E318). CLAUDE.md's fold table records this exact class: the grep looks identical to a tombstone, so a reader concludes the feature was removed when the CODE IS LIVE. Destale the coordinate; the row's own claim is unaffected and must be re-run separately.
 
 `ExitLib`→`BitcoinTx` and `ExternalTwap`→`OracleLib` were edited, `forge build` returned **0 errors**,
 and `check-contract-sizes.py` measured the tree. Another thread then reset the shared checkout, and
