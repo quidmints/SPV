@@ -1837,6 +1837,31 @@ B target 364,301,142,238   ->  skewWad(direct) = 4,560,112,127,142     IDENTICAL
 ⇒ **THE FUNCTION IS FLOW-BLIND AT THESE VALUES — a 2× move in `flowUsd` changes its output by ZERO.**
 Not the swap path, not the fixture's plumbing, not an attribution bug: `skewWad` itself, on inputs
 taken from the live arms.
+
+⛔ **REFUTED 2026-08-28 — THAT IS `skewWad` BEHAVING AS DESIGNED, AND A PASSING TEST ALREADY ASSERTS
+IT.** Reading the body: the first branch is
+`if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);` — and NEITHER
+term reads `flowUsd`. That is deliberate: `target == flowUsd`, so `inv1 >= target` means the range
+still holds more inventory than the flow it is shedding into, i.e. **scarcity does not bite** and the
+charge is the base. Flow-independence there is the POINT, not a defect.
+**The scarce branch below it IS flow-sensitive** — `q1 = (target - inv1) * 1e18 / target`,
+`q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target` — both divide by `target`.
+⭐ **AND IT IS ALREADY UNDER TEST: `testSkewBarrierRamp_ConvexCapAndMonotone` (`Alles.t.sol:1860+`)
+calls `skewWad` DIRECTLY at four scarcity levels** — `(T,T)` abundant asserting the BASE (*"flush
+charges the BASE, not zero"*, 475e6), then `(T/2,T)`, `(2T/3,T)`, `(T/3,T)` at q = 1/2, 1/3, 2/3 —
+**and it PASSES** (Alles 99/102, the three failures being the two `OverCommitted` and the BTC-leg
+fee). A function with a passing monotonicity test across the scarce branch is not flow-blind.
+⇒ **SO THE A/B ARMS WERE BOTH IN THE ABUNDANT BRANCH**, and identical output is the correct answer.
+The row measured two points on a flat-by-design region and read the flatness as the defect.
+▶️ **THE QUESTION THAT SURVIVES, and it is a different one:** why does the fixture never drive the
+range SCARCE (`inv1 < target`)? That is a fixture property — the same class as
+§FIXTURE-ORACLE-DIVERGES — not a `skewWad` defect. **Measure `inv0`/`inv1`/`drainUsd6` at those two
+call sites before doing anything else; the row records `target` and the output but never the
+inventory, which is the one input that decides the branch.**
+⚠️ **AND THE METHOD NOTE: "it is `pure`, so nothing else can interfere" is TRUE and was used to reach
+a false conclusion.** Purity guarantees the output is a function of the inputs; it says nothing about
+whether the inputs you varied are the ones the branch reads. Two of the five arguments were held
+fixed, and the branch taken depends on those.
 ⭐ **AND THE REASON IS ITS OWN FLUSH BRANCH, WHICH CLOSES THE LOOP WITH THE SELL-LOOP EXPERIMENT ABOVE.**
 `POOLED_USD` is ~1.5M against targets of 182k/364k, so `inv >= target` INSIDE the pure call and the
 kernel — the only flow-sensitive term — is skipped. **And it explains why the sell loop failed even at
