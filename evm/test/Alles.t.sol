@@ -128,6 +128,14 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// decision it cannot see.
     uint256 constant DEX_WETH_USDC = (uint256(1) << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640)); // V3 0.05%
     uint256 constant DEX_WBTC_USDC = (uint256(1) << 253) | uint256(uint160(0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35)); // V3 0.30%
+
+    /// The batch form of the pool word: `_batch` requires `lps.length == minOuts.length ==
+    /// dexes.length`, so a keeper sends one venue per LP. ⚠️ A ZERO-LENGTH ARRAY IS NOT "no route
+    /// supplied" — it is a `LenMismatch()`, and three cascade tests were failing on exactly that.
+    function _dexes(uint n) internal pure returns (uint256[] memory d) {
+        d = new uint256[](n);
+        for (uint i; i < n; i++) d[i] = DEX_WETH_USDC;
+    }
     /// 🔴 §E309 — WITHOUT THIS, THE PROTOCOL CANNOT PAY THE TEST, AND THE FAILURE LANDS ON THE
     ///    WRONG CONTRACT ENTIRELY. `Quid.deliverVolatile` is documented "ETH sends real ether"
     ///    (Quid.sol:1216) and routes through `QuidLib.sendEth`, whose last line is

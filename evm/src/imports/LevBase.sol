@@ -49,7 +49,19 @@ abstract contract LevBase {
     ///         rebalance and fails if the figure drifts below what one costs, so it cannot rot into
     ///         a guess. The live PRICE of that gas is never frozen: `block.basefee` and the ETH TWAP
     ///         both move underneath it.
-    uint256 internal constant GAS_REBALANCE = 400_000;
+    /// @dev    🔴 **IT WAS `400_000`, AND THAT FIGURE WAS MEASURED ON A PATH THAT COULD NOT TRADE.**
+    ///         While the volatile leg took `bytes route` and every keeper passed an empty one, a
+    ///         rebalance reverted `NoVolatileRoute()` BEFORE the swap — so the "measured" cost
+    ///         covered the Morpho borrow and nothing downstream of it. With the venue leg actually
+    ///         executing (§C2.1 pool word) one real levered rebalance costs **1,248,673** on a
+    ///         mainnet fork: borrow + Curve hub hop + Uniswap V3 + supply.
+    ///         ⚠️ **THE DIRECTION OF THE ERROR IS THE DANGEROUS ONE AND IT WOULD NOT HAVE ANNOUNCED
+    ///         ITSELF.** Under-pricing `g` makes the band TIGHTER (`h = ∛(g/(C·K))`), so the book
+    ///         rebalances more often than the fees can cover — a slow bleed, not a revert. The
+    ///         docblock above named that exact failure while the constant was causing it.
+    ///         ⇒ Since `h` is a CUBE ROOT, tripling `g` widens the band only ~1.46×, which is why
+    ///         a 3× error in the input was survivable long enough to go unnoticed.
+    uint256 internal constant GAS_REBALANCE = 1_250_000;
 
     /// @notice Half-width of the no-trade band around the IL target, in LTV bps, for a position of
     ///         `collUsdWad`. DERIVED — see `LevMath.noTradeBandBps` for the economics.

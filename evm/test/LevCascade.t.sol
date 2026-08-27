@@ -307,8 +307,11 @@ contract LevCascadeProbe is AllesFixture {
         lm.rebalance(lps[0], 0, DEX_WETH_USDC);                  // the borrow leg included -- this is the real cost
         uint used = before - gasleft();
 
-        assertLe(used, 400_000, "a real rebalance costs MORE than GAS_REBALANCE -- raise it in LevBase");
-        assertGe(used, 100_000, "GAS_REBALANCE now over-prices gas by 4x -- lower it in LevBase");
+        // MUST TRACK `LevBase.GAS_REBALANCE` (internal, so it cannot be read from here).
+        // ⚠️ The bracket is deliberately WIDE: gas-schedule drift and fork cold-access variance are
+        // both real, and the miss this test exists to catch was 3x, not 10%.
+        assertLe(used, 1_800_000, "a real rebalance costs MORE than GAS_REBALANCE -- raise it in LevBase");
+        assertGe(used,   700_000, "GAS_REBALANCE now over-prices gas -- lower it in LevBase");
         emit log_named_uint("measured rebalance gas", used);
     }
 
@@ -485,7 +488,7 @@ contract LevCascadeProbe is AllesFixture {
         uint[] memory mins = new uint[](3);
         batch[0] = lps[0]; batch[1] = lps[1]; batch[2] = lps[2];
         vm.recordLogs();
-        lm.cascadeDelever(batch, mins, new uint256[](0));
+        lm.cascadeDelever(batch, mins, _dexes(batch.length));
 
         // Assert only what IS invariant (this rides the UNPINNED real range; magnitudes vary block-to-block):
         //   (1) ISOLATED + NON-DESTRUCTIVE: every position OPEN, none made worse (post-debt ≤ pre).
@@ -542,7 +545,7 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("lp0 ilTarget bps           ", lm.ilTargetLtvBps(lps[0]));
         emit log_named_uint("lp1 debt before cascade    ", venue.debtOf(lps[1]));
         vm.recordLogs();
-        lm.cascadeDelever(batch, mins, new uint256[](0));
+        lm.cascadeDelever(batch, mins, _dexes(batch.length));
 
         // lp0 (stuck): emitted DeleverFailed and its venue state is BYTE-for-byte unchanged (atomic revert).
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -748,7 +751,7 @@ contract LevCascadeProbe is AllesFixture {
         address[] memory batch = new address[](1); batch[0] = lps[0];
         uint[] memory mins = new uint[](1);
         uint s2 = QUID.totalSupply();
-        lm.cascadeDelever(batch, mins, new uint256[](0));
+        lm.cascadeDelever(batch, mins, _dexes(batch.length));
         assertEq(QUID.totalSupply(), s2, "de-lever: leverage must not mint/burn QUID");
         // (closeLev's QUID-neutrality is the same code paths — no QUID.mint/burn anywhere in LevManager — and is
         // exercised by LevYbReal's testReal_Euler_CloseUnwindsFully. It's omitted here because closing while the
