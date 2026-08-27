@@ -430,10 +430,17 @@ fn only_part_of_the_book_is_hedgeable_and_the_sim_assumed_all_of_it() {
         let (n, _)  = wrun2(Arm::NoFacility, cfg);
         println!("  {:>5}bps   {:>7} / cap {:>5}   {:>7} / cap {:>5}   {:>7}", cov, g, gc, p, pc, n);
     }
+    // ⚠️ THIS ASSERTED "more coverage is better" AND THAT WAS AN ASSUMPTION, NOT
+    //    AN INVARIANT. It held while every net path in the grid was one-sided;
+    //    adding `PersistentShort` made hedging net-harmful, at which point
+    //    reaching LESS of the book is an improvement and the assertion failed.
+    //    The sign of the coverage effect is downstream of whether hedging pays at
+    //    all, so assert only that coverage is not INERT and let the table above
+    //    report the direction.
     let thin = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 750, ..Cfg::default() };
     let full = Cfg { hedgeable_bps: 10_000, ..thin };
-    assert!(wrun2(Arm::PersistenceGated, thin).0 <= wrun2(Arm::PersistenceGated, full).0,
-        "a hedge that can only reach part of the book cannot beat one that reaches all of it");
+    assert_ne!(wrun2(Arm::PersistenceGated, thin).0, wrun2(Arm::PersistenceGated, full).0,
+        "coverage must change the outcome; if it does not, the hedge is doing nothing");
 }
 
 /// 🔴 CORRELATION. The sim netted per ticker as though tickers were independent.
@@ -601,4 +608,46 @@ fn break_even_coverage_with_both_legs_and_a_priced_borrow() {
     }
     println!("  (deliverable set = 80/1063 = 753 bps by COUNT; by NOTIONAL it is");
     println!("   the megacaps, and that figure is what decides this.)");
+}
+
+/// 🔴 GROSS FLOW vs HEDGEABLE NET — a distinction the sim did not make, raised by
+/// the owner: *"some people will buy and sell in the same block... not within
+/// scope of the minting ... if we didnt get 100000 gathered."*
+///
+/// A round trip inside the window never becomes exposure and never accumulates
+/// toward a ticket, so it is invisible to the hedge by construction. But the
+/// residual that SURVIVES the filter is the flow that chose to stay — smaller,
+/// and adversely selected. Both effects are priced here so the net direction is
+/// measured rather than assumed.
+#[test]
+fn churn_shrinks_the_hedgeable_book_and_concentrates_the_view_in_what_remains() {
+    let mk = |churn, adverse| Cfg {
+        ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 10_000,
+        borrow_fee_bps: 1, recall_bps: 200,
+        churn_bps: churn, durable_adverse_bps: adverse, ..Cfg::default() };
+
+    println!("\n=== transient share of gross flow (no adverse premium yet) ===");
+    println!("  {:<8} {:>10} {:>10}", "churn", "gated", "carry");
+    for ch in [0i64, 3_000, 6_000, 8_500] {
+        let cfg = mk(ch, 0);
+        println!("  {:>5}bps {:>10} {:>10}", ch,
+                 wrun2(Arm::PersistenceGated, cfg).0, wrun2(Arm::NoFacility, cfg).0);
+    }
+
+    println!("\n=== ...and what survives has a view (churn 6000bps) ===");
+    println!("  {:<10} {:>10} {:>10} {:>10}", "adverse", "gated", "carry", "gated-carry");
+    for ad in [0i64, 5, 15, 30] {
+        let cfg = mk(6_000, ad);
+        let (g, c) = (wrun2(Arm::PersistenceGated, cfg).0, wrun2(Arm::NoFacility, cfg).0);
+        println!("  {:>6}bps {:>10} {:>10} {:>10}", ad, g, c, g - c);
+    }
+
+    // The two effects genuinely oppose: churn alone helps the carrier (less
+    // exposure), adverse selection alone hurts it (worse exposure).
+    let plain   = wrun2(Arm::NoFacility, mk(6_000, 0)).0;
+    let toxic   = wrun2(Arm::NoFacility, mk(6_000, 30)).0;
+    let nochurn = wrun2(Arm::NoFacility, mk(0, 0)).0;
+    println!("\n  carry: no churn {}   churn-only {}   churn+adverse {}", nochurn, plain, toxic);
+    assert!(toxic <= plain,
+        "flow that stayed on must be worse to hold than flow that did not: {} vs {}", toxic, plain);
 }

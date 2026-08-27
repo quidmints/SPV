@@ -287,13 +287,35 @@ pub struct Cfg {
     /// Cost of a forced buy-in when a borrow is recalled, as bps of short
     /// notional. Fires in the stressed cells, because that is when lenders call.
     pub recall_bps: i64,
+
+    /// 🔴 GROSS FLOW IS NOT HEDGEABLE NET, AND THE SIM HAD CONFLATED THEM.
+    /// Owner: *"some people will buy and sell in the same block... there is some
+    /// characterisation of flows that makes them not within scope of the minting
+    /// for instance if we didnt get 100000 gathered."*
+    ///
+    /// A round trip inside the observation window never becomes exposure and
+    /// never accumulates toward a $100k ticket. It is invisible to the hedge by
+    /// construction. `churn_bps` is the transient share of gross flow.
+    ///
+    /// ⚠️ AND IT CUTS BOTH WAYS, WHICH IS WHY IT IS NOT SIMPLY GOOD NEWS:
+    ///   • transient flow pays fees and creates NO exposure — free revenue, and
+    ///     the pool wants as much of it as it can get;
+    ///   • but what SURVIVES the churn filter is the flow that stayed on, which
+    ///     is the flow with a view. Filtering out the round-trippers leaves a
+    ///     residual that is SMALLER and MORE ADVERSELY SELECTED than the gross
+    ///     net suggests. A smaller book to hedge, of worse quality.
+    pub churn_bps: i64,
+    /// Extra drift against the pool on the DURABLE residual, in bps per step —
+    /// the adverse-selection premium of flow that chose to stay.
+    pub durable_adverse_bps: i64,
 }
 
 impl Default for Cfg {
     fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0, attrition_bps: 0,
             hedgeable_bps: 10_000, beta_bps: 0, liq_penalty_bps: 0, swap_fee_bps: 0,
             perp_funding_bps: 2, perp_venue_loss_bps: 0,
-            borrow_fee_bps: 0, recall_bps: 0 } }
+            borrow_fee_bps: 0, recall_bps: 0,
+            churn_bps: 0, durable_adverse_bps: 0 } }
 }
 
 pub struct Outcome {
@@ -365,8 +387,18 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
         //    gap widens precisely in the regimes that produce large moves.
         let common = net_bps.abs() * cfg.beta_bps / B;
         let net_bps = net_bps + if net_bps >= 0 { common } else { -common };
+        // Round-trippers pay fees and leave no exposure behind; only the
+        // durable residual is hedgeable or even carryable.
+        let gross_bps = net_bps;
+        let net_bps = net_bps * (B - cfg.churn_bps) / B;
         let net_dollars = DEPOSITS / 2 * net_bps / B;
         a.net_exposure = net_dollars;
+
+        // Free revenue from flow that never became exposure.
+        if cfg.churn_bps > 0 {
+            let transient = DEPOSITS / 2 * (gross_bps.abs() - net_bps.abs()) / B;
+            pnl += transient * MIN_FEE_BPS / B;
+        }
 
         // Swap fees: earned on turnover regardless of arm, so they lift every
         // arm equally and cannot change an ORDERING — recorded for realism, not
@@ -408,6 +440,10 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
         let util = (a.total_exposure * B / DEPOSITS).clamp(0, B);
         let carry = rate_bps(util, 150, &a);
         pnl += a.total_exposure * carry / B / 100;
+
+        // The residual that stayed on has a view; it drifts against us.
+        let d = d + if net_dollars > 0 { cfg.durable_adverse_bps }
+                    else if net_dollars < 0 { -cfg.durable_adverse_bps } else { 0 };
 
         // 🔴 SIGN: THE POOL IS THE COUNTERPARTY, SO IT IS SHORT WHAT BORROWERS ARE
         //    LONG. A borrower book that is net +X leaves the pool at −X, and the
