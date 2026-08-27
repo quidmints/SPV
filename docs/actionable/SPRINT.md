@@ -479,10 +479,18 @@ true, which is the exact objection `Core.sol:98-101` raises about PUSH-vs-PULL f
 reverted.** The `_syncLev` position committed there is the crystallisation fix and is CORRECT for
 that purpose; it is not the lever for this row.
 
-✅ **FIXED IN PASSING (test-side, §WRONG-RANGE):** the instrument block printed "ETH" and "BTC"
-`committedUsd18`/`POOLED_USD` rows that were ONE range read twice — `CORE` and `BTC.CORE()` are the
-same address in this fixture, and `committedUsd18()` is a TOTAL over both ranges by design so it
-cannot discriminate anyway. Relabelled; the address line stays as the guard.
+⛔ **A CORRECTION TO MY OWN BOOKING, AND THE REPO HAD ALREADY WRITTEN THE WARNING I WALKED PAST.** I
+labelled the identical `CORE` / `BTC.CORE()` addresses a **§WRONG-RANGE** defect. **They are not.**
+`VBtcLevFeeLane:61` is `setUp() public override { super.setUp(); CORE = BTC.CORE(); }` — this suite
+re-points `CORE` at the BTC instance ON PURPOSE, because it is a BTC-side suite.
+**§BACKING-HEADROOM-3PCT recorded this same false alarm a day earlier** and left the rule verbatim:
+*"BEFORE CALLING IDENTICAL RANGE FIGURES A §WRONG-RANGE BUG, CHECK WHETHER THE SUITE REBOUND `CORE`
+IN `setUp`. A `super.setUp()` override is invisible at the call site."* I did not, and the §WRONG-RANGE
+signature is convincing enough that this will happen again to whoever reads that probe next.
+✅ **WHAT WAS GENUINELY WRONG IS NARROWER AND IS FIXED:** `committedUsd18()` is a TOTAL over both
+ranges, so labelling two reads of it "ETH" and "BTC" claimed a per-range split it cannot express.
+It now prints once under its real name, with the per-range figures taken from the cores that DO
+differ — which is what let the debt term be derived instead of guessed.
 
 
 ## ✅ **[CLOSED 2026-08-26 — FIXED WITH `accrueInterest` FIRST, EXACTLY AS THE ROW'S OWN FIRST CANDIDATE SAID. `MorphoEscrowVenue.accrue()` ALREADY EXISTED and nothing in `src` had ever called it — its docblock names this very drift (*"removing the pre-accrual drift `debtOf` documents"*) but was written as advice to a KEEPER, so the money path was never obliged to. It is now `override` on `ILevVenue`; `_closeLev` calls it BEFORE sizing the flash (`debtUsd` reads `MORPHO.market()` raw, so it under-reported and the flash was borrowed short), `repay` calls it before reading `debtOf`, and `_repayCreditingLp` then repays the LP's exact SHARE slice when it can afford it — landing on zero rather than on rounding luck. The accrual is what makes the share path safe: quote and execution now read the SAME market, which is precisely what the earlier attempt lacked. `test_LevFeeLane_…` green, the two tests that regressed before stay green, and a new `test_G7_WithdrawPastFreeDepthAutoDeLevers` binds the full close end-to-end: slice 0, debt 0, position closed]**  **§DUST-BLOCKS-THE-LAST-EXIT — THE LAST LP OUT OF A POOLED VENUE COULD NOT LEAVE** (2026-08-26)
@@ -1594,6 +1602,16 @@ of the same core by design. ⚠️ **Deployment was checked too and is right:** 
 it — the burn now releases the basket's share on the ETH path via `basketLeg`, and `burnInRange` is
 SHARED, so the BTC range gets it too. **Next: measure whether this headroom GROWS across repeated
 deliver/burn cycles (fixed) or shrinks (still ratcheting).**
+🔴 **AMENDED 2026-08-26 — "TIGHTNESS" UNDERSTATES IT BY AN ORDER OF MAGNITUDE, AND THAT CHANGES WHAT
+THE FIX IS.** This row reads the failure as the delivery's own commit crossing the last 3.2%. Measured
+at the revert, `committedUsd18()` is **$272,662.105** against TVL **$157,000.005** — the intermediate
+state claims **174% of TVL**, not 100.1%. The delivery does not nibble the headroom; `basketUsd` grows
+$272,662 → $393,324 inside `repack`'s resync via a single **ADD** (`modLP(+149499999,
++120662103868)`) that is followed by two offsetting burns, and the gate is evaluated on the ADD.
+⇒ **So no amount of headroom fixes this.** Widening it (or waiting for the ratchet to stop consuming
+it) leaves a gate that fires on a value which was never simultaneously true. See §DELIVER-BACKING for
+the decomposition and the two candidate fixes (burn-before-add, or evaluate the gate at operation
+end). ⚠️ The headroom question above is still worth answering — it just is not this failure's cause.
 
 ## ⏸️ **§SWALLOW-RESIDUAL — the 54 refine to 18, and they are the ones that need READING** (2026-08-25)
 

@@ -1142,15 +1142,20 @@ contract VBtcLevFeeLane is AllesFixture {
             (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
             emit log_named_uint("TVL (usd6)              ", dd[14]);
             emit log_named_uint("depegLoss (usd6)        ", dpg);
-            // ⚠️ §WRONG-RANGE — **THESE LABELS WERE LYING, AND THE ADDRESS LINE IS WHAT PROVED IT.**
-            //    `CORE` and `BTC.CORE()` print the SAME address in this fixture, so the two rows
-            //    marked "ETH" and "BTC" were one range read twice — the exact class this repo records
-            //    at `Alles.t.sol:1404` as costing 246 failures. `committedUsd18()` is additionally a
-            //    TOTAL over both ranges (`RangeBacking.total()`), so it reads identically from either
-            //    core BY DESIGN and cannot discriminate at all. Only `POOLED_USD` is per-range, and
-            //    it agreed — which is the tell.
-            //    ⇒ Print the TOTAL once, under its real name, and keep the address line as the guard
-            //    that catches the day these stop being the same object.
+            // ⚠️ **THE LABELS WERE WRONG, BUT NOT FOR THE REASON I FIRST WROTE — AND THE REPO HAD
+            //    ALREADY WARNED ABOUT EXACTLY THIS MISREADING.** `CORE` and `BTC.CORE()` print the
+            //    same address, which is the §WRONG-RANGE signature (the class recorded at
+            //    `Alles.t.sol:1404` as costing 246 failures) — and I booked it as one. It is NOT.
+            //    `:61` is `setUp() public override { super.setUp(); CORE = BTC.CORE(); }`: this
+            //    suite DELIBERATELY re-points `CORE` at the BTC instance because it is a BTC-side
+            //    suite. §BACKING-HEADROOM-3PCT already recorded the same false alarm and its rule —
+            //    *"BEFORE CALLING IDENTICAL RANGE FIGURES A §WRONG-RANGE BUG, CHECK WHETHER THE
+            //    SUITE REBOUND `CORE` IN `setUp`. A `super.setUp()` override is invisible at the
+            //    call site."* Deployment is right too (`DeployLib:136-137` build two cores).
+            //    ⇒ What WAS wrong is narrower and still worth fixing: `committedUsd18()` is a TOTAL
+            //    over both ranges (`RangeBacking.total()`), so labelling two reads of it "ETH" and
+            //    "BTC" claims a per-range split it cannot express. Print the total once under its
+            //    real name, and the per-range figures from the cores that actually differ.
             emit log_named_uint("committedUsd18 (BOTH)   ", CORE.committedUsd18());
             emit log_named_uint("this range POOLED_USD   ", CORE.POOLED_USD());
             emit log_named_address("CORE                    ", address(CORE));
