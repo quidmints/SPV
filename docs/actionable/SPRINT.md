@@ -13,11 +13,11 @@
 > **THE 39 ARE NOT 39 PROBLEMS.** 32 are ONE blocked input; 7 are real and every one is diagnosed:
 > | failure | why | who unblocks it |
 > |---|---|---|
-> | 32 × `NoVolatileRoute()` | §ROUTE-NEEDS-TWO-PHASE — the swap amount is `venue.borrow()`'s RETURN, known only mid-tx, and a 1inch route encodes its amount. **The key is banked and works**; what is missing is the simulate→fetch→execute keeper loop. **Not a credential problem.** | build the `lev_keeper` loop |
+> | ~~32 × `NoVolatileRoute()`~~ ✅ **CLOSED 2026-08-26** | The diagnosis was right and the proposed fix was not needed: because a 1inch route encodes its amount and the amount is only known mid-tx, the answer was to stop sending routes. Entrypoints take a `uint256 dex` (one pool); the contract builds the calldata. No key, no loop, no fetch. | — |
 > | `backing` | §BACKING-HEADROOM-3PCT — committed is 96.8% of TVL; the delivery crosses the last 3.2%. The gate is correct. | — |
-> | `ChopIsBenign` | §C25 — the exit drains asymptotically. **Deliberately left failing**; its 0.05 tolerance is the right assertion. | design |
+> | ~~`ChopIsBenign`~~ ✅ **§C25 CLOSED 2026-08-26** | the shortfall is `levBuf`, the debt-funded buffer: `POOLED` is capacity (`levPooled + levBuf`), `rangeETH` counts only ETH a venue holds. Measured gap 0.100497 vs levBuf 0.107576. | — |
 > | `UNITB` control | §UNITB — `skewWad` is FLOW-BLIND while `inv >= target`, proven by a `pure` call. The fill itself raises `POOLED_USD`, so the measurement destroys its own precondition. | design |
-> | `PassiveLp` precondition | route-blocked in disguise — fails on `debtOf == 0`, not on `NoVolatileRoute` | same as the 32 |
+> | ~~`PassiveLp` precondition~~ ✅ **CLOSED 2026-08-26** | was route-blocked in disguise; `test_PassiveLp_NotExpensedByLeveredLpLifecycle` passes | — |
 > | `testLeverage_LvrControlVsTreatment` | §C3.1, cross-subsidy | open |
 > | `testBtcLp_swapInAccruesTheBtcLegFee` | §BTC-LEG-FEE — needs the v4 trading-fee decision | **owner** |
 >
@@ -220,7 +220,7 @@ touching either.**
 `_rallyRange`, then again either side of the auto-reseat. One run, and it separates "the fixture never
 moved the ring" from "the reseat does not track".
 
-## ✅ **[CLOSED 2026-08-25 — the census was COMPLETED and its fixes landed: 16 raw candidates refined to 1 real, 15 read both instances deliberately, and the `src`-side §REDEEM-WRONG-RANGE was fixed. Independently re-swept today: shapes 1 (`CORE.f() + CORE.f()`) and 2 (identical eth/btc RHS) are **0 surviving**. ⚠️ That re-sweep is SINGLE-LINE only and cannot see shapes 3-6 — it corroborates, it does not replace the row's own refinement. `test_V1bdisc` is the named survivor and is NOT this class; it fails on `NoVolatileRoute`]**  **§WRONG-RANGE-CENSUS — 21 SITES, SIX DISGUISES, AND ONE OF THEM WAS IN `src`** (2026-08-24)
+## ✅ **[CLOSED 2026-08-25 — the census was COMPLETED and its fixes landed: 16 raw candidates refined to 1 real, 15 read both instances deliberately, and the `src`-side §REDEEM-WRONG-RANGE was fixed. Independently re-swept today: shapes 1 (`CORE.f() + CORE.f()`) and 2 (identical eth/btc RHS) are **0 surviving**. ⚠️ That re-sweep is SINGLE-LINE only and cannot see shapes 3-6 — it corroborates, it does not replace the row's own refinement. `test_V1bdisc` is the named survivor and is NOT this class. ⚠️ **DESTALED 2026-08-26: it no longer fails on `NoVolatileRoute` — that is closed tree-wide. It now fails its own PREMISE (the ETH range's debt must EXCEED its own USD leg: 562e18 vs 42,606e18), i.e. a FIXTURE-CALIBRATION issue, still not this class**]**  **§WRONG-RANGE-CENSUS — 21 SITES, SIX DISGUISES, AND ONE OF THEM WAS IN `src`** (2026-08-24)
 
 **The dominant defect class in this tree.** Each disguise defeated the sweep written for the previous
 one, which is why a single regex kept "finding them all" and kept being wrong:
@@ -431,6 +431,77 @@ unsafe one was in the user-callable path.** Now both use the bounded form; the e
 ⚠️ Reachability is gated by `position.owner != owner ⇒ revert NotOwner()`, so an owner with a position
 should always have ≥1 id — i.e. it needs a broken invariant to fire. **Fixed anyway: the cost is zero
 and a panic is a worse failure than a revert** (no reason, and it reads as a compiler/ABI fault).
+
+# 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
+
+## ✅ **§POOL-VENUE-PREMISE — ONE DELETED ASSUMPTION, FIVE LIVE SITES, AND TWO OF THEM WERE THE SAFETY NET**
+
+`LevVenueBase` runs ONE Morpho position under `address(this)`. Five places still assumed the old
+`onBehalf = lp` model, and they failed in ways that read as unrelated bugs:
+
+| site | symptom | why |
+|---|---|---|
+| `LevYbReal.testReal_Morpho_Liquidation…` | `position is healthy` | liquidating an account with no position — a TRUE statement |
+| `LevCascade._seizeReal` | `inconsistent input` | read 0 shares from an empty slot → `liquidate(…,0,0,"")` |
+| `LeverageCrossSubsidyProbe._seizeRealEth` | same | same |
+| `test_Isolation_StuckLpDoesNotTouchAnother` | `0 != 1` DeleverFailed | bricking via `setAuthorization` is a NO-OP — an LP can no longer brick the venue at all, which is STRONGER than the isolation being asserted |
+| **`lev_keeper.decide`** | **nothing. silent.** | **the safety gate read the PER-LP LTV while Morpho liquidates on the AGGREGATE** |
+
+🔴 **THE LAST ONE IS THE REAL FINDING AND IT FAILED OPEN.** An LP can be comfortable while the pool
+sits one tick from liquidation; a keeper gated on `getCurrentLtvBps` HOLDS straight through it.
+Nothing reverts, nothing logs, until the pool is seized — and pooled, that lands on EVERY LP
+pro-rata. Fixed with `LevBase.poolLtvBps()` (reusing `LevMath.ltvBps` + `collValueUsd`, the same two
+bodies the per-LP view uses) and `decide` gating on `max(pool, lp)`: the pool figure is the TRIGGER,
+the per-LP one is the TARGET. Strict superset of the old gate. The anvil e2e now returns a
+comfortable LP (3000) inside a stressed pool (9000) — the case the old keeper missed.
+⚠️ **Seven Rust comments promised the venue's "ISOLATED liquidation — that LP only, never the rest".
+False, and it was an active contract, not decoration.** Corrected with the consequence stated: a
+keeper miss used to cost one LP and is now socialised, so the keeper matters MORE.
+
+## ✅ **§KEEPER-WAS-DEAD — every keeper tx reverted, and a comment said so for weeks**
+
+`lev_keeper` encoded an EMPTY `bytes route` and documented it: *"the route is EMPTY here because
+nothing sources one yet … so this call reverts until discovery lands."* With the pool word there is
+nothing to discover. Also fixed: the validating signer's allowlist was stale on FOUR entries and
+matches by SELECTOR, so it refused every keeper tx — fails CLOSED, which is why it could sit broken
+until the keeper went quiet. All eight lev signatures cross-checked against the declarations.
+⚠️ **`dex_word_wbtc()` is a SEPARATE pool** — `_stableToWbtc` swaps USDC→WBTC, and the two V3 pools
+have OPPOSITE `token0` orderings, which is why deriving `zeroForOne` on-chain is load-bearing.
+
+## ✅ **§CRYSTALLISE-ANYTIME — a guard that used the quantity it was protecting as its own predicate**
+
+Owner: *"withdraw can happen anytime, and it doesn't matter when the LP last made a move — their most
+accurate crystallisation across eth and btc will pop."*
+The venue side was ALREADY an accumulator: `collateralOf`/`debtOf` are live pro-rata slices, so
+interest and seizures reach every LP with no per-LP bookkeeping. Only the RANGE's mirror
+(`levPooled`/`levBuf`) lagged — and it matters for P&L because the fee weight IS `pooled + levBuf`.
+🔴 `_withdraw` reconciled only `if (levPooled[msg.sender] > 0)` — **it read the STALE MIRROR to decide
+whether to refresh the stale mirror**, so a mirror wrongly reading zero could never self-correct.
+Now unconditional, affordable via an all-zero fast path (3 SLOADs). BTC mirrored: `_syncLev` extracted
+and called first from `collectFees` and from `_resize` — the LP's EXIT, and the last moment anything
+can be corrected for them.
+⏸️ **BOOKED, NOT DONE:** `_depositImpl` settles and refreshes bookmarks at the same mirror weight, so
+a deposit can forfeit fees earned on the difference. An UNDER-credit, not a leak; reconciling there
+runs a second `_rebalance` in one call, so it needs its own verification.
+
+## ✅ **§GAS-REBALANCE-MEASURED-A-PATH-THAT-COULD-NOT-TRADE**
+
+`GAS_REBALANCE = 400_000` was an honest measurement of an INCOMPLETE path: while every keeper passed
+an empty route, a rebalance reverted before the swap. A real one costs **1,248,673** (borrow + Curve
+hub + V3 + supply). ⚠️ The error ran in the direction that does not announce itself — under-pricing
+`g` TIGHTENS the band (`h = ∛(g/(C·K))`), so the book rebalances into fees it cannot cover. It
+survived because `h` is a cube root: a 3× error in `g` is only ~1.46× in the band.
+
+## ✅ **§RENAME-LEFTOVERS — swept, and the tree is clean**
+
+`evm/src/Vogue.sol` was an UNTRACKED ZERO-BYTE file recreated at the old path after `22ec766f`. It
+compiled (no contracts in it), so nothing flagged it, and it is what made the tree look un-rebased.
+Also removed `evm/test/btc/gen_err.txt` (empty, tracked, 0 refs) and `quid-bridge/src/oneinch.rs`
+(188 lines, superseded: its premise *"Solidity cannot build one"* is now false). Swept clean after:
+no untracked files in any source dir, no zero-byte source files, no old-name `.sol`, no stale old
+symbols in live code.
+
+---
 
 # SPRINT — what two sessions leave open
 
@@ -1734,7 +1805,22 @@ transaction over one stale quote, and a refusal is a NORMAL outcome of a moving 
 still thin, and widening the guard weakens the deviation test that makes a permissionless push safe.
 **The event makes the drift visible; it does not decide the policy.**
 
-## 🔴 **§ROUTE-THE-REST — SEVEN lev entrypoints are unrouted, and the byte budget to fix it now exists** (2026-08-25)
+## ✅ **[CLOSED 2026-08-26 — §C2.1 SOLVED IT BY DELETING THE PROBLEM, NOT BY SOURCING A ROUTE. The
+entrypoints no longer take `bytes route`; they take a `uint256 dex` naming ONE POOL, and `_aggSwap`
+builds the router calldata itself with the amount it actually holds. This row's own diagnosis is
+what made that the right move and it was CORRECT: "a 1inch route ENCODES its amount" and the amount
+is `venue.borrow()`'s return — so a fetched route is stale by construction, and the simulate→fetch→
+execute loop this row proposed would have raced the very accrual it was built to survive. A POOL WORD
+HAS NO AMOUNT IN IT, so there is nothing to fetch, nothing to simulate, and no key. The row's own
+option (2) is what shipped, and the reason it said "NOT ATTEMPTED — it needs V6's `dex`-word bit
+layout verified against the DEPLOYED router, and guessing that encoding produces a revert
+indistinguishable from the one we already have" is exactly right: it was MEASURED, not guessed —
+four candidate encodings on a fork, one moved tokens (1,000 USDC → 0.39954 WETH ≈ $2,503/ETH).
+Layout: protocol in bits 253-255, bit 247 `zeroForOne`, pool in the low 160 — and the contract
+DERIVES the direction from `tokenIn` rather than trusting it. ⚠️ A V2 candidate returned `ok` with
+ZERO tokens moved, which is why `_aggSwap` still bounds on the balance delta. `oneinch.rs` is
+DELETED as superseded; the keeper, the SPA and the signer allowlist all send pool words; 0 drift on
+`check-client-abis`. No `NoVolatileRoute()` remains in any suite]**  **§ROUTE-THE-REST — SEVEN lev entrypoints are unrouted, and the byte budget to fix it now exists** (2026-08-25)
 
 §ROUTE-BLOCKED-24 says the failures need "a route". **This row says WHERE.** Measured in
 `LevManager.sol`: exactly **ONE** entrypoint accepts a route.
@@ -2120,7 +2206,22 @@ separate funding output, or a second pre-signed exit paying the pool's script; (
 (1) is shown impossible. ⚠️ **Until (1) lands the gap is LIVE**, and it is the honest answer to
 "are we fully immune": **for LP funds yes, for pool inventory no.**
 
-## 🔴🔴 **§ROUTE-NEEDS-TWO-PHASE — the 32 failures are NOT blocked on a key. THE AMOUNT IS ONLY KNOWN MID-TRANSACTION** (2026-08-25)
+## ✅ **[CLOSED 2026-08-26 — §C2.1 SOLVED IT BY DELETING THE PROBLEM, NOT BY SOURCING A ROUTE. The
+entrypoints no longer take `bytes route`; they take a `uint256 dex` naming ONE POOL, and `_aggSwap`
+builds the router calldata itself with the amount it actually holds. This row's own diagnosis is
+what made that the right move and it was CORRECT: "a 1inch route ENCODES its amount" and the amount
+is `venue.borrow()`'s return — so a fetched route is stale by construction, and the simulate→fetch→
+execute loop this row proposed would have raced the very accrual it was built to survive. A POOL WORD
+HAS NO AMOUNT IN IT, so there is nothing to fetch, nothing to simulate, and no key. The row's own
+option (2) is what shipped, and the reason it said "NOT ATTEMPTED — it needs V6's `dex`-word bit
+layout verified against the DEPLOYED router, and guessing that encoding produces a revert
+indistinguishable from the one we already have" is exactly right: it was MEASURED, not guessed —
+four candidate encodings on a fork, one moved tokens (1,000 USDC → 0.39954 WETH ≈ $2,503/ETH).
+Layout: protocol in bits 253-255, bit 247 `zeroForOne`, pool in the low 160 — and the contract
+DERIVES the direction from `tokenIn` rather than trusting it. ⚠️ A V2 candidate returned `ok` with
+ZERO tokens moved, which is why `_aggSwap` still bounds on the balance delta. `oneinch.rs` is
+DELETED as superseded; the keeper, the SPA and the signer allowlist all send pool words; 0 drift on
+`check-client-abis`. No `NoVolatileRoute()` remains in any suite]**  **§ROUTE-NEEDS-TWO-PHASE — the 32 failures are NOT blocked on a key. THE AMOUNT IS ONLY KNOWN MID-TRANSACTION** (2026-08-25)
 
 The owner supplied a 1inch dev-portal key and it WORKS — live quote `1 WETH -> 2,464.035528 USDC`,
 and `/swap` returns **552-3,272 bytes** of calldata whose `tx.to` is `0x1111...2A65`, **exactly the
@@ -2159,7 +2260,22 @@ is the wrong trade (rule 18).** Land it with the keeper loop, and free bytes fir
 ⚠️ `bytes transient` is NOT available (`Error 1834`), so `_activeRoute` needs ordinary storage and an
 explicit `delete`; `_activeKeeper` needs none because it IS transient.
 
-## 🔴 **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
+## ✅ **[CLOSED 2026-08-26 — §C2.1 SOLVED IT BY DELETING THE PROBLEM, NOT BY SOURCING A ROUTE. The
+entrypoints no longer take `bytes route`; they take a `uint256 dex` naming ONE POOL, and `_aggSwap`
+builds the router calldata itself with the amount it actually holds. This row's own diagnosis is
+what made that the right move and it was CORRECT: "a 1inch route ENCODES its amount" and the amount
+is `venue.borrow()`'s return — so a fetched route is stale by construction, and the simulate→fetch→
+execute loop this row proposed would have raced the very accrual it was built to survive. A POOL WORD
+HAS NO AMOUNT IN IT, so there is nothing to fetch, nothing to simulate, and no key. The row's own
+option (2) is what shipped, and the reason it said "NOT ATTEMPTED — it needs V6's `dex`-word bit
+layout verified against the DEPLOYED router, and guessing that encoding produces a revert
+indistinguishable from the one we already have" is exactly right: it was MEASURED, not guessed —
+four candidate encodings on a fork, one moved tokens (1,000 USDC → 0.39954 WETH ≈ $2,503/ETH).
+Layout: protocol in bits 253-255, bit 247 `zeroForOne`, pool in the low 160 — and the contract
+DERIVES the direction from `tokenIn` rather than trusting it. ⚠️ A V2 candidate returned `ok` with
+ZERO tokens moved, which is why `_aggSwap` still bounds on the balance delta. `oneinch.rs` is
+DELETED as superseded; the keeper, the SPA and the signer allowlist all send pool words; 0 drift on
+`check-client-abis`. No `NoVolatileRoute()` remains in any suite]**  **§ROUTE-BLOCKED-24 — HALF THE FAILING SUITE IS ONE MISSING INPUT, NOT 24 DEFECTS** (2026-08-25)
 
 **Census at `15d2a4a2` (drpc, 219.87s): 468 passed / 48 failed / 516 total, 83 suites.** Authoritative
 per-suite counts from the run's OWN `Failing tests:` summary (they reconcile to 48):
@@ -15015,20 +15131,29 @@ simply was not what held the tail open.
 2. ⭐ **THE LEVERAGE NET-EQUITY IS NOT DELIVERABLE AT ALL** — *"solvency backing … but NOT
    deliverable from this Vault (unwind-only via closeLev — the LP gets it back by repaying debt +
    withdrawing coll)"*.
-📌 **BOTH OF MY CANDIDATES ARE NOW ELIMINATED, BY READING RATHER THAN BY A THIRD GUESS.**
-- ⛔ **(2) REFUTED — THE LP IS NOT LEVERED.** `_stageIL` (`Alles.t.sol:1102`) does a plain
-  `ETH.deposit{value: lpEth}(0, lp)` and calls itself an *"all-Galaxy ETH LP"*. There is no
-  `openLev` anywhere in `ChopIsBenign`, so the unwind-only leverage net-equity cannot be the
-  residual. My "the stuck bag is the levered slice" reading was wrong.
-- ⛔ **(1) DOES NOT FIT THE NUMBERS EITHER.** The weETH bound is `curvePool.balances(0) * 9/10`, and
-  `ETHERFI_CURVE_POOL` holds **2,207 WETH** on mainnet (measured this session) — a ~1,986 ETH
-  ceiling against a **50 ETH** position. Three orders of magnitude of headroom; it cannot bind.
+✅ **§C25 IS CLOSED, AND THE ANSWER WAS A THIRD QUANTITY NEITHER HYPOTHESIS NAMED** (2026-08-26).
+The row's own instruction — instrument, do not reason — is what produced it. Two candidates were
+eliminated by reading, and the cause was neither:
+- ⛔ **(2) REFUTED — THE LP IS NOT LEVERED.** `_stageIL` does a plain `ETH.deposit` and calls itself
+  an *"all-Galaxy ETH LP"*; there is no `openLev` anywhere in `ChopIsBenign`.
+- ⛔ **(1) DOES NOT FIT THE NUMBERS.** The weETH bound is `curvePool.balances(0) * 9/10`, and
+  `ETHERFI_CURVE_POOL` holds **2,207 WETH** — a ~1,986 ETH ceiling against positions of ~5.
+- ⛔ **AND THE LEVERED NET-EQUITY IS SUBTRACTED BY `deliverableETH`, NOT BY `rangeETH`** — which is
+  the function the failing assertion actually reads. That alone rules out the whole family.
 
-⇒ **SO THE CAUSE IS NOT ANY OF THE THREE THINGS PROPOSED SO FAR, AND THE ROW'S ORIGINAL INSTRUCTION
-IS THE ONE THAT SURVIVES: instrument `_withdraw`'s delivered-vs-requested per call and find which
-cap binds.** I skipped that step twice — once for the `- inPool` diagnosis and once for the
-levered-slice one — and it produced a falsified prediction and a refuted hypothesis in a row.
-⚠️ **DO NOT PROPOSE A FOURTH MECHANISM FROM READING.** The next move is the measurement.
+⭐ **MEASURED: THE STUCK BAG IS THE DEBT-FUNDED BUFFER, `levBuf`.** Gap (`POOLED − rangeETH`) =
+**0.100497 ETH** against `levBuf` = **0.107576**, so `rangeETH + levBuf` clears `POOLED` with
+0.00708 ETH to spare — the honest-LP margin the assertion was always about.
+**WHY, and it is by construction:** `CORE.POOLED()` is the range's CAPACITY, which `Quid.sol:979`
+pins as `levPooled + levBuf` — the levered net leg PLUS a buffer funded by BORROWED DOLLARS.
+`AUX.rangeETH()` counts only ETH held at a venue, so it cannot include a slice no ETH backs. With
+leverage live, `rangeETH < POOLED` by ~`levBuf`, necessarily. The assertion is restated in the units
+it always meant: dropping the buffer term would have been the clamp; adding it is the identity.
+⚠️ **A SECOND, SEPARATE WINDOW WAS FOUND IN THE SAME PASS AND IS ALSO REAL:** between a seizure and
+its `syncLev`, the range's minted depth still reflects the pre-seizure position, so `POOLED`
+legitimately over-states what backs it (measured 5.118 vs 7.776 — the gap IS the seized collateral).
+The backing claim is about the RECONCILED state. That is now guaranteed rather than hoped for: see
+the crystallisation row below.
 
 *(original prediction, kept because it was wrong and the record matters:)*
 🔴 **STAYS OPEN (rule 16) — THE PREDICTION IS STATED AND NOT YET RUN.** `ChopIsBenign` fails on a
