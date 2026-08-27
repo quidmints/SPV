@@ -113,8 +113,10 @@ describe("Seeker ↔ program parity", function () {
   it("P.4 The app does not reach for instructions that are not a user's to send", () => {
     // Liquidation is permissionless keeper work, flash loans are a settlement
     // concern, and config is admin-only. None of them belong behind a tap.
+    // `setKestrel` was dropped from this list when it was folded into `update_config`. It is NOT
+    // an omission: an absent instruction cannot be called, so asserting it is absent is vacuous.
     for (const forbidden of ["liquidate", "sweep", "flashBorrow", "flashRepay",
-                             "initConfig", "updateConfig"]   // setKestrel folded into updateConfig) {
+                             "initConfig", "updateConfig"]) {
       expect(hook.includes(`.${forbidden}(`), `app should not call ${forbidden}`).to.be.false;
     }
     console.log("  ✓ No keeper, settlement or admin instructions in the app");
