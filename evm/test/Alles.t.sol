@@ -118,6 +118,16 @@ interface IAngelF8N {
 /// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
 /// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
 contract AllesFixture is ForkPin, ExitFixture {
+    /// §C2.1 — THE POOL WORDS THE KEEPER SUPPLIES. `_aggSwap` takes ONE `uint256` naming a venue
+    /// (protocol in bits 253-255, pool in the low 160) and builds the router calldata itself, so a
+    /// test supplies the same thing a keeper would and nothing else. **Both are MEASURED, not
+    /// documented** — see `UNOSWAP_SELECTOR`'s header in `Interfaces.sol` for the fork probe.
+    /// ⚠️ THE DIRECTION FLAG IS DELIBERATELY ABSENT: `_aggSwap` derives `zeroForOne` from `tokenIn`
+    /// against the pool's own `token0()`, so ONE word covers the lever-up and the de-lever that
+    /// unwinds it. A test that had to pick a direction would be encoding a contract-internal
+    /// decision it cannot see.
+    uint256 constant DEX_WETH_USDC = (uint256(1) << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640)); // V3 0.05%
+    uint256 constant DEX_WBTC_USDC = (uint256(1) << 253) | uint256(uint160(0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35)); // V3 0.30%
     /// 🔴 §E309 — WITHOUT THIS, THE PROTOCOL CANNOT PAY THE TEST, AND THE FAILURE LANDS ON THE
     ///    WRONG CONTRACT ENTIRELY. `Quid.deliverVolatile` is documented "ETH sends real ether"
     ///    (Quid.sol:1216) and routes through `QuidLib.sendEth`, whose last line is

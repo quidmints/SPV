@@ -6,7 +6,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenue } from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -305,7 +305,7 @@ library LevMath {
     ///         is the debt-delta (USD18). Returns (borrowed, wbtcBought) for the manager to emit. Byte lives HERE so
     ///         the manager stays under EIP-170 (mirrors how the ETH lever mechanics live in this lib).
     /// @dev (WBTC-mode) config bundle — keeps the leg fns under the no-via_ir 16-slot stack limit (6 params, not 9).
-    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; bytes route; }
+    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; uint256 dex; }
 
     /// @dev §E240-tri — PARAMETER NAMES ARE COMMENTED OUT, NOT REMOVED. The body reverts, so the
     ///      names are unused (solc 5667) -- but they are the restore contract for §V-R1 and deleting
@@ -322,7 +322,7 @@ library LevMath {
                                 * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorWbtc) minOut = floorWbtc;   // the oracle floor always wins
         }
-        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.route);
+        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.dex);
         IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);
         venue.supply(lp, wbtcBought);
     }
@@ -369,7 +369,7 @@ library LevMath {
                                   * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
+        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.dex);
         IERC20Min(stable).approve(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
         if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);   // realized surplus → LP
     }
@@ -492,7 +492,7 @@ library LevMath {
     /// in `SellCtx` because that struct is already threaded `_sellAndPay → sellColl → sellWeeth →
     /// _wethToStableDex`: one memory pointer, so it costs no extra stack in a no-via_ir build.
     /// EMPTY means "no route supplied" and the leg falls back to V3 — see `_wethToStableDex`.
-    struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; bytes route; }
+    struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; uint256 dex; }
 
     /// @notice Sell `pulled` collateral → `stable` at the anti-MEV oracle floor, peeling the keeper's gas (native ETH)
     ///         from the over-collateralization headroom. `pulled` is always weETH — all collateral is weETH.
@@ -606,28 +606,56 @@ library LevMath {
     ///         permissionless, so the caller picks WHEN and the contract picks the PRICE BOUND —
     ///         that division is what makes a permissionless rebalance anti-sandwich, and it is
     ///         unchanged by dropping the aggregator.
-    /// @notice Execute a KEEPER-SUPPLIED 1inch route. §C2.1 (owner: "1inch only").
-    /// @dev  🔴 THIS `call`s AN EXTERNAL CONTRACT WITH CALLDATA THIS CONTRACT DID NOT BUILD, WHILE
-    ///       HOLDING FLASH-BORROWED FUNDS. Three things make that safe and ALL THREE ARE REQUIRED:
-    ///        1. THE CALLEE IS A PINNED CONSTANT (`ONEINCH_ROUTER`). The keeper chooses the ROUTE,
-    ///           never the DESTINATION. Making it a parameter would be a rug vector, not a feature.
+    /// @notice Execute a volatile hop on 1inch AggregationRouterV6. §C2.1 (owner: "1inch only").
+    /// @param dex THE KEEPER SUPPLIES ONE THING: **WHICH POOL**. Packed as V6's `Address` word —
+    ///        low 160 bits the pool, protocol in bits 253-255 (`0` UniswapV2, `1` UniswapV3,
+    ///        `2` Curve), and for V3 bit 247 is `zeroForOne`. `0` means "no pool supplied".
+    /// @dev  ⭐ **THE KEEPER DOES NOT SUPPLY CALLDATA, AND THAT IS THE WHOLE POINT OF THIS SHAPE.**
+    ///       This used to take `bytes route` and `call` it verbatim, which is the standard 1inch
+    ///       integration and is WRONG HERE — **1inch calldata embeds its own `amount`, and every
+    ///       amount that reaches this function is computed ON-CHAIN.** `_stableToWethSor` passes
+    ///       `_hubSwap(...)`'s CURVE OUTPUT; `leverUpBuyWbtc` passes `venue.borrow(...)`'s return.
+    ///       Neither is predictable off-chain to the wei, so a pre-built route's amount is stale by
+    ///       construction: too high and the router's `transferFrom` reverts, too low and it
+    ///       under-swaps into a `Slippage()` four frames away. **The keeper could not have supplied
+    ///       a working route, only a route that happened to work.**
+    ///       ⇒ Taking the POOL and building the calldata here makes that class UNCONSTRUCTIBLE
+    ///       (standing rule 17) rather than guarded. The contract owns `tokenIn`, `amountIn`,
+    ///       `minOut` and the callee; the keeper owns only the venue choice, which is the one part
+    ///       it actually knows better than we do.
+    /// @dev  🔴 THE THREE PROPERTIES THAT KEEP AN EXTERNAL CALL SAFE WHILE HOLDING FLASH-BORROWED
+    ///       FUNDS ARE ALL STRICTLY STRONGER NOW, BUT STILL REQUIRED:
+    ///        1. THE CALLEE IS A PINNED CONSTANT (`ONEINCH_ROUTER`), and now so is the SELECTOR.
+    ///           The keeper picks a pool, never a destination and never a function.
     ///        2. `minOut` IS ENFORCED ON THE BALANCE DELTA, NEVER ON THE ROUTER'S RETURN VALUE.
-    ///           A hostile route can return any number it likes; it cannot fake our own balance.
-    ///           This is the same discipline `_poolSwap` already uses, and the reason it is stated
-    ///           here is that the return value is the OBVIOUS thing to trust and is worthless.
-    ///        3. THE APPROVAL IS RESET ON BOTH SIDES, including the failure path — an allowance that
-    ///           survives a reverted swap is a standing claim on the next block's balance.
-    ///       ⚠️ An empty `route` is REFUSED rather than treated as a no-op: silently swapping nothing
-    ///       and returning 0 would surface as a slippage revert four frames away.
-    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, bytes memory route)
+    ///           ⚠️ NOT REDUNDANT WITH THE `minReturn` WE NOW PASS: **measured 2026-08-26, a V2
+    ///           pool word against `unoswap` returned `ok` AND MOVED ZERO TOKENS** — the router's
+    ///           own bound did not fire. Only our balance delta caught it. A hostile or merely
+    ///           mis-encoded pool cannot fake our own balance.
+    ///        3. THE APPROVAL IS RESET ON BOTH SIDES, including the failure path — an allowance
+    ///           that survives a reverted swap is a standing claim on the next block's balance.
+    ///       ⚠️ `dex == 0` is REFUSED rather than treated as a no-op: silently swapping nothing and
+    ///       returning 0 would surface as a slippage revert four frames away.
+    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 dex)
         internal returns (uint256 out)
     {
         if (amountIn == 0) return 0;
-        if (route.length == 0) revert NoVolatileRoute();
+        if (dex == 0) revert NoVolatileRoute();
+        // ⭐ `zeroForOne` IS DERIVED, NEVER TRUSTED. The keeper names a POOL; which way we cross it
+        //    is a fact about `tokenIn`, which this frame owns. Reading `token0()` costs one cold
+        //    SLOAD-equivalent and removes the last thing a keeper could get wrong — and it means ONE
+        //    pool word serves BOTH directions, so a lever-up and the de-lever that unwinds it take
+        //    the identical argument. A keeper that had to flip the bit by direction would be
+        //    re-deriving state it reads a block earlier than we execute it.
+        if (dex >> 253 == PROTO_UNIV3) {
+            dex &= ~ZERO_FOR_ONE;                                  // ignore whatever the keeper set
+            if (tokenIn == IUniV3PoolMin(address(uint160(dex))).token0()) dex |= ZERO_FOR_ONE;
+        }
         uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
         IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);
         IERC20Min(tokenIn).approve(ONEINCH_ROUTER, amountIn);
-        (bool ok, ) = ONEINCH_ROUTER.call(route);
+        (bool ok, ) = ONEINCH_ROUTER.call(
+            abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(uint160(tokenIn)), amountIn, minOut, dex));
         IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);      // reset on BOTH paths
         if (!ok) revert NoVolatileRoute();
         out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;
@@ -648,7 +676,7 @@ library LevMath {
         //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
         //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
-        return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.route);
+        return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.dex);
     }
 
     /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
@@ -705,8 +733,8 @@ library LevMath {
     ///      also had; only the SECOND leg changed venue. Dropping it was my bug, caught by
     ///      `testReal_WbtcLev_FoldUp_Then_FlashDelever` failing `transferFrom reverted` rather than
     ///      `NoVolatileRoute` -- i.e. it reached the router and the router had no pool.
-    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, bytes memory route) internal returns (uint256) {
-        return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, route);
+    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, uint256 dex) internal returns (uint256) {
+        return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, dex);
     }
 
     /// @dev Mirror of `_stableToWbtc`: pinned pool to USDC, stableswap hub back out. `minOut` is
@@ -718,9 +746,9 @@ library LevMath {
     /// @dev ⚠️ `route` EMPTY ⇒ `_aggSwap` REVERTS `NoVolatileRoute()`. That is deliberate: with V3
     ///      gone there is no fallback venue, so a caller that supplies no route CANNOT trade. The
     ///      revert is the honest surface — a silent 0 would reappear as a slippage failure frames away.
-    function _volToStable(address vol, address stable, uint256 amt, uint256 minOut, bytes memory route)
+    function _volToStable(address vol, address stable, uint256 amt, uint256 minOut, uint256 dex)
         internal returns (uint256) {
-        uint256 usdc = _aggSwap(vol, USDC, amt, 0, route);
+        uint256 usdc = _aggSwap(vol, USDC, amt, 0, dex);
         uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
         if (out < minOut) revert Slippage();
         return out;
@@ -741,7 +769,7 @@ library LevMath {
         //   ran was the UNBOUNDED one — a keeper-supplied route executed with NO slippage bound at
         //   the stable leg, `minOut` accepted as a parameter and silently discarded.
         // ⇒ One call, bound restored. `minOut` is now honoured on every path through here.
-        return _volToStable(c.weth, stable, wethIn, minOut, c.route);   // 1inch: WETH→USDC, Curve: USDC→stable
+        return _volToStable(c.weth, stable, wethIn, minOut, c.dex);   // 1inch: WETH→USDC, Curve: USDC→stable
     }
 
     function _stableFloor(SellCtx memory c, address stable, uint256 weethAmt) internal view returns (uint256) {
@@ -769,7 +797,7 @@ library LevMath {
     /// worst execution. Collateral units are always weETH-rate: raw WETH collateral is dominated and gone.
     /// §C2.1 — `route` is the keeper-built 1inch calldata, threaded from the flash `data` down to
     /// `_wethToStableDex`. EMPTY means none was supplied and the leg falls back to V3.
-    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; bytes route; }
+    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; uint256 dex; }
 
     /// @dev Repay-first + withdraw the paired collateral, in its OWN frame so both callers' stacks stay shallow
     ///      (no via_ir). Flashed `assets` → venue → repay; then withdraw collateral worth (repaid + `extractUsd`)
@@ -836,7 +864,7 @@ library LevMath {
     function _sellAndPay(uint256 pulled, address stable, uint256 minOut, uint256 assets, address recipient, ExtractCfg memory cfg)
         private returns (uint256 newGasReserve, uint256 freed)
     {
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, route: cfg.route});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex});
         uint256 stableOut;
         (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         IERC20Min(stable).approve(cfg.flashProvider, assets);
@@ -853,7 +881,7 @@ library LevMath {
     function collToWethDeliver(uint256 collAmt, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 wethDelivered) {
         if (collAmt == 0) return 0;
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, route: cfg.route});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex});
         wethDelivered = _weethToWeth(sc, collAmt);
         require(wethDelivered >= minOut, "swapDelever:minOut");
         if (wethDelivered > 0) IERC20Min(cfg.weth).transfer(recipient, wethDelivered);
@@ -1073,7 +1101,7 @@ library LevMath {
     ///         minted BOLD at the trove's `protocolMintLtvBps`. Morpho does not mint — you borrow what exists —
     ///         and Liquity went with `c11cb40f` because a trove cannot take weETH, which `ILevVenue` is
     ///         denominated in. The detector was unconditionally false, so mode-0 is the only path and always was.
-    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, bytes memory route)
+    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, uint256 dex)
         public {
         if (repayUsd == 0 || cfg.flashProvider == address(0)) return;
         uint256 debt = venue.debtOf(lp);
@@ -1082,7 +1110,7 @@ library LevMath {
         if (repayStable > debt) repayStable = debt;                              // never flash more than we can repay
         if (repayStable == 0) return;
         // mode 0 = the generic flash-the-stable → repay → withdraw → sell → return path.
-        IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut, route));
+        IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut, dex));
     }
 
     // §E304-mintclose: `_isMintVenueM`'s natspec outlived the detector and hung over `_fromUsd`. The

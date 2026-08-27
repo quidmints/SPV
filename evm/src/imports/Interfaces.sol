@@ -166,11 +166,32 @@ interface ICurvePool {
 // keeper-supplied 1inch route, so "a pinned pool can be thin at size" is no longer the trade-off
 // being made. What replaces it: the ROUTE is chosen off-chain per swap, and the on-chain bound is
 // `minOut` on the balance delta.
-// 1inch AggregationRouterV6 (mainnet). §C2.1 — the volatile leg's route. PINNED AS A CONSTANT AND
-// THAT IS LOAD-BEARING: the executor `call`s it with keeper-supplied calldata, so the ONLY thing
-// standing between a malicious route and the protocol's funds is that the CALLEE cannot be chosen.
-// An `address` parameter here would make the whole design a rug vector.
+// 1inch AggregationRouterV6 (mainnet). §C2.1 — the volatile leg's venue. PINNED AS A CONSTANT AND
+// THAT IS LOAD-BEARING: the executor `call`s it, so the ONLY thing standing between a malicious
+// keeper and the protocol's funds is that the CALLEE cannot be chosen. An `address` parameter here
+// would make the whole design a rug vector.
 address constant ONEINCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
+
+// `unoswap(Address token, uint256 amount, uint256 minReturn, Address dex)` — V6's single-pool
+// entrypoint, and the ONLY selector we ever send. ⭐ **VERIFIED AGAINST THE DEPLOYED ROUTER, NOT
+// TAKEN FROM DOCUMENTATION** (2026-08-26): the selector is present in the live bytecode, and a fork
+// call of 1,000 USDC → WETH through the V3 0.05% pool returned 0.39954 WETH (≈ $2,503/ETH, the real
+// rate at head). ⚠️ **THE `dex` WORD'S BIT LAYOUT WAS MEASURED THE SAME WAY AND IS NOT GUESSABLE:**
+// four candidate encodings were tried on a fork and exactly one moved tokens.
+//   • bits 253-255 — protocol: `0` UniswapV2, `1` UniswapV3, `2` Curve
+//   • bit 247 (V3) — `zeroForOne`: SET when selling the pool's `token0` for its `token1`
+//   • low 160 bits — the pool address
+// ⛔ The V2 candidate (`proto=0`, bare pool) returned **`ok` with ZERO tokens moved**, which is why
+// `_aggSwap` bounds on the BALANCE DELTA and not on the router's own `minReturn` — see the note
+// there. Pinning the selector is what lets the contract build its own calldata; see `_aggSwap`'s
+// header for why keeper-supplied calldata could not work on this money path at all.
+bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
+uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
+uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
+
+/// @dev The one V3 accessor `_aggSwap` needs: which token a pool calls `token0`, so the direction
+///      flag is computed from `tokenIn` instead of taken on trust from a keeper.
+interface IUniV3PoolMin { function token0() external view returns (address); }
 
 
 

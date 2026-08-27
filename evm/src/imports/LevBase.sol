@@ -207,7 +207,7 @@ abstract contract LevBase {
     ///      and that is REAL, not drift.
     /// @dev Order note: ETH checked `open` BEFORE reanchoring and BTC after. Immaterial —
     ///      `_reanchorIfReseated` already early-returns on a closed position.
-    /// @param route AggregationRouter calldata for the volatile leg, computed OFF-CHAIN and passed
+    /// @param dex AggregationRouter calldata for the volatile leg, computed OFF-CHAIN and passed
     ///        in. §E357 — **BOTH DIRECTIONS NEED ONE**, which is why it lives here and not on the
     ///        de-lever alone: `_leverUp` reaches `_stableToWethSor` → `_aggSwap` (stable→WETH) and
     ///        `_delever` reaches the sell twin, so a rebalance that levers UP was equally unable to
@@ -220,7 +220,7 @@ abstract contract LevBase {
     ///        is fragmented across pools by hook and no pinned address can even NAME the deepest
     ///        one — which is precisely the job an aggregator does. Discovery is off-chain; the
     ///        contract's only defence is the oracle floor, which is unchanged and venue-agnostic.
-    function _rebalance(address lp, uint256 minOut, bytes memory route) internal {
+    function _rebalance(address lp, uint256 minOut, uint256 dex) internal {
         _reanchorIfReseated(lp);
         Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
@@ -228,8 +228,8 @@ abstract contract LevBase {
         address stable = p.venue.stable();
         (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
         if (deltaUsd != 0) {
-            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, route);
-            else       _delever(p.venue, lp, stable, deltaUsd, minOut, route);
+            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, dex);
+            else       _delever(p.venue, lp, stable, deltaUsd, minOut, dex);
             emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
         }
         _syncRange(lp);
@@ -239,8 +239,8 @@ abstract contract LevBase {
 
     /// @dev Per-asset precondition. ETH has none; BTC requires WBTC collateral.
     function _requireRebalancable(Types.Pos memory p) internal view virtual {}
-    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, bytes memory route) internal virtual;
-    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, bytes memory route) internal virtual;
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex) internal virtual;
+    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex) internal virtual;
 
     function _syncRange(address lp) internal {
         if (RANGE != address(0)) { try ICore(RANGE).syncLev(lp) {} catch {} }
