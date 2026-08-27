@@ -10,3 +10,9 @@
 [submodule "evm/lib/openzeppelin-contracts"]
 	path = evm/lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "evm/lib/layerzero-devtools"]
+	path = evm/lib/layerzero-devtools
+	url = https://github.com/LayerZero-Labs/devtools.git
+[submodule "evm/lib/layerzero-v2"]
+	path = evm/lib/layerzero-v2
+	url = https://github.com/LayerZero-Labs/LayerZero-v2.git

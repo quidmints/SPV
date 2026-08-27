@@ -15,7 +15,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ICollection} from "./imports/Interfaces.sol";
 import {Types, BtcVaultPinned, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
-import {OApp, Origin, MessagingFee} from "./imports/oapp/OApp.sol";
+import {OApp, Origin, MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Basket is ERC20, ERC6909, 
     ReentrancyGuard, OApp {
@@ -25,9 +26,19 @@ contract Basket is ERC20, ERC6909,
     // there is the whole of it — `quid-svm`'s `LZ.rs` is the other half, and
     // the wire format is fixed by what it already sends and accepts.
     //
-    // Ownable arrives through OAppCore rather than being inherited twice; the
-    // delegate it takes is the endpoint-config authority, which is the same
-    // Safe that owns this contract.
+    // ⚠️ `Ownable(msg.sender)` IS SUPPLIED HERE, AND THAT IS THE WHOLE REASON THE
+    // LAYERZERO SOURCES ARE NO LONGER VENDORED. OZ v4's `Ownable` had a no-arg
+    // constructor that ran implicitly; v5 requires the owner explicitly, and
+    // `OAppCore` deliberately does NOT call it — LayerZero's documented pattern
+    // is that the MOST-DERIVED contract passes both `OApp(endpoint, delegate)`
+    // and `Ownable(owner)`, which is why `oapp-evm` peer-depends on
+    // "^4.8.1 || ^5.0.0" and works under either.
+    // We had instead edited `Ownable(_delegate)` INTO a vendored copy of
+    // `OAppCore` — putting the integrator's job inside the library, which is
+    // what forced 1,212 lines of LayerZero into `src/` and left them unpinned.
+    // Supplying it here deletes the edit rather than relocating it.
+    // The delegate is the endpoint-config authority: the same Safe that owns
+    // this contract.
     uint32 public constant SOLANA_EID = 30168;
     /// Shared-decimal amounts on the wire are 6-dp; QU!D is 18-dp here.
     uint constant SD_RATE = 1e12;
@@ -145,7 +156,8 @@ contract Basket is ERC20, ERC6909,
     ///         ANGEL and renounces at finalize; Basket is renounced by the Safe there too.
     constructor(address _range, address _aux, address _lzEndpoint)
         ERC20("QU!D", "QUI")
-        OApp(_lzEndpoint, msg.sender) {
+        OApp(_lzEndpoint, msg.sender)
+        Ownable(msg.sender) {
         RANGE = payable(_range);
         AUX = Aux(payable(_aux));
         _deployed = block.timestamp;
