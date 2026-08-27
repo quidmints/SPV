@@ -651,3 +651,63 @@ fn churn_shrinks_the_hedgeable_book_and_concentrates_the_view_in_what_remains() 
     assert!(toxic <= plain,
         "flow that stayed on must be worse to hold than flow that did not: {} vs {}", toxic, plain);
 }
+
+/// 🔴 THE OBJECTIVE WAS WRONG IN EVERY EARLIER TEST. Owner: *"this is not hedging
+/// to see if the borrower was wrong, this is to see if they were RIGHT and
+/// protecting depositors from losing their deposit ... in exchange for providing
+/// instant settlement the depositors earn the risk premiums."*
+///
+/// That is a RUIN objective — earn the premium, do not lose principal — not a
+/// mean or a dispersion objective. Mean rewards a fat right tail the depositor
+/// was never promised; dispersion penalises upside symmetrically with downside.
+/// A hedge that costs mean but TRUNCATES THE LEFT TAIL is precisely what this
+/// objective wants, and every metric I used scored that as a loss.
+#[test]
+fn principal_protection_is_the_objective_not_mean_or_dispersion() {
+    let w = |c: &Cell| -> i64 {
+        let mut p: i64 = 10_000;
+        if c.issuer == Issuer::Paused    { p = p * 2 / 100; }
+        if c.flow == Flow::RedemptionRun { p = p * 15 / 100; }
+        if c.basis == Basis::Widening    { p = p * 30 / 100; }
+        p.max(1)
+    };
+    // P(depositor ends below principal) and the average severity when they do.
+    let ruin = |arm: Arm, cfg: Cfg| -> (i64, i64, i64) {
+        let (mut den, mut bad_w, mut bad_sum, mut worst) = (0i64, 0i64, 0i64, 0i64);
+        for c in &grid() {
+            let k = w(c); let x = run_cfg(*c, arm, cfg).depositor_bps;
+            den += k;
+            if x < 0 { bad_w += k; bad_sum += x * k; if x < worst { worst = x; } }
+        }
+        (bad_w * 10_000 / den,                                  // P(loss), bps
+         if bad_w > 0 { bad_sum / bad_w } else { 0 },           // mean loss | loss
+         worst)                                                 // worst case
+    };
+
+    for (label, cfg) in [
+        ("no churn, one-sided-heavy grid",
+         Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 10_000,
+               borrow_fee_bps: 1, recall_bps: 200, ..Cfg::default() }),
+        ("60% churn, adverse residual",
+         Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 10_000,
+               borrow_fee_bps: 1, recall_bps: 200,
+               churn_bps: 6_000, durable_adverse_bps: 15, ..Cfg::default() }),
+    ] {
+        println!("\n=== {} ===", label);
+        println!("  {:<20} {:>10} {:>14} {:>10}", "arm", "P(loss)", "loss|loss", "worst");
+        for arm in [Arm::NoFacility, Arm::PersistenceGated, Arm::PerTickerCap] {
+            let (p, sev, w2) = ruin(arm, cfg);
+            println!("  {:<20?} {:>8}bps {:>12}bps {:>8}", arm, p, sev, w2);
+        }
+    }
+
+    // The claim the objective actually cares about: does the hedge truncate the
+    // LEFT tail, whatever it does to the mean?
+    let cfg = Cfg { ratio_bps: 2_500, attrition_bps: 2_000, hedgeable_bps: 10_000,
+                    borrow_fee_bps: 1, recall_bps: 200, ..Cfg::default() };
+    let (_, _, w_none) = ruin(Arm::NoFacility, cfg);
+    let (_, _, w_hedge) = ruin(Arm::PersistenceGated, cfg);
+    println!("\n  worst case: carrying {}   hedged {}   truncation {}",
+             w_none, w_hedge, w_hedge - w_none);
+    assert!(w_none <= 0, "there must be a left tail to talk about truncating");
+}
