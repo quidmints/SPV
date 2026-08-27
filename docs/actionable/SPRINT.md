@@ -494,12 +494,36 @@ OPPOSITE DIRECTIONS, WHICH IS WHY THE `§EXPERIMENT` MARKER IS STILL THERE:**
     every drain path eventually blocks. *Liveness failure, no value lost.*
   • **FULL** over-debits it, inflating the LP increment, so the exiting LP is overpaid out of the
     next one's backing. *Value leak, no liveness failure.*
-▶️ **NEXT, and it is now a well-posed question rather than "pick an arm":** the release must debit
-`basketUsd` by the basket's ACTUAL share of the outflow, which is neither `usdAmount` nor
-`b·usdAmount/pooledPre` — those are the two ends of the same wrong axis. Find what the basket
-actually paid: instrument the stable movement in `AUX.take` against the `basketUsd` delta for ONE
-burn. **Note both arms leave `POOLED_USD` identical (141,194.926651), so the leg is not where the
-discrepancy lives — the split between basket and increment is.**
+⭐⭐ **THE CLEAN SINGLE-BURN CONTROL RAN 2026-08-26, AND IT REVERSES THE REASON I GAVE FOR THE REVERT.**
+My first control diffed END STATES after the two arms had already paid out different amounts — it
+could not attribute the increment gap to the release rule at all. This one holds the state fixed and
+watches ONE quantity across successive burns (`_burnSplitProbe`):
+| swap | `POOLED_USD` | `basketUsd` | increment `P − b` |
+|---|---|---|---|
+| 0 | 151,999.999998 | 151,999.999998 | **0** |
+| 1 | 149,482.979998 | 149,482.979998 | **0** |
+| 2 | 147,116.981198 | 147,042.703292 | **74.28** |
+| 3 | 144,750.982398 | 144,603.678462 | **147.30** |
+⇒ **THE INCREMENT STARTS AT ZERO AND GROWS ~73 PER SWAP UNDER THE PROPORTIONAL ARM**, and it begins
+growing at exactly the point `b` and `P` diverge — at i=0,1 the two arms are ALGEBRAICALLY IDENTICAL
+(`b == P` ⇒ `b·usdAmount/P == usdAmount`), so nothing else can be producing it.
+⇒ **AND THE ALGEBRA MATCHES:** full release moves `b` and `P` by the SAME `usdAmount`, leaving
+`P − b` unchanged; proportional moves `P` by `usdAmount` and `b` by only `(b/P)·usdAmount`, so the
+increment grows on EVERY burn. `_pricingBacking` reads that increment as LP backing.
+🔴 **SO §E28-r's OBJECTION DOES NOT APPLY IN THIS REGIME.** It says first-out *"drained the basket leg
+FIRST, so `POOLED_USD - basketUsd` grew by the whole released basket slice"* — but `min(b, usdAmount)`
+only grows the increment when **`b < usdAmount`**, which is precisely the exhaustion case it measured
+(*"basket floored to 0 against a 25.200001 residue"*). While `b >> usdAmount`, full release is exact
+and PROPORTIONAL is the arm creating phantom increment.
+⛔ **I HAVE NOT RE-LANDED IT, AND THAT IS DELIBERATE.** The reverted attempt also delivered **+0.507
+ETH** more to the exiting LP, and that is still unexplained. Two arms both look wrong on some axis, my
+first reading of the evidence was confounded, and flip-flopping a money-path rule on a partial
+argument is worse than an open row.
+▶️ **NEXT, and it is now ONE question:** account for the +0.507. If it is the LP receiving what the
+inflated increment had been withholding, full release is simply correct and should land with the
+`b < usdAmount` exhaustion case handled explicitly. If it is not, there is a third term. Instrument
+`_payUsdLeg` + `_deliverVenueShortfall` deltas across ONE withdraw under BOTH arms — same fixture,
+same starting state, the way this control was built and the way the first one was not.
 ⚠️ **AND THE METHOD LESSON, WHICH COST A PUSHED COMMIT:** I verified the fix against five suites and
 called it done. **Every one passed while a 0.507 ETH leak was live**, because they assert
 round-trip and backing shapes, not the basket/increment SPLIT. A guard suite passing is not a

@@ -1305,6 +1305,18 @@ contract AllesFixture is ForkPin, ExitFixture {
         emit log_named_uint("C25 2nd pass residual    ", ETH.convertToAssets(ETH.balanceOf(lp)));
     }
 
+    /// §BURN-RELEASE-CONFLICT — print the USD leg's split so the two release arms can be compared on
+    /// ONE burn instead of on two whole trajectories. My first control diffed END STATES after the
+    /// arms had already paid out different amounts, so it could not attribute the increment gap to
+    /// the release rule at all — this can.
+    function _burnSplitProbe(uint i) internal {
+        uint P = CORE.POOLED_USD(); uint b = CORE.basketUsd();
+        emit log_named_uint("SPLIT i                  ", i);
+        emit log_named_uint("SPLIT POOLED_USD         ", P);
+        emit log_named_uint("SPLIT basketUsd          ", b);
+        emit log_named_uint("SPLIT increment (P-b)    ", P > b ? P - b : 0);
+    }
+
     function _lpReceived(address lp, uint ethBefore, uint wethBefore, uint qdBefore)
         internal returns (uint) {
         return (lp.balance - ethBefore)
@@ -3480,6 +3492,15 @@ contract Alles is AllesFixture {
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
         for (uint i = 0; i < 6; i++) {
+            // §BURN-RELEASE-CONFLICT — THE CLEAN SINGLE-BURN CONTROL. Same starting state, one swap,
+            // both arms derivable from one run: the code under test is PROPORTIONAL, and FULL is
+            // `b -= usdAmount` on the same inputs. What matters is the INCREMENT `P - b`, which is
+            // what `_pricingBacking` prices into every share:
+            //   • full        → P and b both fall by usdAmount ⇒ increment UNCHANGED
+            //   • proportional→ P falls by usdAmount, b by (b/P)·usdAmount ⇒ increment GROWS, every burn
+            // §E28-r's measured defect (basket floored to 0 against a residue) needs b < usdAmount;
+            // it cannot occur while b >> usdAmount, which is the regime here.
+            _burnSplitProbe(i);
             AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }
@@ -3491,6 +3512,14 @@ contract Alles is AllesFixture {
         // alone therefore reads as a 19.4% "exit-order skim" that is purely a composition
         // difference -- the total value each LP receives is equal.
         uint b1 = User01.balance + WETH.balanceOf(User01);
+        // §COMMITTED-DRIFTS-UP — is POOLED_USD itself above TVL? If the range's USD LEG exceeds the
+        // basket's stables, the defect is upstream of how the burn splits that leg between basket and
+        // increment, and no choice of release arm can fix it.
+        { (uint[15] memory dd0,,,) = AUX.get_deposits();
+          emit log_named_uint("DRIFT TVL (18d)      ", dd0[14]);
+          emit log_named_uint("DRIFT POOLED_USD*1e12", CORE.POOLED_USD() * 1e12);
+          emit log_named_uint("DRIFT basketUsd *1e12", CORE.basketUsd() * 1e12);
+          emit log_named_uint("DRIFT committedUsd18 ", CORE.committedUsd18()); }
         vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
         uint got1 = (User01.balance + WETH.balanceOf(User01)) - b1;
         uint b2 = User02.balance + WETH.balanceOf(User02);
