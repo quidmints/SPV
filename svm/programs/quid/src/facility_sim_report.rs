@@ -711,3 +711,57 @@ fn principal_protection_is_the_objective_not_mean_or_dispersion() {
              w_none, w_hedge, w_hedge - w_none);
     assert!(w_none <= 0, "there must be a left tail to talk about truncating");
 }
+
+/// 🔴 THE METRIC THIS SHOULD HAVE BEEN ALL ALONG. Owner: *"whatever is profit
+/// beyond what was pledged (using the borrowed money for instance to get the
+/// exposure) still has to come from somewhere."*
+///
+/// A levered borrower pledges `P` and carries `L·P` of exposure. On a move `m`
+/// they are owed `L·P·m`. The pledge funds `P`. **The excess is funded by
+/// depositors unless the pool HOLDS THE ASSET**, in which case the asset's own
+/// appreciation funds it one-for-one.
+///
+/// ⇒ THE FACILITY IS A FUNDING MATCH, NOT A RISK REDUCER. Every earlier test
+/// measured pool P&L, which is a different question and answered it wrongly:
+/// P&L asks "did we make money", funding asks "could we pay without touching
+/// deposits". The second is the deposit contract.
+#[test]
+fn the_facility_is_a_funding_match_and_the_ratio_sets_the_move_it_survives() {
+    // Depositor-funded shortfall on a winning levered borrower:
+    //   shortfall = max(0, L·P·m·(1−r) − P)
+    // r = 1 makes it identically negative: fully self-funding at ANY move.
+    let shortfall = |lev: i64, move_bps: i64, ratio_bps: i64| -> i64 {
+        let pledge = 10_000i64;                       // P, in bps of itself
+        let gross  = lev * pledge / 100 * move_bps / B_LOCAL;
+        let unhedged = gross * (B_LOCAL - ratio_bps) / B_LOCAL;
+        (unhedged - pledge).max(0)
+    };
+
+    println!("\n=== depositor-funded payout (bps of the borrower's pledge) ===");
+    println!("  {:<8} {:>8} {:>8} {:>8} {:>8} {:>8}", "move", "r=0%", "r=25%", "r=50%", "r=75%", "r=100%");
+    for m in [500i64, 1_000, 2_000, 4_000, 8_000] {
+        println!("  {:>5}bps {:>8} {:>8} {:>8} {:>8} {:>8}", m,
+                 shortfall(300, m, 0), shortfall(300, m, 2_500), shortfall(300, m, 5_000),
+                 shortfall(300, m, 7_500), shortfall(300, m, 10_000));
+    }
+
+    println!("\n=== the move at which depositors start funding (3x leverage) ===");
+    for r in [0i64, 2_500, 5_000, 7_500, 10_000] {
+        let mut first = 0i64;
+        for m in (100..=20_000).step_by(100) {
+            if shortfall(300, m as i64, r) > 0 { first = m as i64; break; }
+        }
+        println!("  ratio {:>5}bps -> depositors fund from a {} move",
+                 r, if first == 0 { "no".to_string() } else { format!("{}bps", first) });
+    }
+
+    // The claim: hedging is not about being right, it is about the payout being
+    // self-funded. A full hedge survives ANY move; an unhedged book does not.
+    assert_eq!(shortfall(300, 20_000, 10_000), 0,
+        "a fully hedged position must be self-funding at any move");
+    assert!(shortfall(300, 20_000, 0) > 0,
+        "an unhedged levered winner must reach past its pledge");
+    // And the asymmetry that makes leverage the whole story:
+    assert!(shortfall(500, 4_000, 0) > shortfall(200, 4_000, 0),
+        "more leverage must reach further past the pledge on the same move");
+}
