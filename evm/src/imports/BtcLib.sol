@@ -419,9 +419,19 @@ library BtcLib {
         p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
         p.mgr = mgr; p.gross = gross;
-        d.addedNet += settleBtcLp(LP, lp, address(0), quid, p.feesPerShare, p.usdFees, w); // (E145) fee compounds into pooled
+        // 🔴 §E145 — **THE FEE COMPOUND WAS ASSIGNED OVER.** This read `d.addedNet += settleBtcLp(...)`
+        //    and then `(d.addedNet, d.bufAdded) = RangeLib.levAddGross(...)` — a PLAIN ASSIGNMENT that
+        //    discards the compounded fee the line above just earned. The forwarder applies
+        //    `lpShares + d.addedNet - d.burnedNet`, so the lost term makes `lpShares` drift BELOW the
+        //    sum of the positions it totals — the exact drift `Vault._resize` documents guarding
+        //    against ("fees compounded into `pooled` during this resize must be added, or `lpShares`
+        //    drifts below the sum of positions it totals").
+        //    ⚠️ The `+=` on the first line is what makes the bug invisible: it LOOKS accumulative, and
+        //    the overwrite is three lines away on a tuple destructure, which cannot be written as `+=`.
+        uint feeCompounded = settleBtcLp(LP, lp, address(0), quid, p.feesPerShare, p.usdFees, w);
         (d.burnedNet, d.bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         (d.addedNet, d.bufAdded)   = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
+        d.addedNet += feeCompounded;   // restore the term the destructure above cannot carry
     }
 
     /// @dev Grow the full-2× BTC slice as two legs: net-equity (into pooled/lpShares) + the debt-funded

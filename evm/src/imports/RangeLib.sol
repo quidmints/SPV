@@ -6,6 +6,7 @@ import {NotOpen, BadTarget} from "./Types.sol";
 import {ICore, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
+import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {SortedSetLib, OorBook} from "./Types.sol";
 
@@ -64,8 +65,37 @@ library RangeLib {
         // number `levAddBuf` added — so this cannot over- or under-burn.
         // Measured (VBtcLevFeeLane, post-liquidation sync): POOLED_USD ROSE 388,270,880 across a
         // syncLev that must fall, and that is old bufUsd 776,542,536 − new 388,271,656 TO THE WEI.
-        uint bufUsd = levBufferUsd[lp];
-        ICore(c.core).modLP(int256(grossRem), int256(bufUsd), address(0));   // LEAVES ⇒ positive, both legs
+        // 🔴 §DELIVER-BACKING — **THE TOKEN DELTA IS BOTH LEGS AND THE USD DELTA WAS ONE.** This
+        //    passed `levBufferUsd[lp]` — the BUFFER's USD only — while `grossRem` is
+        //    `netRem + bufBurned`, i.e. both legs' tokens. `levAddGross` then re-credits BOTH legs'
+        //    USD (`levAddNet(netEq)` + `levAddBuf(gross − netEq)`, which correctly sum to `gross`),
+        //    so every resync netted ONE LEG'S USD into `basketUsd` and nothing ever took it out.
+        //    ⭐ MEASURED on a captured trace (`modLP` POSITIVE usd = BURN, NEGATIVE = MINT):
+        //        BURN 1.495 BTC / $120,046   ← one leg's USD
+        //        MINT 1.495 BTC / $120,046   ← net leg
+        //        MINT 1.495 BTC / $120,046   ← buffer leg
+        //      Tokens balance (1.495 out, 2.99 in — the buffer leg being established); USD does not
+        //      ($120,046 out, $240,092 in). `basketUsd` 272,046 → 392,092 and
+        //      `committed = basketUsd − levDebt` = 272,046 against a TVL of 157,000, so
+        //      `require(committedUsd18() <= haircutTvl)` refuses — blocking the delivery that was
+        //      de-levering. A liveness failure, not a solvency one.
+        // ⇒ **DEBIT THE USD PROPORTIONAL TO THE TOKENS LEAVING — the SAME expression `burnInRange`
+        //   already uses** (`fullMulDiv(basketUsd, pulled, pooled)`). `grossRem` is both legs, so this
+        //   removes both legs' USD, and the resync becomes USD-NEUTRAL: what the burn takes out is
+        //   what `levAddGross` puts back.
+        // ⚠️ WHY PROPORTIONAL AND NOT `netEq + bufUsd`: `basketUsd` is the range's own accounting of
+        //   the basket's claim, and every other burn in the system releases it pro-rata to the
+        //   liquidity leaving. Reconstructing the two legs' USD from the manager would re-mark them
+        //   at a fresh price mid-resync — two clocks in one operation, which is the §A.16b defect.
+        // ⚠️ AND IT PRESERVES THE PINNED INVARIANT: `LevCascade` asserts
+        //   `committedUsd18() + totalDebtUsd() == basketUsd * 1e12`, i.e. `basketUsd` DOES carry the
+        //   debt-funded buffer and `committed` excludes it by subtracting the debt ONCE. That only
+        //   holds if the resync neither creates nor destroys basket USD, which is what this restores.
+        uint pooledTok = ICore(c.core).POOLED();
+        uint usdOut = pooledTok == 0
+            ? levBufferUsd[lp]
+            : SoladyMath.fullMulDiv(ICore(c.core).basketUsd(), grossRem, pooledTok);
+        ICore(c.core).modLP(int256(grossRem), int256(usdOut), address(0));   // LEAVES ⇒ positive, both legs
         LP.pooled -= netRem; levPooled[lp] -= netRem;      // net leg leaves pooled / the share count
         levBuf[lp] = 0; levBufferUsd[lp] = 0;              // buffer leg leaves the fee weight
         // `levBuf[lp]` is now 0, so the GROSS fee weight is simply `LP.pooled`. Safe on both sides:
