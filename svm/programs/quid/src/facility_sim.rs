@@ -126,10 +126,36 @@ fn net_path(n: Net, t: i64) -> i64 {
     }
 }
 
+/// Knobs that were constants in the first cut. Each was an assumption doing
+/// real work in the answer, so each is now something you can sweep instead of
+/// something I asserted.
+#[derive(Clone, Copy, Debug)]
+pub struct Cfg {
+    /// Fraction of the net actually hedged, in bps. 10_000 = full. The first
+    /// version only ever tested 0 or 10_000, which skipped the entire middle
+    /// where most of the variance reduction is bought at half the cost.
+    pub ratio_bps: i64,
+    /// Round-trip hedge cost. My estimate, not a measurement — sweep it.
+    pub rt_bps: i64,
+    /// 🔴 THE TERM THE FIRST CUT SCORED AT ZERO, AND IT IS THE LARGEST ONE
+    /// OMITTED. Without a hedge the pool cannot simply carry the net for free:
+    /// it must widen collars, cap per-ticker exposure, or refuse flow. That is
+    /// REVENUE FORGONE, and scoring it at zero silently assumed the facility's
+    /// only effect is cost. Expressed as bps of the net that the pool cannot
+    /// write when it has no way to lay the risk off.
+    pub forgone_rev_bps: i64,
+}
+
+impl Default for Cfg {
+    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0 } }
+}
+
 pub struct Outcome { pub depositor_bps: i64, pub hedges: i64, pub hedged_notional: i64 }
 
 /// One (cell, arm) run. Returns depositor P&L in bps of deposits.
-pub fn run(cell: Cell, arm: Arm) -> Outcome {
+pub fn run(cell: Cell, arm: Arm) -> Outcome { run_cfg(cell, arm, Cfg::default()) }
+
+pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
     let mut a = Actuary::default();
     a.observed_vol_bps = 220;
     a.max_drawdown_bps = 700;
@@ -178,19 +204,28 @@ pub fn run(cell: Cell, arm: Arm) -> Outcome {
         let excess = net_bps.abs() - THETA_BPS;
         if excess > 0 { persist_acc += excess; } else { persist_acc = 0; }
 
+        let target = net_dollars * cfg.ratio_bps / B;
         let want = match arm {
             Arm::NoFacility => 0,
-            Arm::LevelTrigger => if net_bps.abs() > THETA_BPS { net_dollars } else { 0 },
+            Arm::LevelTrigger => if net_bps.abs() > THETA_BPS { target } else { 0 },
             Arm::PersistenceGated =>
-                if persist_acc > PERSIST_BUDGET { net_dollars } else { hedge_notional },
+                if persist_acc > PERSIST_BUDGET { target } else { hedge_notional },
         };
+
+        // Revenue the pool CANNOT earn because it has no way to lay this off.
+        // Charged against the unhedged remainder, so a full hedge pays none of it
+        // and the no-facility arm pays all of it.
+        if cfg.forgone_rev_bps > 0 {
+            let unlaid = (net_dollars - hedge_notional).abs();
+            pnl -= unlaid * cfg.forgone_rev_bps / B / STEPS;
+        }
 
         // ⚠️ A PAUSE DOES NOT STOP US BUYING — it strands what we already hold.
         //    Gating the TRADE on `Issuer::Normal` silently turned every paused
         //    cell into the no-facility arm, so the pause column measured nothing.
         let delta = want - hedge_notional;
         if tradable && delta.abs() >= TICKET {
-            pnl -= delta.abs() * HEDGE_RT_BPS / B;   // spread + impact, both ways
+            pnl -= delta.abs() * cfg.rt_bps / B;   // spread + impact, both ways
             hedge_notional = want;
             hedges += 1;
             hedged_total += delta.abs();

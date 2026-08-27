@@ -100,3 +100,104 @@ fn issuer_pause_is_a_loss_the_synthetic_book_cannot_have() {
     println!("issuer normal {} bps -> paused {} bps", dn, dp);
     assert!(dp < dn, "a pausable/seizable hedge must show up as a loss: {} vs {}", dp, dn);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §WIDER — the first sweep answered a narrower question than it appeared to.
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn stats(arm: Arm, cfg: Cfg) -> (i64, i64, i64, i64) {
+    let cells = grid();
+    let mut v: Vec<i64> = cells.iter()
+        .map(|c| run_cfg(*c, arm, cfg).depositor_bps).collect();
+    v.sort();
+    let n = v.len() as i64;
+    let mean = v.iter().sum::<i64>() / n;
+    let mad = v.iter().map(|x| (x - mean).abs()).sum::<i64>() / n;   // dispersion
+    (mean, mad, v[0], v[(n - 1) as usize])
+}
+
+/// ⭐ THE MEASUREMENT THE FIRST SWEEP NEVER TOOK, AND IT IS THE POINT OF A HEDGE.
+/// Mean P&L was reported and dispersion was not — so a facility that trades a
+/// little mean for a lot of variance scored as a pure loss. A depositor buys
+/// exactly that trade.
+#[test]
+fn hedging_is_a_variance_trade_and_the_ratio_sweep_shows_the_knee() {
+    println!("\n=== hedge ratio sweep (PersistenceGated) ===");
+    println!("  ratio   mean   dispersion    worst     best");
+    for r in [0, 2_500, 5_000, 7_500, 10_000] {
+        let cfg = Cfg { ratio_bps: r, ..Cfg::default() };
+        let (mean, mad, lo, hi) = stats(Arm::PersistenceGated, cfg);
+        println!("  {:>5}  {:>5}   {:>9}   {:>6}   {:>6}", r, mean, mad, lo, hi);
+    }
+    let (_, mad0, _, _) = stats(Arm::PersistenceGated, Cfg { ratio_bps: 0, ..Cfg::default() });
+    assert!(mad0 > 0, "the unhedged book must have dispersion to reduce");
+}
+
+/// 🔴 THE LARGEST OMITTED TERM. Without a hedge the pool cannot carry the net for
+/// free — it widens collars, caps tickers, or refuses flow. Scoring that at zero
+/// assumed the facility's only effect is cost, which is what produced "79% lose".
+#[test]
+fn forgone_revenue_moves_the_sign_map_and_the_first_sweep_scored_it_at_zero() {
+    println!("\n=== sensitivity to revenue forgone without a hedge ===");
+    println!("  forgone   negative / 240");
+    for f in [0, 50, 150, 300, 600] {
+        let cfg = Cfg { forgone_rev_bps: f, ..Cfg::default() };
+        let neg = grid().iter().filter(|c|
+            run_cfg(**c, Arm::PersistenceGated, cfg).depositor_bps
+          < run_cfg(**c, Arm::NoFacility, cfg).depositor_bps).count();
+        println!("  {:>7}   {:>3}/240", f, neg);
+    }
+    let cnt = |f| grid().iter().filter(|c| {
+        let cfg = Cfg { forgone_rev_bps: f, ..Cfg::default() };
+        run_cfg(**c, Arm::PersistenceGated, cfg).depositor_bps
+      < run_cfg(**c, Arm::NoFacility, cfg).depositor_bps }).count();
+    assert!(cnt(600) < cnt(0),
+        "if not having a hedge costs revenue, the facility must look better: {} vs {}",
+        cnt(600), cnt(0));
+}
+
+/// ⚠️ MY COST ESTIMATE WAS DOING REAL WORK. `HEDGE_RT_BPS = 60` was a guess about
+/// xStock secondary depth, not a measurement.
+#[test]
+fn the_conclusion_is_sensitive_to_a_cost_i_estimated_rather_than_measured() {
+    println!("\n=== sensitivity to round-trip hedge cost ===");
+    println!("   rt_bps   negative / 240   mean");
+    for rt in [15, 30, 60, 120, 240] {
+        let cfg = Cfg { rt_bps: rt, ..Cfg::default() };
+        let neg = grid().iter().filter(|c|
+            run_cfg(**c, Arm::PersistenceGated, cfg).depositor_bps
+          < run_cfg(**c, Arm::NoFacility, cfg).depositor_bps).count();
+        let (mean, _, _, _) = stats(Arm::PersistenceGated, cfg);
+        println!("   {:>6}   {:>3}/240          {:>5}", rt, neg, mean);
+    }
+}
+
+/// ⚠️ CELL COUNTS ARE NOT PROBABILITIES. A binary `Issuer` axis puts seizure in
+/// HALF the grid; that measure is a property of how I built it, not of the world.
+#[test]
+fn equal_weighting_overstates_rare_catastrophes() {
+    let w = |c: &Cell| -> i64 {
+        let mut p: i64 = 10_000;
+        if c.issuer == Issuer::Paused    { p = p * 2 / 100; }
+        if c.flow == Flow::RedemptionRun { p = p * 15 / 100; }
+        if c.basis == Basis::Widening    { p = p * 30 / 100; }
+        p.max(1)
+    };
+    let cells = grid();
+    let (mut num, mut den, mut neg_w) = (0i64, 0i64, 0i64);
+    for c in &cells {
+        let d = run(*c, Arm::PersistenceGated).depositor_bps
+              - run(*c, Arm::NoFacility).depositor_bps;
+        let wt = w(c);
+        num += d * wt; den += wt;
+        if d < 0 { neg_w += wt; }
+    }
+    let uniform_neg = cells.iter().filter(|c|
+        run(**c, Arm::PersistenceGated).depositor_bps
+      < run(**c, Arm::NoFacility).depositor_bps).count();
+    println!("\n=== uniform vs plausibility-weighted ===");
+    println!("  uniform:  {}/240 negative ({}%)", uniform_neg, uniform_neg * 100 / 240);
+    println!("  weighted: {}% of probability mass negative, mean delta {} bps",
+             neg_w * 100 / den, num / den);
+    assert!(den > 0);
+}
