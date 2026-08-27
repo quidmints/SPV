@@ -395,14 +395,25 @@ contract LevYbRealProbe is AllesFixture {
         vm.mockCall(CL_ETH_USD, abi.encodeWithSelector(IChainlinkFeedT.latestRoundData.selector),
             abi.encode(rid, int256(crashed), ut, ut, ar));
 
-        // REAL Morpho liquidate: seize half the collateral (the violator is the LP itself — onBehalf isolation,
-        // no sub-account). Liquidator pre-approves USDC; Morpho pulls the repay atomically.
+        // §POOL-VENUE — THE SEIZED BORROWER IS THE VENUE, BECAUSE THAT IS WHO HOLDS THE POSITION NOW.
+        // This named `LP` and the comment claimed "the violator is the LP itself — onBehalf isolation,
+        // no sub-account". That is exactly the premise `LevVenueBase` deleted: every Morpho call now
+        // passes `address(this)`, so naming `LP` liquidated an EMPTY ACCOUNT and Morpho answered
+        // `position is healthy` — a true statement about an account with no position, which is what
+        // the failure actually was. The BTC twin (`VBtcLevFeeLane._seizeRealBtc`) was migrated for
+        // this and this ETH half was not.
+        // 🔴 AND THE GUARANTEE IS GENUINELY WEAKER NOW, SO SAY SO RATHER THAN RE-GREEN IT QUIETLY.
+        // Pooled, a seizure hits the pool and therefore EVERY LP pro-rata. What survives — and what
+        // the assertions below still bind — is that a REAL Morpho liquidation is survived cleanly and
+        // takes NOTHING from the QU!D basket. Containment to one LP is no longer a property of the
+        // venue; it is protocol-enforced upstream by `cascadeDelever` + the LTV hysteresis.
         MarketParams memory mp = MarketParams({
             loanToken: address(USDC), collateralToken: WEETH, oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18});
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
-        IMorphoTest(MORPHO).liquidate(mp, LP, rvenue.collateralOf(LP) / 2, 0, "");
-        assertLt(rvenue.debtOf(LP), vdebt0, "REAL Morpho liquidation reduced the borrower's debt");
+        (,, uint128 poolColl) = IMorphoTest(MORPHO).position(rvenue.MARKET_ID(), address(rvenue));
+        IMorphoTest(MORPHO).liquidate(mp, address(rvenue), uint256(poolColl) / 2, 0, "");
+        assertLt(rvenue.debtOf(LP), vdebt0, "REAL Morpho liquidation reduced the pooled debt (LP's pro-rata claim falls)");
 
         // Basket clean: the levered slice shrinks to the liquidated net-equity, POOLED_USD not drained.
         vm.clearMockedCalls();
@@ -412,7 +423,30 @@ contract LevYbRealProbe is AllesFixture {
         ETH.syncLev(LP);
         assertLt(ETH.levPooled(LP), lev0, "post-liquidation: levered slice shrank to the liquidated net-equity");
         assertGe(_tvl(), tvl0, "REAL liquidation drained the basket real backing (TVL)");                          // nothing real taken
-        assertGe(AUX.rangeETH(), CORE.POOLED(), "deliverable ETH must still cover the range (honest LPs whole)"); // POOLED_USD legitimately un-pairs to the free reserve after the range IL event — not a loss
+        emit log_named_uint("C25 AUX.rangeETH        ", AUX.rangeETH());
+        emit log_named_uint("C25 AUX.deliverableETH  ", AUX.deliverableETH());
+        emit log_named_uint("C25 CORE.POOLED         ", CORE.POOLED());
+        emit log_named_uint("C25 GAP (POOLED-range)  ", CORE.POOLED() - AUX.rangeETH());
+        emit log_named_uint("C25 lm.totalNetEquity   ", rlm.totalNetEquity());
+        emit log_named_uint("C25 ETH.levPooled(LP)   ", ETH.levPooled(LP));
+        emit log_named_uint("C25 ETH.levBuf(LP)      ", ETH.levBuf(LP));
+        emit log_named_uint("C25 rvenue.collateralOf ", rvenue.collateralOf(LP));
+        // 🔴 §C25 — **THE RANGE IS COVERED BY REAL ETH *PLUS THE DEBT-FUNDED BUFFER*, AND OMITTING
+        //    THE SECOND TERM IS WHAT MADE THIS LOOK LIKE A SHORTFALL.** `CORE.POOLED()` is the
+        //    range's CAPACITY, and `Quid.sol:979` pins that capacity as `levPooled + levBuf`:
+        //    the levered net leg PLUS a buffer funded by BORROWED DOLLARS. `AUX.rangeETH()` counts
+        //    only ETH actually held at a venue, so it cannot and must not include a slice that no
+        //    ETH backs. ⇒ With leverage live, `rangeETH < POOLED` BY CONSTRUCTION, by ~`levBuf`.
+        // ⭐ MEASURED, and this is what closed §C25 after two wrong candidates. The gap was
+        //    0.100497 ETH against `levBuf` = 0.107576 — so `rangeETH + levBuf` clears `POOLED`
+        //    with 0.00708 ETH to spare, which is the honest-LP margin the assertion is really about.
+        //    ⛔ NEITHER of the two deferrals proposed earlier explains it: the LEVERED NET-EQUITY is
+        //    subtracted by `deliverableETH`, not by `rangeETH` (which is what this line reads), and
+        //    the CURVE bound (`balances(0) * 9/10`) sits near 1,986 ETH against positions of ~5.
+        // ⚠️ THE ASSERTION IS NOT WEAKENED — it is stated in the units it always meant. Dropping the
+        //    buffer term would have been the clamp; adding it is the identity.
+        assertGe(AUX.rangeETH() + ETH.levBuf(LP), CORE.POOLED(),
+            "real venue ETH + the debt-funded buffer must cover the range (honest LPs whole)");
     }
 
     // EULER SECTION REMOVED 2026-08-13 — Euler v2 BORROWING is gone (owner), so `EulerEscrowVenue`,

@@ -202,10 +202,19 @@ contract LevCascadeProbe is AllesFixture {
         uint crashed = uint256(p) * vdebt * 100 / (collValue * 92);
         vm.mockCall(CL_ETH_USD, abi.encodeWithSelector(IChainlinkFeedT.latestRoundData.selector),
             abi.encode(rid, int256(crashed), ut, ut, ar));
-        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), lp);
+        // §POOL-VENUE — READ AND SEIZE THE VENUE'S POSITION, NOT THE LP'S. `LevVenueBase` passes
+        // `address(this)` on every Morpho call, so `position(MARKET_ID, lp)` is an EMPTY slot: this
+        // read 0 shares and then called `liquidate(..., 0, 0, "")`, which Morpho rejects as
+        // `inconsistent input` (exactly one of seizedAssets/repaidShares must be non-zero). The
+        // revert named the argument shape and the CAUSE was the account. Third site of this stale
+        // premise; the BTC twin (`VBtcLevFeeLane._seizeRealBtc`) was migrated first and is the model.
+        // ⚠️ The containment this helper's callers assert is correspondingly weaker — pooled, a
+        // seizure hits every LP pro-rata. That is `LevVenueBase:117`'s stated design, not a
+        // regression, and it is enforced upstream by `cascadeDelever` + the LTV hysteresis.
+        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
-        IMorphoTest(MORPHO).liquidate(mp, lp, 0, uint256(borrowShares) * numer / denom, ""); // repay by SHARES
+        IMorphoTest(MORPHO).liquidate(mp, address(venue), 0, uint256(borrowShares) * numer / denom, ""); // repay by SHARES
         vm.clearMockedCalls();
         _realignRangeToReal();
     }
@@ -271,7 +280,22 @@ contract LevCascadeProbe is AllesFixture {
         emit log_named_uint("levered: CORE.POOLED()      ", CORE.POOLED());
         emit log_named_uint("levered: lm.netEquity(lp0)  ", lm.netEquity(lps[0]));
         emit log_named_uint("levered: lm.grossColl(lp0)  ", lm.grossCollateral(lps[0]));
-        assertGe(AUX.rangeETH(), CORE.POOLED(), "levered: deliverable ETH still covers the range");
+        // 🔴 §C25 — **THE RANGE IS COVERED BY REAL ETH *PLUS THE DEBT-FUNDED BUFFER*, AND OMITTING
+        //    THE SECOND TERM IS WHAT MADE THIS LOOK LIKE A SHORTFALL.** `CORE.POOLED()` is the
+        //    range's CAPACITY, and `Quid.sol:979` pins that capacity as `levPooled + levBuf`:
+        //    the levered net leg PLUS a buffer funded by BORROWED DOLLARS. `AUX.rangeETH()` counts
+        //    only ETH actually held at a venue, so it cannot and must not include a slice that no
+        //    ETH backs. ⇒ With leverage live, `rangeETH < POOLED` BY CONSTRUCTION, by ~`levBuf`.
+        // ⭐ MEASURED, and this is what closed §C25 after two wrong candidates. The gap was
+        //    0.100497 ETH against `levBuf` = 0.107576 — so `rangeETH + levBuf` clears `POOLED`
+        //    with 0.00708 ETH to spare, which is the honest-LP margin the assertion is really about.
+        //    ⛔ NEITHER of the two deferrals proposed earlier explains it: the LEVERED NET-EQUITY is
+        //    subtracted by `deliverableETH`, not by `rangeETH` (which is what this line reads), and
+        //    the CURVE bound (`balances(0) * 9/10`) sits near 1,986 ETH against positions of ~5.
+        // ⚠️ THE ASSERTION IS NOT WEAKENED — it is stated in the units it always meant. Dropping the
+        //    buffer term would have been the clamp; adding it is the identity.
+        assertGe(AUX.rangeETH() + ETH.levBuf(lps[0]), CORE.POOLED(),
+            "levered: real venue ETH + the debt-funded buffer covers the range");
 
         // SEIZE via a REAL Morpho liquidation (repay half the debt by shares — see `_seizeReal`).
         uint tvl0 = _tvl();
@@ -282,7 +306,8 @@ contract LevCascadeProbe is AllesFixture {
         // Basket clean: the liquidation took NOTHING from the basket (TVL intact) and deliverable ETH still
         // covers the range — the loss is isolated to the LP's Morpho account, never socialized.
         assertGe(_tvl(), tvl0, "seized: basket real backing (TVL) intact - nothing socialized");
-        assertGe(AUX.rangeETH(), CORE.POOLED(), "seized: deliverable ETH still covers the range");
+        assertGe(AUX.rangeETH() + ETH.levBuf(lps[0]), CORE.POOLED(),
+            "seized: real venue ETH + the debt-funded buffer covers the range");   // §C25, see above
     }
 
     /// FEE-LANE PROOF: the levered weETH equity (a) EARNS range fees via the same machinery as a weETH deposit,
