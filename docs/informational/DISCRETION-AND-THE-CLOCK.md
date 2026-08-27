@@ -216,3 +216,98 @@ depositor. A front-end restriction is disproved by one `anchor` call, so it
 cannot support a claim about who can hold exposure. If that claim ever needs to
 be true, it has to be enforced in the program — and the field that would require
 is an *attestation* authority, not an xStocks one.
+
+---
+
+# WHAT THE INSTRUMENT ACTUALLY IS — and why "mispriced in four ways" is one defect
+
+The owner's objection is the right one: *"currently mispriced in four known ways??
+SOLVE IT. what even is it? start with a correct definition?"* The four are not
+four. They are one thing, and naming the instrument correctly is what shows it.
+
+## THE DEFINITION
+
+> **A perpetual, double-barrier, PARISIAN knock-out with gradual knockout,
+> written by the pool and paid for as a hazard rate.**
+
+Every word is load-bearing and every one is checkable in the code:
+
+| term | where it lives |
+|---|---|
+| **perpetual** | no maturity anywhere; `T` never appears. Vigor prices `T = 1.0` and charges the premium as a running rate; we never convert |
+| **double-barrier** | `upper = pledged + collar`, `lower = pledged − collar` (`stay.rs:938`, `:971`) |
+| **PARISIAN** | `breached_at` starts on first breach, accumulates elapsed time, and **RESETS TO 0 on return inside the band** (`stay.rs:505, 605, 993, 1193`). Consecutive-time-beyond-barrier with reset is exactly the Parisian condition — cumulative-without-reset would be Parasian |
+| **gradual knock-out** | not one extinction event: `MAX_TRANCHE_BPS = 185` per window over `N = 7d/LIQ_GRACE_SECS = 168` windows |
+| **hazard rate** | `r = carry + hazard(m, σ, jump) × E[loss|breach]`, units of 1/time natively — no maturity to invent, no premium→rate fudge, no clamps |
+
+⚠️ **I had been calling this a "perpetual two-sided knock-out", which is true and
+insufficient.** A plain knock-out dies AT the barrier. This one requires the
+barrier to be held for a grace period, forgives an excursion that comes back, and
+then dies *slowly*. Those three properties are the entire difference between what
+we priced and what we wrote.
+
+## THE FOUR MISPRICINGS ARE ONE MISPRICING
+
+**We price the barrier as if the knock-out were instantaneous, one-sided and
+symmetric. It is Parisian, two-sided and gradual.** Each measured defect is a
+Parisian feature that is not in the price:
+
+| measured | which unpriced feature it is |
+|---|---|
+| collar over-collateralised **~6×** its 1% target | the barrier is set from a **one-observation** tail |
+| collar **flat above 2× leverage** (σ floor binds) | moneyness `m` saturates, so the barrier stops moving with the thing it barriers |
+| `downside_vol_bps` **fitted and discarded** | a DOUBLE barrier priced off ONE symmetric σ. GJR already says the tails differ |
+| one-step tail vs **168-step** unwind | the **gradual** knockout and the **grace window** are not in the price at all |
+
+⇒ Fixing them separately is four patches. Fixing the definition is one change:
+price the barrier over the CLOSE-OUT HORIZON, per side, from the tail each side
+actually has.
+
+## COMPARE: ISDA SIMM
+
+SIMM is the industry's answer to the same question — how much collateral does a
+position need, given that closing it out takes time — so it is the right thing to
+measure ourselves against, not because we should adopt it but because it makes
+our gap legible.
+
+| | ISDA SIMM | here |
+|---|---|---|
+| basis | **sensitivity**-based: Delta, Vega, **Curvature** per risk class | **exposure**-based: notional × collar |
+| horizon | **10-day MPOR** — margin period of risk, i.e. the close-out window, BUILT IN | **one observation**, while close-out takes 168 |
+| confidence | 99% VaR | 1% breach (`COLLAR_BREACH_BPS`) — same order |
+| aggregation | buckets with **correlations** `√(Σx² + 2Σρxy)` | `max_liability = Σ(exposure × collar)` — fully-correlated worst case |
+| convexity | explicit **Curvature margin** | none |
+| calibration | recalibrated **annually** by committee, stress period included | **continuously refitted** from live observations (POT/GPD) |
+| nature | a mutually-agreed **schedule**, deliberately model-light so counterparties can agree | a unilateral **model**, priced per position |
+
+**WHERE SIMM IS PLAINLY BETTER, AND IT IS THE SAME GAP WE MEASURED:**
+- **The MPOR is the whole point of SIMM.** It sizes margin for the period it takes
+  to close out, because that is the exposure. Our collar sizes for one hour while
+  our ladder takes seven days. **SIMM solved by construction the exact defect we
+  found by measurement**, and it is the biggest of the four.
+- **Curvature margin** is the convexity term we lack — and the objective (earn the
+  premium, do not lose principal) is convex, as the ruin measurement showed.
+
+**WHERE OURS IS BETTER, AND IT IS NOT A SMALL THING:**
+- **Continuous refitting.** SIMM's parameters are recalibrated ANNUALLY by a
+  committee; ours are refitted from the last 500 observations on every price
+  update. A regime change reaches our collar in hours and SIMM's in a year.
+- **No premium→rate conversion.** A hazard rate has units of 1/time, so a position
+  closed in a day pays for a day. SIMM is a margin AMOUNT, not a price; Vigor
+  priced a one-year option and charged it as a rate, and needed four corrections
+  and two clamps to hide the mismatch.
+- **Conservative aggregation.** Summing collars assumes everything breaches
+  together. SIMM's correlations are calibrated and therefore lower — better
+  capital efficiency, worse tail behaviour. Ours is the safer error.
+
+**WHERE THEY ARE NOT COMPARABLE:** SIMM exists so two counterparties who disagree
+about models can still agree on a number. It is deliberately not the best model —
+it is the most agreeable one. We have no counterparty to agree with; the pool
+prices its own book. Adopting SIMM wholesale would import a committee's
+compromises to solve a problem we do not have.
+
+⇒ **TAKE THE MPOR, LEAVE THE SCHEDULE.** The single highest-value change is to
+size the barrier over the close-out horizon rather than one step — which is
+SIMM's central idea and our largest measured error, and it subsumes the "6×
+over-collateralised" finding because the two errors point in opposite directions
+and have never been netted against each other.
