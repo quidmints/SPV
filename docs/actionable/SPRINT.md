@@ -12654,7 +12654,7 @@ it is simply no longer ours to work around.
 
 ### C17-a. 🔴 THE 2× LOOP NEEDS **TWO AAVE ACCOUNTS**, NOT TWO CALLS — eMode forbids the second borrow
 
-⛔ **SUPERSEDED — eMode is ruled out by the owner** (*'we dont need emode for anyhting'*), and the measured eMode two-hop yielded **74.9%** dollar debt per unit collateral against **77.5%** borrowing directly, so it was dominated on the numbers too. See the note at the §C17-c row for the 5 surviving references that should be deleted.
+⛔ **SUPERSEDED — eMode is ruled out by the owner** (*'we dont need emode for anyhting'*), and the measured eMode two-hop yielded **74.9%** dollar debt per unit collateral against **77.5%** borrowing directly, so it was dominated on the numbers too. ✅ The code carries NO eMode residue — a claim of 5 survivors was a substring false positive on `interestRateMode`.
 
 The loop is: weETH collateral → **borrow WETH** (eMode) → **borrow dollars against that WETH** →
 dollars buy WETH → wrap → weETH → redeposit. **Measured on-chain 2026-08-22** (`getConfiguration`
@@ -12770,7 +12770,7 @@ it** — 5 of 10 groups were false positives.
 
 ### C17-c. 🔴 THE WETH INTERMEDIATE MAKES THE LOOP **STRICTLY WORSE**. THE DIRECT BORROW DOMINATES IT ON EVERY AXIS
 
-⛔ **SUPERSEDED BY AN OWNER DECISION — *'we dont need emode for anyhting'*.** This row's mechanism is Aave eMode (`setUserEMode`). ⚠️ **BUT THE CODE IS NOT CLEAN: 5 eMode references survive in `imports/LevVenueBase.sol` and `imports/Interfaces.sol` (measured 2026-08-26).** That is standing-rule-1 dead code, and removing it is the only work this row still implies.
+⛔ **SUPERSEDED BY AN OWNER DECISION — *'we dont need emode for anyhting'*.** This row's mechanism is Aave eMode (`setUserEMode`). ✅ **AND THE CODE IS CLEAN — I CLAIMED OTHERWISE AND WAS WRONG.** I reported *"5 eMode references survive"*; that was a SUBSTRING FALSE POSITIVE — `eMode` occurs inside `interestRateMode` (×3) and `rateMode` (×2), which are Aave V3's *interest-rate-mode* parameter, unrelated to eMode. `setUserEMode|getUserEMode|EMODE|eModeCategory` are **0 references**. eMode was removed completely; this row implies NO remaining work.
 
 The owner's loop is weETH → **borrow WETH** (eMode) → **borrow dollars against that WETH** → buy WETH →
 wrap → redeposit. It works, and it reaches 2×. **But a single-account weETH→USDC borrow beats it on
