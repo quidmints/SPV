@@ -691,17 +691,28 @@ contract LevCascadeProbe is AllesFixture {
         assertLt(unlevPooled0, 5 ether + 1, "sanity: unlevered opened with ~5 ETH pooled");
     }
 
-    /// @notice BUFFER EXHAUSTION (the violent tail): beyond the 2x cap the IL target saturates and the LP bears the
-    ///   residual IL — isolated, never the basket, never a force-close. At 9x the raw target is 66.7% but MUST cap
-    ///   at 50%.
+    /// @notice BUFFER EXHAUSTION (the violent tail): beyond the cap the IL target saturates and the LP bears the
+    ///   residual IL — never the basket, never a force-close.
+    /// §E358 — **THE CAP IS THE PROTOCOL'S NOW, AND THIS TEST MOVED WITH IT.** It asserted the target
+    ///   saturated at 5000 (2×) on a 9× move, because the LP named its own cap. IL-protect is a
+    ///   protocol-wide liability, so `targetLtvCapBps` is deleted and `TARGET_LTV_CAP_BPS` (7500)
+    ///   binds instead — under which a 9× move's raw 6666 no longer saturates at all.
+    /// ⚠️ THE INTENT IS PRESERVED BY MOVING THE MOVE, NOT BY MOVING THE NUMBER. Re-asserting 6666
+    ///   would keep the test green while deleting what it checks (that the cap BINDS). So both are
+    ///   asserted: 9× to pin that the raw target now passes through uncapped, and 25× — raw
+    ///   `1 − 1/√25` = 8000 — to pin that the protocol cap still saturates.
     function test_BufferExhaustion_CapBindsAtViolentMove() public {
         _setupLev();
         _openAtEntry(lps[0], 10 ether);
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         vm.mockCall(address(AUX),
+            abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)), abi.encode(px * 25));
+        assertEq(lm.ilTargetLtvBps(lps[0]), 7500,
+            "violent move => IL target saturates at the PROTOCOL cap (raw 1-1/sqrt(25) = 8000)");
+        vm.mockCall(address(AUX),
             abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)), abi.encode(px * 9));
-        // The VIEW proves the target saturates: raw 1−1/√9 = 66.7% but the per-position cap binds at 50% (2x).
-        assertEq(lm.ilTargetLtvBps(lps[0]), 5000, "violent move => IL target capped at the per-position cap (2x)");
+        assertEq(lm.ilTargetLtvBps(lps[0]), 6666,
+            "a 9x move is BELOW the protocol cap now and must pass through uncapped (was capped at 5000)");
         // Levering toward a 9x-inflated target can't physically execute on the REAL Morpho market — its oracle
         // prices the weETH collateral at the TRUE price, so the borrow hits "insufficient collateral" and stops.
         // That IS the buffer exhausting: the LP can't over-lever past what real collateral supports, bears the
@@ -709,7 +720,7 @@ contract LevCascadeProbe is AllesFixture {
         for (uint k; k < 8; k++) { try lm.rebalance(lps[0], 0, "") {} catch {} }
         uint ltv = lm.getCurrentLtvBps(lps[0]);
         emit log_named_uint("levered LTV at 9x (real Morpho caps the borrow)", ltv);
-        assertLe(ltv, 5000 + 300, "must NOT lever past the 2x cap (residual IL borne by the LP)");
+        assertLe(ltv, 7500 + 300, "must NOT lever past the PROTOCOL cap (residual IL borne by the LP)");
         ( , , , , bool open) = lm.pos(lps[0]);
         assertTrue(open, "position stays open (LP bears the residual, isolated - no force-close)");
         vm.clearMockedCalls();
