@@ -12,6 +12,8 @@ use clutch::*;
 pub mod etc;
 
 #[cfg(test)]
+mod returns;
+#[cfg(test)]
 mod facility_sim;
 #[cfg(test)]
 mod facility_sim_report;

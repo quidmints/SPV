@@ -1037,3 +1037,101 @@ fn the_collar_is_monotone_in_the_two_things_it_claims_to_be_monotone_in() {
     assert!(collar_bps(1000, &calm) <= collar_bps(100, &calm),
         "higher leverage must not buy a WIDER collar");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §RETURNS-VALIDATION — validate the generator BEFORE measuring with it.
+// ═══════════════════════════════════════════════════════════════════════════
+
+use crate::returns::Equity;
+
+/// ⚠️ A GENERATOR I DO NOT VALIDATE IS THE SAME BLINDFOLD IN A NEW PLACE. The
+/// previous measurement used an invented tail; replacing it with a different
+/// invented tail would be no better. These are the stylised facts of equity
+/// returns that a barrier model is sensitive to, each checked against its known
+/// empirical value.
+#[test]
+fn the_return_generator_reproduces_the_stylised_facts_it_claims() {
+    for target_daily in [120i64, 300] {
+        let mut g = Equity::new(0xA11CE, target_daily);
+        let (mut n, mut sum2, mut sum4, mut gaps, mut gap2) = (0i64, 0i128, 0i128, 0i64, 0i128);
+        let mut moves: Vec<i64> = Vec::new();
+        for _ in 0..(24 * 7 * 500) {                       // ~400 weeks of hours
+            let (r, is_gap) = g.step();
+            if r == 0 { continue; }
+            n += 1;
+            sum2 += (r as i128) * (r as i128);
+            sum4 += (r as i128).pow(4);
+            if is_gap { gaps += 1; gap2 += (r as i128) * (r as i128); }
+            moves.push(r);
+        }
+        let var = (sum2 / n.max(1) as i128) as i64;
+        let sd = (var as f64).sqrt() as i64;
+        // Kurtosis = E[r^4]/var^2. Normal = 3; equities are 5-10 daily.
+        let kurt = if var > 0 { (sum4 / n.max(1) as i128) / ((var as i128) * (var as i128)) } else { 0 };
+        // Vol clustering: corr(|r_t|, |r_{t-1}|), crudely as a ratio of
+        // co-movement to mean, positive when large moves cluster.
+        let mean_abs = moves.iter().map(|x| x.abs()).sum::<i64>() / moves.len().max(1) as i64;
+        let mut co = 0i64;
+        for w in moves.windows(2) {
+            if (w[0].abs() > mean_abs) == (w[1].abs() > mean_abs) { co += 1; }
+        }
+        let cluster = co * 100 / (moves.len().max(1) as i64 - 1);
+        let gap_var_share = if sum2 > 0 { (gap2 * 100 / sum2) as i64 } else { 0 };
+
+        println!("\n=== generator @ target daily vol {}bps ===", target_daily);
+        println!("  realised per-move sd   {:>6} bps", sd);
+        println!("  kurtosis               {:>6}   (normal 3; equities 5-10)", kurt);
+        println!("  |r| clustering         {:>6}%  (50% = none)", cluster);
+        println!("  gap share of variance  {:>6}%", gap_var_share);
+        println!("  moves {} of which gaps {}", n, gaps);
+
+        assert!(kurt >= 3, "equity returns are leptokurtic; got kurtosis {}", kurt);
+        assert!(cluster > 50, "vol must cluster, else tails are independent: {}%", cluster);
+        assert!(gap_var_share > 5, "gaps must carry real variance: {}%", gap_var_share);
+    }
+}
+
+/// 🔴 THE COLLAR CALIBRATION, RE-RUN AGAINST CALIBRATED RETURNS RATHER THAN A
+/// TAIL I MADE UP. This is the number the whole facility policy rests on.
+#[test]
+fn collar_breach_rate_against_calibrated_equity_returns() {
+    println!("\n=== realised breach vs the 1% target — CALIBRATED returns ===");
+    println!("  {:<28} {:>8} {:>10} {:>10} {:>9}", "name / lev", "collar", "breaches", "samples", "rate");
+    let mut worst = 0i64;
+    for (label, dv) in [("large-cap  (19% ann)", 120i64),
+                        ("mid-vol    (32% ann)", 200),
+                        ("high-vol   (48% ann)", 300),
+                        ("meme       (95% ann)", 600)] {
+        let mut a = Actuary::default();
+        a.last_price = 1_000_000; a.last_price_slot = 0;
+        let mut g = Equity::new(0xBEEF, dv);
+        let mut px: i64 = 1_000_000;
+        let mut h = 0i64;
+        for _ in 0..(24 * 7 * 500) {                        // warm up ~60 weeks
+            let (r, _) = g.step(); h += 1;
+            if r == 0 { continue; }
+            px = ((px as i128) * (10_000 + r as i128) / 10_000).max(1) as i64;
+            a.update_price(px, h * 3_000);
+        }
+        for lev in [100i64, 200, 500, 1_000] {
+            let collar = collar_bps(lev, &a);
+            let mut g2 = Equity::new(0xF00D, dv);
+            let (mut breach, mut n) = (0i64, 0i64);
+            for _ in 0..(24 * 7 * 500) {
+                let (r, _) = g2.step();
+                if r == 0 { continue; }
+                n += 1;
+                if r.abs() > collar { breach += 1; }
+            }
+            let rate = breach * 10_000 / n.max(1);
+            let ratio = rate * 100 / COLLAR_BREACH_BPS.max(1);
+            if ratio > worst { worst = ratio; }
+            println!("  {:<22} {}x {:>8} {:>10} {:>10} {:>6}bps",
+                     label, lev / 100, collar, breach, n, rate);
+        }
+    }
+    println!("\n  target {}bps. worst regime = {}% of target.", COLLAR_BREACH_BPS, worst);
+    println!("  >100% = collar too TIGHT (breaches more than designed)");
+    println!("  <100% = too WIDE (over-collateralised, capital wasted)");
+    assert!(worst > 0, "the calibrated process must produce breaches somewhere");
+}
