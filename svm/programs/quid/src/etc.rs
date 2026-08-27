@@ -50,7 +50,7 @@ pub const MAX_PRICE_AGE: i64 = i64::MAX / 4;
 pub const LIQ_GRACE_SECS: u64 = 3_600;
 
 /// Basis points constant (100% = 10000)
-const BPS: i64 = 10_000;
+pub(crate) const BPS: i64 = 10_000;   // pub(crate) so tickers.rs's test modules can reach it
 
 /// `base^n` where `base` is a bps fraction, by exponentiation by squaring.
 /// Nine multiplications at the obs_count cap of 500, against a soft-float
@@ -102,7 +102,7 @@ pub const TRANCHE_RAMP_GRACES: i64 = 42; // a quarter of the 7-day window
 pub const COLLAR_BREACH_BPS: i64 = 100;
 
 /// 100% collar is meaningless (total loss before liquidation defeats purpose)
-const MAX_COLLAR_BPS: i64 = 5000;
+pub(crate) const MAX_COLLAR_BPS: i64 = 5000;
 
 const MAX_CONFIDENCE_BPS: u64 = 500; // 5%
 
@@ -119,7 +119,7 @@ const JUMP_MULT: [i64; 11] = [100, 100, 85, 85, 85, 70, 70, 70, 70, 55, 55];
 /// empirically — these are structural ceilings, not per-class priors.
 const STARTING_FLOOR_BPS: i64 = 200; // conservative cold-start vol floor
 const MAX_LEVERAGE_PCT:  i64 = 1000; // 10× universal ceiling
-const MIN_FEE_BPS:        i64 = 4;   // minimum trade fee
+pub(crate) const MIN_FEE_BPS:        i64 = 4;   // minimum trade fee
 const LEV_THRESHOLD:      i64 = 300; // 3× leverage before compound penalty
 
 #[error_code]
@@ -486,10 +486,24 @@ impl Actuary {
     /// finite mean-excess, and n = 12 is ξ ≈ 0.083, effectively exponential.
     pub fn gpd_params(&self) -> (i64, i64) {
         let count = self.exceed_count;
-        // Too few exceedances to estimate a shape: fall back to the thinnest
-        // tail we model, scaled by observed vol. Conservative in neither
-        // direction, and it self-corrects as exceedances accumulate.
-        if count < 8 { return (4, max(1, self.eff_sigma() / 2)); }
+        // Too few exceedances to estimate a shape: assume the FATTEST tail we
+        // model (n = 2, ξ = 0.5), scaled by observed vol.
+        //
+        // 🔴 THIS WAS n = 4, DESCRIBED AS "conservative in neither direction,
+        // and it self-corrects as exceedances accumulate." Both halves were
+        // true and together they were a hole: **"self-corrects" is the wrong
+        // property when an adversary picks the moment.** A newly listed or
+        // simply quiet ticker priced its tail off an ASSUMPTION, and the
+        // cheapest time to carry size against an unmeasured tail is precisely
+        // before the measurement exists. `obs_count < 5` disables the TWAP
+        // guard over the same window, so the two soft spots coincide.
+        //
+        // n = 2 is the fattest tail with a finite mean excess, so an
+        // unestimated tail is now a BOUND rather than a guess, and it RELAXES
+        // as data arrives instead of having to be corrected upward. The cost
+        // is a wider collar — and therefore less leverage — on an instrument
+        // whose tail nobody has measured yet, which is the trade we want.
+        if count < 8 { return (2, max(1, self.eff_sigma() / 2)); }
 
         let e_bar = self.exceed_sum / count;                       // ē
         if e_bar <= 0 { return (4, max(1, self.eff_sigma() / 2)); }
@@ -991,12 +1005,46 @@ impl Actuary {
                         .saturating_add((excess as i128) * (excess as i128));
                 }
             }
+            // Drawdown memory fades with ELAPSED TIME, not with observation
+            // count.
+            //
+            // 🔴 THIS DECAYED ONCE PER CALL, GATED ON `dt > 2000` — so the rate
+            // depended on who called `update_price` and how often, which is not
+            // a property of the market. Twenty updates spaced 2,000 slots apart
+            // decayed ~64%; ONE update after the same 40,000 slots decayed 5%.
+            // Same elapsed time, thirteen times the effect.
+            // ⇒ An adversary keeping a ticker QUIET (their own sparse deposits
+            // are enough — every one calls through here) could accelerate the
+            // fade, narrow the collar, and only then take size. Cadence was a
+            // free lever on the risk model.
+            //
+            // Stepping by `dt / 2000` makes decay depend on time rather than on
+            // observation count.
+            // ⚠️ THE STEP CAP IS 128, AND A SMALLER ONE REINTRODUCES THE BUG IT
+            //    WAS MEANT TO BOUND. A first attempt capped at 20 "so a long
+            //    silence fades the memory rather than erasing it in one call" —
+            //    but the cap binds ONLY on the single-long-gap path. Measured:
+            //    sixty updates 2,500 slots apart fell to the floor (400) while
+            //    ONE update after the same 150,000 slots stopped at 1,442. The
+            //    splitter still won, which is the whole attack.
+            //    128 cannot bind before the floor: each step removes 5% (or 10bps
+            //    flat, whichever is larger) and `max_drawdown_bps` is clamped to
+            //    5000, so the floor is always reached first. The cap is a compute
+            //    bound, never a behavioural one — which is the only kind that is
+            //    safe here.
+            //    Residual: integer truncation of `dt / 2000` makes a split path
+            //    decay slightly LESS than a whole one. That direction is
+            //    conservative (wider collar), and it is the direction the
+            //    security property demands.
             let drawdown_floor = max(vol_floor * 2, self.observed_vol_bps * 2);
             if dt > 2000 && self.max_drawdown_bps > drawdown_floor {
-                self.max_drawdown_bps = max(
-                    drawdown_floor,
-                    self.max_drawdown_bps - max(10, self.max_drawdown_bps / 20)
-                );
+                let steps = min(128, dt / 2000);
+                let mut dd = self.max_drawdown_bps;
+                for _ in 0..steps {
+                    dd = max(drawdown_floor, dd - max(10, dd / 20));
+                    if dd <= drawdown_floor { break; }
+                }
+                self.max_drawdown_bps = dd;
             }
         }
         // The tail estimate has moved, so the shortfall derived from it is

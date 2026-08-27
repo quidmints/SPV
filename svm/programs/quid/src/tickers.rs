@@ -2167,6 +2167,17 @@ pub static US_EQUITIES_ACCOUNT_MAP: phf::Map<&'static str, &'static str> = phf_m
 #[cfg(test)]
 mod hazard_tests {
     use super::*;
+    use crate::etc::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
+    // 🔴 `tickers.rs` COMPILES ONLY UNDER `--features all-tickers` (lib.rs:19-21
+    //    swaps in `tickers_slim.rs` otherwise), so NOTHING in this file's five
+    //    test modules runs in a default `cargo test` — 29 tests, invisible. And
+    //    under the feature it did not COMPILE: `use super::*` reaches the
+    //    `tickers` module, which re-exports none of the risk types these tests
+    //    are written against. A suite that neither runs nor builds reads exactly
+    //    like a suite that passes.
+    use crate::etc::*;
 
     fn actuary(sigma: i64, max_dd: i64, jumps: i64, net: i64, total: i64) -> Actuary {
         let mut a = Actuary::default();
@@ -2300,6 +2311,107 @@ mod hazard_tests {
         assert!(one_x >= a.eff_sigma(), "never below one sigma");
     }
 
+    /// §COLD-START — an UNMEASURED tail must be a BOUND, not a guess.
+    /// Before 8 exceedances `gpd_params` returned n = 4 (ξ = 0.25) on the stated
+    /// grounds that it was "conservative in neither direction" and would
+    /// "self-correct". Self-correction is worthless against someone choosing the
+    /// moment: a fresh or quiet ticker is exactly where you carry size against a
+    /// tail nobody has measured. n = 2 (ξ = 0.5) is the fattest tail modelled, so
+    /// the cold start now over-states rather than guesses, and RELAXES as data
+    /// arrives instead of needing correction upward.
+    #[test]
+    fn cold_start_assumes_the_fattest_tail_and_relaxes_with_data() {
+        let a = actuary(200, 400, 0, 0, 0);
+        assert!(a.exceed_count < 8, "premise: this fixture has no tail estimate");
+        let (n_cold, _) = a.gpd_params();
+        assert_eq!(n_cold, 2, "an unmeasured tail must assume xi = 0.5, the fattest modelled");
+
+        // And it is not merely a label: the collar it implies is strictly wider
+        // than the old n = 4 prior would have given, which is the whole point.
+        let es_cold = a.expected_shortfall_bps(COLLAR_BREACH_BPS);
+        let (n_thin, beta_thin) = (4i64, core::cmp::max(1, a.eff_sigma() / 2));
+        let x_thin = {
+            let (u, zeta) = (a.pot_threshold(), a.exceedance_rate_bps());
+            let (mut lo, mut hi) = (0i64, core::cmp::max(100, a.eff_sigma() * 50));
+            for _ in 0..20 {
+                let mid = lo + (hi - lo) / 2;
+                if mid == lo { break; }
+                if a.tail_at(mid, n_thin, beta_thin, u, zeta) > COLLAR_BREACH_BPS { lo = mid; } else { hi = mid; }
+            }
+            hi
+        };
+        assert!(es_cold >= x_thin,
+                "the fat prior must not price the tail thinner than the prior it replaced: {} vs {}",
+                es_cold, x_thin);
+
+        // Once real exceedances arrive the fit takes over and the assumption goes away.
+        let fitted = with_exceedances(actuary(200, 400, 0, 0, 0), 40, 60, 60);
+        let (n_fit, _) = fitted.gpd_params();
+        assert!(fitted.exceed_count >= 8, "premise: enough exceedances to fit");
+        assert!(n_fit >= 2 && n_fit <= 12, "fitted shape stays in the modelled range: {}", n_fit);
+    }
+
+    /// §DECAY-CADENCE — drawdown memory must fade with TIME, not with how often
+    /// someone calls `update_price`.
+    /// It used to decay once per call behind `dt > 2000`, so twenty updates spaced
+    /// 2,000 slots apart faded ~64% while ONE update after the same 40,000 slots
+    /// faded 5%. Cadence was a free lever on the collar, and an adversary supplies
+    /// cadence for free — every deposit calls through here. The two paths must now
+    /// land in the same place.
+    #[test]
+    fn drawdown_decay_is_elapsed_time_not_observation_count() {
+        let build = || {
+            let mut a = actuary(200, 4000, 0, 0, 0);
+            a.last_price = 1_000_000;
+            a.last_price_slot = 0;
+            a.observed_vol_bps = 200;
+            a
+        };
+
+        // ⚠️ SPACING IS 2,500, NOT 2,000. The gate is `dt > 2000`, strictly — at
+        // exactly 2,000 no path decays at all, and a first draft of this test
+        // picked that boundary and read the resulting 4000-vs-1442 as a failure
+        // of the fix rather than of its own fixture.
+        const GAP: i64 = 2_500;
+        const N: i64 = 20;
+
+        // Path A: N sparse updates. Path B: one update after the same elapsed time.
+        let mut many = build();
+        for i in 1..=N { many.update_price(1_000_000, i * GAP); }
+        let mut once = build();
+        once.update_price(1_000_000, N * GAP);
+
+        // ⚠️ NOT EXACT EQUALITY, AND SAYING SO IS THE POINT. `steps = dt / 2000`
+        //    truncates, so a split path loses each gap's remainder: 20 updates of
+        //    2,500 slots yield 20 steps where one 50,000-slot gap yields 25.
+        //    Exact path-independence would need the remainder carried in state —
+        //    a new Actuary field and therefore an account-layout change — and it
+        //    buys nothing here, because the truncation runs in the SAFE direction:
+        //    splitting decays LESS, leaving a wider collar. Assert the bound that
+        //    is true rather than an equality that is not.
+        assert!(many.max_drawdown_bps >= once.max_drawdown_bps,
+            "splitting must never decay further than one whole gap: split {} < whole {}",
+            many.max_drawdown_bps, once.max_drawdown_bps);
+        assert!(many.max_drawdown_bps < 4000,
+            "but the split path must still decay at all: {}", many.max_drawdown_bps);
+
+        // Decay is real, not a no-op that would satisfy the above trivially.
+        assert!(once.max_drawdown_bps < 4000,
+            "{} slots of silence must actually fade the drawdown: {}", N * GAP, once.max_drawdown_bps);
+
+        // THE SECURITY PROPERTY, asserted separately because it is the one that
+        // survives the 20-step cap: past the cap the two paths can diverge, and
+        // what must never happen is that SPLITTING a gap decays MORE than leaving
+        // it whole — that is precisely the lever an adversary supplies for free.
+        let mut split = build();
+        for i in 1..=60 { split.update_price(1_000_000, i * GAP); }
+        let mut whole = build();
+        whole.update_price(1_000_000, 60 * GAP);
+        assert!(split.max_drawdown_bps >= whole.max_drawdown_bps,
+            "splitting a gap must not accelerate the fade: split {} < whole {}",
+            split.max_drawdown_bps, whole.max_drawdown_bps);
+    }
+
     #[test]
     fn gjr_weights_downside_more_than_upside() {
         // Same magnitude, opposite signs, from identical starting states.
@@ -2424,6 +2536,9 @@ mod hazard_tests {
 #[cfg(test)]
 mod delivery_set {
     use super::*;
+    use crate::etc::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
 
     /// The delivery set only means anything if every ticker in it is one this
     /// program can actually price and trade. A mint keyed under a symbol with
@@ -2465,6 +2580,9 @@ mod delivery_set {
 #[cfg(test)]
 mod market_stress {
     use super::*;
+    use crate::etc::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
 
     /// Deterministic LCG. No `rand`, no clock: a failure here has to be
     /// reproducible from the seed alone or it is not worth reporting.
@@ -2577,6 +2695,9 @@ mod market_stress {
 #[cfg(test)]
 mod premium_path_dependence {
     use super::*;
+    use crate::etc::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
 
     /// What does a year of premium cost if nobody touches the position?
     ///
@@ -2616,6 +2737,9 @@ mod premium_path_dependence {
 #[cfg(test)]
 mod premium_integral {
     use super::*;
+    use crate::etc::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
 
     /// The point of integrating: what a window costs must depend on what
     /// happened during it, not on when somebody chose to settle it.
