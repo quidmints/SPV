@@ -502,6 +502,36 @@ below, while true of that function, explains nothing here. **The drift is in the
 all.** Keeping the finding because the clock mismatch is real and worth fixing on its own path;
 demoting it from cause to observation.
 
+✅✅ **SOLVED 2026-08-28 — THE DRIFT IS THE PROPORTIONAL RELEASE, MATCHED TO THREE DECIMALS ACROSS
+FOUR SWAPS.** Aligning the REAL basket outflow (`Aux::take`, a visible call frame — no rebuild needed)
+against the `committed` deltas already recorded:
+| swap | `Aux::take` (TVL out) | `committed` fell | shortfall | predicted `take × incr/POOLED_USD` |
+|---|---|---|---|---|
+| 1 | 2,517.927747 | 2,517.927747 | **0**        | incr 0        ⇒ **0** ✓ |
+| 2 | 2,442.389915 | 2,441.156324 | **1.233591** | 74.278/147,116 ⇒ **1.233** ✓ |
+| 3 | 2,442.389915 | 2,439.903530 | **2.486385** | 147.304/144,750 ⇒ **2.486** ✓ |
+⇒ **THE SHORTFALL IS EXACTLY `usdAmount × increment / POOLED_USD`** — precisely what
+`out_ = mulDiv(b, usdAmount, pooledPre)` under-debits when `b < P`. Swap 1 matches to the wei because
+`b == P` there, where proportional and full release are ALGEBRAICALLY THE SAME; the divergence starts
+at the exact swap the two arms stop agreeing. Nothing else in the system produces that curve.
+⇒ **THE INCREMENT GROWS FOR A CORRECT REASON** (the fee mint, `basketLeg=false`, adds to `POOLED_USD`
+without adding to `basketUsd`), and a growing increment makes the proportional under-debit grow with
+it — which is why the drift ACCELERATES rather than being constant.
+🔴 **SO MY ORIGINAL FIX WAS RIGHT AND THE CONTROL THAT MADE ME REVERT IT WAS CONFOUNDED.** Full
+release (`min(b, usdAmount)`) debits exactly what left, so `committed` tracks TVL and the drift is
+zero by construction. §E28-r's objection bites only when `b < usdAmount` (basket exhausted), which is
+a DIFFERENT regime from the one every one of these swaps is in.
+▶️ **TO RE-LAND, and it needs the guard the first attempt lacked:** restore `min(b, usdAmount)` AND
+handle `b < usdAmount` explicitly — that is the case §E28-r measured ("basket floored to 0 against a
+25.200001 residue") and the only one where full release grows the increment. Then re-run the
+`_burnSplitProbe` series: the increment must grow ONLY by the fee mint, and `Aux::take` must equal the
+`committed` delta on every swap.
+⚠️ **AND ACCOUNT FOR THE +0.507 ETH BEFORE LANDING.** It is still unexplained and it is the one number
+that contradicted this account. Do not re-land on the strength of the table above alone.
+⛔ **BLOCKED ON THE BOX, NOT ON THE ANALYSIS:** re-landing needs a build, and this machine has 3.5 GB
+total with ~0.8 GB free — a `forge build` was OOM-killed (exit 137) attempting the instrumented run
+this measurement replaced.
+
 ⭐⭐ **THE DECOMPOSITION, AND IT CLOSES THE ARITHMETIC** (2026-08-28). Per swap:
 | quantity | measured |
 |---|---|
