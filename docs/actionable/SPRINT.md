@@ -15015,12 +15015,20 @@ simply was not what held the tail open.
 2. ⭐ **THE LEVERAGE NET-EQUITY IS NOT DELIVERABLE AT ALL** — *"solvency backing … but NOT
    deliverable from this Vault (unwind-only via closeLev — the LP gets it back by repaying debt +
    withdrawing coll)"*.
-📌 **(2) WOULD MEAN THE "STUCK BAG" IS NOT STUCK — IT IS THE LEVERED SLICE, AND `withdraw` IS THE
-WRONG INSTRUMENT FOR IT.** A test that withdraws repeatedly and expects full realisation is asking
-the unlevered path to return value that only `closeLev` can. **That is a hypothesis, not a finding:
-the discriminator is whether `ChopIsBenign`'s LP is levered at the point it asserts, and that is one
-read.** Do it before treating either deferral as the cause — and note it would move this row from a
-delivery DEFECT to a test asserting the wrong exit.
+📌 **BOTH OF MY CANDIDATES ARE NOW ELIMINATED, BY READING RATHER THAN BY A THIRD GUESS.**
+- ⛔ **(2) REFUTED — THE LP IS NOT LEVERED.** `_stageIL` (`Alles.t.sol:1102`) does a plain
+  `ETH.deposit{value: lpEth}(0, lp)` and calls itself an *"all-Galaxy ETH LP"*. There is no
+  `openLev` anywhere in `ChopIsBenign`, so the unwind-only leverage net-equity cannot be the
+  residual. My "the stuck bag is the levered slice" reading was wrong.
+- ⛔ **(1) DOES NOT FIT THE NUMBERS EITHER.** The weETH bound is `curvePool.balances(0) * 9/10`, and
+  `ETHERFI_CURVE_POOL` holds **2,207 WETH** on mainnet (measured this session) — a ~1,986 ETH
+  ceiling against a **50 ETH** position. Three orders of magnitude of headroom; it cannot bind.
+
+⇒ **SO THE CAUSE IS NOT ANY OF THE THREE THINGS PROPOSED SO FAR, AND THE ROW'S ORIGINAL INSTRUCTION
+IS THE ONE THAT SURVIVES: instrument `_withdraw`'s delivered-vs-requested per call and find which
+cap binds.** I skipped that step twice — once for the `- inPool` diagnosis and once for the
+levered-slice one — and it produced a falsified prediction and a refuted hypothesis in a row.
+⚠️ **DO NOT PROPOSE A FOURTH MECHANISM FROM READING.** The next move is the measurement.
 
 *(original prediction, kept because it was wrong and the record matters:)*
 🔴 **STAYS OPEN (rule 16) — THE PREDICTION IS STATED AND NOT YET RUN.** `ChopIsBenign` fails on a
