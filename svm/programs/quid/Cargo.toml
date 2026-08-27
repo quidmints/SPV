@@ -10,7 +10,9 @@ crate-type = ["cdylib", "lib"]
 name = "quid"
 
 [features]
-all-tickers = []
+# LayerZero testnet EIDs (Solana devnet 40168 / Sepolia 40161) in place of
+# mainnet (30168 / 30101). See the note in LZ.rs.
+testnet = []
 default = []
 testing = []
 

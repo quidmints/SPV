@@ -28,11 +28,57 @@ pub const LZ_ENDPOINT_PROGRAM: Pubkey = Pubkey::new_from_array([
     149, 7, 183, 137, 7, 216, 193, 139,
 ]);
 
+// ⚠️ THESE WERE MAINNET-ONLY, AND THAT MADE DEVNET UNREACHABLE BY CONSTRUCTION.
+// `lz_receive` enforces `params.src_eid == ETHEREUM_EID` and `bridge_home` sends
+// to `dst_eid: ETHEREUM_EID`. LayerZero's testnet EIDs are the 40xxx range, so a
+// devnet message carries `src_eid = 40161` and OUR OWN GUARD REJECTED IT. The
+// bridge could never have been exercised anywhere but mainnet, which is why the
+// devnet task had no visible blocker — the blocker was two integers.
+//
+// ⭐ KEPT AS CONSTANTS RATHER THAN MOVED INTO `OAppStore`, because the store's
+// own docstring gives the right reason not to: *"storing either would only
+// create a way for the record and the code to disagree."* That argument holds;
+// it simply assumed one deployment. An EID is a property of the chain the binary
+// runs on, and a devnet binary is a different binary — so a compile-time swap
+// preserves the invariant instead of trading it away for reachability.
+//
+// ⚠️ NOT THE `all-tickers` TRAP. That gate chose which SOURCE FILE compiled, so a
+// whole test module vanished from the default run. This gates two integers, both
+// spellings are visible in this file, and `eids_are_coherently_paired` below
+// fails if a build ever mixes a mainnet EID with a testnet one.
+//
+// Verified against LayerZero docs 2026-08-28: Solana devnet 40168, Sepolia 40161.
+
 /// Solana mainnet. Ours.
+#[cfg(not(feature = "testnet"))]
 pub const SOLANA_EID: u32 = 30_168;
 /// Ethereum mainnet, where Basket.sol lives and where the ERC-6909 id a QD
 /// balance was issued under is remembered.
+#[cfg(not(feature = "testnet"))]
 pub const ETHEREUM_EID: u32 = 30_101;
+
+/// Solana devnet.
+#[cfg(feature = "testnet")]
+pub const SOLANA_EID: u32 = 40_168;
+/// Ethereum Sepolia, where a test `Basket.sol` would live.
+#[cfg(feature = "testnet")]
+pub const ETHEREUM_EID: u32 = 40_161;
+
+#[cfg(test)]
+mod eid_tests {
+    use super::*;
+    /// A build must not mix a mainnet EID with a testnet one — that would send
+    /// to Ethereum mainnet while accepting only from Sepolia, or the reverse,
+    /// and neither would be visible until a message failed to arrive.
+    #[test]
+    fn eids_are_coherently_paired() {
+        let both_main = SOLANA_EID / 10_000 == 3 && ETHEREUM_EID / 10_000 == 3;
+        let both_test = SOLANA_EID / 10_000 == 4 && ETHEREUM_EID / 10_000 == 4;
+        assert!(both_main || both_test,
+            "EIDs must both be mainnet (30xxx) or both testnet (40xxx): solana {} ethereum {}",
+            SOLANA_EID, ETHEREUM_EID);
+    }
+}
 
 pub const OAPP_STORE_SEED: &[u8] = b"Store";
 pub const CHAIN_SEED: &[u8] = b"Chain";
@@ -539,9 +585,23 @@ mod bridge_label {
         }
         let encoded: String = digits.iter().rev()
             .map(|&d| ALPHABET[d as usize] as char).collect();
+        // The ENDPOINT is the same program on mainnet and devnet — verified live
+        // 2026-08-28, executable at this address on both — so this assertion is
+        // not gated.
         assert_eq!(encoded, "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6");
-        assert_eq!(SOLANA_EID, 30_168);
-        assert_eq!(ETHEREUM_EID, 30_101);
+        // ⚠️ THE EIDs ARE NOT. This pinned 30_168/30_101 unconditionally and
+        // failed the moment a testnet build existed — which is the gate doing its
+        // job: a stale literal surfaced immediately instead of a devnet message
+        // silently never arriving. Each build pins ITS OWN pair; the coherence of
+        // the pair is asserted separately in `eid_tests`.
+        #[cfg(not(feature = "testnet"))] {
+            assert_eq!(SOLANA_EID, 30_168);
+            assert_eq!(ETHEREUM_EID, 30_101);
+        }
+        #[cfg(feature = "testnet")] {
+            assert_eq!(SOLANA_EID, 40_168);
+            assert_eq!(ETHEREUM_EID, 40_161);
+        }
     }
 
     #[test]
