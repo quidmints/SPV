@@ -68,6 +68,32 @@ pub enum Arm {
     /// Hedge on `∫(|net| − theta)+ dt > THETA`. Only a SUSTAINED position fires
     /// it, and sustaining pays carry the whole time.
     PersistenceGated,
+    /// ⭐ THE ONLY ARM DERIVED FROM AN OPTIMALITY CONDITION RATHER THAN INVENTED.
+    /// Impulse control under a fixed transaction cost has a known solution — a
+    /// NO-TRADE BAND of width `h = ∛(g/(C·K))` (Constantinides; Janeček–Shreve),
+    /// which is the same result already implemented on the EVM side as
+    /// `noTradeBandBps`. `LevelTrigger` and `PersistenceGated` are not of this
+    /// form at all: one has no hysteresis and re-fires on every crossing, the
+    /// other is a time integral. Both are therefore suboptimal BY CONSTRUCTION,
+    /// and comparing them to each other could never have revealed that.
+    DerivedBand,
+    /// 🔴 NOT A POLICY — A BENCHMARK. Knows the next `LOOKAHEAD` steps of the
+    /// price path and hedges only when that move will actually pay for the round
+    /// trip. Unimplementable, and that is the point: the gap between a rule and
+    /// this is REGRET, which is the only way to say whether a rule is good
+    /// rather than merely better than another rule I also made up.
+    Clairvoyant,
+}
+
+/// Perfect-foresight window for the benchmark arm.
+pub const LOOKAHEAD: i64 = 6;
+
+/// Integer cube root, for the derived band.
+fn icbrt(x: i64) -> i64 {
+    if x <= 0 { return 0; }
+    let mut r = 1i64;
+    while (r + 1).saturating_mul(r + 1).saturating_mul(r + 1) <= x { r += 1; }
+    r
 }
 
 // ── Cost constants, stated so they can be argued with ───────────────────────
@@ -126,6 +152,12 @@ fn net_path(n: Net, t: i64) -> i64 {
     }
 }
 
+/// Execution quality. A PUBLISHED trigger makes the pool a predictable buyer,
+/// and a predictable buyer does not transact at the mark — it transacts against
+/// whoever read the rule. The first cut charged a flat spread and assumed the
+/// fill was otherwise fair, which is the optimistic case, not the neutral one.
+pub const ADVERSE_FILL_BPS: i64 = 25;
+
 /// Knobs that were constants in the first cut. Each was an assumption doing
 /// real work in the answer, so each is now something you can sweep instead of
 /// something I asserted.
@@ -144,10 +176,14 @@ pub struct Cfg {
     /// only effect is cost. Expressed as bps of the net that the pool cannot
     /// write when it has no way to lay the risk off.
     pub forgone_rev_bps: i64,
+    /// Extra cost per hedge when the trigger is publicly computable, i.e. when
+    /// someone can stand in front of it. Zero models a private (and therefore
+    /// signalling) rule; `ADVERSE_FILL_BPS` models a published one.
+    pub adverse_fill_bps: i64,
 }
 
 impl Default for Cfg {
-    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0 } }
+    fn default() -> Self { Cfg { ratio_bps: 10_000, rt_bps: HEDGE_RT_BPS, forgone_rev_bps: 0, adverse_fill_bps: 0 } }
 }
 
 pub struct Outcome { pub depositor_bps: i64, pub hedges: i64, pub hedged_notional: i64 }
@@ -163,7 +199,11 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
     a.last_price_slot = 0;
     a.total_exposure = DEPOSITS / 2;
 
+    // The path is generated up front so the benchmark arm can look forward. The
+    // POLICY arms never read past `t`; only `Clairvoyant` does, which is exactly
+    // what makes it a bound rather than a strategy.
     let mut rng: u64 = 0x5EED;
+    let path: Vec<i64> = (0..STEPS).map(|t| price_step(cell.price, t, &mut rng)).collect();
     let mut px: i64 = 1_000_000;
     let mut pnl: i64 = 0;              // depositor P&L, absolute
     let mut hedge_notional: i64 = 0;   // signed, in dollars
@@ -173,7 +213,7 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
 
     for t in 0..STEPS {
         // ── price ──────────────────────────────────────────────────────────
-        let mut d = price_step(cell.price, t, &mut rng);
+        let mut d = path[t as usize];
         // A closed primary market does not stop the price; it stops the HEDGE.
         // The move still lands, it just lands all at once on reopening.
         let tradable = !(cell.clock == Clock::WeekendGapped && t % 7 >= 5);
@@ -210,6 +250,35 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
             Arm::LevelTrigger => if net_bps.abs() > THETA_BPS { target } else { 0 },
             Arm::PersistenceGated =>
                 if persist_acc > PERSIST_BUDGET { target } else { hedge_notional },
+
+            // h = ∛(g / (C·K)). `g` is the ticket's own cost in dollars, `C` the
+            // net notional, `K` the risk coefficient — and K is NOT invented
+            // here: it is the fitted tail the program already computes.
+            Arm::DerivedBand => {
+                let k = a.expected_shortfall_bps(COLLAR_BREACH_BPS).max(1);
+                let g = TICKET * cfg.rt_bps / B;
+                let c = net_dollars.abs().max(1);
+                // h in bps: ∛(g·B³ / (C·K)) with the scaling carried inside.
+                let inner = (g as i128 * (B as i128).pow(3)) / (c as i128 * k as i128 / B as i128).max(1);
+                let h = icbrt(inner.min(i64::MAX as i128) as i64).clamp(1, B);
+                let drift = (target - hedge_notional).abs();
+                // Hysteresis: act only outside the band, and then go to target.
+                if c > 0 && drift * B / c > h { target } else { hedge_notional }
+            }
+
+            // Perfect foresight over LOOKAHEAD steps: hedge only if the move
+            // ahead pays for the round trip on this notional.
+            Arm::Clairvoyant => {
+                let mut fwd = 0i64;
+                for k in 0..LOOKAHEAD {
+                    let i = t + k;
+                    if i < STEPS { fwd += path[i as usize]; }
+                }
+                // Pool is short the net, so it loses when `fwd` is positive.
+                let gain = net_dollars * fwd / B;
+                if gain > (target - hedge_notional).abs() * cfg.rt_bps / B { target }
+                else { 0 }
+            }
         };
 
         // Revenue the pool CANNOT earn because it has no way to lay this off.
@@ -225,7 +294,8 @@ pub fn run_cfg(cell: Cell, arm: Arm, cfg: Cfg) -> Outcome {
         //    cell into the no-facility arm, so the pause column measured nothing.
         let delta = want - hedge_notional;
         if tradable && delta.abs() >= TICKET {
-            pnl -= delta.abs() * cfg.rt_bps / B;   // spread + impact, both ways
+            // Spread + impact, plus the cost of being a PREDICTABLE buyer.
+            pnl -= delta.abs() * (cfg.rt_bps + cfg.adverse_fill_bps) / B;
             hedge_notional = want;
             hedges += 1;
             hedged_total += delta.abs();

@@ -201,3 +201,97 @@ fn equal_weighting_overstates_rare_catastrophes() {
              neg_w * 100 / den, num / den);
     assert!(den > 0);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §REGRET — "is our rule optimal?" cannot be answered by comparing it to
+// another rule I also invented. It needs a benchmark and a derived arm.
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn mean_of(arm: Arm, cfg: Cfg) -> i64 {
+    let cells = grid();
+    cells.iter().map(|c| run_cfg(*c, arm, cfg).depositor_bps).sum::<i64>() / cells.len() as i64
+}
+
+/// 🔴 THE QUESTION I HAD NOT ASKED. `PersistenceGated` beating `LevelTrigger`
+/// says nothing about either being good — both were invented for this harness.
+/// Regret against a perfect-foresight benchmark is what says whether a rule is
+/// close to the best achievable, and it decomposes the gap into the part caused
+/// by the POLICY FORM and the part that is irreducible ignorance of the future.
+#[test]
+fn regret_against_perfect_foresight_is_the_only_optimality_evidence_here() {
+    let cfg = Cfg::default();
+    let oracle = mean_of(Arm::Clairvoyant, cfg);
+    println!("\n=== regret vs perfect foresight (mean bps over 240 cells) ===");
+    println!("  Clairvoyant (bound)   {:>6}", oracle);
+    for arm in [Arm::NoFacility, Arm::LevelTrigger, Arm::PersistenceGated, Arm::DerivedBand] {
+        let m = mean_of(arm, cfg);
+        println!("  {:<20?} {:>6}    regret {:>6}", arm, m, oracle - m);
+    }
+    assert!(mean_of(Arm::Clairvoyant, cfg) >= mean_of(Arm::LevelTrigger, cfg),
+        "a foresight benchmark that loses to a blind rule is not a benchmark");
+}
+
+/// ⭐ THE DERIVED ARM EXISTS BECAUSE THE OPTIMAL POLICY FORM IS KNOWN. Impulse
+/// control under a fixed cost solves to a NO-TRADE BAND; neither invented rule
+/// is one. If the band does not beat them, the derivation is being applied
+/// wrongly here — which is itself worth knowing, and is not something the
+/// original two-rule comparison could ever have surfaced.
+#[test]
+fn the_derived_band_is_the_only_arm_with_a_claim_to_optimal_form() {
+    let cfg = Cfg::default();
+    let (band, gate, lvl) = (mean_of(Arm::DerivedBand, cfg),
+                             mean_of(Arm::PersistenceGated, cfg),
+                             mean_of(Arm::LevelTrigger, cfg));
+    println!("\n  DerivedBand {}   PersistenceGated {}   LevelTrigger {}", band, gate, lvl);
+    println!("  (band beats gate: {}, band beats level: {})", band > gate, band > lvl);
+    assert!(band >= lvl,
+        "the known-optimal FORM should not lose to a hysteresis-free trigger: {} vs {}",
+        band, lvl);
+}
+
+/// ⚠️ AND THE EXECUTION ASSUMPTION, WHICH WAS OPTIMISTIC RATHER THAN NEUTRAL.
+/// A published trigger makes the pool a predictable buyer. The first cut charged
+/// a flat spread and assumed the fill was otherwise fair — but the whole reason
+/// to publish the rule was to stop it SIGNALLING, and publishing is exactly what
+/// lets someone stand in front of it. The two goals are in tension and the sim
+/// priced only one of them.
+#[test]
+fn publishing_the_rule_costs_execution_quality_and_that_was_unpriced() {
+    let private = Cfg::default();
+    let public  = Cfg { adverse_fill_bps: ADVERSE_FILL_BPS, ..Cfg::default() };
+    for arm in [Arm::PersistenceGated, Arm::DerivedBand] {
+        let (a, b) = (mean_of(arm, private), mean_of(arm, public));
+        println!("  {:<20?} private {:>6}   published {:>6}   cost {:>5}", arm, a, b, a - b);
+        assert!(b <= a, "being predictable cannot be free: {} vs {}", b, a);
+    }
+}
+
+/// ⚠️ THE REGRET TABLE ABOVE CARRIES THE SAME UNIFORM-WEIGHTING FLAW I HAD JUST
+/// FINISHED CORRECTING, plus it runs every arm at a 100% hedge ratio that the
+/// ratio sweep already showed to be dominated. Re-run it honestly before
+/// concluding anything from it.
+#[test]
+fn regret_under_plausible_weights_and_the_ratio_the_sweep_actually_favours() {
+    let w = |c: &Cell| -> i64 {
+        let mut p: i64 = 10_000;
+        if c.issuer == Issuer::Paused    { p = p * 2 / 100; }
+        if c.flow == Flow::RedemptionRun { p = p * 15 / 100; }
+        if c.basis == Basis::Widening    { p = p * 30 / 100; }
+        p.max(1)
+    };
+    let wmean = |arm: Arm, cfg: Cfg| -> i64 {
+        let (mut num, mut den) = (0i64, 0i64);
+        for c in &grid() { let k = w(c); num += run_cfg(*c, arm, cfg).depositor_bps * k; den += k; }
+        num / den
+    };
+    for (label, ratio) in [("100% ratio", 10_000i64), ("25% ratio", 2_500)] {
+        let cfg = Cfg { ratio_bps: ratio, ..Cfg::default() };
+        let oracle = wmean(Arm::Clairvoyant, cfg);
+        println!("\n=== weighted regret, {} ===", label);
+        println!("  Clairvoyant (bound)  {:>6}", oracle);
+        for arm in [Arm::NoFacility, Arm::PersistenceGated, Arm::DerivedBand, Arm::LevelTrigger] {
+            let m = wmean(arm, cfg);
+            println!("  {:<20?} {:>6}   regret {:>6}", arm, m, oracle - m);
+        }
+    }
+}
