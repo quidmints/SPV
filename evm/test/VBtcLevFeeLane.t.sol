@@ -1155,6 +1155,11 @@ contract VBtcLevFeeLane is AllesFixture {
             emit log_named_uint("this range POOLED_USD   ", CORE.POOLED_USD());
             emit log_named_address("CORE                    ", address(CORE));
             emit log_named_address("BTC.CORE()              ", address(BTC.CORE()));
+            emit log_named_address("ETH.CORE()              ", address(ETH.CORE()));
+            emit log_named_uint("ETH rangeEquityUsd18    ", ETH.CORE().rangeEquityUsd18());
+            emit log_named_uint("BTC rangeEquityUsd18    ", BTC.CORE().rangeEquityUsd18());
+            emit log_named_uint("ETH basketUsd (6d)      ", ETH.CORE().basketUsd());
+            emit log_named_uint("BTC basketUsd (6d)      ", BTC.CORE().basketUsd());
         }
 
         // The vBTC withdraw inside swapOutDelever needs the LP to authorize the venue as its Morpho manager.
