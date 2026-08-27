@@ -1142,12 +1142,19 @@ contract VBtcLevFeeLane is AllesFixture {
             (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
             emit log_named_uint("TVL (usd6)              ", dd[14]);
             emit log_named_uint("depegLoss (usd6)        ", dpg);
-            emit log_named_uint("ETH committedUsd18      ", CORE.committedUsd18());
-            emit log_named_uint("BTC committedUsd18      ", BTC.CORE().committedUsd18());
-            emit log_named_uint("ETH POOLED_USD          ", CORE.POOLED_USD());
-            emit log_named_uint("BTC POOLED_USD          ", BTC.CORE().POOLED_USD());
-            emit log_named_address("ETH core address        ", address(CORE));
-            emit log_named_address("BTC core address        ", address(BTC.CORE()));
+            // ⚠️ §WRONG-RANGE — **THESE LABELS WERE LYING, AND THE ADDRESS LINE IS WHAT PROVED IT.**
+            //    `CORE` and `BTC.CORE()` print the SAME address in this fixture, so the two rows
+            //    marked "ETH" and "BTC" were one range read twice — the exact class this repo records
+            //    at `Alles.t.sol:1404` as costing 246 failures. `committedUsd18()` is additionally a
+            //    TOTAL over both ranges (`RangeBacking.total()`), so it reads identically from either
+            //    core BY DESIGN and cannot discriminate at all. Only `POOLED_USD` is per-range, and
+            //    it agreed — which is the tell.
+            //    ⇒ Print the TOTAL once, under its real name, and keep the address line as the guard
+            //    that catches the day these stop being the same object.
+            emit log_named_uint("committedUsd18 (BOTH)   ", CORE.committedUsd18());
+            emit log_named_uint("this range POOLED_USD   ", CORE.POOLED_USD());
+            emit log_named_address("CORE                    ", address(CORE));
+            emit log_named_address("BTC.CORE()              ", address(BTC.CORE()));
         }
 
         // The vBTC withdraw inside swapOutDelever needs the LP to authorize the venue as its Morpho manager.

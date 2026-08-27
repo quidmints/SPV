@@ -434,6 +434,44 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
+## 🔴 **§DELIVER-BACKING — `committedUsd18` JUMPS BY THE LEVERED COLLATERAL DURING A SWAP-OUT DELIVERY, ON A BASKET THAT CANNOT COVER IT. DECOMPOSED, NOT FIXED** (2026-08-26)
+
+`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` reverts `"backing"` —
+`require(committedUsd18() <= haircutTvl)` in `Core._poolUsdInRange`'s MINT arm (`Core.sol:1285`).
+**Pre-existing; it fails identically on a tree without any of this session's changes.**
+
+⭐ **MEASURED AT THE REVERT, which is the part that makes this actionable:**
+| quantity | value |
+|---|---|
+| TVL (`_d[14]`, 18d) | **$157,000.005** |
+| `committedUsd18()` BEFORE the delivery | **$151,999.999** — passing, with ~$5,000 of room |
+| `committedUsd18()` AT the revert | **$272,662.105** |
+| the jump | **$120,662.105** |
+
+⇒ **THE JUMP IS ~THE LEVERED COLLATERAL.** The test exposes **2.99 BTC** (`_openLev(d.lp,
+299_000_000)`), which at the fixture's mark is ≈ **$120,662** — the delta to the digit. So the
+delivery commits the levered slice's GROSS against basket TVL, and that collateral sits at Morpho
+behind DEBT, not in the basket.
+⚠️ **BUT SUBTRACTING THE DEBT DOES NOT CLOSE IT, so do not stop at "it should be net".** The LP is at
+~50% LTV, so the net slice is ≈$60,331 and the total would still be ≈$212,331 against $157,000. There
+is a SECOND term unaccounted for, and `POOLED_USD` on this range reads **$277,662** against a
+**$157,000** basket — i.e. the fixture is already over-committed before the delivery mints anything.
+▶️ **NEXT, and it is the burn side, not the commit side:** the test's own header names the hypothesis
+— *"a surviving ratchet here is a COMMIT WITHOUT A MATCHING BURN"* — and `burnInRange` is SHARED
+(it takes `core`), so the BTC range gets the same `basketLeg` release the ETH range does. Establish
+whether `POOLED_USD > TVL` is reachable in production or is a fixture artefact BEFORE touching the
+gate; if it is reachable, the defect is upstream of this require and the require is correct to fire.
+⛔ **DO NOT LOOSEN THE `require`.** It is the only thing standing between two ranges and
+over-committing one basket, and `Core.sol:1279-1284` records that it was DEAD for a period
+(`_reportEquity` had no callers, so `total()` was permanently 0 and the check was `0 <= tvl`,
+always true). A gate that has already been silently inert once should not be relaxed to make a test
+pass.
+✅ **FIXED IN PASSING (test-side, §WRONG-RANGE):** the instrument block printed "ETH" and "BTC"
+`committedUsd18`/`POOLED_USD` rows that were ONE range read twice — `CORE` and `BTC.CORE()` are the
+same address in this fixture, and `committedUsd18()` is a TOTAL over both ranges by design so it
+cannot discriminate anyway. Relabelled; the address line stays as the guard.
+
+
 ## ✅ **[CLOSED 2026-08-26 — FIXED WITH `accrueInterest` FIRST, EXACTLY AS THE ROW'S OWN FIRST CANDIDATE SAID. `MorphoEscrowVenue.accrue()` ALREADY EXISTED and nothing in `src` had ever called it — its docblock names this very drift (*"removing the pre-accrual drift `debtOf` documents"*) but was written as advice to a KEEPER, so the money path was never obliged to. It is now `override` on `ILevVenue`; `_closeLev` calls it BEFORE sizing the flash (`debtUsd` reads `MORPHO.market()` raw, so it under-reported and the flash was borrowed short), `repay` calls it before reading `debtOf`, and `_repayCreditingLp` then repays the LP's exact SHARE slice when it can afford it — landing on zero rather than on rounding luck. The accrual is what makes the share path safe: quote and execution now read the SAME market, which is precisely what the earlier attempt lacked. `test_LevFeeLane_…` green, the two tests that regressed before stay green, and a new `test_G7_WithdrawPastFreeDepthAutoDeLevers` binds the full close end-to-end: slice 0, debt 0, position closed]**  **§DUST-BLOCKS-THE-LAST-EXIT — THE LAST LP OUT OF A POOLED VENUE COULD NOT LEAVE** (2026-08-26)
 
 **THE BUG IS REAL AND IT IS A LIVENESS BUG, NOT A ROUNDING NUISANCE.** `_repayCreditingLp` repays
