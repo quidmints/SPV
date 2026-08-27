@@ -1944,6 +1944,12 @@ not dollars** (§A.50), so that comparison would be a units error, not a check.
 
 ## 🔴 **§PUSH-HEADROOM-1.85X — the push guard's margin is a third of what `Core` claims, and the tripwire fired** (2026-08-25)
 
+⏱️ **RE-MEASURED 2026-08-26: `bps*2 = 58` against `OBS_PUSH_MAX_BPS = 50` (live basis 29 bps), up
+from 54. THIS ROW TRACKS A MARKET NUMBER, NOT CODE** — the other two tests in the suite pass, so
+nothing regressed; the 1inch-vs-Chainlink basis simply drifted further past the guard. Re-measure
+before acting: the fix is a parameter decision (widen `OBS_PUSH_MAX_BPS` or accept refusals), and it
+should be made against a fresh reading, not this one.
+
 `test_E294_HeadroomIsNotMarginal` asserts `basisBps * 2 < OBS_PUSH_MAX_BPS`. **MEASURED: `bps*2 = 54`
 against a guard of `50`, i.e. the 1inch-vs-oracle basis is `27 bps` against a `50 bps` ceiling —
 **1.85× headroom**.** The test's own docstring says *"`Core`'s claim is ~6x"*.
