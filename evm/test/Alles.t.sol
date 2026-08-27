@@ -3512,14 +3512,6 @@ contract Alles is AllesFixture {
         // alone therefore reads as a 19.4% "exit-order skim" that is purely a composition
         // difference -- the total value each LP receives is equal.
         uint b1 = User01.balance + WETH.balanceOf(User01);
-        // §COMMITTED-DRIFTS-UP — is POOLED_USD itself above TVL? If the range's USD LEG exceeds the
-        // basket's stables, the defect is upstream of how the burn splits that leg between basket and
-        // increment, and no choice of release arm can fix it.
-        { (uint[15] memory dd0,,,) = AUX.get_deposits();
-          emit log_named_uint("DRIFT TVL (18d)      ", dd0[14]);
-          emit log_named_uint("DRIFT POOLED_USD*1e12", CORE.POOLED_USD() * 1e12);
-          emit log_named_uint("DRIFT basketUsd *1e12", CORE.basketUsd() * 1e12);
-          emit log_named_uint("DRIFT committedUsd18 ", CORE.committedUsd18()); }
         vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
         uint got1 = (User01.balance + WETH.balanceOf(User01)) - b1;
         uint b2 = User02.balance + WETH.balanceOf(User02);

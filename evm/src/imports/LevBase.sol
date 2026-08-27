@@ -559,7 +559,19 @@ abstract contract LevBase {
         if (!pos[lp].open) revert NotOpen();
         uint256 pull;
         (pull, repaid) = LevMath.protectExec(
-            QUID, address(AUX), address(pos[lp].venue), lp, getCurrentLtvBps(lp), minStableOut);
+            // §POOL-VENUE — **THE NEAR-LIQUIDATION GATE MUST READ THE POOL, NOT THE LP.**
+            // `protectExec` refuses unless `curLtvBps + PROTECT_MARGIN_BPS >= liqThresholdBps`
+            // (`LevMath:971`). Liquidation is POOLED: Morpho holds ONE position under the venue and
+            // seizes it whole, hitting every LP pro-rata (`LevVenueBase:117`). So gating on this
+            // LP's own ratio asks a question liquidation does not depend on — a comfortable LP
+            // inside a stressed pool is refused protection right up until the pool is seized, and
+            // then the loss lands on it anyway.
+            // ⇒ MAX of the two, the same shape the Rust keeper's safety gate now uses: the POOL
+            //   figure is the trigger (is the book in danger), the per-LP one identifies who to act
+            //   on. Taking the max means neither can mask the other, and it is a strict SUPERSET of
+            //   the old gate — it can only ever admit MORE protection, never less.
+            QUID, address(AUX), address(pos[lp].venue), lp,
+            _worstLtvBps(lp), minStableOut);
         _afterProtect(msg.sender);
         emit ProtectedFromQuid(lp, pull, repaid);
     }
@@ -600,6 +612,13 @@ abstract contract LevBase {
     ///      target. Both are needed and neither substitutes for the other.
     ///      Reuses `LevMath.ltvBps` + `collValueUsd` — the same two bodies `getCurrentLtvBps` uses, so
     ///      the aggregate and the per-LP reads cannot drift apart by a convention.
+    /// @dev The LTV that decides whether protection may fire: the WORSE of this LP's own ratio and
+    ///      the POOL's. No `Math` import for one comparison — a ternary is the whole body.
+    function _worstLtvBps(address lp) internal view returns (uint) {
+        uint a = getCurrentLtvBps(lp); uint b = poolLtvBps();
+        return a > b ? a : b;
+    }
+
     function poolLtvBps() public view returns (uint) {
         address v = _pool();
         if (v == address(0)) return 0;
