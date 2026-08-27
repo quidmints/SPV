@@ -471,6 +471,15 @@ ADD.** Steady state is fine ($152,000 against $157,000); only the intermediate s
 reconcile between the repay and the repack (`deleverOnDelivery` never runs, so there is nothing to
 reconcile), and moving the reconcile off the head of `_resize` (same trace, same revert). The
 sequencing is inside `repack`, one level below anything `_resize` can reorder.
+📍 **THE OFFENDING CALL IS LOCATED: there are only TWO `modLP` call sites in the tree, and the ADD is
+`SwapLib.sol:2171`** — `sent = ICore(core).modLP(int256(pulled), int256(usdOut), recipient)`, commented
+*"LEAVES ⇒ positive"*, i.e. the OUT-OF-RANGE ORDER `pull` path, with `recipient == address(0)` here.
+The two burns are the other site, `BtcLib.sol:382` (*"ENTERS ⇒ negative"*). So the add/burn pair that
+spikes `basketUsd` is the OOR order machinery moving through the resync, not the levered slice being
+re-added directly — the amounts merely coincide with it (1.495 BTC / $120,662 = half the exposed
+position and its debt).
+⚠️ **THAT IS WHY THIS IS NOT A ONE-LINE REORDER.** Swapping the order of an OOR order's enter/leave
+legs changes the semantics of `pull`, and this row has no measurements of that path's invariants.
 ▶️ **NEXT, and it is now a narrow question:** either make the resync BURN-BEFORE-ADD, or evaluate the
 solvency gate at the END of an operation rather than on each mint. The second is the more general
 fix — a gate that fires on an intermediate state is checking a value that was never simultaneously
