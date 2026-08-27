@@ -434,6 +434,55 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit)
 
+## 🔴 **§BTC-OOR-ENTERABLE-NEVER-FILLABLE — a user can PLACE a BTC boundary order that CANNOT fill, and the only exit is a recorded loss** (2026-08-28)
+
+`Vault.outOfRange(amount, token, distance, range)` is live and tested
+(`test/btc/BtcSelfManaged.t.sol`, 488 lines). `Core.sol:1066` sweeps crossed orders on EVERY swap via
+`RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` — and on the BTC range that lands on
+`Vault.sweepOor(uint, uint) external pure returns (uint) { return 0; }`.
+⇒ **BTC orders are placeable and permanently unfillable**, and the capital sits OUT of range, which is
+NOT in the fee-earning share base — so it earns nothing while it waits. `pull` is the only exit and
+its own docblock records the loss on an owner-initiated close.
+✅ **THE STUB IS CORRECT AND MUST STAY.** Its header gives the reason: the BTC range has no on-chain
+BTC delivery (settlement is a Lightning cooperative close), so `Core._handleDelta` hands the filled
+leg to a `deliverVolatile` that returns 0 — **the fill would BURN it**. Auto-filling *"would convert a
+loss the owner currently chooses into one the protocol inflicts on its own schedule."*
+⛔ **AND THE FEATURE MUST NOT BE DELETED** — that is the `create_sweep_tx` trap, which this repo has
+already sprung TWICE. It is maintained, tested, and waiting on native delivery: *"this stays zero
+until native delivery attributes the off-chain fill channel."* Rule 1 removes UNREACHABLE code, not
+work whose enabling capability is unbuilt.
+▶️ **SO THE DEFECT IS THE ENTRY, NOT THE SWEEP: `Vault.outOfRange` should REFUSE while
+`sweepOor` is a stub.** One guard on the placement path closes the trap, keeps the tested machinery
+for when native delivery lands, and is the smallest change that does either. ⚠️ It will fail
+`BtcSelfManaged.t.sol`, and that is the right conversation — those tests assert a user CAN open a
+position that cannot fill.
+
+## ⏸️ **§OOR-AS-INTENT — the "minimise on-chain code" redesign, scoped but NOT started** (2026-08-28)
+
+Owner: *"remove out of range code from solidity … doable off chain since the keeper is trusted to run
+the bridge anyway"*, with the security question *"how is it that only this intent can be done by the
+keeper, and nothing else"* and the constraint *"until then your dollars are in the basket, or your ETH
+is in-range LP protected"*. Owner chose **ORACLE BINDS**.
+⭐ **THE MOTIVATION IS CAPITAL EFFICIENCY, NOT BYTES — MEASURED.** An OOR position is NOT in the
+fee-earning share base, so parked capital is IDLE until crossed. Under intents it stays in the basket
+or in-range (earning, IL-protected) and the fill only RECLASSIFIES.
+⚠️ **IT IS PROBABLY NOT A BYTE SAVING.** You delete geometry (`oorBounds`, `sizeOutOfRange`,
+`openOor`, `sweepOor`, `pull`, the `Oor` struct, `oorBook`/`selfManaged`/`positions` storage) but ADD
+EIP-712 + a consumed-nonce map. Do not sell it as freeing space for `Vogue`.
+🔒 **THE SECURITY DESIGN, and all three have in-tree precedent:** (1) the USER signs the intent
+(`owner, side, amount, limitPrice, expiry, nonce`) — `BTCChannels.sol` already verifies signatures, so
+a hacked keeper holds no key that moves funds; (2) the CONTRACT reads its own oracle
+(`getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)`) — the keeper submits WHEN, the contract decides WHETHER,
+the same discipline as §C2.1's `_aggSwap` (keeper picks the venue, never the price); (3) one consumed
+bit per `(owner, nonce)` plus `expiry`. ⇒ A fully-compromised keeper can only REFUSE TO RELAY —
+liveness, curable by anyone since the entrypoint is permissionless. **And there is no escrow to
+drain**, which is what most limit-order books lose.
+📐 **BLAST RADIUS, measured:** 6 src files / 24 call-def sites; 5 test files with 15 call sites
+(9 `outOfRange`, 6 `pull`) incl. a dedicated `OorFillsOnTouch.t.sol` and all of `BtcSelfManaged.t.sol`;
+plus `spa/src/lib/abi.ts`. It is ONE atomic change — deleting the src functions breaks the tests
+immediately — so it needs its own wave and its own build+test, not a fold into another batch.
+
+
 ## ✅ **[CLOSED 2026-08-28 — FIXED AND VERIFIED. The burn arm debits `min(b, usdAmount)` — what actually left the basket — so `committed` tracks TVL and the drift is zero by construction. BOTH `OverCommitted()` tests pass; Alles 101/102 (the one failure is the owner-gated BTC-leg fee). Every §E230/§E28-r guard green: BackingGateSplit 3/3, UnificationControls 26/26 incl. `test_E36_Committed…`, RoundTripNeutrality 4/4. **AND THE +0.507 ETH IS ACCOUNTED FOR — it was never a leak:** `ChopIsBenign` delivers 57.7625 + retains 1.0363 under full release vs 57.2585 + 0.9707 under proportional, and PASSES `delivered + retained ≈ maxW` in BOTH arms. `maxW` marks higher under full release because `_pricingBacking` prices the share off the increment; conservation holds either way, which is precisely what that assertion was rewritten to distinguish]**  **§COMMITTED-DRIFTS-UP — `OverCommitted()` WAS NOT INSOLVENCY, IT WAS A MONOTONE DRIFT INTO A STRICT INEQUALITY** (2026-08-26)
 
 `test_EthLp_RedeemConservationAndFairness` and `test_FeeAttributionWithMultipleLPs` both revert
