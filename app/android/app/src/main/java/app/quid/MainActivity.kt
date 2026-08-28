@@ -1,4 +1,4 @@
-package com.anonymous.quid
+package app.quid
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
