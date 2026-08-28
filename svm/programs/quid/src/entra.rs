@@ -405,9 +405,35 @@ pub fn handle_flash_borrow<'info>(ctx: Context<'_, '_, '_,
 
     let mut found = false; let mut i = current_idx + 1;
     loop { match load_instruction_at_checked(i, ixs) {
-            Ok(ix) => { if ix.program_id == crate::ID && ix.data.len() >= 8
-                        && ix.data[..8] == FLASH_REPAY_DISC { found = true; break; }
-                i += 1;
+            Ok(ix) => { if ix.program_id == crate::ID && ix.data.len() >= 8 {
+                    if ix.data[..8] == FLASH_REPAY_DISC { found = true; break; }
+                    // 🔴 A WITHDRAWAL BETWEEN BORROW AND REPAY IS HOW THE FLASH
+                    //    LEG BECOMES A 0.4% HOLE. The loan itself is harmless:
+                    //    it is capped at the hot buffer, atomic, and restores
+                    //    it before any other transaction runs. But drain the
+                    //    buffer FIRST and a withdrawal in the same bundle finds
+                    //    nothing there and reaches into the parked tranche,
+                    //    which is the one action in this program that costs a
+                    //    real ~0.4% round trip.
+                    //
+                    // ⚠️ AND THE FORFEIT DOES NOT COVER IT. `unpark_for_withdrawal`
+                    //    charges the CALLER `cost_released - lamports_out`, so the
+                    //    attacker does pay the marked haircut — but the deviation
+                    //    from that mark goes through `accrue_sol_yield` onto every
+                    //    SOL depositor. That hands anyone who can pay a 5 bp tip
+                    //    the power to choose WHEN the pool unwinds its Kestrel
+                    //    position, which is worth far more than the tip whenever
+                    //    the unwind is dislocated.
+                    //
+                    // ⇒ The fix is not a smaller loan. The buffer can be lent to
+                    //   the last lamport with no consequence, because it is put
+                    //   back in the same transaction. What must not exist is a
+                    //   window in which the buffer is empty AND something can
+                    //   spend from the parked side, so the window is closed
+                    //   rather than the loan being shrunk to guess around it.
+                    require!(ix.data[..8] != WITHDRAW_DISC,
+                             PithyQuip::FlashLoanActive);
+                } i += 1;
             } Err(_) => break,
         }
     } require!(found, PithyQuip::FlashRepayMissing);
@@ -577,6 +603,11 @@ pub const SOL_POOL_SEED: &[u8] = b"sol_pool";
 
 /// Anchor discriminator for `flash_repay` — sha256("global:flash_repay")[..8].
 pub const FLASH_REPAY_DISC: [u8; 8] = [0xb6, 0x8f, 0x13, 0x17, 0x27, 0xdd, 0xb8, 0x4e];
+
+/// `sha256("global:withdraw")[..8]`. Needed at the flash borrow so the scan
+/// that looks for the repay can also refuse a withdrawal wedged in front of
+/// it — see `handle_flash_borrow`.
+pub const WITHDRAW_DISC: [u8; 8] = [183, 18, 70, 156, 148, 109, 161, 34];
 
 /// Off-chain: derive the Squads v4 vault PDA (index 0) for a given multisig.
 /// Seeds: [b"vault", multisig.as_ref(), &[0u8]], program = SQUADS_MULTISIG_V4
@@ -1329,4 +1360,28 @@ pub struct SolUnparked {
     pub lamports_out: u64,
     pub cost_released: u64,
     pub realised_usd: i64,
+}
+
+#[cfg(test)]
+mod flash_window_tests {
+    use super::*;
+
+    /// The discriminators are derived, not transcribed, so a rename of either
+    /// instruction is caught here rather than by a guard that silently stops
+    /// matching. `FLASH_REPAY_DISC` was already in the tree and pins the
+    /// derivation itself.
+    #[test]
+    fn withdraw_and_repay_discriminators_are_the_anchor_ones() {
+        use solana_program::hash::hash;
+        let disc = |n: &str| {
+            let mut d = [0u8; 8];
+            d.copy_from_slice(&hash(format!("global:{n}").as_bytes()).to_bytes()[..8]);
+            d
+        };
+        assert_eq!(disc("flash_repay"), FLASH_REPAY_DISC,
+                   "the derivation is pinned by a constant that predates this test");
+        assert_eq!(disc("withdraw"), WITHDRAW_DISC,
+                   "rename `withdraw` and the flash-window guard stops matching");
+        assert_ne!(WITHDRAW_DISC, FLASH_REPAY_DISC);
+    }
 }

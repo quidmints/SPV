@@ -529,7 +529,7 @@ fn post_variation_margin(pod: &mut Stock, dq: &mut u64, depository: &mut Deposit
 fn settle_partial_close(pod: &mut Stock, depository: &mut Depository,
     actuary: &Actuary, old_exposure_value: u64, closed_value: u64,
     position_value: u64, price: u64, current_time: i64,
-    accrued_interest: u64) -> (u64, u64, (u64, u64, u128), bool) {
+    accrued_interest: u64) -> (u64, u64, u64, (u64, u64, u128), bool) {
     let numer = closed_value as u128;
     let denom = (position_value as u128).max(1);
     let pro_rata = |v: u64| ((v as u128).saturating_mul(numer)
@@ -559,7 +559,13 @@ fn settle_partial_close(pod: &mut Stock, depository: &mut Depository,
         pod.collar_dollar_seconds = 0;
     }
     lelu.apply(pod, depository);
-    (pledged_released, interest_on_closed, raroc, fully_closed)
+    // `cost_basis_released` is returned rather than left as a local: the pledge
+    // is NOT the basis. Every premium is debited out of `pod.pledged` at :945
+    // and `cost_basis` is left alone, so the two diverge by the whole premium
+    // history of the position — and a short priced off the pledge pays that
+    // history twice, once when it left the pledge and again as a smaller basis
+    // to measure the buy-back against.
+    (pledged_released, cost_basis_released, interest_on_closed, raroc, fully_closed)
 }
 
 
@@ -1072,7 +1078,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     //
                     // A long is paid the mark less the interest attributable
                     // to the slice; its collateral stays with the pool as margin.
-                    let (_released, interest_on_closed, raroc, fully_closed) =
+                    let (_released, _basis_closed, interest_on_closed, raroc, fully_closed) =
                         settle_partial_close(pod, depository, actuary,
                             old_exposure_value, redeem_dollars,
                             old_exposure_value, price, current_time,
@@ -1229,12 +1235,19 @@ let new_total = bank.total_deposits.saturating_sub(usd);
 
                 // A short is paid its released collateral plus P&L against
                 // basis: closing means buying back, so profit is basis − exit.
-                let (pledged_reduce, interest_on_closed, raroc, fully_closed) =
+                let (pledged_reduce, basis_closed, _interest_on_closed, raroc, fully_closed) =
                     settle_partial_close(pod, depository, actuary,
                         old_exposure_value, redeem_dollars,
                         if old_exp > 0 { old_exp } else { 1 }, price,
                         current_time, accrued_interest);
-                let cost_basis_share = pledged_reduce.saturating_add(interest_on_closed);
+                // Profit is basis minus exit, and the basis is what was POSTED,
+                // not what survived the premiums. Reconstructing it as
+                // `pledged_reduce + interest_on_closed` recovered only the
+                // CURRENT interval's premium, so every earlier one stayed
+                // subtracted — a short that had been open long enough to pay
+                // real premiums was billed for them a second time here, and the
+                // longer it held the worse the second bill got.
+                let cost_basis_share = basis_closed;
                 let signed_pnl: i128 =
                     (cost_basis_share as i128) - (redeem_dollars as i128);
                 let user_credit: u64 = (pledged_reduce as i128)
@@ -2345,5 +2358,51 @@ mod sol_is_not_margin {
         assert_eq!(b.has_capacity(100_000), room);
         assert_eq!(b.total_deposits, 600_000, "dollars, untouched");
         let _ = pod(0, 0, 0, 0);
+    }
+}
+
+#[cfg(test)]
+mod partial_close_basis {
+    use super::tests::{bank, pod};
+    use super::*;
+
+    /// A short's partial close prices its P&L against RELEASED PLEDGE, but the
+    /// pledge is not the basis: `stay.rs:945` debits every premium out of
+    /// `pod.pledged` and leaves `pod.cost_basis` alone, so the two diverge by
+    /// the whole premium history of the position. `settle_partial_close`
+    /// COMPUTES the right number — `cost_basis_released` — uses it to decrement
+    /// state, and then does not return it, so the caller reaches for the only
+    /// released quantity it was handed.
+    #[test]
+    fn a_short_partial_close_is_priced_off_pledge_not_basis() {
+        let mut b = bank(0, 0, 0);
+        let a = crate::etc::Actuary::default();
+        let price = 100u64;
+
+        // Opened with 1_000 behind it, then aged: 200 of premiums have been
+        // billed out of the pledge. `cost_basis` still records what was posted.
+        let mut p = pod(1_000, -10, 0, 0);
+        p.cost_basis = 1_000;
+        p.pledged -= 200;
+        p.interest_paid = 200;
+
+        let old_value = p.value_at(price);
+        let (pledged_released, basis_closed, _interest_on_closed, _raroc, _closed) =
+            settle_partial_close(&mut p, &mut b, &a, old_value,
+                old_value / 2, old_value, price, 0, 0);
+
+        // Half the position closed, so half of each released quantity. The two
+        // are NOT equal, and that gap is the whole finding: 400 of pledge
+        // survives, against 500 of basis actually posted.
+        assert_eq!(pledged_released, 400, "half of the 800 that survived premiums");
+        assert_eq!(basis_closed, 500, "half of the 1_000 actually posted");
+        assert_eq!(p.cost_basis, 500, "and the other half stays on the pod");
+
+        // The short's buy-back is now priced against the basis. Pricing it
+        // against `pledged_released` charged the 100 of premiums attributable
+        // to this half a second time, having already taken them out of the
+        // pledge at :945.
+        assert_eq!(basis_closed - pledged_released, 100,
+                   "the premium share that used to be billed twice");
     }
 }
