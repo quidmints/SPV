@@ -3552,6 +3552,28 @@ headings together, and **118 of those are `###` SUB-SECTIONS INSIDE one item's w
 CONSEQUENCE"*, *"WHAT IS ACTUALLY MISSING"*, *"THE MECHANISM"*. They are paragraphs of an argument,
 not work. Counts: 232 `##` headings (90 open-marked, 40 done-marked) · 427 `###` (118 open-marked).
 
+### ✅ **RE-MEASURED 2026-08-28: STILL EXACTLY 90. THE NUMBER IS STABLE; THE GREPS ARE NOT.**
+```
+## total=332  done-marked=129  OPEN(incl ⏸️)=90  OPEN(excl ⏸️)=77
+### total=510  open-marked=120   <-- sub-sections, NOT work
+```
+📌 **PIN THIS COMMAND — it is the definition, and re-deriving it by eye has now failed five times:**
+```bash
+grep -E '^## ' docs/actionable/SPRINT.md \
+  | grep -vE '✅|~~|CLOSED|RESOLVED|SETTLED|RETRACTED' \
+  | grep -cE '🔴|🟠|🟡|🔬|⏸️|❌'      # => 90 open items (77 active + 13 ⏸️ deferred)
+```
+🔎 **WHY 90 DID NOT MOVE WHILE WORK LANDED:** `##` total went **232 → 332** and done-marked **40 →
+129**. Closures and newly-booked findings advanced together, so a FLAT open count is the file
+working as intended, **not** a stalled sprint. ⇒ Never report progress from this number alone; report
+it against done-marked, or from the failure count.
+⛔ **THE ~200 FIGURE USED THROUGHOUT THE 2026-08-28 SESSION (quoted as 200 / 202 / 199 / 233) IS THE
+`##`+`###` CONFLATION THIS SECTION EXISTS TO WARN AGAINST.** Each variant was internally consistent
+and all were wrong as an ITEM count: 199 = open incl. `###` with ⏸️ deferred; 218 = same with ⏸️ open;
+233 = 218 plus headings whose TEXT says OPEN/LIVE but carry no marker emoji. The wave grouping built
+on "~200" is still a usable partition **of rows to review**, but it is not 200 items of work — it is
+**90**, and any plan that sizes effort off the larger number over-estimates by ~2.2×.
+
 ### ▶️ THE 43 THAT ARE ASSIGNABLE RIGHT NOW — GROUPED BY FILE, NOT BY TOPIC
 ⭐ **THIS IS THE GROUPING THAT PARALLELISES, AND THE DISCRIMINATOR IS EMPIRICAL.** A 7-lane fleet ran
 today partitioned by FILE OWNERSHIP and produced zero conflicts and zero regressions (verified: pristine
