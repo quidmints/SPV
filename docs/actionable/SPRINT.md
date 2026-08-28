@@ -3847,6 +3847,28 @@ empty grep, and only one of them means the work is done.
 📌 **RE-RUN THIS SWEEP AFTER ANY FOLD OR RENAME.** It is one pass over the corpus and it is the only
 check that catches a row going vacuously green.
 
+### ✅ **ALL 11 CLASSIFIED (2026-08-28), BY `git log -S` — AND THEY FALL INTO FOUR CLASSES, NOT ONE**
+| symbol | commit that removed it | class ⇒ what to do |
+|---|---|---|
+| `_quidAddr` | `f94446c9` *"§J.2 group 1: hoist the duplicated manager state into LevBase"* | **DELETED — the row's own blocker is gone.** `§J2-LEV-ARITY` cites it as part of the merge blocker; the hoist removed it |
+| `QuoteUnfillable` | `94d94899` *"§E300: the skew path never reverts — bound the quantity, not the price"* | **DELETED BY DESIGN.** §E319's citation is closed by §E300's saturating haircut |
+| `derivedThetaWadAt` | `9ddd31da` (§E311/§E301) | **DELETED** — CLAUDE.md records it and the 181 bytes it returned to `Quid` |
+| `_mkAuth` | `d05afe05` *"#21: derive lpEth from the channel key in every fixture"* | **DELETED** with the fixture rework |
+| `borrowRateView` | `656f4ce3` *"Un-vendor both Morpho repos"* | **WENT WITH THE UN-VENDORING.** §E282 must be re-derived against the CURRENT Morpho interface, not repointed |
+| `_rebalanceBody` | `457c7bae` *"The last fold: one `_rebalance` for both bands"* | **FOLDED — code is LIVE.** Repoint the coordinate; do not read the empty grep as done |
+| `swapData` | `f0783c7b` | **SUPERSEDED** by §C2.1's `dex` word — `C15`'s migration already happened under a different shape |
+| `wellSkewPure` | `87e8d690` ***"Revert** "§E278: price the skew on the fillable amount…""* | **NEVER LANDED — it existed only inside a reverted commit.** A row citing it is citing a road not taken |
+| `recordForceClosePenalty`, `termsLeaf`, `closeChannel` | **no commit anywhere touches them** | 🔴 **NEVER EXISTED IN THIS TREE.** Not staleness — `B8` and `D2` are built on symbols that were imagined, or belong to another repo. **Re-derive those two rows from the code before working them** |
+⛔ **THE FOURTH CLASS IS THE ONE NOBODY LOOKS FOR: A ROW CAN NAME A SYMBOL THAT NEVER EXISTED.** Three
+of the eleven do. An empty grep was assumed to mean "it was removed", and for these it means the row
+was never anchored to the tree at all — which is worse, because there is no commit to read for intent.
+⭐ **AND A FOURTH DELETE-THEN-RESTORE SURFACED IN THE SAME PASS, AFTER `create_sweep_tx` (×2) AND
+`proRataShortfall`:** `f0783c7b` *"Delete `_aggSwap`: it had no callers and never entered the
+bytecode"* — and `_aggSwap` is **live today** (`LevMath`, 4 call sites), restored by `95b293ed`
+(§C2.1). ⇒ **"No callers, not in the bytecode" has now been the stated reason for FOUR deletions that
+were all reverted.** It is the single most reliable false signal in this repo, and CLAUDE.md's rule is
+the answer: `git log -S` the symbol before deleting it.
+
 ## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
 
 ### ✅ **§CITATION-AUDIT — ALL 447 `file:line` CITATIONS CHECKED MECHANICALLY (2026-08-28). 434 RESOLVE.**
