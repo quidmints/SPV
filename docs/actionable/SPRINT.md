@@ -4942,7 +4942,19 @@ just is not the only term.
 
 ---
 
-## 1. 🔴 §E255 — ONE RANGE MANAGER, TWO `Shares` INSTANCES
+## ✅ **[CLOSED 2026-08-28 — ITS PREMISE IS FALSE ON COUNT, AND THE REMAINING TWO ARE DOCUMENTED AS CORRECTLY DISTINCT]**  ~~1. §E255 — ONE RANGE MANAGER, TWO `Shares` INSTANCES~~
+⛔ **"IMPLEMENTED THREE TIMES" IS WRONG — `Shares.sol` DECLARES THE SHARE FACE ZERO TIMES.**
+`grep -cE "function (balanceOf|transfer|totalSupply)" src/Shares.sol` = **0**. The third copy this row
+is built on does not exist, so the duplication it counts is two, not three.
+⛔ **AND THE REMAINING TWO ARE NOT A DUPLICATED PAIR — CLAUDE.md ALREADY SETTLED THIS AND THIS ROW
+CONTRADICTS IT.** `Quid.balanceOf` returns `autoManaged[user].pooled` — a **PROJECTION** of range
+state, with no balances mapping at all — while `VBtc` declares `mapping(address => uint) public
+balanceOf`, a **LEDGER**. Verified today, both. CLAUDE.md: *"different things wearing one ERC-20
+signature. **Folding them would duplicate state**, which is the exact thing `Shares.sol`'s header says
+it exists to delete."* ⇒ Merging them is not the §E21 move; it is the §EthVenue-split defect —
+merging on a shared signature rather than on what the things ARE.
+
+## ~~(original) 1. 🔴 §E255~~
 
 **The architecture this thread was driving toward** (owner, 2026-08-17): *"vogue must control two
 shares contracts that each do their delever etc for each range, calling each lev library it needs."*
@@ -4983,7 +4995,10 @@ contract that compiles, tests green, and cannot be deployed.
 
 ## 2. 🔴 §E251 — vBTC MINT SCOPE
 
-`VBtc.mintTo` has **exactly one call site** (`Vault:333`, inside `exposeBtcToLev`), so the entire
+⚠️ **COORDINATE STALE, SUBSTANCE INTACT (checked 2026-08-28): the call site is `Vault:324`, not
+`:333`.** Still **exactly one**, still inside `exposeBtcToLev`, so the finding holds — only the line
+moved. Re-grep `mintTo` rather than trusting the number.
+`VBtc.mintTo` has **exactly one call site** (`Vault:324`, inside `exposeBtcToLev`), so the entire
 vBTC supply is the levered slice. `outOfRangeBtc` mints none. The design is broader: range BTC
 *including* the out-of-range locked portion should be mintable and lendable on Morpho, subset-
 accounted so it is not double counted.
@@ -5048,6 +5063,18 @@ listed. It also deleted a duplicate `settleSwapInBuffered` (already arriving via
 
 **The class is not audited.** Grep every other open/close pair for an **entry path that discriminates
 on venue collateral while its exit path does not**.
+✅ **AUDITED 2026-08-28 — THE CLASS IS CLEAN ON BOTH REMAINING PAIRS.** The asymmetry LOOKS present in
+the signatures and is not: `openLev(ILevVenue venue, …)` and `openBtcLev(uint, ILevVenue venue)` both
+take a venue while `closeLev(uint,uint)` and `closeBtcLev()` take none — **but both closes RECOVER it
+from stored position state rather than re-deriving or ignoring it**:
+`LevManager._closeLev:461-464` → `Types.Pos storage p = pos[lp]; ILevVenue venue = p.venue;
+venue.stable()`; `BtcLevManager.closeBtcLev:343-349` → `Types.Pos memory p = pos[lp];
+p.venue.debtOf(lp)`, `p.venue.collateralOf(lp)`, `p.venue.withdraw(lp, rem)`.
+⚠️ **SO THE SIGNATURE IS THE WRONG PLACE TO AUDIT THIS CLASS, WHICH IS THE REUSABLE PART.** A close
+that omits the venue parameter is not evidence of the defect — it is the normal shape, because the
+position remembers. The defect is a close that reads the venue and then takes a branch the open did
+not, or one that reads NO venue at all. Grep `pos[lp].venue` in the exit path, never the parameter
+list.
 
 ⚠️ The reason it survived: the sole `closeBtcLev` test — added because that function *"had ZERO test
 callers"* — opens a **vBTC** position. **The branch that was broken is the branch the test does not
