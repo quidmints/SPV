@@ -16,6 +16,38 @@ Companion files: `JIT-DEPTH-GUARANTEE.md` (JIT depth is a SEPARATE mechanism —
 If YES, an external arbitrageur closes every imbalance for free and no mechanism is needed.
 If NO, the protocol must execute restoration itself, and the only remaining question is funding.
 
+⛔ **THIS FRAMING IS STALE, AND IT HAS BEEN SINCE 2026-08-15 (recorded 2026-08-28). THE OWNER ALREADY
+DECIDED THE OTHER BRANCH, AND THE DECISION IS IN THE CODE, NOT ONLY IN A THREAD.** `SwapLib.sol:2755`:
+> *"**THE SKEW IS NOT A SPREAD PAID TO ARBERS. IT IS THE ATTRIBUTION KEY FOR A REBALANCE WE PERFORM
+> OURSELVES** (owner, 2026-08-15). An AMM's spread exists to PAY EXTERNAL ARBITRAGEURS to push the
+> pool back to target — that is the entire economic function of the curve. **We restore 1:1 from the
+> INSIDE via Curve**, so there are no arbers to compensate and nothing the spread would be funding."*
+⇒ **The YES branch is not wanted even if it is true.** Letting a third party close the imbalance hands
+them value that the design intends for LPs. So "is it profitable to whoever does it?" cannot gate the
+work: **we do it either way.** That is why this question *"has been asked three times and answered
+zero times"* — answering it changes nothing we build.
+⭐ **THE QUESTION THAT ACTUALLY GATES THE WORK, RESTATED:** *with what capital do WE restore, and what
+triggers it?* §2's boundary already answers the first in the negative (**not** uncommitted basket
+dollars — that is QU!D holders' capital), which leaves LP capital and the range's own inventory.
+🔴 **AND HERE IS THE GAP, MEASURED 2026-08-28: THE ATTRIBUTION HALF IS LIVE AND THE REBALANCE HALF IS
+NOT.**
+| half | state |
+|---|---|
+| **Charge + credit** — `retainSkewPremium` withholds `premium = amount·skew/1e18` and routes it to LPs via `creditSkewPremium` | ✅ **LIVE, on every swap** |
+| **The rebalance it attributes** — "restore 1:1 from the INSIDE via Curve" | ⛔ **NOT BUILT ON THE RANGE PATH.** `ICurvePool(...).exchange` has exactly three call sites, ALL in `LevMath` (`:553` etherFi weETH→WETH, `:729`/`:730` stable↔USDC) — the LEVERAGE path. **Zero on the range path.** `refillNeeded` has no caller. |
+⇒ **WE CHARGE THE ATTRIBUTION KEY FOR A REBALANCE NOBODY PERFORMS.** That is the finding this file
+should lead with, and it is sharper than "restoration may be unprofitable": the premium is being
+collected and credited on every swap for work that is not being done.
+⚠️ **CONSEQUENCE FOR `RestoreProfitability.t.sol`: IT MEASURES THE WRONG ACTOR.** It prices a THIRD
+PARTY restoring, which the 2026-08-15 decision says is not the intended path. Under the decided
+design there is no third-party edge to compute — the edge IS the skew premium, already credited to
+LPs. ⛔ **AND ITS CURRENT NUMBER IS A CONSTANT, NOT A MEASUREMENT:** its 300 bps shortfall equals
+`UNKNOWN_VARIANCE_SKEW = 3e16 = 3%` **exactly** (`49,958 × 0.97 = 48,459.26`, to the cent), because
+σ² is 0 in that fixture and §E278's guard (landed 2026-08-26) deliberately resolves an unmeasured
+variance to the CEILING on the sell leg. **It is reporting a policy constant.** To get a real number
+the fixture needs the three preconditions established in SPRINT §E306: a pinned feed, ≥3 repacks with
+MOVING samples, and non-zero flow.
+
 **This has been asked three times and answered zero times.** Twice it was answered with an argument;
 once by citing E25's "0 bps across 300k volume" — **which does not answer it**, because E25 measured a
 BALANCED range under ORDINARY flow, and the question is about the dislocation present in an IMBALANCED
