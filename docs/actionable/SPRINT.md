@@ -3554,9 +3554,13 @@ not work. Counts: 232 `##` headings (90 open-marked, 40 done-marked) · 427 `###
 
 ### ✅ **RE-MEASURED 2026-08-28: STILL EXACTLY 90. THE NUMBER IS STABLE; THE GREPS ARE NOT.**
 ```
-## total=332  done-marked=129  OPEN(incl ⏸️)=90  OPEN(excl ⏸️)=77
-### total=510  open-marked=120   <-- sub-sections, NOT work
+  ## total=332  done-marked=129  OPEN(incl ⏸️)=90  OPEN(excl ⏸️)=77
+  ### total=510  open-marked=120   <-- sub-sections, NOT work
 ```
+⚠️ **THE TWO LINES ABOVE ARE INDENTED ON PURPOSE.** Unindented they begin with `## ` and the counting
+grep matches them **inside the fenced block**, inflating its own answer by 1 (observed live: 90 → 91
+the moment this section was written). A file that measures itself must not put a bare `## ` in a code
+fence — indent it, or the metric contaminates the metric.
 📌 **PIN THIS COMMAND — it is the definition, and re-deriving it by eye has now failed five times:**
 ```bash
 grep -E '^## ' docs/actionable/SPRINT.md \
