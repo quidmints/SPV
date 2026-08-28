@@ -13126,7 +13126,44 @@ tree settles.**
 
 ---
 
-## 🔴🔴 §E306 — **THE κ BLINDSPOT GENERALISES: EVERY SKEW MEASUREMENT WE HAVE TESTED A FORMULA THE LIVE PATH NEVER REACHES**
+## ✅ **[CLOSED 2026-08-28 — THE INSTRUMENT IS BUILT, AND IT REFUTES THE HEADLINE WHILE VINDICATING THE CONCERN]**  ~~§E306 — THE κ BLINDSPOT GENERALISES~~
+⭐ **THE MISSING INSTRUMENT NOW EXISTS: `evm/test/SkewLivePathReachesKernel.t.sol` (2/2).** It does
+exactly what this row prescribed — enters through `Aux.wellSkew(asset, drainUsd6)`, the PRODUCTION
+caller that reads `realizedVarianceWad()` off a live `Core`, instead of at the `public pure`
+`skewWad` one level below. §E306 named the reason nobody had: *"it needs a `Core`, and only
+`Alles.t.sol` builds one — that fixture cost is the actual reason this class went unmeasured for
+weeks."* The file pays that cost once by extending the fixture.
+🔴 **THE HEADLINE IS REFUTED. THE LIVE PATH DOES REACH THE KERNEL:**
+```
+live sigma^2   704,808,248,487,932,092      flowEwmaUsd  $198,203     POOLED  319.79 ETH
+wellSkew @  10k     2,667,071,248,876
+wellSkew @ 200k    52,705,335,533,277        19.8x
+wellSkew @ 600k   201,540,820,367,195        75.6x
+```
+⇒ Γ, ρ, the pole, §E68's integral and κ are **not** downstream of a multiply-by-zero. They execute.
+⚠️ **BUT THE CONCERN WAS REAL AND THE ROW EARNED ITS KEEP** — no test entered through the production
+caller until now, so nothing in the suite could have distinguished "the kernel runs" from "the kernel
+is unreachable". That is fixed, and the rule this row asked for is now ENFORCED rather than written
+down: **at least one test must enter through the CALLER that supplies the parameters in production.**
+🔴 **AND THE ROW'S STATED FAILURE MODE IS WRONG IN A WAY THAT MATTERS.** It says the live path
+*"returns the flat sentinel at every q"*. It does not. `skewWad` opens with
+`if (target == 0) return _maxWellSkew(sigmaSq, rk)` — **above** the `UNKNOWN_VARIANCE_SKEW`
+short-circuit — so with no flow the sentinel is **never reached**, and on ETH (`ethRisk() =
+(ETH_CONF_FRAC_WAD, 0)`, `spliceFloor == 0`) the whole expression is **ZERO**. **Measured: an unseeded
+ETH range quotes 0, not 3e16.** ⇒ That zero IS `§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE`, seen from the
+production entry point for the first time.
+⭐ **THE THIRD PRECONDITION, WHICH THIS ROW AND §SIGMA-IS-ZERO BOTH MISS: `flowEwmaUsd > 0`.** Depth
+and σ² are not enough. `target` is the flow EWMA, raised only by `_bumpFlow` on the swap path
+(`Core:1050`), so **a fixture with real depth and real variance still reads FLAT at every size** —
+looking perfectly healthy while measuring nothing. Real swaps are the only way to raise it. That is a
+third independent way to get a vacuous skew measurement, and it explains flat readings that neither
+σ² nor the `inv1` branch can account for.
+⚠️ **MINOR, FOUND IN PASSING:** `skewWad`'s `kMinusQ1` comment claims *"κ > q1 for κ > 1e18 ⇒ never
+zero"*, but `KAPPA_WAD == 1e18` today, so the premise does not hold and `kMinusQ1` CAN be zero at
+`q1 == 1e18` (a total drain). The code handles it explicitly (`qBar = type(uint).max` → pinned to the
+cap), so this is a comment describing a configuration we do not run, not a bug.
+
+## (original) 🔴🔴 §E306 — **THE κ BLINDSPOT GENERALISES: EVERY SKEW MEASUREMENT WE HAVE TESTED A FORMULA THE LIVE PATH NEVER REACHES**
 
 **Owner, 2026-08-22: *"with kappa we can't have a blindspot like this, it is suggestive of a larger
 issue at play."* Correct, and the larger issue is the INSTRUMENTS, not the constant.**
