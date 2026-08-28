@@ -9181,6 +9181,33 @@ fix is a raw `staticcall` inside `Core._observeIfSourced` that skips the write o
 **The check that settles it is enumerating the WRITE PATH, not the candidate library:**
 `OracleLib.writeObservation` ← `_writeObservationPrice` ← `_observeIfSourced`, one chain, external
 source only, `DeployLib.sol:170` pinning the ETH instance and the BTC ring left unset on purpose.
+### 🔴 **§FOLDED-NOT-WIRED — CHECKED 2026-08-28: THE NAME IS STALE, THE DEFECT IS NOT, AND THE FOLD BROKE THIS WARNING'S OWN PROTECTION**
+⛔ **`contract ExternalTwap` NO LONGER EXISTS.** §E318 (`d3262881`) folded it into `OracleLib`
+("88 lines of oracle reads beside the library that already owns oracle concerns"). ⇒ **`grep -rn
+ExternalTwap evm/src` — the check this row tells you to run — now returns ONE COMMENT and nothing
+else, which reads exactly like "resolved".**
+✅ **BUT THE SUBSTANCE IS UNCHANGED, VERIFIED BY CALL-SITE COUNT:** the folded reads
+`OracleLib.curvePriceWad(pool, k)`, `curvePriceWad(pool)` and `oneInchRateWad(…)` have **0 call sites
+in `evm/src`**. The code moved; nothing started calling it. **Unwired then, unwired now.**
+🔴 **AND §E222'S CIRCULARITY IS STILL LIVE ON THE SAME EVIDENCE:** `Core.sol:1016` and `:1167` still
+read `AUX.getTWAPforAsset(ASSET, 1800)`, which `Core.sol:425` states *"returns the RING's TWAP and
+only falls through to Chainlink"* — the ring pricing itself. The non-circular alternative is sitting
+in `OracleLib` with no callers.
+⚠️ **THE REAL DAMAGE IS TO THIS WARNING, NOT THE CODE.** This row exists to stop a literal
+"unwired code gets deleted" sweep from eating the external-price reads. It is filed under a symbol
+that no longer resolves, so the protection silently detached from what it protects — and the code is
+now MORE exposed than before, because `curvePriceWad`/`oneInchRateWad` look like ordinary unused
+library helpers rather than a named, deliberately-preserved gap. ⇒ **Search
+`curvePriceWad`/`oneInchRateWad`, NOT `ExternalTwap`.**
+📌 **SAME CLASS, SECOND INSTANCE — CHECK BEFORE WORKING `§FixedRateFill` ROWS:** §E310 (`5b56c4a6`)
+folded `FixedRateFill` into `SwapLib`, and **no symbol named `quoteFill`, `fixedRateFill` or
+`FIXED_RATE` survives in `evm/src` at all** (0 hits each). Whatever those rows assert must be
+re-derived against `SwapLib`'s CURRENT names before being worked — do not trust their symbols.
+⭐ **THE GENERAL LESSON, WORTH MORE THAN EITHER INSTANCE: A FOLD RENAMES THE EVIDENCE.** Every row
+whose falsifiable check is `grep <ContractName>` becomes VACUOUSLY GREEN the moment that contract is
+folded into a library, and a vacuous green is indistinguishable from a fix. When consolidating files,
+re-point every row that greps for the absorbed name.
+
 ⚠️ **`ExternalTwap` really is unwired — that is a SEPARATE, still-open observation** (it is the
 likeliest casualty of a literal "unwired code gets deleted" sweep) and it must not be conflated with
 this row again.
