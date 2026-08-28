@@ -435,14 +435,19 @@ contract Quid is Shares,
     ///         single weETH destination. No wall
     ///         attribution (there's no pledge): exits via pull() are served by
     ///         the generic withdraw ladder, which reaches every venue.
+    /// @param loadBalance §OOR-LOADBALANCE — the placer's consent for the FILL to trigger the
+    ///        shortfall load-balance, exactly as `Aux.swap`'s parameter does for an in-range trade
+    ///        (§E308). A resting order is a trade authorised in advance, so the consent is captured
+    ///        here and spent at the fill; it routes through the SOR/hop and can add MEV/slippage to
+    ///        the owner's OWN fill, which is why it is theirs to give rather than a protocol default.
     function outOfRange(uint amount, address token,
-        int distance, uint range) 
+        int distance, uint range, bool loadBalance)
         external nonReentrant payable returns (uint next) {
-        return _outOfRange(amount, token, distance, range);
+        return _outOfRange(amount, token, distance, range, loadBalance);
     }
 
     function _outOfRange(uint amount, address token,
-        int distance, uint range) internal
+        int distance, uint range, bool loadBalance) internal
         returns (uint next) {
         SwapLib.validateOorParams(range, distance);
 
@@ -480,7 +485,7 @@ contract Quid is Shares,
         // sizer's two branches already knew this and threw it away; the fill needs it, and it is
         // not recoverable later (see the note on `Types.SelfManaged.usdFunded`).
         RangeLib.openOor(oorBook, selfManaged, positions,
-            next, msg.sender, token != address(0), t.newLo, t.newUp, int(placed));
+            next, msg.sender, token != address(0), t.newLo, t.newUp, int(placed), loadBalance);
         CORE.outOfRange(msg.sender, int(placed), address(0));
     } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
     // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple

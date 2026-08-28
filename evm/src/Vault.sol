@@ -720,7 +720,12 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///        tick count -- there is no tick grid to quantise onto.
     /// @param range   Order width, as a price span.
     /// @return next   The new position id.
-    function outOfRange(uint amount, address token, int distance, uint range)
+    /// @param loadBalance §OOR-LOADBALANCE — the placer's consent for the FILL to trigger the
+    ///        shortfall load-balance, exactly as `Aux.swap`'s parameter does for an in-range trade
+    ///        (§E308). A resting order is a trade authorised in advance, so the consent is captured
+    ///        here and spent at the fill; it routes through the SOR/hop and can add MEV/slippage to
+    ///        the owner's OWN fill, which is why it is theirs to give rather than a protocol default.
+    function outOfRange(uint amount, address token, int distance, uint range, bool loadBalance)
         external nonReentrant returns (uint next) {
         // _rebalance stays in the Vault; the rest is BtcLib.outOfRangeBtc
         // (delegatecall) which writes selfManaged/positions via the passed
@@ -730,7 +735,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         next = BtcLib.outOfRangeBtc(_btcCfg(), selfManaged, positions,
             BtcLib.OorArgs({ amount: amount, token: token, distance: distance,
                 range: range, owner: msg.sender, spotPrice: spotPrice, curLo: curLo,
-                curUp: curUp, idBtc: ID }));
+                curUp: curUp, idBtc: ID, loadBalance: loadBalance }));
         ID = next;
     }
 

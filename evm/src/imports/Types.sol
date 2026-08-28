@@ -95,6 +95,14 @@ library Types {
         /// storage. ⚠️ `pull` still takes the payout token from its CALLER rather than from here —
         /// see §E258-PULL-SIDE; this field is the thing that makes fixing that possible.
         bool usdFunded;
+        /// §OOR-LOADBALANCE — THE SWAPPER'S LOAD-BALANCE CONSENT, CAPTURED AT PLACEMENT.
+        /// §E308 settled that this consent *"comes as part of the swap as a parameter"* rather than
+        /// a stored per-address flag, because routing a shortfall through the SOR/hop can add MEV
+        /// and slippage to the consenting party's OWN fill. A resting order IS a trade the owner
+        /// authorises in advance, so the consent belongs to the ORDER — captured when they place
+        /// it, spent when it fills. Packs into `owner`'s slot alongside `usdFunded` (12 free
+        /// bytes), so it costs no storage.
+        bool loadBalance;
         uint lower;
         uint upper;
         // §V4-CUT — the token AMOUNT placed, not v4 liquidity units. Pro-rata maths is unchanged

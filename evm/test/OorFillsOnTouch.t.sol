@@ -71,10 +71,10 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_AFreshOrderIsNotTouched_soThePokeRefusesIt() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
         vm.stopPrank();
 
-        (,, bool usdFunded,,, int amt) = ETH.selfManaged(id);
+        (,, bool usdFunded,,,, int amt) = ETH.selfManaged(id);
         assertTrue(usdFunded, "a stable-funded order is a resting BID and must record itself as one");
         assertGt(amt, 0, "premise: the order exists");
 
@@ -100,7 +100,7 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_TheFillPathIsNotGatedByPullsFortySevenBlockRule() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
 
         // Same block as creation: the owner's close is refused by the age rule ...
         vm.expectRevert(bytes("too soon"));
@@ -120,12 +120,12 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_AFullPullLeavesNoGhostInTheIndex() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
         vm.roll(vm.getBlockNumber() + 1000);
         ETH.pull(id, 100, address(USDC));
         vm.stopPrank();
 
-        (,,,,, int amt) = ETH.selfManaged(id);
+        (,,,,,, int amt) = ETH.selfManaged(id);
         assertEq(amt, 0, "premise: the position is closed");
         vm.expectRevert(RangeLib.NoSuchOrder.selector);
         ETH.fillOOR(id);
@@ -137,13 +137,13 @@ contract OorFillsOnTouchTest is AllesFixture {
     function test_TwoOrdersAtTheSameTriggerBothRemainReal() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack * 2);
-        uint a = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
-        uint b = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint a = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
+        uint b = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
         vm.stopPrank();
 
         assertTrue(a != b, "two placements must be two positions");
-        (,,, uint loA, uint upA, int amtA) = ETH.selfManaged(a);
-        (,,, uint loB, uint upB, int amtB) = ETH.selfManaged(b);
+        (,,,, uint loA, uint upA, int amtA) = ETH.selfManaged(a);
+        (,,,, uint loB, uint upB, int amtB) = ETH.selfManaged(b);
         assertEq(upA, upB, "premise: identical geometry gives one shared trigger price");
         assertEq(loA, loB, "premise: identical geometry gives identical bounds");
         assertGt(amtA, 0, "the first order is live");

@@ -544,7 +544,7 @@ interface ICore {
     function outOfRange(address sender, int amount, address token) external returns (uint tokOut);
     /// §E258 — settle ONE filled boundary order. Both legs at once, because a fill is a TRADE and
     /// `outOfRange` can only express a one-sided open or close.
-    function settleOor(address owner, int256 usdDelta, int256 volDelta) external;
+    function settleOor(address owner, int256 usdDelta, int256 volDelta, bool loadBalance) external;
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);

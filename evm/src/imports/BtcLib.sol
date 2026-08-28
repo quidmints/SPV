@@ -290,6 +290,8 @@ library BtcLib {
         uint curLo;
         uint curUp;
         uint    idBtc;    // current ID (value-type; new id returned)
+        /// §OOR-LOADBALANCE — the placer's shortfall consent, carried to the fill (§E308).
+        bool    loadBalance;
     }
 
     /// @notice Body of Vault.outOfRangeBtc after _rebalance (which stays in the
@@ -320,7 +322,7 @@ library BtcLib {
             // is what `pull` needs in order to stop taking the payout side from its caller.
             // ⚠️ DELIBERATELY NOT INDEXED into `oorBook` — see `Vault.sweepOor` for why filling a
             // BTC order automatically would burn the leg it fills into.
-            usdFunded: true,
+            usdFunded: true, loadBalance: a.loadBalance,
             lower: t.newLo, upper: t.newUp, amt: int(amt) });   // §V4-CUT: the AMOUNT, not liquidity
         positions[a.owner].push(next);
         // `liquidity` is still computed and still gates on Dust -- it is the sizer's own validity

@@ -258,11 +258,11 @@ library RangeLib {
         OorBook storage book,
         mapping(uint => Types.SelfManaged) storage selfManaged,
         mapping(address => uint[]) storage positions,
-        uint id, address owner, bool usdFunded, uint lower, uint upper, int amt
+        uint id, address owner, bool usdFunded, uint lower, uint upper, int amt, bool loadBalance
     ) public {
         selfManaged[id] = Types.SelfManaged({
             created: block.number, owner: owner, usdFunded: usdFunded,
-            lower: lower, upper: upper, amt: amt });
+            loadBalance: loadBalance, lower: lower, upper: upper, amt: amt });
         positions[owner].push(id);
         // Indexed by the TRIGGER price — the NEAR edge, the one the price has to touch.
         book.index.insert(oorKey(usdFunded ? upper : lower, id));
@@ -371,6 +371,7 @@ library RangeLib {
         uint limitPx = oorTrigger(p);
         address owner = p.owner;
         bool usdFunded = p.usdFunded;
+        bool lb = p.loadBalance;
 
         // The order's funded side ENTERS the range and the other side LEAVES it, at `limitPx`.
         // Signs follow `_handleDelta`'s one rule: positive LEAVES the pool, negative ENTERS it.
@@ -399,7 +400,9 @@ library RangeLib {
                 myIds.pop(); break;
             }
         }
-        ICore(core).settleOor(owner, usdDelta, volDelta);
+        // §OOR-LOADBALANCE — the consent the owner attached when they PLACED this order. Read
+        // before `delete selfManaged[id]` above would have zeroed it, hence the local.
+        ICore(core).settleOor(owner, usdDelta, volDelta, lb);
         emit OorFilled(id, owner, size, limitPx, usdFunded);
         return true;
     }

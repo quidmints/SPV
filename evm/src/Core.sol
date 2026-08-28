@@ -958,8 +958,36 @@ contract Core {
     ///         window in which the order counts twice.
     ///         `token` is `address(0)`: a fill's USD leg is either taken into the pool or paid out
     ///         through `AUX.take`, and only the burn branch reads a payout token.
-    function settleOor(address owner, int256 usdDelta, int256 volDelta) external onlyUs {
+    /// @param loadBalance the ORDER OWNER's load-balance consent, captured when they placed the
+    ///        order (`Types.SelfManaged.loadBalance`). ⭐ **AN OOR FILL IS A SWAP AND MUST BE
+    ///        LOAD-BALANCED LIKE ONE.** Before this it called `_handleDelta` and stopped, so a fill
+    ///        that drew the range into shortfall left it there — the same trade routed through
+    ///        `swap()` would have run the shortfall check and, on BTC, emitted the hop request. Two
+    ///        paths that move the SAME inventory disagreed about whether depth gets restored.
+    ///        ⚠️ Consent is still the owner's and is still per-trade (§E308); it is read from the
+    ///        order rather than from an address flag, which is the same principle one step earlier
+    ///        in time.
+    function settleOor(address owner, int256 usdDelta, int256 volDelta, bool loadBalance)
+        external onlyUs {
         _handleDelta(Delta(usdDelta, volDelta), true, false, owner, address(0));
+        if (loadBalance) _shortfallLoadBalance(owner);
+    }
+
+    /// @dev §OOR-LOADBALANCE — THE SHORTFALL BLOCK, EXTRACTED SO THE TWO CALLERS CANNOT DIVERGE.
+    ///      It was inline in `swap` and absent from `settleOor`; sharing it is what makes "an OOR
+    ///      fill respects the same load-balance as an in-range swap" true by construction rather
+    ///      than by two copies staying in step. Threshold (1%) and trigger are identical across
+    ///      pools; only the remediation differs (`Quid.onShortfall` is a deliberate no-op, `Vault`
+    ///      routes to `AUX.btcShortfall`).
+    function _shortfallLoadBalance(address sender) private {
+        uint totalSharesPool = RANGE.sharesForShortfall();
+        uint pooledTok = RANGE.realInventory();
+        if (pooledTok < totalSharesPool) {
+            uint shortfall = totalSharesPool - pooledTok;
+            if (shortfall * 100 >= totalSharesPool) {
+                RANGE.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see ICore
+            }
+        }
     }
 
     /// @notice The most resting orders one swap will execute before it stops and leaves the rest to
@@ -1094,45 +1122,7 @@ contract Core {
         // GROSS fee depth on both sides: for BTC, totalShares is NET, so add the levered buffer
         // (totalBuffer) to match POOLED (gross, includes the buffer) — keeps the shortfall
         // comparison gross-to-gross (unchanged behavior). ETH: rangeETH(net) vs totalShares(net) already balanced.
-        uint totalSharesPool = RANGE.sharesForShortfall();
-        // BOTH sides compare REAL inventory, never just the in-pool token.
-        // ETH = rangeETH() (in-range POOLED + AAVE/ether.fi venue
-        // retention + idle). BTC has no yield-venue, but the protocol still HOLDS
-        // off-pool WBTC (swept donations + swap deltas, accrued in rangeBTC), so
-        // the BTC analogue is POOLED + rangeBTC. Comparing raw POOLED
-        // over-fired the shortfall arb on off-range retention (lpShares > POOLED
-        // by construction) — requesting a hop-source of BTC the protocol already
-        // holds. Adding rangeBTC is monotone-safe: it can only SHRINK the measured
-        // shortfall, never grow it, and suppressing a "shortfall" we can cover from
-        // our own WBTC is correct (no need to source what we already hold).
-        // BTC IL-protect: totalShares includes each LP's LEVERED slice (levPooled), and its backing is
-        // ALREADY inside POOLED — `syncLev` pairs the net-equity as deltaBTC into POOLED in lockstep
-        // with levPooled (QuidLib.levAddNetBtc/levAddBufBtc), so the lev slice is monotone-neutral here.
-        // (The ETH branch is NET-vs-NET: rangeETH() adds the lev book's NET equity (totalNetEquity, the
-        // debt-funded buffer half offset by the LP's borrow) and totalShares() is NET, so no gross term is added
-        // here — POOLED, by contrast, DOES include the lev slice gross (levAddBtc pairs the gross buffer in),
-        // so BTC alone needs the +totalBuffer above to keep totalShares's comparison gross-to-gross.)
-        uint pooledTok = RANGE.realInventory();
-        // The load-balance (the shortfall arb/refill this swap would trigger) is the
-        // SWAPPER's to consent to — it routes through the SOR / hop and can add MEV/slippage
-        // to their own fill, and the LP-side analysis says firing it on every wiggle realizes
-        // impermanent loss. So it only fires if `sender` has NOT opted out (default = consent,
-        // preserving behavior; the SPA exposes a toggle). Symmetric for WETH and WBTC.
-        // §E347 — the consent test is the early return above; only the inventory test remains here.
-        if (pooledTok < totalSharesPool) {
-            uint shortfall = totalSharesPool - pooledTok;
-            if (shortfall * 100 >= totalSharesPool) {
-                // BTC: route to the hop — real-BTC delivery on L1, consuming NO
-                // basket stables (the legitimate delivery rail). ETH: nothing. A
-                // surplus-funded ETH refill would buy ETH for a shortfall that is
-                // usually impermanent, realizing that IL onto the SHARED backing —
-                // compensating the flow at every LP's expense (toxic). Real ETH
-                // demand is met fairly at withdrawal: convertToAssets pays each LP
-                // pro-rata of rangeETH, so the IL is socialized via the share price,
-                // never patched from surplus.
-                RANGE.onShortfall(sender, shortfall);   // ETH: a deliberate no-op -- see ICore
-            }
-        }
+        _shortfallLoadBalance(sender);
     }
 
 

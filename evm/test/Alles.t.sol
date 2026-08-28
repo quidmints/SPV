@@ -1640,7 +1640,7 @@ contract Alles is AllesFixture {
         USDC.approve(address(AUX), rack);
         uint balanceBefore = USDC.balanceOf(User01);
 
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100);   // §DETICK: (amount, token, distance, range)
+        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);   // §DETICK: (amount, token, distance, range)
 
         assertGt(id, 0, "Position ID should be > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -1669,7 +1669,7 @@ contract Alles is AllesFixture {
 
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint id = ETH.outOfRange{value: 2 ether}(0, address(0), -1000, 100);
+        uint id = ETH.outOfRange{value: 2 ether}(0, address(0), -1000, 100, true);
         assertGt(id, 0, "Should create position");
 
         vm.roll(vm.getBlockNumber() + 1000);
@@ -1698,13 +1698,13 @@ contract Alles is AllesFixture {
         // rejected, so a bare form would let one shared incidental revert (a cooldown, a TWAP gate)
         // satisfy all four and prove nothing. Verified: all four really do reach `BadOorParam`.
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 50);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 50, true);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 1500);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 1500, true);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -6000, 100);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -6000, 100, true);
         vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -1050, 100);
+        ETH.outOfRange{value: 1 ether}(0, address(0), -1050, 100, true);
 
         vm.stopPrank();
     }
@@ -3013,7 +3013,7 @@ contract Alles is AllesFixture {
         vm.startPrank(User01);
         ETH.deposit{value: 25 ether}(0, User01);
 
-        uint id = ETH.outOfRange{value: 5 ether}(0, address(0), -1000, 100);
+        uint id = ETH.outOfRange{value: 5 ether}(0, address(0), -1000, 100, true);
         assertGt(id, 0, "out-of-range position created");
 
         vm.stopPrank();

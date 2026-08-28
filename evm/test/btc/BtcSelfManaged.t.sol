@@ -26,7 +26,7 @@ contract BtcSelfManagedTest is AllesFixture {
 
         // distance sign mirrors the ETH USD test; the BTC pool ordering is handled
         // inside oorTicks via token1isBTC (same shared geometry).
-        uint id = BTC.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = BTC.outOfRange(rack / 10, address(USDC), 1000, 100, true);
 
         assertGt(id, 0, "BTC self-managed position id > 0");
         assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
@@ -51,14 +51,14 @@ contract BtcSelfManagedTest is AllesFixture {
     function testOutOfRangeBtc_RejectsNative() public {
         vm.prank(User01);
         vm.expectRevert(Vault.NotAStable.selector);
-        BTC.outOfRange(0, address(0), 1000, 100);
+        BTC.outOfRange(0, address(0), 1000, 100, true);
     }
 
     /// Only the position owner can pull it.
     function testPullBtc_OnlyOwner() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), rack);
-        uint id = BTC.outOfRange(rack / 10, address(USDC), 1000, 100);
+        uint id = BTC.outOfRange(rack / 10, address(USDC), 1000, 100, true);
         vm.stopPrank();
 
         vm.roll(vm.getBlockNumber() + 1000);
