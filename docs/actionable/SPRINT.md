@@ -1217,6 +1217,22 @@ state than their tests assume — which is the point, and is how §VACUOUS-BOUND
 invariant is vacuous if nothing was committed) most likely arises.
 
 ---
+## ⏸️ **[1 of 5 FIXED 2026-08-28, and the fix is the TEMPLATE for the rest]**
+✅ **The exemplar `test_FlushRangeStillOwesOnlyTheBase` is already repaired** — and repaired in the
+one way that works. It now asserts `assertEq(flush, 0)` with its reasoning inline: *"IT IS
+DELIBERATELY AN EQUALITY: it passes now and turns RED the moment §E278 is decided either way, which
+an inequality cannot do. **An assertion a fix cannot fail is not coverage of the fix.** Do NOT
+'repair' this by widening it back to a bound."*
+⛔ **I ALMOST WIDENED IT BACK.** The obvious repair for a vacuous one-sided bound is to add the
+missing other side — and here that would have re-created the defect, because at σ²=0 the true value
+IS 0 and any bound around it is satisfied by the thing it guards. **PIN THE CELL, DO NOT BRACKET IT.**
+▶️ **THE REMAINING FOUR** — `test_CHECK_FullExitResidualIsRecoverable`,
+`test_UNIT_PremiumRecordedEqualsPremiumPaid`, `test_V5_OverAskClampsToPosition`,
+`test_RunSim_IL_Baseline_TrendDownIL` — each carry 2–5 assertions and **every one is one-sided**
+(measured: zero `assertEq`/`assertApproxEq` between them). Each needs its cell MEASURED and pinned
+the same way; the value cannot be guessed, because guessing is what makes a bound vacuous in the
+first place.
+
 ## 0d. 🟠 **§VACUOUS-BOUNDS — THE AUDIT §0c ASKED FOR, RUN. 38 TESTS ASSERT ONLY A ONE-SIDED BOUND;
 FIVE OF THEM CAN BE SATISFIED BY THE DEFECT THEY GUARD** (2026-08-23)
 
@@ -8294,6 +8310,13 @@ D5's premise: *"legacy `_take` had no per-token dispatch — one positional loop
 | | legacy `Aux._take:486-522` | current |
 |---|---|---|
 | preferred token | `skip = token`, withdraw it directly, one pro-rata loop skips it | separate `_takePreferred` dispatch |
+✅ **[CLOSED 2026-08-28 — THE ROW STATES ITS OWN VERDICT AND IT IS FINAL: *"STRIKE the decimals half
+of D5. The current `decimals()` lookup is not complexity, it is the fix."* The hardcode it rejects
+already broke in production once (`BasketLib:282-284` records USDG joining at slot 5), so adopting
+the legacy loop would re-open a known defect. Verified still true: `BasketLib.sol` uses
+`IERC20(stable).decimals()`, not a positional divisor. A row whose conclusion is "do not do this" is
+not outstanding work.]**
+
 | decimals | **`(i < 4 || i == 11) ? 1e12 : 1` — POSITIONAL SLOT HARDCODE** | `IERC20(stable).decimals()` |
 🔴 **That hardcode ALREADY BROKE IN PRODUCTION.** Our own code records it (`BasketLib:282-284`):
   *"Avoids the prior `i < 3 ? 1e12 : 1` slot-hardcode **which broke when USDG (6-dec) joined at slot 5**."*
