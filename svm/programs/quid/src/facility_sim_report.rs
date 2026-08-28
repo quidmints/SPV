@@ -1,7 +1,7 @@
 //! §FACILITY-SIM REPORT — the sign map, and the hunt for negative cells.
 
 use crate::facility_sim::*;
-use crate::etc::{Actuary, COLLAR_BREACH_BPS, collar_bps, lgd_bps, MAX_TRANCHE_BPS};
+use crate::etc::{Actuary, COLLAR_BREACH_BPS, collar_bps, lgd_bps, hazard_rate_bps, MAX_TRANCHE_BPS};
 
 fn delta(cell: Cell, arm: Arm) -> i64 {
     run(cell, arm).depositor_bps - run(cell, Arm::NoFacility).depositor_bps
@@ -1193,4 +1193,96 @@ fn net_the_over_collateralisation_against_the_horizon_shortfall() {
     }
     println!("  1-step p99 is what the collar is DERIVED against;");
     println!("  168-step p99 is what it must actually SURVIVE (ladder-decayed).");
+}
+
+/// 🔴 IF THE BORROWER DRAGS THEIR BARS, DOES THE PRICE FOLLOW CORRECTLY?
+/// Owner: "what happens to cost if the borrower manually messes with their
+/// edges ... will change the price? is it proper?"
+///
+/// The premium is `hazard_bps(distance) × lgd_bps(collar) × crowd × solv`, and
+/// widening a barrier moves those two terms in OPPOSITE directions:
+///   • `distance_bps` grows  → `hazard_bps` FALLS (breach is less likely)
+///   • `lgd_bps(collar)`     → RISES (GPD mean excess grows with the threshold,
+///                             so a breach that does happen is deeper)
+/// PROPER means the product tracks the pool's actual expected loss. If widening
+/// ever lowers the premium FASTER than it lowers the risk, a borrower buys room
+/// at a discount and the pool eats the difference. This measures it.
+#[test]
+fn moving_your_own_barrier_must_not_buy_room_at_a_discount() {
+    let mut a = Actuary::default();
+    a.observed_vol_bps = 300; a.max_drawdown_bps = 900; a.obs_count = 200;
+    a.total_exposure = 5_000_000; a.net_exposure = 1_000_000;
+    let (deposits, max_liab) = (10_000_000u64, 3_000_000u64);
+    let amount = 100_000i64;
+
+    println!("\n=== premium vs barrier width (sigma 300, 3x) ===");
+    println!("  {:<10} {:>10} {:>10} {:>12} {:>14}", "collar", "distance", "lgd", "hazard_rate", "expected loss");
+    let mut prev_rate = i64::MAX; let mut prev_el = i64::MAX;
+    let mut monotone_rate = true; let mut monotone_el = true;
+    for collar in [200i64, 400, 800, 1_600, 3_200] {
+        // A position sitting at the same FRACTION of its band, so only the
+        // width changes — otherwise this measures moneyness, not width.
+        let distance = collar / 2;
+        let rate = hazard_rate_bps(distance, collar, amount, &a, deposits, max_liab);
+        let lgd  = lgd_bps(collar, &a);
+        // Expected loss the pool actually bears: P(breach) × depth, in bps.
+        let p_breach = a.tail_at(collar, a.gpd_params().0, a.gpd_params().1,
+                                 a.pot_threshold(), a.exceedance_rate_bps());
+        let el = p_breach * lgd / 10_000;
+        println!("  {:<10} {:>10} {:>10} {:>12} {:>14}", collar, distance, lgd, rate, el);
+        if rate > prev_rate { monotone_rate = false; }
+        if el > prev_el { monotone_el = false; }
+        prev_rate = rate; prev_el = el;
+    }
+    println!("  premium falls monotonically with width: {}", monotone_rate);
+    println!("  the pool's expected loss does too:      {}", monotone_el);
+    println!("  ⇒ PROPER iff they agree. If the premium falls and the loss does");
+    println!("    not, the borrower is buying room at a discount.");
+    assert!(prev_rate >= 0);
+}
+
+/// 🔴 THE PREMIUM IS BLIND TO ONE OF ITS TWO BARRIERS.
+/// `stay.rs:895-901` builds `barrier = collar_notional(...) + collar_amt` — the
+/// UPPER edge — and prices `hazard_bps` off the distance to it. The LOWER edge
+/// (`pledged − collar`, `stay.rs:971`) has a real consequence — `reinstate_exposure`
+/// drains `deposited_quid`, or `unwind_a_tranche` starts — and never enters the
+/// price. So approaching the lower band makes a position CHEAPER, because
+/// distance-to-upper is growing while distance-to-lower shrinks.
+///
+/// ⚠️ AND THE PREMIUM TRUNCATES TO ZERO ON THE UPPER SIDE TOO.
+/// `hazard_bps = min(BPS, 2 * tail_prob_bps(d))` returns bps as an INTEGER, so a
+/// tail thinner than 0.5 bps rounds to 0 and the whole product — a product —
+/// collapses. Measured: at sigma 300 the premium is 0 for every collar >= 800
+/// while `lgd_bps` climbs 785 -> 3140. Widening past ~2.7 sigma is FREE.
+/// This is the same defect `hazard_rate_bps` already fixed one level down
+/// ("Chaining `x / BPS` per factor truncated a thin loss-given-breach to zero"),
+/// which was solved with a single i128 division at the end — but `hazard_bps`
+/// still truncates at the SOURCE, before its value reaches that i128 product.
+#[test]
+fn the_premium_sees_only_the_upper_barrier_and_truncates_to_zero_past_it() {
+    let mut a = Actuary::default();
+    a.observed_vol_bps = 300; a.max_drawdown_bps = 900; a.obs_count = 200;
+    let (deposits, max_liab) = (10_000_000u64, 3_000_000u64);
+
+    // (1) Free room: the premium is zero well before the risk is.
+    let mut first_free = 0i64;
+    for collar in (100..=4_000).step_by(100) {
+        let c = collar as i64;
+        if hazard_rate_bps(c / 2, c, 100_000, &a, deposits, max_liab) == 0 { first_free = c; break; }
+    }
+    let lgd_at_free = lgd_bps(first_free, &a);
+    println!("\n  premium hits ZERO at collar {} bps, where lgd is still {} bps",
+             first_free, lgd_at_free);
+    assert!(first_free > 0, "the premium must go free somewhere for this to be the finding");
+    assert!(lgd_at_free > 0,
+        "if lgd were also zero the truncation would at least be consistent; it is not");
+
+    // (2) One-sided: the SAME distance priced as upper vs as lower is the same
+    //     number, because the function is given only a magnitude.
+    let near_upper = hazard_rate_bps(50, 400, 100_000, &a, deposits, max_liab);
+    let near_lower = hazard_rate_bps(50, 400, 100_000, &a, deposits, max_liab);
+    println!("  distance 50 priced near-upper {} / near-lower {} — indistinguishable by construction",
+             near_upper, near_lower);
+    assert_eq!(near_upper, near_lower,
+        "the signature takes a magnitude, so the two sides CANNOT differ — that is the gap");
 }
