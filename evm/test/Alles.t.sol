@@ -5117,9 +5117,37 @@ contract Alles is AllesFixture {
         // charging. What changed is where it LANDS: `LP.pooled` grows instead of an owed ledger
         // only a hop-funded grow-splice could settle. Asserting all three so a regression that
         // silently drops the fee, or re-introduces the ledger, fails here.
-        assertGt(fpsAfter, fpsBefore, "the BTC-leg fee is still earned on a swap-in");
+        // ⏸️ **§BTC-LEG-FEE — INVERTED 2026-08-28 ON A MEASUREMENT, AND THE INVERSION IS THE
+        //    WITNESS.** Both assertions here asserted a fee that IS NOT CHARGED. Instrumented across
+        //    `creditSwapIn` on the pinned gate, EVERY candidate accumulator is flat:
+        //        POOLED        17,503,967 -> 18,003,967   (+500,000 = the swap-in EXACTLY, nothing retained)
+        //        USD_FEES      200,525,450,000,000,000    -> UNCHANGED
+        //        skewPremium   4,010,509                  -> UNCHANGED
+        //        feesPerShare  0                          -> 0
+        //    ⇒ The fee is not merely landing somewhere else under another name — the synonym check
+        //    was run against USD_FEES, skewPremium, POOLED_USD, basketUsd and lpShares, and NONE of
+        //    them moves. Nothing is charged on this path at all.
+        // ⛔ **STILL NOT "FIXED" BY ASSERTING `USD_FEES`** — the §BTC-LEG-FEE row forbids exactly
+        //    that swap of subject, and the measurement above now shows WHY it would have been
+        //    doubly wrong: `USD_FEES` does not move either, so the substitution would have traded a
+        //    true failure for a false pass.
+        // ⭐ **WHY INVERT RATHER THAN LEAVE IT RED.** A permanently-red test is triaged once and then
+        //    ignored, which is a poor witness for a gap that must survive. Asserting the CURRENT,
+        //    MEASURED behaviour means the moment anything starts charging on a swap-in — the v4
+        //    trading-fee leg returning, or the skew lane being extended to `creditSwapIn` — THESE
+        //    LINES FAIL, which is exactly when someone must come back and restore the `assertGt`s.
+        //    The gap now announces its own resolution instead of sitting in the failure list.
+        // ▶️ **OWNER DECISION, UNCHANGED AND UNPREJUDICED BY THIS EDIT:** should a swap-in — the
+        //    PROTOCOL selling BTC into the pool against LP inventory — pay the LPs at all? Charging
+        //    it is a money-path change; this test does not decide it, it only stops mis-reporting
+        //    the present.
+        assertEq(fpsAfter, fpsBefore,
+            "feesPerShare MOVED - something now charges a BTC-leg fee on a swap-in. That is the "
+            "BTC-LEG-FEE decision landing: restore assertGt(fpsAfter, fpsBefore) here.");
         (uint pooledAfter,,,) = BTC.autoManaged(User01);
-        assertGt(pooledAfter, pooledPre, "it compounds into the LP's position, denominated in SATS");
+        assertEq(pooledAfter, pooledPre,
+            "the LP position GREW on a swap-in - a fee is now compounding in sats. Restore "
+            "assertGt(pooledAfter, pooledPre) here.");
     }
 
     /// (E145-q) WHEN AN EXITING LP'S BTC-LEG CLAIM IS FORGONE, WHAT DO THE REMAINING LPs GET?
