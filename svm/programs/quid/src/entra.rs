@@ -51,10 +51,15 @@ pub fn init_config(ctx: Context<InitConfig>,
     config.bump = ctx.bumps.config;
     config.registered_mints = [
           token_mint, USD_STAR];
-    // SOL* parking starts off; admin turns it on via `update_config`'s kestrel arm once the
-    // deployment is pinned. Defaults are sized from the measured ~40 bps round
-    // trip: a 10%-of-pool deadband and a 21-day hold clear break-even (~17 days
-    // at ~8.5% APY) with margin. Buffer refills are exempt from the hold.
+    // SOL* parking starts off; admin turns it on via `update_config`'s kestrel arm
+    // once the deployment is pinned. The deadband is sized from the measured
+    // ~40 bps round trip: 10% of pool clears break-even (~17 days at ~8.5% APY)
+    // with margin.
+    // ⚠️ THIS USED TO SAY "and a 21-day hold". `sol_min_park_secs` IS GONE — it
+    // governed a DISCRETIONARY unpark that does not exist (`unpark_for_withdrawal`
+    // is the only path, and its own docstring exempted liquidity repair from any
+    // time-lock), so the deadband is now the whole of the churn defence. If a
+    // discretionary unpark is ever added, the hold comes back WITH it.
     config.kestrel_program = Pubkey::default();
     config.sol_star_mint = Pubkey::default();
     config.sol_buffer_bps = 5_000;
