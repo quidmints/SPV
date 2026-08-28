@@ -6538,10 +6538,18 @@ here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `Q
   and on nonzero treat the **entire** slice as undeliverable, so it DEFERS like any frozen vault
   instead of being counted. Generic over any Ethena-style cooldown vault, and it lands in the one
   place the deliverability rule already lives rather than adding a clamp at each redeem site.
-- **`§E233-ladder`** — **2 of 5 rotation sites arm no exit ladder. VERIFIED CURRENT:** `_applySplice`
-  at `:1094` (splice) and `:1212` (rekey) re-arm; **`parkProvenSats` (`:1335`) and `_deliverSwapOut`
-  (`:2226`) do not.** ⛔ Do NOT fix by threading a 4th/5th `ExitArming[]` parameter — `_deliverSwapOut`
-  needs its calldata params DEAD before the settlement tail or the legacy stack overflows.
+- ✅ **`§E233-ladder` — RESOLVED, RE-VERIFIED 2026-08-28. ALL 5 ROTATION SITES NOW ARM.** The row's
+  "2 of 5 arm no exit ladder" is **STALE**; `_armLadder` (the helper is `_armLadder`, not
+  `_armExit` — a grep on the wrong name reports a false gap) is called at **`:992`, `:1164`
+  (`splice`), `:1281` (`_finishRekey`), `:1439` (`parkProvenSats`), `:2371`
+  (`deliverSwapOutOnchain`)**, and each of the 3 `_applySplice` call sites (`:1154`, `:1272`,
+  `:1436`) sits in a function that arms exactly once.
+  ✅ **AND THE ⛔ CONSTRAINT WAS HONOURED, WHICH IS WHY THIS IS CLOSED RATHER THAN JUST GREEN.**
+  The row forbade threading an `ExitArming[]` parameter into `_deliverSwapOut` (its calldata params
+  must be DEAD before the settlement tail or the legacy stack overflows). The applied fix arms in
+  the **OUTER** frame — `deliverSwapOutOnchain:2371`, after `_deliverSwapOut` returns —
+  so `_deliverSwapOut` itself still takes NO `ExitArming` (`grep ExitArming` in its body: 0 hits).
+  The stack constraint and the ladder invariant are both satisfied.
 - `§V-R11` — the hedge swap is all-or-nothing; owner: *"it must never stop tracking like this."*
 - `§E59-REOPENED`, `§E55`/`§UNIT-B-MIN-IS-NOOP` — `min(fast, slow)` is unconditionally the fast leg.
 - `§E247-allowlist-gate`, `§E251-vbtc-scope`, `§E244-tri-tests` (partly closed), `§A.65`, `§AAVE_SPOKE`.
