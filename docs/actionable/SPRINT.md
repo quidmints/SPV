@@ -2202,6 +2202,17 @@ read as "fully attributed" when it meant "the term I subtracted does not exist".
 ⇒ **THE ONLY CHARGE IS THE SKEW, SO THE WHOLE OF `(a) − (b)` IS UNATTRIBUTED: $4.39 borne, $0.33
 recorded, ~$4.06 credited to nobody.** The 13.2× is real and the candidate is the DELIVERY SHORTFALL
 (§SELL-SKEW-18PCT: the basket pays what its lending vaults can free).
+✅ **INDEPENDENTLY CORROBORATED 2026-08-28, ON A DIFFERENT FORK BLOCK AND A DIFFERENT FIXTURE STATE.**
+`test_UNITB_CounterMatchesWhatTheSwapperLoses` emits both quantities as a side effect, and they
+reproduce the ratio without being aimed at it:
+```
+TOTAL cost usd18   4,575,414,288,844,744,490   = $4.575   (a)
+skew (usd6)                          311,532   = $0.312   (b)
+```
+⇒ **(a) − (b) = $4.26 unattributed, 93.2%** — against this row's 92% on its own fixture. **Two
+independent measurements, same conclusion.** ✅ And the premise the conclusion rests on is CONFIRMED
+in code: `swapFeePpm` has zero declarations and zero non-comment references (see C9e), so there is
+genuinely no fee term to subtract and `(e) = (a) − (b)` is the right arithmetic.
 🔴 **AND A SEPARATE STALE-TEST FINDING FELL OUT: `Alles` STILL PRICES AGAINST THE DELETED FEE** —
 `expectedUsdc = (base/1e12) * (1e6 − 420) / 1e6` in
 `testSwapPricing_EthSellInRange_PaysAboutOracle`. It PASSES only because 420 ppm (0.042%) hides
@@ -6455,7 +6466,21 @@ Raised early in this session and **never executed**. The rate estimator became t
 §E155 (dimensionless factor) and §E190 (tranche distortion); a cross-sectional filter over the
 per-stable rates, and a cap on any single curator's weight, were both booked and neither was built.
 
-### C9e. §E226 — `swapFeePpm() = 420` **IS STILL LIVE, AND IT IS DECLARED TWICE** (checked 2026-08-18)
+### ✅ C9e. ~~§E226 — `swapFeePpm() = 420` **IS STILL LIVE, AND IT IS DECLARED TWICE**~~ — **STALE, THE FUNCTION IS GONE (checked 2026-08-28)**
+⛔ **`swapFeePpm` HAS ZERO FUNCTION DECLARATIONS AND ZERO NON-COMMENT REFERENCES** in `evm/src`,
+`evm/test` and `evm/script`. §E311 deleted the flat fee — `Core.sol:1499`: *"THE FLAT 420 ppm IS
+GONE. Owner: 'there is no 420 ppm, it's always the skew premium.'"* — and `Core.sol:1150` records the
+same. It is not declared twice; it is not declared at all.
+🔴 **BUT ITS DOCBLOCK SURVIVED AND IS NOW ORPHANED ONTO THE WRONG FUNCTION, WHICH IS WORSE THAN THE
+STALE ROW.** `Aux.sol:739` still opens *"The flat swap fee (parts-per-million — 420 = 0.042%) every
+stable↔volatile swap pays, **exposed on the unified seam so an RFQ maker / solver can reconstruct the
+fill**"* — and with `swapFeePpm` deleted it now sits immediately above **`function swap(…)`
+(`Aux.sol:765`)**, which it does not describe. ⇒ **A solver reading this seam is told to subtract a
+fee that no longer exists.** The docblock already carries a 🔴 §V4-CUT note that the SKEW term left
+the composition; the FEE left too, and that half was never corrected. ▶️ Fix the docblock (external
+surface, no bytecode) — do not simply delete it, the §V4-CUT warning inside it is still load-bearing.
+
+### (original) C9e. §E226 — `swapFeePpm() = 420` IS STILL LIVE, AND IT IS DECLARED TWICE (checked 2026-08-18)
 🔴 **Answering "is there no 420ppm, just the skew premium?" — NO. BOTH charge, and the 420 is now a
 HARDCODED LITERAL on the fill path:** `Core.sol:1221` — `out -= (out * 420) / 1_000_000;` — while
 `Aux.sol:714` separately returns `420` from `swapFeePpm()`. **One number, two declarations, no link
