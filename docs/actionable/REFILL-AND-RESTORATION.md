@@ -64,6 +64,30 @@ anyone who then re-checked it.** If the target is wrong, every q in the system i
 E54's derivation in `SwapLib.sol` around `sellSkew`, then ask whether a range at "correct" composition
 but low flow reads as scarce.
 
+✅ **ANSWERED 2026-08-28, AND MORE SHARPLY THAN THE CHECK ASKS — FROM THE SIGNATURE, NOT A FIXTURE.**
+```solidity
+function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
+```
+**There is no USD-side quantity in it.** `poolVolUsd` is `_skewBasis = POOLED()·base/1e30` — the
+VOLATILE leg valued in dollars. `POOLED_USD`, the dollar leg, appears nowhere in the signature or the
+body. ⇒ **COMPOSITION IS NOT AN INPUT TO THE SKEW.** The question "does a range at correct composition
+but low flow read as scarce?" has no mechanism behind it in either direction: **the skew cannot see
+composition at all.**
+⇒ **What it actually prices is DEMAND AGAINST VOLATILE DEPTH:** scarce iff `flowUsd > inv1`, where
+`inv1 = poolVolUsd − drainUsd6`. So a range whose volatile:USD ratio is badly wrong is quoted
+**exactly as cheaply** as a perfectly balanced one, provided flow is low — which is precisely the
+state a refill is supposed to correct.
+🔴 **THAT IS THE FINDING FOR THIS FILE'S §1 QUESTION.** §3 already establishes restoration is *not
+deterred* (a swap ending at/above target is charged zero on both legs) but *not rewarded*. Add this:
+**the skew also does not PENALISE the imbalance it is meant to signal.** An imbalanced, low-flow range
+is cheap to drain further. So "unaided restoration" gets no pull from the pricing layer in either
+direction — there is nothing to arbitrage toward.
+⚠️ **AND A THIRD ROUTE TO A VACUOUS SKEW READING FALLS OUT** (see SPRINT §E306): `skewWad` opens
+`if (target == 0) return _maxWellSkew(σ², rk)`, which is SIZE-INDEPENDENT, and on ETH
+(`spliceFloor == 0`) that is **ZERO**. **Measured from the production entry: an unseeded ETH range
+quotes `AUX.wellSkew(...) == 0` at every size.** A range with real depth and real variance but no
+flow prices at nothing.
+
 ---
 
 ## 4. The measurement — how far it got and exactly where it stopped
