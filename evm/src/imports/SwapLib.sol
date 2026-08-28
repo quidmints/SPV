@@ -1122,18 +1122,18 @@ library SwapLib {
     }
     bytes32 internal constant OOR_TYPEHASH = keccak256(
         "OorIntent(address owner,bool buyVolatile,uint256 size,uint256 limitPx,uint64 expiry,uint64 nonce,bool loadBalance)");
-    bytes32 private constant OOR_DOMAIN = keccak256(
+    /// @dev `internal` so the range manager can build its own cached separator from it — the domain's
+    ///      two inputs are fixed at deploy, so it is computed ONCE there rather than per fill.
+    bytes32 internal constant OOR_DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     /// @dev OWN FRAME, DELIBERATELY — the seven `OorIntent` fields plus the typehash overflow the
     ///      legacy stack inside `fillIntentBody` ("Stack too deep" at the `abi.encode`, measured).
     ///      `via_ir` is off here by policy, and the standing remedy is to shed locals into another
     ///      frame; `rebalanceCore`'s `_reseatIfStale` split is the same move for the same reason.
-    function _oorDigest(OorIntent calldata i, address verifyingContract)
-        private view returns (bytes32) {
-        return keccak256(abi.encodePacked(hex"1901",
-            keccak256(abi.encode(OOR_DOMAIN,
-                keccak256("QuidOor"), keccak256("1"), block.chainid, verifyingContract)),
+    function _oorDigest(OorIntent calldata i, bytes32 domainSep)
+        private pure returns (bytes32) {
+        return keccak256(abi.encodePacked(hex"1901", domainSep,
             keccak256(abi.encode(OOR_TYPEHASH, i.owner, i.buyVolatile, i.size,
                 i.limitPx, i.expiry, i.nonce, i.loadBalance))));
     }
@@ -1159,12 +1159,12 @@ library SwapLib {
     function fillIntentBody(
         mapping(address => mapping(uint64 => bool)) storage used,
         OorIntent calldata i, bytes calldata sig,
-        address core, address aux, address asset, address verifyingContract
+        address core, address aux, address asset, bytes32 domainSep
     ) external returns (int usdDelta, int volDelta) {
         if (block.timestamp >= i.expiry) revert IntentExpired();
         if (used[i.owner][i.nonce]) revert IntentUsed();
         if (sig.length != 65) revert IntentBadSig();
-        if (ecrecover(_oorDigest(i, verifyingContract),
+        if (ecrecover(_oorDigest(i, domainSep),
                 uint8(sig[64]), bytes32(sig[0:32]), bytes32(sig[32:64])) != i.owner)
             revert IntentBadSig();
         // ORACLE BINDS: a bid fills only once the price has fallen TO OR THROUGH its limit.

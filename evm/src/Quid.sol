@@ -378,10 +378,33 @@ contract Quid is Shares,
     ///         pre-pin would drain Quid's WETH). Captured at construction; equals the wiring caller in both
     ///         the deploy script and tests.
     address immutable DEPLOYER;
+
+    /// §OOR-AS-INTENT — THE EIP-712 DOMAIN, COMPUTED ONCE. Both its inputs are fixed at deploy
+    /// (`block.chainid`, `address(this)`), so recomputing two keccaks on every fill bought nothing.
+    /// ⚠️ **THE CHAIN-ID IS CACHED ALONGSIDE IT BECAUSE A CACHED SEPARATOR IS WRONG AFTER A FORK** —
+    /// the same reason OpenZeppelin's `EIP712` keeps both. On the forked chain `block.chainid`
+    /// changes, so the cached domain would authenticate signatures against the WRONG chain, and a
+    /// signature valid on one side would replay on the other. `_oorDomain()` falls back to
+    /// recomputing whenever they disagree, which costs one comparison on the common path.
+    uint256 private immutable OOR_CHAINID;
+    bytes32 private immutable OOR_DOMAIN_SEP;
+
     constructor()
         Ownable(msg.sender) {
         DEPLOYER = msg.sender;
+        OOR_CHAINID = block.chainid;
+        OOR_DOMAIN_SEP = _computeOorDomain();
     }   fallback() external payable {}
+
+    function _computeOorDomain() private view returns (bytes32) {
+        return keccak256(abi.encode(SwapLib.OOR_DOMAIN_TYPEHASH,
+            keccak256("QuidOor"), keccak256("1"), block.chainid, address(this)));
+    }
+
+    /// @dev The cached separator on the deploy chain; a fresh one on a fork. See the note above.
+    function _oorDomain() private view returns (bytes32) {
+        return block.chainid == OOR_CHAINID ? OOR_DOMAIN_SEP : _computeOorDomain();
+    }
 
     /// §E346 — THE MODIFIER STAYS; ITS BODY DOES NOT (standing rule 8c). A modifier is INLINED at
     /// every use site, so the three storage reads, the two comparisons and the `"403"` string were
@@ -1318,7 +1341,7 @@ contract Quid is Shares,
     function fillIntent(SwapLib.OorIntent calldata i, bytes calldata sig)
         external nonReentrant returns (bool) {
         (int usdDelta, int volDelta) = SwapLib.fillIntentBody(
-            intentUsed, i, sig, address(CORE), address(AUX), address(WETH), address(this));
+            intentUsed, i, sig, address(CORE), address(AUX), address(WETH), _oorDomain());
         CORE.settleOor(i.owner, usdDelta, volDelta, i.loadBalance);
         emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
         return true;
