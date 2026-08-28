@@ -8931,6 +8931,18 @@ which is the §A.50/C2 fix — KEPT, and now on a single line instead of duplica
 Two standing requirements and one security action, none of which had a row.
 
 **1. The basket fee MUST be DIRECTIONAL before `calcFeeL1` is re-wired (§A.64 step 2).**
+🔴 **CHECKED 2026-08-28 — IT IS NOT MERELY UNDONE, IT IS NOT EXPRESSIBLE IN THE CURRENT SIGNATURE.**
+`FeeLib.calcFeeL1(uint idx, uint[15] deps, uint[15] yields) public pure` takes **deposits and yields
+and nothing else** — there is no flow, no delta, no direction anywhere in it. Its whole body is a
+YIELD differential (`mine - baseline`, both `fullMulDiv` ratios), i.e. a pure concentration measure.
+⇒ **Making it directional is a SIGNATURE change, not a formula tweak**, and that is why "before it is
+re-wired" is the right ordering: re-wiring it first bakes in the non-directional call at every site.
+⭐ **AND THE PROTOCOL ALREADY HAS THE PATTERN ONE LAYER OVER — COPY IT, DO NOT RE-DERIVE IT.**
+`SwapLib.sellSkew` exempts a restoring trade outright: `uint over = inv > target ? inv - target : 0;
+if (over == 0) return 0;  // refill / at-target ⇒ EXEMPT`. That is exactly this row's
+*"TOWARD target → ~0 · AWAY → charge"*, already written, already live on the swap path. The basket
+fee needs the same test against its own target, which means it needs to be TOLD the post-trade
+composition — the argument it does not currently take.
 An arber restoring composition toward target is doing the basket a favour. A fee priced on
 CONCENTRATION ALONE charges them MOST exactly when the flow is needed MOST — it taxes the action that
 fixes the thing the fee measures.
@@ -10145,7 +10157,8 @@ The rename costs nothing at runtime (locals) and makes the audit question expres
 ## §E272 — 🟡 **OVERSTATED AND NARROWED: THE SYNC IS TRANSIENT, NOT DESTRUCTIVE**
 ⛔ **CORRECTION (owner's challenge, 2026-08-21): *"what are you trying to prove about the sync?"***
 This row said the LP *"ends the call with LESS depth than it started with"*, framed as terminal. **It
-is not.** `_syncRange` is called at **13 sites** across both managers — every lever, delever, repay,
+is not.** `_syncRange` is called at ~~13~~ **11 sites** (re-counted 2026-08-28; the argument is
+unaffected — it is still every path, and 11 is still "many") across both managers — every lever, delever, repay,
 close and rebalance path. A failed add is therefore **TRANSIENT**: the next touch re-runs burn-then-add
 and restores the depth once surplus returns. Nothing is permanently lost.
 ⇒ **THE DEFENSIBLE CLAIM IS NARROWER:** between touches, an LP can hold venue debt whose depth is not
