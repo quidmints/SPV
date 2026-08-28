@@ -306,8 +306,41 @@ it is the most agreeable one. We have no counterparty to agree with; the pool
 prices its own book. Adopting SIMM wholesale would import a committee's
 compromises to solve a problem we do not have.
 
-⇒ **TAKE THE MPOR, LEAVE THE SCHEDULE.** The single highest-value change is to
-size the barrier over the close-out horizon rather than one step — which is
-SIMM's central idea and our largest measured error, and it subsumes the "6×
-over-collateralised" finding because the two errors point in opposite directions
-and have never been netted against each other.
+⇒ **THE NETTING IS DONE. THE COLLAR IS ACTUALLY WRONG, NOT MERELY WRONGLY
+DERIVED** — and the sentence that used to stand here ("the two errors have never
+been netted") described work that has since been finished. It is replaced rather
+than deleted, because a row that outlives its own measurement is the stale-row
+failure this repo keeps re-learning.
+
+Measured against calibrated equity returns, ladder-decayed so only what is still
+OPEN when each step lands can hurt:
+
+| regime | collar | 1-step p99 | 168-step p99 | verdict |
+|---|---|---|---|---|
+| large-cap (19% ann) | 796 | 139 | 469 | adequate, 1.7× spare |
+| mid-vol (32% ann) | 796 | 244 | **1646** | **2.1× short** |
+| high-vol (48% ann) | 582 | 376 | **1611** | **2.8× short** |
+
+The ~6× over-collateralisation against the ONE-STEP tail is real and does not
+save it: against the exposure the collar must actually survive it is 2–3× SHORT
+everywhere but the calmest name. ⚠️ The collar is not even monotone in
+volatility here — high-vol's 582 sits below mid-vol's 796, because the σ floor
+that flattens leverage above 2× distorts the level too.
+
+⚠️ **SCOPE, AND IT MATTERS: those magnitudes are facts about ONE simulated return
+process, not about the formula.** What is scenario-free is the SIGN — a one-step
+barrier against a 168-step exposure is short under any distribution — and the two
+arithmetic defects recorded below.
+
+🔴 **AND "TAKE THE MPOR, LEAVE THE SCHEDULE" HAD SIMM BACKWARDS** (owner's
+correction). SIMM stores NO observation history — the schedule IS the
+simplification. Our POT accumulators (`exceed_count`/`sum`/`sumsq`) are stored
+history, three integers summarising a stream. The whole GPD apparatus serves
+exactly THREE production consumers — `collar_bps` (via `shortfall_bps`),
+`lgd_bps` (`mean_excess_bps`), `hazard_bps` (`tail_prob_bps`) — so a schedule
+supplying a risk weight per bucket plus ONE shape parameter per ticker class
+would delete `gpd_params`, `exceedance_rate_bps`, `pot_threshold` and the three
+accumulators: **~120 lines and 32 bytes per ticker**, keeping `tail_at` and
+`mean_excess_bps` as pure functions of a tabled (ξ, β).
+The cost is responsiveness: the fit adapts in hours, a table when governance
+updates it.
