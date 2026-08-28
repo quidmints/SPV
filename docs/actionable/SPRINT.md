@@ -8501,7 +8501,15 @@ IDs that appear only in the archive, nor its 59 `OPEN` / 43 `TODO` / 14 `UNVERIF
 
 ### 🔴 §AAVE_SPOKE — **DELIVERABILITY IS A PER-VENUE PREDICATE, DISTINCT FROM VALUATION.**
 
-⚠️ **`StakedUSDeV2` / `ensureCooldownOff` have 0 references.** Establish whether this row predates the venue set it names before working it.
+✅ **ANSWERED 2026-08-28 — THE ROW DOES NOT PREDATE ITS VENUE SET; WORK IT.** The venue is live:
+`stables[8]=USDE` / `vaults[8]=SUSDE` (`DriverE2E.s.sol:88,92`), sUSDE is USDe's **sole** vault, and
+`cooldownDuration()` reads **86400** on mainnet today.
+🔎 **AND THE "0 REFERENCES" IS ITSELF THE DEFECT, NOT EVIDENCE OF STALENESS.** There are 0 hits for
+`StakedUSDeV2`/`ensureCooldownOff`/`cooldown` in `evm/src` **because the protocol handles sUSDE as a
+plain `IERC4626` and nothing anywhere knows the cooldown exists.** A grep for the gate returning
+empty is exactly what an unhandled gate looks like — do not read it as "the venue is gone."
+⚠️ Generalise the *predicate* (this header's point) but NOT the *fix*: the canonical §V-R10 row
+scopes the remedy **ETHENA ONLY** — sDAI and stcUSD are plain 4626s with no cooldown, silo, or queue.
 **The only gap found by scanning all 20 subjects of that thread against this queue.** Generalised
 deliberately: it is NOT an Ethena/sUSDe special case.
 | source | what makes it undeliverable |
