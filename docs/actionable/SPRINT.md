@@ -3334,6 +3334,20 @@ failures — `SeizureLeavesPooledUsdIntact`, `SeizureBurnsClean` (ETH **and** BT
 root, because an inflated `POOLED_USD` inflates `committedUsd18`. **If they do not move, the root is
 elsewhere and this fix is necessary but not sufficient; say so rather than re-closing the row.**
 
+## ⏸️ **[HALF CLOSED 2026-08-28 — one of the two PASSES, the other's ROOT is fixed but unverified]**
+✅ **`test_LevFeeLaneBTC_EarnsFees_UnwindOnly_SeizureBurnsClean` PASSES** on a clean pinned census
+(VBtcLevFeeLane 20/21, 0 environmental, 0 setUp). The row's diagnosis — *"`netEquity(lp)` reads HIGHER
+after a liquidation than before"* — no longer reproduces; the §POOL-VENUE seizure migrations
+(`_seizeReal`/`_seizeRealBtc` naming the VENUE as borrower, not the LP) are the likely cause and the
+test is the evidence.
+⏸️ **`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` — ROOT FOUND AND FIXED, NOT YET VERIFIED.**
+`levBurnAll` debited both legs' TOKENS but only the buffer's USD while `levAddGross` re-credits both,
+so each resync netted a leg's USD into `basketUsd` until `committed` (272,046) crossed TVL (157,000).
+See §DELIVER-BACKING for the trace and the fix.
+⚠️ **AND THE ROW'S BASELINE IS STALE: it says "48 unique failures = the pre-pooling baseline".** The
+clean pinned census measures **6** real failures tree-wide, each attributable to a named row. Do not
+plan against 48.
+
 ## 🔬 **§POOL-SEIZE — THE LAST TWO POOLED-MODEL FAILURES, MEASURED AND NARROWED** (2026-08-24)
 
 SPRINT #1 is landed and the suite is back to **48 unique failures = the pre-pooling baseline** (2 new,
@@ -5358,6 +5372,19 @@ removing it from HEAD does not un-leak git history"*, in a repo with a public-sn
 owner question, and it is the one item in this document nobody can close by reading code.**
 
 ---
+
+## ⛔ **[RE-CHECKED 2026-08-28 — THE ARTEFACTS ARE GONE BUT THE WORK IS NOT. LOOK IN GIT, NOT IN `scratchpad/`.]**
+The row's premise is *"written, measured, and NOT committed — working copy preserved at
+`scratchpad/…`"*, and it concludes the work is lost. **Measured: every cited path is gone from `/tmp`
+and `/home/rico` — and the work is in the history anyway.**
+`git log -S` on the amplifier finds **`653f7078` — "E89b: land the risk-vs-fee amplifier split,
+proven in a pinned worktree"** and **`a3aee9b2` — "E295: fold the two skew composers into one
+amplifier"**. So E89b was COMMITTED and subsequently FOLDED; it was never a lost working copy.
+⇒ **THE RECOVERY MOVE IS `git log -S "<symbol>" -- evm/src`, NOT hunting a scratchpad.** A row that
+says "uncommitted, preserved only in a temp dir" is asserting an absence, and this file's own rule is
+that an empty grep proves nothing — the control here is the history, which nobody ran.
+▶️ **BEFORE TREATING ANY OF THE FIVE AS LOST, `git log -S` ITS SYMBOL.** The scratchpad claim is
+evidence about a directory, not about the work.
 
 ## 17. 🔴 FIVE ROWS POINT AT WORKING COPIES THAT NO LONGER EXIST
 
