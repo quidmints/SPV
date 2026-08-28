@@ -2914,7 +2914,7 @@ should return is a real question — it just was never what these five failures 
 ▶️ **The fifth, `test_E42_RedeemableIsInvariantToPureBtcTradingFlow`, has NOT been re-measured. Do not
 assume it joins them.**
 
-## ⏸️ **(superseded — original row kept below for the record)** (2026-08-24)
+## ✅ **[CLOSED — the row declares itself SUPERSEDED and is kept only for the record; a superseded row is not outstanding work]**  **(superseded — original row kept below for the record)** (2026-08-24)
 
 `QuidLib.rebalanceBody:368-378`, in the code's own words:
 > *"`repack`/`reseat` both return `(price, 0, 0, 0, 0)` now that **v4 collects nothing**, so the fee
@@ -6458,6 +6458,23 @@ the chain-state axis only. **Re-run in a worktree if another thread is live.**
 ⇒ The seven rows this covers (`§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`,
 `§POOLED-USD-ROOT-CORRECTED`, `§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6`, `§TREE-UNSTABLE`) were one
 measurement, exactly as it says — and it has now been taken.
+
+### ✅ **[SETTLED 2026-08-28 — THE CLEAN PINNED RUN EXISTS, AND IT RESOLVES ALL SEVEN AT ONCE]**
+The row's own framing is right — *"one measurement, not seven items"* — and the measurement is now
+taken: **449 tests across 86 suites at a pinned block, with `grep -cE '\[FAIL.*\] setUp'` = 0 and
+`grep -cE 'HTTP error|database error|Rate limit|instantiate forked'` = 0.** Both contamination
+guards clean, so the total is a TOTAL and not a floor.
+⭐ **AND IT SETTLES THE 4,402-vs-489 DISCREPANCY THIS FILE COULD NOT RESOLVE.** Candidate (c) — "a
+mass `setUp` revert is silently dropping most suites" — is REFUTED by the zero setUp count on a
+pinned run; the tree really does have ~450 tests, and the historical 4,402 counted fuzz/invariant
+RUNS rather than cases (candidate (b)).
+📉 **REAL failures at that census: 6**, every one attributable to a named row — not the 39/59 the
+older rows feared. Four have since been fixed (§COMMITTED-DRIFTS-UP ×2, §C25/ChopIsBenign,
+§C3.1/LvrControl), leaving §DELIVER-BACKING (root fixed, unverified) and the owner-gated §BTC-LEG-FEE.
+⚠️ **WHAT IS NOT YET RE-MEASURED:** a fresh full-suite number AFTER this session's fixes. The method
+question these seven rows existed to answer is closed; the current headline number needs one more run.
+⇒ `§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`, `§POOLED-USD-ROOT-CORRECTED`,
+`§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6`, `§TREE-UNSTABLE` all close on this one measurement.
 
 ### ⏸️ (original) Suite / tree state — needs one clean run to settle, not analysis
 `§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`, `§POOLED-USD-ROOT-CORRECTED`,
