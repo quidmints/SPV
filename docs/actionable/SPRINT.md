@@ -6508,8 +6508,36 @@ here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `Q
 
 ### 🔴 Money-path defects, live
 - **`§V-R10`** — **sUSDE is counted as backing but cannot be redeemed** (Ethena `cooldownDuration()`
-  == 86400). **VERIFIED STILL LIVE:** `DeployLib.sol:68 address susde`, `DriverE2E.s.sol:69`
-  `SUSDE = 0x9D39A5DE…`, registered at `vaults[8]`. The venue is wired; the cooldown is real.
+  == 86400). **VERIFIED STILL LIVE** — and 2026-08-28 **MEASURED ON MAINNET STATE, SHARPER THAN WRITTEN.**
+  Wiring: `script/DeployLib.sol:81 address susde`, `DriverE2E.s.sol:69 SUSDE = 0x9D39A5DE…`,
+  `stables[8]=USDE` / `vaults[8]=SUSDE` — sUSDE is USDe's **sole** vault, so `vaultsOf[USDe].length == 1`.
+  📐 **THE MEASUREMENT** (`cast call --override-state-diff`: real mainnet storage, one synthetic
+  1e18 share balance, cooldown UNTOUCHED at 86400):
+  ```
+  convertToAssets(1e18) = 1245285440104386053
+  maxWithdraw           = 1245285440104386053   <-- EQUAL TO THE WEI
+  maxRedeem             = 1000000000000000000   <-- the full share balance
+  withdraw(1) / redeem(1) -> revert 0xf50a3b52 == OperationNotAllowed()
+  ```
+  (The revert is amount-independent — `redeem(0)` reverts too, while sDAI's identical `redeem(0)`
+  returns 0 — so it is a modifier, Ethena's `ensureCooldownOff`, not a balance check.)
+  🔴 **WHY THE EXISTING DEFENCE DOES NOT COVER IT.** `_illiquidLoss` haircuts a frozen vault by
+  `Σ max(0, convertToAssets − maxWithdraw)` — written for exactly this ("a solvent-but-frozen
+  Morpho/Euler market", `BasketLib:877`). For sUSDE those two numbers are **identical**, so the
+  haircut is `max(0, 0)` = **exactly zero**. The vault reports 100% withdrawable and pays nothing:
+  the guard is blind to it **by construction**, not by oversight. ⚠️ Do not "fix" §V-R10 by
+  asserting the haircut covers it — MEASURE the two numbers first; they are equal.
+  🔴 **THE REVERT REACHES THE MONEY PATH AT TWO BARE SITES.** `BasketLib:1286` is SAFE
+  (`try … catch` — frozen stays blocked + haircut'd). But **`FeeLib:324`** (`vs.length == 1` branch,
+  which is precisely USDe's case) and **`FeeLib:380`** call `IERC4626(v).redeem(...)` **with no
+  `try`**, and the `if (shares == 0) return 0` early-out does NOT save them — `_shareCap` reads
+  `convertToShares`, which sUSDE answers healthily. So the `OperationNotAllowed` propagates and
+  **the whole withdrawal reverts.**
+  ▶️ **PROPOSED FIX, NOT YET BUILT** (money-path — rule 15, wants a run before commit): probe the
+  gate directly where the haircut is computed — `try IStakedCooldown(v).cooldownDuration()`,
+  and on nonzero treat the **entire** slice as undeliverable, so it DEFERS like any frozen vault
+  instead of being counted. Generic over any Ethena-style cooldown vault, and it lands in the one
+  place the deliverability rule already lives rather than adding a clamp at each redeem site.
 - **`§E233-ladder`** — **2 of 5 rotation sites arm no exit ladder. VERIFIED CURRENT:** `_applySplice`
   at `:1094` (splice) and `:1212` (rekey) re-arm; **`parkProvenSats` (`:1335`) and `_deliverSwapOut`
   (`:2226`) do not.** ⛔ Do NOT fix by threading a 4th/5th `ExitArming[]` parameter — `_deliverSwapOut`
