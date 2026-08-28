@@ -6607,7 +6607,12 @@ limit** — every ETH swap and repack would have exceeded a whole block. WRONG, 
 
 🔴 **BOTH CANDIDATE SOURCES ARE NOW RULED OUT, AND NOTHING IS PINNED (2026-08-21).** 1inch: **31,722,803 gas**, above the block limit. Curve TriCrypto-USDC: pinned, then **removed on the owner's instruction** — pricing the range off a single pool makes that pool's depth and depeg mode an input to σ², the skew and liquidation, which is `ExternalTwap`'s own *"correlated sources are one source"* objection turned on the pool itself. ⇒ **`observationSource` is unset, so the ring is NEVER WRITTEN: `ringVariance` returns 0 and §E213 prices at the ceiling — on BOTH instances, so the old ETH/BTC asymmetry is gone.** ✅ The circularity is gone regardless (no self-write from `getTWAPforAsset`); what is open is **which source**. ⚠️ `Core`'s `OBS_POOL_IDX` was DELETED with the pin — a TriCrypto-ordering index that would have priced ETH as WBTC on any differently-ordered pool. **The read shape is now pinned WITH the source (`setObservationSource(src, calldata)`); do not hardcode a venue's encoding again.**
 
-**Kick off from `OracleLib.curvePriceWad` (`:378`/`:384`; file folded away by §E318)** (already written, ~one storage read):
+⚠️ **COORDINATES ROTTED, SUBSTANCE CONFIRMED (2026-08-28): `curvePriceWad` is at `OracleLib:419`
+and `:425`, not `:378`/`:384`.** And the row's central claim is verified from the other side —
+**0 call sites in `evm/src`** — so "nothing is pinned" is still exactly true. ⇒ See
+`§FOLDED-NOT-WIRED`: the §E318 fold moved this code without wiring it, and because the row greps a
+symbol that now lives elsewhere, the check reads as resolved when it is not.
+**Kick off from `OracleLib.curvePriceWad` (`:419`/`:425`; file folded away by §E318)** (already written, ~one storage read):
 - **ETH: `price_oracle(1)` on `CURVE_TRICRYPTO_USDC`.** 🔴 **k=1 is WETH, k=0 is WBTC** — the file's
   comment said the opposite and was corrected in `6e442a4c`. Verified on-chain against `coins()`:
   `price_oracle(0)` = **\$64,280.15**, `price_oracle(1)` = **\$1,906.53**. Wiring ETH from the old
@@ -6632,7 +6637,20 @@ Related and never justified: **`swapFeePpm() = 420` is now OUR policy**, not v4'
 ## C3. 🟠 vBTC IS the 7540's asset — its 4626 face contradicts that (§E221/E223/E224)
 `VBtc.asset()` returns **WBTC** while vBTC **is** the ERC-20 the async vault points at. `Vault` has
 **no `asset()`**, and `VBtc`'s three 4626 accessors have **ZERO call sites**. Delete them; give the
-range manager `asset() = vBTC`. The BTC anchor is already wrapper-free (Chainlink **"BTC / USD"**),
+range manager `asset() = vBTC`.
+✅ **VERIFIED CURRENT 2026-08-28** — `VBtc:95` `asset()` returns `WBTC`; `:96`/`:97` are
+`convertToAssets`/`convertToShares`, both **`pure` identities** (`return shares` / `return assets`);
+all three have **0 call sites in `src` and `test`**.
+⛔ **BUT "DELETE THEM" IS RIGHT FOR TWO OF THE THREE AND WRONG FOR THE THIRD, AND THE DISCRIMINATOR
+IS CLAUDE.md's OWN.** *"Zero in-tree references is what an ENTRYPOINT looks like, and grepping only
+Solidity would have deleted eight live functions."* `convertToAssets`/`convertToShares` are dead on
+both sides (0 in-tree, 0 off-chain) and are ordinary rule-1 deletions. **`asset()` is the ERC-4626
+IDENTITY function** — it is what an integrator or indexer calls to learn what the vault is over, so
+its zero in-tree count is expected rather than evidence.
+⇒ **THAT SPLITS THIS ROW INTO TWO DIFFERENT KINDS OF WORK, WHICH IS WHY IT HAS NOT MOVED:** removing
+the two identities is dead-code cleanup and needs only a run; removing `asset()` is the DESIGN change
+the row actually wants (`asset() = vBTC` on the range manager) and breaks 4626 conformance for anyone
+reading the old face until the new one lands. **Do not land them as one commit.** The BTC anchor is already wrapper-free (Chainlink **"BTC / USD"**),
 so the depeg exposure is narrower than §E221 first claimed. **The `WBTC/BTC` feed (`0xfdFD…BB23`,
 **1.00039110** = 3.91 bps) is wired NOWHERE** — the basis is unmeasured, and that feed is the direct
 instrument if a detector is wanted.
