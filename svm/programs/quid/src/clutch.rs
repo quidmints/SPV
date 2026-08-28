@@ -253,7 +253,7 @@ pub struct Withdraw<'info> {
 
 pub fn handle_out<'info>(ctx: Context<'_, '_,
     'info, 'info, Withdraw<'info>>, mut amount: i64,
-    ticker: String, exposure: bool) -> Result<()> {
+    ticker: String, exposure: bool, max_haircut_bps: u16) -> Result<()> {
     // `sol_pool` with ticker "SOL" withdraws lamports and nothing else, the
     // mirror of how `handle_in` selects its native leg. With an empty ticker
     // it means something different: pay this pool withdrawal from the SOL as
@@ -265,7 +265,7 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
     // know their own accrued carry ahead of time, and a full exit is exactly
     // the case where guessing the figure strands lamports behind.
     if ctx.accounts.sol_pool.is_some() && ticker == "SOL" {
-        return withdraw_native(ctx, amount.unsigned_abs());
+        return withdraw_native(ctx, amount.unsigned_abs(), max_haircut_bps);
     }
     require!(amount != 0, PithyQuip::InvalidAmount);
 
@@ -640,7 +640,7 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
 /// Native-SOL branch of `handle_out`. Kept as its own function for the same
 /// reason the SPL branch is inline: one instruction, two disjoint account sets.
 fn withdraw_native<'info>(ctx: Context<'_, '_, 'info, 'info, Withdraw<'info>>,
-    mut lamports: u64) -> Result<()> {
+    mut lamports: u64, max_haircut_bps: u16) -> Result<()> {
     let sol_pool = ctx.accounts.sol_pool.as_ref().unwrap().clone();
     if lamports == 0 { lamports = ctx.accounts.customer_account.deposited_lamports; }
     require!(lamports > 0, PithyQuip::InvalidAmount);
@@ -655,10 +655,15 @@ fn withdraw_native<'info>(ctx: Context<'_, '_, 'info, 'info, Withdraw<'info>>,
     risk.actuary.accrue_premium_index(now, ctx.accounts.bank.utilisation_bps());
     risk.actuary.update_price(sol_price as i64, slot);
 
-    // Anything the hot buffer cannot cover comes out of the parked tranche,
-    // and the round trip is charged to the caller who forced it rather than
-    // socialised — see `unpark_for_withdrawal`. Without the Kestrel accounts
-    // the withdrawal is limited to the buffer, as it always was.
+    // Anything the hot buffer cannot cover comes out of the parked tranche, and the round
+    // trip is charged to the caller who forced it rather than socialised — see
+    // `unpark_for_withdrawal`. Without the Kestrel accounts the withdrawal is limited to the
+    // buffer, as it always was.
+    // ⭐ AND THE ACCOUNTS ARE NO LONGER THE CONSENT. Passing them used to be the only signal
+    //   that an unpark was acceptable, which is consent by side effect: a client that always
+    //   attached them — the obvious way to write one — bought the haircut on every withdrawal
+    //   that happened to exceed the buffer, without the user ever choosing it.
+    //   `max_haircut_bps` says it out loud, and 0 means wait instead.
     let rest = ctx.remaining_accounts.get(1..).unwrap_or(&[]);
     let forfeit = match SolStarLegs::from_remaining(&ctx.accounts.config,
             &sol_pool, ctx.bumps.sol_pool.unwrap(),
@@ -666,7 +671,7 @@ fn withdraw_native<'info>(ctx: Context<'_, '_, 'info, 'info, Withdraw<'info>>,
             &ctx.accounts.system_program.to_account_info(), rest)? {
         Some(legs) => unpark_for_withdrawal(&mut ctx.accounts.bank,
             &ctx.accounts.config, &legs, &ctx.accounts.signer.to_account_info(),
-            lamports, sol_price, &risk.actuary)?,
+            lamports, sol_price, &risk.actuary, max_haircut_bps)?,
         None => {
             require!(lamports <= ctx.accounts.bank.sol_lamports,
                      PithyQuip::InsufficientFunds);

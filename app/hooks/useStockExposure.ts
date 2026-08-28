@@ -196,7 +196,11 @@ export function useStockExposure() {
 
       const program = getReadonlyProgram()
       const ix = await program.methods
-        .withdraw(new BN(amountRaw), ticker, exposure)
+        // 0 = no consent to a Kestrel unpark haircut. A withdrawal inside the hot buffer is
+        // unaffected; one that exceeds it now reverts with `UnparkConsentRequired` instead of
+        // quietly charging ~0.4%. The app should surface that as a choice — wait for the buffer,
+        // or re-submit with the ceiling the user accepts — never default it on their behalf.
+        .withdraw(new BN(amountRaw), ticker, exposure, 0)
         .accountsStrict({
           signer: userPk,
           mint: mintPk,

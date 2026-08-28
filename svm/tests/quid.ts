@@ -484,7 +484,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       await sleep(2000);
 
       await program.methods
-        .withdraw(withdrawAmount, "", false)
+        .withdraw(withdrawAmount, "", false, 0)
         .accountsStrict({
           signer: payer.publicKey,
           mint: mintUSD,
@@ -577,7 +577,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       const tickerRiskPDA = deriveTickerRisk("XAG");
 
       await program.methods
-        .withdraw(amount, "XAG", true)
+        .withdraw(amount, "XAG", true, 0)
         .accountsStrict({
           signer: payer.publicKey,
           mint: mintUSD,
@@ -701,7 +701,7 @@ describe("QU!D Protocol — Depository Suite", () => {
 
       try {
         await program.methods
-          .withdraw(exposureAmount, "XAG", true)
+          .withdraw(exposureAmount, "XAG", true, 0)
           .accountsStrict({
             signer: victim.publicKey,
             mint: mintUSD,
@@ -836,7 +836,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       // user2 tries to withdraw from payer's depositor account
       try {
         await program.methods
-          .withdraw(new BN(-100 * 10 ** 6), "", false)
+          .withdraw(new BN(-100 * 10 ** 6), "", false, 0)
           .accountsStrict({
             signer: user2.publicKey,
             mint: mintUSD,
@@ -863,7 +863,7 @@ describe("QU!D Protocol — Depository Suite", () => {
     it("6.2 Rejects positive amount for pool withdrawal (must be negative)", async () => {
       try {
         await program.methods
-          .withdraw(new BN(100 * 10 ** 6), "", false) // positive = invalid for pool withdraw
+          .withdraw(new BN(100 * 10 ** 6), "", false, 0) // positive = invalid for pool withdraw
           .accountsStrict({
             signer: payer.publicKey,
             mint: mintUSD,
@@ -1597,10 +1597,38 @@ describe("QU!D Protocol — Depository Suite", () => {
       console.log("  ✓ parked", parked.solStarCostLamports.toNumber(),
                   "lamports →", parked.solStarShares.toNumber(), "SOL*");
 
-      // Now take more than the hot buffer holds, forcing an unwind.
       const hot = parked.solLamports.toNumber();
+      // ⭐ CONSENT FIRST. The same withdrawal, with `max_haircut_bps = 0`, must be REFUSED:
+      //    it exceeds the hot buffer, so serving it means an unpark, and an unpark costs a
+      //    real ~0.4%. Passing the Kestrel accounts used to BE the consent — which is consent
+      //    by side effect, since the obvious client attaches them always and the depositor
+      //    never chose the haircut. This asserts the accounts are no longer sufficient.
+      let refused = false;
+      try {
+        await program.methods
+          .withdraw(new BN(hot + LAMPORTS_PER_SOL), "SOL", false, 0)
+          .accountsStrict({
+            signer: payer.publicKey, mint: mintUSD, config: configPDA,
+            bank: bankPDA, bankTokenAccount: vaultPDA,
+            customerAccount: depositorPDA, customerTokenAccount: userTokenAccount,
+            solPool, tickerRisk: deriveSolRisk(),
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .remainingAccounts([...pyth.getAccountMetas(["SOL"]), ...legs])
+          .preInstructions(budget)
+          .rpc();
+      } catch (e: any) {
+        refused = String(e).includes("UnparkConsentRequired");
+        if (!refused && !stale(e)) throw e;
+      }
+      expect(refused, "a buffer-exceeding withdrawal must refuse without consent").to.be.true;
+      console.log("  ✓ refused without consent — the depositor waits rather than paying");
+
+      // Now take more than the hot buffer holds WITH consent, forcing an unwind.
       await program.methods
-        .withdraw(new BN(hot + LAMPORTS_PER_SOL), "SOL", false)
+        .withdraw(new BN(hot + LAMPORTS_PER_SOL), "SOL", false, 500)
         .accountsStrict({
           signer: payer.publicKey, mint: mintUSD, config: configPDA,
           bank: bankPDA, bankTokenAccount: vaultPDA,
@@ -1913,7 +1941,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       const absurd = new BN(-1).mul(new BN(10 ** 15));
       try {
         await program.methods
-          .withdraw(absurd, "", false)
+          .withdraw(absurd, "", false, 0)
           .accountsStrict({
             signer: payer.publicKey,
             mint: mintUSD,
@@ -1944,7 +1972,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       expect(before.depositedLamports.toNumber()).to.be.greaterThan(0);
 
       await program.methods
-        .withdraw(new BN(0), "SOL", false)
+        .withdraw(new BN(0), "SOL", false, 500)
         .accountsStrict({
           signer: payer.publicKey,
           mint: mintUSD,
@@ -2210,7 +2238,7 @@ describe("QU!D Protocol — Depository Suite", () => {
       // is a malformed request, not a full exit.
       try {
         await program.methods
-          .withdraw(new BN(0), "", false)
+          .withdraw(new BN(0), "", false, 0)
           .accountsStrict({
             signer: payer.publicKey,
             mint: mintUSD,

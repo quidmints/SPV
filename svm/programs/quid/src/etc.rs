@@ -216,6 +216,13 @@ pub enum PithyQuip {
 
     #[msg("insufficient lamports in SOL vault")]
     InsufficientFunds,
+
+    /// The hot buffer could not cover this withdrawal, so serving it means unparking from
+    /// Kestrel — a real ~0.4% round trip. The caller passed `max_haircut_bps = 0`, which
+    /// says they would rather WAIT for the buffer to refill than pay a cost they did not
+    /// choose. Retry with a ceiling they accept, or for less than the buffer holds.
+    #[msg("withdrawal exceeds the hot buffer and no unpark haircut was consented to")]
+    UnparkConsentRequired,
 }
 
 /// Actuary: adaptive risk

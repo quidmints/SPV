@@ -1258,11 +1258,27 @@ pub fn park_idle_sol<'info>(bank: &mut Depository, config: &ProgramConfig,
 /// Deliberately not subject to `sol_min_park_secs`: the hold is there to stop
 /// discretionary churn, and turning it on a depositor's own withdrawal would
 /// convert a yield optimisation into a liquidity trap.
+/// `max_haircut_bps` is the CALLER'S OWN CEILING on what forcing this unpark may cost
+/// them, and it is what makes the round trip opt-in rather than imposed. A withdrawal
+/// inside the hot buffer never reaches this function at all; one that exceeds it used to
+/// unpark silently and hand the caller the bill. Now the caller has to have said, in the
+/// instruction, how much of a haircut they will wear — and `0` means *none*, i.e. make me
+/// wait rather than charge me.
+///
+/// ⚠️ THE CONFIG CEILING STILL BINDS. This is the tighter of the two, never a way to raise
+/// the protocol's limit: a caller consenting to 900 bps on a pool configured for 500 still
+/// gets 500, because the config bound exists to stop a bad print reaching the pool's books
+/// and the caller's consent is about who absorbs a GOOD one.
 pub fn unpark_for_withdrawal<'info>(bank: &mut Depository, config: &ProgramConfig,
     legs: &SolStarLegs<'info>, payer: &AccountInfo<'info>, wanted: u64,
-    sol_price: u64, actuary: &Actuary) -> Result<u64> {
+    sol_price: u64, actuary: &Actuary, max_haircut_bps: u16) -> Result<u64> {
     let deficit = wanted.saturating_sub(bank.sol_lamports);
     if deficit == 0 { return Ok(0); }
+    // 🔴 NO AVOIDABLE ROUND TRIP. The buffer could not cover this, so serving it means
+    //    unparking, and unparking costs a real ~0.4%. Without consent that is a cost the
+    //    caller never asked for, so refuse and let them size down or come back once the
+    //    buffer refills.
+    require!(max_haircut_bps > 0, PithyQuip::UnparkConsentRequired);
     require!(bank.sol_star_shares > 0 && bank.sol_star_cost_lamports > 0,
              PithyQuip::InsufficientFunds);
 
@@ -1282,8 +1298,9 @@ pub fn unpark_for_withdrawal<'info>(bank: &mut Depository, config: &ProgramConfi
     // Bound what a single print can cost the withdrawer. Beyond the configured
     // haircut this is not a haircut, it is a bad price, and they are better
     // served by the withdrawal failing so they can size down or come back.
+    let bound_bps = config.sol_star_haircut_bps.min(max_haircut_bps);
     let tolerated = cost_released.saturating_sub(
-        ((cost_released as u128).saturating_mul(config.sol_star_haircut_bps as u128)
+        ((cost_released as u128).saturating_mul(bound_bps as u128)
             / 10_000) as u64);
     require!(lamports_out >= tolerated, PithyQuip::InsufficientFunds);
 

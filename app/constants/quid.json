@@ -1248,108 +1248,6 @@
       "args": []
     },
     {
-      "name": "set_kestrel",
-      "docs": [
-        "Point SOL* parking at the issuer (admin only).",
-        "`kestrel_program = Pubkey::default()` disables parking."
-      ],
-      "discriminator": [
-        147,
-        232,
-        98,
-        28,
-        248,
-        46,
-        180,
-        210
-      ],
-      "accounts": [
-        {
-          "name": "admin",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  103,
-                  114,
-                  97,
-                  109,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "bank",
-          "docs": [
-            "Read only, and only to answer one question: is anything still parked?"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "kestrel_program",
-          "type": "pubkey"
-        },
-        {
-          "name": "sol_star_mint",
-          "type": "pubkey"
-        },
-        {
-          "name": "buffer_bps",
-          "type": "u16"
-        },
-        {
-          "name": "haircut_bps",
-          "type": "u16"
-        },
-        {
-          "name": "park_band_bps",
-          "type": "u16"
-        },
-        {
-          "name": "min_park_secs",
-          "type": "i64"
-        }
-      ]
-    },
-    {
       "name": "sweep",
       "docs": [
         "Permissionless batch amortisation. Supply the Pyth account for `ticker`",
@@ -1473,8 +1371,11 @@
     {
       "name": "update_config",
       "docs": [
-        "Rotate admin, or stage a bebop_authority rotation.",
-        "Pass None for any field to leave it unchanged."
+        "THE ONLY CONFIG INSTRUCTION. Rotate the admin, the flash authority, or the",
+        "SOL*/Kestrel parking settings.",
+        "`None` leaves a field unchanged. `set_kestrel` was folded in here — it was",
+        "a second entrypoint onto this same `ProgramConfig`, with its own accounts",
+        "struct and its own spelling of the admin gate."
       ],
       "discriminator": [
         29,
@@ -1518,6 +1419,34 @@
               }
             ]
           }
+        },
+        {
+          "name": "bank",
+          "docs": [
+            "Read only, and only to answer one question: is anything still parked?",
+            "Required on every call rather than only on a kestrel disable — one extra",
+            "account on an admin-only path is cheaper than an optional-account dance,",
+            "and it cannot then be omitted on the one call where it matters."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  111,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -1528,9 +1457,19 @@
           }
         },
         {
-          "name": "set_bebop_authority",
+          "name": "set_flash_authority",
           "type": {
             "option": "pubkey"
+          }
+        },
+        {
+          "name": "kestrel",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "KestrelCfg"
+              }
+            }
           }
         }
       ]
@@ -1778,6 +1717,10 @@
         {
           "name": "exposure",
           "type": "bool"
+        },
+        {
+          "name": "max_haircut_bps",
+          "type": "u16"
         }
       ]
     }
@@ -2061,7 +2004,7 @@
     {
       "code": 6023,
       "name": "InvalidSettlementProgram",
-      "msg": "caller is not the authorised JAM settlement program"
+      "msg": "caller is not the configured flash authority"
     },
     {
       "code": 6024,
@@ -2072,6 +2015,11 @@
       "code": 6025,
       "name": "InsufficientFunds",
       "msg": "insufficient lamports in SOL vault"
+    },
+    {
+      "code": 6026,
+      "name": "UnparkConsentRequired",
+      "msg": "withdrawal exceeds the hot buffer and no unpark haircut was consented to"
     }
   ],
   "types": [
@@ -2225,7 +2173,7 @@
             "docs": [
               "EMA smoothed price for manipulation detection.",
               "Slower than spot price — large deviations indicate potential manipulation.",
-              "Also the TWAP overlay that makes prediction market manipulation",
+              "Also the TWAP overlay that makes price manipulation",
               "prohibitively expensive: sustaining artificial price pressure across",
               "the full TWAP window requires keeping that capital at risk the entire",
               "time — the attacker is the natural short against their own manipulation."
@@ -2486,7 +2434,7 @@
               "Carry used to be booked straight into `total_deposits`, which shares it",
               "by `deposit_seconds` across every depositor — so a USD*/QD depositor",
               "earned staking yield on lamports they never posted, while SOL price",
-              "losses stayed idiosyncratic (`pool_mark_down` hits one depositor's",
+              "losses stayed idiosyncratic (a SOL move hits one depositor's",
               "`sol_pledged_usd`). Risk was individual and reward was socialised. The",
               "index attributes the yield to the tranche that funded it, in O(1)."
             ],
@@ -2565,6 +2513,40 @@
           {
             "name": "enforced_options_send",
             "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KestrelCfg",
+      "docs": [
+        "Kestrel/SOL* settings, folded out of `set_kestrel`. All-or-nothing: passing",
+        "`Some` means every parking field is being written together, because they are",
+        "validated against each other and a partial write could leave the band wider",
+        "than the non-buffer share."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kestrel_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_star_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "buffer_bps",
+            "type": "u16"
+          },
+          {
+            "name": "haircut_bps",
+            "type": "u16"
+          },
+          {
+            "name": "park_band_bps",
+            "type": "u16"
           }
         ]
       }
@@ -2712,7 +2694,7 @@
             "name": "admin",
             "docs": [
               "Protocol admin. After init_config, should be a Squads v4 vault PDA.",
-              "Controls: bebop_authority, registered_mints, the SOL* settings."
+              "Controls: flash_authority, registered_mints, the SOL* settings."
             ],
             "type": "pubkey"
           },
@@ -2745,16 +2727,36 @@
             "type": "u8"
           },
           {
-            "name": "bebop_authority",
+            "name": "flash_authority",
             "docs": [
-              "JAM settlement program authority PDA.",
-              "flash_borrow requires flash_authority.key() == this field.",
-              "Pubkey::default() = flash loans disabled.",
-              "SENSITIVE: rotated by `update_config`. A flash loan must balance",
-              "within its own transaction, so the worst a rotated authority can do is",
-              "execute a flash that still has to repay — the admin path (Squads, with",
-              "its own proposal delay) is the real protection, and a second on-chain",
-              "timelock on top of it bought nothing."
+              "Who may call `flash_borrow`. `Pubkey::default()` = flash loans disabled.",
+              "",
+              "⚠️ WAS `bebop_authority`, AND THE NAME WAS THE ONLY THING STILL SAYING SO.",
+              "The account it is checked against is already `flash_authority`",
+              "(`FlashBorrow` below) and the error was `InvalidSettlementProgram` — three",
+              "names for one role. Bebop is one prospective integration living in its own",
+              "repo (`quidmints/bebop_solana`); naming a core config field after it made",
+              "the field read as Bebop-specific when the gate is venue-agnostic.",
+              "",
+              "🔴 **WE PIN AN ADDRESS; WE DO NOT OWN THE KEY.** `FlashBorrow` requires",
+              "`#[account(signer, address = config.flash_authority)]`, and on Solana only",
+              "two things sign: a keypair, or a **PDA signing via `invoke_signed` from the",
+              "program that owns it**. The intended shape is the second — the settlement",
+              "program's own signer PDA, which is why the original comment read",
+              "*\"equivalent of `require(msg.sender == JAM)` in `Aux.sol`\"*. Setting this",
+              "field chooses WHICH PROGRAM is trusted to open a flash; it does not mint a",
+              "credential we hold.",
+              "⚠️ **BUT THE CONSTRAINT DOES NOT ENFORCE PDA-NESS — A PLAIN KEYPAIR",
+              "SATISFIES IT IDENTICALLY**, and the TypeScript suite depends on that",
+              "(`tests/quid.ts` points this at `payer` to drive the flash path directly).",
+              "So read the field as \"the configured flash caller\", which is what the error",
+              "now says; the venue-program framing is the intent, not an invariant.",
+              "",
+              "SENSITIVE, but bounded: rotated by `update_config`, and a flash loan must",
+              "balance inside its own transaction, so the worst a rotated authority can do",
+              "is execute a flash that still has to repay. The admin path (Squads, with its",
+              "own proposal delay) is the real protection; a second on-chain timelock on",
+              "top of it bought nothing."
             ],
             "type": "pubkey"
           },
@@ -2801,14 +2803,6 @@
               "costs ~40 bps, so churn is a leak."
             ],
             "type": "u16"
-          },
-          {
-            "name": "sol_min_park_secs",
-            "docs": [
-              "Minimum hold before a *discretionary* unpark. Refilling a buffer that is",
-              "below its floor is exempt — liquidity repair is never time-locked."
-            ],
-            "type": "i64"
           }
         ]
       }
@@ -2930,10 +2924,6 @@
           {
             "name": "updated",
             "type": "i64"
-          },
-          {
-            "name": "rate_bps",
-            "type": "u16"
           },
           {
             "name": "collar_bps",

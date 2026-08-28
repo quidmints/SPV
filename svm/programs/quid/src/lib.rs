@@ -43,8 +43,12 @@ pub mod quid {
     // positive amount = increase exposure; negative = withdraw QUID (or) redeem exposure for QUID
 
     pub fn withdraw<'info>(ctx: Context<'_, '_,
-        'info, 'info, Withdraw<'info>>, amount: i64, ticker: String, exposure: bool) -> Result<()> {
-        clutch::handle_out(ctx, amount, ticker, exposure) // no ticker = withdraw collateral from all positions;
+        'info, 'info, Withdraw<'info>>, amount: i64, ticker: String, exposure: bool,
+        max_haircut_bps: u16) -> Result<()> {
+        // `max_haircut_bps` — the caller's ceiling on a forced Kestrel unpark. 0 = never
+        // unpark; make the withdrawal WAIT for the buffer rather than paying ~0.4% nobody
+        // asked for. Ignored entirely when the withdrawal fits in the hot buffer.
+        clutch::handle_out(ctx, amount, ticker, exposure, max_haircut_bps) // no ticker = withdraw collateral from all positions;
         // at least one Pyth key must be passed into remaining_accounts (all keys if empty string ticker)
     } // this sort of cross-margining is also re-used in the liquidation process (a means of protection)
     // as such, need to pass in all Pyth keys into liquidate (first one should be the one to liquidate)
