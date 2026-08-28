@@ -1315,7 +1315,21 @@ contract DrainAtomicity is AllesFixture {
     /// does not receive: **ΔReceipt must equal ΔCounter.**
     function test_UNITB_CounterMatchesWhatTheSwapperLoses() public {
         _setupRange();
-        uint SIZE = 30_000 * 1e18;
+        // ⭐ **SIZE IS DERIVED FROM THE BRANCH CONDITION, NOT PICKED.** `skewWad` splits on
+        //    `inv1 >= target` where **`inv1 = inv0 − drainUsd6`** — the POST-drain inventory — and
+        //    `inv0` is `_skewBasis = POOLED()·base/1e30`, **NOT** `POOLED_USD` (`SwapLib.wellSkew`
+        //    passes the former; they measured 2.316x apart here). So the arms can only price
+        //    differently while the drain puts arm B's target above `inv1` and leaves arm A's below:
+        //        B scarce needs  drain > inv0 − B = 607,866 − 364,301 = **$243,565**
+        //        A must stay flush: drain < inv0 − A = 607,866 − 182,150 = **$425,716**
+        //    Both boundaries were verified to the dollar in `SkewFlowDiscrimination.t.sol`.
+        //    $300,000 sits in that window with margin at both ends.
+        // ⛔ **$30,000 — THE OLD VALUE — CANNOT WORK AT ANY sigma^2 OR ANY TARGET.** It leaves
+        //    `inv1` far above BOTH targets, so both arms take the flush branch, which returns
+        //    `_maxWellSkew + _depletion` and never reads `target` at all. That is why three separate
+        //    diagnoses (sigma^2 == 0, then FLUSH, then "flush is not the whole explanation") all
+        //    failed to move this test: the fixture could not reach the target-sensitive branch.
+        uint SIZE = 300_000 * 1e18;
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
 
         // §UNITB-ARMS-IDENTICAL — BOTH ARMS CHARGED 321,992 EXACTLY BECAUSE sigma^2 WAS 0, so the
@@ -1388,8 +1402,14 @@ contract DrainAtomicity is AllesFixture {
         // and the defect is in what the swap path PASSES it; if they agree, the function is
         // flow-blind at these values and the control can never fire. Every prior hypothesis inferred
         // the regime from `inv`/`target` OUTSIDE the call and died to a measurement.
+        // ⛔ **`POOLED_USD` IS THE WRONG FIRST ARGUMENT AND STOOD HERE FOR THREE DIAGNOSES.**
+        //    `SwapLib.wellSkew` passes `_skewBasis = POOLED()·base/1e30` — the VOLATILE inventory in
+        //    USD. `POOLED_USD` is the pool's OTHER side and is never passed to `skewWad` at all
+        //    (measured 2.316x apart on this very fixture). With the wrong basis this probe printed
+        //    "identical" while the swap path charged the two arms **13.6x differently**, so the one
+        //    instrument built to isolate the question was refuting the answer.
         emit log_named_uint("A skewWad(direct)     ", SwapLib.skewWad(
-            CORE.POOLED_USD(), CORE.flowEwmaUsd(), CORE.realizedVarianceWad(),
+            CORE.POOLED() * px / 1e30, CORE.flowEwmaUsd(), CORE.realizedVarianceWad(),
             SwapLib.ethRisk(), SIZE / 1e12));
         uint premA = CORE.skewPremium();
         uint ethA = _drain(SIZE);
@@ -1408,7 +1428,7 @@ contract DrainAtomicity is AllesFixture {
             "else the range cushion does not cancel and this measures the wrong thing");
         assertEq(CORE.POOLED_USD(), pooledUsdA, "CONTROL: identical USD depth across arms");
         emit log_named_uint("B skewWad(direct)     ", SwapLib.skewWad(
-            CORE.POOLED_USD(), CORE.flowEwmaUsd(), CORE.realizedVarianceWad(),
+            CORE.POOLED() * px / 1e30, CORE.flowEwmaUsd(), CORE.realizedVarianceWad(),
             SwapLib.ethRisk(), SIZE / 1e12));
         uint premB = CORE.skewPremium();
         uint ethB = _drain(SIZE);

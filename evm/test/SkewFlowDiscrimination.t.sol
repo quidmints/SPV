@@ -4,102 +4,109 @@ pragma solidity ^0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 
-/// @title  §UNITB-NEEDS-A-MOVING-FIXTURE — **DOES `skewWad` DISCRIMINATE ON FLOW AT ALL, AND WHERE?**
+/// @title  §SKEW-SHAPE — **PROPERTIES OF `skewWad`, NOT A CALIBRATION OF IT**
 ///
-/// @notice `test_UNITB_CounterMatchesWhatTheSwapperLoses` fails a CONTROL — *"the target move must
-///         change the skew"* — and three separate diagnoses have been booked against it (σ² == 0,
-///         then FLUSH, then "flush is not the whole explanation either"). Every one of them inferred
-///         the regime from `inv`/`target` OUTSIDE the call, through a fixture that also had to hold
-///         σ² alive and depth identical across two arms.
+/// @notice ⛔ **THIS FILE DELIBERATELY PINS NO MAGIC NUMBERS, AND THE FIRST DRAFT DID.** It asserted
+///         `assertEq(skew, 4_495_165_581_956)` — a value read off one fixture at one fork block.
+///         That is blind calibration: it breaks whenever the fork moves, it says nothing about
+///         whether the formula is *right*, and it invites tuning the constant until green. Worse, it
+///         made a **32x step** look like a cliff in the function when it was only two samples taken
+///         far apart on a steep-but-continuous curve.
 ///
-///         ⭐ **`skewWad` is `public pure`. It needs no fixture, no fork, and no arms.** Calling it
-///         across a target sweep answers the question the control was asking, directly: it either
-///         discriminates on flow somewhere, or it does not.
+///         ⭐ **WHAT IS WORTH ASSERTING IS THAT ONE FORMULA FITS EVERY SIZE.** `skewWad` is
+///         `public pure`, so each property below is a closed-form question — no fork, no fixture, no
+///         seeded variance, no two arms.
 contract SkewFlowDiscriminationTest is Test {
-    // ⛔ THE INVENTORY THE SKEW ACTUALLY SEES IS **NOT** `POOLED_USD`. The single production call
-    //    site (`SwapLib.wellSkew:1633`) passes `_skewBasis(core, base, 0)` =
-    //    `POOLED() * base / 1e30` — the VOLATILE inventory valued in USD. `POOLED_USD` is the other
-    //    side of the pool and is never passed to `skewWad` at all.
-    //    MEASURED on DrainAtomicity's own state (2026-08-28): POOLED = 241.249e18 ETH at
-    //    px = 2519.66e18 ⇒ basis = **$607,866**, against POOLED_USD = **$1,407,864** — **2.316x
-    //    apart**. Every prescription written in POOLED_USD terms is therefore aimed at the wrong
-    //    number, which is exactly how a fixture reported "✅ priced scarcity" while the swap path
-    //    stayed in flush.
-    uint constant BASIS_REAL   = 607_866_013_138;    // _skewBasis: what the swap path passes
-    uint constant INV_FLUSH    = 1_407_863_999_999;  // POOLED_USD: what the fixture measured
-    uint constant INV_DRAINED  =   811_919_000_000;  // the drained POOLED_USD the row documents
-    uint constant SIGMA_SQ    = 427_400_686_005_550_189;  // seeded sigma^2, measured
-    uint constant DRAIN_USD6  = 30_000 * 1e6;        // SIZE / 1e12
+    uint constant SIG = 427_400_686_005_550_189;   // any positive sigma^2; results below are ratios
 
-    function _skew(uint inv, uint flow) internal pure returns (uint) {
-        return SwapLib.skewWad(inv, flow, SIGMA_SQ, SwapLib.ethRisk(), DRAIN_USD6);
+    function _s(uint inv, uint flow, uint drain) internal pure returns (uint) {
+        return SwapLib.skewWad(inv, flow, SIG, SwapLib.ethRisk(), drain);
     }
 
-    /// THE SWEEP. Walk `flowUsd` from far below the inventory to far above it and print the skew.
-    /// If every value is identical, the function is flow-blind outright; if it moves, the boundary
-    /// is visible and the control's fixture simply never reached it.
-    function test_SkewAcrossTheFlushBoundary() public {
-        uint[10] memory flows = [
-            uint(91_075_297_869),      // 0.5x arm A
-            182_150_595_738,           // arm A  (measured)
-            364_301_191_476,           // arm B  (measured, 2x A)
-            700_000_000_000,
-            1_000_000_000_000,
-            1_407_863_999_998,         // one wei under inventory
-            1_407_863_999_999,         // exactly inventory
-            1_408_000_000_000,         // just over
-            2_000_000_000_000,
-            4_000_000_000_000
-        ];
-        for (uint i; i < flows.length; ++i) {
-            emit log_named_uint(
-                string.concat("flow=", vm.toString(flows[i]), "  skew"), _skew(INV_FLUSH, flows[i]));
+    /// ⭐ **(1) SCALE INVARIANCE — THE "ANY-SIZE-FITS-ALL" PROPERTY.** Multiply inventory, target and
+    ///     drain by the same λ and the skew must not move: the formula reads RATIOS
+    ///     (`q = (target−inv1)/target`, depletion as `inv1/inv0`), so a protocol with $1M of depth
+    ///     and one with $100B must be priced by the identical curve. **This is the property that
+    ///     makes a pinned constant unnecessary — and its failure would mean the skew is calibrated
+    ///     to a magnitude and silently mis-prices at any other scale.**
+    function test_ScaleInvariant_AcrossFiveOrdersOfMagnitude() public pure {
+        uint[5] memory lam = [uint(1), 10, 1_000, 100_000, 10_000_000];
+        uint flushRef  = _s(1_000_000e6, 500_000e6, 30_000e6);      // inv1 > target
+        uint scarceRef = _s(1_000_000e6, 1_500_000e6, 30_000e6);    // inv1 < target
+        for (uint i; i < lam.length; ++i) {
+            uint L = lam[i];
+            assertEq(_s(1_000_000e6 * L, 500_000e6 * L, 30_000e6 * L), flushRef,
+                "FLUSH branch is not scale-invariant - the skew is calibrated to a magnitude");
+            assertEq(_s(1_000_000e6 * L, 1_500_000e6 * L, 30_000e6 * L), scarceRef,
+                "SCARCE branch is not scale-invariant - the skew is calibrated to a magnitude");
         }
     }
 
-    /// THE ONE THE CONTROL ACTUALLY ASSERTS: arm A vs arm B, at the fixture's real inventory.
-    /// Documents WHY it fails rather than asserting it passes.
-    function test_ArmsAreIdenticalWhileBothAreFlush() public pure {
-        uint a = _skew(INV_FLUSH, 182_150_595_738);
-        uint b = _skew(INV_FLUSH, 364_301_191_476);
-        assertEq(a, b, "premise: both arms flush (inv >> target) so the kernel is skipped");
-        assertEq(a, 4_495_165_581_956, "pinned: the exact flush skew at this inventory");
+    /// **(2) THE BRANCH IS ON `inv1` (POST-DRAIN), NOT `inv0`** — `inv1 = inv0 − drainUsd6`, and the
+    ///     flush test is `inv1 >= target`. Pinned as a LAW because three separate diagnoses of
+    ///     `test_UNITB_…` reasoned about `inv0` and concluded the fixture was already scarce when it
+    ///     was not. Holds at every scale, so it is asserted at three.
+    function test_BranchIsOnPostDrainInventory() public pure {
+        uint[3] memory inv = [uint(1_000e6), 1_000_000e6, 1_000_000_000e6];
+        for (uint i; i < inv.length; ++i) {
+            uint I = inv[i];
+            uint drain = I / 10;
+            uint inv1 = I - drain;
+            // target just under inv1 -> flush; just over -> scarce. Same inv0 in both.
+            assertEq(_s(I, inv1, drain), _s(I, inv1 - 1, drain),
+                "at or below inv1 both must take the flush branch");
+            assertGt(_s(I, inv1 * 2, drain), _s(I, inv1, drain),
+                "a target ABOVE inv1 must price higher - the scarce branch must engage");
+        }
     }
 
-    /// ▶️ **THE CORRECTED ASK FOR `test_UNITB_...`.** Against the REAL basis ($607,866) arm B's
-    /// target sits at 0.60 of inventory, not 0.26 — so the fixture needs flow above **$607,866**,
-    /// i.e. **1.67x arm B**, NOT the "~87% drain of POOLED_USD" the row prescribes. Pinned here so
-    /// the next attempt aims at the right number.
-    function test_CorrectedScarcityThresholdForTheFixture() public pure {
-        assertEq(_skew(BASIS_REAL, 182_150_595_738), _skew(BASIS_REAL, 364_301_191_476),
-            "both arms are STILL flush against the real basis - which is why the control fails");
-        assertTrue(_skew(BASIS_REAL, 700_000_000_000) != _skew(BASIS_REAL, 364_301_191_476),
-            "crossing the real basis DOES move the skew - the fixture target is flow > $607,866");
+    /// **(3) CONTINUITY AT THE FLUSH BOUNDARY.** The scarce branch as `q1 -> 0` must meet the flush
+    ///     branch. A step here would be an arbitrage seam: two swaps either side of `inv1 == target`
+    ///     would pay materially different prices for an immaterial difference in size.
+    function test_NoCliffAtTheFlushBoundary() public pure {
+        uint inv = 1_000_000e6; uint drain = 30_000e6; uint inv1 = inv - drain;
+        uint atBoundary = _s(inv, inv1, drain);
+        assertEq(_s(inv, inv1 + 1, drain), atBoundary, "discontinuity one wei into scarcity");
+        assertEq(_s(inv, inv1 - 1, drain), atBoundary, "discontinuity one wei into flush");
     }
 
-    /// ⭐ **THE ROW'S ANOMALY, EXPLAINED.** §UNITB-NEEDS-A-MOVING-FIXTURE records that a fixture
-    /// reached `POOLED_USD 811,919 < target 873,701` — *"✅ priced scarcity"* — and the arms STILL
-    /// priced identically (195,538 both), concluding "flush is not the whole explanation either".
-    /// It is the whole explanation: **that fixture made the wrong variable scarce.** The swap path
-    /// reads `_skewBasis`, not `POOLED_USD`, so it never left flush.
-    function test_TheDrainedFixtureWasScarceInTheWrongVariable() public pure {
-        // Both arms of that attempt, priced against the basis the swap path ACTUALLY passes.
-        // (Basis is ~2.3x smaller than POOLED_USD, but the attempt drove POOLED_USD, not basis.)
-        assertGt(INV_DRAINED, 0);   // documents the number the fixture was steering
-        assertTrue(BASIS_REAL < INV_FLUSH,
-            "the skew basis is SMALLER than POOLED_USD - a drain measured on POOLED_USD "
-            "overstates how close the swap path is to scarcity");
+    /// **(4) MONOTONE IN SIZE.** A bigger drain must never be cheaper, across the branch boundary.
+    function test_MonotoneInDrainSize() public pure {
+        uint inv = 1_000_000e6; uint prev;
+        for (uint d = 10_000e6; d <= 500_000e6; d += 10_000e6) {
+            uint cur = _s(inv, 900_000e6, d);
+            assertGe(cur, prev, "a LARGER drain priced CHEAPER - the skew is not monotone in size");
+            prev = cur;
+        }
     }
 
-    /// AND THE DISCRIMINATOR: at the DRAINED inventory the row documents, arm B's target is ABOVE
-    /// inventory (scarce) while arm A's is below (flush). If the skew still agrees there, the
-    /// function is flow-blind ACROSS the boundary, which no fixture change could ever fix.
-    function test_DoesItDiscriminateOnceOneArmIsScarce() public {
-        uint aFlush  = _skew(INV_DRAINED, 436_850_000_000);   // below inv -> flush
-        uint bScarce = _skew(INV_DRAINED, 873_701_000_000);   // above inv -> scarce
-        emit log_named_uint("A (flush)  skew", aFlush);
-        emit log_named_uint("B (scarce) skew", bScarce);
-        assertTrue(aFlush != bScarce,
-            "skewWad is flow-blind ACROSS the flush boundary - no fixture can make the control fire");
+    /// **(5) MONOTONE IN SCARCITY.** Holding the drain fixed, a higher target (more scarcity
+    ///     relative to what the drain leaves) must never price lower.
+    function test_MonotoneInScarcity() public pure {
+        uint inv = 1_000_000e6; uint drain = 100_000e6; uint prev;
+        for (uint t = 100_000e6; t <= 3_000_000e6; t += 100_000e6) {
+            uint cur = _s(inv, t, drain);
+            assertGe(cur, prev, "a SCARCER target priced CHEAPER - the skew is not monotone in flow");
+            prev = cur;
+        }
+    }
+
+    /// ⭐ **(6) THE SEPARATION LAW THAT FIXED `test_UNITB_…`.** Two arms differing ONLY in target can
+    ///     price differently **iff** the drain puts one target above `inv1` and leaves the other
+    ///     below — i.e. iff `drain > inv0 − target` for exactly one of them. Asserted as a law at
+    ///     several scales rather than as the one window that happened to fix one fixture.
+    function test_ArmsSeparateExactlyWhenTheDrainCrossesOneTarget() public pure {
+        uint[3] memory inv = [uint(10_000e6), 607_866e6, 50_000_000e6];
+        for (uint i; i < inv.length; ++i) {
+            uint I = inv[i];
+            uint lo = I * 30 / 100;      // arm A target
+            uint hi = I * 60 / 100;      // arm B target (2x A)
+            // drain below (inv0 - hi): both flush -> identical, and the control CANNOT fire.
+            assertEq(_s(I, lo, (I - hi) / 2), _s(I, hi, (I - hi) / 2),
+                "below the separation point both arms must be flush and price identically");
+            // drain inside (inv0 - hi, inv0 - lo): B scarce, A flush -> must differ.
+            assertTrue(_s(I, lo, I - hi + (hi - lo) / 2) != _s(I, hi, I - hi + (hi - lo) / 2),
+                "inside the window the arms MUST price differently, else no fixture can fire the control");
+        }
     }
 }

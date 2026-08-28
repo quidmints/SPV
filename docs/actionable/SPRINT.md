@@ -3655,6 +3655,44 @@ item — doing the small ones first means paying for cycles that #1 then deletes
 top-to-bottom by row number — is **one cycle per item**, i.e. 90 cycles, ~12 hours of pure waiting.
 
 ---
+## ✅ **§UNITB-SOLVED — FIXED BY DERIVING THE FIXTURE FROM THE BRANCH CONDITION, NOT BY CALIBRATION**
+⭐ **THE DRAIN SIZE WAS THE WHOLE PROBLEM, AND NOBODY HAD SIZED IT FROM THE FORMULA.** `skewWad`
+branches on **`inv1 = inv0 − drainUsd6`** — the POST-drain inventory — against `target`. Three
+diagnoses (σ² = 0 → FLUSH → "flush is not the whole explanation") all reasoned about `inv0`. At the
+old `SIZE = $30,000` the drain leaves `inv1` far above BOTH arms' targets, so both take the flush
+branch, which returns `_maxWellSkew + _depletion` and **never reads `target` at all**. No σ² seeding
+and no price path could ever have fired that control.
+📐 **THE WINDOW, DERIVED THEN VERIFIED TO THE DOLLAR** (`inv0` = `_skewBasis` = \$607,866):
+```
+B scarce needs   drain > inv0 − B = 607,866 − 364,301 = $243,565
+A stays flush    drain < inv0 − A = 607,866 − 182,150 = $425,716
+```
+measured: \$243,000 → **SAME**, \$250,000 → **DIFFER**, and skew(A) itself jumps between \$425k and
+\$450k. `SIZE = $300,000` sits mid-window. ⇒ **arms now price 13.6× apart** (31,604,056 vs
+429,936,758 usd6) and the control fires.
+🔴 **AND THE IN-TEST `skewWad(direct)` PROBE WAS ITSELF ON THE WRONG BASIS** — it passed
+`CORE.POOLED_USD()` where `SwapLib.wellSkew` passes `_skewBasis = POOLED()·base/1e30`. The one
+instrument built to isolate the question printed "identical" while the swap path charged 13.6×
+differently. Re-based; it now agrees with the money path.
+
+## ✅ **§SKEW-IS-SCALE-FREE — THE FORMULA IS ONE CURVE FOR EVERY SIZE, PROVEN WITHOUT CALIBRATION**
+⛔ **SELF-CORRECTION: MY FIRST VERSION OF THIS TEST WAS BLIND CALIBRATION AND IS DELETED.** It pinned
+`assertEq(skew, 4_495_165_581_956)` — a value read off one fixture at one fork block. It breaks when
+the fork moves, says nothing about whether the formula is RIGHT, and invites tuning the constant
+until green. It also made a **32× step look like a cliff** when it was two samples taken far apart on
+a steep-but-continuous curve.
+✅ **REPLACED BY PROPERTIES (`SkewFlowDiscrimination.t.sol`, 6/6, ZERO magic numbers):**
+| property | result |
+|---|---|
+| **Scale invariance**, λ = 1 … 10⁷ | **identical** in BOTH branches — the skew reads RATIOS, so \$1M of depth and \$100B are priced by one curve |
+| **Continuity at the flush boundary** | `inv1−1`, `inv1`, `inv1+1` all **equal** — no arbitrage seam either side of `inv1 == target` |
+| **Branch is on `inv1`, not `inv0`** | pinned as a law at three magnitudes — the exact thing three diagnoses got wrong |
+| **Monotone in drain size** | strictly non-decreasing across the boundary |
+| **Monotone in scarcity** | strictly non-decreasing in target |
+| **Separation law** | arms differ **iff** the drain crosses exactly one target — asserted at 3 scales, not as one fixture's window |
+⇒ **The formula was never the problem; the fixtures were.** A property that holds across seven orders
+of magnitude cannot be satisfied by tuning a constant, which is the point.
+
 ## ✅ **§GATE-2026-08-28 — CLEAN FULL-SUITE NUMBER: 533 PASS / 3 FAIL, ZERO CONTAMINATION**
 ```
 FORK_BLOCK=head-20   forge test -j 4
@@ -3668,7 +3706,7 @@ regressed.**
 🔴 **THE THREE THAT FAIL, AND THEY ARE THREE DIFFERENT KINDS:**
 | test | suite | status |
 |---|---|---|
-| `test_UNITB_CounterMatchesWhatTheSwapperLoses` | `DrainAtomicity` | **DIAGNOSED 2026-08-28** — the fixture was scarce in the wrong variable; corrected target is flow > \$607,866 (see §UNITB-NEEDS-A-MOVING-FIXTURE) |
+| `test_UNITB_CounterMatchesWhatTheSwapperLoses` | `DrainAtomicity` | ✅ **FIXED 2026-08-28 — see §UNITB-SOLVED below** |
 | `testBtcLp_swapInAccruesTheBtcLegFee` | `Alles` | **owner-gated** — needs the v4 trading-fee leg back (§BTC-LEG-FEE); not a defect to fix here |
 | `testLeverage_LvrControlVsTreatment` | `LeveragePnLProbe` | 🔴🔴 **LIVE CROSS-SUBSIDY** — see below |
 ### ✅ **§LVR-CROSS-SUBSIDY — RESOLVED 2026-08-28: THERE IS NO CROSS-SUBSIDY. THE ASSERTION WAS ON AN ARTIFACT.**
