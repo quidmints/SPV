@@ -3716,6 +3716,37 @@ a steep-but-continuous curve.
 ⇒ **The formula was never the problem; the fixtures were.** A property that holds across seven orders
 of magnitude cannot be satisfied by tuning a constant, which is the point.
 
+## 📊 **§SKEW-VS-V3 — EMPIRICAL: WHERE OUR PRICING BEATS UNISWAP, AND WHERE IT STOPS** (2026-08-28)
+Owner: *"are you sure people won't just use uniswap v4 because there will be less slippage there in
+the range vs our skew? at what transaction size does this become a real difference. i need empirical
+data."* Measured on ONE mainnet fork, same notional, same oracle mid, both in bps —
+`evm/test/SkewVsUniswapV3.t.sol`. Uniswap quoted through the REAL `QuoterV2` against the REAL 0.05%
+WETH/USDC pool, so its depth is the market's, not a model. Ours read from the PRODUCTION entry
+`AUX.wellSkew`, on a range seeded to σ² = 7.05e17, flow = \$198,203, depth = 319.9 ETH ≈ \$799k.
+| trade | Uniswap v3 | ours | cheaper |
+|---|---|---|---|
+| \$1,000 | 18 bps | **0 bps** | OURS |
+| \$10,000 | 18 bps | **0 bps** | OURS |
+| \$50,000 | 20 bps | **0 bps** | OURS |
+| \$100,000 | 22 bps | **0 bps** | OURS |
+| \$250,000 | 29 bps | **0 bps** | OURS |
+| \$500,000 | 40 bps | **1 bp** | OURS |
+| **\$1,000,000** | **62 bps** | **627 bps** | **UNI** |
+| \$2,000,000 | 108 bps | 627 bps | UNI |
+⭐ **THE CROSSOVER IS NOT A CONSTANT — IT IS `inv0 − target`, SO IT SCALES WITH OUR DEPTH.** The skew
+goes scarce exactly when `drain > inv0 − target`; here \$799k − \$198k ≈ **\$601k**, and the table
+crosses between \$500k and \$1M. `skewWad` is scale-invariant (proven across 7 orders of magnitude in
+`SkewFlowDiscrimination.t.sol`), so **doubling depth doubles the crossover.** ⇒ The right statement is
+not "we lose above \$1M" but **"we lose above ~75% of our own volatile depth net of flow."**
+🔴 **AND ABOVE IT WE DO NOT DEGRADE GRACEFULLY — WE SATURATE.** \$1M and \$2M both read **627 bps**:
+the cap (≈3%) times §E53's shared-scarcity amplifier (≤2×). Uniswap's 62 → 108 bps keeps rising
+smoothly; ours is flat at the ceiling. ⇒ For a large taker we are not "somewhat worse", we are a
+**refusal priced as a number** — which is the intended behaviour (§E300 replaced an outright revert
+with a saturating haircut) but should be understood as a size LIMIT, not a price.
+✅ **BELOW THE CROSSOVER THE ADVANTAGE IS LARGE AND STRUCTURAL, NOT MARGINAL:** 0 bps against 18–29
+bps up to \$250k. That is the whole retail-to-mid band, and it comes from settling AT ORACLE with no
+traversal — there is no curve to walk, so there is no price impact to pay.
+
 ## ✅ **§GATE-2026-08-28 — CLEAN FULL-SUITE NUMBER: 533 PASS / 3 FAIL, ZERO CONTAMINATION**
 ```
 FORK_BLOCK=head-20   forge test -j 4
