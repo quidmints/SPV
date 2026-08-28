@@ -125,6 +125,15 @@ const JUMP_MULT: [i64; 11] = [100, 100, 85, 85, 85, 70, 70, 70, 70, 55, 55];
 const STARTING_FLOOR_BPS: i64 = 200; // conservative cold-start vol floor
 const MAX_LEVERAGE_PCT:  i64 = 1000; // 10× universal ceiling
 pub(crate) const MIN_FEE_BPS:        i64 = 4;   // minimum trade fee
+
+/// Rent on the SOL buffer, in bps of flash principal. The buffer exists ONLY to
+/// be flash-lent — `sol_buffer_bps` keeps 20-50% of every SOL deposit native for
+/// it — so a free flash made that half of a depositor's stake earn nothing, and
+/// blended their return down to roughly half of simply holding an LST.
+/// 5 bps on an atomic, same-transaction loan is small against what a borrower
+/// makes with it and is the price of inventory nobody else offers: staked SOL
+/// cannot simultaneously be flash-loanable.
+pub(crate) const FLASH_TIP_BPS: i64 = 5;
 const LEV_THRESHOLD:      i64 = 300; // 3× leverage before compound penalty
 
 #[error_code]

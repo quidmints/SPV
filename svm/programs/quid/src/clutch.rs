@@ -10,7 +10,7 @@ use anchor_lang::solana_program::{
 };
 
 use crate::stay::*;
-use crate::etc::{ get_account,
+use crate::etc::{ FLASH_TIP_BPS, get_account,
     PithyQuip, fetch_price,
     fetch_multiple_prices,
     TickerRisk, fee_bps
@@ -864,7 +864,24 @@ pub fn handle_flash_repay<'info>(ctx: Context<'_, '_, '_, 'info,
             PithyQuip::NoActiveFlashLoan);
             
         let principal = flash.flash_lamports;
-        // Flash loans are free (tip_lamports is optional protocol revenue).
+        // 🔴 THE FLASH LEG USED TO BE FREE, AND THAT MADE THE BUFFER DEAD WEIGHT.
+        //    `sol_buffer_bps` holds 20-50% of every SOL deposit native SO THAT it
+        //    can be flash-lent — but the tip was optional ("Flash loans are free
+        //    (tip_lamports is optional protocol revenue)"), so a rational borrower
+        //    tipped zero and that half of the deposit earned NOTHING. Blended
+        //    against the parked half's ~8.5% carry, a depositor saw ~4.25% at the
+        //    default buffer, against ~7-8% for simply holding an LST. The design
+        //    gave up half the yield to hold inventory nobody paid for.
+        //
+        // ⚠️ AND MAKING IT MANDATORY IS ONLY HALF THE FIX. `accrue_sol_yield` has
+        //    exactly ONE caller — the Kestrel unpark realisation — so a tip landed
+        //    in `bank.sol_lamports` and stopped there. A depositor's claim is
+        //    their fixed `deposited_lamports`, so a fatter pool balance never
+        //    reached them: the tip was PROTOCOL revenue wearing a yield's name.
+        //    Both halves move together or the change helps the wrong party.
+        let min_tip = (principal as u128)
+            .saturating_mul(FLASH_TIP_BPS as u128) / 10_000;
+        require!(tip_lamports as u128 >= min_tip, PithyQuip::InsufficientFunds);
         let total = principal.saturating_add(tip_lamports);
         anchor_lang::system_program::transfer(CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -888,6 +905,21 @@ pub fn handle_flash_repay<'info>(ctx: Context<'_, '_, '_, 'info,
                                           &ctx.accounts.sol_risk.actuary);
         bank.total_deposits = bank.total_deposits.saturating_add(restored);
         bank.sol_usd_contrib = restored;
+
+        // ⭐ THE TIP IS THE SOL DEPOSITORS' — it is rent on THEIR lamports, held
+        //    liquid at their expense. Routed through the same index the Kestrel
+        //    carry uses, so both income streams reach a claim by one path and a
+        //    depositor's `sol_yield_checkpoint` picks up either without knowing
+        //    which produced it. Falls back to the pooled path when there is no
+        //    principal to attribute it to, exactly as the unpark leg does.
+        if tip_lamports > 0 {
+            let tip_usd = collar_adjusted_usd(tip_lamports, sol_price,
+                                              &ctx.accounts.sol_risk.actuary)
+                .min(i64::MAX as u64) as i64;
+            if tip_usd > 0 && !bank.accrue_sol_yield(tip_usd) {
+                crate::entra::adjust_sol_credit(bank, tip_usd);
+            }
+        }
     } Ok(())
 }
 
