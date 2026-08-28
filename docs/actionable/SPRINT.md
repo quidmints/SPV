@@ -3671,7 +3671,44 @@ regressed.**
 | `test_UNITB_CounterMatchesWhatTheSwapperLoses` | `DrainAtomicity` | **DIAGNOSED 2026-08-28** — the fixture was scarce in the wrong variable; corrected target is flow > \$607,866 (see §UNITB-NEEDS-A-MOVING-FIXTURE) |
 | `testBtcLp_swapInAccruesTheBtcLegFee` | `Alles` | **owner-gated** — needs the v4 trading-fee leg back (§BTC-LEG-FEE); not a defect to fix here |
 | `testLeverage_LvrControlVsTreatment` | `LeveragePnLProbe` | 🔴🔴 **LIVE CROSS-SUBSIDY** — see below |
-🔴🔴 **THE ONE THAT IS A REAL MONEY-PATH FAILURE:**
+### ✅ **§LVR-CROSS-SUBSIDY — RESOLVED 2026-08-28: THERE IS NO CROSS-SUBSIDY. THE ASSERTION WAS ON AN ARTIFACT.**
+⛔ **REFUTED BY DIRECT MEASUREMENT.** The failing assertion compared redemption PROCEEDS across arms.
+Valuing the LP position **before any redeem**, at unchanged price:
+```
+TREAT (leverage flow)  998,139.20      <-- BETTER by $1.48
+CTRL  (no flow)        998,137.73
+```
+⇒ **Price-neutral flow IS P&L-neutral for the passive LP** (marginally positive, consistent with fees
+earned on the flow). No value transfer. `test_Instrument_PositionValueBeforeAnyRedeem` — written for
+exactly this question — corroborates it independently.
+🔎 **WHERE THE PHANTOM 0.361% CAME FROM, AND THIS FILE ALREADY KNEW.** `BasketLib:1023` is
+UNWIND-FIRST, **BURN-EXACT**: it burns only what it can deliver. Measured today: the control redeem
+leaves **3 wei** of shares (a FULL redemption); the treatment leaves **24.044e18** (a PARTIAL one).
+Comparing proceeds across those two compares different SCOPES, and the undelivered — **still
+LP-owned** — remainder reads as extracted value. `_lpValueUsd`'s own note states the rule and was not
+being followed by the assertion above it: *"Both arms must bracket the SAME SCOPE or the difference is
+an artifact of the instrument"*, and *"the honest comparison is each arm against ITS OWN pre-redeem
+NAV."*
+✅ **FIXED WITHOUT WEAKENING THE TEST (rule 4).** The safety property is now asserted on **pre-redeem
+NAV**, which brackets the whole position in both arms and needs no view on how to value a residual
+(`_lpValueUsd` measured both obvious bases and both are wrong — post-redeem `convertToAssets` is a
+husk that under-values, pre-redeem NAV-per-share double-counts the USD already paid out as the QUID
+leg). ⭐ **AND A STRICTLY STRONGER GUARD WAS ADDED:** a per-arm **SHORT-PAYMENT** assertion inside
+`_lpValueUsd` — proceeds below NAV are legitimate **iff shares SURVIVED**; shares BURNED without value
+delivered is the actual defect, and it is **invisible to any cross-arm comparison of proceeds**. It
+fires in both arms and did not fire, so nothing was burned undelivered.
+📊 **THE EXTERNALITY NOW READS THE SHAPE THE DESIGN PREDICTS** (`4/4 green`):
+| scenario | externality | |
+|---|---|---|
+| ETH +20% | **−130 bps** | LP is SHORT the position by construction — expected, not a defect |
+| ETH flat | −36 bps | the redemption-scope artifact; no longer asserted on |
+| ETH −20% | **+105 bps** | having sold ETH into the opens, the LP is better off in a drawdown |
+⏸️ **THE ONE THING THAT IS REAL AND STAYS OPEN — AND IT IS NOT A LOSS:** after leverage flow the LP
+**cannot fully exit in a single redeem** (24.044e18 of 400e18 shares survive). That is the §C25
+deferral draining asymptotically, and the claim remains the LP's. Booked here so the measurement is
+not re-discovered as a cross-subsidy a fourth time.
+
+🔴🔴 **THE ONE THAT WAS THOUGHT TO BE A REAL MONEY-PATH FAILURE (now resolved above):**
 ```
 at UNCHANGED ETH price, leverage flow must not leave the passive LP worse off than no flow:
   993,635.422730488581599087   (treatment: leverage flow)

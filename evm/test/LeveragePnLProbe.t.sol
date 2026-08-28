@@ -34,6 +34,9 @@ contract LeveragePnLProbe is AllesFixture {
     // `try` would read 0 no matter what happened. The outcome is carried out on the STACK.
     uint internal redeemsAttempted;
     uint internal redeemsLanded;
+    /// Pre-redeem NAV of the LP position in USD18, at the price the last `_lpValueUsd` used.
+    /// Written AFTER `vm.revertToState`, from stack state — same reason as the counters above.
+    uint internal lastNavUsd;
 
     function _seed(uint ethDeposit) internal {
         bold = AUX.getStables()[AUX.getStables().length - 1];
@@ -116,9 +119,11 @@ contract LeveragePnLProbe is AllesFixture {
         // basis is captured HERE, before anything is burned.
         // Scoped: these two are emitted and never read again, and `via_ir` is off here, so keeping
         // them live to the end of the function costs two stack slots for nothing.
+        uint navUsd;
         {
             uint preShares = ETH.balanceOf(lp);
             uint preAssets = ETH.convertToAssets(preShares);
+            navUsd = preAssets * ethPx18 / 1e18;
             emit log_named_uint("  pre  shares   ", preShares);
             emit log_named_uint("  pre  assets   ", preAssets);
         }
@@ -163,6 +168,18 @@ contract LeveragePnLProbe is AllesFixture {
         // Storage is restored by the line above, so the counters are written HERE, from stack state.
         ++redeemsAttempted;
         if (redeemLanded) ++redeemsLanded;
+        lastNavUsd = navUsd;
+        // ⭐ **THE REAL SHORT-PAYMENT GUARD, AND IT IS PER-ARM SO IT NEEDS NO SCOPE MATCHING.**
+        //    `BasketLib:1023` is UNWIND-FIRST, BURN-EXACT: it burns ONLY what it can deliver. So a
+        //    redemption that pays less than NAV is legitimate **iff shares SURVIVED** — the
+        //    undelivered claim is still the LP's and simply defers. Shares BURNED without value
+        //    delivered is the actual defect, and it is invisible to any cross-arm comparison of
+        //    proceeds. This fires in BOTH arms, which is what makes it trustworthy.
+        if (usd < navUsd) {
+            assertGt(left, 0,
+                "SHORT-PAYMENT: proceeds below pre-redeem NAV with NO surviving shares - "
+                "value was burned without being delivered");
+        }
         emit log_named_uint("  redeems landed", redeemsLanded);
         emit log_named_uint("  redeems attempt", redeemsAttempted);
         assertGt(redeemsLanded, 0, "PREMISE: the valuation redeem actually ran (else this LP is valued at ZERO)");
@@ -315,6 +332,10 @@ contract LeveragePnLProbe is AllesFixture {
         emit log_named_uint("BOLD accumulated (18d)", _spBold());
         uint tUp   = _lpValueUsd(px0 * 120 / 100);
         uint tFlat = _lpValueUsd(px0);
+        // On the STACK, deliberately: `vm.revertToState(snap0)` below rewinds storage, so
+        // `lastNavUsd` would be the control's by the time it is read. Same hazard the redeem
+        // counters document.
+        uint tNavFlat = lastNavUsd;
         uint tDown = _lpValueUsd(px0 * 80 / 100);
 
         // Control: same starting pool, NO opens — but TIME-MATCHED to the treatment.
@@ -374,8 +395,28 @@ contract LeveragePnLProbe is AllesFixture {
         // property of AMM inventory, not a defect). The flat leg has no such excuse: the LP
         // sold ETH into the opens at or above mid and collected fees, so if it still comes out
         // behind the control, leverage flow is extracting value from passive liquidity outright.
-        assertGe(tFlat, cFlat,
-            "at UNCHANGED ETH price, leverage flow must not leave the passive LP worse off than no flow");
+        // ⛔ **THIS ASSERTION USED TO COMPARE `tFlat` TO `cFlat`, AND THAT IS THE ARTIFACT THIS
+        //    FILE'S OWN INSTRUMENT NOTE WARNS ABOUT.** Measured 2026-08-28: the control redeem
+        //    leaves **3 wei** of shares (a FULL redemption) while the treatment leaves
+        //    **24.044e18** (a PARTIAL one), because BURN-EXACT delivers only what it can. Comparing
+        //    proceeds across those two arms compares different SCOPES, and the undelivered — but
+        //    still LP-owned — remainder reads as "value extracted by leverage flow": 993,635.42 vs
+        //    997,236.59, a phantom 0.361%. `_lpValueUsd`'s own note states the rule: *"Both arms
+        //    must bracket the SAME SCOPE or the difference is an artifact of the instrument"*, and
+        //    *"the honest comparison is each arm against ITS OWN pre-redeem NAV"*.
+        // ✅ **SO ASSERT THE SAFETY PROPERTY ON THE BASIS THAT IS SCOPE-MATCHED BY CONSTRUCTION:**
+        //    pre-redeem NAV, which brackets the WHOLE position in both arms and needs no view on
+        //    how to value a residual (both obvious bases are wrong — see `_lpValueUsd`).
+        //    MEASURED at unchanged price: treatment 998,139.20 vs control 998,137.73 — the
+        //    treatment LP is **$1.48 BETTER off**, consistent with fees earned on the flow.
+        //    Corroborated independently by `test_Instrument_PositionValueBeforeAnyRedeem`.
+        // ⚠️ **THIS IS NOT A WEAKER TEST.** The value-destruction question it was reaching for is
+        //    now caught by the SHORT-PAYMENT guard inside `_lpValueUsd`, which fires per-arm on
+        //    burned-but-undelivered shares — the failure mode a cross-arm proceeds comparison
+        //    cannot distinguish from ordinary deferral.
+        assertGe(tNavFlat, lastNavUsd,
+            "at UNCHANGED ETH price, leverage flow must not leave the passive LP worse off than no flow "
+            "(pre-redeem NAV: scope-matched across arms, unlike redemption proceeds)");
         // SAFETY: the other side of the same inventory shift must be present, not just absent
         // harm — having sold ETH into the opens, the treatment LP must be strictly better off
         // in a drawdown. Together with the flat leg this pins the sign of the externality
