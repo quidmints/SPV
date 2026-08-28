@@ -1071,15 +1071,9 @@ library LevMath {
         wethDelivered = collToWethDeliver(got, recipient, floor, cfg);
     }
 
-    /// @notice §M.1 ETH SWAP-OUT delivery-side de-lever body — repay `stableUsd`-worth of the LP's debt with the
-    ///         stable the Vault pre-transferred to the venue, then free EXACTLY the repaid value of collateral and
-    ///         deliver it as WETH (value-neutral). VERBATIM of the manager's former inline `swapOutDelever` tail.
-    ///         @return usedUsd USD 1e18 actually applied to the debt. @return wethDelivered WETH handed to `recipient`.
-    function swapOutDeleverBody(ILevVenue venue, address lp, uint256 stableUsd, address recipient, uint256 minWethOut, uint256 pxWeth, ExtractCfg memory cfg)
-        public returns (uint256 usedUsd, uint256 wethDelivered) {
-        usedUsd = _repayPretransferred(venue, lp, stableUsd, cfg.aux);                     // repay-with-Vault-pre-transferred (own frame)
-        if (usedUsd > 0) wethDelivered = freeAndDeliverBody(venue, lp, usedUsd, recipient, minWethOut, pxWeth, cfg);
-    }
+    // §J2-LEV-ARITY — `swapOutDeleverBody` DELETED with its only caller (the per-LP ETH
+    // `swapOutDelever`). `swapOutDeleverPooled` never used it: it does repay/withdraw against the POOL
+    // directly. A library body whose sole caller is gone is unreachable, not spare capacity.
 
     /// @dev Repay `stableUsd`-worth (clamped to debt) of `lp`'s debt with the stable the Vault pre-transferred to the
     ///      venue; returns the USD 1e18 actually applied. Own frame so `swapOutDeleverBody`'s stack stays shallow.

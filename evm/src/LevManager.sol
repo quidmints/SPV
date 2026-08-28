@@ -586,25 +586,19 @@ contract LevManager is LevBase {
         _syncRange(lp);
     }
 
-    /// @notice §M.1 ETH SWAP-OUT delivery-side de-lever (equity-preserving; mirrors `BtcLevManager.swapOutDelever`
-    ///         but DELIVERS WETH instead of un-encumbering — ETH has no already-spliced sats). The Vault
-    ///         pre-transfers `stableUsd`-worth of the swap's OWN proceeds to the venue (via `takeToSettle`); here we
-    ///         repay the LP's debt with it, then free EXACTLY the repaid value of collateral and deliver it to
-    ///         `recipient` as WETH. VALUE-NEUTRAL: −collateral −debt of equal oracle value ⇒ net-equity preserved,
-    ///         LTV improves, the LP only DE-LEVERS (keeper re-levers next tick). Turns the §M phantom levered depth
-    ///         into REAL deliverable ETH. Gated to the Vault settle path. Returns (USD 1e18 repaid, WETH delivered).
-    function swapOutDelever(address lp, uint256 stableUsd, address recipient, uint256 minWethOut)
-        external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
-        _onlyRange();          // Vault/range settle path only
-        Types.Pos memory p = pos[lp];
-        if (!p.open) return (0, 0);
-        // repay-with-the-Vault-pre-transferred-stable → free EXACTLY the repaid value of collateral → deliver as
-        // WETH (value-neutral): body in LevMath (delegatecall, bytecode OUTSIDE this contract).
-        (usedUsd, wethDelivered) = LevMath.swapOutDeleverBody(
-            p.venue, lp, stableUsd, recipient, minWethOut, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg());
-        // Reconcile the shrunk slice into the range (try/catch: never block the settle).
-        _syncRange(lp);
-    }
+    // §J2-LEV-ARITY RESOLVED BY DELETION — **the ETH `swapOutDelever(lp, uint, address, uint)` is
+    // GONE, and with it the overload that blocked merging the two managers.** CLAUDE.md recorded the
+    // arity split as the blocker: BTC's is `(address,uint,uint)` and ETH's was
+    // `(address,uint,address,uint)`, so one contract could not carry both without an overload — which
+    // the `ICurvePool` note forbids (integer-literal inference picking the wrong ABI).
+    // ⇒ IT DID NOT NEED RECONCILING, IT NEEDED DELETING. §POOL-VENUE superseded it with
+    //   `swapOutDeleverPooled(venue, …)`, which is self-contained (`repayPool` → `withdrawPool` →
+    //   `collToWethDeliver`) and is what `SwapLib:2127` actually calls. The per-LP form had ZERO
+    //   callers: the only two `swapOutDelever(` sites in the tree are `SwapLib:2021`/`:2042`, both
+    //   using the 3-arg BTC form via `ILevManagerDeliver` inside `_sourceRepayFree` — the BTC
+    //   swap-out path (channel BTC, splice-proven, vBTC debt). The remaining mentions are comments.
+    // ⇒ Only the BTC 3-arg signature survives, so `Vogue` can carry one `swapOutDelever` and no
+    //   overload exists to disambiguate.
 
     /// @notice §POOL-VENUE — THE ONE-CALL DELIVERY-SIDE DE-LEVER. This is what SPRINT #1 exists for.
     ///
