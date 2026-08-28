@@ -6528,7 +6528,21 @@ here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `Q
 
 ## D1. THE 49 OPEN ITEMS, GROUPED. **Bold = verified against code this pass.**
 
-### 🔴 Money-path defects, live
+### 🟠 Money-path defects, live — **FULLY AUDITED 2026-08-28; THIS IS A SUMMARY, THE CANONICAL ROWS ARE ELSEWHERE**
+📊 **Of the 8 tags listed here: 4 are CLOSED/STALE, 2 are VERIFIED LIVE and sharpened, 2 remain open
+on their canonical rows.** ⛔ **Never work an item from this list — every entry is a pointer.**
+| tag | verdict 2026-08-28 | canonical row |
+|---|---|---|
+| `§V-R10` | 🔴 **LIVE, measured to the wei.** `convertToAssets == maxWithdraw` ⇒ the frozen-vault haircut is **identically zero**; `FeeLib:324/380` redeem with no `try` | `§AAVE_SPOKE` table |
+| `§V-R11` | 🔴 **LIVE, and this row's fix plan is mechanically wrong** — `unoswap` is all-or-nothing, so partial fill means sizing DOWN `amountIn`, not softening the handler | `:8990` table |
+| `§E233-ladder` | ✅ **STALE** — all 5 sites arm (`_armLadder`, not `_armExit`); the ⛔ stack constraint was honoured by arming in the OUTER frame | closed in place above |
+| `§E59-REOPENED` | ✅ CLOSED 2026-08-25 | `:8105` |
+| `§E55` | ✅ CLOSED — was a bare 🔴 heading with **no body**; same defect as UNIT-B | merged into UNIT-B |
+| `§UNIT-B-MIN-IS-NOOP` | ✅ CLOSED 2026-08-22 — slow leg deleted ⇒ the `min` is unconstructible | `:8533` |
+| `§E244-tri-tests` | 🔴 partly closed | `:9002` table |
+| `§E251-vbtc-scope` | 🔴 open | `:9008` table |
+⚠️ **All three ✅ closures above closed by REMOVAL or by a grep correction, none by repair** — see each
+row for the reopen condition.
 - **`§V-R10`** — **sUSDE is counted as backing but cannot be redeemed.** 📌 **CANONICAL ROW IS THE
   `§AAVE_SPOKE` TABLE ENTRY BELOW — read it first; the fix direction is already SETTLED there by the
   owner (2026-08-16) and a naive fix is explicitly warned against.** This bullet holds only the
