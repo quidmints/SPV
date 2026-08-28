@@ -3619,10 +3619,25 @@ top-to-bottom by row number — is **one cycle per item**, i.e. 90 cycles, ~12 h
 | `UtilsLib.sol` | went with the un-vendored Morpho repos | `656f4ce3` |
 | `FillAndBatch.t.sol` | deleted — *"the mechanism is retired"* | `65715a7d` (§E304) |
 | `Midnight.sol`, `MidnightMsb.t.sol` | vendored fork + submodule dropped | `0776fc57` |
-⭐ **`FillAndBatch.t.sol`'s commit message SETTLES THE `FixedRateFill` ROWS** (`:4920`, `:4940`,
-`:4947`): the mechanism is **RETIRED**, not merely unwired — which is why no `quoteFill` /
-`fixedRateFill` / `FIXED_RATE` symbol survives anywhere in `evm/src`. ⇒ Those rows describe a
-mechanism that no longer exists; close them on sight rather than re-deriving them against `SwapLib`.
+⭐ **THE `FixedRateFill` ROWS ARE SETTLED — the mechanism is RETIRED, not merely unwired.** No
+`quoteFill` / `quoteDrain` / `enforce` / `assertConserved` symbol survives anywhere in `evm/src`.
+⛔ **CORRECTING MY OWN FIRST EVIDENCE FOR THIS (same pass):** I cited `FillAndBatch.t.sol`'s deletion
+message (`65715a7d`, *"the mechanism is retired"*) — **that refers to the THREE-WAY SPLIT, not the
+fill.** Right conclusion, wrong commit. ✅ **The actual authority is `9bf33b9f` (2026-08-24), and it
+pre-empts the exact objection:** *"The firm-quote surface is dead BY DECISION, not by oversight … the
+owner has now made that decision — 1inch — so the surface is no longer awaiting anything. That is why
+deleting it does not repeat the `create_sweep_tx` mistake: the condition its keep-note named has been
+RESOLVED, not ignored."*
+⭐ **THE PRINCIPLE, WHICH GENERALISES: A KEEP-NOTE IS LOAD-BEARING ONLY WHILE ITS STATED CONDITION IS
+UNRESOLVED.** Resolve the condition and the note expires with it. That is exactly what separates this
+deletion from the `create_sweep_tx` ones — and it is why every keep-note must name its condition
+explicitly, as this one did.
+⚠️ **RESIDUE, FIXED IN PROSE 2026-08-28:** `SwapLib.sol:2671` still argued to KEEP the deleted
+surface and `:2722`'s *"THE FIXED-RATE FILL PRIMITIVE"* header still introduced functions that are
+gone — prose instructing a future reader to restore what the owner deliberately removed. Both
+corrected in place. **`error NoQuote()` (`:2811`) is now ORPHANED** (its only reverters were the two
+deleted quoters) — left with a note rather than deleted blind, because this pass could not build;
+remove it on the next build-capable run.
 ⚠️ **THE RUST "MISSING" HITS WERE MY OWN FILTER, NOT STALENESS** — `channelmonitor.rs`,
 `onchaintx.rs`, `package.rs` and the 16k-line `channel.rs` all live under
 `quid-ln/lib/rust-lightning/` (the vendored LDK fork), which an audit that excludes `*/lib/*` will

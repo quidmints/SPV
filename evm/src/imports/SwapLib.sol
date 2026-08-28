@@ -2668,12 +2668,19 @@ library SwapLib {
 
     // ═══ §E310 — `SwapLib` FOLDED IN; the file is deleted ═══
     // 270 lines whose only live consumers were its own test plus one `_applySkew` reference.
-    // ⚠️ FOLDED, NOT DELETED. Measured: `quoteFill`, `quoteDrain`, `enforce`, `of` and
-    //    `assertConserved` have ZERO callers — but this is the PARKED firm-quote surface the
-    //    design depends on, awaiting the 'paid against 1inch' decision, not dead code. Rule 1
-    //    removes UNREACHABLE code; it does not remove a maintained primitive awaiting a wiring,
-    //    which is the mistake this repo has already reverted twice (`create_sweep_tx`).
-    //    It imported `SwapLib`; folding it here dissolves that edge.
+    // ⛔ SUPERSEDED 2026-08-24 (`9bf33b9f`) — THE PARKED SURFACE IS GONE, AND THE NOTE BELOW IS
+    //    KEPT ONLY TO EXPLAIN WHY DELETING IT WAS NOT THE `create_sweep_tx` MISTAKE. `quoteFill`,
+    //    `quoteDrain`, `enforce`, `_quote` and `assertConserved` were removed BY DECISION: the
+    //    keep-note's own condition was "awaiting the 'paid against 1inch' decision", and the owner
+    //    MADE that decision — 1inch — so the surface was no longer awaiting anything. A keep-note
+    //    is only load-bearing while its stated condition is unresolved; resolve the condition and
+    //    the note expires with it. ⇒ DO NOT restore these functions from the text below.
+    //    (Original note, now historical:) "FOLDED, NOT DELETED. Measured: `quoteFill`, `quoteDrain`,
+    //    `enforce`, `of` and `assertConserved` have ZERO callers — but this is the PARKED
+    //    firm-quote surface the design depends on, awaiting the 'paid against 1inch' decision, not
+    //    dead code. Rule 1 removes UNREACHABLE code; it does not remove a maintained primitive
+    //    awaiting a wiring, which is the mistake this repo has already reverted twice
+    //    (`create_sweep_tx`)." It imported `SwapLib`; folding it here dissolves that edge.
     //
     // ✅ VERDICT 2026-08-23 — KEEP, AND THE REASON HAS CHANGED: IT IS NO LONGER BLOCKED.
     //    RE-MEASURED in `evm/src` / `evm/test` / `evm/script`: `quoteDrain` and `quoteFill` appear
@@ -2722,6 +2729,13 @@ library SwapLib {
     /// @notice THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title). It describes THIS
     ///         SECTION, not `SwapLib` as a whole -- the §E310 fold carried the header across and the
     ///         rename made it read as a title for the whole library, which it is not.
+    /// ⚠️      THE FUNCTIONS THIS HEADER ONCE INTRODUCED WERE DELETED IN `9bf33b9f`; what follows is
+    ///         the DESIGN RATIONALE for how our fill differs from an AMM, which is still live and
+    ///         still correct (the skew, the no-traversal quote, why √P and the tick grid left).
+    ///         Read it as the argument for the CURRENT swap path, not as documentation of a
+    ///         `quoteFill` function — there is none. `error NoQuote()` below is likewise orphaned:
+    ///         its only reverters were the two deleted quoters, so it is a candidate for removal on
+    ///         the next pass that can BUILD (left in place rather than deleted blind).
     ///
     /// @notice ONE PRICE, NO TRAVERSAL. The swapper is quoted a SINGLE rate for a SINGLE size, bounded by
     ///         inventory, and that rate is what settles. There is no curve to walk, no tick to cross, and
