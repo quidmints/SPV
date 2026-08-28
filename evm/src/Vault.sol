@@ -671,6 +671,39 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         _settleBtcLp(msg.sender, msg.sender); // USD-leg → QUID; BTC-leg → compounds into pooled; rebaselines
     }
 
+    /// @notice Permissionless, keeper-crankable fee compounding for a BTC LP — the twin of
+    ///         `Quid.compound`, which had no counterpart here.
+    /// @dev    ⚠️ **THE E145 NOTE ON `btcFeesOwedSats` READS LIKE THIS IS UNNECESSARY AND IT IS
+    ///         NOT** — it says the BTC leg *"compounds into `LP.pooled` in sats as it is earned"*,
+    ///         which describes the leg's DESTINATION once settlement runs, never its TRIGGER.
+    ///         `_settleBtcLp` had exactly ONE external caller, `collectFees`, and that is
+    ///         `msg.sender`-scoped. So a passive BTC LP who never called it donated its fee
+    ///         compounding to the pool for as long as it stayed passive — the identical gap
+    ///         `Quid.compound` exists to close, on the side that had no crank.
+    ///
+    /// @dev    🔑 **`payTo` IS `lp`, NOT `msg.sender`, AND THAT ONE ARGUMENT IS THE WHOLE
+    ///         SECURITY DIFFERENCE FROM `collectFees`.** This entrypoint names its subject, so
+    ///         passing the caller would let anyone crank a stranger's position and receive the
+    ///         USD leg as freshly-minted QUID. The BTC leg cannot be misdirected (it compounds
+    ///         into the LP's own `pooled`); the USD leg can, and this is the only thing stopping it.
+    ///
+    /// @dev    NO SELF-FUNDING TIP, deliberately — do not "complete" this by copying the ETH
+    ///         one's. `Quid.compound` pays its cranker by burning a slice of the range as NATIVE
+    ///         ETH (`_burnInRange`), which works because that range's token leg IS WETH. This
+    ///         range's token leg is SATS: burning in-range yields vBTC, and there is no on-chain
+    ///         sats→ETH primitive to pay gas with. Minting QUID for a tip is refused under
+    ///         standing rule 8b — it would create a liability to pay a gas bill. The fleet
+    ///         already cranks the whole book and reimburses its own gas via §87, so an untipped
+    ///         permissionless crank costs nothing that is not already paid for.
+    ///         Keeper-safe no-op on an empty position, matching `Quid.compound` rather than
+    ///         `collectFees`' revert: a batch crank must skip, not abort the batch.
+    function compound(address lp) external nonReentrant {
+        if (autoManaged[lp].pooled == 0) return;
+        _rebalance();
+        _syncLev(lp);
+        _settleBtcLp(lp, lp);
+    }
+
     // ─── Self-managed BTC boundary orders (single-sided, USD-funded) ──────────
     // The BTC-pool twin of Quid's ETH `outOfRange`/`pull`: a user places a USD-
     // funded single-sided limit order on the USD/WBTC curve that fills as price

@@ -1608,10 +1608,28 @@ contract BTCChannels is Ownable {
         // exists because a long-lived channel may outrun its pre-signed set — but with the LP
         // holding a funding half it costs LP participation, which is exactly what the ladder is
         // for. Using it should be the exception, not the heartbeat.
+        // 🔴 §HOP-RCE-1 — A REFRESH MAY NOT LOWER THE ATTESTATION, BECAUSE NOTHING HERE BINDS IT
+        //    TO *NOW*. `_armDeadManExit` proves the bytes are structurally sound, correctly signed
+        //    against `Q`, and pay at least what they attest — none of which expires. So EVERY
+        //    arming this channel was ever given re-verifies forever, and this path used to write
+        //    the attestation UNCONDITIONALLY: a hop replaying the oldest one it holds ratcheted
+        //    `checkpointOf` down to the channel's opening balance, and the stale-close guard at
+        //    `_recordClose` then permitted exactly the closes it exists to reject.
+        //
+        // ⚠️ THE OLD JUSTIFICATION — *"the balance may have DROPPED, and keeping a stale higher
+        //    attestation would reject legitimate closes"* — IS COVERED TWICE OVER BY THE OTHER
+        //    TERM, AND THAT IS WHY THIS IS SAFE TO REFUSE. A fall is recorded by crediting
+        //    `paidOutSinceCheckpoint` (`:1568` cooperative payout, *"legitimate balance fall"*;
+        //    `:2446` splice-out), and the guard subtracts precisely that term. Lowering the
+        //    checkpoint was a SECOND way to say the same thing — redundant with the mechanism
+        //    that is driven by proven on-chain events, and unlike it, drivable at will by the hop.
+        //
+        // ⇒ The ladder is deliberately NOT gated the same way: each of its arms rides a REAL
+        //   proven splice or open, so a lower attestation there is tied to a custody change the
+        //   chain witnessed. This entrypoint carries no such event — it is the pure refresh, and
+        //   the pure refresh is the one an attacker gets for free.
+        if (exit.checkpointSats < checkpointOf[channelId]) revert CheckpointRegression();
         _armDeadManExit(channelId, p, exit);
-        // A REFRESH SUPERSEDES rather than accumulating: the balance may have DROPPED, and keeping
-        // a stale higher attestation would reject legitimate closes. That is why the ladder takes
-        // a max and this does not — they mean different things by "attested".
         checkpointOf[channelId] = exit.checkpointSats;
     }
 
@@ -1886,6 +1904,7 @@ contract BTCChannels is Ownable {
     }
 
     error ExitUnderpaysCheckpoint();   // the armed exit pays less than it attests
+    error CheckpointRegression();      // a bare refresh may not lower the attested balance
 
 
     /// @param p this channel's `OpenParams` — only `lpPubkey`/`hopPubkey` are read, and both
