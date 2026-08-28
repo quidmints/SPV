@@ -894,9 +894,23 @@ let new_total = bank.total_deposits.saturating_sub(usd);
         // side; the expression is otherwise identical long and short.
         let barrier = collar_notional(old_exposure_value, pod.pledged)
             .saturating_add(collar_amt);
+        // 🔴 THE PREMIUM USED TO SEE ONLY THE UPPER BARRIER, SO APPROACHING THE
+        //    LOWER ONE MADE A POSITION CHEAPER. `barrier` is `... + collar_amt`,
+        //    and pricing off the distance to it alone meant that as exposure fell
+        //    toward `pledged − collar` — where `reinstate_exposure` drains the
+        //    depositor's `deposited_quid`, or `unwind_a_tranche` starts (:971) —
+        //    distance-to-upper GREW and the hazard fell. The band is two-sided;
+        //    the price was one-sided.
+        // ⇒ Price off the NEAREST barrier. That is what the hazard means: the
+        //    intensity of touching the band at all, and a position is as close to
+        //    the ladder as its closest edge. Above the top or below the bottom the
+        //    distance is zero and the hazard is maximal, which is already correct.
+        let lower = pod.pledged.saturating_sub(collar_amt);
         let distance_bps = if old_exposure_value > 0 {
-            ((barrier.saturating_sub(old_exposure_value) as u128)
-                .saturating_mul(10_000) / old_exposure_value as u128)
+            let to_upper = barrier.saturating_sub(old_exposure_value);
+            let to_lower = old_exposure_value.saturating_sub(lower);
+            let nearest = to_upper.min(to_lower);
+            ((nearest as u128).saturating_mul(10_000) / old_exposure_value as u128)
                 .min(i64::MAX as u128) as i64
         } else { 10_000 };
 

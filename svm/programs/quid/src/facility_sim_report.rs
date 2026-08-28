@@ -1260,8 +1260,28 @@ fn moving_your_own_barrier_must_not_buy_room_at_a_discount() {
 /// still truncates at the SOURCE, before its value reaches that i128 product.
 #[test]
 fn the_premium_sees_only_the_upper_barrier_and_truncates_to_zero_past_it() {
+    // ⚠️ WARM THE ACTUARY WITH REAL MOVES. Setting `observed_vol_bps` directly
+    //    leaves `exceed_count = 0`, so `exceedance_rate_bps()` is 0 and the tail
+    //    is zero EVERYWHERE by construction — a fixture artifact that looks
+    //    exactly like the truncation defect this test is about. The first
+    //    version of this test did that and the "free room" it reported could not
+    //    be distinguished from an unfitted tail.
     let mut a = Actuary::default();
-    a.observed_vol_bps = 300; a.max_drawdown_bps = 900; a.obs_count = 200;
+    a.last_price = 1_000_000; a.last_price_slot = 0;
+    {
+        use crate::returns::Equity;
+        let mut g = Equity::new(0xBEEF, 300);
+        let mut px: i64 = 1_000_000;
+        let mut h = 0i64;
+        for _ in 0..(24 * 7 * 60) {
+            let (r, _) = g.step(); h += 1;
+            if r == 0 { continue; }
+            px = ((px as i128) * (10_000 + r as i128) / 10_000).max(1) as i64;
+            a.update_price(px, h * 3_000);
+        }
+    }
+    println!("\n  warmed: obs {} exceed {} zeta {} bps  sigma {}",
+             a.obs_count, a.exceed_count, a.exceedance_rate_bps(), a.eff_sigma());
     let (deposits, max_liab) = (10_000_000u64, 3_000_000u64);
 
     // (1) Free room: the premium is zero well before the risk is.
@@ -1285,4 +1305,38 @@ fn the_premium_sees_only_the_upper_barrier_and_truncates_to_zero_past_it() {
              near_upper, near_lower);
     assert_eq!(near_upper, near_lower,
         "the signature takes a magnitude, so the two sides CANNOT differ — that is the gap");
+}
+
+/// Does carrying the survival at 1e8 instead of 1e4 actually buy resolution?
+/// The two functions differ ONLY in scale, so the distance at which each first
+/// returns zero is a direct measure of what the coarse one was throwing away.
+#[test]
+fn the_fine_tail_resolves_where_the_bps_tail_reports_impossible() {
+    use crate::returns::Equity;
+    let mut a = Actuary::default();
+    a.last_price = 1_000_000; a.last_price_slot = 0;
+    let mut g = Equity::new(0xBEEF, 300);
+    let (mut px, mut h) = (1_000_000i64, 0i64);
+    for _ in 0..(24 * 7 * 60) {
+        let (r, _) = g.step(); h += 1;
+        if r == 0 { continue; }
+        px = ((px as i128) * (10_000 + r as i128) / 10_000).max(1) as i64;
+        a.update_price(px, h * 3_000);
+    }
+    let (n, beta) = a.gpd_params();
+    let (u, zeta) = (a.pot_threshold(), a.exceedance_rate_bps());
+
+    let mut coarse_zero = 0i64;
+    let mut fine_zero = 0i64;
+    for d in (100..=20_000).step_by(50) {
+        let d = d as i64;
+        if coarse_zero == 0 && a.tail_at(d, n, beta, u, zeta) == 0 { coarse_zero = d; }
+        if fine_zero == 0 && a.tail_at_fine(d, n, beta, u, zeta) == 0 { fine_zero = d; }
+    }
+    println!("\n  bps tail  reports impossible from {} bps out", coarse_zero);
+    println!("  fine tail reports impossible from {} bps out", fine_zero);
+    println!("  resolution gained: {}x further", if coarse_zero > 0 { fine_zero / coarse_zero } else { 0 });
+    assert!(fine_zero > coarse_zero,
+        "the fine tail must resolve strictly further than the bps one: {} vs {}",
+        fine_zero, coarse_zero);
 }

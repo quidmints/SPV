@@ -51,6 +51,12 @@ pub const LIQ_GRACE_SECS: u64 = 3_600;
 /// Basis points constant (100% = 10000)
 pub(crate) const BPS: i64 = 10_000;   // pub(crate) so tickers.rs's test modules can reach it
 
+/// Survival probabilities are carried at 1e8, not 1e4. A barrier several sigma
+/// out has a real probability well under one basis point, and in bps that is
+/// indistinguishable from impossible — which made a wide band FREE, because the
+/// premium is a product and one zero factor ends it. See `tail_at_fine`.
+pub(crate) const TAIL_FINE: i64 = 100_000_000;
+
 /// `base^n` where `base` is a bps fraction, by exponentiation by squaring.
 /// Nine multiplications at the obs_count cap of 500, against a soft-float
 /// `exp` that costs far more and is not reproducible across targets.
@@ -563,18 +569,56 @@ impl Actuary {
     #[inline]
     pub fn tail_at(&self, d_bps: i64, n: i64, beta: i64, u: i64, zeta: i64) -> i64 {
         if d_bps <= 0 { return BPS; }
+        (self.tail_at_fine(d_bps, n, beta, u, zeta) / (TAIL_FINE / BPS)).clamp(0, BPS)
+    }
+
+    /// 🔴 THE SAME SURVIVAL FUNCTION IN 1e8 UNITS, AND IT EXISTS BECAUSE THE bps
+    /// VERSION SILENTLY PRICES A THIN TAIL AT ZERO.
+    ///
+    /// `tail_at` returns basis points, so any survival probability below 0.5 bps
+    /// rounds to 0 — and `hazard_rate_bps` is a PRODUCT, so one zero factor
+    /// collapses the whole premium. Measured at σ=300: the premium was exactly 0
+    /// for every collar ≥ 600 bps while `lgd_bps` was still 588 and climbing to
+    /// 3140. A borrower who widened their band past ~2σ paid NOTHING while the
+    /// pool kept the full depth of a breach.
+    ///
+    /// ⚠️ TWO SEPARATE TRUNCATIONS, AND THE LOOP IS THE WORSE ONE. The output
+    /// granularity is only the last of them: the power law is evaluated as n
+    /// successive integer divisions, so with n up to 12 the value is truncated
+    /// TWELVE times before it is returned. Carrying q in i128 at 1e8 gives four
+    /// more decimal digits and removes both.
+    ///
+    /// ⭐ THIS IS THE SAME DEFECT `hazard_rate_bps` ALREADY FIXED ONE LEVEL DOWN
+    /// — its own comment reads *"Chaining `× / BPS` per factor truncated a thin
+    /// loss-given-breach to zero before the scalings could apply"* — solved there
+    /// by deferring to a single i128 division. That fix could not help, because
+    /// the zero was manufactured HERE, before the value ever reached it.
+    ///
+    /// Bounds: q ≤ 1e8 and nβ ≤ 12·MAX_COLLAR_BPS = 6e4, so q·nβ ≤ 6e12 — well
+    /// inside i128, and inside i64 too, but i128 costs nothing over 12 iterations.
+    #[inline]
+    pub fn tail_at_fine(&self, d_bps: i64, n: i64, beta: i64, u: i64, zeta: i64) -> i64 {
+        if d_bps <= 0 { return TAIL_FINE; }
+        let zeta_f = zeta.saturating_mul(TAIL_FINE / BPS);
         if d_bps <= u {
-            return BPS - (BPS - zeta) * d_bps / u;
+            return TAIL_FINE - (TAIL_FINE - zeta_f) * d_bps / u;
         }
         let nb = n.saturating_mul(beta);
         let den = nb.saturating_add(d_bps - u);
         if den <= 0 { return 0; }
-        let mut q = zeta;
+        let mut q = zeta_f as i128;
         for _ in 0..n {
-            q = q.saturating_mul(nb) / den;
+            q = q.saturating_mul(nb as i128) / den as i128;
             if q == 0 { break; }
         }
-        q.clamp(0, BPS)
+        q.clamp(0, TAIL_FINE as i128) as i64
+    }
+
+    /// Survival at `d`, in 1e8 units, fitting on the way — the fine-grained twin
+    /// of `tail_prob_bps`.
+    pub fn tail_prob_fine(&self, d_bps: i64) -> i64 {
+        let (n, beta) = self.gpd_params();
+        self.tail_at_fine(d_bps, n, beta, self.pot_threshold(), self.exceedance_rate_bps())
     }
 
     /// e(d) = E[X − d | X > d], the GPD mean excess, in bps.
@@ -1475,8 +1519,14 @@ pub fn fee_bps(conc: i64, exposure: i64,
 /// The reflection factor stays: the chance of *touching* a barrier within a
 /// horizon is about twice the chance of ending beyond it, and it is touching
 /// that starts the ladder.
+/// ⚠️ RETURNS 1e8 UNITS (`TAIL_FINE`), NOT bps. The bps form rounded any tail
+/// below 0.5 bps to zero, and since `hazard_rate_bps` multiplies this by three
+/// other factors, one zero collapsed the entire premium — see `tail_at_fine`.
+/// The only caller divides by `TAIL_FINE` rather than `BPS`, so the scale change
+/// is contained; the NAME keeps `_bps` only because renaming it would touch
+/// every citation of it in the audit trail.
 pub fn hazard_bps(distance_bps: i64, s: &Actuary) -> i64 {
-    min(BPS, 2 * s.tail_prob_bps(max(0, distance_bps)))
+    min(TAIL_FINE, 2 * s.tail_prob_fine(max(0, distance_bps)))
 }
 
 /// Loss given breach, in bps of exposure.
@@ -1553,7 +1603,9 @@ pub fn hazard_rate_bps(distance_bps: i64, collar: i64, amount: i64,
     // position hugging its barrier priced identically to one far inside it —
     // the exact sensitivity this function exists to provide.
     let scaled = intensity * lgd * crowd * solv
-        / (BPS as i128 * BPS as i128 * BPS as i128);
+        // ⚠️ `TAIL_FINE`, not a third `BPS`: `hazard_bps` now returns 1e8 units so
+        //    a sub-basis-point tail survives into this product instead of zeroing it.
+        / (TAIL_FINE as i128 * BPS as i128 * BPS as i128);
     scaled.clamp(0, 50_000) as i64
 }
 
@@ -4331,9 +4383,12 @@ mod hazard_tests {
         // Both sides read one intensity. A window's prepayment of an ANNUAL
         // rate is dust by construction — which is exactly why gap risk is
         // billed as carry and only its hedging shadow is charged at entry.
+        // ⚠️ `TAIL_FINE`, not `BPS`: `hazard_bps` now carries the survival at 1e8
+        //    so a sub-basis-point tail is not rounded to zero. The claim this
+        //    test makes is about MAGNITUDE, not units, so only the divisor moves.
         let window = hazard_bps(40, &a) as i128
             * lgd_bps(collar_bps(300, &a), &a) as i128
-            * MIN_HOLD_SECS as i128 / (BPS as i128 * SECONDS_PER_YEAR as i128);
+            * MIN_HOLD_SECS as i128 / (TAIL_FINE as i128 * SECONDS_PER_YEAR as i128);
         assert!(window < 1, "a 5-minute slice of an annual hazard is sub-bps");
     }
 
@@ -4434,8 +4489,10 @@ mod market_stress {
         for d in [0i64, 50, 100, 500, 5_000, 50_000] {
             let t = a.tail_prob_bps(d);
             assert!((0..=10_000).contains(&t), "{}: tail {t} at {d}bps", ctx());
+            // Bounded in ITS OWN unit: `hazard_bps` returns 1e8 now, so a literal
+            // 10_000 here would be asserting the scale rather than the bound.
             let h = hazard_bps(d, a);
-            assert!((0..=10_000).contains(&h), "{}: hazard {h} at {d}bps", ctx());
+            assert!((0..=TAIL_FINE).contains(&h), "{}: hazard {h} at {d}bps", ctx());
         }
         // A shortfall is an average beyond a quantile, so it cannot sit below it.
         for p in [100i64, 500, 1_000, 5_000] {
