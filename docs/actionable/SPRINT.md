@@ -6551,7 +6551,12 @@ here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `Q
   so `_deliverSwapOut` itself still takes NO `ExitArming` (`grep ExitArming` in its body: 0 hits).
   The stack constraint and the ladder invariant are both satisfied.
 - `§V-R11` — the hedge swap is all-or-nothing; owner: *"it must never stop tracking like this."*
-- `§E59-REOPENED`, `§E55`/`§UNIT-B-MIN-IS-NOOP` — `min(fast, slow)` is unconditionally the fast leg.
+- ✅ ~~`§E59-REOPENED`, `§E55`/`§UNIT-B-MIN-IS-NOOP`~~ — **ALL THREE CLOSED; this summary line was
+  STALE (checked 2026-08-28).** `§E59-REOPENED` closed 2026-08-25 (`:8105`, named test passes on the
+  pinned gate; the free-drain hole is closed by §ZERO-REVENUE). `§UNIT-B-MIN-IS-NOOP` closed
+  2026-08-22 (`:8533`) — the slow register is deleted, so the `min` is unconstructible, not merely
+  unobserved. `§E55` was a bare 🔴 heading with no body; it is the same defect as UNIT-B and closes
+  with it. ⚠️ All by REMOVAL of the slow leg, not by repair: reintroducing one reopens all three.
 - `§E247-allowlist-gate`, `§E251-vbtc-scope`, `§E244-tri-tests` (partly closed), `§A.65`, `§AAVE_SPOKE`.
 
 ### ✅ Suite / tree state — **SETTLED 2026-08-25 BY THE RUN IT ASKED FOR**
@@ -8528,7 +8533,14 @@ pending behind it — unlike everything else left in this file.
 ### 📄 `docs/actionable/REFILL-AND-RESTORATION.md` EXISTS — **I said it did not, and I was wrong.** I grepped file CONTENTS for the phrase and never ran `ls docs/actionable/`, the exact failure [[enumerate-containers-before-auditing]] warns about. **Its §4a step 1 is the SAME question as the 954** — *"where do the ETH sell's proceeds go? Run with `-vvvv` and read the actual transfer log — do not infer it from the source alone"* — and its §7 says that answer resolves the profitability question immediately after. **Read that file before re-deriving any of this.**
 
 
-### `§E55` 🔴
+### ✅ `§E55` — **SAME DEFECT AS THE ROW BELOW; CLOSED BY THE SAME REMOVAL (2026-08-28)**
+This heading carried a 🔴 and **no body at all** — a bare marker directly above
+`UNIT-B-MIN-IS-NOOP`, which is the row that PROVES the §E55 defence never operated. They are one
+defect seen from two ends: §E55 is the manipulation defence; UNIT-B is the arithmetic showing
+`min(fast, slow) ≡ fast`, so the defence could not bind. The slow register (`_flowSlowBTC`,
+`_flowSlowETH`, `FLOW_SLOW_N`) is **deleted**, so both close together, **by removal, not repair** —
+and both reopen on day one if a slow leg returns. `Core.sol:196-198` carries the proof;
+`Core.sol:193` carries the warning against reading that comment block as live state.
 
 ### ✅ UNIT-B-MIN-IS-NOOP — **CLOSED: THE SLOW LEG IS DELETED, SO THERE IS NO `min` LEFT TO BE A NO-OP**
 ✅ **CLOSED 2026-08-22 against code (rule 16's axiomatic case: the code it described no longer
