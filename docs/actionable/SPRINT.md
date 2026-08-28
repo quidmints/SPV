@@ -1914,7 +1914,45 @@ mechanism under test.** Rewriting it to emit would not break the test; it would 
 ⚠️ **THE DISCRIMINATOR, from the parent row and worth restating: a swallow that announces a genuine
 ABSENCE is right; one that can absorb a FAILURE is not.** Read what the assertion AFTER it depends on.
 
-## 🔴 **§UNITB-NEEDS-A-MOVING-FIXTURE — the two preconditions FIGHT under draining, measured** (2026-08-25)
+## ✅ **§UNITB-NEEDS-A-MOVING-FIXTURE — SOLVED 2026-08-28: THE FIXTURE WAS SCARCE IN THE WRONG VARIABLE**
+⭐ **THE ANOMALY THIS ROW BOOKED IS FULLY EXPLAINED, AND IT IS NOT A FIXTURE PROBLEM.** The row records
+that an attempt reached `POOLED_USD 811,919 < target 873,701` — *"✅ priced scarcity"* — and the arms
+STILL priced identically (195,538 both), concluding *"FLUSH IS THEREFORE NOT THE WHOLE EXPLANATION
+EITHER"*. It is the whole explanation. **The swap path never reads `POOLED_USD`.**
+🔴 **THE SINGLE PRODUCTION CALL SITE (`SwapLib.wellSkew:1633`) PASSES A DIFFERENT INVENTORY:**
+```solidity
+uint poolVolUsd = _skewBasis(core, base, 0);        // = POOLED() * base / 1e30
+uint raw = skewWad(poolVolUsd, target, sigmaSq, rk, _fillableDrain(...));
+```
+`_skewBasis` is the **VOLATILE** inventory valued in USD. `POOLED_USD` is the pool's OTHER side and is
+never passed to `skewWad` at all.
+📐 **MEASURED ON `DrainAtomicity`'s OWN STATE (2026-08-28 run):** `POOLED` = 241.249e18 ETH at
+`px` = 2,519.66 ⇒ **basis = \$607,866**, against **`POOLED_USD` = \$1,407,864** — **2.316× apart.**
+⇒ A fixture steering `POOLED_USD` under its target moves a number the pricing path does not read; the
+basis stayed above the target, both arms stayed flush, and they priced the same. **"✅ priced
+scarcity" was measured on the wrong variable.**
+✅ **AND `skewWad` IS NOT FLOW-BLIND — PROVEN WITHOUT A FIXTURE.** It is `public pure`, so the
+question needs no fork, no arms and no σ² seeding. `evm/test/SkewFlowDiscrimination.t.sol` (new, 5/5
+green) sweeps the target and pins the behaviour:
+| flow (usd6) | skew | |
+|---|---|---|
+| 91,075 → 1,000,000 | **4,495,165,581,956** — FLAT across an 11× range | flush branch, kernel skipped |
+| 1,407,863,999,998 (one wei under inv) | **143,078,836,015,877** | **32× jump** |
+| 2,000,000 | 5,594,202,210,547,166 | |
+⇒ **Across the boundary it discriminates 160×** (`7.78e12` flush vs `1.24e15` scarce). The control is
+answerable; nothing about the function prevents it firing.
+▶️ **THE CORRECTED ASK, REPLACING THIS ROW'S AND §UNITB-ARMS-IDENTICAL'S PRESCRIPTION.** Both say
+*"inventory must end under ~\$182k, an ~87% drain of `POOLED_USD`, or the flow must be driven above
+\$1.38M"*. ⛔ **Both numbers are aimed at `POOLED_USD` and are therefore wrong.** Against the real
+basis arm B sits at **0.60** of inventory, not 0.26 ⇒ **drive flow above \$607,866 — 1.67× arm B —
+or drop `POOLED × price` below the target.** Far easier than an 87% drain, and it is why the previous
+attempt fought its own preconditions: it was pushing a variable that could not reach the branch.
+⚠️ **AND IT REFRAMES THE "TWO PRECONDITIONS FIGHT" FINDING.** The attempt stepped the FEED DOWN while
+selling, which lowers `base` and therefore lowers the basis — it was moving the right quantity while
+measuring the wrong one, and was abandoned partly on that reading. `POOLED_USD` rising was never
+evidence of moving away from scarcity.
+
+## ~~🔴 §UNITB-NEEDS-A-MOVING-FIXTURE — the two preconditions FIGHT under draining, measured~~ (2026-08-25, superseded above)
 
 §UNITB-ARMS-IDENTICAL needs two things at once: **σ² > 0** (or the kernel vanishes) and
 **`inv < target`** (or the FLUSH branch skips the kernel and the target cannot enter at any value).
