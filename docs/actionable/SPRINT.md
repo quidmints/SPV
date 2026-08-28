@@ -2059,9 +2059,39 @@ problem, not a shipping one — but every σ²-dependent test is measuring zero 
 `§PUSH-HEADROOM-1.85X` is the reminder that the production path has its own thinning margin.
 
 ### ✅ **THE ROOT CHANGED SHAPE 2026-08-28 — IT IS NO LONGER "NO SAMPLES", IT IS "IDENTICAL SAMPLES"**
-🔎 Since `fae2201a` the ring is fed unconditionally: `_observeIfSourced()` writes the raw Chainlink
-anchor whenever `observationSource == 0`, which is **every** deployment (`setObservationSource` still
-has zero non-test callers). So "no source ⇒ no samples ⇒ σ² = 0" is **no longer the mechanism.**
+🔎 Since `fae2201a` the fallback fires on every deployment: `_observeIfSourced()` writes the raw
+Chainlink anchor whenever `observationSource == 0` (`setObservationSource` still has zero non-test
+callers). So "no source ⇒ no samples" is no longer the mechanism.
+⛔ **CORRECTION TO MY OWN FIRST WRITE-UP OF THIS (same day): I said "the ring is fed unconditionally
+on EVERY deployment." THAT IS FALSE FOR THE FIXTURE, AND THE FIXTURE IS WHERE EVERY σ²-DEPENDENT
+TEST LIVES.** The fallback is guarded: `if (anchorPx != 0) _writeObservationPrice(anchorPx)`, and
+`anchorPx` comes from `SwapLib.twapResolve(AUX.assetPriceFeed(ASSET), …)`. **A zero feed address
+yields a zero anchor and the fallback writes NOTHING.**
+🔴 **AND THE FEED IS UNSET IN THE FIXTURE, BECAUSE THE TWO DEPLOY PATHS DIVERGE:**
+| path | pins `setAssetFeed`? | ⇒ ring |
+|---|---|---|
+| `DeployL1_s.sol:356-357` (**production**) | ✅ `WETH → CL_ETH_USD`, `WBTC → BTC/USD` | fills; σ² real |
+| `script/DeployLib.sol` (**what `AllesFixture` uses**) | ❌ **zero `setAssetFeed` calls** | never advances; σ² ≡ 0 |
+⇒ **THIS IS THE SINGLE ROOT FOR σ² = 0 ACROSS THE SUITE, AND IT IS ONE MISSING LINE IN THE FIXTURE —
+not an estimator defect, not a seeding gap, not "our series is flat".** `PushObservationFillsTheRing`
+already found it locally and works around it with `_pinFeedIfNeeded()`; its own comment is the
+clearest statement of the hazard: *"it fails SILENTLY: the pushes look accepted and σ² stays 0, which
+reads exactly like a broken estimator."*
+⚠️ **THE LARGER FACT, WHICH IS BIGGER THAN σ²:** every `AllesFixture` test runs **without the
+Chainlink anchors production pins**, so `getTWAPforAsset`'s live-feed cross-check — the thing that
+"defeats the multi-block internal-TWAP grind" — is INACTIVE in the suite. An entire class of tests is
+validating a configuration that never ships. **This is almost certainly the same root as
+`§RING-LAGS-ORACLE`** (fixture oracle vs range spot, measured 8.8%) and it deserves its own row.
+▶️ **FIX LOCATION IS DECIDED — THE FIXTURE, NOT `DeployLib`.** Do NOT "unify" by moving
+`setAssetFeed` into `DeployLib`: `DeployL1_s:351` states the constraint (*"onlyOwner + pin-once ⇒
+MUST run here, before the finalize renounce"*) and carries an operator instruction to verify every
+feed address against docs.chain.link, which must not be buried in a shared library. `AllesFixture`
+should pin the same two anchors production pins.
+⛔ **NOT APPLIED YET, DELIBERATELY: THE BLAST RADIUS IS THE WHOLE SUITE.** Pinning the feed activates
+the live cross-check in every test at once. That is the CORRECT configuration, but it can turn
+currently-green tests red — and a test that was green only because the anchor was dead was never
+green. Apply it as its own run with the full suite measured before and after, never folded into
+another change.
 📐 **THE ACTUAL MECHANISM, READ OFF `OracleLib.ringVariance`:** it computes the variance of
 **consecutive RELATIVE returns**. A fixture that mocks Chainlink at a FIXED price fills the ring with
 identical observations ⇒ every difference is 0 ⇒ **σ² = 0 with a completely full ring.** Same number,
