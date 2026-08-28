@@ -1393,6 +1393,11 @@ deletable · `§E278`'s σ²=0 sentinel gap is in **`SwapLib.sellSkew`**, which 
 `sigmaSqWad == 0` guard · `IWiredVault.LEV_MANAGER()` is a marker for an unwritten wiring check —
 `BasketLib.assertFullyWired` should assert it, **but verify `setLevManager` (`DeployL1_s:546/:607`)
 precedes `Aux.finalize` first**; today an unwired pin fails SILENTLY (`Vault:302/:384` return 0).
+⚠️ **COORDINATES ROTTED (checked 2026-08-28): `Vault:302` is now a COMMENT and `Vault:384` is
+`AUX.btcShortfall(sender, shortfall)`. Neither returns 0.** The mechanism may well still be live —
+this is the "silent failure" class the row is right to care about — but it must be re-located by
+grepping for the `return 0` on an unset pin, not read off these two numbers. **A line number is the
+first thing to rot and the last thing anyone re-checks.**
 
 ---
 ## 0a. ✅ **§E324-TRIAGE — THE ~47 FILE-LESS ROWS, RE-RUN BY EFFECT (2026-08-23). FOUR DESCRIBE WORK
@@ -4946,6 +4951,10 @@ just is not the only term.
 ⛔ **"IMPLEMENTED THREE TIMES" IS WRONG — `Shares.sol` DECLARES THE SHARE FACE ZERO TIMES.**
 `grep -cE "function (balanceOf|transfer|totalSupply)" src/Shares.sol` = **0**. The third copy this row
 is built on does not exist, so the duplication it counts is two, not three.
+⛔ **AND "(unwired)" IS WRONG TOO — THE ROW IS MISTAKEN TWICE ABOUT THE SAME FILE.** `Shares` is
+inherited by **three** contracts: `BTCChannels`, `Quid` and `Vault`. It is the shared base the range
+state lives in, not a parked alternative implementation. ⇒ The row describes `Shares` as an unwired
+third copy of the share face; it is neither unwired nor a copy of the share face.
 ⛔ **AND THE REMAINING TWO ARE NOT A DUPLICATED PAIR — CLAUDE.md ALREADY SETTLED THIS AND THIS ROW
 CONTRADICTS IT.** `Quid.balanceOf` returns `autoManaged[user].pooled` — a **PROJECTION** of range
 state, with no balances mapping at all — while `VBtc` declares `mapping(address => uint) public
