@@ -372,8 +372,11 @@ library QuidLib {
             // and the canonical (USD, tok) order the comment below names is taken directly. The fee
             // LANE is untouched: whether per-share accrual returns is the deferred decision recorded
             // at `Core._fillDelta` (fees currently compound into POOLED_* instead).
-            (uint fees, uint usd_fees) = (r.fees1, r.fees0);
-            (o.feesPerShareInc, o.usdFeesInc) = SwapLib.feeIncrements(fees, usd_fees, c.lpShares + c.totalBuffer);
+            // §V4-CUT-RESIDUE — the two fee lines here are DELETED. They read `r.fees1`/`r.fees0`,
+            // which nothing assigns, and ASSIGNED (not `+=`) the zero result to the increments,
+            // which are already zero-valued. ⚠️ The branch itself STAYS: `setLastRepack` is its
+            // live effect, and the `else if (r.jitFees)` below depends on this arm claiming the
+            // repack case first.
             o.setLastRepack = true;
         } else if (r.jitFees) {
             // JIT-snipe defense: fees already canonical (USD,tok) by rebalanceCore; distribute without re-reorder.

@@ -1156,6 +1156,13 @@ contract Core {
     /// with the collector gone all four were hard-coded ZERO. Callers destructured them, reordered
     /// them by token identity, and fed them to `feeIncrements` -- arithmetic on constants. Also
     /// absorbs `reseat`, whose body was identical.
+    /// ✅ **AND THE STRUCT SIDE IS NOW GONE TOO (2026-08-28).** Cutting the return tuple left
+    /// `SwapLib.Rebalanced.fees0/fees1/delta0/delta1` behind as fields nothing ever assigned, and
+    /// `BtcLib`/`QuidLib` went on reading the two fee fields into `feeIncrements` — the same
+    /// arithmetic on constants this note describes, one layer up, surviving the cut that was meant
+    /// to remove it. All four fields are deleted. ⚠️ A return-value deletion is not finished until
+    /// the STRUCT that carried it is checked: the callers compiled and the zeros stayed correct, so
+    /// nothing failed to announce the leftovers.
     /// @dev §ONE-ANCHOR — takes the ANCHOR, not the two bounds it implies. The caller computed those
     ///      as `updateBounds(spotPrice, RANGE_DELTA)` and already held `spotPrice`, so passing the
     ///      pair meant sending a derived value and reconstructing its source. Reconstructing it as

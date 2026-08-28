@@ -2537,12 +2537,17 @@ library SwapLib {
         uint    loPrice;     // §DE-TICK: post-repack range bounds, as PRICES
         uint    upPrice;
         uint    myLiquidity;
-        bool    didRepack;     // true → a range move happened; fees0/1/delta0/1/price valid
+        bool    didRepack;     // true → a range move happened; `price` valid
         uint    price;
-        uint    fees0;
-        uint    fees1;
-        uint    delta0;
-        uint    delta1;
+        // §V4-CUT-RESIDUE — `fees0`, `fees1`, `delta0`, `delta1` DELETED 2026-08-28. They were
+        // DECLARED AND NEVER ASSIGNED anywhere in the tree: v4 collected the fees and reported the
+        // deltas, and with v4 gone `repack`/`reseat` report nothing. `fees0/1` were still READ by
+        // `BtcLib` and `QuidLib`, which fed two guaranteed zeros into `feeIncrements` and added the
+        // resulting zeros to the accumulators; `delta0/1` were not even read. Struct fields that
+        // only ever hold their zero-value are not a seam for restoring the fee lane — restoring it
+        // means assigning something, which means touching these call sites regardless.
+        // ⇒ Whether per-share accrual returns is still the OPEN owner decision (§BTC-LEG-FEE);
+        //   deleting dead fields does not decide it, and `feesPerShare`/`USD_FEES` are untouched.
         // JIT-defense (in-range) branch produces canonical (USD,tok) fees to
         // distribute directly; signalled by jitFees.
         bool    jitFees;

@@ -512,14 +512,14 @@ library BtcLib {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
             c.core, c.aux, IAux(c.aux).WBTC(), upPrice, loPrice);
-        if (r.didRepack) {
-            // §DE-TICK: `repack`/`reseat` return zero fee legs (v4 collects nothing), so this
-            // reordered two zeros. Canonical (USD, tok) taken directly -- see QuidLib's note.
-            uint feesTok = r.fees1;
-            uint feesUsd = r.fees0;
-            (uint tokInc, uint usdInc) = SwapLib.feeIncrements(feesTok, feesUsd, feeDenom);
-            o.feesPerShareInc += tokInc; o.usdFeesInc += usdInc;
-        } else if (r.jitFees) {
+        // §V4-CUT-RESIDUE — THE `didRepack` ARM IS GONE; IT ADDED TWO ZEROS. It read
+        // `r.fees1`/`r.fees0`, which no code ever assigned, into `feeIncrements` and `+=`'d the
+        // zero result. ⚠️ **`!r.didRepack &&` IS LOAD-BEARING, NOT TIDYING.** It was an `else if`,
+        // and `didRepack` and `jitFees` are NOT mutually exclusive: the in-range arm of
+        // `rebalanceCore` sets `jitFees`, and `_doReseat` can then set `didRepack` in the same
+        // call. Dropping the guard would start distributing JIT fees on a repack-and-reseat that
+        // previously skipped them — a live behaviour change wearing a dead-code deletion.
+        if (!r.didRepack && r.jitFees) {
             // collectFees returns canonical (feesUSD, feesTok) — USD first.
             (uint tokInc, uint usdInc) = SwapLib.feeIncrements(r.jitFeesTok, r.jitFeesUsd, feeDenom);
             o.feesPerShareInc += tokInc; o.usdFeesInc += usdInc;
