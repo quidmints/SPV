@@ -1,0 +1,197 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.22;
+
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
+import {PublicSignalsBuilder} from "./lib/PublicSignalsBuilder.sol";
+import {PublicSignalsTD1Builder} from "./lib/PublicSignalsTD1Builder.sol";
+
+import {INoirVerifier} from "../interfaces/verifiers/INoirVerifier.sol";
+
+/**
+ * @title Abstract Query Proof Executor
+ * @notice An abstract contract providing a framework for verifying Noir/Honk query proofs.
+ *
+ * @dev SINGLE-STACK AS OF 2026-08-10 (sec. 2.18gq). The Circom/Groth16 predecessors - `execute`,
+ *      `executeTD1` and `_verifyCircomProof` - are GONE, along with the `ProofPoints` struct and the
+ *      `TD3QueryProofVerifier` they called into. `executeNoir` and `executeTD1Noir` are the only
+ *      paths, and both already had verifiers (`TD3QueryProofNoirVerifier`,
+ *      `TD1QueryProofNoirVerifier`), so nothing was lost with them.
+ *
+ *      WHY, and it is not tidiness: **Groth16 needs a PER-CIRCUIT trusted setup.** Every Circom
+ *      verifier carried its own ceremony whose toxic waste nobody here witnessed. UltraHonk uses one
+ *      UNIVERSAL SRS, already in this repo's trust base for every other proof. Deleting these removed
+ *      trust assumptions and added none. The app ships bb 6.0 only, so a Groth16 path could not have
+ *      been exercised anyway.
+ */
+abstract contract AQueryProofExecutor is Initializable {
+    using PublicSignalsBuilder for uint256;
+
+    // bytes32(uint256(keccak256("rarimo.contract.AQueryProofExecutor")) - 1)
+    bytes32 private constant A_BUILDER_STORAGE =
+        0x3844f6f56a171c93056bdfb3ce2525778ef493f53ef90b0283983867a69d2128;
+
+    struct AExecutorStorage {
+        address registrationSMT;
+        address verifier;
+    }
+
+    error InvalidNoirProof(bytes32[] pubSignals, bytes zkPoints);
+
+    function __AQueryProofExecutor_init(
+        address registrationSMT_,
+        address verifier
+    ) internal onlyInitializing {
+        AExecutorStorage storage $ = _getABuilderStorage();
+
+        $.registrationSMT = registrationSMT_;
+        $.verifier = verifier;
+    }
+
+    /**
+     * @notice Hook executed before the ZK proof verification call.
+     * @dev Intended to be overridden by inheriting contracts to perform checks or setup based
+     *      on application-specific data encoded in `userPayload_`.
+     * @param userPayload_ Encoded application-specific data passed from the external `execute` or `executeNoir` call.
+     */
+    // solhint-disable-next-line no-empty-blocks
+    function _beforeVerify(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_
+    ) internal virtual {}
+
+    /**
+     * @notice Hook executed after a `successful` ZK proof verification.
+     * @dev Intended to be overridden by inheriting contracts to perform actions (e.g., record a vote, update state)
+     *      based on application-specific data encoded in `userPayload_`.
+     * @param userPayload_ Encoded application-specific data passed from the external `execute` or `executeNoir` call.
+     */
+    // solhint-disable-next-line no-empty-blocks
+    function _afterVerify(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_
+    ) internal virtual {}
+
+    /**
+     * @notice Abstract function responsible for constructing the public signals array for the ZK proof.
+     * @dev This function should decode `userPayload_` and use the `PublicSignalsBuilder` library functions
+     * (attached via `using for`) to populate the public signals array based on the specific application's requirements.
+     * @param userPayload_ Encoded application-specific data required to build the public signals.
+     * @return builder_ A `uint256` representing the memory pointer to the constructed public signals array.
+     */
+    function _buildPublicSignals(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_
+    ) internal view virtual returns (uint256 builder_);
+
+    /**
+     * @notice TD1-specific public signals builder hook.
+     * @dev Implement in inheritors to construct TD1 signals using PublicSignalsTD1Builder helpers.
+     */
+    function _buildPublicSignalsTD1(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_
+    ) internal view virtual returns (uint256 builder_);
+
+
+    /**
+     * @notice Executes the full ZK proof verification workflow for a Noir proof.
+     * @param registrationRoot_ The root of the identity SMT against which the proof was generated.
+     * @param currentDate_ The current date (encoded as `yyMMdd`) to be included in the public signals.
+     * @param userPayload_ Encoded application-specific data to be used by hooks and the signal builder.
+     * @param zkPoints_ The raw bytes of the Noir proof.
+     */
+    function executeNoir(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_,
+        bytes memory zkPoints_
+    ) external {
+        _beforeVerify(registrationRoot_, currentDate_, userPayload_);
+
+        uint256 builder_ = _buildPublicSignals(registrationRoot_, currentDate_, userPayload_);
+        builder_.withIdStateRoot(registrationRoot_);
+
+        bytes32[] memory publicSignals_ = PublicSignalsBuilder.buildAsBytesArray(builder_);
+
+        AExecutorStorage storage $ = _getABuilderStorage();
+
+        if (!INoirVerifier($.verifier).verify(zkPoints_, publicSignals_)) {
+            revert InvalidNoirProof(publicSignals_, zkPoints_);
+        }
+
+        _afterVerify(registrationRoot_, currentDate_, userPayload_);
+    }
+
+    /**
+     * @notice Executes TD1 ZK proof verification workflow for a Noir proof.
+     */
+    function executeTD1Noir(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_,
+        bytes memory zkPoints_
+    ) external {
+        _beforeVerify(registrationRoot_, currentDate_, userPayload_);
+
+        uint256 builder_ = _buildPublicSignalsTD1(registrationRoot_, currentDate_, userPayload_);
+        PublicSignalsTD1Builder.withIdStateRoot(builder_, registrationRoot_);
+
+        bytes32[] memory publicSignals_ = PublicSignalsTD1Builder.buildAsBytesArray(builder_);
+
+        AExecutorStorage storage $ = _getABuilderStorage();
+
+        if (!INoirVerifier($.verifier).verify(zkPoints_, publicSignals_)) {
+            revert InvalidNoirProof(publicSignals_, zkPoints_);
+        }
+
+        _afterVerify(registrationRoot_, currentDate_, userPayload_);
+    }
+
+    function getPublicSignalsTD1(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_
+    ) public view returns (bytes32[] memory publicSignals) {
+        uint256 builder_ = _buildPublicSignalsTD1(registrationRoot_, currentDate_, userPayload_);
+        PublicSignalsTD1Builder.withIdStateRoot(builder_, registrationRoot_);
+
+        return PublicSignalsTD1Builder.buildAsBytesArray(builder_);
+    }
+
+    function getPublicSignals(
+        bytes32 registrationRoot_,
+        uint256 currentDate_,
+        bytes memory userPayload_
+    ) public view virtual returns (bytes32[] memory publicSignals) {
+        uint256 builder_ = _buildPublicSignals(registrationRoot_, currentDate_, userPayload_);
+        builder_.withIdStateRoot(registrationRoot_);
+
+        return PublicSignalsBuilder.buildAsBytesArray(builder_);
+    }
+
+    function getRegistrationSMT() public view returns (address) {
+        return _getABuilderStorage().registrationSMT;
+    }
+
+    function getVerifier() public view returns (address) {
+        return _getABuilderStorage().verifier;
+    }
+
+    function _setVerifier(address verifier_) internal {
+        _getABuilderStorage().verifier = verifier_;
+    }
+
+    /**
+     * @notice Retrieves the ABuilderStorage storage reference.
+     */
+    function _getABuilderStorage() private pure returns (AExecutorStorage storage $) {
+        assembly {
+            $.slot := A_BUILDER_STORAGE
+        }
+    }
+}

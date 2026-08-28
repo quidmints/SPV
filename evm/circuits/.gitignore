@@ -1,0 +1,40 @@
+helpers
+target
+Prover.toml
+.DS_Store
+*.json
+!package.json
+!auto/inputs/passport/readme.txt
+__pycache__
+*.der
+binary_field_experiments
+test_main.nr
+*.csv
+input_generation/*
+ultraPlonkTrustedSetup.dat
+circuits/*
+logs.*
+tmp.txt
+process_passport_*.js
+# ...except the fixture witnesses that committed test proofs are generated from. Without these the
+# proofs in contracts/test/fixtures/ could never be regenerated, only trusted. See TODO.md sec. 2.1.
+#
+# withdraw_identity has TWO, both emitted by tools/build-withdrawal-fixture.js, each backing a
+# different fixture: Prover.baseline.toml -> withdraw_identity.proof (independent hand vector) and
+# Prover.wallet.toml -> withdraw_identity_wallet.proof (the wallet's own derivation). Its plain
+# Prover.toml stays IGNORED because codegen-verifiers.sh now generates it by copying the baseline,
+# and committing a derived file invites the two drifting apart. title_holder still keeps its single
+# Prover.toml as a real source.
+!withdraw_identity/Prover.baseline.toml
+!withdraw_identity/Prover.wallet.toml
+!withdraw_identity/Prover.e2e.toml
+!title_holder/Prover.toml
+!ragequit/Prover.toml
+
+# passport-profiles.json is SOURCE, not build output: the recovered circuit parameter tuples
+# codegen-passport-verifiers.sh builds from. Without this negation the *.json rule above (which
+# exists to keep compiled artifacts out) would silently drop the one input that cannot be rebuilt.
+!passport-profiles.json
+
+# transient per-profile build tree used by codegen-passport-verifiers.sh
+.passport-build/

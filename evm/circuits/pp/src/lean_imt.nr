@@ -1,0 +1,488 @@
+// LeanIMT inclusion proof - faithful port of PP's merkleTree.circom (LeanIMTInclusionProof).
+// This is the ONE gadget with no drop-in Noir library, so it's a line-for-line translation of the
+// Circom, kept algebraic (no `if`) to mirror the original constraints exactly.
+//
+// LeanIMT rule (the part a generic Merkle gadget gets wrong): when a node's sibling is EMPTY (== 0),
+// the node is carried up UNCHANGED; otherwise the node is Poseidon2 of the ordered (left,right) pair.
+// Circom: nodes[i+1] = (nodes[i] - h) * siblingIsEmpty + h.
+//
+// Hashing is circomlib-Poseidon via noir-lang/poseidon - must match the on-chain @zk-kit/lean-imt.sol
+// (which hashes with PoseidonT3 / circomlib). Differential-tested against lean-imt.sol: 46 randomized
+// (leaf, index, siblings, depth) vectors below, all passing (`nargo test`, confirmed 2026-07-26).
+//
+// CONFIRMED on dev machine (nargo 1.0.0-beta.1, poseidon tag v0.1.0): import path is
+// `poseidon::poseidon::bn254`, NOT `poseidon::bn254` (see commitment.nr for detail).
+use poseidon::poseidon::bn254;
+
+pub fn lean_imt_inclusion<let MAX_DEPTH: u32>(
+    leaf: Field,
+    leaf_index: Field,
+    siblings: [Field; MAX_DEPTH],
+    actual_depth: u32,
+) -> Field {
+    // actualDepth is only a bound in the Circom (|siblings| <= actualDepth <= maxDepth).
+    assert(actual_depth <= MAX_DEPTH);
+
+    // Path bits of the leaf index (LSB = level 0), as in Circom's Num2Bits(maxDepth).
+    let indices: [bool; MAX_DEPTH] = leaf_index.to_le_bits();
+
+    let mut node = leaf;
+    for i in 0..MAX_DEPTH {
+        let sibling = siblings[i];
+        let bit = indices[i] as Field; // 0 => current node is the left child, 1 => the right child
+
+        // Order the pair by the path bit (algebraic switcher, == Circom's DualMux).
+        let left = node + bit * (sibling - node); // bit 0 => node,    bit 1 => sibling
+        let right = sibling + bit * (node - sibling); // bit 0 => sibling, bit 1 => node
+
+        let hashed = bn254::hash_2([left, right]);
+
+        // Carry-up when the sibling is empty (== 0), else take the hash. == Circom line 74.
+        let sibling_is_empty = (sibling == 0) as Field;
+        node = (node - hashed) * sibling_is_empty + hashed;
+    }
+
+    node
+}
+
+// Differential test vector, cross-checked against @zk-kit/lean-imt.sol + poseidon-solidity on
+// 2026-07-01 (see PP-NOIR-FUSION.md P0 log). Tree: insert(1), insert(2), insert(3) (3 leaves, depth
+// 2). h01 = PoseidonT3.hash([1,2]); root = PoseidonT3.hash([h01,3]); LeanIMT.sol's `root()` was
+// asserted equal to this hand-derived root on-chain before taking these numbers.
+#[test]
+fn test_matches_lean_imt_sol_three_leaves() {
+    let leaf: Field = 1;
+    let sibling_l0: Field = 2; // L1
+    let sibling_l1: Field = 3; // L2 (carried up at level 0, so it's node1 = L2 itself)
+    let expected_root: Field = 13816780880028945690020260331303642730075999758909899334839547418969502592169;
+
+    let root = lean_imt_inclusion(leaf, 0, [sibling_l0, sibling_l1], 2);
+    assert(root == expected_root);
+}
+
+// FUZZED differential vectors (2026-07-24, closes the P1-remaining gap PP-NOIR-FUSION.md flagged:
+// "particularly the LeanIMT carry-up edge case, odd leaf counts at multiple levels"). Generated
+// from 10 real LeanIMT trees (sizes 1,2,3,4,5,6,7,8,13,37 - chosen to hit every parity/carry-up
+// combination up to MAX_DEPTH=8, including multi-level carries at size 37), built and proven in
+// Node with @iden3/js-crypto's Poseidon - the SAME primitive already cross-checked this session as
+// byte-identical to noir-lang/poseidon's bn254::hash_2 and poseidon-solidity's PoseidonT3 (see
+// commitment.nr, identity_asp.nr). Construction mirrors InternalLeanIMT.sol's insert-order-
+// dependent algorithm (carry a node up unchanged when its sibling is empty), not just a
+// root-checking formula. 46 vectors, every leaf of every tree up to size 8, a representative
+// sample (first two / middle / last two) for the larger trees. Not yet run (nargo restricted this
+// session) - `nargo test` should confirm all 46 pass before this is trusted for real value.
+
+#[test]
+fn test_fuzz_0_size1_index0() {
+    let leaf: Field = 771542434896270695;
+    let siblings: [Field; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 771542434896270695;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 0);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_1_size2_index0() {
+    let leaf: Field = 17448036227231216792;
+    let siblings: [Field; 8] = [18220607450983656993, 0, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 4872492189337491109994569408025775109149422060106672696281092769329676785083;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 1);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_2_size2_index1() {
+    let leaf: Field = 18220607450983656993;
+    let siblings: [Field; 8] = [17448036227231216792, 0, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 4872492189337491109994569408025775109149422060106672696281092769329676785083;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 1);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_3_size3_index0() {
+    let leaf: Field = 12690389589401385431;
+    let siblings: [Field; 8] = [3695901138668934445, 1951146152130020494, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5885686806379232589708813548494304953386472061266441823978427574364883829116;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_4_size3_index1() {
+    let leaf: Field = 3695901138668934445;
+    let siblings: [Field; 8] = [12690389589401385431, 1951146152130020494, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5885686806379232589708813548494304953386472061266441823978427574364883829116;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_5_size3_index2() {
+    let leaf: Field = 1951146152130020494;
+    let siblings: [Field; 8] = [0, 3040063597165823600073380314538092345766290954341235159052656240521104561325, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5885686806379232589708813548494304953386472061266441823978427574364883829116;
+    let root = lean_imt_inclusion(leaf, 2, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_6_size4_index0() {
+    let leaf: Field = 2784286751939579549;
+    let siblings: [Field; 8] = [317150846121963200, 7964850139242718324196978781653575224005306456022843761801150076827548182135, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13366554711718768673334343702538355979233830220441717513832495680012843873485;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_7_size4_index1() {
+    let leaf: Field = 317150846121963200;
+    let siblings: [Field; 8] = [2784286751939579549, 7964850139242718324196978781653575224005306456022843761801150076827548182135, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13366554711718768673334343702538355979233830220441717513832495680012843873485;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_8_size4_index2() {
+    let leaf: Field = 9191575278534986803;
+    let siblings: [Field; 8] = [17363085459673843459, 14956227790025048372475856934647233951074699006894669706355180870879998891321, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13366554711718768673334343702538355979233830220441717513832495680012843873485;
+    let root = lean_imt_inclusion(leaf, 2, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_9_size4_index3() {
+    let leaf: Field = 17363085459673843459;
+    let siblings: [Field; 8] = [9191575278534986803, 14956227790025048372475856934647233951074699006894669706355180870879998891321, 0, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13366554711718768673334343702538355979233830220441717513832495680012843873485;
+    let root = lean_imt_inclusion(leaf, 3, siblings, 2);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_10_size5_index0() {
+    let leaf: Field = 7781853593656935723;
+    let siblings: [Field; 8] = [9555585195642170100, 8701259702523108370678798259235950596964081891000804989751557162955111836200, 3819499890691151335, 0, 0, 0, 0, 0];
+    let expected_root: Field = 20015743656346873681370225358503160585774786889988534312485824212214054743262;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_11_size5_index1() {
+    let leaf: Field = 9555585195642170100;
+    let siblings: [Field; 8] = [7781853593656935723, 8701259702523108370678798259235950596964081891000804989751557162955111836200, 3819499890691151335, 0, 0, 0, 0, 0];
+    let expected_root: Field = 20015743656346873681370225358503160585774786889988534312485824212214054743262;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_12_size5_index2() {
+    let leaf: Field = 12596043717543206001;
+    let siblings: [Field; 8] = [2573283321815358863, 1473870082597004751432148851387953793929332102427177748493801474884966588271, 3819499890691151335, 0, 0, 0, 0, 0];
+    let expected_root: Field = 20015743656346873681370225358503160585774786889988534312485824212214054743262;
+    let root = lean_imt_inclusion(leaf, 2, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_13_size5_index3() {
+    let leaf: Field = 2573283321815358863;
+    let siblings: [Field; 8] = [12596043717543206001, 1473870082597004751432148851387953793929332102427177748493801474884966588271, 3819499890691151335, 0, 0, 0, 0, 0];
+    let expected_root: Field = 20015743656346873681370225358503160585774786889988534312485824212214054743262;
+    let root = lean_imt_inclusion(leaf, 3, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_14_size5_index4() {
+    let leaf: Field = 3819499890691151335;
+    let siblings: [Field; 8] = [0, 0, 21775435753822882247008479331658933587327274153299346971976454586806997434762, 0, 0, 0, 0, 0];
+    let expected_root: Field = 20015743656346873681370225358503160585774786889988534312485824212214054743262;
+    let root = lean_imt_inclusion(leaf, 4, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_15_size6_index0() {
+    let leaf: Field = 6927654554759505180;
+    let siblings: [Field; 8] = [6776555738542438135, 11741663866724274065017805127783416570027340306358741780185433815584176999329, 8918404965939824566303745658978339786840000927016672069922166095786634529113, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13161033659012153155959476726976812078279254416945611756871563053408440778409;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_16_size6_index1() {
+    let leaf: Field = 6776555738542438135;
+    let siblings: [Field; 8] = [6927654554759505180, 11741663866724274065017805127783416570027340306358741780185433815584176999329, 8918404965939824566303745658978339786840000927016672069922166095786634529113, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13161033659012153155959476726976812078279254416945611756871563053408440778409;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_17_size6_index2() {
+    let leaf: Field = 10945018005205075438;
+    let siblings: [Field; 8] = [7751554709412647974, 13045641299397352791857558739113670995315855876601633162081248183434281810407, 8918404965939824566303745658978339786840000927016672069922166095786634529113, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13161033659012153155959476726976812078279254416945611756871563053408440778409;
+    let root = lean_imt_inclusion(leaf, 2, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_18_size6_index3() {
+    let leaf: Field = 7751554709412647974;
+    let siblings: [Field; 8] = [10945018005205075438, 13045641299397352791857558739113670995315855876601633162081248183434281810407, 8918404965939824566303745658978339786840000927016672069922166095786634529113, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13161033659012153155959476726976812078279254416945611756871563053408440778409;
+    let root = lean_imt_inclusion(leaf, 3, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_19_size6_index4() {
+    let leaf: Field = 7790918266563407587;
+    let siblings: [Field; 8] = [11918846932918903861, 0, 17138227530356453200250746059311538328221851152930257775964377926749113431634, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13161033659012153155959476726976812078279254416945611756871563053408440778409;
+    let root = lean_imt_inclusion(leaf, 4, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_20_size6_index5() {
+    let leaf: Field = 11918846932918903861;
+    let siblings: [Field; 8] = [7790918266563407587, 0, 17138227530356453200250746059311538328221851152930257775964377926749113431634, 0, 0, 0, 0, 0];
+    let expected_root: Field = 13161033659012153155959476726976812078279254416945611756871563053408440778409;
+    let root = lean_imt_inclusion(leaf, 5, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_21_size7_index0() {
+    let leaf: Field = 15628034858974114649;
+    let siblings: [Field; 8] = [9494284577974599804, 6629185819996052357613038257168589869375616172862477003331219633576109943984, 9588177920740044990655729971034531611511127743028177095590020460971270303839, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_22_size7_index1() {
+    let leaf: Field = 9494284577974599804;
+    let siblings: [Field; 8] = [15628034858974114649, 6629185819996052357613038257168589869375616172862477003331219633576109943984, 9588177920740044990655729971034531611511127743028177095590020460971270303839, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_23_size7_index2() {
+    let leaf: Field = 12681318555153330327;
+    let siblings: [Field; 8] = [4631286202442100965, 1899257402226927357452699883901718593683635383623052983846403713135994513285, 9588177920740044990655729971034531611511127743028177095590020460971270303839, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 2, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_24_size7_index3() {
+    let leaf: Field = 4631286202442100965;
+    let siblings: [Field; 8] = [12681318555153330327, 1899257402226927357452699883901718593683635383623052983846403713135994513285, 9588177920740044990655729971034531611511127743028177095590020460971270303839, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 3, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_25_size7_index4() {
+    let leaf: Field = 6297765070207019386;
+    let siblings: [Field; 8] = [18006511486316440406, 18296083989700797552, 2035991619178336174720429423234685619889915608119491779821822533399109852551, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 4, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_26_size7_index5() {
+    let leaf: Field = 18006511486316440406;
+    let siblings: [Field; 8] = [6297765070207019386, 18296083989700797552, 2035991619178336174720429423234685619889915608119491779821822533399109852551, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 5, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_27_size7_index6() {
+    let leaf: Field = 18296083989700797552;
+    let siblings: [Field; 8] = [0, 17878177957706099491437451327467445607273922719065030759006313815883850757520, 2035991619178336174720429423234685619889915608119491779821822533399109852551, 0, 0, 0, 0, 0];
+    let expected_root: Field = 5301077719357616074802874993195774557988803210589255316803246521977389207755;
+    let root = lean_imt_inclusion(leaf, 6, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_28_size8_index0() {
+    let leaf: Field = 2156208954567452673;
+    let siblings: [Field; 8] = [9494724636210700158, 5592684934048244820153346114671855604854313446709835459708745803739225552045, 1272603601787951139179326416143958099757244341295453039184883303042206593521, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_29_size8_index1() {
+    let leaf: Field = 9494724636210700158;
+    let siblings: [Field; 8] = [2156208954567452673, 5592684934048244820153346114671855604854313446709835459708745803739225552045, 1272603601787951139179326416143958099757244341295453039184883303042206593521, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_30_size8_index2() {
+    let leaf: Field = 3226449629626982905;
+    let siblings: [Field; 8] = [7144203569905078157, 10226134070307996391501546258380143920177401131919853500464065647932895046723, 1272603601787951139179326416143958099757244341295453039184883303042206593521, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 2, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_31_size8_index3() {
+    let leaf: Field = 7144203569905078157;
+    let siblings: [Field; 8] = [3226449629626982905, 10226134070307996391501546258380143920177401131919853500464065647932895046723, 1272603601787951139179326416143958099757244341295453039184883303042206593521, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 3, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_32_size8_index4() {
+    let leaf: Field = 7215448536970134597;
+    let siblings: [Field; 8] = [6509110875329765709, 14583652410026634496195363791514099805137588491962480318535340478422961289581, 6196640306082978253709975320119353301542494215309243351173614291177887553957, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 4, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_33_size8_index5() {
+    let leaf: Field = 6509110875329765709;
+    let siblings: [Field; 8] = [7215448536970134597, 14583652410026634496195363791514099805137588491962480318535340478422961289581, 6196640306082978253709975320119353301542494215309243351173614291177887553957, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 5, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_34_size8_index6() {
+    let leaf: Field = 17548365205188915867;
+    let siblings: [Field; 8] = [261631249748403215, 18428814552166683027352683009927335393769957432919015566758637521837478459833, 6196640306082978253709975320119353301542494215309243351173614291177887553957, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 6, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_35_size8_index7() {
+    let leaf: Field = 261631249748403215;
+    let siblings: [Field; 8] = [17548365205188915867, 18428814552166683027352683009927335393769957432919015566758637521837478459833, 6196640306082978253709975320119353301542494215309243351173614291177887553957, 0, 0, 0, 0, 0];
+    let expected_root: Field = 17175854267509309966085747885571145670326939902908279468267019279871310684727;
+    let root = lean_imt_inclusion(leaf, 7, siblings, 3);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_36_size13_index0() {
+    let leaf: Field = 11489256994343316833;
+    let siblings: [Field; 8] = [11603438504881828713, 16542357335067612530102173026383487543035358309376882912008005115967472830224, 2221770021946825013744084491896272745178724780232178327653531840820698226565, 17652795960809760404846628711855257918902130431812549716644175124394295804693, 0, 0, 0, 0];
+    let expected_root: Field = 14183749461018517227364160628004857456000848290273865120310411732330419837342;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 4);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_37_size13_index1() {
+    let leaf: Field = 11603438504881828713;
+    let siblings: [Field; 8] = [11489256994343316833, 16542357335067612530102173026383487543035358309376882912008005115967472830224, 2221770021946825013744084491896272745178724780232178327653531840820698226565, 17652795960809760404846628711855257918902130431812549716644175124394295804693, 0, 0, 0, 0];
+    let expected_root: Field = 14183749461018517227364160628004857456000848290273865120310411732330419837342;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 4);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_38_size13_index6() {
+    let leaf: Field = 7128006276309072347;
+    let siblings: [Field; 8] = [12501064656219264077, 6966197664619158367558678389906932866140648555707314222634581341742014817300, 2394777660170708103361829205946213295033689459274396240822666487171914042251, 17652795960809760404846628711855257918902130431812549716644175124394295804693, 0, 0, 0, 0];
+    let expected_root: Field = 14183749461018517227364160628004857456000848290273865120310411732330419837342;
+    let root = lean_imt_inclusion(leaf, 6, siblings, 4);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_39_size13_index11() {
+    let leaf: Field = 480104012866569946;
+    let siblings: [Field; 8] = [920792791188900395, 12090090777799253027303092566753661891734068595692233158832009665554870168289, 5856356425764264020, 3174717909152537408169398700210891487015705651852502990143988972963371630378, 0, 0, 0, 0];
+    let expected_root: Field = 14183749461018517227364160628004857456000848290273865120310411732330419837342;
+    let root = lean_imt_inclusion(leaf, 11, siblings, 4);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_40_size13_index12() {
+    let leaf: Field = 5856356425764264020;
+    let siblings: [Field; 8] = [0, 0, 938494122502296593094790649306987491951732116753974003717807045705202169369, 3174717909152537408169398700210891487015705651852502990143988972963371630378, 0, 0, 0, 0];
+    let expected_root: Field = 14183749461018517227364160628004857456000848290273865120310411732330419837342;
+    let root = lean_imt_inclusion(leaf, 12, siblings, 4);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_41_size37_index0() {
+    let leaf: Field = 2428357266875456457;
+    let siblings: [Field; 8] = [15038551292693696811, 2241930592271314551426011704247493323648285605423926866949935044307852284235, 1964225937676367866632921122830787392460284796845069162310889813296455013483, 19725949662688238211412579149856550934493841560994830132262433031233844580309, 18091544804511444219908020546300550501277127377760244594637327092972934206305, 3535488985782046482267516183190292226464266235459545259931671508204533969394, 0, 0];
+    let expected_root: Field = 14319868135105768875385782146027077203800349093813394302095769180806489828026;
+    let root = lean_imt_inclusion(leaf, 0, siblings, 6);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_42_size37_index1() {
+    let leaf: Field = 15038551292693696811;
+    let siblings: [Field; 8] = [2428357266875456457, 2241930592271314551426011704247493323648285605423926866949935044307852284235, 1964225937676367866632921122830787392460284796845069162310889813296455013483, 19725949662688238211412579149856550934493841560994830132262433031233844580309, 18091544804511444219908020546300550501277127377760244594637327092972934206305, 3535488985782046482267516183190292226464266235459545259931671508204533969394, 0, 0];
+    let expected_root: Field = 14319868135105768875385782146027077203800349093813394302095769180806489828026;
+    let root = lean_imt_inclusion(leaf, 1, siblings, 6);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_43_size37_index18() {
+    let leaf: Field = 2126236364029314878;
+    let siblings: [Field; 8] = [16852632617482436066, 6978173071946353591403813324548590428771367127371020048099257588725769072660, 4381085509329509823454919610091056537875936250480075987814272752001215059159, 9693719778414854223390955772013683441674110985748973847178586942362612604891, 6660117103245118760516634770874656053307135672830281264087498303717135688127, 3535488985782046482267516183190292226464266235459545259931671508204533969394, 0, 0];
+    let expected_root: Field = 14319868135105768875385782146027077203800349093813394302095769180806489828026;
+    let root = lean_imt_inclusion(leaf, 18, siblings, 6);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_44_size37_index35() {
+    let leaf: Field = 10272966334413731388;
+    let siblings: [Field; 8] = [7918882353857294081, 2206610592373038771161869004826748984376739496338694692012757535336524924390, 17198199127986228581, 0, 0, 11437420439414808768797291994202542409100877116322604976970834790112368507037, 0, 0];
+    let expected_root: Field = 14319868135105768875385782146027077203800349093813394302095769180806489828026;
+    let root = lean_imt_inclusion(leaf, 35, siblings, 6);
+    assert(root == expected_root);
+}
+
+#[test]
+fn test_fuzz_45_size37_index36() {
+    let leaf: Field = 17198199127986228581;
+    let siblings: [Field; 8] = [0, 0, 6342008351936654975547799187921999712689366106410302231334357554416436578122, 0, 0, 11437420439414808768797291994202542409100877116322604976970834790112368507037, 0, 0];
+    let expected_root: Field = 14319868135105768875385782146027077203800349093813394302095769180806489828026;
+    let root = lean_imt_inclusion(leaf, 36, siblings, 6);
+    assert(root == expected_root);
+}
+

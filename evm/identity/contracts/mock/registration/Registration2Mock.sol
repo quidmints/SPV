@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.21;
+
+import {Registration2} from "../../registration/Registration2.sol";
+
+contract Registration2Mock is Registration2 {
+    function mockAddCertificateDispatcher(bytes32 dispatcherType_, address dispatcher_) external {
+        _addDependency(certificateDispatchers, dispatcherType_, dispatcher_);
+    }
+
+    function mockAddPassportDispatcher(bytes32 dispatcherType_, address dispatcher_) external {
+        _addDependency(passportDispatchers, dispatcherType_, dispatcher_);
+    }
+
+    function mockAddPassportVerifier(bytes32 verifierType_, address verifier_) external {
+        _addDependency(passportVerifiers, verifierType_, verifier_);
+    }
+
+    function _authorizeUpgrade(address) internal pure virtual override {}
+}

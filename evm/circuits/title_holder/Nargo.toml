@@ -1,0 +1,12 @@
+[package]
+name = "title_holder"
+type = "bin"
+authors = [""]
+
+# Compiled entry point for pp::title_holder (the gadget lives in pp/src/title_holder.nr) - proves
+# knowledge of an sk_identity behind a title's holder commitment, without revealing sk_identity or
+# holder_root. Consumed by backend/contracts/contracts/title/TitleLedger.sol's
+# TITLE_HOLDER_VERIFIER (transferTitle / verifyHolderProof). See title_holder.nr's header for why
+# this is deliberately NOT the same commitment as pp::identity_asp's holder_root.
+[dependencies]
+pp = { path = "../pp" }

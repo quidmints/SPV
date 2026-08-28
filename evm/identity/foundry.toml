@@ -1,0 +1,70 @@
+[profile.default]
+src = "contracts"
+test = "test"
+out = "out"
+# §MERGE — `../lib` is FIRST so the four libraries SPV already vendors (forge-std,
+# openzeppelin-contracts, solidity-lib, solady) resolve to the repo's single copy rather than a
+# second one here. Foundry sandboxes source reads to the project root plus its `libs`, so listing
+# the parent is what makes the shared remappings legal, not just correct.
+# ⚠️ This project stays SEPARATE from `evm/` for two reasons that are not style: 17 files pin an
+# EXACT `pragma solidity 0.8.28` and cannot build under evm's 0.8.30, and the generated Honk
+# verifiers below need per-contract `optimizer_runs = 1` to fit EIP-170 while evm is flat at 200.
+libs = ["lib", "../lib", "node_modules"]
+# §MERGE — was 0.8.28, aligned to `evm/`'s 0.8.30 so the repo has ONE compiler. The 17 files
+# that blocked it pinned an EXACT `pragma solidity 0.8.28` (Privacy Pool, registry, title) and
+# were relaxed to `^0.8.28`, which widens acceptance without changing semantics. Both projects
+# were already on `cancun`, so nothing else had to move.
+solc = "0.8.30"
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"
+fs_permissions = [
+  { access = "read-write", path = "./" },
+  # READ-ONLY, and one file. PassportVerifierRegistry.t.sol cross-checks the zkTypes recorded in the
+  # manifest against Solidity's own keccak - the manifest is written off-chain and the deployment
+  # registers those keys on-chain, so this is the only place the two derivations meet. Granted as a
+  # single read-only path rather than widening to `../`, and NOT hand-copied into the test, because
+  # a mirrored table is exactly the drift that left a stale AA curve width in the checker.
+  { access = "read", path = "../circuits/passport-profiles.json" },
+]
+
+# The generated Honk verifiers are ~24.5KB against EIP-170's 24,576-byte limit - only ~40 bytes of
+# headroom at the project-wide optimizer_runs=200. That is a deployment cliff: any regeneration
+# (a circuit change, a bb version bump) can push them over with no warning until deploy time.
+#
+# optimizer_runs=1 optimises for SIZE rather than execution cost, which for these specific contracts
+# is the right trade and was measured, not assumed: 24,534 -> 23,527 bytes (+1,007 headroom) for
+# +15k gas on a ~2.76M-gas verify (+0.6%). Scoped to the verifiers alone via compilation
+# restrictions so every other contract keeps runs=200 and its normal runtime cost.
+[[profile.default.additional_compiler_profiles]]
+name = "size-optimised-verifier"
+optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/pool/verifiers/WithdrawalHonkVerifier.sol"
+optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/title/TitleHolderHonkVerifier.sol"
+optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/pool/verifiers/RagequitHonkVerifier.sol"
+optimizer_runs = 1
+
+# Without this the generated verifier is 25,503 bytes - 927 OVER the EIP-170 24,576 limit and
+# undeployable. It has 8 public inputs, the most of any circuit here, and each one costs runtime
+# code. The failure surfaces only at deploy time, so it is caught by `forge build --sizes`.
+[[profile.default.compilation_restrictions]]
+paths = "contracts/registry/verifiers/EscrowEnvelopeHonkVerifier.sol"
+optimizer_runs = 1
+
+# The recursion-tree root verifiers, one per batch size (TODO.md sec. 2.4 / 2.18el). Same knife-edge
+# as the others: each is ~100 KB of source and only optimizer_runs = 1 brings the runtime code under
+# EIP-170. Their size is INDEPENDENT of the batch (Honk's verifier is a fixed algorithm; a deeper
+# tree grows the circuit, not the contract), so a new depth needs a new PATH here but no new
+# reasoning - the glob covers them all.
+[[profile.default.compilation_restrictions]]
+paths = "contracts/pool/verifiers/TreeRoot*HonkVerifier.sol"
+optimizer_runs = 1
+

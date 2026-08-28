@@ -1,0 +1,13 @@
+[package]
+name = "withdraw_identity"
+type = "bin"
+authors = [""]
+
+# The rescoped P2 port (see PP-NOIR-FUSION.md P2 and pp/src/identity_asp.nr): withdraw.circom's
+# logic, translated to Noir, with ASP membership keyed by IDENTITY (pp::identity_asp) instead of
+# 0xbow's per-deposit `label`. Public I/O ordering is pinned to PrivacyPool.sol's
+# ProofLib.WithdrawProof.pubSignals layout - the contract does not need to change; only what the
+# `asp_root`/`asp_tree_depth` slots MEAN changes (identity tree instead of label tree).
+[dependencies]
+pp = { path = "../pp" }
+poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }

@@ -1,0 +1,408 @@
+# BASELINE FOR THE beta.26 MIGRATION - the ORACLE, captured BEFORE any change.
+#
+# WHY THIS FILE EXISTS. The u1 -> bool rewrite touches pp/src/smt.nr, the SMT verifier every identity
+# and title commitment depends on. A wrong rewrite does NOT fail loudly - it silently changes results
+# and forks every commitment in the system. "It compiles" and even "the tests pass" are both weaker
+# than they look: a test that was SKIPPED or RENAMED during the migration passes by not running.
+#
+# So the acceptance criterion is this exact roster, name for name, plus identical published vectors.
+# Compare with:  nargo test 2>&1 | grep Testing | ...  (see the capture command in TODO.md sec. 2.4a)
+#
+# STATUS: COMPLETE. pp (87) and noir_dl_lib (80) rosters both captured on beta.13.
+#
+
+## pp test roster
+  commitment::test_matches_poseidon_solidity
+  envelope::test_a_different_ephemeral_gives_a_different_ciphertext
+  envelope::test_ciphertext_actually_hides_the_payload
+  envelope::test_controller_key_matches_babyjub
+  envelope::test_each_slot_gets_a_DIFFERENT_mask
+  envelope::test_notary_domain_is_the_string_it_claims_to_be
+  envelope::test_seal_then_open_roundtrips
+  envelope::test_secret_commitment_is_deterministic_and_separating
+  envelope::test_the_notary_commitment_is_unrelated_to_the_pool_commitment
+  envelope::test_the_notary_secret_is_deterministic_and_identity_specific
+  envelope::test_the_wrong_controller_key_does_not_open_it
+  envelope::test_zero_ephemeral_is_rejected
+  envelope::test_zero_ephemeral_would_have_leaked_the_payload
+  identity_asp::test_matches_wallet_profile_key_derivation
+  jubjub::test_add_doubling_matches_babyjub
+  jubjub::test_add_identity_is_neutral
+  jubjub::test_distinct_keys_give_distinct_points
+  jubjub::test_mul_point_arbitrary_base_matches_babyjub
+  jubjub::test_mul_point_by_zero_returns_the_sentinel_not_the_identity
+  jubjub::test_priv_to_pub_agrees_with_mul_point
+  jubjub::test_priv_to_pub_is_deterministic
+  jubjub::test_priv_to_pub_matches_babyjub
+  lean_imt::test_fuzz_0_size1_index0
+  lean_imt::test_fuzz_1_size2_index0
+  lean_imt::test_fuzz_10_size5_index0
+  lean_imt::test_fuzz_11_size5_index1
+  lean_imt::test_fuzz_12_size5_index2
+  lean_imt::test_fuzz_13_size5_index3
+  lean_imt::test_fuzz_14_size5_index4
+  lean_imt::test_fuzz_15_size6_index0
+  lean_imt::test_fuzz_16_size6_index1
+  lean_imt::test_fuzz_17_size6_index2
+  lean_imt::test_fuzz_18_size6_index3
+  lean_imt::test_fuzz_19_size6_index4
+  lean_imt::test_fuzz_2_size2_index1
+  lean_imt::test_fuzz_20_size6_index5
+  lean_imt::test_fuzz_21_size7_index0
+  lean_imt::test_fuzz_22_size7_index1
+  lean_imt::test_fuzz_23_size7_index2
+  lean_imt::test_fuzz_24_size7_index3
+  lean_imt::test_fuzz_25_size7_index4
+  lean_imt::test_fuzz_26_size7_index5
+  lean_imt::test_fuzz_27_size7_index6
+  lean_imt::test_fuzz_28_size8_index0
+  lean_imt::test_fuzz_29_size8_index1
+  lean_imt::test_fuzz_3_size3_index0
+  lean_imt::test_fuzz_30_size8_index2
+  lean_imt::test_fuzz_31_size8_index3
+  lean_imt::test_fuzz_32_size8_index4
+  lean_imt::test_fuzz_33_size8_index5
+  lean_imt::test_fuzz_34_size8_index6
+  lean_imt::test_fuzz_35_size8_index7
+  lean_imt::test_fuzz_36_size13_index0
+  lean_imt::test_fuzz_37_size13_index1
+  lean_imt::test_fuzz_38_size13_index6
+  lean_imt::test_fuzz_39_size13_index11
+  lean_imt::test_fuzz_4_size3_index1
+  lean_imt::test_fuzz_40_size13_index12
+  lean_imt::test_fuzz_41_size37_index0
+  lean_imt::test_fuzz_42_size37_index1
+  lean_imt::test_fuzz_43_size37_index18
+  lean_imt::test_fuzz_44_size37_index35
+  lean_imt::test_fuzz_45_size37_index36
+  lean_imt::test_fuzz_5_size3_index2
+  lean_imt::test_fuzz_6_size4_index0
+  lean_imt::test_fuzz_7_size4_index1
+  lean_imt::test_fuzz_8_size4_index2
+  lean_imt::test_fuzz_9_size4_index3
+  lean_imt::test_matches_lean_imt_sol_three_leaves
+  smt::test_a_revoked_entry_cannot_claim_value_zero
+  smt::test_absent_key_cannot_be_proven_present_with_value_zero
+  smt::test_exclusion_against_empty_tree_any_key
+  smt::test_exclusion_against_the_empty_tree
+  smt::test_exclusion_cannot_claim_a_present_key
+  smt::test_exclusion_empty_slot_matches_circomlibjs
+  smt::test_exclusion_other_leaf_matches_circomlibjs
+  smt::test_exclusion_rejects_wrong_old_leaf
+  smt::test_exclusion_rejects_wrong_root
+  smt::test_full_verifier_still_does_inclusion
+  smt::test_inclusion_matches_circomlibjs
+  smt::test_inclusion_with_value_zero_is_provable
+  smt::test_rejects_tampered_sibling
+  smt::test_rejects_wrong_key
+  smt::test_rejects_wrong_root
+  smt::test_rejects_wrong_value
+  smt::test_value_zero_inclusion_still_binds_the_root
+  title_holder::test_matches_wallet_derivation
+  TOTAL: 87 tests passed
+
+## noir_dl_lib test roster
+  big_curve::utils::derive_offset_generators::test_compute_and_print_offset_generators
+  bignum::utils::u60_representation_test::test_conversion
+  bignum::utils::u60_representation_test::test_get_bit
+  bignum::utils::u60_representation_test::test_gte
+  bignum::utils::u60_representation_test::test_shl
+  bignum::utils::u60_representation_test::test_shr
+  jubjub::test_add_doubling_matches_babyjub
+  jubjub::test_add_identity_is_neutral
+  jubjub::test_distinct_keys_give_distinct_points
+  jubjub::test_priv_to_pub_is_deterministic
+  jubjub::test_priv_to_pub_matches_babyjub
+  lite::test_dg1_hash_field_matches_the_published_vector
+  query::disclosure_tests::test_a_satisfied_birth_date_bound_passes_when_the_bit_is_set
+  query::disclosure_tests::test_a_year_above_the_current_year_is_last_century
+  query::disclosure_tests::test_a_year_equal_to_the_current_year_is_this_century
+  query::disclosure_tests::test_a_zero_date_bound_aborts_proving_even_when_unrequested
+  query::disclosure_tests::test_an_empty_selector_discloses_nothing
+  query::disclosure_tests::test_an_equal_date_is_not_less
+  query::disclosure_tests::test_an_out_of_range_birth_date_passes_when_its_bound_bit_is_clear
+  query::disclosure_tests::test_bit_0_alone_reveals_the_nullifier_and_nothing_else
+  query::disclosure_tests::test_bit_1_alone_reveals_the_birth_date_and_nothing_else
+  query::disclosure_tests::test_the_month_outranks_the_day
+  query::disclosure_tests::test_the_nullifier_is_zero_for_everyone_when_its_bit_is_clear
+  query::disclosure_tests::test_the_same_out_of_range_birth_date_is_rejected_when_the_bit_is_set
+  query::td1_disclosure_tests::test_an_empty_selector_discloses_nothing
+  query::td1_disclosure_tests::test_asking_about_citizenship_no_longer_discloses_the_personal_number
+  query::td1_disclosure_tests::test_bit_1_alone_reveals_the_birth_date_and_nothing_else
+  query::td1_disclosure_tests::test_the_citizenship_constraint_still_rejects_a_non_matching_mask
+  query::td1_disclosure_tests::test_the_personal_number_can_be_requested_without_a_citizenship_constraint
+  rsa_pss::test_verify_rsa_pss_2048_e_3_salt_32_with_sha_256
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_32_with_sha_256
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_48_with_sha_384
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_64_with_sha_256
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_64_with_sha_512
+  rsa::test_rsa_2048_with_sha1_exp_65537
+  rsa::test_rsa_2048_with_sha256_exp_65537
+  rsa::test_rsa_3072_with_sha1_exp_37187
+  rsa::test_rsa_4096_with_sha256_exp_65537
+  rsa::test_rsa_4096_with_sha256_exp_65537_2
+  sha1::test_sha1_1_chunk
+  sha1::test_sha1_2_chunks
+  sha224::test_sha224_1_chunk
+  sha224::test_sha224_2_chunks
+  sha384::test_sha384_1_chunk
+  sha384::test_sha384_2_chunks
+  sha512::test_sha512_1_chunk
+  sha512::test_sha512_2_chunks
+  sigver::curve_192::test_add_matches_reference
+  sigver::curve_192::test_double_matches_reference
+  sigver::curve_192::test_ecdsa
+  sigver::curve_192::test_mult_agrees_with_double_then_add
+  sigver::curve_192::test_mult_matches_reference
+  sigver::curve_224::test_add
+  sigver::curve_224::test_double
+  sigver::curve_224::test_ecdsa
+  sigver::curve_224::test_mult_matches_reference
+  sigver::curve_224::test_two_mult_matches_reference
+  sigver::ecdsa::test_brainpoolp256r1_signature_verification
+  sigver::ecdsa::test_brainpoolp384r1_signature_verification
+  sigver::ecdsa::test_brainpoolp384t1_signature_verification
+  sigver::ecdsa::test_brainpoolp512r1_signature_verification
+  sigver::ecdsa::test_brainpoolp512t1_signature_verification
+  sigver::ecdsa::test_secp256r1_signature_verification
+  sigver::ecdsa::test_secp384r1_signature_verification
+  sigver::ecdsa::test_secp521r1_signature_verification
+  sigver::utils::hash_to_curve::offset_generator
+  smt::test_exclusion_cannot_claim_a_present_key
+  smt::test_exclusion_empty_slot_matches_circomlibjs
+  smt::test_exclusion_other_leaf_matches_circomlibjs
+  smt::test_exclusion_rejects_wrong_old_leaf
+  smt::test_exclusion_rejects_wrong_root
+  smt::test_full_verifier_still_does_inclusion
+  smt::test_inclusion_matches_circomlibjs
+  smt::test_rejects_tampered_sibling
+  smt::test_rejects_wrong_key
+  smt::test_rejects_wrong_root
+  smt::test_rejects_wrong_value
+
+## noir_dl_lib test roster (captured on beta.13)
+# 2026-08-02: THREE TESTS REMOVED ON PURPOSE - sigver::curve_384::{test_double, test_ecdsa,
+# test_mult_matches_reference}, and curve_384.nr's source hash with them. The file was DELETED as
+# dead code: nothing imported it (only its own `mod` line), and TODO.md sec. 2.5b had already
+# called for its deletion because it is Brainpool P384R1 under a secp384r1 name. The roster is
+# 80 -> 77 for that reason ALONE; the beta.26 port dropped nothing else and every remaining test
+# passes. Live P384 verification is unaffected - it uses sigver::ecdsa::verify_{secp384r1,
+# brainpoolp384r1}_ecdsa, which are separate and were never routed through curve_384.
+  big_curve::utils::derive_offset_generators::test_compute_and_print_offset_generators
+  bignum::utils::u60_representation_test::test_conversion
+  bignum::utils::u60_representation_test::test_get_bit
+  bignum::utils::u60_representation_test::test_gte
+  bignum::utils::u60_representation_test::test_shl
+  bignum::utils::u60_representation_test::test_shr
+  jubjub::test_add_doubling_matches_babyjub
+  jubjub::test_add_identity_is_neutral
+  jubjub::test_distinct_keys_give_distinct_points
+  jubjub::test_priv_to_pub_is_deterministic
+  jubjub::test_priv_to_pub_matches_babyjub
+  lite::test_dg1_hash_field_matches_the_published_vector
+  query::disclosure_tests::test_a_satisfied_birth_date_bound_passes_when_the_bit_is_set
+  query::disclosure_tests::test_a_year_above_the_current_year_is_last_century
+  query::disclosure_tests::test_a_year_equal_to_the_current_year_is_this_century
+  query::disclosure_tests::test_a_zero_date_bound_aborts_proving_even_when_unrequested
+  query::disclosure_tests::test_an_empty_selector_discloses_nothing
+  query::disclosure_tests::test_an_equal_date_is_not_less
+  query::disclosure_tests::test_an_out_of_range_birth_date_passes_when_its_bound_bit_is_clear
+  query::disclosure_tests::test_bit_0_alone_reveals_the_nullifier_and_nothing_else
+  query::disclosure_tests::test_bit_1_alone_reveals_the_birth_date_and_nothing_else
+  query::disclosure_tests::test_the_month_outranks_the_day
+  query::disclosure_tests::test_the_nullifier_is_zero_for_everyone_when_its_bit_is_clear
+  query::disclosure_tests::test_the_same_out_of_range_birth_date_is_rejected_when_the_bit_is_set
+  query::td1_disclosure_tests::test_an_empty_selector_discloses_nothing
+  query::td1_disclosure_tests::test_asking_about_citizenship_no_longer_discloses_the_personal_number
+  query::td1_disclosure_tests::test_bit_1_alone_reveals_the_birth_date_and_nothing_else
+  query::td1_disclosure_tests::test_the_citizenship_constraint_still_rejects_a_non_matching_mask
+  query::td1_disclosure_tests::test_the_personal_number_can_be_requested_without_a_citizenship_constraint
+  rsa::test_rsa_2048_with_sha1_exp_65537
+  rsa::test_rsa_2048_with_sha256_exp_65537
+  rsa::test_rsa_3072_with_sha1_exp_37187
+  rsa::test_rsa_4096_with_sha256_exp_65537
+  rsa::test_rsa_4096_with_sha256_exp_65537_2
+  rsa_pss::test_verify_rsa_pss_2048_e_3_salt_32_with_sha_256
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_32_with_sha_256
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_48_with_sha_384
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_64_with_sha_256
+  rsa_pss::test_verify_rsa_pss_2048_e_65537_salt_64_with_sha_512
+  sha1::test_sha1_1_chunk
+  sha1::test_sha1_2_chunks
+  sha224::test_sha224_1_chunk
+  sha224::test_sha224_2_chunks
+  sha384::test_sha384_1_chunk
+  sha384::test_sha384_2_chunks
+  sha512::test_sha512_1_chunk
+  sha512::test_sha512_2_chunks
+  sigver::curve_192::test_add_matches_reference
+  sigver::curve_192::test_double_matches_reference
+  sigver::curve_192::test_ecdsa
+  sigver::curve_192::test_mult_agrees_with_double_then_add
+  sigver::curve_192::test_mult_matches_reference
+  sigver::curve_224::test_add
+  sigver::curve_224::test_double
+  sigver::curve_224::test_ecdsa
+  sigver::curve_224::test_mult_matches_reference
+  sigver::curve_224::test_two_mult_matches_reference
+  sigver::ecdsa::test_brainpoolp256r1_signature_verification
+  sigver::ecdsa::test_brainpoolp384r1_signature_verification
+  sigver::ecdsa::test_brainpoolp384t1_signature_verification
+  sigver::ecdsa::test_brainpoolp512r1_signature_verification
+  sigver::ecdsa::test_brainpoolp512t1_signature_verification
+  sigver::ecdsa::test_secp256r1_signature_verification
+  sigver::ecdsa::test_secp384r1_signature_verification
+  sigver::ecdsa::test_secp521r1_signature_verification
+  sigver::utils::hash_to_curve::offset_generator
+  smt::test_exclusion_cannot_claim_a_present_key
+  smt::test_exclusion_empty_slot_matches_circomlibjs
+  smt::test_exclusion_other_leaf_matches_circomlibjs
+  smt::test_exclusion_rejects_wrong_old_leaf
+  smt::test_exclusion_rejects_wrong_root
+  smt::test_full_verifier_still_does_inclusion
+  smt::test_inclusion_matches_circomlibjs
+  smt::test_rejects_tampered_sibling
+  smt::test_rejects_wrong_key
+  smt::test_rejects_wrong_root
+  smt::test_rejects_wrong_value
+  TOTAL: 80 tests passed
+
+## SOURCE CHECKSUMS - the COMPLETE oracle, replacing an earlier scraped-constants list.
+##
+## WHY CHECKSUMS AND NOT A CONSTANT LIST. I first scraped "long" literals and recorded 96 distinct
+## values - then found the pattern MISSED 1,530 shorter hex constants and 20-digit decimals. Scraping
+## by length is a blind spot generator: it cannot prove it caught everything, and a migration that
+## alters a constant the pattern skipped would pass a check built on it.
+##
+## A checksum cannot miss anything. After migrating, any file whose hash changed gets READ - the
+## u1 -> bool rewrite legitimately changes most of them, so the hash is not a pass/fail gate; it is
+## the exhaustive CHANGE LIST that says which files need a line-by-line constant diff against git.
+##
+## The behavioural gate remains: every test name in the rosters above must still run and pass.
+  f210b2e09e00afaf  aggregate_withdrawals/src/inner_vk.nr
+  6a3bef54c54a145b  aggregate_withdrawals/src/main.nr
+  b9d6a334cfadf368  escrow_envelope/src/main.nr
+  f8a17a7653abf2f9  noir_dl_lib/src/big_curve/curve_jac.nr
+  1412dfedb3052c58  noir_dl_lib/src/big_curve/curves/bls12_377.nr
+  b42fb63fdc65c1e0  noir_dl_lib/src/big_curve/curves/bls12_381.nr
+  82721f02438db5fa  noir_dl_lib/src/big_curve/curves/bn254.nr
+  da374b2529f9f224  noir_dl_lib/src/big_curve/curves/mnt4_753.nr
+  9914a3fc20f82165  noir_dl_lib/src/big_curve/curves/mnt6_753.nr
+  8bcb6006899ae6eb  noir_dl_lib/src/big_curve/curves/pallas.nr
+  65ad9fc828863a43  noir_dl_lib/src/big_curve/curves/secp256k1.nr
+  e8d61695c585e030  noir_dl_lib/src/big_curve/curves/secp256r1.nr
+  fa10c2aa6ec1777d  noir_dl_lib/src/big_curve/curves/secp384r1.nr
+  9a23b8113d93b05c  noir_dl_lib/src/big_curve/curves/vesta.nr
+  a31b0fcb6150d0b7  noir_dl_lib/src/big_curve/curves.nr
+  0f1fbab6c38a7478  noir_dl_lib/src/big_curve/mod.nr
+  218def9dea77144c  noir_dl_lib/src/big_curve/scalar_field.nr
+  cfdbd4a1be876d8f  noir_dl_lib/src/big_curve/utils/derive_offset_generators.nr
+  bc62170bfffe8a7b  noir_dl_lib/src/big_curve/utils/hash_to_curve.nr
+  7b01d18e546714d9  noir_dl_lib/src/big_curve/utils.nr
+  76626be96ce06c42  noir_dl_lib/src/bignum/bignum.nr
+  62c3c4e4daa1fc36  noir_dl_lib/src/bignum/fields/U1024.nr
+  b3e8071aa8dd965f  noir_dl_lib/src/bignum/fields/U2048.nr
+  9e2673155d49a3b0  noir_dl_lib/src/bignum/fields/U256.nr
+  40a1167ff246d529  noir_dl_lib/src/bignum/fields/U384.nr
+  a7c94f10763db9d6  noir_dl_lib/src/bignum/fields/U4096.nr
+  5bd4857fbacf1d94  noir_dl_lib/src/bignum/fields/U512.nr
+  ba5edbcdd95738fa  noir_dl_lib/src/bignum/fields/U768.nr
+  9bf7c3a0b0262233  noir_dl_lib/src/bignum/fields/U8192.nr
+  752f48e1b351fab6  noir_dl_lib/src/bignum/fields/bls12_377Fq.nr
+  2ebdec1e38d915dc  noir_dl_lib/src/bignum/fields/bls12_377Fr.nr
+  208df6ecd263c2b7  noir_dl_lib/src/bignum/fields/bls12_381Fq.nr
+  81f04be6b6afab2d  noir_dl_lib/src/bignum/fields/bls12_381Fr.nr
+  7e87d60842c8d37f  noir_dl_lib/src/bignum/fields/bn254Fq.nr
+  fe5d6b6cacf2f192  noir_dl_lib/src/bignum/fields/ed25519Fq.nr
+  cbba652c9f05a1a6  noir_dl_lib/src/bignum/fields/ed25519Fr.nr
+  83c031308e5ec3ba  noir_dl_lib/src/bignum/fields/mnt4_753Fq.nr
+  fe35c22461c91207  noir_dl_lib/src/bignum/fields/mnt4_753Fr.nr
+  ceb3428b10cf9091  noir_dl_lib/src/bignum/fields/mnt6_753Fq.nr
+  afc3cdde28a1eea0  noir_dl_lib/src/bignum/fields/mnt6_753Fr.nr
+  8aa50ed3809e48c8  noir_dl_lib/src/bignum/fields/mod.nr
+  8c0396c3cde9143d  noir_dl_lib/src/bignum/fields/pallasFq.nr
+  85089a99a4a9d0eb  noir_dl_lib/src/bignum/fields/pallasFr.nr
+  e775b1c7426d8009  noir_dl_lib/src/bignum/fields/secp256k1Fq.nr
+  4db912426925a85a  noir_dl_lib/src/bignum/fields/secp256k1Fr.nr
+  4e3518a5fb811141  noir_dl_lib/src/bignum/fields/secp256r1Fq.nr
+  14d20cf2d279d218  noir_dl_lib/src/bignum/fields/secp256r1Fr.nr
+  a4c8a369202ae123  noir_dl_lib/src/bignum/fields/secp384r1Fq.nr
+  2f7b646271551236  noir_dl_lib/src/bignum/fields/secp384r1Fr.nr
+  a96a1d9cdca974a0  noir_dl_lib/src/bignum/fields/vestaFq.nr
+  a4947de90252921e  noir_dl_lib/src/bignum/fields/vestaFr.nr
+  7f07925d2d3f6405  noir_dl_lib/src/bignum/fns/constrained_ops.nr
+  bd27ea9d59f48b26  noir_dl_lib/src/bignum/fns/expressions.nr
+  f70408e4cedccf48  noir_dl_lib/src/bignum/fns/mod.nr
+  cc794e04708869d7  noir_dl_lib/src/bignum/fns/serialization.nr
+  ef35460c85d0c6ce  noir_dl_lib/src/bignum/fns/unconstrained_helpers.nr
+  b9d97f92a099ae4e  noir_dl_lib/src/bignum/fns/unconstrained_ops.nr
+  51ebd60071846559  noir_dl_lib/src/bignum/mod.nr
+  d951a5218aef31c0  noir_dl_lib/src/bignum/params.nr
+  d1ca485f44b5e574  noir_dl_lib/src/bignum/runtime_bignum.nr
+  d5ef98df7d271825  noir_dl_lib/src/bignum/utils/map.nr
+  663bf67bcbb0b28e  noir_dl_lib/src/bignum/utils/mod.nr
+  3c89971c46556f6b  noir_dl_lib/src/bignum/utils/msb.nr
+  f67171e03c3715ae  noir_dl_lib/src/bignum/utils/split_bits.nr
+  13af33191ffed417  noir_dl_lib/src/bignum/utils/u60_representation.nr
+  b581ba345f67a567  noir_dl_lib/src/bignum/utils/u60_representation_test.nr
+  6cb961af47f32393  noir_dl_lib/src/jubjub.nr
+  7f360c04d87dc8ac  noir_dl_lib/src/lib.nr
+  2fdf088c08d219a4  noir_dl_lib/src/lite.nr
+  f0f0846d1ec9a906  noir_dl_lib/src/not_passports_zk_circuits.nr
+  8357b1bc87f932f4  noir_dl_lib/src/query.nr
+  b702b779d783c32c  noir_dl_lib/src/rsa.nr
+  ba4d85a477b82fcc  noir_dl_lib/src/rsa_pss.nr
+  0841a257ec77dc40  noir_dl_lib/src/sha1.nr
+  13be47ac67324f99  noir_dl_lib/src/sha224.nr
+  ed4834dc3e4d1ac6  noir_dl_lib/src/sha384.nr
+  ada04dc5ce75e5e2  noir_dl_lib/src/sha512.nr
+  ef50a4b71816bcdc  noir_dl_lib/src/sigver/brainpoolP256r1/curve.nr
+  baf642c8be141b08  noir_dl_lib/src/sigver/brainpoolP256r1/mod.nr
+  37abfaa645814a86  noir_dl_lib/src/sigver/brainpoolP256r1/params.nr
+  027bf81a2bc45034  noir_dl_lib/src/sigver/brainpoolP256t1/curve.nr
+  baf642c8be141b08  noir_dl_lib/src/sigver/brainpoolP256t1/mod.nr
+  795fe2c5cb3a72b7  noir_dl_lib/src/sigver/brainpoolP256t1/params.nr
+  0457ef259557037b  noir_dl_lib/src/sigver/brainpoolP384r1/curve.nr
+  baf642c8be141b08  noir_dl_lib/src/sigver/brainpoolP384r1/mod.nr
+  ff90201ae67ebb27  noir_dl_lib/src/sigver/brainpoolP384r1/params.nr
+  238102eb26b60a50  noir_dl_lib/src/sigver/brainpoolP384t1/curve.nr
+  06ca62ca232e6209  noir_dl_lib/src/sigver/brainpoolP384t1/mod.nr
+  7b4cb47ee605dc92  noir_dl_lib/src/sigver/brainpoolP384t1/params.nr
+  e671d7dbc7f07798  noir_dl_lib/src/sigver/brainpoolP512r1/curve.nr
+  baf642c8be141b08  noir_dl_lib/src/sigver/brainpoolP512r1/mod.nr
+  68fbb320655d703f  noir_dl_lib/src/sigver/brainpoolP512r1/params.nr
+  62001f8b00ba4127  noir_dl_lib/src/sigver/brainpoolP512t1/curve.nr
+  9eb044425f90f518  noir_dl_lib/src/sigver/brainpoolP512t1/mod.nr
+  83f864b1a6d733e3  noir_dl_lib/src/sigver/brainpoolP512t1/params.nr
+  322e24534211a28d  noir_dl_lib/src/sigver/curve_192.nr
+  d320b2b042518901  noir_dl_lib/src/sigver/curve_224.nr
+  7ba71cc51ffb7ead  noir_dl_lib/src/sigver/ecdsa.nr
+  f86954f66c1374c0  noir_dl_lib/src/sigver/mod.nr
+  42d371f3e416ed43  noir_dl_lib/src/sigver/secp224r1/curve.nr
+  baf642c8be141b08  noir_dl_lib/src/sigver/secp224r1/mod.nr
+  3d7b32220e8f326c  noir_dl_lib/src/sigver/secp224r1/params.nr
+  acc5524f3d963459  noir_dl_lib/src/sigver/secp521r1/curve.nr
+  baf642c8be141b08  noir_dl_lib/src/sigver/secp521r1/mod.nr
+  90cdb96f9c05375d  noir_dl_lib/src/sigver/secp521r1/params.nr
+  36d16013b5661ea9  noir_dl_lib/src/sigver/utils/hash_to_curve.nr
+  03627d0eee198917  noir_dl_lib/src/sigver/utils/mod.nr
+  f7ee777cb552159d  noir_dl_lib/src/smt.nr
+  5cf8fa69d6f8ae48  noir_dl_lib/src/utils.nr
+  06141024a6b3a8ab  notary_action/src/main.nr
+  6aa5f243657f352c  pp/src/commitment.nr
+  73355b1f53261c9f  pp/src/envelope.nr
+  23dd52fd1aaf14e2  pp/src/holder_root.nr
+  9104beed6919c1b7  pp/src/identity_asp.nr
+  3b27837130bc942b  pp/src/jubjub.nr
+  6a0a3963ad92dc0a  pp/src/lean_imt.nr
+  eeef73828377906f  pp/src/lib.nr
+  e316dbae801d8dc3  pp/src/smt.nr
+  46b9aa29d5c5d580  pp/src/title_holder.nr
+  138ac9e76e2c0c1c  query_identity/src/main.nr
+  3b4c603f88eabb23  query_identity_td1/src/main.nr
+  857c6da7452f3ae6  ragequit/src/main.nr
+  72c5f257d9408943  register_identity/src/main.nr
+  75771cfd746938b0  register_identity_light_td1/src/main.nr
+  0a898dddefdafa0d  register_identity_td1/src/main.nr
+  d6228f6993ba8fec  title_holder/src/main.nr
+  d5a842ab0a522df6  withdraw_identity/src/main.nr

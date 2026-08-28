@@ -1,0 +1,8 @@
+[package]
+name = "ragequit"
+type = "bin"
+authors = [""]
+
+# Ragequit - the escape hatch when the ASP never admits you. See src/main.nr.
+[dependencies]
+pp = { path = "../pp" }

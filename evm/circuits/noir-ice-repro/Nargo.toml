@@ -1,0 +1,4 @@
+[package]
+name = "noir_ice_repro"
+type = "bin"
+authors = [""]

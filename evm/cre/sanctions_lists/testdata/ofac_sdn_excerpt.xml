@@ -1,0 +1,110 @@
+<?xml version="1.0" standalone="yes"?>
+<sdnList xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML">
+  <publshInformation>
+    <Publish_Date>07/30/2026</Publish_Date>
+    <Record_Count>7</Record_Count>
+  </publshInformation>
+  <sdnEntry>
+    <uid>7728</uid>
+    <lastName>MANCO OIL COMPANY</lastName>
+    <sdnType>Entity</sdnType>
+    <programList>
+      <program>BALKANS</program>
+    </programList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>591</uid>
+    <lastName>CUBAEXPORT</lastName>
+    <sdnType>Entity</sdnType>
+    <programList>
+      <program>CUBA</program>
+    </programList>
+    <addressList>
+      <address>
+        <uid>359</uid>
+        <country>Spain</country>
+      </address>
+    </addressList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>7741</uid>
+    <firstName>Milanka</firstName>
+    <lastName>MILOSEVIC</lastName>
+    <sdnType>Individual</sdnType>
+    <remarks>sister-in-law of Slobodan Milosevic</remarks>
+    <programList>
+      <program>BALKANS</program>
+    </programList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>8316</uid>
+    <firstName>Dafir</firstName>
+    <lastName>AL-AZAWI</lastName>
+    <sdnType>Individual</sdnType>
+    <programList>
+      <program>IRAQ2</program>
+    </programList>
+    <addressList>
+      <address>
+        <uid>8184</uid>
+        <country>Iraq</country>
+      </address>
+    </addressList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>8312</uid>
+    <firstName>Wallid Issa</firstName>
+    <lastName>AHMAD</lastName>
+    <sdnType>Individual</sdnType>
+    <programList>
+      <program>IRAQ2</program>
+    </programList>
+    <addressList>
+      <address>
+        <uid>8180</uid>
+        <country>Iraq</country>
+      </address>
+    </addressList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>23422</uid>
+    <lastName>THEODOROS</lastName>
+    <sdnType>Vessel</sdnType>
+    <remarks>(Linked To: ADJ TRADING LIMITED)</remarks>
+    <programList>
+      <program>LIBYA3</program>
+    </programList>
+    <idList>
+      <id>
+        <uid>14913</uid>
+        <idType>Vessel Registration Identification</idType>
+        <idNumber>IMO 6421660</idNumber>
+      </id>
+    </idList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>28332</uid>
+    <lastName>YV2763</lastName>
+    <sdnType>Aircraft</sdnType>
+    <programList>
+      <program>VENEZUELA-EO13884</program>
+    </programList>
+    <idList>
+      <id>
+        <uid>133816</uid>
+        <idType>Aircraft Model</idType>
+        <idNumber>1900D</idNumber>
+      </id>
+      <id>
+        <uid>133860</uid>
+        <idType>Aircraft Manufacturer's Serial Number (MSN)</idType>
+        <idNumber>UE-236</idNumber>
+      </id>
+      <id>
+        <uid>133817</uid>
+        <idType>Aircraft Tail Number</idType>
+        <idNumber>YV2763</idNumber>
+      </id>
+    </idList>
+  </sdnEntry>
+</sdnList>

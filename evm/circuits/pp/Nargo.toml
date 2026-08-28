@@ -1,0 +1,30 @@
+[package]
+name = "pp"
+type = "lib"
+authors = [""]
+
+# Privacy Pool gadgets, ported from PP's Circom to Noir for the unified Honk stack.
+# Hashing is circomlib-Poseidon via noir-lang/poseidon (the SAME hash rarime uses on-chain via
+# poseidon-solidity, and the wallet uses via @iden3/js-crypto) - one audited hash across the fusion.
+#
+# CONFIRMED toolchain (2026-07-01, dev machine): nargo 1.0.0-beta.1 (noirup --version 1.0.0-beta.1,
+# matches rarime's pinned README) + bb.js 0.82.2 (WASM; bb.js resolved this from `bbup` reading the
+# installed nargo version - do NOT hardcode rarime's stale README pin of bb 0.66.0, which predates a
+# fixed critical UltraHonk soundness vulnerability). `nargo test` passes both gadgets' differential
+# tests against real on-chain poseidon-solidity / lean-imt.sol vectors - see PP-NOIR-FUSION.md.
+#
+# DEPENDENCY FRESHNESS PASS (2026-07-25): nargo itself is now materially behind too (latest tagged
+# release is 1.0.0-beta.25, 24 releases past our beta.1 pin, with confirmed breaking stdlib changes
+# in between - `as_slice`, `std::hash::keccak`, `bytes32_to_field` removed). None of those removed
+# APIs are used anywhere in this circuits tree (checked via grep, not assumed). Bumping nargo itself
+# to beta.25 is a separate, larger action (re-verifies the whole ~16k-line noir_dl_lib, not just
+# this package) - tracked as part of P0-remaining, not done as part of this dependency pass.
+#
+# poseidon v0.3.0 was tried and REVERTED (2026-07-25, caught by actually running `nargo test`, not
+# by inspection): even though this package only calls `bn254::hash_N(...)` (confirmed unchanged at
+# v0.3.0), the library's OTHER modules (poseidon2.nr's `Poseidon2Hasher::default()`, using `@[]`
+# slice-reference syntax) don't parse under our pinned nargo 1.0.0-beta.1 - Noir compiles the whole
+# package, not just the functions actually called, so this fails regardless of what we use. Staying
+# on v0.1.0 until nargo itself is bumped (same P0-remaining item above).
+[dependencies]
+poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }

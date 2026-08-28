@@ -1,0 +1,12 @@
+forge-std/=../lib/forge-std/src/
+@openzeppelin/contracts/=../lib/openzeppelin-contracts/contracts/
+@oz/=../lib/openzeppelin-contracts/contracts/
+@solarity/solidity-lib/=../lib/solidity-lib/contracts/
+solady/=../lib/solady/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/
+@oz-upgradeable/=lib/openzeppelin-contracts-upgradeable/
+@rarimo/evidence-registry/=lib/evidence-registry/
+poseidon-solidity/=lib/poseidon-solidity/
+poseidon/=lib/poseidon-solidity/
+lean-imt/=lib/lean-imt/
+interfaces/=contracts/pool/interfaces/

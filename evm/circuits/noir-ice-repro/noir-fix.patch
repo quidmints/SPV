@@ -1,0 +1,50 @@
+diff --git a/compiler/noirc_frontend/src/monomorphization/mod.rs b/compiler/noirc_frontend/src/monomorphization/mod.rs
+index 93f2896..545930c 100644
+--- a/compiler/noirc_frontend/src/monomorphization/mod.rs
++++ b/compiler/noirc_frontend/src/monomorphization/mod.rs
+@@ -3520,7 +3520,13 @@ fn bind_trait_impl_func_generics_to_trait_func_generics(
+     let DefinitionKind::Function(trait_func_id) = trait_func_definition.kind else {
+         return;
+     };
+-    let trait_func_meta = interner.function_meta(&trait_func_id);
++    // `try_function_meta`, not `function_meta`: comptime evaluation of a `global` can reach a
++    // trait method through an operator overload BEFORE that function has been elaborated, so its
++    // `FuncMeta` may legitimately not exist yet. Panicking here surfaced as
++    // `ice: all function ids should have metadata` on any generic operator impl used in a global.
++    let Some(trait_func_meta) = interner.try_function_meta(&trait_func_id) else {
++        return;
++    };
+     let trait_func_name = interner.definition_name(method_id.item_id);
+ 
+     // Find the corresponding trait impl method
+@@ -3533,7 +3539,11 @@ fn bind_trait_impl_func_generics_to_trait_func_generics(
+         .expect("Expected to find trait impl method");
+ 
+     // Bind trait impl func generics to trait func generics
+-    let trait_impl_func_meta = interner.function_meta(trait_impl_func_id);
++    // Same reasoning as above: the impl's method is the one most likely to be unelaborated when
++    // this is reached from a global's comptime evaluation.
++    let Some(trait_impl_func_meta) = interner.try_function_meta(trait_impl_func_id) else {
++        return;
++    };
+     let trait_impl_func_generics = &trait_impl_func_meta.direct_generics;
+     let trait_func_generics = &trait_func_meta.direct_generics;
+     assert_eq!(
+diff --git a/compiler/noirc_frontend/src/node_interner/mod.rs b/compiler/noirc_frontend/src/node_interner/mod.rs
+index add6553..c6cb6f7 100644
+--- a/compiler/noirc_frontend/src/node_interner/mod.rs
++++ b/compiler/noirc_frontend/src/node_interner/mod.rs
+@@ -1032,7 +1032,12 @@ impl NodeInterner {
+     /// If this is an impl function, the `DefinitionId` inside the `TraitItemId` will still
+     /// be that of the function in the parent trait.
+     pub fn get_trait_item_id(&self, function_id: FuncId) -> Option<TraitItemId> {
+-        let function = self.function_meta(&function_id);
++        // `try_function_meta`: comptime evaluation of a `global` can reach a function through an
++        // operator overload before it has been elaborated, so its `FuncMeta` may not exist yet.
++        // This function is already fallible and every caller handles `None`, so yielding `None` is
++        // in keeping with its contract - where panicking surfaced as
++        // `ice: all function ids should have metadata`.
++        let function = self.try_function_meta(&function_id)?;
+ 
+         match function.trait_impl {
+             Some(impl_id) => {

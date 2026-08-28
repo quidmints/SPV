@@ -1,0 +1,10 @@
+[package]
+name = "escrow_envelope"
+type = "bin"
+authors = [""]
+
+[dependencies]
+# v0.3.0 to match pp and every other crate here. v0.2.0 does not build on beta.26 at all.
+poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }
+pp = { path = "../pp" }
+noir_dl = { path = "../noir_dl_lib" }

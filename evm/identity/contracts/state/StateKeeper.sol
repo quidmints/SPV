@@ -1,0 +1,463 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.21;
+
+import {PoseidonUnit1L, PoseidonUnit2L, PoseidonUnit3L} from "../libraries/Poseidon.sol";
+
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
+import {TypeCaster} from "@solarity/solidity-lib/libs/utils/TypeCaster.sol";
+import {AMultiOwnable} from "@solarity/solidity-lib/access/AMultiOwnable.sol";
+
+import {DynamicSet} from "@solarity/solidity-lib/libs/data-structures/DynamicSet.sol";
+
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
+import {PoseidonSMT} from "./PoseidonSMT.sol";
+
+contract StateKeeper is Initializable, AMultiOwnable, UUPSUpgradeable {
+    using TypeCaster for address;
+    using DynamicSet for DynamicSet.StringSet;
+
+    string public constant ICAO_PREFIX = "Rarimo CSCA root";
+    bytes32 public constant REVOKED = keccak256("REVOKED");
+    bytes32 public constant USED = keccak256("USED");
+
+    // Same BN254/BabyJubJub scalar field as Constants.SNARK_SCALAR_FIELD (pool side) and
+    // EvidenceRegistry.BABY_JUB_JUB_PRIME_FIELD (identity side) - duplicated locally rather than
+    // imported cross-module, matching how this codebase already keeps this constant local to each
+    // library that needs it. REVOKED/USED are raw keccak256 outputs (> this field ~88% of the
+    // time), so they must be reduced before being fed into Poseidon below - Poseidon's field
+    // arithmetic silently disagrees with an off-chain/Noir-side Poseidon(x mod F) otherwise (a
+    // Noir Field literal is always pre-reduced; there's no way to represent an out-of-field value
+    // in it), which would break the query circuit's planned sentinel reconstruction.
+    uint256 internal constant SNARK_SCALAR_FIELD =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
+    enum MethodId {
+        None,
+        ChangeICAOMasterTreeRoot,
+        AddRegistrations,
+        RemoveRegistrations
+    }
+
+    struct CertificateInfo {
+        uint64 expirationTimestamp;
+    }
+
+    struct PassportInfo {
+        bytes32 activeIdentity;
+        uint64 identityReissueCounter;
+    }
+
+    struct IdentityInfo {
+        bytes32 activePassport;
+        uint64 issueTimestamp;
+    }
+
+    // Previously, _owners (type: struct EnumerableSet.AddressSet) from the old AMultiOwnable
+    bytes32[2] private _deprecated;
+
+    PoseidonSMT public registrationSmt;
+    PoseidonSMT public certificatesSmt;
+
+    bytes32 public icaoMasterTreeMerkleRoot;
+
+    /**
+     * @notice Root of the tree of REVOKED certificate keys, in the same `certificateKey` form
+     *         `addCertificate` stores.
+     *
+     * @dev WHY THIS EXISTS: until it did, a certificate revoked BEFORE its expiry could not be
+     *      removed by anybody. `removeCertificate` requires `expirationTimestamp < block.timestamp`,
+     *      so a compromised CSCA stayed usable for every passport it had signed until the calendar
+     *      caught up - which for a country signing key is years. Certificate revocation is the
+     *      mechanism that CONTAINS a key compromise, and containment was waiting on expiry.
+     *
+     *      KEYED ON THE PUBLIC KEY, NOT A SERIAL, because that is what this contract and the
+     *      circuits both use. CRLs list `(issuer, serial)`; the ICAO master list carries the
+     *      certificates themselves, so serial resolves to key off-chain and only the key is
+     *      published here. That is what makes this provable from public data rather than asserted.
+     *
+     *      APPENDED, NOT INSERTED - this contract is upgradeable and has no storage gap.
+     */
+    bytes32 public revokedCertificatesRoot;
+
+    mapping(bytes32 => bool) public usedSignatures;
+
+    mapping(bytes32 => CertificateInfo) internal _certificateInfos;
+
+    mapping(bytes32 => PassportInfo) internal _passportInfos;
+    mapping(bytes32 => IdentityInfo) internal _identityInfos;
+
+    DynamicSet.StringSet internal _registrationKeys;
+    mapping(string => address) internal _registrations;
+    mapping(address => bool) internal _registrationExists;
+
+    event CertificateAdded(bytes32 certificateKey, uint256 expirationTimestamp);
+    event CertificateRemoved(bytes32 certificateKey);
+    event RevokedCertificatesRootChanged(bytes32 newRoot);
+    event BondAdded(bytes32 passportKey, bytes32 identityKey);
+    event BondRevoked(bytes32 passportKey, bytes32 identityKey);
+    event BondIdentityReissued(bytes32 passportKey, bytes32 identityKey);
+
+    modifier onlyRegistration() {
+        _onlyRegistration();
+        _;
+    }
+
+    constructor() {
+        _disableInitializers();
+    }
+
+    function __StateKeeper_init(
+        address initialOwner_,
+        address registrationSmt_,
+        address certificatesSmt_,
+        bytes32 icaoMasterTreeMerkleRoot_
+    ) external initializer {
+        __AMultiOwnable_init();
+
+        registrationSmt = PoseidonSMT(registrationSmt_);
+        certificatesSmt = PoseidonSMT(certificatesSmt_);
+
+        icaoMasterTreeMerkleRoot = icaoMasterTreeMerkleRoot_;
+
+        addOwners(initialOwner_.asSingletonArray());
+    }
+
+    function __StateKeeper_init_v2() external reinitializer(2) {
+        __AMultiOwnable_init();
+    }
+
+    /**
+     * @notice Adds passport's certificate
+     */
+    function addCertificate(
+        bytes32 certificateKey_,
+        uint256 expirationTimestamp_
+    ) external virtual onlyRegistration {
+        require(
+            expirationTimestamp_ + 5 * 365 days > block.timestamp,
+            "StateKeeper: certificate is expired"
+        );
+        require(
+            expirationTimestamp_ <= type(uint64).max,
+            "StateKeeper: expiration timestamp overflows uint64"
+        );
+
+        _certificateInfos[certificateKey_].expirationTimestamp = uint64(expirationTimestamp_);
+
+        certificatesSmt.add(certificateKey_, certificateKey_);
+
+        emit CertificateAdded(certificateKey_, expirationTimestamp_);
+    }
+
+    /**
+     * @notice Removes a certificate PROVEN revoked, whether or not it has expired.
+     *
+     * @dev PERMISSIONLESS ON PURPOSE - the proof is the authorisation. Requiring a role here would
+     *      mean a compromised key stays live until a privileged party acts, which is the failure
+     *      this function exists to remove. Anyone can carry the evidence.
+     *
+     *      DELIBERATELY SEPARATE FROM `removeCertificate` rather than relaxing its expiry check.
+     *      That function is `onlyRegistration` and unconditional; loosening it would let any
+     *      registered registration drop ANY certificate, which is a censorship power none of them
+     *      has today. Here the power is bounded by the anchored set.
+     *
+     *      ⚠️ THE ROOT IS OWNER-SET, exactly like `icaoMasterTreeMerkleRoot`, so this is as
+     *      trustless as the master root and no more. The ICAO workflow verifies ICAO's own CMS
+     *      signature but has NO on-chain write path (`backend/cre/icao_master_list` is a library
+     *      with no `main.go`), so both roots are typed in today. Feeding them from the anchor is
+     *      what would make this authority-free; see TODO sec. 2.18ew.
+     */
+    function removeRevokedCertificate(
+        bytes32 certificateKey_,
+        bytes32[] calldata revocationProof_
+    ) external virtual {
+        require(revokedCertificatesRoot != bytes32(0), "StateKeeper: no revocation root");
+        require(
+            MerkleProof.processProof(revocationProof_, certificateKey_) == revokedCertificatesRoot,
+            "StateKeeper: certificate is not proven revoked"
+        );
+
+        CertificateInfo storage _info = _certificateInfos[certificateKey_];
+        require(_info.expirationTimestamp > 0, "StateKeeper: certificate is not registered");
+
+        delete _certificateInfos[certificateKey_];
+
+        certificatesSmt.remove(certificateKey_);
+
+        emit CertificateRemoved(certificateKey_);
+    }
+
+    /**
+     * @notice Removes passport's certificate
+     */
+    function removeCertificate(bytes32 certificateKey_) external virtual onlyRegistration {
+        CertificateInfo storage _info = _certificateInfos[certificateKey_];
+
+        require(
+            _info.expirationTimestamp > 0 && _info.expirationTimestamp < block.timestamp,
+            "StateKeeper: certificate is not expired"
+        );
+
+        delete _certificateInfos[certificateKey_];
+
+        certificatesSmt.remove(certificateKey_);
+
+        emit CertificateRemoved(certificateKey_);
+    }
+
+    /**
+     * @notice Adds new identity bond
+     */
+    function addBond(
+        bytes32 passportKey_,
+        bytes32 passportHash_,
+        bytes32 identityKey_,
+        uint256 dgCommit_
+    ) external virtual onlyRegistration {
+        if (passportKey_ == bytes32(0)) {
+            (passportHash_, passportKey_) = (passportKey_, passportHash_);
+        }
+
+        PassportInfo storage _passportInfo = _passportInfos[passportKey_];
+        IdentityInfo storage _identityInfo = _identityInfos[identityKey_];
+
+        require(
+            _passportInfo.activeIdentity == bytes32(0),
+            "StateKeeper: passport already registered"
+        );
+        require(
+            _identityInfo.activePassport == bytes32(0),
+            "StateKeeper: identity already registered"
+        );
+
+        if (passportKey_ != bytes32(0) && passportHash_ != bytes32(0)) {
+            PassportInfo storage _passportHashInfo = _passportInfos[passportHash_];
+
+            require(
+                _passportHashInfo.activeIdentity == bytes32(0),
+                "StateKeeper: passport hash already registered"
+            );
+
+            _passportHashInfo.activeIdentity = USED;
+        }
+
+        _passportInfo.activeIdentity = identityKey_;
+
+        _identityInfo.activePassport = passportKey_;
+        _identityInfo.issueTimestamp = uint64(block.timestamp);
+
+        uint256 index_ = PoseidonUnit2L.poseidon([uint256(passportKey_), uint256(identityKey_)]);
+        uint256 value_ = PoseidonUnit3L.poseidon(
+            [dgCommit_, _passportInfo.identityReissueCounter, uint64(block.timestamp)]
+        );
+
+        registrationSmt.add(bytes32(index_), bytes32(value_));
+
+        emit BondAdded(passportKey_, identityKey_);
+    }
+
+    /**
+     * @notice Revoked identity bond
+     */
+    function revokeBond(
+        bytes32 passportKey_,
+        bytes32 identityKey_
+    ) external virtual onlyRegistration {
+        PassportInfo storage _passportInfo = _passportInfos[passportKey_];
+        IdentityInfo storage _identityInfo = _identityInfos[identityKey_];
+
+        require(
+            _passportInfo.activeIdentity == bytes32(identityKey_),
+            "StateKeeper: passport already revoked"
+        );
+        require(
+            _identityInfo.activePassport == bytes32(passportKey_),
+            "StateKeeper: identity already revoked"
+        );
+
+        _passportInfo.activeIdentity = REVOKED;
+        _identityInfo.activePassport = REVOKED;
+
+        uint256 index_ = PoseidonUnit2L.poseidon([uint256(passportKey_), uint256(identityKey_)]);
+        uint256 value_ = PoseidonUnit1L.poseidon([uint256(REVOKED) % SNARK_SCALAR_FIELD]);
+
+        registrationSmt.update(bytes32(index_), bytes32(value_));
+
+        emit BondRevoked(passportKey_, identityKey_);
+    }
+
+    /**
+     * @notice Reissues identity bond
+     */
+    function reissueBondIdentity(
+        bytes32 passportKey_,
+        bytes32 identityKey_,
+        uint256 dgCommit_
+    ) external virtual onlyRegistration {
+        PassportInfo storage _passportInfo = _passportInfos[passportKey_];
+        IdentityInfo storage _identityInfo = _identityInfos[identityKey_];
+
+        require(_passportInfo.activeIdentity == REVOKED, "StateKeeper: passport is not revoked");
+        require(
+            _identityInfo.activePassport == bytes32(0),
+            "StateKeeper: identity already registered"
+        );
+
+        _passportInfo.activeIdentity = bytes32(identityKey_);
+        ++_passportInfo.identityReissueCounter;
+
+        _identityInfo.activePassport = bytes32(passportKey_);
+        _identityInfo.issueTimestamp = uint64(block.timestamp);
+
+        uint256 index_ = PoseidonUnit2L.poseidon([uint256(passportKey_), uint256(identityKey_)]);
+        uint256 value_ = PoseidonUnit3L.poseidon(
+            [dgCommit_, _passportInfo.identityReissueCounter, uint64(block.timestamp)]
+        );
+
+        registrationSmt.add(bytes32(index_), bytes32(value_));
+
+        emit BondIdentityReissued(passportKey_, identityKey_);
+    }
+
+    /**
+     * @notice Stores used signatures throughout the registrations
+     */
+    function useSignature(bytes32 sigHash_) external virtual onlyRegistration {
+        require(!usedSignatures[sigHash_], "StateKeeper: signature used");
+
+        usedSignatures[sigHash_] = true;
+    }
+
+    /**
+     * @notice Change ICAO tree Merkle root to a new one via Rarimo TSS.
+     * @param newRoot_ the new ICAO root
+     */
+    function changeICAOMasterTreeRoot(bytes32 newRoot_) external virtual onlyOwner {
+        icaoMasterTreeMerkleRoot = newRoot_;
+    }
+
+    /**
+     * @notice Sets the root of the revoked-certificate tree.
+     * @param newRoot_ the new revocation root
+     *
+     * @dev Same authority as `changeICAOMasterTreeRoot` and for the same reason: both describe what
+     *      ICAO published. Setting it to zero disables `removeRevokedCertificate` rather than
+     *      accepting every proof, which is the safe direction for a root that has not been
+     *      established yet.
+     */
+    function changeRevokedCertificatesRoot(bytes32 newRoot_) external virtual onlyOwner {
+        revokedCertificatesRoot = newRoot_;
+        emit RevokedCertificatesRootChanged(newRoot_);
+    }
+
+    /**
+     * @notice Add or Remove registrations via Rarimo TSS
+     * @param methodId_ the method id (AddRegistrations or RemoveRegistrations)
+     * @param data_ An ABI encoded arrays of string keys addresses to add or remove
+     */
+    function updateRegistrationSet(
+        MethodId methodId_,
+        bytes calldata data_
+    ) external virtual onlyOwner {
+        if (methodId_ == MethodId.AddRegistrations) {
+            (string[] memory keys_, address[] memory values_) = abi.decode(
+                data_,
+                (string[], address[])
+            );
+
+            for (uint256 i = 0; i < keys_.length; i++) {
+                require(_registrationKeys.add(keys_[i]), "StateKeeper: duplicate registration");
+                _registrations[keys_[i]] = values_[i];
+                _registrationExists[values_[i]] = true;
+            }
+        } else if (methodId_ == MethodId.RemoveRegistrations) {
+            string[] memory keys_ = abi.decode(data_, (string[]));
+
+            for (uint256 i = 0; i < keys_.length; i++) {
+                delete _registrationExists[_registrations[keys_[i]]];
+                delete _registrations[keys_[i]];
+                _registrationKeys.remove(keys_[i]);
+            }
+        } else {
+            revert("StateKeeper: Invalid method");
+        }
+    }
+
+    /**
+     * @notice Get info about the registered X509 certificate
+     * @param certificateKey_ the hash of a certificate public key
+     * @return the certificate info
+     */
+    function getCertificateInfo(
+        bytes32 certificateKey_
+    ) external view virtual returns (CertificateInfo memory) {
+        return _certificateInfos[certificateKey_];
+    }
+
+    /**
+     * @notice Get info about the registers passport + its identity
+     * @param passportKey_ the hash of a passport public key
+     * @return passportInfo_ the passport info
+     * @return identityInfo_ the attached identity info
+     */
+    function getPassportInfo(
+        bytes32 passportKey_
+    )
+        external
+        view
+        virtual
+        returns (PassportInfo memory passportInfo_, IdentityInfo memory identityInfo_)
+    {
+        passportInfo_ = _passportInfos[passportKey_];
+
+        if (passportInfo_.activeIdentity != REVOKED) {
+            identityInfo_ = _identityInfos[passportInfo_.activeIdentity];
+        }
+    }
+
+    /**
+     * @notice Lists all the registrations with their keys
+     */
+    function getRegistrations()
+        external
+        view
+        virtual
+        returns (string[] memory keys_, address[] memory values_)
+    {
+        keys_ = _registrationKeys.values();
+        values_ = new address[](keys_.length);
+
+        for (uint256 i = 0; i < keys_.length; i++) {
+            values_[i] = _registrations[keys_[i]];
+        }
+    }
+
+    /**
+     * @notice Get the registration address by its key
+     */
+    function getRegistrationByKey(string memory key_) external view virtual returns (address) {
+        return _registrations[key_];
+    }
+
+    /**
+     * @notice Checks whether the passed address is a registration
+     */
+    function isRegistration(address registration_) external view virtual returns (bool) {
+        return _registrationExists[registration_];
+    }
+
+    function _onlyRegistration() internal view {
+        require(_registrationExists[msg.sender], "StateKeeper: not a registration");
+    }
+
+    // solhint-disable-next-line no-empty-blocks
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
+
+    function implementation() external view returns (address) {
+        return ERC1967Utils.getImplementation();
+    }
+}

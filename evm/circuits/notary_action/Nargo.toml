@@ -1,0 +1,14 @@
+[package]
+name = "notary_action"
+type = "bin"
+authors = [""]
+
+# Anonymous notary authorisation (sec. 2.18am). Replaces `address notary_` + an ECDSA signature,
+# which named the acting notary on-chain, with membership in a notary SMT proven in-circuit.
+#
+# NO NEW STRUCTURE. This is the ASP shape the pool already uses, applied to notaries: a commitment
+# in a Poseidon SMT, inclusion proven at STATUS_CLEAN, revocation by writing a non-zero leaf value.
+# It is withdraw_identity's identity section with the note-spending half removed.
+[dependencies]
+pp = { path = "../pp" }
+poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }
