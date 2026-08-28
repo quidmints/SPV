@@ -736,10 +736,21 @@ contract Aux is // Auxiliary
         return SwapLib.wellSkew(address(_rangeOf(asset)), getTWAPforAsset(asset, 1800), drainUsd6);
     }
 
-    /// @notice The flat swap fee (parts-per-million — 420 = 0.042%) every stable↔volatile swap pays,
-    ///         exposed on the unified seam so an RFQ maker / solver can reconstruct the fill:
+    /// ⛔ **SEAM NOTE — NOT A DOCBLOCK FOR THE FUNCTION BELOW.** It documented `swapFeePpm()`, which
+    ///         §E311 DELETED (`Core.sol:1499`, owner: *"there is no 420 ppm, it's always the skew
+    ///         premium"*). With that function gone this block drifted onto `swap(…)`, which it does
+    ///         not describe. Kept — not deleted — because the §V4-CUT warning below is still
+    ///         load-bearing for anyone quoting against this seam.
     ///
-    ///             out ≈ base·(1 − skew),  then the `riskFactor(token)` depeg haircut.
+    /// 🔴 **HOW AN RFQ MAKER / SOLVER RECONSTRUCTS THE FILL TODAY. BOTH SUBTRAHENDS ARE GONE:**
+    ///
+    ///             out ≈ base,  then the `riskFactor(token)` depeg haircut.
+    ///
+    ///         There is **no flat fee** (§E311) and the **skew does not appear in the fill**
+    ///         (§V4-CUT, below) — settlement is AT ORACLE. ⚠️ The line this replaced read
+    ///         `out ≈ base·(1 − skew)`, which contradicted the very §V4-CUT note beneath it: half
+    ///         the correction landed and half did not, so the block argued with itself and a solver
+    ///         following the formula under-predicted `out` twice over.
     ///
     /// 🔴 §V4-CUT — **THE SKEW TERM IS GONE FROM THIS COMPOSITION, AND NO SIGNATURE DIFF CAN SHOW
     ///         THAT.** It used to read `out ≈ base·(1 − wellSkew)·(1 − fee/1e6)`, which was true
@@ -750,13 +761,14 @@ contract Aux is // Auxiliary
     ///         `tools/check-client-abis.py`, which compares signatures rather than semantics.
     ///         ⇒ Any solver-facing quote path must be updated in this same cut, not after it.
     ///
-    /// ⚠️ AND THE NUMBER IS NOW **OUR POLICY, NOT A MIRROR**. This used to say "Mirrors the pool tier
-    ///         set in Core's pool key" — `OracleLib:180`'s `k.fee = 420`. v4 charged it and
-    ///         `_handleCollect` harvested it; with v4 gone the FILL charges it (`Core.swap`), so 420
-    ///         is a parameter we own and must justify, not a reflection of someone else's tier.
-    ///
-    ///         The fee is FLAT (`calcFeeL1` is the redeem/draw degradation fee, not charged here);
-    ///         the remaining DYNAMIC axis is `riskFactor` (depeg).
+    /// ⛔ **HISTORICAL, AND SUPERSEDED TWICE — DO NOT ACT ON IT.** It read: *"AND THE NUMBER IS NOW
+    ///         OUR POLICY, NOT A MIRROR … with v4 gone the FILL charges it (`Core.swap`), so 420 is
+    ///         a parameter we own and must justify."* §E311 then removed the charge entirely, so
+    ///         there is no number to own. The v4 lineage is still accurate as history —
+    ///         `OracleLib:180`'s `k.fee = 420` was the pool tier, v4 charged it, `_handleCollect`
+    ///         harvested it — but nothing charges it now.
+    ///         ⇒ **The only DYNAMIC axis on this path is `riskFactor` (depeg).** (`calcFeeL1` is the
+    ///         redeem/draw degradation fee and is not charged here — that part was always true.)
 
     // _buildContext moved into SwapLib.swapToBody (the only consumer) — its
     // AuxContext is now constructed inline there.

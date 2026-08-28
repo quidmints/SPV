@@ -3655,6 +3655,34 @@ item — doing the small ones first means paying for cycles that #1 then deletes
 top-to-bottom by row number — is **one cycle per item**, i.e. 90 cycles, ~12 hours of pure waiting.
 
 ---
+## ✅ **§GATE-2026-08-28 — CLEAN FULL-SUITE NUMBER: 533 PASS / 3 FAIL, ZERO CONTAMINATION**
+```
+FORK_BLOCK=head-20   forge test -j 4
+Ran 87 test suites in 963.03s: 533 passed, 3 failed, 2 skipped (538 total)
+setUp failures 0     RPC/env noise 0        <-- both guards clean, so this is a NUMBER, not a floor
+```
+✅ **THIS RETIRES THE "VERIFY THE THREE MONEY-PATH FIXES" DEBT.** §DELIVER-BACKING (the
+`levBurnAll` USD-backing root), §E145 (`syncLev` fee compounding) and the §COMMITTED-DRIFTS-UP burn-arm
+release were committed against rule 15 with no full run behind them. **They now have one, and nothing
+regressed.**
+🔴 **THE THREE THAT FAIL, AND THEY ARE THREE DIFFERENT KINDS:**
+| test | suite | status |
+|---|---|---|
+| `test_UNITB_CounterMatchesWhatTheSwapperLoses` | `DrainAtomicity` | **DIAGNOSED 2026-08-28** — the fixture was scarce in the wrong variable; corrected target is flow > \$607,866 (see §UNITB-NEEDS-A-MOVING-FIXTURE) |
+| `testBtcLp_swapInAccruesTheBtcLegFee` | `Alles` | **owner-gated** — needs the v4 trading-fee leg back (§BTC-LEG-FEE); not a defect to fix here |
+| `testLeverage_LvrControlVsTreatment` | `LeveragePnLProbe` | 🔴🔴 **LIVE CROSS-SUBSIDY** — see below |
+🔴🔴 **THE ONE THAT IS A REAL MONEY-PATH FAILURE:**
+```
+at UNCHANGED ETH price, leverage flow must not leave the passive LP worse off than no flow:
+  993,635.422730488581599087   (treatment: leverage flow)
+< 997,236.593217962210456349   (control:   no flow)
+```
+⇒ **The passive LP is 3,601.17 worse off — 0.361% — at UNCHANGED price.** Price-neutral flow must be
+P&L-neutral for a passive LP; this is the cross-subsidy [[quid-backing-invariant]] forbids
+(*"LPs+QD both FIRST-OUT, no subordination"*). ⚠️ **NOT a fixture artefact like the other two:** the
+control and treatment share one fixture and differ only by the leverage flow, and the price is held
+constant by construction — which is exactly what makes the delta attributable.
+
 ## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
 
 ### ✅ **§CITATION-AUDIT — ALL 447 `file:line` CITATIONS CHECKED MECHANICALLY (2026-08-28). 434 RESOLVE.**
