@@ -36,22 +36,16 @@ either way, so nothing in a green build tells you. `tools/check-contract-sizes.p
 algorithm, so a deeper recursion tree grows the *circuit*, not the contract — a new batch depth
 needs a new file but no new reasoning.
 
-🔴 **UNRESOLVED — `NotaryActionHonkVerifier` HAS NO RESTRICTION AND IS THE SAME SIZE AS THREE THAT
-DO.** Measured: `title/NotaryActionHonkVerifier.sol`, `title/TitleHolderHonkVerifier.sol`,
-`registry/verifiers/EscrowEnvelopeHonkVerifier.sol` and `pool/verifiers/WithdrawalHonkVerifier.sol`
-are **2,518 lines each**, and the last three are all pinned to `optimizer_runs = 1` while the first
-is not. That is exactly the shape the note above predicts: same fixed algorithm, same source size.
-⚠️ **Source size is NOT the deciding factor, so this is a question and not yet a defect** — runtime
-size scales with the PUBLIC INPUT COUNT (the `EscrowEnvelope` entry says so: *"8 public inputs, the
-most of any circuit here, and each one costs runtime code"*), so a verifier with fewer inputs can
-sit under the limit unrestricted. ▶️ **Settle it with `tools/check-contract-sizes.py` after a
-successful build** — if `NotaryActionHonkVerifier` is near or over 24,576, it needs a `paths =`
-entry. It was carried across from ibiza's `foundry.toml` exactly as it stood; the omission predates
-this repo and was not introduced by the fold.
-
-⛔ **COMPILING THESE IN PARALLEL OOMS A SMALL MACHINE.** Several are ~100 KB of source. On a 3 GB
-box `forge build` dies with `solc exited with signal: 9 (SIGKILL)`, which reads exactly like a code
-error and is not one. Use `forge build --threads 1`.
+✅ **RESOLVED 2026-08-28 — `NotaryActionHonkVerifier` NEEDS NO RESTRICTION, AND THE REASON IT WAS
+FLAGGED WAS A BAD INFERENCE.** Measured from a green build: `NotaryActionHonkVerifier` **18,019
+bytes (6,557 to spare)**, against `WithdrawalHonkVerifier` 17,130 · `EscrowEnvelopeHonkVerifier`
+17,129 · `TitleHolderHonkVerifier` 17,066 · `RagequitHonkVerifier` 17,065 — the last four pinned to
+`optimizer_runs = 1`, this one not. It IS the largest, by ~900 bytes, not by the ~7,000 that would
+put it at risk.
+⚠️ **IT WAS SUSPECTED ONLY BECAUSE ITS SOURCE IS 2,518 LINES, THE SAME AS THREE PINNED ONES — and
+that says nothing.** Runtime size tracks PUBLIC INPUT COUNT, which is why the `EscrowEnvelope`
+restriction comment names its 8 inputs rather than its length. Source-line parity is not evidence
+about bytecode; measure first.
 
 ## Regenerating
 
