@@ -1,13 +1,35 @@
-//! (B) The fleet **vault node** — the in-process LP-side LDK node.
+//! (B) The fleet **vault node** — the in-process LP-side LDK node, booted ONLY when
+//! `QUID_FLEET_COHOSTS_VAULT=true`.
 //!
-//! Under Option B the retail LP runs NOTHING (a pure EVM identity `lpEth` in the
-//! SPA; BTC on Binance/Electrum). The fleet operator runs BOTH the hop node (drives
-//! the EVM, accepts channels) AND this second `HopNode` — the "vault" — which holds
-//! the LP-side channel keys and INITIATES opens funded by each LP's on-chain BTC
+//! 🔴 **READ THIS BEFORE THE OPTION-B DESCRIPTION BELOW: IT IS NO LONGER THE DEFAULT
+//! DEPLOYMENT, AND THE PARAGRAPH AFTER IT DESCRIBES A DEPLOYMENT MOST FLEETS DO NOT
+//! RUN.** Since §E175 the **LP funding half lives on the LP's own box** — see
+//! `LpConsent` below, which is the current statement: *"a fleet that could construct
+//! these would, by definition, still hold the LP half."* And since B0 (`99fda5e9`)
+//! the fleet is **vault-less by default**. So in the deployment that ships:
+//!   • the 2-of-2 is REAL — `drive_open` reads both funding pubkeys out of LDK, and
+//!     the counterparty half belongs to the LP's own node, not to this one;
+//!   • `lpEth` IS the LP's funding key (`ChannelLib.lpEthOf` = `evmAddressOfCompressed(lpPubkey)`),
+//!     so identity and custody are ONE secret the fleet never sees;
+//!   • the LP signs the exit **ladder ONCE at open** and may then be offline forever —
+//!     `_armLadder`'s *"the LP's ONE-TIME participation buys every exit it will ever
+//!     need."* §SPRINT-B4: with the fleet vault-less the heartbeat does not run and
+//!     **that ladder is the LP's ONLY escape**, which is why depth is load-bearing.
+//! ⇒ **THE LP'S PROTECTION IS THE PRE-SIGNED LADDER PLUS ITS OWN FUNDING HALF — NOT
+//!   "enclave key custody", which is what this header used to say and is the exact
+//!   assumption §HOP-RCE exists to test.** A reader who takes the old sentence at face
+//!   value concludes the fleet is trusted with the LP's BTC. It is not, by default.
+//!
+//! **The co-hosted (Option B) deployment, which the rest of this module implements:**
+//! the retail LP runs NOTHING (a pure EVM identity `lpEth` in the SPA; BTC on
+//! Binance/Electrum). The fleet operator runs BOTH the hop node (drives the EVM,
+//! accepts channels) AND this second `HopNode` — the "vault" — which holds the
+//! LP-side channel keys and INITIATES opens funded by each LP's on-chain BTC
 //! deposit. One vault node serves ALL lpEths: N channels to the hop, each credited
 //! on-chain to a different `lpEth` (`openChannel(…, lpEth)`) with that LP's
-//! `btcRecipientOf` payout pin. The LP's protection is the on-chain payout pin +
-//! enclave key custody — it never runs Lightning.
+//! `btcRecipientOf` payout pin.
+//! ⚠️ **In THAT deployment one custodian holds both halves and the 2-of-2 is NOMINAL** —
+//! `quid-bridge-daemon` says so at the opt-in and refuses to imply otherwise.
 //!
 //! This module reuses the proven primitives verbatim — `quid_hop::node::boot` (the
 //! same boot the hop uses), `quid_ln::p2p::{spawn_inbound, connect_peer_if_necessary}`

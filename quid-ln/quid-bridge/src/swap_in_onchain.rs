@@ -34,7 +34,6 @@ use bitcoin::{Amount, OutPoint, ScriptBuf};
 
 use crate::evm::{ProvenSwapInSettler, SettleOutcome};
 use quid_hop::evm_codec::{tx_inclusion, txid_internal, TxInclusion};
-use quid_hop::swap::swap_in_floor_usd;
 
 /// Minimum CLTV headroom (blocks) between the current tip and the user's refund
 /// timelock that the hop INSISTS on before settling. Must cover: the settle round-trip,
@@ -137,9 +136,6 @@ pub fn cltv_headroom_ok(cltv: bitcoin::absolute::LockTime, best_height: u32) -> 
     }
 }
 
-/// The settle floor for a deposit of `actual_sats`, at the hop's stored quote. Computed
-/// from the ACTUAL deposited amount, not the quote — so the USD delivered tracks the BTC
-/// received (under-payment ⇒ less USD, never free USD).
 /// (§T2) The terms commitment this swap's deposit address is derived from. ONE function, so the
 /// address the seller is told and the leaf the hop later claims through cannot drift apart.
 pub fn swap_terms(swap: &OnchainSwapIn) -> [u8; 32] {
@@ -149,10 +145,6 @@ pub fn swap_terms(swap: &OnchainSwapIn) -> [u8; 32] {
         swap.price_per_btc.to_be_bytes(),
         swap.slippage_bps,
     )
-}
-
-pub fn settle_floor(swap: &OnchainSwapIn, actual_sats: u64) -> U256 {
-    swap_in_floor_usd(actual_sats, swap.price_per_btc, swap.slippage_bps)
 }
 
 /// Decide what to do with a confirmed deposit: the headroom gate + the settle, returning
@@ -187,7 +179,6 @@ pub fn decide_deposit<E: ProvenSwapInSettler>(
         return Ok(None);
     }
     let actual_sats = deposit.value.to_sat();
-    let floor = settle_floor(swap, actual_sats);
     // No `require_full` to pass: the proven entrypoint ALWAYS accepts an inventory-bounded
     // partial, and this rail always wanted that — it refunds the unconverted remainder via the
     // claim's second output (see `broadcast_claim`), because it has a refund path (the
