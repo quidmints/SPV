@@ -6507,37 +6507,42 @@ here is READING. Full write-up: `§QUEUE-RECONCILED-2026-08-17` at the end of `Q
 ## D1. THE 49 OPEN ITEMS, GROUPED. **Bold = verified against code this pass.**
 
 ### 🔴 Money-path defects, live
-- **`§V-R10`** — **sUSDE is counted as backing but cannot be redeemed** (Ethena `cooldownDuration()`
-  == 86400). **VERIFIED STILL LIVE** — and 2026-08-28 **MEASURED ON MAINNET STATE, SHARPER THAN WRITTEN.**
-  Wiring: `script/DeployLib.sol:81 address susde`, `DriverE2E.s.sol:69 SUSDE = 0x9D39A5DE…`,
-  `stables[8]=USDE` / `vaults[8]=SUSDE` — sUSDE is USDe's **sole** vault, so `vaultsOf[USDe].length == 1`.
-  📐 **THE MEASUREMENT** (`cast call --override-state-diff`: real mainnet storage, one synthetic
-  1e18 share balance, cooldown UNTOUCHED at 86400):
+- **`§V-R10`** — **sUSDE is counted as backing but cannot be redeemed.** 📌 **CANONICAL ROW IS THE
+  `§AAVE_SPOKE` TABLE ENTRY BELOW — read it first; the fix direction is already SETTLED there by the
+  owner (2026-08-16) and a naive fix is explicitly warned against.** This bullet holds only the
+  2026-08-28 measurement that row asked for.
+  📐 **"SIZE THE EXPOSURE" — DONE, and it did not need a fork test.** `cast call
+  --override-state-diff` (real mainnet storage, one synthetic 1e18 share balance, cooldown
+  UNTOUCHED at 86400) answers both halves in one shot:
   ```
   convertToAssets(1e18) = 1245285440104386053
   maxWithdraw           = 1245285440104386053   <-- EQUAL TO THE WEI
   maxRedeem             = 1000000000000000000   <-- the full share balance
   withdraw(1) / redeem(1) -> revert 0xf50a3b52 == OperationNotAllowed()
   ```
-  (The revert is amount-independent — `redeem(0)` reverts too, while sDAI's identical `redeem(0)`
-  returns 0 — so it is a modifier, Ethena's `ensureCooldownOff`, not a balance check.)
-  🔴 **WHY THE EXISTING DEFENCE DOES NOT COVER IT.** `_illiquidLoss` haircuts a frozen vault by
-  `Σ max(0, convertToAssets − maxWithdraw)` — written for exactly this ("a solvent-but-frozen
-  Morpho/Euler market", `BasketLib:877`). For sUSDE those two numbers are **identical**, so the
-  haircut is `max(0, 0)` = **exactly zero**. The vault reports 100% withdrawable and pays nothing:
-  the guard is blind to it **by construction**, not by oversight. ⚠️ Do not "fix" §V-R10 by
-  asserting the haircut covers it — MEASURE the two numbers first; they are equal.
-  🔴 **THE REVERT REACHES THE MONEY PATH AT TWO BARE SITES.** `BasketLib:1286` is SAFE
-  (`try … catch` — frozen stays blocked + haircut'd). But **`FeeLib:324`** (`vs.length == 1` branch,
-  which is precisely USDe's case) and **`FeeLib:380`** call `IERC4626(v).redeem(...)` **with no
-  `try`**, and the `if (shares == 0) return 0` early-out does NOT save them — `_shareCap` reads
-  `convertToShares`, which sUSDE answers healthily. So the `OperationNotAllowed` propagates and
-  **the whole withdrawal reverts.**
-  ▶️ **PROPOSED FIX, NOT YET BUILT** (money-path — rule 15, wants a run before commit): probe the
-  gate directly where the haircut is computed — `try IStakedCooldown(v).cooldownDuration()`,
-  and on nonzero treat the **entire** slice as undeliverable, so it DEFERS like any frozen vault
-  instead of being counted. Generic over any Ethena-style cooldown vault, and it lands in the one
-  place the deliverability rule already lives rather than adding a clamp at each redeem site.
+  ✅ Confirms the row's 2026-08-16 "measured non-zero" claim and sharpens it to an **exact
+  equality**. The revert is amount-independent (`redeem(0)` reverts too, while sDAI's identical
+  `redeem(0)` returns 0) ⇒ a modifier, `ensureCooldownOff`, not a balance check.
+  🔴 **NEW, AND NOT IN THE CANONICAL ROW: THE REDEMPTION-SIDE HAIRCUT IS BLIND TO THIS BY
+  CONSTRUCTION.** `_illiquidLoss` defers a frozen vault by `Σ max(0, convertToAssets − maxWithdraw)`
+  — written for "a solvent-but-frozen Morpho/Euler market" (`BasketLib:877`). Those two numbers are
+  **identical** for sUSDE, so the haircut is `max(0, 0)` = **exactly zero**. ⚠️ Do not close §V-R10
+  by pointing at this haircut; MEASURE the two numbers first.
+  🔴 **NEW: TWO BARE REDEEM SITES.** The canonical row names `_takeProRata`'s try/catch
+  (`BasketLib:771`) swallowing the revert, and `BasketLib:1286` is likewise safe. But **`FeeLib:324`**
+  (the `vs.length == 1` branch — and `stables[8]=USDE` / `vaults[8]=SUSDE` makes sUSDE USDe's SOLE
+  vault, so that is exactly USDe's path) and **`FeeLib:380`** call `redeem` with **no `try`**, and
+  `if (shares == 0) return 0` does not save them because `_shareCap` reads `convertToShares`, which
+  sUSDE answers healthily ⇒ `OperationNotAllowed` propagates and the whole withdrawal reverts.
+  ▶️ **RECONCILING MY FIX SKETCH WITH THE SETTLED DIRECTION — I was half-wrong and say so:** I first
+  proposed probing `cooldownDuration()` where the haircut is computed. The *side* is right —
+  `_illiquidLoss` is the DELIVERABILITY path (`BasketLib:877`: "redemption path ONLY;
+  get_deposits/FeeLib/backing keep PAR semantics"), so it does not touch valuation and does not risk
+  the `D >= S + L` break the canonical row warns about. But the owner already settled the
+  *mechanism* as **`pokeVaultHealth`**, and that decision stands over my sketch. Note the two are
+  already wired: `illiquidLossFlagging()` is "DETECTION ONLY — evacuation still requires the
+  deliberate `pokeVaultHealth`" (`BasketLib:868`). ⛔ Still unresolved and NOT to be guessed:
+  `pokeVaultHealth` marks a venue, which does not by itself stop `FeeLib:324` reverting.
 - ✅ **`§E233-ladder` — RESOLVED, RE-VERIFIED 2026-08-28. ALL 5 ROTATION SITES NOW ARM.** The row's
   "2 of 5 arm no exit ladder" is **STALE**; `_armLadder` (the helper is `_armLadder`, not
   `_armExit` — a grep on the wrong name reports a false gap) is called at **`:992`, `:1164`
@@ -8510,7 +8515,7 @@ source. This is the same distinction §E216 drew for the skew — **valuation an
 independent bounds** — arriving on the venue side.
 
 
-| §V-R10 | 🔴 **OPEN — LIVE DEFECT.** | **sUSDE IS COUNTED AS BACKING BUT CANNOT BE REDEEMED.** `cooldownDuration() == 86400`, so Ethena's `StakedUSDeV2` reverts `withdraw`/`redeem` behind `ensureCooldownOff`. `maxWithdraw` is NOT gated by that cooldown — it returns `convertToAssets(balanceOf(owner))` regardless (measured non-zero on-chain 2026-08-16). `_withdrawableOf` finds no `liquidityAdapter()` on sUSDE, falls through to `maxWithdraw`, and counts the full position as backing. So `D >= S + L` is computed off USDe that no redeemer can take out, and `_takeProRata`'s try/catch (`BasketLib.sol:771`) swallows the revert silently. ✅ **FIX DIRECTION SETTLED (owner, 2026-08-16): EXTEND `pokeVaultHealth`, DO NOT CHANGE `_withdrawableOf`.** `pokeVaultHealth` already IS the venue-health signal — *"our mirror of what Chainlink provides for depeg detection"* — a permissionless observation that marks a venue rather than silently restating its value. A cooldown/utilisation gate is a DELIVERABILITY fact, so it belongs there, alongside the Morpho-V2 idle-only case it already handles. ⚠️ **AND NOT IN `_withdrawableOf`, WHICH WAS MY FIRST ANSWER AND IS WRONG:** `_venue4626Value` values a BLOCKED venue at `_withdrawableOf`, so returning 0 on cooldown would write a SOLVENT position down to nothing — the documented Morpho-V2 hazard ("would write its ENTIRE backing to zero in one call and break `D >= S + L` on a solvent protocol"). sUSDE is SOLVENT BUT TIME-LOCKED; deliverability is 0, valuation is not. **SAME MECHANISM COVERS AAVE V4:** aToken redemption is 1:1 only SUBJECT TO RESERVE LIQUIDITY, so GHO/USDG can be undeliverable at high utilisation — same class, different cause, one signal. Original note:  I wrote "`_withdrawableOf` must return 0 when `cooldownDuration() > 0`". But `_venue4626Value` VALUES A BLOCKED VENUE AT `_withdrawableOf`, so returning 0 would write the whole sUSDE position down to nothing — the exact hazard already documented for Morpho-V2, where blocking a healthy vault off a pessimistic read "would write its ENTIRE backing to zero in one call and break `D >= S + L` on a solvent protocol". **sUSDE is SOLVENT BUT TIME-LOCKED**, and those are different failures wanting different numbers: DELIVERABILITY is genuinely 0 today, VALUATION is not. The real fix must separate the two — the redeem path must not count it as available, while the solvency read must still carry it at `convertToAssets`. Settle WHICH consumers of `_withdrawableOf` mean 'deliverable now' versus 'worth this much' BEFORE writing code; that split is the actual work, and it is the same exposure-vs-valuation distinction that `deliverableDollars` already draws on the lev side. **SCOPE: ETHENA ONLY** — sDAI and stcUSD have no cooldown, no silo, no withdrawal queue; they are plain 4626s. Do not generalise the fix. **SIZE THE EXPOSURE:** fork-test `maxWithdraw` against AUX's own sUSDE position, then attempt the withdraw in the same run. |
+| §V-R10 | 🔴 **OPEN — LIVE DEFECT.** | **sUSDE IS COUNTED AS BACKING BUT CANNOT BE REDEEMED.** `cooldownDuration() == 86400`, so Ethena's `StakedUSDeV2` reverts `withdraw`/`redeem` behind `ensureCooldownOff`. `maxWithdraw` is NOT gated by that cooldown — it returns `convertToAssets(balanceOf(owner))` regardless (measured non-zero on-chain 2026-08-16). `_withdrawableOf` finds no `liquidityAdapter()` on sUSDE, falls through to `maxWithdraw`, and counts the full position as backing. So `D >= S + L` is computed off USDe that no redeemer can take out, and `_takeProRata`'s try/catch (`BasketLib.sol:771`) swallows the revert silently. ✅ **FIX DIRECTION SETTLED (owner, 2026-08-16): EXTEND `pokeVaultHealth`, DO NOT CHANGE `_withdrawableOf`.** `pokeVaultHealth` already IS the venue-health signal — *"our mirror of what Chainlink provides for depeg detection"* — a permissionless observation that marks a venue rather than silently restating its value. A cooldown/utilisation gate is a DELIVERABILITY fact, so it belongs there, alongside the Morpho-V2 idle-only case it already handles. ⚠️ **AND NOT IN `_withdrawableOf`, WHICH WAS MY FIRST ANSWER AND IS WRONG:** `_venue4626Value` values a BLOCKED venue at `_withdrawableOf`, so returning 0 on cooldown would write a SOLVENT position down to nothing — the documented Morpho-V2 hazard ("would write its ENTIRE backing to zero in one call and break `D >= S + L` on a solvent protocol"). sUSDE is SOLVENT BUT TIME-LOCKED; deliverability is 0, valuation is not. **SAME MECHANISM COVERS AAVE V4:** aToken redemption is 1:1 only SUBJECT TO RESERVE LIQUIDITY, so GHO/USDG can be undeliverable at high utilisation — same class, different cause, one signal. Original note:  I wrote "`_withdrawableOf` must return 0 when `cooldownDuration() > 0`". But `_venue4626Value` VALUES A BLOCKED VENUE AT `_withdrawableOf`, so returning 0 would write the whole sUSDE position down to nothing — the exact hazard already documented for Morpho-V2, where blocking a healthy vault off a pessimistic read "would write its ENTIRE backing to zero in one call and break `D >= S + L` on a solvent protocol". **sUSDE is SOLVENT BUT TIME-LOCKED**, and those are different failures wanting different numbers: DELIVERABILITY is genuinely 0 today, VALUATION is not. The real fix must separate the two — the redeem path must not count it as available, while the solvency read must still carry it at `convertToAssets`. Settle WHICH consumers of `_withdrawableOf` mean 'deliverable now' versus 'worth this much' BEFORE writing code; that split is the actual work, and it is the same exposure-vs-valuation distinction that `deliverableDollars` already draws on the lev side. **SCOPE: ETHENA ONLY** — sDAI and stcUSD have no cooldown, no silo, no withdrawal queue; they are plain 4626s. Do not generalise the fix. ✅ **SIZE THE EXPOSURE — DONE 2026-08-28, no fork test needed:** `cast call --override-state-diff` against real mainnet storage (synthetic 1e18 balance, cooldown left at 86400) gives `convertToAssets == maxWithdraw == 1245285440104386053` **equal to the wei**, `maxRedeem == 1e18`, and `withdraw(1)`/`redeem(1)` reverting `0xf50a3b52 == OperationNotAllowed()`. Two consequences NOT captured in this row: (a) the redemption-side haircut `Σ max(0, convertToAssets − maxWithdraw)` is **identically zero** for sUSDE, so `_illiquidLoss` is blind to it BY CONSTRUCTION — do not close this row by pointing at that haircut; (b) besides the try/catch sites, **`FeeLib:324` and `FeeLib:380` call `redeem` with no `try`**, and since `stables[8]=USDE`/`vaults[8]=SUSDE` makes sUSDE USDe's sole vault, `vs.length==1` lands on the bare site — the revert propagates and the whole withdrawal fails. ⛔ `pokeVaultHealth` marks a venue but does not by itself stop that revert; settle that before writing code. |
 
 ### `§SPLIT-WEIGHTS` 🔴
 
