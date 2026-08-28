@@ -210,7 +210,7 @@ library QuidLib {
     ///      The stored register avoids it by measuring REALIZED premium — what flow actually paid —
     ///      against POTENTIAL LVR (`K·σ²`). Those are independent: the numerator moves with whether
     ///      flow arrived, the denominator with how much IL we were exposed to. θ therefore answers
-    ///      "did realized fees cover the IL we bore?" (`spec.md` §3.8), whereas the derived form would
+    ///      "did realized fees cover the IL we bore?" — see `derivedThetaWad` below — whereas the derived form would
     ///      only answer "does our own pricing formula contain σ²" — i.e. nothing.
     ///
     ///      ⚠️ `PREMIUM_ANNUALIZE` is the ONE number here worth reviewing. An exponential EWMA with
@@ -235,7 +235,7 @@ library QuidLib {
     ///      reserve `avgYield` it used to read. θ is Merton's `μ/(K·σ²)` — the optimal fraction of
     ///      capital to commit to a RISKY bet — and the bet being sized here is IL-bearing in-range
     ///      range depth. The compensation for that bet is the retained scarcity premium, full stop.
-    ///      Reserve `avgYield` is earned whether the dollar leg is ranged or sits idle (`spec.md`),
+    ///      Reserve `avgYield` is earned whether the dollar leg is ranged or sits idle,
     ///      so it is NOT marginal compensation for IL and using it over-sized the range. Per the user:
     ///      *"the size of the range should have nothing to do with avgYield at all — that is only a
     ///      number that tells us how much QUI to mint upfront."* Two different jobs, two inputs.
@@ -244,7 +244,7 @@ library QuidLib {
     ///      pricing as a side effect.
     ///
     ///      This makes θ encode the protocol's own rationality test directly: premium in the
-    ///      numerator over σ² in the denominator IS "are fees beating LVR?" (`spec.md` §3.8).
+    ///      numerator over σ² in the denominator IS "are fees beating LVR?", and θ < 1e18 IS the answer "no".
     ///
     ///      FAILS OPEN on an unmeasured register (`premium == 0` ⇒ return 1e18), matching every
     ///      other unmeasured path here (`sigmaSq == 0`, `kWad == 0`, cold oracle ring) and the
