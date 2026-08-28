@@ -2519,7 +2519,7 @@ is already written and already in production use, not building one.**
 ### ⭐ AND THE CUSTODY QUESTION ANSWERS ITSELF — NO NEW KEY IS NEEDED
 | piece | where | state |
 |---|---|---|
-| `create_sweep_tx(dest_address, …)` | `quid-ln/quid-ln/src/wallet.rs:1270` | **written, tested, UNWIRED** |
+| `create_sweep_tx(dest_address, …)` | `quid-ln/quid-ln/src/wallet.rs:1270` | ✅ **WIRED — "UNWIRED" IS STALE (checked 2026-08-28).** §W1 built the trigger: `quid-bridge/src/sweep.rs:126` (`BuildSweep`/`execute_sweep`) and `quid-bridge-daemon.rs:264` (`QUID_SWEEP_AUTH` operator-signed bundle; verify → network-check → consume nonce ON-CHAIN → build → broadcast → **exit**, because a sweep is a DECOMMISSIONING action) |
 | `SweepAuth` — EIP-712, `SWEEP_THRESHOLD = 2` (2-of-3) | `quid-hop/src/migration.rs:405` | **written** |
 ⇒ **The "pool-owned outpoint plus an authorised drain" the segregation needs is ALREADY DESIGNED.**
 🔴 **AND THIS IS THE `create_sweep_tx` GAP CLAUDE.md WARNS ABOUT, FROM THE OTHER SIDE.** That note says
@@ -2550,6 +2550,13 @@ scattering it across LP channels. A single larger target. ⭐ **But it was alrea
 LEAK.** Concentration with a wired 2-of-3 drain is strictly better than dispersion with none.
 ⚠️ **AND `create_sweep_tx` MUST BE WIRED AS PART OF THIS, not after.** Pool custody with no authorised
 drain would be the same shape one level up: state whose recovery mechanism exists but is not called.
+✅ **THIS PREREQUISITE IS ALREADY MET (checked 2026-08-28) — IT NO LONGER GATES THE SEGREGATION FIX.**
+The trigger exists and is operator-authorised (§W1, above). ⇒ The synthesis' one blocking dependency
+is discharged, so the remaining work is the EVM half alone: `poolOwnedSats` (11 refs),
+`poolSatsParker` (5), `_releasePoolSats` (9), `PoolSatsLeftWithLp` (4) — 29 sites in `evm/src`.
+⚠️ **AND THE CLAUDE.md RULE THAT NAMES THIS FUNCTION IS NOW HISTORICAL TOO** — its `dead_code`
+warning must be GONE; if it returns, that is a regression, not a marker. Updated there in the same
+pass so the two do not disagree.
 
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 

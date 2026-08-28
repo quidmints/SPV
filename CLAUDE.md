@@ -273,7 +273,14 @@ the signature of this, and nothing else produces it.
   twice by people reading "never used" as litter — and the restoring commit (`36d0de2`) says so
   outright: *"the dead_code warning therefore returns, and it is now accurate: it marks a real gap
   (missing authorized trigger), not litter to delete."* One `git log -S "<symbol>"` would have
-  surfaced that in seconds, both times. **Rule 1 deletes UNREACHABLE code; it does not delete a
+  surfaced that in seconds, both times.
+  ✅ **STATUS UPDATE 2026-08-28 — THAT GAP IS NOW CLOSED, SO THIS EXAMPLE IS HISTORICAL.** §W1 built
+  the authorized trigger: `quid-bridge/src/sweep.rs` (`BuildSweep` / `execute_sweep`) and
+  `quid-bridge-daemon.rs:264` (`QUID_SWEEP_AUTH` — operator-signed bundle, verify → network-check →
+  consume the nonce ON-CHAIN → build → broadcast → exit). `create_sweep_tx` has REAL CALLERS now and
+  should carry **no `dead_code` warning at all**. ⇒ If that warning ever returns, it is a REGRESSION
+  (the trigger was unwired), not a marker — the opposite reading from the one above. **The rule
+  stands; only its example has resolved.** **Rule 1 deletes UNREACHABLE code; it does not delete a
   maintained, tested function whose caller is a security feature nobody has built yet** — that
   distinction is the whole difference, and "the seed migrates so a sweep is unnecessary" was the
   plausible-sounding argument that got it wrong the second time (it covers the successor-enclave
