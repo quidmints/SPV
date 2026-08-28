@@ -239,3 +239,91 @@ hashes in lexicographic order — that is the entire addition on the Solidity si
   settled: **whether a DON can carry seed-set publication without becoming the authority the
   exclusion design removed, and how anyone verifies a DON is actually decentralised.** ⚠️ This is a
   design conversation, not a build, and it gates ibiza's `2.18gz-unify` and `court.sol`.
+
+## 🔴 §HOP-RCE — WHAT SURVIVES ARBITRARY CODE EXECUTION *INSIDE* THE DAEMON (2026-08-28)
+
+Owner's threat model, and it is the right one: *"if the daemon is hacked and arbitrary source code
+can be injected into its process, none of these existing operations [may] end maliciously."*
+
+⚠️ **ATTESTATION DOES NOT ANSWER THIS AND MUST NOT BE CITED AS IF IT DID.** `MRENCLAVE` is measured
+at LOAD. A memory-safety bug exploited at runtime leaves it unchanged, so the compromised process
+still produces VALID attestations and still holds the sealed keys. Every bound below therefore has
+to be an on-chain or protocol-level one; "the enclave is attested" is not a bound.
+
+⭐ **THE ONE CONSTRUCTION IN THIS TREE THAT SURVIVES IT IS `QUID_SWEEP_AUTH`** — the destination
+lives in an operator-signed bundle verified against `OPERATOR_OWNERS`, keys the daemon does not
+hold: *"the host can choose WHETHER to sweep, never WHERE."* **That is the shape the two DoS/guard
+findings below want.**
+
+### Dismissed with evidence — do not re-book these
+
+| surface | why it is NOT an exposure |
+|---|---|
+| **All 10 keeper selectors** (`rebalance`, `rebalanceMany`, `cascadeDelever`, `protectFromQuid`, `compound`, `syncLev`, `leverBorrow`, `deleverWithdraw`, `repay`, `rebalanceWbtc`) | **Every one is `external nonReentrant` with NO caller gate — permissionless by design (§84).** The hot key confers ZERO privilege; a compromised daemon can do exactly what any address can already do. `minOut` is FLOORED against the TWAP inside the contract (`LevMath.sol:314`, `:323` *"the oracle floor always wins"*), so a caller can only make it STRICTER; `dex` is a path with the router pinned to `ONEINCH_ROUTER`; and `debtDelta(..., _bandFor(lp, e0))` returns 0 inside the no-trade band, so repeated calls cannot grind. **Residual ≤ `SELL_SLIP_BPS` (1%) per GENUINE rebalance via route choice — a permissionless-function property, not a compromise one.** |
+| **`addBlockHeaderBatch`** | **Fully permissionless** (`SPVGateway.sol:133`, no caller gate) and every header is checked against PoW target, epoch retarget, median-past-time and cumulative work. A compromised hop can only submit headers that satisfy Bitcoin consensus. **It is in the signer allowlist because the daemon SENDS it, not because it is gated.** |
+| **`openChannel` claim path** | §LAZY-OPEN converted this from "a hop that declines strands the LP" into "custody is booked as `pendingClaimSats`, and **anyone** may credit it" (`BTCChannels.sol:1018` try/catch, `:588` permissionless `registerChannelClaim`). Refusal is now DELAY, not loss. |
+| **LP channel funding half** | 2-of-2 MuSig2, and `QUID_FLEET_COHOSTS_VAULT` defaults **false**. ⚠️ **BUT SEE THE CRITICAL ROW BELOW — this is safe only while that stays false.** |
+
+### 🔴 CRITICAL — one boolean decides whether the 2-of-2 is real
+
+`QUID_FLEET_COHOSTS_VAULT=true` makes the fleet hold BOTH halves of every channel, and `vault.rs`
+says so outright: *"one custodian, one secret … the 2-of-2 is NOMINAL in this deployment."* Then:
+*"A compromised enclave could spend every channel's funding output, and no contract change reaches
+that — the Bitcoin UTXO does not care what Solidity believes."*
+⇒ **This is the highest-severity item in the audit and it is a DEPLOYMENT SETTING, not code.**
+▶️ **Fix: assert it at boot against the attestation policy** so a co-hosting fleet cannot present
+itself as a split-custody one. Default-false is necessary and not sufficient — rule 3's inverse
+applies exactly: violating this is SILENT.
+
+### 🔴 §HOP-RCE-1 — `emitDeadManExit` has NO FRESHNESS BINDING, so LP protections are hop-erasable
+
+`_armDeadManExit` verifies structure, BIP-341 sighash and BIP-340 signature against `Q`, and
+`if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint()`. **What it does NOT check is that
+the arming is CURRENT.** Any previously-signed arming for the same funding outpoint re-verifies
+forever, and the refresh path then does two destructive writes:
+1. `checkpointOf[channelId] = exit.checkpointSats` — **UNCONDITIONAL, so it ratchets DOWN.** The
+   stale-close guard rejects a cooperative close paying less than the attested balance, so lowering
+   it re-permits closes that guard exists to reject.
+2. `paidOutSinceCheckpoint[channelId] = 0` — erases the record of payouts since the checkpoint.
+⛔ **THE ASYMMETRY IS DELIBERATE AND ITS JUSTIFICATION ASSUMES AN HONEST HOP.** `_armLadder` takes
+the MAX (`uint hi`) for precisely this reason, and the refresh path's comment says *"That is why the
+ladder takes a max and this does not — they mean different things by 'attested'."* True under an
+honest hop; false under this threat model.
+✅ **Bounded by `exitArmedOnOutpoint[_currentOutpointKey(channelId)][deadline]`** — replay is confined
+to the CURRENT funding scope, so a splice/rotation invalidates old armings.
+▶️ **Fix: `require(exit.checkpointSats >= checkpointOf[channelId])` on the refresh path** — the same
+rule the ladder already enforces. ⚠️ Verify against the stated motivation first (*"the balance may
+have DROPPED"*): if a legitimate decrease exists, it needs LP participation, not hop discretion.
+
+### 🔴 §HOP-RCE-2 — `commitFreshness` is a ratchet with NO CEILING and NO RESET
+
+`commitFreshness(channelId, seq)` (`_onlyHop`) and `commitManagerFreshness(seq)` (self-scoped by
+`msg.sender`, correctly) are strictly monotonic and unbounded above. A compromised hop writes
+`seq = type(uint64).max`. On reboot the enclave *"reads `freshnessSeq[channelId]` and refuses a
+locally-loaded monitor whose `update_id` is behind"* — which is now every monitor that will ever
+exist. **The channel becomes permanently unloadable, on-chain, irreversibly.**
+⛔ **AND IT IS NOT SELF-LIMITING: it poisons the SUCCESSOR enclave too.** Migration carries the seed,
+not a way to lower the counter, so a compromise that lasts one transaction disables the channel for
+every future enclave. Funds are not stolen; the channel is bricked and only the ladder/force-close
+path remains.
+▶️ **Fix: bound the jump (`seq <= freshnessSeq[id] + MAX_FRESHNESS_JUMP`)**, or an operator-signed
+reset in the `QUID_SWEEP_AUTH` shape. The first is smaller and keeps monotonicity intact.
+
+### 🟠 §HOP-RCE-3 — `settleSwapInBuffered`: value IS divertible, bounded by in-flight proven sats
+
+The anti-conjuring design HOLDS and should not be re-litigated: `provenSatsAvailable[msg.sender]`
+can only be raised by an SPV-proven splice, `consumed > avail` reverts, and `paymentHash` gives
+idempotency. *"It can no longer conjure the SATS."*
+🔴 **But the hop NAMES THE SELLER, and nothing binds `seller` to the party that paid the HTLC.** A
+compromised hop names ITSELF and takes the USD for sats a swapper really sent. **The pool stays
+solvent — sats in, USD out — so no invariant fires; the SWAPPER is the victim**, which is why no
+protocol-level check catches it.
+✅ **Bounded by proven-but-uncredited inventory, NOT by pool size.** The exposure is in-flight
+swap-in volume, and it is capped by how much the hop has proven and not yet credited.
+▶️ **Fix requires binding the credit to the LN preimage/route rather than to a hop-supplied address**
+— a real design change, not a guard. Book it before assuming the bound is acceptable.
+
+⚠️ **NOT AUDITED, and named so it is not mistaken for cleared:** the ibiza WITHDRAWAL AGGREGATOR —
+its signing chokepoint has not been located, and whether it passes through `EvmTxPolicy` at all is
+unestablished. Also unexamined: `splice`, `recordClose`, `recordForceClosePermissionless`,
+`deliverSwapOutOnchain`, `reverseSwapOut`, `settleSwapInProven`, `markMigrationNonceUsed`.
