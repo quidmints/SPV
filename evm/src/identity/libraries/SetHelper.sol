@@ -7,7 +7,7 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 /// removed entirely (not renamed - no equivalent found anywhere in the package) between
 /// solidity-lib 3.1.0 and 3.3.3 during the 2026-07-25 dependency freshness pass. Vendoring the
 /// exact two functions this codebase actually uses (RegistrationSimple.sol,
-/// RegistrationSMTReplicator.sol - both only ever call the batch add/remove on AddressSet, never
+/// RegistrationSMTReplicator.sol (DELETED) - both only ever called the batch add/remove on AddressSet, never
 /// UintSet/Bytes32Set/DynamicSet's Bytes/StringSet, and never strictAdd/strictRemove) rather than
 /// reproducing the original's full multi-type surface speculatively.
 library SetHelper {

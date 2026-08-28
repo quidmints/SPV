@@ -6,7 +6,7 @@ pragma solidity ^0.8.21;
  * @notice The single definition of "is this Merkle root still acceptable to prove against".
  *
  * WHY THIS LIBRARY EXISTS (sec. 2.18o). The rule was written out three separate times -
- * `PoseidonSMT`, `L1RegistrationState`, `RegistrationSMTReplicator` - and all three carried the
+ * `PoseidonSMT` - and the two Rarimo L1/L2 replication copies, since DELETED, carried the
  * same defect: an unrecorded root maps to 0, so `0 + validity > block.timestamp` returned TRUE for
  * every invented root until an hour past the epoch. Fixing one left two live, and the copy that
  * mattered most was the L2 replicator, whose deployment target is precisely a chain counting from a
