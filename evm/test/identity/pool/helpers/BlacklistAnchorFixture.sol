@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
-import {ERC1967Proxy} from '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol';
 import {RegistrySourceAnchor} from 'contracts/registry/RegistrySourceAnchor.sol';
 import {MockEvidenceRegistry} from '../../title/TitleLedger.t.sol';
 
@@ -42,11 +41,8 @@ abstract contract BlacklistAnchorFixture is Test {
    * and it reads exactly like a broken pool.
    */
   function _deployBlacklistAnchor(uint256 smtRoot_) internal {
-    RegistrySourceAnchor impl_ = new RegistrySourceAnchor();
-    blacklistAnchor = RegistrySourceAnchor(address(new ERC1967Proxy(
-      address(impl_),
-      abi.encodeCall(RegistrySourceAnchor.initialize, (address(new MockEvidenceRegistry()), ANCHOR_ADMIN))
-    )));
+    // Direct construction: the anchor is not upgradeable, so config is constructor-set.
+    blacklistAnchor = new RegistrySourceAnchor(address(new MockEvidenceRegistry()), ANCHOR_ADMIN);
 
     vm.startPrank(ANCHOR_ADMIN);
     blacklistAnchor.pinWorkflow(BLACKLIST_REGISTRY, BLACKLIST_WORKFLOW);
