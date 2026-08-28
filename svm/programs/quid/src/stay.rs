@@ -22,7 +22,13 @@ pub struct Stock {
     // as USD* (10^6)
 
     pub updated: i64,
-    pub rate_bps: u16,
+    // ⚠️ `rate_bps: u16` WAS HERE AND WAS A SUPERSEDED DUPLICATE. It stored the
+    //    rate at open; the rate is now computed LIVE on every accrual —
+    //    `rate_bps(conc, 100, actuary) + hazard_rate_bps(distance, collar, ...)`
+    //    at :915 — because the premium must track MONEYNESS, which a value
+    //    frozen at open cannot. Zero reads and zero writes remained; it only
+    //    survived a grep because `rate_bps` is also the name of the FUNCTION
+    //    imported from `etc.rs` at the top of this file.
     pub collar_bps: u16,
 
     // cost_basis tracks entry cost across renege() adjustments.
@@ -1452,7 +1458,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     return Err(PithyQuip::MaxPositionsReached.into());
                 }   self.balances.push(Stock { breached_at: 0, premium_checkpoint: 0, ticker: padded,
                         pledged: amount as u64, exposure: 0,
-                        updated: current_time, rate_bps: 0,
+                        updated: current_time,
                         collar_bps: 0,
                         cost_basis: amount as u64,
                         interest_paid: 0,
@@ -1553,7 +1559,7 @@ mod tests {
 
     pub(super) fn pod(pledged: u64, exposure: i64, collar_bps: u16, collar_dollars: u64) -> Stock {
         Stock { ticker: [0u8; 8], breached_at: 0, premium_checkpoint: 0,
-            pledged, exposure, updated: 0, rate_bps: 0,
+            pledged, exposure, updated: 0,
             collar_bps, cost_basis: pledged, interest_paid: 0,
             collar_dollar_seconds: 0, collar_dollars }
     }

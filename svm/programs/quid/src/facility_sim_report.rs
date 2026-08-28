@@ -1135,3 +1135,62 @@ fn collar_breach_rate_against_calibrated_equity_returns() {
     println!("  <100% = too WIDE (over-collateralised, capital wasted)");
     assert!(worst > 0, "the calibrated process must produce breaches somewhere");
 }
+
+/// 🔴 THE NETTING CALCULATION. Two errors were measured and never netted:
+///   • the collar breaches 0.16% where it targets 1% — call it ~6x WIDE
+///   • it is a ONE-step tail against a 168-step unwind — call it ~13x NARROW
+/// They point in OPPOSITE directions, so neither number alone says whether the
+/// collar is wrong. This measures the only thing that does: the collar against
+/// the actual 168-step cumulative move, at the breach rate it claims to target.
+#[test]
+fn net_the_over_collateralisation_against_the_horizon_shortfall() {
+    use crate::returns::Equity;
+    const N: usize = 168;                       // 7d / LIQ_GRACE_SECS
+
+    println!("\n=== collar vs the move it must actually survive ===");
+    println!("  {:<22} {:>8} {:>12} {:>12} {:>10}", "regime", "collar", "1-step p99", "168-step p99", "verdict");
+    for (label, dv) in [("large-cap (19% ann)", 120i64), ("mid-vol   (32% ann)", 200),
+                        ("high-vol  (48% ann)", 300), ("meme      (95% ann)", 600)] {
+        let mut a = Actuary::default();
+        a.last_price = 1_000_000; a.last_price_slot = 0;
+        let mut g = Equity::new(0xBEEF, dv);
+        let mut px: i64 = 1_000_000; let mut h = 0i64;
+        for _ in 0..(24 * 7 * 40) {
+            let (r, _) = g.step(); h += 1;
+            if r == 0 { continue; }
+            px = ((px as i128) * (10_000 + r as i128) / 10_000).max(1) as i64;
+            a.update_price(px, h * 3_000);
+        }
+        let collar = collar_bps(100, &a);
+
+        // Empirical distributions: single moves, and 168-move cumulative windows.
+        let mut g2 = Equity::new(0xF00D, dv);
+        let mut singles: Vec<i64> = Vec::new();
+        let mut moves: Vec<i64> = Vec::new();
+        for _ in 0..(24 * 7 * 400) {
+            let (r, _) = g2.step();
+            if r == 0 { continue; }
+            singles.push(r.abs()); moves.push(r);
+        }
+        // Cumulative |move| over rolling 168-observation windows, decayed by the
+        // ladder: what is still OPEN when each step lands is what can hurt.
+        let mut cum: Vec<i64> = Vec::new();
+        let mut i = 0usize;
+        while i + N < moves.len() {
+            let (mut open, mut acc) = (10_000i64, 0i64);
+            for k in 0..N {
+                acc += moves[i + k] * open / 10_000;
+                open -= open * MAX_TRANCHE_BPS / 10_000;
+            }
+            cum.push(acc.abs());
+            i += N;
+        }
+        singles.sort(); cum.sort();
+        let p99 = |v: &Vec<i64>| if v.is_empty() { 0 } else { v[(v.len() * 99) / 100] };
+        let (s99, c99) = (p99(&singles), p99(&cum));
+        let verdict = if collar >= c99 { "ADEQUATE" } else { "SHORT" };
+        println!("  {:<22} {:>8} {:>12} {:>12} {:>10}", label, collar, s99, c99, verdict);
+    }
+    println!("  1-step p99 is what the collar is DERIVED against;");
+    println!("  168-step p99 is what it must actually SURVIVE (ladder-decayed).");
+}

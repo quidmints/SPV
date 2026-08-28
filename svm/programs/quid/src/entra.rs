@@ -60,7 +60,6 @@ pub fn init_config(ctx: Context<InitConfig>,
     config.sol_buffer_bps = 5_000;
     config.sol_star_haircut_bps = 500;
     config.sol_park_band_bps = 1_000;
-    config.sol_min_park_secs = 21 * 86_400;
     Ok(())
 }
 
@@ -103,7 +102,6 @@ pub struct KestrelCfg {
     pub buffer_bps: u16,
     pub haircut_bps: u16,
     pub park_band_bps: u16,
-    pub min_park_secs: i64,
 }
 
 pub fn update_config(ctx: Context<UpdateConfig>,
@@ -119,8 +117,6 @@ pub fn update_config(ctx: Context<UpdateConfig>,
         // The band must fit under the non-buffer share, or park_sol can never
         // satisfy both "move at least a band" and "leave the floor intact".
         require!((k.park_band_bps as u32) <= (10_000 - k.buffer_bps as u32),
-                 PithyQuip::InvalidParameters);
-        require!(k.min_park_secs >= 0 && k.min_park_secs <= MAX_MIN_PARK_SECS,
                  PithyQuip::InvalidParameters);
         // Enabling requires both halves; disabling clears both.
         if k.kestrel_program != Pubkey::default() {
@@ -153,7 +149,6 @@ pub fn update_config(ctx: Context<UpdateConfig>,
         config.sol_buffer_bps      = k.buffer_bps;
         config.sol_star_haircut_bps = k.haircut_bps;
         config.sol_park_band_bps   = k.park_band_bps;
-        config.sol_min_park_secs   = k.min_park_secs;
     }
     Ok(())
 }
@@ -648,9 +643,18 @@ pub struct ProgramConfig {
     /// exceeds this, and a park must move at least this much. The round trip
     /// costs ~40 bps, so churn is a leak.
     pub sol_park_band_bps: u16,
-    /// Minimum hold before a *discretionary* unpark. Refilling a buffer that is
-    /// below its floor is exempt — liquidity repair is never time-locked.
-    pub sol_min_park_secs: i64,
+    // ⚠️ `sol_min_park_secs` WAS HERE, AND ENFORCING IT WOULD HAVE BEEN A BUG.
+    //    It read: "Minimum hold before a *discretionary* unpark. Refilling a
+    //    buffer that is below its floor is exempt — liquidity repair is never
+    //    time-locked." But `unpark_for_withdrawal` is the ONLY unpark path in
+    //    the program — `lib.rs` exposes no discretionary unpark — and serving a
+    //    withdrawal IS liquidity repair. So the parameter governed a path that
+    //    does not exist, and wiring it up would have time-locked the one path
+    //    its own docstring exempts.
+    //    It was defaulted to 21 days, settable, and validated against
+    //    MAX_MIN_PARK_SECS — configuration surface for nothing. Removed rather
+    //    than enforced. If a discretionary unpark is ever added, it comes back
+    //    WITH that instruction, not before it.
 }
 
 impl ProgramConfig {
@@ -678,7 +682,7 @@ impl ProgramConfig {
         + 2   // sol_buffer_bps
         + 2   // sol_star_haircut_bps
         + 2   // sol_park_band_bps
-        + 8;  // sol_min_park_secs → total 251
+        ;     // → total 243
 }
 
 
@@ -876,9 +880,6 @@ pub const BURN_PARAMS_SYNC: u8 = 0;
 /// The buffer floor can never be configured below this, whatever an admin sets.
 pub const MIN_BUFFER_BPS: u16 = 2_000; // 20% stays native, always
 
-/// Ceiling on the discretionary hold, so a mis-set config cannot freeze the
-/// tranche for years. Liquidity refills are exempt from the hold entirely.
-pub const MAX_MIN_PARK_SECS: i64 = 90 * 86_400;
 
 /// Total SOL backing the pool, hot and parked, in lamports at cost.
 pub fn sol_total_lamports(bank: &Depository) -> u64 {
