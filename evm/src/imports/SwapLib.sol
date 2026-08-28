@@ -1086,6 +1086,108 @@ library SwapLib {
         shortfallUsd6 = fire ? flowUsd - inv1 : 0;
     }
 
+    // ═══ §OOR-AS-INTENT — THE OUT-OF-RANGE BOOK, REPLACED BY A SIGNATURE ═══
+    // ⭐ **IT LIVES HERE BECAUSE IT IS SWAP LOGIC AND BECAUSE THIS LIBRARY IS ALREADY LINKED.**
+    //    `SwapLib` is deployed ONCE and delegatecalled, so the body costs `Quid` — the tightest
+    //    contract in the tree — only the call. Inlined in `Quid` the same code measured **2,629
+    //    bytes**, taking its EIP-170 headroom from 2,902 to 273. A separate `OorIntentLib.sol` would
+    //    have fixed the bytes and added a file; owner: *"we need as few files on solidity as
+    //    possible"*, and this is swap logic sitting next to the swap logic.
+    //
+    // 🔒 **WHY THERE IS NO ON-CHAIN BOOK AT ALL.** The chain stores exactly two things: P&L
+    //    attribution and deposit withdrawability. A resting order is NEITHER until it fills, and it
+    //    changes neither while it rests. The old book stored `selfManaged[id].owner` and
+    //    `positions[owner]` — a public, permanent link from an address to its intentions, for orders
+    //    that may never fill. All principal goes to the yield venue with no opt-in precisely so a
+    //    withdrawer's anonymity set is "it could be anyone"; publishing resting orders per address
+    //    shrinks that set for no accounting benefit. An intent reveals NOTHING until it fills, and at
+    //    the fill the owner appears only where settlement reveals them anyway.
+    //
+    // ⚠️ **WHAT THE v4 BOOK DID BETTER, STATED HONESTLY:** an out-of-range order there was REAL v4
+    //    liquidity at its own ticks, so any swap whose price traversed them filled it inside the
+    //    PoolManager, in the swapper's own transaction — no separate execution, which is the
+    //    strongest MEV protection there is. That property left with §V4-CUT ("one price and no
+    //    traversal"), not with this change: `sweepOor` was already only an emulation, capped at four
+    //    fills per swap with a poke for the rest. ⇒ The trade is a relayer transaction in exchange
+    //    for capital that keeps earning, an oracle bound the relayer cannot fake, and no published
+    //    linkage. It is NOT a trade against v4's automaticity, which was spent already.
+    struct OorIntent {
+        address owner;
+        bool    buyVolatile;   // spend basket dollars for volatile once price falls to `limitPx`
+        uint256 size;          // the funded side (usd6 buying, volatile selling)
+        uint256 limitPx;       // USD18 per 1e18 volatile — the price the ORACLE must have reached
+        uint64  expiry;
+        uint64  nonce;         // one consumed bit per (owner, nonce); not signing is the cancel
+        bool    loadBalance;   // §E308 consent, carried to the fill as an in-range swap carries it
+    }
+    bytes32 internal constant OOR_TYPEHASH = keccak256(
+        "OorIntent(address owner,bool buyVolatile,uint256 size,uint256 limitPx,uint64 expiry,uint64 nonce,bool loadBalance)");
+    bytes32 private constant OOR_DOMAIN = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
+    /// @dev OWN FRAME, DELIBERATELY — the seven `OorIntent` fields plus the typehash overflow the
+    ///      legacy stack inside `fillIntentBody` ("Stack too deep" at the `abi.encode`, measured).
+    ///      `via_ir` is off here by policy, and the standing remedy is to shed locals into another
+    ///      frame; `rebalanceCore`'s `_reseatIfStale` split is the same move for the same reason.
+    function _oorDigest(OorIntent calldata i, address verifyingContract)
+        private view returns (bytes32) {
+        return keccak256(abi.encodePacked(hex"1901",
+            keccak256(abi.encode(OOR_DOMAIN,
+                keccak256("QuidOor"), keccak256("1"), block.chainid, verifyingContract)),
+            keccak256(abi.encode(OOR_TYPEHASH, i.owner, i.buyVolatile, i.size,
+                i.limitPx, i.expiry, i.nonce, i.loadBalance))));
+    }
+
+    /// @dev FOUR CHECKS, AND NONE OF THEM CAN MOVE OFF-CHAIN:
+    ///      1. `expiry` — an intent is not immortal.
+    ///      2. the consumed bit — one fill per `(owner, nonce)`, set BEFORE settlement. ⚠️ THE ONLY
+    ///         STORAGE, AND IT IS WRITTEN AT FILL, NEVER AT REST.
+    ///      3. the SIGNATURE — the OWNER authorises, so a fully-compromised keeper holds no key that
+    ///         moves funds. Plain `ecrecover`, NOT `SignatureCheckerLib`: §B7 records that `lpEth`
+    ///         is derived from the channel key, so an LP is necessarily that key's EOA and a
+    ///         smart-wallet LP is not expressible. ERC-1271 would cost ~2 KB for a ruled-out case.
+    ///         If §B7 is ever un-ratified, this is where it comes back.
+    ///      4. ⭐ THE ORACLE — OUR read, the same source settlement uses. The relayer picks WHEN and
+    ///         nothing else; a keeper that lies about the price is refused by the contract that owns
+    ///         it. §C2.1's discipline (the keeper names a venue, never a rate) applied to time.
+    ///      ⭐ THE DELTAS ARE AT THE LIMIT, NOT SPOT — the maker is owed the price they signed.
+    ///      Sign rule is `_handleDelta`'s, which is v4's caller-perspective `BalanceDelta` one layer
+    ///      up: POSITIVE leaves the pool (the PM owes us, we take), NEGATIVE enters it (we owe the
+    ///      PM, we settle) — a credit must exist before a debit can. Verified against
+    ///      `Core._settleUsdSide`: `usdDelta > 0` takes `_poolUsdInRange(..., mint=false)`, a BURN,
+    ///      and then pays out. Positive is value LEAVING.
+    function fillIntentBody(
+        mapping(address => mapping(uint64 => bool)) storage used,
+        OorIntent calldata i, bytes calldata sig,
+        address core, address aux, address asset, address verifyingContract
+    ) external returns (int usdDelta, int volDelta) {
+        if (block.timestamp >= i.expiry) revert IntentExpired();
+        if (used[i.owner][i.nonce]) revert IntentUsed();
+        if (sig.length != 65) revert IntentBadSig();
+        if (ecrecover(_oorDigest(i, verifyingContract),
+                uint8(sig[64]), bytes32(sig[0:32]), bytes32(sig[32:64])) != i.owner)
+            revert IntentBadSig();
+        // ORACLE BINDS: a bid fills only once the price has fallen TO OR THROUGH its limit.
+        uint px = IAux(aux).getTWAPforAsset(asset, 1800);
+        if (i.buyVolatile ? px > i.limitPx : px < i.limitPx) revert IntentNotCrossed();
+        used[i.owner][i.nonce] = true;
+        if (i.buyVolatile) {
+            uint volOut = BasketLib.convert(i.size, i.limitPx, true);
+            if (volOut == 0 || volOut > ICore(core).POOLED()) revert IntentUnfillable();
+            usdDelta = -int(i.size); volDelta = int(volOut);
+        } else {
+            uint usdOut = BasketLib.convert(i.size, i.limitPx, false);
+            if (usdOut == 0 || usdOut > ICore(core).POOLED_USD()) revert IntentUnfillable();
+            usdDelta = int(usdOut); volDelta = -int(i.size);
+        }
+    }
+
+    error IntentExpired();
+    error IntentUsed();
+    error IntentBadSig();
+    error IntentNotCrossed();
+    error IntentUnfillable();
+
     function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
         public pure returns (uint skew)
     {

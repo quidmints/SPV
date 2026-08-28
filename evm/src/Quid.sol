@@ -3,6 +3,8 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
+
+import {BasketLib} from "./imports/BasketLib.sol";
 import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";
 import { ILevEquity, ILevClose } from "./imports/Interfaces.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
@@ -13,6 +15,8 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 import {RangeLib} from "./imports/RangeLib.sol";
+
+import {BasketLib} from "./imports/BasketLib.sol";
 import {Types} from "./imports/Types.sol";
 
 import {Basket} from "./Basket.sol";
@@ -1243,6 +1247,84 @@ contract Quid is Shares,
         RangeLib.pokeOor(address(CORE), address(AUX), address(WETH),
             oorBook, selfManaged, positions, id);
     }
+
+    /// @notice §OOR-AS-INTENT — ONE CONSUMED BIT PER (owner, nonce). Also the cancel: an intent the
+    ///         owner never hands out cannot fill, and burning its nonce makes that certain.
+    mapping(address => mapping(uint64 => bool)) public intentUsed;
+
+    /// @notice ⭐ **A RESTING ORDER THAT LIVES OFF-CHAIN AND COSTS NOTHING UNTIL IT FILLS.**
+    ///         Permissionless: anyone may relay a signed intent, which is what makes a refusing
+    ///         keeper a liveness problem rather than a safety one.
+    /// @dev    THE FOUR CHECKS, AND EACH ONE IS LOAD-BEARING:
+    ///         1. `expiry` — an intent is not immortal.
+    ///         2. the consumed bit — one fill per (owner, nonce), checked BEFORE any external call.
+    ///         3. the SIGNATURE — the OWNER authorises; `SignatureCheckerLib` accepts an EOA or an
+    ///            ERC-1271 smart wallet, so this does not exclude the smart-wallet holders §E183
+    ///            narrowed toward.
+    ///         4. ⭐ **THE ORACLE** — `AUX.getTWAPforAsset`, the CONTRACT's own read, the same source
+    ///            settlement uses. The relayer chooses WHEN to submit and can choose nothing else:
+    ///            a keeper that lies about the price is refused by the contract that owns it.
+    ///         ⚠️ **NO ESCROW, AND NO TRANSFER IN.** The fill RECLASSIFIES the owner's existing
+    ///         position through `settleOor` — the same settlement the on-chain book's `fillOne` uses
+    ///         — so nothing was ever held on this path and there is nothing to drain. It carries the
+    ///         owner's `loadBalance` consent for exactly the reason an in-range swap does (§E308).
+    /// @notice ⭐ **THE WHOLE OUT-OF-RANGE MECHANISM, ON-CHAIN, IN ONE FUNCTION.** Permissionless:
+    ///         anyone may relay a signed intent, which is what makes a refusing keeper a LIVENESS
+    ///         problem rather than a safety one — and liveness anyone can cure.
+    /// @dev    FOUR CHECKS, AND NONE OF THEM CAN MOVE OFF-CHAIN:
+    ///         1. `expiry` — an intent is not immortal.
+    ///         2. the consumed bit — one fill per `(owner, nonce)`, set BEFORE the settlement call.
+    ///         3. the SIGNATURE — the OWNER authorises, so a fully-compromised keeper holds no key
+    ///            that moves funds. Plain `ecrecover`, NOT `SignatureCheckerLib`: §B7 records that
+    ///            `lpEth` is derived from the channel key, so **an LP is necessarily the EOA of that
+    ///            key and a smart-wallet LP is not expressible**. Carrying the ERC-1271 path would
+    ///            be ~2 KB of `Quid` — the tightest contract in the tree — for a case the design has
+    ///            already ruled out. ⚠️ If that narrowing is ever reversed (§B7 asks for it to be
+    ///            RATIFIED, not inherited), this line is where it comes back.
+    ///         4. ⭐ **THE ORACLE** — OUR read, the same source settlement uses. The relayer picks
+    ///            WHEN and nothing else: a keeper that lies about the price is refused by the
+    ///            contract that owns the price. That is the §C2.1 discipline — the keeper names a
+    ///            venue, never a rate — applied to time instead of venue.
+    ///         🔒 **NO ESCROW AND NO TRANSFER IN.** The owner's capital never moved to place this;
+    ///         it stayed in the basket or in-range, EARNING and IL-protected. The fill only
+    ///         RECLASSIFIES it, through the same `settleOor` the book's own fill used.
+    /// @notice ⭐ **THE ENTIRE OUT-OF-RANGE MECHANISM, ON-CHAIN, IN ONE FUNCTION AND ZERO RESTING
+    ///         STORAGE.** Permissionless — anyone may relay — so a refusing keeper is a LIVENESS
+    ///         problem, curable by anyone, and never a safety one.
+    /// @dev    FOUR CHECKS. NONE CAN MOVE OFF-CHAIN, AND NOTHING ELSE NEEDS TO BE ON IT:
+    ///         1. `expiry` — an intent is not immortal.
+    ///         2. the consumed bit — one fill per `(owner, nonce)`, set BEFORE settlement.
+    ///            ⚠️ THIS IS THE ONLY STORAGE, AND IT IS WRITTEN AT FILL, NEVER AT REST. A resting
+    ///            order costs the chain nothing and reveals nothing.
+    ///         3. the SIGNATURE — the OWNER authorises, so a fully-compromised keeper holds no key
+    ///            that moves funds. Plain `ecrecover`, NOT `SignatureCheckerLib`: §B7 records that
+    ///            `lpEth` is derived from the channel key, so an LP is necessarily that key's EOA
+    ///            and a smart-wallet LP is not expressible. Carrying ERC-1271 costs ~2 KB of `Quid`
+    ///            — the tightest contract in the tree — for a case the design has ruled out. If §B7
+    ///            is ever un-ratified, this line is where it comes back.
+    ///         4. ⭐ **THE ORACLE** — OUR read, the same source settlement uses. The relayer picks
+    ///            WHEN and nothing else; a keeper that lies about the price is refused by the
+    ///            contract that owns the price. §C2.1's discipline (keeper names a venue, never a
+    ///            rate) applied to time.
+    ///         🔒 Capital never moved to place this: it stayed in the basket or in-range, EARNING
+    ///         and IL-protected. The fill RECLASSIFIES it through `settleOor` — ATOMICALLY, which is
+    ///         the defect the v4 book had and this does not: there, a crossing converted the
+    ///         position inside the PoolManager while `POOLED_*`, shares and backing stayed
+    ///         unchanged until the owner happened to call `pull`. The protocol was blind in between.
+    /// @notice ⭐ **THE ENTIRE OUT-OF-RANGE MECHANISM: ONE CALL, ZERO RESTING STORAGE.**
+    ///         Permissionless — anyone may relay — so a refusing keeper is a LIVENESS problem,
+    ///         curable by anyone, never a safety one. Body in `SwapLib` (linked, deployed once):
+    ///         this contract is the tightest in the tree and can afford the CALL, not the CODE.
+    function fillIntent(SwapLib.OorIntent calldata i, bytes calldata sig)
+        external nonReentrant returns (bool) {
+        (int usdDelta, int volDelta) = SwapLib.fillIntentBody(
+            intentUsed, i, sig, address(CORE), address(AUX), address(WETH), address(this));
+        CORE.settleOor(i.owner, usdDelta, volDelta, i.loadBalance);
+        emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
+        return true;
+    }
+
+    event IntentFilled(address indexed owner, uint64 indexed nonce, uint size, uint limitPx, bool buyVolatile);
 
     // _distributeV4Fees + _calcYield folded into QuidLib.rebalanceBody (their ONLY caller was _rebalance; the
     // APY `yield` _calcYield computed was already discarded there). The token-canonical reorder + fee-increment
