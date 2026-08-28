@@ -4,14 +4,14 @@ pragma solidity ^0.8.28;
 import {Test} from 'forge-std/Test.sol';
 
 import {RegisterIdentityLightID256HonkVerifier} from
-  '../../../src/identity/passport/verifiers/RegisterIdentityLightID256HonkVerifier.sol';
+  '../../../src/identity/generated/passport/verifiers/RegisterIdentityLightID256HonkVerifier.sol';
 
 /*
  * THE FIRST PASSPORT-REGISTRATION VERIFIER THIS REPO CAN ACTUALLY PROVE AGAINST (task 24).
  *
  * WHAT WAS WRONG, AND IT WAS NOT WHAT THE TRACKER SAID. The debt was recorded as "76 passport
  * verifiers generated on beta.13, in no regeneration script". Those 76
- * `passport/verifiers2/noir/NoirRegisterIdentity_*.sol` arrived in the fork import 0762975, have
+ * `generated/passport/noir/NoirRegisterIdentity_*.sol` arrived in the fork import 0762975, have
  * never been modified since, and are referenced by no contract, test or script in this repo - they
  * are rarimo's, generated from 76 parameterised circuit profiles WE DO NOT HAVE. There is no
  * generator here, so "regenerate them" is not an operation this repo can perform.

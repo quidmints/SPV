@@ -10,7 +10,7 @@ import {StateKeeper} from "../../../src/identity/state/StateKeeper.sol";
 import {PoseidonSMT} from "../../../src/identity/state/PoseidonSMT.sol";
 import {
     NoirRegisterIdentity_1_160_3_3_576_200_NA
-} from "../../../src/identity/passport/verifiers2/noir/NoirRegisterIdentity_1_160_3_3_576_200_NA.sol";
+} from "../../../src/identity/generated/passport/noir/NoirRegisterIdentity_1_160_3_3_576_200_NA.sol";
 
 /*
  * THE FIRST TEST OF THE PASSPORT VERIFIER REGISTRY (sec. 2.18gz-signer).

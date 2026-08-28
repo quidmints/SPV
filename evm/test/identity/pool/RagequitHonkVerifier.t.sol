@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
-import {RagequitHonkVerifier} from '../../../src/identity/pool/verifiers/RagequitHonkVerifier.sol';
+import {RagequitHonkVerifier} from '../../../src/identity/generated/pool/verifiers/RagequitHonkVerifier.sol';
 import {INoirVerifier} from '../../../src/identity/interfaces/verifiers/INoirVerifier.sol';
 import {ProofLib} from '../../../src/identity/pool/lib/ProofLib.sol';
 

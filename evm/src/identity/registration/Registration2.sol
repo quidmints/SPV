@@ -133,7 +133,7 @@ contract Registration2 is Initializable, UUPSUpgradeable {
      *     SIGNATURE, not a ZK proof. Every piece of certificate hardening (X509 bounds sec. 2.18m,
      *     PKCS#1 forgery sec. 2.18u, low-s sec. 2.18v) is independent of the proving system.
      *   - `registerViaNoir` / `reissueIdentityViaNoir` - Noir/Honk, and now the ONLY ZK path here.
-     *     **89** verifiers under `passport/verifiers2/noir/`, ALL on the pinned 6.0 template and all
+     *     **89** verifiers under `generated/passport/noir/`, ALL on the pinned 6.0 template and all
      *     regenerated from a single library state - 88 parameterised profiles plus `ID_Card_I`, which
      *     is the `register_identity_light_td1` circuit and has no 14-generic tuple. Nothing is
      *     stranded on 5.1.0 and nothing is quarantined (sec. 2.18gz).

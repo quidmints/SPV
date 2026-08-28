@@ -12,7 +12,7 @@ import {RegistrySourceAnchor} from '../../../src/identity/registry/RegistrySourc
 import {HolderStateKeeperMock} from '../../../src/identity/mock/holder/HolderStateKeeperMock.sol';
 import {PoseidonSMTMock} from '../../../src/identity/mock/state/PoseidonSMTMock.sol';
 import {NoirVerifierMock} from '../../../src/identity/mock/verifiers/NoirVerifierMock.sol';
-import {TitleHolderHonkVerifier} from '../../../src/identity/title/TitleHolderHonkVerifier.sol';
+import {TitleHolderHonkVerifier} from '../../../src/identity/generated/title/TitleHolderHonkVerifier.sol';
 
 /// Same minimal in-test ERC-7812 registry pattern as RegistrySourceAnchor.t.sol / EntrypointAsp.t.sol.
 contract MockEvidenceRegistry is IEvidenceRegistry {

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
-import {NotaryActionHonkVerifier} from '../../../src/identity/title/NotaryActionHonkVerifier.sol';
+import {NotaryActionHonkVerifier} from '../../../src/identity/generated/title/NotaryActionHonkVerifier.sol';
 import {INoirVerifier} from '../../../src/identity/interfaces/verifiers/INoirVerifier.sol';
 
 /*

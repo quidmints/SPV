@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Test, console} from 'forge-std/Test.sol';
-import {TreeRoot16HonkVerifier} from '../../../src/identity/pool/verifiers/TreeRoot16HonkVerifier.sol';
-import {TreeRoot32HonkVerifier} from '../../../src/identity/pool/verifiers/TreeRoot32HonkVerifier.sol';
+import {TreeRoot16HonkVerifier} from '../../../src/identity/generated/pool/verifiers/TreeRoot16HonkVerifier.sol';
+import {TreeRoot32HonkVerifier} from '../../../src/identity/generated/pool/verifiers/TreeRoot32HonkVerifier.sol';
 import {INoirVerifier} from '../../../src/identity/interfaces/verifiers/INoirVerifier.sol';
 
 /*

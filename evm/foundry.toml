@@ -52,7 +52,17 @@ bytecode_hash = "none"
 deny_warnings = false
 cbor_metadata = false
 sparse_mode = false
-build_info = true
+# §MERGE — WAS `true`, AND IT IS WHAT MADE THE MERGED TREE UNBUILDABLE ON A SMALL MACHINE.
+# A build-info file carries the COMPLETE standard-json input AND output for a compilation unit —
+# every source, every AST. That is affordable for the 27 core contracts and is not affordable for
+# 593 files including 109 generated verifiers of ~100 KB each.
+# ⚠️ THE FAILURE POINT IS THE TELL: solc FINISHES (measured twice: 122s+428s, then 230s+608s) and
+# forge then dies with no artifacts written at all. Compilation was never the problem; holding the
+# whole build-info set in memory to serialise it was.
+# ⇒ Re-enable it only for a verification run (`FOUNDRY_BUILD_INFO=true forge build`) on a machine
+# with the memory for it. Nothing in this repo's tooling reads it — `check-contract-sizes.py` reads
+# `out/**/deployedBytecode.object`, not build-info.
+build_info = false
 
 # Echidna/crytic profile — inherits default, DISABLES dynamic test linking.
 #
@@ -99,22 +109,22 @@ name = "size-optimised-verifier"
 optimizer_runs = 1
 
 [[profile.default.compilation_restrictions]]
-paths = "src/identity/pool/verifiers/WithdrawalHonkVerifier.sol"
+paths = "src/identity/generated/pool/verifiers/WithdrawalHonkVerifier.sol"
 optimizer_runs = 1
 
 [[profile.default.compilation_restrictions]]
-paths = "src/identity/title/TitleHolderHonkVerifier.sol"
+paths = "src/identity/generated/title/TitleHolderHonkVerifier.sol"
 optimizer_runs = 1
 
 [[profile.default.compilation_restrictions]]
-paths = "src/identity/pool/verifiers/RagequitHonkVerifier.sol"
+paths = "src/identity/generated/pool/verifiers/RagequitHonkVerifier.sol"
 optimizer_runs = 1
 
 # Without this the generated verifier is 25,503 bytes - 927 OVER the EIP-170 24,576 limit and
 # undeployable. It has 8 public inputs, the most of any circuit here, and each one costs runtime
 # code. The failure surfaces only at deploy time, so it is caught by `forge build --sizes`.
 [[profile.default.compilation_restrictions]]
-paths = "src/identity/registry/verifiers/EscrowEnvelopeHonkVerifier.sol"
+paths = "src/identity/generated/registry/verifiers/EscrowEnvelopeHonkVerifier.sol"
 optimizer_runs = 1
 
 # The recursion-tree root verifiers, one per batch size (TODO.md sec. 2.4 / 2.18el). Same knife-edge
@@ -123,6 +133,6 @@ optimizer_runs = 1
 # tree grows the circuit, not the contract), so a new depth needs a new PATH here but no new
 # reasoning - the glob covers them all.
 [[profile.default.compilation_restrictions]]
-paths = "src/identity/pool/verifiers/TreeRoot*HonkVerifier.sol"
+paths = "src/identity/generated/pool/verifiers/TreeRoot*HonkVerifier.sol"
 optimizer_runs = 1
 

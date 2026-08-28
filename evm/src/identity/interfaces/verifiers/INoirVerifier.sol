@@ -10,7 +10,7 @@ interface INoirVerifier {
      * implement it: bb's UltraHonk output has no such function, and every verifier this fusion
      * generates - the escrow envelope, the withdrawal, and now the regenerated passport set - is
      * UltraHonk. Only the inherited UltraPlonk verifiers under `sdk/verifier` and the pre-fork
-     * `verifiers2` files ever had it. A declaration that no implementation honours turns a cast into
+     * `generated/passport/noir` files ever had it. A declaration that no implementation honours turns a cast into
      * a latent revert, so it goes rather than being left as an invitation.
      * @param _proof The serialized proof data.
      * @param _publicInputs An array of the public inputs for the proof.

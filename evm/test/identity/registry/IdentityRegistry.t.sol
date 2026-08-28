@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IdentityRegistry} from '../../../src/identity/registry/IdentityRegistry.sol';
 import {SparseMerkleTree} from '@solarity/solidity-lib/libs/data-structures/SparseMerkleTree.sol';
-import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
+import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/generated/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
 import {EscrowFixtureBase} from './EscrowFixtureBase.sol';
 
 /*

@@ -32,7 +32,7 @@ set -euo pipefail
 
 NOIR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="${NOIR_DIR}/passport-profiles.json"
-DEST="${NOIR_DIR}/../src/identity/passport/verifiers2/noir"
+DEST="${NOIR_DIR}/../src/identity/generated/passport/noir"
 WORK="${NOIR_DIR}/.passport-build"
 # Where each profile's verification key is kept, so a template-only regeneration never pays for
 # write_vk twice. Committed: they are small, they are the expensive artifact, and they are stable

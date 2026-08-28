@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
-import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
+import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/generated/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
 import {INoirVerifier} from '../../../src/identity/interfaces/verifiers/INoirVerifier.sol';
 
 /*

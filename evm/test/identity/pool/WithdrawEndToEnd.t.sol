@@ -9,12 +9,12 @@ import {IEvidenceRegistry} from '@rarimo/evidence-registry/interfaces/IEvidenceR
 
 import {Entrypoint} from '../../../src/identity/pool/Entrypoint.sol';
 import {IdentityRegistry} from '../../../src/identity/registry/IdentityRegistry.sol';
-import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
+import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/generated/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
 import {HolderStateKeeperMock} from '../../../src/identity/mock/holder/HolderStateKeeperMock.sol';
 import {PoseidonSMTMock} from '../../../src/identity/mock/state/PoseidonSMTMock.sol';
 import {PrivacyPoolSimple} from '../../../src/identity/pool/implementations/PrivacyPoolSimple.sol';
-import {WithdrawalHonkVerifier} from '../../../src/identity/pool/verifiers/WithdrawalHonkVerifier.sol';
-import {RagequitHonkVerifier} from '../../../src/identity/pool/verifiers/RagequitHonkVerifier.sol';
+import {WithdrawalHonkVerifier} from '../../../src/identity/generated/pool/verifiers/WithdrawalHonkVerifier.sol';
+import {RagequitHonkVerifier} from '../../../src/identity/generated/pool/verifiers/RagequitHonkVerifier.sol';
 import {IPrivacyPool} from '../../../src/identity/pool/interfaces/IPrivacyPool.sol';
 import {ProofLib} from '../../../src/identity/pool/lib/ProofLib.sol';
 import {Constants} from '../../../src/identity/pool/lib/Constants.sol';

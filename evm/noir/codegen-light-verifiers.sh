@@ -17,7 +17,7 @@
 set -euo pipefail
 
 NOIR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT_DIR="${NOIR_DIR}/../src/identity/passport/verifiers"
+OUT_DIR="${NOIR_DIR}/../src/identity/generated/passport/verifiers"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
