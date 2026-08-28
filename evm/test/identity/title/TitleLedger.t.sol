@@ -91,10 +91,7 @@ contract TitleLedgerTest is Test, CreReportMetadata {
     notary = vm.addr(NOTARY_PK);
     otherSigner = vm.addr(OTHER_PK);
 
-    RegistrySourceAnchor registryImpl = new RegistrySourceAnchor();
-    bytes memory registryInit =
-      abi.encodeCall(RegistrySourceAnchor.initialize, (address(new MockEvidenceRegistry()), admin));
-    registry = RegistrySourceAnchor(address(new ERC1967Proxy(address(registryImpl), registryInit)));
+    registry = new RegistrySourceAnchor(address(new MockEvidenceRegistry()), admin);
     _activateWorkflow(registry, admin);
     // Read the role constant BEFORE vm.prank - it's itself an external call and would otherwise
     // consume the single-shot prank before grantRole executes (see RegistrySourceAnchor.t.sol).
@@ -127,12 +124,9 @@ contract TitleLedgerTest is Test, CreReportMetadata {
 
     titleHolderVerifier = new NoirVerifierMock();
     notaryActionVerifier = new NoirVerifierMock();
-    TitleLedger ledgerImpl = new TitleLedger();
-    bytes memory ledgerInit = abi.encodeCall(
-      TitleLedger.initialize,
-      (address(registry), address(titleHolderVerifier), address(stateKeeper), admin, address(notaryActionVerifier))
+    ledger = new TitleLedger(
+      address(registry), address(titleHolderVerifier), address(stateKeeper), admin, address(notaryActionVerifier)
     );
-    ledger = TitleLedger(address(new ERC1967Proxy(address(ledgerImpl), ledgerInit)));
 
     // A real 2-leaf snapshot: notaryDataHash + one decoy, strictly ascending as
     // RegistrySourceAnchor requires.
@@ -229,26 +223,19 @@ contract TitleLedgerTest is Test, CreReportMetadata {
 
   // ── initialization / upgradeability ─────────────────────────────────────────────────────
 
-  function test_initialize_revertsOnZeroNotaryRegistry() public {
-    TitleLedger impl = new TitleLedger();
-    bytes memory init = abi.encodeCall(TitleLedger.initialize, (address(0), address(titleHolderVerifier), address(stateKeeper), admin, address(notaryActionVerifier)));
+  function test_constructor_revertsOnZeroNotaryRegistry() public {
     vm.expectRevert(TitleLedger.ZeroAddress.selector);
-    new ERC1967Proxy(address(impl), init);
+    new TitleLedger(address(0), address(titleHolderVerifier), address(stateKeeper), admin, address(notaryActionVerifier));
   }
 
-  function test_initialize_revertsOnZeroVerifier() public {
-    TitleLedger impl = new TitleLedger();
-    bytes memory init = abi.encodeCall(TitleLedger.initialize, (address(registry), address(0), address(stateKeeper), admin, address(notaryActionVerifier)));
+  function test_constructor_revertsOnZeroVerifier() public {
     vm.expectRevert(TitleLedger.ZeroAddress.selector);
-    new ERC1967Proxy(address(impl), init);
+    new TitleLedger(address(registry), address(0), address(stateKeeper), admin, address(notaryActionVerifier));
   }
 
-  function test_initialize_revertsOnZeroStateKeeper() public {
-    TitleLedger impl = new TitleLedger();
-    bytes memory init =
-      abi.encodeCall(TitleLedger.initialize, (address(registry), address(titleHolderVerifier), address(0), admin, address(notaryActionVerifier)));
+  function test_constructor_revertsOnZeroStateKeeper() public {
     vm.expectRevert(TitleLedger.ZeroAddress.selector);
-    new ERC1967Proxy(address(impl), init);
+    new TitleLedger(address(registry), address(titleHolderVerifier), address(0), admin, address(notaryActionVerifier));
   }
 
   // ── sec. 2.13l: a notary is a REGISTERED IDENTITY, and therefore revocable ────────────────
@@ -337,14 +324,8 @@ contract TitleLedgerTest is Test, CreReportMetadata {
     // and would make this test compare an address against itself. The forwarder is write-once, so
     // the only way to have a publication-only address is to set it on an anchor that has none yet -
     // which is also the real deployment shape.
-    RegistrySourceAnchor freshRegistry = RegistrySourceAnchor(
-      address(
-        new ERC1967Proxy(
-          address(new RegistrySourceAnchor()),
-          abi.encodeCall(RegistrySourceAnchor.initialize, (address(new MockEvidenceRegistry()), admin))
-        )
-      )
-    );
+    RegistrySourceAnchor freshRegistry =
+      new RegistrySourceAnchor(address(new MockEvidenceRegistry()), admin);
     address publisher = address(0xD044);
     vm.prank(admin);
     freshRegistry.setForwarder(publisher);
@@ -390,15 +371,23 @@ contract TitleLedgerTest is Test, CreReportMetadata {
     ledger.revokeNotary(NOTARY_COMMITMENT, bytes32(0));
   }
 
-  function test_initialize_cannotBeCalledTwice() public {
-    vm.expectRevert();
-    ledger.initialize(address(registry), address(titleHolderVerifier), address(stateKeeper), admin, address(notaryActionVerifier));
-  }
-
-  function test_upgradeToAndCall_revertsForNonOwner() public {
-    TitleLedger newImpl = new TitleLedger();
-    vm.expectRevert();
-    ledger.upgradeToAndCall(address(newImpl), '');
+  /// ⭐ REPLACES `test_initialize_cannotBeCalledTwice` and `test_upgradeToAndCall_revertsForNonOwner`.
+  /// Both are VACUOUS now rather than merely passing — there is no initializer and no upgrade
+  /// entrypoint — so deleting them silently would drop the property they guarded. This asserts the
+  /// stronger claim: neither selector exists, for anyone, owner included. A land-title ledger whose
+  /// owner can swap the implementation is a ledger whose owner can redefine ownership.
+  function test_thereIsNoUpgradePath() public {
+    (bool ok_, ) = address(ledger).call(
+      abi.encodeWithSignature('upgradeToAndCall(address,bytes)', address(this), '')
+    );
+    assertFalse(ok_, 'ledger must expose no upgrade entrypoint');
+    (bool ok2_, ) = address(ledger).call(
+      abi.encodeWithSignature(
+        'initialize(address,address,address,address,address)',
+        address(registry), address(titleHolderVerifier), address(stateKeeper), admin, address(notaryActionVerifier)
+      )
+    );
+    assertFalse(ok2_, 'ledger must expose no initializer');
   }
 
   // ── bindNotaryIdentity ──────────────────────────────────────────────────────────────────

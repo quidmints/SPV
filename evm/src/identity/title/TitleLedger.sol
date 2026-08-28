@@ -3,8 +3,11 @@ pragma solidity ^0.8.28;
 
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {SparseMerkleTree} from "@solarity/solidity-lib/libs/data-structures/SparseMerkleTree.sol";
-import {AccessControlUpgradeable} from "@oz-upgradeable/access/AccessControlUpgradeable.sol";
-import {UUPSUpgradeable} from "@oz-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+// 🔴 NOT UPGRADEABLE — see RegistrySourceAnchor's header for the argument, which applies here with
+//    an extra edge: this contract IS the land-title record. An upgradeable ledger of who owns what
+//    is a ledger whose owner can rewrite what ownership MEANS, and `OWNER_ROLE` gated
+//    `_authorizeUpgrade` alongside the ordinary admin powers.
+import {AccessControl} from "@oz/access/AccessControl.sol";
 
 import {PoseidonUnit2L} from "../libraries/Poseidon.sol";
 import {HolderStateKeeper} from "../holder/HolderStateKeeper.sol";
@@ -50,7 +53,7 @@ import {Constants} from "../pool/lib/Constants.sol";
 /// @dev UUPS-upgradeable behind a proxy - matches RegistrySourceAnchor.sol and this codebase's
 /// convention for record-holding registry contracts (see RegistrySourceAnchor.sol's own doc
 /// comment for the non-upgradeable-vault-vs-upgradeable-registry distinction this follows).
-contract TitleLedger is AccessControlUpgradeable, UUPSUpgradeable {
+contract TitleLedger is AccessControl {
     using SparseMerkleTree for SparseMerkleTree.Bytes32SMT;
 
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
@@ -109,17 +112,20 @@ contract TitleLedger is AccessControlUpgradeable, UUPSUpgradeable {
         bool encumbered;
     }
 
-    // Regular state, not immutable - see RegistrySourceAnchor.EVIDENCE_REGISTRY's comment for why
-    // (one implementation can serve many proxies; deployment-specific config is initializer-set).
-    RegistrySourceAnchor public NOTARY_REGISTRY;
-    INoirVerifier public TITLE_HOLDER_VERIFIER; // verifies pp::title_holder proofs
-    HolderStateKeeper public STATE_KEEPER; // holder documents, for the title-holder path
+    // ⭐ `immutable` NOW. This cited RegistrySourceAnchor.EVIDENCE_REGISTRY's "one implementation can
+    // serve many proxies" reasoning, and that contract has since dropped it for the same reason
+    // this one does: there are no proxies, so the language enforces what the comment could only
+    // promise.
+    RegistrySourceAnchor public immutable NOTARY_REGISTRY;
+    INoirVerifier public immutable TITLE_HOLDER_VERIFIER; // verifies pp::title_holder proofs
+    HolderStateKeeper public immutable STATE_KEEPER; // holder documents, for the title-holder path
 
-    // 0 is reserved for "no prior title" in priorTitleId. NOT given an inline default here: for a
-    // UUPS-upgradeable contract, an inline state-variable initializer only runs in the
-    // IMPLEMENTATION contract's own (never-used) constructor-time storage, not the proxy's - the
-    // proxy's slot would silently stay at the EVM default of 0 forever. Set explicitly in
-    // initialize() instead (caught by a real assertEq(titleId, 1) test failure, not by inspection).
+    // 0 is reserved for "no prior title" in priorTitleId, so ids start at 1. Still set in the
+    // constructor rather than as an inline default, but the REASON is now only convention: the old
+    // one was that "for a UUPS-upgradeable contract, an inline state-variable initializer only runs
+    // in the IMPLEMENTATION contract's own (never-used) constructor-time storage, not the proxy's",
+    // which was a real hazard and is gone with the proxy. It was caught by an assertEq(titleId, 1)
+    // failure rather than by inspection, so the test — not this comment — is what keeps it honest.
     uint256 public nextTitleId;
     mapping(uint256 => TitleEntry) public titles;
     mapping(uint256 => string[]) public restrictionLegends; // titleId => legends, separately mutable
@@ -214,26 +220,19 @@ contract TitleLedger is AccessControlUpgradeable, UUPSUpgradeable {
     error OnlyNotaryRegistrar();
     error ZeroAddress();
 
-    /// @notice Disables initializers on the implementation contract. Using the UUPS
-    /// upgradeability pattern - matches Entrypoint.sol's own constructor exactly.
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(
+    /// @notice Deployment-time config, permanently. Was `initialize(...)` behind a UUPS proxy.
+    constructor(
         address notaryRegistry_,
         address titleHolderVerifier_,
         address stateKeeper_,
         address owner_,
         address notaryActionVerifier_
-    ) external initializer {
+    ) {
         if (
             notaryRegistry_ == address(0) || titleHolderVerifier_ == address(0)
                 || stateKeeper_ == address(0) || owner_ == address(0)
                 || notaryActionVerifier_ == address(0)
         ) revert ZeroAddress();
-        __AccessControl_init();
-        // UUPSUpgradeable has no storage/init step in OZ 5.6.1 (it's a thin, stateless wrapper).
 
         NOTARY_REGISTRY = RegistrySourceAnchor(notaryRegistry_);
         TITLE_HOLDER_VERIFIER = INoirVerifier(titleHolderVerifier_);
@@ -247,7 +246,6 @@ contract TitleLedger is AccessControlUpgradeable, UUPSUpgradeable {
         _grantRole(OWNER_ROLE, owner_);
     }
 
-    function _authorizeUpgrade(address) internal override onlyRole(OWNER_ROLE) {}
 
     /// @dev Placeholder trust bootstrap - see the contract-level OPEN GAP note and the
     /// `notaryDataHash` field comment for why this is gated by NOTARY_REGISTRY's role instead of

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
-import {ERC1967Proxy} from '@oz/proxy/ERC1967/ERC1967Proxy.sol';
 import {IEvidenceRegistry} from '@rarimo/evidence-registry/interfaces/IEvidenceRegistry.sol';
 
 import {RegistrySourceAnchor} from '../../../src/identity/registry/RegistrySourceAnchor.sol';
@@ -59,10 +58,8 @@ contract RegistrySourceAnchorTest is Test, CreReportMetadata {
   function setUp() public {
     registry = new MockEvidenceRegistry();
 
-    RegistrySourceAnchor impl = new RegistrySourceAnchor();
-    bytes memory init = abi.encodeCall(RegistrySourceAnchor.initialize, (address(registry), admin));
-    ERC1967Proxy proxy = new ERC1967Proxy(address(impl), init);
-    anchor = RegistrySourceAnchor(address(proxy));
+    // No proxy: the anchor is not upgradeable, so config is constructor-set and permanent.
+    anchor = new RegistrySourceAnchor(address(registry), admin);
     _activateWorkflow(anchor, admin);
 
     // The publication gate is an ADDRESS now, not a role: `postman` is simply the Forwarder this
@@ -117,30 +114,30 @@ contract RegistrySourceAnchorTest is Test, CreReportMetadata {
     vm.warp(block.timestamp + anchor_.WORKFLOW_ACTIVATION_DELAY() + 1);
   }
 
-  function test_initialize_revertsOnZeroEvidenceRegistry() public {
-    RegistrySourceAnchor impl = new RegistrySourceAnchor();
-    bytes memory init = abi.encodeCall(RegistrySourceAnchor.initialize, (address(0), admin));
+  function test_constructor_revertsOnZeroEvidenceRegistry() public {
     vm.expectRevert(RegistrySourceAnchor.ZeroAddress.selector);
-    new ERC1967Proxy(address(impl), init);
+    new RegistrySourceAnchor(address(0), admin);
   }
 
-  function test_initialize_revertsOnZeroAdmin() public {
-    RegistrySourceAnchor impl = new RegistrySourceAnchor();
-    bytes memory init = abi.encodeCall(RegistrySourceAnchor.initialize, (address(registry), address(0)));
+  function test_constructor_revertsOnZeroAdmin() public {
     vm.expectRevert(RegistrySourceAnchor.ZeroAddress.selector);
-    new ERC1967Proxy(address(impl), init);
+    new RegistrySourceAnchor(address(registry), address(0));
   }
 
-  function test_initialize_cannotBeCalledTwice() public {
-    vm.expectRevert();
-    anchor.initialize(address(registry), admin);
-  }
-
-  function test_upgradeToAndCall_revertsForNonOwner() public {
-    RegistrySourceAnchor newImpl = new RegistrySourceAnchor();
-    vm.prank(stranger);
-    vm.expectRevert();
-    anchor.upgradeToAndCall(address(newImpl), '');
+  /// ⭐ REPLACES `test_initialize_cannotBeCalledTwice` AND `test_upgradeToAndCall_revertsForNonOwner`,
+  /// which are both VACUOUS now rather than merely passing: there is no initializer to call twice
+  /// and no upgrade entrypoint to gate. Deleting them without a successor would quietly drop the
+  /// property they were protecting, so this asserts the STRONGER thing they were approximating —
+  /// the upgrade path does not exist at all, for anyone, not even the owner.
+  function test_thereIsNoUpgradePath() public {
+    (bool ok_, ) = address(anchor).call(
+      abi.encodeWithSignature('upgradeToAndCall(address,bytes)', address(this), '')
+    );
+    assertFalse(ok_, 'anchor must expose no upgrade entrypoint');
+    (bool ok2_, ) = address(anchor).call(
+      abi.encodeWithSignature('initialize(address,address)', address(registry), admin)
+    );
+    assertFalse(ok2_, 'anchor must expose no initializer');
   }
 
   // ── access control ──────────────────────────────────────────────────────────────────────
@@ -532,14 +529,7 @@ contract RegistrySourceAnchorTest is Test, CreReportMetadata {
   }
 
   function test_publishingIsImpossibleWithNoActiveWorkflow() public {
-    RegistrySourceAnchor fresh_ = RegistrySourceAnchor(
-      address(
-        new ERC1967Proxy(
-          address(new RegistrySourceAnchor()),
-          abi.encodeCall(RegistrySourceAnchor.initialize, (address(registry), admin))
-        )
-      )
-    );
+    RegistrySourceAnchor fresh_ = new RegistrySourceAnchor(address(registry), admin);
     vm.prank(admin);
     fresh_.setForwarder(postman);
     // The forwarder gate runs BEFORE the workflow gate, so the forwarder has to be genuinely in
@@ -558,14 +548,7 @@ contract RegistrySourceAnchorTest is Test, CreReportMetadata {
   /// A pinned version is NOT usable until its delay elapses - the interval in which a malicious
   /// swap is visible and contestable before anything relies on it.
   function test_aPinnedWorkflowIsNotActiveUntilItsDelayElapses() public {
-    RegistrySourceAnchor fresh_ = RegistrySourceAnchor(
-      address(
-        new ERC1967Proxy(
-          address(new RegistrySourceAnchor()),
-          abi.encodeCall(RegistrySourceAnchor.initialize, (address(registry), admin))
-        )
-      )
-    );
+    RegistrySourceAnchor fresh_ = new RegistrySourceAnchor(address(registry), admin);
     vm.prank(admin);
     fresh_.pinWorkflow(NOTARY_REGISTRY, keccak256('v1'));
 
@@ -883,14 +866,7 @@ contract RegistrySourceAnchorTest is Test, CreReportMetadata {
 
   /// A fresh anchor with its forwarder live and NO workflow pinned anywhere.
   function _freshAnchor() internal returns (RegistrySourceAnchor fresh_) {
-    fresh_ = RegistrySourceAnchor(
-      address(
-        new ERC1967Proxy(
-          address(new RegistrySourceAnchor()),
-          abi.encodeCall(RegistrySourceAnchor.initialize, (address(registry), admin))
-        )
-      )
-    );
+    fresh_ = new RegistrySourceAnchor(address(registry), admin);
     vm.prank(admin);
     fresh_.setForwarder(postman); // first set is immediate — see the forwarder block above
   }

@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
-import {AccessControlUpgradeable} from "@oz-upgradeable/access/AccessControlUpgradeable.sol";
-import {UUPSUpgradeable} from "@oz-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+// 🔴 NOT UPGRADEABLE, AND THAT IS THE POINT OF THIS CONTRACT. Every bound below — append-only
+//    publication, no re-pin, the 24-hour forwarder timelock, `onReport`'s fail-closed comparison —
+//    lived inside an implementation that `OWNER_ROLE` could REPLACE IN ONE TRANSACTION via
+//    `_authorizeUpgrade`. A timelock enforced by code the timelock-holder can swap is not a
+//    timelock; it is a delay they may choose to observe. The blacklist root this anchors decides
+//    who may withdraw from the pool, so an upgradeable anchor made the whole ownerless-root
+//    argument circular.
+// ⚠️ `AccessControl` (not `...Upgradeable`) and a real constructor: there is no proxy, so there is
+//    no initialiser to front-run and nothing to `_disableInitializers` against.
+import {AccessControl} from "@oz/access/AccessControl.sol";
 import {IEvidenceRegistry} from "@rarimo/evidence-registry/interfaces/IEvidenceRegistry.sol";
 import {IReceiver} from "../interfaces/registry/IReceiver.sol";
 import {IERC165} from "@oz/utils/introspection/IERC165.sol";
@@ -30,12 +38,24 @@ import {IERC165} from "@oz/utils/introspection/IERC165.sol";
 /// OFAC-list oracle: a periodically-refreshed, cross-verified, fully self-contained snapshot of a
 /// bulk export, not a live query endpoint.
 ///
-/// @dev UUPS-upgradeable behind a proxy, matching this codebase's convention for registry/
-/// orchestration contracts that hold evolving records rather than custody funds directly
-/// (Entrypoint, StateKeeper, RegistrationSimple all follow the same pattern; only PP's
-/// fund-custody contracts - PrivacyPool/State - are deliberately immutable, a trust-minimization
-/// choice for the vault logic specifically, not something a registry anchor needs).
-contract RegistrySourceAnchor is AccessControlUpgradeable, UUPSUpgradeable, IReceiver {
+/// @dev 🔴 NOT UPGRADEABLE — AND THIS PARAGRAPH USED TO ARGUE THE OPPOSITE, SO READ WHY IT WAS
+/// WRONG BEFORE RESTORING THE PATTERN. It said UUPS "matches this codebase's convention for
+/// registry/orchestration contracts that hold evolving records rather than custody funds directly
+/// (Entrypoint, StateKeeper, RegistrationSimple all follow the same pattern; only PP's fund-custody
+/// contracts - PrivacyPool/State - are deliberately immutable … not something a registry anchor
+/// needs)."
+///
+/// The custody/registry split is a real distinction and it puts this contract on the WRONG side of
+/// itself. This anchor does not hold funds; it decides WHOSE FUNDS MOVE. `PrivacyPool` substitutes
+/// the blacklist root from here rather than reading it from a proof — deliberately, so a prover
+/// cannot supply their own — which makes the root this publishes a precondition of every
+/// withdrawal. A mutable anchor under an immutable pool is a trust-minimised vault reading from a
+/// contract one key could rewrite, and the argument for the vault's immutability applies here with
+/// the same force.
+/// ⇒ The cost is real and accepted: a Chainlink forwarder rotation or a workflow change now needs a
+/// redeploy, and since `PrivacyPool.BLACKLIST_ANCHOR` is `immutable`, that means redeploying the
+/// pool too. That is the price of the root being ownerless in fact rather than by policy.
+contract RegistrySourceAnchor is AccessControl, IReceiver {
     /**
      * THERE IS NO PUBLICATION ROLE. The gate is `forwarder` - an ADDRESS, set once - and this note
      * records what it replaced, because the history is the argument for it.
@@ -219,13 +239,12 @@ contract RegistrySourceAnchor is AccessControlUpgradeable, UUPSUpgradeable, IRec
         uint256 timestamp;
     }
 
-    // Regular state, NOT immutable - one implementation contract can serve many proxy instances
-    // (or be reused across deployments), so deployment-specific config belongs in initializer-set
-    // state. Kept ALL-CAPS despite not being immutable, matching Entrypoint.EVIDENCE_REGISTRY's
-    // own naming convention for this exact situation (a semi-constant config address, set once at
-    // initialize() and never changed again in practice, even though the language doesn't enforce
-    // that the way `immutable` would).
-    IEvidenceRegistry public EVIDENCE_REGISTRY;
+    // ⭐ `immutable` NOW, AND THE OLD COMMENT HERE ARGUED THE OPPOSITE FOR A REASON THAT NO LONGER
+    // HOLDS. It said config belongs in initializer-set state because "one implementation contract
+    // can serve many proxy instances", and conceded the address is "set once at initialize() and
+    // never changed again in practice, even though the language doesn't enforce that the way
+    // `immutable` would". There are no proxy instances any more, so the language enforces it.
+    IEvidenceRegistry public immutable EVIDENCE_REGISTRY;
 
     mapping(bytes32 => RegistrySnapshot[]) public snapshots;
 
@@ -258,9 +277,12 @@ contract RegistrySourceAnchor is AccessControlUpgradeable, UUPSUpgradeable, IRec
      *      having been pointed at the genuine deployment. Verify it against Chainlink's Forwarder
      *      Directory for the target chain before calling.
      *
-     *      APPENDED, NOT INSERTED. This contract is UUPS-upgradeable and has no storage gap, so a new
-     *      variable may only go at the END - inserting one would shift every slot after it and
-     *      silently reinterpret existing state.
+     *      APPENDED, NOT INSERTED — and the REASON changed even though the rule did not. This used
+     *      to say "UUPS-upgradeable and has no storage gap", i.e. a new variable at the front would
+     *      shift every slot a successor implementation reads. There is no successor now. What still
+     *      forbids inserting is simpler: state layout is fixed at deployment, and reordering it
+     *      means a DIFFERENT contract, so any insert has to be a redeploy and a migration rather
+     *      than an edit.
      */
     address public forwarder;
 
@@ -290,23 +312,16 @@ contract RegistrySourceAnchor is AccessControlUpgradeable, UUPSUpgradeable, IRec
     error NoActiveSnapshot();
     error ZeroAddress();
 
-    /// @notice Disables initializers on the implementation contract. Using the UUPS
-    /// upgradeability pattern - matches Entrypoint.sol's own constructor exactly.
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address evidenceRegistry_, address admin_) external initializer {
+    /// @notice Deployment-time config, permanently. Was `initialize(...)` behind a UUPS proxy.
+    /// @dev ⛔ `_authorizeUpgrade` IS DELETED WITH THE PROXY — do not reintroduce either. What it
+    ///      gated was not "which implementation runs" in the abstract; it was every guarantee this
+    ///      contract makes about how a blacklist root may be published.
+    constructor(address evidenceRegistry_, address admin_) {
         if (evidenceRegistry_ == address(0) || admin_ == address(0)) revert ZeroAddress();
-        __AccessControl_init();
-        // UUPSUpgradeable has no storage/init step in OZ 5.6.1 (it's a thin, stateless wrapper).
-
         EVIDENCE_REGISTRY = IEvidenceRegistry(evidenceRegistry_);
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
         _grantRole(OWNER_ROLE, admin_);
     }
-
-    function _authorizeUpgrade(address) internal override onlyRole(OWNER_ROLE) {}
 
     /// @notice Publish a fresh snapshot for `registryId_` (e.g. keccak256("UA_NOTARY_REGISTRY")).
     /// `leaves_` MUST be strictly ascending (matches backend/cre/notary_registry/main.go's own
@@ -433,7 +448,7 @@ contract RegistrySourceAnchor is AccessControlUpgradeable, UUPSUpgradeable, IRec
     function supportsInterface(bytes4 interfaceId_)
         public
         view
-        override(AccessControlUpgradeable, IERC165)
+        override(AccessControl, IERC165)
         returns (bool)
     {
         return interfaceId_ == type(IReceiver).interfaceId || super.supportsInterface(interfaceId_);
