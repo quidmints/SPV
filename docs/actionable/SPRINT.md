@@ -299,7 +299,24 @@ that is a real gap in the invariant's coverage, not a tolerance question.**
 ⛔ **Do NOT widen the 1% to make it pass.** The comment is explicit that a gap beyond drift means a
 real defect; widening it deletes the only statement of the invariant the range is built on.
 
-## 🔴 **§UNITB-ARMS-IDENTICAL — RE-DIAGNOSED 2026-08-25: σ² WAS a cause, and the REMAINING one is FLUSH**
+## ✅ **[CLOSED 2026-08-28 — THE TEST PASSES. FLUSH WAS RIGHT; THE MISSING PIECE WAS THE DRAIN SIZE.]**  ~~§UNITB-ARMS-IDENTICAL~~
+✅ **`test_UNITB_CounterMatchesWhatTheSwapperLoses` PASSES**, arms 13.6× apart (31,604,056 vs
+429,936,758 usd6). **The assertion was never loosened** — it is unchanged and now FIRES.
+⭐ **THIS ROW'S DIAGNOSIS WAS CORRECT AND INCOMPLETE IN ONE SPECIFIC WAY.** "FLUSH" was right. What no
+pass established is that the branch tests **`inv1 = inv0 − drainUsd6`**, the POST-drain inventory —
+so the fixture's lever is the **DRAIN SIZE**, not σ², not the price path, and not the target. At
+`SIZE = $30,000` the drain leaves `inv1` above BOTH targets, both arms take the flush branch, and
+that branch **never reads `target` at all**. ⇒ No amount of variance seeding could have fired this
+control, which is why three diagnoses in a row moved it "not one inch".
+📐 **THE WINDOW, DERIVED THEN CONFIRMED TO THE DOLLAR** (`inv0` = `_skewBasis` = \$607,866):
+`drain > inv0 − B = $243,565` makes arm B scarce; `drain < inv0 − A = $425,716` keeps arm A flush.
+Measured \$243,000 → SAME, \$250,000 → DIFFER. `SIZE = $300,000` sits mid-window.
+🔴 **AND THE `skewWad(direct)` PROBE INSIDE THE TEST WAS ON THE WRONG BASIS THE WHOLE TIME** — it
+passed `CORE.POOLED_USD()` where `SwapLib.wellSkew` passes `_skewBasis = POOLED()·base/1e30` (2.316×
+apart here). The one instrument built to isolate the question printed "identical" while the money path
+charged 13.6× differently. Re-based; it now agrees.
+
+### (original) 🔴 **§UNITB-ARMS-IDENTICAL — RE-DIAGNOSED 2026-08-25: σ² WAS a cause, and the REMAINING one is FLUSH**
 
 ⛔ **THE ROW BELOW SAID "TWO CAUSES, BOTH REQUIRED". BOTH ARE NOW FIXED AND THE TEST STILL FAILS, SO
 THERE WAS A THIRD — AND IT IS THE ONLY ONE THAT MATTERS.**
@@ -2081,7 +2098,8 @@ orders out, then compared mismatched windows).
 |---|---|---|
 | **§UNITB-ARMS-IDENTICAL** | both arms charge 321,992 exactly | kernel is `Γ·σ²·qBar`; at σ² = 0 it vanishes and only size-based depletion is left |
 | ~~**§TAX-IS-ZERO-AT-DEPTH**~~ | ⛔ **REFUTED — a bps rounding artefact.** Re-measured in ppb the tax is **10,054 → 19,385 → 32,536**, linear in depth, and it is DEPLETION doing it at σ² = 0 | **this row is evidence the OTHER way**: it shows the flush branch still charges after §ZERO-REVENUE |
-| **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE** | the only LP revenue lane reads 0 | `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and ETH's `spliceFloor` is **0** |
+| **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE** | the only LP revenue lane reads 0 | `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and ETH's `spliceFloor` is **0** — ✅ **CONFIRMED 2026-08-28 FROM THE PRODUCTION ENTRY POINT**: an unseeded ETH range quotes `AUX.wellSkew(...) == 0` exactly (not the 3e16 sentinel, which sits BELOW the `target == 0` short-circuit and is never reached). Pinned by `SkewLivePathReachesKernel.t.sol`'s control. |
+| ⭐ **A THIRD PRECONDITION THIS TABLE MISSES: `flowEwmaUsd > 0`** | a range with depth AND variance still reads FLAT at every size | `skewWad` opens `if (target == 0) return _maxWellSkew(σ², rk)` — SIZE-INDEPENDENT — and `target` is the flow EWMA, raised only by `_bumpFlow` on the swap path (`Core:1050`). ⇒ **Three independent routes to a vacuous skew reading: σ² == 0, the `inv1` branch, and no flow.** Fixing σ² alone leaves the other two live, which is why this cluster kept surviving its own fixes. |
 | ~~**§E345-ANCHOR / §E257**~~ | ⛔ **STALE LEG — REMOVE IT FROM THIS TABLE (checked 2026-08-28).** "The pull source is unset" was closed by **`fae2201a`** (§OBSERVATION-SOURCE-UNSET, `:154`): `_observeIfSourced` no longer returns on an unset source, it **falls back to the Chainlink anchor and writes an observation**. The ring DOES fill. | ⇒ **three legs, not four** |
 ⇒ **`ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)` MEANS ETH'S ENTIRE SKEW IS PROPORTIONAL TO σ², WITH NO
 FLOOR.** BTC has `SPLICE_FLOOR = 2e15` and is therefore never fully exempt; **ETH at σ² = 0 prices
@@ -13163,7 +13181,7 @@ zero"*, but `KAPPA_WAD == 1e18` today, so the premise does not hold and `kMinusQ
 `q1 == 1e18` (a total drain). The code handles it explicitly (`qBar = type(uint).max` → pinned to the
 cap), so this is a comment describing a configuration we do not run, not a bug.
 
-## (original) 🔴🔴 §E306 — **THE κ BLINDSPOT GENERALISES: EVERY SKEW MEASUREMENT WE HAVE TESTED A FORMULA THE LIVE PATH NEVER REACHES**
+### (original) 🔴🔴 §E306 — **THE κ BLINDSPOT GENERALISES: EVERY SKEW MEASUREMENT WE HAVE TESTED A FORMULA THE LIVE PATH NEVER REACHES**
 
 **Owner, 2026-08-22: *"with kappa we can't have a blindspot like this, it is suggestive of a larger
 issue at play."* Correct, and the larger issue is the INSTRUMENTS, not the constant.**
