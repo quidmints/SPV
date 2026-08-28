@@ -482,6 +482,7 @@ contract BTCChannels is Ownable {
     error ForeignSpliceOutput();      // a withdrawal splice paid value somewhere other than the
                                       // new funding output or the LP's committed btcRecipientOf
     error FreshnessNotMonotonic();    // a freshness commit must strictly increase (rollback/replay guard)
+    error FreshnessJumpTooLarge();    // §HOP-RCE-2: monotonic stops a rollback; this stops a brick
     error ManagerFreshnessNotMonotonic(); // a channel-manager freshness commit must strictly increase
     error MigrationNonceAlreadyUsed();    // a MigrationAuth nonce may be consumed at most once (anti-replay)
     error LadderTooShallow();             // (§SPRINT-B4) a ladder needs ≥2 rungs at ≥2 distinct
@@ -1767,11 +1768,26 @@ contract BTCChannels is Ownable {
     ///         sealed channel state (MuSig2 nonce-reuse / revoked-state broadcast). Gated
     ///         to the channel's hop (a foreign caller can't bump the counter to lock the
     ///         enclave out) and STRICTLY monotonic (a replay/rollback of an old value reverts).
+    /// 🔴 §HOP-RCE-2 — MONOTONIC IS NOT ENOUGH; THE RATCHET ALSO NEEDS A CEILING. Strictly
+    ///    increasing stops a ROLLBACK, which is what this counter was built for, and does nothing
+    ///    about a JUMP. A hop that writes `type(uint64).max` once makes the enclave refuse every
+    ///    monitor it will ever hold — the counter's whole purpose is that a lower `update_id` is
+    ///    treated as stale — and the channel is unloadable from that block onward.
+    /// ⛔ **AND IT IS NOT SELF-INFLICTED, WHICH IS WHY IT IS WORTH A CONSTANT.** Migration carries
+    ///    the seed, not a way to lower this, so a compromise lasting a single transaction bricks
+    ///    the channel for every SUCCESSOR enclave too. There is no reset by design (a reset is a
+    ///    rollback, which is the attack this defends against), so the bound has to be on the STEP.
+    /// ⇒ `MAX_FRESHNESS_JUMP` is far above any real gap between commits — an LDK `update_id`
+    ///   advances once per monitor update — while leaving the counter ~1.8e13 calls short of
+    ///   saturation, so the brick is unreachable and honest operation never notices.
+    uint64 private constant MAX_FRESHNESS_JUMP = 1_000_000;
+
     function commitFreshness(bytes32 channelId, uint64 seq) external {
         _onlyHop();
         // (E122) Primary, or the LP's fallback after the staleness window — see `splice`.
 
         if (seq <= freshnessSeq[channelId]) revert FreshnessNotMonotonic();
+        if (seq - freshnessSeq[channelId] > MAX_FRESHNESS_JUMP) revert FreshnessJumpTooLarge();
         freshnessSeq[channelId] = seq;
         emit FreshnessCommitted(channelId, seq);
     }
@@ -1784,6 +1800,10 @@ contract BTCChannels is Ownable {
     ///         is behind. Strictly monotonic ⇒ a rolled-back/replayed seq reverts.
     function commitManagerFreshness(uint64 seq) external {
         if (seq <= managerFreshnessSeq[msg.sender]) revert ManagerFreshnessNotMonotonic();
+        // §HOP-RCE-2 — same ceiling, same reason. Self-scoped by `msg.sender` (correctly: only a
+        // hop advances its OWN slot), so the brick this bounds is one a compromised hop lands on
+        // ITSELF and on every enclave that succeeds it.
+        if (seq - managerFreshnessSeq[msg.sender] > MAX_FRESHNESS_JUMP) revert FreshnessJumpTooLarge();
         managerFreshnessSeq[msg.sender] = seq;
         emit ManagerFreshnessCommitted(msg.sender, seq);
     }
