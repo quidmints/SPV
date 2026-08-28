@@ -51,7 +51,14 @@ BOOKING_FILES = [
 ]
 
 SKIP_DIRS = ("node_modules", "/lib/", "/build/", "/target/", "/.git/", "/out/", "/cache/",
-             "/broadcast/", "/.bitcoin-core/", "/.lnd", "/docs/")
+             "/broadcast/", "/.bitcoin-core/", "/.lnd", "/docs/",
+             # 🔴 AGENT WORKTREES ARE COPIES OF THIS TREE, AND WITHOUT THIS LINE THEY WERE **86% OF
+             # THE OUTPUT** — measured 2026-08-28: 81 of 94 hits came from
+             # `.claude/worktrees/agent-…`, 13 from the real tree. Every one was a duplicate or a
+             # stale copy of a loose end already listed, so the report read as ~7x worse than the
+             # tree actually is, and the real 13 were buried under them. A scanner that walks `ROOT`
+             # will find any checkout living under `ROOT`.
+             "/.claude/")
 
 # Vendored upstream: their TODOs are not our loose ends. Reported separately, not mixed in.
 VENDOR_MARK = re.compile(r"TODO\((?:phlip9|max)\)")

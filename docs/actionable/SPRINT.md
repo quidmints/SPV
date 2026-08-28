@@ -7686,7 +7686,14 @@ Written so the thread can be closed without re-deriving what is done. **✅ = la
 ⚠️ **THE ONE THING A READER SHOULD NOT MISREAD:** items 6 and 10 look like "nearly done" and are not.
 The gate is inert until a phone exists, and the un-vendoring has to be redone from scratch.
 
-## 🔁 §GUARD-DUP — 🔴 **OPEN. `nonReentrant` IS DECLARED TWICE, AND FOLDING IT IS A STORAGE MIGRATION**
+## ✅ **[CLOSED 2026-08-28 — THE FOLD LANDED; `nonReentrant` IS DECLARED ONCE]** Re-verified against
+source: `_lock` and `nonReentrant` exist **only** in `imports/LevBase.sol` (`:199`, `:205`), and
+`LevManager` / `BtcLevManager` declare **neither**. The storage migration this row called the blocker
+was done as part of hoisting `GOV`/`QUID`/`COLL`/`RATE`/`MIN_OPEN`/`venuesFrozen`/`flashProvider`
+into `LevBase`. ⭐ Standing rule 8c is why it was worth doing at all: a modifier's body is INLINED at
+every use site, so one declaration replaced 15 copies.
+
+## ~~(original) 🔁 §GUARD-DUP — 🔴 OPEN. `nonReentrant` IS DECLARED TWICE, AND FOLDING IT IS A STORAGE MIGRATION**
 
 Found while folding `protectFromQuid` (§PROTECT-FOLD, `664c6236`). `LevManager:89` and
 `BtcLevManager:90` each declare their OWN `nonReentrant` over their OWN `_lock` slot; `LevBase` has
