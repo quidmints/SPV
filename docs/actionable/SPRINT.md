@@ -3608,6 +3608,30 @@ top-to-bottom by row number — is **one cycle per item**, i.e. 90 cycles, ~12 h
 ---
 ## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
 
+### ✅ **§CITATION-AUDIT — ALL 447 `file:line` CITATIONS CHECKED MECHANICALLY (2026-08-28). 434 RESOLVE.**
+📊 **The file's coordinates are in far better shape than its reputation:** of 447 distinct
+`Foo.sol:NNN` / `foo.rs:NNN` references, **434 point at a real file with that line in range.** Only
+**six files** are gone, and every one was FOLDED OR RETIRED by a traceable commit — none rotted:
+| cited file | fate | commit |
+|---|---|---|
+| `ExternalTwap.sol` | folded into `OracleLib` | `d3262881` (§E318) |
+| `ISwap.sol` | folded into `Interfaces.sol` | `5af1aeb0` (§E296) |
+| `UtilsLib.sol` | went with the un-vendored Morpho repos | `656f4ce3` |
+| `FillAndBatch.t.sol` | deleted — *"the mechanism is retired"* | `65715a7d` (§E304) |
+| `Midnight.sol`, `MidnightMsb.t.sol` | vendored fork + submodule dropped | `0776fc57` |
+⭐ **`FillAndBatch.t.sol`'s commit message SETTLES THE `FixedRateFill` ROWS** (`:4920`, `:4940`,
+`:4947`): the mechanism is **RETIRED**, not merely unwired — which is why no `quoteFill` /
+`fixedRateFill` / `FIXED_RATE` symbol survives anywhere in `evm/src`. ⇒ Those rows describe a
+mechanism that no longer exists; close them on sight rather than re-deriving them against `SwapLib`.
+⚠️ **THE RUST "MISSING" HITS WERE MY OWN FILTER, NOT STALENESS** — `channelmonitor.rs`,
+`onchaintx.rs`, `package.rs` and the 16k-line `channel.rs` all live under
+`quid-ln/lib/rust-lightning/` (the vendored LDK fork), which an audit that excludes `*/lib/*` will
+report as deleted. **Do not "fix" those citations.**
+📌 **THE CHECK, SO IT CAN BE RE-RUN:** build a `basename → path` index ONCE from
+`find evm quid-ln -name '*.sol' -o -name '*.rs'`, then look each citation up — a per-citation `find`
+over 447 refs does not finish (timed out at 5 min). Include vendored `lib/` or expect false positives.
+
+
 **90 open items**, not the ~210 or 227 quoted earlier. Both larger figures counted `##` and `###`
 headings together, and **118 of those are `###` SUB-SECTIONS INSIDE one item's writeup** — *"THE
 CONSEQUENCE"*, *"WHAT IS ACTUALLY MISSING"*, *"THE MECHANISM"*. They are paragraphs of an argument,
