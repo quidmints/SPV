@@ -1002,7 +1002,7 @@ PASSES — still holds, and now every sibling does too. What fixed them is recor
 `_dexes(n)` LenMismatch fix. ⚠️ THE ROW'S HEADLINE COUNT IS THE STALE PART — "10 pass, 6 fail" was true
 at its date and is now 18/0; do not plan against it]**
 
-## 0i. 🔬 **§LEV-CLUSTER — SIX FAILURES IN ONE SUITE, AND A PASSING TEST SETTLES WHAT THEY ARE NOT**
+## 0i. ✅ **§LEV-CLUSTER — SIX FAILURES IN ONE SUITE, AND A PASSING TEST SETTLES WHAT THEY ARE NOT**
 (2026-08-23)
 
 `LevCascade` at HEAD: **10 pass, 6 fail.** ⭐ **THE CONTROL IS THE PASS, NOT THE FAILS:
@@ -1241,7 +1241,7 @@ IS 0 and any bound around it is satisfied by the thing it guards. **PIN THE CELL
 the same way; the value cannot be guessed, because guessing is what makes a bound vacuous in the
 first place.
 
-## 0d. 🟠 **§VACUOUS-BOUNDS — THE AUDIT §0c ASKED FOR, RUN. 38 TESTS ASSERT ONLY A ONE-SIDED BOUND;
+## 0d. ⏸️ **§VACUOUS-BOUNDS — THE AUDIT §0c ASKED FOR, RUN. 38 TESTS ASSERT ONLY A ONE-SIDED BOUND;
 FIVE OF THEM CAN BE SATISFIED BY THE DEFECT THEY GUARD** (2026-08-23)
 
 Mechanical scan of `evm/test/**`: parse each `test*` body, keep those whose **only** assertion is
@@ -3372,7 +3372,7 @@ See §DELIVER-BACKING for the trace and the fix.
 clean pinned census measures **6** real failures tree-wide, each attributable to a named row. Do not
 plan against 48.
 
-## 🔬 **§POOL-SEIZE — THE LAST TWO POOLED-MODEL FAILURES, MEASURED AND NARROWED** (2026-08-24)
+## ⏸️ **§POOL-SEIZE — THE LAST TWO POOLED-MODEL FAILURES, MEASURED AND NARROWED** (2026-08-24)
 
 SPRINT #1 is landed and the suite is back to **48 unique failures = the pre-pooling baseline** (2 new,
 2 pre-existing FIXED). These are the 2 new, both on the BTC path, both stable across seven gates.
@@ -3604,7 +3604,7 @@ treatments", and "do not close these by loosening assertions — several ARE the
 findings."** That distinction is why §VACUOUS-BOUNDS' exemplar was pinned with an equality rather than
 widened. Only the arithmetic is dead]**
 
-## 2. 🔴🔴 **THE 59 TEST FAILURES — 39 REGRESSIONS + 23 NEVER-GREEN, AND THEY NEED OPPOSITE TREATMENTS** (§E328)
+## 2. ⏸️ **THE 59 TEST FAILURES — 39 REGRESSIONS + 23 NEVER-GREEN, AND THEY NEED OPPOSITE TREATMENTS** (§E328)
 Both lists are named in full in §E328. **The suite was 3,893 passed / 1 failed at `0f8570f`, which is
 1,568 commits back** — so the 39 are attributable refactor debt and a bisect, not fixture noise. The 23
 were written after and have never passed; some encode a model the code never adopted (§E313's deleted
@@ -5422,7 +5422,7 @@ that an empty grep proves nothing — the control here is the history, which nob
 ▶️ **BEFORE TREATING ANY OF THE FIVE AS LOST, `git log -S` ITS SYMBOL.** The scratchpad claim is
 evidence about a directory, not about the work.
 
-## 17. 🔴 FIVE ROWS POINT AT WORKING COPIES THAT NO LONGER EXIST
+## 17. ⛔ FIVE ROWS POINT AT WORKING COPIES THAT NO LONGER EXIST
 
 **Found 2026-08-17 while checking this thread for unfinished work. It is not this thread's work — it
 is worse: it is five other threads' work, and the rows still say it is recoverable.**
@@ -6539,7 +6539,7 @@ question these seven rows existed to answer is closed; the current headline numb
 ⇒ `§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`, `§POOLED-USD-ROOT-CORRECTED`,
 `§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6`, `§TREE-UNSTABLE` all close on this one measurement.
 
-### ⏸️ (original) Suite / tree state — needs one clean run to settle, not analysis
+### ✅ (original, settled) Suite / tree state — needs one clean run to settle, not analysis
 `§MAIN-IS-RED-RECHECKED`, `§MAIN-IS-RED-POOLED-USD`, `§POOLED-USD-ROOT-CORRECTED`,
 `§OVERCOMMITTED-MEASURED`, `§V-R8`, `§V-R6` (the 4-gate verification bar), `§TREE-UNSTABLE`.
 ⇒ **These are one measurement, not seven items.** See `§9`/PART A: nobody has a clean full-suite
