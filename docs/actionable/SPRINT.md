@@ -994,6 +994,14 @@ names. `grep -n "CORE\." evm/test/LevCascade.t.sol` and check every pair — thi
 the names say ETH and BTC while the code says neither.
 
 ---
+## ✅ **[CLOSED 2026-08-28 — ALL SIX ARE GONE. `LevCascade` measures 18 passed / 0 failed on a clean
+pinned census (0 environmental, 0 setUp). The row's own control — `test_Economic_LeversToProvenIlTarget`
+PASSES — still holds, and now every sibling does too. What fixed them is recorded per-test elsewhere:
+§POOL-VENUE's seizure migrations (naming the VENUE as Morpho borrower, not the LP), the §C2.1 dex-word
+(which ended ~20 `NoVolatileRoute()` reverts), the derived-band `GAS_REBALANCE` re-measurement, and the
+`_dexes(n)` LenMismatch fix. ⚠️ THE ROW'S HEADLINE COUNT IS THE STALE PART — "10 pass, 6 fail" was true
+at its date and is now 18/0; do not plan against it]**
+
 ## 0i. 🔬 **§LEV-CLUSTER — SIX FAILURES IN ONE SUITE, AND A PASSING TEST SETTLES WHAT THEY ARE NOT**
 (2026-08-23)
 
@@ -3583,6 +3591,18 @@ the O(LPs) delever loop · the re-lever pass · `LevBase`'s four unbounded `_ope
 across a full cycle.** ⇒ **Monitor POSITION AGE, not dispersion** — it is observable from day one.
 ⛔ **DO NOT deal IL protect out pro-rata like `feesPerShare`** — the payoff is concave with a kink at
 entry, so pro-rata systematically under-pays exactly the LPs the guarantee exists for (§E338).
+
+## ⚠️ **[COUNT SUPERSEDED 2026-08-28 — 59 → 6, MEASURED. The clean pinned census is 449 tests / 86
+suites with BOTH contamination guards at zero, and **6** real failures tree-wide, each attributable to
+a named row. Four have since been fixed, leaving §DELIVER-BACKING (root fixed, unverified) and the
+owner-gated §BTC-LEG-FEE.
+⚠️ **AND THE BASELINE IT REASONS FROM IS THE SAME COUNTING ARTEFACT SETTLED ELSEWHERE:** it cites
+"3,893 passed / 1 failed at `0f8570f`", which is the 4,402-vs-489 discrepancy in another dress — those
+historical totals counted fuzz/invariant RUNS, not cases. The tree has ~450 tests and always did.
+⇒ **THE ROW'S METHOD SURVIVES AND IS WORTH KEEPING: "39 regressions vs 23 never-green need OPPOSITE
+treatments", and "do not close these by loosening assertions — several ARE the live evidence for open
+findings."** That distinction is why §VACUOUS-BOUNDS' exemplar was pinned with an equality rather than
+widened. Only the arithmetic is dead]**
 
 ## 2. 🔴🔴 **THE 59 TEST FAILURES — 39 REGRESSIONS + 23 NEVER-GREEN, AND THEY NEED OPPOSITE TREATMENTS** (§E328)
 Both lists are named in full in §E328. **The suite was 3,893 passed / 1 failed at `0f8570f`, which is
