@@ -11,7 +11,7 @@ import {IPrivacyPool, IPrivacyPoolSimple} from '../../../src/identity/pool/inter
 import {IState} from '../../../src/identity/pool/interfaces/IState.sol';
 import {ProofLib} from '../../../src/identity/pool/lib/ProofLib.sol';
 import {Constants} from '../../../src/identity/pool/lib/Constants.sol';
-import {NoirVerifierMock} from '../../../src/identity/mock/verifiers/NoirVerifierMock.sol';
+import {NoirVerifierMock} from '../mocks/verifiers/NoirVerifierMock.sol';
 
 /// Minimal stand-in for BOTH the Entrypoint and the ASP registry. Since the sec. 2.5a split the
 /// pool asks the REGISTRY about roots, not the Entrypoint; this mock plays both parts so these

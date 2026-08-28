@@ -5,8 +5,8 @@ import {Test} from 'forge-std/Test.sol';
 import {ERC1967Proxy} from '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol';
 
 import {PoseidonUnit2L} from '../../../src/identity/libraries/Poseidon.sol';
-import {HolderStateKeeperMock} from '../../../src/identity/mock/holder/HolderStateKeeperMock.sol';
-import {PoseidonSMTMock} from '../../../src/identity/mock/state/PoseidonSMTMock.sol';
+import {HolderStateKeeperMock} from '../mocks/holder/HolderStateKeeperMock.sol';
+import {PoseidonSMTMock} from '../mocks/state/PoseidonSMTMock.sol';
 import {PoseidonSMT} from '../../../src/identity/state/PoseidonSMT.sol';
 
 /*

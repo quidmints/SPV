@@ -22,9 +22,9 @@ contract UnsafeTestProxy is ERC1967Proxy {
 
 import {HolderRegistration} from "../../../src/identity/holder/HolderRegistration.sol";
 import {HolderStateKeeper} from "../../../src/identity/holder/HolderStateKeeper.sol";
-import {HolderStateKeeperMock} from "../../../src/identity/mock/holder/HolderStateKeeperMock.sol";
-import {PoseidonSMTMock} from "../../../src/identity/mock/state/PoseidonSMTMock.sol";
-import {NoirVerifierMock} from "../../../src/identity/mock/verifiers/NoirVerifierMock.sol";
+import {HolderStateKeeperMock} from "../mocks/holder/HolderStateKeeperMock.sol";
+import {PoseidonSMTMock} from "../mocks/state/PoseidonSMTMock.sol";
+import {NoirVerifierMock} from "../mocks/verifiers/NoirVerifierMock.sol";
 import {RegistrationSimple} from "../../../src/identity/registration/RegistrationSimple.sol";
 
 /// HolderRegistration's real entry points (registerDocumentViaNoir / renewDocumentViaNoir /

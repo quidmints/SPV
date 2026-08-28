@@ -9,9 +9,9 @@ import {IEvidenceRegistry} from '@rarimo/evidence-registry/interfaces/IEvidenceR
 
 import {TitleLedger} from '../../../src/identity/title/TitleLedger.sol';
 import {RegistrySourceAnchor} from '../../../src/identity/registry/RegistrySourceAnchor.sol';
-import {HolderStateKeeperMock} from '../../../src/identity/mock/holder/HolderStateKeeperMock.sol';
-import {PoseidonSMTMock} from '../../../src/identity/mock/state/PoseidonSMTMock.sol';
-import {NoirVerifierMock} from '../../../src/identity/mock/verifiers/NoirVerifierMock.sol';
+import {HolderStateKeeperMock} from '../mocks/holder/HolderStateKeeperMock.sol';
+import {PoseidonSMTMock} from '../mocks/state/PoseidonSMTMock.sol';
+import {NoirVerifierMock} from '../mocks/verifiers/NoirVerifierMock.sol';
 import {TitleHolderHonkVerifier} from '../../../src/identity/generated/title/TitleHolderHonkVerifier.sol';
 
 /// Same minimal in-test ERC-7812 registry pattern as RegistrySourceAnchor.t.sol / EntrypointAsp.t.sol.

@@ -9,7 +9,7 @@ import {PrivacyPoolSimple} from 'contracts/pool/implementations/PrivacyPoolSimpl
 import {PrivacyPoolComplex} from 'contracts/pool/implementations/PrivacyPoolComplex.sol';
 import {PrivacyPool} from 'contracts/pool/PrivacyPool.sol';
 import {IPrivacyPool} from 'contracts/pool/interfaces/IPrivacyPool.sol';
-import {NoirVerifierMock} from 'contracts/mock/verifiers/NoirVerifierMock.sol';
+import {NoirVerifierMock} from '../mocks/verifiers/NoirVerifierMock.sol';
 import {MockEntrypoint} from './PrivacyPoolSimple.t.sol';
 
 /*

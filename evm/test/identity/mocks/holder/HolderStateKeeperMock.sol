@@ -3,7 +3,7 @@ pragma solidity ^0.8.21;
 
 import {DynamicSet} from "@solarity/solidity-lib/libs/data-structures/DynamicSet.sol";
 
-import {HolderStateKeeper} from "../../holder/HolderStateKeeper.sol";
+import {HolderStateKeeper} from "../../../../src/identity/holder/HolderStateKeeper.sol";
 
 contract HolderStateKeeperMock is HolderStateKeeper {
     using DynamicSet for DynamicSet.StringSet;

@@ -19,8 +19,8 @@ contract UnsafeTestProxy is ERC1967Proxy {
 import {SparseMerkleTree} from "@solarity/solidity-lib/libs/data-structures/SparseMerkleTree.sol";
 
 import {HolderStateKeeper} from "../../../src/identity/holder/HolderStateKeeper.sol";
-import {HolderStateKeeperMock} from "../../../src/identity/mock/holder/HolderStateKeeperMock.sol";
-import {PoseidonSMTMock} from "../../../src/identity/mock/state/PoseidonSMTMock.sol";
+import {HolderStateKeeperMock} from "../mocks/holder/HolderStateKeeperMock.sol";
+import {PoseidonSMTMock} from "../mocks/state/PoseidonSMTMock.sol";
 import {PoseidonUnit1L, PoseidonUnit2L, PoseidonUnit3L} from "../../../src/identity/libraries/Poseidon.sol";
 
 /// Holder-rooted credential tree — one key, many documents (SCOPE.md §7.8). Forge port.

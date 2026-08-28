@@ -10,8 +10,8 @@ import {IEvidenceRegistry} from '@rarimo/evidence-registry/interfaces/IEvidenceR
 import {Entrypoint} from '../../../src/identity/pool/Entrypoint.sol';
 import {IdentityRegistry} from '../../../src/identity/registry/IdentityRegistry.sol';
 import {EscrowEnvelopeHonkVerifier} from '../../../src/identity/generated/registry/verifiers/EscrowEnvelopeHonkVerifier.sol';
-import {HolderStateKeeperMock} from '../../../src/identity/mock/holder/HolderStateKeeperMock.sol';
-import {PoseidonSMTMock} from '../../../src/identity/mock/state/PoseidonSMTMock.sol';
+import {HolderStateKeeperMock} from '../mocks/holder/HolderStateKeeperMock.sol';
+import {PoseidonSMTMock} from '../mocks/state/PoseidonSMTMock.sol';
 import {PrivacyPoolSimple} from '../../../src/identity/pool/implementations/PrivacyPoolSimple.sol';
 import {WithdrawalHonkVerifier} from '../../../src/identity/generated/pool/verifiers/WithdrawalHonkVerifier.sol';
 import {RagequitHonkVerifier} from '../../../src/identity/generated/pool/verifiers/RagequitHonkVerifier.sol';

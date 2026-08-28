@@ -9,7 +9,7 @@ import {PrivacyPool} from 'contracts/pool/PrivacyPool.sol';
 import {IPrivacyPool} from 'contracts/pool/interfaces/IPrivacyPool.sol';
 import {IState} from 'contracts/pool/interfaces/IState.sol';
 import {BatchVerifierLib} from 'contracts/pool/lib/BatchVerifierLib.sol';
-import {NoirVerifierMock} from 'contracts/mock/verifiers/NoirVerifierMock.sol';
+import {NoirVerifierMock} from '../mocks/verifiers/NoirVerifierMock.sol';
 // MockEntrypoint is declared inside the Simple pool suite rather than its own file.
 import {MockEntrypoint} from './PrivacyPoolSimple.t.sol';
 

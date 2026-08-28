@@ -3,9 +3,9 @@ pragma solidity ^0.8.22;
 
 import {Test} from "forge-std/Test.sol";
 
-import {PublicSignalsBuilder} from "../../sdk/lib/PublicSignalsBuilder.sol";
-import {AQueryProofExecutor} from "../../sdk/AQueryProofExecutor.sol";
-import {Date2Time} from "../../utils/Date2Time.sol";
+import {PublicSignalsBuilder} from "../../../../src/identity/sdk/lib/PublicSignalsBuilder.sol";
+import {AQueryProofExecutor} from "../../../../src/identity/sdk/AQueryProofExecutor.sol";
+import {Date2Time} from "../../../../src/identity/utils/Date2Time.sol";
 
 /// Minimal registration-SMT stub so the equivalence tests can exercise withIdStateRoot
 /// (which validates the root against the registration SMT) without a full SMT deployment.

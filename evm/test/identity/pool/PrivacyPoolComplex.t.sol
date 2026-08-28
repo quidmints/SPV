@@ -9,7 +9,7 @@ import {ERC20} from '@oz/token/ERC20/ERC20.sol';
 
 import {PrivacyPoolComplex} from '../../../src/identity/pool/implementations/PrivacyPoolComplex.sol';
 import {IPrivacyPoolComplex} from '../../../src/identity/pool/interfaces/IPrivacyPool.sol';
-import {NoirVerifierMock} from '../../../src/identity/mock/verifiers/NoirVerifierMock.sol';
+import {NoirVerifierMock} from '../mocks/verifiers/NoirVerifierMock.sol';
 import {Constants} from '../../../src/identity/pool/lib/Constants.sol';
 
 contract TestToken is ERC20 {

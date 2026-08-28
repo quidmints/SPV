@@ -6,7 +6,7 @@ import {ERC1967Proxy} from '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {AQueryProofExecutor} from '../../../src/identity/sdk/AQueryProofExecutor.sol';
 import {PublicSignalsBuilder} from '../../../src/identity/sdk/lib/PublicSignalsBuilder.sol';
-import {PoseidonSMTMock} from '../../../src/identity/mock/state/PoseidonSMTMock.sol';
+import {PoseidonSMTMock} from '../mocks/state/PoseidonSMTMock.sol';
 
 /// A concrete executor - the base is abstract, and the point is to drive the REAL path.
 contract QueryExecutor is AQueryProofExecutor {

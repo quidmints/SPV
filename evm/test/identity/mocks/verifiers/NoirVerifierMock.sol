@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {INoirVerifier} from "../../interfaces/verifiers/INoirVerifier.sol";
+import {INoirVerifier} from "../../../../src/identity/interfaces/verifiers/INoirVerifier.sol";
 
 /// Configurable INoirVerifier double: verifies nothing cryptographically, just returns whatever
 /// `shouldVerify` is set to (default true) - lets tests exercise HolderRegistration's real

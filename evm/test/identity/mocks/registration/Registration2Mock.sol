@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {Registration2} from "../../registration/Registration2.sol";
+import {Registration2} from "../../../../src/identity/registration/Registration2.sol";
 
 contract Registration2Mock is Registration2 {
     function mockAddCertificateDispatcher(bytes32 dispatcherType_, address dispatcher_) external {
