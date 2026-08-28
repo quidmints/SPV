@@ -3817,6 +3817,36 @@ P&L-neutral for a passive LP; this is the cross-subsidy [[quid-backing-invariant
 control and treatment share one fixture and differ only by the leverage flow, and the price is held
 constant by construction — which is exactly what makes the delta attributable.
 
+## 📊 **§SYMBOL-AUDIT — EVERY OPEN ROW'S NAMED SYMBOLS, CHECKED AGAINST THE WHOLE TREE AT ONCE** (2026-08-28)
+Ran all **80 open rows** against a 760-file corpus (`evm/src`, `evm/test`, `evm/script`, `quid-ln`,
+`tools`, `spa/src`, `app`; vendored `lib/` and `.claude/` excluded). **18 rows name a backticked
+identifier that exists NOWHERE.**
+⚠️ **FALSE-POSITIVE CLASS, NAMED FIRST AS THE SWEEP RULE REQUIRES: 8 of the 18 are COMMIT HASHES**
+(`fae2201a`, `df3c5e13`, `d10d7b8b`, `bb268a2`, `d13fde00`, `a67b9b3e`, `edd0d5ed`, `b4e192c1`) —
+caught because a hash is shaped like an identifier. Those citations are correct and must not be
+"fixed". **The refined count is 11 rows.**
+| row | symbol that no longer exists | likely cause |
+|---|---|---|
+| `§J2-LEV-ARITY` | `_quidAddr` | DELETED this session with `_collToBase` when `LevBase` absorbed the hoisted state |
+| THE MANAGER MERGE | `_rebalanceBody` | renamed/folded |
+| `§E242` | `ShareMath` | **FOLDED into `SwapLib`** (§E310) — the fold table's exact class |
+| 10. OTHER OPEN THREADS | `vogueCoreBtc` | a tombstone CLAUDE.md already lists at 0 references |
+| `B8` (7540 fold) | `recordForceClosePenalty` | renamed |
+| `D2` BTC remainder | `RangeEquityCollapseEchidna`, `_mkAuth`, `closeChannel`, `termsLeaf` | four in one row — this row needs re-deriving, not repointing |
+| `§E282` | `borrowRate`, `borrowRateView` | the venue interface changed under it |
+| THE TRAPS | `wellSkewPure` | never existed under that name |
+| `C15` 1inch migration | `swapData` | superseded by `§C2.1`'s `dex` word |
+| `§E330` | `derivedThetaWadAt` | **DELETED by §E301** — CLAUDE.md records the deletion and the 181 bytes it returned |
+| `§E319` | `QuoteUnfillable` | went with the RFQ surface (`9bf33b9f`) |
+⇒ **THE POINT IS NOT THAT 11 ROWS ARE WRONG — IT IS THAT THEIR FALSIFIABLE CHECK NOW RETURNS EMPTY,
+WHICH READS AS "RESOLVED".** Three distinct causes are mixed in here and they want opposite responses:
+a **FOLD** (`ShareMath`, code is live, repoint the coordinate), a **DELETION** (`derivedThetaWadAt`,
+`_quidAddr`, `QuoteUnfillable` — the row may be genuinely closed), and a **RENAME** (repoint). ⛔ **Do
+not batch-fix them**: the fold table's own warning is that a fold and a tombstone produce an identical
+empty grep, and only one of them means the work is done.
+📌 **RE-RUN THIS SWEEP AFTER ANY FOLD OR RENAME.** It is one pass over the corpus and it is the only
+check that catches a row going vacuously green.
+
 ## 0. 📊 **HOW MANY OPEN ITEMS THERE ACTUALLY ARE, AND HOW THEY PARALLELISE** (measured 2026-08-23)
 
 ### ✅ **§CITATION-AUDIT — ALL 447 `file:line` CITATIONS CHECKED MECHANICALLY (2026-08-28). 434 RESOLVE.**
