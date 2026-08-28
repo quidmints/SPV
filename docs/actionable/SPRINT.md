@@ -2044,7 +2044,7 @@ orders out, then compared mismatched windows).
 | **§UNITB-ARMS-IDENTICAL** | both arms charge 321,992 exactly | kernel is `Γ·σ²·qBar`; at σ² = 0 it vanishes and only size-based depletion is left |
 | ~~**§TAX-IS-ZERO-AT-DEPTH**~~ | ⛔ **REFUTED — a bps rounding artefact.** Re-measured in ppb the tax is **10,054 → 19,385 → 32,536**, linear in depth, and it is DEPLETION doing it at σ² = 0 | **this row is evidence the OTHER way**: it shows the flush branch still charges after §ZERO-REVENUE |
 | **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE** | the only LP revenue lane reads 0 | `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and ETH's `spliceFloor` is **0** |
-| **§E345-ANCHOR / §E257** | the ring never fills, the pull source is unset | no source ⇒ no samples ⇒ σ² stays 0 |
+| ~~**§E345-ANCHOR / §E257**~~ | ⛔ **STALE LEG — REMOVE IT FROM THIS TABLE (checked 2026-08-28).** "The pull source is unset" was closed by **`fae2201a`** (§OBSERVATION-SOURCE-UNSET, `:154`): `_observeIfSourced` no longer returns on an unset source, it **falls back to the Chainlink anchor and writes an observation**. The ring DOES fill. | ⇒ **three legs, not four** |
 ⇒ **`ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)` MEANS ETH'S ENTIRE SKEW IS PROPORTIONAL TO σ², WITH NO
 FLOOR.** BTC has `SPLICE_FLOOR = 2e15` and is therefore never fully exempt; **ETH at σ² = 0 prices
 nothing at all.** That is not four defects, it is one input at zero and four instruments correctly
@@ -2057,6 +2057,30 @@ smoke test, not a calibration — do not treat it as realistic vol.
 ⚠️ **In PRODUCTION the Chainlink anchor moves and §E294's push path is live, so this is a FIXTURE
 problem, not a shipping one — but every σ²-dependent test is measuring zero until it is fixed**, and
 `§PUSH-HEADROOM-1.85X` is the reminder that the production path has its own thinning margin.
+
+### ✅ **THE ROOT CHANGED SHAPE 2026-08-28 — IT IS NO LONGER "NO SAMPLES", IT IS "IDENTICAL SAMPLES"**
+🔎 Since `fae2201a` the ring is fed unconditionally: `_observeIfSourced()` writes the raw Chainlink
+anchor whenever `observationSource == 0`, which is **every** deployment (`setObservationSource` still
+has zero non-test callers). So "no source ⇒ no samples ⇒ σ² = 0" is **no longer the mechanism.**
+📐 **THE ACTUAL MECHANISM, READ OFF `OracleLib.ringVariance`:** it computes the variance of
+**consecutive RELATIVE returns**. A fixture that mocks Chainlink at a FIXED price fills the ring with
+identical observations ⇒ every difference is 0 ⇒ **σ² = 0 with a completely full ring.** Same number,
+different cause, **and a different fix**: the ring no longer needs SEEDING, it needs the anchor to
+MOVE.
+⚠️ **AND A SECOND, INDEPENDENT FIXTURE ROUTE TO ZERO:** `ringVariance` opens with
+`if (card < 3 || n < 3) return 0`, and the ring advances **only in `repack`** (the sole caller of
+`_observeIfSourced`, `Core.sol:1168`). ⇒ **A test with fewer than 3 repacks reads σ² = 0 no matter
+how violently the anchor moves.** Both conditions must hold: **≥3 repacks AND a moving feed.** A
+fixture that fixes only one of them still measures zero, which is the trap that makes this row look
+unfixable.
+✅ **THE ROW'S "FIXTURE PROBLEM, NOT SHIPPING" VERDICT SURVIVES — ON A STRONGER BASIS THAN IT
+CLAIMS.** It rests the verdict on §E294's push path being live; the firmer argument is that the
+`fae2201a` fallback fills the ring from the anchor on EVERY deployment, and a real Chainlink anchor
+moves. What does not move is a mocked feed.
+🔗 **CROSS-LINK — SAME ROOT, MEASURED TWICE:** the `§OBSERVATION-SOURCE-UNSET` comment in
+`Core.sol:1660` records "curve spot measured **11%** off the oracle"; `§RING-LAGS-ORACLE` was
+confirmed 2026-08-28 by an independent measurement of **8.8%** ($2,719.6 oracle vs $2,498.8 pool).
+Same divergence, two derivations. `_realignRangeToReal()` is the applied remedy there.
 
 ## 🔴🔴 **§PREMIUM-VS-BORNE — 92% of what a swapper gives up is attributed to NOBODY** (2026-08-25)
 
