@@ -25,31 +25,48 @@ const PROGRAM_IDL = path.join(ROOT, "target/idl/quid.json");
  * "seeker" will happily find an unrelated one in a home directory and compare
  * against the wrong program.
  *
- * Absent, these tests skip loudly rather than fail: nothing is wrong with the
- * program because the client is not in the tree.
+ * 🔴 THE APP IS IN THIS REPO NOW (`app/`, the ibiza merge), SO "ABSENT" IS NO LONGER A
+ * LEGITIMATE STATE AND THIS NO LONGER SKIPS. The old doc said absence meant "nothing is
+ * wrong with the program because the client is not in the tree" — true while the client
+ * lived in `/home/rico/projects/seeker-main`, and it is exactly what let this file pass
+ * green through an entire session of program changes. A guard that reports success when it
+ * cannot see either side is worse than one that fails, because only the failing one gets fixed.
  */
-function findSeeker(): string | null {
+function findSeeker(): string {
   const override = process.env.QUID_SEEKER_DIR;
   if (override) return override;
 
   const isApp = (d: string) => fs.existsSync(path.join(d, "hooks/useStockExposure.ts"));
+  // `app/` — seeker + identity-wallet, a sibling of `svm/` in the SPV repo.
+  const repo = path.dirname(ROOT);
+  const merged = path.join(repo, "app");
+  if (isApp(merged)) return merged;
+
+  // Legacy layouts, kept so a checkout that predates the merge still resolves rather
+  // than failing for the wrong reason.
   const here = path.join(ROOT, "seeker");
   if (isApp(here)) return here;
-
-  const repo = path.dirname(ROOT);
   const sibling = path.join(repo, "seeker");
   if (fs.existsSync(path.join(repo, "svm/Anchor.toml")) && isApp(sibling)) return sibling;
-  return null;
+
+  throw new Error(
+    "Seeker app not found. It lives at `app/` in this repo since the ibiza merge, and the " +
+    "probe is `app/hooks/useStockExposure.ts`. Set QUID_SEEKER_DIR to override. This THROWS " +
+    "rather than skipping on purpose — see the note above."
+  );
 }
 const SEEKER = findSeeker();
-// 🔴 THIS GUARD WAS INERT FOR AN ENTIRE SESSION OF PROGRAM CHANGES, AND IT
-//    PASSED WHILE INERT — which is worse than failing. `findSeeker` looks in
-//    `svm/seeker` and `<repo>/seeker`; the app actually lives OUTSIDE this repo
-//    at `/home/rico/projects/seeker-main`, and `target/idl/quid.json` is only
-//    present after an `anchor build`. So both sides of the comparison were
-//    missing and every parity assertion was skipped silently.
-//    Set `QUID_SEEKER_DIR=/home/rico/projects/seeker-main` and run `anchor build`
-//    before trusting a green run here.
+// 🔴 THIS GUARD WAS INERT FOR AN ENTIRE SESSION OF PROGRAM CHANGES AND PASSED WHILE INERT.
+//    BOTH SIDES OF THE COMPARISON WERE MISSING: `findSeeker` searched `svm/seeker` and
+//    `<repo>/seeker` while the app lived outside the repo, and `target/idl/quid.json` only
+//    exists after an `anchor build` nobody had run. Two absent files, every assertion
+//    skipped, and a green suite reporting parity it had never checked.
+// ✅ HALF OF THAT IS NOW STRUCTURALLY CLOSED: the app is `app/` in this repo (the ibiza
+//    merge) and `findSeeker` THROWS rather than returning null, so the client side can no
+//    longer go quietly missing.
+// ⚠️ THE OTHER HALF IS NOT, AND CANNOT BE FROM HERE: `target/idl/quid.json` is a BUILD
+//    ARTIFACT. Run `anchor build` first — the `readFileSync` below throws without it, which
+//    is the intended failure and not a bug to route around with an existsSync check.
 
 const camel = (s: string) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
@@ -74,10 +91,6 @@ function accountsFor(src: string, method: string): string[] {
 }
 
 describe("Seeker ↔ program parity", function () {
-  if (!SEEKER) {
-    it("skipped — the Seeker app is not in this checkout", function () { this.skip(); });
-    return;
-  }
   const program = JSON.parse(fs.readFileSync(PROGRAM_IDL, "utf8"));
   const seeker  = JSON.parse(fs.readFileSync(path.join(SEEKER, "constants/quid.json"), "utf8"));
   const hook    = fs.readFileSync(path.join(SEEKER, "hooks/useStockExposure.ts"), "utf8");

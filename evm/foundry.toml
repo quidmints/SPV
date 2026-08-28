@@ -83,3 +83,46 @@ mainnet = { key = "${ETHERSCAN_L1}" }
 # dependency nothing imports. Worse than dead weight: while the trees are present, a stray import or
 # an alias can still RESOLVE into them, so the cut is only enforceable once they cannot be found.
 solady = { git = "https://github.com/Vectorized/solady" }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# §MERGE — THE IDENTITY STACK'S GENERATED HONK VERIFIERS, folded in from what was its own
+# Foundry project. These are the ONLY reason that project existed separately: each is ~100 KB
+# of generated source, and only `optimizer_runs = 1` brings the runtime code under EIP-170.
+# ⚠️ THE FAILURE IS AT DEPLOY TIME, NOT BUILD TIME — a verifier over the limit compiles clean and
+# is simply undeployable, so `tools/check-contract-sizes.py` is what catches a dropped entry here.
+# ⛔ AND THE COST IS REAL: compiling these in parallel OOMs a 3 GB box, reporting as
+# `solc exited with signal: 9 (SIGKILL)` — which reads like a code error and is not one.
+# Use `forge build --threads 1` on a small machine.
+# ══════════════════════════════════════════════════════════════════════════════
+[[profile.default.additional_compiler_profiles]]
+name = "size-optimised-verifier"
+optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "src/identity/pool/verifiers/WithdrawalHonkVerifier.sol"
+optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "src/identity/title/TitleHolderHonkVerifier.sol"
+optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "src/identity/pool/verifiers/RagequitHonkVerifier.sol"
+optimizer_runs = 1
+
+# Without this the generated verifier is 25,503 bytes - 927 OVER the EIP-170 24,576 limit and
+# undeployable. It has 8 public inputs, the most of any circuit here, and each one costs runtime
+# code. The failure surfaces only at deploy time, so it is caught by `forge build --sizes`.
+[[profile.default.compilation_restrictions]]
+paths = "src/identity/registry/verifiers/EscrowEnvelopeHonkVerifier.sol"
+optimizer_runs = 1
+
+# The recursion-tree root verifiers, one per batch size (TODO.md sec. 2.4 / 2.18el). Same knife-edge
+# as the others: each is ~100 KB of source and only optimizer_runs = 1 brings the runtime code under
+# EIP-170. Their size is INDEPENDENT of the batch (Honk's verifier is a fixed algorithm; a deeper
+# tree grows the circuit, not the contract), so a new depth needs a new PATH here but no new
+# reasoning - the glob covers them all.
+[[profile.default.compilation_restrictions]]
+paths = "src/identity/pool/verifiers/TreeRoot*HonkVerifier.sol"
+optimizer_runs = 1
+
