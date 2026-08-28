@@ -6436,10 +6436,18 @@ of those five cost a wrong turn that a single command would have prevented.
 **MEASURED: all four callable refill primitives have ZERO production call sites.**
 | primitive | on main | call sites | proof it has |
 |---|---|---|---|
-| `refillPlacement` | ✅ | **0** | pure-arithmetic only |
-| `refillNeeded` | ✅ | **0** | pure-arithmetic only |
-| `proRataShortfall` | ✅ | **0** | pure-arithmetic only |
-| `imbalanceFeeUsd6` | ✅ | **0** | pure-arithmetic only |
+| ~~`refillPlacement`~~ | ⛔ **DELETED** (`59851831`, §E301 — *"they size a restoration we do not perform"*) | — | — |
+| `refillNeeded` | ✅ | **0 in `src`**, 6 in `test` | pure-arithmetic only; PARKED, and its docblock says so |
+| `proRataShortfall` | ✅ | **0 in `src`**, 8 in `test` | ⚠️ deleted by §E301 and **RESTORED** (`ed530bd2`, §E313 — *"I deleted a rule-17 root fix on an argument that did not apply"*) |
+| ~~`imbalanceFeeUsd6`~~ | ⛔ **DELETED** (`dc6500b7`, §E311 — *"§E301 settled the condition its own deletion note was waiting on"*) | — | — |
+⚠️ **RE-MEASURED 2026-08-28: THIS TABLE IS 2/4 STALE — two of the four no longer exist**, so "all four
+have zero call sites" reads as four parked primitives when it is two. The two survivors are parked AND
+TESTED (6 and 8 test call sites), which is the `create_sweep_tx` shape, not litter.
+⭐ **AND `proRataShortfall` IS THE THIRD DOCUMENTED INSTANCE OF THE DELETE-THEN-RESTORE PATTERN** —
+after `create_sweep_tx` (twice). `imbalanceFeeUsd6`'s deletion is the OPPOSITE and the contrast is the
+lesson: it went because *the condition its keep-note named had been resolved*. **A keep-note is
+load-bearing only while its stated condition is unresolved** — that is what separates a legitimate
+deletion here from the three mistaken ones.
 ⇒ **NOT ONE OF THEM HAS EVER PRICED A REAL SWAP AGAINST A SEEDED POOL.** Owner named this exactly:
 *"potemkin code that has never confirmed proper swap calculation amounts after seeding the pool."*
 ✅ **THE SKEW IS NOT IN THIS CATEGORY, AND THE DISTINCTION IS THE WHOLE POINT:** `DEPLETION_RATE_WAD`
@@ -6447,6 +6455,28 @@ lives INSIDE `skewWad`, which `_fillDelta` calls on **every swap** — so it is 
 covered by the fixture suite. Skew = wired. Refill = not.
 
 ### ▶️ WHERE TO KICK OFF, IN ORDER
+⚠️ **STEP 1 IS STALE (2026-08-28) AND NO LONGER BLOCKS ANYTHING.** It cites *"73 of the 77 failures"*
+from `NoVolatileRoute()`; the suite is now **GREEN (0 failures, 0 contamination)**, and the surviving
+`NoVolatileRoute` reverts in `LevMath._aggSwap` (`:658`, `:675`) are the DELIBERATE no-route/failed-call
+guards §C2.1 installed, not a missing destination. ⇒ **Start at step 3.**
+📌 **STEP 3 IS STILL UNBUILT, VERIFIED:** `grep refillNeeded quid-ln/quid-bridge/src` returns **0** —
+the daemon still reads no range inventory. The rail it would drive is wired and live
+(`BTCChannels` → `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`), so this is a daemon task over an
+existing rail, not new on-chain code.
+🔴 **AND THE ASYMMETRY WORTH STATING PLAINLY, BECAUSE IT IS THE REAL DESIGN GAP:** the BTC restoration
+rail runs in ONE direction — `creditSwapIn` takes sats and pays USD, i.e. it ADDS BTC. **Nothing sheds
+BTC for dollars when BTC piles up.** Redemption cannot do it either: redemption is STABLES-ONLY
+(§redeem-band-unwind), so a BTC surplus cannot leave that way. The skew makes selling BTC into the
+pool progressively worse-priced, which DISCOURAGES more arriving — but discouraging is not shedding.
+⇒ **Excess BTC is PRICED, not RESOLVED**, and the resolution would be the unwired `refillNeeded` path
+pointed in reverse. ⚠️ On ETH there is no refill at all and that is DELIBERATE — `refillNeeded`'s own
+docblock: *"there is no restoration we perform — the swapper carries the unfilled remainder to another
+venue."* That argument is scoped to ETH and does NOT transfer to BTC, where the rail exists.
+✅ **AND THE REFILL DOES NOT TRAVEL BY 1inch — step 4 already says so and it still holds:** 1inch is a
+CONSUMER (`Core:1228`) and a price reader, **never a liquidity source**; sourcing is Morpho flash +
+Curve. 1inch carries the LEVERAGE keeper's swaps (`LevMath._aggSwap`, router pinned), which is
+de-levering an LP position — a different path from restocking the range.
+
 1. **RESTORE THE VOLATILE ROUTE — do this first, it blocks the rest.** `SOR` was deleted (`09fedf18`)
    BEFORE Aux's execution was re-pointed, so `NoVolatileRoute()` fires and **leverage debt is never
    taken on**. That is **73 of the 77 failures** in the last clean run (414 passed / 73 failed / 487
