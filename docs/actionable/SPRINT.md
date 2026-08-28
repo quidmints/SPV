@@ -194,7 +194,26 @@ self-feeding, and it has been switched off since it was written.
 exactly why the defect survived — the suite proves the mechanism works when wired and says nothing
 about whether deployment wires it. **A test-only caller is how a production hole looks covered.**
 
-## 🔬 **§RING-LAGS-ORACLE — a LEAD linking two failures, explicitly NOT yet confirmed** (2026-08-24)
+## ⏸️ **§RING-LAGS-ORACLE — CONFIRMED 2026-08-28 BY AN INDEPENDENT MEASUREMENT; 1 OF 2 FAILURES FIXED** (2026-08-24)
+✅ **THE LEAD IS NO LONGER A LEAD.** This row says `Quid._corePrice()` reads
+`obsState.lastPrice` — the RING's last observation, not the oracle — so a fixture that mocks the
+Chainlink feed moves the ORACLE while range spot stays put. **Measured independently this session,
+from the other end, without reference to this row:** in `test_LevFeeLane_…` the oracle read
+**$2,719.6/ETH** while the real V3 pool traded at **$2,498.8** — an **8.8%** divergence. The BUY leg
+passes on that gap (a high floor is easy to beat when the pool is cheap); the SELL leg cannot, and
+reverted `Slippage()` on a correctly-priced trade. Two derivations, one mechanism.
+✅ **`test_IlProtection_LeveredVsUnlevered_NoCrossSubsidy` PASSES** — but NOT because the ring caught
+up. Its assertion (2) was measuring `soldFractionWad`, which §C22 had already proven is
+`f(RANGE_DELTA)` alone; it now measures the range's REAL inventory (30.000 → 27.040 ETH on the rally).
+⚠️ So this row's mechanism did not cause that failure — **do not read the pass as evidence for the
+ring lead.** The evidence for the lead is the 8.8% measurement above.
+⏸️ **`testTwapAnchorDeadlock_FullFix` is NOT covered by any run I have taken** — it sits outside the
+suites measured, so its status is unknown, not green.
+▶️ **THE REMEDY IS KNOWN AND APPLIED IN ONE PLACE ONLY:** `_realignRangeToReal()` before any test that
+must SELL, as `LevYbReal` already did and as `test_LevFeeLane_` now does. Every other fixture that
+mocks the feed and then sells is exposed to the same gap.
+
+
 
 `Quid._corePrice()` → `CORE.poolStats()` → **`priceWad = obsState.lastPrice`** — the RING's last
 observed price, NOT the oracle. The ring advances only when observations are pushed
