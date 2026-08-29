@@ -62,7 +62,11 @@
 > `SwapLib` with 102 bytes**, unchanged.
 >
 > ### 🔴 OPEN, IN PRIORITY ORDER
-> 0. **§OOR-BOOK-DELETED landed — `Quid` is 2,171 bytes lighter and off the tightest-five list.**
+> 0. **§INTENT-HAS-NO-FUNDING-LEG — BUY LEG FIXED (`bff762c3`).** The measured drain is closed and
+>    its regression test is claim-bounded. ▶️ **Next on this thread: the SELL leg**, which needs
+>    `_withdraw`'s settlement shape rather than `settleOor`'s. And **BTC still has no OOR path at
+>    all** — that is where this whole thread started (§BTC-OOR-ENTERABLE-NEVER-FILLABLE).
+> 0b. **§OOR-BOOK-DELETED landed — `Quid` is 2,171 bytes lighter and off the tightest-five list.**
 >    ▶️ **Three things it leaves open, in order:** BTC has no out-of-range path at all now (its
 >    successor is an intent whose fill becomes a `requestSwapOutOnchain` obligation —
 >    §BTC-DELIVERY-IS-BUILT, much smaller than it was); smart-wallet owners cannot place an intent
@@ -512,7 +516,7 @@ delivered** — *"burn is derived FROM actual delivery, never assumed ahead of i
 mature QU!D via `Basket.turn`; sell side spends `plainNet(pooled, levPooled)`, never `pooled`.
 **Everything above is either that step, or a note taken on the way to it.**
 
-## 🔴🔴🔴 **§INTENT-HAS-NO-FUNDING-LEG — THE FILL RECLASSIFIES A POSITION IT NEVER CHECKS EXISTS. MEASURED, GATED, NOT FIXED.** (2026-08-29, owner: *"audit first if the eth intent rail is properly done"*)
+## ✅ **[BUY LEG FIXED 2026-08-30 — `bff762c3`. The debit exists: `AUX.spendClaim` spends the maker's mature basket claim inside `fillIntentBody`, after the signature and before either leg, and the credit is derived from what the burn realised rather than from `i.size`. The valuation is `_perShare`, EXTRACTED from `_redeemQuote` so there is still exactly one — a second copy would be the swap↔redeem arb its own comment forbids. Suite 1012/0/1014, all seven gates green; `SwapLib` 102 → **202** bytes spare (the sell branch's body became a revert). ⛔ **THE SELL LEG IS STILL UNBUILT** and reverts `IntentSellLegUnbuilt`: it is not merely unfunded, its SETTLEMENT is wrong for an LP maker — an in-range LP's ether is already in `POOLED`, so `volDelta = -size` makes the range gain ether it already held. Its shape is `_withdraw`'s and it must cap at `plainNet(pooled, levPooled)`]**  🔴 **§INTENT-HAS-NO-FUNDING-LEG — THE FILL RECLASSIFIED A POSITION IT NEVER CHECKED EXISTED. MEASURED, THEN FIXED.** (2026-08-29, owner: *"audit first if the eth intent rail is properly done"*)
 
 **It is not.** The audit was asked for before more building, and it found the rail has no funding leg
 at all. **Gated the same turn; the fix is an owner decision.**
