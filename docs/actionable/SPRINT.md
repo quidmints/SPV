@@ -18186,7 +18186,7 @@ Nothing here can be measured while σ² has no trustworthy source, and `§E352` 
 | **Low volume** (today) | **unlevered outright** | buffer fees ≈ 0, so the amplification argument evaporates and you pay 1.8–3% carry purely to cancel an IMPERMANENT loss |
 | **It books to LPs as a fee** | `recordSkewPremium:359` → `RANGE.creditSkewPremium` — the owner's original requirement, met |
 
-#### 🧱 WAVE 4 — COLLAPSE `Core` + `Quid` INTO ONE 4626. **Blocked by W1 and W2. The last step, not the first.**
+#### 🧱 WAVE 4 — THE FOLD. ⛔ **`Core`+`Quid`-into-one-4626 IS PROBABLY THE WRONG FOLD — SEE `§FOLD-REDESIGN` BELOW.** Blocked by W1 and W2.
 
 Owner chose this 2026-08-16. `Core.sol:43` and `Quid.sol:37` are still two contracts. Steps ③④⑤ of `§E219`'s order LANDED (`SafeCallback` has 0 references, `BtcLib` has 0 `tickLower`, `SOR.sol` deleted) — **the deletions are what make the merge representable at all.** Size checkpoint re-measured 2026-08-23 (`§E344`): `Core` 11,637 + `Quid` 21,856 = **33,493, over EIP-170 by 8,917** — down from 23,835, so the "must stay two contracts" branch is NOT taken. ⚠️ Quote `tools/check-contract-sizes.py`, not any row — three different readings landed in one day.
 
@@ -27128,3 +27128,115 @@ vault.rs:244 "fleet does NOT have the LP funding half" vs taproot_signer.rs:439 
 - 🟠 §AUDIT-REORG-DOS (SPV): `_updateMainchainHead` (SPVGateway.sol:314-350) fork-switch walk-back is O(depth) SLOAD+SSTORE in one atomic, permissionless, unchunked tx → a deep (>~1-3k block) divergence adopted first → tipping header always OOGs → gateway frozen forever on a stale chain. Distinct from the retarget bug + E135. FIX: max-reorg-depth cap or chunked/resumable switch.
 - 🟡 §AUDIT-REENTRANCY-GAP (latent): `Vault.creditSwapIn/creditSwapOut`(:702/714)+addLiq/repack lack nonReentrant; `Core` has NO ReentrancyGuard; only BTCChannels' lock spans the nested creditSwapIn→Core.swap→AUX.take path. NOT live (all basket stables plain ERC20/4626, vBTC no hooks); Aux.sol:1118 comment is false. FIX: add nonReentrant before any hookable stable is added.
 - RULED OUT (adversarial, verified sound): TWAP/skew single-block sandwich (onlyUs ring, oracle-anchored, ≤500bps Chainlink-clamped); CVE-2017-12842/2012-2459 merkle (defended/moot); low-diff header injection (target==blockTarget); most reentrancy (BTCChannels all-guarded, venues onlyManager+nonReentrant, Morpho flash correctly unguarded).
+
+
+---
+
+## 🧬 §FOLD-REDESIGN — **THE FOLD WAS CHOSEN BEFORE TWO FACTS LANDED THAT CHANGE IT. `Core`+`Quid` IS PROBABLY NOT THE FOLD.** (2026-08-29)
+
+Owner, 2026-08-29: *"maybe core and quid being one contract is not the fold that needs to
+happen. we havent designed the fold as best as we could yet. bitcoin is clearly erc 7540 not
+just a 4626. the goal of the fold is to maximise liveness, security, efficiency, and elegance
+… resulting in as little final lines of code as possible (even reducing files if possible)."*
+
+This is standing rule 18 applied to a decision already taken: *is there a better version of
+this?* **The merge target was picked on 2026-08-16. Two things landed after it, and each one
+moves the answer.**
+
+### ① THE FACE IS 7540 FOR BOTH RANGES, WHICH THE MERGE TARGET PREDATES
+
+`§DOCS-FOLD/VBTC-ASSET-AND-7540` was owner-corrected the same day and says so outright: the
+earlier reading — 4626-for-ETH plus 7540-for-BTC — **is wrong**. ETH is asynchronous for a
+reason that has nothing to do with Lightning: a redemption can require unwinding a levered
+position, `extractLev` is bounded by `deliverableDollars` and the liquidation threshold, so a
+single flash loan is **not guaranteed to complete** and what remains is a claim settled later.
+⇒ *"The asynchronicity is a property of the PROTOCOL, not of the BTC leg."*
+
+**The tree already half-agrees, on the BTC side only:**
+
+| | face today | |
+|---|---|---|
+| `Vault.sol` | `requestDeposit` (`:501`), `requestRedeem` (`:593`) | already 7540 IN SUBSTANCE. `:591` says it plainly — *"this cannot be the synchronous 4626 `redeem` — the assets are claimable only after L1 confirmations"* |
+| `Quid.sol` | `asset` · `totalAssets` · `previewDeposit` · `previewMint` · `convertToShares` · `convertToAssets` · `deposit` · `mint` · `redeem` · `withdraw` | the **full synchronous 4626 surface**, and per the 7540 doc *"the ETH side is the more misleading of the two"* — it advertises a redemption a drawn-down venue cannot honour |
+| `VBtc.sol` | `asset` → WBTC · `convertToAssets` 1:1 · `convertToShares` 1:1 | a face the doc calls false in both directions: names a token the range never holds, and promises a conversion that needs an L1 close. **143 lines** |
+
+⇒ **A fold that merges `Core` into `Quid` merges into the face that is WRONG, and leaves the
+face that is already RIGHT (`Vault`) outside the merge.** It preserves exactly the asymmetry
+7540 says should not exist.
+
+### ② THE BINDING CONTRACT IS NO LONGER THE ONE THE MERGE PLAN SIZES AGAINST
+
+`§E219`/`§E344` plan against `Core` 11,637 + `Quid` 21,856 = **33,493, over EIP-170 by 8,917**,
+and treat shedding those 8,917 bytes as the job. **Measured today with
+`tools/check-contract-sizes.py`:**
+
+| contract | size | margin |
+|---|---|---|
+| **`SwapLib`** | **24,474** | **102** |
+| `BTCChannels` | 23,217 | 1,359 |
+| `Quid` | 23,123 | 1,453 |
+| `LevManager` | 22,999 | 1,577 |
+| `Core` | 11,637 | — |
+
+⇒ **`Core` is the SMALLEST piece of the thing being merged, and `SwapLib` — which the merge
+does not touch — is 102 bytes from the wall.** Shedding 8,917 bytes to fit `Core`+`Quid` buys
+headroom in the contract that already has 1,453 spare, while the one that is actually out of
+room is untouched. **That is optimising the wrong constraint.**
+
+🔑 **AND THE `isBTC` FORK IS WHERE THE TWO FACTS MEET. 34 branches, and 17 of them — HALF — are
+in `SwapLib`:**
+
+| file | `isBTC` |
+|---|---|
+| **`SwapLib.sol`** | **17** |
+| `Quid.sol` | 7 |
+| `Vault.sol` | 3 |
+| `Shares.sol` · `Interfaces.sol` | 2 each |
+| `LevBase.sol` · `Core.sol` · `Aux.sol` | 1 each |
+
+The fork exists because one engine serves two instances that expose **different faces**. Give
+them the SAME face and the branch has nothing left to discriminate.
+
+### ③ THE PATTERN TO USE IS ALREADY IN THE TREE, AND IT IS NOT "MERGE THE CONTRACTS"
+
+`Shares.sol` is an abstract base both `Quid` and `Vault` already inherit, and `§FOLD-PINLEV`
+records the method: *"ONE SETTER, TWO INSTANCES. `Quid.setLevManager` and `Vault.setLevManager`
+were the same three statements … only two things genuinely differed, and both are now the ONLY
+things a face supplies."* It also shows how to keep a real difference: the ETH pin comes from
+`DEPLOYER`, the BTC pin from `Ownable`, and a `virtual` keeps that **declared at each face
+instead of hidden in a shared branch** — the opposite of an `isBTC` test.
+
+⇒ **Fold the FACE, not the CONTRACTS.** Both instances expose 7540 through `Shares`; each face
+declares only what genuinely differs. `Vault` is already there; `Quid` stops promising
+synchronous settlement (7540's `preview*`-must-revert is the mechanism); `VBtc`'s three false
+accessors go with the promise they encode.
+
+### ▶️ WHAT THIS PREDICTS, STATED SO IT CAN BE FALSIFIED
+
+1. **`SwapLib` frees materially more than the `isBTC` count suggests**, because 17 branches also
+   carry their two sides' divergent code. **If collapsing the fork does not move `SwapLib`'s
+   24,474 appreciably, this design is wrong and the merge plan was right** — measure before
+   committing to it.
+2. **Files disappear rather than grow:** `VBtc.sol` (143 lines) has no content once `asset()`
+   and the two 1:1 conversions are retired. `Vault.sol` (830) is a candidate to become the
+   shared face's BTC instantiation rather than a contract.
+3. **`Core`+`Quid` may not need to merge at all.** If the face is shared and the fork is gone,
+   the reason for the merge — *"core just becomes a 4626 that talks to aux"* — is satisfied by
+   the FACE being one thing, not by the CONTRACTS being one thing. **Two contracts under one
+   interface can be more live, more secure and smaller than one contract at 33,493 bytes fighting
+   EIP-170.** That is the claim to test first, because it is the cheapest to falsify.
+
+### ⚠️ AND ONE CONSTRAINT THAT DISSOLVED WHILE NOBODY WAS LOOKING
+
+`CLAUDE.md:1026` still says *"`../ibiza` consumes SPV as a pinned git submodule and depends on
+exactly four Quid/Basket signatures staying permissionless and stable. Changing them is a
+breaking change for a repo that isn't in this working tree."* **ibiza was merged into SPV on
+2026-08-28** (`2d36a4e0`, `c7429cd2`) and has had no commits since. The consumer is in-tree, so
+the signature freeze that would have blocked changing `Quid`'s face **no longer binds** — the
+call sites are now editable in the same commit. `§DOCS-FOLD/VBTC-ASSET-AND-7540`'s closing
+cross-repo warning is stale for the same reason.
+
+📌 **STILL THE FIRST QUESTION, UNCHANGED BY ANY OF THIS:** the 7540 doc's ordered step 1 —
+settle the Morpho/Euler **liquidator-exit** question, because it selects `asset()` option A/B/C
+and *"nothing else should be built first."* The answer is downstream of a real user, not of
+interface aesthetics.
