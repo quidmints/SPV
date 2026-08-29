@@ -975,7 +975,14 @@ contract Core {
     ///        through the SOR/hop and can add MEV/slippage to their OWN fill, so it is theirs to
     ///        decide -- and it is a PARAMETER OF THE SWAP, not a stored per-address flag: consent
     ///        belongs to the trade it affects, not to the address that once set it.
-    function swap(address sender,
+    /// @param recipient WHERE THE OUTPUT GOES. §E90 — this parameter was named `sender`, and its
+    ///        only use is `_handleDelta(..., who, ...)`, whose `who` feeds
+    ///        `RANGE.deliverVolatile(amount, who)`. It is a DESTINATION, never a payer. The one
+    ///        caller (`BasketLib:527`) passes `p.recipient`, so the behaviour was always right and
+    ///        the NAME was the defect: a future caller reading `sender` would pass `msg.sender` and
+    ///        deliver the output to the swapper instead of the intended recipient. Renamed rather
+    ///        than commented, because the next reader will trust the signature over any note.
+    function swap(address recipient,
         bool inputIsUsd, address token, uint amount, bool loadBalance)
         onlyUs public returns (uint out) {
 
@@ -1032,7 +1039,7 @@ contract Core {
         _sampleAnchorVariance();
 
         // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
-        _handleDelta(delta, true, false, sender, token);
+        _handleDelta(delta, true, false, recipient, token);
 
         // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
         // with no replenishment if this is missing, and flow IS the `target` in `skewWad`/`sellSkew`.
@@ -1092,7 +1099,7 @@ contract Core {
         // GROSS fee depth on both sides: for BTC, totalShares is NET, so add the levered buffer
         // (totalBuffer) to match POOLED (gross, includes the buffer) — keeps the shortfall
         // comparison gross-to-gross (unchanged behavior). ETH: rangeETH(net) vs totalShares(net) already balanced.
-        _shortfallLoadBalance(sender);
+        _shortfallLoadBalance(recipient);
     }
 
 
