@@ -41,7 +41,7 @@ import {Registration2} from "../src/identity/registration/Registration2.sol";
  *   REGISTRATION=0x… START=0 COUNT=10 forge script … --broadcast     # one batch
  */
 contract DeployPassportVerifiers is Script {
-    string internal constant MANIFEST = "../circuits/passport-profiles.json";
+    string internal constant MANIFEST = "noir/passport-profiles.json";
     string internal constant PREFIX = "Z_NOIR_PASSPORT_";
 
     function run() external {

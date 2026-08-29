@@ -39,7 +39,7 @@ contract NotaryActionHonkVerifierTest is Test {
   }
 
   function _proof() internal view returns (bytes memory) {
-    return vm.readFileBinary('test/fixtures/notary_action.proof');
+    return vm.readFileBinary('test/identity/fixtures/notary_action.proof');
   }
 
   function _publicInputs() internal pure returns (bytes32[] memory _inputs) {

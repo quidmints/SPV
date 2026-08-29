@@ -113,7 +113,17 @@ library RSASSAPSS {
             uint256 hashLength_ = params_.hashLength;
             uint256 saltLength_ = params_.saltLength;
             uint256 sigBytes_ = n_.length;
-            uint256 leadingBits_ = LibBit.clz(uint256(uint8(n_[n_.length - 1])) << 248);
+            // §RSAPSS-MSB — VENDOR PATCH, AND IT MUST SURVIVE ANY RE-VENDOR OF THIS LIBRARY.
+            // Upstream reads `n_[n_.length - 1]`, the LAST byte. `n_` is a big-endian modulus, so
+            // its MOST SIGNIFICANT byte is `n_[0]`; counting leading zero bits off the last byte
+            // makes `sigBits_` a function of an irrelevant property of the key. Roughly HALF of all
+            // valid signatures were rejected — every modulus whose final byte is under 0x80 —
+            // chosen by nothing the standard cares about.
+            // ⚠️ THE FAILURE IS SILENT AND KEY-DEPENDENT: four keys ending 0x85/0x99/0xeb/0xff
+            // verify under the upstream form, so a test suite that happens to pick one of those
+            // reports the library as correct. `CRSAPSSSigner.t.sol`'s committed vector ends 0x41
+            // deliberately, for exactly this reason.
+            uint256 leadingBits_ = LibBit.clz(uint256(uint8(n_[0])) << 248);
             uint256 sigBits_ = (sigBytes_ * 8 - leadingBits_ - 1) & 7;
 
             assert(message_.length < 2 ** 61);

@@ -620,7 +620,7 @@ contract TitleLedgerTest is Test, CreReportMetadata {
     _useRealVerifier();
 
     assertTrue(
-      ledger.verifyHolderProof(titleId, vm.readFileBinary('test/fixtures/title_holder_id1.proof')),
+      ledger.verifyHolderProof(titleId, vm.readFileBinary('test/identity/fixtures/title_holder_id1.proof')),
       'a genuine holder proof was rejected'
     );
   }
@@ -635,7 +635,7 @@ contract TitleLedgerTest is Test, CreReportMetadata {
 
     // The Honk verifier REVERTS (SumcheckFailed) rather than returning false when the public
     // inputs do not match the proof - both are correct rejections, so accept either.
-    try ledger.verifyHolderProof(second, vm.readFileBinary('test/fixtures/title_holder_id1.proof'))
+    try ledger.verifyHolderProof(second, vm.readFileBinary('test/identity/fixtures/title_holder_id1.proof'))
     returns (bool ok) {
       assertFalse(ok, 'a proof for title 1 was accepted for a different title');
     } catch {

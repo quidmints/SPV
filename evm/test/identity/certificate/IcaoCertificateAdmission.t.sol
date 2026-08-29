@@ -21,7 +21,7 @@ import {CRSASigner} from '../../../src/identity/certificate/signers/CRSASigner.s
  * The document only enters one level further on, when a passport's SOD is checked against an
  * admitted DSC (task 6).
  *
- * PROVENANCE OF THE FIXTURE - `test/fixtures/icao_certificate_admission.json`:
+ * PROVENANCE OF THE FIXTURE - `test/identity/fixtures/icao_certificate_admission.json`:
  *   - the CSCA comes from `ICAO_ML_20260721154956.ml`, the signed ICAO Master List, whose CMS
  *     signature was verified before anything was extracted (581 certificates, 103 countries)
  *   - the DSC comes from `icaopkd-001-complete-10245.ldif`, ICAO's published PKD feed (31,410 DSCs)
@@ -46,7 +46,7 @@ contract IcaoCertificateAdmissionTest is Test {
     string internal fixture;
 
     function setUp() public {
-        fixture = vm.readFile('test/fixtures/icao_certificate_admission.json');
+        fixture = vm.readFile('test/identity/fixtures/icao_certificate_admission.json');
 
         signer = new CRSASigner();
         signer.__CRSASigner_init(_uint('cscaExponent'), CRSASigner.HF.sha256);

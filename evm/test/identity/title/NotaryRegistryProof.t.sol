@@ -40,7 +40,7 @@ import {MerkleProof} from '@openzeppelin/contracts/utils/cryptography/MerkleProo
  */
 contract NotaryRegistryProofTest is Test {
   function _fixture() internal view returns (bytes32 root_, bytes32 leaf_, bytes32[] memory proof_) {
-    string memory raw = vm.readFile('test/fixtures/notary_registry_proof.txt');
+    string memory raw = vm.readFile('test/identity/fixtures/notary_registry_proof.txt');
     string[] memory lines = vm.split(raw, '\n');
 
     uint256 count;

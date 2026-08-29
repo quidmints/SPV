@@ -31,7 +31,7 @@ contract BatchCommitmentTest is Test {
   string internal fixture;
 
   function setUp() public {
-    fixture = vm.readFile('test/fixtures/recursion_tree_n16.json');
+    fixture = vm.readFile('test/identity/fixtures/recursion_tree_n16.json');
   }
 
   /// The sixteen withdrawals the committed proof actually settled.
@@ -174,7 +174,7 @@ contract BatchCommitmentTest is Test {
    * "settle with whoever is here" does not work and everyone waits for a full batch.
    */
   function test_APaddedBatchReproducesItsRoot() public view {
-    string memory f = vm.readFile('test/fixtures/recursion_tree_n8.json');
+    string memory f = vm.readFile('test/identity/fixtures/recursion_tree_n8.json');
     uint256 n = vm.parseJsonUint(f, '.batchSize');
     uint256[PUB_LEN][] memory sig = new uint256[PUB_LEN][](n);
     for (uint256 i = 0; i < n; ++i) {

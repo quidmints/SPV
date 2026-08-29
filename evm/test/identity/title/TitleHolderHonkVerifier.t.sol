@@ -18,7 +18,7 @@ import {INoirVerifier} from '../../../src/identity/interfaces/verifiers/INoirVer
  *   bb prove    --scheme ultra_honk --oracle_hash keccak
  *   bb write_vk --scheme ultra_honk --oracle_hash keccak   -> baked into the verifier contract
  *
- * `test/fixtures/title_holder.proof` is the raw `bb` proof with its 4-byte field count and its 2
+ * `test/identity/fixtures/title_holder.proof` is the raw `bb` proof with its 4-byte field count and its 2
  * leading public-input fields stripped, because INoirVerifier.verify takes those separately.
  */
 contract TitleHolderHonkVerifierTest is Test {
@@ -38,7 +38,7 @@ contract TitleHolderHonkVerifierTest is Test {
   }
 
   function _proof() internal view returns (bytes memory) {
-    return vm.readFileBinary('test/fixtures/title_holder.proof');
+    return vm.readFileBinary('test/identity/fixtures/title_holder.proof');
   }
 
   function _publicInputs() internal pure returns (bytes32[] memory _inputs) {

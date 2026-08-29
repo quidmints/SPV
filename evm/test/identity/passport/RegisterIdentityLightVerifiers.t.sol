@@ -27,7 +27,7 @@ import {RegisterIdentityLightID256HonkVerifier} from
  * but nothing can produce a proof for them until a real document exists - that is task 6's block,
  * not a toolchain one. An untested verifier is exactly the artifact this project's rules refuse.
  *
- * FIXTURE PROVENANCE. `test/fixtures/register_identity_light_td1.proof` is a real `bb 6.0.0-nightly`
+ * FIXTURE PROVENANCE. `test/identity/fixtures/register_identity_light_td1.proof` is a real `bb 6.0.0-nightly`
  * proof over
  * the circuit's committed `Prover.toml`, accepted by native `bb verify` before it was ever brought
  * here, generated on the LOCALLY PATCHED nargo (`1.0.0-beta.26+quid-icefix1`) - stock beta.26 ICEs
@@ -43,7 +43,7 @@ contract RegisterIdentityLightID256HonkVerifierTest is Test {
   }
 
   function _proof() internal view returns (bytes memory) {
-    return vm.readFileBinary('test/fixtures/register_identity_light_td1.proof');
+    return vm.readFileBinary('test/identity/fixtures/register_identity_light_td1.proof');
   }
 
   function _publicInputs() internal pure returns (bytes32[] memory _inputs) {

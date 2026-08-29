@@ -46,8 +46,15 @@ contract PoseidonSMTRootValidityTest is Test {
 
   /// THE REGRESSION. At a low timestamp - a fresh chain, a devnet, or any un-warped test - an
   /// invented root must still be refused.
+  /// @dev The low timestamp is now CONSTRUCTED, not inherited. This read `assertLt(block.timestamp,
+  ///      1 hours)` against forge's un-warped default and that default is not a property of this
+  ///      contract: a toolchain whose default `block.timestamp` is the wall clock turns the
+  ///      PRECONDITION red and leaves the CLAIM below untested, which is the worse of the two
+  ///      failures. `vm.warp` states the condition the test name asserts; the `assertLt` stays and
+  ///      is not vacuous, because deleting the warp is what makes it fire.
   function test_AnUnknownRootIsInvalidEvenAtALowTimestamp() public {
-    assertLt(block.timestamp, 1 hours, 'precondition: the un-warped default is what exposed this');
+    vm.warp(1);
+    assertLt(block.timestamp, 1 hours, 'precondition: the warp above is what constructs this');
 
     assertFalse(smt.isRootValid(bytes32(uint256(0xBAD0))), 'an invented root was accepted');
     assertFalse(smt.isRootValid(bytes32(uint256(1))), 'an invented root was accepted');

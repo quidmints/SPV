@@ -47,9 +47,9 @@ contract RecursionTreeProofOnChainTest is Test {
   string internal fixture32;
 
   function setUp() public {
-    fixture = vm.readFile('test/fixtures/recursion_tree_n16.json');
+    fixture = vm.readFile('test/identity/fixtures/recursion_tree_n16.json');
     verifier = INoirVerifier(address(new TreeRoot16HonkVerifier()));
-    fixture32 = vm.readFile('test/fixtures/recursion_tree_n32.json');
+    fixture32 = vm.readFile('test/identity/fixtures/recursion_tree_n32.json');
     verifier32 = INoirVerifier(address(new TreeRoot32HonkVerifier()));
   }
 

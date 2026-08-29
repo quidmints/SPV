@@ -628,7 +628,7 @@ contract RegistrySourceAnchorTest is Test, CreReportMetadata {
     view
     returns (bytes32 registryId_, bytes32 root_, bytes32[] memory leaves_)
   {
-    string memory raw = vm.readFile('test/fixtures/sanctions_snapshot.txt');
+    string memory raw = vm.readFile('test/identity/fixtures/sanctions_snapshot.txt');
     string[] memory lines = vm.split(raw, '\n');
 
     uint256 count_;

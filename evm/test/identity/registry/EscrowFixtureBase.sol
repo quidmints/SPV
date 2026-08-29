@@ -100,7 +100,7 @@ abstract contract EscrowFixtureBase is Test {
       'EscrowFixtureBase: warp to FIXTURE_TIMESTAMP before binding, or the leaf values differ'
     );
 
-    string memory raw = vm.readFile('test/fixtures/escrow_documents.json');
+    string memory raw = vm.readFile('test/identity/fixtures/escrow_documents.json');
 
     uint256 count_ = 0;
     while (vm.keyExistsJson(raw, string.concat('.documents[', vm.toString(count_), ']'))) {

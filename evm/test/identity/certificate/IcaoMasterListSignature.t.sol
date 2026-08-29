@@ -39,7 +39,7 @@ contract IcaoMasterListSignatureTest is Test {
     string internal fixture;
 
     function setUp() public {
-        fixture = vm.readFile('test/fixtures/icao_master_list_signature.json');
+        fixture = vm.readFile('test/identity/fixtures/icao_master_list_signature.json');
 
         signer = new CRSASigner();
         signer.__CRSASigner_init(vm.parseJsonUint(fixture, '.signerExponent'), CRSASigner.HF.sha256);

@@ -141,7 +141,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
    * missing one: it deposits successfully and produces leaves nothing can reconstruct.
    */
   function _loadPrecommitments(uint256 scope_) internal {
-    if (!vm.isFile('test/fixtures/e2e_precommitments.json')) {
+    if (!vm.isFile('test/identity/fixtures/e2e_precommitments.json')) {
       // Placeholder deposits: enough to build a tree, not expected to reconstruct. REDUCED mod the
       // scalar field, because the pool rejects anything at or above it and a raw keccak clears that
       // bound about half the time - an unreduced placeholder fails as `InvalidPrecommitmentHash`,
@@ -149,7 +149,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
       for (uint256 i = 0; i < 4; i++) PRECOMMITMENTS[i] = uint256(keccak256(abi.encode('bootstrap', i))) % FIELD;
       return;
     }
-    string memory raw_ = vm.readFile('test/fixtures/e2e_precommitments.json');
+    string memory raw_ = vm.readFile('test/identity/fixtures/e2e_precommitments.json');
     if (uint256(vm.parseJsonBytes32(raw_, '.scope')) != scope_) {
       for (uint256 i = 0; i < 4; i++) PRECOMMITMENTS[i] = uint256(keccak256(abi.encode('bootstrap', i))) % FIELD;
       return; // generated for another pool; regenerate rather than silently mismatching
@@ -179,7 +179,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
   uint32 internal constant IDENTITY_TREE_DEPTH = 32;
 
   function _escrowProof(uint256 _i) internal view returns (bytes memory) {
-    return vm.readFileBinary(string.concat('test/fixtures/escrow_envelope', vm.toString(_i), '.proof'));
+    return vm.readFileBinary(string.concat('test/identity/fixtures/escrow_envelope', vm.toString(_i), '.proof'));
   }
 
   /// escrow_envelope's public-input layout. `holder_root` (2) and `dg1_hash` (4) are GONE since
@@ -194,7 +194,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
 
   function _escrowPublicInputs(uint256 _n) internal view returns (bytes32[] memory _inputs) {
     bytes memory _raw =
-      vm.readFileBinary(string.concat('test/fixtures/escrow_envelope', vm.toString(_n), '.public'));
+      vm.readFileBinary(string.concat('test/identity/fixtures/escrow_envelope', vm.toString(_n), '.public'));
     _inputs = new bytes32[](ESCROW_PUBLIC_INPUT_COUNT);
     for (uint256 _i = 0; _i < ESCROW_PUBLIC_INPUT_COUNT; _i++) {
       bytes32 _w;
@@ -206,7 +206,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
   }
 
   /* ────────────────────────────────────────────────────────────────────────────────────────────
-   * THE PROVED WITHDRAWAL'S PUBLIC SIGNALS (test/fixtures/withdraw_e2e.proof).
+   * THE PROVED WITHDRAWAL'S PUBLIC SIGNALS (test/identity/fixtures/withdraw_e2e.proof).
    *
    * READ FROM THE FIXTURE the generator wrote them into, not pinned. The old comment here claimed
    * pinning made a change "show up as a STALE FIXTURE rather than as an unexplained proof
@@ -244,9 +244,9 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
    * as `InvalidProof` against eight zeros, which names nothing.
    */
   function _loadE2ESignals() internal {
-    if (!vm.isFile('test/fixtures/withdraw_e2e_pubsignals.json')) return;
+    if (!vm.isFile('test/identity/fixtures/withdraw_e2e_pubsignals.json')) return;
     bytes32[] memory sig_ = vm.parseJsonBytes32Array(
-      vm.readFile('test/fixtures/withdraw_e2e_pubsignals.json'), '$'
+      vm.readFile('test/identity/fixtures/withdraw_e2e_pubsignals.json'), '$'
     );
     require(sig_.length == 8, 'e2e fixture does not carry eight public signals');
     E2E_NEW_COMMITMENT = uint256(sig_[0]);
@@ -458,7 +458,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
       json, 'context',
       uint256(keccak256(abi.encode(IPrivacyPool.Withdrawal({processooor: recipient, data: ''}), pool.SCOPE()))) % FIELD
     );
-    vm.writeJson(out, 'test/fixtures/e2e_params.json');
+    vm.writeJson(out, 'test/identity/fixtures/e2e_params.json');
   }
 
   function _e2eProof() internal view returns (ProofLib.WithdrawProof memory _p) {
@@ -467,7 +467,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
       'no withdraw_e2e_pubsignals.json - regenerate with tools/build-e2e-fixture.js (see '
       'test_EmitE2EFixtureParams for its arguments)'
     );
-    _p.proof = vm.readFileBinary('test/fixtures/withdraw_e2e.proof');
+    _p.proof = vm.readFileBinary('test/identity/fixtures/withdraw_e2e.proof');
     _p.pubSignals = [
       E2E_NEW_COMMITMENT,
       E2E_NULLIFIER_HASH,
@@ -690,8 +690,8 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
   /// Tolerates absence for the bootstrap reason given on `_loadE2ESignals`, and checks the scope for
   /// the reason given on `_loadPrecommitments`: a fixture built for another pool is worse than none.
   function _loadRagequitSignals(uint256 scope_) internal {
-    if (!vm.isFile('test/fixtures/ragequit_e2e_pubsignals.json')) return;
-    string memory raw_ = vm.readFile('test/fixtures/ragequit_e2e_pubsignals.json');
+    if (!vm.isFile('test/identity/fixtures/ragequit_e2e_pubsignals.json')) return;
+    string memory raw_ = vm.readFile('test/identity/fixtures/ragequit_e2e_pubsignals.json');
     if (uint256(vm.parseJsonBytes32(raw_, '.scope')) != scope_) return;
     RQ_COMMITMENT = uint256(vm.parseJsonBytes32(raw_, '.commitment'));
     RQ_NULLIFIER_HASH = uint256(vm.parseJsonBytes32(raw_, '.nullifierHash'));
@@ -706,7 +706,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
       'no ragequit_e2e_pubsignals.json for this SCOPE - regenerate with '
       'tools/regenerate-fixtures.sh e2e'
     );
-    _p.proof = vm.readFileBinary('test/fixtures/ragequit_e2e.proof');
+    _p.proof = vm.readFileBinary('test/identity/fixtures/ragequit_e2e.proof');
     _p.pubSignals = [RQ_COMMITMENT, RQ_NULLIFIER_HASH, RQ_VALUE, RQ_LABEL];
   }
 

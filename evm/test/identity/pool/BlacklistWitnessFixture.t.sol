@@ -52,13 +52,13 @@ contract BlacklistWitnessFixtureTest is Test {
     // batch and the standalone withdrawal fixtures need exclusion proofs for different keys, and
     // they must be proven against ONE root or they could never settle in the same pool.
     uint256[] memory listed = abi.decode(
-      vm.parseJson(vm.readFile(vm.envOr('BLACKLIST_LISTED', string('test/fixtures/blacklist_listed.json')))),
+      vm.parseJson(vm.readFile(vm.envOr('BLACKLIST_LISTED', string('test/identity/fixtures/blacklist_listed.json')))),
       (uint256[])
     );
     for (uint256 i = 0; i < listed.length; i++) _tree.add(bytes32(listed[i]), bytes32(uint256(1)));
 
     uint256[] memory queries = abi.decode(
-      vm.parseJson(vm.readFile(vm.envOr('BLACKLIST_QUERIES', string('test/fixtures/blacklist_queries.json')))),
+      vm.parseJson(vm.readFile(vm.envOr('BLACKLIST_QUERIES', string('test/identity/fixtures/blacklist_queries.json')))),
       (uint256[])
     );
 
@@ -90,6 +90,6 @@ contract BlacklistWitnessFixtureTest is Test {
     vm.serializeBytes32(json, 'oldValue', oldValue);
     vm.serializeBytes32(json, 'isOld0', isOld0);
     string memory out = vm.serializeBytes32(json, 'siblings', siblings);
-    vm.writeJson(out, vm.envOr('BLACKLIST_WITNESS', string('test/fixtures/blacklist_witness.json')));
+    vm.writeJson(out, vm.envOr('BLACKLIST_WITNESS', string('test/identity/fixtures/blacklist_witness.json')));
   }
 }

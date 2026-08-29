@@ -1,3 +1,130 @@
+## ▶️ **SESSION 2026-08-29 — THE IDENTITY MERGE WAS NEVER RUN IN THIS TREE, AND THAT IS WHERE THE WORK WAS**
+
+**Read this before the 2026-08-26 HANDOFF below, which is superseded on every number it states.**
+Three of its four blocking failures are green, its prescribed invocation cannot run, and its suite
+totals predate the identity fold by two days. Details in §HANDOFF-WAS-STALE at the end of this
+section.
+
+---
+
+## ✅ **§IDENTITY-FIXTURE-PATHS — THE MERGE MOVED THE FIXTURES AND LEFT EVERY READER POINTING AT THE OLD TREE** (2026-08-29, FIXED)
+
+The identity fold (`1624ee30`) put the sources under `evm/src/identity/`, the tests under
+`evm/test/identity/` and the fixtures under `evm/test/identity/fixtures/` — **and every reader still
+said `test/fixtures/…`, the pre-merge path.** `evm/test/fixtures/` does not exist and never did in
+this tree, so all 41 fixture files were present and TRACKED while the suite reported
+`vm.readFile: No such file or directory` on every one of them.
+
+⭐ **RECONCILED BEFORE TOUCHING ANYTHING, because "the data is missing" and "the path is wrong" are
+indistinguishable from a failure line.** The 30 distinct fixture paths named by the 19 `.sol` readers
+were extracted and diffed against the 41 files on disk: **every referenced fixture exists.** (The one
+apparent miss, `escrow_envelope`, is a concatenation PREFIX — the extraction regex cut at the
+`0`/`1`/`2` suffix the test appends.) So there was nothing to regenerate, and the whole cluster had
+to be one path.
+
+| measured, `forge test --match-path "test/identity/**"` | passed | failed | **total** |
+|---|---:|---:|---:|
+| before | 321 | 66 | **387** |
+| `test/fixtures/` → `test/identity/fixtures/` (48 refs, 19 files) | 457 | 15 | **472** |
+| + the manifest path (below) | 461 | 11 | 472 |
+| + `vm.warp(1)` (below) + §RSAPSS-MSB (below) | **463** | **9** | 472 |
+
+🔴 **READ THE `total` COLUMN, NOT THE `failed` ONE — IT MOVED 387 → 472.** A reverting `setUp` drops
+its whole suite from the count, so **85 tests were not merely failing, they were not being counted at
+all**, and any "66 failures" reading of the before-state understates it by more than it states. Same
+counting artefact CLAUDE.md already documents for RPC failures, arriving through a path bug instead.
+
+⛔ **THE SECOND HALF IS NOT A TEST — THE DEPLOY SCRIPT WAS BROKEN.**
+`evm/script/DeployPassportVerifiers.s.sol:44` and `PassportVerifierRegistry.t.sol:60` both read
+`"../circuits/passport-profiles.json"`, the pre-merge layout. The manifest is at
+`evm/noir/passport-profiles.json`. The test announced it; the script would have announced it at
+deploy time, to whoever was deploying.
+
+⛔ **THE DIRECTION OF THE FIX WAS A CHOICE, AND THE OTHER ONE IS WRONG.** Moving the 41 files up to
+`evm/test/fixtures/` would also have gone green — and would have put identity-specific proof blobs
+into the shared test root the merge deliberately kept them out of. **The readers were wrong, not the
+layout.**
+
+⚠️ **THE WRITERS ARE STILL WRONG, AND THEY ARE A THIRD ANSWER.** `evm/noir/codegen-verifiers.sh:436`
+writes to `${CONTRACTS_DIR}/../test/fixtures` with `CONTRACTS_DIR=evm/src/identity`, i.e.
+`evm/src/test/fixtures`; `tools/identity/regenerate-fixtures.sh` and `prove-escrow-fixtures.sh` write
+to `${ROOT}/backend/contracts/test/fixtures` with `ROOT=tools/`; the same three scripts read the
+manifest at `${ROOT}/backend/circuits/`. **Three components, three different opinions about where the
+fixtures live, and only the files themselves were right.** Booked, NOT fixed: regenerating needs
+`nargo`/`bb` (neither is installed here), so the round-trip cannot be VERIFIED in this tree — and an
+unverifiable path edit buys nothing but a second wrong answer.
+
+🔴 **AND ONE TEST WRITES INTO A TRACKED FIXTURE, SO EVERY SUITE RUN DIRTIES THE TREE.**
+`WithdrawEndToEnd.t.sol:461` does `vm.writeJson(out, 'test/identity/fixtures/e2e_params.json')`, and
+the run rewrote `context`/`label`/`scope`/`stateRoot` in place. The committed params are consistent
+with the committed `.proof` blobs; the rewrite BREAKS that pairing, and it lands as an unstaged
+modification the next `git add` sweeps up — **standing rule 14's landmine, produced by the test suite
+rather than by a person.** Reverted here, not committed.
+
+📌 **SAME SHAPE AS `a8fc5b9b`, ONE DAY LATER AND FROM THE OTHER SIDE.** That commit records *"A MOVE
+HAS TWO SIDES AND I ONLY DID ONE"* — it rewrote the imports POINTING AT the moved mocks and left the
+imports INSIDE them. This is the same defect one layer down, in the data: the files moved, the
+readers did not, and **nothing announced it** because these suites had never been run in this tree.
+
+### ⏸️ THE 9 THAT REMAIN ARE **ONE** CLASS, AND IT NEEDS A TOOLCHAIN THIS TREE DOES NOT HAVE
+`test_WithdrawWithRealProof` · `test_ReplayIsRejected` · `test_NoGovernanceLeverCanBlockAWithdrawal`
+(all `ContextMismatch()`) · `test_LogFixtureInputs` · `test_WalletMirrorsMatchTheChain` ·
+`test_RagequitWithRealProofThroughTheRealPool` · `test_RagequitCannotBeReplayed` ·
+`test_RagequitSurvivesWindDown` · `test_RagequitRejectsAnyoneButTheDepositor`.
+
+**The committed proofs were made against `stateRoot 17971378…`; this tree's pool builds
+`19759753…`, and the SCOPE moved with it** (`10850001886…` → `1085998696…`). ⇒ *"regenerate with
+`tools/identity/regenerate-fixtures.sh e2e`"*, which needs `nargo`+`bb`. **Neither is installed**, so
+this is blocked on a toolchain, not on a decision.
+⚠️ **`test_RagequitRejectsAnyoneButTheDepositor` LOOKS like a different class and is not.** Its
+message — *"call didn't revert at a lower depth than cheatcode call depth"* — is `forge` reporting
+that the `require` inside `_ragequitProof()` (`:704`, the SCOPE guard) fired INSIDE the
+`expectRevert` window. Same root, different messenger. **Do not triage it separately.**
+
+## 🔴🔴 **§RSAPSS-MSB — HALF OF ALL VALID CSCA SIGNATURES WERE REJECTED, AND THE MERGE IS WHY THE FIX WAS NOT HERE** (2026-08-29, FIXED)
+
+`RSASSAPSS._pss` (`evm/lib/solidity-lib/contracts/libs/crypto/RSASSAPSS.sol:116`) counted the
+modulus's leading zero bits off `n_[n_.length - 1]` — the **LAST** byte of a **big-endian** modulus.
+`sigBits_` therefore depended on a property the standard does not care about, and every modulus whose
+final byte is under `0x80` had its valid signatures refused. Fixed to `n_[0]`.
+
+🔴 **THIS IS THE ICAO CERTIFICATE ADMISSION PATH.** `Registration2.registerCertificate` admits a DSC
+into `certificatesSmt` — the tree `register_identity` proves membership in — only after
+`CRSAPSSSigner.verifyICAOSignature` accepts a CSCA's signature. So the defect refuses roughly half of
+all genuine passport-issuing authorities, chosen at random by the last byte of their key.
+
+⭐ **AND THE TEST THAT FOUND IT WAS ALREADY IN THE TREE, ALREADY GREEN SOMEWHERE ELSE, AND FAILING
+HERE.** `CRSAPSSSigner.t.sol`'s own docblock DESCRIBES this exact bug and says its committed vector
+was chosen because its modulus ends `0x41` — *"the half of the keyspace the bug used to break"*. The
+identity repo had the patched library; the fold reused **SPV's** vendored copy, which came in with
+the `0af7f6db` public snapshot and has never been touched since. `git log -S "n_[0]"` on that file
+returns **nothing**: the fix has never existed in this repository.
+⇒ **A DEPENDENCY PATCH IS PART OF A MERGE AND NOTHING TRACKS IT.** The tests moved, the sources
+moved, and the one-line fix living in the other repo's `lib/` did not — with no symbol to grep for,
+because the correct code is the ABSENCE of a wrong index.
+⚠️ **THE FAILURE IS SILENT AND KEY-DEPENDENT, WHICH IS WHY A SUITE CAN MISS IT:** four keys ending
+`0x85`/`0x99`/`0xeb`/`0xff` verify under the upstream form. **A test suite that happens to pick one of
+those reports the library as correct.** The patch is commented in place, at the line, as §RSAPSS-MSB —
+**re-vendoring `@solarity/solidity-lib` will silently delete it again.**
+✅ **CONTROLS RAN AND HOLD:** all 6 tests in the suite pass, including `test_RejectsATamperedSignature`,
+`test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
+so the fix is not "verify everything".
+
+## ✅ **§WARP-THE-PRECONDITION — a test whose PREMISE was a toolchain default, so a toolchain change made its CLAIM untested** (2026-08-29, FIXED)
+
+`PoseidonSMTRootValidity.t.sol:50` asserted `block.timestamp < 1 hours` with the message *"the
+un-warped default is what exposed this"* — reading `forge`'s default `block.timestamp`, which is now
+the wall clock. The precondition went red (`1788009539 >= 3600`) and **the claim underneath it — that
+an invented root is refused at a low timestamp — stopped being checked at all.**
+▶️ Fixed by `vm.warp(1)`: the condition the test's NAME asserts is now CONSTRUCTED rather than
+inherited. **The `assertLt` stays and is not vacuous** — deleting the warp is what makes it fire.
+⭐ **THE GENERAL FORM IS WORTH MORE THAN THE FIX: a premise borrowed from the harness is a premise
+you do not own.** This is §VACUOUS-BOUNDS' mirror image — there the assertion was satisfied by the
+defect; here the assertion was satisfied by the *toolchain*, and both leave the named property
+unmeasured.
+
+---
+
 ## ⛔ **§NATIVE-ETH-NEVER-REFUNDS — RETRACTED 2026-08-25. THE DIAGNOSIS WAS WRONG.**
 
 > ## ▶️ HANDOFF — READ THIS FIRST (2026-08-26). STATE IS CLEAN; HERE IS WHERE TO START.

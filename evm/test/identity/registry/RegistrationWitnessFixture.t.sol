@@ -60,6 +60,6 @@ contract RegistrationWitnessFixtureTest is EscrowFixtureBase {
     }
 
     string memory out = vm.serializeBytes32(json, 'root', smt.getRoot());
-    vm.writeJson(out, 'test/fixtures/registration_witness.json');
+    vm.writeJson(out, 'test/identity/fixtures/registration_witness.json');
   }
 }

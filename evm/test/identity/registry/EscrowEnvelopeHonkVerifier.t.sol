@@ -84,7 +84,7 @@ contract EscrowEnvelopeHonkVerifierTest is Test {
   /// means the proof and the emitter are compared to each other, which is the actual question.
   function _registrationRoot() internal view returns (uint256) {
     return uint256(
-      vm.parseJsonBytes32(vm.readFile('test/fixtures/registration_witness.json'), '.root')
+      vm.parseJsonBytes32(vm.readFile('test/identity/fixtures/registration_witness.json'), '.root')
     );
   }
 
@@ -97,11 +97,11 @@ contract EscrowEnvelopeHonkVerifierTest is Test {
   }
 
   function _proof() internal view returns (bytes memory) {
-    return vm.readFileBinary('test/fixtures/escrow_envelope.proof');
+    return vm.readFileBinary('test/identity/fixtures/escrow_envelope.proof');
   }
 
   function _publicInputs() internal view returns (bytes32[] memory _inputs) {
-    bytes memory _raw = vm.readFileBinary('test/fixtures/escrow_envelope.public');
+    bytes memory _raw = vm.readFileBinary('test/identity/fixtures/escrow_envelope.public');
     require(_raw.length == PUBLIC_INPUT_COUNT * 32, 'public-inputs fixture has the wrong length');
 
     _inputs = new bytes32[](PUBLIC_INPUT_COUNT);

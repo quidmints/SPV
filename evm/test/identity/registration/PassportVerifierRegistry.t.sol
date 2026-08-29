@@ -57,7 +57,7 @@ contract PassportVerifierRegistryTest is Test {
 
     address internal owner = address(this);
 
-    string internal constant MANIFEST = "../circuits/passport-profiles.json";
+    string internal constant MANIFEST = "noir/passport-profiles.json";
     string internal constant PREFIX = "Z_NOIR_PASSPORT_";
     string internal constant PROFILE = "1_160_3_3_576_200_NA";
 

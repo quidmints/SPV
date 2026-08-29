@@ -77,7 +77,7 @@ contract WithdrawalHonkVerifierTest is Test {
 
   function _loadSignals(string memory profile_) internal view returns (uint256[8] memory out_) {
     bytes32[] memory raw_ = vm.parseJsonBytes32Array(
-      vm.readFile('test/fixtures/withdraw_identity_pubsignals.json'), string.concat('.', profile_)
+      vm.readFile('test/identity/fixtures/withdraw_identity_pubsignals.json'), string.concat('.', profile_)
     );
     require(raw_.length == 8, 'fixture does not carry eight public signals');
     for (uint256 i = 0; i < 8; i++) out_[i] = uint256(raw_[i]);
@@ -112,7 +112,7 @@ contract WithdrawalHonkVerifierTest is Test {
   }
 
   function _withdrawProof() internal view returns (ProofLib.WithdrawProof memory _p) {
-    _p.proof = vm.readFileBinary('test/fixtures/withdraw_identity.proof');
+    _p.proof = vm.readFileBinary('test/identity/fixtures/withdraw_identity.proof');
     _p.pubSignals = [
       NEW_COMMITMENT,
       EXISTING_NULLIFIER_HASH,
@@ -264,7 +264,7 @@ contract WithdrawalHonkVerifierTest is Test {
   uint256 internal W_CONTEXT;
 
   function _walletProof() internal view returns (ProofLib.WithdrawProof memory _p) {
-    _p.proof = vm.readFileBinary('test/fixtures/withdraw_identity_wallet.proof');
+    _p.proof = vm.readFileBinary('test/identity/fixtures/withdraw_identity_wallet.proof');
     _p.pubSignals = [
       W_NEW_COMMITMENT,
       W_EXISTING_NULLIFIER_HASH,
@@ -320,7 +320,7 @@ contract WithdrawalHonkVerifierTest is Test {
   /// binding stops one being presented with the other's signals.
   function test_BaselineProofDoesNotVerifyWalletSignals() public {
     ProofLib.WithdrawProof memory _p = _walletProof();
-    _p.proof = vm.readFileBinary('test/fixtures/withdraw_identity.proof');
+    _p.proof = vm.readFileBinary('test/identity/fixtures/withdraw_identity.proof');
     _assertRejects(_p);
   }
 

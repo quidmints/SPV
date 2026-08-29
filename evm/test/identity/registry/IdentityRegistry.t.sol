@@ -78,7 +78,7 @@ contract IdentityRegistryTest is EscrowFixtureBase {
   }
 
   function _proofAt(uint256 _i) internal view returns (bytes memory) {
-    return vm.readFileBinary(string.concat('test/fixtures/escrow_envelope', vm.toString(_i), '.proof'));
+    return vm.readFileBinary(string.concat('test/identity/fixtures/escrow_envelope', vm.toString(_i), '.proof'));
   }
 
   function _publicInputs() internal view returns (bytes32[] memory) {
@@ -87,7 +87,7 @@ contract IdentityRegistryTest is EscrowFixtureBase {
 
   function _publicInputsAt(uint256 _n) internal view returns (bytes32[] memory _inputs) {
     bytes memory _raw =
-      vm.readFileBinary(string.concat('test/fixtures/escrow_envelope', vm.toString(_n), '.public'));
+      vm.readFileBinary(string.concat('test/identity/fixtures/escrow_envelope', vm.toString(_n), '.public'));
     _inputs = new bytes32[](PUBLIC_INPUT_COUNT);
     for (uint256 _i = 0; _i < PUBLIC_INPUT_COUNT; _i++) {
       bytes32 _w;
@@ -115,7 +115,7 @@ contract IdentityRegistryTest is EscrowFixtureBase {
   /// The document key of fixture entry `_i`, read from the same JSON the witness was built from.
   function _documentKeyAt(uint256 _i) internal view returns (bytes32) {
     return vm.parseJsonBytes32(
-      vm.readFile('test/fixtures/escrow_documents.json'),
+      vm.readFile('test/identity/fixtures/escrow_documents.json'),
       string.concat('.documents[', vm.toString(_i), '].documentKey')
     );
   }
@@ -124,7 +124,7 @@ contract IdentityRegistryTest is EscrowFixtureBase {
   /// sec. 2.18bi, because the keeper stores only `Poseidon(holderRoot)` and cannot hand it back.
   function _holderRootAt(uint256 _i) internal view returns (bytes32) {
     return vm.parseJsonBytes32(
-      vm.readFile('test/fixtures/escrow_documents.json'),
+      vm.readFile('test/identity/fixtures/escrow_documents.json'),
       string.concat('.documents[', vm.toString(_i), '].holderRoot')
     );
   }
@@ -198,7 +198,7 @@ contract IdentityRegistryTest is EscrowFixtureBase {
     vm.serializeBytes32(json, 'root', root);
     vm.serializeBytes32(json, 'commitments', commitments);
     string memory out = vm.serializeBytes32(json, 'siblings', siblings);
-    vm.writeJson(out, 'test/fixtures/identity_witness.json');
+    vm.writeJson(out, 'test/identity/fixtures/identity_witness.json');
   }
 
   // ── the happy path ──────────────────────────────────────────────────────────────────────

@@ -18,6 +18,6 @@ import {Vm} from 'forge-std/Vm.sol';
  */
 library BlacklistRootFixture {
   function read(Vm vm) internal view returns (uint256) {
-    return uint256(vm.parseJsonBytes32(vm.readFile('test/fixtures/blacklist_witness.json'), '.root'));
+    return uint256(vm.parseJsonBytes32(vm.readFile('test/identity/fixtures/blacklist_witness.json'), '.root'));
   }
 }
