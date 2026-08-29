@@ -18887,14 +18887,16 @@ any of this**; the fold took it to 110.
 
 ### §FROM-QUEUE-WORK — 150 rows, grouped into waves that can be run together (2026-08-29)
 
+📌 **CONSOLIDATED 2026-08-30: the row BODIES were duplicates of `§QUEUE-VERBATIM` and are gone; what follows is ids + the wave assignment.** Verified before removal: every one of the 275 row bodies and 138 section bodies resolves in the archive. **1,137 KB and 3,066 lines removed, zero content lost.**
+
 **THE SPINE IS A DEPENDENCY CHAIN, NOT A PRIORITY LIST.** `W1 → W2 → W3` and `W1,W2 → W4`
 are stated by the rows themselves, not inferred: routing is the precondition for leaving the
 pool, and leaving the pool is what removes the ring's price source, which is what σ², the
 skew and every fee are computed from. **W5 and the six parallel tracks share no code with
 that chain** and can be run by other threads at the same time.
 
-🔴 **THE REAL BLOCKER IS FOUR OWNER DECISIONS, NOT THE ROW COUNT** (`§E356`, and it is
-unchanged): **①** `§E352`'s flush branch — `skewWad`'s sentinel says *unmeasured ⇒ charge the
+🔴 **THE REAL BLOCKER IS OWNER DECISIONS, NOT THE ROW COUNT** (`§E356` — but it said FOUR and
+has been **THREE since 2026-08-26**: the fold renames landed, see `§HANDOFF-WAS-STALE`): **①** `§E352`'s flush branch — `skewWad`'s sentinel says *unmeasured ⇒ charge the
 ceiling*, `_maxWellSkew` says *unmeasured ⇒ charge nothing*, and branch ORDER picks the
 second, i.e. a free drain at σ²=0 (instrument already armed: `assertEq(flush, 0)`).
 **②** OOR skew — charge the **inventory** term without the **immediacy** term; same axis as
@@ -28421,7 +28423,7 @@ BTC-CHANNEL 25 · RANGE-COLLAPSE 18 · BASKET-MINT 18 · SKEW-FEE 17 · ROUTING 
 DEPLOY-OPS 4 · TEST-INFRA 4 · unsorted 12.
 
 
-### §FROM-QUEUE-SECTIONS-WORK — 95 sections stating something to build or decide
+### §FROM-QUEUE-SECTIONS-WORK — sections stating something to build or decide
 
 **138 sections — titles only; every body is in `§QUEUE-VERBATIM` below, verified present.**
 
