@@ -87,11 +87,11 @@
 Every item in this file was clustered by the code it touches and each cluster read against the tree.
 **Read this before the cluster sections; they are the evidence, this is the conclusion.**
 
-### 🔴 THE SIX DECISIONS — none needs more investigation, all need an owner
+### 🔴 THE DECISIONS — **one of the six is now resolved by measurement; five need an owner**
 
 | # | decision | why it is the gate | evidence |
 |---|---|---|---|
-| **1** | **At unmeasured variance, charge the base or the sentinel?** The base IS zero (`σ²·confFrac/8`), so "charge the base" means charge nothing on ETH. | Gates the **141-task** skew cluster — the largest in the file. One `if`, and the instrument is already armed. | `§CLUSTER-1-SKEW` |
+| ~~**1**~~ | 🟢 **RESOLVED BY MEASUREMENT 2026-08-29 — §E352 IS NOT A MONEY DEFECT.** The free cell needs `drainUsd6 == 0`, a swap that moves nothing, and the production call site passes the swap's own size. **No code change.** What remains is a policy question, not a leak — see `§E352-REACHABILITY` below. | ~~gates 141 tasks~~ — **the cluster is unblocked** | `SkewE352Reachability.t.sol` |
 | **2** | **What is the pool script?** The second output of the two-output ladder must require more than the hop alone. `SweepAuth`'s 2-of-3 fits. | Gates the pool-sats leak. Design settled; `_armDeadManExit` still verifies ONE output. | `§CLUSTER-2-BTC` |
 | **3** | **Is the Bitcoin freshness UTXO wanted at all?** | It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture. Not "unbuilt": unreachable. | `§CLUSTER-2-BTC` |
 | **4** | **C17 eMode on or off?** | `setUserEMode` has **0 occurrences**, so the Aave leg runs at BASE LTV and the "93% beats 94.5%" comparison describes a configuration never made. Turning it on re-prices every open position. | `§CLUSTER-5-6` |
@@ -27956,6 +27956,44 @@ closure; do count it as coverage.**
 `-j 8`, from a clean worktree if another thread is editing. Expect **1,014 total**; a handful of
 transport failures under `-j 8` is normal on a rate-limited key — **re-run the failures before
 reading them as defects, and classify on the message, not the count.**
+
+## 🟢 §E352-REACHABILITY — **THE "FREE DRAIN AT σ²=0" CANNOT BE CONSTRUCTED BY A SWAP THAT MOVES VALUE. MEASURED.** (2026-08-29)
+
+`§E352` gates the 141-task skew cluster and is booked as *"a free drain at σ²=0 … both routes change
+what users are charged"*. **Tested rather than decided. `evm/test/SkewE352Reachability.t.sol`, 4/4
+green:**
+
+| cell | charge | |
+|---|---|---|
+| flush · σ²=0 · **real drain** (10% of inventory), ETH | **> 0** | `_depletion` is σ²-FREE — `210 ppm × drain/inv0` — and it is what makes the branch order safe |
+| flush · σ²=0 · real drain, **BTC** | **≥ 0.2%** | plus the splice floor, which ETH does not have |
+| **scarce** · σ²=0 · real drain | **= 3e16** | the sentinel at `:1333` DOES fire where scarcity is real — `:1282` never intercepts it |
+| flush · σ²=0 · **drain == 0** | **0** | the pinned cell — **and the only free one** |
+
+### ⇒ WHY THAT CLOSES IT
+
+The free cell requires `drainUsd6 == 0`. **The production path cannot pass zero:** `SwapLib:444` is
+`wellSkew(c.core, r.px, r.amount)` — *"§E68: `r.amount` IS the 6-dec drain size"* — and
+`_fillableDrain` returns `wanted` **unchanged** when `sigmaSqWad == 0`, so in exactly the unmeasured
+case the full swap size arrives at `skewWad`. A swap that drains nothing moves no value and has
+nothing to adversely select.
+
+📌 **WHY BOTH EXISTING TESTS MISSED IT, WHICH IS THE REUSABLE PART.**
+`SkewUnmeasuredVariance` asserts `flush == 0` at σ²=0; `SkewLearningsAreLive` asserts `flush > 0` at
+σ²=SIGMA. **Both pass `drainUsd6 = 0`.** Between them they bracket σ² and say **nothing about drain** —
+so the suite appeared to cover the branch from both sides while the axis that decides it was fixed at
+one value in both. ⚠️ Same shape as the `flush < CEIL` bound that `§E352`'s own comment calls
+*"satisfied BY THE DEFECT"*: **two tests can agree on a wrong picture by sharing an unvaried input.**
+
+### 🟠 WHAT ACTUALLY REMAINS, AND IT IS SMALL
+
+Not *"stop the free drain"* — there is none — but: **should an unmeasured FLUSH swap owe only the
+inventory term (`_depletion`), or also an adverse-selection term?** The base is `σ²·confFrac/8`,
+which is zero when σ² is, so "charge the base" is not available as an answer at σ²=0; charging the
+3% sentinel on a NON-scarce range would price every quiet-tape flush swap at the ceiling, which
+`§E59`'s own bracketing test warns against. ⇒ **A policy question about a term that is already
+non-zero, not a leak.** ⛔ Do not "repair" `SkewUnmeasuredVariance`'s `assertEq(flush, 0)` — it
+correctly pins a synthetic cell, and the new suite is what covers the reachable ones.
 
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
