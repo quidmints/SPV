@@ -18,11 +18,13 @@
 > osaka` from the PINNED `openzeppelin-contracts` submodule. `foundryup`; CI has always said
 > `version: stable`. See CLAUDE.md's Build environment table.
 >
-> ### ✅ **STATE, MEASURED 2026-08-29 ON A CLEAN GATE**
+> ### ✅ **STATE, MEASURED 2026-08-29 ON A CLEAN GATE — THE SUITE IS GREEN**
 > ```
-> Ran 148 test suites in 824.38s: 1003 tests passed, 9 failed, 2 skipped (1014 total)
+> Ran 148 test suites in 829.83s: 1012 tests passed, 0 failed, 2 skipped (1014 total)
 > setUp failures 0        RPC/env noise 0        <-- both guards clean, so this is a NUMBER
 > ```
+> **Identity suites are 472/472 with AND without a fork** — see §FIXTURE-INHERITS-ITS-ENVIRONMENT
+> for why that sentence has to name both.
 > 🔴 **DO NOT COMPARE THIS TO `533 / 3` OR `480 / 39`. THE POPULATION CHANGED.** The identity fold
 > brought 59 suites and ~470 tests that no recorded run has ever included, and **they had never been
 > run in this tree at all** — the fold left every fixture reader pointing at the pre-merge path. See
@@ -30,13 +32,18 @@
 > **387** total`; after, `463 / 9 / **472**`. **The total is the number to read: 85 tests were not
 > failing, they were not being counted.**
 >
-> ### ▶️ ALL 9 FAILURES ARE ONE CLASS, AND IT IS A MISSING TOOLCHAIN
-> Every one is an identity proof fixture built against `stateRoot 17971378…` while this tree's pool
-> builds `19759753…` (the SCOPE moved with it). *"Regenerate with
-> `tools/identity/regenerate-fixtures.sh e2e`"* needs `nargo`+`bb`; **neither is installed.**
-> ⚠️ `test_RagequitRejectsAnyoneButTheDepositor` looks like a different class and is not — its
-> *"didn't revert at a lower depth"* is forge reporting that the SCOPE guard fired inside the
-> `expectRevert` window. **Do not triage it separately.**
+> ### ▶️ HOW TO REGENERATE THE IDENTITY FIXTURES, because it is not `regenerate-fixtures.sh` alone
+> ```
+> noirup --version 1.0.0-beta.26                     # stock is enough for these two circuits
+> npm i @aztec/bb.js@6.0.0-nightly.20260804          # bb is an npm package, not a PATH binary
+> tsc app/features/identity/pp/{notes,stateTree,withdrawWitness}.ts  -> a CommonJS tree with
+>   rootDir app/features/identity, allowImportingTsExtensions + rewriteRelativeImportExtensions,
+>   and node_modules ABOVE it holding ethers + @iden3/js-crypto + @zk-kit/lean-imt
+> QUID_WALLET_BUILD=<that dir> QUID_BB_BIN=<bb's .bin> tools/identity/regenerate-fixtures.sh e2e
+> ```
+> ✅ **THE CONTROL THAT SAYS IT WORKED: `git diff --stat evm/src/identity/generated/` MUST BE EMPTY.**
+> The run regenerates two Honk verifiers from the recompiled circuits; byte-identical output is what
+> proves the toolchain, and any diff there means a CONTRACT changed and needs its own decision.
 >
 > ### ✅ **ZERO MONEY-PATH FAILURES. THE FOUR ROWS THE OLD HANDOFF LISTED AS BLOCKING ARE GREEN:**
 > `testBtcLp_swapInAccruesTheBtcLegFee` ✅ · `testLeverage_LvrControlVsTreatment` ✅ ·
@@ -55,7 +62,8 @@
 > 1. **§SWAPOUT-DRAINS-THE-EXIT** (new, measured) — a swap-out is bounded by the pool's whole BTC
 >    inventory and nothing connects that to the dead-man exit the delivery must arm over the
 >    residual. Read its ❓ block before acting: the production multi-channel case is NOT traced.
-> 2. **The identity fixtures** — one `nargo`+`bb` install closes all 9 failures.
+> 2. ~~**The identity fixtures**~~ ✅ **CLOSED — 472/472. See §FIXTURE-PIPELINE-REPATHED and
+>    §FIXTURE-INHERITS-ITS-ENVIRONMENT; the recipe is above.**
 > 3. **The four owner decisions** (§E352 · OOR skew · C17 eMode · ~~the three fold renames~~ — **that
 >    fourth one was already answered and landed on 2026-08-26**; see §HANDOFF-WAS-STALE).
 > 4. **§V-R10 sUSDE** — its stated blocker is now settled by tracing; see §V-R10-BLOCKER-SETTLED.
