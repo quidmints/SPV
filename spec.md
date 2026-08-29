@@ -79,7 +79,7 @@ things are.
 | question | go to |
 |---|---|
 | How do I work in this tree? What is the build environment? | **`CLAUDE.md`** — standing rules, verification discipline, the trap notes, size and RPC facts |
-| What is the current status of X? | **`docs/actionable/SPRINT.md`** — the single actionable doc. Rows carried from the folded `QUEUE.md` are under `§QUEUE-FOLD`, and their status markers are history, not state |
+| What is the current status of X? | **`docs/actionable/SPRINT.md`** — the single actionable doc. Rows carried from the folded `QUEUE.md` are under `§FROM-QUEUE`, and their status markers are history, not state |
 | What is the ordered remainder for the next thread? | **`docs/actionable/SPRINT.md`** |
 | Why was X built this way? What is the evidence? | **`docs/actionable/SPRINT.md` `§BUILD-QUEUE-FOLD`** — the folded append-only archive. Its **evidence is authoritative, its status markers are not** |
 | What is QU!D, for a reader who is not in the code? | **`docs/FAQ.md`** — 2,323 lines, the outward-facing document. Parts 1 and 5 are the product; Part 6 is legal |

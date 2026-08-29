@@ -391,7 +391,7 @@ the signature of this, and nothing else produces it.
   ⇒ The hazard this note exists to prevent is unchanged and still real; only its coordinates rotted.
   **A trap-note that points at deleted symbols causes the exact misreading it was written to stop**,
   because the reader concludes the concern is obsolete rather than that the names moved.
-- **THE STATUS-MARKER COLUMN OF THE ROWS FOLDED INTO `SPRINT.md` `§QUEUE-FOLD` IS UNRELIABLE — PLAN FROM ROW BODIES.**
+- **THE STATUS-MARKER COLUMN OF THE ROWS FOLDED INTO `SPRINT.md` `§FROM-QUEUE` IS UNRELIABLE — PLAN FROM ROW BODIES.**
   `UNIT-A` still read 🔴🔴🔴 after it landed. Re-reading two rows overturned the plan twice running.
 - ⚠️ **`Core` CANNOT AFFORD A GETTER — 🔴 THIS IS NOW FALSE ON ITS FACE AND IS KEPT ONLY FOR THE HALF THAT SURVIVED.** Measured 2026-08-05: a two-address getter costs **91 bytes**, a
   `(bool,bool)→address` one **98** — more than the 76 freed by deleting dead state. **`Core` has had ~13 KB free since §V4-CUT (§E344; 13,911 at `9896c5be`, **13,272 at `7e32eb48`** after §E345's +639), so the byte argument no longer bites; the STATE-ORDER coupling below is what still does, and it was never about bytecode.** The dust monitor

@@ -18053,10 +18053,12 @@ work** and must not be counted as it. Re-sorted on that axis:
 
 | | rows | what it is |
 |---|---|---|
-| **§FROM-QUEUE-WORK** | 144 | states something to build, decide or measure. NOT verified open — see below |
-| **§FROM-QUEUE-KNOWLEDGE** | 77 | a correction, retraction or standing decision. Knowledge, not a task |
+| **§FROM-QUEUE-WORK** | 146 | states something to build, decide or measure. NOT verified open — see below |
+| **§FROM-QUEUE-KNOWLEDGE** | 78 | a correction, retraction or standing decision. Knowledge, not a task |
 | **§FROM-QUEUE-CHECK** | 19 | claims to be done. Each needs one closing check, then delete |
 | closed by verification | 4 | removed from this file — listed below with the evidence |
+
+(146 + 78 + 19 = 243 rows, + 4 closed = 247. Row counts exceed unique-id counts by the three duplicate ids named at the end of this section.)
 
 ⛔ **VERIFIED CLOSED AND DELETED FROM THIS DOCUMENT, so the check is not repeated:**
 - **`E219-hook-removal-order`** — its premise is *"`Core is SafeCallback` at HEAD"*. Every
@@ -18085,7 +18087,7 @@ a table cell as a name. Separately, this file already had **90 duplicated `§` a
 any of this**; the fold took it to 110.
 
 
-### §FROM-QUEUE-WORK — states something to build, decide or measure (144)
+### §FROM-QUEUE-WORK — states something to build, decide or measure (146)
 
 | row | body (verbatim from `QUEUE.md`) |
 |---|---|
@@ -18236,7 +18238,7 @@ any of this**; the fold took it to 110.
 | **§A.25** | `LevOracles.sol:19` (with §A.13); header itself reads *"CLASS **CLOSED** AT THE MORPHO ORACLES"* | ✅ DONE | **HIGH** |
 | **§E172-FOLLOW-UP: CONTINUOUS OR CHECK-INS? — TWO SIGNING DUTIES, DIFFERENT LATENCIES; and the failure mode is SERVICE, not funds** | ✅ analysed 2026-08-16 | The owner asked whether the LP's half is needed *continuously* or whether *check-ins* would do. **The code separates two duties that were being discussed as one, and they have opposite answers.** **(1) PER-HTLC COMMITMENT UPDATES — CONTINUOUS, AND CHECK-INS CANNOT SUBSTITUTE.** `rebalancer.rs:32-35`: *'the LP can forward a swap-in only up to `next_outbound_htlc_limit_msat`'* — an **OUTBOUND** HTLC from the vault side, so the vault is IN the payment path and every swap-in is a commitment update signed by the LP's key. **A payer does not wait for a check-in window: the HTLC either can be added now or the payment fails now.** No cadence short of always-on serves this. **(2) CONSENT AND EXIT-ARMING — CHECK-IN SHAPED, and this is exactly what the ladder was built for.** `OpenAuth` at open, and re-arming after a splice, are occasional and tolerate latency. ⇒ **A PHONE CAN DO (2) AND CANNOT DO (1).** That is the real content of §E172: not 'the ladder is wrong' but 'the ladder answers duty (2) while duty (1) went unanswered'. 🔑 **THE FAILURE MODE OF AN OFFLINE LP IS DEGRADED SERVICE, NOT LOSS — which makes check-ins VIABLE if that trade is accepted.** With the LP's node down, an HTLC simply cannot be added: **the swap-in fails to route through that LP, and nothing is at risk.** The LP's capital is idle rather than endangered. ⚠️ **ONE REAL EXCEPTION, and it is the operational constraint on any check-in model: IN-FLIGHT HTLCs.** A channel with pending HTLCs whose CLTV approaches expiry must be closed on-chain to resolve them, so an LP that goes offline mid-payment risks a FORCE-CLOSE at timeout, not merely a missed payment. **Check-in viability therefore depends on the LP being online long enough to drain in-flight HTLCs before leaving**, which is an availability requirement on the LEAVING, not on the whole interval. ⇒ **THE IRREDUCIBLE CHOICE, since signing requires the key:** **(a)** the LP runs a keyed process continuously (`quid-lp-daemon`) and swap-ins always route; **(b)** someone else holds the key — **that is §M1#2, the vulnerability itself, and no hosting arrangement escapes it**; **(c)** the LP is online only sometimes, swap-ins route only then, and the channel must quiesce (no in-flight HTLCs) before each departure. **(c) is a REAL option and was not on the table before, because the failure mode was being treated as unsafe when it is only unproductive.** ▶️ If (c), the missing piece is small and NOT the ladder: a way to stop accepting new HTLCs and wait for in-flight ones to clear before shutdown — an orderly-quiesce path, which LDK supports and this tree does not currently expose. |
 
-### §FROM-QUEUE-KNOWLEDGE — corrections, retractions, standing decisions (77)
+### §FROM-QUEUE-KNOWLEDGE — corrections, retractions, standing decisions (78)
 
 | row | body (verbatim from `QUEUE.md`) |
 |---|---|
@@ -23609,7 +23611,7 @@ The 4fbacebd sweep read the OLD transcript; several survivors are now MOOT again
 
 ## 📚 §DOCS-FOLD — **`docs/actionable/` IS ONE FILE. THE REMAINING FOURTEEN DOCS ARE FOLDED IN BELOW; THE LANE DOCS AND `wip/` ARE DELETED.** (2026-08-29)
 
-Owner's call: SPRINT is the only active doc. `QUEUE.md` (§QUEUE-FOLD) and
+Owner's call: SPRINT is the only active doc. `QUEUE.md` (§FROM-QUEUE) and
 `BUILD-QUEUE-AND-107.md` (§BUILD-QUEUE-FOLD) went first. This closes it.
 
 **FOURTEEN DOCS FOLDED WHOLE, each under its own `§DOCS-FOLD/<NAME>` heading.** They
