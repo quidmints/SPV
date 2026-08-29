@@ -1260,53 +1260,19 @@ contract Quid is Shares,
     ///         Permissionless — anyone may relay — so a refusing keeper is a LIVENESS problem,
     ///         curable by anyone, never a safety one. Body in `SwapLib` (linked, deployed once):
     ///         this contract is the tightest in the tree and can afford the CALL, not the CODE.
-    /// @notice 🔴🔴 **DISABLED 2026-08-29 — `fillIntent` HAS NO FUNDING LEG, AND THAT IS A DRAIN.**
-    ///         **MEASURED, not reasoned** (`test_TheFillHasNoFundingLeg_soItIsGated`): an address
-    ///         holding **0 ETH and 0 USDC** signed a buy at exactly the oracle price, a THIRD PARTY
-    ///         relayed it, and the address received **0.408134038270347149 ETH** — exactly $1,000
-    ///         at the 2,449.92 oracle — while still holding 0 USDC. `POOLED` fell by that ether and
-    ///         `POOLED_USD` rose by exactly 1,000.000000 that nobody supplied.
-    ///         ⭐ **THE CAUSE IS AN ABSENCE, WHICH IS WHY NO TEST CAUGHT IT:** `fillIntentBody`
-    ///         makes exactly three external calls — `getTWAPforAsset`, `POOLED()`, `POOLED_USD()`.
-    ///         It never pulls a token, never reads a balance, never burns a claim. Its docblock says
-    ///         *"Capital never moved to place this: it stayed in the basket or in-range … The fill
-    ///         RECLASSIFIES it"* — but nothing links `i.owner` to any capital, so there is nothing
-    ///         to reclassify and the settlement MINTS the USD leg instead (`_poolUsdInRange(mint)`).
-    ///         ⚠️ **THE OLD BOOK DID NOT HAVE THIS HOLE:** `outOfRange` pulled the funds at
-    ///         PLACEMENT via `QuidLib.sizeOutOfRange` → `AUX.deposit`, so the identical
-    ///         `settleOor` mint was the accounting counterpart of a real deposit. The intent
-    ///         inherited the settlement and dropped the deposit.
-    ///         ▶️ **WHAT THE FIX IS, AND WHY IT IS NOT GUESSED AT HERE.** The owner's own constraint
-    ///         names the funding source — *"until then your dollars are in the basket, or your ETH
-    ///         is in-range LP protected"* — so a BUY must spend the maker's BASKET claim (QU!D) and
-    ///         a SELL must spend their IN-RANGE LP claim. Which claim, at what valuation, and what
-    ///         happens when the maker holds too little are money-path decisions (rule 15), and
-    ///         `qdShareValue` is on the other side of them. **§INTENT-HAS-NO-FUNDING-LEG.**
-    ///         ⛔ **THE BODY IS KEPT, NOT DELETED** — this is the `create_sweep_tx` shape: maintained,
-    ///         tested code waiting on a capability that is not built. Rule 1 removes UNREACHABLE
-    ///         code, not a mechanism whose funding leg is an open decision. **Delete this line and
-    ///         the drain is live again**, which is what the gate's test exists to say.
     function fillIntent(SwapLib.OorIntent calldata i, bytes calldata sig)
         external nonReentrant returns (bool) {
         (int usdDelta, int volDelta) = SwapLib.fillIntentBody(
             intentUsed, i, sig, address(CORE), address(AUX), address(WETH), _oorDomain());
-        // ⛔ THE GATE SITS **HERE**, NOT AT THE TOP OF THE FUNCTION, AND THE PLACEMENT IS THE POINT.
-        //    Gating on entry was tried first and it reverted BEFORE `fillIntentBody`'s four checks —
-        //    expiry, the consumed bit, the signature and the oracle — so all six negative tests in
-        //    `OorFillsOnTouch.t.sol` started seeing `IntentHasNoFundingLeg` instead of the error
-        //    each asserts. **A gate that swallows the guards underneath it deletes their coverage**,
-        //    and the day the funding leg lands nobody would know whether those guards still worked.
-        //    Placed after the body, every check still fires in its own order and only the
-        //    SETTLEMENT is withheld. (`fillIntentBody` sets the consumed bit before returning; this
-        //    revert rolls the whole transaction back, so no nonce is burned.)
-        revert IntentHasNoFundingLeg();
+        // §INTENT-FUNDING-LEG — the gate that stood here is GONE because the hole it covered is
+        // closed: `fillIntentBody` now spends the maker's basket claim through `AUX.spendClaim`
+        // BEFORE deriving either leg, and `usdDelta` is what that burn realised rather than what
+        // was asked for. ⚠️ The SELL direction is still unbuilt and reverts inside the body
+        // (`IntentSellLegUnbuilt`) — its settlement shape is `_withdraw`'s, not `settleOor`'s.
         CORE.settleOor(i.owner, usdDelta, volDelta, i.loadBalance);
         emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
         return true;
     }
-
-    /// @notice §INTENT-HAS-NO-FUNDING-LEG — a fill would pay out value nobody supplied. See `fillIntent`.
-    error IntentHasNoFundingLeg();
 
     event IntentFilled(address indexed owner, uint64 indexed nonce, uint size, uint limitPx, bool buyVolatile);
 

@@ -425,6 +425,9 @@ interface IAux is ISwap {
     function illiquidLoss() external view returns (uint);
     function illiquidLossFlagging() external returns (uint);
     function flagIlliquidSelf(address vault, bool illiquid) external;
+    /// §INTENT-FUNDING-LEG — burn `owner`'s mature basket claim and report the 6-dec USD it
+    /// realised. Range-gated on Aux; the caller must already have verified `owner`'s signature.
+    function spendClaim(address owner, uint usd6) external returns (uint funded6);
     function _depositVol(address asset, address sender, uint amount) external payable returns (uint sent);
     function tipSelf(uint cut, address token, int sign) external;
     function bumpQuidBTC(uint amount) external;

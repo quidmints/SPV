@@ -159,28 +159,18 @@ contract OorIntentTest is AllesFixture {
     //  §INTENT-HAS-NO-FUNDING-LEG — THE GATE, AND THE MEASUREMENT THAT PUT IT THERE
     // ─────────────────────────────────────────────────────────────────────────────────────────
 
-    /// 🔴🔴 **THE FILL PAYS OUT VALUE NOBODY SUPPLIED, SO `fillIntent` IS GATED.**
-    ///
-    /// **THIS TEST IS THE TOMBSTONE FOR A MEASURED DRAIN, NOT A HYPOTHETICAL.** Before the gate,
-    /// with an oracle at **2,449.92**, this exact scenario ran to completion:
-    /// ```
-    ///   maker ETH  0                      ->  408134038270347149   (= $1,000.00 exactly)
-    ///   maker USDC 0                      ->  0                    (paid NOTHING)
-    ///   POOLED     49999999999999999998   ->  49591823406478578891 (real ether left)
-    ///   POOLED_USD 122495999999           ->  123495999999         (+1,000.000000, from nobody)
-    /// ```
-    /// A THIRD PARTY relayed it. The maker held nothing before and $1,000 of ether after.
-    ///
-    /// ⭐ **THE CAUSE IS AN ABSENCE, WHICH IS WHY THE OTHER SEVEN TESTS ABOVE ALL PASS.** Every one
-    ///    of them exercises a REFUSAL — expiry, signature, nonce, uncrossed oracle. Not one reaches
-    ///    a successful fill, so not one could observe that the successful path never charges anyone.
-    ///    **A suite of negative tests cannot see a missing positive.** That is the lesson worth more
-    ///    than the bug: the seven were written in the same session as this file and did not find it.
-    ///
-    /// ⚠️ **WHEN THE FUNDING LEG LANDS, THIS TEST MUST BE REWRITTEN, NOT DELETED.** It becomes the
-    ///    assertion that a fill DEBITS the maker by exactly what it credits them — which is the
-    ///    property whose absence is recorded above.
-    function test_TheFillHasNoFundingLeg_soItIsGated() public {
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    //  §INTENT-FUNDING-LEG — THE DEBIT, AND THE MEASUREMENT THAT PUT IT THERE
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    /// 🔴 **THE REGRESSION TEST FOR A MEASURED DRAIN.** Before the funding leg, with the oracle at
+    /// **2,449.92**, this exact scenario ran to completion and paid the maker
+    /// **408134038270347149 wei = $1,000.00 exactly**, while `POOLED` fell by that ether and
+    /// `POOLED_USD` rose by 1,000.000000 — from an address holding **no ether, no dollars and no
+    /// in-range LP position**. Nothing debited it, because nothing in the path ever looked.
+    /// ⇒ The maker now has NO basket claim, so the burn realises nothing and the fill refuses.
+    /// **`IntentUnfunded` is the assertion: the fill is bounded by the claim, not by the ask.**
+    function test_AFillWithNoClaimBehindItIsRefused() public {
         vm.deal(User01, 100 ether);
         vm.prank(User01);
         ETH.deposit{value: 50 ether}(0, User01);
@@ -188,27 +178,72 @@ contract OorIntentTest is AllesFixture {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         assertEq(maker.balance, 0, "premise: the maker holds no ether");
         assertEq(USDC.balanceOf(maker), 0, "premise: the maker holds no dollars");
-        // ⭐ **THE PREMISE THAT MAKES THIS A DEFECT RATHER THAN A RECLASSIFICATION.** The design's
-        //    claim is that an intent's capital "stayed in the basket or in-range" and the fill
-        //    merely RECLASSIFIES it — which is true and correct FOR A MAKER WHO HAS SUCH A
-        //    POSITION. This maker has none: no in-range LP depth, and (asserted above) no basket
-        //    stables either. **The contract never asks.** There is nothing to reclassify, and the
-        //    fill reclassifies it anyway.
         (uint makerPooled,,,) = ETH.autoManaged(maker);
         assertEq(makerPooled, 0, "premise: the maker is NOT an in-range LP");
+        assertEq(QUID.balanceOf(maker), 0, "premise: and holds no basket claim either");
 
-        // A BUY at exactly the oracle price: `px > limitPx` is false, so the order IS crossed and
-        // every other guard in `fillIntentBody` passes. Only the gate stands between this and the
-        // payout measured above.
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: true, size: 1_000 * 1e6, limitPx: px,
             expiry: uint64(block.timestamp + 1 days), nonce: 42, loadBalance: false });
 
         vm.prank(User02);                                   // a relayer, not the maker
-        vm.expectRevert(Quid.IntentHasNoFundingLeg.selector);
+        vm.expectRevert(SwapLib.IntentUnfunded.selector);
         ETH.fillIntent(i, _sign(i, MAKER_PK));
 
-        assertEq(maker.balance, 0, "the gate holds: no ether left the range");
+        assertEq(maker.balance, 0, "no ether left the range");
+    }
+
+    /// ⭐ **THE PROPERTY WHOSE ABSENCE WAS THE BUG: A FILL DEBITS THE MAKER BY WHAT IT CREDITS.**
+    /// A maker who DOES hold a basket claim is filled — and pays for it. This is the positive case
+    /// the original seven tests could not reach: every one of them exercised a REFUSAL, so none
+    /// could observe that the successful path charged nobody. **A suite of negative tests cannot see
+    /// a missing positive**, which is why this one is here and why it asserts a BALANCE rather than
+    /// a revert.
+    function test_AFundedFillDebitsTheMakersClaim() public {
+        vm.deal(User01, 100 ether);
+        vm.prank(User01);
+        ETH.deposit{value: 50 ether}(0, User01);
+
+        // ⚠️ **A USER CANNOT MINT MATURE QU!D, AND THE TEST HAS TO RESPECT THAT.**
+        //    `Basket._finishMint` clamps the requested month UP:
+        //    `month = max(min(when, nextMonth + maxFwd), nextMonth)`, so `when = 0` lands at
+        //    `currentMonth() + 1` and is IMMATURE by construction. `immatureBalanceOf` sums
+        //    cm+1..cm+13, and the fill (like redeem) spends MATURE only — so a freshly-minted
+        //    holder funds NOTHING. First version of this test asserted a fill against a
+        //    just-minted claim and got `IntentUnfunded`, which was the fixture being wrong and the
+        //    contract being right.
+        //    ⇒ Mint, then cross the maturity boundary. One month is enough: the batch sits at
+        //      `cm+1`, so once `currentMonth()` reaches it the balance leaves the immature window.
+        deal(address(USDC), maker, 5_000 * 1e6);
+        vm.startPrank(maker);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(maker, 5_000 * 1e6, address(USDC), 0);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 32 days);
+        assertEq(QUID.immatureBalanceOf(maker), 0, "premise: the claim has matured");
+
+        uint claimBefore = QUID.balanceOf(maker);
+        assertGt(claimBefore, 0, "premise: the maker has a basket claim to spend");
+        assertEq(maker.balance, 0, "premise: and no ether yet");
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        SwapLib.OorIntent memory i = SwapLib.OorIntent({
+            owner: maker, buyVolatile: true, size: 1_000 * 1e6, limitPx: px,
+            expiry: uint64(block.timestamp + 1 days), nonce: 43, loadBalance: false });
+
+        vm.prank(User02);                                   // still a relayer, not the maker
+        ETH.fillIntent(i, _sign(i, MAKER_PK));
+
+        uint claimAfter = QUID.balanceOf(maker);
+        assertLt(claimAfter, claimBefore, "THE FIX: the fill DEBITED the maker's claim");
+        assertGt(maker.balance, 0,        "and delivered the ether it was paid for");
+
+        // The two legs must be the same trade. The maker's claim fell by `spent` QU!D; at the
+        // signed limit that must buy the ether they received, to within the 6-dec truncation the
+        // credit takes on its way into `POOLED_USD` (`funded6 = burned·perShare/WAD / 1e12`).
+        uint spent = claimBefore - claimAfter;
+        assertApproxEqRel(maker.balance, spent * 1e18 / px, 1e15,
+            "debit and credit must be the same trade: ether received != claim spent at the limit");
     }
 
     /// ⚠️ **`loadBalance` IS INERT ON THIS RANGE, AND IT IS INSIDE THE SIGNED TYPEHASH.**

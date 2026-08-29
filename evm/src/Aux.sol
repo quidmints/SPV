@@ -935,6 +935,22 @@ contract Aux is // Auxiliary
     event BTCHopRequest(uint256 indexed requestId, bytes32 indexed recipient, uint256 amount);
     uint256 public btcHopRequestId;
 
+    /// @notice §INTENT-FUNDING-LEG — SPEND `owner`'s BASKET CLAIM WITHOUT PAYING THEM OUT.
+    ///         The debit a filled out-of-range intent was missing. `redeem` burns QU!D and hands the
+    ///         holder stables; this burns QU!D and hands the RANGE MANAGER the dollars it realised,
+    ///         which then credits its own USD leg. Same quote, same cap, same mature-only rule —
+    ///         `BasketLib.spendClaimBody` is `_settleRedeem` with the delivery half removed.
+    /// @dev    ⚠️ **GATED TO THE ETH RANGE, AND THAT IS THE WHOLE AUTHORISATION MODEL.** `owner` is a
+    ///         parameter, so an open version of this would let anyone burn anyone's QU!D. `Quid` may
+    ///         call it because it has just verified `owner`'s EIP-712 SIGNATURE over the intent that
+    ///         authorises the spend — the signature IS the consent, and this gate is what makes the
+    ///         signature the only way to reach the burn.
+    /// @return funded6 6-dec USD the burn actually realised — **capped at the claim, never the ask.**
+    function spendClaim(address owner, uint usd6) external nonReentrant returns (uint funded6) {
+        if (msg.sender != address(RANGE)) revert Unauthorized();
+        return BasketLib.spendClaimBody(owner, usd6, address(QUID));
+    }
+
     /// @notice Convert Basket tokens into dollars. Proceeds land at the
     /// caller's address.
     /// @param amount of tokens to redeem, 1e18

@@ -1177,15 +1177,46 @@ library SwapLib {
         if (i.buyVolatile ? px > i.limitPx : px < i.limitPx) revert IntentNotCrossed();
         used[i.owner][i.nonce] = true;
         if (i.buyVolatile) {
-            uint volOut = BasketLib.convert(i.size, i.limitPx, true);
+            // ⭐ **THE FUNDING LEG — AND ITS POSITION IS THE FIX.** Everything above VERIFIES; this
+            //    is the first line that MOVES anything, and it moves the maker's side FIRST. That is
+            //    the convention every other settlement in this tree follows and this one did not:
+            //    `SwapLib:205` `safeTransferFrom`s the swapper's stable before `Core.swap` records
+            //    it, and the deleted OOR book ran `AUX.deposit` before `CORE.outOfRange`.
+            //    §INTENT-HAS-NO-FUNDING-LEG measured what its absence cost: an address holding no
+            //    ether, no dollars and no LP position was paid $1,000 of real ether.
+            // ⚠️ **AFTER THE SIGNATURE, NECESSARILY.** `spendClaim` takes `owner` as a parameter and
+            //    burns their QU!D; the EIP-712 check above is the only thing that authorises it.
+            //    Move this earlier and it becomes the same defect wearing a debit.
+            // ⭐ **AND THE CREDIT IS DERIVED FROM THE DEBIT, NEVER FROM `i.size`.** `spendClaim`
+            //    CAPS at the maker's mature claim (redeem's rule — a short holder is served, not
+            //    refused), so `funded` is what the burn actually realised. Settling `i.size` would
+            //    reintroduce the unbalanced entry in a quieter form: the maker funds part and the
+            //    range credits all of it.
+            uint funded = IAux(aux).spendClaim(i.owner, i.size);
+            if (funded == 0) revert IntentUnfunded();
+            uint volOut = BasketLib.convert(funded, i.limitPx, true);
+            // `volOut > POOLED()` is now a floor rather than the mechanism: the fill is bounded by
+            // the maker's own claim, so it cannot ask the range for more than that claim funds
+            // (§INTENT-WHAT-IS-THE-PROBLEM).
             if (volOut == 0 || volOut > ICore(core).POOLED()) revert IntentUnfillable();
-            usdDelta = -int(i.size); volDelta = int(volOut);
+            usdDelta = -int(funded); volDelta = int(volOut);
         } else {
-            uint usdOut = BasketLib.convert(i.size, i.limitPx, false);
-            if (usdOut == 0 || usdOut > ICore(core).POOLED_USD()) revert IntentUnfillable();
-            usdDelta = int(usdOut); volDelta = -int(i.size);
+            // 🔴 **THE SELL LEG IS NOT MERELY UNFUNDED — ITS SETTLEMENT IS WRONG FOR AN LP MAKER,
+            //    WHICH IS WHY IT IS GATED RATHER THAN GIVEN THE SAME TREATMENT.** A sell spends the
+            //    maker's IN-RANGE ETH, and an in-range LP's ether is ALREADY in `POOLED`. The old
+            //    line here was `volDelta = -int(i.size)` ⇒ `POOLED += size`, i.e. the range GAINING
+            //    ether it already held. The debit is not a missing call here; the settlement shape
+            //    is `_withdraw`'s rather than `settleOor`'s, and it must cap at
+            //    `plainNet(pooled, levPooled)` — never `pooled` — because "a levered claim can never
+            //    pull deliverable ETH that backs unlevered LPs". See §INTENT-HAS-NO-FUNDING-LEG.
+            revert IntentSellLegUnbuilt();
         }
     }
+
+    /// @notice The maker's basket claim funded nothing — no mature QU!D, or a fully depegged basket.
+    error IntentUnfunded();
+    /// @notice The sell direction has no settlement yet. See the note at its branch.
+    error IntentSellLegUnbuilt();
 
     error IntentExpired();
     error IntentUsed();

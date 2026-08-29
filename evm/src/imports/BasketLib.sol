@@ -993,14 +993,63 @@ library BasketLib {
     ///          `committed` OVERLAP (range-committed USD shows as throttled maxWithdraw, counted in `il`), so
     ///          subtract the MAX not the sum; `committed` can exceed `il` when the range's USD leg > vault-missing.
     ///          BOTH ranges are excluded here; redeemAsBody unwinds ONLY the ETH range for the remainder.
+    /// @dev THE per-QU!D valuation, extracted so it has exactly ONE definition and TWO callers.
+    ///      `_redeemQuote` had it inline; `spendClaimBody` (§INTENT-FUNDING-LEG) needs the SAME
+    ///      number, and its own comment is why this is an extraction and not a second copy:
+    ///      **"ONE valuation for redeem AND swap (no swap↔redeem arb)"**. An intent fill is a THIRD
+    ///      path against the same basket, so a second computation of this — however faithful on the
+    ///      day it is written — IS the arbitrage the line exists to forbid.
+    ///      Returns `solvent` too: `_redeemQuote`'s `freeUsd` tail needs the SAME haircut figure,
+    ///      and recomputing it there would be a second reading of one quantity.
+    function _perShare(address quid, uint raw, uint rateWeighted, uint depegLossIn)
+        private returns (uint perShare, uint solvent) {
+        (solvent,) = IAux(address(this)).get_metricsWith(raw, rateWeighted);
+        solvent = solvent > depegLossIn ? solvent - depegLossIn : 0;
+        // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
+        perShare = BasketLib.qdShareValue(WAD, solvent, IBasket(quid).matureSupply());
+    }
+
+    /// @notice §INTENT-FUNDING-LEG — SPEND `owner`'s BASKET CLAIM AND REPORT WHAT IT ACTUALLY FUNDED.
+    /// @dev    The debit half of `_settleRedeem`, with the delivery half removed: a redeem burns
+    ///         QU!D and PAYS OUT stables; an intent fill burns QU!D and the caller credits the RANGE
+    ///         instead. Everything before the payout is identical and is reused rather than restated.
+    ///         ⭐ **BURN FOLLOWS DELIVERY — INVERTED.** `_settleRedeem`'s rule is *"burn is derived
+    ///         FROM actual delivery, never assumed ahead of it"*; here the CREDIT is derived from
+    ///         the actual BURN. `turn` burns MATURE QU!D only and returns how much it really took,
+    ///         so `funded6` is what the claim genuinely paid — never the caller's ask.
+    ///         ⚠️ **CAPPED, NOT REVERTED, and that is redeem's rule too:** a holder short of their
+    ///         ask is served `min(ask, mature)`, never refused. A caller asking for more than the
+    ///         claim funds gets less back and must settle THAT number.
+    /// @param  owner   whose basket claim is spent.
+    /// @param  usd6    the ask, 6-dec USD (the unit `POOLED_USD` and an intent's `size` are in).
+    /// @return funded6 6-dec USD actually realised by the burn. **Settle this, not the ask.**
+    function spendClaimBody(address owner, uint usd6, address quid)
+        external returns (uint funded6) {
+        if (usd6 == 0) return 0;
+        (uint[15] memory amts, uint[15] memory yW,, uint depegLossOut) =
+            IAux(address(this)).get_deposits();
+        (uint perShare,) = _perShare(quid, amts[14], yW[0], depegLossOut);
+        if (perShare == 0) return 0;                       // fully depegged → the claim funds nothing
+        // MATURE ONLY. Immature/forward QU!D is not a redeemable claim and is not a fundable one
+        // either — same rule, same reason, same two calls `_settleRedeem` makes.
+        uint mature = IERC20(quid).balanceOf(owner);
+        { uint imm = IBasket(quid).immatureBalanceOf(owner); mature = mature > imm ? mature - imm : 0; }
+        // ⚠️ DECIMALS: `perShare` is 18-dec USD per 1e18 QU!D, so `mature · perShare / WAD` is
+        //    18-dec USD; the ask arrives 6-dec. Lift the ask rather than truncating the claim —
+        //    truncating first would silently under-fund by up to 1e12 wei of value.
+        uint wantUsd18 = usd6 * 1e12;
+        uint claimUsd18 = SoladyMath.fullMulDiv(mature, perShare, WAD);
+        if (claimUsd18 < wantUsd18) wantUsd18 = claimUsd18;
+        if (wantUsd18 == 0) return 0;
+        (uint burned,) = IBasket(quid).turn(owner, SoladyMath.fullMulDiv(wantUsd18, WAD, perShare));
+        // `burned` is what `turn` ACTUALLY took (mature-only, ≤ ask), so this is the realised value.
+        funded6 = SoladyMath.fullMulDiv(burned, perShare, WAD) / 1e12;
+    }
+
     function _redeemQuote(RedeemArgs memory r, uint raw, uint rateWeighted, uint depegLossIn)
         private returns (uint perShare, uint freeUsd) {
-        (uint solvent,) = IAux(address(this)).get_metricsWith(raw, rateWeighted);
-        solvent = solvent > depegLossIn ? solvent - depegLossIn : 0;
-        uint mature = IBasket(r.quid).matureSupply();
-        // ONE valuation for redeem AND swap (no swap↔redeem arb): per-share = qdShareValue of a single share.
-        // Byte-equivalent to the old `min(WAD, solvent·WAD/mature)` incl. the mature==0→WAD guard. #U1.
-        perShare = BasketLib.qdShareValue(WAD, solvent, mature);
+        uint solvent;
+        (perShare, solvent) = _perShare(r.quid, raw, rateWeighted, depegLossIn);
         (uint il, address worst, uint worstBps) = _illiquidLoss();
         // DETECTION ONLY — never evacuation. A user's redeem must not trigger a multi-vault drain,
         // so this starts the EVAC_DWELL clock and leaves the fund-moving step to the existing
