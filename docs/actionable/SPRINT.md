@@ -94,7 +94,62 @@ knowledge, retractions, sub-headings and closed rows never re-marked.
 
 ---
 
-### ₿ §BTC-SECURITY-STATUS — **THE KEYSTONE CONTRADICTION IS RESOLVED IN CODE, WHICH UNBLOCKS THREE UNRATED AUDITS** (2026-08-30)
+### 🔐 §LP-SEED-HAS-A-REFERENCE-IMPLEMENTATION — **PHASE 1(c) IS SPECIFIED BY `§E188` AND ALREADY BUILT, IN THIS REPO, BY IBIZA** (2026-08-30)
+
+`§PHASE-ORDER`'s keystone (`§M1#2`) has one leg left: **(c) LP seed provisioning**, booked as an
+owner decision (`§LP-SEED-ENTROPY`). `§E188-lp-funding-half` already specified what it should be:
+
+> *"a hardened-path secp256k1 key off the LP's **OWN BIP-39 seed**, held by the app. **Trustless** —
+> nobody else can produce it, and the §E175 split means the fleet structurally cannot. **Faultless** —
+> a lost phone **restores from words the LP already backs up**, adding no new loss mode beyond the one
+> every Bitcoin user already manages."*
+
+⭐ **THAT EXACT CONSTRUCTION IS RUNNING IN `app/features/identity`, MERGED FROM IBIZA.** It is not a
+design to write; it is a pattern to point a second derivation path at.
+
+| what `§E188` asks for | where it already is |
+|---|---|
+| a BIP-39 seed the app holds | `root.ts:92` — `Mnemonic.fromEntropy(hexlify(drawSeedEntropy())).phrase`, **24 words** |
+| enclave-held, non-exportable | `SECURE_ITEM_OPTIONS` = `keychainAccessible: WHEN_UNLOCKED_THIS_DEVICE_ONLY` **+ `requireAuthentication: true`** (`:60-62`) — Android `setUserAuthenticationRequired`, iOS biometric ACL |
+| refuses an insecure device | `:78` — `if (!SecureStore.canUseBiometricAuthentication()) throw new InsecureDeviceError()`. **Fails closed**, and the header says so: *"we check availability explicitly and fail closed rather than…"* |
+| restorable from words | a standard 24-word phrase — the LP's existing backup habit, no new loss mode |
+| hardened derivation | `IDENTITY_PATH = "m/44'/60'/100'/0/0"`, `HDNodeWallet.fromPhrase(mnemonic, "", PATH)` (`:44`, `:145`) — **a second path is one constant** |
+| entropy that cannot silently weaken | `drawSeedEntropy` mixes sources, rejects degenerate output, and **throws rather than falling back** — 14/14 tests green |
+
+### ⭐ THE UX PROBLEM `§E188` DID NOT NAME, AND IBIZA ALREADY SOLVED
+
+`root.ts:21-24`: *"`requireAuthentication: true` alone would prompt on EVERY operation — unshippable
+UX. Correct pattern: authenticate once via SecureStore, cache the unlocked mnemonic in memory for the
+app's session, and only hit SecureStore (re-prompting) again after `lockWallet()`."*
+
+⇒ **This matters more for the LP than for identity.** A forwarding channel needs the LP signature on
+**every commitment update** (`§E172`), so a per-signature biometric prompt is not merely poor UX — it
+makes the channel unusable. **The session-cache pattern is the thing that makes an app-held funding
+half compatible with `§E172`'s finding at all.**
+
+### ▶️ WHAT THIS LEAVES FOR THE OWNER DECISION
+
+Not *"how do we store an LP seed"* — that is answered and running. The remaining choices are narrow:
+
+1. **One seed or two?** Derive the Bitcoin funding half from the SAME enclave mnemonic under a
+   different hardened path, or provision a separate seed. One seed means one backup and one
+   biometric; it also means one compromise reaches both identity and funds.
+2. **The path constant** — `§E188` says hardened secp256k1; `m/44'/60'/…` is the EVM path, so the
+   BTC leg wants its own (e.g. `m/86'/0'/…` for taproot).
+3. **Session-cache lifetime for a signing daemon** — identity caches until `lockWallet()`. A channel
+   that signs continuously needs a policy stated deliberately, not inherited.
+
+⛔ **AND THE CONSTRAINT `§E188` ALREADY SETTLED, so it is not re-opened:** do **not** derive the key
+from an EVM signature (`k = keccak(sig)`) — *"ECDSA is deterministic under RFC-6979, so one phished
+signature on that message hands over the Bitcoin funding key forever"* — and do **not** reuse
+`btcRecipientOf`, which *"converts a degraded-service event into fund loss"*.
+
+📌 **Cross-check before building:** `§E171-lp-custody-design` says **do not require MuSig2 from the
+LP** (Ledger-only, two-round nonce exchange) and prefers a **taproot SCRIPT PATH** leg needing only a
+plain BIP-340 signature. An app holding its own seed can produce either — but that choice belongs
+with the path constant above, decided once.
+
+## ₿ §BTC-SECURITY-STATUS — **THE KEYSTONE CONTRADICTION IS RESOLVED IN CODE, WHICH UNBLOCKS THREE UNRATED AUDITS** (2026-08-30)
 
 Owner, 2026-08-30: concern that Bitcoin security work — *"incl funding half"* — from an earlier sprint
 under a different account is not done. **Checked against the tree, phase by phase, using
