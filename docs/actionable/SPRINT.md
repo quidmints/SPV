@@ -27414,6 +27414,63 @@ comment reads *"a node without fleet wallet duties **still runs the heartbeat**"
 `Option` + "heartbeat" surfaces the `hop_wallet` comment first and it says the opposite of the gate
 twelve lines below it. **Read the `let Some(…) else` bindings, not the parameter comments.**
 
+## 🔍 §CLUSTER-3-RANGE — **116 TASKS. `main` IS NOT RED, AND THE PRESCRIBED TEST COMMAND IS DEAD.** (2026-08-29)
+
+Sub-themes of the 116: POOLED accounting 80 · size/bytes 47 · v4-hook removal 43 · merge/§J.2 35 ·
+quote/fill 30 · repack/reseat 26.
+
+### 🔴🔴🔴 THE TWO "MAIN IS RED" ROWS ARE STALE — RE-MEASURED TODAY
+
+`§MAIN-IS-RED-POOLED-USD` (*"🔴🔴🔴 BLOCKING — not mine, control-confirmed, and nobody has said it out
+loud"*) and `§MAIN-IS-RED-RECHECKED` both date to **2026-08-16**. Ran the suite this file prescribes:
+
+```
+FORK_BLOCK=25833279 ETH_RPC_URL=https://ethereum-rpc.publicnode.com forge test -j 8
+→ 627 tests passed, 57 failed, 684 total
+→ 114 [FAIL] lines. 114 of them are RPC 403. GENUINE FAILURES: 0.
+```
+
+**Every single failure is `vm.selectFork` returning HTTP 403:** *"Archive requests require a personal
+token. Get one at allnodes.com/publicnode"*. Not one is a contract defect.
+
+⇒ **On everything that can run, `main` is green.** The v4-cut regression those rows describe does not
+reproduce. ⚠️ Stated precisely, because 57 fork tests never executed: this is *"zero genuine failures
+among 627 runnable tests"*, **not** *"the fork suite is green"* — the fork suite could not be
+measured at all. Both rows should be re-verified against a working archive endpoint before being
+closed, but neither can stand as BLOCKING on a 13-day-old number that no longer reproduces.
+
+### ⛔ AND THE COMMAND THIS FILE TELLS EVERY THREAD TO RUN IS NOW DEAD — THE THIRD ENDPOINT TO DIE
+
+The handoff banner replaced the two dead ANKR keys with publicnode and called it *"BETTER THAN THE
+ARCHIVE KEY WAS"*. **publicnode has since started refusing archive requests**, which is what
+`FORK_BLOCK=25833279` — a pinned historical block — requires by construction. So the documented
+replacement fails the same way its predecessor did, for the same reason.
+
+📌 **AND THE EXPECTED TOTAL IS ALSO STALE:** the banner says *"Expect exactly `480 passed / 39 failed
+/ 519 total`… any other total means the run is contaminated."* Today's total is **684**, because the
+suite grew by 13 days of commits and the identity fold. **A thread following that instruction today
+reads 684 ≠ 519, concludes "contaminated", and stops — when the only contamination is the endpoint.**
+⇒ Replace the banner with an endpoint that serves archive, and re-derive the expected total; do not
+quote 480/39/519 again.
+
+### ✅ THE v4 / HOOK REMOVAL IS DONE — 43 ITEMS' PREMISE IS GONE
+
+Verified in the tree: `SafeCallback` **0** references, `SOR.sol` deleted, `BtcLib` has **0**
+`tickLower`/`tickUpper`, `Core.sol:43` is a plain `contract Core {`, and every surviving
+`poolManager` / `getSlot0` string is a past-tense comment (`:935` — *"THIS WAS THE LAST
+`poolManager.unlock`"*). ⛔ **But apply this morning's rule before closing any of the 43: the
+CONCERN, not the vocabulary.** `§E219` is the worked example — its opening sentence is false and its
+remainder (the merge) is live.
+
+### 🔴 THE POOLED-ACCOUNTING GROUP (80) IS THE REAL REMAINDER, AND IT IS CURRENTLY UNMEASURABLE
+
+`§POOLED-USD-ROOT-CORRECTED` is marked *"OPEN — correct root, and it is a REAL finding rather than a
+refactor slip"*, and it retracts the mechanism claimed in two rows below it plus
+`§V4-REMOVAL-POOLED-STATE`. Conservation-of-backing claims of this kind are exactly what the **fork**
+suite exercises — the half that could not run today. ⇒ **This group is blocked on the endpoint, not
+on analysis.** Fixing the RPC is therefore not housekeeping: it is the precondition for reading the
+largest sub-theme in this cluster.
+
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
 First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
