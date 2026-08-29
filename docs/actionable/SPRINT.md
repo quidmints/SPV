@@ -82,54 +82,68 @@
 
 
 
-## 🧾 §WHAT-IS-LEFT — **ALL SIX CLUSTERS READ AGAINST CODE. THE BACKLOG IS SIX DECISIONS AND ONE ERRAND.** (2026-08-29)
+## 🧾 §ORDER — **THE WHOLE BACKLOG, SEQUENCED. READ THIS AND THE HANDOFF; EVERYTHING ELSE IS EVIDENCE.** (2026-08-29)
 
-Every item in this file was clustered by the code it touches and each cluster read against the tree.
-**Read this before the cluster sections; they are the evidence, this is the conclusion.**
+Every item in this file was clustered by the code it touches and all six clusters were read against
+the tree. **This section is the order of work. The `§CLUSTER-*` sections are why.**
 
-### 🔴 THE DECISIONS — **one of the six is now resolved by measurement; five need an owner**
+⚠️ **TWO THREADS WORKED THIS FILE TODAY AND BOTH SETS OF FINDINGS ARE BELOW.** An earlier version of
+this section listed only the six decisions from the cluster reads and **omitted the other thread's
+three ship-blockers, one of which is a measured loss of funds.** A backlog summary that a reader
+trusts must be complete or it is worse than none.
 
-| # | decision | why it is the gate | evidence |
+---
+
+### 🚨 TIER 0 — SHIP-BLOCKERS. Measured today, money or proof. Nothing below matters until these are decided.
+
+| | item | state |
+|---|---|---|
+| **0.1** | 🔴🔴🔴 **`§INTENT-HAS-NO-FUNDING-LEG`** — the ETH intent fill **pays out value nobody supplied**: a maker holding nothing was paid **$1,000 of real ether**, `POOLED` fell, `POOLED_USD` rose "from nobody". `fillIntentBody` makes three external calls and **never pulls a token, reads a balance, or burns a claim.** | **MEASURED, GATED, NOT FIXED.** The fix is an owner decision |
+| **0.2** | 🔴🔴🔴 **`§OOR-TWO-DESIGNS-LIVE`** — the intent redesign is in `HEAD` **running beside the book it was meant to replace** | two designs live at once |
+| **0.3** | 🔴🔴 **`§RSAPSS-MSB`** — **half of all valid CSCA signatures were rejected**, and the merge is why the fix was not carried | identity proof path |
+
+⇒ **0.1 and 0.2 are the same rail and should be decided together.** Do not start cluster work while a
+fill can mint value.
+
+### 🔴 TIER 1 — THE DECISIONS THAT UNBLOCK CLUSTERS. None needs more investigation.
+
+| | decision | unblocks | evidence |
 |---|---|---|---|
-| ~~**1**~~ | 🟢 **RESOLVED BY MEASUREMENT 2026-08-29 — §E352 IS NOT A MONEY DEFECT.** The free cell needs `drainUsd6 == 0`, a swap that moves nothing, and the production call site passes the swap's own size. **No code change.** What remains is a policy question, not a leak — see `§E352-REACHABILITY` below. | ~~gates 141 tasks~~ — **the cluster is unblocked** | `SkewE352Reachability.t.sol` |
-| **2** | **What is the pool script?** The second output of the two-output ladder must require more than the hop alone. `SweepAuth`'s 2-of-3 fits. | Gates the pool-sats leak. Design settled; `_armDeadManExit` still verifies ONE output. | `§CLUSTER-2-BTC` |
-| **3** | **Is the Bitcoin freshness UTXO wanted at all?** | It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture. Not "unbuilt": unreachable. | `§CLUSTER-2-BTC` |
-| **4** | **C17 eMode on or off?** | `setUserEMode` has **0 occurrences**, so the Aave leg runs at BASE LTV and the "93% beats 94.5%" comparison describes a configuration never made. Turning it on re-prices every open position. | `§CLUSTER-5-6` |
-| **5** | **§BTC-LEG-FEE — the v4 trading-fee leg.** | Its test passes ONLY because `b7112c4f` inverted `assertGt`→`assertEq` with *"restore assertGt when the decision lands"*. Coverage, not closure. | `§SUITE-2026-08-29-INFURA` |
-| **6** | **The fold's shape: 7540 face, or `Core`+`Quid` merge?** | The merge target predates the 7540 correction, and folding a whole contract is MEASURED to COST bytes (`VEth`→`Quid` = −1,077) while folding bodies gives them back. | `§FOLD-REDESIGN` |
+| **1.1** | **What is the pool script?** The two-output ladder's second output must require more than the hop alone; `SweepAuth`'s 2-of-3 fits | the pool-sats leak; part of the 143-item BTC cluster | `§CLUSTER-2-BTC` |
+| **1.2** | **Is the Bitcoin freshness UTXO wanted at all?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture | §T3 / phase 3, ~24 items | `§CLUSTER-2-BTC` |
+| **1.3** | **The fold's shape — 7540 face, or `Core`+`Quid` merge?** The merge target predates the 7540 correction, and folding a whole contract is **measured to COST bytes** (`VEth`→`Quid` = −1,077) while folding bodies gives them back | the 116-item RANGE cluster | `§FOLD-REDESIGN` |
+| **1.4** | **C17 eMode on or off?** `setUserEMode` has **0 occurrences** — the Aave leg runs at BASE LTV, so "93% beats 94.5%" describes a configuration never made. Turning it on re-prices every open position | the 30-item LEVERAGE cluster | `§CLUSTER-5-6` |
+| **1.5** | **`§BTC-LEG-FEE` — the v4 trading-fee leg** | its test passes only because `b7112c4f` inverted `assertGt`→`assertEq` pending this | `§SUITE-2026-08-29-INFURA` |
+| **1.6** | **`§E294` — delete `pushObservation`, or wire it?** It has 0 production callers, but the ring is fed by the anchor anyway. Deleting removes the ±50 bps inflation vector | ORACLE cluster | `§CLUSTER-4-ORACLE` |
 
-### ✅ THE ERRAND — one piece of work with no decision in front of it
+### ✅ TIER 2 — WORK WITH NO DECISION IN FRONT OF IT
 
-**Derive `UNKNOWN_VARIANCE_SKEW`.** `SwapLib.sol:762` is a bare `3e16` and the row says it was kept
-*"BY INHERITANCE, NOT BY DERIVATION"* when `§E275` deleted `MAX_WELL_SKEW` as unjustifiable. **The
-constant was renamed, not justified.** This is separable from decision 1: whatever the sentinel does,
-its value needs a derivation. ⚠️ It is a risk-appetite number, so the derivation needs owner input
-even though the work does not.
+- **Derive `UNKNOWN_VARIANCE_SKEW`.** `SwapLib.sol:762` is a bare `3e16`, kept *"BY INHERITANCE, NOT
+  BY DERIVATION"* when `§E275` deleted `MAX_WELL_SKEW` as unjustifiable. **Renamed, not justified.**
+  ⚠️ Needs owner risk input to *land*, but the derivation can be done now.
+- **`§SWAPOUT-DRAINS-THE-EXIT`** 🔴 and **`§BTC-DELIVERY-IS-BUILT`** 🔴🔴 — the other thread's, both
+  with the evidence already in their sections.
+- **`§FIXTURE-INHERITS-ITS-ENVIRONMENT`** 🔴🔴 — identity proofs bound to chain id and wall clock.
 
-### 🟢 WHAT CLOSED, MEASURED TODAY
+### 🟢 TIER 3 — CLOSED TODAY, DO NOT RE-OPEN WITHOUT NEW EVIDENCE
 
-- **`main` is GREEN** — `1005 / 0 / 1007` on a fresh pin (handoff above), independently `1,004 / 8 /
-  1,014` on an archive key. **Zero assertion failures either way.** `§MAIN-IS-RED-POOLED-USD` (🔴🔴🔴)
-  and `§MAIN-IS-RED-RECHECKED` are closed; the handoff's *"39 are not 39 problems"* table is closed;
-  workstream E's *"39 regressions + 23 never-green"* was never measured on a working endpoint and is
-  now measured at none.
-- **The v4/hook removal is complete** — `SafeCallback` 0 refs, `SOR.sol` deleted, `BtcLib` 0 ticks,
-  `isBTC` **0 code branches** (31 of its 34 mentions are tombstone comments), Euler 0 code hits.
-- **The ring is fed** — `_observeIfSourced` writes it from the Chainlink anchor on every swap, so
-  Wave 2's *"nothing writes the ring"* premise is retired.
-- **`§CONSOLIDATION-TARGETS`' whole fold list landed** in `4066926a` — `BitcoinTx` ×3, `LevMath` ×2,
-  `Aux`, `LevManager`/`LevBase`.
-- **`E131`** — the unchecked-key defect in `requestSwapOutOnchain` is fixed (`:2298`).
+`main` is **green** (`1005/0/1007` fresh pin; `1,004/8/1,014` on an archive key — **zero assertion
+failures** either way), closing `§MAIN-IS-RED-POOLED-USD`, `§MAIN-IS-RED-RECHECKED`, the *"39 are not
+39 problems"* table and workstream E · **`§E352` is not a money defect** — the free cell needs a swap
+that moves nothing, measured in `SkewE352Reachability.t.sol`, which **unblocked the 141-item skew
+cluster** · the **v4/hook removal is complete** and `isBTC` has **0 code branches** · the **ring is
+fed** by the Chainlink anchor, retiring Wave 2's premise · `§CONSOLIDATION-TARGETS`' entire fold list
+landed in `4066926a` · `E131` fixed · the RN merge's missing `babel.config.js` added.
 
-### ⚠️ AND THE METHOD NOTE, BECAUSE IT COST SIX CORRECTIONS TODAY
+### ⚠️ THE METHOD NOTE — it cost seven corrections today
 
-Every wrong verdict this session came from the same place: **a document's status read as the tree's
-state.** `§E352` booked as a free drain (it is one cell); `§E219` closed on a false opening sentence
-(its remainder is live); `isBTC` counted at 34 (comments); the ring called unfed (it is fed);
-`§CONSOLIDATION-TARGETS`' targets proposed as work (already done); 121 rows dropped on an id match
-(their bodies were never here). ⇒ **Rows are evidence. The tree is state. Grep the code, and strip
-comments before quoting a count.**
-
+Every wrong verdict came from **reading a document's STATUS as the tree's STATE**: `§E352` booked as a
+free drain (one synthetic cell); `§E219` closed on a false opening sentence (its remainder is live);
+`isBTC` counted at 34 (31 are tombstone comments); the ring called unfed (it is fed);
+`§CONSOLIDATION-TARGETS`' finished targets proposed as work; 121 rows dropped on an id match (their
+bodies were never here); and this section itself shipped incomplete. ⇒ **Rows are evidence. The tree
+is state. Grep the code, strip comments before quoting a count, and check whether another thread has
+already answered it.**
 
 ## ▶️ **SESSION 2026-08-29 — THE IDENTITY MERGE WAS NEVER RUN IN THIS TREE, AND THAT IS WHERE THE WORK WAS**
 
