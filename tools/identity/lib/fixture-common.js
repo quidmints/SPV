@@ -11,11 +11,23 @@
  */
 const path = require('path');
 const fs = require('fs');
+// ⚠️ RESOLVED FROM THE CALLER'S `--build`, NOT FROM A PINNED WALLET CHECKOUT. This used to
+// `createRequire` off `<repo>/frontend/identity-wallet/package.json`, a path the identity fold
+// deleted — so every generator died on `Cannot find module '@iden3/js-crypto'` naming a
+// package.json four directories away and nothing about the wallet or the move.
+// It is LAZY because the build directory is not known at import time: each entry point passes it
+// to `loadWallet`, which is called before anything here needs a hash. `poseidon()` throws with
+// instructions if that order is ever broken, rather than resolving something arbitrary.
 const { createRequire } = require('module');
-const walletRequire = createRequire(
-  path.join(__dirname, '..', '..', 'frontend', 'identity-wallet', 'package.json'),
-);
-const { poseidon } = walletRequire('@iden3/js-crypto');
+let _poseidon = null;
+function poseidonLib() {
+  if (_poseidon) return _poseidon;
+  throw new Error(
+    'fixture-common: the wallet modules have not been loaded yet.\n' +
+    'Call loadWallet(<build dir>) before using any hashing helper — the build dir is what\n' +
+    'resolves @iden3/js-crypto, and there is deliberately no default.');
+}
+const poseidon = new Proxy({}, { get: (_t, k) => poseidonLib()[k] });
 
 /** Foundry's standard test mnemonic. Nothing here guards value; it must simply be FIXED. */
 const MNEMONIC = 'test test test test test test test test test test test junk';
@@ -54,7 +66,15 @@ const SK_IDENTITY_0 =
   287325206580568373396753082727527032974277810276511506339905121597618812140n;
 
 /** escrow0's revocation secret. Its Poseidon commitment IS the identity tree's key. */
-const REVOCATION_SECRET = deriveRevocationSecret(SK_IDENTITY_0);
+// ⚠️ LAZY, AND FOR THE SAME REASON `poseidon` IS: this is a Poseidon hash, so computing it at
+// module load would need the wallet's crypto before any caller has said where the wallet is.
+// Memoised, and exposed as a GETTER on the exports below so every existing
+// `common.REVOCATION_SECRET` read is unchanged.
+let _revocationSecret = null;
+function revocationSecret() {
+  if (_revocationSecret === null) _revocationSecret = deriveRevocationSecret(SK_IDENTITY_0);
+  return _revocationSecret;
+}
 
 /**
  * The identity scalars behind the three registered escrow fixtures, in emitted order.
@@ -89,7 +109,7 @@ function skIdentity(i) {
 }
 
 const IDENTITY_WITNESS_PATH = path.join(
-  __dirname, '..', '..', 'backend', 'contracts', 'test', 'fixtures', 'identity_witness.json',
+  require('./paths').FIXTURES_DIR, 'identity_witness.json',
 );
 
 /**
@@ -99,13 +119,22 @@ const IDENTITY_WITNESS_PATH = path.join(
  * node walks UP from a file's own directory looking for node_modules, and tools/ has none above it.
  */
 function loadWallet(buildDir) {
-  if (!fs.existsSync(buildDir)) {
+  if (!buildDir || !fs.existsSync(buildDir)) {
     console.error(
-      `No compiled wallet modules at ${buildDir}.\n` +
-      'cd frontend/identity-wallet && npm run build:pp\n',
+      `No compiled wallet modules at ${buildDir || '<unset>'}.\n\n` +
+      'Build them from app/features/identity/pp/*.ts into a CommonJS tree whose parent holds\n' +
+      'node_modules with ethers, @iden3/js-crypto and @zk-kit/lean-imt — the emitted modules\n' +
+      'resolve those by walking UP from their own directory. Sources use `.ts` import specifiers,\n' +
+      'so the tsconfig needs allowImportingTsExtensions + rewriteRelativeImportExtensions.\n' +
+      '(The identity repo did this with `npm run build:pp` and a tsconfig.fixtures.json; neither\n' +
+      ' survived the fold, which is why this message describes the requirement rather than a\n' +
+      ' command that does not exist here.)\n',
     );
     process.exit(1);
   }
+  // §PATHS — the wallet's own dependency tree is the one that resolves @iden3/js-crypto for
+  // everything in this module. Established here, once, from the caller's build dir.
+  _poseidon = createRequire(path.join(buildDir, 'noop.js'))('@iden3/js-crypto').poseidon;
   return {
     ...require(path.join(buildDir, 'pp/notes.js')),
     ...require(path.join(buildDir, 'pp/stateTree.js')),
@@ -203,7 +232,7 @@ const makeBlacklistKey = (Poseidon) => (domain, identifier) => Poseidon.hash([do
 
 /** documentId per identity index, from the fixture that owns the DG1. */
 function documentIds() {
-  const p = path.join(__dirname, '..', '..', 'backend', 'contracts', 'test', 'fixtures',
+  const p = path.join(require('./paths').FIXTURES_DIR,
     'escrow_documents.json');
   return JSON.parse(fs.readFileSync(p, 'utf8')).documents.map((d) => BigInt(d.documentId));
 }
@@ -240,10 +269,17 @@ function loadBlacklistWitness(witnessPath, expected) {
 }
 
 module.exports = {
-  MNEMONIC, REVOCATION_SECRET, REVOCATION_SECRET_DOMAIN, SK_IDENTITY_0, skIdentity,
+  MNEMONIC, REVOCATION_SECRET_DOMAIN, SK_IDENTITY_0, skIdentity,
   deriveRevocationSecret, IDENTITY_WITNESS_PATH,
   loadWallet, loadIdentityWitness, identityWitnessCount, writeProverToml, PUBLIC_SIGNAL_NAMES,
   DOMAIN_LABEL, DOMAIN_ADDRESS, DOMAIN_DOCUMENT, makeBlacklistKey, documentIds,
   loadBlacklistWitness,
   logPublicSignals,
 };
+
+// §PATHS — a GETTER, not a value: see `revocationSecret()`. Callers read `common.REVOCATION_SECRET`
+// exactly as before, and it is computed on first read (after `loadWallet`) instead of at import.
+Object.defineProperty(module.exports, 'REVOCATION_SECRET', {
+  enumerable: true,
+  get: revocationSecret,
+});

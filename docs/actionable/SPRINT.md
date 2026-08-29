@@ -176,6 +176,124 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 🔴🔴 **§FIXTURE-INHERITS-ITS-ENVIRONMENT — THE IDENTITY PROOFS WERE BOUND TO THE CHAIN ID AND THE WALL CLOCK OF WHOEVER RAN THEM. BOTH ARE NOW PINNED, AND THE SUITE IS GREEN IN BOTH MODES** (2026-08-29)
+
+Regenerating the fixtures (§FIXTURE-PIPELINE-REPATHED) made the identity suites **472/472 with no
+fork and 463/9 WITH one** — the same commit, the same files, nine tests whose verdict depended on how
+the suite was invoked. Two independent causes, each a premise borrowed from the harness.
+
+### 1. 🔴 `SCOPE` CARRIES `block.chainid`, SO EVERY COMMITTED PROOF DOES
+`pool/State.sol:89` — `SCOPE = keccak256(address(this), block.chainid, asset) % FIELD`. Measured on
+one commit with one set of fixtures:
+| | SCOPE | state root |
+|---|---|---|
+| unforked (`chainid 31337`) | `8637786279…` | `18736122…` |
+| forked (`chainid 1`) | `1085998696…` | `19759753…` |
+⇒ **ONE FIXTURE CANNOT SATISFY BOTH.** `regenerate-fixtures.sh` shells out to a plain `forge test`, so
+it captures whichever chain the operator's shell implies — and the committed fixture matched
+*neither* (`17971378…`), i.e. a third deployment, from the identity repo before the fold.
+⛔ **AND THE FAILURE NAMES THE WRONG THING:** `ContextMismatch()`, which points at the withdrawal, not
+at the environment. Only `test_LogFixtureInputs`'s drift guard prints the two roots — that guard is
+the reason this was findable at all, and its own comment says it was added because *"it looked like
+coverage and was not."*
+✅ **FIXED BY PINNING, NOT BY DOCUMENTING:** `vm.chainId(1)` at the top of `setUp`, **before any
+deployment**. 1 because that is what production is and what every documented invocation of this
+repo's suite forks. The fixtures are generated under it, and the suite no longer cares how it is run.
+
+### 2. 🔴 THE ANCHOR'S ACTIVATION WINDOW ASSUMED THE HARNESS STARTS NEAR TIMESTAMP 1
+`_deployBlacklistAnchor` warps forward past `WORKFLOW_ACTIVATION_DELAY` (24h) + `ROOT_ACTIVATION_DELAY`
+(1h); `setUp` later warps to `FIXTURE_TIMESTAMP = 1_700_000_000` (Nov 2023). The comment justifying
+that order says the later warp is *"far FORWARD of these, so the snapshot stays active"* — **true
+unforked, and exactly backwards under a fork.** A mainnet block in 2026 starts at ~`1.788e9`, so the
+warp moves the clock **back ~2.8 years**, the snapshot published seconds earlier lands in the FUTURE,
+and `latestActiveSmtRoot` reverts `NoActiveSnapshot()`. Three tests, and it reads as a broken pool.
+✅ **FIXED THE SAME WAY:** `vm.warp(FIXTURE_TIMESTAMP - 2 days)` before the anchor deploy — comfortably
+more than the 25h of delays — so **both** warps move forward whatever the harness handed us.
+
+### 📊 MEASURED, SAME COMMIT, BOTH INVOCATIONS
+```
+forge test --match-path "test/identity/**"                          472 passed / 0 failed
+FORK_BLOCK=… ETH_RPC_URL=… forge test --match-path "test/identity/**" 472 passed / 0 failed
+```
+⭐ **THIS IS THE THIRD INSTANCE OF ONE CLASS IN A SINGLE DAY**, and the class is worth more than any
+of the three: §WARP-THE-PRECONDITION (forge's default `block.timestamp`), this row's chain id, and
+this row's clock. **A test that reads `block.chainid`, `block.timestamp` or `block.number` without
+setting it first is asserting something about the invocation, not about the contracts** — and it
+fails in whichever mode nobody ran, which is the mode the next person uses.
+⚠️ **The sweep this suggests has NOT been run:** the same question applies to every fixture in the
+tree whose value is derived from chain state. Booked, not done.
+
+## ✅ **§FIXTURE-PIPELINE-REPATHED — THE GENERATORS WERE STILL SPEAKING THE PRE-FOLD REPO, AND ALL 9 REMAINING FAILURES CLOSED** (2026-08-29)
+
+`§IDENTITY-FIXTURE-PATHS` fixed the READERS and booked the WRITERS as *"still wrong, and they are a
+third answer"*. This is that half, and running it closed the last 9.
+
+**IDENTITY SUITES: `321 / 66 / 387` AT THE START OF THE DAY → `472 / 0 / 472`.**
+
+### ▶️ WHAT WAS ACTUALLY BROKEN — five separate layout assumptions, none of which errors legibly
+| | |
+|---|---|
+| `ROOT` | `dirname/..` from `tools/identity/` = **`tools/`**, so every path below hung off `tools/backend/…` |
+| fixtures | `backend/contracts/test/fixtures` → `evm/test/identity/fixtures` |
+| circuits | `backend/circuits/<name>` → `evm/noir/<name>` |
+| generated verifiers | `backend/contracts/contracts/{pool,registry}/verifiers` → `evm/src/identity/**generated**/…` — the fold added a `generated/` level nothing was told about |
+| the wallet | `frontend/identity-wallet/{build,node_modules}`, hardcoded in THREE places incl. a literal `require('<wallet>/node_modules/ethers')`. **That directory does not exist here at all** |
+
+⭐ **THE ROOT FIX IS ONE MODULE, AND THE POINT IS THAT THERE CANNOT BE A FOURTH OPINION.**
+`tools/identity/lib/paths.js` + `lib/paths.sh` export `ROOT` / `CONTRACTS_DIR` / `FIXTURES_DIR` /
+`CIRCUITS_DIR`. **The `..` count appears exactly once**, which is the thing that rotted. Five
+generators and the driver now import it instead of re-deriving.
+
+🔴 **AND THE WALLET BUILD IS AN INPUT NOW, NOT A STEP — BECAUSE THE STEP DOES NOT EXIST.** The script
+ran `cd frontend/identity-wallet && npm run build:pp`; the fold moved those sources to
+`app/features/identity/pp/*.ts` and **neither the npm script nor `tsconfig.fixtures.json` came with
+them.** `QUID_WALLET_BUILD` now names a directory the operator compiles, and both the script and
+`loadWallet` fail with the REQUIREMENT rather than with a missing command:
+```
+tsc: rootDir app/features/identity, module commonjs,
+     allowImportingTsExtensions + rewriteRelativeImportExtensions   (the sources import "./notes.ts")
+node_modules ABOVE the output: ethers, @iden3/js-crypto, @zk-kit/lean-imt
+     (the emitted modules resolve those by walking UP from their own directory)
+```
+⚠️ **`@iden3/js-crypto` IS NOW RESOLVED FROM THAT BUILD DIR, WHICH FORCED TWO THINGS LAZY.**
+`fixture-common` hashed at import time (`REVOCATION_SECRET = deriveRevocationSecret(...)`), so it
+needed the wallet's crypto before any caller had said where the wallet was. `poseidon` is a proxy
+that throws with instructions, and `REVOCATION_SECRET` is a **getter** — every existing
+`common.REVOCATION_SECRET` read is unchanged.
+
+🔴 **ONE REAL DEFECT IN THE PIPELINE ITSELF, FOUND BY RUNNING IT.** The file header states the rule —
+*"A VERIFYING KEY'S EXISTENCE IS NOT ITS FRESHNESS … Every stage here regenerates the key before it
+proves anything"* — and **the `e2e` stage was the one stage that did not.** It inherited
+`target/vk` from whatever `withdrawal` last left behind, so `e2e` alone on a clean checkout has no
+key, and after a circuit change it proves against a stale one. Both fail at the pairing check, which
+reads as a broken circuit. Fixed: `nargo compile` + `bb write_vk` before the e2e prove.
+
+### ✅ THE CONTROL, AND IT IS THE ONE THAT MAKES THIS SAFE TO COMMIT
+**`git diff --stat evm/src/identity/generated/` IS EMPTY.** The run regenerates
+`WithdrawalHonkVerifier.sol` and `RagequitHonkVerifier.sol` from the recompiled circuits, and both
+came back **byte-identical**. ⇒ this changed **no contract**; it is purely a fixture regeneration.
+It also proves the toolchain: `bb verify` accepted both proofs, and the vks reproduce.
+
+### 🔧 TOOLCHAIN ACTUALLY USED — and one of the two is NOT what the guard demands
+| | |
+|---|---|
+| `nargo` | **`1.0.0-beta.26` STOCK**, via `noirup --version 1.0.0-beta.26` |
+| `bb` | `6.0.0-nightly.20260804`, `npm i @aztec/bb.js@…` into a throwaway dir (`QUID_BB_BIN`) |
+⚠️ **`codegen-verifiers.sh` REQUIRES `1.0.0-beta.26+quid-icefix1`, a LOCALLY PATCHED build, and it is
+right to.** That guard covers VERIFIER generation, where the ICE it patches bites
+(`register_identity*`, `query_identity*`, `escrow_envelope`). It does not gate
+`regenerate-fixtures.sh`, and stock beta.26 compiled `withdraw_identity` and `ragequit` fine — which
+is exactly what that header predicts (*"The circuits still build on STOCK beta.26 too — the
+`BigNumParams::new` accommodation … was kept precisely so they do"*). **The byte-identical verifiers
+are the evidence, not the version string.** ⛔ Do not read this as "the patch is unnecessary": the
+three circuits it exists for were never compiled here.
+
+📌 **WHY THIS ROW IS LONG.** The script's own header says `withdraw_e2e.proof` *"could not be
+reconstructed AT ALL"* once, and that its generator's header makes the same complaint about the
+fixture IT replaced — **so this had already been lost twice before anyone wrote the sequence down.**
+The sequence was written down and then the repo moved out from under it. Naming each assumption is
+what stops the third time.
+
 ## 🔴 **§SWAPOUT-DRAINS-THE-EXIT — A SWAP-OUT MAY BE FILLED DOWN TO THE POOL'S LAST SAT, AND THE DELIVERY THAT SETTLES IT MUST THEN ARM A DEAD-MAN EXIT OVER THE RESIDUE** (2026-08-29, MEASURED, NOT FIXED)
 
 Two bounds exist and **nothing connects them**:

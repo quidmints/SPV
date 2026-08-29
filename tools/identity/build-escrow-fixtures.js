@@ -59,9 +59,9 @@ const N = parseInt(process.argv.find((a) => /^\d+$/.test(a)) || '3', 10);
 const G = babyJub.Base8;
 const F = babyJub.F;
 const ROOT = path.join(__dirname, '..');
-const CIRCUIT = path.join(ROOT, 'backend', 'circuits', 'escrow_envelope');
-const LIGHT_CIRCUIT = path.join(ROOT, 'backend', 'circuits', 'register_identity_light_td1');
-const FIXTURES = path.join(ROOT, 'backend', 'contracts', 'test', 'fixtures');
+const CIRCUIT = path.join(CIRCUITS_DIR, 'escrow_envelope');
+const LIGHT_CIRCUIT = path.join(CIRCUITS_DIR, 'register_identity_light_td1');
+const { FIXTURES_DIR: FIXTURES, CIRCUITS_DIR } = require('./lib/paths');
 const DOCUMENTS_JSON = path.join(FIXTURES, 'escrow_documents.json');
 const WITNESS_JSON = path.join(FIXTURES, 'registration_witness.json');
 

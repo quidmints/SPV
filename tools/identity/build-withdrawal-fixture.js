@@ -85,7 +85,7 @@ const { Poseidon } = require(path.join(BUILD, 'pp/withdrawWitness.js'));
 const { DOMAIN_LABEL, DOMAIN_DOCUMENT, makeBlacklistKey, documentIds, loadBlacklistWitness } = common;
 const blacklistKey = makeBlacklistKey(Poseidon);
 
-const FIXTURES = path.join(__dirname, '..', 'backend', 'contracts', 'test', 'fixtures');
+const { FIXTURES_DIR: FIXTURES, CIRCUITS_DIR } = require('./lib/paths');
 const QUERIES_PATH = path.join(FIXTURES, 'withdrawal_blacklist_queries.json');
 const BL_WITNESS_PATH = path.join(FIXTURES, 'withdrawal_blacklist_witness.json');
 
@@ -102,7 +102,7 @@ const HOLDER_ROOT = holderRootFromSk(SK_IDENTITY);
 
 
 const CONTEXT = 42_424_242n;
-const CIRCUIT_DIR = path.join(__dirname, '..', 'backend', 'circuits', 'withdraw_identity');
+const CIRCUIT_DIR = path.join(CIRCUITS_DIR, 'withdraw_identity');
 
 /** Trees that are NEVER degenerate: filler leaves before and after ours force real depth. */
 function buildTrees(spentCommitment) {

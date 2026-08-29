@@ -78,7 +78,7 @@ const { Poseidon } = common.loadWallet(BUILD);
 const { DOMAIN_LABEL, DOMAIN_DOCUMENT, makeBlacklistKey, documentIds, loadBlacklistWitness } = common;
 const blacklistKey = makeBlacklistKey(Poseidon);
 
-const FIXTURES = path.join(__dirname, '..', 'backend', 'contracts', 'test', 'fixtures');
+const { FIXTURES_DIR: FIXTURES, CIRCUITS_DIR } = require('./lib/paths');
 const QUERIES_PATH = path.join(FIXTURES, 'blacklist_queries.json');
 const BL_WITNESS_PATH = path.join(FIXTURES, 'blacklist_witness.json');
 const DOCUMENT_IDS = documentIds();
@@ -100,7 +100,7 @@ const keys = masterKeysFromMnemonic(MNEMONIC);
 
 const IDENTITY_COUNT = common.identityWitnessCount();
 
-const OUT_DIR = path.join(__dirname, '..', 'backend', 'circuits', 'batch-witnesses');
+const OUT_DIR = path.join(CIRCUITS_DIR, 'batch-witnesses');
 
 /*
  * The batch, described before anything is derived.

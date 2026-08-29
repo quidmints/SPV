@@ -44,13 +44,30 @@ const need = (name) => {
   return BigInt(v);
 };
 
-const BUILD = path.resolve(arg('build', path.join(__dirname, '..', 'frontend', 'identity-wallet', 'build')));
+// ⚠️ NO DEFAULT ANY MORE, AND THAT IS THE FIX. This defaulted to
+// `tools/frontend/identity-wallet/build`, a directory that does not exist in this repo and never
+// did — the identity fold moved the wallet's `pp/` modules to `app/features/identity/pp/`. A
+// missing `--build` therefore failed by trying to resolve `@iden3/js-crypto` from a package.json
+// four directories away, which names neither the wallet nor the fold. Say what is needed.
+const BUILD = path.resolve(arg('build', ''));
+if (!arg('build', '')) {
+  console.error(
+    'build-e2e-fixture: --build <dir> is required.\n' +
+    'It is the COMPILED (CommonJS) wallet pp modules — the directory holding pp/notes.js,\n' +
+    'pp/stateTree.js and pp/withdrawWitness.js. Sources: app/features/identity/pp/*.ts.\n' +
+    'It must have a node_modules ABOVE it carrying ethers, @iden3/js-crypto and @zk-kit/lean-imt:\n' +
+    'the emitted modules resolve those by walking UP from their own directory.\n');
+  process.exit(1);
+}
 
 const { masterKeysFromMnemonic, depositSecrets, commitment, precommitment, nullifierHash,
         StateTree, buildWithdrawalWitness } = common.loadWallet(BUILD);
-const { solidityPackedKeccak256 } = require(path.join(
-  __dirname, '..', 'frontend', 'identity-wallet', 'node_modules', 'ethers',
-));
+// Resolve `ethers` FROM THE BUILD DIR, not from a pinned wallet checkout. This used to require
+// `<wallet>/node_modules/ethers` literally, which is the same layout assumption as the default
+// above and breaks for the same reason. The build dir already has to see these deps — the header
+// of build-withdrawal-fixture.js says so — so asking node to resolve from there is both correct
+// and one fewer place that can hold an opinion about where the wallet lives.
+const { solidityPackedKeccak256 } = require(require.resolve('ethers', { paths: [BUILD] }));
 
 const keys = masterKeysFromMnemonic(common.MNEMONIC);
 
@@ -62,7 +79,7 @@ const REVOCATION_SECRET = common.REVOCATION_SECRET;
 const { Poseidon } = require(path.join(BUILD, 'pp/withdrawWitness.js'));
 const { DOMAIN_LABEL, DOMAIN_DOCUMENT, makeBlacklistKey, documentIds, loadBlacklistWitness } = common;
 const blacklistKey = makeBlacklistKey(Poseidon);
-const FIXTURES_DIR = path.join(__dirname, '..', 'backend', 'contracts', 'test', 'fixtures');
+const { FIXTURES_DIR, CIRCUITS_DIR } = require('./lib/paths');
 const E2E_QUERIES_PATH = path.join(FIXTURES_DIR, 'e2e_blacklist_queries.json');
 const E2E_BL_WITNESS_PATH = path.join(FIXTURES_DIR, 'e2e_blacklist_witness.json');
 const E2E_DOCUMENT_ID = documentIds()[0];
@@ -107,7 +124,7 @@ if (argv.includes('--ragequit')) {
     `nullifier = "${s0.nullifier}"`, `secret = "${s0.secret}"`,
   ].join('\n') + '\n';
   fs.writeFileSync(
-    path.join(__dirname, '..', 'backend', 'circuits', 'ragequit', 'Prover.e2e.toml'), toml);
+    path.join(CIRCUITS_DIR, 'ragequit', 'Prover.e2e.toml'), toml);
   // WRITTEN, NOT PRINTED FOR PASTING - same reason as the precommitments above. All three are
   // functions of SCOPE, so a constructor change moves them, and pinned in the test they surface as
   // `OnlyOriginalDepositor` (the label no longer names a deposit this depositor made), which points
@@ -203,7 +220,7 @@ eq(w.pubSignals[5], IDENTITY_ROOT, 'identity_root disagrees with the chain');
 eq(w.pubSignals[6], CONTEXT, 'context disagrees with the chain');
 if (w.pubSignals[4] === 0n) throw new Error('DEGENERATE: state tree depth 0, no sibling hashed');
 
-const out = path.join(__dirname, '..', 'backend', 'circuits', 'withdraw_identity', 'Prover.e2e.toml');
+const out = path.join(CIRCUITS_DIR, 'withdraw_identity', 'Prover.e2e.toml');
 common.writeProverToml(out, w.inputs);
 
 // The signals, beside the proof they belong to, for the same reason build-withdrawal-fixture.js

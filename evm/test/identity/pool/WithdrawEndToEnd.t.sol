@@ -260,6 +260,18 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
   }
 
   function setUp() public {
+    // 🔴 SCOPE IS `keccak256(address(this), block.chainid, asset)` (`pool/State.sol:89`), SO THE
+    // CHAIN ID IS PART OF EVERY COMMITTED PROOF IN THIS SUITE — and it is not a property of these
+    // contracts, it is whatever the invocation happened to hand us. Measured 2026-08-29: the same
+    // commit and the same fixtures give SCOPE `8637786279…` unforked (chainid 31337) and
+    // `1085998696…` forked (chainid 1), with different state roots to match. **One fixture cannot
+    // satisfy both**, so a regeneration silently invalidates whichever mode it was not run in, and
+    // the failure surfaces as `ContextMismatch()`, which names the withdrawal rather than the
+    // environment.
+    // ⇒ PINNED, and pinned to 1 because that is what production is and what every documented
+    //   invocation of this repo's suite forks. The fixtures are generated under this value.
+    vm.chainId(1);
+
     _loadE2ESignals();
 
     // ⚠️ THE ROOT IS PUBLISHED THROUGH A REAL ANCHOR, BECAUSE THE POOL NO LONGER ACCEPTS ONE.
@@ -271,6 +283,18 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
     //
     // During a regeneration the emitted signals do not exist yet, so fall back to the shared tree's
     // root. That fallback is a REAL root from the same tree, never a placeholder.
+    // 🔴 THE CLOCK IS SET HERE, NOT INHERITED — and the note below used to depend on inheriting it.
+    // `_deployBlacklistAnchor` warps forward past WORKFLOW_ACTIVATION_DELAY (24h) + ROOT_ACTIVATION
+    // _DELAY (1h), and `:307` then warps to FIXTURE_TIMESTAMP. That is only "far FORWARD" while the
+    // harness starts near timestamp 1, which is true UNFORKED and false under a fork: a mainnet
+    // block in 2026 starts at ~1.788e9, so warping to FIXTURE_TIMESTAMP (1.7e9, Nov 2023) moves the
+    // clock BACK ~2.8 years, the snapshot published moments ago lands in the FUTURE, and
+    // `latestActiveSmtRoot` reverts `NoActiveSnapshot()` — which reads as a broken pool.
+    // ⇒ Start 2 days BEFORE the fixture time (comfortably more than 25h of delays) so both warps
+    //   move FORWARD whatever the harness handed us. Same shape as §WARP-THE-PRECONDITION: a
+    //   premise borrowed from the harness is a premise you do not own.
+    vm.warp(FIXTURE_TIMESTAMP - 2 days);
+
     _deployBlacklistAnchor(e2eSignalsLoaded ? E2E_BLACKLIST_ROOT : BlacklistRootFixture.read(vm));
 
     // ⚠️ DEPLOYED FIRST, AND THE ORDER IS LOAD-BEARING. Publishing a snapshot warps time twice to
