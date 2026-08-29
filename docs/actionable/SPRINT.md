@@ -18986,17 +18986,43 @@ waiting on it.**
 
 #### 🎯 WAVE 2 — THE RING'S PRICE SOURCE. ⛔ **"IT HAS NONE" IS FALSE — SEE `§CLUSTER-4-ORACLE`.** Blocks W3 and W4.
 
-**22 rows — bodies in `§QUEUE-VERBATIM`:** `E221-ethbtc-cross-replaces-the-wbtc-handle` · `E223-1inch-is-independent-but-has-no-native-btc` · `UNIT-A-ATTEMPT-1` · `UNIT-SERIES-STOP` · `W1-sweep-has-no-authorized-trigger` · `§KEEPER-VS-LP-ONLINE — the range is dynamic and user-free; and WHY the ETH side can be delegated while the BTC side cannot` · `6×` · `E87` · `E-COORD` · `E93-b` · `Depletion σ²-free, keyed on `inv0`` · `UNIT-A-DECIDED` · `UNIT-VARIANCE-HISTORY` · `UNIT-VOL-BRACKET` · `UNIT-WHY-VARIANCE` · `UNIT-VARIANCE-SERIES` · `UNIT-VARIANCE-SOLVED` · `UNIT-STALENESS-FLOOR` · `σ² at probe` · `σ² (incumbent)` · `trade-based `Σ size·Δp`` · `no ticks`
 
 `§E219`'s step ② was RETRACTED BY ITS OWN AUTHOR and this is what replaced it: *"the ring is FED BY `getSlot0`, so that is circular … the real step ② is that the ring needs a NEW PRICE SOURCE, because without a pool nothing writes it."* Candidates named there: the realized fill price of whatever venue replaces the pool (so W1 first), or the Chainlink anchor `twapResolve` already reconciles against. ⛔ `§E220`'s "source the ring from Chainlink" is **SUPERSEDED BY §E232** — the anchor is what the ring is CHECKED against, so feeding it in makes the check a smoothed copy of itself. **This is a design decision, and σ², the skew and the fee all rest on it.**
 
 
+**22 rows, READ 2026-08-30 — 5 are work:**
+
+| | rows |
+|---|---|
+| 🟠 **WORK** | `E221-ethbtc-cross` (owner's feed topology) · `E87` (a partial-fix audit that **says it is incomplete**) · `E93-b` (refill-responsive target from the ring's composition history) · `UNIT-WHY-VARIANCE` (names a live defect: *"we measure the variance of a price we ourselves peg"*) · `UNIT-STALENESS-FLOOR` |
+| ✅ **done** | `W1-sweep…` (*"WIRED"*) · `§KEEPER-VS-LP-ONLINE` · `UNIT-VARIANCE-SOLVED` · `E223` |
+| 📌 **knowledge** | `UNIT-A-ATTEMPT-1` · `UNIT-SERIES-STOP` (*"also VOID"*) · `UNIT-VARIANCE-HISTORY` · `UNIT-VOL-BRACKET` · `UNIT-VARIANCE-SERIES` · `UNIT-A-DECIDED` (measured since, by `§E352-REACHABILITY`) |
+| ⚠️ **live hazard, not a task** | `E-COORD` — *"TWO SESSIONS ARE COMMITTING INTO ONE WORKTREE AND IT IS CORRUPTING BOTH RECORDS."* **Two threads are in this tree right now** |
+| 🗑️ | `6×` · `σ² at probe` · `σ² (incumbent)` · `trade-based …` · `no ticks` — measurement cells |
+
 #### 💸 WAVE 3 — SKEW AND FEE. **Blocked by W2: these are all functions of σ².**
 
-**21 rows — bodies in `§QUEUE-VERBATIM`:** `T2` · `E227-calcfeel1-saturates-before-weight-matters` · `E79-SPEC-r` · `UNIT-A-ATTEMPT-2` · `UNIT-A-ROOT-WRITTEN` · `UNIT-SKEW-STATUS` · `UNIT-A-REAL-TWO` · `4320 (~30 days)` · `E79-SPEC` · `E135-skew` · `E136-skew` · ``UNIT-BOUND-NOT-DELETE`` · `#41-INTERNAL-FILL-PRICE` · `SKEW-DESIGN-VERDICT` · `E189-skew-horizon` · `E145-t` · `UNIT-WHY-IT-MATTERS` · `UNIT-A-PLAN` · `UNIT-A-ROOT` · `Low volume` · `It books to LPs as a fee`
+
 
 Nothing here can be measured while σ² has no trustworthy source, and `§E352` (the flush branch — a free drain at σ²=0) is one of the four owner decisions. ⚠️ Measure skew in **ppb, not bps** — 0.325 bps integer-divides to 0, and that rendering already produced one wrong "the tax is zero" finding.
 
+
+**21 rows, READ 2026-08-30 — 6 are work, and SIX CLOSE AS ONE GROUP:**
+
+⭐ **THE `UNIT-A` FAMILY IS SUPERSEDED BY ITS OWN OUTCOME.** `UNIT-A-ATTEMPT-2`, `UNIT-A-ROOT-WRITTEN`,
+`UNIT-A-REAL-TWO`, `UNIT-A-PLAN`, `UNIT-A-ROOT` and `UNIT-A-ATTEMPT-1` (W2) are six records of
+attempts at one thing — and **the thing landed**: `§DERIVED-BAND` is in the tree
+(`LevMath.sol:176` `cbrtWad(hCubedWad)`, `LevBase.sol:48` and `:72` *"replaces `RANGE_BPS = 300`"*).
+`§E356` recorded it as landed and the code agrees. **Close all six as one; their patches in `wip/`
+are already deleted.**
+
+| | rows |
+|---|---|
+| 🟠 **WORK** | `T2` (`PREMIUM_ANNUALIZE = 127`, *"the ONE number here worth reviewing"* — review never happened; **small and checkable**) · `E227-calcfeel1` · `UNIT-SKEW-STATUS` (*"the fourth is the worst"*) · `E79-SPEC` (the LVR sim — *"PREREQUISITE for E93, not a follow-up"*) · `E145-t` (**root fix: one fee accumulator, not two**) · `#41-INTERNAL-FILL-PRICE` (owner constraint on the design) |
+| ⭐ **closed as a group** | the six `UNIT-A` rows above |
+| ✅ **done** | `UNIT-BOUND-NOT-DELETE` (*"RESOLVED"*) |
+| 📌 **knowledge / meta** | `E79-SPEC-r` (*"my spec was redundant"*) · `UNIT-WHY-IT-MATTERS` (framing) · `SKEW-DESIGN-VERDICT` (assessment) · `E189-skew-horizon` (another thread's) · **`E135-skew`** and **`E136-skew`** — inventories, and `E136` already did this job once: *"the ten open skew items are FOUR things, not ten"* |
+| 🗑️ | `4320 (~30 days)` · `Low volume` · `It books to LPs as a fee` |
 
 #### 🧱 WAVE 4 — THE FOLD. ⛔ **`Core`+`Quid`-into-one-4626 IS PROBABLY THE WRONG FOLD — SEE `§FOLD-REDESIGN` BELOW.** Blocked by W1 and W2.
 
