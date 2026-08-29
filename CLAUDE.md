@@ -401,30 +401,96 @@ the signature of this, and nothing else produces it.
 
 ## Code navigation — read this before answering a "how does X work" question
 
-⚠️ **`graphify-out/graph.json` contains ZERO Solidity.** ⭐ **REGENERATED 2026-08-22 at `892c5b78`:
-17,974 nodes · 58,786 links · 568 communities, and now `directed=true` — the old build was UNDIRECTED,
-so it could not answer "what calls X" versus "what X calls", which is the only thing that makes
-caller/callee asymmetries visible.** (Prior: 17,624 / 57,511, built 2026-08-01 at `74e2a5e3` — **2,008
-commits stale**, describing a tree without §E183, B0, the liveness gate or either fold.)
-🔴 **AND IT IS MOSTLY NOT OUR CODE: `lib/` is 410 of 646 files (63% vendored LDK).** Our four crates
-are ~236 files, so **quote whole-graph node counts and you flatter the coverage of the code you care
-about** — scope any query to `quid-hop/`, `quid-bridge/`, `quid-ln/`, `quid-common/`.
-⚠️ **Health: 4,717 dangling-endpoint edges + 4,837 collapsed directed edges**, overwhelmingly vendored
-LDK referencing `Option`/`Arc`/`PublicKey` — symbols that never become nodes. Expected for AST
-extraction, but **edge counts are NOT call counts**.
-⛔ **AND THE REGENERATION ITSELF CARRIES A TRAP: `to_json` REPORTED SUCCESS AND WROTE NOTHING.** The
-first run printed the new node count, returned truthy, updated the file's mtime — and left the
-3-week-old graph in place. Only reading `built_at_commit` back out of the file caught it; `force=True`
-fixed it. **Verify a regenerated graph by its `built_at_commit`, never by the run's own output.**
-It still indexes `quid-ln/` including vendored
-`lib/rust-lightning`, and skipped `evm/src/` entirely. This matters because the graphify skill instructs
-a session to answer any codebase question from that graph *before doing anything else* when
-`graphify-out/graph.json` exists — so a question about `Quid`, `Aux`, `LevManager` or anything else
-on the money path would be answered from a graph that does not contain it. **Use the graph for the Rust
-bridge. Never use it for Solidity.**
+⭐ **REBUILT 2026-08-29 at `16726eb2`, AND IT NOW CONTAINS SOLIDITY.** The graph lives at
+**`SPV/graphify-out/graph.json`** — repo root, covering the whole tree. **26,655 nodes · 47,725 links ·
+1,790 communities · `directed=true` · 0 dangling endpoints.** By language: **`.sol` 13,876 · `.rs` 4,406 ·
+`.md` 3,877 · `.ts` 865 · `.js` 412 · `.py` 252 · `.go` 203**. By tree: `evm/` 14,394 · `quid-ln/` 4,127 ·
+`docs/` 3,243 · `app/` 978 · `svm/` 462.
 
-**For Solidity, use `evm/slither-out/` instead.** Slither understands inheritance, modifiers, state
-variables and cross-contract call flow, which a generic AST walker does not. Regenerate with:
+🔴 **THE OLD GRAPH AT `quid-ln/graphify-out/` IS DEAD. DELETE IT FROM YOUR MENTAL MODEL.** It was Rust-only,
+63% vendored LDK, built at `892c5b78`, and it is now excluded from indexing by `.graphifyignore`. Every
+statement in this section's previous revision — "contains ZERO Solidity", "never use it for Solidity",
+"scope any query to `quid-hop/`" — described *that* file and is now false. Solidity is the **majority** of
+this graph.
+
+**Ask the graph before you grep.** These four answer most structural questions in one call, and none of
+them needs an LLM or an API key:
+
+```
+graphify explain  "Basket"            # node + every neighbour, with file:line and edge direction
+graphify affected "OracleLib"         # reverse traversal — blast radius of a change
+graphify path     "Quid" "Vault"      # how two things connect (add --undirected if it finds nothing)
+graphify query    "who mints vUSD"    # BFS over the graph for a question, --budget N to cap tokens
+```
+
+`graphify` is **not on `PATH`** — it is `~/.local/share/graphify-venv/bin/graphify`, a source checkout at
+`~/.local/share/graphify-src`, not a plain pip install. Run it from the repo root; `graph.json` is found
+relative to cwd.
+
+### The five traps, each of which produces a confident wrong answer
+
+⚠️ **1. Communities are unlabeled — `Community 0`, `Community 1`, … 1,790 of them.** Naming them needs an
+LLM backend (no API key is set; the `claude-cli` backend would spend Claude quota). So the "Community
+Hubs (Navigation)" section of `GRAPH_REPORT.md` is **1,742 lines of placeholder and worth nothing**.
+Navigate by `explain`/`affected` from a known symbol, never by community. To fix it once:
+`graphify label . --backend=claude-cli`.
+
+⛔ **2. Inheritance from vendored bases is ABSENT, and its absence looks like a finding.** `.graphifyignore`
+excludes `evm/lib/`, so **333 of the 481 `is` clauses survive and the 148 that vanish are exactly the
+vendored ones** — `ERC20`, `Ownable`, `Script`, `Test`, `OApp`. The build drops an edge whose target is
+not a node, silently. **"No `inherits` edge" therefore means "inherits nothing *of ours*", never "inherits
+nothing."** For the vendored half, `evm/slither-out/` (inheritance-graph printer) is still the source of
+truth.
+
+⚠️ **3. Solidity support is a LOCAL PATCH that an upgrade silently reverts.** graphify 0.9.51 has no
+Solidity grammar; `tools/graphify-solidity/` supplies one. `pip install -U graphifyy` overwrites it, and a
+graph rebuilt without it is **not visibly broken — it just has no Solidity in it.** Before trusting a
+rebuild: `python3 tools/graphify-solidity/apply.py --check` (exit 1 = not patched). See that directory's
+README for what is and isn't extracted — `using X for Y` and calls inside `assembly {}` are not.
+
+⛔ **4. A rebuild can report success and change nothing.** The previously-recorded trap (`to_json` printed
+the new node count, returned truthy, updated mtime, and left a 3-week-old graph in place) still stands.
+**Verify a rebuild by reading `built_at_commit` back out of `graph.json`, never by the run's own output:**
+
+```
+python3 -c "import json;print(json.load(open('graphify-out/graph.json'))['built_at_commit'][:8])"
+git rev-parse --short HEAD    # must match
+```
+
+⚠️ **5. Edge counts are not call counts, and `.sol` node counts are not contract counts.** `method` and
+`contains` (23,240 of 47,725 links) are containment, not behaviour. A Solidity method node is labelled
+`.name()` with a leading dot — that is graphify's convention for a member, not a typo.
+
+⛔ **6. Names now collide ACROSS languages, and `path` resolves the collision silently.** One graph holds
+`evm/`, `svm/` and `quid-ln/`, so `Quid` matches both `evm/src/Quid.sol` and `svm/programs/quid/Cargo.toml`.
+`explain` refuses and lists the candidates — good. **`path` does not: it picks the higher-scoring node and
+prints only `warning: target match was ambiguous`,** which is easy to read past, and then reports a path
+between the wrong pair of things (or "no directed path found" for two nodes that are in fact adjacent).
+**Pass the repo-relative path or the full node id** (`evm_src_quid_quid`) for any name that could exist in
+two trees — which here is most of the money-path names.
+
+### Rebuilding
+
+```
+graphify update . --force          # re-extract; --force is required or a smaller rebuild is refused
+graphify cluster-only . --no-label --no-viz
+```
+
+`--no-viz` is not optional here: `graph.html` is skipped above ~5,000 nodes and this graph has 26,655.
+**`update` inherits the `directed` flag from the existing `graph.json`** (upstream #2342) — building into
+an empty directory silently produces an **undirected** graph, which cannot distinguish "what calls X" from
+"what X calls". If you ever rebuild from scratch, set `"directed": true` in a seed `graph.json` first and
+confirm it afterwards.
+
+Scope is governed by **`.graphifyignore`** at the repo root (forge submodules under `evm/lib/`, vendored
+`quid-ln/lib/`, `evm/slither-out/`, Noir verification-key artefacts). graphify already skips
+`node_modules/`, `target/`, `out/` and `.gitignore`d paths on its own.
+
+**Noir is still invisible.** The 128 `.nr` circuits under `evm/noir/` have no grammar and no upstream PR;
+they are bare file nodes with no internal structure. Read them directly.
+
+**For Solidity questions the graph cannot answer** — modifier semantics, storage layout, who can call what
+and what it writes — `evm/slither-out/` remains the better tool. Regenerate with:
 
 ```
 mkdir -p evm/slither-out && cd evm/slither-out

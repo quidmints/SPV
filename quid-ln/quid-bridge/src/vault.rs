@@ -380,6 +380,28 @@ pub struct LpFunding {
 /// correlator ([`run_vault_delivery_correlator`]) fires it when the matching `Spliced`
 /// event arrives (carrying the new splice outpoint). Bounded to IN-FLIGHT deliveries
 /// only — `register` inserts, `resolve`/`cancel` remove — so no unbounded growth.
+/// §AUDIT-SWAPOUT-DOUBLEPAY — a delivery splice was successfully INITIATED but had not LOCKED
+/// when the caller's timeout expired. **THIS IS NOT A FAILURE, IT IS AN UNKNOWN**, and the
+/// distinction is the whole point of the type: LDK exposes no way to unilaterally abort a splice
+/// it is already negotiating, so the sats may still leave to `swapper_script` minutes later.
+///
+/// ⚠️ A caller that treats this like the pre-initiation error and moves to the next candidate
+/// channel DOUBLE-PAYS the swapper — the second channel delivers, then the first one locks.
+/// `drive_swap_out_onchain` therefore neither retries nor reverses on this error: a reversal
+/// would refund on EVM while the BTC is still in flight, which is the same loss mirrored. The
+/// swap halts for resolution instead.
+#[derive(Debug)]
+pub struct DeliveryInFlight;
+
+impl std::fmt::Display for DeliveryInFlight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("delivery splice was initiated but did not lock within timeout; it may still \
+                     land on-chain, so this channel must not be retried and must not be reversed")
+    }
+}
+
+impl std::error::Error for DeliveryInFlight {}
+
 #[derive(Default)]
 pub struct DeliveryCoordinator {
     pending: Mutex<HashMap<[u8; 32], oneshot::Sender<(Txid, u32)>>>,
@@ -731,9 +753,14 @@ impl VaultNode {
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(outpoint)) => Ok(outpoint),
             Ok(Err(_)) => anyhow::bail!("delivery splice oneshot dropped (correlator gone?)"),
+            // §AUDIT-SWAPOUT-DOUBLEPAY — `cancel` drops the correlator slot so the map cannot
+            // leak, but it CANNOT stop the splice: that was handed to LDK above and is still
+            // being negotiated. The typed error is what stops the caller retrying into a
+            // second channel while this one may yet pay.
             Err(_) => {
                 self.deliveries.cancel(&ldk_id.0);
-                anyhow::bail!("delivery splice-out never locked within timeout")
+                return Err(anyhow::Error::new(DeliveryInFlight))
+                    .context("delivery splice-out never locked within timeout");
             }
         }
     }

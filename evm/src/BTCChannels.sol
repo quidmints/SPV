@@ -299,7 +299,7 @@ contract BTCChannels is Ownable {
     // (E156) THE E122 LP-NAMED FALLBACK IS DELETED — `fallbackAuthority`, `registerFallback[For]`,
     // `fallbackDigest`, `lastHeartbeatBlock`, `FALLBACK_STALENESS_BLOCKS` and
     // `_authorizedHopForChannel` are all gone. It asked the LP to nominate a rescuer in advance,
-    // and it could not deliver one: the fleet holds BOTH funding halves (`deadman_exit.rs`), so a
+    // and it could not deliver one: the fleet held BOTH funding halves at the time (`deadman_exit.rs`), so a
     // nominated hop has no key to sign an exit with — it could only RELAY bytes the original hop
     // had already signed. The rescue was always "those bytes exist and their CLTV matured", never
     // "a named party acted". Arming at open (`Types.ExitArming`) makes the bytes an invariant, so
@@ -317,7 +317,22 @@ contract BTCChannels is Ownable {
     mapping(address => bool) public hasOpenBtcChannel;
 
     // DEAD-MAN EXIT (#114) — non-custodial BTC-LP force-close backstop that needs
-    // NOTHING from the LP (no keyfile, no sidecar tool). The fleet holds BOTH MuSig2
+    // NOTHING from the LP (no keyfile, no sidecar tool).
+    //
+    // 🔴 §M1#2 LANDED AND THIS PARAGRAPH DESCRIBES THE WORLD BEFORE IT. "The fleet holds BOTH
+    // MuSig2 key halves (Option B)" is now FALSE IN THE DEFAULT DEPLOYMENT:
+    // `quid-bridge-daemon.rs` reads `QUID_FLEET_COHOSTS_VAULT` with DEFAULT FALSE, and the
+    // `true` branch logs that "the multisig is nominal in this deployment (M1#2)".
+    // `taproot_signer.rs` states the same: the fleet "is vault-less by default, so it holds ONE
+    // half", the LP's pubnonce arriving from the LP's own host.
+    // ⇒ Under the default topology the fleet CANNOT pre-sign an exit alone — the LP's half is
+    // needed, which is exactly the property §M1#2 existed to create, and exactly what makes the
+    // ladder's "signs once" bound meaningful rather than nominal. The both-halves description
+    // below applies ONLY under `QUID_FLEET_COHOSTS_VAULT=true`, the single-custodian deployment.
+    // Kept rather than rewritten because the mechanism it describes is unchanged; only WHO can
+    // produce the second partial moved.
+    //
+    // Under `QUID_FLEET_COHOSTS_VAULT=true` the fleet holds BOTH MuSig2
     // key halves (Option B), so it pre-signs OFF-CHAIN a FULLY-signed unilateral-exit
     // tx paying the LP's checkpoint balance → its committed `btcRecipientOf` P2TR
     // script, CLTV-timelocked to a near-future dead-man deadline, and EMITS the raw
@@ -890,11 +905,16 @@ contract BTCChannels is Ownable {
     ///    smart wallets. E125's own words on what is left: *"NOTHING on the Bitcoin side identifies
     ///    the LP to the EVM; `lpEth` can only be ASSERTED, and only an LP signature makes the
     ///    assertion trustworthy."*
-    /// ⚠️ AND ITS PREMISE DOES NOT HOLD FOR VAULT LPs. E125 argued the LP *"already co-signs the
-    ///    Bitcoin funding, so that signature does double duty"* — but the fleet holds BOTH funding
-    ///    halves (`quid-bridge/src/deadman_exit.rs`), so a vault LP co-signs NOTHING on either
-    ///    chain. Absent this signature a hop could name any `lpEth` and any `btcRecipient` and take
-    ///    the position outright. **Security, not ceremony.**
+    /// ⚠️ AND ITS PREMISE DID NOT HOLD FOR VAULT LPs — WHICH §M1#2 HAS SINCE CHANGED, AND THE
+    ///    CONCLUSION SURVIVES ANYWAY. E125 argued the LP *"already co-signs the Bitcoin funding, so
+    ///    that signature does double duty"*. When this was written the fleet held BOTH funding
+    ///    halves, so a vault LP co-signed NOTHING on either chain. **That is no longer the default**
+    ///    (`QUID_FLEET_COHOSTS_VAULT=false`; the LP half lives on the LP's own host), so a vault LP
+    ///    DOES now co-sign on Bitcoin.
+    /// ⇒ **The requirement stands regardless, for a different reason.** A Bitcoin co-signature
+    ///    proves control of the funding half; it does not name an `lpEth`. Nothing on the Bitcoin
+    ///    side identifies the LP to the EVM, so absent THIS signature a hop could still name any
+    ///    `lpEth` and any `btcRecipient` and take the position outright. **Security, not ceremony.**
     ///
     /// 🔑 WHY IT BINDS NEITHER Q NOR `amountSats`, HAVING BRIEFLY BOUND BOTH. A per-channel digest
     ///    is tighter and was written first. It is UNSIGNABLE by the only party that may sign it:

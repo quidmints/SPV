@@ -1,0 +1,27 @@
+# What the code-knowledge graph should not index.
+#
+# graphify already skips node_modules/, target/, out/, build/, dist/ and
+# .gitignore'd paths on its own (detect._SKIP_DIRS). This file covers what it
+# cannot infer: vendored dependencies that are tracked here as git submodules,
+# and generated analysis output that looks like source.
+#
+# The point is signal. Indexing forge's dependency tree buries 363 first-party
+# contracts under 1,864 vendored ones, and every community the clusterer finds
+# turns out to be "OpenZeppelin".
+
+# Forge dependencies — git submodules, so neither .gitignore nor _SKIP_DIRS
+# catches them. Inherited OpenZeppelin/solmate/LayerZero symbols still appear
+# in the graph as external reference nodes.
+evm/lib/
+
+# Vendored Rust (rust-lightning and friends) under the LN workspace — the old
+# graphify-out indexed this wholesale, which is what made it noise.
+quid-ln/lib/
+
+# Generated analysis artefacts, not source.
+evm/slither-out/
+evm/noir/passport-vks/
+evm/noir/**/target/
+
+# Stale output of the previous, Rust-only run. Superseded by SPV/graphify-out.
+quid-ln/graphify-out/

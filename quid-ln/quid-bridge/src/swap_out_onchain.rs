@@ -32,7 +32,7 @@ use std::time::Duration;
 use alloy_primitives::{hex, Address, B256, U256};
 use anyhow::Context as _;
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use quid_hop::evm_codec::{
     build_splice_params, channel_id, encode_deliver_swap_out_onchain, sort_funding_pubkeys,
@@ -223,8 +223,11 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
 
     // 2. (B) Initiate the swapper-directed SpliceOut on the VAULT node (it holds the
     //    LP-side channel keys, co-signed in-process by the hop) and await its lock. Try
-    //    each online candidate in turn — reverse only if ALL fail. Retry is safe: each
-    //    attempt is BEFORE its splice locks, so no double-deliver. There is NO LP
+    //    each online candidate in turn — reverse only if ALL fail. Retry is safe ONLY for a
+    //    candidate that failed BEFORE its splice was initiated; a splice that was initiated and
+    //    merely did not LOCK in time may still pay, so `DeliveryInFlight` halts the loop instead
+    //    (§AUDIT-SWAPOUT-DOUBLEPAY — the older claim that "each attempt is BEFORE its splice
+    //    locks" was true of the initiation error and false of the timeout). There is NO LP
     //    round-trip and NO per-call lpAuth under B — the fleet splices directly and
     //    submits `deliverSwapOutOnchain` as the channel's hop.
     let timeout = Duration::from_secs((cfg.receipt_poll_secs * cfg.receipt_poll_attempts as u64).max(60));
@@ -235,6 +238,16 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
                 .await
             {
                 Ok((txid, vout)) => break 'deliver (cid, txid, vout),
+                // §AUDIT-SWAPOUT-DOUBLEPAY — an INITIATED-but-unlocked splice is an unknown, not
+                // a failure. Trying the next candidate here is what double-pays the swapper, and
+                // reversing is the same loss mirrored (EVM refund + late BTC). Halt.
+                Err(e) if e.downcast_ref::<crate::vault::DeliveryInFlight>().is_some() => {
+                    error!(
+                        swap_id = %hex::encode(swap_id), cid = %hex::encode(cid),
+                        "delivery splice may still land ({e:#}); NOT retrying and NOT reversing",
+                    );
+                    return Err(e).context("swap-out halted: delivery splice outcome unknown");
+                }
                 Err(e) => warn!(
                     swap_id = %hex::encode(swap_id), cid = %hex::encode(cid),
                     "vault delivery splice failed ({e:#}); trying next candidate",
