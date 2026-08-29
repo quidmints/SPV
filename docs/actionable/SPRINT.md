@@ -184,6 +184,100 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 🔴🔴 **§OOR-WATERMARK-DROPS-ORDERS — THE CAP IS NOT A RATE LIMIT, IT IS A FILTER, AND THE SAME LINE STRANDS EVERY ORDER A SHORT POOL COULD NOT SERVE** (2026-08-29, owner: *"there must be a way to improve the design"*)
+
+`RangeLib.sweepOor` opens with:
+```solidity
+uint pxOld = book.lastSweptPx;
+book.lastSweptPx = pxNew;          // ← UNCONDITIONAL, BEFORE THE FIRST FILL IS ATTEMPTED
+if (pxOld == 0 || pxOld == pxNew) return 0;
+...
+for (; i < keys.length && filled < maxFills; i++) { ... fillOne(...) ... }
+```
+**That write asserts the whole interval `(pxOld, pxNew]` was processed. Three ways it was not, and
+only one of them is benign:**
+
+| skip | why | benign? |
+|---|---|---|
+| `filled == maxFills` | the anti-griefing cap stops the loop | 🔴 **no** |
+| `fillOne` → false on `volOut > ICore(core).POOLED()` (`:382`, and `POOLED_USD` at `:387`) | the pool cannot serve the fill *right now* | 🔴 **no — and this fires exactly during a large move, which is when orders cross** |
+| `fillOne` → false on `amt <= 0` (`:369`) | already closed / never existed | ✅ yes, nothing to do |
+
+⇒ **A SKIPPED ORDER IS NOT DELAYED, IT IS DROPPED OUT OF EVERY FUTURE SWEEP.** The watermark has
+moved past it, so the next call's interval starts on the far side. Worked through: price falls
+100 → 90 across ten crossed orders, four fill, watermark := 90. Next swap at 90 → `pxOld == pxNew`
+→ **returns 0**. Next swap at 89 → interval `(89, 90]` → the order resting at 92 is not in it. **It
+is unreachable by any sweep unless the price re-crosses 92 from above**, and it was TOUCHED.
+⛔ **SO `pokeOor` IS NOT A LATENCY BACKSTOP — IT IS THE ONLY RECOVERY PATH FOR A DROPPED ORDER**, and
+it fills **one order per transaction, by id, for no reward.** Six stranded orders is six transactions,
+six × 21k base gas, paid by someone with no reason to.
+📌 **THIS IS WHY THE ROW ABOVE MATTERS MORE THAN IT LOOKED.** §POKE-IS-INEVITABLE argued the poke is
+structural but should not be the routine path. It is worse than routine: it is load-bearing for
+correctness, and it is unincentivised and un-batched.
+
+### ▶️ THE FIX SET, RANKED — A AND B ARE ONE COMMIT AND ARE THE WHOLE CORRECTNESS STORY
+**A. CLAMP THE WATERMARK TO WHAT WAS ACTUALLY SWEPT.** Keep `= pxNew` first (it is the re-entrancy
+guard — a re-entrant sweep must see `pxOld == pxNew` and return 0), then, **if the pass stopped early
+or skipped a fillable order, roll it back to the boundary of the unprocessed region** — the trigger
+of the last order actually filled. One extra `SSTORE`, and only in the capped/short case.
+⇒ **The cap becomes a RATE LIMIT: the next swap resumes where this one stopped and the book drains
+over successive trades**, which is what the docblock already claims. Inventory-short orders retry
+when inventory returns, instead of being punished for crossing during the move that created them.
+
+**B. `fillOne` MUST DISTINGUISH "CANNOT FILL NOW" FROM "NOTHING TO FILL".** It returns bare `false`
+for both, so A cannot tell which skips to roll back for. `amt <= 0` is permanent and must advance;
+`volOut > POOLED()` is transient and must not. **Without B, A is unimplementable** — that is the whole
+reason this is one commit and not two.
+
+**C. MAKE THE POKE BATCHED AND BOUNDED.** `pokeOor(id)` takes one id. Give it the sweep's interval
+logic with its own `maxFills` so a keeper drains the remainder in ONE transaction. Cheap, and it is
+the difference between a backstop that can be used and one that only exists.
+
+**D. PAY THE CARRIER OUT OF THE WEDGE — AND THE WEDGE IS ALREADY THERE, UNALLOCATED.**
+An order settles at **its own** edge (`oorTrigger`: a bid at `p.upper`) while the range is at `px`,
+which the interval guarantees is strictly PAST it. So the maker buys at `upper` while the market is
+at `pxNew ≤ upper`: the pool hands over `convert(size, upper, true)` units instead of the larger
+amount `pxNew` would buy, **and the difference accrues entirely to the pool today.**
+⭐ **THAT MAKES THE INCENTIVE FREE ON EVERY AXIS THAT MATTERS:** the maker is untouched (they get the
+limit they asked for either way — fill-on-touch at their own edge is the promise, and it is kept),
+the swapper is not charged (they are PAID, which answers the griefing concern directly), and LPs give
+up only a windfall that exists solely because the order settles at its edge rather than at the range
+price. **This is exactly the question `pokeOor`'s docblock defers** — *"deciding where the difference
+between the order's limit price and the range's price accrues"* — and it is the only fully-funded
+answer available. ⚠️ **DERIVED, NOT MEASURED.** The direction follows from `oorTrigger` + the sweep
+interval; the SIZE of the wedge on a real move has not been measured and must be before any split is
+chosen.
+
+**E. THEN `MAX_FILLS_PER_SWAP` STOPS BEING A MAGIC NUMBER.** Its whole justification is that the
+swapper eats the gas of fills they did not ask for. Once D pays them, a crowd of cheap resting orders
+costs **the rester**, and the bound can become an economic condition — *fill while the wedge covers
+the marginal gas* — which is self-limiting and needs no constant. `Core.sol:994` calls it *"NOT A
+TUNING KNOB"*; under D it stops being a knob at all.
+
+**F. CARRY A BOUNDED SWEEP ON THE RANGE'S OWN TOUCH POINTS.** `RANGE.sweepOor` has **exactly one**
+automatic call site in `evm/src` (`Core.sol:1094`). `_rebalance`/`repack` moves the price with nothing
+sweeping behind it. The pattern and the phrase both already exist — `Quid.sol:1011`, `syncLev`:
+*"ALSO called lazily at the entry of `_withdraw` … closing the gap on-chain, **not by poke-hope**."*
+
+### ⛔ THREE ALTERNATIVES CONSIDERED AND REJECTED, WITH THE REASON
+- **Record `touchedAt` on every skipped order** (durable touch, fully path-independent — the
+  textbook-correct limit-order semantics). **Rejected: one `SSTORE` per SKIPPED order is the gas the
+  cap exists to save, paid anyway, and paid by the swapper.** A's clamp buys ~the same property for
+  one write total.
+- **A gas bond escrowed at placement.** Explicit and per-order, but denominated in gas — a quantity
+  the order cannot price at placement time — and it adds state to duplicate a wedge that already
+  exists in the traded asset.
+- **Shorten the 1800s TWAP window to cut latency.** ⛔ **This trades away the mechanism's main
+  advantage** (§OOR-IS-ALREADY-CURVE-LIKE: a single-block wick cannot fill you here, and that is
+  because of the window). **If latency must improve, do it by triggering on the ANCHOR crossing** —
+  Chainlink is unmanipulable by us and pushes on a deviation threshold, so a real move fills promptly
+  while a move in OUR pool still does nothing. **Faster AND more manipulation-resistant; a shorter
+  window is neither.**
+
+⚠️ **A, B, C, F ARE MECHANICAL AND VERIFIABLE. D IS AN OWNER DECISION AND E DEPENDS ON D.** And D is
+the same seam as §E331 #1 (*OOR fills pay no skew at all*) approached from the other end — **settling
+one without the other prices the same wedge twice.**
+
 ## 🔴 **§OOR-IS-ALREADY-CURVE-LIKE — THE PROPERTY WE THOUGHT WE COULD NOT REPLICATE IS BUILT, THE TRIGGER IS A TWAP NOT A TRAVERSAL, AND THE ONE REAL GAP WAS "BOOKED" INTO A TAG THAT DOES NOT EXIST** (2026-08-29, owner question)
 
 Owner asked how the Rust handles ETH boundary orders, and whether Uniswap's *"the curve fills it as
