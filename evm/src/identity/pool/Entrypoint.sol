@@ -16,14 +16,14 @@ https://defi.sucks/
 
 */
 
-import {AccessControlUpgradeable} from '@oz-upgradeable/access/AccessControlUpgradeable.sol';
-import {UUPSUpgradeable} from '@oz-upgradeable/proxy/utils/UUPSUpgradeable.sol';
+import {AccessControlUpgradeable} from '@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol';
+import {UUPSUpgradeable} from '@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol';
 // OZ 5.6.1 dropped ReentrancyGuardUpgradeable: the transient-storage (EIP-1153) variant carries no
 // persistent state, so there's no upgradeable-vs-plain distinction left to make - use the plain one.
-import {ReentrancyGuardTransient} from '@oz/utils/ReentrancyGuardTransient.sol';
-import {SafeERC20} from '@oz/token/ERC20/utils/SafeERC20.sol';
+import {ReentrancyGuardTransient} from '@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol';
+import {SafeERC20} from '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 
-import {IERC20} from '@oz/interfaces/IERC20.sol';
+import {IERC20} from '@openzeppelin/contracts/interfaces/IERC20.sol';
 
 import {Constants} from './lib/Constants.sol';
 import {ProofLib} from './lib/ProofLib.sol';

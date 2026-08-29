@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import {Test} from 'forge-std/Test.sol';
 import {BlacklistAnchorFixture} from './helpers/BlacklistAnchorFixture.sol';
 import {BlacklistRootFixture} from './helpers/BlacklistRootFixture.sol';
-import {IERC20} from '@oz/token/ERC20/IERC20.sol';
-import {ERC20} from '@oz/token/ERC20/ERC20.sol';
+import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import {ERC20} from '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 
 import {PrivacyPoolComplex} from '../../../src/identity/pool/implementations/PrivacyPoolComplex.sol';
 import {IPrivacyPoolComplex} from '../../../src/identity/pool/interfaces/IPrivacyPool.sol';

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
 import {CreReportMetadata} from '../registry/CreReportMetadata.sol';
-import {ERC1967Proxy} from '@oz/proxy/ERC1967/ERC1967Proxy.sol';
+import {ERC1967Proxy} from '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol';
 import {MessageHashUtils} from '@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol';
 import {IEvidenceRegistry} from '@rarimo/evidence-registry/interfaces/IEvidenceRegistry.sol';
 

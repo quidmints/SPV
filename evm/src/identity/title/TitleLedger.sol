@@ -7,7 +7,7 @@ import {SparseMerkleTree} from "@solarity/solidity-lib/libs/data-structures/Spar
 //    an extra edge: this contract IS the land-title record. An upgradeable ledger of who owns what
 //    is a ledger whose owner can rewrite what ownership MEANS, and `OWNER_ROLE` gated
 //    `_authorizeUpgrade` alongside the ordinary admin powers.
-import {AccessControl} from "@oz/access/AccessControl.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 import {PoseidonUnit2L} from "../libraries/Poseidon.sol";
 import {HolderStateKeeper} from "../holder/HolderStateKeeper.sol";

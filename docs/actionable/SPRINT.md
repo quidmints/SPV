@@ -27183,19 +27183,35 @@ does not touch — is 102 bytes from the wall.** Shedding 8,917 bytes to fit `Co
 headroom in the contract that already has 1,453 spare, while the one that is actually out of
 room is untouched. **That is optimising the wrong constraint.**
 
-🔑 **AND THE `isBTC` FORK IS WHERE THE TWO FACTS MEET. 34 branches, and 17 of them — HALF — are
-in `SwapLib`:**
+⛔⛔ **CORRECTION 2026-08-29, SAME DAY, OWNER CAUGHT IT: I CLAIMED THE `isBTC` FORK IS 34
+BRANCHES WITH 17 IN `SwapLib`. IT IS ZERO. THE FORK IS ALREADY GONE.**
 
-| file | `isBTC` |
-|---|---|
-| **`SwapLib.sol`** | **17** |
-| `Quid.sol` | 7 |
-| `Vault.sol` | 3 |
-| `Shares.sol` · `Interfaces.sol` | 2 each |
-| `LevBase.sol` · `Core.sol` · `Aux.sol` | 1 each |
+*"i thought we fully removed isBTC and euler"* — correct, and the tree agrees. I ran
+`grep -rc "isBTC"` and quoted the raw count. Stripping comment lines: **3 hits, and all three
+are TRAILING COMMENTS ON SIGNATURE LINES** — `Interfaces.sol:586` *"§DE-TICK: no price limit,
+no `isBTC` — the instance IS the asset"*, and `SwapLib.sol:2245`/`:2377` *"§ISBTC-SPLIT: the
+`isBTC` param was never read"*. **`Quid`, `Vault`, `Shares`, `Core`, `Aux`, `LevBase`: zero.**
+No alias survives either (`token1isBTC`, `token1isETH`, `isBtc`: all zero). `§ISBTC-SPLIT` and
+`§DE-TICK` did this work already. **Euler is the same story: 0 code hits, 23 comments.**
 
-The fork exists because one engine serves two instances that expose **different faces**. Give
-them the SAME face and the branch has nothing left to discriminate.
+⇒ **THE MECHANISM I PROPOSED FOR FREEING `SwapLib` DOES NOT EXIST**, so prediction 1 below is
+withdrawn: there is no fork left to collapse and no bytes to recover that way. **The 102-byte
+margin is real and still unexplained — `SwapLib` is 2,972 lines and 24,474 bytes, and what is
+in it has to be measured, not assumed.**
+
+⚠️ **THIS IS THE THIRD TIME IN ONE SESSION A RAW `grep -c` COUNTED COMMENTS AS CODE HERE**
+(after `t.sol` from a clipped regex, and the four closures that read deleted vocabulary as a
+discharged concern). In a tree whose comments deliberately record what was REMOVED — every one
+of those 31 `isBTC` mentions is a tombstone saying "this used to branch" — **a name-count
+measures the archaeology, not the code. Strip comments before quoting any number, and prefer
+the compiler or the size script to a grep.**
+
+📌 **WHAT SURVIVES FROM ② ANYWAY, because it does not depend on the fork:** `SwapLib` at
+**24,474 / 102 bytes spare** is the binding contract, `Core` at 11,637 is the smallest piece of
+the proposed merge, and `Quid` already has 1,453 spare. **Shedding 8,917 bytes to fit
+`Core`+`Quid` still buys headroom where there is already room, and still leaves the contract at
+the wall untouched.** The argument for redesigning the fold stands; one of its two mechanisms
+does not.
 
 ### ③ THE PATTERN TO USE IS ALREADY IN THE TREE, AND IT IS NOT "MERGE THE CONTRACTS"
 
@@ -27213,10 +27229,10 @@ accessors go with the promise they encode.
 
 ### ▶️ WHAT THIS PREDICTS, STATED SO IT CAN BE FALSIFIED
 
-1. **`SwapLib` frees materially more than the `isBTC` count suggests**, because 17 branches also
-   carry their two sides' divergent code. **If collapsing the fork does not move `SwapLib`'s
-   24,474 appreciably, this design is wrong and the merge plan was right** — measure before
-   committing to it.
+1. ⛔ **WITHDRAWN — the fork it depended on is already gone (see the correction above).** The
+   replacement question is the honest one: **what IS the 24,474 bytes of `SwapLib`?** It is the
+   binding contract and nothing in the merge plan touches it. Profile it before designing
+   anything around it.
 2. **Files disappear rather than grow:** `VBtc.sol` (143 lines) has no content once `asset()`
    and the two 1:1 conversions are retired. `Vault.sol` (830) is a candidate to become the
    shared face's BTC instantiation rather than a contract.

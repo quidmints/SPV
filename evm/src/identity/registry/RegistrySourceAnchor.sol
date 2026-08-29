@@ -10,10 +10,10 @@ pragma solidity ^0.8.28;
 //    argument circular.
 // ⚠️ `AccessControl` (not `...Upgradeable`) and a real constructor: there is no proxy, so there is
 //    no initialiser to front-run and nothing to `_disableInitializers` against.
-import {AccessControl} from "@oz/access/AccessControl.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IEvidenceRegistry} from "@rarimo/evidence-registry/interfaces/IEvidenceRegistry.sol";
 import {IReceiver} from "../interfaces/registry/IReceiver.sol";
-import {IERC165} from "@oz/utils/introspection/IERC165.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /// @notice Anchors periodically-refreshed roots of external authoritative-source lists (e.g.
 /// Ukraine's notary registry bulk XML/zip export from ern.minjust.gov.ua / data.gov.ua) into the

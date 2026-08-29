@@ -7,7 +7,7 @@ import {IEvidenceRegistry} from '@rarimo/evidence-registry/interfaces/IEvidenceR
 import {RegistrySourceAnchor} from '../../../src/identity/registry/RegistrySourceAnchor.sol';
 import {CreReportMetadata} from './CreReportMetadata.sol';
 import {IReceiver} from '../../../src/identity/interfaces/registry/IReceiver.sol';
-import {IERC165} from '@oz/utils/introspection/IERC165.sol';
+import {IERC165} from '@openzeppelin/contracts/utils/introspection/IERC165.sol';
 
 /// Minimal in-test ERC-7812 registry - same pattern as EntrypointAsp.t.sol's MockEvidenceRegistry
 /// (keccak-isolated, sidesteps the real registry's Poseidon-under-Forge linking issue).

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
-import {EnumerableSet} from '@oz/utils/structs/EnumerableSet.sol';
+import {EnumerableSet} from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
 import {SetHelper} from '../../../src/identity/libraries/SetHelper.sol';
 
 /*
