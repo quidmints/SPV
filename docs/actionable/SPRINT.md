@@ -28559,6 +28559,67 @@ between this section and `§FOLD-REDESIGN`: same code, same decision, two reason
 
 ---
 
+## ⛔ §7540-FOR-ETH-IS-WRONG — **THE ETH RANGE IS NOT ASYNCHRONOUS. THE OWNER-CORRECTION THIS FILE CARRIES OVERREACHED, AND `§FOLD-REDESIGN` INHERITED IT.** (2026-08-30)
+
+Owner, 2026-08-30: *"only the btc side has async elements, am i wrong due to waitNft being an edge
+case, or is there more to it?"* — **not wrong. Checked against the code, and the ETH side has no
+asynchronous settlement at all.**
+
+### WHAT `§DOCS-FOLD/VBTC-ASSET-AND-7540` CLAIMS, AND WHY IT DOES NOT HOLD
+
+It says ETH inherits BTC's request→pending→claimable shape because *"the flash-repay-first path
+(`extractLev`) is bounded by `deliverableDollars` and by the liquidation threshold, so a single flash
+loan is not guaranteed to execute the whole way. **What remains is a claim to be settled later.**"*
+
+⛔ **`extractLev` DOES NOT EXIST** — zero occurrences. Its live equivalent is
+`LevManager.deleverToVault`, and the bound is real (`:546` `uint cap = deliverableDollars(lp); if
+(extractUsd > cap) extractUsd = cap;`). **But a cap TRUNCATES an amount; it does not defer one.** A
+capped delever produces a *smaller* redemption, not a pending one.
+
+### WHAT THE ETH PATH ACTUALLY DOES WITH A SHORTFALL — three degradations, all in the same tx
+
+```
+QuidLib.withdrawETH:770   sent = wethBal >= amount ? amount : wethBal;   // under-deliver, do not revert
+Quid._withdraw            served = offrampEtherFi(...);
+                          if (served > 0) { burn; debit; amount -= served; }
+                          else if (incrPre > 0) { _payUsdLeg(...) }        // pay DOLLARS instead of ether
+                          … firstBurn = amount > deliverable ? deliverable : amount;   // bounded by deliverableETH
+```
+
+⇒ **Partial fill, asset substitution, or a smaller burn — never a deferral.** And the check that
+settles it: **`pendingRedeem`, `claimableRedeem`, `pendingWithdraw` have ZERO occurrences in
+`Quid.sol`.** There is no pending state on the ETH side to enter.
+
+### AND `waitNft` IS THE EDGE CASE THE OWNER NAMED, FOR A REASON THE DOC MISSED
+
+`QuidLib.waitNft:895` is `requestWithdraw(recipient, eeth)` — **the EtherFi withdrawal NFT is minted
+to the RECIPIENT, not to the protocol.** The asynchrony is handed to the user and to EtherFi; the
+protocol's own share accounting closes in the same transaction. ⇒ **It is async *for that user's
+EtherFi claim*, not async *for the range*.** `Vault.requestRedeem` is the opposite: the sats arrive
+by a Lightning cooperative close in a LATER transaction, and the range must carry the claim until
+they do.
+
+### ⇒ WHAT THIS DOES TO THE FOLD (`§ORDER` 1.3)
+
+| | face | why |
+|---|---|---|
+| **BTC** | **7540** | settlement genuinely spans transactions; `requestDeposit`/`requestRedeem` already exist (`Vault.sol:501`, `:593`) |
+| **ETH** | **4626, with honest partial-fill semantics** | every path completes in-transaction; the failure mode is *less* or *a different asset*, which 4626 expresses and 7540's pending lifecycle does not |
+
+⛔ **AND 7540's `preview*`-MUST-REVERT RULE WOULD BE ACTIVELY WRONG ON ETH.** It exists so an
+integrator cannot read a synchronous quote for an asynchronous settlement. On the ETH side the
+settlement IS synchronous, so reverting `preview*` would deny integrators a quote that is honest —
+breaking the common path to describe a state it never enters.
+
+📌 **THE FOLD ARGUMENT SURVIVES; ITS JUSTIFICATION CHANGES.** `§FOLD-REDESIGN` argued *fold the FACE,
+not the CONTRACTS* partly on "one face fits both, and it is 7540". **That premise is now dead.** What
+still stands is the measured half: folding a whole contract COSTS bytes (`VEth`→`Quid` −1,077) while
+folding bodies returns them, and `Core` 11,637 + `Quid` 20,616 = 32,253 is over EIP-170 by 7,677.
+⇒ **The two instances need DIFFERENT faces, which is an argument AGAINST one merged contract and FOR
+the `Shares` base + `virtual` pattern `§FOLD-PINLEV` already uses** — that pattern exists precisely
+to keep a genuine asymmetry *declared at each face* instead of hidden in a branch. **This is that
+asymmetry.**
+
 ## 🧬 §FOLD-REDESIGN — **THE FOLD WAS CHOSEN BEFORE TWO FACTS LANDED THAT CHANGE IT. `Core`+`Quid` IS PROBABLY NOT THE FOLD.** (2026-08-29)
 
 Owner, 2026-08-29: *"maybe core and quid being one contract is not the fold that needs to
