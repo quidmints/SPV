@@ -275,7 +275,7 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
-## 🔴🔴🔴 **§INTENT-HAS-NO-FUNDING-LEG — THE FILL PAYS OUT VALUE NOBODY SUPPLIED. MEASURED, GATED, NOT FIXED.** (2026-08-29, owner: *"audit first if the eth intent rail is properly done"*)
+## 🔴🔴🔴 **§INTENT-HAS-NO-FUNDING-LEG — THE FILL RECLASSIFIES A POSITION IT NEVER CHECKS EXISTS. MEASURED, GATED, NOT FIXED.** (2026-08-29, owner: *"audit first if the eth intent rail is properly done"*)
 
 **It is not.** The audit was asked for before more building, and it found the rail has no funding leg
 at all. **Gated the same turn; the fix is an owner decision.**
@@ -286,18 +286,33 @@ Oracle at **2,449.92**. The maker signs a buy at exactly that price; **a third p
   maker ETH   0                      ->  408134038270347149     = $1,000.00 exactly
   maker USDC  0                      ->  0                        paid NOTHING
   POOLED      49999999999999999998   ->  49591823406478578891     real ether LEFT the range
-  POOLED_USD  122495999999           ->  123495999999             +1,000.000000, from nobody
+  POOLED_USD  122495999999           ->  123495999999             +1,000.000000
 ```
+⚠️ **CORRECTED WORDING (owner, same day): *"what do you mean nobody supplied? it was an in-range LP
+position up until the moment where it became an out of range exit."* Right, and my first phrasing —
+*"dollars nobody supplied"* — described the ACCOUNTING as if it invented money. It does not.**
+`_poolUsdInRange(mint = true)` is the CORRECT way to record basket dollars becoming range USD; it is
+what a deposit and an in-range swap both do. **The design's claim is a RECLASSIFICATION and that claim
+is sound — for a maker who has the position.** ⇒ **The defect is one level up: an unbalanced entry.**
+Every legitimate path in this tree DEBITS IN THE CALLER FIRST and then settles — `SwapLib:205`
+`safeTransferFrom`s the swapper's stable before `Core.swap` records it; the deleted book ran
+`QuidLib.sizeOutOfRange` → `AUX.deposit` before `CORE.outOfRange`. **`fillIntent` settles with no
+caller-side debit at all**, which is exactly why the seam is invisible: `settleOor` is byte-identical
+to every correct call site, and what is missing is the half that never appears in it.
+🔑 **AND THE TEST NOW ASSERTS THE PREMISE THAT MAKES IT A DEFECT:** `autoManaged(maker).pooled == 0`
+— the maker in that measurement **is not an in-range LP and holds no basket stables**. There is
+nothing to reclassify. **The contract never asks.**
 
 ### ⭐ THE CAUSE IS AN ABSENCE, WHICH IS WHY NOTHING CAUGHT IT
 `SwapLib.fillIntentBody` makes **exactly three external calls** — `getTWAPforAsset`, `POOLED()`,
 `POOLED_USD()`. It never pulls a token, never reads a balance, never burns a claim. `Quid.fillIntent`
 then calls only `CORE.settleOor` and emits. **Nothing in the path links `i.owner` to any capital.**
 Its own docblock says *"Capital never moved to place this: it stayed in the basket or in-range …
-The fill RECLASSIFIES it through `settleOor`"* — **but there is nothing to reclassify**, so the
-settlement takes its other branch: `usdDelta < 0` → `_poolUsdInRange(mint = true)` → `POOLED_USD +=`,
-and `volDelta > 0` → `POOLED -=` plus `Quid.deliverVolatile` → `_sendETH`. **Real ether out, minted
-dollars in.**
+The fill RECLASSIFIES it through `settleOor`"* — **and that is a description of an INVARIANT nothing
+enforces.** The settlement does its half faithfully: `usdDelta < 0` → `_poolUsdInRange(mint = true)`
+→ `POOLED_USD +=`, `volDelta > 0` → `POOLED -=` plus `Quid.deliverVolatile` → `_sendETH`. **Real
+ether out, range USD up — which is precisely right IF the maker's dollars were in the basket and
+their ETH in-range. Nothing checks that they were, and nothing debits them.**
 🔴 **THE OLD BOOK DID NOT HAVE THIS HOLE, AND THE DIFFERENCE IS ONE CALL.** `Quid.outOfRange` ran
 `QuidLib.sizeOutOfRange` → `AUX.deposit` **at PLACEMENT**, so the identical `settleOor` mint was the
 accounting counterpart of a real deposit. **The intent inherited the settlement and dropped the

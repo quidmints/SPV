@@ -188,6 +188,14 @@ contract OorIntentTest is AllesFixture {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         assertEq(maker.balance, 0, "premise: the maker holds no ether");
         assertEq(USDC.balanceOf(maker), 0, "premise: the maker holds no dollars");
+        // ⭐ **THE PREMISE THAT MAKES THIS A DEFECT RATHER THAN A RECLASSIFICATION.** The design's
+        //    claim is that an intent's capital "stayed in the basket or in-range" and the fill
+        //    merely RECLASSIFIES it — which is true and correct FOR A MAKER WHO HAS SUCH A
+        //    POSITION. This maker has none: no in-range LP depth, and (asserted above) no basket
+        //    stables either. **The contract never asks.** There is nothing to reclassify, and the
+        //    fill reclassifies it anyway.
+        (uint makerPooled,,,) = ETH.autoManaged(maker);
+        assertEq(makerPooled, 0, "premise: the maker is NOT an in-range LP");
 
         // A BUY at exactly the oracle price: `px > limitPx` is false, so the order IS crossed and
         // every other guard in `fillIntentBody` passes. Only the gate stands between this and the
