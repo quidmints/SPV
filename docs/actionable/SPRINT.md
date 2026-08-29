@@ -184,6 +184,83 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 🔴🔴🔴 **§OOR-TWO-DESIGNS-LIVE — THE INTENT REDESIGN IS BUILT, IN `HEAD`, AND RUNNING BESIDE THE BOOK IT WAS MEANT TO REPLACE. WE ARE PAYING FOR BOTH.** (2026-08-29, owner: *"is this really the best design … with the least on-chain machinery?"*)
+
+**No. The better design already exists in this tree and nothing was deleted when it landed.**
+
+`abb685c4` (2026-08-28) — *"§OOR-AS-INTENT: a resting order that exists only as a signature"* — is an
+ancestor of `HEAD`. `SwapLib.fillIntentBody:1159` + `Quid.fillIntent:1341` are live. **And so is the
+whole book, in the same contract:** `outOfRange:470` · `pull:1254` · `sweepOor:1263` · `pokeOor` ·
+`oorBook`/`selfManaged`/`positions` · the watermark · `MAX_FILLS_PER_SWAP`.
+⇒ **THE TREE CARRIES THE EIP-712 TYPEHASH *AND* THE NONCE MAP *AND* THE SORTED SET *AND* THE
+GEOMETRY *AND* THE UNINCENTIVISED POKE.** That is the worst cell of the matrix, and it is nobody's
+design — it is what happens when a replacement lands and the thing it replaces is left standing.
+⚠️ **AND §OOR-AS-INTENT STILL READS *"scoped but NOT started"*, DATED THE SAME DAY THE CODE LANDED.**
+The row and its own implementation were written within hours of each other and never met.
+
+### 🔴 WHAT THIS DOES TO THE TWO ROWS ABOVE IT
+| row | status now |
+|---|---|
+| §OOR-WATERMARK-DROPS-ORDERS (A–F) | **A and B are correctness fixes to machinery that should not exist.** Rule 17: *a root fix makes the previous fix deletable.* **Do not land A–F. Land the deletion.** C/D/E/F are pure investment in the half being removed |
+| §E258-POKE-INCENTIVE | **dissolves — there is no poke.** No cap, no watermark, no remainder, nothing to drain |
+| §BTC-DELIVERY-IS-BUILT | **shrinks to almost nothing.** A BTC intent + oracle gate that becomes a `requestSwapOutOnchain` IS a BTC boundary order — with real delivery and `refundExpiredSwapOut` recovery already attached. **No indexing, no `sweepOor`, no `deliverVolatile` change** |
+
+### ⭐ THE ARGUMENTS THE CODE MAKES BETTER THAN THE ROW DID — read `SwapLib.sol:1093-1112`
+- **STORAGE AT REST IS ZERO.** *"the consumed bit … THE ONLY STORAGE, AND IT IS WRITTEN AT FILL,
+  NEVER AT REST."* The book writes a struct, a sorted-set insertion and a `positions` push per order,
+  for orders that may never fill.
+- **PRIVACY, AND I HAD NOT CONSIDERED IT.** *"The old book stored `selfManaged[id].owner` and
+  `positions[owner]` — a public, permanent link from an address to its intentions, for orders that
+  may never fill … publishing resting orders per address shrinks that [anonymity] set for no
+  accounting benefit."*
+- **BYTES, MEASURED:** inlined in `Quid` the intent path is **2,629 bytes** — headroom 2,902 → 273.
+  In `SwapLib` (already linked, delegatecalled) it costs `Quid` only the call. ⇒ **The
+  "probably not a byte saving" caveat in §OOR-AS-INTENT is about the WRONG placement**, and the
+  placement chosen avoids it.
+- **THE ORACLE BINDS AND THE RELAYER CANNOT LIE:** four checks — expiry, consumed bit, signature,
+  and *"THE ORACLE — OUR read, the same source settlement uses. The relayer picks WHEN and nothing
+  else."*
+
+### ⛔ AND IT CORRECTS SOMETHING I TOLD THE OWNER AN HOUR EARLIER
+I said we *"already replicate"* Uniswap's transaction-free fill via `Core.swap` step (4). **The
+library's own note is sharper and I should have found it first:** *"an out-of-range order [in v4] was
+REAL v4 liquidity at its own ticks … no separate execution, which is the strongest MEV protection
+there is. **That property left with §V4-CUT, not with this change**: `sweepOor` was already only an
+emulation, capped at four fills per swap with a poke for the rest."*
+⇒ **`sweepOor` is an EMULATION of the property, not the property.** The fill does ride on a swapper's
+transaction — that part was right — but capped, pokeable, and (per the row above) *droppable*. **The
+automaticity was spent at the v4 cut. The intent design is not trading it away; it is the first
+design since that cut that is honest about not having it.**
+
+### ⚠️ THE THREE REAL COSTS, NAMED — do not decide this from the advocacy above
+1. **SOMEBODY MUST HOLD THE SIGNATURE.** An intent lives off-chain: lose it, or have no relayer store
+   it, and it cannot be filled. The book is self-custodial in a way the intent is not. **This is an
+   operational dependency the book does not have, and it is the honest cost of the trade.**
+2. **SMART-WALLET OWNERS CANNOT PLACE ONE.** `fillIntentBody` uses plain `ecrecover`, and the
+   docblock rules out ERC-1271 at *"~2 KB for a ruled-out case"* on §B7's grounds (an LP is
+   necessarily the channel key's EOA). **`outOfRange` has no such restriction, so deleting the book
+   is a functional narrowing for contract wallets.** §B7 is cited as the justification and §B7 is
+   itself still open — **check that before deleting.**
+3. **A FILL NOW REQUIRES A TRANSACTION SOMEBODY CHOOSES TO SEND.** ⚠️ But weigh it against what the
+   book actually delivers, not what it promises: §OOR-WATERMARK-DROPS-ORDERS shows a touched order
+   can be dropped from every future sweep, and the capital was idle the whole time it waited. **The
+   book's advantage is a fill guarantee it does not keep, bought with certain foregone yield.**
+
+### ▶️ THE DECISION, AND IT IS ONE QUESTION NOT A PROGRAMME
+**Does anything the book does survive that the intent does not?** On the evidence: cost 2 (smart
+wallets, gated on §B7) and cost 1 (intent custody/relay). ⇒ **If §B7 holds and a relay exists, delete
+the book** — `outOfRange`, `pull`, `openOor`, `sweepOor`, `pokeOor`, `fillOne`, `deindexOor`,
+`oorKey`, `oorTrigger`, `oorBounds`, `sizeOorUsd`, the `Oor` struct, `oorBook`/`selfManaged`/
+`positions`, `lastSweptPx`, `MAX_FILLS_PER_SWAP`, and `Core.swap`'s step (4) — **and every open row
+above about the book retires with it.**
+📐 **BLAST RADIUS IS ALREADY MEASURED IN §OOR-AS-INTENT:** 6 src files / 24 call-def sites; 5 test
+files / 15 call sites incl. all of `BtcSelfManaged.t.sol` and `OorFillsOnTouch.t.sol`; plus
+`spa/src/lib/abi.ts` (**which this session just repointed for `outOfRange`'s new `loadBalance`
+argument — that work is deletable too, and that is the right outcome, not a waste**).
+⛔ **AND THE BTC SIDE HAS NEITHER TODAY:** `Vault` has no `fillIntent` and its `sweepOor` is the
+`pure … return 0` stub. **Whatever is decided, BTC needs the chosen one built — it currently has a
+placement path with no execution path of any kind.**
+
 ## 🔴🔴 **§OOR-WATERMARK-DROPS-ORDERS — THE CAP IS NOT A RATE LIMIT, IT IS A FILTER, AND THE SAME LINE STRANDS EVERY ORDER A SHORT POOL COULD NOT SERVE** (2026-08-29, owner: *"there must be a way to improve the design"*)
 
 `RangeLib.sweepOor` opens with:
@@ -1244,7 +1321,7 @@ for when native delivery lands, and is the smallest change that does either. ⚠
 `BtcSelfManaged.t.sol`, and that is the right conversation — those tests assert a user CAN open a
 position that cannot fill.
 
-## ⏸️ **§OOR-AS-INTENT — the "minimise on-chain code" redesign, scoped but NOT started** (2026-08-28)
+## ⛔ **§OOR-AS-INTENT — ⚠️ "NOT STARTED" IS WRONG AND WAS WRONG THE DAY IT WAS WRITTEN. IT IS BUILT AND IN `HEAD` (`abb685c4`, ETH side): `SwapLib.fillIntentBody:1159` + `Quid.fillIntent:1341`. The book was NOT deleted, so both designs are live — see §OOR-TWO-DESIGNS-LIVE. BTC has neither.** *(original row, kept — its security design and blast radius are still the record)* (2026-08-28)
 
 Owner: *"remove out of range code from solidity … doable off chain since the keeper is trusted to run
 the bridge anyway"*, with the security question *"how is it that only this intent can be done by the
