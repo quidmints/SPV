@@ -428,6 +428,61 @@ fee base, there is no relay, and an unheld signature is indistinguishable from a
 **But §OOR-AS-INTENT never raised it, and it becomes live the moment a relayer quotes off held
 intents.** ⇒ **Whoever builds the relay owns this question.**
 
+### 🔴 **§INTENT-NONCE — THE CANCEL THE DOCBLOCK PROMISES DOES NOT EXIST, EXPIRY IS UNBOUNDED, AND THE MAP IS THE EXPENSIVE SHAPE** (2026-08-29, owner: *"nonce?"*)
+
+Three findings, and they are one change.
+
+#### 1. 🔴 **THERE IS NO CANCEL. THE ONLY WRITER OF `intentUsed` IS A SUCCESSFUL FILL.**
+`Quid.sol:1187` says: *"ONE CONSUMED BIT PER (owner, nonce). **Also the cancel**: an intent the owner
+never hands out cannot fill, and **burning its nonce makes that certain**."*
+**Measured — `grep -rn intentUsed` over `evm/src`, `evm/test`, `spa/src` returns the declaration, the
+one write inside `fillIntentBody`, and two test reads. Nothing else.** There is no
+`cancelIntent`/`burnNonce` entrypoint, so *"burning its nonce"* names an operation that cannot be
+performed.
+⇒ **A SIGNED INTENT, ONCE HANDED TO A RELAYER, CANNOT BE RETRACTED.** The docblock's first clause is
+true and irrelevant (an intent you never hand out was never an intent); its second clause is the one
+that would make handing one out safe, and it is fiction. **This is the class CLAUDE.md names: a
+comment describing a capability that was never built — and it is the comment that makes the design
+READ safe.**
+
+#### 2. 🔴 **SO `expiry` IS THE ONLY CANCEL — AND NOTHING BOUNDS IT.**
+`fillIntentBody:1164` is `if (block.timestamp >= i.expiry) revert IntentExpired();` and that is the
+whole check. **No upper bound.** A maker can sign a ten-year intent, and with (1) there is no way
+back.
+⭐ **THE REPO ALREADY STATES THE PRINCIPLE, IN THIS FILE, ABOUT A DIFFERENT PATH.** `SwapLib`'s
+`Quote` struct (`:2859`): *"`Quote.deadline` is **NOT optional garnish**, it is the thing that stops a
+quote taken in a calm block from settling in a violent one. **A committed rate with no expiry is a
+FREE OPTION written to the swapper**, and the range is the counterparty who paid for it."*
+⇒ **An `OorIntent` IS a committed rate with an expiry nobody bounds and no retraction.** The
+direction differs and that is the only thing that differs: on `Quote` the RANGE writes the option; on
+an intent the **MAKER** writes it, to whoever holds the bytes. **Same shape, same fix, and the repo
+already ruled that a deadline is not garnish.** ⚠️ **The exposure is the MAKER'S, not the protocol's**
+— the range still fills at a price the oracle has reached — so this is a user-protection defect, not
+a solvency one. Say it that way; do not inflate it.
+
+#### 3. ⚠️ **AND THE MAP IS THE EXPENSIVE SHAPE FOR A MECHANISM WHOSE WHOLE CLAIM IS CHEAPNESS.**
+`mapping(address => mapping(uint64 => bool))` gives every nonce **its own slot**, so every fill is a
+**cold SSTORE (~20k), forever** — a fresh slot each time, never reused. A one-word bitmap
+(`owner → word → uint256`) pays that once per 256 nonces and ~5k thereafter.
+⛔ **AND `solady/src/utils/LibBitmap.sol` IS ALREADY LINKED** (`evm/remappings.txt`), so standing rule
+8 applies: *"Don't hand-roll what an existing library or tool already does."*
+📌 The repo's own two nonce precedents are both deliberate and neither is this: `migrationNonceUsed`
+is a used-SET over opaque `bytes32` (no ordering possible), and `freshnessSeq` is **strictly
+monotonic** because its job is anti-rollback. **An intent nonce is the third case — sparse, owner-scoped,
+and cancellable — which is exactly what a bitmap is for.**
+
+### ▶️ **THESE ARE ONE CHANGE, NOT THREE — AND BUILDING THE CANCEL FIRST WOULD BE THE CLAMP**
+A cancel on the CURRENT map costs one cold SSTORE **per nonce**, so retracting a batch of intents is
+N transactions' worth of gas and there is no cancel-all at any price. On a bitmap, cancel-one and
+**cancel-a-whole-word (256 intents) are the same single SSTORE**, which is the only form in which
+"the maker can get their exposure back" is actually true.
+⇒ **Rule 17 applied BEFORE writing rather than after: a cancel built on the map is a fix the bitmap
+would delete.** Do the shape and the cancel together.
+⚠️ **BOUNDING `expiry` IS A POLICY NUMBER AND STAYS THE OWNER'S** — but note it is FREE to change
+today, and only today: **no intent can currently fill (§INTENT-HAS-NO-FUNDING-LEG), and changing the
+struct or the typehash invalidates every signature ever produced.** After the funding leg lands, this
+becomes a migration. **It is the cheapest it will ever be right now.**
+
 ### ⚠️ AND THE SECOND HALF OF THE AUDIT: `loadBalance` IS INERT ON ETH, AND 1inch IS NOT ON THIS PATH
 `settleOor(..., loadBalance)` → `Core._shortfallLoadBalance` → `RANGE.onShortfall(...)` →
 **`Quid.onShortfall(address, uint) external {}`** — an empty body, deliberately (its docblock: an ETH
