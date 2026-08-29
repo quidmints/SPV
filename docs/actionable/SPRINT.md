@@ -460,6 +460,57 @@ fee base, there is no relay, and an unheld signature is indistinguishable from a
 **But §OOR-AS-INTENT never raised it, and it becomes live the moment a relayer quotes off held
 intents.** ⇒ **Whoever builds the relay owns this question.**
 
+### 🔴 **§HUB-IS-USDC-AND-THE-TABLE-HAS-TWO — 11 OF THE BASKET'S 14 DOLLARS CANNOT BE SOLD AT ALL** (owner, 2026-08-30: *"why is it always USDC though? we might have to chain hops (it depends which dollar user is selling)"*)
+
+**Measured.** The basket is **14 stables** (`DeployL1_s.sol:240` — USDC, USDT, PYUSD, GHO, RLUSD,
+USDG, DAI, USDS, USDE, AUSD, cUSD, crvUSD, frxUSD, BOLD; the layout maximum, `uint[15]` exactly full).
+**`LevMath._routeOf` has TWO entries**: `RLUSD → CURVE_USDC_RLUSD` and `PYUSD → CURVE_PYUSD_USDC`.
+Plus USDC as the hub itself ⇒ **3 routable, 11 not.** Everything else hits
+`if (pool == address(0)) revert NoStableRoute();`
+
+#### ▶️ WHY IT IS USDC, AND THE REASON IS NOT PREFERENCE
+`_stableToWbtc`'s own docblock: *"**The pinned pools are USDC-paired** (USDC/WETH, WBTC/USDC), so a
+venue stable that is NOT USDC has no direct pool and the swap would revert in the router."*
+⭐ **AND THAT FOLLOWS FROM §C2.1, NOT FROM STABLECOIN LIQUIDITY.** `_aggSwap` is **not 1inch the
+aggregator** — §E357-VOLATILE-ROUTE established the keeper cannot supply a route, so the contract
+builds its own calldata with a `uint256 dex` word, which names **ONE POOL**. ⇒ **A single-pool
+executor can only trade a pair that has a pinned pool, and the pinned pools are USDC-paired.** The
+Curve hub hop exists to get *to* that pair. **The topology is a consequence of having no solver.**
+
+#### ⛔ AND CHAINING HOPS IS NOT THE CHEAPEST FIX — THE TABLE WAS BUILT TO GROW
+§E210 rewrote three duplicated per-stable branches into `_routeOf` **precisely so the roster could
+grow**: *"Adding a stable is now **ONE line** here, and the swap bodies below never change again."*
+⇒ **A stable with a Curve pool to USDC costs one line. Only a stable with NO such pool needs a
+second hop.** Chain hops for those; do not build a general multi-hop router for a roster where most
+of the gap is one line each.
+⚠️ **AND `_routeOf` IS `pure` WITH HARDCODED ADDRESSES** — every added route is a redeploy of the
+tightest library in the tree. If the roster is meant to move without one, that is a different change
+(a settable table) and a different decision.
+
+#### 🔑 WHAT THIS MEANS FOR THE INTENT FILL — AND IT IS **NOT** WHERE I EXPECTED
+1. **THE USD LEG NEEDS NO SWAP AT ALL.** A buy credits `POOLED_USD` via `_poolUsdInRange(mint)`,
+   which increments an accounting mirror and checks backing — **no tokens move.** The dollars are
+   already in the basket's vaults; `settleOor` passes `basketLeg = false`, so even `basketUsd` is
+   untouched. **Burning the maker's QU!D and crediting `POOLED_USD` involves no stable and no route.**
+2. **THE SHORTFALL IS ON THE *VOLATILE* LEG.** `fillIntentBody` reverts `IntentUnfillable` when
+   `volOut > ICore(core).POOLED()`. **That** is where *"take what it can and load-balance the rest"*
+   applies — the range is short ETH, not short dollars.
+3. 🔴 **AND ON ETH THAT REMEDY IS EXPLICITLY REFUSED BY DESIGN.** `Quid.onShortfall` is
+   `external {}`, and its docblock is not silent about why: *"a surplus-funded refill BUYS ETH to
+   cover a shortfall that is usually IMPERMANENT, realising that IL onto the SHARED backing and
+   compensating the flow at every LP's expense … Real ETH demand is met fairly at withdrawal instead.
+   **Do not "implement" this.**"* The BTC side routes to the hop precisely because that delivers real
+   BTC and **consumes no basket stables**.
+⇒ **BUYING THE MISSING ETH WITH BASKET DOLLARS IS THE ONE REMEDY THIS RANGE HAS ALREADY RULED OUT** —
+and `_aggSwap(USDC, weth, …)` (`LevMath:694`) is reached only from `_stableToWethSor`, i.e. **opening
+a LEVER**, never from the range path.
+▶️ **SO THE INTENT'S SHORT-VOLATILE CASE HAS THREE CANDIDATES AND ALL THREE ARE OWNER-SHAPED:**
+serve the fillable part and leave the rest claimable (redeem's own answer, no ETH purchased, no IL
+realised); source from the ETH VENUE rather than the market (`offrampEtherFi` — weETH→WETH is
+already direct Curve, `LevMath:513`, and is NOT a dollar sale, so `onShortfall`'s objection does not
+reach it); or overturn `onShortfall`. **The second is the only one that is both new and consistent
+with the docblock that forbids the first reading.**
+
 ### ✅ **§INTENT-NO-NONCE — THE CLAIM IS THE BOUND, SO THE NONCE IS REDUNDANT. AND IT RETIRES §INTENT-NONCE'S THREE FINDINGS RATHER THAN FIXING THEM.** (owner, 2026-08-30: *"why is a nonce needed at all. takes what it can and loadbalance the rest like we do for weth and wbtc with 1inch"*)
 
 **The nonce prevents REPLAY. The claim prevents OVER-FILL. Only the second is a safety property, and
@@ -18915,55 +18966,77 @@ rows as already done. **Open the row, read the body, check the code — then del
 
 #### 🚦 WAVE 1 — THE OFF-POOL ROUTE. **Everything downstream waits on this.**
 
+**5 rows — bodies in `§QUEUE-VERBATIM`:** `E3` · `E183-c-swap-index-is-the-id-nonce-not-a-key-index` · ``Basket:166`` · `v4 removal` · `E151`
+
 `§E219` states it outright: *"the routing work is NOT parallel to this move, it is its PRECONDITION … you cannot stop being a pool until you can source liquidity elsewhere."* `§E357-VOLATILE-ROUTE` is open a third time. `§E356` corrected the standing belief that this was unstarted: **1inch IS wired** — `LevMath.sol:606` calls `ONEINCH_ROUTER` with approve-and-reset on both paths, `tools/fetch_1inch_route.py` is real, and `CurveObserverIsCheapAndSane.t.sol` exercises live 1inch on a fork. So this wave is finishing, not starting.
 
 
 #### 🎯 WAVE 2 — THE RING'S PRICE SOURCE. ⛔ **"IT HAS NONE" IS FALSE — SEE `§CLUSTER-4-ORACLE`.** Blocks W3 and W4.
+
+**22 rows — bodies in `§QUEUE-VERBATIM`:** `E221-ethbtc-cross-replaces-the-wbtc-handle` · `E223-1inch-is-independent-but-has-no-native-btc` · `UNIT-A-ATTEMPT-1` · `UNIT-SERIES-STOP` · `W1-sweep-has-no-authorized-trigger` · `§KEEPER-VS-LP-ONLINE — the range is dynamic and user-free; and WHY the ETH side can be delegated while the BTC side cannot` · `6×` · `E87` · `E-COORD` · `E93-b` · `Depletion σ²-free, keyed on `inv0`` · `UNIT-A-DECIDED` · `UNIT-VARIANCE-HISTORY` · `UNIT-VOL-BRACKET` · `UNIT-WHY-VARIANCE` · `UNIT-VARIANCE-SERIES` · `UNIT-VARIANCE-SOLVED` · `UNIT-STALENESS-FLOOR` · `σ² at probe` · `σ² (incumbent)` · `trade-based `Σ size·Δp`` · `no ticks`
 
 `§E219`'s step ② was RETRACTED BY ITS OWN AUTHOR and this is what replaced it: *"the ring is FED BY `getSlot0`, so that is circular … the real step ② is that the ring needs a NEW PRICE SOURCE, because without a pool nothing writes it."* Candidates named there: the realized fill price of whatever venue replaces the pool (so W1 first), or the Chainlink anchor `twapResolve` already reconciles against. ⛔ `§E220`'s "source the ring from Chainlink" is **SUPERSEDED BY §E232** — the anchor is what the ring is CHECKED against, so feeding it in makes the check a smoothed copy of itself. **This is a design decision, and σ², the skew and the fee all rest on it.**
 
 
 #### 💸 WAVE 3 — SKEW AND FEE. **Blocked by W2: these are all functions of σ².**
 
+**21 rows — bodies in `§QUEUE-VERBATIM`:** `T2` · `E227-calcfeel1-saturates-before-weight-matters` · `E79-SPEC-r` · `UNIT-A-ATTEMPT-2` · `UNIT-A-ROOT-WRITTEN` · `UNIT-SKEW-STATUS` · `UNIT-A-REAL-TWO` · `4320 (~30 days)` · `E79-SPEC` · `E135-skew` · `E136-skew` · ``UNIT-BOUND-NOT-DELETE`` · `#41-INTERNAL-FILL-PRICE` · `SKEW-DESIGN-VERDICT` · `E189-skew-horizon` · `E145-t` · `UNIT-WHY-IT-MATTERS` · `UNIT-A-PLAN` · `UNIT-A-ROOT` · `Low volume` · `It books to LPs as a fee`
+
 Nothing here can be measured while σ² has no trustworthy source, and `§E352` (the flush branch — a free drain at σ²=0) is one of the four owner decisions. ⚠️ Measure skew in **ppb, not bps** — 0.325 bps integer-divides to 0, and that rendering already produced one wrong "the tax is zero" finding.
 
 
 #### 🧱 WAVE 4 — THE FOLD. ⛔ **`Core`+`Quid`-into-one-4626 IS PROBABLY THE WRONG FOLD — SEE `§FOLD-REDESIGN` BELOW.** Blocked by W1 and W2.
+
+**13 rows — bodies in `§QUEUE-VERBATIM`:** `A.13b` · `C6–C9` · `E6` · `E219-hook-removal-order` · `E43` · `C5` · `3×` · `stack-forced splits` · `E217-core-stops-being-a-hook` · `E108b-r3` · `UNIT-RESEATEPOCH` · `it already runs on every swap` · `it already has the price bounds`
 
 Owner chose this 2026-08-16. `Core.sol:43` and `Quid.sol:37` are still two contracts. Steps ③④⑤ of `§E219`'s order LANDED (`SafeCallback` has 0 references, `BtcLib` has 0 `tickLower`, `SOR.sol` deleted) — **the deletions are what make the merge representable at all.** Size checkpoint re-measured 2026-08-23 (`§E344`): `Core` 11,637 + `Quid` 21,856 = **33,493, over EIP-170 by 8,917** — down from 23,835, so the "must stay two contracts" branch is NOT taken. ⚠️ Quote `tools/check-contract-sizes.py`, not any row — three different readings landed in one day.
 
 
 #### 🧾 WAVE 5 — MINT/REDEEM AND THE LP CLAIM. **Independent of the range spine; can run alongside W1–W4.**
 
+**14 rows — bodies in `§QUEUE-VERBATIM`:** `V8` · `F1` · `#12` · `E2` · `E101-m` · `E93-ATTEMPT-1` · `UNIT-A-DOUBLE-COUNT-INVERTED` · `PENDINGSWAPOUT-CLAMP-ABSORBS-DELIBERATE-DUST` · `E49` · `4×` · `E93-a` · `E154-eth-term` · `UNIT-A-DOUBLE-COUNT-SITE` · `E2-AXIS`
+
 `E2` (mint at par, redeem at the mark — a short-tenor depositor subsidises long-dated holders) and `#12` (LP share price reads only the ETH leg of a two-legged claim; design settled, code not written) are the two substantial ones.
 
 
 #### ⚡ PARALLEL TRACK A — BITCOIN, CHANNELS AND THE HOP. **44 rows, no dependency on the EVM range spine.**
+
+**44 rows — bodies in `§QUEUE-VERBATIM`:** `E116-a` · `E122-a` · `E122-d` · `E160-c-per-hop-degenerates` · `E174-adopt-vls-not-greenlight` · `E176-delegate-enumeration` · `E177-d` · `E177-f` · `E176-E` · `E180-maliciousness-suite` · `E184-CLOSED / E185` · `E186-stale-markers` · `E191-feeSettleSats` · `E166-2` · `E182-REKEY-CHECKED` · `T1-f-ROOT-STEP2-RETHOUGHT` · `BRIDGE-DAEMON-BIN-DOES-NOT-COMPILE` · `M1#2-PHASE-2: LP-SIDE SIGNER REFUSAL — DELIVERED BY PHASE 1b, NOT BY NEW CODE` · `ROUTING-FEES-BY-DESIGN-OR-OMISSION` · `E165-AMOUNT-FREE-SHAPE` · `E165-SHAPES-VS-OFFLINE-LP` · `T3-FRESHNESS-NARROWED` · `M1-RESIDUAL-100` · `§E166-RESOLVED — lazy open is BUILT on the side that has it, and has NO live motivation on the side that doesn't` · `(a+) vBTC settle-on-emission + splice-on-transfer` · ``watchtower_tick(...)`` · `E114-b` · `E125-a` · `E158-no-seed-migration` · `E158-can-we-fix-it` · `E158-no-crypto-fix-for-LN` · `E159-prove-onchain-swapin` · `E160-b-no-primitive-helps` · `E161-bond-and-fraud-proof` · `E162-rekey-splice` · `E164-b-rule-modifiers` · `E166-open-items` · `E169-fixture-owned-payout` · `E179-utxo-account-drift` · `E184-swapout-pop` · `Choppy, round-tripping` · `BUFFER-QUESTION-DISTILLED` · `T3-CANDIDATE-1-CHECKED` · `§E172-FOLLOW-UP: CONTINUOUS OR CHECK-INS? — TWO SIGNING DUTIES, DIFFERENT LATENCIES; and the failure mode is SERVICE, not funds`
 
 The largest single group and it shares no code with W1–W4, so it can run start-to-finish in parallel by a separate thread. Its own blocker is an owner decision (the pool-sats ladder's second output — `SweepAuth`'s 2-of-3), not engineering.
 
 
 #### 📈 PARALLEL TRACK B — LEVERAGE AND VENUES.
 
+**8 rows — bodies in `§QUEUE-VERBATIM`:** `E229-deleverToVault-must-not-be-deleted` · `E224-nothing-wrapped-is-held` · `E192-branch-audit` · `a. Gate to `vogueSyncHook`` · `b. Pin the Vault` · `c. Thread the caller` · `Rise then fall` · `§A.25`
+
 Includes `C17 eMode`, one of the four owner decisions: `setUserEMode` has **zero occurrences** in `src`, `test` and `script`, so the Aave leg runs at BASE LTV and "eMode's 93% beats Morpho's 94.5%" describes a configuration never made.
 
 
 #### 🚀 PARALLEL TRACK C — DEPLOY, OWNERSHIP AND OPS.
+
+**11 rows — bodies in `§QUEUE-VERBATIM`:** `E6` · `E115-c` · `E119-a` · `E93-r` · `E128-r2` · `E135-c` · `M1#2-PHASE-1C-FAMILY: THE FAMILY PLAN'S SEED IS SHARDED K-OF-N — NO ROSTER, NO SET SIZE, NO CUSTODIAN` · `E127` · `E139` · `E125-d` · `UNIT-RPC-POLICY`
 
 ⚠️ Ordering is load-bearing here: `_wireSolana` and every `setPeer`/`setDelegate` run immediately BEFORE `renounceOwnership()`, and the deploy script says it — *"whatever is not wired now can never be wired at all."*
 
 
 #### 🪪 PARALLEL TRACK D — IDENTITY.
 
+**1 rows — bodies in `§QUEUE-VERBATIM`:** `E144-b`
+
 Folded in from ibiza; largely self-contained.
 
 
 #### 🖥️ PARALLEL TRACK E — SPA AND APP.
 
+**2 rows — bodies in `§QUEUE-VERBATIM`:** `§KEEPER-DWELL-IS-BUILT — the LP's IL-protect already has its anti-churn gas gate; do NOT add a second one` · `D3`
+
 
 
 
 #### 🧪 PARALLEL TRACK F — TEST INFRASTRUCTURE.
+
+**3 rows — bodies in `§QUEUE-VERBATIM`:** `E135-a` · `UNIT-RPC-SELFINFLICTED` · `UNIT-B-ATTRIBUTED`
 
 ⚠️ `§E356`: the fork suite was never broken — `ETH_RPC_URL` was simply absent from `evm/.env`. Workstream E's "39 regressions + 23 never-green" has **never been measured on a working endpoint.** Re-measure before treating any of them as defects.
 
@@ -18977,7 +19050,6 @@ Folded in from ibiza; largely self-contained.
 
 **151 rows — ids only; every body is in `§QUEUE-VERBATIM` below, verified present:**
 
-`E3` · `E183-c-swap-index-is-the-id-nonce-not-a-key-index` · ``Basket:166`` · `v4 removal` · `E151` · `E221-ethbtc-cross-replaces-the-wbtc-handle` · `E223-1inch-is-independent-but-has-no-native-btc` · `UNIT-A-ATTEMPT-1` · `UNIT-SERIES-STOP` · `W1-sweep-has-no-authorized-trigger` · `§KEEPER-VS-LP-ONLINE — the range is dynamic and user-free; and WHY the ETH side can be delegated while the BTC side cannot` · `6×` · `E87` · `E-COORD` · `E93-b` · `Depletion σ²-free, keyed on `inv0`` · `UNIT-A-DECIDED` · `UNIT-VARIANCE-HISTORY` · `UNIT-VOL-BRACKET` · `UNIT-WHY-VARIANCE` · `UNIT-VARIANCE-SERIES` · `UNIT-VARIANCE-SOLVED` · `UNIT-STALENESS-FLOOR` · `σ² at probe` · `σ² (incumbent)` · `trade-based `Σ size·Δp`` · `no ticks` · `T2` · `E227-calcfeel1-saturates-before-weight-matters` · `E79-SPEC-r` · `UNIT-A-ATTEMPT-2` · `UNIT-A-ROOT-WRITTEN` · `UNIT-SKEW-STATUS` · `UNIT-A-REAL-TWO` · `4320 (~30 days)` · `E79-SPEC` · `E135-skew` · `E136-skew` · ``UNIT-BOUND-NOT-DELETE`` · `#41-INTERNAL-FILL-PRICE` · `SKEW-DESIGN-VERDICT` · `E189-skew-horizon` · `E145-t` · `UNIT-WHY-IT-MATTERS` · `UNIT-A-PLAN` · `UNIT-A-ROOT` · `Low volume` · `It books to LPs as a fee` · `A.13b` · `C6–C9` · `E6` · `E6` · `E219-hook-removal-order` · `E43` · `C5` · `3×` · `stack-forced splits` · `E217-core-stops-being-a-hook` · `E108b-r3` · `UNIT-RESEATEPOCH` · `it already runs on every swap` · `it already has the price bounds` · `V8` · `F1` · `#12` · `E2` · `E101-m` · `E93-ATTEMPT-1` · `UNIT-A-DOUBLE-COUNT-INVERTED` · `PENDINGSWAPOUT-CLAMP-ABSORBS-DELIBERATE-DUST` · `E49` · `4×` · `E93-a` · `E154-eth-term` · `UNIT-A-DOUBLE-COUNT-SITE` · `E2-AXIS` · `E116-a` · `E122-a` · `E122-d` · `E160-c-per-hop-degenerates` · `E174-adopt-vls-not-greenlight` · `E176-delegate-enumeration` · `E177-d` · `E177-f` · `E176-E` · `E180-maliciousness-suite` · `E184-CLOSED / E185` · `E186-stale-markers` · `E191-feeSettleSats` · `E166-2` · `E182-REKEY-CHECKED` · `T1-f-ROOT-STEP2-RETHOUGHT` · `BRIDGE-DAEMON-BIN-DOES-NOT-COMPILE` · `M1#2-PHASE-2: LP-SIDE SIGNER REFUSAL — DELIVERED BY PHASE 1b, NOT BY NEW CODE` · `ROUTING-FEES-BY-DESIGN-OR-OMISSION` · `E165-AMOUNT-FREE-SHAPE` · `E165-SHAPES-VS-OFFLINE-LP` · `T3-FRESHNESS-NARROWED` · `M1-RESIDUAL-100` · `§E166-RESOLVED — lazy open is BUILT on the side that has it, and has NO live motivation on the side that doesn't` · `(a+) vBTC settle-on-emission + splice-on-transfer` · ``watchtower_tick(...)`` · `E114-b` · `E125-a` · `E158-no-seed-migration` · `E158-can-we-fix-it` · `E158-no-crypto-fix-for-LN` · `E159-prove-onchain-swapin` · `E160-b-no-primitive-helps` · `E161-bond-and-fraud-proof` · `E162-rekey-splice` · `E164-b-rule-modifiers` · `E166-open-items` · `E169-fixture-owned-payout` · `E179-utxo-account-drift` · `E184-swapout-pop` · `Choppy, round-tripping` · `BUFFER-QUESTION-DISTILLED` · `T3-CANDIDATE-1-CHECKED` · `§E172-FOLLOW-UP: CONTINUOUS OR CHECK-INS? — TWO SIGNING DUTIES, DIFFERENT LATENCIES; and the failure mode is SERVICE, not funds` · `E229-deleverToVault-must-not-be-deleted` · `E224-nothing-wrapped-is-held` · `E192-branch-audit` · `a. Gate to `vogueSyncHook`` · `b. Pin the Vault` · `c. Thread the caller` · `Rise then fall` · `§A.25` · `E115-c` · `E119-a` · `E93-r` · `E128-r2` · `E135-c` · `M1#2-PHASE-1C-FAMILY: THE FAMILY PLAN'S SEED IS SHARDED K-OF-N — NO ROSTER, NO SET SIZE, NO CUSTODIAN` · `E127` · `E139` · `E125-d` · `UNIT-RPC-POLICY` · `E144-b` · `§KEEPER-DWELL-IS-BUILT — the LP's IL-protect already has its anti-churn gas gate; do NOT add a second one` · `D3` · `E135-a` · `UNIT-RPC-SELFINFLICTED` · `UNIT-B-ATTRIBUTED` · `4×` · `C2` · `25648000` · `4×` · `Size-aware quote` · `+ steepness substitution` · `it already returns a settlement struct`
 
 ### §FROM-QUEUE-CHECK — claims done; one closing check each, then delete (19)
 
