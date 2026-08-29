@@ -82,103 +82,95 @@
 
 
 
-## 🧾 §ORDER — **THE WHOLE BACKLOG, SEQUENCED. READ THIS AND THE HANDOFF; EVERYTHING ELSE IS EVIDENCE.** (2026-08-29)
+## 🧾 §ORDER — **EVERY OPEN ITEM IN THE FILE, AFTER READING ALL OF IT.** (2026-08-30)
 
-Every item in this file was clustered by the code it touches and all six clusters were read against
-the tree. **This section is the order of work. The `§CLUSTER-*` sections are why.**
+All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
+**This is the complete open set. Everything else in this file is evidence or archive.**
 
-⚠️ **TWO THREADS WORKED THIS FILE TODAY AND BOTH SETS OF FINDINGS ARE BELOW.** An earlier version of
-this section listed only the six decisions from the cluster reads and **omitted the other thread's
-three ship-blockers, one of which is a measured loss of funds.** A backlog summary that a reader
-trusts must be complete or it is worse than none.
+📌 **SCALE, SO THE NUMBER IS NOT RE-DERIVED A SIXTH TIME.** ~2,000 unique items → **~45 open**.
+The file's own history recounted itself as 262, then 90, then 227, then 200; the ratio of work to
+rows measured consistently at **~25%** across every wave and track, and most of the remainder is
+knowledge, retractions, sub-headings and closed rows never re-marked.
 
 ---
 
-### 🚨 TIER 0 — ONE ITEM, AND IT IS GATED
+### 🚨 TIER 0 — ONE ITEM, GATED
 
-⛔⛔ **AN EARLIER VERSION OF THIS TIER LISTED THREE, AND TWO WERE ALREADY RESOLVED WHEN I WROTE IT.**
-I built it from the **severity emoji in section headings** — 🔴🔴🔴 / 🔴🔴 — without reading the
-bodies. **Those markers record the severity a finding HAD, not its status.** `§RSAPSS-MSB`'s own
-heading ends *"(2026-08-29, **FIXED**)"* and I still listed it as a ship-blocker. This is the same
-error as every other correction in this file, made in the same commit as the note warning about it.
+**`§INTENT-HAS-NO-FUNDING-LEG`** — the intent fill pays out value nobody supplied (measured: a maker
+holding nothing was paid $1,000 of real ether). 🔒 `Quid.sol:1293` reverts `IntentHasNoFundingLeg()`
+**unconditionally**, so nothing can be lost today. **The design is the open part**, and
+`§INTENT-FUNDING-OPTIONS` shows it splits: the **QU!D leg is a wiring gap** (`Basket.turn(address
+from,…)` already takes an arbitrary owner; the signature authorises the burn), the **token leg is a
+real design hole** (approval vs escrow vs pooled-claim vs an already-funded path).
 
-| was listed | actual state, verified in the tree |
+### 🔴 TIER 1 — DECISIONS. Six, none needing further investigation.
+
+| | decision |
 |---|---|
-| ~~🔴🔴🔴 `§OOR-TWO-DESIGNS-LIVE`~~ | ✅ **RESOLVED by `§OOR-BOOK-DELETED`** — `outOfRange`, `oorBook`, `selfManaged`, `sweepOor`, `pokeOor`, `MAX_FILLS_PER_SWAP` are **all 0 code references**. Only the intent rail remains. `Quid` is **20,616 / 3,960 spare** (better than the 20,952 that section reported — the thread kept going) |
-| ~~🔴🔴 `§RSAPSS-MSB`~~ | ✅ **FIXED** — `RSASSAPSS.sol:126` reads `n_[0]`, the big-endian MSB, not `n_[n_.length-1]` |
+| **1.1** | **The pool script** — the two-output ladder's second output must require more than the hop alone (`SweepAuth` 2-of-3 fits). `_armDeadManExit` still verifies ONE output |
+| **1.2** | **Is the Bitcoin freshness UTXO wanted?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture |
+| **1.3** | **The fold's shape** — 7540 face vs `Core`+`Quid` merge. Folding a contract is measured to COST bytes (`VEth`→`Quid` −1,077). Re-measure first: `Core` 11,637 + `Quid` **20,616** = 32,253, over by **7,677** (not the 8,917 or 23,835 the rows assume) |
+| **1.4** | **C17 eMode** — `setUserEMode` has 0 occurrences; the Aave leg runs at base LTV |
+| **1.5** | **`§BTC-LEG-FEE`** — its test passes only because `b7112c4f` inverted `assertGt`→`assertEq` pending this |
+| **1.6** | **`§E294`** — delete `pushObservation` or wire it. 0 production callers; the ring is fed by the anchor regardless. Deleting removes the ±50 bps inflation vector |
 
-**WHAT ACTUALLY REMAINS IN TIER 0:**
+### 🟠 TIER 2 — BUILDABLE. Nothing in front of these.
 
-| | item | state |
-|---|---|---|
-| **0.1** | 🔴🔴🔴 **`§INTENT-HAS-NO-FUNDING-LEG`** — the intent fill pays out value nobody supplied. Measured: a maker holding nothing was paid **$1,000 of real ether**; `fillIntentBody` makes three external calls and never pulls a token, reads a balance, or burns a claim | 🔒 **GATED, AND THE GATE IS REAL:** `Quid.sol:1293` reverts `IntentHasNoFundingLeg()` **unconditionally**, before `CORE.settleOor`. **No fill can execute, so nothing can be lost today.** What is open is the design: what the funding leg should be |
+**Money / correctness**
+`§SWAPOUT-DRAINS-THE-EXIT` (two bounds, nothing connects them) · `§V-R10` (**blocker traced**, *"neither
+fixed"*) · `C10` (the withdraw ladder does not cap its EtherFi request) · `E182-REKEY-CHECKED` (*"its
+stated property is FALSE for the only case it exists for"*) · `UNIT-A-DOUBLE-COUNT-SITE` (located to
+`BasketLib:983-984`) · `E2` (mint at par, redeem at the mark)
 
-⇒ **This is a design decision on a disabled rail, not a live risk.** It ranks first because the OOR
-redesign is otherwise finished — the book is deleted and the intent path is the only one left, so the
-funding leg is the last thing between that rail and working.
+**Named, bounded gaps**
+`E159-prove-onchain-swapin` (*"only the on-chain check is missing"*) · `B1` (freshness backstop has no
+economic bound) · `M1` (`migration.rs` must read the Safe on-chain) · `E184-swapout-pop` · `E179`
+(UTXO/account drift) · `§BTC-DELIVERY-IS-BUILT` (*"the work is WIRING, not inventing"*) · TDX + Nitro
+seal wiring · `E115-c` (*"narrows to ONE checkable fact"*)
 
-### 🔴 TIER 1 — THE DECISIONS THAT UNBLOCK CLUSTERS. None needs more investigation.
+**Design, specified but unbuilt**
+`#12` (design + scaffold done, code not written) · `(a+) vBTC settle-on-emission` (*"DESIGN ONLY"*) ·
+`E93-a` / `E93-b` (a composition target — **changes what "scarcity" means**, needs sign-off) ·
+`E154-eth-term` · `E145-t` (**one fee accumulator, not two**) · `§J.2c` (ERC-20 face on a two-asset
+manager) · `E217`+`E219` **as one item** (the merge)
 
-| | decision | unblocks | evidence |
-|---|---|---|---|
-| **1.1** | **What is the pool script?** The two-output ladder's second output must require more than the hop alone; `SweepAuth`'s 2-of-3 fits | the pool-sats leak; part of the 143-item BTC cluster | `§CLUSTER-2-BTC` |
-| **1.2** | **Is the Bitcoin freshness UTXO wanted at all?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture | §T3 / phase 3, ~24 items | `§CLUSTER-2-BTC` |
-| **1.3** | **The fold's shape — 7540 face, or `Core`+`Quid` merge?** The merge target predates the 7540 correction, and folding a whole contract is **measured to COST bytes** (`VEth`→`Quid` = −1,077) while folding bodies gives them back. 📌 **RE-MEASURE FIRST — the numbers moved today:** the OOR book deletion took `Quid` 23,123 → **20,616**, so `Core` 11,637 + `Quid` 20,616 = **32,253, over EIP-170 by 7,677** (the row plans against 8,917, and `§E219` against 23,835). **Still does not fit; the gap is a third of what the plan assumes** | the 116-item RANGE cluster | `§FOLD-REDESIGN` |
-| **1.4** | **C17 eMode on or off?** `setUserEMode` has **0 occurrences** — the Aave leg runs at BASE LTV, so "93% beats 94.5%" describes a configuration never made. Turning it on re-prices every open position | the 30-item LEVERAGE cluster | `§CLUSTER-5-6` |
-| **1.5** | **`§BTC-LEG-FEE` — the v4 trading-fee leg** | its test passes only because `b7112c4f` inverted `assertGt`→`assertEq` pending this | `§SUITE-2026-08-29-INFURA` |
-| **1.6** | **`§E294` — delete `pushObservation`, or wire it?** It has 0 production callers, but the ring is fed by the anchor anyway. Deleting removes the ±50 bps inflation vector | ORACLE cluster | `§CLUSTER-4-ORACLE` |
+**Small and cheap**
+`T2` (`PREMIUM_ANNUALIZE = 127`, *"the ONE number worth reviewing"* — never reviewed) · **derive
+`UNKNOWN_VARIANCE_SKEW`** (`SwapLib:762` is a bare `3e16`, kept *"by inheritance, not by derivation"*
+— ⚠️ and it is a **cold-start-only** path, see `§SECTIONS-READ`) · `A.13b` (`RebalIn`, 4 live refs) ·
+`E108b-r3` · `C6–C9` (four C-items, *"no commit touches any of them"*) · `E135-a` (guard written and
+reverted, needs a design call) · `E6` · `F1` · `E151` · `E87` · `E227` · `E79-SPEC` · `#41` ·
+`UNIT-SKEW-STATUS` · `UNIT-WHY-VARIANCE` · `UNIT-STALENESS-FLOOR` · `E221` · `T3-FRESHNESS-NARROWED` ·
+`E177-d` · `E119-a` (deliberately unbuilt — is that still right?) · `E127`/`E125-d` (decisions taken,
+implementation unlisted)
 
-### ✅ TIER 2 — WORK WITH NO DECISION IN FRONT OF IT
+**Residuals inside ✅ rows** — `UNIT-DEADZONE-POPULATES` · `W1-SWEEP-TOOL` (needs `§T10`'s owner set) ·
+`ABI-GATE` (`signer.rs:181`) · `M1#2-PHASE-1C` (*"residuals named below, all OPEN"*)
 
-- **Derive `UNKNOWN_VARIANCE_SKEW`.** `SwapLib.sol:762` is a bare `3e16`, kept *"BY INHERITANCE, NOT
-  BY DERIVATION"* when `§E275` deleted `MAX_WELL_SKEW` as unjustifiable. **Renamed, not justified.**
-  ⚠️ Needs owner risk input to *land*, but the derivation can be done now.
-- **`§SWAPOUT-DRAINS-THE-EXIT`** 🔴 — **open.** *"Two bounds exist and nothing connects them"*: a
-  swap-out may be filled to the pool's last sat, and the delivery that settles it must then arm a
-  dead-man exit over the residue.
-- **`§V-R10` (sUSDE)** — ✅ its blocker is **settled by tracing** (`§V-R10-BLOCKER-SETTLED`:
-  *"`pokeVaultHealth` CANNOT see a time-lock, and marking a venue does not stop the drain path"*),
-  but that section ends **"BOTH TRACED, NEITHER FIXED"** — the ✅ is on the trace, not the work.
-  **Open, unblocked, ready to build.**
-- **`§BTC-DELIVERY-IS-BUILT`** 🔴🔴 — **open, and smaller than it sounds.** Its own subtitle: *"THE
-  WORK IS WIRING, NOT INVENTING"* — the rail and the hacked-keeper recovery are already in the tree.
-- ~~`§FIXTURE-INHERITS-ITS-ENVIRONMENT`~~ — ✅ **RESOLVED, and I mislisted it too.** Its heading ends
-  *"BOTH ARE NOW PINNED, AND THE SUITE IS GREEN IN BOTH"*, and the handoff corroborates: *"identity
-  suites are 472/472 with AND without a fork"*. **Third item I took from a 🔴 heading whose body says
-  it is done.**
+**Read first:** `E166-open-items` — a consolidated open list a previous session made *"because these
+were accumulating"*.
 
-### 🟢 TIER 3 — CLOSED TODAY, DO NOT RE-OPEN WITHOUT NEW EVIDENCE
+### 🟢 TIER 3 — CLOSED, WITH EVIDENCE. Do not re-open without new measurement.
 
-`main` is **green** (`1005/0/1007` fresh pin; `1,004/8/1,014` on an archive key — **zero assertion
-failures** either way), closing `§MAIN-IS-RED-POOLED-USD`, `§MAIN-IS-RED-RECHECKED`, the *"39 are not
-39 problems"* table and workstream E · **`§E352` is not a money defect** — the free cell needs a swap
-that moves nothing, measured in `SkewE352Reachability.t.sol`, which **unblocked the 141-item skew
-cluster** · the **v4/hook removal is complete** and `isBTC` has **0 code branches** · the **ring is
-fed** by the Chainlink anchor, retiring Wave 2's premise · `§CONSOLIDATION-TARGETS`' entire fold list
-landed in `4066926a` · `E131` fixed · the RN merge's missing `babel.config.js` added.
+`main` is green (1005/0/1007 fresh pin; 1,004/8/1,014 archive key — **zero assertion failures**),
+closing both MAIN-IS-RED rows, the *"39 are not 39 problems"* table and workstream E ·
+**`§E155-INTERIM-EXPOSURE`** — self-declared *"highest-severity open item"*, **fix is in the tree**
+(`BasketLib:206`, `:253`) · **`§E352`** is not a money defect (`SkewE352Reachability.t.sol`) ·
+**`E90`** traced and fixed (`Core.swap`'s `sender` was a recipient) · the **v4/hook removal** is
+complete, `isBTC` at **0** code branches, Euler at 0 · the **ring is fed** by the Chainlink anchor ·
+`§CONSOLIDATION-TARGETS`' whole fold list landed (`4066926a`) · `UNIT-RESEATEPOCH` (`reseatEpoch`: 0
+refs) · `§OOR-BOOK-DELETED` · `§RSAPSS-MSB` · `§FIXTURE-INHERITS-ITS-ENVIRONMENT` · `E131` · the
+**UNIT-A family** (six rows, superseded by `§DERIVED-BAND` landing) · `E192` (the branches are stashes)
 
-### ✅ THE READ GAP IS CLOSED — all 32 sections dated today have now been opened
+### ⚠️ THE METHOD NOTE — ten corrections, one cause
 
-I had read 26 of 32 and said so. The remaining six are now read, and they produced **two more
-corrections**, both of the same kind: `§V-R10-BLOCKER-SETTLED` is ✅ for its TRACE while its own
-subtitle says *"NEITHER FIXED"* (so it is open work, now in Tier 2), and `§E356`'s *"four owner
-decisions"* — which I re-quoted in `§TASK-CLUSTERS` — has been **three** since 2026-08-26, because
-the fold renames landed and a later summary re-listed them from a headline.
-
-⭐ **`§HANDOFF-WAS-STALE` NAMES THIS EXACT FAILURE AND I THEN COMMITTED IT ANYWAY:** *"a later summary
-then re-listed them as blocked, because it was assembled from the row's HEADLINE rather than its
-body."* **That sentence is about a summary written before mine, and it describes mine.**
-
-### ⚠️ THE METHOD NOTE — it cost nine corrections today
-
-Every wrong verdict came from **reading a document's STATUS as the tree's STATE**: `§E352` booked as a
-free drain (one synthetic cell); `§E219` closed on a false opening sentence (its remainder is live);
-`isBTC` counted at 34 (31 are tombstone comments); the ring called unfed (it is fed);
-`§CONSOLIDATION-TARGETS`' finished targets proposed as work; 121 rows dropped on an id match (their
-bodies were never here); this section shipped incomplete; two of its three Tier-0 "blockers" were
-already fixed; and `§E356`'s four decisions have been three since 2026-08-26. ⇒ **Rows are evidence. The tree
-is state. Grep the code, strip comments before quoting a count, and check whether another thread has
-already answered it.**
+Every wrong verdict this session came from **reading a document's status as the tree's state**: a
+"free drain" that was one synthetic cell · `§E219` closed on a false opening sentence · `isBTC`
+counted at 34 including comments · the ring called unfed · finished targets proposed as work · 121
+rows dropped on an id match · a summary shipped incomplete · **two of three "ship-blockers" already
+fixed** · `§E356`'s four decisions long since three · the `BitcoinTx` fold recommended after it
+landed. ⇒ **Rows are evidence. The tree is state.** Strip comments before quoting a count, read the
+body not the heading, and check whether another thread already answered it.
 
 ## ▶️ **SESSION 2026-08-29 — THE IDENTITY MERGE WAS NEVER RUN IN THIS TREE, AND THAT IS WHERE THE WORK WAS**
 
