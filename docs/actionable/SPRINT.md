@@ -19078,39 +19078,60 @@ someone already made because *"these were accumulating"*.
 
 #### 📈 PARALLEL TRACK B — LEVERAGE AND VENUES.
 
-**8 rows — bodies in `§QUEUE-VERBATIM`:** `E229-deleverToVault-must-not-be-deleted` · `E224-nothing-wrapped-is-held` · `E192-branch-audit` · `a. Gate to `vogueSyncHook`` · `b. Pin the Vault` · `c. Thread the caller` · `Rise then fall` · `§A.25`
 
 Includes `C17 eMode`, one of the four owner decisions: `setUserEMode` has **zero occurrences** in `src`, `test` and `script`, so the Aave leg runs at BASE LTV and "eMode's 93% beats Morpho's 94.5%" describes a configuration never made.
 
 
+**8 rows, READ 2026-08-30 — ZERO are work rows.**
+
+`E192-branch-audit` ✅ *"NOTHING IS UNMERGED — the six 'abandoned branches' are STASHES"* · `§A.25` ✅
+DONE · `E229` and `E224` are **standing guards**, not tasks (both were on my wrongly-closed list this
+session and are restored as guards) · four entries are section fragments, not rows.
+
+⇒ **The LEVERAGE work is not in these rows — it is the C17 eMode DECISION** (`setUserEMode`: 0
+occurrences), which lives in `§ORDER` Tier 1.4.
 #### 🚀 PARALLEL TRACK C — DEPLOY, OWNERSHIP AND OPS.
 
-**11 rows — bodies in `§QUEUE-VERBATIM`:** `E6` · `E115-c` · `E119-a` · `E93-r` · `E128-r2` · `E135-c` · `M1#2-PHASE-1C-FAMILY: THE FAMILY PLAN'S SEED IS SHARDED K-OF-N — NO ROSTER, NO SET SIZE, NO CUSTODIAN` · `E127` · `E139` · `E125-d` · `UNIT-RPC-POLICY`
 
 ⚠️ Ordering is load-bearing here: `_wireSolana` and every `setPeer`/`setDelegate` run immediately BEFORE `renounceOwnership()`, and the deploy script says it — *"whatever is not wired now can never be wired at all."*
 
 
+**11 rows, READ 2026-08-30 — 3 are work.** ⚠️ `E6` is **the same row as Wave 4's** — one of only two
+ids that landed in two tracks (the other is the `4×` fragment). Track it in Wave 4.
+
+| | rows |
+|---|---|
+| 🟠 **WORK** | `E115-c` (*"the blocker narrows to ONE checkable fact"* — cheap to settle) · `E119-a` (⛔ **deliberately not built**: *"shipping it would put an UNTESTED BRANCH on the seed-export path"* — the decision is whether that is still true) · `E127`/`E125-d` (two owner decisions taken — *"remove delegation"*, *"LP identity is authenticated, never derived"* — with implementation implied but unlisted) |
+| ✅ **done** | `E135-c` · `M1#2-PHASE-1C-FAMILY` |
+| 📌 **knowledge** | `E93-r` · `E128-r2` · `E139` (a reconciliation naming two stale blockers) · `UNIT-RPC-POLICY` |
+| ↔️ **duplicate** | `E6` — see Wave 4 |
 #### 🪪 PARALLEL TRACK D — IDENTITY.
 
-**1 rows — bodies in `§QUEUE-VERBATIM`:** `E144-b`
 
 Folded in from ibiza; largely self-contained.
 
 
+**1 row, READ 2026-08-30 — not work.** `E144-b` is an investigation record (*"reproduced the modExp
+mystery and ruled out the obvious explanation"*). **The identity work is not here** — it is in the
+sections the other thread added today (`§RSAPSS-MSB` ✅, `§IDENTITY-FIXTURE-PATHS` ✅,
+`§FIXTURE-PIPELINE-REPATHED` ✅), all closed.
 #### 🖥️ PARALLEL TRACK E — SPA AND APP.
 
-**2 rows — bodies in `§QUEUE-VERBATIM`:** `§KEEPER-DWELL-IS-BUILT — the LP's IL-protect already has its anti-churn gas gate; do NOT add a second one` · `D3`
 
 
 
 
+**2 rows, READ 2026-08-30 — both ✅ done.** `§KEEPER-DWELL-IS-BUILT` (verified) and `D3`
+(*"`_priceOr` duplicated verbatim ×2 — restored; 197 bytes freed"*). **This track is empty.**
 #### 🧪 PARALLEL TRACK F — TEST INFRASTRUCTURE.
 
-**3 rows — bodies in `§QUEUE-VERBATIM`:** `E135-a` · `UNIT-RPC-SELFINFLICTED` · `UNIT-B-ATTRIBUTED`
 
 ⚠️ `§E356`: the fork suite was never broken — `ETH_RPC_URL` was simply absent from `evm/.env`. Workstream E's "39 regressions + 23 never-green" has **never been measured on a working endpoint.** Re-measure before treating any of them as defects.
 
 
+**3 rows, READ 2026-08-30 — 1 is work.** `E135-a` 🟠 (*"the burial guard was WRITTEN, compiles clean,
+and was REVERTED — it needs a design decision I could not validate"*). `UNIT-B-ATTRIBUTED` ✅ and
+`UNIT-RPC-SELFINFLICTED` ⛔ are closed/knowledge.
 #### 🗑️ NOT WORK — table fragments my row parser read as items
 
 `C2` · `25648000` · `4×` · `Size-aware quote` · `+ steepness substitution` · `it already returns a settlement struct`. These are continuation CELLS of multi-row tables (a list of block numbers, a list of `POOLED_*` variants, a measurement column), not items. Delete on sight.
