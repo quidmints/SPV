@@ -28082,6 +28082,58 @@ which is zero when σ² is, so "charge the base" is not available as an answer a
 non-zero, not a leak.** ⛔ Do not "repair" `SkewUnmeasuredVariance`'s `assertEq(flush, 0)` — it
 correctly pins a synthetic cell, and the new suite is what covers the reachable ones.
 
+## 🧩 §INTENT-FUNDING-OPTIONS — **THE MISSING LEG IS A WIRING GAP ON ONE SIDE AND A REAL DESIGN HOLE ON THE OTHER** (2026-08-29)
+
+Evidence for Tier 0.1. `§INTENT-HAS-NO-FUNDING-LEG` measured the loss; this is what the settlement
+layer already does, and therefore which fixes are available.
+
+### WHY THE EXISTING MACHINERY CANNOT SIMPLY BE REUSED — `msg.sender` IS THE RELAYER
+
+`Core._handleDelta` is **asymmetric by design**: `tokDelta > 0` calls `RANGE.deliverVolatile(amount,
+who)` and pays OUT; `tokDelta < 0` only does `POOLED += amount` — **it books value in and never pulls
+it.** So every caller is expected to have funded first, and on the swap path they have:
+
+| input | how the swap path funds it | in `fillIntent` |
+|---|---|---|
+| QU!D | `IBasket(quid).turn(msg.sender, amount)` — **burns the caller's QU!D** (`SwapLib:536`) | ⛔ would burn the **relayer's** |
+| token | `IERC20OZ(tokenIn).safeTransferFrom(msg.sender, …)` (`SwapLib:205`, `:273`) | ⛔ would pull the **relayer's** |
+
+⇒ **Both existing legs key on `msg.sender`, and the intent rail deliberately separates SIGNER from
+SENDER.** That is why the leg is missing: it is not an oversight in `fillIntentBody`, it is the one
+thing the relay model breaks.
+
+### ⭐ THE QU!D SIDE IS A WIRING GAP — THE PRIMITIVE ALREADY TAKES AN ARBITRARY OWNER
+
+```solidity
+Basket.sol:273   function turn(address from, uint value) external onlyUs returns (uint sent, uint seedBurned)
+```
+
+**`from` is a parameter, not `msg.sender`.** The swap path passes `msg.sender` by choice, not by
+constraint. So a QU!D-denominated intent funds itself with `turn(i.owner, …)`, and the EIP-712
+signature is the maker's authorisation for exactly that burn. **No approval, no escrow, no new
+storage — the redesign's "zero storage at rest" survives intact.**
+
+🔴 **AND THAT MAKES THE SIGNATURE THE WHOLE SECURITY BOUNDARY.** `turn` under `onlyUs` can burn ANY
+address's balance. Today only the swap path calls it and passes its own caller, so the authority is
+inert. Wiring it to `i.owner` makes `fillIntentBody`'s checks (`:1164` expiry, `:1165` used-nonce,
+`:1166` 65-byte sig, `:1169` `ecrecover`) the only thing between a relayer and burning a stranger's
+QU!D. **That check must be audited as a custody boundary, not as a parse.**
+
+### 🔴 THE TOKEN SIDE IS A REAL DESIGN HOLE, AND THE CHOICE IS THE CLASSIC ONE
+
+An ERC-20 cannot be moved from a non-sender without one of:
+
+| | approach | cost |
+|---|---|---|
+| **A** | `safeTransferFrom(i.owner, …)` against a **standing approval** to `Quid` | the intent's safety becomes the approval's safety; a maker who spends elsewhere makes the intent silently unfillable, which grieves the relayer's gas |
+| **B** | **pre-funded escrow**, burned at fill | removes the approval and makes unfillability unconstructible — but **reintroduces storage at rest**, which is the exact cost `§OOR-AS-INTENT` deleted the book to avoid |
+| **C** | **debit an existing pooled claim** — `settleOor` already books against `who` | no approval, no escrow, no new storage, but only expressible when the maker IS an LP, so it is not a general rail |
+| **D** | **make the intent an instruction to an already-funded path** — a BTC intent that becomes `requestSwapOutOnchain`, which `§BTC-DELIVERY-IS-BUILT` says already has real delivery and `refundExpiredSwapOut` recovery | no funding leg at all, but only covers the paths that path covers |
+
+📌 **THE DECISION SPLITS, AND THAT IS THE USEFUL RESULT:** the QU!D leg is nearly free and reuses an
+existing primitive; the token leg is where the real trade lives. **A rail that ships QU!D-only first
+is coherent** — it is the leg with no design question left in it.
+
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
 First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
