@@ -184,6 +184,84 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## ✅ **§OOR-BOOK-DELETED — THE ON-CHAIN BOOK IS GONE. `Quid` 23,123 → 20,952 BYTES.** (2026-08-29, owner: *"delete the onchain oor book"*)
+
+§OOR-TWO-DESIGNS-LIVE found the replacement already built and the thing it replaced still standing.
+This deletes the standing half. **The intent path (`Quid.fillIntent` / `SwapLib.fillIntentBody`,
+`abb685c4`) is untouched and is now the only out-of-range mechanism.**
+
+| | before | after |
+|---|---:|---:|
+| `Quid` | 23,123 (1,453 spare) | **20,952 (3,624 spare)** |
+| `Quid`'s rank among tightest contracts | **3rd** | off the list |
+⭐ **−2,171 BYTES, AND `Quid` LEAVES THE TOP FIVE.** `SwapLib` still binds at 102 — the OOR geometry
+(`oorBounds`/`sizeOorUsd`/`validateOorParams`) was `internal`, so it was INLINED INTO CALLERS and was
+never in `SwapLib`'s deployed bytecode. **The saving lands where the inlining did**, which is why it
+shows entirely on `Quid` and not at all on the library the code lived in.
+
+### ▶️ WHAT WENT
+**`Quid`** `outOfRange` · `_outOfRange` · `pull` · `sweepOor` · `fillOOR` ·
+**`Vault`** `outOfRange` · `pull` · `sweepOor` (the `pure … return 0` stub) ·
+**`Core`** `outOfRange` · `MAX_FILLS_PER_SWAP` · swap step (4) ·
+**`Shares`** `selfManaged` · `positions` · `ID` · `oorBook` ·
+**`Types`** `SelfManaged` · `OorBook` ·
+**`RangeLib`** `pull` · `openOor` · `sweepOor` · `pokeOor` · `fillOne` · `deindexOor` · `oorKey` ·
+`oorTrigger` · the packed-key constants · its `SortedSetLib` import ·
+**`SwapLib`** `validateOorParams` · `Oor` · `oorBounds` · `sizeOorUsd` ·
+**`BtcLib`** `OorArgs` · `outOfRangeBtc` · **`QuidLib`** `sizeOutOfRange` ·
+**`Interfaces`** `ICore.outOfRange` · `IRange.sweepOor`.
+✅ **KEPT ON PURPOSE:** `Core.settleOor` (now the intent's only consumer, and its `ICore` docblock
+says so), `SwapLib.updateBounds` (the MAIN range's bounds — not OOR geometry, three live callers),
+`SortedSetLib` (still `Basket`'s month index).
+
+### 🔴 `fillIntent` HAD **ZERO** TESTS — MEASURED, AND IT IS WHY THE BOOK SURVIVED A DAY
+`grep -rl "fillIntent\|OorIntent" evm/test` returned **nothing**. The replacement landed untested
+beside the thing it replaced, so no run could tell you which one was load-bearing. **`OorFillsOnTouch.t.sol`
+is rewritten against the intent in this commit**, and the properties are re-derived rather than ported:
+
+| the book's property | its successor |
+|---|---|
+| *a fresh order is not touched, so the poke refuses it* | **the ORACLE binds** — an uncrossed limit reverts `IntentNotCrossed`, which is also the anti-relayer property |
+| *a full pull leaves no ghost in the index* | **the consumed bit** — one fill per `(owner, nonce)`, the only storage the mechanism writes |
+| *two orders at one trigger both remain real* | two nonces are two intents; there is no index to collide in |
+| *the poke rejects an order that is not there* | **the SIGNATURE** — an intent signed by anyone but `owner` is refused. *A fully-compromised keeper holds no key that moves funds* |
+| — | **NEW:** expiry · a malformed signature · **the relayer cannot alter the signed terms** (demonstrated on `size`, the field that moves money) |
+⛔ **FOUR OF THE OLD FILE'S TESTS WERE NOT PORTED AND SHOULD NOT BE.** They asserted that
+`SortedSetLib` silently drops a duplicate so the key had to be `(price << 96) | id`, that the packing
+sorts by price first, that a full `pull` leaves no ghost, and that `pull`'s 47-block rule stays off
+the fill path. **Every one is a property of a structure that no longer exists.**
+⚠️ **AND THE OLD FILE'S CAVEAT STILL BINDS:** a fill needs the oracle to have crossed, and on a
+pinned fork `getTWAPforAsset` moves for neither `vm.roll` nor `vm.warp`. The crossing is asserted
+from the REFUSING side. **§E258-CROSSING-TEST stays open** — it was never closed for the book either.
+
+### 📉 AND THE CLIENT — THE GATE CAUGHT ALL FOUR THE MOMENT THE SOLIDITY WENT
+`check-client-abis.py` reported `outOfRange` / `pull` / `positions` / `selfManaged` as **ORPHAN — no
+contract has a function of this name**, which is the repair from §ABI-GATE-WAS-CRASHING doing exactly
+its job hours later. Removed from `abi.ts`, from `page.tsx`'s local encoder table, and with them the
+whole self-managed UI: the deposit sub-tab and its panel, the "ETH · Self" withdraw branch and its
+position list, `smPositions`/`fetchSmPositions`, the five `oor*` form states, `pullPercents`/
+`pullTokens`, and both handlers.
+⚠️ **`depositSubTab` WAS DELETED, NOT NARROWED TO ONE MEMBER** — a state variable with one possible
+value and a setter nobody calls is the unreachable branch standing rule 1 forbids.
+⛔ **NO `fillIntent` DECLARATION WAS ADDED**, and the comment in `abi.ts` says why: the SPA has no
+signing flow, and an encoder with no caller is the §E154-client-ghosts shape in the one file the ABI
+gate reads. **The intent UI is unbuilt and booked, not stubbed.**
+📌 **`tsc` CANNOT RUN IN THIS TREE** (`spa/` has no `node_modules`), so `page.tsx` was syntax-checked
+with a standalone `tsc --noEmit` from a scratch toolchain, filtering module-resolution noise:
+**TS1xxx syntax errors 2 → 0.** That is not a type-check and is not claimed as one.
+
+### 🔴 WHAT THIS LEAVES OPEN — READ BEFORE CALLING THE MECHANISM DONE
+1. **BTC HAS NO OUT-OF-RANGE PATH AT ALL NOW, AND THAT IS AN IMPROVEMENT.** It had placement
+   (`Vault.outOfRange`) with a `pure … return 0` sweep — a trap (§BTC-OOR-ENTERABLE-NEVER-FILLABLE).
+   ▶️ Its successor is NOT a second book: an intent whose fill becomes a
+   `BTCChannels.requestSwapOutOnchain` obligation, which already carries real delivery **and** the
+   hop-independent `refundExpiredSwapOut` recovery. See §BTC-DELIVERY-IS-BUILT, now much smaller.
+2. **SMART-WALLET OWNERS CANNOT PLACE AN INTENT** — `fillIntentBody` is plain `ecrecover`, ERC-1271
+   ruled out at ~2 KB on §B7's grounds, **and §B7 is still open.** This deletion narrows those users
+   out; that was named as a cost before the decision and it is now real.
+3. **SOMEBODY MUST HOLD THE SIGNATURE.** No relay exists in this repo. An intent nobody stores
+   cannot fill — a liveness dependency the book did not have.
+
 ## 🔴🔴🔴 **§OOR-TWO-DESIGNS-LIVE — THE INTENT REDESIGN IS BUILT, IN `HEAD`, AND RUNNING BESIDE THE BOOK IT WAS MEANT TO REPLACE. WE ARE PAYING FOR BOTH.** (2026-08-29, owner: *"is this really the best design … with the least on-chain machinery?"*)
 
 **No. The better design already exists in this tree and nothing was deleted when it landed.**
@@ -18438,7 +18516,7 @@ rows as already done. **Open the row, read the body, check the code — then del
 | **v4 removal** | `TickMath`/`sqrtPriceX96`/`LiquidityAmounts`/`isBTC` **0**. Left: `IPoolManager` 8, `PoolKey` 7, `unlockCallback` 1, `SafeCallback` 3, `BalanceDelta` 2, `SOR.sol` present | **two replacements, not sixteen deletions**: re-route Aux's execution to `ICurvePool.exchange` (proven in-tree at `LevMath:398`/`:461`) + a non-v4 deploy-time price read for `prepRefs` |
 | **E151** | 🎯 **LP-AUTHORITY ARCHITECTURE — consolidated from 4 entries (2026-08-09).** Owner asked for something cleaner and more secure serving BOTH EOAs and smart wallets. **Two findings survived scrutiny; one did not.** ✅ **① THE TWO ENTRYPOINTS PER CONCEPT ARE REDUNDANT: `SignatureChecker` tries ECDSA FIRST, so `registerDelegationFor`/`registerFallbackFor` already serve an EOA at the same cost by the same path — the only delta is one calldata word for `lpEth`. ⇒ 4 entrypoints → 2, and the shared guards CANNOT DRIFT because only one path reaches them.** ✅ **③ THE SHARED VERSION COUNTER HIDES A CROSS-EFFECT (now documented at both sites): `_registerFallback` writes `delegationVersion`, so **naming a fallback invalidates any pre-signed re-delegation at or below that version** — cold hand-over bytes silently stop working, discovered at the worst moment. Fix: one `setAuthorities` taking both, so the version means ONE thing.** ⛔ **② RETRACTED — `btcRecipientLocked` is NOT derivable from `btcRecipientOf != 0`. It is written ONLY by `_registerDelegation`, never by `setBtcRecipient`, so the two differ exactly for a NON-CHANNEL SWAP USER: deleting it would have FROZEN every swap user's payout after their first set, silently (no test covers a swap user updating twice). It encodes "pinned by a delegation" vs "set by a user".** ▶️ **TURNKEY SCOPE FOR ①: delete `registerDelegation`/`registerFallback`; change `evm_codec.rs:530 encode_register_delegation` to emit `registerDelegationFor` with `lpEth` (the signer already knows it); update `driver_e2e.rs` 267/450/609. **ONE cross-repo commit with `check-client-abis` + a Rust build — never Solidity-first.** ⚠️ **PATTERN WORTH CARRYING: three deletion proposals this session (`_requireAttested`, `swapOutDeliverDigest`, `btcRecipientLocked`) were each WRONG, every one from deriving an equivalence from ONE writer or ONE call site without enumerating the others. Enumerate every writer before claiming a field is redundant.** | 🎯 ① turnkey cross-repo · ③ documented · ② retracted |
 
-#### 🎯 WAVE 2 — THE RING NEEDS A NEW PRICE SOURCE. **Blocked by W1; blocks W3 and W4.**
+#### 🎯 WAVE 2 — THE RING'S PRICE SOURCE. ⛔ **"IT HAS NONE" IS FALSE — SEE `§CLUSTER-4-ORACLE`.** Blocks W3 and W4.
 
 `§E219`'s step ② was RETRACTED BY ITS OWN AUTHOR and this is what replaced it: *"the ring is FED BY `getSlot0`, so that is circular … the real step ② is that the ring needs a NEW PRICE SOURCE, because without a pool nothing writes it."* Candidates named there: the realized fill price of whatever venue replaces the pool (so W1 first), or the Chainlink anchor `twapResolve` already reconciles against. ⛔ `§E220`'s "source the ring from Chainlink" is **SUPERSEDED BY §E232** — the anchor is what the ring is CHECKED against, so feeding it in makes the check a smoothed copy of itself. **This is a design decision, and σ², the skew and the fee all rest on it.**
 
@@ -27470,6 +27548,62 @@ refactor slip"*, and it retracts the mechanism claimed in two rows below it plus
 suite exercises — the half that could not run today. ⇒ **This group is blocked on the endpoint, not
 on analysis.** Fixing the RPC is therefore not housekeeping: it is the precondition for reading the
 largest sub-theme in this cluster.
+
+## 🔍 §CLUSTER-4-ORACLE — **63 TASKS. THE RING IS NOT UNFED, AND THAT RETIRES WAVE 2's PREMISE — INCLUDING MINE.** (2026-08-29)
+
+### ⛔ THE CORRECTION FIRST, BECAUSE I WROTE THE WRONG VERSION INTO `§FOLD-REDESIGN` THIS MORNING
+
+`§E219`'s author retracted their own step ② with: *"the ring is FED BY `getSlot0`, so that is
+circular … **the real step ② is that the ring needs a NEW PRICE SOURCE, because without a pool
+nothing writes it**."* I carried that into `§FOLD-REDESIGN` as Wave 2 and called it a design decision
+blocking W3 and W4. **It is not true of the current tree.**
+
+```solidity
+Core.sol:1625  function _observeIfSourced() internal {
+Core.sol:1643      if (src == address(0)) {
+Core.sol:1644          (uint anchorPx,) = SwapLib.twapResolve(AUX.assetPriceFeed(ASSET), 0, …);
+Core.sol:1645          if (anchorPx != 0) _writeObservationPrice(anchorPx);   // ← THE RING IS WRITTEN
+Core.sol:1646          return;
+```
+
+and it is **wired into the live paths**: called at `Core.sol:1024` and `:1135`, both on the swap/price
+route (*"§E222: an independent OBSERVATION — never `px`, which READ this ring"*). `setObservationSource`
+exists at `:1611` but **is never called in `evm/script`**, so `src == address(0)` and **the anchor
+branch is the one that runs today.**
+
+⇒ **The ring already has a production writer: the Chainlink anchor, read raw, on every swap.** Wave 2
+is not "decide a source and build it"; it is at most *"is the anchor the source we want, or should one
+be pinned?"* — a smaller question, and it does not block W3/W4 the way I wrote.
+
+📌 **AND IT ANSWERS `§E220`'s CIRCULARITY OBJECTION, WHICH IS WHY THE CODE IS ALLOWED TO DO THIS.**
+`§E220` was marked *"SUPERSEDED BY §E232 — sourcing the ring from Chainlink is itself CIRCULAR."* The
+implementation distinguishes two different reads, in a comment at `:1636`: *"`price = 0` returns the
+RAW feed — INDEPENDENT of the ring, which is the one property an observation source must have.
+§E345's 'must not read `px`' warns against the RING's own TWAP (`AUX.getTWAPforAsset`); a raw feed
+read is the sanctioned path, not the banned one."* **The circularity objection applies to the ring's
+TWAP, not to the raw feed. §E220's supersession is therefore itself too broad.**
+
+### 🔴 `§E294` IS LIVE, AND NARROWER THAN BOTH ITS WORDINGS
+
+Measured: `Core.pushObservation` (`:1745`) has **0 callers in `evm/src`**, 5 in `evm/script`, 10 test
+files. So the row's re-opened concern — *"the unwired push is the finding"* — is factually right about
+`pushObservation`. **But it does not mean the ring is starved**, because `_observeIfSourced` feeds it
+automatically. ⇒ The real question is the one the row's re-audit target already names: **is the
+permissionless push meant to exist at all**, now that `§E345` made σ² ring-independent
+(`realizedVarianceWad` = `max(ring, anchor)`) and the anchor feeds the ring anyway? That is a
+**deletion candidate**, not a wiring task — and deleting it would remove the ±50 bps inflation vector
+`Core`'s own §E345 note names as the residual.
+
+### ⇒ WHAT THIS DOES TO THE CLUSTER AND TO THE WAVES
+
+- **Wave 2 shrinks and stops blocking.** W3 (skew/fee) was said to wait on a σ² source that does not
+  exist; σ² has had `max(ring, anchor)` since `§E345`, and the ring has the anchor. **W3's real gate is
+  `§E352`, which is Wave 1 material, not Wave 2's.**
+- **`§E221`/`§E223` (the ETH/BTC cross, 1inch as an independent observer) stay open** — they are about
+  which feed topology is right, and the anchor fallback does not settle that.
+- **The σ²-fixture family (`UNIT-VOL-BRACKET`, `UNIT-VARIANCE-SERIES`, `UNIT-SERIES-STOP`) is
+  measurement archaeology against a σ² definition that has since changed twice.** Re-read against
+  `max(ring, anchor)` before trusting any number in them.
 
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
