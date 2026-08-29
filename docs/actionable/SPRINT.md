@@ -27745,7 +27745,21 @@ carried three plugins; **none is carried, and each is checked rather than assume
 ⇒ `app/babel.config.js` is the Expo preset and nothing else. 📌 `react-native-dotenv` is now a
 declared-but-unused dependency and is a removal candidate.
 
-## 🟢 §SUITE-2026-08-29 — **`main` IS GREEN: 1,004 PASS, ZERO ASSERTION FAILURES. THE HANDOFF'S ENTIRE FAILURE TABLE IS CLOSED.** (2026-08-29)
+## 🟢 §SUITE-2026-08-29-INFURA — **INDEPENDENT CONFIRMATION ON AN ARCHIVE ENDPOINT: 1,004 PASS, ZERO ASSERTION FAILURES** (2026-08-29)
+
+📌 **RECONCILED WITH THE HANDOFF AT THE TOP OF THIS FILE, WHICH ANOTHER THREAD MEASURED THE SAME DAY.**
+They report `1005 / 0 / 1007` on a **fresh publicnode pin**; this run is `1,004 / 8 / 1,014` on an
+**Infura archive key** at commit `bb932745`. **Both are green and the two totals reconcile exactly:**
+1014 → 1007 is the OOR book deletion they document (seven book tests removed), which landed after this
+run. **Neither number contradicts the other; this one is the earlier commit.**
+
+⭐ **AND THEIR DIAGNOSIS IS SHARPER THAN MINE — TAKE THEIRS.** I concluded "publicnode refuses archive
+requests". They bisected it: publicnode serves at **head−96** and refuses at **head−128**, a ~25-minute
+window, so *a pin taken before a cold build expires during the run* and the suites that fork LAST
+return 403 while hundreds pass. **That explains this run's 8 transport failures and my earlier run's 57
+without needing a rate-limit story.** An archive key removes the window entirely, which is why this run
+has no 403s at all — but the free-endpoint recipe at the top of the file is the one to follow, because
+it needs no key.
 
 Owner supplied an archive endpoint (Infura). Run on a **clean detached worktree at `bb932745`** —
 another thread has 11 files mid-edit in the shared tree, so the shared tree does not compile and must
