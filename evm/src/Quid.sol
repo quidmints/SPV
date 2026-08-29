@@ -736,6 +736,15 @@ contract Quid is Shares,
         // (JIT-lock) refuse a same-block exit — see _depositImpl. Blocks the atomic
         // deposit→swap→withdraw JIT fee-snipe the composition audit found on this 4626 path.
         //
+        // ⚠️ THERE IS NO LONGER AN ASYMMETRY HERE: **1 BLOCK IS THE ONLY LOCK IN THE TREE.**
+        //    §OOR-BOOK-DELETED (2026-08-29) removed `pull`, and the 47-block rule went with it —
+        //    `grep "+ 47"` over `evm/src` now returns nothing. The reasoning below is KEPT because
+        //    the CONCERN it describes outlived the number: a resting order's placer can cancel the
+        //    instant price moves against them, and §OOR-AS-INTENT's replacement has NO lock and NO
+        //    cancel at all (§INTENT-NONCE). ⛔ AND 47 WAS NEVER DERIVED — §E146 carried it as
+        //    "unexplained" and the "~9.4 min" is just 47×12s, the same number in other units. The
+        //    argument below explains why an OOR lock should be LONGER, never why it should be 47.
+        //    (original, kept — it is the reasoning, not the coordinate:)
         // ⚠️ WHY 1 BLOCK HERE AND 47 ON THE OOR PATHS (`QuidLib.pullBody`,
         //    `BtcLib.pullBtc`) — the asymmetry is REAL, not drift (E146):
         //    a RANGE position is UNCONDITIONALLY exposed the moment it is in range, so one

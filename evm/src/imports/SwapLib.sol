@@ -405,9 +405,14 @@ library SwapLib {
             //   (1) NO impact formula: the spec's "USD depth needed within a target impact bound" is
             //       "a pure function of size + current in-range depth" but gives neither the function
             //       nor the target bound value;
-            //   (2) place+unwind-in-ONE-tx is INCOMPATIBLE with the existing outOfRange/pull
-            //       primitive — pull() enforces `block.number >= created + 47`, so an outOfRange
-            //       position cannot be unwound in the same block (Quid.sol pull());
+            //   (2) ✅ **RETIRED 2026-08-29 — THIS BLOCKER IS GONE.** It read: "place+unwind-in-ONE-tx
+            //       is INCOMPATIBLE with the existing outOfRange/pull primitive — pull() enforces
+            //       `block.number >= created + 47`". §OOR-BOOK-DELETED removed `outOfRange`, `pull`
+            //       and the 47-block rule; there is no placement transaction left to be
+            //       incompatible with. ⚠️ Blockers (1) and (3) are UNTOUCHED and still bind, so this
+            //       does not unblock the idea — it removes one of its three reasons.
+            //       ⛔ Do NOT read the deletion as permission: a resting intent is not a placement,
+            //          and the tryPair idea would need one.  (numbering kept so (1)/(3) still refer)
             //   (3) this body runs DELEGATECALL'd in Aux context; a mid-swap re-entry into Quid's
             //       onlyUs addLiq/unwindForRedeem on the SHARED range needs its reentrancy + price-
             //       impact interaction with the V4 unlock callback worked out.
