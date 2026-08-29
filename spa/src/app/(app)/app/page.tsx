@@ -61,8 +61,16 @@ const enc = {
   immatureBal: (u: string) => iface.encodeFunctionData('immatureBalanceOf', [u]),
   totalSupply: () => iface.encodeFunctionData('totalSupply', []),
   // Aux
-  swap:        (token: string, asset: string, forVolatile: boolean, amt: bigint, minOut: bigint) =>
-                iface.encodeFunctionData('swap(address,address,bool,uint256,uint256)', [token, asset, forVolatile, amt, minOut]),
+  // §OOR-LOADBALANCE / §E308 — `loadBalance` is the SIXTH argument and the explicit selector below
+  // pinned the FIVE-argument shape, which `Aux` does not have and `abi.ts` does not declare. Ethers
+  // resolves `encodeFunctionData` against THIS interface, so the call did not send a bad payload —
+  // it threw `no matching function`, i.e. **the swap button could not fire at all**.
+  // ⚠️ `false` is the conservative default and NOT a UI decision that has been made: the consent
+  //    "can add MEV/slippage to the owner's OWN fill, which is why it is theirs to give rather than
+  //    a protocol default" (`Vault.outOfRange` docblock). Surfacing it as a control is unbuilt.
+  swap:        (token: string, asset: string, forVolatile: boolean, amt: bigint, minOut: bigint,
+                loadBalance = false) =>
+                iface.encodeFunctionData('swap', [token, asset, forVolatile, amt, minOut, loadBalance]),
   redeem:      (n: bigint) => iface.encodeFunctionData('redeem(uint256)', [n]),
   auxSwap:     (tIn: string, tOut: string, amt: bigint, recip: string, minOut: bigint) =>
                 iface.encodeFunctionData('auxSwap(address,address,uint256,address,uint256)', [tIn, tOut, amt, recip, minOut]),
@@ -82,17 +90,17 @@ const enc = {
   rangeTotalShares: () => iface.encodeFunctionData('totalShares', []),
   rangeLpShares:    () => iface.encodeFunctionData('lpShares', []),
   // Self-managed
-  // §E235-spa — FOUR ARGUMENTS, NOT FIVE. `lib/abi.ts:166` declares the live signature
-  // `outOfRange(uint,address,int,uint)` and its comment records that the "gained a uint8 venue 5th
-  // arg" claim was wrong. This LOCAL encoder was the stale copy that claim came from: it took a
-  // `venue` and pushed five values at a four-input ABI, so `encodeFunctionData` would have thrown
-  // even if the call site had supplied one. It never did, which is the TS2554 that surfaced the day
-  // `tsc` first ran here.
-  // ⚠️ `check-client-abis.py` could not catch this: it reads `abi.ts`, where the declaration is
-  // CORRECT, and never parses this file. One concept declared twice, and the copy nothing checks is
-  // the one that drifted.
-  outOfRange: (amt: bigint, token: string, distance: number, range: number) =>
-                iface.encodeFunctionData('outOfRange', [amt, token, distance, range]),
+  // §E235-spa — was FOUR ARGUMENTS. It is FIVE now, and the fifth is NOT the `uint8 venue` the
+  // original note (correctly) refuted: it is §OOR-LOADBALANCE's `bool loadBalance`, the placer's
+  // shortfall consent. The old note's warning still stands and is worth keeping — a local encoder
+  // is a SECOND declaration of a signature `abi.ts` already declares, and two copies drift.
+  // ✅ 2026-08-29 — `check-client-abis.py` NOW PARSES THIS FILE (§ABI-GATE-WAS-CRASHING), so the
+  //    copy nothing checked is checked. It also had to be repaired before it could check anything:
+  //    it was dying on hardhat artifact DIRECTORIES named `*.sol`, and was green before that only
+  //    because `evm/lib/layerzero-devtools` was an uninitialised submodule.
+  outOfRange: (amt: bigint, token: string, distance: number, range: number,
+               loadBalance = false) =>
+                iface.encodeFunctionData('outOfRange', [amt, token, distance, range, loadBalance]),
   pull:       (id: bigint, percent: number, token: string) =>
                 iface.encodeFunctionData('pull', [id, percent, token]),
   positions:  (u: string, i: number) => iface.encodeFunctionData('positions', [u, i]),
@@ -456,18 +464,21 @@ export default function QuidApp() {
         if (id === 0n) break
         const smR = await ethCall(CONTRACTS.range, enc.selfManaged(id))
         const dec = iface.decodeFunctionResult('selfManaged', smR)
-        // (§E258) Indices shifted by one from `lower` onward: `usdFunded` (bool) was inserted at
-        // index 2, packed into `owner`'s slot. The ABI checker compares SIGNATURES and cannot see a
-        // positional decode, so this is the half of the break no gate catches — and it fails
-        // SILENTLY: `liq` would read a tick, stay > 0, and every position would render as garbage
-        // rather than erroring.
-        const liq = BigInt(dec[5] as bigint)
+        // ⚠️ DECODED BY NAME, AND THE INDICES ARE WHY. `usdFunded` was inserted at index 2 (§E258)
+        // and `loadBalance` at index 3 (§OOR-LOADBALANCE), each shifting everything from `lower`
+        // onward by one — TWICE, in two different sessions. A positional decode is invisible to
+        // `check-client-abis.py`, which compares SIGNATURES, and it fails SILENTLY: `liq` read
+        // `upper`, stayed > 0, and every position rendered as garbage rather than erroring.
+        // `abi.ts` names every output, so named access is immune to the next insertion. Do not
+        // put the numbers back.
+        const r = dec as unknown as { created: bigint; lower: bigint; upper: bigint; amt: bigint }
+        const liq = BigInt(r.amt)
         if (liq > 0n) {
           out.push({
             id,
-            created: BigInt(dec[0] as bigint),
-            lower:   Number(dec[3]),
-            upper:   Number(dec[4]),
+            created: BigInt(r.created),
+            lower:   Number(r.lower),
+            upper:   Number(r.upper),
             liq,
           })
         }

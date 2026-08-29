@@ -113,6 +113,16 @@ for d in SRC_DIRS:
     if not d.is_dir():
         continue
     for sp in d.rglob("*.sol"):
+        # `rglob("*.sol")` is a NAME pattern, not a FILE pattern, and hardhat lays its artifacts
+        # out as DIRECTORIES named `<Source>.sol/`. `evm/lib/layerzero-devtools` ships hundreds of
+        # them, so `still_declared` below hit `IsADirectoryError` on the first one and the whole
+        # gate died with a traceback instead of a verdict.
+        # ⚠️ THIS GATE WAS GREEN ONLY BECAUSE THAT SUBMODULE WAS EMPTY. It is declared in
+        # `.gitmodules` and a fresh checkout leaves it uninitialised; `forge test` clones it on
+        # first run, and the gate CLAUDE.md calls "the ONLY client-side gate available" then stops
+        # producing an answer. Green-because-absent is not green.
+        if not sp.is_file():
+            continue
         _src_paths.setdefault(sp.name, []).append(sp)
 
 _declares_cache: dict[tuple, bool] = {}
@@ -163,6 +173,7 @@ print(f"indexed {len(compiled)} compiled signatures; skipped {ghosts} GHOST arti
 EXTERNAL_OK: dict = {}
 
 drift, checked = [], 0
+abi_ts_keys: set[str] = set()          # every signature `abi.ts` declares, for the tsx scan below
 for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
     m = re.match(r"function\s+(\w+)\s*\((.*?)\)\s*(?:external|public|view|pure|returns|$)", raw)
     if not m:
@@ -170,6 +181,7 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
     name, args = m.group(1), m.group(2)
     argtypes = [norm(type_of(a)) for a in split_args(args) if a.strip()]
     key = f'{name}({",".join(argtypes)})'
+    abi_ts_keys.add(key)
     if key not in compiled:
         # ⚠️ THE FIX THAT MATTERS. This used to `continue` unconditionally, so a signature
         # whose ARGUMENTS had drifted was indistinguishable from an ERC20 helper we never
@@ -194,6 +206,44 @@ for raw in re.findall(r"'(function [^']+)'", ABI.read_text()):
     declared = ",".join(norm(x.split()[0]) for x in rm.group(1).split(",")) if rm else ""
     if declared not in compiled[key]:
         drift.append((key, declared, sorted(compiled[key])))
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# (§ABI-GATE-WAS-CRASHING, 2026-08-29) THE SECOND SPA DECLARATION — the copy nothing checked.
+#
+# ⚠️ WHY THIS SECTION EXISTS, AND IT WAS PREDICTED IN A COMMENT BEFORE IT BROKE ANYTHING.
+# `spa/src/app/(app)/app/page.tsx` builds an `enc` table of local encoders, and several of them
+# pass an EXPLICIT fragment string — `encodeFunctionData('swap(address,address,bool,uint256,uint256)',
+# …)` — which pins a signature independently of `abi.ts`. That file's own comment said it:
+# *"check-client-abis.py could not catch this: it reads abi.ts, where the declaration is CORRECT,
+# and never parses this file. One concept declared twice, and the copy nothing checks is the one
+# that drifted."* It then drifted: §OOR-LOADBALANCE added a sixth argument to `Aux.swap`, `abi.ts`
+# was updated, and the five-argument selector here was not.
+#
+# ⭐ THE FAILURE IS NOT A BAD PAYLOAD, WHICH IS WHY NO CHAIN-SIDE GUARD WOULD HAVE CAUGHT IT.
+# ethers resolves the fragment against the LOCAL interface, so a selector `abi.ts` does not declare
+# throws `no matching function` before anything is sent — the button simply does not work. Hence
+# TWO checks per fragment: it must exist on a compiled contract AND be declared in `abi.ts`.
+TSX_DIR = ROOT / "spa" / "src"
+tsx_checked = 0
+if TSX_DIR.is_dir():
+    for f in sorted(TSX_DIR.rglob("*.ts*")):
+        if f.resolve() == ABI.resolve() or not f.is_file():
+            continue
+        for frag in re.findall(r"encodeFunctionData\(\s*['\"]([A-Za-z_]\w*\([^'\"]*\))['\"]", f.read_text(errors="ignore")):
+            name = frag.split("(", 1)[0]
+            inner = frag[frag.index("(") + 1:-1]
+            key = f'{name}({",".join(norm(a.strip()) for a in inner.split(",") if a.strip())})'
+            tsx_checked += 1
+            where = f.relative_to(ROOT)
+            if key not in compiled:
+                same_name = sorted(k for k in compiled if k.startswith(name + "("))
+                drift.append((f"{key}  [{where}]",
+                              "ARG DRIFT — no compiled contract has this signature" if same_name
+                              else "ORPHAN — no contract has a function of this name", same_name))
+            elif key not in abi_ts_keys:
+                drift.append((f"{key}  [{where}]",
+                              "NOT DECLARED IN abi.ts — ethers will throw `no matching function` "
+                              "before sending anything", sorted(abi_ts_keys & {k for k in abi_ts_keys if k.startswith(name + "(")})))
 
 # ─────────────────────────────────────────────────────────────────────────────────────
 # (E178) THE RUST TREE — the blind spot that let a BROKEN MONEY PATH be committed.
@@ -288,5 +338,6 @@ print(f"checked {rust_checked} Rust signatures against evm/out; {len(rust_drift)
 for key, declared, actual in drift:
     print(f"DRIFT  {key}\n   spa declares: ({declared})")
     print(f"   contract has: {[f'({a})' for a in actual] if actual else 'NOTHING — no function of this name exists'}")
-print(f"\nchecked {checked} SPA signatures against evm/out; {len(drift)} drifted")
+print(f"\nchecked {checked} SPA signatures from abi.ts + {tsx_checked} explicit "
+      f"encodeFunctionData fragments elsewhere in spa/src against evm/out; {len(drift)} drifted")
 sys.exit(1 if (drift or rust_drift) else 0)

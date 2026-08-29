@@ -160,10 +160,15 @@ export const RANGE_ABI = [
   //     `(uint amount, address token, int distance, uint range)` — `int256`/`uint256`. int24 is a
   //     narrower ABI word, so the old encoding was not merely mislabelled, it truncated.
   // (2) The comment claimed "outOfRange gained a uint8 venue (5th arg) … 4-arg encoding now
-  //     reverts." The live function IS 4-arg (`Quid.sol:392-393`). The prose described a change
-  //     that either never landed or was undone, and it would have sent the next reader to add a
-  //     fifth argument to a call that is already correct in arity and wrong only in width.
-  'function outOfRange(uint amount, address token, int distance, uint range) payable returns (uint next)',
+  //     reverts." That claim was wrong about the ARGUMENT and right about the ARITY, which is a
+  //     coincidence worth naming: there never was a `uint8 venue`, and there IS now a fifth
+  //     parameter — §OOR-LOADBALANCE's `bool loadBalance`, the placer's shortfall consent captured
+  //     at placement and spent at the fill (`Quid.sol:470`, `Vault.sol:728`).
+  // ⚠️ §ABI-GATE-WAS-CRASHING (2026-08-29) — this line sat wrong for as long as the gate that
+  //     checks it could not run. `check-client-abis.py` was dying with `IsADirectoryError` on
+  //     hardhat artifact DIRECTORIES named `*.sol` under `evm/lib/layerzero-devtools`, and it was
+  //     green before that only because the submodule was empty. Green-because-absent is not green.
+  'function outOfRange(uint amount, address token, int distance, uint range, bool loadBalance) payable returns (uint next)',
   // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
   // token: 0x0 = receive as ETH, stable addr = receive as that stable
   'function pull(uint id, int percent, address token)',
@@ -174,7 +179,11 @@ export const RANGE_ABI = [
   // `amt` — "the token AMOUNT placed, not v4 liquidity units" per its own comment — so calling it
   // `liq` named a quantity the contract stopped storing.
   // (§E258) `usdFunded` records WHICH SIDE funded the order and packs into `owner`'s slot.
-  'function selfManaged(uint id) view returns (uint created, address owner, bool usdFunded, uint lower, uint upper, int amt)',
+  // (§OOR-LOADBALANCE) `loadBalance` packs into the SAME slot, immediately after it. ⚠️ IT SHIFTS
+  // EVERY POSITIONAL INDEX FROM `lower` ONWARD BY ONE, for the second time — `usdFunded` did it
+  // first. A positional decode is invisible to this gate (it compares SIGNATURES), so the shift
+  // has to be carried by hand at every `decodeFunctionResult` site.
+  'function selfManaged(uint id) view returns (uint created, address owner, bool usdFunded, bool loadBalance, uint lower, uint upper, int amt)',
   'function totalShares() view returns (uint)',
   'function feesPerShare() view returns (uint)',
 
