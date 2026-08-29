@@ -501,9 +501,18 @@ contract BtcLpMintStress is AllesFixture {
     /// is harmless when the pool converts less, so this needs a SMALL buffer and a pool deep
     /// enough to convert past it — otherwise the POOL, not the balance, is what stops the credit
     /// and the test would pass without exercising the guard at all.
+    /// ⚠️ **FUNDED AT 0.2 BTC, NOT 0.01, AND THE SIZE IS LOAD-BEARING — see §SWAPOUT-DRAINS-THE-EXIT.**
+    /// The priming below moves 800 USDC of sats OUT of this channel, and `creditSwapOut` bounds a
+    /// fill by the pool's ENTIRE BTC inventory. At 0.01 BTC and the fork block's ~$77.7k BTC, the
+    /// first 400-USDC swap took 514,544 sats and the second was capped at `pooled − 1`, leaving the
+    /// channel holding **1 sat** — over which `_deliverOnchain` must still arm a dead-man ladder,
+    /// and no exit can pay a fee out of 1 sat. The FFI generator said so exactly.
+    /// ⛔ **THE SIZE IS NOT THE DEFECT AND MUST NOT BE READ AS THE FIX** — it only stops this test
+    /// from measuring the drain instead of the proven-sats bound it is named for. The protocol has
+    /// no residual floor at all; that is booked separately and is still open.
     function test_M1_1_CannotCreditBeyondWhatWasProven() public {
         BTCChannels ch = _deployChannels();
-        (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lp) = _open(ch, 31, 1_000_000);
+        (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lp) = _open(ch, 31, 2e7);
         // ⚠️ PRIME WITH REAL SWAP-OUTS, NOT CURVE BUYS. A credit SELLS sats into the pool, and a
         // pool primed only by buys is too thin to absorb one — it trips `SlippageMaxS` in
         // `routeSwap`, a genuine depth guard, and the test would fail for a reason that has

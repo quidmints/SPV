@@ -110,6 +110,60 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 🔴 **§SWAPOUT-DRAINS-THE-EXIT — A SWAP-OUT MAY BE FILLED DOWN TO THE POOL'S LAST SAT, AND THE DELIVERY THAT SETTLES IT MUST THEN ARM A DEAD-MAN EXIT OVER THE RESIDUE** (2026-08-29, MEASURED, NOT FIXED)
+
+Two bounds exist and **nothing connects them**:
+
+| | |
+|---|---|
+| what bounds the FILL | `SwapLib._swapOutPrep` sets `rp.pooled = ICore(core).POOLED()` and `BasketLib.routeSwap:500` does `consumed = Math.min(p.amount, convert(p.pooled, …))`. **The whole BTC inventory, and nothing else** |
+| what the DELIVERY needs | §E233-ladder made every rotation site arm a fresh ladder. `deliverSwapOutOnchain` splices the channel down to `old − sats` and requires a dead-man exit signed over **that residual** |
+
+⇒ **A fill that empties the inventory leaves a channel that cannot be armed.** An exit tx pays
+`residual − fee` to the LP's P2TR; at a residual below the fee the output is negative and the
+transaction does not exist. Below ~330 sats it exists and is unrelayable dust.
+
+📊 **MEASURED, from `BtcLpMintStress::test_M1_1` at `FORK_BLOCK=25861012` (BTC ≈ $77.7k):**
+```
+open 1,000,000 sats
+swap-out #1   400 USDC ->  514,544 sats     channel 1,000,000 -> 485,456
+swap-out #2   400 USDC ->  485,455 sats     channel   485,456 ->         1   <-- capped at pooled-1
+arm ladder over 1 sat, fee 1,000            ->  out_value = -999
+```
+⭐ **THE `1` IS NOT A CHOSEN FLOOR — IT IS WHAT THE CURVE LEAVES.** There is no residual constant
+anywhere on this path to point at; the fill simply took everything it could convert. **A designed
+floor of 1 would be wrong, and the absence of one is what this row is about.**
+
+▶️ **WHAT THE SWAPPER LOSES IS LIVENESS, NOT VALUE** — `requestSwapOutOnchain` records
+`requestBlock` and starts the self-refund timeout, and `settleSwapIn` reverses. But the swap-out
+cannot be delivered by anyone: the USD sits in `POOLED_USD`, `pendingSwapOutUsd` carries the
+obligation, and the channel is stuck holding an amount it cannot exit.
+
+❓ **WHAT IS *NOT* ESTABLISHED, AND IT IS THE FIRST THING TO CHECK — do not act on this row before
+answering it.** In production the pool's BTC is the SUM over many channels, and the hop chooses which
+one to splice. Two things follow and neither has been traced:
+  1. whether a hop can always pick a channel large enough (and what a delivery does when `sats`
+     exceeds EVERY single channel's balance — `_deliverOnchain`'s `old − s.sats` underflows);
+  2. whether a delivery may be split across channels at all.
+**The single-channel fixture makes the pool and the channel the same quantity, which is exactly why
+it surfaced here first and exactly why it is not yet a production claim.**
+
+⛔ **AND THE FIX IS NOT A CONSTANT SOMEBODY PICKS.** A floor has to cover `dust(P2TR) + exitFee`, and
+**the fee lives in the off-chain signed arming, so the contract cannot read it.** Any on-chain floor
+is a policy number — that makes it an owner call, and it changes what a swapper can be served, which
+puts it under rule 15. Booked, deliberately not landed.
+
+📌 **THE FIXTURE WAS THE ONLY THING THAT HAS EVER SAID THIS OUT LOUD, AND IT SAID IT BECAUSE SOMEBODY
+WROTE THE ERROR MESSAGE.** `gen_deadman_exit_fixture.py:94` catches the negative output and reports
+*"fee exceeds the channel value — funding_sats=1, out_value=-999 … the caller is arming an exit for a
+channel too small to fund it"*, with a comment explaining that without it the failure surfaces as
+`OverflowError` four frames from the cause. **An `OverflowError` here would have been read as a
+broken fixture and re-calibrated away.**
+✅ **THE FIXTURE IS FIXED AND THE FINDING IS NOT.** `test_M1_1` now opens at `2e7` (0.2 BTC, the size
+its siblings already use) so its 800 USDC of priming cannot exhaust the pool, and the test measures
+the proven-sats bound it is named for. `BtcLpMintStress` is **22/22**. ⛔ **The size is not the fix
+and the comment at the call site says so.**
+
 ## ✅ **§WARP-THE-PRECONDITION — a test whose PREMISE was a toolchain default, so a toolchain change made its CLAIM untested** (2026-08-29, FIXED)
 
 `PoseidonSMTRootValidity.t.sol:50` asserted `block.timestamp < 1 hours` with the message *"the
