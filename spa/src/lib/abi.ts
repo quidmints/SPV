@@ -124,12 +124,14 @@ export const AUX_ABI = [
   'function WBTC() view returns (address)',
 ] as const
 
-// Quid = V4 LP manager. Two LP modes:
+// Quid = the ETH range manager. ONE LP mode reaches this file:
 //   • Auto-managed — ERC4626-shaped; one shared single-sided vault per pool,
 //     pro-rata fee accumulators. owner==msg.sender enforced (AllowanceFlow).
-//   • Self-managed — per-position, NFT-like. outOfRange opens a position at
-//     a user-chosen tick range; pull withdraws by id+percent+output-token.
-//     47-block timelock after open (JIT defense).
+// §OOR-BOOK-DELETED (2026-08-29) — there WAS a second, "self-managed": per-position and
+// NFT-like, `outOfRange` opening at a user-chosen range and `pull` withdrawing by
+// id+percent+token, behind a 47-block timelock. It is gone from the contracts. Its successor is
+// a signed EIP-712 intent (`Quid.fillIntent`) that costs nothing on chain until it fills, and
+// the SPA does not speak it yet.
 // BTC-side via depositBTC/withdrawBTC kept exposed for completeness, but the
 // SPA's "BTC path" goes through BTCChannels.openChannel, not Quid.depositBTC.
 export const RANGE_ABI = [
@@ -151,39 +153,11 @@ export const RANGE_ABI = [
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
   'function totalShares() view returns (uint)',
   'function lpShares() view returns (uint)',
-  // Self-managed (per-position, non-fungible)
-  //   distance: signed offset from the range anchor
-  //   range:    width, same units as the anchor
-  //   token:    0x0 for the volatile side, stable address for the USD side
-  // ⚠️ §E235-spa — THIS DECLARATION WAS TWICE WRONG AND THE COMMENT ABOVE IT WAS TOO.
-  // (1) `int24 distance, int24 range` are TICKS, and ticks left with v4: `Quid.outOfRange` is
-  //     `(uint amount, address token, int distance, uint range)` — `int256`/`uint256`. int24 is a
-  //     narrower ABI word, so the old encoding was not merely mislabelled, it truncated.
-  // (2) The comment claimed "outOfRange gained a uint8 venue (5th arg) … 4-arg encoding now
-  //     reverts." That claim was wrong about the ARGUMENT and right about the ARITY, which is a
-  //     coincidence worth naming: there never was a `uint8 venue`, and there IS now a fifth
-  //     parameter — §OOR-LOADBALANCE's `bool loadBalance`, the placer's shortfall consent captured
-  //     at placement and spent at the fill (`Quid.sol:470`, `Vault.sol:728`).
-  // ⚠️ §ABI-GATE-WAS-CRASHING (2026-08-29) — this line sat wrong for as long as the gate that
-  //     checks it could not run. `check-client-abis.py` was dying with `IsADirectoryError` on
-  //     hardhat artifact DIRECTORIES named `*.sol` under `evm/lib/layerzero-devtools`, and it was
-  //     green before that only because the submodule was empty. Green-because-absent is not green.
-  'function outOfRange(uint amount, address token, int distance, uint range, bool loadBalance) payable returns (uint next)',
-  // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
-  // token: 0x0 = receive as ETH, stable addr = receive as that stable
-  'function pull(uint id, int percent, address token)',
-  // Storage getters
-  'function positions(address user, uint index) view returns (uint id)',
-  // §E235-spa — `Types.SelfManaged { uint created; address owner; uint lower; uint upper; int amt; }`
-  // (`Types.sol:41-49`). Was `int24 lower, int24 upper` from the tick era, and the last member is
-  // `amt` — "the token AMOUNT placed, not v4 liquidity units" per its own comment — so calling it
-  // `liq` named a quantity the contract stopped storing.
-  // (§E258) `usdFunded` records WHICH SIDE funded the order and packs into `owner`'s slot.
-  // (§OOR-LOADBALANCE) `loadBalance` packs into the SAME slot, immediately after it. ⚠️ IT SHIFTS
-  // EVERY POSITIONAL INDEX FROM `lower` ONWARD BY ONE, for the second time — `usdFunded` did it
-  // first. A positional decode is invisible to this gate (it compares SIGNATURES), so the shift
-  // has to be carried by hand at every `decodeFunctionResult` site.
-  'function selfManaged(uint id) view returns (uint created, address owner, bool usdFunded, bool loadBalance, uint lower, uint upper, int amt)',
+  // §OOR-BOOK-DELETED (2026-08-29) — `outOfRange`, `pull`, `positions` and `selfManaged` were
+  // declared here. The on-chain out-of-range BOOK is gone; a resting order is a signed EIP-712
+  // intent now (`Quid.fillIntent`), which the SPA does not yet speak. ⚠️ DO NOT ADD A
+  // `fillIntent` DECLARATION UNTIL THE SIGNING FLOW EXISTS — an encoder with no caller is the
+  // §E154-client-ghosts shape, and this file is the one `check-client-abis.py` reads.
   'function totalShares() view returns (uint)',
   'function feesPerShare() view returns (uint)',
 

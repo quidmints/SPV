@@ -2,157 +2,155 @@
 pragma solidity 0.8.30;
 
 import {AllesFixture} from "./Alles.t.sol";
-import {RangeLib} from "../src/imports/RangeLib.sol";
-import {SortedSetLib} from "../src/imports/Types.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
 
-/// @notice Exercises `SortedSetLib` on its own, as the CONTROL for the key-packing decision.
-///         Not a mock of anything: it is the real library, called directly, which is the only way
-///         to show what the rejected design would have done.
-contract RawSortedSet {
-    SortedSetLib.Set internal set;
-
-    function insert(uint v) external { SortedSetLib.insert(set, v); }
-    function count() external view returns (uint) { return SortedSetLib.getSortedSet(set).length; }
-}
-
-/// @title §E258 — A BOUNDARY ORDER IS A LIMIT ORDER AGAIN, NOT AN OPTION
+/// @title §OOR-AS-INTENT — A RESTING ORDER THAT EXISTS ONLY AS A SIGNATURE
 ///
-/// @notice **THIS FILE EXISTS BECAUSE THE DEFECT IT COVERS HAD NO BROKEN SYMBOL.** The v4 cut
-///         removed the PoolManager, and with it the tick crossing that filled a resting boundary
-///         order as part of any swap through its range. `outOfRange` still compiled, still stored,
-///         still tested green — what vanished was a BEHAVIOUR supplied by a deleted dependency, and
-///         no tool in the repo looks for one of those. The order stopped being a limit order and
-///         became an option its owner had to exercise, which is the variant that was rejected in
-///         writing when the design was chosen.
+/// @notice **THIS FILE REPLACES THE ONE THAT TESTED THE BOOK, AND THE REPLACEMENT WAS OVERDUE.**
+///         `Quid.fillIntent` landed in `abb685c4` (2026-08-28) with **ZERO tests** — measured, not
+///         estimated — while `outOfRange`/`pull`/`sweepOor`/`fillOOR` and their sorted-set index
+///         stayed live beside it. Two designs, one tested, and the untested one was the survivor.
+///         **That is why the book went un-deleted for a day and why this file exists before any
+///         further work on the intent path.** (§OOR-TWO-DESIGNS-LIVE.)
 ///
-/// ⚠️ **WHAT THIS FILE DOES NOT PROVE, STATED HERE RATHER THAN LEFT TO BE DISCOVERED.** It does not
-///    execute a fill across a real crossing. A crossing needs the range's ORACLE price to move, and
-///    on a pinned mainnet fork it cannot: `getTWAPforAsset` is the observation ring anchored to
-///    Chainlink, and neither budges for `vm.roll` or `vm.warp`. Moving it would mean mocking the
-///    oracle, which would prove the test can lie to itself and nothing else. So what is asserted
-///    below is everything reachable WITHOUT that: the index property the whole design rests on, the
-///    guard that decides when an order is fillable, and the absence of the 47-block rule on the
-///    fill path. **The end-to-end crossing is booked as §E258-CROSSING-TEST and is not closed.**
-contract OorFillsOnTouchTest is AllesFixture {
+/// ⚠️ **WHAT WENT AND WHY IT IS NOT A COVERAGE LOSS.** The previous file's first four tests were
+///    about the BOOK'S INDEX — that `SortedSetLib.insert` silently discards a duplicate, so the key
+///    had to be `(price << 96) | id`; that the packing sorts by price first; that a full `pull`
+///    leaves no ghost in the set; that `pull`'s 47-block rule does not reach the fill path. **Every
+///    one of those is a property of a structure that no longer exists.** An intent is not indexed,
+///    not stored, and not closed — it is signed, and it is consumed. The properties that SURVIVE
+///    the change are re-asserted below against the mechanism that now carries them.
+///
+/// ⚠️ **AND THE OLD FILE'S OWN CAVEAT STILL BINDS, FOR THE SAME REASON:** a fill needs the range's
+///    ORACLE to have crossed the limit, and on a pinned fork `getTWAPforAsset` moves for neither
+///    `vm.roll` nor `vm.warp`. Mocking it would prove only that the test can lie to itself. So the
+///    crossing is asserted from the REFUSING side — an uncrossed limit reverts `IntentNotCrossed`,
+///    which is the same guard from the other direction — and the end-to-end fill remains booked as
+///    §E258-CROSSING-TEST, still open.
+contract OorIntentTest is AllesFixture {
 
-    /// 🔑 **THE TRAP THE SPEC WAS WRITTEN AROUND, AND IT IS SILENT.** `SortedSetLib.insert` opens
-    ///    with `if (self.exists[value]) return;` — it DISCARDS a duplicate and reports nothing. Had
-    ///    the index been keyed on the bare trigger price, two orders resting at the same price would
-    ///    have collapsed into one entry: the second would never be found by a sweep, never fill, and
-    ///    its funds would sit unreachable with no revert anywhere to say so.
-    ///    This is the CONTROL for that claim — the real library, two equal values, one survivor.
-    function test_TheRawSetSilentlyDropsADuplicate_whichIsWhyTheKeyIsPacked() public {
-        RawSortedSet raw = new RawSortedSet();
-        raw.insert(1895e18);
-        raw.insert(1895e18);
-        assertEq(raw.count(), 1,
-            "premise: the set ignores duplicates; if this is 2, the packed key is no longer needed");
+    /// The maker. A private key, not `User01`, because an intent is a SIGNATURE and the whole
+    /// mechanism turns on who holds one.
+    uint256 internal constant MAKER_PK = 0xA11CE;
+    address internal maker;
 
-        // The packed key is what breaks the tie: same price, different id, two distinct entries.
-        assertTrue(RangeLib.oorKey(1895e18, 1) != RangeLib.oorKey(1895e18, 2),
-            "two orders at one price must produce two keys");
+    function setUp() public override { super.setUp(); maker = vm.addr(MAKER_PK); }
+
+    /// EIP-712 domain, recomputed here rather than read: `Quid._oorDomain()` is `private`, and a
+    /// test that asked the contract for the digest it is about to verify would be asserting that
+    /// `ecrecover` is deterministic. Rebuilding it from the published constants is what makes this
+    /// a check on the CONTRACT'S domain rather than a mirror of it.
+    function _domain() internal view returns (bytes32) {
+        return keccak256(abi.encode(SwapLib.OOR_DOMAIN_TYPEHASH,
+            keccak256("QuidOor"), keccak256("1"), block.chainid, address(ETH)));
     }
 
-    /// The packing must also PRESERVE PRICE ORDER, or a sorted set sorted by the wrong thing is
-    /// worse than no index — `binarySearch` would return a range that is not the crossed range.
-    function test_ThePackedKeySortsByPriceFirst() public pure {
-        // A higher price outranks a lower one no matter how the ids compare.
-        assertTrue(RangeLib.oorKey(2000e18, 0) > RangeLib.oorKey(1999e18, type(uint96).max),
-            "price must dominate the ordering; if id can outweigh it the sweep range is wrong");
-        // And within one price, the ids simply separate.
-        assertTrue(RangeLib.oorKey(2000e18, 5) > RangeLib.oorKey(2000e18, 4), "id breaks the tie");
+    function _intent(uint64 nonce, uint limitPx, bool buyVolatile)
+        internal view returns (SwapLib.OorIntent memory i) {
+        i = SwapLib.OorIntent({
+            owner: maker, buyVolatile: buyVolatile, size: rack / 10, limitPx: limitPx,
+            expiry: uint64(block.timestamp + 1 days), nonce: nonce, loadBalance: true });
     }
 
-    /// A FRESH ORDER IS NOT FILLABLE, and the poke says so instead of filling it. `oorBounds`
-    /// requires a new order to rest wholly OUTSIDE the active range, so at the moment of placement
-    /// the price has by construction not touched it. If this ever starts filling, the order's
-    /// bounds and the price the poke reads have drifted onto different bases — which would hand
-    /// every placer an instant fill at their own limit.
-    function test_AFreshOrderIsNotTouched_soThePokeRefusesIt() public {
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), rack);
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
-        vm.stopPrank();
-
-        (,, bool usdFunded,,,, int amt) = ETH.selfManaged(id);
-        assertTrue(usdFunded, "a stable-funded order is a resting BID and must record itself as one");
-        assertGt(amt, 0, "premise: the order exists");
-
-        vm.expectRevert(RangeLib.NotTouched.selector);
-        ETH.fillOOR(id);
+    function _sign(SwapLib.OorIntent memory i, uint256 pk) internal view returns (bytes memory) {
+        bytes32 digest = keccak256(abi.encodePacked(hex"1901", _domain(),
+            keccak256(abi.encode(SwapLib.OOR_TYPEHASH, i.owner, i.buyVolatile, i.size,
+                i.limitPx, i.expiry, i.nonce, i.loadBalance))));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
-    /// THE POKE IS PERMISSIONLESS BY DESIGN — anyone may call it, because the order settles at its
-    /// OWN limit price, so a caller chooses the timing and never the terms. What it must not do is
-    /// pay out an order that does not exist.
-    function test_ThePokeRejectsAnOrderThatIsNotThere() public {
-        vm.prank(User02);
-        vm.expectRevert(RangeLib.NoSuchOrder.selector);
-        ETH.fillOOR(999_999);
+    /// A price the oracle has NOT reached, on the far side of a bid. Read live so the test does not
+    /// pin a number the fork can move under it.
+    function _uncrossedBid() internal view returns (uint) {
+        return AUX.getTWAPforAsset(address(WETH), 1800) / 2;
     }
 
-    /// ⚠️ **`pull`'s 47-BLOCK GUARD MUST NOT REACH THE FILL PATH.** That rule is an anti-gaming
-    ///    bound on an owner-initiated CLOSE; an execution is not a withdrawal. If it gated a fill,
-    ///    every order would be unfillable for its first 47 blocks — reinstating precisely the "no
-    ///    execution guarantee at the moment of crossing" defect §E258 exists to remove. The
-    ///    discriminator: in the SAME block, `pull` refuses on the guard and the poke gets past it to
-    ///    a decision about PRICE.
-    function test_TheFillPathIsNotGatedByPullsFortySevenBlockRule() public {
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), rack);
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    //  THE FOUR PROPERTIES THAT SURVIVED THE BOOK, EACH AGAINST ITS NEW CARRIER
+    // ─────────────────────────────────────────────────────────────────────────────────────────
 
-        // Same block as creation: the owner's close is refused by the age rule ...
-        vm.expectRevert(bytes("too soon"));
-        ETH.pull(id, 100, address(USDC));
-        vm.stopPrank();
-
-        // ... while the fill path has already moved past age and is deciding on price. `NotTouched`
-        // — not "too soon" — IS the assertion: it proves the age rule is not in this path at all.
-        vm.expectRevert(RangeLib.NotTouched.selector);
-        ETH.fillOOR(id);
+    /// WAS: *"a fresh order is not touched, so the poke refuses it."* NOW: the ORACLE binds, and it
+    /// is the contract's own read. A bid whose limit the price has not fallen to is refused —
+    /// which is also the whole anti-keeper property, because the relayer chooses WHEN and the
+    /// contract decides WHETHER. If this ever starts filling, a relayer can name the price.
+    function test_AnUncrossedLimitIsRefused_theOracleDecidesNotTheRelayer() public {
+        SwapLib.OorIntent memory i = _intent(1, _uncrossedBid(), true);
+        bytes memory sig = _sign(i, MAKER_PK);
+        vm.prank(User02);                       // permissionless relay — anyone may submit
+        vm.expectRevert(SwapLib.IntentNotCrossed.selector);
+        ETH.fillIntent(i, sig);
     }
 
-    /// A FULL PULL MUST ALSO LEAVE THE INDEX. Otherwise the sorted set outlives the position it
-    /// describes, and the book and the index become two structures that can disagree — the exact
-    /// shape the spec forbade when it ruled out a parallel `mapping(price => id[])`. Observable
-    /// here as: after the pull, the poke reports the order GONE rather than merely untouched.
-    function test_AFullPullLeavesNoGhostInTheIndex() public {
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), rack);
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
-        vm.roll(vm.getBlockNumber() + 1000);
-        ETH.pull(id, 100, address(USDC));
-        vm.stopPrank();
-
-        (,,,,,, int amt) = ETH.selfManaged(id);
-        assertEq(amt, 0, "premise: the position is closed");
-        vm.expectRevert(RangeLib.NoSuchOrder.selector);
-        ETH.fillOOR(id);
+    /// WAS: *"a full pull leaves no ghost in the index."* NOW: **one consumed bit per
+    /// `(owner, nonce)`, and it is the ONLY storage the mechanism ever writes.** There is no
+    /// position to leave behind, so the property becomes: a nonce cannot be spent twice.
+    /// ⚠️ Asserted through the PUBLIC map rather than by filling twice, because filling once needs
+    ///    a crossing this fixture cannot produce (see the file header). The map is what `fillIntent`
+    ///    reads, so this is the same bit the guard consults.
+    function test_TheNonceIsTheOnlyState_andItStartsUnspent() public view {
+        assertFalse(ETH.intentUsed(maker, 1), "a nonce nobody has filled must be unspent");
+        assertFalse(ETH.intentUsed(maker, 2), "and nonces are independent of one another");
     }
 
-    /// TWO ORDERS AT ONE TRIGGER PRICE BOTH SURVIVE PLACEMENT — the end-to-end form of the first
-    /// test. Identical geometry (same distance, same range, same block) yields the same bounds and
-    /// therefore the same trigger, which is precisely the case a bare-price key would have lost.
-    function test_TwoOrdersAtTheSameTriggerBothRemainReal() public {
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), rack * 2);
-        uint a = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
-        uint b = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);
-        vm.stopPrank();
+    /// WAS: *"two orders at the same trigger both remain real"* — the case a bare-price key would
+    /// have stranded. NOW two intents at one limit are simply two nonces: there is no index for
+    /// them to collide in, and the property is that the CONSUMED BIT is per-nonce rather than
+    /// per-owner or per-price.
+    function test_TwoIntentsAtOneLimitAreTwoNonces() public {
+        uint px = _uncrossedBid();
+        SwapLib.OorIntent memory a = _intent(7, px, true);
+        SwapLib.OorIntent memory b = _intent(8, px, true);
+        assertTrue(keccak256(_sign(a, MAKER_PK)) != keccak256(_sign(b, MAKER_PK)),
+            "the same limit under two nonces must be two distinct signatures");
+        // Both are individually addressable, and both stop at the same guard.
+        vm.expectRevert(SwapLib.IntentNotCrossed.selector); ETH.fillIntent(a, _sign(a, MAKER_PK));
+        vm.expectRevert(SwapLib.IntentNotCrossed.selector); ETH.fillIntent(b, _sign(b, MAKER_PK));
+    }
 
-        assertTrue(a != b, "two placements must be two positions");
-        (,,,, uint loA, uint upA, int amtA) = ETH.selfManaged(a);
-        (,,,, uint loB, uint upB, int amtB) = ETH.selfManaged(b);
-        assertEq(upA, upB, "premise: identical geometry gives one shared trigger price");
-        assertEq(loA, loB, "premise: identical geometry gives identical bounds");
-        assertGt(amtA, 0, "the first order is live");
-        assertGt(amtB, 0, "the SECOND order is live: the one a bare-price key would strand");
+    /// WAS: *"the poke rejects an order that is not there."* NOW an intent that was never authorised
+    /// has no on-chain existence to check — so the guard is the SIGNATURE, and this is the
+    /// mechanism's central security claim: **a fully-compromised keeper holds no key that moves
+    /// funds.** Signed by someone who is not `owner` ⇒ refused.
+    function test_AnIntentSignedByAnyoneButTheOwnerIsRefused() public {
+        SwapLib.OorIntent memory i = _intent(3, _uncrossedBid(), true);
+        bytes memory forged = _sign(i, 0xBAD5EED);      // a real signature, over the real digest
+        vm.expectRevert(SwapLib.IntentBadSig.selector);
+        ETH.fillIntent(i, forged);
+    }
 
-        // And both are still individually addressable through the fill path.
-        vm.expectRevert(RangeLib.NotTouched.selector);
-        ETH.fillOOR(a);
-        vm.expectRevert(RangeLib.NotTouched.selector);
-        ETH.fillOOR(b);
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    //  AND THE PROPERTIES THE BOOK COULD NOT HAVE
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    /// AN INTENT IS NOT IMMORTAL, which a resting position was. Expiry is checked FIRST, before the
+    /// signature and before the oracle — so an expired intent costs a relayer nothing to discover.
+    function test_AnExpiredIntentIsRefusedBeforeAnythingElse() public {
+        SwapLib.OorIntent memory i = _intent(4, _uncrossedBid(), true);
+        bytes memory sig = _sign(i, MAKER_PK);
+        vm.warp(uint(i.expiry) + 1);
+        vm.expectRevert(SwapLib.IntentExpired.selector);
+        ETH.fillIntent(i, sig);
+    }
+
+    /// A MALFORMED SIGNATURE IS REFUSED AS A SIGNATURE, not as an `ecrecover` of address(0).
+    /// ⚠️ The length check exists because `ecrecover` returns `address(0)` on garbage, and an
+    ///    `OorIntent` whose `owner` was `address(0)` would then verify. The guard is what stops a
+    ///    zero-owner intent being a valid one.
+    function test_AShortSignatureIsRefused() public {
+        SwapLib.OorIntent memory i = _intent(5, _uncrossedBid(), true);
+        vm.expectRevert(SwapLib.IntentBadSig.selector);
+        ETH.fillIntent(i, hex"1234");
+    }
+
+    /// ⭐ THE FIELDS ARE ALL BOUND BY THE SIGNATURE — changing any one of them after signing
+    ///    invalidates it. Demonstrated on `size`, which is the one that moves money: a relayer who
+    ///    could inflate it would drain the maker at the maker's own limit.
+    function test_TheRelayerCannotAlterTheSignedTerms() public {
+        SwapLib.OorIntent memory i = _intent(6, _uncrossedBid(), true);
+        bytes memory sig = _sign(i, MAKER_PK);
+        i.size = i.size * 10;                            // same signature, different terms
+        vm.expectRevert(SwapLib.IntentBadSig.selector);
+        ETH.fillIntent(i, sig);
     }
 }

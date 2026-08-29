@@ -278,57 +278,9 @@ library BtcLib {
     ///      forwarder applies lpShares += addedNet - burnedNet and totalBuffer += bufAdded - bufBurned.
     struct LevDelta { uint addedNet; uint burnedNet; uint bufAdded; uint bufBurned; }
 
-    /// @dev Scalar args for outOfRangeBtc, bundled into one memory slot to keep
-    ///      the Vault forwarder + this body off the legacy stack.
-    struct OorArgs {
-        uint    amount;
-        address token;
-        int     distance;
-        uint    range;
-        address owner;    // msg.sender (preserved across delegatecall)
-        uint spotPrice;
-        uint curLo;
-        uint curUp;
-        uint    idBtc;    // current ID (value-type; new id returned)
-        /// §OOR-LOADBALANCE — the placer's shortfall consent, carried to the fill (§E308).
-        bool    loadBalance;
-    }
 
-    /// @notice Body of Vault.outOfRangeBtc after _rebalance (which stays in the
-    ///         Vault; its spotPrice/ticks arrive via `a`). Places a USD-funded
-    ///         single-sided BTC boundary order; returns the new position id (the
-    ///         forwarder writes it back to ID). Byte-identical.
-    function outOfRangeBtc(
-        Types.RangeCfg memory c,
-        mapping(uint => Types.SelfManaged) storage selfManaged,
-        mapping(address => uint[]) storage positions,
-        OorArgs memory a
-    ) public returns (uint next) {
-        if (a.token == address(0)) revert NotAStable();
-        SwapLib.validateOorParams(a.range, a.distance);
-        SwapLib.Oor memory t = SwapLib.oorBounds(a.spotPrice, a.range, a.distance, a.curLo, a.curUp);
-        // Deposit the stable backing via AUX (pool-agnostic), normalize to 6-dec USD.
-        uint amt = SwapLib.scaleTo6(IAux(c.aux).deposit(a.owner, a.token, a.amount), a.token);
-        uint liquidity = SwapLib.sizeOorUsd(amt, t);
-        // `liquidity` is still the sizer's own VALIDITY CHECK -- a range that can hold nothing
-        // yields zero -- even though the POSITION is now stored as an amount.
-        if (liquidity == 0) revert Dust();
-        next = a.idBtc + 1;
-        selfManaged[next] = Types.SelfManaged({
-            created: block.number, owner: a.owner,
-            // §E258 — `usdFunded: true` UNCONDITIONALLY, and that is not a shortcut: this path
-            // opens with `if (a.token == address(0)) revert NotAStable()`, so a BTC boundary order
-            // cannot be funded any other way. It is recorded rather than assumed because the field
-            // is what `pull` needs in order to stop taking the payout side from its caller.
-            // ⚠️ DELIBERATELY NOT INDEXED into `oorBook` — see `Vault.sweepOor` for why filling a
-            // BTC order automatically would burn the leg it fills into.
-            usdFunded: true, loadBalance: a.loadBalance,
-            lower: t.newLo, upper: t.newUp, amt: int(amt) });   // §V4-CUT: the AMOUNT, not liquidity
-        positions[a.owner].push(next);
-        // `liquidity` is still computed and still gates on Dust -- it is the sizer's own validity
-        // check (a range that can hold nothing yields zero) -- but the POSITION is the amount.
-        ICore(c.core).outOfRange(a.owner, int(amt), address(0));
-    }
+
+
 
     /// @notice Body of Vault.pullBtc — close/partially-reduce a self-managed BTC
     ///         boundary order. `owner` = msg.sender (preserved across delegatecall).

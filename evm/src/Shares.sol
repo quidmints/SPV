@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./imports/Types.sol";
-import {OorBook} from "./imports/Types.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";   // §FOLD-LEVGROSS
 import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §FOLD-PINLEV
 
@@ -114,29 +113,16 @@ abstract contract Shares {
     /// In-range shares, against the engine's `POOLED`.
     uint public lpShares;
 
-    // ─── out-of-range boundary orders (disjoint from the in-range book by construction) ───
-    mapping(uint => Types.SelfManaged) public selfManaged;
-    mapping(address => uint[])         public positions;
-    uint internal ID;
-
-    /// §E258 — THE BOUNDARY-ORDER INDEX, KEYED BY TRIGGER PRICE. Under v4 the PoolManager filled a
-    /// resting order as part of any swap that crossed its range; `SwapLib` has one price and
-    /// no traversal, so that crossing stopped happening and a boundary order silently became an
-    /// option the owner had to exercise. This is the replacement: orders sorted by the price at
-    /// which they become fillable, so a fill can find the ones the price just crossed in a binary
-    /// search rather than by scanning every position.
-    /// ⚠️ THE KEY IS `(triggerPrice << 96) | id`, NEVER THE BARE PRICE. `SortedSetLib.insert` opens
-    /// with `if (self.exists[value]) return;` — it IGNORES duplicates silently — so two orders
-    /// resting at the same price would collapse into one entry and the second would become
-    /// permanently unfillable, stranding its funds with nothing reverting. The id makes every key
-    /// unique while leaving the sort order by price intact.
-    /// The index and its sweep watermark travel together as ONE storage pointer, which is what
-    /// lets `RangeLib` own the whole mechanism — the range managers hold only the forwarder and pay
-    /// ZERO deployed bytes for it. ⛔ Do not inline it back. (This read "`Quid` has the tightest
-    /// EIP-170 margin in the tree"; that is no longer true — `tools/check-contract-sizes.py` is the
-    /// only current answer, and the zero-bytes invariant holds whichever contract is tightest.)
-    OorBook internal oorBook;
-
+    // ─── §OOR-BOOK-DELETED (2026-08-29) — there is no out-of-range book any more ───
+    // `selfManaged`, `positions`, `ID` and `oorBook` lived here: a struct, a per-owner id array and
+    // a trigger-price sorted set, WRITTEN AT REST for orders that might never fill. A resting order
+    // is now a signed intent (§OOR-AS-INTENT) and the only storage it touches is one consumed bit,
+    // written AT THE FILL — `Quid.intentUsed[owner][nonce]`.
+    // ⭐ AND THE DELETION IS A PRIVACY FIX AS MUCH AS A SIZE ONE: `selfManaged[id].owner` plus
+    //   `positions[owner]` published a permanent, public link from an address to its intentions,
+    //   for orders that may never fill — shrinking the anonymity set every withdrawer relies on,
+    //   for no accounting benefit. The chain stores P&L attribution and withdrawability; a resting
+    //   order is neither until it fills.
     // ─── fee accumulators — PER-SHARE, not dollars (see CLAUDE.md: multiply back by the
     //     credit site's own share base before reading either as an amount) ───
     uint public feesPerShare;

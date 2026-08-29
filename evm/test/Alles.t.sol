@@ -1633,81 +1633,11 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testOutOfRangeUSDPosition() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 25 ether}(0, User01);
 
-        USDC.approve(address(AUX), rack);
-        uint balanceBefore = USDC.balanceOf(User01);
 
-        uint id = ETH.outOfRange(rack / 10, address(USDC), 1000, 100, true);   // §DETICK: (amount, token, distance, range)
 
-        assertGt(id, 0, "Position ID should be > 0");
-        assertApproxEqAbs(USDC.balanceOf(User01), balanceBefore - rack / 10,
-                        rack / 100, "USDC should be deducted");
 
-        vm.roll(vm.getBlockNumber() + 1000);
-        balanceBefore = USDC.balanceOf(User01);
-        ETH.pull(id, 100, address(USDC));
 
-        // §OOR-PULL-SIGN — WAS `balanceBefore`, WHICH ASSERTED THE OPPOSITE OF ITS OWN MESSAGE.
-        // A 100% pull RETURNS the order's USDC to the owner, so the balance must RISE by `rack/10`
-        // (the amount the order was opened with, deducted by the assertion ~6 lines above). Comparing
-        // against the unchanged `balanceBefore` could only pass if the pull returned NOTHING.
-        // MEASURED: it returned 99,999,998 of 100,000,000 — 2 wei short of exact, i.e. the pull works
-        // and the assertion was reading the wrong side. Same class as `assertGt(x, x)`: the message
-        // states the property, the code tests something else.
-        assertApproxEqAbs(USDC.balanceOf(User01),
-        balanceBefore + rack / 10, rack / 50, "Should get USDC back");
-
-        vm.stopPrank();
-    }
-
-    function testPartialPullOutOfRange() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 50 ether}(0, User01);
-
-        vm.roll(vm.getBlockNumber() + 1);
-
-        uint id = ETH.outOfRange{value: 2 ether}(0, address(0), -1000, 100, true);
-        assertGt(id, 0, "Should create position");
-
-        vm.roll(vm.getBlockNumber() + 1000);
-
-        // §OOR-LEG-MISMATCH — THE POSITION IS ETH-FUNDED, SO IT MUST BE PULLED AS ETH.
-        // `Core.outOfRange` routes by token: `token == 0 ? Delta(0, -amount) : Delta(-amount, 0)`.
-        // Pulling an ETH-funded order with USDC puts the position's 18-dec TOKEN amount into the
-        // 6-dec USD slot, which reads as a colossal USD claim and trips `OverCommitted()` — measured:
-        // backing was HEALTHY either side of the open (committed 123,371 vs liquid 152,000, unchanged
-        // by the order), so the over-commitment was injected by the pull's own mis-legged delta.
-        // The sibling `testOutOfRangeUSDPosition` is self-consistent (USDC in, USDC out) and passes.
-        uint balanceBefore = User01.balance;
-        ETH.pull(id, 50, address(0));
-
-        uint received = User01.balance - balanceBefore;
-        assertGt(received, 0, "Should receive ETH back from an ETH-funded boundary order");
-
-        vm.stopPrank();
-    }
-
-    function testInvalidOutOfRangeParams() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 25 ether}(0, User01);
-
-        // EXACT selector, not a bare `vm.expectRevert()`. Each line claims a DISTINCT parameter is
-        // rejected, so a bare form would let one shared incidental revert (a cooldown, a TWAP gate)
-        // satisfy all four and prove nothing. Verified: all four really do reach `BadOorParam`.
-        vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 50, true);
-        vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -1000, 1500, true);
-        vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -6000, 100, true);
-        vm.expectRevert(SwapLib.BadOorParam.selector);
-        ETH.outOfRange{value: 1 ether}(0, address(0), -1050, 100, true);
-
-        vm.stopPrank();
-    }
 
     // Grinding removed (no per-swap 0.5% cap / no manip revert): a LARGE swap now walks the real
     // curve, skewing the pool's composition (excess of one side). The reseat must survive that
@@ -1734,6 +1664,15 @@ contract Alles is AllesFixture {
     // yet is still "in range" by one tick, so the permissionless deadlock-recovery poke cannot
     // heal it. That is a suspected REAL defect in the repack trigger (it tests the tick boundary,
     // not the composition) and is deliberately NOT papered over with a loose tolerance here.
+    // §OOR-BOOK-DELETED (2026-08-29) — `testOutOfRangeUSDPosition`, `testPartialPullOutOfRange`
+    // and `testInvalidOutOfRangeParams` lived here. They exercised `outOfRange`/`pull` and the
+    // `oorBounds` parameter guard: placement geometry, partial-close arithmetic and the range/
+    // distance validation. **All three are properties of a mechanism that no longer exists** — a
+    // resting order is a signed intent now, with no placement transaction, no position to pull and
+    // no geometry to validate. What replaced them is `OorFillsOnTouch.t.sol`, rewritten in the same
+    // commit against `Quid.fillIntent`. ⛔ Do not restore these without restoring the book, and
+    // read §OOR-TWO-DESIGNS-LIVE first.
+
     function testGrindRemoval_LargeSwapThenReseatRerangesSkewed() public {
         vm.prank(User01); ETH.deposit{value: 200 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
@@ -3001,23 +2940,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function test_OutOfRange_CreatesPosition() public {
-        // Deterministic, NO catch{}. For an ETH-only position (token==0) the
-        // contract requires the new range ABOVE the current range
-        // (newLowerTick > currentUpperTick) - which `_outOfRangeTicks` produces
-        // for a NEGATIVE distance (sell-ETH-higher limit order). The old working
-        // suite used exactly these params (`-1000, 100`); a positive distance
-        // places the range on the wrong side and legitimately reverts. So this
-        // proves outOfRange genuinely creates the position, not that it's bug-free
-        // for an arbitrary sign.
-        vm.startPrank(User01);
-        ETH.deposit{value: 25 ether}(0, User01);
 
-        uint id = ETH.outOfRange{value: 5 ether}(0, address(0), -1000, 100, true);
-        assertGt(id, 0, "out-of-range position created");
-
-        vm.stopPrank();
-    }
 
     function testMintWithDifferentStables() public {
         vm.startPrank(User01);

@@ -67,7 +67,7 @@ const enc = {
   // it threw `no matching function`, i.e. **the swap button could not fire at all**.
   // ⚠️ `false` is the conservative default and NOT a UI decision that has been made: the consent
   //    "can add MEV/slippage to the owner's OWN fill, which is why it is theirs to give rather than
-  //    a protocol default" (`Vault.outOfRange` docblock). Surfacing it as a control is unbuilt.
+  //    a protocol default" (the placement docblock). Surfacing it as a control is unbuilt.
   swap:        (token: string, asset: string, forVolatile: boolean, amt: bigint, minOut: bigint,
                 loadBalance = false) =>
                 iface.encodeFunctionData('swap', [token, asset, forVolatile, amt, minOut, loadBalance]),
@@ -98,13 +98,9 @@ const enc = {
   //    copy nothing checked is checked. It also had to be repaired before it could check anything:
   //    it was dying on hardhat artifact DIRECTORIES named `*.sol`, and was green before that only
   //    because `evm/lib/layerzero-devtools` was an uninitialised submodule.
-  outOfRange: (amt: bigint, token: string, distance: number, range: number,
-               loadBalance = false) =>
-                iface.encodeFunctionData('outOfRange', [amt, token, distance, range, loadBalance]),
-  pull:       (id: bigint, percent: number, token: string) =>
-                iface.encodeFunctionData('pull', [id, percent, token]),
-  positions:  (u: string, i: number) => iface.encodeFunctionData('positions', [u, i]),
-  selfManaged: (id: bigint) => iface.encodeFunctionData('selfManaged', [id]),
+  // §OOR-BOOK-DELETED — `outOfRange`, `pull`, `positions` and `selfManaged` encoders removed
+  //   with the book. `check-client-abis.py` reported all four as ORPHAN the moment the
+  //   Solidity went, which is the gate doing its job — see §ABI-GATE-WAS-CRASHING.
   // BTCChannels
   channels:    (id: string) => iface.encodeFunctionData('channels', [id]),
   requestSwapOutOnchain: (token: string, usd: bigint, minSats: bigint, swapId: string, script: string) =>
@@ -235,8 +231,12 @@ export default function QuidApp() {
   const [mintAmount, setMintAmount] = useState('')
   const [maturityMonths, setMaturityMonths] = useState(12)
 
-  const [depositSubTab, setDepositSubTab] = useState<'auto' | 'self'>('auto')
-  const [withdrawSubTab, setWithdrawSubTab] = useState<'auto' | 'self' | 'btc'>('auto')
+  // §OOR-BOOK-DELETED — `depositSubTab` is GONE, not narrowed to one member. It selected
+  // between "Auto-managed" and "Self-managed (custom range)"; with the book deleted there is one
+  // mode, so a state variable that can hold one value and a setter nobody calls would be exactly
+  // the unreachable branch standing rule 1 forbids.
+  // §OOR-BOOK-DELETED — the 'self' member went with the book; two tabs remain.
+  const [withdrawSubTab, setWithdrawSubTab] = useState<'auto' | 'btc'>('auto')
   // BTC LP withdrawal (channel close) — lives in the withdraw screen alongside ETH.
   const [myChannels, setMyChannels] = useState<{ id: string; sats: bigint; status: number }[]>([])
   const [btcLp, setBtcLp] = useState<{ pooledSats: number; feesSats: number; usdOwed: number; feesUsd: number } | null>(null)
@@ -248,17 +248,6 @@ export default function QuidApp() {
   const [depositAmount, setDepositAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
 
-  // Self-managed (Quid.outOfRange / pull) state
-  const [oorAmount, setOorAmount] = useState('')
-  const [oorSide, setOorSide] = useState<'eth' | 'usd'>('eth')
-  const [oorStable, setOorStable] = useState<StableToken | null>(null)
-  const [oorDistance, setOorDistance] = useState(5)   // UI %; sent as ticks = % × 100
-  const [oorRange, setOorRange] = useState(2)         // UI %; ticks = % × 100, snap to 50
-  const [smPositions, setSmPositions] = useState<
-    { id: bigint; created: bigint; lower: number; upper: number; liq: bigint }[]
-  >([])
-  const [pullPercents, setPullPercents] = useState<Record<string, number>>({})
-  const [pullTokens,   setPullTokens]   = useState<Record<string, string>>({})
 
   // BTC direction is "USD → BTC" externally — internally it's USD → WBTC on
   // the V4 BTC pool (pricing leg only); the hop daemon broadcasts native BTC
@@ -454,43 +443,10 @@ export default function QuidApp() {
 
   // Walk positions[user] until id == 0 (capped to 50 for safety).
   // Skip zero-liq entries (already pulled to 0%).
-  const fetchSmPositions = useCallback(async () => {
-    if (!connected || !chainOk || CONTRACTS.range === ZERO_ADDR) return
-    const out: typeof smPositions = []
-    for (let i = 0; i < 50; i++) {
-      try {
-        const idR = await ethCall(CONTRACTS.range, enc.positions(address, i))
-        const id = BigInt(idR)
-        if (id === 0n) break
-        const smR = await ethCall(CONTRACTS.range, enc.selfManaged(id))
-        const dec = iface.decodeFunctionResult('selfManaged', smR)
-        // ⚠️ DECODED BY NAME, AND THE INDICES ARE WHY. `usdFunded` was inserted at index 2 (§E258)
-        // and `loadBalance` at index 3 (§OOR-LOADBALANCE), each shifting everything from `lower`
-        // onward by one — TWICE, in two different sessions. A positional decode is invisible to
-        // `check-client-abis.py`, which compares SIGNATURES, and it fails SILENTLY: `liq` read
-        // `upper`, stayed > 0, and every position rendered as garbage rather than erroring.
-        // `abi.ts` names every output, so named access is immune to the next insertion. Do not
-        // put the numbers back.
-        const r = dec as unknown as { created: bigint; lower: bigint; upper: bigint; amt: bigint }
-        const liq = BigInt(r.amt)
-        if (liq > 0n) {
-          out.push({
-            id,
-            created: BigInt(r.created),
-            lower:   Number(r.lower),
-            upper:   Number(r.upper),
-            liq,
-          })
-        }
-      } catch { break }  // array out-of-bounds = end of list
-    }
-    setSmPositions(out)
-  }, [connected, chainOk, address])
 
   useEffect(() => { void fetchBalances() }, [fetchBalances])
   useEffect(() => { void fetchMetrics() }, [fetchMetrics])
   useEffect(() => { void fetchQuid() }, [fetchQuid])
-  useEffect(() => { void fetchSmPositions() }, [fetchSmPositions])
   useEffect(() => { void fetchLevPos() }, [fetchLevPos])
 
   // Auto-pick first stable with balance for mint
@@ -691,78 +647,14 @@ export default function QuidApp() {
   }, [closeId, closeRawTx, closeBlockHash, closeProof, closeTxIndex, connected, txMutex, address, fetchMyChannels])
 
   // ═══════════════════════════════════════════════════════════════════
-  //   SELF-MANAGED LP — Quid.outOfRange / pull
-  //   Contract validates: range ∈ [100,1000] step 50; distance ∈ [-5000,5000]
-  //   step 100, non-zero. UI multiplies % by 100 to get ticks (so range%50 == 0
-  //   requires UI step 0.5%; distance multiplies cleanly for any UI int %).
-  //   Contract auto-flips distance sign based on pool token ordering, so UI
-  //   distance is unambiguous: + = above current price, − = below.
+  //   §OOR-BOOK-DELETED (2026-08-29) — `doOpenOutOfRange` and `doPullPosition` lived here.
+  //   `Quid.outOfRange`/`pull` no longer exist: a resting order is a signed EIP-712 intent
+  //   (`Quid.fillIntent`), so PLACING one is a wallet SIGNATURE with no transaction and no
+  //   capital movement, and CANCELLING one is letting `expiry` pass. Neither is a button that
+  //   sends calldata, which is why nothing replaces these two in place.
+  //   ▶️ The intent UI (sign an `OorIntent`, hand it to a relayer, show unspent nonces) is
+  //      UNBUILT and booked. A form that cannot submit would be worse than its absence.
   // ═══════════════════════════════════════════════════════════════════
-  const doOpenOutOfRange = useCallback(async () => {
-    if (!oorAmount || !connected || txMutex) return
-    if (oorSide === 'usd' && !oorStable) { setError('Pick a stable'); return }
-    setTxMutex(true); setBusy(true); setError(null); setLastTx(null)
-    try {
-      const distanceTicks = Math.round(oorDistance * 100)
-      const rangeTicks    = Math.round(oorRange * 100 / 50) * 50  // snap to 50
-      let msgValue = 0n
-      let amount:  bigint
-      let tokenAddr: string
-
-      if (oorSide === 'eth') {
-        tokenAddr = ZERO_ADDR
-        const total = ethers.parseEther(oorAmount)
-        const rawEth = ethers.parseEther(ethBal || '0')
-        const wethW  = ethers.parseEther(wethBal || '0')
-        const split = splitEthForDeposit(total, rawEth, wethW)
-        msgValue = split.msgValue
-        amount   = split.wethAmount
-        if (amount > 0n) {
-          await ensureAllowance(CONTRACTS.weth, CONTRACTS.range, amount, address, setStatus)
-        }
-      } else {
-        tokenAddr = oorStable!.address
-        amount    = ethers.parseUnits(oorAmount, oorStable!.decimals)
-        // USD-side: Aux.deposit is the entry that pulls the stable.
-        await ensureAllowance(oorStable!.address, CONTRACTS.aux, amount, address, setStatus)
-      }
-
-      setStatus('Opening self-managed position…')
-      const tx = await sendTx({
-          from: address, to: CONTRACTS.range,
-          data: enc.outOfRange(amount, tokenAddr, distanceTicks, rangeTicks),
-          ...(msgValue > 0n ? { value: '0x' + msgValue.toString(16) } : {}),
-        })
-      setLastTx(tx); await waitTx(tx); setStatus('Position opened.')
-      setOorAmount(''); void fetchBalances(); void fetchSmPositions(); void fetchQuid()
-    } catch (e: any) { setError(e.message || 'open failed') }
-    finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [oorAmount, oorSide, oorStable, oorDistance, oorRange, connected, txMutex, ethBal, wethBal, address, fetchBalances, fetchQuid, fetchSmPositions])
-
-  const doPullPosition = useCallback(async (id: bigint) => {
-    if (!connected || txMutex) return
-    const idStr = String(id)
-    const percent = pullPercents[idStr] ?? 100
-    const tokenAddr = pullTokens[idStr] ?? ZERO_ADDR
-    if (percent < 1 || percent > 100) { setError('Pull % must be 1..100'); return }
-    setTxMutex(true); setBusy(true); setError(null); setLastTx(null)
-    try {
-      setStatus(`Pulling ${percent}% of #${idStr}…`)
-      const tx = await sendTx({
-          from: address, to: CONTRACTS.range,
-          data: enc.pull(id, percent, tokenAddr),
-        })
-      setLastTx(tx); await waitTx(tx); setStatus('Pulled.')
-      void fetchBalances(); void fetchSmPositions(); void fetchQuid()
-    } catch (e: any) {
-      // The 47-block timelock comes back as a revert "too soon" — surface plainly.
-      const msg = e.message?.includes('too soon')
-        ? 'Position is too fresh — 47-block timelock (≈9.4 min after open) still active.'
-        : (e.message || 'pull failed')
-      setError(msg)
-    }
-    finally { setBusy(false); setTxMutex(false); setTimeout(() => setStatus(null), 6000) }
-  }, [connected, txMutex, pullPercents, pullTokens, address, fetchBalances, fetchSmPositions, fetchQuid])
 
   // ═══════════════════════════════════════════════════════════════════
   //   SWAP — Aux.swap(token, asset, forVolatile, amount, minOut)
@@ -1195,20 +1087,12 @@ export default function QuidApp() {
       {/* ── Deposit (ETH LP) ─────────────────────────────────────────── */}
       {tab === 'deposit' && (
         <Section title="Deposit to ETH LP (Quid V4)">
-          <div className="flex gap-1 p-1 rounded-lg bg-white/5 mb-4 text-xs">
-            <button
-              className={`flex-1 px-3 py-2 rounded-md ${depositSubTab==='auto' ? 'bg-white/15' : 'hover:bg-white/10'}`}
-              onClick={() => setDepositSubTab('auto')}>
-              Auto-managed (ERC4626)
-            </button>
-            <button
-              className={`flex-1 px-3 py-2 rounded-md ${depositSubTab==='self' ? 'bg-white/15' : 'hover:bg-white/10'}`}
-              onClick={() => setDepositSubTab('self')}>
-              Self-managed (custom range)
-            </button>
-          </div>
-
-          {depositSubTab === 'auto' ? (
+          {/* §OOR-BOOK-DELETED (2026-08-29) — the "Self-managed (custom range)" sub-tab and its
+              whole panel are gone with `Quid.outOfRange`/`pull`. A resting order is a signed
+              EIP-712 intent now (`Quid.fillIntent`), which is a WALLET-SIGNING flow, not a
+              transaction form: nothing is deposited at placement, so there is no position to
+              render and no `pull` to offer. The replacement UI is unbuilt — booked, not stubbed,
+              because a form that cannot submit is worse than an absent one. */}
             <>
               <p className="text-xs opacity-70 mb-3">
                 Single-sided ETH placed out-of-range on the V4 vanilla ETH/USD pool —
@@ -1243,69 +1127,6 @@ export default function QuidApp() {
                 {busy ? 'Working…' : 'Deposit'}
               </button>
             </>
-          ) : (
-            <>
-              <p className="text-xs opacity-70 mb-3">
-                Open your own out-of-range V4 position at a chosen tick range.
-                Non-fungible — per-position fees depend on whether the price
-                crosses your range. 47-block timelock before you can pull (≈9.4 min).
-              </p>
-
-              <div className="flex gap-1 p-1 rounded-lg bg-white/5 mb-3 text-xs">
-                <button
-                  className={`flex-1 px-3 py-2 rounded-md ${oorSide==='eth' ? 'bg-white/15' : 'hover:bg-white/10'}`}
-                  onClick={() => setOorSide('eth')}>ETH side</button>
-                <button
-                  className={`flex-1 px-3 py-2 rounded-md ${oorSide==='usd' ? 'bg-white/15' : 'hover:bg-white/10'}`}
-                  onClick={() => setOorSide('usd')}>USD side</button>
-              </div>
-
-              {oorSide === 'usd' && (
-                <>
-                  <label className="block text-sm mb-1">Stable</label>
-                  <select
-                    value={oorStable?.address || ''}
-                    onChange={e => setOorStable(STABLES.find(s => s.address === e.target.value) || null)}
-                    className="w-full mb-3 p-2 rounded bg-black/30 border border-white/10">
-                    <option value="">— pick —</option>
-                    {STABLES.map(s => (
-                      <option key={s.address} value={s.address}>
-                        {s.symbol} · bal {fmt(Number(BigInt(stableBals[s.address] || '0')) / 10**s.decimals, 4)}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-
-              <label className="block text-sm mb-1">
-                Amount ({oorSide === 'eth' ? 'ETH' : oorStable?.symbol || 'stable'})
-              </label>
-              <input value={oorAmount} onChange={e => setOorAmount(e.target.value)}
-                className="w-full mb-3 p-2 rounded bg-black/30 border border-white/10" placeholder="0.00" />
-
-              <label className="block text-sm mb-1">
-                Distance from current tick: {oorDistance > 0 ? '+' : ''}{oorDistance}% ({oorDistance * 100} ticks)
-              </label>
-              <input type="range" min={-50} max={50} step={1} value={oorDistance}
-                onChange={e => setOorDistance(Number(e.target.value))}
-                className="w-full mb-1" />
-              <div className="text-[10px] opacity-60 mb-3">
-                + above current price, − below. Contract auto-flips for token ordering.
-              </div>
-
-              <label className="block text-sm mb-1">
-                Range width: {oorRange}% ({Math.round(oorRange * 100 / 50) * 50} ticks)
-              </label>
-              <input type="range" min={1} max={10} step={0.5} value={oorRange}
-                onChange={e => setOorRange(Number(e.target.value))}
-                className="w-full mb-4" />
-
-              <button onClick={doOpenOutOfRange} disabled={busy || !oorAmount || (oorSide === 'usd' && !oorStable)}
-                className="w-full py-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 disabled:opacity-40 font-semibold">
-                {busy ? 'Working…' : 'Open self-managed position'}
-              </button>
-            </>
-          )}
         </Section>
       )}
 
@@ -1317,11 +1138,6 @@ export default function QuidApp() {
               className={`flex-1 px-3 py-2 rounded-md ${withdrawSubTab==='auto' ? 'bg-white/15' : 'hover:bg-white/10'}`}
               onClick={() => setWithdrawSubTab('auto')}>
               ETH · Auto
-            </button>
-            <button
-              className={`flex-1 px-3 py-2 rounded-md ${withdrawSubTab==='self' ? 'bg-white/15' : 'hover:bg-white/10'}`}
-              onClick={() => setWithdrawSubTab('self')}>
-              ETH · Self ({smPositions.length})
             </button>
             <button
               className={`flex-1 px-3 py-2 rounded-md ${withdrawSubTab==='btc' ? 'bg-white/15' : 'hover:bg-white/10'}`}
@@ -1386,7 +1202,7 @@ export default function QuidApp() {
                 {busy ? 'Working…' : 'Record close'}
               </button>
             </>
-          ) : withdrawSubTab === 'auto' ? (
+          ) : (
             <>
               <p className="text-xs opacity-70 mb-3">
                 Pull ETH back from the V4 LP position. ERC4626-shaped:{' '}
@@ -1421,59 +1237,11 @@ export default function QuidApp() {
                 {busy ? 'Working…' : 'Withdraw'}
               </button>
             </>
-          ) : (
-            <>
-              <p className="text-xs opacity-70 mb-3">
-                Your individual V4 positions. Pull % of the liquidity and pick
-                which side you want back (ETH or a specific stable).
-              </p>
-
-              {smPositions.length === 0 && (
-                <div className="p-6 text-center text-sm opacity-60 rounded-lg bg-white/5">
-                  No active self-managed positions.
-                </div>
-              )}
-
-              {smPositions.map(p => {
-                const idStr = String(p.id)
-                const percent = pullPercents[idStr] ?? 100
-                const tokenAddr = pullTokens[idStr] ?? ZERO_ADDR
-                return (
-                  <div key={idStr} className="p-3 mb-2 rounded-lg bg-white/5 border border-white/10">
-                    <div className="flex justify-between text-xs mb-2">
-                      <span className="font-mono">#{idStr}</span>
-                      <span className="opacity-60">ticks [{p.lower}, {p.upper}]</span>
-                    </div>
-                    <div className="text-[10px] opacity-60 mb-2">
-                      Liquidity {fmt(Number(p.liq) / 1e18, 4)} · opened at block {String(p.created)}
-                    </div>
-                    <div className="flex gap-2 items-center mb-2 text-xs">
-                      <label className="w-12">Pull</label>
-                      <input type="range" min={1} max={100} value={percent}
-                        onChange={e => setPullPercents({ ...pullPercents, [idStr]: Number(e.target.value) })}
-                        className="flex-1" />
-                      <span className="w-10 text-right tabular-nums">{percent}%</span>
-                    </div>
-                    <div className="flex gap-2 mb-2 text-xs">
-                      <label className="w-12 self-center">As</label>
-                      <select value={tokenAddr}
-                        onChange={e => setPullTokens({ ...pullTokens, [idStr]: e.target.value })}
-                        className="flex-1 p-1.5 rounded bg-black/30 border border-white/10">
-                        <option value={ZERO_ADDR}>ETH</option>
-                        {STABLES.map(s => (
-                          <option key={s.address} value={s.address}>{s.symbol}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <button onClick={() => doPullPosition(p.id)} disabled={busy}
-                      className="w-full py-2 rounded bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 disabled:opacity-40 text-sm">
-                      Pull {percent}%
-                    </button>
-                  </div>
-                )
-              })}
-            </>
           )}
+          {/* §OOR-BOOK-DELETED — there was a THIRD branch here, "ETH · Self": it listed
+              `selfManaged` positions and offered `pull` on each. Both are gone. An intent holds no
+              position to withdraw from, and its cancel is letting `expiry` pass (or not signing),
+              never a transaction — so the branch has no successor, not an unbuilt one. */}
         </Section>
       )}
 

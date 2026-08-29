@@ -8,7 +8,6 @@ import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {BasketLib} from "./BasketLib.sol";
-import {SortedSetLib, OorBook} from "./Types.sol";
 
 /// @title  RangeLib — the ONE implementation of each range-manager body, for both ranges.
 ///
@@ -32,7 +31,6 @@ import {SortedSetLib, OorBook} from "./Types.sol";
 ///         copy serves both ranges — which is the whole size argument. An `internal` shared function
 ///         would inline into both libraries and buy nothing.
 library RangeLib {
-    using SortedSetLib for SortedSetLib.Set;
 
     /// @notice Burn an LP's ENTIRE levered slice — both legs. Net equity leaves `pooled` (and so
     ///         the share count); the debt-funded buffer leaves the fee weight but was never equity.
@@ -165,247 +163,37 @@ library RangeLib {
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
     }
 
-    /// @notice Close all or part of an out-of-range boundary order.
-    /// @dev    MERGED PAIR, and this one was a PURE DUPLICATE: `QuidLib.pullBody` and
-    ///         `BtcLib.pullBtc` were BYTE-IDENTICAL after normalising the storage PARAMETER
-    ///         names (`selfManaged`/`selfManaged`, `positions`/`positions`) -- and those are
-    ///         parameters, so the bodies never differed at all. Two deployed copies of one function
-    ///         because the mappings they were handed had different names at the call site.
-
-    /// @dev §E258 — `ix` was added so a full close also leaves the TRIGGER-PRICE INDEX. Without it
-    ///      a pulled order stays in the sorted set, and the next sweep across its price reads a
-    ///      deleted position: harmless today only because `fillOne` re-checks `amt`, which is
-    ///      exactly the "two structures to keep in sync" shape the spec warned against. Removing it
-    ///      here keeps the set and the book one thing.
-    function pull(
-        address core,
-        OorBook storage book,
-        mapping(uint => Types.SelfManaged) storage selfManaged,
-        mapping(address => uint[]) storage positions,
-        uint id, int percent, address token, address owner
-    ) public {
-        Types.SelfManaged storage position = selfManaged[id];
-        if (position.owner != owner) revert NotOwner();
-        require(block.number >= position.created + 47, "too soon");
-        if (percent == 0 || percent > 100) revert BadPercent();
-        int closed = position.amt * percent / 100;
-        if (closed == 0) revert Dust();
-        uint lower = position.lower;
-        uint upper = position.upper;
-        uint[] storage myIds = positions[owner];
-        if (percent == 100) {
-            deindexOor(book, oorKey(oorTrigger(position), id));
-            delete selfManaged[id];
-            // ⚠️ `i < myIds.length`, NOT `i <= lastIndex` WITH A SATURATING `lastIndex`. The old form
-            // computed `myIds.length > 0 ? myIds.length - 1 : 0`, so an EMPTY array gave `lastIndex == 0`
-            // and the loop still ran once — reading `myIds[0]` and PANICKING (0x32) instead of reverting
-            // cleanly. `fillOne` a few lines down already uses this bounded form against the same
-            // mapping; the two disagreed about the same walk. One shape, and the empty case is a no-op.
-            for (uint i = 0; i < myIds.length; i++) {
-                if (myIds[i] == id) {
-                    if (i < myIds.length - 1) myIds[i] = myIds[myIds.length - 1];
-                    myIds.pop(); break;
-                }
-            }
-        } else {
-            position.amt -= closed;
-            if (position.amt == 0) revert Dust();
-        }
-        ICore(core).outOfRange(owner, -closed, token);
-    }
-
-    // ═══════════════════ §E258 — RESTING BOUNDARY ORDERS EXECUTE AGAIN ═══════════════════
+    // ═══════════════════ §OOR-BOOK-DELETED (2026-08-29) ═══════════════════
+    // The out-of-range BOOK lived here — `pull`, `openOor`, `sweepOor`, `pokeOor`, `fillOne`,
+    // `deindexOor`, `oorKey`, `oorTrigger` and the packed-key constants. It is gone, and the
+    // resting order it served is now a signed intent with ZERO on-chain footprint until it fills:
+    // `SwapLib.fillIntentBody` + `Quid.fillIntent` (§OOR-AS-INTENT, `abb685c4`).
     //
-    // The v4 cut removed the PoolManager, and with it the tick crossing that used to fill a
-    // boundary order automatically as part of any swap through its range. Nothing replaced it:
-    // `outOfRange` still created positions and `pull` still closed them, so every symbol a reader
-    // would grep for was present and green. **A capability regression leaves no broken symbol to
-    // find** — which is why this went a week unnoticed and why the mechanism is written here, next
-    // to `pull`, rather than in a new file nobody looks at.
-    //
-    // It lives in this library and not in the range manager for the measured reason `pull` does:
-    // `Quid` has ~600 bytes of EIP-170 margin and is the tightest contract in the tree, while a
-    // delegatecalled body is deployed once and serves both ranges.
+    // ⭐ WHAT THE BOOK WAS AND WHY IT COULD NOT BE FIXED IN PLACE. §E258 built it because the v4
+    //   cut removed the PoolManager and with it the tick crossing that used to fill a boundary
+    //   order inside any swap through its range — *"a capability regression leaves no broken symbol
+    //   to find"*. But `sweepOor` was only an EMULATION of that crossing: capped at four fills per
+    //   swap, needing an unincentivised permissionless poke for the remainder, and — because
+    //   `book.lastSweptPx` advanced UNCONDITIONALLY, before the first fill was attempted — dropping
+    //   every order the cap or a short pool skipped out of all future sweeps
+    //   (§OOR-WATERMARK-DROPS-ORDERS). It was paying for a fill guarantee it did not keep, in
+    //   storage per resting order, in a public per-address link to intentions that might never
+    //   fill, and in capital parked OUTSIDE the fee-earning share base the whole time it waited.
+    // ⛔ DO NOT RESTORE IT. The property it emulated left with §V4-CUT, not with this deletion.
 
-    /// Width of the id field in a packed index key. A trigger price is a WAD USD price (~2e21 for
-    /// ETH, ~71 bits), so price and id share 256 bits with room to spare.
-    uint private constant OOR_ID_BITS = 96;
-    uint private constant OOR_ID_MASK = (1 << OOR_ID_BITS) - 1;
 
-    /// @notice Pack an order's trigger price and id into one sortable key.
-    /// @dev    The id is the LOW bits precisely so that ordering is by PRICE first: two orders at
-    ///         the same trigger sort next to each other, and neither is lost. See the warning on
-    ///         `State.oorBook` for what happens without it.
-    function oorKey(uint triggerPrice, uint id) internal pure returns (uint) {
-        return (triggerPrice << OOR_ID_BITS) | id;
-    }
 
-    /// @notice The price at which a resting order becomes fillable: its NEAR edge.
-    /// @dev    A USD-funded order is a bid resting BELOW spot, so it is touched on the way down at
-    ///         its `upper` edge; a volatile-funded order is an ask resting ABOVE spot and is touched
-    ///         on the way up at its `lower` edge. Fill-on-touch means the order settles at the edge
-    ///         the price actually reached — never at a better price it never traded through.
-    function oorTrigger(Types.SelfManaged storage p) internal view returns (uint) {
-        return p.usdFunded ? p.upper : p.lower;
-    }
 
-    /// @notice Record a freshly sized boundary order: the position, the owner's id list, and the
-    ///         trigger-price index, in one place so the three cannot drift apart.
-    /// @dev    The range managers used to inline this block and `BtcLib` still carries its twin. It
-    ///         is here because `Quid` is the tightest contract in the tree under EIP-170 and a
-    ///         struct construction plus two container writes is not a cheap thing to hold.
-    function openOor(
-        OorBook storage book,
-        mapping(uint => Types.SelfManaged) storage selfManaged,
-        mapping(address => uint[]) storage positions,
-        uint id, address owner, bool usdFunded, uint lower, uint upper, int amt, bool loadBalance
-    ) public {
-        selfManaged[id] = Types.SelfManaged({
-            created: block.number, owner: owner, usdFunded: usdFunded,
-            loadBalance: loadBalance, lower: lower, upper: upper, amt: amt });
-        positions[owner].push(id);
-        // Indexed by the TRIGGER price — the NEAR edge, the one the price has to touch.
-        book.index.insert(oorKey(usdFunded ? upper : lower, id));
-    }
 
-    /// @notice Drop an order from the index when its owner closes it out entirely.
-    /// @dev    Idempotent by inspection rather than by `try`: `SortedSetLib.remove` REVERTS on a
-    ///         value that is not present ("Value does not exist"), and a partial `pull` leaves the
-    ///         order resting, so an unconditional remove here would revert every partial close.
-    function deindexOor(OorBook storage book, uint key) public {
-        if (book.index.exists[key]) book.index.remove(key);
-    }
 
-    /// @notice Consume every resting order whose trigger the price has crossed since the last sweep.
-    /// @param  pxNew the price the range is at now; the interval swept runs from the stored watermark.
-    /// @param  maxFills the per-call cap. ⚠️ **THIS CAP IS WHY `fillOne` MUST BE PERMISSIONLESS.**
-    ///         An unbounded sweep is a griefing vector — anyone can rest a crowd of cheap orders in
-    ///         the path and make the next swapper pay to execute all of them — so the sweep stops
-    ///         early by design, and something else has to be able to drain the remainder. The poke
-    ///         is a LIVENESS REQUIREMENT created by this cap, not a convenience.
-    /// @return filled how many orders were consumed.
-    function sweepOor(
-        address core,
-        OorBook storage book,
-        mapping(uint => Types.SelfManaged) storage selfManaged,
-        mapping(address => uint[]) storage positions,
-        uint pxNew, uint maxFills
-    ) public returns (uint filled) {
-        uint pxOld = book.lastSweptPx;
-        book.lastSweptPx = pxNew;
-        // THE FIRST CALL SEEDS THE WATERMARK, IT DOES NOT FILL. At `pxOld == 0` the crossed interval
-        // would be `(0, pxNew]`, which contains the trigger of every resting bid in the book — so a
-        // fresh deploy would execute the entire bid side on its first swap, at prices nothing ever
-        // touched. Seeding is the whole reason the watermark is stored rather than derived.
-        if (pxOld == 0 || pxOld == pxNew) return 0;
-        (uint lo, uint hi) = pxOld < pxNew ? (pxOld, pxNew) : (pxNew, pxOld);
-        // A MEMORY SNAPSHOT, DELIBERATELY. `SortedSetLib.remove` compacts the array on every
-        // removal, so iterating the STORAGE array while filling would renumber the indices under
-        // the loop and skip orders. The snapshot is taken once and each key is looked up by value.
-        uint[] memory keys = book.index.getSortedSet();
-        (uint i,) = book.index.binarySearch(oorKey(lo, 0));
-        uint stop = oorKey(hi, OOR_ID_MASK);
-        for (; i < keys.length && filled < maxFills; i++) {
-            uint k = keys[i];
-            if (k > stop) break;
-            if (fillOne(core, book, selfManaged, positions, k & OOR_ID_MASK)) filled++;
-        }
-    }
 
-    /// @notice §E258 — THE PERMISSIONLESS POKE. Execute one resting order whose price has been
-    ///         reached, for callers that are not a swap.
-    /// @dev    **A LIVENESS REQUIREMENT, NOT A CONVENIENCE.** `sweepOor` is capped so a crowd of
-    ///         cheap resting orders cannot be used to grief the next swapper, which means something
-    ///         must be able to drain the remainder. It also covers the case no swap can: `repack`
-    ///         moves the range with no swapper present to carry a sweep.
-    ///         Anyone may call it, and that is safe because the order settles at ITS OWN limit
-    ///         price — the caller chooses the timing, never the terms.
-    /// ⚠️      NO TIP IS PAID. Sizing one means deciding where the difference between the order's
-    ///         limit price and the range's price accrues, which is exactly the question §E258's spec
-    ///         leaves to #12. Booked as §E258-POKE-INCENTIVE rather than guessed at here.
-    function pokeOor(
-        address core, address aux, address asset,
-        OorBook storage book,
-        mapping(uint => Types.SelfManaged) storage selfManaged,
-        mapping(address => uint[]) storage positions,
-        uint id
-    ) public {
-        Types.SelfManaged storage p = selfManaged[id];
-        if (p.amt <= 0) revert NoSuchOrder();
-        uint px = IAux(aux).getTWAPforAsset(asset, 1800);
-        // The price must actually have REACHED the order: a bid fills on the way down through its
-        // upper edge, an ask on the way up through its lower edge.
-        if (p.usdFunded ? px > p.upper : px < p.lower) revert NotTouched();
-        if (!fillOne(core, book, selfManaged, positions, id)) revert NotFillable();
-    }
 
-    /// @notice Execute ONE resting order against the range's own inventory, at the order's own price.
-    ///
-    /// @dev    ⚠️ `pull`'s 47-block guard is DELIBERATELY ABSENT. That rule is an anti-gaming bound
-    ///         on an OWNER-INITIATED close; an execution is not a withdrawal, and applying it here
-    ///         would make every order unfillable for its first 47 blocks — reinstating exactly the
-    ///         "no execution guarantee at the moment of crossing" defect this exists to remove.
-    ///
-    /// @dev    THE ORDER SETTLES AT ITS OWN LIMIT PRICE, NOT AT THE RANGE'S FILL PRICE. That is the
-    ///         whole difference between a limit order and a participant in the swap. ⚠️ **WHERE THE
-    ///         DIFFERENCE BETWEEN THE TWO ACCRUES IS NOT DECIDED HERE, ON PURPOSE** — it is the same
-    ///         question as `SwapLib`'s two suppliers (LP inventory vs basket capital) and is
-    ///         flagged there as having to be settled WITH #12. `OorFilled` carries both prices so
-    ///         the quantity is observable while the split is still open; inventing an answer here
-    ///         would bake it into the share maths before the question is asked.
-    ///
-    /// @dev    A fill the range cannot pay for is SKIPPED, not reverted — the order simply stays
-    ///         resting and remains fillable later. Reverting would let one unfundable order block
-    ///         the whole sweep, and with it the swap that carries it.
-    function fillOne(
-        address core,
-        OorBook storage book,
-        mapping(uint => Types.SelfManaged) storage selfManaged,
-        mapping(address => uint[]) storage positions,
-        uint id
-    ) public returns (bool) {
-        Types.SelfManaged storage p = selfManaged[id];
-        int amt = p.amt;
-        if (amt <= 0) return false;                     // already closed, or never existed
-        uint size = uint(amt);
-        uint limitPx = oorTrigger(p);
-        address owner = p.owner;
-        bool usdFunded = p.usdFunded;
-        bool lb = p.loadBalance;
 
-        // The order's funded side ENTERS the range and the other side LEAVES it, at `limitPx`.
-        // Signs follow `_handleDelta`'s one rule: positive LEAVES the pool, negative ENTERS it.
-        int usdDelta;
-        int volDelta;
-        if (usdFunded) {                                 // a resting bid: USD in, volatile out
-            uint volOut = BasketLib.convert(size, limitPx, true);
-            if (volOut == 0 || volOut > ICore(core).POOLED()) return false;
-            usdDelta = -int(size);
-            volDelta =  int(volOut);
-        } else {                                         // a resting ask: volatile in, USD out
-            uint usdOut = BasketLib.convert(size, limitPx, false);
-            if (usdOut == 0 || usdOut > ICore(core).POOLED_USD()) return false;
-            usdDelta =  int(usdOut);
-            volDelta = -int(size);
-        }
 
-        // Remove BEFORE the settlement call, which pays the owner: state-before-external-call, so a
-        // re-entrant fill of the same id finds `amt == 0` and returns false rather than paying twice.
-        deindexOor(book, oorKey(limitPx, id));
-        delete selfManaged[id];
-        uint[] storage myIds = positions[owner];
-        for (uint j = 0; j < myIds.length; j++) {
-            if (myIds[j] == id) {
-                if (j < myIds.length - 1) myIds[j] = myIds[myIds.length - 1];
-                myIds.pop(); break;
-            }
-        }
-        // §OOR-LOADBALANCE — the consent the owner attached when they PLACED this order. Read
-        // before `delete selfManaged[id]` above would have zeroed it, hence the local.
-        ICore(core).settleOor(owner, usdDelta, volDelta, lb);
-        emit OorFilled(id, owner, size, limitPx, usdFunded);
-        return true;
-    }
+
+
+
+
 
     /// @notice A resting order executed. `limitPx` is the price it settled at — its own, not the
     ///         range's — which is what makes the accrual question above measurable from logs.

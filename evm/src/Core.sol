@@ -920,34 +920,7 @@ contract Core {
         sent = 0;   // nothing is refused, so nothing comes back
     }
 
-    /// @notice Fused outOfRange. Action enum differentiates ETH vs BTC.
-    /// §V4-CUT — NO UNLOCK, NO CUSTODIAN. The caller now passes the token AMOUNT it placed rather
-    /// than v4's liquidity encoding, so there is nothing to decode and nothing to ask the
-    /// PoolManager for: the amount settles against our own inventory through `_handleDelta`,
-    /// exactly like a swap.
-    /// ⚠️ `inRange = false` IS PRESERVED AND IS LOAD-BEARING: an out-of-range order must not move
-    /// `POOLED_*`, which tracks the ACTIVE range. Dropping it would let a resting boundary order
-    /// inflate the in-range inventory every LP claim is priced against.
-    /// SIGN CARRIES DIRECTION: `amount > 0` OPENS the order (tokens ENTER the range ⇒ negative delta,
-    /// per `_handleDelta`'s rule that positive LEAVES); `amount < 0` CLOSES it. One value, one
-    /// meaning — no companion flag that can disagree with it, and no call site where the size says
-    /// one thing and the direction another.
-    /// ⇒ THIS WAS THE LAST `poolManager.unlock` AND THE LAST `_modifyLiquidity`. With it gone the
-    /// range's tokens are ours, custody and accounting are one thing again, and the transitional
-    /// divergence marked in `swap` is CLOSED.
-    function outOfRange(address sender, int amount, address token)
-        public onlyUs returns (uint tokOut) {
-        // Single-sided by construction: a boundary order rests entirely on one side of spot, so the
-        // amount belongs to the volatile leg when `token == 0` and to the USD leg otherwise.
-        // §DE-TICK: `token == address(0)` IS the volatile side; the ordering flag only decided
-        // which slot that landed in, and both readers compensated. Now it lands in `vol`.
-        Delta memory d = token == address(0)
-            ? Delta(0, -amount)
-            : Delta(-amount, 0);
-        _handleDelta(d, false, false, sender, token);
-        int256 t = d.vol;
-        tokOut = t > 0 ? uint(t) : 0;
-    }
+
 
     /// @notice §E258 — settle ONE filled boundary order, both legs, at the order's own price.
     /// @dev    `inRange = true` HERE, where `outOfRange` passes false, and the difference is the
@@ -989,11 +962,6 @@ contract Core {
             }
         }
     }
-
-    /// @notice The most resting orders one swap will execute before it stops and leaves the rest to
-    ///         the poke. ⚠️ NOT A TUNING KNOB — it is the anti-griefing bound: without it anyone can
-    ///         rest a crowd of cheap orders in the path and charge the next swapper for all of them.
-    uint private constant MAX_FILLS_PER_SWAP = 4;
 
     /// @notice Fused swap — IS_BTC selects which V4 pool. The shortfall signal is
     ///         ASYNC per-pool (in-frame refill is unsafe — re-enters Aux on
@@ -1085,13 +1053,15 @@ contract Core {
             }
         }
 
-        // (4) §E258 — EXECUTE THE RESTING ORDERS THIS MOVE CROSSED. Under v4 the PoolManager did
-        // this as part of any swap through the range; `SwapLib` has one price and no
-        // traversal, so without this a boundary order is an option its owner must exercise rather
-        // than the limit order it was sold as. It runs AFTER settlement so the fills price against
-        // inventory this swap has already moved, and it is capped inside the range — see
-        // `RangeLib.sweepOor` for why that cap makes the permissionless poke a liveness requirement.
-        RANGE.sweepOor(px, MAX_FILLS_PER_SWAP);
+        // (4) §OOR-BOOK-DELETED — THERE IS NOTHING TO SWEEP. This called
+        // `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` to emulate v4's tick traversal for resting
+        // orders. The emulation was never the property: it was capped at four fills, needed an
+        // unincentivised poke for the rest, and — because `book.lastSweptPx` advanced
+        // unconditionally — DROPPED any order the cap or a short pool skipped, out of every future
+        // sweep (§OOR-WATERMARK-DROPS-ORDERS). Resting orders are now signed intents with zero
+        // on-chain footprint until they fill (`Quid.fillIntent`), so a swap has no book to walk.
+        // ⛔ Do not re-add a sweep here without re-adding the book, and read
+        //    §OOR-TWO-DESIGNS-LIVE before doing either.
 
         // §E347 — THE CONSENT GATE MOVES **ABOVE** THE TWO READS IT GOVERNS. `loadBalance` was the
         // right-hand operand of the `&&` below, so `sharesForShortfall()` and `realInventory()` —

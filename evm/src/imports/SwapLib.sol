@@ -2535,71 +2535,13 @@ library SwapLib {
     /// range 100–1000 step 50, distance ±5000 step 100 (non-zero). Custom error (no
     /// string-revert bytecode — the two long strings were the fattest revert sites in the OOR path).
     error BadOorParam();
-    function validateOorParams(uint range, int distance) internal pure {
-        if (!(range >= 100 && range <= 1000 && range % 50 == 0)) revert BadOorParam();
-        if (!(distance % 100 == 0 && distance != 0 && distance >= -5000 && distance <= 5000)) revert BadOorParam();
-    }
 
-    // ─── Self-managed (out-of-range / boundary-order) geometry ────────────────
-    // Shared by the ETH (Quid) and BTC (Vault) single-sided position paths so
-    // BOTH compute ticks + single-sided liquidity by the SAME rules — only the
-    // pool + token ordering differ (token1is). Ported verbatim from the original
-    // Quid `_outOfRangeTicks` / `_sizeOutOfRange` USD branch.
-    struct Oor { uint newLo; uint newUp; uint curLo; uint curUp; }
 
-    /// The boundary order's tick range, fully outside the current [curLo,curUp].
-    /// `distance` is caller-signed (positive = below the price); `token1is` flips
-    /// it for the pool's token ordering. `width` is the tick-alignment (10).
-    /// §DE-TICK — THE BOUNDARY ORDER'S RANGE IS A PRICE OFFSET. A tick is 1 bp by construction
-    /// (1.0001^i), so a `distance`/`range` expressed in ticks IS an offset in basis points — the grid
-    /// was only ever a way to index them. `alignTick` goes with it: alignment existed because core can
-    /// place liquidity only on grid boundaries, and we hold inventory at a price bound.
-    /// ⇒ THIS DELETES THE #46 OFF-BY-ONE OUTRIGHT. That defect existed because a tick was derived
-    /// from a sqrt price and `getTickAtSqrtRatio(spotPrice) == currentTick` does not always hold;
-    /// with no tick derived, there is nothing to be off by one about — the root is gone, not guarded.
-    /// §DE-TICK — NO ORDERING FLAG. `if (!token1is) distance = -distance` flipped which side of
-    /// spot a POSITIVE `distance` meant. That flip belongs to TICK space, where direction inverts
-    /// with token ordering; in price space (USD per volatile) it does not, so the flip was applying
-    /// an inversion to a quantity that has none. The sign of `distance` now says the side directly:
-    /// NEGATIVE = above spot, POSITIVE = below spot, the same convention the arithmetic below
-    /// already encodes.
-    function oorBounds(uint price, uint range, int distance,
-        uint curLo, uint curUp) internal pure returns (Oor memory t) {
-        t.curLo = curLo; t.curUp = curUp;
-        // `distance` bps away from spot, `range` bps wide.
-        uint target = distance < 0
-            ? price * (10000 + uint(-distance)) / 10000
-            : price * (10000 - uint(distance))  / 10000;
-        if (distance < 0) { t.newLo = target; t.newUp = target * (10000 + range) / 10000; }
-        else              { t.newUp = target; t.newLo = target * (10000 - range) / 10000; }
-    }
 
-    /// Size a USD-funded single-sided boundary order (`amount6` in 6-dec USD).
-    /// Asserts the new range sits fully outside the current one and provides the
-    /// USD on the side the ordering dictates.
-    function sizeOorUsd(uint amount6, Oor memory t)
-        internal pure returns (uint placeable) {
-        // §DE-TICK — WHAT SURVIVES IS THE OUTSIDE-NESS GUARD; the liquidity encoding does not.
-        // This used to convert both bounds to sqrt prices and ask `LiquidityAmounts` for a core
-        // liquidity figure. Callers now STORE AND PASS THE AMOUNT (see `Types.SelfManaged.amt`), so
-        // the only thing the return was still doing was answering "can this range hold anything" —
-        // a validity check, which the guards below already are.
-        // ⚠️ THE STRICT COMPARISONS ARE UNCHANGED, INCLUDING THEIR DIRECTION. A boundary order must
-        // sit FULLY outside the active range; `>=` / `<=` (not `>` / `<`) is what makes a range that
-        // merely touches the range edge invalid.
-        // 🔴 SYMMETRIC, AND DELIBERATELY SO. This was two branches picked by the ordering flag,
-        // and that flag derives from the lex order of freshly-deployed MOCK addresses -- so WHICH
-        // SIDE a boundary order was allowed to sit on varied with deployment nonce. The comment on
-        // the first branch ("above current") also contradicted its own guard, which requires the
-        // range to be BELOW. There was no stable behaviour to preserve, so this enforces the
-        // requirement the docblock states and both branches were separately approximating: the new
-        // range must lie WHOLLY outside the active range, on either side. The side itself is the
-        // caller's choice, carried by the sign of `distance`.
-        // The strict comparisons are unchanged: a range that merely TOUCHES an edge is invalid.
-        if (!(t.newUp < t.curLo || t.newLo > t.curUp)) revert RangeNotOutside();
-        if (t.newLo >= t.newUp) revert RangeNotOutside();       // degenerate range holds nothing
-        placeable = amount6;
-    }
+
+
+
+
 
     // (event InstantRedeemSkipped removed 2026-08-09 — it announced a degradation from the instant-redeem
     //  rung to the wait-NFT, and that rung was deleted 2026-08-05/06. It was never emitted after that, so it

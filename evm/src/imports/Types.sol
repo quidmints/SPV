@@ -84,31 +84,7 @@ library Types {
         uint    usdFees;
     }
 
-    struct SelfManaged {
-        uint created;
-        address owner;
-        /// §E258 — WHICH SIDE FUNDED THE ORDER, and therefore which side it PAYS OUT on when it
-        /// fills. This is not recoverable after the fact: `SwapLib.oorBounds` picks the side from
-        /// the SIGN of `distance`, and neither that sign nor the spot it was measured against is
-        /// stored, so the geometry alone cannot say whether a range below the current price is a
-        /// resting bid or a stale ask. Packs into `owner`'s slot (12 free bytes), so it costs no
-        /// storage. ⚠️ `pull` still takes the payout token from its CALLER rather than from here —
-        /// see §E258-PULL-SIDE; this field is the thing that makes fixing that possible.
-        bool usdFunded;
-        /// §OOR-LOADBALANCE — THE SWAPPER'S LOAD-BALANCE CONSENT, CAPTURED AT PLACEMENT.
-        /// §E308 settled that this consent *"comes as part of the swap as a parameter"* rather than
-        /// a stored per-address flag, because routing a shortfall through the SOR/hop can add MEV
-        /// and slippage to the consenting party's OWN fill. A resting order IS a trade the owner
-        /// authorises in advance, so the consent belongs to the ORDER — captured when they place
-        /// it, spent when it fills. Packs into `owner`'s slot alongside `usdFunded` (12 free
-        /// bytes), so it costs no storage.
-        bool loadBalance;
-        uint lower;
-        uint upper;
-        // §V4-CUT — the token AMOUNT placed, not v4 liquidity units. Pro-rata maths is unchanged
-        // (both scale linearly with position size); what changes is that this needs no AMM decode.
-        int amt;
-    }
+
 
     /// @notice Quid LP deposit...
     /// MasterChef-style fee tracking
@@ -331,21 +307,7 @@ library Types {
 
 }
 
-// ═══ §E311 — `SortedSet.sol` FOLDED IN; the file is deleted ═══
-// 95 lines: one struct and the library that operates on it. `Types.sol` is already where the
-// shared structs live and every consumer imports it, so this removes a file and an import
-// without moving any bytecode -- `SortedSetLib`'s functions are `internal`, so they inline.
-/// @notice §E258 — a range's resting-order book: the trigger-price index PLUS the watermark saying
-///         how far it has been swept. They are ONE struct because they are one thing — a set swept
-///         from a price nobody recorded is not a book, it is two variables that can disagree — and
-///         because a single storage pointer is what lets the whole sweep live in a delegatecalled
-///         library instead of billing the range manager's EIP-170 margin for it.
-struct OorBook {
-    SortedSetLib.Set index;
-    /// The price this range last swept for crossed orders. Zero means NEVER SWEPT and seeds itself
-    /// without filling: otherwise the first swap after a deploy reads every resting bid as crossed.
-    uint lastSweptPx;
-}
+
 
 library SortedSetLib {
     struct Set {

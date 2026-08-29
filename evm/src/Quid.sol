@@ -51,8 +51,9 @@ contract Quid is Shares,
     //
     //  Standing rule 8c, and the same trade §E346 measured on `onlyUs` (316 bytes back over SIX
     //  sites) and §E164 on `BTCChannels._onlyHop` (200 over four). `Quid` uses `nonReentrant` at
-    //  TWELVE: outOfRange, pull, fillOOR, reseat, transfer, transferFrom, deposit, mint, redeem,
-    //  withdraw, collectFees, compound. Each carried its own copy of an SLOAD, a comparison, the
+    //  NINE (was twelve; §OOR-BOOK-DELETED removed `outOfRange`, `pull` and `fillOOR`): reseat,
+    //  transfer, transferFrom, deposit, mint, redeem, withdraw, collectFees, compound. Each
+    //  carried its own copy of an SLOAD, a comparison, the
     //  `"REENTRANCY"` revert and TWO SSTOREs. One routine each way and twelve jumps instead.
     //
     //  WHY IT COULD NOT BE DONE BY OVERRIDING: solmate declares `uint256 private locked = 1`, so a
@@ -449,80 +450,9 @@ contract Quid is Shares,
     }
 
 
-    /// @notice Create a single-sided liquidity position outside the current price range
-    /// @dev Automatically adjusts for token ordering to ensure valid positions
-    /// @param amount Amount of tokens to deposit (0 if sending ETH as msg.value)
-    /// @param token Token address (address(0) for ETH, or stablecoin address for USD)
-    /// @param distance Distance from current price in ticks
-    /// positive = subtract (below), negative = add (above)
-    /// @param range Width of the position in ticks
-    /// @return next The ID of the newly created position
-    /// @notice Per-deposit venue variant (same idea as the LP deposit
-    ///         overload): the self-managed position's ETH backing earns at the
-    ///         single weETH destination. No wall
-    ///         attribution (there's no pledge): exits via pull() are served by
-    ///         the generic withdraw ladder, which reaches every venue.
-    /// @param loadBalance §OOR-LOADBALANCE — the placer's consent for the FILL to trigger the
-    ///        shortfall load-balance, exactly as `Aux.swap`'s parameter does for an in-range trade
-    ///        (§E308). A resting order is a trade authorised in advance, so the consent is captured
-    ///        here and spent at the fill; it routes through the SOR/hop and can add MEV/slippage to
-    ///        the owner's OWN fill, which is why it is theirs to give rather than a protocol default.
-    function outOfRange(uint amount, address token,
-        int distance, uint range, bool loadBalance)
-        external nonReentrant payable returns (uint next) {
-        return _outOfRange(amount, token, distance, range, loadBalance);
-    }
 
-    function _outOfRange(uint amount, address token,
-        int distance, uint range, bool loadBalance) internal
-        returns (uint next) {
-        SwapLib.validateOorParams(range, distance);
 
-        SwapLib.Oor memory t;
-        {   // geometry in a scope so the price locals free before sizing (§DE-TICK: no sqrt price).
-            // §J.8b: was an inline copy of `SwapLib.oorBounds` (identical branch structure, identical
-            // alignment, same width 10) plus a local `_outOfRangeTicks`. The BTC path
-            // (`BtcLib.outOfRangeBtc`) already called the shared helper, so ONE definition now
-            // computes the out-of-range geometry for both assets — the same consolidation §A.56 did
-            // §DE-TICK: `oorBounds` no longer negates `distance` from an ordering flag -- the
-            // sign IS the side. The old warning about not pre-negating therefore no longer applies.
-            (uint currentPrice, uint curLo, uint curUp,,) = _rebalance();
-            t = SwapLib.oorBounds(currentPrice, range, distance, curLo, curUp);
-        }
-        // Backing deposit + single-sided sizing lives in QuidLib (EIP-170
-        // headroom); self-managed positions take no wall attribution (pledge==0).
-        // §V4-CUT — THE POSITION NOW STORES THE AMOUNT, NOT THE LIQUIDITY.
-        // `liquidity` was v4's encoding of the position; settling against our own inventory needs
-        // the token AMOUNT, and converting back would mean reimplementing the inverse AMM math
-        // (absent from every importable library here). The sizer already computes `placed` on the
-        // way to `liquidity` -- it was discarding it.
-        // ⚠️ THE PRO-RATA ARITHMETIC IS UNCHANGED. Every consumer does `pos.amt * percent / 100` and
-        // `pos.amt -= x`; both liquidity and amount scale LINEARLY with position size, so partial
-        // closes behave identically. That is why this is a representation change, not a maths change.
-        // `liquidity` is still computed and still gates on Dust, because it is the sizing function's
-        // own validity check -- a range that can hold nothing yields zero liquidity.
-        (uint liquidity, uint placed) = QuidLib.sizeOutOfRange(
-            address(WETH), address(AUX), address(this),
-            amount, token, t);
-        if (liquidity == 0) revert Dust();
 
-        next = ++ID;
-        // §E258 — RECORD WHICH SIDE FUNDED IT. `token == address(0)` is the ETH branch of
-        // `sizeOutOfRange`, so a nonzero token is a stable and the order is a resting BID. The
-        // sizer's two branches already knew this and threw it away; the fill needs it, and it is
-        // not recoverable later (see the note on `Types.SelfManaged.usdFunded`).
-        RangeLib.openOor(oorBook, selfManaged, positions,
-            next, msg.sender, token != address(0), t.newLo, t.newUp, int(placed), loadBalance);
-        CORE.outOfRange(msg.sender, int(placed), address(0));
-    } // Re-audited 2026-07-24 (self-managed OOR position create): internally consistent.
-    // tick ordering — newUpper-newLower == range, aligned to width=10 and range a multiple
-    // of 50 ≥ 100, so lower<upper always (no degenerate/inverted range); liquidity cast
-    // int(uint(uint128)) is always +, passed positive = a MINT (correct); CORE.outOfRange args
-    // (ETH pool, sender, +liq, newLo<newUp, token=address(0)) — the address(0) is CORRECT:
-    // on a mint the USD side is settled by minting mock-USD, and `token` is only read on the
-    // usdDelta>0 BURN branch (Core._settleUsdSide); real-token delivery is on pull(), and the
-    // stablecoin for the USD side was already pulled in sizeOutOfRange; dust guard fires before
-    // any write; ++ID unique/monotonic; state-before-external-call under nonReentrant.
 
 
     function pendingRewards(address user) public view returns (uint ethReward, uint usdReward) {
@@ -1248,28 +1178,11 @@ contract Quid is Shares,
     }
 
 
-     // pull liquidity from. . .
-    /// @dev Thin forwarder: body in QuidLib.pullBody (delegatecall — EIP-170); the nonReentrant guard stays here,
-    ///      storage refs (selfManaged/positions) mutate in place. Logic unchanged.
-    function pull(uint id, // existing self-managed position
-        int percent, address token) external nonReentrant {
-        RangeLib.pull(address(CORE), oorBook, selfManaged, positions, id, percent, token, msg.sender);
-    }
 
-    /// @notice §E258 — execute the resting boundary orders the range's price has crossed.
-    /// @dev    Driven by `Core.swap`: the moment the price is known to have moved. Capped there, so
-    ///         `fillOOR` below is what drains whatever the cap left. Body in `RangeLib` — this
-    ///         contract is the tightest in the tree under EIP-170 and can afford the call, not the code.
-    function sweepOor(uint px, uint maxFills) external onlyUs returns (uint) {
-        return RangeLib.sweepOor(address(CORE), oorBook, selfManaged, positions, px, maxFills);
-    }
 
-    /// @notice §E258 — the permissionless poke. See `RangeLib.pokeOor` for why it is a liveness
-    ///         requirement rather than a convenience, and why it pays no tip yet.
-    function fillOOR(uint id) external nonReentrant {
-        RangeLib.pokeOor(address(CORE), address(AUX), address(WETH),
-            oorBook, selfManaged, positions, id);
-    }
+
+
+
 
     /// @notice §OOR-AS-INTENT — ONE CONSUMED BIT PER (owner, nonce). Also the cancel: an intent the
     ///         owner never hands out cannot fill, and burning its nonce makes that certain.

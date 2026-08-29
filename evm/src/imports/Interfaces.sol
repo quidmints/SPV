@@ -539,11 +539,12 @@ interface ICore {
     /// §E315 — RESTORED. A conflict auto-merge spliced TWO declarations into one broken line,
     /// `function mo.  t amount, address token)`, which left `ICore` declaring NEITHER `modLP`
     /// nor `outOfRange` while both are called through it. Signatures recovered from `Core.sol`
-    /// (`:716` and `:738`) and from the live call sites, not reconstructed by guess.
+    /// and from the live call sites, not reconstructed by guess. (`outOfRange` itself went with
+    /// §OOR-BOOK-DELETED; only `modLP` remains of that pair.)
     function modLP(int256 delta, int256 deltaUSD, address sender) external returns (uint sent);
-    function outOfRange(address sender, int amount, address token) external returns (uint tokOut);
-    /// §E258 — settle ONE filled boundary order. Both legs at once, because a fill is a TRADE and
-    /// `outOfRange` can only express a one-sided open or close.
+    /// §OOR-AS-INTENT — settle ONE filled intent. Both legs at once, because a fill is a TRADE.
+    /// ⚠️ THIS SURVIVED THE BOOK'S DELETION AND IS NOW ITS ONLY CONSUMER: `Quid.fillIntent` calls
+    /// it with the deltas `SwapLib.fillIntentBody` derives AT THE SIGNED LIMIT, not at spot.
     function settleOor(address owner, int256 usdDelta, int256 volDelta, bool loadBalance) external;
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
@@ -609,12 +610,6 @@ interface ICore {
     /// `Core.recordSkewPremium` dispatches by ADDRESS through one call site. (§E325: this docblock
     /// had been stranded above `interface IBTCChannels`, which does not implement it.)
     function creditSkewPremium(uint premium6) external;
-    /// §E258 — execute the resting boundary orders `px` has crossed since the last sweep, capped.
-    /// ⚠️ THE TWO INSTANCES ANSWER DIFFERENTLY AND BOTH ANSWERS ARE CORRECT, for the same reason
-    /// `deliverVolatile` does: a BTC bid fills into BTC, and this range has no on-chain BTC delivery
-    /// (settlement is a Lightning cooperative close), so an automatic fill there would BURN the
-    /// filled leg — turning a loss the owner currently chooses into one the protocol inflicts.
-    function sweepOor(uint px, uint maxFills) external returns (uint filled);
     /// The range's leverage manager (`totalDebtUsd` is shared; only the lookup differed).
     function levManager() external view returns (address);
     /// Gross levered collateral in the range's NATIVE unit (wei / sats).

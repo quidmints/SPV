@@ -469,31 +469,7 @@ library QuidLib {
     // it already owns the `SwapLib.oorBounds(...)` factory that CONSTRUCTS the value, and this library
     // already imports SwapLib.
 
-    function sizeOutOfRange(
-        address weth, address aux, address ev,
-        uint amount, address token, SwapLib.Oor memory t
-    ) public returns (uint liquidity, uint placed) {
-        // §A.56: both branches were an INLINE COPY of `SwapLib.sizeOorUsd` — the same helper the BTC
-        // path (`BtcLib.outOfRangeBtc`) already calls. Verified byte-identical: the USD side maps
-        // to `sizeOorUsd(.., token1isVol)` and the ETH side is its MIRROR (`!token1isVol`), because
-        // depositing the ASSET places the order on the opposite side of spot from depositing USD.
-        // One definition now sizes every out-of-range order, ETH and BTC alike. The bare `require`s
-        // became `RangeNotOutside()` (the helper's named error) — same guard, better diagnostics.
-        if (token == address(0)) {
-            amount = depositETH(weth, aux, ev, msg.sender, address(0), amount);
-            liquidity = SwapLib.sizeOorUsd(amount, t);
-        } else {
-            amount = SwapLib.scaleTo6(IAux(aux).deposit(msg.sender, token, amount), token);
-            liquidity = SwapLib.sizeOorUsd(amount, t);
-        }
-        // §V4-CUT — ALSO RETURN THE AMOUNT ACTUALLY PLACED. `liquidity` is v4's encoding of this
-        // position; `placed` is the token amount it was sized FROM, after the deposit leg. Settling
-        // against our own inventory needs the AMOUNT, and converting back from liquidity would mean
-        // reimplementing the inverse AMM math -- which is not in any importable library here (it
-        // exists only in v4-periphery's TEST files) and is not arithmetic to write casually on a
-        // custody path. The sizing function already HAS the number; it was simply discarding it.
-        placed = amount;
-    }
+
 
     /// @dev DEPLOY-TIME ONLY — the body of `Quid.setup`, moved here for the same
     ///      reason `Core.setup`'s body moved to OracleLib (E32): one-shot wiring was
