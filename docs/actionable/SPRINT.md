@@ -19048,7 +19048,6 @@ Folded in from ibiza; largely self-contained.
 
 
 
-**151 rows — ids only; every body is in `§QUEUE-VERBATIM` below, verified present:**
 
 
 ### §FROM-QUEUE-CHECK — claims done; one closing check each, then delete (19)
