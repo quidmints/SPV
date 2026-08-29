@@ -292,6 +292,57 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 📌 **§INTENT-WHAT-IS-THE-PROBLEM — ONE DEFECT, AND EVERYTHING ELSE IN THIS SECTION IS DOWNSTREAM OF IT** (owner, 2026-08-30: *"what problem are we solving and how does it occur"*)
+
+**Written because the question had to be asked.** Six rows went into this file in one sitting —
+funding leg, nonce, expiry, cancel, the USDC hub, the short-volatile leg — and a reader arriving now
+cannot tell which is the defect and which are notes taken while looking at it. **One is the defect.**
+
+### 🔴 THE PROBLEM, IN ONE SENTENCE
+**A filled intent credits the range and pays the maker, and never debits the maker's claim.**
+
+### ▶️ HOW IT OCCURS — three steps, none of them exotic
+1. **Anyone signs an intent for themselves.** No deposit, no allowance, no position required: the
+   contract's only inputs are the signature and the struct.
+2. **The oracle crosses the limit.** For a buy, `px <= limitPx`; a maker who wants this immediately
+   sets `limitPx` at spot. **Anyone may relay it** — permissionlessness is the design, not a hole.
+3. **`fillIntentBody` derives BOTH legs from the signed `size` and hands them to `settleOor`.**
+   Settlement then does its job faithfully: `POOLED_USD +=`, `POOLED -=`, `deliverVolatile` sends
+   real ether.
+⭐ **THE MISSING STEP IS BETWEEN 2 AND 3, AND IT IS MISSING RATHER THAN WRONG.** In this codebase the
+CALLER moves the value and settlement RECORDS it: `SwapLib:205` `safeTransferFrom`s the swapper's
+stable before `Core.swap`; the deleted book ran `AUX.deposit` before `CORE.outOfRange`. **`fillIntent`
+records without anyone having moved.** That is why the seam is invisible — `settleOor` is
+byte-identical to every correct call site, and what is absent never appears in it.
+⇒ **NOT "the accounting invents money"** (corrected by the owner, and the correction stands):
+`_poolUsdInRange(mint)` is the right way to record basket dollars becoming range USD. **The entry is
+unbalanced, not fabricated.**
+
+### 📋 SO WHAT EVERYTHING ELSE IN THIS SECTION IS
+| row | what it actually is |
+|---|---|
+| §INTENT-HAS-NO-FUNDING-LEG | **the defect**, measured and gated |
+| §INTENT-NONCE → §INTENT-NO-NONCE | **shape of the fix.** The nonce guards replay; a claim-bounded fill cannot over-fill, so the nonce is redundant and its three defects retire with it |
+| §HUB-IS-USDC-AND-THE-TABLE-HAS-TWO | **found while looking, and mostly NOT on this path** — the USD leg moves no tokens, so it needs no route at all |
+| the short-volatile leg | **a DIFFERENT question that predates the intent**: `IntentUnfillable` when `volOut > POOLED()`. It is inventory, not funding |
+| §OOR-BOOK-DELETED, §OOR-TWO-DESIGNS-LIVE | how we got here: the replacement landed untested beside what it replaced |
+
+### ⛔ WHAT IS **NOT** ESTABLISHED, AND I WAS DRIFTING TOWARD TREATING IT AS IF IT WERE
+**How often `POOLED` is actually short at the moment a buy intent is fillable.** I began designing a
+load-balance remedy for it without measuring whether it occurs. **It is bounded by LP deposits and
+drained by fills — that much is structural — but the frequency, and whether it coincides with the
+crossing, is UNMEASURED.** ⇒ **Do not build the short-volatile remedy before measuring it.** The
+three candidates are recorded in §HUB-IS-USDC; none should be chosen from an armchair, and
+`Quid.onShortfall`'s *"Do not implement this"* already rules out the most obvious one.
+
+### ✅ THE ONLY THING TO BUILD, AND IT IS ONE STEP
+Debit the claim the fill assumes, shaped like `BasketLib._settleRedeem`: value it at the **same**
+`perShare` redeem uses (its comment forecloses any other: *"ONE valuation for redeem AND swap (no
+swap↔redeem arb)"*), **cap** at what the maker actually holds, and **credit only what the debit
+delivered** — *"burn is derived FROM actual delivery, never assumed ahead of it."* Buy side spends
+mature QU!D via `Basket.turn`; sell side spends `plainNet(pooled, levPooled)`, never `pooled`.
+**Everything above is either that step, or a note taken on the way to it.**
+
 ## 🔴🔴🔴 **§INTENT-HAS-NO-FUNDING-LEG — THE FILL RECLASSIFIES A POSITION IT NEVER CHECKS EXISTS. MEASURED, GATED, NOT FIXED.** (2026-08-29, owner: *"audit first if the eth intent rail is properly done"*)
 
 **It is not.** The audit was asked for before more building, and it found the rail has no funding leg
