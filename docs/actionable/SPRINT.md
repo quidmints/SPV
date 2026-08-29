@@ -94,16 +94,28 @@ trusts must be complete or it is worse than none.
 
 ---
 
-### 🚨 TIER 0 — SHIP-BLOCKERS. Measured today, money or proof. Nothing below matters until these are decided.
+### 🚨 TIER 0 — ONE ITEM, AND IT IS GATED
+
+⛔⛔ **AN EARLIER VERSION OF THIS TIER LISTED THREE, AND TWO WERE ALREADY RESOLVED WHEN I WROTE IT.**
+I built it from the **severity emoji in section headings** — 🔴🔴🔴 / 🔴🔴 — without reading the
+bodies. **Those markers record the severity a finding HAD, not its status.** `§RSAPSS-MSB`'s own
+heading ends *"(2026-08-29, **FIXED**)"* and I still listed it as a ship-blocker. This is the same
+error as every other correction in this file, made in the same commit as the note warning about it.
+
+| was listed | actual state, verified in the tree |
+|---|---|
+| ~~🔴🔴🔴 `§OOR-TWO-DESIGNS-LIVE`~~ | ✅ **RESOLVED by `§OOR-BOOK-DELETED`** — `outOfRange`, `oorBook`, `selfManaged`, `sweepOor`, `pokeOor`, `MAX_FILLS_PER_SWAP` are **all 0 code references**. Only the intent rail remains. `Quid` is **20,616 / 3,960 spare** (better than the 20,952 that section reported — the thread kept going) |
+| ~~🔴🔴 `§RSAPSS-MSB`~~ | ✅ **FIXED** — `RSASSAPSS.sol:126` reads `n_[0]`, the big-endian MSB, not `n_[n_.length-1]` |
+
+**WHAT ACTUALLY REMAINS IN TIER 0:**
 
 | | item | state |
 |---|---|---|
-| **0.1** | 🔴🔴🔴 **`§INTENT-HAS-NO-FUNDING-LEG`** — the ETH intent fill **pays out value nobody supplied**: a maker holding nothing was paid **$1,000 of real ether**, `POOLED` fell, `POOLED_USD` rose "from nobody". `fillIntentBody` makes three external calls and **never pulls a token, reads a balance, or burns a claim.** | **MEASURED, GATED, NOT FIXED.** The fix is an owner decision |
-| **0.2** | 🔴🔴🔴 **`§OOR-TWO-DESIGNS-LIVE`** — the intent redesign is in `HEAD` **running beside the book it was meant to replace** | two designs live at once |
-| **0.3** | 🔴🔴 **`§RSAPSS-MSB`** — **half of all valid CSCA signatures were rejected**, and the merge is why the fix was not carried | identity proof path |
+| **0.1** | 🔴🔴🔴 **`§INTENT-HAS-NO-FUNDING-LEG`** — the intent fill pays out value nobody supplied. Measured: a maker holding nothing was paid **$1,000 of real ether**; `fillIntentBody` makes three external calls and never pulls a token, reads a balance, or burns a claim | 🔒 **GATED, AND THE GATE IS REAL:** `Quid.sol:1293` reverts `IntentHasNoFundingLeg()` **unconditionally**, before `CORE.settleOor`. **No fill can execute, so nothing can be lost today.** What is open is the design: what the funding leg should be |
 
-⇒ **0.1 and 0.2 are the same rail and should be decided together.** Do not start cluster work while a
-fill can mint value.
+⇒ **This is a design decision on a disabled rail, not a live risk.** It ranks first because the OOR
+redesign is otherwise finished — the book is deleted and the intent path is the only one left, so the
+funding leg is the last thing between that rail and working.
 
 ### 🔴 TIER 1 — THE DECISIONS THAT UNBLOCK CLUSTERS. None needs more investigation.
 
