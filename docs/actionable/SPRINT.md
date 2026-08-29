@@ -193,6 +193,92 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 🔴🔴🔴 **§INTENT-HAS-NO-FUNDING-LEG — THE FILL PAYS OUT VALUE NOBODY SUPPLIED. MEASURED, GATED, NOT FIXED.** (2026-08-29, owner: *"audit first if the eth intent rail is properly done"*)
+
+**It is not.** The audit was asked for before more building, and it found the rail has no funding leg
+at all. **Gated the same turn; the fix is an owner decision.**
+
+### 📊 MEASURED, NOT REASONED — a maker holding NOTHING was paid $1,000 of real ether
+Oracle at **2,449.92**. The maker signs a buy at exactly that price; **a third party relays it**:
+```
+  maker ETH   0                      ->  408134038270347149     = $1,000.00 exactly
+  maker USDC  0                      ->  0                        paid NOTHING
+  POOLED      49999999999999999998   ->  49591823406478578891     real ether LEFT the range
+  POOLED_USD  122495999999           ->  123495999999             +1,000.000000, from nobody
+```
+
+### ⭐ THE CAUSE IS AN ABSENCE, WHICH IS WHY NOTHING CAUGHT IT
+`SwapLib.fillIntentBody` makes **exactly three external calls** — `getTWAPforAsset`, `POOLED()`,
+`POOLED_USD()`. It never pulls a token, never reads a balance, never burns a claim. `Quid.fillIntent`
+then calls only `CORE.settleOor` and emits. **Nothing in the path links `i.owner` to any capital.**
+Its own docblock says *"Capital never moved to place this: it stayed in the basket or in-range …
+The fill RECLASSIFIES it through `settleOor`"* — **but there is nothing to reclassify**, so the
+settlement takes its other branch: `usdDelta < 0` → `_poolUsdInRange(mint = true)` → `POOLED_USD +=`,
+and `volDelta > 0` → `POOLED -=` plus `Quid.deliverVolatile` → `_sendETH`. **Real ether out, minted
+dollars in.**
+🔴 **THE OLD BOOK DID NOT HAVE THIS HOLE, AND THE DIFFERENCE IS ONE CALL.** `Quid.outOfRange` ran
+`QuidLib.sizeOutOfRange` → `AUX.deposit` **at PLACEMENT**, so the identical `settleOor` mint was the
+accounting counterpart of a real deposit. **The intent inherited the settlement and dropped the
+deposit** — and because it kept `settleOor` byte-for-byte, the seam is invisible at the call site.
+⚠️ **AND THE SELL SIDE IS THE MIRROR, UNVERIFIED BUT DERIVED:** `usdDelta > 0` burns `POOLED_USD`,
+and the payout arm is `if (!keep && token != address(0)) AUX.take(...)` — but `settleOor` hardcodes
+`token = address(0)`, so **no payout fires**, while `volDelta < 0` credits `POOLED +=` ether nobody
+sent. **Not measured; do not quote it as measured.**
+
+### 🔴 WHY SEVEN GREEN TESTS COULD NOT SEE IT — THE LESSON IS WORTH MORE THAN THE BUG
+`OorFillsOnTouch.t.sol` was rewritten against the intent in the SAME session, seven tests, all green.
+Every one of them exercises a **REFUSAL** — expiry, signature, nonce, uncrossed oracle. **Not one
+reaches a successful fill**, so not one could observe that the successful path charges nobody.
+⇒ ⭐ **A SUITE OF NEGATIVE TESTS CANNOT SEE A MISSING POSITIVE.** The guards were all present and all
+correct; the thing that was absent had no guard to be wrong. **This is §VACUOUS-BOUNDS one level
+out: there, an assertion was satisfied by the defect; here, the defect is in the path no assertion
+visits.**
+📌 **AND IT IS WHY `fillIntent` HAD ZERO TESTS FOR A DAY AND NOBODY NOTICED** — it landed in
+`abb685c4` untested beside the book it replaced. **The bug predates this session's deletion**; what
+the deletion changed is that it is now the ONLY out-of-range mechanism, which is what made the audit
+urgent rather than tidy.
+
+### ⛔ THE GATE — AND ITS PLACEMENT IS THE INTERESTING PART
+`fillIntent` now `revert IntentHasNoFundingLeg()`. **Gating on ENTRY was tried first and was wrong:**
+it reverted before `fillIntentBody`'s four checks, so all six negative tests began seeing
+`IntentHasNoFundingLeg` instead of the error each asserts. **A gate that swallows the guards
+underneath it deletes their coverage**, and the day the funding leg lands nobody would know whether
+those guards still worked. **Moved below the body**: every check fires in its own order, only the
+settlement is withheld, and the suite is **9/9**. (The consumed bit is set inside the body; the
+revert rolls the transaction back, so no nonce is burned.)
+⛔ **THE BODY IS KEPT, NOT DELETED** — the `create_sweep_tx` shape: maintained, tested code waiting on
+a capability that is not built. Rule 1 removes UNREACHABLE code, not a mechanism whose funding leg is
+an open decision.
+
+### ▶️ THE FIX IS AN OWNER DECISION, AND THE OWNER ALREADY NAMED THE SOURCE
+§OOR-AS-INTENT quotes the constraint: *"until then your dollars are in the basket, or your ETH is
+in-range LP protected."* **That IS the funding leg:** a BUY must spend the maker's BASKET claim
+(QU!D), a SELL their IN-RANGE LP claim. What is undecided, and is money-path (rule 15):
+1. **which claim, and at what valuation** — `qdShareValue` is on the other side of this, and QU!D is
+   a share of the basket capped at par, not a dollar;
+2. **what happens when the maker holds too little at fill time** — refuse, or fill partially? A
+   partial fill needs a per-intent filled-so-far counter, **which is resting storage, the one thing
+   the design exists to avoid**;
+3. **whether the intent must name its funding token** — it has no `token` field, and `AUX.deposit`
+   needs one plus an allowance the maker gave before signing.
+
+### ⚠️ AND THE SECOND HALF OF THE AUDIT: `loadBalance` IS INERT ON ETH, AND 1inch IS NOT ON THIS PATH
+`settleOor(..., loadBalance)` → `Core._shortfallLoadBalance` → `RANGE.onShortfall(...)` →
+**`Quid.onShortfall(address, uint) external {}`** — an empty body, deliberately (its docblock: an ETH
+refill would realise impermanent loss onto shared backing, *"Do not implement this"*). Only `Vault`
+routes a shortfall, and it routes to the hop.
+⇒ **The maker signs a consent that changes nothing on this range**, while the field is load-bearing
+for SIGNATURE VALIDITY — flip it and the digest differs, so a signature for `true` will not fill as
+`false`. **A signed field that binds the signature and not the behaviour.**
+📌 **1inch IS NOWHERE NEAR IT.** `ONEINCH_ROUTER` and `_aggSwap` appear **only** in `LevMath.sol` —
+the levered unwind path (`deleverOneRouted`, the cascade). Nothing `settleOor` reaches touches an
+aggregator, and §E357-VOLATILE-ROUTE's *"the keeper cannot supply a route"* is about that path, not
+this one. **Asserted in `test_LoadBalanceConsentIsInertOnTheEthRange` so a future reader does not go
+looking for routing that was never wired.**
+▶️ **SO THERE ARE TWO DECISIONS HERE, NOT ONE:** the funding leg (above), and whether `loadBalance`
+should be in the ETH typehash at all. **Removing it changes the digest and invalidates every intent
+ever signed** — which is free today, because none can fill.
+
 ## ✅ **§OOR-BOOK-DELETED — THE ON-CHAIN BOOK IS GONE. `Quid` 23,123 → 20,952 BYTES.** (2026-08-29, owner: *"delete the onchain oor book"*)
 
 §OOR-TWO-DESIGNS-LIVE found the replacement already built and the thing it replaced still standing.
