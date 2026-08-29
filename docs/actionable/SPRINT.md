@@ -20,9 +20,12 @@
 >
 > ### ✅ **STATE, MEASURED 2026-08-29 ON A CLEAN GATE — THE SUITE IS GREEN**
 > ```
-> Ran 148 test suites in 829.83s: 1012 tests passed, 0 failed, 2 skipped (1014 total)
+> Ran 148 test suites in 825.54s: 1005 tests passed, 0 failed, 2 skipped (1007 total)
 > setUp failures 0        RPC/env noise 0        <-- both guards clean, so this is a NUMBER
 > ```
+> ⚠️ **1014 → 1007 IS THE OOR BOOK'S DELETION, AND IT RECONCILES EXACTLY:** seven book tests removed
+> (four in `Alles`, three in `BtcSelfManaged`), `OorFillsOnTouch` still seven, rewritten against the
+> intent. **A falling test count is a finding unless it reconciles; this one does.**
 > **Identity suites are 472/472 with AND without a fork** — see §FIXTURE-INHERITS-ITS-ENVIRONMENT
 > for why that sentence has to name both.
 > 🔴 **DO NOT COMPARE THIS TO `533 / 3` OR `480 / 39`. THE POPULATION CHANGED.** The identity fold
@@ -59,6 +62,12 @@
 > `SwapLib` with 102 bytes**, unchanged.
 >
 > ### 🔴 OPEN, IN PRIORITY ORDER
+> 0. **§OOR-BOOK-DELETED landed — `Quid` is 2,171 bytes lighter and off the tightest-five list.**
+>    ▶️ **Three things it leaves open, in order:** BTC has no out-of-range path at all now (its
+>    successor is an intent whose fill becomes a `requestSwapOutOnchain` obligation —
+>    §BTC-DELIVERY-IS-BUILT, much smaller than it was); smart-wallet owners cannot place an intent
+>    (`ecrecover` only, ERC-1271 ruled out on **§B7's grounds, and §B7 is still open**); and **no
+>    relay exists in this repo** — an intent nobody stores cannot fill.
 > 1. **§SWAPOUT-DRAINS-THE-EXIT** (new, measured) — a swap-out is bounded by the pool's whole BTC
 >    inventory and nothing connects that to the dead-man exit the delivery must arm over the
 >    residual. Read its ❓ block before acting: the production multi-channel case is NOT traced.
@@ -339,7 +348,7 @@ argument — that work is deletable too, and that is the right outcome, not a wa
 `pure … return 0` stub. **Whatever is decided, BTC needs the chosen one built — it currently has a
 placement path with no execution path of any kind.**
 
-## 🔴🔴 **§OOR-WATERMARK-DROPS-ORDERS — THE CAP IS NOT A RATE LIMIT, IT IS A FILTER, AND THE SAME LINE STRANDS EVERY ORDER A SHORT POOL COULD NOT SERVE** (2026-08-29, owner: *"there must be a way to improve the design"*)
+## ⛔ **[RETIRED BY §OOR-BOOK-DELETED — the watermark, the cap and the poke are gone with the book. **KEPT BECAUSE ITS DIAGNOSIS IS WHY THE BOOK WENT**: fixes A–F were six patches to machinery a deletion removed, which is rule 17 arriving as a design decision rather than a refactor]** 🔴🔴 **§OOR-WATERMARK-DROPS-ORDERS — THE CAP IS NOT A RATE LIMIT, IT IS A FILTER, AND THE SAME LINE STRANDS EVERY ORDER A SHORT POOL COULD NOT SERVE** (2026-08-29, owner: *"there must be a way to improve the design"*)
 
 `RangeLib.sweepOor` opens with:
 ```solidity
@@ -433,7 +442,7 @@ sweeping behind it. The pattern and the phrase both already exist — `Quid.sol:
 the same seam as §E331 #1 (*OOR fills pay no skew at all*) approached from the other end — **settling
 one without the other prices the same wedge twice.**
 
-## 🔴 **§OOR-IS-ALREADY-CURVE-LIKE — THE PROPERTY WE THOUGHT WE COULD NOT REPLICATE IS BUILT, THE TRIGGER IS A TWAP NOT A TRAVERSAL, AND THE ONE REAL GAP WAS "BOOKED" INTO A TAG THAT DOES NOT EXIST** (2026-08-29, owner question)
+## ⛔ **[SUPERSEDED — its own §5 booked §E258-POKE-INCENTIVE, which §OOR-BOOK-DELETED dissolves. ⚠️ AND ITS HEADLINE OVERSTATED THE CASE: `sweepOor` was an EMULATION of the curve's automaticity, not the property; `SwapLib.sol:1104` says so and I found it a step late]** 🔴 **§OOR-IS-ALREADY-CURVE-LIKE — THE PROPERTY WE THOUGHT WE COULD NOT REPLICATE IS BUILT, THE TRIGGER IS A TWAP NOT A TRAVERSAL, AND THE ONE REAL GAP WAS "BOOKED" INTO A TAG THAT DOES NOT EXIST** (2026-08-29, owner question)
 
 Owner asked how the Rust handles ETH boundary orders, and whether Uniswap's *"the curve fills it as
 a side effect of unrelated swaps, so there is no transaction to front-run"* is something we cannot
@@ -514,7 +523,7 @@ reliably exists is an unmeasured assumption, and it is the whole liveness argume
 a UX advantage today and one of the four owner decisions. **Do not close this row's item 1 without
 it — they price the same seam from opposite ends.**
 
-### ▶️ **§POKE-IS-INEVITABLE-ONLY-AS-A-BACKSTOP — AND THE REASON THE CODE GIVES IS THE REMOVABLE ONE** (owner, 2026-08-29)
+### ⛔ **[RETIRED BY §OOR-BOOK-DELETED — there is no poke. Kept because the ENDOGENOUS-vs-EXOGENOUS trigger argument is still the reason the intent path needs a relayer at all]** ▶️ **§POKE-IS-INEVITABLE-ONLY-AS-A-BACKSTOP — AND THE REASON THE CODE GIVES IS THE REMOVABLE ONE** (owner, 2026-08-29)
 
 Owner asked whether the poke is inevitable. **Two answers, and the code's own justification is the
 weaker of the two.**
