@@ -81,6 +81,56 @@
 > faster than its CONCLUSIONS.** Re-measure before acting on any figure here.
 
 
+
+## 🧾 §WHAT-IS-LEFT — **ALL SIX CLUSTERS READ AGAINST CODE. THE BACKLOG IS SIX DECISIONS AND ONE ERRAND.** (2026-08-29)
+
+Every item in this file was clustered by the code it touches and each cluster read against the tree.
+**Read this before the cluster sections; they are the evidence, this is the conclusion.**
+
+### 🔴 THE SIX DECISIONS — none needs more investigation, all need an owner
+
+| # | decision | why it is the gate | evidence |
+|---|---|---|---|
+| **1** | **At unmeasured variance, charge the base or the sentinel?** The base IS zero (`σ²·confFrac/8`), so "charge the base" means charge nothing on ETH. | Gates the **141-task** skew cluster — the largest in the file. One `if`, and the instrument is already armed. | `§CLUSTER-1-SKEW` |
+| **2** | **What is the pool script?** The second output of the two-output ladder must require more than the hop alone. `SweepAuth`'s 2-of-3 fits. | Gates the pool-sats leak. Design settled; `_armDeadManExit` still verifies ONE output. | `§CLUSTER-2-BTC` |
+| **3** | **Is the Bitcoin freshness UTXO wanted at all?** | It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture. Not "unbuilt": unreachable. | `§CLUSTER-2-BTC` |
+| **4** | **C17 eMode on or off?** | `setUserEMode` has **0 occurrences**, so the Aave leg runs at BASE LTV and the "93% beats 94.5%" comparison describes a configuration never made. Turning it on re-prices every open position. | `§CLUSTER-5-6` |
+| **5** | **§BTC-LEG-FEE — the v4 trading-fee leg.** | Its test passes ONLY because `b7112c4f` inverted `assertGt`→`assertEq` with *"restore assertGt when the decision lands"*. Coverage, not closure. | `§SUITE-2026-08-29-INFURA` |
+| **6** | **The fold's shape: 7540 face, or `Core`+`Quid` merge?** | The merge target predates the 7540 correction, and folding a whole contract is MEASURED to COST bytes (`VEth`→`Quid` = −1,077) while folding bodies gives them back. | `§FOLD-REDESIGN` |
+
+### ✅ THE ERRAND — one piece of work with no decision in front of it
+
+**Derive `UNKNOWN_VARIANCE_SKEW`.** `SwapLib.sol:762` is a bare `3e16` and the row says it was kept
+*"BY INHERITANCE, NOT BY DERIVATION"* when `§E275` deleted `MAX_WELL_SKEW` as unjustifiable. **The
+constant was renamed, not justified.** This is separable from decision 1: whatever the sentinel does,
+its value needs a derivation. ⚠️ It is a risk-appetite number, so the derivation needs owner input
+even though the work does not.
+
+### 🟢 WHAT CLOSED, MEASURED TODAY
+
+- **`main` is GREEN** — `1005 / 0 / 1007` on a fresh pin (handoff above), independently `1,004 / 8 /
+  1,014` on an archive key. **Zero assertion failures either way.** `§MAIN-IS-RED-POOLED-USD` (🔴🔴🔴)
+  and `§MAIN-IS-RED-RECHECKED` are closed; the handoff's *"39 are not 39 problems"* table is closed;
+  workstream E's *"39 regressions + 23 never-green"* was never measured on a working endpoint and is
+  now measured at none.
+- **The v4/hook removal is complete** — `SafeCallback` 0 refs, `SOR.sol` deleted, `BtcLib` 0 ticks,
+  `isBTC` **0 code branches** (31 of its 34 mentions are tombstone comments), Euler 0 code hits.
+- **The ring is fed** — `_observeIfSourced` writes it from the Chainlink anchor on every swap, so
+  Wave 2's *"nothing writes the ring"* premise is retired.
+- **`§CONSOLIDATION-TARGETS`' whole fold list landed** in `4066926a` — `BitcoinTx` ×3, `LevMath` ×2,
+  `Aux`, `LevManager`/`LevBase`.
+- **`E131`** — the unchecked-key defect in `requestSwapOutOnchain` is fixed (`:2298`).
+
+### ⚠️ AND THE METHOD NOTE, BECAUSE IT COST SIX CORRECTIONS TODAY
+
+Every wrong verdict this session came from the same place: **a document's status read as the tree's
+state.** `§E352` booked as a free drain (it is one cell); `§E219` closed on a false opening sentence
+(its remainder is live); `isBTC` counted at 34 (comments); the ring called unfed (it is fed);
+`§CONSOLIDATION-TARGETS`' targets proposed as work (already done); 121 rows dropped on an id match
+(their bodies were never here). ⇒ **Rows are evidence. The tree is state. Grep the code, and strip
+comments before quoting a count.**
+
+
 ## ▶️ **SESSION 2026-08-29 — THE IDENTITY MERGE WAS NEVER RUN IN THIS TREE, AND THAT IS WHERE THE WORK WAS**
 
 **Read this before the 2026-08-26 HANDOFF below, which is superseded on every number it states.**
