@@ -27187,40 +27187,68 @@ vault.rs:244 "fleet does NOT have the LP funding half" vs taproot_signer.rs:439 
 
 ---
 
-## 🧭 §TASK-CLUSTERS — **READ ALL THE TASKS TOGETHER FIRST: 753 INDEXED ITEMS ARE 5 CLUSTERS, AND ONE OF THEM IS 94 ATTEMPTS AT A SINGLE QUESTION** (2026-08-29)
+## 🧭 §TASK-CLUSTERS — **THE CORPUS IS 1,547 ITEM-SHAPED THINGS, AND THAT IS NOT THE SAME AS 1,547 TASKS** (2026-08-29)
 
 Owner's method, applied before reading code: *"read all the tasks together first, check for
-redundancies, then check the code to see if they are still open, if the plan in the task is
-actually good or could be improved (FOLDED into other tasks work, or reuse existing code, or
-otherwise make more elegant)."*
+redundancies, then check the code … if the plan in the task is actually good or could be improved."*
 
-### ① REDUNDANCY IS NOT DUPLICATION HERE — IT IS CONVERGENCE
+⛔ **FIRST, A COUNT I GOT WRONG TWICE.** I said "873 work items", then clustered "753". Neither was
+the corpus. **873** was a raw `| **` count taken BEFORE `QUEUE.md` was folded in verbatim; **753**
+was unique table rows in the CURATED INDEX ONLY — under half of what is here. Every cluster size I
+reported off it was undercounted by roughly 50%.
 
-Textual near-duplicate detection over the 753 unique indexed rows found **exactly one** pair. The
-items are genuinely distinct. **What repeats is the CODE they land on.** Clustering every item by
-the symbols it names *that actually exist in the tree*:
+**Counted properly, all shapes, whole file:**
 
-| cluster | distinct tasks | the symbols they share |
+| | |
+|---|---|
+| table rows (`\| **id** \|`) | 1,639 → **1,018 unique** |
+| open-marked `##`/`###` headings | 624 → **529 unique** |
+| **distinct item-shaped lines** | **1,547** |
+
+⚠️ **BUT 1,547 IS NOT THE TASK COUNT, AND THE GAP MATTERS MORE THAN THE NUMBER.** Of them, **712
+name no code symbol at all**, and reading a sample shows most are **SUB-headings INSIDE an item**,
+not items: *"🔴 5. THE ONE REAL GAP, AND ITS BOOKING IS A GHOST"*, *"⏸️ THE 9 THAT REMAIN ARE ONE
+CLASS"*, *"1. ⛔ THE RUST DOES NOTHING WITH BOUNDARY ORDERS"*. A heading-shaped counter reads point 5
+of one task as a task. **`§E356` measured the same distortion from the other side — 54 of SPRINT's
+313 sections were archival by title and never work — and warned: *"do not quote 170, or 227, or 95."*
+The same warning applies to 1,547.**
+
+**What the 1,547 actually decompose into:**
+
+| | count | |
 |---|---|---|
-| **SKEW / VARIANCE** | **94** | `skewWad` · `wellSkew` · `_maxWellSkew` · `MAX_WELL_SKEW` · `SPLICE_FLOOR` · `skewPremiumCum` · `flowEwmaUsd` · `realizedVarianceWad` |
-| **BTC CHANNELS** | **86** | `openChannel` · `btcRecipientOf` · `BTCChannels` · `lpEth` · `lpPubkey` · `settleSwapIn` |
-| **RANGE / CORE** | **62** | `Core` · `SwapLib` · `POOLED_ETH` · `POOLED_USD_BTC` · `modLP` |
-| ORACLE | 22 | `getTWAPforAsset` · `twapResolve` · `ringVariance` |
-| CRYPTO / SIG | 12 | `ecrecover` |
+| in ≥1 code cluster below | **388** | name a live symbol that other tasks also name |
+| singletons | 396 | name live code, but code no other task touches |
+| prose / sub-headings | 712 | mostly parts of items, not items |
+| only-dead symbols | 51 | executed decisions, or genuinely stale |
 
-**They barely overlap** (largest intersection: SKEW ∩ RANGE = 18), so they are separable work
-streams that different threads can run without colliding — which is what the waves already say,
-now measured rather than asserted.
+### ① REDUNDANCY IS CONVERGENCE, NOT DUPLICATION
 
-### ② THE 94-TASK CLUSTER IS ONE QUESTION ASKED REPEATEDLY
+Textual near-duplicate detection over the unique rows found **exactly one** pair — the items are
+genuinely distinct. What repeats is the **code they land on**. Clustering by symbols that exist in
+the tree, over all 1,547:
 
-Of the 94, **12 are named `ATTEMPT` / `REFUTED` / `RETRACT` / `CORR` / `DECIDED` / `VERDICT` /
+| cluster | tasks | shared symbols |
+|---|---|---|
+| **SKEW / VARIANCE** | **141** | `skewWad` · `wellSkew` · `_maxWellSkew` · `SPLICE_FLOOR` · `skewPremiumCum` · `flowEwmaUsd` · `realizedVarianceWad` |
+| **BTC CHANNELS** | **135** | `openChannel` · `btcRecipientOf` · `BTCChannels` · `lpEth` · `settleSwapIn` · `ExitLib` |
+| **RANGE / CORE** | **106** | `Core` · `SwapLib` · `POOLED_*` · `modLP` · `BasketLib` |
+| ORACLE | 48 | `getTWAPforAsset` · `twapResolve` · `ringVariance` · `anchorVarianceWad` |
+| LEVERAGE | 20 | `LevManager` · `LevMath` · `deleverToVault` · `extractLev` |
+| CRYPTO / SIG | 19 | `ecrecover` · `MuSig2Agg` |
+
+They barely overlap, so they are separable streams that different threads can run without
+colliding — the waves, now measured rather than asserted.
+
+### ② THE BIGGEST CLUSTER — 141 TASKS — IS ONE QUESTION ASKED REPEATEDLY
+
+Of those 141, **12 are named `ATTEMPT` / `REFUTED` / `RETRACT` / `CORR` / `DECIDED` / `VERDICT` /
 `PLAN` / `STATUS`** — `UNIT-A-ATTEMPT-1`, `UNIT-A-ATTEMPT-2`, `UNIT-A-PLAN`, `UNIT-A-DECIDED`,
 `UNIT-A-ROOT-WRITTEN`, `E93-DECIDED`, `E93-b-REFUTED`, `SKEW-DESIGN-VERDICT`, `UNIT-CURVE-CORR`,
 `UNIT-B-STALE-RETRACT`, `SKEW-STATUS`, `UNIT-SKEW-STATUS`. The families: UNIT-A 13, E93 11,
 UNIT-B 6, E87/E98 5.
 
-⇒ **This is not 94 pieces of work. It is one design question — how skew prices when variance is
+⇒ **This is not 141 pieces of work. It is one design question — how skew prices when variance is
 unmeasured — plus its failed attempts, its retractions and its status reports.** Rule 18's test
 applies to the BACKLOG, not just to a patch: the elegant move is one decision and one
 implementation, after which most of the 94 delete rather than get done.
@@ -27284,7 +27312,7 @@ technique and no design decision blocking it — the cheapest real bytes on the 
 
 0. **`BitcoinTx`'s triple output-walker** (`§CONSOLIDATION-TARGETS`) — no decision blocks it, the
    technique is measured, and it is in a library so the saving multiplies. Do it while `§E352` waits.
-1. **Settle `§E352`** — one `if`, unblocks the 94-cluster, and it is a money-path change that must
+1. **Settle `§E352`** — one `if`, unblocks the 141-cluster, and it is a money-path change that must
    run alone with its own prediction (rule 10). The instrument is already armed (`assertEq(flush, 0)`).
 2. **Re-read the σ²-suppression family against `§E345`'s anchor floor** before building any of it.
 3. **Then the cluster collapses rather than gets worked** — most of its 94 are attempts and status
