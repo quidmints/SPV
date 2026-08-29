@@ -300,7 +300,7 @@ revert rolls the transaction back, so no nonce is burned.)
 a capability that is not built. Rule 1 removes UNREACHABLE code, not a mechanism whose funding leg is
 an open decision.
 
-### ▶️ THE FIX IS AN OWNER DECISION, AND THE OWNER ALREADY NAMED THE SOURCE
+### ▶️ THE FIX — ⚠️ **THE THREE "DECISIONS" BELOW WERE WRONG; SEE THE CORRECTION THAT FOLLOWS THEM.** *(kept as written, because the correction is about how they were arrived at)*
 §OOR-AS-INTENT quotes the constraint: *"until then your dollars are in the basket, or your ETH is
 in-range LP protected."* **That IS the funding leg:** a BUY must spend the maker's BASKET claim
 (QU!D), a SELL their IN-RANGE LP claim. What is undecided, and is money-path (rule 15):
@@ -311,6 +311,55 @@ in-range LP protected."* **That IS the funding leg:** a BUY must spend the maker
    the design exists to avoid**;
 3. **whether the intent must name its funding token** — it has no `token` field, and `AUX.deposit`
    needs one plus an allowance the maker gave before signing.
+
+### ✅ **CORRECTION 2026-08-29 — I CALLED THREE THINGS "OWNER DECISIONS". `redeemAsBody` DECIDES TWO OF THEM AND THE THIRD WAS INVENTED.** (owner: *"look at the redeem function for this, there is a lot of logic there…you are trying to guess principles right now"*)
+
+**The correction is about METHOD and it is the more useful half of this row.** I derived a funding
+leg from the owner's one-sentence constraint and then listed what I could not derive as *decisions*.
+The logic was already written, one file away, in the path that does the same job in the opposite
+direction. **A redeem spends a basket claim and delivers value; a buy intent spends a basket claim
+and credits the range. They are the same operation with the legs swapped.**
+
+| what I called an open decision | what `BasketLib._redeemQuote` / `_settleRedeem` already answer |
+|---|---|
+| *"which claim, at what valuation — `qdShareValue` is on the other side of it"* | **`perShare = qdShareValue(WAD, solvent, matureSupply())`**, `solvent` = TVL − depeg loss. And its comment forecloses the choice: *"**ONE valuation for redeem AND swap (no swap↔redeem arb)**"*. ⇒ An intent fill is a THIRD path against the same basket, so using anything else **is** the arb. Not a preference — the invariant that line exists to hold |
+| *"what happens when the maker holds too little — refuse, or fill partially?"* | **Neither: CAP.** `mature = balanceOf − immatureBalanceOf`, then `wantUsd = min(ask, mature) · perShare`. Immature QU!D is not a claim at all. Redeem never reverts on a short holder |
+| *"whether the intent must name its funding token, since `AUX.deposit` needs one plus an allowance"* | 🔴 **I INVENTED THIS.** Redeem takes NO token from the holder — it burns QU!D and lets `AUX.take` choose which stables move. The buy leg is the mirror (burn QU!D → credit `POOLED_USD`) and needs **no `token` field and no allowance**. I reasoned from `AUX.deposit` because the deleted BOOK used it at placement; the intent has no placement |
+
+⭐ **AND A FOURTH CONSTRAINT I DID NOT HAVE AND WOULD NOT HAVE GUESSED.**
+`freeUsd = solvent − max(illiquidLoss, committedUsd18())`. Redeem will not deliver past what is free
+after the commitment AND the illiquidity haircut. **An intent fill pushes that same gate from the
+other side** — it credits `POOLED_USD`, raising `committedUsd18()` into
+`require(committedUsd18() <= haircutTvl, "backing")`. ⇒ **The buy leg's size bound already exists and
+is the one redeem reads in the opposite direction.** Deriving it independently would have produced a
+second, disagreeing bound on one quantity.
+
+⭐⭐ **THE PRINCIPLE THAT GOVERNS THE WHOLE THING, IN THE CODE'S OWN WORDS:** *"UNWIND-FIRST,
+BURN-EXACT … burn follows delivery, so there is never a burn without delivery and never an
+over-unwind"*, and *"No capacity estimate, no cap, no over-burn: **burn is derived FROM actual
+delivery, never assumed ahead of it**."*
+⇒ **INVERTED FOR THE INTENT: the CREDIT must be derived from what was actually BURNED, never from
+the signed `size`.** That single sentence is the funding leg's specification, and it is why the hole
+exists at all — `fillIntentBody` computes both legs from `i.size` and settles them, with no step in
+between that moves anything.
+
+### 🔴 WHAT IS ACTUALLY STILL OPEN — **ONE** THING, NOT THREE
+**The intent's nonce is BINARY and redeem's remainder is NOT.** Redeem's answer to under-delivery is
+*"the un-served QU!D is **RETAINED as a live deferred claim** (redeems once liquid)"* — which works
+because a redeem has no nonce to spend. An intent capped below its signed `size` must either:
+  (a) **consume the nonce and fill what the claim funds** — a partial fill the maker did not sign
+      for, but costing zero storage; the maker re-signs for the remainder, which is free because an
+      intent has no resting state; or
+  (b) **leave the nonce unspent** — which needs a per-intent filled-so-far counter, i.e. **resting
+      storage, the one thing this design exists to abolish** (§OOR-BOOK-DELETED).
+▶️ **Redeem's own principle points at (a):** derive from what actually moved. **But it is a
+user-facing promise about what a signature means, so it is the owner's, and it is the ONLY one.**
+
+⚠️ **AND THE SELL LEG'S CLAIM IS THE OTHER HALF OF THE OWNER'S SENTENCE, UNVERIFIED HERE.**
+*"…or your ETH is in-range LP protected"* ⇒ the maker's `autoManaged[owner].pooled`, mutated through
+`Core.modLP` rather than `turn`. **Not traced yet, and it must be before anything is written** —
+`modLP` carries its own reverted-fix history (§MODLP-DERIVE, §BURN-RELEASES-NO-USD) and an
+uncollectable-residual defect that is deliberately still open there.
 
 ### ⚠️ AND THE SECOND HALF OF THE AUDIT: `loadBalance` IS INERT ON ETH, AND 1inch IS NOT ON THIS PATH
 `settleOor(..., loadBalance)` → `Core._shortfallLoadBalance` → `RANGE.onShortfall(...)` →
