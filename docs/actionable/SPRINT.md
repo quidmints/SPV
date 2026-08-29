@@ -123,7 +123,7 @@ funding leg is the last thing between that rail and working.
 |---|---|---|---|
 | **1.1** | **What is the pool script?** The two-output ladder's second output must require more than the hop alone; `SweepAuth`'s 2-of-3 fits | the pool-sats leak; part of the 143-item BTC cluster | `§CLUSTER-2-BTC` |
 | **1.2** | **Is the Bitcoin freshness UTXO wanted at all?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture | §T3 / phase 3, ~24 items | `§CLUSTER-2-BTC` |
-| **1.3** | **The fold's shape — 7540 face, or `Core`+`Quid` merge?** The merge target predates the 7540 correction, and folding a whole contract is **measured to COST bytes** (`VEth`→`Quid` = −1,077) while folding bodies gives them back | the 116-item RANGE cluster | `§FOLD-REDESIGN` |
+| **1.3** | **The fold's shape — 7540 face, or `Core`+`Quid` merge?** The merge target predates the 7540 correction, and folding a whole contract is **measured to COST bytes** (`VEth`→`Quid` = −1,077) while folding bodies gives them back. 📌 **RE-MEASURE FIRST — the numbers moved today:** the OOR book deletion took `Quid` 23,123 → **20,616**, so `Core` 11,637 + `Quid` 20,616 = **32,253, over EIP-170 by 7,677** (the row plans against 8,917, and `§E219` against 23,835). **Still does not fit; the gap is a third of what the plan assumes** | the 116-item RANGE cluster | `§FOLD-REDESIGN` |
 | **1.4** | **C17 eMode on or off?** `setUserEMode` has **0 occurrences** — the Aave leg runs at BASE LTV, so "93% beats 94.5%" describes a configuration never made. Turning it on re-prices every open position | the 30-item LEVERAGE cluster | `§CLUSTER-5-6` |
 | **1.5** | **`§BTC-LEG-FEE` — the v4 trading-fee leg** | its test passes only because `b7112c4f` inverted `assertGt`→`assertEq` pending this | `§SUITE-2026-08-29-INFURA` |
 | **1.6** | **`§E294` — delete `pushObservation`, or wire it?** It has 0 production callers, but the ring is fed by the anchor anyway. Deleting removes the ±50 bps inflation vector | ORACLE cluster | `§CLUSTER-4-ORACLE` |
@@ -133,9 +133,15 @@ funding leg is the last thing between that rail and working.
 - **Derive `UNKNOWN_VARIANCE_SKEW`.** `SwapLib.sol:762` is a bare `3e16`, kept *"BY INHERITANCE, NOT
   BY DERIVATION"* when `§E275` deleted `MAX_WELL_SKEW` as unjustifiable. **Renamed, not justified.**
   ⚠️ Needs owner risk input to *land*, but the derivation can be done now.
-- **`§SWAPOUT-DRAINS-THE-EXIT`** 🔴 and **`§BTC-DELIVERY-IS-BUILT`** 🔴🔴 — the other thread's, both
-  with the evidence already in their sections.
-- **`§FIXTURE-INHERITS-ITS-ENVIRONMENT`** 🔴🔴 — identity proofs bound to chain id and wall clock.
+- **`§SWAPOUT-DRAINS-THE-EXIT`** 🔴 — **open.** *"Two bounds exist and nothing connects them"*: a
+  swap-out may be filled to the pool's last sat, and the delivery that settles it must then arm a
+  dead-man exit over the residue.
+- **`§BTC-DELIVERY-IS-BUILT`** 🔴🔴 — **open, and smaller than it sounds.** Its own subtitle: *"THE
+  WORK IS WIRING, NOT INVENTING"* — the rail and the hacked-keeper recovery are already in the tree.
+- ~~`§FIXTURE-INHERITS-ITS-ENVIRONMENT`~~ — ✅ **RESOLVED, and I mislisted it too.** Its heading ends
+  *"BOTH ARE NOW PINNED, AND THE SUITE IS GREEN IN BOTH"*, and the handoff corroborates: *"identity
+  suites are 472/472 with AND without a fork"*. **Third item I took from a 🔴 heading whose body says
+  it is done.**
 
 ### 🟢 TIER 3 — CLOSED TODAY, DO NOT RE-OPEN WITHOUT NEW EVIDENCE
 
