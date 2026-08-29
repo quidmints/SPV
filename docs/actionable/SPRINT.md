@@ -19026,10 +19026,22 @@ are already deleted.**
 
 #### 🧱 WAVE 4 — THE FOLD. ⛔ **`Core`+`Quid`-into-one-4626 IS PROBABLY THE WRONG FOLD — SEE `§FOLD-REDESIGN` BELOW.** Blocked by W1 and W2.
 
-**13 rows — bodies in `§QUEUE-VERBATIM`:** `A.13b` · `C6–C9` · `E6` · `E219-hook-removal-order` · `E43` · `C5` · `3×` · `stack-forced splits` · `E217-core-stops-being-a-hook` · `E108b-r3` · `UNIT-RESEATEPOCH` · `it already runs on every swap` · `it already has the price bounds`
 
 Owner chose this 2026-08-16. `Core.sol:43` and `Quid.sol:37` are still two contracts. Steps ③④⑤ of `§E219`'s order LANDED (`SafeCallback` has 0 references, `BtcLib` has 0 `tickLower`, `SOR.sol` deleted) — **the deletions are what make the merge representable at all.** Size checkpoint re-measured 2026-08-23 (`§E344`): `Core` 11,637 + `Quid` 21,856 = **33,493, over EIP-170 by 8,917** — down from 23,835, so the "must stay two contracts" branch is NOT taken. ⚠️ Quote `tools/check-contract-sizes.py`, not any row — three different readings landed in one day.
 
+
+**13 rows, READ 2026-08-30 — 5 are work, and TWO OF THEM ARE ONE ITEM:**
+
+⭐ **`E217` AND `E219` ARE THE SAME ITEM.** `E217` is the owner's decision (*"core stops being a hook,
+just becomes a 4626 that talks to aux"*); `E219` is its ordered plan. Both now reduce to the same
+remainder — **the `Core`+`Quid` merge**, since steps ①②③⑤ landed. **Merge them; do not track two.**
+
+| | rows |
+|---|---|
+| 🟠 **WORK** | `C6–C9` (*"OPEN — no commit touches any of them. The only C-items left"*: seedFee clamp basis · ungated TWAP seam · stale read across repack · `scaleTo6` on 4626 share decimals — `scaleTo6` confirmed live, 3 refs) · `E6` (composition, not quantity) · `A.13b` (`RebalIn` cannot be shrunk safely — **still live, 4 refs**; the question was never answered) · `E108b-r3` (*"1:1 is never reached" was an extrapolation* — now testable) · `E217`+`E219` **as one** |
+| ✅ **done** | `C5` (*"PROVEN NEUTRAL"*) · **`UNIT-RESEATEPOCH` — CLOSE IT: `reseatEpoch` has ZERO live references, the removal it proposes already happened** |
+| 📌 **knowledge** | `E43` (the gas axis measurement) |
+| 🗑️ | `3×` · `stack-forced splits` · `it already runs on every swap` · `it already has the price bounds` |
 
 #### 🧾 WAVE 5 — MINT/REDEEM AND THE LP CLAIM. **Independent of the range spine; can run alongside W1–W4.**
 
@@ -19047,10 +19059,22 @@ Owner chose this 2026-08-16. `Core.sol:43` and `Quid.sol:37` are still two contr
 
 #### ⚡ PARALLEL TRACK A — BITCOIN, CHANNELS AND THE HOP. **44 rows, no dependency on the EVM range spine.**
 
-**44 rows — bodies in `§QUEUE-VERBATIM`:** `E116-a` · `E122-a` · `E122-d` · `E160-c-per-hop-degenerates` · `E174-adopt-vls-not-greenlight` · `E176-delegate-enumeration` · `E177-d` · `E177-f` · `E176-E` · `E180-maliciousness-suite` · `E184-CLOSED / E185` · `E186-stale-markers` · `E191-feeSettleSats` · `E166-2` · `E182-REKEY-CHECKED` · `T1-f-ROOT-STEP2-RETHOUGHT` · `BRIDGE-DAEMON-BIN-DOES-NOT-COMPILE` · `M1#2-PHASE-2: LP-SIDE SIGNER REFUSAL — DELIVERED BY PHASE 1b, NOT BY NEW CODE` · `ROUTING-FEES-BY-DESIGN-OR-OMISSION` · `E165-AMOUNT-FREE-SHAPE` · `E165-SHAPES-VS-OFFLINE-LP` · `T3-FRESHNESS-NARROWED` · `M1-RESIDUAL-100` · `§E166-RESOLVED — lazy open is BUILT on the side that has it, and has NO live motivation on the side that doesn't` · `(a+) vBTC settle-on-emission + splice-on-transfer` · ``watchtower_tick(...)`` · `E114-b` · `E125-a` · `E158-no-seed-migration` · `E158-can-we-fix-it` · `E158-no-crypto-fix-for-LN` · `E159-prove-onchain-swapin` · `E160-b-no-primitive-helps` · `E161-bond-and-fraud-proof` · `E162-rekey-splice` · `E164-b-rule-modifiers` · `E166-open-items` · `E169-fixture-owned-payout` · `E179-utxo-account-drift` · `E184-swapout-pop` · `Choppy, round-tripping` · `BUFFER-QUESTION-DISTILLED` · `T3-CANDIDATE-1-CHECKED` · `§E172-FOLLOW-UP: CONTINUOUS OR CHECK-INS? — TWO SIGNING DUTIES, DIFFERENT LATENCIES; and the failure mode is SERVICE, not funds`
 
 The largest single group and it shares no code with W1–W4, so it can run start-to-finish in parallel by a separate thread. Its own blocker is an owner decision (the pool-sats ladder's second output — `SweepAuth`'s 2-of-3), not engineering.
 
+
+**44 rows, READ 2026-08-30 — the largest track, and only ~8 are work:**
+
+| | count | rows |
+|---|---|---|
+| 🟠 **WORK** | 8 | `E182-REKEY-CHECKED` (**a defect**: *"its STATED PROPERTY IS FALSE for the only case it exists for"*) · `E177-d` (*"a residual hole that CANNOT be closed at this level"*) · `E159-prove-onchain-swapin` (*"ONLY THE ON-CHAIN CHECK IS MISSING"* — a named, bounded gap) · `E179-utxo-account-drift` (*"TODO — queued"*) · `E184-swapout-pop` (*"a GAP rather than a use"*) · `(a+) vBTC settle-on-emission` (*"DESIGN ONLY — NOT STARTED"*) · `E166-open-items` (a consolidated open list — **a meta-row, read it first**) · `T3-FRESHNESS-NARROWED` |
+| ✅ **done** | 13 | including `E186-stale-markers`, which is itself the finding *"§E107 is closed, and that makes FOUR stale 🔴 markers found in one day"* |
+| 📌 **knowledge / answered** | 6+15 | the `E158-*` family (four owner questions answered), `E160-b` (*"why every cryptographic proposal in this thread failed — one reason"*), `E174`/`E176` (VLS adoption + the 32-method enumeration), `E164-b` (now `CLAUDE.md` rule 8c), `M1-RESIDUAL-100`, `BUFFER-QUESTION-DISTILLED` |
+| 🗑️ | 2 | |
+
+📌 **THE 13-DONE / 8-WORK RATIO IS THE POINT.** This track is 44 rows and looks like the biggest
+block of work in the file; read, it is **eight items**, and one of them (`E166-open-items`) is a list
+someone already made because *"these were accumulating"*.
 
 #### 📈 PARALLEL TRACK B — LEVERAGE AND VENUES.
 
