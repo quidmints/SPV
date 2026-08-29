@@ -27130,6 +27130,116 @@ vault.rs:244 "fleet does NOT have the LP funding half" vs taproot_signer.rs:439 
 
 ---
 
+## 🧭 §TASK-CLUSTERS — **READ ALL THE TASKS TOGETHER FIRST: 753 INDEXED ITEMS ARE 5 CLUSTERS, AND ONE OF THEM IS 94 ATTEMPTS AT A SINGLE QUESTION** (2026-08-29)
+
+Owner's method, applied before reading code: *"read all the tasks together first, check for
+redundancies, then check the code to see if they are still open, if the plan in the task is
+actually good or could be improved (FOLDED into other tasks work, or reuse existing code, or
+otherwise make more elegant)."*
+
+### ① REDUNDANCY IS NOT DUPLICATION HERE — IT IS CONVERGENCE
+
+Textual near-duplicate detection over the 753 unique indexed rows found **exactly one** pair. The
+items are genuinely distinct. **What repeats is the CODE they land on.** Clustering every item by
+the symbols it names *that actually exist in the tree*:
+
+| cluster | distinct tasks | the symbols they share |
+|---|---|---|
+| **SKEW / VARIANCE** | **94** | `skewWad` · `wellSkew` · `_maxWellSkew` · `MAX_WELL_SKEW` · `SPLICE_FLOOR` · `skewPremiumCum` · `flowEwmaUsd` · `realizedVarianceWad` |
+| **BTC CHANNELS** | **86** | `openChannel` · `btcRecipientOf` · `BTCChannels` · `lpEth` · `lpPubkey` · `settleSwapIn` |
+| **RANGE / CORE** | **62** | `Core` · `SwapLib` · `POOLED_ETH` · `POOLED_USD_BTC` · `modLP` |
+| ORACLE | 22 | `getTWAPforAsset` · `twapResolve` · `ringVariance` |
+| CRYPTO / SIG | 12 | `ecrecover` |
+
+**They barely overlap** (largest intersection: SKEW ∩ RANGE = 18), so they are separable work
+streams that different threads can run without colliding — which is what the waves already say,
+now measured rather than asserted.
+
+### ② THE 94-TASK CLUSTER IS ONE QUESTION ASKED REPEATEDLY
+
+Of the 94, **12 are named `ATTEMPT` / `REFUTED` / `RETRACT` / `CORR` / `DECIDED` / `VERDICT` /
+`PLAN` / `STATUS`** — `UNIT-A-ATTEMPT-1`, `UNIT-A-ATTEMPT-2`, `UNIT-A-PLAN`, `UNIT-A-DECIDED`,
+`UNIT-A-ROOT-WRITTEN`, `E93-DECIDED`, `E93-b-REFUTED`, `SKEW-DESIGN-VERDICT`, `UNIT-CURVE-CORR`,
+`UNIT-B-STALE-RETRACT`, `SKEW-STATUS`, `UNIT-SKEW-STATUS`. The families: UNIT-A 13, E93 11,
+UNIT-B 6, E87/E98 5.
+
+⇒ **This is not 94 pieces of work. It is one design question — how skew prices when variance is
+unmeasured — plus its failed attempts, its retractions and its status reports.** Rule 18's test
+applies to the BACKLOG, not just to a patch: the elegant move is one decision and one
+implementation, after which most of the 94 delete rather than get done.
+
+### ③ CODE CHECK — TWO THINGS THAT CHANGE WHAT IS STILL OPEN
+
+🔴 **`§E352` IS REAL AND IT IS A BRANCH-ORDER BUG, CONFIRMED IN THE CODE.** Both lines are in
+`skewWad`:
+
+```
+SwapLib.sol:1282   if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
+SwapLib.sol:1333   if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;
+```
+
+The flush branch at `:1282` **returns 51 lines before the unmeasured-variance sentinel at `:1333`
+can fire**, and `_maxWellSkew` at σ²=0 prices its base at zero. So *unmeasured ⇒ charge the
+ceiling* and *unmeasured ⇒ charge nothing* are both true in one function, and ORDER picks the
+second. The file says it is *"untouched pending the owner call"*. **This is the single highest-value
+decision in the cluster: it is one `if` and it governs the largest function in the binding contract.**
+
+✅ **`§E345` HAS LANDED, AND IT MOVES THE PREMISE OF THE `UNIT-B` / σ²-STRETCHABILITY FAMILY.**
+`Core.sol:400-401` is live code: `uint a = anchorVarianceWad(); return v > a ? v : a;` — so
+`realizedVarianceWad` is `max(ring, anchor)`. The measurement those tasks were written against
+(*"4h gaps → σ² 24× down, charge 93.3% down"*) was taken when it was `ringVariance` ALONE. With a
+`max`, the suppressible leg can only ever RAISE the answer. ⛔ Not "the vector is closed" — the
+anchor is a floor, not a proof, and `Core`'s own §E345 note names the opposite residual (the ring's
+permissionless writer can still INFLATE σ² within ±50 bps). **But every task whose plan is
+"defend against σ² suppression by spacing" needs re-reading against the anchor floor before any of
+it is built.**
+
+
+### ④ AND THE REPO HAD ALREADY MEASURED TWO THINGS THAT SETTLE ARGUMENTS ABOVE
+
+`§CONSOLIDATION-TARGETS` (2026-08-23) answers the *"as little final code as possible"* goal with
+numbers, and I should have read it before writing `§FOLD-REDESIGN`. Two of its findings are
+load-bearing here:
+
+⭐ **FOLDING A WHOLE CONTRACT IN *COSTS* BYTES; FOLDING INLINED BODIES INTO ONE ROUTINE *GIVES THEM
+BACK*.** Measured both directions: `§E210` **+435** on `LevMath`, `§E346` **+316** on `Quid`,
+`§DELTATOK-FOLD` **+557** net — versus **`VEth` folding into `Quid` COST ~1,077 bytes**.
+⇒ **This is a measured precedent directly against the `Core`+`Quid` merge**, and it is stronger than
+the argument I made in `§FOLD-REDESIGN` from the size table alone. A contract-level fold is the
+expensive kind; the face-level fold proposed there is the cheap kind. **The precedent says so with a
+number from this repo.**
+
+⛔ **"FEWER FILES" IS MEASURED AS NOT REACHABLE** (`§FEWER-FILES`): *"zero libraries are foldable.
+Fewer FUNCTIONS and fewer VARIABLES are reachable; fewer FILES is not."* ⇒ Against the owner's
+*"even reducing files if possible"* — **possible is the operative word, and it was measured as no.**
+The file-count reduction `§FOLD-REDESIGN` predicts (`VBtc.sol`, maybe `Vault.sol`) is a prediction
+that has to beat this measurement, not ignore it. `VBtc` is the plausible one because it disappears
+by DELETING a false face rather than by merging anything.
+
+▶️ **AND THE BYTE WINS IT ALREADY LOCATED, which no task in the 753 duplicates:** 7 near-duplicate
+pairs, the biggest being `BitcoinTx`'s **one output-walking loop written three times**
+(`sumOutputValuesToScript` ~ `findOutputByScript` ~ `sumOutputValuesExcept`, ~600–690 chars each) in
+a 19,262-byte library — and because `BitcoinTx` is a LIBRARY, `internal` bodies are copied into every
+caller, so the saving multiplies by caller count. **That is reuse-existing-code work with a measured
+technique and no design decision blocking it — the cheapest real bytes on the table.**
+
+### ▶️ THE EFFICIENT ORDER, AND WHY
+
+0. **`BitcoinTx`'s triple output-walker** (`§CONSOLIDATION-TARGETS`) — no decision blocks it, the
+   technique is measured, and it is in a library so the saving multiplies. Do it while `§E352` waits.
+1. **Settle `§E352`** — one `if`, unblocks the 94-cluster, and it is a money-path change that must
+   run alone with its own prediction (rule 10). The instrument is already armed (`assertEq(flush, 0)`).
+2. **Re-read the σ²-suppression family against `§E345`'s anchor floor** before building any of it.
+3. **Then the cluster collapses rather than gets worked** — most of its 94 are attempts and status
+   reports on a question that will have an answer.
+
+📌 `SwapLib` is the binding contract at **24,474 / 102 bytes**, and `skewWad` + `sellSkew` +
+`wellSkew` + `_maxWellSkew` are **587 of its 1,606 body lines — 37%**. A decision that simplifies
+this family is also the most plausible source of the headroom the fold needs. **That is the link
+between this section and `§FOLD-REDESIGN`: same code, same decision, two reasons to want it.**
+
+---
+
 ## 🧬 §FOLD-REDESIGN — **THE FOLD WAS CHOSEN BEFORE TWO FACTS LANDED THAT CHANGE IT. `Core`+`Quid` IS PROBABLY NOT THE FOLD.** (2026-08-29)
 
 Owner, 2026-08-29: *"maybe core and quid being one contract is not the fold that needs to
