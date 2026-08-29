@@ -27614,6 +27614,51 @@ permissionless push meant to exist at all**, now that `§E345` made σ² ring-in
   measurement archaeology against a σ² definition that has since changed twice.** Re-read against
   `max(ring, anchor)` before trusting any number in them.
 
+## 🔍 §CLUSTER-5-6 — **LEVERAGE (30) AND CRYPTO/SIG (20), PLUS THE RN MERGE FINISHED** (2026-08-29)
+
+### LEVERAGE — the one owner decision is confirmed, by absence
+
+| claim | measured |
+|---|---|
+| C17 eMode: *"`setUserEMode` has zero occurrences"* | **0** across `src`, `test` and `script` — confirmed. The Aave leg runs at BASE LTV, so *"eMode's 93% beats Morpho's 94.5%"* describes a configuration **never made** |
+| `§E229` `deleverToVault` must not be deleted | still live, `LevManager.sol:540` — the guard is doing its job |
+| `levBufferUsd` (BUF-USD-RATCHET) | 21 live references — the ledger exists; the ratchet's root fix was `§E356`'s *derive the leg in `Core`*, not a call-site patch |
+
+### CRYPTO/SIG — mostly closed by deletion, and one defect genuinely fixed
+
+| claim | measured |
+|---|---|
+| `E131` — the unchecked-key defect in `requestSwapOutOnchain` | ✅ **FIXED.** `BTCChannels.sol:2298` now reverts `NotPubkeyHash` when `btcRecipientOf[msg.sender] == 0` (E184 landed) |
+| `MuSig2Agg.sol` | **file no longer exists** |
+| `ecrecover` sprawl | **one** site left in `evm/src` (`SwapLib.sol:1167`, the OOR digest) — the E125-a/E127/E128-r2 Schnorr-library family is archaeology about libraries this tree no longer tries to use |
+| `create_sweep_tx` trigger (`W1`) | 11 references in `quid-ln` — wired, as the row's own correction says |
+
+⇒ **Both clusters are small and mostly settled.** The live remainder is C17 eMode, which is an owner
+decision (turning it on re-prices every existing position's health factor), and `§MSIG-NOT-SAFE`.
+
+### 📱 THE REACT-NATIVE MERGE HAD ONE MORE HOLE, AND IT IS THE SAME SHAPE AS THE POLYFILL ONE
+
+`app/` had **no babel config at all**, while `babel-preset-expo` and `babel-plugin-module-resolver`
+sat in its devDependencies. **The dependency came across and the config that uses it did not** —
+exactly the failure the polyfill fix already found once. Expo cannot bundle without it.
+
+⛔ **AND THE RIGHT FIX IS SMALLER THAN IBIZA'S, WHICH IS THE POINT.** Ibiza's `babel.config.js`
+carried three plugins; **none is carried, and each is checked rather than assumed:**
+
+- **alias `@rarimo/rarime-rn-sdk` → `./src/sdk/index`** — obsolete. It existed while the SDK was a
+  forked in-tree copy; it is now a real dependency (`github:quidmints/rarime-rn-sdk#main`). Ibiza's
+  own metro comment says the matching metro mapping was removed for that reason.
+- **alias `@iden3/js-crypto` → `dist/browser/esm/index.js`** — obsolete, and the interesting one. The
+  package publishes **no `main`, `module`, `browser` or `react-native` field** — only an `exports`
+  map whose **`browser` condition is that exact file**. `metro.config.js` sets
+  `unstable_enablePackageExports`, and Metro's conditions include `browser`, so the package's own
+  contract selects the right build. **Re-adding the alias would pin an internal path the package is
+  free to move.**
+- **`react-native-dotenv` / `@env`** — zero `from "@env"` imports in this app.
+
+⇒ `app/babel.config.js` is the Expo preset and nothing else. 📌 `react-native-dotenv` is now a
+declared-but-unused dependency and is a removal candidate.
+
 ## 🟢 §SUITE-2026-08-29 — **`main` IS GREEN: 1,004 PASS, ZERO ASSERTION FAILURES. THE HANDOFF'S ENTIRE FAILURE TABLE IS CLOSED.** (2026-08-29)
 
 Owner supplied an archive endpoint (Infura). Run on a **clean detached worktree at `bb932745`** —
