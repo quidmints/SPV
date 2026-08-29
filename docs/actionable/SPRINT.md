@@ -355,11 +355,46 @@ because a redeem has no nonce to spend. An intent capped below its signed `size`
 ▶️ **Redeem's own principle points at (a):** derive from what actually moved. **But it is a
 user-facing promise about what a signature means, so it is the owner's, and it is the ONLY one.**
 
-⚠️ **AND THE SELL LEG'S CLAIM IS THE OTHER HALF OF THE OWNER'S SENTENCE, UNVERIFIED HERE.**
-*"…or your ETH is in-range LP protected"* ⇒ the maker's `autoManaged[owner].pooled`, mutated through
-`Core.modLP` rather than `turn`. **Not traced yet, and it must be before anything is written** —
-`modLP` carries its own reverted-fix history (§MODLP-DERIVE, §BURN-RELEASES-NO-USD) and an
-uncollectable-residual defect that is deliberately still open there.
+✅ **THE SELL LEG IS NOW TRACED — see the section below. It is NOT `autoManaged[owner].pooled` as
+guessed here; that read would have broken a stated invariant.**
+
+### ✅ **THE SELL LEG, TRACED — AND MY GUESS WOULD HAVE BROKEN A STATED INVARIANT** (2026-08-29)
+
+I wrote that the sell leg spends *"the maker's `autoManaged[owner].pooled`"*. **`Quid._withdraw`
+says it does not, and the difference is load-bearing.**
+
+**IT IS `SwapLib.plainNet(LP.pooled, levPooled[owner])` — THE FREE, NON-LEVERED DEPTH.** `_withdraw`
+caps every exit at exactly that, and states why: *"The levered slice (`levPooled`) leaves via the
+auto-close above (or LP-initiated `LevManager.closeLev`) — repay debt → withdraw collateral — never
+the free ladder, **so a levered claim can never pull deliverable ETH that backs unlevered LPs**."*
+⇒ **Spending `LP.pooled` would let a levered claim exit through a path that is not the free ladder** —
+the precise thing that sentence forbids. That is not a preference to weigh; it is an invariant with a
+one-line statement in the code, and I would have violated it by taking the obvious field.
+
+**AND THREE MORE PRECONDITIONS COME WITH IT, NONE OF WHICH I HAD:**
+1. **`_reconcileLev(owner)` FIRST, UNCONDITIONALLY.** `_withdraw` calls it with no `levPooled > 0`
+   gate, and the comment records why the gate was deleted: *"it read the STALE MIRROR to decide
+   whether to refresh the stale mirror … **A guard cannot use the quantity it is protecting as its
+   own predicate.**"* A fill that reads `levPooled` without reconciling first inherits that bug.
+2. **A past-free ask AUTO-DE-LEVERS** (`closeLevFor`, then reconcile INLINE because the callback's
+   `syncLev` is `nonReentrant`-blocked under the withdraw lock). An intent fill would sit under the
+   same lock and hit the same blocked re-entrancy.
+3. **`AUX.tryCheckBacking()` runs FIRST and is deliberately LENIENT** — *"gridlock during a stress
+   event is worse than first-out unfairness"* — so the exit is not gated on the repack succeeding.
+
+### 🔴 AND A QUESTION THE INTENT DESIGN HAS NO ANSWER TO, FOUND IN THE SAME COMMENT
+`_withdraw`'s JIT lock is **1 block**; the deleted OOR paths used **47**, and the asymmetry is
+documented as REAL rather than drift (§E146): *"a RANGE position is UNCONDITIONALLY exposed the
+moment it is in range … An OOR BOUNDARY ORDER is CONDITIONALLY exposed: it only fills if price
+crosses it, so **a short lock lets the placer cancel the instant it moves against them and the option
+is free**. 47 blocks (~9.4 min) forces it to bear real risk before cancellation."*
+⇒ **THE 47-BLOCK LOCK WAS THE BOOK'S ANSWER TO PLACER OPTIONALITY, AND THE INTENT HAS NO ANALOGUE.**
+An intent can be cancelled instantly and for free — by simply not handing the signature to anyone.
+⚠️ **BOOKED AS A QUESTION, NOT A DEFECT, AND THE DISTINCTION MATTERS:** the harm the lock prevented
+needs something to RELY on the resting order, and today nothing does — OOR capital was never in the
+fee base, there is no relay, and an unheld signature is indistinguishable from an order never placed.
+**But §OOR-AS-INTENT never raised it, and it becomes live the moment a relayer quotes off held
+intents.** ⇒ **Whoever builds the relay owns this question.**
 
 ### ⚠️ AND THE SECOND HALF OF THE AUDIT: `loadBalance` IS INERT ON ETH, AND 1inch IS NOT ON THIS PATH
 `settleOor(..., loadBalance)` → `Core._shortfallLoadBalance` → `RANGE.onShortfall(...)` →
