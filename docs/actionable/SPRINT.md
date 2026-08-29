@@ -327,7 +327,18 @@ unbalanced, not fabricated.**
 | the short-volatile leg | **a DIFFERENT question that predates the intent**: `IntentUnfillable` when `volOut > POOLED()`. It is inventory, not funding |
 | §OOR-BOOK-DELETED, §OOR-TWO-DESIGNS-LIVE | how we got here: the replacement landed untested beside what it replaced |
 
-### ⛔ WHAT IS **NOT** ESTABLISHED, AND I WAS DRIFTING TOWARD TREATING IT AS IF IT WERE
+### ✅ **THE SHORT-VOLATILE CASE DOES NOT ARISE — ANSWERED BY THE OWNER, 2026-08-30**
+*"so the shortfall doesnt happen? if you create an intent you have to be in-range IL protected."*
+**Right, and the reason is the funding leg itself:** once the fill is CLAIM-BOUNDED, `volOut` cannot
+exceed what the maker's own claim funds, so `volOut > ICore(core).POOLED()` is **unreachable** — the
+cap does the work the check was standing in for. ⇒ **`IntentUnfillable` is a symptom of the missing
+debit, not a case to design around.** The three "candidates" recorded above are answers to a question
+the fix deletes. ⛔ **Do not build the short-volatile remedy at all.**
+⚠️ **AND THAT IS THE SECOND TIME IN THIS SECTION I DESIGNED FOR A BRANCH THE FIX REMOVES** (the first
+was the nonce). **Both times the tell was the same: I was reasoning forward from the code as it
+stands instead of from the code as it will stand once the one defect is fixed.**
+
+### ⛔ (superseded by the above) WHAT WAS NOT ESTABLISHED
 **How often `POOLED` is actually short at the moment a buy intent is fillable.** I began designing a
 load-balance remedy for it without measuring whether it occurs. **It is bounded by LP deposits and
 drained by fills — that much is structural — but the frequency, and whether it coincides with the
@@ -513,6 +524,33 @@ intents.** ⇒ **Whoever builds the relay owns this question.**
 
 ### 🔴 **§HUB-IS-USDC-AND-THE-TABLE-HAS-TWO — 11 OF THE BASKET'S 14 DOLLARS CANNOT BE SOLD AT ALL** (owner, 2026-08-30: *"why is it always USDC though? we might have to chain hops (it depends which dollar user is selling)"*)
 
+## ⛔ **RETRACTED 2026-08-30 — THE TABLE IS SIZED TO THE VENUE ROSTER, NOT THE BASKET, AND `NoStableRoute()` IS NOT REACHABLE FROM THE LEVER PATH.**
+I compared `_routeOf` against the **basket's** 14 stables and called the gap concerning. **Wrong
+denominator.** A stable reaches `_hubSwap` from exactly four sites, and the three that can revert
+(`_stableToWethSor:694`, `_stableToWbtc:752`, `_volToStable:767`) are all handed
+**`venue.stable()`** — the lev venue's `loanToken`, never a basket slot.
+📊 **AND THE LIVE VENUE ROSTER IS EXACTLY THE TABLE.** `DeployL1_s._ethLevVenues` wires weETH markets
+against **USDC, RLUSD and PYUSD** — which is USDC-as-hub plus the table's two entries, with the
+reason recorded on the spot: the shipped weETH/USDC market *cannot lend* (**$0.74M median supply,
+$0.17M idle, 100 of 100 weeks under $1M** vs RLUSD $95M/$9.66M and PYUSD $47.14M/$4.32M — *"roughly
+85×"*). ⇒ **The two Curve routes exist BECAUSE those are the two markets with depth.** The table is
+not thin; it is exactly as wide as the set of stables this protocol ever swaps.
+✅ **THE FOURTH SITE IS THE ONE THAT MEETS BASKET STABLES, AND IT ASKS FIRST.** The consolidation
+sweep (`:1029`) walks `IAux.getStables()` and is the ONLY caller of `_routableStable` — an unroutable
+slice is **skipped and refunded to the LP**, by design and with a comment saying so.
+⇒ **THE 11 DO NOT NEED A ROUTE.** They are basket INVENTORY: they hold TVL and leave through
+`AUX.take` on redeem, which pays them out directly and never swaps them through Curve. **"Cannot be
+sold" was the wrong verb for a dollar nobody sells.**
+⚠️ **WHAT REMAINS TRUE, AND IT IS THE ONLY LIVE PART:** adding a lev venue whose `loanToken` is NOT
+on the table would revert `NoStableRoute()` on its first lever — and `_routeOf` is `pure` with
+hardcoded addresses, so that fix is a redeploy of the tightest library in the tree. **The coupling
+is venue-roster → routing table, and nothing enforces it.** That is worth a gate; it is not worth
+alarm.
+📌 **METHOD NOTE — this is the sweep-without-a-false-positive-class error CLAUDE.md names, from the
+inside.** I had the raw count (14 vs 2), reported it, and had not asked *which stables actually reach
+this function*. **One `grep` for `_hubSwap({` — four sites — was the whole answer.**
+
+*(original, kept — the arithmetic is right and only its relevance was wrong:)*
 **Measured.** The basket is **14 stables** (`DeployL1_s.sol:240` — USDC, USDT, PYUSD, GHO, RLUSD,
 USDG, DAI, USDS, USDE, AUSD, cUSD, crvUSD, frxUSD, BOLD; the layout maximum, `uint[15]` exactly full).
 **`LevMath._routeOf` has TWO entries**: `RLUSD → CURVE_USDC_RLUSD` and `PYUSD → CURVE_PYUSD_USDC`.
