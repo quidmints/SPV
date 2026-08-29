@@ -27187,6 +27187,74 @@ vault.rs:244 "fleet does NOT have the LP funding half" vs taproot_signer.rs:439 
 
 ---
 
+## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
+
+First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
+four owner decisions — so getting its scope right is worth more than closing rows.**
+
+### ✅ WHAT LANDED, VERIFIED — the ceilings are gone
+
+`UNIT-A-DECIDED` records the owner call: *"DELETE THE CEILINGS. THE SKEW USES THE ACTUAL MEASURED
+VARIANCE."* In the tree today:
+
+| constant | declarations | uses |
+|---|---|---|
+| `MAX_WELL_SKEW` | **0** | **0** — deleted (§E275, "unjustifiable") |
+| `CAP_SAFETY` | **0** | **0** — deleted (was the 2σ worst-case multiple) |
+| `UNKNOWN_VARIANCE_SKEW` | 1 (`:762` = `3e16`) | 3 |
+| `SPLICE_FLOOR` | 1 (`:831` = `2e15`) | 2 |
+
+⛔ **BUT THE CONCERN MOVED RATHER THAN CLOSED, AND A ROW IN THIS CLUSTER SAYS SO:** *"§E275 deleted
+`MAX_WELL_SKEW` as unjustifiable; the split kept `UNKNOWN_VARIANCE_SKEW` at the same 3e16 **BY
+INHERITANCE, NOT BY DERIVATION**."* Confirmed — `:762` is a bare `3e16` with no derivation beside it.
+**So every task about "the 3% is an inherited constant" is still open under a different name.** This
+is the closure trap from earlier today in its exact form: the vocabulary changed, the concern did not.
+
+### 🔴 `§E352` IS REAL, AND ITS SCOPE IS ONE CELL — NOT "A FREE DRAIN"
+
+`§E356` books it as *"a free drain at σ²=0"*. Read against the code that overstates it. The flush
+branch is:
+
+```
+SwapLib.sol:1282   if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
+SwapLib.sol:1333   if (sigmaSqWad == 0)  return UNKNOWN_VARIANCE_SKEW;      // 51 lines later — unreachable from :1282
+```
+
+and the two terms are:
+
+```
+_maxWellSkew(σ², rk) = σ²·confFrac/8e18 + rk.spliceFloor     // :959
+_depletion(inv0,inv1) = inv1>=inv0 ? 0 : DEPLETION_RATE_WAD·(inv0−inv1)/inv0   // σ²-FREE
+ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)      // no splice floor
+btcRisk() = Risk(CONF_FRAC_WAD, 2e15)       // 0.2% floor
+```
+
+⇒ **A REAL DRAIN AT σ²=0 IS NOT FREE.** `_depletion` carries no σ² term, so any `drain > 0` is charged
+`210 ppm × drain/inv0` on both assets, and BTC additionally floors at 0.2%. **The genuinely
+uncharged cell is narrow: ETH, σ² unmeasured, and `drainUsd6 == 0`** — i.e. a swap that drains
+nothing. `SkewUnmeasuredVariance.t.sol:92` pins exactly that call
+(`skewWad(POOL, POOL/10, 0, ethRisk(), 0)`) and asserts `flush == 0`.
+
+📌 **THE TEST IS THE BEST-BUILT THING IN THIS CLUSTER AND SHOULD NOT BE "FIXED".** Its comment
+explains why it is an equality: *"an assertion a fix cannot fail is not coverage of the fix"* — the
+earlier bound `flush < CEIL` was satisfied **by the defect**, so the suite reported the branch
+covered while it was not. It goes red the moment the decision lands, either way.
+
+⇒ **The decision to make is not "stop the free drain".** It is: **when variance is UNMEASURED, does
+the adverse-selection base charge nothing (because the base IS σ²·confFrac/8, which is 0) or the
+sentinel?** The inventory side is already handled by `_depletion` regardless. That is a much smaller
+question than the row implies, and it is a one-line branch-order change either way.
+
+### ⇒ WHAT THIS DOES TO THE 141
+
+- **Blocked on the same one decision, not on 141 investigations.** The UNIT-A (13), E93 (11),
+  UNIT-B (6) and E87/E98 (5) families are attempts, retractions and status reports on this question.
+- **The σ²-suppression sub-family needs re-reading before any of it is built** — `§E345` landed
+  (`Core.sol:400-401`, `realizedVarianceWad` = `max(ring, anchor)`), so the *"4h gaps → σ² 24× down"*
+  measurement those plans were written against no longer describes the input.
+- **The "3% by inheritance" family stays open** under `UNKNOWN_VARIANCE_SKEW`, and is the one part of
+  this cluster that does NOT wait on `§E352` — deriving the constant is separable work.
+
 ## 🧭 §TASK-CLUSTERS — **THE CORPUS IS 1,547 ITEM-SHAPED THINGS, AND THAT IS NOT THE SAME AS 1,547 TASKS** (2026-08-29)
 
 Owner's method, applied before reading code: *"read all the tasks together first, check for
