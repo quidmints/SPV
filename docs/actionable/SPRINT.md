@@ -27281,6 +27281,62 @@ vault.rs:244 "fleet does NOT have the LP funding half" vs taproot_signer.rs:439 
 
 ---
 
+## 🔍 §CLUSTER-2-BTC — **143 TASKS READ AGAINST CODE. TWO REAL BLOCKERS, ONE OF THEM WORSE THAN BOOKED.** (2026-08-29)
+
+Sub-themes, by how many of the 143 mention them: swap-in/out 86 · rekey/custody 67 · ladder/exit 60 ·
+open/register 53 · freshness/T3 24 · pool-sats 12. **The cluster resolves to two blockers plus a
+confirmed retraction.**
+
+### 🔴 ① POOL-SATS LEAK — OPEN, AND THE FIX IS ONE OWNER CHOICE, NOT ENGINEERING
+
+Verified in the tree: the ledger is live and the leak **announces itself**.
+
+| | |
+|---|---|
+| `poolOwnedSats` mapping | `BTCChannels.sol:1332`, written `:1441` (*"parked inventory: no LP claim"*), read `:670` `:1059` `:1369` |
+| `PoolSatsLeftWithLp` | **is emitted** — `:676` and `:1562` |
+| `_armDeadManExit` | verifies the exit pays **`_lpPayoutScript(lpEth)` — a SINGLE output** |
+| references to a pool script in the arming path | **zero** |
+
+⇒ **The two-output fix is NOT built.** The handoff's design stands (`amountSats − poolOwnedSats` to
+the LP script, `poolOwnedSats` to a pool script) and `_exitStructure` genuinely needs no change,
+because it sums script matches and does not constrain output count. **The whole remaining question is
+what the pool script IS** — it must require more than the hop alone or the second factor is merely
+deferred to exit time; `SweepAuth`'s 2-of-3 fits and would give `create_sweep_tx` the trigger it was
+written for. ⛔ Do not move pool sats to a hop-owned outpoint: the shared 2-of-2 is a security
+feature, and that proposal is already retracted in `§POOL-OUTPOINT-WAS-WRONG`.
+
+### 🔴 ② FRESHNESS (PHASE 3 / §T3) — NOT MERELY UNBUILT: **IT HAS NO PRODUCTION WRITER**
+
+| claim | verified |
+|---|---|
+| the freshness UTXO is shared, not per-channel | `FRESHNESS_SHARD: u32 = 0`, hardcoded — `quid-bridge/deadman_exit.rs:317`, used `:344` `:363` `:484` |
+| its only writer is the heartbeat | `run_deadman_exit_heartbeat` is the sole `set_freshness` site (`:362`) |
+| **the heartbeat does not run in production** | `let Some(vault) = vault else { info!("…DISABLED — no vault node in this process (E175 LP-hosted split)…"); return; };` |
+| the fleet has no vault | `daemon.rs:300` — *"this is `None` — the fleet has no vault seed, so it cannot arm the LP funding half"* |
+
+⇒ **In the shipped posture the mechanism never executes.** That is stronger than "phase 3 is not
+built": there is nothing to test, and any row reading `commitFreshness` as evidence phase 3 landed is
+reading the EVM anti-rollback counter, which was per-channel from the day it was written and is a
+different thing. `§T3-FIX-IS-INEXPRESSIBLE-WITHOUT-PHASE-3` warns about exactly this conflation by
+name.
+
+### ✅ ③ THE LADDER IS LOAD-BEARING — `§LADDER-REMOVAL`'s RETRACTION IS CORRECT
+
+`LadderTooShallow` is live in `_armLadder`: `exits.length < 2` reverts, and a second revert requires
+**≥2 distinct `cltvDeadline`s** — `§SPRINT-B4` landed as recorded. And because the heartbeat is
+disabled whenever the fleet has no vault, the pre-signed ladder is not *an* escape for an Option-B LP,
+it is **the only one**. ⇒ *"Removing the co-hosted vault removed the ALTERNATIVE, not the need"* is
+confirmed against code. **Do not re-open the ~2,000-line deletion this row already retracted twice.**
+
+### ⚠️ A READING TRAP IN THIS FILE, RECORDED BECAUSE IT NEARLY COST A WRONG VERDICT
+
+`run_deadman_exit_heartbeat` takes **two adjacent `Option` parameters with opposite semantics**:
+`vault: Option<Arc<VaultNode>>` (None ⇒ **return, no heartbeat**) and `hop_wallet: Option<…>` whose
+comment reads *"a node without fleet wallet duties **still runs the heartbeat**"*. Grepping for
+`Option` + "heartbeat" surfaces the `hop_wallet` comment first and it says the opposite of the gate
+twelve lines below it. **Read the `let Some(…) else` bindings, not the parameter comments.**
+
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
 First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
