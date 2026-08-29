@@ -136,6 +136,10 @@ funding leg is the last thing between that rail and working.
 - **`§SWAPOUT-DRAINS-THE-EXIT`** 🔴 — **open.** *"Two bounds exist and nothing connects them"*: a
   swap-out may be filled to the pool's last sat, and the delivery that settles it must then arm a
   dead-man exit over the residue.
+- **`§V-R10` (sUSDE)** — ✅ its blocker is **settled by tracing** (`§V-R10-BLOCKER-SETTLED`:
+  *"`pokeVaultHealth` CANNOT see a time-lock, and marking a venue does not stop the drain path"*),
+  but that section ends **"BOTH TRACED, NEITHER FIXED"** — the ✅ is on the trace, not the work.
+  **Open, unblocked, ready to build.**
 - **`§BTC-DELIVERY-IS-BUILT`** 🔴🔴 — **open, and smaller than it sounds.** Its own subtitle: *"THE
   WORK IS WIRING, NOT INVENTING"* — the rail and the hacked-keeper recovery are already in the tree.
 - ~~`§FIXTURE-INHERITS-ITS-ENVIRONMENT`~~ — ✅ **RESOLVED, and I mislisted it too.** Its heading ends
@@ -153,13 +157,26 @@ cluster** · the **v4/hook removal is complete** and `isBTC` has **0 code branch
 fed** by the Chainlink anchor, retiring Wave 2's premise · `§CONSOLIDATION-TARGETS`' entire fold list
 landed in `4066926a` · `E131` fixed · the RN merge's missing `babel.config.js` added.
 
-### ⚠️ THE METHOD NOTE — it cost seven corrections today
+### ✅ THE READ GAP IS CLOSED — all 32 sections dated today have now been opened
+
+I had read 26 of 32 and said so. The remaining six are now read, and they produced **two more
+corrections**, both of the same kind: `§V-R10-BLOCKER-SETTLED` is ✅ for its TRACE while its own
+subtitle says *"NEITHER FIXED"* (so it is open work, now in Tier 2), and `§E356`'s *"four owner
+decisions"* — which I re-quoted in `§TASK-CLUSTERS` — has been **three** since 2026-08-26, because
+the fold renames landed and a later summary re-listed them from a headline.
+
+⭐ **`§HANDOFF-WAS-STALE` NAMES THIS EXACT FAILURE AND I THEN COMMITTED IT ANYWAY:** *"a later summary
+then re-listed them as blocked, because it was assembled from the row's HEADLINE rather than its
+body."* **That sentence is about a summary written before mine, and it describes mine.**
+
+### ⚠️ THE METHOD NOTE — it cost nine corrections today
 
 Every wrong verdict came from **reading a document's STATUS as the tree's STATE**: `§E352` booked as a
 free drain (one synthetic cell); `§E219` closed on a false opening sentence (its remainder is live);
 `isBTC` counted at 34 (31 are tombstone comments); the ring called unfed (it is fed);
 `§CONSOLIDATION-TARGETS`' finished targets proposed as work; 121 rows dropped on an id match (their
-bodies were never here); and this section itself shipped incomplete. ⇒ **Rows are evidence. The tree
+bodies were never here); this section shipped incomplete; two of its three Tier-0 "blockers" were
+already fixed; and `§E356`'s four decisions have been three since 2026-08-26. ⇒ **Rows are evidence. The tree
 is state. Grep the code, strip comments before quoting a count, and check whether another thread has
 already answered it.**
 
@@ -18827,8 +18844,13 @@ unchanged): **①** `§E352`'s flush branch — `skewWad`'s sentinel says *unmea
 ceiling*, `_maxWellSkew` says *unmeasured ⇒ charge nothing*, and branch ORDER picks the
 second, i.e. a free drain at σ²=0 (instrument already armed: `assertEq(flush, 0)`).
 **②** OOR skew — charge the **inventory** term without the **immediacy** term; same axis as
-`§E276`/`§E312`, so deciding once settles both. **③** C17 eMode. **④** the three fold renames,
-blocked on one factual question: *is a `Vault` ever decoded at `SwapLib.sol:2629`?*
+`§E276`/`§E312`, so deciding once settles both. **③** C17 eMode. ~~**④** the three fold renames~~ — ⛔ **STALE, AND I PROPAGATED IT.**
+`§HANDOFF-WAS-STALE` verified all four landed **2026-08-26**, two days before the summary that lists
+them as blocked: `Vault.collectFees()` `:667`, `Vault.outOfRange` `:728`, `Vault.pull` `:752`,
+`modifier onlyUs` `:196`, and **`onlyUsBtc` has ZERO declarations**. The blocking question
+(*"is a `Vault` ever decoded…"*) was traced in the same session that asked it — *"Traced: no"*.
+⇒ **The critical path has been THREE owner decisions since 2026-08-26**, and I re-quoted four from
+`§E356`'s headline without checking its body.
 
 ⚠️ **NONE OF THE 150 IS VERIFIED OPEN.** They are grouped by the subsystem they touch, which
 is mechanical; whether each is still live is not. `§E356` measured **seven of ten** opened
