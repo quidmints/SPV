@@ -53,8 +53,8 @@ export const webCryptoSource: EntropySource = {
     const g = globalThis.crypto;
     if (typeof g?.getRandomValues !== 'function') {
       throw new InsecureEntropyError(
-        'crypto.getRandomValues is unavailable. index.ts must import "./polyfills" BEFORE anything ' +
-          'else - it installs react-native-get-random-values. Refusing to generate a seed.',
+        'crypto.getRandomValues is unavailable. app/index.js must import "./polyfill" BEFORE ' +
+          'anything else - it installs react-native-get-random-values. Refusing to generate a seed.',
       );
     }
     return g.getRandomValues(new Uint8Array(length));

@@ -128,7 +128,8 @@ test('an empty source list is refused', () => {
 /*
  * THE PLATFORM SOURCE MUST FAIL LOUDLY WHEN THE POLYFILL IS ABSENT.
  *
- * This is the exact condition that existed before sec. 2.18bd: `polyfills.ts` was never imported, so
+ * This is the exact condition that existed before sec. 2.18bd, and again after the SPV merge dropped
+ * ibiza's `index.ts`: the polyfill entry was never imported, so
  * `crypto.getRandomValues` was not installed. The requirement is that this throws - never that it
  * substitutes something weaker.
  */
@@ -137,7 +138,7 @@ test('webCryptoSource throws when getRandomValues is missing, and names the fix'
   try {
     // @ts-expect-error - deliberately simulating the un-polyfilled runtime
     delete globalThis.crypto;
-    assert.throws(() => webCryptoSource.bytes(SEED_BYTES), /polyfills/);
+    assert.throws(() => webCryptoSource.bytes(SEED_BYTES), /polyfill/);
   } finally {
     Object.defineProperty(globalThis, 'crypto', { value: saved, configurable: true });
   }

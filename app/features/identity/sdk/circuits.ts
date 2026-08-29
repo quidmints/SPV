@@ -15,7 +15,7 @@ import { NoirCircuitParams, registerNoirCircuit } from "@rarimo/rarime-rn-sdk";
 /**
  * Both circuits are BUNDLED, not hosted. Every circuit the SDK ships fetches its bytecode from
  * storage.googleapis.com/rarimo-store/...; ours are built locally by
- * backend/circuits/codegen-verifiers.sh and published nowhere, so they ride along in the app
+ * evm/noir/codegen-verifiers.sh and published nowhere, so they ride along in the app
  * bundle as assets/circuits/*.circuit (registered in metro.config.js's `assetExts`).
  *
  * That is also the better security posture rather than merely a workaround: the bytecode
@@ -38,14 +38,14 @@ export const WITHDRAW_IDENTITY = new NoirCircuitParams(
   "withdraw_identity",
   "unhosted:withdraw_identity",
   8, // ProofLib.WithdrawProof.pubSignals - pinned, see withdraw_identity/src/main.nr
-  require("../../assets/circuits/withdraw_identity.circuit"),
+  require("../../../assets/circuits/withdraw_identity.circuit"),
 );
 
 export const TITLE_HOLDER = new NoirCircuitParams(
   "title_holder",
   "unhosted:title_holder",
   2, // expected_commitment, title_id - title_holder/src/main.nr:17
-  require("../../assets/circuits/title_holder.circuit"),
+  require("../../../assets/circuits/title_holder.circuit"),
 );
 
 registerNoirCircuit(WITHDRAW_IDENTITY);
