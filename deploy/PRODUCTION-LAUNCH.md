@@ -14,7 +14,7 @@ the master sequence.
   — NOTE: its swap-OUT-"watcher"/`decode_swap_out_requested` (§4/§7) and "Model B"
   framing are **historical**; the LN swap-out rail was removed and the custody key
   is **born-in-enclave (Model A)** per `TAPROOT-CHANNELS-BUILD-SPEC.md` §11.
-- Channel/enclave internals (spec): [`docs/actionable/TAPROOT-CHANNELS-BUILD-SPEC.md`](../docs/actionable/TAPROOT-CHANNELS-BUILD-SPEC.md) §11
+- Channel/enclave internals (spec): [`docs/actionable/SPRINT.md §DOCS-FOLD/TAPROOT-CHANNELS-BUILD-SPEC`](../docs/actionable/SPRINT.md) §11
 
 ## Three deployable units
 1. **L1 contracts** (one deployment) — Core/Vault/Basket/Quid/BTCChannels/SPVGateway + feeds.

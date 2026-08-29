@@ -71,7 +71,7 @@ export function useLocalKey(privateKey: string): NormalisedKey {
 /// ⚠️ Returns nothing on purpose: there is no x-only refund key to hand back, because the wallet
 /// will not surrender the private key needed to derive one. A swap-in from an external-wallet
 /// session therefore needs a SEPARATE Bitcoin refund key, which is exactly why §T2 commits
-/// `seller` into the deposit leaf rather than deriving it. See `SPV/docs/actionable/HOP-TRUST-AUDIT.md`.
+/// `seller` into the deposit leaf rather than deriving it. See `SPV/docs/actionable/SPRINT.md §DOCS-FOLD/HOP-TRUST-AUDIT`.
 export function useExternalWallet(wallet: ExternalWallet): void {
   setExternalWallet(wallet)
 }

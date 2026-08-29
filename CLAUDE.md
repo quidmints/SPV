@@ -1,7 +1,8 @@
 # SPV — working rules and environment facts
 
 This file exists because these facts were living **only** in one machine's agent-memory directory.
-`docs/actionable/QUEUE.md` tracks *what to build*; this file tracks *how to work here* and *what the
+`docs/actionable/SPRINT.md` tracks *what to build* — it is the ONLY file in `docs/actionable/` as of
+2026-08-29; this file tracks *how to work here* and *what the
 environment actually is*. Every line below was verified in-repo, not recalled.
 
 ## Standing rules (from the repo owner; they apply to every task, not just the one that prompted them)
@@ -390,7 +391,7 @@ the signature of this, and nothing else produces it.
   ⇒ The hazard this note exists to prevent is unchanged and still real; only its coordinates rotted.
   **A trap-note that points at deleted symbols causes the exact misreading it was written to stop**,
   because the reader concludes the concern is obsolete rather than that the names moved.
-- **`docs/actionable/QUEUE.md`'s STATUS-MARKER COLUMN IS UNRELIABLE — PLAN FROM ROW BODIES.**
+- **THE STATUS-MARKER COLUMN OF THE ROWS FOLDED INTO `SPRINT.md` `§QUEUE-FOLD` IS UNRELIABLE — PLAN FROM ROW BODIES.**
   `UNIT-A` still read 🔴🔴🔴 after it landed. Re-reading two rows overturned the plan twice running.
 - ⚠️ **`Core` CANNOT AFFORD A GETTER — 🔴 THIS IS NOW FALSE ON ITS FACE AND IS KEPT ONLY FOR THE HALF THAT SURVIVED.** Measured 2026-08-05: a two-address getter costs **91 bytes**, a
   `(bool,bool)→address` one **98** — more than the 76 freed by deleting dead state. **`Core` has had ~13 KB free since §V4-CUT (§E344; 13,911 at `9896c5be`, **13,272 at `7e32eb48`** after §E345's +639), so the byte argument no longer bites; the STATE-ORDER coupling below is what still does, and it was never about bytecode.** The dust monitor
@@ -1036,7 +1037,7 @@ JURISDICTION-SCOPED, not a contradiction of this.
 - `docs/informational/` **contradicts the contracts in ~10 verified places** (the range is ±0.2%, not
   ±2%; the short leg, `baseRate`, CRE, and the swap-in bonus are gone; the stable count moved).
   Never quote it without checking the code.
-- `docs/actionable/BUILD-QUEUE-AND-107.md` is an **append-only archive**: its evidence (traces,
+- `SPRINT.md` `§BUILD-QUEUE-FOLD` is a folded **append-only archive**: its evidence (traces,
   `file:line`, measurements) is authoritative, its **status markers are not**. Current status lives in
-  `docs/actionable/QUEUE.md` and is updated in place. Some of its citations point at `/home/rico`
+  `docs/actionable/SPRINT.md` itself and is updated in place. Some of its citations point at `/home/rico`
   paths from a different machine and cannot be opened from here.

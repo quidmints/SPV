@@ -25,7 +25,7 @@
 //
 // ⚠️ The Rust side derives the EVM key separately (`RootSeed::derive_eth_wallet_key`). **Both
 // must apply this rule or one seed yields two different addresses on the two sides** — which is
-// the same failure wearing a different hat. See `docs/actionable/HOP-TRUST-AUDIT.md`.
+// the same failure wearing a different hat. See `docs/actionable/SPRINT.md §DOCS-FOLD/HOP-TRUST-AUDIT`.
 
 import { ethers } from 'ethers'
 

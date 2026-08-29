@@ -41,7 +41,7 @@ import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §
 ///
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the range
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
-///    `docs/actionable/ONE-ENGINE-TWO-SHARE-TOKENS.md`.
+///    `docs/actionable/SPRINT.md §DOCS-FOLD/ONE-ENGINE-TWO-SHARE-TOKENS`.
 
 /// @title  State — the 13 per-LP declarations both range managers had a private copy of
 ///

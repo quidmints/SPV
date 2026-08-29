@@ -11,7 +11,7 @@ tuned for Noir/ZK and mis-fires badly on this repo:
   2. Its marker scan reported 248 hits dominated by `TODO(phlip9)` / `TODO(max)` — upstream LDK/lexe
      authors' notes in vendored code. Ours are a different thing and were buried.
   3. It cross-checks bookings against `TODO.md` / `README.md`. SPV books work in
-     `docs/actionable/QUEUE.md` (+ `CLAUDE.md` for rules), so everything read as unbooked.
+     `docs/actionable/SPRINT.md §QUEUE-FOLD` (+ `CLAUDE.md` for rules), so everything read as unbooked.
 
 What replaces the ZK section are the four failure modes THIS repo actually produced, each of which
 cost real time and none of which a TODO-grep finds:
@@ -46,7 +46,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # the `registerBtcLp`/`resizeBtcLp` rename ("booked as 13c") hid: 13c appears 1× in the archive and
 # 0× in QUEUE.md. Status lives in QUEUE.md; nowhere else counts.
 BOOKING_FILES = [
-    "docs/actionable/QUEUE.md",
+    "docs/actionable/SPRINT.md §QUEUE-FOLD",
     "CLAUDE.md",
 ]
 
@@ -420,7 +420,7 @@ def scan_prompts(path, doc):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--transcript")
-    ap.add_argument("--against", help="doc to score PER-PROMPT coverage against (e.g. docs/actionable/QUEUE.md)")
+    ap.add_argument("--against", help="doc to score PER-PROMPT coverage against (e.g. docs/actionable/SPRINT.md §QUEUE-FOLD)")
     a = ap.parse_args()
     scan_code()
     if a.transcript:

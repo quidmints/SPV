@@ -72,15 +72,16 @@ Everything sits under `~/projects`. Only four of these are ours and active.
 ## 3. Which document answers which question
 
 **Precedence, highest first.** The contracts in `evm/src` are canonical for behaviour. `CLAUDE.md` is
-canonical for how to work here and for environment facts. `docs/actionable/QUEUE.md` is canonical for
-status. This file is canonical only for where things are.
+canonical for how to work here and for environment facts. `docs/actionable/SPRINT.md` is canonical for
+status — it is now the ONLY file in `docs/actionable/`. This file is canonical only for where
+things are.
 
 | question | go to |
 |---|---|
 | How do I work in this tree? What is the build environment? | **`CLAUDE.md`** — standing rules, verification discipline, the trap notes, size and RPC facts |
-| What is the current status of X? | **`docs/actionable/QUEUE.md`**, updated in place |
+| What is the current status of X? | **`docs/actionable/SPRINT.md`** — the single actionable doc. Rows carried from the folded `QUEUE.md` are under `§QUEUE-FOLD`, and their status markers are history, not state |
 | What is the ordered remainder for the next thread? | **`docs/actionable/SPRINT.md`** |
-| Why was X built this way? What is the evidence? | **`docs/actionable/BUILD-QUEUE-AND-107.md`** — append-only archive. Its **evidence is authoritative, its status markers are not** |
+| Why was X built this way? What is the evidence? | **`docs/actionable/SPRINT.md` `§BUILD-QUEUE-FOLD`** — the folded append-only archive. Its **evidence is authoritative, its status markers are not** |
 | What is QU!D, for a reader who is not in the code? | **`docs/FAQ.md`** — 2,323 lines, the outward-facing document. Parts 1 and 5 are the product; Part 6 is legal |
 | How does the economics work? | `docs/informational/` — **but read §4 below first** |
 | How do I deploy or run the daemons? | `deploy/PRODUCTION-LAUNCH.md` |

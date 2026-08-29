@@ -1443,7 +1443,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     //  ⇒ WHEN 1INCH LANDS, THESE TWO COME BACK, pointed at it: ungated caller reverts
     //  `Unauthorized`, Aux's own self-call delivers, recipient balance moves by exactly `got`. Until
     //  then the capability has NO coverage, which is a known hole and not a green light.
-    //  Tracked in docs/actionable/ROUTING-AGGREGATION.md.
+    //  Tracked in docs/actionable/SPRINT.md §DOCS-FOLD/ROUTING-AGGREGATION.
     // ════════════════════════════════════════════════════════════════════════════════════════
 
 

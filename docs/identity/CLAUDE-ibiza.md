@@ -107,7 +107,7 @@ It is a READING LIST, not a defect list: read every row.
 uncovered by ibiza's tracker, and correctly so. Measured: the worst-scoring prompt across 477 was a
 Rover/etherfi liquidity question, which is not an ibiza gap at all. **A high score means "not in THIS
 doc", never "unbooked anywhere."** Triage by repo first, or score the same transcript against
-`../SPV/docs/actionable/QUEUE.md` too and treat only prompts uncovered by BOTH as real.
+`../SPV/docs/actionable/SPRINT.md §QUEUE-FOLD` too and treat only prompts uncovered by BOTH as real.
 
 ## Legacy note
 

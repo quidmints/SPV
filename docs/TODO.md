@@ -706,7 +706,7 @@ a gap where one used to be.
            leaf, and **that binding is enforced by THE PAYER CHECKING THE ADDRESS BEFORE SENDING**,
            not on-chain. (The alternative — deriving `seller` from the x-only refund key — was
            dropped because Ledger and Phantom separate the BTC and EVM keys by construction; see
-           `SPV/docs/actionable/HOP-TRUST-AUDIT.md`.) ⇒ **A screen that displays whatever
+           `SPV/docs/actionable/SPRINT.md §DOCS-FOLD/HOP-TRUST-AUDIT`.) ⇒ **A screen that displays whatever
            `requestOnchainSwapIn` returned provides NO protection at all** while looking exactly
            like one that does. The wallet must derive `q = internalKey ⊕ TapTweak(merkleRoot)`
            from the terms it agreed and refuse to show a QR that disagrees.
