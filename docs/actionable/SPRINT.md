@@ -28014,8 +28014,18 @@ technique and no design decision blocking it — the cheapest real bytes on the 
 
 ### ▶️ THE EFFICIENT ORDER, AND WHY
 
-0. **`BitcoinTx`'s triple output-walker** (`§CONSOLIDATION-TARGETS`) — no decision blocks it, the
-   technique is measured, and it is in a library so the saving multiplies. Do it while `§E352` waits.
+0. ⛔ **WITHDRAWN — ALREADY DONE, AND I RECOMMENDED IT WITHOUT CHECKING.** `4066926a` *"Batch 1: five
+   near-duplicate folds (BitcoinTx x3, LevMath x2, Aux, LevManager/LevBase)"* landed **every pair**
+   `§CONSOLIDATION-TARGETS` listed. `BitcoinTx` now has one `_scanOutputs` walker (`:178`) with three
+   thin wrappers and mode constants `_SUM_TO` / `_FIRST_TO` / `_SUM_FOREIGN` (`:161-163`) — exactly
+   the *"one walker + a predicate/accumulator"* the row prescribed, and it solved the recorded
+   stack-depth blocker by returning a packed word (`vout << 64 | sats`, lossless because 8 wire bytes
+   fill the low 64 bits exactly). `LevMath._toUsdc`/`_fromUsdc` → `_hubSwap`,
+   `_sellAndRoute`/`_sellAndReturn` → `_sellAndPay`, `Aux._withdraw`/`_supply` share `_supplyCfg`,
+   `LevManager`/`LevBase` → one `_targetInputs`. **110 insertions, 120 deletions across 6 files.**
+   ⚠️ **I read `§CONSOLIDATION-TARGETS` (2026-08-23), took its target list as current, and proposed
+   the work without grepping for the walker.** The row is evidence, not status — the same distinction
+   `CLAUDE.md` draws about `BUILD-QUEUE-AND-107.md`, applied to a row I had just finished quoting.
 1. **Settle `§E352`** — one `if`, unblocks the 141-cluster, and it is a money-path change that must
    run alone with its own prediction (rule 10). The instrument is already armed (`assertEq(flush, 0)`).
 2. **Re-read the σ²-suppression family against `§E345`'s anchor floor** before building any of it.
