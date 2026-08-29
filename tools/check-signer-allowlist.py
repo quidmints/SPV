@@ -77,6 +77,14 @@ READ_ONLY = {
     "liqThresholdBps()",
     "ilTargetLtvBps(address)",
     "ilLtvBps(address)",
+    # §POOL-VENUE — the venue-wide aggregate LTV, read beside `ilLtvBps` in the SAME snapshot
+    # builder on both keepers (`lev_keeper.rs:535`, `lev_keeper_btc.rs:333`). Both sites are
+    # `evm.eth_read(...)`, which is `eth_call_raw` (`client.rs:396-398`) — there is no builder
+    # anywhere that hands this selector to the signer. ⚠️ Both are deliberately `.ok()` on the
+    # READ, not only on the decode, so a node that cannot serve the selector degrades to this
+    # LP's own LTV instead of aborting the whole snapshot; that fail-safe is the reason it is a
+    # read and would be defeated by making it anything else.
+    "poolLtvBps()",
     "getCurrentLtvBps(address)",
     "collValueUsd(uint256)",
     "netEquity(address)",
