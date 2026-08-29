@@ -16,12 +16,27 @@ import re, sys, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = sorted((ROOT / "docs" / "actionable").glob("*.md")) + [ROOT / "CLAUDE.md"]
-SRC = [ROOT / "evm" / "src", ROOT / "evm" / "test", ROOT / "evm" / "script", ROOT / "quid-ln"]
+# The Solana program, the app and the SPA are first-class here: the svm and ibiza
+# merges landed code the docs cite, and a tree this tool cannot see reads to it as
+# DELETED. Measured 2026-08-29: `LZ.rs` was reported missing while sitting in
+# `svm/programs/quid/src/` — a false positive in the one tool whose entire job is
+# telling live claims from tombstones.
+SRC = [ROOT / "evm" / "src", ROOT / "evm" / "test", ROOT / "evm" / "script",
+       ROOT / "quid-ln", ROOT / "svm" / "programs", ROOT / "svm" / "tests",
+       ROOT / "svm" / "scripts", ROOT / "app", ROOT / "spa" / "src",
+       ROOT / "indexer" / "src", ROOT / "tools"]
+
+# Vendored dependencies. Their FILE NAMES resolve — a doc naming `P256.sol` is
+# naming something real — but their identifiers are deliberately NOT indexed:
+# 40k+ symbols from code we do not own would make the identifier check useless.
+VENDORED = [ROOT / "evm" / "lib"]
 
 def tree_index():
     files, idents = set(), set()
     tok = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
     for root in SRC:
+        if not root.exists():
+            continue
         for p in root.rglob("*"):
             if not p.is_file() or p.suffix not in {".sol", ".rs", ".ts", ".py"}:
                 continue
@@ -33,6 +48,20 @@ def tree_index():
                 idents.update(tok.findall(p.read_text(errors="ignore")))
             except OSError:
                 pass
+    for root in VENDORED:
+        if not root.exists():
+            continue
+        for p in root.rglob("*"):
+            if p.is_file() and p.suffix in {".sol", ".rs"}:
+                files.add(p.name)
+                # Vendored identifiers go into the SAME set for the purpose of
+                # "does this name exist anywhere". A doc citing `tryModExp` is
+                # citing something real; reporting it as rot trains the reader to
+                # skim the list, which costs more than the row it would catch.
+                try:
+                    idents.update(tok.findall(p.read_text(errors="ignore")))
+                except OSError:
+                    pass
     return files, idents
 
 def main() -> int:
@@ -46,6 +75,24 @@ def main() -> int:
         for m in set(file_ref.findall(text)):
             if m not in files:
                 missing_files.setdefault(m, []).append(d.name)
+    # The backticked-identifier half. The docstring promised it from the start and
+    # it was never implemented: `idents` was computed and `missing_syms` declared,
+    # and NEITHER was ever read. So a clean run has always meant "no dangling FILE
+    # names" while reading as "no dangling symbols" — the weaker half of the check
+    # wearing the stronger one's name.
+    #
+    # Deliberately narrow, because the cost of noise here is that nobody reads the
+    # output: a token must be backticked, >=4 chars, and LOOK like code (an
+    # underscore, or an inner capital) rather than English prose in backticks.
+    sym_ref = re.compile(r"`([A-Za-z_][A-Za-z0-9_]{3,})`")
+    looks_like_code = re.compile(r"_|[a-z][A-Z]")
+    for d in DOCS:
+        if not d.exists():
+            continue
+        for m in set(sym_ref.findall(d.read_text(errors="ignore"))):
+            if looks_like_code.search(m) and m not in idents:
+                missing_syms.setdefault(m, []).append(d.name)
+
     print(f"indexed {len(files)} source files, {len(idents)} identifiers\n")
     if missing_files:
         print(f"FILES cited in docs that do not exist ({len(missing_files)}):")
@@ -53,7 +100,13 @@ def main() -> int:
             print(f"  {name:<34} cited in {', '.join(sorted(set(where)))}")
     else:
         print("no dangling file references")
-    return 1 if (missing_files and "--strict" in sys.argv) else 0
+    if missing_syms:
+        print(f"\nSYMBOLS cited in docs that appear nowhere in the tree ({len(missing_syms)}):")
+        for name, where in sorted(missing_syms.items()):
+            print(f"  {name:<38} cited in {', '.join(sorted(set(where)))}")
+    else:
+        print("\nno dangling symbol references")
+    return 1 if ((missing_files or missing_syms) and "--strict" in sys.argv) else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
