@@ -94,7 +94,65 @@ knowledge, retractions, sub-headings and closed rows never re-marked.
 
 ---
 
-### 🚨 TIER 0 — ONE ITEM, GATED
+### ₿ §BTC-SECURITY-STATUS — **THE KEYSTONE CONTRADICTION IS RESOLVED IN CODE, WHICH UNBLOCKS THREE UNRATED AUDITS** (2026-08-30)
+
+Owner, 2026-08-30: concern that Bitcoin security work — *"incl funding half"* — from an earlier sprint
+under a different account is not done. **Checked against the tree, phase by phase, using
+`§PHASE-ORDER`'s own ordering** (*"the reason it is an order and not a list: work done out of
+sequence gets UNDONE"*).
+
+### 🟢 THE KEYSTONE — `§C2.3②` IS RESOLVED, AND IT WAS BLOCKING THREE AUDITS FROM BEING RATED
+
+The file records a contradiction it calls the keystone: *"reconcile `vault.rs:244` (fleet does NOT
+hold the LP funding half) vs `taproot_signer.rs:439` (fleet holds BOTH under Option B) so the code
+states ONE consistent answer … **Until it is resolved, do NOT rate**
+`§AUDIT-POOLPARKER-PHANTOM`, `§AUDIT-SWAPOUT-DOUBLEPAY`, `§AUDIT-SWAPOUT-CONCURRENT`."*
+
+**The code now states one answer.** `taproot_signer.rs:441-443`: *"The fleet is vault-less by default,
+so it holds ONE half … the both-halves form applies only under `QUID_FLEET_COHOSTS_VAULT=true`, the
+single-custodian deployment that logs a warning saying its multisig is nominal."* And the runtime
+agrees:
+
+```
+quid-bridge-daemon.rs:352   let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;
+              :354-357      warn!("QUID_FLEET_COHOSTS_VAULT=true: this fleet holds BOTH halves of
+                                   every 2-of-2. The multisig is nominal in this deployment (M1#2).")
+```
+
+⇒ **DEFAULT FALSE, enforced at the entry point, with the degraded case warning about itself.**
+⇒ **THE THREE AUDITS CAN NOW BE RATED, and their reachability is decided by that default:** any
+finding whose premise is *"the fleet can spend the funding output alone"* is **unreachable in the
+default topology** and reachable only under `QUID_FLEET_COHOSTS_VAULT=true`. **Rate them on that
+basis — the blocker the file put in front of them is gone.**
+
+### PHASE STATUS, MEASURED
+
+| phase | state |
+|---|---|
+| **0** — `§F5` zero-delivery cluster · `§W1` sweep signing tool | `§W1` ✅ wired (`create_sweep_tx`, 11 refs). `§F5` **open** |
+| **1 — KEYSTONE `§M1#2`, the LP holds its own funding half** | **(a)** ✅ fleet vault-less — `daemon.rs:210` `vault: Option<Arc<VaultNode>>` · **(b)** ✅ `quid-lp-daemon.rs` exists · **(c)** 🔴 LP seed provisioning — `load_or_provision_from_env` present (11 refs) but `§LP-SEED-ENTROPY` is an **OWNER decision** |
+| **2** — LP-side signer refusal, then ladder depth | ✅ **needed no new code**: `type EcdsaSigner = ValidatingChannelSigner` wraps every channel. Ladder depth: ✅ floor of 2 (`LadderTooShallow`), 🔴 the *"generous, deploy-parameterised"* depth is open |
+| **3** — `§M1#4` per-channel freshness | 🔴🔴 **NOT BUILT, AND UNREACHABLE:** `FRESHNESS_SHARD: u32 = 0` hardcoded, and its only writer returns early when the fleet has no vault — **which is the default**. See `§CLUSTER-2-BTC` |
+| **4** — attestation removal · lazy `openChannel` | ✅ `AttestedHopRegistry` and `_requireAttested`: **0 references each** |
+
+### ⇒ WHAT IS ACTUALLY OPEN ON THE BITCOIN SIDE
+
+1. 🔴 **Phase 1(c) — LP seed provisioning.** The keystone's last leg, and an **owner decision**
+   (`§LP-SEED-ENTROPY`). Everything in phases 2–4 was ordered behind phase 1.
+2. 🔴 **The pool script** (`§ORDER` 1.1) — `_armDeadManExit` still verifies ONE output.
+3. 🔴 **Phase 3 freshness** — decide whether it is wanted at all before building a writer for it.
+4. 🔴 **`E182-REKEY-CHECKED`** — *"its STATED PROPERTY IS FALSE for the only case it exists for."*
+5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
+   on-chain); **`B1`** (freshness backstop has no economic bound); TDX + Nitro seal wiring.
+
+⚠️ **AND ONE COMMENT IN THE CONTRACT IS KNOWN-FALSE AND STILL THERE.** `BTCChannels.sol:303-314`
+says the LP *"signs once, goes offline forever"* and *"buys EVERY exit it will ever need"*. `§E172`
+refuted that — a forwarding channel needs the LP signature on **every commitment update**, not just
+splices — and the row notes *"it is the single most load-bearing comment in the ladder design, and
+anyone reading it today is told a model §E172 already killed."* **Annotating it is free and should
+happen regardless of what else is decided.**
+
+## 🚨 TIER 0 — ONE ITEM, GATED
 
 **`§INTENT-HAS-NO-FUNDING-LEG`** — the intent fill pays out value nobody supplied (measured: a maker
 holding nothing was paid $1,000 of real ether). 🔒 `Quid.sol:1293` reverts `IntentHasNoFundingLeg()`
