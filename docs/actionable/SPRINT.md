@@ -27614,6 +27614,70 @@ permissionless push meant to exist at all**, now that `§E345` made σ² ring-in
   measurement archaeology against a σ² definition that has since changed twice.** Re-read against
   `max(ring, anchor)` before trusting any number in them.
 
+## 🟢 §SUITE-2026-08-29 — **`main` IS GREEN: 1,004 PASS, ZERO ASSERTION FAILURES. THE HANDOFF'S ENTIRE FAILURE TABLE IS CLOSED.** (2026-08-29)
+
+Owner supplied an archive endpoint (Infura). Run on a **clean detached worktree at `bb932745`** —
+another thread has 11 files mid-edit in the shared tree, so the shared tree does not compile and must
+not be measured.
+
+```
+FORK_BLOCK=25833279  ETH_RPC_URL=<infura archive>  forge test -j 8
+→ 148 suites, 791s: 1,004 passed · 8 failed · 2 skipped · 1,014 total
+→ 16 [FAIL] lines. ASSERTION FAILURES: 0.
+   All 8 are Infura `connection reset` transport errors under -j 8.
+```
+
+### ⛔ THE BANNER AT THE TOP OF THIS FILE IS WRONG IN BOTH HALVES — REPLACE IT
+
+It prescribes `ETH_RPC_URL=https://ethereum-rpc.publicnode.com` and *"expect exactly `480 passed / 39
+failed / 519 total`… any other total means the run is contaminated."*
+
+| | banner | measured today |
+|---|---|---|
+| endpoint | publicnode | **refuses archive requests** — 403 *"Archive requests require a personal token"*. Third endpoint to die, after both ANKR keys |
+| total | 519 | **1,014** — the suite nearly doubled |
+| failures | 39 | **0 assertion failures** |
+
+⇒ A thread following the banner today gets 57 fork failures from the dead endpoint, reads 684 ≠ 519,
+concludes *"contaminated"*, and stops. **The instruction now produces the exact false mass-failure it
+was written to prevent.**
+
+### ✅ THE "39 ARE NOT 39 PROBLEMS" TABLE — EVERY ROW NOW PASSES
+
+| the handoff's row | today |
+|---|---|
+| 32 × `NoVolatileRoute` | **gone — genuinely fixed.** `2a9010b5` *"Re-derive the band against POOLED liquidation, and thread the volatile route"* |
+| `backing` (§BACKING-HEADROOM-3PCT) | 2 PASS |
+| `ChopIsBenign` | 1 PASS |
+| `UNITB` control | 8 PASS |
+| `PassiveLp` precondition | 1 PASS |
+| `testLeverage_LvrControlVsTreatment` (§C3.1) | 1 PASS |
+| `testBtcLp_swapInAccruesTheBtcLegFee` (§BTC-LEG-FEE) | 1 PASS — ⚠️ **see below** |
+
+⚠️ **ONE OF THOSE PASSES IS A PIN, NOT A FIX, AND IT MUST NOT BE READ AS CLOSED.** `b7112c4f`
+*"§BTC-LEG-FEE: invert the last failing test onto what is actually measured"* changed
+`assertGt(fpsAfter, fpsBefore)` to `assertEq`, with the comment *"Both assertions here asserted a fee
+that IS NOT CHARGED … BTC-LEG-FEE decision landing: **restore `assertGt(fpsAfter, fpsBefore)` here**."*
+⇒ **§BTC-LEG-FEE is still open and still blocked on the owner's v4 trading-fee decision.** The test
+now pins current behaviour deliberately — the same honest-instrument pattern as `§E352`'s
+`assertEq(flush, 0)` — and it is designed to go red when the decision lands. **Do not count it as a
+closure; do count it as coverage.**
+
+### ⇒ WHAT THIS CLOSES
+
+- **`§MAIN-IS-RED-POOLED-USD` (🔴🔴🔴 BLOCKING) and `§MAIN-IS-RED-RECHECKED` are CLOSED.** Their
+  2026-08-16 v4-cut regression does not reproduce: 1,004 pass, zero assertion failures, on the pinned
+  block they specify.
+- **The POOLED-accounting group (80 items in `§CLUSTER-3-RANGE`) is no longer blocked on the
+  endpoint** — the fork suite runs, so conservation-of-backing claims can now be read.
+- **Workstream E's *"39 regressions + 23 never-green"* — `§E356` warned it had "never been measured on
+  a working endpoint". Now it has: there are none.
+
+📌 **REPRODUCE WITH:** an archive endpoint (the free publicnode is not one), `FORK_BLOCK=25833279`,
+`-j 8`, from a clean worktree if another thread is editing. Expect **1,014 total**; a handful of
+transport failures under `-j 8` is normal on a rate-limited key — **re-run the failures before
+reading them as defects, and classify on the message, not the count.**
+
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
 First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
