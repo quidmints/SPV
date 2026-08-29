@@ -265,6 +265,63 @@ reliably exists is an unmeasured assumption, and it is the whole liveness argume
 a UX advantage today and one of the four owner decisions. **Do not close this row's item 1 without
 it — they price the same seam from opposite ends.**
 
+### ▶️ **§POKE-IS-INEVITABLE-ONLY-AS-A-BACKSTOP — AND THE REASON THE CODE GIVES IS THE REMOVABLE ONE** (owner, 2026-08-29)
+
+Owner asked whether the poke is inevitable. **Two answers, and the code's own justification is the
+weaker of the two.**
+
+#### 🔴 STRUCTURALLY YES, AND IT IS THE PRICE OF THE TWAP TRIGGER — NOT OF THE CAP
+`RangeLib.sweepOor`'s docblock says the poke exists because `MAX_FILLS_PER_SWAP` stops the sweep
+early. True, and it is not the binding reason.
+
+**Uniswap's fill is free because its trigger is ENDOGENOUS.** A v3 pool's price moves *only* when
+someone trades against it, so *"your order became fillable"* and *"there is a transaction here to
+carry the fill"* are **the same event**. Free execution is not a feature they built; it is a
+consequence of the trigger being the pool itself.
+
+**Ours is EXOGENOUS.** `Core.sol:1044` sweeps on `px = AUX.getTWAPforAsset(ASSET, 1800)` →
+`resolvedTwap` → `SwapLib.twapResolve`, which returns the internal ring **unless it diverges more
+than `TWAP_MAX_DEVIATION_BPS` from a fresh Chainlink read, in which case it returns CHAINLINK'S
+PRICE** (`SwapLib.sol:133`). ⇒ **The trigger can cross while this range sees zero swaps — and in the
+one regime where limit orders matter most, a dislocation, it is GUARANTEED to be the exogenous
+number.** Chainlink updates without transacting here.
+⇒ **Something with no swap present must be able to act. That is inevitable, and no cap change
+touches it.**
+
+⭐ **AND IT IS THE SAME PROPERTY THAT BUYS THE WICK RESISTANCE — YOU CANNOT HAVE BOTH:**
+| trigger | fill cost | single-block wick | JIT dilution |
+|---|---|---|---|
+| endogenous (v3 tick) | free, always carried | **fills you**, then arb leaves you the wrong side | **yes** — searcher mints across your range, takes your fill pro-rata |
+| exogenous (our 30-min TWAP) | needs a carrier | **cannot fill you** — the average must move and hold | **no** — sorted set, whole orders in trigger-price order |
+**The poke is what an oracle-triggered book costs. It is not a defect to engineer away; it is the
+other side of the guarantee.**
+
+#### ✅ BUT AS THE **ROUTINE** PATH IT IS NOT INEVITABLE, AND TODAY IT IS THE ROUTINE PATH
+Two removable reasons stack on top of the structural one:
+1. **The cap.** `MAX_FILLS_PER_SWAP = 4` externalises the fill's gas onto the swapper, which is
+   exactly why a crowd of cheap orders is a griefing vector and exactly why the cap has to exist.
+   **Charge the fill and credit whoever carried it and BOTH problems close at once:** resting a crowd
+   costs the rester, so the cap's justification disappears, and the poke acquires the incentive
+   §E258-POKE-INCENTIVE was supposed to book. ⚠️ **This is the same seam as §E331 #1 (*OOR fills pay
+   NO skew at all*) approached from the other end** — do not settle one without the other.
+2. **`repack` moves the range with no swapper, and nothing sweeps behind it.** Measured:
+   **`RANGE.sweepOor` has exactly ONE automatic call site in all of `evm/src` — `Core.sol:1094`,
+   inside `swap`.** `_rebalance`/`repack` already computes the new price and does not sweep. Every
+   other entrypoint that touches the range — deposit, withdraw, `syncLev`, `compound` — carries no
+   sweep either.
+
+📌 **AND THE REPO HAS ALREADY SOLVED THIS CLASS ONCE, WITH A NAME FOR IT.** `Quid.sol:1011`, on
+`syncLev`: *"Anyone (keeper, monitor, or the LP) may poke it; it is **ALSO called lazily at the entry
+of `_withdraw`** so a position seized by an EXTERNAL venue liquidation self-heals before the LP can
+extract value — closing the gap on-chain, **not by poke-hope**."*
+⇒ **The OOR book is on poke-hope, and the pattern that retires it is three lines away in the same
+contract.** A bounded sweep at the entry of the range's own touch points turns the poke from the
+routine path into what its docblock already claims it is: a backstop.
+
+▶️ **SO THE HONEST STATEMENT, AND IT SHOULD REPLACE THE ONE IN `RangeLib.sweepOor`:** the poke is a
+liveness requirement created by the ORACLE TRIGGER, not by the cap; the cap merely makes it the
+common case instead of the rare one.
+
 ## 🔴🔴 **§BTC-DELIVERY-IS-BUILT — THE RAIL THE STUBS SAY DOES NOT EXIST IS ALREADY IN THE TREE, WITH THE HACKED-KEEPER RECOVERY ALREADY ON IT. THE WORK IS WIRING, NOT INVENTING.** (2026-08-29, TRACED, NOT BUILT)
 
 Owner, 2026-08-29: *"there should be no stubs or no ops and there is deliverability, rust does it.
