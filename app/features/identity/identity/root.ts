@@ -43,6 +43,23 @@ const ROOT_KEY = "quid.wallet.root.mnemonic";
 // HD path for the rarime identity scalar — domain-separated from PP's accounts (0 & 1).
 const IDENTITY_PATH = "m/44'/60'/100'/0/0";
 
+// §M1#2 phase 1(c) — the LP's BITCOIN funding half, from the SAME enclave mnemonic (owner,
+// 2026-08-30: "same seed, taproot path"). BIP-86, coin type 0, so it is domain-separated from
+// IDENTITY_PATH's EVM coin type 60 by the purpose field and cannot collide with it.
+//
+// ⚠️ ONE SEED MEANS ONE COMPROMISE REACHES BOTH IDENTITY AND FUNDS, and that is survivable only
+// because of §E188's layering: FUNDS SAFETY DOES NOT DEPEND ON THIS KEY AT ALL. The §E165 exit
+// ladder is pre-signed at open and its bytes are public (`DeadManExitEmitted`), so once a CLTV
+// matures ANYONE may broadcast it — recovery needs no key, no device and no LP participation.
+// This key buys SERVICE (splices, cooperative closes, new rungs), never recovery. A lost or
+// compromised phone therefore costs service and identity, not BTC.
+//
+// ⛔ DO NOT derive this from an EVM signature (`k = keccak(sig)`): ECDSA is deterministic under
+// RFC-6979, so one phished signature over that message hands the funding key over forever, and it
+// cannot be rotated without a rekey splice. ⛔ DO NOT reuse `btcRecipientOf` — one key as both
+// payout destination and funding half converts a degraded-service event into fund loss (§E182-b).
+const FUNDING_PATH = "m/86'/0'/0'/0/0";
+
 /** Thrown when the device cannot confirm hardware-gated secure storage is available. Callers
  *  should treat this as fatal for the root seed specifically (not a generic error to swallow) —
  *  proceeding would store identity + all PP notes without the hardware backing this design
@@ -145,6 +162,24 @@ export function deriveSkIdentity(mnemonic: string): string {
   const node = HDNodeWallet.fromPhrase(mnemonic, "", IDENTITY_PATH);
   const scalar = BigInt(node.privateKey) % FIELD;
   return scalar.toString(16).padStart(64, "0");
+}
+
+/**
+ * The LP's Bitcoin funding half — a secp256k1 key on the BIP-86 taproot path, from the same
+ * enclave-held mnemonic as the identity scalar.
+ *
+ * Returns the raw private key rather than a signer because the caller decides the signing shape:
+ * §E171 rules out REQUIRING MuSig2 from the LP (Ledger-only, two-round nonce exchange) and prefers
+ * a taproot SCRIPT PATH leg needing a plain BIP-340 signature — but an app holding its own key is
+ * not under a hardware-wallet constraint and can produce either. That choice is protocol-side.
+ *
+ * ⚠️ The caller must already hold an unlocked mnemonic from `getOrCreateRootMnemonic()`, which is
+ * biometric-gated and session-cached. A forwarding channel signs on EVERY commitment update
+ * (§E172), so re-prompting per signature is not viable — see the session-cache note at the top.
+ */
+export function deriveFundingKey(mnemonic: string): { privateKey: string; publicKey: string } {
+  const node = HDNodeWallet.fromPhrase(mnemonic, "", FUNDING_PATH);
+  return { privateKey: node.privateKey, publicKey: node.publicKey };
 }
 
 /** Privacy Pool master keys derived from the SAME root mnemonic. */

@@ -127,17 +127,69 @@ app's session, and only hit SecureStore (re-prompting) again after `lockWallet()
 makes the channel unusable. **The session-cache pattern is the thing that makes an app-held funding
 half compatible with `§E172`'s finding at all.**
 
-### ▶️ WHAT THIS LEAVES FOR THE OWNER DECISION
+### ✅ DECIDED (owner, 2026-08-30): **SAME SEED, TAPROOT PATH.**
 
-Not *"how do we store an LP seed"* — that is answered and running. The remaining choices are narrow:
+> *"same seed, taproot path"*
 
-1. **One seed or two?** Derive the Bitcoin funding half from the SAME enclave mnemonic under a
-   different hardened path, or provision a separate seed. One seed means one backup and one
-   biometric; it also means one compromise reaches both identity and funds.
-2. **The path constant** — `§E188` says hardened secp256k1; `m/44'/60'/…` is the EVM path, so the
-   BTC leg wants its own (e.g. `m/86'/0'/…` for taproot).
-3. **Session-cache lifetime for a signing daemon** — identity caches until `lockWallet()`. A channel
-   that signs continuously needs a policy stated deliberately, not inherited.
+⇒ **The LP's Bitcoin funding half derives from the SAME enclave mnemonic as the identity key, under a
+BIP-86 taproot path.** One phrase, one backup, one biometric enrolment; the existing
+`getOrCreateRootMnemonic()` is the whole provisioning story and **phase 1(c) needs no new custody
+subsystem.**
+
+**What to build, concretely — it is one constant and one function beside the existing pair:**
+
+```
+root.ts:44   IDENTITY_PATH = "m/44'/60'/100'/0/0"      // exists — EVM, coin type 60
+             FUNDING_PATH  = "m/86'/0'/0'/0/0"          // ADD — BIP-86 taproot, coin type 0
+root.ts:145  deriveSkIdentity(mnemonic)                 // exists
+             deriveFundingKey(mnemonic)                 // ADD — same HDNodeWallet.fromPhrase shape
+```
+
+⚠️ **THE ACCEPTED COST, STATED SO IT IS NOT DISCOVERED LATER:** one seed means **one compromise
+reaches both identity and funds.** That is the trade the owner took, and `§E188`'s layering is what
+makes it survivable — **funds safety does not depend on this key at all**: the `§E165` ladder is
+pre-signed at open, its bytes are public (`DeadManExitEmitted`), and once a CLTV matures **anyone**
+may broadcast. The seed buys SERVICE (splices, coop closes, new rungs), never recovery. ⇒ **A
+compromised phone costs service and identity, not BTC** — which is the property that lets one seed be
+the right answer.
+
+📌 **AND IT SETTLES `§E171`'s SIGNING-SURFACE QUESTION BY CONSTRUCTION.** That row says *"DO NOT
+REQUIRE MuSig2 FROM THE LP"* because MuSig2 is Ledger-only and needs a two-round nonce exchange, and
+prefers a taproot **script path** leg needing a plain BIP-340 signature. **A BIP-86 key held in the
+app is not a hardware-wallet constraint at all** — the app signs directly, so both the key path and a
+script-path leg are available. The choice becomes protocol-side, not signer-side.
+
+### ✅ BUILT 2026-08-30 — one constant, one function, four tests
+
+```
+root.ts:61    FUNDING_PATH = "m/86'/0'/0'/0/0"        // BIP-86 taproot, coin type 0
+root.ts:180   deriveFundingKey(mnemonic) -> { privateKey, publicKey }
+identity/funding.test.ts                              // 4 tests
+```
+
+**Verified by independent derivation** (a standalone `ethers.HDNodeWallet.fromPhrase` script, not a
+run of this code, so the pin checks the PATH rather than agreeing with itself), against the published
+all-zeros BIP-39 vector:
+
+| | |
+|---|---|
+| funding key | `0x41f41d69260df4cf277826a9b65a3717e4eeddbeedf637f212ca096576479361` |
+| identity key | `0x2152e8766a3643551529464c5782c16ba774c6ba5e6d09dab4d628511550e48a` |
+| **distinct** | ✅ — one seed, two roles, no shared scalar (the property `§E182-b` demands) |
+| **deterministic** | ✅ — the words are the backup, as `§E188` requires |
+
+⚠️ **The test needs `app/node_modules` to run** — `root.ts` imports `expo-secure-store` at module
+scope, so the pure functions cannot be imported without it. `identity/root.test.ts` has the same
+requirement and the same `mock.module` stub; **neither runs in a bare node_modules.** That is a
+pre-existing property of the file, not something this change introduced — but it does mean these four
+tests have **not** been executed in this session, only their subject verified independently.
+
+### ▶️ THE ONE CHOICE LEFT
+
+**Session-cache lifetime for continuous signing.** Identity caches the unlocked mnemonic until
+`lockWallet()`. A forwarding channel signs on **every commitment update** (`§E172`), so the cache is
+load-bearing rather than a convenience — its lifetime, and what re-locks it, should be stated
+deliberately rather than inherited from the identity flow.
 
 ⛔ **AND THE CONSTRAINT `§E188` ALREADY SETTLED, so it is not re-opened:** do **not** derive the key
 from an EVM signature (`k = keccak(sig)`) — *"ECDSA is deterministic under RFC-6979, so one phished
@@ -221,6 +273,7 @@ real design hole** (approval vs escrow vs pooled-claim vs an already-funded path
 | | decision |
 |---|---|
 | **1.1** | **The pool script** — the two-output ladder's second output must require more than the hop alone (`SweepAuth` 2-of-3 fits). `_armDeadManExit` still verifies ONE output |
+| ~~1.1c~~ | ✅ **DECIDED 2026-08-30 — LP seed: SAME SEED, TAPROOT PATH.** The keystone `§M1#2`'s last leg. See `§LP-SEED-HAS-A-REFERENCE-IMPLEMENTATION` — provisioning already exists in `app/features/identity`; what remains is one path constant and one derive function |
 | **1.2** | **Is the Bitcoin freshness UTXO wanted?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture |
 | **1.3** | **The fold's shape** — 7540 face vs `Core`+`Quid` merge. Folding a contract is measured to COST bytes (`VEth`→`Quid` −1,077). Re-measure first: `Core` 11,637 + `Quid` **20,616** = 32,253, over by **7,677** (not the 8,917 or 23,835 the rows assume) |
 | **1.4** | **C17 eMode** — `setUserEMode` has 0 occurrences; the Aave leg runs at base LTV |
