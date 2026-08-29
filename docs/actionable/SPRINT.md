@@ -18966,7 +18966,20 @@ rows as already done. **Open the row, read the body, check the code — then del
 
 #### 🚦 WAVE 1 — THE OFF-POOL ROUTE. **Everything downstream waits on this.**
 
-**5 rows — bodies in `§QUEUE-VERBATIM`:** `E3` · `E183-c-swap-index-is-the-id-nonce-not-a-key-index` · ``Basket:166`` · `v4 removal` · `E151`
+**5 rows, READ 2026-08-30 — ONLY ONE IS WORK:**
+
+| row | verdict |
+|---|---|
+| `v4 removal` | ⛔ **STALE — its numbers are all zero now.** It reads *"Left: `IPoolManager` 8, `PoolKey` 7, `unlockCallback` 1, `SafeCallback` 3, `BalanceDelta` 2, `SOR.sol` present"*. Measured today: **every one is 0 and `SOR.sol` is absent.** Delete |
+| `E183-c` | ✅ **DONE** — *"a dead parameter deleted"* |
+| `` `Basket:166` `` | 📌 a KEEP-decision from a deletion audit (*"a tenor schedule is not a book"*), not a task |
+| `E3` | ⏸️ **self-retracted** — *"I MEASURED THE WRONG RESERVOIR, and the cross-curve framing is a rounding error"*. Knowledge |
+| `E151` | 🟠 **THE ONLY WORK HERE** — LP-authority architecture, *"two findings survived scrutiny; one did not"* |
+
+⇒ ⛔ **WAVE 1 IS NOT A WAVE.** It was called the gate for W2/W3/W4 on `§E219`'s *"routing is the
+precondition"*, but four of its five rows are stale, done, a note, or retracted — and `§E356` already
+found 1inch **wired** (`LevMath.sol:606`). **The routing precondition is satisfied; W2–W4 are not
+waiting on it.**
 
 `§E219` states it outright: *"the routing work is NOT parallel to this move, it is its PRECONDITION … you cannot stop being a pool until you can source liquidity elsewhere."* `§E357-VOLATILE-ROUTE` is open a third time. `§E356` corrected the standing belief that this was unstarted: **1inch IS wired** — `LevMath.sol:606` calls `ONEINCH_ROUTER` with approve-and-reset on both paths, `tools/fetch_1inch_route.py` is real, and `CurveObserverIsCheapAndSane.t.sol` exercises live 1inch on a fork. So this wave is finishing, not starting.
 
@@ -18994,7 +19007,14 @@ Owner chose this 2026-08-16. `Core.sol:43` and `Quid.sol:37` are still two contr
 
 #### 🧾 WAVE 5 — MINT/REDEEM AND THE LP CLAIM. **Independent of the range spine; can run alongside W1–W4.**
 
-**14 rows — bodies in `§QUEUE-VERBATIM`:** `V8` · `F1` · `#12` · `E2` · `E101-m` · `E93-ATTEMPT-1` · `UNIT-A-DOUBLE-COUNT-INVERTED` · `PENDINGSWAPOUT-CLAMP-ABSORBS-DELIBERATE-DUST` · `E49` · `4×` · `E93-a` · `E154-eth-term` · `UNIT-A-DOUBLE-COUNT-SITE` · `E2-AXIS`
+**14 rows, READ 2026-08-30 — 6 are work, 8 are not:**
+
+| | rows |
+|---|---|
+| 🟠 **WORK** | `#12` (design+scaffold done, **code not written**) · `E2` (mint at par, redeem at the mark) · `E93-a` (target = the range's own USD leg; **derived, needs owner sign-off — it changes what "scarcity" means**) · `E154-eth-term` (weETH on the 6909 mint — *considered, not built*) · `UNIT-A-DOUBLE-COUNT-SITE` (fix located to two lines in `BasketLib.redeemableBody:983-984`) · `F1` (control-LP redeem delivers 0 — *"likely a FIXTURE warp, verify before fixing"*) |
+| ✅ **done** | `PENDINGSWAPOUT-CLAMP…` (*"CLOSED — measured, clamp deleted"*) · `E101-m` (its evidence file `StableDeliverableDepth.t.sol` no longer exists — re-measure or delete) |
+| 📌 **knowledge** | `E93-ATTEMPT-1` (*"NOT COMMITTED — breaks five money-path invariants"*) · `UNIT-A-DOUBLE-COUNT-INVERTED` (*"diagnosis is INVERTED, fix reverted"*) · `E49` · `E2-AXIS` (four candidates ruled out) |
+| 🗑️ | `4×`, `V8` (a section, not a row) |
 
 `E2` (mint at par, redeem at the mark — a short-tenor depositor subsidises long-dated holders) and `#12` (LP share price reads only the ETH leg of a two-legged claim; design settled, code not written) are the two substantial ones.
 
