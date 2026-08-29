@@ -28292,6 +28292,65 @@ An ERC-20 cannot be moved from a non-sender without one of:
 existing primitive; the token leg is where the real trade lives. **A rail that ships QU!D-only first
 is coherent** — it is the leg with no design question left in it.
 
+## 📑 §SECTIONS-READ — **THE 137 SECTION-SHAPED ITEMS, READ. THE HIGHEST-SEVERITY ONE IS ALREADY FIXED.** (2026-08-30)
+
+Markers as found: **50 🔴 · 15 ⛔ · 6 ✅ · 3 🟠 · 3 ⏸️ · 3 ▶️ · 50 unmarked · rest single.**
+
+### 🟢 `§E155-INTERIM-EXPOSURE` IS STALE — IT CALLS ITSELF *"the highest-severity open item in my area"*
+
+It reads *"the over-issuance is LIVE and the fix is **UNBUILT**"*, and specifies the only construction
+that survives: *"`lastLevel` per venue — a DELTA cancels an arbitrary price base, dividing by ELAPSED
+TIME cancels age."* **That is in the tree:**
+
+```
+BasketLib.sol:206   struct Holding { uint balance; uint yieldWeighted; uint lastLevel; uint rate; uint40 lastAt; }
+BasketLib.sol:253   rate = level > lastLevel ? fullMulDiv(fullMulDiv(WAD, level - lastLevel, lastLevel), …)
+```
+
+`lastLevel` **and** `lastAt` both present, delta over elapsed time. ⇒ **CLOSED.** A 🔴🔴🔴 that names
+itself the worst thing in its area, fixed and never re-marked, is the clearest possible statement of
+this file's failure mode.
+
+### ⭐ `§UNIT-B-PATIENCE`'s "THE SENTINEL IS BYPASSED" IS IMPRECISE — THE DESIGN IS RIGHT
+
+It says *"my guard tests `sigmaSqWad == 0` AND THE ESTIMATOR RETURNS 1, SO IT IS BYPASSED … the free
+drain is still reachable one wei above it."* Read against `Core.anchorVarianceWad()`:
+
+```
+if (dt == 0) return 0;          // never sampled  ⇒ UNMEASURED  ⇒ σ²=0 ⇒ the sentinel DOES fire
+return v == 0 ? 1 : v;          // sampled, computed zero ⇒ the §E88 floor
+```
+
+⇒ **Two different states, deliberately distinguished.** σ²=0 means *never sampled* and still reaches
+`UNKNOWN_VARIANCE_SKEW`; σ²=1 means *sampled and genuinely flat*, and charging ~0 there is the stated
+intent (`§E59`: *"a genuinely calm market reports a SMALL NON-ZERO variance and still caps low; only
+the unmeasured case is treated as dangerous"*). **It is discrimination, not a bypass.**
+🔴 **What survives is the row's DEEPER point:** σ² can be *suppressed* into the "sampled and flat"
+state by spacing swaps, buying the calm price without the calm. **That is the vector `§E345`'s anchor
+leg addresses** — and it is why `§CLUSTER-1-SKEW` says the suppression family must be re-read against
+`max(ring, anchor)` before anything is built.
+
+📌 **AND IT REFINES `§E352-REACHABILITY`, WITHOUT OVERTURNING IT.** My
+`test_UnmeasuredScarceStillChargesTheSentinel` passes σ²=0 explicitly. That value **is** reachable —
+at a deployment before the first anchor sample — so the test is valid. But σ²=0 is **rarer than the
+test implies**: once the anchor has ever sampled, the floor makes it 1. **The sentinel is a
+cold-start guard, not a steady-state one.**
+
+### ⭐ AND THE FILE HAD ALREADY REACHED MY TRACK-A VERDICT
+
+`### 🔴 THE ACTUALLY-OPEN SET — **eight rows, not forty-four**` — a prior session read the same 44-row
+block and got **eight**, the same number I got independently today. **Two passes, months apart, same
+answer, and the second could not see the first** because it was 40,000 lines down. That is the cost
+this consolidation exists to remove.
+
+### THE REST
+
+The 50 🔴 sections are dominated by named, bounded work — `C10` (*"the withdraw ladder does not cap
+its EtherFi request"*), `M1` (*"`migration.rs` must read the Safe on-chain"*), `B1` (*"the freshness
+backstop has no economic bound"*), `§J.2c` (*"the ERC-20 transfer face is ambiguous on a two-asset
+manager"*), the TDX/Nitro seal wiring, `#114`'s three rows. The 15 ⛔ are decisions and retractions.
+**The 50 unmarked are overwhelmingly sub-headings of other items** — the same distortion `§E356`
+measured, and the reason "137 sections" is not "137 tasks".
 ## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
 
 First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
