@@ -184,6 +184,29 @@ rescue it either — the seller could reveal without paying.
 rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
 `provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
 
+✅ **`§ATTESTATION-CANNOT-BE-SPOOFED` (2026-08-30, owner: *"how do we know the new malicious enclave
+cant spoof the attestation? it wont match the onchain mrenclave?"*). THE CHAIN IS COMPLETE — CHECKED
+LINK BY LINK, because today's pattern has been "pieces exist, join missing".**
+
+1. **The measurement is filled in by HARDWARE, not by the enclave.** An attacker enclave gets a
+   *genuine* quote — carrying **its own** MRENCLAVE. Minting a quote that claims someone else's
+   measurement needs the platform attestation key, not a code change.
+2. **The expected measurement is not the host's to choose.** It is `MigrationAuth.measurement`,
+   signed k-of-n by operators over EIP-712 and `ecrecover`'d **inside the old enclave**
+   (`verify_migration_auth`). The host controls the migration config; it cannot forge that.
+3. **The TLS trust policy enforces it.** `migrate_seed_to` passes the verified `target` straight
+   into `provision_client_request(expected_measurement)` → `app_node_provision_client_config`, and
+   the handshake **rejects a peer whose attested measurement differs** — with an explicit negative
+   test asserting *"our trust policy rejected the remote enclave"*.
+4. **Anti-replay is on-chain and fail-closed.** The nonce is consumed via `markMigrationNonceUsed`
+   BEFORE the seed leaves; a host that suppresses that tx gets no confirmation, so no export.
+
+⚠️ **ONE CORRECTION TO THE QUESTION'S PREMISE: IT DOES NOT MATCH AN *ON-CHAIN* MRENCLAVE.** The
+on-chain whitelist was deleted (§E185, `isAttested` at 0 call sites) and its absence is deliberate.
+The authorized measurement lives in the **operator-signed bundle**; the only on-chain part of a
+migration is the nonce. ⇒ Trust rests on the operator quorum + the platform key, never on a
+governance-writable list — which is exactly why deleting the whitelist cost nothing.
+
 🟠 **`§QR-VERIFIER-UNASSEMBLED` (2026-08-30, owner asked: *"can the phone client get proof in any
 way of the codebase of the daemon it is interacting with via enclave?"*).**
 
