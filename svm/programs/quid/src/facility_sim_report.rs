@@ -546,7 +546,20 @@ fn break_even_coverage_is_the_one_input_that_decides_this() {
     }
     println!("  spot hedge beats carrying from {} bps coverage", be_spot);
     println!("  perp hedge beats carrying from {} bps coverage", be_perp);
-    println!("  (the deliverable ticker set is 80/1063 = 753 bps by COUNT;");
+    // Derived, not typed. This read "80/1063 = 753 bps" and was wrong on both
+    // halves once the tables were widened to what Backed actually offers —
+    // exactly the drift a hardcoded headline invites.
+    let deliverable = crate::etc::XSTOCK_MINTS.len();
+    // Everything the binary can PRICE, across all classes — FX, metals, rates
+    // and commodities included, because none of them is ever deliverable and
+    // leaving them out of the denominator flatters coverage.
+    let priced = crate::etc::US_EQUITIES_HEX_MAP.len()
+        + crate::etc::FX_USD_HEX_MAP.len()
+        + crate::etc::COMMODITIES_HEX_MAP.len()
+        + crate::etc::METALS_HEX_MAP.len()
+        + crate::etc::RATES_HEX_MAP.len();
+    println!("  (the deliverable ticker set is {}/{} = {} bps by COUNT;",
+             deliverable, priced, deliverable * 10_000 / priced.max(1));
     println!("   by NOTIONAL it is the megacaps, so the real figure is higher");
     println!("   and is the one number that decides this.)");
 }
@@ -607,7 +620,17 @@ fn break_even_coverage_with_both_legs_and_a_priced_borrow() {
         println!("  {:<38} break-even {} bps coverage",
                  label, if be == 0 { -1 } else { be });
     }
-    println!("  (deliverable set = 80/1063 = 753 bps by COUNT; by NOTIONAL it is");
+    let deliverable = crate::etc::XSTOCK_MINTS.len();
+    // Everything the binary can PRICE, across all classes — FX, metals, rates
+    // and commodities included, because none of them is ever deliverable and
+    // leaving them out of the denominator flatters coverage.
+    let priced = crate::etc::US_EQUITIES_HEX_MAP.len()
+        + crate::etc::FX_USD_HEX_MAP.len()
+        + crate::etc::COMMODITIES_HEX_MAP.len()
+        + crate::etc::METALS_HEX_MAP.len()
+        + crate::etc::RATES_HEX_MAP.len();
+    println!("  (deliverable set = {}/{} = {} bps by COUNT; by NOTIONAL it is",
+             deliverable, priced, deliverable * 10_000 / priced.max(1));
     println!("   the megacaps, and that figure is what decides this.)");
 }
 

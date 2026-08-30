@@ -1499,9 +1499,14 @@ contract BTCChannels is Ownable {
         if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
         if (grewBy == 0) revert NotAGrow();   // a shrink proves sats LEFT, not arrived
+        // ⚠️ (§POOL-SCRIPT) THE POOL GROWS *BEFORE* THE RE-ARM, AND THE ORDER IS THE WHOLE POINT.
+        // `_armDeadManExit` checks the armed exit against `poolOwnedSats`, so arming first would
+        // check it against the total from BEFORE this park — the very sats being parked here
+        // would be the one amount the new ladder is not required to pay. Every park would arm an
+        // exit one park out of date, which is precisely the leak this check exists to close.
+        poolOwnedSats[channelId] += grewBy;    // parked inventory: no LP claim (§T1-f-general)
         // (§E233-ladder) Re-arm against the outpoint `_applySplice` just rotated to.
         _armLadder(channelId, p, exits);
-        poolOwnedSats[channelId] += grewBy;    // parked inventory: no LP claim (§T1-f-general)
         poolSatsParker[channelId] = msg.sender; // whose allowance falls when it leaves
         uint bal = provenSatsAvailable[msg.sender] + grewBy;
         provenSatsAvailable[msg.sender] = bal;

@@ -77,7 +77,7 @@
 >    residual. Read its ❓ block before acting: the production multi-channel case is NOT traced.
 > 2. ~~**The identity fixtures**~~ ✅ **CLOSED — 472/472. See §FIXTURE-PIPELINE-REPATHED and
 >    §FIXTURE-INHERITS-ITS-ENVIRONMENT; the recipe is above.**
-> 3. **The four owner decisions** (§E352 · OOR skew · C17 eMode · ~~the three fold renames~~ — **that
+> 3. **The owner decisions** (§E352 · OOR skew · ~~C17 eMode — CLOSED 2026-08-26~~ · ~~the three fold renames~~ — **that
 >    fourth one was already answered and landed on 2026-08-26**; see §HANDOFF-WAS-STALE).
 > 4. **§V-R10 sUSDE** — its stated blocker is now settled by tracing; see §V-R10-BLOCKER-SETTLED.
 >
@@ -91,10 +91,37 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
+🔴 **`§POOL-SCRIPT-DESTINATION-REOPENED` (2026-08-30, owner: *"what poolcold script?"*).** The
+recommendation assumed a **protocol cold key that does not exist** — nothing in the tree defines,
+provisions or holds one, and no operator holds a Bitcoin key at all (`migration.rs:30`, *"no bespoke
+keygen"*). Three facts, checked after the fact, reframe the whole item:
+
+1. ⛔ **THE DESTINATION MUST SURVIVE THE EVENT THAT TRIGGERS IT.** A dead-man exit fires *because
+   the fleet is dead*. Paying the pool's share to a protocol-controlled cold key assumes that key is
+   alive, reachable and spendable at exactly the moment the operational side has failed. That
+   assumption was never stated, let alone checked.
+2. ⚪ **`poolOwnedSats` IS ALWAYS ZERO TODAY.** `parkProvenSats` has **no Rust caller** — it appears
+   in `quid-hop` only inside doc comments (`evm_codec.rs:118`, `swap.rs:31`), with no encoder and no
+   call site. So the second output currently pays nothing and guards nothing. The item is
+   **pre-emptive**, not a live leak being closed, and it belongs with `§AUDIT-POOLPARKER-PHANTOM`'s
+   rule: *land the ledger WITH whatever makes parking possible.*
+3. ✅ **AN ORDERING BUG WAS FOUND AND FIXED** (owner's model: *"LP phone can be offline for a long
+   time"*). `parkProvenSats` armed the ladder **before** `poolOwnedSats += grewBy`, so the exit was
+   checked against the total from before the park and the sats being parked were the one amount the
+   new ladder need not pay — every park arming an exit one park out of date. The `+=` now precedes
+   the re-arm.
+
+⇒ **THE MECHANISM STANDS; THE DESTINATION IS OPEN.** Keep `poolColdScript` empty (the check is off)
+until the parking rail is wired and the owner names a destination that a dead fleet cannot take with
+it. Deciding it now would pin a custody artifact to a rail nobody can call.
+
 ✅ **`§POOL-SCRIPT-DONE` (2026-08-30).** Owner chose a **protocol cold P2TR**: output 1 pays
 `poolColdScript`, spendable by neither the hop nor the LP, so *"more than the hop alone"* is met by
 the output being out of both parties' reach rather than by a signer set Bitcoin would have to verify.
 The quorum still governs that cold key — off-chain, off the critical path.
+
+⚠️ **THE DESTINATION IS NOT SETTLED — SEE `§POOL-SCRIPT-DESTINATION-REOPENED`.** The MECHANISM below
+is built and proven; *what* output 1 pays is back with the owner.
 
 **Shipped.** `BTCChannels.poolColdScript` + `setPoolColdScript` (`onlyOwner`), and `_armDeadManExit`
 reverts `ExitUnderpaysPool` when a channel with `poolOwnedSats != 0` is armed with an exit that pays
@@ -339,7 +366,7 @@ real design hole** (approval vs escrow vs pooled-claim vs an already-funded path
 | ~~1.1c~~ | ✅ **DECIDED 2026-08-30 — LP seed: SAME SEED, TAPROOT PATH.** The keystone `§M1#2`'s last leg. See `§LP-SEED-HAS-A-REFERENCE-IMPLEMENTATION` — provisioning already exists in `app/features/identity`; what remains is one path constant and one derive function |
 | **1.2** | **Is the Bitcoin freshness UTXO wanted?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture |
 | **1.3** | **The fold's shape** — 7540 face vs `Core`+`Quid` merge. Folding a contract is measured to COST bytes (`VEth`→`Quid` −1,077). Re-measure first: `Core` 11,637 + `Quid` **20,616** = 32,253, over by **7,677** (not the 8,917 or 23,835 the rows assume) |
-| **1.4** | **C17 eMode** — `setUserEMode` has 0 occurrences; the Aave leg runs at base LTV |
+| **1.4** | ⛔ **NOT OPEN — CLOSED BY OWNER 2026-08-26** (*"we dont need emode for anything"*, see the C17 section). `setUserEMode` staying at 0 occurrences is the INTENDED state, not a gap. This row was stale and was read as open on 2026-08-30; it is not a decision and has no bearing on the BTC work |
 | **1.5** | **`§BTC-LEG-FEE`** — its test passes only because `b7112c4f` inverted `assertGt`→`assertEq` pending this |
 | **1.6** | **`§E294`** — delete `pushObservation` or wire it. 0 production callers; the ring is fed by the anchor regardless. Deleting removes the ±50 bps inflation vector |
 
