@@ -311,30 +311,44 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// ⚠️ The splice must spend the channel's RECORDED outpoint, so both the txid and the vout
     /// are read back from `channels(cid)` rather than assumed to be vout 0: a real funding tx has
     /// change, so the 2-of-2 output is not always first (the same trap `_armFixture` documents).
+    /// (§LN-RESERVE-FUNDER) Open a channel for `hop` and give it a proven-sats CAP of `growBy`,
+    /// so callers can exercise `settleSwapInBuffered` — the Lightning credit path.
+    ///
+    /// ⚠️ **THIS USED TO BE A PARK, AND THE REPLACEMENT IS WHY IT IS NOW FOUR LINES.** It called
+    /// `parkProvenSats`, which raised the cap by SPLICING sats into the channel: a synthetic
+    /// splice fixture, a rotated outpoint, and a fresh exit ladder to arm — none of which the
+    /// caller cared about. The cap is now funded from the fleet's own on-chain reserve, so the
+    /// channel and the cap are independent and the fixture says what it means.
     function _parkSats(BTCChannels ch, address hop, uint seed, uint sats, uint growBy)
         internal returns (bytes32 cid)
     {
         cid = _openHopChannel(ch, hop, seed, sats);
-        (bytes memory spliceTx, Types.OpenParams memory p) =
-            _parkSpliceArgs(ch, cid, seed, sats, sats + growBy);
-        // (§E233-ladder) The park rotates the outpoint, so it carries its own ladder. Single-output
-        // splice ⇒ vout 0. Built before the prank: `signedExitFull` is an FFI cheatcode and would
-        // consume it.
-        Types.ExitArming[] memory exits_ = _armFixtureAt(
-            seed, sats, sha256(abi.encodePacked(sha256(spliceTx))), 0, sats + growBy,
-            payoutKeyOnly(abi.encode(p.lpPubkey)), EXIT_DEADLINE_ALLES + 1);
+        _proveReserve(ch, hop, growBy, seed);
+    }
+
+    /// The reserve script every fixture proves against. An x-only key-path P2TR; its spendability
+    /// is not what these tests are about, only that the contract measures payments to it.
+    function reserveSpk() internal pure returns (bytes memory) {
+        return hex"5120c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
+    }
+
+    /// Raise `hop`'s cap by `sats`, the way the daemon's reserve reconciler does.
+    ///
+    /// ⚠️ LEGACY (witness-stripped) serialisation, and it is FORCED: `BitcoinTx.txid` double
+    /// SHA256s its input without stripping a witness, so segwit bytes hash to something that is
+    /// not the txid and fail SPV inclusion. `TxInclusion.raw` is witness-stripped for this reason.
+    function _proveReserve(BTCChannels ch, address hop, uint sats, uint nonce) internal {
+        ch.setHopReserveScript(reserveSpk());
+        bytes memory spk = reserveSpk();
+        bytes8 v;
+        for (uint i; i < 8; ++i) v |= bytes8(bytes1(uint8(uint64(sats) >> (8 * i)))) >> (8 * i);
+        bytes memory raw = abi.encodePacked(
+            hex"02000000", hex"01",
+            keccak256(abi.encodePacked("reserve", nonce, sats)), hex"00000000", hex"00", hex"ffffffff",
+            hex"01", v, bytes1(uint8(spk.length)), spk,
+            hex"00000000");
         vm.prank(hop);
-        ch.parkProvenSats(cid, p, spliceTx, new bytes32[](0), exits_);
-        // (§E233-ladder) THE FOURTH ROTATION SITE, ASSERTED WHERE EVERY PARKING TEST RUNS THROUGH.
-        // A park is a splice: it rotates the funding outpoint, so the rungs armed at open spend a
-        // spent output. Until this landed the map still reported them armed and nothing replaced
-        // them — in the LP-hosted deployment that left the channel with no escape at all. Both
-        // halves are checked: the old deadline is RETIRED for the channel's current scope, and the
-        // park's own ladder IS armed, so there is no block in which the channel is unescaped.
-        assertFalse(armedNow(address(ch), cid, EXIT_DEADLINE_ALLES),
-            "a park RETIRES the rungs signed against the pre-park outpoint");
-        assertTrue(armedNow(address(ch), cid, EXIT_DEADLINE_ALLES + 1),
-            "a park arms its own ladder against the rotated outpoint");
+        ch.proveHopReserve(bytes32(uint256(0xB10C)), 0, new bytes32[](0), raw);
     }
 
     /// The splice half of [`_parkSats`], in its OWN frame. Inlining it overflowed the legacy

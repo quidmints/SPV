@@ -254,7 +254,7 @@ pub enum PithyQuip {
     /// loss — which the cost sweep shows is real at every price, including
     /// zero.
     #[msg("coverage is inside the band; paper is not needed yet")]
-    CoverageWithinBand,
+    FundingWithinBand,
 
     /// The mirror: the pool holds paper it no longer needs. Redemption takes
     /// it back to dollars rather than leaving it to drift and to be sold at a
@@ -270,10 +270,17 @@ pub enum PithyQuip {
     #[msg("price is too stale to send a primary-market order")]
     PriceTooStaleToDeliver,
 
-    /// Repointing the hedge while paper is held would strand it: the vault is
+    /// Repointing the backing while paper is held would strand it: the vault is
     /// seeded on the mint, so the old holding becomes unreachable.
-    #[msg("redeem the existing hedge to flat before repointing it")]
-    HedgeStillHeld,
+    #[msg("redeem the existing backing to flat before repointing it")]
+    BackingStillHeld,
+
+    /// Disabling the SOL* issuer while the pool still holds its token would
+    /// strand that balance — every unwind is addressed to the program being
+    /// cleared. This used to raise `FlashLoanActive`, which sent the caller
+    /// looking for a flash loan that was not there.
+    #[msg("wind the SOL* position down before disabling the issuer")]
+    SolStarStillParked,
 }
 
 /// Actuary: adaptive risk
@@ -845,7 +852,7 @@ impl Actuary {
     /// and no way to offset exposure without bilateral negotiation.
     ///
     /// ICE brought price transparency, centralised clearing through a CCP,
-    /// and standardised funding rates that made hedge costs legible
+    /// and standardised funding rates that made backing costs legible
     /// and comparable across participants.
     ///
     /// What is already built and being utilised:
@@ -871,14 +878,14 @@ impl Actuary {
     /// The situation becomes considerably more tricky over longer time horizons...
     ///
     /// Institutions seeking RFQ for multi-day tokenised equity unwinds need
-    /// a synthetic hedge on Solana prior to commitment. Cost of the hedge is
+    /// a synthetic backing on Solana prior to commitment. Cost of the backing is
     /// not bilaterally negotiated — it is a deterministic function of the
     /// pool's current state. That is what ICE standardised for energy: a
     /// published clearing price replacing opaque bilateral negotiation...
     ///
-    /// The hedge is useful for cancellations mid-way during the unwind...
+    /// The backing is useful for cancellations mid-way during the unwind...
     /// in case the market suddenly turns in the opposite direction. With
-    /// the hedge, the unwind portion that was completed (rendered a loss)
+    /// the backing, the unwind portion that was completed (rendered a loss)
     /// could recover either partially, or in some cases even in full...
     ///
     /// The utilisation term (conc = exposure / pool) is the key input. As
@@ -977,9 +984,9 @@ impl Actuary {
     ///
     /// The 4 combinations create different fee structures:
     /// - Add + Concentrate: WORST (new risk, wrong direction)
-    /// - Add + Hedge: HIGH but lower (new risk, helps balance)
+    /// - Add + Backing: HIGH but lower (new risk, helps balance)
     /// - Reduce + Concentrate: MEDIUM (less risk, hurts balance)
-    /// - Reduce + Hedge: BEST (less risk, helps balance)
+    /// - Reduce + Backing: BEST (less risk, helps balance)
     ///
     /// The L1 basket is the underwriter holding bonded dollar deposits
     /// locked against redemption for dollars, but not locked against
@@ -1408,19 +1415,19 @@ pub fn collar_bps(lev: i64, s: &Actuary) -> i64 {
 /// TWO independent dimensions, creating a 4-way matrix:
 ///
 /// | Add + Concentrate    | WORST  | 100-300 | New risk, wrong direction      |
-/// | Add + Hedge          | HIGH   | 100-200 | New risk, but helps balance    |
+/// | Add + Backing          | HIGH   | 100-200 | New risk, but helps balance    |
 /// | Reduce + Concentrate | MEDIUM | 100-150 | Less risk, but hurts balance   |
-/// | Reduce + Hedge       | BEST   | 70-100  | Less risk, helps balance       |
+/// | Reduce + Backing       | BEST   | 70-100  | Less risk, helps balance       |
 ///
 /// The middle two can swap order based on conditions!
-/// When imbalance is severe and jump risk high, add+hedge CAN be
+/// When imbalance is severe and jump risk high, add+backing CAN be
 /// cheaper than reduce+concentrate because rebalancing is urgent.
 ///
 /// The compound_factor is the protocol's mechanism for ensuring that
 /// gross on-chain product — the aggregate output of the basket's
 /// productive capital deployment — flows to depositors rather than
 /// being extracted by traders who concentrate risk at the pool's
-/// expense. The BEST quadrant (reduce + hedge) receives a discount
+/// expense. The BEST quadrant (reduce + backing) receives a discount
 ///
 #[inline]
 fn compound_factor(exposure: i64,
@@ -1436,7 +1443,7 @@ fn compound_factor(exposure: i64,
             min(300, 100 + max(10, penalty))
         }
         (true, true) => {
-            // Add risk but hedge imbalance - moderate penalty
+            // Add risk but backing imbalance - moderate penalty
             // This CAN be cheaper than reduce+concentrate when imbalance is severe!
             let penalty = lev_excess * imb_mag / (BPS * 30) + lev_excess * jump / 600;
             min(200, 100 + max(3, penalty))
@@ -1447,9 +1454,9 @@ fn compound_factor(exposure: i64,
             min(150, 100 + penalty)
         }
         (false, true) => {
-            // BEST: reduce risk + hedge imbalance - can get discount
+            // BEST: reduce risk + backing imbalance - can get discount
             // This is the fee structure's expression of gross on-chain product:
-            // trades that reduce total counterparty exposure AND hedge directional
+            // trades that reduce total counterparty exposure AND backing directional
             // imbalance receive the maximum discount because they are doing the
             // work that dollar depositor bonds were designed to enable —
             // stabilising the conditions under which every constituent issuer

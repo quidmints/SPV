@@ -100,7 +100,7 @@ pub mod quid {
         clutch::handle_refresh_sol_collateral(ctx)
     }
 
-    // ── §HEDGE — the pool's own paper, via the issuer's Market Flow ────────
+    // ── §BACKING — the asset the pool owes, via the issuer's Market Flow ──
     // Market Flow is the only one of Backed's three primary-market flows a PDA
     // can drive: it settles as a plain SPL transfer to a fixed sweeping
     // address. xChange hands back a partially-signed transaction needing a
@@ -109,26 +109,30 @@ pub mod quid {
     //
     // ONE instrument, hedging the COMMON factor. The idiosyncratic component
     // nets away exactly on its own; the common component never does, and it is
-    // a pool-level quantity. See the §HEDGE section of entra.rs.
+    // a pool-level quantity. See the §BACKING section of entra.rs.
+    //
+    // NOT a hedge: sized to the liability, triggered by solvency, and the
+    // pool goes on earning the premium for carrying the exposure. It holds
+    // what it owes so the obligation is self-funding.
 
-    /// Admin: point the pool's hedge at an instrument and the issuer's
+    /// Admin: point the pool's backing at an instrument and the issuer's
     /// sweeping addresses.
-    pub fn set_hedge(ctx: Context<SetHedge>, ticker: String,
+    pub fn set_backing(ctx: Context<SetBacking>, ticker: String,
         issuance: Pubkey, redemption: Pubkey, mint: Pubkey,
         min_order: u64, max_order: u64) -> Result<()> {
-        entra::set_hedge(ctx, ticker, issuance, redemption,
+        entra::set_backing(ctx, ticker, issuance, redemption,
                          mint, min_order, max_order)
     }
 
     /// Permissionless: fund a book the pool's dollars can no longer cover.
-    pub fn issue_paper(ctx: Context<HedgeFlow>, ticker: String,
+    pub fn issue_paper(ctx: Context<BackingFlow>, ticker: String,
         amount: u64) -> Result<()> {
         entra::issue_paper(ctx, ticker, amount)
     }
 
     /// Permissionless: send paper back once the book no longer needs it. The
     /// pool never goes SHORT paper — it goes flat.
-    pub fn redeem_paper(ctx: Context<HedgeFlow>, ticker: String,
+    pub fn redeem_paper(ctx: Context<BackingFlow>, ticker: String,
         raw_amount: u64) -> Result<()> {
         entra::redeem_paper(ctx, ticker, raw_amount)
     }
@@ -136,8 +140,8 @@ pub mod quid {
     /// Admin: book what the issuer actually did. The only instruction in the
     /// section needing off-chain truth, and the largest trust surface in it.
     pub fn reconcile(ctx: Context<Reconcile>,
-        cover_dollars: u64, proceeds_dollars: u64) -> Result<()> {
-        entra::reconcile(ctx, cover_dollars, proceeds_dollars)
+        funded_dollars: u64, proceeds_dollars: u64) -> Result<()> {
+        entra::reconcile(ctx, funded_dollars, proceeds_dollars)
     }
 
     pub fn init_oapp_store(mut ctx: Context<InitOAppStore>,

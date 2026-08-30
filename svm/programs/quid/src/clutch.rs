@@ -397,12 +397,13 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
             Banks.yield_pool = Banks.yield_pool
                 .saturating_sub(value.saturating_sub(from_principal));
 
+            // Tenure is scaled on the PRE-withdrawal balance, so this runs
+            // before the balance moves. Doing it after made the function
+            // subtract the withdrawal a second time — see
+            // `adjust_deposit_seconds`.
             let old_deposited = customer.deposited_quid;
+            customer.adjust_deposit_seconds(Banks, old_deposited, value, right_now);
             customer.deposited_quid -= customer.deposited_quid.min(value);
-
-            if old_deposited > 0 && value > 0 {
-                customer.adjust_deposit_seconds(value, right_now);
-            }
             customer.last_updated = right_now;
         }
         // Pro-rata across primary vault + alternate vaults (USD*, etc.)
@@ -412,27 +413,34 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
         } else { &[] };
         // in vault_accounts. Empty slice = no alt vaults (primary only).
         // `amt` is accounting units; transfer_from_vaults normalises each
-        // vault and converts every payout back to that mint's precision.
-        // The pool's lamports join the split when they are offered, marked
-        // the way they were credited so a share of the value is a share of
-        // the lamports.
-        let native = match (&ctx.accounts.sol_pool, ctx.bumps.sol_pool,
-                            ctx.accounts.ticker_risk.as_ref()) {
-            (Some(pool), Some(bump), Some(risk)) if Banks.sol_lamports > 0 => {
-                let price = fetch_price("SOL", ctx.remaining_accounts.first())?;
-                Some(NativeLeg {
-                    sol_pool: pool.clone(),
-                    recipient: ctx.accounts.signer.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                    bump,
-                    lamports: Banks.sol_lamports,
-                    value: crate::entra::collar_adjusted_usd(
-                        Banks.sol_lamports, price, &risk.actuary),
-                    paid: core::cell::Cell::new(0),
-                })
-            }
-            _ => None,
-        };
+        // ⛔ **SOL DOES NOT PAY DOLLAR CLAIMS, AND IT USED TO.**
+        //
+        // This built a `NativeLeg` over the WHOLE of `bank.sol_lamports` and
+        // handed it to `transfer_from_vaults`, whose comment argued *"SOL is
+        // part of what backs the claim, so it is part of what pays it."* That
+        // is the opposite of what the SOL leg of `handle_in` states, and
+        // `handle_in` is the one that matches the deposit contract:
+        //
+        //   *"A SOL deposit is a yield position, not margin... a stock loss
+        //   would then be paid out of somebody's staking deposit. ONLY DOLLARS
+        //   MARGIN STOCKS... the depositor's claim is simply their lamports:
+        //   they get back what they put in, plus carry."*
+        //
+        // 🔴 THE COST WAS PAID BY PEOPLE WHO NEVER WITHDREW. Lamports left for
+        // a dollar claim and `bank.sol_lamports` fell, but no SOL depositor's
+        // `deposited_lamports` moved — none of them had asked for anything. So
+        // `sum(deposited_lamports) <= bank.sol_lamports` broke on a path that
+        // never touched them, and `withdraw_native` then clamped to what the
+        // PDA actually held and recorded that the rest *"stays owed and
+        // becomes payable as soon as anyone else deposits"* — a refill that
+        // may never come. That is the stuck SOL.
+        //
+        // ⚠️ THIS IS NOT A REFUSAL TO EVER PAY SOL TO A DOLLAR DEPOSITOR. It
+        // refuses to do it for FREE. The owner's model is a swap — dollars in,
+        // SOL out, at a price, with the SOL side paid for the inventory. That
+        // is a priced instruction this program does not have yet, and its
+        // absence is not a licence to take the inventory without one.
+        let native: Option<&NativeLeg> = None;
 
         let paid = transfer_from_vaults(&ctx.accounts.bank_token_account,
             &ctx.accounts.mint,
@@ -440,21 +448,12 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
             ctx.bumps.bank_token_account, vault_accounts,
             &ctx.accounts.token_program, ctx.program_id,
             &ctx.accounts.config.registered_mints, amt,
-            native.as_ref())?;
+            native)?;
 
-        // Whatever left as lamports leaves the pool's SOL books with it,
-        // marked the same way it was valued going in.
+        // No SOL book to move: nothing left as lamports, because nothing was
+        // offered. The debit that used to live here is what broke the
+        // invariant above.
         let _ = paid;
-        if let Some(leg) = native.as_ref() {
-            let out = leg.paid.get();
-            if out > 0 {
-                let value_out = ((leg.value as u128).saturating_mul(out as u128)
-                    / leg.lamports.max(1) as u128) as u64;
-                Banks.sol_lamports = Banks.sol_lamports.saturating_sub(out);
-                Banks.sol_usd_contrib = Banks.sol_usd_contrib
-                    .saturating_sub(value_out.min(Banks.sol_usd_contrib));
-            }
-        }
     } else { // < ticker was not ""
         let t: &str = ticker.as_str();
         if !exposure { // < withdraw pledged from specific ticker (no exposure change)

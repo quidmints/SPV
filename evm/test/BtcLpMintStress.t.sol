@@ -520,16 +520,10 @@ contract BtcLpMintStress is AllesFixture {
         _swapOuts(ch, cid, ftx, 31, lp, lpEth, 2, 400 * USDC_PRECISION);
 
         uint parked = 10_000;   // deliberately small, and well inside what the pool can convert
-        {
-            (uint cur,,,,,) = ch.channels(cid);
-            // The priming swap-outs SPLICED this channel, so the funding outpoint has rotated —
-            // using the opening txid fails `WrongPrevOutpoint` (§E166-2 hit this too).
-            (bytes memory stx, Types.OpenParams memory sp) =
-                _growSpliceArgs(ch, cid, _liveFundingTxId[cid], 31, lp, cur + parked);
-            Types.ExitArming[] memory pex = _armAt(cid, stx, cur + parked, lp);
-            vm.prank(makeAddr("hop"));
-            ch.parkProvenSats(cid, sp, stx, new bytes32[](0), pex);
-        }
+        // (§LN-RESERVE-FUNDER) The cap is funded from the fleet's own on-chain reserve now, so
+        // this no longer has to splice the channel to give the hop a balance — and the test no
+        // longer depends on the outpoint rotation that splice caused.
+        _proveReserve(ch, makeAddr("hop"), parked, 31);
         assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked, "premise: a small proven balance");
 
         // A credit the pool COULD fill, but the balance cannot cover, is refused.
@@ -549,24 +543,6 @@ contract BtcLpMintStress is AllesFixture {
             "the balance falls by consumed, never by the request");
     }
 
-    /// ⚠️ A SHRINK PROVES SATS LEFT, NOT ARRIVED. Crediting one would be the phantom by another
-    /// door, so it must refuse rather than credit zero — a zero credit reads as success.
-    function test_E166_2_ShrinkSpliceCannotFundASwapIn() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 channelId, bytes32 fundingTxId, , bytes memory lpPubkey) =
-            _open(ch, 32, 1_000_000);
-        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
-        (bytes memory spliceTx, Types.OpenParams memory p) =
-            _growSpliceArgs(ch, channelId, fundingTxId, 32, lpPubkey, 400_000);   // SHRINK
-        // (T1-f-root) Repointed to `parkProvenSats` when `settleSwapInSpliced` was deleted: the
-        // property is the entrypoint-independent one — a shrink proves sats LEFT, so it can never
-        // fund anything — and it now guards the ONE path by which pool sats enter a channel.
-        vm.prank(makeAddr("hop"));
-        vm.expectRevert(BTCChannels.NotAGrow.selector);
-        // (§E233-ladder) `stubLadder` — `NotAGrow` fires before the arming, so a signed rung would
-        // be paid for and never verified; an unsignable stub keeps that true loudly.
-        ch.parkProvenSats(channelId, p, spliceTx, new bytes32[](0), stubLadder());
-    }
 
     /// spliceChannel grows the LP's BTC pool position + the channel's funded total
     /// and rotates the live funding outpoint to the splice tx — channel stays OPEN.
@@ -1028,14 +1004,7 @@ contract BtcLpMintStress is AllesFixture {
         // testing nothing. Parking generously here keeps the BUFFER out of the way, so the
         // draining still stops for the reason this test is about (the proceeds gate or the
         // curve), never because the hop ran out of inventory.
-        {
-            (uint cur9,,,,,) = ch.channels(cid9);
-            (bytes memory stx9, Types.OpenParams memory sp9) =
-                _growSpliceArgs(ch, cid9, ftx9, 9, lp9, cur9 + fixedSats * 501);
-            Types.ExitArming[] memory pex9 = _armAt(cid9, stx9, cur9 + fixedSats * 501, lp9);
-            vm.prank(makeAddr("hop"));
-            ch.parkProvenSats(cid9, sp9, stx9, new bytes32[](0), pex9);
-        }
+        _proveReserve(ch, makeAddr("hop"), fixedSats * 501, 9);
         uint pooledStart = CORE.POOLED_USD();
         bool gateFired; bool curveSelfLimited; uint accepted;
         for (uint i = 0; i < 500 && !gateFired && !curveSelfLimited; i++) {
@@ -1188,18 +1157,10 @@ contract BtcLpMintStress is AllesFixture {
         //    not draw POOLED_USD below the cross-channel pending total.
         //    (M1#1) Park first, or the credit reverts on an empty buffer and this step stops
         //    exercising the shared pool at all — the `try` would swallow it silently.
-        {
-            (uint curB,,,,,) = ch.channels(k[1].id);
-            (bytes memory stxB, Types.OpenParams memory spB) = _growSpliceArgs(
-                ch, k[1].id, _liveFundingTxId[k[1].id], 202, k[1].pk, curB + 60_000);
-            Types.ExitArming[] memory pexB = _armAt(k[1].id, stxB, curB + 60_000, k[1].pk);
-            vm.prank(makeAddr("hop"));
-            ch.parkProvenSats(k[1].id, spB, stxB, new bytes32[](0), pexB);
-            // ⚠️ A PARK IS A SPLICE, SO IT ROTATES THE FUNDING OUTPOINT. Without tracking that,
-            // every later step on this channel builds against a stale outpoint and dies on
-            // `WrongPrevOutpoint` — which is exactly how this test failed once.
-            _liveFundingTxId[k[1].id] = sha256(abi.encodePacked(sha256(stxB)));
-        }
+        // (§LN-RESERVE-FUNDER) No splice, so no outpoint rotation to track: funding the cap and
+        // moving the channel are now independent, which is what removed the `WrongPrevOutpoint`
+        // trap this block used to carry.
+        _proveReserve(ch, makeAddr("hop"), 60_000, 202);
         vm.prank(makeAddr("hop"));
         try ch.settleSwapInBuffered(address(0x5EE0), 50_000, address(USDC), bytes32(uint(0x5117)), 0, false) {} catch {}
         _multiAssert(ch, "shared swap-in", k);

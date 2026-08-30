@@ -681,23 +681,18 @@ contract BTCChannels is Ownable {
         // Retire the LP's BTC pool position + close-time reconcile: pays USD-leg
         // fees + the deferred swap-out principal (funded − final) as QUID. The
         // LP's remaining BTC is recovered by the close tx itself, off this path.
-        // (§T1-f-general) The LP is entitled to the channel MINUS the pool's inventory in it.
-        uint booked = poolOwnedSats[channelId];
-        uint pool = booked > totalSats ? totalSats : booked;
-        uint lpEntitled = totalSats - pool;
-        if (lpPayoutSats > lpEntitled) {
-            // The BTC has already moved — this cannot claw it back. It makes the divergence
-            // VISIBLE, which is the whole point: `requestRedeem` clamps in silence.
-            emit PoolSatsLeftWithLp(channelId, ch.lpEth, lpPayoutSats - lpEntitled);
-            lpPayoutSats = lpEntitled;
+        // (§LN-RESERVE-FUNDER) THE POOL-INVENTORY SUBTRACTION IS GONE BECAUSE POOL INVENTORY NO
+        // LONGER ENTERS CHANNELS. It was `totalSats − poolOwnedSats[channelId]`, and the only
+        // writer that ever raised that figure was `parkProvenSats` — deleted with the rail it
+        // funded. The LP is entitled to the whole channel.
+        // ⚠️ THE CLAMP ITSELF SURVIVES, AND IT IS NOT VESTIGIAL: `_lpFinalBalance` reads what the
+        // close tx PAID `btcRecipientOf`, which other inputs could push above what this channel
+        // held. The BTC has already moved, so this cannot claw it back — it makes the divergence
+        // VISIBLE, which is the whole point: `requestRedeem` clamps in silence.
+        if (lpPayoutSats > totalSats) {
+            emit PayoutExceededChannel(channelId, ch.lpEth, lpPayoutSats - totalSats);
+            lpPayoutSats = totalSats;
         }
-        _releasePoolSats(channelId, 0);   // the channel is gone: ALL its pool inventory left
-        // ⛔ `delete poolOwnedSats[channelId]` USED TO SIT HERE AND WAS A PROVABLY DEAD SSTORE.
-        // `_releasePoolSats(channelId, 0)` has exactly two exits and BOTH leave the slot at zero:
-        // `booked <= 0` returns early (it was already zero), otherwise it assigns `= remaining`,
-        // which is the literal 0 passed on the line above. There is no third path. The parker
-        // handle is a DIFFERENT slot that `_releasePoolSats` only reads, so its delete stays.
-        delete poolSatsParker[channelId];
         // (§LAZY-OPEN) A channel closed before its claim was registered has NO EVM position, so
         // there is nothing to retire and `requestRedeem` would be retiring one that was never
         // created. The LP's BTC is recovered by the close tx itself, off this path, exactly as for
@@ -1067,18 +1062,18 @@ contract BTCChannels is Ownable {
     ///      reverts through the zero branch and a redundant `_whenOpen` would only cost bytes.
     /// @dev ⚠️ **CREDITS WHAT IS STILL CUSTODIED, NOT WHAT WAS CUSTODIED AT OPEN — a correctness
     ///      rule, not a defensive clamp.** Custody can move between the open and the claim:
-    ///      `parkProvenSats` adds pool inventory and `deliverSwapOutOnchain` shrinks the channel,
-    ///      both without registering anything. Crediting the open-time figure after a shrink would
-    ///      issue shares against sats that have LEFT — silently under-backing the basket, which is
-    ///      exactly the failure standing rule 3 says a check earns its place for. The entitlement is
-    ///      `amountSats − poolOwnedSats`, the SAME rule `_finalizeClose` uses to size `lpEntitled`.
+    ///      `deliverSwapOutOnchain` shrinks the channel without registering anything. Crediting
+    ///      the open-time figure after a shrink would issue shares against sats that have LEFT —
+    ///      silently under-backing the basket, which is exactly the failure standing rule 3 says a
+    ///      check earns its place for. The entitlement is the channel's CURRENT `amountSats`.
     function registerChannelClaim(bytes32 channelId) external nonReentrant {
         uint sats = pendingClaimSats[channelId];
         if (sats == 0) revert NothingToClaim();
+        // Clamp a stale `pendingClaimSats` against what the channel CURRENTLY holds: a
+        // `deliverSwapOutOnchain` shrink writes `amountSats` without registering anything, so the
+        // open-time figure would issue shares against sats that have LEFT.
         uint total = channels[channelId].amountSats;
-        uint booked = poolOwnedSats[channelId];
-        uint entitled = total - (booked > total ? total : booked);
-        if (sats > entitled) sats = entitled;
+        if (sats > total) sats = total;
         delete pendingClaimSats[channelId];
         if (sats == 0) revert NothingToClaim();   // shrunk to nothing: no position to open
         btc.requestDeposit(channels[channelId].lpEth, sats);
@@ -1327,12 +1322,11 @@ contract BTCChannels is Ownable {
     // UTXO. Every payout path then had to SUBTRACT to work out who owned what, and a clamp at
     // every exit is the tell that the STATE is wrong rather than the exits.
     //
-    // `parkProvenSats` + `settleSwapInBuffered` do the same job better: the same proof, split
-    // into a provable half and an instant half, with ONE place pool sats enter — where the
-    // hop-owns-this-channel condition can be stated and commingling becomes unconstructible.
+    // `proveHopReserve` + `settleSwapInBuffered` do the same job better: the same proof, split
+    // into a provable half and an instant half. Pool sats no longer enter channels AT ALL, so
+    // commingling is not bounded — it is unconstructible.
     // It had no caller in quid-ln, the SPA or the scripts when it was removed.
 
-    error NotAGrow();   // a shrink-splice cannot fund a swap-in: no sats entered custody
     error InsufficientProvenSats();  // a credit would exceed what this hop has proven into custody
 
     /// (§T1-f-general) Sats sitting in a channel that the LP has NO claim to — inventory the
@@ -1349,7 +1343,6 @@ contract BTCChannels is Ownable {
     /// is recorded, so this cannot claw anything back. What it does is make the divergence
     /// COMPUTABLE and EMITTED, which is the precondition for both the off-chain refusal that
     /// prevents it and the §INVARIANTS.md §1 conservation check that would catch it.
-    mapping(bytes32 => uint) public poolOwnedSats;
 
     /// (§LN-RESERVE-FUNDER, owner decision 2026-08-30) The Bitcoin script the fleet's on-chain
     /// RESERVE is held at — the hop's own wallet address (owner: *"the third"*), so the backing
@@ -1406,54 +1399,12 @@ contract BTCChannels is Ownable {
         emit HopReserveProven(msg.sender, txid, sats, avail);
     }
 
-    /// Which hop parked the inventory in a channel, so its ALLOWANCE can be reduced when that
-    /// inventory leaves. Without this the two ledgers drift apart and the phantom returns: see
-    /// `_releasePoolSats`.
-    ///
-    /// 🔴 **§AUDIT-POOLPARKER-PHANTOM — THIS SLOT ASSUMES ONE PARKER PER CHANNEL AND NOTHING
-    /// ENFORCES IT.** `parkProvenSats` ACCUMULATES `poolOwnedSats[cid] += grewBy` but OVERWRITES
-    /// `poolSatsParker[cid] = msg.sender`, while `_releasePoolSats` debits the WHOLE released
-    /// amount from that one address. Two different hops parking one channel ⇒ the earlier one's
-    /// `provenSatsAvailable` is never reduced when its sats leave, and it keeps crediting sellers
-    /// against sats that have left custody — the exact phantom `_releasePoolSats` exists to close,
-    /// re-entering through the identity of the parker rather than through the amount.
-    ///
-    /// ⚠️ **IT IS NOT REACHABLE TODAY, AND THE REASON IS WHY NOTHING IS CLAMPED HERE.** Three
-    /// things each block it: the buffered rail has no Rust caller (`§LN-SWAPIN-REMAINDER`), a park
-    /// must carry a splice the channel's 2-of-2 signed — which the FALLBACK hop cannot produce for
-    /// a channel MAIN funded, because both identities derive from one `root_seed` and the
-    /// constructor requires `MAIN_HOP != FALLBACK_HOP` (§AUDIT-SWAPOUT-CONCURRENT's re-grade) —
-    /// and no third attested hop exists. Adding `revert` here would be a second bound on a state
-    /// the code cannot construct, which standing rule 17 says is not the fix.
-    /// ▶️ **THE ROOT FIX IS A PER-`(channelId, hop)` LEDGER, AND IT MUST LAND *WITH* WHATEVER MAKES
-    /// A SECOND PARKER POSSIBLE** — wiring the buffered rail, or admitting a hop whose identity is
-    /// not seed-derived from MAIN's. Do not wire either without it: the failure is silent, so it
-    /// would arrive as an over-issued credit, not as a revert.
-    mapping(bytes32 => address) public poolSatsParker;
 
-    /// @dev Pool inventory in `channelId` is leaving custody, down to `remaining`. Reduces BOTH
-    ///      the per-channel ledger AND the parker's credit allowance by the same delta.
-    ///
-    /// 🔴 **THIS IS THE PHANTOM'S RETURN PATH, AND IT WAS OPEN.** `provenSatsAvailable` was
-    ///      incremented at `parkProvenSats` and decremented only at a credit — nothing touched it
-    ///      when the parked sats LEFT. So a hop could park 1 BTC, close the channel (the sats go
-    ///      to the LP, bounded), and keep a 1 BTC allowance to credit sellers against sats that no
-    ///      longer exist. That is exactly what M1#1 deleted `settleSwapIn` to stop, reintroduced
-    ///      by its own replacement.
-    function _releasePoolSats(bytes32 channelId, uint remaining) private {
-        uint booked = poolOwnedSats[channelId];
-        if (booked <= remaining) return;
-        uint gone = booked - remaining;
-        poolOwnedSats[channelId] = remaining;
-        address parker = poolSatsParker[channelId];
-        uint allowance = provenSatsAvailable[parker];
-        // Clamped: the allowance may already have been spent on credits, which is legitimate —
-        // those credits were made while the sats were still in custody.
-        provenSatsAvailable[parker] = allowance > gone ? allowance - gone : 0;
-    }
 
     /// A close paid the LP more than its entitlement — `over` sats of pool inventory left with it.
-    event PoolSatsLeftWithLp(bytes32 indexed channelId, address indexed lpEth, uint over);
+    /// A close or withdrawal paid `btcRecipientOf` MORE than the channel held. The BTC has
+    /// already moved, so the clamp records the divergence rather than preventing it.
+    event PayoutExceededChannel(bytes32 indexed channelId, address indexed lpEth, uint over);
 
     /// @notice (§LAZY-OPEN) The channel is custodied and its ladder armed, but the LP's pool claim
     ///         could not be credited because the CLAIM leg reverted on protocol-wide state
@@ -1471,7 +1422,6 @@ contract BTCChannels is Ownable {
     /// of running past a guard. One accumulator replaces both the trust and the bookkeeping.
     mapping(address => uint) public provenSatsAvailable;
 
-    event ProvenSatsParked(address indexed hop, bytes32 indexed spliceTxId, uint sats, uint balance);
 
     /// (M1#1) Prove a grow-splice into custody WITHOUT crediting anyone — bank it for later.
     ///
@@ -1492,38 +1442,9 @@ contract BTCChannels is Ownable {
     ///        ⚠️ WHAT THE RUNGS MUST PAY IS THE LP'S ENTITLEMENT, NOT `amountSats`. A park grows the
     ///        channel with POOL inventory that credits no LP position (§T1-f), so a rung paying the
     ///        whole funding output hands the LP sats the pool owns. `_finalizeClose` clamps the
-    ///        ACCOUNTING to `lpEntitled` and emits `PoolSatsLeftWithLp`, but the BTC has already
+    ///        ACCOUNTING to what the channel held and emits `PayoutExceededChannel`, but the BTC has already
     ///        moved — the clamp cannot claw it back. The signer chooses the amount, and
     ///        `checkpointSats` is where it is recorded.
-    function parkProvenSats(
-        bytes32 channelId,
-        Types.OpenParams calldata p,
-        bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof,
-        Types.ExitArming[] calldata exits
-    ) external nonReentrant {
-        _whenOpen(channelId);
-        _onlyHop();
-        _requireChannelKeys(channelId, p);
-        bytes32 spliceTxId = BitcoinTx.txid(rawSpliceTx);
-        if (swapInUsed[spliceTxId]) revert SwapInDepositReplay();
-        swapInUsed[spliceTxId] = true;
-        if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
-        uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
-        if (grewBy == 0) revert NotAGrow();   // a shrink proves sats LEFT, not arrived
-        // ⚠️ (§POOL-SCRIPT) THE POOL GROWS *BEFORE* THE RE-ARM, AND THE ORDER IS THE WHOLE POINT.
-        // `_armDeadManExit` checks the armed exit against `poolOwnedSats`, so arming first would
-        // check it against the total from BEFORE this park — the very sats being parked here
-        // would be the one amount the new ladder is not required to pay. Every park would arm an
-        // exit one park out of date, which is precisely the leak this check exists to close.
-        poolOwnedSats[channelId] += grewBy;    // parked inventory: no LP claim (§T1-f-general)
-        // (§E233-ladder) Re-arm against the outpoint `_applySplice` just rotated to.
-        _armLadder(channelId, p, exits);
-        poolSatsParker[channelId] = msg.sender; // whose allowance falls when it leaves
-        uint bal = provenSatsAvailable[msg.sender] + grewBy;
-        provenSatsAvailable[msg.sender] = bal;
-        emit ProvenSatsParked(msg.sender, spliceTxId, grewBy, bal);
-    }
 
     /// (M1#1) Credit a seller by DRAWING DOWN sats this hop proved earlier.
     ///
@@ -1626,25 +1547,17 @@ contract BTCChannels is Ownable {
         totalSatsLocked -= shrinkSats;
         uint lpPayoutSats = _withdrawalPayout(lpEth, rawSpliceTx, newVout);
         // (§T1-f-general) THE SAME BOUND AS `_finalizeClose`, ON THE PATH AN LP WOULD REACH FIRST.
-        // A withdrawal shrink pays whatever the splice tx sent to `btcRecipientOf`, so without
-        // this an LP withdraws the POOL's inventory and never touches the close-time guard — the
-        // cheaper, quieter route (the channel stays open, nothing retires).
+        // A withdrawal shrink pays whatever the splice tx sent to `btcRecipientOf`, and other
+        // inputs to that same transaction could push the figure above what this channel held.
         //
         // ⚠️ CLAMP, NOT REVERT, AND THE REASON IS NOT SQUEAMISHNESS: the splice is already
         // broadcast and SPV-proven by the time this runs, so reverting cannot recall the sats —
         // it would only leave the EVM believing the channel is bigger than it is, which is the
         // "unretirable forever" hazard §E162 exists to prevent. Recording the truth beats
         // refusing to record it.
-        {
-            uint pool = poolOwnedSats[channelId];
-            uint lpEntitled = old > pool ? old - pool : 0;
-            if (lpPayoutSats > lpEntitled) {
-                emit PoolSatsLeftWithLp(channelId, lpEth, lpPayoutSats - lpEntitled);
-                lpPayoutSats = lpEntitled;
-            }
-            // Pool inventory cannot exceed what is left in the channel. This IS the decrement the
-            // close-side clamp was standing in for.
-            _releasePoolSats(channelId, p.amountSats);
+        if (lpPayoutSats > old) {
+            emit PayoutExceededChannel(channelId, lpEth, lpPayoutSats - old);
+            lpPayoutSats = old;
         }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;   // legitimate balance fall
         _requireClaimRegistered(channelId);   // (§LAZY-OPEN-SHRINK) else `LP.pooled -=` panics
@@ -2314,7 +2227,7 @@ contract BTCChannels is Ownable {
     // that never arrived and the loss reached QU!D holders who opted into no enclave trust. It
     // survived this long only because the LN rail had no provable form.
     //
-    // REPLACED, not merely removed: `parkProvenSats` + `settleSwapInBuffered` above. Its OTHER
+    // REPLACED, not merely removed: `proveHopReserve` + `settleSwapInBuffered` above. Its OTHER
     // role already lives under its own name — `reverseSwapOut` (T1-b/T1-d).
 
     /// @notice A swapper recovers their committed USD if the hop never delivers
@@ -2459,9 +2372,10 @@ contract BTCChannels is Ownable {
         // ⚠️ AND THE SECOND HALF IS AS BAD AS THE FIRST: `keysHash` would be left STALE against a
         // rotated outpoint, which is §E153's *unretirable forever* regression verbatim (:1258) —
         // both retirement paths then revert and the position can never be closed.
-        // The four siblings that already do this: `splice:1126`, `parkProvenSats:1384`,
-        // `emitDeadManExit:1559`, `_requireNotSplice:1814` (the recordClose/retire path). This was
-        // the fifth rotation site and the only unpinned one — found the same way §T1-f-general
+        // The siblings that already do this: `splice`, `emitDeadManExit`, and
+        // `_requireNotSplice` (the recordClose/retire path). ⚠️ `parkProvenSats` was a FOURTH and
+        // is gone — the reserve funder replacing it does not touch a channel, so rotation sites
+        // are one fewer. This was the last unpinned one — found the same way §T1-f-general
         // was: by diffing the writers of the funding outpoint against the sites that gate it.
         // ⚠️ IT SITS IN THE **OUTER** FRAME, WITH THE `_armLadder` CALL AND FOR THE SAME REASON.
         // `_deliverSwapOut`'s note is explicit that its calldata params must go DEAD before the
@@ -2524,19 +2438,6 @@ contract BTCChannels is Ownable {
         ch.amountSats  = p.amountSats;
         _useOutpoint(newTxId, newVout); // rotated funding UTXO claimed once
         totalSatsLocked -= shrinkSats;
-        // (§T1-f-general) RECONCILE THE POOL LEDGER — this path writes `ch.amountSats` DIRECTLY
-        // and never routes through `_shrinkSplice`, so without this a delivery shrinks a channel
-        // while `poolOwnedSats` keeps claiming the old figure, and the close-side clamp then
-        // truncates it in silence. Found by diffing every writer of `amountSats` against every
-        // site that maintains the ledger; the lists differed by exactly this one.
-        //
-        // ⚠️ READS `ch.amountSats`, NOT `p.amountSats`, AND THE DIFFERENCE IS NOT COSMETIC: the
-        // comment below records that the calldata params are DEAD from here so the settlement
-        // tail keeps a clean legacy stack (via_ir is off). Re-referencing `p` here extends its
-        // live range across that call — a first attempt did exactly that and four close/retire
-        // tests reverted. `ch.amountSats` was assigned `p.amountSats` three lines up, so it is
-        // the same number with none of the cost.
-        _releasePoolSats(channelId, ch.amountSats);
         // Settle in a fresh frame: the calldata params (p / rawSpliceTx / proof)
         // — ⚠️ this used to list `lpAuth`, which is NOT a parameter of this function (E148).
         // are dead from here, so the settlement tail gets a clean legacy stack (no via_ir).

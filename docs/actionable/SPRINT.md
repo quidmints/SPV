@@ -184,6 +184,30 @@ rescue it either — the seller could reveal without paying.
 rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
 `provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
 
+✅ **`§POOL-INVENTORY-PURGED` (2026-08-30) — PHASE 2 DONE. FOUR OPEN ITEMS CLOSED BY DELETION.**
+With the cap funded from the fleet's own reserve, the old funder and everything that existed to
+untangle it are gone: `parkProvenSats`, `poolOwnedSats`, `poolSatsParker`, `_releasePoolSats`,
+`ProvenSatsParked`, and the now-unthrowable `NotAGrow`.
+
+| item | how it closed |
+|---|---|
+| `§AUDIT-POOLPARKER-PHANTOM` | **DISSOLVED.** It was entirely `poolSatsParker` being overwritten by a second parker. There is no parker. |
+| `§POOL-SCRIPT-DESTINATION-REOPENED` | **DISSOLVED.** Pool sats never enter a channel, so an exit has no second output to place and no destination to choose. |
+| `§POOL-SCRIPT-DONE`'s `poolColdScript` | Deleted rather than left as a stub. |
+| the `lpEntitled` clamps + `PoolSatsLeftWithLp` | The pool subtraction is gone; **the over-payment clamps SURVIVE**, renamed `PayoutExceededChannel`, because a close or withdrawal splice can still pay `btcRecipientOf` more than the channel held from other inputs. Deleting them with the pool concept would have been the easy mistake. |
+
+📏 **`BTCChannels` 24,545 → 23,527 bytes: 1,018 freed, headroom 31 → 1,049.** The contract had been
+within 31 bytes of EIP-170; the purge bought back a third of a kilobyte of design room.
+✅ **159 BTC-suite pass / 0 fail** (−1, exactly the deleted `NotAGrow` test), ABI check 0 drifted.
+⭐ **`test_M1_1_CannotCreditBeyondWhatWasProven` STILL PASSES** — the anti-conjuring property M1#1
+exists for survived the funder swap, which is the regression that mattered.
+
+⚠️ **AND THE FIXTURES GOT SIMPLER, WHICH IS THE TELL.** `_parkSats` needed a synthetic splice, a
+rotated outpoint and a freshly-armed ladder just to hand a hop a balance; it is now an open plus a
+four-line reserve proof. Two stress tests carried `WrongPrevOutpoint` traps *"which is exactly how
+this test failed once"* — those traps existed only because funding the cap moved the channel. They
+are gone, not worked around.
+
 ✅ **`§LN-RESERVE-FUNDER` — BUILT AND WIRED END TO END 2026-08-30.** `proveHopReserve` +
 `ChannelLib.reserveSats` on the EVM; `SIG_PROVE_HOP_RESERVE` (listed in `HOP_BTCCHANNELS_SIGS`, or
 the §E178 policy would refuse to sign it) + `encode_prove_hop_reserve` in Rust; and

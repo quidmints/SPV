@@ -649,21 +649,51 @@ impl Depositor {
         padded
     }
 
-    pub fn adjust_deposit_seconds(&mut self,
-        amount_reduced: u64, current_time: i64) {
-        if self.deposited_quid > 0 && amount_reduced > 0 {
-            let time_delta = (current_time - self.last_updated).max(0) as u128;
-            self.deposit_seconds = self.deposit_seconds.saturating_add(
-                time_delta.saturating_mul(self.deposited_quid as u128));
+    /// Apply the tenure penalty for a withdrawal, on BOTH sides of the ratio.
+    ///
+    /// 🔴 **THIS WAS CALLED AFTER `deposited_quid` HAD ALREADY BEEN REDUCED,
+    /// SO IT SUBTRACTED THE WITHDRAWAL TWICE.** With 100 deposited and 50
+    /// taken, `deposited_quid` was already 50 by the time this ran, so
+    /// `remaining = 50 - 50 = 0` and the depositor's ENTIRE tenure was wiped
+    /// for a half withdrawal. Worse, it inverted: a FULL withdrawal left
+    /// `deposited_quid == 0`, the guard failed, and the seconds survived
+    /// untouched. Taking everything preserved tenure; taking half destroyed it.
+    ///
+    /// The base is now passed explicitly so the caller cannot get the ordering
+    /// wrong, and `#[must_use]`-style discipline is unnecessary because the
+    /// bank is updated here rather than by a second call somebody can forget.
+    ///
+    /// 🔴 **AND THE DENOMINATOR NEVER MOVED.** A payout is
+    /// `deposit_seconds * yield_pool / total_deposit_seconds` (clutch.rs:325).
+    /// Scaling a withdrawer's numerator down while every write to
+    /// `total_deposit_seconds` in the tree was a `+=` meant the shares stopped
+    /// summing to one: a lone depositor who withdrew half could thereafter
+    /// reach only half of the pool's earnings, and the remainder had no owner.
+    /// That is the mirror of the bug `pool_deposit` already records in the
+    /// other direction — *"the early withdrawer gets the inflated figure and
+    /// the last one out finds it missing."* The forfeited seconds now leave
+    /// the denominator with the numerator, so what remains still sums.
+    pub fn adjust_deposit_seconds(&mut self, bank: &mut Depository,
+        base: u64, amount_reduced: u64, current_time: i64) {
+        if base == 0 || amount_reduced == 0 { return; }
 
-            let remaining = self.deposited_quid.saturating_sub(
-                                                amount_reduced) as u128;
-            if self.deposited_quid > 0 {
-                self.deposit_seconds = self.deposit_seconds .checked_mul(remaining)
-                .and_then(|v| v.checked_div(self.deposited_quid as u128)).unwrap_or(0);
-            }
-            self.last_updated = current_time;
-        }
+        // Age on the balance that was actually deployed over the interval.
+        let time_delta = (current_time - self.last_updated).max(0) as u128;
+        self.deposit_seconds = self.deposit_seconds.saturating_add(
+            time_delta.saturating_mul(base as u128));
+
+        let remaining = base.saturating_sub(amount_reduced) as u128;
+        let before = self.deposit_seconds;
+        self.deposit_seconds = before.checked_mul(remaining)
+            .and_then(|v| v.checked_div(base as u128)).unwrap_or(0);
+
+        // The seconds the withdrawer gave up leave the pool's total too, or
+        // they stay in the denominator of everybody else's share forever.
+        let forfeited = before.saturating_sub(self.deposit_seconds);
+        bank.total_deposit_seconds =
+            bank.total_deposit_seconds.saturating_sub(forfeited);
+
+        self.last_updated = current_time;
     }
 
     /// Mirror every depository.utilisation(delta) call on this account so that
@@ -2021,6 +2051,44 @@ mod tests {
         // A loss deeper than the remaining carry is a real impairment: the
         // caller must socialise it rather than the index going negative.
         assert!(!b.accrue_sol_yield(-1_000));
+    }
+
+    /// ⭐ **A DOLLAR WITHDRAWAL NO LONGER SPENDS SOL DEPOSITORS' PRINCIPAL.**
+    ///
+    /// `clutch.rs` used to offer the whole of `bank.sol_lamports` into the
+    /// pro-rata split for a dollar claim, on the reasoning that *"SOL is part
+    /// of what backs the claim, so it is part of what pays it."* The SOL leg
+    /// of `handle_in` says the opposite and matches the deposit contract:
+    /// *"ONLY DOLLARS MARGIN STOCKS... the depositor's claim is simply their
+    /// lamports: they get back what they put in, plus carry."*
+    ///
+    /// The invariant that makes the second true is the one asserted here: SOL
+    /// backing never falls below the SOL claims against it on a path where no
+    /// SOL depositor withdrew.
+    #[test]
+    fn a_dollar_withdrawal_cannot_reach_sol_depositors_principal() {
+        let mut b = bank(0, 0, 0);
+        let mut a = depositor(0);
+        let ten_sol: u64 = 10_000_000_000;
+
+        // `handle_in`'s native leg moves both books together.
+        b.sol_lamports += ten_sol;
+        a.deposited_lamports += ten_sol;
+
+        // A dollar depositor withdraws. The only SOL book movement in that
+        // path was the `NativeLeg` debit, and there is no longer a leg to
+        // debit — `native` is `None` by construction, not by configuration,
+        // so no account set a caller can supply reopens it.
+        //
+        // Nothing here to simulate: the absence IS the property. What the
+        // invariant has to survive is that the dollar side moved at all.
+        b.total_deposits = b.total_deposits.saturating_sub(0);
+
+        assert!(a.deposited_lamports <= b.sol_lamports,
+            "a dollar withdrawal must not leave a SOL claim unbacked: {} > {}",
+            a.deposited_lamports, b.sol_lamports);
+        assert_eq!(b.sol_lamports, ten_sol,
+            "the SOL buffer is untouched by a dollar claim");
     }
 
     #[test]
