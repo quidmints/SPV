@@ -730,6 +730,66 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 📊 **§BORROW-DOLLAR-CANDIDATES — EVERY weETH MARKET ENUMERATED. RLUSD AND PYUSD DOMINATE MORPHO; USDG ON v4 IS 4× DEEPER THAN EITHER.** (owner, 2026-08-30: *"are you telling me the other choices arent even worth checking?"*)
+
+**They were worth checking and I had not.** I measured two Morpho markets (from a deploy comment) and
+the Aave v4 hub, and stopped. **Enumerated properly — every weETH-collateral market on Morpho Blue
+mainnet, ranked by IDLE liquidity, which `_ethLevVenues` already establishes is the borrowable
+figure (*"BORROWABLE DEPTH IS IDLE, NOT SUPPLY"*):**
+
+| loan | lltv | supply $ | borrow $ | **IDLE $** | util | borrow APY |
+|---|---:|---:|---:|---:|---:|---:|
+| **RLUSD** | 86% | 95,071,084 | 85,879,320 | **9,191,764** | 90.3% | 4.19% |
+| **PYUSD** | 86% | 73,372,672 | 66,130,808 | **7,241,863** | 90.1% | 3.92% |
+| *(WETH)* | *94%* | *16,566,785* | *14,250,259* | *2,316,526* | *86.0%* | ***1.84%*** |
+| USDT | 86% | 1,620,292 | 1,275,837 | 344,455 | 78.7% | 3.18% |
+| USDT | 86% | 1,456,637 | 1,175,701 | 280,936 | 80.7% | 3.11% |
+| USDC | 77% | 2,435,844 | 2,198,970 | 236,874 | 90.3% | 4.96% |
+| USDC | 86% | 1,480,123 | 1,337,142 | 142,981 | 90.3% | 4.79% |
+| AUSD · tGBP · EUROP · msETH · wstETH | | ≤$1 | | **0** | | |
+
+✅ **THE TREE'S TWO-VENUE ALLOWLIST IS EMPIRICALLY RIGHT, NOT ARBITRARY.** RLUSD and PYUSD are the
+only weETH dollar markets above **$1M idle**; the next candidate (USDT) is **~$625K across two
+markets**, and USDC ~$380K — which is the *"too thin"* the owner said and §E210 measured.
+⛔ **AND THE CHEAPEST ROW IS A TRAP THE TREE ALREADY DOCUMENTS.** weETH/**WETH** at 94% LLTV borrows
+at **1.84% — less than half RLUSD's 4.19%** — and it is exactly the venue `_ethLevVenues` DELETED:
+*"it could not hedge, and was added on the belief that it could … THE LIABILITY MUST BE IN THE ASSET
+YOU ARE NOT LONG."* **Cheapest ≠ usable. Any comparator must exclude ETH-denominated debt by
+construction, or it will pick this row every time.**
+
+### ▶️ SO THE CANDIDATE SET IS THREE, AND THE OWNER'S GUESS WAS RIGHT
+| dollar | venue | borrowable | utilisation |
+|---|---|---:|---:|
+| **USDG** | **Aave v4 hub** | **37,933,235** | **40.6%** |
+| RLUSD | Morpho weETH 86% | 9,191,764 | 90.3% |
+| PYUSD | Morpho weETH 86% | 7,241,863 | 90.1% |
+⭐ **USDG IS ~4× THE DEEPEST MORPHO OPTION AND RUNS AT LESS THAN HALF THE UTILISATION** — and it is a
+different VENUE TYPE, not a third Morpho market, which is why it never appeared in the weETH
+enumeration. ⚠️ **Its borrow RATE is UNMEASURED** — Aave's is set by the reserve's interest-rate
+strategy, which `getReserveConfig` does not return. **40.6% vs 90.3% utilisation makes it likely
+cheaper on any standard curve, but that is an inference, not a measurement. Read the rate before
+ranking on cost.**
+
+### 🔑 AND THE 1inch ANSWER MAKES THE ROUTING TABLE STOP CONSTRAINING THE CHOICE
+Owner: *"what about using 1inch to its fullest flexibility for getting us WETH or WBTC for the load
+balance (for both in range and oor)?"* ⇒ **This is the piece that decouples the two questions.**
+Today the borrow dollar must ALSO have a Curve pool to USDC, because `_hubSwap` + `unoswap` execute
+**one named pool** — so *"which dollar is cheapest to borrow"* is silently ANDed with *"which dollar
+is on `_routeOf`"*. **With `swap()` and an off-chain path, the second condition disappears:** any
+dollar with a lending market can reach WETH or WBTC, by whatever route is actually cheapest.
+✅ **AND IT IS THE SAME LEG FOR IN-RANGE AND OOR**, which is why they are one piece of work: the
+load-balance sources the volatile side for both, so a single `swap()`-shaped executor serves the
+in-range shortfall, the OOR fill, and the IL-protect intermediary. ⇒ **`_routeOf` stops being a
+gate on the borrow choice and becomes a fallback for when no off-chain path is supplied.**
+
+### 📌 AND A CORRECTION THE OWNER MADE THAT RETIRES ONE OF MY ROWS
+*"basket mint dollars go where they go and they has nothing to do with the dollar we borrow."*
+⇒ **The collateral is weETH; basket stables stay in their yield venues.** So
+§AVGYIELD-FOLLOWS-THE-STABLE's scenario — a basket stable posted as collateral, vanishing from
+`_valueStable` or carrying a stale rate — **does not arise under this design.** The row stays as the
+constraint on any FUTURE "post basket stables" shape (it is a real property of `_valueStable`), but
+it is **not a live defect and must not be worked as one.**
+
 ## 📊 **§AAVE-V4-HUB-MEASURED — THE WETH SIDE IS WIDE OPEN, THE COLLATERAL SIDE IS TWO STABLES, AND `AUSD` IS NOT LISTED** (owner, 2026-08-30)
 
 Owner: *"we need more markets for the stables that we have … what is the utilisation like on the main
