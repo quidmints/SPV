@@ -909,6 +909,60 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🗺️ **§ARB-SHARING-IS-THE-SKEW-PREMIUM'S-PRICE — MAPPING THE OOR AND REBALANCE/REFILL THREADS AGAINST WHAT THIS FILE ACTUALLY HOLDS** (owner, 2026-08-30: *"what about the oor stuff? … rebalance/refill left (optimal policy still a mystery, related to skew and profit sharing of all possible arb with LPs, not sure to what extent this is covered)"*)
+
+### 📌 THE OOR THREAD — FOUR ITEMS, AND I HAVE NOW DROPPED IT TWICE
+The owner already caught this once (*"either way, you did not forget the OOR work?"*) and it was
+dropped again on 2026-08-30. Outstanding, all verified present in code today:
+| # | item | state |
+|---|---|---|
+| 1 | **ETH OOR sell leg** | 🔴 `SwapLib.sol:1212` still `revert IntentSellLegUnbuilt()`. Not merely unfunded — **its SETTLEMENT is wrong for an LP maker**: an in-range LP's ether is already in `POOLED`, so `volDelta = -size` makes the range gain ether it already held. Shape is `_withdraw`'s, capped at `plainNet(pooled, levPooled)` |
+| 2 | **BTC OOR** | 🔴 **no path at all** since the book deletion. Successor is an intent whose fill becomes a `BTCChannels.requestSwapOutOnchain` obligation (`Vault.sol:711-713` records exactly this) |
+| 3 | **keeper-hacked recoverability** | 🔴 owner's original constraint — *"if the keeper is hacked or shut down any pending deliverable can be recovered"* — **never re-checked against the intent design that replaced the book** |
+| 4 | **1inch load-balance for OOR fills** | 🔴 owner: *"the load balance affects not only inrange swaps but also out of range."* `_aggSwap` is still `UNOSWAP_SELECTOR`-only (one pool), which §UNOSWAP-CANNOT-REACH proved is inadequate |
+
+### 📊 REBALANCE / REFILL / SKEW — THE COVERAGE IS DEEP; THE OWNER'S SPECIFIC QUESTION IS THE GAP
+Measured against this file: **`skew` 1244 hits · `refill` 465 · `rebalance` 259 · `arb` 223 ·
+`"once per block"` 3 — and `"profit shar"` **ZERO**.**
+✅ **Already settled, do not re-derive:**
+- **Cadence** — §AUDIT-ROUND-2 Q3: repack fires only on a **±0.2% band cross** (`RANGE_DELTA=20`),
+  manip-guarded at 300 bps, and **moves NO tokens / realises NO restoration cost**, so frequent
+  repacks are nearly free. ⇒ *"is rebalancing too often?"* is answered: **no.**
+- **The once-per-block premise** — line 1599 already corrects it: *"THE REPACK IS NOT ONCE PER BLOCK."*
+  It is band-triggered, not scheduled. **The owner asked to be corrected if wrong, and was.**
+- **P&L attribution** — §AUDIT-ROUND-2 Q1: every fee path correctly attributed except the booked
+  §SKEW-DOUBLE.
+- **What the refill IS** — *"A RANGE-PLACEMENT COMPUTATION, NOT A TRADE"*, and *"SETTLED, AND SMALLER
+  THAN IT LOOKED"*.
+
+### ⭐ THE REFRAMING: ARB-SHARING IS ALREADY BUILT — WHAT IS UNSOLVED IS ITS **PRICE**
+The owner's phrase has zero hits because the mechanism is filed under a different name. **It exists
+and it already pays LPs**, traced end to end today:
+`Core.sol:561` `skewPremium += premiumUsd` → `RANGE.creditSkewPremium(premiumUsd)` →
+`Vault.sol:349-351` `feeIncrements(0, premium6, lpShares + totalBuffer)` → **`USD_FEES += usdInc`** →
+`feesPerShare` → **LPs.**
+⇒ **The protocol ALREADY charges the imbalance-causer and hands the proceeds to LPs pro-rata.** So
+*"should LPs share in the arb"* is **not** the open question — architecturally they do.
+🔴 **THE ACTUAL OPEN QUESTION, AND IT IS A PRICING PROBLEM, NOT A PLUMBING ONE:**
+> **Is `skewPremium` set so that it captures the arbitrage the range's own mispricing creates, or does
+> it systematically leave value on the table for the arbitrageur?**
+Under-price it and LPs subsidise arbitrageurs on every restoration; over-price it and the imbalance
+never gets closed because arbing it stops being profitable — **and an unclosed imbalance is exactly
+what the refill exists to fix.** ⇒ **The optimum is not a constant: it is the largest premium that
+still leaves the arb profitable**, which depends on the arbitrageur's own route cost — a number this
+session now knows how to measure (§ROUTE-COST-MEASURED: 1.7–2 bps for 3pool stables, 8 bps for GHO).
+⚠️ **DO NOT BUILD A NEW MECHANISM FOR THIS.** The credit path, the accumulator (`skewPremiumCum`) and
+the LP distribution all exist and are audited. **The work is calibration plus a test that the premium
+tracks the arb's actual cost floor** — and §E93-b already established that a refill-responsive
+imbalance measure *"needs NO new state, NO new accumulator, and NO new write path."*
+
+### 🔴 AND A STALE CITATION FOUND WHILE MAPPING THIS
+Line 12222 says *"`docs/actionable/REFILL-AND-RESTORATION.md` EXISTS — I said it did not, and I was
+wrong … **Read that file before re-deriving any of this**"*. **`ls docs/actionable/` returns SPRINT.md
+and nothing else.** The file is gone; the instruction now sends the next thread to a dead path, and
+the row's own lesson (*enumerate containers before auditing*) is what catches it. **Whatever that file
+held is either folded into this one or lost — do not treat the pointer as live.**
+
 ## 🔴 **§UNBOOKED-OWNER-ASKS — THREE THINGS THE OWNER ASKED FOR TODAY THAT NEVER REACHED THIS FILE, AND ONE IS A PRECONDITION FOR THE FEATURE I SPENT THE DAY DESIGNING**
 
 Standing rule 12: *"lift a finding to a task IN THE SAME TURN, or it does not exist."* **Measured
