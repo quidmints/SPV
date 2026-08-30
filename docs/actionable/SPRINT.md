@@ -576,8 +576,24 @@ confirmed by other means.
 1169512293718309859154"*, gas 7,806,449 → 7,326,856, so behaviour changed materially. **The suspect is
 the concurrent leverage work, not the BTC changes** — `LevBase`/`LevMath`/`LevVenueBase`/`Interfaces`
 all changed since baseline and the failing assertion is leverage-book accounting, while the BTC
-changes touch channel custody. ⚠️ **NOT YET PROVEN** — a bisect at `52351b66` was running when this
-was written. Do not close it on the assumption above; finish the bisect.
+changes touch channel custody. **BISECT SO FAR (each point = one fork run of the single test):**
+| commit | verdict | meaning |
+|---|---|---|
+| `e2f0d0fe` (session baseline) | ✅ PASS | pre-existing state is good |
+| `52351b66` (my reserve funder — ALL my BTC work to that point) | ✅ PASS | **the audits, funding half, pool script and reserve funder are exonerated** |
+| `27967884` (after the other session's *LTV from the venue* change) | ✅ PASS | `bd8a174b` exonerated |
+| `89c8514b` (after *borrowRateRay cast fix*) | ✅ PASS | `c99f6519` **and my pool purge `b4ecb17b`** exonerated |
+| `HEAD` | 🔴 FAIL | |
+
+⇒ **THE WINDOW IS NOW `89c8514b..HEAD`, AND IT HOLDS EXACTLY TWO COMMITS THAT CHANGE SOLIDITY:**
+`3c81ad31` (other session — `_aggSwap` gains a second pool word; `LevMath.sol` +41, `Interfaces.sol`
++8) and `e004f8dc` (mine — the preimage dedup key, `BTCChannels.sol` + 5 test files, none of them
+`VBtcLevFeeLane.t.sol`). ⚪ `b85e8680` ("SOL* haircut default") touches **only**
+`svm/programs/quid/src/entra.rs` — Solana, so it cannot move a Foundry test; the rest of the window
+is documentation.
+▶️ **NEXT AND LAST STEP: run the test at `3f06139e`** (after `3c81ad31`, before my commit). FAIL there
+⇒ `3c81ad31` is the cause and my preimage commit is clear; PASS ⇒ it is mine. **In flight when this
+was written — do not close either way without it.**
 
 ### 🆕 ALSO SURFACED IN DISCUSSION AND NOT BOOKED UNTIL NOW (2026-08-30, owner: *"are you sure that
 is all the new work? other things came up"*) — they were, and these are them
