@@ -104,6 +104,20 @@ abstract contract LevVenueBase is ILevVenue {
         return dec >= 18 ? amt / (10 ** (dec - 18)) : amt * (10 ** (18 - dec));
     }
 
+    /// @inheritdoc ILevVenue
+    /// @dev ONE body for both venues, because slicing an aggregate by unit share is the SAME
+    ///      operation whatever the aggregate measures — which is the whole reason the ledger could
+    ///      absorb multi-debt without changing. `position()` is the only per-venue part.
+    function positionOf(address lp) external view returns (VenuePosition memory p) {
+        VenuePosition memory pool = position();
+        p.collateral      = _unitSlice(collUnits[lp], totalCollUnits, pool.collateral);
+        p.debt            = _unitSlice(debtUnits[lp], totalDebtUnits, pool.debt);
+        p.liqThresholdBps = pool.liqThresholdBps;   // a venue parameter, not a per-LP one
+    }
+
+    /// @inheritdoc ILevVenue
+    function position() public view virtual returns (VenuePosition memory);
+
     function _unitSlice(uint256 u, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return u == 0 ? 0 : SoladyMath.fullMulDiv(u, bal + 1, tot + UNIT_OFFSET);
     }
@@ -431,7 +445,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///      ⚠️ `ORACLE_PRICE_SCALE` is 1e36 and is Morpho's, not ours; `LLTV` is 1e18-scaled, hence
     ///      the 1e14 divisor to bps. Neither number is commensurable with Aave's — by design, see
     ///      `ILevVenue.position`.
-    function position() external view returns (VenuePosition memory p) {
+    function position() public view override returns (VenuePosition memory p) {
         (, uint128 borrowShares, uint128 coll) = MORPHO.position(MARKET_ID, address(this));
         uint8 dec = IERC20Min(STABLE).decimals();
         uint256 collInLoan = SoladyMath.fullMulDiv(uint256(coll), IOracle(ORACLE).price(), 1e36);
@@ -681,7 +695,7 @@ contract AaveV3Venue is LevVenueBase {
     ///      accounts), which is strictly better than the constructor constant beside it.
     ///      ⚠️ Aave's base unit is 8-dec; the ×1e10 is the lift to 18, and it is the only unit
     ///      conversion on this path.
-    function position() external view returns (VenuePosition memory p) {
+    function position() public view override returns (VenuePosition memory p) {
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0)) return p;         // no escrow yet: a genuinely empty position
         (uint256 c, uint256 d,, uint256 lt,,) = POOL.getUserAccountData(address(e));

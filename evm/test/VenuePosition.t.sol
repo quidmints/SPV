@@ -61,6 +61,33 @@ contract VenuePositionTest is Test {
         assertEq(p2.collateral, p1.collateral, "borrowing must not change collateral");
     }
 
+    /// THE HAZARD `positionOf` EXISTS FOR: an LP's debt share and collateral share are INDEPENDENT
+    /// fractions, so per-LP LTV is NOT pool LTV. Two LPs put up identical collateral and only one
+    /// borrows; if `positionOf` were (wrongly) returning pool-level numbers, both would report the
+    /// same health and the borrower's risk would be smeared across someone who took none.
+    function test_PerLpHealthIsNotPoolHealth() public {
+        address LP2 = address(0xCAFE);
+        _seed(100e18);                                   // LP supplies
+        deal(WEETH, address(venue), 100e18);
+        venue.supply(LP2, 100e18);                       // LP2 supplies the SAME collateral
+        venue.borrow(LP, 50_000e18);                     // ...and only LP borrows
+
+        VenuePosition memory pool = venue.position();
+        VenuePosition memory a = venue.positionOf(LP);
+        VenuePosition memory b = venue.positionOf(LP2);
+
+        // collateral splits evenly; debt does not split at all
+        assertApproxEqRel(a.collateral, b.collateral, 0.01e18, "collateral should be ~50/50");
+        assertApproxEqRel(a.debt, pool.debt, 0.01e18, "the borrower owns ~all of the debt");
+        assertEq(b.debt, 0, "the non-borrower must owe NOTHING");
+
+        // and therefore the two LPs' LTVs differ, while pool LTV is between them
+        uint256 ltvA = a.debt * 10_000 / a.collateral;
+        uint256 ltvPool = pool.debt * 10_000 / pool.collateral;
+        assertGt(ltvA, ltvPool, "borrower must be riskier than the pool average");
+        assertGt(ltvA, 0, "control: a zero LTV would make the comparison vacuous");
+    }
+
     /// `liqThresholdBps` is live and position-weighted. With weETH as the only collateral it must
     /// equal weETH's own reserve threshold (8000), which is a real cross-check on the field rather
     /// than a restatement of the constructor argument.

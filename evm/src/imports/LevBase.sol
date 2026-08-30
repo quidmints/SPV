@@ -9,7 +9,7 @@ import {RangeLib} from "./RangeLib.sol";
 // §J.2 — ONE import from `Interfaces.sol`, not three. Rule 2 is "one declaration per interface in a
 // shared file"; three import statements from the SAME file is the same fragmentation on the consumer
 // side, and it is how `ILevPooled` came to look like a separate concern with its own line.
-import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX} from "./Interfaces.sol";
+import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX, VenuePosition} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
@@ -469,11 +469,17 @@ abstract contract LevBase {
     function totalDeliverableDollars() external view returns (uint) {
         address v = _pool();
         if (v == address(0)) return 0;
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        uint collUsd = (_collNativePool(v) * px) / 1e18;
-        uint d = LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
+        // §POSITION-IS-THE-LENDERS-OWN-VIEW — the POOL-level twin of `getCurrentLtvBps`, and it has
+        // to move in the SAME commit: leaving this on `AUX` while the per-LP path reads the venue
+        // would give the contract two disagreeing notions of the same pool's health, and they would
+        // only diverge once the venue's oracle drifted from ours — i.e. in production.
+        // Deletes the TWAP read, `_collNativePool` and `_toUsd18` from this path: both sides share
+        // the venue's quote unit, so nothing needs converting.
+        VenuePosition memory pp = ILevVenue(v).position();
+        uint collUsd = pp.collateral;
+        uint d = pp.debt;
         uint netEq = collUsd > d ? collUsd - d : 0;
-        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), ILevVenue(v).liqThresholdBps());
+        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), pp.liqThresholdBps);
     }
 
     /// @dev ⚠️ WHEN THESE MOVE TO A DELEGATECALL LIBRARY, THE CALLER COMPUTES THIS AND PASSES IT AS
@@ -592,10 +598,21 @@ abstract contract LevBase {
     ///         returns 0 for a closed position WITHOUT the guard. The BTC copies never had it and
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
+    /// @dev §POSITION-IS-THE-LENDERS-OWN-VIEW — BOTH SIDES NOW COME FROM THE VENUE, so this is the
+    ///      LTV the LENDER computes rather than the one our oracle implies. That is a correctness
+    ///      change, not a simplification: the old body priced debt through `AUX`'s feed for
+    ///      `v.stable()` and collateral through `AUX.getTWAPforAsset`, while Aave liquidates on ITS
+    ///      oracle — so the two could disagree, and the direction that matters is believing we are
+    ///      at 70% while the venue believes 80%.
+    ///      ⭐ It also deletes the unit problem rather than solving it: `p.debt` and `p.collateral`
+    ///      share the venue's quote unit, so the ratio is unitless and NO conversion is needed on
+    ///      either side. `positionOf` (not `position`) because per-LP shares of debt and collateral
+    ///      are independent fractions — see `ILevVenue.positionOf`.
     function getCurrentLtvBps(address lp) public view returns (uint) {
         ILevVenue v = pos[lp].venue;                       // same address(0) case as `debtUsd`
         if (address(v) == address(0)) return 0;
-        return LevMath.ltvBps(debtUsd(lp), collValueUsd(v.collateralOf(lp)));
+        VenuePosition memory p = v.positionOf(lp);
+        return LevMath.ltvBps(p.debt, p.collateral);
     }
 
     /// @notice §POOL-VENUE — THE LTV THE VENUE ACTUALLY LIQUIDATES ON. Debt and collateral of the ONE
@@ -619,12 +636,20 @@ abstract contract LevBase {
         return a > b ? a : b;
     }
 
+    /// @dev §POSITION-IS-THE-LENDERS-OWN-VIEW — the THIRD and last venue-health LTV to move onto the
+    ///      venue's own view, and the one the KEEPERS read (`poolLtvBps()` is in
+    ///      `check-signer-allowlist`'s READ_ONLY set, sampled in both keepers' snapshot builders).
+    ///      Leaving it behind would have meant the keeper deleveraged against OUR oracle while the
+    ///      venue liquidated against ITS own.
+    ///      ⛔ NOTE WHICH LTV DELIBERATELY DID **NOT** MOVE: `ilLtvBps` measures debt against
+    ///      `entryEquity`, a HISTORICAL basis recorded in AUX units at open. Pairing a venue-quoted
+    ///      debt with an AUX-quoted basis would be a genuine unit error — that one is correct as it
+    ///      stands, and it is not an oversight.
     function poolLtvBps() public view returns (uint) {
         address v = _pool();
         if (v == address(0)) return 0;
-        return LevMath.ltvBps(
-            LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt()),
-            collValueUsd(ILevPooled(v).totalCollateral()));
+        VenuePosition memory p = ILevVenue(v).position();
+        return LevMath.ltvBps(p.debt, p.collateral);
     }
 
     /// @notice LTV against the FIXED IL base `entryEquity` — the reference the IL target is measured against,

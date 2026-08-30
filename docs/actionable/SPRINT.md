@@ -909,6 +909,56 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## ✅ **§LTV-IS-THE-LENDERS — ALL THREE VENUE-HEALTH LTVs NOW READ THE VENUE, AND THE ONE THAT DID NOT MOVE IS THE INTERESTING ONE** (closes ② of §POSITION-LEAVES-THREE-LOOSE-ENDS)
+
+§POSITION-LEAVES-THREE-LOOSE-ENDS warned that `_poolReserve` and `position()` *"must be collapsed in
+ONE commit, not migrated caller-by-caller."* **I then migrated exactly one caller and nearly stopped
+there** — `getCurrentLtvBps` — which is the same defect one level up. Grepping every `ltvBps(` call
+site found **three** venue-health LTVs, not one.
+
+### 🔁 THE THREE THAT MOVED, AND WHY EACH HAD TO
+| site | was | now |
+|---|---|---|
+| `getCurrentLtvBps` (per-LP) | `debtUsd` via **AUX feed** ÷ `collValueUsd` via **AUX TWAP** | `positionOf(lp)` — both sides, one unit |
+| `deliverableDollars` pool leg (`LevBase:472`) | AUX TWAP × `_collNativePool`, `_toUsd18(totalDebt)` | `position()` |
+| **`poolLtvBps`** | AUX both sides | `position()` |
+🔴 **`poolLtvBps` IS THE ONE THAT WOULD HAVE HURT: BOTH KEEPERS SAMPLE IT** (it is in
+`check-signer-allowlist`'s READ_ONLY set, *"read beside `ilLtvBps` in the SAME snapshot builder"*).
+Leaving it behind means **the keeper deleverages against OUR oracle while the venue liquidates
+against ITS own** — the divergence is invisible until the two prices part, which is exactly the
+moment it matters.
+
+### ⛔ AND THE ONE THAT CORRECTLY DID **NOT** MOVE — DO NOT "FINISH THE JOB" HERE
+**`ilLtvBps` stays on `AUX`, deliberately.** It measures debt against **`entryEquity`, a HISTORICAL
+basis recorded in AUX units at open** — it is an IL-protection ratio, not a venue-health one, which is
+why it does not move with collateral at all. Pairing a venue-quoted debt with an AUX-quoted historical
+basis would be a **genuine unit error**. ⇒ **The discriminator is not "does it call `ltvBps`" but
+"are both sides quoted by the same party": venue-vs-venue, or ours-vs-ours.**
+
+### 🎯 WHY THIS IS A CORRECTNESS CHANGE, NOT A TIDY-UP
+The old bodies priced debt through `AUX`'s feed for `v.stable()` and collateral through
+`AUX.getTWAPforAsset`, **while the lender liquidates on its own oracle.** The dangerous direction is
+believing we sit at 70% while Aave believes 80%. Reading the venue closes that gap *definitionally*
+rather than by tightening a tolerance.
+⭐ **AND IT DELETED CODE RATHER THAN ADDING IT (standing rule 17): `LevManager` 22,999 → 22,760, −239
+bytes**, because both sides now share the venue's quote unit and **no conversion is needed on either
+side.** A root fix that makes the previous machinery smaller is the shape the rule predicts.
+
+### ✅ VERIFICATION
+**Lev suite 41 passed / 0 failed / 0 `setUp` failures / 0 RPC noise**, re-run after EACH of the three
+migrations rather than once at the end. Plus 5 new tests, of which the load-bearing one is
+`test_PerLpHealthIsNotPoolHealth`: two LPs post identical collateral and only one borrows, proving
+`positionOf` slices debt and collateral as **independent** fractions.
+⚠️ **THAT CONTROL EXISTS BECAUSE A GREEN SUITE AFTER A SEMANTIC CHANGE PROVES NOTHING** — 41 tests
+passed *before* the LTV source changed and 41 passed after, so the suite alone could not distinguish
+"the new path is correct" from "the new path is never reached."
+
+### 🔧 CORRECTION TO A NUMBER I RAISED TWICE
+I reported **`BTCChannels` at 24,545 bytes / 31 to spare** and flagged it as the binding contract. **A
+clean re-measure says 23,527 / 1,049**, with `SwapLib` (202) the real binder. The alarming figure came
+from a build carrying another lane's uncommitted work — **a size reading is a property of the BUILD,
+not of the repo**, which is the same lesson `evm/out` outliving `evm/src` teaches from the other side.
+
 ## ⚠️ **§POSITION-LEAVES-THREE-LOOSE-ENDS — SELF-AUDIT OF THE COMMIT I JUST LANDED** (owner, 2026-08-30: *"are you sure you arent missing anything?"*)
 
 Regression checked first, because it was the one gap I could not reason about: **`forge test

@@ -536,6 +536,14 @@ interface ILevVenue {
     ///         commensurable across venues.
     function position() external view returns (VenuePosition memory);
 
+    /// @notice `lp`'s OWN slice of `position()`, in the same quote unit.
+    /// @dev    ⚠️ **PER-LP LTV IS NOT POOL LTV, AND SUBSTITUTING ONE FOR THE OTHER IS A REAL BUG.**
+    ///         The venue is POOLED (§POOL-VENUE): `debtUnits[lp]/totalDebtUnits` and
+    ///         `collUnits[lp]/totalCollUnits` are INDEPENDENT fractions, so an LP's debt-to-collateral
+    ///         ratio equals the pool's only when those two shares happen to be equal. Every per-LP
+    ///         health question must go through this, and every pool-level one through `position()`.
+    function positionOf(address lp) external view returns (VenuePosition memory);
+
     /// @notice The borrow APR, in RAY (1e27), that would apply to `stable()` on this venue if
     ///         `extraBorrow` MORE were drawn right now. `extraBorrow == 0` is the current rate.
     /// @dev    §CHEAPEST-DOLLAR — this is the ONE new accessor the allocator needs, and the reason
