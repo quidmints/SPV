@@ -909,6 +909,55 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§V4-IS-FULL — I RECOMMENDED RESTORING AAVE v4 FIRST. MEASURED, THE PRIZE BEHIND IT IS 0.12% OF AAVE v3's, AND THE SEQUENCING IS WRONG** (2026-08-30)
+
+Last turn I called the v4 restore *"the precondition — build it first."* **It IS a precondition. It is
+also, right now, nearly worthless**, and the only way to find that out was to try to POST COLLATERAL
+rather than to read the venue's liquidity.
+
+### 📡 MEASURED ON THE LIVE SPOKE (`0x94e7A5dC…`), BY ACTUALLY SUPPLYING
+Supplying 100 weETH reverted `0xde3fc6ae(0xfa0)` — **a supply cap of 4,000**. 10 weETH succeeded.
+| | Aave v4 hub | Aave v3 |
+|---|---:|---:|
+| weETH supplied | **3,832.5** | 1,211,945 |
+| weETH cap | **4,000** | 1,350,000 |
+| **collateral headroom** | **167 weETH ≈ \$461k** | **138,055 weETH ≈ \$381M** |
+| borrow capacity at CF/LTV | ~\$369k (CF 8000) | ~\$295M (LTV 7750) |
+⇒ **v4 offers 0.12% of v3's collateral capacity.**
+⛔ **AND IT KILLS THE ARGUMENT THAT SENT ME THERE.** §THREE-VENUE-MATRIX said *"USDG is the deepest
+dollar on the v4 hub (\$37.9M)"* and I carried that into the plan. **True and irrelevant: we can post
+at most \$461k of collateral on v4, so we could draw at most ~\$369k of that \$37.9M.** The depth is
+real and unreachable.
+⭐ **THE GENERALISED LESSON, AND IT IS THE THIRD TIME THIS SHAPE HAS BITTEN TODAY: A VENUE HAS TWO
+INDEPENDENT DEPTHS AND I KEEP MEASURING ONLY ONE.** §ROUTE-COST-MEASURED found *Aave depth ≠ route
+depth* (USDe: \$234M borrowable, \$5M route reverts). This is *borrow depth ≠ COLLATERAL CAPACITY*.
+**Reading a venue's liquidity tells you nothing about whether you can get IN.**
+
+### ✅ WHAT THE PROBE ESTABLISHED THAT IS STILL WORTH HAVING
+- **`getReserveId(HUB, getAssetId(weETH)) = 2`**, and supply + `setUsingAsCollateral` both work.
+- **weETH IS collateral on v4**: after marking it, `avgCollateralFactor` reads **0.8e18 (80%)**.
+- 🔴 **`Amp.sol`'s `UserAccountData` DECLARATION DOES NOT MATCH THE DEPLOYED SPOKE.** Amp declares
+  **3 fields** (`totalCollateralValue, totalDebtValue, avgCollateralFactor`); the live call returns
+  **7 words**. Decoding 7 as 3 reads word[2] — which is **`type(uint).max`** on an empty account —
+  into `avgCollateralFactor`. ⚠️ **The owner said "copy the pattern exactly"; copying THIS exactly
+  imports a decoding bug.** Copy the *ladder*, not the struct.
+- **Partial layout, from a live position of 10 weETH:** `[1] = 0.8e18` (avgCollateralFactor),
+  `[2] = MAX_UINT` (health, debtless), `[3] = 2.76e30` = **`amount × price`, NOT decimal-normalised**
+  (10e18 × 276,195,911,157 ⇒ weETH @ **\$2,761.96**, which cross-checks against ETH \$2,467 × ~1.119).
+  `[5] = 1`. ⚠️ **`[0]`, `[4]`, `[6]` are UNIDENTIFIED and a USDG borrow reverted `0x851aedc1`**, so
+  the debt-side layout is UNVERIFIED — **do not write the struct from this row alone.**
+
+### ▶️ THE CORRECTED SEQUENCING
+1. **1inch `swap()` path** — one change that unblocks in-range swaps, OOR fills AND IL-protect, and
+   §UNOSWAP-CANNOT-REACH proved four of eight candidate dollars are unroutable without it. **Biggest
+   reach per unit of work, and the owner has asked for it repeatedly.**
+2. **OOR sell leg** — a named revert on a rail the owner has now raised three times.
+3. **Multi-asset borrow on the AaveV3Venue** — the capacity split, where the \$381M actually is.
+4. **Aave v4 restore** — demote. It is still required for *"all three venues"* and for the WBTC
+   v4-vs-v3 comparator, but it buys ~\$369k of borrow capacity today. **Do it when the cap lifts, or
+   do it cheaply as a rate-comparison-only venue** (`borrowRateRay` needs no collateral posted) so the
+   comparator the owner asked for twice can exist without pretending v4 is usable capacity.
+
 ## 🗺️ **§ARB-SHARING-IS-THE-SKEW-PREMIUM'S-PRICE — MAPPING THE OOR AND REBALANCE/REFILL THREADS AGAINST WHAT THIS FILE ACTUALLY HOLDS** (owner, 2026-08-30: *"what about the oor stuff? … rebalance/refill left (optimal policy still a mystery, related to skew and profit sharing of all possible arb with LPs, not sure to what extent this is covered)"*)
 
 ### 📌 THE OOR THREAD — FOUR ITEMS, AND I HAVE NOW DROPPED IT TWICE
