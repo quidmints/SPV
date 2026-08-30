@@ -184,6 +184,48 @@ rescue it either — the seller could reveal without paying.
 rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
 `provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
 
+🟠 **`§QR-VERIFIER-UNASSEMBLED` (2026-08-30, owner asked: *"can the phone client get proof in any
+way of the codebase of the daemon it is interacting with via enclave?"*).**
+
+**SHORT ANSWER: NO — AND BY DESIGN IT SHOULD NOT NEED TO. But the thing that replaces attestation
+is not finished.**
+
+⚪ **ATTESTATION EXISTS, BUT NOT FOR THE PHONE.** `quid-enclave/src/platform.rs` produces
+`report()`, `measurement()`, `signer()`, and `provision_api.rs` serves an **attested TLS** channel
+whose client verifies the enclave quote during the handshake — but that client is the OPERATOR
+importing the seed, not a user's phone. Nothing in `app/` consumes an attestation (the only
+`attest`/`quote`/`measurement` hits there are price quotes and volatility).
+
+⛔ **AND THE ABSENCE IS DELIBERATE, NOT AN OVERSIGHT.** `BTCChannels.sol:107-113`: `isAttested(hop)`
+had every call site deleted (§E185) because *"an attestation gate asserts an address runs approved
+CODE, which is only as strong as whoever controls the whitelist and buys nothing against the attacks
+that matter — every one of them is available to a hop running perfectly attested code."*
+
+⭐ **WHAT REPLACES IT IS STRICTLY STRONGER: the phone re-derives the answer instead of trusting the
+code that produced it.** `app/features/identity/chain/taproot.ts`: *"THE ADDRESS IS THE OUTPUT, NEVER
+AN INPUT… Everything here is fed from what the WALLET owns (`userRefund`, `seller`) or what the USER
+WAS SHOWN AND ACCEPTED (`token`, `minDeliveredUsd`, `cltvHeight`) — and the quoted address is
+compared against the result, never mixed into it."* A hop running unknown code cannot quote an
+address that survives that check.
+
+🔴 **BUT IT IS NOT WIRED. `taprootOutputKey` HAS ZERO PRODUCTION CALLERS** — only its own tests. Every
+piece exists and is tested (`termsCommitment`, `refundLeafScript`/`depositLeafScript`, `tapLeafHash`,
+`taprootOutputKey`, and bech32m decoding in `btcaddress.ts`), and **nothing joins them into the
+comparison.** By the owner's own rule this is a component built whose counterpart does not exist.
+⇒ The join is small and needs no new dependency: `addressToScriptPubKey(quoted)` → take the 32-byte
+x-only key out of `5120‖Q` → compare against `taprootOutputKey(internalX, tapLeafHash(depositLeafScript(…)))`.
+
+⚠️ **AND `taproot.ts`'s OWN HEADER IS STALE, WHICH IS HOW THE GAP READS AS BIGGER THAN IT IS.** It
+says the address additionally needs *"(a) the BIP-341 TapTweak … and (b) bech32m. **Neither is
+here**"* — but TapTweak IS here (`taprootOutputKey`, `:186`, whose own comment says *"no new
+dependency"*), and bech32m decoding is in `btcaddress.ts`. The blocker it names (`@scure/btc-signer`
+not being a dependency) applies only to ENCODING an address, which the verifier never needs.
+
+⚠️ **SCOPE, SO THIS IS NOT OVERSOLD:** re-deriving the deposit address binds the hop to the terms it
+showed. It does NOT cover `§HOP-RCE-3` — on the LN rail the hop still NAMES the seller, and nothing
+binds that to whoever paid. That needs the seller-signed intent (`§M1-RESIDUAL-100` residual 1), and
+no amount of address verification substitutes for it.
+
 ✅ **`§POOL-INVENTORY-PURGED` (2026-08-30) — PHASE 2 DONE. FOUR OPEN ITEMS CLOSED BY DELETION.**
 With the cap funded from the fleet's own reserve, the old funder and everything that existed to
 untangle it are gone: `parkProvenSats`, `poolOwnedSats`, `poolSatsParker`, `_releasePoolSats`,

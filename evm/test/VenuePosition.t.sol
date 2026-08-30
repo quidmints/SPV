@@ -61,6 +61,25 @@ contract VenuePositionTest is Test {
         assertEq(p2.collateral, p1.collateral, "borrowing must not change collateral");
     }
 
+    /// §V4-IS-FULL — a headroom NUMBER is worth nothing unless it PREDICTS THE CAP REVERT, so this
+    /// ties it to behaviour rather than restating the two reads it is computed from (which would be
+    /// tautological). Supplying inside the headroom must work; supplying past it must revert.
+    function test_HeadroomPredictsTheCapRevert() public {
+        uint256 room = venue.supplyHeadroom();
+        assertGt(room, 0, "control: weETH must have room, else both halves below are vacuous");
+        assertLt(room, 1_350_000e18, "control: headroom cannot exceed the cap itself");
+
+        deal(WEETH, address(venue), room / 2);
+        venue.supply(LP, room / 2);                       // comfortably inside: must succeed
+        assertGt(venue.position().collateral, 0, "supply inside the headroom should register");
+
+        uint256 left = venue.supplyHeadroom();
+        assertLt(left, room, "headroom must FALL after we consume some of it");
+        deal(WEETH, address(venue), left + 1_000e18);
+        vm.expectRevert();                                // past the cap: Aave must refuse
+        venue.supply(LP, left + 1_000e18);
+    }
+
     /// THE HAZARD `positionOf` EXISTS FOR: an LP's debt share and collateral share are INDEPENDENT
     /// fractions, so per-LP LTV is NOT pool LTV. Two LPs put up identical collateral and only one
     /// borrows; if `positionOf` were (wrongly) returning pool-level numbers, both would report the

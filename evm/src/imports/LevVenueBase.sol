@@ -438,6 +438,12 @@ contract MorphoEscrowVenue is LevVenueBase {
 
     /// Morpho LLTV is 1e18-scaled (1e18 = 100%); convert to bps (1e18/1e14 = 1e4 = 100%).
     /// @inheritdoc ILevVenue
+    /// @dev Morpho Blue has NO supply cap — a market accepts collateral without limit, which is one
+    ///      of the things an isolated market buys. Uncapped is reported as `max`, the same value the
+    ///      Aave side returns for an uncapped reserve, so a caller never special-cases the venue.
+    function supplyHeadroom() external pure returns (uint256) { return type(uint256).max; }
+
+    /// @inheritdoc ILevVenue
     /// @dev A Morpho market is ISOLATED and single-asset, so there is no basket to aggregate and the
     ///      venue's own quote unit is simply THE LOAN TOKEN. Collateral is converted at Morpho's own
     ///      market oracle — the same price its own liquidation check uses — so the ratio this returns
@@ -684,6 +690,17 @@ contract AaveV3Venue is LevVenueBase {
         (uint256 aTokenBal,, uint256 variableDebt,,,,,,) =
             DATA.getUserReserveData(wantDebt ? STABLE : COLLATERAL, address(e));
         return wantDebt ? variableDebt : aTokenBal;
+    }
+
+    /// @inheritdoc ILevVenue
+    /// @dev Aave publishes the cap in WHOLE TOKENS and uses `0` for UNCAPPED — both are easy to get
+    ///      backwards, and getting the second one backwards makes an uncapped reserve look FULL.
+    function supplyHeadroom() external view returns (uint256) {
+        (, uint256 supplyCap) = DATA.getReserveCaps(COLLATERAL);
+        if (supplyCap == 0) return type(uint256).max;              // Aave's convention: 0 == no cap
+        uint256 capWei = supplyCap * (10 ** IERC20Min(COLLATERAL).decimals());
+        (,, uint256 totalAToken,,,,,,,,,) = DATA.getReserveData(COLLATERAL);
+        return capWei > totalAToken ? capWei - totalAToken : 0;
     }
 
     /// @inheritdoc ILevVenue

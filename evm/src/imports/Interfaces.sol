@@ -536,6 +536,20 @@ interface ILevVenue {
     ///         commensurable across venues.
     function position() external view returns (VenuePosition memory);
 
+    /// @notice How much MORE collateral this venue can accept RIGHT NOW, in COLLATERAL token units.
+    ///         `type(uint256).max` when the venue is uncapped.
+    /// @dev    §V4-IS-FULL — the third dynamic quantity the allocator needs, and the one that was
+    ///         missing. Rate is live (`borrowRateRay`) and BORROW capacity is live (an unfundable
+    ///         draw reverts) — but COLLATERAL capacity was measured off-chain and written into a
+    ///         ledger row, which is not a measurement a running system can act on. **A supply cap is
+    ///         governance-mutable and can change in any block**, so an allocator that ranks venues by
+    ///         rate alone will eventually pick one it cannot enter and fail at execution.
+    ///         ⭐ It also deletes a human step: §V4-IS-FULL said *"do it when the cap lifts"*, which
+    ///         needs someone watching. Read on-chain, the venue simply becomes eligible again.
+    ///         ⚠️ This is a READ, deliberately — it does NOT clamp `supply()`. Exceeding a cap should
+    ///         REVERT loudly at the venue rather than silently partial-fill (standing rule 3).
+    function supplyHeadroom() external view returns (uint256);
+
     /// @notice `lp`'s OWN slice of `position()`, in the same quote unit.
     /// @dev    ⚠️ **PER-LP LTV IS NOT POOL LTV, AND SUBSTITUTING ONE FOR THE OTHER IS A REAL BUG.**
     ///         The venue is POOLED (§POOL-VENUE): `debtUnits[lp]/totalDebtUnits` and
@@ -1009,6 +1023,9 @@ interface IIrm {
 
 interface IAaveV3DataProvider {
     function getInterestRateStrategyAddress(address asset) external view returns (address);
+    /// @notice (borrowCap, supplyCap) in WHOLE TOKENS, not wei. ⚠️ **`0` MEANS UNCAPPED** in Aave's
+    ///         convention, not "no room" — reading it as a quantity inverts the meaning exactly.
+    function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap);
     /// @notice Aave's TRACKED virtual balance. ⚠️ NOT the same as `totalAToken - totalDebt`, and the
     ///         difference is not noise: deriving it instead of reading it made `borrowRateRay`
     ///         disagree with Aave's own live rate by 2.6e-6 relative on USDT (2026-08-30). It
