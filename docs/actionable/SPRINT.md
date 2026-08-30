@@ -1166,6 +1166,51 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🗺️ **§WHAT-MAKES-TODAY-USABLE — I SAID "THE ONE CHANGE". IT IS ONE OF ~16, AND MY PROPOSED FIX WAS THE STATIC KIND THE OWNER HAS ALREADY RULED OUT TWICE** (owner, 2026-08-30: *"it should be a dynamic check, as i said before, and its not the only change"*)
+
+### 🔴 ① THE `_routeOf` FIX IS A **DELETION**, NOT A BIGGER TABLE
+I proposed *"expand `_routeOf` past two entries"* — **adding rows to a hardcoded table**, which is the
+same static shape the owner rejected for supply caps (§V4-IS-FULL → `supplyHeadroom()` reads the cap
+on-chain) and for venue selection. **Third time; write it down.**
+⭐ **THE DYNAMIC FORM ALREADY EXISTS IN THIS FILE — IT IS `_aggSwap`'s OWN PATTERN.** The keeper names
+POOLS and the contract validates the OUTCOME (oracle floor on a measured balance delta). `_hubSwap`
+predates that and does the opposite: a **compile-time table of two Curve pools**.
+| today | the replacement |
+|---|---|
+| `_hubSwap(stable→USDC)` via `_routeOf`'s **2 hardcoded entries**, then `_aggSwap(USDC→volatile)` with **one** pool word | **one `_aggSwap` with TWO keeper-supplied pool words** — i.e. exactly the `unoswap2` path landed in `3c81ad31` |
+⇒ **This DELETES `_routeOf`, `_routableStable`, `NoStableRoute`, `_hubSwap`, its Curve approval and
+`ICurvePool` from the lever path** (standing rule 17: a root fix makes the previous fix deletable).
+Curve pools ARE `unoswap`-addressable (`PROTO=2`), so a Curve hop simply becomes a pool word.
+🔴 **AND IT FIXES AN UNGUARDED HOP NOBODY BOOKED: `_hubSwap` calls `ICurvePool.exchange(i, j, amt, 0)`
+— `min_dy` is ZERO.** That hop carries no slippage bound of its own; it is covered only because
+`_aggSwap`'s floor bounds the FINAL output. Folding both hops into one `unoswap2` call puts the whole
+route under **one oracle floor and one balance-delta check**, which is strictly tighter than today.
+⇒ **So the two-hop work is not a side-quest — it is the mechanism that makes routing dynamic.**
+
+### 🔴 ② "THE ONE CHANGE" WAS WRONG — HERE IS THE ACTUAL DEPENDENCY MAP
+**A. Landed today with NO CALLER (options, not savings):**
+1. `borrowRateRay` — nothing reads it · 2. `supplyHeadroom` — nothing reads it · 3. `_aggSwap`'s
+`dex2` — every call site passes 0. *(`position`/`positionOf` is the exception: wired to all three LTV
+sites.)*
+**B. STRUCTURAL BLOCKERS that keep A unusable:**
+4. **`_routeOf` static/2 entries** ⇒ only RLUSD (4.74%) and PYUSD (5.85%) are borrowable at all, so
+   §CHEAPEST-DOLLAR's GHO recommendation is unreachable — and §CURVE-ALONE-CANNOT-DO-IT shows GHO has
+   **no Curve route at all** (Fluid only), so it is unreachable even dynamically. **The reachable
+   cheap dollar is USDT: 4.08%, \$252M, 1.7 bps via 3pool.**
+5. **`LevVenueBase.STABLE` immutable** ⇒ one debt asset per venue ⇒ no capacity split.
+6. **`_poolReserve`/`debtOf` still single-asset** ⇒ silently diverges from `position()` at debt #2.
+7. **`poolVenue` pin (`LevBase:393`)** ⇒ one venue per range ⇒ no migration.
+8. **No `AaveV4Venue`** ⇒ "all three venues" impossible; WBTC v4-vs-v3 comparator impossible.
+**C. THE ALLOCATOR DOES NOT EXIST:** 9. no rotation entrypoint, cooldown, allowlist or `MIN_IMPROVE`
+· 10. no capacity-split logic.
+**D. OTHER THREADS THE OWNER RAISED, UNTOUCHED:** 11. OOR sell leg (`IntentSellLegUnbuilt`) ·
+12. BTC OOR — no path since the book deletion · 13. keeper-hacked recoverability, never re-checked
+against the intent design · 14. the `Amp.sol` LADDER (liveness, not the rate comparison) ·
+15. client convergence (§TRACK E1) · 16. skew-premium calibration (§ARB-SHARING).
+⇒ **16 items. I named one and called it "the one change".** ⚠️ **The pattern across A is the one worth
+naming: I keep landing verified capabilities with no caller, then describing them as if the saving
+were banked.** Three in one day.
+
 ## ⏸️ **§TWO-HOP-IS-BUILT-BUT-NOT-WIRED — THE CAPABILITY LANDED AND VERIFIED; THE 0.82% IS NOT BEING COLLECTED YET** (`3c81ad31`, 2026-08-30)
 
 ✅ **LANDED AND VERIFIED BY EXECUTION.** `_aggSwap` takes a second pool word and switches to
