@@ -888,6 +888,66 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§ROUTE-COST-UNVERIFIED + §RATE-IS-NOT-SPOT — I CHECKED MY OWN DESIGN AND TWO CLAIMS DID NOT SURVIVE** (owner, 2026-08-30: *"are you sure about the design and measurements?"*)
+
+**No, on two of them.** Both are corrected in place in §CHEAPEST-DOLLAR; this row holds the evidence.
+
+### ❌ ①  "ROUTE COST IS COMMON-MODE AT ~2 bps" — EXTRAPOLATED FROM THREE TOKENS TO EIGHT
+I measured **Curve 3pool only — DAI, USDC, USDT** (1.7 bps @ $1M … 2.8 bps @ $20M, all real) and then
+wrote *"every candidate stable reaches USDC at that price."* **Four of the eight candidates are not in
+3pool, and the one I RECOMMENDED BORROWING is one of them.** Tested since:
+| | Uniswap v3 → USDC | Curve pools `find_pool_for_coins` returns |
+|---|---|---|
+| **GHO** | 🔴 **96.0% / 99.1% loss @ $1M** on both live tiers | 🔴 **all empty or dust** — GHO/crvFRAX `0 \| 0`; a USDT/USDC/GHO/DAI pool `0 \| 0 \| 0 \| 0`; a second holding **887 GHO / 466 USDC**, which quotes 99.95% loss |
+| **USDG** | 🔴 98.0% loss @ $1M | USDG/USDC and "PB USDG USDC v1" — balances unread |
+| **USDE** | ✅ 0.036% @ $1M → 🔴 **79.7% @ $5M** | ~$1M of capacity on that tier |
+| **RLUSD** | ✅ −0.012% @ $1M → 🔴 53.3% @ $5M | ~$1M of capacity |
+⛔ **THIS DOES NOT SHOW GHO IS UNROUTABLE — IT SHOWS I HAVE NOT FOUND ITS ROUTE.** GHO is a major
+asset and its real depth is in pools `find_pool_for_coins` did not surface (GHO/USDe, GHO/crvUSD),
+**which is the documented trap firing again: the registry returns *a* pool, not the deepest, and here
+it returned three DEAD ones.** ⇒ **The honest state is UNMEASURED, not zero.**
+🔴 **AND THE CONSEQUENCE IS THAT THE THRESHOLD TABLE IS NOT YET EARNED.** `MIN_IMPROVE = 100 bps` and
+the 14-day cooldown were derived from `Δr · T ≥ 2 bps`, and **2 bps is a 3pool number applied to
+stables that are not in 3pool.** If GHO's real route costs 20 bps the threshold moves 10×. **Do not
+implement those constants; measure GHO/USDG/RLUSD/USDE→USDC on their actual venues first** (1inch
+quote API, or enumerate Curve by pool rather than by `find_pool_for_coins`).
+
+### ❌ ②  "COMPARE THE CURRENT BORROW RATE" — THE RATE STOPS EXISTING WHEN WE ARRIVE
+Measured the Aave v3 IRM parameters and recomputed each rate at our own borrow size:
+| token | Uopt | base | slope1 | slope2 | U now | r now | +$5M | +$25M | +$100M |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **GHO** | 9900 | **375** | **0** | **0** | 82.2% | 3.75% | **3.75%** | *cap* | *cap* |
+| USDE | 9000 | 100 | 400 | 1200 | 65.2% | 3.90% | 3.93% | 4.06% | **4.56%** |
+| USDT | 9200 | 0 | 410 | 1000 | 91.4% | 4.08% | 4.08% | **4.47%** | 🔴 **7.65%** |
+| USDC | 9200 | 0 | 410 | 1000 | 90.2% | 4.02% | 4.03% | 4.07% | 🔴 **7.34%** |
+| USDG | 8000 | 0 | 500 | **3000** | 81.9% | 7.90% | | | above its kink — *that* is why it is dear |
+| RLUSD | 8000 | 250 | 250 | **5000** | 71.5% | 4.74% | | | |
+| PYUSD | 9000 | 100 | 400 | **5000** | 90.2% | 5.86% | | | above its kink |
+⇒ **A spot-rate comparison is a comparison of rates that will not exist after the trade.** The fix is
+small and keeps every security property: the IRM params are a public read and the curve is two lines
+of arithmetic, so **the CONTRACT computes the post-borrow rate itself** — better than trusting a
+keeper's off-chain estimate, and still permissionlessly verifiable.
+
+### ⭐ AND ONE FINDING THAT MAKES THE DESIGN *STRONGER* THAN I ARGUED IT
+**GHO's slopes are BOTH ZERO — `base = 375`, `slope1 = 0`, `slope2 = 0`.** It is a governance-set
+**fixed 3.75%** that our own borrow cannot move, at any size, which is the best possible property for
+a borrow dollar and I had assumed the opposite risk. **But it is capped at ~$24M of available
+liquidity**, while USDE is gentle and deep ($234M; only 3.90% → 4.56% even at +$100M).
+⇒ **NO SINGLE DOLLAR HAS BOTH THE CHEAPEST RATE AND THE DEPTH.** So the allocator **must SPLIT across
+several debts**, and the Aave-v3 shared-pool property (one weETH collateral, several loan assets) is
+therefore a **CAPACITY NECESSITY, not the diversity nicety I sold it as** in §THREE-VENUE-MATRIX.
+That is a stronger argument for the same conclusion, and it also means `debtOf` MUST aggregate — the
+multi-stable adapter is not optional even for a single-venue deployment.
+
+### ✅ WHAT I RE-CHECKED AND WHAT HELD
+- **weETH is suppliable on Aave v3 with room**: 1,211,945 of a 1,350,000 cap ⇒ **~138,000 weETH (~$530M)
+  of headroom.** The venue is reachable; the whole matrix is not blocked at the collateral leg.
+- **Borrow caps do not bind** on 7 of 8 — liquidity is the binding constraint, as quoted.
+- 🔧 **ONE NUMBER CORRECTED: USDC's borrowable is CAP-bound at 197,199,766, not the 222,675,213 I
+  published** (cap 2.25B against 2.0528B of debt). ~13% high. No conclusion depended on it — USDC was
+  never a recommended target — but the published figure was wrong.
+- The `unoswap` measurements and the 3pool figures were re-derived from the same runs and stand.
+
 ## 🏗️ **§CHEAPEST-DOLLAR — THE ALLOCATOR IS A KEEPER SEARCH WITH AN ON-CHAIN SAFETY BOUND, AND THE SECURITY CONSTRAINT IS MET BY MAKING IT PERMISSIONLESS RATHER THAN BY TRUSTING THE ENCLAVE LESS** (owner, 2026-08-30)
 
 Owner's brief: consider every dollar borrow across Aave v3 / v4 / Morpho at any moment, reallocate
@@ -905,7 +965,7 @@ venues the same dollar barely moves: **RLUSD is 4.19% on Morpho and 4.74% on Aav
 lever and the cheap one** — on a shared pool it needs no collateral movement at all, just repay one
 debt and draw another against collateral that never moves.
 
-**② THE ROUTE COST IS COMMON-MODE, SO IT ALMOST DROPS OUT OF THE COMPARISON.** Measured on Curve
+**② 🔴 RETRACTED 2026-08-30 — "THE ROUTE COST IS COMMON-MODE" WAS EXTRAPOLATED FROM THREE TOKENS TO EIGHT AND IS NOT SUPPORTED. SEE §ROUTE-COST-UNVERIFIED BELOW; THE `MIN_IMPROVE`/COOLDOWN NUMBERS DERIVED FROM IT ARE NOT YET DERIVABLE.** (original claim:) Measured on Curve
 3pool: **USDC→USDT costs 1.7 bps at $1M, 1.9 at $5M, 2.8 at $20M; DAI→USDC 1.4 bps at $1M.** Every
 candidate stable reaches USDC at that price and then takes **the identical USDC→WETH leg**, so the
 route-cost *difference* between two candidate dollars is ~1–2 bps **one-off** against rate spreads of
@@ -939,7 +999,7 @@ owns `tokenIn`, `amountIn`, `minOut` and the callee; the keeper owns only the ve
 | check | how the contract verifies it, with no off-chain input |
 |---|---|
 | venue + stable are permitted | governance allowlist; the caller cannot extend it |
-| **the new dollar is genuinely cheaper** | read BOTH rates on-chain — Aave `getReserveData().currentVariableBorrowRate`, Morpho `IIrm.borrowRateView` — and require `rateNew + MIN_IMPROVE ≤ rateOld` |
+| **the new dollar is genuinely cheaper** | 🔴 **CORRECTED — SPOT RATE IS THE WRONG NUMBER.** Reading `currentVariableBorrowRate` compares rates that stop existing the moment we arrive: **measured, USDT goes 4.08% → 4.47% at +$25M and → 7.65% at +$100M.** The contract must compute the **POST-BORROW** rate from the IRM parameters (`getInterestRateDataBps` → `Uopt, base, slope1, slope2`) at OUR size. ⭐ **This is still fully on-chain — the params are a public read and the formula is arithmetic — so the permissionless property is UNHARMED**, and computing it in the contract is strictly better than trusting a keeper's off-chain estimate of it. |
 | the move is not churn | `block.timestamp ≥ lastRotate + COOLDOWN` |
 | execution is not looted | already built: `_aggSwap` floors on a **measured balance delta**, never the router's return |
 ⇒ **THEN A COMPROMISED ENCLAVE GRANTS NOTHING.** It becomes one more unprivileged caller, holding no
