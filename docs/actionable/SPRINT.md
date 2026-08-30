@@ -1209,6 +1209,56 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🧭 **§SELL-LEG-FROM-ALL-SIDES — THE BINARY I PUT TO THE OWNER WAS THE WRONG QUESTION. THE REAL ONE HAS THREE ANSWERS AND A CLEAR WINNER** (owner, 2026-08-30: *"i dont know how to answer this, look at it from all sides"*)
+
+### 🔑 THE REFRAMING THAT DISSOLVES MY OWN QUESTION
+I asked *"pay dollars out, or convert the position?"* as if paying dollars needed a new mechanism.
+**It does not — the protocol already pays an LP's dollar side by MINTING QU!D.**
+`_burnAndDeliverUsdLeg` = `_burnInRange` (ETH leg) **+ `_payUsdLeg` → `_mintQuid(recipient, owed6)`**,
+balanced by `CORE.absorbPaidUsd`, which lowers `basketUsd` by exactly what the LP was paid. So the
+mint is not a new liability shape and rule 8b is not freshly engaged: **this is the established exit
+path.**
+⭐ **AND THE DEEPER POINT, WHICH IS THE OWNER'S OWN OBSERVATION TURNED AROUND: FOR AN IN-RANGE LP THE
+SELL HAS ALREADY HAPPENED.** *"With uniswap it's impossible to front-run out-of-range orders, because
+they are automatically carried out by the curve as other swaps move the price."* As price rises the
+curve **already** converted that LP's ether into dollars. ⇒ **A sell intent is not a trade needing a
+counterparty. It is a TRIGGER that crystallises an exit at a price.** That is why the shape is
+`_withdraw`'s — it *is* a withdrawal.
+
+### ⚖️ THE THREE REAL OPTIONS
+| | mechanism | verdict |
+|---|---|---|
+| **A — pay ETH** (plain triggered withdrawal) | reuse `_burnAndDeliverUsdLeg` verbatim, owner-parameterised. **Zero new machinery.** | ⛔ **It is not a sell.** The maker asked to sell ether and receives ether; the actual selling is pushed off-protocol onto them. Real value (it stops further IL) but it answers a different order type |
+| ⭐ **B — mint QU!D, the range RETAINS the ether** | maker's shares shrink; `POOLED` **unchanged**; mint the maker QU!D worth `size × limitPx` | ✅ **RECOMMENDED — the exact mirror of the buy leg** |
+| **C — pay basket stables directly** | pro-rata drain of the basket | ⛔ Strictly worse than B: it hands the maker **14 stables instead of the one they asked for**, re-raising §CONVERGENCE, *and* it drains basket assets where B does not |
+
+### ✅ WHY **B**, AND THE ARGUMENT IS STRUCTURAL RATHER THAN AESTHETIC
+**1. It is the buy leg reflected.** Buy: `spendClaim(owner, size)` burns the maker's QU!D → range
+delivers ether (`volDelta > 0`, `POOLED -=`). Sell: range keeps the maker's ether (`volDelta = 0`,
+`POOLED` untouched, shares shrink) → range mints the maker QU!D. **Two directions, one shape.**
+**2. ⭐ THE ORACLE GATE MAKES IT UNLOSABLE FOR THE RANGE, BY CONSTRUCTION.** A sell fills only when
+`px >= limitPx` (`i.buyVolatile ? px > limitPx : px < limitPx` reverts). So the range acquires ether
+worth `size · px` and issues a claim worth `size · limitPx` — **and `limitPx ≤ px` always.** The range
+can never overpay on this leg; the maker is paid their own limit, which is what a limit order means.
+⚠️ **DO NOT "FIX" THAT GAP LATER** — someone will read `limitPx < px` as underpaying the maker. It is
+the order's own price, and the surplus is the range's compensation for carrying the fill.
+**3. No swap, no route, no counterparty, no keeper.** B needs none of the routing machinery — which
+matters because every route dependency is a liveness dependency on a permissionless path.
+**4. It dissolves BLOCKER ② outright.** §SELL-LEG-BLOCKERS said the dollar credit had no source
+because `burnInRange` deliberately releases no USD. **Under B the ether is never released, so nothing
+has to be freed** — the credit is a mint against an asset acquired in the same transaction.
+
+### 🔴 WHAT B STILL HAS TO PROVE — TEST IT, DO NOT REASON ABOUT IT
+1. **BACKING.** The range issues a QU!D liability and gains ETHER, which is range inventory, not a
+   basket asset. `absorbPaidUsd` is the existing counterpart for the exit path; **the sell needs the
+   analogous entry or `AUX.checkBacking()` will not hold.** ⚠️ **THIS IS THE ONE THAT CAN BREAK THE
+   PROTOCOL, and it is a measurement, not an argument.**
+2. **Rule 8b** wants the "value already exists" case stated at the mint site: the ether acquired in
+   the same transaction is that value.
+3. **BLOCKER ① IS UNAFFECTED AND STILL BINDS.** `volDelta = 0` makes `settleOor` *nearly* usable, but
+   the per-LP share reduction is not in it, and `fillIntent` is relayed — so the owner-parameterised
+   share path is still required. **B simplifies the value flow; it does not remove that.**
+
 ## 🔬 **§SELL-LEG-BLOCKERS — WHY IT IS STILL A REVERT, DERIVED FROM THE CODE RATHER THAN RESTATED** (2026-08-30, third time the owner has raised OOR)
 
 `fillIntentBody`'s sell branch reverts `IntentSellLegUnbuilt`. The row that booked it said the shape
