@@ -198,6 +198,50 @@ showed. It does NOT cover `§HOP-RCE-3` — on the LN rail the hop still NAMES t
 binds that to whoever paid. That needs the seller-signed intent (`§M1-RESIDUAL-100` residual 1), and
 no amount of address verification substitutes for it.
 
+🔴🔴 **`§RESERVE-HAS-NO-RETURN-PATH` — A HOLE I INTRODUCED THIS SESSION (found 2026-08-30 by
+auditing my own commits against the owner's *"there should be no holes possible"*). IT MUST BE FIXED
+OR REVERTED BEFORE THE LN RAIL IS RELIED ON.**
+
+**What the old design had and mine does not.** `provenSatsAvailable` had **three** movers:
+| | old (`parkProvenSats`) | mine (`proveHopReserve`) |
+|---|---|---|
+| raise | park a channel-splice | SPV-prove a payment to the reserve |
+| spend | credit a swap-in | credit a swap-in ✅ |
+| **give back when the sats LEAVE** | ✅ **`_releasePoolSats`**, at 3 sites — close, withdrawal-shrink, delivery-shrink | ⛔ **NOTHING** |
+
+⛔ **AND `_releasePoolSats`'S OWN DOCBLOCK NAMES EXACTLY THE FAILURE I REINTRODUCED:** *"a hop could
+park 1 BTC, close the channel (the sats go to the LP, bounded), and keep a 1 BTC allowance to credit
+sellers against sats that no longer exist. That is exactly what M1#1 deleted `settleSwapIn` to stop,
+**reintroduced by its own replacement**."* I deleted that function in `§POOL-INVENTORY-PURGED` and
+shipped a funder with no equivalent.
+
+🔴 **MINE IS WORSE IN ONE RESPECT, WHICH IS THE PART THAT MAKES IT A REAL HOLE.** Parked sats sat in a
+CHANNEL, so their departure was always an on-chain event the contract already verified — which is
+precisely how `_releasePoolSats` could hook it. **The reserve is the hop's own wallet address: the hop
+can spend it silently, with no event the contract sees.** So the cap is backed by a balance the
+contract cannot observe and can never reduce. ⇒ **The gap grows without bound: conjurable value =
+(cumulative proven) − (current reserve), and only the first term is tracked.**
+
+⚠️ **IT IS ONLY LIVE BECAUSE I MADE THE RAIL WORK.** Before `§LN-RESERVE-FUNDER` the allowance had no
+funder at all, so every LN swap-in reverted and no phantom was reachable. **I did not widen an
+existing hole; I traded a dead rail for a working rail with a hole** — which is the trade the owner
+has ruled out.
+
+▶️ **FIX OPTIONS, none yet chosen:**
+1. **Freshness-bounded allowance** *(smallest sound change)*: `proveHopReserve` **SETS** rather than
+   ADDS, and the proof must be recent (the SPV gateway already exposes a height). A spent reserve then
+   stops backing credits once the window lapses, and refreshing needs a genuinely new deposit because
+   `swapInUsed` dedups by txid. Bounds the gap by one window instead of forever.
+2. **Timelocked reserve script**: pay the reserve to a script the hop cannot spend for N blocks, and
+   grant allowance for < N. Then *proven* implies *still there* for the allowance's whole life — the
+   strongest option, and it needs no contract-visible spend event.
+3. **Prove-per-credit**: drop the standing balance; each credit carries its own reserve proof. No
+   staleness possible, but one on-chain tx per LN swap-in, which defeats the rail's purpose.
+4. **Revert `§LN-RESERVE-FUNDER`**: back to a dead rail and no hole. The conservative floor if none of
+   the above lands.
+⇒ **RECOMMEND (2), with (1) as the interim** — (2) is the only one where the cap cannot outlive the
+sats, and it costs the fleet nothing but a timelock on its own working capital.
+
 ✅ **`§POOL-INVENTORY-PURGED` (2026-08-30) — PHASE 2 DONE. FOUR OPEN ITEMS CLOSED BY DELETION.**
 With the cap funded from the fleet's own reserve, the old funder and everything that existed to
 untangle it are gone: `parkProvenSats`, `poolOwnedSats`, `poolSatsParker`, `_releasePoolSats`,
