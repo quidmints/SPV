@@ -716,7 +716,7 @@ library LevMath {
         //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
         //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
-        if (c.dex2 == 0 && stable != USDC)             // legacy bridge — see `_stableToWbtc`
+        if (c.dex2 == 0)             // legacy bridge — see `_stableToWbtc`
             return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.dex, 0);
         return _aggSwap(stable, c.weth, stableAmt, floor_, c.dex2, c.dex);  // hub hop FIRST
     }
@@ -791,9 +791,15 @@ library LevMath {
     ///      pool and would revert. Same shape as `rangeUnwindDex`'s `zero ⇒ DEFAULT_UNWIND_DEX`.
     ///      ▶️ **DELETE THIS BRANCH — and `_hubSwap`/`_routeOf`/`_routableStable`/`NoStableRoute`
     ///      with it — once the keepers supply `hubDex` for every venue stable in use.**
+    ///      🔴 THE GUARD IS `hubDex == 0` ALONE, AND ADDING `&& stable != USDC` BROKE 17 TESTS WITH
+    ///      `NoVolatileRoute()`. A USDC-denominated venue legitimately has NO hub hop, so its
+    ///      `hubDex` is 0 — the extra clause pushed exactly that case onto the two-hop path with a
+    ///      ZERO first pool word. `_hubSwap` already returns `amt` unchanged when `stable == USDC`,
+    ///      so the identity case is handled INSIDE the fallback and needs no condition of its own.
+    ///      ⚠️ The compiler cannot see this; only running the suite did.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, uint256 volDex,
                            uint256 hubDex) internal returns (uint256) {
-        if (hubDex == 0 && stable != USDC)
+        if (hubDex == 0)
             return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, volDex, 0);
         return _aggSwap(stable, wbtc, amt, minOut, hubDex, volDex);
     }
@@ -815,7 +821,7 @@ library LevMath {
         //    `_hubSwap` back out, then compare — so the INTERMEDIATE hop was unbounded and the check
         //    lived a frame away. `_aggSwap` now enforces `minOut` on the measured delta of the FINAL
         //    token, which is the same guarantee expressed once instead of twice.
-        if (hubDex == 0 && stable != USDC) {           // legacy bridge — see `_stableToWbtc`
+        if (hubDex == 0) {           // legacy bridge — see `_stableToWbtc`
             uint256 usdc = _aggSwap(vol, USDC, amt, 0, volDex, 0);
             uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
             if (out < minOut) revert Slippage();
