@@ -292,9 +292,9 @@ contract LevManager is LevBase {
     ///        credential existed anywhere. The keeper computes it off-chain (an aggregator quote, or
     ///        our own pool reads over multicall); the DESTINATION remains the pinned
     ///        `ONEINCH_ROUTER`, so what arrives here is a PATH, never an address.
-    function rebalance(address lp, uint256 minOut, uint256 dex) external nonReentrant {
+    function rebalance(address lp, uint256 minOut, uint256 dex, uint256 dex2) external nonReentrant {
         _activeKeeper = msg.sender;
-        _rebalance(lp, minOut, dex);
+        _rebalance(lp, minOut, dex, dex2);
     }
 
     /// @notice BATCH rebalance — hold every out-of-range LP at its IL target in ONE tx (mirrors `cascadeDelever`),
@@ -306,6 +306,11 @@ contract LevManager is LevBase {
     ///        the book would under- or over-shoot every LP but the one it was quoted for — and the
     ///        oracle floor would then revert those legs rather than mis-price them, turning a batch
     ///        into a single success and N `RebalanceFailed` events.
+    /// @dev ⚠️ THE BATCH PATH KEEPS THREE ARRAYS ON PURPOSE. A fourth would mean extending the keeper's
+    ///      shared `encode_batch` helper, which is a wider change than this one — so the per-LP
+    ///      entrypoints carry the new hub word and the batch falls back to the legacy Curve hub hop
+    ///      (`hubDex = 0`), which IS today's behaviour. **Extend this the same way when the batch
+    ///      encoder moves; until then a batch cannot route a stable the old table does not cover.**
     function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes) external nonReentrant {
         _batch(lps, minOuts, dexes, false);
     }
@@ -338,7 +343,7 @@ contract LevManager is LevBase {
                 try this.deleverOne(lp, minOuts[i], dexes[i]) {}
                 catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
             } else {
-                try this.rebalanceOne(lp, minOuts[i], dexes[i]) {}
+                try this.rebalanceOne(lp, minOuts[i], dexes[i], 0) {}   // 0 ⇒ legacy hub hop (see rebalanceMany)
                 catch { emit RebalanceFailed(lp, getCurrentLtvBps(lp)); }
             }
         }
@@ -348,21 +353,21 @@ contract LevManager is LevBase {
     ///         permissionless entries are `rebalance`/`rebalanceMany`. NO `nonReentrant` (the entrypoint holds the
     ///         guard); `_activeKeeper` is set by that entrypoint before the loop, so the flash-callback
     ///         reimbursement still targets the real keeper.
-    function rebalanceOne(address lp, uint256 minOut, uint256 dex) external {
+    function rebalanceOne(address lp, uint256 minOut, uint256 dex, uint256 dex2) external {
         if (msg.sender != address(this) && msg.sender != lp) revert Auth();
-        _rebalance(lp, minOut, dex);
+        _rebalance(lp, minOut, dex, dex2);
     }
 
     /// @dev ⚠️ **THE LEVER-UP LEG NEEDS A ROUTE TOO, AND `§ROUTE-BLOCKED-24` DID NOT NAME THAT HALF.**
     ///      `_leverUpBuy` reaches `_stableToWethSor` → `_aggSwap` (stable→WETH), so a rebalance that
     ///      levers UP reverted on an empty route exactly as a de-lever did. Reading the row as a
     ///      de-lever problem would have fixed half the entrypoint and left the other half dead.
-    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex)
-        internal override { _leverUpBuy(venue, lp, stable, deltaUsd, minOut, dex); }
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2)
+        internal override { _leverUpBuy(venue, lp, stable, deltaUsd, minOut, dex, dex2); }
 
     /// @dev IGNORES `deltaUsd` deliberately: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so ONE
     ///      flash lands on target with no withdraw-before-repay health breach.
-    function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut, uint256 dex)
+    function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut, uint256 dex, uint256 dex2)
         internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, dex); }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
@@ -526,7 +531,7 @@ contract LevManager is LevBase {
     function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
         return LevMath.ExtractCfg({ weth: WETH, weeth: address(COLL), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
-            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), dex: 0 });
+            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), dex: 0, dex2: 0 });
     }
 
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
@@ -746,15 +751,15 @@ contract LevManager is LevBase {
     ///      one literal is where every empty route on the BUY side came from. `_aggSwap` refuses an
     ///      empty route, so `stableToColl` → `_stableToWethSor` → `_aggSwap` could never execute:
     ///      the lever-up leg was dead at the source, not at the entrypoints.
-    function _sellCtx(address keeper, uint256 dex) internal view returns (LevMath.SellCtx memory) {
-        return LevMath.SellCtx({ weth: WETH, weeth: address(COLL), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex });
+    function _sellCtx(address keeper, uint256 dex, uint256 dex2) internal view returns (LevMath.SellCtx memory) {
+        return LevMath.SellCtx({ weth: WETH, weeth: address(COLL), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex, dex2: dex2 });
     }
 
     /// Lever-UP BUY (own frame, no via_ir): borrow `usd` stable, swap → collateral (LevMath.stableToColl), supply
     /// it to the venue for `who`. Shared by openLev's ladder + rebalance's up-leg (dedup).
-    function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut, uint256 dex) internal {
+    function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut, uint256 dex, uint256 dex2) internal {
         uint256 coll = LevMath.stableToColl(
-            _sellCtx(address(0), dex), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
+            _sellCtx(address(0), dex, dex2), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
         IERC20Min(_collToken(venue)).transfer(address(venue), coll);
         venue.supply(who, coll);
     }

@@ -336,7 +336,7 @@ abstract contract LevBase {
     ///        is fragmented across pools by hook and no pinned address can even NAME the deepest
     ///        one — which is precisely the job an aggregator does. Discovery is off-chain; the
     ///        contract's only defence is the oracle floor, which is unchanged and venue-agnostic.
-    function _rebalance(address lp, uint256 minOut, uint256 dex) internal {
+    function _rebalance(address lp, uint256 minOut, uint256 dex, uint256 dex2) internal {
         _reanchorIfReseated(lp);
         Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
@@ -344,8 +344,8 @@ abstract contract LevBase {
         address stable = p.venue.stable();
         (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
         if (deltaUsd != 0) {
-            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, dex);
-            else       _delever(p.venue, lp, stable, deltaUsd, minOut, dex);
+            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, dex, dex2);
+            else       _delever(p.venue, lp, stable, deltaUsd, minOut, dex, dex2);
             emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
         }
         _syncRange(lp);
@@ -355,8 +355,8 @@ abstract contract LevBase {
 
     /// @dev Per-asset precondition. ETH has none; BTC requires WBTC collateral.
     function _requireRebalancable(Types.Pos memory p) internal view virtual {}
-    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex) internal virtual;
-    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex) internal virtual;
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2) internal virtual;
+    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2) internal virtual;
 
     function _syncRange(address lp) internal {
         if (RANGE != address(0)) { try ICore(RANGE).syncLev(lp) {} catch {} }

@@ -427,10 +427,12 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
             // §C2.1 — three STATIC words: (lp, minStableOut, dex). The hand-rolled `bytes` tail
             // (an offset word of 0x60 then a zero length) is gone, and with it the empty route that
             // made every one of these calls revert `NoVolatileRoute()` on arrival.
-            let mut d = selector4("rebalanceWbtc(address,uint256,uint256)");
+            let mut d = selector4("rebalanceWbtc(address,uint256,uint256,uint256)");
             d.extend_from_slice(&addr_word(lp));
             d.extend_from_slice(&[0u8; 32]);   // minStableOut = 0 (contract floors against the oracle)
             d.extend_from_slice(&crate::lev_keeper::dex_word_wbtc());   // WBTC/USDC, NOT the WETH pool
+            // hub pool word (stable->USDC); ZERO ⇒ contract uses its legacy Curve hub hop.
+            d.extend_from_slice(&[0u8; 32]);
             evm.send_tx(bm, d, gas)?;
             Ok(())
         })

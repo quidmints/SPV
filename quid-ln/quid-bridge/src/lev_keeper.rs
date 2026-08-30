@@ -572,10 +572,14 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
             // §C2.1 — three STATIC words now: (lp, minOut, dex). The `bytes route` tail is gone,
             // and with it the offset word that made this the only hand-rolled dynamic head in the
             // keeper. The venue word is real, so this call no longer reverts `NoVolatileRoute()`.
-            let mut data = selector4("rebalance(address,uint256,uint256)");
+            let mut data = selector4("rebalance(address,uint256,uint256,uint256)");
             data.extend_from_slice(&addr_word(lp));
             data.extend_from_slice(&u64_word(0));
             data.extend_from_slice(&dex_word());
+            // hub pool word (stable->USDC). ZERO ⇒ the contract falls back to its legacy Curve
+            // hub hop, which is exactly today's behaviour. Supply a real pool word here to let
+            // the lever borrow a stable the old on-chain table never covered.
+            data.extend_from_slice(&[0u8; 32]);
             evm.send_tx(lm, data, gas)?;
             Ok(())
         })
@@ -977,8 +981,8 @@ mod tests {
     fn calldata_encoding_is_abi_correct() {
         // selectors match keccak256(sig)[..4]
         assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
-        assert_eq!(selector4("rebalance(address,uint256,uint256)"),
-                   keccak256(b"rebalance(address,uint256,uint256)")[..4].to_vec());
+        assert_eq!(selector4("rebalance(address,uint256,uint256,uint256)"),
+                   keccak256(b"rebalance(address,uint256,uint256,uint256)")[..4].to_vec());
         // address word = 12 zero bytes + 20-byte address (right-aligned)
         let lp: LpAddr = [0x11; 20];
         let w = addr_word(lp);
