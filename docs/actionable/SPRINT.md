@@ -254,7 +254,49 @@ departure the contract already verifies.
 timelocked script, where consensus (not a proof) keeps the sats in place for the allowance's life; or
 (B) **move the bound onto an asset the contract custodies.**
 
-✅ **`§HOP-BOND` — THE BETTER FIX, AND IT CLOSES RATHER THAN BOUNDS.** The LN rail's real risk is a
+⭐⭐ **`§FLEET-FRONTS-THE-WINDOW` — THE CLEAN SOLUTION, AND IT IS A DELETION (owner: *"there must be
+a cleaner solution"*). NO NEW MECHANISM AT ALL.**
+
+**Ask the question one level up: WHY IS THE POOL EXPOSED TO AN OFF-CHAIN PAYMENT IT CANNOT SEE?**
+Only because the LN rail credits the POOL at settle time. It does not have to. Split the trade at its
+natural seam — the two legs already exist and each is already sound:
+| leg | counterparties | risk | mechanism |
+|---|---|---|---|
+| Lightning | seller ⇄ **fleet** | the fleet's, and the fleet is the only party that can control it (it holds the HTLC and the preimage) | **none — an ordinary payment**, off-protocol |
+| on-chain | fleet ⇄ pool | none: every dollar is paid against an SPV-proven deposit | **`settleSwapInProven`, unchanged** |
+
+✅ **AND IT WORKS TODAY WITH NO CONTRACT CHANGE — CHECKED:** `settleSwapInProven` places **no
+restriction on `terms.seller`**, so the fleet names ITSELF, and the deposit address is derived FROM
+`terms`, so a self-named deposit is self-consistent and provable. The credit is bounded entirely by
+the proven `sats` and the terms-derived floor.
+
+⇒ **THE POOL'S EXPOSURE BECOMES ZERO BY CONSTRUCTION.** Every dollar it pays is against sats it has
+SPV-verified. There is nothing to bound, so there is no bound to get stale — **no allowance, no
+reserve, no bond, no timelock, no return path, and no seller-signed intent needed for this rail.**
+
+🧹 **WHAT IT DELETES** (net negative code, which is the tell): `settleSwapInBuffered`,
+`provenSatsAvailable`, `InsufficientProvenSats`, `SwapInPartialRejected`, `proveHopReserve`,
+`hopReserveScript`/`setHopReserveScript`, `ChannelLib.reserveSats`, `SIG_PROVE_HOP_RESERVE`,
+`encode_prove_hop_reserve`, and `reconcile_hop_reserve`. It also dissolves
+`§RESERVE-HAS-NO-RETURN-PATH` (no reserve), `§LN-SWAPIN-RAIL-BROKEN` (no rail to break), and
+`§HOP-RCE-3`'s buffered-rail half — **the hop naming the seller stops mattering, because on the
+proven rail naming yourself requires proving your own deposit.**
+
+⚠️ **COSTS, STATED PLAINLY — THEY ARE REAL AND THEY ARE THE FLEET'S:**
+1. **The fleet fronts USD working capital** sized to in-flight LN volume. Same capital a bond would
+   lock, but it is the fleet's own money at its own risk, with no protocol mechanism around it.
+2. **The fleet carries the price move** between fronting the seller and reconciling on-chain. That is
+   a genuine business cost and the reason to keep the reconcile cadence tight.
+3. **The LN seller's counterparty becomes the fleet, not the protocol.** It already was in substance —
+   the fleet holds the HTLC and chooses whether to claim — but this makes it explicit rather than
+   silently pool-backed.
+4. **Partial fills move off-chain**: `requireFull` existed because the LN rail cannot refund. The
+   fleet now decides what to pay its own counterparty, and the pool sees only a proven deposit.
+▶️ **THE ONE OWNER DECISION LEFT is whether the fleet is willing to be the principal on the LN leg.**
+If yes, this is strictly less code and no holes. If no, fall back to `§HOP-BOND` below.
+
+~~✅ **`§HOP-BOND` — THE BETTER FIX, AND IT CLOSES RATHER THAN BOUNDS.**~~ *(kept as the fallback if
+the fleet must NOT be principal)* The LN rail's real risk is a
 *speed window*: the pool pays USD now for sats that arrive off-chain and are only reconcilable later.
 Collateralise **the window**, not the sats:
 1. The hop posts a bond the **contract holds** (EVM-side, so it cannot be spent silently and needs no
