@@ -529,9 +529,33 @@ is stated so it can be resumed cold.
 | `§APP-CHAIN-LAYER-UNWIRED` | filed | 20 unreachable modules; decide shared-vs-phone-vs-SPA split; delete display analytics from `app/` |
 | `taproot.ts` stale header | identified | it claims TapTweak and bech32m are absent; both are present |
 | `§DELIVERY-INFLIGHT-RESOLUTION` | filed | a halted swap needs a resolution path once the splice's outcome is known |
-| `§JS-TESTS-HAVE-NO-RUNNER` | filed; install attempted and **found `app/` UNINSTALLABLE** | 🔴 **`§APP-DEPS-UNRESOLVABLE` — `npm install` fails `ERESOLVE`:** `react-native-worklets` is pinned to `0.5.1`, but `expo-modules-core@57.0.14` needs `^0.7.4 \|\| ^0.8 \|\| ^0.9 \|\| ^0.10`. **So the merged app cannot install, build, typecheck or test at all.** Fix in flight: bump to `~0.10.4`, which also satisfies `react-native-reanimated`'s `>=0.5.0`. Until it resolves, all 10 test files — incl. `funding.test.ts`'s pinned key — remain unrunnable |
+| `§JS-TESTS-HAVE-NO-RUNNER` | ✅ **install FIXED**; 🔴 **root cause now pinned and it is NOT the runner** — see `§APP-IS-CJS-BUT-SOURCES-ARE-ESM` | 🔴 **`§APP-DEPS-UNRESOLVABLE` — `npm install` fails `ERESOLVE`:** `react-native-worklets` is pinned to `0.5.1`, but `expo-modules-core@57.0.14` needs `^0.7.4 \|\| ^0.8 \|\| ^0.9 \|\| ^0.10`. **So the merged app cannot install, build, typecheck or test at all.** Fix in flight: bump to `~0.10.4`, which also satisfies `react-native-reanimated`'s `>=0.5.0`. Until it resolves, all 10 test files — incl. `funding.test.ts`'s pinned key — remain unrunnable |
 | `§BTC-LEG-FEE` (1.5) | **verified genuinely open** | owner decision: should a swap-in pay LPs at all? Test is inverted pending it |
 | `§E294` (1.6) | **verified open; the row's REASON corrected** | delete `pushObservation` or wire it. Row says "the ring is fed by the anchor regardless" — false: `Core.sol` says `pushObservation` is the ring's ONLY live writer, so deleting leaves the ring empty and every σ² read falls back to `anchorVarianceWad()` |
+
+🔴 **`§APP-IS-CJS-BUT-SOURCES-ARE-ESM` (2026-08-30) — the REAL reason no `app/` test has ever run,
+and it is not the missing runner.** `app/package.json` declares **`"type": "commonjs"`**, while every
+source and test file uses ESM `import`. Node therefore refuses to load them, **and no loader flag
+fixes it** — measured, not assumed:
+
+| attempt | result |
+|---|---|
+| `node --experimental-strip-types --test funding.test.ts` | `SyntaxError: Cannot use import statement outside a module` (the TEST file) |
+| `… --experimental-detect-module` | same |
+| renaming the test to `.mts` | the test file loads and all 4 cases START — then **`root.ts` itself** fails the same way, because the module UNDER TEST is still `.ts` ⇒ CJS |
+| `--import ts-node/esm` (ts-node IS installed) | identical failure: the package `type` wins |
+
+⇒ **`funding.test.ts`'s header instruction is incomplete.** It says to run with
+`--experimental-test-module-mocks` from somewhere that resolves `expo-secure-store`; both are
+necessary and neither is sufficient. **Metro/Babel transpiles these sources for the app, so nothing
+outside that pipeline can load them.**
+▶️ **TWO FIXES, AND THE CHOICE IS NOT MINE TO GUESS:** (a) `"type": "module"` in `app/package.json` —
+one line, but it changes how Metro and every CJS consumer resolve, and **cannot be validated here**
+(no Expo build has been run); or (b) `.mts` per file, which must extend to the SOURCES under test,
+not just the tests. ⚠️ Until one lands, all 10 test files are decorative.
+✅ **THE PINNED KEY IS STILL VERIFIED** — independently, by pure-Python BIP-32 against BIP-86's
+published `internal_key` vector (`§SESSION-LEDGER`). The test cannot run; the fact it asserts is
+confirmed by other means.
 
 ### 🔴 TWO PROCESS FAULTS OF MINE, FOUND 2026-08-30 — BOTH AFFECT WHAT MY EARLIER "GREEN" CLAIMS MEAN
 1. ⛔ **`--match-path "test/**/*tc*"` UNDER-SELECTS, so every *"full BTC suite, 0 failed"* in this
