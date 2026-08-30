@@ -147,9 +147,20 @@ fn icbrt(x: i64) -> i64 {
 /// Round-trip cost of one hedge ticket in bps of notional: xStock secondary
 /// spread plus impact. Thin secondary is the whole reason this is not 5.
 const HEDGE_RT_BPS: i64 = 60;
-/// Minimum ticket. Backed's primary mint minimum is $100k; below this the pool
-/// cannot transact at all, which is a constraint before it is a cost.
-const TICKET: i64 = 100_000;
+/// Minimum ticket, in dollars.
+///
+/// 🔴 THIS SAID $100k AND CITED BACKED, AND BACKED'S OWN PUBLIC API SAYS $1,000
+/// — `minOrderFiatValue: 1000` on 712 of its 715 assets (one at 100, one at
+/// 500). A hundred-fold error in a constraint described as "a constraint before
+/// it is a cost".
+///
+/// ⚠️ AND CORRECTING IT CHANGES NOTHING MEASURABLE, WHICH IS THE POINT. It
+/// feeds two places — the band's fixed cost `g` and the minimum tradable
+/// `delta` — and the regret sweep is byte-identical at 1_000 and at 100_000.
+/// Only at TICKET = 5_000_000 (half the pool) does anything move, and then
+/// every arm collapses onto `NoFacility` because no trade clears the floor.
+/// The trigger was never what decided this.
+const TICKET: i64 = 1_000;
 /// Basis drift suffered while holding the hedge, per step, when widening.
 const BASIS_DRIFT_BPS: i64 = 8;
 /// Extra cost of liquidating a share rather than holding dollars during a run.

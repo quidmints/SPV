@@ -1363,3 +1363,35 @@ fn the_fine_tail_resolves_where_the_bps_tail_reports_impossible() {
         "the fine tail must resolve strictly further than the bps one: {} vs {}",
         fine_zero, coarse_zero);
 }
+
+/// ⭐ THE COST IS THE WHOLE ANSWER, AND IT WAS PRICED FOR THE WRONG VENUE.
+/// `HEDGE_RT_BPS = 60` is documented as "xStock secondary spread plus impact",
+/// and the sweep below shows the sign of every hedging arm is decided by that
+/// one number rather than by which trigger is chosen. But the leg we can
+/// actually drive from a PDA is Backed's MARKET FLOW — primary creation and
+/// redemption against the issuer at NAV, not a secondary fill. A primary mint
+/// pays the issuer's fee, not the book's spread, and there is no order book in
+/// front of it to take the other side.
+///
+/// So this reports the round-trip cost at which hedging stops losing. It is a
+/// procurement target, not a policy result: below it the facility pays for
+/// itself under EVERY trigger, above it under none.
+#[test]
+fn the_round_trip_cost_at_which_hedging_stops_losing() {
+    let carry = mean_of(Arm::NoFacility, Cfg::default());
+    println!("\n=== depositor bps vs round-trip cost (carrying = {}) ===", carry);
+    println!("  {:>7} {:>12} {:>16} {:>12}", "rt_bps", "DerivedBand", "PersistenceGated", "LevelTrigger");
+    let mut first_win = -1;
+    for rt in [0i64, 2, 5, 10, 15, 20, 30, 45, 60] {
+        let cfg = Cfg { rt_bps: rt, ..Cfg::default() };
+        let (b, g, l) = (mean_of(Arm::DerivedBand, cfg),
+                         mean_of(Arm::PersistenceGated, cfg),
+                         mean_of(Arm::LevelTrigger, cfg));
+        if first_win < 0 && b.max(g).max(l) > carry { first_win = rt; }
+        println!("  {:>7} {:>12} {:>16} {:>12}", rt, b, g, l);
+    }
+    println!("  → cheapest arm first beats carrying at rt_bps = {}",
+             if first_win < 0 { -1 } else { first_win });
+    println!("  (secondary xStock is priced at {} bps here; primary creation is", Cfg::default().rt_bps);
+    println!("   a different venue and is the one Market Flow reaches.)");
+}

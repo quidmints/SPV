@@ -174,6 +174,49 @@ DELAYS a rekey until the LP restores from words; it does not permanently block o
 §E187 names is real but bounded by recovery time, not permanent — which is why social recovery stays
 what `§E188` filed it as: a way to restore SERVICE faster, never the funds path.
 
+⛔ **`§PREIMAGE-CANNOT-PROVE-RECEIPT` (2026-08-30) — checked before building on it, and it is dead.**
+Binding the LN credit to the payment preimage was the obvious reuse (`swapInUsed[paymentHash]` already
+exists). **It cannot work: the HOP ISSUES THE INVOICE.** `node.rs:474-495` builds it from
+`create_inbound_payment`, so LDK generates the preimage at ISSUANCE and the hop knows it before any
+payment exists. Possessing it proves nothing. A seller-chosen hash (HODL-invoice shape) does not
+rescue it either — the seller could reveal without paying.
+⇒ **THE GENERAL RULE, WORTH KEEPING: THERE IS NO ON-CHAIN PROOF OF AN OFF-CHAIN PAYMENT.** The LN
+rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
+`provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
+
+▶️ **`§LN-RESERVE-FUNDER` — THE FIX, AND IT REUSES MACHINERY THAT IS ALREADY BUILT AND TESTED.**
+Keep the bound; replace the funder. `parkProvenSats` raises the allowance by SPLICING sats into an LP
+channel, which needs the LP's 2-of-2 co-signature — so a rail meant to serve swappers while LPs sleep
+can only be funded while one is awake. **Instead let the fleet raise its OWN allowance by SPV-proving
+sats it holds on-chain**: same `spv.checkTxInclusion` + txid dedup that `_provenDeposit` already uses
+(`§SETTLE-PROVEN-UNTESTED` just put 5 tests under it), no LP, no channel, no splice.
+
+✅ **WHAT IT SETTLES, MEASURED AGAINST THE OWNER'S FOUR CONSTRAINTS:**
+- **Liveness** — LN swap-ins stop depending on any LP being online. Today they cannot succeed at all.
+- **DoS** — no LP can block the rail by sleeping.
+- **Profit attribution — IMPROVED.** Pool inventory stops being commingled into an LP's channel, so
+  the `lpEntitled` subtraction, `PoolSatsLeftWithLp` and the whole "whose sats are these" seam go away
+  rather than needing a pool script to untangle them at exit.
+- **Security — unchanged in kind, better in backing.** The bound is a limit on a TRUSTED hop's
+  conjuring, not a solvency proof (that was equally true before); it is now backed by sats the fleet
+  demonstrably holds on-chain instead of sats sitting in someone else's channel.
+
+🧹 **AND IT COLLAPSES FOUR OPEN ITEMS INTO ONE DELETION** — `parkProvenSats`, `poolOwnedSats`,
+`poolSatsParker`, `_releasePoolSats`, `poolColdScript`/`setPoolColdScript`, `ExitUnderpaysPool`:
+`§POOL-SCRIPT-DESTINATION-REOPENED` dissolves (no pool sats in channels ⇒ no second output to place),
+`§AUDIT-POOLPARKER-PHANTOM` dissolves (it is entirely about `poolSatsParker` being overwritten), and
+the `poolColdScript` placeholder is removed rather than left as a stub.
+
+⚠️ **PHASED, BECAUSE THE DELETION IS NOT SMALL.** `poolOwnedSats` is woven through `_finalizeClose`,
+the withdrawal-splice clamp and close accounting (`:685-700`, `:1627-1635`, `:2520-2530`) plus 4 test
+files. **Phase 1 = add the funder** (self-contained, reversible, unbreaks the rail). **Phase 2 = the
+deletions**, once phase 1 is proven.
+
+🔴 **ONE BLOCKING QUESTION BEFORE PHASE 1 — WHICH ADDRESS BACKS THE RESERVE.** Getting this wrong
+strands protocol BTC, so it is not a guess to make. `BTC_DEPOSIT_KEY` is documented as the fleet's
+**INTERNAL** key, used TWEAKED with a per-swap CLTV/terms leaf to derive deposit addresses. A reserve
+has no terms and so no leaf. The options differ in who can spend the backing.
+
 🔴🔴 **`§LN-SWAPIN-RAIL-BROKEN` — THE RETRACTION BELOW WAS ITSELF TOO BROAD. RE-FILED CORRECTLY
 2026-08-30 (third pass).** The join IS broken; I named the wrong function twice. **There are TWO
 swap-in rails and they differ:**
