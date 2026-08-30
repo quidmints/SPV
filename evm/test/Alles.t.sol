@@ -504,7 +504,6 @@ contract AllesFixture is ForkPin, ExitFixture {
 
     IERC20 public WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address public aavePool  = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-    address public aaveData  = 0x56b7A1012765C285afAC8b8F25C69Bf10ccfE978;
     address public aaveAddr  = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
     address public aaveHub   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
     address public aaveSpoke = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
