@@ -482,6 +482,43 @@ the SAME channel signed over one output and over two, and shows the two-output e
 (structure, BIP-341 sighash, BIP-340 signature) while reporting the LP's 209,000 alone — the pool's
 40,000 neither leaks into `paidToLp` nor disturbs the signature.
 
+## 📒 §SESSION-LEDGER-2026-08-30 — WHAT WAS STARTED, WHAT IS DONE, WHAT IS OWED
+**Definition of done = crossed off here.** Anything below without a ✅ is unfinished, and the reason
+is stated so it can be resumed cold.
+
+### ✅ DONE (verified, committed)
+| item | evidence |
+|---|---|
+| `§AUDITS-RATED` — the three gated audits graded | keystone resolved; 2 unreachable-latent, 1 live |
+| `§AUDIT-SWAPOUT-DOUBLEPAY` — **live bug fixed** | `vault::DeliveryInFlight`; driver no longer retries or reverses an initiated-but-unlocked splice |
+| `§M1#2` phase 1(c) — LP funding half | `deriveFundingKey`, BIP-86; pinned key reproduced by an independent pure-Python BIP-32 and matches **BIP-86's published `internal_key` vector** |
+| `§E182-REKEY-CHECKED` — closed, was stale | all 4 requirements built; 5 tests pass |
+| `§SETTLE-PROVEN-UNTESTED` | 5 tests on the only wired swap-in entrypoint |
+| `§LN-RESERVE-FUNDER` — **Lightning rail unbroken** | `proveHopReserve` + encoder + reconciler, end to end; 8 tests |
+| `§POOL-INVENTORY-PURGED` | `parkProvenSats`/`poolOwnedSats`/`poolSatsParker`/`_releasePoolSats` deleted; **`BTCChannels` 24,545 → 23,527, headroom 31 → 1,049** |
+| `§ATTESTATION-CANNOT-BE-SPOOFED` | migration chain verified link by link |
+| C17 eMode row — corrected | it was CLOSED by the owner 2026-08-26 and had been read as open |
+
+### 🔴 OWED — STARTED OR FILED, NOT FINISHED
+| item | state | what remains |
+|---|---|---|
+| `§FRESHNESS-RECOMMENDATION` | **recommendation delivered, owner approved in principle, NOT EXECUTED** | delete the freshness UTXO + shard store + two-input exit shape; move the invariant into `ValidatingChannelSigner`. ⚠️ Removing the `Prevouts::All` binding makes a matured rung unrevocable — §E188's deliberate guarantee, but confirm before executing |
+| `§QR-VERIFIER-UNASSEMBLED` | filed | join `addressToScriptPubKey` + `taprootOutputKey`; no new dependency needed |
+| `§APP-CHAIN-LAYER-UNWIRED` | filed | 20 unreachable modules; decide shared-vs-phone-vs-SPA split; delete display analytics from `app/` |
+| `taproot.ts` stale header | identified | it claims TapTweak and bech32m are absent; both are present |
+| `§DELIVERY-INFLIGHT-RESOLUTION` | filed | a halted swap needs a resolution path once the splice's outcome is known |
+| `§JS-TESTS-HAVE-NO-RUNNER` | filed; **`npm install` in `app/` started this session** to unblock it | 10 test files, incl. `funding.test.ts`, still cannot run |
+| `§BTC-LEG-FEE` (1.5) | **verified genuinely open** | owner decision: should a swap-in pay LPs at all? Test is inverted pending it |
+| `§E294` (1.6) | **verified open; the row's REASON corrected** | delete `pushObservation` or wire it. Row says "the ring is fed by the anchor regardless" — false: `Core.sol` says `pushObservation` is the ring's ONLY live writer, so deleting leaves the ring empty and every σ² read falls back to `anchorVarianceWad()` |
+
+### ⚠️ CORRECTIONS MADE THIS SESSION, KEPT SO THEY ARE NOT RE-LEARNED
+`§SWAPIN-RAIL-BROKEN` was filed, retracted, then **re-filed correctly** as
+`§LN-SWAPIN-RAIL-BROKEN` — there are TWO swap-in rails and the bound is in
+`settleSwapInBuffered`, not `settleSwapInProven`. The `SweepAuth` 2-of-3 pool script was a **category
+error** (EIP-712 quorum cannot be a Bitcoin `scriptPubKey`). The freshness **2-of-2 was already
+refuted in-tree** for ignoring that the LP is offline. A reachability scan reporting "0 of 20" was
+first an artifact of unresolved `@/` aliases — re-run with them, the result held.
+
 🆕 **`§JS-TESTS-HAVE-NO-RUNNER` (added 2026-08-30, Tier 2).** `app/` carries **10 test files and
 no way to execute them**: no `test` script, no jest/vitest dependency, no runner config anywhere in
 the repo. **This is inherited, NOT a merge regression** — ibiza's `frontend/identity-wallet` had the
