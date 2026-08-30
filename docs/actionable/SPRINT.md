@@ -707,6 +707,67 @@ path with no execution path.**
 lists the three ways out; **this row adds the constraint that whichever is chosen must hold the legs
 apart rather than let each optimise.**
 
+### ✅ **CORRECTION — I CONFLATED AN OPTIMISER WITH A LADDER, AND THE DEPLOY COMMENT ONLY REFUTES THE FIRST** (owner, 2026-08-30)
+
+Owner, three corrections in two messages: *"the fallback in amp.sol doesnt go with the cheaper venue,
+it's just pull if you can here and if you cant then here"*, *"De-levers are correlated … ???"*, and
+*"we keep our vbTC venue on morpho also, wbtc has its own logic…so it's multirung"*. **All three
+land, and together they change what should be built.**
+
+#### 1. ✅ `Amp.sol`'s FALLBACK IS AVAILABILITY, NOT PRICE — AND THE TRUEST INSTANCE IS A TOP-UP
+I called it *"presence, not terms"*. That is right about `if (address(SPOKE) != address(0))`
+(`:241`, `:312`) — which is **configuration**, not a fallback at all. **But the pattern the owner
+describes is elsewhere in the same function and is better than either:** `Amp.sol:300-301`
+```solidity
+uint neededFromV3 = 0;
+if (inWETH > fromV4) neededFromV3 = V3.take(inWETH - fromV4);
+```
+⇒ **A QUANTITY TOP-UP: take what rung 1 gives, source the REMAINDER from rung 2.** Not a branch, not
+a choice — a ladder. **And it is already this repo's idiom**: `BasketLib._settleRedeem` is exactly
+this shape (free vault stables → `unwindForRedeem` → `deleverBook`), and so is the exit ladder.
+
+#### 2. ✅ THE "CHEAPEST VENUE" REFUTATION DOES NOT REACH A LADDER, AND I APPLIED IT TOO WIDELY
+`DeployL1_s:646` refutes *"selecting cheapest-or-least-utilised per leg"* because **that is an
+INDEPENDENT OPTIMISER FED A SHARED SIGNAL** — both legs read the same depth and converge.
+⭐ **A FIXED-ORDER LADDER READS NO SIGNAL AND MAKES NO CHOICE.** Every leg tries rung 1 first; the
+one that finds it empty falls through. ⇒ **It does not converge — it DIVERGES under exactly the
+pressure that makes convergence dangerous.** And it is the direct cure for the failure the comment
+itself names: *"the second arrival finds insufficient USDC and **cannot repay AT ALL** — a hard stop,
+not slippage."* **A rung-2 top-up turns that hard stop into a partial fill.**
+⇒ **The comment and the owner's design are not in conflict. I put them in conflict by reading
+"fallback" as "optimiser".**
+
+#### 3. ⚠️ AND THE CORRELATION PREMISE IS ASSERTED, NOT MEASURED — the owner was right to push
+*"whatever forces the BTC leg to unwind forces the ETH leg too"* appears **only** in that deploy
+comment. **Measured: `LevCascade.t.sol` — the repo's correlated-crash test — is SINGLE-LEG.** It
+drives *"N weETH-collateral LPs"* on ONE range and contains **zero references to `BtcLevManager` or
+`openBtcLev`**. The only tests that touch the BTC manager at all are `RecipientPin` and
+`VBtcLevFeeLane`, neither of which is a cascade. ⇒ **The cross-leg claim has no test anywhere.**
+📌 **It is also too strong as stated:** each leg de-levers on ITS OWN price against ITS OWN LTV band,
+so a BTC-specific drawdown moves one leg and not the other. Market-wide drawdowns do correlate — but
+*"whatever forces one forces the other"* is a claim about ALL drawdowns.
+⛔ **AND SETTLING IT IS NOT REQUIRED TO PROCEED, WHICH IS THE USEFUL PART:** correlated or not, a
+ladder is right. Correlation makes rung 2 matter MORE, not less.
+
+### ▶️ SO THE DESIGN IS MULTI-RUNG, AND `poolVenue` IS THE ONLY THING IN THE WAY
+*"we keep our vbTC venue on morpho also, wbtc has its own logic…so it's multirung."*
+| rung | venue | already exists? |
+|---|---|---|
+| 1 | **vBTC on Morpho** (native, collateral IS channel sats) | ✅ `mvB`, `vsB[0]` |
+| 2 | **WBTC**, its own logic (LP brings external WBTC; `rebalanceWbtc`'s atomic fold-up / flash-repay) | ✅ `wbtcV`, `vsB[1]`, and `BtcLevManager:164/:241` already branch on `COLLATERAL()` |
+⇒ **BOTH RUNGS ARE DEPLOYED AND BOTH ARE ALLOWLISTED. `LevBase._openPos:393` is what makes the
+second unreachable** — pin on first open, `VenueNotPooled()` on the second (§POOL-VENUE-IS-PINNED).
+🔑 **THIS REFRAMES THAT ROW'S THREE OPTIONS AND RETIRES TWO OF THEM.** *"Pick by terms at pinning
+time"* is the optimiser the deploy comment refutes; *"migrate the pooled position"* is a switch, not
+a ladder. **The shape that fits is the third — a position per rung — but it is NOT the free-for-all
+"one pooled position per venue" I wrote: it is ONE position per RUNG, in a FIXED ORDER, with rung 2
+taking only what rung 1 could not.** That preserves §POOL-VENUE's aggregate reads per rung and adds
+a bounded, ordered second.
+⚠️ **STILL OPEN AND NOW THE ONLY REAL QUESTION: what `deleverBook` / `totalDeliverableDollars` mean
+across two rungs.** They are aggregates over ONE pooled position today; a two-rung book needs them
+summed in rung order, and **that is the work §POOL-VENUE's consolidation was buying.** It is not a
+blocker — it is the actual task.
+
 ## 🔴🔴🔴 **§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER — THERE IS NO VENUE SELECTION AT ALL, AND A SECOND VENUE IS UNREACHABLE. THIS BLOCKS EVERY FALLBACK ASKED FOR.** (2026-08-30)
 
 Owner asked for two fallbacks — WBTC v4↔v3, and RLUSD/PYUSD Morpho↔Aave-v4-spoke *"use morpho if
