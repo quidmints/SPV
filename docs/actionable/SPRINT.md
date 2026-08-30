@@ -184,6 +184,44 @@ rescue it either — the seller could reveal without paying.
 rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
 `provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
 
+🟠 **`§APP-CHAIN-LAYER-UNWIRED` (2026-08-30, owner: *"idk what quant.ts is and if it even belongs on
+the clientside"*).** Measured by resolving imports from the Expo entry points (`app/*.tsx`) with the
+`@/* → ./*` alias, transitively: **26 modules are reachable, and ZERO of the 20 in
+`features/identity/chain/` are among them.**
+
+| layer | state |
+|---|---|
+| `features/identity/chain/` (20 files) | ⛔ **entirely unreachable** — `abi`, `boot`, `btcaddress`, `chains`, `encode`, `eth`, `events`, `flow`, `format`, `hop`, `kalman`, `keys`, `leverage`, `market`, `pnl`, `protect`, `quant`, `regime`, `schnorr`, `taproot` |
+| `identity/` (root, entropy, recovery, store, IdentityVault) | ✅ reached — **including `deriveFundingKey`** |
+| `pp/` | ⚪ **partly** — `notes.ts` and `discovery.ts` reached; `prove`, `deposit`, `stateTree`, `withdrawFlow/Plan/Witness`, `relay`, `recipient`, `identityProof` NOT |
+| `passport/`, `sdk/Eudi`, `sdk/circuits` | ⛔ unreachable |
+
+⇒ **`§QR-VERIFIER-UNASSEMBLED` IS THE SMALL VERSION OF THIS.** `taprootOutputKey` having no caller is
+not a one-function oversight — **the whole chain layer was bulk-copied from `spa/src/lib/` and never
+wired into the phone UI.**
+
+**ON `quant.ts` SPECIFICALLY, SINCE IT WAS ASKED:** it is **LP display analytics** — `lvrRate`,
+`ilPercent`, an Avellaneda–Stoikov quote model, and regime/phase/health classifiers. Not consensus,
+not security; its own comment concedes *"the protocol can't act on it (flow isn't observable)"*.
+- **In `spa/` it belongs** — three real consumers (`InfoTab.tsx`, `api/market/route.ts`, `leverage.ts`).
+- **In `app/` it does not** — of 13 exports, ONE (`ilPercent`) is imported, by `leverage.ts`, which
+  itself has no importer. (A `quadrant` hit is a field NAME in `market.ts`, not a call.)
+- 🔴 **AND THE COPY IS ALREADY STALE, WHICH IS THE POINT:** `app`'s copy cites `SwapLib.BAND_DELTA`;
+  the real constant is **`RANGE_DELTA`** (`SwapLib.sol:829`). The band→range rename landed in `spa`
+  only. `hop.ts` (3 lines) and `leverage.ts` have diverged too; `btcaddress.ts` is still byte-identical.
+⇒ **THIS IS THE ARGUMENT AGAINST COPYING THE VERIFIER.** Three of four duplicated modules have
+already drifted, one into a symbol that does not exist. A quoted-address check must be ONE module
+both clients import, not a fifth copy.
+
+▶️ **PROPOSED SPLIT (owner's framing: SPA+MetaMask for swapping, phone for secure-enclave things):**
+**pure computation → shared and used by BOTH** (address re-derivation: `taproot`, `btcaddress`,
+`schnorr`, `keys`); **secrets → phone only** (BIP-39 seed, the taproot funding half, Noir note
+witnesses — all needing `expo-secure-store` with biometric gating, none expressible in a browser);
+**display analytics → SPA only** (`quant`, `kalman`, `regime`, `market`, `pnl`, `leverage`), deleted
+from `app/` rather than left unreachable and rotting.
+⚠️ **OPEN QUESTION FOR THE OWNER:** are Noir notes meant to be SPENDABLE from the SPA, or is the SPA
+strictly swap-and-view? That decides whether `pp/prove`+`withdrawWitness` are phone-only or shared.
+
 ✅ **`§ATTESTATION-CANNOT-BE-SPOOFED` (2026-08-30, owner: *"how do we know the new malicious enclave
 cant spoof the attestation? it wont match the onchain mrenclave?"*). THE CHAIN IS COMPLETE — CHECKED
 LINK BY LINK, because today's pattern has been "pieces exist, join missing".**
@@ -1043,9 +1081,31 @@ depth* (USDe: \$234M borrowable, \$5M route reverts). This is *borrow depth ≠ 
 2. **OOR sell leg** — a named revert on a rail the owner has now raised three times.
 3. **Multi-asset borrow on the AaveV3Venue** — the capacity split, where the \$381M actually is.
 4. **Aave v4 restore** — demote. It is still required for *"all three venues"* and for the WBTC
-   v4-vs-v3 comparator, but it buys ~\$369k of borrow capacity today. **Do it when the cap lifts, or
-   do it cheaply as a rate-comparison-only venue** (`borrowRateRay` needs no collateral posted) so the
-   comparator the owner asked for twice can exist without pretending v4 is usable capacity.
+   v4-vs-v3 comparator, but it buys ~\$369k of borrow capacity today. **Do it cheaply as a
+   rate-comparison-only venue** (`borrowRateRay` needs no collateral posted) so the comparator the
+   owner asked for twice can exist without pretending v4 is usable capacity.
+
+### ✅ **THE "DO IT WHEN THE CAP LIFTS" STEP IS DELETED — `supplyHeadroom()` MEASURES IT ON-CHAIN** (owner, 2026-08-30: *"is it measured dynamically onchain?"*)
+🔴 **It was NOT, and that was a hole in the design rather than in the measurement.** Of the three
+quantities an allocator needs, only two were live: **rate** (`borrowRateRay`) and **BORROW capacity**
+(an unfundable draw reverts). **COLLATERAL capacity existed only as the number above, written into
+this file** — and `grep -rniE "getReserveCaps|supplyCap|borrowCap"` over `evm/src` returned **nothing**
+(every `headroom` hit is `Basket.sol`'s QU!D redeemability, an unrelated concept).
+⇒ **An allocator ranking venues by rate alone would eventually pick one it cannot ENTER**, and since a
+supply cap is **governance-mutable in any block**, the \$463k above is a snapshot with a shelf life —
+the same class as a stale margin reading, arriving through a venue parameter.
+✅ **`ILevVenue.supplyHeadroom()` — collateral the venue can still accept, in collateral units,
+`type(uint).max` when uncapped.** Aave reads its own cap (⚠️ **published in WHOLE TOKENS, and `0`
+means UNCAPPED — reading `0` as a quantity inverts the meaning and makes an unlimited reserve look
+full**); Morpho Blue has no cap and returns `max`, so no caller special-cases a venue.
+⭐ **This deletes a HUMAN step, which is the real win: nobody has to watch for the cap lifting — the
+venue simply becomes eligible again.**
+⚠️ **It is a READ and does NOT clamp `supply()`** — exceeding a cap must revert loudly rather than
+silently partial-fill (standing rule 3).
+▶️ **Verified by `test_HeadroomPredictsTheCapRevert`, and the shape of that test is the point: a
+headroom NUMBER is worthless unless it PREDICTS THE REVERT.** Recomputing it from the same two reads
+would have been tautological, so the test supplies inside the headroom (must succeed), asserts the
+headroom FALLS, then supplies past it (must revert). 6 tests green, lev suite 41/0.
 
 ## 🗺️ **§ARB-SHARING-IS-THE-SKEW-PREMIUM'S-PRICE — MAPPING THE OOR AND REBALANCE/REFILL THREADS AGAINST WHAT THIS FILE ACTUALLY HOLDS** (owner, 2026-08-30: *"what about the oor stuff? … rebalance/refill left (optimal policy still a mystery, related to skew and profit sharing of all possible arb with LPs, not sure to what extent this is covered)"*)
 
