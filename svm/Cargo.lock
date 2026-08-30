@@ -1174,6 +1174,7 @@ dependencies = [
  "anchor-spl",
  "phf",
  "rust_decimal",
+ "solana-sha256-hasher",
 ]
 
 [[package]]

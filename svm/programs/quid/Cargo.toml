@@ -27,3 +27,10 @@ phf = { version = "0.13.1", features = ["macros"] }
 anchor-lang = { version = "0.32.1", features=["init-if-needed"] }
 rust_decimal = { version = "1.32", default-features = false }
 anchor-spl = "0.32.1"
+
+[dev-dependencies]
+# Test-only. `solana-program` used to be a full dependency for exactly one
+# `hash()` call inside a #[test]; anchor's `solana_program` re-export does not
+# carry `hash`, and pulling the whole crate back in for a test drags a second
+# major version of it into the graph. This is the one subcrate that call needs.
+solana-sha256-hasher = "2.3"

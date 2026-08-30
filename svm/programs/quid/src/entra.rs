@@ -1400,7 +1400,7 @@ mod flash_window_tests {
     /// derivation itself.
     #[test]
     fn withdraw_and_repay_discriminators_are_the_anchor_ones() {
-        use anchor_lang::solana_program::hash::hash;
+        use solana_sha256_hasher::hash;
         let disc = |n: &str| {
             let mut d = [0u8; 8];
             d.copy_from_slice(&hash(format!("global:{n}").as_bytes()).to_bytes()[..8]);

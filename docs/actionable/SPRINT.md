@@ -106,7 +106,12 @@ function and did not read the body before filing. The retraction is the twelfth 
 asserting a join without reading both ends.
 
 ✅ **WHAT SURVIVES, AND IT IS NARROWER BUT REAL:**
-1. 🟠 **`§SETTLE-PROVEN-UNTESTED` — the ONLY wired swap-in entrypoint has ZERO EVM tests.**
+1. ✅ **`§SETTLE-PROVEN-UNTESTED` — CLOSED 2026-08-30.** `evm/test/btc/SettleSwapInProven.t.sol`,
+   5 tests, all passing: the credited sats come from the PROOF and the floor from the COMMITTED
+   TERMS (neither hop-supplied); a deposit to a script the hop controls credits nothing *at the
+   entrypoint*, not merely in the library; one deposit settles once; a stranger cannot settle; an
+   SPV refusal credits nothing. Suite now 156 pass / 0 fail. **The original finding, for the
+   record:**
    `settleSwapInProven` is called by production (`swap_in_onchain.rs:194` → `client.rs:640`) and
    appears in `evm/test` **0 times**, while `parkProvenSats` — which production cannot call — has
    **5** test call sites. Coverage sits on the unreachable half. `§HOP-RCE-3` independently lists
