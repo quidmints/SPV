@@ -1084,10 +1084,60 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§CONVERGENCE-IS-THE-OTHER-WORKFLOW — MY "NO KEY NEEDED" ANSWER WAS SCOPED TO THE LEVER AND READ AS THE WHOLE ANSWER. THE USER-FACING PATH IS THE OPPOSITE CASE.** (owner, 2026-08-30: *"those are not the only venues we need … someone who swaps eth or btc to dollars gets all the dollars pro rata, how do we give the user the stable that they want out of that"*)
+
+The owner asked on 2026-08-28 for the 1inch integration to be flexible for **every workflow**.
+§NO-KEY-AND-A-KEY-WOULD-NOT-HELP answered for the **lever/IL-protect** paths and I let it stand as the
+answer. **There is a second workflow with the opposite properties, and it is the user-facing one.**
+
+### 📍 WHAT ACTUALLY HAPPENS TODAY — MEASURED, NOT RECALLED
+| path | what the user gets |
+|---|---|
+| **SWAP (ETH/BTC → dollars) naming a stable** | ✅ **the named stable is drained FIRST** — `viaToken = a.token != a.quid; skip = a.token;` → `_takePreferred(...)`, and **`if (done) return sent;`**, so when the basket holds enough of it the user gets **100% of what they asked for in ONE tx.** Only the SHORTFALL falls through to pro-rata (`BasketLib.sol:698-712`) |
+| **REDEEM** | always pro-rata — §E313 removed the targeted preference |
+| **converging a pro-rata remainder into one stable** | 🔴 **NOT BUILT ANYWHERE.** Decided 2026-08-22 as a frontend multicall; `spa/src` has **no aggregator call at all** — its only `fetch`es are the hop API and `/api/market` |
+⇒ **The gap bites exactly when the requested stable cannot cover the draw**, which is the common case
+for a large sell against a 14-stable basket.
+
+### ⭐ WHY THIS PATH INVERTS THE KEY ARGUMENT
+§NO-KEY's reasoning was: *aggregator calldata embeds its amount, and our amounts are computed
+on-chain, so a pre-built route is stale by construction.* **That reasoning is exactly what does NOT
+apply here.**
+| | lever / IL-protect | **user convergence** |
+|---|---|---|
+| where it runs | contract, mid-transaction | **the frontend, after the pro-rata landed** |
+| the amount is | `_hubSwap` output / `venue.borrow()` return — **unknowable off-chain** | **a token balance sitting in the user's wallet — exactly knowable** |
+| pre-built calldata | ⛔ stale by construction | ✅ **valid** |
+| venues needed | 1–3 pools; `unoswap2`/`unoswap3` reach them | 🔴 **N stables → 1, so the aggregator's FULL venue set** |
+| verdict | **no key, and a key would not help** | **an aggregator IS required** |
+⇒ **The owner is right that "those are not the only venues we need."** Measured in
+§UNOSWAP-CANNOT-REACH: **GHO, USDG, RLUSD and USDE have NO direct Uniswap-v3 pool to USDC on either
+tier**, and §ROUTE-COST-MEASURED found GHO's real 7-8 bps route runs through a **vault-custodied DEX
+that `unoswap` pool words cannot address**. A pro-rata slice contains those stables **by construction**
+— the basket exists to hold them — so converging it needs venues beyond UniV2/V3/Curve.
+✅ **AND IT STILL DOES NOT REQUIRE A PAID KEY: KyberSwap's aggregator is KEYLESS, and this session
+fork-executed its calldata** — quote matched execution to **eight significant figures** on GHO→USDC
+(999,236.456736 quoted vs `…752` executed). 1inch-with-key is one option; it is not the only one.
+⚠️ **One aggregator is not a source of truth** — ParaSwap priced the same trade **1.75× worse and
+refused it**. Whatever the frontend uses, quote from more than one, or verify before trusting.
+
+### ▶️ WHAT THIS ADDS TO THE QUEUE
+1. **Build the convergence** — `spa/` fetches a route per non-target stable and issues one multicall.
+   **This is the owner's own 2026-08-22 design and the half that was never implemented.**
+2. ⚠️ **Decide the DEFAULT.** Converging costs a swap per stable; a user who does not care should not
+   pay 13 swaps. **`_takePreferred` already gives a one-tx single-stable exit whenever the basket can
+   cover it**, so the frontend should converge only the SHORTFALL, not the whole slice.
+3. 📌 **Do NOT re-litigate on-chain vs off-chain** — settled by the owner, and the reason still holds
+   (routing many stables out of a pro-rata does not fit in one transaction).
+
 ## 🔑 **§NO-KEY-AND-A-KEY-WOULD-NOT-HELP — THE 1INCH QUESTION WAS FRAMED WRONG, AND THE REACHABLE FLEXIBILITY IS `unoswap2`/`unoswap3`** (owner, 2026-08-30: *"did we decide if the 1inch api key is necessary? what scope of flexibility do we still need?"*)
 
 **Decided: NO key is needed, and a key would buy nothing on these paths.** The blocker was never
 authentication.
+🔴 **SCOPE CORRECTION (2026-08-30): "these paths" MEANS THE LEVER/IL-PROTECT PATHS ONLY.** The
+user-facing convergence workflow has the OPPOSITE properties and DOES need full aggregator venue
+coverage — see **§CONVERGENCE-IS-THE-OTHER-WORKFLOW** immediately above. This row answered one
+workflow of the two the owner asked about.
 
 ### ⛔ WHY A KEY IS IRRELEVANT — THE REASON IS ALREADY IN THE CODE, AT `LevMath.sol:630-640`
 **Aggregator calldata EMBEDS ITS INPUT AMOUNT, and every amount on our paths is computed ON-CHAIN.**
