@@ -223,6 +223,34 @@ pub enum PithyQuip {
     /// choose. Retry with a ceiling they accept, or for less than the buffer holds.
     #[msg("withdrawal exceeds the hot buffer and no unpark haircut was consented to")]
     UnparkConsentRequired,
+
+    // ── §DELIVER: Backed xStocks primary market ─────────────────────────────
+    #[msg("no xStock is shipped for this ticker")]
+    NotDeliverable,
+
+    /// The pool is short the NET of the book. A net-long book owes an
+    /// unbounded upside that only the asset funds; a net-short book owes a
+    /// payout bounded by a total loss, which cash funds. Buying paper against
+    /// the second deepens the exposure it was meant to cover.
+    #[msg("paper only funds a net-long book; this ticker is net short or flat")]
+    WrongDirection,
+
+    #[msg("order is below Backed's primary-market minimum")]
+    BelowMinimumTicket,
+
+    #[msg("order is above this product's per-period maximum")]
+    AboveMaximumTicket,
+
+    /// Also how a closed market presents: Backed reports maxOrderFiatValue 0
+    /// for the `closed` period on 714 of its 715 assets.
+    #[msg("delivery halted for this product")]
+    DeliveryHalted,
+
+    #[msg("issuance would exceed the net exposure it funds")]
+    ExceedsNetExposure,
+
+    #[msg("no paper has arrived since the last settle")]
+    NothingToSettle,
 }
 
 /// Actuary: adaptive risk

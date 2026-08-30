@@ -91,6 +91,33 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
+✅ **`§E182-REKEY-VERIFIED` (2026-08-30).** The row demanded four things — *"`keysHash` updates,
+`lpPubkey` pinned, LP co-signs, fresh ladder armed atomically"* — and **all four are built**:
+
+| Requirement | Where | Evidence |
+|---|---|---|
+| `lpPubkey` pinned (gate 1) | `ChannelLib.rekeyAuthBody` | `keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) != keysHash ⇒ revert` — **the row's own proposed shape**, and one hash proves BOTH that `p.lpPubkey` is the pinned LP key and `oldHopPubkey` the pinned hop key |
+| hop half actually moves | same | `p.hopPubkey.length != 33 ⇒ InvalidParam`; `== oldHopPubkey ⇒ RekeyUnchanged` |
+| `keysHash` re-pinned | `_finishRekey` | `ch.keysHash = keccak256(abi.encode(p.lpPubkey, p.hopPubkey))` in the same tx |
+| fresh ladder, atomically | `_finishRekey` | `_armLadder(channelId, p, exits)` before the re-pin, after `_applySplice` |
+| LP co-signs | inherent | a rekey SPENDS the old 2-of-2; `_verifySplice`'s KeyAgg gate proves `p.lpPubkey` is inside `Q'` |
+
+**Tests: 5, all passing** (`VBtcLevFeeLane.t.sol`) — `test_rekeyRotatesTheHopHalfAndRepinsKeysHash`,
+`test_rekeyRefusesToMoveTheLpHalf`, `test_rekeyRefusesANoOpRotation`,
+`test_rekeyRequiresTheLpsOwnLadder`, `test_spliceCannotRekeyTheChannel`. The row's instruction to
+correct `§E187` was also carried out — that correction is present in its row.
+
+⚠️ **ONE RECONCILIATION, BECAUSE TWO ROWS NOW DISAGREE AND THE OWNER'S MODEL SETTLES IT.**
+`§E187`'s correction concludes that *"what is actually lost with a phone … [is] the ability to ROTATE
+AWAY FROM A COMPROMISED HOP KEY"*, treating rekey capability as destroyed by phone loss. That holds
+only if the LP's half is **unrecoverable** — and under `§E188` it is not: the funding half is a
+hardened-path key off the LP's own BIP-39 seed, *"a lost phone restores from words the LP already
+backs up"*, now built as `deriveFundingKey` (owner, 2026-08-30: *"same seed, taproot path"*; the
+owner restated the model as *"they can lose phone and still recover their key"*). ⇒ **A lost phone
+DELAYS a rekey until the LP restores from words; it does not permanently block one.** The residual
+§E187 names is real but bounded by recovery time, not permanent — which is why social recovery stays
+what `§E188` filed it as: a way to restore SERVICE faster, never the funds path.
+
 ⛔ **`§SWAPIN-RAIL-BROKEN` — RETRACTED 2026-08-30, THE SAME DAY IT WAS FILED. IT WAS WRONG.**
 The claim was that production swap-ins revert `InsufficientProvenSats` because Rust calls
 `settleSwapInProven` while nothing funds `provenSatsAvailable`. **The bound is not in that function.**
@@ -369,7 +396,8 @@ basis — the blocker the file put in front of them is gone.**
 2. ✅ **The pool script** (`§ORDER` 1.1) — **BUILT 2026-08-30.** `_armDeadManExit` now verifies the
    pool's output too. See `§POOL-SCRIPT-DONE`.
 3. 🔴 **Phase 3 freshness** — decide whether it is wanted at all before building a writer for it.
-4. 🔴 **`E182-REKEY-CHECKED`** — *"its STATED PROPERTY IS FALSE for the only case it exists for."*
+4. ✅ **`E182-REKEY-CHECKED` — CLOSED 2026-08-30, THE WORK LANDED.** Every requirement the row
+   named is in the tree and tested; see `§E182-REKEY-VERIFIED`.
 5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
    on-chain); **`B1`** (freshness backstop has no economic bound); TDX + Nitro seal wiring.
 
@@ -734,6 +762,62 @@ structural reason: they share this table.**
 4. ⚠️ **`_routeOf` is `pure` with hardcoded addresses**, so each line is a redeploy of `LevMath`.
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
+
+## 📊 **§THREE-VENUE-MATRIX — AAVE v3 WAS NEVER CHECKED, AND IT IS 27× DEEPER. ITS SHARED POOL IS THE ONLY PLACE THE DIVERSITY GOAL IS STRUCTURALLY POSSIBLE.** (owner, 2026-08-30: *"you checked for all our stablecoins in the basket across aavev3 and aavev4 and morpho?"*)
+
+**No — I had checked Aave v4 and Morpho and never touched Aave v3.** Now measured, all three, live.
+⚠️ **AND THE FIRST ATTEMPT FAILED ITS OWN CONTROL, WHICH IS THE ONLY REASON IT IS NOT WRONG HERE:**
+using the fixture's `aaveData` (`0x56b7A101…`) every token — **including WETH and USDC** — returned
+*"not a reserve"*. A control that absurd is a broken address, not an empty market. Resolved properly
+through `IAaveV3AddrProvider(0x2f39d218…).getPoolDataProvider()` → **`0x0a16f2FC…`**, and WETH then
+answered. 🔴 **`Alles.t.sol:507`'s `aaveData` IS STALE — booked below.**
+
+### 📡 AAVE v3, EVERY BASKET STABLE (available = aToken − debt)
+| token | borrow? | aToken | debt | **AVAILABLE** | util | borrow APY |
+|---|---|---:|---:|---:|---:|---:|
+| **USDT** | YES | 2,944,114,025 | 2,692,161,028 | **251,952,998** | 91.4% | 4.08% |
+| **USDE** | YES | 672,232,398 | 438,561,568 | **233,670,830** | 65.2% | 3.90% |
+| **USDC** | YES | 2,275,573,342 | 2,052,898,130 | **222,675,213** | 90.2% | 4.02% |
+| **GHO** | YES | 135,078,566 | 111,038,227 | **24,040,338** | 82.2% | **3.75%** |
+| **DAI** | YES | 132,141,070 | 112,654,314 | **19,486,756** | 85.3% | 4.63% |
+| USDS | YES | 10,061,116 | 343,330 | 9,717,786 | **3.4%** | 5.53% |
+| USDG | YES | 21,923,509 | 17,962,039 | 3,961,470 | 81.9% | 7.89% |
+| RLUSD | YES | 4,822,143 | 3,449,842 | 1,372,301 | 71.5% | 4.74% |
+| PYUSD | YES | 7,326,091 | 6,606,050 | 720,041 | 90.2% | 5.85% |
+| crvUSD | YES | 185,529 | 78,627 | 106,902 | 42.4% | 2.91% |
+| WETH | YES | 2,129,203 | 1,735,716 | 393,487 | 81.5% | 2.14% |
+| WBTC | YES | 33,867 | 1,217 | **32,650** | **3.6%** | **0.36%** |
+| AUSD · BOLD | — | — | — | **not reserves** | | |
+
+### ✅ AND weETH **IS** COLLATERAL THERE — SO THE ETH LEVER CAN REACH ALL OF IT
+`weETH`: LTV **7750**, liquidation threshold **8000**, bonus 10700, `usageAsCollateral = true`,
+active, not frozen. (`wstETH` likewise: 7850 / 8100.) **Neither is borrowable, which does not matter —
+they are the collateral leg.**
+
+### 🔑 THE THREE VENUES, AND THE DIFFERENCE THAT DECIDES THE OWNER'S QUESTION
+| venue | weETH LTV | borrowable dollars | **can one position borrow SEVERAL stables?** |
+|---|---:|---|---|
+| **Morpho** (isolated) | **86%** | RLUSD 9.19M · PYUSD 7.24M | 🔴 **NO — one loan asset per market, by construction** |
+| **Aave v3** (shared) | 77.5% | USDT 252M · USDE 234M · USDC 223M · GHO 24M · DAI 19.5M | ✅ **YES** |
+| **Aave v4** (hub) | 80% (CF 8000) | USDG 37.9M · USDT 3.57M · GHO 0.23M | ✅ yes |
+⭐⭐ **THIS IS THE STRUCTURAL ANSWER TO THE WHOLE THREAD.** *"Diversify the dollar we borrow"* is
+**impossible on Morpho** — an isolated market has exactly one loan asset, so one position borrows one
+stable, and §POOL-VENUE pins the protocol to one position. **On a SHARED pool it is native**: one
+weETH collateral position can carry GHO **and** USDT **and** DAI simultaneously, and the split is a
+free parameter rather than a venue migration. ⇒ **The venue choice and the diversity goal are the
+same decision**, and Morpho cannot express the goal at any allowlist size.
+⚖️ **THE TRADE IS LEVERAGE FOR DEPTH AND DIVERSITY:** Morpho 86% LLTV on **$9.19M**; Aave v3 77.5%
+LTV on **$252M** at a **cheaper rate** (GHO 3.75% vs RLUSD 4.19%). **27× the depth for 8.5 points of
+LTV.**
+📌 **AND WBTC ON v3 IS THE STANDOUT NOBODY QUOTED: 3.6% utilisation, 0.36% APY, 32,650 available.**
+The BTC leg's borrow side is close to free and almost untouched.
+
+### 🔴 BOOKED IN PASSING: `Alles.t.sol:507`'s `aaveData` IS A DEAD ADDRESS
+`0x56b7A1012765C285afAC8b8F25C69Bf10ccfE978` returns "not a reserve" for **WETH**. The live provider
+is `0x0a16f2FCC0D44FaE41cc54e079281D84A363bECD` via the addresses provider — which is how
+`DeployL1_s` gets it (`getPoolDataProvider()`), and why deploy is unaffected. **Check whether any
+test READS it; a data provider that answers "not a reserve" for everything is the shape that makes a
+skipped assertion look green.**
 
 ## 📊 **§BORROW-DOLLAR-CANDIDATES — EVERY weETH MARKET ENUMERATED. RLUSD AND PYUSD DOMINATE MORPHO; USDG ON v4 IS 4× DEEPER THAN EITHER.** (owner, 2026-08-30: *"are you telling me the other choices arent even worth checking?"*)
 
