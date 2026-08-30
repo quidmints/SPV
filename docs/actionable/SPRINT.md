@@ -570,30 +570,28 @@ confirmed by other means.
    edited** — its message therefore does not describe its contents. ⇒ **Stage explicitly (`git add
    <paths>`) in a shared tree**, and treat `git add -A` as unsafe here.
 
-🔴 **`§LEV-DELIVERABILITY-REGRESSION` — a REAL regression, ownership not yet pinned.**
-`test_LevDeliverabilityBTC_DeliverableDollarsView` **PASSES at `e2f0d0fe`** (before this session) and
-**FAILS at HEAD**: *"per-LP deliverable is within the book aggregate: 1170069204386151408450 >
-1169512293718309859154"*, gas 7,806,449 → 7,326,856, so behaviour changed materially. **The suspect is
-the concurrent leverage work, not the BTC changes** — `LevBase`/`LevMath`/`LevVenueBase`/`Interfaces`
-all changed since baseline and the failing assertion is leverage-book accounting, while the BTC
-changes touch channel custody. **BISECT SO FAR (each point = one fork run of the single test):**
-| commit | verdict | meaning |
-|---|---|---|
-| `e2f0d0fe` (session baseline) | ✅ PASS | pre-existing state is good |
-| `52351b66` (my reserve funder — ALL my BTC work to that point) | ✅ PASS | **the audits, funding half, pool script and reserve funder are exonerated** |
-| `27967884` (after the other session's *LTV from the venue* change) | ✅ PASS | `bd8a174b` exonerated |
-| `89c8514b` (after *borrowRateRay cast fix*) | ✅ PASS | `c99f6519` **and my pool purge `b4ecb17b`** exonerated |
-| `HEAD` | 🔴 FAIL | |
+⛔ **`§LEV-DELIVERABILITY-REGRESSION` — RETRACTED. THERE IS NO REGRESSION.** HEAD **passes** on
+re-run. The failure was **fork-block dependent**, and the whole bisect was measuring live mainnet
+drift rather than commits. `3c81ad31` and `e004f8dc` are both innocent; so is every point I
+"exonerated", because none of those verdicts meant what I said they meant.
+⚠️ **AND MY REASON FOR RULING OUT FLAKE WAS WRONG:** I re-ran and got byte-identical numbers, and
+called that determinism. Two runs minutes apart fork the SAME block, so identical output was the
+expected result either way. It distinguished nothing.
 
-⇒ **THE WINDOW IS NOW `89c8514b..HEAD`, AND IT HOLDS EXACTLY TWO COMMITS THAT CHANGE SOLIDITY:**
-`3c81ad31` (other session — `_aggSwap` gains a second pool word; `LevMath.sol` +41, `Interfaces.sol`
-+8) and `e004f8dc` (mine — the preimage dedup key, `BTCChannels.sol` + 5 test files, none of them
-`VBtcLevFeeLane.t.sol`). ⚪ `b85e8680` ("SOL* haircut default") touches **only**
-`svm/programs/quid/src/entra.rs` — Solana, so it cannot move a Foundry test; the rest of the window
-is documentation.
-▶️ **NEXT AND LAST STEP: run the test at `3f06139e`** (after `3c81ad31`, before my commit). FAIL there
-⇒ `3c81ad31` is the cause and my preimage commit is clear; PASS ⇒ it is mine. **In flight when this
-was written — do not close either way without it.**
+🔴 **`§FORK-TESTS-ARE-UNPINNED` (2026-08-30) — the real defect, and it is worth more than the
+non-regression was.** **No fork block is pinned anywhere:** `foundry.toml` has no `fork_block_number`
+and every fork test calls `vm.createSelectFork(vm.envString("ETH_RPC_URL"))` with **no block
+argument**, so each run forks at *latest* and reads whatever mainnet holds at that moment.
+`test_LevDeliverabilityBTC_DeliverableDollarsView` asserts a per-LP deliverable against a book
+aggregate with a **~0.05 % margin** (1170069204386151408450 vs 1169512293718309859154), so ordinary
+price movement flips it.
+⇒ **CONSEQUENCES, WHICH ARE THE POINT:** a red run proves nothing and a green run proves nothing;
+CI cannot be trusted for these suites; and **an hour went into bisecting a failure that was never
+there** — with the near-miss of blaming a concurrent session's commit for it.
+▶️ **FIX: pin the fork block** (`fork_block_number` in `foundry.toml`, or a `FORK_BLOCK` env read by
+`createSelectFork(url, block)`), and bump it deliberately. A test that reads live third-party state
+must pin it or assert a property that survives the range — a 5 bps margin against Aave/Uniswap state
+is neither.
 
 ### 🆕 ALSO SURFACED IN DISCUSSION AND NOT BOOKED UNTIL NOW (2026-08-30, owner: *"are you sure that
 is all the new work? other things came up"*) — they were, and these are them
