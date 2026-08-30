@@ -213,12 +213,23 @@ not security; its own comment concedes *"the protocol can't act on it (flow isn'
 already drifted, one into a symbol that does not exist. A quoted-address check must be ONE module
 both clients import, not a fifth copy.
 
-▶️ **PROPOSED SPLIT (owner's framing: SPA+MetaMask for swapping, phone for secure-enclave things):**
-**pure computation → shared and used by BOTH** (address re-derivation: `taproot`, `btcaddress`,
-`schnorr`, `keys`); **secrets → phone only** (BIP-39 seed, the taproot funding half, Noir note
-witnesses — all needing `expo-secure-store` with biometric gating, none expressible in a browser);
-**display analytics → SPA only** (`quant`, `kalman`, `regime`, `market`, `pnl`, `leverage`), deleted
-from `app/` rather than left unreachable and rotting.
+▶️ **THE SPLIT (owner-corrected 2026-08-30: *"analytics might be good for the keeper to present,
+[prevent] duplication, should be accessible in the phone too"*).** My first proposal was to DELETE
+the analytics from `app/`; **that is wrong — the phone gets them too.** The defect was never that
+the phone has analytics, it is that it has a SECOND COPY of them.
+
+| tier | modules | home |
+|---|---|---|
+| pure computation | `taproot`, `btcaddress`, `schnorr`, `keys` | **SHARED — both clients import one module.** A MetaMask-Bitcoin swapper needs address re-derivation as much as a phone user |
+| display analytics | `quant`, `kalman`, `regime`, `market`, `pnl`, `leverage` | **SHARED — both clients**, and the keeper presents from the same numbers |
+| secrets | BIP-39 seed, taproot funding half, Noir note witnesses | **PHONE ONLY** — needs `expo-secure-store` + biometric gating; not expressible in a browser |
+
+✅ **CHECKED: THERE IS NO THIRD COPY.** The Rust keeper does NOT compute this math — `lev_keeper.rs`
+mentions impermanent loss only in comments, and no `lvr`/`avellaneda`/`impermanent` implementation
+exists in `quid-ln` or `svm`. So the analytics live in TypeScript only, duplicated app↔spa, and one
+shared module retires the duplication for every consumer at once. ⚠️ **If the keeper ever needs to
+PRESENT analytics, it must not grow a Rust implementation** — it should serve the inputs and let the
+shared module compute, or the drift becomes cross-language and undetectable by `diff`.
 ⚠️ **OPEN QUESTION FOR THE OWNER:** are Noir notes meant to be SPENDABLE from the SPA, or is the SPA
 strictly swap-and-view? That decides whether `pp/prove`+`withdrawWitness` are phone-only or shared.
 
@@ -507,7 +518,7 @@ is stated so it can be resumed cold.
 | `§APP-CHAIN-LAYER-UNWIRED` | filed | 20 unreachable modules; decide shared-vs-phone-vs-SPA split; delete display analytics from `app/` |
 | `taproot.ts` stale header | identified | it claims TapTweak and bech32m are absent; both are present |
 | `§DELIVERY-INFLIGHT-RESOLUTION` | filed | a halted swap needs a resolution path once the splice's outcome is known |
-| `§JS-TESTS-HAVE-NO-RUNNER` | filed; **`npm install` in `app/` started this session** to unblock it | 10 test files, incl. `funding.test.ts`, still cannot run |
+| `§JS-TESTS-HAVE-NO-RUNNER` | filed; install attempted and **found `app/` UNINSTALLABLE** | 🔴 **`§APP-DEPS-UNRESOLVABLE` — `npm install` fails `ERESOLVE`:** `react-native-worklets` is pinned to `0.5.1`, but `expo-modules-core@57.0.14` needs `^0.7.4 \|\| ^0.8 \|\| ^0.9 \|\| ^0.10`. **So the merged app cannot install, build, typecheck or test at all.** Fix in flight: bump to `~0.10.4`, which also satisfies `react-native-reanimated`'s `>=0.5.0`. Until it resolves, all 10 test files — incl. `funding.test.ts`'s pinned key — remain unrunnable |
 | `§BTC-LEG-FEE` (1.5) | **verified genuinely open** | owner decision: should a swap-in pay LPs at all? Test is inverted pending it |
 | `§E294` (1.6) | **verified open; the row's REASON corrected** | delete `pushObservation` or wire it. Row says "the ring is fed by the anchor regardless" — false: `Core.sol` says `pushObservation` is the ring's ONLY live writer, so deleting leaves the ring empty and every σ² read falls back to `anchorVarianceWad()` |
 
@@ -1072,6 +1083,66 @@ structural reason: they share this table.**
 4. ⚠️ **`_routeOf` is `pure` with hardcoded addresses**, so each line is a redeploy of `LevMath`.
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
+
+## 🔑 **§NO-KEY-AND-A-KEY-WOULD-NOT-HELP — THE 1INCH QUESTION WAS FRAMED WRONG, AND THE REACHABLE FLEXIBILITY IS `unoswap2`/`unoswap3`** (owner, 2026-08-30: *"did we decide if the 1inch api key is necessary? what scope of flexibility do we still need?"*)
+
+**Decided: NO key is needed, and a key would buy nothing on these paths.** The blocker was never
+authentication.
+
+### ⛔ WHY A KEY IS IRRELEVANT — THE REASON IS ALREADY IN THE CODE, AT `LevMath.sol:630-640`
+**Aggregator calldata EMBEDS ITS INPUT AMOUNT, and every amount on our paths is computed ON-CHAIN.**
+`_stableToWethSor` passes `_hubSwap(...)`'s **Curve output**; `leverUpBuyWbtc` passes
+`venue.borrow(...)`'s **return**. Neither is predictable off-chain to the wei, so a pre-built route is
+**stale by construction** — *"too high and the router's `transferFrom` reverts, too low and it
+under-swaps into a `Slippage()` four frames away."*
+⇒ **With unlimited API access, `swap()` STILL could not take our runtime amount.** The key question and
+the flexibility question are independent, and only the second one is real.
+
+### ✅ THE FLEXIBILITY THAT *IS* REACHABLE, KEYLESSLY — AND IT IS MEASURED TO MATTER
+`unoswap2`/`unoswap3` take **the amount as a runtime parameter** (arg #2) with pools as trailing
+words, so they are multi-hop WITHOUT off-chain calldata. **All four selectors verified present in the
+deployed router bytecode (`0x1111111254…`, 48,591 chars):**
+| selector | fn | status |
+|---|---|---|
+| `0x83800a8e` | `unoswap` | ✅ the only one we pin today |
+| `0x8770ba91` | **`unoswap2`** | ✅ present — **not wired** |
+| `0x19367472` | **`unoswap3`** | ✅ present — **not wired** ⚠️ note this is NOT the `0x89af926a` recorded earlier; that was a different arity |
+| `0x07ed2379` | `swap` | ✅ present, and **unusable for the reason above** |
+⭐ **EVERY SECURITY PROPERTY SURVIVES, which is why this is the right answer rather than a compromise:**
+callee still pinned · selector still a CONSTANT (three instead of one) · **amount still computed
+on-chain** · `minOut` still oracle-derived · balance-delta still enforced. The keeper still supplies
+**only pool words** — *"never a destination and never a function."*
+📊 **And it is not theoretical: §UNOSWAP-CANNOT-REACH measured two hops beating one at EVERY size on
+the BTC leg** — USDT→WETH→WBTC at **0.67% vs 0.92% direct at \$1M**, 3.29% vs 4.96% at \$5M.
+
+### ⚠️ WHAT REMAINS OUT OF REACH, AND THE HONEST CAVEAT ON GHO
+1. **N-way splits across many venues** (1inch's executor, Kyber's route) need off-chain calldata,
+   hence a deterministic amount. **That is a DESIGN CHANGE, not a key** — it would mean making the
+   on-chain amount predictable (fix the size, or pass it in and require the balance to match), which
+   trades away the "amount computed on-chain" property that makes the current shape safe.
+2. 🔴 **`unoswap2` DOES NOT AUTOMATICALLY RESCUE GHO, AND I MUST NOT CLAIM IT DOES.** `unoswap` pool
+   words address **UniV2 / UniV3 / Curve** only (protocol in bits 253-255). §ROUTE-COST-MEASURED
+   executed GHO→USDC at 7-8 bps, but through a **vault-custodied DEX holding zero GHO and zero USDC
+   at its own address** — not an AMM pool of those three kinds. ⇒ **Before wiring GHO, confirm a
+   UniV2/V3/Curve pool can serve GHO→USDC at acceptable depth.** If none can, GHO is reachable by
+   aggregator and NOT by `unoswap*`, and the venue choice has to account for that.
+
+### 🔍 DEFECT AUDIT OF TODAY'S LANDINGS (owner: *"defects are unacceptable"*)
+🔴 **ONE REAL DEFECT FOUND AND FIXED (`c99f6519`):** `MorphoEscrowVenue.borrowRateRay` did
+`tba += uint128(extraBorrow)`. **An explicit cast is NOT covered by 0.8's checked arithmetic**, so a
+draw above `2**128` wrapped to a small number and the function returned a **flattering rate for a
+borrow that could never be funded** — *the exact thing `VenueCannotFund`'s own docblock says must not
+happen.* **The guard existed; the cast walked around it, because the narrowing preceded the bound.**
+Fixed by ordering (add in `uint256`, compare against `tsa`, then narrow — passing the check makes the
+cast provably lossless). Regression test uses two values that both wrap to **fundable** sizes, so it
+discriminates rather than merely asserting a revert.
+✅ **Checked and CLEAR:** the Aave 12-tuple destructuring (validated by the exact-equality control
+against Aave's live rate); `c * 1e10` and `supplyCap * 10**dec` (both far from overflow);
+`_unitSlice`/`positionOf` (covered by `test_PerLpHealthIsNotPoolHealth`); Morpho's `_to18` using
+LOAN-token decimals (correct — collateral is converted to loan-token terms first).
+⚠️ **KNOWN AND STILL OPEN, not a new finding:** `position().debt` (aggregate) and `debtOf` (STABLE-only)
+still coexist — harmless while `STABLE` is singular, divergent the moment it is not. Booked in
+§POSITION-LEAVES-THREE-LOOSE-ENDS, and it is the next commit's job.
 
 ## 🔴 **§V4-IS-FULL — I RECOMMENDED RESTORING AAVE v4 FIRST. MEASURED, THE PRIZE BEHIND IT IS 0.12% OF AAVE v3's, AND THE SEQUENCING IS WRONG** (2026-08-30)
 
