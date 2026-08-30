@@ -472,8 +472,16 @@ contract MorphoEscrowVenue is LevVenueBase {
     function borrowRateRay(uint256 extraBorrow) external view returns (uint256) {
         (uint128 tsa, uint128 tss, uint128 tba, uint128 tbs, uint128 lu, uint128 fee)
             = MORPHO.market(MARKET_ID);
-        tba += uint128(extraBorrow);                  // the draw we are pricing
-        if (tba > tsa) revert VenueCannotFund();      // unfundable has no rate — as Aave's view
+        // 🔴 ORDER IS LOad-BEARING: bound in uint256 FIRST, then cast. `tba += uint128(extraBorrow)`
+        //    was a DEFECT — an explicit cast is NOT checked by 0.8's arithmetic, so an `extraBorrow`
+        //    above `2**128` wrapped to a small number and this returned a FLATTERING rate for a draw
+        //    that could never be funded. That is precisely what `VenueCannotFund`'s own docblock says
+        //    must not happen ("a flattering number for a draw that cannot happen is exactly the input
+        //    that would make an allocator pick it") — the guard existed and the cast walked around it.
+        //    Checking `<= tsa` (a uint128) before narrowing makes the cast provably lossless.
+        uint256 newDebt = uint256(tba) + extraBorrow;
+        if (newDebt > tsa) revert VenueCannotFund();  // unfundable has no rate — as Aave's view
+        tba = uint128(newDebt);                       // safe: bounded by tsa, itself uint128
         uint256 perSec = IIrm(IRM).borrowRateView(
             _params(), MorphoMarket(tsa, tss, tba, tbs, lu, fee));
         return perSec * 365 days * 1e9;               // WAD/sec → RAY/yr

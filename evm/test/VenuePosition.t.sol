@@ -149,6 +149,17 @@ contract MorphoVenuePositionTest is Test {
         venue = new MorphoEscrowVenue(MORPHO, mp, address(this));
     }
 
+    /// REGRESSION: `tba += uint128(extraBorrow)` narrowed WITHOUT a check, and an explicit cast is
+    /// not covered by 0.8's checked arithmetic — so a draw above 2**128 wrapped to a small number and
+    /// came back with a flattering rate instead of a revert. An allocator fed that would pick a venue
+    /// that cannot fund it. Both values below wrap to something small if the cast is unguarded.
+    function test_AnAbsurdDrawRevertsRatherThanWrapping() public {
+        vm.expectRevert();
+        venue.borrowRateRay(uint256(type(uint128).max) + 1);      // wraps to 0
+        vm.expectRevert();
+        venue.borrowRateRay(uint256(type(uint128).max) + 1_000e6); // wraps to 1_000e6 - a FUNDABLE size
+    }
+
     function test_ItReportsInLoanTokenTermsAtMorphosOwnOracle() public {
         deal(WEETH, address(venue), 100e18);
         venue.supply(LP, 100e18);
