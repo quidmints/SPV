@@ -656,7 +656,7 @@ sats**. The real underlying is LN-custodied native BTC. So "one instance = one `
 ⚠️ **THE PRIVACY JUSTIFICATION FOR KEEPING `VBtc` IS DEAD — and `VBtc.sol:18-28` still asserts it.**
 That header calls segregation *"a prerequisite, not cosmetics"* for the privacy story, naming a future
 `redeemVBtc(sats, p2trScript)` and the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant. But
-`../ibiza` **already ruled that out** — `ibiza/TODO.md:2097`: *"**2.4d vBTC through PP — RULED OUT.** It
+`../ibiza` **already ruled that out** — `docs/actionable/TODO.md` (was `ibiza/TODO.md:2097`; RELOCATED 2026-08-30, line numbers shifted by the +39-line header — grep the quoted text, not the line): *"**2.4d vBTC through PP — RULED OUT.** It
 is not a bearer instrument; there is nothing to anonymise"*, and `:2108-2115`: *"**NOBODY EVER HOLDS
 vBTC** … it is an internal accounting token inside the leverage machinery, not a BTC wrapper anyone can
 custody. **There is no vBTC holder population to build an anonymity set from.**"*
@@ -692,7 +692,7 @@ revisited — do not carry it across unexamined.
 🔴 **AND IT IS WORSE THAN STALE — `VBtc.sol:18-28` PROPOSES A FEATURE ibiza ANALYSED AS CROSS-LP THEFT.**
 That header argues *"swap-out already proves the protocol can pay an arbitrary P2TR address whose owner
 has no channel — so what is missing is an ENTRYPOINT plus a source-of-funds rule, not a capability"*,
-and names `redeemVBtc(sats, p2trScript)`. `ibiza/TODO.md:2118-2132` rejects precisely that, quoting
+and names `redeemVBtc(sats, p2trScript)`. `docs/actionable/TODO.md` (was `ibiza/TODO.md:2118-2132`; RELOCATED — grep the quote) rejects precisely that, quoting
 `BTCChannels.sol:477-496`: *"We REJECT any other output: without this, a malicious LP could route its
 withdrawal to a script != `btcRecipientOf`, making `_lpFinalBalance` read 0 → `delivered = shrinkSats`
 → **over-claim the SHARED swap-out proceeds pool (cross-LP theft)**."* The contract cannot see WHO was
@@ -1092,7 +1092,7 @@ JURISDICTION-SCOPED, not a contradiction of this.
 - **`../ibiza` consumes SPV as a pinned git submodule** and depends on exactly four Quid/Basket
   signatures staying permissionless and stable. Changing them is a breaking change for a repo that
   isn't in this working tree.
-- 📱 **THE LP SIGNER APP SPEC LIVES IN `../ibiza/TODO.md` §3b, NOT HERE** (owner, 2026-08-13:
+- 📱 **THE LP SIGNER APP SPEC LIVES IN `docs/actionable/TODO.md` §3b** 🔴 **RELOCATED 2026-08-30 (owner direction) FROM `../ibiza/TODO.md` — the file moved INTO this repo because all the work happens here. The rest of this bullet still holds: ibiza owns the mobile client, SPV owns the protocol.** (owner, 2026-08-13:
   *"this shouldn't be in our own queue… it should be in the ibiza TODO.md"*). ibiza owns the mobile
   client (react-native/expo); SPV owns the protocol. **What the phone must do — the seed-derived
   secp256k1 key, the one-time MuSig2 ladder ceremony, TEE-wrapping at rest, the nonce-reuse rule,

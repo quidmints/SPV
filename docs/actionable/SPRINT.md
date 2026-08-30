@@ -21368,7 +21368,36 @@ sections the other thread added today (`§RSAPSS-MSB` ✅, `§IDENTITY-FIXTURE-P
 
 
 **2 rows, READ 2026-08-30 — both ✅ done.** `§KEEPER-DWELL-IS-BUILT` (verified) and `D3`
-(*"`_priceOr` duplicated verbatim ×2 — restored; 197 bytes freed"*). **This track is empty.**
+(*"`_priceOr` duplicated verbatim ×2 — restored; 197 bytes freed"*). ⚠️ **THIS TRACK IS NO LONGER
+EMPTY — E1 below was added 2026-08-30 on owner direction.**
+
+### 🖥️ **E1 — BUILD THE BASKET CONVERGENCE IN THE CLIENT (SPA + react-native). THE OWNER'S 2026-08-22 DESIGN, NEVER IMPLEMENTED.**
+**What the user hits:** selling ETH/BTC for dollars pays out of a 14-stable basket. `_takePreferred`
+serves the **named stable FIRST** and returns early if it covers the draw (`BasketLib.sol:698-712`) —
+so a small sell already gives a clean single-stable exit. **The SHORTFALL falls through to pro-rata**,
+and converging that remainder into the one stable the user asked for is **built nowhere**: `spa/src`
+makes no aggregator call at all (only the hop API and `/api/market`).
+**Why it belongs in the client, measured not asserted (§CURVE-ALONE-CANNOT-DO-IT):** 12 basket
+stables need **9 venue families**, only **4** touch Curve, **GHO routes exclusively through Fluid**,
+and the best routes are **SPLIT across parallel paths** (USDT→USDC is a 3-way split with a 3-hop leg)
+— which no on-chain encoding we have can express. ⭐ **And the cheapest venues are not pools at all:
+`lite-psm`, `dai-usds`, `frxusd` are 1:1 par converters with no slippage, which is why DAI and USDS
+convert at 0.000%.** A hand-rolled Curve table would miss GHO *and* pay slippage on DAI.
+**Build:**
+1. Quote each non-target stable → the user's chosen stable, **from at least TWO keyless aggregators**.
+2. Take the best; issue **one multicall**.
+3. ⚠️ **Converge only the SHORTFALL, never the whole slice** — a user whose named stable was fully
+   served must not pay 13 swaps for nothing.
+**Constraints:**
+- ✅ **NO API KEY.** KyberSwap's aggregator is keyless and its calldata was **fork-executed** this
+  session — quote matched execution to **8 significant figures** on GHO→USDC.
+- 🔴 **ONE AGGREGATOR IS NEITHER CORRECT NOR AVAILABLE.** ParaSwap priced that same trade **1.75×
+  worse and refused it**. Two sources minimum, take the best, and treat a single API as a liveness
+  dependency for the whole exit path.
+- 📌 **Do not move this on-chain.** Owner, 2026-08-22: *"we can't do all of that in one on-chain tx —
+  we have to land those pro-rata and the frontend has to do the multicall."* The on-chain
+  amount-is-computed-mid-tx argument (§NO-KEY-AND-A-KEY-WOULD-NOT-HELP) does **not** apply here: the
+  slice is a wallet balance, exactly knowable, so pre-built calldata is valid on this path.
 #### 🧪 PARALLEL TRACK F — TEST INFRASTRUCTURE.
 
 
