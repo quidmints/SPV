@@ -888,6 +888,53 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## ⭐ **§POSITION-IS-THE-LENDERS-OWN-VIEW — THE MULTI-DEBT GENERALISATION NEEDED NO BASKET ACCOUNTING, BECAUSE THE LENDER ALREADY DOES IT** (owner, 2026-08-30: *"write the most elegant thing possible"*)
+
+**The obvious design was to make `LevVenueBase.STABLE` a set and give every debt asset its own unit
+ledger.** That is N ledgers, N accrual paths, a loop in every read, and a new way for ETH and BTC to
+diverge. **It is also unnecessary.**
+
+### 🔑 THE OBSERVATION THAT DELETES THE WORK
+`debtUnits`/`collUnits` never tracked *a token*. They track **a fraction of a pool reserve** —
+`_unitSlice(u, tot, poolBal)`. So the multi-debt change is not a change to the ledger at all; it is a
+change to **what the reserve MEASURES**. And Aave already computes exactly that: `getUserAccountData`
+returns `totalCollateralBase` and `totalDebtBase` for the whole account, **priced with the same
+oracles Aave liquidates on.**
+⇒ **One escrow is one Aave account. Ask Aave what the account is worth.** A venue carrying GHO *and*
+USDT *and* DAI reports its health with **no basket accounting of ours in between** — and reports it in
+the very numbers that will be used against us.
+⭐ **AND IT IS MORE CORRECT THAN WHAT IT REPLACES, not merely smaller:** `liqThresholdBps` becomes
+**LIVE and position-weighted** (measured 7800 / 7937 on real accounts) instead of a constant frozen at
+construction, so a governance change to the collateral's threshold can no longer silently desync from
+what the venue believes.
+
+### 🧩 THE UNIT QUESTION, AND WHY IT IS A NON-PROBLEM
+Aave answers in 8-dec oracle USD; Morpho — isolated, single-asset — answers in **loan-token terms at
+its own market oracle**. Those are not commensurable, and **they do not need to be**:
+> **every consumer of a position uses the RATIO** — LTV, health, headroom — **which is unitless; and
+> cross-venue comparison already goes through `borrowRateRay`, which is a pure rate.**
+⇒ The quote unit only has to be consistent **within** a venue. ⛔ **DO NOT "FIX" THIS INTO ONE GLOBAL
+UNIT: it would buy nothing and would put an ORACLE INTO EVERY ADAPTER**, which is the dependency the
+whole shape exists to avoid. Both are lifted to 18 decimals so the ratio has room — **not** because
+they are comparable.
+
+### ✅ LANDED AND VERIFIED AGAINST LIVE VENUES (4 tests, 0 failed)
+| test | what it pins |
+|---|---|
+| `test_TwoDifferentDebtsOnOneAccountAggregate` | ⭐ **the property the allocator rests on** — supply weETH, borrow GHO through the venue, then draw **USDT on the same Aave account**, and the reported debt aggregates (≈100k from 50k+50k). **Nothing in the venue knew a second asset existed.** |
+| `test_TheThresholdIsLiveNotTheConstructorConstant` | with weETH the sole collateral, the live weighted LT is **8000** — weETH's own reserve threshold, a real cross-check rather than an echo of the constructor argument |
+| `test_AnUnopenedVenueIsEmptyNotReverting` | Aave returns ZEROS for an unknown account, so the pre-escrow case costs no special-casing |
+| `test_ItReportsInLoanTokenTermsAtMorphosOwnOracle` | the Morpho half: 100 weETH @ 4,000 → **400,000** collateral and **50,000** debt, both in loan-token terms; LLTV `0.86e18` renders as **8600 bps** |
+⚠️ **Tests are LIVE reads against Aave v3 and a real Morpho market on purpose** — the property under
+test *is* "we report the lender's own valuation", so a mock would assert nothing about it.
+
+### ▶️ WHAT THIS LEAVES
+`position()` is **built, verified and not yet wired** — no caller reads it. The next commit is the one
+that spends it: `debtOf`/LTV move onto it, and `borrow`/`repay` take an explicit asset (the amount is
+in that asset's units; the unit mint/burn converts through the **change in reported debt**, which is
+the same measure-the-delta-not-the-return-value rule `_aggSwap` already enforces). **`STABLE` stays —
+it is the venue's DEFAULT dollar, no longer its only one.**
+
 ## ✅ **§ROUTE-COST-MEASURED — GHO ROUTES AT 8 bps, USDe DOES NOT ROUTE AT $5M AT ALL, AND "AAVE DEPTH" IS NOT "ROUTE DEPTH"** (closes §ROUTE-COST-UNVERIFIED)
 
 Measured end-to-end: aggregator quote → **build the real calldata → execute it on a mainnet fork and

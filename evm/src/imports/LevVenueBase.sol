@@ -4,7 +4,8 @@ pragma solidity ^0.8.28;
 // `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
 // signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
 import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider,
-        IAaveV3RateStrategy, CalcRatesParams, IIrm, MorphoMarket} from "./Interfaces.sol";
+        IAaveV3RateStrategy, CalcRatesParams, IIrm, MorphoMarket,
+        VenuePosition, IOracle} from "./Interfaces.sol";
 import {IMorphoStaticTyping as IMorpho, MarketParams, Id, MarketParamsLib} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 // §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled
@@ -96,6 +97,13 @@ abstract contract LevVenueBase is ILevVenue {
     }
 
     /// @dev the assets `u` units claim from a pool holding `bal` with `tot` units outstanding.
+    /// @dev Lift `amt`, expressed with `dec` decimals, to 18. ONE conversion, because the
+    ///      §DECIMAL-BASES trap is this repo's most common bug and a per-venue copy is how the
+    ///      6-vs-18 mistake gets made twice with only one of them noticed.
+    function _to18(uint256 amt, uint8 dec) internal pure returns (uint256) {
+        return dec >= 18 ? amt / (10 ** (dec - 18)) : amt * (10 ** (18 - dec));
+    }
+
     function _unitSlice(uint256 u, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return u == 0 ? 0 : SoladyMath.fullMulDiv(u, bal + 1, tot + UNIT_OFFSET);
     }
@@ -416,6 +424,24 @@ contract MorphoEscrowVenue is LevVenueBase {
 
     /// Morpho LLTV is 1e18-scaled (1e18 = 100%); convert to bps (1e18/1e14 = 1e4 = 100%).
     /// @inheritdoc ILevVenue
+    /// @dev A Morpho market is ISOLATED and single-asset, so there is no basket to aggregate and the
+    ///      venue's own quote unit is simply THE LOAN TOKEN. Collateral is converted at Morpho's own
+    ///      market oracle — the same price its own liquidation check uses — so the ratio this returns
+    ///      is the ratio Morpho enforces.
+    ///      ⚠️ `ORACLE_PRICE_SCALE` is 1e36 and is Morpho's, not ours; `LLTV` is 1e18-scaled, hence
+    ///      the 1e14 divisor to bps. Neither number is commensurable with Aave's — by design, see
+    ///      `ILevVenue.position`.
+    function position() external view returns (VenuePosition memory p) {
+        (, uint128 borrowShares, uint128 coll) = MORPHO.position(MARKET_ID, address(this));
+        uint8 dec = IERC20Min(STABLE).decimals();
+        uint256 collInLoan = SoladyMath.fullMulDiv(uint256(coll), IOracle(ORACLE).price(), 1e36);
+        p = VenuePosition({
+            collateral: _to18(collInLoan, dec),
+            debt: _to18(_sharesToAssetsUp(borrowShares), dec),
+            liqThresholdBps: LLTV / 1e14 });
+    }
+
+    /// @inheritdoc ILevVenue
     /// @dev §CHEAPEST-DOLLAR. Morpho's IRM takes the market state as an ARGUMENT, so pricing a
     ///      hypothetical draw is just handing it a market with `totalBorrowAssets` already raised —
     ///      no curve reconstruction, and it tracks whatever IRM this market was created with.
@@ -644,6 +670,22 @@ contract AaveV3Venue is LevVenueBase {
         (uint256 aTokenBal,, uint256 variableDebt,,,,,,) =
             DATA.getUserReserveData(wantDebt ? STABLE : COLLATERAL, address(e));
         return wantDebt ? variableDebt : aTokenBal;
+    }
+
+    /// @inheritdoc ILevVenue
+    /// @dev THE ENTIRE MULTI-DEBT STORY ON THE AAVE SIDE IS THIS FUNCTION. The escrow is ONE Aave
+    ///      account, and Aave already values every debt it carries against the collateral backing
+    ///      them — so a venue borrowing GHO *and* USDT *and* DAI reports its health here with no
+    ///      basket accounting of ours in between, and reports it in the very numbers Aave will
+    ///      liquidate on. `liqThresholdBps` is LIVE (position-weighted, measured 7800-7937 on real
+    ///      accounts), which is strictly better than the constructor constant beside it.
+    ///      ⚠️ Aave's base unit is 8-dec; the ×1e10 is the lift to 18, and it is the only unit
+    ///      conversion on this path.
+    function position() external view returns (VenuePosition memory p) {
+        AaveV3Escrow e = poolEscrow;
+        if (address(e) == address(0)) return p;         // no escrow yet: a genuinely empty position
+        (uint256 c, uint256 d,, uint256 lt,,) = POOL.getUserAccountData(address(e));
+        p = VenuePosition({collateral: c * 1e10, debt: d * 1e10, liqThresholdBps: lt});
     }
 
     /// @inheritdoc ILevVenue

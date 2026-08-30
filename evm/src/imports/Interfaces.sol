@@ -522,6 +522,20 @@ interface ILevVenue {
     /// @notice Venue liquidation threshold in bps of collateral value (e.g. 8000 = 80% LLTV).
     function liqThresholdBps() external view returns (uint256);
 
+    /// @notice The venue's whole position, AS THE VENUE ITSELF VALUES IT.
+    /// @dev    §CHEAPEST-DOLLAR — this is what lets one collateral position carry SEVERAL debts
+    ///         without any basket accounting on our side: we ask the lender what it thinks the
+    ///         position is worth instead of pricing the legs ourselves.
+    ///         ⭐ **THE QUOTE UNIT ONLY HAS TO BE CONSISTENT WITHIN A VENUE, AND THAT IS WHY THIS IS
+    ///         SOUND.** Every consumer of these two numbers uses their RATIO (LTV, health, headroom),
+    ///         which is unitless — so Aave may answer in its 8-dec oracle USD and Morpho in
+    ///         loan-token terms and the two never need reconciling. **Cross-venue comparison happens
+    ///         through `borrowRateRay`, which is already a pure rate.** Do not "fix" this into a
+    ///         single global unit: that would buy nothing and would put an oracle into every adapter.
+    ///         ⚠️ Both amounts are lifted to 18 decimals so the ratio has room, NOT because they are
+    ///         commensurable across venues.
+    function position() external view returns (VenuePosition memory);
+
     /// @notice The borrow APR, in RAY (1e27), that would apply to `stable()` on this venue if
     ///         `extraBorrow` MORE were drawn right now. `extraBorrow == 0` is the current rate.
     /// @dev    §CHEAPEST-DOLLAR — this is the ONE new accessor the allocator needs, and the reason
@@ -916,6 +930,18 @@ interface IOffchainOracle {
 ///    repay(asset,amt,rateMode,onBehalf) / withdraw(asset,amt,to). V3 keys a position by the CALLER (no
 ///    sub-account / on-behalf-borrow), so per-LP isolation uses a per-LP escrow (the pattern `LevVenueBase` holds).
 interface IAaveV3Pool {
+    /// @notice Returns totalCollateralBase, totalDebtBase and availableBorrowsBase (all 8-dec
+    ///         oracle USD), then currentLiquidationThreshold and ltv (bps, POSITION-WEIGHTED across
+    ///         every reserve the account holds), then healthFactor (WAD, max when debtless).
+    /// @dev    ⭐ THIS IS THE WHOLE MULTI-DEBT GENERALISATION. Aave already aggregates and prices an
+    ///         account's entire basket of debts with the SAME oracles it liquidates on, so a venue
+    ///         holding GHO and USDT and DAI at once needs no basket accounting of its own — and the
+    ///         health number it reports becomes, by construction, the one Aave will act on.
+    ///         ⚠️ Returns ZEROS for an unknown account rather than reverting (verified 2026-08-30),
+    ///         which is what makes the pre-escrow case cost no special-casing.
+    function getUserAccountData(address user) external view returns (
+        uint256 totalCollateralBase, uint256 totalDebtBase, uint256 availableBorrowsBase,
+        uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor);
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
     function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
@@ -944,6 +970,13 @@ struct CalcRatesParams {
     address reserve;
     bool    usingVirtualBalance;
     uint256 virtualUnderlyingBalance;
+}
+
+/// @notice A venue position in the venue's own quote unit, 18-dec. See `ILevVenue.position`.
+struct VenuePosition {
+    uint256 collateral;      // quote-unit value of collateral, 18-dec
+    uint256 debt;            // quote-unit value of ALL debts, 18-dec
+    uint256 liqThresholdBps; // LIVE and position-weighted, not the constructor's constant
 }
 
 interface IAaveV3RateStrategy {
