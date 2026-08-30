@@ -1095,6 +1095,59 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 📡 **§CURVE-ALONE-CANNOT-DO-IT — 12 BASKET STABLES NEED 9 VENUE FAMILIES, AND THE CHEAPEST ROUTES ARE NOT DEXes AT ALL** (owner, 2026-08-30: *"can we use curve for all of them? maybe with multiple hops"*)
+
+**Measured, one query per stable → USDC at \$1M, reading which venue each hop actually uses.**
+
+| stable | cost @\$1M | venues the best route uses (`>` = hops, `\|` = PARALLEL SPLITS) |
+|---|---:|---|
+| DAI | **0.000%** | **`lite-psm`** |
+| USDS | **0.000%** | **`dai-usds > lite-psm`** |
+| USDT | 0.002% | `lista-stable` \| `uniswap-v4 > dai-usds > lite-psm` \| `uniswap-v4` |
+| USDE | 0.002% | `axima-v2/ekubo-v3` \| `uniswap-v4` \| `uniswapv3` |
+| PYUSD | 0.002% | `uniswap-v4 > dai-usds > lite-psm` \| `generic-arm` |
+| AUSD | 0.005% | `uniswapv3` |
+| **crvUSD** | 0.011% | ✅ `curve-stable-plain` \| `curve-stable-ng` \| `frxusd` |
+| FRXUSD | 0.026% | `frxusd` \| ✅ `curve-stable-ng` \| `uniswap-v4` |
+| **GHO** | 0.076% | 🔴 **`fluid-dex-t1` — ONLY** |
+| BOLD | −0.003% | ✅ `curve-stable-ng` \| `uniswap-v4` |
+| USDG | −0.013% | `maverick-v2` \| `ekubo-v3` \| ✅ `curve-stable-ng` |
+| RLUSD | −0.021% | `uniswap-v4 > dai-usds > lite-psm` \| `uniswapv3` |
+
+### ❌ ① CURVE FOR ALL OF THEM: **NO — ONLY 4 OF 12 TOUCH CURVE AT ALL**
+crvUSD, frxUSD, BOLD and USDG. **GHO's only route is Fluid** — which is the vault-custodied DEX
+§ROUTE-COST-MEASURED already tripped over (real contract, **zero GHO and zero USDC at its own
+address**), and it is why `find_pool_for_coins` returned three dead Curve pools for GHO.
+
+### ❌ ② AND MULTI-HOP IS NOT THE MISSING PIECE EITHER — THE BEST ROUTES ARE **SPLIT**, NOT MERELY LONG
+Read the `|` columns: **USDT→USDC is a THREE-WAY SPLIT one of whose legs is THREE HOPS.** `unoswap2`
+and `unoswap3` are *sequential hops down a single path* — they cannot express a split at all. ⇒ **The
+gap between what we can encode on-chain and what the market actually offers is a DIMENSION, not a
+length.**
+
+### ⭐ ③ THE FINDING THAT REFRAMES IT: THE CHEAPEST VENUES ARE **PAR CONVERTERS**, NOT POOLS
+`lite-psm` (Maker's PSM), `dai-usds` (DAI↔USDS), `frxusd` (Frax's own redeemer), `generic-arm` — these
+are **1:1 protocol-native converters with no slippage and effectively unbounded depth.** That is why
+**DAI and USDS cost 0.000%**, beating every AMM on the board. **A Curve-only router would not merely
+miss GHO — it would route DAI and USDS through a POOL and pay slippage where a par converter charges
+none.** ⇒ **Hand-rolling the router is not just incomplete, it is strictly WORSE than an aggregator on
+the tokens it does cover.**
+
+### ✅ SO: AGGREGATOR IN THE CLIENT, AND IT IS KEYLESS — THE OWNER'S INSTINCT, NOW EVIDENCED
+*"this order routing logic is what 1inch should do on either the spa or react native … without
+needing to use api key."* **The measurement is the argument for it:** 12 stables, **9 venue families,
+3 of them not DEXes**, best routes split 3 ways — no hand-rolled table survives contact with that, and
+it would go stale every time a venue launches.
+✅ **KyberSwap's aggregator needs NO key**, and this session **fork-executed its calldata**: quote
+matched execution to **eight significant figures** on GHO→USDC. 1inch-with-key is one option, not a
+requirement.
+⚠️ **BUT ONE AGGREGATOR IS A LIVENESS DEPENDENCY AND NOT A SOURCE OF TRUTH.** ParaSwap priced the same
+GHO trade **1.75× worse and refused it outright**. ⇒ **Quote from at least two and take the best**;
+treat a single API as neither correct nor available.
+📌 **This does NOT change the on-chain side.** §NO-KEY-AND-A-KEY-WOULD-NOT-HELP still holds for the
+lever paths, where the amount is computed mid-transaction and pre-built calldata is stale by
+construction. **Two workflows, two answers** — see §CONVERGENCE-IS-THE-OTHER-WORKFLOW.
+
 ## 🔴 **§CONVERGENCE-IS-THE-OTHER-WORKFLOW — MY "NO KEY NEEDED" ANSWER WAS SCOPED TO THE LEVER AND READ AS THE WHOLE ANSWER. THE USER-FACING PATH IS THE OPPOSITE CASE.** (owner, 2026-08-30: *"those are not the only venues we need … someone who swaps eth or btc to dollars gets all the dollars pro rata, how do we give the user the stable that they want out of that"*)
 
 The owner asked on 2026-08-28 for the 1inch integration to be flexible for **every workflow**.
