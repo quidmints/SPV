@@ -631,6 +631,14 @@ price movement flips it.
 ⇒ **CONSEQUENCES, WHICH ARE THE POINT:** a red run proves nothing and a green run proves nothing;
 CI cannot be trusted for these suites; and **an hour went into bisecting a failure that was never
 there** — with the near-miss of blaming a concurrent session's commit for it.
+🔴 **AND IT IS NOT ONLY A DETERMINISM PROBLEM — AN UNPINNED FORK CANNOT BE RUN AT ALL ON A FREE RPC
+TIER (measured 2026-08-30/31).** A full `forge test` against Infura fails **154 tests from 7 `setUp()`
+rate-limit errors**, with **zero** genuine assertion failures, even with nothing else running. Every
+suite re-forks at *latest* and re-fetches the same accounts, so nothing is cached across them.
+⇒ **Pinning the block fixes BOTH:** the same block across suites lets Foundry's cache serve repeat
+reads, which is what makes the suite runnable, and it removes the drift that produced the phantom
+`§LEV-DELIVERABILITY-REGRESSION`. **Determinism and runnability are the same fix.**
+
 ▶️ **FIX: pin the fork block** (`fork_block_number` in `foundry.toml`, or a `FORK_BLOCK` env read by
 `createSelectFork(url, block)`), and bump it deliberately. A test that reads live third-party state
 must pin it or assert a property that survives the range — a 5 bps margin against Aave/Uniswap state
