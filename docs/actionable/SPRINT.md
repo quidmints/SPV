@@ -1209,6 +1209,55 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔬 **§SELL-LEG-BLOCKERS — WHY IT IS STILL A REVERT, DERIVED FROM THE CODE RATHER THAN RESTATED** (2026-08-30, third time the owner has raised OOR)
+
+`fillIntentBody`'s sell branch reverts `IntentSellLegUnbuilt`. The row that booked it said the shape
+is *"`_withdraw`'s, capped at `plainNet(pooled, levPooled)`"* — true, and **not sufficient to build
+from.** Reading the settlement path end to end produces three concrete blockers and one owner
+decision.
+
+### ✅ FIRST, WHAT IS NOW SETTLED — `settleOor` IS STRUCTURALLY WRONG FOR A SELL, AND HERE IS THE PROOF
+`Core._handleDelta` does exactly two things with `volDelta`: **`> 0` ⇒ `POOLED -= amount` AND
+`deliverVolatile(amount, who)`** (the range PAYS ETHER OUT); **`< 0` ⇒ `POOLED += amount`** (the range
+RECEIVES ether). **A sell maker is an in-range LP whose ether is ALREADY in `POOLED`, so NEITHER sign
+is correct** — positive pays them ether they are trying to sell, negative books ether the range
+already holds. ⇒ The sell cannot be expressed as a `settleOor` delta at all; `Quid.fillIntent` routes
+BOTH directions there today, and that routing is the thing to change.
+
+### 🔴 BLOCKER ① THE PER-LP ACCOUNTING IS `msg.sender`-BOUND AND THE FILL IS RELAYED
+`SwapLib.burnInRange(core, amount, recipient)` is **pool-level** — it takes from `POOLED` and delivers
+to `recipient`, with no owner. The per-LP share reduction that must accompany it lives in
+`Quid._withdraw`, which operates on **`autoManaged[msg.sender]`**. **`fillIntent` is permissionless
+and relayed by anyone**, so `msg.sender` is the RELAYER, not the maker.
+⇒ **Needs an owner-parameterised burn+share path, authorised by the EIP-712 signature — the exact
+mirror of how the BUY leg was fixed**: `spendClaim(owner, usd6)` takes the owner as a parameter and is
+safe only because the signature check precedes it. ⚠️ Building the sell without this is how
+§INTENT-HAS-NO-FUNDING-LEG happened — a fill that moved value for a position it never checked.
+
+### 🔴 BLOCKER ② THE BURN DELIBERATELY RELEASES **NO** DOLLARS, SO THE MAKER'S CREDIT HAS NO SOURCE
+`burnInRange` passes `usdOut = 0`, and **§BURN-RELEASES-NO-USD measured all three arms**: `0` → 0.990
+ETH with both residual tests passing; `basketUsd·pulled/POOLED` → **9.5× regression**;
+`POOLED_USD·pulled/POOLED` → both residual tests FAIL. *"The axis is a dead end."*
+⇒ **A sell must pay the maker dollars, and the primitive that frees their ether is the one primitive
+that is known not to free dollars.** The credit needs its own source, and that source is not chosen.
+**This is the substantive unsolved piece — not the plumbing.**
+
+### 🔴 BLOCKER ③ `_withdraw`'s PRECONDITIONS DO NOT ALL TRANSFER TO A RELAYED FILL
+`_withdraw` runs `AUX.tryCheckBacking()`, then `_reconcileLev(msg.sender)` **unconditionally** (its own
+comment: a guard must not use the quantity it protects as its predicate), then a **1-block JIT lock**.
+⚠️ **The lock is keyed on the EXIT, and an intent's exit is not chosen by the maker** — they signed
+earlier and a third party picks the block. As anti-JIT it is meaningless here; as a liveness
+constraint it is a griefing surface. `_reconcileLev` must clearly key on `owner`, not `msg.sender`.
+
+### ❓ THE ONE DECISION THAT IS THE OWNER'S, BECAUSE THE TWO READINGS BUILD DIFFERENTLY
+> **When a sell intent fills, does the maker RECEIVE DOLLARS OUT, or does their POSITION CONVERT to a
+> dollar-denominated claim held in the range and withdrawn later?**
+**Uniswap's own OOR semantics are the second** — a crossed position simply *becomes* the other asset
+and the LP withdraws when they choose, which is the behaviour §OOR-IS-ALREADY-CURVE-LIKE says we are
+imitating. **The second also dissolves BLOCKER ②**, because nothing has to be paid out at fill time:
+the maker's claim changes denomination and the existing withdraw path serves it. ⇒ **Recommended, but
+it is a product decision about what a filled order feels like, not a derivation.**
+
 ## 🗺️ **§WHAT-MAKES-TODAY-USABLE — I SAID "THE ONE CHANGE". IT IS ONE OF ~16, AND MY PROPOSED FIX WAS THE STATIC KIND THE OWNER HAS ALREADY RULED OUT TWICE** (owner, 2026-08-30: *"it should be a dynamic check, as i said before, and its not the only change"*)
 
 ### 🔴 ① THE `_routeOf` FIX IS A **DELETION**, NOT A BIGGER TABLE
