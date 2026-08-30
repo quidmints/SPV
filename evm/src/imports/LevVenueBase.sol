@@ -3,7 +3,8 @@ pragma solidity ^0.8.28;
 
 // `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
 // signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
-import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider} from "./Interfaces.sol";
+import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider,
+        IAaveV3RateStrategy, CalcRatesParams, IIrm, MorphoMarket} from "./Interfaces.sol";
 import {IMorphoStaticTyping as IMorpho, MarketParams, Id, MarketParamsLib} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 // §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled
@@ -101,6 +102,13 @@ abstract contract LevVenueBase is ILevVenue {
 
     address public immutable MANAGER;   // the only caller (LevManager)
     address public immutable STABLE;    // the debt asset this venue lends
+
+    /// @notice `borrowRateRay` was asked to price a draw the venue cannot fund.
+    /// @dev    Aave's own rate view reverts on this (its virtual balance underflows); Morpho's does
+    ///         not, so the Morpho venue raises it explicitly to keep the two faces behaving alike.
+    ///         **An unfundable borrow must not return a rate** — a flattering number for a draw that
+    ///         cannot happen is exactly the input that would make an allocator pick it.
+    error VenueCannotFund();
 
     uint256 private _lock = 1;
     modifier nonReentrant() { require(_lock == 1, "reentrant"); _lock = 2; _; _lock = 1; }
@@ -407,6 +415,24 @@ contract MorphoEscrowVenue is LevVenueBase {
     }
 
     /// Morpho LLTV is 1e18-scaled (1e18 = 100%); convert to bps (1e18/1e14 = 1e4 = 100%).
+    /// @inheritdoc ILevVenue
+    /// @dev §CHEAPEST-DOLLAR. Morpho's IRM takes the market state as an ARGUMENT, so pricing a
+    ///      hypothetical draw is just handing it a market with `totalBorrowAssets` already raised —
+    ///      no curve reconstruction, and it tracks whatever IRM this market was created with.
+    ///      ⚠️ `borrowRateView` RETURNS WAD PER SECOND. Aave returns RAY PER YEAR, and `ILevVenue`
+    ///      is declared in Aave's unit, so the ×365d×1e9 lift here is what makes the two venues
+    ///      COMPARABLE AT ALL. Getting it wrong does not revert — it silently reports a venue as
+    ///      ~3e7× cheaper, which is the §DECIMAL-BASES failure wearing a new hat.
+    function borrowRateRay(uint256 extraBorrow) external view returns (uint256) {
+        (uint128 tsa, uint128 tss, uint128 tba, uint128 tbs, uint128 lu, uint128 fee)
+            = MORPHO.market(MARKET_ID);
+        tba += uint128(extraBorrow);                  // the draw we are pricing
+        if (tba > tsa) revert VenueCannotFund();      // unfundable has no rate — as Aave's view
+        uint256 perSec = IIrm(IRM).borrowRateView(
+            _params(), MorphoMarket(tsa, tss, tba, tbs, lu, fee));
+        return perSec * 365 days * 1e9;               // WAD/sec → RAY/yr
+    }
+
     function liqThresholdBps() external view returns (uint256) {
         return LLTV / 1e14;
     }
@@ -618,6 +644,27 @@ contract AaveV3Venue is LevVenueBase {
         (uint256 aTokenBal,, uint256 variableDebt,,,,,,) =
             DATA.getUserReserveData(wantDebt ? STABLE : COLLATERAL, address(e));
         return wantDebt ? variableDebt : aTokenBal;
+    }
+
+    /// @inheritdoc ILevVenue
+    /// @dev §CHEAPEST-DOLLAR. Delegates to Aave's OWN `calculateInterestRates` — see `CalcRatesParams`
+    ///      for why a reconstruction was rejected. VERIFIED 2026-08-30 that this parameterisation
+    ///      reproduces Aave's live rate EXACTLY at `extraBorrow == 0` on BOTH a flat market (GHO,
+    ///      3.75%) and a sloped one (USDT, 4.08%) — and the sloped one is the assertion that has
+    ///      teeth, since a flat rate hides any error in the balance inputs.
+    ///      ⚠️ `virtualUnderlyingBalance` is READ, not derived: `totalAToken - totalDebt` looks like
+    ///      the same quantity and is not, and using it put the result 2.6e-6 off Aave's own number.
+    function borrowRateRay(uint256 extraBorrow) external view returns (uint256) {
+        (,,, uint256 totalStableDebt, uint256 totalVariableDebt,,,,,,,) = DATA.getReserveData(STABLE);
+        (,,,, uint256 reserveFactor,,,,,) = DATA.getReserveConfigurationData(STABLE);
+        uint256 debt = totalStableDebt + totalVariableDebt;
+        (, uint256 borrowRate) = IAaveV3RateStrategy(DATA.getInterestRateStrategyAddress(STABLE))
+            .calculateInterestRates(CalcRatesParams({
+                unbacked: 0, liquidityAdded: 0, liquidityTaken: extraBorrow,
+                totalDebt: debt, reserveFactor: reserveFactor, reserve: STABLE,
+                usingVirtualBalance: true,
+                virtualUnderlyingBalance: DATA.getVirtualUnderlyingBalance(STABLE) }));
+        return borrowRate;
     }
 
     function liqThresholdBps() external view returns (uint256) { return LIQ_THRESHOLD_BPS; }

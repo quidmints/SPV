@@ -521,6 +521,19 @@ interface ILevVenue {
 
     /// @notice Venue liquidation threshold in bps of collateral value (e.g. 8000 = 80% LLTV).
     function liqThresholdBps() external view returns (uint256);
+
+    /// @notice The borrow APR, in RAY (1e27), that would apply to `stable()` on this venue if
+    ///         `extraBorrow` MORE were drawn right now. `extraBorrow == 0` is the current rate.
+    /// @dev    §CHEAPEST-DOLLAR — this is the ONE new accessor the allocator needs, and the reason
+    ///         it takes a size rather than being a plain getter: **a spot rate is a rate that stops
+    ///         existing when we arrive.** Measured on Aave v3, USDT moves 4.08% → 4.45% at +$25M and
+    ///         → 7.49% at +$100M, so comparing two venues at spot compares two counterfactuals.
+    ///         ⭐ EVERY IMPLEMENTATION DELEGATES TO THE PROTOCOL'S OWN RATE VIEW rather than
+    ///         reconstructing its curve — see `CalcRatesParams`. A reconstruction was measured wrong
+    ///         by 2-16 bps on the first try and would drift silently on any IRM upgrade.
+    ///         ⚠️ MAY REVERT when `extraBorrow` exceeds what the venue can fund; that is a feature,
+    ///         not a case to catch — an unfundable borrow has no rate.
+    function borrowRateRay(uint256 extraBorrow) external view returns (uint256);
 }
 
 
@@ -914,7 +927,62 @@ interface IAaveV3Pool {
 ///      `getUserReserveData` returns the CURRENT (already index-scaled, block-fresh, underlying-unit) aToken balance
 ///      and variable debt DIRECTLY — no vToken.balanceOf, no hardcoded reservesList index, one asset per call
 ///      (cheap on the on-chain rangeBTC sum). This is why we read positions here and not off the raw tokens.
+/// @notice Aave's OWN interest-rate view. §CHEAPEST-DOLLAR — we ask Aave what the rate WOULD BE
+///         rather than reimplementing its kinked curve, per standing rule 8. Measured 2026-08-30:
+///         a hand-rolled `Uopt/slope1/slope2` reconstruction gave USDT +$25M as 4.47% where Aave's
+///         own view says **4.45%**, and +$100M as 7.65% against **7.49%** — close, and wrong, and it
+///         would drift again the next time Aave changes an IRM.
+/// @dev    ⭐ IT ALSO ENFORCES CAPACITY FOR FREE: `liquidityTaken` above the virtual balance REVERTS
+///         (measured on GHO, whose $24M ceiling makes a $25M draw underflow), so an unfundable borrow
+///         cannot return a flattering rate — it cannot return at all.
+struct CalcRatesParams {
+    uint256 unbacked;
+    uint256 liquidityAdded;
+    uint256 liquidityTaken;
+    uint256 totalDebt;
+    uint256 reserveFactor;
+    address reserve;
+    bool    usingVirtualBalance;
+    uint256 virtualUnderlyingBalance;
+}
+
+interface IAaveV3RateStrategy {
+    /// @return liquidityRate, variableBorrowRate — both RAY (1e27) APRs.
+    function calculateInterestRates(CalcRatesParams memory params)
+        external view returns (uint256, uint256);
+}
+
+/// @notice Morpho's rate view. Takes the market state AS AN ARGUMENT, which is exactly what lets us
+///         price a HYPOTHETICAL borrow: hand it the market with our draw already added.
+/// @dev    ⚠️ RETURNS WAD PER SECOND, where Aave returns RAY PER YEAR. `borrowRateRay` normalises.
+struct MorphoMarket {
+    uint128 totalSupplyAssets; uint128 totalSupplyShares;
+    uint128 totalBorrowAssets; uint128 totalBorrowShares;
+    uint128 lastUpdate;        uint128 fee;
+}
+
+interface IIrm {
+    function borrowRateView(MarketParams memory marketParams, MorphoMarket memory market)
+        external view returns (uint256);
+}
+
 interface IAaveV3DataProvider {
+    function getInterestRateStrategyAddress(address asset) external view returns (address);
+    /// @notice Aave's TRACKED virtual balance. ⚠️ NOT the same as `totalAToken - totalDebt`, and the
+    ///         difference is not noise: deriving it instead of reading it made `borrowRateRay`
+    ///         disagree with Aave's own live rate by 2.6e-6 relative on USDT (2026-08-30). It
+    ///         matched EXACTLY on GHO — whose rate is flat, so no input error can surface — which is
+    ///         precisely why the equality control has to run on a SLOPED market to mean anything.
+    function getVirtualUnderlyingBalance(address asset) external view returns (uint256);
+    function getReserveData(address asset) external view returns (
+        uint256 unbacked, uint256 accruedToTreasuryScaled, uint256 totalAToken,
+        uint256 totalStableDebt, uint256 totalVariableDebt, uint256 liquidityRate,
+        uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 averageStableBorrowRate,
+        uint256 liquidityIndex, uint256 variableBorrowIndex, uint40 lastUpdateTimestamp);
+    function getReserveConfigurationData(address asset) external view returns (
+        uint256 decimals, uint256 ltv, uint256 liquidationThreshold, uint256 liquidationBonus,
+        uint256 reserveFactor, bool usageAsCollateralEnabled, bool borrowingEnabled,
+        bool stableBorrowRateEnabled, bool isActive, bool isFrozen);
     function getUserReserveData(address asset, address user) external view returns (
         uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt,
         uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate,
