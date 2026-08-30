@@ -121,29 +121,6 @@ pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,uint256,bool)";
 /// IDEMPOTENCY (stop the daemon crediting one HTLC twice across a retry or restart), never the
 /// bound. What stops a hop conjuring value is `provenSatsAvailable` on-chain. The old entrypoint
 /// conflated the two, and that conflation was the trapdoor.
-/// ⚠️ **THE FIRST PARAMETER IS THE PREIMAGE, NOT THE PAYMENT HASH (§HOP-RCE-3).** The contract
-/// DERIVES `sha256(preimage)` as its dedup key rather than accepting one, because a hop-chosen hash
-/// cannot provide the idempotency it was there for — one HTLC could be credited repeatedly under
-/// different invented hashes. One HTLC has one preimage, so the key is canonical.
-pub const SIG_SETTLE_SWAP_IN_BUFFERED: &str =
-    "settleSwapInBuffered(bytes32,address,uint256,address,uint256,bool)";
-
-/// (§LN-RESERVE-FUNDER) Raise this hop's `provenSatsAvailable` by the sats an SPV-proven
-/// transaction pays to the pinned reserve address.
-///
-/// 🔑 **THIS IS THE LIGHTNING RAIL'S FUNDER, AND IT REPLACES `parkProvenSats`.** The buffered
-/// credit above is capped by `provenSatsAvailable`, whose only increment used to be
-/// `parkProvenSats` — a SPLICE into an LP channel, needing the LP's 2-of-2 co-signature. That
-/// never had an encoder here, so the cap could never be raised and **every LN swap-in reverted
-/// `InsufficientProvenSats`**. A rail meant to serve swappers while LPs sleep cannot be funded by
-/// an operation that requires one awake.
-///
-/// ⚠️ **WHY A CAP RATHER THAN A PROOF, SO THE GUARANTEE IS NOT OVERSOLD:** the hop ISSUES the
-/// swap-in invoice, so it knows the preimage before any payment exists — there is no on-chain
-/// proof of an off-chain payment. This bounds what a compromised hop can credit; it does not
-/// prevent it.
-pub const SIG_PROVE_HOP_RESERVE: &str = "proveHopReserve(bytes32,uint256,bytes32[],bytes)";
-
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep
 /// its own list — so the policy cannot disagree with what the codec actually sends.
@@ -156,10 +133,6 @@ pub const HOP_BTCCHANNELS_SIGS: &[&str] = &[
     SIG_EMIT_DEAD_MAN_EXIT,
     SIG_REVERSE_SWAP_OUT,
     SIG_SETTLE_SWAP_IN_PROVEN,
-    SIG_SETTLE_SWAP_IN_BUFFERED,
-    // Without this entry the policy refuses to sign the funder, and the buffered credit above
-    // stays permanently uncapitalised — the two belong to one rail and must be listed together.
-    SIG_PROVE_HOP_RESERVE,
     SIG_REGISTER_CHANNEL_CLAIM,
 ];
 
@@ -763,26 +736,6 @@ pub fn encode_splice(
             Tok::Bytes(raw_splice_tx.to_vec()),
             Tok::FixedBytes32Array(splice_merkle_proof.to_vec()),
             Tok::TupleArray(exits.iter().map(ExitArming::tokens).collect()),
-        ],
-    )
-}
-
-/// (§LN-RESERVE-FUNDER) [`SIG_PROVE_HOP_RESERVE`] calldata. The inclusion half
-/// (`block_hash`, `tx_index`, `merkle_proof`, `raw_tx`) has the same shape the splice and close
-/// paths already use, so the daemon builds it with the helper it already has.
-pub fn encode_prove_hop_reserve(
-    block_hash: [u8; 32],
-    tx_index: u64,
-    merkle_proof: &[[u8; 32]],
-    raw_tx: &[u8],
-) -> Vec<u8> {
-    encode_call(
-        SIG_PROVE_HOP_RESERVE,
-        &[
-            Tok::FixedBytes32(block_hash),
-            Tok::Uint(U256::from(tx_index)),
-            Tok::FixedBytes32Array(merkle_proof.to_vec()),
-            Tok::Bytes(raw_tx.to_vec()),
         ],
     )
 }

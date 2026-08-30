@@ -53,38 +53,6 @@ contract ReentrancyProbe is AllesFixture {
         BTC.creditSwapOut(address(0xBAD), address(USDC), 1e18, 0);
     }
 
-    // (2) the buffered swap-in is hop-gated: a non-hop caller can't initiate a credit
-    //     (so the only entry is the hop, through the nonReentrant guard).
-    function test_settleSwapIn_only_hop() public {
-        BTCChannels ch = _deployChannels();
-        // MULTI-HOP: a caller that owns no open channel cannot attest a swap-in.
-        vm.prank(address(0xBAD));
-        vm.expectRevert(BTCChannels.NotChannelHop.selector);
-        ch.settleSwapInBuffered(bytes32(uint(1)), address(0xBAD), 1_000_000, address(USDC), 0, false);
-    }
-
-    // (3) THE creditSwapIn re-entry-vector closure: the payout token must be a
-    //     REGISTERED basket stable. A malicious hook-bearing token (EvilToken)
-    //     is rejected with StableMissing BEFORE any liquidity/state is touched,
-    //     so it never gets the callback the agent's theory relied on. We pass the
-    //     hop-gate (prank hop) and nonzero sats so we actually reach the
-    //     creditSwapInBody validation.
-    //
-    //     ⚠️ (M1#1) THIS STILL REACHES THE TOKEN CHECK BECAUSE THE BUFFER CHECK RUNS AFTER
-    //     THE CREDIT, NOT BEFORE. An empty `provenSatsAvailable` would otherwise revert
-    //     `InsufficientProvenSats` first and this test would silently stop testing its own
-    //     name — the ordering in `settleSwapInBuffered` is deliberate for exactly this.
-    function test_swapIn_rejects_unregistered_hook_token() public {
-        BTCChannels ch = _deployChannels();
-        address evil = address(new EvilToken());
-        // MULTI-HOP: give the hop a real open channel so it passes the attestation
-        // gate and we actually reach the payout-token validation (the point of the test).
-        _openHopChannel(ch, makeAddr("hop"), 1, 2e7);
-        vm.prank(makeAddr("hop"));
-        vm.expectRevert(bytes4(keccak256("StableMissing()")));
-        ch.settleSwapInBuffered(bytes32(uint(7)), address(0x5E), 1_000_000, evil, 0, false);
-    }
-
     // §ETH-ZERO — the unlock-callback reentrancy probe is DELETED WITH THE CALLBACK. It asserted
     // `Aux.unlockCallback` reverts `NotPoolManager()` for a forged caller, a real property of the
     // `SafeCallback` base. There is no PoolManager, no unlock and no callback to forge: the surface

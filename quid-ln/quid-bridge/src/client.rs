@@ -717,66 +717,6 @@ impl<R: JsonRpc, S: TxSigner> crate::provision_api::MigrationNonceConsumer for J
 }
 
 impl<R: JsonRpc, S: TxSigner> EvmClient for JsonRpcEvmClient<R, S> {
-    fn settle_swap_in(
-        &self,
-        seller: Address,
-        sats: u64,
-        token: Address,
-        preimage: B256,
-        min_delivered_usd: U256,
-        require_full: bool,
-    ) -> anyhow::Result<SettleOutcome> {
-        let data = quid_hop::swap::settle_swapin_calldata(
-            preimage.0,
-            seller,
-            sats,
-            token,
-            min_delivered_usd,
-            require_full,
-        );
-        // The contract keys `swapInUsed` on `sha256(preimage)`; derive the SAME value here rather
-        // than taking it as a second parameter, so the two can never disagree.
-        let payment_hash = {
-            use bitcoin::hashes::Hash as _;
-            B256::from(bitcoin::hashes::sha256::Hash::hash(&preimage.0).to_byte_array())
-        };
-        let depth = self.cfg.settle_min_confirmations;
-        let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
-        debug!(success = mined.success, block = mined.block, "settle mined");
-
-        // The BTC claim is irreversible, so gate BOTH claim-worthy outcomes
-        // (Delivered, AlreadySettled) on `swapInUsed` being buried under `depth`
-        // confirmations — a single uniform reorg gate. A status-1 receipt
-        // whose `swapInUsed` doesn't survive burial was reorged out → transient
-        // retry (never a claim on un-settled BTC).
-        let buried = self.swap_in_used_buried(payment_hash, depth, mined.block)?;
-        if buried {
-            return Ok(if mined.success {
-                // Read how many of the seller's sats were actually converted (partial fills
-                // consume < sats) from THIS settle's SwapInSettled log, at its own block —
-                // the hop refunds the `sats − consumedSats` remainder when it claims.
-                let consumed_sats = self.read_consumed_sats(payment_hash, mined.block, mined.block, sats);
-                SettleOutcome::Delivered { consumed_sats }
-            } else {
-                // Reverted but already-recorded: a restart replay re-sent a settle
-                // for a hash a prior settle had delivered. Recover consumedSats from that
-                // PRIOR settle's historical log (indexed by paymentHash); if it can't be
-                // found in the lookback window, take the whole deposit (safe fallback).
-                warn!("settleSwapIn reverted but swapInUsed set — already settled");
-                let tip = self.block_number().unwrap_or(mined.block);
-                let from = tip.saturating_sub(SWAP_IN_SETTLED_LOOKBACK_BLOCKS);
-                let consumed_sats = self.read_consumed_sats(payment_hash, from, tip, sats);
-                SettleOutcome::AlreadySettled { consumed_sats }
-            });
-        }
-        if mined.success {
-            // Mined successfully yet swapInUsed isn't confirmed-buried — only a
-            // reorg drops a status-1 settle. Don't claim; retry.
-            anyhow::bail!("settle mined but swapInUsed unconfirmed (reorg?) — retry");
-        }
-        // Reverted and never recorded → genuinely undeliverable (floor / dry pool).
-        Ok(SettleOutcome::Undeliverable)
-    }
 }
 
 /// Decode `consumedSats` (data word[1]) from an `eth_getLogs` array of `SwapInSettled`
@@ -921,69 +861,11 @@ mod tests {
         )
     }
 
-    #[test]
-    fn success_receipt_confirmed_is_delivered() {
-        // Success is now confirmation-gated — swapInUsed must be set (and
-        // survive burial; depth=1 ⇒ a single true read) before claiming.
-        let c = client(MockRpc::new(Some("0x1"), ONE_WORD));
-        let (s, sa, t, h, m) = args();
-        // Empty SwapInSettled logs ⇒ consumed falls back to the full `sats` (take all).
-        assert_eq!(
-            c.settle_swap_in(s, sa, t, h, m, true).unwrap(),
-            SettleOutcome::Delivered { consumed_sats: sa }
-        );
-        // The confirmation gate reads swapInUsed even on a status-1 receipt.
-        assert!(c.rpc.calls.lock().unwrap().iter().any(|m| m == "eth_call"));
-    }
 
-    #[test]
-    fn delivered_decodes_partial_consumed_sats_from_log() {
-        // A partial fill: the SwapInSettled log reports consumedSats < sats. The client
-        // surfaces it on the Delivered outcome so the claim refunds the remainder.
-        let (s, sa, t, h, m) = args(); // sa = 100_000
-        let c = client(MockRpc::new(Some("0x1"), ONE_WORD).with_settled_logs(settled_log(sa, 60_000)));
-        assert_eq!(
-            c.settle_swap_in(s, sa, t, h, m, true).unwrap(),
-            SettleOutcome::Delivered { consumed_sats: 60_000 }
-        );
-    }
 
-    #[test]
-    fn success_receipt_but_swapinused_false_is_transient() {
-        // A status-1 receipt whose swapInUsed is false ⇒ reorged out ⇒ must NOT
-        // claim; transient Err so the sender retries.
-        let c = client(MockRpc::new(Some("0x1"), ZERO_WORD));
-        let (s, sa, t, h, m) = args();
-        assert!(c.settle_swap_in(s, sa, t, h, m, true).is_err());
-    }
 
-    #[test]
-    fn revert_with_swapinused_is_already_settled() {
-        let c = client(MockRpc::new(Some("0x0"), ONE_WORD));
-        let (s, sa, t, h, m) = args();
-        // No historical log in the mock ⇒ consumed falls back to `sats` (safe take-all).
-        assert_eq!(
-            c.settle_swap_in(s, sa, t, h, m, true).unwrap(),
-            SettleOutcome::AlreadySettled { consumed_sats: sa }
-        );
-    }
 
-    #[test]
-    fn revert_without_swapinused_is_undeliverable() {
-        let c = client(MockRpc::new(Some("0x0"), ZERO_WORD));
-        let (s, sa, t, h, m) = args();
-        assert_eq!(
-            c.settle_swap_in(s, sa, t, h, m, true).unwrap(),
-            SettleOutcome::Undeliverable
-        );
-    }
 
-    #[test]
-    fn missing_receipt_is_transient_err() {
-        let c = client(MockRpc::new(None, ZERO_WORD));
-        let (s, sa, t, h, m) = args();
-        assert!(c.settle_swap_in(s, sa, t, h, m, true).is_err());
-    }
 
     /// A tx unmined in the first poll window is re-sent at the SAME nonce
     /// with a bumped fee; once it mines the settle succeeds. The mock withholds a
@@ -1025,8 +907,12 @@ mod tests {
     fn fee_bump_replaces_at_same_nonce_then_mines() {
         let rpc = BumpMock { sends: Mutex::new(0), nonce_reads: Mutex::new(0) };
         let c = JsonRpcEvmClient::new(rpc, MockSigner, cfg());
-        let (s, sa, t, h, m) = args();
-        assert_eq!(c.settle_swap_in(s, sa, t, h, m, true).unwrap(), SettleOutcome::Delivered { consumed_sats: sa });
+        // (§FLEET-FRONTS-THE-WINDOW) Targets `submit` DIRECTLY now. The property is `submit`'s —
+        // one nonce fetch across every fee bump — and the deleted buffered settle was only ever
+        // the vehicle that carried it. Calling the unit under test removes the coupling that made
+        // this test die with an unrelated entrypoint.
+        let mined = c.submit(Address::repeat_byte(0x33), &[0xDE, 0xAD, 0xBE, 0xEF], 500_000).unwrap();
+        assert!(mined.success, "the bumped tx mines");
         // Exactly one nonce fetch for the whole submit (all bumps reuse it).
         assert_eq!(*c.rpc.nonce_reads.lock().unwrap(), 1, "one nonce for all bumps");
         assert!(*c.rpc.sends.lock().unwrap() >= 2, "re-broadcast at least once");

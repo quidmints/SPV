@@ -1399,71 +1399,6 @@ async fn maybe_flush_btc_fees<R: JsonRpc + Send + Sync + 'static>(
 /// steady-state cost is one `channels()` read + one esplora call per channel.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
-/// (§LN-RESERVE-FUNDER) Prove any confirmed wallet UTXO sitting at the pinned reserve address
-/// that the chain has not already banked, raising this hop's `provenSatsAvailable`.
-///
-/// 🔑 **WHY THIS LIVES IN THE RECONCILER RATHER THAN IN A TASK OF ITS OWN.** The reserve is
-/// WORKING CAPITAL the operator funds, not a per-swap step — so topping up belongs on a periodic
-/// sweep, and this one already holds the three things it needs (`evm`, `esplora`, the hop wallet)
-/// and already runs on a timer. A dedicated task would add a moving part to do the same job.
-///
-/// ⚠️ **NO LOCAL "ALREADY PROVEN" LEDGER, DELIBERATELY.** `swapInUsed(txid)` on-chain is the
-/// authority, and it is the SAME map `_provenDeposit` marks — so a transaction cannot be banked
-/// once as a deposit and again as a reserve, and a restart cannot double-prove. Keeping a
-/// second copy of that truth in `store` would be state that can disagree with the chain.
-///
-/// ⚠️ **THE SCRIPT IS READ FROM THE CONTRACT, NOT DERIVED FROM THE WALLET.** BDK reveals a fresh
-/// address on demand, so "the wallet's address" is not a stable value; the owner pins ONE script
-/// on-chain and the daemon proves against exactly that. If the pin and the wallet disagree the
-/// call fails closed (`ReserveNotPaid`) rather than proving something the fleet cannot spend.
-async fn reconcile_hop_reserve<R: JsonRpc + Send + Sync + 'static>(
-    evm: &Arc<JsonRpcEvmClient<R, LocalSigner>>,
-    rpc: &Arc<R>,
-    esplora: &Arc<Esplora>,
-    wallet: &quid_ln::wallet::OnchainWallet,
-    btc_channels: Address,
-    gas_floor: u64,
-) -> anyhow::Result<()> {
-    let pinned = {
-        let raw = crate::client::eth_call_raw(&**rpc, btc_channels, "hopReserveScript()", None)?;
-        // `bytes` return: word0 = offset (0x20), word1 = length, then the data.
-        if raw.len() < 64 { return Ok(()); }
-        let len = U256::from_be_slice(&raw[32..64]).to::<usize>();
-        if len == 0 || raw.len() < 64 + len { return Ok(()); }   // unpinned ⇒ nothing to do
-        raw[64..64 + len].to_vec()
-    };
-
-    for u in wallet.get_utxos() {
-        if u.txout.script_pubkey.as_bytes() != pinned.as_slice() {
-            continue;
-        }
-        let txid = u.outpoint.txid;
-        // The contract keys `swapInUsed` on `sha256d(rawLegacy)` — INTERNAL byte order, not the
-        // reversed order a txid displays in. `txid_internal` is the repo's existing name for that
-        // conversion and is the same one the merkle proof is folded in.
-        let key = quid_hop::evm_codec::txid_internal(&txid);
-        let used = crate::client::eth_call_raw(&**rpc, btc_channels, "swapInUsed(bytes32)", Some(&key))
-            .map(|b| b.iter().any(|x| *x != 0))
-            .unwrap_or(true);   // unreadable ⇒ assume banked; a wasted revert is worse than a wait
-        if used {
-            continue;
-        }
-        let incl = match quid_hop::evm_codec::tx_inclusion(esplora, &txid).await {
-            Ok(i) => i,
-            // Unconfirmed or not yet indexed: the next pass picks it up.
-            Err(e) => { debug!(%txid, "reserve: no inclusion proof yet ({e:#})"); continue; }
-        };
-        let calldata = quid_hop::evm_codec::encode_prove_hop_reserve(
-            incl.block_hash_be, incl.tx_index, &incl.merkle_proof, &incl.raw);
-        match estimate_gas_and_send(evm, rpc, btc_channels, calldata, gas_floor).await {
-            Ok(true) => info!(%txid, sats = u.txout.value.to_sat(), "reserve: proven on-chain"),
-            Ok(false) => warn!(%txid, "reserve: proveHopReserve reverted"),
-            Err(e) => warn!(%txid, "reserve: proveHopReserve failed ({e:#})"),
-        }
-    }
-    Ok(())
-}
-
 pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
     cfg: BridgeConfig,
     evm: Arc<JsonRpcEvmClient<R, LocalSigner>>,
@@ -1766,16 +1701,6 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
                 // `_slot` drops here, freeing the in-flight slot so the next pass can
                 // re-drive if needed (also runs on a panic-unwind of this task).
             });
-        }
-        // (§LN-RESERVE-FUNDER) Bank any new reserve deposit so the LIGHTNING swap-in rail has a
-        // cap to draw against. Runs LAST and best-effort: it must never delay or abort a channel
-        // pass, and a failure only means the top-up waits for the next sweep.
-        if let Some(w) = hop_wallet.as_ref() {
-            if let Err(e) =
-                reconcile_hop_reserve(&evm, &rpc, &esplora, w, btc_channels, cfg.gas_limit).await
-            {
-                debug!("reserve reconcile failed: {e:#}");
-            }
         }
         tokio::time::sleep(Duration::from_secs(period_secs.max(60))).await;
     }

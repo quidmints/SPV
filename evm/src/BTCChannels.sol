@@ -214,7 +214,7 @@ contract BTCChannels is Ownable {
 
     // MULTI-HOP: number of OPEN channels each hop currently owns (++ at open, -- at
     // close). ⚠️ It used to gate "swap-in attestation authority (`settleSwapIn`)" — that
-    // entrypoint is DELETED (M1#1): a credit is now bounded by `provenSatsAvailable`, sats the
+    // entrypoint is DELETED (M1#1). The credit path that replaced it is now DELETED TOO — see
     // hop SPV-proved into custody, so the open-channel count no longer stands in for solvency.
     // What it still does is bind hop authority to having BTC locked, without a per-call
     // channelId — only a hop with locked BTC (an open channel) may credit the shared
@@ -480,7 +480,7 @@ contract BTCChannels is Ownable {
     error NotChannelHop();       // caller is not this channel's recorded hop
     error OutpointReused();      // this funding UTXO already backs a channel
     error SwapInReplay();
-    error SwapInPartialRejected();   // requireFull swap-in (LN rail) that the pool could only partially fill
+    error SwapInPartialRejected();   // an all-or-nothing credit the pool could only partially fill
     error NothingToClaim();    // (§LAZY-OPEN) no unregistered custody for this channel: never opened,
                                // already claimed, or closed before the claim was registered
     error ClaimNotRegistered(); // (§LAZY-OPEN-SHRINK) this channel's claim is still deferred, so the
@@ -1322,12 +1322,11 @@ contract BTCChannels is Ownable {
     // UTXO. Every payout path then had to SUBTRACT to work out who owned what, and a clamp at
     // every exit is the tell that the STATE is wrong rather than the exits.
     //
-    // `proveHopReserve` + `settleSwapInBuffered` do the same job better: the same proof, split
+    // (§FLEET-FRONTS-THE-WINDOW) and there is no buffered credit at all any more: the pool only
     // into a provable half and an instant half. Pool sats no longer enter channels AT ALL, so
     // commingling is not bounded — it is unconstructible.
     // It had no caller in quid-ln, the SPA or the scripts when it was removed.
 
-    error InsufficientProvenSats();  // a credit would exceed what this hop has proven into custody
 
     /// (§T1-f-general) Sats sitting in a channel that the LP has NO claim to — inventory the
     /// POOL owns, parked or bought there.
@@ -1344,60 +1343,9 @@ contract BTCChannels is Ownable {
     /// COMPUTABLE and EMITTED, which is the precondition for both the off-chain refusal that
     /// prevents it and the §INVARIANTS.md §1 conservation check that would catch it.
 
-    /// (§LN-RESERVE-FUNDER, owner decision 2026-08-30) The Bitcoin script the fleet's on-chain
-    /// RESERVE is held at — the hop's own wallet address (owner: *"the third"*), so the backing
-    /// sits somewhere with a spend path that already works and that `create_sweep_tx` can drain.
-    ///
-    /// 🔑 **WHY A RESERVE EXISTS AT ALL, AND WHY IT IS A BOUND RATHER THAN A PROOF.** The Lightning
-    /// swap-in rail credits USD for sats that arrive OFF-CHAIN, and **there is no on-chain proof of
-    /// an off-chain payment** — the hop issues the invoice, so it knows the preimage before any
-    /// payment exists and holding it proves nothing (`§PREIMAGE-CANNOT-PROVE-RECEIPT`). So the
-    /// anti-conjuring guarantee can only be a CAP on what a compromised hop can credit, and
-    /// `provenSatsAvailable` is that cap.
-    /// ⛔ **THE CAP'S OLD FUNDER WAS UNBUILDABLE.** `parkProvenSats` raised it by SPLICING sats into
-    /// an LP channel, which needs the LP's 2-of-2 co-signature — so a rail whose whole purpose is
-    /// serving swappers while LPs sleep could only be funded while one was awake. It was never
-    /// wired, and every LN swap-in reverted `InsufficientProvenSats` as a result.
-    /// ⇒ **The fleet now raises its own cap against sats IT holds, proven by the same SPV machinery
-    /// `_provenDeposit` uses.** No LP, no channel, no splice.
-    bytes public hopReserveScript;
-
-    event HopReserveScriptSet(bytes script);
-    event HopReserveProven(address indexed hop, bytes32 indexed txid, uint sats, uint available);
 
 
-    /// @notice Pin the address the fleet's reserve is held at. Rotating it does not invalidate
-    ///         allowance already granted — that allowance is backed by sats proven under the
-    ///         PREVIOUS address, which the fleet still holds.
-    function setHopReserveScript(bytes calldata script) external onlyOwner {
-        hopReserveScript = script;
-        emit HopReserveScriptSet(script);
-    }
 
-    /// @notice Raise this hop's `provenSatsAvailable` by the value an SPV-proven transaction pays
-    ///         to the pinned reserve address. **This is the Lightning rail's funder.**
-    ///
-    /// ⚠️ **WHAT THIS DOES AND DOES NOT ESTABLISH, STATED PLAINLY SO THE CAP IS NOT OVERSOLD.**
-    /// It proves sats ARRIVED at an address the fleet controls. It does **not** prove they are
-    /// still there — a hop that spends its own backing and keeps crediting is a compromised hop,
-    /// and the cap bounds that blast radius rather than preventing it. **That was equally true of
-    /// `parkProvenSats`**, so this is the same trust model with a funder that can actually run.
-    ///
-    /// 🔑 Dedup rides on `swapInUsed[txid]`, the SAME map and the same guarantee `_provenDeposit`
-    /// relies on: one transaction can raise the allowance once, so a proof cannot be replayed.
-    function proveHopReserve(
-        bytes32 blockHash,
-        uint txIndex,
-        bytes32[] calldata merkleProof,
-        bytes calldata rawTx
-    ) external nonReentrant {
-        _onlyHop();
-        bytes32 txid = _provenTxid(blockHash, txIndex, merkleProof, rawTx);
-        uint sats = ChannelLib.reserveSats(rawTx, hopReserveScript);
-        uint avail = provenSatsAvailable[msg.sender] + sats;
-        provenSatsAvailable[msg.sender] = avail;
-        emit HopReserveProven(msg.sender, txid, sats, avail);
-    }
 
 
 
@@ -1414,13 +1362,6 @@ contract BTCChannels is Ownable {
     ///         says the LP is not yet earning. Alert on it.
     event ChannelClaimDeferred(bytes32 indexed channelId, address indexed lpEth, uint sats);
 
-    /// (M1#1) Sats this hop has SPV-proven into custody and not yet credited against.
-    ///
-    /// 🔑 **THIS BALANCE IS THE REPLAY PROTECTION, WHICH IS WHY THE BUFFERED CREDIT NEEDS NO
-    /// DEDUP KEY.** `settleSwapIn` keyed replay on a `paymentHash` the hop invented; here a hop
-    /// simply cannot credit more than it proved, so a replayed credit runs out of balance instead
-    /// of running past a guard. One accumulator replaces both the trust and the bookkeeping.
-    mapping(address => uint) public provenSatsAvailable;
 
 
     /// (M1#1) Prove a grow-splice into custody WITHOUT crediting anyone — bank it for later.
@@ -1446,61 +1387,6 @@ contract BTCChannels is Ownable {
     ///        moved — the clamp cannot claw it back. The signer chooses the amount, and
     ///        `checkpointSats` is where it is recorded.
 
-    /// (M1#1) Credit a seller by DRAWING DOWN sats this hop proved earlier.
-    ///
-    /// Replaces `settleSwapIn`. The hop still names the seller, the token and the floor (T2), but
-    /// it can no longer conjure the SATS: every credit is bounded by a balance that only an
-    /// SPV-proven splice can raise. That is the phantom closed without costing the seller
-    /// atomicity — they settle instantly, out of inventory proven before they ever paid.
-    ///
-    /// ⚠️ **THE BALANCE CHECK IS DELIBERATELY *AFTER* THE CREDIT, NOT BEFORE.** Both orders are
-    /// equally safe (a revert rolls the whole call back), but checking after means `creditSwapIn`
-    /// validates the payout token FIRST — so an unregistered range-token is still rejected with
-    /// `StableMissing` rather than being masked by an empty-buffer error. Checking early would
-    /// have silently stopped `ReentrancyProbe`'s token test from testing what it names.
-    ///
-    /// ⚠️ **AND IT DEDUCTS `consumed`, NOT `sats`.** On an inventory-bounded partial the pool
-    /// converts less than asked; deducting the request would burn proven sats the hop still owns
-    /// and could still sell. `requireFull` is preserved for the LN rail, which cannot refund a
-    /// partial and must fail the HTLC back instead.
-    function settleSwapInBuffered(
-        bytes32 preimage, address seller, uint sats, address token,
-        uint minDeliveredUsd, bool requireFull
-    ) external nonReentrant returns (uint consumed) {
-        _onlyHop();
-        // (§HOP-RCE-3) DERIVE THE DEDUP KEY, NEVER ACCEPT IT.
-        //
-        // ⚠️ `paymentHash` IS IDEMPOTENCY, NOT THE BOUND — do not confuse the two, because the old
-        // entrypoint conflated them and that is what made it a trapdoor. What stops a hop conjuring
-        // value is `provenSatsAvailable`. What this dedup stops is the DAEMON crediting the same
-        // HTLC twice after a retry or a restart.
-        // 🔴 **BUT IT WAS A PARAMETER, AND A HOP-CHOSEN VALUE CANNOT PROVIDE IDEMPOTENCY EITHER.**
-        // The comment here used to say *"a hash the hop invents could never do that"* about the
-        // BOUND and then rely on that same invented hash for the dedup. One real HTLC could be
-        // credited N times under N invented hashes, each passing `swapInUsed`, draining USD for sats
-        // that arrived once — bounded by `provenSatsAvailable`, which caps the damage rather than
-        // barring it.
-        //
-        // 🔑 ONE HTLC HAS EXACTLY ONE PREIMAGE, so `sha256(preimage)` is CANONICAL: the same payment
-        // always yields the same key, and a second credit for it becomes unconstructible rather than
-        // merely bounded (standing rule 17). The daemon already holds it at settle time —
-        // `ClaimedSwapIn.preimage`, documented there as `sha256(preimage) == payment_hash` — so this
-        // costs the caller nothing and REMOVES a parameter instead of adding one.
-        //
-        // ⛔ WHAT IT IS NOT: proof the payment arrived. The hop ISSUES the invoice, so it knows the
-        // preimage before any payment exists (`§PREIMAGE-CANNOT-PROVE-RECEIPT`). Arrival stays
-        // bounded by `provenSatsAvailable`. The other half of §HOP-RCE-3 — the hop still NAMES the
-        // seller — needs the seller-signed intent and is NOT addressed here.
-        bytes32 paymentHash = sha256(abi.encodePacked(preimage));
-        if (swapInUsed[paymentHash]) revert SwapInReplay();
-        swapInUsed[paymentHash] = true;
-        uint avail = provenSatsAvailable[msg.sender];
-        consumed = btc.creditSwapIn(seller, sats, token, minDeliveredUsd);
-        if (consumed > avail) revert InsufficientProvenSats();
-        provenSatsAvailable[msg.sender] = avail - consumed;
-        if (requireFull && consumed < sats) revert SwapInPartialRejected();
-        emit SwapInSettled(seller, paymentHash, sats, consumed, token);
-    }
 
     /// @dev CUSTODY ONLY — this rotates the funding outpoint and moves `amountSats`; it does
     ///      NOT decide who owns the grown slice. **(§T1-f) The claim is the CALLER's decision**,
@@ -2173,7 +2059,7 @@ contract BTCChannels is Ownable {
     /// @dev Own frame: dedup, SPV inclusion, and the derived-address check. Returns the deposit
     ///      txid (the replay key) and the sats it actually paid this protocol.
     /// @dev The half BOTH provers share: one transaction, proven once. Extracted when
-    ///      `proveHopReserve` reproduced these six lines verbatim — the duplication put
+    ///      the (now deleted) reserve prover reproduced these six lines verbatim — that put
     ///      `BTCChannels` 386 bytes OVER EIP-170, so sharing it is what makes the funder fit.
     /// 🔑 THE DEDUP IS THE LOAD-BEARING PART, and it is why the two provers must share ONE map.
     ///      `swapInUsed` is keyed by txid across BOTH, so the same transaction cannot be claimed
@@ -2245,7 +2131,7 @@ contract BTCChannels is Ownable {
     // that never arrived and the loss reached QU!D holders who opted into no enclave trust. It
     // survived this long only because the LN rail had no provable form.
     //
-    // REPLACED, not merely removed: `proveHopReserve` + `settleSwapInBuffered` above. Its OTHER
+    // REPLACED, not merely removed: `settleSwapInProven` is the only credit path now. Its OTHER
     // role already lives under its own name — `reverseSwapOut` (T1-b/T1-d).
 
     /// @notice A swapper recovers their committed USD if the hop never delivers

@@ -38,125 +38,6 @@ contract BtcSelfManagedTest is AllesFixture {
     // duplicated. A lock was the other option and is worse: it would serialise thirty identical
     // ~40s runs for zero extra coverage.
 
-    /// @notice REAL Lightning swap-in, orchestrated entirely by `forge` via
-    ///         vm.ffi: the regtest/ harness spins up bitcoind + two LND nodes +
-    ///         an alice->bob channel and performs a GENUINE HTLC payment (alice
-    ///         the BTC seller pays bob the hop); bob learns the preimage. We then
-    ///         prove ON-CHAIN that the settled paymentHash IS sha256 of that real
-    ///         Lightning preimage, drive the REAL BTCChannels.settleSwapIn with
-    ///         it (minting QUI to the seller against drawn pool dollars), and that
-    ///         replaying the same real hash reverts. Skips cleanly (suite stays
-    ///         green) if the harness binaries aren't installed - run once:
-    ///           regtest/setup.sh && regtest/setup-ln.sh
-    function testSwapIn_RealLightningHTLC() public {
-        string[] memory cmd = new string[](2);
-        cmd[0] = "bash";
-        cmd[1] = string.concat(vm.projectRoot(), "/../regtest/swapin-e2e.sh");
-        bytes memory sig = vm.ffi(cmd);
-        // Only an explicit READY drives the live assertions. ANY other token -
-        // SKIP (binaries not installed), an orchestration-failure marker, or empty
-        // output (a partially-available / flaky live harness) - skips cleanly so
-        // the suite stays green wherever the bitcoind/LND harness cannot come up.
-        // ⚠️ SKIP means ONE thing only: the binaries are not installed. An installed-but-BROKEN
-        // harness returns BROKEN and FAILS here. Collapsing the two into a single SKIP token is
-        // what hid this test for the whole project: LND's stale-tip bug made every run emit SKIP,
-        // indistinguishable from "not installed", so a real breakage looked like a clean skip.
-        // ⚠️ READ AND CHECK THE VECTOR **BEFORE** THE SKIP BRANCH. Until 2026-08-06 this read sat
-        // BELOW it, which made the committed pair unreadable in BOTH configurations: a machine
-        // WITHOUT the harness returned at SKIP and never opened the file, and a machine WITH it had
-        // just had the file overwritten by the ffi run. So the value in git was never the value under
-        // test. `swap.sh` now writes the `.local.` sibling instead, leaving the committed vector as a
-        // stable offline case that every machine checks on every run.
-        string memory local     = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.local.json");
-        string memory committed = string.concat(vm.projectRoot(), "/test/btc/swapin_fixture.json");
-        // ⚠️ ALWAYS check the COMMITTED vector, not "whichever file we happen to read". A stale
-        // `.local.` left by an earlier run would otherwise shadow it on a machine where the
-        // harness is now absent — and the committed vector going unchecked is the exact defect
-        // this whole change exists to fix.
-        {
-            string memory jc = vm.readFile(committed);
-            assertEq(sha256(vm.parseJsonBytes(jc, ".preimage")),
-                     vm.parseJsonBytes32(jc, ".paymentHash"),
-                     "committed offline vector is a genuine sha256 pair");
-        }
-        bool haveLive = vm.exists(local);
-        string memory j = vm.readFile(haveLive ? local : committed);
-        uint    sats        = vm.parseJsonUint(j, ".sats");
-        bytes32 paymentHash = vm.parseJsonBytes32(j, ".paymentHash");
-        bytes memory preimage = vm.parseJsonBytes(j, ".preimage");
-
-        // The settled hash IS sha256 of the real Lightning preimage (the HTLC tie). Reachable on
-        // every machine now — off the harness it proves the committed vector is a genuine pair
-        // rather than hand-edited bytes, which is the whole reason to keep one in git.
-        assertEq(sha256(preimage), paymentHash, "paymentHash == sha256(real LN preimage)");
-
-        if (keccak256(sig) == keccak256(bytes("SKIP"))) {
-            emit log("regtest/LND binaries absent - run regtest/setup.sh && regtest/setup-ln.sh - skipping live leg");
-            vm.skip(true);
-            return;
-        }
-        require(keccak256(sig) == keccak256(bytes("READY")),
-            "live LN harness is INSTALLED but BROKEN (see /tmp/quid-swapin-e2e.log). Deliberately NOT skipped.");
-        require(haveLive, "harness reported READY but wrote no swapin_fixture.local.json");
-
-        // Real BTCChannels wired as THE btcChannels (pin-once); hopNode = our addr.
-        address hop = makeAddr("hop");
-        // (M1#1) MockSPV, not `_realSPV()`. What this test is FOR is the live Lightning HTLC —
-        // its name says so — and a buffered credit now needs a PARKED balance, which needs a
-        // grow-splice the gateway will accept. The real gateway only knows the fixture's recorded
-        // headers, and no splice fixture exists for this pair. Real-SPV inclusion is covered by
-        // the proven-swap-in and deposit-proof tests; what moves here is coverage those already
-        // hold. ▶️ Restoring it needs a splice added to the fixture generator (booked).
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
-        _btcChannels = address(ch);   // (E138) PoP digest binds this address
-        AUX.setBTCChannels(address(ch));
-        // The USD->BTC swaps deliver BTC to the swapper -> it needs a BTC recipient.
-        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
-
-        // Fund POOLED_USD headroom (a swap-in draws the swappers' dollars).
-        // MULTI-HOP: a REAL open (not a requestDeposit shortcut) so `hop` owns an OPEN
-        // channel and may therefore attest the swap-in — settleSwapIn's
-        // `openChannelsOf[hop] >= 1` gate is the authority binding that replaced the
-        // old single trusted hopNode. (This test previously kept the direct
-        // requestDeposit shortcut and only stayed green because the live-harness ffi
-        // was SKIPping; with the harness fixed it runs and requires the real open.)
-        // (M1#1) open AND park: a buffered credit spends SPV-proven sats.
-        _parkSats(ch, hop, 91, 2e7, 2e7);
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        for (uint i = 0; i < 6; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-        assertGt(CORE.POOLED_USD(), 0, "POOLED_USD funded");
-
-        // No-CRE fork: heal USDC severity to 0 for the realistic healthy case.
-        vm.mockCall(address(AUX),
-            abi.encodeWithSignature("getDepegSeverityBps(address)", address(USDC)),
-            abi.encode(uint(0)));
-        address seller = address(0x5EE7);
-        uint usdcBefore   = USDC.balanceOf(seller);
-        uint pooledBefore = CORE.POOLED_USD();
-        uint parkedBefore = ch.provenSatsAvailable(hop);
-        vm.prank(hop);
-        ch.settleSwapInBuffered(paymentHash, seller, sats, address(USDC), 0, false);
-        // ETH-parity: the real LN swap-in settles ON-CURVE from existing pooled
-        // dollars - the seller receives USDC, NOT minted QUI.
-        assertGt(USDC.balanceOf(seller), usdcBefore, "seller received USDC for the real LN swap-in");
-        assertLt(CORE.POOLED_USD(), pooledBefore, "POOLED_USD drawn down by the curve");
-        assertLt(ch.provenSatsAvailable(hop), parkedBefore, "the credit drew the proven buffer down");
-
-        // (M1#1) IDEMPOTENCY, which is what the hash is FOR now: re-submitting the same HTLC —
-        // a daemon retry or a restart — must not credit the seller twice or drain the hop's
-        // buffer twice. The BOUND is a different property, asserted where it can actually fire
-        // (`test_M1_1_CannotCreditBeyondWhatWasProven`): it triggers on `consumed`, so a request
-        // above the balance is a no-op when the pool converts less, and asserting it here would
-        // only be testing the pool's depth.
-        vm.prank(hop);
-        vm.expectRevert(BTCChannels.SwapInReplay.selector);
-        ch.settleSwapInBuffered(paymentHash, seller, sats, address(USDC), 0, false);
-    }
 
     // ── CROSS-CHAIN E2E — housed here, NOT in `Alles.t.sol`, for the same reason as the LN test ──
     // It used to live in `Alles.t.sol`, which 25 contracts inherit, so a suite run spawned ~30
@@ -373,16 +254,11 @@ contract BtcSelfManagedTest is AllesFixture {
 
         // ── settleSwapIn: the REAL Lightning HTLC hash settles the seller ──
         {
-            // (M1#1) THIS E2E KEEPS ITS REAL SPV GATEWAY — it asserts real header-chain
-            // properties above, which is what it is for — and that means it cannot PARK: a park
-            // is a grow-splice, and no splice fixture exists for this bundle. So the credit here
-            // asserts the BOUND rather than a payout: an unparked hop cannot credit at all, in
-            // the most realistic setting the suite has. The paid-seller path is covered by
-            // `testSwapIn_RealLightningHTLC` and the stress suite.
-            // ▶️ To assert the payout here too, the fixture generator needs to emit a splice.
-            vm.prank(hop);
-            vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
-            ch.settleSwapInBuffered(b.paymentHash, b.seller, b.sats, address(USDC), 0, false);
+            // (§FLEET-FRONTS-THE-WINDOW) THE BUFFERED CREDIT ASSERTION IS GONE WITH ITS RAIL.
+            // It asserted `InsufficientProvenSats` — that an unparked hop cannot credit — and both
+            // the bound and the entrypoint have been deleted: the pool now only ever credits
+            // against an SPV-proven deposit (`settleSwapInProven`), so there is no unbacked credit
+            // left to bound. The rest of this bundle's assertions are unaffected.
         }
 
 

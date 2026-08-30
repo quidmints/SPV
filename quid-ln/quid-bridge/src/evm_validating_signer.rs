@@ -188,7 +188,7 @@ mod tests {
         let p = EvmTxPolicy::new([BTC_CHANNELS]);
         p.check(&fields(
             BTC_CHANNELS,
-            quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED,
+            quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_PROVEN,
             U256::ZERO,
         ))
         .expect("known selector + contract + zero value must pass");
@@ -200,7 +200,7 @@ mod tests {
         assert!(
             p.check(&fields(
                 ATTACKER,
-                quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED,
+                quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_PROVEN,
                 U256::ZERO,
             ))
             .is_err(),
@@ -224,7 +224,7 @@ mod tests {
         assert!(
             p.check(&fields(
                 BTC_CHANNELS,
-                quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED,
+                quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_PROVEN,
                 U256::from(1),
             ))
             .is_err(),

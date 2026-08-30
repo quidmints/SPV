@@ -492,56 +492,6 @@ contract BtcLpMintStress is AllesFixture {
 
 
 
-    /// 🔑 (M1#1) THE BOUND THAT REPLACED THE PHANTOM: a hop cannot credit beyond what it has
-    /// SPV-proven into custody. `settleSwapIn` would have paid this out on the hop's word alone,
-    /// draining `POOLED_USD` for sats that never existed — a loss reaching QU!D holders who
-    /// opted into no enclave trust.
-    ///
-    /// ⚠️ NOTE WHAT THE BOUND IS ON: `consumed`, not the request. Asking for more than you proved
-    /// is harmless when the pool converts less, so this needs a SMALL buffer and a pool deep
-    /// enough to convert past it — otherwise the POOL, not the balance, is what stops the credit
-    /// and the test would pass without exercising the guard at all.
-    /// ⚠️ **FUNDED AT 0.2 BTC, NOT 0.01, AND THE SIZE IS LOAD-BEARING — see §SWAPOUT-DRAINS-THE-EXIT.**
-    /// The priming below moves 800 USDC of sats OUT of this channel, and `creditSwapOut` bounds a
-    /// fill by the pool's ENTIRE BTC inventory. At 0.01 BTC and the fork block's ~$77.7k BTC, the
-    /// first 400-USDC swap took 514,544 sats and the second was capped at `pooled − 1`, leaving the
-    /// channel holding **1 sat** — over which `_deliverOnchain` must still arm a dead-man ladder,
-    /// and no exit can pay a fee out of 1 sat. The FFI generator said so exactly.
-    /// ⛔ **THE SIZE IS NOT THE DEFECT AND MUST NOT BE READ AS THE FIX** — it only stops this test
-    /// from measuring the drain instead of the proven-sats bound it is named for. The protocol has
-    /// no residual floor at all; that is booked separately and is still open.
-    function test_M1_1_CannotCreditBeyondWhatWasProven() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lp) = _open(ch, 31, 2e7);
-        // ⚠️ PRIME WITH REAL SWAP-OUTS, NOT CURVE BUYS. A credit SELLS sats into the pool, and a
-        // pool primed only by buys is too thin to absorb one — it trips `SlippageMaxS` in
-        // `routeSwap`, a genuine depth guard, and the test would fail for a reason that has
-        // nothing to do with the bound under test. (Same trap as §E166-2.)
-        _swapOuts(ch, cid, ftx, 31, lp, lpEth, 2, 400 * USDC_PRECISION);
-
-        uint parked = 10_000;   // deliberately small, and well inside what the pool can convert
-        // (§LN-RESERVE-FUNDER) The cap is funded from the fleet's own on-chain reserve now, so
-        // this no longer has to splice the channel to give the hop a balance — and the test no
-        // longer depends on the outpoint rotation that splice caused.
-        _proveReserve(ch, makeAddr("hop"), parked, 31);
-        assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked, "premise: a small proven balance");
-
-        // A credit the pool COULD fill, but the balance cannot cover, is refused.
-        // 5x the balance — comfortably inside the pool's depth (the neighbouring proven-swap-in
-        // test absorbs 50k sats on this priming), so what stops it is the BALANCE, not the curve.
-        vm.prank(makeAddr("hop"));
-        vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
-        ch.settleSwapInBuffered(keccak256("over"), address(0x5EE0), parked * 5, address(USDC), 0, false);
-
-        // CONTROL: the same call WITHIN the balance succeeds, so the refusal above is
-        // attributable to the bound and not to a pool that simply could not deliver.
-        uint before = USDC.balanceOf(address(0x5EE0));
-        vm.prank(makeAddr("hop"));
-        uint consumed = ch.settleSwapInBuffered(keccak256("ok"), address(0x5EE0), parked, address(USDC), 0, false);
-        assertGt(USDC.balanceOf(address(0x5EE0)), before, "control: a within-balance credit pays");
-        assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked - consumed,
-            "the balance falls by consumed, never by the request");
-    }
 
 
     /// spliceChannel grows the LP's BTC pool position + the channel's funded total
@@ -949,89 +899,6 @@ contract BtcLpMintStress is AllesFixture {
             "cumulative mint stays within proceeds + retained premium (+ constant fee dust)");
     }
 
-    /// COLLAPSE swap-in GATE: a swap-in is paid out of POOLED_USD, but it must
-    /// NOT eat into the USD owed to LPs for UNDELIVERED swap-out obligations
-    /// (pendingSwapOutUsd) — else a delivered LP couldn't be paid its exact proceeds.
-    /// Build up pendingSwapOutUsd (un-delivered requests) so it is ~all of
-    /// POOLED_USD (thin free reserve), then a real swap-in that would draw the
-    /// pool below pendingSwapOutUsd reverts SwapInDrainsProceeds.
-    function test_SwapInGate_RevertsIfDrainsPendingProceeds() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 cid9, bytes32 ftx9, , bytes memory lp9) = _open(ch, 9, 5e7); // 0.5 BTC liquidity
-        _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03);
-        vm.startPrank(User03); USDC.approve(address(AUX), type(uint).max); vm.stopPrank();
-
-        // (1) PRIME a small FREE reserve: a couple of direct curve buys grow
-        // POOLED_USD WITHOUT recording any obligation (pending stays 0). This is
-        // the genuinely-free headroom a swap-in is allowed to draw against.
-        vm.startPrank(User03);
-        for (uint i = 0; i < 2; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0, true);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-        uint freeReserve0 = CORE.POOLED_USD();
-        assertGt(freeReserve0, 0, "priming created a free reserve");
-
-        // (2) Build pendingSwapOutUsd with UN-delivered on-chain swap-out requests.
-        // Each grows POOLED_USD AND pendingSwapOutUsd by the same USD, so the FREE
-        // reserve (POOLED − pending) STAYS ≈ freeReserve0 while pending climbs.
-        for (uint i = 0; i < 6; i++) {
-            bytes memory scr = _swapperScript(address(ch), User03);   // (E185) the REGISTERED destination
-            vm.prank(User03);
-            try ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, 0, keccak256(abi.encode("gate-id")))
-                returns (uint) {
-                vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-            } catch { break; }
-        }
-        uint pending = CORE.pendingSwapOutUsd();
-        assertGt(pending, 0, "obligations recorded");
-        assertGe(CORE.POOLED_USD(), pending, "free reserve non-negative before the swap-ins");
-
-        // (3) LOOP small swap-ins (each well under the 50bps cap so the curve accepts
-        // it) that draw POOLED_USD down through the free reserve toward `pending`.
-        // The proceeds gate (SwapInDrainsProceeds) must fire on the swap that would
-        // CROSS the threshold — proving a swap-in can never drain the USD owed to LPs.
-        // (If the curve's own slippage/reserve limit refuses first, the property
-        // below still proves the guarantee — the gate is the backstop.) The INVARIANT
-        // holds after EVERY accepted swap-in: POOLED_USD >= pending.
-        uint price = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint fixedSats = (freeReserve0 / 4 * 1e12 * 1e18) / price; // ~1/4 of the free reserve per swap
-        if (fixedSats == 0) fixedSats = 1e3;
-        // (M1#1) FUND THE HOP'S PROVEN BUFFER. A buffered credit draws sats the hop has already
-        // SPV-proven into custody, so without a park every iteration below would revert
-        // `InsufficientProvenSats` and `accepted` would stay 0 — the loop would spin 500 times
-        // testing nothing. Parking generously here keeps the BUFFER out of the way, so the
-        // draining still stops for the reason this test is about (the proceeds gate or the
-        // curve), never because the hop ran out of inventory.
-        _proveReserve(ch, makeAddr("hop"), fixedSats * 501, 9);
-        uint pooledStart = CORE.POOLED_USD();
-        bool gateFired; bool curveSelfLimited; uint accepted;
-        for (uint i = 0; i < 500 && !gateFired && !curveSelfLimited; i++) {
-            if (CORE.POOLED_USD() <= pending) break;
-            vm.prank(makeAddr("hop"));
-            try ch.settleSwapInBuffered(keccak256(abi.encode("gate-swapin", i)), address(0x5EE0), fixedSats, address(USDC), 0, false) {
-                assertGe(CORE.POOLED_USD(), pending,
-                    "swap-in left POOLED_USD >= pending (LP proceeds not drained)");
-                accepted++;
-                vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-            } catch (bytes memory reason) {
-                if (bytes4(reason) == bytes4(keccak256("SwapInDrainsProceeds()"))) gateFired = true;
-                else curveSelfLimited = true; // curve refused before the gate
-            }
-        }
-        // NOT A NO-OP: real swap-in draining pressure was applied (accepted draws that
-        // measurably reduced the pool), and the protection held under it. The draining
-        // ended because a guard stopped it — the proceeds gate or the curve's own
-        // slippage/reserve limit — never an unprotected drain below pending.
-        assertGt(accepted, 0, "swap-in draining pressure was actually applied");
-        assertLt(CORE.POOLED_USD(), pooledStart, "swap-ins measurably drew the pool down");
-        assertTrue(gateFired || curveSelfLimited, "draining stopped by a guard (proceeds gate or curve), not unprotected");
-        // THE GUARANTEE: POOLED_USD stayed >= pending throughout — the USD owed
-        // to LPs for undelivered swap-outs is never drained by swap-ins.
-        assertGe(CORE.POOLED_USD(), pending,
-            "LP-owed proceeds (pendingSwapOutUsd) never drained by swap-ins");
-    }
 
     /// FRESH-ATTACK GUARD #1 — the setBtcRecipient bypass. Without the lock, a
     /// channel LP could repoint btcRecipientOf to junk right before closing, so
@@ -1152,16 +1019,9 @@ contract BtcLpMintStress is AllesFixture {
         k[1].proceeds += _swapOuts(ch, k[1].id, _liveFundingTxId[k[1].id], 202, k[1].pk, k[1].lp, 2, 300 * USDC_PRECISION);
         _multiAssert(ch, "B swaps post-splice", k);
 
-        // 5) a swap-IN draws the SHARED pool while obligations may be pending — must
-        //    not draw POOLED_USD below the cross-channel pending total.
-        //    (M1#1) Park first, or the credit reverts on an empty buffer and this step stops
-        //    exercising the shared pool at all — the `try` would swallow it silently.
-        // (§LN-RESERVE-FUNDER) No splice, so no outpoint rotation to track: funding the cap and
-        // moving the channel are now independent, which is what removed the `WrongPrevOutpoint`
-        // trap this block used to carry.
-        _proveReserve(ch, makeAddr("hop"), 60_000, 202);
-        vm.prank(makeAddr("hop"));
-        try ch.settleSwapInBuffered(bytes32(uint(0x5117)), address(0x5EE0), 50_000, address(USDC), 0, false) {} catch {}
+        // (§FLEET-FRONTS-THE-WINDOW) The shared-pool swap-in step is gone with the buffered rail.
+        // `_multiAssert` below still checks that the three channels' minted balances stay
+        // independent, which is what this sim is for; the swap-in was one way to disturb them.
         _multiAssert(ch, "shared swap-in", k);
 
         // 6) close A (all-native, mints ~0) — must not move B/C minted balances

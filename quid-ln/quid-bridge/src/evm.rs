@@ -29,30 +29,6 @@ pub enum SettleOutcome {
 
 /// The EVM calls the swap-in sender needs.
 pub trait EvmClient: Send + Sync + 'static {
-    /// Submit `settleSwapIn(seller, sats, token, paymentHash, minDeliveredUsd, requireFull)`,
-    /// await the receipt, and on revert disambiguate via `swapInUsed(hash)`:
-    /// `true` → [`SettleOutcome::AlreadySettled`], `false` →
-    /// [`SettleOutcome::Undeliverable`]. Transient failures return `Err`.
-    ///
-    /// `require_full` = the on-chain "reject a partial" flag. When `true` and the pool can
-    /// convert only PART of `sats`, the settle REVERTS (`SwapInPartialRejected`, rolling back
-    /// the draw + USD) → surfaces as [`SettleOutcome::Undeliverable`] (swapInUsed stays
-    /// false). The ATOMIC LN rail passes `true` (it can't refund a partial: no seller node to
-    /// keysend); the on-chain rail passes `false` and refunds the unconverted remainder via
-    /// a second claim output. A `Delivered`/`AlreadySettled` under `require_full = true` thus
-    /// ALWAYS has `consumed_sats == sats`.
-    fn settle_swap_in(
-        &self,
-        seller: Address,
-        sats: u64,
-        token: Address,
-        // (§HOP-RCE-3) The LN PREIMAGE, not the payment hash: the contract derives
-        // `sha256(preimage)` as its dedup key rather than accepting a hop-chosen one, which could
-        // not provide the idempotency it was there for.
-        preimage: B256,
-        min_delivered_usd: U256,
-        require_full: bool,
-    ) -> anyhow::Result<SettleOutcome>;
 }
 
 /// (T1-c) The PROVEN on-chain deposit rail's one EVM call.
