@@ -845,6 +845,92 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🏗️ **§CHEAPEST-DOLLAR — THE ALLOCATOR IS A KEEPER SEARCH WITH AN ON-CHAIN SAFETY BOUND, AND THE SECURITY CONSTRAINT IS MET BY MAKING IT PERMISSIONLESS RATHER THAN BY TRUSTING THE ENCLAVE LESS** (owner, 2026-08-30)
+
+Owner's brief: consider every dollar borrow across Aave v3 / v4 / Morpho at any moment, reallocate
+the protocol's whole collateral/debt position to the least APR, **fold the Curve→USDC→WETH route cost
+into the comparison**, put as much as possible in the keeper — *"but not if it sacrifices security (if
+the keeper enclave … is compromised and reset to malicious code it should be impossible to do any
+damage to the protocol)."*
+
+### 📏 THREE MEASUREMENTS FIRST, BECAUSE TWO OF THEM REFRAME THE FEATURE
+
+**① THE DOMINANT SPREAD IS *WHICH DOLLAR*, NOT *WHICH VENUE*.** From §THREE-VENUE-MATRIX:
+within **one venue** (Aave v3) the borrow rate runs **GHO 3.75% → USDG 7.89% — 414 bps**. *Across*
+venues the same dollar barely moves: **RLUSD is 4.19% on Morpho and 4.74% on Aave v3 — 55 bps.**
+⇒ **Venue migration is the small lever and the expensive one; rotating the borrowed STABLE is the big
+lever and the cheap one** — on a shared pool it needs no collateral movement at all, just repay one
+debt and draw another against collateral that never moves.
+
+**② THE ROUTE COST IS COMMON-MODE, SO IT ALMOST DROPS OUT OF THE COMPARISON.** Measured on Curve
+3pool: **USDC→USDT costs 1.7 bps at $1M, 1.9 at $5M, 2.8 at $20M; DAI→USDC 1.4 bps at $1M.** Every
+candidate stable reaches USDC at that price and then takes **the identical USDC→WETH leg**, so the
+route-cost *difference* between two candidate dollars is ~1–2 bps **one-off** against rate spreads of
+30–414 bps **per year**. **Two orders of magnitude.**
+⇒ **Fold route cost in as the owner asked, and it changes no decision it did not already dominate.**
+⛔ **WITH ONE EXCEPTION, AND IT IS A BOOLEAN NOT A COST:** a stable with **no** Curve route has
+infinite route cost and is excluded outright — that is the `NoStableRoute()` set, and it is the only
+way routing enters the venue choice.
+
+**③ SO THE SWITCHING THRESHOLD IS DERIVABLE RATHER THAN TUNED.** A rotation costs ~2 bps of swap plus
+gas; a rate improvement Δr held for T repays it when **Δr · T ≥ cost**:
+| move | Δr | days to repay 2 bps |
+|---|---:|---:|
+| out of USDG 7.89% → GHO 3.75% | 414 bps | **2.6** |
+| out of PYUSD 5.85% → GHO | 210 bps | 5.2 |
+| out of RLUSD 4.74% → GHO | 99 bps | 11 |
+| USDT 4.08% → GHO 3.75% | 33 bps | 33 |
+| USDT 4.08% → USDC 4.02% | 6 bps | **183 — never** |
+⭐ **THE POLICY THAT FALLS OUT IS "AVOID THE OUTLIER", NOT "CHASE THE CHEAPEST".** GHO/USDE/USDC/USDT
+sit inside 33 bps of each other and **no move among them ever repays**; the wins are all exits from a
+single expensive dollar. **That is why the on-chain machinery can be coarse and small, which is what
+the owner hoped for** — a fine optimiser would be all cost and no yield.
+⇒ **`MIN_IMPROVE = 100 bps APR` with a `14-day` cooldown** earns 100·14/365 = **3.8 bps > 2 bps**.
+It admits every row above the line and refuses every row below it.
+
+### 🔒 THE SECURITY ANSWER: DO NOT GATE IT ON THE KEEPER AT ALL
+`rebalance` **is already permissionless** — `LevMath.sol:619` states the division the whole design
+rests on: *"the caller picks WHEN and the contract picks the PRICE BOUND"*, and `:639` *"the contract
+owns `tokenIn`, `amountIn`, `minOut` and the callee; the keeper owns only the venue choice."*
+**Every check this feature needs is on-chain readable**, so the reallocator can take the same shape:
+| check | how the contract verifies it, with no off-chain input |
+|---|---|
+| venue + stable are permitted | governance allowlist; the caller cannot extend it |
+| **the new dollar is genuinely cheaper** | read BOTH rates on-chain — Aave `getReserveData().currentVariableBorrowRate`, Morpho `IIrm.borrowRateView` — and require `rateNew + MIN_IMPROVE ≤ rateOld` |
+| the move is not churn | `block.timestamp ≥ lastRotate + COOLDOWN` |
+| execution is not looted | already built: `_aggSwap` floors on a **measured balance delta**, never the router's return |
+⇒ **THEN A COMPROMISED ENCLAVE GRANTS NOTHING.** It becomes one more unprivileged caller, holding no
+authority the public lacks, which satisfies the owner's constraint **by construction instead of by
+allowlist** — strictly stronger than adding a selector to `HOP_SIGNED_FN_SIGS`, because there is no
+selector to steal.
+⚠️ **THE HONEST RESIDUAL, STATED RATHER THAN GLOSSED: THIS IS BOUNDED DAMAGE, NOT ZERO DAMAGE.**
+Whoever picks the moment can force execution *at* the oracle floor rather than better than it. The
+bleed is capped at `slippage tolerance × frequency the cooldown permits`, and **that exposure already
+exists today on `rebalance`** — this adds no new class, only another caller.
+🔴 **AND THE CHECK THAT IS EASY TO OMIT, WHICH IS THE ONE THAT MATTERS: A RATE COMPARISON ALONE IS
+DEFEATED BY CHURN.** Nothing in *"is the new venue cheaper?"* stops an attacker rotating repeatedly,
+each hop nominally an improvement, bleeding ~2 bps of Curve fee every time. **`MIN_IMPROVE` and the
+cooldown are not two guards, they are `Δr · T ≥ cost` read twice** — ship either alone and the bound
+is vacuous. (Standing rule 3: the cause is that a *rate* test cannot see a *one-off* cost; the pair
+is what makes the units commensurate.)
+
+### 🧱 WHAT THIS ACTUALLY NEEDS IN SOLIDITY — AND WHAT BLOCKS WHICH PART
+1. **`ILevVenue.borrowRateRay()`** — the one new accessor. **Nothing above is verifiable on-chain
+   without it**, and it is required under every variant of the design, so it is the first build.
+2. **The guard** — allowlist + rate comparison + cooldown. Small, and it is the entire trust boundary.
+3. 🔴 **The real work: `LevVenueBase.STABLE` is `immutable` (`:103`, `:424`), so one adapter borrows
+   exactly ONE dollar.** Deploying a second adapter per stable does **not** substitute: each adapter
+   is its own Aave account with its own collateral, so it splits the collateral instead of
+   cross-collateralising — **which discards the shared-pool property that made Aave v3 worth using.**
+   Getting the 414 bps means one adapter that borrows a SET, with `debtOf` aggregating across debt
+   assets into a common unit.
+⇒ **SEQUENCING, AND IT IS THE POINT: `poolVenue` DOES NOT BLOCK THE BIG LEVER.** Rotating the
+borrowed stable on a shared pool **does not change the venue**, so `LevBase:393`'s pin is untouched by
+it. The pin blocks venue *migration* — the 55 bps lever — and can wait. **Build stable rotation
+first.** ⚠️ `Types.Pos` already carries `venue` per-LP, so the pin is policy over a data model that
+already supports more; when it is revisited, the cost is that aggregate LTV and `cascadeDelever` must
+span venues, and that — not the pin itself — is the work.
+
 ## 📊 **§UNOSWAP-CANNOT-REACH-THE-STABLES-WE-WANT — MEASURED, AND THE ANSWER IS NO** (owner, 2026-08-30: *"are you sure unoswap is the best way to get the WBTC or WETH that we need in any situation?"*)
 
 **No.** Measured on Uniswap v3 `QuoterV2` (`0x61fFE014…`), single-pool `quoteExactInputSingle`, both
