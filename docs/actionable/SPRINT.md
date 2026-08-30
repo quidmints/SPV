@@ -819,6 +819,58 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 📊 **§UNOSWAP-CANNOT-REACH-THE-STABLES-WE-WANT — MEASURED, AND THE ANSWER IS NO** (owner, 2026-08-30: *"are you sure unoswap is the best way to get the WBTC or WETH that we need in any situation?"*)
+
+**No.** Measured on Uniswap v3 `QuoterV2` (`0x61fFE014…`), single-pool `quoteExactInputSingle`, both
+fee tiers, at $10k / $1M / $5M. **Control: USDC and USDT quote ETH independently at 2,467 and 2,467 —
+they agree, so the marginal price is real** and the impact column below is impact, not a broken pool.
+
+### 📡 STABLE → WETH, ONE POOL (impact vs the $10k marginal price)
+| token | 0.05% tier | 0.30% tier |
+|---|---|---|
+| **USDT** | 2.66% / **24.57%** | ✅ **0.11% / 0.56%** |
+| **USDC** | ✅ **0.44% / 2.24%** | 0.73% / 3.64% |
+| DAI | 🔴 **151.6% / 970.7%** | 🔴 18.0% / 232.5% |
+| PYUSD | no pool | 🔴 dust — quotes ETH at **1,199,001**, i.e. 486× spot |
+| **GHO · USDE · USDG · RLUSD** | 🔴 **NO POOL** | 🔴 **NO POOL** |
+
+⭐⭐ **THE FOUR WITH NO POOL ARE EXACTLY THE FOUR §THREE-VENUE-MATRIX JUST MADE ATTRACTIVE.** GHO is
+the **cheapest borrow on Aave v3 at 3.75%**; USDE has **$234M** available; USDG is the deepest dollar
+on the **Aave v4 hub**; RLUSD is the Morpho rung. **`unoswap` can route NONE of them.** It serves two
+of eight candidates — USDT and USDC — which are precisely the two the owner forbade concentrating
+into. ⇒ **A single-pool-only integration does not merely route worse; it RE-DERIVES the USDC monoculture
+as a routing consequence**, and it does so silently, because "no pool" surfaces as a fallback rather
+than an error. **The `swap()` path with an off-chain route is not a nice-to-have — it is the thing
+that makes the borrow-dollar diversity in §THREE-VENUE-MATRIX reachable at all.**
+
+### 📡 AND FOR WBTC, TWO HOPS BEAT ONE AT EVERY SIZE MEASURED
+| route | @$1M | @$5M |
+|---|---|---|
+| USDT → WBTC direct (0.05%) | 0.92% | 4.96% |
+| **USDT → WETH (0.30%) → WBTC (0.05%)** | **0.11 + 0.56 = 0.67%** | **0.56 + 2.73 = 3.29%** |
+| USDC → WBTC direct (0.05%) | 🔴 197.5% | 🔴 1384.0% |
+| USDC → WBTC direct (0.30%) | 1.72% | 10.97% |
+⇒ **`unoswap` loses to `unoswap2` on the BTC leg by 27% of the cost at $1M and 34% at $5M**, on the
+best direct pool available. The one-pool call is not a cheap approximation of the two-pool one here;
+it is strictly worse.
+
+### 🔴 AND THE TRAP THAT KILLS ANY HARDCODED ROUTE TABLE: THE CORRECT FEE TIER IS NOT GUESSABLE, AND IT IS NOT EVEN STABLE PER TOKEN
+- **USDT → WETH**: 0.30% is right, 0.05% is **24× worse** at $5M.
+- **USDC → WETH**: 0.05% is right — **the opposite tier from USDT.**
+- **USDC → WBTC**: 0.30% is right; its 0.05% pool is **115× worse**. ⇒ **USDC's best tier INVERTS
+  between WETH and WBTC**, so a per-token constant is wrong no matter which value it holds.
+⇒ **There is no static pool constant that is correct for every pair and size.** A pinned pool address
+is a bet that a specific tier stays deepest, and the measurements above disagree with each other
+across destination, size and token. **This is the affirmative case for routing off-chain and passing
+the path in, rather than for a `_routeOf`-style table** — the table shape works for the 2-entry
+liability routing it already does and does not generalise to venue selection.
+
+⚠️ **WHAT THIS DOES NOT SETTLE:** these are Uniswap-v3-only quotes. 1inch would split across Curve,
+Balancer and PancakeSwap too, so the routable set for GHO/USDE/USDG/RLUSD is **wider than "no pool"** —
+Curve is where those actually trade (§BASKET-ROUTE-MATRIX measured that separately). The claim proven
+here is narrower and sufficient: **`unoswap`, which takes exactly one pool, cannot serve them**, and
+the aggregate call is what can.
+
 ## 📊 **§THREE-VENUE-MATRIX — AAVE v3 WAS NEVER CHECKED, AND IT IS 27× DEEPER. ITS SHARED POOL IS THE ONLY PLACE THE DIVERSITY GOAL IS STRUCTURALLY POSSIBLE.** (owner, 2026-08-30: *"you checked for all our stablecoins in the basket across aavev3 and aavev4 and morpho?"*)
 
 **No — I had checked Aave v4 and Morpho and never touched Aave v3.** Now measured, all three, live.
