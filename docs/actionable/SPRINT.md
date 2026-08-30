@@ -91,158 +91,47 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
-⭐ **`§FRESHNESS-RECOMMENDATION` (2026-08-30, owner asked for a recommendation).**
-**RECOMMENDATION: DELETE THE BITCOIN FRESHNESS UTXO. Do not build the 2-of-2, do not build the
-per-channel shard (`M1#4`/phase 3). Move the invariant into the channel signer.**
+⛔ **`§FRESHNESS-RECOMMENDATION` — RETRACTED 2026-08-30 BEFORE IT WAS EXECUTED (owner: *"are you
+sure we are not giving up anything important with this deletion?"*). WE ARE. DO NOT DELETE IT.**
 
-**WHAT IT WAS FOR.** A pre-signed rung pays a FIXED balance. If the LP's balance later drops, a
-matured stale rung OVERPAYS the LP at the fleet's expense. The freshness UTXO is a second input the
-exit spends; because the BIP-341 sighash commits over `Prevouts::All`, spending that one UTXO makes
-**every** emitted exit consensus-invalid at once — revocation for one small tx per period globally.
+🔑 **WHAT I MISSED: THE MECHANISM HAS TWO JOBS AND I WEIGHED ONE.** I argued only about stale-rung
+**overpayment** (theft) and showed each path already carries its own invalidation. But the freshness
+UTXO's own docblock states a second job: *"That is what stops a matured, superseded exit from
+**FORCE-CLOSING A LIVE CHANNEL**"* (`quid-ln/src/deadman_exit.rs:71-72`).
 
-**WHY THE 2-of-2 (`§M1-RESIDUAL-100` residual 2) IS THE WRONG FIX — IT IS ALREADY REFUTED.**
-`§T3-FRESHNESS-NARROWED` records it plainly: *"the 2-of-2 idea died because it ignored that the LP
-is designed to be offline."* Invalidation would need the sleeping LP's signature. It also cannot stay
-shared — a 2-of-2 must name ONE LP, so it drags in per-channel sharding, i.e. MORE moving parts to
-fix a mechanism that should not exist.
+⚠️ **AND THE EXIT BYTES ARE PUBLIC — DELIBERATELY.** `DeadManExitEmitted` emits `bytes signedExitTx`
+(`BTCChannels.sol:565-571`), because `§E188`'s keyless-recovery guarantee is exactly *"once a CLTV
+matures ANYONE may broadcast"*. ⇒ **A fully-signed exit is readable from chain logs and broadcastable
+by any stranger the moment its `nLockTime` passes.** Nothing on-chain can stop it: the EVM only
+RECORDS closes (`recordForceClosePermissionless`); Bitcoin does not ask permission.
 
-**WHY THE MECHANISM IS UNNECESSARY. A RUNG GOES STALE IN EXACTLY TWO WAYS, AND EACH ALREADY CARRIES
-ITS OWN INVALIDATION:**
-1. **ON-CHAIN decrease** — a swap-out delivery must SHRINK, a withdrawal is a shrink-splice, and each
-   SPENDS the funding outpoint. `§T3-FRESHNESS-NARROWED` established this: *"a rung signed against the
-   old outpoint is already unbroadcastable the moment the balance drops."*
-2. **OFF-CHAIN decrease — the case T3 left open, and the topology closes it.** Lowering the LP's side
-   requires an LN commitment update **the LP's own node signs**. Under the shipped default
-   (`QUID_FLEET_COHOSTS_VAULT=false`) the LP self-hosts, so **the fleet cannot move sats off the LP's
-   side while the LP sleeps** — that is precisely why `deliver_swap_out` splices instead. And the LP
-   is a LEAF: `OneChannelPerLp` (`BTCChannels.sol:961`) means it cannot forward, so no third party's
-   traffic can move its balance. ⇒ **An off-chain decrease PROVES the LP was online — which is exactly
-   when a fresher rung can be armed.**
-⇒ **A balance INCREASE is not a hazard at all:** a stale rung then UNDERPAYS, which harms only the LP,
-who simply broadcasts a fresher rung. Nobody is robbed.
+🔴 **SO THE THING BEING GIVEN UP IS DoS RESISTANCE, WHICH IS ON THE OWNER'S EXPLICIT LIST.**
+`§T3-FRESHNESS-NARROWED` waved this case off as *"a premature unilateral close, **not theft** —
+nobody is robbed when an LP takes its own balance."* True, and **not the same as harmless**:
+- **An ACTIVE channel is safe** — it splices, the outpoint rotates, old rungs die structurally.
+- **An IDLE channel is not.** No splices ⇒ armed rungs stay live ⇒ once the earliest deadline matures
+  anyone can close it for free. **That is precisely the long-offline LP the whole model centres on.**
+- Cost asymmetry is bad: one rebroadcast of public bytes for the attacker; lost channel capacity for
+  the protocol, unrecoverable until the offline LP returns to re-open.
 
-**THE ELEGANT ENFORCEMENT, AND IT NEEDS NO NEW COMPONENT.** Put the invariant where the signature is
-already produced: `ValidatingChannelSigner` is already `type EcdsaSigner` **for every channel**
-(`keys_manager.rs:273`). Refuse to sign a commitment update that lowers the LP's balance unless a rung
-for the NEW balance exists. ⭐ **That makes a stale rung UNCONSTRUCTIBLE rather than revocable —
-standing rule 17, "unconstructible beats survivable"** — and it is strictly stronger than revocation,
-which only works if the fleet is alive to spend the UTXO, i.e. never in the case the ladder exists for.
+🔴 **AND THE EXPOSURE IS LIVE RIGHT NOW.** `run_deadman_exit_heartbeat` early-returns on
+`vault == None` — the shipped default — so **production has no freshness UTXO today**, and idle
+channels with matured rungs are force-closable by anyone. This is not a hypothetical cost of a future
+deletion; it is the current state.
 
-**MOVING PARTS REMOVED:** the shared UTXO, its periodic rotation transaction and fee, the
-`freshness_shards` store + `assign_shard`, the two-input `Prevouts::All` exit shape, per-channel
-sharding (`M1#4`), and the 2-of-2 proposal. **Nothing in the default deployment regresses, because
-none of it runs there today:** `run_deadman_exit_heartbeat` is spawned (`daemon.rs:388`) but
-early-returns on `vault == None`, the default — so the shipped posture already has no freshness UTXO.
-
-⚠️ **THREE THINGS TO STATE HONESTLY:**
-1. **The `Prevouts::All` binding is what makes exits revocable AT ALL.** Removing it means a matured
-   rung is broadcastable by anyone — which is `§E188`'s deliberate guarantee (*"once a CLTV matures
-   ANYONE may broadcast"*), not a regression, but it should be a decision rather than a side effect.
-2. **Premise 2 depends on the LP-hosted topology.** If `QUID_FLEET_COHOSTS_VAULT=true` is ever used,
-   the fleet holds the LP's node and CAN move balance while the LP sleeps. The signer policy is still
-   the right enforcement point (same process), but the trust story changes — gate the co-hosted mode
-   on it explicitly rather than inheriting this reasoning.
-3. **Neither option fixes the revoked-commitment risk.** A malicious counterparty broadcasting an OLD
-   commitment is answered by LN's penalty path, and `quid-watchtower` is a DEAD-MAN watchtower, not a
-   penalty one (`§T11`). That gap is real, is not what the freshness UTXO addressed, and outlives this
-   decision either way.
-
-✅ **`§E182-REKEY-VERIFIED` (2026-08-30).** The row demanded four things — *"`keysHash` updates,
-`lpPubkey` pinned, LP co-signs, fresh ladder armed atomically"* — and **all four are built**:
-
-| Requirement | Where | Evidence |
+⚖️ **THE REAL SHAPE: A TENSION WITH NO FREE SIDE, WHICH IS WHY IT KEEPS BEING RE-OPENED.**
+| choice | what it buys | what it costs |
 |---|---|---|
-| `lpPubkey` pinned (gate 1) | `ChannelLib.rekeyAuthBody` | `keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) != keysHash ⇒ revert` — **the row's own proposed shape**, and one hash proves BOTH that `p.lpPubkey` is the pinned LP key and `oldHopPubkey` the pinned hop key |
-| hop half actually moves | same | `p.hopPubkey.length != 33 ⇒ InvalidParam`; `== oldHopPubkey ⇒ RekeyUnchanged` |
-| `keysHash` re-pinned | `_finishRekey` | `ch.keysHash = keccak256(abi.encode(p.lpPubkey, p.hopPubkey))` in the same tx |
-| fresh ladder, atomically | `_finishRekey` | `_armLadder(channelId, p, exits)` before the re-pin, after `_applySplice` |
-| LP co-signs | inherent | a rekey SPENDS the old 2-of-2; `_verifySplice`'s KeyAgg gate proves `p.lpPubkey` is inside `Q'` |
+| freshness, hop-controlled (as built) | the live fleet can say *"not yet"* and void matured superseded rungs | a compromised hop voids EVERY LP's escape with one tx (`§M1-RESIDUAL-100` residual 2) |
+| no freshness (my retracted proposal) | no shared UTXO, no rotation tx, fewer parts | **any stranger force-closes idle channels** |
+| 2-of-2 freshness | both | ⛔ refuted — needs the sleeping LP's signature |
 
-**Tests: 5, all passing** (`VBtcLevFeeLane.t.sol`) — `test_rekeyRotatesTheHopHalfAndRepinsKeysHash`,
-`test_rekeyRefusesToMoveTheLpHalf`, `test_rekeyRefusesANoOpRotation`,
-`test_rekeyRequiresTheLpsOwnLadder`, `test_spliceCannotRekeyTheChannel`. The row's instruction to
-correct `§E187` was also carried out — that correction is present in its row.
-
-⚠️ **ONE RECONCILIATION, BECAUSE TWO ROWS NOW DISAGREE AND THE OWNER'S MODEL SETTLES IT.**
-`§E187`'s correction concludes that *"what is actually lost with a phone … [is] the ability to ROTATE
-AWAY FROM A COMPROMISED HOP KEY"*, treating rekey capability as destroyed by phone loss. That holds
-only if the LP's half is **unrecoverable** — and under `§E188` it is not: the funding half is a
-hardened-path key off the LP's own BIP-39 seed, *"a lost phone restores from words the LP already
-backs up"*, now built as `deriveFundingKey` (owner, 2026-08-30: *"same seed, taproot path"*; the
-owner restated the model as *"they can lose phone and still recover their key"*). ⇒ **A lost phone
-DELAYS a rekey until the LP restores from words; it does not permanently block one.** The residual
-§E187 names is real but bounded by recovery time, not permanent — which is why social recovery stays
-what `§E188` filed it as: a way to restore SERVICE faster, never the funds path.
-
-⛔ **`§PREIMAGE-CANNOT-PROVE-RECEIPT` (2026-08-30) — checked before building on it, and it is dead.**
-Binding the LN credit to the payment preimage was the obvious reuse (`swapInUsed[paymentHash]` already
-exists). **It cannot work: the HOP ISSUES THE INVOICE.** `node.rs:474-495` builds it from
-`create_inbound_payment`, so LDK generates the preimage at ISSUANCE and the hop knows it before any
-payment exists. Possessing it proves nothing. A seller-chosen hash (HODL-invoice shape) does not
-rescue it either — the seller could reveal without paying.
-⇒ **THE GENERAL RULE, WORTH KEEPING: THERE IS NO ON-CHAIN PROOF OF AN OFF-CHAIN PAYMENT.** The LN
-rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
-`provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
-
-🟠 **`§APP-CHAIN-LAYER-UNWIRED` (2026-08-30, owner: *"idk what quant.ts is and if it even belongs on
-the clientside"*).** Measured by resolving imports from the Expo entry points (`app/*.tsx`) with the
-`@/* → ./*` alias, transitively: **26 modules are reachable, and ZERO of the 20 in
-`features/identity/chain/` are among them.**
-
-| layer | state |
-|---|---|
-| `features/identity/chain/` (20 files) | ⛔ **entirely unreachable** — `abi`, `boot`, `btcaddress`, `chains`, `encode`, `eth`, `events`, `flow`, `format`, `hop`, `kalman`, `keys`, `leverage`, `market`, `pnl`, `protect`, `quant`, `regime`, `schnorr`, `taproot` |
-| `identity/` (root, entropy, recovery, store, IdentityVault) | ✅ reached — **including `deriveFundingKey`** |
-| `pp/` | ⚪ **partly** — `notes.ts` and `discovery.ts` reached; `prove`, `deposit`, `stateTree`, `withdrawFlow/Plan/Witness`, `relay`, `recipient`, `identityProof` NOT |
-| `passport/`, `sdk/Eudi`, `sdk/circuits` | ⛔ unreachable |
-
-⇒ **`§QR-VERIFIER-UNASSEMBLED` IS THE SMALL VERSION OF THIS.** `taprootOutputKey` having no caller is
-not a one-function oversight — **the whole chain layer was bulk-copied from `spa/src/lib/` and never
-wired into the phone UI.**
-
-**ON `quant.ts` SPECIFICALLY, SINCE IT WAS ASKED:** it is **LP display analytics** — `lvrRate`,
-`ilPercent`, an Avellaneda–Stoikov quote model, and regime/phase/health classifiers. Not consensus,
-not security; its own comment concedes *"the protocol can't act on it (flow isn't observable)"*.
-- **In `spa/` it belongs** — three real consumers (`InfoTab.tsx`, `api/market/route.ts`, `leverage.ts`).
-- **In `app/` it does not** — of 13 exports, ONE (`ilPercent`) is imported, by `leverage.ts`, which
-  itself has no importer. (A `quadrant` hit is a field NAME in `market.ts`, not a call.)
-- 🔴 **AND THE COPY IS ALREADY STALE, WHICH IS THE POINT:** `app`'s copy cites `SwapLib.BAND_DELTA`;
-  the real constant is **`RANGE_DELTA`** (`SwapLib.sol:829`). The band→range rename landed in `spa`
-  only. `hop.ts` (3 lines) and `leverage.ts` have diverged too; `btcaddress.ts` is still byte-identical.
-⇒ **THIS IS THE ARGUMENT AGAINST COPYING THE VERIFIER, AND THE FULL COUNT IS WORSE THAN FOUR.**
-**15 of the 20 `chain/` modules exist in BOTH trees, and 12 have already diverged:** `protect` (206
-lines), `chains` (129), `abi` (**119**), `eth` (55), `pnl` (43), `kalman` (24), `quant` (16),
-`flow`/`leverage` (13), `market` (6), `regime` (5), `hop` (3). Only `btcaddress`, `events` and
-`format` are still byte-identical. A quoted-address check must be ONE module both clients import.
-
-🔴 **`§APP-ABI-UNCHECKED` — AND THE DRIFT ESCAPES THE TOOL BUILT TO CATCH DRIFT.**
-`tools/check-client-abis.py` hardcodes `ROOT/"spa"/"src"/"lib"/"abi.ts"` (`:16`) and `ROOT/"spa"/"src"`
-(`:226`). **`app/features/identity/chain/abi.ts` is checked by NOTHING** — and it is one of the
-119-line divergences. So the phone carries an unverified ABI that has drifted from the one that IS
-verified, and today's clean *"0 drifted"* result says nothing about it. ⇒ Either widen the checker to
-`app/`, or — better, and the reason sharing is the fix — **have one `abi.ts` so there is only ever one
-thing to check.** Harmless only while `chain/` stays unreachable (`§APP-CHAIN-LAYER-UNWIRED`); it
-becomes a live mis-encoding the moment the phone is wired.
-
-▶️ **THE SPLIT (owner-corrected 2026-08-30: *"analytics might be good for the keeper to present,
-[prevent] duplication, should be accessible in the phone too"*).** My first proposal was to DELETE
-the analytics from `app/`; **that is wrong — the phone gets them too.** The defect was never that
-the phone has analytics, it is that it has a SECOND COPY of them.
-
-| tier | modules | home |
-|---|---|---|
-| pure computation | `taproot`, `btcaddress`, `schnorr`, `keys` | **SHARED — both clients import one module.** A MetaMask-Bitcoin swapper needs address re-derivation as much as a phone user |
-| display analytics | `quant`, `kalman`, `regime`, `market`, `pnl`, `leverage` | **SHARED — both clients**, and the keeper presents from the same numbers |
-| secrets | BIP-39 seed, taproot funding half, Noir note witnesses | **PHONE ONLY** — needs `expo-secure-store` + biometric gating; not expressible in a browser |
-
-✅ **CHECKED: THERE IS NO THIRD COPY.** The Rust keeper does NOT compute this math — `lev_keeper.rs`
-mentions impermanent loss only in comments, and no `lvr`/`avellaneda`/`impermanent` implementation
-exists in `quid-ln` or `svm`. So the analytics live in TypeScript only, duplicated app↔spa, and one
-shared module retires the duplication for every consumer at once. ⚠️ **If the keeper ever needs to
-PRESENT analytics, it must not grow a Rust implementation** — it should serve the inputs and let the
-shared module compute, or the drift becomes cross-language and undetectable by `diff`.
-⚠️ **OPEN QUESTION FOR THE OWNER:** are Noir notes meant to be SPENDABLE from the SPA, or is the SPA
-strictly swap-and-view? That decides whether `pp/prove`+`withdrawWitness` are phone-only or shared.
+▶️ **THE LEVER THAT ACTUALLY MOVES THIS IS LADDER DEPTH/SPACING (`§E187`), NOT THE UTXO.** Deadlines
+far enough out that they do not mature inside an expected offline window make the force-close
+unreachable without any invalidation mechanism; deadlines too far out slow the LP's real escape.
+**That trade is the owner's, and it should be made before either building or deleting freshness.**
+⇒ Decision row **1.2 is therefore NOT *"is it wanted"*** — it is *"who may invalidate, and how deep is
+the ladder"*.
 
 ✅ **`§ATTESTATION-CANNOT-BE-SPOOFED` (2026-08-30, owner: *"how do we know the new malicious enclave
 cant spoof the attestation? it wont match the onchain mrenclave?"*). THE CHAIN IS COMPLETE — CHECKED
