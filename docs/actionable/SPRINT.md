@@ -91,39 +91,31 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
-🔴🔴 **`§SWAPIN-RAIL-BROKEN` (2026-08-30, found by applying the owner's rule: *"if a component was
-built and another component doesn't exist to solve the problem it was built to solve, that is a
-symptom of a larger issue"*). THE ON-CHAIN SWAP-IN RAIL CANNOT SUCCEED IN PRODUCTION.**
+⛔ **`§SWAPIN-RAIL-BROKEN` — RETRACTED 2026-08-30, THE SAME DAY IT WAS FILED. IT WAS WRONG.**
+The claim was that production swap-ins revert `InsufficientProvenSats` because Rust calls
+`settleSwapInProven` while nothing funds `provenSatsAvailable`. **The bound is not in that function.**
+`provenSatsAvailable`/`InsufficientProvenSats` live in **`settleSwapInBuffered`** (`BTCChannels.sol:1533+`);
+`settleSwapInProven` is self-contained — `_provenDeposit(terms, proof, rawDepositTx)` derives the sats
+from the SPV proof and credits directly, touching no allowance:
+```solidity
+(bytes32 txid, uint sats) = _provenDeposit(terms, proof, rawDepositTx);
+uint consumed = btc.creditSwapIn(terms.seller, sats, terms.token, BitcoinTx.settleFloorUsd(terms, sats));
+```
+⇒ **THE WIRED RAIL WORKS AND NEEDS NO PARKING.** I matched a line number to the wrong enclosing
+function and did not read the body before filing. The retraction is the twelfth instance of one habit:
+asserting a join without reading both ends.
 
-The two halves are wired in OPPOSITE directions, and each looks fine alone:
-
-| | `parkProvenSats` (raises the allowance) | `settleSwapInProven` (spends it) |
-|---|---|---|
-| Rust encoder | ⛔ **none** — no `SIG_PARK_*`, no `encode_park_*`; the name appears in `quid-hop` only inside doc comments (`evm_codec.rs:118`, `swap.rs:31`) | ✅ `encode_settle_swap_in_proven` (`evm_codec.rs:758`) |
-| Production caller | ⛔ **none** | ✅ `swap_in_onchain.rs:194` via `client.rs:640` |
-| EVM tests | ✅ **5 call sites** (`Alles.t.sol:327`, `BtcLpMintStress.t.sol` ×4) | ⛔ **ZERO** |
-
-⇒ **`settleSwapInProven` is bounded by `provenSatsAvailable[msg.sender]`** — `BTCChannels.sol:1546-1548`,
-`if (consumed > avail) revert InsufficientProvenSats();` — and the **only** writer that raises that
-balance is `parkProvenSats` (`:1511-1512`). Rust calls the spender and cannot call the funder, so
-every production swap-in that would credit anything **reverts `InsufficientProvenSats`**.
-
-⛔ **AND THE TEST SUITE CANNOT SEE IT.** The tests exercise `parkProvenSats` (which production cannot
-reach) and never once call `settleSwapInProven` (which is the only thing production DOES call). Each
-half is covered; the *join* is covered nowhere, which is why a green suite coexists with a dead rail.
-
-▶️ **THIS IS THE LARGER ISSUE BEHIND THREE OTHER ROWS**, and they should not be worked before it:
-`§AUDIT-POOLPARKER-PHANTOM` (unreachable *because* nothing parks), `§POOL-SCRIPT-DESTINATION-REOPENED`
-(`poolOwnedSats` is always 0 *because* nothing parks), and `§LN-SWAPIN-REMAINDER` (the "buffered rail
-has no Rust caller" — the same absence, named from the other end). **They are one defect seen from
-four sides, not four items.**
-
-🔑 **THE FIX IS SMALL WHERE IT IS MECHANICAL AND REAL WHERE IT IS NOT.** `parkProvenSats` has the
-**identical signature** to `splice` (`bytes32, OpenParams, bytes, bytes32[], ExitArming[]`), so
-`encode_park_proven_sats` is a near-copy of `encode_splice` — a few lines. The open part is POLICY:
-**when does the fleet park?** The deposit lands at a fleet-controlled address (`TapTweak(BTC_DEPOSIT_KEY,
-leaf)`) and is claimed key-path; parking is a SEPARATE splice of those sats into an LP channel, so
-the allowance is inventory built ahead of settling, not a per-swap step. That cadence is undecided.
+✅ **WHAT SURVIVES, AND IT IS NARROWER BUT REAL:**
+1. 🟠 **`§SETTLE-PROVEN-UNTESTED` — the ONLY wired swap-in entrypoint has ZERO EVM tests.**
+   `settleSwapInProven` is called by production (`swap_in_onchain.rs:194` → `client.rs:640`) and
+   appears in `evm/test` **0 times**, while `parkProvenSats` — which production cannot call — has
+   **5** test call sites. Coverage sits on the unreachable half. `§HOP-RCE-3` independently lists
+   `settleSwapInProven` among the **explicitly unaudited** entrypoints. **This is the real gap.**
+2. ⚪ **`parkProvenSats` is unwired because the BUFFERED rail is unwired** — which `§LN-SWAPIN-REMAINDER`
+   already said. It is not a broken join, it is an unbuilt feature, and `poolOwnedSats` is therefore
+   always 0 in production (still true, and still why the pool-script check is inert).
+3. ✅ **The park/arm ordering fix stands on its own** — whenever parking is built, arming before the
+   `+=` would check the exit against a stale total.
 
 🔴 **`§POOL-SCRIPT-DESTINATION-REOPENED` (2026-08-30, owner: *"what poolcold script?"*).** The
 recommendation assumed a **protocol cold key that does not exist** — nothing in the tree defines,
