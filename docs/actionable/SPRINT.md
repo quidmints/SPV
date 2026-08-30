@@ -574,6 +574,68 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+### 🔴🔴🔴 **CORRECTION — A BASKET STABLE POSTED AS COLLATERAL WOULD NOT EARN LESS. IT WOULD VANISH FROM TVL.** (owner, 2026-08-30)
+
+Owner: *"our whole avgYield logic for the mint of basket shares depends on what the stables are
+earning as supplied to venues. this has to always be remeasured based on where the stables actually
+are (e.g. if they are collateral for IL protect, then they may not be earning at all!)"*
+**Right, and the code is worse than the warning. Traced:**
+
+`BasketLib._valueStable:316-327` — **a stable's value is discovered ONLY through its wired vault set
+or the Aave spoke**:
+```solidity
+address[] memory vs = IAux(aux).getVaults(stable);
+if (vs.length == 0) {
+    // GHO/USDG are Aave-native (vault=0); any other unwired stable → 0.
+    if (!isAave) return (0, 0);
+    ...
+```
+and the dispatch above it is **hardcoded by token identity** — *"AAVE: GHO, USDG → `aaveBalance` ·
+ERC4626: everything else → `vaults(token)` · BOLD: filled in Aux"*.
+⇒ **THERE ARE EXACTLY TWO PLACES A STABLE CAN BE SEEN. Collateral posted anywhere else reads
+`(0, 0)`** — and the comment says so in as many words: *"any other unwired stable → 0"*.
+
+#### ⛔ AND THE BLAST RADIUS IS NOT THE YIELD TERM, IT IS THE DENOMINATOR
+A stable that reads 0 drops out of `amounts[14]` — **raw TVL** — which is the input to:
+| consumer | effect of a vanished stable |
+|---|---|
+| `_perShare` → `qdShareValue(WAD, solvent, matureSupply)` | `solvent` falls ⇒ **every QU!D holder's redemption value is written down** |
+| `_poolUsdInRange`'s `require(committedUsd18() <= haircutTvl, "backing")` | `haircutTvl` falls ⇒ **the drain gate tightens, and can block redemptions** |
+| `computeMetrics`' `yield = WAD·rateWeighted/raw` | the leg leaves BOTH numerator and denominator — the mean silently re-weights onto the remaining stables |
+⇒ **Posting basket dollars as collateral without extending discovery would silently write the basket
+down.** Not a mis-priced yield — **a missing asset.**
+
+#### ⚠️ AND EVEN WITH DISCOVERY EXTENDED, THE RATE IS VENUE-DEPENDENT — THE OWNER'S POINT EXACTLY
+- **Aave collateral still earns.** `_valueStable` already models this correctly for the spoke: *"the
+  factor is `suppliedAssets/suppliedShares` (= the reserve liquidity index), the exact analog of a
+  4626 share price."*
+- **Morpho Blue collateral earns NOTHING** — collateral is not a supply position there.
+⇒ **"Is it earning?" is a property of WHERE it sits, and the model has exactly ONE rate source per
+token.** A stable that can live in two places needs its rate to follow it, which `storedHoldings`'
+per-token cache does not express.
+📌 **AND THIS IS WHY THE CURRENT ARCHITECTURE BORROWS AGAINST weETH RATHER THAN AGAINST THE BASKET.**
+Keeping the dollars in their yield venues is what keeps them *visible, earning, and counted*. **That
+is a property worth naming before trading it away** — the Aave-v4 "post the stable, borrow WETH"
+shape moves them out of exactly the two places that can see them.
+
+### 🔴 AND A SECOND CORRECTION, TO MY OWN LAST ROW: I RECOMMENDED ROUTES FOR THE WRONG POPULATION
+Owner: *"if we swap out of whatever stable we had to always use USDC for our strategy, then the
+purpose of the basket (reduce depeg risk of overconcentrated in one stable) gets lost."*
+**`_routeOf` serves TWO populations and I conflated them:**
+| caller | population | what a route DOES |
+|---|---|---|
+| `_stableToWethSor` / `_stableToWbtc` | the **BORROWED** stable (`venue.stable()`) | converts a **LIABILITY** we must discharge — correct to route |
+| the consolidation sweep (`LevMath:1029`) | **BASKET** stables (`IAux.getStables()`) | converts an **ASSET** we hold — and the alternative is *"skipped and refunded to the LP"*, which PRESERVES it |
+⇒ **Adding USDT and DAI to `_routeOf` mainly makes two of the basket's largest holdings SELLABLE into
+USDC — which is the concentration the basket exists to avoid.** The sweep's existing behaviour
+(refund, don't sell) is the *conservative* one, and I read it as a gap.
+✅ **USDG IS DIFFERENT AND STILL STANDS:** it is a stable we would **BORROW** on Aave v4 (37.9M free),
+so its route converts a liability. **That line is the one worth adding; USDT/DAI were the wrong
+recommendation.**
+⚠️ **THE REAL FORM OF THE GOAL, THEN:** support a stable means *"a venue accepts it AS IT IS"* —
+lends against it, or lends it — **never** *"we can sell it to USDC"*. **Routes are for liabilities.
+Venues are for assets.**
+
 ## 📊 **§BASKET-ROUTE-MATRIX — THE DECISION INPUT, MEASURED. USDT AND DAI EACH NEED **ONE LINE** AND HAVE $50M+ BEHIND THEM.** (owner, 2026-08-30)
 
 Owner: *"it depends what we have in the basket, and what is most liquid/least utilisation on the
