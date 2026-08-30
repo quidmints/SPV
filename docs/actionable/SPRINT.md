@@ -209,9 +209,20 @@ not security; its own comment concedes *"the protocol can't act on it (flow isn'
 - 🔴 **AND THE COPY IS ALREADY STALE, WHICH IS THE POINT:** `app`'s copy cites `SwapLib.BAND_DELTA`;
   the real constant is **`RANGE_DELTA`** (`SwapLib.sol:829`). The band→range rename landed in `spa`
   only. `hop.ts` (3 lines) and `leverage.ts` have diverged too; `btcaddress.ts` is still byte-identical.
-⇒ **THIS IS THE ARGUMENT AGAINST COPYING THE VERIFIER.** Three of four duplicated modules have
-already drifted, one into a symbol that does not exist. A quoted-address check must be ONE module
-both clients import, not a fifth copy.
+⇒ **THIS IS THE ARGUMENT AGAINST COPYING THE VERIFIER, AND THE FULL COUNT IS WORSE THAN FOUR.**
+**15 of the 20 `chain/` modules exist in BOTH trees, and 12 have already diverged:** `protect` (206
+lines), `chains` (129), `abi` (**119**), `eth` (55), `pnl` (43), `kalman` (24), `quant` (16),
+`flow`/`leverage` (13), `market` (6), `regime` (5), `hop` (3). Only `btcaddress`, `events` and
+`format` are still byte-identical. A quoted-address check must be ONE module both clients import.
+
+🔴 **`§APP-ABI-UNCHECKED` — AND THE DRIFT ESCAPES THE TOOL BUILT TO CATCH DRIFT.**
+`tools/check-client-abis.py` hardcodes `ROOT/"spa"/"src"/"lib"/"abi.ts"` (`:16`) and `ROOT/"spa"/"src"`
+(`:226`). **`app/features/identity/chain/abi.ts` is checked by NOTHING** — and it is one of the
+119-line divergences. So the phone carries an unverified ABI that has drifted from the one that IS
+verified, and today's clean *"0 drifted"* result says nothing about it. ⇒ Either widen the checker to
+`app/`, or — better, and the reason sharing is the fix — **have one `abi.ts` so there is only ever one
+thing to check.** Harmless only while `chain/` stays unreachable (`§APP-CHAIN-LAYER-UNWIRED`); it
+becomes a live mis-encoding the moment the phone is wired.
 
 ▶️ **THE SPLIT (owner-corrected 2026-08-30: *"analytics might be good for the keeper to present,
 [prevent] duplication, should be accessible in the phone too"*).** My first proposal was to DELETE
