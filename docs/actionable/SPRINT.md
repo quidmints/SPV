@@ -91,6 +91,40 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
+🔴🔴 **`§SWAPIN-RAIL-BROKEN` (2026-08-30, found by applying the owner's rule: *"if a component was
+built and another component doesn't exist to solve the problem it was built to solve, that is a
+symptom of a larger issue"*). THE ON-CHAIN SWAP-IN RAIL CANNOT SUCCEED IN PRODUCTION.**
+
+The two halves are wired in OPPOSITE directions, and each looks fine alone:
+
+| | `parkProvenSats` (raises the allowance) | `settleSwapInProven` (spends it) |
+|---|---|---|
+| Rust encoder | ⛔ **none** — no `SIG_PARK_*`, no `encode_park_*`; the name appears in `quid-hop` only inside doc comments (`evm_codec.rs:118`, `swap.rs:31`) | ✅ `encode_settle_swap_in_proven` (`evm_codec.rs:758`) |
+| Production caller | ⛔ **none** | ✅ `swap_in_onchain.rs:194` via `client.rs:640` |
+| EVM tests | ✅ **5 call sites** (`Alles.t.sol:327`, `BtcLpMintStress.t.sol` ×4) | ⛔ **ZERO** |
+
+⇒ **`settleSwapInProven` is bounded by `provenSatsAvailable[msg.sender]`** — `BTCChannels.sol:1546-1548`,
+`if (consumed > avail) revert InsufficientProvenSats();` — and the **only** writer that raises that
+balance is `parkProvenSats` (`:1511-1512`). Rust calls the spender and cannot call the funder, so
+every production swap-in that would credit anything **reverts `InsufficientProvenSats`**.
+
+⛔ **AND THE TEST SUITE CANNOT SEE IT.** The tests exercise `parkProvenSats` (which production cannot
+reach) and never once call `settleSwapInProven` (which is the only thing production DOES call). Each
+half is covered; the *join* is covered nowhere, which is why a green suite coexists with a dead rail.
+
+▶️ **THIS IS THE LARGER ISSUE BEHIND THREE OTHER ROWS**, and they should not be worked before it:
+`§AUDIT-POOLPARKER-PHANTOM` (unreachable *because* nothing parks), `§POOL-SCRIPT-DESTINATION-REOPENED`
+(`poolOwnedSats` is always 0 *because* nothing parks), and `§LN-SWAPIN-REMAINDER` (the "buffered rail
+has no Rust caller" — the same absence, named from the other end). **They are one defect seen from
+four sides, not four items.**
+
+🔑 **THE FIX IS SMALL WHERE IT IS MECHANICAL AND REAL WHERE IT IS NOT.** `parkProvenSats` has the
+**identical signature** to `splice` (`bytes32, OpenParams, bytes, bytes32[], ExitArming[]`), so
+`encode_park_proven_sats` is a near-copy of `encode_splice` — a few lines. The open part is POLICY:
+**when does the fleet park?** The deposit lands at a fleet-controlled address (`TapTweak(BTC_DEPOSIT_KEY,
+leaf)`) and is claimed key-path; parking is a SEPARATE splice of those sats into an LP channel, so
+the allowance is inventory built ahead of settling, not a per-swap step. That cadence is undecided.
+
 🔴 **`§POOL-SCRIPT-DESTINATION-REOPENED` (2026-08-30, owner: *"what poolcold script?"*).** The
 recommendation assumed a **protocol cold key that does not exist** — nothing in the tree defines,
 provisions or holds one, and no operator holds a Bitcoin key at all (`migration.rs:30`, *"no bespoke
