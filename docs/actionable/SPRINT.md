@@ -888,6 +888,67 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## ✅ **§ROUTE-COST-MEASURED — GHO ROUTES AT 8 bps, USDe DOES NOT ROUTE AT $5M AT ALL, AND "AAVE DEPTH" IS NOT "ROUTE DEPTH"** (closes §ROUTE-COST-UNVERIFIED)
+
+Measured end-to-end: aggregator quote → **build the real calldata → execute it on a mainnet fork and
+read the balance delta.** Not a quote, an execution.
+
+### 🔬 THE METHOD, AND WHY A QUOTE ALONE WOULD HAVE BEEN WRONG TWICE
+**Two aggregators disagreed by 1.75× on the identical trade.** For $1M GHO→USDC, **KyberSwap said
+999,236 USDC (7 bps); ParaSwap said 570,892 and REFUSED the trade** (`ESTIMATED_LOSS_GREATER_THAN_
+MAX_IMPACT`, 42.88%). Both cannot be right, and **a single aggregator quote is not evidence** — it
+reports that aggregator's venue coverage, not the market. ⚠️ **The pool Kyber named holds ZERO GHO and
+ZERO USDC** (real contract, 21 KB of code, vault-custodied — not Balancer, a custom `0x2fee3e0e`
+error), so even inspecting the pool did not settle it. **Only executing did.**
+⇒ **THE CONTROL THAT WORKS: `deal` the input, `approve`, `call` the router with the aggregator's own
+calldata, and measure the RECIPIENT'S BALANCE DELTA.** Same principle `_aggSwap` already enforces in
+production, applied to research.
+
+### 📡 RESULTS — ✓ = fork-executed, not quoted
+| token → USDC | @ $1M | @ $5M |
+|---|---:|---:|
+| RLUSD | −2.4 bps | −1.0 bps |
+| USDG | −1.9 bps | −0.8 bps |
+| PYUSD | −0.1 bps | +0.4 bps |
+| **USDe** | ✓ **0 bps** (999,943.03) | 🔴 ✓ **THE CALL REVERTED** |
+| **GHO** | ✓ **7 bps** (999,236.456752) | ✓ **8 bps** (4,995,602.00) |
+| USDC/USDT/DAI (Curve 3pool) | 1.7 bps | 1.9 bps |
+**Kyber's quote matched execution to EIGHT significant figures** on GHO (999,236.456736 quoted vs
+`…752` executed), so ParaSwap was simply blind to GHO's venues. ⇒ **GHO's real cost is 7–8 bps — my
+retracted "~2 bps common-mode" was 4× optimistic, but the right ORDER; it was not the 96% disaster
+the Uniswap-v3-only probe suggested.**
+
+### 🔴 THE FINDING THAT REVERSES A RECOMMENDATION: AAVE DEPTH ≠ ROUTE DEPTH
+I recommended USDe as *"the deep gentle one — $234M available, only 4.56% even at +$100M."* **The
+Aave half is true and the route half is false: USDe converts at 0 bps for $1M and its $5M route did
+not execute at all.** Borrowing $5M of USDe is cheap *on Aave* and then cannot be turned into dollars
+we can use. **A borrow is only as good as the leg that converts it**, and those two depths are
+independent quantities that I had silently treated as one.
+⇒ **GHO is the best COMBINATION available** — fixed 3.75% that our borrow cannot move (`slope1 =
+slope2 = 0`), ~$24M of Aave liquidity, 8 bps to convert at $5M.
+⭐ **AND THE "MUST SPLIT ACROSS DOLLARS" CONCLUSION SURVIVES WITH A DIFFERENT CAUSE, WHICH IS THE
+MORE BINDING ONE:** not because the cheapest dollar is shallow on Aave, but because **each ROUTE has a
+cheap band of ~$1–5M** and the strategy's capacity ceiling is set by the swap leg, not the lender.
+Splitting keeps every leg inside its own cheap band. `debtOf` must still aggregate.
+
+### 🔢 THE THRESHOLD, NOW EARNED RATHER THAN ASSUMED
+Binding route cost among borrowable candidates = **GHO's 8 bps**. Requiring `Δr · T ≥ 8 bps`:
+| `MIN_IMPROVE` / cooldown | earns | verdict |
+|---|---:|---|
+| 100 bps / 14 d | 3.8 bps | ⛔ **vacuous — this was the retracted pair** |
+| 200 bps / 14 d | 7.7 bps | ⛔ still short |
+| ✅ **100 bps / 30 d** | **8.2 bps** | **adopt** |
+| 250 bps / 14 d | 9.6 bps | ✅ alternative if a faster cadence is wanted |
+**Days for a rotation to repay its own 8 bps:** USDG 7.89% → GHO **7.1 d** · PYUSD 5.85% → GHO
+**13.9 d** · RLUSD 4.74% → GHO **29.5 d** · USDT 4.08% → GHO **88 d** · USDT → USDC **487 d**.
+⇒ **"Avoid the outlier, do not chase the cheapest" HOLDS and sharpens: only the USDG and PYUSD exits
+repay inside a fortnight.** The GHO/USDE/USDC/USDT cluster still never justifies a move.
+
+⚠️ **WHAT IS STILL QUOTE-ONLY:** the USDG / RLUSD / PYUSD rows are Kyber quotes, not executions. They
+are all NEGATIVE-to-zero cost, so they cannot make the threshold *worse* — but if one is ever load
+bearing, fork-execute it first. **The probes were deliberately NOT committed: aggregator calldata is
+stale within minutes, so a committed probe is a test that fails on a schedule.**
+
 ## 🔴 **§ROUTE-COST-UNVERIFIED + §RATE-IS-NOT-SPOT — I CHECKED MY OWN DESIGN AND TWO CLAIMS DID NOT SURVIVE** (owner, 2026-08-30: *"are you sure about the design and measurements?"*)
 
 **No, on two of them.** Both are corrected in place in §CHEAPEST-DOLLAR; this row holds the evidence.
