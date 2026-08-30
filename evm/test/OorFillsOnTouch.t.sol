@@ -246,6 +246,117 @@ contract OorIntentTest is AllesFixture {
             "debit and credit must be the same trade: ether received != claim spent at the limit");
     }
 
+    /// @notice §SELL-LEG-IS-FORCED — **THE ONE STEP THAT CAN FAIL IN A WAY REASONING WOULD NOT
+    ///         CATCH.** The sell leg is specified as `usdDelta = +size·limitPx` with `volDelta = 0`,
+    ///         plus a QU!D mint to the maker. The argument for it is that the LP pool gives up
+    ///         `size·limitPx` of dollar side and keeps `size` more ether, so the mint is matched and
+    ///         backing holds. **That is an argument. This is the measurement.**
+    /// @dev    Deliberately exercises the PRIMITIVES rather than `fillIntent`, which still reverts
+    ///         `IntentSellLegUnbuilt`: the point of writing it first is to falsify the settlement
+    ///         BEFORE the entrypoint is wired, so a failure here is cheap. If this reverts or the
+    ///         backing gap widens, the design is wrong and no amount of plumbing fixes it.
+    ///         ⚠️ Units: `usdDelta` is 6-dec (`_settleUsdSide` hands it to `BasketLib.from6`), while
+    ///         the mint is 18-dec (`_mintQuid` multiplies by 1e12). Getting that backwards is a
+    ///         1e12 error that would LOOK like a catastrophic backing break.
+    function test_TheSellSettlementPreservesBacking() public {
+        vm.deal(User01, 100 ether);
+        vm.prank(User01);
+        ETH.deposit{value: 50 ether}(0, User01);          // real in-range ether for the maker's side
+        deal(address(USDC), maker, 5_000 * 1e6);
+        vm.startPrank(maker);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(maker, 5_000 * 1e6, address(USDC), 0);   // real basket assets behind the range
+        vm.stopPrank();
+
+        (uint committedBefore, uint liquidBefore) = AUX.tryCheckBacking();
+        assertGt(liquidBefore, 0, "premise: the basket must hold something, else this is vacuous");
+
+        uint px    = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint size  = 1 ether;
+        uint usd6  = (size * px / 1e18) / 1e12;            // the maker's proceeds at their own limit
+        assertGt(usd6, 0, "premise: a zero payout would make the assertions vacuous");
+
+        uint supplyBefore   = QUID.totalSupply();
+        uint immatureBefore = QUID.immatureBalanceOf(maker);
+
+        // ── THE SETTLEMENT UNDER TEST, in the primitives §SELL-LEG-IS-FORCED derived ──
+        // `volDelta = 0`: the maker's ether is ALREADY in POOLED and must not move.
+        // `usdDelta > 0` with `token == 0` (settleOor's own argument): the range's dollar side
+        // shrinks and NOTHING is delivered — the only primitive that moves dollars with no route.
+        vm.prank(address(ETH));
+        CORE.settleOor(maker, int(usd6), 0, false);
+        // ...and the maker is paid in the instrument the system actually has for a dollar claim.
+        vm.prank(address(ETH));
+        QUID.mint(maker, usd6 * 1e12, address(QUID), 0);
+
+        assertEq(QUID.totalSupply() - supplyBefore, usd6 * 1e12, "the mint is the maker's payment");
+
+        // THE ASSERTION THE WHOLE DESIGN RESTS ON: the strict check must still pass.
+        AUX.checkBacking();
+        (uint committedAfter, uint liquidAfter) = AUX.tryCheckBacking();
+
+        // ⭐ **MEASURED, NOT ASSUMED — AND THE FIRST VERSION OF THIS TEST ASSERTED NOTHING.** It
+        //    compared a `gap` before and after and both were IDENTICAL TO THE WEI, so it passed
+        //    whether the settlement worked or not. Its control (below) is what exposed that. These
+        //    assertions name the exact movement instead, so they can go red:
+        assertEq(committedBefore - committedAfter, usd6 * 1e12,
+            "the range's dollar side must give up EXACTLY the maker's proceeds");
+        assertEq(liquidAfter, liquidBefore,
+            "and no basket asset may move - the payment comes from committed dollars, not reserves");
+        assertEq(committedAfter, CORE.POOLED_USD() * 1e12,
+            "committedSum IS POOLED_USD: that identity is what makes the leg above legible");
+
+        // 🔴 **AND THE PART THAT CHANGES WHAT THIS PRODUCT IS: THE MAKER IS PAID A *DATED* CLAIM.**
+        //    `Basket._finishMint` clamps the month UP to at least `currentMonth()+1`, so **mature
+        //    QU!D CANNOT BE MINTED** — the proceeds are IMMATURE by construction and unspendable
+        //    until they mature. That is why the mint is invisible to `committedSum` here.
+        assertEq(QUID.immatureBalanceOf(maker) - immatureBefore, usd6 * 1e12,
+            "the maker's proceeds land IMMATURE - a claim maturing next month, not spendable dollars");
+        assertLe(committedAfter, liquidAfter, "backing must hold at the instant of the fill");
+    }
+
+    /// @notice ⚠️ **THE CONTROL FOR THE TEST ABOVE, AND WITHOUT IT THAT TEST PROVES NOTHING.**
+    ///         `test_TheSellSettlementPreservesBacking` passes — but a green assertion only means
+    ///         something if the same assertion goes RED when the thing it checks is broken. So this
+    ///         runs the identical mint with the `settleOor` dollar-side shrink REMOVED: an unmatched
+    ///         mint, which is precisely the failure the design is claimed to avoid.
+    /// @dev    If this shows the gap UNCHANGED, then the passing test was vacuous and the backing
+    ///         claim in §SELL-LEG-IS-FORCED is unverified — the mint would be invisible to the
+    ///         backing check and the whole argument would rest on nothing.
+    function test_ControlOnlyTheSettleOorLegSurrendersTheDollars() public {
+        vm.deal(User01, 100 ether);
+        vm.prank(User01);
+        ETH.deposit{value: 50 ether}(0, User01);
+        deal(address(USDC), maker, 5_000 * 1e6);
+        vm.startPrank(maker);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(maker, 5_000 * 1e6, address(USDC), 0);
+        vm.stopPrank();
+
+        (uint committedBefore, uint liquidBefore) = AUX.tryCheckBacking();
+        uint px   = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint usd6 = ((1 ether) * px / 1e18) / 1e12;
+
+        // THE ONLY DIFFERENCE FROM THE TEST ABOVE: no `CORE.settleOor(...)`. The maker is paid and
+        // nothing gives up the dollars that pay them.
+        vm.prank(address(ETH));
+        QUID.mint(maker, usd6 * 1e12, address(QUID), 0);
+
+        (uint committedAfter, uint liquidAfter) = AUX.tryCheckBacking();
+        // THE DISCRIMINATOR: with no `settleOor`, nothing gives up the dollars that pay the maker.
+        // The sibling test asserts `committed` falls by EXACTLY the proceeds; here it must not move
+        // at all. If these two ever agree, the sibling is measuring nothing - which is precisely
+        // what the FIRST version of this pair did, and why this control exists.
+        assertEq(committedAfter, committedBefore,
+            "CONTROL: an unmatched mint must leave committed untouched - it is the settleOor leg, "
+            "not the mint, that surrenders the dollars");
+        assertEq(liquidAfter, liquidBefore, "and the basket is untouched on either path");
+        // AND THE POINT THE FIRST VERSION MISSED: the mint alone is INVISIBLE to the backing check,
+        // because it lands immature. A test watching only committed-vs-liquid cannot see an
+        // unmatched payment at all, so it would pass no matter how wrong the settlement was.
+        assertGt(QUID.immatureBalanceOf(maker), 0, "the unmatched mint did happen, and is unseen");
+    }
+
     /// ⚠️ **`loadBalance` IS INERT ON THIS RANGE, AND IT IS INSIDE THE SIGNED TYPEHASH.**
     /// `settleOor(..., loadBalance)` → `Core._shortfallLoadBalance` → `RANGE.onShortfall(...)`, and
     /// `Quid.onShortfall(address, uint) external {}` is an EMPTY BODY — a deliberate no-op with a

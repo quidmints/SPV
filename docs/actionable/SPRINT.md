@@ -1233,6 +1233,51 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🧪 **§SELL-BACKING-MEASURED — THE TEST PASSED AND PROVED NOTHING; ITS CONTROL CAUGHT THAT, AND THE REAL FINDING CORRECTS §SELL-LEG-IS-FORCED** (owner, 2026-08-30: *"do the test"*)
+
+### 🔴 THE FIRST VERSION WAS VACUOUS, AND IT PASSED
+I wrote `test_TheSellSettlementPreservesBacking` comparing a backing `gap` before and after. **It
+passed.** Then the control — the identical mint with the `settleOor` leg REMOVED, i.e. an unmatched
+payment — reported `gapAfter == gapBefore` **IDENTICAL TO THE WEI** (`31769789466316845319487` both).
+⇒ **The gap does not move on either path, so the test could not distinguish a correct settlement from
+an unmatched mint.** Textbook §VACUOUS-BOUNDS: a comparison that cannot go red. **The only reason this
+was caught is that the control was written at all**, and it was written because the passing result was
+the thing that needed explaining.
+
+### 📡 WHAT THE INSTRUMENTATION THEN SHOWED — three facts, all measured
+| | |
+|---|---|
+| **`committedSum` IS `POOLED_USD`** | 122,725,715,885 × 1e12 after, matching `CORE.POOLED_USD()` exactly |
+| **`settleOor(maker, +usd6, 0)` shrinks committed by EXACTLY the proceeds** | 125,230,322,331e12 → 122,725,715,885e12, a fall of **2,504,606,446e12 = `usd6·1e12`** |
+| 🔴 **THE MINT IS INVISIBLE TO THE BACKING CHECK** | `liquid` unchanged on BOTH paths; the maker's `immatureBalanceOf` grew by exactly the mint |
+
+### ⭐ THE FINDING THAT CORRECTS §SELL-LEG-IS-FORCED: **THE MAKER IS PAID A *DATED* CLAIM**
+`Basket._finishMint` clamps the month UP to at least `currentMonth() + 1`, so **MATURE QU!D CANNOT BE
+MINTED — by construction.** Therefore the sell proceeds are **IMMATURE**: unspendable until they
+mature, and uncounted by `committedSum` until then.
+⇒ **§SELL-LEG-IS-FORCED said "backing holds". That is true of the instantaneous check and TRUE FOR THE
+WRONG REASON.** What actually happens:
+- **at fill:** committed **falls** by `usd6`, the new liability is uncounted ⇒ **apparent solvency
+  IMPROVES by the size of the payment**;
+- **at maturity:** the maker's claim becomes mature, committed rises by `usd6` ⇒ **neutral over the
+  cycle.**
+⚠️ **THE EXPOSURE IS THE INTERVAL BETWEEN.** The protocol has released committed dollars and carries a
+liability the backing check cannot see. **This is exactly the `avgYield` forward-credit shape the owner
+called intentional — *"realisable at maturity IF the assets are there for it"* — and it inherits that
+caveat rather than escaping it.** ⛔ **DO NOT treat the post-fill improvement as headroom.**
+📌 **AND IT CHANGES WHAT THE PRODUCT IS, WHICH NO AMOUNT OF PLUMBING FIXES: a filled limit sell pays a
+claim maturing NEXT MONTH, not spendable dollars.** Consistent with what an LP exit's dollar leg
+already does (`_payUsdLeg` mints the same way), but a seller will not expect it. **Option B survives —
+this is not a reason to prefer A or C, both of which are worse for other reasons — but the row that
+called all three legs "forced" owed this sentence and did not have it.**
+
+### ✅ THE PAIR AS IT NOW STANDS (both green, and both able to go red)
+- `test_TheSellSettlementPreservesBacking` — asserts committed falls by **exactly** the proceeds,
+  `liquid` is **untouched**, `committed == POOLED_USD·1e12`, and the maker's **immature** balance grows
+  by exactly the mint.
+- `test_ControlOnlyTheSettleOorLegSurrendersTheDollars` — with no `settleOor`, committed must **not
+  move at all**. If these two ever agree, the first is measuring nothing again.
+
 ## 🔒 **§SELL-LEG-IS-FORCED — RULE 18 APPLIED: B IS NOT THE BEST OF SEVERAL DESIGNS, IT IS THE ONLY ONE CONSISTENT WITH THE SETTLEMENT ALGEBRA** (owner, 2026-08-30: *"make sure this is a solution beyond which no better alternative can or should exist"*)
 
 Standing rule 18 says ask whether a better version exists **before** landing. Attacked from every side
