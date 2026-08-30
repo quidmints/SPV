@@ -576,8 +576,33 @@ normalized += fullMulDiv(normalized * yield, month - (nextMonth - 1), WAD * 12);
 ```
 ⇒ **`avgYield` IS A FORWARD-YIELD CREDIT AT MINT: QU!D IS ISSUED TODAY AGAINST YIELD THE BASKET HAS
 NOT EARNED.** A depositor locking to month `M` receives `deposited × (1 + avgYield · months/12)`.
-**Overstate `avgYield` and the protocol mints a permanent liability against income that never
-arrives** — silent, unbacked, and unrecoverable, because the QU!D exists.
+✅ **AND THAT IS DELIBERATE, NOT A DEFECT — owner, 2026-08-30:** *"avgYield intentionally allows us to
+mint yield upfront that is realisable at maturity IF THE ASSETS ARE THERE FOR IT (if the yield was
+actually what we expected it to be)."* **`_finishMint` says the same and carries THREE defences:**
+| defence | `Basket._finishMint` |
+|---|---|
+| the projection gates on REAL backing | `total -= depegLoss` — *"never mints the forward-yield slice against a depegged holding's phantom par value"* |
+| the **TENOR** is bounded by the live buffer | `bufBps >= 500 -> 12 months · >= 300 -> 6 · >= 150 -> 3 · else 1` — *"longer locks ONLY when the buffer supports it"* |
+| the miss is **ABSORBED AT REDEEM**, not defaulted | *"Mint over-mints at 1:1 by design; the over-mint is absorbed at REDEEM, which values one basket share (`min($1, solvent/mature)`)"* |
+⭐ **AND THE DISCRIMINATOR THE DESIGN ALREADY USES IS EXACTLY THE ONE THIS QUESTION TURNS ON:**
+`illiquidLoss` is deliberately NOT subtracted at mint because *"illiquid-but-solvent backing THAWS
+over the tenor, so it still backs the forward yield; **only depeg (a PERMANENT value loss) shortens
+the horizon**."* ⇒ **A stable moved into collateral that earns NOTHING is a PERMANENT rate reduction,
+not a thawing one — it belongs on the depeg side of that line, not the illiquid side.**
+
+#### ⇒ THE REQUIREMENT, WITH BOTH HALVES OF WHAT THE OWNER SAID TOGETHER
+**The forward credit is sound ONLY while `avgYield` describes where the stables ACTUALLY ARE.** The
+mechanism does not need fixing; **the measurement feeding it does**, and it must be re-taken whenever
+a stable moves — because a stale-high rate is caught by NONE of the three defences above. They bound
+the TENOR and socialise the MISS; **none of them detects that the rate is describing a venue the
+stable has left.**
+⚠️ **AND THE MISS IS SOCIALISED, WHICH IS WHY PROMPTNESS IS THE WHOLE PROPERTY:** `qdShareValue`'s
+`min(par, solvent/mature)` means an unrealised forward credit is paid for by **every holder's share
+price**, not by the cohort that received it. **The longer the rate lags the stable's location, the
+more credit is issued against yield that is not coming, and the larger that haircut.**
+📌 One negative feedback does exist and is worth knowing: over-minting raises `totalSupply`, which
+shrinks `bufBps`, which shortens `maxFwd`. **The system self-tightens — but only AFTER the credit is
+granted.**
 ⭐ **AND THE TWO FAILURES SIT ON OPPOSITE SIDES OF THE SAME FIX, WHICH IS THE WHOLE POINT:**
 | you do | you get |
 |---|---|
