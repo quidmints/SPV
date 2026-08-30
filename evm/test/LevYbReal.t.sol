@@ -290,7 +290,7 @@ contract LevYbRealProbe is AllesFixture {
         vm.stopPrank();
         // Real rally: buy ETH out of the range so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        rlm.rebalance(LP, 0, DEX_WETH_USDC);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
+        rlm.rebalance(LP, 0, DEX_WETH_USDC, 0);         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
     }
 
     /// @notice #55/#1 fork proof: the levered slice is STRUCTURALLY excluded from the VENUE-yield

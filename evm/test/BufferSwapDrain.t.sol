@@ -38,7 +38,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         // Full-2x levered position ⇒ a real debt-funded buffer folded into POOLED_USD.
         _openAtEntry(lps[0], 5 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
         assertGt(venue.debtOf(lps[0]), 0, "precondition: levered debt > 0");
         _calmVol();
         ETH.syncLev(lps[0]);                                   // mints the GROSS (2x) depth ⇒ buffer USD → POOLED_USD
@@ -105,7 +105,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         ETH.deposit{value: 20 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
         _calmVol();
         ETH.syncLev(lps[0]);
         assertGt(lm.totalDebtUsd(), 0, "precondition: the debt-funded buffer (live debt) > 0");
