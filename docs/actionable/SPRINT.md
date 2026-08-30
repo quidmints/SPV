@@ -911,6 +911,42 @@ succeeds while moving nothing. **The balance-delta bound catches it; the point i
 verified against the deployed router — a wrong encoding reverts identically to the empty route we
 have now, so verify on a fork, do not guess."*
 
+#### ⚠️ **NARROWED SAME DAY (owner): `unoswap2`/`unoswap3` ARE *TWO AND THREE POOLS*, NOT "ANY VENUE". FULL FLEXIBILITY IS `swap()`, AND IT NEEDS AN OFF-CHAIN PATH.**
+Owner: *"unoswap2 and unoswap3 are just to venues. we should be able to use any venue 1inch supports
+and make custom paths offchain that are as cost-effective as possible."* **Correct, and my row
+oversold them.** They are a fixed-arity chain over the pool types the `unoswap` path understands —
+the tree's own tags: *"`0` UniswapV2, `1` UniswapV3, `2` Curve"*. **≤3 hops, three protocols. That is
+not the aggregator; it is a hand-built chain that happens to be contract-encodable.**
+✅ **THE FULL SURFACE IS `swap` (`07ed2379`) — AND IT IS PRESENT IN THE SAME BYTECODE DUMP.** It takes
+an **executor plus arbitrary calldata**, which is where "any venue 1inch supports" and "custom paths
+built offchain" actually live. ⇒ **So the honest answer to *"no workaround?"* is: `unoswap2/3` is the
+no-off-chain-anything workaround and it is BOUNDED; unbounded flexibility does require a path
+generated off-chain.** ⚠️ *Off-chain* ≠ *paid key* — the path can come from a free tier, a
+self-hosted solver, or a pinned set — **but it is an artifact somebody computes, not one the
+contract can derive.**
+
+⭐ **AND THE SECURITY MODEL ALREADY ACCEPTS KEEPER-SUPPLIED CALLDATA — THIS IS THE PART THAT MAKES
+THE OWNER'S PLAN WORK.** `_aggSwap` does not trust the route on price and never did:
+```solidity
+uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));   // measure
+... ONEINCH_ROUTER.call(...) ...
+out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;     // what ACTUALLY arrived
+if (out < minOut) revert Slippage();                              // against OUR floor
+```
+and `minOut` is derived from **our own oracle** (`_stableToWethSor`'s `floor_`, `SELL_SLIP_BPS`),
+never from the router's `minReturn` — `Interfaces.sol:184` records exactly why (*the V2 candidate
+"returned `ok` with ZERO tokens moved"*). ⇒ **A keeper handed arbitrary executor calldata can choose a
+WORSE path; it cannot extract, because the measurement and the floor are both ours.** §C2.1's
+discipline survives the change intact — restated for this shape: **the keeper names the PATH, the
+contract names the PRICE.**
+⛔ **THE RESIDUAL IS LIVENESS, AND §E357 ALREADY NAMED IT:** *"The floor protects VALUE, NOT
+LIVENESS — a sandwicher can push a pool past the floor to force a revert and deny a de-lever."* A
+keeper supplying a bad path is the same failure wearing a different hat: **the de-lever does not
+happen, and LTV stays high.** That is the exposure to design against, not extraction.
+📌 **AND ONE THING TO CHECK BEFORE WIRING `swap`, NOT AFTER:** it approves and calls through an
+`executor` contract, so the approval scope and the executor's identity are a NEW trust surface that
+`unoswap`'s pure-pool-word form does not have. **Fork-verify, like the `dex` word was.**
+
 ### ▶️ AND THE WBTC RUNG: v4-vs-v3 BY TERMS DOES **NOT** HIT THE CONVERGENCE OBJECTION
 Owner: *"WBTC must be v4 vs v3 whichever is cheaper also."* **`DeployL1_s:646`'s refutation does not
 reach this one, and the reason is specific:** it warns that two legs picking on a SHARED signal
