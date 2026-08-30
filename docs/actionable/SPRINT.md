@@ -434,7 +434,22 @@ I made and cleaned up.**
    produced by a tool ignoring a constraint the project states.
    ⇒ **A supported node (20.19+, 22.13+, or 24.3+) is a PRECONDITION for any Expo build or typecheck**,
    and no such build has been run in this session.
-3. ⚠️ **CONSEQUENCE — `package.json` AND `yarn.lock` NOW DISAGREE.** The `react-native-worklets`
+3. ✅ **FIXED, AND THE ROOT CAUSE WAS BIGGER THAN THE BUMP.** `yarn install` under **node 22.16.0**
+   (installed here, and satisfies `^22.13.0`) regenerated the lockfile: `react-native-worklets` now
+   resolves `~0.10.4 → 0.10.4`, matching `package.json`.
+   🔴 **WHAT IT EXPOSED: THE MERGE LEFT AN SDK-54 LOCKFILE AGAINST AN SDK-57 MANIFEST.** The
+   committed `yarn.lock` resolved **`expo@54.0.33` / `react-native@0.81.5` / `expo-modules-core@3.0.29`**
+   while `package.json` declares **`expo ~57.0.8`** (⇒ `react-native@0.86.0`,
+   `expo-modules-core@57.0.14`). The regenerated lock **adds 366 package entries and 520 version
+   pins that were simply absent** — the old one did not describe the tree at all.
+   ⇒ **THIS IS WHY NOTHING COULD INSTALL:** the `ERESOLVE` on `react-native-worklets` was a symptom of
+   a lockfile two major Expo versions behind its manifest, not the disease. The worklets bump was
+   still needed and still correct.
+   ⚠️ **UNVALIDATED BY A BUILD** — no `expo prebuild` or `tsc --noEmit` has been run, here or before.
+   The lockfile is now CONSISTENT with the manifest, which it was not; that is a different claim from
+   "the app builds".
+
+~~3. CONSEQUENCE — `package.json` AND `yarn.lock` NOW DISAGREE.~~ The `react-native-worklets`
    `0.5.1 → ~0.10.4` bump (a real fix: `expo-modules-core@57.0.14` requires `^0.7.4 || ^0.8 || ^0.9 ||
    ^0.10`, so `ERESOLVE` was genuine) is committed in `package.json`, while `yarn.lock` still pins
    `0.5.1` — because regenerating it needs a `yarn install` this node cannot run. **Run `yarn install`
