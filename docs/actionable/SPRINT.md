@@ -533,6 +533,17 @@ is stated so it can be resumed cold.
 | `§BTC-LEG-FEE` (1.5) | **verified genuinely open** | owner decision: should a swap-in pay LPs at all? Test is inverted pending it |
 | `§E294` (1.6) | **verified open; the row's REASON corrected** | delete `pushObservation` or wire it. Row says "the ring is fed by the anchor regardless" — false: `Core.sol` says `pushObservation` is the ring's ONLY live writer, so deleting leaves the ring empty and every σ² read falls back to `anchorVarianceWad()` |
 
+### 🆕 ALSO SURFACED IN DISCUSSION AND NOT BOOKED UNTIL NOW (2026-08-30, owner: *"are you sure that
+is all the new work? other things came up"*) — they were, and these are them
+| item | what it is |
+|---|---|
+| `§HOP-RCE-3` **remaining half** | The preimage half is now FIXED (dedup key derived, not accepted). The other half is untouched: **the hop still NAMES the seller** and nothing binds that to whoever paid the HTLC. Fix is the seller-signed EIP-712 intent (`§M1-RESIDUAL-100` residual 1) — the contract reads `seller`/`token`/`minUsd` from the SELLER's signature and the hop supplies only the preimage. ⚠️ No EIP-712/`ecrecover` machinery exists in `BTCChannels` today, and the client must sign — a product change, not just a contract one |
+| `§SETTLE-PROVEN-STILL-UNAUDITED` | `§HOP-RCE-3` lists `settleSwapInProven` among *"Also unexamined"* entrypoints. It now has 5 tests (`§SETTLE-PROVEN-UNTESTED` ✅) — **tests are not an audit**, and the row still names it, along with `splice`, `recordClose`, `recordForceClosePermissionless`, `deliverSwapOutOnchain`, `reverseSwapOut`, `markMigrationNonceUsed` |
+| `§E294`'s stated reason is WRONG | Booked in the ledger and **now corrected at the row itself**: the row says *"the ring is fed by the anchor regardless"*. It is not — `Core.sol` says `pushObservation` is the ring's **ONLY live writer**, so deleting it leaves the ring permanently EMPTY and every σ² read falls back to `anchorVarianceWad()`. The recommendation (delete) still stands; the reasoning does not |
+| `§SPA-REACHABILITY-UNCHECKED` | `app/`'s chain layer was measured (0 of 20 reachable). **The same scan was never run on `spa/src`**, so whether it carries dead modules is unknown. Cheap to answer and it changes what the shared module should contain |
+| `§GRAPH-IS-STALE` | `graphify-out/` was built from `16726eb2`, **49 commits behind** by the time it was consulted, and doc-node line numbers had already drifted from `SPRINT.md` edits. It still answered the question asked of it (it carries 4,127 `quid-ln` nodes, so the Rust side IS covered despite `quid-ln/graphify-out/` holding only a `cache/`). Re-run before relying on it for line-accurate navigation |
+| `react-native-worklets` bump unverified | `0.5.1 → ~0.10.4` resolved `ERESOLVE`, but **nothing has run an Expo build**, so "the graph resolves" is not "the app works". Verify with `expo prebuild`/`tsc --noEmit` once install completes |
+
 ### ⚠️ CORRECTIONS MADE THIS SESSION, KEPT SO THEY ARE NOT RE-LEARNED
 `§SWAPIN-RAIL-BROKEN` was filed, retracted, then **re-filed correctly** as
 `§LN-SWAPIN-RAIL-BROKEN` — there are TWO swap-in rails and the bound is in
@@ -759,7 +770,7 @@ real design hole** (approval vs escrow vs pooled-claim vs an already-funded path
 | **1.3** | **The fold's shape** — 7540 face vs `Core`+`Quid` merge. Folding a contract is measured to COST bytes (`VEth`→`Quid` −1,077). Re-measure first: `Core` 11,637 + `Quid` **20,616** = 32,253, over by **7,677** (not the 8,917 or 23,835 the rows assume) |
 | **1.4** | ⛔ **NOT OPEN — CLOSED BY OWNER 2026-08-26** (*"we dont need emode for anything"*, see the C17 section). `setUserEMode` staying at 0 occurrences is the INTENDED state, not a gap. This row was stale and was read as open on 2026-08-30; it is not a decision and has no bearing on the BTC work |
 | **1.5** | **`§BTC-LEG-FEE`** — its test passes only because `b7112c4f` inverted `assertGt`→`assertEq` pending this |
-| **1.6** | **`§E294`** — delete `pushObservation` or wire it. 0 production callers; the ring is fed by the anchor regardless. Deleting removes the ±50 bps inflation vector |
+| **1.6** | **`§E294`** — delete `pushObservation` or wire it. 0 production callers (verified 2026-08-30: the only occurrence in `evm/src` is its own definition). Deleting removes the ±50 bps inflation vector. ⚠️ **THE ROW'S REASON WAS WRONG:** ~~the ring is fed by the anchor regardless~~ — `Core.sol` states `pushObservation` is the ring's **ONLY live writer**, so deleting leaves the ring permanently empty and every σ² read falls back to `anchorVarianceWad()`. Fine, probably intended, but a different claim than the row made |
 
 ### 🟠 TIER 2 — BUILDABLE. Nothing in front of these.
 
@@ -1094,6 +1105,39 @@ structural reason: they share this table.**
 4. ⚠️ **`_routeOf` is `pure` with hardcoded addresses**, so each line is a redeploy of `LevMath`.
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
+
+## ⏸️ **§TWO-HOP-IS-BUILT-BUT-NOT-WIRED — THE CAPABILITY LANDED AND VERIFIED; THE 0.82% IS NOT BEING COLLECTED YET** (`3c81ad31`, 2026-08-30)
+
+✅ **LANDED AND VERIFIED BY EXECUTION.** `_aggSwap` takes a second pool word and switches to
+`UNOSWAP2_SELECTOR` when it is non-zero. **Measured against LIVE pools: USDC→WETH→WBTC returns
+`12.4884` WBTC on \$1M against `12.3863` through the best direct pool — 0.82% better**, confirming by
+execution what §UNOSWAP-CANNOT-REACH had only quoted. **Lev regression 41 passed / 0 failed / 0 `setUp`
+failures** (completed after the commit, whose message had honestly recorded it as outstanding).
+🔑 **Keyless, and structurally so:** `unoswap2` takes the amount as a RUNTIME parameter, which is the
+one property that makes it usable where `swap()` is not — our amounts are computed mid-transaction.
+
+### ⏸️ WHY THIS IS ⏸️ AND NOT ✅ — **EVERY CALL SITE PASSES `dex2 = 0`**
+`LevMath.sol:719`, `:777`, `:791` — all three. So the encoded calldata on every production path is
+**byte-identical to before**, which is exactly what made the change safe to land, and equally means
+**the 0.82% is not being collected anywhere.** ⚠️ **This is the same "built but unwired" shape as
+`position()` in §POSITION-LEAVES-THREE-LOOSE-ENDS, and it is worth naming as a pattern: a capability
+with no caller is not a saving, it is an option.**
+▶️ **TO COLLECT IT:** `WbtcCfg` (`LevMath.sol:308`) needs a `dex2` field, `_stableToWbtc` must thread
+it, and the keeper must supply the second pool word. **That is the BTC leg specifically** — `:719`'s
+USDC→WETH is a single deep pool and correctly stays one hop; `:791` is the reverse leg and wants the
+mirrored pair.
+📌 **`unoswap3` (`0x19367472`) is verified present in the router and deliberately NOT added.** Two
+hops is what the measurement justified; a third would be an unmeasured guess, and §CURVE-ALONE-CANNOT
+-DO-IT showed the real routes are **SPLIT** rather than merely longer — so depth-3 sequential is not
+obviously the next increment. **Measure before adding it.**
+
+### 🧪 A TEST LESSON WORTH MORE THAN THE FEATURE
+`test_ADeliberatelyWrongDirectionBitIsIgnored` **failed on its first run for a reason that was not the
+code.** Both arms trade the SAME live pools, so run back to back the first arm MOVES THE PRICE and the
+second necessarily gets less — **126,130,716 vs 125,872,495, a 0.2% gap that reads exactly like a
+direction bug.** `vm.snapshotState()` / `vm.revertToState()` between the arms makes them identical,
+which is the actual proof. ⇒ **ANY TEST COMPARING TWO EXECUTIONS AGAINST LIVE POOLS MUST SNAPSHOT
+BETWEEN THEM**, or it measures its own side effect and reports it as a defect in the thing under test.
 
 ## 📡 **§CURVE-ALONE-CANNOT-DO-IT — 12 BASKET STABLES NEED 9 VENUE FAMILIES, AND THE CHEAPEST ROUTES ARE NOT DEXes AT ALL** (owner, 2026-08-30: *"can we use curve for all of them? maybe with multiple hops"*)
 
