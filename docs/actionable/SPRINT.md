@@ -479,6 +479,78 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 📊 **§AAVE-V4-HUB-MEASURED — THE WETH SIDE IS WIDE OPEN, THE COLLATERAL SIDE IS TWO STABLES, AND `AUSD` IS NOT LISTED** (owner, 2026-08-30)
+
+Owner: *"we need more markets for the stables that we have … what is the utilisation like on the main
+hub of aavev4 for other stables? otherwise you're telling me the protocol always leans toward
+borrowing one particular stable (hence swapping out of the stables that users give us) which is not
+healthy for the diversity of the basket."* **The premise is correct. The proposed remedy is measured
+below and it is HALF available.**
+
+📡 **LIVE, hub `0xCca852Bc…c826c9`, spoke `0x94e7A5dC…56c485`, mainnet, 2026-08-30.** `free` uses
+**the tree's own definition** — `BasketLib:929-932` computes `avail = rs > rd ? rs - rd : 0` — so it
+is reserve CASH, not a utilisation ratio. ⚠️ **Quote `free`, not a percentage:** USDC's debt EXCEEDS
+this spoke's supplied figure, which the `rs > rd` guard exists to absorb; a "107% utilisation" line
+would be a number that does not mean what it says.
+
+| reserve | rid | supplied | debt | **free** | **collateralFactor** |
+|---|---:|---:|---:|---:|---:|
+| **WETH** | 0 | 29,484 | 135 | **29,349** (~$71.9M) | **8300** |
+| weETH | 2 | 3,979.53 | 0.00 | 3,979.53 | 8000 |
+| wstETH | 1 | 8,824.14 | 0.00 | 8,824.14 | 8000 |
+| **WBTC** | 3 | 395.71 | 2.58 | **393.12** | **7800** |
+| USDG | 11 | 63,811,130 | 25,877,895 | 37,933,235 | **0** |
+| USDT | 8 | 13,852,515 | 10,281,830 | 3,570,685 | **7800** |
+| USDC | 7 | 7,827,164 | 8,371,189 | **0** | **7800** |
+| GHO | 13 | 763,250 | 535,409 | 227,841 | **0** |
+| RLUSD | 10 | 6 | 1 | 5 | **0** |
+⛔ **NOT LISTED ON THE HUB AT ALL:** DAI · PYUSD · USDS · USDE · crvUSD · **AUSD** · BOLD.
+
+### ✅ WHAT THE MEASUREMENT SUPPORTS
+**Borrowing WETH against stable collateral works and the WETH side is barely touched** — 29,349 WETH
+free at an 83% collateral factor, against 135 borrowed. ⇒ **The swap disappears.** Today's lever
+borrows a stable and runs `stable → USDC → WETH` (Curve hub + a single pinned pool); posting
+collateral and borrowing WETH directly needs **no `_hubSwap`, no `_aggSwap`, no `dex` word, and no
+slippage floor** — which also retires §HUB-IS-USDC's whole topology for this path.
+
+### 🔴 WHAT IT DOES **NOT** SUPPORT — THE DIVERSITY GOAL, WHICH IS THE REASON FOR ASKING
+**Of the basket's 14 stables, exactly TWO can be posted as collateral: USDC and USDT (7800 each).**
+GHO, RLUSD and USDG are listed and suppliable but carry **`collateralFactor = 0`** — supply-only,
+zero borrowing power. **`AUSD`, the example in the question, is not on the hub at all.**
+⇒ **The concentration MOVES, it does not dissolve:** from *"borrow RLUSD/PYUSD"* to *"post
+USDC/USDT"*. ⚠️ **And it moves onto the two dollars today's design deliberately avoids** — §E210
+records that weETH/USDC was demoted because it *cannot lend* ($0.74M median supply, 100 of 100 weeks
+under $1M). **That is not an argument against the change; it is the honest price of it.** The new
+concentration is on the two deepest dollars and costs no swap, which is a better trade — but it is
+a trade, not a diversification.
+📌 **AND THE ONE WE ALREADY SUPPLY IS THE WORST OF THEM FOR THIS: USDG.** 63.8M sits in that reserve
+and it is our largest v4 position — at `collateralFactor = 0` it buys **zero** borrowing power.
+
+### ▶️ WBTC: v4 LISTS IT TODAY, SO THE CHECK THE OWNER ASKED FOR IS BUILDABLE NOW
+*"any WBTC borrow still have to go through aavev3 for now, but we should program a check … if the
+terms are better on aavev3 than v4."* **WBTC is assetId 11, reserve 3, 393.12 free,
+`collateralFactor = 7800`** — it is not a future listing, it is live. ⇒ **The check is not
+speculative plumbing; it has two real sides to compare from day one.** ⚠️ 393 WBTC (~$34M at
+current) is real but is **1/60th of the WETH reserve's dollar depth**, so v4-for-WBTC is a
+liquidity question, not an availability one.
+
+### ⛔ AND THE BORROW SURFACE WAS DELETED ON PURPOSE — READ `cbbc0993` BEFORE REBUILDING
+*"Drop Euler v2 and Aave V4 borrowing: two venues, not five."* `AaveV4Venue.sol` is gone, and
+`Interfaces.sol:100-106` records exactly what went with it: `setUsingAsCollateral`, `borrow`,
+`repay`, `getUserDebt`. ✅ **THIS IS NOT THE `create_sweep_tx` TRAP.** That commit's stated reason is
+*"a venue we do not use"* — an owner decision about USE, on 2026-08-13. **The reason has changed, not
+been overlooked.** The commit even preserved the supply half deliberately (*"Aave V4 BORROWING is
+gone; Aave V4 SUPPLY is not"*), so the spoke, the reserve-id resolution and `aaveBalance` are all
+still here — **what must be rebuilt is the venue and four interface lines, not the integration.**
+
+### ▶️ SO THE DECISION IS NARROWER THAN THE QUESTION
+1. **Does "no swap, but concentrated on USDC/USDT" beat "a swap, but concentrated on RLUSD/PYUSD"?**
+   The measurement says the first has ~$72M of WETH headroom behind it and the second has a two-entry
+   Curve table. **That is the whole trade and it is an owner call.**
+2. **The diversity goal needs Aave to LIST our stables**, which is a governance ask, not code.
+   Until then no venue choice diversifies the basket's borrow side — **the constraint is external.**
+3. **The WBTC v3/v4 comparator is buildable today** and is the cheapest of the three.
+
 ## 📌 **§INTENT-WHAT-IS-THE-PROBLEM — ONE DEFECT, AND EVERYTHING ELSE IN THIS SECTION IS DOWNSTREAM OF IT** (owner, 2026-08-30: *"what problem are we solving and how does it occur"*)
 
 **Written because the question had to be asked.** Six rows went into this file in one sitting —
