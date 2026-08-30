@@ -566,7 +566,29 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
-### 🔴🔴🔴 **CORRECTION — A BASKET STABLE POSTED AS COLLATERAL WOULD NOT EARN LESS. IT WOULD VANISH FROM TVL.** (owner, 2026-08-30)
+### 🔴🔴🔴 **§AVGYIELD-FOLLOWS-THE-STABLE — THE DANGEROUS FAILURE IS OVER-MINT, NOT WRITE-DOWN, AND I LED WITH THE WRONG ONE** (owner, 2026-08-30)
+
+⚠️ **DIRECTION CORRECTED.** I opened this row with *"it would vanish from TVL"* — a CONSERVATIVE
+failure. The owner's warning is the DANGEROUS one, and `calcMintYield:576-578` is why:
+```solidity
+uint yield = isSeed ? WAD : avgYieldIn;
+normalized += fullMulDiv(normalized * yield, month - (nextMonth - 1), WAD * 12);
+```
+⇒ **`avgYield` IS A FORWARD-YIELD CREDIT AT MINT: QU!D IS ISSUED TODAY AGAINST YIELD THE BASKET HAS
+NOT EARNED.** A depositor locking to month `M` receives `deposited × (1 + avgYield · months/12)`.
+**Overstate `avgYield` and the protocol mints a permanent liability against income that never
+arrives** — silent, unbacked, and unrecoverable, because the QU!D exists.
+⭐ **AND THE TWO FAILURES SIT ON OPPOSITE SIDES OF THE SAME FIX, WHICH IS THE WHOLE POINT:**
+| you do | you get |
+|---|---|
+| move a stable to collateral, DON'T extend discovery | reads `(0,0)` ⇒ TVL down ⇒ **conservative, loud, and it SHRINKS mint headroom** |
+| extend discovery, CARRY THE OLD RATE | counted at a yield it is not earning ⇒ **`avgYield` inflated ⇒ OVER-MINT** |
+⇒ **The dangerous failure is the one you reach AFTER doing the obvious fix.** Extending
+`_valueStable` to see collateral, without making the RATE follow the location, converts a visible
+write-down into a silent over-issuance. **Morpho Blue collateral earns zero; Aave collateral earns
+the liquidity index. The rate is a property of WHERE, and `storedHoldings` has one per TOKEN.**
+
+*(the write-down half, still true and still a prerequisite:)*
 
 Owner: *"our whole avgYield logic for the mint of basket shares depends on what the stables are
 earning as supplied to venues. this has to always be remeasured based on where the stables actually
