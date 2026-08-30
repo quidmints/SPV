@@ -4196,9 +4196,22 @@ as two outputs rather than `cur + parked` as one).
 take the pool's share** because the pre-signed transaction pays it elsewhere. `PoolSatsLeftWithLp`
 becomes unreachable **without** weakening custody.
 ▶️ **THE ONE OPEN CHOICE — what `pool script` is.** It should require MORE than the hop alone, or the
-second factor is lost at exit time instead of before it. **`SweepAuth`'s 2-of-3 (`migration.rs:405`) is
-the natural answer**, and it gives the recovery path `create_sweep_tx` was written for — so the sweep
-gap closes as a side effect rather than as a prerequisite.
+second factor is lost at exit time instead of before it. ~~**`SweepAuth`'s 2-of-3 (`migration.rs:405`)
+is the natural answer**, and it gives the recovery path `create_sweep_tx` was written for — so the
+sweep gap closes as a side effect rather than as a prerequisite.~~
+⛔ **THAT ANSWER IS UNIMPLEMENTABLE, CHECKED 2026-08-30 — IT IS A CATEGORY ERROR.** `SweepAuth`
+(`quid-hop/src/migration.rs:405-469`) is an **EIP-712 authorization bundle**: a keccak digest over
+`destination`/`deploy_env`/`network`/`nonce`, approved by `Vec<Vec<u8>>` of **65-byte EVM `r‖s‖v`
+signatures** `ecrecover`ed in-enclave. A Bitcoin `scriptPubKey` has neither `ecrecover` nor keccak, so
+it cannot express that quorum — and the exit's second output must be a **Bitcoin** script, because the
+pre-signed exit is a Bitcoin transaction the chain only ever VERIFIES.
+⚠️ **AND THE GAP IS NOT MERELY NOTATIONAL.** `migration.rs:30` states the operator quorum's design
+rule: *"operators sign EIP-712 with their own wallets — **no bespoke keygen**"*. The operators
+therefore hold **no Bitcoin keys at all**. Reaching a Bitcoin 2-of-3 means creating them, i.e.
+adopting exactly the ceremony that design deliberately avoided. **The sweep gap also does NOT close as
+a side effect** — `create_sweep_tx` is gated on a `SweepAuth` that governs the *hop's own wallet*,
+which is a different custody question from where an exit's pool share lands.
+⇒ **THE CHOICE IS THEREFORE OPEN AND IS THE OWNER'S** (see `§POOL-SCRIPT-OPTIONS`).
 ⚠️ **AND THE EFFICIENCY CLAIM SURVIVES ONLY PARTLY:** this does NOT remove the splice (pool sats still
 enter the channel), so there is no on-chain-transaction saving. **It removes the LEAK and the
 mis-arming, not the splice.** The "one fewer BTC tx" claim belonged to the pool-outpoint shape and dies
