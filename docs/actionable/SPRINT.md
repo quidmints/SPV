@@ -615,6 +615,69 @@ zero times.** ⭐ **And deviation-gating is the BETTER rate limiter, which is wh
 necessity" overstates it:** a block gate keys on a PROXY (time passed) and would both over-fire in a
 calm market and under-fire in a violent one. The current gate keys on the thing that matters.
 
+### 📊 **§USDG-HAS-NO-ETH-PAIR — 1inch CANNOT GIVE DIRECT WETH FOR USDG, AND IT IS NOT 1inch'S FAULT** (owner, 2026-08-30: *"are you sure 1inch wont give us direct WETH for USDG"*)
+
+**Measured on mainnet, not inferred.** Every candidate USDG↔WETH venue is EMPTY:
+| venue | pool | state |
+|---|---|---|
+| UniV3 USDG/WETH 0.05% | `0x6b03D321…aa052E` | **liquidity 0 · 0 WETH · 0 USDG** — deployed, never seeded |
+| UniV3 USDG/WETH 0.01% / 0.3% / 1% | — | **do not exist** |
+| Curve `find_pool_for_coins(USDG, WETH)` | `0x8DD93968…F2Fa4d` | **0 USDG · 0 WETH** — the registry returns a pool that LISTS the pair, not one with liquidity |
+⇒ **The two-hop is not a workaround for a router limitation. There is no USDG/ETH liquidity to route
+to.** ⚠️ **And an empty pool is the WORST failure shape here:** `unoswap` would return `ok` having
+moved nothing — the exact V2 case `Interfaces.sol:184` records — and only `_aggSwap`'s balance-delta
+bound turns it into a revert instead of a silent zero.
+
+✅ **BUT USDG→USDC IS DEEP, AND IT IS ONE LINE.** Curve `0xc061caa073f3d95F80f8e5428d32D2d76F5e1622`:
+**9,308,557 USDG + 21,177,128 USDC ≈ $30.5M**, `coins(0) = USDG`, `coins(1) = USDC`, and
+`get_dy(0, 1, 1e6)` returns **1,000,244** — the `int128` signature `_hubSwap` already calls, live.
+⇒ **`_routeOf` gains exactly one line, which is the case §E210 built the table for:**
+`if (stable == USDG_TOKEN) return (CURVE_USDG_USDC, 0, 1);`
+📌 **For scale: USDG's 412M supply and 63.8M Aave-v4 reserve are real — it is simply not paired to
+ETH.** $30.5M of stable-side depth is comparable to the two routes already on the table.
+
+### 🔴🔴 **§WHY-1INCH-AT-ALL — IT IS A CALLBACK HOST, NOT AN AGGREGATOR, AND THE OWNER IS RIGHT TO ASK** (owner, 2026-08-30: *"why do we need 1inch at all if it just moves everything through one venue like you set it up right now. there is cowswap and so many others"*)
+
+**Traced, and the answer is smaller than the dependency.** `_aggSwap` sends ONE selector
+(`unoswap`, `0x83800a8e`) with ONE `dex` word = protocol tag + direction bit + **one pool address**.
+And the tree only ever names one protocol: **`PROTO_UNIV3 = 1` is the only protocol constant that
+exists** — there is no `PROTO_UNIV2`, no `PROTO_CURVE` — `_aggSwap`'s only branch is
+`if (dex >> 253 == PROTO_UNIV3)`, and `DEFAULT_UNWIND_DEX` hardcodes **Uniswap V3 WETH/USDC 0.05%**
+(`0x88e6A0c2…`).
+⇒ **`_aggSwap` is: "call one Uniswap V3 pool, through 1inch's router." Zero aggregation.**
+
+⭐ **SO WHAT IS 1inch ACTUALLY BUYING? THE UNISWAP V3 SWAP CALLBACK — AND THE TREE ALREADY SAYS SO
+ABOUT ITS PREDECESSOR.** `Interfaces.sol:308`, on SwapRouter02: *"callers here only INITIATE swaps,
+so `IUniswapV3SwapCallback` … is deliberately not inherited — **the router owns the callback**."*
+§C2.1 replaced SwapRouter02 with 1inch's router on *"no v3 in this code at all"* grounds — **but the
+dependency is identical in kind.** We rent a callback implementation.
+✅ **AND THE TREE ALREADY PROVES IT CAN SKIP THE MIDDLEMAN WHERE NO CALLBACK IS NEEDED:** `_hubSwap`
+calls `ICurvePool(pool).exchange(...)` **directly**, no router. **Curve needs no callback; V3 does.
+That is the entire distinction.**
+
+#### ⛔ AND COWSWAP DOES NOT SOLVE IT — SAME BLOCKER AS 1inch'S REAL AGGREGATION, PLUS WORSE LIVENESS
+A CowSwap fill is a **batch auction settled by off-chain solvers**: it needs a signed order and
+somebody to fill it. §E357-VOLATILE-ROUTE established the blocker precisely — *"the keeper cannot
+supply a route at all"*, and *"a key with no call site and a call site with no route parameter are
+the same nothing"*. **A CowSwap order is the same class of off-chain artifact.** ⚠️ **And this path
+is a DE-LEVER on the crash leg: it must execute in-transaction, now.** A batch auction has latency
+and no guaranteed fill, which is the one property this path cannot trade away — §E357 already flags
+that the oracle floor *"protects VALUE, NOT LIVENESS"*, and an auction makes liveness worse, not
+better.
+
+#### ▶️ SO THE REAL CHOICE IS TWO OPTIONS, AND THE SECOND IS WHAT THE QUESTION POINTS AT
+1. **Keep the router as a callback host.** Costs: a pinned external dependency on the money path, its
+   gas, and **two `approve` SSTOREs per swap** (`approve(router, amt)` … `approve(router, 0)`) that
+   exist ONLY because an external contract must be granted allowance.
+2. **Call the V3 pool directly and implement `uniswapV3SwapCallback`.** Removes the pinned router,
+   makes the `dex` word a plain pool address, turns `NoVolatileRoute()` back into a fact about
+   POOLS rather than about a router's response — **and needs NO approval at all**, because a V3
+   callback pays in the callback. ⚠️ **Cost: the callback must live on the contract holding the
+   tokens (`LevManager`, 1,577 bytes spare), not in the inlined library.** A V3 callback is small,
+   but it is EIP-170 on the tightest-but-one contract, so it is a MEASUREMENT before a decision.
+⇒ **Aggregation was never on the table** (§E357: no solver, no route parameter). **The question is
+only whether we keep renting a callback or write one.**
+
 ## 📌 **§INTENT-WHAT-IS-THE-PROBLEM — ONE DEFECT, AND EVERYTHING ELSE IN THIS SECTION IS DOWNSTREAM OF IT** (owner, 2026-08-30: *"what problem are we solving and how does it occur"*)
 
 **Written because the question had to be asked.** Six rows went into this file in one sitting —
