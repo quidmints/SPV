@@ -64,7 +64,8 @@ pub fn init_config(ctx: Context<InitConfig>,
     config.kestrel_program = Pubkey::default();
     config.sol_star_mint = Pubkey::default();
     config.sol_buffer_bps = 5_000;
-    config.sol_star_haircut_bps = 500;
+    // Was 500 while the comment above said 40. See `SOL_STAR_HAIRCUT_BPS`.
+    config.sol_star_haircut_bps = SOL_STAR_HAIRCUT_BPS;
     config.sol_park_band_bps = 1_000;
     Ok(())
 }
@@ -926,6 +927,30 @@ pub const BURN_TOKEN_DISC: [u8; 8] = [185, 165, 216, 246, 144, 31, 70, 74];
 pub const BURN_PARAMS_SYNC: u8 = 0;
 
 /// The buffer floor can never be configured below this, whatever an admin sets.
+/// The measured SOL* round trip, in bps — park in, unwind out.
+///
+/// 🔴 `init_config` SET 500 WHILE THE COMMENT BESIDE IT SAID 40, AND THE
+/// COMMENT WAS RIGHT. The deadband it sizes is documented as *"10% of pool
+/// clears break-even (~17 days at ~8.5% APY)"*, and that arithmetic only works
+/// at 40: recovering 0.40% at 8.5% a year takes 17.2 days. At 500 it would
+/// take 215. The prose was derived from the real figure and the constant was
+/// not, so the two drifted with nothing to catch it.
+///
+/// ⚠️ IT IS NOT COSMETIC. `park_idle_sol` credits the parked tranche at cost
+/// LESS this haircut, so at 500 the pool recorded 95% of what it had parked
+/// and understated its own backing by 5% of everything in Kestrel. And
+/// `unpark_for_withdrawal` bounds an acceptable unwind by it, so at 500 it
+/// tolerated a print 5% below the mark before refusing — twelve times looser
+/// than the cost it was defending against.
+///
+/// ⚠️ AND IT MAY YET BE ZERO. The owner's position is that redemption unwraps
+/// at NAV rather than swapping out, in which case there is no round trip to
+/// charge and the buffer, its four state fields, the withdraw-during-flash
+/// guard and `max_haircut_bps` all exist to manage a fee nobody pays. 40 is
+/// the measured cost of the path as built, not a claim that the path is
+/// necessary.
+pub const SOL_STAR_HAIRCUT_BPS: u16 = 40;
+
 pub const MIN_BUFFER_BPS: u16 = 2_000; // 20% stays native, always
 
 
@@ -2002,6 +2027,36 @@ mod backing_wiring {
         assert!(FUND_ABOVE_BPS > RELEASE_BELOW_BPS,
             "minting at {} and flattening at {} would trade both ways at once",
             FUND_ABOVE_BPS, RELEASE_BELOW_BPS);
+    }
+
+    /// ⭐ **THE HAIRCUT AND THE DEADBAND HAVE TO AGREE, AND THEY DID NOT.**
+    ///
+    /// `init_config`'s deadband is documented as *"10% of pool clears
+    /// break-even (~17 days at ~8.5% APY)"*. That sentence is a derivation
+    /// from the round-trip cost, so it pins the cost: recovering the haircut at
+    /// the carry rate must take about 17 days. Nothing checked it, and the
+    /// constant sat at 500 — 215 days — for as long as both existed.
+    ///
+    /// This is the check that was missing. It is deliberately written against
+    /// the PROSE's numbers rather than the code's, so the two cannot drift
+    /// apart again without one of them failing.
+    #[test]
+    fn the_haircut_agrees_with_the_deadband_it_sizes() {
+        const CARRY_BPS_PER_YEAR: i64 = 850;   // "~8.5% APY"
+        const CLAIMED_DAYS: i64 = 17;          // "~17 days"
+
+        // Days to recover the round trip out of carry.
+        let days = SOL_STAR_HAIRCUT_BPS as i64 * 365 / CARRY_BPS_PER_YEAR;
+        assert!((days - CLAIMED_DAYS).abs() <= 1,
+            "the haircut implies {days} days to break even, the deadband is \
+             sized for {CLAIMED_DAYS}; one of the two is wrong");
+
+        // And the value that used to be here does not satisfy it, which is the
+        // whole reason this test exists.
+        let old_days = 500 * 365 / CARRY_BPS_PER_YEAR;
+        assert!((old_days - CLAIMED_DAYS).abs() > 1,
+            "500 bps would imply {old_days} days — if that now passes, the \
+             deadband prose has changed and this test needs rereading");
     }
 
     /// The floor is the issuer's, not ours, and it is stated in accounting
