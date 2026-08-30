@@ -842,6 +842,61 @@ bound turns it into a revert instead of a silent zero.
 📌 **For scale: USDG's 412M supply and 63.8M Aave-v4 reserve are real — it is simply not paired to
 ETH.** $30.5M of stable-side depth is comparable to the two routes already on the table.
 
+### ✅ **§NO-KEY-NEEDED — `unoswap2`/`unoswap3` ARE IN THE DEPLOYED ROUTER. THE API KEY BUYS DISCOVERY, NOT EXECUTION.** (owner, 2026-08-30: *"you're telling me we'll need that 1inch api key regardless to have full flexibility? no workaround?"*)
+
+**No. Measured against the live bytecode, the same way `unoswap` was verified in §C2.1:**
+`cast code 0x111111125421cA6dc452d289314280a0f8842A65` → 24,295 bytes, containing
+| selector | | |
+|---|---|---|
+| `unoswap` | `83800a8e` | **PRESENT** — the one we send today, ONE pool |
+| **`unoswap2`** | `8770ba91` | **PRESENT** — TWO pool words |
+| **`unoswap3`** | `89af926a` | **PRESENT** — THREE pool words |
+| `unoswapTo` / `ethUnoswap` / `swap` | | present |
+
+⭐ **SO THE MULTI-HOP IS REACHABLE WITH NO KEY AND NO SOLVER.** `_aggSwap` already builds its own
+calldata and names a pool; `unoswap2` takes a SECOND pool word and nothing else changes. **The API
+key buys route DISCOVERY — which pools to name — and never route EXECUTION.**
+🔑 **AND DISCOVERY IS A PINNED-CONSTANT PROBLEM HERE, NOT A SOLVER PROBLEM.** This protocol trades a
+handful of pairs — WETH/USDC, WBTC/USDC, and stable→USDC for RLUSD/PYUSD/(USDG) — and the tree
+ALREADY pins exactly these: `DEFAULT_UNWIND_DEX`, `CURVE_USDC_RLUSD`, `CURVE_PYUSD_USDC`. **Deep
+pools for major pairs change on a timescale of quarters, not blocks.** A key would re-discover, every
+call, an answer that is already a constant.
+✅ **AND IT PRESERVES §C2.1's DISCIPLINE EXACTLY: the caller names POOLS, never RATES.** A second
+`dex` word is the same kind of input as the first — the contract still bounds on its own balance
+delta and its own oracle floor, so a lying keeper still cannot move the price it executes at.
+
+#### ⇒ THIS ALSO COLLAPSES `_hubSwap` INTO THE SAME CALL
+Today a stable→volatile leg is **two external calls**: `ICurvePool.exchange` (stable→USDC) then
+`_aggSwap` (USDC→volatile). With `unoswap2` both hops are ONE router call carrying two pool words —
+**one approve instead of two, one call instead of two**, and the Curve hop named by a `dex` word with
+`proto = 2`, which `Interfaces.sol:181` already documents (*"`0` UniswapV2, `1` UniswapV3, `2`
+Curve"*). ⇒ **`_routeOf` stops being a Curve-pool table and becomes a `dex`-word table** — and
+§USDG-HAS-NO-ETH-PAIR's "one line for USDG" becomes one line either way.
+
+#### ⛔ BUT THE ENCODING MUST BE FORK-VERIFIED, AND THE TREE SAYS WHY IN ITS OWN WORDS
+`Interfaces.sol:179` on the single-pool word: *"**THE `dex` WORD'S BIT LAYOUT WAS MEASURED THE SAME
+WAY AND IS NOT GUESSABLE:** four candidate encodings were tried on a fork and **exactly one moved
+tokens**."* And the V2 candidate *"returned `ok` with ZERO tokens moved"*. ⇒ **`unoswap2`'s argument
+order and the `proto = 2` Curve encoding are UNVERIFIED here and must be measured on a fork before
+either is trusted** — a wrong encoding reverts identically to the empty route we have today, or worse,
+succeeds while moving nothing. **The balance-delta bound catches it; the point is not to ship it.**
+📌 **This is §E357's own instruction, applied one level out:** *"V6's `dex`-word bit layout must be
+verified against the deployed router — a wrong encoding reverts identically to the empty route we
+have now, so verify on a fork, do not guess."*
+
+### ▶️ AND THE WBTC RUNG: v4-vs-v3 BY TERMS DOES **NOT** HIT THE CONVERGENCE OBJECTION
+Owner: *"WBTC must be v4 vs v3 whichever is cheaper also."* **`DeployL1_s:646`'s refutation does not
+reach this one, and the reason is specific:** it warns that two legs picking on a SHARED signal
+converge on **the same stable's depth**. This choice is between **two Aave versions for the same
+COLLATERAL (WBTC)**, and the ETH leg cannot make it — the ETH leg is Morpho weETH/RLUSD and
+weETH/PYUSD and holds no WBTC collateral at all. ⇒ **No shared signal, no convergence, today.**
+⚠️ **THE CONDITION UNDER WHICH IT WOULD BITE, SO IT IS NOT REDISCOVERED LATER:** the comparator picks
+on the DEBT side too, and today `AAVE_V3_WBTC_DEBT` defaults to **USDC** while the ETH leg is
+deliberately off USDC. **If the ETH leg ever moves onto a stable the WBTC rung can also pick, the
+objection applies again in full.** ⇒ **Constrain the comparator to the COLLATERAL/version axis, and
+keep the debt asset a deploy decision** — which is what `AaveV3Venue`'s `stable` constructor argument
+already makes it.
+
 ### 🔴🔴 **§WHY-1INCH-AT-ALL — IT IS A CALLBACK HOST, NOT AN AGGREGATOR, AND THE OWNER IS RIGHT TO ASK** (owner, 2026-08-30: *"why do we need 1inch at all if it just moves everything through one venue like you set it up right now. there is cowswap and so many others"*)
 
 **Traced, and the answer is smaller than the dependency.** `_aggSwap` sends ONE selector
