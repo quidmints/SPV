@@ -563,10 +563,13 @@ library ChannelLib {
         external pure returns (uint sats)
     {
         if (script.length == 0) revert ReserveNotPaid();
-        // `sumPaidToScript`, NOT `sumOutputValuesToScript`: the latter asserts a LEGACY
-        // serialisation and a wallet-built funding tx carries a witness. Sums every matching
-        // output, so a top-up split across two outputs to the reserve still counts in full.
-        sats = BitcoinTx.sumPaidToScript(rawTx, script);
+        // ⚠️ LEGACY, WITNESS-STRIPPED BYTES — the same shape every other proof path takes, and
+        // it is forced rather than chosen: `BitcoinTx.txid` double-SHA256s its input WITHOUT
+        // stripping a witness, so segwit bytes would hash to something that is not the txid and
+        // fail SPV inclusion. `TxInclusion.raw` is already witness-stripped for exactly this
+        // reason. Sums EVERY matching output, so a top-up split across two of them still counts
+        // in full.
+        sats = BitcoinTx.sumOutputValuesToScript(rawTx, script);
         if (sats == 0) revert ReserveNotPaid();
     }
 

@@ -249,9 +249,6 @@ pub enum PithyQuip {
     #[msg("issuance would exceed the net exposure it funds")]
     ExceedsNetExposure,
 
-    #[msg("no paper has arrived since the last settle")]
-    NothingToSettle,
-
     /// Not a failure. Coverage sits inside the band, so a net-long liability
     /// is still payable out of dollars and the round trip would be a pure
     /// loss — which the cost sweep shows is real at every price, including
@@ -264,6 +261,19 @@ pub enum PithyQuip {
     /// discount in a run.
     #[msg("the pool holds no paper to redeem for this ticker")]
     NoPaperHeld,
+
+    #[msg("another delivery leg ran too recently on this ticker")]
+    DeliveryCoolingDown,
+
+    /// An equity feed that has stopped printing is the on-chain shadow of a
+    /// closed primary market.
+    #[msg("price is too stale to send a primary-market order")]
+    PriceTooStaleToDeliver,
+
+    /// Repointing the hedge while paper is held would strand it: the vault is
+    /// seeded on the mint, so the old holding becomes unreachable.
+    #[msg("redeem the existing hedge to flat before repointing it")]
+    HedgeStillHeld,
 }
 
 /// Actuary: adaptive risk
@@ -4655,6 +4665,43 @@ mod hazard_tests {
         assert_eq!(one_x, (es).clamp(a.eff_sigma(), MAX_COLLAR_BPS));
         assert!(three_x <= one_x, "higher leverage consumes collateral faster");
         assert!(one_x >= a.eff_sigma(), "never below one sigma");
+    }
+
+    /// 🔴 **THE LEVERAGE DIVISOR IN `collar_bps` IS INERT, AND THE TEST ABOVE
+    /// CANNOT SEE IT.** `three_x <= one_x` is satisfied by EQUALITY, and
+    /// equality is what happens: the band is
+    /// `max(sig, min(MAX_COLLAR_BPS, es*100/lev))`, so the `/lev` term only
+    /// binds while `es > sig*lev/100` — more than 10 sigma at 10x, more than
+    /// 20 sigma at 20x. A fitted tail does not reach that, so the sigma floor
+    /// wins and the collar is the SAME BAND at every leverage.
+    ///
+    /// The docstring says "higher leverage consumes collateral faster" and the
+    /// arithmetic agrees — but the band that decides WHEN to act does not
+    /// tighten, so a 20x position is liquidated at the same move as a 5x one
+    /// while holding a quarter of the collateral behind it. That is the gap
+    /// `a_netted_book_is_flat_until_the_loser_gaps_through_its_pledge`
+    /// measures the cost of.
+    #[test]
+    fn the_collar_does_not_actually_tighten_with_leverage() {
+        for (label, a) in [("cold-start", actuary(200, 900, 0, 0, 0)),
+                           ("fitted", with_exceedances(actuary(200, 900, 0, 0, 0), 40, 150, 2_000))] {
+            let sig = a.eff_sigma();
+            let es = a.expected_shortfall_bps(COLLAR_BREACH_BPS);
+            print!("  {:<11} sigma {:>5}  ES {:>5} |", label, sig, es);
+            let mut floored_from = None;
+            for lev in [100i64, 200, 300, 500, 1_000, 2_000] {
+                let b = collar_bps(lev, &a);
+                print!(" {}x:{}", lev / 100, b);
+                if b == sig && floored_from.is_none() { floored_from = Some(lev); }
+            }
+            println!("  -> floors at {}x", floored_from.unwrap_or(0) / 100);
+            // The band is non-increasing in leverage, and stops moving once the
+            // sigma floor takes over. Past that point leverage is invisible to
+            // the band while it keeps shrinking the pledge behind it.
+            assert_eq!(collar_bps(1_000, &a), collar_bps(2_000, &a),
+                "{label}: 10x and 20x must already share the floor");
+            assert!(collar_bps(2_000, &a) >= sig, "{label}: never below sigma");
+        }
     }
 
     /// §COLD-START — an UNMEASURED tail must be a BOUND, not a guess.

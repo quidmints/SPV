@@ -184,7 +184,26 @@ rescue it either — the seller could reveal without paying.
 rail's anti-conjuring guarantee is therefore necessarily a **BOUND**, never a proof, and
 `provenSatsAvailable` is the right IDEA. **Only its FUNDER is wrong.**
 
-▶️ **`§LN-RESERVE-FUNDER` — THE FIX, AND IT REUSES MACHINERY THAT IS ALREADY BUILT AND TESTED.**
+✅ **`§LN-RESERVE-FUNDER` — BUILT AND WIRED END TO END 2026-08-30.** `proveHopReserve` +
+`ChannelLib.reserveSats` on the EVM; `SIG_PROVE_HOP_RESERVE` (listed in `HOP_BTCCHANNELS_SIGS`, or
+the §E178 policy would refuse to sign it) + `encode_prove_hop_reserve` in Rust; and
+`reconcile_hop_reserve` called from the **existing** channel reconciler, which already holds `evm`,
+`esplora` and the hop wallet and already runs on a timer — no new task. Owner chose the hop's own
+wallet address as the backing (*"the third"*). 8 tests; 160 BTC-suite pass / 0 fail; ABI check 0
+drifted. **Three things the build itself forced, each a simplification:**
+1. **`_provenTxid` is now SHARED** by `_provenDeposit` and `proveHopReserve` — inlining the funder
+   put `BTCChannels` **386 bytes over EIP-170**, and sharing recovered 341 of them. It also gives the
+   guarantee for free: one txid, one bank, so a tx cannot count as a deposit AND a reserve.
+2. **`sumPaidToScript` was written, then DELETED as unnecessary.** `BitcoinTx.txid` double-SHA256s
+   its input WITHOUT stripping a witness, so every proof path must pass LEGACY bytes —
+   `TxInclusion.raw` already does. The long-standing `sumOutputValuesToScript` therefore fits, and
+   the witness-aware twin (and the two-output fixture and `PoolScriptLadder.t.sol` that existed only
+   to justify it) came out again. ⚠️ **A test had passed on segwit bytes only because `SpvYes`
+   returns true unconditionally — the mock hid a wrong txid.** The serialisation is now pinned.
+3. **No local "already proven" ledger.** `swapInUsed(txid)` on-chain is the authority, so a restart
+   cannot double-prove and no second copy of that truth can drift from the chain.
+
+▶️ ~~**`§LN-RESERVE-FUNDER` — THE FIX, AND IT REUSES MACHINERY THAT IS ALREADY BUILT AND TESTED.**~~
 Keep the bound; replace the funder. `parkProvenSats` raises the allowance by SPLICING sats into an LP
 channel, which needs the LP's 2-of-2 co-signature — so a rail meant to serve swappers while LPs sleep
 can only be funded while one is awake. **Instead let the fleet raise its OWN allowance by SPV-proving
@@ -212,7 +231,9 @@ the withdrawal-splice clamp and close accounting (`:685-700`, `:1627-1635`, `:25
 files. **Phase 1 = add the funder** (self-contained, reversible, unbreaks the rail). **Phase 2 = the
 deletions**, once phase 1 is proven.
 
-🔴 **ONE BLOCKING QUESTION BEFORE PHASE 1 — WHICH ADDRESS BACKS THE RESERVE.** Getting this wrong
+✅ **ANSWERED — the hop's own wallet address (owner, 2026-08-30: *"the third"*), read from the
+contract pin rather than derived, since BDK reveals a fresh address on demand.**
+~~ONE BLOCKING QUESTION BEFORE PHASE 1 — WHICH ADDRESS BACKS THE RESERVE.~~ Getting this wrong
 strands protocol BTC, so it is not a guess to make. `BTC_DEPOSIT_KEY` is documented as the fleet's
 **INTERNAL** key, used TWEAKED with a per-swap CLTV/terms leaf to derive deposit addresses. A reserve
 has no terms and so no leaf. The options differ in who can spend the backing.

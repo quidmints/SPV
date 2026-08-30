@@ -255,19 +255,5 @@ if __name__ == "__main__":
         payout_hex="512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
         deadline=800_042,
         fee_sats=1_000,
-    ), one(
-        # (§POOL-SCRIPT) The SAME channel armed with the two-output ladder. Same funding
-        # outpoint and deadline as `canonical`, so the only difference under test is the extra
-        # output -- which is what lets a test show `_exitStructure` ignores it rather than
-        # showing two unrelated fixtures happen to behave differently.
-        label="canonical-two-output",
-        funding_txid_hex="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
-        vout=1,
-        funding_sats=250_000,
-        payout_hex="512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
-        deadline=800_042,
-        fee_sats=1_000,
-        pool_hex="5120c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
-        pool_sats=40_000,
     )]
     print(json.dumps({"exits": out}, indent=2))

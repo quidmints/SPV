@@ -1416,106 +1416,178 @@ mod flash_window_tests {
 }
 
 
-// §DELIVER — Backed xStocks primary market, Market Flow leg.
+// §HEDGE — the pool's own paper, bought through Backed's Market Flow.
 //
-// ⭐ **THIS IS THE ONE BACKED FLOW A PROGRAM CAN DRIVE.** Backed exposes three
-// primary-market flows and only this one is reachable from a PDA:
+// ⭐ **THIS HEDGES THE COMMON FACTOR, NOT THE NAMES, AND THAT IS THE WHOLE
+// DESIGN.** An earlier cut bought cover per ticker and it was backwards. From
+// `ticker_reserve_dollars`: *"Netting within a ticker needs no correlation
+// input at all: it is the same asset, so the offset is exact rather than
+// modelled."* Alice long AAPL against Bob short AAPL is EXACTLY flat. Buying
+// AAPL paper against that book hedges something already hedged.
 //
-//   • **xChange (atomic RFQ)** — returns a base64 partially-signed
-//     `VersionedTransaction` that the client must deserialize, CO-SIGN and
-//     submit inside a ~60-90s blockhash window. A PDA cannot co-sign a
-//     transaction someone else built; PDA signing is `invoke_signed` from
-//     inside a program. So xChange needs an off-chain operator holding a hot
-//     key, which is a custody surface we do not want.
-//   • **xPort (in-kind)** — share↔token through Alpaca, entirely off-chain.
-//   • **Market Flow** — send stablecoins to a product-specific ISSUANCE
-//     address to mint; send tokens to a REDEMPTION address to redeem. That is
-//     a plain SPL transfer to a fixed address, which is exactly what a vault
-//     PDA can do with `invoke_signed`. No keypair, no signing window.
+// From `facility_sim::Cfg::beta_bps`: *"a share `beta` of every ticker's
+// exposure is COMMON, so it does not net away against another ticker. The
+// book's effective net is therefore larger than the per-ticker net suggests,
+// and the gap widens precisely in the regimes that produce large moves."*
 //
-// ⚠️ **WHAT WE PAY FOR THAT IS ATOMICITY.** Market Flow is asynchronous: the
-// dollars leave now and the paper arrives later, at a price nobody locked.
-// The gap is a real cost and it is NOT the round-trip spread `facility_sim`
-// already charges — that prices the spread, not the exposure carried while
-// the order is in flight. `Cfg` has no term for it (grep: no lag, latency,
-// delay or settle field), so the sim currently cannot price the leg this
-// module implements. Treat `pending_*` below as the on-chain measurement that
-// would calibrate it.
+// So the idiosyncratic component cancels on its own and the common component
+// never does — and the common component is a POOL-LEVEL quantity. Per-ticker
+// cover hedged the part that cancels and left the part that doesn't.
 //
-// 🔴 **WE ONLY EVER NEED PAPER IN ONE DIRECTION.** The pool is short the NET
-// of each ticker's book. Net long means the pool owes an UNBOUNDED upside, and
-// nothing but the asset itself funds that — which is what the funding-match
-// result says. Net short means the pool owes a payout that GROWS AS PRICE
-// FALLS, and price floors at zero, so that liability is bounded at 100% of
-// notional and is fundable with cash. Buying paper against a net-short book
-// makes the exposure worse, not better. `issue_paper` enforces the direction.
-/// Backed's stated floor on a primary-market order, in accounting dollars.
+// ── WHY THIS IS SMALL ────────────────────────────────────────────────────────
+//
+// Hedging at the level the risk actually lives at removes every bridge the
+// per-ticker version needed:
+//
+//   • one instrument, so one set of sweeping addresses to trust an admin on
+//     instead of two per deliverable name;
+//   • no per-ticker state, so `TickerRisk` keeps its shape and there is no
+//     realloc migration;
+//   • `reconcile_ticker_reserve` is untouched, so nothing here reaches into
+//     the liquidation paths;
+//   • the trigger already read `max_liability / total_deposits`, which is
+//     pool-level. Cover is now read at the same level, so there is no bridging
+//     between them at all.
+//
+// ⚠️ **INSTRUMENT-AGNOSTIC ON PURPOSE.** Nothing below names an index. The
+// admin points `Hedge` at whatever instrument suits the book — SPY, QQQ, VOO
+// and IWM are all in `XSTOCK_MINTS`, and so is every single name, so a
+// concentrated book can hedge with the name it is concentrated in. The
+// machinery does not care; it only needs a mint it can price and an issuer
+// that will create and redeem it.
+//
+// 🔴 **PAPER IS ONLY EVER NEEDED IN ONE DIRECTION.** The pool is short the net
+// of its book. Net long owes an UNBOUNDED upside and nothing but the asset
+// funds it. Net short owes a payout that grows as price FALLS, and price
+// floors at zero, so that liability is bounded at 100% of notional and is
+// fundable with cash. The pool never goes SHORT paper — it goes FLAT.
+//
+// ── THE STATE ────────────────────────────────────────────────────────────────
+//
+// Two numbers, because there are two questions:
+//
+//   1. **How much of the book is funded?**  `Hedge::covered`. A RISK figure,
+//      read by the trigger, which is the only thing that reads it.
+//   2. **How much does the issuer still owe us?**  `Depository::
+//      paper_in_transit`. A LIQUIDITY figure — and the only one, because cover
+//      cancels out of `withdrawable()` while money in the post does not.
+//
+// Everything else is derived and therefore cannot disagree with reality: units
+// held are `paper_vault.amount`, read from the chain. There is no stored copy
+// and so no instruction to reconcile one — the cut that had both was
+// permissionless, and one dust unit of the hedge mint sent to the vault would
+// have wiped the record of an arbitrarily large amount in flight.
+
+/// Backed's floor on a primary-market order, in accounting dollars.
 ///
-/// ⚠️ MEASURED FROM THE LIVE PUBLIC API, NOT FROM THE DOCS. 712 of Backed's 715
-/// assets carry `minOrderFiatValue: 1000` (one at 100, one at 500). The
-/// `TICKET = 100_000` constant in `facility_sim` cites "Backed's primary mint
-/// minimum is $100k" and is wrong by 100x; it is a sim constant and is left
-/// alone here rather than silently reconciled, because changing it moves
-/// measured results.
+/// ⚠️ MEASURED FROM THE LIVE PUBLIC API, NOT THE DOCS. 712 of Backed's 715
+/// assets carry `minOrderFiatValue: 1000` (one at 100, one at 500).
 pub const MIN_ORDER_DOLLARS: u64 = 1_000_000_000; // $1,000 at 1e6
 
-/// Per-ticker delivery wiring: where Backed's sweeping addresses are, what is
-/// in flight, and what this product's order bounds are.
+/// Minimum gap between any two hedge legs.
 ///
-/// Seeded on the ticker rather than folded into `TickerRisk` so that enabling
-/// delivery for a name never reallocs a live risk account.
+/// Backed charges its minimum per ORDER, so the cheapest attack on a
+/// permissionless flow is not a large trade but many small ones; the second
+/// cheapest is issuing and redeeming across the band in adjacent slots. Both
+/// legs stamp `last_flow`, so the cooldown is shared rather than
+/// per-direction, and an hour sits well inside the settlement latency of the
+/// flow itself — it costs a real rebalance nothing.
+pub const HEDGE_COOLDOWN_SECS: i64 = 3_600;
+
+/// How stale the instrument's price may be and still permit a leg.
+///
+/// A different question from `MAX_PRICE_AGE`, which asks whether a price is
+/// safe to VALUE a position with. This asks whether the primary market is
+/// open. The program cannot read Backed's `maxOrderFiatValue: 0` for a closed
+/// period, but a closed market stops the Pyth equity feed printing, and that it
+/// can read.
+pub const MAX_HEDGE_STALENESS_SLOTS: i64 = 6_000;
+
+/// Coverage at which the uncovered book stops being payable out of dollars,
+/// and the level it must fall back to before paper is sent away again.
+///
+/// ⭐ **WHEN TO HEDGE IS A SOLVENCY QUESTION, NOT A P&L ONE — MEASURED, NOT
+/// ASSERTED.** `facility_sim_report::the_round_trip_cost_at_which_hedging_stops_losing`
+/// sweeps the round trip from 60 bps to ZERO and every hedging arm still loses
+/// 226-327 bps against simply carrying (+9). A free trade does not rescue it,
+/// so no trigger can time its way out: the loss is in the HOLDING — basis
+/// drift per step, and `RUN_ILLIQUIDITY_BPS` for selling shares rather than
+/// spending dollars exactly when there is a run.
+///
+/// That kills the P&L framing and leaves the question `facility_sim_report`
+/// says was the real one: *"P&L asks did we make money, funding asks could we
+/// pay without touching deposits."* Paper is bought to keep a promise.
+///
+/// ⚠️ Coverage is a fraction of the CAPACITY CEILING, not of exposure:
+/// `has_capacity` refuses once `max_liability > total_deposits`, so it runs
+/// 0..10_000 against that ceiling.
+pub const COVERAGE_MINT_BPS: i64 = 7_500;
+pub const COVERAGE_FLAT_BPS: i64 = 5_000;
+
+/// Basis points. `etc::BPS` is `pub(crate)` and this is its only reader here.
+const BPS_I: i64 = 10_000;
+
+/// Coverage of the pool's capacity ceiling net of the hedge, in bps.
+///
+/// The hedge retires liability rather than adding assets, so it is subtracted
+/// from the numerator. `has_capacity` deliberately does NOT read this: capacity
+/// stays conservative, so a hedge funds the promise the pool has already made
+/// rather than unlocking a larger one.
+pub fn coverage_bps(bank: &Depository, covered: u64) -> i64 {
+    if bank.total_deposits == 0 { return i64::MAX; }
+    let uncovered = bank.max_liability.saturating_sub(covered);
+    ((uncovered as u128 * BPS_I as u128)
+        / bank.total_deposits as u128).min(i64::MAX as u128) as i64
+}
+
+/// The pool's hedge: where the issuer's addresses are, what instrument, and
+/// how much of the book is funded.
 #[account]
 #[derive(InitSpace)]
-pub struct TickerDelivery {
-    pub ticker: [u8; 8],
+pub struct Hedge {
     pub bump: u8,
 
-    /// Backed's product-specific issuance sweeping address — a token account
-    /// that accepts USDC/USDG and mints xStocks against it.
+    /// The instrument. Any mint this build ships in `XSTOCK_MINTS` — index or
+    /// single name, whichever suits the book.
+    pub mint: Pubkey,
+    /// The issuer's issuance sweeping address.
     ///
     /// ⚠️ SOURCED FROM AN AUTHENTICATED ENDPOINT, SO IT IS ADMIN-SET, NOT
-    /// DERIVED. Nothing on-chain can prove this address is Backed's; the
+    /// DERIVED. Nothing on-chain can prove this address is the issuer's; the
     /// multisig asserting it is the whole of the guarantee. That is why
-    /// `set_delivery` is admin-gated and why `issue_paper` refuses a zeroed
-    /// address rather than treating "unset" as "send anywhere".
+    /// `set_hedge` is permissioned and the flow legs are not — and why keeping
+    /// it to ONE instrument matters, since it is one address pair to vouch for
+    /// rather than two per name.
     pub issuance: Pubkey,
-    /// Backed's redemption sweeping address — accepts `xstock_mint`.
+    /// The issuer's redemption sweeping address.
     pub redemption: Pubkey,
-    /// The xStock SPL mint, cross-checked against `XSTOCK_MINTS` on set.
-    pub xstock_mint: Pubkey,
 
-    /// Dollars sent to `issuance` whose paper has not yet landed.
-    /// Solvency must count these: they have left the vault and bought nothing
-    /// the pool can yet see.
-    pub pending_issue: u64,
-    /// Raw xStock units sent to `redemption` whose dollars have not landed.
-    pub pending_redeem: u64,
+    /// Dollars of book funded by paper, at cost. Begins when the dollars leave
+    /// (the order will fill) and ends when the paper leaves. Read by
+    /// `coverage_bps` and by nothing else.
+    pub covered: u64,
 
-    /// Raw xStock units the pool believes it holds, as of the last settle.
-    /// The delta against the ATA's real balance is what `settle_issue` credits.
-    pub held_raw: u64,
-
-    /// Per-order bounds in accounting dollars, mirroring Backed's
-    /// `limitsPerPeriod.market`. `max_order` of 0 means delivery is halted for
-    /// this product — which is also how Backed reports a closed market
-    /// (`maxOrderFiatValue: 0` in the `closed` period for 714 of 715 assets).
+    /// Per-order bounds in accounting dollars, mirroring the issuer's
+    /// `limitsPerPeriod.market`. `max_order == 0` means halted — which is also
+    /// how a CLOSED market is reported (`maxOrderFiatValue: 0` in the `closed`
+    /// period for 714 of 715 assets).
     pub min_order: u64,
     pub max_order: u64,
 
     pub last_flow: i64,
 }
 
-impl TickerDelivery {
-    pub const SEED: &'static [u8] = b"deliver";
+impl Hedge {
+    pub const SEED: &'static [u8] = b"hedge";
 }
 
-/// Admin wiring. Separate from `update_config` because it is per-ticker and
-/// `ProgramConfig` is a single account — 464 deliverable names cannot live in
-/// one config, and `update_config` is documented as THE ONLY config
-/// instruction for the pool-wide settings, which these are not.
+/// Admin wiring. A new PDA rather than fields on `ProgramConfig`, because that
+/// account's `SPACE` is hand-computed with no slack — its own docstring warns
+/// that a fresh deploy allocates exactly what it needs and "any field added
+/// later needs a real realloc". A separate account needs no migration of
+/// anything that already exists.
 #[derive(Accounts)]
-#[instruction(ticker: String)]
-pub struct SetDelivery<'info> {
+pub struct SetHedge<'info> {
     #[account(mut, address = config.admin @ PithyQuip::Unauthorized)]
     pub admin: Signer<'info>,
 
@@ -1523,48 +1595,64 @@ pub struct SetDelivery<'info> {
     pub config: Box<Account<'info, ProgramConfig>>,
 
     #[account(init_if_needed, payer = admin,
-        space = 8 + TickerDelivery::INIT_SPACE,
-        seeds = [TickerDelivery::SEED, ticker.as_bytes()], bump)]
-    pub delivery: Box<Account<'info, TickerDelivery>>,
+        space = 8 + Hedge::INIT_SPACE,
+        seeds = [Hedge::SEED], bump)]
+    pub hedge: Box<Account<'info, Hedge>>,
 
     pub system_program: Program<'info, System>,
 }
 
-pub fn set_delivery(ctx: Context<SetDelivery>, ticker: String,
-    issuance: Pubkey, redemption: Pubkey, xstock_mint: Pubkey,
+pub fn set_hedge(ctx: Context<SetHedge>, ticker: String,
+    issuance: Pubkey, redemption: Pubkey, mint: Pubkey,
     min_order: u64, max_order: u64) -> Result<()> {
     // The mint is not taken on the admin's word: it has to be the one this
-    // build ships for that ticker. A delivery account pointing at a mint the
-    // program cannot price is a position nobody can value.
+    // build ships for that ticker. A hedge pointing at a mint the program
+    // cannot price is a position nobody can value. Unlike the sweeping
+    // addresses, this IS verifiable on-chain — so it is verified.
     let expect = deliverable_mint(ticker.as_str())
         .ok_or(PithyQuip::NotDeliverable)?;
-    require!(xstock_mint.to_string() == expect, PithyQuip::InvalidMint);
+    require!(mint.to_string() == expect, PithyQuip::InvalidMint);
     require!(issuance != Pubkey::default()
           && redemption != Pubkey::default(), PithyQuip::InvalidParameters);
-    // A floor below Backed's own refuses at their end after we have already
-    // moved the money, so it is checked here instead.
     require!(min_order >= MIN_ORDER_DOLLARS, PithyQuip::InvalidParameters);
     require!(max_order >= min_order || max_order == 0, PithyQuip::InvalidParameters);
 
-    let d = &mut ctx.accounts.delivery;
-    d.ticker = Depositor::pad_ticker(ticker.as_str());
-    d.bump = ctx.bumps.delivery;
-    d.issuance = issuance;
-    d.redemption = redemption;
-    d.xstock_mint = xstock_mint;
-    d.min_order = min_order;
-    d.max_order = max_order;
+    // Changing instrument while paper is held would strand it: the vault is
+    // seeded on the mint, so the old holding becomes unreachable by these
+    // instructions. Redeem to flat first.
+    let h = &mut ctx.accounts.hedge;
+    require!(h.mint == Pubkey::default() || h.mint == mint || h.covered == 0,
+             PithyQuip::HedgeStillHeld);
+
+    h.bump = ctx.bumps.hedge;
+    h.mint = mint;
+    h.issuance = issuance;
+    h.redemption = redemption;
+    h.min_order = min_order;
+    h.max_order = max_order;
     Ok(())
 }
 
+/// One accounts struct for both legs. They move opposite assets in opposite
+/// directions but read the same accounts to decide, and splitting them
+/// duplicated every constraint — which is how one leg ended up with a `mut`
+/// the other lacked while both wrote the same account.
 #[derive(Accounts)]
 #[instruction(ticker: String)]
-pub struct MarketFlow<'info> {
+pub struct HedgeFlow<'info> {
     /// Any signer. The gate is not WHO calls but WHAT the pool's own state
-    /// permits — see `issue_paper`. Admin retains the only discretionary
-    /// power that matters, which is `set_delivery`: the sweeping addresses
-    /// come from an authenticated endpoint and nothing on-chain can prove
-    /// them, so that one stays permissioned and this does not.
+    /// permits: the destination is the admin-set sweeping address, the
+    /// direction is forced by the book's sign, the size is bounded by the
+    /// exposure being funded, and the moment is `coverage_bps` read from pool
+    /// state. A caller who cannot pick the venue, the side, the size or the
+    /// moment cannot move value anywhere the pool was not already going.
+    ///
+    /// ⚠️ Publishing a rule normally costs execution quality — the sim prices
+    /// that as `adverse_fill_bps`, reasoning that a predictable buyer can be
+    /// stood in front of. **That does not transfer here.** Market Flow is
+    /// primary creation against the issuer at NAV; there is no book to stand
+    /// in front of. Which is what makes on-chain policy affordable on this leg
+    /// and not on a secondary venue.
     #[account(mut)]
     pub cranker: Signer<'info>,
 
@@ -1574,14 +1662,15 @@ pub struct MarketFlow<'info> {
     #[account(mut, seeds = [b"depository"], bump)]
     pub bank: Box<Account<'info, Depository>>,
 
-    #[account(mut, seeds = [TickerDelivery::SEED, ticker.as_bytes()],
-        bump = delivery.bump)]
-    pub delivery: Box<Account<'info, TickerDelivery>>,
+    #[account(mut, seeds = [Hedge::SEED], bump = hedge.bump)]
+    pub hedge: Box<Account<'info, Hedge>>,
 
+    /// The instrument's own risk account, for its price clock. Read-only:
+    /// the hedge writes no per-ticker state, which is what keeps
+    /// `reconcile_ticker_reserve` and the liquidation paths out of this.
     #[account(seeds = [b"risk", ticker.as_bytes()], bump = ticker_risk.bump)]
     pub ticker_risk: Box<Account<'info, TickerRisk>>,
 
-    /// The stablecoin leaving the pool, or arriving back.
     #[account(constraint = config.registered_mints.contains(&stable_mint.key())
         @ PithyQuip::InvalidMint)]
     pub stable_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -1589,107 +1678,79 @@ pub struct MarketFlow<'info> {
     #[account(mut, seeds = [b"vault", stable_mint.key().as_ref()], bump)]
     pub stable_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// Backed's sweeping address for this leg. Checked against the delivery
-    /// account in the handler, because which one is correct depends on
-    /// direction and Anchor cannot express that in a constraint here.
-    /// CHECK: validated against `delivery.issuance` / `delivery.redemption`.
+    #[account(address = hedge.mint @ PithyQuip::InvalidMint)]
+    pub hedge_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    /// The pool's own paper. **The holding itself, not a copy of it.**
+    #[account(mut, seeds = [b"paper", hedge_mint.key().as_ref()], bump)]
+    pub paper_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    /// CHECK: validated against `hedge.issuance` / `hedge.redemption` in the
+    /// handler, because which is correct depends on direction.
     #[account(mut)]
     pub sweep_destination: AccountInfo<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-/// ⭐ **WHEN TO MINT IS A SOLVENCY QUESTION, NOT A P&L ONE — MEASURED, NOT
-/// ASSERTED.** `facility_sim_report::the_round_trip_cost_at_which_hedging_stops_losing`
-/// sweeps the round trip from 60 bps down to ZERO and every hedging arm still
-/// loses 226-327 bps against simply carrying (+9). A free trade does not
-/// rescue it, so the loss is not in the trading and no trigger can time its
-/// way out: it is in the HOLDING — basis drift per step, and
-/// `RUN_ILLIQUIDITY_BPS` for having to sell shares rather than spend dollars
-/// exactly when there is a run.
+/// Timing and venue state, shared by both legs.
 ///
-/// That kills the P&L framing and leaves the one `facility_sim_report` says
-/// was the real question all along: *"P&L asks did we make money, funding asks
-/// could we pay without touching deposits."* A net-long book owes an UNBOUNDED
-/// upside and nothing but the asset funds it; a net-short book owes a payout
-/// bounded by a total loss, which cash funds. So paper is bought to keep a
-/// promise, not to win a trade, and the threshold is the coverage ratio —
-/// `max_liability` against `total_deposits`, the two terms `solvency_bps`
-/// already reads.
+/// Every leg answers the same two questions before its own: is another leg
+/// still settling, and is the primary market open.
 ///
-/// Deliberately NOT a price band. A price trigger is a bet on the path; this
-/// is a statement about whether the pool can pay, which is the thing the
-/// deposit contract actually promises.
-pub fn coverage_bps(bank: &Depository) -> i64 {
-    if bank.total_deposits == 0 { return i64::MAX; }
-    ((bank.max_liability as u128 * BPS_I as u128)
-        / bank.total_deposits as u128).min(i64::MAX as u128) as i64
+/// ⚠️ **THE DOLLAR BOUNDS ARE NOT HERE, AND THAT IS DELIBERATE.** `min_order`
+/// and `max_order` are denominated in dollars; the issue leg is too, and the
+/// redeem leg is denominated in UNITS. Converting needs a price this program
+/// cannot yet produce soundly — `Stock::value_at` is `exposure * price` with a
+/// convention that does not obviously carry over, and the Scaled UI multiplier
+/// means raw units are not a share count anyway.
+///
+/// 🔴 An earlier cut papered over that by sizing the redemption with the COVER
+/// BASIS, and it created a LOCKUP: `reconcile` can legitimately set cover to
+/// zero after a failed issuance, and a zero basis then failed the minimum, so
+/// paper the pool genuinely held could never be sent back. The issuer refusing
+/// an undersized redemption costs one failed order; a pool that cannot unwind
+/// costs whatever the position does next.
+fn hedge_preflight(hedge: &Hedge, risk: &TickerRisk) -> Result<i64> {
+    let clock = Clock::get()?;
+
+    require!(clock.unix_timestamp.saturating_sub(hedge.last_flow)
+                >= HEDGE_COOLDOWN_SECS, PithyQuip::DeliveryCoolingDown);
+
+    // A stale equity feed is the on-chain shadow of a shut primary market, and
+    // it fails safe: a fresh feed on a halted product still hits
+    // `max_order == 0`.
+    require!((clock.slot as i64).saturating_sub(risk.actuary.last_price_slot)
+                <= MAX_HEDGE_STALENESS_SLOTS, PithyQuip::PriceTooStaleToDeliver);
+
+    require!(hedge.max_order > 0, PithyQuip::DeliveryHalted);
+    Ok(clock.unix_timestamp)
 }
 
-/// Basis points, locally — `etc::BPS` is `pub(crate)` and this section is the
-/// only reader outside it that needs the scale.
-const BPS_I: i64 = 10_000;
-
-/// Coverage at which uncovered net-long exposure stops being tolerable.
-///
-/// Below this the pool can pay a net-long liability out of dollars; above it,
-/// the unbounded leg needs the asset behind it. It is a band rather than a
-/// line so that a book oscillating around the threshold does not churn the
-/// round trip — the one cost the sweep above shows is real but not decisive.
-pub const COVERAGE_MINT_BPS: i64 = 7_500;
-pub const COVERAGE_FLAT_BPS: i64 = 5_000;
-
-/// Send dollars to Backed's issuance address. Paper arrives later.
-///
-/// **PERMISSIONLESS BY CONSTRUCTION.** The caller chooses nothing: the
-/// destination is the admin-set sweeping address, the direction is forced by
-/// the book's own sign, the size is bounded by the net exposure being funded,
-/// and the trigger is `coverage_bps` read from the pool's own state. A crank
-/// that cannot pick the venue, the side, the size or the moment cannot use
-/// this to move value anywhere the pool was not already going.
-///
-/// ⚠️ Publishing the rule normally costs execution quality — the sim prices
-/// that as `adverse_fill_bps`, on the reasoning that a predictable buyer can
-/// be stood in front of. **That reasoning does not transfer to this leg.**
-/// Market Flow is primary creation against the issuer at NAV; there is no book
-/// to stand in front of. Which is what makes putting the policy on-chain, and
-/// therefore making execution permissionless, affordable here and not on a
-/// secondary venue.
-pub fn issue_paper(ctx: Context<MarketFlow>, _ticker: String,
+/// Send dollars to the issuer. Paper arrives later.
+pub fn issue_paper(ctx: Context<HedgeFlow>, _ticker: String,
     amount: u64) -> Result<()> {
-    let d = &ctx.accounts.delivery;
-    require!(d.issuance != Pubkey::default(), PithyQuip::InvalidParameters);
-    require_keys_eq!(ctx.accounts.sweep_destination.key(), d.issuance,
-        PithyQuip::InvalidParameters);
+    require_keys_eq!(ctx.accounts.sweep_destination.key(),
+        ctx.accounts.hedge.issuance, PithyQuip::InvalidParameters);
 
-    // 🔴 DIRECTION IS THE POINT, NOT A SANITY CHECK. Paper funds an unbounded
-    // upside on a net-long book. Against a net-short book the pool's liability
-    // grows as price FALLS, so buying the asset deepens the loss it is meant
-    // to fund — and that liability is bounded at a total loss anyway, which
-    // cash covers. Refusing here is what keeps the two cases from being
-    // treated as one because the barrier happens to be symmetric.
-    let net = ctx.accounts.ticker_risk.actuary.get_net();
-    require!(net > 0, PithyQuip::WrongDirection);
+    // The trigger. Below the band the book is payable out of dollars and the
+    // round trip is a pure loss; at or above it the unbounded leg needs the
+    // asset behind it.
+    require!(coverage_bps(&ctx.accounts.bank, ctx.accounts.hedge.covered)
+                >= COVERAGE_MINT_BPS, PithyQuip::CoverageWithinBand);
 
-    // The trigger. Below the band the pool can pay a net-long liability out of
-    // dollars and paying the round trip is a pure loss; at or above it the
-    // unbounded leg needs the asset behind it.
-    require!(coverage_bps(&ctx.accounts.bank) >= COVERAGE_MINT_BPS,
-             PithyQuip::CoverageWithinBand);
+    let now = hedge_preflight(&ctx.accounts.hedge, &ctx.accounts.ticker_risk)?;
 
-    // Backed refuses outside its own bounds AFTER the transfer lands, so the
-    // bounds are enforced before it leaves. `max_order == 0` is how a halted
-    // product and a closed market both present.
-    require!(amount >= d.min_order, PithyQuip::BelowMinimumTicket);
-    require!(d.max_order > 0, PithyQuip::DeliveryHalted);
-    require!(amount <= d.max_order, PithyQuip::AboveMaximumTicket);
+    // The issuer refuses outside its own bounds AFTER the transfer lands, so
+    // they are enforced before it leaves. This leg is denominated in dollars,
+    // which is the only place these bounds mean anything.
+    require!(amount >= ctx.accounts.hedge.min_order, PithyQuip::BelowMinimumTicket);
+    require!(amount <= ctx.accounts.hedge.max_order, PithyQuip::AboveMaximumTicket);
 
-    // Never send more paper-dollars than the net exposure being funded.
-    // Over-buying converts a hedge into a directional position of our own.
-    let net_dollars = to_accounting(net.unsigned_abs(),
-        ctx.accounts.stable_mint.decimals).unwrap_or(u64::MAX);
-    let outstanding = d.pending_issue.saturating_add(amount);
-    require!(outstanding <= net_dollars, PithyQuip::ExceedsNetExposure);
+    // Never fund more than the liability being funded: over-buying converts a
+    // hedge into a directional position of the pool's own.
+    require!(ctx.accounts.hedge.covered.saturating_add(amount)
+                <= ctx.accounts.bank.max_liability, PithyQuip::ExceedsNetExposure);
 
     let mint_key = ctx.accounts.stable_mint.key();
     let decimals = ctx.accounts.stable_mint.decimals;
@@ -1709,155 +1770,52 @@ pub fn issue_paper(ctx: Context<MarketFlow>, _ticker: String,
             &[&[b"vault", mint_key.as_ref(), &[vault_bump]]],
         ), raw, decimals)?;
 
-    let now = Clock::get()?.unix_timestamp;
-    let d = &mut ctx.accounts.delivery;
-    d.pending_issue = d.pending_issue.saturating_add(amount);
-    d.last_flow = now;
-
-    // The dollars are gone and the paper is not here. That is recorded as a
-    // CLAIM against deposits, not as a reduction of them: `total_deposits` is
-    // the sum of what depositors put in and nobody withdrew.
-    let bank = &mut ctx.accounts.bank;
-    bank.paper_dollars = bank.paper_dollars.saturating_add(amount);
-    Ok(())
-}
-
-/// Credit paper that has arrived, clearing the matching `pending_issue`.
-///
-/// Permissionless, and deliberately so: it can only move the pool's own
-/// recorded holding TOWARD what the chain already says the ATA contains, so a
-/// caller cannot use it to conjure backing. This is the same argument that
-/// makes `sweep` permissionless.
-#[derive(Accounts)]
-#[instruction(ticker: String)]
-pub struct SettleIssue<'info> {
-    pub cranker: Signer<'info>,
-
-    #[account(mut, seeds = [b"depository"], bump)]
-    pub bank: Box<Account<'info, Depository>>,
-
-    #[account(mut, seeds = [TickerDelivery::SEED, ticker.as_bytes()],
-        bump = delivery.bump)]
-    pub delivery: Box<Account<'info, TickerDelivery>>,
-
-    #[account(address = delivery.xstock_mint @ PithyQuip::InvalidMint)]
-    pub xstock_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    /// The pool's own xStock holding.
-    #[account(seeds = [b"paper", xstock_mint.key().as_ref()], bump)]
-    pub paper_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-}
-
-pub fn settle_issue(ctx: Context<SettleIssue>, _ticker: String) -> Result<()> {
-    let observed = ctx.accounts.paper_vault.amount;
-    let d = &mut ctx.accounts.delivery;
-
-    // Only an INCREASE is settlement. A decrease means something moved paper
-    // out by another path, and silently rebasing `held_raw` down to match
-    // would erase the evidence.
-    let arrived = observed.saturating_sub(d.held_raw);
-    require!(arrived > 0, PithyQuip::NothingToSettle);
-    d.held_raw = observed;
-
-    // ⚠️ `arrived` IS A RAW TOKEN AMOUNT AND IS NOT A SHARE COUNT. xStocks on
-    // Solana are SPL Token-2022 with the Scaled UI extension: the raw balance
-    // stays constant across dividends and splits and the MULTIPLIER moves, so
-    // shares = raw x multiplier. Valuing `held_raw` directly is correct only
-    // while the multiplier is 1. Reading the extension is the missing piece;
-    // until it exists this account is delivery accounting, not a mark.
+    // Cover begins when the dollars leave, not at settlement: the liability is
+    // funded by an order the issuer will fill, and pretending otherwise lets
+    // the gate re-fire for the same liability while the first order is in
+    // flight.
     //
-    // 🔴 AND THIS IS WHY `pending_issue` IS NOT CLEARED HERE. The first cut
-    // set it to zero on ANY arrival — and a token account accepts transfers
-    // from anyone, so one dust unit of the xStock mint sent to `paper_vault`
-    // would have wiped the pool's record of an arbitrarily large amount in
-    // flight. Permissionless is only safe where the caller cannot choose the
-    // outcome, and clearing a dollar figure on an unvalued token arrival is
-    // exactly a choice, because `arrived` cannot be priced without the Scaled
-    // UI multiplier this program does not yet read.
-    //
-    // So the split is: the chain-observable, monotone part (`held_raw`) is
-    // credited permissionlessly; reconciling the DOLLARS requires knowing what
-    // Backed actually filled, which is off-chain truth, and stays with
-    // `reconcile_issue` below.
-    d.last_flow = Clock::get()?.unix_timestamp;
+    // `paper_in_transit` is NOT touched. Buying paper is asset-neutral for a
+    // depositor — it costs `amount` of liquid dollars and retires `amount` of
+    // liability, and the two cancel in `withdrawable()`.
+    ctx.accounts.hedge.covered =
+        ctx.accounts.hedge.covered.saturating_add(amount);
+    ctx.accounts.hedge.last_flow = now;
     Ok(())
 }
 
-/// Reconcile dollars against a fill. Admin, because it needs off-chain truth.
-///
-/// `settle_issue` can credit what the chain shows (`held_raw`) but cannot say
-/// what those units COST or whether Backed considers the order complete —
-/// both live in Backed's API, not on Solana. Doing it permissionlessly would
-/// mean trusting a caller's assertion about a dollar figure, which is the one
-/// thing a crank must never supply.
-pub fn reconcile_issue(ctx: Context<ReconcileIssue>, _ticker: String,
-    filled_dollars: u64) -> Result<()> {
-    let d = &mut ctx.accounts.delivery;
-    let settled = filled_dollars.min(d.pending_issue);
-    d.pending_issue = d.pending_issue.saturating_sub(settled);
-
-    // The dollars stopped being in flight and became paper at that cost. The
-    // pool-level claim is unchanged in size — only its description changes —
-    // so `paper_dollars` is not touched here. It is released by redemption.
-    d.last_flow = Clock::get()?.unix_timestamp;
-    Ok(())
-}
-
-#[derive(Accounts)]
-#[instruction(ticker: String)]
-pub struct ReconcileIssue<'info> {
-    #[account(mut, address = config.admin @ PithyQuip::Unauthorized)]
-    pub admin: Signer<'info>,
-
-    #[account(seeds = [b"program_config"], bump = config.bump)]
-    pub config: Box<Account<'info, ProgramConfig>>,
-
-    #[account(mut, seeds = [TickerDelivery::SEED, ticker.as_bytes()],
-        bump = delivery.bump)]
-    pub delivery: Box<Account<'info, TickerDelivery>>,
-}
-
-/// Send paper back to Backed's redemption address. Dollars arrive later.
+/// Send paper back to the issuer. Dollars arrive later.
 ///
 /// 🔴 **THIS IS WHAT WE DO ABOUT SHORTS, AND IT IS NOT A SHORT.** Mint/redeem
-/// spans paper holdings in `[0, +inf)`; there is no primitive that takes it
-/// negative, and there is no venue we are willing to borrow from to
-/// manufacture one. So the pool never goes short paper — it goes FLAT, and
-/// flat is sufficient:
-///
-///   • A net-long book owes an unbounded upside. Only the asset funds that.
-///   • A net-short book owes a payout that grows as price FALLS, and price
-///     floors at zero. The liability is therefore bounded at 100% of net
-///     notional and is fundable with CASH — capital-heavy, but sound at every
-///     price path, which is a stronger guarantee than a hedge gives.
-///
-/// Holding paper into a book that has flipped short is the worst of both: the
-/// asset falls exactly when the pool owes more. Redeeming is not an
-/// opportunistic exit, it is the removal of an exposure the pool is no longer
-/// being paid to carry — and `RUN_ILLIQUIDITY_BPS` is what it costs to still
-/// be holding it when a run arrives instead.
-///
-/// Permissionless on the same argument as `issue_paper`: destination is
-/// admin-set, direction is forced by the book's sign, size is bounded by what
-/// is actually held.
-pub fn redeem_paper(ctx: Context<MarketFlowRedeem>, _ticker: String,
+/// spans paper holdings in `[0, +inf)`; nothing takes it negative and there is
+/// no venue we are willing to borrow from to manufacture one. The pool goes
+/// FLAT, and flat is sufficient — a net-short liability is bounded by a total
+/// loss and is fundable with cash, which is a stronger guarantee at every
+/// price path than a hedge gives.
+pub fn redeem_paper(ctx: Context<HedgeFlow>, _ticker: String,
     raw_amount: u64) -> Result<()> {
-    let d = &ctx.accounts.delivery;
-    require!(d.redemption != Pubkey::default(), PithyQuip::InvalidParameters);
-    require_keys_eq!(ctx.accounts.sweep_destination.key(), d.redemption,
-        PithyQuip::InvalidParameters);
-    require!(raw_amount > 0 && d.held_raw >= raw_amount, PithyQuip::NoPaperHeld);
+    require_keys_eq!(ctx.accounts.sweep_destination.key(),
+        ctx.accounts.hedge.redemption, PithyQuip::InvalidParameters);
 
-    // The mirror of the issue gate. Paper is redeemed when the book no longer
-    // needs it: either it has flipped short (where holding deepens the loss)
-    // or coverage has fallen back inside the band (where dollars suffice).
-    let net = ctx.accounts.ticker_risk.actuary.get_net();
-    let covered = coverage_bps(&ctx.accounts.bank);
-    require!(net <= 0 || covered <= COVERAGE_FLAT_BPS,
-             PithyQuip::CoverageWithinBand);
+    // The holding is the ATA, read from the chain. Nothing stored to disagree.
+    let held = ctx.accounts.paper_vault.amount;
+    require!(raw_amount > 0 && held >= raw_amount, PithyQuip::NoPaperHeld);
 
-    let mint_key = ctx.accounts.xstock_mint.key();
-    let decimals = ctx.accounts.xstock_mint.decimals;
+    // The mirror of the issue gate: paper goes back once the book no longer
+    // needs it.
+    require!(coverage_bps(&ctx.accounts.bank, ctx.accounts.hedge.covered)
+                <= COVERAGE_FLAT_BPS, PithyQuip::CoverageWithinBand);
+
+    let now = hedge_preflight(&ctx.accounts.hedge, &ctx.accounts.ticker_risk)?;
+
+    // Cover is released on the fraction of the holding that is leaving, at the
+    // basis it was booked at. An OUTPUT of this leg, never a gate on it.
+    let cover = ctx.accounts.hedge.covered;
+    let released = (cover as u128 * raw_amount as u128 / held.max(1) as u128)
+        .min(cover as u128) as u64;
+
+    let mint_key = ctx.accounts.hedge_mint.key();
+    let decimals = ctx.accounts.hedge_mint.decimals;
     let (_, paper_bump) = Pubkey::find_program_address(
         &[b"paper", mint_key.as_ref()], ctx.program_id);
 
@@ -1866,35 +1824,70 @@ pub fn redeem_paper(ctx: Context<MarketFlowRedeem>, _ticker: String,
             ctx.accounts.token_program.to_account_info(),
             TransferChecked {
                 from: ctx.accounts.paper_vault.to_account_info(),
-                mint: ctx.accounts.xstock_mint.to_account_info(),
+                mint: ctx.accounts.hedge_mint.to_account_info(),
                 to: ctx.accounts.sweep_destination.to_account_info(),
                 authority: ctx.accounts.paper_vault.to_account_info(),
             },
             &[&[b"paper", mint_key.as_ref(), &[paper_bump]]],
         ), raw_amount, decimals)?;
 
-    let now = Clock::get()?.unix_timestamp;
-    let d = &mut ctx.accounts.delivery;
-    let freed = (d.pending_issue == 0)
-        .then(|| raw_amount.min(u64::MAX)).unwrap_or(0);
-    d.held_raw = d.held_raw.saturating_sub(raw_amount);
-    d.pending_redeem = d.pending_redeem.saturating_add(raw_amount);
-    d.last_flow = now;
-    // ⚠️ Releasing the pool-level claim needs a DOLLAR figure and this leg has
-    // only a raw token amount, which cannot be priced without the Scaled UI
-    // multiplier. Releasing nothing is the conservative side: `withdrawable()`
-    // stays understated until `reconcile_redeem` books the proceeds, which is
-    // wrong in the direction that refuses a withdrawal rather than paying one
-    // that is not backed.
-    let _ = freed;
+    // Cover ends here — the liability is unfunded again, so the reserve comes
+    // back. Liquidity does NOT end here: the dollars are in the post, and this
+    // is the one window where the two clocks genuinely differ.
+    ctx.accounts.hedge.covered = cover.saturating_sub(released);
+    ctx.accounts.bank.paper_in_transit =
+        ctx.accounts.bank.paper_in_transit.saturating_add(released);
+    ctx.accounts.hedge.last_flow = now;
+    Ok(())
+}
+
+/// Book what the issuer actually did. The only instruction here needing a human.
+///
+/// 🔴 **THIS IS THE LARGEST TRUST SURFACE IN THE SECTION AND IT IS NOT THE
+/// SWEEPING ADDRESSES.** `set_hedge` names an address; this writes pool P&L.
+/// Two facts live only in the issuer's systems and cannot be derived from the
+/// chain or the oracle: whether an issuance order filled and for how much — a
+/// failed fill leaves `covered` standing against nothing, and nothing on-chain
+/// distinguishes that from a fill still in flight — and what a redemption
+/// returned in dollars.
+///
+/// What bounds it: the instruction moves no tokens, cannot touch
+/// `total_deposits`, cannot raise cover above the liability, and a shortfall is
+/// absorbed by earnings before it can reach principal.
+///
+/// The claim is released at COST, never at proceeds — releasing at proceeds
+/// leaves a residue on every redemption that comes back light, the same
+/// ratcheting `TickerRisk::reserved` exists to prevent, in a different account.
+pub fn reconcile(ctx: Context<Reconcile>,
+    cover_dollars: u64, proceeds_dollars: u64) -> Result<()> {
+    // Redemption side: release what was in the post, and book the difference
+    // between what it cost and what it returned.
+    let basis = ctx.accounts.bank.paper_in_transit;
+    if basis > 0 {
+        let bank = &mut ctx.accounts.bank;
+        bank.paper_in_transit = 0;
+        if proceeds_dollars >= basis {
+            bank.yield_pool = bank.yield_pool.saturating_add(proceeds_dollars - basis);
+        } else {
+            bank.yield_pool = bank.yield_pool.saturating_sub(basis - proceeds_dollars);
+        }
+    }
+
+    // Issuance side: correct cover to what the issuer actually filled.
+    // Lowering it raises the reserve, which is the safe direction and the one a
+    // failed order needs; raising it above the liability is refused for the
+    // same reason `issue_paper` refuses it.
+    require!(cover_dollars <= ctx.accounts.bank.max_liability,
+             PithyQuip::ExceedsNetExposure);
+    ctx.accounts.hedge.covered = cover_dollars;
+    ctx.accounts.hedge.last_flow = Clock::get()?.unix_timestamp;
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(ticker: String)]
-pub struct MarketFlowRedeem<'info> {
-    #[account(mut)]
-    pub cranker: Signer<'info>,
+pub struct Reconcile<'info> {
+    #[account(mut, address = config.admin @ PithyQuip::Unauthorized)]
+    pub admin: Signer<'info>,
 
     #[account(seeds = [b"program_config"], bump = config.bump)]
     pub config: Box<Account<'info, ProgramConfig>>,
@@ -1902,24 +1895,8 @@ pub struct MarketFlowRedeem<'info> {
     #[account(mut, seeds = [b"depository"], bump)]
     pub bank: Box<Account<'info, Depository>>,
 
-    #[account(mut, seeds = [TickerDelivery::SEED, ticker.as_bytes()],
-        bump = delivery.bump)]
-    pub delivery: Box<Account<'info, TickerDelivery>>,
-
-    #[account(seeds = [b"risk", ticker.as_bytes()], bump = ticker_risk.bump)]
-    pub ticker_risk: Box<Account<'info, TickerRisk>>,
-
-    #[account(address = delivery.xstock_mint @ PithyQuip::InvalidMint)]
-    pub xstock_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    #[account(mut, seeds = [b"paper", xstock_mint.key().as_ref()], bump)]
-    pub paper_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    /// CHECK: validated against `delivery.redemption` in the handler.
-    #[account(mut)]
-    pub sweep_destination: AccountInfo<'info>,
-
-    pub token_program: Interface<'info, TokenInterface>,
+    #[account(mut, seeds = [Hedge::SEED], bump = hedge.bump)]
+    pub hedge: Box<Account<'info, Hedge>>,
 }
 
 
@@ -1943,6 +1920,68 @@ mod delivery_wiring {
         // so `set_delivery` cannot be pointed at one at all.
         assert!(deliverable_mint("SOL").is_none(),
             "SOL is priced and tradeable but has no xStock — it must not be wireable");
+    }
+
+    /// 🔴 **THE TRIGGER HAS TO TURN ITSELF OFF, AND THE FIRST CUT DID NOT.**
+    /// `issue_paper` fires on coverage, and coverage is
+    /// `max_liability / total_deposits`. If holding paper does not reduce
+    /// `max_liability`, the condition that opened the flow is still true after
+    /// it completes — the pool buys up to its net exposure with the gate
+    /// reading identically the whole way. That is not a band, it is a ratchet
+    /// with a size cap, and it is only bounded because a SEPARATE check caps
+    /// issuance at the net.
+    ///
+    /// This walks the loop the program now implements: reserve on the
+    /// UNCOVERED net, so buying cover lowers the reserve, which lowers
+    /// coverage, which shuts the gate.
+    #[test]
+    fn buying_cover_shuts_the_gate_that_opened_it() {
+        let a = {
+            let mut a = Actuary::default();
+            a.observed_vol_bps = 400; a.obs_count = 200; a.last_price = 1_000_000; a
+        };
+        // ⚠️ COVERAGE IS A FRACTION OF THE CAPACITY CEILING, NOT OF EXPOSURE.
+        //    `has_capacity` refuses once `max_liability > total_deposits`, so
+        //    coverage runs 0..10_000 against that ceiling. The reserve on a
+        //    ticker is only ~8% of its net at this vol, so a pool has to be
+        //    genuinely loaded before the gate opens — which is the point. The
+        //    first version of this test used a lightly-loaded pool, read 716
+        //    bps, and looked like the band was miscalibrated when it was the
+        //    scenario that was.
+        let deposits: u64 = 90_000;
+        let net: u64 = 900_000;
+
+        let coverage = |covered: u64| -> i64 {
+            let uncovered = net.saturating_sub(covered);
+            let reserve = crate::etc::ticker_reserve_dollars(uncovered, &a);
+            (reserve as u128 * 10_000 / deposits as u128) as i64
+        };
+
+        let open = coverage(0);
+        assert!(open >= COVERAGE_MINT_BPS,
+            "the scenario has to start with the gate OPEN, got {open}");
+
+        // Buy cover in the steps the program would take, and find where the
+        // gate shuts. It must shut strictly before the net is fully covered,
+        // or the band never binds and the cap is doing all the work.
+        let mut shut_at = None;
+        for step in 1..=9u64 {
+            let covered = net * step / 10;
+            if coverage(covered) < COVERAGE_MINT_BPS { shut_at = Some(step); break; }
+        }
+        let shut = shut_at.expect("cover must shut the gate before the net is exhausted");
+        println!("\n  gate opens at {} bps; shuts after covering {}0% of net", open, shut);
+
+        // ...and the flatten threshold must be reachable by cover alone, or
+        // paper can never be redeemed on a book that stays net long.
+        assert!(coverage(net) <= COVERAGE_FLAT_BPS,
+            "fully covered must sit at or under the flatten band, got {}", coverage(net));
+
+        // Monotone: more cover is never more coverage.
+        for step in 0..10u64 {
+            let (lo, hi) = (coverage(net * step / 10), coverage(net * (step + 1) / 10));
+            assert!(hi <= lo, "coverage rose from {lo} to {hi} as cover grew");
+        }
     }
 
     /// The mint band sits ABOVE the flat band, or the pool churns the round

@@ -100,48 +100,45 @@ pub mod quid {
         clutch::handle_refresh_sol_collateral(ctx)
     }
 
-    // ── §DELIVER — Backed xStocks primary market, Market Flow leg ──────────
+    // ── §HEDGE — the pool's own paper, via the issuer's Market Flow ────────
     // Market Flow is the only one of Backed's three primary-market flows a PDA
     // can drive: it settles as a plain SPL transfer to a fixed sweeping
     // address. xChange hands back a partially-signed transaction needing a
     // keypair co-signature inside a ~60-90s window, which would put a hot key
-    // in the custody path. See the §DELIVER section of entra.rs.
+    // in the custody path.
+    //
+    // ONE instrument, hedging the COMMON factor. The idiosyncratic component
+    // nets away exactly on its own; the common component never does, and it is
+    // a pool-level quantity. See the §HEDGE section of entra.rs.
 
-    /// Admin: point a ticker at Backed's sweeping addresses.
-    pub fn set_delivery(ctx: Context<SetDelivery>, ticker: String,
-        issuance: Pubkey, redemption: Pubkey, xstock_mint: Pubkey,
+    /// Admin: point the pool's hedge at an instrument and the issuer's
+    /// sweeping addresses.
+    pub fn set_hedge(ctx: Context<SetHedge>, ticker: String,
+        issuance: Pubkey, redemption: Pubkey, mint: Pubkey,
         min_order: u64, max_order: u64) -> Result<()> {
-        entra::set_delivery(ctx, ticker, issuance, redemption,
-                              xstock_mint, min_order, max_order)
+        entra::set_hedge(ctx, ticker, issuance, redemption,
+                         mint, min_order, max_order)
     }
 
-    /// Send dollars to Backed's issuance address; paper arrives later.
-    pub fn issue_paper(ctx: Context<MarketFlow>, ticker: String,
+    /// Permissionless: fund a book the pool's dollars can no longer cover.
+    pub fn issue_paper(ctx: Context<HedgeFlow>, ticker: String,
         amount: u64) -> Result<()> {
         entra::issue_paper(ctx, ticker, amount)
     }
 
-    /// Permissionless: credit paper that has landed in the pool's own ATA.
-    pub fn settle_issue(ctx: Context<SettleIssue>, ticker: String) -> Result<()> {
-        entra::settle_issue(ctx, ticker)
-    }
-
-    /// Admin: reconcile in-flight dollars against what Backed actually filled.
-    pub fn reconcile_issue(ctx: Context<ReconcileIssue>, ticker: String,
-        filled_dollars: u64) -> Result<()> {
-        entra::reconcile_issue(ctx, ticker, filled_dollars)
-    }
-
-    /// Permissionless: send paper back when the book no longer needs it.
-    /// The pool never goes SHORT paper — it goes flat. A net-short book's
-    /// liability is bounded by a total loss and is funded with cash.
-    pub fn redeem_paper(ctx: Context<MarketFlowRedeem>, ticker: String,
+    /// Permissionless: send paper back once the book no longer needs it. The
+    /// pool never goes SHORT paper — it goes flat.
+    pub fn redeem_paper(ctx: Context<HedgeFlow>, ticker: String,
         raw_amount: u64) -> Result<()> {
         entra::redeem_paper(ctx, ticker, raw_amount)
     }
 
-
-
+    /// Admin: book what the issuer actually did. The only instruction in the
+    /// section needing off-chain truth, and the largest trust surface in it.
+    pub fn reconcile(ctx: Context<Reconcile>,
+        cover_dollars: u64, proceeds_dollars: u64) -> Result<()> {
+        entra::reconcile(ctx, cover_dollars, proceeds_dollars)
+    }
 
     pub fn init_oapp_store(mut ctx: Context<InitOAppStore>,
         params: InitOAppStoreParams) -> Result<()> {

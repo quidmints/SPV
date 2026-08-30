@@ -44,17 +44,21 @@ contract HopReserveFunderTest is Test {
         for (uint i; i < 8; ++i) o |= bytes8(bytes1(uint8(v >> (8 * i)))) >> (8 * i);
     }
 
-    /// A wallet-built funding tx. SEGWIT-serialised on purpose: a real top-up carries a witness,
-    /// and `sumOutputValuesToScript` would revert `TruncatedTx` on it — which is exactly why the
-    /// funder uses the witness-aware `sumPaidToScript`.
+    /// A wallet-built funding tx, LEGACY (witness-stripped) — the shape `TxInclusion.raw` already
+    /// hands every other proof path.
+    ///
+    /// ⚠️ **THAT IS FORCED, NOT STYLISTIC.** `BitcoinTx.txid` double-SHA256s its input WITHOUT
+    /// stripping a witness, so passing segwit bytes yields a hash that is not the txid and fails
+    /// SPV inclusion. An earlier draft of this file built a SEGWIT tx and still passed — only
+    /// because `SpvYes` returns true unconditionally, so the wrong txid was never checked. The
+    /// mock hid the mistake; the serialisation is pinned here so it cannot recur.
     function _fundingTx(bytes memory spk, uint64 value, uint nonce)
         internal pure returns (bytes memory)
     {
         return abi.encodePacked(
-            hex"02000000", hex"0001", hex"01",
+            hex"02000000", hex"01",
             bytes32(nonce), hex"00000000", hex"00", hex"ffffffff",
             hex"01", _le8(value), bytes1(uint8(spk.length)), spk,
-            hex"01", hex"01", hex"00",
             hex"00000000");
     }
 

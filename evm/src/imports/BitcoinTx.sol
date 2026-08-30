@@ -209,33 +209,6 @@ library BitcoinTx {
         if (mode == _FIRST_TO) revert OutputNotFound();
     }
 
-    /// @notice Sum what a transaction pays to one script, **witness-aware**. Two callers:
-    ///         `proveHopReserve` (a reserve top-up, an ordinary wallet tx) and the two-output
-    ///         exit ladder's second half.
-    ///
-    /// ⛔ **WHY THIS IS NOT `sumOutputValuesToScript`, WHICH COMPUTES THE SAME THING.** That one
-    ///    reaches the outputs through `_skipInputs`, whose first statement is `_assertLegacy(raw)`
-    ///    — it walks a NON-witness serialisation and reverts `TruncatedTx` on anything else. A
-    ///    dead-man exit is a **segwit** transaction (it carries the key-path signature in a
-    ///    witness), so that routine cannot read one at all. `parseTransaction` handles the marker
-    ///    and flag, which is why `_exitStructure` uses it for the LP's side.
-    ///    ⚠️ The two are therefore NOT interchangeable despite identical names, signatures and
-    ///    semantics; the difference is entirely in the serialisation each accepts. Reusing the
-    ///    wrong one fails closed (a revert, not a wrong number) — `PoolScriptLadder.t.sol` pins it.
-    ///    ⇒ **USE THIS ONE whenever the transaction may carry a witness**, which is any tx the
-    ///    fleet or a third party built rather than a legacy-serialised fixture.
-    ///
-    /// ⚠️ SUMS, NOT "FINDS", for the reason `sumOutputValuesToScript` documents below: a share
-    ///    split across two outputs to the same script is still full payment.
-    function sumPaidToScript(bytes calldata rawTx, bytes memory script)
-        external pure returns (uint paid)
-    {
-        (TxParser.Transaction memory t, ) = TxParser.parseTransaction(rawTx);
-        bytes32 want = keccak256(script);
-        for (uint i; i < t.outputs.length; ++i)
-            if (keccak256(t.outputs[i].script) == want) paid += t.outputs[i].value;
-    }
-
     /// @notice Sum of the values of ALL outputs paying `spk` (0 if none). Summing every
     ///         match (not first-only) stops a close tx from under-reporting a payee's
     ///         total by splitting it across multiple outputs to the same script

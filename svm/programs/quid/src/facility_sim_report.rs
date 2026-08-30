@@ -1395,3 +1395,92 @@ fn the_round_trip_cost_at_which_hedging_stops_losing() {
     println!("  (secondary xStock is priced at {} bps here; primary creation is", Cfg::default().rt_bps);
     println!("   a different venue and is the one Market Flow reaches.)");
 }
+
+/// 🔴 **"THE POOL IS FLAT" IS A STATEMENT ABOUT PRICE, NOT ABOUT CREDIT.**
+///
+/// `ticker_reserve_dollars` reserves on the NET and says so plainly: *"Alice
+/// long 100 and Bob short 100 leaves the pool flat, however much collateral
+/// sits behind either position."* For price risk that is exact — same asset,
+/// modelled offset, no correlation input needed.
+///
+/// It is not exact for CREDIT. When price moves, one side wins and the other
+/// loses, and the pool owes the winner in full while it can only ever collect
+/// what the loser pledged. A netted book is flat only while the loser stays
+/// solvent. Beyond that the offset is gone and the reserve against it was
+/// ZERO, because net was zero.
+///
+/// The arithmetic, before any simulation: at leverage L each side pledges
+/// `N/L`. A move `m` costs the loser `m·N`. So the pool is short
+/// `N·(m - 1/L)` for any `m > 1/L` — 10% at 10x, 5% at 20x. The collar exists
+/// to liquidate before that, and it works in CONTINUOUS trade. It cannot work
+/// across a gap, because a gap is the absence of the intermediate prices a
+/// ladder needs.
+///
+/// ⚠️ Which is why this is measured on `returns::Equity` rather than on the
+/// facility grid: that generator is the one that produces overnight and
+/// weekend gaps, and `returns.rs` calls them "the single biggest difference
+/// between an equity series and a crypto one".
+#[test]
+fn a_netted_book_is_flat_until_the_loser_gaps_through_its_pledge() {
+    const N: i64 = 1_000_000;          // notional per side, in dollars
+    let a = {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = 200;      // ~32% annual, an ordinary large-cap
+        a.obs_count = 200;
+        a.last_price = 1_000_000;
+        a
+    };
+
+    println!("\n=== a netted book: what a gap past the PLEDGE costs the pool ===");
+    println!("  {:>5} {:>7} {:>8} {:>9} {:>8} {:>9} {:>12}",
+             "vol", "lev", "collar", "pledge", "gaps", "breaks", "shortfall");
+
+    let mut ever_broke = false;
+    for vol in [200i64, 600, 1_200] {
+        let a = {
+            let mut a = Actuary::default();
+            a.observed_vol_bps = vol; a.obs_count = 200; a.last_price = 1_000_000; a
+        };
+        for lev in [500i64, 1_000, 2_000] {
+            let collar = collar_bps(lev, &a);
+            let pledge_bps = 10_000 * 100 / lev;      // pledge as bps of notional
+            let pledge = N * pledge_bps / 10_000;
+
+            let mut eq = Equity::new(0xC0FFEE ^ (vol as u64) << 8 ^ lev as u64, vol);
+            let (mut cum, mut shortfall, mut gaps, mut breaks) = (0i64, 0i64, 0i64, 0i64);
+
+            for _ in 0..(24 * 365 * 5) {              // five years of hours
+                let (m, is_gap) = eq.step();
+                if m == 0 { continue; }
+                cum += m;
+                let loss_bps = cum.abs();
+                if is_gap {
+                    gaps += 1;
+                    // A gap denies the ladder its intermediate prices: the
+                    // whole move lands, and anything past the PLEDGE — not
+                    // past the collar — is the pool's to eat.
+                    if loss_bps > pledge_bps {
+                        breaks += 1;
+                        let owed = N * loss_bps / 10_000;
+                        shortfall += owed - pledge.min(owed);
+                    }
+                    if loss_bps > collar { cum = 0; }
+                } else if loss_bps > collar {
+                    cum = 0;                          // continuous: collar holds
+                }
+            }
+            if breaks > 0 { ever_broke = true; }
+            println!("  {:>5} {:>7} {:>8} {:>9} {:>8} {:>9} {:>12}",
+                     vol, lev, collar, pledge, gaps, breaks, shortfall);
+        }
+    }
+    println!("  (reserve held against every row above: {} — net is zero)",
+             crate::etc::ticker_reserve_dollars(0, &a));
+    assert!(ever_broke,
+        "if no gap ever clears the pledge the netting concern is theoretical here");
+
+    // The claim under test is not "the reserve is too small" — it is that the
+    // reserve is ZERO on a book that can lose money at all.
+    assert_eq!(crate::etc::ticker_reserve_dollars(0, &a), 0,
+        "a netted book reserves nothing, which is the whole point");
+}
