@@ -649,6 +649,64 @@ zero times.** ⭐ **And deviation-gating is the BETTER rate limiter, which is wh
 necessity" overstates it:** a block gate keys on a PROXY (time passed) and would both over-fire in a
 calm market and under-fire in a violent one. The current gate keys on the thing that matters.
 
+## 🔴🔴🔴 **§LEG-DIVERSITY-IS-LIVENESS — THE DEPLOY SCRIPT ALREADY REFUTES THE "CHEAPEST VENUE" COMPARATOR, WITH A MECHANISM. AND `_openPos` HAS ALREADY BROKEN THE TWO-VENUE BTC DESIGN.** (2026-08-30)
+
+Asked to build *"similar fallback for RLUSD and PYUSD (use morpho if it's cheaper: more
+liquidity/lower utilisation, otherwise the main aavev4 spoke)"*, I went to wire it and found the
+argument against it **already written at the site**, `DeployL1_s.sol:636-648`:
+
+> ⚠️ **DIVERSITY ACROSS THE TWO LEGS IS A LIVENESS PROPERTY, NOT A COST OPTIMISATION.** De-levers are
+> CORRELATED — whatever forces the BTC leg to unwind forces the ETH leg too — so the legs contend
+> precisely in the tail, the only time it matters. If both legs depend on the SAME stable's depth:
+> • routed through Curve, both sell into one pool and each worsens the other's fill until
+>   `MAX_SLIPPAGE_BPS` (100) **REVERTS the second** — and a de-lever that reverts leaves LTV high, so
+>   **the anti-MEV guard becomes a liquidation trigger under stress**;
+> • routed through basket inventory, the second arrival finds insufficient USDC and **cannot repay AT
+>   ALL** — a hard stop, not slippage.
+> ⇒ **DO NOT "fix" this by selecting cheapest-or-least-utilised per leg: that is a SHARED SIGNAL, so
+> both legs converge on the SAME stable, hardest exactly when spreads move. The pin must be replaced
+> by a rule that HOLDS THE LEGS APART, not by an independent optimiser.** Tasks #47/#48.
+
+⭐ **THIS DOES NOT CONTRADICT THE OWNER'S GOAL — IT SHARPENS IT.** The goal is diversity; the
+objection is to the SELECTION RULE. *"Most liquidity / lowest utilisation"* is an **independent
+optimiser fed a shared signal**: both legs read the same depth and pick the same answer, and they
+pick it *hardest* in the tail where the correlation binds. **Independent optimisation produces
+CONVERGENCE, which is the opposite of the goal.** ⇒ **What is needed is a rule that ASSIGNS legs to
+different stables and keeps them apart, not one that lets each choose freely.**
+⛔ **I was one edit from building the refuted thing.** The comment is at the deploy site, not on
+`LevMath`, so nothing on the path I was reading would have shown it to me. **Tasks #47/#48 are named
+there and appear NOWHERE in this file** — measured: `grep "#47\|#48"` over SPRINT returns nothing.
+**A refutation and its follow-up tasks, booked only in a deploy script.**
+
+### 🔴 AND THE SECOND FINDING IS LIVE TODAY: THE BTC TWO-VENUE DESIGN IS ALREADY BROKEN
+`DeployL1_s` allowlists **two** BTC venues — `vsB[0]` the Morpho vBTC/USDC pin, `vsB[1]` the Aave-v3
+WBTC/USDC escrow — and says they coexist: *"Allowlisted ALONGSIDE the native vBTC venue —
+`openBtcLev` branches on the venue's `COLLATERAL()` (WBTC ⇒ LP brings external WBTC)"*. And
+`BtcLevManager:164` really does branch on `COLLATERAL() == address(COLL)`.
+🔴 **BUT `openBtcLev:135` REACHES `LevBase._openPos` AT `:154`, AND THAT PINS `poolVenue` TO THE
+FIRST VENUE USED AND REVERTS `VenueNotPooled()` ON THE SECOND.** ⇒ **Whichever BTC venue opens first
+locks the other out permanently.** The `COLLATERAL()` branch below it is unreachable for one of its
+two arms, and `rebalanceWbtc` (`:241`, `COLLATERAL() != WBTC → BadTarget`) is unreachable entirely
+unless the WBTC venue happened to be first.
+⚠️ **THIS IS §POOL-VENUE'S CONSOLIDATION MEETING A TWO-VENUE DESIGN THAT PREDATES IT, AND NOTHING
+FAILED LOUDLY** — the allowlist still accepts both, the branch still compiles, and the deploy comment
+still describes a capability the runtime refuses. **The same shape as §BTC-OOR-ENTERABLE: a placement
+path with no execution path.**
+
+### ▶️ SO THE THREE ASKS RESOLVE DIFFERENTLY THAN I REPORTED LAST TURN
+1. **RLUSD/PYUSD "cheapest" comparator — DO NOT BUILD.** Refuted at the deploy site with a mechanism.
+   The replacement is *"a rule that holds the legs apart"*, which is a DIFFERENT design and is #47/#48.
+2. **WBTC v3 fallback — the venue already exists** (`AaveV3Venue`, `vsB[1]`, `stable` a constructor
+   argument, env-overridable via `AAVE_V3_WBTC_DEBT`, default USDC because *"an Aave v3 RLUSD/PYUSD
+   borrow market has NOT been verified to exist with real idle depth"*). **What is missing is not the
+   fallback — it is that `_openPos` makes the second venue unreachable.** Fix the pin, and the
+   fallback the owner asked for is already deployed.
+3. **`Amp.sol`'s v4-else-v3 branch** is still the right shape for a borrow-level fallback INSIDE one
+   venue, and is independent of the pin. **That is the only one of the three that is pure new code.**
+⇒ **The blocker is the same single line in all three: `LevBase._openPos:393`.** §POOL-VENUE-IS-PINNED
+lists the three ways out; **this row adds the constraint that whichever is chosen must hold the legs
+apart rather than let each optimise.**
+
 ## 🔴🔴🔴 **§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER — THERE IS NO VENUE SELECTION AT ALL, AND A SECOND VENUE IS UNREACHABLE. THIS BLOCKS EVERY FALLBACK ASKED FOR.** (2026-08-30)
 
 Owner asked for two fallbacks — WBTC v4↔v3, and RLUSD/PYUSD Morpho↔Aave-v4-spoke *"use morpho if
