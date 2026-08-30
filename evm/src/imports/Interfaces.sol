@@ -186,6 +186,14 @@ address constant ONEINCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
 // there. Pinning the selector is what lets the contract build its own calldata; see `_aggSwap`'s
 // header for why keeper-supplied calldata could not work on this money path at all.
 bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
+// 1inch V6 `unoswap2(uint256 token, uint256 amount, uint256 minReturn, uint256 dex, uint256 dex2)`.
+// §CURVE-ALONE-CANNOT-DO-IT — TWO SEQUENTIAL POOLS, and like `unoswap` it takes the AMOUNT AS A
+// RUNTIME PARAMETER, which is the whole reason it is usable here where `swap()` is not: our amounts
+// are computed mid-transaction, so anything that embeds its amount is stale by construction.
+// Verified present in the deployed router 2026-08-30.
+// Measured worth: on the BTC leg two hops beat one at every size — USDT→WETH→WBTC costs 0.67% at
+// $1M against 0.92% direct, and 3.29% vs 4.96% at $5M.
+bytes4 constant UNOSWAP2_SELECTOR = 0x8770ba91;
 uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
 uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
 

@@ -6,7 +6,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenue } from "./Interfaces.sol";
 import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {DEFAULT_UNWIND_DEX, ONEINCH_ROUTER, UNOSWAP_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+import {DEFAULT_UNWIND_DEX, ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -651,8 +651,20 @@ library LevMath {
     ///           that survives a reverted swap is a standing claim on the next block's balance.
     ///       ⚠️ `dex == 0` is REFUSED rather than treated as a no-op: silently swapping nothing and
     ///       returning 0 would surface as a slippage revert four frames away.
-    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 dex)
-        internal returns (uint256 out)
+    /// @param dex2 OPTIONAL second pool, same encoding as `dex`. **`0` means one hop** — the single-pool
+    ///        call is unchanged, so every existing caller keeps its exact behaviour. Non-zero switches
+    ///        to `unoswap2`, which is 1inch's TWO-POOL entrypoint and, crucially, still takes the
+    ///        amount as a runtime argument (§CURVE-ALONE-CANNOT-DO-IT).
+    /// @dev   ⚠️ EVERY SECURITY PROPERTY OF THE ONE-HOP FORM IS UNCHANGED AND SHARED, WHICH IS WHY THIS
+    ///        IS ONE BODY AND NOT AN OVERLOAD: the callee is still the pinned router, the selector is
+    ///        still a CONSTANT (now one of two, chosen by our own arithmetic rather than by the
+    ///        caller), the amount is still computed on-chain, `minOut` is still the caller's
+    ///        oracle-derived floor, and the floor is still enforced on the MEASURED BALANCE DELTA of
+    ///        `tokenOut` — which bounds the whole route regardless of how many pools it crossed.
+    ///        ⛔ A second selector does NOT widen what the keeper can reach: it still supplies only
+    ///        pool words, never a destination and never a function.
+    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 dex,
+                      uint256 dex2) internal returns (uint256 out)
     {
         if (amountIn == 0) return 0;
         if (dex == 0) revert NoVolatileRoute();
@@ -666,11 +678,24 @@ library LevMath {
             dex &= ~ZERO_FOR_ONE;                                  // ignore whatever the keeper set
             if (tokenIn == IUniV3PoolMin(address(uint160(dex))).token0()) dex |= ZERO_FOR_ONE;
         }
+        // ⭐ HOP 2's DIRECTION IS DERIVED FROM ITS **OUTPUT**, WHERE HOP 1's COMES FROM ITS **INPUT** —
+        //    and that symmetry is what makes the intermediate token unnecessary. This frame owns
+        //    `tokenIn` (hop 1 consumes it) and `tokenOut` (hop 2 produces it); the token BETWEEN the
+        //    pools is whatever pool 1 pays out, which we would otherwise have to read and trust.
+        //    `ZERO_FOR_ONE` means token0→token1, so hop 2 must set it exactly when `tokenOut` is the
+        //    pool's token1 — expressed here as `tokenOut != token0()`, which needs only the SAME
+        //    accessor hop 1 uses and so does not widen `IUniV3PoolMin`. As with hop 1, whatever the
+        //    keeper set in that bit is DISCARDED: the keeper names pools, never directions.
+        if (dex2 != 0 && dex2 >> 253 == PROTO_UNIV3) {
+            dex2 &= ~ZERO_FOR_ONE;
+            if (tokenOut != IUniV3PoolMin(address(uint160(dex2))).token0()) dex2 |= ZERO_FOR_ONE;
+        }
         uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
         IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);
         IERC20Min(tokenIn).approve(ONEINCH_ROUTER, amountIn);
-        (bool ok, ) = ONEINCH_ROUTER.call(
-            abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(uint160(tokenIn)), amountIn, minOut, dex));
+        (bool ok, ) = ONEINCH_ROUTER.call(dex2 == 0
+            ? abi.encodeWithSelector(UNOSWAP_SELECTOR,  uint256(uint160(tokenIn)), amountIn, minOut, dex)
+            : abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(uint160(tokenIn)), amountIn, minOut, dex, dex2));
         IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);      // reset on BOTH paths
         if (!ok) revert NoVolatileRoute();
         out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;
@@ -691,7 +716,7 @@ library LevMath {
         //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
         //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
-        return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.dex);
+        return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.dex, 0);
     }
 
     /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
@@ -749,7 +774,7 @@ library LevMath {
     ///      `testReal_WbtcLev_FoldUp_Then_FlashDelever` failing `transferFrom reverted` rather than
     ///      `NoVolatileRoute` -- i.e. it reached the router and the router had no pool.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, uint256 dex) internal returns (uint256) {
-        return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, dex);
+        return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, dex, 0);
     }
 
     /// @dev Mirror of `_stableToWbtc`: pinned pool to USDC, stableswap hub back out. `minOut` is
@@ -763,7 +788,7 @@ library LevMath {
     ///      revert is the honest surface — a silent 0 would reappear as a slippage failure frames away.
     function _volToStable(address vol, address stable, uint256 amt, uint256 minOut, uint256 dex)
         internal returns (uint256) {
-        uint256 usdc = _aggSwap(vol, USDC, amt, 0, dex);
+        uint256 usdc = _aggSwap(vol, USDC, amt, 0, dex, 0);
         uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
         if (out < minOut) revert Slippage();
         return out;
