@@ -533,6 +533,28 @@ is stated so it can be resumed cold.
 | `§BTC-LEG-FEE` (1.5) | **verified genuinely open** | owner decision: should a swap-in pay LPs at all? Test is inverted pending it |
 | `§E294` (1.6) | **verified open; the row's REASON corrected** | delete `pushObservation` or wire it. Row says "the ring is fed by the anchor regardless" — false: `Core.sol` says `pushObservation` is the ring's ONLY live writer, so deleting leaves the ring empty and every σ² read falls back to `anchorVarianceWad()` |
 
+### 🔴 TWO PROCESS FAULTS OF MINE, FOUND 2026-08-30 — BOTH AFFECT WHAT MY EARLIER "GREEN" CLAIMS MEAN
+1. ⛔ **`--match-path "test/**/*tc*"` UNDER-SELECTS, so every *"full BTC suite, 0 failed"* in this
+   session covered a SUBSET.** Files directly under `test/` (e.g. `VBtcLevFeeLane.t.sol`) never ran —
+   the `**/` requires an intervening directory, so only `test/btc/*` and similarly nested files
+   matched. **`test_LevDeliverabilityBTC_DeliverableDollarsView` was never executed by any of those
+   runs.** ⇒ Re-verify with a pattern that includes the top level before trusting any of those counts.
+2. ⛔ **`git add -A` SWEPT ANOTHER SESSION'S IN-FLIGHT WORK INTO MY COMMITS.** A second Claude session
+   is committing to this repo concurrently (the Aave-v4 / leverage-venue thread: `d3b5fdf4`,
+   `6622775b`, `ed9f064a`, `a1cdcbbd`, `bd8a174b`, `c99f6519`, `3c81ad31`, …). My `570cdc26`
+   ("Answer the attestation question") touched `evm/src/imports/Interfaces.sol`, which **I never
+   edited** — its message therefore does not describe its contents. ⇒ **Stage explicitly (`git add
+   <paths>`) in a shared tree**, and treat `git add -A` as unsafe here.
+
+🔴 **`§LEV-DELIVERABILITY-REGRESSION` — a REAL regression, ownership not yet pinned.**
+`test_LevDeliverabilityBTC_DeliverableDollarsView` **PASSES at `e2f0d0fe`** (before this session) and
+**FAILS at HEAD**: *"per-LP deliverable is within the book aggregate: 1170069204386151408450 >
+1169512293718309859154"*, gas 7,806,449 → 7,326,856, so behaviour changed materially. **The suspect is
+the concurrent leverage work, not the BTC changes** — `LevBase`/`LevMath`/`LevVenueBase`/`Interfaces`
+all changed since baseline and the failing assertion is leverage-book accounting, while the BTC
+changes touch channel custody. ⚠️ **NOT YET PROVEN** — a bisect at `52351b66` was running when this
+was written. Do not close it on the assumption above; finish the bisect.
+
 ### 🆕 ALSO SURFACED IN DISCUSSION AND NOT BOOKED UNTIL NOW (2026-08-30, owner: *"are you sure that
 is all the new work? other things came up"*) — they were, and these are them
 | item | what it is |

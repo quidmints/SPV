@@ -46,7 +46,10 @@ pub trait EvmClient: Send + Sync + 'static {
         seller: Address,
         sats: u64,
         token: Address,
-        payment_hash: B256,
+        // (§HOP-RCE-3) The LN PREIMAGE, not the payment hash: the contract derives
+        // `sha256(preimage)` as its dedup key rather than accepting a hop-chosen one, which could
+        // not provide the idempotency it was there for.
+        preimage: B256,
         min_delivered_usd: U256,
         require_full: bool,
     ) -> anyhow::Result<SettleOutcome>;

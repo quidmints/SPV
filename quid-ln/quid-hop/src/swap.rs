@@ -36,20 +36,21 @@ use alloy_primitives::{keccak256, Address, Bytes, U256};
 /// which has no way to refund a partial remainder. `false` allows an inventory-bounded
 /// partial (the on-chain rail refunds the unconverted sats via a second claim output).
 pub fn settle_swapin_calldata(
+    preimage: [u8; 32],
     seller: Address,
     sats: u64,
     token: Address,
-    payment_hash: [u8; 32],
     min_delivered_usd: U256,
     require_full: bool,
 ) -> Bytes {
     let sel = keccak256(crate::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED);
     let mut data = Vec::with_capacity(4 + 192);
     data.extend_from_slice(&sel[..4]);
+    // The PREIMAGE leads: the contract hashes it into the dedup key itself.
+    data.extend_from_slice(&preimage);
     data.extend_from_slice(&crate::abi::address_word(seller));
     data.extend_from_slice(&U256::from(sats).to_be_bytes::<32>());
     data.extend_from_slice(&crate::abi::address_word(token));
-    data.extend_from_slice(&payment_hash);
     data.extend_from_slice(&min_delivered_usd.to_be_bytes::<32>());
     // bool → a 32-byte ABI word whose last byte is 1 (true) / 0 (false).
     data.extend_from_slice(&U256::from(require_full as u8).to_be_bytes::<32>());
@@ -192,16 +193,19 @@ mod tests {
     fn swapin_calldata_layout() {
         let seller = Address::from([0x11u8; 20]);
         let token = Address::ZERO;
-        let hash = [0xABu8; 32];
-        let cd = settle_swapin_calldata(seller, 50_000, token, hash, U256::from(1_000_000u64), true);
+        // (§HOP-RCE-3) The PREIMAGE leads and there is NO paymentHash word: the contract derives
+        // `sha256(preimage)` itself. A hop-chosen hash could not provide the idempotency it was
+        // there for — one HTLC was creditable repeatedly under different invented hashes.
+        let preimage = [0xABu8; 32];
+        let cd = settle_swapin_calldata(preimage, seller, 50_000, token, U256::from(1_000_000u64), true);
         assert_eq!(cd.len(), 4 + 192);
         assert_eq!(&cd[..4], &keccak256(crate::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED)[..4]);
-        assert_eq!(&cd[4 + 12..4 + 32], &[0x11u8; 20], "word 0: seller");
-        assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(50_000u64), "word 1: sats");
-        assert_eq!(&cd[4 + 96..4 + 128], &hash, "word 3: paymentHash (idempotency, not the bound)");
+        assert_eq!(&cd[4..4 + 32], &preimage, "word 0: preimage");
+        assert_eq!(&cd[4 + 44..4 + 64], &[0x11u8; 20], "word 1: seller");
+        assert_eq!(U256::from_be_slice(&cd[4 + 64..4 + 96]), U256::from(50_000u64), "word 2: sats");
         assert_eq!(U256::from_be_slice(&cd[4 + 128..4 + 160]), U256::from(1_000_000u64), "floor");
         assert_eq!(U256::from_be_slice(&cd[4 + 160..4 + 192]), U256::from(1u64), "requireFull");
-        let cd0 = settle_swapin_calldata(seller, 50_000, token, hash, U256::from(1_000_000u64), false);
+        let cd0 = settle_swapin_calldata(preimage, seller, 50_000, token, U256::from(1_000_000u64), false);
         assert_eq!(U256::from_be_slice(&cd0[4 + 160..4 + 192]), U256::ZERO);
     }
 
@@ -221,7 +225,7 @@ mod tests {
         assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(7u64));
         assert_eq!(U256::from_be_slice(&cd[4 + 64..4 + 96]), U256::from(1u64), "requireFull");
         // A reversal must never be mistakable for a credit: different selector entirely.
-        let credit = keccak256("settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)");
+        let credit = keccak256(crate::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED);
         assert_ne!(&cd[..4], &credit[..4]);
         let cd0 = reverse_swap_out_calldata(swap_id, U256::ZERO, false);
         assert_eq!(U256::from_be_slice(&cd0[4 + 64..4 + 96]), U256::ZERO);

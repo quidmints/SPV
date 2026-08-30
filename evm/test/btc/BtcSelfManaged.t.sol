@@ -140,7 +140,7 @@ contract BtcSelfManagedTest is AllesFixture {
         uint pooledBefore = CORE.POOLED_USD();
         uint parkedBefore = ch.provenSatsAvailable(hop);
         vm.prank(hop);
-        ch.settleSwapInBuffered(seller, sats, address(USDC), paymentHash, 0, false);
+        ch.settleSwapInBuffered(paymentHash, seller, sats, address(USDC), 0, false);
         // ETH-parity: the real LN swap-in settles ON-CURVE from existing pooled
         // dollars - the seller receives USDC, NOT minted QUI.
         assertGt(USDC.balanceOf(seller), usdcBefore, "seller received USDC for the real LN swap-in");
@@ -155,7 +155,7 @@ contract BtcSelfManagedTest is AllesFixture {
         // only be testing the pool's depth.
         vm.prank(hop);
         vm.expectRevert(BTCChannels.SwapInReplay.selector);
-        ch.settleSwapInBuffered(seller, sats, address(USDC), paymentHash, 0, false);
+        ch.settleSwapInBuffered(paymentHash, seller, sats, address(USDC), 0, false);
     }
 
     // ── CROSS-CHAIN E2E — housed here, NOT in `Alles.t.sol`, for the same reason as the LN test ──
@@ -382,7 +382,7 @@ contract BtcSelfManagedTest is AllesFixture {
             // ▶️ To assert the payout here too, the fixture generator needs to emit a splice.
             vm.prank(hop);
             vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
-            ch.settleSwapInBuffered(b.seller, b.sats, address(USDC), b.paymentHash, 0, false);
+            ch.settleSwapInBuffered(b.paymentHash, b.seller, b.sats, address(USDC), 0, false);
         }
 
 

@@ -531,13 +531,13 @@ contract BtcLpMintStress is AllesFixture {
         // test absorbs 50k sats on this priming), so what stops it is the BALANCE, not the curve.
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
-        ch.settleSwapInBuffered(address(0x5EE0), parked * 5, address(USDC), keccak256("over"), 0, false);
+        ch.settleSwapInBuffered(keccak256("over"), address(0x5EE0), parked * 5, address(USDC), 0, false);
 
         // CONTROL: the same call WITHIN the balance succeeds, so the refusal above is
         // attributable to the bound and not to a pool that simply could not deliver.
         uint before = USDC.balanceOf(address(0x5EE0));
         vm.prank(makeAddr("hop"));
-        uint consumed = ch.settleSwapInBuffered(address(0x5EE0), parked, address(USDC), keccak256("ok"), 0, false);
+        uint consumed = ch.settleSwapInBuffered(keccak256("ok"), address(0x5EE0), parked, address(USDC), 0, false);
         assertGt(USDC.balanceOf(address(0x5EE0)), before, "control: a within-balance credit pays");
         assertEq(ch.provenSatsAvailable(makeAddr("hop")), parked - consumed,
             "the balance falls by consumed, never by the request");
@@ -1010,8 +1010,7 @@ contract BtcLpMintStress is AllesFixture {
         for (uint i = 0; i < 500 && !gateFired && !curveSelfLimited; i++) {
             if (CORE.POOLED_USD() <= pending) break;
             vm.prank(makeAddr("hop"));
-            try ch.settleSwapInBuffered(address(0x5EE0), fixedSats, address(USDC),
-                    keccak256(abi.encode("gate-swapin", i)), 0, false) {
+            try ch.settleSwapInBuffered(keccak256(abi.encode("gate-swapin", i)), address(0x5EE0), fixedSats, address(USDC), 0, false) {
                 assertGe(CORE.POOLED_USD(), pending,
                     "swap-in left POOLED_USD >= pending (LP proceeds not drained)");
                 accepted++;
@@ -1162,7 +1161,7 @@ contract BtcLpMintStress is AllesFixture {
         // trap this block used to carry.
         _proveReserve(ch, makeAddr("hop"), 60_000, 202);
         vm.prank(makeAddr("hop"));
-        try ch.settleSwapInBuffered(address(0x5EE0), 50_000, address(USDC), bytes32(uint(0x5117)), 0, false) {} catch {}
+        try ch.settleSwapInBuffered(bytes32(uint(0x5117)), address(0x5EE0), 50_000, address(USDC), 0, false) {} catch {}
         _multiAssert(ch, "shared swap-in", k);
 
         // 6) close A (all-native, mints ~0) — must not move B/C minted balances

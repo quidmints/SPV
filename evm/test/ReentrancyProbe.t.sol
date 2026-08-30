@@ -60,7 +60,7 @@ contract ReentrancyProbe is AllesFixture {
         // MULTI-HOP: a caller that owns no open channel cannot attest a swap-in.
         vm.prank(address(0xBAD));
         vm.expectRevert(BTCChannels.NotChannelHop.selector);
-        ch.settleSwapInBuffered(address(0xBAD), 1_000_000, address(USDC), bytes32(uint(1)), 0, false);
+        ch.settleSwapInBuffered(bytes32(uint(1)), address(0xBAD), 1_000_000, address(USDC), 0, false);
     }
 
     // (3) THE creditSwapIn re-entry-vector closure: the payout token must be a
@@ -82,7 +82,7 @@ contract ReentrancyProbe is AllesFixture {
         _openHopChannel(ch, makeAddr("hop"), 1, 2e7);
         vm.prank(makeAddr("hop"));
         vm.expectRevert(bytes4(keccak256("StableMissing()")));
-        ch.settleSwapInBuffered(address(0x5E), 1_000_000, evil, bytes32(uint(7)), 0, false);
+        ch.settleSwapInBuffered(bytes32(uint(7)), address(0x5E), 1_000_000, evil, 0, false);
     }
 
     // §ETH-ZERO — the unlock-callback reentrancy probe is DELETED WITH THE CALLBACK. It asserted

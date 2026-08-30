@@ -78,14 +78,12 @@ contract HopReserveFunderTest is Test {
     function test_theLightningRailRevertsWithoutAReserveAndSucceedsWithOne() public {
         vm.prank(hop);
         vm.expectRevert(BTCChannels.InsufficientProvenSats.selector);
-        ch.settleSwapInBuffered(address(0xA1), 1_000_000, address(0xB2),
-                                bytes32(uint256(0x11)), 0, true);
+        ch.settleSwapInBuffered(bytes32(uint256(0x11)), address(0xA1), 1_000_000, address(0xB2), 0, true);
 
         _prove(_fundingTx(RESERVE, TOPUP, 2));
 
         vm.prank(hop);
-        uint consumed = ch.settleSwapInBuffered(address(0xA1), 1_000_000, address(0xB2),
-                                                bytes32(uint256(0x22)), 0, true);
+        uint consumed = ch.settleSwapInBuffered(bytes32(uint256(0x22)), address(0xA1), 1_000_000, address(0xB2), 0, true);
         assertEq(consumed, 1_000_000, "the LN rail now settles");
         assertEq(ch.provenSatsAvailable(hop), TOPUP - 1_000_000, "and the cap is drawn down");
     }

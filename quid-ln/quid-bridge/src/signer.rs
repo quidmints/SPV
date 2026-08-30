@@ -178,7 +178,7 @@ mod tests {
             to: allowed,
             value: U256::ZERO,
             data: crate::abi::selector4(
-                "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)",
+                quid_hop::evm_codec::SIG_SETTLE_SWAP_IN_BUFFERED,
             ),
         };
         // Allowed contract + known selector + zero value → signs.

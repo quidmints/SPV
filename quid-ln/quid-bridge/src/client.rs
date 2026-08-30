@@ -722,18 +722,24 @@ impl<R: JsonRpc, S: TxSigner> EvmClient for JsonRpcEvmClient<R, S> {
         seller: Address,
         sats: u64,
         token: Address,
-        payment_hash: B256,
+        preimage: B256,
         min_delivered_usd: U256,
         require_full: bool,
     ) -> anyhow::Result<SettleOutcome> {
         let data = quid_hop::swap::settle_swapin_calldata(
+            preimage.0,
             seller,
             sats,
             token,
-            payment_hash.0,
             min_delivered_usd,
             require_full,
         );
+        // The contract keys `swapInUsed` on `sha256(preimage)`; derive the SAME value here rather
+        // than taking it as a second parameter, so the two can never disagree.
+        let payment_hash = {
+            use bitcoin::hashes::Hash as _;
+            B256::from(bitcoin::hashes::sha256::Hash::hash(&preimage.0).to_byte_array())
+        };
         let depth = self.cfg.settle_min_confirmations;
         let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
         debug!(success = mined.success, block = mined.block, "settle mined");

@@ -2853,14 +2853,14 @@ contract Alles is AllesFixture {
         //     hop's proven balance is untouched — nothing was spent for nothing.
         vm.prank(hopA);
         vm.expectRevert(abi.encodeWithSignature("SwapInShort()"));
-        ch.settleSwapInBuffered(seller, sats, address(USDC), keccak256("s4-floor"), type(uint).max, false);
+        ch.settleSwapInBuffered(keccak256("s4-floor"), seller, sats, address(USDC), type(uint).max, false);
         assertEq(ch.provenSatsAvailable(hopA), parked, "a floor revert spends no proven sats");
 
         // (2) The same credit with a 0 floor succeeds, and the balance falls by what was
         //     actually CONSUMED — not by what was asked for.
         uint sellerBefore = USDC.balanceOf(seller);
         vm.prank(hopA);
-        uint consumed = ch.settleSwapInBuffered(seller, sats, address(USDC), keccak256("s4-ok"), 0, false);
+        uint consumed = ch.settleSwapInBuffered(keccak256("s4-ok"), seller, sats, address(USDC), 0, false);
         assertGt(USDC.balanceOf(seller), sellerBefore, "0-floor credit delivered USDC");
         assertEq(ch.provenSatsAvailable(hopA), parked - consumed,
             "the balance falls by consumed, never by the request");
@@ -2874,7 +2874,7 @@ contract Alles is AllesFixture {
         uint bigSats = ((BTC.CORE().POOLED_USD() * 1e12 * 4) * 1e18) / price; // 4x the reserve
         vm.prank(hopA);
         vm.expectRevert(abi.encodeWithSignature("SwapInPartialRejected()"));
-        ch.settleSwapInBuffered(seller, bigSats, address(USDC), keccak256("s4-atomic"), 0, true);
+        ch.settleSwapInBuffered(keccak256("s4-atomic"), seller, bigSats, address(USDC), 0, true);
         assertEq(ch.provenSatsAvailable(hopA), balBefore3, "an atomic-partial revert spends nothing");
 
         // (4) The bound that replaces the phantom — a hop cannot credit beyond what it proved —

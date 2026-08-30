@@ -207,7 +207,11 @@ where
     T: BtcTip,
 {
     let (seller, token, sats, min) = (c.seller, c.token, c.sats, c.min_delivered_usd);
-    let payment_hash = B256::from(c.payment_hash);
+    // (§HOP-RCE-3) The settle carries the PREIMAGE and the contract derives the dedup key from it,
+    // so a hop cannot credit one HTLC repeatedly under invented hashes. The local bookkeeping
+    // (fail/claim, the durable in-flight record) still keys on `c.payment_hash` directly — LDK's own
+    // value, not one we choose — which is why no `payment_hash` binding survives here.
+    let preimage = B256::from(c.preimage);
 
     // DURABILITY (settle→claim crash window): persist the in-flight swap-in BEFORE
     // anything moves on-chain. If we crash after delivering USD but before claiming
@@ -288,7 +292,8 @@ where
         // than delivering partial USD the fleet could never refund the remainder for (no
         // seller LN node to keysend). The on-chain rail is the one that accepts partials.
         let result = tokio::task::spawn_blocking(move || {
-            evm2.settle_swap_in(seller, sats, token, payment_hash, min, true)
+            // (§HOP-RCE-3) Pass the PREIMAGE: the contract derives the dedup key from it.
+            evm2.settle_swap_in(seller, sats, token, preimage, min, true)
         })
         .await;
 

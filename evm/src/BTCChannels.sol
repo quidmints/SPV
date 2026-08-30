@@ -1464,17 +1464,35 @@ contract BTCChannels is Ownable {
     /// and could still sell. `requireFull` is preserved for the LN rail, which cannot refund a
     /// partial and must fail the HTLC back instead.
     function settleSwapInBuffered(
-        address seller, uint sats, address token, bytes32 paymentHash,
+        bytes32 preimage, address seller, uint sats, address token,
         uint minDeliveredUsd, bool requireFull
     ) external nonReentrant returns (uint consumed) {
         _onlyHop();
-        // ⚠️ `paymentHash` IS IDEMPOTENCY, NOT THE BOUND — do not confuse the two, because the
-        // old entrypoint conflated them and that is what made it a trapdoor. What stops a hop
-        // conjuring value is `provenSatsAvailable`; a hash the hop invents could never do that.
-        // What this dedup stops is the DAEMON crediting the same HTLC twice after a retry or a
-        // restart, which would pay the seller twice and drain the hop's own proven balance.
-        // ⇒ The pool is protected by the balance; the hop and the seller are protected by this.
-        if (paymentHash == bytes32(0) || swapInUsed[paymentHash]) revert SwapInReplay();
+        // (§HOP-RCE-3) DERIVE THE DEDUP KEY, NEVER ACCEPT IT.
+        //
+        // ⚠️ `paymentHash` IS IDEMPOTENCY, NOT THE BOUND — do not confuse the two, because the old
+        // entrypoint conflated them and that is what made it a trapdoor. What stops a hop conjuring
+        // value is `provenSatsAvailable`. What this dedup stops is the DAEMON crediting the same
+        // HTLC twice after a retry or a restart.
+        // 🔴 **BUT IT WAS A PARAMETER, AND A HOP-CHOSEN VALUE CANNOT PROVIDE IDEMPOTENCY EITHER.**
+        // The comment here used to say *"a hash the hop invents could never do that"* about the
+        // BOUND and then rely on that same invented hash for the dedup. One real HTLC could be
+        // credited N times under N invented hashes, each passing `swapInUsed`, draining USD for sats
+        // that arrived once — bounded by `provenSatsAvailable`, which caps the damage rather than
+        // barring it.
+        //
+        // 🔑 ONE HTLC HAS EXACTLY ONE PREIMAGE, so `sha256(preimage)` is CANONICAL: the same payment
+        // always yields the same key, and a second credit for it becomes unconstructible rather than
+        // merely bounded (standing rule 17). The daemon already holds it at settle time —
+        // `ClaimedSwapIn.preimage`, documented there as `sha256(preimage) == payment_hash` — so this
+        // costs the caller nothing and REMOVES a parameter instead of adding one.
+        //
+        // ⛔ WHAT IT IS NOT: proof the payment arrived. The hop ISSUES the invoice, so it knows the
+        // preimage before any payment exists (`§PREIMAGE-CANNOT-PROVE-RECEIPT`). Arrival stays
+        // bounded by `provenSatsAvailable`. The other half of §HOP-RCE-3 — the hop still NAMES the
+        // seller — needs the seller-signed intent and is NOT addressed here.
+        bytes32 paymentHash = sha256(abi.encodePacked(preimage));
+        if (swapInUsed[paymentHash]) revert SwapInReplay();
         swapInUsed[paymentHash] = true;
         uint avail = provenSatsAvailable[msg.sender];
         consumed = btc.creditSwapIn(seller, sats, token, minDeliveredUsd);

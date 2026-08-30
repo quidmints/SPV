@@ -121,8 +121,12 @@ pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,uint256,bool)";
 /// IDEMPOTENCY (stop the daemon crediting one HTLC twice across a retry or restart), never the
 /// bound. What stops a hop conjuring value is `provenSatsAvailable` on-chain. The old entrypoint
 /// conflated the two, and that conflation was the trapdoor.
+/// ⚠️ **THE FIRST PARAMETER IS THE PREIMAGE, NOT THE PAYMENT HASH (§HOP-RCE-3).** The contract
+/// DERIVES `sha256(preimage)` as its dedup key rather than accepting one, because a hop-chosen hash
+/// cannot provide the idempotency it was there for — one HTLC could be credited repeatedly under
+/// different invented hashes. One HTLC has one preimage, so the key is canonical.
 pub const SIG_SETTLE_SWAP_IN_BUFFERED: &str =
-    "settleSwapInBuffered(address,uint256,address,bytes32,uint256,bool)";
+    "settleSwapInBuffered(bytes32,address,uint256,address,uint256,bool)";
 
 /// (§LN-RESERVE-FUNDER) Raise this hop's `provenSatsAvailable` by the sats an SPV-proven
 /// transaction pays to the pinned reserve address.
