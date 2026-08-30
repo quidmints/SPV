@@ -239,8 +239,43 @@ has ruled out.
    staleness possible, but one on-chain tx per LN swap-in, which defeats the rail's purpose.
 4. **Revert `§LN-RESERVE-FUNDER`**: back to a dead rail and no hole. The conservative floor if none of
    the above lands.
-⇒ **RECOMMEND (2), with (1) as the interim** — (2) is the only one where the cap cannot outlive the
-sats, and it costs the fleet nothing but a timelock on its own working capital.
+⇒ ⛔ **ALL FOUR ARE WRONG, AND THE REASON IS STRUCTURAL (owner: *"there must be a better fix"*).**
+Options 1–3 all try to **bound** the loss; only 4 removes it, by removing the feature. None makes the
+pool whole. The constraint they run into:
+
+🔑 **THE CONTRACT CANNOT OBSERVE AN ASSET IT DOES NOT CUSTODY.** BTC at a hop-controlled address is
+visible to the EVM only through SPV proofs of **INCLUSION** — which prove *arrival* and can never
+prove *continued existence*. So any BTC-side reserve is provably-arrived and never provably-still-
+there. That is not a gap in my design; it is a property of the medium, and it is why the old
+`_releasePoolSats` could only work at all because the sats sat in a **channel**, whose every
+departure the contract already verifies.
+
+⇒ **THERE ARE EXACTLY TWO SOUND FAMILIES:** (A) make *remaining* enforceable **on Bitcoin** — the
+timelocked script, where consensus (not a proof) keeps the sats in place for the allowance's life; or
+(B) **move the bound onto an asset the contract custodies.**
+
+✅ **`§HOP-BOND` — THE BETTER FIX, AND IT CLOSES RATHER THAN BOUNDS.** The LN rail's real risk is a
+*speed window*: the pool pays USD now for sats that arrive off-chain and are only reconcilable later.
+Collateralise **the window**, not the sats:
+1. The hop posts a bond the **contract holds** (EVM-side, so it cannot be spent silently and needs no
+   return path — the contract *is* the custodian).
+2. A credit **consumes** bond, exactly as it consumes allowance today. Same shape, observable asset.
+3. **`proveHopReserve` becomes the RELEASE path instead of the funding path** — the fleet proves the
+   sats reached protocol custody on-chain and its bond comes back. The SPV machinery is already
+   built and tested (`_provenTxid`, `§SETTLE-PROVEN-UNTESTED`'s 5 tests); only its *meaning* changes.
+4. The fleet never reconciles ⇒ the bond stays consumed ⇒ **the pool is made whole**, not merely
+   capped. The basket is never under-backed, which is the harm M1#1 exists to prevent.
+
+⭐ **THE INVARIANT IT BUYS, WHICH NONE OF 1–4 CAN STATE:** *credited-but-unreconciled sats are always
+≤ collateral the contract holds.* Nothing off-chain has to be believed, and there is no window in
+which a hole can open.
+⚠️ **COSTS, HONESTLY:** the fleet locks working capital sized to in-flight LN volume (the same
+capital a BTC reserve would have tied up, denominated on the chain that can see it), and
+`BTCChannels` grows token custody — affordable now at **1,049 bytes spare**, which the
+`§POOL-INVENTORY-PURGED` deletion is what paid for.
+▶️ **OPEN FOR THE OWNER, and they are policy not mechanism:** the bond's denomination, its size
+relative to expected in-flight volume, and whether an under-bonded hop is *blocked* from crediting
+(fail-closed) or merely throttled.
 
 ✅ **`§POOL-INVENTORY-PURGED` (2026-08-30) — PHASE 2 DONE. FOUR OPEN ITEMS CLOSED BY DELETION.**
 With the cap funded from the fleet's own reserve, the old funder and everything that existed to
