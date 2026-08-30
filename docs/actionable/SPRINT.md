@@ -551,6 +551,70 @@ still here — **what must be rebuilt is the venue and four interface lines, not
    Until then no venue choice diversifies the basket's borrow side — **the constraint is external.**
 3. **The WBTC v3/v4 comparator is buildable today** and is the cheapest of the three.
 
+### 🔴🔴 **CORRECTION — WE NEVER BORROW WETH FOR IL PROTECT, A WETH-DEBT VENUE WAS TRIED AND DELETED, AND THAT INVALIDATES THE HEADLINE OF THE MEASUREMENT ABOVE** (owner, 2026-08-30: *"do we ever actually borrow WETH at any point for IL protect, or only dollars?"*)
+
+**Only dollars. And the reason is written out as algebra in `DeployL1_s._ethLevVenues:765-780`, next to the deletion of the venue that tried it:**
+> *"THE WETH-DEBT VENUE {loanToken: WETH, collateralToken: weETH} WAS DELETED HERE. **It could not
+> hedge, and was added on the belief that it could.** THE ALGEBRA: the range sold `soldFrac·E0` of
+> ETH, so it holds `E0(1−soldFrac)` ETH plus the USD proceeds; delta-1 requires netting `E0`.
+> • Borrow WETH `soldFrac·E0` ⇒ hold `E0` but OWE `soldFrac·E0` ETH ⇒ net `E0(1−soldFrac)`.
+>   **UNCHANGED — the debt cancels exactly what the borrow bought.**
+> • Borrow USD and buy ETH ⇒ hold `E0`, owe DOLLARS ⇒ net `E0`. **RESTORED.**
+> ⇒ **THE LIABILITY MUST BE IN THE ASSET YOU ARE NOT LONG.** A weETH/WETH market is a STAKING CARRY,
+> not IL protect, and **its depth is irrelevant — infinitely deep it would still hedge nothing.**"*
+
+### ⛔ **SO THE HEADLINE OF §AAVE-V4-HUB-MEASURED IS ON THE WRONG LEG, AND I WROTE IT**
+I opened that row with *"the WETH side is wide open — 29,349 free at 83% CF"* as the attraction.
+**A WETH borrow cannot hedge IL, so the biggest number in that table is on the leg that does not do
+the job.** The measurement is unchanged; what it MEANS is not. ⚠️ **Same error the deleted venue
+made** — *"added on the belief that it could"* — and the deploy script had already written the
+refutation. **I measured depth before asking what the borrow was for.**
+
+### ✅ WHAT THE v4 HUB IS ACTUALLY GOOD FOR HERE — AND IT IS THE OWNER'S OWN PROPOSAL
+A hedge needs a **DOLLAR liability against weETH collateral**. On v4 that is available:
+| leg | v4 figure |
+|---|---|
+| collateral: **weETH** | listed, **CF 8000**, 3,979.53 supplied / 0 borrowed |
+| debt: **USDG** | **37,933,235 free** |
+| debt: USDT | 3,570,685 free |
+| debt: GHO | 227,841 free |
+| debt: USDC | **0 free** |
+⇒ **"keep Morpho for RLUSD/PYUSD, allow USDG borrow on Aave v4 because it is very liquid" is
+CORRECT and is a dollar liability — it hedges.** USDG's 37.9M free is ~3.9× the RLUSD Morpho
+market's idle ($9.66M) and ~8.8× PYUSD's ($4.32M).
+⚠️ **AND `collateralFactor = 0` ON USDG IS NOT AN OBJECTION TO THIS PLAN** — it only means USDG
+cannot be POSTED. Borrowing it is what the plan says, and borrowing is what the reserve supports.
+**My previous row read that zero as a blocker; it blocks the other direction.**
+🔴 **ONE REAL PREREQUISITE: `USDG` IS NOT ON `LevMath._routeOf`.** The hedge borrows dollars and BUYS
+ETH, so a USDG borrow needs `USDG → USDC → WETH`. Per §E210 that is **one line** if a Curve
+USDG/USDC pool exists — **and whether it does is unverified.** Check it before committing to USDG.
+
+### 📌 `Amp.sol` FOUND AND READ — IT HAS THE PLUMBING, NOT THE CHOICE
+`quidmints/quid@main:evm/src/Amp.sol` (capital A; 791 lines). It carries exactly the v4 borrow the
+owner described — `SPOKE.borrow(_reserveId(address(weth)), borrowing, address(this))` at `:242`,
+against USDC collateral (`:203` *"leveraged long (borrow weth against USDC)"*), with a v3 fallback
+`AAVE.borrow(address(weth), …)` at `:245`.
+⛔ **BUT ITS v4/v3 SELECTOR IS `if (address(SPOKE) != address(0))` — PRESENCE, NOT TERMS.** There is
+no rate comparison anywhere in it. ⇒ **The comparator the owner asked for ("check if the terms are
+better on aavev3 than v4") does not exist there either and is new work.** `Amp.sol` supplies the
+borrow/repay plumbing that `cbbc0993` deleted; it does not supply the choice.
+⚠️ **AND ITS TOPOLOGY IS THE ONE JUST REFUTED** — `Amp` borrows WETH against USDC. Read it for the
+spoke-call shape, **not for the leg to hedge with.**
+
+### ⚠️ **AND THE REPACK IS NOT ONCE PER BLOCK — CORRECTING THE PREMISE, AS ASKED**
+*"our rebalance/refill to 1:1 which happens not after every swap, but once per block … correct me if
+im wrong that this is an inevitable necessity."*
+**Measured: there is no block cadence anywhere.** `LAST_REPACK` appears **four times in `Quid.sol` —
+a declaration, two comments, and one write** (`:1434`, `block.timestamp`) — and is **never read**.
+It is a RECORD, not a gate.
+▶️ **What actually happens: `repack()` runs on the swap path** (`SwapLib:376`, `:671`, `:2013`) —
+i.e. on EVERY swap — **and whether the range MOVES is gated on PRICE DEVIATION, not time**:
+`isManipulated(spot, twap, 300)` (3%) and `RESEAT_MIN_BPS = 50` for the reseat.
+⇒ **Two swaps in one block can each move the range; a thousand swaps in a quiet market move it
+zero times.** ⭐ **And deviation-gating is the BETTER rate limiter, which is why "inevitable
+necessity" overstates it:** a block gate keys on a PROXY (time passed) and would both over-fire in a
+calm market and under-fire in a violent one. The current gate keys on the thing that matters.
+
 ## 📌 **§INTENT-WHAT-IS-THE-PROBLEM — ONE DEFECT, AND EVERYTHING ELSE IN THIS SECTION IS DOWNSTREAM OF IT** (owner, 2026-08-30: *"what problem are we solving and how does it occur"*)
 
 **Written because the question had to be asked.** Six rows went into this file in one sitting —
