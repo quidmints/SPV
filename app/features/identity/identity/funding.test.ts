@@ -11,9 +11,12 @@
  * that can resolve `expo-secure-store` (i.e. `app/node_modules`, not a bare one). `root.test.ts`
  * has the same requirement.
  *
- * ⚠️ THE PINNED KEY BELOW WAS MEASURED INDEPENDENTLY, not copied from a run of this code: derived
- * directly with `ethers.HDNodeWallet.fromPhrase(PHRASE, "", "m/86'/0'/0'/0/0")` in a standalone
- * script, so the assertion checks the PATH rather than agreeing with whatever `root.ts` does.
+ * ⚠️ THE PINNED VALUES BELOW ARE NOT COPIED FROM A RUN OF THIS CODE, so these assertions check the
+ * PATH rather than agreeing with whatever `root.ts` happens to do. Verified 2026-08-30 against a
+ * standalone pure-Python BIP-39/BIP-32 implementation (no ethers, no noble), and the resulting
+ * public key is byte-for-byte the `internal_key` that **BIP-86's own test vectors** publish for
+ * "Account 0, first receiving address = m/86'/0'/0'/0/0" of this mnemonic. The path is therefore
+ * pinned against the specification, not against a second copy of our own opinion.
  */
 import test, { mock } from 'node:test';
 import assert from 'node:assert';
@@ -66,5 +69,17 @@ test("the path is BIP-86 taproot (m/86'/0'/0'/0/0), not the EVM path", async () 
     deriveFundingKey(PHRASE).privateKey,
     '0x41f41d69260df4cf277826a9b65a3717e4eeddbeedf637f212ca096576479361',
     "if this fails, check FUNDING_PATH was not changed away from m/86'/0'/0'/0/0",
+  );
+});
+
+/// THE SPEC'S OWN VECTOR. BIP-86 publishes `internal_key` for this mnemonic's first taproot
+/// receiving address; matching it proves the derivation agrees with the standard rather than
+/// merely with itself, which a private-key pin alone cannot show.
+test('the derived point matches the published BIP-86 internal_key vector', async () => {
+  const { deriveFundingKey } = await import('./root.ts');
+  assert.strictEqual(
+    deriveFundingKey(PHRASE).publicKey.toLowerCase(),
+    '0x03cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115',
+    'compressed point whose x-only half is BIP-86 vector internal_key',
   );
 });

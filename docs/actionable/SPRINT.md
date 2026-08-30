@@ -91,6 +91,16 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
+🆕 **`§JS-TESTS-HAVE-NO-RUNNER` (added 2026-08-30, Tier 2).** `app/` carries **10 test files and
+no way to execute them**: no `test` script, no jest/vitest dependency, no runner config anywhere in
+the repo. **This is inherited, NOT a merge regression** — ibiza's `frontend/identity-wallet` had the
+same 10 files and no runner either, and the file lists match exactly (SPV differs only by the new
+`funding.test.ts`), so nothing was dropped in the merge. The files use `node:test` + `mock.module`,
+so they need `--experimental-test-module-mocks` and an installed `app/node_modules` (currently
+absent — `ethers` does not resolve) rather than a new framework. Until then every assertion in
+`chain/`, `passport/`, `identity/` and `pp/` is unverified — including keys that control funds,
+which is why `funding.test.ts`'s pin was checked out-of-band against BIP-86's own vector.
+
 🆕 **`§DELIVERY-INFLIGHT-RESOLUTION` (added 2026-08-30, Tier 2).** `§AUDIT-SWAPOUT-DOUBLEPAY`'s fix
 halts a swap whose delivery splice was initiated but never locked, because retrying double-pays and
 reversing refunds against BTC still in flight. Halting is strictly safer than both, but it is not
@@ -255,8 +265,16 @@ basis — the blocker the file put in front of them is gone.**
 
 ### ⇒ WHAT IS ACTUALLY OPEN ON THE BITCOIN SIDE
 
-1. 🔴 **Phase 1(c) — LP seed provisioning.** The keystone's last leg, and an **owner decision**
-   (`§LP-SEED-ENTROPY`). Everything in phases 2–4 was ordered behind phase 1.
+1. ✅ **Phase 1(c) — LP seed provisioning. DECIDED AND BUILT (2026-08-30).** Owner ruled *"same
+   seed, taproot path"*, closing `§LP-SEED-ENTROPY`: the LP's Bitcoin funding half derives from the
+   SAME enclave mnemonic as identity, at BIP-86 `m/86'/0'/0'/0/0` (`deriveFundingKey`,
+   `app/features/identity/identity/root.ts`), so there is no second backup to lose while the two
+   roles stay on distinct scalars (the property `§E182-b` requires). **Derivation verified against
+   the specification, not against itself:** a standalone pure-Python BIP-39/BIP-32 implementation
+   reproduces the pinned private key, and the resulting point is byte-for-byte BIP-86's published
+   `internal_key` vector (`03cc8a4b…c115`) for this mnemonic's first taproot receiving address.
+   ⚠️ **Caveat — the tests cannot RUN.** See `§JS-TESTS-HAVE-NO-RUNNER`. **Everything in phases
+   2–4 was ordered behind phase 1 and is now unblocked.**
 2. 🔴 **The pool script** (`§ORDER` 1.1) — `_armDeadManExit` still verifies ONE output.
 3. 🔴 **Phase 3 freshness** — decide whether it is wanted at all before building a writer for it.
 4. 🔴 **`E182-REKEY-CHECKED`** — *"its STATED PROPERTY IS FALSE for the only case it exists for."*
