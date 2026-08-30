@@ -909,6 +909,50 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## ⚠️ **§POSITION-LEAVES-THREE-LOOSE-ENDS — SELF-AUDIT OF THE COMMIT I JUST LANDED** (owner, 2026-08-30: *"are you sure you arent missing anything?"*)
+
+Regression checked first, because it was the one gap I could not reason about: **`forge test
+--match-path "test/Lev*.t.sol"` at a fresh pin → 41 passed, 0 failed, 0 `setUp` failures, 0 RPC
+noise.** I had only ever run my own two files. Nothing broke. The rest are design gaps, not breakage.
+
+### 🔴 ① I COMMITTED A SIGNATURE THE NEXT COMMIT MUST CHANGE, AND I KNEW MULTI-ASSET WAS COMING
+`borrowRateRay(uint256 extraBorrow)` prices **`STABLE`**, hardcoded. The whole point of `position()`
+is that a venue may carry SEVERAL debts — so "what would it cost to borrow more" stops being
+well-posed the moment there are two, and the accessor has to become
+**`borrowRateRay(address asset, uint256 extra)`**. That is not a discovery; it follows from the
+design I was already building toward, and I shipped the narrower signature anyway. ⇒ **Change it in
+the same commit that makes `borrow` take an asset**, so the two never disagree about what a venue's
+"rate" means.
+
+### ⚠️ ② THE CONTRACT NOW CARRIES TWO NOTIONS OF DEBT, AND ONLY ONE IS WIRED
+| | measures | unit | used by |
+|---|---|---|---|
+| `_poolReserve(true)` | **one asset's** balance | `STABLE` token units | `debtOf`, `repay`, `borrow` — **everything live** |
+| `position().debt` | **every** debt on the account | venue quote unit, 18-dec | **nothing yet** |
+Same for collateral (`_poolReserve(false)` in weETH vs `position().collateral` in quote units). This
+is safe TODAY only because the second is unwired and `STABLE` is still singular — **the two agree
+exactly while there is one debt asset, and diverge silently the moment there are two.**
+🔴 **THE HAZARD IS A PARTIAL WIRING:** anyone who moves *LTV* onto `position()` while `debtOf` still
+reads `_poolReserve` gets two answers for one question, and the disagreement only appears once a
+second asset exists — i.e. in production, not in the test that added it. ⇒ **`_poolReserve` and
+`position()` must be collapsed in ONE commit, not migrated caller-by-caller.**
+
+### 📉 ③ THE STRATEGIC ONE: THE MEASURED WORLD IS NEARLY STATIC, SO THE *ROTATION* MACHINERY MAY EARN ALMOST NOTHING
+Re-reading §ROUTE-COST-MEASURED and §RATE-IS-NOT-SPOT together: **GHO is a governance-set fixed
+3.75% that our own borrow cannot move (`slope1 = slope2 = 0`), and it is the cheapest dollar
+available.** Everything else worth borrowing — USDE 3.90, USDC 4.02, USDT 4.08 — sits inside **33 bps**,
+and §ROUTE-COST-MEASURED showed **no move inside that cluster ever repays its own 8 bps** (USDT→GHO
+needs 88 days, USDT→USDC 487).
+⇒ **The optimal policy is close to a CONSTANT: fill GHO to its ~$24M ceiling, then take the remainder
+in whatever is deepest.** A continuously-optimising allocator would fire almost never.
+⭐ **THAT REPRICES THE REMAINING WORK, AND IN A USEFUL DIRECTION: the CAPACITY SPLIT is the valuable
+half and the ROTATION is the half that rarely fires.** Rotation still has to exist — Aave governance
+can move GHO's base rate in a step, and a venue can be capped or frozen — but it is an **event-driven
+fallback, not a control loop**, which is exactly what a 30-day cooldown already encodes.
+⚠️ **DO NOT READ THIS AS "SKIP THE GUARD".** The `MIN_IMPROVE` + cooldown pair is what bounds a
+compromised or merely careless caller (§CHEAPEST-DOLLAR); a rule that fires rarely still has to be
+correct when it does. It means **build the split first and the optimiser last**, not skip either.
+
 ## ⭐ **§POSITION-IS-THE-LENDERS-OWN-VIEW — THE MULTI-DEBT GENERALISATION NEEDED NO BASKET ACCOUNTING, BECAUSE THE LENDER ALREADY DOES IT** (owner, 2026-08-30: *"write the most elegant thing possible"*)
 
 **The obvious design was to make `LevVenueBase.STABLE` a set and give every debt asset its own unit
