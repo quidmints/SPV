@@ -1351,6 +1351,49 @@ contract BTCChannels is Ownable {
     /// prevents it and the §INVARIANTS.md §1 conservation check that would catch it.
     mapping(bytes32 => uint) public poolOwnedSats;
 
+    /// (§POOL-SCRIPT, owner decision 2026-08-30) The Bitcoin script the pool's share of a
+    /// dead-man exit must pay. Output 1 of the two-output ladder:
+    /// ```
+    /// output 0 -> lpPayoutScript    amountSats - poolOwnedSats   (the LP's entitlement)
+    /// output 1 -> poolColdScript    poolOwnedSats                (the pool's)
+    /// ```
+    /// 🔑 WHY A PROTOCOL COLD SCRIPT AND NOT A QUORUM SCRIPT. The requirement was *"more than the
+    ///    hop alone"*, and this satisfies it by making output 1 spendable by **neither** the hop
+    ///    nor the LP, rather than by naming a signer set Bitcoin would have to verify. The
+    ///    quorum still exists — it governs the cold key off-chain — but it never has to be
+    ///    expressed in `scriptPubKey`.
+    /// ⛔ `SweepAuth`'s 2-of-3 WAS THE OBVIOUS CANDIDATE AND CANNOT BE USED: it is an EIP-712
+    ///    bundle approved by 65-byte EVM `r‖s‖v` signatures `ecrecover`ed over a keccak digest
+    ///    (`quid-hop/src/migration.rs:405-469`), and Bitcoin script has neither primitive. Its
+    ///    operators also hold no Bitcoin keys at all — `migration.rs:30` fixes that quorum as
+    ///    *"operators sign EIP-712 with their own wallets — no bespoke keygen"*.
+    ///
+    /// ⚠️ EMPTY MEANS THE CHECK IS OFF, AND THAT IS DELIBERATE. Ladders armed before this was set
+    ///    are single-output and still valid; requiring a pool output unconditionally would brick
+    ///    every one of them, turning a leak fix into the loss of the LP's only escape. The
+    ///    `lpEntitled` clamp in `_finalizeClose` therefore STAYS — it remains the only protection
+    ///    for those legacy armings. Once set, new armings must carry the output and the clamp
+    ///    becomes unreachable for them, which is the actual fix.
+    bytes public poolColdScript;
+
+    event PoolColdScriptSet(bytes script);
+
+    /// @notice Set the script an exit's pool share must pay to. Rotation re-arms rather than
+    ///         invalidates: verification happens at ARM time, so ladders already armed against a
+    ///         previous script stay armed and pay it — which is safe precisely because that script
+    ///         is also protocol-owned.
+    ///
+    /// ⚠️ THIS IS THE OWNER'S FIRST POWER OVER THIS CONTRACT. `Ownable` was inherited but no
+    ///    `onlyOwner` function existed until now, so the lever is NEW, not merely used. It is
+    ///    deliberately kept off the authority path the file's design note protects: the owner
+    ///    chooses where the POOL's OWN sats land, and can never add an operator, touch
+    ///    `MAIN_HOP`/`FALLBACK_HOP`, or redirect a single satoshi of the LP's entitlement — those
+    ///    stay immutable for exactly the reason `(E164)` gives.
+    function setPoolColdScript(bytes calldata script) external onlyOwner {
+        poolColdScript = script;
+        emit PoolColdScriptSet(script);
+    }
+
     /// Which hop parked the inventory in a channel, so its ALLOWANCE can be reduced when that
     /// inventory leaves. Without this the two ledgers drift apart and the phantom returns: see
     /// `_releasePoolSats`.
@@ -1736,6 +1779,21 @@ contract BTCChannels is Ownable {
         );
         if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();
 
+        // (§POOL-SCRIPT) THE SECOND OUTPUT. Without it the pre-signed exit hands the LP the
+        // channel's ENTIRE balance including sats the pool owns, and `_finalizeClose` can only
+        // book the overpayment after the BTC is already gone (`PoolSatsLeftWithLp`). Verifying it
+        // HERE is what makes that event unreachable, because the exit that would trigger it can no
+        // longer be armed. Skipped while `poolColdScript` is unset, and when the channel holds no
+        // pool sats there is nothing to protect and no output to require.
+        uint pooled = poolOwnedSats[channelId];
+        if (pooled != 0 && poolColdScript.length != 0) {
+            // ⚠️ `sumExitPaysScript`, NOT the identical-looking `sumOutputValuesToScript` — the
+            // latter asserts a legacy serialisation and an exit is segwit. Sums every matching
+            // output, so splitting the pool's share across two of them is still full payment.
+            if (BitcoinTx.sumExitPaysScript(exit.signedExitTx, poolColdScript) < pooled)
+                revert ExitUnderpaysPool();
+        }
+
         // Armed against the channel's CURRENT funding scope — the same outpoint
         // `BitcoinTx.verifyDeadManExit` just proved these bytes spend. A later rotation makes this
         // entry unreachable rather than stale (see `exitArmedOnOutpoint`).
@@ -1944,6 +2002,7 @@ contract BTCChannels is Ownable {
     }
 
     error ExitUnderpaysCheckpoint();   // the armed exit pays less than it attests
+    error ExitUnderpaysPool();         // the armed exit pays the pool's share less than `poolOwnedSats`
     error CheckpointRegression();      // a bare refresh may not lower the attested balance
 
 

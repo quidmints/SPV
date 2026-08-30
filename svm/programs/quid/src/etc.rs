@@ -652,6 +652,45 @@ impl Actuary {
         max(1, (n.saturating_mul(beta).saturating_add(excess)) / max(1, n - 1))
     }
 
+    /// `mean_excess_bps`, truncated at the loss the instrument can actually
+    /// reach in the direction the POOL is exposed.
+    ///
+    /// 🔴 THE BARRIER IS SYMMETRIC AND THE LIABILITY IS NOT, AND EVERY CALLER
+    /// HAD INHERITED THE FIRST FACT AS IF IT IMPLIED THE SECOND. The pool is
+    /// short the NET of each ticker's book, so:
+    ///
+    ///   • net > 0 (depositors net LONG) — the pool is short, it loses as the
+    ///     price RISES, and a price is unbounded above. The fitted GPD is the
+    ///     right model and nothing here should touch it.
+    ///
+    ///   • net < 0 (depositors net SHORT) — the pool is long, it loses as the
+    ///     price FALLS, and a price cannot go below zero. Total loss is capped
+    ///     at 100% of notional, so the loss BEYOND a barrier at `collar` is
+    ///     capped at `BPS - collar`.
+    ///
+    /// `gpd_params` fits a Pareto tail with unbounded support, which is correct
+    /// for the first case and assigns mass past the floor in the second — mass
+    /// the instrument cannot reach. At the fattest cold-start shape (n = 2,
+    /// ξ = 0.5) the mean excess is 2β + excess, which clears a 100% move on a
+    /// volatile ticker easily, so this is not a rounding-scale correction.
+    ///
+    /// A flat book (net == 0) has no direction and no exposure to bound, so it
+    /// is left on the unbounded estimate rather than being handed the tighter
+    /// number by accident.
+    ///
+    /// ⚠️ THIS ONLY EVER LOWERS THE FIGURE, AND ONLY ON THE BOUNDED SIDE. It is
+    /// a truncation of impossible tail mass, not a relaxation of the model.
+    pub fn bounded_mean_excess_bps(&self, d_bps: i64) -> i64 {
+        let overshoot = self.mean_excess_bps(d_bps);
+        if self.net_exposure < 0 {
+            // Distance from the barrier to a total loss. `d_bps` above BPS
+            // leaves nothing to lose, and `max(1, ..)` keeps the floor the
+            // unbounded form already guarantees.
+            return max(1, min(overshoot, max(0, BPS - d_bps)));
+        }
+        overshoot
+    }
+
     /// The level whose exceedance probability is `p_bps`, in bps.
     ///
     /// Inverting the survival function by bisection rather than by an nth
@@ -1552,7 +1591,7 @@ pub fn hazard_bps(distance_bps: i64, s: &Actuary) -> i64 {
 /// `max(0, max_drawdown − collar)`, which used a single historical extreme as
 /// though it were an expectation.
 pub fn lgd_bps(collar: i64, s: &Actuary) -> i64 {
-    let overshoot = s.mean_excess_bps(collar);
+    let overshoot = s.bounded_mean_excess_bps(collar);
     let residual = BPS - min(BPS, MAX_TRANCHE_BPS);   // still exposed per window
     max(1, overshoot * residual / BPS)
 }
@@ -4415,6 +4454,51 @@ mod hazard_tests {
         let a = actuary(200, 750, 0, 0, 1_000);   // tail barely over the collar
         let at_barrier = hazard_rate_bps(20, 700, 100, &a, 1_000_000, 900_000);
         assert!(at_barrier > 0, "thin LGD still has to price above zero");
+    }
+
+    /// A price floors at zero, so the pool's loss past the barrier is bounded
+    /// when it is LONG the net — and unbounded when it is short. The two books
+    /// are the same size and the same ticker; only the sign differs.
+    #[test]
+    fn a_net_short_book_cannot_lose_past_a_total_loss() {
+        // A volatile name whose tail nobody has measured yet: under 8
+        // exceedances `gpd_params` returns the fattest shape it models
+        // (n = 2, ξ = 0.5, β = σ/2), so the mean excess is σ — which at 90%
+        // vol clears the distance to a total loss. This is the cold-start case
+        // the prior is deliberately calibrated for, not a contrived one.
+        let long_book  = actuary(9_000, 12_000, 4,  50_000, 50_000);
+        let short_book = actuary(9_000, 12_000, 4, -50_000, 50_000);
+
+        let collar = 1_500;
+        let unbounded = long_book.mean_excess_bps(collar);
+        let bounded   = short_book.bounded_mean_excess_bps(collar);
+
+        // The pool is short a net-long book: price is unbounded above, so the
+        // fitted tail stands as estimated.
+        assert_eq!(long_book.bounded_mean_excess_bps(collar), unbounded,
+            "a net-long book has no floor to truncate against");
+
+        // The pool is long a net-short book: everything past a total loss is
+        // mass the instrument cannot reach.
+        assert!(bounded <= BPS - collar,
+            "loss past the barrier exceeds the distance to zero: {bounded} > {}", BPS - collar);
+        assert!(bounded < unbounded,
+            "truncation did not bind on a tail that clears the floor: {bounded} vs {unbounded}");
+
+        // ...and it must never invent a cheaper charge than the model gives.
+        assert!(bounded <= unbounded, "truncation may only lower the estimate");
+        assert!(lgd_bps(collar, &short_book) <= lgd_bps(collar, &long_book),
+            "the bounded side cannot price above the unbounded one");
+        assert!(lgd_bps(collar, &short_book) >= 1, "LGD keeps its floor of 1bp");
+    }
+
+    /// The truncation is a property of the pool's direction, not of the
+    /// barrier: a flat book has no exposure to bound and keeps the estimate.
+    #[test]
+    fn a_flat_book_is_not_handed_the_bounded_estimate() {
+        let flat = actuary(9_000, 12_000, 4, 0, 50_000);
+        assert_eq!(flat.bounded_mean_excess_bps(1_500), flat.mean_excess_bps(1_500),
+            "net == 0 has no direction to truncate against");
     }
 }
 

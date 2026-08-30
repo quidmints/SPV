@@ -343,12 +343,23 @@ pub fn handle_in<'info>(ctx: Context<'_, '_, 'info, 'info, Stockup<'info>>,
 
 
 // =============================================================================
-// SOL deposit / collateral
+// SOL deposit / yield
 // =============================================================================
 //
 // SOL serves two roles simultaneously:
 //   1. Flash-loan liquidity for JAM (sol_lamports in Depository)
-//   2. Collateral for synthetic positions (sol_pledged_usd added to deposited_quid)
+//   2. A yield position parked into SOL* (sol_star_shares, sol_yield_index)
+//
+// ⛔ IT IS NOT COLLATERAL, AND THIS COMMENT SAID IT WAS. The second role read
+//    "Collateral for synthetic positions (sol_pledged_usd added to
+//    deposited_quid)", which is the opposite of what `handle_in` does: a SOL
+//    deposit is deliberately NOT credited to `deposited_quid` (see the note at
+//    the native leg above), precisely so that `renege` cannot draw on it to
+//    fund `pledged` and a stock loss can never be paid out of somebody's
+//    staking deposit. ONLY DOLLARS MARGIN STOCKS.
+//
+//    `sol_pledged_usd` is the pool's own record of what it holds in SOL. It
+//    backs no obligation to the stock book in either direction.
 
 
 // =============================================================================

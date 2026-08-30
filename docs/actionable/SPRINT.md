@@ -91,6 +91,39 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
+✅ **`§POOL-SCRIPT-DONE` (2026-08-30).** Owner chose a **protocol cold P2TR**: output 1 pays
+`poolColdScript`, spendable by neither the hop nor the LP, so *"more than the hop alone"* is met by
+the output being out of both parties' reach rather than by a signer set Bitcoin would have to verify.
+The quorum still governs that cold key — off-chain, off the critical path.
+
+**Shipped.** `BTCChannels.poolColdScript` + `setPoolColdScript` (`onlyOwner`), and `_armDeadManExit`
+reverts `ExitUnderpaysPool` when a channel with `poolOwnedSats != 0` is armed with an exit that pays
+the pool less. `BitcoinTx.sumExitPaysScript` measures it. 151 BTC-suite tests pass, 0 fail;
+`BTCChannels` unchanged at 24,288 bytes (288 EIP-170 spare).
+
+⚠️ **THREE THINGS WORTH KNOWING, EACH FOUND BY BUILDING IT:**
+1. **`Ownable` was inherited but had ZERO `onlyOwner` functions.** `setPoolColdScript` is the owner's
+   **first** power over this contract — a new lever, not a used one. It is kept off the authority
+   path `(E164)` protects: the owner picks where the POOL's own sats land and can never add an
+   operator, touch `MAIN_HOP`/`FALLBACK_HOP`, or move a satoshi of the LP's entitlement.
+2. **Empty script = check off, deliberately.** Ladders armed before it is set are single-output;
+   requiring the pool output unconditionally would brick every one of them and destroy the LP's only
+   escape. **The `lpEntitled` clamp and `PoolSatsLeftWithLp` therefore STAY** — they remain the sole
+   protection for legacy armings. The design note saying they "go" is wrong for the transition; they
+   become unreachable for NEW armings, which is the actual fix.
+3. **⛔ `sumOutputValuesToScript` COULD NOT BE REUSED, THOUGH IT COMPUTES EXACTLY THIS.** It reaches
+   outputs via `_skipInputs`, which opens with `_assertLegacy(raw)` — a dead-man exit is **segwit**
+   (its signature is in a witness), so that routine reverts `TruncatedTx` on one. Two functions,
+   identical names/signatures/semantics, **not interchangeable**, and the difference is only the
+   serialisation each accepts. The reuse was attempted, failed, and is now pinned by a test.
+
+⭐ **AND THE DESIGN'S UNPROVEN PREMISE IS NOW PROVEN.** It rested on *"`_exitStructure` needs NO
+change — it places no constraint on output count"*, asserted and never demonstrated; had it been
+wrong the pool output would have broken every exit's verification. `PoolScriptLadder.t.sol` builds
+the SAME channel signed over one output and over two, and shows the two-output exit still verifies
+(structure, BIP-341 sighash, BIP-340 signature) while reporting the LP's 209,000 alone — the pool's
+40,000 neither leaks into `paidToLp` nor disturbs the signature.
+
 🆕 **`§JS-TESTS-HAVE-NO-RUNNER` (added 2026-08-30, Tier 2).** `app/` carries **10 test files and
 no way to execute them**: no `test` script, no jest/vitest dependency, no runner config anywhere in
 the repo. **This is inherited, NOT a merge regression** — ibiza's `frontend/identity-wallet` had the
@@ -275,7 +308,8 @@ basis — the blocker the file put in front of them is gone.**
    `internal_key` vector (`03cc8a4b…c115`) for this mnemonic's first taproot receiving address.
    ⚠️ **Caveat — the tests cannot RUN.** See `§JS-TESTS-HAVE-NO-RUNNER`. **Everything in phases
    2–4 was ordered behind phase 1 and is now unblocked.**
-2. 🔴 **The pool script** (`§ORDER` 1.1) — `_armDeadManExit` still verifies ONE output.
+2. ✅ **The pool script** (`§ORDER` 1.1) — **BUILT 2026-08-30.** `_armDeadManExit` now verifies the
+   pool's output too. See `§POOL-SCRIPT-DONE`.
 3. 🔴 **Phase 3 freshness** — decide whether it is wanted at all before building a writer for it.
 4. 🔴 **`E182-REKEY-CHECKED`** — *"its STATED PROPERTY IS FALSE for the only case it exists for."*
 5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
@@ -301,7 +335,7 @@ real design hole** (approval vs escrow vs pooled-claim vs an already-funded path
 
 | | decision |
 |---|---|
-| **1.1** | **The pool script** — the two-output ladder's second output must require more than the hop alone (`SweepAuth` 2-of-3 fits). `_armDeadManExit` still verifies ONE output |
+| **1.1** | ✅ **DONE 2026-08-30** — two-output ladder verified at arm time; pool share pays a protocol cold P2TR (`poolColdScript`). ~~`SweepAuth` 2-of-3 fits~~ — it does not, see `§POOL-SCRIPT-DONE` |
 | ~~1.1c~~ | ✅ **DECIDED 2026-08-30 — LP seed: SAME SEED, TAPROOT PATH.** The keystone `§M1#2`'s last leg. See `§LP-SEED-HAS-A-REFERENCE-IMPLEMENTATION` — provisioning already exists in `app/features/identity`; what remains is one path constant and one derive function |
 | **1.2** | **Is the Bitcoin freshness UTXO wanted?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture |
 | **1.3** | **The fold's shape** — 7540 face vs `Core`+`Quid` merge. Folding a contract is measured to COST bytes (`VEth`→`Quid` −1,077). Re-measure first: `Core` 11,637 + `Quid` **20,616** = 32,253, over by **7,677** (not the 8,917 or 23,835 the rows assume) |

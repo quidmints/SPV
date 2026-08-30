@@ -85,7 +85,8 @@ def _bip340_sign(d, msg):
     return rx.to_bytes(32, "big") + ((k + e * d) % N).to_bytes(32, "big"), pbytes
 
 
-def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadline, out_value):
+def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadline, out_value,
+               pool_spk=None, pool_value=0):
     # A negative output is unrepresentable in Bitcoin, and without this the failure surfaces as
     # `OverflowError: can't convert negative int to unsigned` from inside `_le`'s byte packing --
     # four frames from the cause, naming neither the amount nor the fee. Foundry then reports only
@@ -97,10 +98,19 @@ def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadlin
             f"out_value={out_value}. A channel cannot pay an exit fee larger than it holds; the "
             f"caller is arming an exit for a channel too small to fund it.")
     """The exit tx (segwit-serialised) plus its BIP-341 SIGHASH_DEFAULT sighash."""
+    # (§POOL-SCRIPT) ONE OUTPUT OR TWO. The two-output ladder pays the LP its entitlement and the
+    # pool its share in the SAME pre-signed transaction, so the fixture has to be able to produce
+    # that shape -- and the sighash below must commit to both outputs, or the signature verifies
+    # against a transaction nobody signed.
+    outs = [(out_value, payout_spk)]
+    if pool_spk is not None:
+        outs.append((pool_value, pool_spk))
+    ser_outs = b"".join(_le(v, 8) + bytes([len(spk)]) + spk for v, spk in outs)
+
     def tx(sig):
         return (bytes.fromhex("02000000") + b"\x00\x01" + b"\x01"
                 + funding_txid_internal + _le(vout, 4) + b"\x00" + bytes.fromhex("ffffffff")
-                + b"\x01" + _le(out_value, 8) + bytes([len(payout_spk)]) + payout_spk
+                + bytes([len(outs)]) + ser_outs
                 + b"\x01" + bytes([len(sig)]) + sig + _le(deadline, 4))
 
     spk = bytes.fromhex("5120") + q
@@ -113,13 +123,14 @@ def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadlin
         + h(_le(funding_sats, 8))                                        # sha_amounts
         + h(bytes([len(spk)]) + spk)                                     # sha_scriptpubkeys
         + h(bytes.fromhex("ffffffff"))                                   # sha_sequences
-        + h(_le(out_value, 8) + bytes([len(payout_spk)]) + payout_spk)   # sha_outputs
+        + h(ser_outs)                                                    # sha_outputs (ALL of them)
         + b"\x00"                     # key path, no annex
         + _le(0, 4))                  # input_index
     return tx, sighash
 
 
-def one(label, funding_txid_hex, vout, funding_sats, payout_hex, deadline, fee_sats):
+def one(label, funding_txid_hex, vout, funding_sats, payout_hex, deadline, fee_sats,
+        pool_hex=None, pool_sats=0):
     d_lp, lp33 = channel_keypair(f"{label}-lp")
     d_hop, hop33 = channel_keypair(f"{label}-hop")
     q = taproot_2of2_output_key(lp33, hop33)
@@ -127,8 +138,13 @@ def one(label, funding_txid_hex, vout, funding_sats, payout_hex, deadline, fee_s
 
     txid = bytes.fromhex(funding_txid_hex)
     payout = bytes.fromhex(payout_hex)
-    out_value = funding_sats - fee_sats
-    tx, sighash = build_exit(txid, vout, funding_sats, q, payout, deadline, out_value)
+    # The pool's share comes OUT OF the channel, so the LP's output shrinks by it -- an exit that
+    # paid the LP the full balance and the pool as well would be spending sats the channel does
+    # not hold, and would simply be an invalid transaction.
+    pool = bytes.fromhex(pool_hex) if pool_hex else None
+    out_value = funding_sats - fee_sats - pool_sats
+    tx, sighash = build_exit(txid, vout, funding_sats, q, payout, deadline, out_value,
+                             pool, pool_sats)
     sig, qx = _bip340_sign(d_agg, sighash)
     assert qx == q, "aggregate secret does not correspond to Q -- parity handling is wrong"
 
@@ -142,6 +158,8 @@ def one(label, funding_txid_hex, vout, funding_sats, payout_hex, deadline, fee_s
         "fundingSats": funding_sats,
         "cltvDeadline": deadline,
         "paysLp": out_value,
+        "poolScript": ("0x" + pool.hex()) if pool else "0x",
+        "paysPool": pool_sats,
         "signedExitTx": "0x" + tx(sig).hex(),
     }
 
@@ -237,5 +255,19 @@ if __name__ == "__main__":
         payout_hex="512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
         deadline=800_042,
         fee_sats=1_000,
+    ), one(
+        # (§POOL-SCRIPT) The SAME channel armed with the two-output ladder. Same funding
+        # outpoint and deadline as `canonical`, so the only difference under test is the extra
+        # output -- which is what lets a test show `_exitStructure` ignores it rather than
+        # showing two unrelated fixtures happen to behave differently.
+        label="canonical-two-output",
+        funding_txid_hex="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        vout=1,
+        funding_sats=250_000,
+        payout_hex="512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        deadline=800_042,
+        fee_sats=1_000,
+        pool_hex="5120c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        pool_sats=40_000,
     )]
     print(json.dumps({"exits": out}, indent=2))
