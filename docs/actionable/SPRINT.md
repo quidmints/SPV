@@ -174,7 +174,33 @@ DELAYS a rekey until the LP restores from words; it does not permanently block o
 §E187 names is real but bounded by recovery time, not permanent — which is why social recovery stays
 what `§E188` filed it as: a way to restore SERVICE faster, never the funds path.
 
-⛔ **`§SWAPIN-RAIL-BROKEN` — RETRACTED 2026-08-30, THE SAME DAY IT WAS FILED. IT WAS WRONG.**
+🔴🔴 **`§LN-SWAPIN-RAIL-BROKEN` — THE RETRACTION BELOW WAS ITSELF TOO BROAD. RE-FILED CORRECTLY
+2026-08-30 (third pass).** The join IS broken; I named the wrong function twice. **There are TWO
+swap-in rails and they differ:**
+
+| rail | entrypoint | allowance-bounded? | wired? | verdict |
+|---|---|---|---|---|
+| ON-CHAIN deposit | `settleSwapInProven` | ⛔ **no** — `_provenDeposit` derives sats from the SPV proof and credits directly | ✅ `swap_in_onchain.rs:194` | ✅ **works** |
+| LIGHTNING | `settleSwapInBuffered` | ✅ **yes** — `provenSatsAvailable`, `InsufficientProvenSats` (`:1546-1549`) | ✅ **`swap_in.rs:291` via `settle_swapin_calldata`, which uses `SIG_SETTLE_SWAP_IN_BUFFERED`; spawned unconditionally at `daemon.rs:345`** | 🔴 **BROKEN** |
+
+⇒ **`provenSatsAvailable` has exactly ONE increment in the whole contract — `parkProvenSats`
+(`:1511-1512`)** — and `parkProvenSats` has **no Rust encoder and no caller**. The LN swap-in rail is
+live, runs unconditionally, and calls a function bounded by an allowance nothing can raise. **Every
+LN swap-in reverts `InsufficientProvenSats`** once `consumed > 0`.
+
+⛔ **AND THIS CANCELS THE PROPOSED PURGE OF THE BUFFERED RAIL.** It is **not dead code**: deleting it
+would delete the Lightning swap-in capability. The work is to FUND the allowance or REPLACE it, not
+to remove the rail.
+
+⚠️ **WHY IT IS BRITTLE, WHICH IS THE OWNER'S INSTINCT MADE PRECISE.** The allowance is the LN rail's
+substitute for an SPV proof: sats arriving over Lightning have no on-chain transaction to prove, so
+`parkProvenSats` would prove them by SPLICING them into a channel. **A splice needs the LP's 2-of-2
+co-signature, so the LN rail's anti-conjuring proof depends on LP LIVENESS** — for a rail whose whole
+point is serving swappers while LPs sleep. That is the real defect, and it is a SHAPE problem: no
+cadence of parking fixes a proof that requires an offline party.
+
+⛔ **`§SWAPIN-RAIL-BROKEN` — RETRACTED 2026-08-30 (superseded by the above; the retraction was right
+that `settleSwapInProven` is fine and wrong that nothing was broken).**
 The claim was that production swap-ins revert `InsufficientProvenSats` because Rust calls
 `settleSwapInProven` while nothing funds `provenSatsAvailable`. **The bound is not in that function.**
 `provenSatsAvailable`/`InsufficientProvenSats` live in **`settleSwapInBuffered`** (`BTCChannels.sol:1533+`);
