@@ -615,6 +615,59 @@ zero times.** ⭐ **And deviation-gating is the BETTER rate limiter, which is wh
 necessity" overstates it:** a block gate keys on a PROXY (time passed) and would both over-fire in a
 calm market and under-fire in a violent one. The current gate keys on the thing that matters.
 
+## 🔴🔴🔴 **§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER — THERE IS NO VENUE SELECTION AT ALL, AND A SECOND VENUE IS UNREACHABLE. THIS BLOCKS EVERY FALLBACK ASKED FOR.** (2026-08-30)
+
+Owner asked for two fallbacks — WBTC v4↔v3, and RLUSD/PYUSD Morpho↔Aave-v4-spoke *"use morpho if
+it's cheaper: more liquidity/lower utilisation"*. **Neither is expressible against the current
+design, and the reason is one line.**
+
+`LevBase._openPos:393-394` — **the ONLY assignment to `poolVenue` in the entire tree**:
+```solidity
+// §POOL-VENUE — pin the pool on the FIRST open; refuse any second venue for this range.
+if (poolVenue == address(0)) poolVenue = address(venue);
+else if (poolVenue != address(venue)) revert VenueNotPooled();
+```
+⇒ **THE FIRST LP TO OPEN A LEVER PICKS THE PROTOCOL'S BORROW STABLE, FOREVER.** No setter, no reset,
+no GOV override — `grep "poolVenue = "` returns that one line. `_ethLevVenues` allowlists **two**
+venues (RLUSD, PYUSD); **only one of them can ever be used**, and which one is decided by whoever
+transacts first.
+
+### ⭐ THIS UNDERSTATES THE OWNER'S OWN PREMISE, WHICH IS WHY IT IS WORTH SAYING PLAINLY
+*"you're telling me the protocol always leans toward borrowing one particular stable."*
+**It does not LEAN. It PINS** — irreversibly, to an arbitrary venue chosen by transaction order, from
+an allowlist that was deliberately sized to two because *"the market we shipped CANNOT LEND"*. **The
+diversity concern is correct and the mechanism is worse than the word "leans" suggests.**
+
+### ⛔ WHAT THIS DOES TO THE THREE BUILD ASKS
+| ask | status against `poolVenue` |
+|---|---|
+| WBTC v4↔v3 fallback (*"copy the pattern exactly"*) | ⚠️ `Amp.sol`'s pattern is a branch INSIDE one borrow call, so it does not touch venue pinning — **this one may be buildable as-is.** BTC uses `BtcLevManager`; **whether it pins the same way is UNVERIFIED and is the first thing to check** |
+| RLUSD/PYUSD Morpho↔v4 by terms | 🔴 **UNBUILDABLE.** A per-borrow choice between two venues contradicts one pinned venue per range |
+| add an Aave v4 venue to the allowlist | 🔴 **INERT.** It could never be selected unless it happened to be first |
+
+### ▶️ AND IT IS A REAL TENSION, NOT AN OVERSIGHT — §POOL-VENUE EARNED THAT LINE
+One pooled position per range is what makes `deleverBook`, `totalDeliverableDollars` and the
+single-extraction redeem sweep work on an AGGREGATE instead of an O(open LPs) walk — `LevManager:659`
+records that consolidation explicitly (*"this looped every open LP … the LAST walk of `_openLps` on a
+state-changing path"*). **Multi-venue is not a fallback bolted on; it reverses a consolidation that
+bought real gas and real simplicity.** Three shapes, cheapest first:
+1. **PICK BY TERMS AT PINNING TIME.** Keep ONE venue per range; make the choice at the moment
+   `poolVenue` is set be the BEST venue rather than the first caller's. **Smallest change, keeps every
+   aggregate invariant, and removes the arbitrariness that is the actual defect here.** ⚠️ It does not
+   give a running fallback — the pin still lasts the pool's life.
+2. **A MIGRATION PATH.** Allow the pooled position to MOVE venue (close + reopen at the better one)
+   under GOV or a keeper. Gives real responsiveness; costs an unwind at every switch.
+3. **ONE POOLED POSITION PER VENUE.** Reverses §POOL-VENUE. Restores the per-venue walk it deleted.
+⇒ **Only (1) is small. (2) is the one that actually delivers "use whichever is cheaper". (3) is a
+redesign.** ⛔ **None of them should be started before the owner picks, because they are not
+increments of each other** — (1) writes a selector, (2) writes an unwind, (3) deletes an invariant.
+
+📌 **AND THE MEASUREMENT ALREADY SAYS WHICH VENUE (1) WOULD PICK TODAY:** RLUSD's Morpho market has
+**$9.66M idle** against PYUSD's **$4.32M** (`_ethLevVenues`' own comment), and on Aave v4 the deepest
+borrowable dollar is **USDG at 37.9M free** — but USDG needs a `_routeOf` line first
+(§USDG-HAS-NO-ETH-PAIR). **The comparator has real numbers to compare from day one; what it lacks is
+somewhere to put its answer.**
+
 ### 📊 **§USDG-HAS-NO-ETH-PAIR — 1inch CANNOT GIVE DIRECT WETH FOR USDG, AND IT IS NOT 1inch'S FAULT** (owner, 2026-08-30: *"are you sure 1inch wont give us direct WETH for USDG"*)
 
 **Measured on mainnet, not inferred.** Every candidate USDG↔WETH venue is EMPTY:
