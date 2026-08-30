@@ -1209,6 +1209,66 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔒 **§SELL-LEG-IS-FORCED — RULE 18 APPLIED: B IS NOT THE BEST OF SEVERAL DESIGNS, IT IS THE ONLY ONE CONSISTENT WITH THE SETTLEMENT ALGEBRA** (owner, 2026-08-30: *"make sure this is a solution beyond which no better alternative can or should exist"*)
+
+Standing rule 18 says ask whether a better version exists **before** landing. Attacked from every side
+I could construct; **all three legs turn out to be DETERMINED by conventions already in the code**, and
+the verification changed the design — the earlier row's "backing risk" has an exact answer.
+
+### 🧮 THE SIGN CONVENTIONS, READ NOT ASSUMED
+`Core._handleDelta` / `_settleUsdSide`, verbatim behaviour:
+| | `> 0` | `< 0` | `== 0` |
+|---|---|---|---|
+| `volDelta` | `POOLED -=` **and `deliverVolatile(who)`** | `POOLED +=` | nothing |
+| `usdDelta` | `_poolUsdInRange(amt, false)` — range's USD side **SHRINKS**; `AUX.take(who,…)` **only if `token != 0`** | `_poolUsdInRange(amt, true)` — range's USD side **GROWS** | nothing |
+⭐ **`settleOor` passes `token = address(0)`**, so a positive `usdDelta` shrinks the range's dollar side
+**and delivers nothing** — the one mechanism that moves dollars with **no route and no token transfer**.
+
+### 🔗 WHY EACH LEG IS FORCED — THIS IS THE RULE-18 ARGUMENT
+1. **THE ETHER LEG IS DETERMINED.** A sell maker's ether is ALREADY in `POOLED`. `volDelta > 0` would
+   pay them ether they are trying to sell; `volDelta < 0` would book ether the range already holds.
+   **Only `volDelta = 0` describes the situation. No other value is arithmetically available.**
+2. **THE DOLLAR LEG IS DETERMINED.** With the ether leg pinned at 0, the maker can only be paid from
+   the dollar side, and `usdDelta > 0` with `token = 0` is the only primitive that moves it without a
+   route. ⇒ **`usdDelta = +(size · limitPx)`** — the exact mirror of the buy's `usdDelta = -funded`,
+   which GROWS the range's USD side when the maker's QU!D burns.
+3. **THE INSTRUMENT IS DETERMINED.** The range holds basket stables and **no QU!D inventory**. Paying
+   stables re-raises §CONVERGENCE (14 tokens, not the one asked for) *and* drains basket assets. A
+   dollar claim in this system **is** QU!D, and `_payUsdLeg` already mints for exactly this purpose,
+   paired with `absorbPaidUsd` to re-split LP-owned vs basket-owned dollars.
+⇒ **Nothing here was chosen. Pick any other combination and it contradicts a convention already in
+`Core`.** That is a stronger claim than "B is best", and it is the one rule 18 asks for.
+
+### ✅ AND IT RESOLVES THE OPEN RISK THE PREVIOUS ROW COULD NOT
+§SELL-LEG-FROM-ALL-SIDES flagged backing as *"the one that can break the protocol"*. **It does not,
+and here is why:** the LP pool gives up `size · limitPx` of dollar side and keeps `size` more ether
+(the maker's shares shrink while `POOLED` does not). ⇒ **The trade IS the LP pool buying the maker's
+ether at the maker's own limit** — and since the oracle gate guarantees `limitPx ≤ px`, **the pool buys
+below market, every time.** The minted QU!D is matched by the dollar side that left the range, exactly
+as `_payUsdLeg` + `absorbPaidUsd` already pair. ⚠️ **Still verify with `AUX.checkBacking()` in the
+test — this is an argument, and the row it replaces was also an argument.**
+
+### 🏁 WHY NO BETTER ALTERNATIVE **SHOULD** EXIST — THE MAKER'S BOUNDARY IS ALREADY OPTIMAL
+The maker is paid **exactly `limitPx`: zero slippage, zero route dependency, zero MEV on the fill
+price.** A limit order cannot do better than its own limit, filled with certainty.
+⛔ **THEREFORE ANY "IMPROVEMENT" THAT ROUTES THE FILL THROUGH A SWAP IS STRICTLY WORSE** — it would
+reintroduce slippage and a liveness dependency that the maker currently *cannot* suffer. That rules out
+alternative **E** (withdraw-then-swap via `_aggSwap`) permanently, despite it needing no mint.
+📌 **THE SURPLUS `size · (px − limitPx)` ACCRUING TO THE RANGE IS A FEATURE AND MUST NOT BE "FIXED".**
+Hand it to the maker instead and fill TIMING becomes extractable — a relayer would choose the moment
+that suits themselves. **Giving the surplus to the range is precisely what makes the maker indifferent
+to when they are filled**, which is what removes MEV from this path.
+⛔ **Alternative D — a per-LP dollar claim in storage — is also permanently ruled out:** §OOR-BOOK-DELETED
+removed resting storage *by design* (*"ONE CALL, ZERO RESTING STORAGE"*), and D reintroduces it to
+express something the mint already expresses.
+
+### ▶️ SO THE BUILD IS NOW FULLY SPECIFIED, IN EXISTING PRIMITIVES
+`settleOor(owner, +size·limitPx, 0, loadBalance)` · owner-parameterised share reduction of `size`
+ether-equivalent · `_mintQuid(owner, size·limitPx)` with the `absorbPaidUsd`-style re-split.
+🔴 **BLOCKER ① IS THE WHOLE REMAINING JOB and is unchanged:** the per-LP share path is
+`msg.sender`-bound and `fillIntent` is relayed. **Write the backing test first** — it is the only step
+that can fail in a way reasoning would not catch.
+
 ## 🧭 **§SELL-LEG-FROM-ALL-SIDES — THE BINARY I PUT TO THE OWNER WAS THE WRONG QUESTION. THE REAL ONE HAS THREE ANSWERS AND A CLEAR WINNER** (owner, 2026-08-30: *"i dont know how to answer this, look at it from all sides"*)
 
 ### 🔑 THE REFRAMING THAT DISSOLVES MY OWN QUESTION
