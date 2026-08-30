@@ -909,6 +909,55 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§UNBOOKED-OWNER-ASKS — THREE THINGS THE OWNER ASKED FOR TODAY THAT NEVER REACHED THIS FILE, AND ONE IS A PRECONDITION FOR THE FEATURE I SPENT THE DAY DESIGNING**
+
+Standing rule 12: *"lift a finding to a task IN THE SAME TURN, or it does not exist."* **Measured
+2026-08-30: `grep -ci "v4 vs v3" SPRINT.md` → 0. `grep -ci "Amp.sol" → 0.`** Both were asked for
+directly, both were acknowledged in conversation, **neither was ever written down.** They would have
+died with the context window — which is the exact failure the rule exists to prevent, arriving in the
+one file that is supposed to catch it.
+
+### 🔴 ① AAVE v4 IS NOT REACHABLE FROM THE LEVER AT ALL — AND IT IS A PRECONDITION, NOT A NICE-TO-HAVE
+**Measured: `grep "^contract .*Venue" evm/src` returns exactly TWO — `MorphoEscrowVenue` and
+`AaveV3Venue`.** Aave v4 appears in `Aux.sol` only, and only for **supplying** basket stables; there
+is no v4 venue, and `cbbc0993` deleted the borrow interface (`setUsingAsCollateral`, `borrow`,
+`repay`, `getUserDebt`).
+⛔ **SO THE OWNER'S BRIEF — *"consider all available dollar borrows across aavev3, aavev4, and
+morpho"* — IS STRUCTURALLY IMPOSSIBLE TODAY**, and `ILevVenue.borrowRateRay`, which I built
+specifically to compare venues, **has no v4 implementation to compare against.** I built the
+comparison machinery for three venues and the code can reach two. ⇒ **Restore the v4 borrow interface
+and add an `AaveV4Venue` BEFORE any allocator work**; everything downstream is a two-venue
+approximation of a three-venue question until then. ⚠️ **USDG's v4 borrow RATE is still unmeasured**
+(only its utilisation is known), and USDG is the deepest dollar on that hub — so the one venue we
+cannot reach is also the one holding the asset the basket most wants to borrow.
+
+### 🔴 ② WBTC MUST BE v4-vs-v3, WHICHEVER IS CHEAPER — ASKED TWICE, NOT STARTED, NOT BOOKED
+Owner, verbatim: *"WBTC must be v4 vs v3 whichever is cheaper also."* Nothing exists. **The
+comparator is now cheap to write and that is the point: `borrowRateRay(extra)` already answers "what
+would this venue charge us at OUR size" on both v3 and Morpho** — the missing half is ① (a v4 venue
+to ask). Note the live figures make this worth having: **WBTC on Aave v3 is 3.6% utilised at 0.36%
+APY with 32,650 available** — nearly free and almost untouched.
+
+### 🔴 ③ THE `Amp.sol` FALLBACK PATTERN — ASKED EXPLICITLY ("COPY THE PATTERN EXACTLY"), NOT STARTED
+Owner: *"the fallback in amp.sol doesnt go with the cheaper venue, it's just pull if you can here and
+if you cant then here"*, and *"copy the pattern exactly"* for WBTC IL-protect, with the same shape for
+RLUSD/PYUSD (Morpho if cheaper, else the v4 spoke). ⚠️ **THIS IS A LADDER, NOT AN OPTIMISER, AND THE
+DISTINCTION IS THE WHOLE INSTRUCTION** — I conflated the two once already and the owner corrected it.
+A ladder tries venue A and falls through to venue B on failure; it does not price them. **`§CHEAPEST-DOLLAR`'s
+rate comparison is a DIFFERENT mechanism and does not substitute for this one** — the ladder is about
+LIVENESS (can we source the asset at all), the comparison is about COST.
+📌 `Amp.sol` is on the **remote main of `github.com/quidmints/quid`**, not in this tree — it is not a
+tombstone here, it was never here. Fetch it before implementing rather than reconstructing from memory.
+
+### ⚠️ AND THE HONEST RATIO FOR THE DAY
+Landed: 4 Solidity commits (`borrowRateRay`, `position`/`positionOf`, the three-site LTV migration, a
+dead-constant deletion) — all verified, all green. **Not landed: the allocator itself, the capacity
+split I called the valuable half, multi-asset borrow, the 1inch `swap()` path I PROVED was necessary
+(`_aggSwap` is still `UNOSWAP_SELECTOR`-only, one pool), the OOR sell leg, BTC OOR, and all three
+items above.** The measurement was not busywork — it overturned the recommended borrow dollar twice
+and produced the threshold constants — but **the day was research-heavy against a brief that opened
+with "work through sprint.md until all the tasks are done."**
+
 ## ✅ **§LTV-IS-THE-LENDERS — ALL THREE VENUE-HEALTH LTVs NOW READ THE VENUE, AND THE ONE THAT DID NOT MOVE IS THE INTERESTING ONE** (closes ② of §POSITION-LEAVES-THREE-LOOSE-ENDS)
 
 §POSITION-LEAVES-THREE-LOOSE-ENDS warned that `_poolReserve` and `position()` *"must be collapsed in
