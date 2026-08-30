@@ -9,9 +9,6 @@ use entra::*;
 pub mod clutch;
 use clutch::*;
 
-pub mod deliver;
-use deliver::*;
-
 pub mod etc;
 
 #[cfg(test)]
@@ -108,25 +105,25 @@ pub mod quid {
     // can drive: it settles as a plain SPL transfer to a fixed sweeping
     // address. xChange hands back a partially-signed transaction needing a
     // keypair co-signature inside a ~60-90s window, which would put a hot key
-    // in the custody path. See deliver.rs.
+    // in the custody path. See the §DELIVER section of entra.rs.
 
     /// Admin: point a ticker at Backed's sweeping addresses.
     pub fn set_delivery(ctx: Context<SetDelivery>, ticker: String,
         issuance: Pubkey, redemption: Pubkey, xstock_mint: Pubkey,
         min_order: u64, max_order: u64) -> Result<()> {
-        deliver::set_delivery(ctx, ticker, issuance, redemption,
+        entra::set_delivery(ctx, ticker, issuance, redemption,
                               xstock_mint, min_order, max_order)
     }
 
     /// Send dollars to Backed's issuance address; paper arrives later.
     pub fn issue_paper(ctx: Context<MarketFlow>, ticker: String,
         amount: u64) -> Result<()> {
-        deliver::issue_paper(ctx, ticker, amount)
+        entra::issue_paper(ctx, ticker, amount)
     }
 
     /// Permissionless: credit paper that has landed in the pool's own ATA.
     pub fn settle_issue(ctx: Context<SettleIssue>, ticker: String) -> Result<()> {
-        deliver::settle_issue(ctx, ticker)
+        entra::settle_issue(ctx, ticker)
     }
 
 

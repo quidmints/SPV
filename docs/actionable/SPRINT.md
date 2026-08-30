@@ -91,6 +91,62 @@
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
+⭐ **`§FRESHNESS-RECOMMENDATION` (2026-08-30, owner asked for a recommendation).**
+**RECOMMENDATION: DELETE THE BITCOIN FRESHNESS UTXO. Do not build the 2-of-2, do not build the
+per-channel shard (`M1#4`/phase 3). Move the invariant into the channel signer.**
+
+**WHAT IT WAS FOR.** A pre-signed rung pays a FIXED balance. If the LP's balance later drops, a
+matured stale rung OVERPAYS the LP at the fleet's expense. The freshness UTXO is a second input the
+exit spends; because the BIP-341 sighash commits over `Prevouts::All`, spending that one UTXO makes
+**every** emitted exit consensus-invalid at once — revocation for one small tx per period globally.
+
+**WHY THE 2-of-2 (`§M1-RESIDUAL-100` residual 2) IS THE WRONG FIX — IT IS ALREADY REFUTED.**
+`§T3-FRESHNESS-NARROWED` records it plainly: *"the 2-of-2 idea died because it ignored that the LP
+is designed to be offline."* Invalidation would need the sleeping LP's signature. It also cannot stay
+shared — a 2-of-2 must name ONE LP, so it drags in per-channel sharding, i.e. MORE moving parts to
+fix a mechanism that should not exist.
+
+**WHY THE MECHANISM IS UNNECESSARY. A RUNG GOES STALE IN EXACTLY TWO WAYS, AND EACH ALREADY CARRIES
+ITS OWN INVALIDATION:**
+1. **ON-CHAIN decrease** — a swap-out delivery must SHRINK, a withdrawal is a shrink-splice, and each
+   SPENDS the funding outpoint. `§T3-FRESHNESS-NARROWED` established this: *"a rung signed against the
+   old outpoint is already unbroadcastable the moment the balance drops."*
+2. **OFF-CHAIN decrease — the case T3 left open, and the topology closes it.** Lowering the LP's side
+   requires an LN commitment update **the LP's own node signs**. Under the shipped default
+   (`QUID_FLEET_COHOSTS_VAULT=false`) the LP self-hosts, so **the fleet cannot move sats off the LP's
+   side while the LP sleeps** — that is precisely why `deliver_swap_out` splices instead. And the LP
+   is a LEAF: `OneChannelPerLp` (`BTCChannels.sol:961`) means it cannot forward, so no third party's
+   traffic can move its balance. ⇒ **An off-chain decrease PROVES the LP was online — which is exactly
+   when a fresher rung can be armed.**
+⇒ **A balance INCREASE is not a hazard at all:** a stale rung then UNDERPAYS, which harms only the LP,
+who simply broadcasts a fresher rung. Nobody is robbed.
+
+**THE ELEGANT ENFORCEMENT, AND IT NEEDS NO NEW COMPONENT.** Put the invariant where the signature is
+already produced: `ValidatingChannelSigner` is already `type EcdsaSigner` **for every channel**
+(`keys_manager.rs:273`). Refuse to sign a commitment update that lowers the LP's balance unless a rung
+for the NEW balance exists. ⭐ **That makes a stale rung UNCONSTRUCTIBLE rather than revocable —
+standing rule 17, "unconstructible beats survivable"** — and it is strictly stronger than revocation,
+which only works if the fleet is alive to spend the UTXO, i.e. never in the case the ladder exists for.
+
+**MOVING PARTS REMOVED:** the shared UTXO, its periodic rotation transaction and fee, the
+`freshness_shards` store + `assign_shard`, the two-input `Prevouts::All` exit shape, per-channel
+sharding (`M1#4`), and the 2-of-2 proposal. **Nothing in the default deployment regresses, because
+none of it runs there today:** `run_deadman_exit_heartbeat` is spawned (`daemon.rs:388`) but
+early-returns on `vault == None`, the default — so the shipped posture already has no freshness UTXO.
+
+⚠️ **THREE THINGS TO STATE HONESTLY:**
+1. **The `Prevouts::All` binding is what makes exits revocable AT ALL.** Removing it means a matured
+   rung is broadcastable by anyone — which is `§E188`'s deliberate guarantee (*"once a CLTV matures
+   ANYONE may broadcast"*), not a regression, but it should be a decision rather than a side effect.
+2. **Premise 2 depends on the LP-hosted topology.** If `QUID_FLEET_COHOSTS_VAULT=true` is ever used,
+   the fleet holds the LP's node and CAN move balance while the LP sleeps. The signer policy is still
+   the right enforcement point (same process), but the trust story changes — gate the co-hosted mode
+   on it explicitly rather than inheriting this reasoning.
+3. **Neither option fixes the revoked-commitment risk.** A malicious counterparty broadcasting an OLD
+   commitment is answered by LN's penalty path, and `quid-watchtower` is a DEAD-MAN watchtower, not a
+   penalty one (`§T11`). That gap is real, is not what the freshness UTXO addressed, and outlives this
+   decision either way.
+
 ✅ **`§E182-REKEY-VERIFIED` (2026-08-30).** The row demanded four things — *"`keysHash` updates,
 `lpPubkey` pinned, LP co-signs, fresh ladder armed atomically"* — and **all four are built**:
 
