@@ -251,6 +251,19 @@ pub enum PithyQuip {
 
     #[msg("no paper has arrived since the last settle")]
     NothingToSettle,
+
+    /// Not a failure. Coverage sits inside the band, so a net-long liability
+    /// is still payable out of dollars and the round trip would be a pure
+    /// loss — which the cost sweep shows is real at every price, including
+    /// zero.
+    #[msg("coverage is inside the band; paper is not needed yet")]
+    CoverageWithinBand,
+
+    /// The mirror: the pool holds paper it no longer needs. Redemption takes
+    /// it back to dollars rather than leaving it to drift and to be sold at a
+    /// discount in a run.
+    #[msg("the pool holds no paper to redeem for this ticker")]
+    NoPaperHeld,
 }
 
 /// Actuary: adaptive risk

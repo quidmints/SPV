@@ -1351,47 +1351,59 @@ contract BTCChannels is Ownable {
     /// prevents it and the §INVARIANTS.md §1 conservation check that would catch it.
     mapping(bytes32 => uint) public poolOwnedSats;
 
-    /// (§POOL-SCRIPT, owner decision 2026-08-30) The Bitcoin script the pool's share of a
-    /// dead-man exit must pay. Output 1 of the two-output ladder:
-    /// ```
-    /// output 0 -> lpPayoutScript    amountSats - poolOwnedSats   (the LP's entitlement)
-    /// output 1 -> poolColdScript    poolOwnedSats                (the pool's)
-    /// ```
-    /// 🔑 WHY A PROTOCOL COLD SCRIPT AND NOT A QUORUM SCRIPT. The requirement was *"more than the
-    ///    hop alone"*, and this satisfies it by making output 1 spendable by **neither** the hop
-    ///    nor the LP, rather than by naming a signer set Bitcoin would have to verify. The
-    ///    quorum still exists — it governs the cold key off-chain — but it never has to be
-    ///    expressed in `scriptPubKey`.
-    /// ⛔ `SweepAuth`'s 2-of-3 WAS THE OBVIOUS CANDIDATE AND CANNOT BE USED: it is an EIP-712
-    ///    bundle approved by 65-byte EVM `r‖s‖v` signatures `ecrecover`ed over a keccak digest
-    ///    (`quid-hop/src/migration.rs:405-469`), and Bitcoin script has neither primitive. Its
-    ///    operators also hold no Bitcoin keys at all — `migration.rs:30` fixes that quorum as
-    ///    *"operators sign EIP-712 with their own wallets — no bespoke keygen"*.
+    /// (§LN-RESERVE-FUNDER, owner decision 2026-08-30) The Bitcoin script the fleet's on-chain
+    /// RESERVE is held at — the hop's own wallet address (owner: *"the third"*), so the backing
+    /// sits somewhere with a spend path that already works and that `create_sweep_tx` can drain.
     ///
-    /// ⚠️ EMPTY MEANS THE CHECK IS OFF, AND THAT IS DELIBERATE. Ladders armed before this was set
-    ///    are single-output and still valid; requiring a pool output unconditionally would brick
-    ///    every one of them, turning a leak fix into the loss of the LP's only escape. The
-    ///    `lpEntitled` clamp in `_finalizeClose` therefore STAYS — it remains the only protection
-    ///    for those legacy armings. Once set, new armings must carry the output and the clamp
-    ///    becomes unreachable for them, which is the actual fix.
-    bytes public poolColdScript;
+    /// 🔑 **WHY A RESERVE EXISTS AT ALL, AND WHY IT IS A BOUND RATHER THAN A PROOF.** The Lightning
+    /// swap-in rail credits USD for sats that arrive OFF-CHAIN, and **there is no on-chain proof of
+    /// an off-chain payment** — the hop issues the invoice, so it knows the preimage before any
+    /// payment exists and holding it proves nothing (`§PREIMAGE-CANNOT-PROVE-RECEIPT`). So the
+    /// anti-conjuring guarantee can only be a CAP on what a compromised hop can credit, and
+    /// `provenSatsAvailable` is that cap.
+    /// ⛔ **THE CAP'S OLD FUNDER WAS UNBUILDABLE.** `parkProvenSats` raised it by SPLICING sats into
+    /// an LP channel, which needs the LP's 2-of-2 co-signature — so a rail whose whole purpose is
+    /// serving swappers while LPs sleep could only be funded while one was awake. It was never
+    /// wired, and every LN swap-in reverted `InsufficientProvenSats` as a result.
+    /// ⇒ **The fleet now raises its own cap against sats IT holds, proven by the same SPV machinery
+    /// `_provenDeposit` uses.** No LP, no channel, no splice.
+    bytes public hopReserveScript;
 
-    event PoolColdScriptSet(bytes script);
+    event HopReserveScriptSet(bytes script);
+    event HopReserveProven(address indexed hop, bytes32 indexed txid, uint sats, uint available);
 
-    /// @notice Set the script an exit's pool share must pay to. Rotation re-arms rather than
-    ///         invalidates: verification happens at ARM time, so ladders already armed against a
-    ///         previous script stay armed and pay it — which is safe precisely because that script
-    ///         is also protocol-owned.
+
+    /// @notice Pin the address the fleet's reserve is held at. Rotating it does not invalidate
+    ///         allowance already granted — that allowance is backed by sats proven under the
+    ///         PREVIOUS address, which the fleet still holds.
+    function setHopReserveScript(bytes calldata script) external onlyOwner {
+        hopReserveScript = script;
+        emit HopReserveScriptSet(script);
+    }
+
+    /// @notice Raise this hop's `provenSatsAvailable` by the value an SPV-proven transaction pays
+    ///         to the pinned reserve address. **This is the Lightning rail's funder.**
     ///
-    /// ⚠️ THIS IS THE OWNER'S FIRST POWER OVER THIS CONTRACT. `Ownable` was inherited but no
-    ///    `onlyOwner` function existed until now, so the lever is NEW, not merely used. It is
-    ///    deliberately kept off the authority path the file's design note protects: the owner
-    ///    chooses where the POOL's OWN sats land, and can never add an operator, touch
-    ///    `MAIN_HOP`/`FALLBACK_HOP`, or redirect a single satoshi of the LP's entitlement — those
-    ///    stay immutable for exactly the reason `(E164)` gives.
-    function setPoolColdScript(bytes calldata script) external onlyOwner {
-        poolColdScript = script;
-        emit PoolColdScriptSet(script);
+    /// ⚠️ **WHAT THIS DOES AND DOES NOT ESTABLISH, STATED PLAINLY SO THE CAP IS NOT OVERSOLD.**
+    /// It proves sats ARRIVED at an address the fleet controls. It does **not** prove they are
+    /// still there — a hop that spends its own backing and keeps crediting is a compromised hop,
+    /// and the cap bounds that blast radius rather than preventing it. **That was equally true of
+    /// `parkProvenSats`**, so this is the same trust model with a funder that can actually run.
+    ///
+    /// 🔑 Dedup rides on `swapInUsed[txid]`, the SAME map and the same guarantee `_provenDeposit`
+    /// relies on: one transaction can raise the allowance once, so a proof cannot be replayed.
+    function proveHopReserve(
+        bytes32 blockHash,
+        uint txIndex,
+        bytes32[] calldata merkleProof,
+        bytes calldata rawTx
+    ) external nonReentrant {
+        _onlyHop();
+        bytes32 txid = _provenTxid(blockHash, txIndex, merkleProof, rawTx);
+        uint sats = ChannelLib.reserveSats(rawTx, hopReserveScript);
+        uint avail = provenSatsAvailable[msg.sender] + sats;
+        provenSatsAvailable[msg.sender] = avail;
+        emit HopReserveProven(msg.sender, txid, sats, avail);
     }
 
     /// Which hop parked the inventory in a channel, so its ALLOWANCE can be reduced when that
@@ -1784,21 +1796,6 @@ contract BTCChannels is Ownable {
         );
         if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();
 
-        // (§POOL-SCRIPT) THE SECOND OUTPUT. Without it the pre-signed exit hands the LP the
-        // channel's ENTIRE balance including sats the pool owns, and `_finalizeClose` can only
-        // book the overpayment after the BTC is already gone (`PoolSatsLeftWithLp`). Verifying it
-        // HERE is what makes that event unreachable, because the exit that would trigger it can no
-        // longer be armed. Skipped while `poolColdScript` is unset, and when the channel holds no
-        // pool sats there is nothing to protect and no output to require.
-        uint pooled = poolOwnedSats[channelId];
-        if (pooled != 0 && poolColdScript.length != 0) {
-            // ⚠️ `sumExitPaysScript`, NOT the identical-looking `sumOutputValuesToScript` — the
-            // latter asserts a legacy serialisation and an exit is segwit. Sums every matching
-            // output, so splitting the pool's share across two of them is still full payment.
-            if (BitcoinTx.sumExitPaysScript(exit.signedExitTx, poolColdScript) < pooled)
-                revert ExitUnderpaysPool();
-        }
-
         // Armed against the channel's CURRENT funding scope — the same outpoint
         // `BitcoinTx.verifyDeadManExit` just proved these bytes spend. A later rotation makes this
         // entry unreachable rather than stale (see `exitArmedOnOutpoint`).
@@ -2007,7 +2004,6 @@ contract BTCChannels is Ownable {
     }
 
     error ExitUnderpaysCheckpoint();   // the armed exit pays less than it attests
-    error ExitUnderpaysPool();         // the armed exit pays the pool's share less than `poolOwnedSats`
     error CheckpointRegression();      // a bare refresh may not lower the attested balance
 
 
@@ -2245,18 +2241,31 @@ contract BTCChannels is Ownable {
 
     /// @dev Own frame: dedup, SPV inclusion, and the derived-address check. Returns the deposit
     ///      txid (the replay key) and the sats it actually paid this protocol.
+    /// @dev The half BOTH provers share: one transaction, proven once. Extracted when
+    ///      `proveHopReserve` reproduced these six lines verbatim — the duplication put
+    ///      `BTCChannels` 386 bytes OVER EIP-170, so sharing it is what makes the funder fit.
+    /// 🔑 THE DEDUP IS THE LOAD-BEARING PART, and it is why the two provers must share ONE map.
+    ///      `swapInUsed` is keyed by txid across BOTH, so the same transaction cannot be claimed
+    ///      once as a swap-in deposit and again as a reserve top-up. Dedup on the OUTPOINT, not a
+    ///      hop-chosen hash: the old rail keyed replay protection on `paymentHash`, a value the hop
+    ///      invents; a txid is a fact. Marking BEFORE the SPV check is safe — a failed check reverts
+    ///      and unwinds the write, so no txid is ever consumed for free.
+    function _provenTxid(
+        bytes32 blockHash, uint txIndex, bytes32[] calldata merkleProof, bytes calldata rawTx
+    ) private returns (bytes32 txid) {
+        txid = BitcoinTx.txid(rawTx);
+        if (swapInUsed[txid]) revert SwapInDepositReplay();
+        swapInUsed[txid] = true;
+        if (!spv.checkTxInclusion(merkleProof, blockHash, txid, txIndex,
+                                  ChannelLib.MIN_CONFIRMATIONS)) revert BadSPV();
+    }
+
     function _provenDeposit(
         Types.Terms calldata terms, Types.DepositProof calldata proof, bytes calldata rawDepositTx
     )
         private returns (bytes32 txid, uint sats)
     {
-        txid = BitcoinTx.txid(rawDepositTx);
-        // Dedup on the deposit OUTPOINT, not a hop-chosen hash: the old rail keyed replay
-        // protection on `paymentHash`, a value the hop invents; a txid is a fact.
-        if (swapInUsed[txid]) revert SwapInDepositReplay();
-        swapInUsed[txid] = true;
-        if (!spv.checkTxInclusion(proof.merkleProof, proof.blockHash, txid, proof.txIndex,
-                                  ChannelLib.MIN_CONFIRMATIONS)) revert BadSPV();
+        txid = _provenTxid(proof.blockHash, proof.txIndex, proof.merkleProof, rawDepositTx);
         sats = BitcoinTx.verifySwapInDeposit(
             BTC_DEPOSIT_KEY, terms, proof.userRefund, proof.cltvHeight, rawDepositTx);
     }

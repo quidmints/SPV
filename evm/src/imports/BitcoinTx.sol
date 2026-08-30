@@ -209,8 +209,9 @@ library BitcoinTx {
         if (mode == _FIRST_TO) revert OutputNotFound();
     }
 
-    /// @notice (§POOL-SCRIPT) Sum what an EXIT pays to one script. The second half of the
-    ///         two-output ladder, whose first half `_exitStructure` already measures.
+    /// @notice Sum what a transaction pays to one script, **witness-aware**. Two callers:
+    ///         `proveHopReserve` (a reserve top-up, an ordinary wallet tx) and the two-output
+    ///         exit ladder's second half.
     ///
     /// ⛔ **WHY THIS IS NOT `sumOutputValuesToScript`, WHICH COMPUTES THE SAME THING.** That one
     ///    reaches the outputs through `_skipInputs`, whose first statement is `_assertLegacy(raw)`
@@ -221,13 +222,15 @@ library BitcoinTx {
     ///    ⚠️ The two are therefore NOT interchangeable despite identical names, signatures and
     ///    semantics; the difference is entirely in the serialisation each accepts. Reusing the
     ///    wrong one fails closed (a revert, not a wrong number) — `PoolScriptLadder.t.sol` pins it.
+    ///    ⇒ **USE THIS ONE whenever the transaction may carry a witness**, which is any tx the
+    ///    fleet or a third party built rather than a legacy-serialised fixture.
     ///
     /// ⚠️ SUMS, NOT "FINDS", for the reason `sumOutputValuesToScript` documents below: a share
     ///    split across two outputs to the same script is still full payment.
-    function sumExitPaysScript(bytes calldata signedExitTx, bytes memory script)
+    function sumPaidToScript(bytes calldata rawTx, bytes memory script)
         external pure returns (uint paid)
     {
-        (TxParser.Transaction memory t, ) = TxParser.parseTransaction(signedExitTx);
+        (TxParser.Transaction memory t, ) = TxParser.parseTransaction(rawTx);
         bytes32 want = keccak256(script);
         for (uint i; i < t.outputs.length; ++i)
             if (keccak256(t.outputs[i].script) == want) paid += t.outputs[i].value;

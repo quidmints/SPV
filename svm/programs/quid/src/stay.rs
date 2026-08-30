@@ -171,6 +171,22 @@ pub struct Depository {
     pub pool_realized_pnl: i64,
     pub pool_collar_dollar_seconds: u128,
 
+    /// Dollars committed to Backed paper — sent to issuance and not yet
+    /// settled, plus the cost basis of what is held.
+    ///
+    /// 🔴 THIS EXISTS BECAUSE `withdrawable()` READS `total_deposits`, WHICH IS
+    /// A COUNT OF CONTRIBUTIONS AND NOT A LIQUID BALANCE. Buying paper moves
+    /// dollars out of the vault without any depositor withdrawing, so without
+    /// this the pool would keep telling a depositor they may withdraw money
+    /// that is now a share certificate — and the refusal would arrive as a
+    /// failed SPL transfer rather than as an answer.
+    ///
+    /// ⚠️ The first cut of this debited `total_deposits` instead, which is
+    /// exactly the mixing `yield_pool`'s own docstring records as having broken
+    /// share accounting by 1.188x. `total_deposits` stays the sum of what
+    /// depositors put in; this is a claim against it.
+    pub paper_dollars: u64,
+
     /// Cumulative SOL* carry per lamport of SOL principal, scaled by
     /// SOL_YIELD_SCALE.
     ///
@@ -267,6 +283,9 @@ impl Depository {
     pub fn withdrawable(&self) -> u64 {
         self.total_deposits.saturating_add(self.yield_pool)
             .saturating_sub(self.max_liability)
+            // Dollars that are now paper cannot also be dollars a depositor
+            // may take. See `Depository::paper_dollars`.
+            .saturating_sub(self.paper_dollars)
     }
 }
 
@@ -1519,7 +1538,7 @@ mod tests {
             total_drawn: 0, max_liability: 0, sol_lamports: hot, sol_usd_contrib: 0,
             sol_star_shares: 0, sol_star_cost_lamports: cost,
             sol_star_credited_lamports: credited, sol_star_parked_at: 0,
-            swept_at: 0, swept_count: 0,
+            swept_at: 0, swept_count: 0, paper_dollars: 0,
             pool_realized_pnl: 0, pool_collar_dollar_seconds: 0,
             sol_yield_index: 0 }
     }

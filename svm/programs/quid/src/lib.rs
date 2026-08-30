@@ -126,6 +126,20 @@ pub mod quid {
         entra::settle_issue(ctx, ticker)
     }
 
+    /// Admin: reconcile in-flight dollars against what Backed actually filled.
+    pub fn reconcile_issue(ctx: Context<ReconcileIssue>, ticker: String,
+        filled_dollars: u64) -> Result<()> {
+        entra::reconcile_issue(ctx, ticker, filled_dollars)
+    }
+
+    /// Permissionless: send paper back when the book no longer needs it.
+    /// The pool never goes SHORT paper — it goes flat. A net-short book's
+    /// liability is bounded by a total loss and is funded with cash.
+    pub fn redeem_paper(ctx: Context<MarketFlowRedeem>, ticker: String,
+        raw_amount: u64) -> Result<()> {
+        entra::redeem_paper(ctx, ticker, raw_amount)
+    }
+
 
 
 

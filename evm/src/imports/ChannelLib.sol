@@ -38,6 +38,8 @@ import {IEthVenue} from "./Interfaces.sol";
 ///         as SwapLib / BasketLib: external functions run in the calling
 ///         contract's storage context.
 library ChannelLib {
+    error ReserveNotPaid();   // reserve script unpinned, or the proven tx pays it nothing
+
     /// @dev §E198 — one stack slot instead of two. Resolves the aave member's PER-RESERVE health key.
     ///      Inline `(bool,) = aux.vaultHealth(...)` in the routing loop went stack-too-deep; `via_ir`
     ///      stays off by design, so the fix is to remove the local, not to enable the IR pipeline.
@@ -547,6 +549,27 @@ library ChannelLib {
     ///         CONSENT half is not here and needs no signature — see the block at the end.
     /// ⚠️ Four parameters were removed with the signature (`channelId`, `rawSpliceTx`, `lpSig`,
     ///    `lpEth`): every one existed ONLY to build the digest, so they went with it.
+    /// @notice (§LN-RESERVE-FUNDER) Value a reserve top-up: the sats `rawTx` pays to `script`.
+    ///
+    /// 🔑 **IN A LIBRARY FOR THE SAME REASON `rekeyAuthBody` IS** — `BTCChannels` sits within tens
+    ///    of bytes of EIP-170, and adding the reserve funder inline put it 45 bytes OVER. The body
+    ///    is pure verification with no storage, so a `delegatecall` frame costs nothing it needs.
+    ///
+    /// ⚠️ **THE EMPTY-SCRIPT CHECK IS A SECURITY CHECK, NOT AN ERGONOMIC ONE.** An unpinned
+    ///    (zero-length) reserve script would otherwise match a zero-length output scriptPubKey and
+    ///    mint allowance against no backing at all, so it must be rejected BEFORE the sum — the
+    ///    check being first is load-bearing, not stylistic.
+    function reserveSats(bytes calldata rawTx, bytes memory script)
+        external pure returns (uint sats)
+    {
+        if (script.length == 0) revert ReserveNotPaid();
+        // `sumPaidToScript`, NOT `sumOutputValuesToScript`: the latter asserts a LEGACY
+        // serialisation and a wallet-built funding tx carries a witness. Sums every matching
+        // output, so a top-up split across two outputs to the reserve still counts in full.
+        sats = BitcoinTx.sumPaidToScript(rawTx, script);
+        if (sats == 0) revert ReserveNotPaid();
+    }
+
     function rekeyAuthBody(
         Types.OpenParams calldata p,      // the NEW pair
         bytes calldata oldHopPubkey,      // the hop key being rotated OUT

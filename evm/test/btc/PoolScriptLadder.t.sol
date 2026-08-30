@@ -84,7 +84,7 @@ contract PoolScriptLadderTest is Test {
         );
     }
 
-    /// SUMS, NOT "FINDS". `sumExitPaysScript` adds every matching output, so a pool share
+    /// SUMS, NOT "FINDS". `sumPaidToScript` adds every matching output, so a pool share
     /// split across two outputs is still full payment. Asserted against the LP's own script on
     /// the two-output fixture, where exactly one output matches, to pin the arithmetic.
     function test_theLpScriptIsSummedIndependentlyOfThePoolScript() public view {
@@ -95,9 +95,9 @@ contract PoolScriptLadderTest is Test {
     }
 }
 
-/// `sumExitPaysScript` takes `bytes calldata`; an external call supplies it.
+/// `sumPaidToScript` takes `bytes calldata`; an external call supplies it.
 contract Harness {
     function toScript(bytes calldata raw, bytes calldata spk) external pure returns (uint) {
-        return BitcoinTx.sumExitPaysScript(raw, spk);
+        return BitcoinTx.sumPaidToScript(raw, spk);
     }
 }
