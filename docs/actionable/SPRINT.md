@@ -198,7 +198,7 @@ showed. It does NOT cover `§HOP-RCE-3` — on the LN rail the hop still NAMES t
 binds that to whoever paid. That needs the seller-signed intent (`§M1-RESIDUAL-100` residual 1), and
 no amount of address verification substitutes for it.
 
-🔴🔴 **`§RESERVE-HAS-NO-RETURN-PATH` — A HOLE I INTRODUCED THIS SESSION (found 2026-08-30 by
+✅ **`§RESERVE-HAS-NO-RETURN-PATH` — DISSOLVED 2026-08-30: the reserve it describes no longer exists (`§FLEET-FRONTS-THE-WINDOW`). Kept because the lesson is not.** ~~A HOLE I INTRODUCED THIS SESSION (found 2026-08-30 by
 auditing my own commits against the owner's *"there should be no holes possible"*). IT MUST BE FIXED
 OR REVERTED BEFORE THE LN RAIL IS RELIED ON.**
 
@@ -254,7 +254,7 @@ departure the contract already verifies.
 timelocked script, where consensus (not a proof) keeps the sats in place for the allowance's life; or
 (B) **move the bound onto an asset the contract custodies.**
 
-⭐⭐ **`§FLEET-FRONTS-THE-WINDOW` — THE CLEAN SOLUTION, AND IT IS A DELETION (owner: *"there must be
+✅ **`§FLEET-FRONTS-THE-WINDOW` — EXECUTED 2026-08-30 (`32168f74`). THE CLEAN SOLUTION, AND IT WAS A DELETION (owner: *"there must be
 a cleaner solution"*). NO NEW MECHANISM AT ALL.**
 
 **Ask the question one level up: WHY IS THE POOL EXPOSED TO AN OFF-CHAIN PAYMENT IT CANNOT SEE?**
@@ -397,7 +397,7 @@ strands protocol BTC, so it is not a guess to make. `BTC_DEPOSIT_KEY` is documen
 **INTERNAL** key, used TWEAKED with a per-swap CLTV/terms leaf to derive deposit addresses. A reserve
 has no terms and so no leaf. The options differ in who can spend the backing.
 
-🔴🔴 **`§LN-SWAPIN-RAIL-BROKEN` — THE RETRACTION BELOW WAS ITSELF TOO BROAD. RE-FILED CORRECTLY
+✅ **`§LN-SWAPIN-RAIL-BROKEN` — DISSOLVED 2026-08-30: there is no pool-backed LN rail left to break.** ~~THE RETRACTION BELOW WAS ITSELF TOO BROAD. RE-FILED CORRECTLY
 2026-08-30 (third pass).** The join IS broken; I named the wrong function twice. **There are TWO
 swap-in rails and they differ:**
 
@@ -635,6 +635,23 @@ there** — with the near-miss of blaming a concurrent session's commit for it.
 `createSelectFork(url, block)`), and bump it deliberately. A test that reads live third-party state
 must pin it or assert a property that survives the range — a 5 bps margin against Aave/Uniswap state
 is neither.
+
+### ✅ THE LN SWAP-IN THREAD, CLOSED 2026-08-30 — FOUR PROBLEMS RETIRED BY ONE DELETION
+| was | now |
+|---|---|
+| `§LN-SWAPIN-RAIL-BROKEN` — every LN swap-in reverted | **dissolved** — no pool-backed rail exists |
+| `§RESERVE-HAS-NO-RETURN-PATH` — the hole I introduced | **dissolved** — no reserve exists |
+| `§HOP-RCE-3` buffered half — the hop NAMES the seller | **dissolved** — on the proven rail, naming yourself requires proving your own deposit |
+| `§AUDIT-POOLPARKER-PHANTOM` | already dissolved by `§POOL-INVENTORY-PURGED` |
+📏 **`BTCChannels` 24,545 → 23,527 → 21,615 bytes across the two deletions; headroom 31 → 2,961.**
+⚠️ **THE LN RAIL IS NOW OFF, DELIBERATELY.** `run_swap_in_sender` fails HTLCs back — claiming
+without paying would take the seller's BTC, and the pool-backed credit is gone — so **the seller
+keeps 100% of their BTC** and nobody is short. ▶️ **TO TURN IT BACK ON, build the fleet-side payout;
+the on-chain reconcile leg needs no new code.**
+⚠️ **AND ITS TEST SUITE MUST BE REBUILT WITH THAT FLOW.** The settle-outcome tests were deleted with
+the path they tested; the assertions worth restoring are named in `swap_in.rs`'s test module: a paid
+seller is claimed exactly once, a crash between paying and claiming re-drives to exactly one claim,
+and an unpaid seller is always failed back.
 
 ### 🆕 ALSO SURFACED IN DISCUSSION AND NOT BOOKED UNTIL NOW (2026-08-30, owner: *"are you sure that
 is all the new work? other things came up"*) — they were, and these are them
