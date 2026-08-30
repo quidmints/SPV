@@ -540,6 +540,61 @@ those reports the library as correct.** The patch is commented in place, at the 
 `test_RejectsADifferentMessage`, `test_RejectsADifferentKey`, `test_RejectsUnderTheWrongExponent` —
 so the fix is not "verify everything".
 
+## 📊 **§BASKET-ROUTE-MATRIX — THE DECISION INPUT, MEASURED. USDT AND DAI EACH NEED **ONE LINE** AND HAVE $50M+ BEHIND THEM.** (owner, 2026-08-30)
+
+Owner: *"it depends what we have in the basket, and what is most liquid/least utilisation on the
+venues we work with. this logic is pretty black and white … right now there is no support for many
+stables in the basket, and i dont want to just swap out of them as a result to be able to use the
+routes we can."* **The logic is black and white; the INPUTS were never gathered. Here they are,
+live on mainnet.**
+
+### 📡 CURVE DEPTH TO USDC — the `_hubSwap` leg, which is what "supported" means today
+| stable | pool | stable side | USDC side | status |
+|---|---|---:|---:|---|
+| USDC | — | — | — | the hub itself |
+| **USDT** | 3pool `0xbEbc4478…` idx **(2 → 1)** | **52,301,841** | 55,652,837 | 🟢 **one line** |
+| **DAI** | 3pool `0xbEbc4478…` idx **(0 → 1)** | **52,526,750** | 55,652,837 | 🟢 **one line** |
+| RLUSD | `0xD001aE43…` | 29,583,276 | 34,931,277 | ✅ on the table |
+| PYUSD | `0x383E6b44…` | 18,799,292 | 22,383,021 | ✅ on the table |
+| **USDG** | `0xc061caa0…` idx **(0 → 1)** | **9,596,358** | 20,889,268 | 🟢 **one line** |
+| **BOLD** | `0xEFc65163…` | 4,033,596 | 5,072,415 | 🟡 viable, indices unread |
+| **USDE** | `0x02950460…` | 327,312 | 334,135 | 🟡 thin |
+| GHO · USDS · crvUSD · AUSD | registry's first answer | ~0 | ~0 | ⚠️ **UNKNOWN — see the control** |
+✅ **3pool confirmed usable by the existing helper:** `coins = (DAI, USDC, USDT)` and
+`get_dy(2, 1, 1e6) = 999,865` on the **`int128` signature `_hubSwap` already calls.** No new code
+shape — `_routeOf` gains a line.
+
+### ⛔ **THE FOUR ZEROS ARE NOT ABSENCES, AND PYUSD IS THE CONTROL THAT PROVES IT**
+`find_pool_for_coins(PYUSD, USDC)` returned `0x61fA2c94…` holding **28 PYUSD / 0 USDC** — while the
+pool THIS TREE ALREADY PINS, `0x383E6b44…`, holds **18,799,292 / 22,383,021**. ⇒ **The meta-registry
+returns *a* pool, not *the deepest*.** So GHO, USDS, crvUSD and AUSD reading ~0 is evidence about the
+REGISTRY, not about the market — CLAUDE.md's *"an empty grep proves nothing … run the CONTROL before
+concluding"*, and the control fired. **Do not record those four as unroutable.** They need a real
+lookup (Curve's other registries, or the known pool per stable) before anything is concluded.
+
+### 🔑 WHAT A `_routeOf` LINE ACTUALLY BUYS — AND WHAT IT DOES NOT
+✅ It makes the stable **routable**: `_hubSwap` can sell it to USDC, so (a) the consolidation sweep
+**consolidates it instead of refunding it to the LP** (`LevMath:1029`), and (b) any venue that
+borrows it can reach WETH/WBTC.
+⛔ **It does NOT create a borrow market.** "Support" is TWO halves — a route AND a venue that lends
+the stable — and this row measures only the first. **USDT and DAI are routable-with-one-line; whether
+anything lends them is the Aave-v4/Morpho question (§AAVE-V4-HUB-MEASURED: USDT is on the v4 hub with
+3.57M free and CF 7800; DAI is not on the hub at all).**
+📌 **AND THIS IS THE SAME TABLE THE 1inch WORK TOUCHES.** Under `unoswap2` (§NO-KEY-NEEDED) the
+stable→USDC hop stops being a direct Curve call and becomes a `dex` word in a two-pool chain —
+**`_routeOf` becomes a `dex`-word table serving in-range swaps, OOR fills and the IL-protect
+intermediary from one place.** ⇒ **The owner's *"finish oor and 1inch together"* is right for a
+structural reason: they share this table.**
+
+### ▶️ SO THE BLACK-AND-WHITE RULE HAS ITS INPUTS NOW, AND THE FIRST ACTIONS ARE CHEAP
+1. **Add USDT and DAI to `_routeOf`** — two lines, $50M+ each, both on the 3pool the helper already
+   speaks. **This alone stops the consolidation sweep refunding two of the basket's largest stables.**
+2. **Add USDG** — one line, $30M, and it is the v4 borrow the owner wants (37.9M free).
+3. **Resolve the four unknowns properly** before claiming any stable is unroutable.
+4. ⚠️ **`_routeOf` is `pure` with hardcoded addresses**, so each line is a redeploy of `LevMath`.
+   **If the roster is meant to move without one, that is a settable table and a separate decision** —
+   and it is the same decision as making the `dex` words settable for `unoswap2`.
+
 ## 📊 **§AAVE-V4-HUB-MEASURED — THE WETH SIDE IS WIDE OPEN, THE COLLATERAL SIDE IS TWO STABLES, AND `AUSD` IS NOT LISTED** (owner, 2026-08-30)
 
 Owner: *"we need more markets for the stables that we have … what is the utilisation like on the main
