@@ -636,6 +636,13 @@ there** — with the near-miss of blaming a concurrent session's commit for it.
 must pin it or assert a property that survives the range — a 5 bps margin against Aave/Uniswap state
 is neither.
 
+⚠️ **CORRECTION (2026-08-30): THE INFURA 429s WERE MINE, NOT THE OTHER SESSION'S.** `32168f74`'s
+message blames *"a concurrent forge run in the other session"* for 169 rate-limit failures. **False.**
+That session runs against `ethereum-rpc.publicnode.com`; **I** started a second full Infura-backed
+suite (`bb3djjwhx`) while the first (`b4b0zv6zw`) was still running, so I rate-limited myself. ⇒ **Do
+not run two fork suites on one key**, and do not reach for the other session as an explanation before
+checking which RPC each one uses — the evidence was one `pgrep` away.
+
 ### ✅ THE LN SWAP-IN THREAD, CLOSED 2026-08-30 — FOUR PROBLEMS RETIRED BY ONE DELETION
 | was | now |
 |---|---|
