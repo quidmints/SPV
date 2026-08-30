@@ -533,6 +533,24 @@ is stated so it can be resumed cold.
 | `§BTC-LEG-FEE` (1.5) | **verified genuinely open** | owner decision: should a swap-in pay LPs at all? Test is inverted pending it |
 | `§E294` (1.6) | **verified open; the row's REASON corrected** | delete `pushObservation` or wire it. Row says "the ring is fed by the anchor regardless" — false: `Core.sol` says `pushObservation` is the ring's ONLY live writer, so deleting leaves the ring empty and every σ² read falls back to `anchorVarianceWad()` |
 
+🟠 **`§APP-LOCKFILE-AND-NODE` (2026-08-30) — two facts about `app/`'s toolchain, one of them a mess
+I made and cleaned up.**
+1. ⚠️ **`app/` IS A YARN PROJECT AND I RAN `npm install`.** It rewrote `yarn.lock` (+5,664 / −2,675)
+   and left an 837 KB `package-lock.json`. **Both reverted** — `yarn.lock` restored from HEAD and the
+   npm lockfile deleted; the tree is clean. Use `yarn` here.
+2. 🔴 **`yarn` REFUSES TO INSTALL ON THIS MACHINE, AND IT IS RIGHT TO:**
+   `react-native@0.86.0` declares `engines.node = "^20.19.4 || ^22.13.0 || ^24.3.0 || >= 25.0.0"`
+   and the box runs **node 23.10.0** — an odd-numbered line nobody supports. **`npm` installed anyway
+   because it does not enforce `engines`; `yarn` does.** So the working `node_modules` here was
+   produced by a tool ignoring a constraint the project states.
+   ⇒ **A supported node (20.19+, 22.13+, or 24.3+) is a PRECONDITION for any Expo build or typecheck**,
+   and no such build has been run in this session.
+3. ⚠️ **CONSEQUENCE — `package.json` AND `yarn.lock` NOW DISAGREE.** The `react-native-worklets`
+   `0.5.1 → ~0.10.4` bump (a real fix: `expo-modules-core@57.0.14` requires `^0.7.4 || ^0.8 || ^0.9 ||
+   ^0.10`, so `ERESOLVE` was genuine) is committed in `package.json`, while `yarn.lock` still pins
+   `0.5.1` — because regenerating it needs a `yarn install` this node cannot run. **Run `yarn install`
+   on a supported node and commit the lockfile**; until then the pin is stale, not wrong.
+
 🔴 **`§APP-IS-CJS-BUT-SOURCES-ARE-ESM` (2026-08-30) — the REAL reason no `app/` test has ever run,
 and it is not the missing runner.** `app/package.json` declares **`"type": "commonjs"`**, while every
 source and test file uses ESM `import`. Node therefore refuses to load them, **and no loader flag
