@@ -1270,6 +1270,58 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## ⭐ **§FILL-PAYS-LESS-NOT-DIFFERENT — THE SELL LEG NEEDS NO ROUTES, BECAUSE A PARTIAL FILL IN THE RIGHT STABLE BEATS A FULL FILL IN THE WRONG ONE** (owner, 2026-08-31: *"unless the user expressly accepts pro rata … we still need to curve into the stable they want, and if they dont exist we need to 1inch them"*)
+
+**The objection is right and it is sharper than it looks — but the conclusion does not follow, and the
+reason it does not is the thing worth keeping.**
+
+### 🔴 FIRST, WHY THE OBJECTION BITES HARDER THAN §CONVERGENCE DID
+§E312-redeem settles single-stable payout as *"land the pro-rata, the frontend does the multicall"*.
+**THAT ANSWER CANNOT BE USED HERE: AN OOR FILL HAS NO CLIENT PRESENT.** The maker signed an intent
+earlier and is **absent by construction**; a third-party relayer submits one transaction. There is
+nobody to converge anything afterwards. ⇒ For this path the choice really is between converting
+**on-chain** or not converting at all.
+⛔ **AND CONVERTING ON-CHAIN IS NOT AVAILABLE, MEASURED TODAY (§CURVE-ALONE-CANNOT-DO-IT):** only **4
+of 12** basket stables touch Curve at all; **GHO's only venue is Fluid**, which `unoswap` pool words
+cannot address; and the best routes are **SPLIT across parallel paths**, which `unoswap2`/`unoswap3`
+cannot express in any encoding. **"Curve paths for every stable" cannot be built because they do not
+exist.**
+
+### ⭐ THE THIRD OPTION NEITHER OF US LISTED: **PAY LESS, IN THE STABLE THEY ASKED FOR**
+`BasketLib._takePreferred` returns **`(sent, remaining, done)`** — **the shortfall is OBSERVABLE**, not
+merely a fallback trigger. So the fill can draw **the named stable only**, take `sent` as the realised
+proceeds, and **derive the ether sold from what was actually paid**:
+```
+proceeds = what the basket could deliver of the maker's chosen stable
+etherSold = proceeds / limitPx        ← derived from the payment, never from i.size
+```
+⇒ **No conversion in any branch. No pro-rata unless asked for. No route. No client.**
+⭐ **AND IT IS NOT A NEW PRINCIPLE — IT IS THE BUY LEG'S, VERBATIM.** `spendClaim` CAPS at the maker's
+mature claim and *"the credit is derived from the debit, never from `i.size`"* (§INTENT-HAS-NO-FUNDING-
+LEG). **A partial fill is already this rail's established behaviour in the other direction.** The sell
+mirrors it: a maker who asks for more USDT than the basket holds gets less USDT, not other tokens.
+
+### ✍️ AND WHERE PRO-RATA CONSENT BELONGS: **IN THE SIGNATURE**
+The owner's *"unless the user expressly accepts pro rata"* has an exact home. **`OorIntent` is
+EIP-712 signed and ALREADY carries a consent bool the maker signs — `loadBalance`.** So the payout
+preference is signed terms, not protocol policy:
+| signed field | meaning |
+|---|---|
+| `payoutToken` | the stable the maker wants |
+| `acceptProRata` | `false` ⇒ pay only `payoutToken`, partial if short. `true` ⇒ the shortfall may come pro-rata |
+⇒ **The maker decides at signing time, which is the whole point of an intent.** Neither branch needs a
+swap. ⚠️ Both fields are inside the typehash, so flipping either invalidates the signature — the same
+property that makes `loadBalance` safe.
+
+### 🧷 THE STRUCTURAL REASON NOT TO ROUTE HERE, EVEN IF WE COULD
+§SELL-LEG-IS-FORCED established that the maker's execution is currently **exact `limitPx`, zero
+slippage, zero route dependency, zero MEV on fill price**. **Adding a conversion would surrender all
+four** — and put a *liveness* dependency on a permissionless path, so a route outage would mean signed
+orders silently stop filling. ⇒ **Routing the fill is not a missing feature; it is a property we
+should refuse to give up.** The maker who truly wants a stable the basket is short of can take the
+partial and convert it themselves, **with a client present** — which is where §TRACK-E1 already puts
+that job.
+
 ## 🎓 **§WHY-MATURITY-IS-UNAVOIDABLE — MATURE QU!D IS THE *SENIOR TRANCHE*, AND A SELL-LEG MINT HAS NO BASKET ASSETS BEHIND IT** (owner, 2026-08-31: *"why is it unavoidable?"*)
 
 I asserted *"mature QU!D cannot be minted, by construction"* without saying why. **It is structural,
