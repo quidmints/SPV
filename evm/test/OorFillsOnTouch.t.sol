@@ -50,13 +50,13 @@ contract OorIntentTest is AllesFixture {
         internal view returns (SwapLib.OorIntent memory i) {
         i = SwapLib.OorIntent({
             owner: maker, buyVolatile: buyVolatile, size: rack / 10, limitPx: limitPx,
-            expiry: uint64(block.timestamp + 1 days), nonce: nonce, loadBalance: true });
+            expiry: uint64(block.timestamp + 1 days), nonce: nonce, loadBalance: true,  payoutToken: address(0) });
     }
 
     function _sign(SwapLib.OorIntent memory i, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = keccak256(abi.encodePacked(hex"1901", _domain(),
             keccak256(abi.encode(SwapLib.OOR_TYPEHASH, i.owner, i.buyVolatile, i.size,
-                i.limitPx, i.expiry, i.nonce, i.loadBalance))));
+                i.limitPx, i.expiry, i.nonce, i.loadBalance, i.payoutToken))));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
@@ -184,7 +184,7 @@ contract OorIntentTest is AllesFixture {
 
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: true, size: 1_000 * 1e6, limitPx: px,
-            expiry: uint64(block.timestamp + 1 days), nonce: 42, loadBalance: false });
+            expiry: uint64(block.timestamp + 1 days), nonce: 42, loadBalance: false, payoutToken: address(0) });
 
         vm.prank(User02);                                   // a relayer, not the maker
         vm.expectRevert(SwapLib.IntentUnfunded.selector);
@@ -229,7 +229,7 @@ contract OorIntentTest is AllesFixture {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: true, size: 1_000 * 1e6, limitPx: px,
-            expiry: uint64(block.timestamp + 1 days), nonce: 43, loadBalance: false });
+            expiry: uint64(block.timestamp + 1 days), nonce: 43, loadBalance: false, payoutToken: address(0) });
 
         vm.prank(User02);                                   // still a relayer, not the maker
         ETH.fillIntent(i, _sign(i, MAKER_PK));
@@ -244,6 +244,56 @@ contract OorIntentTest is AllesFixture {
         uint spent = claimBefore - claimAfter;
         assertApproxEqRel(maker.balance, spent * 1e18 / px, 1e15,
             "debit and credit must be the same trade: ether received != claim spent at the limit");
+    }
+
+    /// @notice ⭐ **THE SELL LEG, END TO END.** Three properties, and the first is the one every
+    ///         earlier design of this leg got wrong: **the maker's ether never moves.** An in-range
+    ///         LP's ether is already in `POOLED`, so a fill SHRINKS THEIR CLAIM on ether that stays
+    ///         exactly where it is, and pays them dollars in the stable they SIGNED for.
+    function test_ASellFillShrinksTheClaimAndPaysTheSignedStable() public {
+        vm.deal(maker, 100 ether);
+        vm.prank(maker);
+        ETH.deposit{value: 40 ether}(0, maker);        // the maker is an IN-RANGE LP
+
+        // give the basket real USDC to pay out of
+        deal(address(USDC), User01, 200_000 * 1e6);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 200_000 * 1e6, address(USDC), 0);
+        vm.stopPrank();
+
+        uint pooledBefore = ETH.balanceOf(maker);   // Shares.sol:26 - balanceOf IS autoManaged[u].pooled
+        assertGt(pooledBefore, 0, "premise: the maker must hold an in-range position");
+        uint rangeEthBefore = CORE.POOLED();
+        uint usdcBefore     = USDC.balanceOf(maker);
+
+        // A sell fills once price has risen TO OR THROUGH the limit, so sign AT spot.
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        SwapLib.OorIntent memory i = SwapLib.OorIntent({
+            owner: maker, buyVolatile: false, size: 5_000 * 1e6, limitPx: px,
+            expiry: uint64(block.timestamp + 1 days), nonce: 77, loadBalance: false,
+            payoutToken: address(USDC) });
+
+        vm.prank(User02);                              // a relayer, not the maker
+        ETH.fillIntent(i, _sign(i, MAKER_PK));
+
+        uint pooledAfter = ETH.balanceOf(maker);
+        uint paid = USDC.balanceOf(maker) - usdcBefore;
+
+        // ① THE MAKER WAS PAID IN THE TOKEN THEY SIGNED - not a pro-rata spray of the basket.
+        assertGt(paid, 0, "the maker must be paid in their chosen stable");
+
+        // ② THEIR CLAIM SHRANK - this is the debit, and it is what makes the payment balanced.
+        assertLt(pooledAfter, pooledBefore, "the sell must shrink the maker's ether claim");
+
+        // ③ AND THE RANGE'S ETHER DID NOT MOVE. Every wrong design of this leg fails here:
+        //    delivering ether would drop POOLED, booking it would raise POOLED.
+        assertEq(CORE.POOLED(), rangeEthBefore, "the maker's ether must stay exactly where it is");
+
+        // and the two legs must be the same trade, at the SIGNED limit
+        uint sold = pooledBefore - pooledAfter;
+        assertApproxEqRel(sold, (paid * 1e12) * 1e18 / px, 1e15,
+            "ether debited must equal dollars paid at the limit price");
     }
 
     /// @notice §SELL-LEG-IS-FORCED — **THE ONE STEP THAT CAN FAIL IN A WAY REASONING WOULD NOT

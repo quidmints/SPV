@@ -1124,9 +1124,14 @@ library SwapLib {
         uint64  expiry;
         uint64  nonce;         // one consumed bit per (owner, nonce); not signing is the cancel
         bool    loadBalance;   // §E308 consent, carried to the fill as an in-range swap carries it
+        /// @dev §FILL-PAYS-LESS-NOT-DIFFERENT — the stable a SELL maker wants to be paid in, SIGNED so
+        ///      the relayer cannot choose it. `AUX.take` serves this token FIRST (`_takePreferred`),
+        ///      and the fill takes what it ACTUALLY delivered as the proceeds — so a basket short of
+        ///      it pays LESS of the right token rather than more of the wrong one. Ignored on a buy.
+        address payoutToken;
     }
     bytes32 internal constant OOR_TYPEHASH = keccak256(
-        "OorIntent(address owner,bool buyVolatile,uint256 size,uint256 limitPx,uint64 expiry,uint64 nonce,bool loadBalance)");
+        "OorIntent(address owner,bool buyVolatile,uint256 size,uint256 limitPx,uint64 expiry,uint64 nonce,bool loadBalance,address payoutToken)");
     /// @dev `internal` so the range manager can build its own cached separator from it — the domain's
     ///      two inputs are fixed at deploy, so it is computed ONCE there rather than per fill.
     bytes32 internal constant OOR_DOMAIN_TYPEHASH = keccak256(
@@ -1140,7 +1145,7 @@ library SwapLib {
         private pure returns (bytes32) {
         return keccak256(abi.encodePacked(hex"1901", domainSep,
             keccak256(abi.encode(OOR_TYPEHASH, i.owner, i.buyVolatile, i.size,
-                i.limitPx, i.expiry, i.nonce, i.loadBalance))));
+                i.limitPx, i.expiry, i.nonce, i.loadBalance, i.payoutToken))));
     }
 
     /// @dev FOUR CHECKS, AND NONE OF THEM CAN MOVE OFF-CHAIN:
@@ -1165,7 +1170,7 @@ library SwapLib {
         mapping(address => mapping(uint64 => bool)) storage used,
         OorIntent calldata i, bytes calldata sig,
         address core, address aux, address asset, bytes32 domainSep
-    ) external returns (int usdDelta, int volDelta) {
+    ) external returns (int usdDelta, int volDelta, uint wantUsd6) {
         if (block.timestamp >= i.expiry) revert IntentExpired();
         if (used[i.owner][i.nonce]) revert IntentUsed();
         if (sig.length != 65) revert IntentBadSig();
@@ -1209,7 +1214,14 @@ library SwapLib {
             //    is `_withdraw`'s rather than `settleOor`'s, and it must cap at
             //    `plainNet(pooled, levPooled)` — never `pooled` — because "a levered claim can never
             //    pull deliverable ETH that backs unlevered LPs". See §INTENT-HAS-NO-FUNDING-LEG.
-            revert IntentSellLegUnbuilt();
+            // ⭐ THE SELL SETTLES IN `Quid`, NOT HERE, AND THAT IS THE POINT. Its legs touch per-LP
+            //    share state (`autoManaged`) and pay a basket token — neither reachable from this
+            //    library — while everything ABOVE this line (expiry, replay, signature, oracle) is
+            //    direction-agnostic and stays in one place. Returning `wantUsd6` rather than
+            //    settling keeps the verification single-sourced and the settlement where the state is.
+            //    ⚠️ `volDelta` STAYS ZERO: an in-range maker's ether is ALREADY in `POOLED`, so
+            //    `Core._handleDelta` must neither pay it out (`> 0`) nor book it in (`< 0`).
+            wantUsd6 = i.size;
         }
     }
 

@@ -1262,8 +1262,9 @@ contract Quid is Shares,
     ///         this contract is the tightest in the tree and can afford the CALL, not the CODE.
     function fillIntent(SwapLib.OorIntent calldata i, bytes calldata sig)
         external nonReentrant returns (bool) {
-        (int usdDelta, int volDelta) = SwapLib.fillIntentBody(
+        (int usdDelta, int volDelta, uint wantUsd6) = SwapLib.fillIntentBody(
             intentUsed, i, sig, address(CORE), address(AUX), address(WETH), _oorDomain());
+        if (wantUsd6 > 0) usdDelta = _settleSellIntent(i, wantUsd6);
         // §INTENT-FUNDING-LEG — the gate that stood here is GONE because the hole it covered is
         // closed: `fillIntentBody` now spends the maker's basket claim through `AUX.spendClaim`
         // BEFORE deriving either leg, and `usdDelta` is what that burn realised rather than what
@@ -1273,6 +1274,56 @@ contract Quid is Shares,
         emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
         return true;
     }
+
+    /// @notice The SELL leg of a filled intent. §SELL-LEG-NOT-FORCED-AFTER-ALL / §FILL-PAYS-LESS.
+    /// @dev ⭐ **THE MAKER'S ETHER NEVER MOVES, AND THAT IS THE WHOLE SHAPE.** An in-range LP's ether
+    ///      is ALREADY in `POOLED`, so the fill does not deliver or book any — it SHRINKS THE MAKER'S
+    ///      CLAIM on ether that stays exactly where it is (`volDelta` remains 0), and pays them
+    ///      dollars. Every other reading double-counts: `volDelta > 0` would hand them ether they are
+    ///      trying to sell, `< 0` would book ether the range already holds.
+    /// @dev ⚠️ **THE CAP IS APPLIED BEFORE THE PAYOUT, NOT AFTER, AND THE ORDER IS LOAD-BEARING.**
+    ///      `plainNet(pooled, levPooled)` is the ether a maker may sell — never `pooled`, because a
+    ///      levered claim must not pull deliverable ETH backing unlevered LPs. Taking first and
+    ///      capping afterwards would already have moved basket assets we then could not justify.
+    /// @dev ⭐ **AND THE PROCEEDS ARE WHAT `AUX.take` ACTUALLY DELIVERED, NEVER WHAT WAS ASKED.** The
+    ///      basket may hold less of the signed `payoutToken` than the order wants; `_takePreferred`
+    ///      serves that token FIRST and reports what it managed. So a short basket pays LESS OF THE
+    ///      RIGHT TOKEN rather than more of the wrong one — and the ether debited is derived from the
+    ///      payment, exactly as the BUY leg derives its credit from `spendClaim`'s burn.
+    function _settleSellIntent(SwapLib.OorIntent calldata i, uint wantUsd6) private returns (int) {
+        Types.Deposit storage LP = autoManaged[i.owner];
+        uint cap = SwapLib.plainNet(LP.pooled, levPooled[i.owner]);
+        if (cap == 0) revert NoPosition();
+        uint capUsd6 = (cap * i.limitPx / 1e18) / 1e12;          // the most this position may sell
+        uint ask6 = wantUsd6 < capUsd6 ? wantUsd6 : capUsd6;
+        if (ask6 == 0) revert IntentUnpayable();
+
+        // 🔴 **`AUX.take` RETURNS USD **18**-DEC, NOT THE TOKEN'S NATIVE UNITS.** `BasketLib.
+        //    _takePreferred` ends with `scaleTokenAmount(sent, token, /*scaleUp*/ true)`, so the
+        //    normalisation has ALREADY happened. Applying `scaleTo6` here was a SECOND conversion on
+        //    an already-converted number — and for a 6-dec payout token it is the IDENTITY, so the
+        //    result was an 18-dec figure being read as 6-dec: a silent 1e12 error that made
+        //    `etherSold` overflow the cap and debit the maker's ENTIRE position for a partial
+        //    payment. Caught by the end-to-end test, not by review.
+        //    ⚠️ The `/1e12` is correct for EVERY payout token precisely BECAUSE `take` already
+        //    normalised — do not reintroduce a per-token decimals lookup here.
+        uint sent = AUX.take(i.owner, BasketLib.from6(ask6, i.payoutToken), i.payoutToken, 0);
+        uint proceeds6 = sent / 1e12;
+        if (proceeds6 == 0) revert IntentUnpayable();
+
+        uint etherSold = (proceeds6 * 1e12) * 1e18 / i.limitPx;  // usd6 → usd18 → wei at the LIMIT
+        if (etherSold > cap) etherSold = cap;                    // rounding only; the cap already bound it
+        _debitShares(LP, etherSold);
+        return int(proceeds6);      // committed dollars fall by what the maker was actually paid
+    }
+
+    /// @notice The basket could deliver NONE of the stable a sell maker signed for.
+    /// @dev    Distinct from `SwapLib.IntentUnfunded`, which is the BUY leg's "the maker has no claim
+    ///         behind this". Here the maker is owed and the BASKET cannot pay in the token they chose
+    ///         — a different party failing, so a different name. A PARTIAL delivery is NOT this error:
+    ///         it is the intended behaviour (pay less of the right token), and only a ZERO fill
+    ///         reverts, because a zero fill would burn the nonce for nothing.
+    error IntentUnpayable();
 
     event IntentFilled(address indexed owner, uint64 indexed nonce, uint size, uint limitPx, bool buyVolatile);
 
