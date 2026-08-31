@@ -806,16 +806,19 @@ library LevMath {
             dex2 &= ~ZERO_FOR_ONE;
             if (tokenOut != IUniV3PoolMin(address(uint160(dex2))).token0()) dex2 |= ZERO_FOR_ONE;
         }
-        uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
-        IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);
-        IERC20Min(tokenIn).approve(ONEINCH_ROUTER, amountIn);
-        (bool ok, ) = ONEINCH_ROUTER.call(dex2 == 0
+        // §C15 — **THE SEAM IS ONE FUNCTION.** This no longer executes anything: it ENCODES a
+        //    pool-word route and hands it to `convertTo`, which is the single execution path for
+        //    every conversion in the protocol. Two encoders (pool words here, aggregator calldata
+        //    off-chain), ONE executor — so the approval pattern, the pinned callee and the
+        //    balance-delta floor exist in exactly one place and cannot drift between paths.
+        address[] memory tin = new address[](1);
+        uint256[] memory tam = new uint256[](1);
+        bytes[]   memory rts = new bytes[](1);
+        tin[0] = tokenIn; tam[0] = amountIn;
+        rts[0] = dex2 == 0
             ? abi.encodeWithSelector(UNOSWAP_SELECTOR,  uint256(uint160(tokenIn)), amountIn, minOut, dex)
-            : abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(uint160(tokenIn)), amountIn, minOut, dex, dex2));
-        IERC20Min(tokenIn).approve(ONEINCH_ROUTER, 0);      // reset on BOTH paths
-        if (!ok) revert NoVolatileRoute();
-        out = IERC20Min(tokenOut).balanceOf(address(this)) - before_;
-        if (out < minOut) revert Slippage();
+            : abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(uint160(tokenIn)), amountIn, minOut, dex, dex2);
+        return convertTo(tin, tam, tokenOut, minOut, rts);
     }
 
     // §C2.1 — `_poolSwap` (Uniswap V3 `exactInputSingle`) IS DELETED. Owner: "we dont need v3
