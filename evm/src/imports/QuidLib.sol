@@ -9,6 +9,7 @@ import {IVaultV2} from "./Interfaces.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
+import {LevMath} from "./LevMath.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./Interfaces.sol";
 // §A.52: ONE canonical Quid view (was two file-local variants, `IQuid_VG` + `IQuidView_VG`).
@@ -761,7 +762,7 @@ library QuidLib {
         if (wethBal < amount) {
             // OPPORTUNISTIC, NON-BLOCKING: sell idle ether.fi
             // weETH → WETH on the deep pool. Any failure swallowed (returns 0).
-            if (SwapLib.sourceWethBody(amount - wethBal, off) > 0)
+            if (LevMath.sourceWeth(amount - wethBal, off.weeth, off.curvePool) > 0)
                 wethBal = IERC20(c.weth).balanceOf(address(this));
         }
         if (wethBal < amount) {
@@ -832,7 +833,7 @@ library QuidLib {
         // Anchored to `covered`, i.e. the ether.fi rate — NOT to any pool-derived quote, which a
         // front-runner moves along with the fill it is supposed to police.
         if (weethIn > 0) {
-            uint got = SwapLib.curveSellWeeth(c, weethIn, (covered * 9975) / 10_000);
+            uint got = LevMath.sellWeethOnCurve(c.weeth, c.curvePool, weethIn, (covered * 9975) / 10_000);
             if (got > 0) {
                 IERC20(c.weth).transfer(recipient, got);   // Curve pays msg.sender; deliver onward
                 return covered;

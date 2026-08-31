@@ -679,6 +679,24 @@ library LevMath {
         if (got < minOut) revert Slippage();                     // ONE floor, on the WHOLE conversion
     }
 
+    /// @notice Opportunistic weETH → WETH offramp. Moved here from `SwapLib` (see the note there):
+    ///         it is weETH code, and the hop it swaps through is the one body in this library.
+    /// @dev    NON-BLOCKING BY DESIGN — every early return is 0, and `sellWeethOnCurve` is called
+    ///         with `soft: true`, so a thin or paused pool yields nothing instead of reverting the
+    ///         caller. Takes the two fields rather than SwapLib's `OfframpCfg`: SwapLib imports this
+    ///         library, so importing the struct back would be a cycle.
+    function sourceWeth(uint want, address weeth, address curvePool) public returns (uint) {
+        if (want == 0 || weeth == address(0) || curvePool == address(0)) return 0;
+        uint idle = IERC20Min(weeth).balanceOf(address(this));
+        if (idle == 0) return 0;
+        uint weethFull = IWeETH(weeth).getWeETHByeETH(want);
+        if (weethFull == 0) return 0;
+        uint weethIn = weethFull > idle ? idle : weethFull;
+        if (weethIn == 0) return 0;
+        uint fairWeth = FixedPointMathLib.fullMulDiv(want, weethIn, weethFull);
+        return sellWeethOnCurve(weeth, curvePool, weethIn, (fairWeth * 995) / 1000);  // 0.5% cap
+    }
+
     /// @notice Draw a shortfall PRO-RATA and convert it into the token the maker signed for.
     /// @dev ⭐ `public`, NOT `internal` — an internal library function is INLINED into its caller, and
     ///      inlining this put `Quid` 124 bytes over EIP-170. `public` makes it a delegatecall.

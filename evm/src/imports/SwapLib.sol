@@ -573,25 +573,17 @@ library SwapLib {
     ///       needing delivery elsewhere transfers after. Approval is set per call rather than infinite:
     ///       this runs in the VAULT's delegatecall context and a standing allowance there is protocol
     ///       inventory exposed to a pool upgrade.
-    /// @dev §ONE-WEETH-HOP — the body moved to `LevMath.sellWeethOnCurve`, which is now the tree's
-    ///      only implementation of this trade. This was its identical twin; see that docblock.
-    function curveSellWeeth(OfframpCfg memory c, uint weethIn, uint minOut) internal returns (uint) {
-        return LevMath.sellWeethOnCurve(c.weeth, c.curvePool, weethIn, minOut);
-    }
+    // §ONE-WEETH-HOP — `curveSellWeeth` is DELETED. It had become a one-line wrapper over
+    // `LevMath.sellWeethOnCurve` once the duplicate body was folded, and a wrapper that only
+    // forwards is bytecode this contract cannot afford: SwapLib went 44 bytes OVER EIP-170 and
+    // this is what bought the headroom back. Both callers now name the one body directly.
 
     /// @notice Body of Aux._sourceWethFromEtherfi — opportunistic, non-blocking.
-    function sourceWethBody(uint want, OfframpCfg memory c) external returns (uint) {
-        if (want == 0 || c.weeth == address(0) || c.curvePool == address(0)) return 0;
-        uint idle = IERC20(c.weeth).balanceOf(address(this));
-        if (idle == 0) return 0;
-        uint weethFull = IWeETH(c.weeth).getWeETHByeETH(want);
-        if (weethFull == 0) return 0;
-        uint weethIn = weethFull > idle ? idle : weethFull;
-        if (weethIn == 0) return 0;
-        uint fairWeth = SoladyMath.fullMulDiv(want, weethIn, weethFull);
-        uint minOut = (fairWeth * 995) / 1000;            // 0.5% slippage cap
-        return curveSellWeeth(c, weethIn, minOut);   // proceeds land here; caller is the Vault
-    }
+    // §SIZE — `sourceWethBody` MOVED TO `LevMath.sourceWeth`. It is weETH-offramp code and the one
+    // body it swaps through (`sellWeethOnCurve`) already lives there, so cohesion and headroom
+    // pointed the same way: SwapLib was 32 bytes OVER EIP-170 after the OOR additions and this is
+    // what bought it back. It takes the two fields directly rather than `OfframpCfg`, because
+    // SwapLib imports LevMath and the reverse would be a cycle.
 
     // ─── BTC swap-IN / swap-OUT bodies (extracted from Aux to free bytecode) ──
     // DELEGATECALL'd → address(this)==Aux, msg.sender==Aux's original caller.
