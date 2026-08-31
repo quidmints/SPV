@@ -775,6 +775,52 @@ error** (EIP-712 quorum cannot be a Bitcoin `scriptPubKey`). The freshness **2-o
 refuted in-tree** for ignoring that the LP is offline. A reachability scan reporting "0 of 20" was
 first an artifact of unresolved `@/` aliases — re-run with them, the result held.
 
+## 🛡️ §SECURITY-SWEEP-2026-08-31 — threat classes checked against code (owner: *"LP offline, enclave
+hacked and code injected, native lightning, evm frontrunning, anything that might happen"*)
+
+✅ **EVM FRONTRUNNING / REDIRECTION — the money paths are sound, and the pattern is consistent.**
+Ten `BTCChannels` entrypoints take no `msg.sender` gate, and each one that moves value **derives or
+pins its payee rather than accepting it**:
+- `requestSwapOutOnchain` — `swapperScript = _lpPayoutScript(msg.sender)`, **derived**, plus `minSats`
+  slippage and a `swapId` dedup. A frontrunner can burn a `swapId` to grief, but only by executing a
+  real swap-out of their own — self-funded, and the victim retries with a new id.
+- `deliverSwapOutOnchain` — `swapperScript` IS a parameter but is checked against
+  `so.swapperScriptHash` recorded on-chain at request time, AND the splice must SPV-prove payment of
+  `≥ so.sats` to it. ⇒ **A compromised hop chooses WHETHER to deliver, never WHERE** — the
+  `QUID_SWEEP_AUTH` shape `§HOP-RCE` names as the one that survives RCE.
+- `setBtcRecipient` — keyed by `msg.sender` and gated by a PoP whose digest is
+  `sha256(chainid ‖ address(this) ‖ lpEth)`, so it is replay-proof across chains, deployments and
+  addresses.
+- `refundExpiredSwapOut` — `msg.sender != so.swapper` reverts. **Self-service, needs no fleet.**
+✅ **AND THE RESUME I ADDED TODAY INHERITS ALL OF IT** — it re-enters `deliverSwapOutOnchain`, so the
+watcher cannot redirect a delivery and cannot double-pay (`swapInUsed[swapId]`).
+
+🔴🔴 **`§NO-PENALTY-WATCHTOWER` — THE ONE SERIOUS GAP, AND IT IS EXACTLY THE OWNER'S INTERSECTION
+(LP OFFLINE × FLEET COMPROMISED).**
+1. **LDK's justice hooks exist** — `sign_justice_revoked_output` / `sign_justice_revoked_htlc`
+   (`validating_signer.rs:1017-1053`) — but they only fire when **the LP's own node** sees the breach.
+2. **The LP is designed to be offline.** `§E188`'s whole premise is *"funds = no key (ladder)"*.
+3. ⛔ **`quid-watchtower` CANNOT COVER THIS, BY CONSTRUCTION.** Its own header: *"DEAD-MAN EXIT
+   WATCHTOWER — a standalone, KEYLESS, hostable daemon … NO key, NO signer."* **A justice transaction
+   requires the revocation secret.** A keyless tower can rebroadcast public exit bytes; it can never
+   punish a breach.
+4. 🔴 **AND THE ATTACK DESTROYS THE MITIGATION.** Broadcasting ANY commitment spends the funding
+   outpoint — which is the outpoint every armed dead-man rung spends. **So a breach simultaneously
+   voids the ladder**, the LP's designed escape. The two defences are not independent; the attack
+   that needs punishing is the one that removes the alternative.
+⇒ **A compromised fleet can broadcast an old commitment in which the LP's balance was lower and, with
+the LP offline past the CSV window, keep the difference — with the ladder consumed by the same act.**
+
+▶️ **THE ELEGANT FIX IS STANDARD AND ALREADY VENDORED: `WatchtowerPersister`.** LDK ships it
+(`lib/rust-lightning/.../test_utils.rs`, exercised in `functional_tests.rs:995-1003`). It hands a
+third party **pre-signed justice packages** rather than keys, so the tower stays untrusted — it can
+only act on a breach it observes, and cannot spend otherwise. **That fits the existing shape exactly:**
+`quid-watchtower` already says *"Run ≥3 REDUNDANT instances (foundation + LPs)"*, so breach remedies
+ride the daemon and deployment story that exist. ⚠️ It is NOT keyless in the same sense — the LP's node
+must produce a package per state update, which is per-commitment work for a party the design wants
+idle. **That cost is the real decision, and it is the owner's**; it is also `§E172`'s point arriving
+from a second direction (a forwarding channel already needs the LP per update).
+
 ## 🔍 §DID-I-TRADE-ANOTHER-PROBLEM (2026-08-31, owner: *"make sure there was no more trading one
 problem for another anywhere like what happened with the UTXO liveness"*). **ONE FOUND, AND IT IS MINE.**
 
