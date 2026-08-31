@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
+import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import { ICore, IAux, IWeETH, IDepositAdapter, ILevVenue } from "./Interfaces.sol";
@@ -37,6 +39,8 @@ import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 ///         Curve-on-a-volatile-pair, and that is a dedicated LST pool, not a router.
 ///         (The below-entry SHORT / inverse-venue subsystem was removed — up-side-only is the design.)
 library LevMath {
+    using SafeERC20 for IERC20OZ;
+
 
     /// Zero oracle anchor. A named error, NOT a string require: the string form cost enough
     /// bytecode to push this library 38 bytes past EIP-170 (measured).
@@ -502,6 +506,14 @@ library LevMath {
     ///      📌 Base and slope are set ABOVE the measured cost of the worse tier at each size (25 bps
     ///      covers USDC→WETH's 44 bps only from ~$1M; below that the honest cost is a few bps), so
     ///      an honest keeper routing through a sane pool clears it with margin.
+    /// @dev Per-leg gas ceiling for an aggregator route. Sized from measurement, not taste: a REAL
+    ///      1inch route converting 250k USDC to WETH executed inside ~511k gas total for the whole
+    ///      test, so 3M leaves a wide margin for a genuinely complex split while still bounding a
+    ///      leg that tries to burn everything. ⚠️ Too LOW silently fails legitimate routes (they
+    ///      surface as a skipped leg and a short fill, not an error) — raise it on evidence, and
+    ///      never remove it.
+    uint256 internal constant ROUTE_GAS_CAP      = 3_000_000;
+
     uint256 internal constant SLIP_BASE_BPS      = 25;   // small-trade floor
     uint256 internal constant SLIP_PER_MM_BPS    = 25;   // added per $1M of notional
 
@@ -629,22 +641,38 @@ library LevMath {
         for (uint256 k; k < n; ++k) {
             uint256 amt = inAmounts[k];
             if (amt == 0 || inTokens[k] == outToken) continue;   // nothing to do / already the target
-            IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, 0);
-            IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, amt);
-            (bool ok, ) = ONEINCH_ROUTER.call(routes[k]);
-            IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, 0);   // zeroed on BOTH paths
-            // 🔴 **A FAILED LEG IS SKIPPED, NOT FATAL — MEASURED, NOT PREFERRED.** Two aggregator
-            //    routes built INDEPENDENTLY are not composable in one transaction: each is priced as
-            //    though it executes alone, and the calldata carries embedded RFQ/limit-order maker
-            //    signatures that the first leg can consume or invalidate. Verified on a fork with a
-            //    real key — ONE route converts 250,000 USDC to 100.998 WETH, and the same route
-            //    paired with a USDT route reverts on the second leg.
-            //    ⇒ Reverting the whole conversion would make an M-input call only as reliable as its
-            //    unluckiest leg. Skipping leaves that leg's input UNSPENT (its approval is already
-            //    zeroed) and lets the FLOOR decide whether what did land is enough.
-            //    ⚠️ THE 1-INPUT CASE IS UNCHANGED: a failed single leg yields `got == 0`, which is
-            //    below any non-zero `minOut`, so `_aggSwap` still reverts exactly as before — the
-            //    floor does the work the explicit revert used to.
+            // 🔴 **`forceApprove`, NOT `approve` — AND THIS WAS A LATENT BUG, NOT A NEW NEED.**
+            //    `IERC20Min.approve` declares `returns (bool)`, and **USDT RETURNS NOTHING**, so the
+            //    ABI decoder reverts on empty returndata. `_aggSwap` has always called it this way,
+            //    which means **USDT could never have been `tokenIn` on the lever path** — a stable
+            //    with $252M borrowable on Aave v3 and a 1.7 bps 3pool route. Found by executing a
+            //    real USDT route, not by review.
+            //    ⭐ `forceApprove` also subsumes the zero-then-set dance USDT demands (it rejects a
+            //    non-zero to non-zero approve), so one call replaces the pair and is correct for
+            //    standard and non-standard tokens alike.
+            IERC20OZ(inTokens[k]).forceApprove(ONEINCH_ROUTER, amt);
+            // 🔴 **THE GAS CAP IS A SECURITY BOUND, NOT A TUNING KNOB.** An uncapped `.call` into a
+            //    router with CALLER-SUPPLIED calldata can consume the entire budget: measured here at
+            //    **931,857,691 gas** on a route that reverts deep inside 1inch's executor. By EIP-150
+            //    the outer frame then resumes with 1/64 of what was left, which is not enough to
+            //    finish — so `if (!ok) continue` does NOT protect against this. **The whole
+            //    transaction dies even though the failure was handled.**
+            //    ⚠️ AND IT IS EXACTLY THE KEEPER-COMPROMISE CASE: a hostile route need not steal to
+            //    hurt — calldata engineered to burn gas griefs EVERY conversion it is included in.
+            //    Capping per leg means one bad leg costs its own budget and nothing more.
+            (bool ok, ) = ONEINCH_ROUTER.call{gas: ROUTE_GAS_CAP}(routes[k]);
+            IERC20OZ(inTokens[k]).forceApprove(ONEINCH_ROUTER, 0);   // zeroed on BOTH paths
+            // ⚠️ **A FAILED LEG IS SKIPPED AND THE FLOOR DECIDES.** ⛔ **THE REASON I FIRST GAVE
+            //    FOR THIS WAS WRONG AND IS CORRECTED HERE:** I claimed two independently-built
+            //    aggregator routes cannot compose in one transaction. **They compose — measured,
+            //    250k USDC + 250k USDT → 201.63 WETH in a single call.** The paired failure was two
+            //    real defects (the gas cap above and the `forceApprove` below), not a property of
+            //    aggregator routing.
+            //    ⇒ The skip still earns its place, on the honest argument: with M inputs, one
+            //    unlucky leg should not void a conversion the other legs completed, and `minOut` on
+            //    the TOTAL is the bound that matters. **The 1-input case is unchanged** — a failed
+            //    single leg yields `got == 0`, below any non-zero floor, so `_aggSwap` reverts
+            //    exactly as it always did.
             if (!ok) continue;
         }
         got = IERC20Min(outToken).balanceOf(address(this)) - before_;
