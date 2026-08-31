@@ -1241,6 +1241,44 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🎓 **§WHY-MATURITY-IS-UNAVOIDABLE — MATURE QU!D IS THE *SENIOR TRANCHE*, AND A SELL-LEG MINT HAS NO BASKET ASSETS BEHIND IT** (owner, 2026-08-31: *"why is it unavoidable?"*)
+
+I asserted *"mature QU!D cannot be minted, by construction"* without saying why. **It is structural,
+and the reason decides B vs C rather than merely constraining B.**
+
+### 📖 THE ANSWER IS IN `Basket.matureSupply`'s OWN DOCBLOCK (`:254-259`)
+> *"MATURE QU!D supply — vintages [0, currentMonth], i.e. dollar-redeemable RIGHT NOW. **This is the
+> SENIOR claim**: the shares-based redeem/swap value QU!D over `matureSupply` (not total), so **mature
+> QD redeems at PAR and is NOT diluted by the immature forward-yield bonus (unvested = junior, it
+> drifts and redeems at its share only once it matures)**."*
+⇒ **Maturity is not a delay. It is a TRANCHE BOUNDARY.** Mature = senior, redeems at par against
+basket assets. Immature = junior, carries the forward-yield bonus, drifts, and is promoted only by
+vesting. **Minting straight into the senior tranche dilutes every existing par claim** — so the clamp
+is not a policy quirk, it is what makes seniority mean anything.
+
+### 🔑 AND HERE IS WHY THAT IS DECISIVE, NOT JUST EXPLANATORY
+The dilution objection would NOT apply to a mint matched by basket assets — equal claim, equal
+backing. **So: is B's mint matched? MEASURED IN §SELL-BACKING-MEASURED — NO.**
+`committed` fell by `usd6`; **`liquid` did not move.** The surrendered dollars went to the **LPs**, who
+kept the maker's ether — **they never became basket assets.**
+⇒ **A sell-leg mint under B genuinely has NOTHING in the basket behind it at fill time.** Placing it
+in the junior tranche is therefore **the accounting truth, not a restriction**: it is a claim on value
+the basket does not yet hold, which is exactly what junior means and exactly the `avgYield` shape —
+*"realisable at maturity IF the assets are there for it."*
+⛔ **SO IT IS UNAVOIDABLE FOR B, AND THE ONLY WAY AROUND IT IS NOT TO MINT AT ALL.**
+
+### ⭐ WHICH IS OPTION C, AND THIS RETIRES THE LAST ARGUMENT FOR B
+Under **C** the maker is paid **actual basket stables** via `AUX.take` (named stable first). **No claim
+is created — senior, junior or otherwise — so there is nothing to tranche and nothing to dilute.** The
+question the owner asked cannot arise, because the maker is not holding a promise; they are holding
+dollars.
+⇒ **B's maturity wait is not a UX blemish to be traded off. It is the SYMPTOM of B paying with a
+claim the basket does not back at the moment it is issued.** C removes the cause rather than the
+symptom, which is standing rule 17 exactly.
+📌 **AND THE COROLLARY WORTH KEEPING: any future "just mint it mature" shortcut on ANY path is a
+SENIOR-TRANCHE DILUTION**, however locally convenient. The clamp is load-bearing everywhere, not only
+here.
+
 ## 🔴 **§SELL-LEG-NOT-FORCED-AFTER-ALL — THE OWNER'S CONFUSION FOUND THE BETTER ALTERNATIVE I HAD RULED OUT ON A FALSE PREMISE** (owner, 2026-08-31: *"so you have to wait a month to redeem the dollars you got out from your OOR swap? im confused"*)
 
 **Right to be confused — that consequence is real, and it is avoidable.** §SELL-LEG-IS-FORCED claimed
