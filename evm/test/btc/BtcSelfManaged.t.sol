@@ -231,7 +231,7 @@ contract BtcSelfManagedTest is AllesFixture {
         }
 
         // The lpAuth signer owns the credited BTC position.
-        (, , address lpEth, , uint8 status, ) = ch.channels(channelId);
+        (, , address lpEth, , uint8 status, , ) = ch.channels(channelId);
         assertEq(status, 0, "channel OPEN");
         (uint pooledOpen,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");

@@ -553,6 +553,56 @@ library ChannelLib {
     // ⚠️ Its `RekeyUnchanged` error went too; `splice`'s no-op guard now covers both cases.
     // 📌 The reasoning it carried is preserved in full at `BTCChannels.sol`'s fold note.
 
+    /// @notice (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) Derive the LP's `to_remote` TAPROOT OUTPUT KEY
+    ///         from its 33-byte compressed Lightning PAYMENT BASEPOINT. The commitment transaction's
+    ///         LP output is then `0x5120 || <this>`.
+    ///
+    /// Simple-taproot channels build `to_remote` as a P2TR whose internal key is a FIXED NUMS point
+    /// and whose single tapleaf is, verbatim from `bolt-simple-taproot.md` ("To Remote Outputs"):
+    /// ```
+    /// <remotepubkey> OP_CHECKSIGVERIFY
+    /// 1 OP_CHECKSEQUENCEVERIFY
+    /// ```
+    /// mirroring `chan_utils::get_taproot_to_remote_spk` → `get_taproot_to_remote_script` in the
+    /// vendored LDK, which is the code that will actually produce the output on-chain.
+    ///
+    /// 🔑 **THE REASON THIS IS COMPUTABLE ON-CHAIN AT ALL: THE INTERNAL KEY IS A CONSTANT.** It is
+    /// the NUMS point, not a per-commitment key, so nothing about a specific commitment state is
+    /// needed — which is what lets the key be pinned ONCE at open and reused for every force close.
+    /// (`to_local`, by contrast, needs the per-commitment point and is NOT derivable here. That is
+    /// why the check reads the LP's output and never the hop's.)
+    /// ⚠️ `bytes memory`, NOT `bytes calldata`, and that is not incidental: a calldata-only
+    ///    signature is unreachable from a test holding a memory value, and this derivation is
+    ///    EXACTLY the thing that must be checkable against LDK's own vector.
+    function lpToRemoteOutputKey(bytes memory lpPaymentPoint)
+        public view returns (bytes32)
+    {
+        if (lpPaymentPoint.length != 33) revert InvalidParam();
+        // BIP-342 tapscript pushes the 32-byte X-ONLY key: drop the compressed parity prefix,
+        // exactly as `PublicKey::x_only_public_key()` does. Bytes live at `ptr+32`, so byte 1 —
+        // the first byte after the prefix — is at `ptr+33`.
+        bytes32 xOnly;
+        assembly { xOnly := mload(add(lpPaymentPoint, 33)) }
+        bytes memory leaf = abi.encodePacked(
+            bytes1(0x20), xOnly,   // 0x20 = push 32 bytes
+            bytes1(0xad),          // OP_CHECKSIGVERIFY
+            bytes1(0x51),          // OP_1  (the `1` of `1 OP_CSV`)
+            bytes1(0xb2)           // OP_CHECKSEQUENCEVERIFY
+        );
+        return BitcoinTx.taprootOutputKeyWithLeaf(
+            SIMPLE_TAPROOT_NUMS_X, BitcoinTx.tapLeafHash(leaf));
+    }
+
+    /// The simple-taproot NUMS internal key, X-ONLY. Compressed form is
+    /// `02dca094751109d0bd055d03565874e8276dd53e926b44e3bd1bb6bf4bc130a279`
+    /// (`SIMPLE_TAPROOT_NUMS_POINT` in the vendored `chan_utils`, quoted verbatim from
+    /// `bolt-simple-taproot.md`); the `02` parity prefix is dropped for the x-only form.
+    /// 📌 The vendored constant carries a warning worth keeping here: a stray `0245b181…` appears in
+    /// one prose line of the draft spec and is contradicted by the official test vectors, which
+    /// confirm THIS value as the internal key of both `to_local` and `to_remote`.
+    bytes32 internal constant SIMPLE_TAPROOT_NUMS_X =
+        0xdca094751109d0bd055d03565874e8276dd53e926b44e3bd1bb6bf4bc130a279;
+
     /// @notice Body of BTCChannels.openChannel. Wrapper handles the
     ///         duplicate-check + storage write + event emission + the
     ///         btcRecipientOf bookkeeping; this library function does
@@ -602,7 +652,11 @@ library ChannelLib {
             // (E153) Pin the key pair independently of the funding outpoint, which a splice
             // rotates. `channelId` above folds in the ORIGINAL outpoint and so cannot serve
             // as the key binding after a resize.
-            keysHash:       keccak256(abi.encode(p.lpPubkey, p.hopPubkey))
+            keysHash:       keccak256(abi.encode(p.lpPubkey, p.hopPubkey)),
+            // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) Left ZERO here and filled by `openChannel`.
+            // This body is `view` and the derivation is EC math on `BitcoinTx`; the caller pins it
+            // before writing the struct to storage, so no channel is ever stored without it.
+            lpToRemoteKey:  bytes32(0)
         });
     }
 

@@ -17,7 +17,8 @@ interface BTCChannelsLike {
 interface ArmedLike {
     function channels(bytes32) external view
         returns (uint amountSats, bytes32 fundingTxId, address lpEth,
-                 uint32 fundingVout, uint8 status, bytes32 keysHash);
+                 uint32 fundingVout, uint8 status, bytes32 keysHash,
+                 bytes32 lpToRemoteKey);
     function exitArmedOnOutpoint(bytes32 outpointKey, uint64 deadline) external view returns (bool);
 }
 
@@ -181,8 +182,14 @@ abstract contract ExitFixture is Test {
     function mkAuth(bytes memory lpPubkey, bytes32 payout)
         internal returns (Types.OpenAuth memory)
     {
+        // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) Fixtures reuse the LP's FUNDING key as the
+        // payment basepoint. It is a valid 33-byte point, which is all this field needs to be —
+        // it is an IDENTITY, never a signature. ⚠️ The dedicated force-close test supplies a
+        // DISTINCT key on purpose, so that it fails if the contract ever derives `to_remote` from
+        // `lpPubkey` instead of from the basepoint it was given.
         return Types.OpenAuth({ btcRecipient: payout,
-            btcRecipientPoP: _popFor(payout, ChannelLib.lpEthOf(lpPubkey))});
+            btcRecipientPoP: _popFor(payout, ChannelLib.lpEthOf(lpPubkey)),
+            lpPaymentPoint: lpPubkey});
     }
 
     /// (E138) The proof-of-possession for a payout key ALREADY derived by `payoutKeyOnly`.
@@ -272,7 +279,7 @@ abstract contract ExitFixture is Test {
     function armedNow(address ch, bytes32 channelId, uint64 deadline)
         internal view returns (bool)
     {
-        (, bytes32 txid, , uint32 vout, , ) = ArmedLike(ch).channels(channelId);
+        (, bytes32 txid, , uint32 vout, , , ) = ArmedLike(ch).channels(channelId);
         return ArmedLike(ch).exitArmedOnOutpoint(keccak256(abi.encode(txid, vout)), deadline);
     }
 

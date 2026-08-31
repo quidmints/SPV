@@ -65,7 +65,9 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         vm.expectRevert(BTCChannels.NotChannelHop.selector);
         // `address(this)` is neither MAIN_HOP nor FALLBACK_HOP.
         ch.openChannel(_params(), hex"00", proof,
-            Types.OpenAuth({ btcRecipient: bytes32(0), btcRecipientPoP: ""}),
+            // `lpPaymentPoint` is empty: `_onlyHop()` rejects before the pin is derived, which is the
+            // ordering this test would notice if it ever changed.
+            Types.OpenAuth({ btcRecipient: bytes32(0), btcRecipientPoP: "", lpPaymentPoint: ""}),
             _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: 1, checkpointSats: 0, signedExitTx: hex"00"})));
     }
 

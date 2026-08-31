@@ -7645,6 +7645,27 @@ mod tests {
 	}
 
 	#[test]
+	/// QU!D CROSS-IMPLEMENTATION VECTOR (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD).
+	/// Prints/asserts the `to_remote` scriptPubKey for a FIXED payment basepoint. The SAME vector is
+	/// pinned in Solidity (`ForceCloseLpOutput.t.sol`), so `ChannelLib.lpToRemoteOutputKey` is checked
+	/// against THE CODE THAT WILL ACTUALLY PRODUCE THE OUTPUT ON-CHAIN rather than against itself.
+	/// ⚠️ If this vector ever changes, the Solidity pin must change with it — the contract would
+	/// otherwise scan a commitment transaction for an output that is never there, and a force close
+	/// would silently report `lpPaidSats = 0` for every channel.
+	fn test_quid_to_remote_vector_for_solidity() {
+		let secp = Secp256k1::new();
+		let payment_point = PublicKey::from_secret_key(
+			&secp, &SecretKey::from_slice(&[0x11; 32]).unwrap());
+		let spk = crate::ln::chan_utils::get_taproot_to_remote_spk(&secp, &payment_point);
+		let spk_hex: String = spk.as_bytes().iter().map(|b| format!("{:02x}", b)).collect();
+		let pp_hex: String = payment_point.serialize().iter().map(|b| format!("{:02x}", b)).collect();
+		println!("QUID_VECTOR payment_point={pp_hex}");
+		println!("QUID_VECTOR to_remote_spk={spk_hex}");
+		assert_eq!(&spk_hex[..4], "5120", "to_remote is a v1 taproot output");
+		assert_eq!(spk_hex.len(), 68, "OP_1 OP_PUSH32 <32 bytes>");
+	}
+
+	#[test]
 	/// QU!D PATCH TEST (§SPLICE-ROTATES-BOTH-FUNDING-KEYS): `original_funding_pubkeys` must survive
 	/// BOTH a serialization round-trip AND a funding-scope rotation.
 	///

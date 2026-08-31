@@ -323,7 +323,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         });
         p.fundingTaproot = _taprootQ(p.lpPubkey, p.hopPubkey);
         bytes memory spk = buildTaprootFundingSpk(p.lpPubkey, p.hopPubkey);
-        (, bytes32 fundingTxId, , uint32 vout, , ) = ch.channels(cid);
+        (, bytes32 fundingTxId, , uint32 vout, , , ) = ch.channels(cid);
         spliceTx = abi.encodePacked(
             hex"02000000", hex"01",
             fundingTxId, _le(vout, 4), hex"00", hex"ffffffff",

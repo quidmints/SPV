@@ -91,7 +91,8 @@ contract SmartWalletLpTest is Test, ExitFixture {
         vm.prank(makeAddr("hop"));   // the MAIN_HOP this suite's `setUp` constructs with
         ch.openChannel(_params(), hex"00", proof,
             Types.OpenAuth({ btcRecipient: payoutKey,
-                            btcRecipientPoP: popFor[lpEth]}),
+                            btcRecipientPoP: popFor[lpEth],
+                            lpPaymentPoint: _params().lpPubkey}),
             _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1), cltvDeadline: uint64(block.number + 144), checkpointSats: 0,
                               signedExitTx: hex"00"}))); 
     }

@@ -109,7 +109,8 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes32 payout_ = payoutKeyOnly(abi.encode(seed_));
         _btcChannels = address(ch_);
         Types.OpenAuth memory auth_ = Types.OpenAuth({ btcRecipient: payout_,
-            btcRecipientPoP: _popFor(payout_, lpEth_)});
+            btcRecipientPoP: _popFor(payout_, lpEth_),
+            lpPaymentPoint: p_.lpPubkey});
         // (E128) A REAL signed ladder for the funding tx this call is about to prove. Built BEFORE
         // the prank so the FFI round-trips cannot consume it. (§SPRINT-B4) `armingSet` signs TWO
         // rungs at distinct deadlines — `_armLadder` rejects a single window.
@@ -1048,7 +1049,7 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes memory lpPubkey, bytes32 swapId, uint sats, bytes memory swapperScript) internal {
         // (E162) A delivery is a splice — same pinned pair as the channel.
         ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(seed));
-        (uint old, , , , , ) = ch.channels(channelId);
+        (uint old, , , , , , )= ch.channels(channelId);
         uint newAmount = old - sats;
         bytes memory spliceTx;
         {

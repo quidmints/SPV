@@ -152,6 +152,21 @@ library Types {
         /// CLOSE — which is what lets recording be PERMISSIONLESS instead of restricted to
         /// the hop or the LP.
         bytes32 keysHash;
+        /// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The LP's `to_remote` TAPROOT OUTPUT KEY, derived
+        /// ONCE at open from the LP's Lightning PAYMENT BASEPOINT and pinned for the channel's life.
+        /// The output's scriptPubKey is `0x5120 || lpToRemoteKey`, which is how a force-close
+        /// commitment transaction can be asked what it actually paid the LP.
+        ///
+        /// 🔑 WHY A BASEPOINT AND NOT `lpPubkey` OR `btcRecipientOf`. An LN commitment pays
+        /// `to_remote`, which derives from the counterparty's PAYMENT BASEPOINT — not from the
+        /// funding key and not from the cooperative-close payout script. And the basepoint is the
+        /// only LP-side key that is stable for the channel's LIFE: `lpPubkey` is rotated by every
+        /// splice (`new_funding_pubkey(prev_funding_txid)`, §SPLICE-ROTATES-BOTH-FUNDING-KEYS),
+        /// whereas `compute_funding_key_tweak` is applied to the funding key ALONE — `pubkeys()`
+        /// builds every basepoint from its own untweaked base key, and no LN operation rotates one.
+        /// ⚠️ IT IS AN IDENTITY, NEVER AN AUTHORIZATION: the basepoint is public, so proving
+        /// knowledge of it proves nothing. It is only ever used to LOCATE an output.
+        bytes32 lpToRemoteKey;
     }
 
     /// @notice Params for BTCChannels.openChannel; lives here so ChannelLib can
@@ -219,6 +234,18 @@ library Types {
         /// ⚠️ The previous comment here said this signature was "over `openAuthDigest(hop, …)`".
         /// It never was: `_requireRecipientPoP` verifies it over `btcRecipientPoPDigest(lpEth)`.
         bytes   btcRecipientPoP;
+        /// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The LP's 33-byte COMPRESSED Lightning payment
+        /// basepoint (`ChannelPublicKeys::payment_point`). Consumed at open to derive
+        /// `BTCChannel.lpToRemoteKey` and NOT stored — the derived key is what the contract needs.
+        ///
+        /// ⚠️ IT LIVES IN `OpenAuth`, NOT `OpenParams`, AND THAT IS DELIBERATE. `OpenParams` is
+        /// shared with `splice` / `emitDeadManExit` / `deliverSwapOutOnchain`, where this field
+        /// would be dead calldata on every call; `OpenAuth` is the open-only LP-side bundle, which
+        /// is exactly what this is. It also keeps `openChannel`'s parameter count unchanged (`B8`
+        /// is already counting them).
+        /// ⚠️ NOT CONSENT. Unlike `btcRecipientPoP` beside it, this carries no signature and proves
+        /// nothing — see `BTCChannel.lpToRemoteKey`. Do not let its neighbours suggest otherwise.
+        bytes   lpPaymentPoint;
     }
 
     /// @notice (E156) The pre-signed dead-man exit that ARMS a channel — supplied at `openChannel`

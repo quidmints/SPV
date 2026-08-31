@@ -999,6 +999,14 @@ contract BTCChannels is Ownable {
         // registerDelegation time — it is the SAME committed key-path P2TR shutdown
         // script recordClose/_withdrawalPayout enforce, pinned by this call itself (E157). recordClose attributes the LP's cooperative-close
         // balance to outputs paying that script; a hop can never redirect the payout.
+        // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) PIN THE LP'S `to_remote` OUTPUT KEY. Derived from
+        // the LP's Lightning payment basepoint, which is the ONLY LP-side key stable for the
+        // channel's life — a splice rotates `lpPubkey`, but `compute_funding_key_tweak` is applied
+        // to the funding key alone and no LN operation rotates a basepoint.
+        // ⚠️ INLINE, in the custody half. This does NOT collide with §LAZY-OPEN: what that defers
+        // is the POOL CLAIM below, not custody, and this is custody — a force close must be able to
+        // find the LP's output whether or not the claim was ever registered.
+        channel.lpToRemoteKey = ChannelLib.lpToRemoteOutputKey(auth.lpPaymentPoint);
         channels[channelId] = channel;
         hasOpenBtcChannel[channel.lpEth] = true; // one-per-lpEth (cleared on close)
         totalSatsLocked += channel.amountSats;
@@ -1954,12 +1962,77 @@ contract BTCChannels is Ownable {
         _whenOpen(channelId);
         if (!BitcoinTx.isCommitmentTx(rawCloseTx)) revert NotForceClose();
         _verifyTxSpendsChannel(channelId, rawCloseTx, closeBlockHash, merkleProof, txIndex);
+        // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) MEASURE WHAT THE COMMITMENT ACTUALLY PAID THE LP,
+        // BEFORE retiring — the retirement below deletes nothing this reads, but measuring first
+        // keeps the emitted numbers describing the channel as it stood at the close.
+        _emitForceCloseLpOutput(channelId, rawCloseTx);
         // delivered=0: lpPayout := the full funded amount (a force close realizes no
         // swap proceeds), retiring the position to on-chain reality. Mints nothing.
+        // ⛔ DO NOT REPLACE `amountSats` WITH THE MEASURED PAYOUT ABOVE. It is the obvious change
+        // and it is a HOLE-TRADE. `_finalizeClose` → `requestRedeem` → `Vault._resize(full)`, whose
+        // contract is *"`shrinkSats − lpPayout` is the DOLLAR (delivered) slice"* — so a smaller
+        // payout MINTS the LP the difference in dollars, against sats an attacker now holds. That
+        // does not recover the loss; it MOVES it from the LP onto QUI holders, on the word of a
+        // transaction the attacker chose. The measurement is EVIDENCE, not a valuation.
         uint total = _finalizeClose(channelId, channels[channelId].amountSats);
         emit ChannelClosed(channelId, total);
     }
 
+
+    /// @notice What a force-close commitment paid the LP, beside what the fleet's own attestation
+    ///         said it owed. **ALWAYS emitted on a force close**, breach or not.
+    /// @param lpPaidSats sats paid to the LP's `to_remote` output (0 if that output is absent)
+    /// @param checkpointSats the LP balance the fleet last attested (`checkpointOf`; 0 = never)
+    /// @param paidOutSats legitimate outflows since that attestation (`paidOutSinceCheckpoint`)
+    event ForceCloseLpOutput(
+        bytes32 indexed channelId, address indexed lpEth,
+        uint lpPaidSats, uint checkpointSats, uint paidOutSats
+    );
+
+    /// @dev (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The whole fix, and it is a MEASUREMENT, not a gate.
+    ///
+    /// 🔴 WHAT WAS WRONG: `recordForceClosePermissionless` verified the tx was a commitment that
+    /// spends this channel, then retired the position as though the LP had recovered the ENTIRE
+    /// channel — whatever the commitment actually paid. `recordClose` has the corresponding check
+    /// (`lpPayoutSats + paidOutSinceCheckpoint < ckpt ⇒ StaleClose`) but scopes it `&& coop`, so
+    /// **the only path a breach can take was the one path with no check at all.** Nothing anywhere
+    /// emitted that the commitment and the contract's own attestation disagreed.
+    ///
+    /// ⚠️ WHY IT EMITS RATHER THAN REVERTS, AND WHY THAT IS THE MAXIMAL SAFE ACTION:
+    /// - **Reverting is worse than doing nothing.** The channel would stay `STATUS_OPEN` with its
+    ///   BTC already gone, so `totalSatsLocked` keeps counting backing that does not exist — which
+    ///   is the exact condition the permissionless retire exists to end.
+    /// - **Re-valuing moves the loss onto QUI holders** (see the caller's note).
+    /// - The BTC cannot be clawed back by anything this contract does. What the fix buys is that a
+    ///   breach becomes PROVABLE and ATTRIBUTABLE on-chain from the fleet's OWN signed attestation,
+    ///   which is the precondition for every response that lives outside this contract.
+    ///
+    /// ⚠️ THE CONTRACT DELIBERATELY DOES NOT ITSELF DECLARE A BREACH, because a ZERO reading is
+    /// AMBIGUOUS: `to_remote` pays the NON-broadcaster, so an absent LP output means either the
+    /// LP's balance was zero in the replayed state, or **the LP broadcast its own commitment** and
+    /// its funds are in the CSV-delayed `to_local` — which is the honest case. `to_local` needs the
+    /// per-commitment point and is not derivable here. ⇒ Emit the three numbers and let the
+    /// observer judge; a shortfall is `checkpointSats − (lpPaidSats + paidOutSats)` when positive.
+    /// ⛔ Do not "improve" this into a revert on `lpPaidSats == 0`: that would punish an LP for
+    /// force-closing its own channel, which is the escape the whole design is built around.
+    ///
+    /// 📌 REACHABILITY, RECORDED SO THIS IS NOT MIS-SOLD: no replayable older state exists TODAY —
+    /// the LP runs no LN node, so its channel carries no HTLCs and the commitment balance never
+    /// moves within a funding scope, while an older SCOPE's commitment cannot confirm (its outpoint
+    /// is spent). **This makes the invariant EXACT rather than heuristic** — an honest force close
+    /// has no reason to pay the LP less than it is owed — and it converts a property that is
+    /// currently EMERGENT ("we happen not to route over LP channels") into an ENFORCED one.
+    function _emitForceCloseLpOutput(bytes32 channelId, bytes calldata rawCloseTx) private {
+        Types.BTCChannel storage ch = channels[channelId];
+        uint paid;
+        // Zero only for a channel opened before this key was pinned; scanning for `0x5120||0` would
+        // match nothing anyway, but skipping says so deliberately rather than by accident.
+        if (ch.lpToRemoteKey != bytes32(0))
+            paid = BitcoinTx.sumOutputValuesToScript(
+                rawCloseTx, abi.encodePacked(hex"5120", ch.lpToRemoteKey));
+        emit ForceCloseLpOutput(
+            channelId, ch.lpEth, paid, checkpointOf[channelId], paidOutSinceCheckpoint[channelId]);
+    }
 
     // ═════════════════════════════════════════════════════════════════
     //  SWAP-IN (BTC→USD) — the hop confirms native-BTC receipt over Lightning
