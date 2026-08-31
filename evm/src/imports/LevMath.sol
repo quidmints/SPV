@@ -695,13 +695,26 @@ library LevMath {
     ///      one and left the other behind.
     function sellWeethOnCurve(address weeth, address pool, uint256 amountIn, uint256 minOut)
         internal returns (uint256) {
+        return curveExchange(weeth, pool, int128(1), int128(0), amountIn, minOut, true);
+    }
+
+    /// @notice **THE ONLY DIRECT CURVE CALL IN THE TREE.** Every stable⇄stable and weETH→WETH hop that
+    ///         does not go through the aggregator lands here.
+    /// @dev §PM-INVARIANT-3 — exact-amount approval, ZEROED on the failure path. An allowance that
+    ///      survives a failed swap is a standing claim on the next block's balance.
+    ///      ⚠️ `forceApprove`, not `approve`: a basket stable may be USDT, which returns no bool
+    ///      (§NONSTANDARD-ERC20) and refuses a non-zero to non-zero approve.
+    /// @param soft `true` ⇒ a reverting pool yields 0 rather than propagating. The weETH offramp is
+    ///        OPPORTUNISTIC and must not take the caller down with it; the hub hop is NOT — a silent
+    ///        0 there would leave a position unhedged, so it propagates.
+    function curveExchange(address tokenIn, address pool, int128 i, int128 j,
+                           uint256 amountIn, uint256 minOut, bool soft) internal returns (uint256) {
         if (pool == address(0) || amountIn == 0) return 0;
-        // §PM-INVARIANT-3 — exact-amount approval, ZEROED IN THE CATCH. An allowance that survives a
-        // failed swap is a standing claim on the next block's balance.
-        IERC20Min(weeth).approve(pool, amountIn);
-        try ICurvePool(pool).exchange(int128(1), int128(0), amountIn, minOut) returns (uint256 out) {
+        IERC20OZ(tokenIn).forceApprove(pool, amountIn);
+        if (!soft) return ICurvePool(pool).exchange(i, j, amountIn, minOut);
+        try ICurvePool(pool).exchange(i, j, amountIn, minOut) returns (uint256 out) {
             return out;
-        } catch { IERC20Min(weeth).approve(pool, 0); return 0; }
+        } catch { IERC20OZ(tokenIn).forceApprove(pool, 0); return 0; }
     }
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
@@ -910,10 +923,12 @@ library LevMath {
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
         (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
         if (pool == address(0)) revert NoStableRoute();  // fail closed — a silent 0 would leave the position unhedged
-        IERC20OZ(toUsdc ? stable : USDC).forceApprove(pool, amt);
+        // ONE body — see `curveExchange`. `soft: false` because an unhedged position is worse than
+        // a revert: a silent 0 here would return "converted nothing" to a caller that will then size
+        // its hedge from it.
         return toUsdc
-            ? ICurvePool(pool).exchange(iStable, iUsdc, amt, 0)
-            : ICurvePool(pool).exchange(iUsdc, iStable, amt, 0);
+            ? curveExchange(stable, pool, iStable, iUsdc, amt, 0, false)
+            : curveExchange(USDC,   pool, iUsdc, iStable, amt, 0, false);
     }
 
     /// @dev Is this stable on the Curve routing table? Checked rather than caught: an unroutable
