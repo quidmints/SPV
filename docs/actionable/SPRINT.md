@@ -518,6 +518,36 @@ the SAME channel signed over one output and over two, and shows the two-output e
 **Definition of done = crossed off here.** Anything below without a ✅ is unfinished, and the reason
 is stated so it can be resumed cold.
 
+🔴 **`§THE-TOKEN-FEE-LEG-IS-DEAD` (2026-08-31, owner: *"that means the volatile side is always being
+charged… never the dollar side?"* — **it is the exact inverse, and worth knowing**).**
+
+**TRACED, NOT REASONED:**
+| accumulator | writers | live? |
+|---|---|---|
+| `feesPerShare` (TOKEN / volatile side) | one: the JIT branch, `feesPerShare += o.feesPerShareInc` (`Vault.sol:453`, `Quid.sol:1476`), fed from `SwapLib.feeIncrements(r.jitFeesTok, …)` ← `ICore(core).collectFees()` | ⛔ **NO — `Core.collectFees()` is `return (0, 0);`** |
+| `USD_FEES` (dollar side) | `creditSkewPremium` → `feeIncrements(**0**, premium6, …)` — **token side passed as a literal zero** | ✅ yes |
+
+⇒ **THE VOLATILE SIDE IS NOT BEING CHARGED — IT IS NOT BEING CREDITED AT ALL.** The only live fee
+credit is the skew premium, and it goes 100 % to the dollar accumulator by construction.
+✅ **AND THAT IS DELIBERATE, NOT A BUG — `Core.sol:1149-1154` says so:** *"Under compounding the skew
+premium lands in `POOLED_*` AT SWAP TIME, and shares are minted against `_pricingBacking()` which
+includes it — so a new depositor buys in at the fee-inclusive price and dilutes nobody. The protection
+now holds BY CONSTRUCTION."* `collectFees` *"returns (0,0) rather than being deleted **only while its
+callers still destructure the pair**; the JIT branches in `QuidLib`/`BtcLib` go with it in the caller
+pass."* ⇒ **LPs are compensated through the SHARE PRICE, not through a per-share fee accumulator.**
+
+⚠️ **TWO CONSEQUENCES THAT ARE NOT BOOKED ANYWHERE ELSE:**
+1. **`§E145`'s shipped design describes a path that cannot fire.** *"The BTC fee leg now compounds
+   into `LP.pooled` in sats as it is earned"* is correct in mechanism and currently unreachable,
+   because the token leg is never earned. Not wrong — **dormant**, and it should be read that way.
+2. **`§BTC-LEG-FEE` (decision 1.5) is wider than its row states.** It measured `feesPerShare 0 → 0` on
+   a swap-in and framed it as a swap-in question. **The token accumulator is zero on EVERY path**, so
+   the real question is not *"should a swap-in pay LPs?"* but *"is the token-side fee leg wanted at
+   all, or is share-price compounding the whole model?"*
+▶️ **AND THERE IS A NAMED, UNFINISHED CLEANUP:** `collectFees`'s own comment schedules its deletion
+*"in the caller pass"* — the JIT branches in `QuidLib`/`BtcLib` — which has not happened. Until it
+does, two live-looking fee branches compute zeros on every rebalance.
+
 ### 🔎 §LEDGER-RE-AUDITED-2026-08-31 — every item re-checked AGAINST THE CODE, not against this file
 Prompted by the owner (*"make sure it's actually finished and crossed off"*), and warranted: three
 retractions this session all came from trusting a document over the tree.
