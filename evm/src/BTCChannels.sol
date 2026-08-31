@@ -971,7 +971,10 @@ contract BTCChannels is Ownable {
         // Pin + LOCK the payout — the sole destination recordClose/_withdrawalPayout will enforce.
         if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != auth.btcRecipient)
             revert WrongBtcRecipient();
-        _requireRecipientPoP(lpEth, auth.btcRecipient, auth.btcRecipientPoP);
+        // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The SAME signature now also binds the payment
+        // basepoint, so the hop cannot substitute one and silently disarm the force-close check.
+        _requireRecipientPoP(lpEth, auth.btcRecipient, auth.btcRecipientPoP,
+                             keccak256(auth.lpPaymentPoint));
         _registerBtcRecipient(lpEth, auth.btcRecipient);
         btcRecipientLocked[lpEth] = true;
 
@@ -2446,7 +2449,10 @@ contract BTCChannels is Ownable {
         // leave this entrypoint as a bypass — a swap user could still pin an unspendable or
         // someone else's key — and a guard with a hole around it is worse than no guard, because
         // it reads as covered.
-        _requireRecipientPoP(msg.sender, xOnlyKey, pop);
+        // `bindHash == 0`: a non-channel swap user pins only a payout key, with no channel and
+        // therefore no payment basepoint to bind. The zero is what keeps the two PoPs
+        // non-interchangeable.
+        _requireRecipientPoP(msg.sender, xOnlyKey, pop, bytes32(0));
         _registerBtcRecipient(msg.sender, xOnlyKey);
     }
 
@@ -2457,18 +2463,38 @@ contract BTCChannels is Ownable {
     /// nonzero (all 32 bytes are the key — no high-bytes-zero mask).
     /// @notice (E138) The message a payout key signs to prove possession. Public so the LP's
     ///         wallet signs EXACTLY what the contract checks rather than a reconstruction.
-    function btcRecipientPoPDigest(address lpEth) public view returns (bytes32) {
+    /// @param bindHash EXTRA MATERIAL THIS PoP COMMITS TO, or `0` for none.
+    ///        (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) `openChannel` passes
+    ///        `keccak256(auth.lpPaymentPoint)`; `setBtcRecipient` passes `0`.
+    ///
+    /// 🔴 WHY THE OPEN PATH BINDS THE PAYMENT POINT, AND WHY IT IS NOT OPTIONAL. The hop submits
+    /// `OpenAuth`, so without this a compromised hop could supply ANY 33-byte point: the pinned
+    /// `lpToRemoteKey` would then match no output in any commitment transaction, every force close
+    /// would measure `lpPaidSats = 0`, and — because a zero reading is deliberately treated as
+    /// AMBIGUOUS rather than as a breach — the check would be SILENTLY DISARMED while still
+    /// appearing to run. **A guard that looks armed is the failure this whole row is about**, so
+    /// re-introducing it inside the fix would be the exact hole-trade the design forbids.
+    /// ✅ IT COSTS THE LP NOTHING NEW: the LP already signs this one BIP-340 PoP at open, and this
+    /// only widens what that same signature commits to.
+    /// ⭐ IT ALSO DOMAIN-SEPARATES THE TWO CALLERS FOR FREE: a PoP signed for `setBtcRecipient`
+    /// (`bindHash == 0`) can no longer be replayed into an `openChannel`, or the reverse.
+    function btcRecipientPoPDigest(address lpEth, bytes32 bindHash) public view returns (bytes32) {
         // (2026-08-22) NO DOMAIN TAG. Separated from the only other verified digest (`rekey`) by
         // hash function, field count and signature scheme — see the block above `openChannel`.
-        return sha256(abi.encode(block.chainid, address(this), lpEth));
+        // ⚠️ `rekey` and its digest are GONE (§SPLICE-ROTATES-BOTH-FUNDING-KEYS folded it into
+        // `splice`), so this is now the contract's ONLY verified digest. The separation argument
+        // above is therefore vacuously satisfied — but keep the reasoning, because it is the test
+        // any FUTURE digest must pass before it is added beside this one.
+        return sha256(abi.encode(block.chainid, address(this), lpEth, bindHash));
     }
 
     /// @dev (E138) Own frame — `openChannel` is at the legacy stack limit.
-    function _requireRecipientPoP(address lpEth, bytes32 xOnlyKey, bytes calldata sig) private view {
+    function _requireRecipientPoP(address lpEth, bytes32 xOnlyKey, bytes calldata sig, bytes32 bindHash)
+        private view {
         if (sig.length != 64) revert NotPubkeyHash();
         bytes32 r; bytes32 s_;
         assembly { r := calldataload(sig.offset) s_ := calldataload(add(sig.offset, 32)) }
-        if (!BitcoinTx.schnorrVerify(xOnlyKey, r, s_, btcRecipientPoPDigest(lpEth)))
+        if (!BitcoinTx.schnorrVerify(xOnlyKey, r, s_, btcRecipientPoPDigest(lpEth, bindHash)))
             revert NotPubkeyHash();
     }
 

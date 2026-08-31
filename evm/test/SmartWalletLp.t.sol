@@ -50,7 +50,7 @@ contract SmartWalletLpTest is Test, ExitFixture {
     function _preparePoPs(address[] memory lps) internal {
         _btcChannels = address(ch);
         payoutKey = payoutKeyOnly(abi.encode("smartwallet-payout"));
-        for (uint i; i < lps.length; ++i) popFor[lps[i]] = _popFor(payoutKey, lps[i]);
+        for (uint i; i < lps.length; ++i) popFor[lps[i]] = _popFor(payoutKey, lps[i], keccak256(_params().lpPubkey));
     }
 
     function setUp() public {

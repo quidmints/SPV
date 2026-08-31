@@ -146,7 +146,7 @@ abstract contract ExitFixture is Test {
     {
         _btcChannels = ch_;   // the PoP digest binds it; must be set before `_popFor`
         k = payoutKeyOnly(seed);
-        pop = _popFor(k, who);
+        pop = _popFor(k, who, bytes32(0));
     }
 
     /// ⚠️ THIS HELPER PRANKS ITSELF — CALLERS MUST NOT WRAP IT IN ONE. Every call site used to read
@@ -188,16 +188,20 @@ abstract contract ExitFixture is Test {
         // DISTINCT key on purpose, so that it fails if the contract ever derives `to_remote` from
         // `lpPubkey` instead of from the basepoint it was given.
         return Types.OpenAuth({ btcRecipient: payout,
-            btcRecipientPoP: _popFor(payout, ChannelLib.lpEthOf(lpPubkey)),
+            btcRecipientPoP: _popFor(payout, ChannelLib.lpEthOf(lpPubkey), keccak256(lpPubkey)),
             lpPaymentPoint: lpPubkey});
     }
 
     /// (E138) The proof-of-possession for a payout key ALREADY derived by `payoutKeyOnly`.
     /// Re-derives from the same key so open and close cannot drift: the label is recovered by
     /// asking the generator for the key whose PoP this is, then asserting it matches.
-    function _popFor(bytes32 payoutKey, address lpEth) internal returns (bytes memory pop) {
+    /// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) `bindHash` is `keccak256(lpPaymentPoint)` for an open
+    /// and `0` for `setBtcRecipient`. The fixture must sign the SAME binding the contract checks,
+    /// or the PoP is rejected — which is the point of binding it.
+    function _popFor(bytes32 payoutKey, address lpEth, bytes32 bindHash)
+        internal returns (bytes memory pop) {
         bytes32 k;
-        (k, pop) = ownedPayout(_labelOfPayout[payoutKey], _popDigest(lpEth));
+        (k, pop) = ownedPayout(_labelOfPayout[payoutKey], _popDigest(lpEth, bindHash));
         require(k == payoutKey, "E138: PoP does not match the derived payout key");
     }
 
@@ -217,8 +221,8 @@ abstract contract ExitFixture is Test {
     /// asserting the contract's digest, not a fixture feeding it. Deduping that one would make it
     /// `assertEq(d, d)`. **The discriminator is whether the reconstruction FEEDS the contract or
     /// CHECKS it** — feed it from here, check it there.
-    function _popDigest(address lpEth) internal view returns (bytes32) {
-        return IBTCChannels(_btcChannels).btcRecipientPoPDigest(lpEth);
+    function _popDigest(address lpEth, bytes32 bindHash) internal view returns (bytes32) {
+        return IBTCChannels(_btcChannels).btcRecipientPoPDigest(lpEth, bindHash);
     }
 
     /// Label used to derive each payout key, so its PoP can be produced later.

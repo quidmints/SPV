@@ -109,7 +109,7 @@ contract VBtcLevFeeLane is AllesFixture {
         bytes32 payout_ = payoutKeyOnly(abi.encode(seed_));
         _btcChannels = address(ch_);
         Types.OpenAuth memory auth_ = Types.OpenAuth({ btcRecipient: payout_,
-            btcRecipientPoP: _popFor(payout_, lpEth_),
+            btcRecipientPoP: _popFor(payout_, lpEth_, keccak256(p_.lpPubkey)),
             lpPaymentPoint: p_.lpPubkey});
         // (E128) A REAL signed ladder for the funding tx this call is about to prove. Built BEFORE
         // the prank so the FFI round-trips cannot consume it. (§SPRINT-B4) `armingSet` signs TWO
@@ -753,7 +753,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _mockPx(entryPx * 125 / 100);
         (bool levUp, uint deltaUp) = lmW.debtDeltaToTarget(lp);
         assertTrue(levUp && deltaUp > 0, "IL target says lever up after +25%");
-        lmW.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0);                     // permissionless + self-flooring (what the keeper sends)
+        lmW.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0, "");                     // permissionless + self-flooring (what the keeper sends)
         uint debtAfterUp = wvenue.debtOf(lp);
         assertGt(debtAfterUp, 0, "folded up: real USDC debt on Morpho");
         assertGt(wvenue.collateralOf(lp), coll, "folded up: swapped WBTC added to collateral");
@@ -763,7 +763,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _mockPx(entryPx);
         (bool levUp2, uint deltaDn) = lmW.debtDeltaToTarget(lp);
         assertTrue(!levUp2 && deltaDn > 0, "IL target says de-lever back at entry");
-        lmW.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0);                     // flash-repay-first (flashProvider=MORPHO pinned in init)
+        lmW.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0, "");                     // flash-repay-first (flashProvider=MORPHO pinned in init)
         assertLt(wvenue.debtOf(lp), debtAfterUp, "flash-de-lever reduced the debt");
         vm.clearMockedCalls();
     }
@@ -777,7 +777,7 @@ contract VBtcLevFeeLane is AllesFixture {
         (,, address lp,) = _open(ch, 88, 3e8);        // 3 BTC channel = free range to expose
         _openLev(lp, 2e8);                            // native vBTC position
         vm.expectRevert(LevBase.BadTarget.selector);
-        lm.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0);                       // vBTC venue ⇒ BadTarget (WBTC-mode only)
+        lm.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0, "");                       // vBTC venue ⇒ BadTarget (WBTC-mode only)
     }
 
     /// @notice REGRESSION for the 1e10 BTC scale bug (Vyper audit C-1/C-2/C-3): with REAL debt, the BTC

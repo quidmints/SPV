@@ -494,10 +494,24 @@ pub struct OpenParams {
 pub struct OpenAuth {
     pub btc_recipient: [u8; 32],
     pub btc_recipient_pop: Vec<u8>,
+    /// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The LP's 33-byte COMPRESSED Lightning payment
+    /// basepoint (`ChannelPublicKeys::payment_point`). The contract consumes it at open to derive
+    /// and pin the LP's `to_remote` taproot output key, so a force-close commitment can be asked
+    /// what it actually paid the LP.
+    ///
+    /// ⚠️ NOT CONSENT, unlike `btc_recipient_pop` beside it — it carries no signature and proves
+    /// nothing. It is an IDENTITY, used only to LOCATE an output.
+    /// ⚠️ IT MUST BE THE PAYMENT BASEPOINT, NOT THE FUNDING KEY. `to_remote` derives from the
+    /// basepoint, and the basepoint is the only LP-side key stable for the channel's life: a splice
+    /// rotates the funding pubkey (`new_funding_pubkey(prev_funding_txid)`), while
+    /// `compute_funding_key_tweak` is applied to the funding key ALONE and no Lightning operation
+    /// rotates a basepoint. Read it from the monitor's `ChannelPublicKeys`, never from
+    /// `funding_pubkeys()`.
+    pub lp_payment_point: Vec<u8>,
 }
 
 impl OpenAuth {
-    /// `(bytes32,bytes)` in `Types.OpenAuth` field order.
+    /// `(bytes32,bytes,bytes)` in `Types.OpenAuth` field order.
     ///
     /// (§E183 item 1) `lp_eth` and `lp_sig` are GONE. The contract DERIVES the LP's address from
     /// `p.lp_pubkey` — Bitcoin and the EVM share secp256k1, so the channel key already states it —
@@ -508,6 +522,7 @@ impl OpenAuth {
         vec![
             Tok::FixedBytes32(self.btc_recipient),
             Tok::Bytes(self.btc_recipient_pop.clone()),
+            Tok::Bytes(self.lp_payment_point.clone()),
         ]
     }
 }
@@ -1033,6 +1048,7 @@ fn t_auth() -> OpenAuth {
     OpenAuth {
         btc_recipient: [0x11u8; 32],
         btc_recipient_pop: vec![0x33u8; 64],
+        lp_payment_point: vec![0x02u8; 33],
     }
 }
 #[cfg(test)]

@@ -784,7 +784,7 @@ interface IBTCChannels {
     /// ORDER in the contract and every copy keeps signing the old shape and keeps PASSING, until
     /// something integration-level fails somewhere nobody can localise. That is the same root as
     /// `#21`, where the fixtures kept their own notion of `lpEth` and §E183 moved the contract's.
-    function btcRecipientPoPDigest(address lpEth) external view returns (bytes32);
+    function btcRecipientPoPDigest(address lpEth, bytes32 bindHash) external view returns (bytes32);
 }
 
 
