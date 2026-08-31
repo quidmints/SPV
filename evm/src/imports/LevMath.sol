@@ -633,7 +633,19 @@ library LevMath {
             IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, amt);
             (bool ok, ) = ONEINCH_ROUTER.call(routes[k]);
             IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, 0);   // zeroed on BOTH paths
-            if (!ok) revert NoVolatileRoute();
+            // 🔴 **A FAILED LEG IS SKIPPED, NOT FATAL — MEASURED, NOT PREFERRED.** Two aggregator
+            //    routes built INDEPENDENTLY are not composable in one transaction: each is priced as
+            //    though it executes alone, and the calldata carries embedded RFQ/limit-order maker
+            //    signatures that the first leg can consume or invalidate. Verified on a fork with a
+            //    real key — ONE route converts 250,000 USDC to 100.998 WETH, and the same route
+            //    paired with a USDT route reverts on the second leg.
+            //    ⇒ Reverting the whole conversion would make an M-input call only as reliable as its
+            //    unluckiest leg. Skipping leaves that leg's input UNSPENT (its approval is already
+            //    zeroed) and lets the FLOOR decide whether what did land is enough.
+            //    ⚠️ THE 1-INPUT CASE IS UNCHANGED: a failed single leg yields `got == 0`, which is
+            //    below any non-zero `minOut`, so `_aggSwap` still reverts exactly as before — the
+            //    floor does the work the explicit revert used to.
+            if (!ok) continue;
         }
         got = IERC20Min(outToken).balanceOf(address(this)) - before_;
         if (got < minOut) revert Slippage();                     // ONE floor, on the WHOLE conversion

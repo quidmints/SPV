@@ -39,6 +39,21 @@ contract ConvertToRoutedTest is Test {
 
     /// TWO different stables converted to ONE output in a single call, each through its own route -
     /// which is the shape a pro-rata basket bundle always has (§PRO-RATA-IN-ONE-TOKEN-OUT).
+    /// DIAGNOSTIC: does a SINGLE aggregator route execute through the primitive at all?
+    function test_OneStableAlone() public {
+        uint256 a = 250_000e6;
+        bytes memory r = _route(USDC, a);
+        if (r.length < 4) { vm.skip(true); }
+        vm.store(USDC, keccak256(abi.encode(address(this), uint256(9))), bytes32(a));
+        assertEq(IERC20t(USDC).balanceOf(address(this)), a, "fixture");
+        address[] memory t = new address[](1); uint256[] memory m = new uint256[](1);
+        bytes[] memory rr = new bytes[](1);
+        t[0] = USDC; m[0] = a; rr[0] = r;
+        uint256 got = LevMath.convertTo(t, m, WETH, 0, rr);
+        emit log_named_decimal_uint("ONE route USDC->WETH", got, 18);
+        assertGt(got, 0, "a single route must execute");
+    }
+
     function test_TwoStablesConvertToWethThroughRealRoutes() public {
         uint256 aUsdc = 250_000e6;
         uint256 aUsdt = 250_000e6;
@@ -55,8 +70,19 @@ contract ConvertToRoutedTest is Test {
             vm.skip(true);
         }
 
-        deal(USDC, address(this), aUsdc);
-        deal(USDT, address(this), aUsdt);
+        // ⚠️ `deal` IS THE WRONG TOOL HERE AND IT COST A FALSE FAILURE. On a fork it drives
+        //    `stdstore`'s brute-force slot search, which issues a storm of `eth_getStorageAt` against
+        //    the endpoint - measured at ~918M gas and a bare `EvmError: Revert` that reads exactly
+        //    like the conversion failing. Writing the KNOWN slot is deterministic, one op, no RPC.
+        //    USDC's `balances` is slot 9 and USDT's is slot 2, both written on the PROXY address
+        //    because the implementation runs by delegatecall in the proxy's storage.
+        vm.store(USDC, keccak256(abi.encode(address(this), uint256(9))), bytes32(aUsdc));
+        vm.store(USDT, keccak256(abi.encode(address(this), uint256(2))), bytes32(aUsdt));
+        // ⚠️ ASSERT THE FIXTURE BEFORE THE SUBJECT. `deal` on a PROXIED token can silently write the
+        //    wrong slot, and a conversion that reverts for want of input looks identical to one that
+        //    reverts on the route - which is how a fixture failure gets booked as a contract defect.
+        assertEq(IERC20t(USDC).balanceOf(address(this)), aUsdc, "fixture: USDC deal did not land");
+        assertEq(IERC20t(USDT).balanceOf(address(this)), aUsdt, "fixture: USDT deal did not land");
 
         address[] memory tokens = new address[](2);
         uint256[] memory amts   = new uint256[](2);
