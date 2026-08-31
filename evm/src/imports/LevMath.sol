@@ -832,7 +832,7 @@ library LevMath {
         //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
         //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
-        if (c.dex2 == 0)             // legacy bridge — see `_stableToWbtc`
+        if (c.dex2 == 0)             // legacy COMPAT BRANCH — see `_stableToWbtc`
             return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.dex, 0);
         return _aggSwap(stable, c.weth, stableAmt, floor_, c.dex2, c.dex);  // hub hop FIRST
     }
@@ -900,8 +900,17 @@ library LevMath {
     ///    silently redefine what the third argument of every live entrypoint means — the keeper would
     ///    keep sending the same word and it would be used for the wrong leg. Appending the new
     ///    parameter and CROSSING it here keeps every existing caller's meaning intact.
-    /// @dev ⚠️ `hubDex == 0` FALLS BACK TO THE LEGACY CURVE HUB HOP, and that is a MIGRATION BRIDGE
-    ///      with a named removal condition, not a permanent clamp. Without it this change would be a
+    /// @dev ⚠️ `hubDex == 0` FALLS BACK TO THE LEGACY CURVE HUB HOP — a MIGRATION BRANCH with a named
+    ///      removal condition, not a permanent clamp.
+    ///      ⛔ **NOT A "BRIDGE".** In this repo `quid-bridge` is the DAEMON — `channel_driver.rs`,
+    ///      `deadman_exit.rs` and `lp_seed.rs` (Lightning) live in the same crate as `lev_keeper.rs`
+    ///      and `lev_keeper_btc.rs`. **The Lightning bridge and the leverage keeper are ONE PROCESS**,
+    ///      so the word is taken and using it for a compatibility branch reads as if this had
+    ///      something to do with the hop. It does not.
+    ///      🔴 **AND THAT SHARED PROCESS IS A SECURITY FACT, NOT A PACKAGING DETAIL: compromising
+    ///      the LN daemon compromises the lev keeper, and vice versa.** It is why the owner's
+    ///      "keeper is hacked and replaced with malicious code" constraint spans both roles at once,
+    ///      and why an API key placed there is leaked alongside the Lightning material. Without it this change would be a
     ///      LIVE REGRESSION: the deployed RLUSD and PYUSD venues route through `_routeOf`'s table
     ///      today, and no keeper supplies a hub pool word yet, so a bare one-hop `stable→WBTC` has no
     ///      pool and would revert. Same shape as `rangeUnwindDex`'s `zero ⇒ DEFAULT_UNWIND_DEX`.
@@ -937,7 +946,7 @@ library LevMath {
         //    `_hubSwap` back out, then compare — so the INTERMEDIATE hop was unbounded and the check
         //    lived a frame away. `_aggSwap` now enforces `minOut` on the measured delta of the FINAL
         //    token, which is the same guarantee expressed once instead of twice.
-        if (hubDex == 0) {           // legacy bridge — see `_stableToWbtc`
+        if (hubDex == 0) {           // legacy COMPAT BRANCH — see `_stableToWbtc`
             uint256 usdc = _aggSwap(vol, USDC, amt, 0, volDex, 0);
             uint256 out = _hubSwap({stable: stable, amt: usdc, toUsdc: false});
             if (out < minOut) revert Slippage();
