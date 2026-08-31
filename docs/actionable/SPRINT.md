@@ -687,6 +687,36 @@ error** (EIP-712 quorum cannot be a Bitcoin `scriptPubKey`). The freshness **2-o
 refuted in-tree** for ignoring that the LP is offline. A reachability scan reporting "0 of 20" was
 first an artifact of unresolved `@/` aliases — re-run with them, the result held.
 
+## 🧾 §BTC-CLUSTER-RE-VERIFIED (2026-08-31) — the four `§CLUSTER-2-BTC` blockers, checked against code
+| finding | verdict today |
+|---|---|
+| **NEW-1** SPV checkpoint-epoch misalignment bricks the first retarget | ✅ **FIXED.** `SPVGateway.__SPVGateway_init` now `require`s `blockHeight_ % DIFFICULTY_ADJUSTMENT_INTERVAL == 0` (`UnalignedCheckpointHeight`), with the reasoning kept in place at `:89-111` — including why alignment beat seeding the epoch-start block. `SPVGatewayInitAlignment.t.sol`: **3/3 pass**, and it asserts the RULE rather than the fixtures' habit of being aligned by luck |
+| **NEW-2** `poolSatsParker` cross-hop phantom | ✅ **DISSOLVED** by `§POOL-INVENTORY-PURGED` — `parkProvenSats`, `poolSatsParker` and `_releasePoolSats` no longer exist |
+| **NEW-4** swap-out on-chain delivery double-pay | ✅ **FIXED** by `§AUDIT-SWAPOUT-DOUBLEPAY` (`vault::DeliveryInFlight`) — and its crux, *"confirm with the vault-delivery owner"*, was hand-verified rather than taken on the auditor's trace |
+| **NEW-3** #54 delever withhold-vs-repay divergence | 🔴 **STILL OPEN — RE-CONFIRMED, AND NOW WITH A FALSE COMMENT OVER IT** |
+
+🔴 **`§NEW-3-STILL-OPEN` — the debt clamp the call site claims does not exist.**
+1. **`_sourceRepayFree` (`SwapLib.sol:2143`) says** `swapOutDeleverAmt(lp, wantUsd6 * 1e12); // amtNative
+   clamped to LIVE debt`.
+2. **It is not.** `LevBase.swapOutDeleverAmt` (`:419-426`) reads `pos[lp]`, takes the venue and stable, and
+   returns `amtNative = _fromUsd(AUX, stable, maxUsd18)` — **a pure unit conversion of the WANT. It never
+   reads a debt.** The debt-clamped `BtcLevManager` override the finding called *"a dangling docstring with
+   no body"* is now **gone entirely**, so nothing overrides it either.
+3. **The repayment side DOES clamp:** `BtcLevManager.swapOutDelever` (`:320-322`) does
+   `debt = p.venue.debtOf(lp); if (amt > debt) amt = debt;` and returns `usedUsd` = what was actually applied.
+4. ⛔ **AND THAT RETURN IS DISCARDED** — `SwapLib.sol:2180` calls it as a statement.
+⇒ **Withheld is want-based; repaid is debt-clamped.** When `want > debt` — a pure-equity or off-target slice —
+`drawPooledUsdBtc(deLeverUsd6)` and `subPendingSwapOut(deLeverUsd6)` both move the LARGER figure while only the
+debt is retired, and the excess stable sits at the venue with POOLED reconciled async by the keeper.
+📌 **WHY THE FORK TEST MISSED IT, per the original finding:** it exercised ≈2× where `want ≈ debt`, so the two
+figures coincide. **The divergence needs an off-target slice, which the fixture never built.**
+▶️ **FIX (either):** implement the documented debt clamp in `swapOutDeleverAmt`, **or** capture
+`(usedUsd, freedSats)` at `:2180` and withhold `usedUsd`, minting the pure-equity remainder. **And delete the
+comment that asserts the clamp** — it is the reason this reads as fixed on a skim.
+⚠️ **NOT EDITED BY ME, DELIBERATELY:** this is `LevBase`/`BtcLevManager`/`SwapLib`, where the CONCURRENT
+SESSION is actively working (`§E-COORD`: *"two sessions are committing into one worktree and it is corrupting
+both records"*). Booked with the evidence so whoever owns that thread lands it without a collision.
+
 ⭐ **`§E294-COMPLETES-THE-VARIANCE-FIX` (2026-08-31) — DELETING `pushObservation` IS NOT ONLY AN
 ATTACK-SURFACE REMOVAL. IT FINISHES `§UNIT-VARIANCE-SOLVED`, AND THAT IS THE STRONGER REASON.**
 
