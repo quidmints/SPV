@@ -233,7 +233,8 @@ contract BtcLevManager is LevBase {
     /// @param dex the volatile leg's router calldata — §E357. The BTC side reached `_aggSwap`
     ///        through THREE `WbtcCfg(..., "")` sites, so it was dead for the same reason the ETH
     ///        side was: the route was hardcoded empty at the struct, not merely absent at the door.
-    function rebalanceWbtc(address lp, uint minOut, uint256 dex, uint256 dex2) external nonReentrant { _rebalance(lp, minOut, dex, dex2); }
+    function rebalanceWbtc(address lp, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
+        external nonReentrant { _rebalance(lp, minOut, dex, dex2, route); }
 
     /// @dev WBTC-mode ONLY — a native vBTC venue would get WBTC supplied into it (collateral
     ///      mismatch). Native positions use the async legs.
@@ -241,24 +242,24 @@ contract BtcLevManager is LevBase {
         if (ILevVenue(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
     }
 
-    function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2)
-        internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2); }
+    function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
+        internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2, route); }
 
     /// @dev Repay-FIRST, always. §E357 — the `flashProvider == 0` fallback that stood here is DELETED
     ///      along with `_deleverWbtc`: `init` now refuses a zero provider, so the branch was
     ///      unreachable, and what it fell back to was the withdraw-THEN-repay ordering the flash
     ///      exists to dissolve. The ETH range never had a fallback; the two now match.
-    function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2)
+    function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
         internal override {
-        _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2);
+        _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2, route);
     }
 
 
 
     /// @dev Lever-UP: borrow stable → Curve to WBTC → supply. EXACT 4-step custody of `LevManager._leverUpBuy`
     ///      (borrow→manager, swap→manager, manager→venue transfer, venue.supply→escrow), collateral = WBTC.
-    function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut, uint256 dex, uint256 dex2) internal {
-        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), dex, dex2));
+    function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
+        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
         if (borrowed > 0) { emit Borrowed(lp, borrowed); emit Supplied(lp, wbtc); }   // body + oracle floor in LevMath (EIP-170)
     }
 
@@ -269,13 +270,13 @@ contract BtcLevManager is LevBase {
     /// @dev FLASH-repay-first de-lever: flash `repayUsd`-worth stable from the provider; the callback repays FIRST
     ///      (LTV drops ⇒ withdraw always health-safe — kills the direct path's near-liq wall), then withdraws freed
     ///      WBTC → Curve→stable → returns the flash + surplus. `repayUsd` (= deltaUsd) is already ≤ debt.
-    function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut, uint256 dex, uint256 dex2) internal {
+    function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
         if (repayUsd == 0) return;
         // §E357 — the route RIDES IN THE CALLBACK DATA. The settle runs in the provider's call
         // frame, so a route held in this frame's memory is not reachable there; encoding it is the
         // only way it survives the hop.
         IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(address(AUX),stable, repayUsd),
-            abi.encode(lp, address(venue), stable, minOut, dex, dex2));
+            abi.encode(lp, address(venue), stable, minOut, dex, dex2, route));
     }
 
     /// @notice Flash-loan callback — ONLY the pinned provider, and the provider invokes it solely on the flashLoan
@@ -287,10 +288,10 @@ contract BtcLevManager is LevBase {
         //    held in `_flashDeleverWbtc`'s memory is unreachable there — encoding is the only way it
         //    survives the hop, and dropping `dex2` here would silently make the de-lever leg one-hop
         //    while the lever-up leg was two, i.e. a route asymmetry that only shows up as slippage.
-        (address lp, address venueAddr, address stable, uint minOut, uint256 dex, uint256 dex2) =
-            abi.decode(data, (address, address, address, uint256, uint256, uint256));
+        (address lp, address venueAddr, address stable, uint minOut, uint256 dex, uint256 dex2, bytes memory route) =
+            abi.decode(data, (address, address, address, uint256, uint256, uint256, bytes));
         LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
-            LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), dex, dex2));
+            LevMath.WbtcCfg(address(AUX), WBTC, uint32(TWAP_WINDOW), uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
         emit Repaid(lp, assets);
         _syncRange(lp);
     }

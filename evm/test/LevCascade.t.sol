@@ -268,7 +268,7 @@ contract LevCascadeProbe is AllesFixture {
         // (A real rally executes real swaps, which legitimately move POOLED_USD — so the mock's "POOLED_USD frozen
         // across the lever" assertion is unmeasurable here; the real invariant is deliverable-covers-range, below.)
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         assertGt(venue.debtOf(lps[0]), 0, "levered: real Morpho debt > 0");
         // §LEV-CLUSTER INSTRUMENT — the ~2.7% shortfall here (7500… vs 7707…) is a DIFFERENT
         // SIGNATURE from the 8x miss elsewhere in this file, so do not assume a shared cause. The
@@ -344,7 +344,7 @@ contract LevCascadeProbe is AllesFixture {
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
 
         uint before = gasleft();
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);                  // the borrow leg included -- this is the real cost
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");                  // the borrow leg included -- this is the real cost
         uint used = before - gasleft();
 
         // MUST TRACK `LevBase.GAS_REBALANCE` (internal, so it cannot be read from here).
@@ -376,7 +376,7 @@ contract LevCascadeProbe is AllesFixture {
         ETH.deposit{value: 10 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         _calmVol();
         ETH.syncLev(lps[0]);
 
@@ -404,7 +404,7 @@ contract LevCascadeProbe is AllesFixture {
         ETH.deposit{value: 10 ether}(0, address(this));
         _openAtEntry(lps[0], 5 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);                                 // real levered position
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");                                 // real levered position
         _calmVol();                                             // θ recovers ⇒ syncLev can add the depth
 
         uint pu0 = CORE.POOLED_USD();
@@ -538,7 +538,7 @@ contract LevCascadeProbe is AllesFixture {
         vm.stopPrank();
         // ONE shared real rally ⇒ correlated IL ⇒ lever both to the IL target (debt > 0).
         _rallyRange(_entryPrice(lp), 0.2e18, 24, 8_000 * USDC_PRECISION);
-        lm.rebalance(lp, 0, DEX_WETH_USDC, 0); lm.rebalance(lp2, 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lp, 0, DEX_WETH_USDC, 0, ""); lm.rebalance(lp2, 0, DEX_WETH_USDC, 0, "");
         assertGt(venue.debtOf(lp), 0, "rally must lever the position (debt > 0)");
 
         // (1) HEALTHY ⇒ NotNearLiq. Checked FIRST (before the opt-in), so a low-LTV position is rejected even
@@ -597,7 +597,7 @@ contract LevCascadeProbe is AllesFixture {
         // ONE shared REAL rally ⇒ correlated IL for all three ⇒ lever each up to the IL target.
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
         for (uint i; i < 3; i++) {
-            lm.rebalance(lps[i], 0, DEX_WETH_USDC, 0);
+            lm.rebalance(lps[i], 0, DEX_WETH_USDC, 0, "");
             assertGt(venue.debtOf(lps[i]), 0, "rally must lever each position to the IL target (debt > 0)");
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
@@ -662,8 +662,8 @@ contract LevCascadeProbe is AllesFixture {
         _openAtEntry(lps[0], 5 ether);
         _openAtEntry(lps[1], 4 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 24, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
-        lm.rebalance(lps[1], 0, DEX_WETH_USDC, 0); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, ""); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
+        lm.rebalance(lps[1], 0, DEX_WETH_USDC, 0, ""); vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         _crashRange(3000, 24, 40 ether);   // ~30%: full de-lever; hybrid down-leg services the redeem
 
         uint dbt0 = venue.debtOf(lps[0]); uint coll0 = venue.collateralOf(lps[0]);
@@ -715,7 +715,7 @@ contract LevCascadeProbe is AllesFixture {
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
         // An impossibly high min-weETH-out (1e30) can never be met by the real mint ⇒ the floor reverts the trade.
         vm.expectRevert(LevManager.Slippage.selector);
-        lm.rebalance(lps[0], 1e30, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 1e30, DEX_WETH_USDC, 0, "");
     }
 
     /// @notice ECONOMIC linkage: the CONTRACT levers to exactly the PROVEN IL-cancelling target `1 − 1/√r`. At 2x
@@ -729,7 +729,7 @@ contract LevCascadeProbe is AllesFixture {
         vm.mockCall(address(AUX),
             abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)), abi.encode(px * 2));
         assertApproxEqAbs(lm.ilTargetLtvBps(lps[0]), 2929, 1, "on-chain IL target must be 1 - 1/sqrt(2)");
-        for (uint k; k < 8; k++) lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0); // keeper loops successive ticks toward target
+        for (uint k; k < 8; k++) lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, ""); // keeper loops successive ticks toward target
         uint ltv = lm.ilLtvBps(lps[0]);                  // debt/E0 basis (the sizing target)
         emit log_named_uint("levered IL-LTV (debt/E0) at 2x", ltv);
         assertApproxEqAbs(ltv, 2929, 400, "must lever to the proven 1 - 1/sqrt(2) IL target (debt/E0 basis)");
@@ -764,7 +764,7 @@ contract LevCascadeProbe is AllesFixture {
         // ONE shared REAL rally ⇒ identical price-path IL on BOTH range positions.
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         uint invAfterRally = CORE.POOLED();
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         assertGt(venue.debtOf(lps[0]), 0, "levered LP hedged: debt = IL target > 0");
 
         // (1) LEVERED LP IL-protected: ETH exposure preserved despite the range selling ETH.
@@ -879,7 +879,7 @@ contract LevCascadeProbe is AllesFixture {
         // prices the weETH collateral at the TRUE price, so the borrow hits "insufficient collateral" and stops.
         // That IS the buffer exhausting: the LP can't over-lever past what real collateral supports, bears the
         // residual IL, and the position is NEVER force-closed. (The keeper's rebalance reverts are swallowed.)
-        for (uint k; k < 8; k++) { try lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0) {} catch {} }
+        for (uint k; k < 8; k++) { try lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "") {} catch {} }
         uint ltv = lm.getCurrentLtvBps(lps[0]);
         emit log_named_uint("levered LTV at 9x (real Morpho caps the borrow)", ltv);
         assertLe(ltv, 7500 + 300, "must NOT lever past the PROTOCOL cap (residual IL borne by the LP)");
@@ -903,7 +903,7 @@ contract LevCascadeProbe is AllesFixture {
 
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         uint s1 = QUID.totalSupply();
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         assertEq(QUID.totalSupply(), s1, "rebalance/lever-up: leverage must not mint/burn QUID");
 
         _crashRange(3000, 24, 40 ether);
@@ -1009,7 +1009,7 @@ contract LevCascadeProbe is AllesFixture {
         // the IL hedge. Without it `totalDebtUsd() == 0` and the whole test is vacuous — the
         // PREMISE below caught exactly that on the first run.
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         _calmVol();
         ETH.syncLev(lps[0]);
 
@@ -1092,7 +1092,7 @@ contract LevCascadeProbe is AllesFixture {
         _openAtEntry(lps[0], 30 ether);
 
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 40, 1_000 * USDC_PRECISION);
-        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         _calmVol();
         ETH.syncLev(lps[0]);
 

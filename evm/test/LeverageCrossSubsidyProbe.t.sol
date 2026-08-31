@@ -189,7 +189,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         _rangeE0(LEVR, 5 ether);
         _openLevOnly(LEVR, 5 ether);
         _rallyRange(startPx, 0.2e18, 20, 8_000 * USDC_PRECISION);
-        lm.rebalance(LEVR, 0, DEX_WETH_USDC, 0);                              // real Morpho borrow + external Uniswap buy (NOT the range)
+        lm.rebalance(LEVR, 0, DEX_WETH_USDC, 0, "");                              // real Morpho borrow + external Uniswap buy (NOT the range)
         require(venue.debtOf(LEVR) > 0, "precondition: levered position took real debt");
         _seizeReal(LEVR, 1, 1);                             // REAL Morpho liquidation of the levered LP
         _realignRangeToReal();

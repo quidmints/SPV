@@ -56,7 +56,7 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // computes a different selector and the signer refuses every keeper tx. Fails CLOSED, which
     // is the right direction and is also why it can sit broken without anyone noticing until the
     // keeper goes quiet.
-    "rebalance(address,uint256,uint256,uint256)",
+    "rebalance(address,uint256,uint256,uint256,bytes)",
     "syncLev(address)",
     "protectFromQuid(address,uint256)",
     // (§E247) `compound(address)` was NEVER listed while `lev_keeper.rs` has always built it —
@@ -98,7 +98,7 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // (`lev_keeper_btc.rs`) kept building the routeless form, so every WBTC-mode atomic
     // rebalance was again refused at the signing chokepoint. The gate that catches this
     // class either way: `tools/check-signer-allowlist.py`.
-    "rebalanceWbtc(address,uint256,uint256,uint256)",
+    "rebalanceWbtc(address,uint256,uint256,uint256,bytes)",
 ];
 
 /// The signing policy: which contracts + selectors the hop may sign for.

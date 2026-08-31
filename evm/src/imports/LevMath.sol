@@ -309,7 +309,7 @@ library LevMath {
     ///         is the debt-delta (USD18). Returns (borrowed, wbtcBought) for the manager to emit. Byte lives HERE so
     ///         the manager stays under EIP-170 (mirrors how the ETH lever mechanics live in this lib).
     /// @dev (WBTC-mode) config bundle — keeps the leg fns under the no-via_ir 16-slot stack limit (6 params, not 9).
-    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; uint256 dex; uint256 dex2; }
+    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; uint256 dex; uint256 dex2; bytes route; }
 
     /// @dev §E240-tri — PARAMETER NAMES ARE COMMENTED OUT, NOT REMOVED. The body reverts, so the
     ///      names are unused (solc 5667) -- but they are the restore contract for §V-R1 and deleting
@@ -326,7 +326,7 @@ library LevMath {
                                 * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorWbtc) minOut = floorWbtc;   // the oracle floor always wins
         }
-        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.dex, cfg.dex2);
+        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.dex, cfg.dex2, cfg.route);
         IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);
         venue.supply(lp, wbtcBought);
     }
@@ -373,7 +373,7 @@ library LevMath {
                                   * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.dex, cfg.dex2);
+        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.dex, cfg.dex2, cfg.route);
         IERC20OZ(stable).forceApprove(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
         if (stableOut > assets) IERC20OZ(stable).safeTransfer(lp, stableOut - assets);   // realized surplus → LP
     }
@@ -534,7 +534,7 @@ library LevMath {
     /// in `SellCtx` because that struct is already threaded `_sellAndPay → sellColl → sellWeeth →
     /// _wethToStableDex`: one memory pointer, so it costs no extra stack in a no-via_ir build.
     /// EMPTY means "no route supplied" and the leg falls back to V3 — see `_wethToStableDex`.
-    struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; uint256 dex; uint256 dex2; }
+    struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; uint256 dex; uint256 dex2; bytes route; }
 
     /// @notice Sell `pulled` collateral → `stable` at the anti-MEV oracle floor, peeling the keeper's gas (native ETH)
     ///         from the over-collateralization headroom. `pulled` is always weETH — all collateral is weETH.
@@ -677,6 +677,27 @@ library LevMath {
         }
         got = IERC20Min(outToken).balanceOf(address(this)) - before_;
         if (got < minOut) revert Slippage();                     // ONE floor, on the WHOLE conversion
+    }
+
+    /// @notice **THE LADDER: aggregator calldata when the caller has it, pool words when it does not.**
+    /// @dev ⭐ This is the owner's `Amp.sol` pattern applied to routing — *"pull if you can here and
+    ///      if you cant then here"* — and the fallback is not conservatism. A route makes execution
+    ///      depend on 1inch's API being UP AND NOT RATE-LIMITING, on paths that are PERMISSIONLESS
+    ///      and whose purpose is to fire when positions are stressed. An outage must degrade to the
+    ///      keyless pool-word path, not to a stalled rebalance.
+    ///      ⚠️ BOTH ARMS SHARE ONE FLOOR AND ONE EXECUTOR (`convertTo`), so the calldata arm is not
+    ///      a second security surface — it is the same bound reached by a different encoder.
+    ///      📊 What the calldata arm buys, measured: Fluid, Balancer, Maverick, Ekubo and the
+    ///      `lite-psm`/`dai-usds` par converters that beat every AMM at 0.000%, plus SPLIT routes —
+    ///      none of which a pool word can address.
+    function routedSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut,
+                        uint256 dex, uint256 dex2, bytes memory route) internal returns (uint256) {
+        if (route.length == 0) return _aggSwap(tokenIn, tokenOut, amountIn, minOut, dex, dex2);
+        address[] memory t = new address[](1);
+        uint256[] memory a = new uint256[](1);
+        bytes[]   memory r = new bytes[](1);
+        t[0] = tokenIn; a[0] = amountIn; r[0] = route;
+        return convertTo(t, a, tokenOut, minOut, r);
     }
 
     /// @notice Opportunistic weETH → WETH offramp. Moved here from `SwapLib` (see the note there):
@@ -954,7 +975,7 @@ library LevMath {
         //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
         if (c.dex2 == 0)             // legacy COMPAT BRANCH — see `_stableToWbtc`
             return _aggSwap(USDC, c.weth, _hubSwap({stable: stable, amt: stableAmt, toUsdc: true}), floor_, c.dex, 0);
-        return _aggSwap(stable, c.weth, stableAmt, floor_, c.dex2, c.dex);  // hub hop FIRST
+        return routedSwap(stable, c.weth, stableAmt, floor_, c.dex2, c.dex, c.route);  // hub hop FIRST
     }
 
     /// @dev THE routing table — the single place a Curve stable route is written down. Maps a stable
@@ -1045,10 +1066,10 @@ library LevMath {
     ///      so the identity case is handled INSIDE the fallback and needs no condition of its own.
     ///      ⚠️ The compiler cannot see this; only running the suite did.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, uint256 volDex,
-                           uint256 hubDex) internal returns (uint256) {
+                           uint256 hubDex, bytes memory route) internal returns (uint256) {
         if (hubDex == 0)
             return _aggSwap(USDC, wbtc, _hubSwap({stable: stable, amt: amt, toUsdc: true}), minOut, volDex, 0);
-        return _aggSwap(stable, wbtc, amt, minOut, hubDex, volDex);
+        return routedSwap(stable, wbtc, amt, minOut, hubDex, volDex, route);
     }
 
     /// @dev Mirror of `_stableToWbtc`: pinned pool to USDC, stableswap hub back out. `minOut` is
@@ -1063,7 +1084,7 @@ library LevMath {
     /// 🔴 SAME CROSSED ORDER as `_stableToWbtc`, and MIRRORED because this leg runs the other way:
     ///    here the VOLATILE pool is hop 1 and the hub hop is hop 2.
     function _volToStable(address vol, address stable, uint256 amt, uint256 minOut, uint256 volDex,
-                          uint256 hubDex) internal returns (uint256) {
+                          uint256 hubDex, bytes memory route) internal returns (uint256) {
         // ⭐ THE FLOOR MOVED ONTO THE ROUTE ITSELF. This used to swap to USDC with `minOut = 0`, run
         //    `_hubSwap` back out, then compare — so the INTERMEDIATE hop was unbounded and the check
         //    lived a frame away. `_aggSwap` now enforces `minOut` on the measured delta of the FINAL
@@ -1074,7 +1095,7 @@ library LevMath {
             if (out < minOut) revert Slippage();
             return out;
         }
-        return _aggSwap(vol, stable, amt, minOut, volDex, hubDex);
+        return routedSwap(vol, stable, amt, minOut, volDex, hubDex, route);
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
@@ -1092,7 +1113,7 @@ library LevMath {
         //   ran was the UNBOUNDED one — a keeper-supplied route executed with NO slippage bound at
         //   the stable leg, `minOut` accepted as a parameter and silently discarded.
         // ⇒ One call, bound restored. `minOut` is now honoured on every path through here.
-        return _volToStable(c.weth, stable, wethIn, minOut, c.dex, c.dex2);  // one routed call, floor on the final token
+        return _volToStable(c.weth, stable, wethIn, minOut, c.dex, c.dex2, c.route);  // one routed call, floor on the final token
     }
 
     /// @dev The anti-MEV floor for the **WETH → stable** leg, priced off the WETH being sold.
@@ -1200,7 +1221,7 @@ library LevMath {
     function _sellAndPay(uint256 pulled, address stable, uint256 minOut, uint256 assets, address recipient, ExtractCfg memory cfg)
         private returns (uint256 newGasReserve, uint256 freed)
     {
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2, route: ""});
         uint256 stableOut;
         (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         IERC20OZ(stable).forceApprove(cfg.flashProvider, assets);
@@ -1217,7 +1238,7 @@ library LevMath {
     function collToWethDeliver(uint256 collAmt, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 wethDelivered) {
         if (collAmt == 0) return 0;
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2, route: ""});
         wethDelivered = _weethToWeth(sc, collAmt);
         require(wethDelivered >= minOut, "swapDelever:minOut");
         if (wethDelivered > 0) IERC20Min(cfg.weth).transfer(recipient, wethDelivered);

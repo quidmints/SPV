@@ -336,7 +336,7 @@ abstract contract LevBase {
     ///        is fragmented across pools by hook and no pinned address can even NAME the deepest
     ///        one — which is precisely the job an aggregator does. Discovery is off-chain; the
     ///        contract's only defence is the oracle floor, which is unchanged and venue-agnostic.
-    function _rebalance(address lp, uint256 minOut, uint256 dex, uint256 dex2) internal {
+    function _rebalance(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) internal {
         _reanchorIfReseated(lp);
         Types.Pos memory p = pos[lp];
         if (!p.open) revert NotOpen();
@@ -344,8 +344,8 @@ abstract contract LevBase {
         address stable = p.venue.stable();
         (bool levUp, uint256 deltaUsd) = debtDeltaToTarget(lp);
         if (deltaUsd != 0) {
-            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, dex, dex2);
-            else       _delever(p.venue, lp, stable, deltaUsd, minOut, dex, dex2);
+            if (levUp) _leverUp(p.venue, lp, stable, deltaUsd, minOut, dex, dex2, route);
+            else       _delever(p.venue, lp, stable, deltaUsd, minOut, dex, dex2, route);
             emit Rebalanced(lp, levUp, deltaUsd, getCurrentLtvBps(lp));
         }
         _syncRange(lp);
@@ -355,8 +355,8 @@ abstract contract LevBase {
 
     /// @dev Per-asset precondition. ETH has none; BTC requires WBTC collateral.
     function _requireRebalancable(Types.Pos memory p) internal view virtual {}
-    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2) internal virtual;
-    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2) internal virtual;
+    function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) internal virtual;
+    function _delever(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) internal virtual;
 
     function _syncRange(address lp) internal {
         if (RANGE != address(0)) { try ICore(RANGE).syncLev(lp) {} catch {} }
@@ -670,13 +670,24 @@ abstract contract LevBase {
 
     /// @notice Per-LP deliverable dollars at price `px`. LIFTED from both managers 2026-08-13 —
     ///         identical once `_collNative` absorbed the collateral conversion.
-    function _deliverableDollarsAt(address lp, uint px) internal view returns (uint) {
+    function _deliverableDollarsAt(address lp) internal view returns (uint) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
-        uint collUsd = (_collNative(p.venue, lp) * px) / 1e18;          // C (USD 1e18)
-        uint d = debtUsd(lp);                                           // D (USD 1e18)
-        uint netEq = collUsd > d ? collUsd - d : 0;
-        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), p.venue.liqThresholdBps());
+        // 🔴 **THE PER-LP TWIN OF THE POOL LEG, AND LEAVING IT BEHIND WAS A REAL DEFECT.** `bd8a174b`
+        //    moved `totalDeliverableDollars`'s pool leg onto `position()` and left this one on the
+        //    AUX oracle, so `VBtcLevFeeLane`'s invariant — *per-LP deliverable is within the book
+        //    aggregate* — compared **two different valuation sources** and failed by 2.2e11 on
+        //    1.17e21. Not a rounding artefact: a per-LP figure priced by our oracle against an
+        //    aggregate priced by the lender's.
+        //    ⚠️ THIS IS EXACTLY THE MISTAKE §POSITION-LEAVES-THREE-LOOSE-ENDS WARNED ABOUT — *"they
+        //    must be collapsed in ONE commit, not migrated caller-by-caller"* — written by me, then
+        //    made by me, and caught by a suite I had not run rather than by the three I had.
+        //    ⭐ `px` is now unused on this path: both sides come from the venue in ONE quote unit, so
+        //    the ratio is unitless and there is nothing left to price.
+        VenuePosition memory vp = p.venue.positionOf(lp);
+        uint netEq = vp.collateral > vp.debt ? vp.collateral - vp.debt : 0;
+        return LevMath.deliverableDollars(netEq, vp.collateral,
+                                          LevMath.ltvBps(vp.debt, vp.collateral), vp.liqThresholdBps);
     }
 
     /// @notice Per-LP net equity in NATIVE units at price `px`. Same lift, same reason.
@@ -723,7 +734,7 @@ abstract contract LevBase {
 
     /// @notice Deliverable dollars for `lp` — oracle read ONCE.
     function deliverableDollars(address lp) public view returns (uint256) {
-        return _deliverableDollarsAt(lp, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
+        return _deliverableDollarsAt(lp);   // no price needed — see the note in that function
     }
 
     /// @notice How many LPs have an open levered position.
