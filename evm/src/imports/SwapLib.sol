@@ -573,15 +573,10 @@ library SwapLib {
     ///       needing delivery elsewhere transfers after. Approval is set per call rather than infinite:
     ///       this runs in the VAULT's delegatecall context and a standing allowance there is protocol
     ///       inventory exposed to a pool upgrade.
+    /// @dev §ONE-WEETH-HOP — the body moved to `LevMath.sellWeethOnCurve`, which is now the tree's
+    ///      only implementation of this trade. This was its identical twin; see that docblock.
     function curveSellWeeth(OfframpCfg memory c, uint weethIn, uint minOut) internal returns (uint) {
-        if (c.curvePool == address(0) || weethIn == 0) return 0;
-        // §PM-INVARIANT-3 — exact-amount in, zeroed in the `catch`. This is the SHAPE every external
-        // venue call in this tree follows, and it is the one `SOR._v3Route` was measured against and
-        // found missing its zeroing.
-        IERC20(c.weeth).approve(c.curvePool, weethIn);
-        try ICurvePool(c.curvePool).exchange(int128(1), int128(0), weethIn, minOut) returns (uint out) {
-            return out;
-        } catch { IERC20(c.weeth).approve(c.curvePool, 0); return 0; }
+        return LevMath.sellWeethOnCurve(c.weeth, c.curvePool, weethIn, minOut);
     }
 
     /// @notice Body of Aux._sourceWethFromEtherfi — opportunistic, non-blocking.
@@ -2642,9 +2637,6 @@ library SwapLib {
         //   deleting dead fields does not decide it, and `feesPerShare`/`USD_FEES` are untouched.
         // JIT-defense (in-range) branch produces canonical (USD,tok) fees to
         // distribute directly; signalled by jitFees.
-        bool    jitFees;
-        uint    jitFeesUsd;
-        uint    jitFeesTok;
         // The resolved oracle price (Chainlink when stale, else internal TWAP)
         // read here for the staleness/reseat check — exported so the swap path
         // (_finishSwap) REUSES it as fillPrice instead of reading the
@@ -2718,14 +2710,15 @@ library SwapLib {
                 r.didRepack = true;
             }
             (r.loPrice, r.upPrice) = updateBounds(r.spotPrice, RANGE_DELTA);
-        } else if (r.myLiquidity > 0) {
-            // JIT-snipe defense: force a fee-only collect so accrued fees land
-            // in the accumulators BEFORE the caller's bookmark advances.
-            // collectFees ALREADY reorders internally and returns canonical
-            // (feesUSD, feesTok) — USD first.
-            (r.jitFeesUsd, r.jitFeesTok) = ICore(core).collectFees();
-            r.jitFees = true;
         }
+        // ⛔ (§V4-CUT) THE JIT-SNIPE ARM IS DELETED, AND THE DEFENCE IT RAN IS NOT LOST — IT MOVED
+        // INTO THE STRUCTURE. It forced a fee-only `collectFees()` so accrued fees landed in the
+        // accumulators BEFORE the caller's bookmark advanced, because v4 fees sat OUTSIDE `POOLED_*`
+        // and a depositor arriving in the same block as a large swap captured fees it had not
+        // earned. Both halves are now covered without it: the skew premium lands in `POOLED_*` AT
+        // SWAP TIME so `_pricingBacking()` already includes it, and `USD_FEES` is claimed through a
+        // per-LP bookmark (`pendingFor`'s `LP.fees_usd`), so a new depositor can only ever earn from
+        // its own deposit forward. **A pre-mint drain defends a window that no longer opens.**
     }
 
     /// @dev Move the curve spot onto the (Chainlink) target `twap` + re-range.

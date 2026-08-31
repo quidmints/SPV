@@ -577,12 +577,36 @@ library LevMath {
     }
 
 
-    function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
-        uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
-        IERC20Min(c.weeth).approve(ETHERFI_CURVE_POOL, pulled);
-        try ICurvePool(ETHERFI_CURVE_POOL).exchange(int128(1), int128(0), pulled, wethFloor) returns (uint256 out) {
+    /// @notice weETH → WETH on a Curve pool. **THE ONLY IMPLEMENTATION OF THIS TRADE IN THE TREE.**
+    /// @dev 🔴 **IT WAS WRITTEN TWICE.** `LevMath._weethToWethDex` (the lever's de-lever) and
+    ///      `SwapLib.curveSellWeeth` (the basket's weETH offramp) were the SAME six lines — approve,
+    ///      `exchange(1, 0)`, catch, zero the approval, return 0 — differing only in where the pool
+    ///      came from and whether they spelled the token `IERC20` or `IERC20Min`. Two copies of one
+    ///      external call is two places to add a router, two places to get an approval wrong, and
+    ///      two places for the ETH offramp to drift from the lever's.
+    ///      ⭐ **THE BODY LIVES HERE BECAUSE `SwapLib` ALREADY IMPORTS `LevMath` (`SwapLib.sol:30`)
+    ///      AND THE REVERSE WOULD BE A CYCLE.** Both former implementations are now thin wrappers.
+    ///      ▶️ **THIS IS THE SEAM TO ROUTE, AND THE REASON TO FOLD FIRST: a single hardcoded Curve
+    ///      pool is not a best path.** `ETHERFI_CURVE_POOL` has no fallback — if it is thin or paused
+    ///      the leg returns 0 and the de-lever silently sources nothing. Adding an aggregator here
+    ///      now upgrades EVERY weETH offramp at once; adding it before this fold would have upgraded
+    ///      one and left the other behind.
+    function sellWeethOnCurve(address weeth, address pool, uint256 amountIn, uint256 minOut)
+        internal returns (uint256) {
+        if (pool == address(0) || amountIn == 0) return 0;
+        // §PM-INVARIANT-3 — exact-amount approval, ZEROED IN THE CATCH. An allowance that survives a
+        // failed swap is a standing claim on the next block's balance.
+        IERC20Min(weeth).approve(pool, amountIn);
+        try ICurvePool(pool).exchange(int128(1), int128(0), amountIn, minOut) returns (uint256 out) {
             return out;
-        } catch { IERC20Min(c.weeth).approve(ETHERFI_CURVE_POOL, 0); return 0; }
+        } catch { IERC20Min(weeth).approve(pool, 0); return 0; }
+    }
+
+    function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
+        // ⚠️ The floor is the REDEMPTION RATE, not an AMM quote, which is why it keeps the flat
+        //    `SELL_SLIP_BPS` rather than the size-aware curve — trade size is not the variable here.
+        uint256 wethFloor = IWeETH(c.weeth).getEETHByWeETH(pulled) * (10_000 - SELL_SLIP_BPS) / 10_000;
+        return sellWeethOnCurve(c.weeth, ETHERFI_CURVE_POOL, pulled, wethFloor);
     }
 
     /// stable → collateral (lever-up BUY). weETH venue mints via ether.fi; WETH venue supplies WETH directly.
