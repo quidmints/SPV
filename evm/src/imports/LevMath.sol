@@ -577,50 +577,6 @@ library LevMath {
     }
 
 
-    /// @notice ⭐ **THE CONVERSION PRIMITIVE: M INPUTS → ONE OUTPUT, THROUGH THE PINNED AGGREGATOR.**
-    ///         Every value conversion in this protocol is an instance of it — a pro-rata basket
-    ///         bundle, a single borrowed stable, WETH, WBTC or weETH — and the only thing that
-    ///         differs is what goes in.
-    /// @dev ⭐ **ONE BODY, BECAUSE THERE IS ONE OPERATION.** `_stableToWethSor`, `_stableToWbtc`,
-    ///      `_volToStable`, `_wethToStableDex`, `_hubSwap` and `sellWeethOnCurve` are six spellings
-    ///      of "turn what we hold into what we owe". Six spellings is six places to add a router, six
-    ///      approval patterns to get wrong, and six ways for the basket's offramp to drift from the
-    ///      lever's — which had ALREADY happened once (§ONE-WEETH-HOP).
-    /// @dev 🔴 **`routes` IS PER-INPUT BECAUSE AGGREGATOR CALLDATA IS SINGLE-INPUT.** No aggregator
-    ///      takes a multi-token input, so M inputs is M router calls. That is not a workaround: it is
-    ///      what gives the split across venues that do not compete for the same liquidity, and a
-    ///      pro-rata bundle supplies that spread **by construction** with nobody choosing it
-    ///      (§PRO-RATA-IN-ONE-TOKEN-OUT).
-    /// @dev 🔒 **THE SECURITY MODEL IS UNCHANGED FROM `_aggSwap`, AND THAT IS THE POINT — the caller
-    ///      proposes a path, the contract verifies an OUTCOME:**
-    ///        1. the callee is the PINNED router; a route naming anything else cannot be reached;
-    ///        2. each approval is EXACT and ZEROED on both paths, so a failed leg leaves no standing
-    ///           claim on the next block's balance;
-    ///        3. `minOut` is enforced ONCE, on the MEASURED BALANCE DELTA OF THE WHOLE OPERATION —
-    ///           never per-leg and never on a router return value, which is a number the callee
-    ///           chooses. A hostile or stale route can therefore fail the bound; it cannot extract.
-    ///      ⚠️ `minOut` MUST be oracle-derived by the caller. This function does NOT value its own
-    ///      inputs — valuation differs per asset class and already lives correctly at each call site,
-    ///      where the size-aware `_slipBps` is applied.
-    function convertTo(address[] memory inTokens, uint256[] memory inAmounts,
-                       address outToken, uint256 minOut, bytes[] memory routes)
-        internal returns (uint256 got) {
-        uint256 n = inTokens.length;
-        require(n == inAmounts.length && n == routes.length, "convertTo/len");
-        uint256 before_ = IERC20Min(outToken).balanceOf(address(this));
-        for (uint256 k; k < n; ++k) {
-            uint256 amt = inAmounts[k];
-            if (amt == 0 || inTokens[k] == outToken) continue;   // nothing to do / already the target
-            IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, 0);
-            IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, amt);
-            (bool ok, ) = ONEINCH_ROUTER.call(routes[k]);
-            IERC20Min(inTokens[k]).approve(ONEINCH_ROUTER, 0);   // zeroed on BOTH paths
-            if (!ok) revert NoVolatileRoute();
-        }
-        got = IERC20Min(outToken).balanceOf(address(this)) - before_;
-        if (got < minOut) revert Slippage();                     // ONE floor, on the WHOLE conversion
-    }
-
     /// @notice weETH → WETH on a Curve pool. **THE ONLY IMPLEMENTATION OF THIS TRADE IN THE TREE.**
     /// @dev 🔴 **IT WAS WRITTEN TWICE.** `LevMath._weethToWethDex` (the lever's de-lever) and
     ///      `SwapLib.curveSellWeeth` (the basket's weETH offramp) were the SAME six lines — approve,

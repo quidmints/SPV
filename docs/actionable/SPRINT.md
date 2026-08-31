@@ -1724,7 +1724,51 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
-## 🔴 **§THE-PINNED-ROUTER-IS-NOT-THE-USABLE-ONE — "1inch only" + "no API key" + "all venues" IS UNSATISFIABLE, AND FOUND BY TRYING TO TEST** (2026-08-31)
+## ✅ **§GHO-IS-REACHABLE-AFTER-ALL — "1inch ONLY" SETTLED, AND IT CAPS THE CHEAPEST DOLLAR RATHER THAN KILLING IT** (owner, 2026-08-31: *"no kyber only 1inch"*)
+
+**Directive taken: 1inch only.** With no API key that fixes the trilemma at **pool words** —
+`unoswap`/`unoswap2`/`unoswap3`, reaching **UniswapV2, UniswapV3 and Curve** (the three protocol
+families `dex >> 253` encodes). ⛔ **`convertTo` (the arbitrary-calldata primitive) IS THEREFORE
+UNREACHABLE AND HAS BEEN DELETED** — standing rule 1, and the design survives in this row. It is not
+the `create_sweep_tx` case: that is a tested function awaiting an unbuilt caller, this is a function
+whose caller *cannot exist* under the directive.
+
+### 🔴 AND I WAS WRONG THAT GHO IS UNREACHABLE — FIFTH TIME I READ "BEST" AS "ONLY"
+§CURVE-ALONE-CANNOT-DO-IT reported *"GHO's only venue is Fluid"*. **That was Kyber's answer to
+"cheapest", and I read it as "the only one that exists."** Measured directly:
+| venue | GHO held |
+|---|---|
+| **GHO/crvUSD (Curve)** | **915,915 GHO** ✅ `unoswap`-addressable |
+| GHO/USDe (Curve) | 30,002 |
+| GHO/USDC (Curve) | 0 |
+| UniV3, every tier (100/500/3000/10000) | dead or absent |
+⇒ **GHO routes as `unoswap2`: GHO → crvUSD → USDC, both hops Curve, both addressable** — the exact
+two-hop shape landed in `3c81ad31`.
+
+### 📊 SO THE COST IS A CAPACITY CAP, MEASURED
+| size | GHO → crvUSD |
+|---|---|
+| \$50k | **0.076%** |
+| \$100k | **0.092%** |
+| \$250k | **0.201%** |
+| \$500k | 🔴 **23.4%** |
+**The cliff is the pool's OTHER side: crvUSD holds only 383,945 against GHO's 915,915.** ⇒ **GHO is
+usable to roughly \$250k per conversion and unusable beyond it.**
+⭐ **THAT IS THE CAPACITY SPLIT AGAIN, ARRIVING FROM THE ROUTE INSTEAD OF THE LENDER.** §V4-IS-FULL
+found collateral capacity binding before borrow capacity; here **route capacity binds before both**:
+Aave v3 will lend **\$24M** of GHO and the keyless path can move **\$250k** of it at a time.
+⇒ **The policy is unchanged and now fully quantified: take GHO's fixed 3.75% for what the route
+carries, and the remainder in USDT/USDC — whose 3pool leg costs 1.7 bps and is effectively
+unbounded.** The cheapest dollar is not lost to the directive; it is rationed by it.
+
+### 🧾 THE PATTERN, FIFTH OCCURRENCE, AND IT IS ALWAYS THE SAME SHAPE
+`unoswap`-only · the 2-entry Curve table · the USDC pivot · source selection · and now *"GHO is
+Fluid-only"*. **Every one was a property of the ANSWER I happened to get, promoted to a property of
+the world.** An aggregator returns the CHEAPEST route; asking it what exists is a different question,
+and the tool never volunteers the difference. ⇒ **When a router names one venue, enumerate the others
+before concluding there are none.**
+
+## 🔴 **[SETTLED 2026-08-31 — owner: "no kyber only 1inch". The trilemma resolves at pool words; `convertTo` is deleted as unreachable. GHO turns out to be reachable via Curve anyway — see §GHO-IS-REACHABLE-AFTER-ALL above.] §THE-PINNED-ROUTER-IS-NOT-THE-USABLE-ONE — "1inch only" + "no API key" + "all venues" IS UNSATISFIABLE, AND FOUND BY TRYING TO TEST** (2026-08-31)
 
 Wrote `LevMath.convertTo` (M inputs → 1 output, caller-supplied calldata, one oracle floor on the
 whole conversion). **It compiles. It cannot be tested, and it cannot be used, for a reason that is not
