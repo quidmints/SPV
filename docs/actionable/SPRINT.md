@@ -830,9 +830,28 @@ then calls `_finalizeClose(channelId, **channels[channelId].amountSats**)` (`:19
 channel value**. Compare `recordClose`, which passes the **measured** `lpPayoutSats` (`:1883`), and the
 dead-man path, which passes `_lpFinalBalance(...)` (`:1956`). ⇒ **A force close is recorded as though
 the LP received the entire channel, whatever the commitment actually paid.**
-⇒ **SO THE BREACH LOSS LANDS ON THE POOL, NOT THE LP** — the LP's position retires whole on the EVM
-while the Bitcoin commitment paid it the older, smaller balance, and **nothing anywhere emits that the
-two disagree.** Silent, which is the property that makes it dangerous rather than merely costly.
+⛔ **CORRECTED 2026-08-31, AND THE CORRECTION CHANGES THE FIX. THIS ROW SAID *"SO THE BREACH LOSS
+LANDS ON THE POOL, NOT THE LP"*. THAT IS BACKWARDS.** Traced through the settlement rather than
+assumed: `_finalizeClose` ends in `btc.requestRedeem(ch.lpEth, lpPayoutSats)` → `Vault._resize(...,
+full=true)`, whose contract is *"`shrinkSats − lpPayout` is the DOLLAR (delivered) slice"*. For a full
+close `shrinkSats == amountSats`, so passing `lpPayoutSats = amountSats` makes **`delivered = 0` and
+the LP is paid NOTHING in dollars.** ⇒ **THE LP ABSORBS THE BREACH: its position retires as though it
+had recovered the whole channel in BTC, while the stale commitment paid it the older, smaller balance.**
+The pool is unharmed — backing is decremented by the sats that genuinely left, and nothing is minted.
+🔴 **AND THAT IS WHY THE OBVIOUS FIX IS A HOLE-TRADE THAT MUST NOT BE BUILT.** "Measure the real
+`to_remote` and pass it to `_finalizeClose`" sets `delivered = amountSats − to_remote > 0` and **pays
+the LP that difference in dollars minted against sats AN ATTACKER NOW HOLDS.** That does not recover
+the loss; it MOVES it from the LP onto QUI holders, silently, on the word of a transaction the attacker
+chose. ⛔ **DO NOT RE-VALUE THE FORCE-CLOSE PAYOUT.**
+✅ **AND `delivered = 0` IS CORRECT FOR AN HONEST FORCE CLOSE — verified, not assumed.** Swap-out
+proceeds are paid AT DELIVERY (`deliverSwapOutOnchain` → `Vault.resize(..., exactUsd)`), and every
+delivery splice shrinks the channel (`_applySplice`, `ch.amountSats = p.amountSats`, `:1374`). So by
+close time there are no unsettled proceeds, and an honest commitment's `to_remote` should pay the LP
+essentially the whole REMAINING `amountSats`. 🔑 **THAT IS WHAT MAKES THE BREACH TEST CRISP: honest ⇒
+`to_remote ≈ amountSats`; a replayed older state pays LESS, and the shortfall IS the theft.**
+⇒ **THE DEFECT IS THEREFORE NOT MIS-VALUATION BUT SILENCE: nothing anywhere emits that the commitment
+and the contract's own attestation disagree.** Silent is the property that makes it dangerous rather
+than merely costly, and it is the property the fix must remove.
 
 ▶️ **THE FIX KEEPS THE LP RUNNING NOTHING, BECAUSE ALL THREE INPUTS ALREADY EXIST ON-CHAIN:**
 `checkpointOf` (the fleet's own last attestation), `paidOutSinceCheckpoint` (legitimate outflows), and
@@ -841,6 +860,14 @@ what the commitment paid the LP against `checkpointOf − paidOutSinceCheckpoint
 **self-evident breach, proven by the fleet's own signed attestation.** No LP participation, no
 revocation secret, no per-update work — and the existing **keyless** `quid-watchtower` can submit it,
 since detecting this needs observation only.
+⚠️ **WHAT THE CONTRACT DOES ON DETECTION, STATED SO IT IS NOT GUESSED (see the correction above):**
+**EMIT, DO NOT RE-VALUE, AND DO NOT REVERT.** Re-valuing moves the loss onto QUI holders. Reverting is
+worse than doing nothing: the channel stays `STATUS_OPEN` with its BTC already gone, so `totalSatsLocked`
+keeps counting backing that does not exist — the permissionless retire exists precisely to stop that.
+⇒ **Retire as today (`delivered = 0`, minting nothing) AND emit a quantified breach event.** The BTC
+cannot be clawed back by any on-chain action here; what the fix buys is that the theft becomes
+PROVABLE and ATTRIBUTABLE on-chain, from the fleet's own signed attestation, which is the precondition
+for every response that exists outside this contract.
 ⚠️ **THE ONE REAL OBSTACLE, STATED SO IT IS NOT DISCOVERED LATE:** the contract must identify the LP's
 output in a commitment tx, and that is **not** `_lpPayoutScript(lpEth)` — an LN commitment pays
 `to_remote`, derived from the counterparty's payment basepoint, not from `btcRecipientOf`. ⇒ **Pin the
