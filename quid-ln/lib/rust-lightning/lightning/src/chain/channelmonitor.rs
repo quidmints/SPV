@@ -7645,6 +7645,111 @@ mod tests {
 	}
 
 	#[test]
+	/// QU!D PATCH TEST (§SPLICE-ROTATES-BOTH-FUNDING-KEYS): `original_funding_pubkeys` must survive
+	/// BOTH a serialization round-trip AND a funding-scope rotation.
+	///
+	/// 🔴 THE DEFECT THIS EXISTS TO CATCH, AND IT IS SILENT IN BOTH DIRECTIONS. The accessor falls
+	/// back to `funding_pubkeys()` when the field is absent, which is correct only for a monitor
+	/// written before the patch. If TLV 39 ever fails to persist, that fallback fires after every
+	/// RESTART and hands back the ROTATED pair while claiming to be the original — reintroducing the
+	/// exact bug the patch fixes, on the reload path, with no error anywhere. And if the field were
+	/// ever repointed at the live scope, the rotation half would break instead. So both halves are
+	/// asserted, and the rotation is asserted to be VISIBLE through `funding_pubkeys()` — otherwise
+	/// this test would pass against a monitor that simply never rotates.
+	fn test_original_funding_pubkeys_survive_rotation_and_round_trip() {
+		let secp_ctx = Secp256k1::new();
+		let keys = InMemorySigner::new(
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			true,
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			[41; 32],
+			[0; 32],
+			[0; 32],
+		);
+		let counterparty_pubkeys = ChannelPublicKeys {
+			funding_pubkey: PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[44; 32]).unwrap()),
+			revocation_basepoint: RevocationBasepoint::from(PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[45; 32]).unwrap())),
+			payment_point: PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[46; 32]).unwrap()),
+			delayed_payment_basepoint: DelayedPaymentBasepoint::from(PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[47; 32]).unwrap())),
+			htlc_basepoint: HtlcBasepoint::from(PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[48; 32]).unwrap())),
+		};
+		let funding_outpoint = OutPoint { txid: Txid::all_zeros(), index: u16::MAX };
+		let channel_id = ChannelId::v1_from_funding_outpoint(funding_outpoint);
+		let channel_parameters = ChannelTransactionParameters {
+			holder_pubkeys: keys.pubkeys(&secp_ctx),
+			holder_selected_contest_delay: 66,
+			is_outbound_from_holder: true,
+			counterparty_parameters: Some(CounterpartyChannelTransactionParameters {
+				pubkeys: counterparty_pubkeys,
+				selected_contest_delay: 67,
+			}),
+			funding_outpoint: Some(funding_outpoint),
+			splice_parent_funding_txid: None,
+			channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
+			channel_value_satoshis: 0,
+		};
+		let dummy_key = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let shutdown_script = ShutdownScript::new_p2wpkh_from_pubkey(dummy_key);
+		let best_block = BestBlock::from_network(Network::Testnet);
+		let monitor = ChannelMonitor::new(
+			Secp256k1::new(), keys, Some(shutdown_script.into_inner()), 0, &ScriptBuf::new(),
+			&channel_parameters, true, 0,
+			HolderCommitmentTransaction::dummy(0, funding_outpoint, Vec::new()),
+			best_block, dummy_key, channel_id, false,
+		);
+
+		// ⚠️ REQUIRED BEFORE `encode()`, AND THE FIRST VERSION OF THIS TEST OMITTED IT: a monitor
+		// straight out of `new()` still carries SENTINEL commitment numbers with their high bits set,
+		// and they are serialized as 48-bit, so `encode()` trips
+		// `byte_utils.rs`'s `u & 0xffff_0000_0000_0000 == 0`. The sibling tests never serialize, which
+		// is why nothing else in this module needs these two calls.
+		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(0, funding_outpoint, Vec::new());
+		monitor.provide_latest_holder_commitment_tx(dummy_commitment_tx, &Vec::new());
+		monitor.provide_latest_counterparty_commitment_tx(
+			Txid::from_byte_array(Sha256::hash(b"1").to_byte_array()),
+			Vec::new(), 281474976710655, dummy_key,
+		);
+
+		// The pair the channel OPENED with — what `BTCChannels` hashes into `channelId`.
+		let opening = monitor.original_funding_pubkeys().expect("counterparty params are populated");
+		assert_eq!(opening, monitor.funding_pubkeys().unwrap(),
+			"before any splice the original pair IS the live pair");
+
+		// ── 1. ROTATE THE FUNDING SCOPE, exactly as a splice lock does. ──
+		let rotated_holder = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[51; 32]).unwrap());
+		let rotated_counterparty = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[52; 32]).unwrap());
+		{
+			let mut inner = monitor.inner.lock().unwrap();
+			inner.funding.channel_parameters.holder_pubkeys.funding_pubkey = rotated_holder;
+			inner.funding.channel_parameters.counterparty_parameters.as_mut().unwrap()
+				.pubkeys.funding_pubkey = rotated_counterparty;
+		}
+		// The rotation must be VISIBLE, or the assertions below prove nothing.
+		assert_eq!(monitor.funding_pubkeys().unwrap(), (rotated_holder, rotated_counterparty),
+			"precondition: the live pair followed the rotated scope");
+		assert_eq!(monitor.original_funding_pubkeys().unwrap(), opening,
+			"the ORIGINAL pair must NOT follow a rotation -- this is what channelId is built from");
+
+		// ── 2. ROUND-TRIP. TLV 39 must persist, or the accessor's pre-patch fallback fires on
+		//    every reload and silently returns the ROTATED pair. ──
+		let encoded = monitor.encode();
+		let keys_manager = crate::sign::KeysManager::new(&[0u8; 32], 42, 42, false);
+		let mut r = &encoded[..];
+		let (_, reloaded) = <(BlockHash, ChannelMonitor<InMemorySigner>)>::read(
+			&mut r, (&keys_manager, &keys_manager),
+		).expect("monitor round-trips");
+		assert!(r.is_empty(), "the whole monitor was consumed");
+		assert_eq!(reloaded.original_funding_pubkeys().unwrap(), opening,
+			"TLV 39 did not survive the round-trip: the accessor fell back to the live (rotated) pair");
+		assert_eq!(reloaded.funding_pubkeys().unwrap(), (rotated_holder, rotated_counterparty),
+			"and the live pair still reflects the rotated scope after reload");
+	}
+
+	#[test]
 	#[rustfmt::skip]
 	fn test_with_channel_monitor_impl_logger() {
 		let secp_ctx = Secp256k1::new();

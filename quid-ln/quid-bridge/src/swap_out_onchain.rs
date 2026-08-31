@@ -108,7 +108,11 @@ fn select_delivery_channels<R: JsonRpc>(
         if let Ok(m) = chain_monitor.get_monitor(ch_id) {
             let orig = m.original_funding_txo();
             let cp = m.get_counterparty_node_id();
-            if let Some((h, c)) = m.funding_pubkeys() {
+            // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) IDENTITY, NOT SPEND: pair the ORIGINAL outpoint with
+            // the ORIGINAL pubkeys. `BTCChannels` hashes both originals into `channelId`
+            // (`ChannelLib.sol:617`), and LDK rotates the pair on every splice, so reading the live
+            // `funding_pubkeys()` here yielded a cid no channel on the EVM has.
+            if let Some((h, c)) = m.original_funding_pubkeys() {
                 let (k0, k1) = sort_funding_pubkeys(h.serialize(), c.serialize());
                 let cid = channel_id(&k0, &k1, txid_internal(&orig.txid), orig.index as u32);
                 candidates.push((cid, cp));

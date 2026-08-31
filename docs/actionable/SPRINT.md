@@ -12464,7 +12464,47 @@ Tests rewritten, not deleted: `test_spliceCannotRekeyTheChannel` →
 `test_spliceMustSpendThisChannelsFundingOutpoint` (asserts the gate that actually holds), and
 `test_rekeyRefusesToMoveTheLpHalf` → `test_spliceAbsorbsAnLdkRotationOfBothHalves` (**asserts the
 inverse of what it used to**, which is the point).
-🔴 **STILL OPEN:** the Rust half below — `onchain_cid_from_monitor` and `drive_close`'s fallback.
+✅ **RUST HALF LANDED TOO (same day).** The root fix is a monitor patch of the SAME SHAPE as the
+existing `original_funding_txo` one, which had stopped one step short of its own reasoning:
+`first_negotiated_funding_pubkeys: Option<(PublicKey, PublicKey)>`, pinned at construction while
+`channel_parameters` still describes the FIRST funding scope, persisted as **TLV 39 `option`** (37 was
+the previous highest; both blocks checked for collisions). `(PublicKey, PublicKey)` round-trips as 66
+fixed bytes via `impl_tuple_ser!(a: A, b: B)`. New accessor `ChannelMonitor::original_funding_pubkeys()`
+falls back to `funding_pubkeys()` **only** for monitors written before the patch — the field is left
+`None` on read rather than back-filled, so that fallback is VISIBLE at the accessor instead of a
+rotated pair masquerading as the original. `onchain_cid_from_monitor` and `drive_close`'s fallback (via
+a new `original_channel_funding_pubkeys`) both read it now. Documented in `QUID_PATCHES.md`.
+✅ **AND IT IS TESTED, not argued:** `test_original_funding_pubkeys_survive_rotation_and_round_trip`
+rotates the funding scope in place, asserts the rotation is VISIBLE through `funding_pubkeys()` (or the
+test would pass against a monitor that never rotates), asserts the ORIGINAL pair does not follow, then
+round-trips the monitor and asserts TLV 39 survived. 📌 **The reason that second half needed a test and
+not an argument: the accessor's pre-patch fallback is SILENT.** If TLV 39 ever failed to persist, the
+fallback would fire on every RESTART and return the rotated pair while claiming to be the original —
+the same bug, on the reload path, with no error anywhere.
+🔎 **COMPLETENESS SWEEP — THE BUG WAS SYSTEMIC, NOT LOCAL. SIX IDENTITY SITES, ALL FIXED.**
+`onchain_cid_from_monitor` was not one mistake; **every site that builds a `channelId` paired the
+ORIGINAL outpoint with the LIVE pair**, i.e. the `original_funding_txo` patch was applied everywhere
+it was needed and its pubkey half was missed everywhere:
+| site | was | now |
+|---|---|---|
+| `node.rs:172` `onchain_cid_from_monitor` | `original_funding_txo` + `funding_pubkeys` | both original |
+| `channel_driver.rs` close fallback | live pair via `channel_funding_pubkeys` | `original_channel_funding_pubkeys` |
+| `channel_driver.rs` `Ready` handler | live pair | original (⚠️ EQUIVALENT here — `Ready` is the first funding — changed so the identity accessor is the one used at identity sites) |
+| `channel_driver.rs:1519` reconciler | `orig.txid` + `funding_pubkeys` | both original |
+| `vault.rs:707` cid→LDK-channel lookup | `original_funding_txo` + `funding_pubkeys` | both original |
+| `swap_out_onchain.rs:111` delivery candidates | `original_funding_txo` + `funding_pubkeys` | both original |
+✅ **AND THE SPEND SITES WERE ALREADY RIGHT, WHICH IS WHY THIS WAS EASY TO MISS.** `deadman_exit.rs`
+and `e2e_ffi.rs` read the LIVE pair — correctly, they are signing against the CURRENT output — and
+`deadman_exit.rs` even reasons about the rotation out loud (*"#114 splice-scope … a spliced channel
+now signs the ROTATED key → valid on Q'"*). ⇒ **The codebase understood the rotation on the SPEND
+side and not on the IDENTITY side.** 🔑 **THE RULE, NAMED SO IT DOES NOT REGRESS: `funding_pubkeys()`
+IS FOR WHAT A TRANSACTION SPENDS; `original_funding_pubkeys()` IS FOR WHAT A CHANNEL IS.**
+
+📌 **PROCESS NOTE: `lib/rust-lightning` IS testable** — it is an EXCLUDED, independent workspace
+(`quid-ln/Cargo.toml`'s `exclude`), so `cargo test --manifest-path
+quid-ln/lib/rust-lightning/lightning/Cargo.toml --lib` works. `-p lightning` from the quid-ln
+workspace does NOT, and its error (*"not a member of the workspace"*) reads like the crate is
+untestable. It is not — **do not conclude a vendored LDK change cannot be covered.**
 
 
 Found 2026-08-31 answering the owner's question *"can that basepoint survive our rekeys — make sure all

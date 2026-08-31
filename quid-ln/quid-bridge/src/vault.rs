@@ -704,7 +704,11 @@ impl VaultNode {
         for ch_id in self.node.chain_monitor.list_monitors() {
             if let Ok(m) = self.node.chain_monitor.get_monitor(ch_id) {
                 let orig = m.original_funding_txo();
-                if let Some((h, c)) = m.funding_pubkeys() {
+                // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) IDENTITY, NOT SPEND: pair the ORIGINAL outpoint with
+                // the ORIGINAL pubkeys. `BTCChannels` hashes both originals into `channelId`
+                // (`ChannelLib.sol:617`), and LDK rotates the pair on every splice, so reading the live
+                // `funding_pubkeys()` here yielded a cid no channel on the EVM has.
+                if let Some((h, c)) = m.original_funding_pubkeys() {
                     let (k0, k1) = sort_funding_pubkeys(h.serialize(), c.serialize());
                     let cid = channel_id(&k0, &k1, txid_internal(&orig.txid), orig.index as u32);
                     if cid == on_chain_cid {

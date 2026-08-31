@@ -1061,7 +1061,12 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
             } => {
                 // Record LDK channel_id → on-chain channelId for a future splice
                 // (the on-chain id is keyed on this ORIGINAL funding outpoint).
-                let oc = channel_funding_pubkeys(
+                // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) `original_channel_funding_pubkeys`, not the
+                // live one. EQUIVALENT HERE — `Ready` fires on the FIRST funding, so the two agree —
+                // but this is an IDENTITY use, and every other identity site in this repo paired the
+                // original outpoint with the LIVE pair and was wrong for it. Using the identity
+                // accessor makes that impossible to get wrong if `Ready` ever fires post-splice.
+                let oc = original_channel_funding_pubkeys(
                     &chain_monitor, &channel_manager, funding_txid, funding_vout,
                 )
                 .map(|(pa, pb)| {
@@ -1516,7 +1521,11 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
                     let pending_splice_txids: Vec<bitcoin::Txid> =
                         m.pending_funding_txos().into_iter().map(|op| op.txid).collect();
                     // `funding_pubkeys` is None until counterparty params are set.
-                    m.funding_pubkeys().map(|(h, c)| {
+                    // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) IDENTITY, NOT SPEND: pair the ORIGINAL outpoint with
+                    // the ORIGINAL pubkeys. `BTCChannels` hashes both originals into `channelId`
+                    // (`ChannelLib.sol:617`), and LDK rotates the pair on every splice, so reading the live
+                    // `funding_pubkeys()` here yielded a cid no channel on the EVM has.
+                    m.original_funding_pubkeys().map(|(h, c)| {
                         let (k0, k1) = sort_funding_pubkeys(h.serialize(), c.serialize());
                         let cid =
                             channel_id(&k0, &k1, txid_internal(&orig.txid), orig.index as u32);
