@@ -1631,6 +1631,52 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
+## ⭐ **§SOURCE-SELECTION-IS-PART-OF-THE-ROUTE — NOTHING CHOOSES WHICH BASKET DOLLAR TO SPEND, AND THE BASKET'S DIVERSITY IS AN EXECUTION ASSET WE DO NOT USE** (owner, 2026-08-31: *"consider all of them … it needs to be dynamic, and consider what dollars we have in the basket for the best execution"*)
+
+**Measured: no code path anywhere chooses a source dollar for execution quality.** The source is always
+decided by something else entirely:
+| path | what picks the source | is it a choice? |
+|---|---|---|
+| lever / IL-protect | **`venue.stable()`** — whatever the venue was constructed with | ⛔ no, and `poolVenue` pins it on the FIRST open, forever |
+| OOR fill | `i.payoutToken` — the maker's DESTINATION preference | ⛔ no, that names where the money GOES |
+| legacy hub hop | **hardcoded USDC** | ⛔ no |
+⇒ **The dollar we spend is an accident of configuration, never a decision.**
+
+### 🔴 THE PATTERN I KEEP REPEATING, NAMED SO IT STOPS
+Four times this session I reasoned from a hardcoded assumption as though it were a constraint:
+`unoswap`-only (→ retracted); the two-entry Curve table (→ made dynamic); the USDC pivot (→ still
+present in the legacy bridge); and now **source selection, which never existed at all**. ⚠️ **Each time
+the code's current shape was read as the problem's shape.** ⇒ **Before treating anything as fixed, ask
+whether it is a property of the PROBLEM or an artefact of what was built first.**
+
+### ⭐ THE DESIGN THAT FOLLOWS — AND IT MAKES DIVERSITY PAY FOR ITSELF
+Basket composition is **readable**: `Aux.get_deposits()` returns `uint[15] amounts`. (It is not
+`view`, so it refreshes — but `eth_call` executes it fine, so an off-chain solver sees live
+composition.) So the full problem is:
+> **given live composition, the target asset and the size — choose WHICH DOLLARS to spend and WHICH
+> VENUES to cross, JOINTLY, for best execution.**
+⭐⭐ **AND MULTI-SOURCE BEATS SINGLE-SOURCE, WHICH IS THE PART THAT MAKES THIS WORTH BUILDING.** Drawing
+\$5M entirely from USDC pays one pool's depth curve; \$2M USDC + \$2M USDT + \$1M DAI pays three
+shallow slices instead of one deep one. **Holding 14 stables means the protocol can split across
+venues that do not compete for the same liquidity — the same thing an aggregator does across pools,
+one level up.** §CURVE-ALONE-CANNOT-DO-IT already measured how differently each stable routes (DAI and
+USDS at **0.000%** through par converters; GHO only via Fluid), so the spread between a good source
+plan and a bad one is real, not theoretical.
+🤝 **AND IT RECONCILES WITH THE OWNER'S STANDING CONSTRAINT RATHER THAN FIGHTING IT.** *"Do not swap
+out of basket stables into USDC just to use the routes we can"* — under a solver the usual answer is
+to **spend down the OVER-WEIGHT stable**, because the one we hold most of is typically the one with
+the deepest route. **Best execution and basket balance point the same way most of the time**; where
+they diverge the solver can weigh them, which a hardcoded pivot can never do.
+
+### 🧱 SHAPE OF THE BUILD (unchanged security model)
+Caller supplies a **source plan** — which stables, how much of each — plus the calldata for each leg.
+The contract verifies only what it can: **it drew no more than the plan said, and the TOTAL output
+cleared the oracle floor on a measured balance delta.** Same "caller proposes, contract verifies"
+discipline as `_aggSwap`, `spendClaim` and `positionOf`.
+⇒ **This is the same primitive as the routing work, not a second one** — the source plan is simply the
+input side of the route, and it must land in the SAME call so one mechanism serves in-range, OOR and
+IL-protect (owner: *"make sure not to duplicate"*).
+
 ## ⭐ **§FULL-AGGREGATOR-ON-THE-LEVER-TOO — THE OBSTACLE IS ONE ORACLE READ, AND REMOVING IT UNBLOCKS THE ENTIRE CHEAPEST-DOLLAR PROGRAMME** (owner, 2026-08-31: *"why isnt it full aggregator for IL protect also? no benefit there? remember that i have no api key regardless"*)
 
 **There is benefit, it is the largest one on the board, and my "amounts are computed mid-transaction"
