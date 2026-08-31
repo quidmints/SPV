@@ -1724,6 +1724,47 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
+## 🔴 **§THE-PINNED-ROUTER-IS-NOT-THE-USABLE-ONE — "1inch only" + "no API key" + "all venues" IS UNSATISFIABLE, AND FOUND BY TRYING TO TEST** (2026-08-31)
+
+Wrote `LevMath.convertTo` (M inputs → 1 output, caller-supplied calldata, one oracle floor on the
+whole conversion). **It compiles. It cannot be tested, and it cannot be used, for a reason that is not
+about the code.**
+
+### 📡 THE TWO ADDRESSES
+| | |
+|---|---|
+| `ONEINCH_ROUTER` — **pinned constant**, §C2.1 records the owner directive *"1inch only"* | `0x111111125421cA6dc452d289314280a0f8842A65` |
+| **KyberSwap router — the KEYLESS aggregator whose calldata this session FORK-EXECUTED** | `0x6131B5fae19EA4f9D964eAc0408E4408b66337b5` |
+⇒ **They are different contracts.** Kyber calldata sent to the 1inch router is not a swap; it is a
+failed call. Built two real routes to prove the primitive (\$250k USDC → **101.52 WETH**, \$250k USDT
+→ **101.49 WETH**) and neither can be delivered to the pinned callee.
+
+### 🔺 THE TRILEMMA, STATED EXACTLY — PICK TWO
+1. **"1inch only"** (the recorded directive)
+2. **No API key** (the owner's standing constraint, restated three times)
+3. **Full venue coverage** — Fluid, Balancer, Maverick, par converters, SPLIT routes
+- **1 + 2** ⇒ `unoswap`/`unoswap2` with POOL WORDS. Keyless, works today, and §CURVE-ALONE-CANNOT-DO-IT
+  measured what it costs: **GHO unreachable (Fluid-only), DAI and USDS routed through pools instead of
+  the 0.000% par converters, no splits.** This is what is built.
+- **1 + 3** ⇒ 1inch `swap()` with off-chain calldata ⇒ **needs the key.**
+- **2 + 3** ⇒ a keyless aggregator ⇒ **not 1inch.**
+⇒ **The directive and the constraint were never in conflict until full venue coverage became the
+goal.** Nothing here is a mistake; the third requirement is new.
+
+### ▶️ THE SMALL CHANGE THAT RESOLVES IT WITHOUT WEAKENING ANYTHING
+**Make the aggregator a GOVERNANCE-SET address instead of a compile-time constant.**
+⭐ **The security property that matters is untouched: the CALLER still never picks the destination.**
+"Pinned" was always doing the work of *"not chosen by whoever submits the transaction"* — and a
+governance-set address satisfies that exactly as a constant does, while adding the ability to switch
+if an aggregator dies, degrades, or a key later arrives. **A hardcoded router is not safer than a
+governed one against the attacker we actually model (the caller); it is only harder to fix.**
+⚠️ **AND IT IS A REAL TRUST DECISION, WHICH IS WHY IT IS NOT MINE TO MAKE:** it changes which third
+party executes the protocol's swaps. Kyber's quotes matched execution to **eight significant figures**
+on the GHO route this session, so it is not unevidenced — but it is a different counterparty from the
+one the directive names.
+📌 **`convertTo` needs no change under any outcome** — it reads the router from wherever it is stored.
+The blocker is the address, not the primitive.
+
 ## ✅ **§PRO-RATA-IN-ONE-TOKEN-OUT — THE SOURCE-PLAN PROBLEM DOES NOT EXIST, BECAUSE THERE IS NO SOURCE CHOICE** (owner, 2026-08-31: *"pro-rata is always always the result that gets routed through the aggregator, its rare that any swapper or QUI redeemer will want multiple tokens"*)
 
 **This dissolves two rows rather than answering them.** §THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION built
