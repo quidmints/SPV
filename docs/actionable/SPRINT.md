@@ -1331,6 +1331,51 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK — RETRACTED. IT WOULD TRADE A 1% CEILING FOR A 5% ONE** (owner, 2026-08-31: *"the contract credits the position at oracle value, not at what the route returned??? why like this"*)
+
+**The instinct behind the question is correct and my proposal does not survive it.** Retracting it
+the same turn it was made, before anyone builds from it.
+
+### 💡 WHY I PROPOSED IT (the reasoning was not stupid, the conclusion was)
+If the position receives *whatever the route returned*, then **whoever picks the route decides what the
+position gets**, and can pick one returning the bare minimum. Crediting at oracle removes the caller's
+influence over the position's outcome entirely — the caller then eats or keeps the spread. That does
+close the skim.
+
+### 🔴 AND HERE IS WHY IT IS WRONG ANYWAY — IT PROMOTES THE ORACLE FROM A *BOUND* TO A *PRICING SOURCE*
+Today the route's **actual output is the truth** and the oracle is only a **FLOOR**. My proposal
+inverts that. And §ORACLE-FRESHNESS (booked MEDIUM, OPEN) measures what that inversion costs:
+> settle price is the internal ring TWAP, returned **verbatim** unless it diverges **> 500 bps** from a
+> fresh Chainlink; the ring's only live writer is a **permissionless, unincentivised** push, so if that
+> stream lapses **the settle price can sit up to 500 bps off live Chainlink before the clamp engages.**
+⇒ **I would be crediting positions at a number that can legitimately be 5% wrong, to close a leak
+capped at 1%.** ⛔ **Five times the exposure, and on a path where the mispricing is not even
+attacker-gated — it just happens when the push stream goes quiet.**
+
+### 🔴 AND A SECOND COST I UNDER-WEIGHTED: IT MAKES THE CALLER AN UNDERWRITER
+Pulling the shortfall from the caller means only a **capitalised** party can call. `rebalance` is
+**permissionless today** — deliberately, because §CHEAPEST-DOLLAR's whole security argument is *"a
+compromised enclave holds no authority the public lacks."* ⇒ **Requiring callers to front capital
+narrows that set to well-funded routers and puts a LIVENESS dependency on the IL-protect path**, whose
+entire purpose is to fire when positions are stressed — exactly when spreads are widest and
+underwriting is least attractive.
+
+### ✅ SO THE FIX IS THE SMALL ONE, AND RULE 18 APPLIES TO MY OWN PROPOSAL
+*"A working fix is not automatically the right one"* — I proposed a structural change to close a
+**bounded** leak when **one constant** does most of the work.
+| | leak ceiling | new dependencies |
+|---|---|---|
+| today (`SELL_SLIP_BPS = 100`) | 1% per swap | none |
+| ⭐ **tighten the constant** | **proportional — 15 bps gives ~0.15%** | none |
+| ~~credit at oracle~~ | ~~0%~~ | 🔴 **oracle becomes a pricing source (500 bps window) + capitalised callers** |
+▶️ **§ROUTE-COST-MEASURED puts real execution at 1.7–8 bps** for the stables we route, so **100 bps is
+12–60× the measured need.** Tightening is proportional, needs no new machinery, and adds no oracle
+exposure. ⚠️ **Measure per-route before choosing the number** — a stable whose only venue is thin needs
+more headroom than a 3pool hop, and the number that is safe for USDT is not automatically safe for GHO.
+📌 **AND THE RESIDUAL IS SMALLER THAN THE CEILING SUGGESTS:** `rebalance` is permissionless, so a
+compromised keeper only skims **when it wins the race** against honest callers — the 1% is a
+per-successful-attack bound, not a per-swap certainty.
+
 ## 🔴 **§THE-SLIPPAGE-WINDOW-IS-THE-LEAK — "CAN GRIEF BUT NOT EXTRACT" WAS WRONG, AND THE HOLE PREDATES CALLDATA** (owner, 2026-08-31: *"we must still be fully secure even if the enclave/lightning daemon/keeper is hacked and replaced with malicious code"*)
 
 I recommended accepting aggregator calldata on the lever and claimed a hostile route *"can GRIEF but
@@ -1356,7 +1401,7 @@ the router may pull. ⇒ **The exposure is bounded at the slippage window — ne
 `limitPx`** — *there is no slippage window at all*, so a malicious relayer extracts **zero**. **The
 lever is the exposed path precisely because it settles at a HAIRCUT rather than at the oracle.**
 
-### ⭐ THE DESIGN THAT MEETS THE OWNER'S BAR LITERALLY: **SETTLE AT ORACLE, MAKE THE CALLER WEAR THE SPREAD**
+### 🔴 **[RETRACTED 2026-08-31 — see §CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK above. Crediting at oracle makes the ORACLE a pricing source, and §ORACLE-FRESHNESS measures a 500 bps window — 5x the 1% leak it closes — while also requiring capitalised callers on a permissionless path. TIGHTEN `SELL_SLIP_BPS` INSTEAD.]** ~~THE DESIGN THAT MEETS THE OWNER'S BAR LITERALLY: SETTLE AT ORACLE~~
 Generalise what the fill already does:
 1. the caller supplies the route (any venue, full aggregator);
 2. the contract measures the output and **credits the position at the ORACLE value, not at what the
