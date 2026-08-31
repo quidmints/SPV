@@ -728,6 +728,35 @@ by the anchor regardless"* — as false. **It is essentially TRUE**: with `src =
 `_observeIfSourced` feeds the ring from the anchor on every swap. The row was right; both of my
 passes over it were not. **Twice on one row, from trusting a docblock over the code.**
 
+📜 **`§WHY-PUSHOBSERVATION-EXISTED` (owner: *"there must have been some reason related to skew?"* —
+yes, and BOTH founding reasons are now dead).** From its own commit (`70fcc163`):
+1. **INDEPENDENCE.** *"The ring needs a reading independent of Chainlink, because Chainlink is already
+   the anchor `twapResolve` checks against — source the ring from it too and the deviation test
+   compares Chainlink with Chainlink and can never fire."* The best independent source was 1inch,
+   **unreadable on-chain at 33,573,664 gas against a 30M limit**, so it was read off-chain and pushed.
+2. **SKEW — exactly the connection the owner suspected.** *"A ring sourced from [Chainlink] would
+   measure σ² near zero through real volatility. A DEX-aggregated push carries that intra-update
+   movement, which is what σ² is for. **The bound constrains the level; the information is in the
+   path.**"* σ² feeds `skewWad`, so a flat ring means the ceiling sentinel prices every drain.
+
+⛔ **REASON 2 IS REFUTED BY MEASUREMENT, IN THE FILE ITSELF.** `Core.sol:1713-1719` (§E343): the
+sentence *"a ring sourced from Chainlink would measure σ² ≈ 0"* **"IS REFUTED … AND MUST NOT BE
+RESTORED"** — 60 consecutive ETH/USD rounds gave 57.3 updates/day, 0.53% median move, **implied
+annualised σ = 95.5%**. The flat-line intuition assumed a WALL-CLOCK sample; read PER ROUND, every
+sample already cleared the deviation trigger.
+⛔ **REASON 1 DOES NOT REACH σ².** The same note concludes **"σ² NEEDS NO INDEPENDENT SOURCE —
+§E222's independent-source rule is scoped to `twapResolve`'s DEVIATION TEST"**, and `:1642-1644`
+confirms the observation source's required property is independence from **the ring's own output**,
+not from Chainlink.
+⇒ **`pushObservation` IS A FOSSIL OF A PREMISE ITS OWN FILE HAS SINCE DISPROVED.** It was a correct
+response to a measured-then-refuted belief, and nothing has replaced the belief. **Deleting it is not
+a trade; it is removing the last user of a dead premise** — which is also why the seven fixtures that
+depend on it are testing a superseded path (`§E294-BLOCKED-ON-FIXTURES`).
+📌 **AND THE HISTORICAL NOTE WORTH KEEPING** (`:1636-1641`): the whole *"σ² is UNMEASURED"* saga traced
+to **one unset address** — `src` was never set in production, so `poolStats()` and `_corePrice()` froze
+and `ringVariance` stayed empty, *"which is why §E345/§E352 both spent their effort arguing about what
+'unmeasured' should COST instead of asking why nothing was measuring."*
+
 🟠 **`§E294-BLOCKED-ON-FIXTURES` — the deletion is APPROVED (owner) and CORRECT, and it did not land.**
 Executed, then reverted, because the row never accounted for what else the push is doing:
 1. ✅ **Production is clean** — `pushObservation` has 0 production callers, and the ring/TWAP keep
