@@ -53,6 +53,10 @@ contract OorIntentTest is AllesFixture {
             expiry: uint64(block.timestamp + 1 days), nonce: nonce, loadBalance: true,  payoutToken: address(0) });
     }
 
+    /// No conversion requested: the fill pays the maker's signed token and takes a partial if the
+    /// basket is short. Every test here exercises that path; the routed path has its own suite.
+    function _noRoutes() internal pure returns (bytes[] memory) { return new bytes[](0); }
+
     function _sign(SwapLib.OorIntent memory i, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = keccak256(abi.encodePacked(hex"1901", _domain(),
             keccak256(abi.encode(SwapLib.OOR_TYPEHASH, i.owner, i.buyVolatile, i.size,
@@ -80,7 +84,7 @@ contract OorIntentTest is AllesFixture {
         bytes memory sig = _sign(i, MAKER_PK);
         vm.prank(User02);                       // permissionless relay — anyone may submit
         vm.expectRevert(SwapLib.IntentNotCrossed.selector);
-        ETH.fillIntent(i, sig);
+        ETH.fillIntent(i, sig, _noRoutes());
     }
 
     /// WAS: *"a full pull leaves no ghost in the index."* NOW: **one consumed bit per
@@ -105,8 +109,8 @@ contract OorIntentTest is AllesFixture {
         assertTrue(keccak256(_sign(a, MAKER_PK)) != keccak256(_sign(b, MAKER_PK)),
             "the same limit under two nonces must be two distinct signatures");
         // Both are individually addressable, and both stop at the same guard.
-        vm.expectRevert(SwapLib.IntentNotCrossed.selector); ETH.fillIntent(a, _sign(a, MAKER_PK));
-        vm.expectRevert(SwapLib.IntentNotCrossed.selector); ETH.fillIntent(b, _sign(b, MAKER_PK));
+        vm.expectRevert(SwapLib.IntentNotCrossed.selector); ETH.fillIntent(a, _sign(a, MAKER_PK), _noRoutes());
+        vm.expectRevert(SwapLib.IntentNotCrossed.selector); ETH.fillIntent(b, _sign(b, MAKER_PK), _noRoutes());
     }
 
     /// WAS: *"the poke rejects an order that is not there."* NOW an intent that was never authorised
@@ -117,7 +121,7 @@ contract OorIntentTest is AllesFixture {
         SwapLib.OorIntent memory i = _intent(3, _uncrossedBid(), true);
         bytes memory forged = _sign(i, 0xBAD5EED);      // a real signature, over the real digest
         vm.expectRevert(SwapLib.IntentBadSig.selector);
-        ETH.fillIntent(i, forged);
+        ETH.fillIntent(i, forged, _noRoutes());
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -131,7 +135,7 @@ contract OorIntentTest is AllesFixture {
         bytes memory sig = _sign(i, MAKER_PK);
         vm.warp(uint(i.expiry) + 1);
         vm.expectRevert(SwapLib.IntentExpired.selector);
-        ETH.fillIntent(i, sig);
+        ETH.fillIntent(i, sig, _noRoutes());
     }
 
     /// A MALFORMED SIGNATURE IS REFUSED AS A SIGNATURE, not as an `ecrecover` of address(0).
@@ -141,7 +145,7 @@ contract OorIntentTest is AllesFixture {
     function test_AShortSignatureIsRefused() public {
         SwapLib.OorIntent memory i = _intent(5, _uncrossedBid(), true);
         vm.expectRevert(SwapLib.IntentBadSig.selector);
-        ETH.fillIntent(i, hex"1234");
+        ETH.fillIntent(i, hex"1234", _noRoutes());
     }
 
     /// ⭐ THE FIELDS ARE ALL BOUND BY THE SIGNATURE — changing any one of them after signing
@@ -152,7 +156,7 @@ contract OorIntentTest is AllesFixture {
         bytes memory sig = _sign(i, MAKER_PK);
         i.size = i.size * 10;                            // same signature, different terms
         vm.expectRevert(SwapLib.IntentBadSig.selector);
-        ETH.fillIntent(i, sig);
+        ETH.fillIntent(i, sig, _noRoutes());
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -188,7 +192,7 @@ contract OorIntentTest is AllesFixture {
 
         vm.prank(User02);                                   // a relayer, not the maker
         vm.expectRevert(SwapLib.IntentUnfunded.selector);
-        ETH.fillIntent(i, _sign(i, MAKER_PK));
+        ETH.fillIntent(i, _sign(i, MAKER_PK), _noRoutes());
 
         assertEq(maker.balance, 0, "no ether left the range");
     }
@@ -232,7 +236,7 @@ contract OorIntentTest is AllesFixture {
             expiry: uint64(block.timestamp + 1 days), nonce: 43, loadBalance: false, payoutToken: address(0) });
 
         vm.prank(User02);                                   // still a relayer, not the maker
-        ETH.fillIntent(i, _sign(i, MAKER_PK));
+        ETH.fillIntent(i, _sign(i, MAKER_PK), _noRoutes());
 
         uint claimAfter = QUID.balanceOf(maker);
         assertLt(claimAfter, claimBefore, "THE FIX: the fill DEBITED the maker's claim");
@@ -275,7 +279,7 @@ contract OorIntentTest is AllesFixture {
             payoutToken: address(USDC) });
 
         vm.prank(User02);                              // a relayer, not the maker
-        ETH.fillIntent(i, _sign(i, MAKER_PK));
+        ETH.fillIntent(i, _sign(i, MAKER_PK), _noRoutes());
 
         uint pooledAfter = ETH.balanceOf(maker);
         uint paid = USDC.balanceOf(maker) - usdcBefore;

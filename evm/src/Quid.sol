@@ -6,7 +6,8 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 
 import {BasketLib} from "./imports/BasketLib.sol";
 import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";
-import { ILevEquity, ILevClose } from "./imports/Interfaces.sol";
+import { ILevEquity, ILevClose, IERC20Min } from "./imports/Interfaces.sol";
+import {LevMath} from "./imports/LevMath.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -1260,11 +1261,19 @@ contract Quid is Shares,
     ///         Permissionless — anyone may relay — so a refusing keeper is a LIVENESS problem,
     ///         curable by anyone, never a safety one. Body in `SwapLib` (linked, deployed once):
     ///         this contract is the tightest in the tree and can afford the CALL, not the CODE.
-    function fillIntent(SwapLib.OorIntent calldata i, bytes calldata sig)
+    /// @param routes ONE aggregator route per basket stable, RELAYER-SUPPLIED AND UNSIGNED — the
+    ///        maker cannot know at signing time which venue will be deepest at fill time, and should
+    ///        not have to. Only used on a SELL whose named stable the basket cannot fully cover:
+    ///        the shortfall is drawn PRO-RATA and converted into the token the maker did sign for.
+    ///        Empty ⇒ no conversion is attempted and the fill is simply partial (the prior behaviour).
+    /// @dev   🔒 UNSIGNED IS SAFE BECAUSE THE OUTCOME IS BOUNDED, NOT THE PATH: whatever the routes
+    ///        do, the maker's ether debit is derived from what they were ACTUALLY paid, so a bad
+    ///        route yields a smaller fill and never a larger debit.
+    function fillIntent(SwapLib.OorIntent calldata i, bytes calldata sig, bytes[] calldata routes)
         external nonReentrant returns (bool) {
         (int usdDelta, int volDelta, uint wantUsd6) = SwapLib.fillIntentBody(
             intentUsed, i, sig, address(CORE), address(AUX), address(WETH), _oorDomain());
-        if (wantUsd6 > 0) usdDelta = _settleSellIntent(i, wantUsd6);
+        if (wantUsd6 > 0) usdDelta = _settleSellIntent(i, wantUsd6, routes);
         // §INTENT-FUNDING-LEG — the gate that stood here is GONE because the hole it covered is
         // closed: `fillIntentBody` now spends the maker's basket claim through `AUX.spendClaim`
         // BEFORE deriving either leg, and `usdDelta` is what that burn realised rather than what
@@ -1273,6 +1282,15 @@ contract Quid is Shares,
         CORE.settleOor(i.owner, usdDelta, volDelta, i.loadBalance);
         emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
         return true;
+    }
+
+    /// @dev ⭐ **THE BODY LIVES IN `LevMath` AND IS `public`, WHICH IS THE ONLY REASON IT FITS.**
+    ///      Inlined here it put `Quid` at **24,700 bytes — 124 OVER EIP-170**, i.e. undeployable. A
+    ///      `public` library function is DELEGATECALLED, so this contract pays for the call and not
+    ///      the code. That is why this tree's library surface is large; it is not accidental API.
+    function _convertShortfall(SwapLib.OorIntent calldata i, uint short18, bytes[] calldata routes)
+        private returns (uint) {
+        return LevMath.convertShortfall(address(AUX), address(QUID), i.payoutToken, i.owner, short18, routes);
     }
 
     /// @notice The SELL leg of a filled intent. §SELL-LEG-NOT-FORCED-AFTER-ALL / §FILL-PAYS-LESS.
@@ -1290,7 +1308,8 @@ contract Quid is Shares,
     ///      serves that token FIRST and reports what it managed. So a short basket pays LESS OF THE
     ///      RIGHT TOKEN rather than more of the wrong one — and the ether debited is derived from the
     ///      payment, exactly as the BUY leg derives its credit from `spendClaim`'s burn.
-    function _settleSellIntent(SwapLib.OorIntent calldata i, uint wantUsd6) private returns (int) {
+    function _settleSellIntent(SwapLib.OorIntent calldata i, uint wantUsd6, bytes[] calldata routes)
+        private returns (int) {
         Types.Deposit storage LP = autoManaged[i.owner];
         uint cap = SwapLib.plainNet(LP.pooled, levPooled[i.owner]);
         if (cap == 0) revert NoPosition();
@@ -1310,6 +1329,19 @@ contract Quid is Shares,
         uint sent = AUX.take(i.owner, BasketLib.from6(ask6, i.payoutToken), i.payoutToken, 0);
         uint proceeds6 = sent / 1e12;
         if (proceeds6 == 0) revert IntentUnpayable();
+
+        // ⭐ **THE SHORTFALL IS CONVERTED, NOT CONCEDED.** If the basket could not cover the maker's
+        //    signed token, draw the remainder PRO-RATA — which leaves basket composition untouched —
+        //    and route that bundle into the token they asked for. This is the M→1 primitive's reason
+        //    to exist: a pro-rata bundle is multi-source BY CONSTRUCTION, so the aggregator splits
+        //    across venues that do not compete for the same liquidity without anyone choosing it.
+        //    ⚠️ UNITS, EACH ESTABLISHED RATHER THAN ASSUMED: the pro-rata draw takes **USD18**
+        //    (`takeBody` clamps it against `amounts[14]`, the 18-dec basket total); `convertTo`
+        //    returns the payout token's **NATIVE** units (a measured balance delta); and `proceeds6`
+        //    is 6-dec USD. Getting any of these wrong is the 1e12 class that already cost a full
+        //    position debit on this very function.
+        if (routes.length > 0 && proceeds6 < ask6)
+            proceeds6 += _convertShortfall(i, (ask6 - proceeds6) * 1e12, routes);
 
         uint etherSold = (proceeds6 * 1e12) * 1e18 / i.limitPx;  // usd6 → usd18 → wei at the LIMIT
         if (etherSold > cap) etherSold = cap;                    // rounding only; the cap already bound it

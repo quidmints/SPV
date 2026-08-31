@@ -679,6 +679,38 @@ library LevMath {
         if (got < minOut) revert Slippage();                     // ONE floor, on the WHOLE conversion
     }
 
+    /// @notice Draw a shortfall PRO-RATA and convert it into the token the maker signed for.
+    /// @dev ⭐ `public`, NOT `internal` — an internal library function is INLINED into its caller, and
+    ///      inlining this put `Quid` 124 bytes over EIP-170. `public` makes it a delegatecall.
+    ///      ⚠️ UNITS, EACH ESTABLISHED RATHER THAN ASSUMED: `short18` is USD **18-dec**, the unit
+    ///      `BasketLib.takeBody` expects on the pro-rata path (it clamps against `amounts[14]`, the
+    ///      18-dec basket total); `convertTo` returns the payout token's **NATIVE** units, being a
+    ///      measured balance delta; the return is **6-dec USD**. A slip between these is the 1e12
+    ///      class that already cost a full position debit on this rail.
+    /// @dev ⭐ A PRO-RATA draw leaves basket composition UNTOUCHED, which is why no envelope is
+    ///      needed on the input side — and it is multi-source BY CONSTRUCTION, so the aggregator
+    ///      splits across venues that do not compete for the same liquidity with nobody choosing it.
+    function convertShortfall(address aux, address quid, address payoutToken, address owner,
+                              uint short18, bytes[] memory routes) public returns (uint) {
+        IAux(aux).take(address(this), short18, quid, 0);      // token == QU!D ⇒ pure PRO-RATA
+        address[] memory st = IAux(aux).getStables();
+        uint[] memory amt = new uint[](st.length);
+        // The range custodies no basket stables in the normal course, so a post-draw balance IS
+        // exactly what the draw delivered — no before/after snapshot needed.
+        for (uint k; k < st.length; ++k) amt[k] = IERC20Min(st[k]).balanceOf(address(this));
+        uint extra = convertTo(st, amt, payoutToken, 0, routes);
+        if (extra == 0) return 0;
+        IERC20OZ(payoutToken).safeTransfer(owner, extra);
+        return SwapLib_scaleTo6(extra, payoutToken);
+    }
+
+    /// @dev Local copy of the 6-dec rescale: `LevMath` cannot import `SwapLib` (SwapLib imports THIS,
+    ///      and the reverse would be a cycle). Two lines, and the alternative is an import cycle.
+    function SwapLib_scaleTo6(uint amount, address token) internal view returns (uint) {
+        uint8 d = IERC20Min(token).decimals();
+        return d == 6 ? amount : (d > 6 ? amount / 10 ** (d - 6) : amount * 10 ** (6 - d));
+    }
+
     /// @notice weETH → WETH on a Curve pool. **THE ONLY IMPLEMENTATION OF THIS TRADE IN THE TREE.**
     /// @dev 🔴 **IT WAS WRITTEN TWICE.** `LevMath._weethToWethDex` (the lever's de-lever) and
     ///      `SwapLib.curveSellWeeth` (the basket's weETH offramp) were the SAME six lines — approve,
