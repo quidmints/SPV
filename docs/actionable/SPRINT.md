@@ -156,7 +156,7 @@ The authorized measurement lives in the **operator-signed bundle**; the only on-
 migration is the nonce. ⇒ Trust rests on the operator quorum + the platform key, never on a
 governance-writable list — which is exactly why deleting the whitelist cost nothing.
 
-🟠 **`§QR-VERIFIER-UNASSEMBLED` (2026-08-30, owner asked: *"can the phone client get proof in any
+✅ **`§QR-VERIFIER-UNASSEMBLED` — ASSEMBLED 2026-08-31.** `verifyQuotedDepositAddress` joins `addressToScriptPubKey` to `taprootOutputKey(internalX, tapLeafHash(depositLeafScript(…)))`, **adding no dependency**: it DECODES the quoted address and compares `scriptPubKey`s, and only ENCODING needed the package the old header waited on. Pinned against `SwapInDeposit.t.sol`'s own fixture, so wallet, contract and rust-bitcoin now derive one address from one set of terms. ⚠️ The tests cannot RUN (`§APP-IS-CJS-BUT-SOURCES-ARE-ESM`), so the composition was reproduced out-of-band by an independent pure-Python BIP-341 implementation returning exactly the pinned `EXPECTED_Q` and terms commitment. `taproot.ts`'s stale header — which claimed neither TapTweak nor bech32m was present, when TapTweak was 170 lines below and bech32m decoding was in `btcaddress.ts` — is corrected. ~~(2026-08-30, owner asked: *"can the phone client get proof in any
 way of the codebase of the daemon it is interacting with via enclave?"*).**
 
 **SHORT ANSWER: NO — AND BY DESIGN IT SHOULD NOT NEED TO. But the thing that replaces attestation

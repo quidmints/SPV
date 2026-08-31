@@ -7,12 +7,14 @@
 // USER WAS SHOWN AND ACCEPTED (`token`, `minDeliveredUsd`, `cltvHeight`) — and the quoted address
 // is compared against the result, never mixed into it.
 //
-// ⚠️ **THIS FILE IS THE HASH LAYER ONLY, AND THAT IS DELIBERATE.** Turning a leaf hash into a
-// `bc1p…` address additionally needs (a) the BIP-341 TapTweak, which is an EC point add over
-// secp256k1, and (b) bech32m. Neither is here, because neither should be hand-rolled —
-// `@scure/btc-signer` (same maintainer as the `@noble/*` packages already in this wallet) is the
-// intended source and is not yet a dependency. **Landing the hashing separately is what lets it
-// be pinned against the Solidity and Rust suites today** rather than waiting on that decision.
+// ⚠️ **THIS HEADER USED TO SAY THE FILE WAS "THE HASH LAYER ONLY" AND THAT NEITHER THE BIP-341
+// TapTweak NOR bech32m WAS PRESENT. BOTH CLAIMS WENT STALE** (corrected 2026-08-31): the TapTweak
+// is `taprootOutputKey` at the bottom of this file, and bech32m DECODING lives in
+// `btcaddress.ts::addressToScriptPubKey`. The `@scure/btc-signer` dependency the old text waited on
+// is only needed to ENCODE an address — **which a verifier never does**, because it decodes the
+// quoted one and compares. Reading the stale header is what made this look further from working
+// than it was: every piece existed and nothing joined them (`§QR-VERIFIER-UNASSEMBLED`).
+// ⇒ `verifyQuotedDepositAddress` at the bottom is that join, and it added no dependency.
 //
 // 🔑 **A LEAF HASH, NOT A MERKLE ROOT — the tree is ONE leaf.** The terms are committed by a
 // dropped push inside the refund leaf (`depositLeafScript`), so there is no branch to compute and
@@ -33,6 +35,7 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { ethers } from 'ethers'
 
+import { addressToScriptPubKey } from './btcaddress.ts'
 import { SECP256K1_N } from './keys.ts'
 
 const Point = secp256k1.Point
@@ -191,4 +194,48 @@ export function taprootOutputKey(internalX: string, leafHash: string): string {
   const P = Point.fromHex(`02${internalX.replace(/^0x/, '')}`)
   const Q = P.add(Point.BASE.multiply(t))
   return `0x${Q.toHex(true).slice(2)}` // drop the parity byte: taproot commits x only
+}
+
+/// (§QR-VERIFIER-UNASSEMBLED) **THE JOIN — the whole point of every function above.**
+///
+/// Answers the only question a swapper actually has: *is the address I was handed the one my own
+/// terms imply?* Returns `true` only if it is.
+///
+/// 🔑 **WHY THIS IS STRONGER THAN ASKING THE DAEMON WHAT CODE IT RUNS.** The protocol deliberately
+/// has no attestation gate for clients — `isAttested(hop)` had every call site deleted because *"an
+/// attestation gate asserts an address runs approved CODE, which is only as strong as whoever
+/// controls the whitelist, and buys nothing against the attacks that matter"*. This buys the thing
+/// attestation cannot: a hop running unknown code **still cannot quote an address that survives
+/// this check**, because the address is recomputed from values the hop does not supply.
+///
+/// ⚠️ **EVERY INPUT IS THE WALLET'S OR THE USER'S. NONE IS THE HOP'S.** `userRefund` and `seller`
+/// are the wallet's own; `token`, `pricePerBtc`, `slippageBps` and `cltvHeight` are what the USER
+/// WAS SHOWN AND ACCEPTED; `internalX` is the fleet key pinned on-chain. **The quoted address is
+/// compared against the result and never mixed into it** — a verifier that fed hop-supplied values
+/// back in would only prove the hop is self-consistent, which was never in doubt.
+///
+/// ⚠️ **AND IT IS DECODE-AND-COMPARE, NOT ENCODE-AND-COMPARE.** Encoding a `bc1p…` would need a
+/// bech32m ENCODER this wallet does not have; decoding one it already does. Comparing
+/// `scriptPubKey`s also sidesteps address-string normalisation (case, HRP) entirely — two spellings
+/// of one address decode to the same bytes, so a cosmetic difference can never read as a mismatch.
+export function verifyQuotedDepositAddress(q: {
+  quotedAddress: string
+  internalX: string
+  userRefund: string
+  cltvHeight: number
+  seller: string
+  token: string
+  pricePerBtc: bigint
+  slippageBps: number
+}): boolean {
+  const spk = addressToScriptPubKey(q.quotedAddress)
+  // A P2TR scriptPubKey is exactly `OP_1 PUSH32 <x-only>` = 34 bytes. Anything else — P2WPKH,
+  // P2SH, a v0 witness, an unparseable string — is not an address these terms could produce.
+  if (!spk || !/^0x5120[0-9a-f]{64}$/i.test(spk)) return false
+  const expected = taprootOutputKey(
+    q.internalX,
+    tapLeafHash(depositLeafScript(
+      q.userRefund, q.cltvHeight, q.seller, q.token, q.pricePerBtc, q.slippageBps)),
+  )
+  return spk.slice(6).toLowerCase() === expected.replace(/^0x/, '').toLowerCase()
 }

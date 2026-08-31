@@ -9,7 +9,7 @@ import test from 'node:test'
 import assert from 'node:assert'
 import { ethers } from 'ethers'
 
-import { taggedHash, tapLeafHash, scriptNum, refundLeafScript, termsCommitment, depositLeafScript, taprootOutputKey } from './taproot.ts'
+import { taggedHash, tapLeafHash, scriptNum, refundLeafScript, termsCommitment, depositLeafScript, taprootOutputKey, verifyQuotedDepositAddress } from './taproot.ts'
 
 const A = ethers.keccak256(ethers.toUtf8Bytes('leaf-a'))
 const B = ethers.keccak256(ethers.toUtf8Bytes('leaf-b'))
@@ -111,4 +111,55 @@ test('the output key moves when any committed term does', () => {
     taprootOutputKey(internal, tapLeafHash(
       depositLeafScript(key, 500000, '0x' + '11'.repeat(20), '0x' + '22'.repeat(20), price, 100)))
   assert.notStrictEqual(q(1000n), q(1001n), 'a restated pricePerBtc must change the address')
+})
+
+/// (§QR-VERIFIER-UNASSEMBLED) THE JOIN, against the SAME fixture the Solidity suite pins.
+///
+/// ⚠️ **THESE CONSTANTS ARE `SwapInDeposit.t.sol`'s, NOT NEW ONES** — `INTERNAL`, `REFUND`, `CLTV`
+/// and the four terms are that file's, and `EXPECTED_Q` is its pinned deposit key. So a pass here
+/// means the wallet, the contract and (via `taproot_output_key_matches_the_wallet`) rust-bitcoin
+/// all derive one address from one set of terms. Three implementations, one number.
+///
+/// ⚠️ **VERIFIED OUT-OF-BAND, BECAUSE THIS FILE CANNOT RUN YET** (`§APP-IS-CJS-BUT-SOURCES-ARE-ESM`
+/// — `app/package.json` declares `"type": "commonjs"` while every source here is ESM). The
+/// composition below was reproduced on 2026-08-31 by an independent pure-Python BIP-341
+/// implementation, which returned exactly `EXPECTED_Q` and the pinned terms commitment; the
+/// `bc1p…` string is that Q bech32m-encoded. **The assertions are pinned to values computed
+/// elsewhere, never to this code's own output.**
+const FIXTURE = {
+  internalX: '0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798',
+  userRefund: '0x2F8BDE4D1A07209355B4A7250A5C5128E88B84BDDC619AB7CBA8D569B240EFE4',
+  cltvHeight: 800_001,
+  seller: '0x00000000000000000000000000000000000000A1',
+  token: '0x00000000000000000000000000000000000000B2',
+  pricePerBtc: 50_000_000_000n,
+  slippageBps: 100,
+}
+const QUOTED = 'bc1puars93mp4vakzey7akuxhdxc7hmaljzgw0jsj6rzk9l7prnfvsxsmgu464'
+
+test('the honest quote verifies', () => {
+  assert.ok(verifyQuotedDepositAddress({ ...FIXTURE, quotedAddress: QUOTED }))
+})
+
+/// ⭐ THE ONE THAT CARRIES THE SECURITY. Every committed term must move the address, or a hop could
+/// restate the deal after the user accepted it and quote the same place.
+test('any restated term is rejected', () => {
+  const v = (o: Partial<typeof FIXTURE>) =>
+    verifyQuotedDepositAddress({ ...FIXTURE, ...o, quotedAddress: QUOTED })
+  assert.ok(!v({ pricePerBtc: 50_000_000_001n }), 'a restated price must not verify')
+  assert.ok(!v({ slippageBps: 101 }), 'a restated slippage must not verify')
+  assert.ok(!v({ cltvHeight: 800_002 }), 'a restated timelock must not verify')
+  assert.ok(!v({ seller: '0x00000000000000000000000000000000000000A2' }), 'a substituted seller')
+  assert.ok(!v({ token: '0x00000000000000000000000000000000000000B3' }), 'a substituted token')
+  assert.ok(!v({ userRefund: '0x' + 'ab'.repeat(32) }), 'a substituted refund key')
+})
+
+/// A hop that quotes an address of the wrong SHAPE must fail before any key comparison —
+/// P2WPKH, P2SH and junk are not addresses these terms can produce.
+test('a non-P2TR or unparseable quote is refused', () => {
+  const v = (a: string) => verifyQuotedDepositAddress({ ...FIXTURE, quotedAddress: a })
+  assert.ok(!v('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), 'P2WPKH is not a taproot deposit')
+  assert.ok(!v('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'), 'P2PKH is not either')
+  assert.ok(!v('not-an-address'), 'junk')
+  assert.ok(!v(''), 'empty')
 })
