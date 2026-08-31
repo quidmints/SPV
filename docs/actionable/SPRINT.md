@@ -1133,15 +1133,21 @@ basis — the blocker the file put in front of them is gone.**
    `internal_key` vector (`03cc8a4b…c115`) for this mnemonic's first taproot receiving address.
    ⚠️ **Caveat — the tests cannot RUN.** See `§JS-TESTS-HAVE-NO-RUNNER`. **Everything in phases
    2–4 was ordered behind phase 1 and is now unblocked.**
-2. ✅ **The pool script** (`§ORDER` 1.1) — **BUILT 2026-08-30.** `_armDeadManExit` now verifies the
-   pool's output too. See `§POOL-SCRIPT-DONE`.
+2. ✅ **The pool script** (`§ORDER` 1.1) — **DISSOLVED 2026-08-31, not built.** It was built on
+   2026-08-30, then removed entirely: `§FLEET-FRONTS-THE-WINDOW` took pool inventory out of channels,
+   so an exit has no second output to place and no destination to choose. **The question is gone, not
+   answered.**
 3. 🔴 **Phase 3 freshness** — decide whether it is wanted at all before building a writer for it.
 4. ✅ **`E182-REKEY-CHECKED` — CLOSED 2026-08-30, THE WORK LANDED.** Every requirement the row
    named is in the tree and tested; see `§E182-REKEY-VERIFIED`.
 5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
    on-chain); **`B1`** (freshness backstop has no economic bound); TDX + Nitro seal wiring.
 
-⚠️ **AND ONE COMMENT IN THE CONTRACT IS KNOWN-FALSE AND STILL THERE.** `BTCChannels.sol:303-314`
+✅ **THE KNOWN-FALSE COMMENT IS ALREADY ANNOTATED — checked 2026-08-31, this row is STALE.** The
+§E172 refutation sits directly under the claim (`BTCChannels.sol:357-374`), naming
+`rebalancer.rs:32-35`, stating *"every swap-in is a commitment update needing the LP-side funding
+signature"*, and separating what is NOT affected (the splice behaviour) from what is. **Nothing to do.**
+~~AND ONE COMMENT IN THE CONTRACT IS KNOWN-FALSE AND STILL THERE.~~ `BTCChannels.sol:303-314`
 says the LP *"signs once, goes offline forever"* and *"buys EVERY exit it will ever need"*. `§E172`
 refuted that — a forwarding channel needs the LP signature on **every commitment update**, not just
 splices — and the row notes *"it is the single most load-bearing comment in the ladder design, and
@@ -22266,7 +22272,13 @@ waiting on it.**
 | ⚠️ **live hazard, not a task** | `E-COORD` — *"TWO SESSIONS ARE COMMITTING INTO ONE WORKTREE AND IT IS CORRUPTING BOTH RECORDS."* **Two threads are in this tree right now** |
 | 🗑️ | `6×` · `σ² at probe` · `σ² (incumbent)` · `trade-based …` · `no ticks` — measurement cells |
 
-#### 💸 WAVE 3 — SKEW AND FEE. **Blocked by W2: these are all functions of σ².**
+#### 💸 WAVE 3 — SKEW AND FEE. ✅ **UNBLOCKED 2026-08-31 — ITS STATED BLOCKER IS RETIRED.**
+~~Blocked by W2: these are all functions of σ².~~ The premise below — *"nothing here can be measured
+while σ² has no trustworthy source"* — **no longer holds.** `§E345` gave σ² the Chainlink-anchor leg,
+`§E343` MEASURED that leg at the right order (57.3 rounds/day, implied σ = 95.5 %), and `§E294` removed
+the permissionless writer that made the other leg untrustworthy. **σ² now has a trustworthy source, so
+W3 is workable today** — and it is NOT behind refill: `§E48` puts **refill behind the skew work**
+(*"land after the merged skew work is green again"*), not the reverse.
 
 
 
