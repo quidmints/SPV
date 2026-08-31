@@ -518,6 +518,32 @@ the SAME channel signed over one output and over two, and shows the two-output e
 **Definition of done = crossed off here.** Anything below without a ✅ is unfinished, and the reason
 is stated so it can be resumed cold.
 
+### 🔎 §LEDGER-RE-AUDITED-2026-08-31 — every item re-checked AGAINST THE CODE, not against this file
+Prompted by the owner (*"make sure it's actually finished and crossed off"*), and warranted: three
+retractions this session all came from trusting a document over the tree.
+
+**✅ VERIFIED PRESENT AND WORKING (pre-compaction items included):** tickers `BF-B`/`BRK-A`/`BRK-B`
+commented in `etc.rs` · **no TypeScript keeper anywhere** outside build artifacts · `§E90`'s
+`swap(address recipient` rename · `SkewE352Reachability.t.sol` · the three `BTCChannels` fleet-halves
+annotations · `app/babel.config.js` + `polyfill.js` · `check-doc-symbols.py` widened to
+`svm`/`app`/`spa`/`tools`/`indexer` **and it runs clean (exit 0)** · `deriveFundingKey` ·
+`vault::DeliveryInFlight` (the double-pay fix) · the pool purge — the only three remaining
+`poolOwnedSats`/`parkProvenSats` hits are **historical comments explaining the deletion** ·
+`verifyQuotedDepositAddress` · `SettleSwapInProven.t.sol` **5/5 pass**.
+
+**⚠️ ONE ITEM IS NO LONGER IN THE TREE, AND THE LEDGER SAID "DONE":**
+`e004f8dc` **"Bind the swap-in dedup key to the preimage"** — the fix that made
+`settleSwapInBuffered` derive `sha256(preimage)` instead of accepting a hop-chosen hash — was
+**REMOVED BY MY OWN LATER COMMIT** `32168f74`, which deleted `settleSwapInBuffered` entirely under
+`§FLEET-FRONTS-THE-WINDOW`. **Zero occurrences remain.**
+⇒ **NOT A REGRESSION — A SUPERSESSION**, and the right one: the deletion removed the whole rail the
+dedup was protecting, so the narrower fix is moot. **But it must not read as available work that is
+already done.** If the LN rail is ever rebuilt on the fleet-principal model, *"derive the dedup key,
+never accept it"* is a property to re-apply, not a box already ticked.
+📌 **AND THE LESSON GENERALISES:** an entry marked done in a ledger is a claim about the past, not
+about the tree. Two of my session's items (this one, and `§LN-RESERVE-FUNDER`) were undone by my own
+later work within hours.
+
 ### ✅ DONE (verified, committed)
 | item | evidence |
 |---|---|
