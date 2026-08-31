@@ -36,7 +36,8 @@ use quid_hop::evm_codec::{
     sort_funding_pubkeys, tx_inclusion, txid_internal,
 };
 use quid_hop::node::{
-    channel_funding_pubkeys, initiate_splice, HopChainMonitor, HopChannelManager,
+    channel_funding_pubkeys, original_channel_funding_pubkeys, initiate_splice,
+    HopChainMonitor, HopChannelManager,
 };
 use quid_hop::rebalancer::{
     RebalanceConfig, MIN_ECONOMIC_GROW_SATS, SPLICE_FUNDING_FEERATE_SAT_PER_KW,
@@ -1160,14 +1161,22 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
                     },
                     None => None,
                 };
-                // When the on-chain cid is unknown (a never-spliced channel whose
-                // `Ready` we never mapped), `drive_close` recomputes it from the
-                // channel's STORED funding pubkeys — a taproot key-path close has no
-                // witnessScript to recover them from. Read them from LDK now (the
-                // monitor still exists at close time). `None` lets drive_close error
-                // out cleanly rather than parse a (nonexistent) witness.
+                // When the on-chain cid is unknown (its `Ready` was never mapped),
+                // `drive_close` recomputes it from the channel's funding pubkeys — a taproot
+                // key-path close has no witnessScript to recover them from. `None` lets
+                // drive_close error out cleanly rather than parse a (nonexistent) witness.
+                //
+                // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) THIS READ `channel_funding_pubkeys`, WHICH
+                // RETURNS THE MONITOR'S **CURRENT** PAIR. `BTCChannels` derives `channelId` from the
+                // ORIGINAL pair (`ChannelLib.sol:617`), and LDK rotates BOTH halves on every splice,
+                // so for a spliced channel that recomputed an id NO CHANNEL ON THE EVM HAS — and the
+                // close silently never mirrored. The comment above it even conceded the limit
+                // ("correct for a never-spliced channel") and the code proceeded anyway.
+                // ✅ `original_funding_pubkeys` (QU!D patch, companion to `original_funding_txo`) is
+                // the pair the id was actually built from, so this is now correct for a spliced
+                // channel too — which is the only case that ever reached here wrongly.
                 let funding_pubkeys = if known.is_none() {
-                    channel_funding_pubkeys(&chain_monitor, &channel_manager, funding_txid, funding_vout)
+                    original_channel_funding_pubkeys(&chain_monitor, &channel_manager, funding_txid, funding_vout)
                 } else {
                     None
                 };

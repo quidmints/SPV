@@ -85,3 +85,40 @@ material; purely additive. Consumed by
 `quid-bridge::channel_driver::run_channel_reconciler` to compute the stable on-chain
 `channelId` (and to detect a splice the EVM mirror hasn't caught up to:
 `ldk_value > on-chain amountSats` ⇒ re-drive `spliceChannel`).
+
+## `ChannelMonitor::original_funding_pubkeys` (2026-08-31, §SPLICE-ROTATES-BOTH-FUNDING-KEYS)
+
+Companion to the existing `original_funding_txo` / `first_negotiated_funding_txo` patch, added for
+the same reason and because that patch stopped one step short.
+
+**Why.** A splice rotates the funding *pubkeys* as well as the outpoint: `send_splice_init`
+(`ln/channel.rs`) and the `splice_ack` handler each call
+`ChannelSigner::new_funding_pubkey(prev_funding_txid)`, which tweaks the base funding key by
+`SHA256(prev_funding_txid ‖ base_funding_secret)` (`sign/mod.rs`, `compute_funding_key_tweak`).
+`ChannelMonitor::funding_pubkeys()` reads `self.funding.channel_parameters` — the **current** scope —
+so it returns the rotated pair once a splice locks.
+
+QU!D's `BTCChannels` derives `channelId` from the **original** pair and the **original** outpoint
+(`ChannelLib.sol`, `openChannelBody`). `onchain_cid_from_monitor` therefore paired
+`original_funding_txo()` with `funding_pubkeys()` and produced an id that changed at splice lock —
+for a value its own docblock called STABLE. That id is the EVM channelId, the freshness /
+anti-rollback anchor key (audit F3), and the persister's key.
+
+**What.** `first_negotiated_funding_pubkeys: Option<(PublicKey, PublicKey)>` on `ChannelMonitorImpl`,
+pinned at construction from `holder_pubkeys.funding_pubkey` and
+`counterparty_channel_parameters.pubkeys.funding_pubkey` while `channel_parameters` still describes
+the first funding scope. Persisted as **TLV type 39, `option`** in the monitor's write/read blocks
+(37 was the previous highest; no collision). `(PublicKey, PublicKey)` round-trips as 66 fixed bytes
+via `impl_tuple_ser!(a: A, b: B)`.
+
+Accessor `ChannelMonitor::original_funding_pubkeys()` returns the pinned pair, falling back to
+`funding_pubkeys()` when the field is absent — i.e. only for monitors written before this patch.
+That fallback is correct for a never-spliced channel and wrong for a spliced one; there is no third
+option, because the original pair was never persisted. The field is deliberately left `None` on read
+rather than back-filled, so the fallback is visible at the accessor instead of a rotated pair
+masquerading as the original.
+
+**Non-secret**: funding pubkeys are revealed on-chain at funding.
+
+⛔ Do not "simplify" `onchain_cid_from_monitor` back to `funding_pubkeys()`. The id must not follow
+the channel's live scope — that is the entire reason `original_funding_txo` exists.

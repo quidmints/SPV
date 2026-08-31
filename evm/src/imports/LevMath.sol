@@ -362,7 +362,7 @@ library LevMath {
     function flashDeleverWbtcSettle(uint256 assets, address lp, address venueAddr, address stable,
                                     uint256 minOut, address flashProvider, WbtcCfg memory cfg) public {
         ILevVenue venue = ILevVenue(venueAddr);
-        IERC20Min(stable).transfer(address(venue), assets);
+        IERC20OZ(stable).safeTransfer(address(venue), assets);
         uint256 pulled;
         {   // repay-FIRST → size + withdraw the freed WBTC → oracle floor (own frame for the stack)
             uint256 repaid = venue.repay(lp, assets);                            // == assets (capped upstream)
@@ -374,8 +374,8 @@ library LevMath {
             if (minOut < floorStable) minOut = floorStable;
         }
         uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.dex, cfg.dex2);
-        IERC20Min(stable).approve(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
-        if (stableOut > assets) IERC20Min(stable).transfer(lp, stableOut - assets);   // realized surplus → LP
+        IERC20OZ(stable).forceApprove(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
+        if (stableOut > assets) IERC20OZ(stable).safeTransfer(lp, stableOut - assets);   // realized surplus → LP
     }
 
     /// @notice Net-equity in BASE-asset units (1e18) = `collBase − debtUsd/price`, floored at 0.
@@ -910,7 +910,7 @@ library LevMath {
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
         (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
         if (pool == address(0)) revert NoStableRoute();  // fail closed — a silent 0 would leave the position unhedged
-        IERC20Min(toUsdc ? stable : USDC).approve(pool, amt);
+        IERC20OZ(toUsdc ? stable : USDC).forceApprove(pool, amt);
         return toUsdc
             ? ICurvePool(pool).exchange(iStable, iUsdc, amt, 0)
             : ICurvePool(pool).exchange(iUsdc, iStable, amt, 0);
@@ -1077,7 +1077,7 @@ library LevMath {
     function _repayAndPull(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, uint256 pxWeth, ExtractCfg memory cfg)
         private returns (uint256 pulled)
     {
-        IERC20Min(stable).transfer(venueAddr, assets);
+        IERC20OZ(stable).safeTransfer(venueAddr, assets);
         uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);       // == assets when capped ≤ debt upstream
         if (pxWeth == 0) revert NoPrice();
         uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / pxWeth;
@@ -1124,9 +1124,9 @@ library LevMath {
         SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2});
         uint256 stableOut;
         (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
-        IERC20Min(stable).approve(cfg.flashProvider, assets);
+        IERC20OZ(stable).forceApprove(cfg.flashProvider, assets);
         freed = stableOut > assets ? stableOut - assets : 0;
-        if (freed > 0) IERC20Min(stable).transfer(recipient, freed);
+        if (freed > 0) IERC20OZ(stable).safeTransfer(recipient, freed);
     }
 
     /// @notice §M.1 — convert `collAmt` of freed leverage collateral to WETH and deliver it to `recipient` (the ETH
@@ -1230,9 +1230,9 @@ library LevMath {
         // Clamp to the debt BEFORE transferring in; debt only accrues upward in-tx, so `repay`'s own clamp uses
         // all of `pay` — nothing strands in the venue.
         uint256 pay = got > debt ? debt : got;
-        IERC20Min(stable).transfer(venue, pay);                    // venue.repay expects it already transferred in
+        IERC20OZ(stable).safeTransfer(venue, pay);                    // venue.repay expects it already transferred in
         repaid = ILevVenue(venue).repay(lp, pay);                // manager is the venue's authorized MANAGER
-        if (got > pay) IERC20Min(stable).transfer(lp, got - pay);  // refund the un-needed portion to the LP
+        if (got > pay) IERC20OZ(stable).safeTransfer(lp, got - pay);  // refund the un-needed portion to the LP
     }
 
     /// @dev Consolidate every OTHER basket stable this manager holds into `target` (the venue's loan token, whatever
@@ -1269,7 +1269,7 @@ library LevMath {
             // If BOTH routes failed to move this slice (no pool at all), refund it to the LP — never strand the
             // LP's own redeemed value in the manager (it only lowers `got`, which the aggregate floor already guards).
             uint256 rem = IERC20Min(s).balanceOf(address(this));
-            if (rem > 0) IERC20Min(s).transfer(lp, rem);
+            if (rem > 0) IERC20OZ(s).safeTransfer(lp, rem);
         }
     }
 

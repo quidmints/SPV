@@ -520,7 +520,6 @@ library ChannelLib {
         }
     }
 
-    error RekeyUnchanged();        // the "new" hop key is the one already pinned
 
     /// (§E182) THE REKEY GATE — decides WHO may rotate a channel's hop key and TO WHAT.
     ///
@@ -544,41 +543,15 @@ library ChannelLib {
         return BitcoinTx.evmAddressOfCompressed(lpPubkey);
     }
 
-    /// @notice (§REKEY-FOLD 2026-08-22) The STRUCTURAL half of a rotation's authorisation. The LP's
-    ///         CONSENT half is not here and needs no signature — see the block at the end.
-    /// ⚠️ Four parameters were removed with the signature (`channelId`, `rawSpliceTx`, `lpSig`,
-    ///    `lpEth`): every one existed ONLY to build the digest, so they went with it.
-
-    function rekeyAuthBody(
-        Types.OpenParams calldata p,      // the NEW pair
-        bytes calldata oldHopPubkey,      // the hop key being rotated OUT
-        bytes32 keysHash                  // the pair pinned at open
-    ) external pure {
-        // TO WHAT — one comparison, two facts: the LP half is UNCHANGED, and `oldHopPubkey` is
-        // genuinely the key this channel pinned. Only `hopPubkey` is free to move, so the rotated
-        // output remains a 2-of-2 REQUIRING the LP and a compromised hop gains no unilateral spend.
-        if (keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) != keysHash)
-            revert ChannelKeysMismatch();
-        if (p.hopPubkey.length != 33) revert InvalidParam();
-        // A no-op rotation would burn the LP's entire exit ladder for nothing: rotating the funding
-        // outpoint makes every pre-signed rung unbroadcastable under BIP-341 `Prevouts::All`.
-        if (keccak256(p.hopPubkey) == keccak256(oldHopPubkey)) revert RekeyUnchanged();
-
-        // 🔑 WHO — **THE LP'S CONSENT IS THE FRESH LADDER, NOT A SIGNATURE.** An `lpSig` used to be
-        // verified here against a rekey digest. It was REDUNDANT and is deleted (§REKEY-FOLD):
-        // `rekey` already requires `exits`, a fresh ladder armed by `_finishRekey` against the NEW
-        // pair's `Q' = TapTweak(KeyAgg(p.lpPubkey, p.hopPubkey))`, and `_armDeadManExit` verifies
-        // each rung as a BIP-340 signature under that `Q'`. **`Q'` IS DERIVED FROM THE NEW HOP KEY,
-        // so a rung cannot exist unless the LP co-signed a MuSig2 session over exactly this
-        // rotation.** The hop cannot forge one: it holds half of a 2-of-2.
-        // ⇒ The ladder proves everything the signature did AND MORE — the signature proved the LP
-        // agreed; the ladder proves the LP agreed *and still has an escape after the rotation*,
-        // which is the property the rotation actually threatens (BIP-341 `Prevouts::All` voids every
-        // pre-signed rung when the outpoint moves). Same shape as §E157 retiring the per-splice
-        // `lpAuth`, and it makes "the LP signs NOTHING on the EVM" true without exception.
-        // ⚠️ **DO NOT RE-ADD A SIGNATURE HERE.** It would re-impose EVM signing on a phone-held LP
-        // for a fact the ladder already establishes, and add a second source of truth for consent.
-    }
+    // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `rekeyAuthBody` STOOD HERE, and it is
+    // deleted with `BTCChannels.rekey` — the rotation folded into `splice`, which re-pins
+    // `keysHash` itself. Its gate was `keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) ==
+    // keysHash`: an equality check over PUBLIC values, subsumed by the SPV-proven spend of the
+    // channel's key-path taproot 2-of-2, which requires the LP's MuSig2 partial and — under
+    // BIP-341 `Prevouts::All` — commits that partial to the exact new pair. It was also
+    // UNSATISFIABLE against our own LN stack, which rotates BOTH funding pubkeys per splice.
+    // ⚠️ Its `RekeyUnchanged` error went too; `splice`'s no-op guard now covers both cases.
+    // 📌 The reasoning it carried is preserved in full at `BTCChannels.sol`'s fold note.
 
     /// @notice Body of BTCChannels.openChannel. Wrapper handles the
     ///         duplicate-check + storage write + event emission + the

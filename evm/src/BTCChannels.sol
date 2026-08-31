@@ -1160,14 +1160,61 @@ contract BTCChannels is Ownable {
         // — it could only relay bytes the primary had already signed. Bounded as before: the
         // splice is SPV-proven and every payout output pins to `btcRecipientOf`.
 
-        // (E162) A SPLICE MAY RESIZE A CHANNEL — IT MAY NOT REKEY ONE. Without this, a splice
-        // carrying a different pair passed (`_verifySplice` proves KeyAgg over whatever pair it
-        // is given), rotated the funding outpoint, and left `keysHash` stale — after which both
-        // retirement paths reverted and the position could never be closed.
-        _requireChannelKeys(channelId, p);
-        if (p.amountSats == channels[channelId].amountSats) revert SpliceUnchanged();
+        // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `_requireChannelKeys(channelId, p)`
+        // STOOD HERE UNDER THE HEADING *"(E162) A SPLICE MAY RESIZE A CHANNEL — IT MAY NOT REKEY
+        // ONE"*. IT IS DELETED, AND THE PIN IS RE-WRITTEN BELOW INSTEAD. Two reasons, and the
+        // first is that the check was UNSATISFIABLE against our own Lightning stack:
+        //
+        // 1. **LDK ROTATES BOTH FUNDING PUBKEYS ON EVERY SPLICE.** `send_splice_init`
+        //    (`channel.rs:13021`) and the `splice_ack` handler (`:13137`) each call
+        //    `ChannelSigner::new_funding_pubkey(prev_funding_txid)` = `funding_key(Some(txid))`
+        //    tweaked by `SHA256(prev_funding_txid ‖ base_funding_secret)` (`sign/mod.rs:1472`).
+        //    So the pair the bridge reads back is the ROTATED one, and this equality check could
+        //    only ever revert `ChannelKeysMismatch` — while supplying the ORIGINAL pair instead
+        //    would fail `_verifySplice`'s KeyAgg gate against the on-chain output. **Both doors
+        //    were locked, and every gate `_requireChannelKeys` guards — including the retirement
+        //    paths via `_requireNotSplice` — would have been shut on any spliced channel.**
+        //
+        // 2. **IT WAS NEVER WHAT MADE A ROTATION SAFE.** E162's own record says the bug it fixed
+        //    was the STALE PIN, not a theft: *"rotated the funding outpoint, and left `keysHash`
+        //    stale — after which both retirement paths reverted and the position could never be
+        //    closed."* 🔑 **What actually stops a compromised hop from rotating into a pair it
+        //    solely controls is the chain, not this line:** `_verifySplice` → `_verifyTxSpendsChannel`
+        //    SPV-proves that `rawSpliceTx` SPENDS this channel's funding outpoint, and that
+        //    outpoint is `Q = TapTweak(KeyAgg(lpPubkey, hopPubkey))` — a key-path taproot 2-of-2
+        //    whose spend REQUIRES THE LP'S MuSig2 PARTIAL. A hop holding one half cannot move the
+        //    funds to ANY pair. And under BIP-341 `Prevouts::All` that partial commits to the
+        //    transaction's OUTPUTS, hence to the exact new 2-of-2 being rotated into.
+        //    ⇒ **An equality check over a PUBLIC value is subsumed by an UNFORGEABLE SIGNATURE
+        //    over the destination.** Deleting it removes a clamp, not a guarantee.
+        //
+        // ⚠️ THE PRECONDITION, STATED PLAINLY: the "spend requires the LP" argument is VACUOUS
+        // while the fleet holds both halves (§M1#2, PHASE 1). That is not a regression introduced
+        // here — `_requireChannelKeys` is an equality check a both-halves fleet satisfies with keys
+        // it already holds, so it bought nothing across that same gap. **This loses no security
+        // that exists today and gains the real guarantee the moment §M1#2 lands.**
+        // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) THE TWO "UNCHANGED" GUARDS, FOLDED. This was
+        // `p.amountSats == ch.amountSats`, which refused a PURE ROTATION — the image-upgrade case
+        // §E182 built `rekey` for. `rekey`'s own `RekeyUnchanged` was the mirror image, refusing a
+        // rotation that rotated nothing. **One condition covers both: reject only a splice that
+        // changes NOTHING — neither the size nor the pair.** A rotation at constant size now
+        // reaches `_applySplice`'s same-size branch, which was written for exactly it.
+        // ⚠️ A no-op is refused because it would rotate the outpoint for nothing, and rotating the
+        // outpoint voids every pre-signed rung under BIP-341 `Prevouts::All`. It is not a DoS
+        // vector either way — a splice requires spending the 2-of-2, so the hop cannot do it alone.
+        if (p.amountSats == channels[channelId].amountSats
+            && keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) == channels[channelId].keysHash)
+            revert SpliceUnchanged();
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
+        // 🔴 RE-PIN THE PAIR — THE ROOT FIX FOR WHAT E162 ACTUALLY FOUND, and the same line
+        // `_finishRekey` has always carried (`:1304`). `keysHash` is PER-SCOPE data, not the
+        // channel's identity: `ChannelLib.sol:617` binds `channelId` to the ORIGINAL pair and the
+        // ORIGINAL outpoint, so the id is stable across every rotation and nothing downstream
+        // re-keys. Written AFTER `_applySplice`, which is where `_verifySplice` has just proven
+        // `Q == TapTweak(KeyAgg(p.lpPubkey, p.hopPubkey))` against the on-chain output — so the
+        // value pinned here is the pair the chain itself just attested to.
+        channels[channelId].keysHash = keccak256(abi.encode(p.lpPubkey, p.hopPubkey));
         // (§E233-ladder) RE-ARM AGAINST THE ROTATED OUTPOINT — after `_applySplice` (which is what rotates
         // it) and BEFORE the external `registerBtcLp`, so a ladder that does not verify reverts the
         // whole splice with no accounting moved.
@@ -1202,117 +1249,32 @@ contract BTCChannels is Ownable {
         // halves failed quietly.
     }
 
-    /// (§E182) ROTATE THE HOP HALF OF THE 2-of-2 WITHOUT CLOSING THE CHANNEL.
-    ///
-    /// `_requireChannelKeys` forbids rekeying on the `splice` path and says why: rotating custody
-    /// to a new image's keys is *"a REAL and wanted capability, but it must UPDATE `keysHash` and
-    /// must be gated on WHO MAY ROTATE AND TO WHAT — otherwise a compromised hop splices to keys
-    /// it solely controls and CUTS THE LP OUT of its own 2-of-2."* Both halves of that gate:
-    ///
-    /// **TO WHAT — the LP half is immutable.** The pinned pair is `(p.lpPubkey, oldHopPubkey)`, so
-    /// the single `keysHash` comparison below proves BOTH that the LP key is unchanged AND that
-    /// `oldHopPubkey` is the key being rotated out. Only `hopPubkey` may move. This is what makes
-    /// a compromised hop harmless HERE rather than merely detected: the rotated output is still a
-    /// 2-of-2 REQUIRING the LP, so no unilateral spend exists to gain. `_verifySplice`'s §E129-c
-    /// KeyAgg gate independently proves `p.lpPubkey` really is inside the new `Q` — this function
-    /// adds no new cryptography, it decides WHICH rotations are allowed to reach that proof.
-    ///
-    /// **WHO — the LP co-signs.** ⚠️ This is NOT redundant with the immutable LP half. A rotation
-    /// the LP did not authorize can still place it in a 2-of-2 with an attacker: cooperative close
-    /// then requires the attacker's cooperation, and the LP is pushed onto its exit ladder. That is
-    /// SURVIVABLE, not harmless — and standing rule 17 prefers making the bad state unconstructible
-    /// over making it escapable. The signature costs the phone nothing new: under LP-SIGNING-
-    /// READINESS the LP already signs per-splice, so this folds into a loop it is already in.
-    ///
-    /// ⚠️ THE DIGEST IS DELIBERATELY NOT A PUBLIC VIEW, unlike `openChannelDigest`/`spliceDigest`.
-    /// `BTCChannels` is size-constrained and the signer computes this preimage locally anyway (see
-    /// `evm_codec.rs`), so an external accessor would spend deploy bytes on convenience. Domain tag
-    /// ⚠️ (§REKEY-FOLD) NO `lpSig`. The LP's consent to a rotation IS the fresh `exits` ladder: it
-    /// is verified against `Q' = TapTweak(KeyAgg(p.lpPubkey, p.hopPubkey))`, which DERIVES FROM THE
-    /// NEW HOP KEY, so no rung can exist unless the LP co-signed a MuSig2 session over exactly this
-    /// rotation. See `ChannelLib.rekeyAuthBody` for why that is strictly stronger than a signature.
-    function rekey(
-        bytes32 channelId,
-        Types.OpenParams calldata p,        // the NEW pair + the NEW taproot Q
-        bytes calldata oldHopPubkey,        // the hop key being rotated OUT
-        bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof,
-        Types.ExitArming[] calldata exits   // the fresh ladder under the NEW pair's Q' — AND the
-                                            // LP's consent to this rotation (§REKEY-FOLD)
-    ) external nonReentrant {
-        _whenOpen(channelId);
-        // ⚠️ THREE FRAMES, NOT ONE — and this is a legacy-stack requirement, not a style choice.
-        // Six parameters of which four are dynamic (`bytes`/`bytes32[]` each occupy TWO stack
-        // slots as offset+length) put this body at ten slots before a single local, and the first
-        // version — inline auth, inline digest, inline tail — failed with *"Stack too deep"*.
-        // `via_ir` stays off deliberately here, so the fix is the one the rest of this contract
-        // already uses (`_applySplice`, `_shrinkSplice`, `_emitOpened`): give each phase its own
-        // frame and pass calldata pointers, never re-materialised values.
-        _onlyHop();
-        _authorizeRekey(channelId, p, oldHopPubkey);
-        // Custody: SPV-prove, rotate the outpoint, resize. A rekey MAY also resize — the LP signs
-        // the whole of `p`, so it consents to the amount as well as to the key.
-        // ⚠️ (§E233-ladder) NOT `_finishRekey(…, _applySplice(…))`. Nesting them needs every argument of
-        // both calls live at once and solc's legacy pipeline reports `Stack too deep` at the inner
-        // call — measured, not guessed, once `exits` became the seventh parameter. The house fix is
-        // one more frame (never `via_ir`): `_finishRekey` now performs the rotation itself, so this
-        // site pushes ONE call's arguments.
-        _finishRekey(channelId, p, rawSpliceTx, spliceMerkleProof, exits);
-    }
+    // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `rekey`, `_authorizeRekey`, `_finishRekey`
+    // AND `ChannelRekeyed` STOOD HERE. **THE CAPABILITY IS NOT GONE — IT FOLDED INTO `splice`**,
+    // which now re-pins `keysHash` itself, and whose no-op guard admits a rotation at constant
+    // size. §E182 built `rekey` so the Safe could whitelist a new MRENCLAVE and the hop half could
+    // rotate to that image's key WITHOUT CLOSING THE CHANNEL; that is a `splice` with
+    // `amountSats` unchanged and a new `hopPubkey`, and `_applySplice`'s same-size branch was
+    // already written for it.
+    //
+    // 🔑 WHY THE SEPARATE ENTRYPOINT WAS NOT BUYING THE SAFETY IT CLAIMED. `rekeyAuthBody` pinned
+    // the LP half by comparing `keccak256(abi.encode(p.lpPubkey, oldHopPubkey))` to `keysHash` —
+    // an equality check over PUBLIC values. What actually stops a compromised hop rotating into a
+    // pair it solely controls is that `_verifySplice` SPV-proves the transaction SPENDS the
+    // channel's funding outpoint, and that outpoint is a key-path taproot 2-of-2 whose spend
+    // REQUIRES THE LP'S MuSig2 PARTIAL — which, under `Prevouts::All`, commits to the outputs and
+    // therefore to the exact new 2-of-2. **The signature subsumes the equality check.**
+    //
+    // ⚠️ AND THE PIN WAS UNSATISFIABLE AGAINST OUR OWN LN STACK: LDK rotates BOTH funding pubkeys
+    // on every splice (`new_funding_pubkey(prev_funding_txid)`), so `p.lpPubkey` moves too and no
+    // rotation LDK produces could ever have passed `rekeyAuthBody`. ⇒ **`rekey` had no caller
+    // anywhere in the Rust stack** (grep is doc-references only), which is the symptom the fold
+    // cures: the image upgrade is now reachable through the entrypoint the bridge already calls.
+    //
+    // ⛔ DO NOT RE-ADD A SEPARATE ROTATION ENTRYPOINT. Two paths that both rotate the outpoint and
+    // re-pin the pair are two places to get the ordering wrong, and §E153's *unretirable forever*
+    // regression was exactly a rotation that forgot to re-pin.
 
-    /// (§E182) The gate, in its own frame — a forwarder, deliberately.
-    ///
-    /// ⛔ THE DECISION LOGIC MUST STAY IN `ChannelLib.rekeyAuthBody`. Written inline here it
-    /// measured **25,295 bytes — 719 OVER EIP-170, undeployable** (snapshot, 2026-08-22). Library
-    /// functions are `external` and so DELEGATECALLED, putting their code in the library's own
-    /// deployment. Two values are read here and passed BY VALUE so the library never depends on
-    /// this contract's storage layout.
-    function _authorizeRekey(
-        bytes32 channelId,
-        Types.OpenParams calldata p,
-        bytes calldata oldHopPubkey
-    ) private view {
-        ChannelLib.rekeyAuthBody(p, oldHopPubkey, channels[channelId].keysHash);
-    }
-
-    /// (§E182) The claim + the re-pin, in their own frame.
-    function _finishRekey(
-        bytes32 channelId,
-        Types.OpenParams calldata p,
-        bytes calldata rawSpliceTx,
-        bytes32[] calldata spliceMerkleProof,
-        Types.ExitArming[] calldata exits
-    ) private {
-        // Custody: SPV-prove, rotate the outpoint, resize. Done HERE rather than at the call site
-        // so `rekey` never holds two calls' arguments at once (see the note there).
-        uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
-        Types.BTCChannel storage ch = channels[channelId];
-        // (§E233-ladder) A REKEY INVALIDATES THE LADDER TWICE OVER — it rotates the outpoint AND changes
-        // the aggregate the rungs must be spendable under (`p` carries the NEW pair, so
-        // `_armDeadManExit` verifies against the new `Q'`). Arming here is what keeps the LP's
-        // escape alive across a rotation it consented to; without it, §E182's "the rotated output is
-        // still a 2-of-2 REQUIRING the LP, so no unilateral spend exists to gain" holds while the
-        // LP's own unilateral escape silently does not. Before the external call, so a ladder that
-        // fails to verify reverts the rotation with nothing moved.
-        _armLadder(channelId, p, exits);
-        // Same claim rule as `splice`: an ordinary grow is LP-funded, so it earns the LP its shares.
-        if (grewBy != 0) btc.requestDeposit(ch.lpEth, grewBy);
-
-        // 🔴 THE STEP WHOSE ABSENCE CAUSED §E153's *unretirable forever* REGRESSION. A rotated
-        // outpoint with a stale `keysHash` fails `_requireChannelKeys` on BOTH retirement paths,
-        // so the position could never be closed. Rotating and re-pinning must be one transaction.
-        ch.keysHash = keccak256(abi.encode(p.lpPubkey, p.hopPubkey));
-        emit ChannelRekeyed(channelId, ch.lpEth, ch.keysHash, p.fundingTaproot);
-    }
-
-    /// The hop half of a channel's 2-of-2 rotated; `newKeysHash` re-pins the pair and `newTaproot`
-    /// is the aggregate the funds now sit under. The LP half is unchanged by construction.
-    event ChannelRekeyed(
-        bytes32 indexed channelId,
-        address indexed lpEth,
-        bytes32 newKeysHash,
-        bytes32 newTaproot
-    );
 
     // ⛔ (T1-f-root) `settleSwapInSpliced` IS DELETED — M1#1 superseded it and it was one of the
     // two ways POOL-OWNED SATS ENTERED AN LP'S CHANNEL.

@@ -1241,6 +1241,17 @@ pub(crate) struct ChannelMonitorImpl<Signer: EcdsaChannelSigner> {
 	holder_revocation_basepoint: RevocationBasepoint,
 	channel_id: ChannelId,
 	first_negotiated_funding_txo: OutPoint,
+	/// QU!D PATCH: the funding pubkeys of the FIRST negotiated funding scope, i.e. the pair the
+	/// channel was OPENED with. Companion to `first_negotiated_funding_txo`, and needed for the
+	/// same reason: a splice rotates BOTH — `send_splice_init`/`splice_ack` each derive a fresh
+	/// funding pubkey via `ChannelSigner::new_funding_pubkey(prev_funding_txid)` — so
+	/// `funding_pubkeys()`, which reads the CURRENT scope, cannot be used to reconstruct
+	/// anything that must be stable across the channel's life. QU!D's `BTCChannels` derives its
+	/// `channelId` from the ORIGINAL pair and the ORIGINAL outpoint, so both halves must be
+	/// pinned here or the id silently changes at splice lock. `None` only for monitors written
+	/// before this patch (see the read fallback). Non-secret: funding pubkeys are revealed
+	/// on-chain at funding.
+	first_negotiated_funding_pubkeys: Option<(PublicKey, PublicKey)>,
 
 	counterparty_commitment_params: CounterpartyCommitmentParameters,
 
@@ -1771,6 +1782,7 @@ pub(crate) fn write_chanmon_internal<Signer: EcdsaChannelSigner, W: Writer>(
 		(34, channel_monitor.alternative_funding_confirmed, option),
 		(35, channel_monitor.is_manual_broadcast, required),
 		(37, channel_monitor.funding_seen_onchain, required),
+		(39, channel_monitor.first_negotiated_funding_pubkeys, option),
 	});
 
 	Ok(())
@@ -1947,6 +1959,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 			holder_revocation_basepoint,
 			channel_id,
 			first_negotiated_funding_txo: funding_outpoint,
+			// QU!D PATCH: pin the OPENING pair here, while `channel_parameters` still describes the
+			// first funding scope. After a splice it describes the rotated one.
+			first_negotiated_funding_pubkeys: Some((
+				holder_pubkeys.funding_pubkey,
+				counterparty_channel_parameters.pubkeys.funding_pubkey,
+			)),
 
 			counterparty_commitment_params,
 			their_cur_per_commitment_points: None,
@@ -2159,6 +2177,29 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	/// rotated outpoint. Non-secret (the outpoint is revealed on-chain at funding).
 	pub fn original_funding_txo(&self) -> OutPoint {
 		self.inner.lock().unwrap().first_negotiated_funding_txo
+	}
+
+	/// QU!D PATCH (see lib/rust-lightning/QUID_PATCHES.md): the funding pubkeys of the FIRST
+	/// negotiated funding scope — `(holder, counterparty)`, the pair the channel was OPENED with —
+	/// STABLE across splices, unlike [`funding_pubkeys`](Self::funding_pubkeys), which reads the
+	/// CURRENT scope and therefore rotates: `send_splice_init` and the `splice_ack` handler each
+	/// call `ChannelSigner::new_funding_pubkey(prev_funding_txid)`, tweaking the base funding key
+	/// by `SHA256(prev_funding_txid ‖ base_funding_secret)`.
+	///
+	/// Use this — together with [`original_funding_txo`](Self::original_funding_txo) — wherever a
+	/// value must be stable for the channel's life. QU!D's `BTCChannels` derives `channelId` from
+	/// exactly that pair, so using the live pair yields an id no channel on the EVM has.
+	///
+	/// ⚠️ Falls back to the CURRENT pair for monitors written before this patch. That is correct
+	/// for a never-spliced channel and wrong for a spliced one; there is no third option, because
+	/// the original pair was never persisted. Returns `None` before the counterparty funding
+	/// params are populated, matching `funding_pubkeys`.
+	pub fn original_funding_pubkeys(&self) -> Option<(PublicKey, PublicKey)> {
+		let inner = self.inner.lock().unwrap();
+		match inner.first_negotiated_funding_pubkeys {
+			Some(pair) => Some(pair),
+			None => inner.funding_pubkeys(),
+		}
 	}
 
 	/// QU!D PATCH (see lib/rust-lightning/QUID_PATCHES.md): outpoints of any PENDING
@@ -6866,6 +6907,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 		let mut holder_pays_commitment_tx_fee = None;
 		let mut payment_preimages_with_info: Option<HashMap<_, _>> = None;
 		let mut first_negotiated_funding_txo = RequiredWrapper(None);
+		let mut first_negotiated_funding_pubkeys: Option<(PublicKey, PublicKey)> = None;
 		let mut channel_parameters = None;
 		let mut pending_funding = None;
 		let mut alternative_funding_confirmed = None;
@@ -6893,6 +6935,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			(34, alternative_funding_confirmed, option),
 			(35, is_manual_broadcast, (default_value, false)),
 			(37, funding_seen_onchain, (default_value, true)),
+			(39, first_negotiated_funding_pubkeys, option),
 		});
 		// Note that `payment_preimages_with_info` was added (and is always written) in LDK 0.1, so
 		// we can use it to determine if this monitor was last written by LDK 0.1 or later.
@@ -7062,6 +7105,10 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			holder_revocation_basepoint,
 			channel_id,
 			first_negotiated_funding_txo: first_negotiated_funding_txo.0.unwrap(),
+			// QU!D PATCH: absent only in monitors written before the patch existed. Left as `None`
+			// rather than back-filled from the CURRENT scope, so the accessor's fallback is visible
+			// at the call site instead of a rotated pair masquerading as the original one.
+			first_negotiated_funding_pubkeys,
 
 			counterparty_commitment_params,
 			their_cur_per_commitment_points,

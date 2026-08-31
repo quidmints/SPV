@@ -8,6 +8,8 @@ import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider,
         VenuePosition, IOracle} from "./Interfaces.sol";
 import {IMorphoStaticTyping as IMorpho, MarketParams, Id, MarketParamsLib} from "./Interfaces.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
+import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 // §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled
 // `keccak256(abi.encode(m))` market id all lived here. `MarketParams` was compared FIELD-FOR-FIELD
 // against Blue before swapping, because that order is hashed into the market Id and a mismatch
@@ -46,6 +48,8 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 ///         `BORROWER_OPS`, no `openTrove`, verified by structure 2026-08-15 -- and BOLD survives ONLY
 ///         as basket stable slot 11, SUPPLIED to the Liquity Stability Pool. Held, never minted.)
 abstract contract LevVenueBase is ILevVenue {
+    using SafeERC20 for IERC20OZ;
+
     /// @inheritdoc ILevVenue
     /// @dev Default NO-OP: a venue whose debt view already reflects accrued interest at read time
     ///      (Aave) has nothing to do here. `MorphoEscrowVenue` overrides it, because Morpho's
@@ -172,6 +176,8 @@ abstract contract LevVenueBase is ILevVenue {
 ///         Custody (per ILevVenue): `LevManager` sends weETH/stable to the adapter before `supply`/`repay`;
 ///         the adapter forwards borrowed stable / withdrawn weETH back to `LevManager`.
 contract MorphoEscrowVenue is LevVenueBase {
+    using SafeERC20 for IERC20OZ;   // NOT inherited from the base (Solidity >=0.7)
+
     IMorpho public immutable MORPHO;
     address public immutable COLLATERAL;        // collateral (== marketParams.collateralToken)
     Id public immutable MARKET_ID;      // MarketParamsLib.id(marketParams)    // keccak256(abi.encode(marketParams))
@@ -255,7 +261,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 d = debtOf(lp);
         uint256 r = amount > d ? d : amount;                 // clamp to current debt (never over-repay)
         if (r == 0) return 0;
-        IERC20Min(STABLE).transferFrom(msg.sender, address(this), r);
+        IERC20OZ(STABLE).safeTransferFrom(msg.sender, address(this), r);
         // Credits the NAMED LP, not the pool at large — a caller-funded repay must help who it names.
         repaid = _repayCreditingLp(lp, r);
     }
@@ -297,7 +303,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         // Mint units against the shares this borrow added. First borrow anchors 1 unit = 1 share.
         uint256 mint = _mintUnits(sharesUp, totalDebtUnits, before);      // §POOL-DONATION
         debtUnits[lp] += mint; totalDebtUnits += mint;
-        if (got > 0) IERC20Min(STABLE).transfer(MANAGER, got);
+        if (got > 0) IERC20OZ(STABLE).safeTransfer(MANAGER, got);
         return got;
     }
 
@@ -339,11 +345,11 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 mine = _unitSlice(debtUnits[lp], totalDebtUnits, before);   // this LP's exact share slice
         uint256 need = mine == 0 ? 0 : _sharesToAssetsUp(mine);
         if (mine > 0 && r >= need && IERC20Min(STABLE).balanceOf(address(this)) >= need) {
-            IERC20Min(STABLE).approve(address(MORPHO), need);
+            IERC20OZ(STABLE).forceApprove(address(MORPHO), need);
             (repaid, sharesDown) = MORPHO.repay(_params(), 0, mine, address(this), "");  // lands on ZERO
-            IERC20Min(STABLE).approve(address(MORPHO), 0);
+            IERC20OZ(STABLE).forceApprove(address(MORPHO), 0);
         } else {
-            IERC20Min(STABLE).approve(address(MORPHO), r);
+            IERC20OZ(STABLE).forceApprove(address(MORPHO), r);
             (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");     // partial: assets
         }
         uint256 burn = _burnUnits(sharesDown, totalDebtUnits, before);   // §POOL-UNITS: same conversion as the mint
@@ -363,7 +369,7 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 d = totalDebt();
         uint256 r = stableAmount > d ? d : stableAmount;
         if (r == 0) return 0;
-        IERC20Min(STABLE).approve(address(MORPHO), r);
+        IERC20OZ(STABLE).forceApprove(address(MORPHO), r);
         (repaid,) = MORPHO.repay(_params(), r, 0, address(this), "");
     }
 
@@ -498,6 +504,8 @@ contract MorphoEscrowVenue is LevVenueBase {
 /// @notice Aave V3, like V4, keys a position by the CALLER and has no sub-account/on-behalf-borrow, so the only way
 ///         one LP's liquidation can never touch another's is a per-LP escrow. VARIABLE-rate borrow (mode 2).
 contract AaveV3Escrow {
+    using SafeERC20 for IERC20OZ;
+
     address    public immutable VENUE;
     IAaveV3Pool public immutable POOL;
     address    public immutable COLLATERAL;
@@ -521,7 +529,10 @@ contract AaveV3Escrow {
         // ⚠️ THE EXCEPTION RESTS ON THE SECOND BULLET. If this contract ever holds an idle balance,
         // the infinite approval stops being covered by "nothing to take" and must become exact.
         IERC20Min(coll).approve(address(pool), type(uint256).max);
-        IERC20Min(stable).approve(address(pool), type(uint256).max);
+        // §NONSTANDARD-ERC20 — `forceApprove`, because `IERC20Min.approve` decodes a bool and
+        //    **USDT returns none**, so a USDT-denominated venue could never even be constructed.
+        //    `forceApprove` also handles USDT's refusal of a non-zero to non-zero approve.
+        IERC20OZ(stable).forceApprove(address(pool), type(uint256).max);
     }
 
     /// Supply `amt` collateral (already transferred in by the venue) → the escrow's own Aave account, marked as
@@ -536,7 +547,7 @@ contract AaveV3Escrow {
         uint256 bef = IERC20Min(STABLE).balanceOf(address(this));
         POOL.borrow(STABLE, amt, VARIABLE_RATE, 0, address(this));
         got = IERC20Min(STABLE).balanceOf(address(this)) - bef;
-        if (got > 0) IERC20Min(STABLE).transfer(to, got);
+        if (got > 0) IERC20OZ(STABLE).safeTransfer(to, got);
     }
 
     /// Repay `amt` stable (already transferred in by the venue). Returns ASSETS actually spent (balance delta).
@@ -566,6 +577,8 @@ contract AaveV3Escrow {
 ///         Custody (per ILevVenue): MANAGER sends collateral/stable to the venue before supply/repay; the venue
 ///         routes them through the LP's escrow and forwards borrowed stable / withdrawn collateral back to MANAGER.
 contract AaveV3Venue is LevVenueBase {
+    using SafeERC20 for IERC20OZ;   // NOT inherited from the base (Solidity >=0.7)
+
     IAaveV3Pool         public immutable POOL;
     IAaveV3DataProvider public immutable DATA;         // ProtocolDataProvider (per-asset current-balance reads)
     address             public immutable COLLATERAL;
@@ -624,7 +637,7 @@ contract AaveV3Venue is LevVenueBase {
         uint256 r = stableAmount > d ? d : stableAmount;   // never over-repay (clamp to THIS LP's slice)
         if (r == 0) return 0;
         uint256 before = _poolReserve(true);
-        IERC20Min(STABLE).transfer(address(e), r);          // stable already transferred in by MANAGER
+        IERC20OZ(STABLE).safeTransfer(address(e), r);          // stable already transferred in by MANAGER
         uint256 spent = e.repayStable(r);
         // Burn the units this LP's repayment represents, so sum(units) stays == total.
         uint256 burn = _burnUnits(spent, totalDebtUnits, before);        // §POOL-UNITS: same conversion as the mint
@@ -641,7 +654,7 @@ contract AaveV3Venue is LevVenueBase {
         uint256 d = _poolReserve(true);
         uint256 r = stableAmount > d ? d : stableAmount;
         if (r == 0) return 0;
-        IERC20Min(STABLE).transfer(address(e), r);
+        IERC20OZ(STABLE).safeTransfer(address(e), r);
         return e.repayStable(r);
     }
 

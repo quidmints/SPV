@@ -170,8 +170,9 @@ contract VBtcLevFeeLane is AllesFixture {
     /// all-native withdrawal (no proceeds), so it must clamp to the true channel funding.
     function _spliceOut(BTCChannels ch, bytes32 channelId, bytes32 fundingTxId, uint seed,
         bytes memory lpPubkey, uint newAmountSats) internal returns (bytes32 newTxId) {
-        // (E162) A splice may RESIZE a channel, never REKEY one — `keysHash` is pinned at open.
-        // So the splice must carry the SAME owned pair the channel was opened with.
+        // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) This helper keeps the SAME pair deliberately: it is
+        // the resize-only control. Rotation is exercised by the two rotation tests below, which a
+        // pure-resize helper must not silently cover.
         ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(seed));
         bytes memory spliceTx;
         {
@@ -288,35 +289,35 @@ contract VBtcLevFeeLane is AllesFixture {
         ch.splice(cid, p, tx_, new bytes32[](0), exits_);
     }
 
-    /// (E162) A SPLICE MAY RESIZE A CHANNEL; IT MAY NOT REKEY ONE.
+    /// (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) WHAT REFUSES A ROTATION INTO A PAIR THE HOP CHOSE.
     ///
-    /// 🔴 This was a live defect and it was mine (§E153). `keysHash` is pinned at open and read
-    /// only by the RETIREMENT paths, while `_verifySplice` proves KeyAgg over whatever pair it is
-    /// handed — so a splice carrying a DIFFERENT pair passed, rotated the funding outpoint, and
-    /// left `keysHash` stale. `recordClose` and `recordDeadManExit` then BOTH reverted
-    /// `ChannelKeysMismatch` and the channel was **unretirable forever**: BTC alive in a live
-    /// 2-of-2, the EVM position stuck open, backing over-counted indefinitely.
+    /// ⛔ THIS TEST USED TO BE `test_spliceCannotRekeyTheChannel` AND ASSERTED
+    /// `ChannelKeysMismatch` FROM `_requireChannelKeys`. **That check is deleted, and it was never
+    /// what made a rotation safe.** It compared PUBLIC values for equality; and it was
+    /// unsatisfiable against our own LN stack, which rotates BOTH funding pubkeys on every splice
+    /// (`new_funding_pubkey(prev_funding_txid)`), so no real splice could ever have passed it.
     ///
-    /// ⚠️ The check is deliberately ordered BEFORE `_verifySplice`, so this asserts the keys
-    /// mismatch rather than an output-not-found — a rekeying splice must be refused on the
-    /// INVARIANT, not incidentally because its taproot happens not to appear in the tx.
-    function test_spliceCannotRekeyTheChannel() public {
+    /// 🔑 THE GATE THAT ACTUALLY HOLDS IS THE CHAIN: `_verifySplice` → `_verifyTxSpendsChannel`
+    /// SPV-proves the transaction SPENDS this channel's funding outpoint, and that outpoint is a
+    /// key-path taproot 2-of-2 whose spend REQUIRES THE LP'S MuSig2 PARTIAL — which, under BIP-341
+    /// `Prevouts::All`, commits to the outputs and therefore to the exact new pair. A hop holding
+    /// one half cannot produce such a transaction for ANY pair. **So the assertion is that a
+    /// splice not spending this channel's outpoint is refused**, which is the on-chain fact the
+    /// deleted equality check was standing in front of.
+    function test_spliceMustSpendThisChannelsFundingOutpoint() public {
         BTCChannels ch = _deployChannels();
         (bytes32 cid,,, bytes memory lpPubkey) = _open(ch, 91, 2e6);
 
         ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(91));
-        bytes memory otherLp = _validCompressedPubkey("a-different-lp-key");
-        assertTrue(keccak256(otherLp) != keccak256(lpPubkey), "must actually differ");
-
-        Types.OpenParams memory p = Types.OpenParams({
-            fundingBlockHash: bytes32(uint(0x5217CE)), fundingBlockHeight: 800001,
-            fundingTxIndex: 0, lpPubkey: otherLp, hopPubkey: hopKey_,
-            amountSats: 3e6, fundingTaproot: _taprootQ(otherLp, HOP_PUBKEY) });
+        // A well-formed splice paying to a valid `Q` for THIS channel's own pair — every check
+        // except the one under test passes, so the rejection cannot be incidental.
+        bytes32 foreignFunding = keccak256("an outpoint this channel never had");
+        bytes memory tx_ = _buildRekey(foreignFunding, lpPubkey, hopKey_, 3e6);
+        Types.OpenParams memory p = _rekeyParams(lpPubkey, hopKey_, 3e6);
 
         vm.prank(makeAddr("hop"));
-        vm.expectRevert(ChannelKeysMismatch.selector);
-        // (§E233-ladder) `stubLadder` — `_requireChannelKeys` fires before the rotation, let alone arming.
-        ch.splice(cid, p, hex"00", new bytes32[](0), stubLadder());
+        vm.expectRevert(BTCChannels.WrongPrevOutpoint.selector);
+        ch.splice(cid, p, tx_, new bytes32[](0), stubLadder());
     }
 
     /// The companion: the SAME pair still splices. Without this the rejection above could be
@@ -401,7 +402,7 @@ contract VBtcLevFeeLane is AllesFixture {
             : _rekeyLadder(c, tx_);
         if (expectRevert_) vm.expectRevert();
         vm.prank(makeAddr("hop"));
-        ch.rekey(c.cid, p, c.oldHop, tx_, new bytes32[](0), exits_);
+        ch.splice(c.cid, p, tx_, new bytes32[](0), exits_);
     }
 
     /// (§SPRINT-B4) The rekey's 2-rung ladder in its OWN frame (legacy stack, no `via_ir`):
@@ -493,22 +494,46 @@ contract VBtcLevFeeLane is AllesFixture {
         ch.splice(c.cid, stalePair, hex"00", new bytes32[](0), stubLadder());
     }
 
-    /// TO WHAT, enforced: the LP half may not move. This is the exact attack the
-    /// `_requireChannelKeys` comment names — a hop rotating to keys it solely controls.
-    function test_rekeyRefusesToMoveTheLpHalf() public {
+    /// (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) ✅ THE LDK SHAPE: **BOTH HALVES ROTATE, AND THE
+    /// CHANNEL ABSORBS IT.**
+    ///
+    /// ⛔ THIS TEST USED TO BE `test_rekeyRefusesToMoveTheLpHalf` AND ASSERTED THE OPPOSITE. The
+    /// inversion is the whole point of the fix: LDK derives a fresh funding pubkey for EACH side on
+    /// every splice — `send_splice_init` (`channel.rs:13021`) and the `splice_ack` handler
+    /// (`:13137`) both call `ChannelSigner::new_funding_pubkey(prev_funding_txid)`, tweaking by
+    /// `SHA256(prev_txid ‖ base_secret)`. **So a pin that forbade the LP half from moving forbade
+    /// every splice our own stack produces**, and every gate it guarded — including both retirement
+    /// paths — would have shut on any spliced channel (§E153's *unretirable forever*, reached
+    /// through a different door).
+    ///
+    /// The safety that used to be attributed to the pin is unchanged and comes from the chain: this
+    /// transaction spends the channel's 2-of-2, which no hop can do alone.
+    /// ⇒ Asserts what §E153 got wrong — not that the call returned, but that the channel is
+    /// OPERABLE UNDER THE NEW PAIR afterwards and no longer under the old one.
+    function test_spliceAbsorbsAnLdkRotationOfBothHalves() public {
         BTCChannels ch = _deployChannels();
         RekeyCase memory c;
         bytes memory realLp;
         (c.cid, c.ftx,, realLp) = _open(ch, 95, 2e6);
         ( , c.oldHop, ) = ownedChannelKeys(_label(95));
-        ( , c.newHop, ) = ownedChannelKeys(_label(96));
-        c.lpPubkey = _validCompressedPubkey("a-different-lp-key");   // the LP half, MOVED
+        // BOTH halves move, to an OWNED pair — the ladder must verify under the new aggregate, so
+        // the new LP half needs real key material, not just a well-formed pubkey.
+        (c.lpPubkey, c.newHop, ) = ownedChannelKeys(_label(96));
         c.sats = 2e6;
-        // Signed by the REAL LP, so this cannot pass merely because the signature is bad: the
-        // rejection has to come from the pair check.
-        assertTrue(keccak256(c.lpPubkey) != keccak256(realLp), "must actually differ");
+        c.lpLabel = string.concat(_label(96), "-lp");
+        c.hopLabel = string.concat(_label(96), "-hop");
+        c.payoutScript = abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(uint(95))));
+        assertTrue(keccak256(c.lpPubkey) != keccak256(realLp), "the LP half must actually move");
+        assertTrue(keccak256(c.newHop) != keccak256(c.oldHop), "the hop half must actually move");
 
-        _submitRekey(ch, c, true);   // ChannelLib.ChannelKeysMismatch
+        _submitRekey(ch, c, false);
+
+        // The pin followed the rotation. If `splice` had not re-pinned `keysHash`, the channel
+        // would now be custodied under a pair every retirement path rejects.
+        Types.OpenParams memory stalePair = _rekeyParams(realLp, c.oldHop, 1e6);
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(ChannelKeysMismatch.selector);
+        ch.splice(c.cid, stalePair, hex"00", new bytes32[](0), stubLadder());
     }
 
     /// A no-op rotation is refused rather than quietly performed. It is not harmless: rotating the
@@ -522,7 +547,7 @@ contract VBtcLevFeeLane is AllesFixture {
         c.newHop = c.oldHop;                 // the "rotation" that rotates nothing
         c.sats = 2e6;
 
-        _submitRekey(ch, c, true);   // ChannelLib.RekeyUnchanged
+        _submitRekey(ch, c, true);   // SpliceUnchanged -- nothing changed at all
     }
 
     /// WHO, enforced: the hop cannot rotate alone. Without this the LP could be moved into a 2-of-2

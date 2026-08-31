@@ -159,19 +159,62 @@ pub fn channel_funding_pubkeys(
     Some((holder.serialize(), counterparty.serialize()))
 }
 
+/// The channel's ORIGINAL 2-of-2 funding pubkeys — the pair it was OPENED with, which is what
+/// `BTCChannels` hashes into `channelId` (`ChannelLib.sol:617`). Companion to
+/// [`channel_funding_pubkeys`], which returns the monitor's CURRENT pair.
+///
+/// ⚠️ USE THIS WHEREVER THE VALUE FEEDS AN IDENTITY, AND THE OTHER ONE WHEREVER IT FEEDS A SPEND.
+/// A splice rotates both halves (`new_funding_pubkey(prev_funding_txid)`), so the two diverge the
+/// moment a channel is spliced: `deliverSwapOutOnchain`/`splice` need the CURRENT pair, because
+/// that is what the on-chain output commits to; `channelId` needs the ORIGINAL one.
+///
+/// Looks the channel up by its LIVE funding outpoint, exactly as [`channel_funding_pubkeys`] does
+/// — post-splice that is the splice outpoint — then reads the original pair off the monitor.
+pub fn original_channel_funding_pubkeys(
+    chain_monitor: &HopChainMonitor,
+    channel_manager: &HopChannelManager,
+    funding_txid: bitcoin::Txid,
+    funding_vout: u32,
+) -> Option<([u8; 33], [u8; 33])> {
+    let outpoint = lightning::chain::transaction::OutPoint {
+        txid: funding_txid,
+        index: funding_vout as u16,
+    };
+    let channel_id = channel_manager
+        .list_channels()
+        .into_iter()
+        .find(|c| c.funding_txo == Some(outpoint))
+        .map(|c| c.channel_id)?;
+    let monitor = chain_monitor.get_monitor(channel_id).ok()?;
+    let (holder, counterparty) = monitor.original_funding_pubkeys()?;
+    Some((holder.serialize(), counterparty.serialize()))
+}
+
 /// Derive a channel's STABLE on-chain `channelId` from its SEALED monitor ALONE —
 /// the freshness anchor key. Every input comes from the AES-sealed `ChannelMonitor`
 /// (never the host-writable `BridgeStore.onchain_cid` map), so a host cannot repoint
 /// a monitor at another channel's — or a nonexistent — freshness counter to force a
-/// stale reload past `verify()` (audit F3). Uses the ORIGINAL funding outpoint
-/// (splices rotate the live txo, but the on-chain id is pinned to the first funding)
-/// plus the 2-of-2 funding pubkeys sorted into the same open/close order the
-/// contract hashes — identical to the reconciler's derivation. `None` before the
-/// counterparty funding params are populated (pre-funding: no revoked state to
-/// protect yet).
+/// stale reload past `verify()` (audit F3). Uses the ORIGINAL funding outpoint AND the
+/// ORIGINAL funding pubkeys, sorted into the same open/close order the contract hashes
+/// — identical to the reconciler's derivation. `None` before the counterparty funding
+/// params are populated (pre-funding: no revoked state to protect yet).
+///
+/// ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) THIS USED TO READ `funding_pubkeys()`
+/// WHILE CORRECTLY READING `original_funding_txo()`, AND THE DOCBLOCK SAID WHY THE OUTPOINT
+/// NEEDED THE "ORIGINAL" ACCESSOR WITHOUT NOTICING THE PAIR NEEDS IT FOR THE SAME REASON.
+/// **A splice rotates BOTH**: `send_splice_init` and the `splice_ack` handler each call
+/// `ChannelSigner::new_funding_pubkey(prev_funding_txid)`, and `funding_pubkeys()` reads the
+/// CURRENT scope. So this function — documented as deriving a STABLE id — returned a
+/// DIFFERENT id after every splice lock. Three consumers were affected: the EVM `channelId`
+/// (definitively wrong, since `ChannelLib.sol:617` binds it to the ORIGINAL pair), the
+/// freshness / anti-rollback anchor key (`node.rs`'s `verify` call and `persister.rs`'s
+/// write, whose key silently migrated at splice lock), and the restatements in
+/// `liveness.rs` / `freshness_ledger.rs`.
+/// ⛔ **DO NOT "SIMPLIFY" THIS BACK TO `funding_pubkeys()`.** The id must NOT follow the
+/// channel's live scope — that is the whole reason `original_funding_txo` exists.
 pub fn onchain_cid_from_monitor(monitor: &ChannelMonitorType) -> Option<[u8; 32]> {
     let orig = monitor.original_funding_txo();
-    let (holder, counterparty) = monitor.funding_pubkeys()?;
+    let (holder, counterparty) = monitor.original_funding_pubkeys()?;
     let (k0, k1) =
         crate::evm_codec::sort_funding_pubkeys(holder.serialize(), counterparty.serialize());
     Some(crate::evm_codec::channel_id(

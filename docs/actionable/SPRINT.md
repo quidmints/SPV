@@ -12409,7 +12409,20 @@ route hints) and reversibly.
   tolerance. That is a real option if the owner wants offline depth > 0 without a fork, and it is NOT a
   replacement for the gate — it moves the cliff, it does not remove it.
 
-## 🔴 §SPLICE-ROTATES-BOTH-FUNDING-KEYS — 🔴 **OPEN. THE EVM PINS THE 2-of-2 PAIR; LDK ROTATES IT ON EVERY SPLICE. BOTH EVM DOORS ARE LOCKED.**
+## 🟡 §SPLICE-ROTATES-BOTH-FUNDING-KEYS — 🟡 **EVM HALF LANDED 2026-08-31. THE RUST HALF (`onchain_cid_from_monitor`) IS STILL OPEN.**
+
+✅ **LANDED:** `splice` re-pins `keysHash` and `_requireChannelKeys` is gone from that path;
+`rekey`/`_authorizeRekey`/`_finishRekey`/`ChannelRekeyed`/`rekeyAuthBody`/`RekeyUnchanged` **folded
+into `splice`**, whose no-op guard now rejects only a splice that changes NEITHER size NOR pair — so a
+constant-size rotation (the MRENCLAVE upgrade §E182 built `rekey` for) reaches `_applySplice`'s
+same-size branch, which was already written for it. **The image-upgrade capability is now REACHABLE:
+`rekey` had no caller anywhere in the Rust stack; `splice` is called by the bridge already.**
+Tests rewritten, not deleted: `test_spliceCannotRekeyTheChannel` →
+`test_spliceMustSpendThisChannelsFundingOutpoint` (asserts the gate that actually holds), and
+`test_rekeyRefusesToMoveTheLpHalf` → `test_spliceAbsorbsAnLdkRotationOfBothHalves` (**asserts the
+inverse of what it used to**, which is the point).
+🔴 **STILL OPEN:** the Rust half below — `onchain_cid_from_monitor` and `drive_close`'s fallback.
+
 
 Found 2026-08-31 answering the owner's question *"can that basepoint survive our rekeys — make sure all
 the logic is consistent internally within the entire scope of our bitcoin-related architecture"*. The
@@ -12519,6 +12532,30 @@ so it is signer-local policy, not a BOLT rule) and it would make the current pin
 deepens the LDK fork to preserve a check that the 2-of-2 already subsumes, and it makes the pre- and
 post-splice funding outputs share a scriptPubKey.** Fixing the pin is strictly smaller than forking
 the signer.
+
+🔴 **THIRD CONSEQUENCE, AND IT IS THE MOST SERIOUS — `onchain_cid_from_monitor` DERIVES A VALUE
+IT DOCUMENTS AS *"STABLE"* FROM A PAIR THAT ROTATES.** `node.rs:172` combines
+`monitor.original_funding_txo()` (correctly the ORIGINAL outpoint) with `monitor.funding_pubkeys()`
+(**the CURRENT, post-splice pair**). Its own docblock shows the premise: it reasons explicitly about
+the outpoint — *"splices rotate the live txo, but the on-chain id is pinned to the first funding"* —
+and then treats the pubkeys as constants. **They are not.** ⇒ **The derived id CHANGES at splice lock.**
+Three consumers, in descending certainty:
+- ✅ **DEFINITE AND WRONG: the EVM channelId.** `ChannelLib.sol:617` binds `channelId` to the
+  ORIGINAL pair. Post-splice this function returns an id **no channel on the EVM has**, and the
+  docblock's *"identical to the reconciler's derivation"* propagates it.
+- ⚠️ **THE FRESHNESS / ANTI-ROLLBACK ANCHOR KEY (audit F3).** `node.rs:863` feeds it to
+  `freshness::verify(anchor, &monitor_key, update_id)`, and `persister.rs:124` writes under the same
+  key. At splice lock **the key silently migrates**: the channel's accumulated ledger entry is
+  abandoned and a fresh, UNANCHORED key takes its place. ⚠️ **Stated as the capability an adversary
+  retains, not as a mechanism description (standing rule):** a rollback to a PRE-splice monitor still
+  computes the OLD key and still meets its old anchor, so that case stays covered; what is not
+  covered is the window in which the NEW key has no anchor yet. **Whether that window is exploitable
+  is for the owner to assess — do not soften it to "cosmetic", and do not claim a working attack.**
+- 📌 `liveness.rs:330` and `freshness_ledger.rs:43` both restate the derivation, so both inherit it.
+▶️ **FIX: the monitor must expose the ORIGINAL funding pubkeys**, exactly as the existing QU!D patch
+exposes `original_funding_txo` / `first_negotiated_funding_txo`. Same shape, same file, same reason.
+**Do NOT "fix" this by keying on the live pair** — that would make the id follow the channel's scope,
+which is precisely what `ChannelLib.sol:617` says it must not do.
 
 🔴 **SECOND LIVE CONSEQUENCE OF THE SAME ROOT, BOOKED SO IT LANDS WITH THE FIX:**
 `channel_driver.rs:1184` calls `drive_close(.., known, funding_pubkeys, None)` where `known` may be
