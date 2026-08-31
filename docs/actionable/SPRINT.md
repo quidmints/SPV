@@ -1241,6 +1241,53 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§SELL-LEG-NOT-FORCED-AFTER-ALL — THE OWNER'S CONFUSION FOUND THE BETTER ALTERNATIVE I HAD RULED OUT ON A FALSE PREMISE** (owner, 2026-08-31: *"so you have to wait a month to redeem the dollars you got out from your OOR swap? im confused"*)
+
+**Right to be confused — that consequence is real, and it is avoidable.** §SELL-LEG-IS-FORCED claimed
+all three legs were determined and that no better alternative could exist. **The INSTRUMENT leg was
+not forced, and my reason for ruling out the alternative was factually wrong.**
+
+### ❌ WHAT I GOT WRONG
+I rejected option **C** (pay the maker basket stables) on the grounds that it *"hands the maker 14
+stables instead of the one they asked for"*. **That is false, and I had already measured the opposite
+the same day.** `_settleUsdSide` with `token != address(0)` calls **`AUX.take(who, from6(amount,
+token), token, 0)`** → `BasketLib.takeBody` → **`_takePreferred`, which serves the NAMED stable FIRST
+and returns early when it covers the draw** (`BasketLib.sol:698-712`); only the SHORTFALL falls through
+to pro-rata. §CONVERGENCE-IS-THE-OTHER-WORKFLOW says exactly this about the swap path — **I wrote it
+and then reasoned as though the opposite were true.**
+⚠️ **`settleOor` hardcodes `token = address(0)`, which is what made B look forced.** That is a property
+of one call site, **not of the settlement algebra** — and I promoted a call-site default to a law.
+
+### ⚖️ C-CORRECTED vs B, NOW THAT C IS STATED HONESTLY
+| | **B — mint QU!D** | ⭐ **C — pay the named stable** |
+|---|---|---|
+| what the maker holds | a claim maturing at `currentMonth()+1` — **transferable but NOT redeemable until it matures** | **spendable stables, immediately** |
+| rule 8b | a mint, justified by an asset acquired in-tx | ✅ **no mint at all** — paid with value that already exists, which is what the rule asks for |
+| backing | committed −`usd6`, liquid unchanged, **liability uncounted until maturity** ⇒ an interval of apparent headroom | ✅ committed −`usd6` **and** liquid −`usd6` ⇒ **neutral instantly, no dated gap** |
+| basket | untouched | drains `usd6` of stables — **which is correct: the maker is exiting and takes their dollars with them** |
+| cost | — | the `OorIntent` needs a **payout-token field**, changing the EIP-712 typehash |
+⇒ **C dominates B on every axis that matters to the maker and on the two that matter to the
+protocol** (no mint, no uncounted liability). B's only edge was "does not drain the basket", and a
+drain is the honest representation of someone leaving with their money.
+
+### 📌 AND THE PRECISE ANSWER TO THE QUESTION AS ASKED
+**Under B: yes — but the wait is until the next MONTH BOUNDARY, not a full month**, and the QU!D is
+**transferable throughout; only REDEMPTION against the basket waits.** ⚠️ **This is not new to the
+sell leg — every dollar payout the protocol makes already works this way**, including a normal LP
+withdrawal's dollar leg (`_payUsdLeg` → `_mintQuid`). **That is an argument that B is CONSISTENT, not
+that it is right**, and under C the question does not arise at all.
+
+### 🧭 WHAT THIS COSTS ME IN CREDIBILITY, STATED PLAINLY
+Rule 18 asked whether a better version existed. **I answered "no, all three legs are forced" and was
+wrong within a day, on a fact I had personally measured hours earlier.** The failure was not missing
+information — it was **treating `settleOor`'s hardcoded `address(0)` as the algebra rather than as one
+call site's choice.** ⇒ **Before claiming a design is forced, check whether each "constraint" is a
+property of the SYSTEM or of the one CALLER you happened to read.**
+▶️ **The tests from §SELL-BACKING-MEASURED stay valid and become MORE useful**: they now document B's
+behaviour precisely enough to compare against C, and the control still pins that only the `settleOor`
+leg surrenders the dollars. **Re-run the backing pair against C before building it** — C's balance is a
+different claim (liquid falls too) and must be measured, not inherited.
+
 ## 🧪 **§SELL-BACKING-MEASURED — THE TEST PASSED AND PROVED NOTHING; ITS CONTROL CAUGHT THAT, AND THE REAL FINDING CORRECTS §SELL-LEG-IS-FORCED** (owner, 2026-08-30: *"do the test"*)
 
 ### 🔴 THE FIRST VERSION WAS VACUOUS, AND IT PASSED
@@ -1286,7 +1333,7 @@ called all three legs "forced" owed this sentence and did not have it.**
 - `test_ControlOnlyTheSettleOorLegSurrendersTheDollars` — with no `settleOor`, committed must **not
   move at all**. If these two ever agree, the first is measuring nothing again.
 
-## 🔒 **§SELL-LEG-IS-FORCED — RULE 18 APPLIED: B IS NOT THE BEST OF SEVERAL DESIGNS, IT IS THE ONLY ONE CONSISTENT WITH THE SETTLEMENT ALGEBRA** (owner, 2026-08-30: *"make sure this is a solution beyond which no better alternative can or should exist"*)
+## 🔒 **[🔴 PARTLY RETRACTED 2026-08-31 — THE *INSTRUMENT* LEG WAS NOT FORCED. I ruled out paying a named basket stable because it would "hand the maker 14 stables", which is FALSE — `AUX.take` serves the named stable FIRST. See §SELL-LEG-NOT-FORCED-AFTER-ALL above. The ETHER and DOLLAR legs below still stand.] §SELL-LEG-IS-FORCED — RULE 18 APPLIED: B IS NOT THE BEST OF SEVERAL DESIGNS, IT IS THE ONLY ONE CONSISTENT WITH THE SETTLEMENT ALGEBRA** (owner, 2026-08-30: *"make sure this is a solution beyond which no better alternative can or should exist"*)
 
 Standing rule 18 says ask whether a better version exists **before** landing. Attacked from every side
 I could construct; **all three legs turn out to be DETERMINED by conventions already in the code**, and
