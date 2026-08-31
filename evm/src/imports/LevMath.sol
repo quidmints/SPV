@@ -710,13 +710,27 @@ library LevMath {
     ///      splits across venues that do not compete for the same liquidity with nobody choosing it.
     function convertShortfall(address aux, address quid, address payoutToken, address owner,
                               uint short18, bytes[] memory routes) public returns (uint) {
-        IAux(aux).take(address(this), short18, quid, 0);      // token == QU!D ⇒ pure PRO-RATA
+        // 🔴🔴 **THE FLOOR IS THE WHOLE SAFETY OF THIS FUNCTION. IT WAS `0` AND THAT WAS A DRAIN.**
+        //    With no floor, a caller supplies routes that consume the approved stables and return
+        //    nothing: `got == 0` clears `0 >= 0`, the basket's drawn slice is GONE, the maker is
+        //    paid nothing, and because their ether debit is derived from the proceeds it barely
+        //    moves — so the position is not even reduced to compensate. **Nothing reverts.**
+        //    ⚠️ AND `fillIntent` IS PERMISSIONLESS, so this was open to anyone, not only to a
+        //    compromised enclave. Found auditing my own change from twenty minutes earlier.
+        // ⭐ THE DRAW'S OWN RETURN IS THE RIGHT BASIS, not `short18`: the basket may deliver LESS
+        //    than asked (§PARTIAL-TAKE), and flooring against what we asked for would revert an
+        //    honest conversion of a short draw. `take` reports USD18 actually drawn.
+        uint drawn18 = IAux(aux).take(address(this), short18, quid, 0);   // token == QU!D ⇒ PRO-RATA
+        if (drawn18 == 0) return 0;
         address[] memory st = IAux(aux).getStables();
         uint[] memory amt = new uint[](st.length);
         // The range custodies no basket stables in the normal course, so a post-draw balance IS
         // exactly what the draw delivered — no before/after snapshot needed.
         for (uint k; k < st.length; ++k) amt[k] = IERC20Min(st[k]).balanceOf(address(this));
-        uint extra = convertTo(st, amt, payoutToken, 0, routes);
+        // Oracle-derived and SIZE-AWARE — the same curve every other floor in this library uses, so
+        // a large conversion is not held to a small trade's tolerance.
+        uint floor_ = _fromUsd(aux, payoutToken, drawn18) * (10_000 - _slipBps(drawn18)) / 10_000;
+        uint extra = convertTo(st, amt, payoutToken, floor_, routes);
         if (extra == 0) return 0;
         IERC20OZ(payoutToken).safeTransfer(owner, extra);
         return SwapLib_scaleTo6(extra, payoutToken);
