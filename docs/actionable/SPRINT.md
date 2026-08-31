@@ -1653,7 +1653,47 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
-## 🔴 **§THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION — A CALLER-SUPPLIED SOURCE PLAN IS A BASKET-CONCENTRATION ATTACK, AND MY DESIGN HAD NO GUARD ON IT** (owner, 2026-08-31: *"the caller can say anything they want … we need consistency"*)
+## ✅ **§PRO-RATA-IN-ONE-TOKEN-OUT — THE SOURCE-PLAN PROBLEM DOES NOT EXIST, BECAUSE THERE IS NO SOURCE CHOICE** (owner, 2026-08-31: *"pro-rata is always always the result that gets routed through the aggregator, its rare that any swapper or QUI redeemer will want multiple tokens"*)
+
+**This dissolves two rows rather than answering them.** §THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION built
+an envelope (deviate from pro-rata only toward over-weight or depegging stables) to stop a caller
+choosing what the basket spends. **There is nothing to bound: the draw is ALWAYS pro-rata.**
+
+### 📡 CONFIRMED IN THE CODE
+| path | draw |
+|---|---|
+| **redeem** | **pure pro-rata** — §E313 removed the targeted preference outright |
+| **swap** | the named token FIRST (`_takePreferred`, returns early if it covers), **pro-rata for the remainder** |
+⇒ **COMPOSITION IS INVARIANT BY CONSTRUCTION.** A pro-rata draw leaves every share unchanged, so the
+attack the envelope was written for cannot be expressed — and no input-side verification is needed at
+all. ⛔ **The envelope is retracted: it was machinery for a decision nobody makes.**
+
+### ⭐ AND IT COLLAPSES ALL FOUR WORKFLOWS INTO ONE SHAPE
+The aggregator's job was never *"pick the source"*. It is **N → 1: convert a FIXED pro-rata bundle
+into the one token the user actually wants**, because — as the owner puts it — *it is rare that any
+swapper or redeemer wants multiple tokens.*
+| workflow | in | out |
+|---|---|---|
+| QU!D redeem | pro-rata bundle | the redeemer's token |
+| swap-out | pro-rata remainder | the swapper's token |
+| OOR fill | pro-rata remainder | the maker's signed `payoutToken` |
+| IL-protect | pro-rata bundle | WETH / WBTC |
+⇒ **ONE mechanism, four callers** — the owner's *"make sure not to duplicate"* fully realised, and
+simpler than anything proposed before it. **`_takePreferred` is not a competing path: it is the
+shortcut that SKIPS the conversion when the basket already holds enough of what you want.**
+⭐⭐ **AND THE EXECUTION ARGUMENT SURVIVES WITHOUT ANYONE CHOOSING ANYTHING.** §SOURCE-SELECTION argued
+multi-source beats single-source because it splits across venues that do not compete for the same
+liquidity. **A pro-rata bundle IS multi-source by construction** — so the aggregator gets that spread
+for free, on every conversion, with no plan, no envelope, and no trust in the caller.
+
+### 🔧 WHAT THIS CHANGES IN WHAT IS ALREADY BUILT
+The sell leg (`71cd5bf0`) draws the maker's signed token via `_takePreferred` and **pays a PARTIAL
+when the basket is short.** Under this framing the partial is the **no-route fallback**, not the
+primary: the shortfall should be drawn **pro-rata and CONVERTED** to `payoutToken`. ⇒ **The leg is
+correct as it stands and incomplete in the same way every other path is — it is waiting on the one
+conversion primitive, not on anything of its own.**
+
+## 🔴 **[RETRACTED 2026-08-31 — the envelope below solves a problem that does not exist: the draw is ALWAYS pro-rata, so composition is invariant and there is no source choice to attack. See §PRO-RATA-IN-ONE-TOKEN-OUT above. Kept because the ATTACK it describes is real for any future design that DOES let a caller pick the source.] §THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION — A CALLER-SUPPLIED SOURCE PLAN IS A BASKET-CONCENTRATION ATTACK, AND MY DESIGN HAD NO GUARD ON IT** (owner, 2026-08-31: *"the caller can say anything they want … we need consistency"*)
 
 §SOURCE-SELECTION-IS-PART-OF-THE-ROUTE proposed *"the caller supplies a source plan; the contract
 verifies the total output cleared the oracle floor."* **That is sound on price and silent on
