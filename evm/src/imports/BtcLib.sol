@@ -466,18 +466,13 @@ library BtcLib {
         // BTC has no vault yield to sync (no WBTC supply); skip _syncYield.
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
             c.core, c.aux, IAux(c.aux).WBTC(), upPrice, loPrice);
-        // §V4-CUT-RESIDUE — THE `didRepack` ARM IS GONE; IT ADDED TWO ZEROS. It read
-        // `r.fees1`/`r.fees0`, which no code ever assigned, into `feeIncrements` and `+=`'d the
-        // zero result. ⚠️ **`!r.didRepack &&` IS LOAD-BEARING, NOT TIDYING.** It was an `else if`,
-        // and `didRepack` and `jitFees` are NOT mutually exclusive: the in-range arm of
-        // `rebalanceCore` sets `jitFees`, and `_doReseat` can then set `didRepack` in the same
-        // call. Dropping the guard would start distributing JIT fees on a repack-and-reseat that
-        // previously skipped them — a live behaviour change wearing a dead-code deletion.
-        if (!r.didRepack && r.jitFees) {
-            // collectFees returns canonical (feesUSD, feesTok) — USD first.
-            (uint tokInc, uint usdInc) = SwapLib.feeIncrements(r.jitFeesTok, r.jitFeesUsd, feeDenom);
-            o.feesPerShareInc += tokInc; o.usdFeesInc += usdInc;
-        }
+        // ⛔ (§V4-CUT) THE JIT FEE BRANCH IS GONE. It ran `feeIncrements(r.jitFeesTok, r.jitFeesUsd,
+        // feeDenom)` on values `Core.collectFees()` returned as `(0, 0)`, so it added zeros to both
+        // accumulators on every rebalance. The `!r.didRepack &&` guard it carried was load-bearing
+        // ONLY while those values could be non-zero — `didRepack` and `jitFees` were not mutually
+        // exclusive, so dropping the guard would have started distributing JIT fees on a
+        // repack-and-reseat. With the collect deleted there is nothing to distribute and no guard to
+        // preserve; the reasoning is kept here in case a real fee source is ever reintroduced.
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
     }

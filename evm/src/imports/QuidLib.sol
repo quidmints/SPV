@@ -378,10 +378,10 @@ library QuidLib {
             // live effect, and the `else if (r.jitFees)` below depends on this arm claiming the
             // repack case first.
             o.setLastRepack = true;
-        } else if (r.jitFees) {
-            // JIT-snipe defense: fees already canonical (USD,tok) by rebalanceCore; distribute without re-reorder.
-            (o.feesPerShareInc, o.usdFeesInc) = SwapLib.feeIncrements(r.jitFeesTok, r.jitFeesUsd, c.lpShares + c.totalBuffer);
         }
+        // (§V4-CUT) The `else if (r.jitFees)` distribution arm is gone with the collect that fed it;
+        // it computed `feeIncrements(0, 0, …)`. `setLastRepack` above is still the live effect of the
+        // repack arm, which is why THAT branch stays.
         if (r.loPrice != c.loPrice || r.upPrice != c.upPrice) o.reseatBump = true; // ticks recentered → re-anchor
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;

@@ -544,9 +544,31 @@ pass."* ⇒ **LPs are compensated through the SHARE PRICE, not through a per-sha
    a swap-in and framed it as a swap-in question. **The token accumulator is zero on EVERY path**, so
    the real question is not *"should a swap-in pay LPs?"* but *"is the token-side fee leg wanted at
    all, or is share-price compounding the whole model?"*
-▶️ **AND THERE IS A NAMED, UNFINISHED CLEANUP:** `collectFees`'s own comment schedules its deletion
-*"in the caller pass"* — the JIT branches in `QuidLib`/`BtcLib` — which has not happened. Until it
-does, two live-looking fee branches compute zeros on every rebalance.
+✅ **DONE 2026-08-31 — `collectFees` AND THE JIT BRANCHES ARE DELETED** (`Core.collectFees`, the
+`else if (r.myLiquidity > 0)` arm in `SwapLib.rebalanceCore`, the `jitFees`/`jitFeesUsd`/`jitFeesTok`
+struct fields, and both consuming branches in `QuidLib`/`BtcLib`). Its own comment scheduled exactly
+this pass.
+
+🔒 **YIELD-NEUTRALITY IS PROVEN BY CONSTRUCTION, NOT ASSUMED** (owner: *"make sure we dont lose any
+yield while reusing variables"* — the right worry, because `USD_FEES` and `feesPerShare` are SHARED
+with live sources):
+1. `Core.collectFees()` returned the literal `(0, 0)`.
+2. `feeIncrements(fees, usd_fees, n)` guards **both** legs with `if (… > 0)`, so `feeIncrements(0,0,n)`
+   returns `(0, 0)`. **Not an assumption — the guards are in the source.**
+3. ⇒ The deleted branches computed `feesPerShare += 0; USD_FEES += 0` on every rebalance.
+✅ **AND THE THREE LIVE SOURCES THAT SHARE THOSE VARIABLES ARE UNTOUCHED, each verified separately:**
+- **Venue yield** — `_syncYield` sets `o.venueFeesPerShareInc` (`QuidLib:361`), consumed at
+  `Quid:1481`, read by `_venueAccrued` (`Quid:487`) into `tokReward`. **A different variable
+  (`venueFeesPerShare`) with its own setter and consumer.** This is the yield the token leg still
+  carries on ETH, and it is why `pendingFor`'s token leg must NOT be removed.
+- **Skew premium** — `creditSkewPremium` → `USD_FEES += usdInc` (`Vault:349-351`), a direct call, not
+  on the rebalance path.
+- **`Vault.collectFees()`** — the LIVE, LP-facing claim entrypoint. **Same name, different contract,
+  untouched**; only `Core`'s stub went.
+⚠️ **VERIFICATION STATUS, STATED PRECISELY:** `forge build` clean; neutrality established by the
+source above. **Fork tests did NOT run** — Infura returned `-32603` internal errors on `setUp` for two
+consecutive attempts (a different fault from the earlier 429s). The claim is *"provably a no-op"*, not
+*"tests passed"*.
 
 ### 🔎 §LEDGER-RE-AUDITED-2026-08-31 — every item re-checked AGAINST THE CODE, not against this file
 Prompted by the owner (*"make sure it's actually finished and crossed off"*), and warranted: three

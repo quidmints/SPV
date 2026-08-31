@@ -1143,18 +1143,15 @@ contract Core {
     }
 
 
-    /// §V4-CUT — NOTHING TO COLLECT. This drained v4's fee accrual into `feesPerShare` before every
-    /// bookmark update, as anti-dilution: v4 fees sat OUTSIDE `POOLED_*`, so NAV did not reflect them
-    /// and a depositor arriving in the same block as a large swap would capture fees they had not
-    /// earned. Under compounding the skew premium lands in `POOLED_*` AT SWAP TIME, and shares are minted
-    /// against `_pricingBacking()` which includes it — so a new depositor buys in at the fee-inclusive
-    /// price and dilutes nobody. **The protection now holds BY CONSTRUCTION rather than by a pre-mint
-    /// drain**, and the window this guarded closes on its own.
-    /// ⚠️ Returns (0,0) rather than being deleted only while its callers still destructure the pair;
-    /// the JIT branches in `QuidLib`/`BtcLib` go with it in the caller pass.
-    function collectFees() public view onlyUs returns (uint, uint) {
-        return (0, 0);
-    }
+    // ⛔ (§V4-CUT) `collectFees()` DELETED — it returned `(0, 0)` and its own comment scheduled
+    //    this: *"returns (0,0) rather than being deleted only while its callers still destructure
+    //    the pair; the JIT branches in QuidLib/BtcLib go with it in the caller pass."* That pass is
+    //    this one. What it used to do — drain v4's fee accrual into `feesPerShare` before every
+    //    bookmark update — defended against a depositor capturing fees it had not earned, because
+    //    v4 fees sat OUTSIDE `POOLED_*` and NAV did not reflect them. Under compounding the premium
+    //    is inside `_pricingBacking()` at swap time, and `USD_FEES` is bookmarked per LP, so the
+    //    window it guarded cannot open. ⚠️ NOT to be confused with `Vault.collectFees()`, which is
+    //    the LIVE, LP-facing claim entrypoint and is untouched.
 
 
     /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a
