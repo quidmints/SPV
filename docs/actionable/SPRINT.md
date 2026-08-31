@@ -1631,6 +1631,50 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
+## 🔴 **§THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION — A CALLER-SUPPLIED SOURCE PLAN IS A BASKET-CONCENTRATION ATTACK, AND MY DESIGN HAD NO GUARD ON IT** (owner, 2026-08-31: *"the caller can say anything they want … we need consistency"*)
+
+§SOURCE-SELECTION-IS-PART-OF-THE-ROUTE proposed *"the caller supplies a source plan; the contract
+verifies the total output cleared the oracle floor."* **That is sound on price and silent on
+composition, which is a different axis entirely.**
+
+### 🔴 THE ATTACK THE FLOOR CANNOT SEE
+A caller names *"draw \$5M from GHO"* when the basket is mostly USDC. The route delivers, the balance
+delta clears the oracle floor, **the swap succeeds — and the basket is now short GHO specifically.**
+Repeat, and the caller **chooses the basket's composition**: drain whatever they want gone, leave
+whatever they want held. ⇒ **The oracle floor bounds WHAT WE GOT. Nothing bounded WHAT WE SPENT.**
+⚠️ **AND IT WEAPONISES THE OWNER'S OWN STANDING CONCERN.** *"If we swap out of whatever stable we had
+to always use USDC, the purpose of the basket — reduce depeg risk of over-concentration — gets
+lost."* Under an unbounded source plan a hostile caller does that **deliberately and repeatedly**,
+and every individual transaction looks correct.
+
+### 🧭 WHY "CONSISTENCY" IS THE RIGHT WORD FOR THE FIX
+A third-party client must not be able to reach an outcome the honest path would not. ⇒ **The
+permissible envelope has to be computed FROM ON-CHAIN STATE, and the caller may only choose within
+it.** Anything the caller asserts is an input to be bounded, never a fact to be trusted — the same
+rule as `spendClaim`'s cap and `positionOf`'s "ask the lender", applied to the INPUT side, which is
+the side I left open.
+
+### 📡 THE BASKET HAS NO TARGET WEIGHTS — BUT IT HAS TWO SIGNALS THAT SERVE
+Measured: `grep targetWeight|idealWeight` over `evm/src` returns **nothing**. There is no declared
+"correct" composition. What DOES exist, on-chain and already used by the fee model:
+| signal | what it says |
+|---|---|
+| **`Aux.get_deposits()` → `uint[15] amounts`** | live composition, so **over-weight is computable** |
+| **`Aux.getDepegSeverityBps(token)` / `riskFactor`** | which stable is actually *impaired right now* |
+⇒ **PRO-RATA IS THE NEUTRAL DRAW** — it leaves every share unchanged — and it is already what the
+basket does by default. So the rule is not new machinery, it is a **bound on DEVIATION from what
+already happens**:
+> **A source plan may deviate from pro-rata only TOWARD stables that are over-weight or depegging.**
+Both terms are read from the contract's own state, so **every caller computes the same envelope and
+honest and hostile callers are bounded identically.** That is the consistency.
+⭐ **AND IT KEEPS THE UPSIDE THAT MOTIVATED THE DESIGN:** the deviations a solver actually wants —
+spend down the over-weight stable, shed the depegging one — are exactly the ones inside the envelope.
+**Best execution and basket health point the same way; the envelope forbids only the direction that
+was never legitimate.**
+⚖️ **HONEST COST: the solver loses freedom, and with it some execution quality.** A plan that would
+route better by draining an under-weight stable is refused. **That is the correct trade — unbounded
+source choice is not an optimisation, it is a composition attack with a good disguise.**
+
 ## ⭐ **§SOURCE-SELECTION-IS-PART-OF-THE-ROUTE — NOTHING CHOOSES WHICH BASKET DOLLAR TO SPEND, AND THE BASKET'S DIVERSITY IS AN EXECUTION ASSET WE DO NOT USE** (owner, 2026-08-31: *"consider all of them … it needs to be dynamic, and consider what dollars we have in the basket for the best execution"*)
 
 **Measured: no code path anywhere chooses a source dollar for execution quality.** The source is always
@@ -1671,7 +1715,7 @@ they diverge the solver can weigh them, which a hardcoded pivot can never do.
 ### 🧱 SHAPE OF THE BUILD (unchanged security model)
 Caller supplies a **source plan** — which stables, how much of each — plus the calldata for each leg.
 The contract verifies only what it can: **it drew no more than the plan said, and the TOTAL output
-cleared the oracle floor on a measured balance delta.** Same "caller proposes, contract verifies"
+cleared the oracle floor on a measured balance delta.** 🔴 **[INSUFFICIENT — that bounds PRICE and not COMPOSITION; a caller could drain a chosen stable indefinitely. See §THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION above for the envelope that closes it.]** Same "caller proposes, contract verifies"
 discipline as `_aggSwap`, `spendClaim` and `positionOf`.
 ⇒ **This is the same primitive as the routing work, not a second one** — the source plan is simply the
 input side of the route, and it must land in the SAME call so one mechanism serves in-range, OOR and
