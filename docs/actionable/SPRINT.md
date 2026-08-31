@@ -565,10 +565,20 @@ with live sources):
   on the rebalance path.
 - **`Vault.collectFees()`** — the LIVE, LP-facing claim entrypoint. **Same name, different contract,
   untouched**; only `Core`'s stub went.
-⚠️ **VERIFICATION STATUS, STATED PRECISELY:** `forge build` clean; neutrality established by the
-source above. **Fork tests did NOT run** — Infura returned `-32603` internal errors on `setUp` for two
-consecutive attempts (a different fault from the earlier 429s). The claim is *"provably a no-op"*, not
-*"tests passed"*.
+✅ **VERIFIED 2026-08-31: `Alles` ran clean of RPC faults — 96 of 97 PASS, including every fee and
+yield path.** The one failure is `test_Redeem_UsdgViaAaveSpoke_ActuallyDelivers` (custom error
+`0xde3fc6ae`), and it is **not attributable to this change, by construction**: the deleted branches
+computed `feeIncrements(0,0,n) → (0,0) → += 0`, so no test can depend on them producing anything.
+⚠️ **I COULD NOT ISOLATE IT FURTHER, AND WILL NOT GUESS WHOSE IT IS.** Two attempts to run it with my
+four files reverted **both failed to COMPILE** — on `evm/test/identity/title/TitleHolderHonkVerifier.t.sol:71`,
+a file I have never touched — and the error vanished on its own minutes later. **That is the
+concurrent session mid-edit** (`§E-COORD`), which defeats reverting as an isolation technique in this
+tree. A third attempt hit `-32603` RPC internal errors on `setUp`. **Its subject (an Aave-spoke USDG
+redeem) sits in the other thread's active area, but I asserted that once today about the 429s and was
+wrong, so it is recorded as UNATTRIBUTED.**
+📌 **METHOD NOTE WORTH KEEPING:** in a two-session tree, *"revert and re-run"* is not a reliable
+bisect — the baseline moves under you. Reasoning from the source (here: `feeIncrements` guards both
+legs with `> 0`) is the more dependable check, and it is what settles this one.
 
 ### 🔎 §LEDGER-RE-AUDITED-2026-08-31 — every item re-checked AGAINST THE CODE, not against this file
 Prompted by the owner (*"make sure it's actually finished and crossed off"*), and warranted: three
