@@ -406,6 +406,35 @@ contract VBtcLevFeeLane is AllesFixture {
         ch.splice(c.cid, p, tx_, new bytes32[](0), exits_);
     }
 
+    /// (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) THE PIN MOVED — asserted through a path that still
+    /// CHECKS the pin, which `splice` deliberately no longer does.
+    ///
+    /// ⛔ BOTH ROTATION TESTS USED TO ASSERT THIS BY RE-SUBMITTING THE STALE PAIR TO `splice` AND
+    /// EXPECTING `ChannelKeysMismatch`. **That probe died with the fold** and the tests failed with
+    /// `TruncatedTx()` — `splice` dropped `_requireChannelKeys`, so the stale pair now sails past
+    /// the pin and dies parsing the `hex"00"` placeholder instead. The PROPERTY was still true; the
+    /// instrument was measuring nothing. ⚠️ Note the failure mode: had the placeholder been a
+    /// well-formed transaction, the call could have SUCCEEDED and the test would have reported a
+    /// missing revert — i.e. it would have accused the contract of not re-pinning.
+    ///
+    /// ✅ `emitDeadManExit` is the right probe and a STRICTLY BETTER one: `_requireChannelKeys` is
+    /// its FIRST gate after `_whenOpen`/`_onlyHop` (`:1477`), so a stale pair is refused on the pin
+    /// with no transaction bytes to parse — and it is one of the paths §E153's *unretirable
+    /// forever* regression actually broke, so this asserts the property where it MATTERS rather
+    /// than where it was convenient to observe.
+    function _assertPinMovedTo(BTCChannels ch, bytes32 cid, bytes memory staleLp, bytes memory staleHop)
+        private
+    {
+        // Built BEFORE `expectRevert`: `_rekeyParams` does an FFI round-trip (`_taprootQ`), which
+        // would CONSUME the expectation if it ran between the cheatcode and the call. This fixture
+        // has been bitten by that before, and the symptom reads exactly like a missing re-pin.
+        Types.OpenParams memory stalePair = _rekeyParams(staleLp, staleHop, 1e6);
+        Types.ExitArming memory stub = stubLadder()[0];
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(ChannelKeysMismatch.selector);
+        ch.emitDeadManExit(cid, stalePair, stub);
+    }
+
     /// (§SPRINT-B4) The rekey's 2-rung ladder in its OWN frame (legacy stack, no `via_ir`):
     /// two mixed-pair `signedExitFull` signatures over the rotated outpoint, one spacing apart.
     function _rekeyLadder(RekeyCase memory c, bytes memory tx_)
@@ -479,20 +508,7 @@ contract VBtcLevFeeLane is AllesFixture {
 
         _submitRekey(ch, c, false);
 
-        // The pin MOVED: the pair the channel was opened with is now rejected. If `keysHash` had
-        // not been rewritten this call would succeed and the new custody would be the unretirable
-        // one instead.
-        //
-        // ⚠️ THE STALE PARAMS ARE BUILT BEFORE `expectRevert`, NOT INLINE IN THE CALL. Passing
-        // `_rekeyParams(...)` as an argument put an FFI round-trip (`_taprootQ`) between the
-        // cheatcode and the call, which CONSUMED the expectation — the test then failed with
-        // "next call did not revert as expected" and looked exactly like a contract that had not
-        // re-pinned `keysHash`. Same trap this fixture already names a few tests above.
-        Types.OpenParams memory stalePair = _rekeyParams(c.lpPubkey, c.oldHop, 1e6);
-        vm.prank(makeAddr("hop"));
-        vm.expectRevert(ChannelKeysMismatch.selector);
-        // (§E233-ladder) `stubLadder` — the stale pair is refused on the pin, upstream of arming.
-        ch.splice(c.cid, stalePair, hex"00", new bytes32[](0), stubLadder());
+        _assertPinMovedTo(ch, c.cid, c.lpPubkey, c.oldHop);
     }
 
     /// (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) ✅ THE LDK SHAPE: **BOTH HALVES ROTATE, AND THE
@@ -529,12 +545,7 @@ contract VBtcLevFeeLane is AllesFixture {
 
         _submitRekey(ch, c, false);
 
-        // The pin followed the rotation. If `splice` had not re-pinned `keysHash`, the channel
-        // would now be custodied under a pair every retirement path rejects.
-        Types.OpenParams memory stalePair = _rekeyParams(realLp, c.oldHop, 1e6);
-        vm.prank(makeAddr("hop"));
-        vm.expectRevert(ChannelKeysMismatch.selector);
-        ch.splice(c.cid, stalePair, hex"00", new bytes32[](0), stubLadder());
+        _assertPinMovedTo(ch, c.cid, realLp, c.oldHop);
     }
 
     /// A no-op rotation is refused rather than quietly performed. It is not harmless: rotating the

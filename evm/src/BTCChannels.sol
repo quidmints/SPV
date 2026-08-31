@@ -1800,6 +1800,17 @@ contract BTCChannels is Ownable {
     ///      VALIDATE what it signs. That validation is §T9 (PHASE 2, not landed). A blind-signing
     ///      LP loses funds through far more direct routes than key rotation, so §T9 is required
     ///      regardless — but do not describe the fold as free.
+    ///      ⛔ **AND DO NOT READ *"the LP must sign"* AS *"the LP must be ONLINE"* — I wrote it that
+    ///      way once and it is wrong** (owner, 2026-08-31: *"there was something about an allowlist
+    ///      or allowed shape that gets set on evm so that everything can work even when the lp is
+    ///      offline?"*). **There is, and it is `ExitArming`.** `signedExitTx` is a FULLY-SIGNED CLTV
+    ///      exit paying `btcRecipientOf`, pre-signed by the LP and ARMED ON THE EVM with its
+    ///      `cltvDeadline` and `checkpointSats` — **anyone may broadcast it once mature, with no LP
+    ///      participation at all** (§E188: *"funds = no key (ladder)"*). ⇒ Value leaves the 2-of-2
+    ///      by exactly two routes: a LIVE MuSig2 partial (splice / cooperative close), or a
+    ///      PRE-COMMITTED rung whose SHAPE the EVM pinned in advance — destination, amount and
+    ///      earliest height. **The signature is never optional; its LIVENESS is.** The fold touches
+    ///      only the first route, which is why an offline LP is unaffected by it.
     ///      📌 THIS FUNCTION IS STILL LIVE for the RETIREMENT paths, `emitDeadManExit` and
     ///      `deliverSwapOutOnchain`, where it now reads the CURRENT pin — correct for a spliced
     ///      channel, which it was not before.
