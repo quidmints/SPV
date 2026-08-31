@@ -728,6 +728,35 @@ by the anchor regardless"* — as false. **It is essentially TRUE**: with `src =
 `_observeIfSourced` feeds the ring from the anchor on every swap. The row was right; both of my
 passes over it were not. **Twice on one row, from trusting a docblock over the code.**
 
+✅ **`§IS-THE-TWAP-STILL-NEEDED` (owner: *"do we need twap at all anymore? im guessing we do"* —
+**YES**, and the ring's contribution is narrower than it looks. Traced through the code, not the docs.)**
+
+**1. THE TWAP IS STRUCTURAL — 20+ LIVE CALL SITES, all through `AUX.getTWAPforAsset`:** leverage health
+and liquidation (`LevBase` ×8, `LevMath` ×8), range accounting (`RangeLib:158/287`), minting
+(`Quid.sol:155`), and the BTC side (`BtcLib:313`, `BtcLevManager`, `VBtc`). It is the protocol's price
+of record for valuing a position. **Nothing here is removable.**
+
+**2. BUT THE RING ONLY EVER MOVES THAT PRICE INSIDE A ±5 % BAND.** The chain is
+`getTWAPforAsset → resolvedTwap → twapBody (the ring) → twapResolve (Chainlink)`, and `twapResolve`'s
+rule is: *if the ring price deviates from a fresh Chainlink read by more than `TWAP_MAX_DEVIATION_BPS`
+(**500 = 5 %**), **return the CHAINLINK price** and flag `stale`.* Otherwise the ring's price stands.
+⇒ **An EMPTY ring reads as 100 % deviation ⇒ Chainlink.** The TWAP degrades gracefully; it never
+reverts and never returns 0.
+⚠️ **AND `getTWAPforAsset` DISCARDS THE `stale` FLAG** (`Aux.sol:691`, `(price,) = resolvedTwap(...)`),
+so every one of those 20+ call sites is structurally unable to tell whether it got the ring's price or
+Chainlink's. **Nothing gates on it.**
+
+⇒ **THE RING'S ENTIRE CONTRIBUTION IS BOUNDED INTRA-BAND REFINEMENT** — the *"information is in the
+path"* argument from `pushObservation`'s own commit — **plus `ringVariance`, which `§E345` already
+demoted to `max(ring, anchor)`.** Outside 5 %, Chainlink wins by construction.
+📌 **CONSEQUENCE FOR `§E294`, AND IT IS REASSURING:** deleting the push cannot break the TWAP even in
+the worst case. If the ring emptied entirely, every TWAP call would simply return Chainlink. It does
+not empty — `_observeIfSourced` feeds it per swap — but the failure mode is bounded either way.
+📌 **AND A QUESTION THIS RAISES, NOT YET ANSWERED:** if the ring may only ever differ from Chainlink by
+<5 %, and `§E343` measured Chainlink's own per-round series at the right order for σ², **what is the
+ring buying that a per-round Chainlink read would not?** That is the real successor to `§E294`, and it
+should be measured rather than argued — the same mistake was made twice on this row already.
+
 📜 **`§WHY-PUSHOBSERVATION-EXISTED` (owner: *"there must have been some reason related to skew?"* —
 yes, and BOTH founding reasons are now dead).** From its own commit (`70fcc163`):
 1. **INDEPENDENCE.** *"The ring needs a reading independent of Chainlink, because Chainlink is already
