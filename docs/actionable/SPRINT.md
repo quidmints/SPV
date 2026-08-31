@@ -1838,6 +1838,49 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
+## 🔴 **§PARTIAL-TAKE-IS-DEBITED-IN-FULL — THE ZERO CASE IS GUARDED AND THE PARTIAL CASE IS NOT** (found sweeping for ignored return values, 2026-08-31)
+
+### 📄 THE CODE, VERBATIM
+`Core._settleUsdSide`:
+```solidity
+usdAmount = uint(usdDelta);
+if (inRange) _poolUsdInRange(usdAmount, false, basketLeg);          // debits the FULL amount
+if (!keep && token != address(0))
+    AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);      // may deliver LESS — return DISCARDED
+```
+`BasketLib.takeBody` ends: **`if (a.amount > 0 && sent == 0) revert NothingDelivered();`**
+⇒ **`take` MAY return `sent < requested` without reverting.** Its own comment says the guard exists
+because *"asking for a non-zero amount and receiving nothing is never a valid outcome"* — **the ZERO
+case was closed and the PARTIAL case was left open.**
+
+### 🔴 THE DIVERGENCE
+The range's USD side shrinks by **X**; the recipient receives **Y ≤ X**. The difference stays in the
+basket, uncounted by `POOLED_USD`. ⇒ **The LPs are debited in full, the recipient is short-changed,
+and the remainder accrues to the basket.**
+⚠️ **AND IT IS SILENT IN THE DANGEROUS DIRECTION.** `checkBacking` compares committed against liquid:
+committed falls by X, liquid falls by only Y, so **the backing gap IMPROVES** — the protocol looks
+*more* solvent for having under-paid. **Nothing announces it**, which is exactly the condition
+standing rule 3 says earns a check.
+📌 **IT IS ALSO THE INVERSE OF A DISCIPLINE THIS RAIL ALREADY FOLLOWS.** §INTENT-HAS-NO-FUNDING-LEG
+fixed the buy leg precisely so *"the credit is derived from the debit, never from `i.size`"*, and the
+sell leg I landed today derives `etherSold` from what `AUX.take` ACTUALLY delivered. **`_settleUsdSide`
+is the same shape with the rule inverted.**
+
+### 🎯 WHEN IT FIRES — THE WORST POSSIBLE TIME
+`take` under-delivers when the basket cannot cover the draw across all stables. **That is the stressed
+case**: a depeg, a redemption run, or a large exit — exactly when the accounting is load-bearing.
+⚠️ Under normal conditions the pro-rata leg covers the remainder and `sent == requested`, which is why
+this has never shown up.
+
+### ▶️ THE FIX, AND WHY IT IS NOT THIS COMMIT
+Debit what was DELIVERED, not what was asked — capture `take`'s return and size `_poolUsdInRange` from
+it (the debit currently runs FIRST, so the order has to change too).
+🔴 **BLAST RADIUS IS EVERY USD SETTLEMENT — swap, redeem, `settleOor` and the fee legs all route
+through `_settleUsdSide`.** That is a core money path and deserves its own commit with its own test,
+not a tail-end change at the close of a long session. **Booked with the evidence so it is not
+rediscovered; the test to write first is a basket deliberately short of the requested token, asserting
+`POOLED_USD` falls by what was delivered rather than by what was asked.**
+
 ## 🔑 **§THE-KEY-ONLY-BUYS-`swap()` — THE WORKAROUND IS TO COMPUTE THE ROUTE OURSELVES, AND IT IS COMPLETE FOR WHAT WE CAN EXECUTE** (owner, 2026-08-31: *"there must be some workaround for the api key that still gives us the full flexibility we need"*)
 
 ### 📁 FIRST — THE BRIDGE ALREADY EXISTS AND NOBODY SHOULD REBUILD IT
