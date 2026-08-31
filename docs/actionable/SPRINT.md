@@ -12457,20 +12457,77 @@ truth is a comment in a test that cannot run.**
 are static across a splice"* — directly above the call that reads the rotated pair. Corrected in place
 with the chain above, because that comment is the premise a reader would trust.
 
-▶️ **THE FIX IS A DESIGN CHOICE AND IT IS THE OWNER'S — do not pick one silently:**
-- **(a) `splice` re-pins `keysHash`, like `_finishRekey` does.** Smallest diff, and `_verifySplice`'s
-  KeyAgg gate already proves the new pair really is inside the new `Q`. ⚠️ **But it deletes the §E162
-  property outright** — *"A SPLICE MAY RESIZE A CHANNEL — IT MAY NOT REKEY ONE"* — which exists so a
-  compromised hop cannot splice to keys it solely controls and cut the LP out. **Only safe if the
-  rotation is proven to be the DERIVED one, not an arbitrary pair.**
-- **(b) Prove the derivation on-chain.** The tweak is `SHA256(prev_funding_txid ‖ base_secret)` — a
-  SECRET-keyed tweak, so the EVM cannot recompute it from public data. **(b) is not constructible as
-  specified; record it as rejected rather than as future work.**
-- **(c) Pin the LP's PAYMENT BASEPOINT instead of its funding pubkey as the LP's channel-lifetime
-  identity** — see the basepoint finding below. Basepoints are the only LP-side key the protocol
-  never rotates. Largest change, and the one that makes the two components agree on what "the LP" is.
-⛔ **DO NOT "fix" this by loosening `_requireChannelKeys`.** It is the gate §E162 added after a splice
-carrying a different pair passed and left the position unretirable. Loosening it restores that bug.
+✅ **THE RESOLUTION — AND IT SACRIFICES NOTHING, BECAUSE ALL THREE OPTIONS I FIRST OFFERED WERE
+WRONG IN THE SAME WAY.** Owner, 2026-08-31: *"the rekeys were created for a reason… related to the
+msig upgrading the mrenclave image. i will accept no compromises… there must be some elegant solution
+out of this."* There is, and finding it required reading WHY `rekey` exists rather than what it does.
+
+🔑 **WHY `rekey` EXISTS (§E162-rekey-CORRECTED):** the Safe whitelists a new MRENCLAVE, and the
+channel's hop half must rotate to the new image's key **without closing the channel**. The
+`newLp == oldLp` rule *"bounds what a malicious UPGRADE TARGET inherits… protects against the Safe
+whitelisting a bad new image and that image receiving WORKING keys."* ⇒ **THE PROPERTY THAT MAY NOT
+BE LOST: a newly-whitelisted image must not inherit the LP's half.**
+
+⛔ **AND `_requireChannelKeys` IS NOT WHAT ENFORCES IT.** Every rotation the EVM will accept — `splice`
+and `rekey` alike — is SPV-proven to **SPEND the channel's current funding outpoint**
+(`_verifyTxSpendsChannel:637` matches `ch.fundingTxId`/`ch.fundingVout`), and that outpoint is
+`Q = TapTweak(KeyAgg(lpPubkey, hopPubkey))`, a **key-path taproot 2-of-2**. Spending it requires the
+LP's MuSig2 partial. **A malicious image holds the hop half only — it cannot move the funds AT ALL, to
+any pair.** And under BIP-341 `Prevouts::All` the LP's partial commits to the transaction's OUTPUTS,
+so it commits to the exact new 2-of-2 being rotated into.
+⇒ **`_requireChannelKeys` compares a PUBLIC value for equality; the 2-of-2 verifies an UNFORGEABLE
+SIGNATURE over the destination. The second already subsumes the first.** The equality check is not a
+weaker version of the guarantee — it is a restatement of something the chain already proved.
+
+🔎 **AND §E162's ACTUAL BUG WAS NEVER THEFT — IT WAS THE STALE PIN.** Its own words: *"a splice
+carrying a different pair passed… rotated the funding outpoint, and left `keysHash` stale — after
+which both retirement paths reverted and the position could never be closed."* **The root fix for a
+stale pin is to RE-PIN IT**, which `_finishRekey:1304` already does. Forbidding rotation was a clamp on
+the symptom, and it is the clamp that collides with LDK.
+
+✅ **THE FIX, WHICH DELETES CODE RATHER THAN ADDING IT:**
+1. **`splice` re-pins `keysHash`** exactly as `_finishRekey` does, and **drops `_requireChannelKeys`**.
+   Authorization is UNCHANGED and still two independent facts, both already enforced: the SPV-proven
+   2-of-2 spend, and the fresh ladder `splice` already requires and arms (`_armLadder:1104`).
+2. **`keysHash` becomes PER-SCOPE data**, which is what LN says it is. ✅ **`channelId` is untouched
+   and stays stable** — `ChannelLib.sol:617` binds it to the ORIGINAL pair and ORIGINAL outpoint,
+   which is what the reconciler and `original_funding_txo` already assume.
+3. **`rekey` FOLDS INTO `splice`.** Once both paths re-pin and both draw authorization from the same
+   two facts, the only remaining difference is the size predicate (`SpliceUnchanged`) — which `rekey`
+   needs relaxed anyway, since an image upgrade is a pure rotation. **Retires `rekey`,
+   `rekeyAuthBody`, `_authorizeRekey`, `_finishRekey`, `RekeyUnchanged`**, and buys back deploy bytes
+   on a contract with 2,961 to spare. **The image-upgrade capability survives intact** — it is a
+   rotation with `amountSats` unchanged, authorized by the same 2-of-2 spend.
+4. **The LP's PAYMENT BASEPOINT is pinned at open as the LP's channel-lifetime IDENTITY** — the role
+   `keysHash` was wrongly serving. It is the only LP-side key no LN operation rotates, and it is what
+   §FORCE-CLOSE-SKIPS-THE-STALE-GUARD needs to identify the `to_remote` output. ⚠ **It is PUBLIC, so it
+   is an identity and NEVER an authorization** — do not let a later reader turn it into one.
+
+⚠ **THE ONE PRECONDITION, AND IT IS ALREADY THE DOCUMENTED PHASE ORDER, NOT A NEW COMPROMISE.** The
+*"the spend requires the LP"* argument is vacuous while the fleet holds both halves. §PHASE-ORDER
+already states it: *"UNTIL THIS LANDS THE FLEET HOLDS BOTH HALVES, SO NO EXIT, LADDER OR SPLICE POLICY
+CAN BIND."* So this rests on §M1#2 — exactly like the exit ladder and every other policy in this area.
+✅ **`_requireChannelKeys` does not survive that gap either:** it is an equality check over public keys
+that a fleet holding both halves satisfies trivially. **The fold loses no security that exists today,
+and gains the correct guarantee the moment §M1#2 lands.**
+
+⛔ **REJECTED, WITH REASONS, SO THEY ARE NOT RE-PROPOSED:** **(a) let `splice` re-pin but KEEP the LP-half
+equality check** — unsatisfiable, LDK rotates the LP half too. **(b) prove the derivation on-chain** —
+the tweak is `SHA256(prev_txid ‖ base_SECRET)`, so it is not publicly recomputable; not constructible.
+**(c) patch our signer to stop rotating** — protocol-legal (the trait says the txid *"CAN be used"*,
+so it is signer-local policy, not a BOLT rule) and it would make the current pin correct, **but it
+deepens the LDK fork to preserve a check that the 2-of-2 already subsumes, and it makes the pre- and
+post-splice funding outputs share a scriptPubKey.** Fixing the pin is strictly smaller than forking
+the signer.
+
+🔴 **SECOND LIVE CONSEQUENCE OF THE SAME ROOT, BOOKED SO IT LANDS WITH THE FIX:**
+`channel_driver.rs:1184` calls `drive_close(.., known, funding_pubkeys, None)` where `known` may be
+`None`, and the fallback recomputes the channelId from `funding_pubkeys` — which
+`channel_funding_pubkeys` returns as the **ROTATED** pair. `ChannelLib.sol:617` derived the id from the
+**ORIGINAL** pair. ⇒ **For a spliced channel that fallback computes an id that does not exist on the
+EVM, and the close never mirrors.** The comment at `:447` already concedes it is *"correct for a
+never-spliced channel"* — then proceeds anyway. **Fix: pass the ORIGINAL pair (or the stable id from
+`original_funding_txo`), never the live monitor's.**
 
 ✅ **THE OWNER'S ACTUAL QUESTION, ANSWERED: A PAYMENT BASEPOINT SURVIVES EVERY REKEY *AND* EVERY
 SPLICE — it is strictly MORE stable than the funding pubkey the contract pins today.**
