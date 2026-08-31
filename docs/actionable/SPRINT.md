@@ -1789,6 +1789,46 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
+## 🔑 **§THE-KEY-ONLY-BUYS-`swap()` — THE WORKAROUND IS TO COMPUTE THE ROUTE OURSELVES, AND IT IS COMPLETE FOR WHAT WE CAN EXECUTE** (owner, 2026-08-31: *"there must be some workaround for the api key that still gives us the full flexibility we need"*)
+
+### 📁 FIRST — THE BRIDGE ALREADY EXISTS AND NOBODY SHOULD REBUILD IT
+**`tools/fetch_1inch_route.py`** (65 lines, committed) is a complete `vm.ffi` bridge: it fetches
+AggregationRouterV6 calldata and prints it for `forge` to parse. Its own header records what it was
+for — *"the single missing input behind 32 of the suite's 39 failures"* (§ROUTE-BLOCKED-24) — and two
+hard-won details: **`disableEstimate=true` is REQUIRED** (1inch otherwise simulates gas from an
+address that has neither tokens nor approval on a fork, so every quote 404s), and it **shells out to
+`curl` rather than `urllib`, because the identical request via urllib returns 403** — the API rejects
+urllib's User-Agent.
+⚠️ **It is NOT wired into any test** (`grep fetch_1inch_route evm/` → nothing) and **`evm/.env` does
+not exist in this checkout**, so with no key it prints `0x` and `_aggSwap` reverts
+`NoVolatileRoute()` — deliberately the honest pre-key behaviour rather than a fabricated route.
+
+### ⭐ AND HERE IS WHY THE KEY IS WORTH LESS THAN IT LOOKS
+**Execution is limited to `unoswap`/`unoswap2`/`unoswap3` — POOL WORDS over UniswapV2, UniswapV3 and
+Curve.** A full 1inch solver would happily return a route through Fluid, Balancer or a par converter,
+and **we could not execute it.** ⇒ **The key unlocks exactly one thing: `swap()`. And `swap()` is the
+only thing that needs the key.** That circle is the whole story.
+⇒ **For the pool-word path we do not need a solver at all — the problem is small enough to solve
+ourselves:**
+| | |
+|---|---|
+| token set | **fixed**: 14 basket stables + WETH, WBTC, weETH |
+| venue set | **enumerable on-chain**: Curve's metaregistry knows **2,444 pools** and answers `find_pools_for_coins` (PLURAL); UniV2/V3 factory lookups are deterministic |
+| quoting | already done all session by hand — Curve `get_dy`, UniV3 `QuoterV2`, UniV2 `getAmountsOut` |
+| path length | `unoswap2`/`unoswap3` execute **up to 3 hops**, which is the whole search depth |
+⇒ **A keyless path-finder over those venues is not a degraded 1inch. It is COMPLETE for what the
+router can execute**, and everything it misses is something we could not have used anyway.
+
+### ⚠️ AND I MUST WALK BACK PART OF LAST TURN'S CLAIM
+I called the protocol-slot question *"the highest-value untested thing"* on the grounds that
+`dex >> 253` reads **3 bits = 8 slots**. **1inch's published V6 design uses a 2-BIT mask
+(`0x03 << 253`) with three protocols defined** — so the realistic headroom is **at most ONE unused
+slot, not five**, and bit 255 is a separate flag rather than protocol space. ⇒ **Still worth
+verifying against the deployed bytecode, but it is a marginal gain and I oversold it.** The venue
+expansion that would matter is not hiding there.
+▶️ **SO THE ORDER IS: build the keyless path-finder (complete for what we execute) → verify the slot
+count (marginal) → a key only if `swap()`-reachable venues are ever judged worth a new dependency.**
+
 ## 🔍 **§WHOSE-PERCEPTION-WAS-CONSTRAINED — MY ENUMERATION WAS GUESSWORK; THE NUMBER SURVIVED ANYWAY, AND ONE ASSUMPTION IS STILL UNVERIFIED** (owner, 2026-08-31: *"i dont think these are the best routes. are you sure 1inch doesnt have a constrained perception"*)
 
 Three separate claims were bundled in my last answer. **Two now have evidence; one does not, and it is
