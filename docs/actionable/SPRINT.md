@@ -1300,6 +1300,56 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## ⭐ **§FULL-AGGREGATOR-ON-THE-LEVER-TOO — THE OBSTACLE IS ONE ORACLE READ, AND REMOVING IT UNBLOCKS THE ENTIRE CHEAPEST-DOLLAR PROGRAMME** (owner, 2026-08-31: *"why isnt it full aggregator for IL protect also? no benefit there? remember that i have no api key regardless"*)
+
+**There is benefit, it is the largest one on the board, and my "amounts are computed mid-transaction"
+obstacle is smaller than I made it.**
+
+### 🔍 THE OBSTACLE, MEASURED RATHER THAN ASSERTED
+I said the lever's amounts are unknowable off-chain. Traced:
+`AaveV3Escrow.borrowStable` does `POOL.borrow(STABLE, amt, …)` then takes the **balance delta** — and
+Aave transfers **exactly `amt`** (the vDebt may round up by a wei; the tokens do not). **So `borrowed`
+is not the unpredictable part.**
+⇒ **THE ONLY GENUINE STALENESS IS THE ORACLE READ:** `venue.borrow(lp, _fromUsd(cfg.aux, stable, usd))`
+prices `usd` into stable units **at execution time**, so a TWAP that moves between build and inclusion
+changes the amount.
+✅ **AND THAT IS REMOVABLE, CHEAPLY: SWAP AN EXPLICIT AMOUNT INSTEAD OF "WHATEVER CAME BACK".** The
+keeper declares *"borrow `usd`, then swap exactly `A`"*, builds calldata for `A`, and the contract
+requires `borrowed >= A` (revert if short; the tiny remainder stays as dust). **Pre-built calldata is
+then valid by construction, not by luck.**
+
+### 🎯 THE BENEFIT IS NOT MARGINAL — IT IS THE WHOLE POINT OF TODAY'S BORROW WORK
+§CHEAPEST-DOLLAR concluded: borrow **GHO at a governance-fixed 3.75% our own draw cannot move**.
+§CURVE-ALONE-CANNOT-DO-IT then measured that **GHO's only venue is Fluid**, which `unoswap` pool words
+**cannot address** — and §THE-AMOUNT-IS-SIGNED lists the others `unoswap` misses: Balancer, Maverick,
+Ekubo, and the `lite-psm`/`dai-usds`/`frxusd` **par converters that beat every AMM at 0.000%**.
+⇒ 🔴 **WITHOUT FULL AGGREGATOR ROUTING THE LEVER CAN NEVER BORROW THE CHEAPEST DOLLAR.** The
+33–414 bps of rate advantage this session measured is unreachable **for a routing reason, not a venue
+reason** — which means the entire cheapest-dollar programme is blocked by an integration choice I
+treated as fixed.
+
+### 🔑 AND NO API KEY IS NEEDED — THAT IS SETTLED, NOT HOPED
+**KyberSwap's aggregator is keyless**, and this session **fork-executed its calldata**: quote matched
+execution to **eight significant figures** on GHO→USDC. The key question was always independent of the
+flexibility question (§NO-KEY); what changes here is only *which workflow can use pre-built calldata*.
+
+### ⚖️ THE HONEST COST — THIS GIVES UP A REAL PROPERTY, AND IT SHOULD BE NAMED
+§C2.1 deliberately **replaced keeper calldata with a single pool word** so that *"the callee is a
+pinned constant, and now so is the SELECTOR. The keeper picks a pool, never a destination and never a
+function."* **Accepting calldata surrenders the selector pin.**
+⇒ **WHAT STILL HOLDS, AND WHY THE TRADE IS ACCEPTABLE:** the callee stays pinned to the router; the
+approval is **exact and zeroed on both paths**; and `minOut` is enforced on a **measured balance
+delta**. So the worst a hostile or stale route can do is take the approved input and return nothing —
+**at which point the delta check fails and the WHOLE TRANSACTION REVERTS, restoring the tokens.**
+**A bad route can GRIEF (waste gas, stall a rebalance); it cannot EXTRACT.** ⚠️ Griefing is a real
+residual and it is a keeper-liveness issue, which this path already has — the keeper supplies the pool
+word today.
+⇒ **The trade is defence-in-depth versus 33–414 bps of borrow cost on every levered position, and the
+bound that matters (atomic, oracle-floored, exact-approval) is unchanged.** Recommend taking it.
+📌 **Scope note: this argument is about the LEVER path only.** The *client convergence* and *OOR fill*
+paths were already established as calldata-safe for different reasons (wallet balance; signed size).
+**All three workflows now reach the full venue set — by three different routes to the same place.**
+
 ## 🔴 **§THE-AMOUNT-IS-SIGNED — THERE NEED BE NO SHORTFALL, AND I CLASSIFIED THIS WORKFLOW WRONG THREE ROWS RUNNING** (owner, 2026-08-31: *"why should there be a shortfall? like i said we shouldnt hardcode 1inch to unoswap"*)
 
 **Both objections are right, and they are the same mistake seen twice.**
