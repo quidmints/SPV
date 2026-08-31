@@ -885,13 +885,21 @@ library LevMath {
     ///      the correct quantity and one external call cheaper.
     function _wethStableFloor(SellCtx memory c, address stable, uint256 wethAmt) internal view returns (uint256) {
         uint256 usd18 = (wethAmt * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
-        return (_fromUsd(c.aux, stable, usd18) * (10_000 - SELL_SLIP_BPS)) / 10_000;
+        // §SIZE-AWARE-SLIP — the CLOSE-side sibling of `_stableToWethSor`'s floor. Tightening one and
+        // not the other would have left the de-lever leg on the flat 100 bps while the open leg used
+        // the curve: the same round trip bounded two different ways.
+        return (_fromUsd(c.aux, stable, usd18) * (10_000 - _slipBps(usd18))) / 10_000;
     }
 
     /// The WETH that must remain to repay `assets` (flashed stable) at worst-case slippage — above it is skimmable headroom.
     function _wethForAssets(SellCtx memory c, address stable, uint256 assets) internal view returns (uint256) {
-        uint256 weth = (_toUsd18(c.aux,stable, assets) * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
-        return (weth * 10_000) / (10_000 - SELL_SLIP_BPS);
+        uint256 usd18 = _toUsd18(c.aux, stable, assets);
+        uint256 weth = (usd18 * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
+        // 🔴 MUST USE THE SAME ALLOWANCE AS `_wethStableFloor`, AND THIS IS THE INVERSE OF IT. That
+        //    floor says how little stable a sale may yield; this says how much WETH must be RETAINED
+        //    to repay `assets` at the same worst case. If they disagree the round trip is asymmetric —
+        //    a tighter floor with a stale gross-up under-retains and the repay comes up short.
+        return (weth * 10_000) / (10_000 - _slipBps(usd18));
     }
 
     /// @notice Self-funding keeper-gas — external entry for the manager's direct reimburse points (the de-lever
