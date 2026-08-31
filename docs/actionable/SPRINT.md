@@ -1425,7 +1425,7 @@ basis — the blocker the file put in front of them is gone.**
    2026-08-30, then removed entirely: `§FLEET-FRONTS-THE-WINDOW` took pool inventory out of channels,
    so an exit has no second output to place and no destination to choose. **The question is gone, not
    answered.**
-3. 🔴 **Phase 3 freshness** — decide whether it is wanted at all before building a writer for it.
+3. 🔴 **Phase 3 freshness** — ⛔ NOT *"whether it is wanted"*: `bf5aa5ff` retracted that. **"Who may invalidate, and how deep"** — see the remainder table row 8, and note the exposure is LIVE today.
 4. ✅ **`E182-REKEY-CHECKED` — CLOSED 2026-08-30, THE WORK LANDED.** Every requirement the row
    named is in the tree and tested; see `§E182-REKEY-VERIFIED`.
 5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
@@ -1468,7 +1468,7 @@ basis — the blocker the file put in front of them is gone.**
 | 5 | **`M1`** — `migration.rs` must read the Safe on-chain | |
 | 6 | **`B1`** — freshness backstop has no economic bound | |
 | 7 | **TDX + Nitro seal wiring** | |
-| 8 | **Phase 3 freshness** | ⏸️ OWNER DECISION FIRST: is the Bitcoin freshness UTXO wanted at all? It has no production writer |
+| 8 | **Phase 3 freshness** | ⛔ **I RE-ASKED A SETTLED QUESTION HERE AND IT WAS WRONG.** This cell read *"is the Bitcoin freshness UTXO wanted at all?"* — **`bf5aa5ff` RETRACTED that deletion** (`c4875fcf` had recommended it). The retraction stands: deleting gives up DoS resistance, because `DeadManExitEmitted` publishes `signedExitTx` by design (§E188 keyless recovery), so **any stranger can rebroadcast a matured, superseded exit and force-close an IDLE channel** — precisely the long-offline LP the model centres on. 🔑 **THE REAL QUESTION IS "WHO MAY INVALIDATE, AND HOW DEEP"**, a three-way tension with no free side: hop-controlled freshness lets a compromised hop void every escape; NO freshness lets strangers force-close idle channels; 2-of-2 is refuted because the LP is offline. **The lever is LADDER DEPTH AND SPACING** (item 3), which is the owner trade. 🔴 **AND THE EXPOSURE IS LIVE, NOT FUTURE:** `run_deadman_exit_heartbeat` early-returns on `vault == None`, the shipped default, so production has NO freshness UTXO today |
 | 9 | **§BTC-LEG-FEE** | ⏸️ OWNER DECISION: is the token-side fee leg wanted at all? |
 ⇒ **Everything else in phases 0–4 is either landed or dissolved.** Phase 1 (the keystone) is DONE:
 fleet vault-less, `quid-lp-daemon` builds, LP seed decided and derived. 📌 **TWO LP CUSTODY
