@@ -1270,7 +1270,58 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
-## ⭐ **§FILL-PAYS-LESS-NOT-DIFFERENT — THE SELL LEG NEEDS NO ROUTES, BECAUSE A PARTIAL FILL IN THE RIGHT STABLE BEATS A FULL FILL IN THE WRONG ONE** (owner, 2026-08-31: *"unless the user expressly accepts pro rata … we still need to curve into the stable they want, and if they dont exist we need to 1inch them"*)
+## 🔴 **§THE-AMOUNT-IS-SIGNED — THERE NEED BE NO SHORTFALL, AND I CLASSIFIED THIS WORKFLOW WRONG THREE ROWS RUNNING** (owner, 2026-08-31: *"why should there be a shortfall? like i said we shouldnt hardcode 1inch to unoswap"*)
+
+**Both objections are right, and they are the same mistake seen twice.**
+
+### 🔑 THE DISCRIMINATOR WAS NEVER "ON-CHAIN vs OFF-CHAIN" — IT IS *"IS THE AMOUNT KNOWN BEFORE THE TRANSACTION IS BUILT"*
+§NO-KEY-AND-A-KEY-WOULD-NOT-HELP argued that aggregator calldata embeds its amount, our amounts are
+computed mid-transaction, therefore pre-built routes are stale by construction. **True for the lever.
+I then applied it to the OOR fill because the fill is on-chain — and that is not what the argument
+says.**
+⛔ **`OorIntent.size` IS A SIGNED FIELD** (`SwapLib.sol:1122`, inside `OOR_TYPEHASH`). **The relayer
+knows the exact amount before building the transaction, because the maker signed it.** Nothing is
+derived mid-call the way `_hubSwap`'s Curve output or `venue.borrow()`'s return are.
+⇒ **PRE-BUILT AGGREGATOR CALLDATA IS VALID ON THIS PATH.** So is every venue an aggregator reaches —
+**Fluid, Balancer, Maverick, the `lite-psm`/`dai-usds`/`frxusd` par converters, and SPLIT routes** —
+none of which `unoswap` pool words can address.
+📊 **THE THREE WORKFLOWS, CORRECTLY SEPARATED AT LAST:**
+| workflow | amount known at build time? | routing available |
+|---|---|---|
+| lever / IL-protect | ❌ computed mid-tx | `unoswap*` only, runtime amount — **no key, and a key would not help** |
+| client convergence | ✅ a wallet balance | full aggregator (keyless via Kyber) |
+| ⭐ **OOR fill** | ✅ **SIGNED in the intent** | **full aggregator — I had wrongly put this in row 1** |
+
+### ⇒ SO THE SHORTFALL IS AN ARTEFACT OF MY OWN CONSTRAINT, NOT A PROPERTY OF THE PROBLEM
+§FILL-PAYS-LESS-NOT-DIFFERENT built a partial-fill design **around the assumption that conversion was
+impossible on this path.** With the amount signed, the relayer can draw the basket, **convert whatever
+it yields into the maker's chosen stable through arbitrary aggregator calldata**, and hand over the
+full amount. ⇒ **The maker gets what they asked for, in full, in the token they named.**
+⚠️ **`acceptProRata` therefore stops being the primary mechanism and becomes a FALLBACK** for the case
+where no route exists at all — the two designs compose rather than compete.
+
+### 🔒 THE SECURITY BOUND IS UNCHANGED, AND IT IS THE ONE THIS TREE ALREADY USES EVERYWHERE
+The route is **relayer-supplied and DELIBERATELY UNSIGNED** — the maker cannot know at signing time
+what venue will be deepest at fill time, and should not have to. **What the contract verifies is the
+OUTCOME, not the path:** the maker must end holding **≥ the signed proceeds in the signed token**,
+checked on a measured balance delta. **A hostile or stale route cannot steal; it can only fail the
+bound and revert.** Same discipline as `_aggSwap`'s floor, `spendClaim`'s cap, and `positionOf`'s
+"ask the lender" — *the caller proposes, the contract verifies.*
+📌 **AND THE COST IS HONEST: a fill now carries a liveness dependency on a route existing.** That is
+why the partial stays as the fallback — but note the relayer is **already** an off-chain actor
+building a transaction, so this is the ONE path where route-building costs nothing extra
+architecturally. §SELL-LEG-IS-FORCED's objection to routing (slippage, liveness, MEV) was aimed at
+routing *inside* a settlement whose amount we did not control. **Here the maker's price is still
+exactly `limitPx` — the route only decides which token arrives, never how much.**
+
+### 🧾 THE PATTERN, BECAUSE IT IS NOW THREE FOR THREE
+Every over-constraint this thread produced came from **carrying a conclusion across a boundary its
+premise did not cross**: `settleOor`'s hardcoded `address(0)` read as the algebra; "14 stables" read
+from a path that serves the named stable first; and now "amounts are computed on-chain" read as a
+property of the fill rather than of the lever. ⇒ **State the PREMISE with the conclusion, and re-check
+the premise at every new call site.**
+
+## ⭐ **[🔴 DEMOTED TO A FALLBACK 2026-08-31 — its premise ("conversion is impossible on this path") is FALSE: `OorIntent.size` is SIGNED, so a relayer can pre-build aggregator calldata. See §THE-AMOUNT-IS-SIGNED above. The partial remains correct as the no-route-exists fallback.] §FILL-PAYS-LESS-NOT-DIFFERENT — THE SELL LEG NEEDS NO ROUTES, BECAUSE A PARTIAL FILL IN THE RIGHT STABLE BEATS A FULL FILL IN THE WRONG ONE** (owner, 2026-08-31: *"unless the user expressly accepts pro rata … we still need to curve into the stable they want, and if they dont exist we need to 1inch them"*)
 
 **The objection is right and it is sharper than it looks — but the conclusion does not follow, and the
 reason it does not is the thing worth keeping.**
