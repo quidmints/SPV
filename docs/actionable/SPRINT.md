@@ -775,6 +775,36 @@ error** (EIP-712 quorum cannot be a Bitcoin `scriptPubKey`). The freshness **2-o
 refuted in-tree** for ignoring that the LP is offline. A reachability scan reporting "0 of 20" was
 first an artifact of unresolved `@/` aliases — re-run with them, the result held.
 
+## 🔍 §DID-I-TRADE-ANOTHER-PROBLEM (2026-08-31, owner: *"make sure there was no more trading one
+problem for another anywhere like what happened with the UTXO liveness"*). **ONE FOUND, AND IT IS MINE.**
+
+Every change this session re-examined for what it gave up, not just what it fixed:
+| change | traded away? |
+|---|---|
+| `§POOL-INVENTORY-PURGED` | ⚪ no — the over-payment clamps were KEPT (renamed `PayoutExceededChannel`); only the pool subtraction went |
+| `§E294` (`pushObservation`) | ⚪ no — σ² keeps the anchor leg (`§E345`) and the ring keeps `_observeIfSourced`; the TWAP degrades to Chainlink even if the ring emptied |
+| `collectFees` + JIT branches | ⚪ no — **provably** a no-op (`feeIncrements` guards both legs with `> 0`); venue yield rides a different variable |
+| `§FLEET-FRONTS-THE-WINDOW` | ⚪ no funds risk — the rail **fails HTLCs back**, so the seller keeps 100 % of their BTC. A capability is off, which is booked, not a hole |
+| **`§AUDIT-SWAPOUT-DOUBLEPAY` (`DeliveryInFlight`)** | 🔴 **YES — it DEFERS the double-pay rather than removing it** |
+
+🔴 **`§DELIVERY-INFLIGHT-IS-A-DEFERRAL-NOT-A-FIX` — sharpening what I booked too gently.**
+`§DELIVERY-INFLIGHT-RESOLUTION` reads like a tidy-up. It is not. The exact mechanism:
+1. A delivery splice is initiated and does not LOCK inside `(receipt_poll_secs × receipt_poll_attempts).max(60)` s — **minutes**.
+2. My change halts: `return Err(…)` at `swap_out_onchain.rs:249`, **no retry, no reversal**. Correct — both alternatives pay twice.
+3. ⛔ **BUT NOTHING RESUMES THE SUBMISSION.** The driver aborts, so when the splice later locks, **`deliverSwapOutOnchain` is never submitted** and the EVM never records the delivery.
+4. The swapper waits `SWAPOUT_REFUND_BLOCKS = 7200` (**~1 day**) and calls `refundExpiredSwapOut` themselves — self-service, no fleet cooperation needed, which is why nobody is ever *stranded*.
+5. ⇒ **The BTC landed on Bitcoin AND the USD came back on the EVM.** The double-pay I removed from the retry path reappears through the refund path.
+
+⚖️ **IT IS STILL A LARGE IMPROVEMENT, AND THE WINDOW IS THE REASON:** before, the second payment was
+**immediate and automatic** (the loop paid the next candidate channel). Now it needs the splice to land
+late **and** nobody to act for ~1 day — and `SWAPOUT_REFUND_BLOCKS` is deliberately *"≫ the ~1-2h
+honest SPV delivery window"*, so an operator who submits `deliverSwapOutOnchain` once the splice
+confirms closes it with hours to spare. **Automatic loss became recoverable loss with a day's notice.**
+▶️ **THE REAL FIX IS THE ONE ALREADY NAMED:** resume the submission. A halted swap must be watched
+until its splice resolves, then either delivered (submit on a late lock) or left to the refund once the
+splice is provably dead. **Until that exists, `DeliveryInFlight` is a mitigation, and this file should
+not read it as a closed defect.**
+
 ## 🧾 §WAVE-3-SWEPT (2026-08-31) — every skew row checked against the tree BEFORE proposing any of it
 Done this way deliberately: six rows today read as work and were already finished or stale.
 
