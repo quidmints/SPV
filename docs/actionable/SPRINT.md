@@ -741,8 +741,27 @@ Executed, then reverted, because the row never accounted for what else the push 
 3. ⛔ **THERE IS NO DROP-IN SUBSTITUTE.** The ring's other writers are reachable only from `swap()`
    (which perturbs the inventory and flow those fixtures hold fixed) and `repack()` (which is
    `onlyUs` — `UnificationControls.t.sol:733` records it as *"not reachable from here"*).
-⇒ **LANDING IT NEEDS A SEVEN-FILE FIXTURE REWRITE — feed-move plus a small swap per step — AND THAT
-MUST BE VERIFIED.** Those are all FORK suites, and verification is blocked on
+🎯 **AND THE FIXTURES ARE STALE, WHICH REFRAMES THE WHOLE BLOCKER (owner: *"the design of those tests
+might be stale"* — checked 2026-08-31, and it is).**
+**BOTH σ² LEGS ARE FED ONLY FROM `swap()`:**
+| leg | fed by | call site |
+|---|---|---|
+| anchor EWMA (`anchorVarianceWad`) | `_sampleAnchorVariance()` | **`swap():1039` — nothing else** |
+| ring (`ringVariance`) | `_observeIfSourced()` | `swap():1031`, and `repack()` which is `onlyUs` |
+
+**THE FIXTURE LOOP CONTAINS NO SWAP.** It is `_setEthFeed(spx)` → `CORE.pushObservation(spx)` → roll/warp.
+⇒ **It feeds the RING only, and never the anchor EWMA at all** — so these tests build σ² through a door
+production does not use, and never exercise the leg `§E345` made primary. **Its commit message is the
+indictment: *"E345: source sigma^2 from the Chainlink anchor, NOT FROM A RING ANYONE CAN WRITE."*** The
+fixture idiom (`dc6047b1`, §E308) **predates** that commit and was never revisited.
+
+⇒ **SO THE SEVEN FILES NEED FIXING REGARDLESS OF `§E294`.** They are not collateral damage from
+deleting the push; they are testing a superseded path, and the push is what lets them keep doing it.
+✅ **THE CORRECT FIXTURE IS ALSO THE SIMPLER ONE: move the anchor feed, then SWAP.** That feeds BOTH
+legs exactly as production does, needs no synthetic writer, and makes the tests assert the σ² the
+protocol actually prices with. **The rewrite is a fix, not a migration.**
+
+⇒ **LANDING `§E294` NEEDS THAT SEVEN-FILE FIXTURE FIX, AND IT MUST BE VERIFIED.** Those are all FORK suites, and verification is blocked on
 `§FORK-TESTS-ARE-UNPINNED` (the Infura key 429s a full run). **Reverted rather than shipping an
 unverifiable rewrite of seven money-path fixtures** — that is the exact pattern that produced the
 phantom `§LEV-DELIVERABILITY-REGRESSION` chase.
