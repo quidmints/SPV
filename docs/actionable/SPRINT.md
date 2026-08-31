@@ -853,6 +853,30 @@ essentially the whole REMAINING `amountSats`. 🔑 **THAT IS WHAT MAKES THE BREA
 and the contract's own attestation disagree.** Silent is the property that makes it dangerous rather
 than merely costly, and it is the property the fix must remove.
 
+⛔ **SEVERITY CORRECTED A SECOND TIME, 2026-08-31 — AND DOWNWARD. I FILED THIS AS A LIVE SILENT-LOSS
+PATH; IT IS LATENT, NOT LIVE.** A breach means REPLAYING AN OLDER COMMITMENT IN WHICH THE LP'S BALANCE
+WAS LOWER. **No such state exists today**, on two independent grounds:
+1. **THE LP↔HOP COMMITMENT BALANCE NEVER MOVES.** The LP runs no LN node (design B), so that channel
+   carries no HTLCs: `channel_driver.rs:1296` records *"**No `send_spontaneous_payment` call exists
+   anywhere** in `quid-bridge`, `quid-hop` or …"*, swap-IN HTLCs arrive on the hop's NETWORK-facing
+   channels (the hop issues the invoice; the seller routes to it), and swap-OUT delivery is a SPLICE,
+   not a payment. ⇒ **Within a funding scope every commitment carries the same split**, so replaying
+   an older one from that scope gains the attacker nothing.
+2. **AN OLDER *SCOPE*'S COMMITMENT CANNOT CONFIRM AT ALL** — it spends the pre-splice funding outpoint,
+   which the splice already spent.
+⇒ **The property that protects us today is EMERGENT ("we happen not to route over LP channels"), not
+ENFORCED.** ⚠️ **IT ARMS THE MOMENT ANY BALANCE-MOVING RAIL IS ENABLED ON AN LP CHANNEL** — and that
+is a routing decision someone could make without ever reading this contract.
+✅ **THAT IS THE ARGUMENT FOR BUILDING THE CHECK ANYWAY, AND IT IS THE OWNER'S STANDING RULE** (*"there
+should be no holes possible"*): the same fact that makes the breach unreachable — **a static balance —
+makes the invariant EXACT rather than heuristic.** An honest force close must pay the LP
+`checkpointOf − paidOutSinceCheckpoint`; there is no legitimate reason for it to pay less. **The check
+converts an emergent property into an enforced one, which is the whole difference between "no old
+state exists to replay today" and "the contract would notice if one did."**
+📌 **PROCESS: I got this row wrong twice — first the loss incidence, then the reachability — both times
+by reasoning from the row instead of from the settlement and the rails. Both corrections came from
+tracing one level further. Do not quote this row's SEVERITY without re-checking (1) above.**
+
 ▶️ **THE FIX KEEPS THE LP RUNNING NOTHING, BECAUSE ALL THREE INPUTS ALREADY EXIST ON-CHAIN:**
 `checkpointOf` (the fleet's own last attestation), `paidOutSinceCheckpoint` (legitimate outflows), and
 an SPV-proven close tx. **Apply the guard the coop path already applies** — on a force close, compare
