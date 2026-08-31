@@ -1783,11 +1783,26 @@ contract BTCChannels is Ownable {
     ///      `ChannelKeysMismatch` — **the channel was unretirable FOREVER**: BTC alive in a live
     ///      2-of-2, the EVM position stuck open, backing over-counted indefinitely. That is the
     ///      hazard §E155 removed the LP-only gate to prevent, arriving through a different door.
-    ///      ⚠️ THIS DELIBERATELY FORBIDS KEY ROTATION. Rotating custody to a new image's keys
-    ///      without closing the channel (§E162-rekey-splice) is a REAL and wanted capability, but
-    ///      it must UPDATE `keysHash` and must be gated on who may rotate and to what — otherwise
-    ///      a compromised hop splices to keys it solely controls and cuts the LP out of its own
-    ///      2-of-2. Until that gating is settled, rejecting the change is the safe half.
+    ///      ⛔ THIS BLOCK USED TO END: *"THIS DELIBERATELY FORBIDS KEY ROTATION … Until that gating
+    ///      is settled, rejecting the change is the safe half."* **THAT GATING IS NOW SETTLED AND
+    ///      THE SENTENCE IS FALSE** (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31). `splice` no
+    ///      longer calls this; it RE-PINS `keysHash` after `_verifySplice` has proven the new pair
+    ///      is inside the new `Q`, which is the ROOT fix for the §E153 hazard described above —
+    ///      forbidding rotation was a clamp on the symptom, and it was UNSATISFIABLE against our
+    ///      own LN stack, which rotates BOTH funding pubkeys on every splice.
+    ///      🔑 WHAT GATES A ROTATION NOW: `_verifySplice` SPV-proves the transaction SPENDS the
+    ///      channel's funding outpoint, and that outpoint is a key-path taproot 2-of-2 whose spend
+    ///      REQUIRES THE LP'S MuSig2 PARTIAL — which, under BIP-341 `Prevouts::All`, commits to the
+    ///      outputs and therefore to the exact new pair. An unforgeable signature over the
+    ///      destination, in place of an equality check over public keys.
+    ///      ⚠️ **AND THE HONEST RESIDUAL, BECAUSE THIS IS A RELOCATION AND NOT A PURE GAIN:** the
+    ///      old check held even if the LP BLIND-SIGNED; the new one requires the LP's signer to
+    ///      VALIDATE what it signs. That validation is §T9 (PHASE 2, not landed). A blind-signing
+    ///      LP loses funds through far more direct routes than key rotation, so §T9 is required
+    ///      regardless — but do not describe the fold as free.
+    ///      📌 THIS FUNCTION IS STILL LIVE for the RETIREMENT paths, `emitDeadManExit` and
+    ///      `deliverSwapOutOnchain`, where it now reads the CURRENT pin — correct for a spliced
+    ///      channel, which it was not before.
     function _requireChannelKeys(bytes32 channelId, Types.OpenParams calldata p) private view {
         if (keccak256(abi.encode(p.lpPubkey, p.hopPubkey)) != channels[channelId].keysHash)
             revert ChannelKeysMismatch();
