@@ -1743,6 +1743,46 @@ execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–
 Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
 **Measure before choosing a number; do not simply halve it.**
 
+## 🔍 **§WHOSE-PERCEPTION-WAS-CONSTRAINED — MY ENUMERATION WAS GUESSWORK; THE NUMBER SURVIVED ANYWAY, AND ONE ASSUMPTION IS STILL UNVERIFIED** (owner, 2026-08-31: *"i dont think these are the best routes. are you sure 1inch doesnt have a constrained perception"*)
+
+Three separate claims were bundled in my last answer. **Two now have evidence; one does not, and it is
+the one that matters most.**
+
+### ✅ ① THE 1inch API IS GENUINELY KEY-GATED — TESTED, NOT ASSUMED
+`api.1inch.dev/swap/v6.0/1/quote` → **401**. The legacy hosts (`api.1inch.io` v5.0/v5.2,
+`api.1inch.exchange` v4.0) → **301**, redirecting to it. ⇒ **There is no keyless 1inch route
+endpoint**, so `swap()`'s executor calldata is unreachable and the pool-word path is the whole
+keyless surface. **The deployed router does expose six entrypoints** — `unoswap`, `unoswapTo`,
+`unoswap2`, `unoswap3`, `ethUnoswap`, `swap` — and **no `clipperSwap` and no `fillOrder`**, so the
+Limit Order Protocol is a separate contract and not reachable through this router.
+
+### 🔴 ② MY POOL ENUMERATION WAS GUESSWORK, AND THE OWNER WAS RIGHT TO CHALLENGE IT
+I had been calling **`find_pool_for_coins` (SINGULAR)**, which returns ONE pool — and returned three
+DEAD ones for GHO, which is what produced *"GHO is Fluid-only"*. **The metaregistry also has
+`find_pools_for_coins` (PLURAL), which returns an ARRAY**, and it knows **2,444 pools**.
+▶️ **USE THE PLURAL. THE SINGULAR IS THE TRAP** — it is documented earlier in this file as returning
+*a* pool rather than the deepest, and the fix was one letter away the whole time.
+📊 Re-run properly, GHO/crvUSD has **FOUR** pools and I had measured one:
+| pool | GHO | other side |
+|---|---:|---:|
+| **`0x635EF005`** | **915,915** | **383,945 crvUSD** |
+| `0x670a72e6` | 30,002 | 17,387 USDe |
+| `0x86152dF0` · `0x9A267cbC` · `0xA81151f7` · `0x38C6DD18` | 10 · 0 · 0 · 0 | — |
+⇒ **THE $250k CAP STANDS: `0x635EF005` really is the deepest, so the number was right and the method
+was not.** ⚠️ **That is worth stating plainly rather than claiming vindication — a guess that happens
+to land is still a guess, and the next one need not.**
+
+### ⚠️ ③ THE ASSUMPTION I STILL CANNOT VERIFY, AND IT IS WHERE A CONSTRAINED PERCEPTION WOULD HIDE
+*"`unoswap` reaches UniswapV2, UniswapV3 and Curve"* comes from **a comment in our own
+`Interfaces.sol`** and 1inch's published V6 design — **not from the deployed bytecode.** The protocol
+field is `dex >> 253`, i.e. **3 BITS = 8 POSSIBLE SLOTS, of which we use 3.** ⇒ **If V6 supports
+protocols 3-7, every venue in those slots is reachable today, keylessly, and we are simply not
+addressing them.** 🔴 **THIS IS UNTESTED AND IT IS THE HIGHEST-VALUE THING LEFT ON THIS QUESTION** —
+it would widen the keyless venue set without any key, any new counterparty, or any change to the
+security model. ▶️ **Verify by disassembling the router's protocol dispatch, or by executing an
+`unoswap` with `dex >> 253 == 3` against a known Balancer/Maverick pool on a fork and reading whether
+it reverts on the protocol switch or on something else.**
+
 ## ✅ **§GHO-IS-REACHABLE-AFTER-ALL — "1inch ONLY" SETTLED, AND IT CAPS THE CHEAPEST DOLLAR RATHER THAN KILLING IT** (owner, 2026-08-31: *"no kyber only 1inch"*)
 
 **Directive taken: 1inch only.** With no API key that fixes the trilemma at **pool words** —
