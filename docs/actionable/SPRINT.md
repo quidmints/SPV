@@ -687,6 +687,35 @@ error** (EIP-712 quorum cannot be a Bitcoin `scriptPubKey`). The freshness **2-o
 refuted in-tree** for ignoring that the LP is offline. A reachability scan reporting "0 of 20" was
 first an artifact of unresolved `@/` aliases — re-run with them, the result held.
 
+⭐ **`§E294-COMPLETES-THE-VARIANCE-FIX` (2026-08-31) — DELETING `pushObservation` IS NOT ONLY AN
+ATTACK-SURFACE REMOVAL. IT FINISHES `§UNIT-VARIANCE-SOLVED`, AND THAT IS THE STRONGER REASON.**
+
+**Traced end to end today:**
+1. `realizedVarianceWad` is `max(ringVariance, anchorVarianceWad)` (`Core.sol:400-401`).
+2. **`pushObservation` is the ring's only live writer** (`Core.sol:1591`), and `seedRing` leaves
+   `cardinality = 1` with a single observation (`OracleLib.sol:197-203`) — **not enough for
+   `ringVariance` to return anything but 0.**
+3. ⇒ **Delete `pushObservation` and the ring is permanently empty, so σ² is ALWAYS the anchor's.**
+
+⭐ **THAT IS EXACTLY WHAT `§UNIT-VARIANCE-SOLVED` ASKS FOR.** Its finding: in `q·γ·σ²·(T−t)` the pool
+tick supplies **neither** factor — *"not PRICE variance (pegged to the oracle by construction) and not
+INVENTORY variance … a third quantity that tracks neither factor the formula needs"* — and σ² should
+come from the ORACLE series instead. **The anchor leg already IS that**, and `§E343` measured it as the
+right order rather than ≈0: 60 consecutive ETH/USD rounds, 57.3 updates/day, **implied annualised
+σ = 95.5 %**. So the correct input is built and the wrong one is what `§E294` proposes to delete.
+
+⇒ **TWO INDEPENDENT REASONS, EITHER SUFFICIENT:** (a) it removes the ±50 bps permissionless inflation
+vector the row names; (b) **it removes the wrong σ² input**, which is a live correctness defect, not a
+latent one — `§UNIT-VARIANCE-SOLVED` traced the measured 0.084 bps `wellSkew` at maximum scarcity to
+exactly this (*"NOT a bad fixture. NOT 'architecture, live with it'. A WRONG INPUT."*).
+🧹 **AND IT SIMPLIFIES:** with the ring permanently 0 the `max()` collapses to the anchor, and
+`§E346-ZERO`'s "0 from both legs" guard reduces to one leg.
+⚠️ **THE ROW'S OWN STATED REASON REMAINS WRONG** (booked earlier): *"the ring is fed by the anchor
+regardless"* — it is not; after deletion the ring is fed by **nothing**, and that is fine because the
+READ falls back to the anchor. Right conclusion, wrong mechanism.
+▶️ **STILL THE OWNER'S CALL, but it is no longer a trade** — nothing argues for keeping a permissionless
+writer of an input the formula does not want.
+
 🆕 **`§JS-TESTS-HAVE-NO-RUNNER` (added 2026-08-30, Tier 2).** `app/` carries **10 test files and
 no way to execute them**: no `test` script, no jest/vitest dependency, no runner config anywhere in
 the repo. **This is inherited, NOT a merge regression** — ibiza's `frontend/identity-wallet` had the
