@@ -130,6 +130,20 @@ struct ConsentReq {
     funding_vout: u32,
     btc_recipient: String,
     btc_recipient_pop: String,
+    /// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The LP's 33-byte COMPRESSED Lightning payment
+    /// basepoint, hex. The contract derives and pins the LP's `to_remote` output key from it, so a
+    /// force-close commitment can be asked what it actually paid the LP.
+    ///
+    /// 🔑 **IT COMES FROM THE LP, NOT FROM THE FLEET, AND THAT IS THE WHOLE POINT.** The fleet could
+    /// read a payment point off its own monitor — but the fleet SUBMITS the open, so a compromised
+    /// one would then be choosing the key the check keys on: pin a point that matches no output and
+    /// every force close measures zero, silently disarming the check while it still appears to run.
+    /// `btcRecipientPoPDigest` therefore commits to `keccak256(lp_payment_point)`, so the LP's
+    /// existing BIP-340 proof — the one already in this request — binds it. Supplying it here is
+    /// what makes that binding meaningful.
+    /// ⚠️ It is an IDENTITY, not consent: it carries no signature of its own and proves nothing on
+    /// its own. Its integrity comes entirely from the PoP beside it.
+    lp_payment_point: String,
     exits: Vec<ExitArmingReq>,
 }
 
@@ -256,6 +270,16 @@ async fn lp_consent(
         auth: quid_hop::evm_codec::OpenAuth {
             btc_recipient,
             btc_recipient_pop: unhex(&req.btc_recipient_pop)?,
+            lp_payment_point: {
+                let pp = unhex(&req.lp_payment_point)?;
+                // Rejected HERE rather than on-chain: a wrong-length point reverts `InvalidParam`
+                // inside `openChannel`, which the reconciler retries forever with no idea why.
+                if pp.len() != 33 {
+                    return Err((StatusCode::BAD_REQUEST,
+                        "lp_payment_point must be a 33-byte compressed pubkey".into()));
+                }
+                pp
+            },
         },
         exits,
     };

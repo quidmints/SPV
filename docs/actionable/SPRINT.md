@@ -1404,8 +1404,8 @@ basis — the blocker the file put in front of them is gone.**
 | phase | state |
 |---|---|
 | **0** — `§F5` zero-delivery cluster · `§W1` sweep signing tool | `§W1` ✅ wired (`create_sweep_tx`, 11 refs). `§F5` **open** |
-| **1 — KEYSTONE `§M1#2`, the LP holds its own funding half** | **(a)** ✅ fleet vault-less — `daemon.rs:210` `vault: Option<Arc<VaultNode>>` · **(b)** ✅ `quid-lp-daemon.rs` exists · **(c)** 🔴 LP seed provisioning — `load_or_provision_from_env` present (11 refs) but `§LP-SEED-ENTROPY` is an **OWNER decision** |
-| **2** — LP-side signer refusal, then ladder depth | ✅ **needed no new code**: `type EcdsaSigner = ValidatingChannelSigner` wraps every channel. Ladder depth: ✅ floor of 2 (`LadderTooShallow`), 🔴 the *"generous, deploy-parameterised"* depth is open |
+| **1 — KEYSTONE `§M1#2`, the LP holds its own funding half** | **(a)** ✅ fleet vault-less — `daemon.rs:210` `vault: Option<Arc<VaultNode>>` · **(b)** ✅ `quid-lp-daemon.rs` exists · **(c)** ✅ **CORRECTED 2026-08-31 — this cell read 🔴 while list item 1 TWELVE LINES BELOW read ✅ DECIDED AND BUILT. The section contradicted itself; the list is right.** Owner decided 2026-08-30 (*same seed, taproot path*), `deriveFundingKey` exists at BIP-86 `m/86'/0'/0'/0/0` and its point matches BIP-86's PUBLISHED vector. ⇒ **PHASE 1 IS DONE.** |
+| **2** — LP-side signer refusal, then ladder depth | ⛔ **THE ✅ IS AN OVER-CLAIM, CORRECTED 2026-08-31 — AND IT NOW MATTERS.** *"Needed no new code: `type EcdsaSigner = ValidatingChannelSigner` wraps every channel"* says the WRAPPER exists; it does not say the REFUSAL does. **Measured: `partially_sign_splice_shared_input` (`validating_signer.rs:1662`) computes the sighash and signs — it NEVER INSPECTS `tx.output`.** Its policy guards nonce reuse and state regression, not DESTINATIONS. ⇒ **§T9's actual refusal is UNBUILT.** 🔴 **AND IT BECAME LOAD-BEARING TODAY:** the `rekey` fold (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) removed the contract-side `lpPubkey`-unchanged check — which held even against a blind-signing LP — and relies instead on the LP signing only destinations it accepts. **That is the check this row calls done and which is not.** Ladder depth: ✅ floor of 2 (`LadderTooShallow`), 🔴 the *"generous, deploy-parameterised"* depth is open |
 | **3** — `§M1#4` per-channel freshness | 🔴🔴 **NOT BUILT, AND UNREACHABLE:** `FRESHNESS_SHARD: u32 = 0` hardcoded, and its only writer returns early when the fleet has no vault — **which is the default**. See `§CLUSTER-2-BTC` |
 | **4** — attestation removal · lazy `openChannel` | ✅ `AttestedHopRegistry` and `_requireAttested`: **0 references each** |
 
@@ -1430,6 +1430,51 @@ basis — the blocker the file put in front of them is gone.**
    named is in the tree and tested; see `§E182-REKEY-VERIFIED`.
 5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
    on-chain); **`B1`** (freshness backstop has no economic bound); TDX + Nitro seal wiring.
+6. ✅ **LANDED 2026-08-31 — `§SPLICE-ROTATES-BOTH-FUNDING-KEYS`, and it was a two-sided defect.**
+   LDK rotates BOTH funding pubkeys on every splice; the EVM pinned them. Neither `splice` (pin) nor
+   `rekey` (LP half immutable) could accept what our own stack produces, and the same gate guards the
+   RETIREMENT paths — so a spliced channel reached §E153's *unretirable forever* with no attacker.
+   **EVM:** `splice` re-pins `keysHash`; `rekey`/`rekeyAuthBody`/`_authorizeRekey`/`_finishRekey`/
+   `ChannelRekeyed`/`RekeyUnchanged` FOLDED into `splice`. The MRENCLAVE-upgrade capability §E182
+   built `rekey` for survives as a constant-size rotation **and is reachable for the first time —
+   `rekey` had no caller anywhere in the Rust stack.** 7/7 rotation tests, 61/62 BTC suites.
+   **Rust:** the bug was systemic — SIX identity sites paired the ORIGINAL outpoint with the LIVE
+   pair. Root-fixed by a monitor patch (`first_negotiated_funding_pubkeys`, TLV 39) with a
+   round-trip + rotation test. 🔑 **Rule named so it cannot regress: `funding_pubkeys()` is for what a
+   transaction SPENDS; `original_funding_pubkeys()` is for what a channel IS.**
+7. 🟡 **`§FORCE-CLOSE-SKIPS-THE-STALE-GUARD` — WIRED, NOT YET PROVEN END-TO-END.** `openChannel`
+   pins the LP's `to_remote` key from its payment basepoint (the only LP-side key stable for a
+   channel's life); `recordForceClosePermissionless` always emits `ForceCloseLpOutput` with the
+   measured payout beside `checkpointOf`/`paidOutSinceCheckpoint`. It does **not** revert (the
+   channel would keep counting backing that is gone) and does **not** re-value (that mints the LP
+   dollars against sats an attacker holds). The basepoint is bound into the PoP the LP already signs,
+   or the hop could pin a key matching nothing and silently disarm the check. Derivation
+   cross-checked against LDK's own `get_taproot_to_remote_spk`, 4/4.
+   🔴 **REMAINING: an end-to-end test** — open, force-close with a short `to_remote`, assert the
+   emitted numbers. Until it exists this is wired, not proven.
+   📌 **SEVERITY, CORRECTED TWICE — it is LATENT, not live.** No replayable older state exists today:
+   the LP runs no LN node, so its channel carries no HTLCs and the commitment balance never moves
+   within a funding scope, and an older scope's commitment cannot confirm. The property protecting us
+   is EMERGENT, and the check makes it ENFORCED.
+
+### 🎯 THE DEFINITIVE BITCOIN REMAINDER (measured 2026-08-31, in dependency order)
+
+| # | item | why it is not done |
+|---|---|---|
+| 1 | **§T9 LP-side signer destination refusal** | the wrapper exists, the REFUSAL does not (`validating_signer.rs:1662` never reads `tx.output`). **Newly load-bearing** — see phase 2 above |
+| 2 | **§FORCE-CLOSE end-to-end test** | derivation is proven; the emit path is not |
+| 3 | **Ladder depth as a deploy parameter** | floor of 2 exists (`LadderTooShallow`); the *generous, deploy-set* depth does not |
+| 4 | **§F5** zero-delivery cluster | suspected REAL defect; diagnosis is free and unblocked |
+| 5 | **`M1`** — `migration.rs` must read the Safe on-chain | |
+| 6 | **`B1`** — freshness backstop has no economic bound | |
+| 7 | **TDX + Nitro seal wiring** | |
+| 8 | **Phase 3 freshness** | ⏸️ OWNER DECISION FIRST: is the Bitcoin freshness UTXO wanted at all? It has no production writer |
+| 9 | **§BTC-LEG-FEE** | ⏸️ OWNER DECISION: is the token-side fee leg wanted at all? |
+⇒ **Everything else in phases 0–4 is either landed or dissolved.** Phase 1 (the keystone) is DONE:
+fleet vault-less, `quid-lp-daemon` builds, LP seed decided and derived. 📌 **TWO LP CUSTODY
+TOPOLOGIES EXIST AND THE PHASE NOTES BLUR THEM — say which you mean:** the PHONE holds the half via
+`deriveFundingKey` (§E188, app, BIP-86), and a SELF-HOSTED LP box runs `quid-lp-daemon` with its own
+Rust-provisioned seed. Both are real; they are different deployments, not competing designs.
 
 ✅ **THE KNOWN-FALSE COMMENT IS ALREADY ANNOTATED — checked 2026-08-31, this row is STALE.** The
 §E172 refutation sits directly under the claim (`BTCChannels.sol:357-374`), naming
@@ -1455,7 +1500,7 @@ real design hole** (approval vs escrow vs pooled-claim vs an already-funded path
 
 | | decision |
 |---|---|
-| **1.1** | ✅ **DONE 2026-08-30** — two-output ladder verified at arm time; pool share pays a protocol cold P2TR (`poolColdScript`). ~~`SweepAuth` 2-of-3 fits~~ — it does not, see `§POOL-SCRIPT-DONE` |
+| **1.1** | ⛔ **STALE — `poolColdScript` WAS DELETED 2026-08-31 and this cell still prescribes it.** Open-list item 2 in this same section records the resolution: `§FLEET-FRONTS-THE-WINDOW` took pool inventory out of channels, so an exit has no second output to place and no destination to choose — **the question DISSOLVED, it was not answered.** The two-output ladder and its cold script are both gone. ~~✅ DONE 2026-08-30 — two-output ladder verified at arm time; pool share pays a protocol cold P2TR (`poolColdScript`).~~ ~~`SweepAuth` 2-of-3 fits~~ — it does not, see `§POOL-SCRIPT-DONE` |
 | ~~1.1c~~ | ✅ **DECIDED 2026-08-30 — LP seed: SAME SEED, TAPROOT PATH.** The keystone `§M1#2`'s last leg. See `§LP-SEED-HAS-A-REFERENCE-IMPLEMENTATION` — provisioning already exists in `app/features/identity`; what remains is one path constant and one derive function |
 | **1.2** | **Is the Bitcoin freshness UTXO wanted?** It has **no production writer** — the heartbeat returns early when the fleet has no vault, which is the shipped posture |
 | **1.3** | **The fold's shape** — 7540 face vs `Core`+`Quid` merge. Folding a contract is measured to COST bytes (`VEth`→`Quid` −1,077). Re-measure first: `Core` 11,637 + `Quid` **20,616** = 32,253, over by **7,677** (not the 8,917 or 23,835 the rows assume) |
