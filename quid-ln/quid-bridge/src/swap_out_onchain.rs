@@ -177,6 +177,11 @@ fn swap_out_resolved<R: JsonRpc>(
 /// Drive ONE on-chain swap-out delivery to completion (or reverse it). Mirrors
 /// `drive_splice` for the EVM submit + the LP cross-check.
 #[allow(clippy::too_many_arguments)]
+/// How long a halted delivery is watched for a late splice lock. Deliberately well under the
+/// swapper's on-chain refund window (`SWAPOUT_REFUND_BLOCKS = 7200` ≈ 1 day), so a splice that
+/// lands late is delivered BEFORE a refund can be claimed — which is the whole point of watching.
+const DELIVERY_RESUME_WATCH_SECS: u64 = 6 * 60 * 60;
+
 pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     cfg: Arc<BridgeConfig>,
     evm: Arc<JsonRpcEvmClient<R, LocalSigner>>,
@@ -241,12 +246,55 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
                 // §AUDIT-SWAPOUT-DOUBLEPAY — an INITIATED-but-unlocked splice is an unknown, not
                 // a failure. Trying the next candidate here is what double-pays the swapper, and
                 // reversing is the same loss mirrored (EVM refund + late BTC). Halt.
+                // §DELIVERY-INFLIGHT-RESOLUTION — an INITIATED-but-unlocked splice is an unknown,
+                // not a failure. Trying the next candidate double-pays and reversing is the same
+                // loss mirrored, so neither happens. **But abandoning it is not neutral either:**
+                // if the splice locks later and nobody submits, the BTC leaves, the EVM never
+                // records the delivery, and the swapper self-refunds after SWAPOUT_REFUND_BLOCKS
+                // while keeping it — the double-pay simply moves to the refund path. So the
+                // receiver is carried out of the error and WATCHED here.
                 Err(e) if e.downcast_ref::<crate::vault::DeliveryInFlight>().is_some() => {
-                    error!(
+                    let inflight = e.downcast::<crate::vault::DeliveryInFlight>()
+                        .expect("checked by the guard above");
+                    warn!(
                         swap_id = %hex::encode(swap_id), cid = %hex::encode(cid),
-                        "delivery splice may still land ({e:#}); NOT retrying and NOT reversing",
+                        "delivery splice did not lock in time; NOT retrying, NOT reversing — \
+                         watching it to completion instead",
                     );
-                    return Err(e).context("swap-out halted: delivery splice outcome unknown");
+                    // Bounded well under the swapper's ~1-day `SWAPOUT_REFUND_BLOCKS` window, so a
+                    // late lock is delivered BEFORE a refund can be claimed. Re-entry is safe
+                    // regardless: `deliverSwapOutOnchain` is guarded by `swapInUsed[swapId]`, so a
+                    // resume that races a refund reverts rather than paying twice.
+                    let (cfg2, evm2, rpc2, esp2, cm2, chm2, vr2, req2) = (
+                        cfg.clone(), evm.clone(), rpc.clone(), esplora.clone(),
+                        chain_monitor.clone(), channel_manager.clone(),
+                        vault_registry.clone(), req.clone());
+                    tokio::spawn(async move {
+                        match tokio::time::timeout(
+                            Duration::from_secs(DELIVERY_RESUME_WATCH_SECS), inflight.rx).await
+                        {
+                            Ok(Ok((txid, vout))) => {
+                                info!(swap_id = %hex::encode(swap_id), splice = %txid,
+                                      "late delivery splice locked; completing the swap-out");
+                                if let Err(e) = complete_delivery(
+                                    cfg2, evm2, rpc2, esp2, cm2, chm2, vr2, req2, cid, txid, vout).await
+                                {
+                                    error!(swap_id = %hex::encode(swap_id),
+                                           "late delivery completion failed ({e:#}); the swapper's \
+                                            refund window is the backstop");
+                                }
+                            }
+                            // Correlator gone, or the splice never locked inside the window. The
+                            // swapper's self-service refund is the backstop in both cases.
+                            Ok(Err(_)) | Err(_) => warn!(
+                                swap_id = %hex::encode(swap_id),
+                                "delivery splice never locked while watched; leaving it to the \
+                                 swapper's refund window"),
+                        }
+                    });
+                    return Err(anyhow::anyhow!(
+                        "swap-out {} halted: delivery splice in flight, now watched",
+                        hex::encode(swap_id)));
                 }
                 Err(e) => warn!(
                     swap_id = %hex::encode(swap_id), cid = %hex::encode(cid),
@@ -262,6 +310,39 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     //    view). We initiated the splice ourselves, so there is no counterparty signature
     //    to cross-check — the contract SPV-verifies the splice and pins the delivered
     //    slice to the swapper's on-chain-proven payment (`sumOutputValuesToScript`).
+    complete_delivery(cfg, evm, rpc, esplora, chain_monitor, channel_manager,
+                      vault_registry, req, cid, splice_txid, splice_vout).await
+}
+
+/// (§DELIVERY-INFLIGHT-RESOLUTION) Finish a delivery whose splice outpoint is known — SPV-prove it
+/// and submit `deliverSwapOutOnchain`.
+///
+/// 🔑 **EXTRACTED SO A LATE LOCK CAN RE-ENTER IT.** `DeliveryInFlight` (the `§AUDIT-SWAPOUT-DOUBLEPAY`
+/// fix) correctly refuses to retry or reverse a splice that was initiated but did not lock in time —
+/// both of those pay the swapper twice. **But abandoning it was only half a fix:** nothing resubmitted
+/// when the splice landed later, so the BTC left on Bitcoin, the EVM never recorded the delivery, and
+/// the swapper self-refunded after `SWAPOUT_REFUND_BLOCKS` and kept both. **The double-pay moved from
+/// the retry path to the refund path.** This body is the resume.
+///
+/// ⚠️ **RE-ENTRY IS SAFE BY THE CONTRACT, NOT BY TIMING.** `deliverSwapOutOnchain` is guarded by
+/// `swapInUsed[swapId]`, so a resume that races a refund or a manual submission REVERTS rather than
+/// paying twice — which is why this can run without coordinating with the driver that spawned it.
+#[allow(clippy::too_many_arguments)]
+async fn complete_delivery<R: JsonRpc + Send + Sync + 'static>(
+    cfg: Arc<BridgeConfig>,
+    evm: Arc<JsonRpcEvmClient<R, LocalSigner>>,
+    rpc: Arc<R>,
+    esplora: Arc<Esplora>,
+    chain_monitor: Arc<HopChainMonitor>,
+    channel_manager: Arc<HopChannelManager>,
+    vault_registry: Arc<crate::vault::VaultRegistry>,
+    req: OnchainSwapOutRequest,
+    cid: [u8; 32],
+    splice_txid: bitcoin::Txid,
+    splice_vout: u32,
+) -> anyhow::Result<()> {
+    let btc_channels = cfg.btc_channels;
+    let swap_id = req.swap_id;
     let (pa, pb) = channel_funding_pubkeys(&chain_monitor, &channel_manager, splice_txid, splice_vout)
         .ok_or_else(|| anyhow::anyhow!("funding pubkeys not available for delivery splice {splice_txid}:{splice_vout}"))?;
     let (params, raw, proof) =
@@ -325,6 +406,7 @@ pub async fn drive_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     info!(swap_id = %hex::encode(swap_id), splice = %splice_txid, "on-chain swap-out delivered");
     Ok(())
 }
+
 
 /// Reverse an undeliverable on-chain swap-out: `reverseSwapOut` returns the swapper's
 /// USD (in their token), keyed by `swapId` (the on-chain dedup `swapInUsed` makes it

@@ -800,10 +800,29 @@ Every change this session re-examined for what it gave up, not just what it fixe
 late **and** nobody to act for ~1 day — and `SWAPOUT_REFUND_BLOCKS` is deliberately *"≫ the ~1-2h
 honest SPV delivery window"*, so an operator who submits `deliverSwapOutOnchain` once the splice
 confirms closes it with hours to spare. **Automatic loss became recoverable loss with a day's notice.**
-▶️ **THE REAL FIX IS THE ONE ALREADY NAMED:** resume the submission. A halted swap must be watched
-until its splice resolves, then either delivered (submit on a late lock) or left to the refund once the
-splice is provably dead. **Until that exists, `DeliveryInFlight` is a mitigation, and this file should
-not read it as a closed defect.**
+✅ **FIXED 2026-08-31 — THE RESUME IS BUILT, SO THE DEFERRAL IS CLOSED.**
+1. **`DeliveryInFlight` now CARRIES the receiver** instead of dropping it. The timeout uses
+   `timeout(t, &mut rx)` rather than `timeout(t, rx)` — the latter consumes and drops on elapse,
+   which was the mechanism that lost the only handle to a live splice. `cancel()` is no longer
+   called there; it survives at its ONE correct site, the initiation-error path where no splice was
+   ever broadcast.
+2. **The completion path is extracted as `complete_delivery`** — SPV-prove the outpoint, wait for
+   gateway confirmations, submit `deliverSwapOutOnchain` — so a late lock can RE-ENTER it instead of
+   the logic existing only inline in the driver.
+3. **The driver watches instead of abandoning.** On the in-flight error it spawns a task that awaits
+   the carried receiver for `DELIVERY_RESUME_WATCH_SECS = 6 h` and completes the delivery if the
+   splice locks. **6 h is chosen against `SWAPOUT_REFUND_BLOCKS = 7200` (~1 day)**: a late splice is
+   delivered well before a refund can be claimed, which is the whole point.
+⭐ **RE-ENTRY IS SAFE BY THE CONTRACT, NOT BY TIMING:** `deliverSwapOutOnchain` is guarded by
+`swapInUsed[swapId]`, so a resume racing a refund or a manual submission **reverts** rather than
+paying twice. The watcher cannot itself become a third way to double-pay.
+⇒ **All three outcomes are now terminal and none pays twice:** the splice locks in time (delivered);
+it locks late (delivered by the watcher); it never locks (the swapper's self-service refund stands).
+✅ `cargo build` clean, `quid-bridge` **149 pass**, `quid-hop` **97 pass**. Also removed the dead
+`Action`/`outcome_action` left behind by the LN-rail deletion.
+⚠️ **NOT INTEGRATION-TESTED** — the resume needs a live LN + regtest splice that locks after a
+timeout, which this environment cannot stage. It is fail-safe in both directions: if the watcher
+never fires, behaviour is exactly today's; if it fires late or twice, the contract guard rejects it.
 
 ## 🧾 §WAVE-3-SWEPT (2026-08-31) — every skew row checked against the tree BEFORE proposing any of it
 Done this way deliberately: six rows today read as work and were already finished or stale.

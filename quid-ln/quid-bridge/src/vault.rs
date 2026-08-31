@@ -391,7 +391,16 @@ pub struct LpFunding {
 /// would refund on EVM while the BTC is still in flight, which is the same loss mirrored. The
 /// swap halts for resolution instead.
 #[derive(Debug)]
-pub struct DeliveryInFlight;
+pub struct DeliveryInFlight {
+    /// 🔑 **THE RECEIVER IS CARRIED OUT, NOT DROPPED — THIS IS WHAT MAKES THE HALT RESUMABLE.**
+    /// The first version of this fix called `cancel()` here, which removed the correlator slot and
+    /// threw away the only handle to a splice that was still being negotiated. The swap then had no
+    /// observer: when the splice locked minutes later nothing resubmitted, the EVM never recorded
+    /// the delivery, and the swapper self-refunded after `SWAPOUT_REFUND_BLOCKS` while keeping the
+    /// BTC. **That moved the double-pay from the retry path to the refund path instead of removing
+    /// it.** Handing the receiver to the caller lets it finish the job if the splice ever locks.
+    pub rx: oneshot::Receiver<(Txid, u32)>,
+}
 
 impl std::fmt::Display for DeliveryInFlight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -750,16 +759,19 @@ impl VaultNode {
             self.deliveries.cancel(&ldk_id.0);
             return Err(e).context("initiate delivery splice-out");
         }
-        match tokio::time::timeout(timeout, rx).await {
+        // `&mut rx` (not `rx`) — `timeout` would CONSUME the receiver and drop it on elapse, which
+        // is exactly the handle the in-flight path needs to hand back.
+        let mut rx = rx;
+        match tokio::time::timeout(timeout, &mut rx).await {
             Ok(Ok(outpoint)) => Ok(outpoint),
             Ok(Err(_)) => anyhow::bail!("delivery splice oneshot dropped (correlator gone?)"),
-            // §AUDIT-SWAPOUT-DOUBLEPAY — `cancel` drops the correlator slot so the map cannot
-            // leak, but it CANNOT stop the splice: that was handed to LDK above and is still
-            // being negotiated. The typed error is what stops the caller retrying into a
-            // second channel while this one may yet pay.
+            // §AUDIT-SWAPOUT-DOUBLEPAY — the splice was handed to LDK above and is still being
+            // negotiated; nothing here can stop it. The typed error stops the caller retrying into
+            // a second channel while this one may yet pay, and CARRIES THE RECEIVER so the caller
+            // can finish the delivery if it locks late. The correlator slot deliberately STAYS
+            // registered — dropping it is what made the first version of this fix a deferral.
             Err(_) => {
-                self.deliveries.cancel(&ldk_id.0);
-                return Err(anyhow::Error::new(DeliveryInFlight))
+                return Err(anyhow::Error::new(DeliveryInFlight { rx }))
                     .context("delivery splice-out never locked within timeout");
             }
         }

@@ -14,7 +14,6 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
-use crate::evm::SettleOutcome;
 use crate::store::BridgeStore;
 
 /// A Bitcoin best-tip-height source for the settle-time CLTV re-check (Increment
@@ -50,33 +49,6 @@ impl SwapInActor for quid_hop::node::SwapInClaimer {
     }
     fn fail(&self, payment_hash: [u8; 32]) {
         quid_hop::node::SwapInClaimer::fail(self, payment_hash)
-    }
-}
-
-/// The LN action a definite settle outcome maps to — the pure core of
-/// settle-then-claim (steps 2/3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Action {
-    /// Take the seller's BTC (release the preimage). No refund variant: this rail is ATOMIC
-    /// full-fill — it settles with `requireFull = true`, so a partial reverts on-chain
-    /// (surfacing as `Undeliverable` → `Fail`) and never reaches a `Claim`. The fleet has no
-    /// seller LN node to keysend a partial remainder to, so a `Claim` here always took 100%.
-    Claim,
-    Fail,
-}
-
-/// Map a settle outcome to its action. On this rail a `Delivered`/`AlreadySettled` outcome
-/// ALWAYS converted the whole HTLC (`consumed_sats == sats`), because the settle used
-/// `requireFull = true` — a partial would have reverted to `Undeliverable`. So there is no
-/// remainder to refund; claim on delivered, fail on undeliverable.
-fn outcome_action(outcome: SettleOutcome) -> Action {
-    match outcome {
-        // USD delivered now (full fill), or already delivered by a prior settle (restart
-        // replay) — either way the seller's USD is on-chain, so take the BTC.
-        SettleOutcome::Delivered { .. } | SettleOutcome::AlreadySettled { .. } => Action::Claim,
-        // The pool couldn't deliver the floor OR could only PARTIALLY fill under
-        // requireFull=true (both revert on-chain) — return the BTC to the seller.
-        SettleOutcome::Undeliverable => Action::Fail,
     }
 }
 
