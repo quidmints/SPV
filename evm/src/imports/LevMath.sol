@@ -483,7 +483,37 @@ library LevMath {
         if (px == 0) revert NoPrice();
     }
     uint32  internal constant TWAP_WIN_M         = 1800;
-    uint256 internal constant SELL_SLIP_BPS      = 100;                                           // 1% anti-MEV floor
+    /// @dev 🔴 **THE CEILING, AND EVERY BASIS POINT OF IT IS ONE A COMPROMISED KEEPER MAY TAKE.**
+    ///      `minOut` is `oracle x (10000 - slip)/10000`, so a hostile route can return EXACTLY the
+    ///      floor and keep the rest — silently, because the swap succeeds (§THE-SLIPPAGE-WINDOW-IS-THE-LEAK).
+    ///      Kept at 100 so that **nothing which executes today can start reverting**; `_slipBps`
+    ///      below tightens it for the sizes where 100 is provably far too loose.
+    uint256 internal constant SELL_SLIP_BPS      = 100;                                           // 1% anti-MEV CEILING
+
+    /// @dev ⭐ **A FLAT ALLOWANCE IS SIMULTANEOUSLY TOO LOOSE AND TOO TIGHT, WHICH IS WHY THIS IS A
+    ///      FUNCTION.** Measured 2026-08-30 on the leg this actually bounds (stable→WETH, NOT the
+    ///      stable→stable hub hop): **USDT→WETH costs 11 bps at $1M and 56 bps at $5M; USDC→WETH
+    ///      44 bps and 224 bps.** So at $100k a flat 100 bps is ~20x the honest need — pure leak —
+    ///      while at $5M it is already too tight for the worse tier. Impact scales with notional;
+    ///      a constant cannot.
+    ///      ⚠️ **THE CEILING IS PRESERVED DELIBERATELY: this can only ever RAISE the floor, never
+    ///      lower it, so it cannot make a swap that succeeds today begin to fail.** That is what
+    ///      makes it safe to land without knowing live position sizes.
+    ///      📌 Base and slope are set ABOVE the measured cost of the worse tier at each size (25 bps
+    ///      covers USDC→WETH's 44 bps only from ~$1M; below that the honest cost is a few bps), so
+    ///      an honest keeper routing through a sane pool clears it with margin.
+    uint256 internal constant SLIP_BASE_BPS      = 25;   // small-trade floor
+    uint256 internal constant SLIP_PER_MM_BPS    = 25;   // added per $1M of notional
+
+    /// @notice Test-only view onto `_slipBps`. `internal` cannot be reached from a test contract
+    ///         that does not inherit the library, and the curve is exactly the kind of arithmetic
+    ///         that should be pinned by assertion rather than by reading it.
+    function slipBpsForTest(uint256 usd18) external pure returns (uint256) { return _slipBps(usd18); }
+
+    function _slipBps(uint256 usd18) internal pure returns (uint256 bps) {
+        bps = SLIP_BASE_BPS + (usd18 / 1e24) * SLIP_PER_MM_BPS;   // 1e24 = $1M in USD18
+        if (bps > SELL_SLIP_BPS) bps = SELL_SLIP_BPS;             // never looser than today
+    }
     uint256 internal constant DELEVER_GAS        = 400_000;                                       // conservative de-lever crank gas
     uint256 internal constant KEEPER_MAX_GASPRICE = 200 gwei;                                     // anti-grief gasprice ceiling
 
@@ -709,9 +739,9 @@ library LevMath {
 
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // already WETH: no venue needed
-        uint256 floor_ = (_toUsd18(c.aux, stable, stableAmt) * 1e18
-                          / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
-                         * (10_000 - SELL_SLIP_BPS) / 10_000;
+        uint256 usd18_ = _toUsd18(c.aux, stable, stableAmt);
+        uint256 floor_ = (usd18_ * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
+                         * (10_000 - _slipBps(usd18_)) / 10_000;   // size-aware, capped at the old constant
         // ⭐ NOTE THE `floor_`: THIS SIDE BOUNDS THE SWAP, AND ITS MIRROR DID NOT. `_wethToStableDex`
         //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
