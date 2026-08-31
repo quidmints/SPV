@@ -22,7 +22,7 @@ contract SPVGateway is ISPVGateway, Initializable {
     ///         `DIFFICULTY_ADJUSTMENT_INTERVAL`, so the first retarget would read an epoch-start
     ///         block below the checkpoint and brick the chain. Declared HERE and not in
     ///         `ISPVGateway`: that interface is vendored, and this constraint is ours.
-    error UnalignedCheckpointHeight(uint64 blockHeight);
+    error UnalignedCheckpointHeight(uint256 height);
 
     uint8 public constant MEDIAN_PAST_BLOCKS = 11;
 

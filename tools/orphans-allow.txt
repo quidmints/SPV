@@ -1,0 +1,24 @@
+# Interface members with no caller in evm/src. Each line: name  # reason.
+# THE REASON IS REQUIRED — an allowlist without one is how this gate rots into noise.
+#
+# CLASS 1: THIRD-PARTY PROTOCOL INTERFACES. We declare these so tests can probe the LIVE
+# contract; our production code has no obligation to call every member of someone else's API.
+# This is the false-positive class that made the first version of this gate report 40+ hits.
+coins                    # ICurvePool — live-pool probe in the venue/route tests
+get_dy                   # ICurvePool — quote probe; production quotes via the router
+liquidate                # IMorphoBase — we are never the liquidator; tests assert third parties can be
+setAuthorization         # IMorphoBase — tests assert we never grant it
+getRateToEth             # IOffchainOracle — 1inch spot oracle, used to cross-check our own pricing
+idToMarketParams         # IMorphoStaticTyping — market identity probe in fork tests
+getReserveConfig         # IAaveV4Spoke — capacity probe (see the v4-is-nearly-full measurement)
+getDynamicReserveConfig  # IAaveV4Spoke — as above
+#
+# CLASS 2: OURS, DELIBERATELY NOT YET CONSUMED. Each names the work that will consume it.
+# ⚠️ An entry here is a debt, not an exemption: if the named work is cancelled, DELETE the member.
+borrowRateRay            # §MULTI-VENUE step 3 — needs the per-venue walk (LevBase _pool(), 5 sites) first
+supplyHeadroom           # §MULTI-VENUE step 3 — as above; both price a move poolVenue currently forbids
+levClaimUsd6             # Core public view; read off-chain and by SkewCalibration, no cross-contract caller
+#
+# CLASS 3: KNOWN DEFECT, HELD OPEN DELIBERATELY. This is NOT an acceptable state — it is a bug
+# whose fix needs evidence this gate cannot supply. Removing the entry must mean FIXING it.
+swapOutDeliverUnlevered  # 🔴 UNREACHABLE: §POOL-VENUE collapsed the per-LP walk in deleverEthOnDelivery and took the 0-debt branch with it. 0 callers, 0 tests. SPRINT §M.1 — needs a fork test, not a guess.

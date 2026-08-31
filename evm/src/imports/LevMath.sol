@@ -517,11 +517,6 @@ library LevMath {
     uint256 internal constant SLIP_BASE_BPS      = 25;   // small-trade floor
     uint256 internal constant SLIP_PER_MM_BPS    = 25;   // added per $1M of notional
 
-    /// @notice Test-only view onto `_slipBps`. `internal` cannot be reached from a test contract
-    ///         that does not inherit the library, and the curve is exactly the kind of arithmetic
-    ///         that should be pinned by assertion rather than by reading it.
-    function slipBpsForTest(uint256 usd18) external pure returns (uint256) { return _slipBps(usd18); }
-
     function _slipBps(uint256 usd18) internal pure returns (uint256 bps) {
         bps = SLIP_BASE_BPS + (usd18 / 1e24) * SLIP_PER_MM_BPS;   // 1e24 = $1M in USD18
         if (bps > SELL_SLIP_BPS) bps = SELL_SLIP_BPS;             // never looser than today

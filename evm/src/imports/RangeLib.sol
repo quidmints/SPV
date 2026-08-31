@@ -199,12 +199,6 @@ library RangeLib {
     ///         range's — which is what makes the accrual question above measurable from logs.
     event OorFilled(uint indexed id, address indexed owner, uint size, uint limitPx, bool usdFunded);
 
-    error NotOwner();
-    error BadPercent();
-    error Dust();
-    error NoSuchOrder();
-    error NotTouched();
-    error NotFillable();
 
 
 

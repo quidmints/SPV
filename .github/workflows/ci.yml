@@ -115,5 +115,11 @@ jobs:
       - name: EIP-170 size gate
         run: ./scripts/ci/check-sizes.sh
 
+      # §BUILT-BUT-UNWIRED — an interface member nothing in evm/src calls. Invisible to `forge
+      # build` and `forge test` (the name is there; the CALLER is missing), and CLAUDE.md's rule
+      # for it had already failed once at exactly this, which is why it is a gate and not a rule.
+      - name: interface members have a production caller
+        run: python3 tools/check-orphans.py
+
       - name: forge test
         run: forge test

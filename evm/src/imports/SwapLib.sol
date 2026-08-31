@@ -1215,7 +1215,6 @@ library SwapLib {
     /// @notice The maker's basket claim funded nothing — no mature QU!D, or a fully depegged basket.
     error IntentUnfunded();
     /// @notice The sell direction has no settlement yet. See the note at its branch.
-    error IntentSellLegUnbuilt();
 
     error IntentExpired();
     error IntentUsed();
@@ -2217,14 +2216,27 @@ library SwapLib {
     ///   per LP: sources the swap's OWN proceeds into the venue via `Aux.takeToSettle` DIRECTLY (Quid==address(this)
     ///   IS authorized — `V4==Quid` in `Aux._requireUs`) and repays that LP's debt, delivering the freed collateral
     ///   as WETH to `recipient` (Quid, which unwraps + sends). VALUE-NEUTRAL per LP (the swapper's input de-levers
-    ///   the delivering LP; the keeper re-levers next tick). 0-debt (unlevered net-equity) LPs take the no-repay
-    ///   `swapOutDeliverUnlevered` branch instead. Stops once `shortfallEth` (WETH 1e18) is covered; fault-tolerant
+    ///   the delivering LP; the keeper re-levers next tick). Stops once `shortfallEth` (WETH 1e18) is covered; fault-tolerant
     ///   (a stuck LP is skipped → residual #105 partial-fill). @param px USD 1e18/WETH. @return deliveredEth to recipient.
     ///   🔴 UNVERIFIED (forge OOM): fork-test the (1) gating chain, (2) Σbacking invariant (QD-burn: takeToSettle
     ///   draws basket stable to repay — needs `DeleverEthBackingProbe`), (3) non-toxicity, before trusting.
     function deleverEthOnDelivery(address mgr, address aux, uint px, uint shortfallEth, address recipient)
         public returns (uint deliveredEth) {
         if (px == 0 || shortfallEth == 0) return 0;
+        // 🔴 §STALE-BRANCH (2026-09-01) — THE DOCBLOCK ABOVE USED TO PROMISE A BRANCH THIS BODY DOES
+        //    NOT HAVE, AND THAT SENTENCE IS WHY NOBODY NOTICED. It read *"0-debt (unlevered
+        //    net-equity) LPs take the no-repay `swapOutDeliverUnlevered` branch instead"* — true of
+        //    the PER-LP WALK this replaced, which could test `debtOf(lp) == 0` per LP. The collapse
+        //    to one pooled call took the branch with it and left the sentence.
+        //    ⇒ `LevManager.swapOutDeliverUnlevered` now has ZERO callers and ZERO tests
+        //      (`tools/check-orphans.py` is what surfaced it). If the pooled position has no debt,
+        //      `swapOutDeleverPooled` no-ops and the unlevered net-equity stays PHANTOM — priced in
+        //      POOLED, undeliverable because its collateral sits in the venue. That is exactly the
+        //      hole `swapOutDeliverUnlevered` was written to close.
+        //    ⚠️ NOT FIXED HERE, and deliberately not: whether the 0-debt case is still reachable
+        //      under §POOL-VENUE (per-LP debt still exists via `debtOf`/`positionOf`, but the repay
+        //      is pool-wide) is a money-path question that needs a fork test, not a guess. Booked in
+        //      SPRINT.md §M.1 alongside the `DeleverEthBackingProbe` this path already needed.
         // §POOL-VENUE — ONE CALL, NOT A WALK. This body used to loop `openLevCount()` LPs, doing a
         // basket draw plus a venue repay PER LP, so the swap it served was capped by how many repays
         // fit in a block and the cap tightened as the book grew (§E342). The venue holds ONE position
@@ -2569,7 +2581,6 @@ library SwapLib {
     /// Shared param validation for the out-of-range boundary order (ETH+BTC):
     /// range 100–1000 step 50, distance ±5000 step 100 (non-zero). Custom error (no
     /// string-revert bytecode — the two long strings were the fattest revert sites in the OOR path).
-    error BadOorParam();
 
 
 
@@ -2591,7 +2602,6 @@ library SwapLib {
     /// The name outlived the grid by seven commits and would have read as evidence that tick math
     /// survives the core cut. No client decodes it — zero hits in `spa/src`, `quid-ln`, `tools` — so
     /// the selector change costs nothing.
-    error RangeNotOutside();
     /// §DE-TICK — THE RANGE IS ±δ AROUND THE PRICE, AND THAT IS THE WHOLE COMPUTATION.
     /// This used to pad in SQRT space (`spotPrice · √((10000±δ)/10000)`), then look the result up in the
     /// tick grid and align to a spacing of 10. In price space the root cancels — padding a price by
@@ -2904,7 +2914,6 @@ library SwapLib {
         uint256 skewWad;
         uint64  deadline;
     }
-    error NoQuote();
 
 
 

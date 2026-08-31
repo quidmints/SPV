@@ -629,7 +629,6 @@ interface ICore {
     function recordSkewPremium(uint256 premiumUsd) external;
     function refundUnfilled(address token, uint amount, address to) external;
     function repack(uint anchorPrice) external returns (uint price);   // §ONE-ANCHOR: bounds derive from this
-    function collectFees() external returns (uint, uint);
     
     function btc() external view returns (address);   // E21: was BasketLib.IWiredCore
     /// §E56 — the MONOTONIC (never-decayed) retained-premium counters. Their value here is NOT the

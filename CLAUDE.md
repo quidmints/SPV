@@ -127,6 +127,30 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     earns its place **while the root is still reachable** — `poolOwnedSats` was correct to land
     and is correct to remove, in that order.
 
+19. **REMOVE STALES AND SLOPS ALONG THE WAY** (owner, 2026-09-01). A stale is a statement the tree
+    no longer supports: a docblock describing a branch that was collapsed away, an interface member
+    for a deleted function, a ledger row whose claim has been falsified. **Fix it in the turn you
+    walk past it** — the cost is seconds, and the cost of leaving it is that the NEXT reader trusts
+    it. Rule 6 is *fix on detect* for defects; this is the same for prose, and prose is what the
+    next thread reads first.
+    ⭐ **A STALE IS MORE DANGEROUS THAN A GAP, BECAUSE IT ANSWERS THE QUESTION.** A reader who finds
+    nothing goes and measures. A reader who finds a confident wrong sentence stops.
+    *Worked examples, all found 2026-09-01 in one pass:*
+    · `SwapLib.deleverEthOnDelivery` documented a *"0-debt LPs take the `swapOutDeliverUnlevered`
+      branch instead"* — the §POOL-VENUE collapse replaced the per-LP walk with ONE pooled call and
+      the branch went with it. The docblock is why nobody noticed the entrypoint had no caller.
+    · `ICore.collectFees` still declared a function §V4-CUT had DELETED, so `ICore(core).collectFees()`
+      compiled and would revert on a missing selector.
+    · `LevMath.slipBpsForTest`'s docblock asserted *"`internal` cannot be reached from a test contract
+      that does not inherit the library"* — **false**; internal library functions are callable as
+      `Lib._fn()` by any importer. The false premise was the whole justification for the accessor.
+    · Two ledger rows claimed `evm/slither-out/` was *"the only surviving mention"* of a deleted
+      contract. **Measured: 0 mentions there, 1 in `src`.** The artifact was regenerated after the
+      row was written, and the row outlived the fact.
+    ⚠️ **VERIFY BEFORE DELETING, BOTH WAYS.** Three of the five above were found by measuring a
+    claim that sounded right; the slither one was found by measuring a claim that was ALREADY
+    labelled stale and turned out to be stale in the opposite direction.
+
 ## 🔴 RULES 11 AND 15 CONTRADICT EACH OTHER IN A SHARED TREE. THE WORKTREE IS THE RESOLUTION (2026-08-21)
 
 Rule 11 says **commit before a long build**, because the edit outlives the command. Rule 15 says
@@ -182,6 +206,42 @@ NUMBER YOU JUST MEASURED** — `grep -c "<newSymbol>" <file>` returning 0 while 
 the signature of this, and nothing else produces it.
 
 ## Verification discipline
+
+- 🔴🔴 **A NEGATIVE RESULT FROM AN EXTERNAL PROBE IS A PROPERTY OF YOUR QUERY, NOT OF THE WORLD.
+  EVERY WRONG CONCLUSION IN THE 2026-08-29/09-01 SESSION WAS THIS ONE CLASS, FIVE TIMES, AND NOT
+  ONE WAS CAUGHT BY ITS AUTHOR.** Everything else in this section is about greps INSIDE the repo;
+  this is the gap that left. The shape is always the same: **run one query against an outside
+  system, get an answer, and promote that answer's limits to the world's limits.**
+  | what I concluded | from | what was true |
+  |---|---|---|
+  | 1inch only does `unoswap` | the one selector a quote returned | **six** selectors (`unoswap2/3`, `swap`, `ethUnoswap`, `unoswapTo`) |
+  | GHO is Fluid-only | Kyber naming Fluid as *cheapest* | read *cheapest* as *only*; the GHO/crvUSD Curve pool holds 915,915 GHO |
+  | Curve has ~2 usable pools | a two-entry hardcoded table | `find_pools_for_coins` (**PLURAL**) returns an array; the SINGULAR one returns dead pools |
+  | every route must pivot through USDC | the routes a USDC-denominated query returned | the query fixed the pivot, not the venue |
+  | source selection does not exist | the absence of a name I invented | it had never been built — a real gap, but concluded for the wrong reason |
+  ⇒ **BEFORE CONCLUDING "X DOES NOT SUPPORT Y", ENUMERATE X'S INTERFACE — do not infer it from one
+  call's output.** The selector list, the registry's full method set, the ABI, the docs index. Each
+  of the five above was ~one minute of enumeration away, and each cost a wrong design decision.
+  ⚠️ **AND THE PLURAL/SINGULAR TRAP GENERALISES:** when an external registry offers both
+  `find_pool_for_*` and `find_pools_for_*`, the singular is almost always the legacy one. Check for
+  a plural sibling before believing a thin result.
+
+- ⚠️ **A GATE YOU JUST WROTE IS UNVERIFIED CODE ON THE SAME FOOTING AS ANYTHING ELSE — RUN IT
+  AGAINST THE DEFECT IT WAS BUILT FOR AND CONFIRM IT SAYS SO.** `tools/check-orphans.py` reported
+  **0 orphans on a tree that had three**, because `function borrowRateRay(` matches a call pattern —
+  so **every declaration counted as its own caller**, and the interface declaration plus the
+  implementation gave every member two. A gate that cannot fail is worse than no gate: it certifies.
+  ⇒ **The acceptance test for a detector is the KNOWN POSITIVE, not a clean run.**
+  ⚠️ **AND THE SAME HOUR, THE SAME ERROR ONE LEVEL DOWN — A CUSTOM ERROR IS NOT ONLY RAISED BY
+  `revert`.** An ad-hoc scan for "error declarations nothing raises" matched `revert X(` and
+  `X.selector` and reported **12 dead**. Eleven were. The twelfth,
+  `SPVGateway.UnalignedCheckpointHeight`, is raised by **`require(cond, CustomError())`** — the
+  Solidity ≥0.8.26 form — and deleting it broke the build.
+  ⇒ **GREP FOR THE BARE CALL `\bName\s*\(` WITH DECLARATIONS SUBTRACTED, NEVER FOR `revert Name`.**
+  Enumerating the ways a thing can be *used* is the same discipline as enumerating an external
+  interface, arriving from the other side: both failures are one query mistaken for the whole space.
+  ✅ The build caught it in one cycle, which is the argument for running the build BEFORE the
+  cleanup commit rather than after a batch of them.
 
 - 🔴 **BEFORE ADDING AN ACCESSOR OR HELPER, GREP FOR THE BODY YOU ARE ABOUT TO WRAP — NOT FOR THE
   NAME YOU ARE ABOUT TO CREATE.** A name-grep cannot find a duplicate that already exists under a

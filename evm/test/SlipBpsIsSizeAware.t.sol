@@ -14,22 +14,22 @@ contract SlipBpsIsSizeAwareTest is Test {
     /// that executes today can begin to revert.
     function testFuzz_NeverLooserThanTheOldConstant(uint256 usd18) public pure {
         usd18 = bound(usd18, 0, 1e40);                 // up to $10 trillion, absurd on purpose
-        assertLe(LevMath.slipBpsForTest(usd18), 100, "the ceiling must hold at every size");
+        assertLe(LevMath._slipBps(usd18), 100, "the ceiling must hold at every size");
     }
 
     /// It must actually BITE at the sizes where 100 bps was pure leak - otherwise it changes nothing.
     function test_SmallTradesGetAMuchTighterFloor() public pure {
-        assertEq(LevMath.slipBpsForTest(100_000e18), 25, "$100k: 25 bps, 4x tighter than the old flat 100");
-        assertEq(LevMath.slipBpsForTest(1_000_000e18), 50, "$1M: 50 bps");
-        assertEq(LevMath.slipBpsForTest(2_000_000e18), 75, "$2M: 75 bps");
+        assertEq(LevMath._slipBps(100_000e18), 25, "$100k: 25 bps, 4x tighter than the old flat 100");
+        assertEq(LevMath._slipBps(1_000_000e18), 50, "$1M: 50 bps");
+        assertEq(LevMath._slipBps(2_000_000e18), 75, "$2M: 75 bps");
     }
 
     /// ...and it must NOT bite at the sizes where the honest cost genuinely approaches 100 bps.
     /// Measured: USDC->WETH costs 224 bps at $5M, so the ceiling is the binding constraint there and
     /// tightening further would revert honest swaps. That is why the ceiling stays.
     function test_LargeTradesKeepTodaysAllowance() public pure {
-        assertEq(LevMath.slipBpsForTest(3_000_000e18), 100, "$3M reaches the ceiling");
-        assertEq(LevMath.slipBpsForTest(50_000_000e18), 100, "and never exceeds it");
+        assertEq(LevMath._slipBps(3_000_000e18), 100, "$3M reaches the ceiling");
+        assertEq(LevMath._slipBps(50_000_000e18), 100, "and never exceeds it");
     }
 
     /// Monotonic: a larger trade may never receive a TIGHTER allowance than a smaller one, or the
@@ -37,6 +37,6 @@ contract SlipBpsIsSizeAwareTest is Test {
     function testFuzz_MonotonicInSize(uint256 a, uint256 b) public pure {
         a = bound(a, 0, 1e30); b = bound(b, 0, 1e30);
         if (a > b) (a, b) = (b, a);
-        assertLe(LevMath.slipBpsForTest(a), LevMath.slipBpsForTest(b), "allowance must not fall with size");
+        assertLe(LevMath._slipBps(a), LevMath._slipBps(b), "allowance must not fall with size");
     }
 }

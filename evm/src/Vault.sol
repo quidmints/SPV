@@ -175,10 +175,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
 
     error ZeroTwap();
-    error Dust();          // boundary order too small to mint nonzero liquidity
-    error NotOwner();      // pull by a non-owner of the position
-    error BadPercent();    // pull percent must be 1..100
-    error NotAStable();    // BTC self-managed positions are USD-funded (token != 0, no native)
     error SwapOutShort();
 
     address public btcChannels;
