@@ -717,8 +717,39 @@ comment that asserts the clamp** — it is the reason this reads as fixed on a s
 SESSION is actively working (`§E-COORD`: *"two sessions are committing into one worktree and it is corrupting
 both records"*). Booked with the evidence so whoever owns that thread lands it without a collision.
 
-⭐ **`§E294-COMPLETES-THE-VARIANCE-FIX` (2026-08-31) — DELETING `pushObservation` IS NOT ONLY AN
-ATTACK-SURFACE REMOVAL. IT FINISHES `§UNIT-VARIANCE-SOLVED`, AND THAT IS THE STRONGER REASON.**
+⛔ **`§E294-COMPLETES-THE-VARIANCE-FIX` — RETRACTED 2026-08-31, SAME DAY. ITS MECHANISM WAS WRONG.**
+I built it on `Core.sol:1591`'s sentence *"the ring's only live writer is `pushObservation`"* and did
+not check. **There are THREE writers**, and the other two are `_observeIfSourced`, called **once per
+swap** (`Core.sol:1031`, `:1142`) — which writes the **Chainlink anchor** price whenever no external
+source is configured. ⇒ Deleting the push does **not** empty the ring, does **not** collapse
+`max(ring, anchor)` to the anchor, and does **not** finish `§UNIT-VARIANCE-SOLVED`.
+⚠️ **AND MY EARLIER "CORRECTION" OF THE ROW WAS ALSO WRONG.** I marked its reason — *"the ring is fed
+by the anchor regardless"* — as false. **It is essentially TRUE**: with `src == address(0)`,
+`_observeIfSourced` feeds the ring from the anchor on every swap. The row was right; both of my
+passes over it were not. **Twice on one row, from trusting a docblock over the code.**
+
+🟠 **`§E294-BLOCKED-ON-FIXTURES` — the deletion is APPROVED (owner) and CORRECT, and it did not land.**
+Executed, then reverted, because the row never accounted for what else the push is doing:
+1. ✅ **Production is clean** — `pushObservation` has 0 production callers, and the ring/TWAP keep
+   working without it because `_observeIfSourced` feeds them per swap. The reason to delete stands:
+   a **permissionless** writer bounded only by a ±50 bps band around the anchor, and *"a cap on the
+   LEVEL cannot fix a defect in the PATH"* — σ² is a property of the path (`§AUDIT-PUSHOBS`).
+2. ⛔ **But it is also the TEST FIXTURES' ONLY NON-PERTURBING WAY TO BUILD A σ² SERIES.** Ten test
+   files use it; three exist solely for it; **seven use it as the idiom** *"set the feed, push the
+   matching price"* to build a moving series (`LevCascade`, `LevYbReal`, `LeverageCrossSubsidyProbe`,
+   `SkewLivePathReachesKernel`, `SkewVsUniswapV3`, `DrainAtomicity`, `Alles`).
+3. ⛔ **THERE IS NO DROP-IN SUBSTITUTE.** The ring's other writers are reachable only from `swap()`
+   (which perturbs the inventory and flow those fixtures hold fixed) and `repack()` (which is
+   `onlyUs` — `UnificationControls.t.sol:733` records it as *"not reachable from here"*).
+⇒ **LANDING IT NEEDS A SEVEN-FILE FIXTURE REWRITE — feed-move plus a small swap per step — AND THAT
+MUST BE VERIFIED.** Those are all FORK suites, and verification is blocked on
+`§FORK-TESTS-ARE-UNPINNED` (the Infura key 429s a full run). **Reverted rather than shipping an
+unverifiable rewrite of seven money-path fixtures** — that is the exact pattern that produced the
+phantom `§LEV-DELIVERABILITY-REGRESSION` chase.
+▶️ **READY TO LAND THE MOMENT THE SUITE RUNS.** Pin the fork block first (`§FORK-TESTS-ARE-UNPINNED`);
+it is the same fix that makes the suite runnable at all.
+
+~~⭐ `§E294-COMPLETES-THE-VARIANCE-FIX`~~
 
 **Traced end to end today:**
 1. `realizedVarianceWad` is `max(ringVariance, anchorVarianceWad)` (`Core.sol:400-401`).
