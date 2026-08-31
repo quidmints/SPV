@@ -1137,6 +1137,56 @@ contract BtcLpMintStress is AllesFixture {
     // is owed to nobody and paying it would be a GIFT. If it is wrong, an LP is being short-paid by
     // exactly the amount these tests measure.
 
+    /// (§BOOKMARK-OMITS-THE-COMPOUNDED-FEE) THE BOOKMARK INVARIANT, ASSERTED DIRECTLY.
+    ///
+    /// `refreshBookmarks(LP, w, acc)` sets `LP.fees_tok = w·acc/WAD`. Its ENTIRE PURPOSE is to leave
+    /// the LP square: after any settlement, the bookmark must equal the LP's CURRENT weight times
+    /// the CURRENT accumulator, so the next `pendingFor` returns only what accrues AFTERWARDS.
+    ///
+    /// 🔴 THE DEFECT THIS CATCHES: `settleBtcLp` COMPOUNDS the BTC-leg fee into `LP.pooled`
+    /// (§E145), which makes the caller's `weight` LOCAL stale by exactly that amount — and
+    /// `requestDeposit` then refreshes at `weight + sats`, which does not include it. The bookmark
+    /// ends up SHORT, so the next settlement credits the compounded slice against the ENTIRE
+    /// cumulative accumulator instead of only its growth. `feesPerShare` is monotonic since genesis,
+    /// so the over-credit is not small, and it recurs on every grow — paid out of other LPs' fees.
+    ///
+    /// ⭐ ASSERTED AS AN INVARIANT, NOT AS A NUMBER. A test that pinned an expected payout would
+    /// have to model the fee maths and would drift with it; this asserts the property
+    /// `refreshBookmarks` exists to establish, so it stays true however the fees are computed.
+    /// ⚠️ The FIRST deposit cannot show it — `settleBtcLp` returns early at `weight == 0`, so there
+    /// is nothing to compound. The bug needs a REPEAT deposit after fees have accrued, which is
+    /// every channel GROW for an established LP.
+    function test_bookmarkIncludesTheCompoundedFeeAfterAGrow() public {
+        AUX.setBTCChannels(address(this));
+        BTC.requestDeposit(User01, 2e7);                       // first deposit: nothing to compound
+
+        // Put a nonzero BTC-leg accumulator in place. ⚠️ WRITTEN DIRECTLY, AND DELIBERATELY SO.
+        // Two earlier versions of this test tried to EARN the fee — first with `AUX.swap` (which
+        // feeds the ETH instance; §V4-CUT removed the BTC accumulator's trading-fee feed), then with
+        // a bare `creditSwapIn` (which needs pool USD, sizing and depeg setup to deliver anything).
+        // Both failed on the PREMISE with `feesPerShare == 0`, testing the fee plumbing rather than
+        // the thing under test. **The defect is pure arithmetic over the accumulator**, so the
+        // accumulator is an INPUT here, not something to reproduce. `feesPerShare` is slot 5
+        // (`forge inspect Vault storageLayout`).
+        vm.store(address(BTC), bytes32(uint(5)), bytes32(uint(1e15)));   // 0.001 sat per share
+        assertGt(BTC.feesPerShare(), 0, "precondition: the accumulator is set");
+
+        // The GROW. `settleBtcLp` compounds the accrued BTC leg into `pooled` inside this call.
+        BTC.requestDeposit(User01, 1e7);
+
+        // ⚠️ FIELD ORDER IS `(pooled, usd_owed, fees_tok, fees_usd)` — `Types.Deposit` at
+        // `Types.sol:98`. The first version of this test destructured `(pooled, feesTok, , )` and
+        // silently read `usd_owed`, which is 0 here, so it "failed" against the wrong slot.
+        // 📌 `Alles.t.sol:865` NAMES THEM `(pooled, fees_tok, fees_usd, usd_owed)` — wrong order,
+        // and it reads as authoritative because it is a fixture helper.
+        (uint pooled,, uint feesTok,) = BTC.autoManaged(User01);
+        uint acc = BTC.feesPerShare();
+        // levBuf is zero for an unlevered LP, so GROSS weight == pooled.
+        assertEq(feesTok, (pooled * acc) / 1e18,
+            "bookmark must equal weight x accumulator: the compounded slice was omitted, so the "
+            "next settlement would pay it again against the whole accumulator");
+    }
+
     /// The increment must never be counted as BACKING. This is the property that makes NOT paying it
     /// safe — the ETH side's leak was not the unpaid increment itself but that `_pricingBacking` had
     /// already promised it to somebody.

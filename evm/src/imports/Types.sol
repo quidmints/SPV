@@ -82,6 +82,13 @@ library Types {
         uint    gross;        // GROSS collateral target = net equity + debt-funded buffer
         uint    feesPerShare; // BTC side populated these; ETH refreshes bookmarks elsewhere
         uint    usdFees;
+        /// (§BOOKMARK-OMITS-THE-COMPOUNDED-FEE) The LP's levered buffer (`levBuf`), captured BEFORE
+        /// anything mutates `LP.pooled` so a bookmark refresh can rebuild the GROSS weight as
+        /// `LP.pooled + buf` instead of trusting a stale local.
+        /// ⚠️ IT LIVES IN THE STRUCT RATHER THAN AS A LOCAL BECAUSE `requestDeposit` IS AT THE
+        /// LEGACY STACK LIMIT — one more local there is `Stack too deep`, and `via_ir` is off
+        /// deliberately in this repo. One memory pointer costs less stack than one value.
+        uint    buf;
     }
 
 

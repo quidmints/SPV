@@ -304,9 +304,13 @@ library BtcLib {
         // frame stays off the legacy stack (no via_ir). _rebalance (via repack) already
         // accrued any V4 fees into the accumulators; read them fresh.
         Types.RangeP memory p;
+        // (§BOOKMARK-OMITS-THE-COMPOUNDED-FEE) Capture the levered buffer BEFORE anything mutates
+        // `LP.pooled`. Every bookmark refresh below re-reads `LP.pooled` and adds this back, so the
+        // stored weight is the true GROSS one at the moment it is written.
         (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
         p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
+        p.buf = weight - LP.pooled;
         sharesAdded += settleBtcLp(LP, lpEth, address(0), quid, p.feesPerShare, p.usdFees, weight); // (E145) fee compounds into pooled
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
@@ -315,13 +319,17 @@ library BtcLib {
         (uint deltaUSD, uint deltaBTC) = addLiqChannel(c.core, c.aux, sats, price);
         // In-range pairing extracted to its own frame (legacy-pipeline stack: the modLP call otherwise
         // overflows requestDeposit). Grows pooled + refreshes the bookmark at the post-pair GROSS weight.
-        if (deltaBTC > 0) sharesAdded += _pairRegLeg(c.core, LP, p, weight, deltaBTC, deltaUSD, lpEth);
+        if (deltaBTC > 0) sharesAdded += _pairRegLeg(c.core, LP, p, deltaBTC, deltaUSD, lpEth);
         uint unpaired = sats - deltaBTC;
         if (unpaired > 0) {
             // Out-of-range portion: backed by the channel sats (off-chain), tracked as share so it earns
-            // fees and exits in full. Final GROSS weight = (old pooled + sats) + buf = weight + sats.
+            // fees and exits in full.
             LP.pooled += unpaired; sharesAdded += unpaired;
-            SwapLib.refreshBookmarks(LP, weight + sats, p.feesPerShare, p.usdFees);
+            // (§BOOKMARK-OMITS-THE-COMPOUNDED-FEE) `LP.pooled + buf`, not `weight + sats`. The old
+            // form omitted the fee `settleBtcLp` compounded into `pooled`, leaving the bookmark below
+            // the true position — see `_pairRegLeg` for the full reasoning. ⚠️ BOTH SITES NEED THIS,
+            // not just the last one: when `unpaired == 0` only `_pairRegLeg`'s refresh runs.
+            SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, p.feesPerShare, p.usdFees);
         }
     }
 
@@ -329,10 +337,17 @@ library BtcLib {
     ///      bookmark at the post-pair GROSS weight (weight + deltaBTC), and modLP. Returns the shares added.
     function _pairRegLeg(
         address core, Types.Deposit storage LP, Types.RangeP memory p,
-        uint weight, uint deltaBTC, uint deltaUSD, address lpEth
+        uint deltaBTC, uint deltaUSD, address lpEth
     ) private returns (uint) {
         LP.pooled += deltaBTC;
-        SwapLib.refreshBookmarks(LP, weight + deltaBTC, p.feesPerShare, p.usdFees);
+        // (§BOOKMARK-OMITS-THE-COMPOUNDED-FEE) RE-READ `LP.pooled`; do NOT use the caller's `weight`.
+        // `settleBtcLp` has already COMPOUNDED the BTC-leg fee into `pooled` (§E145), so `weight` is
+        // stale by exactly that amount — and `refreshBookmarks` stores `w·feesPerShare`, so a stale
+        // `w` leaves the LP with a bookmark BELOW its true position and the next settlement pays the
+        // difference again out of other LPs' fees. `_finalizeClose`'s sibling at `:216` has always
+        // re-read `LP.pooled` for this reason; this path did not. `buf` (levBuf) is constant through
+        // a register, which is what makes `LP.pooled + buf` the exact GROSS weight.
+        SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, p.feesPerShare, p.usdFees);
         ICore(core).modLP(-int256(deltaBTC), -int256(deltaUSD), lpEth);   // ENTERS ⇒ negative
         return deltaBTC;
     }
