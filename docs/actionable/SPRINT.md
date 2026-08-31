@@ -728,6 +728,32 @@ by the anchor regardless"* — as false. **It is essentially TRUE**: with `src =
 `_observeIfSourced` feeds the ring from the anchor on every swap. The row was right; both of my
 passes over it were not. **Twice on one row, from trusting a docblock over the code.**
 
+✅ **`§WHAT-SKEW-LOSES-WITHOUT-OBSERVATIONS` (owner: *"what power does the skew lose if we get rid of
+observations? arent the observations we care about the imbalances that get created in our own pool?"*
+— **the second half is right, and it is why the answer to the first is "almost nothing"**).**
+
+**`skewWad(poolVolUsd, flowUsd, sigmaSqWad, rk, drainUsd6)` — THREE OF ITS FOUR INPUTS ARE ALREADY OUR
+OWN POOL'S STATE, AND NONE OF THEM COMES FROM THE RING:**
+| input | what it is | fed by |
+|---|---|---|
+| `poolVolUsd` | our inventory on the volatile leg | pool state |
+| `flowUsd` | our own order flow, decayed | `_bumpFlow` on the **swap** path (`Core:234/250/1044`) |
+| `drainUsd6` | the size of the trade being priced | the call itself |
+| `sigmaSqWad` | **asset PRICE variance** | `max(ringVariance, anchorVarianceWad)` |
+
+⇒ **THE IMBALANCES ARE ALREADY THE SKEW'S SUBJECT — they enter as `poolVolUsd`, `flowUsd` and
+`drainUsd6`, directly.** The observation ring never measured them and was never asked to.
+⇒ **THE ONLY THING SKEW LOSES IF OBSERVATIONS GO IS THE RING LEG OF σ²** — and `§E343` measured that the
+anchor leg estimates the same quantity BETTER, because per-round sampling recovers σ ≈ 95.5 % while the
+ring's time-weighting is the fixed-grid read that attenuates it.
+
+⭐ **THIS IS ALSO THE OWNER'S OWN 2026-08-06 DISTINCTION, CLOSED:** *"that's overarching price variance
+which is different from our internal inventory's."* Avellaneda–Stoikov keeps them in separate factors —
+`q·γ·σ²·(T−t)`, where `q` is inventory and `σ²` is asset price — **and this code already splits them
+the same way.** The ring sits on the PRICE side, where our own imbalances were never the input; the
+inventory side was always read from the pool. ⇒ **Nothing about our imbalances is lost, because nothing
+about them was ever in the ring.**
+
 ✅ **`§IS-THE-TWAP-STILL-NEEDED` (owner: *"do we need twap at all anymore? im guessing we do"* —
 **YES**, and the ring's contribution is narrower than it looks. Traced through the code, not the docs.)**
 

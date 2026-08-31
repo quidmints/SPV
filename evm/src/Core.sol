@@ -1587,8 +1587,14 @@ contract Core {
     /// WHY NOT THE RING (this is the whole finding, and §E343 only got half of it). §E343 established
     /// that σ² needs no INDEPENDENT source — variance is a property of one series, so §E222's
     /// two-sources-must-be-able-to-disagree rule is scoped to the deviation guard and does not reach
-    /// here. That is true and it is not the binding reason. The binding reason is TRUST: the ring's
-    /// only live writer is `pushObservation`, which is PERMISSIONLESS, and `pushObservation`'s own
+    /// here. That is true and it is not the binding reason. The binding reason is TRUST: the ring has
+    /// a PERMISSIONLESS writer in `pushObservation`, and that function's own
+    /// ⛔ **THIS SENTENCE USED TO SAY `pushObservation` WAS "the ring's ONLY live writer". IT IS NOT,
+    /// AND THE ERROR IS EXPENSIVE.** `_observeIfSourced` writes this ring ONCE PER SWAP (`:1031`,
+    /// `:1142`), from the Chainlink anchor whenever `observationSource` is unset — which is the
+    /// deployed configuration, since no script sets it. Two separate passes on 2026-08-31 concluded
+    /// that deleting the push would empty the ring and collapse `max(ring, anchor)` to the anchor.
+    /// **Both were wrong, and both came from trusting this line instead of reading the writers.**
     /// §AUDIT-PUSHOBS note already spells the attack out — *"pushing a stream of in-range values
     /// fills the ring, makes σ² small-but-MEASURED, and so REPLACES the ceiling sentinel with a
     /// floor-ish number. An attacker buys a cheap skew by being helpful."* That note gated the BTC
