@@ -11664,6 +11664,21 @@ It also means the LP's Bitcoin channel key **is** its EVM signing key — one se
 
 ## B8. 🟡 THE 7540 FOLD — the slop and the trust hole are ONE change
 
+⚠️ **SCOPE CORRECTED 2026-08-31 (owner asked what this item actually is). IT IS SMALLER THAN THIS ROW
+READS, BECAUSE ITS SECURITY HALF HAS LANDED SEPARATELY.** The fund-stranding attack this fold was
+justified by (`§LAZY-OPEN-CLOSE`'s three facts) is **closed** by `#7`'s `try`/`catch`: `_armLadder`
+(`:1008`) now precedes the claim (`:1034`), and the claim's failure is caught, not reverted. ⇒ **What
+is left is (a) the signature/slop fold below and (b) truth-in-naming: `Vault.requestDeposit` is still
+`lpShares += BtcLib.requestDeposit(...)` (`Vault.sol:501`) — a SYNCHRONOUS credit under an async
+name, verified again today.** ⛔ **AND THE FOLD IS DEPOSIT-SIDE ONLY.** `§LAZY-OPEN-CLOSE` settles
+that the close half must stay INLINE by design — deferring a credit leaves the basket over-backed
+(safe), deferring a retirement leaves it under-backed (not). **Do not "complete" the symmetry.**
+📌 The permissionless-claim rule this row demands is ALREADY satisfied by `registerChannelClaim`
+(`:1069`), so that is not outstanding work either.
+📌 **`splice`'s parameter count is now load-bearing differently:** the `rekey` fold
+(§SPLICE-ROTATES-BOTH-FUNDING-KEYS) removed a whole 6-param entrypoint, so re-measure the slop before
+acting on the counts below.
+
 `openChannel` 5 params, `splice` 5, `recordClose` 6, `deliverSwapOutOnchain` 6. **These are exactly
 the signatures that wrap across lines — which is why the ABI gate could not see them** (§B9). The
 underlying shape is already 7540: `openChannel` and a grow-`splice` are both **requestDeposit**; a
@@ -12757,9 +12772,21 @@ The owner's constraint decides the design, so state it as a rule before writing 
   the fold rather than found by it. **Permissionless is not a nicety here; it is the whole safety
   argument.**
 
-🔴🔴 **THE FOLD IS A SECURITY FIX, NOT AN OPTIMISATION — IT REMOVES A FUND-STRANDING PATH A
-COMPROMISED ENCLAVE CAN TRIGGER. Measured 2026-08-21, and this is the answer to the owner's
-constraint rather than a caveat on it.**
+✅ **THIS SECURITY ARGUMENT IS DISCHARGED — RE-MEASURED 2026-08-31 (owner asked what the 7540 item
+actually is). FACT 3 BELOW IS NO LONGER TRUE OF THE CODE, SO THE ATTACK IT BUILDS IS CLOSED.**
+`_armLadder` is at `:1008` and runs **BEFORE** the claim, and the claim is the `try/catch` at `:1034`
+whose `catch` records `pendingClaimSats` + `ChannelClaimDeferred` instead of reverting. ⇒ **A zero TWAP
+or a failing `checkBacking` no longer rolls back the arming, so it cannot leave a funded 2-of-2 without
+an armed ladder.** That is `#7`'s landed half doing exactly the job this section asked the fold to do.
+⚠️ **SO DO NOT SCHEDULE B8/`#9` AS A SECURITY FIX ANY MORE.** What remains is (a) the signature/slop
+fold and (b) honest async SEMANTICS on the DEPOSIT side — an ergonomics and truth-in-naming item, not
+a fund-safety one. **Re-check this before acting on the three facts below; they are kept as the record
+of why the fold was ever urgent, not as a live finding.**
+📌 **STALE COORDINATES IN THIS SECTION AND THE TABLE ABOVE:** `BTCChannels.sol:943`
+(`openChannel`'s claim) and `:625` (`_finalizeClose`'s retirement) have MOVED — they are now `:1034`
+and `:704`. Grep the names, not the line numbers.
+
+🟡 **THE ORIGINAL ARGUMENT, KEPT AS THE RECORD (measured 2026-08-21, fact 3 now false):**
 
 Three facts, each checked in code, and together they are an attack:
 1. **Custody is FINAL before the EVM sees it.** `openChannelBody` *SPV-proves* the funding output, so
