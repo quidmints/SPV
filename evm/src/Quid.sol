@@ -1310,6 +1310,16 @@ contract Quid is Shares,
     ///      payment, exactly as the BUY leg derives its credit from `spendClaim`'s burn.
     function _settleSellIntent(SwapLib.OorIntent calldata i, uint wantUsd6, bytes[] calldata routes)
         private returns (int) {
+        // 🔴 **`payoutToken` IS SIGNED BY THE MAKER, SO IT IS ATTACKER-CHOSEN, AND IT DECIDES
+        //    `proceeds6` — WHICH SHRINKS `POOLED_USD`.** A token that lies about its balance delta
+        //    would let a maker inflate the proceeds and drain the range's committed dollars in
+        //    ACCOUNTING while paying nothing real. `AUX.take` already rejects an unknown token
+        //    (`toIndex` is 0 ⇒ `unknown-stable`), so this is currently unreachable — **but only
+        //    because the preferred draw happens FIRST.** That is a POSITIONAL guarantee: reorder the
+        //    two blocks and the check silently disappears. Asserting it here makes the invariant
+        //    local to the value it protects (standing rule 3's inverse — the failure would be silent).
+        if (AUX.toIndex(i.payoutToken) == 0) revert IntentUnpayable();
+
         Types.Deposit storage LP = autoManaged[i.owner];
         uint cap = SwapLib.plainNet(LP.pooled, levPooled[i.owner]);
         if (cap == 0) revert NoPosition();
