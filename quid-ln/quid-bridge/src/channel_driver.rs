@@ -871,8 +871,21 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
     let cid = channel_id;
 
     // 1. Read the channel's 2-of-2 funding pubkeys from LDK. Post-SpliceLocked the
-    //    channel's funding_txo IS the splice outpoint, so we look them up there
-    //    (the pubkeys are static across a splice); build_splice_params sorts them.
+    //    channel's funding_txo IS the splice outpoint, so we look them up there;
+    //    build_splice_params sorts them.
+    // ⛔ THIS USED TO SAY "the pubkeys are static across a splice". THAT IS FALSE AND IT IS
+    //    THE PREMISE §SPLICE-ROTATES-BOTH-FUNDING-KEYS RESTS ON. LDK ROTATES BOTH HALVES ON
+    //    EVERY SPLICE: `send_splice_init` (`channel.rs:13021`) and the `splice_ack` handler
+    //    (`:13137`) each call `ChannelSigner::new_funding_pubkey(prev_funding_txid)`, which is
+    //    `funding_key(Some(txid))` tweaked by `compute_funding_key_tweak` =
+    //    SHA256(prev_funding_txid ‖ base_funding_secret) (`sign/mod.rs:1472`/`:1647`/`:1994`).
+    //    `ChannelMonitor::funding_pubkeys()` then reads `self.funding.channel_parameters`
+    //    (`channelmonitor.rs:4522`) — the CURRENT scope, which rotates at splice lock — so the
+    //    pair returned below is the ROTATED one. `driver_e2e.rs:536` already says so outright:
+    //    *"rebuild params from the POST-splice funding pubkeys (LDK rotates the 2-of-2 on every
+    //    splice)"*. ⚠️ The EVM does NOT accept a rotated pair: `_requireChannelKeys`
+    //    (`BTCChannels.sol:1818`) compares against the `keysHash` pinned at open, and `keysHash`
+    //    is re-pinned in exactly ONE place (`_finishRekey:1304`) — never on this path.
     let (pa, pb) = channel_funding_pubkeys(
         &chain_monitor,
         &channel_manager,

@@ -12409,6 +12409,92 @@ route hints) and reversibly.
   tolerance. That is a real option if the owner wants offline depth > 0 without a fork, and it is NOT a
   replacement for the gate — it moves the cliff, it does not remove it.
 
+## 🔴 §SPLICE-ROTATES-BOTH-FUNDING-KEYS — 🔴 **OPEN. THE EVM PINS THE 2-of-2 PAIR; LDK ROTATES IT ON EVERY SPLICE. BOTH EVM DOORS ARE LOCKED.**
+
+Found 2026-08-31 answering the owner's question *"can that basepoint survive our rekeys — make sure all
+the logic is consistent internally within the entire scope of our bitcoin-related architecture"*. The
+basepoint answer is ✅ (below). **This is what the consistency sweep turned up instead, and it is worse
+than the thing I was sent to check.**
+
+🔑 **THE FACT, WITH ITS CHAIN — LDK ROTATES *BOTH* FUNDING PUBKEYS ON EVERY SPLICE:**
+1. `sign/mod.rs:1994` — `new_funding_pubkey(txid)` = `funding_key(Some(txid)).public_key()`.
+2. `sign/mod.rs:1647` — `funding_key(Some(txid))` applies `compute_funding_key_tweak`.
+3. `sign/mod.rs:1472` — tweak = `SHA256(splice_parent_funding_txid ‖ base_funding_secret_key)`.
+4. `channel.rs:13021` (`send_splice_init`) **and** `:13137` (`splice_ack`) — **each side derives its own
+   new funding pubkey, so the LP half rotates too, not just the hop half.**
+5. `channelmonitor.rs:4522` — `funding_pubkeys()` reads `self.funding.channel_parameters`, the CURRENT
+   scope, which rotates at splice lock (`pending_funding` holds it until then).
+6. `node.rs:158` — `channel_funding_pubkeys` returns exactly that pair to the bridge.
+✅ **NOT MY INFERENCE — THE REPO ALREADY SAYS IT.** `driver_e2e.rs:536`: *"rebuild params from the
+POST-splice funding pubkeys (**LDK rotates the 2-of-2 on every splice**)"*.
+
+⛔ **AND THE EVM CANNOT ACCEPT IT — THE TWO GATES ARE MUTUALLY UNSATISFIABLE AFTER A SPLICE:**
+| door | gate | given the ROTATED pair | given the ORIGINAL pair |
+|---|---|---|---|
+| `splice` | `_requireChannelKeys` (`:1818`) vs pinned `keysHash` | ❌ `ChannelKeysMismatch` | — |
+| `splice` | `_verifySplice`'s KeyAgg gate (`:1657`) vs the on-chain `fundingTaproot` | — | ❌ `SpliceKeyNotTwoOfTwo` |
+| `rekey` | `rekeyAuthBody` requires `p.lpPubkey` **unchanged** | ❌ the LP half rotated too | ❌ `RekeyUnchanged` |
+⇒ **The on-chain output commits to the rotated pair, so `_verifySplice` needs it; the pinned `keysHash`
+forbids it; and `rekey` — the one path that re-pins `keysHash` (`_finishRekey:1304`, the ONLY write in
+the contract) — refuses precisely because the LP half moved.** There is no argument to `splice` or
+`rekey` that a post-splice channel satisfies.
+
+🔴 **CONSEQUENCE, AND IT IS §E153's SHAPE THROUGH A DIFFERENT DOOR.** `_requireChannelKeys` also
+guards `_requireNotSplice` (`:1793`, the retirement paths), `emitDeadManExit` (`:1495`) and
+`deliverSwapOutOnchain` (`:2291`). §E153 already recorded what a stale `keysHash` costs: *"both
+retirement paths reverted and the position could never be closed."* **A spliced channel reaches that
+state with no attacker and no bug in either component — each is internally correct; they disagree
+about whether a funding pubkey is a constant.**
+
+⚠️ **STATUS — DERIVED STATICALLY, NOT OBSERVED, AND HERE IS EXACTLY WHY NOTHING CAUGHT IT.** The one
+test that would (`driver_e2e.rs`) **cannot reach the splice**: its own banner at `:449` reads *"🔴 SO
+THIS TEST IS STILL INCOMPLETE, AND IS LEFT VISIBLY SO RATHER THAN LOOKING FIXED"* — it dies at
+`drive_open`'s `consent_for_funding` check, so the delivery assertion at the end is unreached and the
+rotated pair is never submitted to a real `BTCChannels`. **The only place in the repo that knows the
+truth is a comment in a test that cannot run.**
+
+✅ **FIXED ALREADY (the cheap half):** `channel_driver.rs:875` asserted the opposite — *"the pubkeys
+are static across a splice"* — directly above the call that reads the rotated pair. Corrected in place
+with the chain above, because that comment is the premise a reader would trust.
+
+▶️ **THE FIX IS A DESIGN CHOICE AND IT IS THE OWNER'S — do not pick one silently:**
+- **(a) `splice` re-pins `keysHash`, like `_finishRekey` does.** Smallest diff, and `_verifySplice`'s
+  KeyAgg gate already proves the new pair really is inside the new `Q`. ⚠️ **But it deletes the §E162
+  property outright** — *"A SPLICE MAY RESIZE A CHANNEL — IT MAY NOT REKEY ONE"* — which exists so a
+  compromised hop cannot splice to keys it solely controls and cut the LP out. **Only safe if the
+  rotation is proven to be the DERIVED one, not an arbitrary pair.**
+- **(b) Prove the derivation on-chain.** The tweak is `SHA256(prev_funding_txid ‖ base_secret)` — a
+  SECRET-keyed tweak, so the EVM cannot recompute it from public data. **(b) is not constructible as
+  specified; record it as rejected rather than as future work.**
+- **(c) Pin the LP's PAYMENT BASEPOINT instead of its funding pubkey as the LP's channel-lifetime
+  identity** — see the basepoint finding below. Basepoints are the only LP-side key the protocol
+  never rotates. Largest change, and the one that makes the two components agree on what "the LP" is.
+⛔ **DO NOT "fix" this by loosening `_requireChannelKeys`.** It is the gate §E162 added after a splice
+carrying a different pair passed and left the position unretirable. Loosening it restores that bug.
+
+✅ **THE OWNER'S ACTUAL QUESTION, ANSWERED: A PAYMENT BASEPOINT SURVIVES EVERY REKEY *AND* EVERY
+SPLICE — it is strictly MORE stable than the funding pubkey the contract pins today.**
+1. **Across `rekey`:** structurally, not by policy. `rekeyAuthBody` (`ChannelLib.sol:565`) requires
+   `keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) == keysHash`, so **only the hop half may move**;
+   `_finishRekey` re-pins `keysHash` in the same tx (`:1304`). Confirmed by `ChannelRekeyed`'s own
+   docblock: *"The LP half is unchanged by construction."*
+2. **Across splices — and this is the stronger half:** `compute_funding_key_tweak` is applied to
+   **`funding_key` ONLY**. `InMemorySigner::pubkeys()` (`sign/mod.rs:1975`) builds
+   `revocation_basepoint`, `payment_point`, `delayed_payment_basepoint` and `htlc_basepoint` from
+   their own untweaked base keys. **No splice, and no LN operation at all, rotates a basepoint** —
+   they are fixed at `open_channel`/`accept_channel` for the channel's lifetime.
+⇒ **A basepoint pinned at `openChannel` is valid for the life of the channel**, and — unlike
+`lpPubkey` — it stays valid across exactly the event that breaks the current pin. ✅ **And it does not
+collide with §LAZY-OPEN**: the pin joins the INLINE custody half; only the pool claim is deferred.
+
+⚠️ **BLOCKS §FORCE-CLOSE-SKIPS-THE-STALE-GUARD, WHICH IS WHY THIS ROW COMES FIRST.** That fix reads the
+LP's `to_remote` output out of the force-close commitment tx to bound the payout. **Which key that
+output pays to is a `to_remote` question, so it is basepoint-derived — fine. But which CHANNEL the
+commitment tx belongs to is resolved through `keysHash`, which a splice invalidates.** Building the
+breach fix on top of a pin that a splice breaks would ship a guard that silently stops applying to
+every channel that has ever been spliced — the failure mode is a guard that LOOKS armed. **Settle
+(a)/(c) first.**
+
 ## 🔁 §LAZY-OPEN-CLOSE — 🟡 **OPEN HALF LANDED. THE FOLD IS *NOT* SYMMETRIC, AND THE 7540 FOLD (`#9`) IS STILL OPEN**
 
 ⛔ **THIS TITLE USED TO READ "THE FOLD IS SYMMETRIC, IT IS THE 7540 FOLD" AND THAT OVERSTATED WHAT
