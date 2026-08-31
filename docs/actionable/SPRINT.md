@@ -1457,6 +1457,50 @@ basis — the blocker the file put in front of them is gone.**
    within a funding scope, and an older scope's commitment cannot confirm. The property protecting us
    is EMERGENT, and the check makes it ENFORCED.
 
+## 🔴 §BOOKMARK-OMITS-THE-COMPOUNDED-FEE — **THE DEPOSIT PATH OVER-CREDITS AN LP, OUT OF OTHER LPs' FEES**
+
+Found 2026-09-01 answering the owner's requirement: *"they get paid accurately (having had all their
+fees compounded for them along the way) even if they only come online once a year."* **The accrual
+DESIGN satisfies that; one call path breaks it.**
+
+✅ **THE DESIGN IS RIGHT.** Fees are MasterChef-shaped: a global `feesPerShare` accumulator, a per-LP
+bookmark, and `pendingFor = weight·feesPerShare/WAD − bookmark` (`SwapLib.sol:2082`). **An LP that
+touches nothing for a year accrues its full pro-rata share**, and `settleBtcLp` COMPOUNDS the BTC leg
+into `LP.pooled` in sats (§E145), so it earns on its own fees. No LP action is required anywhere.
+
+🔴 **THE DEFECT: `settleBtcLp` COMPOUNDS INTO `LP.pooled`, AND THE DEPOSIT PATH THEN REFRESHES THE
+BOOKMARK AT A WEIGHT THAT DOES NOT INCLUDE THE COMPOUNDED SLICE.**
+`refreshBookmarks(LP, w, …)` sets `LP.fees_tok = w·feesPerShare/WAD` (`SwapLib.sol:2074`), so the
+bookmark's weight MUST be the post-mutation one. In `BtcLib.requestDeposit`:
+1. `settleBtcLp(…, weight)` does `LP.pooled += tokR` (`:86`) — `weight` is now STALE by `tokR`.
+2. `_pairRegLeg` refreshes at **`weight + deltaBTC`** (`:335`).
+3. the unpaired branch refreshes at **`weight + sats`** (`:324`).
+Neither adds `tokR`. ⇒ **bookmark = (weight+sats)·fps, actual weight = weight+tokR+sats.** The next
+settlement computes
+`pending = (weight+sats)·(fps' − fps) + tokR·fps'` — the first term is the legitimate accrual, the
+second is **spurious**: it applies the ENTIRE cumulative accumulator to the compounded slice instead
+of only its growth. ⚠️ `fps'` is monotonic since genesis, so **the error is not small and it recurs
+on every grow.**
+
+⭐ **THE CLOSE PATH ALREADY DOES IT CORRECTLY, WHICH IS BOTH THE PROOF AND THE FIX.** `:216` refreshes
+at **`LP.pooled + a.buf`** — it RE-READS `LP.pooled` after every mutation, so the compounded slice is
+included. The deposit path uses a stale LOCAL instead. **Same file, same author, two shapes.**
+
+▶️ **FIX:** capture `buf = weight − LP.pooled` at entry (the docblock already asserts *"the buffer is
+constant through a register"*) and refresh at **`LP.pooled + buf`** at BOTH sites, mirroring `:216`.
+⚠️ Both sites need it, not just the last: when `unpaired == 0` only `_pairRegLeg`'s refresh runs.
+
+⚠️ **REACHABILITY: every repeat depositor.** `settleBtcLp` returns early at `weight == 0`, so a
+FIRST deposit is unaffected — but `registerBtcLp` runs on every channel GROW (`splice` grow, and the
+`openChannel` claim), so any LP that grows a channel after fees have accrued triggers it. **The
+long-offline LP the owner asked about is the WORST case: the longer it waits, the larger `tokR` is
+when it finally grows, and the larger the spurious credit.**
+
+🔴 **STATUS: derived from the code, NOT yet executed.** I have been wrong twice this session by
+reasoning one level short, so this is booked as a finding and the fix is not landed until a test
+fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
+fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
+
 ### 🛡️ ENCLAVE THREAT MODEL — THE THREE SCENARIOS, ANSWERED AGAINST CODE (2026-09-01)
 
 Owner asked for every scenario covered. **The headline: `§E162-rekey-CORRECTED`'s verdict —
