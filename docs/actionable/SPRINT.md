@@ -752,10 +752,42 @@ demoted to `max(ring, anchor)`.** Outside 5 %, Chainlink wins by construction.
 📌 **CONSEQUENCE FOR `§E294`, AND IT IS REASSURING:** deleting the push cannot break the TWAP even in
 the worst case. If the ring emptied entirely, every TWAP call would simply return Chainlink. It does
 not empty — `_observeIfSourced` feeds it per swap — but the failure mode is bounded either way.
-📌 **AND A QUESTION THIS RAISES, NOT YET ANSWERED:** if the ring may only ever differ from Chainlink by
-<5 %, and `§E343` measured Chainlink's own per-round series at the right order for σ², **what is the
-ring buying that a per-round Chainlink read would not?** That is the real successor to `§E294`, and it
-should be measured rather than argued — the same mistake was made twice on this row already.
+⭐⭐ **THE THEORETICAL ANSWER (owner: *"trace it back to the theoretical reason it was included in the
+first place"* — a numeric ring-vs-anchor comparison is the shallow version; this is the real one).**
+
+**WHAT A CUMULATIVE-PRICE RING IS FOR.** `Observation{blockTimestamp, priceCumulative}` + `observe(secondsAgos)`
+is the Uniswap V3/V4 oracle structure verbatim. It exists for ONE reason: an AMM's spot price is
+**endogenous and atomically manipulable** — it is whatever the last trade left, so a flash loan moves
+it inside a single block at no cost. Time-weighting converts that free atomic attack into one that
+must be **held across the window**, so the cost scales with duration × depth. **The ring is a defence
+against same-block manipulation of a price the protocol discovers itself.** That is the whole theory.
+
+⛔ **BOTH PREMISES ARE GONE, AND EACH IS VERIFIABLE IN THE TREE TODAY:**
+1. **THERE IS NO POOL.** The v4 position was cut; the only surviving `IPoolManager`/`PoolKey`/
+   `unlockCallback` references are **three comments**. The protocol no longer discovers a price by
+   trading ⇒ **there is no endogenous price to time-weight.**
+2. **WHAT IT WRITES IS CHAINLINK.** No deploy script sets `observationSource`, so `_observeIfSourced`
+   takes the `src == address(0)` branch and writes the **anchor** (`Core.sol:1649-1652`). **A Chainlink
+   read is not atomically manipulable by a trader** — it is an off-chain aggregate on its own update
+   policy. ⇒ **Time-weighting it defends against a threat that cannot occur.**
+
+⇒ **THE RING IS NOW A SMOOTHING BUFFER OVER AN EXTERNAL FEED — the one thing a TWAP oracle is NOT for.**
+🔴 **AND SMOOTHING A STEP FUNCTION IS NOT NEUTRAL, IT IS LOSSY.** Chainlink only moves when it clears
+its deviation threshold, so averaging its steps **attenuates exactly the moves σ² is trying to
+measure**. That is not a hypothesis: it is why `§E343` had to sample **PER ROUND** rather than on a
+wall-clock grid to recover σ ≈ 95.5 % — *"read on a fixed grid, the gaps ARE flat and σ² collapses."*
+**A time-weighted average IS a fixed-grid read.**
+
+⇒ **THIS EXPLAINS THE WHOLE SAGA RATHER THAN ONE ROW.** `§E345` moving σ² to the anchor, `§E352`
+arguing what "unmeasured" should cost, the *"σ² UNMEASURED forever"* bug — all downstream of a
+structure that outlived its premise. `pushObservation` was an attempt to give that structure a source
+worth time-weighting (1inch, genuinely manipulable and genuinely endogenous to DEX flow); it is the
+only part of the design that took the theory seriously, and it was refuted on a different axis.
+⚠️ **THE ONE CASE THAT WOULD REVIVE THE RING, STATED SO IT IS NOT LOST:** if `observationSource` is
+ever pointed at an **on-chain, atomically-manipulable venue** (the Curve-EMA branch), the
+manipulation-resistance argument returns **for that source**. The ring is justified exactly when it is
+reading something a trader could move in one block — which is precisely the configuration that is not
+deployed.
 
 📜 **`§WHY-PUSHOBSERVATION-EXISTED` (owner: *"there must have been some reason related to skew?"* —
 yes, and BOTH founding reasons are now dead).** From its own commit (`70fcc163`):
