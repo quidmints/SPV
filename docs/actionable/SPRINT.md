@@ -775,6 +775,37 @@ error** (EIP-712 quorum cannot be a Bitcoin `scriptPubKey`). The freshness **2-o
 refuted in-tree** for ignoring that the LP is offline. A reachability scan reporting "0 of 20" was
 first an artifact of unresolved `@/` aliases — re-run with them, the result held.
 
+## 🧾 §WAVE-3-SWEPT (2026-08-31) — every skew row checked against the tree BEFORE proposing any of it
+Done this way deliberately: six rows today read as work and were already finished or stale.
+
+✅ **`T2` — REVIEWED AND CORRECT. THE REVIEW IS THE DELIVERABLE; NO CODE CHANGE IS WARRANTED.**
+`PREMIUM_ANNUALIZE = 127` (`QuidLib.sol:222`) is **derived, not tuned**, and the derivation checks out
+to four decimals: `FLOW_DECAY` is a 48 h half-life ⇒ mean lifetime `48/ln2 = 69.2536 h` ⇒
+`8760/69.2536 = 126.4994` windows per year ⇒ **ceil = 127**. Its stated purpose is dimensional — σ² is
+annualised, so the premium numerator must be too, or θ under-sizes the range systematically.
+⚠️ **THE ONE REAL RISK, AND IT CANNOT BE MADE STRUCTURAL:** the comment says *"if `FLOW_DECAY`'s
+half-life ever changes, this must change with it"*, and **nothing enforces that**. It cannot become a
+compile-time expression, because `FLOW_DECAY` is stored as a **per-minute WAD factor**
+(`999759352855809024 = 0.5^(1/2880)`, `Core.sol:200`), not a duration — recovering the half-life needs
+a logarithm. ⛔ **AND A UNIT TEST WOULD BE FALSE ASSURANCE:** both constants are `internal`, so a
+no-fork test could only re-declare the literal and would keep passing after a change to `Core`'s.
+⇒ **Correct as it stands; the coupling stays comment-enforced, and that is now a known, reasoned
+acceptance rather than an unreviewed number.**
+
+⚪ **`E227-calcfeel1` — ALREADY ANSWERED IN THE CODE.** `FeeLib.sol:120` records that every
+`calcFeeL1` occurrence in `src`/`script` is a **comment**, and `:130` carries the plan for the ABI-gate
+owner. Nothing to derive; it is a delete-when-convenient with its owner named.
+
+⚪ **`UNIT-SKEW-STATUS` — the live path is intact:** `skewWad` is called at `SwapLib.sol:1778` on the
+pricing path (`:1300` is a test-describing comment). With `§E294` landed and `§E345`'s anchor leg
+feeding σ², the *"fourth is the worst"* concern that opened this row now needs re-measuring against a
+trustworthy σ² rather than re-arguing.
+
+🔴 **`E79-SPEC` (the LVR sim) — GENUINELY OPEN AND GENUINELY ABSENT.** No LVR simulation exists
+anywhere in `evm/test` or `tools`. Its row calls it *"a PREREQUISITE for E93, not a follow-up"*, so it
+gates the refill-responsive target work — **which is the other thread's refill thread.** ⇒ **This is
+the one Wave 3 item that is real, unstarted, and cross-thread relevant.**
+
 ## 🧾 §BTC-CLUSTER-RE-VERIFIED (2026-08-31) — the four `§CLUSTER-2-BTC` blockers, checked against code
 | finding | verdict today |
 |---|---|
