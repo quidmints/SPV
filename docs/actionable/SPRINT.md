@@ -848,7 +848,19 @@ LP's payment basepoint at `openChannel`**, alongside `lpPubkey`/`hopPubkey`, and
 locatable. That is one more pinned key at open — a thing the LP already does once — and nothing at
 runtime.
 ⇒ **NET: the breach becomes provable on the EVM from data the fleet itself signed, and the LP still
-runs nothing.** ~~THE ELEGANT FIX IS STANDARD AND ALREADY VENDORED: `WatchtowerPersister`.~~ LDK ships it
+runs nothing.**
+✅ **AND PINNING A KEY AT OPEN DOES NOT COLLIDE WITH `§LAZY-OPEN` (owner asked; verified 2026-08-31).**
+`openChannel` is **already lazy, and that half is DONE**: `try btc.requestDeposit(…) {} catch { pendingClaimSats[cid] = …; emit ChannelClaimDeferred(…); }`, completed permissionlessly by
+`registerChannelClaim` (`:1069`) and retried automatically by the reconciler (`§LAZY-OPEN-RETRY`, ✅
+landed and verified 2026-08-21). **What is deferred is the POOL CLAIM, not custody** — the pinned
+params (`lpPubkey`, `hopPubkey`, `keysHash`) are written INLINE, because they are what makes the
+channel custodied at all. ⇒ **A payment-basepoint pin joins the inline custody half and inherits the
+laziness of neither — no new failure mode, and nothing new for the LP to run.**
+📌 **WHAT IS STILL OPEN NEARBY IS `#9`, NOT LAZY-OPEN:** `§LAZY-OPEN-CLOSE` records that the fold is
+**deliberately asymmetric** — deferring a CREDIT leaves the basket over-backed (safe), deferring a
+RETIREMENT leaves it under-backed (not) — so `_finalizeClose` keeps retirement inline **by design**.
+The open item is the 7540 semantics: *"`Vault.requestDeposit` is still `lpShares += …` — a SYNCHRONOUS
+credit wearing an async name."* ~~THE ELEGANT FIX IS STANDARD AND ALREADY VENDORED: `WatchtowerPersister`.~~ LDK ships it
 (`lib/rust-lightning/.../test_utils.rs`, exercised in `functional_tests.rs:995-1003`). It hands a
 third party **pre-signed justice packages** rather than keys, so the tower stays untrusted — it can
 only act on a breach it observes, and cannot spend otherwise. **That fits the existing shape exactly:**
