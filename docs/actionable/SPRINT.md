@@ -811,7 +811,44 @@ watcher cannot redirect a delivery and cannot double-pay (`swapInUsed[swapId]`).
 ⇒ **A compromised fleet can broadcast an old commitment in which the LP's balance was lower and, with
 the LP offline past the CSV window, keep the difference — with the ladder consumed by the same act.**
 
-▶️ **THE ELEGANT FIX IS STANDARD AND ALREADY VENDORED: `WatchtowerPersister`.** LDK ships it
+⛔ **`WatchtowerPersister` IS RULED OUT BY THE OWNER'S CONSTRAINT (*"lp still runs nothing"*, 2026-08-31)** —
+it needs a package per state update from the LP's node. **And it turns out not to be needed, because the
+gap is narrower and closer to home than a missing watchtower.**
+
+⭐⭐ **`§FORCE-CLOSE-SKIPS-THE-STALE-GUARD` — THE ACTUAL DEFECT, AND IT IS ON THE EVM SIDE.**
+The protocol **already has** the anti-breach check. `recordClose` (`:1872-1877`):
+```solidity
+uint ckpt = checkpointOf[channelId];
+if (msg.sender != lpEth && coop && ckpt != 0
+    && lpPayoutSats + paidOutSinceCheckpoint[channelId] < ckpt) revert StaleClose();
+```
+*"the fleet co-signed a payout smaller than the balance it last vouched for."* **That is exactly a
+breach test — and `&& coop` scopes it to cooperative closes only.**
+🔴 **THE FORCE-CLOSE PATH — THE ONLY PATH A BREACH CAN TAKE — HAS NO SUCH CHECK, AND ASSUMES THE BEST
+CASE:** `recordForceClosePermissionless` verifies `isCommitmentTx` and that the tx spends the channel,
+then calls `_finalizeClose(channelId, **channels[channelId].amountSats**)` (`:1997`) — the **FULL
+channel value**. Compare `recordClose`, which passes the **measured** `lpPayoutSats` (`:1883`), and the
+dead-man path, which passes `_lpFinalBalance(...)` (`:1956`). ⇒ **A force close is recorded as though
+the LP received the entire channel, whatever the commitment actually paid.**
+⇒ **SO THE BREACH LOSS LANDS ON THE POOL, NOT THE LP** — the LP's position retires whole on the EVM
+while the Bitcoin commitment paid it the older, smaller balance, and **nothing anywhere emits that the
+two disagree.** Silent, which is the property that makes it dangerous rather than merely costly.
+
+▶️ **THE FIX KEEPS THE LP RUNNING NOTHING, BECAUSE ALL THREE INPUTS ALREADY EXIST ON-CHAIN:**
+`checkpointOf` (the fleet's own last attestation), `paidOutSinceCheckpoint` (legitimate outflows), and
+an SPV-proven close tx. **Apply the guard the coop path already applies** — on a force close, compare
+what the commitment paid the LP against `checkpointOf − paidOutSinceCheckpoint`; a shortfall is a
+**self-evident breach, proven by the fleet's own signed attestation.** No LP participation, no
+revocation secret, no per-update work — and the existing **keyless** `quid-watchtower` can submit it,
+since detecting this needs observation only.
+⚠️ **THE ONE REAL OBSTACLE, STATED SO IT IS NOT DISCOVERED LATE:** the contract must identify the LP's
+output in a commitment tx, and that is **not** `_lpPayoutScript(lpEth)` — an LN commitment pays
+`to_remote`, derived from the counterparty's payment basepoint, not from `btcRecipientOf`. ⇒ **Pin the
+LP's payment basepoint at `openChannel`**, alongside `lpPubkey`/`hopPubkey`, and the output becomes
+locatable. That is one more pinned key at open — a thing the LP already does once — and nothing at
+runtime.
+⇒ **NET: the breach becomes provable on the EVM from data the fleet itself signed, and the LP still
+runs nothing.** ~~THE ELEGANT FIX IS STANDARD AND ALREADY VENDORED: `WatchtowerPersister`.~~ LDK ships it
 (`lib/rust-lightning/.../test_utils.rs`, exercised in `functional_tests.rs:995-1003`). It hands a
 third party **pre-signed justice packages** rather than keys, so the tower stays untrusted — it can
 only act on a breach it observes, and cannot spend otherwise. **That fits the existing shape exactly:**
