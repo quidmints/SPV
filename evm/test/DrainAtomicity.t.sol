@@ -1349,13 +1349,20 @@ contract DrainAtomicity is AllesFixture {
         //    within 50 bps of the anchor and would otherwise reject the whole sequence silently.
         _setEthFeed(px / 1e10);
         AUX.setAssetFeed(address(WETH), ETH_FEED);       // pin the anchor (same order as AllesFixture)
+        // (§E294) The anchor moves and a real SWAP records it. Both sigma^2 legs are fed only from
+        // `swap()` (`_observeIfSourced` Core:1031, `_sampleAnchorVariance` Core:1039), so the old
+        // push-only loop fed the ring by hand and never touched the anchor EWMA that §E345 made
+        // primary — it seeded variance through a path production does not take.
         uint spx = px;
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
         for (uint i; i < 6; ++i) {
             spx = i % 2 == 0 ? spx + spx / 50 : spx - spx / 51;   // ~+2% / ~-2%, returning near px
-            _setEthFeed(spx / 1e10);                              // anchor follows, so the push is admissible
-            CORE.pushObservation(spx);
+            _setEthFeed(spx / 1e10);                              // the ANCHOR moves => a real return
+            AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
         }
+        vm.stopPrank();
         emit log_named_uint("seeded sigma^2", CORE.realizedVarianceWad());
 
         // ⛔ §UNITB — "DRAIN INTO PRICED SCARCITY" WAS TRIED HERE AND IT CANNOT WORK. MEASURED, so

@@ -1068,7 +1068,9 @@ contract AllesFixture is ForkPin, ExitFixture {
             if (px == 0) break;
             px = down ? px - px * 2 / 100 : px + px * 2 / 100;   // -/+2%: the MARKET moves, EXOGENOUSLY
             _setLiveEthFeed(px / 1e10);             // the LIVE feed ...
-            CORE.pushObservation(px);               // ... so this bounded push is admissible
+            // (§E294) The push is GONE and nothing replaced it: the swap below already feeds BOTH
+            // sigma^2 legs (`_observeIfSourced` + `_sampleAnchorVariance`, Core:1031/1039) with the
+            // anchor this loop just moved. The push was writing the ring a second time, by hand.
             vm.prank(actor);
             if (down) {
                 try AUX.swap{value: perStep}(address(USDC), address(WETH), false, 0, 0, true) { moved++; }

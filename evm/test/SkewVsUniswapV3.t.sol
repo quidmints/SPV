@@ -37,16 +37,15 @@ contract SkewVsUniswapV3Test is AllesFixture {
         px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
+        // (§E294) ONE LOOP: the anchor moves, then a real swap records it. Both sigma^2 legs are fed
+        // only from `swap()` (Core:1031/1039), so the old push-only loop built variance through a
+        // path production does not use — and the swaps it needed for `flowEwmaUsd` were already here.
         uint spx = px;
-        for (uint i; i < 6; ++i) {                       // MOVING samples -> real sigma^2
-            spx = i % 2 == 0 ? spx + spx / 50 : spx - spx / 51;
-            _setEthFeed(spx / 1e10);
-            CORE.pushObservation(spx);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
-        }
         vm.startPrank(User03);                            // real swaps -> non-zero flowEwmaUsd
         USDC.approve(address(AUX), type(uint).max);
-        for (uint i; i < 4; ++i) {
+        for (uint i; i < 6; ++i) {                        // MOVING samples -> real sigma^2
+            spx = i % 2 == 0 ? spx + spx / 50 : spx - spx / 51;
+            _setEthFeed(spx / 1e10);
             AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0, true);
             vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
         }

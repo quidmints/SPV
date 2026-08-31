@@ -844,7 +844,18 @@ to **one unset address** — `src` was never set in production, so `poolStats()`
 and `ringVariance` stayed empty, *"which is why §E345/§E352 both spent their effort arguing about what
 'unmeasured' should COST instead of asking why nothing was measuring."*
 
-🟠 **`§E294-BLOCKED-ON-FIXTURES` — the deletion is APPROVED (owner) and CORRECT, and it did not land.**
+✅ **`§E294` — LANDED 2026-08-31. `pushObservation` IS DELETED, and the fixtures were FIXED rather
+than migrated.** The seven were testing a superseded path (`feed-move + push`, feeding the ring by
+hand and never the anchor EWMA `§E345` made primary). Five of them **already swapped in the same
+loop**, so the push was simply a second, manual ring write — deleted, nothing added. Two
+(`SkewVsUniswapV3`, `DrainAtomicity`) had a push-only loop and now move the anchor then SWAP, which
+feeds both σ² legs, the flow EWMA and the ring exactly as production does. Three files whose entire
+subject was the push are gone, with `script/PushObservation.s.sol`.
+**Verified: 25/25 across the five Lev/Skew suites, 33/33 DrainAtomicity, 97/97 Alles, 0 rate-limit,
+`check-client-abis` 0 drifted. `Core` 11,277 bytes.**
+⭐ **The fixtures got SIMPLER: two loops became one, because production has one path.**
+
+~~🟠 `§E294-BLOCKED-ON-FIXTURES` — the deletion is APPROVED and CORRECT, and it did not land.~~
 Executed, then reverted, because the row never accounted for what else the push is doing:
 1. ✅ **Production is clean** — `pushObservation` has 0 production callers, and the ring/TWAP keep
    working without it because `_observeIfSourced` feeds them per swap. The reason to delete stands:

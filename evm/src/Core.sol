@@ -1750,72 +1750,20 @@ contract Core {
     ///      (500) — that is calibrated for a 30-minute window against a pushed feed, and inheriting
     ///      it here would let a pusher move the level ten times as far.
     uint256 internal constant OBS_PUSH_MAX_BPS = 50;
-    /// @notice A permissionless `pushObservation` was REFUSED for deviating from the Chainlink
     ///         anchor by more than `OBS_PUSH_MAX_BPS`. Emitted so a keeper can see the ring stop
     ///         filling instead of inferring it from a flat sigma^2 (§E294, §PUSH-HEADROOM-1.85X).
-    event ObservationRefused(uint256 pushedWad, uint256 anchorWad, uint256 deviationBps);
+    // ⛔ (§E294) `pushObservation` DELETED 2026-08-31, and the reason is THEORETICAL, not just an
+    //    attack-surface trim. A cumulative-price ring exists to make an ENDOGENOUS, atomically
+    //    manipulable price safe to consume: time-weighting forces an attacker to HOLD a manipulated
+    //    price across the window. **Both premises are gone.** There is no pool, so no price is
+    //    discovered here; and `_observeIfSourced` writes the CHAINLINK ANCHOR (no deploy script sets
+    //    `observationSource`), which no trader can move within a block. The push existed to give the
+    //    ring a source worth time-weighting — 1inch, read off-chain because it costs 33.5M gas on
+    //    chain — and its stated justification, *"a ring sourced from Chainlink would measure σ² ≈ 0"*,
+    //    was REFUTED by §E343's measurement (57.3 rounds/day, implied σ = 95.5%).
+    //    ⇒ It was a permissionless writer bounded only by a ±50 bps band on the LEVEL, while σ² is a
+    //    property of the PATH — so the bound could never constrain what it was there to constrain.
 
-    function pushObservation(uint256 priceWad) external {
-        if (priceWad == 0) return;
-        // 🔴 §AUDIT-PUSHOBS — THE INSTANCE GATE. THIS FUNCTION IS PERMISSIONLESS *AND WAS
-        // INSTANCE-AGNOSTIC*, WHICH SILENTLY UNDID THE DECISION `observationSource` DOCUMENTS AT
-        // LENGTH ABOVE. That note says the BTC ring is DELIBERATELY UNSOURCED — not "unsourced for
-        // now": with no source the ring is never written, `ringVariance` returns 0, and §E213's
-        // sentinel prices UNMEASURED variance at the CEILING, which is the honest reading of "we
-        // cannot observe BTC on-chain without importing a wrapper's basis". `_observeIfSourced`
-        // honours that (`if (src == address(0)) return`). This function did not: ANYONE could push
-        // a WBTC-derived price at the BTC `Core` and it would be accepted, because the only test
-        // it had to pass was agreement with Chainlink BTC/USD — which a WBTC quote passes right up
-        // until the wrapper depegs, i.e. exactly when the distinction matters.
-        // ⚠️ AND THE DAMAGE IS THE *OPPOSITE* OF AN ORACLE ATTACK, WHICH IS WHY THE 50 bps BOUND
-        // DOES NOT COVER IT. The bound stops a pusher moving the LEVEL; it does nothing about
-        // pushing a stream of in-range values, which fills the ring, makes σ² small-but-MEASURED,
-        // and so REPLACES the ceiling sentinel with a floor-ish number. An attacker buys a cheap
-        // BTC skew by being helpful. Nothing reverts and nothing looks wrong.
-        //
-        // ⚠️ THE GATE IS NOT `observationSource != 0`, AND THAT WAS THE FIRST ANSWER I REACHED.
-        // It is wrong: NO source is pinned on EITHER instance today (`script/DeployLib.sol`'s §E222
-        // block; `setObservationSource` has ZERO non-test callers), so that gate would refuse EVERY push
-        // including the ETH ones — and the push path is the ring's *only* live writer (§E294/§E308:
-        // σ² ≡ 0 precisely because neither writer runs). It would deepen the very finding it was
-        // meant to close, and it would go red in `LevCascade`, `LevYbReal`,
-        // `LeverageCrossSubsidyProbe`, `PushObservationFillsTheRing` and `Alles`'s ramps, all of
-        // which push into a Core with no source pinned.
-        // ⇒ So the gate is INSTANCE IDENTITY, and `VOL_DECIMALS` is the discriminator this very
-        // function already used one line below to derive `isWbtc`. `VOL_DECIMALS`'s own docblock warns against
-        // inferring the RISK PROFILE from it, and that warning stands — a profile is configuration
-        // and can be wrong in ways decimals cannot express. "Is the volatile leg a wrapped 8-dec
-        // asset with no wrapper-free on-chain quote" is not configuration; it is the same fact the
-        // lift below reads.
-        // ▶️ WHEN A WRAPPER-FREE BTC SOURCE EXISTS this line is DELETED, not weakened, and it goes
-        //    with the `observationSource` note it enforces.
-        if (VOL_DECIMALS != 18) return;
-        // `twapResolve(feed, 0, ...)` returns the RAW anchor: §A.13 made `price == 0` fall through to
-        // Chainlink rather than short-circuit, so this reuses tested machinery instead of adding a
-        // second `latestRoundData` reader to Core.
-        // ⚠️ THE `isWbtc` LIFT IS `false` HERE *BECAUSE OF THE GATE ABOVE*, not because the lift is
-        // unnecessary: the 8-vs-18-dec gap is real, and the one instance that has it just returned.
-        // Passing `VOL_DECIMALS != 18` would be provably-false code (standing rule: none).
-        (uint256 anchorPx,) = SwapLib.twapResolve(
-            AUX.assetPriceFeed(ASSET), 0, false, OBS_PUSH_MAX_BPS, 1 days);
-        if (anchorPx == 0) return;                       // no anchor => cannot validate => refuse
-        (uint256 lo, uint256 hi) = priceWad < anchorPx ? (priceWad, anchorPx) : (anchorPx, priceWad);
-        // 🔴 §E294/§PUSH-HEADROOM — A REFUSAL MUST BE OBSERVABLE. This returned SILENTLY, and this
-        //    function's own docblock says so: *"Nothing reverts and nothing looks wrong."* A keeper
-        //    pushing an out-of-band price therefore could not tell ACCEPTED from REFUSED, and the
-        //    ring would simply stop filling.
-        // ⚠️ IT IS NOT HYPOTHETICAL: §PUSH-HEADROOM-1.85X measured the 1inch-vs-oracle basis at
-        //    **27 bps against this 50 bps guard** — 1.85x headroom where `Core` claims ~6x. As that
-        //    drifts, pushes START being refused, and without this event nothing reports it.
-        // ⇒ EVENT, NOT REVERT: a revert would make a batching keeper lose its whole transaction over
-        //    one stale quote, and the refusal is a NORMAL outcome of a moving basis, not an error.
-        //    Standing rule 3's inverse exactly — the check earns its place, and it must announce.
-        if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) {
-            emit ObservationRefused(priceWad, anchorPx, lo == 0 ? type(uint256).max : (hi - lo) * 10_000 / lo);
-            return;                                              // outside the range => refuse
-        }
-        _writeObservationPrice(priceWad);
-    }
 
     function _writeObservationPrice(uint price) internal {
         OracleLib.writeObservation(observations, obsState, price);

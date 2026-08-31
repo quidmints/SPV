@@ -101,7 +101,9 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
             uint px = ETH.rangePrice(); if (px == 0) break;
             px += px / 20;                          // +5%: the MARKET moves, EXOGENOUSLY
             _setLiveEthFeed(px / 1e10);             // Chainlink follows the market (LIVE feed, §E310) ...
-            CORE.pushObservation(px);               // ... and the ring records it (deviation 0 => admissible)
+            // (§E294) The push is GONE and nothing replaced it: the swap below already feeds BOTH
+            // sigma^2 legs (`_observeIfSourced` + `_sampleAnchorVariance`, Core:1031/1039) with the
+            // anchor this loop just moved. The push was writing the ring a second time, by hand.
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }

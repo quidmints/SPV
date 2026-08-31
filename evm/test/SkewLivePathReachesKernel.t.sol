@@ -37,23 +37,28 @@ contract SkewLivePathReachesKernelTest is AllesFixture {
         px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
         AUX.setAssetFeed(address(WETH), ETH_FEED);
-        uint spx = px;
-        for (uint i; i < 6; ++i) {
-            spx = i % 2 == 0 ? spx + spx / 50 : spx - spx / 51;   // ~+-2%, MOVING (equal samples give 0)
-            _setEthFeed(spx / 1e10);                              // anchor follows, else the push is refused
-            CORE.pushObservation(spx);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
-        }
-        // ⭐ **THE THIRD PRECONDITION, AND IT IS NOT IN §E306's WRITE-UP.** `skewWad` opens with
+        // ⭐ **ONE LOOP, BECAUSE PRODUCTION HAS ONE PATH.** This was two: a `pushObservation` loop for
+        //    variance and a swap loop for flow. **The push loop was measuring the wrong thing.** σ² has
+        //    two legs — `max(ringVariance, anchorVarianceWad)` — and BOTH are fed only from `swap()`
+        //    (`Core:1031` `_observeIfSourced`, `Core:1039` `_sampleAnchorVariance`). A loop that moved
+        //    the feed and pushed, with no swap, fed the RING ONLY and never touched the anchor EWMA
+        //    that §E345 made primary. It therefore built σ² through a door production does not use.
+        //    ⇒ Moving the anchor and then SWAPPING feeds all three quantities this fixture needs —
+        //    σ² (both legs), the flow EWMA, and the ring — exactly as a real trade does.
+        // ⚠️ **THE FLOW PRECONDITION IS UNCHANGED AND STILL LOAD-BEARING.** `skewWad` opens with
         //    `if (target == 0) return _maxWellSkew(sigmaSq, rk)` — SIZE-INDEPENDENT. `target` is
         //    `flowEwmaUsd()`, which only `_bumpFlow` (`Core:1050`, on the swap path) ever raises. A
-        //    fixture with depth and variance but NO FLOW therefore returns a flat number at every
-        //    drain while looking perfectly healthy. Real swaps are the only way to bump it.
+        //    fixture with depth and variance but NO FLOW returns a flat number at every drain while
+        //    looking perfectly healthy. Real swaps are the only way to bump it — and now the only way
+        //    the variance is built too, which is why the two loops became one.
+        uint spx = px;
         vm.startPrank(User03);
         USDC.approve(address(AUX), type(uint).max);
-        for (uint i; i < 4; ++i) {
+        for (uint i; i < 6; ++i) {
+            spx = i % 2 == 0 ? spx + spx / 50 : spx - spx / 51;   // ~+-2%, MOVING (equal samples give 0)
+            _setEthFeed(spx / 1e10);                              // the ANCHOR moves, so the sample is a real return
             AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0, true);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
         }
         vm.stopPrank();
     }

@@ -206,7 +206,9 @@ contract LevYbRealProbe is AllesFixture {
             // 377 bps. The rally exits after ONE step here (soldFraction hits 50% > the 20% target),
             // so the whole move has to land in that one step.
             _setLiveEthFeed(px / 1e10);             // Chainlink follows the market (LIVE feed, §E310) ...
-            CORE.pushObservation(px);               // ... and the ring records it (deviation 0 => admissible)
+            // (§E294) The push is GONE and nothing replaced it: the swap below already feeds BOTH
+            // sigma^2 legs (`_observeIfSourced` + `_sampleAnchorVariance`, Core:1031/1039) with the
+            // anchor this loop just moved. The push was writing the ring a second time, by hand.
             try AUX.swap(address(USDC), address(WETH), true, usdcPerStep, 0, true) {}
             catch (bytes memory err) { emit log_named_bytes("RALLY SWAP REVERTED", err); break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
@@ -232,7 +234,9 @@ contract LevYbRealProbe is AllesFixture {
             if (px <= start - start * dropBps / 10000) break;
             px -= px * 2 / 100;                     // -2%: the MARKET moves, EXOGENOUSLY
             _setLiveEthFeed(px / 1e10);             // the LIVE feed, not the 0xE7F0FEED sentinel
-            CORE.pushObservation(px);               // ring records it (deviation 0 => admissible)
+            // (§E294) The push is GONE and nothing replaced it: the swap below already feeds BOTH
+            // sigma^2 legs (`_observeIfSourced` + `_sampleAnchorVariance`, Core:1031/1039) with the
+            // anchor this loop just moved. The push was writing the ring a second time, by hand.
             try AUX.swap{value: ethPerStep}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 31 minutes);
         }
