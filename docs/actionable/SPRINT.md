@@ -1300,6 +1300,53 @@ structural reason: they share this table.**
    **If the roster is meant to move without one, that is a settable table and a separate decision** —
    and it is the same decision as making the `dex` words settable for `unoswap2`.
 
+## 🔴 **§THE-SLIPPAGE-WINDOW-IS-THE-LEAK — "CAN GRIEF BUT NOT EXTRACT" WAS WRONG, AND THE HOLE PREDATES CALLDATA** (owner, 2026-08-31: *"we must still be fully secure even if the enclave/lightning daemon/keeper is hacked and replaced with malicious code"*)
+
+I recommended accepting aggregator calldata on the lever and claimed a hostile route *"can GRIEF but
+cannot EXTRACT."* **Re-tested against a fully malicious keeper: false.**
+
+### 🔴 THE ATTACK, AND IT IS REPEATABLE AND SILENT
+`minOut` is `oracle × (10_000 − SELL_SLIP_BPS)/10_000`, and **`SELL_SLIP_BPS = 100` — a 1% window**
+(`LevMath.sol:486`; `CONSOL_SLIP_BPS` and `MAX_SLIPPAGE_BPS` are also 100). A compromised keeper routes
+through a contract it controls, returns **exactly `minOut`**, and keeps the rest. **The swap SUCCEEDS,
+so nothing announces it.** ⇒ **Up to 1% of every levered swap, every time, risk-free.**
+⛔ **AND THIS IS NOT INTRODUCED BY CALLDATA — IT EXISTS TODAY.** `_aggSwap`'s `dex` is an **arbitrary
+address** with protocol bits; a keeper-deployed fake "pool" returning exactly `minOut` extracts
+identically. **The selector pin never protected against this**; it protects the *destination and
+function*, and the leak is through the *price*. ⇒ **My argument for calldata is unharmed — but so is
+the hole, and I should not have claimed it was absent.**
+
+### ✅ WHAT *IS* SAFE, PRECISELY
+**The PRINCIPAL cannot be taken.** The floor is enforced on a **measured balance delta** of the output
+token, and the whole call is **atomic**: a route that returns nothing, or pays a keeper-controlled
+receiver, fails the delta check and **reverts, restoring the tokens**. Exact, zeroed approvals cap what
+the router may pull. ⇒ **The exposure is bounded at the slippage window — never the notional.**
+📌 **AND THE OOR FILL IS ALREADY CLEAN, WHICH POINTS AT THE FIX:** the maker is paid **exactly
+`limitPx`** — *there is no slippage window at all*, so a malicious relayer extracts **zero**. **The
+lever is the exposed path precisely because it settles at a HAIRCUT rather than at the oracle.**
+
+### ⭐ THE DESIGN THAT MEETS THE OWNER'S BAR LITERALLY: **SETTLE AT ORACLE, MAKE THE CALLER WEAR THE SPREAD**
+Generalise what the fill already does:
+1. the caller supplies the route (any venue, full aggregator);
+2. the contract measures the output and **credits the position at the ORACLE value, not at what the
+   route returned**;
+3. **surplus above oracle value is the caller's profit; a shortfall is pulled FROM THE CALLER**
+   (`transferFrom`, revert if they cannot cover);
+4. the caller earns an **explicit, bounded fee** for the service.
+⇒ **A compromised keeper then extracts NOTHING.** It must deliver full oracle value or the transaction
+reverts; the only thing it can forgo is its own fee. **"Impossible to do damage" becomes literally
+true rather than bounded-at-1%.**
+⚖️ **THE TRADE, HONESTLY:** today the PROTOCOL absorbs execution risk inside a 1% band and the keeper
+is unpaid; under this the CALLER absorbs execution risk and is paid a stated fee. **That is strictly
+better for the security property and requires an economic decision — the fee must beat real slippage
+or nobody calls.** ⚠️ It also means a route worse than 1% no longer silently succeeds; it either costs
+the caller or reverts. **That is the point.**
+🔧 **CHEAP INTERIM, INDEPENDENT OF THE ABOVE: `SELL_SLIP_BPS` IS A POLICY NUMBER, NOT A LAW.** Every
+basis point of it is a basis point a compromised keeper may take. §ROUTE-COST-MEASURED puts real
+execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–60× the measured need.**
+Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
+**Measure before choosing a number; do not simply halve it.**
+
 ## ⭐ **§FULL-AGGREGATOR-ON-THE-LEVER-TOO — THE OBSTACLE IS ONE ORACLE READ, AND REMOVING IT UNBLOCKS THE ENTIRE CHEAPEST-DOLLAR PROGRAMME** (owner, 2026-08-31: *"why isnt it full aggregator for IL protect also? no benefit there? remember that i have no api key regardless"*)
 
 **There is benefit, it is the largest one on the board, and my "amounts are computed mid-transaction"
@@ -1341,7 +1388,7 @@ function."* **Accepting calldata surrenders the selector pin.**
 approval is **exact and zeroed on both paths**; and `minOut` is enforced on a **measured balance
 delta**. So the worst a hostile or stale route can do is take the approved input and return nothing —
 **at which point the delta check fails and the WHOLE TRANSACTION REVERTS, restoring the tokens.**
-**A bad route can GRIEF (waste gas, stall a rebalance); it cannot EXTRACT.** ⚠️ Griefing is a real
+🔴 **[CORRECTED 2026-08-31 — THIS SENTENCE IS FALSE. A hostile route CAN extract, up to `SELL_SLIP_BPS` = 1% per swap, by returning exactly `minOut`. The PRINCIPAL is safe; the slippage window is not. See §THE-SLIPPAGE-WINDOW-IS-THE-LEAK above.]** ⚠️ Griefing is a real
 residual and it is a keeper-liveness issue, which this path already has — the keeper supplies the pool
 word today.
 ⇒ **The trade is defence-in-depth versus 33–414 bps of borrow cost on every levered position, and the
