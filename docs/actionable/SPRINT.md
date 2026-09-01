@@ -1501,6 +1501,43 @@ reasoning one level short, so this is booked as a finding and the fix is not lan
 fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
 fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
+## 🔴 §T9-REGISTRY-HAS-NO-WRITER — **§E177 IS UNWIRED ONE LEVEL DEEPER THAN ITS ROW SAYS**
+
+Found 2026-09-01 while wiring §T9, and it changes what "wire the truth source" means.
+
+🔑 **`CidRegistry` HAS ZERO REFERENCES OUTSIDE `channel_truth.rs`.** Nothing constructs it and
+nothing calls `bind`. The truth source resolves WHICH on-chain channel a signer is checked against
+through that registry (`channel_keys_id → channelId`), so **a factory attached today resolves no cid,
+returns `NotRecorded` forever, and is PERMANENTLY PERMISSIVE.**
+⛔ **THAT WOULD HAVE BEEN WORSE THAN THE GAP IT CLOSES.** A dormant check is honest about providing
+nothing. A permanently-permissive one reads as protection — `has_truth_source()` returns `true`, the
+signer looks bound — while every call returns `Ok(())` on the `NotRecorded` arm. It is the
+*"guard that looks armed"* shape this sprint has now hit three times.
+
+⚠️ **AND THE NEAR-MISS: THERE IS A SECOND, LIVE REGISTRY THAT LOOKS LIKE THE ANSWER AND IS NOT.**
+`channel_driver.rs:1561` calls `g.bind(ch_id.0, B256::from(cid), state.lp_eth)` every reconciler pass
+— but that is the **§LP-LIVENESS routing gate**, and it keys on LDK's **`ChannelId`**, while the truth
+factory keys on **`channel_keys_id`**. Different 32 bytes, different meaning. **Reusing it would bind
+the comparand to the wrong channel**, which is the one failure mode worse than no comparand at all.
+
+✅ **LANDED THIS PASS (the plumbing, honestly `None`):** `boot`/`boot_vault` now take the factory as an
+injected trait object, **exactly like `anchor`** — same shape, same reason (a fact the process must not
+be able to author), and dev/regtest passes none. `boot_vault` fixes `FundingRole::Lp` rather than
+taking it, because a vault IS the LP half by definition. All three call sites pass `None` **with the
+reason written at each**, so nobody re-reads this as an oversight and "fixes" it by attaching a factory.
+
+▶️ **WHAT REMAINS, AND IT IS THE ACTUAL §T9 WIRING:**
+1. **A writer for `CidRegistry`.** Both halves of the pairing exist together on the monitor —
+   `monitor.channel_keys_id()` and `onchain_cid_from_monitor(monitor)` — so the binder is a few lines
+   in a loop that already walks monitors. ⚠️ **It must run on the LP's OWN daemon**, not only the
+   fleet's: the refusal that matters is the LP's.
+2. **Then** attach the factory at `quid-lp-daemon` (read-only EVM endpoint — the owner confirms the
+   LP's react-native wallet already reads both EVM and SVM, so this is not a new dependency class).
+3. **Then** the delivery-output bound: a splice paying `S` for `V` sats is legitimate only if
+   `BTCChannels` records a matching swap-out obligation.
+📌 **Do not mark §T9 done at step 2.** Steps 1–2 make the signer refuse a *contradicted pair or size*;
+step 3 is what bounds where a splice PAYS, which is the surface the delivery rework opens.
+
 ## 🔴 §T9-IS-WIRING-E177, NOT A NEW CHECK — **AND THE NAIVE WIRING BREAKS EVERY SPLICE**
 
 Established 2026-09-01 while starting §T9, before writing any of it. Owner: *"dont ship anything

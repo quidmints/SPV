@@ -256,6 +256,16 @@ async fn main() -> anyhow::Result<()> {
         quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
         store,
         anchor,
+        // (§T9) `None` FOR NOW, AND THIS IS THE ONE THAT MATTERS. This vault IS the LP half of
+        // every 2-of-2, so this is exactly where the refusal belongs: a compromised fleet asks
+        // THIS signer to co-sign a splice, and `check_against_chain` is what says no.
+        // ⛔ IT STAYS `None` ONLY UNTIL `CidRegistry` HAS A WRITER (§T9-REGISTRY-HAS-NO-WRITER).
+        // The registry maps `channel_keys_id → on-chain channelId`, and NOTHING populates it —
+        // so a factory attached today resolves no cid, reports `NotRecorded` forever, and is
+        // PERMANENTLY PERMISSIVE. A dormant check is honest about providing nothing; a
+        // permanently-permissive one reads as protection while providing none, which is worse
+        // than the gap it appears to close.
+        None,
     )
     .await
     .context("boot LP vault node")?;

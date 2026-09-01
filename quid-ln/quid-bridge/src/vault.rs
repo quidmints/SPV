@@ -922,6 +922,10 @@ pub async fn boot_vault(
     splice_feerate: u32,
     store: Arc<crate::store::BridgeStore>,
     anchor: Arc<dyn quid_hop::freshness::FreshnessAnchor + Send + Sync>,
+    // (§T9) The LP signer's on-chain comparand, or `None` for dev/regtest. Injected like `anchor`:
+    // both are facts this process must not be able to author. **This is what lets an LP REFUSE a
+    // splice a compromised fleet asks it to co-sign** — the point of holding its own half at all.
+    truth_factory: Option<Arc<dyn quid_ln::validating_signer::TruthSourceFactory>>,
 ) -> anyhow::Result<VaultNode> {
     // 🔴 ONE CONSTRUCTION, THREE USES — and that is the fix, not a tidy-up. This address was
     // built TWICE: once here from `hop_addr` (correct) and once below with
@@ -945,7 +949,16 @@ pub async fn boot_vault(
         htlc_maximum_msat: 21_000_000_0000_0000,
     };
     info!("booting fleet VAULT node (2nd in-process HopNode)");
-    let node = boot(network, esplora_url, vault_seed, vault_data_dir, lsp_info, anchor)
+    // (§T9) `FundingRole::Lp` is not a parameter: a VAULT is the LP half of the 2-of-2 by
+    // definition — that is what this whole binary exists to be — so making the side configurable
+    // would only create a way to get it wrong. The pair-ordering it selects
+    // (`abi.encode(lpPubkey, hopPubkey)`) is significant, and a mis-set role reads as `Mismatch`
+    // on every honest channel, i.e. it fails closed loudly rather than silently — but there is no
+    // reason to admit the state at all.
+    let node = boot(
+        network, esplora_url, vault_seed, vault_data_dir, lsp_info, anchor,
+        truth_factory, quid_ln::validating_signer::FundingRole::Lp,
+    )
         .await
         .context("boot vault node")?;
     // Dial the hop at the address we were GIVEN — co-hosted that is localhost, LP-hosted it

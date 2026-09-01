@@ -772,6 +772,13 @@ pub async fn boot(
     // (host trusted). The commit side rides `HopPersister::write_monitor`; the verify side
     // is the boot loop below (fail-closed on a stale monitor).
     anchor: Arc<dyn crate::freshness::FreshnessAnchor + Send + Sync>,
+    // (§T9) The on-chain comparand for every derived channel signer, or `None` for dev/regtest
+    // where the host is trusted — the same injection shape as `anchor` directly above, because it
+    // is the same kind of dependency: a fact this process must not be able to author.
+    // `truth_role` says which side of the 2-of-2 this node is, so a candidate pair is ordered the
+    // way `BTCChannels` hashed it (`abi.encode(lpPubkey, hopPubkey)` — order is significant).
+    truth_factory: Option<Arc<dyn quid_ln::validating_signer::TruthSourceFactory>>,
+    truth_role: quid_ln::validating_signer::FundingRole,
 ) -> anyhow::Result<HopNode> {
     let logger = TracingLogger::new();
     let shutdown = NotifyOnce::new();
@@ -837,10 +844,28 @@ pub async fn boot(
 
     // Keys manager (node id derives from here).
     let mut rng = SysRng::new();
-    let keys_manager = Arc::new(
-        QuidKeysManager::new(&mut rng, root_seed, wallet.clone())
-            .context("Could not init keys manager")?,
-    );
+    let mut km = QuidKeysManager::new(&mut rng, root_seed, wallet.clone())
+        .context("Could not init keys manager")?;
+    // (§T9) ATTACH THE ON-CHAIN COMPARAND, injected exactly like `anchor` above and for the same
+    // reason: it is a dependency on a chain this process does not author, so the CALLER supplies it
+    // and dev/regtest supplies none.
+    //
+    // 🔑 WHY THE SIGNER NEEDS ONE AT ALL. With §M1#2 the LP holds its own half of every 2-of-2, so
+    // the fleet must ASK the LP to co-sign a splice — and a COMPROMISED fleet will ask for a bad
+    // one. `check_against_chain` is the refusal, and it only means anything against a source the
+    // fleet does not author. Without a factory the check returns `Ok(())` on its first line and the
+    // signer runs only self-consistency checks, which by their own docblock *"bind a node that
+    // contradicts itself and nothing more"*.
+    //
+    // ⚠️ THE FACTORY IS NOT INDIRECTION FOR ITS OWN SAKE (§E177). LDK derives ONE signer PER
+    // CHANNEL, usually BEFORE the channel has an on-chain identity — a `channelId` needs a funding
+    // outpoint that does not exist yet — and the comparand is WRITE-ONCE. So it must be attached at
+    // derive time and resolve the cid LAZILY, reporting `NotRecorded` until the chain can answer.
+    // A factory that declined when the cid was unknown would leave the signer permanently blind.
+    if let Some(factory) = truth_factory {
+        km = km.with_truth_factory(factory, truth_role);
+    }
+    let keys_manager = Arc::new(km);
 
     // Tx broadcaster.
     let (tx_broadcaster, broadcaster_task) = TxBroadcaster::start(

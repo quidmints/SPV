@@ -250,6 +250,10 @@ async fn main() -> anyhow::Result<()> {
     );
 
     tracing::info!(%network, "quid-bridge-daemon: booting hop node");
+    // (§T9) `None` — NOT because the hop needs no comparand, but because `CidRegistry` has no
+    // writer yet (§T9-REGISTRY-HAS-NO-WRITER). Attaching a factory over an unpopulated registry
+    // reports `NotRecorded` forever, i.e. a check that never fires. A dormant check is honest; a
+    // permanently-permissive one claims a guarantee it does not provide.
     let node = quid_hop::node::boot(
         network,
         env("QUID_ESPLORA_URL")?,
@@ -257,6 +261,8 @@ async fn main() -> anyhow::Result<()> {
         data_dir.clone(),
         lsp_info,
         anchor,
+        None,
+        quid_ln::validating_signer::FundingRole::Hop,
     )
     .await
     .context("boot hop node")?;
@@ -377,6 +383,10 @@ async fn main() -> anyhow::Result<()> {
             quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
             store.clone(), // durable by_funding: reload in-flight opens on restart
             vault_anchor,
+            // (§T9) `None`: see the note at the hop's own `boot` above — an unpopulated
+            // `CidRegistry` would make the check permanently permissive. This branch is also
+            // scheduled for deletion (§COHOST-FLAG-IS-NOT-THE-WORK).
+            None,
         )
         .await
         .context("boot vault node")?;
