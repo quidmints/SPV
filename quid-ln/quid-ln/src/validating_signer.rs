@@ -605,7 +605,13 @@ impl ValidatingChannelSigner {
     /// (E177) Check a candidate taproot context against the chain. `Ok(())` when there is
     /// no truth source (unchanged §E176-C behaviour); otherwise both the funding-key pair
     /// and the funded size must match what `BTCChannels` pinned.
-    fn check_against_chain(&self, ctx: &TaprootSignerContext) -> Result<(), ()> {
+    /// `prev` is the context this one REPLACES, or `None` for the first. It exists for the splice
+    /// window documented at the `Mismatch` arm below — see `§T9-IS-WIRING-E177`.
+    fn check_against_chain(
+        &self,
+        ctx: &TaprootSignerContext,
+        prev: Option<&TaprootSignerContext>,
+    ) -> Result<(), ()> {
         use std::sync::atomic::Ordering::SeqCst;
         let Some((truth, role)) = self.truth.get() else { return Ok(()) };
         // 🔴 THE CURRENT-SCOPE KEY, NOT THE BASE ONE. This read `funding_key(None)` with the comment
@@ -637,7 +643,55 @@ impl ValidatingChannelSigner {
                 self.truth_recorded.store(true, SeqCst);
                 Ok(())
             }
-            TruthVerdict::Mismatch => Err(()),
+            // 🔴 (§T9) THE SPLICE WINDOW — WITHOUT THIS ARM, WIRING A TRUTH SOURCE MAKES EVERY
+            // SPLICE UNSIGNABLE, and it would do so silently: a correct-looking check that kills the
+            // rail.
+            //
+            // `provide_taproot_context` fires WHILE a splice is being negotiated. At that instant the
+            // context already carries the NEW pair and the NEW funded value, while `BTCChannels`
+            // still records the OLD ones — the EVM mirrors a splice only AFTER it confirms, because
+            // `drive_splice` SPV-PROVES it. So the honest state during every splice is precisely
+            // `Mismatch`, and treating that as an attack refuses the protocol's own capacity
+            // mechanism.
+            //
+            // ⭐ THE RULE, AND IT IS THE SAME ONE-WAY SHAPE `NotRecorded` ALREADY USES BELOW: accept
+            // iff the chain shows THIS scope, or the ONE it replaces. A splice advances exactly one
+            // scope, so the window is one step wide and closes the moment the mirror lands. It is
+            // not "trust the node when it says it is ahead" — the node must name a predecessor that
+            // THE CHAIN CONFIRMS and that THIS SIGNER already had in force.
+            // ⚠️ `prev` is the in-force context, not anything the peer supplies, which is what makes
+            // the step un-forgeable: a node cannot invent a predecessor it never got signed.
+            TruthVerdict::Mismatch => {
+                let Some(prev) = prev else { return Err(()) };
+                // Only a SPLICE may look ahead. If the scope did not rotate, a mismatch is a
+                // contradiction of the context in force — `rebound_identity`'s case — and the
+                // caller has already refused that shape for non-splice rebinds.
+                if prev.splice_parent_funding_txid == ctx.splice_parent_funding_txid {
+                    return Err(());
+                }
+                let ours_prev = self
+                    .inner
+                    .funding_key(prev.splice_parent_funding_txid)
+                    .public_key(&secp)
+                    .serialize();
+                let theirs_prev = prev.counterparty_funding_pubkey.serialize();
+                let (lp_prev, hop_prev) = match role {
+                    FundingRole::Lp => (&ours_prev, &theirs_prev),
+                    FundingRole::Hop => (&theirs_prev, &ours_prev),
+                };
+                match truth.verify(lp_prev, hop_prev, prev.funding_value_sat)? {
+                    // The chain is one scope behind: the splice is real and unmirrored. Accept the
+                    // new context, and DO latch — we have seen a record, so a later `NotRecorded`
+                    // is a downgrade exactly as it would have been before.
+                    TruthVerdict::Match => {
+                        self.truth_recorded.store(true, SeqCst);
+                        Ok(())
+                    }
+                    // Neither this scope nor its predecessor is what the chain holds ⇒ the node is
+                    // not one splice ahead, it is somewhere else entirely.
+                    _ => Err(()),
+                }
+            }
             // The one-way window. Legitimate BEFORE the record exists; a DOWNGRADE ATTEMPT
             // after one has been seen, which is the only form the downgrade can take.
             TruthVerdict::NotRecorded => {
@@ -722,7 +776,10 @@ impl ValidatingChannelSigner {
             // FIRST context too — which is the whole point: the checks above have nothing
             // to compare a first context against, and that is precisely the gap a
             // consistently-lying node (or one that restarted the signer) walks through.
-            if self.check_against_chain(&ctx).is_err() {
+            // (§T9) `slot` is the context being REPLACED — the splice window's predecessor. It is
+            // read here rather than inside the check so the check cannot be given anything the peer
+            // supplied: this is the context this signer already had in force.
+            if self.check_against_chain(&ctx, slot.as_ref()).is_err() {
                 self.ctx_poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
                 return;
             }
@@ -1992,6 +2049,94 @@ mod tests {
         assert!(signer.ctx_poisoned(),
                 "a forged first context must be caught by the on-chain keysHash");
         assert!(signer.taproot_key_agg(&secp).is_err());
+    }
+
+    /// (§T9) THE SPLICE WINDOW — the chain is legitimately ONE SCOPE BEHIND while a splice is
+    /// negotiated, and the signer must sign anyway.
+    ///
+    /// 🔴 WITHOUT THIS, WIRING A TRUTH SOURCE MAKES EVERY SPLICE UNSIGNABLE AND DOES IT SILENTLY.
+    /// `provide_taproot_context` fires DURING the negotiation: the context already carries the new
+    /// pair and new funded value, while `BTCChannels` still holds the old ones, because the EVM
+    /// mirrors a splice only after it CONFIRMS. So `Mismatch` is the honest state of every splice,
+    /// and refusing it kills the protocol's only capacity mechanism.
+    #[test]
+    fn a_splice_may_run_one_scope_ahead_of_the_chain() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        // The chain holds the PRE-splice scope: base keys, original size.
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS,
+            readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+        assert!(!signer.ctx_poisoned(), "precondition: the pre-splice context matches the chain");
+
+        // THE SPLICE: a rotated scope — new funding keys on BOTH sides and a new size — offered
+        // before the mirror lands. This is exactly what LDK supplies at `splice_ack`.
+        let parent = bitcoin::Txid::from_raw_hash(
+            bitcoin::hashes::Hash::from_byte_array([7u8; 32]));
+        signer.provide_taproot_context(TaprootSignerContext {
+            counterparty_funding_pubkey: cp.new_funding_pubkey(parent, &secp),
+            funding_value_sat: FUNDING_SATS + 50_000,
+            counterparty_closing_nonce: None,
+            closing_round: 0,
+            splice_parent_funding_txid: Some(parent),
+        });
+        assert!(!signer.ctx_poisoned(),
+            "a splice one scope ahead of the chain must be signable -- otherwise no channel can \
+             ever be spliced once a truth source is attached");
+    }
+
+    /// ⚠️ THE NEGATIVE THAT MAKES THE WINDOW A WINDOW. Without it, the arm above would be
+    /// indistinguishable from *"accept anything that claims to be ahead"*, which is not a check.
+    /// A SECOND rotation while the chain still shows the FIRST scope is two steps ahead, and the
+    /// predecessor the node names is no longer one the chain confirms.
+    #[test]
+    fn two_scopes_ahead_of_the_chain_is_refused() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let truth = std::sync::Arc::new(FakeTruth {
+            lp: base_funding_pk(&inner, &secp),
+            hop: base_funding_pk(&cp, &secp),
+            sats: FUNDING_SATS,
+            readable: true,
+            not_recorded: std::sync::atomic::AtomicBool::new(false),
+        });
+        let signer = ValidatingChannelSigner::new(inner, committed_script())
+            .with_truth_source(truth, FundingRole::Lp);
+        give_ctx_round(&signer, &cp, None, 0, &secp);
+
+        let p1 = bitcoin::Txid::from_raw_hash(
+            bitcoin::hashes::Hash::from_byte_array([7u8; 32]));
+        signer.provide_taproot_context(TaprootSignerContext {
+            counterparty_funding_pubkey: cp.new_funding_pubkey(p1, &secp),
+            funding_value_sat: FUNDING_SATS + 50_000,
+            counterparty_closing_nonce: None,
+            closing_round: 0,
+            splice_parent_funding_txid: Some(p1),
+        });
+        assert!(!signer.ctx_poisoned(), "one ahead is fine");
+
+        // A second rotation, chain still at the ORIGINAL scope.
+        let p2 = bitcoin::Txid::from_raw_hash(
+            bitcoin::hashes::Hash::from_byte_array([8u8; 32]));
+        signer.provide_taproot_context(TaprootSignerContext {
+            counterparty_funding_pubkey: cp.new_funding_pubkey(p2, &secp),
+            funding_value_sat: FUNDING_SATS + 90_000,
+            counterparty_closing_nonce: None,
+            closing_round: 0,
+            splice_parent_funding_txid: Some(p2),
+        });
+        assert!(signer.ctx_poisoned(),
+            "two scopes ahead must be refused: the window is ONE step, or it is not a bound");
     }
 
     /// ⚠️ CONTROL — the honest first context must still be accepted, or the check above
