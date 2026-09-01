@@ -278,6 +278,47 @@ contract BtcLpMintStress is AllesFixture {
     /// recordClose would let any third party replay the hop's confirmed splice tx to
     /// force-retire an OPEN channel (delivered=0, hop's splice/deliver bricked, an
     /// in-flight swap-out stranded). Only the hop or the channel's lpEth may record.
+    /// (§HOP-RCE-2) THE CEILING, WHICH THAT COMMIT LEFT OWED: *"A test for the new ceiling is still
+    /// owed."* Closing it, because the property it guards is not reachable by any honest path and so
+    /// nothing else in the suite would ever notice if the bound were removed.
+    ///
+    /// 🔴 WHAT IT DEFENDS: strictly-increasing stops a ROLLBACK, and says nothing about a JUMP. One
+    /// write of `type(uint64).max` makes the enclave refuse every monitor it will ever hold — because
+    /// treating a lower `update_id` as stale is exactly the counter's purpose — so the channel is
+    /// unloadable from that block on. **It is not self-inflicted:** migration carries the seed and no
+    /// way to lower this, so a compromise lasting ONE transaction bricks the channel for every
+    /// SUCCESSOR enclave too.
+    ///
+    /// ⭐ AND WHY THE BOUND IS ON THE STEP RATHER THAN A RESET AUTHORITY, which is the more elegant
+    /// looking fix: **a reset IS a rollback** — the precise attack the counter exists to defend. So
+    /// the only safe shape is to bound how far one commit may advance.
+    function testCommitFreshness_RejectsABrickingJump() public {
+        BTCChannels ch = _deployChannels();
+        (bytes32 cid,,,) = _open(ch, 7, 2e7);
+        address hop = makeAddr("hop");
+
+        // The brick: one write of the maximum, which no honest operation ever produces.
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.FreshnessJumpTooLarge.selector);
+        ch.commitFreshness(cid, type(uint64).max);
+        assertEq(ch.freshnessSeq(cid), 0, "a refused commit leaves the counter untouched");
+
+        // The same bound applies to the manager blob's counter, which is keyed on the hop itself —
+        // so the brick a compromised hop lands there is on ITSELF and on every successor enclave.
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.FreshnessJumpTooLarge.selector);
+        ch.commitManagerFreshness(type(uint64).max);
+
+        // ⚠️ AND THE CONTROL, WITHOUT WHICH THIS WOULD PASS AGAINST A CONTRACT THAT REFUSED EVERY
+        // COMMIT: honest operation must be entirely unaffected by the ceiling.
+        vm.prank(hop); ch.commitFreshness(cid, 1);
+        vm.prank(hop); ch.commitFreshness(cid, 1_000_001);   // exactly the maximum step
+        assertEq(ch.freshnessSeq(cid), 1_000_001, "a step at the bound is allowed");
+        vm.prank(hop);
+        vm.expectRevert(BTCChannels.FreshnessJumpTooLarge.selector);
+        ch.commitFreshness(cid, 2_000_002);                  // one past it
+    }
+
     /// ANTI-ROLLBACK (M11-SGX): commitFreshness is hop-gated + STRICTLY monotonic — the
     /// on-chain half of the enclave persistence-freshness guard. A rolled-back/replayed
     /// seq reverts on-chain, and a foreign caller can't bump the counter (which would DoS
