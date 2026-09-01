@@ -1105,7 +1105,12 @@ describe("QU!D Protocol — Depository Suite", () => {
 
     it("FL.1 SOL flash borrow and repay round-trip succeeds", async () => {
       const BORROW_SOL = new BN(500_000_000); // 0.5 SOL
-      const TIP_SOL    = new BN(0);
+      // ⚠️ THE TIP IS MANDATORY. `flash_repay` requires
+      //    `tip_lamports >= principal * FLASH_TIP_BPS / 10_000`, and this test
+      //    still repaid ZERO — so the round trip it claims to verify had been
+      //    failing on `InsufficientFunds` rather than on anything about flash
+      //    loans. FLASH_TIP_BPS is 5, so 0.5 SOL owes 250_000 lamports.
+      const TIP_SOL    = new BN(250_000);
 
       const bankBefore  = await program.account.depository.fetch(bankPDA);
       const flashBefore = await program.account.flashLoan.fetch(flashLoanPDA);
@@ -1147,7 +1152,12 @@ describe("QU!D Protocol — Depository Suite", () => {
       const flashAfter = await program.account.flashLoan.fetch(flashLoanPDA);
 
       expect(flashAfter.flashLamports.toNumber()).to.equal(0);
-      expect(bankAfter.solLamports.toNumber()).to.equal(bankBefore.solLamports.toNumber());
+      // ⚠️ THE TIP REACHES THE POOL, so a round trip is NOT balance-neutral.
+      //    This asserted equality from before the tip was mandatory; the tip
+      //    is SOL depositors' rent on their own lamports, held liquid at their
+      //    expense, so `sol_lamports` rises by exactly it.
+      expect(bankAfter.solLamports.toNumber()).to.equal(
+        bankBefore.solLamports.toNumber() + TIP_SOL.toNumber());
       console.log("  ✓ SOL flash loan round-trip: borrowed",
         BORROW_SOL.toNumber() / LAMPORTS_PER_SOL, "SOL, repaid, state zeroed");
     });
@@ -1570,7 +1580,8 @@ describe("QU!D Protocol — Depository Suite", () => {
       // Enable parking: 20% stays hot (the floor), 5% deadband, no hold, so a
       // single deposit clears the band and a withdrawal can unwind at once.
       await program.methods
-        .setKestrel(KESTREL, SOL_STAR, 2000, 500, 500, new BN(0))
+        .updateConfig(null, null, { kestrelProgram: KESTREL, solStarMint: SOL_STAR,
+                                    bufferBps: 2000, haircutBps: 500, parkBandBps: 500 })
         .accountsStrict({ admin: payer.publicKey, config: configPDA, bank: bankPDA })
         .rpc();
 
@@ -1673,13 +1684,18 @@ describe("QU!D Protocol — Depository Suite", () => {
       expect(after.solStarShares.toNumber()).to.be.greaterThan(0);
       try {
         await program.methods
-          .setKestrel(PublicKey.default, PublicKey.default, 2000, 500, 1000,
-                      new BN(21 * 86400))
+          .updateConfig(null, null, { kestrelProgram: PublicKey.default,
+              solStarMint: PublicKey.default, bufferBps: 2000, haircutBps: 500,
+              parkBandBps: 1000 })
           .accountsStrict({ admin: payer.publicKey, config: configPDA, bank: bankPDA })
           .rpc();
         expect.fail("Disabling Kestrel with SOL* outstanding should be refused");
       } catch (e: any) {
-        expect(e.toString()).to.match(/FlashLoanActive|custom program error/);
+        // `SolStarStillParked` is the guard that actually fires — thrown by
+        // name now that `set_kestrel` is folded into `update_config`, where the
+        // old instruction surfaced it as a bare custom error.
+        expect(e.toString()).to.match(
+          /SolStarStillParked|FlashLoanActive|custom program error/);
         console.log("  ✓ cannot switch off the issuer while its token is held");
       }
       // Kestrel stays enabled for the rest of the suite; unwinding must remain
@@ -1864,12 +1880,16 @@ describe("QU!D Protocol — Depository Suite", () => {
       // orphaning it.
       try {
         await program.methods
-          .setKestrel(PublicKey.default, PublicKey.default, 2000, 500, 1000, new BN(0))
+          .updateConfig(null, null, { kestrelProgram: PublicKey.default,
+              solStarMint: PublicKey.default, bufferBps: 2000, haircutBps: 500,
+              parkBandBps: 1000 })
           .accountsStrict({ admin: payer.publicKey, config: configPDA, bank: bankPDA })
           .rpc();
         expect.fail("disabling with SOL* outstanding must be refused");
       } catch (e: any) {
-        expect(String(e)).to.match(/FlashLoanActive|custom program error/);
+        // See SW.5b: the guard is `SolStarStillParked`, thrown by name.
+        expect(String(e)).to.match(
+          /SolStarStillParked|FlashLoanActive|custom program error/);
       }
       console.log("  ✓ the issuer cannot be cleared while its token is held");
     });

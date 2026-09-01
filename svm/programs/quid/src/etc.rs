@@ -260,7 +260,13 @@ pub enum PithyQuip {
     #[msg("flash_repay instruction not found in transaction")]
     FlashRepayMissing,
 
-    #[msg("caller is not the configured flash authority")]
+    /// ⚠️ THROWN FOR TWO DIFFERENT MISMATCHES, and the message described only
+    ///    one. `flash_borrow` uses it for a caller that is not the configured
+    ///    flash authority; the SOL* legs use it for a `kestrel_program` that is
+    ///    not the configured one. A Kestrel misconfiguration therefore reported
+    ///    itself as a flash-authority problem, which sent me looking at the JAM
+    ///    wiring for a fault that was in `set_kestrel` never having been called.
+    #[msg("program address does not match the configured settlement or staking program")]
     InvalidSettlementProgram,
 
     #[msg("no active flash loan to repay")]

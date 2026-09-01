@@ -2645,7 +2645,7 @@
     {
       "code": 6023,
       "name": "InvalidSettlementProgram",
-      "msg": "caller is not the configured flash authority"
+      "msg": "program address does not match the configured settlement or staking program"
     },
     {
       "code": 6024,
