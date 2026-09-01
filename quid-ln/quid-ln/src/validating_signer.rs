@@ -608,9 +608,24 @@ impl ValidatingChannelSigner {
     fn check_against_chain(&self, ctx: &TaprootSignerContext) -> Result<(), ()> {
         use std::sync::atomic::Ordering::SeqCst;
         let Some((truth, role)) = self.truth.get() else { return Ok(()) };
-        // The BASE key: `keysHash` was pinned at open, before any splice rotation.
+        // 🔴 THE CURRENT-SCOPE KEY, NOT THE BASE ONE. This read `funding_key(None)` with the comment
+        // *"the BASE key: `keysHash` was pinned at open, before any splice rotation"* — TRUE WHEN
+        // WRITTEN AND FALSE SINCE §SPLICE-ROTATES-BOTH-FUNDING-KEYS (2026-09-01), which made `splice`
+        // RE-PIN `keysHash` to the rotated pair. `ChannelTruth::verify` compares the on-chain
+        // `keysHash` against exactly the pair passed here, so supplying the base pair for a channel
+        // that has been spliced yields `Mismatch` ⇒ **fail closed ⇒ the signer refuses to sign a
+        // spliced channel at all.** The old premise held only because the EVM used to REJECT rotated
+        // pairs, which kept `keysHash` frozen at the base while the chain moved on — i.e. the check
+        // agreed with the contract by both being stale.
+        // ⇒ `ctx.splice_parent_funding_txid` is the scope selector LDK already threads for this, and
+        // `taproot_holder_funding_key` (`:781`) derives its signing key the same way — so this now
+        // asks the chain about the SAME key it is about to sign with.
         let secp = Secp256k1::new();
-        let ours = self.inner.funding_key(None).public_key(&secp).serialize();
+        let ours = self
+            .inner
+            .funding_key(ctx.splice_parent_funding_txid)
+            .public_key(&secp)
+            .serialize();
         let theirs = ctx.counterparty_funding_pubkey.serialize();
         let (lp, hop) = match role {
             FundingRole::Lp => (&ours, &theirs),
