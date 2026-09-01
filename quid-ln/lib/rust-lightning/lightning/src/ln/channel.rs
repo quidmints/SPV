@@ -13240,6 +13240,9 @@ where
 
 	pub(crate) fn splice_init<ES: Deref, L: Deref>(
 		&mut self, msg: &msgs::SpliceInit, our_funding_contribution_satoshis: i64,
+		// QU!D PATCH: outputs funded by a NEGATIVE `our_funding_contribution_satoshis` (an
+		// acceptor-side splice-out). Empty on the upstream path.
+		our_funding_outputs: Vec<TxOut>,
 		signer_provider: &SP, entropy_source: &ES, holder_node_id: &PublicKey, logger: &L,
 	) -> Result<msgs::SpliceAck, ChannelError>
 	where
@@ -13265,7 +13268,12 @@ where
 			funding_feerate_sat_per_1000_weight: msg.funding_feerate_per_kw,
 			shared_funding_input: Some(prev_funding_input),
 			our_funding_inputs: Vec::new(),
-			our_funding_outputs: Vec::new(),
+			// QU!D PATCH: the acceptor's own splice-out outputs. Upstream leaves this empty because
+			// `internal_splice_init` hardcoded a zero contribution, so there was never anything to
+			// put here. It is the OTHER half of that patch — a negative contribution with no
+			// outputs would remove value from our balance and pay it nowhere.
+			// ⚠️ Stays EMPTY for a zero contribution, so the upstream path is byte-identical.
+			our_funding_outputs: our_funding_outputs,
 			change_script: None,
 		};
 

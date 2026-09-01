@@ -122,3 +122,43 @@ masquerading as the original.
 
 ⛔ Do not "simplify" `onchain_cid_from_monitor` back to `funding_pubkeys()`. The id must not follow
 the channel's live scope — that is the entire reason `original_funding_txo` exists.
+
+## Acceptor-side splice contribution (2026-09-01, §ACCEPTOR-CONTRIBUTION)
+
+**Why.** `SpliceContribution::SpliceOut` removes value from the **initiator's** balance, and
+`ChannelManager::internal_splice_init` hardcoded the acceptor's contribution to `0i64` under
+*"TODO(splicing): Currently not possible to contribute on the splicing-acceptor side"*. Together those
+force the party whose sats are leaving to drive the whole interactive-tx negotiation.
+
+QU!D's swap-out delivery removes the **LP's** sats. The LP is an often-offline react-native wallet, and
+**co-signing a splice is a far smaller ask of a wallet than driving one**. Upstream's own TODO inside
+`Channel::splice_init` names this case: *"For always-on nodes this probably isn't a useful
+optimization, but for often-offline nodes it may be, as we may connect and immediately go into
+splicing from both sides."*
+
+**What.** Every layer below the manager already supported it — `Channel::splice_init` takes an
+`our_funding_contribution_satoshis`, `FundingNegotiationContext` carries the contribution *and*
+`our_funding_outputs`, and `validate_splice_init` does not reject a non-zero acceptor contribution. So
+the patch is small:
+
+* `ChannelManager.pending_acceptor_contributions: Mutex<HashMap<ChannelId, SpliceContribution>>` —
+  what this node will contribute to the next counterparty-initiated splice on that channel.
+* `ChannelManager::register_acceptor_splice_contribution` / `clear_acceptor_splice_contribution`.
+* `internal_splice_init` **removes** the registration and passes the resulting negative contribution
+  plus its outputs to `Channel::splice_init`, which gained an `our_funding_outputs: Vec<TxOut>`
+  parameter.
+
+**Deliberate restrictions, each with its failure mode:**
+* **One-shot** — the registration is consumed, so it cannot attach the same outputs to a later,
+  unrelated splice. For a delivery that would pay a swapper twice out of a channel that never agreed.
+* **Per-channel** — keyed by `ChannelId`, so an intent for one channel can never apply to another.
+* **Not persisted** — restored on reload it would attach to whatever splice arrived next, possibly
+  long after the delivery it belonged to was resolved. Re-register per attempt.
+* **`SpliceOut` only** — a negative contribution is funded from channel balance and needs no inputs. A
+  positive one needs inputs whose sufficiency the acceptor path still does not check (upstream's
+  remaining TODO in `validate_splice_init`), so accepting one here would walk straight into that gap.
+  A non-`SpliceOut` registration is refused when the splice arrives, and is **put back rather than
+  dropped**, because silently discarding a registered intent is how a delivery goes missing.
+
+**Upstream path is unchanged**: with no registration the contribution is `0i64` and
+`our_funding_outputs` is empty, exactly as before.
