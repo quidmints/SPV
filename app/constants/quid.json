@@ -771,6 +771,211 @@
       ]
     },
     {
+      "name": "issue_paper",
+      "docs": [
+        "Permissionless: fund a book the pool's dollars can no longer cover."
+      ],
+      "discriminator": [
+        109,
+        161,
+        224,
+        112,
+        25,
+        171,
+        74,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "cranker",
+          "docs": [
+            "Any signer. The gate is not WHO calls but WHAT the pool's own state",
+            "permits: the destination is the admin-set sweeping address, the",
+            "direction is forced by the book's sign, the size is bounded by the",
+            "exposure being funded, and the moment is `unfunded_bps` read from pool",
+            "state. A caller who cannot pick the venue, the side, the size or the",
+            "moment cannot move value anywhere the pool was not already going.",
+            "",
+            "⚠️ Publishing a rule normally costs execution quality — the sim prices",
+            "that as `adverse_fill_bps`, reasoning that a predictable buyer can be",
+            "stood in front of. **That does not transfer here.** Market Flow is",
+            "primary creation against the issuer at NAV; there is no book to stand",
+            "in front of. Which is what makes on-chain policy affordable on this leg",
+            "and not on a secondary venue."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bank",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  111,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "backing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  99,
+                  107,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticker_risk",
+          "docs": [
+            "The instrument's own risk account, for its price clock. Read-only:",
+            "backing writes no per-ticker state, which is what keeps",
+            "`reconcile_ticker_reserve` and the liquidation paths out of this."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  105,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "ticker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stable_mint"
+        },
+        {
+          "name": "stable_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "stable_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backing_mint"
+        },
+        {
+          "name": "paper_vault",
+          "docs": [
+            "The pool's own paper. **The holding itself, not a copy of it.**"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  112,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backing_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sweep_destination",
+          "docs": [
+            "handler, because which is correct depends on direction."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "ticker",
+          "type": "string"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "liquidate",
       "discriminator": [
         223,
@@ -1169,6 +1374,315 @@
       }
     },
     {
+      "name": "reconcile",
+      "docs": [
+        "Admin: book what the issuer actually did. The only instruction in the",
+        "section needing off-chain truth, and the largest trust surface in it."
+      ],
+      "discriminator": [
+        61,
+        24,
+        197,
+        180,
+        195,
+        169,
+        138,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bank",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  111,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "backing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  99,
+                  107,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "funded_dollars",
+          "type": "u64"
+        },
+        {
+          "name": "proceeds_dollars",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_paper",
+      "docs": [
+        "Permissionless: send paper back once the book no longer needs it. The",
+        "pool never goes SHORT paper — it goes flat."
+      ],
+      "discriminator": [
+        177,
+        37,
+        42,
+        215,
+        166,
+        242,
+        183,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "cranker",
+          "docs": [
+            "Any signer. The gate is not WHO calls but WHAT the pool's own state",
+            "permits: the destination is the admin-set sweeping address, the",
+            "direction is forced by the book's sign, the size is bounded by the",
+            "exposure being funded, and the moment is `unfunded_bps` read from pool",
+            "state. A caller who cannot pick the venue, the side, the size or the",
+            "moment cannot move value anywhere the pool was not already going.",
+            "",
+            "⚠️ Publishing a rule normally costs execution quality — the sim prices",
+            "that as `adverse_fill_bps`, reasoning that a predictable buyer can be",
+            "stood in front of. **That does not transfer here.** Market Flow is",
+            "primary creation against the issuer at NAV; there is no book to stand",
+            "in front of. Which is what makes on-chain policy affordable on this leg",
+            "and not on a secondary venue."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bank",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  111,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "backing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  99,
+                  107,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticker_risk",
+          "docs": [
+            "The instrument's own risk account, for its price clock. Read-only:",
+            "backing writes no per-ticker state, which is what keeps",
+            "`reconcile_ticker_reserve` and the liquidation paths out of this."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  105,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "ticker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stable_mint"
+        },
+        {
+          "name": "stable_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "stable_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backing_mint"
+        },
+        {
+          "name": "paper_vault",
+          "docs": [
+            "The pool's own paper. **The holding itself, not a copy of it.**"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  112,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backing_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sweep_destination",
+          "docs": [
+            "handler, because which is correct depends on direction."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "ticker",
+          "type": "string"
+        },
+        {
+          "name": "raw_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "refresh_sol_collateral",
       "discriminator": [
         127,
@@ -1246,6 +1760,106 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "set_backing",
+      "docs": [
+        "Admin: point the pool's backing at an instrument and the issuer's",
+        "sweeping addresses."
+      ],
+      "discriminator": [
+        61,
+        37,
+        234,
+        117,
+        230,
+        240,
+        175,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "backing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  99,
+                  107,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "ticker",
+          "type": "string"
+        },
+        {
+          "name": "issuance",
+          "type": "pubkey"
+        },
+        {
+          "name": "redemption",
+          "type": "pubkey"
+        },
+        {
+          "name": "mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "min_order",
+          "type": "u64"
+        },
+        {
+          "name": "max_order",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "sweep",
@@ -1727,6 +2341,19 @@
   ],
   "accounts": [
     {
+      "name": "Backing",
+      "discriminator": [
+        183,
+        154,
+        102,
+        51,
+        83,
+        11,
+        152,
+        65
+      ]
+    },
+    {
       "name": "Depositor",
       "discriminator": [
         219,
@@ -2020,6 +2647,66 @@
       "code": 6026,
       "name": "UnparkConsentRequired",
       "msg": "withdrawal exceeds the hot buffer and no unpark haircut was consented to"
+    },
+    {
+      "code": 6027,
+      "name": "NotDeliverable",
+      "msg": "no xStock is shipped for this ticker"
+    },
+    {
+      "code": 6028,
+      "name": "WrongDirection",
+      "msg": "paper only funds a net-long book; this ticker is net short or flat"
+    },
+    {
+      "code": 6029,
+      "name": "BelowMinimumTicket",
+      "msg": "order is below Backed's primary-market minimum"
+    },
+    {
+      "code": 6030,
+      "name": "AboveMaximumTicket",
+      "msg": "order is above this product's per-period maximum"
+    },
+    {
+      "code": 6031,
+      "name": "DeliveryHalted",
+      "msg": "delivery halted for this product"
+    },
+    {
+      "code": 6032,
+      "name": "ExceedsNetExposure",
+      "msg": "issuance would exceed the net exposure it funds"
+    },
+    {
+      "code": 6033,
+      "name": "FundingWithinBand",
+      "msg": "coverage is inside the band; paper is not needed yet"
+    },
+    {
+      "code": 6034,
+      "name": "NoPaperHeld",
+      "msg": "the pool holds no paper to redeem for this ticker"
+    },
+    {
+      "code": 6035,
+      "name": "DeliveryCoolingDown",
+      "msg": "another delivery leg ran too recently on this ticker"
+    },
+    {
+      "code": 6036,
+      "name": "PriceTooStaleToDeliver",
+      "msg": "price is too stale to send a primary-market order"
+    },
+    {
+      "code": 6037,
+      "name": "BackingStillHeld",
+      "msg": "redeem the existing backing to flat before repointing it"
+    },
+    {
+      "code": 6038,
+      "name": "SolStarStillParked",
+      "msg": "wind the SOL* position down before disabling the issuer"
     }
   ],
   "types": [
@@ -2237,6 +2924,185 @@
               "symmetric estimator over |change|."
             ],
             "type": "i64"
+          },
+          {
+            "name": "gap_vol_bps",
+            "docs": [
+              "⭐ **THE MOVE THE LADDER CANNOT TOUCH.** EMA of |return| across prints",
+              "separated by more than `GAP_MIN_SLOTS` — close-to-open, weekend,",
+              "halt-to-reopen — kept RAW, never scaled to a window, because a gap is",
+              "not a window's worth of diffusion. It is one print.",
+              "",
+              "🔴 THESE THREE FIELDS EXIST BECAUSE THE MODEL HAD NO PLACE TO PUT A GAP.",
+              "Every observation went into one pooled tail, that tail was then",
+              "multiplied by `unwind_exposure_x100` as though a ladder could work",
+              "against all of it, and the overnight move — 37% of variance, worst",
+              "observed 3,752 bps — was priced as if it could be unwound in",
+              "tranches. It cannot. Nobody can call anything until the bell."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "gap_max_bps",
+            "docs": [
+              "Largest gap seen, in bps. Decays like `max_drawdown_bps` so a violent",
+              "past fades, but never faster than elapsed time allows."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "gap_count",
+            "docs": [
+              "How many gaps have been seen. Below a handful the estimate is not one."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "window_ref_price",
+            "docs": [
+              "Price at the start of the open sampling window, and the slot it opened.",
+              "The session tail is fed the return between these and the price at the",
+              "first print past `LADDER_WINDOW_SLOTS` — one observation per window, no",
+              "matter how many callers touched the ticker inside it."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "window_since",
+            "type": "i64"
+          },
+          {
+            "name": "experience_bps",
+            "docs": [
+              "⭐ **WHAT THE BORROWERS ON THIS TICKER HAVE ACTUALLY DONE TO THE POOL**,",
+              "as an EMA of realised P&L in bps of the notional it was made on. Signed:",
+              "positive means LONGS have been winning, negative means shorts have.",
+              "",
+              "🔴 THE MODEL HAD NO WAY TO LEARN THAT A SIDE WAS INFORMED. Every price it",
+              "charges comes from the fitted tail — a statement about how far the",
+              "PRICE moves — and a tail cannot see that the people on one side of it",
+              "keep being right. Those are different facts. A book that is",
+              "consistently short and consistently correct is not a volatility",
+              "problem, it is an adverse-selection problem, and no quantile of the",
+              "return distribution contains it.",
+              "",
+              "It cannot be hedged — holding paper only adds length, and nobody takes",
+              "the wrong side of a one-way market for a funding rate. It cannot be",
+              "priced from the tail. It CAN be priced from experience, which is what an",
+              "insurer does when a class of risk keeps losing money: charge that class",
+              "more, out of what it has already demonstrated."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "funding_index",
+            "docs": [
+              "⭐ **ONE SIGNED INTEGRAL, `∫ φ dt`, IN BPS-SECONDS.** A position with",
+              "signed exposure `e` owes `e · ΔΦ`; the sign of what it pays or receives",
+              "falls out of the sign of `e`, with no branch and no side selection.",
+              "",
+              "🔴 THIS REPLACED `funding_to_longs` AND `funding_to_shorts` ON",
+              "`TickerRisk`, WHOSE DOCSTRING ARGUED FOR TWO: *\"the side being PAID",
+              "flips as the book does. One accumulator cannot represent 'longs were",
+              "owed for a week, then shorts were' without a position having to know",
+              "which era each part of its claim came from.\"* It can, and that is",
+              "precisely what a signed integral is for. Longs pay `+A` over week one",
+              "and are paid `−B` over week two; Φ moves `+A` then `−B`; a long held",
+              "throughout owes `e(A−B)` and a short `−|e|(A−B)`. Neither position has",
+              "to know when anything happened, because the integral already does.",
+              "",
+              "The real reason there were two is subtler and it was a mistake of a",
+              "different kind. Dividing a collected sum by the RECEIVING side's total",
+              "gives the two sides different per-unit rates, which forces the transfer",
+              "to net to exactly zero. Under one rate the book nets to `ΔΦ · net` — and",
+              "that residual is not a leak, it is THE POOL'S OWN FUNDING. The pool is",
+              "counterparty to the net, so it is paid at the same per-unit rate as any",
+              "other holder of that side. The old scheme paid the minority side the",
+              "whole surcharge at an inflated rate and paid the pool nothing for the",
+              "imbalance it was actually carrying. The one-sided-book special case",
+              "(\"no counterparty to reach, stays with the pool\") disappears too: with",
+              "no shorts, `ΔΦ · net` IS the whole amount and it lands on the pool",
+              "automatically.",
+              "",
+              "🔴 AND IT USED TO ACCRUE ON TRADES RATHER THAN ON TIME. `accrue_funding`",
+              "had exactly one call site, inside an exposure change, so a position",
+              "that never traded paid no funding however long it crowded the book —",
+              "a toll, not a carry. It advances here instead, inside",
+              "`accrue_premium_index`, over the same `dt` as every other integral."
+            ],
+            "type": "i128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Backing",
+      "docs": [
+        "The pool's backing: where the issuer's addresses are, what instrument, and",
+        "how much of the book is funded."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "The instrument. Any mint this build ships in `XSTOCK_MINTS` — index or",
+              "single name, whichever suits the book."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "issuance",
+            "docs": [
+              "The issuer's issuance sweeping address.",
+              "",
+              "⚠️ SOURCED FROM AN AUTHENTICATED ENDPOINT, SO IT IS ADMIN-SET, NOT",
+              "DERIVED. Nothing on-chain can prove this address is the issuer's; the",
+              "multisig asserting it is the whole of the guarantee. That is why",
+              "`set_backing` is permissioned and the flow legs are not — and why keeping",
+              "it to ONE instrument matters, since it is one address pair to vouch for",
+              "rather than two per name."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "redemption",
+            "docs": [
+              "The issuer's redemption sweeping address."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "funded",
+            "docs": [
+              "Dollars of book funded by paper, at cost. Begins when the dollars leave",
+              "(the order will fill) and ends when the paper leaves. Read by",
+              "`unfunded_bps` and by nothing else."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "min_order",
+            "docs": [
+              "Per-order bounds in accounting dollars, mirroring the issuer's",
+              "`limitsPerPeriod.market`. `max_order == 0` means halted — which is also",
+              "how a CLOSED market is reported (`maxOrderFiatValue: 0` in the `closed`",
+              "period for 714 of 715 assets)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_order",
+            "type": "u64"
+          },
+          {
+            "name": "last_flow",
+            "type": "i64"
           }
         ]
       }
@@ -2424,6 +3290,75 @@
           {
             "name": "pool_collar_dollar_seconds",
             "type": "u128"
+          },
+          {
+            "name": "paper_in_transit",
+            "docs": [
+              "Dollars the issuer owes back: paper has left, proceeds have not landed.",
+              "",
+              "⭐ **THE ONLY POOL-LEVEL FIGURE THE HEDGE NEEDS, AND IT FALLS OUT OF THE",
+              "ARITHMETIC.** Holding paper is asset-neutral for a depositor: it costs",
+              "`C` of liquid dollars and retires `C` of liability, so",
+              "`deposits + yield - (liability - C) - C` is just",
+              "`deposits + yield - liability`. Cover cancels. What does NOT cancel is",
+              "the window where the paper has gone and the money has not arrived —",
+              "the moment the pool is least liquid, and the worst possible moment to",
+              "tell a depositor otherwise.",
+              "",
+              "⚠️ An earlier cut carried a `paper_dollars` that tracked COVER and only",
+              "ever grew, because nothing released it; `withdrawable()` decayed toward",
+              "zero with a full vault. Tracking the thing that does not cancel, rather",
+              "than the thing that does, removes the release path along with the bug."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "unwind_demand",
+            "docs": [
+              "⭐ **WHAT THE POOL OWES DEPOSITORS AND COULD NOT PAY.**",
+              "",
+              "🔴 **DEPOSITORS WAITED ON BORROWERS' DECISIONS, AND NOTHING MADE THAT",
+              "WAIT END.** `withdrawable()` withholds `max_liability`, and that",
+              "reserve is held against exposure that is mostly SYNTHETIC — a",
+              "bilateral bet where nothing was bought. A position inside its band is",
+              "untouchable and only a breach brings the ladder, so the withheld",
+              "fraction (measured at 6–26% across every cohort shape) came free only",
+              "when borrowers happened to close. That is the wrong seniority: a",
+              "borrower's leverage is a claim on depositor capital, and when that",
+              "capital leaves, the claim has to shrink with it.",
+              "",
+              "The distinction that matters is WHY the capital is committed:",
+              "",
+              "• `paper_in_transit` — dollars gone, paper not yet landed. A real",
+              "wait, and the only legitimate one.",
+              "• `Backing::funded` — liability covered by paper the pool actually",
+              "holds. Slow to release: it has to be sold, in market hours.",
+              "• the rest of `max_liability` — synthetic, and unwindable NOW.",
+              "",
+              "So the reserve still binds at the moment of withdrawal — solvency is not",
+              "negotiable — but unmet demand is RECORDED here rather than silently",
+              "deferred, and it tightens the band in `repo` until the ladder has",
+              "unwound enough synthetic exposure to clear it. The depositor waits one",
+              "crank, not one borrower.",
+              "",
+              "⚠️ THIS IS NOT THE CROWDING SURCHARGE WEARING A DIFFERENT HAT, and the",
+              "difference is the whole justification. Tightening a band because the",
+              "BOOK leaned would punish a borrower for being on the popular side —",
+              "changing the deal after the fact. Tightening it because the CAPITAL",
+              "BEHIND IT WAS WITHDRAWN is the seniority that was always there: the",
+              "borrower keeps their pledge and every dollar of their P&L, they",
+              "simply cannot hold as much notional against a smaller pool."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "paper_backed",
+            "docs": [
+              "Mirror of `Backing::funded` — liability covered by paper the pool holds.",
+              "Kept here because `withdrawable()` cannot reach the `Backing` account,",
+              "and this is the half of `max_liability` that a crank CANNOT free."
+            ],
+            "type": "u64"
           },
           {
             "name": "sol_yield_index",
@@ -2968,6 +3903,40 @@
             "type": "u128"
           },
           {
+            "name": "funding_checkpoint",
+            "docs": [
+              "Where this position last stood in its ticker's signed funding integral.",
+              "`exposure × (Φ_now − Φ_here)` is what it has paid or been paid since,",
+              "with the direction carried by the sign of `exposure` rather than by a",
+              "choice of which of two indices to read."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "marked",
+            "docs": [
+              "⭐ **THE MARK REFERENCE: `exposure_value` as of the last settlement.**",
+              "",
+              "🔴 THE POD HAD NO ENTRY PRICE AND THAT IS WHY IT COULD NOT BE LEVERED.",
+              "`cost_basis` reads like one, but `renege` moves it and `pledged` by",
+              "the SAME amount on every collateral change — it is contributed",
+              "collateral, and it equals the entry notional only because the band",
+              "forces `exposure_value == pledged`. Remove the forcing and nothing in",
+              "`Stock` remembered what the position was worth when it was opened, so",
+              "no profit or loss could be computed and the band had to be written on",
+              "notional instead. On notional the floor is `pledged − exposure·c`,",
+              "which is ZERO at any leverage past 1/c: a levered long can lose its",
+              "whole pledge without the band noticing, because a losing long's",
+              "NOTIONAL FALLS and moves it further inside its own band.",
+              "",
+              "One `u64` is the entire cost of leverage here. With it, the band is",
+              "written where it always meant to be — on the move since the mark — and",
+              "at 1x, where `marked == pledged`, it reduces to exactly the band that",
+              "is there today."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "breached_at",
             "docs": [
               "Unix time this position first went outside its band, 0 while inside it.",
@@ -3029,6 +3998,26 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "funding_pot",
+            "docs": [
+              "⭐ **FUNDING COLLECTED BUT NOT YET PAID OUT.**",
+              "",
+              "🔴 THE INDEX PROMISED MORE THAN THE PAYERS COULD FUND. `settle_funding`",
+              "debits the crowded side's pledge and saturates at zero — a position",
+              "ground down by carry pays what is left and no more — while the",
+              "offsetting side claims `e · ΔΦ` in full, from nowhere. The difference",
+              "came out of the reserve, which is to say out of depositors who were",
+              "never party to either position.",
+              "",
+              "An index cannot see its own aggregate, so the bound has to be carried",
+              "explicitly: every dollar actually collected lands here, and a receiver",
+              "can be paid only out of what is in it. Funding becomes self-funding by",
+              "construction, and a shortfall falls on the side that was promised rather",
+              "than on the pool that never promised anything."
+            ],
+            "type": "u64"
           },
           {
             "name": "reserved",
