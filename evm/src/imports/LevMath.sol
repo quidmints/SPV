@@ -7,7 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue} from "./Interfaces.sol";
-import {ILevVenue, IERC20Min, IWETH9} from "../imports/Interfaces.sol";
+import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.

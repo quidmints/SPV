@@ -8,7 +8,7 @@ import {BasketLib} from "./imports/BasketLib.sol";
 import {WAD, AlreadyInitialized, InsufficientAllowance} from "./imports/Types.sol";
 import {ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
-import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
+import {IDepositAdapter} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
@@ -17,7 +17,6 @@ import {SwapLib} from "./imports/SwapLib.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 import {RangeLib} from "./imports/RangeLib.sol";
 
-import {BasketLib} from "./imports/BasketLib.sol";
 import {Types} from "./imports/Types.sol";
 
 import {Basket} from "./Basket.sol";

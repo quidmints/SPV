@@ -19,8 +19,6 @@ import {RangeLib} from "./RangeLib.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
-import {ICore} from "./Interfaces.sol";
-import {IEthVenue} from "./Interfaces.sol";
 // §VAULTLIB-FOLD — imports carried in with the merged bodies
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)

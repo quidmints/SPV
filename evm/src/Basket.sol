@@ -16,7 +16,6 @@ import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 import {ICollection} from "./imports/Interfaces.sol";
 import {Types, BtcVaultPinned, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 import {OApp, Origin, MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Basket is ERC20, ERC6909, 
     ReentrancyGuard, OApp {

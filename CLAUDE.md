@@ -375,6 +375,22 @@ the signature of this, and nothing else produces it.
 - **Count self-caught vs prompted corrections.** Five wrong conclusions were overturned on
   2026-08-09; **zero were caught by the author.** If a session's corrections all arrive from outside,
   its verification loop is not working, and the remaining unexecuted checks are the exposure.
+- 🔴 **AFTER ANY SOLIDITY CHANGE, RUN `tools/check-orphans.py` — AND LET ITS RESULT GATE THE COMMIT.**
+  It fails when a member of one of OUR interfaces has no caller in `evm/src`: the *built-but-unwired*
+  shape, where a feature's cheap measurement layer lands, its tests go green, and the expensive layer
+  that would consume it never does. `forge build` and `forge test` are both blind to it — the name is
+  present, the CALLER is missing.
+  ⚠️ **THIS IS NOT WIRED TO CI, BECAUSE THERE IS NO CI: `9553d8e3` (2026-09-01) DELETED
+  `.github/workflows/` — *"we do not use CI here"*.** A step added to `ci.yml` earlier the same day
+  went with it. ⇒ **Every gate in this repo runs because this file tells you to run it.** Do not
+  re-add a workflow file; add the command here instead.
+  ⭐ **AND NOTE WHAT THIS CONCEDES ABOUT THE RULE ABOVE.** "Build a gate, not a rule" was the lesson
+  of 2026-09-01 — and the gate's only runner is a rule. The distinction that survives is narrower and
+  still real: a rule asking for a DISPOSITION ("notice when you leave something unwired") has now
+  failed twice; a rule asking you to RUN ONE COMMAND with a binary result is a different instrument.
+  Prefer the second whenever the question can be made mechanical.
+  ⛔ Its allowlist `tools/orphans-allow.txt` REQUIRES a reason per entry. A CLASS 3 entry is a KNOWN
+  DEFECT held open, not an exemption — removing one must mean fixing it, never silencing it.
 - **After any Solidity change, run `tools/check-client-abis.py`** — and let its result GATE the commit.
   `forge` + `tsc` both green does **not** mean the TypeScript clients still work. ⚠️ **In this tree
   `tsc` cannot run at all: `spa/` has NO `node_modules`, so the ABI checker is the ONLY client-side
