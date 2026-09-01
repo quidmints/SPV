@@ -230,7 +230,10 @@ export const BTCCHANNELS_ABI = [
   // independently of the funding outpoint, which a splice rotates.
   // (E164) `hop` removed: authority is the immutable MAIN_HOP/FALLBACK_HOP pair, not
   // per-channel state. Which of the two opened a channel survives in ChannelOpened.
-  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, bytes32 keysHash)',
+  // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) `lpToRemoteKey` is the LP's `to_remote` taproot output key,
+  // derived at open from its Lightning payment basepoint. A force-close commitment's LP output is
+  // `0x5120 || lpToRemoteKey`, which is how the contract measures what that close actually paid.
+  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, bytes32 keysHash, bytes32 lpToRemoteKey)',
 
   // SELF_REFUND_MIN_SECS / MIN_CONFIRMATIONS are `uint constant` (no `public`),
   // so they have NO on-chain getter — not callable, intentionally omitted.

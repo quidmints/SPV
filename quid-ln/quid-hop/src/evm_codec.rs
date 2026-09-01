@@ -74,9 +74,14 @@ pub fn keys_hash(lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33]) -> [u8; 32] {
     .0
 }
 
+// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) `OpenAuth` is `(bytes32,bytes,bytes)` — the third member is
+// `lpPaymentPoint`. ⚠️ ADDING THE FIELD TO THE STRUCT'S `tokens()` IS ONLY HALF THE CHANGE: this
+// string is what the SELECTOR is computed from, so leaving it at `(bytes32,bytes)` encodes a call to
+// a function that no longer exists — and `check-client-abis.py` is the only thing that catches it,
+// because both halves compile.
 pub const SIG_OPEN_CHANNEL: &str =
     "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
-(bytes32,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
+(bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_SPLICE: &str =
     "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (uint64[],bytes[],uint64,uint256,bytes)[])";
