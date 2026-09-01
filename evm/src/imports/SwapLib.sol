@@ -518,7 +518,7 @@ library SwapLib {
                 amount = aux.withdrawSelf(vault, amount, address(this));
             } else if (!stable) revert StableMissingS();
             // §A.50/C1: native → 6-dec, same reasoning as `_swapOutPrep`. No-op for 6-dec stables.
-            amount = scaleTo6(aux.deposit(msg.sender, token, amount), token);
+            amount = LevMath.scaleTo6(aux.deposit(msg.sender, token, amount), token);
         }
         return amount;
     }
@@ -2000,7 +2000,7 @@ library SwapLib {
         // native→6, which is exactly the conversion needed, and it is a NO-OP for the 6-dec stables
         // (USDC/USDT/PYUSD/USDG/AUSD). It bites only for the seven 18-dec stables, which no test
         // currently exercises — see the mixed-decimal Echidna target (§A.70).
-        uint amount = scaleTo6(IAux(aux).deposit(swapper, token, usdAmount), token);
+        uint amount = LevMath.scaleTo6(IAux(aux).deposit(swapper, token, usdAmount), token);
         ctx.asset = wbtc; ctx.core = core;
         // Reuse the repack-resolved oracle price (5th return); live-read only if priceHint==0.
         // §E9 — packed range ticks, not a price (see creditSwapInBody). Block-scoped for stack.
@@ -2568,13 +2568,6 @@ library SwapLib {
 
 
 
-    /// Rescale a just-deposited stable amount to 6-dec USD by its own decimals.
-    /// Shared verbatim by the ETH (QuidLib) and BTC (BtcLib) OOR paths.
-    function scaleTo6(uint amount, address token) internal view returns (uint) {
-        uint8 dec = IERC20(token).decimals();
-        if (dec == 6) return amount;
-        return dec > 6 ? amount / 10 ** (dec - 6) : amount * 10 ** (6 - dec);
-    }
 
     /// Shared param validation for the out-of-range boundary order (ETH+BTC):
     /// range 100–1000 step 50, distance ±5000 step 100 (non-zero). Custom error (no

@@ -1217,7 +1217,7 @@ contract Core {
                 // §A.50/C2 — UNITS: `usdAmount` is the 6-dec USD leg; `AUX.take` wants the payout
                 // token's NATIVE units. Every other `take`/`takeToSettle` site converts too
                 // (`BasketLib.from6` / `BasketLib.scaleTokenAmount`), and the CREATE side scales via
-                // `SwapLib.scaleTo6`. ⛔ Drop this and the round trip is ASYMMETRIC — an 18-dec
+                // `LevMath.scaleTo6`. ⛔ Drop this and the round trip is ASYMMETRIC — an 18-dec
                 // redeemer is paid 1e12x too little, and `minOut` cannot catch it because
                 // `Core.swap` returns the 6-dec delta, a different basis than delivery.
                 AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);

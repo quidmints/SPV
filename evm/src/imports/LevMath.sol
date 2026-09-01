@@ -749,12 +749,25 @@ library LevMath {
         uint extra = convertTo(st, amt, payoutToken, floor_, routes);
         if (extra == 0) return 0;
         IERC20OZ(payoutToken).safeTransfer(owner, extra);
-        return SwapLib_scaleTo6(extra, payoutToken);
+        return scaleTo6(extra, payoutToken);
     }
 
-    /// @dev Local copy of the 6-dec rescale: `LevMath` cannot import `SwapLib` (SwapLib imports THIS,
-    ///      and the reverse would be a cycle). Two lines, and the alternative is an import cycle.
-    function SwapLib_scaleTo6(uint amount, address token) internal view returns (uint) {
+    /// @notice Native token units → 6-dec USD, by the token's own `decimals()`.
+    ///         THE ONLY IMPLEMENTATION IN THE TREE. `SwapLib.scaleTo6` was a byte-equivalent twin and
+    ///         now delegates here.
+    /// @dev 🔴 §STALE-CYCLE (2026-09-01) — THE DUPLICATE WAS JUSTIFIED BY A CYCLE THAT DOES NOT EXIST.
+    ///      This docblock read *"`LevMath` cannot import `SwapLib` (SwapLib imports THIS, and the
+    ///      reverse would be a cycle)"* — and the ONLY occurrence of that import anywhere in this file
+    ///      was the sentence describing itself. `LevMath` is the bottom layer (it imports none of
+    ///      SwapLib/BasketLib/QuidLib) and `SwapLib` already imports it at `SwapLib.sol:28`, so the
+    ///      delegation was available the whole time.
+    ///      ⇒ The name went with it: the old `SwapLib_`-prefixed spelling was a cryptic apology for a
+    ///        copy (rule 7), naming the file it came FROM rather than what it does.
+    /// ⛔ NOT `BasketLib.from6`, WHICH IS THE INVERSE AND MUST NOT BE FOLDED IN. That one goes 6-dec →
+    ///    NATIVE and MULTIPLIES where this divides; the duplicate-body detector scores them as similar
+    ///    because the shape matches, and substituting either for the other is a decimal-basis bug —
+    ///    this repo's most common class (§A.72 cost 333 failing tests).
+    function scaleTo6(uint amount, address token) internal view returns (uint) {
         uint8 d = IERC20Min(token).decimals();
         return d == 6 ? amount : (d > 6 ? amount / 10 ** (d - 6) : amount * 10 ** (6 - d));
     }
