@@ -236,7 +236,6 @@ if [ "$1" = "--fork" ]; then
   #    "USD* fixture absent" and the second-mint path is never exercised.
   for a in "$XAG_PYTH" "$XAU_PYTH" "$BTC_PYTH" "$ETH_PYTH" "$SOL_PYTH" \
            "$USDC_PYTH" "$USDT_PYTH" "$PYUSD_PYTH" \
-           star9agSpjiFe3M49B3RniVU4CMBBEK3Qnaqn3RGiFM \
            "$SOL_STAR_MINT" "$KESTREL_TOKEN" "$KESTREL_VAULT" "$WSOL_MINT"; do
     CLONE+=(--clone "$a")
   done
@@ -255,7 +254,9 @@ if [ "$1" = "--fork" ]; then
   exec $VALIDATOR --reset --url "$MAINNET" "${CLONE[@]}" \
        --upgradeable-program QDgHUZjtccRjKZ63MBvW8uzKR7qcqjpRfGhNSEGfDu9 \
        target/deploy/quid.so "$PAYER_PUBKEY" \
-       --account "$PAYER_PUBKEY" "$FIXTURES/payer.json" "$@"
+       --account "$PAYER_PUBKEY" "$FIXTURES/payer.json" \
+       --account star9agSpjiFe3M49B3RniVU4CMBBEK3Qnaqn3RGiFM \
+                 "$FIXTURES/usd_star.json" "$@"
 fi
 
 $VALIDATOR --reset ${PROGRAMS[@]} ${ACCOUNTS[@]} "$@"
