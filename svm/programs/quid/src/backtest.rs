@@ -337,6 +337,7 @@ fn run_book(cfg: Book) -> Out {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
 
     let mut passive: u64 = cfg.passive;
@@ -1591,6 +1592,7 @@ fn a_breached_position_can_never_accumulate_an_excursion() {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
 
     let mut d = Depositor { owner: Pubkey::new_unique(), deposited_quid: 0,
@@ -1663,6 +1665,7 @@ fn a_dust_reduction_cannot_reset_the_excursion_clock() {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
     let mut d = Depositor { owner: Pubkey::new_unique(), deposited_quid: 0,
         deposited_lamports: 0, sol_pledged_usd: 0, deposit_seconds: 0,
@@ -1915,6 +1918,7 @@ fn desk(ticker: &str, pledge: u64, spare: u64) -> Desk {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
     let mut d = Depositor { owner: Pubkey::new_unique(), deposited_quid: pledge + spare,
         deposited_lamports: 0, sol_pledged_usd: 0, deposit_seconds: 0,
@@ -2267,6 +2271,7 @@ fn the_reserve_total_never_drifts_from_the_sum_of_its_tickers() {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
 
     let mut rng = Rng(0xD1F7_1234_5678_9AB);
@@ -2432,6 +2437,7 @@ fn the_books_net_exposure_against_what_the_positions_are_worth() {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
 
     let p0 = px[400].0;
@@ -2498,6 +2504,7 @@ fn every_depositors_share_of_the_yield_sums_to_at_most_the_pool() {
             sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
             sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
             sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
             pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
         let n = 3 + trial;
         let mut ds: Vec<Depositor> = (0..n).map(|_| Depositor {
@@ -2801,6 +2808,7 @@ fn a_big_short_where_the_borrowers_were_right() {
             sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
             sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
             sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
             pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
         // A tenth of the pool, short, at whatever the margin allows.
         let pledge = deposits / 10;
@@ -2876,6 +2884,7 @@ fn trace_one_big_short() {
         sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
         sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
         sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
         pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
     let pledge = 2_000_000_000_000u64;
     let mut dep = Depositor { owner: Pubkey::new_unique(), deposited_quid: pledge,
@@ -2960,6 +2969,7 @@ fn what_the_pools_delta_to_a_short_book_really_is() {
             sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
             sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
             sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
             pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
         let pledge = 2_000_000_000_000u64;
         let mut dep = Depositor { owner: Pubkey::new_unique(), deposited_quid: pledge,
@@ -3175,7 +3185,8 @@ fn the_same_crashes_against_a_borrower_who_actually_acts() {
                 yield_pool: 0, total_drawn: 0, max_liability: 0, sol_lamports: 0,
                 sol_usd_contrib: 0, sol_star_shares: 0, sol_star_cost_lamports: 0,
                 sol_star_credited_lamports: 0, sol_star_parked_at: 0, swept_at: 0,
-                swept_count: 0, paper_in_transit: 0, pool_realized_pnl: 0,
+                swept_count: 0, paper_in_transit: 0,
+                unwind_demand: 0, paper_backed: 0, pool_realized_pnl: 0,
                 pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
             let pledge = 2_000_000_000_000u64;
             let mut dep = Depositor { owner: Pubkey::new_unique(),
@@ -3342,4 +3353,84 @@ fn a_side_that_keeps_winning_is_charged_for_it() {
              a.experience_bps, a.loss_profile(-1_000_000, 0).premium_bps);
     assert_eq!(a.loss_profile(-1_000_000, 0).premium_bps, base_short,
         "the loading must decay once the edge is gone");
+}
+
+/// ⭐ **A DEPOSITOR MUST NOT WAIT ON A BORROWER'S DECISION.**
+///
+/// The reserve still binds at the moment of withdrawal — solvency is not
+/// negotiable — but what it withholds must come back on a CRANK, not on a
+/// borrower choosing to close. This drives the whole loop: a withdrawal is
+/// capped, the shortfall is recorded, the band tightens, the ladder unwinds,
+/// the reserve falls and the demand retires.
+#[test]
+fn redemption_pressure_frees_itself_without_the_borrower() {
+    let t = TICKERS.iter().position(|x| *x == "AAPL").unwrap();
+    let px = path(t);
+    let mut risk = TickerRisk { ticker: Depositor::pad_ticker("AAPL"), bump: 0,
+        reserved: 0, funding_pot: 0, actuary: warmed(t, &px, 400) };
+    let mut bank = Depository { last_updated: 0, total_deposits: 40_000_000_000_000,
+        total_deposit_seconds: 0, yield_pool: 0, total_drawn: 0, max_liability: 0,
+        sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
+        sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
+        sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+        unwind_demand: 0, paper_backed: 0,
+        pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
+
+    let pledge = 4_000_000_000_000u64;
+    let mut dep = Depositor { owner: Pubkey::new_unique(), deposited_quid: pledge,
+        deposited_lamports: 0, sol_pledged_usd: 0, deposit_seconds: 0,
+        last_updated: 0, drawn: 0, balances: vec![], realized_pnl: 0,
+        total_interest_paid: 0, total_collar_dollar_seconds: 0,
+        sol_yield_checkpoint: 0 };
+    dep.balances.push(pod_for("AAPL"));
+    let p = px[400].0;
+    dep.renege(Some("AAPL"), pledge as i64, Some(&vec![p]), 1).unwrap();
+    dep.deposited_quid = 0;
+    // At the cap, which is where a doubled requirement actually bites: a 3x
+    // position has three times the collateral the tail asks for and meets even
+    // a doubled requirement, correctly.
+    let units = value_units(pledge * 6, p) as i64;
+    dep.repo("AAPL", units, p, 2, 1, &risk.actuary, &mut bank).unwrap();
+    risk.actuary.record_activity(0, units_value_i(units, p), 1,
+        units_value(units.unsigned_abs(), p) as i64, bank.total_deposits as i64);
+    crate::clutch::reconcile_ticker_reserve(&mut risk, &mut bank);
+
+    let locked0 = bank.max_liability;
+    println!("\n=== a depositor asks for capital the reserve is holding ===");
+    println!("  reserve held against synthetic exposure: {locked0}");
+    println!("  of which paper-backed (cannot be cranked free): {}", bank.paper_backed);
+
+    // The depositor asks for what the reserve is withholding.
+    bank.defer_redemption(locked0);
+    println!("  unmet demand recorded: {}   margin raised to {} bps of the tail's",
+             bank.unwind_demand, bank.redemption_margin_bps());
+    assert!(bank.redemption_margin_bps() > 10_000, "demand must raise the requirement");
+
+    // Nobody trades. A crank runs, and the ladder does the rest.
+    let (mut secs, mut slot) = (3i64, 2i64);
+    println!("\n  {:>6} {:>16} {:>14} {:>10}", "crank", "exposure", "reserve", "demand");
+    println!("  {:>6} {:>16} {:>14} {:>10}", 0, dep.balances[0].exposure,
+             bank.max_liability, bank.unwind_demand);
+    for k in 1..=8 {
+        secs += 3_700; slot += 9_250;
+        let snap = dep.clone(); let bs = bank.clone();
+        let r = dep.repo("AAPL", 0, p, secs, slot, &risk.actuary, &mut bank);
+        let acted = matches!(&r, Ok((d, _)) if *d != 0
+            || dep.balances.first().map_or(false, |q| q.breached_at != 0));
+        if !acted { dep = snap; bank = bs; }
+        let e = dep.balances.first().map_or(0, |q| q.exposure);
+        risk.actuary.net_exposure = units_value_i(e, p);
+        risk.actuary.total_exposure = units_value(e.unsigned_abs(), p) as i64;
+        crate::clutch::reconcile_ticker_reserve(&mut risk, &mut bank);
+        println!("  {:>6} {:>16} {:>14} {:>10}", k, e, bank.max_liability,
+                 bank.unwind_demand);
+    }
+    println!("\n  The borrower never acted. The reserve fell because the squeeze");
+    println!("  made the ladder run, and the demand retired as it did — so the");
+    println!("  depositor's wait is bounded by the crank, not by somebody else's");
+    println!("  decision to close.");
+    assert!(bank.max_liability < locked0, "the crank must free reserve");
+    assert!(bank.unwind_demand < locked0, "and the demand must retire with it");
+    assert!(dep.balances.first().map_or(0, |q| q.pledged) > 0,
+        "the borrower keeps their collateral — this is seniority, not confiscation");
 }

@@ -8,6 +8,17 @@ use crate::etc::{ LIQ_GRACE_SECS, MAX_LEN, TRANCHE_RAMP_GRACES,
 /// Fixed-point scale for `Depository::sol_yield_index`.
 pub const SOL_YIELD_SCALE: u128 = 1_000_000_000_000;
 
+/// The most a redemption may raise the margin requirement, in bps of it. At
+/// full pressure a position must post twice what the tail alone asked for, so a
+/// 8x book becomes a 4x book — the leverage claim halves as the capital behind
+/// it leaves. Not higher: a requirement that cannot be met at any size
+/// liquidates the whole book at once, which is the disorderly exit the ladder
+/// exists to prevent. Redemption accelerates the unwind, it does not replace it.
+pub const REDEMPTION_MAX_MARGIN_BPS: i64 = 20_000;
+
+/// Ceiling for a margin requirement in bps: fully collateralised, no leverage.
+pub const BPS_MAX: i64 = 10_000;
+
 
 // ═══ §SCALE — one conversion between share units and dollars ════════════════
 //
@@ -263,6 +274,46 @@ pub struct Depository {
     /// than the thing that does, removes the release path along with the bug.
     pub paper_in_transit: u64,
 
+    /// ⭐ **WHAT THE POOL OWES DEPOSITORS AND COULD NOT PAY.**
+    ///
+    /// 🔴 **DEPOSITORS WAITED ON BORROWERS' DECISIONS, AND NOTHING MADE THAT
+    ///    WAIT END.** `withdrawable()` withholds `max_liability`, and that
+    ///    reserve is held against exposure that is mostly SYNTHETIC — a
+    ///    bilateral bet where nothing was bought. A position inside its band is
+    ///    untouchable and only a breach brings the ladder, so the withheld
+    ///    fraction (measured at 6–26% across every cohort shape) came free only
+    ///    when borrowers happened to close. That is the wrong seniority: a
+    ///    borrower's leverage is a claim on depositor capital, and when that
+    ///    capital leaves, the claim has to shrink with it.
+    ///
+    /// The distinction that matters is WHY the capital is committed:
+    ///
+    ///   • `paper_in_transit` — dollars gone, paper not yet landed. A real
+    ///     wait, and the only legitimate one.
+    ///   • `Backing::funded` — liability covered by paper the pool actually
+    ///     holds. Slow to release: it has to be sold, in market hours.
+    ///   • the rest of `max_liability` — synthetic, and unwindable NOW.
+    ///
+    /// So the reserve still binds at the moment of withdrawal — solvency is not
+    /// negotiable — but unmet demand is RECORDED here rather than silently
+    /// deferred, and it tightens the band in `repo` until the ladder has
+    /// unwound enough synthetic exposure to clear it. The depositor waits one
+    /// crank, not one borrower.
+    ///
+    /// ⚠️ THIS IS NOT THE CROWDING SURCHARGE WEARING A DIFFERENT HAT, and the
+    ///    difference is the whole justification. Tightening a band because the
+    ///    BOOK leaned would punish a borrower for being on the popular side —
+    ///    changing the deal after the fact. Tightening it because the CAPITAL
+    ///    BEHIND IT WAS WITHDRAWN is the seniority that was always there: the
+    ///    borrower keeps their pledge and every dollar of their P&L, they
+    ///    simply cannot hold as much notional against a smaller pool.
+    pub unwind_demand: u64,
+
+    /// Mirror of `Backing::funded` — liability covered by paper the pool holds.
+    /// Kept here because `withdrawable()` cannot reach the `Backing` account,
+    /// and this is the half of `max_liability` that a crank CANNOT free.
+    pub paper_backed: u64,
+
     /// Cumulative SOL* carry per lamport of SOL principal, scaled by
     /// SOL_YIELD_SCALE.
     ///
@@ -362,6 +413,53 @@ impl Depository {
             // Cover cancels; money in the post does not.
             // See `Depository::paper_in_transit`.
             .saturating_sub(self.paper_in_transit)
+    }
+
+    /// The part of the reserve a crank could free today, in dollars: everything
+    /// not covered by paper the pool has to sell first. This is what
+    /// `unwind_demand` can actually reach, and the ceiling on how much pressure
+    /// it is worth recording.
+    pub fn unwindable_reserve(&self) -> u64 {
+        self.max_liability.saturating_sub(self.paper_backed)
+    }
+
+    /// Record a withdrawal the pool could not pay, so the ladder can clear it.
+    /// Bounded by what a crank can actually free — pressure against paper the
+    /// pool must sell is not pressure the band can relieve, and recording it
+    /// would tighten every borrower's band for a wait that is genuinely real.
+    pub fn defer_redemption(&mut self, unmet: u64) {
+        let reachable = self.unwindable_reserve();
+        self.unwind_demand = self.unwind_demand
+            .saturating_add(unmet).min(reachable);
+    }
+
+    /// How hard the band is pulled in, in bps, by capital that has left.
+    ///
+    /// The whole of the unwindable reserve being demanded pulls the band to
+    /// `REDEMPTION_FLOOR_BPS` of its width; no demand leaves it untouched. The
+    /// floor exists because a band of zero is an instant liquidation of the
+    /// entire book, which would turn an orderly redemption into the disorderly
+    /// one the ladder exists to prevent.
+    /// 🔴 **A FIRST CUT NARROWED THE BAND AND NOTHING HAPPENED.** A position
+    ///    sitting at the centre of its band is not breached however tight the
+    ///    band becomes — the price has not moved, so `exposure_value == marked`
+    ///    exactly. Eight cranks under maximum pressure unwound nothing.
+    ///
+    ///    Worse, the direction was backwards. `band_bps` IS `margin_bps`: one
+    ///    number serving as both the liquidation distance and the collateral
+    ///    requirement. Narrowing it LOWERS the margin, which permits MORE
+    ///    leverage — the opposite of what a shrinking pool needs.
+    ///
+    /// So the lever is the margin, raised. Leverage is a claim on depositor
+    /// capital; when that capital leaves, the claim shrinks, and a position
+    /// whose pledge no longer covers the raised requirement is laddered down
+    /// until it does. The band it is liquidated against is untouched.
+    pub fn redemption_margin_bps(&self) -> i64 {
+        let reachable = self.unwindable_reserve();
+        if self.unwind_demand == 0 || reachable == 0 { return 10_000; }
+        let served = (self.unwind_demand as u128 * 10_000 / reachable as u128)
+            .min(10_000) as i64;
+        10_000 + served * (REDEMPTION_MAX_MARGIN_BPS - 10_000) / 10_000
     }
 }
 
@@ -1336,6 +1434,16 @@ let new_total = bank.total_deposits.saturating_sub(usd);
         // `trigger_bps`, and it is smaller — deliberately, so the ladder starts
         // while there is still something to unwind rather than after.
         let trig_bps = profile.trigger_bps.clamp(1, band_bps);
+        // ⭐ **CAPITAL THAT HAS LEFT RAISES WHAT A POSITION MUST POST.** Not the
+        //    crowding of the book — the withdrawal of the capital the leverage
+        //    was granted out of. See `Depository::unwind_demand`. At no demand
+        //    this is 10,000 and the requirement is exactly what the tail asked.
+        //    The BAND is untouched: how far a position may move before
+        //    liquidation is a fact about the instrument, not about who is
+        //    queueing to leave.
+        let required_bps = (band_bps as i128
+            * depository.redemption_margin_bps() as i128 / 10_000)
+            .clamp(1, BPS_MAX as i128) as i64;
         let collar_amt = (mark as u128).saturating_mul(band_bps as u64 as u128)
             .saturating_div(10_000).min(u64::MAX as u128) as u64;
         // The losing edge, drawn tighter.
@@ -1416,6 +1524,32 @@ let new_total = bank.total_deposits.saturating_sub(usd);
 
         let util_bps = (conc as i64).clamp(1_000, 10_000);
         let max_lev = max_leverage_pct(actuary, slot, conc);
+
+        // ⭐ **THE MARGIN CALL A SHRINKING POOL MAKES.**
+        //
+        // A crank finding a position that no longer meets the raised
+        // requirement takes a rung, exactly as it would for a band breach. That
+        // is the whole mechanism: the depositor's unmet demand raises what every
+        // position must post, the positions that cannot post it are laddered
+        // down, the reserve they release retires the demand, and the
+        // requirement falls back. Self-clearing, and bounded by the crank rather
+        // than by anybody's decision to close.
+        //
+        // ⚠️ ONLY ON THE CRANK (`amount == 0`). A depositor acting on their own
+        //    position is never handed a liquidation for asking; and only while
+        //    demand is live, so in the ordinary case this is one comparison
+        //    against a requirement that has not moved.
+        let now_ts = current_time;
+        if amount == 0 && depository.unwind_demand > 0 {
+            let short_of = (old_exposure_value as u128)
+                .saturating_mul(required_bps as u64 as u128) / 10_000;
+            if (pod.pledged as u128) < short_of && old_exposure_value > 0 {
+                let _ = &pod;
+                return self.unwind_a_tranche(pod_index, price, util_bps,
+                    actuary, depository, old_exposure_value,
+                    current_time, now_ts, accrued_interest);
+            }
+        }
 
         pod.pledged -= accrued_interest;
         pod.interest_paid = pod.interest_paid.saturating_add(accrued_interest);
@@ -2214,6 +2348,7 @@ mod tests {
             sol_star_shares: 0, sol_star_cost_lamports: cost,
             sol_star_credited_lamports: credited, sol_star_parked_at: 0,
             swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
             pool_realized_pnl: 0, pool_collar_dollar_seconds: 0,
             sol_yield_index: 0 }
     }

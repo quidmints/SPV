@@ -29,10 +29,20 @@ use crate::entra::{transfer_from_vaults, ProgramConfig, SOL_POOL_SEED, NativeLeg
 pub(crate) fn reconcile_ticker_reserve(risk: &mut TickerRisk, bank: &mut Depository) {
     let net = risk.actuary.get_net().unsigned_abs();
     let target = crate::etc::ticker_reserve_dollars(net, &risk.actuary);
+    let before = bank.max_liability;
     bank.max_liability = bank.max_liability
         .saturating_sub(risk.reserved)
         .saturating_add(target);
     risk.reserved = target;
+    // ⭐ **RESERVE THAT WAS FREED IS A REDEMPTION THAT WAS SERVED.** Every rung
+    //    the ladder takes shrinks the ticker's net, which shrinks the reserve,
+    //    which is exactly the capital a waiting depositor was withheld. Retiring
+    //    the demand here is what makes the squeeze SELF-CLEARING: it tightens
+    //    the band, the band produces unwinds, the unwinds retire the demand and
+    //    the band relaxes. Left un-retired it would be a ratchet that ends with
+    //    every position liquidated.
+    let freed = before.saturating_sub(bank.max_liability);
+    bank.unwind_demand = bank.unwind_demand.saturating_sub(freed);
 }
 
 #[derive(Accounts)]
@@ -401,6 +411,12 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
             } else { 0 };
 
             let value = max_value.min(amount.abs() as u64).min(my_share);
+            // ⭐ **WHAT THE DEPOSITOR ASKED FOR AND DID NOT GET IS RECORDED**,
+            //    not silently deferred to whenever a borrower feels like
+            //    closing. It tightens every band on the next crank until the
+            //    ladder has freed it. See `Depository::unwind_demand`.
+            Banks.defer_redemption(
+                max_value.min(amount.abs() as u64).saturating_sub(value));
             amt += value;
             // Spend principal first, then earnings, so the two ledgers each
             // fall by what actually left them.

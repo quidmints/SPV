@@ -1869,6 +1869,10 @@ pub fn issue_paper(ctx: Context<BackingFlow>, _ticker: String,
     // liability, and the two cancel in `withdrawable()`.
     ctx.accounts.backing.funded =
         ctx.accounts.backing.funded.saturating_add(amount);
+    // Mirrored onto the bank so `withdrawable` and `unwindable_reserve` can see
+    // it: this is the half of `max_liability` a crank CANNOT free, because the
+    // paper behind it has to be sold before the dollars come back.
+    ctx.accounts.bank.paper_backed = ctx.accounts.backing.funded;
     ctx.accounts.backing.last_flow = now;
     Ok(())
 }
@@ -1924,6 +1928,7 @@ pub fn redeem_paper(ctx: Context<BackingFlow>, _ticker: String,
     // back. Liquidity does NOT end here: the dollars are in the post, and this
     // is the one window where the two clocks genuinely differ.
     ctx.accounts.backing.funded = cover.saturating_sub(released);
+    ctx.accounts.bank.paper_backed = ctx.accounts.backing.funded;
     ctx.accounts.bank.paper_in_transit =
         ctx.accounts.bank.paper_in_transit.saturating_add(released);
     ctx.accounts.backing.last_flow = now;
@@ -2002,6 +2007,7 @@ mod backing_wiring {
             sol_star_shares: 0, sol_star_cost_lamports: 0,
             sol_star_credited_lamports: 0, sol_star_parked_at: 0,
             swept_at: 0, swept_count: 0, paper_in_transit: 0,
+            unwind_demand: 0, paper_backed: 0,
             pool_realized_pnl: 0, pool_collar_dollar_seconds: 0,
             sol_yield_index: 0 }
     }

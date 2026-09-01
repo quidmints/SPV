@@ -67,7 +67,7 @@
 # chain, so nothing is gained by gating a client.
 
 # needed to build the validator from source due to old processor
-VALIDATOR=~/Documents/agave/target/release/solana-test-validator
+VALIDATOR=${VALIDATOR:-$(command -v solana-test-validator)}
 FIXTURES=tests/fixtures
 
 # ─── Pyth price feed accounts ────────────────────────────────────────────────
