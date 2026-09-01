@@ -3434,3 +3434,137 @@ fn redemption_pressure_frees_itself_without_the_borrower() {
     assert!(dep.balances.first().map_or(0, |q| q.pledged) > 0,
         "the borrower keeps their collateral — this is seniority, not confiscation");
 }
+
+/// ⭐ **THE BIG SHORT AS ONE BOOK, AGAINST ONE BALANCE SHEET.**
+///
+/// `a_big_short_where_the_borrowers_were_right` runs each ticker against its
+/// own fresh `Depository`, so it measures six separate pools and never asks the
+/// question that matters: does the reserve the pool ACTUALLY HELD cover the
+/// payout it ACTUALLY OWED, at the moment it owed it?
+///
+/// `has_capacity` refuses an open once `max_liability + increase >
+/// total_deposits`, and `max_liability` is `margin_bps × |net|` summed across
+/// tickers. Whether that binds before the book can hurt is the whole safety
+/// property, and it is measurable rather than arguable.
+#[ignore]
+#[test]
+fn does_the_reserve_cover_the_payout_when_the_shorts_are_right() {
+    const WIN: usize = 10;
+    let mut worst: Vec<(i64, usize, usize)> = vec![];
+    for t in 0..TICKERS.len() {
+        let px = path(t);
+        let mut best = (0i64, t, 0usize);
+        for d in 300..DAYS - WIN - 2 {
+            let mv = ((px[d + WIN].1 as i128 - px[d].1 as i128) * B as i128
+                      / px[d].1.max(1) as i128) as i64;
+            if mv < best.0 { best = (mv, t, d); }
+        }
+        worst.push(best);
+    }
+    worst.sort_by_key(|w| w.0);
+    let picks: Vec<(i64, usize, usize)> = worst.iter().take(6).cloned().collect();
+    // Align every crash so they land together — the correlated draw, which is
+    // the case a per-position confidence target does not describe.
+    let span = picks.iter().map(|p| p.2).max().unwrap();
+
+  println!("\n=== where does the reserve stop covering the payout? ===");
+  println!("  {:>8} {:>9} {:>18} {:>18} {:>9}",
+           "size/pool", "refused", "reserve", "payout", "cover");
+  for frac in [10u64, 6, 4, 3, 2, 1] {
+    let deposits: u64 = 20_000_000_000_000;
+    let mut bank = Depository { last_updated: 0, total_deposits: deposits,
+        total_deposit_seconds: 0, yield_pool: 0, total_drawn: 0, max_liability: 0,
+        sol_lamports: 0, sol_usd_contrib: 0, sol_star_shares: 0,
+        sol_star_cost_lamports: 0, sol_star_credited_lamports: 0,
+        sol_star_parked_at: 0, swept_at: 0, swept_count: 0, paper_in_transit: 0,
+        unwind_demand: 0, paper_backed: 0,
+        pool_realized_pnl: 0, pool_collar_dollar_seconds: 0, sol_yield_index: 0 };
+
+    let mut risks: Vec<TickerRisk> = picks.iter()
+        .map(|(_, t, d)| TickerRisk { ticker: Depositor::pad_ticker(TICKERS[*t]),
+            bump: 0, reserved: 0, funding_pot: 0,
+            actuary: warmed(*t, &path(*t), *d) }).collect();
+    let mut deps: Vec<Depositor> = vec![];
+    let mut refused = 0;
+
+    println!("\n=== six correlated shorts, one pool, one reserve ===");
+
+    for (i, (_, t, d)) in picks.iter().enumerate() {
+        let px = path(*t);
+        let p_in = px[*d].1;
+        let pledge = deposits / frac;
+        let mut dep = Depositor { owner: Pubkey::new_unique(),
+            deposited_quid: pledge, deposited_lamports: 0, sol_pledged_usd: 0,
+            deposit_seconds: 0, last_updated: 0, drawn: 0, balances: vec![],
+            realized_pnl: 0, total_interest_paid: 0,
+            total_collar_dollar_seconds: 0, sol_yield_checkpoint: 0 };
+        dep.balances.push(pod_for(TICKERS[*t]));
+        dep.renege(Some(TICKERS[*t]), pledge as i64, Some(&vec![p_in]), 1).unwrap();
+        dep.deposited_quid = 0;
+        bank.total_deposits = bank.total_deposits.saturating_add(pledge);
+        let lev = risks[i].actuary.loss_profile(0, 0).max_leverage_pct();
+        let units = value_units((pledge as u128 * lev as u128 / 100) as u64, p_in) as i64;
+        let ok = dep.repo(TICKERS[*t], -units, p_in, 2, 1, &risks[i].actuary,
+                          &mut bank).is_ok();
+        if ok {
+            risks[i].actuary.record_activity(0, units_value_i(-units, p_in), 1,
+                units_value(units.unsigned_abs(), p_in) as i64,
+                bank.total_deposits as i64);
+            crate::clutch::reconcile_ticker_reserve(&mut risks[i], &mut bank);
+        } else { refused += 1; }
+
+        deps.push(dep);
+    }
+    let reserve_at_risk = bank.max_liability;
+    let deposits_then = bank.total_deposits;
+
+    // Ride every crash together, cranked once a session.
+    let (mut secs, mut slot) = (3i64, 2i64);
+    for k in 1..=WIN {
+        secs += 86_400; slot += 216_000;
+        for (i, (_, t, d)) in picks.iter().enumerate() {
+            let px = path(*t);
+            let p = px[*d + k].1;
+            risks[i].actuary.update_price(p as i64, slot);
+            let snap = deps[i].clone(); let bs = bank.clone();
+            let r = deps[i].repo(TICKERS[*t], 0, p, secs, slot, &risks[i].actuary,
+                                 &mut bank);
+            let acted = matches!(&r, Ok((dl, _)) if *dl != 0
+                || deps[i].balances.first().map_or(false, |q| q.breached_at != 0));
+            if !acted { deps[i] = snap; bank = bs; }
+            let e = deps[i].balances.first().map_or(0, |q| q.exposure);
+            risks[i].actuary.net_exposure = units_value_i(e, p);
+            risks[i].actuary.total_exposure = units_value(e.unsigned_abs(), p) as i64;
+            crate::clutch::reconcile_ticker_reserve(&mut risks[i], &mut bank);
+        }
+    }
+    // Everyone takes profit at the bottom, together.
+    let mut paid_out: i128 = 0;
+    for (i, (_, t, d)) in picks.iter().enumerate() {
+        let px = path(*t);
+        let p_out = px[*d + WIN].1;
+        let e = deps[i].balances.first().map_or(0, |q| q.exposure);
+        secs += 86_400; slot += 216_000;
+        let credit = if e != 0 {
+            match deps[i].repo(TICKERS[*t], -e, p_out, secs, slot, &risks[i].actuary,
+                               &mut bank) { Ok((_, c)) => c as i128, Err(_) => 0 }
+        } else { 0 };
+        let out = credit + deps[i].deposited_quid as i128
+                + deps[i].balances.first().map_or(0, |q| q.pledged) as i128;
+        paid_out += (out - (deposits / frac) as i128).max(0);
+    }
+    let _ = span;
+    println!("  {:>7}% {:>9} {:>18} {:>18} {:>8}%",
+             100 / frac, refused, reserve_at_risk, paid_out,
+             reserve_at_risk as i128 * 100 / paid_out.max(1));
+    let _ = deposits_then;
+  }
+  println!("\n  ⭐ `cover` is the reserve the pool had already withheld, against");
+  println!("     what it actually paid. Above 100% the payout came out of capital");
+  println!("     depositors could not have withdrawn anyway — they are whole.");
+  println!("     Below it, the difference is principal.");
+  println!("\n  `refused` is `has_capacity` doing its job: the reserve is not a");
+  println!("  buffer that runs out, it is a GATE. The pool stops writing the");
+  println!("  business before it can carry a book it cannot cover, which is the");
+  println!("  structural answer rather than a reactive one.");
+}

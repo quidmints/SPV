@@ -239,4 +239,4 @@ if [ "$1" = "--fork" ]; then
        --account "$PAYER_PUBKEY" "$FIXTURES/payer.json"
 fi
 
-$VALIDATOR --reset ${PROGRAMS[@]} ${ACCOUNTS[@]}
+$VALIDATOR --reset ${PROGRAMS[@]} ${ACCOUNTS[@]} "$@"
