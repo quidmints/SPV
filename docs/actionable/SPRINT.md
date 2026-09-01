@@ -1501,6 +1501,54 @@ reasoning one level short, so this is booked as a finding and the fix is not lan
 fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
 fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
+## 🔴 §COHOST-FLAG-IS-NOT-THE-WORK — **DELETING `QUID_FLEET_COHOSTS_VAULT` TURNS OFF RAIL B. FINISHING THE SECOND HALF MEANS MOVING DELIVERY TO THE LP'S NODE.**
+
+Owner, 2026-09-01: *"finish the second funding half, no awkward variables like
+`QUID_FLEET_COHOSTS_VAULT`… just hardwire everything to work right."* **Agreed as the destination —
+and the flag is the SYMPTOM, not the work.** Measured before touching it:
+
+🔑 **THE COUPLING, IN THE CODE'S OWN WORDS** (`daemon.rs`, above `onchain_rail_enabled`):
+*"🔴 VAULT-LESS FORCES THIS OFF, AND THE COUPLING IS THE WHOLE REASON. The watcher splices deliveries
+out of the VAULT's channels, so without a vault it cannot service anything."* And the rail's registry
+is gated with it deliberately — *"if only the watcher were gated, the `/swap-in/onchain` endpoint
+would keep ACCEPTING deposit registrations that nothing would ever service — a silent black hole for
+real BTC."*
+⇒ **Delete the flag today and Rail B (on-chain swap-out delivery) plus `/swap-in/onchain` are OFF
+PERMANENTLY.** That is not hardwiring it to work right; it is hardwiring it off.
+
+🔎 **WHY THE DEPENDENCY EXISTS:** delivery is a swapper-directed SPLICE-OUT, and today the fleet
+drives it as the splice INITIATOR from the vault's own `channel_manager`
+(`vault.rs` → `initiate_splice_out_to`). It can only do that because it holds both halves. With the LP
+holding its half, a splice becomes what it always was in the protocol — a TWO-PARTY negotiation — so
+the fleet must initiate from the HOP's `channel_manager` toward the LP peer and let the LP's node
+co-sign. `drive_swap_out_onchain` takes a NON-optional `Arc<VaultNode>`, which is the co-hosted
+assumption baked into a type.
+
+✅ **AND THE HARD PART IS ALREADY DESIGNED AND PARTLY BUILT — an offline LP cannot co-sign, and that
+is FINE:** delivery candidate selection already *"collect[s] every ONLINE LP's open channel with
+enough funded sats … Offline LPs are skipped so they can't block delivery"*
+(`swap_out_onchain.rs`). That is §E182-JUSTIFICATION-UPDATED's liveness-gated routing —
+*"sign more, earn more; sign less, get routed less, and nothing breaks"* — already implemented on the
+selection side. **The gap is the EXECUTION side still assuming a local vault.**
+
+▶️ **THE WORK, IN ORDER (this is what "finish the second funding half" means):**
+1. `drive_swap_out_onchain` initiates the splice from the **hop's** `channel_manager` toward the LP
+   peer, instead of from a local `VaultNode`. Its `Arc<VaultNode>` parameter is what has to go.
+2. `onchain_rail_enabled` stops depending on `has_vault` — the rail's precondition becomes *an online
+   LP counterparty*, which the candidate filter already computes.
+3. **THEN** `QUID_FLEET_COHOSTS_VAULT`, its branch, and `derive_vault_seed` delete — and the property
+   stops being *"the fleet is configured not to hold the LP half"* and becomes **"the fleet has no
+   code path that derives it."** `derive_vault_seed` is the whole mechanism (its only caller is that
+   branch), and its own docblock already says the real fix is *"a topology … which is precisely why
+   it cannot be reached by editing this function."*
+⚠️ **DO NOT DELETE THE FLAG BEFORE STEP 1.** It would trade a configurable hole for a dead rail, and
+the `/swap-in/onchain` gate means the failure would be silent acceptance of deposits nothing services
+— which is the exact black hole its comment exists to prevent.
+
+📌 **THIS IS ALSO WHY `§E162`'s RESIDUAL IS STILL CONDITIONAL.** Until step 3, the co-hosted
+deployment remains constructible, so the threat model below must keep saying *"scoped to a
+non-default mode"* rather than *"does not exist"*. **Step 3 is what collapses it.**
+
 ### 🛡️ ENCLAVE THREAT MODEL — THE THREE SCENARIOS, ANSWERED AGAINST CODE (2026-09-01)
 
 Owner asked for every scenario covered. **The headline: `§E162-rekey-CORRECTED`'s verdict —
