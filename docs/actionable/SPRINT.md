@@ -1501,6 +1501,55 @@ reasoning one level short, so this is booked as a finding and the fix is not lan
 fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
 fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
+## 🔴 §T9-IS-WIRING-E177, NOT A NEW CHECK — **AND THE NAIVE WIRING BREAKS EVERY SPLICE**
+
+Established 2026-09-01 while starting §T9, before writing any of it. Owner: *"dont ship anything
+suboptimal."*
+
+🔑 **§T9 IS NOT A NEW DESTINATION VALIDATOR. THE CHECK ALREADY EXISTS AND IS UNWIRED.**
+`ValidatingChannelSigner::check_against_chain` (§E177) compares the funding PAIR and funded SIZE
+against what `BTCChannels` pinned — *"the check that does NOT reduce to trusting the node"*. But
+**`with_truth_factory` has ZERO production callers**: `QuidKeysManager` constructs with `truth: None`,
+so `check_against_chain` returns `Ok(())` on the first line and the signer runs only the §E176-C
+self-consistency checks, which by their own docblock *"bind a node that contradicts itself and nothing
+more"*. ⇒ **Built, tested, unwired** — the owner's standing no-stubs rule, in the one place that
+bounds a breached hop.
+⚠️ **SO DO NOT BUILD A PARALLEL CHECK.** It would duplicate §E177's key/value comparison and leave the
+real one still dormant. **§T9 = wire the truth source + extend it to what a splice PAYS.**
+
+🔴 **THE TRAP THAT MAKES THE OBVIOUS WIRING WRONG, AND IT WOULD HAVE SHIPPED SILENTLY:**
+`check_against_chain` runs inside `provide_taproot_context` (`:725`), which fires **whenever a splice
+rebinds `Q`**. At that moment the context carries the **NEW** pair and the **NEW** funded value, while
+`BTCChannels` still records the **OLD** ones — the EVM mirrors a splice only AFTER it confirms
+(`drive_splice` SPV-proves it). ⇒ `verify` returns `Mismatch` ⇒ `ctx_poisoned` ⇒ **the signer fails
+closed and NO SPLICE CAN EVER BE SIGNED.** A rail that stops working is the failure this repo keeps
+producing from a check that is individually correct.
+
+✅ **THE SHAPE THAT WORKS, AND IT IS ALREADY THE ONE §E177 USES FOR `NotRecorded`:** a ONE-WAY WINDOW.
+That verdict is documented as *"legitimate BEFORE the record exists; a DOWNGRADE ATTEMPT after one has
+been seen"*, latched by the existing `truth_recorded` atomic. **Extend the same reasoning to a splice:
+a context AHEAD of the chain is legitimate-pending; a context that contradicts a record already SEEN
+is a downgrade.**
+▶️ **THE RULE, STATED SO IT IS VERIFIABLE RATHER THAN TRUSTING "ahead":** accept iff the on-chain
+record matches EITHER the context being supplied, OR the scope it REPLACES — the predecessor this
+signer itself last validated. **A splice advances exactly one scope**, so the window is one step wide
+and closes as soon as the mirror lands. A lying node cannot walk through it: to be accepted the chain
+must show this pair or the immediately-preceding one the signer already checked, and the signer holds
+the predecessor in `taproot_ctx` (`prev.splice_parent_funding_txid`, already read at `:711`).
+
+▶️ **WHAT THE LP DAEMON NEEDS, AND IT IS SMALL:** `ChannelTruthFactory::new(rpc, btc_channels, cids)`
+needs an EVM endpoint, and `quid-lp-daemon` configures **none** today (network, data dir, hop
+addr/port, esplora, confs, poll). ⭐ **IT IS READ-ONLY — no key, no gas, no transaction — so it does
+NOT weaken *"the LP signs nothing on the EVM"*.** The LP gains the ability to REFUSE, which is the
+whole point of §T9.
+
+📌 **AND THE DELIVERY-SPLICE OUTPUT QUESTION, ANSWERED SO IT IS NOT GUESSED:** a delivery splice
+legitimately pays an **arbitrary swapper script**, so *"every non-funding output must be the LP's
+pinned script"* is WRONG and would break Rail B. The bound must come from the same on-chain source:
+a splice paying script `S` for `V` sats is legitimate iff `BTCChannels` records a swap-out obligation
+for `S`/`V`. **That is the extension §T9 adds beyond wiring — and it is the reason the truth source,
+not a local heuristic, is the right home.**
+
 ## 🔐 §BREACHED-ENCLAVE-AND-THE-REWORK — **WHAT BOUNDS A COMPROMISED HOP, AND WHY §T9 MUST LAND *WITH* THE DELIVERY REWORK**
 
 Owner, 2026-09-01: *"how do we make sure this entire structure is resilient against malicious
