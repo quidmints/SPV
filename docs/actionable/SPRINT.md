@@ -1501,6 +1501,54 @@ reasoning one level short, so this is booked as a finding and the fix is not lan
 fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
 fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
+## 🔐 §BREACHED-ENCLAVE-AND-THE-REWORK — **WHAT BOUNDS A COMPROMISED HOP, AND WHY §T9 MUST LAND *WITH* THE DELIVERY REWORK**
+
+Owner, 2026-09-01: *"how do we make sure this entire structure is resilient against malicious
+injection (codeswapping) if the enclave is breached?"* Answered against code, and re-using the
+principle `§HOP-RCE` already established rather than re-deriving it:
+
+🔑 **THE PRINCIPLE, VERBATIM FROM `§HOP-RCE`:** *"Attestation does not answer this threat and must
+not be cited as if it did: MRENCLAVE is measured at load, so a runtime memory-safety bug leaves it
+valid while the attacker holds the sealed keys. **Every bound has to be on-chain.**"*
+⇒ **RCE inside the running image grants exactly the hop's on-chain authority — no more, and no less.**
+So the question is never *"can the enclave be trusted"* but *"what does `_onlyHop` let it do, and what
+stops each one."*
+
+✅ **THE THREE `§HOP-RCE` FINDINGS ARE ALL CLOSED — re-measured today, not recalled:**
+| finding | state |
+|---|---|
+| `emitDeadManExit` replay ratcheted `checkpointOf` DOWN | ✅ `CheckpointRegression()` — a refresh may not lower the attestation |
+| `commitFreshness` had no ceiling ⇒ `seq = u64::MAX` bricks the channel AND poisons the successor | ✅ `MAX_FRESHNESS_JUMP` on BOTH `commitFreshness` and `commitManagerFreshness` |
+| `settleSwapInBuffered` let the hop name the seller ⇒ divertible proceeds | ✅ the entrypoint is DELETED |
+
+✅ **WHAT BOUNDS A BREACHED HOP TODAY, ALL ON-CHAIN AND NONE RELYING ON THE ENCLAVE BEING HONEST:**
+every BTC payout pins to `btcRecipientOf` (derived from `lpEth`, which no path rotates) ·
+`_verifySplice`'s KeyAgg gate proves the LP's key is inside the new `Q` · `_verifyTxSpendsChannel`
+SPV-proves a spend of a 2-of-2 that **requires the LP's MuSig2 partial** · `StaleClose` on the
+cooperative path · `ForceCloseLpOutput` measures the force path · the two ratchets above.
+
+🔴 **AND HERE IS WHAT THE REWORK CHANGES, WHICH IS THE REASON THIS ROW EXISTS.** Moving delivery to
+the hop's `channel_manager` makes the **hop the splice INITIATOR toward the LP peer**. The bound on a
+malicious initiation is the LP's co-signature — and under BIP-341 `Prevouts::All` that partial commits
+to the OUTPUTS, so the LP *can* refuse a splice that pays the wrong place. **But it only refuses if its
+signer LOOKS.** Measured: `partially_sign_splice_shared_input` (`validating_signer.rs:1662`) computes
+the sighash and signs; **it never inspects `tx.output`.** Its policy guards nonce reuse and state
+regression, not destinations.
+⇒ **§T9 IS NOT A LATER PHASE ANY MORE. IT IS THE BOUND ON THE SURFACE THIS REWORK OPENS**, and it must
+land in the same change — otherwise the rework hands a breached hop the ability to originate splices
+against a counterparty that signs whatever sighash it is handed.
+
+🔐 **CODESWAPPING SPECIFICALLY (replacing the image, not corrupting the running one):** sealing is to
+MRENCLAVE, so a DIFFERENT measurement cannot unseal — a swapped image inherits **nothing** unless
+migration hands it the seed. Migration is the k-of-n `MigrationAuth`. ⇒ **`M1` IS THE CODESWAP
+DEFENCE**, and its hole is that the owner set is LOCAL CONFIG (*"nothing calls a msig contract; nothing
+reads its storage"*), so host-level write access authorises a malicious image **without touching the
+msig at all**.
+
+⇒ **NET: two prerequisites, and neither is optional.** **§T9** bounds what a breached RUNNING image can
+get the LP to sign; **`M1`** bounds what a SWAPPED image can inherit. Everything else in the list is
+downstream of those two.
+
 ## 🔴 §COHOST-FLAG-IS-NOT-THE-WORK — **DELETING `QUID_FLEET_COHOSTS_VAULT` TURNS OFF RAIL B. FINISHING THE SECOND HALF MEANS MOVING DELIVERY TO THE LP'S NODE.**
 
 Owner, 2026-09-01: *"finish the second funding half, no awkward variables like
