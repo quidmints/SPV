@@ -383,11 +383,13 @@ describe("QU!D Protocol — Depository Suite", () => {
       const newFlash = Keypair.generate().publicKey;
 
       await program.methods
+        // `bank` is optional and only read when `kestrel` is Some — which
+        // matters here, because this runs before any deposit has created it.
         .updateConfig(null, newFlash, null)
         .accountsStrict({
           admin: payer.publicKey,
           config: configPDA,
-          bank: bankPDA,
+          bank: null,
         })
         .rpc();
 

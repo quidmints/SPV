@@ -246,9 +246,15 @@ if [ "$1" = "--fork" ]; then
   # loader refuses this toolchain's sbpf version, and a genesis load bypasses
   # it. `shift` drops --fork so any extra arguments still reach the validator.
   shift
+  # ⚠️ `--upgradeable-program`, NOT `--bpf-program`. The latter installs a
+  #    loader-v2 program with NO `program_data` account, and `init_oapp_store`
+  #    requires one (it checks the upgrade authority before letting anyone
+  #    claim the OApp Store). With a bpf-program load, the three LZ tests, the
+  #    two SW bridge tests and OY.1 cannot pass no matter what they assert —
+  #    they fail on a missing account rather than on anything they check.
   exec $VALIDATOR --reset --url "$MAINNET" "${CLONE[@]}" \
-       --bpf-program QDgHUZjtccRjKZ63MBvW8uzKR7qcqjpRfGhNSEGfDu9 \
-       target/deploy/quid.so \
+       --upgradeable-program QDgHUZjtccRjKZ63MBvW8uzKR7qcqjpRfGhNSEGfDu9 \
+       target/deploy/quid.so "$PAYER_PUBKEY" \
        --account "$PAYER_PUBKEY" "$FIXTURES/payer.json" "$@"
 fi
 

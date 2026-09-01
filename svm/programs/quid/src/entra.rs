@@ -94,8 +94,21 @@ pub struct UpdateConfig<'info> {
     /// Required on every call rather than only on a kestrel disable — one extra
     /// account on an admin-only path is cheaper than an optional-account dance,
     /// and it cannot then be omitted on the one call where it matters.
+    /// 🔴 **REQUIRED UNCONDITIONALLY, AND READ ONLY FOR ONE ARGUMENT.** The
+    ///    body touches this exactly once — `bank.sol_star_shares == 0`, the
+    ///    guard that stops the Kestrel program being repointed while SOL* is
+    ///    parked against the old one. That guard is right, and it is only
+    ///    meaningful when `kestrel` is `Some`.
+    ///
+    ///    Declared non-optional, it made the whole instruction unreachable
+    ///    until the bank existed — and the bank is created by the first
+    ///    DEPOSIT. So the admin could not be rotated, and the flash authority
+    ///    could not be set, until a depositor had shown up. Two things that
+    ///    belong to configuring the protocol were gated behind using it.
+    ///
+    /// Optional now, and required by the one argument that reads it.
     #[account(seeds = [b"depository"], bump)]
-    pub bank: Box<Account<'info, Depository>>,
+    pub bank: Option<Box<Account<'info, Depository>>>,
 }
 
 /// Kestrel/SOL* settings, folded out of `set_kestrel`. All-or-nothing: passing
@@ -133,7 +146,9 @@ pub fn update_config(ctx: Context<UpdateConfig>,
             // strand that balance: every unwind is addressed to the program named
             // here, so clearing it removes the only route back to lamports. Wind
             // the position down first, then disable.
-            require!(ctx.accounts.bank.sol_star_shares == 0, PithyQuip::SolStarStillParked);
+            let bank = ctx.accounts.bank.as_ref()
+                .ok_or(PithyQuip::InvalidParameters)?;
+            require!(bank.sol_star_shares == 0, PithyQuip::SolStarStillParked);
         }
     }
 
