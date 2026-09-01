@@ -319,6 +319,26 @@ pub struct Out {
     pub biggest_bps: i64, pub top_ticker_bps: i64, pub capacity_rejects: usize,
 }
 
+// ═══ §SLOW — the twelve `#[ignore]` tests, and why ═════════════════════════
+//
+// ⚠️ **THEY ALL PASS. THEY ARE IGNORED FOR TIME, NOT FOR DOUBT.**
+//    `cargo test -p quid --lib -- --ignored` runs them: 12 passed, 0 failed,
+//    in 698 seconds. The default suite is 177 tests in ~120s, and adding these
+//    would sextuple it, because each one drives one to twelve FULL BOOKS —
+//    1,000 borrowers over 1,004 real sessions through the program's own
+//    instructions.
+//
+// The distinction that earns the attribute: a regression guard asserts a
+// property that must hold, and belongs in every run. These ANSWER QUESTIONS —
+// what the delta to a short book is, where the ladder should start, how much
+// of a depositor is locked, whether the numbers survive a different seed. Their
+// output is a table to read, and their assertions are mostly sanity floors on
+// the harness rather than claims about the protocol.
+//
+// ⚠️ THAT MAKES THEM EASY TO LET ROT. Run them after any change to `repo`,
+//    `loss_profile`, the reserve or the ladder — they are the only thing that
+//    would notice a change that is arithmetically fine and economically wrong.
+
 /// One book, driven end to end through the program's own instructions in the
 /// order `clutch` executes them.
 fn run_book(cfg: Book) -> Out {
@@ -1784,9 +1804,7 @@ fn what_each_mechanism_collects_against_what_the_pool_needs() {
 /// at a single point. This sweeps the passive tranche across two orders of
 /// magnitude against the SAME borrowers, so the only thing that changes is how
 /// much capital is standing behind them.
-/// ⚠️ Runs a dozen full books; `cargo test -- --ignored` to execute. Kept out
-/// of the default suite because it is an analysis, not a regression guard.
-#[ignore]
+#[ignore]   // §SLOW — see the note above `run_book`.
 #[test]
 fn what_deposit_capital_does_to_utilisation_and_price() {
     println!("\n=== the same thousand borrowers against different pools ===");
@@ -1841,9 +1859,7 @@ fn what_deposit_capital_does_to_utilisation_and_price() {
 /// twenty names, which diversifies away the exact correlation the reserve
 /// exists for; and direction was one fixed momentum-following probability.
 /// A single point on three axes is not a calibration.
-/// ⚠️ Runs a dozen full books; `cargo test -- --ignored` to execute. Kept out
-/// of the default suite because it is an analysis, not a regression guard.
-#[ignore]
+#[ignore]   // §SLOW — see the note above `run_book`.
 #[test]
 fn concentration_and_direction_are_the_axes_that_matter() {
     let cases: [(&str, Book); 8] = [
@@ -1879,9 +1895,7 @@ fn concentration_and_direction_are_the_axes_that_matter() {
 
 /// A redemption run against a live book: half the passive capital leaves over
 /// twenty sessions while a thousand levered positions are open.
-/// ⚠️ Runs a dozen full books; `cargo test -- --ignored` to execute. Kept out
-/// of the default suite because it is an analysis, not a regression guard.
-#[ignore]
+#[ignore]   // §SLOW — see the note above `run_book`.
 #[test]
 fn a_redemption_run_against_a_levered_book() {
     let calm = run_book(Book { whales: true, zipf: true, ..Book::base() });
