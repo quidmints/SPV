@@ -141,11 +141,13 @@ pub mod quid {
         entra::redeem_paper(ctx, ticker, raw_amount)
     }
 
-    /// Admin: book what the issuer actually did. The only instruction in the
-    /// section needing off-chain truth, and the largest trust surface in it.
+    /// Admin: book the dollars the issuer sent back. The only instruction in
+    /// the section still needing off-chain truth — and only because proceeds
+    /// land in the shared stable vault, where they cannot be told apart from a
+    /// deposit. A dedicated receipt address makes this permissionless.
     pub fn reconcile(ctx: Context<Reconcile>,
-        funded_dollars: u64, proceeds_dollars: u64) -> Result<()> {
-        entra::reconcile(ctx, funded_dollars, proceeds_dollars)
+        proceeds_dollars: u64) -> Result<()> {
+        entra::reconcile(ctx, proceeds_dollars)
     }
 
     pub fn init_oapp_store(mut ctx: Context<InitOAppStore>,

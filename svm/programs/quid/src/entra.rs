@@ -1570,8 +1570,13 @@ mod flash_window_tests {
 //
 // Two numbers, because there are two questions:
 //
-//   1. **How much of the book is funded?**  `Backing::covered`. A RISK figure,
-//      read by the trigger, which is the only thing that reads it.
+//   1. **How much of the book is funded?**  `live_cover` — the paper in the
+//      vault, marked at the price the liability is marked at. A RISK figure,
+//      read by the trigger, which is the only thing that reads it. DERIVED,
+//      like the units it counts: the stored `Backing::funded` that used to
+//      answer this was a copy of the issuer's fact, and `reconcile` was the
+//      price of keeping it. Cost basis lives on separately in `Backing::spent`,
+//      which is OUR fact and so needs no reconciling.
 //   2. **How much does the issuer still owe us?**  `Depository::
 //      paper_in_transit`. A LIQUIDITY figure — and the only one, because cover
 //      cancels out of `withdrawable()` while money in the post does not.
@@ -1637,6 +1642,58 @@ const BPS_I: i64 = 10_000;
 /// from the numerator. `has_capacity` deliberately does NOT read this: capacity
 /// stays conservative, so backing funds a promise the pool has already made
 /// rather than unlocking a larger one.
+/// Cover, **OBSERVED**, in accounting dollars: the paper actually sitting in
+/// the vault, marked at the same price as the liability it offsets.
+///
+/// ⭐ **COVER IS NOT A LEDGER, AND THAT IS WHY THERE IS NOTHING TO RECONCILE.**
+///    The rule was already written for the vault one field over — *"everything
+///    else is derived and therefore cannot disagree with reality: units held
+///    are `paper_vault.amount`, read from the chain. There is no stored copy
+///    and so no instruction to reconcile one"* — and `Backing::funded` was
+///    exactly the stored copy that rule forbids. `reconcile` was not a feature.
+///    It was the TAX ON KEEPING A COPY of a fact that lives somewhere else.
+///
+/// Four things fall out of deleting the copy rather than dating it:
+///
+///   1. **A stalled fill is visible immediately.** Paper that has not arrived
+///      is not in the vault, so the book reports itself unhedged the instant it
+///      is. No delivery deadline, no expiry clock, no admin in the loop —
+///      those were all machinery for noticing what an observation just tells
+///      you. This matters most for a cross-chain route, where the fill is four
+///      sequential legs and "eventually" has no bound.
+///   2. **Both legs are marked the same way.** `max_liability` is recomputed
+///      every crank from `actuary.get_net()` — MARKED TO MARKET — while
+///      `funded` was a cumulative sum of dollars sent, FROZEN AT COST, and
+///      `unfunded_bps` subtracted one from the other. So a rally grew the
+///      liability while the cover stayed at cost, and the gate answered by
+///      BUYING MORE PAPER AT THE TOP: procyclical, and it converts a hedge
+///      into a directional position precisely when that is most expensive. A
+///      selloff did the mirror image and froze rebalancing.
+///   3. **Partial fills need no special case.** Ninety percent delivered reads
+///      as ninety percent covered.
+///   4. **`redeem_paper` stops straining.** It was computing `released = cover
+///      * raw_amount / held` — pro-rating the STORED ledger by the OBSERVED
+///      vault fraction, which is a copy being forced to agree with the thing it
+///      copies. Derived, the fraction is the whole computation.
+///
+/// ⚠️ **THE DIRECTION OF THE DERIVATION IS WHAT MAKES IT SAFE**, and it is the
+///    reason this is sound where deriving `paper_in_transit` was not. A
+///    RECEIVABLE derived from a vault balance is attackable: one dust unit
+///    donated to the vault CANCELS a claim, and would wipe the record of an
+///    arbitrarily large amount in flight. An ASSET derived from the same
+///    balance is not: inflating cover requires actually delivering the asset,
+///    and gifting the pool a real hedge is not an attack. Only `backing.mint`
+///    lands in this vault, so the units counted are the instrument itself.
+///
+/// What this does NOT dissolve is the redemption receivable: we send paper and
+/// dollars come back later, and money in a wire cannot be observed. See
+/// `reconcile`, which is now that job and only that job.
+pub fn live_cover(paper_units: u64, decimals: u8, risk: &TickerRisk) -> Result<u64> {
+    let price = risk.actuary.last_price;
+    if price <= 0 || paper_units == 0 { return Ok(0); }
+    Ok(crate::stay::units_value(to_accounting(paper_units, decimals)?, price as u64))
+}
+
 pub fn unfunded_bps(bank: &Depository, funded: u64) -> i64 {
     if bank.total_deposits == 0 { return i64::MAX; }
     let uncovered = bank.max_liability.saturating_sub(funded);
@@ -1666,10 +1723,32 @@ pub struct Backing {
     /// The issuer's redemption sweeping address.
     pub redemption: Pubkey,
 
-    /// Dollars of book funded by paper, at cost. Begins when the dollars leave
-    /// (the order will fill) and ends when the paper leaves. Read by
-    /// `unfunded_bps` and by nothing else.
+    /// Cover, CACHED — the last observation of `live_cover`, refreshed from the
+    /// vault on every flow and never accumulated from claims. It exists only
+    /// because `unwindable_reserve()` hangs off `Depository` alone and cannot
+    /// reach a token account; `Depository::paper_backed` is this figure
+    /// mirrored there. Every gate reads `live_cover` directly instead.
     pub funded: u64,
+
+    /// Dollars we have SENT and not yet redeemed, at cost.
+    ///
+    /// ⭐ **THIS ONE IS STORED ON PURPOSE, AND THE REASON IS THE WHOLE RULE.**
+    ///    `funded` had to stop being a ledger because it was asserting an
+    ///    EXTERNAL fact — what the issuer delivered — which we cannot know and
+    ///    therefore had to reconcile. `spent` asserts an INTERNAL one: what we
+    ///    paid, which we know exactly, because we are the ones who sent it. An
+    ///    internal fact needs no reconciliation by construction; it can never
+    ///    drift from a reality it *is*.
+    ///
+    /// So the split is not "stored versus derived" but WHOSE FACT IT IS. Cost
+    /// basis stays a ledger and stays exact; cover becomes an observation and
+    /// stays honest. `reconcile` keeps only the receivable that is neither —
+    /// money in a wire, which is external AND unobservable.
+    ///
+    /// Read by `redeem_paper` to size the basis leaving, and by nothing else.
+    /// Deliberately NOT a risk figure: paying more for paper does not hedge
+    /// more book.
+    pub spent: u64,
 
     /// Per-order bounds in accounting dollars, mirroring the issuer's
     /// `limitsPerPeriod.market`. `max_order == 0` means halted — which is also
@@ -1840,7 +1919,20 @@ pub fn issue_paper(ctx: Context<BackingFlow>, _ticker: String,
     // The trigger. Below the band the book is payable out of dollars and the
     // round trip is a pure loss; at or above it the unbounded leg needs the
     // asset behind it.
-    require!(unfunded_bps(&ctx.accounts.bank, ctx.accounts.backing.funded)
+    // ⭐ **`funded` WAS DOING TWO JOBS AND DID THE SECOND BY LYING ABOUT THE
+    //    FIRST.** It measured cover, and it rate-limited orders — the note that
+    //    used to sit below the transfer defended crediting cover at send time
+    //    because "pretending otherwise lets the gate re-fire for the same
+    //    liability while the first order is in flight". That is a real concern
+    //    and it is not a reason to misstate the hedge. "Am I covered?" and
+    //    "should I order again?" are different questions, and separating them
+    //    makes both honest: `BACKING_COOLDOWN_SECS` (an hour, in
+    //    `backing_preflight` below) answers the second, so the vault is free to
+    //    answer the first truthfully.
+    let cover = live_cover(ctx.accounts.paper_vault.amount,
+                           ctx.accounts.backing_mint.decimals,
+                           &ctx.accounts.ticker_risk)?;
+    require!(unfunded_bps(&ctx.accounts.bank, cover)
                 >= FUND_ABOVE_BPS, PithyQuip::FundingWithinBand);
 
     let now = backing_preflight(&ctx.accounts.backing, &ctx.accounts.ticker_risk)?;
@@ -1853,7 +1945,7 @@ pub fn issue_paper(ctx: Context<BackingFlow>, _ticker: String,
 
     // Never fund more than the liability being funded: over-buying converts a
     // backing into a directional position of the pool's own.
-    require!(ctx.accounts.backing.funded.saturating_add(amount)
+    require!(cover.saturating_add(amount)
                 <= ctx.accounts.bank.max_liability, PithyQuip::ExceedsNetExposure);
 
     let mint_key = ctx.accounts.stable_mint.key();
@@ -1874,20 +1966,25 @@ pub fn issue_paper(ctx: Context<BackingFlow>, _ticker: String,
             &[&[b"vault", mint_key.as_ref(), &[vault_bump]]],
         ), raw, decimals)?;
 
-    // Cover begins when the dollars leave, not at settlement: the liability is
-    // funded by an order the issuer will fill, and pretending otherwise lets
-    // the gate re-fire for the same liability while the first order is in
-    // flight.
+    // Cover does NOT begin here. The dollars have left and the paper has not
+    // arrived, and for the length of that window the book is exactly what it
+    // says it is: unhedged, with an order in flight. The cooldown above is what
+    // stops a second order chasing the same liability.
     //
     // `paper_in_transit` is NOT touched. Buying paper is asset-neutral for a
     // depositor — it costs `amount` of liquid dollars and retires `amount` of
     // liability, and the two cancel in `withdrawable()`.
-    ctx.accounts.backing.funded =
-        ctx.accounts.backing.funded.saturating_add(amount);
-    // Mirrored onto the bank so `withdrawable` and `unwindable_reserve` can see
-    // it: this is the half of `max_liability` a crank CANNOT free, because the
-    // paper behind it has to be sold before the dollars come back.
-    ctx.accounts.bank.paper_backed = ctx.accounts.backing.funded;
+    //
+    // `funded` survives only as a CACHE OF THE OBSERVATION, refreshed from the
+    // vault on every flow — never accumulated from claims. It exists because
+    // `unwindable_reserve()` hangs off `Depository` alone and cannot reach a
+    // token account; `paper_backed` is that same figure mirrored for it. A
+    // cached observation can go stale between cranks, which it already did, and
+    // it can no longer be WRONG in the way a ledger of assertions could.
+    ctx.accounts.backing.spent =
+        ctx.accounts.backing.spent.saturating_add(amount);
+    ctx.accounts.backing.funded = cover;
+    ctx.accounts.bank.paper_backed = cover;
     ctx.accounts.backing.last_flow = now;
     Ok(())
 }
@@ -1911,16 +2008,21 @@ pub fn redeem_paper(ctx: Context<BackingFlow>, _ticker: String,
 
     // The mirror of the issue gate: paper goes back once the book no longer
     // needs it.
-    require!(unfunded_bps(&ctx.accounts.bank, ctx.accounts.backing.funded)
+    let cover_now = live_cover(held, ctx.accounts.backing_mint.decimals,
+                               &ctx.accounts.ticker_risk)?;
+    require!(unfunded_bps(&ctx.accounts.bank, cover_now)
                 <= RELEASE_BELOW_BPS, PithyQuip::FundingWithinBand);
 
     let now = backing_preflight(&ctx.accounts.backing, &ctx.accounts.ticker_risk)?;
 
-    // Cover is released on the fraction of the holding that is leaving, at the
-    // basis it was booked at. An OUTPUT of this leg, never a gate on it.
-    let cover = ctx.accounts.backing.funded;
-    let released = (cover as u128 * raw_amount as u128 / held.max(1) as u128)
-        .min(cover as u128) as u64;
+    // The COST basis of the units leaving — the fraction of what we paid that
+    // is now in the post. `reconcile` books the proceeds against exactly this,
+    // so keeping it at cost is what makes that P&L the hedge's real gain rather
+    // than execution slippage against a mark. An OUTPUT of this leg, never a
+    // gate on it.
+    let spent = ctx.accounts.backing.spent;
+    let released = (spent as u128 * raw_amount as u128 / held.max(1) as u128)
+        .min(spent as u128) as u64;
 
     let mint_key = ctx.accounts.backing_mint.key();
     let decimals = ctx.accounts.backing_mint.decimals;
@@ -1942,7 +2044,13 @@ pub fn redeem_paper(ctx: Context<BackingFlow>, _ticker: String,
     // Cover ends here — the liability is unfunded again, so the reserve comes
     // back. Liquidity does NOT end here: the dollars are in the post, and this
     // is the one window where the two clocks genuinely differ.
-    ctx.accounts.backing.funded = cover.saturating_sub(released);
+    ctx.accounts.backing.spent = spent.saturating_sub(released);
+    // Cover is re-OBSERVED on what is left, not decremented. The units are
+    // gone from the vault by the transfer above, so this is the remaining
+    // holding marked at the same price the liability is.
+    ctx.accounts.backing.funded = live_cover(held.saturating_sub(raw_amount),
+        ctx.accounts.backing_mint.decimals, &ctx.accounts.ticker_risk)?;
+    ctx.accounts.bank.paper_backed = ctx.accounts.backing.funded;
     ctx.accounts.bank.paper_backed = ctx.accounts.backing.funded;
     ctx.accounts.bank.paper_in_transit =
         ctx.accounts.bank.paper_in_transit.saturating_add(released);
@@ -1967,8 +2075,29 @@ pub fn redeem_paper(ctx: Context<BackingFlow>, _ticker: String,
 /// The claim is released at COST, never at proceeds — releasing at proceeds
 /// leaves a residue on every redemption that comes back light, the same
 /// ratcheting `TickerRisk::reserved` exists to prevent, in a different account.
+/// Book the dollars the issuer sent back for paper we redeemed.
+///
+/// ⭐ **THIS USED TO HAVE TWO JOBS AND NOW HAS ONE.** The other was correcting
+///    `backing.funded` to what the issuer had actually filled — a job that
+///    existed only because cover was a stored copy of someone else's fact. It
+///    is gone: cover is `live_cover`, read from the vault, and a copy nobody
+///    keeps is a copy nobody has to fix.
+///
+/// What is left is genuinely irreducible. We sent paper and dollars come back
+/// later, and MONEY IN A WIRE CANNOT BE OBSERVED — it is external, like the
+/// fill was, but unlike the fill it leaves no on-chain trace we can read. So an
+/// admin still asserts the proceeds.
+///
+/// ⚠️ It is irreducible only because of WHERE THE MONEY LANDS. Proceeds arrive
+///    in the general stable vault, where they are indistinguishable from a
+///    depositor's deposit — that ambiguity is the entire reason a human has to
+///    name the number. Point `backing.redemption` at a DEDICATED receipt ATA
+///    and the amount becomes readable, this becomes a permissionless crank with
+///    no asserted arguments, and the admin leaves the loop completely. A
+///    cross-chain route makes that EASIER rather than harder, since a bridge
+///    delivers to an address we choose.
 pub fn reconcile(ctx: Context<Reconcile>,
-    funded_dollars: u64, proceeds_dollars: u64) -> Result<()> {
+    proceeds_dollars: u64) -> Result<()> {
     // Redemption side: release what was in the post, and book the difference
     // between what it cost and what it returned.
     let basis = ctx.accounts.bank.paper_in_transit;
@@ -1982,13 +2111,6 @@ pub fn reconcile(ctx: Context<Reconcile>,
         }
     }
 
-    // Issuance side: correct cover to what the issuer actually filled.
-    // Lowering it raises the reserve, which is the safe direction and the one a
-    // failed order needs; raising it above the liability is refused for the
-    // same reason `issue_paper` refuses it.
-    require!(funded_dollars <= ctx.accounts.bank.max_liability,
-             PithyQuip::ExceedsNetExposure);
-    ctx.accounts.backing.funded = funded_dollars;
     ctx.accounts.backing.last_flow = Clock::get()?.unix_timestamp;
     Ok(())
 }

@@ -1376,8 +1376,10 @@
     {
       "name": "reconcile",
       "docs": [
-        "Admin: book what the issuer actually did. The only instruction in the",
-        "section needing off-chain truth, and the largest trust surface in it."
+        "Admin: book the dollars the issuer sent back. The only instruction in",
+        "the section still needing off-chain truth — and only because proceeds",
+        "land in the shared stable vault, where they cannot be told apart from a",
+        "deposit. A dedicated receipt address makes this permissionless."
       ],
       "discriminator": [
         61,
@@ -1466,10 +1468,6 @@
         }
       ],
       "args": [
-        {
-          "name": "funded_dollars",
-          "type": "u64"
-        },
         {
           "name": "proceeds_dollars",
           "type": "u64"
@@ -3094,9 +3092,35 @@
           {
             "name": "funded",
             "docs": [
-              "Dollars of book funded by paper, at cost. Begins when the dollars leave",
-              "(the order will fill) and ends when the paper leaves. Read by",
-              "`unfunded_bps` and by nothing else."
+              "Cover, CACHED — the last observation of `live_cover`, refreshed from the",
+              "vault on every flow and never accumulated from claims. It exists only",
+              "because `unwindable_reserve()` hangs off `Depository` alone and cannot",
+              "reach a token account; `Depository::paper_backed` is this figure",
+              "mirrored there. Every gate reads `live_cover` directly instead."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "spent",
+            "docs": [
+              "Dollars we have SENT and not yet redeemed, at cost.",
+              "",
+              "⭐ **THIS ONE IS STORED ON PURPOSE, AND THE REASON IS THE WHOLE RULE.**",
+              "`funded` had to stop being a ledger because it was asserting an",
+              "EXTERNAL fact — what the issuer delivered — which we cannot know and",
+              "therefore had to reconcile. `spent` asserts an INTERNAL one: what we",
+              "paid, which we know exactly, because we are the ones who sent it. An",
+              "internal fact needs no reconciliation by construction; it can never",
+              "drift from a reality it *is*.",
+              "",
+              "So the split is not \"stored versus derived\" but WHOSE FACT IT IS. Cost",
+              "basis stays a ledger and stays exact; cover becomes an observation and",
+              "stays honest. `reconcile` keeps only the receivable that is neither —",
+              "money in a wire, which is external AND unobservable.",
+              "",
+              "Read by `redeem_paper` to size the basis leaving, and by nothing else.",
+              "Deliberately NOT a risk figure: paying more for paper does not hedge",
+              "more book."
             ],
             "type": "u64"
           },
