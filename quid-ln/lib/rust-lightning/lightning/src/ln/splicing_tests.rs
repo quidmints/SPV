@@ -285,12 +285,35 @@ pub fn complete_interactive_funding_negotiation<'a, 'b, 'c, 'd>(
 			}
 		}
 
+		// QU!D PATCH: the acceptor may now CONTRIBUTE (see QUID_PATCHES.md,
+		// `register_acceptor_splice_contribution`), so its turn is no longer always a bare
+		// `tx_complete` — it may first add the outputs it funds from its own channel balance.
+		// ⚠️ WRITTEN AS A LOOP RATHER THAN A NEW PARAMETER SO EXISTING TESTS ARE UNTOUCHED: with no
+		// registration the acceptor still emits exactly one `tx_complete` on its first turn and this
+		// behaves identically to the code it replaces.
 		let mut msg_events = acceptor.node.get_and_clear_pending_msg_events();
-		assert_eq!(msg_events.len(), 1, "{msg_events:?}");
-		if let MessageSendEvent::SendTxComplete { ref msg, .. } = msg_events.remove(0) {
-			initiator.node.handle_tx_complete(node_id_acceptor, msg);
-		} else {
-			panic!();
+		loop {
+			assert_eq!(msg_events.len(), 1, "{msg_events:?}");
+			match msg_events.remove(0) {
+				MessageSendEvent::SendTxAddOutput { ref msg, .. } => {
+					initiator.node.handle_tx_add_output(node_id_acceptor, msg);
+					// The initiator answers each acceptor output with its own `tx_complete`; feed it
+					// back so the acceptor can take another turn.
+					let mut init_events = initiator.node.get_and_clear_pending_msg_events();
+					assert_eq!(init_events.len(), 1, "{init_events:?}");
+					if let MessageSendEvent::SendTxComplete { ref msg, .. } = init_events.remove(0) {
+						acceptor.node.handle_tx_complete(node_id_initiator, msg);
+					} else {
+						panic!("initiator must answer an acceptor output with tx_complete");
+					}
+					msg_events = acceptor.node.get_and_clear_pending_msg_events();
+				},
+				MessageSendEvent::SendTxComplete { ref msg, .. } => {
+					initiator.node.handle_tx_complete(node_id_acceptor, msg);
+					break;
+				},
+				ev => panic!("unexpected acceptor message: {ev:?}"),
+			}
 		}
 		acceptor_sent_tx_complete = true;
 	}
@@ -853,6 +876,69 @@ fn test_splice_in() {
 	let htlc_limit_msat = nodes[0].node.list_channels()[0].next_outbound_htlc_limit_msat;
 	assert!(htlc_limit_msat > initial_channel_value_sat);
 	let _ = send_payment(&nodes[0], &[&nodes[1]], htlc_limit_msat);
+}
+
+#[test]
+/// QU!D PATCH TEST (§ACCEPTOR-CONTRIBUTION): the ACCEPTOR funds a splice-out, so the party whose
+/// sats leave does NOT have to drive the negotiation.
+///
+/// 🔑 WHY THIS EXISTS. `SpliceContribution::SpliceOut` debits the INITIATOR, and
+/// `internal_splice_init` used to hardcode the acceptor's contribution to zero. Together they force
+/// the LP — an often-offline phone wallet — to initiate every swap-out delivery, when co-signing one
+/// is a far smaller ask than driving an interactive-tx negotiation. This asserts the inverted shape
+/// actually completes: node 0 (the hop) initiates contributing NOTHING, node 1 (the LP) contributes
+/// the splice-out, and the resulting transaction pays the destination.
+fn test_acceptor_contributed_splice_out() {
+	let chanmon_cfgs = create_chanmon_cfgs(2);
+	let node_cfgs = create_node_cfgs(2, &chanmon_cfgs);
+	let mut config = test_default_channel_config();
+	config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &[None, Some(config)]);
+	let nodes = create_network(2, &node_cfgs, &node_chanmgrs);
+
+	let initial_channel_value_sat = 100_000;
+	let (_, _, channel_id, _) =
+		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
+
+	// Give node 1 (the LP) a balance to splice OUT of. Without this it has nothing to contribute
+	// and the test would pass for the wrong reason.
+	let _ = send_payment(&nodes[0], &[&nodes[1]], 50_000_000);
+
+	// The destination the acceptor's sats leave to — a swapper's script, in production.
+	let payout_script = nodes[1].wallet_source.get_change_script().unwrap();
+	let payout_sat = initial_channel_value_sat / 10;
+	let prev = nodes[1].node.register_acceptor_splice_contribution(
+		channel_id,
+		SpliceContribution::SpliceOut {
+			outputs: vec![TxOut {
+				value: Amount::from_sat(payout_sat),
+				script_pubkey: payout_script.clone(),
+			}],
+		},
+	);
+	assert!(prev.is_none(), "no earlier registration should exist");
+
+	// The HOP initiates and contributes NOTHING — the inversion this patch exists for.
+	let initiator_contribution = SpliceContribution::SpliceOut { outputs: vec![] };
+	let splice_tx = splice_channel(&nodes[0], &nodes[1], channel_id, initiator_contribution);
+
+	assert!(
+		splice_tx.output.iter().any(|o| o.script_pubkey == payout_script
+			&& o.value == Amount::from_sat(payout_sat)),
+		"the acceptor's splice-out must appear in the negotiated transaction: {:?}",
+		splice_tx.output
+	);
+
+	// ⚠️ ONE-SHOT: the registration must be CONSUMED, or a later splice on this channel would pay
+	// the same destination again out of a channel that never agreed to it.
+	assert!(
+		nodes[1].node.clear_acceptor_splice_contribution(&channel_id).is_none(),
+		"the registration must be consumed by the splice, not left pending"
+	);
+
+	mine_transaction(&nodes[0], &splice_tx);
+	mine_transaction(&nodes[1], &splice_tx);
+	lock_splice_after_blocks(&nodes[0], &nodes[1], ANTI_REORG_DELAY - 1);
 }
 
 #[test]

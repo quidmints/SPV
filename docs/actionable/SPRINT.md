@@ -1643,6 +1643,45 @@ msig at all**.
 get the LP to sign; **`M1`** bounds what a SWAPPED image can inherit. Everything else in the list is
 downstream of those two.
 
+## 🟡 §ACCEPTOR-CONTRIBUTION-FEES — **WHO PAYS THE SPLICE FEE WHEN THE INITIATOR CONTRIBUTES NOTHING? MEASURED BLOCKER, 2026-09-01.**
+
+The acceptor-contribution patch (`aa2f84a7`) landed and the functional test found the next real
+obstacle — which is what the test was for. Two guards down, one design question left.
+
+✅ **GUARD 1, FIXED:** `splice_channel` refused a zero INITIATOR contribution outright. That guard
+predates acceptor contribution, when a zero-zero splice really was a pointless outpoint rotation.
+Relaxed, with the both-zero case refused in `splice_init` instead — **the first place it is knowable**,
+since the initiator cannot see the acceptor's contribution. ⚠️ NOT a flag parameter: a flag there would
+be the caller ASSERTING something it cannot check. Same correction shape as the EVM's
+`SpliceUnchanged`, widened from *"the size did not change"* to *"NOTHING changed"*.
+
+🔴 **GUARD 2, THE OPEN ONE:** *"cannot be spliced out; Total input amount 0 is lower than needed for
+contribution 0, considering fees of 152. Need more inputs."*
+`channel.rs` states the rule: *"Fees for splice-out are paid from the channel balance whereas fees for
+splice-in are paid by the funding inputs … in the case of splice-out, we add the fees on top of the
+user-specified contribution."* ⇒ **LDK charges the funding-transaction fee to the INITIATOR**, so a hop
+that contributes nothing still owes ~152 sats — **and in production the hop's balance in an LP's
+channel is typically ZERO**, because the LP funded it.
+
+▶️ **THE DESIGN QUESTION, AND IT IS NOT MECHANICAL:** in a hop-initiated delivery the sats leaving are
+the LP's, so **the LP is the natural fee payer** — it is their withdrawal. But LDK's fee attribution
+follows INITIATION, not contribution, and this patch is precisely what separates those two for the
+first time. Options, none free:
+1. **Charge fees to the contributing side rather than the initiating side.** Correct in principle and
+   the deepest change — it touches fee logic every splice path shares.
+2. **A `SpliceContribution::None` variant** whose fees fall to the acceptor. Narrower, but it still
+   needs the fee split to follow it.
+3. **The hop pays from its own channel balance.** No LDK change beyond what has landed — ⚠️ **but it
+   requires the hop to HOLD a balance in every LP channel it delivers from, which is a funding
+   requirement nobody has costed**, and a hop with zero balance simply cannot deliver.
+⚠️ **DO NOT PICK ONE BY WHICH IS EASIEST TO CODE.** Option 3 is the smallest diff and quietly imposes a
+capital requirement on the fleet; option 1 is the largest and is the only one that leaves the fee where
+the value moves.
+
+📌 **STATUS:** patch landed, both guards understood, **the functional test is RED on guard 2 and
+staying red** — per standing rule 4, adjusting it to dodge the fee would mask the question. The test is
+the record of exactly where this stops.
+
 ## 🟢 §ACCEPTOR-CONTRIBUTION — **OPTION B IS SMALL, AND UPSTREAM NAMES OUR EXACT CASE. SCOPED 2026-09-01.**
 
 Owner: *"we already have our own fork of the ldk at quidmints that we import as a dependency, no? it

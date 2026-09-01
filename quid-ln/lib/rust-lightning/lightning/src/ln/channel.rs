@@ -12905,14 +12905,28 @@ where
 		}
 
 		let our_funding_contribution = contribution.value();
-		if our_funding_contribution == SignedAmount::ZERO {
-			return Err(APIError::APIMisuseError {
-				err: format!(
-					"Channel {} cannot be spliced; contribution cannot be zero",
-					self.context.channel_id(),
-				),
-			});
-		}
+		// QU!D PATCH (§ACCEPTOR-CONTRIBUTION): a ZERO initiator contribution is now MEANINGFUL, so
+		// this guard is scoped to the case it was actually written for.
+		//
+		// Upstream rejected it unconditionally, and correctly: with the acceptor pinned to a zero
+		// contribution (`internal_splice_init`), a zero-zero splice moved no value and existed only
+		// to rotate the funding outpoint — which is pure cost, and for QU!D would void every
+		// pre-signed exit rung under BIP-341 `Prevouts::All` for nothing.
+		//
+		// With `register_acceptor_splice_contribution` that premise no longer holds: **the whole
+		// point of a hop-initiated delivery is that the initiator contributes NOTHING and the
+		// acceptor splices its own sats out.** Keeping the guard would forbid exactly the shape the
+		// patch exists to enable.
+		// ⚠️ WHAT IS STILL REFUSED IS THE ONE THAT IS ACTUALLY EMPTY: the initiator may pass zero,
+		// but it must then be offering the counterparty a chance to contribute — a splice where
+		// NEITHER side contributes is a no-op rotation, and it is refused where that becomes
+		// knowable, in `splice_init` once the acceptor's own contribution has been resolved.
+		// 📌 Same correction shape as the EVM's `SpliceUnchanged`, which was widened from "the size
+		// did not change" to "NOTHING changed" for the same reason.
+		// ⚠️ NOT A FLAG PARAMETER, DELIBERATELY: the initiator CANNOT know the acceptor's
+		// contribution at this point, so any flag here would be the caller ASSERTING something it
+		// cannot check. The both-zero case is refused in `splice_init`, which is the first place it
+		// is actually knowable.
 
 		// Fees for splice-out are paid from the channel balance whereas fees for splice-in
 		// are paid by the funding inputs. Therefore, in the case of splice-out, we add the
@@ -13250,6 +13264,19 @@ where
 		L::Target: Logger,
 	{
 		let our_funding_contribution = SignedAmount::from_sat(our_funding_contribution_satoshis);
+		// QU!D PATCH (§ACCEPTOR-CONTRIBUTION): refuse a splice in which NEITHER side contributes.
+		// The initiator's zero-check was relaxed (see `splice_channel`) because a zero initiator
+		// contribution is now legitimate — it is how a hop offers the acceptor a chance to splice
+		// its own sats out. **This is where the no-op becomes knowable**, and a no-op rotation is
+		// not free: it moves no value and voids every pre-signed exit rung under BIP-341
+		// `Prevouts::All`, which for QU!D is the LP's whole escape.
+		if our_funding_contribution == SignedAmount::ZERO
+			&& msg.funding_contribution_satoshis == 0
+		{
+			return Err(ChannelError::WarnAndDisconnect(
+				"Splice with no contribution from either side".to_owned(),
+			));
+		}
 		let splice_funding = self.validate_splice_init(msg, our_funding_contribution)?;
 
 		log_info!(
