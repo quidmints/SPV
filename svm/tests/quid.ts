@@ -943,10 +943,11 @@ describe("QU!D Protocol — Depository Suite", () => {
     it("7.1 Non-admin cannot update config", async () => {
       try {
         await program.methods
-          .updateConfig(Keypair.generate().publicKey, null)
+          .updateConfig(Keypair.generate().publicKey, null, null)
           .accountsStrict({
             admin: user2.publicKey,
             config: configPDA,
+            bank: bankPDA,
           })
           .signers([user2])
           .rpc();
@@ -963,10 +964,11 @@ describe("QU!D Protocol — Depository Suite", () => {
 
       // Transfer admin to tempAdmin
       await program.methods
-        .updateConfig(tempAdmin.publicKey, null)
+        .updateConfig(tempAdmin.publicKey, null, null)
         .accountsStrict({
           admin: payer.publicKey,
           config: configPDA,
+            bank: bankPDA,
         })
         .rpc();
 
@@ -976,10 +978,11 @@ describe("QU!D Protocol — Depository Suite", () => {
       // Old admin can no longer update
       try {
         await program.methods
-          .updateConfig(payer.publicKey, null)
+          .updateConfig(payer.publicKey, null, null)
           .accountsStrict({
             admin: payer.publicKey,
             config: configPDA,
+            bank: bankPDA,
           })
           .rpc();
         expect.fail("Old admin should be rejected");
@@ -989,10 +992,17 @@ describe("QU!D Protocol — Depository Suite", () => {
 
       // Transfer back
       await program.methods
-        .updateConfig(payer.publicKey, null)
+        // ⚠️ THE ROTATE-BACK LEG. Missed when the other five call sites were
+        //    corrected, because it is the only one whose `admin` is not
+        //    `payer` — so it kept the stale two-arg shape, failed, and left
+        //    the config owned by `tempAdmin`. Every later test then failed
+        //    `Unauthorized`, which reads like an access-control defect and is
+        //    really one un-restored fixture.
+        .updateConfig(payer.publicKey, null, null)
         .accountsStrict({
           admin: tempAdmin.publicKey,
           config: configPDA,
+          bank: bankPDA,
         })
         .signers([tempAdmin])
         .rpc();
@@ -1054,8 +1064,15 @@ describe("QU!D Protocol — Depository Suite", () => {
     before(async () => {
       flashAuthKp = payer; // reuse payer as flash authority in tests
       await program.methods
-        .updateConfig(null, payer.publicKey)
-        .accountsStrict({ admin: payer.publicKey, config: configPDA })
+        // ⚠️ `update_config` TAKES THREE ARGS AND THREE ACCOUNTS. The program
+        //    gained `kestrel` and `bank`; four of the six call sites in this
+        //    file were still passing the two-arg shape, which Anchor rejects
+        //    client-side with "Account `admin` not provided" — a misleading
+        //    message for an arity mismatch, and it was failing the whole FL
+        //    suite before any flash logic ran.
+        .updateConfig(null, payer.publicKey, null)
+        .accountsStrict({ admin: payer.publicKey, config: configPDA,
+                          bank: bankPDA })
         .rpc();
 
       // depositSol updates bank.sol_lamports AND transfers lamports to sol_pool.

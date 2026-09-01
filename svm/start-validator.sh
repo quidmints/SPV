@@ -228,15 +228,28 @@ if [ "$1" = "--fork" ]; then
 
   # Live accounts: every price feed the suite reads, Kestrel's market state and
   # its collateral vault, and the two mints.
+  # ⚠️ `SOL_STAR_MINT` IS KESTREL'S SOL*, NOT PERENA'S USD*, and the two are
+  #    unrelated despite both being "star" tokens. `USD_STAR` is the SECOND
+  #    registered mint — a compile-time constant in the program, and the asset
+  #    that makes `transfer_from_vaults` a pro-rata split rather than a
+  #    single-vault transfer. Without it cloned, FL.4b skips itself with
+  #    "USD* fixture absent" and the second-mint path is never exercised.
   for a in "$XAG_PYTH" "$XAU_PYTH" "$BTC_PYTH" "$ETH_PYTH" "$SOL_PYTH" \
            "$USDC_PYTH" "$USDT_PYTH" "$PYUSD_PYTH" \
+           star9agSpjiFe3M49B3RniVU4CMBBEK3Qnaqn3RGiFM \
            "$SOL_STAR_MINT" "$KESTREL_TOKEN" "$KESTREL_VAULT" "$WSOL_MINT"; do
     CLONE+=(--clone "$a")
   done
 
   # The payer still has to be funded locally — mainnet does not know it.
+  # The program under test, loaded at genesis rather than deployed: the
+  # loader refuses this toolchain's sbpf version, and a genesis load bypasses
+  # it. `shift` drops --fork so any extra arguments still reach the validator.
+  shift
   exec $VALIDATOR --reset --url "$MAINNET" "${CLONE[@]}" \
-       --account "$PAYER_PUBKEY" "$FIXTURES/payer.json"
+       --bpf-program QDgHUZjtccRjKZ63MBvW8uzKR7qcqjpRfGhNSEGfDu9 \
+       target/deploy/quid.so \
+       --account "$PAYER_PUBKEY" "$FIXTURES/payer.json" "$@"
 fi
 
 $VALIDATOR --reset ${PROGRAMS[@]} ${ACCOUNTS[@]} "$@"
