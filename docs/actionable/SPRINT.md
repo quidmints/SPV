@@ -1428,8 +1428,8 @@ basis — the blocker the file put in front of them is gone.**
 3. 🔴 **Phase 3 freshness** — ⛔ NOT *"whether it is wanted"*: `bf5aa5ff` retracted that. **"Who may invalidate, and how deep"** — see the remainder table row 8, and note the exposure is LIVE today.
 4. ✅ **`E182-REKEY-CHECKED` — CLOSED 2026-08-30, THE WORK LANDED.** Every requirement the row
    named is in the tree and tested; see `§E182-REKEY-VERIFIED`.
-5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the Safe
-   on-chain); **`B1`** (freshness backstop has no economic bound); TDX + Nitro seal wiring.
+5. 🔴 **Ladder depth** as a deploy parameter; **`§F5`**; **`M1`** (`migration.rs` must read the MSIG OWNER SET
+   on-chain (a plain k-of-n — **not** a Gnosis Safe)); **`B1`** (freshness backstop has no economic bound); TDX + Nitro seal wiring.
 6. ✅ **LANDED 2026-08-31 — `§SPLICE-ROTATES-BOTH-FUNDING-KEYS`, and it was a two-sided defect.**
    LDK rotates BOTH funding pubkeys on every splice; the EVM pinned them. Neither `splice` (pin) nor
    `rekey` (LP half immutable) could accept what our own stack produces, and the same gate guards the
@@ -1596,7 +1596,7 @@ stated property is FALSE for the only case it exists for"*) · `UNIT-A-DOUBLE-CO
 
 **Named, bounded gaps**
 `E159-prove-onchain-swapin` (*"only the on-chain check is missing"*) · `B1` (freshness backstop has no
-economic bound) · `M1` (`migration.rs` must read the Safe on-chain) · `E184-swapout-pop` · `E179`
+economic bound) · `M1` (`migration.rs` must read the MSIG OWNER SET on-chain — a plain k-of-n, **not** a Safe) · `E184-swapout-pop` · `E179`
 (UTXO/account drift) · `§BTC-DELIVERY-IS-BUILT` (*"the work is WIRING, not inventing"*) · TDX + Nitro
 seal wiring · `E115-c` (*"narrows to ONE checkable fact"*)
 
@@ -32560,7 +32560,7 @@ this consolidation exists to remove.
 ### THE REST
 
 The 50 🔴 sections are dominated by named, bounded work — `C10` (*"the withdraw ladder does not cap
-its EtherFi request"*), `M1` (*"`migration.rs` must read the Safe on-chain"*), `B1` (*"the freshness
+its EtherFi request"*), `M1` (*"`migration.rs` must read the MSIG OWNER SET on-chain"* — a plain k-of-n, **not** a Safe), `B1` (*"the freshness
 backstop has no economic bound"*), `§J.2c` (*"the ERC-20 transfer face is ambiguous on a two-asset
 manager"*), the TDX/Nitro seal wiring, `#114`'s three rows. The 15 ⛔ are decisions and retractions.
 **The 50 unmarked are overwhelmingly sub-headings of other items** — the same distortion `§E356`
@@ -34208,7 +34208,7 @@ deployment and `migration.rs` should just read the on-chain one."*
 chain id) are **the wrong SHAPE**, not merely unfilled. A constant baked at compile time cannot track
 an address minted by a later deploy, and "replace before mainnet" is a manual step that WILL be
 missed — the failure is silent (it signs against a dead address).
-▶️ **Fix:** read the Safe from the deployed `BTCChannels`/registry at runtime, so the daemon has no
+▶️ **Fix:** read the MSIG OWNER SET (plain k-of-n, **not** a Gnosis Safe) from the deployed `BTCChannels`/registry at runtime, so the daemon has no
   compile-time address at all. Then the constants can be DELETED rather than maintained.
 ⚠️ Nothing here is blocked on the user. It is engineering work I mis-scoped.
 

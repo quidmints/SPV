@@ -12,10 +12,12 @@
 //! must be authorized by something the host CANNOT forge.
 //!
 //! THE CONTROL: a [`MigrationAuth`] (target MRENCLAVE + deploy env + network)
-//! authorized by the foundation's **operator Gnosis Safe** — an n-of-m of the
-//! operators' own EVM wallets. A migration needs ≥[`MIGRATION_THRESHOLD`]
-//! distinct Safe-owner signatures over the EIP-712 [`MigrationAuth`]; the OLD
-//! enclave verifies them with `ecrecover` against the Safe's owner-set before
+//! authorized by the foundation's **operator MULTISIG — a plain k-of-n, NOT a
+//! Gnosis Safe** (owner, standing: *"we are not using a Safe anymore, just a
+//! simple msig"*) — an n-of-m of the operators' own EVM wallets. A migration
+//! needs ≥[`MIGRATION_THRESHOLD`] distinct OWNER signatures over the EIP-712
+//! [`MigrationAuth`]; the OLD enclave verifies them with `ecrecover` against
+//! the configured owner set before
 //! exporting. So NO single key (or single compromised custodian, or the host)
 //! can redirect the export, AND losing one key does not brick upgrades. This is
 //! NOT governance/a DAO — it is narrow operator key custody for one operation.
