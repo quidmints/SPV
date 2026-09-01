@@ -1643,6 +1643,49 @@ msig at all**.
 get the LP to sign; **`M1`** bounds what a SWAPPED image can inherit. Everything else in the list is
 downstream of those two.
 
+## 🟢 §ACCEPTOR-CONTRIBUTION — **OPTION B IS SMALL, AND UPSTREAM NAMES OUR EXACT CASE. SCOPED 2026-09-01.**
+
+Owner: *"we already have our own fork of the ldk at quidmints that we import as a dependency, no? it
+already has many changes from standard ldk like taproot support."* ✅ **Correct, and it settles the
+fork question:** the vendored LDK already carries SIMPLE-TAPROOT CHANNELS — MuSig2 partials, taproot
+`to_local`/`to_remote`/anchors, splice key-path sighashes — which is a **far larger** protocol addition
+than this. A patch here is normal work, not an exotic step.
+
+🔑 **AND IT IS MUCH SMALLER THAN §DELIVERY-MUST-BE-LP-INITIATED IMPLIES, BECAUSE THE PLUMBING IS
+ALREADY THERE. Measured:**
+| piece | state |
+|---|---|
+| `Channel::splice_init(msg, our_funding_contribution_satoshis, …)` | ✅ **already takes it**, and uses it — into `validate_splice_init` and `FundingNegotiationContext` |
+| `FundingNegotiationContext` | ✅ already has `our_funding_contribution`, `our_funding_inputs` **and `our_funding_outputs`** |
+| `validate_splice_init` | ✅ does **not** reject a non-zero acceptor contribution |
+| `ChannelManager::internal_splice_init` | 🔴 **the ONLY blocker** — `let our_funding_contribution = 0i64;` under *"TODO(splicing): Currently not possible to contribute on the splicing-acceptor side"* |
+
+⭐ **UPSTREAM'S OWN TODO, TWENTY LINES INTO `splice_init`, DESCRIBES US:** *"if quiescent_action is set,
+integrate what the user wants to do into the counterparty-initiated splice. For always-on nodes this
+probably isn't a useful optimization, but **for often-offline nodes it may be**, as we may connect and
+immediately go into splicing from both sides."* **Our LP is an often-offline phone.** This is the case
+upstream deferred and we need.
+
+✅ **AND OUR DIRECTION IS THE EASY HALF.** `validate_splice_init`'s other TODO — *"Once splice acceptor
+can contribute, check that inputs are sufficient"* — is about INPUTS covering a **positive**
+contribution (splice-IN). **A delivery is a splice-OUT: the acceptor contributes NEGATIVELY and needs
+no inputs at all**, because the value comes from its channel balance. So the missing sufficiency check
+does not apply to the case we need.
+
+▶️ **THE PATCH, SCOPED:**
+1. An API for the acceptor to register an intended contribution for an incoming splice on a given
+   channel — a `SpliceContribution::SpliceOut { outputs }` holding the swapper's script. ⚠️ **It must
+   be consumed exactly once and scoped to ONE channel**, or a stale registration attaches the
+   swapper's output to an unrelated splice.
+2. `internal_splice_init` reads it instead of the hardcoded `0i64`, and passes the outputs through to
+   `our_funding_outputs`.
+3. Delivery then becomes: **the HOP initiates, the LP's phone merely CO-SIGNS** — which is the whole
+   point, because co-signing is a far smaller ask of a wallet than driving an interactive-tx splice.
+⚠️ **THE LP STILL MUST BE ONLINE** (§DELIVERY-MUST-BE-LP-INITIATED's common factor stands: moving its
+sats needs its key). What changes is the SHAPE of what it does while online, not whether it must be.
+📌 **AND THE ORDER MATTERS: this patch is what makes deleting `QUID_FLEET_COHOSTS_VAULT` possible at
+all** — it is the replacement Rail B needs before the flag can go.
+
 ## 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWNER'S.**
 
 Measured 2026-09-01, and it retires the plan in `§COHOST-FLAG-IS-NOT-THE-WORK` step 1
