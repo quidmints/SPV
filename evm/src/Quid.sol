@@ -5,8 +5,8 @@ pragma solidity ^0.8.28;
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 
 import {BasketLib} from "./imports/BasketLib.sol";
-import {WAD, AlreadyInitialized, InsufficientAllowance, LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";
-import { ILevEquity, ILevClose, IERC20Min } from "./imports/Interfaces.sol";
+import {WAD, AlreadyInitialized, InsufficientAllowance} from "./imports/Types.sol";
+import {ILevEquity, ILevClose} from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {IDepositAdapter, ILevEquity} from "./imports/Interfaces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";

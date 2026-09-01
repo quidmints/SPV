@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Types, BadSPV, ChannelKeysMismatch, GHOIsAaveWired, GHONotOnAAVE, InvalidParam} from "./Types.sol";
+import {Types, BadSPV, GHOIsAaveWired, GHONotOnAAVE, InvalidParam} from "./Types.sol";
 import {WAD} from "./Types.sol";
 // §A.52: the canonical Aux view (was a file-local variant).
 import {IAux, IStabilityPool} from "./Interfaces.sol";

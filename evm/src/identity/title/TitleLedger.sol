@@ -9,7 +9,6 @@ import {SparseMerkleTree} from "@solarity/solidity-lib/libs/data-structures/Spar
 //    `_authorizeUpgrade` alongside the ordinary admin powers.
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
-import {PoseidonUnit2L} from "../libraries/Poseidon.sol";
 import {HolderStateKeeper} from "../holder/HolderStateKeeper.sol";
 import {INoirVerifier} from "../interfaces/verifiers/INoirVerifier.sol";
 import {RegistrySourceAnchor} from "../registry/RegistrySourceAnchor.sol";

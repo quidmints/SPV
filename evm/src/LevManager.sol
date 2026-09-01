@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import { AlreadyOpen, NotFlash, Reentrancy, VenueNotAllowed, Types } from "./imports/Types.sol";
-import { ILevVenue, IERC20Min, ILevPooled, IWeETH, IMorphoBase as IMorphoFlash } from "./imports/Interfaces.sol";
+import {AlreadyOpen, NotFlash, VenueNotAllowed, Types} from "./imports/Types.sol";
+import {ILevVenue, IERC20Min, ILevPooled, IWeETH, IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {LevBase} from "./imports/LevBase.sol";
 /// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
@@ -56,7 +56,6 @@ contract LevManager is LevBase {
     // the test's own permissionless `createMarket`). Morpho Blue markets are IMMUTABLE, so a market's LLTV is
     // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
     // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
-    uint256 internal constant MAX_LOOPS          = 8;    // bound the open/rebalance loop
     /// Min collateral to OPEN — keeps the `_openLps` book (iterated in rangeETH on every deposit/withdraw/swap)
     /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
 
@@ -374,9 +373,14 @@ contract LevManager is LevBase {
 
     /// @notice De-lever ONE position toward target (down-leg only). The atomic unit of the cascade;
     ///         `external` so `cascadeDelever` can try/catch it. Callable by the contract itself (cascade) or
-    ///         the LP. Iterates to within range (one chunk only gets close — selling weETH reflexively nudges
-    ///         the range mark + slippage leave headroom — so re-solve on the new mark and chip again,
-    ///         bounded by MAX_LOOPS; a no-progress chunk breaks early so a stuck position never spins).
+    ///         the LP.
+    /// @dev    🔴 §STALE (2026-09-01) — THIS DESCRIBED AN ITERATION THE BODY NO LONGER HAS. It read
+    ///         *"Iterates to within range … bounded by MAX_LOOPS; a no-progress chunk breaks early so
+    ///         a stuck position never spins"* — the iterate-and-chip design that a SINGLE
+    ///         flash-repay-first shot replaced. The body contains zero loops; `MAX_LOOPS` was left
+    ///         orphaned (0 reads in src, script or test) and is deleted with this sentence.
+    ///         ⇒ There is no unbounded loop here — there is no loop. `require(debtOf < debtBefore)`
+    ///         below is what makes a position that sources nothing fail fast instead of spinning.
     /// @dev NO `nonReentrant` BY DESIGN: `cascadeDelever` (which holds the guard) calls this via `this.deleverOne`,
     ///      so a guard here would revert the whole cascade. Safe without it — caller is self or the LP only, and
     ///      every token leg uses ACTUAL balance deltas (no nominal trust), so a re-entry can't mis-account.

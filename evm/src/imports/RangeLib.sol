@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {Types} from "./Types.sol";
-import {NotOpen, BadTarget} from "./Types.sol";
 import {ICore, IAux, ILevEquity} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 import {SwapLib} from "./SwapLib.sol";
@@ -197,7 +196,6 @@ library RangeLib {
 
     /// @notice A resting order executed. `limitPx` is the price it settled at — its own, not the
     ///         range's — which is what makes the accrual question above measurable from logs.
-    event OorFilled(uint indexed id, address indexed owner, uint size, uint limitPx, bool usdFunded);
 
 
 

@@ -18,7 +18,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 // §A.52: the SHARED WETH view (was a file-local `IWethDeposit` declaring just `deposit()`).
 import {IWETH9} from "./Interfaces.sol";
 // §A.52: canonical shared views — these were file-local `IWeEth_L`/`IRedeem_L`/`ILiq_L`.
-import {IWeETH, ICurvePool} from "./Interfaces.sol";
 import {WETH as WETH9} from "solmate/src/tokens/WETH.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 // §E68 — `lnWad` for the drain kernel's INTEGRAL (solmate has no lnWad; solady does, and is

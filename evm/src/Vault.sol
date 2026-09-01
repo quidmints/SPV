@@ -11,7 +11,7 @@ import {Basket} from "./Basket.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
-import {Types, AlreadyInitialized, BtcChannelsPinned, LevManagerPinned, NotBTCChannels, Unauthorized, WrongRangeManager} from "./imports/Types.sol";
+import {Types, AlreadyInitialized, BtcChannelsPinned, NotBTCChannels, Unauthorized} from "./imports/Types.sol";
 import {Shares} from "./Shares.sol";
 
 // §ETHVENUE-GHOSTS: the `solmate WETH as WETH9` import went with the dead `WETH` immutable — its only user.
