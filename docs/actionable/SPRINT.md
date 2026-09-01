@@ -1643,6 +1643,44 @@ msig at all**.
 get the LP to sign; **`M1`** bounds what a SWAPPED image can inherit. Everything else in the list is
 downstream of those two.
 
+## 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWNER'S.**
+
+Measured 2026-09-01, and it retires the plan in `§COHOST-FLAG-IS-NOT-THE-WORK` step 1
+(*"`drive_swap_out_onchain` initiates the splice from the HOP's `channel_manager`"*). **It cannot.**
+
+🔑 **TWO FACTS FROM LDK, BOTH IN ITS OWN WORDS:**
+1. `SpliceContribution::SpliceOut { outputs }` — *"The total value of all outputs plus fees will be
+   the amount that is removed"* — is removed from **THE INITIATOR'S OWN BALANCE**.
+2. `channelmanager.rs:11868`, in `internal_splice_init`:
+   ```rust
+   // TODO(splicing): Currently not possible to contribute on the splicing-acceptor side
+   let our_funding_contribution = 0i64;
+   ```
+⇒ **Only the initiator may contribute, and a splice-out debits the initiator.** The sats a delivery
+removes are the **LP's** (the LP funded the channel; the hop holds ~0 balance in it), so **only the LP
+side can initiate a delivery splice-out.** The hop cannot, and the acceptor cannot contribute at all.
+
+⇒ **THIS IS WHY `QUID_FLEET_COHOSTS_VAULT` EXISTS.** Rail B structurally requires an LP-side node that
+can INITIATE. The flag is not a shortcut somebody took; it is the only way the current delivery design
+works at all. **My earlier booking was right that the flag is not the work and WRONG about what the
+work is.**
+
+🔴 **THE FORK, AND IT IS A DESIGN DECISION, NOT AN IMPLEMENTATION ONE:**
+| option | what it costs |
+|---|---|
+| **A. Delivery only when the LP's phone is ONLINE and initiates** | matches the shipped model (§E182-JUSTIFICATION-UPDATED: *"sign more, earn more; sign less, get routed less"*) and the candidate filter already skips offline LPs. **Cost: swap-out delivery capacity becomes a function of LP liveness**, and the phone must run splice initiation, not just signing |
+| **B. Patch LDK to allow acceptor-side contribution** | upstream has it as a TODO. Makes hop-initiated delivery possible with the LP merely co-signing — which fits an often-offline LP far better. **Cost: a real vendored-LDK protocol patch**, and the LP still must be online to co-sign |
+| **C. Delivery stops being a splice** | e.g. pay the swapper from fleet-owned inventory and reconcile against the LP later. **Cost: reintroduces fleet exposure — `§FLEET-FRONTS-THE-WINDOW` deleted exactly that** |
+⚠️ **NOTE WHAT IS COMMON TO ALL THREE: THE LP MUST BE ONLINE FOR A DELIVERY EITHER WAY** (initiate in
+A, co-sign in B). **No option delivers from an offline LP's channel**, because moving its sats needs
+its key. ⇒ *"Deliver while the LP is offline"* is not an option that exists; the only question is
+whether the online LP **initiates** or merely **signs**.
+
+📌 **AND THE HONEST STATUS OF `QUID_FLEET_COHOSTS_VAULT` UNTIL THIS IS DECIDED:** it cannot be
+deleted. Deleting it removes Rail B with no replacement. **Leave it default-OFF and documented**, and
+treat `§E162`'s residual as *scoped to a non-default mode* — which is exactly what the threat model
+below already says.
+
 ## 🔴 §COHOST-FLAG-IS-NOT-THE-WORK — **DELETING `QUID_FLEET_COHOSTS_VAULT` TURNS OFF RAIL B. FINISHING THE SECOND HALF MEANS MOVING DELIVERY TO THE LP'S NODE.**
 
 Owner, 2026-09-01: *"finish the second funding half, no awkward variables like
