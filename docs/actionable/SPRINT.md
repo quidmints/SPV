@@ -1404,7 +1404,7 @@ basis — the blocker the file put in front of them is gone.**
 | phase | state |
 |---|---|
 | **0** — `§F5` zero-delivery cluster · `§W1` sweep signing tool | `§W1` ✅ wired (`create_sweep_tx`, 11 refs). `§F5` **open** |
-| **1 — KEYSTONE `§M1#2`, the LP holds its own funding half** | **(a)** ✅ fleet vault-less — `daemon.rs:210` `vault: Option<Arc<VaultNode>>` · **(b)** ✅ `quid-lp-daemon.rs` exists · **(c)** ✅ **CORRECTED 2026-08-31 — this cell read 🔴 while list item 1 TWELVE LINES BELOW read ✅ DECIDED AND BUILT. The section contradicted itself; the list is right.** Owner decided 2026-08-30 (*same seed, taproot path*), `deriveFundingKey` exists at BIP-86 `m/86'/0'/0'/0/0` and its point matches BIP-86's PUBLISHED vector. ⇒ **PHASE 1 IS DONE.** |
+| **1 — KEYSTONE `§M1#2`, the LP holds its own funding half** | **(a)** ✅ fleet vault-less — `daemon.rs:210` `vault: Option<Arc<VaultNode>>` · **(b)** ✅ `quid-lp-daemon.rs` exists ⚠️ **BUT IT IS NOT THE LP — see the topology note below; the LP is the react-native wallet and phase 1c is what settled where its key lives** · **(c)** ✅ **CORRECTED 2026-08-31 — this cell read 🔴 while list item 1 TWELVE LINES BELOW read ✅ DECIDED AND BUILT. The section contradicted itself; the list is right.** Owner decided 2026-08-30 (*same seed, taproot path*), `deriveFundingKey` exists at BIP-86 `m/86'/0'/0'/0/0` and its point matches BIP-86's PUBLISHED vector. ⇒ **PHASE 1 IS DONE.** |
 | **2** — LP-side signer refusal, then ladder depth | ⛔ **THE ✅ IS AN OVER-CLAIM, CORRECTED 2026-08-31 — AND IT NOW MATTERS.** *"Needed no new code: `type EcdsaSigner = ValidatingChannelSigner` wraps every channel"* says the WRAPPER exists; it does not say the REFUSAL does. **Measured: `partially_sign_splice_shared_input` (`validating_signer.rs:1662`) computes the sighash and signs — it NEVER INSPECTS `tx.output`.** Its policy guards nonce reuse and state regression, not DESTINATIONS. ⇒ **§T9's actual refusal is UNBUILT.** 🔴 **AND IT BECAME LOAD-BEARING TODAY:** the `rekey` fold (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) removed the contract-side `lpPubkey`-unchanged check — which held even against a blind-signing LP — and relies instead on the LP signing only destinations it accepts. **That is the check this row calls done and which is not.** Ladder depth: ✅ floor of 2 (`LadderTooShallow`), 🔴 the *"generous, deploy-parameterised"* depth is open |
 | **3** — `§M1#4` per-channel freshness | 🔴🔴 **NOT BUILT, AND UNREACHABLE:** `FRESHNESS_SHARD: u32 = 0` hardcoded, and its only writer returns early when the fleet has no vault — **which is the default**. See `§CLUSTER-2-BTC` |
 | **4** — attestation removal · lazy `openChannel` | ✅ `AttestedHopRegistry` and `_requireAttested`: **0 references each** |
@@ -1531,8 +1531,16 @@ reason written at each**, so nobody re-reads this as an oversight and "fixes" it
    `monitor.channel_keys_id()` and `onchain_cid_from_monitor(monitor)` — so the binder is a few lines
    in a loop that already walks monitors. ⚠️ **It must run on the LP's OWN daemon**, not only the
    fleet's: the refusal that matters is the LP's.
-2. **Then** attach the factory at `quid-lp-daemon` (read-only EVM endpoint — the owner confirms the
-   LP's react-native wallet already reads both EVM and SVM, so this is not a new dependency class).
+2. ⛔ **RE-TARGETED 2026-09-01 — I HAD THIS POINTING AT THE WRONG COMPONENT.** *"Attach the factory
+   at `quid-lp-daemon`"* assumed the LP runs a daemon. **It does not** (topology note above). **The
+   LP-side refusal belongs in the react-native wallet**, which already reads both chains — so the
+   protocol side is *what the app must check and against what*, and the implementation is ibiza's
+   (`TODO.md` §3b). ✅ **The plumbing landed here is still correct and still wanted**, because the
+   HOP's own signer takes the same comparand, and a self-hosting LP can pass one too.
+   🔴 **AND THE HARDER HALF THIS EXPOSES: an OFFLINE LP RUNS NO CHECK AT ALL.** §T9 bounds what
+   the LP signs WHEN IT SIGNS. It cannot bound anything while the phone is off — so the offline case
+   must be carried by pre-signed shapes and on-chain bounds, never by a runtime refusal. **Do not
+   describe §T9 as protecting an offline LP.**
 3. **Then** the delivery-output bound: a splice paying `S` for `V` sats is legitimate only if
    `BTCChannels` records a matching swap-out obligation.
 📌 **Do not mark §T9 done at step 2.** Steps 1–2 make the signer refuse a *contradicted pair or size*;
@@ -1731,10 +1739,19 @@ that guarantee is the platform's, not ours.
 | 8 | **Phase 3 freshness** | ⛔ **I RE-ASKED A SETTLED QUESTION HERE AND IT WAS WRONG.** This cell read *"is the Bitcoin freshness UTXO wanted at all?"* — **`bf5aa5ff` RETRACTED that deletion** (`c4875fcf` had recommended it). The retraction stands: deleting gives up DoS resistance, because `DeadManExitEmitted` publishes `signedExitTx` by design (§E188 keyless recovery), so **any stranger can rebroadcast a matured, superseded exit and force-close an IDLE channel** — precisely the long-offline LP the model centres on. 🔑 **THE REAL QUESTION IS "WHO MAY INVALIDATE, AND HOW DEEP"**, a three-way tension with no free side: hop-controlled freshness lets a compromised hop void every escape; NO freshness lets strangers force-close idle channels; 2-of-2 is refuted because the LP is offline. **The lever is LADDER DEPTH AND SPACING** (item 3), which is the owner trade. 🔴 **AND THE EXPOSURE IS LIVE, NOT FUTURE:** `run_deadman_exit_heartbeat` early-returns on `vault == None`, the shipped default, so production has NO freshness UTXO today |
 | 9 | **§BTC-LEG-FEE** | ⏸️ OWNER DECISION: is the token-side fee leg wanted at all? |
 ⇒ **Everything else in phases 0–4 is either landed or dissolved.** Phase 1 (the keystone) is DONE:
-fleet vault-less, `quid-lp-daemon` builds, LP seed decided and derived. 📌 **TWO LP CUSTODY
-TOPOLOGIES EXIST AND THE PHASE NOTES BLUR THEM — say which you mean:** the PHONE holds the half via
-`deriveFundingKey` (§E188, app, BIP-86), and a SELF-HOSTED LP box runs `quid-lp-daemon` with its own
-Rust-provisioned seed. Both are real; they are different deployments, not competing designs.
+fleet vault-less, `quid-lp-daemon` builds, LP seed decided and derived. 🔴 **THE LP IS A REACT-NATIVE WALLET, USUALLY OFFLINE. IT DOES NOT RUN A DAEMON.** (owner,
+2026-09-01: *"The LP is not running a daemon. they have a react native wallet that will likely often
+be offline."*) ⛔ **THIS CELL PREVIOUSLY SAID "TWO LP CUSTODY TOPOLOGIES EXIST" AND THAT WAS WRONG** —
+it read `quid-lp-daemon.rs` existing as evidence that it is a deployment. **Phase 1c superseded it as
+the answer to WHERE THE LP'S KEY LIVES:** `deriveFundingKey`, `app/features/identity`, BIP-86
+`m/86'/0'/0'/0/0`, from the LP's own mnemonic (`6c7afe9a`). `quid-lp-daemon` (phase 1b, `aea5c9b2`) is
+a deployment OPTION for an LP that chooses to self-host; **it is not the LP.**
+⇒ **TWO CONSEQUENCES THAT BIND EVERY DESIGN DECISION DOWNSTREAM, so read them before proposing one:**
+1. **AN OFFLINE LP CANNOT CO-SIGN ON DEMAND.** Anything needing LP liveness must be liveness-GATED
+   (routed only to online LPs); everything else must be **PRE-SIGNED** — which is what the
+   `ExitArming` ladder is for (§E188: *funds = no key*).
+2. **ANY LP-SIDE RUNTIME CHECK BELONGS IN THE APP**, not in a daemon. The protocol half is booked
+   here; the client half belongs in `docs/actionable/TODO.md` §3b, which ibiza owns.
 
 ✅ **THE KNOWN-FALSE COMMENT IS ALREADY ANNOTATED — checked 2026-08-31, this row is STALE.** The
 §E172 refutation sits directly under the claim (`BTCChannels.sol:357-374`), naming
