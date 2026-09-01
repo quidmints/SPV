@@ -301,10 +301,17 @@ pub fn complete_interactive_funding_negotiation<'a, 'b, 'c, 'd>(
 					// back so the acceptor can take another turn.
 					let mut init_events = initiator.node.get_and_clear_pending_msg_events();
 					assert_eq!(init_events.len(), 1, "{init_events:?}");
-					if let MessageSendEvent::SendTxComplete { ref msg, .. } = init_events.remove(0) {
-						acceptor.node.handle_tx_complete(node_id_initiator, msg);
-					} else {
-						panic!("initiator must answer an acceptor output with tx_complete");
+					match init_events.remove(0) {
+						MessageSendEvent::SendTxComplete { ref msg, .. } => {
+							acceptor.node.handle_tx_complete(node_id_initiator, msg);
+						},
+						// The initiator may still owe the SHARED input (the previous funding output),
+						// which it adds on its own turn — an acceptor output does not necessarily
+						// arrive after the initiator has finished contributing.
+						MessageSendEvent::SendTxAddInput { ref msg, .. } => {
+							acceptor.node.handle_tx_add_input(node_id_initiator, msg);
+						},
+						ev => panic!("unexpected initiator reply to an acceptor output: {ev:?}"),
 					}
 					msg_events = acceptor.node.get_and_clear_pending_msg_events();
 				},

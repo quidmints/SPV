@@ -12932,9 +12932,26 @@ where
 		// are paid by the funding inputs. Therefore, in the case of splice-out, we add the
 		// fees on top of the user-specified contribution. We leave the user-specified
 		// contribution as-is for splice-ins.
+		// QU!D PATCH (§ACCEPTOR-CONTRIBUTION-FEES): **THE FEE FOLLOWS THE CONTRIBUTION, NOT THE
+		// INITIATION.** `is_initiator` in the estimator gates exactly the COMMON costs — the tx
+		// common fields, the shared funding output, and the input spending the previous funding
+		// output. Upstream charges them to whoever sent `splice_init`, which was the same party as
+		// the contributor because the acceptor could not contribute at all.
+		//
+		// This patch separates those two for the first time, and a hop-initiated delivery is the
+		// case where they come apart: the sats leaving are the LP's, the hop holds ~no balance in
+		// that channel, and charging the hop the common weight makes delivery impossible for
+		// exactly the fleet that is supposed to perform it.
+		//
+		// ⚠️ THE RULE IS DETERMINISTIC FROM DATA BOTH SIDES SEE, WHICH IS WHAT MAKES IT SAFE:
+		// *the common costs fall on the acceptor iff the initiator contributes ZERO.* The acceptor
+		// reads that from `splice_init.funding_contribution_satoshis`, so both compute the same
+		// split — if they disagreed, the interactive-tx fee checks would fail mid-negotiation with
+		// no way to attribute the mismatch.
+		let bears_common_costs = contribution.value() != SignedAmount::ZERO;
 		let adjusted_funding_contribution = check_splice_contribution_sufficient(
 			&contribution,
-			true,
+			bears_common_costs,
 			FeeRate::from_sat_per_kwu(u64::from(funding_feerate_per_kw)),
 		)
 		.map_err(|e| APIError::APIMisuseError {
@@ -13118,14 +13135,34 @@ where
 			));
 		}
 
-		// TODO(splicing): Once splice acceptor can contribute, check that inputs are sufficient,
-		// similarly to the check in `splice_channel`.
-		debug_assert_eq!(our_funding_contribution, SignedAmount::ZERO);
+		// QU!D PATCH (§ACCEPTOR-CONTRIBUTION): upstream asserted the acceptor contributes NOTHING —
+		// `debug_assert_eq!(our_funding_contribution, SignedAmount::ZERO)` — which is the same
+		// assumption as the hardcoded zero in `internal_splice_init`, restated as an invariant.
+		// ⚠️ A NEGATIVE contribution is now legitimate (an acceptor-side splice-OUT, funded from its
+		// own channel balance). A POSITIVE one is not yet: it would need funding INPUTS whose
+		// sufficiency nothing on this path checks — upstream's remaining TODO, quoted below — so
+		// `internal_splice_init` refuses any non-`SpliceOut` registration before reaching here, and
+		// this assert is the backstop for that.
+		// TODO(splicing): Once a splice acceptor can contribute POSITIVELY, check that inputs are
+		// sufficient, similarly to the check in `splice_channel`.
+		debug_assert!(
+			our_funding_contribution <= SignedAmount::ZERO,
+			"acceptor may splice OUT (negative) but not IN: inputs are unchecked on this path",
+		);
 
 		let their_funding_contribution = SignedAmount::from_sat(msg.funding_contribution_satoshis);
-		if their_funding_contribution == SignedAmount::ZERO {
+		// QU!D PATCH: this refused a ZERO INITIATOR contribution outright. That is now the shape a
+		// hop-initiated delivery takes — the hop contributes nothing and offers the LP the chance to
+		// splice its own sats out — so the refusal is narrowed to the case that is actually empty:
+		// **neither side contributes**, which moves no value and rotates the funding outpoint for
+		// nothing, voiding every pre-signed exit rung under BIP-341 `Prevouts::All`.
+		// 📌 THIS IS THE ONE PLACE THE BOTH-ZERO CASE IS CHECKED (rule 17 — an earlier draft of this
+		// patch also added it to `splice_init`, which was a second guard for one condition).
+		if their_funding_contribution == SignedAmount::ZERO
+			&& our_funding_contribution == SignedAmount::ZERO
+		{
 			return Err(ChannelError::WarnAndDisconnect(format!(
-				"Channel {} cannot be spliced; they are the initiator, and their contribution is zero",
+				"Channel {} cannot be spliced; neither side contributes",
 				self.context.channel_id(),
 			)));
 		}
@@ -13263,20 +13300,34 @@ where
 		ES::Target: EntropySource,
 		L::Target: Logger,
 	{
+		// QU!D PATCH (§ACCEPTOR-CONTRIBUTION-FEES): the acceptor's contribution must ABSORB its share
+		// of the funding-transaction fee, exactly as the initiator's does in `splice_channel`.
+		// Without this the outputs are funded but the FEE is not, so the transaction underpays and
+		// the mismatch surfaces later in the interactive-tx checks — far from its cause.
+		//
+		// 🔑 AND IT PICKS UP THE COMMON COSTS WHEN THE INITIATOR CONTRIBUTED NOTHING, which is the
+		// other half of the rule stated in `splice_channel`: the fee follows the CONTRIBUTION, not
+		// the initiation. `msg.funding_contribution_satoshis` is how the acceptor learns which case
+		// it is in, and it is the same input the initiator used — so both sides compute one split.
+		let our_funding_contribution_satoshis = if our_funding_contribution_satoshis != 0 {
+			let bears_common_costs = msg.funding_contribution_satoshis == 0;
+			let fee = estimate_v2_funding_transaction_fee(
+				&[],
+				&our_funding_outputs,
+				bears_common_costs,
+				true, // is_splice
+				msg.funding_feerate_per_kw,
+			);
+			// A splice-OUT is funded from channel balance, so the fee DEEPENS the negative
+			// contribution. (A positive acceptor contribution is refused in `internal_splice_init`,
+			// so the negative branch is the only one reachable — see that comment for why.)
+			our_funding_contribution_satoshis.saturating_sub(fee as i64)
+		} else {
+			our_funding_contribution_satoshis
+		};
 		let our_funding_contribution = SignedAmount::from_sat(our_funding_contribution_satoshis);
-		// QU!D PATCH (§ACCEPTOR-CONTRIBUTION): refuse a splice in which NEITHER side contributes.
-		// The initiator's zero-check was relaxed (see `splice_channel`) because a zero initiator
-		// contribution is now legitimate — it is how a hop offers the acceptor a chance to splice
-		// its own sats out. **This is where the no-op becomes knowable**, and a no-op rotation is
-		// not free: it moves no value and voids every pre-signed exit rung under BIP-341
-		// `Prevouts::All`, which for QU!D is the LP's whole escape.
-		if our_funding_contribution == SignedAmount::ZERO
-			&& msg.funding_contribution_satoshis == 0
-		{
-			return Err(ChannelError::WarnAndDisconnect(
-				"Splice with no contribution from either side".to_owned(),
-			));
-		}
+		// (§ACCEPTOR-CONTRIBUTION) The both-zero refusal lives in `validate_splice_init`, which this
+		// calls — one guard, one place. An earlier draft duplicated it here.
 		let splice_funding = self.validate_splice_init(msg, our_funding_contribution)?;
 
 		log_info!(
