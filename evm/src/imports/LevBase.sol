@@ -392,6 +392,9 @@ abstract contract LevBase {
         // One position means one venue, and this is the only place that can be enforced cheaply.
         if (poolVenue == address(0)) poolVenue = address(venue);
         else if (poolVenue != address(venue)) revert VenueNotPooled();
+        // §MULTI-VENUE step 1 — record it in the walked set. Idempotent: an LP joining the existing
+        // pooled position must not append a duplicate, or every aggregate double-counts the book.
+        if (!isPoolVenue[address(venue)]) { isPoolVenue[address(venue)] = true; poolVenues.push(address(venue)); }
         RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
             Types.Pos({venue: venue, ilBasisPx: uint128(entryPx),
                        entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
@@ -437,9 +440,13 @@ abstract contract LevBase {
     ///      one venue per range, frozen by `vetVenue` + the allowlist. If a second venue is ever
     ///      admitted for one range, EVERY aggregate below silently reports only the first pool — so
     ///      that admission must come WITH a per-venue walk, not after it.
-    function _pool() internal view returns (address) {
-        return poolVenue;
-    }
+    /// 🔴 §MULTI-VENUE — `_pool()` IS DELETED, AND ITS DELETION IS THE POINT OF THE WALK.
+    ///    It existed so five aggregates could each ask "which ONE venue is this book?" — a question
+    ///    that stops having an answer the moment a second venue is admitted. All five now walk
+    ///    `poolVenues`, so nothing asks it and keeping it would leave a helper whose whole contract
+    ///    is the assumption the walk removes. `poolVenue` itself SURVIVES: it is the pool's identity
+    ///    (`poolVenues[0]`), still read by `SwapLib.deleverEthOnDelivery` and the delivery guard in
+    ///    `LevManager`, and it is what `_openPos` still pins against.
 
     /// @notice §POOL-VENUE — THE PINNED POOL. Set on the FIRST open and never cleared.
     /// ⛔ THIS REPLACES `pos[_openLps[0]].venue`, WHICH CARRIED A SILENT UNDER-REPORT. Reading the
@@ -458,6 +465,28 @@ abstract contract LevBase {
     address public poolVenue;
     error VenueNotPooled();
 
+    /// @notice §MULTI-VENUE step 1 — EVERY venue this book holds a position in, in open order.
+    ///         `poolVenue` remains `poolVenues[0]`: it is the pool's identity and the thing
+    ///         `SwapLib.deleverEthOnDelivery` and `LevManager`'s delivery guard already read.
+    /// ⭐ WHY THIS LANDS WHILE THE PIN IS STILL IN PLACE. `_openPos` still refuses a second venue, so
+    ///    this array has exactly one entry today and every aggregate below is BYTE-IDENTICAL to the
+    ///    O(1) form it replaces. That is the point: the walk is verifiable NOW, against a book whose
+    ///    numbers are already pinned by `PoolVenueAggregates.t.sol`, instead of being written and
+    ///    verified in the same commit that first admits a second venue.
+    /// ⚠️ BOUNDED BY CONSTRUCTION, SO THIS IS NOT THE Σ-LOOP THE §POOL-VENUE WORK DELETED. That one
+    ///    was O(open LPs) and grew without limit as the protocol succeeded. This is O(venues), and
+    ///    the venue allowlist is FROZEN at init (`venuesFrozen`), so its ceiling is fixed before the
+    ///    first position ever opens — three entries today.
+    /// ⛔ ENTRIES ARE NEVER REMOVED, deliberately, for the reason the pin exists: a venue can hold a
+    ///    residual remainder after its last LP closes, and dropping it would make the aggregates
+    ///    report 0 for a pool that is not empty — the exact silent under-report `poolVenue` replaced
+    ///    `pos[_openLps[0]].venue` to fix.
+    address[] public poolVenues;
+    mapping(address => bool) public isPoolVenue;
+
+    /// @notice How many venues the book holds positions in. 0 before the first open.
+    function poolVenueCount() external view returns (uint256) { return poolVenues.length; }
+
     /// §POOL-VENUE — O(1), and the LAST of the four Sigma-loops. The pool is one position, so its
     /// deliverable dollars are computed from the pool's own collateral, debt and liquidation
     /// threshold — exactly the per-LP formula, evaluated once on the aggregate.
@@ -466,20 +495,31 @@ abstract contract LevBase {
     /// stays under its liquidation threshold), so a sum of per-LP results systematically DIFFERS
     /// from the aggregate — the same sum-of-floors error that made `totalNetEquity` over-count and
     /// tripped `checkBacking`. One position means one evaluation, which is now the honest one.
-    function totalDeliverableDollars() external view returns (uint) {
-        address v = _pool();
-        if (v == address(0)) return 0;
+    function totalDeliverableDollars() external view returns (uint usd) {
         // §POSITION-IS-THE-LENDERS-OWN-VIEW — the POOL-level twin of `getCurrentLtvBps`, and it has
         // to move in the SAME commit: leaving this on `AUX` while the per-LP path reads the venue
         // would give the contract two disagreeing notions of the same pool's health, and they would
         // only diverge once the venue's oracle drifted from ours — i.e. in production.
         // Deletes the TWAP read, `_collNativePool` and `_toUsd18` from this path: both sides share
         // the venue's quote unit, so nothing needs converting.
-        VenuePosition memory pp = ILevVenue(v).position();
-        uint collUsd = pp.collateral;
-        uint d = pp.debt;
-        uint netEq = collUsd > d ? collUsd - d : 0;
-        return LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), pp.liqThresholdBps);
+        // 🔴 §MULTI-VENUE — AND THIS SUMS **PER VENUE**, WHICH IS THE OPPOSITE OF `totalNetEquity`.
+        //    The two look like the same shape and the difference is the whole correctness question:
+        //      · `totalNetEquity` asks *what is the book worth* — one number over pooled totals, so an
+        //        underwater venue's deficit MUST offset a solvent one's surplus. Floor once.
+        //      · this asks *what can actually be withdrawn today* — and that is gated by each venue's
+        //        OWN `liqThresholdBps` against its OWN collateral. Venue A's spare collateral cannot
+        //        unlock a withdrawal from venue B; they are separate lending positions with separate
+        //        liquidation engines. An underwater venue contributes 0 because nothing can be taken
+        //        out of it, and that zero is CORRECT rather than a clamp hiding a deficit.
+        //    ⇒ Summing floored per-venue values is the bug in one and the requirement in the other.
+        uint256 n = poolVenues.length;
+        for (uint256 i; i < n; ++i) {
+            VenuePosition memory pp = ILevVenue(poolVenues[i]).position();
+            uint collUsd = pp.collateral;
+            uint d = pp.debt;
+            uint netEq = collUsd > d ? collUsd - d : 0;
+            usd += LevMath.deliverableDollars(netEq, collUsd, LevMath.ltvBps(d, collUsd), pp.liqThresholdBps);
+        }
     }
 
     /// @dev ⚠️ WHEN THESE MOVE TO A DELEGATECALL LIBRARY, THE CALLER COMPUTES THIS AND PASSES IT AS
@@ -645,11 +685,22 @@ abstract contract LevBase {
     ///      `entryEquity`, a HISTORICAL basis recorded in AUX units at open. Pairing a venue-quoted
     ///      debt with an AUX-quoted basis would be a genuine unit error — that one is correct as it
     ///      stands, and it is not an oversight.
+    /// §MULTI-VENUE — Σdebt / Σcollateral, NOT the average of per-venue ratios (a mean of ratios is
+    /// not the ratio of the sums, and the book's health is the latter). Reduces exactly to the
+    /// single-venue value.
+    /// ⚠️ HONEST LIMIT, STATED BECAUSE IT DOES NOT EXIST AT ONE VENUE: `VenuePosition` is quote-unit
+    ///    18-dec and the quote unit is the VENUE'S OWN, and `liqThresholdBps` is per venue too. Two
+    ///    venues with different thresholds do not have one meaningful pooled LTV — this number is a
+    ///    book-level indicator, and any per-venue liquidation decision must read that venue's own
+    ///    `position()`. Nothing today does otherwise; recorded so nothing starts to.
     function poolLtvBps() public view returns (uint) {
-        address v = _pool();
-        if (v == address(0)) return 0;
-        VenuePosition memory p = ILevVenue(v).position();
-        return LevMath.ltvBps(p.debt, p.collateral);
+        uint256 n = poolVenues.length;
+        uint256 debt; uint256 coll;
+        for (uint256 i; i < n; ++i) {
+            VenuePosition memory p = ILevVenue(poolVenues[i]).position();
+            debt += p.debt; coll += p.collateral;
+        }
+        return coll == 0 ? 0 : LevMath.ltvBps(debt, coll);
     }
 
     /// @notice LTV against the FIXED IL base `entryEquity` — the reference the IL target is measured against,
@@ -748,10 +799,15 @@ abstract contract LevBase {
     /// the pool's own total IS the sum, read in a single call. §E332 measured this function's siblings
     /// at up to 18 callers apiece, each O(open LPs) and reachable from state-changing paths — the
     /// cliff that got closer the more the protocol succeeded. It is gone by construction, not clamped.
-    function totalDebtUsd() external view returns (uint256) {
-        address v = _pool();
-        if (v == address(0)) return 0;
-        return LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
+    /// §MULTI-VENUE — a WALK, and each venue converts through ITS OWN `stable()`. Two venues
+    /// denominated in different stables cannot share one conversion, which is why the `_toUsd18` is
+    /// inside the loop rather than applied to a summed native total.
+    function totalDebtUsd() external view returns (uint256 usd18) {
+        uint256 n = poolVenues.length;
+        for (uint256 i; i < n; ++i) {
+            address v = poolVenues[i];
+            usd18 += LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
+        }
     }
 
     /// @dev The IL target at the live price, for a position already in memory.
@@ -792,9 +848,11 @@ abstract contract LevBase {
 
     /// @notice LIVE sum of every open position's GROSS collateral, native unit.
     /// §POOL-VENUE — O(1), same reasoning as `totalDebtUsd`.
-    function totalGrossCollateral() external view returns (uint256) {
-        address v = _pool();
-        return v == address(0) ? 0 : _collNativePool(v);
+    /// §MULTI-VENUE — a WALK. Collateral is the SAME asset across venues (the manager's `COLL`), so
+    /// unlike debt these native amounts are directly additive.
+    function totalGrossCollateral() external view returns (uint256 coll) {
+        uint256 n = poolVenues.length;
+        for (uint256 i; i < n; ++i) coll += _collNativePool(poolVenues[i]);
     }
 
     /// @notice LIVE sum of every open position's NET equity, native unit. Oracle read ONCE.
@@ -806,14 +864,25 @@ abstract contract LevBase {
     /// ⚠️ AND THE SUM-OF-FLOORS WAS THE LIVE DEFECT, not merely a refused optimisation: summing
     /// per-LP floored equity over a POOLED position over-counts, which is what drove `committedUsd18`
     /// high enough to trip `checkBacking` on the BTC delivery path.
+    /// 🔴 §MULTI-VENUE — SUM FIRST, FLOOR ONCE. `LevMath.netEquityBase` FLOORS AT ZERO, so calling it
+    ///    per venue and adding would clamp an underwater venue's deficit to 0 and let it vanish —
+    ///    SOCIALISING that venue's shortfall across the book and OVER-reporting equity. That is
+    ///    exactly §E333's error, the one that drove `committedUsd18` high enough to trip
+    ///    `checkBacking` on the BTC delivery path.
+    ///    ⇒ Collateral and debt are accumulated across the walk and the floor is applied ONCE to the
+    ///      totals. With one venue the two orders coincide, which is why nothing today would catch
+    ///      the wrong one — `NetEquityFloorsOnce` in `PoolVenueAggregates.t.sol` pins the difference
+    ///      with a fork-free unit test so it cannot regress silently.
     function totalNetEquity() external view returns (uint256) {
-        address v = _pool();
-        if (v == address(0)) return 0;
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        return LevMath.netEquityBase(
-            _collNativePool(v),
-            LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt()),
-            px);
+        uint256 n = poolVenues.length;
+        if (n == 0) return 0;
+        uint256 coll; uint256 debtUsd;
+        for (uint256 i; i < n; ++i) {
+            address v = poolVenues[i];
+            coll    += _collNativePool(v);
+            debtUsd += LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
+        }
+        return LevMath.netEquityBase(coll, debtUsd, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
     }
 
     /// @dev The pool's gross collateral in the range's NATIVE unit. Uses the SAME `_collToBase`

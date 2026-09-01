@@ -6,7 +6,7 @@ import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "../src/impor
 import {IOracle as IMorphoOraclePrice} from "../src/imports/Interfaces.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LevManager} from "../src/LevManager.sol";
-import {ILevVenue} from "../src/imports/Interfaces.sol";
+import {ILevVenue, ILevPooled, VenuePosition, IWeETH} from "../src/imports/Interfaces.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {VenueNotAllowed} from "../src/imports/Types.sol";
@@ -68,6 +68,73 @@ contract LevCascadeProbe is AllesFixture {
     uint internal withdrawsLanded;
 
     // ─────────────────────────── real-stack setup ───────────────────────────
+
+    // ══════════════════ §POOL-VENUE CHARACTERISATION (2026-09-01) ══════════════════
+    // 🔴 PINS WHAT THE BOOK-LEVEL AGGREGATES REPORT WHILE ONLY ONE VENUE POSITION CAN EXIST.
+    //    `grep -rl poolVenue evm/test/` RETURNED NOTHING before these: the pin, the five aggregates
+    //    and the `VenueNotPooled` guard had ZERO direct coverage, and they feed `checkBacking`.
+    // ⚠️ THEY LIVE HERE RATHER THAN IN THEIR OWN FILE BECAUSE `LevCascadeProbe` CARRIES 18 TESTS OF
+    //    ITS OWN. A separate `contract X is LevCascadeProbe` INHERITS and RE-RUNS all 18 — measured:
+    //    my file reported 21 tests, 18 of them clones on a fork. Reaching a fixture by inheritance
+    //    is not free when the fixture is also a suite.
+    // ⭐ EVERY ASSERTION COMPARES AN AGGREGATE TO THE VENUE'S OWN REPORT OF THE SAME QUANTITY IN THE
+    //    SAME UNIT, never to a literal: one venue ⇒ the walk must reproduce it exactly, two ⇒ the sum.
+
+    function test_PoolVenuePinsOnFirstOpenAndNamesTheVenue() public {
+        _setupLev();
+        assertEq(lm.poolVenue(), address(0), "unset before any position exists");
+        assertEq(lm.poolVenueCount(), 0, "and the walked set is empty");
+        _openAtEntry(lps[0], 5 ether);
+        assertEq(lm.poolVenue(), address(venue), "first open pins the pool's venue");
+        assertEq(lm.poolVenueCount(), 1, "and records exactly one entry");
+    }
+
+    /// A second LP joining the SAME pooled position must not append a duplicate, or every aggregate
+    /// double-counts the book. This is the assertion that would catch a non-idempotent `push`.
+    function test_SecondLpDoesNotDuplicateTheVenueEntry() public {
+        _setupLev();
+        _openAtEntry(lps[0], 5 ether);
+        _openAtEntry(lps[1], 5 ether);
+        assertEq(lm.poolVenueCount(), 1, "two LPs, ONE venue entry");
+    }
+
+    /// ⛔ THE GUARD THE ROUTER MUST DELIBERATELY REMOVE — recorded so removal is a visible edit.
+    function test_SecondVenueIsRefusedWhileAggregatesAreO1() public {
+        _setupLev();
+        _openAtEntry(lps[0], 5 ether);
+        MorphoEscrowVenue second = new MorphoEscrowVenue(MORPHO, mp, address(lm));
+        address lp = address(0xBEEF7);
+        vm.deal(lp, 6 ether);
+        vm.prank(lp); ETH.deposit{value: 5 ether}(0, lp);
+        deal(WEETH, lp, 5 ether);
+        vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(second), true);
+        vm.startPrank(lp);
+        IERC20R(WEETH).approve(address(lm), 5 ether);
+        vm.expectRevert();      // unvetted OR not-pooled; either way a second venue cannot join
+        lm.openLev(ILevVenue(address(second)), 5 ether);
+        vm.stopPrank();
+    }
+
+    /// 🔴 UNITS. `totalGrossCollateral` is NATIVE (weETH via `_collToBase`); `position().collateral`
+    ///    is the venue's QUOTE unit, USD 18-dec. The first version of this asserted them EQUAL and
+    ///    failed 5513600643184784583 != 13560595472000000000000 — a decimal-basis error in the very
+    ///    test written to police a decimal-sensitive refactor. Compare like with like.
+    function test_AggregatesEqualTheSingleVenuesOwnReport() public {
+        _setupLev();
+        _openAtEntry(lps[0], 5 ether);
+        address v = lm.poolVenue();
+        VenuePosition memory p = ILevVenue(v).position();
+
+        assertEq(lm.totalGrossCollateral(), IWeETH(WEETH).getEETHByWeETH(ILevPooled(v).totalCollateral()),
+                 "gross collateral is the venue's NATIVE collateral");
+        assertEq(lm.poolLtvBps(), LevMath.ltvBps(p.debt, p.collateral),
+                 "pool LTV is the venue's own ratio (quote unit, both sides)");
+        assertEq(lm.totalDebtUsd(),
+                 LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt()),
+                 "debt is the venue's totalDebt in USD18");
+        assertLe(lm.totalNetEquity(), lm.totalGrossCollateral(),
+                 "net equity never exceeds gross collateral (same native unit)");
+    }
 
     function _setupLev() internal {
         _seedBasket();

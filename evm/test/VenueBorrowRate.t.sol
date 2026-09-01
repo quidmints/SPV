@@ -27,24 +27,50 @@ contract VenueBorrowRateTest is Test {
     /// THE CONTROL: at `extraBorrow == 0` the accessor must reproduce Aave's OWN live rate exactly.
     /// If the `CalcRatesParams` struct were filled in wrongly this is what catches it — every other
     /// assertion here would still "pass" against a plausible-looking wrong number.
-    function test_AtZeroItReproducesTheLiveRateExactly() public {
+    /// 🔴 §POINT-IN-TIME-IS-NOT-AN-INVARIANT (2026-09-01) — THIS ASSERTED `assertEq(..., live)` AND
+    ///    THE WORD "EXACTLY" WAS NEVER TRUE. It passed at the block I first ran it and failed on the
+    ///    next full suite by **1.3e-9 relative** (39905845235266631407767588 vs ...183707781360432932).
+    ///    ⇒ The two quantities are not the same thing: `borrowRateRay(0)` RECOMPUTES from the reserve's
+    ///      CURRENT state via `calculateInterestRates`, while `getReserveData`'s rate was FROZEN at the
+    ///      last `updateState()`. Interest accrues in between, `totalDebt` moves, and the recomputed
+    ///      rate drifts off the stored one. Nothing is wrong with either number.
+    ///    ⚠️ And with no `FORK_BLOCK` pin every run reads a different block, so an exact-equality
+    ///      assertion on live market state is a coin flip. The INVARIANT is that the accessor tracks
+    ///      Aave's own rate closely enough that venue RANKING is unaffected; 1.3e-9 is ~14 orders of
+    ///      magnitude below the smallest spread that could change a routing decision.
+    function test_AtZeroItTracksTheLiveRate() public {
         for (uint i; i < 2; ++i) {
             address stable = i == 0 ? GHO : USDT;
             (,,,,,, uint256 live,,,,,) = IAaveV3DataProvider(DATA).getReserveData(stable);
-            assertEq(_venue(stable).borrowRateRay(0), live, "accessor != Aave's own rate");
-            assertGt(live, 0, "control: live rate must be non-zero, else the equality is vacuous");
+            uint256 ours = _venue(stable).borrowRateRay(0);
+            assertGt(live, 0, "control: live rate must be non-zero, else the bound is vacuous");
+            uint256 diff = ours > live ? ours - live : live - ours;
+            // 1e-6 relative. Tight enough that a real divergence (a wrong reserve, a unit error)
+            // still fails loudly; loose enough to survive accrual between two blocks.
+            assertLt(diff * 1e6 / live, 1, "accessor must track Aave's own rate to 1e-6");
         }
     }
 
     /// A borrow MOVES the rate on a sloped market — the whole reason the accessor takes a size.
     /// USDT is sloped (slope1 410, slope2 1000 bps), so a large draw must price strictly higher.
+    /// 🔴 §POINT-IN-TIME-IS-NOT-AN-INVARIANT — THE MAGNITUDE WAS ASSERTED AND IT IS MARKET STATE.
+    ///    This carried `assertGt(r25 - r0, 10e23, "expected >10bps at 25M")` on the strength of a
+    ///    single reading, *"measured ~37bps on 2026-08-30"*. The next full suite measured **3.4bps**
+    ///    — a 10x swing in two days, because USDT's utilisation moved relative to the kink and the
+    ///    pool's size moved under it. NEITHER number is wrong; the ASSERTION was.
+    ///    ⇒ What is invariant is the SHAPE: a sloped market prices our own draw strictly higher.
+    ///      That is asserted. The magnitude is logged as an OBSERVATION, because it is a fact about
+    ///      Aave's book on the day, not about this accessor.
+    ///    ⭐ AND THE OBSERVATION IS LOAD-BEARING FOR THE ROUTER, WHICH IS WHY IT IS EMITTED RATHER
+    ///      THAN DROPPED: if our own $25M draw moves the rate only 3.4bps, the APR gain from
+    ///      re-allocating between venues is that much smaller relative to the gas + swap cost of
+    ///      moving, and the migration threshold has to clear a cost that does not shrink with it.
     function test_ASlopedMarketPricesOurOwnBorrow() public {
         AaveV3Venue v = _venue(USDT);
         uint256 r0 = v.borrowRateRay(0);
         uint256 r25 = v.borrowRateRay(25_000_000e6);
         assertGt(r25, r0, "a 25M draw must raise USDT's rate");
-        // and it must move by a MATERIAL amount, not dust: measured ~37bps on 2026-08-30.
-        assertGt(r25 - r0, 10e23, "expected >10bps of impact at 25M");
+        emit log_named_decimal_uint("USDT impact at +$25M (bps)", (r25 - r0) / 1e23, 0);
     }
 
     /// GHO is governance-priced: base 375bps, slope1 = slope2 = 0. Our borrow cannot move it.
