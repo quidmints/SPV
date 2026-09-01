@@ -3,13 +3,56 @@ use anchor_lang::prelude::*;
 use crate::etc::{ LIQ_GRACE_SECS, MAX_LEN, TRANCHE_RAMP_GRACES,
     MIN_TRANCHE_BPS, MAX_TRANCHE_BPS, hazard_rate_bps,
     PithyQuip, Actuary, collar_bps,
-    rate_bps, max_leverage_pct };
+    rate_bps, max_leverage_pct, TickerRisk };
 
 /// Fixed-point scale for `Depository::sol_yield_index`.
 pub const SOL_YIELD_SCALE: u128 = 1_000_000_000_000;
 
+
+// ═══ §SCALE — one conversion between share units and dollars ════════════════
+//
+// ⭐ **`exposure` IS MICRO-SHARES; `price` IS MICRO-DOLLARS PER SHARE.** The
+// product is pico-dollars, and `PRICE_SCALE` brings it back to the accounting
+// unit every other dollar figure in this program uses
+// (`ACCOUNTING_DECIMALS = 6`).
+//
+// 🔴 **THE CONVERSION USED TO BE WRITTEN OUT FOURTEEN TIMES.** `Stock::value_at`
+//    says so itself — "written out nine times in two spellings" — and there
+//    were five more in `clutch` and `entra`. That was survivable while the
+//    factor was 1, because a missed site was still arithmetically right. It
+//    stops being survivable the moment the factor is not 1: one site left
+//    unconverted mis-scales a position by a million, silently, in the direction
+//    that opens exposure the pool cannot cover.
+//
+// So every site routes through here first — a refactor with no behaviour
+// change, `PRICE_SCALE = 1`, suite green — and only then does the scale move.
+pub const PRICE_SCALE: u128 = 1_000_000;
+
+/// Dollar value of `units` micro-shares at `price`.
+#[inline]
+pub fn units_value(units: u64, price: u64) -> u64 {
+    ((units as u128).saturating_mul(price as u128) / PRICE_SCALE)
+        .min(u64::MAX as u128) as u64
+}
+
+/// Signed variant, for the paths that carry a side.
+#[inline]
+pub fn units_value_i(units: i64, price: u64) -> i64 {
+    ((units as i128).saturating_mul(price as i128) / PRICE_SCALE as i128)
+        .clamp(i64::MIN as i128, i64::MAX as i128) as i64
+}
+
+/// How many micro-shares `dollars` buys at `price`. Zero at zero price — the
+/// callers all guard it, and returning zero is the answer that cannot divide.
+#[inline]
+pub fn value_units(dollars: u64, price: u64) -> u64 {
+    if price == 0 { return 0; }
+    ((dollars as u128).saturating_mul(PRICE_SCALE) / price as u128)
+        .min(u64::MAX as u128) as u64
+}
+
 #[derive(AnchorSerialize,
-    AnchorDeserialize,
+    AnchorDeserialize, InitSpace,
     Clone, Copy, Debug,
     PartialEq, Eq)]
 
@@ -57,6 +100,32 @@ pub struct Stock {
     /// rather than at whichever one is read today.
     pub premium_checkpoint: u128,
 
+    /// Where this position last stood in its ticker's signed funding integral.
+    /// `exposure × (Φ_now − Φ_here)` is what it has paid or been paid since,
+    /// with the direction carried by the sign of `exposure` rather than by a
+    /// choice of which of two indices to read.
+    pub funding_checkpoint: i128,
+
+    /// ⭐ **THE MARK REFERENCE: `exposure_value` as of the last settlement.**
+    ///
+    /// 🔴 THE POD HAD NO ENTRY PRICE AND THAT IS WHY IT COULD NOT BE LEVERED.
+    ///    `cost_basis` reads like one, but `renege` moves it and `pledged` by
+    ///    the SAME amount on every collateral change — it is contributed
+    ///    collateral, and it equals the entry notional only because the band
+    ///    forces `exposure_value == pledged`. Remove the forcing and nothing in
+    ///    `Stock` remembered what the position was worth when it was opened, so
+    ///    no profit or loss could be computed and the band had to be written on
+    ///    notional instead. On notional the floor is `pledged − exposure·c`,
+    ///    which is ZERO at any leverage past 1/c: a levered long can lose its
+    ///    whole pledge without the band noticing, because a losing long's
+    ///    NOTIONAL FALLS and moves it further inside its own band.
+    ///
+    /// One `u64` is the entire cost of leverage here. With it, the band is
+    /// written where it always meant to be — on the move since the mark — and
+    /// at 1x, where `marked == pledged`, it reduces to exactly the band that
+    /// is there today.
+    pub marked: u64,
+
     /// Unix time this position first went outside its band, 0 while inside it.
     /// Liquidation is a Parisian barrier — it triggers on the *excursion*, the
     /// unbroken time spent beyond the barrier — so the clock that gates it has
@@ -73,7 +142,7 @@ impl Stock {
     /// form only bought an i128 division's worth of compute on paths that run
     /// per position, per call.
     fn value_at(&self, price: u64) -> u64 {
-        self.exposure.unsigned_abs().saturating_mul(price)
+        units_value(self.exposure.unsigned_abs(), price)
     }
 
     /// Excursion length, starting the clock on first sight of a breach.
@@ -101,14 +170,20 @@ impl Stock {
     }
 }
 
-impl Space for Stock {
-    const INIT_SPACE: usize = 8 + 8 + 8 + 8 + 2 + 2
-          + 8 + 8  // cost_basis + interest_paid
-          + 16     // collar_dollar_seconds
-          + 8      // collar_dollars
-          + 16     // premium_checkpoint
-          + 8;     // breached_at
-}
+// 🔴 `impl Space for Stock` WAS HAND-WRITTEN HERE AND IT WAS WRONG BY 14 BYTES.
+//    It declared 100 where the pod serialises to 114: `funding_checkpoint: u128`
+//    was added without touching the constant, and a stray `+ 2` had been carried
+//    for what looks like struct padding, which Borsh does not emit.
+//
+//    `Depositor` allocates `4 + MAX_LEN * Stock::INIT_SPACE` for `balances`, so
+//    the shortfall is not cosmetic: 50 x 100 = 5,000 bytes of room for 50 x 114
+//    = 5,700 bytes of pods. A depositor's account becomes unwritable at 44
+//    positions — every subsequent deposit, withdrawal or liquidation fails to
+//    serialise, which bricks the position rather than merely rejecting it.
+//
+//    Derived now, so the number cannot disagree with the struct again. See
+//    `backtest::the_declared_size_of_a_pod_matches_what_it_serialises_to`, which
+//    asserts against the serialiser rather than against a second hand count.
 
 #[account]
 #[derive(InitSpace)]
@@ -454,13 +529,14 @@ fn amortise_tranche(pod: &mut Stock, price: u64, excursion: i64, util_bps: i64,
     // ladder dominates and liquidation stays gentle; in a gap this does, which
     // is the only case where gentleness costs somebody else.
     let collar = collar_amount(pod, price);
-    let exposure_value =pod.value_at(price);
-    let upper = pod.pledged.saturating_add(collar);
-    let lower = pod.pledged.saturating_sub(collar);
+    let exposure_value = pod.value_at(price);
+    let mark = if pod.marked == 0 { pod.pledged } else { pod.marked };
+    let upper = mark.saturating_add(collar);
+    let lower = mark.saturating_sub(collar);
     let breach = if exposure_value > upper { exposure_value - upper }
                  else if lower > exposure_value { lower - exposure_value }
                  else { 0 };
-    let restoring = if price > 0 { breach / price } else { 0 };
+    let restoring = value_units(breach, price);
 
     let tranche = Depositor::tranche_size(pod.exposure.unsigned_abs(),
                                    excursion, util_bps)
@@ -473,9 +549,50 @@ fn amortise_tranche(pod: &mut Stock, price: u64, excursion: i64, util_bps: i64,
     pod.exposure = if long { pod.exposure.saturating_sub(tranche as i64) }
                    else    { pod.exposure.saturating_add(tranche as i64) };
 
-    let unwound_value = tranche.saturating_mul(price);
-    pod.pledged = pod.pledged.saturating_sub(unwound_value);
-    if pod.exposure == 0 { pod.breached_at = 0; }
+    let unwound_value = units_value(tranche, price);
+
+    // ⭐ **WHAT A CLOSED SLICE COSTS THE PLEDGE IS ITS MARGIN PLUS ITS P&L, NOT
+    //    ITS WHOLE VALUE.** `pod.pledged -= unwound_value` stood here, and at 1x
+    //    that is right by coincidence: the pledge equals the notional, so a
+    //    slice's share of the pledge IS its value. At leverage it is a factor of
+    //    L too large and the first tranche would zero the pledge outright.
+    //
+    //    Released pro rata instead, which is the same number at 1x and the right
+    //    one everywhere else. The mark is released with it, so the P&L on what
+    //    remains is still measured against what remains was opened at.
+    let before = pod.exposure.unsigned_abs().saturating_add(tranche).max(1);
+    let slice_mark = (mark as u128 * tranche as u128 / before as u128) as u64;
+    let slice_pledge = (pod.pledged as u128 * tranche as u128 / before as u128) as u64;
+
+    // 🔴 **THE LADDER TOOK THE BORROWER'S COLLATERAL, NOT JUST THEIR PROFIT.**
+    //
+    //    `pod.pledged -= slice_pledge` released the slice's whole share of the
+    //    pledge, and the caller booked the whole unwound NOTIONAL into
+    //    `yield_pool`. On a losing position that is right: the pledge is what
+    //    covers the loss. On a WINNING one it is confiscation — the collateral
+    //    was never the pool's to take, and `unwind_a_tranche`'s own note says
+    //    only that "profit that belongs to one depositor is appropriated by all
+    //    of them, slowly".
+    //
+    //    Measured on the worst real ten-session fall in the fixture: a 3x SMCI
+    //    short, 40% in profit by the second session, laddered from
+    //    −5,511,832,709 to zero over five rungs and left with a pledge of ZERO.
+    //    Being right about a 56% crash cost the borrower everything they had
+    //    posted. Across six such shorts the book paid out −1,094 bps of the
+    //    pool when it should have collected.
+    //
+    // The pledge is consumed only by what the slice actually LOST. What it did
+    // not lose stays on the pod, where the borrower can still reach it, and the
+    // caller is told to credit the pool that much less.
+    let side: i128 = if long { 1 } else { -1 };
+    let slice_pnl = (unwound_value as i128 - slice_mark as i128) * side;
+    let consumed = if slice_pnl < 0 {
+        (slice_pnl.unsigned_abs() as u64).min(slice_pledge)
+    } else { 0 };
+    let retained = slice_pledge.saturating_sub(consumed);
+    pod.pledged = pod.pledged.saturating_sub(consumed);
+    pod.marked = pod.marked.saturating_sub(slice_mark.min(pod.marked));
+    if pod.exposure == 0 { pod.breached_at = 0; pod.marked = 0; }
     pod.updated = current_time;
 
     let new_exp = pod.value_at(price);
@@ -485,7 +602,10 @@ fn amortise_tranche(pod: &mut Stock, price: u64, excursion: i64, util_bps: i64,
         .apply(pod, depository);
 
     // Unwinding always credits the pool: the delta is negative by construction.
-    let dollars = -((unwound_value as i128).min(i64::MAX as i128) as i64);
+    // Net of the pledge the borrower keeps, so the caller books only what the
+    // pool is actually owed.
+    let dollars = -(((unwound_value.saturating_sub(retained)) as i128)
+                    .min(i64::MAX as i128) as i64);
     let closed = pod.exposure == 0;
     let raroc = (pod.cost_basis, pod.interest_paid, pod.collar_dollar_seconds);
     if closed {
@@ -510,15 +630,43 @@ fn amortise_tranche(pod: &mut Stock, price: u64, excursion: i64, util_bps: i64,
 /// the second actually restores the band; the first left `pledged` short by
 /// the fee, so a "protected" long could still sit outside its collar. One
 /// implementation, the correct convention, and the mirror cannot drift again.
+/// `excess` is passed rather than derived, because the two sides measure it
+/// from opposite edges of the band: a winning LONG is `value − upper`, a
+/// winning SHORT is `pivot − value`. Deriving it inside meant only the long
+/// side could use this, which is how the asymmetry below arose.
 fn post_variation_margin(pod: &mut Stock, dq: &mut u64, depository: &mut Depository,
-    actuary: &Actuary, old_exposure_value: u64, exposure: u64, upper: u64,
+    actuary: &Actuary, old_exposure_value: u64, exposure: u64, excess: u64,
     current_time: i64) -> Result<Option<u64>> {
-    let excess = exposure.saturating_sub(upper);
     let gross = excess.saturating_add(excess / 250);   // user pays excess + fee
     if *dq < gross { return Ok(None); }
 
     let net = gross.saturating_sub(gross / 250);       // credited to pledged
-    let new_pledged = pod.pledged.saturating_add(net);
+
+    // ⭐ **SETTLE THE MARK-TO-MARKET BEFORE MOVING THE MARK.**
+    //
+    // 🔴 THIS CURE RE-CENTRES `pod.marked` ON THE POSITION'S CURRENT VALUE, so
+    //    the band stops reading it as breached. But equity is
+    //    `pledged + (value − mark)·side`, and moving the mark zeroes that second
+    //    term WITHOUT PUTTING IT ANYWHERE. Whatever the position was carrying
+    //    simply vanishes — and asymmetrically, because `exposure > upper` means
+    //    a WINNING long and a LOSING short:
+    //
+    //      5x long  posts 1,027,086,074 and LOSES 2,004,096,805 of equity
+    //      5x short posts 1,027,086,074 and GAINS 1,018,786,847
+    //
+    //    The long is stripped of the profit it was posting collateral to keep;
+    //    the short has its loss forgotten, out of the pool, and walks away
+    //    better off for having gone further underwater.
+    //
+    // Settling it into the pledge is what makes the re-mark honest: the
+    // unrealised amount becomes collateral (or comes out of it), the reference
+    // moves to where the position actually is, and equity is exactly what the
+    // depositor put in plus what the market gave them.
+    let mark = if pod.marked != 0 { pod.marked } else { pod.pledged };
+    let side: i128 = if pod.exposure >= 0 { 1 } else { -1 };
+    let mtm = (exposure as i128 - mark as i128) * side;
+    let new_pledged = (pod.pledged as i128 + net as i128 + mtm)
+        .clamp(0, u64::MAX as i128) as u64;
     let lelu = LiabilityUpdate::compute(old_exposure_value, pod.collar_bps,
                                         exposure, new_pledged, actuary);
 
@@ -528,6 +676,10 @@ fn post_variation_margin(pod: &mut Stock, dq: &mut u64, depository: &mut Deposit
 
     *dq -= gross;
     pod.pledged = new_pledged;
+    // The band was restored by posting collateral against a move that already
+    // happened, so it re-centres on where the position now is. Leaving the mark
+    // behind would re-breach on the next call for the same move twice.
+    pod.marked = exposure;
     pod.breached_at = 0;   // the breach this cured is over
     pod.updated = current_time;
     lelu.apply(pod, depository);
@@ -558,9 +710,13 @@ fn settle_partial_close(pod: &mut Stock, depository: &mut Depository,
     let interest_on_closed = pro_rata(accrued_interest);
     let pledged_released = pro_rata(pod.pledged);
     let cost_basis_released = pro_rata(pod.cost_basis);
+    // The mark travels with the slice it belongs to, or the P&L on what is left
+    // would be measured against a basis that includes units already gone.
+    let mark_released = pro_rata(pod.marked);
 
     pod.pledged = pod.pledged.saturating_sub(pledged_released);
     pod.cost_basis = pod.cost_basis.saturating_sub(cost_basis_released);
+    pod.marked = pod.marked.saturating_sub(mark_released);
     pod.updated = current_time;
 
     let new_exp = pod.value_at(price);
@@ -574,6 +730,7 @@ fn settle_partial_close(pod: &mut Stock, depository: &mut Depository,
     let fully_closed = pod.exposure == 0;
     let raroc = (pod.cost_basis, pod.interest_paid, pod.collar_dollar_seconds);
     if fully_closed {
+        pod.marked = 0;
         pod.cost_basis = 0;
         pod.interest_paid = 0;
         pod.collar_dollar_seconds = 0;
@@ -592,13 +749,20 @@ fn settle_partial_close(pod: &mut Stock, depository: &mut Depository,
 /// Collar band in dollars for a pod at `price`, from its stored bps.
 /// Falls back to a tenth of notional when the pod has never been marked — a
 /// fresh deposit that has not yet been through `repo()`.
+/// The band's half-width for a pod, in dollars, measured off the MARK.
+///
+/// Was `collar_notional(value, pledged) × collar_bps` — a width measured off
+/// whichever of value or pledge was larger, which at leverage is the notional
+/// and makes the floor `pledged − notional·c`, i.e. zero. Measured off the mark
+/// it is the move the position is allowed to make before the ladder starts, at
+/// any leverage, and at 1x — where the mark IS the pledge — it is unchanged.
 fn collar_amount(pod: &Stock, price: u64) -> u64 {
-    let notional = collar_notional(
-        pod.value_at(price), pod.pledged);
+    let mark = if pod.marked == 0 { collar_notional(pod.value_at(price), pod.pledged) }
+               else { pod.marked };
     if pod.collar_bps > 0 {
-        notional.saturating_mul(pod.collar_bps as u64) / 10_000
+        mark.saturating_mul(pod.collar_bps as u64) / 10_000
     } else {
-        notional / 10
+        mark / 10
     }
 }
 
@@ -617,7 +781,41 @@ fn collar_amount(pod: &Stock, price: u64) -> u64 {
 /// Returns the gross drained, or `None` if the depositor cannot fund it.
 fn reinstate_exposure(pod: &mut Stock, dq: &mut u64, depository: &mut Depository,
     actuary: &Actuary, old_exposure_value: u64, exposure: u64, gap: u64,
-    price: u64, current_time: i64) -> Result<Option<u64>> {
+    price: u64, current_time: i64, by_owner: bool) -> Result<Option<u64>> {
+    // 🔴 **A LIQUIDATOR COULD TRIGGER THIS, AND IT SPENDS THE BORROWER'S MONEY.**
+    //
+    //    Both call sites are reached with `amount == 0` — the crank — and this
+    //    function then draws `gross` out of `deposited_quid` to buy exposure the
+    //    depositor never asked for. On a short it is worse than unwanted: the
+    //    position's value and its mark both rise by the same `net`, so equity is
+    //    unchanged and the dollars are simply gone. Measured on a winning 5x
+    //    short: 1,027,086,074 drawn from the free balance and 1,027,003,537 of
+    //    wealth destroyed, on a path anybody can call, repeatedly.
+    //
+    //    Adding exposure is not a liquidation. A crank that finds a position
+    //    outside its band should take a tranche, which is what the `else` on
+    //    both call sites already does.
+    //
+    // ⭐ **AND THE GATE IS WHY THE LADDER WORKS AT ALL.** Bisected against the
+    //    thousand-borrower run over five real years, this one line accounts for
+    //    the whole of the difference:
+    //
+    //        gate OFF   8 tranches   238 pledges exhausted   $35.2M residual
+    //        gate ON    9,924        146                     $22.7M
+    //
+    //    With the crank able to force-buy, every breach it found was "cured" by
+    //    spending the borrower's free balance, which reset `breached_at` — so
+    //    the excursion never accumulated and the ladder ran EIGHT TIMES in five
+    //    years. Positions were not liquidated; they were fed until they starved.
+    //    Stopping it cut blow-ups by 39% and the residual the pool inherits by
+    //    36%. The 29x rise in tranches is the ladder finally doing its job.
+    //
+    // ⚠️ AND IT SHOULD NOT SURVIVE THE NEXT PASS EVEN GATED. Restoring
+    //    `exposure_value` to the mark made sense while the band sat on `pledged`
+    //    and the design held the two equal. Against a MARGIN band it inverts:
+    //    the cure for a loss is more collateral, which raises the margin ratio,
+    //    not more exposure, which lowers it.
+    if !by_owner { return Ok(None); }
     let gross = gap.saturating_add(gap / 250);
     if *dq < gross || price == 0 { return Ok(None); }
 
@@ -631,9 +829,25 @@ fn reinstate_exposure(pod: &mut Stock, dq: &mut u64, depository: &mut Depository
     require!(depository.has_capacity(increase), PithyQuip::PoolAtCapacity);
 
     *dq -= gross;
-    // Units bought with `net`, signed by which way the pod already leans.
-    let units = (net / price) as i64;
+    // 🔴 **THE COMMENT SAID "SIGNED BY WHICH WAY THE POD ALREADY LEANS" AND THE
+    //    CODE DID NOT SIGN IT.** `pod.exposure += units` with a positive `units`
+    //    grows a long, which is right, and SHRINKS a short, which is the
+    //    opposite of what this function exists to do.
+    //
+    //    Both call sites are restoring `exposure_value` upward toward the mark.
+    //    For a long that means more units; for a short, whose value is
+    //    `|exposure| × price`, it means MORE NEGATIVE exposure. Adding a
+    //    positive number moved a short's value the wrong way — further from the
+    //    band it was called to restore — while `pod.marked` grew by the full
+    //    `net` regardless, so the two ends of the same operation disagreed about
+    //    what had happened. Measured on a winning 5x short: 1,027,086,074 drawn
+    //    from the depositor's free balance and 1,018,786,847 of equity created
+    //    out of the mismatch.
+    let units = value_units(net, price) as i64;
+    let units = if pod.exposure < 0 { -units } else { units };
     pod.exposure = pod.exposure.saturating_add(units);
+    // Units bought at today's price enter the mark at today's price.
+    pod.marked = pod.marked.saturating_add(net);
     pod.breached_at = 0;   // the breach this cured is over
     pod.updated = current_time;
     lelu.apply(pod, depository);
@@ -696,6 +910,77 @@ impl Depositor {
         self.last_updated = current_time;
     }
 
+    /// Settle what this pod is owed for holding the unpopular side, and move
+    /// its checkpoint. Mirrors `settle_sol_yield`: an index the pool advances,
+    /// claimed lazily whenever the position is touched.
+    ///
+    /// Credited to `pledged` rather than paid out, because funding is a
+    /// carry on an open position — a short being paid to stay short should
+    /// find its position better collateralised, not its wallet fuller. That
+    /// also means the claim cannot be farmed by opening and closing.
+    /// `price` is required: funding is a carry on CURRENT notional, and the
+    /// rate it settles against is now denominated in a book that marks to
+    /// market.
+    ///
+    /// 🔴 THIS USED `pod.marked`, WHICH IS A TRADE-TIME FIGURE. Once
+    ///    `Actuary::update_price` began re-marking `net_exposure`, the rate and
+    ///    the base stopped agreeing: `Φ` accrued against a book valued at the
+    ///    current price while every position claimed against the notional it was
+    ///    opened at. The two no longer netted, and the residual came out of the
+    ///    pool — measured at $439,181 over a thousand borrowers, with the pool
+    ///    PAYING more funding than it collected, which the design's own
+    ///    arithmetic (`k·C − k·O = k·|net|`) says can never happen.
+    pub fn settle_funding(&mut self, ticker: &str, risk: &mut TickerRisk,
+        price: u64) -> i64 {
+        let padded = Self::pad_ticker(ticker);
+        let Some(pod) = self.balances.iter_mut().find(|p| p.ticker == padded)
+            else { return 0 };
+        // The position's notional right now, signed by its side.
+        let signed_value = units_value_i(pod.exposure, price);
+        let (owed, index) = risk.funding_owed(signed_value, pod.funding_checkpoint);
+        pod.funding_checkpoint = index;
+        // Symmetric now that the amount is signed: the crowded side's pledge
+        // shrinks by exactly what the other side's grows by, and neither
+        // direction is a special case. Bounded by the pledge — funding cannot
+        // by itself drive a position negative; it drives it into the ladder.
+        //
+        // 🔴 **AND IT USED TO REPORT THE FULL `owed` EVEN WHEN THE PLEDGE COULD
+        //    NOT COVER IT.** The debit saturates at zero, so a crowded position
+        //    ground down by carry pays whatever is left and the caller was told
+        //    it had paid in full. The index, meanwhile, credits the offsetting
+        //    side unconditionally — it is a promise made against a payer whose
+        //    ability to pay is bounded by their collateral.
+        //
+        //    Measured on the thousand-borrower run once the book started marking
+        //    to market: 146 positions ground to zero and the capital transfer to
+        //    the pool came out NEGATIVE — $347,626 collected against $779,777
+        //    paid out, with the pool funding the $432,151 difference. An index
+        //    that cannot be short-changed is an index that quietly writes
+        //    cheques on the reserve.
+        //
+        // Returning what was ACTUALLY settled does not fix the shortfall — that
+        // needs the rate itself bounded by what the crowded side can bear — but
+        // it stops the accounting from hiding it.
+        // ⭐ **A RECEIVER IS PAID OUT OF WHAT WAS COLLECTED, AND NOTHING ELSE.**
+        //    The payer's side saturates at their pledge, so the two halves of a
+        //    transfer cannot be assumed equal; `funding_pot` carries what has
+        //    actually been taken, and a claim is bounded by it. What a receiver
+        //    is short is what a payer could not fund — which is where the loss
+        //    belongs, rather than on the reserve.
+        let settled = if owed > 0 {
+            let pay = (owed as u64).min(risk.funding_pot);
+            risk.funding_pot -= pay;
+            pod.pledged = pod.pledged.saturating_add(pay);
+            pay.min(i64::MAX as u64) as i64
+        } else if owed < 0 {
+            let take = owed.unsigned_abs().min(pod.pledged);
+            pod.pledged -= take;
+            risk.funding_pot = risk.funding_pot.saturating_add(take);
+            -(take.min(i64::MAX as u64) as i64)
+        } else { 0 };
+        settled
+    }
+
     /// Mirror every depository.utilisation(delta) call on this account so that
     /// clutch.rs can discount yield claims by the borrower's share of pool risk.
     /// One rung of a gradual liquidation, and everything that must follow it.
@@ -709,7 +994,33 @@ impl Depositor {
         current_time: i64, now: i64, accrued_interest: u64) -> Result<(i64, u64)> {
         let pod = &mut self.balances[pod_index];
         let excursion = pod.excursion(now);
-        require!(excursion > LIQ_GRACE_SECS as i64, PithyQuip::TooSoon);
+        // 🔴 **THIS WAS `require!(...)` AND THAT MADE THE LADDER UNREACHABLE.**
+        //    `pod.excursion(now)` STARTS the Parisian clock on first sight of a
+        //    breach — it writes `breached_at` — and the next line then failed,
+        //    so the instruction reverted and took the clock with it.
+        //    `handle_sweep` drops an `Err` on `_ => continue` without
+        //    serialising, so every sweep set the clock and every sweep unwound
+        //    it. `excursion > LIQ_GRACE_SECS` could never become true from the
+        //    one path that exists to liquidate.
+        //
+        //    Measured: a position 50% underwater, swept once a session for a
+        //    week, took ZERO tranches and ended with `breached_at == 0` — having
+        //    been assigned 86401, 172801, 259201 … inside calls that were all
+        //    thrown away.
+        //
+        //    It hid because a harness that mutates a `Depositor` in place keeps
+        //    writes the chain would roll back. Every earlier run of the
+        //    thousand-borrower simulation reported thousands of tranches; they
+        //    were an artefact of the missing transaction boundary.
+        //
+        // Too-soon is not a failure. It is a successful observation that the
+        // position is in breach and the grace has not yet elapsed, and the
+        // caller has to persist it or the clock cannot run. `delta == 0` says
+        // no value moved; `breached_at` now says why the account is worth
+        // writing anyway.
+        if excursion <= LIQ_GRACE_SECS as i64 {
+            return Ok((0, accrued_interest));
+        }
 
         let (dollars, pod_cb, pod_ip, pod_cds, closed) =
             amortise_tranche(pod, price, excursion, util_bps, actuary,
@@ -718,9 +1029,8 @@ impl Depositor {
         self.update_drawn(dollars);
         depository.utilisation(dollars);
         if closed {
-            self.flush_raroc(pod_cb, pod_ip, pod_cds, 0);
-            Depositor::flush_raroc_pool(depository,
-                -(pod_cb as i64) - pod_ip as i64, pod_cds);
+            let net = self.flush_raroc(pod_cb, pod_ip, pod_cds, 0);
+            Depositor::flush_raroc_pool(depository, net, pod_cds);
         }
         Ok((dollars, accrued_interest))
     }
@@ -878,8 +1188,24 @@ let new_total = bank.total_deposits.saturating_sub(usd);
     /// Pass pod field values directly to avoid borrow conflict with self.balances.
     /// Call at every code path that zeroes pod.exposure in repo().
     /// Also passes collar_dollar_seconds so the RAROC denominator is complete.
+    /// Returns the net it booked, so the caller can hand the SAME figure to
+    /// `flush_raroc_pool` rather than reconstructing it.
+    ///
+    /// 🔴 THREE OF THE FIVE CALL SITES NEVER BOOKED THE POOL SIDE AT ALL. Only
+    ///    the two liquidation paths paired with `flush_raroc_pool`; the long
+    ///    full close, the long partial close and the short partial close did
+    ///    not. So `pool_realized_pnl` — which this field's own docstring calls
+    ///    "the denominator an account's own RAROC is measured against" —
+    ///    aggregated LIQUIDATED POSITIONS ONLY.
+    ///
+    ///    That is a benchmark drawn from a strictly adverse subsample: the
+    ///    positions that reached the ladder are by construction the ones that
+    ///    lost. Every account that closed voluntarily was then compared against
+    ///    an average made only of losers, and looked good against it. The rebate
+    ///    the comparison exists to size was systematically too generous, and it
+    ///    got worse the better the book did.
     fn flush_raroc(&mut self, cost_basis: u64, interest_paid: u64,
-        collar_dollar_seconds: u128, transfer: u64) {
+        collar_dollar_seconds: u128, transfer: u64) -> i64 {
         let net = transfer as i64 - cost_basis as i64
                                   - interest_paid as i64;
 
@@ -889,6 +1215,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
 
         self.total_collar_dollar_seconds =
             self.total_collar_dollar_seconds.saturating_add(collar_dollar_seconds);
+        net
     }
 
     /// Same figures, into the pool aggregate. Split from `flush_raroc` because
@@ -937,8 +1264,83 @@ let new_total = bank.total_deposits.saturating_sub(usd);
         } else if old_exposure_value > 0 { i64::MAX } else { 100 };
 
         let collar = collar_bps(leverage, actuary);
-        let collar_amt = collar_notional(old_exposure_value, pod.pledged)
-            .saturating_mul(collar as u64) / 10_000;
+
+        // ⭐ **A TRADE THAT SHRINKS THE POSITION IS THE CURE, NOT A VIOLATION.**
+        //
+        // 🔴 THE OVER-PROFIT BRANCH REJECTED EVERY `amount != 0`, INCLUDING A
+        //    CLOSE. Its own comment read *"profit this large can only be taken
+        //    once the position is back inside its band"* — but closing IS
+        //    bringing it back inside the band, all the way to zero, and it is
+        //    the one action that reduces the pool's liability rather than
+        //    adding to it. So the borrower was refused a take-profit at exactly
+        //    the moment they had profit to take, and the only exits left were to
+        //    post more collateral or wait for a liquidator to appropriate the
+        //    gain a tranche at a time.
+        //
+        //    Measured on a thousand borrowers over five real years: 422 of
+        //    1,000 take-profits rejected. This is not a policy about unfunded
+        //    profit — the pool is strictly better off after the close than
+        //    before it — it is a missing sign check.
+        //
+        // Reducing means moving toward zero: `amount` opposite in sign to the
+        // exposure it applies to. Increasing exposure while over-profitable is
+        // still refused, because that genuinely adds to a liability the pool
+        // has not reserved for.
+        let reducing = amount != 0 && pod.exposure != 0
+            && (amount < 0) == (pod.exposure > 0);
+
+        // ⭐ **THE PARISIAN BARRIER, RE-CENTRED ON THE MARK AND RE-WIDTHED FROM
+        //    THE TAIL.** Two substitutions, and they are two halves of one.
+        //
+        //    CENTRE. The band used to sit on `pledged`. That is a P&L band only
+        //    while `pledged == exposure_value`, i.e. at 1x, and the old code
+        //    guaranteed that identity by force. Centred on `marked` it is a P&L
+        //    band at every leverage, and at 1x — where `marked` IS `pledged` —
+        //    it is the same band as before, so nothing about the 1x behaviour
+        //    this file is calibrated on changes.
+        //
+        //    WIDTH. `collar_bps` is `ES / leverage`, so the barrier came out at
+        //    `100 + ES/L` — a DECREASING function of the leverage asked for,
+        //    with a fixed point a couple of percent above 1.00x. Asking for 10x
+        //    shrank the band that would have permitted it. The half-width is now
+        //    `margin_bps`: the quantile of the fitted tail over the act-plus-
+        //    unwind horizon, gap included, which is the move the pledge exists
+        //    to survive. `collar_bps` keeps its other job — it is an expected
+        //    shortfall, which is the right statistic for a PRICE, and
+        //    `hazard_rate_bps` and `LiabilityUpdate` still read it as one.
+        //
+        //    ⚠️ A POD WRITTEN BEFORE `marked` EXISTED READS AS ITS PLEDGE, which
+        //       is exactly what the old band used. Migration needs no pass.
+        let had_mark = pod.marked != 0;
+        let mark = if had_mark { pod.marked } else { pod.pledged };
+        let signed_notional = if pod.exposure < 0 { -(old_exposure_value as i64) }
+                              else { old_exposure_value as i64 };
+        let profile = actuary.loss_profile(signed_notional, actuary.net_exposure);
+        let band_bps = profile.margin_bps.clamp(1, 10_000);
+        // ⭐ **THE TWO EDGES ANSWER DIFFERENT QUESTIONS, SO THEY ARE DIFFERENT
+        //    NUMBERS.**
+        //
+        // 🔴 `LossProfile::trigger_bps` IS COMPUTED, DOCUMENTED AS "the move at
+        //    which the remaining pledge stops covering the expected remainder —
+        //    where a position stops being self-funding and the ladder has to
+        //    start", ASSERTED TO BE STRICTLY BELOW `margin_bps` — AND NEVER
+        //    READ. Both edges of the band used the margin, so the ladder began
+        //    only once the collateral was already gone.
+        //
+        // The WINNING edge is a question about the pool's reserve: how much
+        // unfunded gain will it carry before demanding variation margin. That is
+        // `margin_bps`, which is what it reserved.
+        //
+        // The LOSING edge is a question about the borrower's collateral: at what
+        // move does it stop covering what is expected to follow. That is
+        // `trigger_bps`, and it is smaller — deliberately, so the ladder starts
+        // while there is still something to unwind rather than after.
+        let trig_bps = profile.trigger_bps.clamp(1, band_bps);
+        let collar_amt = (mark as u128).saturating_mul(band_bps as u64 as u128)
+            .saturating_div(10_000).min(u64::MAX as u128) as u64;
+        // The losing edge, drawn tighter.
+        let trigger_amt = (mark as u128).saturating_mul(trig_bps as u64 as u128)
+            .saturating_div(10_000).min(u64::MAX as u128) as u64;
         let time_elapsed = current_time.saturating_sub(pod.updated);
 
         let conc = depository.utilisation_bps();
@@ -948,8 +1350,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
         // a position hugging its collar pays for the gap risk it is imposing,
         // one far inside it pays almost nothing. Signed `amount` selects the
         // side; the expression is otherwise identical long and short.
-        let barrier = collar_notional(old_exposure_value, pod.pledged)
-            .saturating_add(collar_amt);
+        let barrier = mark.saturating_add(collar_amt);
         // 🔴 THE PREMIUM USED TO SEE ONLY THE UPPER BARRIER, SO APPROACHING THE
         //    LOWER ONE MADE A POSITION CHEAPER. `barrier` is `... + collar_amt`,
         //    and pricing off the distance to it alone meant that as exposure fell
@@ -961,7 +1362,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
         //    intensity of touching the band at all, and a position is as close to
         //    the ladder as its closest edge. Above the top or below the bottom the
         //    distance is zero and the hazard is maximal, which is already correct.
-        let lower = pod.pledged.saturating_sub(collar_amt);
+        let lower = mark.saturating_sub(collar_amt);
         let distance_bps = if old_exposure_value > 0 {
             let to_upper = barrier.saturating_sub(old_exposure_value);
             let to_lower = old_exposure_value.saturating_sub(lower);
@@ -987,8 +1388,26 @@ let new_total = bank.total_deposits.saturating_sub(usd);
             .saturating_sub(pod.premium_checkpoint);
         pod.premium_checkpoint = actuary.premium_index;
 
-        let position_rate = rate_bps(conc, leverage, actuary)
-            .saturating_sub(rate_bps(conc, 100, actuary))
+        // ⭐ **THE PRICE COMES FROM THE SAME PROFILE THE BAND DOES.**
+        //
+        // 🔴 THIS USED TO BE `rate_bps(conc, lev) − rate_bps(conc, 100)` PLUS THE
+        //    HAZARD, AND THE FIRST TERM WAS DEAD. `rate_bps`'s leverage
+        //    adjustment only switches on past `lev_norm > 50`, i.e. half of
+        //    `MAX_LEVERAGE_PCT`, and the band pinned every position at 1.0x — so
+        //    it never fired, which the §CAPITAL note in `etc.rs` already
+        //    records. Measured against five real years and a thousand
+        //    borrowers, the whole position rate came out at 17 bps a year on
+        //    notional while the book's realised directional loss ran to 4.7% of
+        //    the deposits. `loss_profile` was computing the fair price —
+        //    expected loss plus the cost of the capital the position consumes —
+        //    and nothing read it. The same disconnect as the barrier, one leg
+        //    over.
+        //
+        // `premium_bps` is that price. The hazard stays beside it because it
+        // prices something the profile does not: MONEYNESS, the surcharge for
+        // sitting close to the barrier, which is a property of where this
+        // position is rather than of what it is.
+        let position_rate = profile.premium_bps
             .saturating_add(hazard_rate_bps(distance_bps, collar, amount, actuary,
                             depository.total_deposits, depository.max_liability));
 
@@ -1012,15 +1431,15 @@ let new_total = bank.total_deposits.saturating_sub(usd);
             // amount can be decreased to take profit
             // before we apply changes to exposure,
             // run checks against current ^^^^^^^^
-            let upper = pod.pledged.saturating_add(collar_amt);
+            let upper = mark.saturating_add(collar_amt);
             let exposure = old_exposure_value;
             // for the first clause, amount irrelevant
             // (contains solely a preventative intent)
             // unless amount == 0 (liquidator caller)
-            if exposure > upper { // Over-profitable: restore the band or be unwound
+            if exposure > upper && !reducing { // Over-profitable: restore or be unwound
                 if let Some(gross) = post_variation_margin(pod, &mut self.deposited_quid,
                         depository, actuary, old_exposure_value, exposure,
-                        upper, current_time)? {
+                        exposure.saturating_sub(upper), current_time)? {
                     let _ = &pod; // end borrow before &mut self
                     self.update_drawn(gross as i64);
                     depository.utilisation(gross as i64);
@@ -1044,12 +1463,34 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                         current_time, now, accrued_interest);
                 }
             }
-            let lower = pod.pledged.saturating_sub(collar_amt);
-            if lower > exposure && exposure > 0 { // under-exposed: push it back
+            let lower = mark.saturating_sub(trigger_amt);
+            // ⭐ **THE MIRROR OF THE TAKE-PROFIT GATE, AND THE WORSE HALF.**
+            //
+            // 🔴 This branch is a LOSING long — the position has fallen more
+            //    than `collar_amt` below its mark — and its `else` returned
+            //    `Undercollateralised` for any `amount != 0`. So a borrower
+            //    watching a position go against them could not CLOSE IT. The
+            //    only exits left were to fund `reinstate_exposure`, which buys
+            //    MORE units to push the value back up — forced averaging down
+            //    into a loss, out of their own free balance — or to wait for a
+            //    liquidator to take it a tranche at a time.
+            //
+            //    Same missing sign check as the over-profit gate, on the side
+            //    where being trapped actually costs the borrower money.
+            //
+            // ⚠️ AND `reinstate_exposure` ITSELF IS NOW SUSPECT. Restoring
+            //    exposure to the mark made sense while the band sat on `pledged`
+            //    and the design held `exposure_value == pledged`: topping the
+            //    position back up kept it fully collateralised. Against a MARGIN
+            //    band it inverts — the cure for a loss is more collateral, which
+            //    raises the margin ratio, not more exposure, which lowers it.
+            //    Left in place because removing it is a design decision rather
+            //    than a bug fix, but it should not survive the next pass.
+            if lower > exposure && exposure > 0 && !reducing { // under-exposed
                 let gap = lower.saturating_sub(exposure).saturating_sub(collar_amt);
                 if let Some(drained) = reinstate_exposure(pod, &mut self.deposited_quid,
                         depository, actuary, old_exposure_value, exposure, gap,
-                        price, current_time)? {
+                        price, current_time, amount != 0)? {
                     let _ = &pod; // end borrow before &mut self
                     self.update_drawn(drained as i64);
                     depository.utilisation(drained as i64);
@@ -1064,9 +1505,25 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 } else { // ^ total deposits ^ incremented plus ^
                     return Err(PithyQuip::Undercollateralised.into());
                 }
-            } // Inside the band: neither breach branch fired, so the
-              // excursion is over and the clock resets.
-              pod.breached_at = 0;
+            }
+            // 🔴 **THE CLOCK MUST ONLY CLEAR WHEN THE POSITION IS ACTUALLY
+            //    INSIDE THE BAND, NOT MERELY WHEN NO BREACH BRANCH RAN.** The
+            //    comment said "neither breach branch fired, so the excursion is
+            //    over", and that was true until a reducing trade was allowed
+            //    past the over-profit gate — which is exactly the fix one screen
+            //    up. An over-profitable position could then send a single unit
+            //    of reduction, fall through here, and have its excursion zeroed
+            //    while still outside its barrier. Repeat once per grace period
+            //    and the ladder can never reach the second rung: the Parisian
+            //    knockout becomes unreachable for the price of one dust trade
+            //    an hour, which is the oscillation attack the occupation-time
+            //    formulation exists to prevent.
+            //
+            // Ask the band directly instead of inferring it from control flow.
+            if exposure <= mark.saturating_add(collar_amt)
+                && exposure >= mark.saturating_sub(collar_amt) {
+                pod.breached_at = 0;
+            }
               require!(amount != 0, PithyQuip::InvalidAmount);
             pod.exposure = pod.exposure.saturating_add(amount);
             if amount < 0 { // trying to redeem units,
@@ -1077,25 +1534,48 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                      pod.exposure.saturating_neg());
                      pod.exposure = 0;
                 } // $ value to be sent to depositor is accounted as:
-                let redeem_dollars = (amount.unsigned_abs() as u128)
-                                      .saturating_mul(price as u128)
-                                     .min(u64::MAX as u128) as u64;
+                let redeem_dollars = units_value(amount.unsigned_abs(), price);
 
-                if redeem_dollars > pod.pledged { // all-in TP...
-                    let total = redeem_dollars; // full take-profit
-                    let from_pool = total.saturating_sub(pod.pledged)
-                                         .saturating_sub(accrued_interest);
+                // 🔴 **THE BRANCH TEST WAS `redeem_dollars > pod.pledged` AND THE
+                //    PAYOUT WAS THE WHOLE NOTIONAL. BOTH ASSUME 1x.**
+                //
+                //    The test compares the DOLLARS being closed against the
+                //    COLLATERAL behind them, which distinguishes "closing more
+                //    than your pledge" from "closing less" — a meaningful
+                //    distinction only while the pledge equals the notional. At
+                //    any real leverage it is true for essentially every close,
+                //    so ordinary partial closes took the all-in path.
+                //
+                //    And the payout was `total = redeem_dollars`: the mark, on
+                //    the reasoning that "a long is paid the mark, its collateral
+                //    stays with the pool as margin". At 1x the mark IS the
+                //    collateral and that nets to returning the pledge. At 9x it
+                //    hands over nine times the pledge. Measured: a 9x long
+                //    opened and closed at the SAME PRICE, in the same second,
+                //    took $16,000 out of a pool it had deposited $2,000 into.
+                //
+                // Full close is a question about UNITS, and the payout is the
+                // released collateral plus the profit and loss against the mark
+                // — which at 1x, where `marked == pledged == notional`, is the
+                // same number this used to return.
+                let closing_all = pod.exposure == 0;
+                let mark = if pod.marked != 0 { pod.marked } else { pod.pledged };
+                if closing_all {
+                    let pledged_released = pod.pledged;
+                    let pnl = redeem_dollars as i128 - mark as i128;
+                    let total = (pledged_released as i128 + pnl
+                                 - accrued_interest as i128).max(0) as u64;
+                    let from_pool = total.saturating_sub(pledged_released);
 
-                    pod.pledged = 0; pod.updated = current_time;
+                    pod.pledged = 0; pod.marked = 0; pod.updated = current_time;
                     let new_exp = pod.value_at(price);
 
                     let lelu = LiabilityUpdate::compute(old_exposure_value,
                             pod.collar_bps, new_exp, pod.pledged, actuary);
 
                     lelu.apply(pod, depository);
-                    let util_change = -((amount.unsigned_abs() as i128)
-                                         .saturating_mul(price as i128)
-                                        .min(i64::MAX as i128) as i64);
+                    let util_change = -(units_value(amount.unsigned_abs(), price)
+                                        .min(i64::MAX as u64) as i64);
 
                     // RAROC: extract before update_drawn ends the window to hold pod.
                     // Zero on the pod itself so re-entry doesn't double-count
@@ -1110,7 +1590,8 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     // end borrow before &mut self
                     self.update_drawn(util_change);
                     depository.utilisation(util_change);
-                    self.flush_raroc(cb, ip, cds, total);
+                    let net = self.flush_raroc(cb, ip, cds, total);
+                    Depositor::flush_raroc_pool(depository, net, cds);
                     return Ok((-(from_pool as i64), total));
                 } else { // partial take-profit — capitalize into deposited_quid
                     // User intent: small early TP as a hedge. No fee, gain banked
@@ -1128,12 +1609,21 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     //
                     // A long is paid the mark less the interest attributable
                     // to the slice; its collateral stays with the pool as margin.
-                    let (_released, _basis_closed, interest_on_closed, raroc, fully_closed) =
+                    // The slice's share of the mark, taken BEFORE
+                    // `settle_partial_close` releases it pro rata.
+                    let basis_slice = ((mark as u128)
+                        .saturating_mul(redeem_dollars as u128)
+                        / (old_exposure_value as u128).max(1)) as u64;
+                    let (_released, basis_closed, interest_on_closed, raroc, fully_closed) =
                         settle_partial_close(pod, depository, actuary,
                             old_exposure_value, redeem_dollars,
                             old_exposure_value, price, current_time,
                             accrued_interest);
-                    let user_credit = redeem_dollars.saturating_sub(interest_on_closed);
+                    // Same rule as the full close: released collateral plus the
+                    // profit and loss on the slice, not the slice's whole mark.
+                    let user_credit = ((_released as i128
+                        + redeem_dollars as i128 - basis_slice as i128
+                        - interest_on_closed as i128).max(0)) as u64;
                     let (pod_cb, pod_ip, pod_cds) = raroc;
                     let pod_exp_after = if fully_closed { 0 } else { pod.exposure };
                     let pledged_reduce = _released;
@@ -1143,14 +1633,23 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     depository.utilisation(util_change);
 
                     if pod_exp_after == 0 {
-                        self.flush_raroc(pod_cb, pod_ip, 
+                        // ⚠️ `basis_closed`, NOT `raroc.0`. `settle_partial_close`
+                        //    releases `cost_basis` pro rata and THEN snapshots the
+                        //    pod, so what it hands back in `raroc` is the RESIDUAL
+                        //    — zero on a full close. Feeding that to `flush_raroc`
+                        //    made the net `transfer − 0 − interest`, i.e. a
+                        //    position that lost its entire basis booked a P&L of
+                        //    roughly nothing. The figure that belongs to the slice
+                        //    being closed is the one it returns separately.
+                        let net = self.flush_raroc(basis_closed, pod_ip,
                                     pod_cds, user_credit);
+                        Depositor::flush_raroc_pool(depository, net, pod_cds);
                     }
                     let delta_signal = pledged_reduce.saturating_add(accrued_interest);
                     return Ok((delta_signal as i64, user_credit));
                 }
             } else { // Adding exposure
-                let new_exp = (pod.exposure as u64).saturating_mul(price);
+                let new_exp = units_value(pod.exposure as u64, price);
                 // Zero pledge is not one-times leverage, it is exposure
                 // against nothing. Defaulting to 100 let a pod whose pledge
                 // had been consumed — by premiums, or by withdrawing it —
@@ -1161,27 +1660,80 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 } else if new_exp > 0 { i64::MAX } else { 100 };
 
                 require!(post_lev <= max_lev, PithyQuip::Undercollateralised);
-                let delta = pod.pledged.saturating_add(collar_amt);
+
+                // ⭐ **THE MARGIN GATE, WHICH IS WHERE LEVERAGE ACTUALLY LIVES.**
+                //
+                // 🔴 WHAT STOOD HERE FORCED EVERY POSITION TO 1x AND THAT IS WHY
+                //    NO AMOUNT OF TUNING EVER PRODUCED MORE. The rule was
+                //    `delta = pledged + collar_amt`, top the pledge up to the
+                //    notional if the depositor could fund it, and SHRINK THE
+                //    EXPOSURE to the pledge if they could not — with a matching
+                //    branch that GREW exposure when the pledge exceeded it. Both
+                //    directions drove `exposure_value` onto `pledged`, so the
+                //    `max_leverage_pct` check one line above could never bind:
+                //    whatever it permitted, the forcing undid.
+                //
+                //    The requirement is now the margin the fitted tail demands
+                //    over the act-plus-unwind horizon — `band_bps`, the same
+                //    number the barrier is drawn at. Fund it and the position
+                //    stands at whatever leverage that implies; fail to fund it
+                //    and the exposure is cut to what the collateral supports,
+                //    which is the same shrink as before against a threshold that
+                //    is no longer 100%.
+                //
+                //    ⚠️ AND NOTHING PUSHES EXPOSURE UP ANY MORE. A pledge in
+                //       excess of the requirement is simply excess: the
+                //       depositor can withdraw it through `renege`. Spending it
+                //       on exposure they did not ask for was the mirror image of
+                //       the same forcing, and it is the reason a partially
+                //       closed position quietly re-levered itself.
+                let required = (new_exp as u128)
+                    .saturating_mul(band_bps as u64 as u128) / 10_000;
+                let required = required.min(u64::MAX as u128) as u64;
                 let mut taken_from_pool: u64 = 0;
-                if new_exp > delta {
-                    let excess = new_exp.saturating_sub(delta);
-                    if self.deposited_quid >= excess {
-                        self.deposited_quid -= excess;
-                        pod.pledged = pod.pledged.saturating_add(excess);
+                if pod.pledged < required {
+                    let short = required.saturating_sub(pod.pledged);
+                    if self.deposited_quid >= short {
+                        self.deposited_quid -= short;
+                        pod.pledged = pod.pledged.saturating_add(short);
                         // dq → pledged transfer; clutch's snapshot dispatch
                         // sees dq drop and pledged grow, T_delta picks up AI.
-                        taken_from_pool = excess;
+                        taken_from_pool = short;
                     } else {
-                        pod.exposure = pod.exposure.saturating_sub(
-                             (excess as f64 / price as f64) as i64);
-                    }
-                } else if pod.pledged > collar_amt {
-                    let room = pod.pledged.saturating_sub(collar_amt);
-                    if room > new_exp { pod.exposure = pod.exposure.saturating_add(
-                             ((room.saturating_sub(new_exp)) as f64 / price as f64) as i64);
+                        // Cut the exposure to what pledge-plus-free-balance can
+                        // margin, rather than refusing the whole request.
+                        let fundable = pod.pledged.saturating_add(self.deposited_quid);
+                        let affordable = (fundable as u128).saturating_mul(10_000)
+                            / (band_bps as u64 as u128).max(1);
+                        let affordable = affordable.min(u64::MAX as u128) as u64;
+                        let over = new_exp.saturating_sub(affordable);
+                        let shed = value_units(over, price) as i64;
+                        pod.exposure = if pod.exposure > 0 {
+                            pod.exposure.saturating_sub(shed)
+                        } else { pod.exposure.saturating_add(shed) };
+                        let now_exp = pod.value_at(price);
+                        let need = (now_exp as u128)
+                            .saturating_mul(band_bps as u64 as u128) / 10_000;
+                        let need = need.min(u64::MAX as u128) as u64;
+                        if need > pod.pledged {
+                            let top = need.saturating_sub(pod.pledged)
+                                          .min(self.deposited_quid);
+                            self.deposited_quid -= top;
+                            pod.pledged = pod.pledged.saturating_add(top);
+                            taken_from_pool = top;
+                        }
                     }
                 } pod.updated = current_time;
                 let final_exp = pod.value_at(price);
+
+                // The mark takes on the units that were added, at the price they
+                // were added at, and leaves the unrealised P&L on the units that
+                // were already there where it was. A pod with no mark yet is
+                // being opened, so the whole position is its own mark.
+                pod.marked = if !had_mark { final_exp } else {
+                    (pod.marked as i128 + final_exp as i128
+                        - old_exposure_value as i128).max(0) as u64
+                };
 
                 let lelu = LiabilityUpdate::compute(old_exposure_value,
                         pod.collar_bps, final_exp, pod.pledged, actuary);
@@ -1191,10 +1743,27 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     require!(depository.has_capacity(collar_increase), PithyQuip::PoolAtCapacity);
                 }
                 lelu.apply(pod, depository);
-                let util_change = (amount as i128)
-                    .saturating_mul(price as i128)
-                          .clamp(i64::MIN as i128,
-                                 i64::MAX as i128) as i64;
+                // 🔴 **THIS WAS `amount × price` WITH A SIGNED `amount`, AND
+                //    UTILISATION MEASURES GROSS NOTIONAL.** A short opens with
+                //    `amount < 0`, so opening one DECREASED `total_drawn`; the
+                //    short branch below never added its notional at all, only
+                //    the negative shrink correction. On any two-sided book the
+                //    longs' additions and the shorts' subtractions cancelled
+                //    and `total_drawn` sat on the `saturating_sub` floor.
+                //
+                //    Measured: a thousand borrowers carrying $64M of net
+                //    exposure against $78M of deposits reported a utilisation
+                //    of ONE BASIS POINT. Everything keyed off it — `rate_bps`'s
+                //    entire liquidity term, and therefore the base half of
+                //    every premium — was pinned at its minimum for the whole
+                //    run, and would be on chain too.
+                //
+                // The quantity is the change in gross notional outstanding,
+                // which is what every other call site already passes: closes
+                // send `-redeem_dollars`, tranches send `-unwound_value`. This
+                // one was the odd one out.
+                let util_change = (final_exp as i128 - old_exposure_value as i128)
+                    .clamp(i64::MIN as i128, i64::MAX as i128) as i64;
 
                 self.update_drawn(util_change);
                 depository.utilisation(util_change);
@@ -1204,24 +1773,49 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 //   T_delta = -(dq_delta + pledged_delta) absorbs the dq drain
                 return Ok((taken_from_pool as i64, accrued_interest));
             }
-        } let exposure = ((-pod.exposure) as u64).saturating_mul(price);
-        let pivot = pod.pledged.saturating_sub(collar_amt);
-        if pivot >= exposure && exposure > 0 {
-            // Short in profit beyond its collar: same move, mirrored.
+        } let exposure = units_value((-pod.exposure) as u64, price);
+        let pivot = mark.saturating_sub(collar_amt);
+        if pivot >= exposure && exposure > 0 && !reducing {
+            // ⭐ **A WINNING SHORT IS CURED THE SAME WAY A WINNING LONG IS:
+            //    BY POSTING COLLATERAL AGAINST THE GAIN THE POOL NOW OWES.**
+            //
+            // 🔴 THIS CALLED `reinstate_exposure` — buy MORE short exposure to
+            //    push the value back up to the mark — and once that was gated to
+            //    the owner (a liquidator must not spend a borrower's balance), a
+            //    winning short had NO cure on the crank path at all. It went
+            //    straight to the ladder, which appropriates the gain.
+            //
+            //    A winning LONG, by contrast, has always been offered
+            //    `post_variation_margin` on the same path. So being right was
+            //    survivable on one side of the book and not the other.
+            //
+            //    Measured on the worst real ten-session falls in the fixture,
+            //    with the borrower asleep and a liquidator cranking each
+            //    session: shorts into a 56% fall in SMCI and a 35% fall in TSLA
+            //    lost their ENTIRE PLEDGE. Being correct about a crash cost
+            //    everything, because the crank collected the profit a rung at a
+            //    time and no cure existed to stop it.
+            //
+            // The excess is measured from the other edge — `pivot − value`
+            // rather than `value − upper` — and everything else is identical.
             let gap = pivot.saturating_sub(exposure);
-            if let Some(drained) = reinstate_exposure(pod, &mut self.deposited_quid,
-                    depository, actuary, old_exposure_value, exposure, gap,
-                    price, current_time)? {
+            if let Some(gross) = post_variation_margin(pod, &mut self.deposited_quid,
+                    depository, actuary, old_exposure_value, exposure,
+                    gap, current_time)? {
                 let _ = &pod; // end borrow before &mut self
-                self.update_drawn(drained as i64);
-                depository.utilisation(drained as i64);
-                return Ok((0, accrued_interest));
+                self.update_drawn(gross as i64);
+                depository.utilisation(gross as i64);
+                return Ok((gross as i64, accrued_interest));
             }
             else if amount != 0 {
                 return Err(PithyQuip::Undercollateralised.into());
             } else {
                 let excursion = pod.excursion(now);
-                    require!(excursion > LIQ_GRACE_SECS as i64, PithyQuip::TooSoon);
+                    // Same as `unwind_a_tranche`: the clock has to survive the
+                    // call that started it. See the note there.
+                    if excursion <= LIQ_GRACE_SECS as i64 {
+                        return Ok((0, accrued_interest));
+                    }
 
                     let (dollars, pod_cb, pod_ip, pod_cds, closed) =
                         amortise_tranche(pod, price, excursion, util_bps,
@@ -1231,18 +1825,17 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                     self.update_drawn(dollars);
                     depository.utilisation(dollars);
                     if closed {
-                        self.flush_raroc(pod_cb, pod_ip, pod_cds, 0);
-                        Depositor::flush_raroc_pool(depository,
-                            -(pod_cb as i64) - pod_ip as i64, pod_cds);
+                        let net = self.flush_raroc(pod_cb, pod_ip, pod_cds, 0);
+                        Depositor::flush_raroc_pool(depository, net, pod_cds);
                     }
                     return Ok((dollars, accrued_interest));
             }
         } if exposure > pivot || exposure == 0 {
-            let upper = pod.pledged.saturating_add(collar_amt);
-            if exposure > upper { // Over-profitable: restore the band or be unwound
+            let upper = mark.saturating_add(trigger_amt);
+            if exposure > upper && !reducing { // a losing short: cover or be unwound
                 if let Some(gross) = post_variation_margin(pod, &mut self.deposited_quid,
                         depository, actuary, old_exposure_value, exposure,
-                        upper, current_time)? {
+                        exposure.saturating_sub(upper), current_time)? {
                     let _ = &pod; // end borrow before &mut self
                     self.update_drawn(gross as i64);
                     depository.utilisation(gross as i64);
@@ -1266,7 +1859,12 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                         current_time, now, accrued_interest);
                 }
             }
-            pod.breached_at = 0;   // in band, as above
+            // In band, as above — and conditioned on the band rather than on
+            // control flow, for the same reason.
+            if exposure <= mark.saturating_add(collar_amt)
+                && exposure >= mark.saturating_sub(collar_amt) {
+                pod.breached_at = 0;
+            }
             let old_exp = exposure; let mut drawn_delta_608: i64 = 0;
             // deferred update for the one non-returning branch
             pod.exposure = pod.exposure.saturating_add(amount);
@@ -1279,12 +1877,18 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 } // Units: redeem_dollars and old_exp are both dollar-denominated, so
                 // amt_frac is a clean fraction. (amount is in shares; multiplying by
                 // price brings it into dollar space.)
-                let redeem_dollars = (amount.unsigned_abs() as u128)
-                                      .saturating_mul(price as u128)
-                                     .min(u64::MAX as u128) as u64;
+                let redeem_dollars = units_value(amount.unsigned_abs(), price);
 
                 // A short is paid its released collateral plus P&L against
                 // basis: closing means buying back, so profit is basis − exit.
+                // ⚠️ CAPTURED BEFORE THE SETTLEMENT, NOT AFTER. `settle_partial_close`
+                //    releases `marked` and `pledged` pro rata, so on a full close
+                //    both are zero by the time it returns — reading the mark
+                //    afterwards yields a basis of nothing, a profit of minus the
+                //    whole exit value, and a credit floored at zero. That is a
+                //    short handing over its entire pledge on a flat round trip,
+                //    and it is exactly what a first cut of this fix produced.
+                let mark_s = if pod.marked != 0 { pod.marked } else { pod.pledged };
                 let (pledged_reduce, basis_closed, _interest_on_closed, raroc, fully_closed) =
                     settle_partial_close(pod, depository, actuary,
                         old_exposure_value, redeem_dollars,
@@ -1297,7 +1901,19 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 // subtracted — a short that had been open long enough to pay
                 // real premiums was billed for them a second time here, and the
                 // longer it held the worse the second bill got.
-                let cost_basis_share = basis_closed;
+                // 🔴 `basis_closed` IS A SHARE OF `cost_basis`, WHICH IS
+                //    CONTRIBUTED COLLATERAL — NOT THE ENTRY MARK. `renege` moves
+                //    `cost_basis` and `pledged` by the same amount on every
+                //    collateral change, so at 1x it happens to equal the entry
+                //    notional and at any leverage it is a fraction of it. A
+                //    short's profit is basis minus exit, so reading the
+                //    collateral as the basis made every levered short close at a
+                //    loss equal to its whole pledge: measured, a 3x short opened
+                //    and closed at the SAME PRICE received nothing back.
+                let cost_basis_share = ((mark_s as u128)
+                    .saturating_mul(redeem_dollars as u128)
+                    / (old_exp as u128).max(1)) as u64;
+                let _ = basis_closed;
                 let signed_pnl: i128 =
                     (cost_basis_share as i128) - (redeem_dollars as i128);
                 let user_credit: u64 = (pledged_reduce as i128)
@@ -1311,8 +1927,18 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 depository.utilisation(util_change);
 
                 if pod_exp_after == 0 {
-                    self.flush_raroc(pod_cb, pod_ip, 
+                    // Same as the long partial close: the slice's basis, not
+                    // the residual left on the pod after it was released.
+                    //
+                    // ⚠️ AND `basis_closed`, NOT `cost_basis_share`. The latter is
+                    //    the slice's share of the MARK — the entry notional, used
+                    //    just above to compute the short's profit as basis minus
+                    //    exit. RAROC wants the CAPITAL the account committed, which
+                    //    is the cost basis. Feeding it the notional booked a 9x
+                    //    short's realised P&L as −$18,000 against a $2,000 pledge.
+                    let net = self.flush_raroc(basis_closed, pod_ip,
                                 pod_cds, user_credit);
+                    Depositor::flush_raroc_pool(depository, net, pod_cds);
                 }
                 // Return signal: delta = pledged_reduce + AI, interest = user_credit.
                 // clutch dispatches: delta>0 + interest>0 + exposure_decreased
@@ -1322,7 +1948,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 return Ok((delta_signal as i64, user_credit));
             } 
             else if amount < 0 { // issue short exposure...
-                let new_exp = ((-pod.exposure) as u64).saturating_mul(price);
+                let new_exp = units_value((-pod.exposure) as u64, price);
                 let post_lev = if pod.pledged > 0 {
                     ((new_exp as u128 * 100) / 
                     pod.pledged as u128).min(
@@ -1334,43 +1960,44 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 require!(post_lev <= max_lev, 
                 PithyQuip::Undercollateralised);
 
-                let upper = pod.pledged.saturating_add(collar_amt);
-                if pod.pledged > new_exp {
-                    // ^ not a valid state unless we
-                    // are taking profits (don't let
-                    // taking on more exposure while
-                    // taking profit before TP first)
-                    let room = pod.pledged.saturating_sub(new_exp);
-                    if self.deposited_quid >= room {
-                        let lelu = LiabilityUpdate::compute(old_exposure_value, pod.collar_bps,
-                                            new_exp.saturating_add(room), pod.pledged, actuary);
-
-                        let collar_increase = lelu.new_collar_dollars.saturating_sub(lelu.old_collar_dollars);
-                        require!(depository.has_capacity(collar_increase), PithyQuip::PoolAtCapacity);
-
-                        self.deposited_quid -= room;
-                        pod.exposure = pod.exposure.saturating_sub(
-                                (room as f64 / price as f64) as i64);
-
-                        pod.updated = current_time; 
-                        lelu.apply(pod, depository);
-                        self.update_drawn(room as i64); 
-                        depository.utilisation(room as i64);
-                        // pod.pledged unchanged (only pod.exposure becomes more
-                        // negative). Same shape as long under-exposed and short ITM:
-                        // dq drained by `room`, AI deducted from pledged, clutch's
-                        // snapshot dispatch yields T_delta = room + AI. Pool absorbs
-                        // the dq drop as solvency surplus while user gains short...
-                        return Ok((0, accrued_interest));
-
-                    } else { return Err(PithyQuip::UnderExposed.into()); }
-                } else if new_exp > upper { // to prevent OverExposed,
-                // adding positive number shrinks negative exposure...
-                    pod.exposure = pod.exposure.saturating_add(
-                      (((new_exp.saturating_sub(upper)) as f64) / price as f64) as i64);
-                    
-                    drawn_delta_608 = -((new_exp.saturating_sub(upper)) as i64);
-                    depository.utilisation(drawn_delta_608);
+                // ⭐ THE SAME MARGIN GATE AS THE LONG SIDE, AND NOW LITERALLY
+                //    THE SAME RULE. What stood here was the mirror of the long
+                //    forcing and had the same effect: `new_exp > pledged + collar`
+                //    shrank the short back to 1x, and `pledged > new_exp` DRAINED
+                //    `deposited_quid` to grow it — returning `UnderExposed` if
+                //    the depositor could not fund exposure they had not asked
+                //    for. A pledge in excess of the margin is not an error and
+                //    does not need spending; it is withdrawable.
+                let required = (new_exp as u128)
+                    .saturating_mul(band_bps as u64 as u128) / 10_000;
+                let required = required.min(u64::MAX as u128) as u64;
+                if pod.pledged < required {
+                    let deficit = required.saturating_sub(pod.pledged);
+                    if self.deposited_quid >= deficit {
+                        self.deposited_quid -= deficit;
+                        pod.pledged = pod.pledged.saturating_add(deficit);
+                    } else {
+                        let fundable = pod.pledged.saturating_add(self.deposited_quid);
+                        let affordable = ((fundable as u128).saturating_mul(10_000)
+                            / (band_bps as u64 as u128).max(1))
+                            .min(u64::MAX as u128) as u64;
+                        let over = new_exp.saturating_sub(affordable);
+                        // Adding a positive number shrinks a negative exposure.
+                        pod.exposure = pod.exposure.saturating_add(
+                            value_units(over, price) as i64);
+                        drawn_delta_608 = -(over.min(i64::MAX as u64) as i64);
+                        depository.utilisation(drawn_delta_608);
+                        let now_exp = pod.value_at(price);
+                        let need = ((now_exp as u128)
+                            .saturating_mul(band_bps as u64 as u128) / 10_000)
+                            .min(u64::MAX as u128) as u64;
+                        if need > pod.pledged {
+                            let top = need.saturating_sub(pod.pledged)
+                                          .min(self.deposited_quid);
+                            self.deposited_quid -= top;
+                            pod.pledged = pod.pledged.saturating_add(top);
+                        }
+                    }
                 }
             } pod.updated = current_time; // why wouldn't a depositor just:
             // select the smallest distance, (greater than pod.pledged) in
@@ -1378,13 +2005,29 @@ let new_total = bank.total_deposits.saturating_sub(usd);
             // drop is ahead, and they want to minimise the chance they
             // might be liquidated; either way we want to maximise control
             let final_exp = pod.value_at(price);
+            // Same rule as the long side: units added enter the mark at the
+            // price they were added at; a pod with no mark yet is its own.
+            pod.marked = if !had_mark { final_exp } else {
+                (pod.marked as i128 + final_exp as i128
+                    - old_exposure_value as i128).max(0) as u64
+            };
 
             let lelu = LiabilityUpdate::compute(old_exposure_value,
                     pod.collar_bps, final_exp, pod.pledged, actuary);
 
             lelu.apply(pod, depository);
             let _ = &pod; // end borrow before deferred self.update_drawn
-            if drawn_delta_608 != 0 { self.update_drawn(drawn_delta_608); }
+            // Same correction as the long side: gross notional, not signed
+            // amount. `drawn_delta_608` was the only utilisation this branch
+            // ever reported, and it is a negative shrink correction — so a
+            // short that opened cleanly reported nothing, and one that had to
+            // be trimmed reported a REDUCTION in drawn for a position that had
+            // just been created.
+            let util_change = (final_exp as i128 - old_exposure_value as i128)
+                .clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+            let _ = drawn_delta_608;
+            self.update_drawn(util_change);
+            depository.utilisation(util_change);
             return Ok((0, accrued_interest));
         }
         Ok((0, 0)) // open halfway each morning to close halfway each night,
@@ -1418,7 +2061,7 @@ let new_total = bank.total_deposits.saturating_sub(usd);
                 // could withdraw itself into a state repo() liquidates.
                 let collar_amt = collar_amount(pod, price);
                 let max: u64 = if pod.exposure > 0 {
-                    let exposure_value = (pod.exposure as u64).saturating_mul(price);
+                    let exposure_value = units_value(pod.exposure as u64, price);
                     (pod.pledged.saturating_add(collar_amt)).saturating_sub(exposure_value)
                 }
                 else if pod.exposure < 0 {
@@ -1533,7 +2176,8 @@ let new_total = bank.total_deposits.saturating_sub(usd);
             } else { require!(amount > 0, PithyQuip::InvalidAmount);
                 if self.balances.len() >= MAX_LEN {
                     return Err(PithyQuip::MaxPositionsReached.into());
-                }   self.balances.push(Stock { breached_at: 0, premium_checkpoint: 0, ticker: padded,
+                }   self.balances.push(Stock { breached_at: 0, premium_checkpoint: 0, funding_checkpoint: 0,
+                        marked: 0, ticker: padded,
                         pledged: amount as u64, exposure: 0,
                         updated: current_time,
                         collar_bps: 0,
@@ -1612,31 +2256,60 @@ mod tests {
         assert_eq!(park_band(&bank(0, 0, 0), 1_000), 0);
     }
 
+    /// 🔴 THIS TEST USED TO BE `credit_adjustment_lands_on_earnings_before_
+    ///    principal` AND IT ASSERTED THE BUG. Its third line read *"with no
+    ///    surplus, a loss has nowhere to go but principal"* and checked that
+    ///    `total_deposits` fell from 1,000 to 600 on a SOL parking haircut —
+    ///    dollar depositors paying for a Kestrel loss.
+    ///
+    ///    `Depository::has_capacity` states the invariant it broke: `total_deposits`
+    ///    "is dollars, and only dollars", and a SOL deposit "no longer credits
+    ///    this at all". `deposit` says the same from the other side: "a SOL move
+    ///    cannot reach a stock book at all, in either direction". This path was
+    ///    that direction.
+    ///
+    ///    A SOL impairment is already borne where it belongs — the haircut cuts
+    ///    `sol_star_credited_lamports`, which is the SOL tranche's own
+    ///    principal, and `accrue_sol_yield` walks `sol_yield_index` down against
+    ///    unclaimed carry. What is left here is the pool's record of what it
+    ///    holds in SOL, and that record is `sol_usd_contrib`.
     #[test]
-    fn credit_adjustment_lands_on_earnings_before_principal() {
+    fn credit_adjustment_never_reaches_dollar_principal() {
         let mut b = bank(0, 0, 0);
         b.total_deposits = 1_000; b.sol_usd_contrib = 1_000;
 
-        // With no surplus, a loss has nowhere to go but principal.
+        // A loss with no surplus to claw: it comes off the SOL record alone.
         adjust_sol_credit(&mut b, -400);
-        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (600, 0, 600));
+        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (1_000, 0, 600));
 
-        // A gain is the pool's, not any depositor's: principal is unchanged.
+        // A gain is the pool's shared surplus; principal is untouched.
         adjust_sol_credit(&mut b, 150);
-        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (600, 150, 750));
+        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (1_000, 150, 750));
 
-        // The next loss comes off that surplus first, and only then principal.
+        // The next loss claws back exactly what this path credited, and stops.
         adjust_sol_credit(&mut b, -200);
-        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (550, 0, 550));
+        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (1_000, 0, 550));
 
-        // And it saturates rather than wrapping.
+        // Saturates rather than wrapping, and STILL cannot reach the dollars.
         adjust_sol_credit(&mut b, -10_000);
-        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (0, 0, 0));
+        assert_eq!((b.total_deposits, b.yield_pool, b.sol_usd_contrib), (1_000, 0, 0));
+
+        // The property, stated once rather than implied four times.
+        let before = b.total_deposits;
+        for d in [-5_000i64, 5_000, -1, 1, i64::MIN + 1, i64::MAX] {
+            adjust_sol_credit(&mut b, d);
+            assert_eq!(b.total_deposits, before,
+                "SOL credit adjustment {d} moved dollar principal");
+        }
     }
 
     pub(super) fn pod(pledged: u64, exposure: i64, collar_bps: u16, collar_dollars: u64) -> Stock {
-        Stock { ticker: [0u8; 8], breached_at: 0, premium_checkpoint: 0,
-            pledged, exposure, updated: 0,
+        Stock { ticker: [0u8; 8], breached_at: 0, premium_checkpoint: 0, funding_checkpoint: 0,
+            // 0, so `marked` falls back to `pledged` — the band centred where
+            // it was before the mark existed. Setting it to the UNIT COUNT, as
+            // a first cut did, gives a dollar field a share count and makes
+            // every mark-to-market in these fixtures nonsense.
+            marked: 0, pledged, exposure, updated: 0,
             collar_bps, cost_basis: pledged, interest_paid: 0,
             collar_dollar_seconds: 0, collar_dollars }
     }
@@ -1705,7 +2378,7 @@ mod tests {
         // withdrawing it — read as 1x. The gates let it keep adding exposure,
         // and `collar_bps`, which widens the band as leverage falls, handed it
         // the most room in the book.
-        let price = 100u64;
+        let price = 100 * PRICE_SCALE as u64;
         let mut spent = pod(0, 500, 200, 0);        // exposure, nothing behind it
         assert_eq!(spent.pledged, 0);
         assert!(spent.value_at(price) > 0);
@@ -1761,14 +2434,15 @@ mod tests {
         // band. A gap does not wait: the loss outruns a time-based slice, and
         // whatever the pledge cannot cover lands on depositors. So a tranche
         // is at least what restores the band.
-        let price = 100u64;
+        // Micro-dollars per share — see §SCALE.
+        let price = 100 * PRICE_SCALE as u64;
         let mut deep = pod(10_000, 500, 200, 0);      // 50k of exposure on 10k
         let collar = collar_amount(&deep, price);
-        let exposure_value = (deep.exposure as u64) * price;
+        let exposure_value = units_value(deep.exposure as u64, price);
         let band_top = deep.pledged + collar;
         assert!(exposure_value > band_top, "fixture must actually be breached");
 
-        let restoring = (exposure_value - band_top) / price;
+        let restoring = value_units(exposure_value - band_top, price);
         let ladder = Depositor::tranche_size(deep.exposure.unsigned_abs(),
                                              LIQ_GRACE_SECS as i64 + 1, 5_000);
         assert!(restoring > ladder,
@@ -1778,7 +2452,8 @@ mod tests {
         // whole thing closes it, rather than asking for units that do not exist.
         deep.pledged = 0;
         let collar = collar_amount(&deep, price);
-        let over = ((deep.exposure as u64) * price).saturating_sub(collar) / price;
+        let over = value_units(units_value(deep.exposure as u64, price)
+            .saturating_sub(collar), price);
         assert!(over.min(deep.exposure.unsigned_abs()) <= deep.exposure.unsigned_abs());
     }
 
@@ -1860,19 +2535,36 @@ mod tests {
         b.total_deposits = 1_000_000;
         let a = Actuary::default();
 
+        // ⚠️ THIS ASSERTED `p.pledged >= 1_000 + 900` ON BOTH SIDES, WHICH WAS
+        //    THE FORGOTTEN LOSS. `exposure > upper` means a WINNING long and a
+        //    LOSING short, and the cure re-centres `marked` on the current
+        //    value — so whatever the position was carrying has to be SETTLED
+        //    into the pledge on the way past, or it vanishes. Demanding that
+        //    the pledge simply absorb the posted excess is demanding that a
+        //    short's loss be dropped.
+        //
+        // The two invariants that hold on both sides: the band is restored
+        // (value == mark, so the position sits at the centre of it), and equity
+        // rises by exactly what was credited — no more, no less.
         for exposure_sign in [1i64, -1] {
             let mut p = pod(1_000, exposure_sign, 0, 0);
             let mut dq = 100_000u64;
             let upper = 1_100u64;      // pledged + collar
             let exposure = 2_000u64;   // 900 past the band
+            let side = exposure_sign as i128;
+            let mark0 = 1_000i128;     // `marked == 0` falls back to `pledged`
+            let equity0 = 1_000i128 + (exposure as i128 - mark0) * side;
 
             let gross = post_variation_margin(&mut p, &mut dq, &mut b, &a,
                                       exposure, exposure, upper, 1)
                 .unwrap().expect("depositor can fund it");
+            let net = gross - gross / 250;
 
             assert!(gross >= 900, "charge covers the excess: {gross}");
-            assert!(p.pledged + 1 >= 1_000 + 900,
-                    "pledged must absorb the excess, got {}", p.pledged);
+            assert_eq!(p.marked, exposure, "the band re-centres on the mark");
+            assert_eq!(p.pledged as i128, equity0 + net as i128,
+                "equity must rise by exactly what was credited: pledged {} \
+                 against equity {equity0} plus net {net}", p.pledged);
             assert_eq!(dq, 100_000 - gross, "charged exactly once");
         }
     }
@@ -2089,6 +2781,263 @@ mod tests {
             a.deposited_lamports, b.sol_lamports);
         assert_eq!(b.sol_lamports, ten_sol,
             "the SOL buffer is untouched by a dollar claim");
+    }
+
+    /// ⭐ **WHAT LEVERAGE DOES THIS SYSTEM ACTUALLY PRODUCE?**
+    ///
+    /// Not a claim — a measurement, because the code reads two ways. `repo`
+    /// maintains `pledged - collar <= exposure_value <= pledged + collar` in
+    /// BOTH directions (`post_variation_margin` above the band,
+    /// `reinstate_exposure` below it), and the add-exposure path funds any
+    /// excess out of `deposited_quid` rather than letting it stand:
+    ///
+    ///     if new_exp > pledged + collar_amt {
+    ///         let excess = new_exp - (pledged + collar_amt);
+    ///         if dq >= excess { dq -= excess; pledged += excess; }
+    ///         else { exposure -= excess / price; }   // shrink to fit
+    ///     }
+    ///
+    /// If that pins `exposure_value` to `pledged`, then
+    /// `leverage = exposure_value * 100 / pledged` cannot reach the range
+    /// `max_leverage_pct` is allowed to return ([110, 2000]), and every knob
+    /// keyed off leverage is being evaluated somewhere it was not designed for.
+    ///
+    /// This drives the real `repo` and reports what comes out.
+    #[test]
+    fn what_leverage_does_opening_exposure_actually_produce() {
+        let mut b = bank(0, 0, 0);
+        let mut a = depositor(0);
+        let mut act = Actuary::default();
+        act.observed_vol_bps = 200;
+        act.obs_count = 200;
+        act.last_price = 1_000_000;
+
+        // Fund the account and open a position on one ticker.
+        a.deposited_quid = 1_000_000;
+        b.total_deposits = 1_000_000;
+        a.balances.push(Stock { ticker: Depositor::pad_ticker("AAPL"), marked: 0,
+            pledged: 0, exposure: 0, updated: 0, collar_bps: 0, cost_basis: 0,
+            interest_paid: 0, breached_at: 0, collar_dollars: 0,
+            collar_dollar_seconds: 0, premium_checkpoint: 0, funding_checkpoint: 0 });
+
+        let price = PRICE_SCALE as u64;
+        // ⚠️ THE FLOW MATTERS AND THE FIRST CUT OF THIS TEST GOT IT WRONG.
+        //    Calling `repo` straight onto a zero pledge returns Err — and a
+        //    unit test has no transaction to roll back, so the partial
+        //    mutations survived and the test reported a position with 500k of
+        //    exposure against nothing. That was the harness, not the program.
+        //
+        //    The real sequence is `handle_in` -> `renege(+dollars)` to fund
+        //    `pledged`, then `handle_out(exposure: true)` -> `repo`.
+        a.renege(Some("AAPL"), 100_000, Some(&vec![price]), 1)
+            .expect("funding the pod must succeed");
+        let funded = a.balances[0].pledged;
+
+        // Now ask for far more exposure than the pledge would carry at 1x.
+        let opened = a.repo("AAPL", 500_000, price, 2, 1, &act, &mut b);
+
+        let pod = a.balances[0];
+        println!("\n  funded pledged {}  |  repo() -> {:?}", funded,
+                 opened.as_ref().map(|_| "Ok").map_err(|_| "Err"));
+        let exposure_value = units_value(pod.exposure.unsigned_abs(), price);
+        let lev = if pod.pledged > 0 { exposure_value * 100 / pod.pledged } else { 0 };
+
+        println!("\n=== what opening exposure produces ===");
+        println!("  deposited_quid left  {}", a.deposited_quid);
+        println!("  pledged              {}", pod.pledged);
+        println!("  exposure (units)     {}", pod.exposure);
+        println!("  exposure_value       {}", exposure_value);
+        println!("  LEVERAGE (x100)      {}", lev);
+        println!("  max_leverage_pct     {}", crate::etc::max_leverage_pct(&act, 1, 5_000));
+
+        // ── the same question from the other two directions ────────────────
+        // (b) a depositor who CANNOT fund the gap: the add-path shrinks the
+        //     exposure to fit rather than leaving it levered.
+        let mut b2 = bank(0, 0, 0);
+        let mut a2 = depositor(0);
+        a2.deposited_quid = 100_000;          // only the pledge, no spare
+        b2.total_deposits = 100_000;
+        a2.balances.push(Stock { ticker: Depositor::pad_ticker("AAPL"), marked: 0,
+            pledged: 0, exposure: 0, updated: 0, collar_bps: 0, cost_basis: 0,
+            interest_paid: 0, breached_at: 0, collar_dollars: 0,
+            collar_dollar_seconds: 0, premium_checkpoint: 0, funding_checkpoint: 0 });
+        a2.renege(Some("AAPL"), 50_000, Some(&vec![price]), 1).unwrap();
+        let r2 = a2.repo("AAPL", 500_000, price, 2, 1, &act, &mut b2);
+        let p2 = a2.balances[0];
+        let v2 = units_value(p2.exposure.unsigned_abs(), price);
+        println!("  [dq-poor]  repo -> {:<3}  pledged {}  exposure_value {}  lev {}",
+                 if r2.is_ok() { "Ok" } else { "ERR" },
+                 p2.pledged, v2, if p2.pledged > 0 { v2 * 100 / p2.pledged } else { 0 });
+        println!("             (ERR means the tx reverts on chain; the numbers");
+        println!("              beside it are a half-applied call, not a position)");
+
+        // (b2) the same account asking for something the cap DOES allow, so
+        //      the funding branch is reached instead of the guard.
+        let mut b4 = bank(0, 0, 0);
+        let mut a4 = depositor(0);
+        a4.deposited_quid = 100_000;
+        b4.total_deposits = 100_000;
+        a4.balances.push(Stock { ticker: Depositor::pad_ticker("AAPL"), marked: 0,
+            pledged: 0, exposure: 0, updated: 0, collar_bps: 0, cost_basis: 0,
+            interest_paid: 0, breached_at: 0, collar_dollars: 0,
+            collar_dollar_seconds: 0, premium_checkpoint: 0, funding_checkpoint: 0 });
+        a4.renege(Some("AAPL"), 50_000, Some(&vec![price]), 1).unwrap();
+        let r4 = a4.repo("AAPL", 200_000, price, 2, 1, &act, &mut b4);
+        let p4 = a4.balances[0];
+        let v4 = units_value(p4.exposure.unsigned_abs(), price);
+        println!("  [under cap] repo -> {:<3}  pledged {}  exposure_value {}  lev {}",
+                 if r4.is_ok() { "Ok" } else { "ERR" },
+                 p4.pledged, v4, if p4.pledged > 0 { v4 * 100 / p4.pledged } else { 0 });
+
+        // (c) the SHORT side, in case the pin is one-directional.
+        let mut b3 = bank(0, 0, 0);
+        let mut a3 = depositor(0);
+        a3.deposited_quid = 1_000_000;
+        b3.total_deposits = 1_000_000;
+        a3.balances.push(Stock { ticker: Depositor::pad_ticker("AAPL"), marked: 0,
+            pledged: 0, exposure: 0, updated: 0, collar_bps: 0, cost_basis: 0,
+            interest_paid: 0, breached_at: 0, collar_dollars: 0,
+            collar_dollar_seconds: 0, premium_checkpoint: 0, funding_checkpoint: 0 });
+        a3.renege(Some("AAPL"), 100_000, Some(&vec![price]), 1).unwrap();
+        let r3 = a3.repo("AAPL", -500_000, price, 2, 1, &act, &mut b3);
+        let p3 = a3.balances[0];
+        let v3 = units_value(p3.exposure.unsigned_abs(), price);
+        println!("  [short]     repo -> {:<3}  pledged {}  exposure_value {}  lev {}",
+                 if r3.is_ok() { "Ok" } else { "ERR" },
+                 p3.pledged, v3, if p3.pledged > 0 { v3 * 100 / p3.pledged } else { 0 });
+
+        // ── what the three successful opens have in common ─────────────────
+        //
+        // ⭐ THIS ASSERTION USED TO RUN THE OTHER WAY, AND ITS OWN MESSAGE SAID
+        //    WHAT WOULD MEAN: *"if a successful open now clears 1.15x, leverage
+        //    has become reachable and every knob keyed off it needs rereading."*
+        //    It was a tripwire on the pin, and the pin is gone. Every successful
+        //    open landed at 1.00–1.03x because `repo` drove `exposure_value`
+        //    onto `pledged` by force, in both directions and on both sides;
+        //    the requirement is now the margin the fitted tail demands and the
+        //    forcing is gone with it.
+        //
+        // What the three now have in common is the margin identity rather than
+        // the 1x accident: a funded position stands at whatever leverage its
+        // own margin implies, and no more.
+        let lev4 = v4 * 100 / p4.pledged;
+        let lev3 = v3 * 100 / p3.pledged;
+        let band = act.loss_profile(100_000, 0).margin_bps;
+        let implied = 10_000 * 100 / band;
+        println!("\n  margin {band} bps ⇒ {implied} (x100) of leverage");
+        for (label, l, pledged, value) in [
+            ("dq-rich long", lev,  pod.pledged, exposure_value),
+            ("under cap",    lev4, p4.pledged, v4),
+            ("short",        lev3, p3.pledged, v3)] {
+            // The margin identity, which is the whole contract: collateral
+            // covers the tail move over the act-plus-unwind horizon.
+            let required = value as u128 * band as u128 / 10_000;
+            assert!(pledged as u128 + 2 >= required,
+                "{label}: pledged {pledged} does not margin {value} at {band} bps");
+            // And the cap is respected rather than made unreachable.
+            assert!(l as i64 <= crate::etc::max_leverage_pct(&act, 1, 5_000),
+                "{label} at {l} (x100) exceeded the cap");
+            assert!(l > 115,
+                "{label} opened at {l} (x100) — the forcing is back");
+        }
+        // Long and short reach the same place from the same collateral.
+        assert_eq!(lev, lev3, "the two sides must lever symmetrically");
+        assert!(r2.is_err(), "asking past the cap must revert, not clamp");
+    }
+
+    /// The band caps `exposure_value <= pledged + collar_amt`, and `collar_amt`
+    /// is a fraction of the notional — so the arithmetic bound on leverage is
+    /// `1 / (1 - c)`. This sweeps `c` and reports what each permits.
+    #[test]
+    fn what_collar_width_permits_what_leverage() {
+        println!("\n=== the band's arithmetic bound on leverage ===");
+        println!("  {:>10} {:>14} {:>16}", "collar bps", "max leverage", "note");
+        for c in [200i64, 1_000, 2_000, 5_000, 9_000] {
+            // exposure_value <= pledged + c*exposure_value
+            //   => exposure_value * (1 - c) <= pledged
+            //   => lev = exposure_value/pledged <= 1/(1-c)
+            let lev_x100 = if c < 10_000 { 100 * 10_000 / (10_000 - c) } else { i64::MAX };
+            let note = if c > crate::etc::MAX_COLLAR_BPS { "ABOVE MAX_COLLAR_BPS" } else { "" };
+            println!("  {:>10} {:>13}x {:>16}", c, lev_x100 as f64 / 100.0, note);
+        }
+        println!("  MAX_COLLAR_BPS = {} -> the widest band the engine will size",
+                 crate::etc::MAX_COLLAR_BPS);
+        let cap = 100 * 10_000 / (10_000 - crate::etc::MAX_COLLAR_BPS);
+        println!("  => arithmetic ceiling on leverage: {}x", cap as f64 / 100.0);
+        println!("  max_leverage_pct is allowed to return up to 2000 (20x)");
+
+        // 10x needs a band of 90%, which the engine cannot size.
+        let needed_for_10x = 10_000 - 10_000 / 10;
+        println!("  a 10x position needs collar_bps = {} to sit inside its band",
+                 needed_for_10x);
+        assert!(needed_for_10x > crate::etc::MAX_COLLAR_BPS,
+            "if MAX_COLLAR_BPS now reaches {needed_for_10x}, 10x has become \
+             representable inside the band and this note is stale");
+    }
+
+    /// ⛔ **THE BAND IS CENTRED ON `pledged`, AND THAT ONLY WORKS AT 1x.**
+    ///
+    /// `repo` judges a position against `pledged ± collar_amt`:
+    ///   exposure_value > pledged + collar_amt  -> over-profitable, margin call
+    ///   exposure_value < pledged - collar_amt  -> under-exposed, reinstate
+    ///
+    /// At 1x that is sound: `pledged` IS the notional, so the band is a band
+    /// around the position's own value and `collar_amt` is the move that
+    /// triggers action.
+    ///
+    /// At any real leverage `pledged` is the MARGIN, a fraction of the
+    /// notional, and a band around it is not a band around anything the price
+    /// does. A 10x position sits outside its own band the instant it opens —
+    /// not because it moved, but because 10x margin is 10% of notional and the
+    /// band is 2% of notional centred on that 10%.
+    ///
+    /// So one quantity is doing two incompatible jobs:
+    ///   • a LIQUIDATION BAND — how far may this move before we act. Wants to
+    ///     be SMALL (the fitted ES, ~2%), and `collar_bps` computes it well.
+    ///   • a MARGIN REQUIREMENT — how much collateral per unit of notional.
+    ///     For 10x it wants to be 90%.
+    /// Sizing one correctly makes the other absurd, which is why
+    /// `MAX_COLLAR_BPS = 5000` caps leverage at 2x and why widening it to 9000
+    /// would mean not liquidating until a position had moved 90%.
+    ///
+    /// ⚠️ THE COLLAR ITSELF IS NOT THE BROKEN PART. `collar_bps` is the
+    /// expected shortfall of the fitted tail and is the right answer to the
+    /// question it asks. What is broken is USING it as the margin bound, and
+    /// CENTRING it on `pledged` rather than on the position's value.
+    #[test]
+    fn a_levered_position_is_outside_its_band_the_moment_it_opens() {
+        let price = PRICE_SCALE as u64;
+        // A hand-built 10x position: 100 margin, 1000 of notional. Built
+        // directly because `repo` cannot produce one — that is the finding in
+        // `what_collar_width_permits_what_leverage`.
+        let mut pod = Stock { ticker: Depositor::pad_ticker("AAPL"), marked: 0,
+            pledged: 100, exposure: 1_000, updated: 0,
+            collar_bps: 200,                 // a 2% liquidation band
+            cost_basis: 100, interest_paid: 0, breached_at: 0,
+            collar_dollars: 0, collar_dollar_seconds: 0, premium_checkpoint: 0, funding_checkpoint: 0 };
+
+        let exposure_value = pod.value_at(price);
+        let collar_amt = collar_amount(&pod, price);
+        let upper = pod.pledged.saturating_add(collar_amt);
+        let lower = pod.pledged.saturating_sub(collar_amt);
+
+        println!("\n=== a 10x position judged against pledged ± collar ===");
+        println!("  pledged (margin)   {}", pod.pledged);
+        println!("  exposure_value     {}", exposure_value);
+        println!("  collar_amt (2%)    {}", collar_amt);
+        println!("  band               [{}, {}]", lower, upper);
+        println!("  -> exposure_value is {} the band",
+                 if exposure_value > upper { "ABOVE" } else { "inside" });
+
+        assert!(exposure_value > upper,
+            "a 10x position must currently read as over-profitable at open: \
+             {exposure_value} vs upper {upper}. If this now fails the band has \
+             been re-centred and the margin/liquidation split has been made.");
+
+        // The price has not moved. The position is untouched. It is only the
+        // CENTRE of the band that makes it look like a runaway gain.
+        assert_eq!(exposure_value, 1_000, "no price move has occurred");
+        let _ = pod.value_at(price);
     }
 
     #[test]
@@ -2465,7 +3414,8 @@ mod partial_close_basis {
     fn a_short_partial_close_is_priced_off_pledge_not_basis() {
         let mut b = bank(0, 0, 0);
         let a = crate::etc::Actuary::default();
-        let price = 100u64;
+        // Micro-dollars per share — see §SCALE.
+        let price = 100 * PRICE_SCALE as u64;
 
         // Opened with 1_000 behind it, then aged: 200 of premiums have been
         // billed out of the pledge. `cost_basis` still records what was posted.

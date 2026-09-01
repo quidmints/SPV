@@ -1484,3 +1484,421 @@ fn a_netted_book_is_flat_until_the_loser_gaps_through_its_pledge() {
     assert_eq!(crate::etc::ticker_reserve_dollars(0, &a), 0,
         "a netted book reserves nothing, which is the whole point");
 }
+
+/// ⭐ **LEVERAGE IS NOT A PARAMETER. IT IS WHAT THE LADDER LEAVES OVER.**
+///
+/// The horizon mismatch above is usually read as "the collar is too small".
+/// It is not — `collar_bps` is the right answer to the question it asks: how
+/// far can this move before we act. Acting is instantaneous; UNWINDING is not,
+/// and the pool carries the position for the whole ladder.
+///
+/// So there is one quantity, not two, and the current design's mistake is
+/// scaling it to the wrong horizon rather than having too few of them:
+///
+///     margin_bps = ES(1 obs) x sqrt(N) x mean_open_fraction
+///
+/// That is what the pool is actually exposed to between the breach and a flat
+/// book. It IS the margin requirement — pledge must cover it — and leverage
+/// falls out of it rather than being declared beside it:
+///
+///     max_leverage = BPS / margin_bps
+///
+/// `collar_bps` stays exactly as it is and keeps its job as the TRIGGER. Both
+/// come off the same fitted tail, so there is no second constant to hold
+/// consistent with the first, and no `MAX_COLLAR_BPS`-vs-`max_leverage_pct`
+/// contradiction to arbitrate.
+///
+/// ⭐ AND IT SELF-TIGHTENS. Leverage is highest when the tail is thin and
+/// collapses when it fattens, with no governance action — which is what
+/// `max_leverage_pct` was reaching for and could not express while the margin
+/// bound was `pledged + collar_amt`.
+#[test]
+fn max_leverage_is_derived_from_the_ladder_not_declared() {
+    const N: i64 = 168;                     // 7d / LIQ_GRACE_SECS
+
+    // Mean open fraction over the unwind, decaying at MAX_TRANCHE_BPS/window.
+    let mean_open = {
+        let mut open = B_LOCAL; let mut area = 0i64;
+        for _ in 0..N { area += open; open -= open * MAX_TRANCHE_BPS / B_LOCAL; }
+        area / N
+    };
+    // sqrt(168) ~ 12.96 in integer bps of a multiplier.
+    let sqrt_n_x100 = 1_296i64;
+
+    println!("\n=== leverage derived from the unwind, per regime ===");
+    println!("  ladder: {} windows, mean open {} bps", N, mean_open);
+    println!("  {:<22} {:>8} {:>12} {:>12} {:>14}",
+             "regime", "ES(1)", "ES x sqrt(N)", "margin bps", "MAX LEVERAGE");
+    for (label, sigma) in [("calm      (sigma 80)", 80i64),
+                           ("normal    (sigma 220)", 220),
+                           ("stressed  (sigma 600)", 600),
+                           ("crisis    (sigma 1200)", 1_200)] {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3; a.obs_count = 200;
+        let es1 = collar_bps(100, &a);
+        let es_n = es1 * sqrt_n_x100 / 100;
+        let margin = es_n * mean_open / B_LOCAL;
+        let max_lev = if margin > 0 { B_LOCAL * 100 / margin } else { 0 };
+        println!("  {:<22} {:>8} {:>12} {:>12} {:>13}x",
+                 label, es1, es_n, margin, max_lev as f64 / 100.0);
+    }
+
+    // What the ladder would have to be for 10x to survive a STRESSED tail,
+    // which is the regime a leverage cap exists for.
+    println!("\n  --- what buys leverage: unwinding faster ---");
+    println!("  {:>10} {:>14} {:>16} {:>14}", "tranche bps", "windows to 1%", "mean open", "10x margin?");
+    let mut a = Actuary::default();
+    a.observed_vol_bps = 600; a.max_drawdown_bps = 1_800; a.obs_count = 200;
+    let es1 = collar_bps(100, &a);
+    for tranche in [185i64, 500, 1_000, 2_000, 4_000] {
+        let (mut open, mut area, mut n) = (B_LOCAL, 0i64, 0i64);
+        while open > B_LOCAL / 100 && n < 2_000 { area += open; open -= open * tranche / B_LOCAL; n += 1; }
+        let mean_open = area / n.max(1);
+        // sqrt(n) in x100 fixed point, by integer Newton.
+        let sqrt_n = { let mut r = n.max(1) * 100; let mut y = (r + 1) / 2;
+                       while y < r { r = y; y = (r + n.max(1) * 10_000 / r.max(1)) / 2; } r };
+        let margin = es1 * sqrt_n / 100 * mean_open / B_LOCAL;
+        let lev = if margin > 0 { B_LOCAL * 100 / margin } else { 0 };
+        println!("  {:>10} {:>14} {:>16} {:>13}x", tranche, n, mean_open, lev as f64 / 100.0);
+    }
+    println!("  (MAX_TRANCHE_BPS is {} today.)", MAX_TRANCHE_BPS);
+}
+
+/// 🔴 **WHY IS THERE A LADDER AT ALL? NOTHING IS BEING SOLD.**
+///
+/// A tranche ladder is the right answer to a question this design does not
+/// ask. In a collateral lender — Aave, Compound, Maker — liquidation means
+/// SELLING seized collateral into a market, so you go gradual to limit price
+/// impact and avoid cascades. The slowness buys execution quality.
+///
+/// Here there is no market leg. `amortise_tranche` performs no CPI, no
+/// transfer and no swap: it decrements `pod.exposure`, decrements
+/// `pod.pledged`, and rebooks the liability. Exposure is SYNTHETIC and the
+/// pool is the counterparty, so closing a position is a ledger write. It is
+/// instantaneous and it is free.
+///
+/// ⇒ **The ladder's 265 windows are self-imposed, and they manufacture the
+/// exposure the margin then has to cover.** Sizing margin at
+/// `ES x sqrt(N) x mean_open` is correct GIVEN the ladder — and the ladder is
+/// the only reason that figure is not simply `ES`.
+///
+/// What the ladder is actually for is stated elsewhere in the tree: *"profit
+/// that belongs to one depositor is appropriated by all of them, slowly, which
+/// is what gives the borrower time to react and close."* That is a FAIRNESS
+/// mechanism — and grace and gradualism are separable. A grace period gives
+/// the borrower time to cure; a gradual unwind gives them time AND makes the
+/// pool carry the position while they take it.
+///
+/// ⚠️ WHERE SLOWNESS GENUINELY LIVES IS THE POOL, NOT THE POSITION. Backing
+/// through the issuer's Market Flow is asynchronous, has order minimums, and
+/// stops at the closing bell — real latency, at the AGGREGATE level, already
+/// handled by the funding band in §BACKING. The ladder imports that
+/// pool-level latency into every individual position's margin requirement,
+/// where it does not belong.
+#[test]
+fn the_ladder_is_the_only_reason_margin_exceeds_the_one_step_tail() {
+    const N: i64 = 168;
+    let mean_open = {
+        let mut open = B_LOCAL; let mut area = 0i64;
+        for _ in 0..N { area += open; open -= open * MAX_TRANCHE_BPS / B_LOCAL; }
+        area / N
+    };
+
+    println!("\n=== what the ladder costs, given nothing is sold ===");
+    println!("  {:<22} {:>12} {:>14} {:>12} {:>14}",
+             "regime", "ladder lev", "instant lev", "margin now", "margin instant");
+    for (label, sigma) in [("calm      (sigma 80)", 80i64),
+                           ("normal    (sigma 220)", 220),
+                           ("stressed  (sigma 600)", 600),
+                           ("crisis    (sigma 1200)", 1_200)] {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3; a.obs_count = 200;
+        let es1 = collar_bps(100, &a);
+        // With the ladder: the pool carries a decaying position for sqrt(N).
+        let margin_ladder = es1 * 1_296 / 100 * mean_open / B_LOCAL;
+        // Without it: the exposure between observations is one observation.
+        let margin_instant = es1;
+        let lev = |m: i64| if m > 0 { B_LOCAL * 100 / m } else { 0 };
+        println!("  {:<22} {:>11}x {:>13}x {:>12} {:>14}",
+                 label, lev(margin_ladder) as f64 / 100.0,
+                 lev(margin_instant) as f64 / 100.0, margin_ladder, margin_instant);
+    }
+    println!("  (instant = close fully on breach. Grace before acting is");
+    println!("   preserved; only the gradual UNWIND is removed.)");
+}
+
+// ═══ §LOADING — does the premium pay a depositor for the variance? ═══════════
+//
+// The book is an INSURER, not a lender: the soft liquidation is the product,
+// `lgd_bps` already nets out what the ladder unwinds, and `hazard_rate_bps`
+// charges per window for the time the borrower is buying. What it charges is
+// `intensity x lgd` — the EXPECTED LOSS — scaled by `crowding_bps` and
+// `solvency_bps`, both of which are 1.0 on a balanced book in an unloaded pool.
+//
+// So the healthy state is priced as a fair game. This simulates what that
+// means over real paths, and what a load would have to be to fix it.
+
+/// One depositor-P&L path, in bps of the exposure insured.
+///
+/// Deliberately drives the REAL pricing functions rather than a model of them:
+/// `collar_bps`, `hazard_rate_bps` and `lgd_bps` off a live `Actuary` that is
+/// updated with every print, so vol, the POT tail and the GJR asymmetry all
+/// move as the path does.
+fn one_book_path(seed: u64, daily_vol_bps: i64, load_bps: i64,
+                 lev_x100: i64, steps: i64) -> i64 {
+    let mut eq = Equity::new(seed, daily_vol_bps);
+    let mut a = Actuary::default();
+    a.observed_vol_bps = daily_vol_bps;
+    a.obs_count = 200;
+    a.last_price = 1_000_000;
+
+    // Position: 10_000 bps of notional, pledged at 1/lev of it.
+    let notional: i64 = 10_000;
+    let mut pledged: i64 = notional * 100 / lev_x100.max(1);
+    let mut open: i64 = notional;          // bps of the original still open
+    let mut premium_rate_hours: i128 = 0;
+    let mut cum: i64 = 0;                  // cumulative move, bps
+    let mut breached = false;
+
+    for t in 0..steps {
+        let (m, _gap) = eq.step();
+        if m == 0 { continue; }
+        cum += m;
+        a.update_price(((1_000_000i64 * (10_000 + cum)) / 10_000).max(1), t);
+
+        let collar = collar_bps(100, &a);
+        let distance = (collar - cum.abs()).max(0);
+        // The real premium, then the load under test.
+        let rate = hazard_rate_bps(distance, collar, 100, &a, 1_000_000, 0);
+        let charged = rate * load_bps / B_LOCAL;
+        // ⚠️ ACCUMULATED IN RATE-HOURS, NOT BPS. The first cut divided by 8_760
+        //    inside the loop, and integer division floored every hour's carry
+        //    to ZERO — so the premium leg was identically nil and the load
+        //    under test scaled nothing. Multiply now, divide once at the end.
+        premium_rate_hours += (charged as i128) * (open as i128);
+
+        // Adverse move eats the pledge; the ladder runs once outside the band.
+        if cum.abs() > collar { breached = true; }
+        if breached {
+            let slice = open * MAX_TRANCHE_BPS / B_LOCAL;
+            open -= slice;
+            if open <= 0 { open = 0; }
+        }
+        // Mark the open exposure against the pledge.
+        let loss = if cum < 0 { (-cum) * open / B_LOCAL } else { 0 };
+        if loss > pledged && open > 0 {
+            // Past the pledge: the excess is the pool's.
+            let excess = loss - pledged;
+            pledged = 0;
+            return to_bps(premium_rate_hours) - excess;
+        }
+        if open == 0 { break; }
+    }
+    to_bps(premium_rate_hours)
+}
+
+/// rate-hours (bps of notional x annual-bps x hours) -> bps of notional.
+fn to_bps(rate_hours: i128) -> i64 {
+    (rate_hours / (B_LOCAL as i128) / 8_760) as i64
+}
+
+/// ⭐ **WHAT LOAD SURVIVES EVERY REGIME?**
+///
+/// Mean P&L is not the test — an insurer that breaks even on average and eats
+/// the tail is not a business. This reports the mean AND the worst path, which
+/// is the number a depositor actually experiences.
+#[test]
+fn what_premium_load_keeps_depositors_whole_in_every_regime() {
+    const PATHS: u64 = 240;
+    const STEPS: i64 = 24 * 60;            // 60 days of hourly prints
+
+    println!("\n=== depositor P&L in bps of insured notional, by load and regime ===");
+    println!("  {:<10} {:>10} {:>10} {:>10} {:>10}  {}",
+             "load", "calm", "normal", "stressed", "crisis", "(mean / worst path)");
+
+    for load in [10_000i64, 11_500, 12_500, 15_000, 20_000] {
+        let mut means = Vec::new();
+        let mut worsts = Vec::new();
+        for vol in [80i64, 220, 600, 1_200] {
+            let (mut sum, mut worst) = (0i64, i64::MAX);
+            for p in 0..PATHS {
+                let pnl = one_book_path(0xA11CE ^ p ^ ((vol as u64) << 20),
+                                        vol, load, 300, STEPS);
+                sum += pnl;
+                worst = worst.min(pnl);
+            }
+            means.push(sum / PATHS as i64);
+            worsts.push(worst);
+        }
+        println!("  {:<10} {:>10} {:>10} {:>10} {:>10}  mean",
+                 format!("{}x", load as f64 / 10_000.0),
+                 means[0], means[1], means[2], means[3]);
+        println!("  {:<10} {:>10} {:>10} {:>10} {:>10}  worst",
+                 "", worsts[0], worsts[1], worsts[2], worsts[3]);
+    }
+    println!("  (load 1.0x is what a balanced book in an unloaded pool charges today.)");
+}
+
+// ═══ §CAPITAL — one parameter, one distribution, everything else derived ════
+//
+// The four uses of `collar_bps` — margin, trigger, premium, reserve — are not
+// four things to separate. They are four FUNCTIONALS of one object: the
+// distribution of the pool's loss on a position from now until the book is
+// flat. Call it L.
+//
+//   reserve  = a high quantile of L, aggregated over the book
+//   margin   = this position's MARGINAL contribution to that quantile
+//   trigger  = where remaining pledge == E[L | act now]  (self-funding from here)
+//   premium  = E[dL]/dt  +  r x (the capital the position consumes)
+//
+// Pick ONE number — the pool's tolerated insolvency probability — and the
+// fitted tail gives all four, the capital leg by Euler allocation. Nothing is
+// chosen twice, and
+// nothing has to be kept consistent with anything else.
+//
+// ⭐ **THE RISK LOAD STOPS BEING A BOLT-ON.** `the_risk_load_is_one_on_a_
+// balanced_book_in_an_empty_pool` shows the premium equals expected loss
+// exactly when nobody is leaning — because `crowding_bps` and `solvency_bps`
+// are the only load terms and both are 1.0 there. Under capital pricing the
+// load is `r x marginal capital`, which is positive for ANY position that
+// consumes reserve, i.e. always. Crowding and solvency stop being posited
+// multipliers and become what they were approximating: a correlated position
+// contributes more to the tail, and a full pool prices its scarcer capital
+// higher.
+
+/// Marginal capital a position consumes, in bps of its own notional.
+///
+/// Marginal capital on an additive-across-tickers book: the position's own
+/// tail contribution, scaled up by how much of the ticker's net it represents
+/// — a position that IS the imbalance carries all of it, one that offsets an
+/// existing lean carries almost none.
+fn marginal_capital_bps(a: &Actuary, size: i64, ticker_net: i64, quantile_bps: i64) -> i64 {
+    let tail = a.quantile_bps(quantile_bps).max(1);
+    let net_after = (ticker_net + size).abs();
+    let net_before = ticker_net.abs();
+    // How much of the ticker's reserve this position is responsible for.
+    let delta_net = (net_after - net_before).max(0);
+    if size == 0 { return 0; }
+    tail * delta_net / size.abs().max(1)
+}
+
+/// ⭐ **CAPITAL PRICING REPRODUCES CROWDING AND SOLVENCY WITHOUT POSITING THEM,
+/// AND CARRIES A LOAD WHERE THE CURRENT MODEL CARRIES NONE.**
+#[test]
+fn one_solvency_target_derives_margin_premium_and_the_load() {
+    // The single free parameter, plus what depositors require on capital.
+    const INSOLVENCY_BPS: i64 = 100;      // 1% — the pool's tolerated ruin prob
+    const REQUIRED_RETURN_BPS: i64 = 1_500;  // 15%/yr on capital at risk
+
+    println!("\n=== one target, four quantities ===");
+    println!("  solvency target {} bps   required return {} bps/yr",
+             INSOLVENCY_BPS, REQUIRED_RETURN_BPS);
+    println!("  {:<26} {:>10} {:>12} {:>10} {:>12} {:>10}",
+             "book state", "tail(q)", "marg cap", "EL", "cap charge", "max lev");
+
+    for (label, sigma, net, size) in [
+        ("balanced, new position  ", 220i64, 0i64, 100_000i64),
+        ("same side as a lean     ", 220, 900_000, 100_000),
+        ("offsetting an existing  ", 220, -900_000, 100_000),
+        ("stressed, balanced      ", 600, 0, 100_000),
+        ("crisis, same side       ", 1_200, 900_000, 100_000),
+    ] {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3;
+        a.obs_count = 200; a.last_price = 1_000_000;
+        a.net_exposure = net; a.total_exposure = net.abs().max(size);
+
+        let tail = a.quantile_bps(INSOLVENCY_BPS);
+        let cap = marginal_capital_bps(&a, size, net, INSOLVENCY_BPS);
+        // Expected loss, from the same fitted tail.
+        let collar = collar_bps(100, &a);
+        let el = (crate::etc::hazard_bps(collar, &a) as i128 * lgd_bps(collar, &a) as i128
+                  / crate::etc::TAIL_FINE as i128) as i64;
+        let charge = cap * REQUIRED_RETURN_BPS / B_LOCAL;
+        // Margin IS the marginal capital, so leverage falls out of it.
+        let lev = if cap > 0 { B_LOCAL * 100 / cap } else { 0 };
+        println!("  {:<26} {:>10} {:>12} {:>10} {:>12} {:>9}x",
+                 label, tail, cap, el, charge, lev as f64 / 100.0);
+    }
+    println!("  (cap charge is the LOAD. It is never zero for a position that");
+    println!("   consumes reserve, which is the defect capital pricing removes.)");
+}
+
+// ═══ §FUNDING — the imbalance charge is going to the wrong place ════════════
+//
+// 🔴 **`crowding_bps` TAXES THE CROWD; IT DOES NOT PAY THE OTHER SIDE.** It
+// returns `BPS + lean/2` for flow that leans with the book and `BPS - lean/2`
+// for flow that offsets it — and the resulting premium lands in `yield_pool`.
+// So the crowded side pays DEPOSITORS, and the offsetting side merely pays
+// less. Nobody is paid to show up.
+//
+// That is the difference between a tax and a funding rate, and it decides
+// whether the imbalance clears itself:
+//
+//   • TAX      — the crowded side pays until the fee exceeds their edge. The
+//                pool books revenue and STILL CARRIES the net. Equilibrium
+//                imbalance is whatever the crowd will tolerate paying.
+//   • FUNDING  — the crowded side pays the OFFSETTING side. Taking the
+//                unpopular side becomes a paid trade, so flow arrives until
+//                the rate falls to the cost of capital. The pool's residual
+//                exposure tends to zero without the pool funding it.
+//
+// This is how perpetual futures solved the same problem: the venue does not
+// take the other side, it prices the imbalance until someone else does. The
+// magnitude is already computed here — only the DESTINATION is wrong.
+//
+// ⚠️ AND IT COMPOUNDS WITH EVERYTHING ELSE IN THIS FILE. A book that clears
+// its own imbalance needs less §BACKING (there is less net to fund), consumes
+// less capital (`marginal_capital_bps` scales with what the position does to
+// the net), and reserves less (`ticker_reserve_dollars` is taken on the net).
+// The pool stops being a counterparty of last resort and becomes a venue.
+
+/// Steady-state imbalance under a tax versus under a funding rate.
+///
+/// Deliberately crude on the behavioural side — flow responds linearly to what
+/// it is paid — because the point is the SIGN of the feedback, not a
+/// calibrated elasticity. Under a tax the feedback is one-sided: the crowd is
+/// discouraged but nobody is recruited.
+fn steady_state_imbalance(funding: bool, bias_bps: i64, elasticity: i64) -> i64 {
+    let mut net: i64 = 0;                  // signed book imbalance
+    let total: i64 = 1_000_000;
+    for _ in 0..400 {
+        let lean = (net.abs() * B_LOCAL / total.max(1)).min(B_LOCAL);
+        // What each side faces, in bps. The crowded side always pays `lean/2`.
+        let crowded_cost = lean / 2;
+        // Under a tax the offsetting side merely pays less; under funding it
+        // RECEIVES what the crowded side paid.
+        let offset_reward = if funding { crowded_cost } else { lean / 2 - lean / 2 };
+
+        // Flow arrives with a directional bias, adjusted by price.
+        let long_pull  = bias_bps - if net > 0 { crowded_cost } else { -offset_reward };
+        let short_pull = -bias_bps - if net < 0 { crowded_cost } else { -offset_reward };
+        net += (long_pull - short_pull) * elasticity / 100;
+        net = net.clamp(-total, total);
+    }
+    net.abs()
+}
+
+/// ⭐ **DOES THE BOOK CLEAR ITSELF?**
+#[test]
+fn funding_clears_the_imbalance_a_tax_only_prices_it() {
+    println!("\n=== steady-state |imbalance| as bps of book ===");
+    println!("  {:>10} {:>14} {:>14} {:>12}", "flow bias", "tax (today)", "funding", "reduction");
+    for bias in [50i64, 150, 300, 600] {
+        let taxed = steady_state_imbalance(false, bias, 20);
+        let funded = steady_state_imbalance(true, bias, 20);
+        let cut = if taxed > 0 { 100 - funded * 100 / taxed } else { 0 };
+        println!("  {:>10} {:>14} {:>14} {:>11}%",
+                 bias, taxed * 10_000 / 1_000_000, funded * 10_000 / 1_000_000, cut);
+    }
+    println!("  (the pool reserves on the NET, so this is a reserve reduction");
+    println!("   of the same proportion — and less to back through Market Flow.)");
+
+    // The claim under test is directional: paying the other side must leave a
+    // smaller residual than merely taxing the crowd, at every bias.
+    for bias in [50i64, 150, 300, 600] {
+        assert!(steady_state_imbalance(true, bias, 20)
+                    <= steady_state_imbalance(false, bias, 20),
+            "funding must not leave a LARGER book imbalance than a tax at bias {bias}");
+    }
+}

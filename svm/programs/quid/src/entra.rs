@@ -452,9 +452,33 @@ pub fn handle_flash_borrow<'info>(ctx: Context<'_, '_, '_,
     } require!(found, PithyQuip::FlashRepayMissing);
     if lamports > 0 {
         require!(lamports <= bank.sol_lamports, PithyQuip::InsufficientFunds);
-        let old_contrib = bank.sol_usd_contrib;
-
-        bank.total_deposits = bank.total_deposits.saturating_sub(old_contrib);
+        // 🔴 `bank.total_deposits -= bank.sol_usd_contrib` STOOD HERE AND IT WAS
+        //    A LEFTOVER FROM THE ERA WHEN SOL WAS PART OF `total_deposits`.
+        //    `Depository::has_capacity` records that era and its end: *"It used
+        //    to include SOL... The subtraction is gone because the mixing is: a
+        //    SOL deposit no longer credits this at all, so there is nothing to
+        //    take back out."* `deposit` (:285) credits `sol_usd_contrib` alone
+        //    and returns before `pool_deposit` is ever reached, so the dollars
+        //    this line removed were never SOL's to remove.
+        //
+        //    What it actually did: took the whole SOL book's dollar mark OUT OF
+        //    THE DOLLAR DEPOSITORS' PRINCIPAL for the duration of a SOL flash
+        //    loan, with `flash_repay` adding a RE-MARKED figure back. Three
+        //    consequences, escalating:
+        //      • inside the loan `has_capacity`, `withdrawable` and
+        //        `utilisation_bps` all read a `total_deposits` that is short by
+        //        the entire SOL book;
+        //      • across the round trip the dollar pool keeps the difference
+        //        between the two marks — dollar depositors taking the P&L of a
+        //        SOL price move, which is the one thing the split exists to
+        //        prevent;
+        //      • and when `sol_usd_contrib > total_deposits` — a pool holding
+        //        more SOL than dollars, which is ordinary — the `saturating_sub`
+        //        clamps to ZERO and the repay adds `restored` back on top. That
+        //        MINTS dollar claims out of a SOL price mark.
+        //
+        //    A SOL flash loan moves lamports. It has no business touching the
+        //    dollar pool at all, so it no longer does.
         bank.sol_usd_contrib = 0; flash.flash_lamports = lamports;
         bank.sol_lamports = bank.sol_lamports.saturating_sub(lamports);
         invoke_signed(&system_instruction::transfer(ctx.accounts.sol_pool.key,
@@ -989,6 +1013,22 @@ pub fn adjust_sol_credit(bank: &mut Depository, usd: i64) {
     // sum of the parts — and left the difference belonging to nobody.
     // Earnings are exactly the right home: a gain is shared by tenure, a loss
     // comes off the shared surplus before it can reach anyone's stake.
+    // 🔴 THE LOSS BRANCH ENDED IN
+    //       `bank.total_deposits -= v - from_yield`
+    //    — a Kestrel parking haircut, or an unpark that came back short, paid
+    //    for out of the DOLLAR depositors' principal once the shared surplus
+    //    ran out. `deposit` is explicit that "a SOL move cannot reach a stock
+    //    book at all, in either direction"; this was the direction nobody
+    //    checked. It is also the strictly worse half: a dollar depositor gets
+    //    none of SOL's upside beyond the shared pool and all of its downside
+    //    past the surplus.
+    //
+    //    The impairment already lands where it belongs without this line. A
+    //    haircut reduces `sol_star_credited_lamports`, which IS the SOL
+    //    tranche's principal, and `accrue_sol_yield` walks `sol_yield_index`
+    //    down against unclaimed carry. What remains here is bookkeeping on the
+    //    pool's own record of what it holds in SOL, and that record is
+    //    `sol_usd_contrib` — nothing else.
     if usd >= 0 {
         let v = usd as u64;
         bank.sol_usd_contrib = bank.sol_usd_contrib.saturating_add(v);
@@ -996,10 +1036,11 @@ pub fn adjust_sol_credit(bank: &mut Depository, usd: i64) {
     } else {
         let v = usd.unsigned_abs();
         bank.sol_usd_contrib = bank.sol_usd_contrib.saturating_sub(v);
-        // Only once the surplus is gone does a loss touch principal.
+        // Claw back the shared surplus this same path credited on the way up,
+        // and stop there. Past that the loss is the SOL tranche's, and the SOL
+        // tranche has already borne it in lamports.
         let from_yield = v.min(bank.yield_pool);
         bank.yield_pool -= from_yield;
-        bank.total_deposits = bank.total_deposits.saturating_sub(v - from_yield);
     }
 }
 

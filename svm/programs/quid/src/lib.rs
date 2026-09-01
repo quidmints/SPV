@@ -14,6 +14,10 @@ pub mod etc;
 #[cfg(test)]
 mod returns;
 #[cfg(test)]
+mod real;
+#[cfg(test)]
+mod backtest;
+#[cfg(test)]
 mod facility_sim;
 #[cfg(test)]
 mod facility_sim_report;

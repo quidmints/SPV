@@ -65,9 +65,23 @@ pub fn pow_bps(base_bps: i64, n: i64) -> i64 {
     let (mut result, mut b, mut e) = (BPS, base_bps.clamp(0, BPS), n);
     while e > 0 {
         if e & 1 == 1 { result = result * b / BPS; }
-        b = b * b / BPS;
         e >>= 1;
-        if b == 0 { break; }
+        if e == 0 { break; }
+        b = b * b / BPS;
+        // 🔴 THIS USED TO `break` AND RETURN `result`, WHICH IS THE WRONG ANSWER
+        //    RATHER THAN A CHEAP ONE. Once the running square underflows to zero
+        //    every REMAINING set bit of `e` contributes a factor of zero, so the
+        //    true product is zero — returning the partial product from the bits
+        //    already consumed leaves the result arbitrarily too LARGE.
+        //
+        //    Where that showed: `twap_alpha_bps` reads `BPS - pow_bps(...)`, and
+        //    the overstated retention made the weight fall as elapsed time grew
+        //    past ~8 hours — non-monotone, in a function whose whole contract is
+        //    monotonicity. `vol_floor` has it too, more quietly: it computes the
+        //    Bayesian prior's decay as `pow_bps(9512, obs_count)`, and an
+        //    overstated figure keeps the cold-start prior alive past the point
+        //    the observation count says it should be gone.
+        if b == 0 { return 0; }
     }
     result
 }
@@ -78,6 +92,44 @@ pub const SECONDS_PER_YEAR: i64 = 31_536_000;
 /// How much hazard an opening position prepays. One liquidation window: the
 /// shortest interval after which the ladder could first act on it.
 pub const MIN_HOLD_SECS: i64 = LIQ_GRACE_SECS as i64;
+
+/// ⭐ **THE LADDER'S CLOCK, IN SLOTS.** One tranche per `LIQ_GRACE_SECS`, at
+/// 400ms a slot. Every risk quantity that is scaled by `unwind_exposure_x100`
+/// is denominated in THIS unit, and until it was written down nothing was.
+pub const LADDER_WINDOW_SLOTS: i64 = LIQ_GRACE_SECS as i64 * 5 / 2;   // 9_000
+
+/// A move smaller than this carries no information for a model that measures
+/// risk in hundreds of basis points. Fixed, and deliberately NOT derived from
+/// the volatility estimate it gates — see `update_price`.
+pub const NOISE_FLOOR_BPS: i64 = 5;
+
+/// Below this much lean the capital transfer tapers linearly to zero rather
+/// than flipping sign at full magnitude. See `funding_rate_bps`.
+pub const FUNDING_DEADBAND_BPS: i64 = 500;   // 5% of gross
+
+/// TWAP decay granularity and per-step retention. One step is a sixteenth of a
+/// ladder window (~3.7 min) and `e^{-1/16} = 0.9394`, so one full window
+/// retains `e^{-1}` — the averaging horizon is the horizon the ladder acts on.
+pub const TWAP_STEP_SLOTS: i64 = LADDER_WINDOW_SLOTS / 16;   // 562
+pub const TWAP_RETAIN_BPS: i64 = 9_394;
+
+/// 🔴 A PRINT SEPARATED BY MORE THAN THIS DID NOT HAPPEN WHILE THE POOL COULD
+/// ACT. Four ladder windows — comfortably longer than any intraday oracle
+/// silence, comfortably shorter than an overnight close. Everything past it is
+/// a GAP: the loss arrives complete, no tranche can be taken inside it, and
+/// diffusion scaling would understate it by the square root of its own length.
+/// Measured on five years of real bars, gaps carry 37% of total variance while
+/// the ladder is switched off for all of it.
+///
+/// ⚠️ EIGHT HOURS IS NOT ARBITRARY: it is longer than any equity session
+///    (6.5h in New York, 8h in Frankfurt) and shorter than any overnight
+///    close (17.5h in New York, 65h over a weekend). Anything in between is
+///    an oracle that went quiet while the market stayed open, and treating
+///    that as diffusion is the conservative reading — the pool COULD have
+///    acted and merely did not see.
+pub const GAP_MIN_SLOTS: i64 = LADDER_WINDOW_SLOTS * 8;               // 72_000
+
+
 
 /// Bounds on a single liquidation tranche, as a share of the remaining
 /// position, and the excursion over which the ladder climbs from one to the
@@ -431,6 +483,95 @@ pub struct Actuary {
     /// same size, so the two are tracked separately rather than through one
     /// symmetric estimator over |change|.
     pub downside_vol_bps: i64,
+
+    // === The gap (24 bytes) ====================================================
+    /// ⭐ **THE MOVE THE LADDER CANNOT TOUCH.** EMA of |return| across prints
+    /// separated by more than `GAP_MIN_SLOTS` — close-to-open, weekend,
+    /// halt-to-reopen — kept RAW, never scaled to a window, because a gap is
+    /// not a window's worth of diffusion. It is one print.
+    ///
+    /// 🔴 THESE THREE FIELDS EXIST BECAUSE THE MODEL HAD NO PLACE TO PUT A GAP.
+    ///    Every observation went into one pooled tail, that tail was then
+    ///    multiplied by `unwind_exposure_x100` as though a ladder could work
+    ///    against all of it, and the overnight move — 37% of variance, worst
+    ///    observed 3,752 bps — was priced as if it could be unwound in
+    ///    tranches. It cannot. Nobody can call anything until the bell.
+    pub gap_vol_bps: i64,
+    /// Largest gap seen, in bps. Decays like `max_drawdown_bps` so a violent
+    /// past fades, but never faster than elapsed time allows.
+    pub gap_max_bps: i64,
+    /// How many gaps have been seen. Below a handful the estimate is not one.
+    pub gap_count: i64,
+
+    // === Ladder-clock sampling (16 bytes) ======================================
+    /// Price at the start of the open sampling window, and the slot it opened.
+    /// The session tail is fed the return between these and the price at the
+    /// first print past `LADDER_WINDOW_SLOTS` — one observation per window, no
+    /// matter how many callers touched the ticker inside it.
+    pub window_ref_price: i64,
+    pub window_since: i64,
+
+    // === Experience (8 bytes) ==================================================
+    /// ⭐ **WHAT THE BORROWERS ON THIS TICKER HAVE ACTUALLY DONE TO THE POOL**,
+    /// as an EMA of realised P&L in bps of the notional it was made on. Signed:
+    /// positive means LONGS have been winning, negative means shorts have.
+    ///
+    /// 🔴 THE MODEL HAD NO WAY TO LEARN THAT A SIDE WAS INFORMED. Every price it
+    ///    charges comes from the fitted tail — a statement about how far the
+    ///    PRICE moves — and a tail cannot see that the people on one side of it
+    ///    keep being right. Those are different facts. A book that is
+    ///    consistently short and consistently correct is not a volatility
+    ///    problem, it is an adverse-selection problem, and no quantile of the
+    ///    return distribution contains it.
+    ///
+    /// It cannot be hedged — holding paper only adds length, and nobody takes
+    /// the wrong side of a one-way market for a funding rate. It cannot be
+    /// priced from the tail. It CAN be priced from experience, which is what an
+    /// insurer does when a class of risk keeps losing money: charge that class
+    /// more, out of what it has already demonstrated.
+    pub experience_bps: i64,
+
+    // === Funding (16 bytes) ====================================================
+    /// ⭐ **ONE SIGNED INTEGRAL, `∫ φ dt`, IN BPS-SECONDS.** A position with
+    /// signed exposure `e` owes `e · ΔΦ`; the sign of what it pays or receives
+    /// falls out of the sign of `e`, with no branch and no side selection.
+    ///
+    /// 🔴 THIS REPLACED `funding_to_longs` AND `funding_to_shorts` ON
+    ///    `TickerRisk`, WHOSE DOCSTRING ARGUED FOR TWO: *"the side being PAID
+    ///    flips as the book does. One accumulator cannot represent 'longs were
+    ///    owed for a week, then shorts were' without a position having to know
+    ///    which era each part of its claim came from."* It can, and that is
+    ///    precisely what a signed integral is for. Longs pay `+A` over week one
+    ///    and are paid `−B` over week two; Φ moves `+A` then `−B`; a long held
+    ///    throughout owes `e(A−B)` and a short `−|e|(A−B)`. Neither position has
+    ///    to know when anything happened, because the integral already does.
+    ///
+    /// The real reason there were two is subtler and it was a mistake of a
+    /// different kind. Dividing a collected sum by the RECEIVING side's total
+    /// gives the two sides different per-unit rates, which forces the transfer
+    /// to net to exactly zero. Under one rate the book nets to `ΔΦ · net` — and
+    /// that residual is not a leak, it is THE POOL'S OWN FUNDING. The pool is
+    /// counterparty to the net, so it is paid at the same per-unit rate as any
+    /// other holder of that side. The old scheme paid the minority side the
+    /// whole surcharge at an inflated rate and paid the pool nothing for the
+    /// imbalance it was actually carrying. The one-sided-book special case
+    /// ("no counterparty to reach, stays with the pool") disappears too: with
+    /// no shorts, `ΔΦ · net` IS the whole amount and it lands on the pool
+    /// automatically.
+    ///
+    /// 🔴 AND IT USED TO ACCRUE ON TRADES RATHER THAN ON TIME. `accrue_funding`
+    ///    had exactly one call site, inside an exposure change, so a position
+    ///    that never traded paid no funding however long it crowded the book —
+    ///    a toll, not a carry. It advances here instead, inside
+    ///    `accrue_premium_index`, over the same `dt` as every other integral.
+    pub funding_index: i128,
+}
+
+/// A gap qualifies as an observation on the same noise gate the session path
+/// uses, so a stale-oracle repeat print cannot inflate `obs_count`.
+#[inline]
+fn qualifies_gap(change: i64, vol_floor: i64) -> bool {
+    change >= max(1, vol_floor / 4)
 }
 
 impl Actuary {
@@ -1044,7 +1185,137 @@ impl Actuary {
         let base = rate_bps(util_bps, 100, self) as u128;
         self.premium_index = self.premium_index
             .saturating_add(base.saturating_mul(dt as u128));
+        // The funding leg of the same interval, over the same `dt`, from the
+        // imbalance that prevailed across it. Signed, so one integral serves
+        // both sides.
+        self.funding_index = self.funding_index
+            .saturating_add(funding_rate_bps(self) as i128 * dt as i128);
         self.index_updated = now;
+    }
+
+    /// Weight for one TWAP update, in bps, from elapsed slots.
+    ///
+    /// 🔴 THIS WAS `max(5, min(20, 200 / (10 + dt)))` AND IT WAS WRONG TWICE.
+    ///
+    ///    **Inverted.** A print one slot after the last got weight 18; a print
+    ///    after an hour of silence got 5. For a TIME-weighted average that is
+    ///    backwards — the longer the gap, the more of the window the new
+    ///    observation should own.
+    ///
+    ///    **And path-dependent**, which is the half that actually mattered. The
+    ///    TWAP is the manipulation defence, and its own docstring is the charge
+    ///    sheet: *"sustaining artificial price pressure across the full TWAP
+    ///    window requires keeping that capital at risk the entire time — the
+    ///    attacker is the natural short against their own manipulation."* With a
+    ///    per-CALL weight, sustaining nothing was required: forty calls at
+    ///    weight 18 drag the average essentially all the way to a pushed price
+    ///    for the cost of forty signatures, where genuinely holding it there for
+    ///    the same wall-clock hour moved it 5%. Cadence bought what capital was
+    ///    meant to.
+    ///
+    ///    ⚠️ AND SIMPLY REVERSING THE DIRECTION DOES NOT FIX IT. `dt/(dt+τ)` is
+    ///       monotone and asymptotic, and still compounds across a split
+    ///       interval — forty applications of 22% retain 0.78^40 ≈ nothing.
+    ///       Any weight applied per call has this property. The fix has to be
+    ///       PATH INDEPENDENCE, and only the exponential has it:
+    ///
+    ///           1 - Π exp(-dtᵢ/τ)  =  1 - exp(-Σdtᵢ/τ)
+    ///
+    ///       so splitting an interval and leaving it whole land in the same
+    ///       place, by construction rather than by clamp. Computed the way
+    ///       `vol_floor` already computes `e^{-Kn}` — `pow_bps` by squaring, no
+    ///       soft float — with the residual truncation of `dt / TWAP_STEP_SLOTS`
+    ///       running in the safe direction: a split path retains slightly MORE,
+    ///       i.e. moves LESS, which is the direction the security property wants.
+    ///
+    ///    This is the third instance of one bug in this file. `max_drawdown_bps`
+    ///    decay had it ("cadence was a free lever on the risk model"), the tail
+    ///    fit had it, and the TWAP had it too.
+    ///
+    /// ⚠️ AND NO FLOOR ON THE RETENTION, WHICH A FIRST CUT PUT HERE AT 1,000 bps
+    ///    "so the average keeps a tenth of its memory whatever happens". That
+    ///    floor is applied PER CALL, so it re-introduced exactly the path
+    ///    dependence it sits inside a path-independent formula to avoid: forty
+    ///    calls each retaining 0.78 compound past a floor that one call is held
+    ///    at, and the split path won again. A clamp on a per-call quantity
+    ///    cannot express a property of an interval.
+    ///
+    ///    Nor is it needed. After a genuinely long silence the prior IS stale,
+    ///    and a time-weighted average that refuses to forget data it does not
+    ///    have is not an average. `pow_bps` takes retention to zero on its own,
+    ///    and the only clamp left keeps the arithmetic in range.
+    #[inline]
+    pub fn twap_alpha_bps(dt: i64) -> i64 {
+        let steps = dt.max(0) / TWAP_STEP_SLOTS;
+        // The upper clamp is BPS, not BPS-1. Holding one basis point of
+        // retention back is another per-call clamp, and it showed: a single
+        // long-interval call was pinned at 1 bp of memory while forty short
+        // ones compounded past it, so the split path moved further after all —
+        // by 25 parts in 500,000, but the property is exact or it is not a
+        // property. A window containing no observations has nothing to average.
+        (BPS - pow_bps(TWAP_RETAIN_BPS, steps)).clamp(1, BPS)
+    }
+
+    /// Fade the drawdown memory by elapsed time. Called from BOTH the session
+    /// and the gap path, because a closed market is elapsed time too.
+    fn fade_drawdown(&mut self, dt: i64) {
+        let floor = max(self.vol_floor() * 2, self.observed_vol_bps * 2);
+        if dt <= 2000 || self.max_drawdown_bps <= floor { return; }
+        let steps = min(128, dt / 2000);
+        let mut dd = self.max_drawdown_bps;
+        for _ in 0..steps {
+            dd = max(floor, dd - max(10, dd / 20));
+            if dd <= floor { break; }
+        }
+        self.max_drawdown_bps = dd;
+    }
+
+    /// Fold one across-the-close move into the gap estimate.
+    ///
+    /// Deliberately NOT a second GPD fit. Gaps arrive once a session, so an
+    /// online peaks-over-threshold fit would never see enough exceedances to
+    /// mean anything, and a fit that has not converged is worse than an
+    /// estimator that admits its own shape. Instead the SESSION tail's fitted
+    /// ratio q/σ is transferred onto the gap's own scale in
+    /// `gap_quantile_bps` — same instrument, same shape, different amplitude.
+    fn observe_gap(&mut self, change: i64, dt: i64) {
+        self.gap_count = min(500, self.gap_count + 1);
+        let alpha = if self.gap_count < 10 { 40 } else { 12 };
+        self.gap_vol_bps = if self.gap_vol_bps == 0 { change }
+            else { (self.gap_vol_bps * (100 - alpha) + change * alpha) / 100 };
+        if change > self.gap_max_bps { self.gap_max_bps = min(BPS, change); }
+        else {
+            // Same time-based fade as `max_drawdown_bps`, and for the same
+            // reason: memory that decays per CALL is a lever anyone can pull.
+            let floor = self.gap_vol_bps * 2;
+            if self.gap_max_bps > floor {
+                let steps = min(128, dt / GAP_MIN_SLOTS);
+                let mut g = self.gap_max_bps;
+                for _ in 0..steps {
+                    g = max(floor, g - max(10, g / 20));
+                    if g <= floor { break; }
+                }
+                self.gap_max_bps = g;
+            }
+        }
+    }
+
+    /// The gap tail at `p_bps`, in bps of notional. Zero for an instrument that
+    /// has never gapped — a perpetual, or a name observed only intraday — which
+    /// is the correct answer rather than a missing one.
+    ///
+    /// ⚠️ THIS IS NOT SCALED BY `unwind_exposure_x100` ANYWHERE, AND THAT IS THE
+    ///    ENTIRE POINT. The ladder is asleep across a gap.
+    pub fn gap_quantile_bps(&self, p_bps: i64) -> i64 {
+        if self.gap_count < 8 || self.gap_vol_bps <= 0 { return 0; }
+        let sigma = self.eff_sigma().max(1);
+        let q = self.quantile_bps(p_bps);
+        // Transfer the fitted tail-to-vol multiple onto the gap's amplitude,
+        // then refuse to sit below the worst gap actually seen halved — the
+        // empirical maximum is real information about a tail with few draws.
+        let fitted = (self.gap_vol_bps as i128 * q as i128 / sigma as i128)
+            .clamp(0, BPS as i128) as i64;
+        max(fitted, self.gap_max_bps / 2)
     }
 
     pub fn update_price(&mut self, price: i64, slot: i64) {
@@ -1067,6 +1338,41 @@ impl Actuary {
         }
         let old = self.last_price;
         let dt = max(1, slot - self.last_price_slot);
+
+        // ⭐ **RE-MARK THE BOOK BEFORE ANYTHING READS IT.**
+        //
+        // 🔴 `net_exposure` AND `total_exposure` ARE DOLLARS, AND ONLY
+        //    `record_activity` MOVED THEM — at trade time, at trade prices. So a
+        //    book written once and left alone kept the figure it was written at
+        //    however far the price travelled. Measured on 100,000 units opened
+        //    at 108,330:
+        //
+        //      price 200%  →  positions worth 21,666,000,000, book says
+        //                     10,833,000,000. FIFTY PERCENT STALE.
+        //      price  40%  →  positions worth  4,333,200,000, book still says
+        //                     10,833,000,000. Overstated by 150%.
+        //
+        //    Three things read it and all three were wrong with it:
+        //    `ticker_reserve_dollars` (and therefore `max_liability`,
+        //    `has_capacity` and `withdrawable`), `funding_rate_bps`, whose only
+        //    input is `net / total`, and the sign of every Euler capital
+        //    allocation in `loss_profile`. The under-reserving direction is the
+        //    one that matters: a book whose value doubles has the pool holding a
+        //    reserve computed against half of what it is actually carrying.
+        //
+        // The exposures are a quantity of stock valued in dollars, so they scale
+        // with the price exactly as the positions behind them do. Done here,
+        // once, before the tail fit or the decay clocks touch anything — every
+        // consumer downstream then reads a book marked at the price that
+        // prompted the update.
+        if old > 0 && price > 0 && price != old {
+            let scale = |v: i64| -> i64 {
+                (v as i128 * price as i128 / old as i128)
+                    .clamp(i64::MIN as i128, i64::MAX as i128) as i64
+            };
+            self.net_exposure = scale(self.net_exposure);
+            self.total_exposure = scale(self.total_exposure).max(0);
+        }
         // In i128: `(price - old).abs() * BPS` overflows i64 as soon as the
         // move is large against a small base — a recovery from near-zero is
         // enough — and this runs on every deposit, withdrawal, liquidation and
@@ -1089,9 +1395,139 @@ impl Actuary {
         // still means what it meant. It is a monotone function of |ln(p₁/p₀)|,
         // so the ordering the tail fit depends on is preserved exactly, with
         // no transcendental to evaluate on chain.
-        let change = ((price - old).abs() as i128 * BPS as i128
+        let raw_change = ((price - old).abs() as i128 * BPS as i128
             / max(1, max(old, price)) as i128) as i64;
         let vol_floor = self.vol_floor();
+
+        // ⭐ **THE OBSERVATION IS ROUTED BEFORE IT IS BELIEVED.**
+        //
+        // 🔴 THE TAIL USED TO BE FITTED ON `raw_change` AT WHATEVER CADENCE THE
+        //    CALLERS HAPPENED TO PRODUCE. `update_price` runs on every deposit,
+        //    withdrawal, liquidation and sweep, so the spacing between prints is
+        //    a function of TRAFFIC, and the fitted quantile therefore had no
+        //    time unit at all. `loss_profile` then multiplied it by
+        //    `unwind_exposure_x100`, which is denominated in `LIQ_GRACE_SECS`
+        //    windows. Two clocks, no conversion, and the product was reported as
+        //    a margin requirement.
+        //
+        //    The consequences ran both ways and both are bad:
+        //      • busy ticker → prints seconds apart → tiny `raw_change` → thin
+        //        tail → thin margin. Activity, not risk, set the leverage. And
+        //        it is CHEAP TO MANUFACTURE: the same cadence lever this file
+        //        already closed for `max_drawdown_bps` decay ("cadence was a
+        //        free lever on the risk model") was still wide open on the tail
+        //        fit itself, which is the estimate that actually sets margin.
+        //      • quiet ticker → prints a day apart → the whole day's move read
+        //        as one window → margin 5x too fat. Measured on real bars:
+        //        every one of twenty liquid US names priced out between 1.0x and
+        //        4.5x maximum leverage, against a 10x product.
+        //
+        // The fix is dimensional, not a tuning, and it is a SAMPLING rule
+        // rather than a scaling one.
+        //
+        // ⚠️ THE FIRST CUT SCALED EACH PRINT BY sqrt(W/dt) AND THAT WAS WRONG AT
+        //    BOTH ENDS. Tick-spaced prints are mostly bid-ask bounce, so
+        //    scaling them up manufactures volatility out of quote noise; floor
+        //    `dt` to stop that and the estimator silently understates by the
+        //    square root of the floor instead. This is the realised-volatility
+        //    sampling problem and it has a standard answer: SAMPLE THE PRICE ON
+        //    A FIXED CLOCK and take the return between samples.
+        //
+        // So the session tail is fed one observation per `LADDER_WINDOW_SLOTS`,
+        // measured endpoint to endpoint. That quantity depends only on the two
+        // prices and not at all on how many times anyone called in between —
+        // cadence-invariant by construction rather than by clamp — and it is
+        // exactly the move a tranche has to survive. Prints inside the window
+        // still refresh price, TWAP, jump count and the drawdown, because those
+        // are single-print measures and always were.
+        //
+        // A move across a CLOSED MARKET is not sampled at all. It is not
+        // diffusion; it is one jump the ladder sleeps through.
+        if dt >= GAP_MIN_SLOTS {
+            self.observe_gap(raw_change, dt);
+            // A closed market is still elapsed time, and the drawdown memory
+            // fades with elapsed time. Skipping this on the gap path would have
+            // handed back the very cadence lever the fade was written to close:
+            // one long silence would preserve the memory that twenty short ones
+            // erode.
+            if raw_change > self.max_drawdown_bps { self.max_drawdown_bps = min(5000, raw_change); }
+            self.fade_drawdown(dt);
+            // A gap still refreshes price, TWAP and the decay clocks below —
+            // it just does not enter the session tail, whose whole meaning is
+            // "what can move against us between two tranches".
+            self.last_price = price;
+            self.last_price_slot = slot;
+            // ⚠️ RESTART THE SESSION WINDOW AT THE REOPEN, OR THE GAP IS COUNTED
+            //    TWICE. The first cut returned here without touching
+            //    `window_ref_price`, so the next sample measured from the last
+            //    price BEFORE the close — carrying the whole overnight move
+            //    into the session tail as well as into the gap tail. Measured:
+            //    it turned a close-to-open-plus-session move into "one session",
+            //    inflating every session quantile and double-charging the one
+            //    risk the two-tail split exists to separate.
+            self.window_ref_price = price;
+            self.window_since = slot;
+            self.jump_count = max(0, self.jump_count - dt / 1000);
+            self.velocity = max(0, self.velocity - dt / 500 * 10);
+            let a = Self::twap_alpha_bps(dt);
+            self.twap_price = ((self.twap_price as i128 * (BPS - a) as i128
+                + price as i128 * a as i128) / BPS as i128) as i64;
+            if qualifies_gap(raw_change, vol_floor) {
+                self.obs_count = min(500, self.obs_count + 1);
+            }
+            return;
+        }
+        // Open the first window on the first session print we see.
+        if self.window_ref_price == 0 {
+            self.window_ref_price = old;
+            self.window_since = self.last_price_slot;
+        }
+
+        // A single print is still a jump and still a drawdown, whether or not a
+        // sampling window closed on it.
+        if self.observed_vol_bps > 0 {
+            if raw_change > self.observed_vol_bps * 3 {
+                self.jump_count = min(20, self.jump_count + 1);
+            }
+            if raw_change > self.max_drawdown_bps {
+                self.max_drawdown_bps = min(5000, raw_change);
+            }
+        }
+
+        // Has a window closed? If not, the tail learns nothing from this print,
+        // which is the entire point.
+        let elapsed = slot.saturating_sub(self.window_since);
+        let sampled = elapsed >= LADDER_WINDOW_SLOTS;
+        let (change, window_down) = if sampled {
+            let refp = self.window_ref_price;
+            let c = ((price - refp).abs() as i128 * BPS as i128
+                / max(1, max(refp, price)) as i128) as i64;
+            // ⭐ THE ONE SCALING RULE, AND IT ONLY EVER SHRINKS.
+            //
+            // A window closes on the first print past `LADDER_WINDOW_SLOTS`, so
+            // `elapsed` is at least a window and often more — a sparse oracle,
+            // a quiet ticker, a ticker nobody touched for five hours. Reading
+            // that whole stretch as one window's worth of risk is the error
+            // that priced twenty liquid US names between 1.0x and 4.5x maximum
+            // leverage on real bars. sqrt(W/elapsed) carries it back onto the
+            // ladder's clock.
+            //
+            // ⚠️ AND IT IS BOUNDED ABOVE BY 1 BY CONSTRUCTION, WHICH IS WHY THIS
+            //    IS SAFE WHERE PER-PRINT SCALING WAS NOT. The first attempt
+            //    scaled every print, including tick-spaced ones, and therefore
+            //    multiplied bid-ask bounce UP into volatility — 2bps of quote
+            //    noise a second apart reading as 120bps an hour. Sampling first
+            //    and scaling second means the factor can only ever correct
+            //    sparseness downward; it can never manufacture a move.
+            let c = if elapsed > LADDER_WINDOW_SLOTS {
+                (c as i128 * Self::sqrt_x100(LADDER_WINDOW_SLOTS * 10_000 / elapsed) as i128
+                    / 10_000) as i64
+            } else { c };
+            let d = price < refp;
+            self.window_ref_price = price;
+            self.window_since = slot;
+            (c.clamp(0, BPS), d)
+        } else { (0i64, false) };
 
         // === Qualified observation: only count moves above noise threshold ===
         // An attacker submitting price+0 or price+1 repeatedly accumulates
@@ -1107,8 +1543,23 @@ impl Actuary {
         // an actor feeding synthetic price feeds with micro-moves to
         // suppress vol_floor before opening a large leveraged position
         //
-        let noise_threshold = max(1, vol_floor / 4);
-        let qualifies = change >= noise_threshold;
+        // 🔴 THE GATE USED TO BE `vol_floor / 4`, WHICH IS A THRESHOLD DERIVED
+        //    FROM THE ESTIMATE IT FILTERS. That is a selection filter: only
+        //    moves in the upper part of the distribution were allowed to update
+        //    the mean of the distribution, so the estimate was biased upward and
+        //    — once the ratchet above pinned it at the prior — could never come
+        //    down, because nothing real ever cleared a quarter of a prior that
+        //    was six times too large. Two mechanisms, one deadlock.
+        //
+        // Its stated purpose was the cadence attack: "an attacker submitting
+        // price+0 or price+1 repeatedly accumulates obs_count while keeping
+        // observed_vol_bps near zero". THAT ATTACK IS NOW CLOSED STRUCTURALLY —
+        // the tail takes ONE observation per `LADDER_WINDOW_SLOTS` no matter how
+        // many times anyone calls, so submissions cannot be accumulated at all.
+        // What is left for the gate to do is ignore a literal non-move, and a
+        // fixed floor does that without truncating the distribution.
+        let qualifies = sampled && change >= NOISE_FLOOR_BPS;
+        let _ = vol_floor;
         if qualifies {
             self.obs_count = min(500, self.obs_count + 1);
         }
@@ -1118,13 +1569,9 @@ impl Actuary {
                 self.max_drawdown_bps = max(vol_floor * 2, change);
             }
         } else {
-            // Jump detection: always active regardless of threshold
-            if change > self.observed_vol_bps * 3 {
-                self.jump_count = min(20, self.jump_count + 1);
-            }
-            if change > self.max_drawdown_bps {
-                self.max_drawdown_bps = min(5000, change);
-            }
+            // Jump and drawdown already ran above, on the RAW print. They are
+            // properties of a single observation and must not wait for a
+            // window to close — a 20% print at 11:04 is a jump at 11:04.
             // Vol EMA: only update on qualified moves.
             // Unqualified (near-zero) moves are ignored — they cannot
             // pull vol_ema downward, preventing systematic suppression.
@@ -1136,11 +1583,43 @@ impl Actuary {
                 // the downside. Symmetric updating over |change| understates
                 // conditional variance in exactly the regime the collar and
                 // the hazard exist for.
-                let base = max(5, min(100, 1000 / (10 + dt)));
-                let down = price < old;
+                // ⚠️ ALPHA USED TO DEPEND ON `dt`, WHICH WAS THE SAME CADENCE
+                //    BUG IN MINIATURE: whoever called more often moved the
+                //    volatility estimate less per unit of elapsed time. Samples
+                //    now arrive one per `LADDER_WINDOW_SLOTS`, so the weight is
+                //    a constant, and the constant is chosen to give the EMA a
+                //    memory of about `1/r` windows — the length of a full
+                //    ladder unwind, which is the horizon the margin covers.
+                //    alpha = 2/(N+1) with N = BPS/MAX_TRANCHE_BPS = 54 gives
+                //    ~3.6%; 5 is the old formula's value for any print spaced
+                //    more than ~190 slots apart, so this is also continuous
+                //    with everything already calibrated against it.
+                let base = 5i64;
+                let down = window_down;
                 let alpha = if down { min(100, base * 3 / 2) } else { base };
                 let raw_vol = (self.observed_vol_bps * (100 - alpha) + change * alpha) / 100;
-                self.observed_vol_bps = max(vol_floor, min(3000, raw_vol));
+                // 🔴 THIS USED TO BE `max(vol_floor, ...)` AND THAT MADE THE
+                //    VOLATILITY ESTIMATE A RATCHET. `vol_floor()` returns
+                //    `blended.max(self.observed_vol_bps).max(structural)` — it is
+                //    defined as AT LEAST the observed vol — so flooring the
+                //    observation by it meant `observed_vol_bps` could rise and
+                //    could never fall. The docstring on `eff_sigma` promises
+                //    that "as confidence grows, the floor shrinks, allowing
+                //    low-vol assets to eventually get their true (low) vol
+                //    recognized"; the arithmetic made that impossible.
+                //
+                //    Measured on five years of real bars: nineteen of twenty
+                //    names sat at exactly 400bps — `STARTING_FLOOR_BPS * 2`, the
+                //    cold-start prior — for the entire history. SPY and AMD
+                //    priced identically. The tail fit saw ZERO exceedances on
+                //    most names, because `pot_threshold` is `eff_sigma` and no
+                //    real move ever cleared a floor that was six times the truth.
+                //    The risk engine was not measuring the ticker at all.
+                //
+                // The estimator now estimates and the floor is applied on READ,
+                // in `vol_floor`, where it belongs and where it is one-way by
+                // design rather than by accident.
+                self.observed_vol_bps = min(3000, raw_vol).max(1);
 
                 // Downside-only EMA, kept beside the two-sided one so the
                 // asymmetry is observable rather than just baked in.
@@ -1192,16 +1671,7 @@ impl Actuary {
             //    decay slightly LESS than a whole one. That direction is
             //    conservative (wider collar), and it is the direction the
             //    security property demands.
-            let drawdown_floor = max(vol_floor * 2, self.observed_vol_bps * 2);
-            if dt > 2000 && self.max_drawdown_bps > drawdown_floor {
-                let steps = min(128, dt / 2000);
-                let mut dd = self.max_drawdown_bps;
-                for _ in 0..steps {
-                    dd = max(drawdown_floor, dd - max(10, dd / 20));
-                    if dd <= drawdown_floor { break; }
-                }
-                self.max_drawdown_bps = dd;
-            }
+            self.fade_drawdown(dt);
         }
         // The tail estimate has moved, so the shortfall derived from it is
         // stale. This is the one place it is recomputed.
@@ -1211,12 +1681,12 @@ impl Actuary {
         self.jump_count = max(0, self.jump_count - dt / 1000);
         self.velocity = max(0, self.velocity - dt / 500 * 10);
 
-        let twap_alpha = max(5, min(20, 200 / (10 + dt)));
+        let twap_alpha = Self::twap_alpha_bps(dt);
         // Same reason as `change` above: both terms are a price times a
-        // percentage, which overflows i64 at prices this arithmetic is
+        // fraction, which overflows i64 at prices this arithmetic is
         // otherwise happy to accept.
-        self.twap_price = ((self.twap_price as i128 * (100 - twap_alpha) as i128 / 100)
-            + (price as i128 * twap_alpha as i128 / 100))
+        self.twap_price = ((self.twap_price as i128 * (BPS - twap_alpha) as i128 / BPS as i128)
+            + (price as i128 * twap_alpha as i128 / BPS as i128))
             .min(i64::MAX as i128) as i64;
 
         self.last_price = price;
@@ -1251,6 +1721,35 @@ impl Actuary {
     /// dollar of exposure to the pool regardless of how much collateral sits
     /// behind it; multiplying by leverage double-counted it, the same error
     /// the collar carried before the notional fix.
+    /// Fold one closed position's result into this ticker's experience.
+    ///
+    /// `pnl` is what the BORROWER made (so a positive figure is a loss to the
+    /// pool), `notional` what they made it on, and `long` which side they were.
+    /// The sign convention leaves `experience_bps` positive when longs have been
+    /// winning, so a position's own side selects whether it is surcharged.
+    ///
+    /// Clamped to ±BPS so one enormous result cannot set the price for everybody
+    /// after it, and EMA'd so a consistent run moves it where a single draw
+    /// barely does — credibility, in the actuarial sense.
+    pub fn record_outcome(&mut self, pnl: i64, notional: u64, long: bool) {
+        if notional == 0 || pnl == 0 { return; }
+        let bps = ((pnl as i128 * BPS as i128) / notional as i128)
+            .clamp(-(BPS as i128), BPS as i128) as i64;
+        let signed = if long { bps } else { -bps };
+        const ALPHA: i64 = 8;          // ~25 closes to move most of the way
+        self.experience_bps = (self.experience_bps * (100 - ALPHA)
+                               + signed * ALPHA) / 100;
+    }
+
+    /// The adverse-selection loading a position on `long`'s side has earned, in
+    /// bps of the fitted expected loss. Zero unless that side has been winning:
+    /// the pool never pays anybody for having been wrong, it only stops charging
+    /// them extra.
+    pub fn adverse_bps(&self, long: bool) -> i64 {
+        let aligned = if long { self.experience_bps } else { -self.experience_bps };
+        aligned.clamp(0, BPS)
+    }
+
     pub fn record_activity(&mut self, exposure: i64, value_delta: i64,
         slot: i64, size: i64, pool: i64) {
         let (is_adding, _) = self.classify(exposure, value_delta);
@@ -1305,11 +1804,418 @@ pub struct TickerRisk {
     pub ticker: [u8; 8],
     pub actuary: Actuary,
     pub bump: u8,
+    /// ⭐ **FUNDING COLLECTED BUT NOT YET PAID OUT.**
+    ///
+    /// 🔴 THE INDEX PROMISED MORE THAN THE PAYERS COULD FUND. `settle_funding`
+    ///    debits the crowded side's pledge and saturates at zero — a position
+    ///    ground down by carry pays what is left and no more — while the
+    ///    offsetting side claims `e · ΔΦ` in full, from nowhere. The difference
+    ///    came out of the reserve, which is to say out of depositors who were
+    ///    never party to either position.
+    ///
+    /// An index cannot see its own aggregate, so the bound has to be carried
+    /// explicitly: every dollar actually collected lands here, and a receiver
+    /// can be paid only out of what is in it. Funding becomes self-funding by
+    /// construction, and a shortfall falls on the side that was promised rather
+    /// than on the pool that never promised anything.
+    pub funding_pot: u64,
+
     /// Dollars this ticker currently contributes to `Depository::max_liability`.
     /// Stored so the contribution can be replaced rather than recomputed from
     /// per-pod figures — the same discipline that stopped `max_liability`
     /// ratcheting when it was booked on one base and released on another.
     pub reserved: u64,
+
+}
+
+/// ⭐ **THE SIGNED FUNDING RATE, IN BPS PER YEAR.** Positive means the book
+/// leans long, so longs pay and shorts are paid.
+///
+/// ⭐ **THE CAPITAL CHARGE AND THE FUNDING RATE WERE THE SAME MECHANISM, AND
+///    THIS IS IT.** They are one signed rate, and collapsing them removes a
+///    double charge, a floor and a fudge factor at once.
+///
+/// 🔴 WHAT WAS THERE BEFORE, IN TWO PIECES:
+///
+///    `premium_bps` charged `capital_bps × RR / BPS`, and under Euler
+///    `capital_bps` is `+margin` crowded / `−margin` offsetting — but the
+///    premium was FLOORED AT ZERO, because a premium is deducted from a pledge
+///    and the pool has no way to pay a negative one. So the crowded side paid
+///    its full allocation and the offsetting side's rebate was simply kept.
+///    Over a $100M book that is `m·RR·O` a year of pure over-collection: at a
+///    perfectly balanced book the pool NEEDS NOTHING and the premium took
+///    $835,000.
+///
+///    `funding_rate_bps` then charged the crowded side a SECOND time to pay the
+///    offsetting side — and lean-scaled it, so it delivered least exactly where
+///    the floor had withheld most. Two errors, not cancelling.
+///
+/// ⭐ THE OVER-COLLECTION THE FLOOR CREATES *IS* THE PAYMENT THE OFFSETTING SIDE
+///    IS OWED. Route the capital charge through the signed index and it is paid
+///    directly: crowded pays `k`, offsetting receives `k`, and the pool nets
+///    `k·|net|` — its requirement, EXACTLY, at every lean:
+///
+///        collected = k·C − k·O = k·(C − O) = k·|net|
+///
+///    The floor is unnecessary because the payer is the crowded side rather
+///    than the pool. `lean` is unnecessary because Euler already vanishes when
+///    the book is flat — `net` is the numerator. And `premium_bps` drops its
+///    capital term entirely, leaving the expected loss, which is the one thing
+///    every position genuinely owes on its own account.
+///
+/// ⚠️ THE ONE PLACE `net/|net|` MISBEHAVES IS AT ZERO, where it is a knife edge:
+///    a book crossing flat would reverse every position's carry at full
+///    magnitude, over a marginal unit. `max(|net|, deadband)` in the
+///    denominator tapers the rate linearly to zero inside a 5% band instead.
+///    Recovery stays exact wherever the book leans more than that, and the
+///    under-collection inside it is bounded by `k·deadband/4` — on a $100M book
+///    with a 1,119 bps margin, about $21k a year against a requirement that is
+///    itself near zero there. Continuity is worth that.
+pub fn funding_rate_bps(s: &Actuary) -> i64 {
+    let total = s.get_total();
+    if total <= 0 { return 0; }
+    let net = s.get_net() as i128;
+    // The capital rate per unit of notional: the pool's required return on the
+    // `margin_bps` of capital a unit of net exposure consumes.
+    let k = s.margin_bps().saturating_mul(REQUIRED_RETURN_BPS) / BPS;
+    let deadband = (total as i128 * FUNDING_DEADBAND_BPS as i128 / BPS as i128).max(1);
+    (k as i128 * net / net.abs().max(deadband)) as i64
+}
+
+impl TickerRisk {
+    /// What one position receives (or pays, when negative) since its
+    /// checkpoint, and the checkpoint to store.
+    ///
+    /// `Φ` is bps-per-year × seconds, so the divisor is `BPS × YEAR`.
+    /// Sign convention: the RETURN is what the pod receives. A long in a
+    /// long-heavy book has a positive notional and `ΔΦ > 0`, so it pays.
+    ///
+    /// 🔴 **`signed_value` IS DOLLARS AND THE CALLER USED TO PASS UNITS.** The
+    ///    rate is bps of NOTIONAL; multiplying it by a position's unit count
+    ///    yields units, not dollars, and the two differ by the price. Measured
+    ///    on the thousand-borrower run: $4,462 of funding changed hands across
+    ///    $74.8M of notional-years on a book that peaked 86% net long — four
+    ///    orders of magnitude short, i.e. the mechanism was inert.
+    ///
+    ///    The old two-index form had it too, and in the same place: `owed =
+    ///    delta × |exposure| / FUNDING_SCALE` where `delta` was built from
+    ///    `get_total()`, which is dollars. Dollars over dollars times units.
+    ///    The rewrite to a signed integral preserved the shape and therefore
+    ///    the bug; only measuring the two sides GROSS made it visible, because
+    ///    a transfer's net is near zero whether it is working or not.
+    pub fn funding_owed(&self, signed_value: i64, checkpoint: i128) -> (i64, i128) {
+        let index = self.actuary.funding_index;
+        if signed_value == 0 { return (0, index); }
+        let delta = index.saturating_sub(checkpoint);
+        if delta == 0 { return (0, index); }
+        let owed = -(signed_value as i128).saturating_mul(delta)
+            / (BPS as i128 * SECONDS_PER_YEAR as i128);
+        (owed.clamp(i64::MIN as i128, i64::MAX as i128) as i64, index)
+    }
+}
+
+// ═══ §CAPITAL — one solvency target, one fitted tail, four quantities ═══════
+//
+// 🔴 **`collar_bps` WAS DOING FOUR JOBS AND COULD ONLY BE RIGHT FOR ONE.** It
+// is `expected_shortfall_bps(COLLAR_BREACH_BPS)` — a MEAN BEYOND A QUANTILE —
+// and it was consumed as:
+//
+//   • the MARGIN bound      (`repo`: exposure_value <= pledged + collar_amt`)
+//   • the LIQUIDATION trigger (`repo`'s band, `amortise_tranche`)
+//   • the PREMIUM            (`hazard_rate_bps`, `lgd_bps`)
+//   • the RESERVE            (`ticker_reserve_dollars`)
+//
+// Those want different horizons and different statistics. ES is exactly right
+// for the premium — a price should be an expected loss — and wrong for the
+// other three: margin and reserve want a QUANTILE at the pool's confidence,
+// not a conditional mean, and over the horizon the pool is actually exposed
+// for rather than a single observation.
+//
+// Sharing one number is why the knobs contradict each other. `MAX_COLLAR_BPS`
+// caps leverage at `1/(1 - c)` = 2x while `max_leverage_pct` is allowed to
+// return 20x; the `/lev` divisor in `collar_bps` never divides because the
+// margin bound pins leverage near 1.0; `rate_bps`'s `lev_adj` never fires for
+// the same reason. Each is the same collision seen from a different call site.
+//
+// ⭐ **THE FOUR ARE NOT FOUR THINGS TO SEPARATE. THEY ARE FOUR FUNCTIONALS OF
+// ONE OBJECT** — the distribution of the pool's loss on a position from now
+// until the book is flat:
+//
+//     reserve  = high quantile of that loss, aggregated over the book
+//     margin   = this position's MARGINAL contribution to that quantile
+//     trigger  = where remaining pledge stops covering the expected remainder
+//     premium  = expected loss  +  r x (capital the position consumes)
+//
+// One free parameter — the tolerated insolvency probability — plus the
+// depositors' hurdle rate, and the fitted tail gives all four. Nothing is
+// chosen twice and there is nothing to keep consistent with anything else.
+//
+// ⭐ **AND THE RISK LOAD STOPS BEING A BOLT-ON.** The premium today is
+// `intensity x lgd` scaled by `crowding_bps` and `solvency_bps`, both of which
+// are exactly 1.0 on a balanced book in an unloaded pool — so a depositor is
+// paid their expected loss and nothing for bearing the variance. Under capital
+// pricing the load is `r x marginal capital`, positive for any position that
+// consumes reserve. Measured, the capital charge exceeds the expected-loss term
+// by about an order of magnitude, which is why loading the premium 2x moved a
+// simulated crisis P&L only from -85 to -74 bps: it was doubling the small half.
+
+/// The pool's tolerated probability of failing to pay, in bps.
+///
+/// THE one free parameter. Everything in `LossProfile` is derived from it and
+/// the fitted tail; it is not a knob to tune per-quantity, and changing it
+/// moves margin, reserve and the capital charge together, which is the point.
+pub const INSOLVENCY_TARGET_BPS: i64 = 100;      // 1%
+
+/// What depositors require, per year, on capital held at risk. The premium's
+/// load is this times the capital a position consumes.
+pub const REQUIRED_RETURN_BPS: i64 = 1_500;      // 15%/yr
+
+/// ⭐ **HOW MUCH OF ITS COLLATERAL A POSITION SPENDS BEFORE THE LADDER STARTS.**
+///
+/// The one genuinely free parameter left in the risk model, and it buys exactly
+/// one thing at the cost of exactly one other: earlier means fewer blow-ups and
+/// less sustained leverage. Measured on a thousand borrowers over five real
+/// years — see `backtest::where_the_ladder_should_start`. Not derivable from
+/// the tail, because it is a preference about which failure the pool would
+/// rather have, not a fact about the market.
+pub const LADDER_TRIGGER_BPS: i64 = 5_000;   // half the margin
+
+/// 🔴 **`UNWIND_WINDOWS` USED TO LIVE HERE AND IT WAS A SPURIOUS PARAMETER.**
+///
+/// The first cut scaled one-print risk by `sqrt(N) x mean_open(N)` over a
+/// chosen 168-window horizon. A sensitivity sweep found it backwards: at 720
+/// windows it produced 25.6x leverage against 12.6x at 168 — a LONGER unwind
+/// reading as SAFER. The error was averaging where the risk integrates.
+///
+/// The pool's loss over an unwind is `integral of open(t) dP(t)`. With prices
+/// scaling as sqrt(t), the variance of that is `integral of open(t)^2 dt`, and
+/// for a ladder decaying geometrically at rate `r` that integral is `1/(2r)`
+/// — INDEPENDENT of how many windows you let it run. The exposure is set by
+/// how fast the ladder unwinds, not by how long you are willing to watch it.
+///
+/// So the horizon is not a free choice and the constant is gone. What buys
+/// leverage is `MAX_TRANCHE_BPS`, which is a real operational decision with a
+/// real cost, and it now appears in exactly one place instead of being
+/// shadowed by a calendar someone picked.
+#[inline]
+pub fn unwind_exposure_x100() -> i64 {
+    // sqrt(BPS / 2r), x100. r = MAX_TRANCHE_BPS.
+    let inv = BPS * 10_000 / (2 * MAX_TRANCHE_BPS).max(1);   // (1/2r) x 10_000
+    let mut r = inv.max(1);
+    let mut y = (r + 1) / 2;
+    while y < r { r = y; y = (r + inv / r.max(1)) / 2; }
+    r.max(100)
+}
+
+/// Every quantity the risk engine needs from one position, read off one tail.
+///
+/// Constructed once per decision so the four cannot disagree: they are the
+/// same estimate asked four different questions, not four estimates.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LossProfile {
+    /// bps of notional. The quantile at the solvency target, spanning the
+    /// act-plus-unwind horizon. THIS is the margin requirement.
+    pub margin_bps: i64,
+    /// bps of notional. Marginal contribution to the pool's reserve — what the
+    /// position actually consumes once the rest of the book is accounted for.
+    /// A position that offsets an existing lean consumes nothing.
+    pub capital_bps: i64,
+    /// bps of notional per year. Expected loss: the price before any load.
+    pub expected_loss_bps: i64,
+    /// bps of notional per year. Expected loss plus the capital charge.
+    pub premium_bps: i64,
+    /// bps. The move at which the remaining pledge stops covering the expected
+    /// remainder — where a position stops being self-funding and the ladder
+    /// has to start.
+    pub trigger_bps: i64,
+}
+
+impl LossProfile {
+    /// Leverage this profile supports, x100. Derived, never declared: it is
+    /// simply the reciprocal of the margin the tail demands.
+    #[inline]
+    pub fn max_leverage_pct(&self) -> i64 {
+        if self.margin_bps <= 0 { return i64::MAX; }
+        (BPS * 100 / self.margin_bps).max(100)
+    }
+}
+
+impl Actuary {
+    /// Mean fraction of a position still open across the unwind, in bps.
+    ///
+    /// Closed form of `sum (1-r)^n / N` — the ladder decays geometrically, so
+    /// the sum is `(1 - (1-r)^N)/r`. Computed rather than looped because this
+    /// runs inside an instruction.
+    pub fn mean_open_bps(&self, windows: i64) -> i64 {
+        let r = MAX_TRANCHE_BPS.clamp(1, BPS);
+        let remaining = pow_bps(BPS - r, windows);          // (1-r)^N
+        let area = (BPS - remaining) as i128 * BPS as i128 / r as i128;
+        (area / windows.max(1) as i128).clamp(1, BPS as i128) as i64
+    }
+
+    /// Integer sqrt of `n`, scaled by 100. Same descend-while-decreasing shape
+    /// `fee_bps` and `returns::isqrt` use — the naive `while r != prev` form
+    /// oscillates forever at the floor.
+    fn sqrt_x100(n: i64) -> i64 {
+        let x = n.max(1) * 10_000;
+        let mut r = x;
+        let mut y = (r + 1) / 2;
+        while y < r { r = y; y = (r + x / r.max(1)) / 2; }
+        r
+    }
+
+    /// The margin this ticker's tail demands, in bps of notional — the quantile
+    /// at the pool's solvency target over the act-plus-unwind horizon, plus the
+    /// gap the ladder cannot act inside. Size-independent, which is why it can
+    /// be read on its own without constructing a whole `LossProfile`.
+    pub fn margin_bps(&self) -> i64 {
+        self.loss_profile(0, 0).margin_bps
+    }
+
+    /// Build the whole profile from this ticker's fitted tail.
+    ///
+    /// `size` is the position's signed notional and `ticker_net` the book's
+    /// signed net BEFORE it — together they decide how much of the pool's
+    /// reserve this position is responsible for.
+    pub fn loss_profile(&self, size: i64, ticker_net: i64) -> LossProfile {
+        // The tail at the pool's confidence, over one observation.
+        let q1 = self.quantile_bps(INSOLVENCY_TARGET_BPS).max(1);
+
+        // Scaled by the exposure the LADDER creates, not by a chosen calendar:
+        // sqrt(integral of open(t)^2 dt) = sqrt(1/2r). See
+        // `unwind_exposure_x100` for why the horizon is not a parameter.
+        //
+        // ⭐ `q1` IS NOW A ONE-LADDER-WINDOW QUANTILE. Every observation is
+        // carried onto that clock in `update_price`, so this multiplication is
+        // finally dimensionally sound: a per-window tail times a count of
+        // window-equivalents of exposure.
+        let laddered = (q1 as i128 * unwind_exposure_x100() as i128 / 100)
+            .clamp(1, BPS as i128) as i64;
+
+        // ⭐ **AND THE PART NO LADDER REACHES.** Overnight, weekend, halt: the
+        // move arrives whole while every instruction that could take a tranche
+        // is unavailable. It adds in VARIANCE, not in level — the two are
+        // near-independent, and adding them linearly would double-charge a
+        // book that is mostly one or the other.
+        //
+        //   margin² = q_gap² + (q_window · sqrt(1/2r))²
+        //
+        // 🔴 THE ONLY REASON THE OLD FORM LOOKED SAFE IS THAT IT WAS WRONG IN
+        //    BOTH DIRECTIONS AT ONCE. Fitting a day-long move as a window-long
+        //    one inflated `laddered` by roughly the same factor that dropping
+        //    the gap term deflated the total — so on daily prints it came out
+        //    plausible, and on the second-by-second prints a live Pyth feed
+        //    actually delivers it came out five to ten times too thin, with the
+        //    gap missing on top. `max_leverage_pct` was carrying the position
+        //    alone and nobody could see it.
+        let gap = self.gap_quantile_bps(INSOLVENCY_TARGET_BPS);
+        let margin_bps = if gap <= 0 { laddered } else {
+            let sq = (laddered as i128 * laddered as i128
+                    + gap as i128 * gap as i128).min(i64::MAX as i128) as i64;
+            Self::sqrt_x100(sq).saturating_div(100).clamp(1, BPS)
+        };
+
+        // ⭐ **EULER ALLOCATION, WHICH IS WHAT THIS CLAIMED TO BE AND WAS NOT.**
+        //
+        // 🔴 WHAT STOOD HERE WAS THE INCREMENTAL CHARGE `m·(|net+x| − |net|)`
+        //    WITH A FLOOR AT ZERO, and two comments in `facility_sim_report`
+        //    called it Euler allocation. It is not, and the difference is the
+        //    property Euler exists for.
+        //
+        //    The reserve is `ρ(net) = margin_bps · |net|`, homogeneous of
+        //    degree 1, so Euler's theorem applies exactly:
+        //
+        //        aᵢ = xᵢ · ∂ρ/∂net = m · xᵢ · sign(net)
+        //        Σ aᵢ = m · sign(net) · Σ xᵢ = m · |net|        ← EXACTLY
+        //
+        //    FULL ALLOCATION — the parts sum to the whole, and the answer does
+        //    not depend on the order positions are considered in. Incremental
+        //    allocation has neither property; that is its textbook defect.
+        //
+        //    And the `.max(0)` made it worse in the way that matters most for
+        //    this book. A position that OFFSETS the net consumes NEGATIVE
+        //    capital: it releases reserve. Clamping charges it zero instead.
+        //    Measured on a six-position book (four long, two short) the clamped
+        //    form allocated 117,495 against 78,330 of actual capital — 50% too
+        //    much, all of it the two offsets being charged for risk they were
+        //    removing. Offsetting flow is precisely the flow this design exists
+        //    to attract, and the capital charge was blind to it.
+        //
+        // The derivative of `m·|net|` is `m·sign(net)`, so per unit of the
+        // position's own notional the allocation is simply ±m: the position's
+        // sign against the book's. Cheaper than what it replaces, as well as
+        // correct.
+        //
+        // ⚠️ `ticker_net` IS THE NET AS IT STANDS, INCLUDING THIS POSITION, and
+        //    that is right where the old form needed it EXCLUDED. Euler
+        //    allocates the CURRENT portfolio's capital among the positions
+        //    currently in it, so the live figure is the one it wants — which
+        //    also retires an ambiguity the call sites had no way to resolve.
+        //    A flat book is the one place `|·|` has no derivative; a position
+        //    opening into `net == 0` becomes the whole book, so it is charged
+        //    in full.
+        let same_side = if ticker_net == 0 { true }
+                        else { (ticker_net > 0) == (size >= 0) };
+        let capital_bps = if size == 0 { 0 }
+                          else if same_side { margin_bps }
+                          else { -margin_bps };
+
+        // Expected loss, from the same tail: intensity x loss-given-breach.
+        // 🔴 **`collar_bps(100, ..)` IS AN UNLEVERED EXPECTED SHORTFALL, AND
+        //    THIS FIELD'S OWN DOCSTRING CLAIMS SOMETHING ELSE**: "the move at
+        //    which the remaining pledge stops covering the expected remainder".
+        //    A 10x position's pledge is a tenth of its notional and is gone on a
+        //    10% move; an ES computed at 1x says 2.6%, which is nothing to do
+        //    with that position's collateral. Wiring the field as it stood
+        //    started the ladder four times too early and ground sustained
+        //    leverage from 2.2x to 1.26x.
+        //
+        // The pledge IS `margin_bps` of notional, so the move at which it stops
+        // covering is a fraction of `margin_bps` — leverage-aware by
+        // construction, because the margin already is. Half: the ladder starts
+        // once the position has spent half its collateral, leaving the other
+        // half to carry the unwind that `margin_bps` was sized to survive.
+        let trigger_bps = (margin_bps as i128 * LADDER_TRIGGER_BPS as i128
+                           / BPS as i128).max(1) as i64;
+        let expected_loss_bps = (hazard_bps(trigger_bps, self) as i128
+            * lgd_bps(trigger_bps, self) as i128 / TAIL_FINE as i128) as i64;
+
+        // The price: expected loss plus the cost of the capital consumed.
+        // ⭐ **THE PREMIUM IS THE EXPECTED LOSS AND NOTHING ELSE.**
+        //
+        // The capital leg used to be added here and floored at zero, which made
+        // the pool keep every offsetting position's rebate — `m·RR·O` a year of
+        // over-collection, $835,000 on a balanced $100M book where the pool's
+        // requirement is nil. It is charged through `funding_index` instead,
+        // where it can be PAID as well as taken, so the floor is gone with it.
+        // See `funding_rate_bps`.
+        //
+        // `capital_bps` stays on the profile because it is the allocation that
+        // rate is derived from and the thing to read when asking what a position
+        // consumes; it is simply no longer double-counted into the price.
+        // ⭐ **EXPERIENCE RATING.** The expected loss says what the PRICE is
+        //    likely to do; it cannot say that the people betting on it keep
+        //    being right. Where a side has demonstrably been winning, the fitted
+        //    loss understates what that side costs, and the evidence for by how
+        //    much is the record itself.
+        //
+        //    One-sided by construction: a side that has been LOSING is not
+        //    rebated below the fitted expected loss, because the pool does not
+        //    pay people for having been wrong.
+        //
+        // ⚠️ ADDITIVE, NOT MULTIPLICATIVE, AND THAT IS NOT A STYLE CHOICE.
+        //    `expected_loss_bps` is `hazard × lgd / TAIL_FINE`, and on a warmed
+        //    real ticker the hazard at the trigger distance is small enough that
+        //    the whole product integer-divides to ZERO. A loading expressed as a
+        //    multiple of the expected loss is therefore a multiple of nothing —
+        //    twenty-five consecutive winning shorts moved the price not at all.
+        //    The surcharge has to stand on its own.
+        let long = size >= 0;
+        let premium_bps = expected_loss_bps.saturating_add(self.adverse_bps(long));
+
+        LossProfile { margin_bps, capital_bps, expected_loss_bps,
+                      premium_bps, trigger_bps }
+    }
 }
 
 /// Maximum leverage given current conditions.
@@ -1697,8 +2603,23 @@ pub fn solvency_bps(total_deposits: u64, max_liability: u64) -> i64 {
 /// position's own leverage governs when its band is breached, which is a
 /// different question from how much the pool must hold against it.
 pub fn ticker_reserve_dollars(net_value: u64, s: &Actuary) -> u64 {
-    let collar = collar_bps(100, s).max(0) as u64;
-    ((net_value as u128).saturating_mul(collar as u128) / BPS as u128)
+    // 🔴 THIS READ `collar_bps(100, s)` — AN EXPECTED SHORTFALL — WHERE THE
+    //    §CAPITAL NOTE ABOVE SAYS PLAINLY THAT ES IS RIGHT FOR A PRICE AND
+    //    WRONG FOR A RESERVE: *"margin and reserve want a QUANTILE at the
+    //    pool's confidence, not a conditional mean, and over the horizon the
+    //    pool is actually exposed for rather than a single observation."*
+    //
+    //    The two differ by more than a factor of four on a real ticker — AAPL
+    //    fits ES at 262 bps against a margin of 1,119 — so the pool was holding
+    //    a quarter of what its own model says one adverse move costs. Measured
+    //    on the thousand-borrower run: $3.3M of `max_liability` behind a peak
+    //    net book of $67M, i.e. cover for a 5% move on a book whose worst
+    //    observed overnight gap is 37%.
+    //
+    // The band and the reserve now read the same number, which is the point of
+    // there being one fitted tail.
+    let m = s.margin_bps().max(0) as u64;
+    ((net_value as u128).saturating_mul(m as u128) / BPS as u128)
         .min(u64::MAX as u128) as u64
 }
 
@@ -1721,6 +2642,44 @@ pub fn hazard_rate_bps(distance_bps: i64, collar: i64, amount: i64,
         / (TAIL_FINE as i128 * BPS as i128 * BPS as i128);
     scaled.clamp(0, 50_000) as i64
 }
+
+/// Split a premium into the part the pool keeps and the part that belongs to
+/// whoever is holding the unpopular side.
+///
+/// 🔴 **`crowding_bps` PRICES THE IMBALANCE AND THEN SENDS THE MONEY TO THE
+/// WRONG PLACE.** It charges flow that leans with the book `BPS + lean/2` and
+/// discounts flow that offsets it to `BPS - lean/2` — and the whole premium
+/// lands in `yield_pool`. So the crowd pays DEPOSITORS and the offsetting side
+/// merely pays less. Nobody is paid to show up.
+///
+/// That is a tax, not a funding rate, and the difference decides whether the
+/// book clears itself:
+///
+///   • TAX     — the crowd pays until the fee exceeds their edge. The pool
+///               books revenue and STILL CARRIES the net. The equilibrium
+///               imbalance is whatever the crowd will tolerate paying.
+///   • FUNDING — the crowd pays the OFFSETTING side. Holding the unpopular
+///               side becomes a paid position, so flow arrives until the rate
+///               falls to the cost of capital, and the pool's residual
+///               exposure tends toward zero without the pool funding it.
+///
+/// Perpetual futures solved this exact problem the second way: the venue does
+/// not take the other side, it prices the imbalance until somebody else does.
+/// The magnitude here was already right — only the destination was wrong.
+///
+/// ⚠️ THE POOL DOES NOT LOSE THE REVENUE IT WAS ACTUALLY EARNING. What is
+/// redirected is strictly the CROWDING SURCHARGE — the part of the premium
+/// that exists only because the book is lopsided. Expected loss, the capital
+/// charge and the solvency lift all stay with depositors. A balanced book
+/// redirects nothing, because there is no surcharge to redirect.
+///
+/// 🔴 `split_funding` STOOD HERE AND THE WHOLE SHAPE WAS WRONG. It carved a
+///    "funding half" out of a premium that had just been CHARGED on a trade,
+///    which made funding a toll on flow rather than a carry on time: a position
+///    that crowded the book for a month and never traded paid nothing, and one
+///    that traded twice a day paid twice a day. Funding is now `∫ φ dt` — see
+///    `Actuary::funding_index` — so there is no charge to split and nothing for
+///    this function to do.
 
 /// `util` is drawn/deposits in bps — utilisation, not portfolio concentration.
 /// It was called `conc`, which implied a crowding measure this codebase does
@@ -1797,8 +2756,55 @@ fn fetch_price_inner(ticker: &str,
         return Err(PithyQuip::PriceUncertain.into());
     }
     let conf_mult = 100 + min(100, (conf_ratio_bps * 100 / MAX_CONFIDENCE_BPS) as i64);
-    let adjusted_price = (price as f64) * 10f64.powi(exponent);
-    Ok((adjusted_price as u64, conf_mult))
+
+    // ⚠️ **THE FEED IS TRUNCATED TO WHOLE DOLLARS, AND THAT IS A RESOLUTION
+    //    LIMIT, NOT A ROUNDING ERROR.** Pyth reports an integer mantissa with a
+    //    negative exponent — `-8` for equities — so AAPL at $201.37 arrives as
+    //    20,137,000,000 and the multiply yields 201.37. Dollars elsewhere are
+    //    accounting units at `ACCOUNTING_DECIMALS = 6`, and the scale only
+    //    closes because `exposure` is counted in MICRO-SHARES: micro-shares
+    //    times whole dollars is micro-dollars. So the price has to arrive as a
+    //    whole number, and the finest move this program can see is one dollar
+    //    per share, whatever the share costs:
+    //
+    //        MSTR $1,247.83 → 1247      6 bps
+    //        XOM    $112.49 →  112     43 bps
+    //        F        $9.87 →    9    881 bps
+    //        a $0.85 token   →    0   unopenable
+    //
+    //    `collar_bps` on a liquid name is ~260 bps, so on a mid-priced stock
+    //    the rounding is the same order as the risk band the model computes.
+    //
+    // 🔴 TWO THINGS FIXED HERE; THE THIRD NEEDS A SCALE CHANGE.
+    //
+    //    `as u64` TRUNCATED, so the error was one-sided: every price the system
+    //    ever saw was at or below the market, which biases every notional,
+    //    every collar and every liquidation trigger the same way. Rounding
+    //    halves the worst case and removes the bias.
+    //
+    //    And a price that rounds to ZERO was returned as zero. `repo` refuses
+    //    it, `renege` refuses it, but only after the caller has paid for the
+    //    transaction and learned nothing — and any future path that divides by
+    //    it inherits a live division by zero. It is an unpriceable asset, and
+    //    that is what it should say.
+    //
+    // ⚠️ THE RESOLUTION ITSELF IS UNFIXED. Closing it means giving the price
+    //    six decimals and dividing by 1e6 in the conversion — but `value_at`'s
+    //    own docstring notes the conversion is "written out nine times in two
+    //    spellings", and there are fourteen live sites that multiply or divide
+    //    by `price`. One missed site mis-scales a position by a million. That
+    //    wants centralising first, as a refactor with no behaviour change,
+    //    and it is not a thing to do blind.
+    // ⭐ MICRO-DOLLARS PER SHARE. `Stock::value_at` divides the product back
+    //    down by `PRICE_SCALE`, so the accounting unit is unchanged and the
+    //    resolution is six decimals instead of zero. `price × 10^exp` is at
+    //    most ~1e5 for any real instrument and the scale takes it to ~1e11 —
+    //    an exact integer in f64, three orders inside the 2^53 boundary.
+    let scaled = (price as f64) * 10f64.powi(exponent)
+        * crate::stay::PRICE_SCALE as f64;
+    let adjusted_price = (scaled + 0.5) as u64;
+    require!(adjusted_price > 0, PithyQuip::NoPrice);
+    Ok((adjusted_price, conf_mult))
 }
 
 pub fn fetch_price_with_confidence(ticker: &str,
@@ -4820,8 +5826,13 @@ mod hazard_tests {
         up.last_price = 1_000_000; up.last_price_slot = 0;
         down.last_price = 1_000_000; down.last_price_slot = 0;
 
-        up.update_price(1_050_000, 1);     // +5%
-        down.update_price(950_000, 1);     // -5%
+        // ⚠️ SLOT SPACING IS ONE LADDER WINDOW, NOT ONE SLOT. The session tail
+        //    is sampled on the ladder's clock, so prints closer together than
+        //    `LADDER_WINDOW_SLOTS` refresh price and jumps but do not feed the
+        //    volatility EMA — which is the whole point of the sampling rule and
+        //    would otherwise make this fixture measure nothing.
+        up.update_price(1_050_000, LADDER_WINDOW_SLOTS);     // +5%
+        down.update_price(950_000, LADDER_WINDOW_SLOTS);     // -5%
 
         assert!(down.observed_vol_bps > up.observed_vol_bps,
                 "a negative innovation must raise conditional vol more: {} vs {}",
@@ -4835,7 +5846,8 @@ mod hazard_tests {
         let mut a = actuary(200, 400, 0, 0, 0);
         a.last_price = 1_000_000; a.last_price_slot = 0;
         let before = a.exceed_count;
-        a.update_price(1_100_000, 1);      // +10%, far above one sigma
+        // Spaced one ladder window: the tail is sampled on that clock.
+        a.update_price(1_100_000, LADDER_WINDOW_SLOTS);      // +10%, far above one sigma
         assert_eq!(a.exceed_count, before + 1, "a move past u is an exceedance");
         assert!(a.exceed_sum > 0 && a.exceed_sumsq > 0);
     }
@@ -5157,12 +6169,13 @@ mod premium_path_dependence {
         // A year that is calm for eleven months and violent for one.
         let mut calm = Actuary::default();
         calm.update_price(1_000_000, 0);
-        for s in 1..200 { calm.update_price(1_000_000 + (s % 3) * 50, s); }
+        for s in 1..200 { calm.update_price(1_000_000 + (s % 3) * 50, s * LADDER_WINDOW_SLOTS); }
 
         let mut violent = Actuary::default();
         violent.update_price(1_000_000, 0);
         for s in 1..200 {
-            violent.update_price(if s % 2 == 0 { 1_400_000 } else { 700_000 }, s);
+            violent.update_price(if s % 2 == 0 { 1_400_000 } else { 700_000 },
+                                 s * LADDER_WINDOW_SLOTS);
         }
 
         let calm_rate = rate_bps(5_000, 300, &calm);
@@ -5199,10 +6212,12 @@ mod premium_integral {
             a.update_price(1_000_000, 0);
             a.accrue_premium_index(0, 5_000);
             let mut t = 0i64;
-            for s in 1..40 { t += 60; a.accrue_premium_index(t, 5_000); a.update_price(1_000_000, s); }
+            for s in 1..40 { t += 60; a.accrue_premium_index(t, 5_000);
+                a.update_price(1_000_000, s * LADDER_WINDOW_SLOTS); }
             for s in 40..60 {
                 t += 60; a.accrue_premium_index(t, 5_000);
-                a.update_price(if s % 2 == 0 { 1_400_000 } else { 700_000 }, s);
+                a.update_price(if s % 2 == 0 { 1_400_000 } else { 700_000 },
+                               s * LADDER_WINDOW_SLOTS);
             }
             (a, t)
         };
@@ -5213,7 +6228,8 @@ mod premium_integral {
 
         // The same history, then twenty more quiet observations before settling.
         let (mut calm, mut t) = build();
-        for s in 60..80 { t += 60; calm.accrue_premium_index(t, 5_000); calm.update_price(700_000, s); }
+        for s in 60..80 { t += 60; calm.accrue_premium_index(t, 5_000);
+            calm.update_price(700_000, s * LADDER_WINDOW_SLOTS); }
         let at_calm = calm.premium_index;
 
         // The integral over the shared prefix is identical; only the extra
@@ -5229,8 +6245,469 @@ mod premium_integral {
         quiet.update_price(1_000_000, 0);
         quiet.accrue_premium_index(0, 5_000);
         let mut q = 0i64;
-        for s in 1..60 { q += 60; quiet.accrue_premium_index(q, 5_000); quiet.update_price(1_000_000, s); }
+        for s in 1..60 { q += 60; quiet.accrue_premium_index(q, 5_000);
+            quiet.update_price(1_000_000, s * LADDER_WINDOW_SLOTS); }
         assert!(at_peak > quiet.premium_index,
                 "a violent history must integrate to more than a quiet one");
+    }
+}
+
+#[cfg(test)]
+mod insurance_loading {
+    use super::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
+
+    fn actuary(sigma: i64, net: i64, total: i64) -> Actuary {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3;
+        a.obs_count = 200; a.last_price = 1_000_000;
+        a.net_exposure = net; a.total_exposure = total;
+        a
+    }
+
+    /// 🔴 **THE PREMIUM IS EXPECTED LOSS. AN INSURER NEEDS EXPECTED LOSS PLUS A
+    /// RISK LOAD, OR THE DEPOSITOR IS PLAYING A FAIR GAME AND BEARING ALL THE
+    /// VARIANCE.**
+    ///
+    /// This book is not a lender holding collateral against a worst case — it
+    /// is an INSURER. The soft liquidation is the product: the borrower buys
+    /// time, the pool sells it, and `lgd_bps` is explicitly *"the GPD mean
+    /// excess at the barrier — less what the ladder unwinds while the position
+    /// is being worked off."* The ladder is therefore already paid for, per
+    /// window, by `hazard_rate_bps`. That is the right structure and it is what
+    /// makes borrower-friendliness compatible with depositor profitability:
+    /// unlike Curve's LLAMMA, where the cost of softness leaks to whoever
+    /// arbitrages the bands, here it is priced by the Actuary and captured by
+    /// the pool.
+    ///
+    /// But `hazard_rate_bps` is `intensity x lgd`, scaled by `crowding_bps` and
+    /// `solvency_bps`. Intensity x LGD IS the expected loss. So the load — the
+    /// margin above expected loss that pays a depositor for VARIANCE rather
+    /// than for mean — comes entirely from those two multipliers, and both of
+    /// them are 1.0 on a balanced book in an empty pool.
+    ///
+    /// ⇒ At low utilisation with two-sided flow, the depositor is paid exactly
+    /// their expected loss and earns nothing for the risk. Profitability
+    /// arrives only once the book is crowded or the pool is nearly full —
+    /// which are the conditions the pool would rather not be in.
+    #[test]
+    fn the_risk_load_is_one_on_a_balanced_book_in_an_empty_pool() {
+        // Two-sided flow, so nobody is leaning: crowding is neutral.
+        let balanced = actuary(220, 0, 1_000_000);
+        assert_eq!(crowding_bps(&balanced, 100), BPS,
+            "a balanced book carries no crowding load");
+
+        // Barely-used pool: solvency multiplier at its floor.
+        assert_eq!(solvency_bps(1_000_000, 0), BPS,
+            "an empty pool carries no solvency load");
+
+        // So the whole premium is intensity x lgd — expected loss, no margin.
+        let collar = collar_bps(100, &balanced);
+        let priced = hazard_rate_bps(200, collar, 100, &balanced, 1_000_000, 0);
+        let pure_expected_loss = (hazard_bps(200, &balanced) as i128
+            * lgd_bps(collar, &balanced) as i128 / TAIL_FINE as i128) as i64;
+
+        println!("\n=== the load, on a book nobody is leaning on ===");
+        println!("  crowding multiplier   {} bps (1.0x)", crowding_bps(&balanced, 100));
+        println!("  solvency multiplier   {} bps (1.0x)", solvency_bps(1_000_000, 0));
+        println!("  premium charged       {} bps", priced);
+        println!("  pure expected loss    {} bps", pure_expected_loss);
+        println!("  LOAD ABOVE EXPECTED   {} bps", priced - pure_expected_loss);
+
+        assert_eq!(priced, pure_expected_loss,
+            "REGRESSION GUARD: the premium equals expected loss exactly, so the \\
+             depositor earns nothing for variance. If this now differs, a risk \\
+             load has been added and this test should be inverted.");
+
+        // ...and where the load DOES come from, for contrast.
+        let crowded = actuary(220, 900_000, 1_000_000);
+        println!("\n  crowded, same side    {} bps", crowding_bps(&crowded, 100));
+        println!("  pool near capacity    {} bps", solvency_bps(1_000_000, 1_000_000));
+    }
+}
+
+#[cfg(test)]
+mod capital_pricing {
+    use super::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
+
+    fn actuary(sigma: i64, net: i64, total: i64) -> Actuary {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3;
+        a.obs_count = 200; a.last_price = 1_000_000;
+        a.net_exposure = net; a.total_exposure = total;
+        a
+    }
+
+    /// The four quantities come off ONE tail, so they have to be mutually
+    /// coherent. These are the relations that make the object meaningful
+    /// rather than four numbers in a struct.
+    #[test]
+    fn the_four_quantities_are_coherent() {
+        for sigma in [80i64, 220, 600, 1_200] {
+            let a = actuary(sigma, 0, 1_000_000);
+            let p = a.loss_profile(100_000, 0);
+
+            // Margin spans the unwind; the trigger is a one-observation move.
+            // A trigger at or past the margin would mean acting only once the
+            // pledge is already gone.
+            assert!(p.trigger_bps < p.margin_bps,
+                "sigma {sigma}: trigger {} must fire before margin {} is spent",
+                p.trigger_bps, p.margin_bps);
+
+            // A fresh position on a flat book IS the whole net, so it consumes
+            // its full margin as capital.
+            assert_eq!(p.capital_bps, p.margin_bps,
+                "sigma {sigma}: a position that creates the net carries all of it");
+
+            // ⭐ THE PREMIUM IS THE EXPECTED LOSS, AND THE LOAD IS CHARGED
+            //    SOMEWHERE ELSE ON PURPOSE. This assertion used to read
+            //    `premium_bps > expected_loss_bps` — the capital leg was added
+            //    into the price and floored at zero, which meant the pool kept
+            //    every offsetting position's rebate. The load now runs through
+            //    `funding_index`, where it can be PAID as well as taken, so the
+            //    total cost of carrying a position is the premium plus that
+            //    rate, and only the premium is a per-position charge.
+            assert_eq!(p.premium_bps, p.expected_loss_bps,
+                "sigma {sigma}: the premium is the expected loss; the capital \
+                 load belongs to the signed rate, not to this number");
+            // And the load is real, on the side that consumes the capital.
+            let mut lean = a.clone();
+            lean.net_exposure = 1_000_000; lean.total_exposure = 1_000_000;
+            assert!(funding_rate_bps(&lean) > 0,
+                "sigma {sigma}: a one-sided book must charge for its capital");
+
+            // Leverage is the reciprocal of margin, never declared.
+            assert_eq!(p.max_leverage_pct(), (BPS * 100 / p.margin_bps).max(100));
+        }
+    }
+
+    /// ⭐ Offsetting flow RELEASES capital and is rebated for it. Crowding is
+    /// not posited anywhere — it falls out of what the position does to the
+    /// book's net.
+    ///
+    /// 🔴 THIS TEST USED TO ASSERT `offsetting.capital_bps == 0`, which was the
+    ///    clamp rather than the economics. Under Euler allocation a position
+    ///    that reduces `|net|` carries a NEGATIVE allocation, and it has to:
+    ///    without it the parts do not sum to the whole. On a six-position book
+    ///    the clamped form allocated 50% more capital than existed, all of it
+    ///    charged to the two positions that were removing risk.
+    #[test]
+    fn offsetting_flow_is_rebated_not_merely_spared() {
+        let a = actuary(220, 900_000, 1_000_000);
+        let adding = a.loss_profile(100_000, 900_000);
+        let offsetting = a.loss_profile(-100_000, 900_000);
+        let rate = funding_rate_bps(&a);
+
+        println!("\n  book leans +900k of 1m gross, capital rate {rate} bps/yr");
+        println!("    adding     capital {:>6} bps  premium {:>5} bps",
+                 adding.capital_bps, adding.premium_bps);
+        println!("    offsetting capital {:>6} bps  premium {:>5} bps",
+                 offsetting.capital_bps, offsetting.premium_bps);
+
+        assert!(adding.capital_bps > 0, "adding to a lean consumes capital");
+        assert_eq!(offsetting.capital_bps, -adding.capital_bps,
+            "the allocation is the derivative times the position: equal and opposite");
+
+        // ⭐ THE PRICE IS NOW THE SAME FOR BOTH — the expected loss, which each
+        //    owes on its own account — and the difference between them is
+        //    carried by the SIGNED RATE, which is what lets the offsetting side
+        //    actually be paid instead of merely spared.
+        assert_eq!(adding.premium_bps, offsetting.premium_bps,
+            "the premium is per-position; it is not where the imbalance is priced");
+        assert!(rate > 0, "a long-leaning book charges longs");
+
+        // ⭐ FULL ALLOCATION: the pool collects exactly its requirement, at any
+        //    lean, because the per-unit rate is symmetric. `k·C − k·O = k·|net|`.
+        let k = a.margin_bps() * REQUIRED_RETURN_BPS / BPS;
+        for lean_pct in [0i128, 10, 50, 100] {
+            let total: i128 = 1_000_000;
+            let net = total * lean_pct / 100;
+            let (c, o) = ((total + net) / 2, (total - net) / 2);
+            assert_eq!(k as i128 * c / BPS as i128 - k as i128 * o / BPS as i128,
+                       k as i128 * net / BPS as i128,
+                "lean {lean_pct}%: a symmetric rate must recover exactly");
+        }
+
+        // And it tapers rather than flipping at full magnitude across flat.
+        let mut flat = a.clone(); flat.net_exposure = 0;
+        assert_eq!(funding_rate_bps(&flat), 0, "a flat book charges nobody");
+        let mut tiny = a.clone(); tiny.net_exposure = 1_000;   // 0.1% lean
+        assert!(funding_rate_bps(&tiny).abs() < k / 4,
+            "inside the deadband the rate is a taper, not a step");
+    }
+
+    /// Leverage self-tightens as the tail fattens, with no governance action —
+    /// which is what `max_leverage_pct` reached for and could not express while
+    /// the margin bound was `pledged + collar_amt`.
+    #[test]
+    fn leverage_falls_out_of_the_tail_and_tightens_in_stress() {
+        let mut last = i64::MAX;
+        println!("\n=== derived leverage by regime ===");
+        for sigma in [80i64, 220, 600, 1_200] {
+            let a = actuary(sigma, 0, 1_000_000);
+            let p = a.loss_profile(100_000, 0);
+            println!("  sigma {:>5}  margin {:>5} bps  capital charge {:>4} bps/yr  \
+                      max lev {:>6}x", sigma, p.margin_bps,
+                     p.premium_bps - p.expected_loss_bps,
+                     p.max_leverage_pct() as f64 / 100.0);
+            assert!(p.max_leverage_pct() <= last,
+                "a fatter tail must never permit MORE leverage");
+            last = p.max_leverage_pct();
+        }
+    }
+
+    /// The margin horizon comes from the LADDER, not a calendar. `sqrt(1/2r)`
+    /// is the exposure a geometrically-decaying unwind creates, so the only
+    /// lever on it is how fast the ladder runs.
+    #[test]
+    fn the_margin_horizon_is_the_ladder_not_a_chosen_calendar() {
+        let a = actuary(220, 0, 1_000_000);
+        let p = a.loss_profile(100_000, 0);
+        let one_print = a.quantile_bps(INSOLVENCY_TARGET_BPS);
+
+        println!("\n  one-print quantile {} bps | unwind exposure {}x | margin {} bps",
+                 one_print, unwind_exposure_x100() as f64 / 100.0, p.margin_bps);
+        assert!(p.margin_bps > one_print,
+            "carrying a decaying position must demand more than one print does");
+        // And a faster ladder demands less margin — the trade is explicit.
+        assert!(unwind_exposure_x100() > 100,
+            "a ladder that unwinds instantly would need no horizon scaling");
+    }
+}
+
+#[cfg(test)]
+mod capital_sensitivity {
+    use super::*;
+    use core::cmp::{max, min};
+    use anchor_lang::prelude::Pubkey;
+
+    fn actuary(sigma: i64) -> Actuary {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3;
+        a.obs_count = 200; a.last_price = 1_000_000;
+        a.net_exposure = 0; a.total_exposure = 1_000_000;
+        a
+    }
+
+    /// ⚠️ **THE STRUCTURE IS DEFENSIBLE. THE CALIBRATION IS NOT — YET.**
+    ///
+    /// `loss_profile` now has ONE free parameter left, `INSOLVENCY_TARGET_BPS`
+    /// (why 1%?), after a sweep exposed the second as spurious — see
+    /// `unwind_exposure_x100`. This sweeps what remains, and the ladder speed
+    /// that now carries the horizon.
+    ///
+    /// A normal-vol ticker landing near a wanted answer deserves suspicion
+    /// rather than satisfaction, so the point of this test is to show how much
+    /// of that is the constants.
+    #[test]
+    fn how_much_of_the_answer_is_the_free_parameters() {
+        let a = actuary(220);
+        println!("\n=== derived leverage vs what is still unjustified ===");
+        println!("  (sigma 220 — an ordinary large cap)");
+        println!("  {:>12} {:>12}", "insolvency", "max lev");
+        let mut levs = Vec::new();
+        for eps in [1_000i64, 500, 100, 10, 1] {
+            let q1 = a.quantile_bps(eps).max(1);
+            let margin = (q1 as i128 * unwind_exposure_x100() as i128 / 100)
+                .clamp(1, BPS as i128) as i64;
+            let lev = BPS * 100 / margin;
+            levs.push(lev);
+            println!("  {:>11}bps {:>11}x", eps, lev as f64 / 100.0);
+        }
+        println!("\n  {:>12} {:>14} {:>12}", "tranche bps", "unwind expo", "max lev");
+        for tranche in [185i64, 500, 1_000, 2_000, 4_000] {
+            let inv = BPS * 10_000 / (2 * tranche);
+            let mut r = inv.max(1); let mut y = (r + 1) / 2;
+            while y < r { r = y; y = (r + inv / r.max(1)) / 2; }
+            let q1 = a.quantile_bps(INSOLVENCY_TARGET_BPS).max(1);
+            let margin = (q1 as i128 * r as i128 / 100).clamp(1, BPS as i128) as i64;
+            println!("  {:>12} {:>13}x {:>11}x", tranche, r as f64 / 100.0,
+                     (BPS * 100 / margin) as f64 / 100.0);
+        }
+        println!("  (shipped: insolvency {} bps, tranche {} bps)",
+                 INSOLVENCY_TARGET_BPS, MAX_TRANCHE_BPS);
+
+        // ⚠️ THE SOLVENCY TARGET BARELY MOVES THE ANSWER, AND THAT IS ITSELF A
+        //    FINDING RATHER THAN A COMFORT. A hundred-fold change in tolerated
+        //    ruin probability should move a FAT-tailed quantile a long way. It
+        //    does not, which says the fitted tail is thin in this region or
+        //    `quantile_bps`'s bisection is bounded before it gets there —
+        //    either way the number is not yet carrying the meaning its name
+        //    claims, and calibrating against it would be calibrating against
+        //    an artefact.
+        let spread = levs.iter().max().unwrap() * 100 / levs.iter().min().unwrap().max(&1);
+        println!("  spread across 1000x of solvency target: {}%", spread);
+        assert!(spread < 200,
+            "REGRESSION GUARD: the target is currently near-inert ({spread}% \
+             spread). If it now moves the answer properly, `quantile_bps` has \
+             been fixed or the tail refitted, and this note is stale.");
+    }
+
+    /// ⚠️ **AND THE SQRT-TIME SCALING IS OPTIMISTIC BY CONSTRUCTION.**
+    ///
+    /// `loss_profile` scales one-print risk to the unwind by sqrt(N), which is
+    /// the random-walk answer. `returns.rs` models this book's own asset class
+    /// as GARCH(1,1) with beta = 0.90 — near-unit persistence, i.e. volatility
+    /// CLUSTERS. Under clustering, multi-period risk grows faster than sqrt(t),
+    /// so the margin this produces is a floor, not an estimate.
+    ///
+    /// Recorded rather than corrected: the fix is to scale by the fitted
+    /// persistence instead of by sqrt, and that is a modelling decision with
+    /// its own calibration, not a constant to edit.
+    #[test]
+    fn sqrt_time_understates_a_clustering_tail() {
+        // GARCH persistence from returns.rs: alpha 0.08 + beta 0.90 = 0.98.
+        const PERSISTENCE_BPS: i64 = 9_800;
+        assert!(PERSISTENCE_BPS > 9_000,
+            "near-unit persistence is what makes sqrt-time a floor");
+        let a = actuary(220);
+        let sqrt_scaled = a.loss_profile(100_000, 0).margin_bps;
+        println!("\n  margin under sqrt-time: {} bps — a FLOOR, not an estimate,",
+                 sqrt_scaled);
+        println!("  because GARCH beta = 0.90 in this book's own return model.");
+    }
+}
+
+#[cfg(test)]
+mod funding_rate {
+    use super::*;
+    use anchor_lang::prelude::Pubkey;
+
+    fn risk(sigma: i64, net: i64, total: i64) -> TickerRisk {
+        let mut a = Actuary::default();
+        a.observed_vol_bps = sigma; a.max_drawdown_bps = sigma * 3;
+        a.obs_count = 200; a.last_price = 1_000_000;
+        a.net_exposure = net; a.total_exposure = total;
+        TickerRisk { ticker: [0u8; 8], actuary: a, bump: 0, reserved: 0, funding_pot: 0 }
+    }
+
+    /// A balanced book funds nobody. The mechanism must be invisible until the
+    /// book leans, in either direction.
+    #[test]
+    fn a_balanced_book_funds_nobody() {
+        let mut r = risk(220, 0, 1_000_000);
+        r.actuary.accrue_premium_index(1, 5_000);
+        r.actuary.accrue_premium_index(1 + SECONDS_PER_YEAR, 5_000);
+        assert_eq!(funding_rate_bps(&r.actuary), 0, "no lean, no rate");
+        assert_eq!(r.actuary.funding_index, 0, "and the integral does not move");
+        assert_eq!(r.funding_owed(-50_000, 0).0, 0);
+        assert_eq!(r.funding_owed(50_000, 0).0, 0);
+    }
+
+    /// ⭐ THE SIGN IS THE WHOLE MECHANISM. One integral, and which side pays is
+    /// read off the sign of the position's own exposure.
+    #[test]
+    fn the_crowded_side_pays_and_the_other_side_is_paid() {
+        let mut r = risk(220, 900_000, 1_000_000);   // 90% long
+        r.actuary.accrue_premium_index(1, 5_000);
+        r.actuary.accrue_premium_index(1 + SECONDS_PER_YEAR, 5_000);
+
+        let rate = funding_rate_bps(&r.actuary);
+        assert!(rate > 0, "a long-leaning book must charge longs");
+        assert!(r.actuary.funding_index > 0);
+
+        let (long_owed, _)  = r.funding_owed( 100_000, 0);
+        let (short_owed, _) = r.funding_owed(-100_000, 0);
+        println!("\n  lean 90% long, one year: rate {rate} bps/yr");
+        println!("    long  100k → {long_owed}");
+        println!("    short 100k → {short_owed}");
+        assert!(long_owed < 0, "the crowded side pays");
+        assert!(short_owed > 0, "the offsetting side is paid");
+        assert_eq!(long_owed, -short_owed, "same rate, opposite sign");
+    }
+
+    /// 🔴 THE PROPERTY THE OLD TWO-INDEX SCHEME COULD NOT EXPRESS, AND WHOSE
+    ///    ABSENCE ITS DOCSTRING MISTOOK FOR A REASON TO HAVE TWO: *"one
+    ///    accumulator cannot represent 'longs were owed for a week, then shorts
+    ///    were' without a position having to know which era each part of its
+    ///    claim came from."*
+    ///
+    ///    It can. The position knows nothing about eras; the integral does.
+    #[test]
+    fn a_book_that_flips_sides_settles_correctly_without_eras() {
+        let mut r = risk(220, 800_000, 1_000_000);          // long-heavy
+        r.actuary.accrue_premium_index(1, 5_000);
+        let half = 1 + SECONDS_PER_YEAR / 2;
+        r.actuary.accrue_premium_index(half, 5_000);
+        let after_long_era = r.actuary.funding_index;
+        assert!(after_long_era > 0);
+
+        // The book flips: now short-heavy for the second half.
+        r.actuary.net_exposure = -800_000;
+        r.actuary.accrue_premium_index(1 + SECONDS_PER_YEAR, 5_000);
+        println!("\n  Φ after long era {}, after the flip {}",
+                 after_long_era, r.actuary.funding_index);
+        assert!(r.actuary.funding_index.abs() < after_long_era.abs() / 100,
+            "equal and opposite eras must very nearly cancel");
+
+        // A long held across BOTH eras paid in the first and was paid in the
+        // second, and comes out square — with no record of when either was.
+        let (owed, _) = r.funding_owed(100_000, 0);
+        assert!(owed.abs() < 10, "held through both eras, owes ~nothing: {owed}");
+    }
+
+    /// ⭐ A ONE-SIDED BOOK NEEDS NO SPECIAL CASE ANY MORE. With no shorts the
+    /// residual `ΔΦ · net` IS the whole amount, and it lands on the pool because
+    /// the pool is the counterparty to the net. The old code had to detect this
+    /// and hand the money back to the caller.
+    #[test]
+    fn a_one_sided_book_pays_the_pool_without_a_special_case() {
+        let mut r = risk(220, 1_000_000, 1_000_000);        // every unit long
+        r.actuary.accrue_premium_index(1, 5_000);
+        r.actuary.accrue_premium_index(1 + SECONDS_PER_YEAR, 5_000);
+        // A fully one-sided book pays the required return ON THE CAPITAL its
+        // imbalance consumes — `margin × REQUIRED_RETURN` — not on the whole
+        // notional. The two differ by the margin fraction, which is the
+        // dimensional error `funding_rate_bps` used to carry.
+        assert_eq!(funding_rate_bps(&r.actuary),
+            r.actuary.margin_bps() * REQUIRED_RETURN_BPS / BPS,
+            "a one-sided book pays the required return on the capital it uses");
+
+        // Everything the longs pay is the residual, because there is no
+        // other side to receive it.
+        let (paid_by_longs, _) = r.funding_owed(1_000_000, 0);
+        let residual = -(r.actuary.get_net() as i128 * r.actuary.funding_index
+                         / (BPS as i128 * SECONDS_PER_YEAR as i128)) as i64;
+        assert_eq!(paid_by_longs, residual,
+            "with no counterparty the whole charge is the pool's");
+        assert!(paid_by_longs < 0);
+    }
+
+    /// Claiming is idempotent — the checkpoint moves with the payment.
+    #[test]
+    fn claiming_funding_twice_pays_once() {
+        let mut r = risk(220, 900_000, 1_000_000);
+        r.actuary.accrue_premium_index(1, 5_000);
+        r.actuary.accrue_premium_index(1 + SECONDS_PER_YEAR, 5_000);
+        let (first, cp) = r.funding_owed(-50_000, 0);
+        let (second, _) = r.funding_owed(-50_000, cp);
+        assert!(first > 0);
+        assert_eq!(second, 0, "the checkpoint absorbs the claim");
+    }
+
+    /// ⭐ FUNDING IS NOW A CARRY, NOT A TOLL. The old `accrue_funding` had one
+    /// call site, inside an exposure change, so crowding the book cost nothing
+    /// unless you traded. Time alone must move it.
+    #[test]
+    fn funding_accrues_on_time_not_on_transactions() {
+        let mut quiet = risk(220, 900_000, 1_000_000);
+        quiet.actuary.accrue_premium_index(1, 5_000);
+        quiet.actuary.accrue_premium_index(1 + SECONDS_PER_YEAR, 5_000);
+
+        let mut busy = risk(220, 900_000, 1_000_000);
+        busy.actuary.accrue_premium_index(1, 5_000);
+        for k in 1..=365 {
+            busy.actuary.accrue_premium_index(1 + k * SECONDS_PER_YEAR / 365, 5_000);
+        }
+        println!("\n  one settlement over a year : Φ = {}", quiet.actuary.funding_index);
+        println!("  365 settlements, same year : Φ = {}", busy.actuary.funding_index);
+        let (a, _) = quiet.funding_owed(100_000, 0);
+        let (b, _) = busy.funding_owed(100_000, 0);
+        assert!((a - b).abs() <= a.abs() / 100 + 1,
+            "a year costs a year whoever touched it: {a} vs {b}");
+        assert!(a < 0, "and it costs something");
     }
 }

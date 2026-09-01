@@ -26,7 +26,7 @@ use crate::entra::{transfer_from_vaults, ProgramConfig, SOL_POOL_SEED, NativeLeg
 /// its NET book. Called after `record_activity` has moved `net_exposure`, and
 /// it is the only writer of `max_liability` outside the per-pod band update —
 /// so the reserve reflects what the pool is actually short.
-fn reconcile_ticker_reserve(risk: &mut TickerRisk, bank: &mut Depository) {
+pub(crate) fn reconcile_ticker_reserve(risk: &mut TickerRisk, bank: &mut Depository) {
     let net = risk.actuary.get_net().unsigned_abs();
     let target = crate::etc::ticker_reserve_dollars(net, &risk.actuary);
     bank.max_liability = bank.max_liability
@@ -103,8 +103,21 @@ pub fn amortise(ctx: Context<Liquidate>, ticker: String) -> Result<()> {
     // Integrate the interval at the rate that ran over it, before the new
     // observation changes that rate.
     risk.actuary.accrue_premium_index(right_now, Banks.utilisation_bps());
-    risk.actuary.update_price(adjusted_price as i64, slot);
+    // 🔴 **THE GUARD USED TO RUN AFTER THE UPDATE, WHICH IS TO SAY AGAINST AN
+    //    AVERAGE THE PRICE BEING CHECKED HAD ALREADY MOVED.** `update_price`
+    //    carries `twap_price` toward the incoming price by `twap_alpha_bps(dt)`,
+    //    and that weight is asymptotic to 1 in elapsed time — correctly, a
+    //    window with no observations in it has nothing to average. So on a
+    //    ticker nobody had touched for a few hours the update set the mean to
+    //    the incoming price and the check then measured that price against
+    //    itself. Measured with a 40% push: rejected against the untouched
+    //    average, ACCEPTED after the update, for every gap of four hours or
+    //    more. The defence was weakest exactly where manipulation is cheapest.
+    //
+    // Checked first, so a rejected price never reaches the TWAP, the tail fit
+    // or the exposures either.
     risk.actuary.check_twap_deviation(adjusted_price as i64)?;
+    risk.actuary.update_price(adjusted_price as i64, slot);
     let mut time_delta = right_now - customer.last_updated;
     customer.deposit_seconds += (customer.deposited_quid as u128)
                                            * (time_delta as u128);
@@ -125,9 +138,8 @@ pub fn amortise(ctx: Context<Liquidate>, ticker: String) -> Result<()> {
 
     let (prior_exposure, _leverage) = if let Some(p) = pos {
         let l = if p.pledged > 0 {
-            ((p.exposure.abs() as u128) *
-               (adjusted_price as u128) * 100 /
-                    (p.pledged as u128)) as i64
+            (units_value(p.exposure.unsigned_abs(), adjusted_price) as u128
+                * 100 / (p.pledged as u128)) as i64
         } else { 100 };
         (p.exposure, l)
     } else { (0, 100) };
@@ -458,7 +470,45 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
         let t: &str = ticker.as_str();
         if !exposure { // < withdraw pledged from specific ticker (no exposure change)
             require!(amount < 0, PithyQuip::InvalidAmount);
-            customer.renege(Some(t), amount, None, right_now)?;
+            // 🔴 **THIS PASSED `None` FOR PRICES AND THEN TRANSFERRED THE
+            //    REQUEST RATHER THAN THE RELEASE. TWO FAULTS, AND THE FIRST WAS
+            //    THE ONLY THING HOLDING THE SECOND SHUT.**
+            //
+            //    `renege`'s per-ticker branch BOUNDS the release by the band —
+            //    `amount = max.max(amount)` for a short, the mirror for a long —
+            //    debits `pledged` by the clamped figure, then sets `amount = 0`
+            //    and returns that. The caller cannot learn it was clamped. The
+            //    `transfer_from_vaults` below then sent `(-amount)`: the number
+            //    the borrower ASKED for.
+            //
+            //    Measured on a live position: a request to withdraw the whole
+            //    pledge debited 48,388,180 of 2,000,000,000 at 1x and NOTHING AT
+            //    ALL at 3x or above, on either side — while the vault would have
+            //    paid out the full 2,000,000,000 every time. That difference
+            //    comes out of every other depositor, on a path any borrower can
+            //    call, repeatably.
+            //
+            //    It is not reachable today, and only by accident: `renege`
+            //    refuses with `NoPrice` when `pod.exposure != 0 && price == 0`,
+            //    so passing `None` aborts. Which means per-ticker collateral
+            //    withdrawal against an OPEN position does not work at all — a
+            //    broken feature standing in for a guard. Supply the price to fix
+            //    the feature and the over-payment goes live.
+            //
+            // So: supply the price the sibling branch already fetches from the
+            // same `remaining_accounts`, and pay out what the pledge actually
+            // gave up rather than what was asked for.
+            let prices = fetch_multiple_prices(&customer.balances,
+                ctx.remaining_accounts)?;
+            let padded = Depositor::pad_ticker(t);
+            let before = customer.balances.iter()
+                .find(|p| p.ticker == padded).map_or(0u64, |p| p.pledged);
+            customer.renege(Some(t), amount, Some(&prices), right_now)?;
+            let after = customer.balances.iter()
+                .find(|p| p.ticker == padded).map_or(0u64, |p| p.pledged);
+            let released = before.saturating_sub(after);
+            require!(released > 0, PithyQuip::Undercollateralised);
+            let amount = -(released.min(i64::MAX as u64) as i64);
             // Pro rata across the vaults, as everywhere else: `renege` worked
             // in accounting units and the claim is asset-agnostic, so a single
             // vault could refuse a withdrawal the pool as a whole can cover.
@@ -482,8 +532,9 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
             }
             let adjusted_price = fetch_price(t, Some(first))?;
             risk.actuary.accrue_premium_index(right_now, Banks.utilisation_bps());
-            risk.actuary.update_price(adjusted_price as i64, slot);
+            // Checked before the update — see the note in `handle_in`.
             risk.actuary.check_twap_deviation(adjusted_price as i64)?;
+            risk.actuary.update_price(adjusted_price as i64, slot);
             let pos = customer.balances.iter().find(|p|
                 std::str::from_utf8(&p.ticker).unwrap()
                 .trim_end_matches('\0') == t)
@@ -495,9 +546,8 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
             } else { 100 };
             // Same barrier distance the carry prices against, so the entry
             // prepayment and the running charge cannot disagree.
-            let exposure_value = (prior_exposure.unsigned_abs() as u128)
-                .saturating_mul(adjusted_price as u128)
-                .min(u64::MAX as u128) as u64;
+            let exposure_value = units_value(prior_exposure.unsigned_abs(),
+                                             adjusted_price);
             let collar_now = crate::etc::collar_bps(leverage, &risk.actuary);
             let barrier = collar_notional(exposure_value, pre_pledged)
                 .saturating_add(collar_notional(exposure_value, pre_pledged)
@@ -517,8 +567,25 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
             // that drops the vault. This makes clutch a thin invariant-preserving
             // shell over repo's pod/dq mutations.
             let pre_dq = customer.deposited_quid;
+            let pre_realized = customer.realized_pnl;
+            // ⭐ FUNDING, BEFORE AND AFTER. Settle what this pod is owed for
+            //    holding the unpopular side first — its checkpoint has to move
+            //    on the exposure it actually held — then route this charge's
+            //    crowding surcharge to whoever is on the other side now.
+            //
+            //    `repo` takes the actuary immutably, so the index is advanced
+            //    here, at the call site that owns the risk account.
+            customer.settle_funding(t, risk, adjusted_price);
             let (delta, interest) = customer.repo(t, amount,
             adjusted_price, right_now, slot, &risk.actuary, Banks)?;
+            // ⭐ NOTHING FOLLOWS THE CALL ANY MORE. Funding used to be carved
+            //    out of `interest` here and pushed into a per-side index, which
+            //    made it a toll on this transaction rather than a carry on the
+            //    interval. It now accrues in `accrue_premium_index` over `dt`,
+            //    is claimed by `settle_funding` above, and the residual the book
+            //    does not net reaches the pool as the counterparty to the net —
+            //    all without anybody having to be told a trade happened.
+            let _ = prior_exposure;
 
             // Post-call snapshot. Position may have been zeroed out by all-in TP;
             // treat absent pod as exposure=0, pledged=0.
@@ -626,11 +693,21 @@ pub fn handle_out<'info>(ctx: Context<'_, '_,
                     .saturating_sub(loss - from_yield);
             }
             // `amount` is in asset units here; the risk state is dollars.
-            let value_delta = (amount as i128)
-                .saturating_mul(adjusted_price as i128)
-                .clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+            let value_delta = units_value_i(amount, adjusted_price);
             risk.actuary.record_activity(prior_exposure, value_delta,
                 slot, value_delta.abs(), Banks.total_deposits as i64);
+            // ⭐ **AND WHAT THE BORROWER ACTUALLY MADE, WHICH IS A DIFFERENT
+            //    FACT FROM WHAT THE PRICE DID.** Read off `realized_pnl` the way
+            //    every other figure here is read — from snapshots either side of
+            //    the call — because `repo` has no room left in its return for it.
+            //    A side that keeps being right is priced for it; see
+            //    `Actuary::record_outcome`.
+            let realised = customer.realized_pnl.saturating_sub(pre_realized);
+            if realised != 0 {
+                risk.actuary.record_outcome(realised,
+                    units_value(prior_exposure.unsigned_abs(), adjusted_price),
+                    prior_exposure > 0);
+            }
             reconcile_ticker_reserve(risk, Banks);
         }
     } Ok(())
@@ -907,7 +984,11 @@ pub fn handle_flash_repay<'info>(ctx: Context<'_, '_, '_, 'info,
         // parked tranche's backing on every SOL flash loan.
         let restored = collar_adjusted_usd(credited_lamports(bank), sol_price,
                                           &ctx.accounts.sol_risk.actuary);
-        bank.total_deposits = bank.total_deposits.saturating_add(restored);
+        // The matching half of the leftover removed in `flash_borrow`: this
+        // added the re-mark back into `total_deposits`, which is a dollar
+        // balance a SOL flash loan must never move. See the note there — the
+        // pair was neutral only when the two marks agreed, and minted dollar
+        // claims whenever the borrow leg had saturated at zero.
         bank.sol_usd_contrib = restored;
 
         // ⭐ THE TIP IS THE SOL DEPOSITORS' — it is rent on THEIR lamports, held
@@ -997,8 +1078,9 @@ pub fn handle_sweep<'info>(ctx: Context<'_, '_, 'info, 'info, Sweep<'info>>,
     let util = ctx.accounts.bank.utilisation_bps();
     let risk = &mut ctx.accounts.ticker_risk;
     risk.actuary.accrue_premium_index(now, util);
-    risk.actuary.update_price(price as i64, slot);
+    // Checked before the update — see the note in `handle_in`.
     risk.actuary.check_twap_deviation(price as i64)?;
+    risk.actuary.update_price(price as i64, slot);
 
     let bank = &mut ctx.accounts.bank;
     let elapsed = now.saturating_sub(bank.last_updated);
@@ -1024,8 +1106,28 @@ pub fn handle_sweep<'info>(ctx: Context<'_, '_, 'info, 'info, Sweep<'info>>,
         if expected != info.key() { continue; }
 
         let before = customer.deposited_quid;
+        // ⭐ **CLAIM FUNDING BEFORE JUDGING THE PLEDGE.** `handle_out` settles it
+        //    on the exposure path; this path did not, and once funding became
+        //    `∫ φ dt` rather than a toll charged at trade time that turned into
+        //    a real discrepancy: a position that never trades accrues funding
+        //    continuously, and the sweep — the path that actually LIQUIDATES —
+        //    was reading a pledge that had absorbed none of it. The crowded side
+        //    got a ladder that was too slow to start and the offsetting side one
+        //    that was too quick, both by exactly the funding they had not been
+        //    charged or paid.
+        customer.settle_funding(t, risk, price);
         match customer.repo(t, 0, price, now, slot, &risk.actuary, bank) {
-            Ok((delta, interest)) if delta != 0 => {
+            // ⭐ **`delta != 0` ALONE WAS NOT ENOUGH TO DECIDE WHETHER TO WRITE.**
+            //    A sweep that finds a position newly in breach moves no value —
+            //    the grace has not elapsed, so no tranche is taken — but it does
+            //    start the Parisian clock, and dropping that write is what made
+            //    the ladder unreachable. See the note in `unwind_a_tranche`.
+            //    A position that is genuinely healthy still falls through to
+            //    `continue`, so nothing is written and the premium `repo`
+            //    deducted on the way past is rolled back with it, exactly as
+            //    before.
+            Ok((delta, interest)) if delta != 0 || customer.balances.iter()
+                    .any(|p| p.ticker == Depositor::pad_ticker(t) && p.breached_at != 0) => {
                 let cut = (delta.unsigned_abs()) / 250;
                 bank.yield_pool = bank.yield_pool.saturating_add(interest);
                 if delta < 0 {
