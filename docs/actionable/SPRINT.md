@@ -50187,3 +50187,933 @@ the basket/IL internals beyond the delivery boundary.
 - **In-flight deposits across a `BTC_DEPOSIT_KEY` rotation** (§BTC-4.4).
 - **Does the LN initiator role imply sending the MuSig2 pubnonce first?** (§BTC-2.2) Not read in the fork.
 - **Does a shard-shared freshness UTXO compose with per-channel atomicity?** (§BTC-2.4b.1)
+
+---
+
+# 💧 §PASSIVE-LP-2026-09-05 — **THE PASSIVE-LP SURFACE, FOLDED IN**
+
+**Owner-supplied 2026-09-05 as an agenda for this file.** Range geometry, θ, the skew as the LP's
+compensation, and the registers that measure whether any of it worked.
+**Already tracked here, not restated:** `§E278`/`§E352` (σ²=0 sentinel), `§E279` (double-charge),
+`§E222`/`§E345`/`§AUDIT-PUSHOBS` (σ² source), `§E274` (Γ), `§E79-SPEC`→`§E93` (LVR sim),
+`§E136-skew` (the target cluster), `§UNIT-C-DISAMBIG` (refill trichotomy), `§M.1`
+(`deleverEthOnDelivery` fork tests + `§STALE-BRANCH`), `§4796-4812` (`onShortfall`).
+
+## §PLP-A ⭐ REBUILT FROM FIRST PRINCIPLES — **AND VOIDED BY Q1.1. READ §PLP-Z FIRST.**
+
+It derived forward instead of reverse-engineering the code's definitions, and **relocated the ruling**:
+§PLP-0's fork is downstream of a prior question. **The prior question: what is an LP owed?**
+Deposits are **single-sided**, so a 1 ETH depositor should be owed ~1 ETH plus yield — not a share of
+whatever the pool became. A pro-rata claim on a mixed pool makes depositing a **bet on flow direction**,
+which no LP elected.
+
+| if claims are… | then a swap at oracle is… | and the charge is… |
+|---|---|---|
+| pro-rata of a mixed pool | **value-neutral** — nobody loses | inventory risk. A–S, σ², γ, LVR all apply |
+| **denominated** | the pool now **OWES ETH IT DOES NOT HAVE** | **funding on a short position** |
+
+**If denominated: a swap is a BORROW, and the charge is the BASIS** —
+`charge = (ETH borrow rate − USD lend rate) × duration short`. ⭐ It explained every dead end: σ² kept
+coming out irrelevant (a **funding** cost is not a function of volatility) · τ was needed but undefinable
+(τ IS the **duration of the short**) · gross vs net flipped twice (**false choice** — the charge is
+`outstanding × time`) · the pole at `inv = 0` (you cannot owe what you cannot source) · "no external
+arbitrageurs" felt impossible (**charge until the position closes**) · `DEPLETION_RATE_WAD` σ²-free and
+unexplained (right SHAPE, wrong DIMENSION — no time in it). **The rate is OBSERVABLE, not derivable** —
+ETH borrow ~2–3% APR, so 48h ≈ 3 bps and one block rounds to nothing. ✅ **Manipulation-resistant by
+construction:** a wash does not change its own duration; splitting is linear in `size × time`; ordering
+does not matter. ⭐ **`_leverUpBuy` IS the funding leg of the swap business**, not an IL-protect overlay.
+
+🔴 **VOIDED AS STATED — §PLP-Z Q1.1 MEASURED IT.** `Quid._convert` is `amt × lpShares /
+_pricingBacking()` — a standard 4626 share price. ⇒ **claims are PRO-RATA, not denominated.** So
+**§PLP-0's toll-vs-premium fork is LIVE again and §PLP-8/§PLP-11 do NOT dissolve.** ⚠️ **Kept in full
+because the derivation is reusable if the claim model is ever revisited (option F, §PLP-R3), and because
+its dead-end diagnoses are independently useful.**
+
+## §PLP-0 ⭐ THE RULING THAT GATES EVERYTHING: WHAT IS THE SKEW FOR?
+
+**Not stale-oracle protection.** `σ²·confFrac/8` is MMRZ eq.16 with `confFrac` a *settlement window* —
+`CONF_FRAC_WAD = 114e12` (~1 hr, BTC), `ETH_CONF_FRAC_WAD = 380e9` (~12 s, one block):
+
+| pool | σ² | window | base |
+|---|---|---|---|
+| BTC | 0.25 | ~1 hr | **0.036 bps** + `SPLICE_FLOOR` |
+| ETH | 0.49 | one block | **0.00023 bps** |
+
+To reach 5 bps you need a 3-day exposure window. **If that is the skew's job, the skew has no job.**
+`§E79` asserts that purpose and `§E136-skew` builds on it, so this reaches past one row.
+**Not IL compensation either.** IL reaches the LP through the **share price** (`onShortfall`). A swap fee
+carrying IL compensation double-counts a channel that already delivers.
+⇒ **The remaining candidate is a DEPTH TOLL**: you consumed scarce depth, you pay for it, owed at the
+moment of the trade. The owner's original framing — *a fairer alternative to slippage*.
+⚠️ **CROSS-REFERENCE:** §PLP-T class 3 (source on demand) reaches the depth-toll answer from the
+inventory side. **The two decisions are one decision** — do not rule on this without §PLP-T open.
+🔴 **RULE ON THIS BEFORE ANY PARAMETER WORK.** Depth toll ⇒ no horizon, no τ, no `Γ = γ(T−t)`, and
+`DEPLETION_RATE_WAD` may already be the complete answer. Risk premium ⇒ all of that must be built.
+**Half this file is conditional on the answer.**
+⚠️ **NARROWED, NOT SETTLED, BY §PLP-Z Q1.2.** Value-neutral pricing kills the *realised loss* reading; it
+does **not** touch the *future variance* reading. ⇒ **depth toll vs future-variance premium.**
+
+## §PLP-1 — CONSTANTS: two primitives, everything else derived
+
+Legitimate only if it is a **choice about what we are building**, not an estimate the chain can measure.
+Survivors: **`RANGE_DELTA = 20`** and **`FLOW_DECAY` 48 h**. `SKEW_UNFILLABLE = 1e18` is exempt — a
+sentinel, never a price.
+
+| constant | status | replacement |
+|---|---|---|
+| `CERTIFIED_THETA = 0.33`, `K_LVR = 0.71` | SPA, keyed to ±2% | **delete**; read `kLvrWad()` |
+| `GAMMA_WAD = 3e16` | ≡ the deleted 3% cap under a second name | conditional on §PLP-0 |
+| `SIGMA_REF`, `MAX_WELL_SKEW`, `CAP_SAFETY`, `STABLENESS` | ✅ **already dead** — zero code refs | ⚠️ **CORRECTED 2026-09-05: their remaining mentions are CORRECT TOMBSTONES, not stale prose. Do not delete them** (§S3) |
+| `DEPLETION_RATE_WAD = 2.1e14` | 210 ppm; its docblock says the citation was **lost twice** | derive or re-cite |
+| `MIN_SKEW` (owner: never free) | ⚠️ a hardcode by §PLP-1's own rule | EWMA of realised **unit** cost of a restoration leg |
+| `1%` shortfall trigger | literal, identical both pools | per-pool derivation |
+| `25 bps` offramp floor | derived: worst measured slippage (3.5 bps) **+ room for the pool-vs-ether.fi drift at 0.674 bps/day — "roughly a month"** | ✅ **legitimate** — measurement plus a stated horizon. The *month* is the choice; record it as one |
+| `300 bps` repack tolerance, `RESEAT_MIN_BPS`, the `50 bps` swap guard, the `5%` auto-heal | **four tolerances, none derived**, and they must stay ordered (repack looser than the swap guard or normal vol blocks re-centring) | derive or record the ordering constraint as the primitive |
+
+🔴 **"Aggregate cost ÷ volume" is a control loop and must not be built.** The floor suppresses
+counter-flow ⇒ more restoration ⇒ higher aggregate cost ⇒ higher floor. The loop runs through the
+**numerator**; only a **unit** cost breaks it.
+
+## §PLP-2 — THE MINIMUM, AND ITS REGISTER
+
+**Owner: an imbalance-decreasing trade is never free.** Today both branches return exactly zero
+(`sellSkew`'s `over == 0`, `skewWad`'s flush guard), inherited from the mirror's flush branch — never
+justified as a price.
+⭐ **Inside `wellSkew`/`sellSkew`, not `retainSkewPremium`.** `Aux.wellSkew(asset, drainUsd6)` is a
+read-only **quote** that never reaches the charge path, and `Core.sol:1429` requires quote and fill to
+agree because solvers have already committed a price. One function, three call sites inherit it.
+**No cap-ordering problem exists.** `MAX_WELL_SKEW` is deleted (§E286-integral: the 3% policy cap
+suppressed 51% of the integral and pinned the curve flat from q≈0.6); `_maxWellSkew` is a **base**.
+Composition: `kernel + base → amplify → floor → decline`.
+🔴 **Its own register, or θ is corrupted.** A minimum on an imbalance-*decreasing* trade carries no
+inventory risk. Routed through `recordSkewPremium`, θ reads cost recovery as LVR compensation and
+over-sizes. `baseWad = min(skew, floor)`, `riskWad = skew − baseWad`. **§E279's shape, sign flipped.**
+⚠️ **`_amplify` must scope to `riskWad`.** `_composePrice` runs both legs through it (§E295 keeps only
+depletion drain-only), so the floor would be scaled up to 2× by the *other range's capital share*.
+⚠️ **`skewPremiumCum` monotonicity is load-bearing** (§E56's NEW-vs-TRADED-THEN-DIED discriminator).
+Under the split, a refills-only pool holds zero in the risk register for life. **Decide with the split.**
+✅ **Both registers charge GROSS.** A swap that consumed depth pays whether or not someone reversed it.
+
+## §PLP-3 🔴 THE IN-RANGE / VENUE SPLIT IS A DEFECT, NOT A MODEL
+
+**Owner, 2026-09-04: there is no split — they are one and the same; fix the code.** §POOL-VENUE has
+already done this on the lever side: *"This body used to loop `openLevCount()` LPs… The venue holds ONE
+position now"*, and the book is walked only to pick the venue.
+`derivedThetaWad = rangeFeeYield/(K·σ²)` presumes a split it should not have, and prices it wrong even on
+its own terms: **the alternative to in-range is not idle — it is venue yield.** The comparison is
+`rangeFeeYield − K·σ²` against `venueYield`, and θ's denominator has no term for the second. ⇒ **θ biases
+toward under-deploying whenever staking yield is material** — directly against maximising LP value.
+⚠️ **`K` has at least two consumers**: θ's denominator and `ilTargetBps`'s band. §PLP-4's fix was reasoned
+about one. `kLvrWad`'s ±0.2%-vs-±2% gap (12.56 → **125.06**, ≈`1/4δ`) propagates into `∛(g/(C·K))` too —
+**unexamined.**
+
+## §PLP-4 — `quant.ts` HOLDS A RETIRED MODEL
+
+Line 19 says ±0.2%; line 50 says ±2%. On-chain, **K stopped being a constant** — `Quid.sol:1092` records
+the 0.71/2.24 sim-fits as gone, replaced by `QuidLib.kLvrWad` = `1/(4(2 − √(P/Pb) − √(Pa/P)))`
+(`Vault.sol:566` for BTC). **The SPA holds a retired model: delete `K_LVR`, read `kLvrWad()`.**
+Three incomparable quantities in one slot: `0.71` (sim fit), `1.8–8.4` (the "live measurement" band),
+`12.56 / 125.06` (geometry). The first two are **realised** LVR; `kLvrWad` is **potential**. The ~10× is
+the concentration factor. ✅ On-chain θ self-corrects; only the SPA is frozen.
+
+## §PLP-5 🔴 DELIVERY: PHANTOM DEPTH, AND NO BUFFER BEHIND IT
+
+**There is no idle WETH.** `_rangeETH` counts WETH at Vault and Aux but the comments scope it —
+*"venue custody, evacuated remainders"*, *"transient swap/deposit legs"*. **Every ETH delivery sources
+from the offramp.**
+**`deliverableETH` is not a delivery guarantee.** Its docblock: *not load-bearing for delivery*, used only
+to cap `firstBurn`. ⇒ **A withdrawal DEFERS** (ladder rung 1 Curve ≤0.5%, rung 2 a multi-day wait NFT).
+**A swap cannot defer at all. That is the real asymmetry** — not a looser bound.
+⭐ **`_deliverVenueShortfall` already solves this ON THE WITHDRAW PATH** — serve what is there, re-credit
+the rest. **The swap path has no equivalent because it never asks.** Reusing it is cheaper than inventing
+a bound (§PLP-U option D).
+🔴 **`§STALE-BRANCH` is the live hole and `§M.1` owns it.** `swapOutDeliverUnlevered` has zero callers and
+zero tests; with no pooled debt, `swapOutDeleverPooled` no-ops and unlevered net-equity stays **phantom —
+priced in `POOLED`, undeliverable because its collateral sits in the venue.**
+⇒ **`POOLED()` and `deliverableETH()` do not reconcile and are not the same object.** Swaps bound on the
+second and deliver against the first.
+🔴 **BTC HAS NO ANALOGUE AT ALL.** `Vault.sol:373` is `CORE.POOLED() + AUX.rangeBTC()`, and
+`deliverVolatile` is a no-op. There is **no `deliverableBTC`**, so nothing on-chain bounds a BTC fill
+against channel or hop capacity. **A larger gap than ETH's, and unbooked.** 🔗 **Same object as §BTC-9c's
+`max`-not-`sum` ceiling, seen from the EVM side — settle them together.**
+
+## §PLP-6 🔴 THE LEVER-UP LEG, AND THE VALUE-NEUTRALITY CLAIM THAT RESTS ON IT
+
+`SwapLib.deleverEthOnDelivery` exists — delegatecalled by `Quid` from `_sendETH` when the venue base
+can't cover a swap-out. It sources the swap's **own proceeds** via `Aux.takeToSettle`, repays pooled
+debt, delivers freed collateral. The swapper's USD funds the repay, so the delever creates no external
+sale and no slippage exposure of its own. 🔴 Marked **UNVERIFIED (forge OOM)** pending fork tests of the
+gating chain, the Σbacking invariant (`DeleverEthBackingProbe`) and **non-toxicity** — `§M.1`.
+
+### ⛔ §PLP-6a — WITHDRAWN. The up-leg is NOT dead.
+It claimed `_batch:346`'s hardcoded `""` route killed the buy side via `_aggSwap`'s empty-route refusal.
+**§PLP-Z Q2.1 withdrew it** on the grounds that the leg reaches `_poolSwap`, not `_aggSwap`.
+🔴 **RE-CHECKED 2026-09-05 AND THE WITHDRAWAL'S REASONING IS ITSELF STALE — the conclusion survives for a
+different reason (§S2).** **`_poolSwap` was DELETED by §C2.1** (`LevMath.sol:970`, owner: *"we dont need
+v3 anymore pull it out and delete it completley"*); every volatile hop now goes through `_aggSwap`. The
+up-leg is not dead because **`_aggSwap` guards on `dex == 0`, not on an empty `route` bytes**, and
+`_batch` DOES supply `dexes[i]`. ⇒ **`route` is unused on that branch; `dex` is what matters.**
+⚠️ **This is §PLP-9's pattern producing a THIRD instance — a stale comment invalidating a WITHDRAWAL.**
+✅ **§PLP-6b and §PLP-6c stand.**
+🔴 **AND THE REAL RESIDUAL, which neither the finding nor the withdrawal named:** `_batch:345` hardcodes
+`this.rebalanceOne(lp, minOuts[i], dexes[i], 0, "")` and **`rebalanceMany` has no `dex2`/`route`
+parameters at all.** With `dex2 == 0`, `_stableToWethSor` is forced down the **legacy single-hop branch
+through the USDC hub**. ⇒ **the keeper-allowlisted path can never reach the two-hop `routedSwap`, while a
+direct `rebalance` call can.** Two entrypoints to one operation with different routing capability, and
+the allowlist pins the weaker one.
+
+### 🟠 §PLP-6b — `rebalanceMany` IS THE UN-COLLAPSED Σ-LOOP, AND THAT IS THE REAL FIX
+`LevBase:437` — **all open LPs sit in ONE venue position**, `poolVenue` pinned on first open.
+`LevBase:490` gives the argument: `LevMath.deliverableDollars` is **non-linear in LTV**, so *"a sum of
+per-LP results systematically DIFFERS from the aggregate — the same sum-of-floors error that made
+`totalNetEquity` over-count and tripped `checkBacking`. One position means one evaluation."* All four
+**view** aggregates were collapsed on that reasoning.
+⇒ **`_batch` is the same shape on the ACTION side and was not collapsed.** It walks LPs; `rebalanceOne`
+reads `pos[lp]`; `deleverRepayUsd(lp)` carries the same non-linearity. Each LP's rebalance moves the
+shared position, so LP *i+1* is evaluated against a state LP *i* already changed — **the batch's outcome
+depends on array order.**
+⭐ **THE FIX IS NOT A ROUTE PARAMETER ON `rebalanceMany`.** It is to collapse the walk to ONE pooled
+rebalance, at which point it takes a route exactly as `rebalance`/`rebalanceOne` already do and the empty
+literal **disappears with the walk.**
+⚠️ **`cascadeDelever` has the identical shape** and inherits the question.
+⚠️ **The keeper allowlist pins exactly `cascadeDelever` and `rebalanceMany`.** Collapsing either changes
+what the hot key can sign — `§E357` flags widening that authority as a real cost.
+⚠️ **Whether the walk is WRONG or merely redundant is `§STALE-BRANCH`'s open question**: per-LP debt still
+exists via `debtOf`/`positionOf` while the repay is pool-wide — *"a money-path question that needs a fork
+test, not a guess."*
+📌 **OWNER DIRECTION 2026-09-05: HOLD.** Needs the keeper-allowlist decision and `§STALE-BRANCH`'s fork
+test first. **Do not land it as part of a routing change.**
+
+### §PLP-6c — the `g` term, and why `_aggSwap` is on the passive-LP money path after all
+`cost(h) = g·σ²/(4h²) + C·K·σ²·h/2`, minimised at `h³ = g/(C·K)`. **`g` is the per-rebalance cost**, and
+the up-leg's cost is the `_stableToWethSor` → `_aggSwap` leg — **the exact leg `LevMath`'s size-aware
+floor measures** (`25 bps + 25 bps/$1M, capped at 100`; USDT→WETH 11 bps at $1M, 56 at $5M; USDC→WETH 44
+and 224; GHO usable to ~$250k, 23.4% at $500k).
+⇒ 🔴 **§PLP-11's retraction was too broad.** That curve is out of scope for the **toll** (the range's own
+delivery never traverses it) and **in scope for `g`**, because `autoManaged` is every deposit, so the
+lever rebalance IS on the passive LP's money path. **`g` is currently a frozen fitted curve where §PLP-1
+asks for a measurement.**
+⚠️ **`g` is also where an up-leg failure shows up as a number**, not just an event.
+⛔ **DO NOT MOVE THE RELEVER INLINE.** The `g·σ²/(4h²)` term models rebalance frequency on **price
+drift**. An inline relever fires on **flow**, which the derivation does not model, and an adversary
+grinds `g` by generating swaps. **Keeper-driven keeps the band owning frequency.**
+**On IL: bounded, and `§C19` is why.** A forced delever crystallises at the swap's price, not one the LP
+chose — but the entry price stays pinned (`entryEquity` re-bases, entry does not), so the recovery basis
+survives, and below entry `ilTargetBps` is 0. **The exposure is timing on the upside recovery, not a
+reset of the basis.**
+⚠️ **Open, unchecked:** whether `levPooled` goes stale between the swap and the next `syncLev`.
+✅ **`dex2 = 0`'s "legacy hub hop" IS a live path (measured 2026-09-05)** — it is the branch `_batch`
+forces. **It does not bypass `_aggSwap`**; it selects the single-hop-via-USDC form of it.
+
+## §PLP-7 — TARGET MANIPULATION (a candidate fix for `§E136-skew` Cluster 1)
+
+⚠️ **Not a new finding.** Cluster 1 already consolidates E82/E83/E86/E93/E99/E100 into *`target =
+flowEwmaUsd` is the wrong quantity*, and **E86 — *target grows with the very volume used to drain it***
+IS this. What is added: the deliberate LP-recapture variant, and a candidate fix.
+`_bumpFlow` folds **gross notional, direction-blind**, as a decaying sum. Raising `target` raises `q` and
+the drain premium; raising `flow` shortens §E54's `τ = q̄/flow` and lowers the sell premium. **One
+register, two opposite exploits.** A large LP wash-trades to tax every real drainer, recovering fraction
+`f` through `USD_FEES`; net cost `(1−f)·premium + gas`. The 48 h window makes the inflation **persist**
+for 48 h after the wash stops — **width is not a defence; direction-blindness is the defect.**
+⭐ **Candidate fix: directionality.** A wash has gross flow and ~zero net displacement. `netFlowUsd`
+(§E320-SSRN) is exactly this instrument, **built and unwired**. **`target` keeps using gross** (sizing
+depth for turnover is what a target is for); the **directionality signal** is net.
+🔴 **Must land WITH the Cluster 1 fix and `§E88-r`'s sentinel split.** The flush short-circuit sits
+**above** the σ² sentinel and fires *because* the target is wrong. Fix the target and the sentinel
+becomes reachable for the first time — `§UNIT-A-ATTEMPT-1` measured **3.04% on an ordinary in-range buy
+against a ~21 bps cushion, 14× overcharge.** ⇒ **One landing, not three.**
+
+## §PLP-8 — ORDER-INSENSITIVITY WITHOUT AUCTIONS
+
+`q̄` integrates from **live** inventory, so position in a block is worth money. **Snapshot the rate once
+per block per pool** — one slot, one block-number check.
+⭐ **Rate a function of `q0` only, NOT the swap's own size.** The intermediate version (common `q0`, own
+size) reopens §E68's split arbitrage: `n` pieces each start at the cheapest point. A linear floor does
+not deter it. **Size-independence kills both rents**; it is §V4-CUT's *one price and no curve* extended
+from within-a-swap to within-a-block.
+🔴 **The freeze creates a cross-block arbitrage of its own.** Refill `r` at the end of block N−1 paying
+only the floor; block N opens at a lower `q0`; drain `s` at the reduced rate. Profitable when
+`s·rate'(q0)/target > φ`, and `rate'` is largest near the pole — **it bites exactly in the scarce
+regime.** ⇒ **Snapshot a SMOOTHED inventory**, over `W` blocks: gain falls `1/W`, cost stays `r·φ`.
+⚠️ `W` trades manipulation resistance against lag identically; **there is no free window.** Derive `W`
+where manipulation cost exceeds the maximum achievable rate reduction — `φ` and `rate'` are both measured
+and neither depends on `W`.
+**Given up:** `Interfaces.sol:378` measured drain-0 understating the integral 1.11× at 10% and 4.12× at
+90%. Under a freeze that lives inside one block. **The 90% case is what the quantity bound refuses, not
+what the rate prices.**
+**Reverses 2026-08-16** (`wellSkew`'s size parameter): that note retired the size-blind variant because
+quote and charge disagreed — impossible under a size-independent kernel. **Rewrite the note.**
+**Direction classification stays live**; only the rate freezes.
+✅ **A rate that does not move within a block is CACHEABLE** — a solver fetches once and quotes the block.
+**Exactly what the firm-quote constraint makes hardest today.**
+⚠️ **STATUS: LIVE AGAIN.** §PLP-A would have dissolved this section; §PLP-Z Q1.1 voided §PLP-A.
+
+## §PLP-9 🔴 STALE DOCUMENTATION IS A WORK ITEM, NOT A NUISANCE
+
+Every correction this scope went through came from a **comment narrating a deleted object** while the
+code was right. `§E18` already priced it: *"THIS EXACT LINE COST THREE FINDINGS."*
+
+| stale | says | actual |
+|---|---|---|
+| `SwapLib` prose | cites `MAX_WELL_SKEW`, `CAP_SAFETY`, `SIGMA_REF`, `STABLENESS` | ⚠️ **CORRECTED 2026-09-05 — these are TOMBSTONES that correctly state the symbols are gone. NOT stale. Do not delete** (§S3) |
+| `Quid.sol:201` | "the ether.fi **slice** of a withdrawal" | ✅ **FIXED 2026-09-05.** `:801` — all ETH is weETH, the slice IS the withdrawal |
+| `QuidLib.sol:594` | caps "three WETH-4626 venues via `_deliverableCap`" | ✅ **FIXED 2026-09-05.** `_deliverableCap` has 0 code refs; re-derived to the Curve bound 2026-08-13 |
+| `SwapLib:2212` | "per LP … repays **that LP's** debt", "VALUE-NEUTRAL **per LP**" | §POOL-VENUE — one pooled position. ⚠️ **The neutrality claim no longer rests on §PLP-6a (withdrawn); it rests on `§M.1`'s unrun fork tests** |
+| `LevManager._batch:346` | `0 ⇒ legacy hub hop` beside a hardcoded `""` | ✅ **MEASURED LIVE 2026-09-05** — it selects the single-hop form of `_aggSwap`. **The comment is accurate; the RESIDUAL is that `rebalanceMany` cannot reach the two-hop path at all** |
+| `Quid.sol:776` (#109) | "the LP's **OWN** in-range levered slice", "both **opted in**" | ⚠️ **NOT EDITED 2026-09-05 — unconfirmed.** `levPooled[lp]` survives §POOL-VENUE as per-LP attribution, and "opted in" describes the RANGING decision. **Measure before touching** |
+| `SwapLib:746` | `κ = 2e18` | ✅ **FIXED 2026-09-05.** `KAPPA_WAD = 1e18` **one line below** |
+| `Interfaces.sol:378` | size is mandatory | ⏸️ reversed **only if** §PLP-8 lands — **not stale today** |
+| `quant.ts:50` | symmetric ±2% | `:19` — ±0.2% |
+| `IL-VIA-BONDS.md` | three stacked correction banners | the memo notes docs diverge from code |
+| 🔴 `Quid.sol:1735` | the USD increment is *"valued at the range's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries no oracle dependency"* | **`:1747` calls `_wethTwap()`.** `:1741` explains why the ratio was wrong and ends *"I carried its oracle-free justification across without checking the property held"* — **and the justification is still sitting four lines above the oracle call** |
+| 🔴 `QuidLib` ladder note | *"Today it sells weETH on **v3** (rung 1)"* | ✅ **FIXED 2026-09-05.** The code four lines above calls `sellWeethOnCurve`; v3 was removed 2026-08-09 — the SAME DATE the owner quote beside it is dated |
+| `LevManager:361` / `§E357` | *"`_aggSwap` refuses an empty route, the lever-up leg was dead at the source"* | ✅ **FIXED 2026-09-05** — but **not as §PLP-Z said.** `_poolSwap` is DELETED (§C2.1); the leg reaches `_aggSwap`, whose guard is on `dex`, not `route` |
+
+⭐ **THIS TABLE IS THE DELETION LIST** — ⛔ **AND THAT FRAMING IS NOW KNOWN TO BE PARTLY WRONG.**
+**Measured 2026-09-05: at least three rows were tombstones, i.e. correct.** Following the table blindly
+would have deleted the repo's own memory — the `create_sweep_tx` trap. ⇒ **VERIFY EACH ROW BOTH WAYS
+BEFORE EDITING.**
+⭐ **Mechanise it?** — 🔴 **NO. OWNER RULING 2026-09-05: *"its not possible to automate the stale comments
+sweep, you really have to cross check manually."*** A zero-code-reference grep was built and **deleted**;
+§S3 records why it cannot work and what it got wrong. **`graphify` is the navigation aid instead.**
+
+### 🟡 §PLP-9b — THE SAME QUESTION FOR THE TEST HARNESS
+**Owner, 2026-09-05:** *mock tokens were a relic of working with Uniswap's PoolManager, which we
+de-integrated.* `Mock` appears in `evm/src` **only in comments**. The concern: **if the fixtures exist
+because v4's `PoolManager` needed real ERC20s to settle deltas against, `§V4-CUT` removed the thing they
+stand in for.**
+🔴 **AND THIS FILE CITES MOCK-BASED MEASUREMENTS AS EVIDENCE:** `sent == 0` with `max = 37943101858`
+(§PLP-R2's `NothingDelivered` guard) and `§UNIT-A-ATTEMPT-1`'s 107 failures / 3.04% (§PLP-7, §PLP-13).
+⇒ **If the harness models a settlement mechanism that no longer exists, those numbers describe the
+FIXTURE, not the system.**
+🔴🔴 **OWNER: FIRST PRIORITY (item 0a)** — it is **upstream of the evidence itself**, and the M-series
+would be built on the same harness.
+✅ **PARTIAL ANSWER 2026-09-05 (§S3), and it looks better than feared.** The only mocks in `evm/test` are
+four **identity-stack** files (`PoseidonSMTMock`, `HolderStateKeeperMock`, `NoirVerifierMock`,
+`Registration2Mock`) — **none of them token or settlement fixtures** — and `Core.sol:1204` records that
+*"§V4-CUT — the mock ERC20 and the PoolManager settle are GONE; the ACCOUNTING is not."*
+⚠️ **STILL OPEN:** what `§UNIT-A-ATTEMPT-1`'s and §PLP-R2's cited runs actually executed against. **That
+half decides whether those numbers stand.**
+
+## §PLP-10 — RETRACTED (do not re-adopt)
+
+| retracted | why |
+|---|---|
+| reuse `LevMath`'s impact curve as the range's route cost | correct for the **toll** — the range's own delivery never traverses `_aggSwap`. ⚠️ **but too broad**: it IS the right measurement for `g` (§PLP-6c) |
+| "swap-triggered delever's fix is a route parameter on `rebalanceMany`" | the defect is the un-collapsed walk; the route disappears with it (§PLP-6b) |
+| batch / net same-block flow, return surplus via `creditSkewPremium` | contradicts GROSS (§PLP-2); unquotable at fill time (`Core.sol:1429`) |
+| cap-then-floor ordering | `MAX_WELL_SKEW` already deleted; `_maxWellSkew` is a **base** |
+| shared-supply caveat on the never-rationed invariant | §#12 — `committedUsd18` is basket contribution; a swap cannot move it |
+| "self-restoration from our own book"; `τ_restore`; `κ = 1 + R/target` | `realInventory()` IS `rangeETH()` — **one number**; no reserve beside it, so no `R` |
+| the two-τ split (`τ_transfer`/`τ_replenish`) | same two-stack ledger; the real gap is a **bound** (Curve depth), not a horizon |
+| "the reseat is the restoration mechanism" | three distinct paths conflated: `reanchorIfReseated`, `Quid._rebalance`, `LevManager.rebalance` |
+| "an unbalanced pool is directional, therefore rebalance to flat" | a CLMM is directional at **every** composition; no achievable flat state |
+| "the lever/bond machinery hedges IL" | the bond is capital structure; the lever is **upside-only recovery**; R1 — the LP bears its own IL via the share price |
+| "swap-triggered delever does not exist" | `SwapLib.deleverEthOnDelivery` |
+| "θ chooses deploy vs idle" | nothing is idle; and per §PLP-3 there should be no split at all |
+| "σ² leaves the charge entirely" | one channel survives — **convexity** (§PLP-11) |
+
+⭐ **The finding all of these were circling:** **depth is restorable from our own book; exposure is a
+transfer.** Moving weETH within `rangeETH` restores serving capacity and crosses no boundary. Buying ETH
+back means spending basket dollars — a transfer from QU!D holders to ETH LPs, which is exactly what
+`onShortfall` refuses.
+
+## §PLP-11 — σ²: THE ONE CHANNEL THAT SURVIVES
+
+| channel | verdict |
+|---|---|
+| option on the quote window | **tiny** — 5 bps needs a 3-day window; a minute is 0.001 bps |
+| σ² as a leading indicator of flow | **double-counts** — `target` IS flow. Argues for a shorter window, not a σ² term |
+| capacity thinning (Curve depth in vol events) | **real, but read `balances(0)` directly** |
+| **convexity** | ⭐ **survives.** The toll is convex and the state diffuses, so charging `f(q)` today under-prices by ≈`½f''(q)·Var(q)`. **Not inventory risk** — a Jensen adjustment to a scarcity toll. Nothing computes it; materiality depends on `f''` near the operating point, **unmeasured** |
+
+> **σ² prices RISK decisions** (how tightly to track the target — `ilTargetBps`'s band). **Flow prices
+> SCARCITY decisions** (what depth costs). **σ² enters the toll only through convexity, never as `γσ²q`.**
+
+⚠️ **STATUS: LIVE AGAIN** — §PLP-A would have retired the convexity channel too; Q1.1 voided §PLP-A.
+
+## §PLP-12 — OTTER
+
+**UIC is vacuous in a quote-and-fill AMM. That is not a defence so much as a different game.**
+✅ **Minority-at-spot — we already have more.** Otter fills the minority side at initial spot; we fill
+**both** sides at oracle. Its rule reconstructs an external reference from inside a batch; with an oracle
+there is nothing to rebuild. ⭐ **What we lack is the completeness half** — every eligible
+imbalance-decreasing bid filled **entirely**, which costs the pool nothing because such a trade improves
+inventory. **Transplantable: never rationed, never `SKEW_UNFILLABLE`.**
+⛔ **Clarke pivot / `M = ρ0·D_X` — not transplantable.** The pivot prices an externality that exists only
+because the marginal price moves; §PLP-8 removes it. `M`'s analogue needs block composition at quote time
+= batching, **and we do not want it** — §PLP-2 charges gross. ✅ We get `M`'s **state** effect one block
+late through the `q0` snapshot.
+✅ **Residual surplus — already redistributed.** Otter must burn because Thm 26 makes exact accounting +
+PO + UIC unsatisfiable. **Ours goes to LPs, who are not the participants.** Thm 22 inapplicable — no
+builder is paid.
+⛔ **Layer cake and the two-curve extension — drop both.** Layer cake needs valuations we never collect.
+✅ **One positive validation worth keeping:** Otter's Appendix A proves you **cannot** be Pareto-optimal
+for ineligible bids without breaking UIC. ⇒ **`SKEW_UNFILLABLE`'s decline-by-name is on the right side of
+a theorem**, not a workaround.
+**Positioning:** range geometry sets no execution price under §V4-CUT, so the spread does live in the
+skew — but it is **a two-sided toll, not a spread**: the pool never pays better than mid in either
+direction.
+
+## §PLP-13 ⭐ THE UP-LEG MAY NOT BE THE RIGHT INSTRUMENT AT ALL
+
+The book drifts toward unlevered because `ilTargetBps = 1 − √(entry/now)` RISES with price while the
+range **sheds ETH** as price rises — that shedding IS the concavity, and the lever exists to buy it back.
+**The two are opposed by construction**, which is why the up-leg needs a borrow, a venue, an aggregator
+route and a keeper: four dependencies to undo something the range did to itself.
+⭐ **θ is the same control with none of those dependencies.** Un-ranged ETH sits in weETH and holds
+**constant units** — a linear payoff. In-range ETH holds **√p** — concave. **So lowering the in-range
+fraction as price rises sheds less and needs less lever**, using a number this protocol already computes,
+on-chain, with no debt, no liquidation, no cascade, no route and no gas.
+**The comparison this turns on is the one §PLP-3 says θ's formula is missing:** in-range fee yield against
+`venueYield + borrowing cost + g + liquidation risk`. **Under the lever the last three are real and
+unmeasured; under θ they are zero.**
+⚠️ **A PARTIAL substitute, and the boundary is where it stops.** θ can only shed what is in range — once
+in-range is fully withdrawn, further linearity needs leverage. **Not established: whether θ can hit the
+exact `1 − √(entry/now)` target, or only track its direction.**
+**Third option, weaker but nearly free:** make the band ASYMMETRIC — rebalance down promptly (the
+down-leg is self-funding, atomic, routeless) and up lazily. Costs a wider `h` and a larger `C·K·σ²·h/2`;
+costs no new machinery.
+⚠️ **It assumes θ is a live knob. On ETH it is not** — `clampByBacking`'s physical headroom sizes the
+range today (§PLP-14). **The idea survives; the mechanism named for it is currently inert.**
+
+## §PLP-14 — RESTORED (dropped in the 2026-09-05 consolidation) + SUPERSEDES/CONTRADICTS
+
+**§E300's rate bound is the SECOND bound, and neither subsumes the other.** `q* = R/(1+R)`,
+`inv1* = target/(1+R)` — the largest drain that can still CARRY a rate. §PLP-5's is a CAPACITY bound —
+what delivery can source. **Different bases. Whichever binds first wins (F11); do not collapse them.**
+**🔴 `loadBalance` consent (§E308) lets the drainer decide whether we notice.** `_shortfallLoadBalance`
+fires only on consent, so a systematic drainer never ticks the box. The rationale is right about the SOR
+path and wrong about what is wired: BTC's remediation emits `BTCHopRequest` for an off-chain node and
+ETH's `onShortfall` refuses by design. ⇒ **The gate protects a synchronous path that is not live on
+either pool.** ▶️ **Split it: detect and signal unconditionally**, keep consent for the synchronous leg if
+it ever exists.
+**✅ `_bumpFlow` has exactly ONE call site — `Core.swap` (`Aux.sol:1394`, §E326).** So
+`flowEwmaUsd`/`netFlowUsd` measure secondary trading travel only and are uncontaminated by restoration.
+**This is a constraint on where §PLP-7's new EWMA is called, not a defect to find.**
+**❓ ERC-7540, for whoever does `B8`.** A quantity bound must do something with the part that does not
+fit, and `§4796-4812` already names *serve the fillable part, leave the rest claimable* — a request/claim
+shape. **Posed, not asserted:** the 7540 face is on `Vault`, the range path is `Quid`/`Core`. **Do not
+build range rationing on an assumed reuse.**
+**🟡 `Vault.sol:244` seeds `delta = 200` (±2%) while every other site uses `20` (±0.2%).** Since `K` is
+derived from the width (`kLvrWad`, ≈`1/4δ`), a stray seed is a **10× error in K** on whatever it
+initialises — and K feeds θ AND `ilTargetBps`'s band. **Never booked anywhere.**
+**🟡 θ fails OPEN at `1e18` on unmeasured variance or an unmeasured premium register** — the cold-range
+bootstrap deadlock fix, with `clampByBacking`'s physical `backing − pooled` headroom as the real bound.
+Correct as a bootstrap; **it means the physical clamp, not θ, is what sizes the range whenever either
+input is missing** — which is the live ETH state (§E278). **Worth stating in `QuidLib`'s header.**
+
+| SPRINT row | change |
+|---|---|
+| **`§E79`** — *the skew's real job is stale-oracle protection* | 🔴 **arithmetic contradicts the premise** (0.00023 bps). `§E136-skew` builds on this framing — see §PLP-0 |
+| **`§E274`** — Γ measured (5.48e15), not landed | **superseded**: `5.48e15` is exactly `2/365`, the horizon alone with **γ ≡ 1 unstated** |
+| **`§E136-skew` Cluster 1** | unchanged as a defect; §PLP-7 supplies a candidate fix and the deliberate variant of E86 |
+| **`§4796-4812`** | `onShortfall`'s refusal is also what keeps `KAPPA_WAD` at `1e18`; **overturning it reopens κ** |
+| **`§UNIT-C-DISAMBIG`** | still open. (c) is refused; **(b) reseat is NOT restoration** (§PLP-10) |
+| **`Interfaces.sol:378`** | reversed if §PLP-8 lands |
+| **`§E276`** — *nothing pulls inventory back; we never move the bid* | ✅ **confirmed as this scope's central finding** (§PLP-T), and its implicit rejection of moving the bid is **re-opened**: a posted rebalancing spread is a chosen cost, not LVR |
+| **`§E93-a/b`** — refill-responsive target | ⚠️ **presupposes a refill.** §PLP-T class 4 says the target may already handle two-directional flow. **Re-scope before building** |
+| **`§E311`** — deleted the flat 420 ppm; `DEPLETION_RATE_WAD` is "the whole charge" | ⚠️ under §PLP-T class 3 the whole charge is **route cost**, and the unexplained 210 ppm would be replaced rather than derived |
+| **`§V-R1-MIN`** — keeper supplies which pool, contract owns the bound | ✅ **generalises to N splits unchanged** (§PLP-U3) — the whole-route floor was already the right shape |
+
+⚠️ **Incomplete by construction.** This file is ~48k lines and the scope was read by targeted grep.
+`§E136-skew`, `§UNIT-C-DISAMBIG` and `§STALE-BRANCH` — each directly upstream of a section here —
+surfaced only on later passes. **Treat it as what the last grep found, not as an audit.**
+
+## §PLP-15 — FUZZ MATRIX
+
+| # | property | guards |
+|---|---|---|
+| F0 | `_bumpFlow`-class registers never fire from a restoration path | §PLP-14, §E326 |
+| F1 | fills in a block invariant to ordering | §PLP-8's premise |
+| F2 | refill in N−1 then drain in N never beats drain alone | the smoothing window `W` |
+| F3 | `Σ cost(sᵢ) ≥ cost(s)` for any partition | §E68 must survive size-independence |
+| F4 | wash of any size at any LP fraction `f` has net P&L ≤ 0 | §PLP-7 |
+| F5 | any round trip charged ≥ 2 × unit servicing cost | §PLP-2 |
+| F6 | `baseWad + riskWad ==` total; `riskWad` only from increasing trades | §PLP-2 |
+| F7 | imbalance-decreasing never returns `SKEW_UNFILLABLE` | §PLP-12 |
+| F8 | `_amplify` touches `riskWad` only | §PLP-2 |
+| F9 | skew monotone in `q` and `inv` | sign errors in floor/amplifier composition |
+| F10 | a refills-only pool does not brick | §E56 under the split |
+| F11 | `POOLED()` never promises what delivery cannot source | §PLP-5, `§STALE-BRANCH` |
+| F12 | swap-forced delever is Σbacking-neutral and non-toxic | §PLP-6 — `§M.1`'s `DeleverEthBackingProbe` |
+| F13 | a rebalance batch's outcome is invariant to LP array order | §PLP-6b's sum-of-floors |
+| F14 | an up-leg rebalance reaches target rather than emitting `RebalanceFailed` | §PLP-6a — ⚠️ **still worth having even though §PLP-6a is withdrawn: it is the regression test for the routing change** |
+
+## §PLP-T 🔴 THE REBALANCE GAP: NOTHING RESTORES INVENTORY, EVER
+
+**Asked first in review and answered last.** §PLP-V found the repack unfunded and called that *"no leak
+to prevent."* **That framing was wrong — an unfunded rebalance is not a free rebalance, it is an absent
+one.** The band moves; the inventory does not. Fills settle at **oracle**, so the band prices nothing. ⇒
+**A repack lets the pool declare itself centred at spot while holding whatever swaps left it holding.**
+
+| candidate | verdict |
+|---|---|
+| the repack | **bookkeeping** — one storage write (§PLP-V) |
+| `onShortfall` | **refuses by design** (`§4796-4812`) |
+| the lever | changes **leverage**, not composition |
+| organic counter-flow | not a mechanism — a hope |
+
+⭐ **THE TRADEOFF, STATED PLAINLY:** *Uniswap pays arbitrageurs to rebalance its LPs, and that payment IS
+LVR. This design refuses to pay arbitrageurs, and so does not get rebalanced.* **LVR was not eliminated;
+the service LVR buys was declined.**
+🔴 **This is a LIVENESS failure, not a value failure — which is why it is easy to miss.** Two-leg NAV
+keeps LPs value-whole through drift (§PLP-Z), so nothing is stolen. But a pool that serves one direction
+earns roughly half the fees, and under sustained directional flow the skew makes draining expensive while
+**nothing makes refilling attractive** — a one-way ratchet with no restoring term.
+⭐ **THE REFRAME THAT MAKES IT TRACTABLE.** Claims are pro-rata on VALUE, so the pool does not owe any
+particular mix. Composition drift is **not a solvency problem** — LPs are whole at every ratio. It is a
+**business** problem. ⇒ **The fix does not have to restore a RATIO. It has to restore the ABILITY TO
+QUOTE BOTH SIDES.** A much weaker requirement, and it admits solutions the ratio framing rules out.
+### The four classes
+**1 — PAY SOMEONE, and this deserves better than its reputation.** The root cause is exact: at oracle
+there is **no mispricing, so no arbitrage, so no arbitrageur ever has a reason to trade with you.** A
+CFMM gets rebalanced because its price is WRONG; we removed the wrongness and removed the service with
+it. Quoting the refill direction better than oracle restores the incentive — **and that is NOT LVR.** LVR
+is what an informed trader extracts when you are passively wrong: unbounded, adverse, unchosen. **A
+posted rebalancing spread is a price you set, bounded by what you post, on the direction you want.**
+⚠️ **Rejecting it as "paying a third party" conflates a CHOSEN cost with an EXTRACTED one.**
+**2 — BORROW THE SCARCE ASSET AGAINST THE ABUNDANT ONE.** Restores **deliverability, not composition**:
+borrow ETH against USD and you hold ETH while owing ETH, so net exposure is unchanged. **But you can
+serve.** Under the reframe that is **sufficient**. `_leverUpBuy`'s shape; machinery present.
+**3 — SOURCE ON DEMAND.** Do not deliver from inventory — buy at fill time and pass through. ⇒ **NOTHING
+TO REBALANCE, because no directional position is ever held.** You quote **oracle + measured route cost**,
+which is where the depth-toll analysis landed independently (§PLP-0). ✅ **The design is already drifting
+here**: the swap-out delever sources from the swapper's own proceeds; the offramp sources from Curve.
+**Inventory then exists only to AVOID route cost, and the skew is the price of using it.**
+**4 — LET THE TARGET DO IT.** `target = flowEwmaUsd` is a **depth** target, so two-directional flow
+mean-reverts drift for free. Only **sustained one-directional** flow breaks it — and that is the case
+where the market is genuinely moving and the anchor reseats anyway. ⇒ **MEASURE THIS FIRST.**
+
+### 🔴 §PLP-T2 — DRIFT ALSO ARRIVES FROM THE REDEMPTION SIDE
+`_settleRedeem` pays *"from free vault stables first; unwinds the ETH range for the remainder."* ⇒ **a
+redemption wave that exhausts free vault stables reaches into the ETH range's USD leg**, shrinking its
+dollar depth. **A range short of dollars cannot buy ETH** — this section's drift problem arriving through
+redemption, with **no swap having occurred.**
+⇒ **M1–M3's flow measurements are NOT sufficient on their own.** **Add redemption volume and its
+co-timing with swap direction to the empirical set (M7).**
+✅ **R1 RESOLVED 2026-09-05 (§S1) — IT CANNOT REACH LP-OWNED DOLLARS.** `unwindForRedeem` →
+`_burnInRange(…, address(0))` → `SwapLib.burnInRange:2317`, which sizes the USD release as
+**`basketUsd·pulled/pooled`**. Since `pulled = min(amount, pooled)`, **`usdOut ≤ basketUsd` by
+construction**, so `Core._poolUsdInRange`'s burn arm always takes the `usdAmount` branch of
+`min(basketUsd, usdAmount)` — **both legs fall by the same number and the increment `POOLED_USD −
+basketUsd` is INVARIANT.** The arm that *does* consume the increment (`basketUsd < usdAmount`, which that
+block documents) **is unreachable from here.** ⇒ **a redemption wave is NOT a transfer from LPs to QU!D
+holders.**
+🟡 **But the same read found a live defect, now fixed in prose:** `unwindForRedeem`'s claim to free
+*"EXACTLY `usdWanted`"* is **false whenever LPs hold an increment** — the SIZING uses `usd6` (the whole
+USD leg) while the RELEASE is `basketUsd`-proportional, so it **UNDER-frees by `basketUsd/POOLED_USD`**,
+and the fee mint grows that gap by design (`basketLeg = false` on the mint arm). ✅ **Nothing downstream
+is misled** — `usdFreed` measures the real delta.
+⇒ **The drift §PLP-T2 describes is REAL; the ownership question behind it is CLOSED.**
+
+### 🔴 STATUS: OPEN. NOT READY TO CHOOSE. NEEDS EMPIRICAL ANALYSIS.
+**Owner, 2026-09-05.** The four classes are the option space, **not a recommendation**. An earlier draft
+ranked them (*"3 is the structural answer, 2 is what to build now"*); that ranking is **withdrawn** — it
+was argued, not measured.
+
+| # | measurement | which class it moves |
+|---|---|---|
+| M1 | **flow directionality over 48 h** (net vs gross, per pool) | **gates all of them** — if 4 holds, 1–3 are premature |
+| M2 | **how long does drift actually persist**, and how deep before reversing? | sizes the problem |
+| M3 | **realised one-directional episodes** — frequency, duration, worst depth | 2 vs 3 |
+| M4 | **route cost at realistic size** on the legs class 3 would traverse each fill | 3's viability |
+| M5 | **what spread would actually attract refill flow** | 1's viability — a posted spread nobody takes is not a mechanism |
+| M6 | **directional-loan liquidation tail** — ETH-against-USD is not the near-par pair G has | 2's true cost |
+| **M7** | **redemption volume and its co-timing with swap direction** (§PLP-T2) | **all classes** |
+
+⚠️ **None is answerable from the code.** ⚠️ **And the classes are not mutually exclusive** — 2 and 4
+compose; 1 and 3 do not (a posted spread and pass-through pricing answer the same question twice).
+⚠️ **Consistency note:** class 3 and §PLP-0's depth-toll reading are the SAME position reached from two
+directions. **They must be ruled on together or not at all.**
+
+## §PLP-R2 — "SHORTFALL" NAMES FIVE THINGS, AND THE FIFTH IS UNHANDLED
+
+| use | what is short |
+|---|---|
+| `sharesForShortfall` vs `realInventory` | range ETH below claims |
+| `onShortfall` | that, plus the refusal to buy ETH to cover it |
+| `_deliverVenueShortfall` | the venue cannot deliver on a withdraw; re-credit |
+| `btcShortfall` | emits a hop request |
+| 🔴 **stables LENT OUT at utilisation, not withdrawable** | **handled by none of the above** |
+
+**Owner proposal: pay the swapper in QU!D rather than deny service. No new primitive is needed — two
+already exist.** The redeem path's answer to the same condition is *"the un-served QU!D is RETAINED as a
+live deferred claim (redeems once liquid)"*, and there is already a maturity tranche
+(`immatureBalanceOf`, with `MATURE ONLY` gating redemption).
+⇒ **Pay in IMMATURE QU!D that matures when utilisation frees.** The double-mint question does not arise:
+nothing is minted against the locked stables — the claim is issued against **the ETH the swapper just
+delivered**, and it cannot be redeemed until the stables are actually there.
+✅ **Burn-on-direct-swap is the necessary symmetry.** QU!D is a claim on the basket; exchanging it for a
+volatile asset means the range's volatile leg pays, so the claim must be extinguished.
+**Four conditions before it is a mechanism:**
+1. **Price at `perShare`, never $1** — paying $1 when `perShare < 1` over-pays and **dilutes existing
+   holders**.
+2. ⚠️ **Cannot be the default for ROUTED flow** — `perShare` floats ⇒ the fill is inexact, colliding with
+   `Core.sol:1429`'s firm quote. A solver committed a **USDC** price to its end user. **Opt-in, like
+   `loadBalance` (§E308)** — and the same detect-vs-remediate split applies (§PLP-14).
+3. ⛔ ~~Cap utilisation~~ — **WITHDRAWN.** Basket stables sit in **external** lending markets; their
+   utilisation is set by **other people's borrowing.** There is nothing to cap. **A review draft treated
+   someone else's balance sheet as a policy lever.** ⇒ the condition is **not preventable**, so
+   pay-in-QU!D is **the primary answer to a constraint we do not control**, not a rare backstop.
+4. **Record the composition side-effect deliberately.**
+
+**What replaces the withdrawn cap.** **Read withdrawability LIVE** — `Aux.redeemableAmount()` already
+exists; a live read of what is actually pullable *now* informs the quote and tells the swapper **before**
+they commit. **Diversification is the only real mitigation, and it is already the structure**: 15 stable
+slots across venues, `_takePreferred` plus the pro-rata envelope.
+⚠️ **U1b — does `_takePreferred` sort on LIVE WITHDRAWABILITY or on composition weight?**
+✅ **PARTIALLY ANSWERED 2026-09-05 (§S1).** `BasketLib:752-757` is `try aux.withdrawSelf(...) returns
+(uint s) { sent = s; } catch { sent = 0; }` with `remaining = needed > sent ? needed - sent : 0` — so it
+handles **both a throw AND a short return**, and the shortfall flows to the pro-rata leg rather than
+reverting. **But the ORDER is by preference, not by live withdrawability.** ⇒ **the draw order CAN pick a
+pinned venue while a free one sits beside it**, which is what U1b feared. **The 15-slot diversification is
+not wired to the constraint.**
+⭐ **AND IT MOVES COMPOSITION THE RIGHT WAY.** A swapper selling ETH for QU!D leaves the range **+ETH with
+its USD leg INTACT** — the opposite drift from a normal ETH-in swap. So on the ETH-short side this
+**helps §PLP-T**, and it partly offsets §PLP-T2's redemption-side dollar drain. **The first mechanism in
+this analysis that moves composition usefully WITHOUT PAYING ANYONE.** **Carry it into the class
+comparison.**
+
+## §PLP-R3 ⭐ THREE OF THE FIVE SHORTFALLS ARE NOT RESOURCE CONSTRAINTS
+
+| # | condition | why it exists | eliminable |
+|---|---|---|---|
+| 1 | range ETH below claims | **DENOMINATION CHOICE** — claims are pro-rata on **value**, so the pool owes no particular asset | ✅ **option F** |
+| 2 | `onShortfall` | exists **only to refuse to fix (1)** | ✅ **with (1)** |
+| 3 | venue cannot deliver on withdraw | **PHYSICAL** — weETH must be offramped; Curve is finite | 🟡 **option G** converts a SALE constraint into a BORROW constraint. Remainder irreducible |
+| 4 | `btcShortfall` | **MISNAMED** — a dispatch signal, not a shortage | ✅ **rename** |
+| 5 | stables at external utilisation | **PHYSICAL AND EXOGENOUS** | ❌ **not preventable.** Read live, diversify, pay in QU!D |
+
+🔴 **THIS MATERIALLY RAISES OPTION F.** It was scoped as a *delivery fix*. It is a **two-condition
+eliminator**: settle in whatever is abundant and (1) stops being a shortfall — it becomes a composition
+reading — and (2), which exists only to refuse (1), has nothing left to refuse. ⇒ **it retires
+`§4796-4812` entirely rather than answering it**, and removes `RangeLib.onShortfall` from §PLP-X's
+dead-code table **by making it unnecessary rather than dead.**
+⭐ **The unifying rule:** **a shortfall exists only where an obligation is denominated in an asset you must
+SOURCE. Value-denominated obligations settled in what you hold have no shortfall condition — and sourcing
+constraints you do not control are not defects, they are the market.**
+🔴 **OPTION F IS THE HIGHEST-LEVERAGE ITEM NOT GATED ON MEASUREMENT.** §PLP-T is harder but **open pending
+M1–M7**. F is decidable today, and **one decision retires four things**: shortfall (1), shortfall (2),
+`§4796-4812`, and a dead-code row. ⚠️ **And it is a PRODUCT question, not an engineering one** — *what is
+an ETH depositor owed?* **No code question is blocking it.**
+⇒ **A design test, not a patch list.** For each condition ask: *did the obligation have to be denominated
+that way?* (1), (2) and (4) fail it. (3) and (5) pass, and only (3) is reducible.
+
+## §PLP-S2 — THE REDEMPTION PATH IS RUN-PROOF (an earlier reading was wrong on three counts)
+
+| claimed | actual |
+|---|---|
+| QU!D redeems at **face** | ❌ redeems at **`perShare`**, which already carries `depegLossOut`; `perShare == 0` ⇒ *"fully depegged → the claim funds nothing."* **The pro-rata haircut IS the mechanism** — everyone moves together, so there is **no first-mover advantage** |
+| committed backing can be **drained** | ❌ `locked = max(illiquidLoss, committedUsd18)`, `freeUsd = solvent − locked`. **Committed capital is ring-fenced from redemption** |
+| a shortfall **freezes** (revert, terminal) | ❌ it **DEFERS**: *"burn follows delivery, so there is never a burn without delivery and never an over-unwind"*, and un-served QU!D is **retained as a live deferred claim** |
+
+✅ **`MATURE ONLY`** — immature/forward QU!D is not a redeemable claim, so the term structure is real.
+⭐ **A REDEMPTION RACE CANNOT BREACH THE INVARIANT.** `freeUsd` self-limits **at** committed and never past
+it. ⇒ **The path to `OverCommitted` is NOT a race — it is a BASKET STABLE DEPEGGING**, which drops
+`solvent` with nobody redeeming. **Separate triggers; races are handled by construction, depegs are the
+live risk.**
+✅ **`checkBacking` is on the DEPOSIT path in `Quid`, not the unwind** (`Quid:1002`). Drain-path reverts
+protect redemption/arb/LP-withdraw while **add** paths use `tryCheckBacking` so new value can heal the
+basket — **the sign is correct and cannot deadlock recovery.**
+✅ **The IL-protect unwind is NOT gated by it.** `closeLev`/`_deleverFlash` are flash-repay-first against
+the position's own collateral and never touch basket dollars. ⇒ **a dollar shortage cannot strand an LP's
+lever exit** — correct, since that is exactly when they need it.
+**What the mint-yield dependency actually is:** because `committed` is locked against redemption, **band
+capacity does not collapse under stress — it is protected.** Mint yield buys **EXPANSION**, not survival.
+⇒ **The failure mode is STAGNATION, not a run.**
+
+## §PLP-U 🔴 THE DELIVERY GAP: WHAT AN LP ACTUALLY GETS, AND THE FIVE OPTIONS
+
+⛔ **First, a correction: "the pool is 100% USD after a repack" is a v3 import.** There is no concentrated
+position — `POOLED`/`POOLED_USD_*` are balances. "Out of range" locates the anchor; it does not convert
+the pool.
+**The real exposure stands.** The pool can be short ETH against claims, and ETH is held as **weETH**, so
+*owned* and *deliverable now* are different numbers — **a liquidity risk a CLMM structurally does not
+have.**
+### The ladder, precisely (`offrampBody`)
+**RUNG 1 is a DIRECT Curve call** — `LevMath.sellWeethOnCurve(weeth, curvePool, weethIn, floor)`. **No
+aggregator, no route, no venue choice.** UniV3 was REMOVED 2026-08-09 on measurement: Curve **−1.39 bps
+vs v3 −17.55** @1 weETH, −1.51 vs −18.79 @100, −3.47 vs −28.16 @1000 — *"~17–25 bps better at every
+realistic size, so there is no tier to choose between and no ordering to get wrong."*
+⇒ ✅ **`deliverableETH`'s Curve-only bound is CORRECT, not conservative.** There is no v3 depth being
+ignored; v3 lost at every size. **Option B is sounder than an earlier draft framed it.**
+⚠️ **BUT THE MEASUREMENT'S SCOPE IS NARROWER THAN IT READS (2026-09-05):** it compared **Curve vs v3**,
+never **Curve vs ROUTED**. Through 1inch the same Curve pool is reachable whenever it is best, and the
+comparison is re-derived per quote instead of frozen in a comment. **See §S2's gas ruling.**
+**Fills track `~1.4 + 55·(dx/D)²` bps to ~1,000 weETH.** The break at 2,000 (**−722.80 bps**) is
+**EXHAUSTION, not slippage**: 2,000 weETH asks ~2,202 WETH from a pool holding 2,047. *"No floor value
+survives it, because the pool cannot pay; only sizing does."*
+**RUNG 2 (wait NFT) is EMERGENCY-ONLY** — *"the only case rung 2 now exists for"* is that cliff. And
+**`NEVER GATE — shrink`**: a large exit is partially filled to Curve capacity with only the remainder
+deferring. ⇒ **An earlier draft overstated this as "LPs cannot withdraw."**
+⚠️ **The 25-bps floor guards MEV, NOT capacity** — anchored to `covered` (the ether.fi rate), never a
+pool-derived quote *"which a front-runner moves along with the fill it is supposed to police."*
+### Honest positioning
+| better than a CLMM | worse |
+|---|---|
+| fills at oracle, no curve traversal ⇒ no curve sandwich | 🔴 **a CLMM LP can NEVER be told to wait** |
+| premium retained for LPs, not paid to arbitrageurs | weETH means deliverable ≠ owned |
+| decline-by-name over a bad fill (`§E298`) | more moving parts: lever, keeper, oracle, venue |
+| two-leg NAV (`§#12`); premium compounds inside NAV ⇒ no JIT window | |
+
+⇒ **This is a yield-bearing market-making vault with deferred redemption, not a better AMM.** A fine
+product **stated**; a bad surprise **unstated**.
+### Options, cheapest first
+| # | option | cost | note |
+|---|---|---|---|
+| **B** | **Price deliverability** — skew reads `deliverableETH`, not just `POOLED` | none | the bound EXISTS and is simply not read on the swap leg (F11). **Obvious first move** |
+| **F** | ⭐⭐ **Settle the ETH leg in USD when ETH is scarce — A TWO-CONDITION ELIMINATOR** (§PLP-R3) | none | retires shortfall (1) AND (2), and `§4796-4812` with them. The claim is on **value**. **Highest leverage; examine first** |
+| **D** | Cap the pool's short — refuse swaps pushing `deliverableETH` below expected redemption flow | some refused volume | sized from `flowEwmaUsd`. **Discovering the limit at swap time beats discovering it at withdrawal** |
+| **C** | Make deferral first-class — request→claim in the interface | interface work | `B8`/7540; what every LST does. **Turns a failure mode into a stated property** |
+| **G** | ⭐ **BORROW WETH against the weETH instead of selling it** — the ladder's own docblock: *"THE INTENDED FIRST RUNG IS MISSING"* | interest | preserves the staking position, avoids the sale, **uses machinery the lever already has**. **Strictly better than A**, and needs no product decision unlike F |
+| **A** | Hold a deliverable WETH buffer | staking yield on the float | why there is no idle WETH today. **Dominated by G** |
+
+### ⭐ Option G expanded
+⚠️ **SCOPE UNRESOLVED:** the docblock sits in `offrampBody`, traced to the **withdraw** path (`Quid:790`,
+`:861`). **Whether swap-out delivery reaches the same ladder is the unfinished `_sendETH` funding trace.**
+**Close this first.**
+| | sell weETH (today) | borrow WETH against it (G) |
+|---|---|---|
+| slippage | **forced, at the moment a swap-out arrives** — worst timing, and large exits eat the quadratic | **deferred with optionality** — repay when cheapest, or **never** |
+| ether.fi ratchet | **permanently forfeited** on the sold amount (+0.674 bps/day = 2.46%/yr) | **survives** |
+| the real comparison | — | borrow rate vs **2.46% carry + avoided slippage** |
+| new cost | none | 🔴 **correlated-pair liquidation tail** — near-par so LTV is stable, but a weETH depeg liquidates |
+| accounting | none | a **second ETH-side debt term** for `committedUsd18`/`checkBacking` to net |
+
+⚠️ **Who pays is the same in both cases — the protocol IS the LPs.** **The difference is the amount, the
+timing, and the option not to pay at all.**
+
+### §PLP-U2 — how much Solidity the 1inch path can actually delete
+⚠️ **Two measured facts constrain any multi-venue ambition:** `5f52054` — **two independently-built routes
+do not compose in one transaction**; `41156ec` — **`_aggSwap` is still single-pool.**
+🔴 **THE FIRST IS MEASURED FALSE IN-TREE (found 2026-09-05, §S2).** `LevMath.sol:660-665`: *"I claimed two
+independently-built aggregator routes cannot compose in one transaction. **They compose — measured, 250k
+USDC + 250k USDT → 201.63 WETH in a single call.**"* **The real causes were the per-leg gas cap and
+`forceApprove`/USDT.** ⇒ **half of §PLP-U2's argument against multi-venue splitting is retired.**
+⭐ **The unifying principle, stated in `91e9445`:** the discriminator was never on-chain vs off-chain — **it
+is whether the AMOUNT IS KNOWN BEFORE THE TRANSACTION IS BUILT.** `OorIntent.size` is signed, so pre-built
+calldata is valid there; the lever leg and the offramp compute their amounts on-chain, so it is not.
+**Three sites, one rule.**
+**Can delete:** `sellWeethOnCurve`'s Curve-specific coupling (`exchange(1,0)`, `balances(0)`, `int128`
+indices), the hardcoded venue, and the 2026-08-09 measurement as a **frozen** result.
+🔴 **Cannot delete:** the offramp's amount is computed on-chain, so pathfinder calldata is **stale by
+construction** — *"too high and the router's `transferFrom` reverts, too low and it under-swaps into a
+`Slippage()` four frames away."*
+⇒ **Multi-venue splitting REQUIRES the off-chain amount. Venue-agnosticism or on-chain amount authority —
+not both.** Standing rule 17 already chose the second on the lever leg.
+🔴 **And a cost to weigh:** `deliverableETH`'s bound is `balances(0) * 9/10` — cheap, `view`, no quote,
+**cheap BECAUSE the venue is pinned.** ⇒ **This makes option B HARDER, not easier.**
+
+### §PLP-U3 — MULTI-POOL LOAD BALANCING: KEEPING IT KEEPER-PROOF
+✅ **Carries over unchanged, and is the strongest guarantee available:** the floor is already
+*"ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop."* Extended to N splits, the check is **total
+out ≥ oracle floor on total in**, measured as a balance delta. ⇒ **THE SPLIT BECOMES ECONOMICALLY
+IRRELEVANT** — a compromised keeper cannot profit from a bad split because the floor does not care how the
+output was produced. **Do not police the split; make it not matter.**
+✅ **CONFIRMED IN CODE 2026-09-05 (§S2):** `LevMath.convertTo:630` already takes `address[] inTokens`,
+`uint[] inAmounts`, `bytes[] routes`, applies **per-leg approve→call→zero**, a **per-leg
+`ROUTE_GAS_CAP = 3_000_000`**, and **ONE floor on the whole conversion** via a measured `outToken` balance
+delta. **The router's return value is never read**, so a pool that *"appears to give the result we want
+and actually doesn't"* fails the delta check and the transaction reverts — **a liveness attack, never
+theft.** ⇒ **§PLP-U3 items 1 and 2 are BUILT.**
+🔴 **New surfaces:** (1) **approvals** — per-leg approve-then-zero **INSIDE the leg**, not once around the
+batch ✅ **already so**; (2) **reentrancy between legs** — **compute every amount up front, execute all
+legs, settle once**; (3) **gas grinding** — **bound N** (at `N × 3M`, ten legs exceeds a block).
+⭐ **THE DESIGN THAT ALSO FIXES §PLP-U2'S OBJECTION:** have the **contract compute the split from on-chain
+depth reads** — `balances(0)` for Curve, liquidity for v3, both `view` — and let the keeper supply only
+the **SET** of pools, never the weights. It removes weight authority entirely, **keeps deliverability
+computable in a `view` context** (so option B survives), and keeps keeper authority at **which venues, and
+when. Never what the output is.**
+**The honeypot case, analysed.** Under the aggregate floor a fake-depth pool is a **LIVENESS attack, not
+theft**: it fails the total-out check and **the whole transaction reverts**, so nothing is stuck. What it
+CAN do is attract the contract-computed split, underfill, and revert the offramp repeatedly. ⇒ **DoS,
+bounded, and the answer is a fallback set plus a bound on N — not a registry** (a registry brings its own
+staleness problem, which §PLP-9 shows this tree already has in quantity).
+⚠️ **This is the one place contract-computed splitting is WEAKER than keeper-supplied weights**: a fake
+`balances(0)` attracts volume a human keeper would route around. **The floor still prevents loss; it does
+not prevent the revert.**
+⭐ **Recommendation (single-pool interim):** delete the Curve ABI coupling while keeping amounts on-chain
+and the bound intact — most of the target Solidity, nothing given up. **Leave pathfinder splitting until
+either the wait-NFT rung is being hit, or G removes the need to sell at size at all.**
+🔴 **F IS A PRODUCT DECISION, NOT A PARAMETER.** An ETH depositor may WANT ETH; their claim does not
+entitle them to it. **Deciding that explicitly is worth more than any pricing item in this scope.**
+
+## §PLP-V ✅ THE REPACK: what it is, what funds it (nothing), and the one residual
+
+```solidity
+function repack(uint anchorPrice) public onlyUs returns (uint price) {
+    RANGE_ANCHOR = anchorPrice;                       // ONE STORAGE WRITE
+    price = AUX.getTWAPforAsset(ASSET, 1800);
+    _observeIfSourced();
+}
+```
+**No burn, no mint, no transfer, no counterparty. `POOLED` / `POOLED_USD_*` are untouched.** `§DE-TICK`:
+*"there is no burn"*, and zeroing inventory here *"would delete the range's holdings on a bookkeeping
+operation."*
+⇒ **NOTHING FUNDS IT, SO THERE IS NO VALUE LEAK TO PREVENT.** A pool at 100% USD above its old band is
+still 100% USD after a repack — now centred on spot and able to buy as price falls.
+⛔ **Every "recentring needs ~50/50, therefore it needs a trade" argument in review was v3
+burn-and-remint reasoning applied to an engine `§V4-CUT` removed.** It drove the self-restoration,
+`τ_restore` and `κ = 1 + R/target` detours (§PLP-10).
+**When it fires:** **out of range** (`spot >= upPrice || spot < loPrice`, half-open; needs a live TWAP;
+`isManipulated(spot, twap, 300)` refuses >300 bps off oracle) · **auto-heal** (internal TWAP off Chainlink
+by `RESEAT_MIN_BPS`; deadlock recovery, since the 50-bps swap guard blocks every swap ⇒ spot cannot move).
+✅ **The skew premium is preserved STRUCTURALLY, not by policy.** It lands **inside** `POOLED_*` rather
+than an external accrual bucket, so `_pricingBacking()` already contains it ⇒ **a repack cannot strip
+it.** Same reason `collectFees()` could be deleted.
+🟡 **The one residual — anchor manipulation mis-prices the SKEW, not the fill.** `RANGE_ANCHOR` is one
+write and everything derives from it. A repack fires on the deposit/withdraw path, so **a depositor
+triggers it.** An attacker who moves spot within the 300 bps tolerance and then deposits pins the anchor
+up to 300 bps off true. ⇒ Fills settle at **oracle**, so this cannot mis-price a trade. It mis-prices the
+**premium**. **Bounded by 300 bps and by the cost of moving spot against the 50-bps swap guard. Book as
+Q2.7; not established whether the premium error is first-order at 300 bps.**
+
+## §PLP-W — CARRIED FORWARD
+
+**The marginal-vs-average wedge dissolves under §PLP-8.** Charging every unit at the average rate over a
+swap's own path mis-prices anyone whose valuation sits between that average and the marginal end rate —
+Otter's PO condition is marginal. **Under a size-independent rate marginal ≡ average and the wedge cannot
+exist.** What remains is a step at each refresh — time discretisation, not a pricing wedge.
+**Two dormant mechanisms arm on ONE landing.** `§UNIT-A-ATTEMPT-1` measured the σ² sentinel charging 3.04%
+on an ordinary buy once Cluster 1's target fix makes it reachable (§PLP-7); θ fails open at `1e18` and
+arms the moment σ² is pinned (Q5.4). **Neither has ever executed against live state, and they go live
+together. Treat that landing as a first exercise, not a parameter change.**
+**§PLP-13's θ-as-linearity-control needs the same caveat.** On ETH θ is not a live knob today.
+**Distance to a complete design, stated honestly.** Built and better than a CLMM: one price per swap with
+no curve traversal, so no curve sandwich and no tick-level LP competition; oracle anchoring; premium to
+LPs; decline-by-name. **But we do not know whether we over- or under-charge**, because live magnitude is
+~0 on ETH (§E279) while a fully derived Γ computes far above anything chargeable. ⇒ **A flat 5–30 bps
+tier overcharges every swap that closes quickly; that is the advantage to protect** — and it is not
+available until σ² is pinned.
+**`DEPLETION_RATE_WAD`'s status after §PLP-A was voided.** The *"shape right, dimension wrong"* reading
+came from the funding model and does not survive with it. **What survives is §PLP-1's plainer charge: 210
+ppm is an unexplained constant whose citation its own docblock says was lost twice.**
+**Item 0 after Q1.2 — narrowed, not settled.** ⇒ **depth toll vs future-variance premium.**
+
+## §PLP-X ⭐ NO BATCHES, NO SENTINELS, NO DEAD PARAMETERS
+
+**Owner, 2026-09-05:** *"There should not be empty calldata or no ops or dead parameters anywhere."*
+§POOL-VENUE means **ONE position**. `_batch`/`rebalanceMany`/`cascadeDelever` walk an `address[] lps` with
+parallel `minOuts[]`/`dexes[]` — **per-LP inputs to a single shared position**, which is incoherent before
+it is inefficient.
+⇒ **§PLP-6b's fix is DELETION, not collapse**, and it takes a chain with it: `_batch`'s `""` (the
+parameter goes, not the literal) · `dex2 = 0` as a sentinel · `catch { emit RebalanceFailed }` and *"a
+stuck LP becomes a partial fill"* — loop-survival machinery with no loop · 🔴 **Y3 DISSOLVES** (the keeper
+choosing array order was §PLP-Y's highest-rated residual and bounded by nothing — **it stops existing**) ·
+the keeper-compromise surface shrinks to one call, one pool, one oracle floor, no ordering.
+### The dead-parameter audit
+| dead thing | what it is |
+|---|---|
+| `route` on the lever leg | ⚠️ **CORRECTED 2026-09-05: NOT vestigial on the current branch.** `routedSwap:695` uses it when `dex2 != 0`; it is unused only on the legacy hub branch `_batch` forces |
+| `dex2 = 0` | ✅ **a live default, not a sentinel for "decide elsewhere"** — it selects the single-hop form |
+| `_batch`'s `""` + the LP arrays | inputs to a position with no per-LP shape |
+| `RebalanceFailed` catch | loop-survival with no loop |
+| `swapOutDeliverUnlevered` | zero callers, zero tests (`§STALE-BRANCH`) |
+| `SIGMA_REF`, `MAX_WELL_SKEW`, `CAP_SAFETY`, `STABLENESS` | ✅ zero code references — ⚠️ **but their comment mentions are TOMBSTONES; do not delete the prose** |
+| `RangeLib.onShortfall`, BTC `deliverVolatile` | deliberate no-ops — ⚠️ **`onShortfall` is removed by option F rather than deleted** |
+| `wellSkew`'s size parameter | goes vestigial **if** §PLP-8 lands |
+| `isBTC` (`§ISBTC-SPLIT`) | threaded six frames after the bottom one stopped reading it — deleted; **cited as precedent** |
+
+✅ **`SKEW_UNFILLABLE` is NOT on this list** — a live return meaning *decline*.
+✅ **Sweeps already done, cited as precedent:** `§ETHVENUE-GHOSTS`, `§OOR-BOOK-DELETED`, `§V4-RESIDUE`,
+`§V4-CUT-RESIDUE`, `§SLOP`, `§E358`, `§POOL-VENUE`.
+⭐ **Same test as §PLP-9, extended:** fail on a parameter no call site varies, and on a sentinel value that
+selects a branch no caller chooses. ⚠️ **Subject to the same 2026-09-05 ruling: it cannot be automated.**
+
+## §PLP-Y — WHAT GETS REBALANCED, WHEN, AND THE LP-SAFETY SURFACE
+
+| what | trigger | caller |
+|---|---|---|
+| **the range** — `Quid._rebalance` sets `RANGE_ANCHOR = spot` | drift > 20 bps | deposit/withdraw path |
+| **the pooled lever** — `rebalance`/`rebalanceMany` to `ilTargetBps` | `h` exits `h³ = g/(C·K)` | **permissionless keeper** |
+| **forced delever** — `deleverEthOnDelivery` | a swap-out `deliverableETH` cannot cover | the swapper, involuntarily |
+
+✅ **The core protection is a clean split of authority**, and `§V-R1-MIN` names it: *"the caller picks WHEN
+and the contract picks the PRICE BOUND."* `minOut` is oracle-derived at every call site, checked against a
+**measured balance delta** rather than a router return value, and **the keeper cannot supply calldata at
+all** on the pool-word path.
+🔴 **Three residuals where they can still pick the MOMENT or the TRIGGER:** **Y1** timing against oracle
+lag (bounded per call, **repeatable across calls**) · **Y2** flow-forced delevers · ~~**Y3** batch order
+dependence~~ ✅ **DISSOLVED by §PLP-X.**
+`§C19` caps the damage from all three: the entry price stays pinned, so a forced rebalance changes
+**timing on the recovery, never the basis.**
+### §PLP-Y2 — A COMPROMISED KEEPER
+**Cannot — three layers, all already built:** (1) **no arbitrary call** on the pool-word path — `dex` is a
+packed **venue** word; (2) **exact, zeroed approval**; (3) **`minOut` oracle-derived and checked against a
+MEASURED BALANCE DELTA**, never the router's return — *"a guard that trusts one is checking the failing
+party's own homework."*
+**Can — a bleed at exactly `TWAP − MAX_SLIPPAGE`.**
+⚠️ **Two invariants that must not be weakened:** ① *"a permissionless `rebalance` may pass 0"* for
+`minOut`, so the **oracle floor is the only real protection**; ② the floor is **applied to the WHOLE
+ROUTE, not per hop.**
+✅ **But NOT repeatably, and `_bandFor` is why.** ✅ **CONFIRMED 2026-09-05 (§S1): `_bandFor` GATES BOTH
+LEGS.** `LevBase._rebalance:339` calls `debtDeltaToTarget(lp)` **once**, before choosing a direction, and
+`LevMath.debtDelta:1391`'s band test is **two-sided** — `if (cur + rangeBps >= targetBps && cur <=
+targetBps + rangeBps) return (false, 0)`. An in-band position returns `deltaUsd == 0` and **neither leg
+executes.** ⇒ **Q2.6 is CLOSED and §PLP-Y2's conclusion HOLDS for the up-leg too.** The flagged risk — *"if
+only the down-leg, the bleed IS repeatable on the buy side and this conclusion is wrong"* — **does not
+materialise.**
+⇒ Exposure is **slip on rebalances that were going to happen anyway**, bounded by crossing frequency.
+**The band does economic limiting AND rate limiting.**
+
+## §PLP-Z — RESOLVED 2026-09-05 (two answers, one retraction)
+
+⚠️ **SCOPE — the finding below covers the LEVER leg ONLY.** `_aggSwap` is live and being extended on the
+**basket** path.
+**✅ Q2.1 — RESOLVED, AND IT RETRACTS §PLP-6a.** `§V-R1-MIN`: *"THE KEEPER SUPPLIES NOTHING here… This
+used to take `bytes route` and `call` it verbatim, which is the standard 1inch integration and is WRONG
+HERE — 1inch calldata embeds its own `amount`, and every amount that reaches this function is computed
+ON-CHAIN."* ⇒ §PLP-6a is **WITHDRAWN**.
+🔴 **ITS REASONING IS ITSELF STALE (re-checked 2026-09-05, §S2).** It said the leg reaches **`_poolSwap`,
+not `_aggSwap`** — **`_poolSwap` was DELETED by §C2.1.** ⇒ **the withdrawal's CONCLUSION survives, for a
+different reason:** `_aggSwap` guards on `dex == 0`, not on an empty `route`, and `_batch` supplies `dex`.
+**§PLP-6b and §PLP-6c stand.**
+**🟠 Q1.1 — PARTIALLY RESOLVED.** `Quid._convert` is `amt × lpShares / _pricingBacking()` — a standard 4626
+share price. ⇒ **Claims are PRO-RATA, not denominated**, and **§PLP-A's premise as stated is void**:
+§PLP-0's fork is live again and §PLP-8/§PLP-11 do NOT dissolve.
+**✅ Q1.2 — RESOLVED, AND IT IS THE GOOD ANSWER.** `_pricingBacking()` reads **BOTH LEGS**: `_auxRangeETH()`
+plus the LP-owned USD leg (`usd6 − base6`) valued at the **oracle TWAP**, signed. `§#12` was opened for
+precisely the feared bug — *"a range that sold LP ETH for USD priced the LP down by the whole sale"* — and
+fixed it. ⇒ **An ETH-out swap is VALUE-NEUTRAL to the LP.**
+✅ **And the zero-sum boundary is enforced in the pricing itself.** When the range bought ETH with basket
+dollars the increment is **negative and reduces the claim** (B11), because *"flooring at zero would gift
+the LP the basket's capital."*
+⚠️ **`§A.16b` is the live subtlety worth carrying:** the numerator was LIVE while `lpShares`' matching term
+is STORED. An external Morpho liquidation cut the numerator instantly while the denominator still carried
+seized collateral — **price fell 32% for every holder and a passive LP absorbed ~half a liquidation it had
+no part in.** Fixed by using the RECORDED term. Netting the levered book out was tried and **reverted**
+(`§A.16d`, 69% under-pricing).
+
+| reading of the premium | status |
+|---|---|
+| compensate a **realised loss** at swap time | ⛔ **dead** — the LP is marked correctly; nothing was lost |
+| compensate **future variance** of a mix they did not choose | ✅ **survives untouched** |
+
+⇒ **Item 0 NARROWS to depth toll vs future-variance premium.**
+
+## §PLP-Q — OPEN QUESTIONS REGISTER
+
+**Q1 — gates the scope.** Q1.1 ✅ **RESOLVED: pro-rata** · Q1.2 ✅ **RESOLVED: both legs, oracle-valued,
+signed.**
+**Q2 — cheap reads that could INVALIDATE a finding.** Q2.1 ✅ **RESOLVED** (⚠️ its reasoning re-corrected,
+§S2) · **Q2.2** does `levPooled` go stale between a swap-forced delever and the next `syncLev`? ·
+Q2.3/Q2.4 ✅ **MOOT** · **Q2.5 (Y1)** how far can a permissionless caller push TWAP lag within the
+slippage floor, and is it repeatable per block? · **Q2.6** ✅ **RESOLVED 2026-09-05 — `_bandFor` gates BOTH
+legs (§S1)** · **Q2.7** is the skew error from a 300-bps-off `RANGE_ANCHOR` first-order?
+**Q3 — booked in SPRINT, unresolved, upstream of work here.** Q3.1 per-LP debt against ONE pooled position
+(`§STALE-BRANCH`, `§M.1`) · Q3.2 Σbacking + non-toxicity of the swap-forced delever · Q3.3 Cluster 1's
+target fix, **which ARMS the σ² sentinel** · Q3.4 `§UNIT-C-DISAMBIG`.
+**Q4 — contradictions I cannot settle.** Q4.1 `§E79` vs the 0.00023 bps arithmetic · Q4.2 can θ hit
+`1 − √(entry/now)` exactly, or only track its direction?
+**Q5 — found here, unbooked elsewhere.** Q5.1 **no `deliverableBTC`** · Q5.2 `Vault.sol:244`'s
+`delta = 200` seed — **10× K error** · Q5.3 `K` has **two** consumers · Q5.4 θ's missing venue-yield term
+is **LATENT, not inert** — **fix it IN the σ²-pinning landing, not after** · Q5.5 `rebalanceMany` is the
+un-collapsed action-side Σ-loop.
+**Q6 🔴 THE METHODOLOGICAL ONE.** **Every substantive correction in the scope came from the owner, not
+from re-reading** — always the same shape: a comment narrating a deleted object. ⇒ **treat every claim
+sourced only from a docblock as unverified.** The places bodies were read are the ones that held.
+⭐ **A second pattern worth trusting: when a residual needs a BOUND, first ask whether the structure that
+created it should exist.** Twice the answer removed the defect outright. **Bounding was the wrong instinct
+both times.**
+⭐ **The mechanised fix (§PLP-9's grep test) — 🔴 RULED OUT BY THE OWNER 2026-09-05.** See §S3.
