@@ -48244,3 +48244,1783 @@ Settle both together; they are the same eight lines.
 
 </details>
 
+
+---
+
+# ₿ §BTC-SCOPE-2026-09-05 — **THE BITCOIN-SCOPE EXTENSION, FOLDED IN VERBATIM-BY-STRUCTURE**
+
+**Owner-supplied 2026-09-05 as an agenda for this file.** Written against `quidmints/SPV@7c5bc10`;
+every `file:line` was read from the tree. It covers **only what this file does not, or states
+wrongly** — items already tracked correctly appear as one-line pointers, never restated.
+
+⚠️ **ON USING IT:** it was assembled iteratively and several edits failed silently before being caught
+by re-reading. **Every claim carries its `file:line` — spot-check before acting.** Anything without a
+"code-verified" marker needs confirmation.
+
+**GOALS:** no fund loss from a hacked hop · no fund loss from a hacked msig upgrading the hop image ·
+no LP online or node · quantum a plus — across **security · efficiency · liveness**, at **maximal
+simplicity, never at odds with the rest**.
+
+📌 **STRUCTURAL FACTS THAT DECIDE SEVERAL ITEMS:** an LP opens exactly **one channel, ever**
+(`OneChannelPerLp`; splice is the only resize) ⇒ one mnemonic = one funding key = one stable `lpEth`
+= one channel. And **§E188's decomposition:** *funds safety must not need the key at all; only
+service may.*
+
+**OUT OF SCOPE:** `quant.ts`, basket entry policy, the EVM venue design, general repo cleanup.
+
+## §BTC-1 — Goal 3: the design may already hold it outright; §E172 is contradicted
+
+🔴 **TWO ROWS IN THIS FILE CANNOT BOTH BE RIGHT, AND WHICH ONE IS DECIDES WHETHER ANY LP-LIVENESS
+MECHANISM IS NEEDED AT ALL.**
+
+**§E172 (`:44197`)** concluded the vault↔hop channel is *"a LIVE ROUTING channel carrying swap-in
+HTLCs, so every swap-in is a commitment update needing the LP-side funding signature"*, citing
+`rebalancer.rs:32-35`.
+
+**`:851-877` (2026-08-31, later)** measures the opposite on two grounds: (1) the LP↔hop commitment
+balance never moves — the LP runs no LN node (design B), swap-**IN** HTLCs arrive on the hop's
+**network-facing** channels, swap-**OUT** delivery is a **splice, not a payment**; (2) an older
+scope's commitment cannot confirm at all — it spends the pre-splice outpoint the splice already spent.
+It also verified **no `send_spontaneous_payment` call exists anywhere** in `quid-bridge`, `quid-hop`
+or `quid-ln`; the only `Spontaneous` symbols are LDK's **inbound** receive types
+(`channel_driver.rs:1296`).
+
+✅ **RESOLVED 2026-09-05 — MEASURED, AND IT GOES AGAINST `:851-877`. SEE §SESSION-2026-09-05 §S1 FOR
+THE FULL TRACE.** Both halves of the discriminator were run:
+- **Whose `ChannelDetails`?** The **vault/LP side's**. `quid-bridge/src/vault.rs:1131` calls
+  `rebalance_capacity_tick(&vault.node.channel_manager, …, hop_pk, …)` and the loop filters
+  `c.counterparty.node_id == hop_node_pk` (`rebalancer.rs:306-309`). The vault holds the LP-side
+  channel keys (`vault.rs:27`, `daemon.rs:291`, `swap_out_onchain.rs:234`). ⇒
+  `next_outbound_htlc_limit_msat` **is the LP side's outbound limit toward the hop**, so
+  `rebalancer.rs:32-35`'s attribution to "the LP" is **CORRECT** and this document's proposed
+  reconciliation (that the field is the hop's) is **FALSIFIED**.
+- **Does anything put an HTLC on that channel?** Yes, and it is the module's whole premise.
+  `rebalancer.rs:6-18`: *"LP outbound = swap-in forwarding capacity (**the LP pushes the seller's sats
+  to the hop**) … the rebalancer runs on the LP side."* And `quid-hop/tests/e2e.rs:1143`
+  (`stage6_rebalancer_splices_on_exhaustion`) drives it down with **real payments on real LDK against
+  bitcoind**: *"Drive B's outbound (its swap-in FORWARDING capacity) DOWN by claiming real swap-ins
+  (B pays A; A claims, so **balance actually MOVES to A**)"*, then asserts `decide_splice` returns
+  `Splice`.
+
+🔴 **WHY `:851-877`'S INDEPENDENT CHECK MISSED IT — THE QUERY-SHAPE TRAP, INSIDE THE REPO.** It
+searched for `send_spontaneous_payment` and found none. **Forwarding an HTLC never calls that API** —
+relay is LDK-internal, not an outbound-payment call. The empty grep is fully consistent with heavy
+HTLC traffic, so it proved nothing. Same class as the *"1inch only does `unoswap`"* row in
+`CLAUDE.md`'s verification-discipline table, arriving from inside the tree rather than outside it.
+
+⭐ **THE SYNTHESIS, WHICH IS SHARPER THAN EITHER ROW AND IS THE PART TO CARRY FORWARD.** Both rows
+describe **rail B** from opposite sides. `:851-877` is right that **no LP signature is needed** — but
+only because the **vault holds the LP's half and co-signs in-process**. §E172 is right that **every
+forwarded swap-in is a commitment update**. *"The LP runs no LN node"* is true of the **person** and
+false of the **channel**. ⇒ **Goal 3 holds today BY CUSTODY, NOT BY CONSTRUCTION** — which is exactly
+the §2.5c incoherence — and **the moment §9.9 splits the topology, every forwarded swap-in becomes a
+round-trip to a phone.**
+
+⇒ **CONSEQUENCES THAT NOW PROPAGATE (each needs the owner's ruling before its row is edited):**
+- §BTC-1's *"goal 3 holds outright"* **does not hold**.
+- **§2.4's breach exposure is LIVE, not latent** — states in which the LP's balance was lower DO exist.
+- **Freshness job 1 (stale-rung overpayment) revives**, which reopens §2.4b.2 option A.
+- **§7's three-layer stale chain at `BTCChannels.sol:303-374` resolves the OTHER way:** the §E172
+  annotation is CORRECT and *"signs once, goes offline forever"* is the stale layer.
+
+⚠️ **THE PROPERTY WAS ALWAYS EMERGENT, NOT ENFORCED** — *"we happen not to route over LP channels"* —
+and it **arms the moment any balance-moving rail is enabled on an LP channel**, a routing decision
+someone could make without reading the contract. ⇒ **the work is to ENFORCE the static-balance
+property where it is wanted, not to build a liveness mechanism around its absence.**
+
+📌 **What remains genuinely open** (`:29661`): whether the channel should forward **at all** —
+forwarding yield versus a simpler custody shape.
+
+### §BTC-1.1 — LP availability gates splices, and that is safe rather than merely tolerable
+
+The LP signs at open, and at each splice **it is present for** — a splice cannot occur without it.
+Spending the funding 2-of-2 requires the LP's MuSig2 partial, so "offline at splice time" produces
+**no splice**, never an unsafe one.
+
+✅ **THE ESCAPE CANNOT GO STALE IN THE GAP. VERIFIED:** `_armLadder` (`BTCChannels.sol:1238`) is
+**inside `function splice(`** (`:1141`), armed before the external `registerBtcLp`, so **a ladder that
+does not verify reverts the splice**. There is no window in which a spliced channel sits unarmed, and
+an unspliced channel's ladder stays valid because its outpoint never rotated.
+
+**What an absent LP costs — all service, no funds:**
+
+| blocked | consequence |
+|---|---|
+| hop-funded fee splice-in | ⚠️ **NOT compounding — that is EVM-side.** §E145 **deleted `btcFeesOwedSats`**; *"the BTC fee leg now compounds into `LP.pooled` in sats"* (`Vault.sol:164`), and `BtcLib.sol:73` names the old *"ledger only a hop-funded GROW-SPLICE could settle"* as the deleted model. ⇒ **the LP's position compounds while it is away, with no splice and no signature.** The splice is for **capacity** |
+| capacity rebalance (`decide_splice`) | the channel cannot serve larger swap-ins |
+| swap-out delivery via **this** LP | not a global block — selection **already collects only online LPs and skips offline ones** (`f5833be4`) |
+| nothing | **the ladder remains armed throughout.** Frozen, and always exitable |
+
+⇒ **`c6bfb5c3`'s principle again: the offline failure is degraded service, not loss.**
+⚠️ Splice frequency is **doubly gated** — demand-driven *and* LP-availability-gated — so §4.3's
+compartmentalisation tracks LP engagement, not calendar time.
+⚠️ **WORTH CONFIRMING:** whether the app can sign a hop-initiated splice in the background
+(push-woken) or requires deliberate user presence. That sets the realistic rotation cadence.
+📌 `await_quiescent` (`vault.rs:136`, tests `:156`) is built and remains the right tool for an orderly
+departure if a balance-moving rail is enabled — keep it, do not build a model around it.
+
+## §BTC-2 — Goal 1, live items
+
+### §BTC-2.1 🔴 `ValidatingChannelSigner` does not inspect what it signs (§T9)
+
+`validating_signer.rs:1662` computes the sighash and signs; it **never reads `tx.output`**. Two
+guarantees rest on it: **splice destinations** (§SPLICE-ROTATES-BOTH-FUNDING-KEYS deleted the
+contract-side `lpPubkey`-unchanged check *because the LP signs only destinations it accepts* — so
+`BitcoinTx.sol:1193-1198`'s argument does not hold today, and a compromised hop can rotate into a pair
+it solely controls), and **stale rungs** (`c4875fcf`: refuse a commitment update lowering the LP's
+balance without a rung for it — 🔑 *unconstructible beats revocable, because revocation needs the
+fleet alive to spend the freshness UTXO, i.e. never, in the case the ladder exists for*).
+
+**Design is written — `:1549`, `:1504`, `:1852`.**
+
+✅ **`CidRegistry` — THE VERDICT IS COMPUTE, NOT CACHE, i.e. DELETE.** `channelId` is
+`keccak256(lpPubkey, hopPubkey, fundingTxId, vout)` (`ChannelLib.sol:640`) — a deterministic function
+of four values, two of which the signer already holds. **And the computation ALREADY EXISTS AND IS
+USED:** `select_delivery_channels` (`swap_out_onchain.rs:107-119`) does exactly this —
+`m.original_funding_txo()` + `m.original_funding_pubkeys()` + `sort_funding_pubkeys` +
+`channel_id(&k0,&k1,txid,index)` — with the rule spelled out: *"(§SPLICE-ROTATES-BOTH-FUNDING-KEYS)
+IDENTITY, NOT SPEND: pair the ORIGINAL outpoint with the ORIGINAL pubkeys … LDK rotates the pair on
+every splice, so reading the live `funding_pubkeys()` here yielded a cid no channel on the EVM has."*
+⇒ **the root outpoint IS reachable, the helper IS written and exercised, and `CidRegistry` is
+redundant. Reuse it; do not build a registry.**
+⚠️ **IF YOU BUILD THE REGISTRY ANYWAY, ORDER MATTERS:** attaching a factory before a writer exists
+returns `NotRecorded` forever and is **permanently permissive** — `has_truth_source()` reads `true`
+while every call passes. And `channel_driver.rs:1561` is the §LP-LIVENESS gate on `ChannelId`, not
+`channel_keys_id`, so reusing it binds the **wrong channel**. Both hazards disappear if the signer
+computes `channelId`.
+⚠️ **Do not read "delete" as "drop the check."** The **pair** check is what closes §BTC-2.1.
+
+### §BTC-2.2 🔴 App-side nonce handling — one check decides the design
+
+Spec: `docs/actionable/TODO.md:829`. Greenfield app-side — nothing named `LpConsent`, `OpenAuth`,
+`lp_sig` or "pre-signed ladder" exists there.
+
+§E171-r sanctions MuSig2 partly on the Rust `musig2` crate, *"whose `FirstRound`/`SecondRound` types
+CONSUME `self` and make reuse a type error."* **That does not cross the language boundary.**
+`@scure/btc-signer` v2.3.0's `nonceGen` returns a plain `Nonces`; signing twice under one secnonce
+type-checks. **The failure is silent and total:** two partials under one secnonce leak the LP's key,
+the fleet recovers it and holds **both halves**, every on-chain byte still correct. **This tree has
+shipped that bug once** (§BTC-6).
+
+⭐ **The spec's answer is right: `deterministicSign`, not `nonceGen` + `Session`** — the nonce comes
+from secret + message + `aggOtherNonce`, so there is nothing to persist, leak or replay.
+
+🔴 **But it is available only to the signer who goes LAST — and today the LP occupies BOTH positions,
+with an EXTERNAL PARTY choosing which.** A **swapper** requests the swap-out, the hop selects an LP
+channel and **triggers** the LP, and the LP takes the LN **initiator** role
+(`swap_out_onchain.rs:11-14`). It must, because `SpliceContribution::SpliceOut` **debits the
+initiator's own balance**. ⇒ **the LP does not choose to go first; an unprivileged swapper puts it
+there, on demand and repeatably. Rate-limiting is not a mitigation — the exposure is per-session, not
+per-volume.**
+
+⚠️ **SEVERITY CORRECTED — FUTURE, NOT LIVE.** The **implemented** delivery path is `(B)`: *"Initiate
+the swapper-directed SpliceOut on the **VAULT node** (it holds the LP-side channel keys, co-signed
+in-process by the hop) … **NO LP round-trip and NO per-call lpAuth under B**"*
+(`swap_out_onchain.rs:232-240`). Under B the LP never signs for delivery, so the trigger is
+unreachable today. It becomes live **with the split topology** — exactly when §9.9 lands. ⇒ **build
+the refusal as part of §9.9, not after it.**
+✅ **AND §9.9 FIXES IT.** `f5833be4`'s step 1 moves delivery to the hop's `channel_manager`, which
+`aa2f84a7` made possible ⇒ once delivery is hop-initiated the LP is the responder on EVERY path and
+`deterministicSign` is unconditionally available.
+⚠️ **One link unverified:** that the LN *initiator* role implies sending the MuSig2 pubnonce first. It
+follows if nonces ride `splice_init`/`splice_ack`, but **this was not read in the LDK fork.**
+
+### §BTC-2.3 ⛔ `TODO.md:833`/`:875` specifies a deleted interface
+
+It calls for `auth.lp_sig` — an EVM signature over `openAuthDigest` — and says land it **first**.
+**§E183 deleted both**: neither appears in `evm/src` except retraction comments (`Types.sol:225`,
+`BTCChannels.sol:859`). The only LP consent at open is `btcRecipientPoP`, a **Bitcoin** signature,
+precisely so the LP signs nothing on the EVM — **goal 3.** ⇒ **building it is wasted work that erodes
+goal 3.** The `exits` ladder is the real work and is unaffected.
+
+### §BTC-2.4 — The breach path, and the fix that is designed, keyless and strictly better
+
+**THE EXPOSURE** (`8b6ed4f3`): LDK's justice hooks fire only when the LP's own node sees the breach;
+`quid-watchtower` cannot cover it by construction (keyless, no signer — a justice transaction needs
+the revocation secret); and 🔑 **the attack destroys the mitigation — broadcasting any commitment
+spends the funding outpoint, the same one every armed rung spends, so a breach voids the ladder in the
+same act. The two defences are not independent.**
+
+🔴 **SEVERITY UPDATED 2026-09-05 — THIS IS NOW **LIVE**, NOT LATENT.** The in-tree note called it
+latent on the grounds that no state with a lower LP balance exists. **§BTC-1's measurement removes
+that premise:** the LP side forwards swap-ins, so its balance moves, so older commitments with a lower
+LP balance **do** exist.
+
+✅ **THE FIX, AND WHY IT BEATS `WatchtowerPersister`.** `:877-889` specifies something strictly better
+at zero cost to the LP. **All three inputs already exist on-chain** — `checkpointOf` (the fleet's own
+last attestation), `paidOutSinceCheckpoint` (legitimate outflows), and an SPV-proven close tx. On a
+force close, compare what the commitment paid the LP against `checkpointOf − paidOutSinceCheckpoint`.
+**A shortfall is a self-evident breach, proven by the fleet's own signed attestation.** No LP
+participation, no revocation secret, no per-update work, and the existing keyless `quid-watchtower`
+can submit it — detection needs observation only.
+
+✅ **WHERE IT GOES, read from `recordClose` (`:1841-1884`).** `StaleClose` **already implements this
+comparison** — `lpPayoutSats + paidOutSinceCheckpoint[channelId] < ckpt` → revert — but **only on the
+COOPERATIVE branch**, deliberately: *"A force close is a solvency reconciliation against a tx the
+fleet did not co-sign, so it has nothing to be stale ABOUT."* ⇒ **on the force branch
+`lpPayoutSats = channels[channelId].amountSats`** — the **full funded amount, assumed rather than
+measured. That is the line §BTC-2.4's check replaces.**
+
+🔑 **A CONSTRAINT THE `StaleClose` HISTORY IMPOSES.** It is gated on
+`msg.sender != channels[channelId].lpEth` because binding the LP too *"would hand a compromised hop a
+way to block every cooperative close by attesting an absurd checkpoint — forcing LPs into punitive
+force-closes."* **First version did exactly that; it was reverted for it.** ⇒ **`checkpointOf` is
+FLEET-ATTESTED, so any guard keyed on it is weaponisable by a compromised hop. This is precisely why
+§BTC-2.4 must EMIT and never revert or re-value** — a false breach event from an absurd checkpoint is
+*noise*; a revert would be a compromised hop blocking closes; a re-value would be it minting against
+QUI holders. **The emit-only decision is not conservatism; it is the only shape that survives a
+hop-attested input.**
+
+📌 **Reuse `BitcoinTx.isCommitmentTx` as the discriminator** — `recordClose` already needs it because
+locktime alone *"let a participant feed an in-flight splice / swap-out-delivery tx as a 'force close'
+— bricking the channel mid-splice, corrupting the swap-out settlement, and setting up a reversal
+double-pay."*
+
+⛔ **ON DETECTION: EMIT, DO NOT RE-VALUE, DO NOT REVERT.** Re-valuing pays the LP in dollars minted
+against sats **an attacker now holds**, moving the loss onto QUI holders on the word of a transaction
+the attacker chose. Reverting is worse than nothing: the channel stays `STATUS_OPEN` with its BTC
+gone, so `totalSatsLocked` keeps counting backing that does not exist. ⇒ **retire as today
+(`delivered = 0`) AND emit a quantified breach event.** The BTC cannot be clawed back; what this buys
+is that the theft becomes **provable and attributable on-chain from the fleet's own attestation.**
+📌 **The defect being fixed is SILENCE, not mis-valuation.**
+✅ **`:889`'s *"one real obstacle"* is already solved** — it asks for the LP's payment basepoint pinned
+at `openChannel`; `BTCChannels.sol:1012` pins `lpToRemoteKey` from `auth.lpPaymentPoint`.
+🔑 **THREE ITEMS SHARE ONE DEPENDENCY:** §BTC-2.4's shortfall check, §BTC-2.4d's basepoint custody and
+SPRINT remainder #2 (the force-close e2e test) **all rest on the LP supplying a payment basepoint it
+controls**, and the app derives none. ⇒ **app-side basepoint derivation is the single unblock for all
+three.**
+
+### §BTC-2.4b — FRESHNESS: job 1 dissolves, job 2 does not, and the decision is a trade
+
+`c4875fcf` recommended deleting the freshness UTXO; `bf5aa5ff` retracted **before execution**. The
+code exists and early-returns on `vault == None`.
+
+**Job 1 — stale-rung overpayment.** The in-tree argument was that this is structurally unreachable
+because the LP's balance never decreases off-chain. 🔴 **§BTC-1's measurement REVIVES JOB 1** — the LP
+side forwards swap-ins, so the balance does move. Treat job 1 as **live**, not dissolved.
+
+**Job 2 — it is not a stranger, it is the protocol's own watchtower, on a false premise.**
+`quid-watchtower` polls the EVM for the **latest** `DeadManExitEmitted` per channel and broadcasts
+once matured, justified as *"if matured (tip ≥ deadline, **i.e. the fleet stopped refreshing**)"*.
+✅ **VERIFIED IN THE IMPLEMENTATION, not the header.** `recover_and_broadcast`
+(`recovery_broadcast.rs:186-194`) checks **exactly two things**: `latest_exit(…)` returns an armed
+exit, and `tip >= exit.cltv_deadline`. **There is no channel-status check.**
+🔴 **And the premise is false in the shipped default.** `run_deadman_exit_heartbeat` — the thing that
+refreshes a deadline — **disables itself on `vault == None`**, the default. ⇒ maturity signals only
+that **time passed**. **Every channel is force-closed by the protocol's own watchtower once its first
+rung matures.** Deterministic, not stranger griefing.
+🔴 **THE MECHANISM THAT STOPS IT IS THE FRESHNESS UTXO — SO PHASE 3 IS NEEDED.** The exit takes
+**input 0 = the funding outpoint** and an **optional input 1 = a fleet-controlled UTXO shared across a
+shard** (`quid-bridge/src/deadman_exit.rs:67-83`). Under `Prevouts::All` the sighash commits to every
+prevout, so *"spending that one UTXO invalidates every previously"* armed rung.
+⚠️ **ARMING IS ADDITIVE; IT CANNOT REVOKE.** `exitArmedOnOutpoint` is never cleared and old
+`signedExitTx` bytes stay valid on Bitcoin forever.
+⚠️ **NAMING HAZARD:** `commitFreshness` and `MAX_FRESHNESS_JUMP = 1_000_000` (`BTCChannels.sol:1653`)
+govern the **enclave monitor's `update_id` sequence** and have **nothing to do** with the Bitcoin
+freshness UTXO. Two mechanisms, one word. `MAX_FRESHNESS_JUMP` does **not** bound rotation.
+✅ **Job 2's conclusion survives for a different reason:** the rung is a fully-signed CLTV exit paying
+`btcRecipientOf` the LP's attested `checkpointSats` (`Types.sol:282-283`) — **the LP's own pinned
+payout address, which no path rotates** — and `_armDeadManExit` reverts `ExitUnderpaysCheckpoint`
+unless the bytes genuinely pay it. An auto-close **sends the LP its own money at its own address**.
+The harm is a closed channel: **service, not funds.**
+🔑 **An active channel never reaches maturity**, because every splice re-arms with fresh, later
+deadlines. Only a channel idle past rung 1's deadline closes.
+
+#### §BTC-2.4b.1 ✅ THE FIX — an LP-signed keep-alive refresh, on machinery that exists
+
+**`bf5aa5ff` refuted 2-of-2 freshness on one ground: *"the LP is offline."* Push-woken background
+signing removes that premise, and a refresh is far smaller than a splice** — one signature, no
+on-chain transaction, no fees, no new mechanism.
+
+**The entrypoint is already built.** `emitDeadManExit` is `_whenOpen` + `_onlyHop` +
+`_requireChannelKeys`, and `BitcoinTx.verifyDeadManExit` needs **no SPV inclusion proof**.
+`_armDeadManExit` re-arms `exitArmedOnOutpoint` at the new deadline with `ExitUnderpaysCheckpoint`
+still enforced. **It is what the heartbeat was written to call.**
+
+🔑 **Why this threads all three horns of `bf5aa5ff`'s tension:** the refresh carries the **LP's**
+signature over contract-verified bytes, so a compromised hop cannot manufacture one and cannot refresh
+forever to deny the escape; deadlines do move forward for a live LP; and the 2-of-2 objection is
+answered rather than dodged.
+✅ It repairs the watchtower's documented argument — maturity becomes *"the fleet stopped refreshing"*
+in fact. `_onlyHop` on submission is then correct: a hop that cannot submit **is** the dead-hop case.
+
+🔴 **THE MISSING HALF — the invariant that closes the remaining horn.** The refresh adds a rung; it
+does not remove the old one. Revocation needs the freshness input. But hop-controlled freshness was
+rejected because *"a compromised hop [can] void every escape."*
+▶️ **Fix it with the atomicity discipline the tree already uses.** `_armLadder` sits **inside**
+`splice()` so a splice carrying no verifying ladder **reverts**. Apply the same rule: **a freshness
+rotation must be atomic with arming a valid replacement rung, or revert.** A compromised hop may then
+rotate freely — every rotation leaves a fresh, LP-signed, contract-verified escape armed — and its
+power reduces from **voiding** the escape to **deferring** it by one interval.
+🔴 **Enforce it in `BTCChannels`, not in the daemon (§BTC-2.7).** As a daemon rule a breached hop
+simply does not run it; as a contract revert it is a bound.
+⚠️ **Verify before building:** whether a shard-shared UTXO can carry per-channel atomicity at all —
+one rotation would have to arm a replacement for **every** channel in the shard, each needing its own
+LP signature. **If that does not compose, per-channel freshness outpoints are the alternative.**
+⚠️ **Costs:** gas per refresh per channel, paid by the hop; and it **depends on §BTC-8's background
+signing**. ⚠️ **Open:** whether submission stays `_onlyHop` or becomes permissionless-with-valid-LP-
+signature. `_onlyHop` looks right — a hostile hop withholding a refresh only forces a close it could
+cause anyway by force-closing.
+
+#### §BTC-2.4b.2 ⇒ THE DECISION, STATED AS THE TRADE IT ACTUALLY IS
+
+**Why deletion was proposed** (`c4875fcf`): freshness was understood as the guard against stale-rung
+overpayment, and each staleness path already carries its own invalidation; the 2-of-2 variant was
+refuted; keeping it shared drags in per-channel sharding — *"more moving parts to prop up a mechanism
+that should not exist"* — and `ValidatingChannelSigner` enforcement makes staleness **unconstructible
+rather than revocable**, which is strictly stronger.
+
+**What it missed — and `bf5aa5ff` caught the same day — is job 2: freshness is the only thing that can
+REVOKE an armed rung.** `c4875fcf`'s complexity objection stays real, because a shard-shared UTXO
+means one channel's rotation voids every other channel's escape in that shard. **That is exactly why
+phase 3 is named *per-channel* freshness.**
+
+| | **A — build phase 3** | **B — no freshness, long rung-1 deadline** |
+|---|---|---|
+| mechanism | per-channel freshness outpoints + the atomicity invariant | none |
+| recovery latency if the fleet dies | short — deadlines can be tight because refreshed | equals the deadline; an LP is stranded that long |
+| idle channels | kept alive by refresh | auto-closed at rung-1 maturity, funds to `btcRecipientOf` |
+| cost | real complexity; rotation is unsafe without the invariant | zero |
+
+🔴 **UPDATED 2026-09-05: §BTC-1 CHANGES THIS TRADE.** The in-tree note said *"nothing about correctness
+forces A — under §1 this is a service-quality decision."* **With job 1 live, correctness is back in
+play and A gains weight.** Re-price before choosing.
+⚠️ **SPRINT remainder #6 (`B1` — *"freshness backstop has no economic bound"*) is a direct cost input
+to A and is itself open.** Price `B1` before choosing A.
+⚠️ **Correct the watchtower's header either way** — it documents a refresh that does not happen.
+
+### §BTC-2.4c 🔴 `DEAD_MAN_FEE_SATS` — a fixed fee on the keyless-recovery path
+
+`deadman_exit.rs:74`: `pub const DEAD_MAN_FEE_SATS: u64 = 2_000;` — **a fixed fee, signed at open, on a
+transaction that may be broadcast years later in an unrelated fee environment.**
+
+🔑 **This is a RECOVERABILITY defect, not a cost defect.** §E188's guarantee is that *anyone* may
+broadcast. But **anyone can broadcast and nobody can bump**: RBF needs a new signature the LP is not
+around to give; CPFP needs someone able to spend the exit's output, and that is `btcRecipientOf` —
+**the LP alone.** So under fee pressure the keyless path degrades to *"the LP must be online and
+funded"*, the exact condition the ladder removes. **Ladder depth does not help — every rung carries the
+same fixed fee.**
+🔴 **PQ leaves make this MANDATORY rather than prudent** (§BTC-4.6h): a ~2 KB XMSS witness is ≈500
+vbytes after the 4× weight discount, which 2,000 sats will not cover in most fee environments.
+✅ **Give the exit an ephemeral anchor so bumping is keyless too.** `tests/taproot_anchor_cpfp.rs`
+exists for commitments; the shape is there.
+🔴 **`bump.rs` IS THE WRONG TOOL.** It implements `WalletSourceSync` over the BDK wallet so LDK's
+`BumpTransactionEventHandler` can fund bumps **from the HOP's confirmed UTXOs** — the party that is
+dead in the case the exit exists for. **That is the level mistake (§BTC-2.7) in a new place.**
+⚠️ Alternatives to price first: escalating fees across rungs (partial — bounded by the worst rung), or
+re-arming with a current feerate at each splice (free, but a long-idle channel never splices).
+
+### §BTC-2.4d ✅ THE LP'S PAYMENT BASEPOINT — design sound, app requirement unbuilt
+
+**Certain:** `BTCChannels.sol:1012` — `channel.lpToRemoteKey = ChannelLib.lpToRemoteOutputKey(
+auth.lpPaymentPoint)`, and `Types.sol:164` — the output's scriptPubKey is `0x5120 || lpToRemoteKey`,
+*"which is how a force-close [pays the LP]"*. The contract calls the basepoint *"the ONLY LP-side key
+stable for the channel's life"*.
+
+**The three exit paths do not share a destination:** cooperative close → `btcRecipientOf` ✅ · ladder →
+`btcRecipientOf` ✅ · **force close → `lpToRemoteKey`, from the payment basepoint.**
+
+✅ **THE DESIGN IS SOUND.** `swap_in_api.rs:136-145`: *"**IT COMES FROM THE LP, NOT FROM THE FLEET, AND
+THAT IS THE WHOLE POINT.** The fleet could read a payment point off its own monitor — but the fleet
+SUBMITS the open, so a compromised one would then be choosing the key the check keys on: pin a point
+that matches no output and every force close measures zero, silently disarming the check while it
+still appears to run."* Integrity comes from `btcRecipientPoPDigest` committing to
+`keccak256(lp_payment_point)`. ⚠️ Its own caveat: *"It is an IDENTITY, not consent."*
+
+🔴 **BUT THE APP CANNOT SUPPLY WHAT IT DOES NOT DERIVE.** `app/features/identity/identity/root.ts`
+derives `IDENTITY_PATH` and `FUNDING_PATH` only; `grep -ri basepoint app/` is empty. And the
+app-signing surface in `TODO.md:812` lists **exits ladder · payout-key PoP · rekey consent ·
+heartbeats** — **the payment basepoint is not on it.**
+⇒ **Add it to the §BTC-9.3 one-pass fix:** the app must derive and hold the LP's LDK **payment
+basepoint** — a distinct scalar off the same mnemonic, following `§E182-b` — and supply it at open.
+⚠️ **It compounds SPRINT remainder #2:** the emit path is untested **and** depends on a key the app
+does not produce. **Do not close #2 before this lands.**
+
+✅ **PARTIALLY UNBLOCKED 2026-09-05 — THE RUST SIDE NOW COMPILES ITS TESTS.** `OpenAuth` already
+carries `lp_payment_point: Vec<u8>` (`quid-hop/src/evm_codec.rs:515`, the
+§FORCE-CLOSE-SKIPS-THE-STALE-GUARD change) and `swap_in_api.rs:273-279` validates it as a 33-byte
+compressed pubkey. **But the consent fixture at `quid-bridge/src/vault.rs:1258` never got the field,
+so `quid-bridge`'s LIB TEST TARGET DID NOT COMPILE AT HEAD** — `cargo build --workspace` green,
+`--all-targets` red with `E0063 missing field lp_payment_point`. **That is precisely the trap
+`CLAUDE.md` records against §E183** (*"`cargo check` NEVER BUILDS TEST TARGETS"*). Fixed 2026-09-05
+using the tree's own placeholder (`vec![0x02u8; 33]`, matching `evm_codec.rs:1056`); the test's
+discriminator is the PoP byte, per its own docblock. ⇒ **SPRINT #2's force-close work is no longer
+blocked on a build failure; it is blocked only on the APP-side derivation.**
+
+### §BTC-2.4e ✅ Reorg — accepted risk, and the escape survives it by construction
+
+`BTCChannels.sol:147-159` accepts SPV finality risk deliberately: every consumed tx is gated on
+`MIN_CONFIRMATIONS = 6` and consumed **once**, never re-checked. Accepted on the grounds that a
+≥6-deep reorg is a global event, **not a theft vector** (funds are 2-of-2; the LP keeps its BTC).
+✅ **And the escape survives, which the funds argument alone does not establish.**
+`exitArmedOnOutpoint` is keyed on the **outpoint**, and *"rotation RETIRES the stale entries with zero
+writes: they become unreachable rather than wrong."* A reorged-out splice restores the old outpoint
+**and** its arming entry was never deleted.
+⚠️ **Wrinkle:** `channels[id].fundingTxId/fundingVout` still point at the orphaned outpoint, so the
+usable rungs are the historical ones, recoverable from `DeadManExitEmitted` logs. **Recovery is
+possible; it is not signposted.**
+
+### §BTC-2.5 — What bounds a compromised enclave today
+
+`§HOP-RCE`'s principle: *"Attestation does not answer this threat and must not be cited as if it did:
+MRENCLAVE is measured at load, so a runtime memory-safety bug leaves it valid while the attacker holds
+the sealed keys. **Every bound has to be on-chain.**"* ⇒ RCE inside the running image grants **exactly
+the hop's on-chain authority** — the question is never *"can the enclave be trusted"* but *"what does
+`_onlyHop` permit, and what stops each one."*
+
+**On-chain bounds in force today, none relying on the enclave being honest:** every BTC payout pins to
+`btcRecipientOf` (derived from `lpEth`, **which no path rotates**) · `_verifySplice`'s KeyAgg gate ·
+`_verifyTxSpendsChannel` SPV-proves a spend **requiring the LP's MuSig2 partial** · `StaleClose` ·
+`ForceCloseLpOutput` · `CheckpointRegression()` · `MAX_FRESHNESS_JUMP` on both freshness commits. The
+third §HOP-RCE finding was closed by **deleting** `settleSwapInBuffered`.
+📌 **`btcRecipient` NOT rotating is a security property, not an oversight** — it makes every payout
+path pin to one place a breached hop cannot move. **Any rotation scheme must preserve that bound.**
+🔐 **Codeswapping:** sealing is to MRENCLAVE, so a different measurement **inherits nothing** unless
+migration hands it the seed. ⇒ **`M1` IS THE CODESWAP DEFENCE**, and its hole is that the owner set is
+**local config**.
+⇒ **NET: two prerequisites, neither optional. §T9 bounds what a breached RUNNING image can get the LP
+to sign; `M1` bounds what a SWAPPED image can inherit** — plus §BTC-2.4, independent of both.
+
+### §BTC-2.5a ✅ EVERY `_onlyHop` ENTRYPOINT, AUDITED — goal 1's actual surface
+
+**`_onlyHop` is not a bound (§BTC-2.7); the CONTENT checks are.** Eight entrypoints:
+
+| entrypoint | what bounds it |
+|---|---|
+| `openChannel` (`:928`) | KeyAgg gate + SPV proof + `btcRecipientPoP` |
+| `splice` (`:1141`) | KeyAgg gate + SPV proof + `_armLadder` **atomic** ⚠️ **plus the LP's partial — which §BTC-2.1 shows is blind** |
+| `emitDeadManExit` (`:1468`) | `_requireChannelKeys` + `verifyDeadManExit` + `ExitUnderpaysCheckpoint` |
+| `commitFreshness` (`:1655`) | monotonic + `MAX_FRESHNESS_JUMP` |
+| `markMigrationNonceUsed` (`:1690`) | ✅ **sound, griefing answered in place:** the nonce is **secret** (in the signed bundle) until first use, so it cannot be pre-consumed. A breached enclave holding the bundle can burn one nonce — equivalent to refusing to migrate, which it can do anyway — and owners reissue. **Bounded and recoverable** |
+| `settleSwapInProven` (`:2106`) | SPV-proven deposit + **derived** floor (§T2) + `termsCommitment` binding seller/token/rate (§BTC-4a) |
+| `deliverSwapOutOnchain` (`:2319`) | SPV proof paying the **recorded** swapper script |
+| 🔴 **`reverseSwapOut` (`:2173`)** | **partially.** Destination, amount and token come from the pinned `pendingOnchainSwapOut` record, and `swapInUsed`/`delete` prevent replay — **but `minDeliveredUsd` is HOP-SUPPLIED** |
+
+#### ✅ EVERY CALLER-SUPPLIED PARAMETER, CLASSIFIED — §T2's rule applied across the surface
+
+| parameter | bound by | |
+|---|---|---|
+| `Types.OpenParams p` | `_requireChannelKeys(channelId, p)` against the pinned `keysHash` — the §E162 fix (a mismatched pair *"rotated the funding outpoint and left `keysHash` at the original pair"*, leaving the channel **unretirable forever**) | ✅ |
+| `rawTx` + `merkleProof` + `blockHash` + `txIndex` | SPV-verified, `MIN_CONFIRMATIONS = 6`, consumed once | ✅ |
+| `Types.ExitArming[] exits` | `verifyDeadManExit` + `ExitUnderpaysCheckpoint` + outpoint-keyed arming | ✅ |
+| **`bytes swapperScript`** | 🔑 `:2367` — `keccak256(swapperScript) != so.swapperScriptHash → revert`, hash recorded at request time from **`_lpPayoutScript(msg.sender)`**. **Not a supplied blob** | ✅ |
+| `Types.Terms terms` | `termsCommitment` puts seller/token/rate/slippage **in the deposit address** | ✅ |
+| `swapId` | `swapOutUsed` / `swapInUsed` replay guards | ✅ |
+| `token`, `usdAmount`, `minSats` | **self-supplied by the swapper**, who is the beneficiary | ✅ |
+| `minDeliveredUsd` (`refundExpiredSwapOut`) | **self-supplied**, gated `msg.sender != so.swapper` | ✅ |
+| `seq` (`commitFreshness`) | monotonic + `MAX_FRESHNESS_JUMP` | ✅ |
+| `nonce` (`markMigrationNonceUsed`) | secret in the signed bundle until first use | ✅ |
+| `xOnlyKey` + `pop` (`setBtcRecipient`) | on-curve (§E130) + PoP (§E138), **LOCKED once a channel opens** | ✅ |
+| 🔴 **`minDeliveredUsd` (`reverseSwapOut`)** | **NOTHING — hop-supplied and trusted** | 🔴 |
+
+⇒ **EXACTLY ONE hop-supplied, unbound economic parameter exists across the entire Bitcoin surface.**
+📌 **Self-supplied is not a vulnerability where the supplier is the beneficiary.** It becomes one only
+when someone else supplies it on their behalf — which is the single row below.
+
+#### 🔴 The one gap: `reverseSwapOut` still takes the parameter §T2 removed elsewhere
+
+`creditSwapIn(so.swapper, so.sats, so.token, minDeliveredUsd)` — the first three are pinned; **the
+floor is calldata.** That is the exact substitutability §T2 eliminated on the swap-in rail. ⇒ **the
+hardening was applied to `settleSwapInProven` and not to `reverseSwapOut`, which shares
+`creditSwapIn`.** A breached hop setting a low floor credits the swapper **less USD than it should**,
+the difference staying in the protocol. ⚠️ **Not fund loss to an attacker's address — value extraction
+from the swapper**, and it is the class §T2 exists to close.
+🔑 **AND THE SWAPPER'S OWN ESCAPE CAN BE PRE-EMPTED.** `refundExpiredSwapOut` (`:2212-2215`) is the
+self-service backstop — but because `reverseSwapOut` **deletes `pendingOnchainSwapOut[swapId]` and
+sets `swapInUsed`**, a breached hop can **front-run the swapper's refund**, reversing first at a bad
+floor, after which the swapper's own path reverts `SwapOutReplay`. **The protection exists and can be
+pre-empted.**
+▶️ **Two fixes, second may be cleaner:** (1) derive the reversal floor from a rate committed when the
+swap-out was recorded — ⚠️ **confirm first whether `pendingOnchainSwapOut` already stores a rate**;
+(2) make the fast-path reversal not consume the swapper's escape. **Either way the asymmetry should be
+deliberate, and nothing marks it as such today.**
+
+### §BTC-2.5a-bis ⚠️ OPEN DEFERS A FAILING DEPOSIT LEG; SPLICE DOES NOT
+
+`openChannel` wraps the credit in a **`try`** (`:1022-1050`): on failure `pendingClaimSats[channelId]`
+stays non-zero, an event announces it, and **anyone can retry via the permissionless
+`registerChannelClaim`**. The comment warns against the opposite mistake: *"What it must never become
+is a `catch` that lets the channel proceed as if credited."* ✅ **Sound.**
+⚠️ **`splice` has no equivalent** — `:1242` is a bare `if (grewBy != 0) btc.requestDeposit(...)`. ⇒ **a
+protocol-wide condition that makes the deposit leg revert blocks SPLICES while OPENS still succeed.**
+
+✅ **What DOES bound it:** only `MIN_CONFIRMATIONS` (a *minimum*); **no maximum proof age exists.** But
+`_verifySplice` requires the splice to spend the channel's **CURRENTLY RECORDED** outpoint, so
+**splices serialise**: once a newer one is recorded, an older proof no longer applies. ⇒
+**resubmission is safe from out-of-order replay. The defect is the window, not replay.**
+
+**1. The submission moment is hop-selectable.** `_resize` de-levers and settles fees against **current
+state**, so a hop holding a valid proof chooses when to apply it — **MEV-shaped, at the LP's expense.**
+**2. 🔴 AND THE LP IS LEFT FALSELY ARMED.** `_armLadder` is atomic with `splice`, so a reverted leg arms
+nothing new — while the **old** `exitArmedOnOutpoint[oldTxid][oldVout]` still reads **`true`** and
+Bitcoin has **already spent that outpoint**. §BTC-2.4e's guarantee holds only when the EVM RECORDED the
+rotation. Here it did not. ⇒ **the channel reads armed and has no valid escape, and nothing detects
+it.** ⚠️ **This is the ladder failing silently in the one direction it must not.**
+
+✅ **THE FIX — make the arming honest, not the window shorter.** ▶️ **The LP-side check reads
+`exitArmedOnOutpoint` AGAINST the funding outpoint's spentness on Bitcoin, not against the EVM's record
+alone.** A spent outpoint with a `true` arming is a **detected mismatch**, not a silent lie.
+🔑 **Why this and not the alternatives:** no contract change, so it does not compete for §BTC-8c's
+~1,049 bytes or risk §BTC-8d's no-redeploy constraint · the app already reads both chains for §T9, so
+this is a predicate not a new integration · **it fixes the general case** — any future path that leaves
+the EVM behind Bitcoin is caught by the same check · ⛔ **bounding the submission window is worse:** it
+converts a silent wrong state into a **permanently stranded splice** on any genuine outage.
+⚠️ **Still do the announcement** so the gap is *visible* as well as detectable — necessary, insufficient
+alone. ▶️ **Either give `splice` the same deferral shape** (a `pendingClaimSats`-style retry, which
+`registerChannelClaim` already services) **or state why a splice must revert where an open defers.**
+
+### §BTC-2.5a-ter 🔴 LADDER DEPTH HAS A FLOOR AND NO CEILING — gas, not policy, is the bound
+
+`:1532` enforces `exits.length < 2 → LadderTooShallow`, and `:1541` then loops the **unbounded**
+caller-supplied array, each rung costing a `verifyDeadManExit` (tx parse + hashing + output scan)
+**plus a storage write** to `exitArmedOnOutpoint`. **There is no `LadderTooDeep`.**
+⇒ **§BTC-2.4b.2's option B is bounded by PER-SPLICE GAS, and nobody has measured the ceiling.** Depth
+is paid on **every splice**, because `_armLadder` re-arms the whole ladder each time (§E233-ladder).
+🔴 **An oversized ladder collides with §BTC-2.5a-bis.** A splice whose `exits` array pushes the tx out
+of gas **reverts after Bitcoin has already confirmed the splice** — the same divergence by a second
+door. ⚠️ A hop pays its own gas, so this is not obviously profitable to attack — **but it is reachable
+by accident**, and the failure mode is the expensive one.
+▶️ **Measure gas per rung, then set an explicit `LadderTooDeep` ceiling** below the point where a splice
+cannot confirm. The floor is enforced; the ceiling should be too.
+✅ **Related and sound: `SWAPOUT_REFUND_BLOCKS = 7200`** (~1 day at 12s), *"≫ the ~1-2h honest SPV
+delivery window"*.
+
+### §BTC-2.5a-quater ✅ LOOP AUDIT — every loop bounded except one
+
+| loop | bound | |
+|---|---|---|
+| `BitcoinTx:400` `while (exponent != 0)` | modular exponentiation — ≤256 iterations | ✅ |
+| `:667` (33), `:885` (≤8), `:888` (≤8), `:902` (8) | **fixed** byte widths | ✅ |
+| `:76`, `:110`, `:264`, `:729`, `:947`, `:957`, `:1045`, `:1052`; `BTCChannels:634` | input/output counts of an **SPV-proven** tx — bounded by Bitcoin's own limits | ✅ |
+| 🔑 **`BitcoinTx:188` + nested `:197`** | `bool match_ = scriptLen == spk.length;` gates the inner loop ⇒ **at most 34 iterations, only for same-length scripts**, breaking on first mismatch. `TruncatedTx` bounds-checks every read. **Not a gas bomb** | ✅ |
+| `ChannelLib:221`, `:448`, `:460` | governance-set vault sets, small. `:221` also *"A reverting vault is skipped, never bricks routing"* | ✅ |
+| 🔴 **`BTCChannels:1541` `exits.length`** | **unbounded caller-supplied array — §BTC-2.5a-ter** | 🔴 |
+
+⚠️ **ELEGANCE: `ChannelLib:511` panics instead of reverting.** `uint len = vaults_.length - 1; for
+(uint i; i <= len; i++)`. For a non-empty array this is exactly `i < vaults_.length`. **For an EMPTY
+array, `vaults_.length - 1` underflows and panics** — it fails closed, which is right, but with a
+**bare arithmetic panic rather than a named error**, on a governance path where an empty array is an
+operator mistake worth naming. ▶️ **Write `for (uint i; i < vaults_.length; i++)`** and add a named
+revert if empty is invalid. No security change; removes a confusing failure mode.
+📌 **Nothing here needs to stop being a loop.** The only structural fix is the `exits.length` ceiling.
+
+### §BTC-2.5a-quinquies ⚠️ GUARD/CAST WIDTH MISMATCH on `PendingOnchainSwapOut.sats`
+
+`requestSwapOutOnchain` guards `if (sats > type(uint96).max || usd6 > type(uint96).max) revert
+InvalidParam();` — but the struct is `address swapper; **uint64 sats**; uint32 requestBlock; bytes32
+swapperScriptHash; uint96 usd; address token;` (`:470-471`), and the write is **`sats: uint64(sats)`**
+(`:2282`). ⇒ **values in `(2^64, 2^96]` pass the guard and silently truncate.** ⚠️ `:2461` emits
+`uint96(sats)`, so the same quantity is uint64 in storage and uint96 in the event.
+✅ **NOT practically reachable today:** `uint64` holds ~184 **billion** BTC against a 21 M supply.
+🔴 **But the invariant *"guarded width == stored width"* is broken, and the comment reasons about the
+wrong one.** It becomes reachable the moment `sats` semantics change — millisats, a synthetic
+denomination, or any rate path returning an unbounded figure.
+▶️ **Narrow the guard to `type(uint64).max`** (cheapest, matches storage) **or widen the field to
+`uint96`** (matches the comment and the event). **Leaving them disagreeing is the defect.**
+✅ **Otherwise the arithmetic surface is clean:** **no `unchecked` blocks anywhere** in `BTCChannels`,
+`ChannelLib` or `BitcoinTx`. Other narrowing casts are sound.
+
+### §BTC-2.5b ✅ A locked-out LP cannot block swappers — and not because of LP liveness
+
+Candidate selection uses LDK's `list_usable_channels()`, which is **connectivity-aware**, so an offline
+LP's channel is **structurally not a candidate** (`swap_out_onchain.rs:93`).
+⚠️ **Retry, not splitting** — `select_delivery_channels(…, sats)` returns only channels that can source
+the **whole** delivery, and retry is safe only for a candidate that failed BEFORE its splice was
+initiated; a timeout may still pay, so `DeliveryInFlight` **halts** (§AUDIT-SWAPOUT-DOUBLEPAY). ✅ That
+double-pay guard is sound.
+⇒ **Failure modes: served by another LP, or refunded in the token they arrived with. Never stuck, never
+partially paid.**
+🔴 **BUT THE REASON IS THAT THE IMPLEMENTED RAIL IS `(B)`, THE CO-HOSTED VAULT.** ⇒ **on-chain swap-out
+delivery currently REQUIRES `QUID_FLEET_COHOSTS_VAULT`**, the topology in which the 2-of-2 is nominal.
+**The shipped vault-less default has a real 2-of-2 and NO on-chain swap-out rail.**
+📌 **Related:** `DeadManExitEmitted` is emitted by `_armDeadManExit` (`:1594`) at **open and every
+splice** — **not** by the heartbeat. So the exit bytes are public from arming and keyless recovery works
+in the vault-less default.
+
+### §BTC-2.5c 🔴 RAIL B ON THE VAULT NODE — the incoherence, and the fix that is unblocked
+
+**The contradiction.** §E175's split exists so the fleet **cannot** unilaterally spend a channel's
+funding output. Rail B is implemented by having the fleet do exactly that. ⇒ **the flag lets both ship
+at once**, and the deployment must choose between a real 2-of-2 and a working on-chain swap-out.
+**Why it was built that way, and why that reason is gone.** §DELIVERY-MUST-BE-LP-INITIATED measured the
+blocker: `SpliceContribution::SpliceOut` **debits the initiator**. ✅ **`aa2f84a7` removed it** — LDK now
+lets the **acceptor contribute** (`our_funding_contribution` at `channelmanager.rs:11953`,
+`acceptor_outputs` at `:11990`).
+**The ordering (`f5833be4`):** (1) **move `drive_swap_out_onchain` to the hop's `channel_manager`**,
+initiating toward the LP peer with the LP contributing `acceptor_outputs` — 🔴 **§T9 MUST LAND IN THIS
+SAME CHANGE**, because the hop becomes the initiator toward a counterparty whose signer does not read
+`tx.output`; ⚠️ it takes a **non-optional `Arc<VaultNode>`**, a signature change; (2) **drop
+`onchain_rail_enabled`'s vault dependency**; (3) **delete the flag, its branch, and `derive_vault_seed`.**
+**What it buys:** custody — *"no code path derives the LP half"* rather than *"configured not to"* ·
+**§BTC-2.2's nonce exposure never materialises** · removes a second deployment topology.
+⚠️ **What still gates it:** the **app-side signer is greenfield** and must sign the acceptor
+contribution. **That — not LDK, not the contract — is why this has not happened.**
+
+### §BTC-2.5d 🔴 `lpAuth` IS GONE — and §9.9 needs a transport nobody has scoped
+
+**Measured: there is no live `lpAuth` exchange in the tree.** §E183 removed the need when it deleted
+`lpSig` and made `btcRecipientPoP` the only LP consent.
+⚠️ **The tree contradicts itself.** Saying it is gone: `validating_signer.rs:20`, `daemon.rs:194`,
+`vault.rs:221`, `:740`, `:1042`, `channel_driver.rs:8`, `BTCChannels.sol:65`. Still describing its use:
+**`channel_driver.rs:649`'s `drive_open` docstring** (*"obtain the LP's `lpAuth` over the custom LN
+message"* — for a function that does not exist), `channel_driver.rs:5`, `boot.rs:65`,
+`swap_out_onchain.rs:11-14`, `traits.rs:80`, `alias.rs:75`.
+⚠️ **CORRECT WHAT `lpAuth` WAS.** It carried an **EVM signature** over a custom LN message so the
+contract could authenticate the LP. **§E183 deleted it because MuSig2 replaced it:** the KeyAgg gate
+proves `lpPubkey` is inside `Q` and `lpEth` derives from it, so **the LP's partial signature IS the
+authentication.** It was never a sighash transport.
+⛔ **An earlier revision posed a false dichotomy** — "embed LDK on the phone" vs "rebuild `lpAuth`".
+✅ **The LP does not need to be an LN peer. It needs to be a REMOTE `ChannelSigner`.** The **hop's** LDK
+holds channel state, constructs the splice and computes the sighash; the LP returns a MuSig2 partial.
+**No BOLT messaging on the device, no channel state on the device** — precisely §E188's decomposition.
+🔑 **The seam already exists, already policy-wrapped:** `derive_channel_signer` (`keys_manager.rs:307`)
+· `ValidatingChannelSigner` · `TaprootSignerContext` · `with_truth_factory`. **The vault node IS that
+signer today, in-process.** ⇒ §9.9 is *"move an existing signer out of process, carrying its policy"*,
+**not** *"make the app a node."*
+▶️ **What needs scoping is narrow:** a request/response transport carrying `(sighash, counterparty
+nonce) → (pubnonce, partial)`. **Not BOLT.** Candidates in-tree: RA-TLS, or a push-woken HTTPS call.
+⚠️ **The one real question:** whether LDK's async/remote signer path tolerates a push-woken round-trip,
+or whether the hop must hold the splice half-negotiated across it. **A bounded LDK question.**
+
+### §BTC-2.5f ✅ SETTLEMENT LAYER — where §BTC-2.6's WBTC depth lands
+
+**`Vault._resize` is the shared exit body for every close and splice-out** (`requestRedeem` and
+`resize` both delegate to it).
+🔑 **`LP.pooled` includes a LEVERED slice with no channel BTC behind it.** *"MULTI-HOP: `LP.pooled`
+includes the LEVERED slice (`levPooled`), which has **NO channel BTC behind it**. Channel funding is
+only the FREE part."* ⇒ **that is §BTC-2.6's WBTC-backed depth appearing in per-LP settlement**, and the
+clamp keeps channel accounting to the free part.
+🔑 **There is a de-lever path for exactly §BTC-2.6's case:** *"DELIVERY-SIDE de-lever: when this native
+swap-out delivery draws on the LP's LEVERED slice past the free channel range (`shrinkSats > funded =
+pooled - levPooled`), de-lever… so the clamp below delivers the full shrink."* ⇒ **a delivery exceeding
+an LP's native sats de-levers rather than failing** — a partial answer at single-LP level.
+⚠️ **It does not answer the protocol-wide case** (`BTCHopRequest`, still unwired), and the conservation
+argument is asserted structurally, **not proven here**.
+✅ **THE BTC↔SETTLEMENT BOUNDARY IS READ.** `Vault.creditSwapIn` (`:735`) and `creditSwapOut` (`:747`)
+are both `onlyBTCChannels` thin wrappers delegating to **`SwapLib.creditSwapInBody` /
+`creditSwapOutBody`.** ⇒ **the mint/burn arithmetic lives in `SwapLib`, the curve/venue layer**, which
+is out of this document's scope by the owner's own scoping. **Auditing it is a different exercise — AMM
+invariants, not Bitcoin custody.**
+⚠️ **ONE BOUNDARY ITEM WORTH CHECKING:** `addPendingSwapOut` fires at `requestSwapOutOnchain`, and the
+matching decrement is **asymmetric by design** — *"the match is `subPendingSwapOut` on REVERSAL
+(`settleSwapIn`) — the DELIVERY match is done inside `_settleDelivered` (`CORE.subPendingSwapOut`)."* ⇒
+**two different call sites must between them decrement exactly once per request.** A path doing neither
+strands `pendingSwapOutUsd` upward; one doing both double-decrements. **Verify exhaustiveness across
+{delivered, reversed, refunded}** — `refundExpiredSwapOut` routes through `settleSwapIn` so it should be
+covered by the reversal arm, **but that was not traced.**
+⚠️ **STILL UNREAD, deliberately outside scope:** `SwapLib`'s bodies (curve math),
+`SwapLib.deleverOnDelivery`, `BtcLib.resize`'s fee settlement, `Vault.requestDeposit`'s body.
+
+### §BTC-2.5g ⚠️ ERC-7540 — the SHAPE is implemented, the INTERFACE is not
+
+⛔ **CORRECTION — an earlier revision claimed 7540 was "untracked in `SPRINT.md`." That is FALSE, and
+it was stated twice.** This file has **63** mentions including **`B8. THE 7540 FOLD`** (`:12131`),
+tracked item **`1.3`** (`:1903`), the `§C3 + §E297` residual (`:7117`), and an open note at `:913`.
+✅ **AND B8 ALREADY ANSWERS MOST OF WHAT THIS SECTION ASKED** (scope corrected 2026-08-31): the
+fund-stranding attack is CLOSED by `#7`'s `try`/`catch`; the permissionless-claim rule is ALREADY
+satisfied by `registerChannelClaim`; what remains is (a) the signature/slop fold and (b)
+truth-in-naming — *"`Vault.requestDeposit` is still `lpShares += BtcLib.requestDeposit(...)`
+(`Vault.sol:501`) — a **SYNCHRONOUS credit under an async name**"*; the mapping is already worked out
+there; ⚠️ **THE FOLD IS DEPOSIT-SIDE ONLY** — `§LAZY-OPEN-CLOSE` settles that the close half must stay
+INLINE by design. **Do not "complete" the symmetry.** ⚠️ Re-measure the slop before acting on counts.
+⇒ **What this adds to B8 is ONLY the SHARES question (§BTC-2.5g-bis).**
+
+✅ **The async-vault SHAPE already exists**, built independently rather than to the standard: request
+(`Vault.requestDeposit` `:497` / `requestRedeem` `:589`, both `onlyBTCChannels` + `nonReentrant`);
+pending state (`mapping(bytes32 => uint) public pendingClaimSats` `:433`); claim
+(`registerChannelClaim` `:1080` — **permissionless**, idempotent, clamps a stale pending figure against
+what the channel currently holds); guards (`ClaimNotRegistered` `:607`).
+🔴 **What does NOT exist — measured, zero hits in `evm/src`:** `pendingDepositRequest`,
+`claimableDepositRequest`, `pendingRedeemRequest`, `claimableRedeemRequest`, `setOperator`,
+`isOperator`, `supportsInterface`, and the `DepositRequest` / `RedeemRequest` events. ⇒ **nothing
+external can discover or drive these flows through the standard.**
+
+#### ⚖️ THE DETERMINATION — settled after two wrong turns, both recorded
+⚠️ **This oscillated: "blocked" → "reachable" → the position below**, from reasoning about vBTC's ROLE
+without checking who it is minted to.
+✅ **`asset()` is NOT a blocker.** vBTC is a **complete ERC-20** (`:54-131`) with identity 4626
+valuation, *"vBTC IS sats"*, and it is the **intended** asset. Only `asset() { return WBTC; }` (`:95`)
+needs settling, which the header already flags.
+✅ **The `preview*` reverts are NOT work.** `VBtc` declares **no** preview functions; calls to undeclared
+functions already revert.
+🔴 **SHARES ARE THE BLOCKER, and vBTC cannot serve as them.** `VBTC.mintTo(msg.sender, sats)` is called
+with `msg.sender == LEV_MANAGER` (`Vault.sol:320`), gated `NotLevManagerBtc`. **vBTC goes to the
+LevManager, never to an LP** — *"The LP never receives loose vBTC (**that would double-claim the same
+channel BTC**)."* LPs hold `autoManaged[lpEth].pooled`, a claim; `lpShares` is an aggregate.
+⇒ **ERC-4626 requires the vault to BE the share token. On the BTC leg it is not.**
+
+### ⭐ §BTC-2.5g-bis — MINT THE POSITION TOKEN TO THE LP, ON BOTH LEGS (owner, 2026-09-03)
+
+🔑 **The double-claim hazard exists only because there are TWO representations.** ⇒ **the fix is not to
+withhold the token. It is to make the token THE representation and let `pooled` become DERIVED.** The
+guard becomes structural instead of procedural.
+**What the current shape was solving:** the range needs an ERC-20 to point `asset()` at, so vBTC was
+built venue-facing and minted straight to `LEV_MANAGER`. ⚠️ **That inverts the ordinary 4626 flow, and
+nothing forces the manager to be the mintee.**
+**What it unlocks:** `levPooled` vs free depth stops being a bookkeeping split and becomes **LOCATION**
+· fee compounding becomes `mintTo(lp, feeSats)`, emitting a `Transfer` the wallet renders, **still with
+no LP signature or presence** (§E145's property preserved) · it dissolves the 7540 shares blocker on
+**both** legs with no third token invented.
+🔴 **IT APPLIES TO ETHER TOO.** ⛔ An earlier claim that *"the stable/ETH leg is already 4626 outright"*
+is about `asset()`, **NOT** about shares. `Quid.sol` has the **identical** structure —
+`autoManaged[lp].pooled` (`:308`), `levPooled[lp]` (`:309`), `levBuf[user]` (`:474`), `LEV_MANAGER`
+(`:190`). **Both legs have the same defect.**
+⚠️ The asymmetry is only about the ASSET: on BTC it is synthetic (vBTC is minted), on ETH real (WETH
+cannot be minted by the range). ⇒ on BTC vBTC itself is the token (`convertTo*` is an identity); **on
+ETH it needs a position token the range mints.**
+📌 **And it must cover IL-protected positions**, which today live in `levPooled`/`levBuf`.
+
+#### ⭐ THE CLEAN FORM — the token is a VIEW over `pooled`, not new state
+▶️ **`balanceOf(a)` reads `autoManaged[a].pooled`.** Every existing LP **already has a balance** — it
+has simply been called `pooled`. ⇒ **no mint event, no migration window, no two models live at once.**
+✅ **The ERC-20 invariant ALREADY HOLDS.** `Vault.sol:427`: `lpShares` is *"the SUM of every LP's
+`pooled`"*, so `totalSupply == Σ balanceOf` is maintained by construction today.
+⚠️ **`pooled` INCLUDES `levPooled`.** `SwapLib.sol:2124`: `funded = pooled > lev ? pooled - lev : 0`.
+⇒ **an earlier form saying `transfer(LEV_MANAGER, x)` moves `pooled → levPooled` would DOUBLE-COUNT.**
+✅ **Correct mapping:** **`balanceOf(lp) = pooled − levPooled`** (free part) and
+**`balanceOf(LEV_MANAGER) = Σ levPooled`**. ⇒ **`exposeBtcToLev` IS an ERC-20 transfer** — it moves the
+boundary, not the total; `unexposeBtcFromLev` is the transfer back. ✅ `Σ free + Σ lev = Σ pooled =
+lpShares`.
+📌 An LP's wallet then shows its **free** depth; levered exposure appears as tokens held at the venue.
+**That is the location model working**, and `levPooled[lp]` still attributes it per-LP.
+🔑 **Fee compounding needs no new mechanism:** `pooled` already increments contract-side (§E145); that
+becomes a balance increase with `Transfer(0, lp, fee)` emitted where the increment happens.
+⚠️ **Check before building:** (1) ✅ **CHECKED — `pooled` semantics ARE balance-like.** Every mutation is
+a clean `+=`/`-=` (`BtcLib:86`, `:207`, `:327`, `:342`); **no rebasing**, and `_resize`'s clamp acts on
+the *payout*, not on `pooled`. (2) **Pre-existing balances have no historical `Transfer` events**, so an
+indexer reconstructing supply from logs disagrees with `totalSupply` until first touch — **acceptable,
+but state it.** (3) **`allowance`/`transferFrom` need real storage** — genuinely new, though tiny.
+
+#### 🔴 WHAT TRANSFERABILITY BREAKS — two real hazards, both with known fixes
+**1. 🔴 FEE ATTRIBUTION CORRUPTS WITHOUT A TRANSFER HOOK.** Accrual is **bookmark-based per holder**:
+`SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], tokAccum, usdAccum)` and `venueBm[user] =
+_venueAccrued(user, LP.pooled)` (`Quid.sol:470-476`), rewards read as `venueOwed - venueBm[user]`
+(`:533`). ⇒ **a naive `transfer` that only moves the balance hands the recipient the SENDER's accrual
+position.** ✅ **Fix is standard and already in the codebase's vocabulary: settle on every balance
+change** — call `_refreshBookmarks` for **both** parties before moving the balance, exactly what `:928`,
+`:1043`, `:1057` already do. ⚠️ `Quid.sol:1025` even names the failure mode.
+**2. 🔴 LEVERAGE IS PER-LP, SO FREE DEPTH CANNOT BE TRANSFERRED BELOW IT.** ✅ **The
+`balanceOf = pooled − levPooled` mapping already enforces this** — you cannot transfer more than you
+hold, and what you hold is by definition the free part.
+#### ✅ What does NOT break
+**`OneChannelPerLp`** (the channel is keyed on `lpEth`; transferring moves the **claim**) · **the
+`_lpFinalBalance` cross-LP theft guard** (payouts still resolve to `btcRecipientOf`, and a transferee
+registers its own via the self-service, PoP-gated `setBtcRecipient`) · **`hasOpenBtcChannel`,
+`btcRecipientOf`, the ladder** — all keyed on `lpEth`.
+
+#### ✅ HOW A TRANSFEREE EXITS TO NATIVE BTC — the rail exists, and it is NOT "open a channel"
+⛔ **TWO wrong framings, corrected in order.** (1) *"the holder opens its own channel"* — opening a
+channel does not create BTC. (2) *"the sats backing the claim sit in the original LP's channel, so
+exiting conscripts that LP"* — **also wrong, there is no backing relationship to a specific channel.**
+By exit time the original LP's channel may have been **depleted entirely by swap-outs**:
+`deliverSwapOutOnchain` shrinks it and `BtcLib.resize` does `LP.pooled -= o.sharesRemoved` (`:207`),
+with the LP **compensated on the curve** as it goes. ⇒ **there was never a particular LP to conscript,
+because there were never particular sats.**
+🔑 **A transferee and an ordinary swapper are INDISTINGUISHABLE at the point of native exit.** ⇒ **no
+transferee-specific path exists, and none is needed**; if inventory is short, that is §BTC-2.6's
+shortfall — the same problem, not a new one.
+✅ **THE PATH IS THE SWAP-OUT RAIL:** `requestSwapOutOnchain` → `select_delivery_channels` picks an
+**online** LP that can source it → that LP is **compensated on the curve** → `deliverSwapOutOnchain`
+splices it out **with that LP's own consent**. ⇒ **the sourcing LP is PAID rather than drafted.**
+📌 **CONSEQUENCE 1 — the claim is a claim on POOL VALUE, never on specific sats.** ⚠️ **True of the
+ORIGINAL LP too**, once swap-outs have shrunk its channel. **State it plainly — a holder expecting exact
+sats will be surprised.**
+📌 **CONSEQUENCE 2 — exit size is bounded by §BTC-9c's ceiling.** Delivery is **`max(amount_sats)` across
+ONLINE channels, never the sum**, and `ChannelCapReached` caps growth. ⇒ **a claim larger than the
+biggest online channel cannot be exited natively in one transaction.** ⚠️ **This raises §BTC-9c's `13f`
+from a swapper-UX question to a position-liquidity one.**
+### ⚠️ Remaining cost
+`pooled` is load-bearing across `autoManagedBTC`, fee accrual, `levPooled`/`levBuf`, `resize`,
+`settleBtcLp` and the bookmark/`feesPerShare` machinery. **Making it derived is a genuine refactor, and
+the ETH analogue must move in the SAME change or the two legs diverge.**
+### ▶️ THE OPTIONS, correctly scoped
+1. **Do not claim 7540 on the BTC leg** (interim). Document that `requestDeposit`/`requestRedeem` are
+   7540-**shaped** and the async machinery is real but unstandardised. **Cheapest and honest.**
+2. ⛔ **RETRACTED — "apply 7540 to the ETH leg, both blockers absent there."** `Quid.sol` has the same
+   structure; `asset() = WETH` is about the asset, not the shares.
+3. ⭐ **Mint the position token to the LP on both legs — preferred.** (An earlier framing as *"a NEW
+   share token over `pooled`, distinct from vBTC"* is superseded: on BTC, **vBTC itself** is the token.)
+📌 **What maps cleanly if option 3 is taken:** `requestId = 0` · `controller = lpEth` · escrow = the
+SPV-proven channel · pending = `pendingClaimSats` · claim = `registerChannelClaim`, a **superset** of
+7540's controller-or-operator rule.
+
+### §BTC-2.5h ✅ NOTHING-STRANDED SWEEP — every value-holding state and its exit
+
+| state | exit | who triggers |
+|---|---|---|
+| `pendingClaimSats` set, credit failed | `registerChannelClaim` | **anyone** — permissionless by design |
+| channel open, LP never returns | the armed ladder, once matured | **anyone** — keyless (§E188) |
+| swap-out requested, never delivered | `refundExpiredSwapOut` after 7200 blocks | **the swapper**, self-service |
+| delivery fails on every candidate | reverses via `settleSwapIn` in the swapper's own token | hop, backstopped by the refund |
+| swap-in deposited, never credited | the CLTV refund leaf | **the depositor**, self-service |
+| splice confirmed, EVM leg reverted | resubmit the same SPV proof — splices serialise | anyone holding the proof |
+| 🔴 `pendingSwapOutUsd` | decremented by **two different call sites** | ⚠️ **exhaustiveness NOT traced (§BTC-2.5f)** |
+| 🔴 `BTCHopRequest` obligation | **nothing.** Zero consumers, zero tests, silent drop | ⚠️ **§BTC-2.6** |
+| 🔴 **a payment caught in a crash window** | ⚠️ **nothing.** A crash between `new_payment` and CM persist leaves it `Pending → Abandoning` **forever** | ▶️ **reconcile against `list_recent_payments()` at startup** (§BTC-8e D2.2) |
+| 🔴 **post-force-close `SpendableOutputs`** | ⚠️ **possibly nothing** — `handle_spendable_outputs` (`event.rs:679`) is `pub` with **no caller** | ⚠️ the LP is unaffected; **this strands the HOP's own outputs and resolved HTLCs** (§BTC-8e C3) |
+
+⇒ **Every value-holding state except FOUR has a permissionless or self-service exit.**
+
+### §BTC-2.6 🔴 THE WBTC SHORTFALL RAIL — in-range depth exceeds native inventory, rail unwired
+
+**1. WBTC genuinely is deliverable depth.** `Vault.sol:373` — `realInventory() = CORE.POOLED() +
+AUX.rangeBTC()`, `rangeBTC` being *"WBTC-only (swept donations + swap deltas)"* (`:70`); the
+IL-protected leveraged position adds *"TOKENLESS range depth … backed by `rangeBTC`… **No new channel
+sats**"* (`:511-516`). ⇒ **in-range quantity exceeds native channel sats by construction.**
+**2. But obligations are denominated in NATIVE BTC.** `Vault.onShortfall` → `Aux.btcShortfall` (`:925`)
+emits `BTCHopRequest`. ⚠️ **The docstring attributes this to "the V4 BTC pool." There is no V4 — see
+§BTC-7.** The mechanism is live; only the attribution is stale.
+⇒ **Swappers are never paid in WBTC — the mismatch is inventory, not settlement currency.**
+**3. 🔴 THE RAIL IS UNWIRED.** `BTCHopRequest` has **zero consumers tree-wide** — only its own `emit`,
+declaration and counter in `Aux.sol:929-936`. **No Rust listener exists**, despite the docstring saying
+the hop node listens. No fulfilment record, no reversal — compare rail B's `pendingOnchainSwapOut`.
+**4. 🔴 And it drops silently.** `btcShortfall` resolves `btcRecipientOf(sender)` and
+`if (recipient == bytes32(0)) return;` — **no revert, no event.**
+**5. 🔑 BASKET STABLES ARE DELIBERATELY OFF-LIMITS — and that is correct.** `Vault.sol:376` marks the BTC
+shortfall path as *"real-BTC delivery on L1, **consuming NO basket stables** — the legitimate delivery
+rail."* ⇒ **sourcing an inventory gap from basket stables would socialise it onto QU!D holders.** ⇒ **the
+design correctly forbids the easy wrong answer and has not built the right one.**
+▶️ **Decide, in order:** (1) is the rail meant to be live? If yes it needs a listener and — critically —
+an **on-chain fulfilment record plus reversal**. 🔴 **An event a listener may ignore is enclave-level
+trust.** If not, `btcShortfall` should **revert**. (2) **make the silent drop loud** regardless. (3)
+**bound in-range depth against native inventory**, or state explicitly that the gap is covered by
+off-chain WBTC→BTC conversion and record who owns it.
+
+### §BTC-2.7 🔑 LEVEL OF ENFORCEMENT — the test every policy must pass
+
+⇒ **A policy enforced inside the enclave is not a bound; it is defence-in-depth.**
+
+| level | survives a compromised enclave? | examples |
+|---|---|---|
+| **Bitcoin consensus** | ✅ absolutely | the 2-of-2 requires the LP's partial |
+| **EVM contract** | ✅ yes | KeyAgg gate · SPV proof · `btcRecipientOf` pinning · `StaleClose` · `ForceCloseLpOutput` · `CheckpointRegression` · `ExitUnderpaysCheckpoint` |
+| **LP's own device** | ✅ yes — a **different party** | §T9's refusal · §BTC-4.3's derivation · §BTC-8's background signing |
+| **hop's enclave** | ❌ **no** | anything in `quid-hop`/`quid-bridge` policy |
+| **attestation / sealing** | ❌ not against RCE | stops a *swapped image* inheriting keys only |
+
+✅ **PERMISSIONLESSNESS IS ITSELF A BOUND.** `registerChannelClaim` is permissionless *"BY DESIGN"*
+precisely because **withholding is then not available to a compromised enclave.** ⇒ **opening a call up
+can REMOVE a power from the enclave** — the inverse of the usual instinct. ⚠️ **Safe only when the call
+takes no caller-supplied economic input** — there, *"an untrusted caller chooses only the TIMING, never
+the number."*
+⚠️ **`_onlyHop` is on-chain but is NOT a bound.** It authenticates the hop's key, which a compromised
+enclave holds.
+⛔ **AND ONE LEVEL BENEATH THE LADDER: KEY CUSTODY.** If the enclave HOLDS a key that can move value, no
+on-chain check helps — its signature is *legitimate*. ⇒ **custody decisions outrank policy decisions**,
+which is why §E175's split is the keystone and §9.9's payoff is *"no code path derives it."*
+
+**Audit of recommendations against the ladder:**
+
+| recommendation | enforced at | verdict |
+|---|---|---|
+| §T9 destination refusal | **LP's device** | ✅ right level |
+| §BTC-2.4 shortfall check | **EVM contract**; watchtower only *submits* | ✅ right level |
+| §BTC-2.4b.1 atomicity invariant | 🔴 **must be the CONTRACT** | ⚠️ as a daemon rule a breached hop ignores it |
+| §BTC-2.4b.1 keep-alive refresh | `_onlyHop` submission, **LP's signature verified on-chain** | ✅ a hop can withhold, never forge |
+| §BTC-2.6 fulfilment record | 🔴 needs **on-chain state**, not an event | ⚠️ an event alone is enclave-level trust |
+| §BTC-4.3 hardened per-epoch derivation | **LP's device** | ✅ right level |
+| §BTC-2.4c keyless fee bump | **Bitcoin consensus** (anyone-spendable anchor) | ✅ strongest available |
+| §BTC-2.2 signing order | 🔴 a question, not an enforcement | ⚠️ **refuse to sign unless last — but AFTER §9.9** |
+| §BTC-1 static-balance property | 🔴 emergent; hop config is enclave-level | ⚠️ **enforce in the LP's signer** |
+| §BTC-4a two-leaf deposit commitment | today `seller`/`token`/`minDeliveredUsd` are *"the hop's assertions"* | ✅ moves them into the address derivation — a level fix |
+
+⇒ **GOAL 2, RESTATED AT THE RIGHT LEVEL. The seal is not the defence; `M1` is.** Sealing stops a
+*swapped* image **inheriting** keys — real, but platform-level, and SPRINT #7 (TDX + Nitro seal wiring)
+means those semantics differ per platform and are unwired. **A defence whose strength varies by TEE
+vendor cannot be the bound.** ⚠️ **Residual after `M1`:** a breached *running* image still holds the
+hop's key, bounded only by the content checks — which is why §BTC-2.1 and §BTC-2.6 are goal-2 work as
+much as goal-1 work.
+
+## §BTC-3 — Goal 2 is narrower than it looks; `M1` is the whole of it
+
+§E158-both-halves-WITHDRAWN establishes the part that matters: `RootSeed` is **sealed to the
+measurement** (`sealed_seed.rs:29-30`) and derives the `KeysManager` (`keys_manager.rs:52`) producing
+the funding keys. ⇒ **the funding keys are sealed too; rogue code cannot unseal them.**
+⇒ Goal 2 reduces to: **can the migration path re-seal the seed to a new measurement, and what gates
+it?** That is `M1`.
+
+✅ **`migration.rs` READ IN FULL. The threat, in the file's own words:** *"Migration is triggered by
+config the host controls, so a malicious host could point the old enclave at an ATTACKER enclave
+(genuine SGX, attacker MRENCLAVE) and make it export the seed — defeating SGX entirely."* **The
+control:** a `MigrationAuth` needs ≥`MIGRATION_THRESHOLD` distinct operator signatures over an EIP-712
+digest, which *"the OLD enclave verifies with `ecrecover` against the **configured** owner set before
+exporting."* A plain k-of-n msig, **not** a Safe.
+⇒ **The hole is exactly the word "configured".**
+🔴 **A QUESTION ABOUT `M1` AS SPECIFIED — "read the owner set ON-CHAIN".** The enclave would read that
+chain state through an RPC **the host also controls**. ⇒ a naive read swaps host-controlled config for
+host-mediated chain data. **Closing it needs a light client inside the enclave, or an attested RPC.**
+▶️ **Check before building: is the read intended to be verified, or trusted?**
+💡 **Cheaper alternative worth pricing: bake the owner set into MRENCLAVE.** ✅ Phase 2 requires a
+*"**Reproducible build → compute MRENCLAVE**; publish it"*, so **a baked-in owner set is independently
+verifiable**, which the host-mediated chain read is not. 📌 **The msig is concrete: 2-of-3** operator
+keys on separate offline/HSM boxes. Changing the list changes the measurement. **Cost: rotating a key
+requires a rebuild plus a migration.** ⚠️ A comparison, not a recommendation.
+📌 `migrationNonceUsed` (`:254`, `:1692`) is **anti-replay only** — the existing on-chain touchpoint any
+`M1` design should build from.
+
+### §BTC-3a ✅ THE SEALING PREMISE IS VERIFIED IN CODE — and §BTC-3's alternative is feasible
+
+✅ **`new_sealing_request` uses `keypolicy: Keypolicy::MRENCLAVE`** (`platform.rs:387`) ⇒ **§E158's
+argument holds as stated.** ⚠️ **Not to be confused with `machine_id()` (`:130`), which uses
+`Keypolicy::MRSIGNER` deliberately and correctly.** Two policies, two purposes.
+✅ **⇒ baking the owner set into MRENCLAVE is CONFIRMED FEASIBLE and self-enforcing** — a substituted
+owner set changes the measurement and cannot unseal.
+🔴 **NEW FINDING: MIGRATIONS ARE MORE FREQUENT THAN "WHEN WE CHANGE CODE".** The sealing key **commits
+to CPUSVN** (`:379-383`) ⇒ **an Intel SGX TCB update forces a new MRENCLAVE and a seed migration**, on
+Intel's schedule. 📌 **`M1` is on the critical path for routine platform maintenance.**
+
+### §BTC-3b 🔑 REKEY — why it existed, why folding it was safe, and why NO LP IS FORCED TO ACT
+
+**`10b10eed` states the purpose:** *"rekey exists because **the Safe whitelists a new MRENCLAVE image
+and the hop half must rotate to it without closing the channel**. `E162-rekey-CORRECTED` states the
+property that must survive — **a newly whitelisted image must not inherit the LP's half.**"*
+✅ **The fold is sound:** *"Every rotation the EVM accepts, splice and rekey alike, is SPV-proven to
+spend the channel's current funding outpoint, and that outpoint is a key-path taproot 2-of-2 whose spend
+requires the LP's MuSig2 partial. **A malicious image holds only the hop half and cannot move the funds
+to any pair at all** … **The second subsumes the first.**"*
+📌 E162's actual defect was *"never theft but the stale pin"*. ⇒ **`keysHash` is an IDENTITY PIN, not an
+authorization gate**; the payment basepoint now carries LP identity (§BTC-2.4d).
+⚠️ **Follow-up:** `60b473db` *"Fix a regression my own fold introduced: the truth check asked about the
+wrong key."* **Read it before touching this area.**
+
+### §BTC-3c ✅ NO FORCED LP WORK — image upgrade OR P2MR migration
+
+Both ride on splices that happen anyway, and **neither is safety-critical to complete.** ⇒ **Neither is
+a migration event.** ⚠️ **This CORRECTS §BTC-4.6e's *"each LP must come online for ONE migration
+splice"*:** **no LP is required to act; channels that splice migrate, channels that do not stay safe** —
+**provided §BTC-4.6g's contract accepts both forms from day one.**
+
+## §BTC-4 — Quantum: absent from every tracking doc
+
+Measured: **zero hits** for `quantum`, `CRQC`, `post-quantum` or `Shor` across `SPRINT.md`,
+`docs/actionable/TODO.md` and `docs/TODO.md`.
+📌 **§BTC-4 is the longest block and mostly *negative* results** — what quantum work does **not** pay
+for. Its only outputs are §BTC-4.3, §BTC-4.4, §BTC-4.5 and the pre-ship requirement in §BTC-4.6g.
+
+**§BTC-4.1 The ladder is not a CRQC defence.** A rung is a pre-signed **key-path** spend of a 2-of-2
+whose `Q` is on-chain from funding, protected only by **time**. A CRQC has no time constraint. ⇒
+**ladder depth buys exactly zero against a CRQC.** It remains the right answer against a hacked hop.
+
+**§BTC-4.2 The exposure is ONE key, not the rotation scheme.** `sign/mod.rs:1472`:
+`tweaked = base + SHA256(splice_parent_funding_txid || base_secret)`. The tweak takes the **secret**, so
+recovering epoch N (N>0) cannot be inverted to reach `base`. ⇒ **breaking a splice epoch yields that
+epoch only.** What yields everything is the **published base** — `lpPubkey` at open **is** epoch 0's
+funding key, with `lpEth` derived from it.
+
+**§BTC-4.3 ✅ The change that buys real compartmentalisation.** Keep `lpPubkey` stable at open but derive
+each splice epoch as a **hardened child of the LP's mnemonic** instead of an additive tweak. Needs the
+LDK fork extension, which the owner authorised. **Buys:** no published key is a root; each break costs
+one epoch; the at-risk key rotates with every splice. **Costs:** the LP derives a fresh key per splice —
+**no liveness cost**, since the splice already requires its partial. Consistent with `§E182-b`'s
+distinct-scalars discipline — an extension, **not a new scheme**. ⚠️ Epoch 0 holds the money until the
+first splice, and splicing is doubly gated. ⚠️ **Confirm nothing assumes the additive relationship.**
+
+**§BTC-4.4 `BTC_DEPOSIT_KEY` aggregates the whole swap-in rail.** A **held secret** at hardened
+`m/70'/0'`, pinned at construction; per-swap uniqueness lives in the **leaf**, and every leaf is public
+⇒ the tweaked spending secret for **every deposit address ever derived**. One recovery takes the rail.
+⛔ **Not per-swap rotatable, and the reason is sound:** §E183 moved away from per-swap internal keys
+because a hop-supplied key is a hop-chosen address, reopening the phantom-swap-in hole §E159 closes.
+**Verifiability had to win.** ▶️ **Only lever: rotate at each contract deployment.** ⚠️ **Confirm
+in-flight deposits across it.**
+
+**§BTC-4.5 🔴 ML-KEM ON RA-TLS — the strongest quantum item here.** Signatures have no HNDL exposure.
+**Recorded encrypted traffic does.** 🔴 **MEASURED:** `quid-tls-core/src/lib.rs:40-42` pins exactly one
+key exchange group — **`kx_group::X25519`** — with `TLS13_AES_128_GCM_SHA256`. `QUID_CRYPTO_PROVIDER` is
+a **single shared provider** consumed by **both** `client_config_builder()` and
+`server_config_builder()` (`:14-33`), so **every TLS connection in the system** inherits it. ⇒ **the
+exposure is system-wide, confirmed.**
+🔴 **NOT A CONFIG CHANGE.** The provider is `rustls::crypto::ring::default_provider()`, and **`ring` has
+NO ML-KEM.** rustls ships hybrid `X25519MLKEM768` under **`aws-lc-rs`**, which carries C/assembly that
+may not build under `target_env = "sgx"` — **very likely why `ring` was chosen.**
+▶️ **Two routes:** (1) migrate to `aws-lc-rs` — **verify the SGX build first**; (2) implement ML-KEM as a
+custom `SupportedKxGroup` on the existing ring provider — pure-Rust crates exist, no C dependency, and
+the seam is already there (`:50-59` customises `cipher_suites`, `kx_groups` and
+`signature_verification_algorithms` by hand). ⚠️ **Either way add `X25519MLKEM768` ALONGSIDE X25519**, so
+there is no downgrade risk.
+⇒ **This outranks every Bitcoin-side quantum item.** §BTC-4.1–4.4 are all *"exposure the attacker must
+act on in real time"*; this is the one place a CRQC harvests today and spends later.
+📌 **The real PQ exposure was in the TRANSPORT, not in taproot.**
+
+**§BTC-4.5-bis ⚠️ The seed is BORN IN THE ENCLAVE by default.** `PRODUCTION-LAUNCH.md` Phase 3:
+*"First boot: enclave performs **born-in-enclave** genesis … seals the seed (real `EGETKEY`,
+MRENCLAVE)"*, with RA-TLS import listed as *"(**Optional** guarded import instead)"*. ⇒ **the seed does
+NOT cross the network on the default genesis path.** It crosses on two paths: (a) the optional guarded
+import, (b) **seed MIGRATION between enclaves** — which §BTC-3a shows is **routine**. ✅ **§BTC-4.5's
+conclusion SURVIVES for a narrower reason:** the HNDL exposure is on the **migration** path.
+⚠️ **A constraint on the FIX:** Phase 2 requires *"the SGX target on **nightly**"*, so the pinned stable
+1.90 cannot build it.
+
+**§BTC-4.5-ter 🔴 OWNER DIRECTIVES (2026-09-03) — no posting seeds, never two mechanisms for one thing.**
+▶️ **ACTION: delete the optional seed import.** `quid-provision --seed <hex>` is **a second mechanism for
+the same outcome**, and the one that puts a seed on a wire. ⇒ **it fails both directives at once.**
+⚠️ **Migration cannot simply follow it** — channel state is sealed to the measurement too. ✅ **CHECKED —
+channel keys DERIVE from the seed and are never persisted** (`keys_manager.rs:300-307`). ⇒ **the seed IS
+the channel state, functionally.**
+🔴 **AND THAT MAKES MIGRATION HOSTAGE TO THE THING IT REPLACES.** A local attested old→new transfer still
+requires the **OLD enclave to export. A hacked enclave simply refuses.**
+✅ **THE ESCAPE NEEDS NO COOPERATION FROM THE OLD ENCLAVE:** force-close plus the pre-signed public
+ladder. **Channels are lost; nothing else is.**
+⇒ 🔑 **THIS RE-RANKS `M1`: migration is an AVAILABILITY optimisation, NOT a safety property.** 📌 **`M1`
+is *"the gate that stops the seed being exported TO a bad image"*, not *"the path to migrate away from
+one."* **Only the first is a safety property.**
+⚠️ **REMAINING QUESTION:** **`ChannelMonitor`s are PERSISTED.** Sealed to MRENCLAVE, or under a
+seed-derived key? **If sealed to the measurement, the monitors must move too.**
+
+**⭐ §BTC-4.5-ter-fix — SEAL TO MRSIGNER WITH AN ISVSVN RATCHET, AND MIGRATION DISAPPEARS.**
+▶️ **Seal to `Keypolicy::MRSIGNER`.** Any enclave signed by the operators' key unseals the same data ⇒
+**no export, no transfer, no seed on any wire, no hostage — migration ceases to exist as a mechanism.**
+🔑 **The pattern is already in that file:** `machine_id()` uses MRSIGNER deliberately.
+⚠️ **IT DOES REMOVE A FACTOR.** MRENCLAVE + migration needs **the signing key AND a 2-of-3
+`MigrationAuth`**; MRSIGNER needs **the signing key alone.** ⛔ **And keeping both does NOT work** — a
+malicious image signed with the key simply does not run a startup check. The second factor can only live
+in the **sealing policy**. ⇒ **the trade is unavoidable.**
+✅ **WHY TAKING IT IS STILL CORRECT:** per §E175 a seed compromise is **not fund loss** — it costs
+**service**, and the hostage problem costs **service** too. **Same severity on both sides, so removing an
+entire mechanism is the right way to spend it.**
+⚠️ **What would reverse this:** the signing key is used on **EVERY release** while migration keys are
+used rarely. **Confirm the operational exposure is comparable before adopting.**
+🔴 **IT REQUIRES ISVSVN, CURRENTLY DISABLED.** `platform.rs:372-377` sets `isvsvn = 0`, justified by the
+MRENCLAVE policy. ⚠️ **That justification EXPIRES the moment the policy changes** — under MRSIGNER an
+**older, vulnerable version can also unseal.** ⇒ **seal at the current ISVSVN and let SGX refuse lower
+versions.** ⇒ **MRSIGNER + ratchet gives upgradeability without migration AND rollback protection.**
+📌 **What it collapses:** `migration.rs` · `MigrationAuth` · `markMigrationNonceUsed` ·
+`quid-provision`'s import · **§BTC-4.5's HNDL exposure entirely** · the `ChannelMonitor` question.
+⚠️ **Verify:** (a) monitors must move to the same policy; (b) ISVSVN must actually be bumped per release,
+which the runbook does not require; (c) a compromised signing key becomes catastrophic in one step.
+
+**✅ §BTC-4.5-quater — THE BUILD ENVIRONMENT TIPS §BTC-4.5's ROUTE.** `quid-ln/Dockerfile:37` installs
+**`build-essential pkg-config libssl-dev clang cmake`** ⇒ `aws-lc-rs` is **buildable**. 🔴 **But it makes
+REPRODUCIBILITY the binding constraint instead** — Phase 2 requires a reproducible build, and MRENCLAVE
+reproducibility is what makes the enclave auditable.
+✅ **DECIDED (owner, 2026-09-03): NOT using `aws-lc-rs`.** ⇒ **the route is the custom `SupportedKxGroup`
+on `ring`**, and the reproducibility question **dissolves rather than being answered**.
+⚠️ **Remaining check:** the ML-KEM crate must build `no_std`-compatibly under
+`x86_64-fortanix-unknown-sgx` on nightly. ⚠️ **Resolve first:** the Dockerfile is `FROM rust:1.90` while
+Phase 2 says nightly. **Determine whether Docker builds the enclave or only the non-enclave binaries.**
+
+### §BTC-4.6 — The comparative claim, bounded so it survives a critic
+
+| against | verdict |
+|---|---|
+| **P2TR self-custody** (modern wallet default) | ✅ **better with §BTC-4.3** — their key is published at funding and never rotates. Plus coordinated migration: the LP has an app and a counterparty. ⚠️ A product property, not a protocol one |
+| **unspent, never-reused P2WPKH** | ❌ **worse.** A hashed output publishes no key until spend. **Concede this up front** |
+| **exchange custody** | ✅ better — rotation, the seed is the LP's own, `RootSeed` sealed to the measurement |
+
+⚠️ The claim is about **key exposure**, never about the ladder (§BTC-4.1).
+
+**§BTC-4.6b ⛔ THE SCRIPT PATH CARRIES NO QUANTUM RESISTANCE.** A P2TR output is `0x5120 || Q`, where
+`Q = P + H(P ‖ merkle_root)·G`. **`Q` is a curve point on-chain from funding.** A CRQC solves its
+discrete log and produces a valid BIP-340 signature. **Key-path spending requires only that signature —
+the script tree is never consulted.** ⇒ a NUMS internal key changes who may spend *classically*.
+⚠️ **CORRECTED — "there is no PQ opcode" was too strong.** Hash-based signatures (Lamport, Winternitz)
+need only hashing and equality, **both of which tapscript has**, and Winternitz verification in Bitcoin
+script is demonstrated work. ⇒ **a post-quantum signature CAN be verified in a tapleaf today, with no
+consensus change.** ✅ **AND UNDER P2MR, BOTH §BTC-4.6c OBJECTIONS DISSOLVE** — the gate becomes a
+hash-commitment check, and publishing the leaf at arming reveals **hash commitments**, which a CRQC
+gains nothing from.
+🔴 **WHAT KILLS IT IS LIGHTNING, NOT THE SCRIPT PATH:** **witness size** (Winternitz runs kilobytes plus
+a large verification script, against **64 bytes** for Schnorr, on **every commitment**) · **one-time
+keys** (Lamport/Winternitz **leak catastrophically on reuse**, and a channel signs many commitments
+against one funding output) · **no aggregation** · **P2MR is unactivated.**
+**The compression question, worked.** ⛔ **ZK cannot compress a Bitcoin-side witness** — verifying a
+SNARK needs pairing arithmetic and Bitcoin has no such opcodes. BitVM is an optimistic fraud-proof game
+across many transactions, **strictly worse** than a large witness for a force close that must complete
+inside `to_self_delay` (7 days, `node.rs:688`). ⚪ **Size is NOT the binding constraint** — commitments
+are almost never broadcast, and with anchors + CPFP the closer bumps.
+✅ **THE STATEFULNESS OBJECTION IS TRACTABLE IN THIS FORK.** N commitments need N one-time keys, i.e.
+**XMSS**: a Merkle tree of one-time keys plus an index; verification is hash-only and would fit tapscript
+(≈2 KB, **bounded rather than growing**). The apparent killer is that **BOLT `channel_reestablish`
+requires re-sending `commitment_signed`** — index reuse. 🔑 **But BOLT requires re-SENDING, not
+re-DERIVING. Persist the signature and replay the stored bytes** — then an index is signed exactly once.
+⇒ **an LDK-fork change, and the discipline already exists in this tree** (`:31165`'s persisted holder
+funding signature; `derive_secnonce_seed`'s height binding; the closing-nonce monotonic index).
+⛔ **SPHINCS+ is the stateless escape and inverts the trade** — 8–17 KB per signature.
+🔑 **`OP_CAT` is the one thing that genuinely moves this.** It reached **"Complete" spec status in March
+2026** and has been tested extensively on signet, **with no proposed mainnet activation parameters.**
+⇒ **REVISED VERDICT: the PQ path is REAL, not fantasy — blocked on two unactivated soft forks (`OP_CAT`
+and P2MR), with the client-side work tractable in this fork.** ⚠️ **It does not make script-path-now
+correct.**
+🔑 **SCRIPT PATH NOW IS ORTHOGONAL TO PQ.** `OP_CHECKSIGADD` today gives a **Schnorr** leaf — still
+quantum-broken. ⇒ **script-path-now is a down payment on a two-step migration whose second step is
+blocked, and you would not reuse the leaf you built.**
+🔑 **So the key path is kept for two INDEPENDENT reasons, and they agree:** §E171-r's channel-model
+argument, **and** the quantum argument. **Neither depends on the other.**
+
+**§BTC-4.6c ⛔ WITNESS v2 / P2MR — nothing to be primed for, and the reason is structural.** (1) The
+KeyAgg gate proves `Q == TapTweak(KeyAgg(lp, hop))` for *those keys*, so they must be calldata; under
+P2MR the contract still needs the **leaf script**. (2) **The published ladder** — §E188 needs fully-signed
+exit bytes **public at ARMING**; under P2MR those bytes carry the leaf script and control block ⇒ **the
+keys are revealed at arming.**
+⚠️ **CORRECTED — the exclusion holds for PLAINTEXT verification only. ZK breaks instance 1.** Under P2MR
+the scriptPubKey is a **hash**, so a circuit could prove `∃ (lp, hop) : root == tapLeafHash(...) ∧ lpEth
+== addr(lp)`. The repo has the stack (`evm/noir/`). 🔴 **But instance 2 survives ZK** — **you cannot
+zero-knowledge a transaction third parties must broadcast.** ⇒ **P2MR's benefit remains unavailable, for
+ONE reason not two.** ⇒ **Stop tracking P2MR as a dependency.**
+🔍 **What ZK COULD buy: unlinkability.** `lpEth` is derived from `lpPubkey`, the funding output is
+SPV-proven on the EVM, and every payout pins to `btcRecipientOf` ⇒ **an EVM identity, a Bitcoin channel
+and a permanent payout address are publicly linkable, forever.** ⚠️ Non-native secp256k1 is expensive to
+prove, and a verifier on `openChannel` puts a **prover dependency on the money path**. **Only worth it if
+unlinkability is a stated goal.**
+⛔ **DO NOT PARAMETERISE THE WITNESS VERSION BYTE.** `hex"5120"` is hardcoded in `BitcoinTx` (293, 781,
+818), `ChannelLib:558`, `Types:164` and Rust's `keypath_p2tr_spk`, and **that byte-identity across two
+languages is what makes the exit unable to redirect.** A shared constant is **drift surface**.
+
+**§BTC-4.6d PQ signatures — closed for Bitcoin, conditionally open for the EVM consent layer.**
+**Bitcoin: closed**, and not by judgement — there is no PQ signature opcode, and `Q` is spendable via key
+path regardless. **EVM consent layer: genuinely available** — `btcRecipientPoP`, ladder arming and
+heartbeats are verified as **data by the contract**, so an ML-DSA co-signature over the same digests
+would be on-chain verifiable and unforgeable by a CRQC, at no gas cost to the LP.
+⚠️ **RE-EVALUATED — the condition was mis-stated.** A balance **does** exist at `lpEth`. **The operative
+fact is that `lpEth` is never a CALLER** — no `msg.sender == lpEth` check in `evm/src`, and no
+`lpEth`-keyed auth in `swap_in_api.rs`. ⇒ **Correct condition: build this only if `lpEth` ever becomes an
+AUTHORIZING CALLER.** ⚠️ What protects the position instead is the attribution binding §E125-d forbids
+reopening.
+
+**§BTC-4.6e A FULL P2MR MIGRATION — cost, breakage, and what it unlocks.** ⛔ **Not a refactor — a full
+channel migration.** A P2TR output **cannot become P2MR without being spent** ⇒ **close every channel
+cooperatively and reopen**, plus a contract redeploy (§BTC-8d).
+✅ **CORRECTED — MuSig2 does NOT have to go under P2MR.** A P2MR leaf can be `<Q_agg> OP_CHECKSIG` —
+`OP_CHECKSIG` does not care how a key was derived. ⇒ **aggregation, the single 64-byte signature and the
+nonce discipline all survive.** ⇒ **Cost is ~67 extra witness bytes** (34-byte leaf + 33-byte control
+block), **not the 2.5× quoted elsewhere** — that figure is the `OP_CHECKSIGADD` two-signature case.
+⚠️ **But it buys no quantum security:** the leaf holds a secp256k1 key, and the ladder publishes signed
+exits at arming. **MuSig2 only goes at the XMSS-leaf tier.**
+**What does break:** every hardcoded `hex"5120"` · **BOLT simple-taproot-channels** · the gate gains a
+step. ⚠️ **And it is not only the funding output** — `btcRecipient`, `lpToRemoteKey`, the swap-in deposit
+addresses and the exit outputs are **all P2TR**. **The whole payout chain moves, or none of it does.**
+🔀 **The hardware-signing constraint inverts, then inverts back.** P2MR + Schnorr leaves would *relax*
+§E171's constraint (hardware wallets support independent BIP-340 far more widely). ⚠️ **But hash-based
+leaves are supported by nothing. The custom app is required either way for the version that matters.**
+💰 **Two tiers:** (1) **P2MR + Schnorr leaves: NOTHING for this design** — the ladder publishes keys
+regardless; (2) **P2MR + hash-based leaves: genuinely quantum-secure**, and needs `OP_CAT`.
+🔓 **Quantum security unlocks only at tier 2**, requiring **P2MR activation · `OP_CAT` activation · an
+XMSS leaf design with the signature-persistence patches · a full channel migration · the same treatment
+for every payout key.**
+
+**§BTC-4.6f ⚠️ "Everyone should hold their BTC with us to be quantum secure" — NO.** A user holding BTC in
+an **unspent, never-reused hashed address** is **already quantum-safe today** — no key on-chain until
+they spend, no custodian, no forks, no migration. **That beats any channel construction, including the PQ
+one, because a channel must eventually publish something.** ⇒ **The defensible claim is narrow: *our
+channels would be quantum-secure* — competitive against P2TR self-custody and exchange custody. Never
+against cold storage in an unused address.**
+
+**§BTC-4.6g 🔴 DAY-ONE SOLIDITY REQUIREMENT — write it so it NEVER needs redeploying.**
+**This is the only item in the Bitcoin scope that must be decided BEFORE shipping.** Splices already
+rotate both funding keys and re-arm atomically ⇒ **when P2MR activates, the next splice per channel
+writes the new output form.** 🔴 **The ONLY thing that would force every channel closed is the contract.**
+`BTCChannels` is immutable and `_verifySplice` byte-matches `0x5120||Q`.
+⇒ **Accept both output forms from day one.** **Not a parameterised version byte** (drift surface) —
+**two ENUMERATED LITERAL forms**, each byte-checked exactly as `0x5120` is now:
+`0x5120 || Q` (P2TR, verified as today: KeyAgg + TapTweak) and `0x5220 || merkleRoot` (P2MR, verified by
+hash), with the channel recording which it uses.
+🔴 **HARD REQUIREMENT: the P2MR path must be disabled behind a ONE-WAY owner flag.** Witness v2 is
+**anyone-can-spend today** — accepting a P2MR-shaped funding output before activation would credit an
+output anyone can steal. **Default off, enable-only, set by the same k-of-n discipline as
+`MigrationAuth` — never `_onlyHop`.**
+🔑 **AND THE BINDING MUST NOT PARSE THE LEAF, or you need a redeploy for the PQ leaf.**
+🔴 **CORRECTED TWICE. Neither a KeyAgg binding nor a PoP extension works — and nothing needs to bind the
+leaf at all.** KeyAgg fails because an **XMSS leaf has no secp256k1 keys**. The PoP extension fails
+because `_requireRecipientPoP` is called only at **open** and standalone registration — **never at
+splice** — so `bindHash` is fixed at open and a future leaf format is not knowable then.
+✅ **THE RESOLUTION — the LP's SPLICE SIGNATURE is already the binding.** A splice spends the 2-of-2, so
+it **requires the LP's MuSig2 partial**, and under **`Prevouts::All` that partial commits to the
+transaction's OUTPUTS** — hence to `0x5220||merkleRoot` when the migration splice writes one. **That is
+the argument `BTCChannels.sol:1193-1198` already makes.**
+⇒ **The contract needs ONLY: accept both SPK forms, and for `0x5220` verify the SPV-proven output matches
+the root supplied in the splice params. No KeyAgg on that path · no leaf parsing · no PoP change · no new
+digest.** ⇒ **format-agnostic by construction.** MuSig2, `CHECKSIGADD` and XMSS leaves all work with **no
+contract change, ever.**
+🔴 **This makes §T9 unambiguously load-bearing.** The binding is *"the LP signed the splice"*, and
+`validating_signer.rs:1662` **never reads `tx.output`**. **§T9 must land with or before the P2MR path is
+enabled.** ✅ **Cheapest of the three designs.** ⚠️ **Keep the KeyAgg gate for the `0x5120` form.**
+⚠️ **Put it in `ChannelLib`** (§BTC-8c) — the P2MR branch is *cheaper* than the EC one; both must coexist.
+⚠️ **This buys no quantum security today.** **What it buys is that activation costs a flag flip and one
+splice per channel** instead of an onboarding-scale migration.
+
+**§BTC-4.6g-bis 🔴 FUTURE-PROOFING IS NOT ONE SITE — five places derive a script from a key.**
+
+| site | what it pins | breaks when |
+|---|---|---|
+| `_verifySplice` / `locateChannelOutput` | `hex"5120" \|\| Q` | the funding form changes — §BTC-4.6g |
+| **`_lpPayoutScript(lpEth)`** (`:754`; used `:723`, `:741-744`, `:1584`, `:2060`) | the LP's payout script from `btcRecipientOf` | **`btcRecipient` becomes a PQ address** — which §BTC-4.6i.3 shows it must |
+| **`lpToRemoteOutputKey(auth.lpPaymentPoint)`** (`:1012`) | `0x5120 \|\| lpToRemoteKey` | commitment outputs go PQ — **and §BTC-2.4's shortfall check locates the LP's output through exactly this** |
+| **`verifySwapInDeposit(internalKey, …)`** | the P2TR deposit address derivation | deposit addresses go PQ (§BTC-4.4) |
+| **`_requireRecipientPoP` → `BitcoinTx.schnorrVerify`** | a **BIP-340** proof over `btcRecipient` | **a PQ `btcRecipient` cannot be proven with Schnorr.** The hardest of the five |
+
+⚠️ **`_lpPayoutScript` is shared with the swapper path** (`:2256`, `:2273`) ⇒ **one change, two rails.**
+✅ **THE PRINCIPLE THAT FIXES ALL FIVE:** **never derive a script from a key by a hardcoded formula.
+Either enumerate literal forms, or pin OPAQUE SCRIPT BYTES bound by a signature the contract verifies.**
+- **Funding output:** enumerated forms; binding is the **LP's splice partial** under `Prevouts::All`.
+- **Payout script, `to_remote`, deposit address:** **pin the script BYTES, not the key** — form-agnostic
+  forever, and the contract already does this kind of comparison via `sumOutputValuesToScript`.
+- ⚠️ **What is lost:** §E130's on-curve check, which exists because *"`0x5120||xOnlyKey` is UNSPENDABLE
+  and every payout pinned to it … burns the"* funds. ⇒ **that protection moves to the LP's own signer** —
+  **§T9 again, and a fifth reason it is load-bearing.**
+- **The PoP:** keep BIP-340 **for the `0x5120` form**. For any future form, **bind `btcRecipient` at
+  splice via the LP's splice partial** rather than a self-PoP. 🔑 **This also makes `btcRecipient`
+  ROTATABLE at splice**, which §BTC-2.5 flags as impossible today, and the security property survives
+  because a splice requires the LP's partial. ⚠️ **Provided §T9 exists.**
+⇒ **Five sites, one principle, §T9 as the precondition for all of it.** ⚠️ **Design them together** —
+§BTC-8c's ~1,049 bytes and §BTC-8d's no-upgrade-path mean there is one attempt.
+⚠️ **WHAT THIS DOES NOT FUTURE-PROOF:** nothing here makes Lightning quantum-resistant. It makes the
+**contract** able to *express* PQ forms. **The contract will not be the blocker; the LN script suite
+will be.**
+
+**§BTC-4.6h ✅ THE KILOBYTE WITNESS COSTS ZERO EVM GAS.** `BitcoinTx.sol:22-23` requires **LEGACY-serialized
+tx bytes** because the txid comes from legacy serialization, and `_assertLegacy` **rejects
+witness-carrying txs outright** (`:84-88`). ⇒ **SPV proofs bind via `txid()`, which excludes witness data.
+A kilobyte witness costs NOTHING on the EVM side.** What it costs is Bitcoin fees, and those are not
+compressible — ⚠️ but witness data is **weight-discounted 4×**, so a ~2 KB XMSS witness is ≈500 vbytes.
+🔴 **Where it bites is the ladder.** `DEAD_MAN_FEE_SATS = 2_000` is **fixed per rung** and will not cover
+~500 vbytes. ⇒ **§BTC-2.4c's ephemeral anchor is already the fix, and PQ leaves make it mandatory.**
+
+**§BTC-4.6i 🔴 SCOPE CORRECTION — §BTC-4 covers the FUNDING OUTPUT, not Lightning.** Three parts are
+untouched: (1) **commitment transaction outputs** — `to_local` (with its revocation path), `to_remote`
+and HTLC timeout/success scripts, **all secp256k1-keyed**; a PQ funding output does nothing for them.
+(2) **The revocation mechanism is EC-based, and is a research problem, not an integration** — **a
+hash-based revocation construction is a different penalty design, and there is not one to adopt.**
+(3) **The ladder's DESTINATION** — the exit pays `btcRecipientOf`, an **x-only P2TR key**; if that stays
+P2TR, **a CRQC simply takes the funds where the ladder delivers them** ⇒ `btcRecipient` must become a PQ
+address too, which means **the LP's wallet produces XMSS key material**, a larger app requirement than
+§BTC-2.4d's basepoint.
+⇒ **The honest claim is: "the funding output can be made quantum-resistant when `OP_CAT` and P2MR
+activate, with no channel migration." It is NOT "the channel becomes quantum-resistant."**
+
+**§BTC-4.6j Ethereum's roadmap covers the account layer — and not the parts that matter here.**
+✅ **Covered by the EF:** `lpEth` as an EOA and the hop's submitter account, via signature agility
+(EIP-8141, under consideration for Hegotá H2 2026). 🔴 **NOT covered, and all of it is yours:**
+`isTwoOfTwoOutputKey` computes secp256k1 KeyAgg + TapTweak **in Solidity**, pinned to **Bitcoin's** curve
+· **RA-TLS's X25519** · **`BTC_DEPOSIT_KEY`** · **`lpEth` derives from `lpPubkey`**, so breaking the
+Bitcoin key yields the EVM identity **regardless of what Ethereum accounts use.**
+
+**§BTC-4.6k Do the desired properties survive the PQ endpoint? — one by one.**
+**✅ 1. The LP compounds while offline — holds TODAY, independently of quantum** (§E145; the splice is for
+**capacity**). Nothing in the PQ path touches this.
+**✅ 2. A hacked enclave is not a threat — preserved, and the dependency TIGHTENS.** §BTC-4.6g-bis moves
+the contract from *deriving* scripts to *pinning opaque bytes*, so it stops performing §E130's
+spendability check ⇒ **§T9 carries it.**
+**⚠️ 3. Background signing — preserved, with ONE NEW INVARIANT.** XMSS is **stateful**: an index must
+never be reused. Background signing is signing **without user presence**, so a crash between *"use index
+N"* and *"persist index N+1"* **is index reuse, which leaks the key.** ▶️ **Requires crash-safe index
+persistence.** ⚠️ **And it compounds with §BTC-2.2:** the app is the least-controlled environment, and
+this puts a must-never-repeat counter in it.
+**✅ 4. No redeploy, no channel closure, and NO FORCED LP WORK (§BTC-3c).** ⚠️ **But the LP's key material
+changes**, so **each LP must come online for ONE migration splice** — **"one signature per LP", not
+"close and reopen".**
+
+**⭐ §BTC-4.6m THE KEY HIERARCHY AND WHAT PQ-SECURING IT REQUIRES.**
+**Hop side: ONE key.** Seed → `KeysManager` → `derive_channel_signer(channel_keys_id)` → **every
+channel's hop-side keys, derived and never persisted.** **LP side: one root PER LP**, off each LP's own
+BIP-39 mnemonic. ⇒ **one root on the hop side, N on the LP side — which is exactly why §E175 holds.**
+🔑 **COROLLARY THAT BOUNDS THE WHOLE QUESTION: breaking the hop seed alone LOSES NOTHING.** The attacker
+still lacks **every** LP's half. ⇒ **the seed is a service-availability asset, not a custody one.**
+**Half 1 — the SEED: effectively solved.** At rest **already PQ-safe** (`AES_256_GCM` under
+`HKDF_SHA256`; Grover halves AES-256 to a **128-bit** margin). In transit **eliminable** — ML-KEM, **or
+removed outright** because MRSIGNER sealing means the seed never moves. ⇒ **§BTC-4.5-ter-fix subsumes
+§BTC-4.5 for this purpose.**
+**Half 2 — the CHANNELS: a path exists.** ⛔ An earlier answer implied there was none. **The path is
+§BTC-4.6b's: P2MR + hash-based (XMSS) leaves is genuinely quantum-secure**, blocked only on **`OP_CAT`
+and P2MR activation**. ✅ **And the migration cost is already engineered away** by §BTC-4.6g and §BTC-3c.
+⇒ **What is needed is known, specified, and gated on two soft forks rather than on any decision of
+yours.** **The one thing to do NOW is Phase 0's item 1**, because the contract is immutable.
+
+**🔴 §BTC-4.6n THE SOLIDITY secp256k1 — two sites scoped out, ONE IS A CHOKEPOINT.**
+
+| site | PQ status |
+|---|---|
+| `isTwoOfTwoOutputKey` (`BitcoinTx:504`; used `BTCChannels:1511`, `:1630`) | ✅ **not a chokepoint** — §BTC-4.6g scopes it to `0x5120`; a migrated channel never calls it |
+| `schnorrVerify` at `BTCChannels:2523` (`btcRecipientPoP`) | ✅ already the fifth site in §BTC-4.6g-bis |
+| 🔴 **`schnorrVerify(c.q, r, sig, m)` at `BitcoinTx:784`** → `ExitSignatureInvalid` | 🔴 **A GENUINE CHOKEPOINT, and this document had not accounted for it** |
+
+🔴 **Why `:784` is different.** It is `verifyDeadManExit` checking **the ladder rung's own signature**.
+The exit is **pre-signed and NOT broadcast at arming** ⇒ Bitcoin has never seen it ⇒ **the contract must
+verify it, or it is arming bytes nobody has checked.** Every other binding works by SPV-proving a
+transaction Bitcoin already validated; **the ladder is the one place that property does not hold.**
+⇒ **Under PQ leaves `verifyDeadManExit` must verify an XMSS/Winternitz signature IN SOLIDITY.**
+✅ **And that is plausibly EASIER, not harder.** Verification is **hash-only** against the current
+**elliptic-curve** path, which `§E129` costs at **631k gas**. **Hashes are cheap in the EVM; EC is not.**
+⇒ **the PQ migration may REDUCE this call's cost.** ⚠️ **But it is real work §BTC-4.6g does not include.**
+▶️ **Book it into Phase 0 item 1:** `verifyDeadManExit` must verify **an enumerated signature scheme**,
+not a hardcoded BIP-340 call — *"enumerate forms, never derive"* applied to **signatures.**
+⚠️ **Otherwise the ladder is the one thing that WOULD force a redeploy.**
+
+**§BTC-4.7 Where quantum lands against the design's own principles.** **§E188's decomposition is what
+makes goals 1 and 3 compatible. It is also exactly what makes the design quantum-fragile.** ⇒ **the
+principle that buys "no LP online" costs "quantum resistance."**
+⇒ **The correct posture on the BITCOIN side is to know the exposure and not pay for it.** ⚠️ **§BTC-4.5
+found a genuine HNDL exposure in RA-TLS, and it outranks everything below.** On the Bitcoin side, two
+changes survive: **§BTC-4.3** and **§BTC-4.4**. **Everything else fails on efficiency, on liveness, or
+was already decided against.**
+📌 **Quantum analysis is CLOSED, ranking corrected:** the significant item is §BTC-4.5; the Bitcoin-side
+items are §BTC-4.3 and §BTC-4.4 and are small. **The remaining Bitcoin work in §BTC-9 is not quantum
+work.** ⇒ **track `OP_CAT`/P2MR activation, do not build toward it** — the leaf you would build today is
+Schnorr and would be discarded.
+
+## §BTC-4a — Loose ends swept from this thread
+
+**✅ SWAP-IN DEPOSIT VERIFIER — CORRECTED: the implementation is right and the MATRIX is stale.**
+§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT (`:15343`) records that `PUPPETEER-E2E-MATRIX.md`
+specifies a verifier building `refundLeaf` **and** `termsLeaf` combined with `tapBranch`, while
+`termsLeaf` does not exist tree-wide. **That mismatch is real. The conclusion drawn from it was not.**
+✅ **Read from code (`BitcoinTx.sol:812-852`):** `verifySwapInDeposit` → `swapInDepositKey(internalKey,
+terms, userRefund, cltvHeight)` → `taprootOutputKeyWithLeaf(internalKey, tapLeafHash(_cltvRefundLeaf(
+terms, userRefund, cltvHeight)))`, with **`termsCommitment(terms) = sha256(abi.encode(terms.seller,
+terms.token, terms.pricePerBtc, terms.slippageBps))`.** The docblock states the design: *"**ONE leaf, no
+`tapBranch`**: the prefix rides in front of the refund script."*
+⇒ **The deposit address DOES commit to seller, token, rate and slippage.** ⛔ **An earlier revision
+claimed a breached hop could re-prove one user's deposit under different terms — THAT ATTACK IS
+IMPOSSIBLE**, and the claim rested on a **misattributed citation**: `BTCChannels.sol:1780` is
+`_requireChannelKeys`/`keysHash`, nothing to do with swap-in terms.
+✅ **`minDeliveredUsd` is not a hop assertion either — §T2 removed it.** `settleFloorUsd` is *"DERIVED
+from the committed rate and the PROVEN sats… **DERIVED, NOT SUPPLIED — that is the security
+property.**"*
+▶️ **REVISED ACTION — the work inverts.** Do **not** land a two-leaf commitment. **Correct
+`PUPPETEER-E2E-MATRIX.md` to the one-leaf-with-terms-prefix shape**, then write the client verifier to
+that shape. ⚠️ Use **`sha256`, not `keccak256`** — *"this value is pushed into a Bitcoin script"*, so a
+keccak verifier **would disagree while both looked correct.** 📌 **This removes a build item and converts
+it into a documentation fix.**
+**✅ `CidRegistry` — resolves toward COMPUTE, NOT CACHE (§BTC-2.1), i.e. delete.**
+**⚪ `ChannelCapReached` is a permanent stop.** `cap_headroom < MIN_ECONOMIC_GROW_SATS` ends splicing for
+that channel forever, at maximum value. Under one-channel-per-LP that caps an LP's position permanently.
+**A product limit — but it should be a deliberate one.**
+**⚪ Splice fee attribution (HEAD, `7c5bc10`)** — *"charge the splice fee to the contributing side"*
+landed too recently to assess.
+**⚪ `to_self_delay = 6*24*7`** (`node.rs:688`) — the 7-day justice window is the interval in which
+§BTC-2.4's shortfall check must be observed and submitted.
+
+## §BTC-5 — Settled; do not re-propose
+
+- **MuSig2 stays.** §E171-r, withdrawn 2026-08-11. `funding.rs:48` builds per BIP-327 + BOLT
+  simple-taproot-channels — key-path-only aggregate over an **empty merkle root**, byte-matched as
+  `0x5120||Q`. ⇒ **MuSig2 IS the channel model.** Dropping it removes simple-taproot channels, the KeyAgg
+  proof, `funding.rs`, `taproot_2of2_output_key`, §E128 exit verification; the fallback is legacy P2WSH
+  ECDSA. And the escape reached for is closed by name: *"a script tree is not a partial retreat, because
+  a non-empty merkle root changes `Q` and breaks the byte-match with LDK."*
+  ⚠️ **The framing was stronger than the fact** — the byte-match break is a **cost**, not an
+  impossibility. The decision stands on the trade.
+  ✅ **What would reopen it — signing surface.** MuSig2 is Ledger-only (BIP-373/388); Trezor cannot, no
+  browser extension can. **If the product ever needs hardware-wallet LPs without an app, the trade
+  reopens — on UX grounds, never on quantum.** 📌 If it does, re-derive `BitcoinTx.sol:1193-1198` first.
+  ⚠️ **§E171-r's error note:** *"I optimised for 'works in a browser with wallets that exist' and let that
+  outrank a load-bearing protocol dependency I had not checked. The signing surface is a CONSEQUENCE of
+  the channel model, never an input to it."*
+- 🔴 **NONCE REUSE IS THE SILENT TOTAL FAILURE.** Signing two messages under one secnonce leaks the LP's
+  key — **and the fleet sees both partials**, so it holds BOTH halves with every on-chain byte correct.
+  ✅ The one confirmed instance was found and fixed (§BTC-6).
+- **Keep the KeyAgg gate.** Hiding `lpPubkey`/`hopPubkey` is impossible while it exists, and it enforces
+  the LP-half split.
+- **`FUNDING_PATH` stays a single fixed index.** Per-channel indexing is meaningless under
+  one-channel-per-LP, and §E125-r/§E157 refute it: `lpEth` must be stable. Owner: *"i dont want to
+  fragment the lp either."* **§BTC-4.3 is the correct version of what it reached for.**
+- **No ERC-7947 for `lpEth`** — *do not reopen the attribution hole.*
+- **LP funding key = hardened path off the LP's own BIP-39 seed.** Deriving from an EVM signature is
+  rejected (RFC-6979 determinism ⇒ one phished signature hands over the funding key); reusing
+  `btcRecipientOf` is rejected (converts degraded service into fund loss).
+
+## §BTC-6 ⚡ THE "ALREADY SOLVED" REGISTER — read before traversing this file
+
+**A future thread should not re-derive any of these.** ⚠️ **The pattern:** these were **correct when
+written** and invalidated within hours or days by a change elsewhere, then never revisited.
+
+| item | reality | this file says |
+|---|---|---|
+| **§T9 step one — splice window** | built: `validating_signer.rs:658-690` (`e6c65e2c`) — accept iff the chain shows this scope **or the one it replaces**; the node must NAME a predecessor (*"cannot invent a predecessor it never got signed"*) | `:1573` presents the one-way window as *"THE SHAPE THAT WORKS"* — design, not landed. ⇒ **the rail-killing trap is closed; wiring is safe** |
+| **closing-nonce reuse** (`CLOSING_NONCE_HEIGHT = u64::MAX` ⇒ one `k` across multi-round fee negotiation ⇒ `x = (s1−s2)/(H(R,Q,m1)−H(R,Q,m2))` ⇒ counterparty drains the channel) | fixed: `sign/mod.rs:2536` `closing_nonce_height(round)`, used `:2813`, tested `:3658-3660`; **plus** `derive_secnonce_seed_domain` (`taproot_signer.rs:59`) beyond spec | `:31214` *"FIX (mandatory, top of M9 queue)"*, no closure marker |
+| `with_truth_factory` callers | `node.rs:865-866`, `vault.rs:960` | `:1557` *"ZERO production callers"* — stale as written; the effect (dormant, `None`) holds |
+| **§DELIVERY-MUST-BE-LP-INITIATED** (`:1728`) | ✅ **RESOLVED 29 MINUTES AFTER IT WAS WRITTEN.** `de1bec5b` (Sep 1 14:58) declared step 1 impossible; `aa2f84a7` (15:27) **landed the LDK patch** — `our_funding_contribution` at `channelmanager.rs:11953`, `acceptor_outputs` at `:11990` | `:1728` still reads **"IMPOSSIBLE IN THIS LDK"** — and it is the stated blocker on §COHOST-FLAG-IS-NOT-THE-WORK step 1 |
+| **goal-3 fork** | 🔴 **RESOLVED 2026-09-05 AGAINST `:851-877` — see §BTC-1 and §S1.** The LP side DOES forward swap-ins; `:851-877`'s `send_spontaneous_payment` grep could not have detected forwarding | `:15369` states a binary fork; §E172 (`:44197`) reads a sizing metric as traffic — **§E172's reading is the one that survives** |
+| **§BTC-2.4's *"one real obstacle"*** (`:889`) | ✅ **solved.** `BTCChannels.sol:1012` pins `lpToRemoteKey` | `:895` still presents it as the obstacle to discover late |
+| **phase 3's "orderly quiesce"** | ✅ **built.** `vault.rs:136` `await_quiescent`, tests `:156`, timeout warning `:148`; LDK's `is_awaiting_quiescence`/`stfu` at `channel.rs:657-661` | `:29640` lists it as a §E172 follow-up to do |
+| **`Lx` → `Quid` identifier rename** | ✅ **DONE 2026-09-03** (§BTC-8e D0). 39 files, 471/471 pure 1:1, 0 residual outside vendored LDK, no wire-format change. One real collision caught (`QuidErr::QuidErr`), three mid-identifier misses fixed | not tracked as complete anywhere |
+| **`#114` dead-man forge coverage** | ✅ **exists.** `DeadManExitVerify.t.sol`, `ExitFixture.sol`, `TapSighash.t.sol` | `#114` says *"0 of 88 forge test files mention the dead-man path"*. ⚠️ Its **Rust-side** claims were not re-measured — **and §BTC-9b-bis confirms they STAND** |
+| **`DeadManExitEmitted` needs the heartbeat** | ✅ **false.** Emitted by `_armDeadManExit` (`:1594`) at **open and every splice** | implied by the heartbeat framing throughout |
+| §E125-r's premise | *"`lpPubkey` IS THE PER-CHANNEL MuSig2 funding key"* is measured from **test artifacts** (`VBtcLevFeeLane.t.sol:126`). Production derives one fixed key in the app | unqualified — a reader draws the wrong conclusion about production |
+
+## §BTC-7 — Stale comments and pointers (15 sites and clusters)
+
+| where | what |
+|---|---|
+| `quid-bridge/src/deadman_exit.rs` header | **False.** Claims `daemon.rs:235` passes `Some(vault.clone())` unconditionally and one process holds both halves. Contradicted by `quid-bridge-daemon.rs:367-417` — `QUID_FLEET_COHOSTS_VAULT` defaults false, `quid-lp-daemon` exists. Cited lines no longer resolve. **Makes shipped security work look unshipped** |
+| **`BTCChannels.sol:303-314` + `:357-374`** | 🔴 **A THREE-LAYER STALE CHAIN.** `:303-314` says the LP *"signs once, goes offline forever"*; `:357-374` annotates it as refuted by §E172. ✅ **RESOLVED 2026-09-05: §E172's annotation is CORRECT and the ORIGINAL CLAIM is the stale layer** (§BTC-1). ⚠️ `:1878` marks the "annotate it" task done — **the open work is deleting the `:303-314` claim, not the annotation** |
+| `ChannelLib.sol:697` | *"The contract does NO EC"* — unscoped, the exact sentence `Types.sol:189` marks retired-and-false. (`locateChannelOutput`'s *"…no EC math **HERE**"* is scoped and fine) |
+| `taproot_signer.rs:4` + `tests/taproot_anchor_cpfp.rs:2` + `tests/taproot_onchain_resolution.rs:2` | cite `docs/TAPROOT-CHANNELS-BUILD-SPEC.md`, which **does not exist** |
+| `Types.sol:189` | retraction banner correcting text that no longer exists |
+| **`Aux.sol` (40), `Core.sol` (48), `Vault.sol` (10)** | 🔴 **~98 references to a Uniswap **V4** integration that no longer exists.** The code measures its own absence: `SwapLib.sol:49-50`, `Core.sol:801`. **Largest cluster, and it actively misleads** |
+| **`lpAuth` references** — `channel_driver.rs:5`/`:649`, `boot.rs:65`, `swap_out_onchain.rs:11-14`, `traits.rs:80`, `alias.rs:75` | describe a transport with **no live implementation** (§BTC-2.5d). `drive_open`'s docstring names a round-trip its own function does not perform. **Seven other sites correctly say it is gone — the tree states both** |
+| 🔴 **`btcRecipient` described as a PUBKEY-HASH in FOUR places, two of them ABI** | **The implementation is an x-only P2TR KEY** — `:2269-2271`. **You cannot check a hash for being on a curve.** Stale: `:258` *"pubkey-hash"* · `:265-266` *"attributes … to **P2WPKH**"* · **`:475` `event BtcRecipientRegistered(address indexed owner, bytes32 pubkeyHash)`** · **`:476` `error NotPubkeyHash()`**. 🔴 **The last two are ABI.** An indexer trusting the event's parameter name builds `OP_DUP OP_HASH160 <hash>…` instead of `0x5120 \|\| key` — **funds to a wrong or unspendable address.** ▶️ Rename to `xOnlyKey` / `NotOnCurve`, and fix the wider **P2WPKH cluster**: `BitcoinTx.sol:227`, `:409`, `:412`, `BTCChannels.sol:266`, `:708`, plus `:82`'s *"prior P2WSH path"*. **HIGHEST-SEVERITY ITEM IN THIS TABLE: the others mislead a reader, this one misleads a consumer.** ⚠️ **And it is USER-FACING:** `requestSwapOutOnchain` reverts **`NotPubkeyHash()`** when a swapper has no registered recipient (`:2272`) |
+| **`bin/quid-watchtower.rs` header** | justifies broadcasting on maturity as *"i.e. the fleet stopped refreshing."* **Nothing refreshes** (§BTC-2.4b) |
+| **`commitFreshness` / `MAX_FRESHNESS_JUMP`** (`:1653`) vs the **Bitcoin freshness UTXO** | 🔴 **naming collision between two unrelated mechanisms.** `MAX_FRESHNESS_JUMP` does **not** bound freshness rotation. **This nearly produced a wrong conclusion — rename one, or annotate both sites** |
+| **`docs/actionable/TODO.md:833`/`:875`** | specifies `auth.lp_sig` over `openAuthDigest` and says land it **first** — **§E183 deleted both** (§BTC-2.3) |
+| **`docs/actionable/TODO.md:812`** | lists **rekey consent** — **§SPLICE-ROTATES-BOTH-FUNDING-KEYS deleted `rekey`**. ⚠️ And the same list is **missing the payment basepoint** (§BTC-2.4d). **Fix with the row above in ONE pass (§BTC-9.3)** |
+| **`rebalancer.rs:32-35`** | *"**The LP** can forward a swap-in…"* ✅ **MEASURED CORRECT 2026-09-05 (§S1). Do NOT edit this comment** — it was the accurate one, and `:851-877` is the row that needs correcting |
+| `CLAUDE.md` | points at `../ibiza/TODO.md` for §3b; the file moved into this repo |
+| `BTCChannels.sol:557-570` (`DeadManExitEmitted` docblock) | describes the **heartbeat** as the emitter; `_armDeadManExit` emits at open and every splice |
+
+`check-doc-symbols.py` catches renamed symbols; it does not catch `daemon.rs:235` pointing at the wrong
+line, which is what exposed the first.
+
+## §BTC-7b — From `docs/actionable/TODO.md`: what belongs here rather than there
+
+Both Bitcoin-scope items there (`:686` BTC-QR funding, `:812` the web/app split) are **tracked and stay
+there.** Three things cross into this scope.
+**✅ Confirms §BTC-2.7 and §BTC-8b.** The web/app split names the discriminator identically: *"not 'BTC
+vs ETH', it is **WHAT TOUCHES THE CHANNEL KEY**."* It enumerates the app-signing surface — **exits ladder
+· payout-key PoP · rekey consent · heartbeats** — so **§BTC-2.4b.1's keep-alive refresh is already scoped
+client-side.** Its gating rule reads on-chain state, needing no backend.
+**✅ Confirms §BTC-2.5b:** *"A swapper is NOT an LP … gating them would be a self-inflicted funnel loss."*
+**🔴 Contradiction — "rekey consent" is stale**, and the same list is **missing the payment basepoint**.
+⇒ **Fix both, plus §BTC-2.3, in one pass** — or the app gets built against two removed interfaces and
+without a key the force-close measurement needs.
+**📌 House rule worth citing by name: SPV standing rule 17 — *prefer making the bad state unconstructible
+over making it observable*.** It is the principle behind `c4875fcf`'s *"unconstructible beats revocable"*,
+§BTC-2.7's level test, and §BTC-2.6's *"revert rather than emit an obligation nothing consumes."*
+
+## §BTC-8 — Dependencies: what must land from this file first
+
+**`§PHASE-ORDER`'s own rule:** *"the reason it is an order and not a list: work done out of sequence gets
+UNDONE."*
+**Phase state as measured:** phase 0 complete · phase 1 (keystone `§M1#2`) **done**, LP funding half at
+BIP-86 `m/86'/0'/0'/0/0` off the same enclave mnemonic as identity, the two roles on **distinct scalars**
+per `§E182-b` · phase 2 = *"§T9 refusal, **then** ladder depth"* · phase 3 = per-channel freshness, **not
+built and unreachable** (`FRESHNESS_SHARD: u32 = 0`) · phase 4 complete.
+
+| this scope's item | blocked on | why |
+|---|---|---|
+| §BTC-9.9 delivery rework / cohost deletion | **§T9 (phase 2), in the SAME change** | the rework makes the hop the splice INITIATOR toward a signer that never reads `tx.output` |
+| §BTC-2.4b ladder depth and spacing | **§T9 first** | `§PHASE-ORDER` sequences refusal **then** depth |
+| §BTC-2.4 shortfall check | ✅ `:889`'s obstacle is **already solved** | `lpToRemoteKey` is pinned |
+| everything about LP liveness | ✅ **§BTC-1 RESOLVED 2026-09-05** | static balance does NOT hold; §E172's reading survives |
+| §BTC-4a client verifier | ✅ **no code prerequisite** — the commitment already exists (`termsCommitment`). The prerequisite is a **documentation fix** to `PUPPETEER-E2E-MATRIX.md` |
+
+### 🔑 The cluster that must be decided BEFORE any app-side signer work
+📌 **And the app-side signer is itself what gates §BTC-2.5c** — Rail B cannot move off the vault node
+until the LP can sign an acceptor contribution from the app. ⇒ **this cluster, §BTC-9.3's one-pass spec
+fix, §BTC-2.4d's basepoint derivation and §BTC-9.9 are ONE body of work**, not four.
+1. **§BTC-2.3 — `TODO.md:833/:875` specifies `auth.lp_sig`, deleted by §E183.** It is the spec's *first*
+   recommended task.
+2. **§BTC-2.2 — the signing-order refusal**, sequenced with §BTC-9.9.
+3. **§BTC-4.3 — hardened per-epoch derivation.** Changes what the app signs at each splice it
+   participates in. **Adds no liveness cost.**
+4. **Background signing — and it is NOT the session cache.** `:1293`/`:1357` frame `root.ts:21-24`'s
+   pattern as *"load-bearing"* **because §E172 said every commitment needs a signature.** 🔴 **§BTC-1's
+   2026-09-05 measurement RESTORES that premise on the forwarding path**, so re-read those rows before
+   relaxing anything. **But a cached mnemonic dies when the OS suspends the app** — a push-woken window
+   needs the key unwrappable **without user presence.**
+   ▶️ **Shape, stock facilities only:** store the **derived funding scalar** — not the mnemonic — under
+   `kSecAttrAccessibleAfterFirstUnlock` (iOS) / Keystore with `setUserAuthenticationRequired(false)`,
+   StrongBox where available. A push wakes the app; it runs the §T9 check against both chains, signs on
+   pass, escalates on fail. **Storing only the funding scalar means background access grants
+   splice-signing authority alone.**
+   🔑 **Why an unattended key is acceptable:** its authority is bounded **on-chain**. A stolen device can
+   sign legitimate operations; it cannot redirect funds. 🔴 **So §T9 must land first.**
+
+### ⚠️ Two proposed divergences — owner sign-off, not decided here
+**A. `CidRegistry`: this scope says COMPUTE, NOT CACHE — §T9 says write the binder.** `channelId` is
+computable (`ChannelLib.sol:640`), and `select_delivery_channels` **already does it**
+(`swap_out_onchain.rs:107-119`). ⚠️ **Do not read "delete" as "drop the check."**
+**B. Phase 3 freshness — decide it as the trade in §BTC-2.4b.2**, not by closing or building it blind.
+⚠️ **`B1` (remainder #6) is a direct cost input to option A and is itself open.**
+
+### This file's own Bitcoin remainder (`:1848`) — SWEPT, coverage map
+✅ **The table itself is CLEAN.** All 8 rows (there is no row 4) are mapped, and **no new §BTC-6-class
+entries were found in it.** ⇒ **the `:1848` sweep is done and does not need repeating.**
+📌 **It states two consequences that *"bind every design decision downstream"*:** (1) *"AN OFFLINE LP
+CANNOT CO-SIGN ON DEMAND. Anything needing LP liveness must be liveness-GATED … everything else must be
+PRE-SIGNED"*; (2) *"ANY LP-SIDE RUNTIME CHECK BELONGS IN THE APP, not in a daemon."*
+
+| # | item | this scope |
+|---|---|---|
+| 1 | §T9 signer refusal | §BTC-2.1 — step one already built (§BTC-6) |
+| 2 | **§FORCE-CLOSE end-to-end test** | 🔴 **sharpens §BTC-2.4d.** ✅ **Confirmed by measurement (§BTC-9b):** `ForceCloseLpOutput.t.sol`'s four tests are **all derivation**. The emit path is untested **and** depended on a key the app does not derive. ✅ **The Rust build blocker is fixed (2026-09-05, §BTC-2.4d); the APP-side derivation remains.** **Do not close #2 first** |
+| 3 | ladder depth as a deploy parameter | §BTC-2.4b.2 — the second half of a decided trade |
+| 5 | `M1` | §BTC-3 — goal 2's entire remaining surface |
+| 6 | **`B1`** — freshness backstop has no economic bound | cost input to §BTC-2.4b.2 option A |
+| 7 | **TDX + Nitro seal wiring** | ⚠️ **not examined.** Bears on §BTC-3 — the sealing argument is SGX-shaped |
+| 8 | phase 3 freshness | §BTC-2.4b — `bf5aa5ff` retracted the deletion |
+| 9 | §BTC-LEG-FEE | owner decision, untouched |
+
+### Independent — no prerequisite
+`M1` · §BTC-2.4c's keyless fee bump · §BTC-4.4's `BTC_DEPOSIT_KEY` rotation · §BTC-4.5's ML-KEM ·
+§BTC-7's fixes.
+
+## §BTC-8b — Enforcement-level sweep of §BTC-9
+
+| finding | change |
+|---|---|
+| **items 2 and 10 contradicted each other** — "write the `CidRegistry` binder" vs "delete it" | resolved twice: first toward the app, then more strongly — **`channelId` is computable, so the verdict is compute-not-cache** |
+| **item 1 was a confirmation, not an enforcement** | upgraded: **the app refuses to sign unless it goes last.** A confirmation goes stale; a refusal does not |
+| **item 5 had no enforcement level** | upgraded: **the LP's signer refuses balance-moving commitments.** Hop-side config is enclave-level. **Same component as item 2** |
+| **item 12 was filed as a feature** | reclassified as a **level fix** — moves `seller`/`token`/`minDeliveredUsd` from hop assertions into the address derivation |
+| **item 0c is a CUSTODY question** | ranked first: if the enclave holds the basepoint, no bound at any level compensates |
+
+🔑 **Items 1, 2 and 5 collapse into ONE component** — an LP-side signing policy that refuses wrong
+destinations, refuses balance-moving commitments, and refuses to sign out of order. **That is §T9's
+refusal, sited on the LP's device, doing three jobs, and it is the bound for goals 1 and 3 both.**
+
+## §BTC-8c — Implementation constraints: check before designing any of §BTC-9
+
+### 🔴 `BTCChannels` has ~1,049 bytes of EIP-170 headroom — and the build is UNOPTIMIZED
+⚠️ **`deploy/PRODUCTION-LAUNCH.md` Phase 1: *"Build WITHOUT via_ir/optimizer crutches"*** ⇒ **the headroom
+figures are unoptimized-build figures, and there is no optimizer slack to fall back on.** **Re-measure
+with the production command.**
+`§POOL-INVENTORY-PURGED` took it **24,545 → 23,527, headroom 31 → 1,049**. The contract has previously
+sat **31 bytes** from the limit, and one change once put it **386 bytes over**.
+**Contract-side items proposed here:** §BTC-2.4's shortfall check · §BTC-2.6's fulfilment record ·
+§BTC-2.4b.1's atomicity revert. ⇒ **They will not all fit inline.**
+✅ **Use the existing pattern:** `ChannelLib`'s functions are `external`, so they **deploy with the
+library, not the caller**. ⚠️ `address(this)` is preserved under `DELEGATECALL`, so digests still bind
+the deployment. ⚠️ **Pass state BY VALUE** — `keysHash` and `lpEth` are passed by value so the library has
+no dependency on storage **layout**.
+### 🔴 `bump.rs` is the WRONG tool for §BTC-2.4c
+It funds bumps **from the HOP's confirmed UTXOs** — the party that is dead in the case the exit exists
+for. §BTC-2.4c needs an **ephemeral anchor spendable by anyone**.
+### ✅ Dead-man forge coverage EXISTS — a stale `#114` claim
+⚠️ Its Rust-side claims were **not** re-measured there — **§BTC-9b-bis measures them and they STAND.**
+
+## §BTC-8d 🔴 `BTCChannels` HAS NO UPGRADE PATH — the constraint that outranks the size budget
+
+**Measured:** every dependency is `immutable` (`spv`, `btc`, `MAIN_HOP`, `FALLBACK_HOP`,
+`BTC_DEPOSIT_KEY`), state is set in a **constructor** (`:767`), and there is **no proxy, no initializer,
+no storage gap, no UUPS**. ⚠️ **`migrationNonceUsed` is NOT a contract-upgrade path** — it is the **SGX
+seed-migration** nonce (`:247`).
+⇒ **A contract-side bug requires deploying a new `BTCChannels` and moving every channel** — closing each
+cooperatively (each needs its LP online) and reopening. **There is no patch.**
+🔑 **Consequences that bind §BTC-9:** design the contract-side items **together**, in `ChannelLib`;
+⚠️ **`ChannelLib` does not restore upgradeability** (a linked library's address is baked in at link time
+— it buys **size**, never **patchability**); and **§BTC-2.7's level test becomes non-negotiable**, because
+a policy at the wrong level cannot be moved without a migration.
+✅ **THE SAFETY NET: the ladder survives a redeploy.** `signedExitTx` bytes are public and are valid
+Bitcoin transactions **independent of any contract**. ⇒ **a contract migration is a service event, not a
+funds event.**
+
+## §BTC-8e — OWNER-SUPPLIED SCOPE (2026-09-03): enclave collapse, stale inheritance, open security
+
+### A. Collapse to one enclave, one daemon
+**A1. Salvage the EVM binding FIRST.** `quid-cvm` is the only place `report_data` binds `[pk, evm,
+0×12]`; the SGX path binds `[pk, 0×32]`. **Port it into `quid-tls-attest-server/src/quote.rs` and the
+check in `quid-tls/src/attest_client/verifier.rs` BEFORE anything is deleted.**
+**A2. Delete `quid-cvm`.** Crate (468 lines), the `sev = "6"` dep, the workspace member entry.
+**A3. Delete the `Sealer` indirection.** Trait + `NativeSealer` in `quid-enclave/src/platform.rs:280-300`;
+`Box<dyn Sealer>` and `pick_sealer` at `quid-hop/src/seed.rs:48-57`; `&dyn Sealer` params at
+`quid-api-core/src/types/sealed_seed.rs:95,128`. Call `platform::seal`/`unseal` directly.
+🔗 **This makes §BTC-4.5-ter-fix cheaper:** with one direct call site, changing `Keypolicy::MRENCLAVE →
+MRSIGNER` + the ISVSVN ratchet is a **single-point** change rather than one threaded through a trait.
+**A4. Delete `HostingRole`.** `quid-enclave/src/backend.rs:120-132`, `serves_others`,
+`require_backend_for_role:191-200`, `resolve_role` at `quid-hop/src/seed.rs:282-294`,
+`QUID_HOSTING_ROLE` parsing. Only three consumers.
+**A5. Delete `Backend` and `detect()`.** `cfg!(target_env = "sgx")` already separates real seal from mock.
+**Replace the runtime gate with a build-time one: mainnet requires the SGX build; a mock-sealed binary
+refuses to start against it.** 🔗 **Interacts with §BTC-4.5-quater's open item:** the Dockerfile is
+`FROM rust:1.90` while the SGX target needs **nightly**. **A build-time gate makes that inconsistency
+load-bearing — resolve it as part of A5.**
+**A6. Collapse the policy tests to one assertion.** `backend.rs:206-253`, `lp_seed.rs:278-315,376-385`,
+`seed.rs:500-526`. **What must survive: a mock-sealed build cannot run against mainnet.**
+**A7. Settle the seed-backup discriminator.** `lp_seed.rs:113-122` branches on `custody_ready` plus a role
+arm. With roles gone it is *"is this the SGX build"* — **confirm, since it decides whether the plaintext
+mnemonic is ever written to disk.**
+🔗 🔴 **HIGHEST-PRIORITY ITEM IN THIS BLOCK.** The owner's directive is *"no posting seeds"* — **a
+plaintext mnemonic on disk is strictly worse than one on a transport**, since it needs no interception at
+all. **Settle A7 before A4 removes the role arm that currently gates it.**
+
+### B. Stale inherited references
+**B1. Delete the GDrive code and comments.** 22 hits: comments in `quid-hop/src/{freshness,node}.rs`, plus
+**real dead plumbing** — `gdrive_persister_shutdown` field/param in `channel_monitor.rs`,
+`gdrive_persister_tx` param and two `try_send` blocks in `event.rs`. **Nothing passes `Some(...)` to
+either.** The script is written and verified — 14/14 patterns, +9/−39, zero residual, all-or-nothing so an
+upstream bump fails loudly. ⚠️ **Leave `lib/rust-lightning/README.md:70` alone — upstream LDK's own prose.**
+🔗 **Same class as §BTC-7's 15 sites**, but with a verified script; **cheapest cluster to close.**
+**B2. Fix the SCOPE.md citations.** `evm/src/identity/HOLDER-FORK.md:4` (§7.8) and
+`docs/identity/SECURE-RECOVERY.md:4` (§7.3) cite section numbers in a file that **lives outside any
+repo**. Inline the claims or bring the file in.
+
+### C. Open security work
+**C1. `§AUDIT-TCB-CRL` — TOP ITEM.** `verifier.rs:446` passes `revocation = None`, so **a PCK cert Intel
+has revoked still validates**; and **no TCB Info is fetched for the PCK's `fmspc`**, so a stale or revoked
+platform TCB is invisible. **With one enclave this is your only remediation channel.**
+🔗 **Compounds §BTC-3a:** the sealing key commits to CPUSVN, so an Intel TCB update forces a migration ⇒
+**you cannot see the TCB status that drives your own migration schedule.** 🔗 §BTC-2.5 already holds that
+attestation is **not a bound**; C1 is what makes it *useful for remediation*.
+**C2. Negative test on the attestation verifier.** `verifier.rs:827`. Mutate the report body, the
+signature, and the QE report data; **assert each is rejected. Cheapest thing on this list.**
+**C3. 🔴 Confirm the sweep path is reachable.** `handle_spendable_outputs` at `event.rs:679` is `pub` with
+**no caller anywhere in the tree.** 🔗 🔴 **A STRANDING VECTOR §BTC-2.5h did not originally cover.** After a
+force close, LDK emits `SpendableOutputs` for the delayed `to_local` and resolved HTLC outputs. ⚠️ **The
+asymmetry that makes it survivable but not benign:** the LP's ladder pays `btcRecipientOf` and the
+force-close `to_remote` pays `lpToRemoteKey`, so **the LP is unaffected — this strands the HOP's own
+outputs and any resolved HTLCs.**
+
+### D. Inherited-topology comments — the dangerous class
+⚠️ **D1 goes AFTER A completes**, so comments are not rewritten on code about to be deleted.
+**D1. The "user node / LSP" architecture comments — 145 mentions across 33 files.** Lexe's product is an
+**LSP plus per-user nodes**; the rename pass turned *"Lexe"* into *"Quid"* in prose, so **comments now
+assert a topology you do not have, under your own name:** `message_router.rs:21` (*"the Quid
+`MessageRouter` impl for both the Quid LSP and our user nodes"*), `route.rs:61`, `constants.rs:21`
+(*"how often we need to run our user nodes to prevent accidental force closes"*). **You have one enclave,
+a hop and an LP.** Worst-affected: `message_router.rs`, `command.rs`, `route.rs`, `payments/v1*.rs`,
+`quid-common/src/api/user.rs`.
+🔴 **Fix by REWRITING THE CLAIM, not by find-and-replace** — *"the Quid LSP"* must become *"the hop"* or
+*"upstream's LSP"* **depending on which the sentence actually means, and only reading it tells you which.**
+🔗 **Same failure mode as §BTC-7, at ~10× the scale and worse in kind:** §BTC-7's entries misdescribe
+**your** mechanisms; these describe a **different product's architecture** while carrying your name.
+**D0. ✅ THE `Lx` → `Quid` IDENTIFIER RENAME — DONE, and it makes D1 harder, not easier.** Completed
+2026-09-03. **One real collision:** `command.rs:1168` had `use LxOutboundPaymentFailure as LxErr`, and
+**`QuidErr` already exists as a variant of that same enum** ⇒ **a blind rename would have produced
+`QuidErr::QuidErr`.** Alias is now `QuidPayErr` (5 sites). **Three names the word-boundary pattern missed**
+because `Lx` sits **mid-identifier**: `MaybeLxTask`, `LoggedLxTask`, `OwnedLxTask`. **No wire-format
+change.** **Verification:** 0 remaining `Lx` in any `.rs` outside vendored LDK · 39 files, **471/471 pure
+1:1** · 19 distinct `pub struct/enum/type Quid*`, no duplicates · every `[`Quid…`]` intra-doc link
+resolves · all 6 `quid_byte_array::impl_*!` invocations updated in lockstep.
+🔴 **AND THE CONSEQUENCE FOR D1 RUNS THE OTHER WAY.** `Lx` prefixes were **the last visual marker that this
+code came from elsewhere.** With them gone, the tree reads as uniformly native — **so D1's 145 comments now
+describe someone else's architecture under your name with nothing left to flag them.** ⇒ **the identifier
+rename RAISES D1's priority.**
+✅ **It also validates D1's instruction empirically.** `QuidErr::QuidErr` is exactly what a blind
+find-and-replace produces. **D1's prose has 145 such judgements to make and no compiler to catch them.**
+⚠️ **And the same word-boundary lesson applies to D2.10's constants sweep, worse:** `Lx` at least gave the
+pattern something to match on. **An inherited CONSTANT has no marker at all** — `42` looks like every
+other number.
+
+**D2. The TODOs that are concrete work.**
+*Money path:* (1) 🔴 **`payments/inbound.rs:532` — NO UPPER BOUND ON THE SKIMMED FEE.** The bound should be
+**receiver fee (~0.5%) + the partner base+ppm from the `CreateInvoiceRequest` + a JIT allowance.** ⚠️
+**Until it exists, a counterparty skims what it likes.** 🔗 **Same class as §BTC-2.5a's `reverseSwapOut`
+floor** — an economic value supplied by a counterparty and bounded by nothing. §BTC-2.5a audited the
+**contract**; this is the **Rust/LN** side. **Treat them as one finding in two places.**
+(2) 🔴 **`command.rs:904` — a crash window loses a payment PERMANENTLY.** ▶️ **Reconcile against
+`list_recent_payments()` at startup.** (3) **`event.rs:676-677` — idempotency audit, never done. Events
+replay.** 🔗 **Note the neighbourhood:** C3's uncalled `handle_spendable_outputs` is at `event.rs:679`.
+**The same handler has both an unaudited replay story and a possibly-unreachable sweep.**
+(4) **`payments/manager.rs:1020`** — *"races with sync after broadcast."* (5) **`close_fee.rs:98` —
+`channel.is_outbound` is no longer a valid proxy for who pays the close fee.** 🔗 Bears on §BTC-2.4c.
+(6) **`wallet.rs:1068`** — *"need more correct approach"* on the change/fee path.
+*Crypto and enclave:* (7) 🔴 **`ed25519.rs:415` — `PublicKey::new` accepts ANY 32 bytes.** No
+small-order-subgroup or canonicity check. 🔗 **Exactly §E130's class on another curve.** (8) 🔴
+**`platform.rs:30, 456` — sealing keys are NEVER ZEROIZED.** `ring` has no `Zeroize`, so
+`SealingKey`/`OpeningKey` need wrapper types. **This is custody key material.** 🔗 **Do it inside PHASE 3**
+— A3 collapses the indirection and §BTC-4.5-ter-fix changes the policy, so the module is already open.
+(9) **`platform.rs:558-559` — no `KeyRequest` mutation or truncate/extend tests.** `validate_policy` was
+added since (audit LOW-1), **so the code is better than the TODO implies — but the adversarial tests were
+never written.** (10) ⚠️ **`constants.rs:20` — `USER_MIN_FINAL_CLTV_EXPIRY_DELTA = 42` (~7 hours),**
+flagged by its author as a key security parameter he thought should be **longer**. **It is calibrated to
+how often THEIR per-user nodes come online.** ⇒ **you have one always-on enclave, so your answer is
+different — and possibly SHORTER, not longer.** 🔗 🔑 **THIS GENERALISES D1 to inherited CONSTANTS.**
+▶️ **Sweep `constants.rs` and its neighbours** — a wrong comment misleads a reader, **a wrong constant
+misprices a channel.**
+*Already tracked in C:* `quote.rs:163`, `verifier.rs:396/487/547/827`.
+*Genuinely disposable — delete with the TODO:* clippy-lint workarounds at `p2p.rs:1307` and `rng.rs:432` ·
+*"Needs docs"* at `verifier.rs:321/386` · non-blocking prod logger · dropping the `num` dependency ·
+backtrace-of-hung-task · SIGBUS handler for stack overflow · `TraceId` under `RUST_LOG=warn`.
+**D3. The 8 `phlip9.com` links.** `quid-enclave/src/platform.rs` documents **MRENCLAVE, MRSIGNER and
+CPUSVN** by pointing at **a third party's personal blog, from your sealing module.** Replace with the
+**Intel SDM (Vol. 3D, ch. 38)** or inline the definitions. 🔗 **Sharpened by §BTC-4.5-ter-fix:** if the
+policy moves to MRSIGNER with a ratchet, **those three terms become load-bearing decisions.**
+
+## §BTC-9 — ACTION ITEMS, ORDERED BY DEPENDENCY
+
+**Six phases. Within a phase, order is free; across phases it is not.**
+
+### PHASE 0 — before `BTCChannels` is deployed (it is immutable, §BTC-8d — one attempt)
+1. 🔴🔴 **Write the contract so no script is ever DERIVED from a key** (§BTC-4.6g, §BTC-4.6g-bis). Two
+   enumerated SPK forms (`0x5120`, `0x5220`), P2MR behind a **one-way k-of-n flag, default OFF**; payout /
+   `to_remote` / deposit scripts pinned as **opaque bytes**; binding for P2MR is the **LP's splice partial**
+   under `Prevouts::All`. Keep KeyAgg for `0x5120`. **§T9 must exist before the P2MR path is enabled.**
+2. **Re-measure the size budget with the PRODUCTION build command** (§BTC-8c).
+
+#### 🔒 PHASE 0 CHECKLIST — "DEPLOY ONCE, UPGRADE NEVER", complete
+
+| # | category | requirement | status |
+|---|---|---|---|
+| 1 | **output script FORMS** | two enumerated literals; P2MR behind a **one-way k-of-n flag, default OFF** | §BTC-4.6g |
+| 2 | **scripts derived from keys** | **five sites** must pin **opaque bytes**: funding SPK · `_lpPayoutScript` (shared with the swapper rail) · `lpToRemoteOutputKey` · `verifySwapInDeposit` · `_requireRecipientPoP` | §BTC-4.6g-bis |
+| 3 | 🔴 **SIGNATURE schemes** | **`verifyDeadManExit` must verify an ENUMERATED scheme, not a hardcoded BIP-340 call.** The ladder is pre-signed and never broadcast at arming, so **Bitcoin cannot verify it for you** | §BTC-4.6n |
+| 4 | 🔴 **TUNABLE PARAMETERS** | ⚠️ **NEWLY IDENTIFIED.** `SWAPOUT_REFUND_BLOCKS = 7200` is `constant`; `DEAD_MAN_FEE_SATS` and `MIN_CONFIRMATIONS` likewise. **§BTC-2.4c already establishes the fee constant is WRONG under fee pressure** ⇒ **a constant that needs tuning is a redeploy trigger.** ▶️ **Make every economically-tunable value governance-settable** | 🔴 **OPEN** |
+| 5 | 🔴 **EXTERNAL ADDRESSES** | `spv`, `btc`, `MAIN_HOP`, `FALLBACK_HOP`, **`BTC_DEPOSIT_KEY`** are all `immutable` (`:165-804`). ⚠️ **§BTC-4.4 wants `BTC_DEPOSIT_KEY` rotated per deployment.** And an SPV-gateway upgrade would be unreachable. ▶️ **Decide which must be settable under the same k-of-n gate** | 🔴 **OPEN** |
+| 6 | **ladder depth ceiling** | `LadderTooDeep` does not exist; the floor does. **A ceiling discovered later is a redeploy** | 🔴 **OPEN** |
+
+🔑 **THE PRINCIPLE, stated once so it generalises: the contract must never hardcode a CHOICE — only a
+VERIFICATION.** Forms are enumerated, scripts are opaque bytes, signature schemes are enumerated,
+parameters are settable, addresses are settable. **Anything it decides rather than checks is a decision it
+can never revise.**
+⚠️ **Items 4, 5 and 6 were NOT in the original scope.** Items 1–3 alone would have produced a contract
+that still needed redeploying. **Settle all six before deployment.**
+
+### PHASE 1 — one-read determinations that gate everything downstream
+3. ✅ **§E172 vs `:851-877` (§BTC-1) — DONE 2026-09-05. §E172's reading survives; `:851-877` is wrong.**
+4. 🔴 **A7 — the seed-backup discriminator** (§BTC-8e). Decides whether a **plaintext mnemonic is ever
+   written to disk**. ⚠️ **MUST precede A4.**
+5. **Are `ChannelMonitor`s sealed to MRENCLAVE or under a seed-derived key?** — gates whether the MRSIGNER
+   change is sufficient.
+6. **Can the hop be made to sign second?** (§BTC-2.2) — one check; decides the app's nonce strategy.
+
+### PHASE 2 — security, in dependency order
+7. 🔴 **C1 `§AUDIT-TCB-CRL`** — top item; with one enclave this is the only remediation channel.
+8. 🔴 **§T9's signer refusal + the delivery rework, IN ONE CHANGE** (§BTC-2.1, §BTC-2.5c). Step one is
+   already built. Build the output inspection **in the app**; do **not** build the `CidRegistry` binder.
+9. 🔴 **Derive the LP's payment basepoint in the app** (§BTC-2.4d) — **unblocks §BTC-2.4, §BTC-2.4d and
+   remainder #2 together.** ✅ The Rust-side build blocker is cleared (2026-09-05).
+10. **Build the force-close shortfall check** (§BTC-2.4) — emit a quantified breach event; **re-value
+    nothing, revert nothing.** 🔴 **Severity raised to LIVE by §BTC-1.**
+11. 🔴 **Decide the WBTC shortfall rail** (§BTC-2.6) — wire it with an **on-chain** fulfilment record and
+    reversal, or make `btcShortfall` revert.
+12. **Derive `reverseSwapOut`'s floor** (§BTC-2.5a) — the last hop-supplied economic parameter.
+13. **Fix the falsely-armed window** (§BTC-2.5a-bis) — LP-side check reads arming **against the outpoint's
+    spentness on Bitcoin**. No contract change.
+14. 🔴 **C3 — confirm the sweep path is reachable** (§BTC-8e). Strands the **hop's** delayed outputs.
+15. **C2 — negative test on the attestation verifier.** **Cheapest item on this list.**
+15a. 🔴 **Bound the skimmed fee** (D2.1) — same class as item 12, other side of the stack.
+15b. 🔴 **Reconcile payments against `list_recent_payments()` at startup** (D2.2).
+15c. **Audit event idempotency** (D2.3) — do with item 14, same handler.
+15d. 🔴 **Validate `ed25519::PublicKey::new`** (D2.7) — §E130's class on another curve.
+15e. **`close_fee.rs:98`, `payments/manager.rs:1020`, `wallet.rs:1068`** (D2.4-6).
+16. **Broadcast a dead-man exit on regtest end to end** (§BTC-9b-bis) — **the single highest-value test in
+    the Bitcoin scope.**
+17. **Give the dead-man exit a keyless fee bump** (§BTC-2.4c) — ephemeral anchor, **not `bump.rs`**.
+18. **`M1` — and state its purpose precisely** (§BTC-4.5-ter): the gate that stops the seed being exported
+    **TO** a bad image, **not** the path to migrate away from one.
+
+### PHASE 3 — enclave collapse (§BTC-8e A), then the sealing change it enables
+19. **A1 → A2** — salvage the EVM `report_data` binding, **then** delete `quid-cvm`.
+20. **A3** — delete the `Sealer` indirection. 🔗 **Makes item 22 a single-point change.**
+21. **A4 → A5 → A6.** ⚠️ **A5 forces the `FROM rust:1.90` vs nightly resolution.**
+21a. **Zeroize the sealing keys and add the `KeyRequest` adversarial tests** (D2.8-9) — **do it here: the
+     module is already open.**
+22. ⭐ **Seal to `Keypolicy::MRSIGNER` with an ISVSVN ratchet** (§BTC-4.5-ter-fix) — removes migration, the
+    hostage problem, the seed transport and §BTC-4.5's exposure. ⚠️ It **trades a factor**. **Confirm the
+    signing key's operational exposure first.**
+23. **Delete `quid-provision`'s seed import** (§BTC-4.5-ter) — subsumed by 22, but delete it regardless.
+
+### PHASE 4 — quantum (small, none of it urgent)
+24. **ML-KEM as a custom `SupportedKxGroup` on `ring`** (§BTC-4.5) — ✅ `aws-lc-rs` ruled out by the owner.
+    ⚠️ Only check: the crate must build under `x86_64-fortanix-unknown-sgx` on nightly.
+25. **Hardened per-epoch funding derivation** (§BTC-4.3) — ⚠️ **decide before the app signer is written.**
+26. **Rotate `BTC_DEPOSIT_KEY` per deployment** (§BTC-4.4).
+27. 📌 **WATCH, do not build: `OP_CAT` + P2MR activation.** Today's leaf would be Schnorr and discarded.
+
+### PHASE 5 — product decisions (no code until decided)
+28. **Freshness — the §BTC-2.4b.2 trade.** ⚠️ Price `B1` first; measure gas per rung and add a
+    **`LadderTooDeep` ceiling**. 🔴 **Re-weighted by §BTC-1: job 1 is live again.**
+29. **Set ladder depth and rung-1 deadline** — *"how long may an LP be unreachable before we return its BTC
+    on-chain."*
+30. ⭐ **Mint the LP position token TO THE LP, both legs** (§BTC-2.5g-bis). `balanceOf` is a **view over
+    `pooled`**; `balanceOf = pooled − levPooled`; `transfer(LEV_MANAGER, x)` is the expose operation.
+    ⚠️ **Settle fee bookmarks on transfer.**
+31. **ERC-7540 posture** (§BTC-2.5g) — tracked as `B8`; the only addition is the shares question, which
+    item 30 resolves.
+32. **Max swap-out size policy** (§BTC-9c) — `max(amount_sats)`, never `sum`; now a **position-liquidity**
+    question under item 30.
+33. **1inch's role in the BTC leg** (§BTC-9c) — not wired, and it cannot produce native sats.
+33a. ⚠️ **Decide `USER_MIN_FINAL_CLTV_EXPIRY_DELTA`** (D2.10) — tuned for **per-user nodes**.
+33b. 🔑 **Sweep for other INHERITED CONSTANTS** (D2.10).
+
+### PHASE 6 — documentation (after PHASE 3, so nothing is rewritten then deleted)
+34. 🔴 **D1 — the 145 "user node / LSP" comments.** ⚠️ **Rewrite the claim, never find-and-replace.**
+    **Priority RAISED by D0.**
+35. **B1 — the GDrive deletion.** Script written and verified; **cheapest cluster to close.**
+36. **D3 — replace the 8 `phlip9.com` links** with the Intel SDM or inline definitions.
+36a. **Delete the disposable TODOs** (D2) — no work implied; delete with the comment.
+37. **B2 — the SCOPE.md citations.**
+38. **§BTC-7's 15 sites** — ⚠️ **start with the `btcRecipient` pubkey-hash cluster: its event and error
+    names are ABI a client can act on.** ✅ **And do NOT touch `rebalancer.rs:32-35`** — measured correct.
+39. **Close §BTC-6's finished-unmarked entries**, and annotate `:15369`, §E125-r's premise, and the
+    `BTCChannels.sol:303-314` three-layer chain — ✅ **now unblocked, item 3 is done.**
+40. **Determine what `BtcSelfManaged.t.sol` exercises** (§BTC-9b) — its docblock names removed primitives.
