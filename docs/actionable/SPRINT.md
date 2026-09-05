@@ -51596,9 +51596,58 @@ the exposure to carry, and it argues for stating the FRAME explicitly before act
 finding that will be lost:**
 - **GATE 0a's second half** — what `§UNIT-A-ATTEMPT-1`'s and §PLP-R2's cited runs actually executed
   against. **I answered the `evm/src`/`evm/test` half and not this.**
-- **The gas snapshot for GATE 2.4** — I argued the direct Curve path is ~30–50k cheaper per hop from
-  first principles and **did not measure it.** `foundry.toml` already grants `.forge-snapshots/`.
+- ✅ **The gas snapshot for GATE 2.4 — EXECUTED 2026-09-05, see §S6. My ~30–50k estimate was wrong by
+  2–3×, and the measurement surfaced a finding that outranks it (Curve is not encodable through the
+  tree's `unoswap` at all).** Closing the row in the same commit as the work, per *"a commit is not a
+  closure."*
 - **`Quid.sol:776`'s *"both opted in"*** — left unedited as unconfirmed rather than edited on the strength
   of a table row that had already been wrong three times.
 - **Whether `forge build --force` would change anything** — the artifacts post-date the edits and
   comment-only changes cannot move bytecode, so this is argued rather than measured.
+
+## §S6 — GATE 2.4 MEASURED: the weETH offramp stays on the direct Curve call
+
+**Ran on a pinned fork (`evm/test/OfframpRouteGas.t.sol`, `FORK_BLOCK` taken immediately before the
+run, `ethereum-rpc.publicnode.com`).** Five tests, all green, single run.
+
+| # | path | gas |
+|---|---|---|
+| A | raw `ICurvePool.exchange` (approval excluded) | **183,316** |
+| B | the shipped `LevMath.sellWeethOnCurve` | **237,597** |
+| — | ⇒ `forceApprove` + try/catch costs | **54,281** |
+| CONTROL | a REAL routed swap: `LevMath._aggSwap(USDC→WETH, DEFAULT_UNWIND_DEX)` | **264,124**, filled 20.15 WETH |
+| D | `convertTo`'s own frame around one leg | **120,263 cold / 120,261 warm** |
+| C | Curve encodings that filled, out of 32 tried | **0** |
+
+🔴 **CORRECTION TO MY OWN CLAIM.** I argued ~30–50k per hop from first principles. **`convertTo`'s
+frame alone is ~120k**, i.e. **2–3× the estimate**.
+⭐ **AND IT DOES NOT AMORTISE — cold and warm are within 2 gas.** I flagged cold-vs-warm expecting it
+to be the obvious objection to the number; **it is not, and that is the informative part.** The
+*zero-on-both-paths* approval discipline pays a fresh **20,000-gas zero→nonzero SSTORE on every leg**
+by construction, so the cost is structural rather than a warm-up.
+⚠️ **HONEST LIMIT ON D:** it wraps a *failing* router call, so it is the right order of magnitude for
+the frame and **not** a precise wrapper-only figure — a successful route trades the failed-call cost
+for the router's real work.
+
+🔴🔴 **THE FINDING THAT OUTRANKS THE GAS NUMBER: CURVE IS NOT REACHABLE THROUGH THE TREE'S `unoswap`
+ENCODER.** 8 protocol ids × 4 index placements = **32 combinations, zero fills.** `PROTO_UNIV3 = 1` is
+the only protocol constant in `Interfaces.sol`, and a Curve `exchange` needs **coin indices** a bare
+`(proto << 253) | uint160(pool)` word cannot carry. ⇒ **"route the offramp through 1inch" is not a gas
+trade at all — it is new encoding work first.**
+
+✅ **AND THE CONTROL IS WHAT MAKES THAT NEGATIVE USABLE.** CLAUDE.md: *"A NEGATIVE RESULT FROM AN
+EXTERNAL PROBE IS A PROPERTY OF YOUR QUERY, NOT OF THE WORLD"*, and *"run the CONTROL before
+concluding."* The first run had **no control**, so all 32 failures were equally well explained by my
+own calldata being wrong. The control runs the **same encoder via `LevMath._aggSwap` itself** — not a
+re-implementation — against the pool word this tree already ships (`DEFAULT_UNWIND_DEX`), and it
+**fills**. ⇒ the encoder is right; Curve is what it cannot address.
+⚠️ **BOUND THE CLAIM, per the same rule.** This is about **the tree's single-pool-word `unoswap`**. It
+does **not** say 1inch cannot route weETH→WETH — its pathfinder uses `swap()` with an executor payload,
+which `§V-R1-MIN` independently rules out here because **the offramp's amount is computed on-chain, so
+pre-built calldata is stale by construction.**
+
+⇒ **DECISION INPUT FOR GATE 2.4:** on the offramp, routing costs **more gas AND more work** than the
+direct call, against a venue that was already measured best on price. **Keep it direct.** The stables
+hub is unaffected — that was already settled as 1inch, and it is exactly the leg where routing buys a
+choice. ⚠️ **Still downstream of GATE 2.2:** the §PLP-T class ruling changes what the offramp is *for*,
+and class 3 would make this measurement moot rather than wrong.
