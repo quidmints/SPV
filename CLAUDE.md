@@ -1026,10 +1026,30 @@ exceeded"*. **A fork test issues thousands of `eth_getStorageAt` calls, and a fr
 long before that.** ⇒ **THEY ARE ARCHIVE-CAPABLE AND THROUGHPUT-USELESS.** Do not reach for them
 expecting a pinned run to work; the capability probe and the workload are two different questions,
 which is the same lesson as the census above arriving one level down.
-⇒ **SO THE HONEST STATE: THERE IS STILL NO USABLE ARCHIVE ENDPOINT IN THIS TREE**, `FORK_BLOCK`
-remains unpinnable, and every fork run is head-only on `publicnode`. **The unblock is a key with real
-throughput — Alchemy and Infura both include archive on their FREE tiers**, which is the cheapest way
-to get pinned, deterministic fork tests back. Bank it in `evm/.env`, never in `foundry.toml`.
+⇒ ~~**SO THE HONEST STATE: THERE IS STILL NO USABLE ARCHIVE ENDPOINT IN THIS TREE**~~
+✅✅ **RESOLVED 2026-09-05 — THE OWNER SUPPLIED A LIVE ANKR KEY, AND IT IS THE FIRST ENDPOINT IN THIS
+TREE TO PASS BOTH TESTS.** Banked as **`ANKR_RPC_URL` in `evm/.env`** (gitignored, mode 600; verified
+`git check-ignore` and 0 tracked files contain it — **NEVER `foundry.toml`, which is committed**).
+**Both acceptance gates run, because this row exists to record that the first does not imply the
+second:**
+  1. **Archive capability** — CLAUDE.md's own discriminator,
+     `eth_getBalance(0x00000000219ab540356cBB839Cbe05303d7705Fa, 0xE4E1C0)` → **`0xab18b3546f81ce8715045`**,
+     the exact expected value.
+  2. 🔑 **THROUGHPUT UNDER A REAL FORK SUITE AT A PAST PIN — the gate merkle.io, pokt and mevblocker all
+     FAILED.** `ETH_RPC_URL=$ANKR_RPC_URL FORK_BLOCK=25800000 forge test --match-path
+     test/CurveOfframp.t.sol` → **5 passed / 0 failed in 1.67s**, including
+     `test_Curve_ExchangeActuallyFills`, which performs a REAL swap and asserts the measured balance
+     delta. **No `database error`, no `Max retries exceeded`, no `could not instantiate forked
+     environment`.**
+⚠️ **THE FAST RUNTIME IS NOT THE MERKLE TELL HERE, AND THE DISCRIMINATOR IS THE ASSERTIONS.** A run that
+never reaches the fork is fast AND vacuous (merkle: 190 tests in 29.51s with 141 environmental errors);
+this one is fast and every test made a real venue read. **Check assertions, not just the clock.**
+⇒ **`FORK_BLOCK` CAN NOW BE PINNED TO A PAST BLOCK**, which is what `§A.18`'s attribution discipline
+needs and what the `§E155-rate` magnitude harness was blocked on (*"needs `FORK_BLOCK` set to a past
+block plus `vm.rollFork` forward … Booked, not built"* — **now buildable**).
+⚠️ **The two DEAD ankr keys below remain dead; this is a THIRD, new key.** Do not resurrect the old
+URLs. ⚠️ **And treat any key that ever reaches a committed file as DISCLOSED and rotate it** — this repo
+has shipped that mistake once (`foundry.toml`'s Ankr token, commit `0af7f6d`).
 ✅✅ **THE FLAKINESS IS SOLVED WITHOUT AN ARCHIVE KEY, AND THE FIX WAS ALREADY IN THE TREE — `ForkPin`
 (`evm/test/utils/ForkPin.sol`). PIN `FORK_BLOCK` TO A *CURRENT* BLOCK.** Its own docstring gives the
 recipe and I spent a day not using it:
@@ -1060,7 +1080,9 @@ the whole point (`§A.18`: three correct fixes were each blamed for 31 failures 
 `-j 4` (`forge test --threads`) reduces concurrent forks and helps, at the cost of wall time.**
 
 🔴 **BOTH ANKR KEYS IN THE TREE ARE DEAD — RE-PROBED 2026-08-25, AND THIS TIME BOTH WERE CHECKED, NOT
-ONE.** `evm/.env` and `evm/.env.bak-*` hold **two distinct** ankr URLs and each returns
+ONE.** ⚠️ **STILL TRUE OF THOSE TWO, AND SUPERSEDED AS THE TREE'S STATE: a THIRD, live archive key was
+supplied 2026-09-05 and is banked as `ANKR_RPC_URL` — see the ✅✅ row above. The two URLs named below
+are still dead; do not probe them a fifth time.** `evm/.env` and `evm/.env.bak-*` hold **two distinct** ankr URLs and each returns
 `{"error":"message: API key disabled, json-rpc code: -32051, rest code: 403"}`:
 `ANKR_RPC_URL` (…da76c96bb15a0) and **`QUID_FORK_RPC` (…7231034d6c65c)**, the second of which this row
 never mentioned. ⇒ **THERE IS NO ARCHIVE ENDPOINT IN THIS TREE**, so `FORK_BLOCK` cannot be pinned and
