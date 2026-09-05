@@ -51982,3 +51982,56 @@ whose scopes were never checked against each other. (3) **Re-derive every free-l
 from this getter pair** once (1) lands. ⚠️ **Do NOT "fix" this by widening the clamp** — that is standing
 rule 3's false sense of safety, and rule 17's clamp-vs-root test says a bound added over an unverified
 subtraction is the clamp.
+
+## §S13 — THE PRO-RATA → 1inch PATH, MEASURED. **IT FITS, SO THE GAS CASE FOR CONCENTRATING VENUES FAILS.**
+
+**Owner, 2026-09-05:** *"dont overconcentrate into aave unless we genuinely need the gas savings for
+every single swap out or redeem that has to draw from all the vaults pro rata and still 1inch after that
+(might be more gas than what one transaction can do even)"* → *"just measure the gas for real first."*
+
+**Measured on a pinned archive fork (`evm/test/ProRataConvertGas.t.sol`, `FORK_BLOCK=25800000`):**
+
+| legs | `convertTo` frame | marginal |
+|---|---|---|
+| 1 | 129,011 | — |
+| 2 | 230,547 | +101,536 |
+| 4 | 423,840 | +96,646 |
+| 8 | 848,062 | +106,055 |
+| **14** | **1,464,082** | +102,670 |
+
+**Linear at ~102,697 gas per leg.** **ONE REAL routed leg** (frame + router + actual swap, through the
+tree's own `_aggSwap` against `DEFAULT_UNWIND_DEX`): **264,451**.
+
+⇒ **A FULL 14-STABLE PRO-RATA CONVERSION ≈ 3,702,314 GAS — 12% OF A 30M BLOCK.** Even at **2×** per leg
+for multi-hop stables it is **7.4M, 24%.**
+⇒ 🔴 **THE WORRY IS NOT BORNE OUT, AND THAT SETTLES THE DECISION: DO NOT CONCENTRATE.** *"More gas than
+one transaction can do"* was the condition attached to the concentration, and it is false by ~8×.
+**The venue change was reverted before landing.**
+
+### 🔑 AND THE MEASUREMENT FOUND THAT CONCENTRATION WOULD NOT HAVE HELPED THIS PATH ANYWAY
+`LevMath.convertShortfall` draws pro-rata, reads `getStables()`, then runs **one leg per STABLE**.
+⇒ **the leg count tracks the 14 STABLES, not the number of Morpho vaults any one stable has.**
+**Concentrating USDC's six curators into one venue does not shorten this loop by a single leg.** What
+venue count affects is the WITHDRAW-side `getVaults(stable)` walk inside the take — a different, and on
+this evidence much smaller, cost. ⇒ **the gas argument for concentration was aimed at the wrong loop**,
+and the expensive loop is the one that fits comfortably.
+⚠️ **What is given up by concentrating is therefore unpriced-against-nothing:** curator-risk
+diversification for USDC/USDT, and any fallback when the single venue cannot serve — against a spoke
+`§S12` measured at **123.1% utilisation**.
+
+### ✅ WHAT DID LAND: U1a, WHICH STANDS ON ITS OWN
+**`Aux.quoteSwapOut(asset, drainUsd6) → (skewWad, redeemable)`** — the price and its liquidity
+constraint returned **together**, so a caller cannot quote without seeing whether the basket can pay.
+🔑 **One function, not two, deliberately:** `§PLP-R2`'s fifth shortfall (*"stables LENT OUT at
+utilisation"*) is **unpreventable** — its cap was withdrawn because utilisation is set by *other
+people's borrowing* — so the replacement is reading withdrawability LIVE, and a separate getter is one a
+caller can simply not call.
+⚠️ **NOT `view`, deliberately.** `redeemableBody` refreshes the cached holdings; a `view` variant would
+serve the last cache, and CLAUDE.md records exactly that failure mode — *"without refreshing first it
+reports a collapse to 0 indistinguishable from a real defect."* **Quote it with `eth_call`.**
+⚠️ **It is a CAPACITY read, not a reservation** — it removes the surprise, not the race.
+📌 Size gate after: **tightest is `LevManager` at 1,129 bytes**, unchanged; `Aux` absorbed it.
+
+▶️ **STILL OPEN AND NOT ANSWERED BY THIS:** the WITHDRAW-side venue-walk cost per stable was **not**
+measured, only reasoned about. If a venue-count argument is ever made again, **that** is the loop to
+measure, and this row should not be cited as having priced it.

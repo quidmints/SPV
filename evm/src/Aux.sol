@@ -736,6 +736,53 @@ contract Aux is // Auxiliary
         return SwapLib.wellSkew(address(_rangeOf(asset)), getTWAPforAsset(asset, 1800), drainUsd6);
     }
 
+    /// @notice §U1a — **THE QUOTE AND ITS LIQUIDITY CONSTRAINT, RETURNED TOGETHER.** A swapper asking
+    ///         what a swap-out costs is told the PRICE by `wellSkew` and told nothing at all about
+    ///         whether the basket can actually pay. Those are different questions and the second one
+    ///         is the one that strands people.
+    ///
+    /// 🔑 WHY IT IS ONE FUNCTION AND NOT TWO. `§PLP-R2` names a FIFTH shortfall condition that
+    ///         *"is handled by none of the above"* — basket stables LENT OUT at utilisation, and so
+    ///         not withdrawable. Its cap was **WITHDRAWN** for a reason that cannot be engineered
+    ///         around: those stables sit in EXTERNAL lending markets and their utilisation is set by
+    ///         **other people's borrowing**, so there is nothing to cap. What replaces the cap is
+    ///         reading withdrawability LIVE. Returning it BESIDE the price is what makes it
+    ///         impossible to quote without seeing the constraint — a second, separate getter is one
+    ///         a caller can simply not call.
+    ///
+    /// ⚠️ **NOT `view`, AND THAT IS DELIBERATE — DO NOT "FIX" IT INTO ONE.** `redeemableBody`
+    ///         refreshes the cached per-venue holdings; a `view` variant would report whatever was
+    ///         last cached, and CLAUDE.md records exactly that failure: *"`get_metrics`/`get_deposits`
+    ///         are NOT `view`. Without refreshing first it reports a collapse to **0**
+    ///         indistinguishable from a real defect."* A stale zero here would read as "the basket is
+    ///         empty" to every caller. **Quote it with `eth_call`** — the refresh is discarded, and
+    ///         the number is live.
+    ///
+    /// ⚠️ **IT IS A CAPACITY READ, NOT A RESERVATION.** Nothing is held between this call and the
+    ///         fill, so a large flow in between can still leave a swapper short. `redeemableAmount`'s
+    ///         own docblock makes the same point about the redeem slider: a stale read is safe
+    ///         because `redeem` clips internally. This is the same contract — it removes the
+    ///         SURPRISE, not the race.
+    ///
+    /// 🔴 **WHY IT LANDED NOW, AND THE VENUE CHANGE IT WAS PAIRED WITH DID NOT.** It was written
+    ///         alongside a proposal to route all USDC/USDT to the AAVE-v4 spoke and drop their 4626
+    ///         curators. **That concentration was REVERTED before landing** (owner, 2026-09-05:
+    ///         *"dont overconcentrate into aave unless we genuinely need the gas savings"*) — the
+    ///         saving is real but unmeasured, and the condition is testable rather than a judgement.
+    ///         **This half stands on its own**: `§S12` measured AAVE-v4 rid 7 (USDC) at **123.1%
+    ///         utilisation**, where `avail = rs − rd` resolves to 0, and `§PLP-R2`'s fifth shortfall
+    ///         is unpreventable by construction. A caller should see that before committing whether
+    ///         or not any single venue is concentrated.
+    /// @param  asset      volatile side (WETH/WBTC), as `wellSkew`
+    /// @param  drainUsd6  the swap's volatile-side draw, 6-dec USD; 0 gives the indicative rate
+    /// @return skewWad    the scarcity premium `wellSkew` would charge
+    /// @return redeemable 18-dec USD the basket can ACTUALLY pay out right now, across every venue
+    function quoteSwapOut(address asset, uint drainUsd6)
+        external returns (uint skewWad, uint redeemable) {
+        skewWad = wellSkew(asset, drainUsd6);
+        redeemable = BasketLib.redeemableBody(address(BTC_CORE));
+    }
+
     /// ⛔ **SEAM NOTE — NOT A DOCBLOCK FOR THE FUNCTION BELOW.** It documented `swapFeePpm()`, which
     ///         §E311 DELETED (`Core.sol:1499`, owner: *"there is no 420 ppm, it's always the skew
     ///         premium"*). With that function gone this block drifted onto `swap(…)`, which it does
