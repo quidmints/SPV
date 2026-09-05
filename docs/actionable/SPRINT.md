@@ -51750,3 +51750,54 @@ asks"* is right about the ladder specifically, and the swap path is not unprotec
 `deleverEthOnDelivery` instead.
 🔗 **This also bounds §S6's gas result:** the offramp measurement is about the withdraw/redeem path, so
 GATE 2.4's ruling does not touch swap-out delivery at all.
+
+## §S9 — GATE 1f / Q2.7 CLOSED: the anchor error is **NOT** first-order, and §PLP-V names the wrong victim
+
+### 🔴 FIRST, THE PREMISE IS WRONG — THE SKEW DOES NOT READ THE BOUNDS AT ALL
+§PLP-V books the repack's only residual as *"it mis-prices the **premium** — `q` computed against a
+wrong band."* **`SwapLib.skewWad(poolVolUsd, flowUsd, sigmaSqWad, Risk rk, drainUsd6)` takes no
+`lo`/`hi`/anchor parameter**, and `poolVolUsd` is a **balance** (`POOLED`), not a bounds-derived
+quantity — §V4-CUT removed the concentrated position that would have made it one.
+⇒ **A wrong anchor cannot reach `q` or the premium through the bounds.** What it actually feeds is
+`updateBounds` → `loPrice`/`upPrice` → **`QuidLib.kLvrWad`** ⇒ **θ's denominator and `ilTargetBps`'s
+band** (§PLP-3, Q5.3). ⇒ **it mis-sizes the RANGE and the LEVER TARGET, not the swap premium.**
+**Same magnitude question, different victim — and §PLP-V's row should say so.**
+
+### ⭐ AND THE MAGNITUDE: **~5 bps of K error, SATURATING.** `kLvrWad` clamps the price into the band.
+`QuidLib.sol:171` — `uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);`
+Measured (`evm/test/AnchorSkewSensitivity.t.sol`, pure):
+
+| anchor offset | K (WAD) | error |
+|---|---|---|
+| honest | 125.0623 | — |
+| **25 / 50 / 100 / 200 / 300 bps** | **125.1249** (identical at every offset) | **5 bps** |
+
+🔑 **THE FLATNESS IS THE FINDING.** `RANGE_DELTA` is ±20 bps, so **any** anchor error above 20 bps puts
+spot outside the band, `p` pins to the nearest EDGE, and K becomes the edge value **regardless of how
+far off the anchor is.** ⇒ **the error saturates at ~5 bps and is independent of magnitude beyond the
+band half-width.** ⇒ **NOT first-order. Q2.7 is answered: NO.**
+✅ **CONTROL (§VACUOUS-BOUNDS — "K barely moves" is worthless if K never moves):** widening the BAND
+moves K **125.06 → 12.56, a 10× swing.** So K is sensitive to what it should be sensitive to, and the
+anchor sweep is measuring a live function. 📌 **That 12.56 / 125.06 pair independently reproduces
+§PLP-4's `1/4δ` figures for ±2% vs ±0.2%**, which were previously only asserted.
+
+⚠️ **HONEST LIMITS ON THIS RESULT, both worth stating:**
+1. **Only POSITIVE offsets were swept.** A negative anchor error clamps to the UPPER edge instead; by
+   symmetry it should behave identically, **but I did not run it.**
+2. **The file is a REPLICATION, not the function.** `kLvrWad` is `public view` and reads `poolStats()`
+   off a `core`, so exercising it directly needs a deployed range and rule 5 forbids mocking one. The
+   six lines are copied verbatim from `QuidLib.sol:170-177` so the copy can be diffed by eye.
+   🔴 **AND THE REPLICATION HAZARD FIRED IMMEDIATELY, WHICH IS WHY IT IS LABELLED:** `QuidLib:172` uses
+   **solmate's `sqrt` with solady's `fullMulDiv`** — two different libraries in one expression. My first
+   copy used solady for both and would have measured **a function the tree does not have.** Caught by
+   the compiler only because the import path differed; had both libraries been in scope it would have
+   compiled and produced a confidently wrong number.
+⇒ **The CLAMP was established by READING `QuidLib:171`. The test only quantifies it.**
+
+### ⇒ GATE 1 IS NOW FULLY CLOSED — all seven reads
+1a ✅ (and it re-scopes A4/A5) · 1b ✅ (unblocks GATE 5 item 22) · 1c ✅ (verifies §BTC-2.2, corrects
+§BTC-7 to 10 citations) · 1d ✅ **re-booked as a probable defect** (§S8: `swapOutDeleverPooled` is the
+only delever path that does not reconcile) · 1e ✅ (§S8) · 1f ✅ (here) · 1g ✅ (§S7).
+▶️ **NOTHING IN GATE 1 REMAINS. The next blocking work is GATE 2's product rulings**, which are the
+owner's: **option F**, then the **§PLP-T class** (gated on M1–M3 + M7), then the **position token**, then
+**ERC-7540**.
