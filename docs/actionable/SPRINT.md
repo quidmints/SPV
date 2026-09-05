@@ -51651,3 +51651,102 @@ direct call, against a venue that was already measured best on price. **Keep it 
 hub is unaffected — that was already settled as 1inch, and it is exactly the leg where routing buys a
 choice. ⚠️ **Still downstream of GATE 2.2:** the §PLP-T class ruling changes what the offramp is *for*,
 and class 3 would make this measurement moot rather than wrong.
+
+## §S7 — GATE 1's REMAINING READS, RUN AS ONE PASS (2026-09-05)
+
+**Six of seven closed, one narrowed.** Each is a code read with the trace; none is inferred from a
+docblock.
+
+### ✅ 1a — A7, the seed-backup discriminator. **AND IT INVERTS THE A4 PLAN.**
+`lp_seed.rs:113-129`'s `decide()` is pure, and its order is: `sealed_seed_existed_before` →
+`operator_supplied_seed` → **`backend.custody_ready()`** → **`role == HostingRole::Family`** → else
+**`Write`** (a plaintext 24-word mnemonic via `write_mnemonic_backup`).
+**`custody_ready()` is `matches!(self, Backend::Sgx | Backend::SevSnp)`** (`backend.rs:68-70`) — and its
+own comment says Tdx/Nitro are **false** because their seals are not wired.
+⇒ **ON SGX, NO PLAINTEXT MNEMONIC IS EVER WRITTEN** — the third arm short-circuits. ✅ **A7's worry does
+not fire on the production target.**
+🔴 **BUT THE DISCRIMINATOR IS NOT "IS THIS THE SGX BUILD", AND A4 IS A REGRESSION AS WRITTEN.** Two
+things fall out, and both are silent:
+1. **Deleting `HostingRole` (A4) deletes the `Family` arm**, so a node that today gets
+   **`WriteShares { threshold, count }` — a k-of-n SHARE SPLIT — falls through to `Write`, a single
+   plaintext file.** That is strictly worse and nothing announces it.
+2. **A5's "replace the runtime gate with a build-time one" would change `SevSnp`.** `custody_ready()` is
+   `Sgx | SevSnp`; a `cfg!(target_env = "sgx")` test is **narrower**, so a SEV-SNP deployment that
+   writes nothing today would start writing plaintext.
+⇒ **A7 is answered and A4/A5 must be re-scoped before they land.** The ordering booked in GATE 5 (A7
+first) is right; the conclusion is that the role arm cannot simply be deleted.
+
+### ✅ 1b — `ChannelMonitor`s are NOT sealed to MRENCLAVE. **§BTC-4.5-ter-fix IS SUFFICIENT.**
+`quid-bridge-daemon.rs:243-248`: *"the same **seed-derived vfs master key** that seals the LDK
+monitors"*, and `root_seed.rs:383-386` — `derive_vfs_master_key()` is
+`self.derive(&[b"vfs master key"])` → `AesMasterKey::new(...)`. **A pure derivation from the RootSeed,
+with no measurement input.**
+⇒ **Any enclave that can unseal the SEED can derive the same key and read the monitors.** They live on
+a **host-owned** flat store (`Ffs`, `freshness.rs:4-7`), so **they do not need to "move" at all.**
+✅ **⇒ MRSIGNER sealing of the seed is sufficient; the monitors need no separate policy change.** This
+closes §BTC-4.5-ter's *"REMAINING QUESTION"* and removes it as a blocker on GATE 5 item 22.
+📌 **Rollback is separately guarded** — `freshness.rs` anchors each monitor's monotonic `update_id`
+on-chain, so a host serving a stale monitor **fails closed**.
+
+### ✅ 1c — the LN initiator DOES send its MuSig2 pubnonce first. **§BTC-2.2's open link is VERIFIED.**
+`msgs.rs:489-507` — `SpliceInit` carries `next_local_nonce: Option<musig2::PubNonce>`, documented as
+*"the sender's 66-byte MuSig2 public nonce … exchanged during the splice handshake, **before the splice
+tx is signed**"*, and `SpliceAck` (`:516`) carries the reciprocal.
+⇒ **Whoever initiates sends its nonce first, so the INITIATOR cannot use `deterministicSign`** (which
+needs `aggOtherNonce`). ⇒ **§BTC-2.2's exposure is structurally real**, and its ✅ *"§9.9 fixes it"* is
+now **mechanically confirmed rather than inferred**: hop-initiated delivery makes the LP the **acceptor
+on every path**, so `deterministicSign` is unconditionally available.
+🔴 **AND A CORRECTION TO §BTC-7: `docs/TAPROOT-CHANNELS-BUILD-SPEC.md` IS CITED IN **10** FILES, NOT 3.**
+Confirmed absent repo-wide (`find` returns nothing). Three are ours (`taproot_signer.rs`,
+`tests/taproot_anchor_cpfp.rs`, `tests/taproot_onchain_resolution.rs`); **SEVEN are inside the vendored
+LDK fork** (`msgs.rs`, `channel.rs`, `chan_utils.rs`, `sign/mod.rs`, `sign/taproot.rs`,
+`sign/taproot_signer.rs`, `functional_tests.rs`). **The vendored seven are ours to fix too — it is our
+fork — and an upstream rebase surfaces every one of them.**
+
+### ✅ 1d — Q2.2: **YES, `levPooled` goes stale.**
+`SwapLib.deleverEthOnDelivery` → `ILevEthDeliver(mgr).swapOutDeleverPooled(...)`
+(`LevManager.sol:635`), which **repays, delivers, and returns.** It **never calls `syncLev` or
+`_syncRange`** — compare `LevBase._rebalance:362`, which does exactly that
+(`try ICore(RANGE).syncLev(lp) {} catch {}`).
+⇒ **After a swap-forced delever the venue position has changed and the RECORDED `levPooled` has not**,
+until some later path calls `syncLev`.
+⚠️ **WHETHER THAT IS HARMFUL IS NOT SETTLED BY THIS READ, and I am not asserting it either way.**
+`§A.16b`'s fix deliberately prefers the **RECORDED** term precisely so numerator and denominator share
+a clock, and `§A.16d` records that netting the levered book out was **tried and reverted** (69%
+under-pricing). So a stale-but-self-consistent record may be correct BY DESIGN — **but nothing in the
+tree says so**, and that silence is the finding. ▶️ **Book the question, not a defect.**
+
+### 🟡 1e — Q2.5 (Y1): **NARROWED, not closed.**
+**Measured: there are ZERO `block.number` / `block.timestamp` guards in `LevManager.sol` or
+`LevBase.sol`.** So there is **no time-based rate limit** on the permissionless `rebalance`; the
+**economic band is the only limiter** (Q2.6).
+⇒ A second same-block call no-ops **iff** the first left the position inside the band. **That is the
+step I have NOT measured:** `_leverUpBuy` borrows AND supplies, so **both debt and collateral rise** and
+the post-rebalance LTV is not exactly `targetBps`. Whether it lands inside `rangeBps` is arithmetic I
+did not run.
+⇒ **Y1 is bounded by band crossings rather than unbounded — but "not repeatable in one block" is not
+yet established.** ▶️ **One fork test settles it: rebalance twice in a block and assert the second
+returns `deltaUsd == 0`.**
+
+### 🟡 1f — Q2.7: **consumers identified, magnitude NOT derived.**
+`RANGE_ANCHOR` is written at `Core:1140` (repack), `Quid:1530`/`Vault:450` (`_rebalance`) and
+`Quid:447`/`Vault:248` (setup); it is read by `Quid:1967` and `Vault:769`, both
+`SwapLib.updateBounds(RANGE_ANCHOR, RANGE_DELTA)`.
+⇒ **A 300-bps-off anchor shifts `loPrice`/`upPrice` by 300 bps**, and the bounds feed `kLvrWad` and the
+scarcity term. **I did not derive whether the resulting skew error is first-order at 300 bps**, which is
+exactly what Q2.7 asks. ⚠️ **Recorded as still open rather than answered** — the consumer list is
+progress, not the answer.
+
+### ✅ 1g — the `_sendETH` funding trace: **swap-out delivery does NOT reach the offramp ladder.**
+`Quid.deliverVolatile:1477` → `_sendETH` → **`QuidLib.sendEth:498-519`**, whose entire sourcing chain is:
+`address(this).balance` → idle `IWETH9.balanceOf` → **`IEthVenue.rangeOp(needed, 1)`** (venue withdraw)
+→ **`SwapLib.deleverEthOnDelivery`**. **It never calls `offrampEtherFi`, `offrampBody` or
+`sellWeethOnCurve`.**
+⇒ **§PLP-U's *"SCOPE UNRESOLVED — close this first"* is CLOSED: option G (borrow WETH against the weETH
+instead of selling it) helps the WITHDRAW/REDEEM path ONLY. It does nothing for swap-outs.**
+📌 **And the two paths source ETH by different mechanisms** — swap-out falls back to the **delever**,
+withdraw falls back to the **ladder**. §PLP-5's *"the swap path has no equivalent because it never
+asks"* is right about the ladder specifically, and the swap path is not unprotected: it has
+`deleverEthOnDelivery` instead.
+🔗 **This also bounds §S6's gas result:** the offramp measurement is about the withdraw/redeem path, so
+GATE 2.4's ruling does not touch swap-out delivery at all.
