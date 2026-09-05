@@ -51801,3 +51801,70 @@ only delever path that does not reconcile) · 1e ✅ (§S8) · 1f ✅ (here) · 
 ▶️ **NOTHING IN GATE 1 REMAINS. The next blocking work is GATE 2's product rulings**, which are the
 owner's: **option F**, then the **§PLP-T class** (gated on M1–M3 + M7), then the **position token**, then
 **ERC-7540**.
+
+## §S10 — THE ARCHIVE ENDPOINT IS LIVE (2026-09-05), AND WHAT IT UNBLOCKS
+
+**Owner supplied a live Ankr key.** Banked as `ANKR_RPC_URL` in **`evm/.env`** (gitignored, mode 600;
+`git check-ignore` confirmed and **0 tracked files contain it**). ⛔ **NEVER `foundry.toml`** — that file
+is committed, and this repo has shipped a plaintext token in it once (`0af7f6d`, treated as disclosed).
+**Both gates passed** — capability (`eth_getBalance` at block 15,000,000 → `0xab18b3546f81ce8715045`)
+**and throughput at a past pin** (`FORK_BLOCK=25800000`, `CurveOfframp` 5/5 in 1.67s with a real swap
+asserted on its balance delta). **The second is the one merkle.io, pokt and mevblocker all failed.**
+
+### ▶️ WHAT IT UNBLOCKS, in order of value
+1. 🔴 **THE `§E155-rate` MAGNITUDE HARNESS — "Booked, not built" is now BUILDABLE.**
+   `YieldFactorDimensions.t.sol:76-78` states the blocker exactly: *"A magnitude harness needs
+   `FORK_BLOCK` set to a past block plus `vm.rollFork` forward, so both samples read REAL venue state.
+   Booked, not built."* ⇒ **build it.** Today `test_AvgYieldIsARate_NonZeroAndSane` asserts SHAPE only
+   and says so: `vm.warp` moves the EVM clock while forked venue state is frozen, so the vault accrues
+   ~3e-6 over a 30-day warp against a real ~3e-3 — **a thousandfold short**, reporting ~0.34% where USDC
+   really yields ~3.7%. **With `rollFork` both samples are real and the bound can become a magnitude
+   check.** ⚠️ Its docblock forbids tightening the current bounds *"into a magnitude check on this
+   harness; it structurally cannot support one"* — **that prohibition is scoped to the warp harness and
+   lifts with the rollFork one.**
+2. **`§A.18`'s attribution discipline becomes reproducible ACROSS DAYS.** A head pin holds state still
+   for one comparison; a PAST pin is byte-identical next week. That is what *"three correct fixes were
+   each blamed for 31 failures a clean tree reproduced"* needs.
+3. **A deterministic full-suite census.** §S4's 1027/13 was pinned at head — legitimate, but not
+   re-runnable later. A past-block census is.
+4. **`§BTC-4a`/`§S6`-class venue measurements** stop drifting with mainnet.
+
+### 🟡 AND THE `avgYield` REPORT IT AROSE FROM — investigated, does NOT reproduce at HEAD
+**Owner, 2026-09-05:** *"there is a bug in the precision or calculation: And avgYield currently reads
+zero. `BasketLib._valueStable:265` forms the factor as `mulDiv(b, b, shares)` in raw units, so it
+carries a spurious `10^(shareDec−assetDec)`. MetaMorpho issues 18-dec shares against…"*
+✅ **THE MECHANISM IS EXACTLY RIGHT, AND IT IS `§E155` — ALREADY FIXED.** `_yieldWeight`
+(`BasketLib.sol:307-313`) puts the lift **inside** the division, which its own docblock demands:
+*"⚠️ THE LIFT MUST BE INSIDE THE DIVISION. `mulDiv(b, b, shares) * lift` returns exactly 1.0 — the inner
+divide has already truncated the appreciation away — so it looks repaired and silently reports zero
+yield."* The docblock also carries the original live measurement: *"Galaxy USDC read 1e-12 against a
+true 1.012358."*
+🔑 **THE ONE PLACE THE RAW FORM SURVIVES IS CORRECT, AND THE REASON IS WORTH RECORDING** because its
+comment says it *"mirrors the 4626 `mulDiv(b, b, shares)` form"*, which reads like inherited breakage.
+**`_aaveYieldWeighted` (`:286-290`) has no lift and needs none.** Measured live:
+**aave assets `49,999,999,999` vs aave shares `49,419,776,808`** — **both 6-dec**, ratio **1.0117**, the
+liquidity index. **Aave v4's `getUserSuppliedShares` carries the UNDERLYING's decimals; MetaMorpho's
+18-dec shares do not.** ⇒ **the same expression is correct on one leg and was catastrophic on the
+other, decided entirely by whether the two operands agree on decimals.**
+✅ **`avgYield` IS NOT ZERO AT HEAD: measured `0.03844 WAD = 3.84%`**, USDC's own leg at **4.81%**. All
+four tests in `YieldFactorDimensions.t.sol` pass, each carrying a vacuity guard.
+⇒ **BUT ZERO IS THE SPECIFIED READING IN THREE SITUATIONS, and one of them is almost certainly what was
+observed. None is a precision defect:**
+ 1. **BOOTSTRAP — the suite ASSERTS it:** `assertEq(atBootstrap, 0, "a single observation cannot produce
+    a rate")`. `metrics.yield` is an annualised delta between two samples. **Deliberately the
+    conservative direction** — *"under-mints the bond, never over-mints."*
+ 2. **`RATE_SAMPLE_MIN = 1 days`** (`BasketLib.sol:225`) — two samples closer than a day leave the rate
+    where it was.
+ 3. **NO ORGANIC TRAFFIC.** The second sample comes from a **MUTATION** inside `_refreshOne`, not a read:
+    *"There is no public refresh entrypoint (`refreshAllHoldingsSelf` is `onlySelf`), so the second
+    observation is organic-traffic-driven."* **A quiet basket never advances the estimator.**
+ ⚠️ **Plus CLAUDE.md's own trap:** *"`get_metrics`/`get_deposits` are NOT `view`. Without refreshing
+ first it reports a collapse to 0 indistinguishable from a real defect."*
+▶️ **THE ONE-READ DISCRIMINATOR: `sh[stable].lastAt` for a funded leg.** `0` ⇒ bootstrap. Non-zero but
+under a day ⇒ inside `RATE_SAMPLE_MIN`. **Either is the estimator being conservative, not the factor
+being 1e-12.**
+🔴 **NOT CLOSED — A DISMISSAL IS A CONCLUSION (rule 13).** This is *"does not reproduce at HEAD with the
+evidence above"*, **not** *"there is no bug"*. **If `lastAt` is non-zero and ≥1 day old on a funded leg
+and `avgYield` is still 0, that is a live defect and this row is wrong.** ▶️ **Booked: add a diagnostic
+that reports WHICH of the three gates is holding the rate at zero, so the distinction stops requiring a
+code read.**
