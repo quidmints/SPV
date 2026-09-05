@@ -88,6 +88,18 @@
 
 ## 🧾 §ORDER — **EVERY OPEN ITEM IN THE FILE, AFTER READING ALL OF IT.** (2026-08-30)
 
+🔴🔴 **SUPERSEDED AS A SEQUENCE BY `§MASTER-ORDER-2026-09-05` AT THE END OF THIS FILE. READ THAT FIRST.**
+Two owner-supplied scopes were folded in on 2026-09-05 — **`§BTC-SCOPE-2026-09-05`** (the Bitcoin surface,
+§BTC-1 … §BTC-11 with a six-phase action list) and **`§PASSIVE-LP-2026-09-05`** (§PLP-A … §PLP-Q with the
+M1–M7 measurement set) — plus **`§SESSION-2026-09-05`** (§S1–§S4), which closes §BTC-1, Q2.6, R1, Q1.1,
+Q1.2 and U1b by measurement and records the first clean full-suite baseline (**1027 passed / 13 failed,
+130 suites, both contamination tells at zero**).
+⚠️ **THIS SECTION REMAINS VALID AS A CENSUS OF OPEN ITEMS. IT IS NO LONGER VALID AS AN ORDER**, because
+the two folded scopes were each internally ordered and written independently of it and of each other.
+`§MASTER-ORDER` is the ONE order across all three, and where they disagree it wins. Its gate 2 is the
+one the owner named: **option F, then the §PLP-T class ruling, then the position token, and only THEN
+ERC-7540** — shares are 7540's blocker, so `B8` cannot complete before the share model is settled.
+
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
 
