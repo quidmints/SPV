@@ -51377,3 +51377,144 @@ value-neutral) · **Q2.1's conclusion** (§PLP-6a stays withdrawn, for a correct
 (partial) · **§BTC-9a**'s twelve presence-dependency guarantees · **§BTC-10c**'s nine completed audits ·
 **§PLP-U3 items 1 and 2** (built) · **§PLP-U2's "routes do not compose"** (measured false in-tree) ·
 **the `:1848` sweep** · **the toolchain, the graph and a clean baseline** (§S4).
+
+---
+
+# 🔬 §SESSION-2026-09-05 — WHAT WAS MEASURED, WITH THE TRACE
+
+**Referenced as §S1–§S4 throughout §BTC-*, §PLP-* and §MASTER-ORDER.** Every claim here was read from
+the tree or produced by a run; nothing is inferred from a docblock.
+
+## §S1 — Three read-only determinations, run as one pass
+
+**§BTC-1 — whose `ChannelDetails` populates `next_outbound_htlc_limit_msat`?** **The VAULT/LP side's.**
+`quid-bridge/src/vault.rs:1131` calls `rebalance_capacity_tick(&vault.node.channel_manager, …, hop_pk,
+…)`; the loop filters `c.counterparty.node_id == hop_node_pk` (`rebalancer.rs:306-309`); the vault holds
+the LP-side channel keys (`vault.rs:27`, `daemon.rs:291`, `swap_out_onchain.rs:234`). ⇒
+`rebalancer.rs:32-35`'s attribution to "the LP" is **CORRECT**.
+**And does anything put an HTLC on that channel?** Yes — `rebalancer.rs:6-18` states the mechanism (*"the
+LP pushes the seller's sats to the hop"*), and `quid-hop/tests/e2e.rs:1143`
+(`stage6_rebalancer_splices_on_exhaustion`) drives the balance down with **real payments on real LDK
+against bitcoind** and asserts the splice trigger fires.
+🔴 **Why `:851-877`'s check could not have worked:** it searched for `send_spontaneous_payment`.
+**Forwarding an HTLC never calls that API.** The empty grep was consistent with heavy traffic.
+⇒ **§E172's reading survives; `:851-877` is wrong; goal 3 holds BY CUSTODY, not by construction.**
+
+**Q2.6 — does `_bandFor` gate the up-leg?** **BOTH LEGS.** `LevBase._rebalance:339` calls
+`debtDeltaToTarget(lp)` **once**, before choosing a direction; `LevMath.debtDelta:1391`'s test is
+two-sided (`if (cur + rangeBps >= targetBps && cur <= targetBps + rangeBps) return (false, 0)`), and
+`_bandFor` is supplied to it (`LevBase.sol:113`). An in-band position returns `deltaUsd == 0` and
+**neither `_leverUp` nor `_delever` executes.** ⇒ **§PLP-Y2's conclusion holds for the buy side.**
+
+**R1 — can `unwindForRedeem` reach LP-owned `POOLED_USD` above `basketUsd`?** **NO.**
+`Quid.unwindForRedeem:1396` → `_burnInRange(…, address(0))` → `SwapLib.burnInRange:2317`, which computes
+`usdOut = fullMulDiv(basketUsd, pulled, pooled)` with `pulled = min(amount, pooled)`. ⇒ **`usdOut ≤
+basketUsd` by construction**, so `Core._poolUsdInRange`'s burn arm (`Core.sol:1331`) always takes the
+`usdAmount` branch of `out_ = b < usdAmount ? b : usdAmount`, both legs fall by the same number, and the
+increment is **invariant**. The arm that *does* consume the increment is documented in that same block and
+is **unreachable from here.**
+🟡 **Same read found a live prose defect:** the docblock's *"releases EXACTLY `usdWanted`"* is false
+whenever an increment exists — the SIZING uses `usd6`, the RELEASE is `basketUsd`-proportional, so it
+**under-frees by `basketUsd/POOLED_USD`**. ✅ `usdFreed` measures the real delta, so nothing downstream is
+misled. **Fixed in prose.**
+
+**U1b (bonus) — does the take loop prefer live withdrawability?** **No — it orders by preference.**
+`BasketLib:752-757` handles **both** a throw and a short return, with `remaining` carrying the shortfall
+to the pro-rata leg. **But the draw order can pick a pinned venue while a free one sits beside it.**
+
+## §S2 — The OOR / 1inch surface, and the honeypot question
+
+**`_poolSwap` IS DELETED** (`LevMath.sol:970`, §C2.1, owner: *"we dont need v3 anymore pull it out and
+delete it completley"*). ⇒ **§PLP-Z's Q2.1 reasoning is stale; the conclusion survives** because
+`_aggSwap` guards on `dex == 0`, not on an empty `route`, and `_batch` supplies `dexes[i]`.
+**`convertTo` (`LevMath.sol:630`) already implements §PLP-U3's items 1 and 2:** N legs, **per-leg
+approve→call→zero**, **per-leg `ROUTE_GAS_CAP = 3_000_000`**, and **ONE floor on the whole conversion**
+measured as an `outToken` balance delta. **The router's return value is never read.** ⇒ **a honeypot pool
+that "appears to give the result we want and actually doesn't" fails the delta check and the whole
+transaction reverts — a LIVENESS attack, never theft.** This holds even for raw keeper calldata
+(`routedSwap:695`), because the callee is pinned and the blast radius per leg is exactly `amt` of one
+token. **The residual is the §PLP-Y2 bleed at exactly `TWAP − slip`, which Q2.6 shows is band-limited.**
+**Splitting one token across M venues works TODAY at the executor level** — nothing stops the same token
+appearing in several slots with different amounts and routes. **Only the ENCODER is single-pool**
+(`_aggSwap` builds a 1-element array). **`unoswap3` is not imported** — only `UNOSWAP_SELECTOR` and
+`UNOSWAP2_SELECTOR` (`Interfaces.sol:188,196`).
+🔴 **TWO GAPS ON THE LEG THAT WOULD BE EXTENDED.** `curveExchange` (`:808`) **trusts the pool's own return
+value** (`:812-814`) and **zeroes its approval only on the failure path** (`:815`) — neither follows the
+rule `convertTo` states 150 lines away. **Neither is exploitable today because the Curve pool is NOT
+keeper-supplied** (`_routeOf`'s hardcoded table). ⇒ **both become live honeypot vectors the moment a
+keeper names the pool**, and the second is worse: a pool that pulls less than approved leaves a standing
+allowance it can drain **in a different transaction, with no `minOut` in sight.**
+✅ **Rule 17 resolves it: deleting the direct Curve path deletes both. Do not patch `curveExchange`.**
+**`§PLP-U2`'s "two routes do not compose" premise is measured FALSE in-tree** (`LevMath.sol:660-665`:
+*"They compose — measured, 250k USDC + 250k USDT → 201.63 WETH in a single call"*); the real causes were
+the gas cap and `forceApprove`/USDT.
+**The Curve surface is three files and three JOBS** — `_hubSwap`/`_routeOf`/`_routableStable` (4 sites),
+`sellWeethOnCurve` (3 sites), and the `balances(0)*9/10` **depth read** (2 sites) which is **not a swap.**
+⚠️ **`ETHERFI_CURVE_POOL` is declared TWICE with the same address** (`LevMath.sol:14`, `Quid.sol:111`).
+⚠️ **Grep trap: the identity verifiers' `CURVE_*` are BN254 elliptic-curve constants**, unrelated.
+🔴 **The genuinely unfinished bit:** `_batch:345` hardcodes `(…, dexes[i], 0, "")` and **`rebalanceMany`
+has no `dex2`/`route` parameters at all**, so **the keeper-allowlisted path can never reach the two-hop
+`routedSwap`** while a direct `rebalance` call can.
+📌 **"Collapsing the walk" is TWO different axes in one function** — the **LP array** walk collapses
+(§PLP-6b/§PLP-X, on hold), the **venue/route** walk **widens** (§PLP-U3). The word was ambiguous.
+
+## §S3 — The stale-comment sweep, and why it cannot be automated
+
+**Nine comments fixed** across `SwapLib`, `LevMath`, `QuidLib` and `Quid` — see the destale commit for the
+full list. **Three claimed-stale sites were NOT edited** because measuring them showed the opposite:
+§E275's `MAX_WELL_SKEW` paragraph, the `SIGMA_REF`/`STABLENESS` block, §C2.1's `_poolSwap` note,
+`MAX_LOOPS`, and `kMinusQ1`'s trailing conditional are **correct tombstones or correctly-scoped**.
+⇒ **§PLP-9's *"THIS TABLE IS THE DELETION LIST"* is partly wrong**, and following it blindly is the
+`create_sweep_tx` trap.
+🔴 **A zero-code-reference detector was built and DELETED.** It passed its own known-positive selftest and
+then reported **107** hits, of which **74 were its own false positives** — the `ALLOW` list was
+**case-sensitive** (`Removed:` slipped past `removed`) and **per-line** where this tree's tombstones are
+**multi-line paragraphs**. Fixing both took it to 33, and the remainder still needed manual judgement
+(cross-language names like `QUID_FLEET_COHOSTS_VAULT`, EVM opcodes like `SSTORE`/`JUMP`, standards like
+`EIP712`). ⇒ **OWNER RULING: *"its not possible to automate the stale comments sweep, you really have to
+cross check manually. graphify will help you navigate."*** The script is deleted rather than demoted,
+because a file named `check-*.py` in `tools/` alongside the gates `CLAUDE.md` says GATE a commit **reads
+as a gate**, and a gate that certifies is worse than none.
+✅ **§PLP-9b partial answer:** the only mocks in `evm/test` are four **identity-stack** files
+(`PoseidonSMTMock`, `HolderStateKeeperMock`, `NoirVerifierMock`, `Registration2Mock`) — **no token or
+settlement fixtures** — and `Core.sol:1204` records *"§V4-CUT — the mock ERC20 and the PoolManager settle
+are GONE; the ACCOUNTING is not."* ⚠️ **What the two cited RUNS executed against is still open.**
+
+## §S4 — Environment: the toolchain is installed and a clean baseline exists
+
+| component | version | verified by |
+|---|---|---|
+| Rust | 1.90.0 (pinned) + clippy/rustfmt | `cargo build --workspace --all-targets` green |
+| Foundry | forge/cast/anvil 1.8.1 | full tree compiles, 478 artifact dirs / 1,777 JSON |
+| submodules | forge-std, OZ, layerzero-v2, layerzero-devtools | all four at the recorded gitlinks |
+| solc / slither | 0.8.30 (matches `foundry.toml`) / 0.11.6 | — |
+| echidna | 2.3.3 | the `[profile.echidna]` profile is present |
+| Node / yarn | 22.23.2 / 1.22.22 | `spa` builds; `indexer` `tsc` clean |
+| Solana / anchor | CLI 4.2.2 (Agave) / 0.32.1 | — |
+| nargo / bb | 1.0.0-beta.26 stock / **6.0.0-nightly.20260804** | `ragequit` compiles; **bb matches `REQUIRED_BB` exactly**; AVX2/BMI2 present |
+| patched nargo | `1.0.0-beta.26+quid-icefix1` | built from tag + `noir-ice-repro/noir-fix.patch` + the version marker |
+| Bitcoin Core / LND | 31.1 / 0.21.2-beta | regtest boots; **`OpenChannelE2E.t.sol` passes 3/3** against a live regtest funding tx through the real `SPVGateway` + `BTCChannels` |
+| graphify | 0.9.54 + the Solidity patch | `apply.py --check` → `PATCHED` 6/6; graph at `built_at_commit 7c5bc10d`, **27,127 nodes / 48,401 links, directed** |
+
+✅ **All three repo gates pass:** `check-contract-sizes.py` (tightest `LevManager`, **1,129** spare),
+`check-orphans.py` (12/12 allowlisted), `check-client-abis.py` (0 drifted).
+✅ **A CLEAN FULL-SUITE CENSUS, WITH ALL THREE CONTAMINATION TELLS CHECKED: 1027 passed / 13 failed, 130
+suites, `[FAIL … ] setUp` count 0, environmental-error count 0.** ⇒ **quote this, not the disputed
+489-vs-4,402 pair.** The 13 are: **six identity/ragequit fixtures stale on a SCOPE change** (regenerate
+with `tools/regenerate-fixtures.sh e2e`), **three `ContextMismatch()`**, and **four real money-path reds**
+— `test_E2_IncumbentIsNotHarmedByANewMint`, `test_E2_MintAtMark_RealRedeemMatchesTheMark`,
+`test_E42_RedeemableIsInvariantToPureBtcTradingFlow`, `test_E45_CompoundCrankGasVsTheSelfFundingConstant`.
+🔴 **Those four are unbooked and belong in the order** — they are the only failing assertions that are
+about the protocol rather than about a fixture.
+
+⚠️ **KNOWN ENVIRONMENT GAPS, recorded rather than fixed:**
+- **`app` typecheck fails with 74 `TS5097`** — `.ts` extensions in imports with no
+  `allowImportingTsExtensions` in `expo/tsconfig.base`. **Pre-existing at HEAD from the committed
+  `yarn.lock`**; fixing it means editing `app/tsconfig.json`.
+- **`@rarimo/rarime-rn-sdk` ships no `build/`** from a git dep; `npx expo-module build` inside it is
+  required before `tsc` resolves.
+- **`foundry.lock` is stale** — it carries a `lib/morpho-v2` entry with no `.gitmodules` counterpart and
+  an OZ rev that disagrees with the committed gitlink. The build is unaffected (the gitlink wins).
+- **`regtest/gen-fixture.sh` is flaky on a cold chain** — the first run died
+  `bad-txns-inputs-missingorspent` in `build_splice`; the identical invocation succeeded once more blocks
+  were mined. **UTXO availability, not a contract defect.**
