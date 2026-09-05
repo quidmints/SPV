@@ -51117,3 +51117,263 @@ sourced only from a docblock as unverified.** The places bodies were read are th
 created it should exist.** Twice the answer removed the defect outright. **Bounding was the wrong instinct
 both times.**
 ⭐ **The mechanised fix (§PLP-9's grep test) — 🔴 RULED OUT BY THE OWNER 2026-09-05.** See §S3.
+
+---
+
+# 🧭 §MASTER-ORDER-2026-09-05 — **ONE DEPENDENCY ORDER ACROSS BOTH SCOPES AND THIS FILE**
+
+**Owner, 2026-09-05:** *"make sure sprint.md (including all the new stuff you added) does everything in a
+certain logical order such that you dont waste resources doing something then undoing it because you did
+it in the wrong order (or having to relook the same things twice, etc.); i think there were some decision
+items to be done first, like the rebalance, that were supposed to affect things downstream, then erc7540
+stuff."*
+
+⚠️ **THIS SECTION IS AN ORDER, NOT A LIST.** `§PHASE-ORDER`'s rule applies to it: *"the reason it is an
+order and not a list: work done out of sequence gets UNDONE."* §BTC-9's six phases and §PLP's open list
+are both **internally** ordered and were written independently; **this section is the ONE order across
+them**, and where they disagree, this wins.
+
+🔑 **THE THREE RULES THAT GENERATE THE ORDER.** Every placement below follows from one of them, so a new
+item can be slotted without re-deriving the whole thing:
+1. **EVIDENCE BEFORE INFERENCE.** A measurement taken on a harness that models a deleted mechanism is
+   describing the fixture. Anything downstream of a suspect measurement waits.
+2. **DECISION BEFORE CONSTRUCTION.** A product ruling that can DELETE a mechanism outranks any work that
+   hardens, wires, tests or documents that mechanism. Building it first means deleting it later.
+3. **IMMUTABLE BEFORE MUTABLE.** `BTCChannels` has no upgrade path (§BTC-8d), so anything it must be able
+   to *express* is a hard gate on deployment and cannot be sequenced after it.
+
+---
+
+## GATE 0 — EVIDENCE. Nothing that cites a measurement may proceed until this closes.
+
+| # | item | why it is first |
+|---|---|---|
+| **0a** | 🔴🔴 **Audit the mock fixtures against `§V4-CUT`** (§PLP-9b) | **upstream of the evidence itself.** `§UNIT-A-ATTEMPT-1`'s 3.04% and §PLP-R2's `NothingDelivered` numbers are cited as load-bearing in §PLP-7, §PLP-13 and §PLP-W. **If the harness settles through a mechanism `§V4-CUT` deleted, those numbers describe the FIXTURE.** ✅ **Partially answered (§S3):** the only mocks in `evm/test` are four identity-stack files, and `Core.sol:1204` records the mock ERC20 + PoolManager settle as GONE. ⚠️ **Still open: what those two cited RUNS executed against.** |
+| **0b** | ✅ **DONE — a clean full-suite census exists** (§S4): **1027 passed / 13 failed, 130 suites, 0 `setUp` failures, 0 environmental errors.** | **CLAUDE.md's 489-vs-4,402 dispute has blocked quoting any baseline.** A pinned, tell-checked run is the prerequisite for attributing ANY future regression. **Quote this number, not the two disputed ones.** |
+| **0c** | ✅ **DONE — the toolchain is installed and the graph is built** (§S4) | M1–M7, the fuzz matrix and every `forge`/`cargo` gate need it. `graphify-out/graph.json` is at `built_at_commit 7c5bc10d`. |
+
+⛔ **DO NOT START M1–M7 BEFORE 0a.** Measuring flow on a harness that models a deleted settlement path
+produces numbers with the same defect, and **they would look exactly as authoritative.**
+
+## GATE 1 — FREE READS. Each can INVALIDATE a finding; all are read-only; do them in one pass.
+
+✅ **Five are now closed (§S1, §S2).** §BTC-1 (whose `ChannelDetails`) · **Q2.6** (`_bandFor` gates both
+legs) · **R1** (`unwindForRedeem` cannot reach LP-owned dollars) · **Q2.1's reasoning** (`_poolSwap` is
+deleted; the conclusion survives for a different reason) · **U1b** (the take loop handles a short return
+but orders by preference, not live withdrawability).
+
+**Still open, and still cheap:**
+
+| # | read | invalidates |
+|---|---|---|
+| 1a | **A7 — the seed-backup discriminator** (§BTC-8e) | decides whether a **plaintext mnemonic is ever written to disk**. ⚠️ **MUST precede A4**, which deletes the role arm that gates it |
+| 1b | **Are `ChannelMonitor`s sealed to MRENCLAVE or under a seed-derived key?** | gates whether §BTC-4.5-ter-fix is sufficient — **and §BTC-4.5-ter-fix deletes `migration.rs`**, so getting this wrong deletes the wrong thing |
+| 1c | **Can the hop be made to sign second?** (§BTC-2.2) | decides the app's nonce strategy **before the app signer is written** |
+| 1d | **Q2.2** — does `levPooled` go stale between a swap-forced delever and the next `syncLev`? | aggregate LTV reads wrong in the interval |
+| 1e | **Q2.5 (Y1)** — how far can a permissionless caller push TWAP lag, and is it repeatable per block? | §PLP-Y's last unbounded residual now that Y3 dissolved and Q2.6 closed |
+| 1f | **Q2.7** — is the skew error from a 300-bps-off `RANGE_ANCHOR` first-order? | bounds §PLP-V's only residual |
+| 1g | **The `_sendETH` funding trace** — does swap-out delivery reach the offramp ladder? | **decides whether §PLP-U option G helps swap-outs or only redemptions.** §PLP-U marks it *"close this first"* |
+
+## GATE 2 — 🔴 THE PRODUCT DECISIONS. **THIS IS THE GATE THE OWNER MEANS.**
+
+**Each of these can DELETE a mechanism. Every item in GATE 3 and below is downstream of at least one.**
+
+### 2.1 ⭐ **OPTION F — what is an ETH depositor owed?** (§PLP-R3, §PLP-U)
+**DECIDE THIS FIRST. It is the only architecture-level ruling that is NOT gated on measurement.**
+One decision retires **four** things: shortfall condition (1) *"range ETH below claims"* becomes a
+composition reading · shortfall condition (2) `onShortfall` **has nothing left to refuse** ·
+**`§4796-4812` is retired rather than answered** · `RangeLib.onShortfall` leaves §PLP-X's dead-code table
+**by being unnecessary rather than dead**.
+⛔ **WHAT GOES WRONG IF THIS IS LATE:** every hour spent wiring, bounding, testing or documenting
+`onShortfall`, `btcShortfall` and the shortfall trigger is deleted by this ruling. **§BTC-2.6's "decide
+the WBTC shortfall rail", §PLP-14's "split detection from remediation" and §PLP-U's option D all sit
+downstream of it.**
+📌 **It is a product question, not an engineering one. No code question is blocking it.**
+
+### 2.2 🔴 **THE §PLP-T CLASS — the rebalance ruling.** ⚠️ **GATED ON M1–M3 (and M7).**
+Nothing restores inventory, ever. **The four classes are the option space, not a recommendation**, and the
+earlier ranking is **withdrawn**.
+⛔ **WHAT GOES WRONG IF THIS IS LATE:** **class 3 (source on demand) means no directional position is
+ever held**, which changes what `deliverableETH`/`deliverableBTC` bound, what the skew *is* (route cost,
+not a premium), and whether inventory-shaped machinery should exist at all. **Building bounds around
+inventory and then choosing class 3 deletes them.**
+🔑 **AND IT IS THE SAME RULING AS ITEM 0 (§PLP-0).** Class 3 and the depth-toll reading are **one position
+reached from two directions**. ⇒ **rule on §PLP-0 and the §PLP-T class TOGETHER or not at all.**
+▶️ **M1 is the cheapest item in the whole file and gates the hardest section:** if 48 h flow is
+two-directional, `target = flowEwmaUsd` already mean-reverts drift and classes 1–3 are premature.
+⚠️ **M7 (redemption volume and its co-timing) is not optional** — §PLP-T2 shows redemption is a **second,
+independent driver of the same drift**, so a class chosen on swap data alone is sized wrong.
+
+### 2.3 ⭐ **MINT THE POSITION TOKEN TO THE LP, BOTH LEGS** (§BTC-2.5g-bis) — **THEN ERC-7540.**
+🔑 **THIS IS THE ORDERING THE OWNER NAMED.** ERC-7540's blocker is **shares**: the vault must BE the share
+token, and on the BTC leg it is not — vBTC goes to `LEV_MANAGER`, never to an LP, and `Quid.sol` has the
+identical `pooled`/`levPooled` structure on the ETH side.
+⇒ **`B8` (the 7540 fold) CANNOT be completed before this**, and doing 7540 interface work first means
+building a face over a share model that item 2.3 replaces.
+✅ **And it is cheaper than it looks:** `balanceOf(a)` is a **view over `autoManaged[a].pooled`**, so there
+is **no mint, no migration window and no dual model** — `Vault.sol:427` already maintains
+`totalSupply == Σ balanceOf` by construction. Correct mapping is **`balanceOf = pooled − levPooled`**.
+⚠️ **Two hazards must land in the same change:** settle fee bookmarks for **both** parties on transfer
+(`_refreshBookmarks`), and the free-part bound (which the mapping already enforces).
+⚠️ **It must move on BOTH legs in ONE change or the two diverge.**
+
+### 2.4 **THE CURVE → 1inch RULING** (owner, 2026-09-05: *"do what is more gas efficient, for stables its
+gonna be 1inch for sure. for the il protect borrow or for swap outs or redeems… there are multiple uses"*)
+⇒ **DECIDE PER USE-SITE, NOT PER VENUE.** The three Curve jobs have different answers (§S2):
+- **stable↔USDC hub (`_hubSwap`/`_routeOf`/`_routableStable`)** — ✅ **1inch, decided.** It is where
+  routing buys something, and the 2-stable table is what makes the roster ungrowable.
+- **weETH→WETH offramp (`ETHERFI_CURVE_POOL`)** — ⚠️ **MEASURE.** A genuinely pinned single-LST venue;
+  paying router overhead to reach the one pool you were always going to reach is pure cost. **Multiple
+  consumers with different profiles: the IL-protect borrow (keeper-paid), swap-out delivery (user-facing),
+  and the redeem/withdraw offramp (user-facing).** `foundry.toml` already sets `gas_reports = ["*"]` and
+  grants `.forge-snapshots/`, so **one snapshot settles it.**
+- **the Curve depth READ (`balances(0) * 9/10`)** — 🔴 **not a swap; 1inch cannot replace it.** It must
+  stay `view` for `_pricingBacking`'s path. **It becomes a read over a SET of pools** under §PLP-U3.
+⛔ **ORDERING TRAP:** this must land **after** GATE 2.2, because **class 3 changes what the offramp is
+for.** And the ~30–50k per-hop delta is small against a 500k–1M lever rebalance, so **it is not worth
+front-running the class ruling to save it.**
+
+## GATE 3 — 🔴 IMMUTABLE-CONTRACT WORK. Before `BTCChannels` is deployed; cannot be sequenced later.
+
+**§BTC-9 PHASE 0, all six checklist items, designed TOGETHER in `ChannelLib`** (§BTC-8c's ~1,049 bytes and
+§BTC-8d's no-upgrade-path mean **there is one attempt**):
+1. two enumerated SPK forms, P2MR behind a one-way k-of-n flag, default OFF (§BTC-4.6g);
+2. the five derive-a-script-from-a-key sites pinned as **opaque bytes** (§BTC-4.6g-bis);
+3. `verifyDeadManExit` verifies an **enumerated signature scheme** (§BTC-4.6n);
+4. every economically-tunable constant **governance-settable, not `constant`**;
+5. the `immutable` external addresses — decide which must be settable;
+6. a `LadderTooDeep` ceiling, **measured** (§BTC-2.5a-ter).
+⚠️ **Re-measure the size budget with the PRODUCTION build command** — the headroom figures are
+unoptimized-build figures with no optimizer slack behind them.
+🔑 **THE PRINCIPLE: the contract must never hardcode a CHOICE — only a VERIFICATION.**
+⛔ **§T9 MUST EXIST BEFORE THE P2MR PATH IS ENABLED**, because the binding is *"the LP signed the splice"*
+and `validating_signer.rs:1662` does not read `tx.output`.
+
+## GATE 4 — SECURITY, in dependency order (§BTC-9 PHASE 2 + the §PLP items it unblocks)
+
+**4a.** 🔴 **C1 `§AUDIT-TCB-CRL`** — with one enclave this is the only remediation channel, and §BTC-3a
+shows TCB bumps drive the migration schedule you cannot currently see.
+**4b.** 🔴 **§T9's signer refusal + the delivery rework, IN ONE CHANGE** (§BTC-2.1 + §BTC-2.5c). ⛔ **Not
+two changes** — the rework makes the hop the initiator toward a blind signer. **Do NOT build the
+`CidRegistry` binder**; `channelId` is computable and `select_delivery_channels` already does it.
+**4c.** 🔴 **Derive the LP's payment basepoint in the app** (§BTC-2.4d) — **unblocks §BTC-2.4, §BTC-2.4d
+and remainder #2 together.** ✅ The Rust-side build blocker is cleared.
+**4d.** **The force-close shortfall check** (§BTC-2.4) — **emit only; re-value nothing, revert nothing.**
+🔴 **Severity raised to LIVE by §BTC-1.**
+**4e.** **Derive `reverseSwapOut`'s floor** (§BTC-2.5a) **and bound the skimmed fee** (§BTC-8e D2.1) —
+🔑 **ONE FINDING IN TWO PLACES**: an economic value supplied by a counterparty and bounded by nothing, on
+the contract side and the Rust/LN side. **Do them together.**
+**4f.** **Fix the falsely-armed window** (§BTC-2.5a-bis) — LP-side, no contract change, so it does not
+compete for GATE 3's bytes.
+**4g.** **C3 sweep reachability + D2.3 event idempotency** — 🔑 **same handler** (`event.rs:676-679`).
+**4h.** **C2 negative test on the attestation verifier** — cheapest item on the list.
+**4i.** **D2.2 payment reconciliation** · **D2.7 `ed25519::PublicKey::new`** (§E130's class on another
+curve) · **D2.4-6**.
+**4j.** **Broadcast a dead-man exit on regtest end to end** (§BTC-9b-bis) — **the single highest-value
+test in the Bitcoin scope**, and the harness is now installed and verified.
+**4k.** **Keyless fee bump for the exit** (§BTC-2.4c) — ephemeral anchor, **not `bump.rs`**.
+**4l.** **`M1`, stated precisely** — the gate that stops the seed being exported **TO** a bad image.
+
+## GATE 5 — ENCLAVE COLLAPSE, then the sealing change it enables (§BTC-9 PHASE 3)
+
+**Strictly ordered: A1 → A2 → A3 → A4 → A5 → A6, then 21a, then 22, then 23.**
+⚠️ **A1 before A2** (salvage the EVM `report_data` binding before deleting `quid-cvm`).
+⚠️ **A7 (GATE 1a) before A4** — A4 deletes the role arm that gates the plaintext-mnemonic question.
+⚠️ **A3 before 22** — collapsing the `Sealer` indirection makes the MRSIGNER change a **single-point**
+edit rather than one threaded through a trait.
+⚠️ **A5 forces the `FROM rust:1.90` vs nightly resolution.**
+⚠️ **21a (zeroize + `KeyRequest` adversarial tests) goes INSIDE this gate** — the module is already open.
+⚠️ **22 is gated on GATE 1b.**
+
+## GATE 6 — PRICING AND PARAMETERS (only now, because GATE 2 decides what they mean)
+
+**6a.** 🔑 **ONE LANDING, NOT THREE** (§PLP-7, §PLP-W, Q3.3, Q5.4): Cluster 1's target fix + `§E88-r`'s
+sentinel split + `netFlowUsd` as the directionality signal — **and θ's missing venue-yield term (§PLP-3)
+must land in the SAME change.** The flush short-circuit sits **above** the σ² sentinel and fires *because*
+the target is wrong; fixing the target makes the sentinel reachable **for the first time**, where
+`§UNIT-A-ATTEMPT-1` measured a 14× overcharge. **θ fails open at `1e18` and arms the moment σ² is pinned.**
+⇒ **Two dormant mechanisms go live together. Treat it as a first exercise, not a parameter change.**
+⚠️ **Gated on GATE 0a**, because its own evidence is one of the suspect measurements.
+**6b.** **The `baseWad`/`riskWad` split, `_amplify` scoped to `riskWad`** (§PLP-2) — gated on item 0.
+**6c.** **The restoration UNIT-cost register → the §PLP-2 floor.** ⛔ **Never aggregate cost ÷ volume** —
+that is a control loop through the numerator.
+**6d.** **§PLP-8: the smoothed snapshot and derived `W` FIRST, then the block-frozen size-independent
+rate.** ⛔ **9 blocks 10.** Shipping the freeze without the smoothing swaps order rent for cross-block
+manipulation — **the trade this file's own rule forbids.**
+**6e.** **`g` from measured up-leg cost** (§PLP-6c), replacing the frozen fitted curve.
+**6f.** **The freshness trade** (§BTC-2.4b.2) — 🔴 **re-weighted by §BTC-1: job 1 is LIVE again**, so
+correctness is back in play and option A gains weight. ⚠️ Price `B1` first; measure gas per rung.
+**6g.** **`Vault.sol:244`'s `delta = 200` seed** — a **10× K error** feeding θ AND the band (Q5.2).
+**6h.** **`K`'s second consumer** — `ilTargetBps`'s band under `kLvrWad` (Q5.3).
+
+## GATE 7 — STRUCTURAL CLEANUPS THAT NEEDED A DECISION FIRST
+
+**7a.** **Collapse the `_batch`/`rebalanceMany`/`cascadeDelever` walk** (§PLP-6b, §PLP-X). 📌 **OWNER:
+HOLD as of 2026-09-05.** Needs the **keeper-allowlist decision** and `§STALE-BRANCH`'s **fork test**.
+⚠️ **Not part of a routing change** — and note the walk is a **different axis** from the venue/route walk
+(§S2): the LP array collapses, the venue routing **widens**.
+**7b.** **Multi-venue splitting** (§PLP-U3) — aggregate floor ✅ built, per-leg approvals ✅ built, no state
+between legs, **bounded N**; **contract computes the split from `view` depth reads, keeper supplies the
+SET only.** ⚠️ **After GATE 2.4.**
+**7c.** **`deliverableBTC`** (Q5.1) 🔑 **same object as §BTC-9c's `max`-not-`sum` ceiling — settle them
+together, one on each side of the boundary.**
+**7d.** **Reuse `_deliverVenueShortfall` on the swap leg** (§PLP-5); **`POOLED()`/delivery reconciliation,
+F11** — gated on `§M.1` and `§STALE-BRANCH`.
+**7e.** **`ChannelLib:511`'s underflow panic → a named error** (§BTC-2.5a-quater).
+**7f.** **The `PendingOnchainSwapOut.sats` guard/cast width mismatch** (§BTC-2.5a-quinquies).
+**7g.** **U1a** surface `Aux.redeemableAmount()` in the quote · **U2** pay-in-immature-QU!D · **U3** rename
+`btcShortfall`. ⚠️ **All three are downstream of GATE 2.1.**
+**7h.** **Split shortfall DETECTION from REMEDIATION; signal unconditionally** (§PLP-14, §E308).
+⚠️ **Downstream of GATE 2.1** — if option F lands, there may be nothing to remediate.
+
+## GATE 8 — TESTS (after the code they test is settled)
+
+**F1, F3, F9 hold today and must keep holding.** Then **F2** (needs `W`), **F6/F8/F10** (need the
+register split), **F5** (needs the floor), **F13/F14** (need the routing change), **F11/F12** (need
+`§M.1`). 📌 **F14 survives §PLP-6a's withdrawal** — it is the regression test for the routing change.
+
+## GATE 9 — 🔴 DOCUMENTATION, LAST, AND THE REASON IS THE WHOLE POINT OF THIS SECTION
+
+⛔ **DO NOT REWRITE COMMENTS ON CODE THAT IS ABOUT TO BE DELETED.** §BTC-9 already sequences PHASE 6 after
+PHASE 3 for exactly this reason, and it generalises: **§BTC-8e D1's 145 comments, §BTC-7's 15 sites and
+§PLP-9's table all describe code that GATES 4–7 will change or remove.**
+**9a.** **B1 — the GDrive deletion.** Script written and verified; **cheapest cluster, and it is a code
+deletion rather than a prose rewrite, so it does not wait.**
+**9b.** **§BTC-7's `btcRecipient` pubkey-hash cluster FIRST** — ⚠️ **its event and error names are ABI a
+client can act on**, so it misleads a *consumer*, not just a reader. ✅ **And do NOT touch
+`rebalancer.rs:32-35`** — measured correct 2026-09-05.
+**9c.** **D1's 145 "user node / LSP" comments** — 🔴 **rewrite the claim, never find-and-replace**;
+priority RAISED by D0, because the `Lx` rename removed the last marker of inherited code.
+**9d.** **D3's `phlip9.com` links** · **B2's SCOPE.md citations** · **D2's disposable TODOs** ·
+**`quant.ts`** (delete `:50`, delete `K_LVR`/`CERTIFIED_THETA`, read `kLvrWad()`).
+**9e.** **Close §BTC-6's finished-unmarked entries** and the `BTCChannels.sol:303-314` three-layer chain —
+✅ **now unblocked by §BTC-1.**
+**9f.** **State in `QuidLib`'s header that `clampByBacking`, not θ, sizes the range while θ fails open.**
+**9g.** **Record the four tolerances' ordering constraint as the primitive** (§PLP-1).
+🔴 **THE SWEEP CANNOT BE AUTOMATED (owner, 2026-09-05).** **Cross-check manually; `graphify` is the
+navigation aid.** §S3 records the attempt and exactly what it got wrong.
+
+---
+
+## ⛔ THE FIVE ORDERING TRAPS, STATED SO THEY ARE NOT RE-DISCOVERED
+
+1. **7540 before the position token** (§BTC-2.5g-bis) builds a standard face over a share model that is
+   about to be replaced. **Shares are the blocker, not `asset()` and not the `preview*` reverts.**
+2. **Any shortfall work before option F** (§PLP-R3) hardens mechanisms that F **deletes** — `onShortfall`,
+   `btcShortfall`, the shortfall trigger, and §PLP-U's option D.
+3. **Any inventory bound before the §PLP-T class ruling** assumes inventory is held. **Class 3 holds
+   none.**
+4. **Any comment rewrite before the code change** rewrites prose on code about to be deleted — and
+   §PLP-9's table has **already been wrong in both directions**, so a blind pass deletes correct
+   tombstones.
+5. **The block freeze before the smoothed snapshot** (§PLP-8) swaps order rent for cross-block
+   manipulation. **9 blocks 10.**
+
+## ✅ WHAT IS ALREADY CLOSED, SO IT IS NOT RE-OPENED
+
+§BTC-1 (§E172 survives; `:851-877` is wrong) · **Q2.6** (`_bandFor` gates both legs) · **R1**
+(`unwindForRedeem` cannot reach LP-owned dollars) · **Q1.1/Q1.2** (claims are pro-rata; swaps are
+value-neutral) · **Q2.1's conclusion** (§PLP-6a stays withdrawn, for a corrected reason) · **U1b**
+(partial) · **§BTC-9a**'s twelve presence-dependency guarantees · **§BTC-10c**'s nine completed audits ·
+**§PLP-U3 items 1 and 2** (built) · **§PLP-U2's "routes do not compose"** (measured false in-tree) ·
+**the `:1848` sweep** · **the toolchain, the graph and a clean baseline** (§S4).
