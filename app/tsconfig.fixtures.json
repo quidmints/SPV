@@ -1,0 +1,43 @@
+{
+  // Build the privacy-pool wallet modules for `tools/identity/regenerate-fixtures.sh`.
+  //
+  // WHY THIS FILE EXISTS. The script requires `QUID_WALLET_BUILD` and its own header records that
+  // the fold moved these sources to `app/features/identity/pp/*.ts` and "neither the script nor its
+  // `tsconfig.fixtures.json` came with them". This is that tsconfig, reconstructed to the two
+  // requirements the script states verbatim: the sources use `.ts` import specifiers, so it needs
+  // `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`.
+  //
+  // ⚠️ NOT `extends: expo/tsconfig.base`. That base sets `noEmit`, `module: preserve` and
+  //    `moduleResolution: bundler` for the React Native app — correct there and wrong here, where the
+  //    output must be a plain CommonJS tree node can require(). This is why the app typecheck reports
+  //    74 TS5097 errors against these same files: the app config is not the config they compile under.
+  //
+  // ⚠️ OUTPUT LOCATION IS LOAD-BEARING. The emitted modules resolve `ethers`, `@iden3/js-crypto` and
+  //    `@zk-kit/lean-imt` by walking UP, so the build directory's PARENT must hold `node_modules`.
+  //    `app/.fixtures-build` satisfies that via `app/node_modules`.
+  //
+  // ⚠️ `rootDir` IS `features/identity`, NOT `.../pp`, FOR TWO REASONS THAT BOTH BITE.
+  //    (a) `pp/prove.ts` imports `../sdk/circuits.ts`, so a `pp`-only rootDir fails TS6059; and
+  //    (b) `fixture-common.loadWallet` requires `<build>/pp/notes.js`, `pp/stateTree.js` and
+  //        `pp/withdrawWitness.js`, and `build-e2e-fixture.js:79` requires `<build>/pp/…` too —
+  //        so the emitted tree MUST keep the `pp/` segment. One rootDir satisfies both.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "rootDir": "features/identity",
+    "outDir": ".fixtures-build"
+  },
+  "include": ["features/identity/pp/**/*.ts"],
+  "exclude": ["features/identity/pp/**/*.test.ts"]
+}
