@@ -51163,6 +51163,7 @@ item can be slotted without re-deriving the whole thing:
 | **0a** | 🔴🔴 **Audit the mock fixtures against `§V4-CUT`** (§PLP-9b) | **upstream of the evidence itself.** `§UNIT-A-ATTEMPT-1`'s 3.04% and §PLP-R2's `NothingDelivered` numbers are cited as load-bearing in §PLP-7, §PLP-13 and §PLP-W. **If the harness settles through a mechanism `§V4-CUT` deleted, those numbers describe the FIXTURE.** ✅ **Partially answered (§S3):** the only mocks in `evm/test` are four identity-stack files, and `Core.sol:1204` records the mock ERC20 + PoolManager settle as GONE. ⚠️ **Still open: what those two cited RUNS executed against.** |
 | **0b** | ✅ **DONE — a clean full-suite census exists** (§S4): **1027 passed / 13 failed, 130 suites, 0 `setUp` failures, 0 environmental errors.** | **CLAUDE.md's 489-vs-4,402 dispute has blocked quoting any baseline.** A pinned, tell-checked run is the prerequisite for attributing ANY future regression. **Quote this number, not the two disputed ones.** |
 | **0c** | ✅ **DONE — the toolchain is installed and the graph is built** (§S4) | M1–M7, the fuzz matrix and every `forge`/`cargo` gate need it. `graphify-out/graph.json` is at `built_at_commit 7c5bc10d`. |
+| **0d** | 🔴 **BOOK AND TRIAGE THE FOUR MONEY-PATH REDS FROM THE 0b CENSUS** | **They are the only failing assertions that are about the protocol rather than a stale fixture, and a red on a money path is evidence about the items downstream of it.** §S4 originally wrote *"unbooked and belong in the order"* — **which is rule 12's exact failure mode, so they are booked here.** ⇒ `test_E2_IncumbentIsNotHarmedByANewMint` (*"E2-#1 issues ~9% more QU!D per deposit into a short basket, and the holder who was already there cannot opt out"*) · `test_E2_MintAtMark_RealRedeemMatchesTheMark` (**6.81% against a 2% tolerance**) · `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` (*"the POOLED_USD subtraction and the basket TVL it is subtracted from move in lockstep and cancel"* — **6.52e18 real delta against a 1e15 tolerance**) · `test_E45_CompoundCrankGasVsTheSelfFundingConstant` (**230,764 > 200,000** — *"a short tip is a silent liveness failure"*). ⚠️ **E42 is directly about `POOLED_USD` vs basket TVL, which is §PLP-Z/§#12 territory and therefore upstream of GATE 2.1** — triage it before ruling on option F. ⚠️ **E45 is a `constant` that needs tuning, i.e. GATE 3 checklist item 4 in miniature.** ⚠️ **The E2 pair sits in basket entry policy, which both folded scopes declare OUT of their scope — so it is owned by NEITHER and would otherwise fall through.** |
 
 ⛔ **DO NOT START M1–M7 BEFORE 0a.** Measuring flow on a harness that models a deleted settlement path
 produces numbers with the same defect, and **they would look exactly as authoritative.**
@@ -51516,8 +51517,10 @@ suites, `[FAIL … ] setUp` count 0, environmental-error count 0.** ⇒ **quote 
 with `tools/regenerate-fixtures.sh e2e`), **three `ContextMismatch()`**, and **four real money-path reds**
 — `test_E2_IncumbentIsNotHarmedByANewMint`, `test_E2_MintAtMark_RealRedeemMatchesTheMark`,
 `test_E42_RedeemableIsInvariantToPureBtcTradingFlow`, `test_E45_CompoundCrankGasVsTheSelfFundingConstant`.
-🔴 **Those four are unbooked and belong in the order** — they are the only failing assertions that are
-about the protocol rather than about a fixture.
+✅ **Those four are BOOKED as `§MASTER-ORDER` GATE 0d** — they are the only failing assertions that are
+about the protocol rather than about a fixture. ⚠️ **This sentence originally read *"unbooked and belong
+in the order"*, which is rule 12's exact failure mode (*"if you write 'still needs', book it before
+sending the message"*). Caught on self-audit, not by the owner.**
 
 ⚠️ **KNOWN ENVIRONMENT GAPS, recorded rather than fixed:**
 - **`app` typecheck fails with 74 `TS5097`** — `.ts` extensions in imports with no
@@ -51530,3 +51533,54 @@ about the protocol rather than about a fixture.
 - **`regtest/gen-fixture.sh` is flaky on a cold chain** — the first run died
   `bad-txns-inputs-missingorspent` in `build_splice`; the identical invocation succeeded once more blocks
   were mined. **UTXO availability, not a contract defect.**
+
+## §S5 — SELF-AUDIT OF THIS SESSION, per `CLAUDE.md`'s *"count self-caught vs prompted corrections"*
+
+**The rule:** *"Five wrong conclusions were overturned on 2026-08-09; zero were caught by the author. If
+a session's corrections all arrive from outside, its verification loop is not working, and the remaining
+unexecuted checks are the exposure."*
+
+**PROMPTED — corrections that arrived from the owner, not from re-reading:**
+1. **"collapsing the walk?"** — I had used one phrase for **two different axes** in one function. The LP
+   array walk collapses; the venue/route walk **widens**. Without the challenge I would have carried an
+   ambiguous recommendation into §MASTER-ORDER.
+2. **"its not possible to automate the stale comments sweep."** I had built a detector, watched it produce
+   107 hits of which 74 were its own false positives, **fixed it, and still proposed keeping it.** The
+   ruling is right and I did not reach it myself.
+3. **"do what is more gas efficient … there are multiple uses."** I had framed Curve-vs-1inch as one
+   decision. It is **three jobs with three answers**, and the offramp has **three consumers** with
+   different profiles.
+4. **"make sure … a certain logical order."** Both folded scopes were internally ordered and mutually
+   inconsistent; I folded them faithfully and **did not notice they could not both be followed.**
+
+**SELF-CAUGHT — found by measuring rather than by being told:**
+1. **§PLP-9's table is not a deletion list.** Three rows are correct tombstones; following it would have
+   deleted the repo's own memory (the `create_sweep_tx` trap).
+2. **§PLP-Z's Q2.1 reasoning is stale** — it withdraws §PLP-6a on the grounds the leg reaches `_poolSwap`,
+   which §C2.1 deleted. The conclusion survives for a different reason.
+3. **The detector's own two defects** (case-sensitive `ALLOW`, per-line where tombstones are paragraphs) —
+   found by **running it**, which is `CLAUDE.md`'s *"the acceptance test for a detector is the KNOWN
+   POSITIVE, not a clean run."*
+4. **`κ = 2e18` sitting one line above `KAPPA_WAD = 1e18`**, and `:1477` contradicting
+   `_boundToFullHaircut`'s own tombstone in the same file.
+5. **The rule-12 violation above** — writing *"unbooked and belong in the order"* instead of booking them.
+6. **`No files changed` after editing four `.sol` files** — checked artifact mtimes rather than trusting
+   the exit code, per the `evm/out` OUTLIVES `evm/src` trap.
+
+⇒ **Four prompted, six self-caught.** Better than the 5-and-0 the rule was written against, **but every
+one of the four prompted corrections was STRUCTURAL** (what a phrase meant, whether a tool can exist, how
+a decision decomposes, whether an order is coherent) **while the six self-caught were all LOCAL** (a
+symbol, a line, a stale citation). ⇒ **THE VERIFICATION LOOP CATCHES FACTS AND MISSES FRAMES.** That is
+the exposure to carry, and it argues for stating the FRAME explicitly before acting on it — which is what
+§MASTER-ORDER's three generating rules are for.
+
+⚠️ **THE REMAINING UNEXECUTED CHECKS, named because rule 12 says a check written down and not run is a
+finding that will be lost:**
+- **GATE 0a's second half** — what `§UNIT-A-ATTEMPT-1`'s and §PLP-R2's cited runs actually executed
+  against. **I answered the `evm/src`/`evm/test` half and not this.**
+- **The gas snapshot for GATE 2.4** — I argued the direct Curve path is ~30–50k cheaper per hop from
+  first principles and **did not measure it.** `foundry.toml` already grants `.forge-snapshots/`.
+- **`Quid.sol:776`'s *"both opted in"*** — left unedited as unconfirmed rather than edited on the strength
+  of a table row that had already been wrong three times.
+- **Whether `forge build --force` would change anything** — the artifacts post-date the edits and
+  comment-only changes cannot move bytecode, so this is argued rather than measured.
