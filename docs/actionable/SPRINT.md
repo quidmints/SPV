@@ -51911,3 +51911,74 @@ state.** That is a well-built test declining to produce a meaningless pass — p
 ⚠️ **It does mean the probe's 0.1% q0 tolerance is too tight for arbitrary historical state.** ▶️ **Book
 it: either widen the control's tolerance with a stated reason, or seed both arms from one q0 so the
 premise is true by construction rather than by luck.**
+
+## §S12 🔴 `avail = rs − rd` — THE OPERANDS' SCOPES WERE NEVER VERIFIED, AND THE GUARD HIDES IT
+
+**Owner, 2026-09-05.** Aave v4 is **hub-and-spoke**: the hub holds reserves and does the accounting,
+spokes are execution environments sharing hub liquidity. **So a reserve on one spoke is not a closed
+pool**, and `getReserveSuppliedAssets(rid)` / `getReserveTotalDebt(rid)` could be reporting a
+**spoke-local supply against a hub-scoped debt** — in which case `rs − rd` is **not a small number, it
+is a type error.**
+
+### ✅ MEASURED AT `FORK_BLOCK=25800000` ON THE ARCHIVE ENDPOINT
+
+**rid 7 IS USDC — resolved, not assumed:** `hub.getAssetId(USDC)` → **5**, `spoke.getReserveId(hub, 5)`
+→ **7**. (Also USDT→8, USDG→11, GHO→13; **USDG and GHO sit outside a 1..10 sweep**, which is worth
+knowing before anyone re-measures.)
+
+| stable | rid | supplied | debt | util | `avail` |
+|---|---|---|---|---|---|
+| 🔴 **USDC** | 7 | 6,588,733.68 | **8,113,797.92** | **123.1%** | **0** |
+| USDT | 8 | 13,882,059.64 | 9,096,918.95 | 65.5% | 4,785,140.69 |
+| USDG | 11 | 61,103,125.95 | 19,469,415.02 | 31.9% | 41,633,710.93 |
+| GHO | 13 | 783,290.99 (18-dec) | 543,598.80 | 69.4% | 239,692.20 |
+
+### ⚖️ THE SCOPING QUESTION IS **NOT SETTLED**, AND MY PROBES WERE GUESSES
+▶️ The owner's discriminator — *"call the pair on a SECOND v4 spoke against the same hub; if debt is
+identical across spokes while supply differs, debt is hub-scoped"* — **was not run: I have no second
+spoke address.** I probed the hub for `getSpokes()`/`getSpokeCount()` and the spoke for `HUB()`; **every
+one reverted, and that proves nothing** — both addresses are **1,419-byte proxies** (hub impl
+`0xfe89fd96…f704`, spoke impl `0xabd0e26f…d8b5`, **different implementations**), so I was guessing
+signatures against a proxy. **That is the "infer an external interface from one call" trap, and it is
+recorded here so the next reader does not repeat it.** ⇒ **enumerate the implementations' ABIs, or get a
+second spoke address, before concluding either way.**
+
+⚠️ **ONE PIECE OF EVIDENCE CUTS AGAINST THE SCOPING EXPLANATION — offered as evidence, NOT proof.**
+If supply were spoke-local and debt hub-scoped, the ratio would be arbitrary. **Three of four reserves
+produce perfectly ordinary utilisations (65.5%, 31.9%, 69.4%).** A scope mismatch landing on three
+plausible figures by coincidence is unlikely. ⇒ **the pair is more likely spoke-consistent, and USDC's
+123% a REAL condition** — accrued interest outrunning the supply index, or a booked deficit.
+⛔ **DO NOT TREAT THAT AS THE ANSWER.** It is a plausibility argument, and §S12 exists because a
+plausibility argument is what put `rs > rd` there in the first place.
+
+### 🔴 AND THE DEFECT SURVIVES EITHER EXPLANATION, WHICH IS THE POINT
+`BasketLib.sol:929-932`. Whatever the reason `rs < rd`, the guard converts an **unexplained state into a
+confident zero**, and that zero does two things a "conservative clamp" is not supposed to do:
+1. **`shortfall += supA`** — the ENTIRE Aave-v4 USDC position counts as undeliverable, **and this
+   shortfall feeds the redemption haircut.**
+2. **`abps = 0`** — USDC's reserve becomes `worst` **permanently, at zero bps**, nominating it on every
+   call. ⚠️ **That is the traffic flag `§E198` restructured so one reserve's dip could not block every
+   Aave-routed stable. It can no longer block them all — it can pin itself as worst forever.**
+⇒ **`rs > rd` reads as defensive rounding protection and is doing something else entirely.**
+
+### 🟡 LATENT, BUT THE TRIGGER IS WIRED
+Both consequences are gated on `supA = aaveBalance(USDC)`, our own supplied amount. ✅ **Confirmed:
+`DeployL1_s.sol:415` — `AUX.setVault(address(USDC), aaveSpoke)`**, so USDC reaches the spoke through the
+**least-full dual-venue router**. Until it routes, `supA = 0`, the `if (supA > 0)` arm is skipped and the
+shortfall term is zero. **The moment it routes, both fire.**
+
+### 🔴 AND IT CONTAMINATES THE FREE-LIQUIDITY FIGURES THIS FILE QUOTES
+The SPRINT note that recorded the original measurement got it right — *"a 107% utilisation line would be
+a number that does not mean what it says"* — **and then the same file quotes free figures for USDG, USDT
+and GHO from the identical pair of getters.** ⇒ **if the scoping is asymmetric for USDC it is asymmetric
+for all of them, and those numbers are wrong too — just not VISIBLY wrong, because they come out
+positive.** ⚠️ **That includes the USDG figure (`41.6M` at this block) that the venue-selection thread
+has been leaning on.**
+
+▶️ **ACTIONS, in order.** (1) **Settle the scoping** — enumerate the spoke implementation's ABI or obtain
+a second spoke, then run the owner's cross-spoke test. (2) **Until then, `avail` must stop being
+`rs − rd`** — a quantity feeding the redemption haircut cannot be a subtraction between two operands
+whose scopes were never checked against each other. (3) **Re-derive every free-liquidity figure quoted
+from this getter pair** once (1) lands. ⚠️ **Do NOT "fix" this by widening the clamp** — that is standing
+rule 3's false sense of safety, and rule 17's clamp-vs-root test says a bound added over an unverified
+subtraction is the clamp.
