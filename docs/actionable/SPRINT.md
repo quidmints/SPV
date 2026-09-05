@@ -51235,11 +51235,29 @@ gonna be 1inch for sure. for the il protect borrow or for swap outs or redeems�
 ⇒ **DECIDE PER USE-SITE, NOT PER VENUE.** The three Curve jobs have different answers (§S2):
 - **stable↔USDC hub (`_hubSwap`/`_routeOf`/`_routableStable`)** — ✅ **1inch, decided.** It is where
   routing buys something, and the 2-stable table is what makes the roster ungrowable.
-- **weETH→WETH offramp (`ETHERFI_CURVE_POOL`)** — ⚠️ **MEASURE.** A genuinely pinned single-LST venue;
-  paying router overhead to reach the one pool you were always going to reach is pure cost. **Multiple
-  consumers with different profiles: the IL-protect borrow (keeper-paid), swap-out delivery (user-facing),
-  and the redeem/withdraw offramp (user-facing).** `foundry.toml` already sets `gas_reports = ["*"]` and
-  grants `.forge-snapshots/`, so **one snapshot settles it.**
+- **weETH→WETH offramp (`ETHERFI_CURVE_POOL`)** — ✅ **MEASURED 2026-09-05 (§S6), AND THE ANSWER IS
+  KEEP IT DIRECT — for a reason that outranks gas.** `evm/test/OfframpRouteGas.t.sol`, pinned fork:
+  · **raw `ICurvePool.exchange`: 183,316** · **the shipped `sellWeethOnCurve`: 237,597** (so the
+  `forceApprove` + try/catch costs **54,281**) · **a real routed swap through the shipped `_aggSwap`:
+  264,124** · **`convertTo`'s own frame around one leg: 120,263 cold / 120,261 warm.**
+  🔴 **MY OWN ~30-50k ESTIMATE WAS WRONG BY 2-3×.** The wrapper frame is **~120k and does NOT amortise**
+  — cold and warm are within 2 gas, because the *zero-on-both-paths* approval discipline pays a fresh
+  **20,000-gas zero→nonzero SSTORE on every leg** by construction. It is not a warm-up cost.
+  🔴🔴 **AND THE BIGGER FINDING, WHICH CHANGES THE QUESTION: CURVE IS NOT REACHABLE THROUGH THE TREE'S
+  `unoswap` ENCODER AT ALL.** 32 combinations (8 protocol ids × 4 index placements) filled **zero**.
+  ⇒ **"route the offramp through 1inch" is not a gas trade — it is new encoding work first**, because
+  `PROTO_UNIV3 = 1` is the only protocol constant and a Curve `exchange` needs coin indices a bare
+  `(proto << 253) | uint160(pool)` word cannot carry.
+  ✅ **THE CONTROL MAKES THAT NEGATIVE MEANINGFUL** (per *"would this measurement look the same if I
+  were wrong?"*): the SAME encoder, called as `LevMath._aggSwap` rather than re-implemented, **fills
+  20.15 WETH through `DEFAULT_UNWIND_DEX`**. The shape is right; Curve is what it cannot address.
+  ⚠️ **BOUND THE CLAIM:** this says the tree's **single-pool-word `unoswap`** cannot reach this Curve
+  pool under 32 encodings. It does **not** say 1inch cannot route weETH→WETH — its pathfinder uses a
+  different entrypoint (`swap()` with an executor payload), which `§V-R1-MIN` rules out here anyway
+  because **the offramp's amount is computed on-chain and pre-built calldata is stale by construction.**
+  ⚠️ **AND `convertTo`'s 120k is not purely the wrapper** — it includes a *failing* call into the
+  router. A successful route trades that for the router's real work, so 120k is the honest order of
+  magnitude, not a precise wrapper-only figure.
 - **the Curve depth READ (`balances(0) * 9/10`)** — 🔴 **not a swap; 1inch cannot replace it.** It must
   stay `view` for `_pricingBacking`'s path. **It becomes a read over a SET of pools** under §PLP-U3.
 ⛔ **ORDERING TRAP:** this must land **after** GATE 2.2, because **class 3 changes what the offramp is
