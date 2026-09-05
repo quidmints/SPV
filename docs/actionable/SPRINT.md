@@ -51868,3 +51868,46 @@ evidence above"*, **not** *"there is no bug"*. **If `lastAt` is non-zero and ≥
 and `avgYield` is still 0, that is a live defect and this row is wrong.** ▶️ **Booked: add a diagnostic
 that reports WHICH of the three gates is holding the rate at zero, so the distinction stops requiring a
 code read.**
+
+## §S11 — THE FIRST REPRODUCIBLE CENSUS, AND IT UPGRADES GATE 0d's FOUR REDS
+
+**`FORK_BLOCK=25800000` on the archive endpoint, full suite: 1036 passed / 14 failed, 133 suites,
+`setUp` failures 0, environmental errors 0.** ⇒ **the first census in this tree that is re-runnable
+next week** — §S4's 1027/13 was pinned at HEAD, which holds state still for one sitting only.
+
+⚠️ **THE COUNT DIFFERS FROM §S4 AND THE DIFFERENCE IS FULLY ACCOUNTED FOR — checked rather than waved
+through**, because CLAUDE.md's own trap-note is that *"a pass count is the single most-quoted state line
+in this file and the one with the least defensible provenance."* **133 suites vs 130 = the three test
+files added this session** (`OfframpRouteGas` 5 + `RebalanceBandRepeat` 3 + `AnchorSkewSensitivity` 2 =
+**exactly the 10 extra tests**; 1040 → 1050). **No suite went missing and none appeared unexplained.**
+
+### ⭐ WHAT THE DIFF IS WORTH — MORE THAN THE COUNT
+**All 13 head-pin failures reproduce at a chain state ~15 days earlier.** ⇒ **none of them is fork-state
+noise**, which is the class §A.18 exists to catch (*"three correct fixes were each blamed for 31 failures
+a clean tree reproduced"*).
+
+🔴 **AND IT UPGRADES GATE 0d's FOUR MONEY-PATH REDS FROM "POSSIBLY FIXTURE" TO REAL.** They fail at
+**two independent chain states**, and two of them fail with **DIFFERENT MAGNITUDES**, which is the
+signature of a live state-dependent defect rather than a frozen bad fixture:
+
+| test | head pin | archive pin |
+|---|---|---|
+| `test_E2_MintAtMark_RealRedeemMatchesTheMark` | **6.812%** vs a 2% tolerance | **7.353%** vs the same 2% |
+| `test_E2_IncumbentIsNotHarmedByANewMint` | `…8292097679998 < …8553460619999` | `…8346555099999 < …8687171369999` |
+| `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` | reproduces | reproduces |
+| `test_E45_CompoundCrankGasVsTheSelfFundingConstant` | reproduces | reproduces |
+
+⇒ **A fixture that was merely stale would fail identically at both pins.** These move with the chain and
+**breach in the same direction at both**, so the defect tracks live state. **GATE 0d is confirmed
+work, not triage.**
+
+### ✅ THE ONE EXTRA FAILURE IS THE HARNESS WORKING, NOT A REGRESSION
+`test_UNITB_ProbeSwapIsEntryHistoryIndependent` (`test/DrainAtomicity.t.sol`) fails **on its own CONTROL,
+not its assertion**: *"CONTROL: both arms must reach the SAME q0, else the probes are not the same
+traversal: 177031386623868081908 !~= 177543648964012186941 (max delta 0.1%, real delta 0.2885%)."*
+⇒ **the test correctly REFUSES to draw a conclusion because its premise did not hold at this block's
+state.** That is a well-built test declining to produce a meaningless pass — precisely the
+`§VACUOUS-BOUNDS` discipline in action — and it is **not** evidence about the code under test.
+⚠️ **It does mean the probe's 0.1% q0 tolerance is too tight for arbitrary historical state.** ▶️ **Book
+it: either widen the control's tolerance with a stated reason, or seed both arms from one q0 so the
+premise is true by construction rather than by luck.**
