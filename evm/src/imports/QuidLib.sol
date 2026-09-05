@@ -592,12 +592,18 @@ library QuidLib {
     /// @notice Body of Vault.deliverableETH — SOLVENCY-side ETH backing with PARTIAL liquidity haircuts.
     ///
     /// @dev    READ THE NAME NARROWLY (§A.5c, re-derived 2026-07-27). This is NOT a promptness
-    ///         guarantee and NOT a view-twin of the withdraw ladder. It caps the three WETH-4626
-    ///         venues via `_deliverableCap` and subtracts the levered net equity, but it counts the
-    ///         weETH at the venue and raw eETH at FULL FACE — neither of which is
-    ///         instantly convertible (the ether.fi legs need the offramp ladder, whose rung 1 is a v3 pool
-    ///         sale at up to the 0.5% slippage cap and whose rung 2 is a multi-day wait NFT — there is NO
-    ///         deterministic-cost tier between them since the instant-redeem was removed 2026-08-06).
+    ///         guarantee and NOT a view-twin of the withdraw ladder. It bounds the WETH-4626 side and
+    ///         subtracts the levered net equity, but it counts the weETH at the venue and raw eETH at
+    ///         FULL FACE — neither of which is instantly convertible (the ether.fi legs need the offramp
+    ///         ladder, whose rung 1 is a CURVE `weETH/WETH-ng` sale at up to the 0.5% slippage cap and
+    ///         whose rung 2 is a multi-day wait NFT — there is NO deterministic-cost tier between them
+    ///         since the instant-redeem was removed 2026-08-06).
+    ///         🔴 **DESTALED 2026-09-05, TWO WAYS.** (a) This said *"caps the three WETH-4626 venues via
+    ///         `_deliverableCap`"*; `_deliverableCap` has **0 code references** — the three venue caps
+    ///         were removed and re-derived to the Curve bound on 2026-08-13, which `deliverableETH`'s own
+    ///         body notes below already record. (b) It said rung 1 is *"a v3 pool sale"*; v3 was removed
+    ///         2026-08-09 and rung 1 is Curve — measured 17–25 bps better at every realistic size, so
+    ///         this was not a naming slip but a claim about the WRONG VENUE'S execution cost.
     ///
     ///         WHY THAT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery. Its two
     ///         consumers both tolerate over-statement:
@@ -841,11 +847,14 @@ library QuidLib {
         // at every sampled block, because the pool absorbs the flow first.
         // RUNG 2 (last) — no-fee withdrawal NFT, minted to the WITHDRAWER.
         //
-        // ⚠️ THE LADDER IS TWO RUNGS, AND THE INTENDED FIRST RUNG IS MISSING. Today it sells weETH on v3
-        // (rung 1) and falls back to a redemption claim (rung 2). The DESIGN is: BORROW WETH against the
-        // weETH, deliver that, and repay from the redemption — with the v3 pool as the borrow's ONLY
-        // alternative (owner, 2026-08-09). Under that design `waitNft` stops being a way to serve an LP
-        // and becomes the REPAYMENT of the borrow.
+        // ⚠️ THE LADDER IS TWO RUNGS, AND THE INTENDED FIRST RUNG IS MISSING. Today it sells weETH on
+        // CURVE (rung 1) and falls back to a redemption claim (rung 2). The DESIGN is: BORROW WETH
+        // against the weETH, deliver that, and repay from the redemption — with the pool SALE as the
+        // borrow's ONLY alternative (owner, 2026-08-09). Under that design `waitNft` stops being a way
+        // to serve an LP and becomes the REPAYMENT of the borrow.
+        // 🔴 **DESTALED 2026-09-05: this read "v3" in both places**, contradicting the `RUNG 1 — CURVE`
+        // note ~25 lines above it in this same function. v3 was removed on 2026-08-09 — the SAME DATE
+        // this owner quote is dated — so the sentence was stale the day it was written.
         //
         // The ~25.6 bps sale is charged ONLY on the slice `weethIn` covers — i.e. the weETH this contract
         // holds FREE (`:452-457` clamps to `balanceOf(address(this))`). Levered collateral sits in per-LP
@@ -865,8 +874,9 @@ library QuidLib {
     ///         held idle weETH → eETH → LiquidityPool withdraw-request NFT
     ///         minted to `recipient`. Returns the ETH-worth actually covered
     ///         (honest: a clamped weETH balance covers proportionally less).
-    ///         Used by offrampBody — the LP-exit down-leg fallback when the v3
-    ///         pool sale above it fails its 0.5% floor (the redemption-side
+    ///         Used by offrampBody — the LP-exit down-leg fallback when the CURVE
+    ///         pool sale above it fails its 0.5% floor (v3 was removed 2026-08-09;
+    ///         this said "v3" until 2026-09-05) (the redemption-side
     ///         wrapper was removed: redemption is stables-only). ⚠️ It is the ONLY
     ///         thing under rung 1: there is no instant-redeem buffer to exhaust
     ///         first, so a pool that cannot fill puts the withdrawer straight

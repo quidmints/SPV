@@ -743,8 +743,16 @@ library SwapLib {
     /// drainable at a finite price, and §E276 established that nothing currently pulls inventory back:
     /// we never move the bid, the refill direction is exempt rather than paid, and §V-R1 is not in
     /// code. **That sequencing is what refuted §E287; do not repeat it by editing this constant early.**
-    /// ⚠️ A–S's own choice is one unit beyond the maximum ⇒ `κ = 2e18` here, because our unit of `q`
-    /// is one flow-window. **That coincidence is an ANALOGY, not a derivation** — see §E289's caveats.
+    /// ⚠️ A–S's own choice is one unit beyond the maximum, which for our unit of `q` (one flow-window)
+    /// would be `2e18`. **That coincidence is an ANALOGY, not a derivation** — see §E289's caveats.
+    /// 🔴 **DESTALED 2026-09-05 — THIS READ *"⇒ `κ = 2e18` here"*, AND THE DECLARATION ON THE NEXT LINE
+    /// IS `1e18`.** The analogy is what A–S would suggest; it is NOT what this constant holds, and the
+    /// two sat one line apart. `κ = 1e18` puts the pole exactly ON the reachable range (`q1 == 1e18` ⇔
+    /// `inv1 == 0`), which is the state the `kMinusQ1 == 0` branch exists to catch and `SKEW_UNFILLABLE`
+    /// exists to price — none of which would be needed at `2e18`. ⇒ A reader who trusted this line would
+    /// conclude the pole is UNREACHABLE and that both of those mechanisms are dead code. See the
+    /// paragraph above: raising κ is gated on a restoration mechanism existing (§E276), so 1e18 is
+    /// deliberate, not a drift.
     uint internal constant KAPPA_WAD = 1e18;
     /// The conservative charge for `σ² == 0` — "we could not MEASURE the variance", never "there
     /// was none" (§E59/§E79). A POLICY price for absent information, not a ceiling on a computed
@@ -930,22 +938,35 @@ library SwapLib {
         // DELIBERATELY SO**: zero still means unmeasured, and unmeasured still prices at the ceiling.
         // What changed is how rare the state is and who can produce it, not what it means.
         //
-        // Feeding that 0 through the formula gave `cap = 0` on ETH (which, unlike BTC, has no
+        // Feeding that 0 through the formula gives `cap = 0` on ETH (which, unlike BTC, has no
         // SPLICE_FLOOR), and a zero cap means **a fully drained range charges NOTHING at maximum
-        // scarcity** — the crisis case priced at free. Returning the HARD CEILING instead is the
-        // conservative reading of "unknown", and it needs no new constant: MAX_WELL_SKEW already
-        // exists for exactly this role. A genuinely calm market reports a SMALL NON-ZERO variance
-        // and still caps low; only the unmeasured case is treated as dangerous.
+        // scarcity** — the crisis case priced at free.
         //
-        // This is the third instance of one lesson (cf. E56 dead-vs-new, E59): a sentinel that
-        // means "no data" must never be consumed as if it meant "none of the thing".
-        // §E62 — THE HARD 3% NO LONGER CAPS THE *DERIVED* PATH; it survives ONLY as the
-        // unknown-variance value above. Rationale: `σ²·confFrac/8` IS a derivation — LVR over the
-        // settlement window (MMRZ eq.16), chain physics times measured volatility — so clamping it
-        // at an asserted 3% could only ever make us charge LESS than the measured expected cost, and
-        // it bound exactly in the high-vol regime where the skew is most needed. That clamp was
-        // defensible while σ² was unreliable; it is not now that variance measures (§E59).
-        // What remains of MAX_WELL_SKEW is the honest one: a ceiling for the case we CANNOT measure.
+        // 🔴 **DESTALED — THE FIX THIS BLOCK DESCRIBED IS NOT IN THE BODY, AND HAS NOT BEEN SINCE
+        //    §E79'S INVERSION.** It read *"Returning the HARD CEILING instead is the conservative
+        //    reading of 'unknown', and it needs no new constant: MAX_WELL_SKEW already exists for
+        //    exactly this role … What remains of MAX_WELL_SKEW is the honest one: a ceiling for the
+        //    case we CANNOT measure."* **`MAX_WELL_SKEW` has ZERO code references in `evm/src`** (it
+        //    was deleted by §E286-integral, as the tombstone at `_boundToFullHaircut` records), and
+        //    the return below is `σ²·confFrac/8 + rk.spliceFloor` with **no ceiling of any kind**.
+        //    ⇒ On σ² == 0 this returns `rk.spliceFloor`, which on ETH is **0** — i.e. exactly the
+        //    "priced at free" state the deleted text claimed to have fixed. The prose is
+        //    pre-inversion: §E79 moved `_maxWellSkew` from CEILING to BASE and this paragraph did
+        //    not follow, which `skewWad` already notices in place (*"σ² == 0 ⇒ charge the ceiling,
+        //    `_maxWellSkew` says σ² == 0 ⇒ charge `rk.spliceFloor`"*).
+        // ⚠️ **THE HAZARD IT WAS WRITTEN FOR IS STILL REAL AND STILL OPEN** — it is the σ²-sentinel
+        //    cluster (§E278/§E352), not something this comment closed. Do not read its removal as
+        //    the concern being resolved; read it as the concern no longer being MISREPORTED AS FIXED.
+        //
+        // The lesson the block carried is kept, because it is about the sentinel and not about the
+        // ceiling (cf. E56 dead-vs-new, E59): a sentinel that means "no data" must never be consumed
+        // as if it meant "none of the thing".
+        // §E62 — the hard 3% no longer caps the DERIVED path. Rationale: `σ²·confFrac/8` IS a
+        // derivation — LVR over the settlement window (MMRZ eq.16), chain physics times measured
+        // volatility — so clamping it at an asserted 3% could only ever make us charge LESS than the
+        // measured expected cost, and it bound exactly in the high-vol regime where the skew is most
+        // needed. That clamp was defensible while σ² was unreliable; it is not now that variance
+        // measures (§E59).
         return SoladyMath.fullMulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
     }
 
@@ -979,8 +1000,12 @@ library SwapLib {
         bornUsd6 = SoladyMath.mulDiv(shortfallUsd6, exitShares, totalShares);
     }
 
-    /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION
-    ///         (0..MAX_WELL_SKEW), not a price. Applied as an effective-rate scalar on the
+    /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION, not a price.
+    ///         ⚠️ The bound is `SKEW_UNFILLABLE` (1e18 = a full haircut), applied by
+    ///         `_boundToFullHaircut`. It was written here as `(0..MAX_WELL_SKEW)`, a symbol
+    ///         §E286-integral DELETED — 0 code references in `evm/src` — and that 3% policy cap is
+    ///         **33× tighter than what actually binds**, so the old range read as a far stronger
+    ///         guarantee than the code gives. Applied as an effective-rate scalar on the
     ///         swap-OUT (drain) leg: a scarce pool hands out less volatile per unit input, so
     ///         the imbalance-causer pays a scarcity premium and the withheld input stays as
     ///         basket backing (funding the pool's ability to pay a refill). Re-admits the
@@ -1008,8 +1033,10 @@ library SwapLib {
     ///           Γ  = GAMMA_WAD  = γ·(T−t) folded into ONE coefficient (the horizon T−t is
     ///                already carried by the FLOW_DECAY EWMA smoothing of flow/scarcity).
     ///         skew = Γ·σ²·q — both σ² and q enter LINEARLY (no scarcity², no separate vol
-    ///         steepening term). The flush guard (inv≥target ⇒ 0, range owns the common case)
-    ///         and the MAX_WELL_SKEW hard cap are preserved.
+    ///         steepening term). The flush guard (inv≥target ⇒ 0, range owns the common case) is
+    ///         preserved. ⚠️ **The `MAX_WELL_SKEW` hard cap is NOT** — this line claimed it was
+    ///         until 2026-09-05. §E286-integral deleted it (0 code references); the only bound left
+    ///         is `_boundToFullHaircut`'s `SKEW_UNFILLABLE`.
     /// @notice §UNIT-C — THE REFILL TRIGGER, AND IT IS THE SKEW'S OWN PREDICATE (owner, 2026-08-16:
     ///         *"the threshold that fires a refill swap [is] the same threshold that triggers a skew
     ///         price — if it's an imbalance to be balanced profitably it must trigger."*)
@@ -1444,8 +1471,11 @@ library SwapLib {
         // the 3% ceiling, which is the exact case the ceiling exists for. The suite never caught it
         // because it never drains a range to zero: 4,308 green, a pinned controlled comparison,
         // `--sizes` and `check-client-abis` all passed over an UNREACHED state.
-        //   The pole means "charge the maximum", so resolve it to `MAX_WELL_SKEW` directly rather
-        // than to a sentinel that must survive arithmetic. The finite branch is clamped too: near
+        //   The pole means "charge the maximum", so resolve it directly rather than to a sentinel
+        // that must survive arithmetic. ⚠️ **It resolves to `type(uint).max`** (see the `qBar ==
+        // type(uint).max` early return below), which `_boundToFullHaircut` then bounds to
+        // `SKEW_UNFILLABLE`. This read *"resolve it to `MAX_WELL_SKEW` directly"* — a symbol with 0
+        // code references. The finite branch is clamped too: near
         // the pole `qBar` is large and the product can exceed the ceiling on its own, which would
         // overflow the same way once the base is summed.
         // §E275 — THE POLE RETURNS DATA. IT DOES NOT REVERT, AND THAT DISTINCTION IS LOAD-BEARING.
@@ -1474,9 +1504,15 @@ library SwapLib {
         // oracle lag. THE SKEW IS THE MARKET-MAKER SPREAD, and a spread of zero is the exposure.
         //   So the expected loss becomes the FLOOR — the base charge under EVERY trade, which is what
         //   an expected loss over the settlement window actually is — and the scarcity premium is
-        //   free to rise above it, bounded by the ABSOLUTE ceiling `MAX_WELL_SKEW` (3%) that was
-        //   always the real safety limit. The ceiling is UNCHANGED, so the maximum haircut anyone can
-        //   suffer is exactly what it was; only the floor moved off zero.
+        //   free to rise above it, bounded by the absolute ceiling that was always the real safety
+        //   limit.
+        // 🔴 **DESTALED — THIS SENTENCE CONTRADICTED `_boundToFullHaircut`'S OWN TOMBSTONE IN THIS
+        //   FILE.** It read *"bounded by the ABSOLUTE ceiling `MAX_WELL_SKEW` (3%) … The ceiling is
+        //   UNCHANGED, so the maximum haircut anyone can suffer is exactly what it was."* Both
+        //   halves are false: `MAX_WELL_SKEW` was DELETED by §E286-integral (0 code references) and
+        //   the live bound is `SKEW_UNFILLABLE` = 1e18, a **full** haircut — 33× looser, which
+        //   `_boundToFullHaircut` states explicitly. So the ceiling CHANGED, and the maximum haircut
+        //   is **not** what it was. Only the floor's move off zero survives from this note.
         // §E89 — THE BASE **ADDS**, IT DOES NOT FLOOR. `max(size, base)` was still wrong: it lets the
         // base VANISH into the size term at high scarcity, so a big drain pays the depletion charge
         // and NOTHING for the settlement-window loss. But σ²·T/8 is incurred REGARDLESS OF SIZE — it

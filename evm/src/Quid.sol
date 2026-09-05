@@ -198,7 +198,11 @@ contract Quid is Shares,
         return QuidLib.supplyVenueBody(_ethCfg(), amount, address(this));
     }
 
-    /// @notice OFFRAMP the ether.fi slice of a withdrawal: weETH → WETH, delivered to `recipient`.
+    /// @notice OFFRAMP a withdrawal: weETH → WETH, delivered to `recipient`.
+    /// @dev    This said *"the ether.fi SLICE of a withdrawal"* until 2026-09-05, which reads as a
+    ///         partial. It is not one — `_withdraw` states it in place: *"Every exit is an ether.fi
+    ///         exit: all ETH is weETH, so the slice IS the withdrawal"* (`ethfiPart = amount`). The
+    ///         word invited sizing logic for a split that does not exist.
     function offrampEtherFi(uint amount, address recipient) public returns (uint served) {
         return QuidLib.offrampBody(amount, recipient, _etherfiCfg());
     }
@@ -1197,69 +1201,43 @@ contract Quid is Shares,
     ///         owner never hands out cannot fill, and burning its nonce makes that certain.
     mapping(address => mapping(uint64 => bool)) public intentUsed;
 
-    /// @notice ⭐ **A RESTING ORDER THAT LIVES OFF-CHAIN AND COSTS NOTHING UNTIL IT FILLS.**
-    ///         Permissionless: anyone may relay a signed intent, which is what makes a refusing
-    ///         keeper a liveness problem rather than a safety one.
-    /// @dev    THE FOUR CHECKS, AND EACH ONE IS LOAD-BEARING:
-    ///         1. `expiry` — an intent is not immortal.
-    ///         2. the consumed bit — one fill per (owner, nonce), checked BEFORE any external call.
-    ///         3. the SIGNATURE — the OWNER authorises; `SignatureCheckerLib` accepts an EOA or an
-    ///            ERC-1271 smart wallet, so this does not exclude the smart-wallet holders §E183
-    ///            narrowed toward.
-    ///         4. ⭐ **THE ORACLE** — `AUX.getTWAPforAsset`, the CONTRACT's own read, the same source
-    ///            settlement uses. The relayer chooses WHEN to submit and can choose nothing else:
-    ///            a keeper that lies about the price is refused by the contract that owns it.
-    ///         ⚠️ **NO ESCROW, AND NO TRANSFER IN.** The fill RECLASSIFIES the owner's existing
-    ///         position through `settleOor` — the same settlement the on-chain book's `fillOne` uses
-    ///         — so nothing was ever held on this path and there is nothing to drain. It carries the
-    ///         owner's `loadBalance` consent for exactly the reason an in-range swap does (§E308).
-    /// @notice ⭐ **THE WHOLE OUT-OF-RANGE MECHANISM, ON-CHAIN, IN ONE FUNCTION.** Permissionless:
-    ///         anyone may relay a signed intent, which is what makes a refusing keeper a LIVENESS
-    ///         problem rather than a safety one — and liveness anyone can cure.
-    /// @dev    FOUR CHECKS, AND NONE OF THEM CAN MOVE OFF-CHAIN:
-    ///         1. `expiry` — an intent is not immortal.
-    ///         2. the consumed bit — one fill per `(owner, nonce)`, set BEFORE the settlement call.
-    ///         3. the SIGNATURE — the OWNER authorises, so a fully-compromised keeper holds no key
-    ///            that moves funds. Plain `ecrecover`, NOT `SignatureCheckerLib`: §B7 records that
-    ///            `lpEth` is derived from the channel key, so **an LP is necessarily the EOA of that
-    ///            key and a smart-wallet LP is not expressible**. Carrying the ERC-1271 path would
-    ///            be ~2 KB of `Quid` — the tightest contract in the tree — for a case the design has
-    ///            already ruled out. ⚠️ If that narrowing is ever reversed (§B7 asks for it to be
-    ///            RATIFIED, not inherited), this line is where it comes back.
-    ///         4. ⭐ **THE ORACLE** — OUR read, the same source settlement uses. The relayer picks
-    ///            WHEN and nothing else: a keeper that lies about the price is refused by the
-    ///            contract that owns the price. That is the §C2.1 discipline — the keeper names a
-    ///            venue, never a rate — applied to time instead of venue.
-    ///         🔒 **NO ESCROW AND NO TRANSFER IN.** The owner's capital never moved to place this;
-    ///         it stayed in the basket or in-range, EARNING and IL-protected. The fill only
-    ///         RECLASSIFIES it, through the same `settleOor` the book's own fill used.
-    /// @notice ⭐ **THE ENTIRE OUT-OF-RANGE MECHANISM, ON-CHAIN, IN ONE FUNCTION AND ZERO RESTING
-    ///         STORAGE.** Permissionless — anyone may relay — so a refusing keeper is a LIVENESS
-    ///         problem, curable by anyone, and never a safety one.
+    /// @notice ⭐ **THE ENTIRE OUT-OF-RANGE MECHANISM: ONE CALL, ZERO RESTING STORAGE.** A resting
+    ///         order that lives off-chain and costs nothing until it fills. Permissionless — anyone
+    ///         may relay — so a refusing keeper is a LIVENESS problem, curable by anyone, never a
+    ///         safety one. Body in `SwapLib` (linked, deployed once): this contract is the tightest
+    ///         in the tree and can afford the CALL, not the CODE.
     /// @dev    FOUR CHECKS. NONE CAN MOVE OFF-CHAIN, AND NOTHING ELSE NEEDS TO BE ON IT:
     ///         1. `expiry` — an intent is not immortal.
     ///         2. the consumed bit — one fill per `(owner, nonce)`, set BEFORE settlement.
     ///            ⚠️ THIS IS THE ONLY STORAGE, AND IT IS WRITTEN AT FILL, NEVER AT REST. A resting
     ///            order costs the chain nothing and reveals nothing.
     ///         3. the SIGNATURE — the OWNER authorises, so a fully-compromised keeper holds no key
-    ///            that moves funds. Plain `ecrecover`, NOT `SignatureCheckerLib`: §B7 records that
-    ///            `lpEth` is derived from the channel key, so an LP is necessarily that key's EOA
-    ///            and a smart-wallet LP is not expressible. Carrying ERC-1271 costs ~2 KB of `Quid`
-    ///            — the tightest contract in the tree — for a case the design has ruled out. If §B7
-    ///            is ever un-ratified, this line is where it comes back.
-    ///         4. ⭐ **THE ORACLE** — OUR read, the same source settlement uses. The relayer picks
-    ///            WHEN and nothing else; a keeper that lies about the price is refused by the
-    ///            contract that owns the price. §C2.1's discipline (keeper names a venue, never a
-    ///            rate) applied to time.
-    ///         🔒 Capital never moved to place this: it stayed in the basket or in-range, EARNING
-    ///         and IL-protected. The fill RECLASSIFIES it through `settleOor` — ATOMICALLY, which is
-    ///         the defect the v4 book had and this does not: there, a crossing converted the
-    ///         position inside the PoolManager while `POOLED_*`, shares and backing stayed
-    ///         unchanged until the owner happened to call `pull`. The protocol was blind in between.
-    /// @notice ⭐ **THE ENTIRE OUT-OF-RANGE MECHANISM: ONE CALL, ZERO RESTING STORAGE.**
-    ///         Permissionless — anyone may relay — so a refusing keeper is a LIVENESS problem,
-    ///         curable by anyone, never a safety one. Body in `SwapLib` (linked, deployed once):
-    ///         this contract is the tightest in the tree and can afford the CALL, not the CODE.
+    ///            that moves funds. Plain `ecrecover` (`SwapLib.sol:1181`), NOT
+    ///            `SignatureCheckerLib`: §B7 records that `lpEth` is derived from the channel key,
+    ///            so an LP is necessarily that key's EOA and a smart-wallet LP is not expressible.
+    ///            Carrying ERC-1271 costs ~2 KB of `Quid` for a case the design has ruled out. If
+    ///            §B7 is ever un-ratified (it asks to be RATIFIED, not inherited), this is where it
+    ///            comes back.
+    ///         4. ⭐ **THE ORACLE** — `AUX.getTWAPforAsset`, OUR read, the same source settlement
+    ///            uses. The relayer picks WHEN and nothing else; a keeper that lies about the price
+    ///            is refused by the contract that owns the price. That is §C2.1's discipline — the
+    ///            keeper names a venue, never a rate — applied to time instead of venue.
+    ///         🔒 **NO ESCROW AND NO TRANSFER IN.** The owner's capital never moved to place this;
+    ///         it stayed in the basket or in-range, EARNING and IL-protected. The fill only
+    ///         RECLASSIFIES it through `settleOor` — ATOMICALLY, which is the defect the v4 book had
+    ///         and this does not: there, a crossing converted the position inside the PoolManager
+    ///         while `POOLED_*`, shares and backing stayed unchanged until the owner happened to
+    ///         call `pull`. The protocol was blind in between. It carries the owner's `loadBalance`
+    ///         consent for exactly the reason an in-range swap does (§E308).
+    /// @dev    🔴 **FOUR STACKED `@notice` BLOCKS WERE COLLAPSED INTO THE ONE ABOVE (2026-09-05).**
+    ///         Three superseded rewrites had accreted here, each re-opening *"⭐ THE … OUT-OF-RANGE
+    ///         MECHANISM"*, and **the oldest CONTRADICTED the other three on a security-relevant
+    ///         fact**: it said *"`SignatureCheckerLib` accepts an EOA or an ERC-1271 smart wallet,
+    ///         so this does not exclude the smart-wallet holders §E183 narrowed toward."* The body
+    ///         uses bare `ecrecover`, so a smart-wallet maker is refused — the opposite of what the
+    ///         first block a reader meets promised. Only the last block reached NatSpec, which is
+    ///         why this survived: the contradiction was invisible to every tool and to any reader
+    ///         who stopped at the first paragraph.
     /// @param routes ONE aggregator route per basket stable, RELAYER-SUPPLIED AND UNSIGNED — the
     ///        maker cannot know at signing time which venue will be deepest at fill time, and should
     ///        not have to. Only used on a SELL whose named stable the basket cannot fully cover:
@@ -1276,8 +1254,18 @@ contract Quid is Shares,
         // §INTENT-FUNDING-LEG — the gate that stood here is GONE because the hole it covered is
         // closed: `fillIntentBody` now spends the maker's basket claim through `AUX.spendClaim`
         // BEFORE deriving either leg, and `usdDelta` is what that burn realised rather than what
-        // was asked for. ⚠️ The SELL direction is still unbuilt and reverts inside the body
-        // (`IntentSellLegUnbuilt`) — its settlement shape is `_withdraw`'s, not `settleOor`'s.
+        // was asked for.
+        // 🔴 **DESTALED — THE SELL LEG IS BUILT, AND THIS SAID IT WAS NOT.** It read *"The SELL
+        //    direction is still unbuilt and reverts inside the body (`IntentSellLegUnbuilt`) — its
+        //    settlement shape is `_withdraw`'s, not `settleOor`'s."* **`IntentSellLegUnbuilt` has
+        //    ZERO occurrences in `evm/src` outside that sentence** — it is not a declared error and
+        //    nothing raises it — while `_settleSellIntent` is implemented below, called on the line
+        //    above whenever `wantUsd6 > 0`, with `_convertShortfall` wired into it. And the shape
+        //    claim was wrong too: it settles through `settleOor` like the buy leg, by SHRINKING the
+        //    maker's claim on ether that never moves (`volDelta` stays 0), which is exactly what
+        //    `_settleSellIntent`'s own docblock explains.
+        // ⚠️ This is the worst-shaped stale in the file: a comment saying "unbuilt" about working
+        //    code makes a reader skip the code rather than re-read it.
         CORE.settleOor(i.owner, usdDelta, volDelta, i.loadBalance);
         emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
         return true;
@@ -1400,10 +1388,25 @@ contract Quid is Shares,
         if (usd6 == 0 || eth == 0) return 0; // empty range -> free stables only
         _rebalance();   // §V4-RESIDUE 2026-08-18: kept for its EFFECT; returns are all unused now.
         // ROOT-PRECISE: size the ETH removal by the range's OWN in-range USD/ETH ratio, NOT an external TWAP.
-        // Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD (plus
-        // the paired ETH, which stays in-venue). ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at
-        // POOLED. This frees precisely what redemption asks (no over/under-free) with ZERO oracle dependency
-        // — so a dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
+        // ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at POOLED. ZERO oracle dependency — so a
+        // dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
+        //
+        // 🔴 **DESTALED — "RELEASES EXACTLY `usdWanted`" IS FALSE WHENEVER LPs HOLD AN INCREMENT.** This read
+        //    *"Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD …
+        //    This frees precisely what redemption asks (no over/under-free)."* The SIZING here uses `usd6`
+        //    (`_corePooledUsd6()`, the WHOLE USD leg); the RELEASE is sized by `SwapLib.burnInRange` as
+        //    `basketUsd·pulled/pooled` — the BASKET's own share. The two agree only when `usd6 == basketUsd`.
+        //    ⇒ With an LP increment present the unwind frees `usdWanted · basketUsd/POOLED_USD`, i.e. it
+        //    **UNDER-frees**, and the increment is the NORMAL state: the fee mint passes `basketLeg = false`,
+        //    so `POOLED_USD` grows without `basketUsd` (correctly — fees are LP-owned).
+        // ✅ **NOTHING DOWNSTREAM IS MISLED, WHICH IS WHY THIS WAS SURVIVABLE:** `usdFreed` below is measured
+        //    as the real `usd6` delta, not assumed equal to `usdWanted`, so `BasketLib` sees the true smaller
+        //    figure. The defect was the CLAIM, not the number.
+        // ✅ **AND IT IS THE REASON A REDEMPTION WAVE CANNOT TOUCH LP-OWNED DOLLARS** (checked 2026-09-05):
+        //    `usdOut <= basketUsd` by construction, so `_poolUsdInRange`'s burn arm always takes the
+        //    `usdAmount` branch of `min(basketUsd, usdAmount)` and BOTH legs fall by the same amount — the
+        //    increment `POOLED_USD − basketUsd` is invariant across the unwind. The arm that DOES consume the
+        //    increment (`basketUsd < usdAmount`, which that block documents) is unreachable from here.
         _burnInRange(SoladyMath.fullMulDiv(usdWanted, eth, usd6 * 1e12), address(0));
         uint after6 = _corePooledUsd6();
         usdFreed = usd6 > after6 ? (usd6 - after6) * 1e12 : 0;

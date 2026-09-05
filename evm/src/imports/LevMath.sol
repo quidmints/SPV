@@ -34,7 +34,12 @@ import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 ///         funcs run in the MANAGER's context (`address(this)`==manager); immutables the manager owns (AUX/volatile)
 ///         come in via the cfg structs. Routing is SPLIT BY LEG TYPE and no longer "all Curve":
 ///         the STABLE hops (stable↔USDC) are Curve stableswap, and every VOLATILE hop
-///         (USDC↔WETH, USDC↔WBTC) is a pinned Uniswap V3 pool via `_poolSwap` (§V-R1-MIN).
+///         (USDC↔WETH, USDC↔WBTC) goes through `_aggSwap` against the pinned 1inch router.
+///         ⚠️ This read *"a pinned Uniswap V3 pool via `_poolSwap` (§V-R1-MIN)"* until 2026-09-05.
+///         **§C2.1 DELETED `_poolSwap` outright** (owner: *"we dont need v3 anymore pull it out and
+///         delete it completley"*) — 0 code references remain. `_aggSwap` still takes a POOL WORD,
+///         so §V-R1-MIN's keeper discipline (names a venue, never a rate) is unchanged; only the
+///         executor moved.
 ///         The USDC<->volatile Curve leg is GONE from this file — only weETH→WETH (`ETHERFI_CURVE_POOL`) remains
 ///         Curve-on-a-volatile-pair, and that is a dedicated LST pool, not a router.
 ///         (The below-entry SHORT / inverse-venue subsystem was removed — up-side-only is the design.)
@@ -856,8 +861,10 @@ library LevMath {
     ///      market still lends a stable. Registering a weETH-collateral / WETH-loan market then
     ///      removes both legs by itself.
     /// @dev Borrowed stable → WETH. Two hops, because the deep dollar markets are RLUSD/PYUSD
-    ///      while the volatile book is a pinned Uniswap V3 pool:
-    ///          stable →(Curve stableswap, int128)→ USDC →(Uniswap V3, `_poolSwap`)→ WETH
+    ///      while the volatile book is reached through the aggregator:
+    ///          stable →(Curve stableswap, int128)→ USDC →(1inch, `_aggSwap`)→ WETH
+    ///      ⚠️ The second hop read *"(Uniswap V3, `_poolSwap`)"* until 2026-09-05; §C2.1 deleted
+    ///      `_poolSwap` (0 code references). The hop shape is unchanged, the executor is not.
     ///      The caller mints the result straight into weETH; WETH never rests as collateral.
     /// ⚠️ THE FLOOR IS ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop. A per-hop floor
     ///      would let the pair of hops lose more than the stated slippage between them. This is the
