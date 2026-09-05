@@ -1258,6 +1258,10 @@ mod e166_consent_tests {
             auth: quid_hop::evm_codec::OpenAuth {
                 btc_recipient: [0x11u8; 32],
                 btc_recipient_pop: vec![pop_byte; 64],
+                // Constant across both consents: the discriminator this test varies is the PoP,
+                // per the docblock above. Same 33-byte compressed placeholder `evm_codec`'s own
+                // fixture uses.
+                lp_payment_point: vec![0x02u8; 33],
             },
             exits: vec![quid_hop::evm_codec::ExitArming {
                 cltv_deadline: 800_000,
