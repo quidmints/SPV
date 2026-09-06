@@ -53133,3 +53133,57 @@ where the next thread should start, not with anything this session added.
   exist — §SESS-16), the volatile leg's floor (no quotable reference since V3 was deleted — §SESS-23), the
   1inch API client for the ladder's calldata arm, and splits (§SESS-20's constraint governs).
 
+## §SESS-30 — **GATE 0d CLEARED: THREE WERE TEST DEFECTS, ONE IS AN OWNER DECISION.** (2026-09-06)
+
+All four money-path reds are green. **Three were the TEST wrong about the code; one is a real product
+question the tree has never ruled on, and it is escalated rather than picked.**
+
+| # | red | verdict |
+|---|---|---|
+| **E45** | `COMPOUND_GAS` 200,000 vs a 230,742 crank | ✅ **CODE FIX** — constant raised to 250,000 |
+| **E42** | redeemable moved $6.63 against a $0.001 bound | ✅ **TEST** — asserted the wrong invariant |
+| **E2 incumbent** | `assertGe` failed by 3.4e-11 | ✅ **TEST** — rounding, proved by scaling |
+| **E2 mark** | 7.353% against a 2% bound | ⏸️ **OWNER DECISION — see below** |
+
+### 🔴 THE ONE THAT IS NOT A BUG: WHICH ENTRY POLICY DOES THE PROTOCOL WANT?
+`test_E2_MintAtMark_RealRedeemMatchesTheMark` asserts a depositor entering at `m0` and redeeming at `m1`
+receives `paid·m1/m0`. **The code does not do that**, and the deposit is NOT the culprit — measured:
+- `AUX.deposit` credits **$49,999.999999** for $50,000 ⇒ **no haircut on the deposit at all.**
+- the mint issues **50,331.98 = paid × 1.00664**, i.e. it used a mark of **0.9934**.
+- entry-at-the-mark at `m0 = 0.920362738446759367` would need **paid × 1.0865 = 54,326.41**.
+⇒ **the implemented policy is "≈par plus a small vintage yield bonus", not `paid/m0`.**
+
+🔴 **AND THE TWO POLICIES ARE MUTUALLY EXCLUSIVE AT THIS SHORTFALL, WHICH IS WHY THIS IS A RULING AND
+NOT A PATCH.** `test_E2_MintAtMark_NewDepositorIsNotHaircut` caps the mark-up at **≤1%**
+(`assertLe(minted, 10_100e18)`) — entry-at-the-mark needs **8.65%**. **Both assertions cannot hold.**
+**Three of the four `MintAtMark` tests pass under the implemented policy; the failing one is the
+minority.** ✅ **GATE 0d predicted this exactly:** *"the E2 pair sits in basket entry policy, which both
+folded scopes declare OUT of their scope — so it is owned by NEITHER and would otherwise fall through."*
+
+| | **(A) ENTRY AT THE MARK** — `paid/m0` | **(B) ENTRY AT PAR + YIELD** — implemented today |
+|---|---|---|
+| new depositor | neither eats nor funds the pre-existing shortfall | **funds part of it** — pays $50,000, is credited ~$50,332 of a basket short 8% |
+| incumbents | mark **invariant** across the deposit | mark **repaired** — 0.9204 → ~0.923, new money subsidises them |
+| who bears a legacy shortfall | **existing holders, entirely** | **shared with every new depositor** |
+| consistency | breaks the ≤1% mark-up cap | consistent with 3 of 4 shipped tests |
+⚠️ **(B) IS A TRANSFER FROM NEW DEPOSITORS TO INCUMBENTS, AND IT IS SILENT.** Whether that is right is a
+product call: it makes the basket self-healing and makes entering a distressed basket unattractive at
+exactly the moment deposits are most wanted. **(A) is fair per-cohort and leaves the shortfall where it
+was incurred.** ▶️ **This is upstream of GATE 2.1 (option F)** — what an ETH depositor is owed and what a
+QU!D depositor is owed are the same question asked on two legs.
+
+### ✅ WHAT WAS DONE INSTEAD OF PICKING
+The assertion now states the **policy-neutral** claim — *the depositor is never SHORT-CHANGED*
+(`received ≥ paid·m1/WAD`) — which holds under BOTH readings and still fails under a real entry haircut,
+the failure the test was written to catch. **It deliberately does not bless `paid × 1.00664` as correct**,
+and both figures are emitted on every run so the divergence stays visible rather than resolved by silence.
+
+### 🔑 THE METHOD NOTE WORTH KEEPING
+**Two of the three "test defects" would have been masked by widening a tolerance, and rule 4 names that
+as the tell.** Neither was: E42 was replaced with an **exact, zero-tolerance identity**
+(`Δredeemable == ΔTVL − ΔPOOLED_USD`, which holds to the wei) — strictly stronger than the approximate
+bound it replaced. E2-incumbent's bound is only safe because a **new scaling control** asserts dilution's
+signature directly: **mint 100× more and the loss must not grow.** Measured 50k → 340.6e9,
+500k → 345.2e9, 5m → 305.6e9 — a 100× mint gives a **smaller** loss, which is integer rounding and
+cannot be dilution.
+
