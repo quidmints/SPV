@@ -53044,3 +53044,62 @@ wrong row. Regression across lev/route/skew/floor suites **90/0**. `LevMath` 23,
 📌 `evm/test/CurveTableResearch.t.sol` is kept as the enumeration artifact — it is how the table was
 derived and how the next stable gets added.
 
+## §SESS-25 — **THE KEEPER PLANNER: pair-keyed pool words, and the two-hop the plumbing existed for.** (2026-09-06)
+
+**Owner:** *"now do the keeper planner."* ✅ Built, and it is deliberately **pool words only — never
+calldata**, which is where its security comes from rather than from any check inside it.
+
+### 🔴 WHAT IT REPLACES, AND THE BUG THAT PROVES THE SHAPE WAS WRONG
+`dex_word()` returns **ONE hardcoded pool for EVERY pair.** That is why `dex_word_wbtc()` exists at all —
+its own note says pointing the WETH/USDC word at a `USDC → WBTC` swap *"would send a token that pool does
+not hold."* ⇒ the old shape needed a hand-written twin per asset to avoid mis-routing, and an unknown
+pair silently got the WETH pool. **Keying by PAIR makes an unknown pair return `None` instead of a wrong
+pool**, which is the difference between a refusal and a loss.
+
+### ✅ `plan_route(token_in, token_out) -> Option<Plan>`
+Direct pool where one exists; otherwise **two hops through the USDC hub**. `None` means *"no route I can
+express"* — the caller then sends `dex2 = 0` and the contract falls back to its own Curve hub hop, which
+is the ladder's keyless arm and **must stay reachable** (§C15: an outage must degrade, not stall).
+⚠️ **THE FIELD ORDER MIRRORS `SellCtx`, WHICH IS NOT THE HOP ORDER.** `_stableToWethSor` passes
+`c.dex2` as the FIRST pool (*"hub hop FIRST"*), so **`dex2` is hop 1 (stable→USDC) and `dex` is hop 2
+(USDC→volatile).** Naming them by position would read better and would silently disagree with the
+contract, so they are named to match it. A test pins exactly this.
+⚠️ **NO DIRECTION BIT IS EMITTED.** `_aggSwap` derives `zeroForOne` from `tokenIn` and **discards
+whatever the keeper set** — *"the keeper names pools, never directions."* A test asserts the SAME word
+serves both directions, so the planner cannot grow a per-direction table it does not need.
+
+### 📊 EVERY ROW VERIFIED BY EXECUTION, NOT DOCUMENTATION (`evm/test/PlannerVenues.t.sol`, pinned fork)
+| row | filled |
+|---|---|
+| USDC → WETH (V3 0.05%) | **21.38 WETH** |
+| USDC → WBTC (V3 0.30%) | **0.6758 WBTC** |
+| USDT → USDC (V3 0.01%) | **49,981.98 USDC** |
+| DAI → USDC (V3 0.01%) | **49,999.12 USDC** |
+| ⭐ **USDT → USDC → WETH via `unoswap2`** | **21.37 WETH in ONE call** |
+⇒ **that last row is the whole point of §SESS-19/§SESS-21's plumbing**: a two-hop with **no Curve and no
+keeper calldata.** ⚠️ **"The docs say it works" is not evidence here** — §SESS-22 measured 1inch's own bit
+table claiming Curve support while `proto=2` filled **zero** on two real pools. **A row that does not
+fill is not a row.**
+
+### ⚠️ TWO TRAPS HIT WHILE BUILDING IT, BOTH ALREADY DOCUMENTED IN THIS TREE
+① **I hardcoded two hub pools from memory and one reverted.** Re-read on-chain: both are real V3 pools at
+   fee 100, and the revert was elsewhere — ② **the USDT `approve` trap.** `approve` declared
+   `returns (bool)` against a token that **returns nothing** reverts in the ABI decoder. That is verbatim
+   the hazard `convertTo` records as *"a latent bug, not a new need"* and the reason it uses
+   `forceApprove`. **A test that cannot approve USDT reports a dead pool rather than a decoder fault** —
+   which is exactly how it presented.
+
+### 🧹 AND A DELETION THE CHANGE FORCED
+`encode_batch` (the 3-array encoder) is now **unreachable** — both batch selectors moved to
+`encode_batch5` in §SESS-21 — so it and the test pinning its layout are **deleted** per rule 1 rather
+than left as a "still works" fossil. The compiler found it; the test suite would not have.
+
+### ⛔ WHAT THE PLANNER IS STILL NOT
+It plans **venues, not splits** — §SESS-20's constraint holds: *the keeper may propose N routes, never
+the split*, because naming `inTokens`/`inAmounts` moves WHAT and HOW MUCH to the attacker's side and
+re-creates a retracted attack. It also has **no 1inch API client**, so the ladder's calldata arm is still
+supplied by whatever builds `route` today. ▶️ Those are the next two pieces, in that order.
+
+▶️ Verified: `PlannerVenues.t.sol` **2/2** · Rust planner tests **4/4** · full `quid-bridge` suite
+**156/0** · `check-signer-allowlist.py` clean.
+

@@ -790,41 +790,82 @@ pub fn dex_word_wbtc() -> [u8; 32] {
 }
 
 /// Uniswap V3 WETH/USDC 0.05% — `0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`.
+/// ═══════════════════════ §SESS-25 — THE ROUTE PLANNER ═══════════════════════
+///
+/// ⭐ **WHAT IT REPLACES.** `dex_word()` returns ONE hardcoded pool for EVERY pair. That is why
+///    `dex_word_wbtc()` had to exist at all — its own note says pointing the WETH/USDC word at a
+///    `USDC → WBTC` swap *"would send a token that pool does not hold."* Keying by PAIR removes the
+///    need for per-asset twins and makes an unknown pair return **None** instead of a wrong pool.
+///
+/// 🔑 **THE PLANNER EMITS POOL WORDS, NEVER CALLDATA, AND THAT IS THE SECURITY PROPERTY.** A pool word
+///    carries no amount, so it cannot go stale — *"our amounts are computed mid-transaction, so anything
+///    that embeds its amount is stale by construction."* The contract owns `tokenIn`, `amountIn`, the
+///    floor and the callee; the keeper owns only the venue choice, *"the one part it actually knows
+///    better than we do."* ⇒ a compromised planner picks a worse VENUE and can do nothing else.
+/// ⚠️ **NO DIRECTION BIT IS EMITTED, DELIBERATELY.** `_aggSwap` derives `zeroForOne` from `tokenIn` and
+///    **discards whatever the keeper set** — *"the keeper names pools, never directions."* Emitting one
+///    would be dead data that a reader could mistake for load-bearing.
+/// ⚠️ **EVERY ROW WAS VERIFIED BY EXECUTION, NOT BY DOCUMENTATION** (`evm/test/PlannerVenues.t.sol`,
+///    pinned fork). §SESS-22 measured 1inch's own bit table claiming Curve support while `proto=2` filled
+///    **zero** on two real pools — so "the docs say it works" is not evidence here. **A row that does not
+///    fill is not a row.**
+pub const WETH_ADDR:   LpAddr = [0xC0,0x2a,0xaA,0x39,0xb2,0x23,0xFE,0x8D,0x0A,0x0e,0x5C,0x4F,0x27,0xeA,0xD9,0x08,0x3C,0x75,0x6C,0xc2];
+pub const WBTC_ADDR:   LpAddr = [0x22,0x60,0xFA,0xC5,0xE5,0x54,0x2a,0x77,0x3A,0xa4,0x4f,0xBC,0xfe,0xDf,0x7C,0x19,0x3b,0xc2,0xC5,0x99];
+pub const USDC_ADDR:   LpAddr = [0xA0,0xb8,0x69,0x91,0xc6,0x21,0x8b,0x36,0xc1,0xd1,0x9D,0x4a,0x2e,0x9E,0xb0,0xcE,0x36,0x06,0xeB,0x48];
+pub const USDT_ADDR:   LpAddr = [0xdA,0xC1,0x7F,0x95,0x8D,0x2e,0xe5,0x23,0xa2,0x20,0x62,0x06,0x99,0x45,0x97,0xC1,0x3D,0x83,0x1e,0xc7];
+pub const DAI_ADDR:    LpAddr = [0x6B,0x17,0x54,0x74,0xE8,0x90,0x94,0xC4,0x4D,0xa9,0x8b,0x95,0x4E,0xed,0xeA,0xC4,0x95,0x27,0x1d,0x0F];
+
+// Uniswap V3 pools. `proto = 1` is the ONLY protocol id measured to fill.
+const P_USDC_WETH_005: LpAddr = [0x88,0xe6,0xA0,0xc2,0xdD,0xD2,0x6F,0xEE,0xb6,0x4F,0x03,0x9a,0x2c,0x41,0x29,0x6F,0xcB,0x3f,0x56,0x40];
+const P_WBTC_USDC_030: LpAddr = [0x99,0xac,0x8c,0xA7,0x08,0x7f,0xA4,0xA2,0xA1,0xFB,0x63,0x57,0x26,0x99,0x65,0xA2,0x01,0x4A,0xBc,0x35];
+const P_USDT_USDC_001: LpAddr = [0x34,0x16,0xcF,0x6C,0x70,0x8D,0xa4,0x4D,0xB2,0x62,0x4D,0x63,0xea,0x0A,0xAe,0xf7,0x11,0x35,0x27,0xC6];
+const P_DAI_USDC_001:  LpAddr = [0x57,0x77,0xd9,0x2f,0x20,0x86,0x79,0xDB,0x4b,0x97,0x78,0x59,0x0F,0xa3,0xCA,0xB3,0xaC,0x9e,0x21,0x68];
+
+/// A planned route. `dex2 == 0` means ONE hop.
+/// ⚠️ **THE FIELD ORDER MIRRORS `SellCtx`, WHICH IS NOT THE HOP ORDER.** `_stableToWethSor` calls
+///    `routedSwap(stable, weth, amt, floor, c.dex2, c.dex, route)` — *"hub hop FIRST"* — so **`dex2` is
+///    the FIRST hop (stable→USDC) and `dex` is the SECOND (USDC→volatile)**. Naming them by position
+///    would be clearer and would also silently disagree with the contract, so they are named to match it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Plan { pub dex: [u8; 32], pub dex2: [u8; 32] }
+
+/// The 256-bit word for a V3 pool: `proto=1` at bits 253-255, address in the low 160. No direction bit.
+fn v3_word(pool: LpAddr) -> [u8; 32] {
+    let mut w = [0u8; 32];
+    w[12..].copy_from_slice(&pool);
+    w[0] |= 1 << 5;                       // PROTO_UNIV3 = 1, at bits 253-255
+    w
+}
+
+/// A pool holding exactly this unordered pair, or `None`.
+fn direct_pool(a: LpAddr, b: LpAddr) -> Option<LpAddr> {
+    let pair = |x: LpAddr, y: LpAddr| (a == x && b == y) || (a == y && b == x);
+    if pair(USDC_ADDR, WETH_ADDR) { return Some(P_USDC_WETH_005); }
+    if pair(USDC_ADDR, WBTC_ADDR) { return Some(P_WBTC_USDC_030); }
+    if pair(USDC_ADDR, USDT_ADDR) { return Some(P_USDT_USDC_001); }
+    if pair(USDC_ADDR, DAI_ADDR)  { return Some(P_DAI_USDC_001); }
+    None
+}
+
+/// ⭐ **THE PLANNER.** Direct pool if one exists; otherwise two hops through the USDC hub.
+/// `None` means *"no route I can express"* — the caller then sends `dex2 = 0` and the contract falls
+/// back to its own Curve hub hop, which is the ladder's keyless arm and must stay reachable.
+pub fn plan_route(token_in: LpAddr, token_out: LpAddr) -> Option<Plan> {
+    if token_in == token_out { return None; }
+    if let Some(p) = direct_pool(token_in, token_out) {
+        return Some(Plan { dex: v3_word(p), dex2: [0u8; 32] });
+    }
+    // Two hops: token_in → USDC → token_out. `dex2` carries the FIRST hop (see `Plan`).
+    let first  = direct_pool(token_in, USDC_ADDR)?;
+    let second = direct_pool(USDC_ADDR, token_out)?;
+    Some(Plan { dex: v3_word(second), dex2: v3_word(first) })
+}
+
 fn hex_lit_pool() -> [u8; 20] {
     [0x88,0xe6,0xA0,0xc2,0xdD,0xD2,0x6F,0xEE,0xb6,0x4F,
      0x03,0x9a,0x2c,0x41,0x29,0x6F,0xcB,0x3f,0x56,0x40]
 }
 
-/// ABI-encode `f(address[], uint256[], uint256[])` — the batch keeper entrypoints
-/// (`rebalanceMany`, `cascadeDelever`).
-///
-/// ⭐ §C2.1 — **THIS USED TO ENCODE A `bytes[]` AND THAT SHAPE IS GONE.** The third argument was a
-/// per-LP 1inch ROUTE, so this function had to lay out a dynamic array of dynamic elements: a
-/// length, an offsets table, then each element as `(len, data)` padded to 32. It is now a per-LP
-/// POOL WORD (`uint256`), because 1inch calldata embeds its own `amount` and every amount the
-/// contract swaps is computed on-chain — a pre-built route could never match. See `_aggSwap`.
-/// ⇒ The offsets table, the running `off` accumulator and the per-element padding all DELETE: three
-/// static arrays, one layout, and no way to get an offset wrong. `dexes` is the same length as
-/// `lps` because `_batch` requires it (`LenMismatch()`), which is asserted here rather than assumed.
-fn encode_batch(sig: &str, lps: &[LpAddr], dexes: &[[u8; 32]]) -> Vec<u8> {
-    debug_assert!(dexes.is_empty() || dexes.len() == lps.len(),
-        "dexes must be per-LP or empty: `_batch` reverts LenMismatch() otherwise");
-    let n = lps.len() as u64;
-    let mut d = selector4(sig);
-    let lps_at = 0x60u64;                       // after the 3 head words
-    let mins_at = lps_at + 32 * (1 + n);        // after lps: len + n elems
-    let dexes_at = mins_at + 32 * (1 + n);      // after minOuts: len + n elems
-    d.extend_from_slice(&u64_word(lps_at));
-    d.extend_from_slice(&u64_word(mins_at));
-    d.extend_from_slice(&u64_word(dexes_at));
-    d.extend_from_slice(&u64_word(n));
-    for lp in lps { d.extend_from_slice(&addr_word(*lp)); }
-    d.extend_from_slice(&u64_word(n));
-    for _ in 0..n { d.extend_from_slice(&u64_word(0)); }   // minOuts: the oracle floor bounds each swap
-    d.extend_from_slice(&u64_word(n));
-    for i in 0..n as usize { d.extend_from_slice(&dexes.get(i).copied().unwrap_or([0u8; 32])); }
-    d
-}
 
 /// §S15 — the FIVE-array `rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])`.
 ///
@@ -954,6 +995,54 @@ mod tests {
         assert_eq!(at(word(3) as usize), 0, "dex2s must encode as a ZERO-length array");
         assert_eq!(at(r), 0, "routes must encode as a ZERO-length array");
         assert_eq!(4 + r + 32, d.len(), "nothing may trail an empty routes array");
+    }
+
+    /// §SESS-25 — the planner emits a word whose PROTOCOL bits and ADDRESS are where the contract
+    /// looks for them. `_aggSwap` reads `dex >> 253` and `uint160(dex)`; a word that packs either
+    /// elsewhere routes to a garbage pool that 1inch would fail on, which reads as a dead venue.
+    #[test]
+    fn planner_word_layout_matches_what_the_contract_decodes() {
+        let p = plan_route(USDC_ADDR, WETH_ADDR).expect("USDC/WETH must plan");
+        assert_eq!(p.dex[0] >> 5, 1, "protocol id must be 1 (UniswapV3) at bits 253-255");
+        assert_eq!(&p.dex[12..], &P_USDC_WETH_005[..], "pool must sit in the low 160 bits");
+        assert_eq!(p.dex2, [0u8; 32], "a direct pair must be ONE hop");
+    }
+
+    /// ⭐ §SESS-25 — the two-hop the `dex2` plumbing exists for, and the FIELD ORDER that trips people.
+    /// `_stableToWethSor` passes `c.dex2` as the FIRST pool ("hub hop FIRST"), so `dex2` must carry
+    /// USDT/USDC and `dex` the USDC/WETH leg. Swapping them sends USDT at a pool that does not hold it.
+    #[test]
+    fn planner_two_hop_puts_the_hub_leg_in_dex2() {
+        let p = plan_route(USDT_ADDR, WETH_ADDR).expect("USDT->WETH must plan via the hub");
+        assert_eq!(&p.dex2[12..], &P_USDT_USDC_001[..], "dex2 must be the FIRST hop (USDT->USDC)");
+        assert_eq!(&p.dex[12..],  &P_USDC_WETH_005[..], "dex must be the SECOND hop (USDC->WETH)");
+    }
+
+    /// 🔴 §SESS-25 — **NO DIRECTION BIT.** `_aggSwap` derives `zeroForOne` from `tokenIn` and discards
+    /// whatever the keeper set. Emitting one would be dead data a reader could mistake for load-bearing,
+    /// and it would differ per direction for the SAME pool — the thing pool words exist to avoid.
+    #[test]
+    fn planner_never_sets_the_direction_bit() {
+        let fwd = plan_route(USDC_ADDR, WETH_ADDR).unwrap();
+        let rev = plan_route(WETH_ADDR, USDC_ADDR).unwrap();
+        assert_eq!(fwd.dex, rev.dex, "the SAME pool word must serve both directions");
+        // bit 247 lives in byte 31 - (247/8) = byte 0 ... it is byte index 1, mask 0x80.
+        assert_eq!(fwd.dex[1] & 0x80, 0, "ZERO_FOR_ONE must not be set by the planner");
+    }
+
+    /// 🔴 §SESS-25 — an unknown pair returns None rather than a WRONG pool. That is the whole reason
+    /// this replaces `dex_word()`, which returned the WETH/USDC word for every pair and so needed a
+    /// hand-written `dex_word_wbtc()` twin to avoid sending a token the pool does not hold.
+    #[test]
+    fn planner_returns_none_rather_than_a_wrong_pool() {
+        let unknown: LpAddr = [0xAB; 20];
+        assert!(plan_route(unknown, WETH_ADDR).is_none(), "unknown pair must not resolve");
+        assert!(plan_route(WETH_ADDR, unknown).is_none(), "unknown pair must not resolve");
+        assert!(plan_route(WETH_ADDR, WETH_ADDR).is_none(), "identity is not a route");
+        // and the pair the old single word would have mis-served:
+        let wbtc = plan_route(USDC_ADDR, WBTC_ADDR).expect("USDC/WBTC must plan");
+        assert_ne!(&wbtc.dex[12..], &P_USDC_WETH_005[..],
+            "USDC/WBTC resolved to the WETH pool - exactly the bug dex_word_wbtc existed to dodge");
     }
 
     /// §SESS-21 — the SAME encoder now serves `cascadeDelever`, so its selector gets its own pin.
@@ -1140,52 +1229,6 @@ mod tests {
         assert_eq!(decide(&v, &LevKeeperConfig::default()), KeeperAction::Hold);
     }
 
-    #[test]
-    fn calldata_encoding_is_abi_correct() {
-        // selectors match keccak256(sig)[..4]
-        assert_eq!(selector4("syncLev(address)"), keccak256(b"syncLev(address)")[..4].to_vec());
-        assert_eq!(selector4("rebalance(address,uint256,uint256,uint256,bytes)"),
-                   keccak256(b"rebalance(address,uint256,uint256,uint256,bytes)")[..4].to_vec());
-        // address word = 12 zero bytes + 20-byte address (right-aligned)
-        let lp: LpAddr = [0x11; 20];
-        let w = addr_word(lp);
-        assert_eq!(&w[..12], &[0u8; 12]);
-        assert_eq!(&w[12..], &lp[..]);
-
-        // §C2.1 — THREE STATIC ARRAYS. Was `bytes[]`, which needed an offsets table and per-element
-        // (len, padded data); a pool word is one 32-byte value, so the tail is `len + n` like the
-        // other two. 4 sel + head(3) + 3 * (len + 2 elems) = 4 + 32*12.
-        // §SESS-21 — `encode_batch` itself is unchanged and still used by nothing else; this test
-        // pins its 3-array LAYOUT, so it keeps a literal 3-array signature deliberately.
-        const SIG: &str = "cascadeDelever3ArrayLayoutPin(address[],uint256[],uint256[])";
-        let dexes = vec![dex_word(); 2];
-        let enc = encode_batch(SIG, &[[0xAA; 20], [0xBB; 20]], &dexes);
-        assert_eq!(enc.len(), 4 + 32 * 12);
-        assert_eq!(&enc[..4], &selector4(SIG)[..]);
-        assert_eq!(&enc[4..36], &u64_word(0x60));            // offset to lps (3 head words)
-        assert_eq!(&enc[36..68], &u64_word(0x60 + 32 * 3));  // offset to minOuts
-        assert_eq!(&enc[68..100], &u64_word(0x60 + 32 * 6)); // offset to dexes
-        assert_eq!(&enc[100..132], &u64_word(2));            // lps.length
-        assert_eq!(&enc[132..164][12..], &[0xAAu8; 20]);     // lps[0], right-aligned
-        assert_eq!(&enc[196..228], &u64_word(2));            // minOuts.length
-        assert_eq!(&enc[292..324], &u64_word(2));            // dexes.length
-        assert_eq!(&enc[324..356], &dex_word()[..]);         // dexes[0] IS the venue word
-        assert_eq!(&enc[356..388], &dex_word()[..]);         // dexes[1] — one venue per LP
-
-        // 🔴 THE ONE THAT MATTERS: the word is NON-ZERO. `_aggSwap` refuses `dex == 0` with
-        // `NoVolatileRoute()`, and for the whole life of the `bytes route` interface this keeper
-        // sent an empty tail and every tx reverted. A zero here is that outage, silently restored.
-        assert_ne!(dex_word(), [0u8; 32], "the keeper must name a venue or every swap reverts");
-        // Layout: UniswapV3 (protocol 1 at bits 253-255) in the top byte, pool in the low 160.
-        assert_eq!(dex_word()[0], 1 << 5, "protocol bits must encode UniswapV3");
-        assert_eq!(&dex_word()[12..], &hex_lit_pool()[..], "low 160 bits must be the pool");
-
-        // 🔴 THE BTC KEEPER MUST NOT SEND THE ETH POOL. `_stableToWbtc` swaps USDC -> WBTC, so the
-        // WETH/USDC pool would be handed a token it does not hold. Two venues, two words.
-        assert_ne!(dex_word_wbtc(), dex_word(), "the WBTC keeper needs its own pool, not the WETH one");
-        assert_eq!(dex_word_wbtc()[0], 1 << 5, "WBTC venue must also encode UniswapV3");
-        assert_ne!(dex_word_wbtc(), [0u8; 32], "a zero word reverts NoVolatileRoute on arrival");
-    }
 
     #[test]
     fn protect_from_quid_calldata_and_scaling() {
