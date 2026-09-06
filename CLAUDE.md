@@ -228,6 +228,37 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     claim that sounded right; the slither one was found by measuring a claim that was ALREADY
     labelled stale and turned out to be stale in the opposite direction.
 
+    ### 🔴 NO TOMBSTONES (owner, 2026-09-06: *"we dont need tombstones. genuinely useless
+    comments have to go"*). A comment whose SUBJECT is a deletion answers a question nobody
+    asked and buries the one rule that still binds. **The discriminator, validated across
+    BTCChannels/SwapLib/Types/ChannelLib/Shares:**
+    1. *The subject is the deletion itself* — "this used to say X", "`Foo` DELETED", "it read
+       *…*", "`BAR` has ZERO code references" → **delete the passage.**
+    2. *A dead symbol explains why CURRENT code is shaped as it is* → **rewrite to state the
+       live invariant, without the corpse.** Say what the body DOES.
+    3. *"Do not restore X because Y"* / *"this is NOT the deleted X"* → **keep verbatim.** That
+       is a live constraint on a future editor; deleting it reopens the bug it prevents.
+    4. A hazard that is STILL OPEN survives even when the archaeology around it goes.
+    ⚠️ **Never remove an attribution and leave its quote standing.** Cutting an "It read *…*"
+    opener converts a quoted FALSE claim into an asserted true one. This was done once here and
+    caught only on re-read.
+
+    ### 🔴 A SYMBOL-LIVENESS GREP IS THE CHEAP HALF. THE DANGEROUS STALE NAMES ONLY LIVE SYMBOLS
+    (owner, 2026-09-06: *"dont just look if they reference dead symbols. they might describe
+    logic that no longer exists"*). Every identifier resolves, so it reads as current. Check the
+    CLAIM against the body it sits on — order of operations, a guard that moved or dissolved,
+    a branch that was collapsed, a constant's VALUE, a return shape or sign convention, "the
+    only caller is X" (**a declaration is not a caller**), and cross-file "mirrors Y" claims.
+    *Measured examples, 2026-09-06:* a 14-line `(§E182) THE REKEY GATE` docblock had been
+    orphaned onto `ChannelLib.lpEthOf(bytes)` and documented `keysHash`/`lpEth` parameters that
+    function does not take; `Types.lpEth` was documented as *"recovered signer of openChannel's
+    lpAuth"* when `openChannel` takes no `lpAuth` and no `lpEth` and the address is DERIVED via
+    `ChannelLib.lpEthOf(p.lpPubkey)`. Neither would ever appear in a dead-symbol census.
+
+    📎 The reusable briefs are `PASS.md` + `WIDEN.md` — reproduce them from this rule; the
+    verification that gates every such edit is: the changed-lines diff must contain no code line,
+    and the file's brace count must equal HEAD's.
+
 ## 🔴 RULES 11 AND 15 CONTRADICT EACH OTHER IN A SHARED TREE. THE WORKTREE IS THE RESOLUTION (2026-08-21)
 
 Rule 11 says **commit before a long build**, because the edit outlives the command. Rule 15 says
