@@ -77,7 +77,13 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     "cascadeDelever(address[],uint256[],uint256[])",
     // (§E247) `rebalanceMany` — the #84 whole-book batch (`LevManager:354`), sent by
     // `lev_keeper.rs` since the central rebalancer landed and never listed here.
-    "rebalanceMany(address[],uint256[],uint256[])",
+    // §S15 — GAINED `uint256[],bytes[]` (per-LP `dex2`/`route`). The three-array selector is GONE,
+    // not overloaded, so this entry and `lev_keeper::encode_rebalance_many` move together or the
+    // signer refuses every batch rebalance. ⚠️ `cascadeDelever` deliberately did NOT move: its
+    // `deleverOne` drops `dex2`/`route` before `_deleverFlash` (`LevManager:369`), so a `bytes[]`
+    // there would be signable surface that no code path can consume — the exact shape the note at
+    // the top of this list warns about.
+    "rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])",
     // --- BTC leverage keeper (BtcLevManager) ---
     // §SLOP: `syncLevBTC(address)` was DELETED with the BTC suffix (`Vault.sol:536` — "one name
     // across both ranges"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist

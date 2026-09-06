@@ -605,12 +605,20 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
 
     /// Hold the whole book at its IL target in ONE tx. Gas scales with the batch (each LP is a flash-repay
     /// or lever-up), capped below the block limit; the on-chain loop is fault-tolerant + syncs each LP internally.
-    async fn rebalance_many(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        let (evm, lm, gas, lps) =
-            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
+    async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
+        // §S15 — `routes` used to be `_routes`: the parameter was here and DROPPED, because the
+        // on-chain `rebalanceMany` had nowhere to put it. It does now.
+        // ⚠️ A route only takes effect when its `dex2` is non-zero (`LevMath._stableToWethSor:991`
+        //    branches on `c.dex2 == 0`), and this keeper has no SECOND pool word to plan yet — so
+        //    `dex2s` is sent EMPTY and on-chain behaviour is unchanged today. What this commit buys
+        //    is that the ABI, the allowlist and the contract now AGREE, so supplying a second hop is
+        //    a keeper-planner change alone rather than a four-file one.
+        let (evm, lm, gas, lps, routes) =
+            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
+        let dex2s: Vec<[u8; 32]> = Vec::new();
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let dexes = vec![dex_word(); lps.len()];
-            evm.send_tx(lm, encode_batch("rebalanceMany(address[],uint256[],uint256[])", &lps, &dexes), batch_gas(gas, lps.len()))?;
+            evm.send_tx(lm, encode_rebalance_many(&lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -812,10 +820,137 @@ fn encode_batch(sig: &str, lps: &[LpAddr], dexes: &[[u8; 32]]) -> Vec<u8> {
     d
 }
 
+/// §S15 — the FIVE-array `rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])`.
+///
+/// Kept separate from `encode_batch` rather than generalising it: `cascadeDelever` still takes
+/// three arrays and MUST NOT gain a `bytes[]`, because `deleverOne` drops `dex2`/`route` before
+/// `_deleverFlash` (`LevManager:369`) — a fourth array there would be signable calldata that no
+/// code path consumes.
+///
+/// ⚠️ **`dex2s` and `routes` may each be EMPTY, which is the contract's compat shape** (`length 0`
+///    ⇒ every LP takes the legacy single-hop hub route). Any OTHER length must equal `lps.len()`,
+///    or `rebalanceMany` reverts `LenMismatch()` — a short array would silently give some LPs a
+///    route and others the legacy hop, which is why the contract checks rather than clamps.
+fn encode_rebalance_many(lps: &[LpAddr], dexes: &[[u8; 32]],
+                         dex2s: &[[u8; 32]], routes: &[Vec<u8>]) -> Vec<u8> {
+    debug_assert!(dex2s.is_empty()  || dex2s.len()  == lps.len(), "dex2s must be per-LP or empty");
+    debug_assert!(routes.is_empty() || routes.len() == lps.len(), "routes must be per-LP or empty");
+    let n = lps.len() as u64;
+    let n2 = dex2s.len() as u64;
+    let nr = routes.len() as u64;
+    let mut d = selector4("rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])");
+
+    // Five head words, then each dynamic array laid out in order.
+    let lps_at   = 0xa0u64;
+    let mins_at  = lps_at   + 32 * (1 + n);
+    let dexes_at = mins_at  + 32 * (1 + n);
+    let dex2_at  = dexes_at + 32 * (1 + n);
+    let routes_at = dex2_at + 32 * (1 + n2);
+    for off in [lps_at, mins_at, dexes_at, dex2_at, routes_at] { d.extend_from_slice(&u64_word(off)); }
+
+    d.extend_from_slice(&u64_word(n));
+    for lp in lps { d.extend_from_slice(&addr_word(*lp)); }
+    d.extend_from_slice(&u64_word(n));
+    for _ in 0..n { d.extend_from_slice(&u64_word(0)); }   // minOuts: the on-chain TWAP floor bounds each swap
+    d.extend_from_slice(&u64_word(n));
+    for i in 0..n as usize { d.extend_from_slice(&dexes.get(i).copied().unwrap_or([0u8; 32])); }
+    d.extend_from_slice(&u64_word(n2));
+    for w in dex2s { d.extend_from_slice(w); }
+
+    // `bytes[]`: a length word, then n RELATIVE offsets, then each element as (len, padded data).
+    d.extend_from_slice(&u64_word(nr));
+    let mut rel = 32 * nr;                                  // past the offset table
+    let mut tail: Vec<u8> = Vec::new();
+    for r in routes {
+        d.extend_from_slice(&u64_word(rel));
+        let pad = (32 - (r.len() % 32)) % 32;
+        tail.extend_from_slice(&u64_word(r.len() as u64));
+        tail.extend_from_slice(r);
+        tail.extend(std::iter::repeat(0u8).take(pad));
+        rel += 32 + r.len() as u64 + pad as u64;
+    }
+    d.extend_from_slice(&tail);
+    d
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloy_primitives::keccak256;
+
+    /// §S15 — **THE `bytes[]` OFFSET TABLE IS THE PART THAT FAILS SILENTLY**, so it is decoded back
+    /// rather than merely length-checked. A wrong relative offset does not panic here — it produces
+    /// calldata the contract decodes into a DIFFERENT route, which on-chain becomes a failed leg and
+    /// a `RebalanceFailed` event, i.e. an encoder bug wearing a venue bug's clothes.
+    #[test]
+    fn encode_rebalance_many_lays_out_bytes_array_correctly() {
+        let lps = vec![LpAddr::from([0x11u8; 20]), LpAddr::from([0x22u8; 20])];
+        let dexes = vec![[0xAAu8; 32], [0xBBu8; 32]];
+        let dex2s = vec![[0xCCu8; 32], [0xDDu8; 32]];
+        // Deliberately NOT multiples of 32: padding is where hand-rolled encoders go wrong.
+        let routes = vec![vec![0xDEu8; 4], vec![0xEFu8; 33]];
+        let d = encode_rebalance_many(&lps, &dexes, &dex2s, &routes);
+
+        let word = |i: usize| -> u64 {
+            let b = &d[4 + i * 32..4 + (i + 1) * 32];
+            u64::from_be_bytes(b[24..32].try_into().unwrap())
+        };
+        // Head: five offsets. lps(2) mins(2) dexes(2) dex2s(2) each cost 32*(1+2)=96.
+        assert_eq!(word(0), 0xa0);
+        assert_eq!(word(1), 0xa0 + 96);
+        assert_eq!(word(2), 0xa0 + 192);
+        assert_eq!(word(3), 0xa0 + 288);
+        let routes_at = word(4) as usize;
+        assert_eq!(routes_at, 0xa0 + 384);
+
+        // The routes block: len, then two RELATIVE offsets, then the elements.
+        let at = |off: usize| -> u64 {
+            let b = &d[4 + off..4 + off + 32];
+            u64::from_be_bytes(b[24..32].try_into().unwrap())
+        };
+        assert_eq!(at(routes_at), 2, "routes length");
+        let o0 = at(routes_at + 32) as usize;
+        let o1 = at(routes_at + 64) as usize;
+        assert_eq!(o0, 64, "first element starts past the 2-entry offset table");
+        // element 0 = 32 (len) + 4 bytes padded to 32 => 64 bytes total.
+        assert_eq!(o1, 64 + 64, "second offset must clear element 0 INCLUDING its padding");
+
+        let base = routes_at + 32;                       // offsets are relative to here
+        assert_eq!(at(base + o0), 4,  "element 0 declares its true length");
+        assert_eq!(at(base + o1), 33, "element 1 declares its true length");
+        assert_eq!(&d[4 + base + o0 + 32..4 + base + o0 + 36], &[0xDEu8; 4][..]);
+        assert_eq!(&d[4 + base + o1 + 32..4 + base + o1 + 65], &[0xEFu8; 33][..]);
+        // 33 bytes pads to 64, so the whole payload ends on a word boundary.
+        assert_eq!((d.len() - 4) % 32, 0, "calldata is not word-aligned");
+    }
+
+    /// The compat shape the contract accepts: empty `dex2s`/`routes` ⇒ legacy single-hop for all.
+    #[test]
+    fn encode_rebalance_many_accepts_the_empty_compat_shape() {
+        let lps = vec![LpAddr::from([0x11u8; 20])];
+        let d = encode_rebalance_many(&lps, &[[0xAAu8; 32]], &[], &[]);
+        let word = |i: usize| -> u64 {
+            let b = &d[4 + i * 32..4 + (i + 1) * 32];
+            u64::from_be_bytes(b[24..32].try_into().unwrap())
+        };
+        assert_eq!(word(3), 0xa0 + 64 * 3, "dex2s offset with n=1");
+        let r = word(4) as usize;
+        let at = |off: usize| -> u64 {
+            let b = &d[4 + off..4 + off + 32];
+            u64::from_be_bytes(b[24..32].try_into().unwrap())
+        };
+        assert_eq!(at(word(3) as usize), 0, "dex2s must encode as a ZERO-length array");
+        assert_eq!(at(r), 0, "routes must encode as a ZERO-length array");
+        assert_eq!(4 + r + 32, d.len(), "nothing may trail an empty routes array");
+    }
+
+    /// The selector MUST be the five-array one, or the validating signer refuses every batch.
+    #[test]
+    fn encode_rebalance_many_uses_the_allowlisted_selector() {
+        let d = encode_rebalance_many(&[LpAddr::from([1u8; 20])], &[[0u8; 32]], &[], &[]);
+        assert_eq!(&d[..4],
+            &keccak256(b"rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])")[..4]);
+    }
 
     /// §POOL-VENUE — **THE POOL IS IN DANGER WHILE THIS LP LOOKS FINE, AND THE KEEPER MUST STILL ACT.**
     /// This is the case the old per-LP-only gate held straight through, and it is the whole reason
