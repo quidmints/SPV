@@ -1135,6 +1135,16 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
   accumulate: three such waiters were found alive after 15+ hours. Worse, `until ! pgrep -f 'forge
   test'` **MATCHES ITSELF** (its own command line contains the pattern), so it can never exit.
   Wait on a FILE (`until [ -s f ]`) if you must wait at all, never on process state.
+  🔴 **IT FIRED AGAIN ON 2026-09-06, ON AN AUTHOR WHO HAD READ THIS BULLET THE SAME HOUR** — waiting
+  for another lane's build to finish before measuring, with `until ! pgrep -f "forge build"`. **The
+  loop's own command line contains `forge build`, so it matched itself and could never exit.**
+  ⇒ **A WARNING IS NOT A MECHANISM, WHICH IS THE SAME LESSON AS THE GRAPH SECTION ABOVE.** If you
+  must wait on a process, the working forms are **`pgrep -x solc-0.8.30`** (exact NAME match, so a
+  shell running a pattern containing it does not match) or `pgrep -f pat | grep -qv "^$$\$"`.
+  ⭐ **Better still, do not wait at all: the metric that made the wait unnecessary was already in the
+  log.** I wanted a contention-free build time and the answer was `Compiling N files`, printed by
+  every build — see the lane section above. **The best fix for a poll loop is usually a measurement
+  that does not need one.**
 - **Build+test in ONE call** (`forge build && forge test`) rather than two turns — it removes a whole
   turnaround per verification.
 
