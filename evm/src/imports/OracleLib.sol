@@ -217,10 +217,9 @@ library OracleLib {
     /// deliberately"*, *"the orientation probes are CONSUMED HERE"*, or *"`wbtc` is passed in"* —
     /// all three described `prepRefs`, and `_feed18` applies the ×1e10 lift from a bool.
     /// @notice Deploy-time seed price for each range, read from CHAINLINK.
-    /// @dev    §V4-ZERO — was `prepRefs`, which read `slot0` from two UNISWAP V4 REFERENCE POOLS and
-    ///         was the last thing in `src/` needing `IPoolManager`, `PoolKey`, `PoolIdLibrary`,
-    ///         `Currency` and `StateLibrary`. Five v4 types and a `PoolKey` field on the deploy
-    ///         config, so a range could learn its starting price ONCE.
+    /// @dev    §V4-ZERO — the seed price comes from CHAINLINK, not from a reference pool. Nothing
+    ///         in `src/` needs `IPoolManager`, `PoolKey`, `PoolIdLibrary`, `Currency` or
+    ///         `StateLibrary` any more, and the deploy config carries no `PoolKey` field.
     ///
     ///         Chainlink is where that price comes from at RUNTIME anyway: `SwapLib.twapResolve`
     ///         anchors every internal TWAP against `assetPriceFeed[asset]` and falls back to it
@@ -451,8 +450,11 @@ library OracleLib {
     ///    Chainlink ETH/BTC cross; the wrapped reading is a CROSS-CHECK ONLY, where its disagreement
     ///    is a direct measurement of the WBTC basis and therefore a depeg DETECTOR.
     ///
-    /// ⚠️ SPOT, NOT A TWAP — no window, so manipulable within a block. Use it as the independent
-    ///    observation `requireAgrees` cross-checks; never to SIZE anything (see that function).
+    /// ⚠️ SPOT, NOT A TWAP — no window, so manipulable within a block. It is an INDEPENDENT
+    ///    OBSERVATION for cross-checking only; never SIZE anything from it.
+    /// 📌 UNWIRED TODAY: `oneInchRateWad` has zero callers in `evm/src` — only this declaration.
+    ///    `internal`, so it costs no deployed bytes, but whoever wires it owns writing the
+    ///    agreement check that consumes it; there is no such function in the tree right now.
     function oneInchRateWad(address oracle, address src, address dst, uint8 srcDec, uint8 dstDec)
         internal view returns (uint priceWad) {
         uint rate = IOffchainOracle(oracle).getRate(src, dst, false);

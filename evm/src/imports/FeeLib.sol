@@ -29,9 +29,8 @@ library FeeLib {
     ///      Extracted from Aux (baseRate decay) to free Aux bytecode -- that is why it lives here,
     ///      and it OUTLIVED the thing it was extracted for. `cap` is the decay-exponent ceiling.
     ///      ⛔ Do not restore "Aux passes BR_MAX_MIN": `BR_MAX_MIN` exists only inside removal
-    ///      records, and the ONLY caller now is `Core` (`_decayed`/`_decayedBy`) passing
-    ///      `FLOW_MAX_MIN` for the 48h flow-EWMA decay. That wording sent readers to Aux for a
-    ///      live use it no longer has.
+    ///      records, and the ONLY caller now is `Core` (`_decayed`/`_decayedBy`), passing
+    ///      `FLOW_MAX_MIN` for the 48h flow-EWMA decay.
     function decPow(uint base, 
         uint mins, uint cap) public 
         pure returns (uint) {
@@ -83,21 +82,14 @@ library FeeLib {
         }
     }
 
-    /// ⛔ THE DOCBLOCK THAT STOOD HERE WAS THE OBITUARY OF THE FUNCTION THIS ONE REPLACED, AND IT SAT
-    ///    DIRECTLY ABOVE ITS REPLACEMENT. It read *"Composite fee on a specific stable, factoring in
-    ///    basket-wide exposure (Σ share_i × risk_i). When no stable is depegged, totalExposure = 0 →
-    ///    BASE fee."* The body computes no exposure sum and holds no such variable: **`totalExposure`
-    ///    has exactly ONE occurrence in all of `evm/src`, and it was that comment.** The very next
-    ///    line says so outright — *"this REPLACES the old risk-weighted concentration term"* — so the
-    ///    file described the old design and the new one in consecutive sentences, with the dead one
-    ///    first. A reader taking the FIRST notice tag as authoritative gets the retired fee model.
-    /// ⚠️ AND NEVER WRITE AN AT-PREFIXED TAG NAME INSIDE THE PROSE OF A DOCBLOCK — IT IS HOW THIS
+    /// ⚠️ NEVER WRITE AN AT-PREFIXED TAG NAME INSIDE THE PROSE OF A DOCBLOCK — IT IS HOW THIS
     ///    BLOCK BROKE THE BUILD TWICE, THE SECOND TIME IN THE SENTENCE WARNING ABOUT THE FIRST.
     ///    solc parses an at-word as a natspec TAG wherever it appears, not only at the start of a
     ///    line, and backticks do not escape it: the tag name simply absorbed the closing backtick.
     ///    The failure reads `Documentation tag ... not valid for functions` and points at the FIRST
     ///    line of the docblock, tens of lines above the offending word, so it names neither the
-    ///    word nor the line. Spell such tags out in words, as "the first notice tag" above.
+    ///    word nor the line. Spell such tags out in words — write "the notice tag", never the
+    ///    at-prefixed spelling, even inside backticks and even when warning about this.
     /// @notice Composite L1 fee on draining `idx`-th stable, driven by the
     ///         YIELD-vs-weighted-average BASELINE (this REPLACES the old
     ///         risk-weighted concentration term).
