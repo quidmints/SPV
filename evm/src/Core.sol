@@ -230,9 +230,67 @@ contract Core {
         f.ts  = uint64(block.timestamp);
     }
 
-    /// @notice Fold a swap's USD notional into this pool's flow EWMA. Called only from _handleSwap.
+    /// @notice Fold USD notional into this pool's flow EWMA.
+    /// 🔴 **§SESS-18 — "Called only from `_handleSwap`" WAS THE DEFECT, NOT JUST A STALE COMMENT.**
+    ///    `flowEwmaUsd` is `skewWad`'s `target` — *"scarcity is inventory against the flow we shed
+    ///    into"* — and a REDEMPTION sheds range inventory exactly as a swap does. It reached this
+    ///    register through no path at all, because `unwindForRedeem` is a BURN and only swaps route
+    ///    through `_handleSwap`. ⇒ `target` systematically under-counted the demand the range serves.
+    /// 📊 **MEASURED (§SESS-16, `evm/test/SkewTollCurve.t.sol`):** at live inputs `inv/target` read
+    ///    **4.54** — the pool looked 4.5x over-stocked — and the drain toll was **0 bps at 1/5/10/25%
+    ///    depletion, 1 bps at 50%**, only reaching 96 bps at 90%. Holding inventory and drain fixed and
+    ///    varying `target` alone: **×5 ⇒ 34 bps, ×10 ⇒ 279 bps.** The omission was the difference
+    ///    between a mechanism that fires and one that does not.
     function _bumpFlow(uint usd6) internal {
         _bumpEwma(_flow, usd6);
+    }
+
+    /// @notice §SESS-18 — fold a REDEMPTION's realised range unwind into the flow EWMA.
+    ///
+    /// ⭐ **WHY THIS IS A SEPARATE, EXPLICIT ENTRYPOINT RATHER THAN A BUMP INSIDE THE SHARED BURN.**
+    ///    `_poolUsdInRange`'s burn arm also serves an **LP withdrawing their own position**, and that is
+    ///    NOT demand for the range's service — it is capital leaving, shrinking inventory and the LP base
+    ///    together. Bumping there would inflate `target` on withdrawals and price scarcity that no one
+    ///    asked to be served. **Only the redemption unwind is flow**, so only it may call this.
+    ///
+    /// ⭐ **AND IT MOVES BOTH SKEW DIRECTIONS THE RIGHT WAY, WHICH IS WHY ONE REGISTER SUFFICES.**
+    ///    · **Drain** (`skewWad`): higher `target` ⇒ lower `inv/target` ⇒ scarcity actually prices.
+    ///    · **Refill** (`sellSkew`): its rule is `inv <= target ⇒ EXEMPT`, so a higher `target` keeps the
+    ///      refill direction **free across a WIDER range** and starts the overshoot charge later.
+    ///    ⇒ draining dearer AND refilling free for longer, from one number — no new mechanism, no
+    ///    third party paid, nothing borrowed, no inventory held.
+    ///
+    /// \U0001f534 **AND IT GETS ITS OWN REGISTER RATHER THAN BUMPING `_flow`, WHICH IS THE WHOLE POINT.**
+    ///    `flowEwmaUsd` (GROSS, fed a magnitude) and `netFlowUsd` (SIGNED) are a **matched pair, and the
+    ///    pair IS the wash-trading discriminator** — §E326 measured it: over a round trip `flowEwmaUsd`
+    ///    went `0 → 49,999,999,999 → 99,994,054,053` while the position netted to ~$6, so *"a
+    ///    one-directional drain and a balanced round trip look identical"* to gross alone and only the
+    ///    signed counter separates them.
+    ///    ⛔ **FOLDING REDEMPTIONS INTO `_flow` WOULD HAVE BROKEN THAT CHECK BEFORE IT IS BUILT:** a
+    ///    redemption wave raises gross and moves net not at all — **precisely the wash signature** — so
+    ///    the discriminator would false-positive on the most legitimate flow there is.
+    ///    ⇒ `_flow` stays SWAP-ONLY and stays paired with `netFlowUsd`; `_bumpFlow` keeps its single
+    ///    call site, so §E326's *"`_bumpFlow` has ONE call site, inside `swap`"* remains TRUE.
+    /// ⚠️ **`netFlowUsd` IS DELIBERATELY NOT TOUCHED.** It is the SIGNED companion recording
+    ///    basket↔volatile *travel*; a redemption unwind is a PROPORTIONAL burn of both legs (§SESS-1/R1:
+    ///    *"both legs fall by the same number"*), not directional travel. Adding a sign here would
+    ///    invent a direction the burn does not have.
+    /// @param usd6 the REALISED 6-dec USD delta the unwind freed — measured, never the amount asked for
+    ///        (`unwindForRedeem` UNDER-frees by `basketUsd/POOLED_USD` whenever LPs hold an increment,
+    ///        which is the normal state).
+    function bumpRedeemFlow(uint usd6) external onlyUs {
+        if (usd6 != 0) _bumpEwma(_redeemFlow, usd6);
+    }
+
+    /// @notice This pool's decayed REDEMPTION-unwind EWMA (6-dec USD). Same decay as `_flow`.
+    function redeemEwmaUsd() public view returns (uint) { return _decayed(_redeemFlow); }
+
+    /// @notice ⭐ **THE SKEW'S TARGET — the ONE place the two flow sources are composed.**
+    ///         `skewWad` and `sellSkew` read THIS, not `flowEwmaUsd`, so if the two sources are ever
+    ///         to be weighted differently that is a change to one function rather than to two
+    ///         money-path call sites that could drift apart.
+    function skewTargetUsd() public view returns (uint) {
+        return flowEwmaUsd() + redeemEwmaUsd();
     }
 
 
@@ -1573,6 +1631,13 @@ contract Core {
     /// wrong variable and the test passes while measuring something else. Appending keeps every
     /// existing slot fixed. **Do not move this declaration up.**
     int256 public netFlowUsd;
+
+    /// @notice §SESS-18 — the REDEMPTION-unwind flow EWMA, kept SEPARATE from `_flow` on purpose.
+    /// ⚠️ **APPENDED, for the same reason `netFlowUsd` above is:** `DrainAtomicity._flowTs` reads Core
+    ///    slots **262/263** (`_flow`, `_prem`) by RAW INDEX and its guard does NOT fail on a stale slot,
+    ///    so a shifted layout would let that test pass while measuring the wrong variable. Appending
+    ///    keeps both fixed — asserted, not assumed, by `forge inspect Core storageLayout`.
+    Flow internal _redeemFlow;
 
     /// @notice §E345 — σ² MEASURED OFF THE CHAINLINK ANCHOR, BECAUSE THE RING IS WRITABLE BY THE
     ///         PARTY WHO PROFITS FROM SUPPRESSING IT AND THE ANCHOR IS NOT.

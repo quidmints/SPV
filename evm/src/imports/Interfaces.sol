@@ -632,6 +632,9 @@ interface ICore {
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
     function flowEwmaUsd() external view returns (uint);
+    function redeemEwmaUsd() external view returns (uint);
+    /// §SESS-18 — swap flow + redemption unwinds; what BOTH skews price scarcity against.
+    function skewTargetUsd() external view returns (uint);
     function realizedVarianceWad() external view returns (uint);
     function riskParams() external view returns (uint confFracWad, uint spliceFloor);
     function recordSkewPremium(uint256 premiumUsd) external;

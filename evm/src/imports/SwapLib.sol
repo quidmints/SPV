@@ -1798,7 +1798,8 @@ library SwapLib {
         // §E300 — price what we can SERVE, not what was asked for. The swap path bounds the fill to
         // inventory ~20 lines after this call (`routeSwap` → `consumed`) and refunds the remainder
         // (`_refundExcess`), so an oversized request is a PARTIAL FILL by design, not a refusal.
-        uint target = ICore(core).flowEwmaUsd();
+        // §SESS-18 — the COMPOSED target (swap flow + redemption unwinds), not swap flow alone.
+        uint target = ICore(core).skewTargetUsd();
         uint sigmaSq = ICore(core).realizedVarianceWad();
         uint raw = skewWad(
             poolVolUsd, target, sigmaSq, rk,
@@ -1851,7 +1852,9 @@ library SwapLib {
     {
         // §E58: `target` is FLOW alone — the leverage DEBT is not a constraint on shedding (see
         // skewWad's note). One term, one meaning.
-        uint flow = ICore(core).flowEwmaUsd();
+        // §SESS-18 — COMPOSED target, matching `skewWad`. Raising it keeps the refill direction
+        // EXEMPT across a wider range (`inv <= target` below), which is the direction we want free.
+        uint flow = ICore(core).skewTargetUsd();
         uint target = flow;
         if (target == 0) return 0;
         // inv = poolVolUsd − GROSS locked inventory (same base/1e30 scale as poolVol, #6/F3). Scope the two

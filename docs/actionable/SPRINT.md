@@ -52314,3 +52314,73 @@ return-value/approval hazard (§SESS-2), OOR items 1–4 (their table), the `avg
 GATE 0a's second half, and `Alles.t.sol`'s divergent `VAULTS` array. **A register that repeats booked work
 is as useless as one that omits unbooked work.**
 
+## §SESS-18 — **THE TARGET FIX LANDED: a redemption is flow, and it now reaches the skew.** (2026-09-06)
+
+**Owner:** *"do the target fix."* ✅ **Done, and the SHAPE was decided by the owner's own next message**
+(*"there was a lot of skew work… keep gross but add a net check against wash trading"*), which turned a
+one-line change into a two-register one. **That message arrived before the one-line version was committed
+and is the reason it is not what shipped.**
+
+### ⭐ WHAT WAS WRONG
+`flowEwmaUsd` is `skewWad`'s `target` — *"scarcity is inventory against the flow we shed into"* — and
+`_bumpFlow` had **exactly one call site**, `Core:1053`, inside the swap settlement path (*"the ONE bump
+point"*). **`unwindForRedeem` is a BURN, not a swap**, so a redemption wave consumed range inventory and
+left `target` decaying. **The pool read as over-stocked precisely while it was being emptied** — §SESS-16
+measured `inv/target = 4.54` and a **0-bps** drain toll across the whole normal range.
+
+### 🔴 WHY IT IS NOT A ONE-LINE `_bumpFlow` CALL — THE WASH-TRADE DISCRIMINATOR
+`flowEwmaUsd` (GROSS, fed a magnitude) and `netFlowUsd` (SIGNED) are a **matched pair, and the pair IS
+the wash-trading check** §E326 built: over one round trip gross went `0 → 49,999,999,999 →
+99,994,054,053` while the position netted to ~$6, so *"a one-directional drain and a balanced round trip
+look identical"* to gross alone.
+⛔ **A REDEMPTION RAISES GROSS AND MOVES NET NOT AT ALL — PRECISELY THE WASH SIGNATURE.** Folding
+redemptions into `_flow` would have made that discriminator **false-positive on the most legitimate flow
+there is, before the check is even built.**
+⇒ ✅ **Redemptions get their OWN register**, `_flow` stays SWAP-ONLY and stays paired with `netFlowUsd`,
+and **§E326's *"`_bumpFlow` has ONE call site, inside `swap`"* remains TRUE** rather than being quietly
+invalidated.
+
+### ✅ WHAT SHIPPED
+| piece | where |
+|---|---|
+| `Core._redeemFlow` (`Flow`, **appended**) | `Core.sol` — slot **274** |
+| `Core.bumpRedeemFlow(uint usd6) external onlyUs` | bumps `_redeemFlow` only |
+| `Core.redeemEwmaUsd()` · `Core.skewTargetUsd() = flow + redeem` | **the ONE composition point**, so a future re-weighting is one function, not two money-path call sites that can drift |
+| `Quid.unwindForRedeem` → `CORE.bumpRedeemFlow(freed6)` | on the **REALISED** delta, never `usdWanted` (it UNDER-frees by `basketUsd/POOLED_USD` whenever LPs hold an increment, which is normal) |
+| `SwapLib.skewWad` + `sellSkew` read `skewTargetUsd()` | both, or the two directions disagree |
+
+🔑 **ONE REGISTER MOVES BOTH DIRECTIONS THE RIGHT WAY, WHICH IS WHY NO NEW MECHANISM WAS NEEDED:**
+· **drain** (`skewWad`): higher `target` ⇒ lower `inv/target` ⇒ scarcity actually prices.
+· **refill** (`sellSkew`): its rule is `inv <= target ⇒ EXEMPT`, so a higher `target` keeps the refill
+  direction **free across a WIDER band** and starts the overshoot charge later.
+⇒ **draining dearer AND refilling free for longer — no third party paid, nothing borrowed, no inventory
+held.** ⚠️ It does **not** make refilling *attractive* (§SESS-15: at oracle settlement, free is not an
+incentive). It widens the *relative* spread between the two directions, which is a smaller claim.
+
+### ▶️ VERIFIED, NOT ASSUMED
+- `evm/test/RedeemFlowTarget.t.sol` **3/3**: a $50,000 unwind moves `redeemEwmaUsd` **0 → 49,999,999,999**
+  and `skewTargetUsd` with it, while **`flowEwmaUsd` stays 0** and **`netFlowUsd` stays 0**. Carries a
+  control asserting the unwind is real (`POOLED_USD` 151,999.999998 → 101,999.999999), because every
+  assertion is vacuous against a no-op unwind.
+- **`forge inspect Core storageLayout`: `_flow` still slot 262, `_prem` still 263.** Asserted because
+  `DrainAtomicity._flowTs` reads those by RAW INDEX and *"a stale slot does NOT fail"* — a shifted layout
+  would let that test pass while measuring the wrong variable.
+- Regression: `SignedNetFlow` 4/4 · `PooledUsdRepackMatrix` 8/8 · `SkewAsymmetry` 7/7 · `SkewE352Reachability`
+  4/4 · `SkewFlowDiscrimination` 6/6 · `SkewLearningsAreLive` 4/4 · `SkewCalibration` 1/1 ·
+  `SkewLivePathReachesKernel` 2/2 · `DrainAtomicity` 32/33.
+
+### 🟡 THE ONE RED, AND IT IS PRE-EXISTING — MEASURED, NOT ASSERTED
+`DrainAtomicity::test_UNITB_ProbeSwapIsEntryHistoryIndependent` fails its own CONTROL (*"both arms must
+reach the SAME q0"*): `177031386623868081908 !~= 177543648964012186941`, **real delta 0.2885%** against a
+**0.1%** tolerance. ✅ **Re-run with this change STASHED and it fails with BYTE-IDENTICAL numbers**, so it
+is not caused here. It is the already-booked *"`test_UNITB_ProbeSwapIsEntryHistoryIndependent`'s 0.1% q0
+control tolerance"* item, now with an exact figure at `FORK_BLOCK=25800000`. ⚠️ **The question is whether
+0.1% was ever the right tolerance for a two-arm traversal, not whether to widen it to pass** — a control
+loosened until it is satisfied is the §VACUOUS-BOUNDS shape.
+
+### ⚠️ WHAT THIS DOES NOT SETTLE
+**How large redemption flow actually is relative to swap flow is still M7**, and M7 still needs live data
+this tree does not have (§SESS-16: `l1.json`'s addresses hold zero code). ⇒ **the fix makes the mechanism
+CAPABLE of seeing redemptions; it does not tell us what the resulting toll will be.** §PLP-T's class
+ruling is unchanged and still open.
+
