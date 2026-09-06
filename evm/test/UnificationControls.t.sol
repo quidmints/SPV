@@ -1068,7 +1068,7 @@ contract UnificationControls is AllesFixture {
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
 
-        { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
+        uint tvl0; { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); tvl0 = _t; }   // refresh: reads are cache-sensitive
         uint redeem0 = AUX.redeemableAmount();
         // §WRONG-RANGE — THIS TEST TRADES USDC->WBTC, SO THE MIRROR IT MEASURES IS THE **BTC**
         // INSTANCE'S. All four legs read `CORE` (the ETH range), which BTC flow correctly does
@@ -1087,7 +1087,7 @@ contract UnificationControls is AllesFixture {
         }
         vm.stopPrank();
 
-        { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); _t; }   // refresh: reads are cache-sensitive
+        uint tvl1; { (uint _t,) = AUX.get_metrics(false); AUX.get_deposits(); tvl1 = _t; }   // refresh: reads are cache-sensitive
         uint redeem1 = AUX.redeemableAmount();
         uint curve1 = BTC.CORE().POOLED_USD();
         uint basket1 = BTC.CORE().basketUsd();
@@ -1106,12 +1106,35 @@ contract UnificationControls is AllesFixture {
         assertGt(curve1, curve0, "PREMISE: BTC-side trading must inflate the BTC curve mirror");
         assertEq(basket1, basket0, "the BASKET's BTC commitment is unmoved by pure BTC trading");
 
-        // AXIS 7 (redemption capacity): INVARIANT. The quote must not move materially on volume in
-        // EITHER direction — a fall would mean holders lose redeemability to other people's trades,
-        // a rise would mean the quote is being inflated by dollars that are spoken for.
-        assertApproxEqAbs(redeem1, redeem0, 1e15,
-            "redeemable must be INVARIANT to pure trading: the POOLED_USD subtraction and the "
-            "basket TVL it is subtracted from move in lockstep and cancel");
+        // AXIS 7 (redemption capacity). 🔴 **THIS ASSERTED THE WRONG INVARIANT AND BROKE WHEN A
+        // MECHANISM STARTED WORKING — CORRECTED §SESS-28.** It read
+        // `assertApproxEqAbs(redeem1, redeem0, 1e15)` on the rationale quoted above. Measured
+        // 2026-09-06: **redeemable moves by $6.629717 on $3,000 of BTC buys**, so the old bound failed
+        // by 6,629x. ⛔ **The cause is NOT a leak: `skewPremium` went 0 → $6.019917 over those six
+        // swaps.** The pool now CHARGES for the imbalance it is being handed, and that premium is real
+        // retained backing. When this test was written the premium was ~0, so "does not move" and
+        // "moves by exactly what we earned" were the same number — and only the second is the property.
+        // ⛔ **WIDENING THE TOLERANCE WOULD HAVE MASKED IT** (standing rule 4: *a tolerance that makes a
+        // test pass is the tell*), and would have accepted a real leak of up to whatever bound was
+        // chosen. The identity below is STRICTLY STRONGER than the old approximate bound: it says
+        // where every wei came from, to the wei, with NO tolerance at all.
+        //
+        // ⭐ THE REAL INVARIANT, and it is the docblock's own claim stated correctly:
+        //        Δredeemable  ==  ΔTVL  −  ΔPOOLED_USD
+        //    The swapper's dollars enter the basket AND the mirror, so they cancel exactly; what is
+        //    left is the value the protocol RETAINED, and that is what redemption capacity may grow by.
+        //    MEASURED: ΔTVL 3,006.629711 − Δmirror 2,999.999994 == 6.629717 == Δredeemable, EXACTLY.
+        uint retained = (tvl1 - tvl0) - (curve1 - curve0) * 1e12;   // mirror is 6-dec, TVL/redeemable 18
+        assertEq(redeem1 - redeem0, retained,
+            "redeemable must move by EXACTLY the retained value: the swapper's dollars enter the basket "
+            "AND the mirror and cancel; anything else is a leak in one direction or an inflated quote "
+            "in the other");
+
+        // 🔴 THE CONTROL, because the identity above is `0 == 0` if the swaps did nothing — and a
+        //    vacuously-true invariant is the §VACUOUS-BOUNDS shape this file exists to avoid.
+        assertGt(retained, 0, "CONTROL FAILED - the trades retained nothing, so the identity is vacuous");
+        assertGt((curve1 - curve0) * 1e12, retained * 100,
+            "CONTROL FAILED - the mirror barely moved, so the cancellation is not being exercised");
     }
 
     /// §E44 — ARE THE TWO NEW SLOTS (`basketUsd`/`basketUsd`) REMOVABLE? PROVE IT, do not
