@@ -53189,7 +53189,7 @@ signature directly: **mint 100× more and the loss must not grow.** Measured 50k
 500k → 345.2e9, 5m → 305.6e9 — a 100× mint gives a **smaller** loss, which is integer rounding and
 cannot be dilution.
 
-## §SESS-31 — 🔴 **THE SHORTFALL IS NOT A LOSS. IT IS OUR OWN FORWARD-MINTED YIELD VESTING ON A CLOCK.** (2026-09-06)
+## §SESS-31 — ⛔ **[CORRECTED BY THE OWNER — THIS OVER-CLAIMED AND IS NOT A NEW FINDING. See §SESS-33.]** THE SHORTFALL IS NOT A LOSS (2026-09-06)
 
 **Owner:** *"entry at the mark?? why should there be a shortfall at all?"* ⇒ **Correct to reject the
 premise. §SESS-30 answered a question that should not have been asked in that form.**
@@ -53271,4 +53271,84 @@ stable↔WETH, and no amount of 1inch surface fixes it** — it needs a quotable
 different decision (re-add a quote-only venue, or accept the guessed constant there).
 ⚠️ **This is the honest answer to "no extractive arb possible": custody is closed, price is not — on one
 leg, by ~25–100 bps, for a reason that predates the 1inch work.**
+
+## §SESS-33 — ⛔ **CORRECTING §SESS-31: I RE-DISCOVERED A BOOKED ITEM AND FLATTENED ITS CONDITIONAL.** (2026-09-06)
+
+**Owner:** *"what do you mean by assets earned nothing. `when = 13` is a special route for tranche."*
+**Both corrections land. §SESS-31 is wrong in framing and wrong in novelty.**
+
+### ⛔ ① "THE ASSETS EARNED NOTHING" WAS A FIXTURE ARTIFACT, NOT A DESIGN PROPERTY
+`solvent grew by 0` across the 500-day warp because **the fixture runs no yield source at all**, and
+because the mint sits inside the bootstrap window **by construction**. `Basket._finishMint` states the
+design in its own words: *"The bootstrap year (`currentMonth < 12`) has **NO yield snapshots yet**, so it
+may project a full year forward — the cold-start incentive, and **the only way to offer term before we
+can observe yield**."* ⇒ the bonus is issued **because** yield cannot yet be observed. Measuring zero
+growth in a fixture with nothing to grow is **not** evidence the design fails to earn.
+
+### ⛔ ② `when = 13` IS THE SEED TRANCHE, A CAPPED SPECIAL ROUTE — NOT A GENERIC DEPOSIT
+`bool isSeed = month == 13 && seeded < CAP;` — month 13 is the **SEED** route, with its own `CAP`, and
+`maxFwd` already gates tenor on live buffer (*"longer locks ONLY when the buffer supports it"*). The 108%
+figure is that seed bonus, **not** what an ordinary deposit receives. Generalising from it was the error.
+
+### ⛔ ③ AND IT IS ALREADY BOOKED — AS `§E2-vest-boundary`, WITH THE CONDITIONAL I DROPPED
+That row's live item 2 reads: *"🔴 **HOLDING ACROSS A VESTING EVENT.** At month 13 B's 208,333 turns
+mature; **if realised yield < $110,378** the mark falls for everyone holding then."* ⇒ **exactly the
+mechanism I measured**, already open, and stated with the **"if realised yield <"** clause that §SESS-31
+collapsed into "vests while the assets earned nothing." **The conditional is the whole content**: the
+mark falls only to the extent the projection over-shot, which is a *calibration* question, not a
+structural defect. ⚠️ **And the redeem side already absorbs the over-shoot by design** — `_finishMint`:
+*"the over-mint is absorbed at REDEEM, which values one basket share (`min($1, solvent/mature)`) — the two
+sides do NOT value backing identically, and should not."*
+
+### ✅ WHAT SURVIVES, AND IT IS SMALLER
+§E2-#1 (enter at the mark) **already shipped and works**: measured, paid **$50,000.00** → claim
+**$49,999.999999**, against **~$45,950** under the old 1:1 mint. **There is no entry haircut.** So
+§SESS-30's failing test was not asking to be spared a haircut — it asked for `paid·m1/m0`, i.e. to also
+capture the mark's **recovery upside** from 0.9204 → 1.0. That is a strictly stronger claim than "not
+harmed", and it remains the open ruling. **§SESS-31's "the A/B dissolves" is withdrawn.**
+📌 **The method failure worth keeping:** I measured a real number, matched it to a mechanism, and did not
+grep for whether the mechanism was already booked. **Standing rule 20 says go to the code before closing
+a question; this is its mirror — go to the FILE before opening one.**
+
+## §SESS-34 — **"ANY VENUE" CANNOT BE REACHED BY QUOTING. IT IS REACHED BY BEING THE MAKER.** (2026-09-06)
+
+**Owner:** *"there should be any venue possible not just those."*
+
+### 🔴 WHY THE QUOTE-TABLE APPROACH CANNOT GENERALISE, STATED AS A LIMIT AND NOT A TODO
+§SESS-23's competitive floor needs a reference the contract can compute. That means enumerating venues
+on-chain, and **a contract cannot enumerate "any venue"** — it can only read venues it was told about, by
+type (`get_dy` for Curve, `getReserves` for a V2 pair, `slot0`+liquidity for V3). ⇒ growing `_quoteOf`
+buys coverage row by row and **never reaches "any"**. ⛔ **And a keeper-SUPPLIED reference is worthless:
+the keeper would name a thin pool, the quote would come in low, and `max()` would fall straight back to
+the oracle.** The floor cannot be competitive against a venue set the keeper controls.
+
+### ⭐ THE SHAPE THAT DOES GENERALISE: **STOP TAKING, START MAKING**
+Every extraction channel left open shares one root — **we accept a price produced by someone else's route
+and check it against a bound.** Invert it: **post an order at OUR price and let anyone fill it from ANY
+venue.** Then the venue set is unbounded *because we never touch it*, and extraction is structurally
+impossible *because the fill price is ours*, not a bound on theirs.
+✅ **THE SURFACE IS ON THE DEPLOYED ROUTER — verified, not assumed** (§SESS-32's enumeration):
+`fillContractOrderArgs(...)` = **`0x56a75868`**, the Limit Order Protocol's **contract-maker** entry.
+A contract maker signs via ERC-1271, which is what lets the PROTOCOL be the maker rather than an EOA.
+| | taking a route (today) | **posting an order** |
+|---|---|---|
+| venue set | what the encoder can address | **unbounded — the filler's problem** |
+| who sets the price | the route; we bound it | **we do** |
+| keeper's power | picks the venue | **picks nothing; anyone may fill** |
+| residual extraction | up to `_slipBps` (25–100 bps on the volatile leg) | **the spread we choose to post** |
+| failure mode | bad fill within the bound | **no fill** — pure liveness |
+⇒ **It converts the volatile leg's open 25–100 bps price channel into a liveness question**, which is the
+same trade §SESS-22 made for custody and §SESS-23 made for the quotable stables.
+
+### ⚠️ WHAT THIS IS NOT, AND WHAT MUST BE MEASURED BEFORE IT IS BUILT
+⛔ **Unmeasured and unscoped — this is a DESIGN, not a finding.** ① **Our amounts are computed
+mid-transaction**, and an order embeds its amount — the same staleness that rules out `swap()`
+(§UNOSWAP2's *"anything that embeds its amount is stale by construction"*). An order must therefore be
+posted for a size we FIX, which is a different flow from "convert whatever the draw returned."
+② **A posted order that nobody fills is not a mechanism** — the §PLP-T M5 problem exactly, and it must be
+priced the same way. ③ ERC-1271 maker signing puts a **new signing surface** on the protocol; it must not
+become a second keeper key. ▶️ **Cheapest next step is a fork test that posts one contract-maker order and
+fills it**, the same "does it actually fill" bar §SESS-25 held every planner row to.
+📌 **Meanwhile the cheap, zero-risk reach win stands: `unoswap3` (`0x19367472`), three hops, amount at
+runtime, zero new security surface** — §SESS-32.
 

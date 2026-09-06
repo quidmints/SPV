@@ -127,6 +127,33 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     earns its place **while the root is still reachable** — `poolOwnedSats` was correct to land
     and is correct to remove, in that order.
 
+21. **A FIXTURE IS CODE, AND IT GOES STALE LIKE ANY OTHER — MEASURE WHAT IT MODELS BEFORE YOU
+    BELIEVE WHAT IT SHOWS** (owner, 2026-09-06: *"there should be a standing rule that many fixtures
+    might have stale code"*). A test fixture encodes a WORLD: which venues exist, which sources run,
+    which month it is, what is wired to what. **When the tree moves, the fixture does not move with
+    it** — nothing fails, because a fixture cannot be wrong, only out of date. ⇒ **a number measured
+    inside it describes the FIXTURE unless you have checked that the fixture still models the tree.**
+    ⛔ **THE TELL IS A ZERO OR AN ABSENCE.** A quantity that does not move is the classic fixture
+    artifact: it did not move because nothing in that fixture could have moved it. Before reading
+    "X did not change" as a property of the DESIGN, establish that the fixture contains a mechanism
+    that could have changed X at all.
+    *Worked example, 2026-09-06 — this rule exists because I got it wrong:* I measured a seed tranche
+    vesting across 500 days, saw `solvent` grow by **exactly 0** while `matureSupply` grew by
+    everything, and booked it as *"unearned yield becomes senior while the assets earned nothing."*
+    **The fixture runs no yield source at all, and the mint sits inside the bootstrap window by
+    construction** — `_finishMint` says so in its own docblock. Zero growth where nothing could grow
+    is not evidence. The real item was already booked, with the conditional (*"IF realised yield <
+    $110,378"*) that the flat reading destroyed.
+    ⚠️ **AND THIS IS NOT A RARE CASE — THE FILE ALREADY OWES TWO SWEEPS OF IT.** `GATE 0a` is *"audit
+    the mock fixtures against `§V4-CUT`"* and is marked **upstream of the evidence itself**; `§PLP-9b`
+    is *"the same question for the test harness"*; and `Alles.t.sol` keeps its **own** `VAULTS` array
+    that can drift from the deploy script's. **Anything downstream of an unaudited fixture inherits
+    its staleness**, which is why 0a gates a whole tier rather than sitting in a list.
+    ▶️ **THE CHEAP DISCHARGE:** name the mechanism you expect to move the number, and assert it is
+    PRESENT and ACTIVE in that fixture — a premise assertion, not a comment. `test_E42`'s controls are
+    the shape: *"the trades retained nothing, so the identity is vacuous"* fails loudly rather than
+    passing quietly.
+
 20. **NEVER DISCHARGE A `SPRINT.md` QUESTION FROM PROSE — GO TO THE CODE** (owner, 2026-09-06:
     *"when sprint md asks a question never mark it off based on a comments reading. always check the
     code."*). A row that asks something is answered by a **grep, a slot read, a selector, a call, or a
