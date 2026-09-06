@@ -206,6 +206,22 @@ bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
 // $1M against 0.92% direct, and 3.29% vs 4.96% at $5M.
 bytes4 constant UNOSWAP2_SELECTOR = 0x8770ba91;
 uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
+// §SESS-51 — a CURVE hop word, decoded and executed by US (`LevMath._hubHop` → `curveExchange`),
+// never handed to 1inch. ⚠️ **THAT IS THE POINT, NOT A LIMITATION.** Six candidate layouts for a
+// Curve pool word through 1inch's `unoswap` were executed against the live router and **0 filled**;
+// rather than reverse-engineer an encoding this tree has never written down, the hop is executed on
+// the pool directly — which we already do, and which since §SESS-46 is bounded on a measured
+// balance delta. ⇒ **every dollar with no v3 pool (GHO, USDG, RLUSD, USDE — 4 of 8, `LevManager:322`)
+// becomes routable without depending on an aggregator's private encoding.**
+// Layout, low bits first: pool(160) | i(8) | j(8) | … | proto(3 @ 253).
+//   `i` = THIS stable's coin index, `j` = USDC's. Direction is chosen by the CALLER (which way it is
+//   swapping), never read from the word, exactly as `_aggSwap` derives `ZERO_FOR_ONE` rather than
+//   trusting a keeper bit — so ONE word serves both directions.
+// ⛔ NO PROTOCOL TAG: every roster route is a Curve pool (that is what the deleted table was), and a
+// UniV3 hub hop already has a path — the keeper's `dex2`. A tag nothing reads is unreachable code
+// (standing rule 1). 93 bits stay free if a second executor ever earns its place.
+uint256 constant HOP_I_OFFSET  = 160;
+uint256 constant HOP_J_OFFSET  = 168;
 uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
 
 // §RANGE-UNWIND — the venue the RANGE falls back to when it force-closes a lever with no keeper to
@@ -456,6 +472,8 @@ interface IAux is ISwap {
     function deliverableETH() external view returns (uint);
     function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
     function getStables() external view returns (address[] memory);
+    /// §SESS-51 — the stable's route to the USDC hub, `proto | j | i | pool`. 0 ⇒ no hub route.
+    function hubHopOf(address stable) external view returns (uint256);
     function getVaults(address stable) external view returns (address[] memory);
     function AAVE_SPOKE() external view returns (address);
     function AAVE_HUB() external view returns (address);

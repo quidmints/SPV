@@ -201,6 +201,44 @@ contract Aux is // Auxiliary
         stableFeed[token] = feed;
     }
 
+    /// @notice §SESS-51 — **HOW THIS STABLE REACHES THE USDC HUB: `proto | j | i | pool`, one word.**
+    ///         `0` means *"no hub route"*, which is a real answer and not an error — a stable with no
+    ///         entry is skipped and refunded rather than swapped (`LevMath._consolidateTo`).
+    ///
+    /// ⭐ **THIS IS WHERE THE ROUTE ALWAYS BELONGED, AND THAT IS THE WHOLE ARGUMENT FOR MOVING IT.**
+    ///    It used to be `LevMath._routeOf` — a **compile-time `if`-chain of two rows** living in a
+    ///    library with 737 bytes of margin, on a contract that cannot be redeployed to add a pool.
+    ///    ⇒ it was never a routing table; it was **metadata about the stable roster, shadowed into the
+    ///    wrong contract.** `Aux` already owns the roster (`stables`), the per-stable price feed
+    ///    (`stableFeed`) and the per-stable 4626 vault (`vaultOf`). The route to the hub is the same
+    ///    KIND of fact, set by the same authority, and it now sits with its siblings.
+    /// ✅ **WHAT THAT BUYS, beyond deleting an if-chain:** any pool, any protocol, any number of
+    ///    stables, changeable when a pool drains — none of which required a new trust assumption,
+    ///    because the caller never names the pool. **A route only ever selects WHERE; the oracle floor
+    ///    still decides WHETHER**, on a measured balance delta (`convertTo` / `curveExchange`).
+    /// ⚠️ **DELIBERATELY NOT PIN-ONCE, unlike `setStableFeed`.** A price feed is a permanent fact
+    ///    about an asset; a pool is a market that drains — 3pool alone has fallen from ~$3B to $160M.
+    ///    Pinning it would reproduce the exact rigidity this replaces, one storage slot further along.
+    /// ⚠️ **AND NOT PERMISSIONLESS, WHICH IS THE OTHER HALF.** `protectFromQuid` is callable by
+    ///    ANYONE, and consolidation swaps run against a flat `CONSOL_SLIP_BPS` of 100 bps. Letting the
+    ///    caller name the pool would hand an arbitrary address a 100-bps-wide choice on every slice —
+    ///    the floor bounds the loss but not the SELECTION, and selection is the takeable part. Owner-
+    ///    set keeps route choice exactly where the roster's other metadata already sits.
+    /// ⚠️ solc 6546: a parameter tag is not valid on a PUBLIC STATE VARIABLE (its getter is generated,
+    ///    not declared), so the parameter docs live on the setter below where they belong. ⛔ **AND DO
+    ///    NOT NAME THE TAG HERE EITHER — writing it inside natspec MAKES it a tag**, so the note
+    ///    explaining the error reproduces the error. Measured twice in a row.
+    mapping(address => uint256) public hubHopOf;
+    event HubHopSet(address indexed stable, uint256 word);
+
+    /// @param stable the basket stable this route is for.
+    /// @param word   `proto | j | i | pool`; `0` removes the route (the stable is then skipped and
+    ///               refunded by `consolidate` rather than swapped).
+    function setHubHop(address stable, uint256 word) external onlyOwner {
+        hubHopOf[stable] = word;
+        emit HubHopSet(stable, word);
+    }
+
     // NOTE: no post-renounce feed-binding range. Every basket stable that can depeg
     // already has its Chainlink feed pinned at deploy (10 of 11, incl. the proxy-only
     // RLUSD/USDG/AUSD resolved via data.eth ENS). The only unpinned stable is BOLD,

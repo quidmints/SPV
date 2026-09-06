@@ -3,6 +3,9 @@ pragma solidity ^0.8.28;
 
 
 import {Quid} from "../src/Quid.sol";
+import {HOP_I_OFFSET, HOP_J_OFFSET, RLUSD_TOKEN, PYUSD_TOKEN,
+        CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX,
+        CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX} from "../src/imports/Interfaces.sol";
 import {OracleLib} from "../src/imports/OracleLib.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Core} from "../src/Core.sol";
@@ -227,6 +230,32 @@ library DeployLib {
         ETH.setup(address(quid), address(aux), address(core));
         // §FOLD-WIRE — QUID now; the ETH venue follows once `ETH.setup` has set WETH.
         aux.wire(address(quid), address(0), address(0));
+        // ⭐ §SESS-51 — **THE HUB ROUTES, AND THEY ARE SEEDED *HERE* FOR A REASON.** These two words are
+        //    the whole of what `LevMath._routeOf` used to hardcode. Putting them in `DeployL1_s` (my
+        //    first attempt) left the FIXTURE unseeded, and **107 tests still passed while RLUSD and
+        //    PYUSD silently lost their routes** — five of my own new tests were the only thing that
+        //    caught it. `DeployLib` is shared VERBATIM by production and `AllesFixture`, so seeding it
+        //    here makes the fixture model the tree BY CONSTRUCTION rather than by remembering to
+        //    (standing rule 21).
+        // 🔴 **SEEDED WITH EXACTLY THE TWO ROWS THE DELETED TABLE HELD — NO MORE** (standing rule 10).
+        //    §SESS-24 measured that adding USDT/DAI/USDG/crvUSD to the EXECUTION table flips four
+        //    consolidate slices from refunded to swapped and breaks
+        //    `test_ProtectFromQuid_HostileOperatorNetsZero`. Enabling them is now one `setHubHop` call
+        //    plus its own test, which is the point of the move and why it is not smuggled in here.
+        // ⚠️ **THE TWO POOLS ARE ORDERED OPPOSITELY** (read from mainnet, see `Interfaces.sol`): RLUSD's
+        //    pool is `coins(0)=USDC coins(1)=RLUSD`, PYUSD's is `coins(0)=PYUSD coins(1)=USDC`. A shared
+        //    index constant would be silently wrong for one of them — a wrong-pair swap at size with no
+        //    revert — so each word carries its own pair, exactly as the constants always did.
+        // 📌 Layout is `j | i | pool`. There is **no protocol tag**: every roster route is a Curve pool
+        //    (that is what the deleted table was), and a UniV3 hub hop already has a path — the keeper's
+        //    `dex2`. A tag nothing reads is unreachable code (standing rule 1); the word has 93 free
+        //    bits if a second executor ever earns its place.
+        aux.setHubHop(RLUSD_TOKEN, (uint256(uint128(CRV_RLUSD_USDC_IDX)) << HOP_J_OFFSET)
+                                 | (uint256(uint128(CRV_RLUSD_IDX))      << HOP_I_OFFSET)
+                                 |  uint256(uint160(CURVE_USDC_RLUSD)));
+        aux.setHubHop(PYUSD_TOKEN, (uint256(uint128(CRV_PYUSD_USDC_IDX)) << HOP_J_OFFSET)
+                                 | (uint256(uint128(CRV_PYUSD_IDX))      << HOP_I_OFFSET)
+                                 |  uint256(uint160(CURVE_PYUSD_USDC)));
 
         // ── Vault (BTC LP/hop side); ETH yield-venue custody now lives in Quid ──
         // §ISBTC-SPLIT — THE BTC RANGE MANAGER TAKES THE BTC CORE. This passed `core` (the ETH
