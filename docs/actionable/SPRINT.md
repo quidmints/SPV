@@ -53766,3 +53766,86 @@ justification than the one it shipped with.
 
 ▶️ Verified behaviour-neutral: build clean, and lev/floor/route suites **62/0** after the dedup.
 
+## §SESS-43 — **A THIRD FLOOR IMPLEMENTATION, AND WHAT THE RE-ARCHITECTURE ATTEMPT ACTUALLY TAUGHT.** (2026-09-06)
+
+**Owner:** *"those are not the only duplicates. what do you understand about the goals of this feature and
+how far it is from completion. did you reach any insights from attempting to rearchitect it."*
+
+### 🔴 THE DUPLICATE I MISSED: `100` APPEARS **THREE** TIMES, AND THE THIRD IS A WHOLE FLOOR
+| constant | value | job |
+|---|---|---|
+| `MAX_SLIPPAGE_BPS` (`LevBase:192`) | 100 | withdraw gross-up + MEV floor |
+| `SELL_SLIP_BPS` (`LevMath:504`) | 100 | cap on the size-aware curve |
+| **`CONSOL_SLIP_BPS` (`LevMath:1475`)** | **100** | 🔴 **a FLAT floor on stable→stable consolidation** |
+`_consolidateTo:1487` computes
+`_fromUsd(aux, target, _toUsd18(aux, s, bal)) * (10_000 - CONSOL_SLIP_BPS) / 10_000` — **character for
+character `_wethStableFloor`'s formula with a flat 100 substituted for `_slipBps`.**
+⇒ **there are THREE implementations of one floor concept**, and §SIZE-AWARE-SLIP's own warning names this
+failure exactly: *"Tightening one and not the other would have left the de-lever leg on the flat 100 bps
+while the open leg used the curve: **the same round trip bounded two different ways**."* **The size-aware
+work reached two of the three.**
+🔴 **AND IT IS THE WORST-PLACED OF THE THREE:** it bounds **stable→stable**, the leg where §SESS-24
+measured real cost at **1–4 bps**, so 100 bps is **25–100× the need** on the cheapest leg in the system.
+⛔ **NOT TIGHTENED HERE.** §SESS-41 measured the size-aware curve as sometimes **unmeetable**, so swapping
+a flat 100 for a curve that can reject honest fills is a money-path change needing its own measurement
+(rules 10/15). **Booked with the number, not patched.**
+📌 Also confirmed NOT duplicates, so nobody re-merges them: `3e16` (`GAMMA_WAD`/`UNKNOWN_VARIANCE_SKEW` —
+§E275 split these deliberately) and `1e18` (`USD_PX`/`KAPPA_WAD`/`SKEW_UNFILLABLE` — par, pole location and
+saturation are three concepts).
+
+### 🎯 WHAT THE FEATURE IS ACTUALLY FOR — FOUR GOALS, AND THEY PULL APART
+The integration exists so the protocol can convert what it **holds** into what it **owes**, on paths that
+are permissionless and fire when positions are stressed. That gives four goals, and **the whole design
+tension is that they conflict:**
+| goal | meaning | status |
+|---|---|---|
+| **SAFETY** | no keeper or route can take value | ✅ **essentially done** |
+| **REACH** | convert any basket asset to any needed asset | 🟡 **half** |
+| **LIVENESS** | works when 1inch's API is down, and under stress | 🔴 **has an unmeasured defect** |
+| **PRICE** | do not leak value to the router or keeper | 🔴 **open on one leg** |
+
+### 📍 HOW FAR FROM COMPLETION, HONESTLY
+- ✅ **SAFETY — done, and provably.** Pinned callee + exact approve/zero + gas cap + balance-delta floor +
+  §SESS-22's `spent ⇒ delivered`. A hacked keeper can pick a worse **path** and nothing else.
+- 🟡 **REACH — the encoder is the limit, not the budget.** Pool words reach 1–3 hops and only addressable
+  venues (Curve measured unreachable); the calldata arm reaches everything **and nothing builds it**.
+  §SESS-39 measured hops at **50,137 gas each** — affordable to any depth.
+- 🔴 **LIVENESS — the newest and least expected gap.** §SESS-41: at `FORK_BLOCK=25800000` the derived
+  floor is **unmeetable by the best reachable venue at both $50k and $1M**. The path does not leak there;
+  **it reverts.** That is worse than a bleed and it was invisible until the floor was derived rather than
+  passed in.
+- 🔴 **PRICE — the guess binds where nothing is quotable.** 6 of 14 stables have a measured floor
+  (§SESS-24); **the volatile leg has none**, so `_slipBps` carries it — and that leg is the one presenting
+  a single large ticket (§SESS-37: **167 bps** at $5M).
+
+### 💡 WHAT THE RE-ARCHITECTURE ATTEMPT ACTUALLY TAUGHT — SIX THINGS, FOUR OF THEM CORRECTIONS
+1. ⭐ **THE SAFETY NEVER CAME FROM THE POOL WORD — IT CAME FROM THE EXECUTOR.** Every custody property is
+   shared by both arms (§SESS-38). ⇒ **the "flexibility vs safety" tradeoff I had been reasoning inside
+   was FALSE.** Pool words buy *staleness immunity* and *API independence* — both liveness.
+2. ⭐ **§SESS-22 CHANGED THE CALCULUS RETROACTIVELY.** Once `spent ⇒ delivered` exists, the selector pin is
+   largely redundant. **A fix landed on Monday made an architecture cheaper on Friday**, and nothing would
+   have re-derived that without asking the question again.
+3. ⭐ **THE OBJECTION TO `swap()` WAS RIGHT FOR THE WRONG REASON.** Staleness is real, but the binding
+   constraint is **SYNCHRONY** — our paths are flash-bound (§SESS-40), which kills the order model
+   *whatever* you do about embedded amounts. **I nearly built an amount-getter to solve a non-blocker.**
+4. ⭐ **INVERTING CONTROL DISSOLVES FOUR PROBLEMS AT ONCE** — staleness, reach, the standing-allowance
+   hazard, and the callee pin — **and is cheaper** (§SESS-39: a maker fill is ~2.5× cheaper than taking a
+   route). **When one change retires four guards, the guards were compensating for the shape.**
+5. 🔴 **THE VALUE LEAKS AT THE FLOOR, NOT ON THE ROUTE.** Every route measurement kept pointing back at
+   the floor, and the floor is a guess in **three** implementations. ⇒ **route optimality was the wrong
+   thing to chase first.**
+6. ⭐ **AND MOST OF THE PROBLEM WAS NEVER THERE: THE PRO-RATA DRAW IS ALREADY A ROUTE-OPTIMALITY
+   MECHANISM.** §SESS-37 — a $5M redemption is 13 legs of $384k, and the spread **shrinks** with size
+   (19 bps at $5M vs 34 at $100k). **Redeem and swap-out did not need any of this work. Only the lever leg
+   did.** That is the single most useful thing the exercise produced, and it *narrows* the project.
+
+### ▶️ SO THE SHORTEST PATH TO "DONE" IS NOT THE ONE WE WERE ON
+1. **Fix the liveness defect first** (§SESS-41) — a path that reverts is worse than one that leaks, and it
+   is the only *regression-shaped* item here.
+2. **Retire the floor guess where it is retireable** — every `_quoteOf` row deletes three constants for a
+   pair (§SESS-42), and unifies three floor implementations into one.
+3. **Scope reach to the LEVER leg only.** Redeem/swap-out is done and does not know it.
+4. **Then, and only then, the filler-callback** — it is the elegant end state, but it changes who sends the
+   transaction, and it should not land while the floor beneath it is still a guess that sometimes cannot
+   be met.
+
