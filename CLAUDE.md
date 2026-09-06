@@ -127,6 +127,38 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     earns its place **while the root is still reachable** — `poolOwnedSats` was correct to land
     and is correct to remove, in that order.
 
+20. **NEVER DISCHARGE A `SPRINT.md` QUESTION FROM PROSE — GO TO THE CODE** (owner, 2026-09-06:
+    *"when sprint md asks a question never mark it off based on a comments reading. always check the
+    code."*). A row that asks something is answered by a **grep, a slot read, a selector, a call, or a
+    test** — never by a docblock, a commit message, a neighbouring row, or an earlier row's conclusion.
+    Cite the file:line of the CODE you read, not of the sentence that told you about it.
+    ⭐ **THE REASON IS RULE 19 ARRIVING FROM THE OTHER SIDE.** Rule 19 says a stale is dangerous because
+    *"it answers the question"*. This is what that costs when the reader is **you, closing a row**: the
+    comment is the very artifact most likely to be stale, because prose is not compiled and nothing
+    fails when it rots. **Closing a question on a comment launders a stale into a ✅**, and rule 16 says
+    a ✅ is how the next thread decides what not to re-read — so the error is then unreachable.
+    ⚠️ **THIS APPLIES TO PROSE THIS TREE'S OWN AUTHORS WROTE, INCLUDING YOURS.** A row you wrote last
+    session is prose. A commit message you wrote an hour ago is prose.
+    *Worked examples, all found 2026-09-06 in one pass over ONE four-row table:*
+    · **§OOR item 1** claimed *"`SwapLib.sol:1212` still `revert IntentSellLegUnbuilt()`"*. **Measured:
+      `IntentSellLegUnbuilt` has ZERO occurrences in `evm/src` — not declared, never raised** — and
+      `_settleSellIntent` is implemented and called. The leg was BUILT. The row had been true once.
+    · **§OOR item 2** said BTC OOR has *"no path at all"*. **Measured: both ends exist** — `Core` is
+      deployed twice so `settleOor` is on the BTC range too, and `requestSwapOutOnchain` +
+      `refundExpiredSwapOut` are the delivery rail. Only the entrypoint is missing. The row mis-sized
+      the job by describing a gap it had not walked.
+    · **§OOR item 4** blamed *"`_aggSwap` is still `UNOSWAP_SELECTOR`-only"*. **Measured: it emits
+      `UNOSWAP2_SELECTOR` whenever `dex2 != 0`** — the two-hop is built. The conclusion survived; the
+      diagnosis was wrong, which is worse than being wrong outright because it sends the fix to the
+      wrong file.
+    · **§PLP-Y2** concluded *"the band does economic limiting AND rate limiting."* **Measured:
+      `_bandFor` is reachable from exactly two sites**, so it gates the keeper paths and NONE of
+      `deleverToVault` / `swapOutDeleverPooled` / `deleverBook` / `closeLev` / `closeLevFor`. True of
+      the path that was read, generalised to paths that were not.
+    📌 **Three of those four were wrong, in one table, all closable-looking from prose.** ⇒ when a row
+    cites a **line number rather than a measurement**, treat it as unverified until you have re-read
+    that line — line numbers rot fastest of all, because every edit above them moves them.
+
 19. **REMOVE STALES AND SLOPS ALONG THE WAY** (owner, 2026-09-01). A stale is a statement the tree
     no longer supports: a docblock describing a branch that was collapsed away, an interface member
     for a deleted function, a ledger row whose claim has been falsified. **Fix it in the turn you
