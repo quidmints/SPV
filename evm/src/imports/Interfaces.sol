@@ -233,6 +233,37 @@ address constant CURVE_PYUSD_USDC      = 0x383E6b4437b59fff47B619CBA855CA29342A8
 int128  constant CRV_PYUSD_IDX         = 0;
 int128  constant CRV_PYUSD_USDC_IDX    = 1;
 
+// §SESS-24 — FOUR MORE ROWS, EVERY FIGURE READ FROM THE CHAIN AT `FORK_BLOCK=25800000`.
+// ⚠️ **PICKED BY DEPTH AT SIZE, NOT BY REGISTRY ORDER.** Curve's MetaRegistry
+// `find_pool_for_coins(from,to,0)` returns *a* pool, not the deepest — for PYUSD it returns
+// `0x61fA2c94…`, which is NOT the pool this tree already verified. Every row below was found by
+// enumerating candidates, REJECTING metapools (`is_underlying == true` ⇒ our `curveExchange` calls
+// `exchange`, not `exchange_underlying`, so the quote would price a swap we cannot execute), and
+// verifying the indices with `coins(i)`/`coins(j)` on the pool ITSELF rather than trusting the
+// registry — the standing rule that *"a wrong index swaps the wrong pair at size and there is no id
+// to assert against."*
+// ⛔ **AND A POOL THAT MERELY DOES NOT REVERT IS NOT A CANDIDATE.** `0xEf3a1CaE…` answers `get_dy`
+// for PYUSD, GHO, RLUSD and USDS alike with **427 USDC per 10,000 in** — a 95% loss, no revert. A
+// "didn't revert" filter would have taken it. Depth is the discriminator, exactly as §E292's removed
+// venue taught.
+// MEASURED COST, 10k / 100k / 1M (bps): USDT 4/4/4 · DAI 1/1/1 · USDG -1/-1/-1 · crvUSD 0/0/0.
+// All four are FLAT to $1M, which is the bar the predecessor venue failed between $10k and $25k.
+address constant CURVE_3POOL           = 0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7;
+address constant USDT_TOKEN            = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+int128  constant CRV_USDT_IDX          = 2;
+int128  constant CRV_USDT_USDC_IDX     = 1;
+address constant DAI_TOKEN             = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+int128  constant CRV_DAI_IDX           = 0;
+int128  constant CRV_DAI_USDC_IDX      = 1;
+address constant USDG_TOKEN            = 0xe343167631d89B6Ffc58B88d6b7fB0228795491D;
+address constant CURVE_USDG_USDC       = 0xc061caa073f3d95F80f8e5428d32D2d76F5e1622;
+int128  constant CRV_USDG_IDX          = 0;
+int128  constant CRV_USDG_USDC_IDX     = 1;
+address constant CRVUSD_TOKEN          = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
+address constant CURVE_CRVUSD_USDC     = 0x4DEcE678ceceb27446b35C672dC7d61F30bAD69E;
+int128  constant CRV_CRVUSD_IDX        = 1;
+int128  constant CRV_CRVUSD_USDC_IDX   = 0;
+
 /// @notice Curve crypto-swap. Uniswap is gone from every leg: stable→stable goes through
 ///         the stableswap pools via `ICurvePool` (int128), stable→volatile through this one (uint256).
 /// @dev    🔴 A SEPARATE INTERFACE, NOT AN OVERLOAD ON `ICurvePool`, DELIBERATELY. Curve's two families

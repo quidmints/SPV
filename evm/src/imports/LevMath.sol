@@ -8,7 +8,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN} from "./Interfaces.sol";
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -1042,6 +1042,11 @@ library LevMath {
     {
         if (stable == RLUSD_TOKEN) return (CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX);
         if (stable == PYUSD_TOKEN) return (CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX);
+        // ⛔ §SESS-24 — **DO NOT ADD QUOTE-ONLY ROWS HERE.** This table drives EXECUTION: `_routableStable`
+        //    reads it, and `consolidate` swaps a slice rather than refunding it whenever both sides are
+        //    routable. Adding four measured-deep rows here turned four previously-refunded slices into
+        //    real swaps and broke `test_ProtectFromQuid_HostileOperatorNetsZero` — a behaviour change,
+        //    caught by the suite, not by review. Quote coverage lives in `_quoteOf` below.
         // Absent ⇒ (0,0,0). Deliberately does NOT revert: this predicate serves `_routableStable`,
         // which must be able to ASK without failing (an unroutable slice is skipped and refunded).
     }
@@ -1100,10 +1105,35 @@ library LevMath {
         return _curveQuote(tokenOut, viaHub, false);             // USDC → tokenOut
     }
 
+    /// @notice §SESS-24 — **THE QUOTE TABLE: a SUPERSET of `_routeOf`, and deliberately a separate one.**
+    ///
+    /// 🔑 **THE TWO PURPOSES HAVE DIFFERENT BARS, AND CONFLATING THEM IS A BEHAVIOUR CHANGE.** A row here
+    ///    only has to PRICE a swap; a row in `_routeOf` has to be somewhere we would TRADE, because
+    ///    `_routableStable` reads that table and `consolidate` swaps whatever it says is routable.
+    ///    **Measured, not argued:** adding these four to `_routeOf` flipped four slices from refunded to
+    ///    swapped and broke `test_ProtectFromQuid_HostileOperatorNetsZero`. Splitting the tables is what
+    ///    that failure was asking for.
+    /// ⭐ **AND IT SURVIVES `_routeOf`'s DELETION.** That table is scheduled to go — *"DELETE THIS BRANCH
+    ///    … once the keepers supply `hubDex` for every venue stable in use"* — but the FLOOR still needs a
+    ///    reference after it does. A quote table that merely extended the execution table would die with it.
+    /// @dev Falls through to `_routeOf` first, so **every executable route is automatically quotable** and
+    ///      the shared rows exist in exactly one place (rule 2). The rows below are the quote-only extras.
+    ///      Each was picked by DEPTH AT SIZE and verified against `coins()` — see the constants' block and
+    ///      `evm/test/CurveTablePins.t.sol`, which pins all six rows and asserts the exclusions stay zero.
+    function _quoteOf(address stable) private pure returns (address pool, int128 iStable, int128 iUsdc) {
+        (pool, iStable, iUsdc) = _routeOf(stable);
+        if (pool != address(0)) return (pool, iStable, iUsdc);
+        if (stable == USDT_TOKEN)   return (CURVE_3POOL,        CRV_USDT_IDX,   CRV_USDT_USDC_IDX);
+        if (stable == DAI_TOKEN)    return (CURVE_3POOL,        CRV_DAI_IDX,    CRV_DAI_USDC_IDX);
+        if (stable == USDG_TOKEN)   return (CURVE_USDG_USDC,    CRV_USDG_IDX,   CRV_USDG_USDC_IDX);
+        if (stable == CRVUSD_TOKEN) return (CURVE_CRVUSD_USDC,  CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX);
+        // Absent ⇒ (0,0,0) ⇒ the leg contributes NOTHING to the floor. Never a revert, never a loosening.
+    }
+
     /// @dev One table hop, quoted. `toUsdc` mirrors `_hubSwap`'s parameter so the quote and the swap
     ///      cannot disagree about direction — they read the SAME `_routeOf` row.
     function _curveQuote(address stable, uint256 amt, bool toUsdc) private view returns (uint256) {
-        (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
+        (address pool, int128 iStable, int128 iUsdc) = _quoteOf(stable);
         if (pool == address(0)) return 0;                        // not on the table ⇒ no opinion
         try ICurvePool(pool).get_dy(toUsdc ? iStable : iUsdc, toUsdc ? iUsdc : iStable, amt)
             returns (uint256 dy) { return dy; } catch { return 0; }

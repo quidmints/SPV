@@ -52982,3 +52982,65 @@ exactly 0 (never loosen, never revert), the two-hop composes, and a **vacuity ch
 one route quotes non-zero, without which every "never loosens" assertion would hold trivially.
 Regression across the lev/route/skew suites **89/0**. `LevMath` 22,863 (+533 bytes, 1,713 margin).
 
+## §SESS-24 — **QUOTE COVERAGE 2 → 6 STABLES, AND THE SUITE FORCED THE RIGHT SHAPE.** (2026-09-06)
+
+**Owner:** *"now grow `_routeOf` to cover all 14 stables."* ⇒ **6, not 14 — and in a SEPARATE table.**
+Both departures are measured, not chosen.
+
+### 🔴 THE FIRST ATTEMPT WAS WRONG, AND THE TEST SAID SO
+Adding four measured-deep rows straight into `_routeOf` broke
+`test_ProtectFromQuid_HostileOperatorNetsZero` — **verified as mine by stashing the change and watching it
+pass.** ⇒ `_routeOf` drives **EXECUTION**, not just pricing: `_routableStable` reads it, and `consolidate`
+**swaps** a slice rather than refunding it whenever both sides are routable. Four previously-refunded
+slices became real swaps.
+🔑 **THE TWO PURPOSES HAVE DIFFERENT BARS.** A quote row only has to PRICE; an execution row has to be
+somewhere we would TRADE. ⇒ `_quoteOf` is now a **superset** that falls through to `_routeOf` first, so
+every executable route is automatically quotable and the shared rows exist in exactly one place.
+⭐ **AND THE SPLIT SURVIVES `_routeOf`'s SCHEDULED DELETION** (*"DELETE THIS BRANCH … once the keepers
+supply `hubDex` for every venue stable in use"*). A quote table that merely extended the execution table
+would have died with it — which is the strongest argument for the split and was not the reason I found it.
+
+### ✅ THE SIX ROWS, EVERY FIGURE READ FROM THE CHAIN AT `FORK_BLOCK=25800000`
+| stable | pool | i,j | cost 10k / 100k / 1M |
+|---|---|---|---|
+| USDT | `0xbEbc4478` (3pool) | 2,1 | **4 / 4 / 4 bps** |
+| DAI | `0xbEbc4478` (3pool) | 0,1 | **1 / 1 / 1 bps** |
+| USDG | `0xc061caa0` | 0,1 | **-1 / -1 / -1 bps** |
+| crvUSD | `0x4DEcE678` | 1,0 | **0 / 0 / 0 bps** |
+| RLUSD | `0xD001aE43` *(existing)* | 1,0 | flat |
+| PYUSD | `0x383E6b44` *(existing)* | 0,1 | flat |
+**All six FLAT to $1M**, which is the bar §E292's removed venue failed between $10k and $25k.
+
+### ⛔ WHY NOT 14 — EACH EXCLUSION HAS A REASON, NOT AN OMISSION
+| stable | why |
+|---|---|
+| cUSD · frxUSD | **no Curve/USDC pool exists** — MetaRegistry returns nothing at any index |
+| GHO · USDS · AUSD | only **garbage** pools (see below) |
+| USDE | **thin at size: 0 / 4 / 6592 bps** at 10k/100k/1M — the §E292 pattern exactly |
+| BOLD | SP-routed by design, last in the roster |
+
+### 🔴 TWO METHOD TRAPS THIS HIT, BOTH WORTH KEEPING
+① **"IT DIDN'T REVERT" IS NOT A CANDIDATE FILTER.** `0xEf3a1CaE…` answers `get_dy` for PYUSD, GHO, RLUSD
+   **and** USDS alike with **427 USDC per 10,000 in** — a 95% loss, cleanly, no revert. A naive filter
+   takes it. **Depth is the discriminator.** ✅ And note the competitive floor is safe against exactly
+   this by construction: a garbage LOW quote is ignored by `max()`. The design held under real bad data.
+② **THE REGISTRY IS NOT THE AUTHORITY.** `find_pool_for_coins(…, 0)` returns *a* pool, not the deepest —
+   for PYUSD it returns `0x61fA2c94…`, **not** the `0x383E6b44…` this tree had already verified. Rows were
+   chosen by depth and re-verified with `coins(i)`/`coins(j)` on the pool itself, per the standing rule
+   that *"a wrong index swaps the wrong pair at size and there is no id to assert against."*
+   ⚠️ Metapools were rejected outright: `is_underlying == true` means `exchange_underlying`, and
+   `curveExchange` calls `exchange` — the quote would price a swap we cannot execute. **`is_underlying`
+   and the `coins()` check agreed on every candidate**, which is the cross-check that makes both credible.
+
+### ▶️ WHAT IT IS WORTH
+The competitive floor (§SESS-23) now covers **6 of 14 stables instead of 2**, on the legs where
+`convertShortfall` does its per-stable conversion — and the measured bleed removed on a covered route was
+**21 bps** at $10k. Still inert, never looser, on the other eight.
+
+▶️ Verified: `CurveTablePins.t.sol` **3/3** — every row checked against `coins()`, every row flat to $1M
+in BOTH directions (an implausible over-quote is as wrong as an under-quote and would mean bad indices),
+and a **control asserting the exclusions still quote ZERO** so an exclusion cannot silently become a
+wrong row. Regression across lev/route/skew/floor suites **90/0**. `LevMath` 23,181 (1,395 margin).
+📌 `evm/test/CurveTableResearch.t.sol` is kept as the enumeration artifact — it is how the table was
+derived and how the next stable gets added.
+
