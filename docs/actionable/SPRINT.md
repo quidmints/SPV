@@ -52603,7 +52603,10 @@ this twice**: `SellCtx` (`:537`) and `WbtcCfg` (`:317`) carry all three together
 only the two pool words and was the outlier; that is now fixed.
 
 **② THAT VALUE BECOMES A LIST, AND ONLY THE ENCODER IS SINGULAR.** `convertTo:641` loops `k < n` over
-parallel arrays **with no dedup on `inTokens[k]`** ⇒ **parallel load-balancing works at the EXECUTOR
+parallel arrays **with no dedup on `inTokens[k]`**. ⚠️ **[CORRECTED by §SESS-20 — this next clause
+over-claims: duplicates are harmless BECAUSE THE ARRAY IS NEVER CALLER-SUPPLIED, and nothing currently
+CONSTRUCTS a split. Read §SESS-20 before designing §PLP-U3 — letting a keeper name the split re-creates a
+RETRACTED attack.]** ⇒ **parallel load-balancing works at the EXECUTOR
 today.** The one singular thing is `_aggSwap:967`'s `new address[](1)`. ⇒ **§PLP-U3 is an ENCODER change**;
 the executor, the per-leg approve→zero, the `ROUTE_GAS_CAP` and the floor are already N-safe.
 
@@ -52661,4 +52664,51 @@ comment says so at the site so it is not re-read as *"no route needed"*.
 `LevCascade` 22/22 · `LevDerivedBand` 8/8 · `LevVenueMarketPins` 5/5 · `LevYbPnl` 2/2 · `LevYbReal` 3/3 ·
 `LeverageCrossSubsidy` 1/1 · `LeveragePnL` 4/4 · `RedeemFlowTarget` 3/3 · `DrainAtomicity` 32/33 (the one
 red is §SESS-18's pre-existing UNITB q0 control, byte-identical with this change stashed).
+
+## §SESS-20 — **THE 1inch SECURITY MODEL IN ONE LINE, AND THE `inTokens` DEDUP QUESTION ANSWERED.** (2026-09-06)
+
+**Owner, after §SESS-19's shape answer:** *"why no dedup on intokens? you gave me a technical spec without
+telling me how this integration affects our internal behavior/features i.e. what goals does it achieve for
+the protocol securely (resistant to malicious code injection by hacked keeper)."*
+⇒ **§SESS-19 answered the MECHANISM and not the PROPERTY.** This is the property, and answering it
+**falsified a claim §SESS-19 makes** (corrected in place there).
+
+### 🔑 THE WHOLE SECURITY MODEL, AND IT IS ONE SENTENCE
+> **The keeper proposes HOW. The contract owns WHAT, HOW MUCH, and AT WHAT PRICE.**
+
+Verified at every `convertTo` call site (there are exactly three, `LevMath:700`, `:754`, `:974`):
+| quantity | who decides | evidence |
+|---|---|---|
+| **which tokens** (`inTokens`) | **CONTRACT** | `getStables()` (`:747`) or a 1-element array built on-chain (`:696`, `:967`) |
+| **how much** (`inAmounts`) | **CONTRACT** | `amt[k] = IERC20Min(st[k]).balanceOf(address(this))` — a MEASURED balance, and the draw above it is `take(…, quid, 0)` ⇒ *"token == QU!D ⇒ PRO-RATA"* |
+| **the price floor** | **CONTRACT** | oracle/TWAP-derived and size-aware (`_stableToWethSor:985`, `_wethStableFloor:1139`, `:753`) — `minOut` from a caller is advisory |
+| **the callee** | **CONTRACT** | pinned `ONEINCH_ROUTER`; the route is calldata TO it, never an address to call |
+| **the route** | **keeper** | the ONLY caller-controlled input |
+⇒ **A hacked keeper can choose a worse path. It cannot choose a different asset, a different size, a
+different counterparty, or a worse price.** Its whole reachable damage is to make a leg FAIL — a liveness
+cost — because `convertTo` never reads the router's return value and judges the result by a measured
+`outToken` balance delta against one floor.
+
+### ⇒ THAT IS WHY THERE IS NO DEDUP ON `inTokens`, AND IT IS A CONSEQUENCE, NOT A FEATURE
+I previously wrote that the missing dedup *"means parallel splitting works today"*. **That over-claims.**
+The correct statement: **duplicates are harmless BECAUSE THE ARRAY IS NEVER CALLER-SUPPLIED.** A dedup
+guard would defend against a caller naming the same token twice, and no such caller exists — adding one
+would be the clamp standing rule 3 deletes. ⚠️ **And nothing currently CONSTRUCTS a split**: `:754` emits
+one leg per distinct stable, and the other two sites are 1-element. **The executor could express a split;
+no encoder does.**
+
+### ⛔ THE CONSTRAINT THIS PUTS ON §PLP-U3 (LOAD BALANCING), AND IT IS THE IMPORTANT PART
+**The moment a keeper supplies `inTokens`/`inAmounts`, the security model above collapses** — WHAT and
+HOW MUCH move to the attacker's side of the line. That is exactly
+`§THE-FLOOR-BOUNDS-PRICE-NOT-COMPOSITION`, **and that row was RETRACTED only because *"the draw is ALWAYS
+pro-rata, so composition is invariant and there is no source choice to attack."*** ⇒ **building load
+balancing by letting the keeper name the split RE-CREATES the retracted attack**, and the retraction's own
+premise is the thing that dies.
+✅ **THE SHAPE THAT KEEPS THE PROPERTY: the keeper supplies N ROUTES FOR A SPLIT THE CONTRACT COMPUTED.**
+`routes[]` grows to allow several entries per token; `inTokens`/`inAmounts` stay contract-derived (equal
+fractions, or measured venue depth). **The floor stays ONE floor on the WHOLE conversion** — per-leg
+floors would let a keeper pass the aggregate by over-delivering one leg and stealing the rest.
+
+
+▶️ Lev regression **45/0**. U1 itself is §SESS-19; this section is only the security property.
 

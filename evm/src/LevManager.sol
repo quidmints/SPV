@@ -793,14 +793,15 @@ contract LevManager is LevBase {
     /// mode-0 (generic flash-stable) settle in its OWN frame (no via_ir): repay-first → withdraw → sell → return the
     /// flash + surplus to the LP. Sell + keeper-gas peel run in LevMath (bytecode outside this contract).
     function _deleverSettle(uint256 assets, address lp, address venueAddr, address stable, uint256 last, bytes calldata data) internal {
-        // §C2.1 — pull the keeper's 1inch POOL WORD out of the SAME flash payload the other five fields
-        // ride in. Mode 0 is the only layout that carries it; mode 2 returns above this line.
-        LevMath.ExtractCfg memory cfg = _extractCfg();
-        // §SESS-19 — the decode moved INTO `deleverSettleBody`: widening the payload to carry
-        // `(dex, dex2, route)` put this contract 93 bytes over EIP-170 with the decode here.
-        // repay-first → withdraw the freed collateral → sell → return the flash + surplus: body in LevMath (EIP-170).
+        // §SESS-19 — **THE PAYLOAD NOW CARRIES `(dex, dex2, route)`, AND THE DECODE MOVED TO `LevMath`.**
+        // §C2.1's note here said *"pull the keeper's 1inch POOL WORD"* — singular, because that is all
+        // this leg could carry: `_delever` took `dex2`/`route` and handed on neither, so the CLOSE leg
+        // could reach only single-hop `unoswap` from EVERY entrypoint, direct calls included.
+        // ⚠️ Decoding here put this contract **93 bytes OVER EIP-170** (measured). The decode and the
+        //    three `cfg` writes live in `deleverSettleBody` for that reason — the same "body in LevMath"
+        //    remedy the rest of this path already uses.
         gasReserve = LevMath.deleverSettleBody(assets, lp, venueAddr, stable, last,
-            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), cfg, data);
+            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg(), data);
     }
 
     /// The ETH sell/buy machinery lives in LevMath now (delegatecall, bytecode OUTSIDE this contract, so the
