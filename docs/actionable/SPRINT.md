@@ -53722,3 +53722,47 @@ reverts** `NotPriced` rather than defaulting (rule 3).
 📌 **AND `assetPriceFeed(WETH) == 0` IN THE FIXTURE IS ITSELF A RULE-21 ITEM** — booked for GATE 0a's
 mock audit. Whether production wires it is not established here.
 
+## §SESS-42 — **"TOO MANY VARIABLES": ONE IS A REAL DUPLICATE, ONE MUST NOT BE MERGED, AND THE REST IS THE GUESS.** (2026-09-06)
+
+**Owner:** *"it seems like there are too many unnecessary variables."* ⇒ **Right, but the fix splits three
+ways, and my first instinct was the one §E275 already warns against.**
+
+### 📊 WHAT IS ACTUALLY ON THE FLOOR PATH — FIVE CONSTANTS FOR ONE NUMBER
+| constant | where | job |
+|---|---|---|
+| `TWAP_WINDOW = 1800` | `LevBase:43` | TWAP averaging window |
+| `TWAP_WIN_M = 1800` | `LevMath:496` | **the same window** |
+| `WbtcCfg.twapWindow` | struct field | **the same window, a third time** |
+| `MAX_SLIPPAGE_BPS = 100` | `LevBase:191` | withdraw gross-up (`:1314`) + MEV floor (`:1395`) |
+| `SELL_SLIP_BPS = 100` | `LevMath:502` | cap on the size-aware slip curve |
+| `SLIP_BASE_BPS = 25` · `SLIP_PER_MM_BPS = 25` | `LevMath:524-525` | the curve itself |
+
+### ✅ ① THE GENUINE DUPLICATE — **ONE CONCEPT, THREE CARRIERS.** FIXED.
+The TWAP window is the **same parameter to the same call** (`getTWAPforAsset(asset, window)`) written
+three times. Rule 2 says one declaration in the shared file. ⇒ `TWAP_WINDOW_SECS` now lives in
+`Interfaces.sol`; `LevBase.TWAP_WINDOW` stays **public** (it is ABI) and `LevMath.TWAP_WIN_M` stays as an
+alias so ~20 call sites do not churn — **both are now REFERENCES, not second sources of truth.**
+▶️ `WbtcCfg.twapWindow` is now removable too — booked, not done: removing a struct field touches every
+constructor site and is its own change.
+
+### ⛔ ② THE APPARENT DUPLICATE THAT MUST **NOT** BE MERGED — AND I ALMOST DID
+`MAX_SLIPPAGE_BPS` and `SELL_SLIP_BPS` are both **100**, and merging them was my first move. **§E275
+forbids it, in this tree's own words:** *"They hold the SAME VALUE TODAY **BY INHERITANCE, NOT BY
+DERIVATION** … splitting them is what lets Γ move without silently repricing the unknown-variance case."*
+🔑 **They do different jobs** — one grosses up a withdraw and floors freed ETH against MEV; the other caps
+a slip curve. **Merging would mean tightening the slip cap silently changes how much collateral a delever
+withdraws.** ⇒ **deduplicate identical CONCEPTS, never merely identical VALUES.** Recorded at the new
+declaration so the next reader does not repeat the attempt.
+
+### 🔴 ③ AND THE REAL EXCESS IS THE SLIP CURVE — WHICH IS THE GUESS, NOT A VARIABLE
+`SLIP_BASE_BPS` + `SLIP_PER_MM_BPS` + `SELL_SLIP_BPS` are **three parameters fitting one curve nobody
+measured**, and §SESS-41 showed the curve is simultaneously **too tight to be met** at this block
+(unmeetable by the best venue at $50k *and* $1M) and **12–60× the measured need** at others.
+⭐ **THE REDUCTION IS NOT TO TUNE THEM — IT IS TO RETIRE THEM.** Where `_quoteOf` has a row the floor is a
+live `get_dy` and **all three constants are dead weight** (§SESS-41 measured 26 bps of guesswork removed
+on USDC→USDT). ⇒ **every row added to `_quoteOf` deletes three variables for that pair.** That reframes
+§SESS-24's table growth from coverage work into **constant-elimination work**, which is a better
+justification than the one it shipped with.
+
+▶️ Verified behaviour-neutral: build clean, and lev/floor/route suites **62/0** after the dedup.
+

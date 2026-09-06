@@ -172,6 +172,17 @@ interface ICurvePool {
 // would make the whole design a rug vector.
 address constant ONEINCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
 
+// §SESS-42 — **THE TWAP AVERAGING WINDOW, DECLARED ONCE.** It was written THREE times for ONE concept:
+// `LevBase.TWAP_WINDOW` (the managers'), `LevMath.TWAP_WIN_M` (the library's), and carried a third time
+// as `WbtcCfg.twapWindow` — all feeding the same `getTWAPforAsset(asset, window)` parameter. Rule 2:
+// one declaration, in the shared file.
+// ⚠️ **THIS IS NOT THE SAME CASE AS THE TWO `100`s** (`MAX_SLIPPAGE_BPS` and `SELL_SLIP_BPS`), which do
+// DIFFERENT jobs — a withdraw gross-up plus MEV floor, versus the cap on the size-aware slip curve.
+// §E275's doctrine is explicit that constants sharing a value **by inheritance rather than by
+// derivation** must stay SEPARATE, *"so Γ can move without silently repricing the unknown-variance
+// case."* ⇒ **deduplicate identical CONCEPTS, never merely identical VALUES.**
+uint32 constant TWAP_WINDOW_SECS = 1800;
+
 // `unoswap(Address token, uint256 amount, uint256 minReturn, Address dex)` — V6's single-pool
 // entrypoint, and the ONLY selector we ever send. ⭐ **VERIFIED AGAINST THE DEPLOYED ROUTER, NOT
 // TAKEN FROM DOCUMENTATION** (2026-08-26): the selector is present in the live bytecode, and a fork

@@ -9,7 +9,7 @@ import {RangeLib} from "./RangeLib.sol";
 // §J.2 — ONE import from `Interfaces.sol`, not three. Rule 2 is "one declaration per interface in a
 // shared file"; three import statements from the SAME file is the same fragmentation on the consumer
 // side, and it is how `ILevPooled` came to look like a separate concern with its own line.
-import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX, VenuePosition} from "./Interfaces.sol";
+import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX, VenuePosition, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
 /// @title  LevBase — the per-LP position registry both lev managers duplicated
@@ -40,7 +40,8 @@ abstract contract LevBase {
     /// TWAP window both sides price against. Identical (1800) in each manager; PUBLIC here because
     /// BtcLevManager already exposed a getter and removing it would be an ABI break, while adding one
     /// to LevManager is affordable (317 bytes of margin, measured).
-    uint32 public constant TWAP_WINDOW = 1800;
+    /// §SESS-42 — one declaration (`TWAP_WINDOW_SECS`); this stays PUBLIC because it is ABI.
+    uint32 public constant TWAP_WINDOW = TWAP_WINDOW_SECS;
 
     /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;

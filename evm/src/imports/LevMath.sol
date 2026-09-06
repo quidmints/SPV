@@ -6,7 +6,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IRangeM`).
-import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue} from "./Interfaces.sol";
+import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
@@ -493,7 +493,9 @@ library LevMath {
         px = IAux(aux).getTWAPforAsset(loan, TWAP_WIN_M);
         if (px == 0) revert NoPrice();
     }
-    uint32  internal constant TWAP_WIN_M         = 1800;
+    /// §SESS-42 — one declaration (`TWAP_WINDOW_SECS`). Kept as an alias so the ~20 call sites in
+    /// this library do not churn; it is now a REFERENCE, not a second source of truth.
+    uint32  internal constant TWAP_WIN_M         = TWAP_WINDOW_SECS;
     /// @dev 🔴 **THE CEILING, AND EVERY BASIS POINT OF IT IS ONE A COMPROMISED KEEPER MAY TAKE.**
     ///      `minOut` is `oracle x (10000 - slip)/10000`, so a hostile route can return EXACTLY the
     ///      floor and keep the rest — silently, because the swap succeeds (§THE-SLIPPAGE-WINDOW-IS-THE-LEAK).
