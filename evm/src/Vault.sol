@@ -3,7 +3,6 @@
 pragma solidity ^0.8.28;
 
 import {RangeLib} from "./imports/RangeLib.sol";
-// §A.52: the canonical Aux view (was a file-local variant).
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 import {Basket} from "./Basket.sol";
@@ -13,8 +12,6 @@ import {BtcLib} from "./imports/BtcLib.sol";
 import {VBtc} from "./VBtc.sol";
 import {Types, AlreadyInitialized, BtcChannelsPinned, NotBTCChannels, Unauthorized} from "./imports/Types.sol";
 import {Shares} from "./Shares.sol";
-
-// §ETHVENUE-GHOSTS: the `solmate WETH as WETH9` import went with the dead `WETH` immutable — its only user.
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
@@ -28,12 +25,12 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  🔴 §E301/§ETHVENUE-GHOSTS — NO ETH-VENUE CUSTODY LIVES HERE, and do NOT go looking for
 //  `EthVenue.sol`: it does not exist either. ETH-venue custody was extracted out of this contract
 //  and then folded into `Quid` (the ETH range manager IS the ETH venue), so `Aux.ethVenue` is
-//  pinned to the range manager — `DeployLib` runs `aux.setEthVenue(address(ETH))`. This header, the
+//  pinned to the range manager — `DeployLib` runs `aux.wire(0, address(ETH), 0)`. This header, the
 //  ETH-VENUE gate it described and every ETH function that gate named are gone; `contract Vault is
 //  Ownable, ReentrancyGuard, Shares` and nothing else.
 //  ⚠️ **THAT DELETED GATE WAS ALSO SPELLED `onlyUs`, AND THE NAME IS LIVE AGAIN — DO NOT READ THIS
 //  PARAGRAPH AS SAYING THE MODIFIER BELOW IS DEAD.** §E301 removed an ETH-venue `onlyUs` that gated
-//  ZERO functions; the modifier at `:190` is the BTC range's own gate, renamed here from
+//  ZERO functions; the `onlyUs` modifier below is the BTC range's own gate, renamed here from
 //  `onlyUsBtc` (§FOLD-BLOCKER: one name per concept, two instances — the same direction as
 //  `resizeBtcLp`→`resize` and `syncLevBTC`→`syncLev`). Same concept as `Quid.onlyUs`, different
 //  instance, and it gates the five functions listed under GATES below.
@@ -52,11 +49,6 @@ import {QuidLib} from "./imports/QuidLib.sol";
 //  BTCChannels.btc / Basket.BTC_VAULT) just points at this one address.
 // ════════════════════════════════════════════════════════════════════════
 
-// §ETHVENUE-GHOSTS — the Permit2 slice, the AAVE-v4 GHO spoke and ether.fi venue interfaces, and
-// `arbETH`/`arbBTC` are ALL DELETED (the arb record is `Aux`'s §E233-sor block, under its "ETH yield
-// venue (AAVE/ether.fi)" banner). Their docblocks outlived them here, reading as live ETH features
-// inside a BTC-only contract. A docblock whose subject is gone reads as a feature you have not found.
-
 /// BtcLevManager read surface: the leveraged book's collateral (vBTC, 8-dec sats). The collateral lives
 /// on external Euler/Morpho per-LP (the Vault never holds it). The book is counted at NET equity
 /// (gross − debt) in both `POOLED` and `lpShares`; the debt-funded buffer (gross − net) is EXCLUDED from
@@ -70,7 +62,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 /// the net-equity is counted for solvency. `rangeBTC` is WBTC-only (swept donations + swap deltas) and is
 /// NEVER credited the net-equity, so `POOLED + rangeBTC` (Core shortfall read) is single-counted. Net
 /// (not gross): a venue liquidation can't strand POOLED_USD. Mirrors the ETH `ILevEquity` over the BTC range.
-/// Declared once, in imports/Interfaces.sol (it was also BtcLib's `ILevBtc_V`).
+/// Declared once, in imports/Interfaces.sol.
 
     // §E252 — the THIRTEEN shared range-state declarations moved to `State` (Shares.sol).
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
@@ -103,14 +95,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         here. 0 = leverage disabled. (§ETHVENUE-GHOSTS: this line read "LevManager needs Aux/weETH
     ///         first", which is the ETH manager's construction ordering, not the BTC one's.)
 
-    // §ETHVENUE-GHOSTS — `error NotSelf()` and `error NotAux()` DELETED: zero references anywhere in this
-    // contract, and `git log -S` puts both squarely in the EthVenue extraction commits (a3225031,
-    // 2ae0bbba, 8720a35d). The live declarations are `error NotSelf()` in `Aux` and `error NotSelf()`
-    // / `error NotAux()` in `Quid`, which do still revert with them. ⚠️ This used to cite
-    // `Aux.sol:204` and `Quid.sol:90-91`; BOTH had drifted by ~40 and ~25 lines within days. The
-    // durable claim is the ZERO — zero references in THIS file — and the names, not the coordinates. An unused error costs no bytecode, so this is a rule-1 deletion and
-    // not a size one — but a declared error IS api surface: it tells a reader this contract can
-    // reject them that way, and neither of these can.
     error NoBtcPosition();
 
     Basket QUID;
@@ -133,45 +117,13 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         fee weight (pooled + levBuf) and the fee denominator (lpShares + totalBuffer).
     /// @notice Sum of every BTC LP's levBuf — the gross buffer total. Fee denom = lpShares + this.
 
-    /// Self-managed BTC boundary positions (out-of-range single-sided orders),
-    /// keyed by an ID counter; `positions` maps an owner to its position
-    /// ids. These are user-facing and exit via the self-managed pull/close path.
-
-    /// @notice BTC-leg trading fees ACCRUED to each LP, in native sats.
-    ///
-    /// @dev WHAT THIS IS: an UNFUNDED per-LP accrual, not a segregated balance. Nothing is
-    ///      custodied against it and no sats sit idle anywhere. `settleBtcLp` credits each LP its
-    ///      pro-rata share of the BTC-leg fee accumulator here (`SwapLib.pendingFor` over
-    ///      `LP.pooled + levBuf`); the hop is the party that eventually FUNDS it in real BTC.
-    ///      Unlike the USD leg it is never minted as QUID, because the fee is BTC rather than
-    ///      basket dollars.
-    ///
-    /// @dev TWO SETTLEMENT PATHS, and the first is the LIVE PRIMARY ONE:
-    ///      1. COMPOUND (default). On a GROW splice the hop funds real sats in and marks up to
-    ///         (E145) HISTORICAL: the hop used to fund `feeSettleSats` into a grow-splice and
-    ///         clears the counter, and the sats DO compound into `LP.pooled` — `requestDeposit`
-    ///         already grew pooled by the full delta, so `delivered` stays invariant. Driven from
-    ///         `quid-bridge/channel_driver.rs`, which reads this counter and settles
-    ///         `min(owed, grewBy)` opportunistically whenever a grow is happening anyway.
-    ///         This REPLACED the standalone settler (`run_lp_fee_settler`, deleted).
-    ///      2. AT CLOSE. Whatever is still owed is paid by the hop when the channel closes
-    ///         (`settleBtcLp`'s close path reads and deletes the counter).
-    ///
-    /// @dev CORRECTED 2026-08-01. This NatSpec previously read "NOT compounded into `pooled` ...
-    ///      the hop settles it in native BTC at channel close", describing path 2 as if it were the
-    ///      only one. That was stale from before the fee-splice landed and it caused a downstream
-    ///      doc error; do not restore it.
-    // (E145) `btcFeesOwedSats` DELETED. The BTC fee leg now compounds into `LP.pooled` in sats
-    // as it is earned (see `BtcLib.settleBtcLp`), so there is no unsettled claim to hold,
-    // no hop-funded grow-splice to settle it, and nothing to forfeit at close.
-
-    /// @dev NOT suffixed `_BTC`, deliberately. Quid names its ETH range ticks `LOWER_PRICE`/
-    ///      `UPPER_PRICE`; this contract owns the BTC range and names its own the same. Each range
-    ///      answers for ITS asset, so `reanchorCompute` calls ONE accessor instead of selecting a
-    ///      NAME by flag — which is all that `isBTC` was doing there (hence the try/catch around
-    ///      every call: the wrong name simply does not exist on the other side).
-    /// §ONE-ANCHOR — was `UPPER_PRICE` + `LOWER_PRICE`, always `updateBounds(anchor, RANGE_DELTA)`
-    /// of one another. Two slots for one number; `rangeBounds()` derives the pair on read.
+    /// @dev NOT suffixed `_BTC`, deliberately — and do not add the suffix back. `Quid` names its
+    ///      ETH-range accessors exactly as this contract names its BTC ones, so a cross-range caller
+    ///      (`LevMath.reanchorCompute`) calls ONE `rangePrice()`/`rangeBounds()` pair on whichever
+    ///      range it holds instead of selecting a NAME by flag — which is all that `isBTC` was doing
+    ///      there. Each range answers for ITS asset; the CONTRACT IDENTITY carries the suffix.
+    /// §ONE-ANCHOR — ONE stored number, `RANGE_ANCHOR` (declared in `Shares`); `rangeBounds()`
+    /// derives the pair on read as `updateBounds(anchor, RANGE_DELTA)`.
 
 
     error ZeroTwap();
@@ -194,21 +146,18 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// BTC-LP deposit/redeem/resize are driven by channel locks, and the swap-in/swap-out credit is
     /// attested by the same contract, so both are gated to the pinned `BTCChannels` — never the
     /// public 4626 surface.
-    /// @dev §MODFOLD — WAS **TWO** MODIFIERS, `onlyBtcChannels` and `onlyBTCChannels`, differing
-    ///      only in the case of "BTC" (rule 2: one declaration per concept). They were the SAME
-    ///      RULE — the older comment said so outright ("same gate, distinct name kept from Aux") —
-    ///      and differed in exactly two ways, both resolved in favour of the surviving spelling:
-    ///        1. REVERT DATA. The lowercase one raised `Error("403")`, this one raises the custom
-    ///           `NotBTCChannels()`. The custom error is what `Aux` raises for the identical gate
-    ///           (`Aux.sol`) and what the only tests asserting this gate expect
-    ///           (`ReentrancyProbe.t.sol` on `creditSwapIn`/`creditSwapOut`). No test asserted the
-    ///           string form on any of the three sites that carried it.
-    ///        2. A `btcChannels != address(0)` CLAUSE, which discriminated only when
-    ///           `msg.sender == address(0)` AND the pin was unset. `msg.sender` is never the zero
-    ///           address in EVM execution — there is no account that can originate a call from it —
-    ///           so the clause could not fire on chain, and an unset pin already rejects every real
-    ///           caller through the address compare alone. Dropped under rule 1 (no unreachable
-    ///           code) and rule 3 (a clamp that only looks like safety).
+    /// @dev §MODFOLD — ONE declaration of this gate, in one spelling (rule 2: one name per
+    ///      concept). It is a bare address compare raising the custom `NotBTCChannels()`, which is
+    ///      what the only tests asserting the gate expect (`ReentrancyProbe.t.sol` on
+    ///      `creditSwapIn`/`creditSwapOut`) — not an `Error(string)`. `Aux` has NO counterpart gate
+    ///      to match: `Vault._onlyBTCChannels` holds the comparison for the whole tree now, and
+    ///      Aux's `_btcChannels` is a READ HANDLE only.
+    ///      ⛔ Do NOT add a `btcChannels != address(0)` clause. It would discriminate only when
+    ///      `msg.sender == address(0)` AND the pin were unset. `msg.sender` is never the zero
+    ///      address in EVM execution — there is no account that can originate a call from it — so
+    ///      the clause cannot fire on chain, and an unset pin already rejects every real caller
+    ///      through the address compare alone. Rule 1 (no unreachable code), rule 3 (a clamp that
+    ///      only looks like safety).
     function _onlyBTCChannels() private view {
         if (msg.sender != btcChannels) revert NotBTCChannels();
     }
@@ -233,7 +182,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     fallback() external payable {}
 
     /// @notice BTC-side init (formerly BtcVault.setup): pin QUID, read the BTC
-    ///         pool slot0 (needs CORE.setup done) and seed the BTC ticks. AUX/
+    ///         pool slot0 (needs CORE.setup done) and seed `RANGE_ANCHOR`. AUX/
     ///         CORE are constructor-set immutables, so only QUID is taken here.
     function setup(address _quid) external {
         if (msg.sender != owner()) revert Unauthorized();   // was front-runnable
@@ -270,8 +219,11 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function _onlyPinner() internal view override { _checkOwner(); }
     function _rangeAsset() internal view override returns (address) { return address(AUX.WBTC()); }
 
-    /// @notice LIVE sum of the BTC leveraged book's net-equity (8-dec sats) — the BACKING term added to
-    ///         `rangeBTC` (Core solvency). try/catch so a venue hiccup can't brick the backing read.
+    /// @notice LIVE sum of the BTC leveraged book's net-equity (8-dec sats), read straight off the
+    ///         pinned manager. A VIEW ONLY — no protocol path calls it. The net-equity reaches
+    ///         solvency by `syncLev` pairing it into `POOLED`; `rangeBTC` is NEVER credited it (see
+    ///         the `ILevEquity` note at the top), so this must not be added to a backing read a
+    ///         second time. try/catch so a venue hiccup can't brick it.
     function totalNetEquity() external view returns (uint) {
         if (LEV_MANAGER == address(0)) return 0;
         try ILevEquity(LEV_MANAGER).totalNetEquity() returns (uint ne) { return ne; } catch { return 0; }
@@ -315,7 +267,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///   `unexposeBtcFromLev`. Gated to the pinned LevManager (the sole leverage authority).
     function exposeBtcToLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        // Storage-mutation body in BtcLib.vbtcExposeBody (delegatecall — EIP-170); gate + emit stay here.
+        // Storage-mutation body in BtcLib.vbtcExposeBody (delegatecall — EIP-170); gate + the vBTC supply call stay here.
         BtcLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
         VBTC.mintTo(msg.sender, sats);   // the Transfer event is the TOKEN's to emit, not ours
         return true;
@@ -328,14 +280,13 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///   The LP never receives loose vBTC (that would double-claim the same channel BTC).
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        // Storage-mutation body in BtcLib.vbtcUnexposeBody (delegatecall — EIP-170); gate + emit stay here.
+        // Storage-mutation body in BtcLib.vbtcUnexposeBody (delegatecall — EIP-170); gate + the vBTC supply call stay here.
         VBTC.burnFrom(msg.sender, sats);   // reverts if the manager lacks the sats — checked BEFORE the range moves
         BtcLib.vbtcUnexposeBody(levPooled, lp, sats);
         return true;
     }
 
     /// @notice BTC-side parallel of Quid.totalShares — a VIEW over lpShares.
-    /// Re-arms the BTC shortfall/delivery trigger in Core.
     /// @notice §E5 (BTC mirror of `Quid.creditSkewPremium`) — route the retained scarcity premium
     ///         to BTC-range LPs via the same per-share accumulator their trading fees use. GROSS fee
     ///         weight (`lpShares + totalBuffer`), matching the `feeDenom` the rebalance body
@@ -359,7 +310,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
 
     /// @notice Share base for the shortfall trigger. `totalShares` is NET, so the levered buffer
-    ///         is added to match `POOLED` (which is GROSS -- `levAddBtc` pairs the gross buffer in),
+    ///         is added to match `POOLED` (which is GROSS -- `syncLev` pairs the gross buffer in),
     ///         keeping the comparison gross-to-gross. The ETH side is net-vs-net and correctly adds
     ///         nothing; that asymmetry is real, not drift.
     function sharesForShortfall() external view returns (uint) {
@@ -400,9 +351,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
 
-    /// @notice (B) The BTC range's current spot √P (Q96) — recorded as `syncKeyPx` at `openBtcLev`. `isBTC` is
-    ///         accepted for interface-parity with `Quid.rangePrice`; the Vault is BTC-only, so it always reads
-    ///         the BTC pool.
+    /// @notice (B) The BTC range's current spot price (WAD USD per BTC, the observation ring's basis)
+    ///         — recorded as `syncKeyPx` at `openBtcLev`. NO-ARG, exactly like `Quid.rangePrice`, so
+    ///         `LevMath.reanchorCompute` calls the one name on whichever range it holds; the Vault is
+    ///         BTC-only, so it always reads the BTC pool.
     function rangePrice() external view returns (uint priceWad) {
         (priceWad,) = CORE.poolStats();
     }
@@ -420,8 +372,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     /// @dev BTC-LP fee settle. Per-LP pro-rata, with the two legs settled in
     ///      their NATIVE denominations: USD-leg → QUID (or banked to usd_owed
-    ///      when payTo==0); BTC-leg → compounded into `pooled` in sats (E145), formerly
-    ///      the hop at channel close.
+    ///      when payTo==0); BTC-leg → compounded into `pooled` in sats (E145).
     function _settleBtcLp(address lpEth, address payTo) internal {
         // (E145) The BTC leg now COMPOUNDS INTO `pooled` in sats rather than accruing to the
         // owed ledger, so `lpShares` — the SUM of every LP's `pooled` — must absorb it here
@@ -431,7 +382,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
             autoManaged[lpEth].pooled + levBuf[lpEth]); // GROSS fee weight = net pooled + buffer
     }
 
-    // (_distributeV4Fees folded into BtcLib.rebalanceBody — its only caller was _rebalance.)
 
     /// @notice BTC-side rebalance. Shares SwapLib.rebalanceCore with Quid; BTC
     ///         has no Morpho yield to sync and no _calcYield metric, so the
@@ -439,7 +389,8 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         the new range back.
     /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/tick writeback) moved to
     ///      BtcLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpShares + totalBuffer (GROSS
-    ///      fee weight); the value-type accumulators + ticks + reseat epoch are written back here. Logic unchanged.
+    ///      fee weight); the reseat-epoch bump and the V4 writes happen inside that body, and only the
+    ///      value-type accumulators + `RANGE_ANCHOR` come back to be applied here. Logic unchanged.
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         BtcLib.RebalOut memory o = BtcLib.rebalanceBody(
@@ -457,14 +408,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     // ──── BTC LP path (parallel to ETH) ────
     //
     // A BTC-LP position is created/sized by LOCKING NATIVE SATS IN A CHANNEL —
-    // both register/close are gated to BTCChannels, which calls them on open /
-    // close. The V4 BTC side is purely virtual (modLP mints/burns mockBTC; no
+    // `requestDeposit` and `requestRedeem`/`resize` are all gated to BTCChannels,
+    // which calls them on open / close. The V4 BTC side is purely virtual (modLP mints/burns mockBTC; no
     // real WBTC moves), so the locked sats stay self-custodied in the channel.
 
-    // Renamed from BtcLpFeesOwed: the BTC-leg fee residual at a full exit is no longer
-    // OWED to an external settler — it is FORGONE to the pool (dust; see _resize). Kept as
-    // an observability signal so a NON-dust forgone amount (⇒ the fleet missed a pre-exit flush)
-    // is alertable. The lp_fees.rs settler + the on-chain lpFeePaid dedup are retired.
 
     /// @notice Channel lock → BTC-pool LP position. `sats` are already locked in
     ///         the channel, so we just add the virtual liquidity + shares.
@@ -476,18 +423,15 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         bespoke pump/keeper/RFQ — the reservoir self-refills through ordinary LP
     ///         entry. The on-chain swap skew (see {SwapLib-wellSkew}) only PRICES the
     ///         scarcity so this entry is attractive exactly when the reservoir needs it.
-    ///         CORRECTED 2026-07-26: the trailing clause used to say "the transient swap-in refill
-    ///         bonus is the fast top-up BETWEEN LP-stake arrivals". That bonus was REMOVED
-    ///         (`payRefillBonus`, 2026-07-22) precisely so the drain premium STAYS with LPs
-    ///         (`retainSkewPremium` -> `Core.skewPremium*`), so there is no swapper-facing bonus to
-    ///         top up with. THIS path (LP entry) is the refill; the remaining unbuilt piece is the
-    ///         ACTIVE flash-serve (#100 / J.3), which is a flash-and-repay, NOT a bonus.
-    /// @notice §EIP-7540 — THE BTC RANGE'S ASYNCHRONOUS DEPOSIT. Was `registerBtcLp`, which named the
-    ///         MECHANISM (an LP registering with the channel set) rather than what it IS: a deposit
-    ///         whose settlement is not available on call. The BTC range has always been async --
-    ///         entry is a channel funding transaction, exit a cooperative close -- and 7540 exists
-    ///         for exactly that shape. The old name hid the lifecycle from anyone reading the
-    ///         interface; this one states it.
+    ///         ⛔ THERE IS NO SWAPPER-FACING REFILL BONUS, and do not add one: the drain premium
+    ///         STAYS with LPs (`SwapLib.retainSkewPremium` -> `Core.skewPremium`). THIS path (LP
+    ///         entry) is the refill; the remaining unbuilt piece is the ACTIVE flash-serve
+    ///         (#100 / J.3), which is a flash-and-repay, NOT a bonus.
+    /// @notice §EIP-7540 — THE BTC RANGE'S ASYNCHRONOUS DEPOSIT. This range is async by
+    ///         construction -- entry is a channel funding transaction, exit a cooperative close --
+    ///         and 7540 names exactly that shape: a deposit whose settlement is not available on
+    ///         call. The name states the LIFECYCLE rather than the mechanism, which is what a
+    ///         reader of the interface needs.
     /// @dev    ⚠️ THE SIGNATURE IS DELIBERATELY NOT 7540's `(uint256 assets, address controller,
     ///         address owner)`. This entrypoint is `onlyBTCChannels`, not integrator-facing: the
     ///         REQUEST is the on-chain funding transaction and `BTCChannels` is what observes it.
@@ -529,12 +473,13 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     /// @dev §SLOP — the internal half, so the BTC crystallisation points can reconcile BEFORE they
     ///      settle. They cannot call `syncLev` itself: it is `nonReentrant` and so are they.
-    /// 🔴 **WHY THEY MUST: THE BTC FEE WEIGHT IS `pooled + levBuf[lpEth]`** (`:435`, `:509`), so a
-    ///      stale mirror crystallises fees on a stale weight — the same defect the ETH side had, and
-    ///      the same reason it is fixed the same way. The VENUE is already live (`collateralOf` and
-    ///      `debtOf` are pro-rata slices of the pooled position, so a seizure or interest reaches
-    ///      every LP with no per-LP bookkeeping); only this range's mirror of it lags, and only
-    ///      because nothing forced it forward before a payout.
+    /// 🔴 **WHY THEY MUST: THE BTC FEE WEIGHT IS `pooled + levBuf[lpEth]`** (`_settleBtcLp` and
+    ///      `requestDeposit` both pass it), so a stale mirror crystallises fees on a stale weight —
+    ///      the same defect the ETH side had, and the same reason it is fixed the same way. The
+    ///      VENUE is already live (`collateralOf` and `debtOf` are pro-rata slices of the pooled
+    ///      position, so a seizure or interest reaches every LP with no per-LP bookkeeping); only
+    ///      this range's mirror of it lags, and only because nothing forced it forward before a
+    ///      payout.
     ///      ⇒ Reconcile first, settle second. Then a BTC LP's crystallisation is accurate whenever it
     ///      happens, regardless of when that LP last moved — which is the ETH guarantee, on BTC.
     function _syncLev(address lp) internal {
@@ -556,10 +501,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH range's
     }
 
-    /// @notice The LVR coefficient for THIS range, WAD. §SLOP: one name across both ranges — `Quid`
-    ///         has carried `kLvrWad()` since the θ work, and this is the BTC range's copy of it, not
-    ///         a new accessor. ⚠️ I first added this to BOTH ranges as `lvrKWad()`, which duplicated
-    ///         `Quid.kLvrWad()` under a transposed name; only the BTC half was ever missing.
+    /// @notice The LVR coefficient for THIS range, WAD. §SLOP: ONE name across both ranges — `Quid`
+    ///         has carried `kLvrWad()` since the θ work, and this is the BTC range's instance of it,
+    ///         not a new accessor. Do not spell it any other way here.
     /// @dev    Same `(CORE, _lo(), _hi())` inputs and the same `QuidLib` body as θ above — this is
     ///         the `K` already sitting in θ's denominator, surfaced so the leverage overlay's
     ///         no-trade band `∛(g/(C·K))` reads the range's real geometry.
@@ -567,8 +511,8 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
     }
 
-    /// @dev Vault's BTC-side immutables gathered for the delegatecalled QuidLib
-    ///      levered-range bodies (mirror of _ethCfg for the BTC cluster).
+    /// @dev Vault's BTC-side immutables gathered for the delegatecalled `BtcLib` bodies
+    ///      (`requestDeposit`, `syncLev`, `rebalanceBody`) — mirror of `Quid._ethCfg`.
     function _btcCfg() internal view returns (Types.RangeCfg memory) {
         return Types.RangeCfg({ core: address(CORE), aux: address(AUX), asset: address(AUX.WBTC()) });
     }
@@ -582,7 +526,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         BTC paid to the LP in the close tx (read on-chain via _lpFinalBalance):
     ///         the rest of the funding (funded − lpPayout) was delivered to swappers
     ///         and settles as the LP's QUI proceeds.
-    /// @notice §EIP-7540 — THE BTC RANGE'S ASYNCHRONOUS REDEEM. Was `unregisterBtcLp`. Full close:
+    /// @notice §EIP-7540 — THE BTC RANGE'S ASYNCHRONOUS REDEEM. Full close:
     ///         the position is retired and the sats are paid out by a Lightning cooperative close,
     ///         which is why this cannot be the synchronous 4626 `redeem` -- the assets are claimable
     ///         only after L1 confirmations. Same signature note as `requestDeposit`.
@@ -655,10 +599,10 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     /// @notice Harvest accrued BTC-LP fees WITHOUT closing the channel. The USD-leg
-    ///         mints as QUID to the LP; the BTC-leg COMPOUNDS INTO `pooled` in sats (E145)
-    ///         (paid natively by the hop at close, as always). The position
-    ///         (`pooled`) is unchanged. `_settleBtcLp` self-rebaselines the fee
-    ///         bookmark, so a repeated call yields nothing (no double-pay). Mirrors
+    ///         mints as QUID to the LP; the BTC-leg COMPOUNDS INTO `pooled` in sats
+    ///         (E145). The position (`pooled`) is unchanged. `_settleBtcLp`
+    ///         self-rebaselines the fee bookmark, so a repeated call yields nothing
+    ///         (no double-pay). Mirrors
     ///         the ETH-side collectFees; the LP claims their own (msg.sender) fees.
     function collectFees() external nonReentrant {
         if (autoManaged[msg.sender].pooled == 0) revert NoBtcPosition();
@@ -669,9 +613,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     /// @notice Permissionless, keeper-crankable fee compounding for a BTC LP — the twin of
     ///         `Quid.compound`, which had no counterpart here.
-    /// @dev    ⚠️ **THE E145 NOTE ON `btcFeesOwedSats` READS LIKE THIS IS UNNECESSARY AND IT IS
-    ///         NOT** — it says the BTC leg *"compounds into `LP.pooled` in sats as it is earned"*,
-    ///         which describes the leg's DESTINATION once settlement runs, never its TRIGGER.
+    /// @dev    ⚠️ **E145 READS LIKE THIS IS UNNECESSARY AND IT IS NOT.** "The BTC leg compounds
+    ///         into `LP.pooled` in sats as it is earned" describes the leg's DESTINATION once
+    ///         settlement runs, never its TRIGGER.
     ///         `_settleBtcLp` had exactly ONE external caller, `collectFees`, and that is
     ///         `msg.sender`-scoped. So a passive BTC LP who never called it donated its fee
     ///         compounding to the pool for as long as it stayed passive — the identical gap
@@ -701,13 +645,13 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     // ─── §OOR-BOOK-DELETED — THIS RANGE HAS NO BOUNDARY-ORDER PATH AT ALL, AND THAT IS THE
-    //     HONEST STATE, NOT AN OMISSION. It used to carry `outOfRange`/`pull` with a `sweepOor`
-    //     that was `pure … return 0`: a placement path with NO execution path, so an order could
-    //     be opened and never filled (§BTC-OOR-ENTERABLE-NEVER-FILLABLE). The ETH side's
-    //     replacement is `Quid.fillIntent` — a signed intent with zero resting storage — and the
-    //     BTC twin of it is NOT a second book: it is an intent whose fill becomes a
-    //     `BTCChannels.requestSwapOutOnchain` obligation, which already carries real delivery AND
-    //     the hop-independent `refundExpiredSwapOut` recovery. See §BTC-DELIVERY-IS-BUILT.
+    //     HONEST STATE, NOT AN OMISSION. No resting-order state is declared for it anywhere
+    //     (`Shares` holds no `positions`/`ID`), so there is nothing here that can be opened and
+    //     then never filled. The ETH side's boundary path is `Quid.fillIntent` — a signed intent
+    //     with zero resting storage — and the BTC twin of it is NOT a second book: it is an intent
+    //     whose fill becomes a `BTCChannels.requestSwapOutOnchain` obligation, which already
+    //     carries real delivery AND the hop-independent `refundExpiredSwapOut` recovery.
+    //     See §BTC-DELIVERY-IS-BUILT.
     //     ⛔ Do not re-add a book here. The thing to add is the intent.
 
 
@@ -735,7 +679,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd)
         external onlyBTCChannels returns (uint consumedSats) {
         // core = Core (POOLED_*/token1is reads); v4 = this Vault (its
-        // repack(bool) drives the BTC rebalance); aux = Aux (the
+        // no-arg `repack()` drives the BTC rebalance); aux = Aux (the
         // toIndex/getTWAPforAsset/deposit callbacks must target Aux).
         return SwapLib.creditSwapInBody(seller, sats, token, minDeliveredUsd,
             address(CORE), address(this), address(AUX.WBTC()), address(AUX));
@@ -755,7 +699,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         it routes through this onlyBTCChannels wrapper; Vault is onlyUs on
     ///         Core). `addPendingSwapOut` fires at requestSwapOutOnchain; the match
     ///         is `subPendingSwapOut` on REVERSAL (settleSwapIn) — the DELIVERY
-    ///         match is done inside `_settleDelivered` (CORE.subPendingSwapOut).
+    ///         match is done inside `BtcLib.settleDelivered` (CORE.subPendingSwapOut).
     function addPendingSwapOut(uint usd6) external onlyBTCChannels { CORE.addPendingSwapOut(usd6); }
     function subPendingSwapOut(uint usd6) external onlyBTCChannels { CORE.subPendingSwapOut(usd6); }
 
