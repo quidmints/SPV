@@ -795,6 +795,27 @@ python3 -c "import json;print(json.load(open('graphify-out/graph.json'))['built_
 git rev-parse --short HEAD    # must match
 ```
 
+🔴 **4b. `affected` UNDER-REPORTS BLAST RADIUS FOR A DELEGATECALL LIBRARY — MEASURED 2026-09-06 ON A
+FRESHLY REBUILT GRAPH, AND IT MATTERS BECAUSE THIS ARCHITECTURE *IS* LIBRARIES.**
+**Ground truth:** `LevManager.sol:653` contains `LevMath.swapOutDeliverUnleveredBody(...)`. **Graph:**
+`LevManager --calls--> LevMath` = **0 edges**, and **all 75 `calls` edges into `LevMath` originate
+inside `LevMath.sol` itself.** So a cross-file library-qualified call is absent from the graph while
+being plainly present in the source.
+⚠️ **STATED AT THE CONFIDENCE I ACTUALLY HAVE:** I verified this ONE call and the LevMath edge census.
+I tried three times to measure how far it generalises and each instrument was itself wrong (a
+substring file-identity test classified same-file edges as cross-file). ⇒ **I do not know the true
+rate, and the honest instruction is the conservative one: for a LIBRARY, treat `affected` as a LOWER
+BOUND and confirm with `grep -rn "Lib\.fn("` before acting on it.**
+🔑 **Why this bites here specifically:** `SwapLib`, `QuidLib`, `BtcLib`, `LevMath`, `BasketLib`,
+`ChannelLib`, `BitcoinTx` are all reached by `Lib.fn()`, so the money path is exactly the region where
+the graph is weakest. **A blast radius that comes back small for a library is the answer to distrust.**
+✅ **What the graph IS reliable for, same session:** it resolved `swapOutDeliverUnlevered` to three
+nodes (impl, interface decl, `…Body`) with **0 callers on all three**, confirming a SPRINT closure
+structurally — and its control (`skewWad`, 1 caller: `wellSkew`) proves the query discriminates.
+**Node identity and containment are sound; cross-file library call edges are not.**
+📌 **The graph was rebuilt 2026-09-06: `7c5bc10d` → `3d41d0f5`, verified by reading `built_at_commit`
+back per trap 4.** It had been dozens of commits stale, which is why `tools/graph.sh` exists.
+
 ⚠️ **5. Edge counts are not call counts, and `.sol` node counts are not contract counts.** `method` and
 `contains` (23,240 of 47,725 links) are containment, not behaviour. A Solidity method node is labelled
 `.name()` with a leading dot — that is graphify's convention for a member, not a typo.
