@@ -637,12 +637,19 @@ statement in this section's previous revision — "contains ZERO Solidity", "nev
 "scope any query to `quid-hop/`" — described *that* file and is now false. Solidity is the **majority** of
 this graph.
 
-🔴 **THIS SECTION IS NOT LANDING, AND 2026-09-06 IS THE PROOF: A WHOLE SESSION GREPPED AND NEVER ONCE
-ASKED THE GRAPH — INCLUDING WHILE BUILDING A BLAST-RADIUS TOOL.** `tools/impacted-tests.py` hand-rolls
-a reverse-import scan by regex, which is **exactly** what `graphify affected` is documented four lines
-below as doing (*"reverse traversal — blast radius of a change"*). That is standing rule 8
-(*"don't hand-roll what an existing tool already does"*) violated by the author of the tool, in the
-same session, against an instruction sitting in this file.
+▶️ **USE `tools/graph.sh`, NOT `graphify` DIRECTLY — and the reason is two MECHANISMS, not a
+disposition.** On 2026-09-06 a whole session grepped without asking the graph once, including while
+hand-rolling a blast-radius scan `graphify affected` already does (rule 8, violated against an
+instruction sitting in this file). *"Agents don't use it"* is a **status confession, and this file
+says to book the mechanism instead** — so here are the two, each removed by the wrapper:
+
+| mechanism | what it actually costs | removed by |
+|---|---|---|
+| **`graphify` is not on `PATH`** — it lives in a venv at an unmemorable path | the obvious `graphify explain Foo` returns **command not found**, the agent falls back to grep, **the grep works**, and it never comes back. The failed command is not the cost; the successful fallback is | `graph.sh` resolves the binary (`GRAPHIFY_BIN` to override) |
+| 🔴 **the graph is STALE BY DEFAULT** — `built_at_commit 7c5bc10d` against `HEAD 5609531f` when measured | an agent who **does** follow the instruction gets a confident answer about a tree that no longer exists. Per rule 19 that is worse than no graph, and it teaches the wrong lesson about trusting the tool | `graph.sh` prints a loud staleness banner before every traversal; `GRAPH_STRICT=1` makes it an error; `--rebuild` fixes it and **verifies by reading `built_at_commit` back**, per trap 4 |
+
+⇒ **That is the "prefer a command with a binary result over a disposition" rule below, applied to the
+graph.** The disposition has now failed for weeks; the banner cannot be missed.
 ✅ **THE TWO AGREE, WHICH IS THE USEFUL PART — treat it as a mutual control rather than a duplication.**
 `graphify affected "LevManager"` (depth 2) returns `LevCascade.t.sol`, `LevYbReal.t.sol` and
 `LeverageCrossSubsidyProbe.t.sol` with `file:line` and edge type; the regex tool independently selects
