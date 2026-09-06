@@ -52851,3 +52851,69 @@ keeper may propose N ROUTES, never the split.
 ▶️ Verified: Solidity lev **45/0** · Rust `lev_keeper` **23/23** · `check-signer-allowlist.py` clean
 (41 literals, 14 hop-signed).
 
+## §SESS-22 — **ANY 1inch VENUE, WITHOUT THE VULNERABILITY. THE LADDER WAS ALREADY RIGHT; THE LEG ACCOUNTING WAS NOT.** (2026-09-06)
+
+**Owner:** *"now do the keeper planner, make attacks impossible. find the most elegant design"* and
+*"we shouldnt just hardcode those 3 possibilities. any 1inch venue should be possible without making it
+a vulnerability."*
+
+### ⭐ THE DESIGN IS ALREADY IN THE TREE, AND IT IS A LADDER — I ALMOST BROKE IT
+Reading toward *"delete `bytes route`, pool words are safer"* was **wrong**, and `routedSwap`'s own
+docblock says why: *"**THE LADDER: aggregator calldata when the caller has it, pool words when it does
+not**"* — the owner's `Amp.sol` pattern, *"pull if you can here and if you cant then here"* — with the
+fallback justified on LIVENESS (*"an outage must degrade to the keyless pool-word path, not to a stalled
+rebalance"*) and the calldata arm justified on MEASURED reach: *"Fluid, Balancer, Maverick, Ekubo and the
+`lite-psm`/`dai-usds` par converters that beat every AMM at 0.000%, plus SPLIT routes — none of which a
+pool word can address."*
+📊 **AND THE VOCABULARY QUESTION IS NOW MEASURED, NOT ARGUED** (`evm/test/PoolWordVocabulary.t.sol`):
+the router's own bit table says `2` = Curve, so §SESS-6's negative might have been pool-specific.
+**It was not.** `proto=2` against BOTH Curve pools in our own `_routeOf` table (`CURVE_PYUSD_USDC`,
+`CURVE_USDC_RLUSD`) filled **0 and 0**, while the CONTROL — the same helper, `proto=1` on USDC/WETH
+0.05% — filled **4.277 WETH**. ⇒ **the amount-free encoder is strictly less expressive than the venues
+we need, so "any venue" REQUIRES the calldata arm.** The owner's instruction and the tree's design agree;
+my forming conclusion did not.
+
+### 🔴 THE ACTUAL VULNERABILITY, WHICH THE AGGREGATE FLOOR DOES NOT CLOSE
+`convertTo` bounded the conversion with **one floor on the total** and skipped failed legs. But a route
+can **SUCCEED while sending its output elsewhere** — 1inch's `swap` descriptor names a `dstReceiver`.
+⇒ a hacked keeper has the **pinned** router pull leg `k`'s input and pay ITSELF. That leg contributes
+**0** to `got`, and **the conversion still passes provided the other legs clear `minOut`** — so up to the
+floor's own slack (`slipBps × total`) leaves per call. ⚠️ **`convertShortfall` runs ONE LEG PER STABLE**
+(14 of them), which is precisely a supply of small legs to divert.
+⛔ **Note what this defeats: the callee pin, the exact approve-and-zero, the gas cap and the oracle floor
+are ALL intact and none of them see it.** It is not a hole in any of those; it is a hole BETWEEN them —
+the accounting was per-conversion where the theft is per-leg.
+
+### ✅ THE FIX, AND IT IS RULE 17 RATHER THAN A GUARD
+> **A leg that took our tokens must have given us tokens.** Per leg: `spent > 0 ⇒ delivered > 0`.
+
+That makes "consume input, deliver elsewhere" **UNCONSTRUCTIBLE** — the same move `_aggSwap` made against
+staleness (*"makes that class UNCONSTRUCTIBLE (standing rule 17) rather than guarded"*), and **it is what
+lets the calldata arm reach ANY venue safely**, which is the whole point of the ladder.
+⚠️ **A REVERT, NOT A `continue`.** The existing `continue` is for legs that FAILED, which cost nothing.
+Skipping a theft would be the §VACUOUS-BOUNDS shape: an error path tolerating the one case it exists for.
+⚠️ **Deliberately `> 0`, not proportional.** Any honest route that moves our tokens delivers SOMETHING,
+and a per-leg SIZE bound is exactly what §SESS-20 rules out — a keeper would pass the aggregate by
+over-delivering one leg.
+
+### ⇒ THE RESIDUAL, STATED HONESTLY
+What remains is the **§PLP-Y2 bleed**: a keeper may still route through a venue that delivers *exactly*
+the floor and keep the difference — bounded by `slipBps`, and by crossing frequency on the band-gated
+paths. **That is a PRICE-QUALITY residual, not a custody one.** ▶️ The closure, if wanted, is a
+**competitive floor**: `floor = max(oracleFloor, whatever the contract could serve itself)`, which
+collapses the keeper's maximum extraction to *"no worse than having no keeper at all."* ⚠️ Not built —
+and note the direction matters: `max()` is manipulation-safe (a reference pushed DOWN falls back to the
+oracle; pushed UP costs liveness, not custody), which is the same min-of-two-prices discipline used
+elsewhere. **Booked, not done.**
+
+### ▶️ AND THE PLANNER ITSELF IS STILL A STUB — SAY SO PLAINLY
+`dex_word()` is **one hardcoded pool word, env-overridable**, and `dex_word_wbtc()` its BTC twin. There
+is no venue selection, no split, no quote. **The on-chain side is now safe for a planner that does not
+exist yet**, which is the correct order — the contract must be unable to be harmed *before* something
+starts choosing venues, not after.
+
+▶️ Verified: `RouteTookAndGaveNothing.t.sol` **3/3** — the diverting route reverts AND the input is
+returned by the revert; **two controls**: a merely-FAILED leg still skips (the documented behaviour is
+preserved), and an honest `_aggSwap` fill is unaffected (the guard is not over-broad). Regression across
+the lev/route/skew suites **61/0**. `LevMath` 22,330 (2,246 margin); `LevManager` unchanged at 133.
+

@@ -459,6 +459,8 @@ library LevMath {
     error NoStableRoute();
     error NoOptIn();
     error Slippage();
+    /// §SESS-22 — a route CONSUMED an input leg and delivered NOTHING to `outToken`.
+    error RouteTookAndGaveNothing();
     error NoVolatileRoute();
     error NotNearLiq();
     error NoDebt();
@@ -638,9 +640,11 @@ library LevMath {
         uint256 n = inTokens.length;
         require(n == inAmounts.length && n == routes.length, "convertTo/len");
         uint256 before_ = IERC20Min(outToken).balanceOf(address(this));
+        uint256 outPrev = before_;                            // §SESS-22 — per-leg watermark
         for (uint256 k; k < n; ++k) {
             uint256 amt = inAmounts[k];
             if (amt == 0 || inTokens[k] == outToken) continue;   // nothing to do / already the target
+            uint256 inPrev = IERC20Min(inTokens[k]).balanceOf(address(this));   // §SESS-22
             // 🔴 **`forceApprove`, NOT `approve` — AND THIS WAS A LATENT BUG, NOT A NEW NEED.**
             //    `IERC20Min.approve` declares `returns (bool)`, and **USDT RETURNS NOTHING**, so the
             //    ABI decoder reverts on empty returndata. `_aggSwap` has always called it this way,
@@ -674,6 +678,27 @@ library LevMath {
             //    single leg yields `got == 0`, below any non-zero floor, so `_aggSwap` reverts
             //    exactly as it always did.
             if (!ok) continue;
+            // 🔴 **§SESS-22 — A LEG THAT TOOK OUR TOKENS MUST HAVE GIVEN US TOKENS.**
+            //    The aggregate floor does NOT catch a route that SUCCEEDS while sending its output
+            //    elsewhere: 1inch's `swap` descriptor names a `dstReceiver`, so a hacked keeper can have
+            //    the pinned router pull leg `k`'s input and pay ITSELF. That leg contributes 0 to `got`,
+            //    and **the conversion still passes so long as the other legs clear `minOut`** — so up to
+            //    the floor's own slack walks out per call, and `convertShortfall` runs ONE LEG PER
+            //    STABLE, which is precisely a supply of small legs to divert.
+            //    ⇒ `spent > 0 ⇒ delivered > 0` per leg makes that **UNCONSTRUCTIBLE** (standing rule 17)
+            //    rather than bounded — the same move `_aggSwap` made against staleness: do not guard the
+            //    bad outcome, remove the shape that produces it. **This is what lets the calldata arm
+            //    reach ANY venue safely**, which is the whole point of the ladder.
+            //    ⚠️ **A REVERT, NOT A `continue`.** The `continue` above is for legs that FAILED, which
+            //    cost nothing. Skipping a theft would be the §VACUOUS-BOUNDS shape — an error path that
+            //    tolerates the one case it exists to catch.
+            //    ⚠️ Deliberately `> 0` and not proportional: any honest route that moves our tokens
+            //    delivers SOMETHING, and a per-leg SIZE bound is what §SESS-20 rules out (a keeper would
+            //    pass the aggregate by over-delivering one leg).
+            uint256 outNow = IERC20Min(outToken).balanceOf(address(this));
+            if (IERC20Min(inTokens[k]).balanceOf(address(this)) < inPrev && outNow <= outPrev)
+                revert RouteTookAndGaveNothing();
+            outPrev = outNow;
         }
         got = IERC20Min(outToken).balanceOf(address(this)) - before_;
         if (got < minOut) revert Slippage();                     // ONE floor, on the WHOLE conversion
