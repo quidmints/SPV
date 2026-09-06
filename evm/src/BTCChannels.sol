@@ -65,11 +65,9 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 //  OPEN and at every SPLICE, and `lpAuth` is retired (see (B) below). Left as a marker because
 //  three separate notes in this file described the pre-delegation, pre-EC world as current.
 //
-//  ⛔ ATTESTATION IS NOT A TRUST ANCHOR HERE, AND THIS COMMENT USED TO SAY IT WAS.
-//  It read "SGX attestation IS wired as the trust anchor: `_requireAttested` calls
-//  `AttestedHopRegistry.isAttested` on the hop money-paths". §E185 deleted every one of those
-//  call sites (they were a no-op while the registry was unpinned), so the sentence described
-//  code that no longer existed — and the direction is deliberate, not an accident of cleanup.
+//  ⛔ ATTESTATION IS NOT A TRUST ANCHOR HERE. There is no attestation gate on any hop
+//  money-path, and its absence is deliberate rather than an accident of cleanup — see the
+//  design position immediately below.
 //
 //  🔑 THE DESIGN POSITION (owner, 2026-08-13): "there should be no attestation gates of any
 //  kind anywhere… there should be no malicious code attacks possible." An attestation gate
@@ -278,15 +276,7 @@ contract BTCChannels is Ownable {
     // tx, and every BTC payout pins to `btcRecipientOf`, so a compromised hop can only fund
     // positions credited to the LP with payouts to the LP — bounded, never theft.
     //
-    // §SLOP — THIS BLOCK DESCRIBED THE RETIRED REGISTRATION MODEL AS CURRENT, then corrected itself
-    // eleven lines later. Deleted from it: "signs ONE cold delegation (EIP-712) [...] names the
-    // single `hop` allowed to open/splice/deliver", "`version` is monotonic: the LP revokes/rotates
-    // by signing a higher one", and "delegatedHop==0 ⇒ no delegation ⇒ no open". All three named
-    // deleted state — `delegatedHop`, `delegationVersion`, `delegatedAuthority` and
-    // `registerDelegation` are at ZERO live-code references (verified by a comments-stripped sweep,
-    // not a word grep). Leaving a stale description above its own correction means whichever half a
-    // reader stops at decides what they believe.
-    // ⚠️ THE AUTHENTICATION IS LIVE, and must not be mistaken for slop — only its WITNESS moved
+    // ⚠️ THE AUTHENTICATION IS LIVE — only its WITNESS moved
     // (§E183). What stops an arbitrary caller pinning some other LP's `btcRecipient` — which close,
     // splice-out and the dead-man exit all key on — is now two things together: `_onlyHop()` bounds
     // WHO may submit, and `btcRecipientPoP` proves the payout key's holder consented, over a digest
@@ -503,13 +493,6 @@ contract BTCChannels is Ownable {
     error LadderTooShallow();             // (§SPRINT-B4) a ladder needs ≥2 rungs at ≥2 distinct
                                           // CLTV deadlines — one rung is one window, and vault-less
                                           // (B0) the ladder is the LP's only escape
-    // §SLOP — `NotDelegatedHop` DELETED: zero reverts, and it named `registerDelegation`, itself
-    // deleted by §E157. ⚠️ This said "the live open authenticates `auth.lpSig`" — it does NOT since
-    // §E183 item 1 deleted that field; the open authenticates the BIP-340 payout PoP and derives
-    // `lpEth` from `p.lpPubkey`. The conclusion is unchanged and now has a simpler reason: with no
-    // delegated-hop concept at all, the error could not fire. `git log -S` first (this repo has twice deleted a symbol that was a
-    // deliberate gap marker): it traces to E156/E157, the commits that REMOVED its check.
-
     event ChannelOpened(
         bytes32 indexed channelId,
         address indexed lpEth,
@@ -681,10 +664,11 @@ contract BTCChannels is Ownable {
         // Retire the LP's BTC pool position + close-time reconcile: pays USD-leg
         // fees + the deferred swap-out principal (funded − final) as QUID. The
         // LP's remaining BTC is recovered by the close tx itself, off this path.
-        // (§LN-RESERVE-FUNDER) THE POOL-INVENTORY SUBTRACTION IS GONE BECAUSE POOL INVENTORY NO
-        // LONGER ENTERS CHANNELS. It was `totalSats − poolOwnedSats[channelId]`, and the only
-        // writer that ever raised that figure was `parkProvenSats` — deleted with the rail it
-        // funded. The LP is entitled to the whole channel.
+        // (§LN-RESERVE-FUNDER) THE LP IS ENTITLED TO THE WHOLE CHANNEL — there is nothing to
+        // subtract, because pool inventory cannot enter a channel. `ch.amountSats` is only ever
+        // assigned from a `p.amountSats` that `_verifySplice`/`openChannel` proved against the
+        // funding output on Bitcoin, so every sat in a channel arrived through an SPV-proven
+        // Bitcoin transaction and no EVM-side path can inflate it.
         // ⚠️ THE CLAMP ITSELF SURVIVES, AND IT IS NOT VESTIGIAL: `_lpFinalBalance` reads what the
         // close tx PAID `btcRecipientOf`, which other inputs could push above what this channel
         // held. The BTC has already moved, so this cannot claw it back — it makes the divergence
@@ -829,36 +813,22 @@ contract BTCChannels is Ownable {
     //   >  (the permissionless open behaviour, for testnet / pre-attestation bootstrap). Governance
     //   >  PINS it ONCE to the live registry to turn the gate on; PIN-ONCE (can never be un-set or
     //   >  repointed) so a later compromised owner cannot disable it."
-    // ⛔ (E185) THE ATTESTED-HOP REGISTRY IS DELETED — the decision was taken during §E164 and
-    // never executed, so a no-op guard sat on a size-constrained contract pretending to gate.
-    //
-    // `hopRegistry` defaulted to `address(0)` and `_requireAttested` did NOTHING until someone
-    // pinned it, which nobody ever did. With §E164's single node plus a hardcoded fallback the
-    // authorised set is the two-address constant `MAIN_HOP`/`FALLBACK_HOP`, so asking a registry
-    // whether one of two IMMUTABLE addresses is "attested" answers a question that cannot vary.
-    //
-    // 🔴 AND IT WAS HIDING A REAL GAP. `_onlyHop()` guards seven entrypoints; `openChannel` was
-    // NOT one of them — its only hop-side gate was `_requireAttested`, i.e. nothing. That was
-    // invisible precisely because a no-op reads like a check. `openChannel` now calls `_onlyHop()`
-    // like every other hop entrypoint, which is what §E166-3 assumes when the fleet RELAYS the
-    // LP's consent.
+    // 🔴 THE LESSON THAT OUTLIVED THE REGISTRY: A NO-OP READS LIKE A CHECK. The attested-hop
+    // gate was never pinned, so it did nothing — and while it sat there, `openChannel` was the
+    // one hop entrypoint `_onlyHop()` did NOT guard. The gap was invisible precisely because a
+    // dead guard looks like a live one. `openChannel` now calls `_onlyHop()` like every other
+    // hop entrypoint, which is what §E166-3 assumes when the fleet RELAYS the LP's consent.
+    // ⇒ The authorised set is the two-address constant `MAIN_HOP`/`FALLBACK_HOP`.
 
     // ═════════════════════════════════════════════════════════════════
     //  OPEN — an AUTHORIZED HOP submits the raw funding tx + SPV proof.
     //
-    //  §SLOP — "the LP's DELEGATED HOP" stood here and named a relationship this contract no
-    //  longer has: `delegatedHop`, `delegationVersion`, `delegatedAuthority` and
-    //  `registerDelegation` are all deleted (see the deleted-state note above, zero live
-    //  references). The hop is authorized by `_onlyHop()` against the immutable
-    //  `MAIN_HOP`/`FALLBACK_HOP` pair, not delegated to by an LP.
+    //  The hop is authorized by `_onlyHop()` against the immutable `MAIN_HOP`/`FALLBACK_HOP`
+    //  pair. An LP does not delegate to a hop.
     //
-    // ⛔ ALL FOUR PUBLIC DIGEST ACCESSORS ARE DELETED, AND WITH THEM EVERY DOMAIN TAG.
-    //
-    // `spliceDigest`, `swapOutDeliverDigest` (E182), `openChannelDigest` and `openAuthDigest`
-    // (§E307) all encoded LP CONSENTS THAT NO LONGER EXIST — `splice` and `deliverSwapOutOnchain`
-    // are `_onlyHop()`-gated and §E183 deleted the open's `lpSig`. Measured before removing: ZERO
-    // callers in `evm/src`/`evm/test`, and the only client mentions are Rust DOC COMMENTS on
-    // `evm_codec.rs`'s own local reimplementations, which never call these accessors.
+    // ⛔ THERE ARE NO PUBLIC DIGEST ACCESSORS AND NO DOMAIN TAGS — the LP consents they encoded
+    // do not exist. `splice` and `deliverSwapOutOnchain` are `_onlyHop()`-gated, and the open
+    // authenticates a BIP-340 payout PoP rather than an EVM signature.
     //
     // 🔑 **WHY THE DOMAIN TAGS COULD THEN GO** (owner: *"no tags"*): a tag separates messages that
     // would otherwise collide, and with FOUR digests in one namespace it did real work. TWO remain
@@ -881,9 +851,7 @@ contract BTCChannels is Ownable {
     // preimage inline (domain tag `rekey.v1`) rather than reviving a public accessor.
 
     /// @notice (B) The digest an LP signs COLD (once) to delegate channel operation to an
-    ///         `authority` — a concrete hop. ⚠️ This used to read "OR THE Safe-governed
-    ///         `hopRegistry` for fleet mode": §E185 DELETED the registry and every
-    ///         `_requireAttested` call, so no registry-shaped authority exists to name.
+    ///         `authority` — a concrete hop.
     ///         Binds chainId + this contract + authority + payout script + version, so it
     ///         can't be replayed to another deployment; a higher version supersedes.
     /// @notice (E157-b) What the LP signs so a hop may open its channel. ONE signature, made at
@@ -916,8 +884,8 @@ contract BTCChannels is Ownable {
     ///    `Q` comes from per-channel LDK keys generated AFTER the LP's deposit, so binding it
     ///    forces the LP ONLINE AT OPEN — and the vault flow is built the other way
     ///    (`channel_driver.rs:698`: *"there is NO lpAuth round-trip: the LP runs nothing"*).
-    ///    Standing-ness is what lets consent PRECEDE the channel, and it is the one property of
-    ///    `registerDelegation` that was load-bearing.
+    ///    Standing-ness is what lets consent PRECEDE the channel, and it is the one property
+    ///    of a standing consent worth preserving.
     /// ⚠️ THE TRADE, ACCEPTED NOT DISCOVERED: these bytes replay for the same (hop, btcRecipient).
     ///    That IS their meaning — "this hop may run my channels, paying me here" — and a replay
     ///    opens a channel FOR the LP, PAYING the LP, funded by someone else's sats, with
@@ -998,8 +966,8 @@ contract BTCChannels is Ownable {
         // (else the same on-chain BTC double-counts as backing under two channelIds).
         _useOutpoint(channel.fundingTxId, channel.fundingVout);
 
-        // (B) The LP's BTC payout key (btcRecipientOf) is pinned + LOCKED at
-        // registerDelegation time — it is the SAME committed key-path P2TR shutdown
+        // (B) The LP's BTC payout key (btcRecipientOf) is pinned + LOCKED at open
+        // — it is the SAME committed key-path P2TR shutdown
         // script recordClose/_withdrawalPayout enforce, pinned by this call itself (E157). recordClose attributes the LP's cooperative-close
         // balance to outputs paying that script; a hop can never redirect the payout.
         // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) PIN THE LP'S `to_remote` OUTPUT KEY. Derived from
@@ -1459,9 +1427,8 @@ contract BTCChannels is Ownable {
     ///
     ///         AUTHORITY: identical (B) gate to `openChannel` — `_onlyHop()` (a two-address
     ///         check against `MAIN_HOP`/`FALLBACK_HOP`) + `channel.hop`, so only the hop that
-    ///         opened this channel may emit (E157). ⚠️ This named `_requireAttested` until
-    ///         §E185 deleted it; the gate is the per-channel `channel.hop` binding, NOT an
-    ///         attestation. The payout is pinned to
+    ///         opened this channel may emit (E157). The gate is the per-channel
+    ///         `channel.hop` binding, not an attestation. The payout is pinned to
     ///         `btcRecipientOf` INSIDE the signed bytes, so this can only publish a
     ///         backstop that pays the LP — it can never redirect funds. Emit-only (no
     ///         external call, no fund movement) ⇒ no reentrancy surface.
@@ -2301,13 +2268,7 @@ contract BTCChannels is Ownable {
     ///         splices as the channel's hop and produces no per-call lpAuth
     ///         (`quid-bridge/swap_out_onchain.rs:221-223`).
     ///         ⚠️ **THIS ALSO SAID `swapOutDeliverDigest` "REMAINS as an off-chain-signing helper".
-    ///         IT DOES NOT — §E182 deleted it (record: the "ALL FOUR PUBLIC DIGEST ACCESSORS ARE
-    ///         DELETED" block above; this cited `:828` and it drifted), and its Rust twin
-    ///         `swap_out_deliver_digest` went with it on 2026-08-22 once the reason for keeping the
-    ///         pair was re-tested and found expired.** The keep-reason was "the natural message for
-    ///         an LP-consent gate that does not exist yet"; that gate arrived as §E182 `rekey` and
-    ///         deliberately did NOT reuse it, keeping its own preimage under tag `rekey.v1`.
-    ///         What actually bounds this call: the hop gate, the SPV proof, and the KeyAgg
+    ///         IT DOES NOT.** What actually bounds this call: the hop gate, the SPV proof, and the KeyAgg
     ///         gate on the new funding key (E129). Verifies the tx
     ///         pays `swapperScript` ≥ the obligation, then shrinks the LP's channel and
     ///         settles the slice with delivered PINNED to the obligation: the swap-out's
@@ -2341,9 +2302,8 @@ contract BTCChannels is Ownable {
         // rotated outpoint, which is §E153's *unretirable forever* regression verbatim (:1258) —
         // both retirement paths then revert and the position can never be closed.
         // The siblings that already do this: `splice`, `emitDeadManExit`, and
-        // `_requireNotSplice` (the recordClose/retire path). ⚠️ `parkProvenSats` was a FOURTH and
-        // is gone — the reserve funder replacing it does not touch a channel, so rotation sites
-        // are one fewer. This was the last unpinned one — found the same way §T1-f-general
+        // `_requireNotSplice` (the recordClose/retire path).
+        // This was the last unpinned one — found the same way §T1-f-general
         // was: by diffing the writers of the funding outpoint against the sites that gate it.
         // ⚠️ IT SITS IN THE **OUTER** FRAME, WITH THE `_armLadder` CALL AND FOR THE SAME REASON.
         // `_deliverSwapOut`'s note is explicit that its calldata params must go DEAD before the
