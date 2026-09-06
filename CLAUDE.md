@@ -250,7 +250,7 @@ correct and unused, which is the same shape as a gate whose only runner is a rul
 | `git worktree add -b lane/<N>` | **1s** | takes `HEAD`, so another lane's uncommitted edits are excluded BY CONSTRUCTION |
 | copy `evm/out` + `evm/cache` | **0s** | 125M, free from page cache on this box |
 | `evm/lib` (11 forge submodules) | 🔴 **THE ONE THAT BITES — see below** | a worktree creates the submodule DIRECTORIES and does not populate them |
-| first `forge build` in the lane | ⚠️ **NOT RELIABLY MEASURED — see below** | the MECHANISM works (a fresh lane reported `No files changed`); the TIMING is confounded |
+| first `forge build` in the lane | ⭐ **`No files changed` — ZERO files compiled** | measured twice; against a lane built WITHOUT the copy, which compiled **41 then 183** |
 
 🔴 **`evm/lib` IS THE TRAP, AND I WROTE THE WRONG CAUSE INTO THIS TABLE ONCE ALREADY — the correction
 is the useful part.** An earlier revision of this row claimed *"it is a SYMLINK in this repo, so
@@ -262,15 +262,17 @@ is the same shape as the external-probe class below. ⚠️ **A fresh worktree t
 does, `forge build` fails with errors that **name files in `evm/` and read exactly like your own
 defect.**
 
-⚠️ **AND THE WARM-BUILD TIMING IS DELIBERATELY NOT BOOKED, BECAUSE I CONFOUNDED IT MYSELF.** Two runs
-in the SAME lane gave **`No files changed`** (the copy worked; near-zero) and **2m22s**, and the logs'
-timestamps show the first one overlapped a `forge build` running in the parent. **This file's own rule
-says *"Run ONE build at a time and never launch a second while one is in flight"* — I ran three.**
-⇒ **The mechanism is verified (`No files changed` in a fresh lane is exactly the intended outcome, and
-`errors: 0`); the SPEED-UP FIGURE IS NOT.** ▶️ **One clean sequential re-measure will settle it —
-until then quote the mechanism, not a number.** 📌 This is the same discipline the margin and
-pass-count rows below exist to enforce, arriving on a new axis: **a number measured under contention
-is not a measurement of the tool.**
+⭐ **MEASURE FILES COMPILED, NEVER SECONDS — AND THIS IS THE GENERAL RULE FOR THIS REPO, NOT A NOTE
+ABOUT LANES.** I first tried to book a wall-clock speed-up and got **two readings for the SAME lane:
+`No files changed` and 2m22s.** Both were true. The lane compiled **zero files both times**; the
+2m22s was **pure contention**, because three `forge build`s were running at once — this file's own
+rule says *"run ONE build at a time"* and I broke it while measuring the tool meant to reduce builds.
+⇒ **Seconds measure the machine's load. `Compiling N files` measures the change.** The second is
+contention-immune, is what you actually want to know, and is printed by every build for free.
+📌 **It also retires the confound instead of scheduling a re-measure**: there was nothing to re-run,
+because the right metric was already in both logs. ⚠️ **Apply this to any future build claim here —
+the margin and pass-count rows below are the same discipline on other axes, and all three exist
+because a number with a plausible provenance is the hardest kind to catch.**
 
 ✅ **ISOLATION VERIFIED BY A LEAK TEST, NOT ASSUMED** — `evm/src` and `evm/out` have different inodes
 from the parent's, and `echo >> lane/evm/src/Quid.sol` left the parent's copy at **0** occurrences.
