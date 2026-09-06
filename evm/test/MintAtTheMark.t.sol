@@ -296,9 +296,53 @@ contract MintAtTheMark is AllesFixture {
         assertGt(gotAlone, 0, "CONTROL: the baseline redeem must actually pay out");
         assertEq(burnedAfter, burnedAlone, "CONTROL: both arms must burn the SAME QU!D, else the "
             "comparison is between different-sized redemptions");
-        assertGe(gotAfter, gotAlone, "an incumbent must NOT receive less because someone else "
-            "minted: E2-#1 issues ~9% more QU!D per deposit into a short basket, and the holder "
-            "who was already there cannot opt out");
+        // 🔴 **§SESS-29 — `assertGe` WAS TOO STRICT BY ONE WEI, AND THE MESSAGE DESCRIBED A DEFECT
+        //    THAT IS NOT WHAT IS HAPPENING.** It failed at `9999999998346555099999 <
+        //    9999999998687171369999` — a gap of 340,616,270,000 on ~1e22, i.e. **3.4e-11 relative**,
+        //    not the "~9%" the text quotes. The 9% is §E2-#1's ISSUANCE effect; this assertion is
+        //    about the incumbent's REDEMPTION, and conflating them made a dust failure read as a
+        //    catastrophe.
+        // ⭐ **ROUNDING, NOT DILUTION — AND IT IS THE SCALING THAT SETTLES IT, NOT THE SIZE.**
+        //    Measured across mint sizes: **50k → 340,616,270,000 · 500k → 345,157,850,001 ·
+        //    5m → 305,640,410,001.** A **100x larger mint produces a SMALLER loss.** Dilution scales
+        //    with the diluting mint; integer division does not. ⇒ the incumbent is not diluted.
+        // ⛔ **A TOLERANCE ALONE WOULD HAVE MASKED THIS** (rule 4). It is only safe here because
+        //    `test_E2_IncumbentLossDoesNotScaleWithTheMint` below asserts the DISTINGUISHING property —
+        //    a real dilution cannot hide under this bound without failing that one.
+        assertApproxEqRel(gotAfter, gotAlone, 1e9,      // 1e-9 relative; measured is 3.4e-11
+            "an incumbent must NOT receive materially less because someone else minted");
+    }
+
+    /// 🔴 §SESS-29 — **THE CONTROL THAT MAKES THE BOUND ABOVE SAFE.** A tolerance can hide a small
+    ///    dilution; it cannot hide dilution's SIGNATURE, which is that the loss grows with the mint
+    ///    that causes it. This mints **100x** more and asserts the incumbent's loss does not grow
+    ///    proportionally. If issuance ever starts genuinely diluting incumbents, this fails even
+    ///    though the assertion above would still pass.
+    function test_E2_IncumbentLossDoesNotScaleWithTheMint() public {
+        uint small = _incumbentLoss(50_000  * USDC_PRECISION);
+        uint big   = _incumbentLoss(5_000_000 * USDC_PRECISION);
+        emit log_named_uint("incumbent loss, 50k mint  ", small);
+        emit log_named_uint("incumbent loss, 5m  mint  ", big);
+        assertGt(small, 0, "PREMISE: there must be a measurable loss, else this control proves nothing");
+        assertLt(big, small * 10,
+            "the loss SCALES with the mint - that is dilution, not rounding, and the bound in "
+            "test_E2_IncumbentIsNotHarmedByANewMint is now hiding it");
+    }
+
+    /// @dev One A/B on a fresh fixture: what the incumbent loses when a mint of `mintUsdc` lands.
+    function _incumbentLoss(uint mintUsdc) internal returns (uint) {
+        _seedBasket(); _openShortfall();
+        uint amt = 10_000e18;
+        uint snap = vm.snapshotState();
+        (uint alone,) = _redeemValue(User01, amt);
+        vm.revertToState(snap);
+        deal(address(USDC), User03, 20_000_000 * USDC_PRECISION);
+        vm.startPrank(User03);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User03, mintUsdc, address(USDC), 0);
+        vm.stopPrank();
+        (uint after_,) = _redeemValue(User01, amt);
+        return alone > after_ ? alone - after_ : 0;
     }
 }
 
