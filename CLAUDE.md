@@ -1244,6 +1244,10 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
   ⚠️ **AND THE CONTENDER MATTERS: the first kill happened while `cargo test -p quid-bridge` was
   running.** Do not run a Rust build and a forge build concurrently on this box; `free -g` before
   starting is one command and the whole diagnosis.
+  📌 **PAIRS WITH `06b57327` ("a second build OOMs the box"), WHICH IS THE OTHER HALF AND WAS WRITTEN
+  THE SAME HOUR BY A PARALLEL THREAD.** That note says *do not let N agents build*; this one says
+  *what exit 137 means once you have it*. **Neither is the whole story:** a 137 with no contender at
+  all is still possible, because the lint pass alone reached 11 GB here on a single-threaded build.
 - **Build+test in ONE call** (`forge build && forge test`) rather than two turns — it removes a whole
   turnaround per verification.
 
