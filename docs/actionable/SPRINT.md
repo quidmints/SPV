@@ -52712,3 +52712,91 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ▶️ Lev regression **45/0**. U1 itself is §SESS-19; this section is only the security property.
 
+
+---
+
+# 🛤️ §LANES-2026-09-06 — **THE EXECUTION PARTITION. READ THIS BEFORE STARTING ANY ITEM.**
+
+**Owner, 2026-09-06:** *"this is not an acceptable pace … rewrite the commands in such a way that
+everything gets finished today."*
+
+## The measurement that reframes the problem
+
+**The open set is ~400 slots, not the 73 `§MASTER-ORDER` sequences.** §ORDER's own census — 150 row
+slots, 137 sections, 19 check-rows, six clusters — was taken 2026-08-30, **before** §BTC-9's 49 items
+and §PLP's list folded in. `§MASTER-ORDER` sequences the actionable subset; it is not the denominator.
+
+🔴 **AND BATCHING IS NOT THE LEVER, WHICH IS WORTH SAYING WITH THE ARITHMETIC.** A build+test cycle is
+~6–9 min (warm compile ~105s, pinned suite ~250s). Testing after every one of ~400 items is **~2 days
+of pure compile** — real, but it is not what makes this a multi-week list. And **rule 10 caps the
+saving**: one money-path change per test run, with a falsifiable prediction stated first, *because two
+at once makes a failure unattributable*. ⇒ **batching buys hours; it cannot buy weeks.**
+
+## 🔴 PARALLELISM IS CURRENTLY NEGATIVE, AND THAT IS THE FINDING
+
+**`git worktree list` returns ONE entry**, and several agents are working inside it. The cost is
+measured, not theorised — **three collisions in one session on 2026-09-06 alone:**
+1. `fe9720ac` ("Fix U1: route the close leg") **swallowed a 228-line `§MASTER-ORDER` restructuring**
+   that is nowhere in its message (§SESS-17 U6).
+2. `HEAD` moved **twice more** mid-edit (`f86a13ec` → `0ccbea6f`), so every `git status` read was
+   stale on arrival.
+3. CLAUDE.md already records this class twice — rule 14 (sweeping someone else's work into yours) and
+   rule 14b (your staged deletion landing in their commit, which **broke `main`**).
+
+⇒ **Adding agents to one tree SUBTRACTS throughput.** The partition below is the precondition for
+going faster, not an optimisation on top of it.
+
+## The partition — seven lanes, cut on COLLISION DOMAIN rather than on topic
+
+**The rule that generates it: two items may run concurrently iff they cannot touch the same file.**
+Topic adjacency is irrelevant; `6e` and `7a` are both "lever" and both must serialise, while `9c` and
+`22` are unrelated and run freely.
+
+| lane | owns | items | serialiser |
+|---|---|---|---|
+| **L1 · prose** | `.md` + comment-only edits in `evm/src` | GATE 9a–9g · §BTC-7's 15 sites · §PLP-9's 11 rows · D1's 145 comments · D3 · B2 | **no compile at all** — the cheapest lane and the largest item count |
+| **L2 · rust/enclave** | `quid-ln/`, `quid-hop`, `quid-bridge`, `quid-enclave` | GATE 5 (A1→A6, 21a, 22, 23) · 4a/4g/4h/4i · D2.1–D2.10 · B1's gdrive script | separate toolchain, **zero Solidity collision**; `cargo test -p <crate>`, never `check` |
+| **L3 · btc contracts** | `BTCChannels.sol`, `ChannelLib.sol`, `BitcoinTx.sol` | GATE 3's six checklist items · 4d/4e/4f · 7e/7f | `ChannelLib` has headroom; **GATE 3 is one attempt and does not belong in a hurry** |
+| **L4 · lever** | `LevManager.sol`, `LevMath.sol`, `LevBase.sol` | 7a · 7i · 6e | 🔴 **`LevManager` = 227 BYTES. Strictly serial, and measure before every landing** |
+| **L5 · range/swap** | `Quid.sol`, `Core.sol`, `SwapLib.sol`, `QuidLib.sol` | 6a–6d · 6g/6h · 7d · 7g · 2.3 | 🔴 **`SwapLib` 1,172 · `Quid` 1,589, and rule 10 means ONE money-path change per run.** Strictly serial |
+| **L6 · tests** | `evm/test/` only | 8a–8c · F2/F5/F6/F8/F10–F14 | additive; **cannot collide with `src` by construction** |
+| **L7 · reads** | nothing — read-only | 0a · 1h · every remaining determination | fully parallel with everything, including with itself |
+
+### 🔑 The one change that makes the partition actually hold
+
+**Every lane wants to write `SPRINT.md`, which is 52,714 lines and the single hottest file in the
+repo — that is the collision that ate `fe9720ac`.**
+▶️ **Each lane books into `docs/actionable/lanes/L<n>.md`, never into `SPRINT.md` directly**, and one
+merge pass folds them at the end. Rule 12 is satisfied (the finding is booked the same turn), rule 14
+is satisfied (nobody stages a shared file), and a lane's commit can no longer swallow another's.
+
+```
+git worktree add --detach ../spv-L2 HEAD     # per lane; their work is committed, so HEAD is clean
+cp evm/.env ../spv-L2/evm/.env               # gitignored, does not travel with the worktree
+cd ../spv-L2 && <lane's items> && git commit -- <paths by name>
+```
+⚠️ **`git worktree add` from a shared tree takes `HEAD`, so any UNCOMMITTED work in the parent is
+excluded BY CONSTRUCTION** — which is the property CLAUDE.md's 2026-08-10 note relies on, and it means
+a lane cannot inherit another lane's half-finished edit.
+
+## ⛔ WHAT THE PARTITION CANNOT COMPRESS, STATED SO THE PLAN IS NOT BUILT ON IT
+
+**Three items are not effort-bound, and no number of lanes moves them:**
+
+1. 🔴 **M1–M7 are BLOCKED ON LAUNCH.** `evm/deployments/l1.json` names `chainId: 1` addresses and
+   **`core`, `aux`, `vault` and `levManager` all have ZERO CODE on mainnet** at the archive pin.
+   **There is no realised flow to regress.** ⇒ §PLP-T's class ruling cannot close pre-launch, and
+   GATE 2.2 saying *"gated on M1–M3 + M7"* is gated on something that cannot happen yet (§SESS-16).
+   **The pure sweeps CAN run today — M0's magnitude half already did.**
+2. 🔴 **GATE 3 IS ONE ATTEMPT.** `BTCChannels` has no proxy, no initializer, no storage gap (§BTC-8d),
+   so a defect there costs **closing every channel and reopening**, each needing its LP online.
+   **Speed is the wrong axis on the one item where being wrong is unrecoverable.**
+3. 🔑 **GATE 2's FOUR RULINGS ARE THE OWNER'S, AND THEY ARE MINUTES RATHER THAN DAYS** — option F
+   (*what is an ETH depositor owed?*), the §PLP-T class, the position token, θ-or-the-lever.
+   **Three of the four DELETE mechanisms**, so every hour they sit undecided is an hour L3/L4/L5 may
+   spend building something a ruling removes. ⇒ **This is the highest-leverage thing on the list and
+   it costs no engineering time at all.**
+
+⇒ **THE HONEST SHAPE OF "TODAY":** L1, L2, L6 and L7 are the bulk by count and can run flat-out in
+parallel starting now. L4 and L5 are serial by physics (227 and 1,172 bytes, rule 10). L3's GATE 3
+should not be rushed. **The M-series is not on today's board at any staffing level.**
