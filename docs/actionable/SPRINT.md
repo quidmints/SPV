@@ -52146,3 +52146,73 @@ lacked** (*"the owner's cross-spoke discriminator needs a second spoke address I
 are 7, and it is now a read rather than a missing input.
 
 
+## §SESS-15 — THE REFILL PROBLEM, LOOKED AT FROM ALL SIDES. **ONE CANDIDATE DIED IN THE READING; THE PROBLEM IS NARROWER THAN §PLP-T STATES.** (2026-09-06)
+
+**Owner, 2026-09-06:** *"i am not sure about the borrow for refill unless we repay it immediately from
+future flow"* · *"we cant rely on hopes with borrows. need to measure"* · *"look at it from all sides,
+dont jump to conclusions. look for the most elegant solution."*
+⇒ **NOTHING IS RULED HERE.** This narrows the option space and names the cheapest discriminating
+measurement. §PLP-T's *"NOT READY TO CHOOSE"* stands.
+
+### ⛔ THE CANDIDATE I WAS FORMING IS ALREADY BUILT, AND IT IS NOT ENOUGH
+The idea: make the skew **signed** — charge the direction that worsens imbalance, discount the one that
+improves it. *"Not paying a third party, just declining to charge for the trade we want."*
+🔴 **IT IS ALREADY THE CODE.** `SwapLib:445-448` charges `wellSkew` **only on the volatile-OUT drain**
+(*"Scale the buy DOWN so a scarce pool hands out less volatile"*), and `skewWad` returns `uint` — there is
+no negative branch and none is needed, because **the refill direction already pays ZERO skew.**
+⇒ **The discount exists and has not produced refill flow**, which settles the question empirically rather
+than by argument: **when settlement is at oracle, "free" is not an incentive.** A refiller compares us to
+the whole market and finds us merely *not worse*. Only being **better** creates flow — and that is class
+1's entire content. ⚠️ **Recorded because it looked elegant and was wrong**: a mechanism that is already
+implemented cannot be the missing mechanism.
+
+### ⭐ THE PROBLEM IS ONE LEG, NOT TWO — AND §PLP-T DOES NOT SAY THIS
+| leg | drained by | refilled by | two-sided? |
+|---|---|---|---|
+| **USD** | redemptions (§PLP-T2), swap-ins | **deposits** — `Quid.deposit(assets, receiver)` is single-asset and takes DOLLARS | ✅ **naturally** |
+| **VOLATILE** | swap-outs (the skewed drain) | only a volatile-IN swap | 🔴 **no natural source** |
+⇒ **The ratchet is specific to the volatile leg.** The USD leg already has an un-costed, always-on refill
+that nobody has to be paid for. **Every class should be scoped to the volatile leg only** — a class-1
+spread posted on the USD leg would be paying for something deposits already do free.
+⚠️ **This does NOT dissolve §PLP-T2**: a redemption wave can still outrun deposits. It means T2 is a
+RATE mismatch on a leg that has a source, which is a different (and smaller) problem than a leg with none.
+
+### 🔑 THE POOL IS SELF-*LIMITING* BUT NOT SELF-*RESTORING*, AND THE REFRAME MAY ALREADY ACCEPT THAT
+`skewWad` prices scarcity on the inventory **the swap leaves behind** (`inv1 = inv0 − drainUsd6`), so the
+marginal drain gets monotonically more expensive as inventory falls. That is **a restoring term on FLOW,
+not on INVENTORY** — and §PLP-T's own reframe asks only for *"the ABILITY TO QUOTE BOTH SIDES"*, which a
+never-fully-depleted pool retains, at a worse price.
+⇒ **§PLP-T's *"a one-way ratchet with no restoring term"* is too strong.** There is a restoring term; it
+acts on the rate of depletion rather than on the level.
+🔴 **STEELMAN AGAINST THAT, AND IT IS STRONG:** the restoring term only works if drain flow is **price-
+elastic**. At oracle settlement there is no mispricing to arb, so the drainers are **real users** doing
+swap-outs and redemptions — demand that is plausibly **inelastic**. If so the rising skew **taxes users
+without deterring them**, and the ratchet is real after all. ⚠️ **Both readings fit every fact we have.**
+
+### ▶️ THE CHEAPEST DISCRIMINATING MEASUREMENT, AND IT IS SHARPER THAN M1
+> **M0 — is realised volatile-OUT drain rate price-elastic with respect to the charged skew?**
+Regress realised drain volume against the skew rate it paid, on the volatile leg only.
+- **Elastic** ⇒ the existing mechanism already bounds depletion; classes 1–3 are premature and the work
+  is CALIBRATION (§ARB-SHARING's *"the largest premium that still leaves the arb profitable"*).
+- **Inelastic** ⇒ the skew is a tax, not a brake, the ratchet is confirmed, and an ACTIVE mechanism is
+  required — at which point M5 (class 1) and M2/M3 (class 2's exposure duration) become the live set.
+⭐ **It uses data M1/M7 collect anyway**, needs no new instrument, and **its two outcomes point at
+different halves of the option space** — which is what makes it worth running before anything else.
+
+### 💰 AND THE FRAMING THAT MAKES CLASS 1 ASSESSABLE RATHER THAN IDEOLOGICAL
+§PLP-Z establishes LPs are **whole at every ratio**. ⇒ drift is a **REVENUE** problem, not a solvency one,
+so spending to fix it is an **investment with an ROI**, not a loss to be avoided on principle.
+⇒ **A posted refill spread is self-funding iff `spread_paid < fee_income_recovered_on_the_restored_side`,
+and that bound is computable from the two-sided volume history M1/M7 already gather.** It also gives the
+owner's constraint (*"maximise value/premium kept for LPs"*) a **number** instead of a preference: reject
+any spread above that bound, accept below it. ⚠️ **The bound is necessary, not sufficient** — M5 still has
+to show a spread inside it actually attracts flow, and *"a posted spread nobody takes is not a mechanism."*
+
+### ⛔ ON BORROW (class 2), PER THE OWNER'S TWO MESSAGES
+*"Repay immediately from future flow"* changes the instrument from a standing directional loan to a
+**bridge**, which moves its cost from **M6** (liquidation tail) to **M2/M3** (drift persistence = exposure
+duration). ⛔ **But it is only a bridge if repayment is FORCED.** Absent a hard cap on outstanding size and
+a forced unwind at a duration bound, "repaid from future flow" is the same *"organic counter-flow"* §PLP-T
+already dismisses as *"not a mechanism — a hope."* ⇒ **Per the owner: do not adopt it on the argument.
+M2/M3 first, and the forcing mechanism is a precondition of the design, not a detail of it.**
+
