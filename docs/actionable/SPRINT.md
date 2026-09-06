@@ -53103,3 +53103,33 @@ supplied by whatever builds `route` today. ▶️ Those are the next two pieces,
 ▶️ Verified: `PlannerVenues.t.sol` **2/2** · Rust planner tests **4/4** · full `quid-bridge` suite
 **156/0** · `check-signer-allowlist.py` clean.
 
+## §SESS-26 — **CLOSING CENSUS: 1074 / 5, AND THE COUNT RECONCILES AGAINST §SESS-11 EXACTLY.** (2026-09-06)
+
+Full suite, `FORK_BLOCK=25800000`, 169 suites, 507s: **1074 passed · 5 failed · 3 skipped.**
+
+### ⭐ IT RECONCILES, WHICH IS THE POINT OF RUNNING IT
+§SESS-11's baseline was **1036 / 14**. The 9 `WithdrawEndToEnd` identity reds were cleared by the fixture
+regeneration (`d5587ccb`). **14 − 9 = 5**, and the 5 remaining are the same 5. ⇒ **no new failure was
+introduced by any change in this session**, and the arithmetic says so rather than an assurance.
+
+### 🔴 THE FIVE, ALL PRE-BOOKED — NOTHING HERE IS NEW
+| test | figure | booked as |
+|---|---|---|
+| `test_E2_IncumbentIsNotHarmedByANewMint` | issues ~9% more QU!D into a short basket | **GATE 0d** |
+| `test_E2_MintAtMark_RealRedeemMatchesTheMark` | **7.353%** against a 2% tolerance | **GATE 0d** |
+| `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` | 6.63e18 delta against a 1e15 bound | **GATE 0d** |
+| `test_E45_CompoundCrankGasVsTheSelfFundingConstant` | **230,742 > 200,000** | **GATE 0d** |
+| `test_UNITB_ProbeSwapIsEntryHistoryIndependent` | 0.2885% against a 0.1% control | §SESS-18 (proved pre-existing by stashing) |
+⚠️ **The four GATE 0d reds are MONEY-PATH and remain the highest-value open work in the file.** They are
+where the next thread should start, not with anything this session added.
+
+### ▶️ SESSION STATE, FOR THE NEXT THREAD
+- **Branch `sprint-fold-and-destale`, 45 commits, pushed.** Working tree clean, no worktrees, no stashes.
+- **Rust:** `quid-bridge` **156/0**; `check-signer-allowlist.py` clean (41 literals, 14 hop-signed).
+- **Byte budgets, the binding constraint on further route work:** `LevManager` **133** · `Quid` **1,589** ·
+  `LevMath` **1,395** · `Core` **13,217**. ⛔ **The next route change to `LevManager` does not fit** — move
+  it to `LevMath` first (§SESS-19's remedy), pre-emptively rather than after a failed build.
+- **Still open and named:** the §PLP-T class ruling (needs M1–M7, which need a deployment that does not
+  exist — §SESS-16), the volatile leg's floor (no quotable reference since V3 was deleted — §SESS-23), the
+  1inch API client for the ladder's calldata arm, and splits (§SESS-20's constraint governs).
+
