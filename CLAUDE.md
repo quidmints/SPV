@@ -237,6 +237,44 @@ change either, and it will look like a clean pass.
 NUMBER YOU JUST MEASURED** — `grep -c "<newSymbol>" <file>` returning 0 while the build was green is
 the signature of this, and nothing else produces it.
 
+### ⭐ THE WORKTREE IS NOW ONE COMMAND, AND THE REASON IT WAS NOT USED IS THAT IT WAS COLD (2026-09-06)
+
+**The section above prescribes a worktree and nobody uses one — `git worktree list` returned ONE entry
+today with several agents inside it.** The reason is in its own text: *"~6 min cold compile"*. A
+6-minute tax on every isolation means isolation loses to the shared tree every time, so the rule is
+correct and unused, which is the same shape as a gate whose only runner is a rule.
+
+▶️ **`tools/lane.sh L3` — creates the worktree WARM. Every number measured, not estimated:**
+| step | cost | note |
+|---|---|---|
+| `git worktree add --detach` | **1s** | takes `HEAD`, so another lane's uncommitted edits are excluded BY CONSTRUCTION |
+| copy `evm/out` + `evm/cache` | **0s** | 125M, free from page cache on this box |
+| `evm/lib` | **0s** | ⭐ **it is a SYMLINK in this repo, so vendored libs are already shared** — no submodule init, which is the step that would otherwise cost minutes |
+| first `forge build` in the lane | **~35s** | 0 errors; solc compiled 129 files, not 1,875. **Against ~342s cold** |
+
+✅ **ISOLATION VERIFIED BY A LEAK TEST, NOT ASSUMED** — `evm/src` and `evm/out` have different inodes
+from the parent's, and `echo >> lane/evm/src/Quid.sol` left the parent's copy at **0** occurrences.
+⚠️ **Re-run that leak test if `lane.sh` changes.** A lane that silently aliases the parent is strictly
+worse than no lane: it gives the *appearance* of isolation while collisions continue.
+
+### ⭐ AND STOP RUNNING THE WHOLE SUITE — `tools/impacted-tests.py` ROUTES A CHANGE TO ITS OWN TESTS
+
+A full `forge test` is ~250s and **70 of 155 `.t.sol` files reference no money-path contract at all**,
+so most of that run cannot falsify most changes. The tool maps changed `evm/src` files → declared
+symbols → +1 level of reverse-import → the suites that name them.
+
+**Measured, and the acceptance test is the KNOWN POSITIVE per the rule below:**
+- `LevManager.sol` → **10 / 155 suites (6%)**, and it selects `LevCascade.t.sol` and `LevYbReal.t.sol`
+  — **the exact two test files the lane changing `LevManager` had edited.**
+- `SwapLib.sol` → **49 / 156 (31%)** — correctly wider, because 8 contracts import it.
+- `docs/actionable/SPRINT.md` → **NO BUILD NEEDED.** A prose lane never compiles at all.
+
+⚠️ **IT IS A ROUTER, NOT A GATE, AND ITS FALSE-NEGATIVE CLASS IS NAMED IN THE FILE:** it matches by
+SYMBOL, so it cannot see a test that reaches a contract through an address, a raw slot or a deploy
+script. `UnificationControls.t.sol` (raw slot reads) and `Alles.t.sol` (deploy script) are therefore
+in a hardcoded `ALWAYS` set, each with its reason. **The full suite still runs once before merge** —
+a green targeted run says nothing about the suites it did not execute.
+
 ## Verification discipline
 
 - 🔴🔴 **A NEGATIVE RESULT FROM AN EXTERNAL PROBE IS A PROPERTY OF YOUR QUERY, NOT OF THE WORLD.
