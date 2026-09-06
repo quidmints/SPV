@@ -377,16 +377,23 @@ contract LevManager is LevBase {
     ///    **every** entrypoint, direct calls included, which is a strictly larger gap than the batch
     ///    one this change closes. Threading it touches `deleverFlashBody` and `ExtractCfg`
     ///    (`dex2: 0` hardcoded at `:538`), which is a separate change.
-    function _batch(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes)
+    function _batch(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
+                    uint256[] calldata dex2s, bytes[] calldata routes)
         private
     {
         if (lps.length != minOuts.length || lps.length != dexes.length) revert LenMismatch();
+        // Length-0 is the COMPAT shape (every LP takes the legacy single hop); any OTHER length must
+        // match, or a short array silently gives some LPs a route and others not.
+        if ((dex2s.length != 0 && dex2s.length != lps.length)
+         || (routes.length != 0 && routes.length != lps.length)) revert LenMismatch();
         // Set ONCE for the batch (transient): each inner call's flash reads it to reimburse gas.
         _activeKeeper = msg.sender;
         for (uint256 i; i < lps.length; i++) {
             address lp = lps[i];
             if (!pos[lp].open) continue;
-            try this.deleverOne(lp, minOuts[i], dexes[i]) {}
+            try this.deleverOne(lp, minOuts[i], dexes[i],
+                                dex2s.length  == 0 ? 0 : dex2s[i],
+                                routes.length == 0 ? bytes("") : routes[i]) {}
             catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
         }
     }
@@ -445,11 +452,11 @@ contract LevManager is LevBase {
     ///          gentler default; it was the one that could never work.
     ///      ⇒ Two entrypoints for one action, one of which always reverts, is the fallback the owner
     ///      ruled out. There is now one, and it fails closed.
-    function deleverOne(address lp, uint256 minOut, uint256 dex) external {
-        _deleverOne(lp, minOut, dex);
+    function deleverOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) external {
+        _deleverOne(lp, minOut, dex, dex2, route);
     }
 
-    function _deleverOne(address lp, uint256 minOut, uint256 dex) internal {
+    function _deleverOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
         if (msg.sender != address(this) && msg.sender != lp) revert Auth();
         Types.Pos memory p = pos[lp];
         if (!p.open) return;
@@ -459,11 +466,7 @@ contract LevManager is LevBase {
         // ONE flash-repay-first shot reaches target (no health breach, any depth). If the position is
         // genuinely underwater/illiquid the flash can't be repaid → the whole op reverts → `cascadeDelever`
         // catches it and the position falls to the venue's own isolated liquidation.
-        // ⚠️ §SESS-19 — `0, ""` is TODAY'S BEHAVIOUR MADE EXPLICIT, not a decision that this leg needs
-        //    no route. `deleverOne`/`cascadeDelever` are 3-arg and keeper-ALLOWLISTED, so widening them
-        //    is another selector change across `evm_validating_signer.rs` + `encode_batch` — the same
-        //    four-seam move `rebalanceMany` just made. Booked; deliberately not smuggled in here.
-        _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut, dex, 0, "");
+        _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut, dex, dex2, route);
         require(p.venue.debtOf(lp) < debtBefore, "delever: no liquidity");      // sourced nothing → cascade skips it
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
         // full-2×: reconcile the range to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
@@ -479,8 +482,9 @@ contract LevManager is LevBase {
     /// ⚠️ **THIS SIGNATURE IS PINNED IN `quid-bridge/src/evm_validating_signer.rs`'s ALLOWLIST** and
     ///    must move with it in the same commit, or the keeper's own signer refuses to sign the call
     ///    it is built to send.
-    function cascadeDelever(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes) external nonReentrant {
-        _batch(lps, minOuts, dexes);
+    function cascadeDelever(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
+                            uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
+        _batch(lps, minOuts, dexes, dex2s, routes);
     }
 
     // ════════════════════════════ CLOSE ════════════════════════════

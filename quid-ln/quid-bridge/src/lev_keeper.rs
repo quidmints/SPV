@@ -592,12 +592,18 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         .await?
     }
 
-    async fn cascade_delever(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        let (evm, lm, gas, lps) =
-            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec());
+    async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
+        // §SESS-21 — `routes` was `_routes`: the parameter was here and DROPPED, because the CLOSE leg
+        // could not carry one (`_delever` handed `_deleverFlash` only `dex`). §SESS-19 fixed the leg and
+        // this widens the batch that reaches it. As with `rebalance_many`, a route only takes effect
+        // when its `dex2` is non-zero, and this keeper plans no second pool word yet — so `dex2s` goes
+        // EMPTY and on-chain behaviour is unchanged. What changes is that the seam is now consistent.
+        let (evm, lm, gas, lps, routes) =
+            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let dexes = vec![dex_word(); lps.len()];
-            evm.send_tx(lm, encode_batch("cascadeDelever(address[],uint256[],uint256[])", &lps, &dexes), batch_gas(gas, lps.len()))?;
+            let dex2s: Vec<[u8; 32]> = Vec::new();
+            evm.send_tx(lm, encode_batch5(CD_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -618,7 +624,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         let dex2s: Vec<[u8; 32]> = Vec::new();
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let dexes = vec![dex_word(); lps.len()];
-            evm.send_tx(lm, encode_rebalance_many(&lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
+            evm.send_tx(lm, encode_batch5(RM_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
         .await?
@@ -822,23 +828,29 @@ fn encode_batch(sig: &str, lps: &[LpAddr], dexes: &[[u8; 32]]) -> Vec<u8> {
 
 /// §S15 — the FIVE-array `rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])`.
 ///
-/// Kept separate from `encode_batch` rather than generalising it: `cascadeDelever` still takes
-/// three arrays and MUST NOT gain a `bytes[]`, because `deleverOne` drops `dex2`/`route` before
-/// `_deleverFlash` (`LevManager:369`) — a fourth array there would be signable calldata that no
-/// code path consumes.
+/// ⚠️ **THIS NOTE WAS REVERSED BY §SESS-21, AND THE REVERSAL IS THE POINT.** It read: *"Kept separate
+/// from `encode_batch` rather than generalising it: `cascadeDelever` still takes three arrays and MUST
+/// NOT gain a `bytes[]`, because `deleverOne` drops `dex2`/`route` before `_deleverFlash` — a fourth
+/// array there would be signable calldata that no code path consumes."* **That was correct while the
+/// drop existed.** §SESS-19 removed the drop and §SESS-21 widened `deleverOne`/`cascadeDelever`, so the
+/// calldata IS consumed now and one encoder serves both batch selectors — which is why it takes `sig`.
 ///
 /// ⚠️ **`dex2s` and `routes` may each be EMPTY, which is the contract's compat shape** (`length 0`
 ///    ⇒ every LP takes the legacy single-hop hub route). Any OTHER length must equal `lps.len()`,
 ///    or `rebalanceMany` reverts `LenMismatch()` — a short array would silently give some LPs a
 ///    route and others the legacy hop, which is why the contract checks rather than clamps.
-fn encode_rebalance_many(lps: &[LpAddr], dexes: &[[u8; 32]],
-                         dex2s: &[[u8; 32]], routes: &[Vec<u8>]) -> Vec<u8> {
+/// The two batch selectors, named once so the allowlist, the encoders and the tests cannot drift.
+const RM_SIG: &str = "rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])";
+const CD_SIG: &str = "cascadeDelever(address[],uint256[],uint256[],uint256[],bytes[])";
+
+fn encode_batch5(sig: &str, lps: &[LpAddr], dexes: &[[u8; 32]],
+                 dex2s: &[[u8; 32]], routes: &[Vec<u8>]) -> Vec<u8> {
     debug_assert!(dex2s.is_empty()  || dex2s.len()  == lps.len(), "dex2s must be per-LP or empty");
     debug_assert!(routes.is_empty() || routes.len() == lps.len(), "routes must be per-LP or empty");
     let n = lps.len() as u64;
     let n2 = dex2s.len() as u64;
     let nr = routes.len() as u64;
-    let mut d = selector4("rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])");
+    let mut d = selector4(sig);
 
     // Five head words, then each dynamic array laid out in order.
     let lps_at   = 0xa0u64;
@@ -889,7 +901,7 @@ mod tests {
         let dex2s = vec![[0xCCu8; 32], [0xDDu8; 32]];
         // Deliberately NOT multiples of 32: padding is where hand-rolled encoders go wrong.
         let routes = vec![vec![0xDEu8; 4], vec![0xEFu8; 33]];
-        let d = encode_rebalance_many(&lps, &dexes, &dex2s, &routes);
+        let d = encode_batch5(RM_SIG, &lps, &dexes, &dex2s, &routes);
 
         let word = |i: usize| -> u64 {
             let b = &d[4 + i * 32..4 + (i + 1) * 32];
@@ -928,7 +940,7 @@ mod tests {
     #[test]
     fn encode_rebalance_many_accepts_the_empty_compat_shape() {
         let lps = vec![LpAddr::from([0x11u8; 20])];
-        let d = encode_rebalance_many(&lps, &[[0xAAu8; 32]], &[], &[]);
+        let d = encode_batch5(RM_SIG, &lps, &[[0xAAu8; 32]], &[], &[]);
         let word = |i: usize| -> u64 {
             let b = &d[4 + i * 32..4 + (i + 1) * 32];
             u64::from_be_bytes(b[24..32].try_into().unwrap())
@@ -944,12 +956,22 @@ mod tests {
         assert_eq!(4 + r + 32, d.len(), "nothing may trail an empty routes array");
     }
 
+    /// §SESS-21 — the SAME encoder now serves `cascadeDelever`, so its selector gets its own pin.
+    /// A shared encoder is only safe if both call sites are asserted; otherwise one drifts silently.
+    #[test]
+    fn encode_batch5_pins_the_cascade_delever_selector() {
+        let d = encode_batch5(CD_SIG, &[LpAddr::from([2u8; 20])], &[[0u8; 32]], &[], &[]);
+        assert_eq!(&d[..4], &keccak256(CD_SIG.as_bytes())[..4]);
+        assert_ne!(&d[..4], &keccak256(RM_SIG.as_bytes())[..4],
+            "the two batch selectors must not collide - one encoder, two distinct heads");
+    }
+
     /// The selector MUST be the five-array one, or the validating signer refuses every batch.
     #[test]
     fn encode_rebalance_many_uses_the_allowlisted_selector() {
-        let d = encode_rebalance_many(&[LpAddr::from([1u8; 20])], &[[0u8; 32]], &[], &[]);
+        let d = encode_batch5(RM_SIG, &[LpAddr::from([1u8; 20])], &[[0u8; 32]], &[], &[]);
         assert_eq!(&d[..4],
-            &keccak256(b"rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])")[..4]);
+            &keccak256(RM_SIG.as_bytes())[..4]);
     }
 
     /// §POOL-VENUE — **THE POOL IS IN DANGER WHILE THIS LP LOOKS FINE, AND THE KEEPER MUST STILL ACT.**
@@ -1133,7 +1155,9 @@ mod tests {
         // §C2.1 — THREE STATIC ARRAYS. Was `bytes[]`, which needed an offsets table and per-element
         // (len, padded data); a pool word is one 32-byte value, so the tail is `len + n` like the
         // other two. 4 sel + head(3) + 3 * (len + 2 elems) = 4 + 32*12.
-        const SIG: &str = "cascadeDelever(address[],uint256[],uint256[])";
+        // §SESS-21 — `encode_batch` itself is unchanged and still used by nothing else; this test
+        // pins its 3-array LAYOUT, so it keeps a literal 3-array signature deliberately.
+        const SIG: &str = "cascadeDelever3ArrayLayoutPin(address[],uint256[],uint256[])";
         let dexes = vec![dex_word(); 2];
         let enc = encode_batch(SIG, &[[0xAA; 20], [0xBB; 20]], &dexes);
         assert_eq!(enc.len(), 4 + 32 * 12);

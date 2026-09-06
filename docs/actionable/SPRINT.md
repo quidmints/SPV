@@ -52800,3 +52800,54 @@ a lane cannot inherit another lane's half-finished edit.
 ⇒ **THE HONEST SHAPE OF "TODAY":** L1, L2, L6 and L7 are the bulk by count and can run flat-out in
 parallel starting now. L4 and L5 are serial by physics (227 and 1,172 bytes, rule 10). L3's GATE 3
 should not be rushed. **The M-series is not on today's board at any staffing level.**
+
+## §SESS-21 — **`deleverOne` AND `cascadeDelever` WIDENED. THE ROUTE SEAM IS NOW CONSISTENT END TO END.** (2026-09-06)
+
+**Owner:** *"now widen deleverOne and cascadeDelever the same way."* ✅ Done — the same four-seam move
+`rebalanceMany` made in §SESS-15, now that §SESS-19 removed the drop that made it pointless.
+
+### ⭐ THE ORDER MATTERED, AND THIS IS WHY IT WAS NOT DONE EARLIER
+§SESS-15's own note said `cascadeDelever` **must not** gain a `bytes[]`: *"`deleverOne` drops `dex2`/
+`route` before `_deleverFlash`, so a `bytes[]` there would be signable calldata that no code path
+consumes"* — **the exact hazard the allowlist's own header warns about.** ✅ **That was correct while the
+drop existed.** §SESS-19 removed it. ⇒ **the note is reversed IN PLACE at both sites** (the Rust encoder
+docblock and the allowlist entry) rather than deleted, because *why it was narrow* is the thing a future
+reader needs to not re-narrow it.
+
+### ✅ WHAT SHIPPED — four seams, same as before
+| seam | change |
+|---|---|
+| `LevManager.deleverOne` | `(lp, minOut, dex)` → `(lp, minOut, dex, dex2, route)`; `_deleverOne` and its `_deleverFlash` call carry them (the explicit `0, ""` §SESS-19 left is **gone, replaced by the real values**) |
+| `LevManager.cascadeDelever` | gains `uint256[] dex2s, bytes[] routes`; `_batch` threads them with the **length-0 compat shape** and a `LenMismatch` on any other mismatched length |
+| `evm_validating_signer.rs` | `"cascadeDelever(address[],uint256[],uint256[],uint256[],bytes[])"` |
+| `lev_keeper.rs` | **`encode_rebalance_many` GENERALISED to `encode_batch5(sig, …)`** and shared by both batch selectors; `cascade_delever`'s `routes` parameter **was present and dropped**, now used |
+
+🔑 **ONE ENCODER, TWO SELECTORS — AND THAT IS ONLY SAFE IF BOTH ARE PINNED.** Named `RM_SIG`/`CD_SIG`
+constants so the allowlist, the encoders and the tests cannot drift, plus
+`encode_batch5_pins_the_cascade_delever_selector`, which asserts the two heads differ. A shared encoder
+with one asserted call site is a shared encoder with one **unasserted** call site.
+
+### 📏 THE BYTE BUDGET, WHICH IS NOW THE REAL CEILING ON THIS WORK
+`LevManager` **24,443 / 24,576 — 133 bytes of margin** (227 before this, 419 before §SESS-19, 1,129
+before §SESS-15). ⛔ **Three route widenings have consumed ~88% of the headroom this contract had.**
+▶️ **The NEXT route change to this contract does not fit and must move to `LevMath` first** — the
+§SESS-19 remedy (decode + struct writes in the library, whose bytecode is outside the manager) applied
+pre-emptively rather than after a failed build. **This is the binding constraint on §PLP-U3, not a
+preference.**
+
+### ⏸️ STILL NOT ROUTED, AND NOW THE LIST IS SHORT
+`closeLev`/`closeLevFor` (2-arg entrypoints, LP-facing, **not** keeper-allowlisted) and `deleverToVault`
+(mode 2, whose `ExtractCfg` defaults remain `dex: 0, dex2: 0, route: ""`). ⚠️ Both still pass explicit
+`0, ""` at the call site rather than by omission.
+
+### ⚠️ WHAT THIS DOES AND DOES NOT CHANGE ON-CHAIN
+**Nothing today.** A route only takes effect when its `dex2` is non-zero (`_stableToWethSor:991` branches
+on `c.dex2 == 0`), and **the keeper plans no second pool word yet** — so both batch encoders send `dex2s`
+EMPTY and behaviour is byte-identical. ⇒ **what this buys is that the contract, the allowlist and the
+encoder now AGREE**, so supplying a second hop becomes a keeper-planner change alone rather than a
+four-file one. ▶️ **The planner is the next piece**, and it is where §SESS-20's constraint binds: the
+keeper may propose N ROUTES, never the split.
+
+▶️ Verified: Solidity lev **45/0** · Rust `lev_keeper` **23/23** · `check-signer-allowlist.py` clean
+(41 literals, 14 hop-signed).
+

@@ -74,7 +74,11 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // §E357 — the volatile leg now carries an off-chain-built route, so BOTH batch
     // selectors gained a `bytes[]`. This list and the keeper's builder must move together:
     // a stale entry here makes the signer REJECT every call the keeper sends.
-    "cascadeDelever(address[],uint256[],uint256[])",
+    // §SESS-21 — GAINED `uint256[],bytes[]`, matching `rebalanceMany`. It could not before: the close
+    // leg dropped `dex2`/`route` (§SESS-19), so a `bytes[]` here would have been signable calldata no
+    // code path consumed — the exact hazard the note at the top of this list warns about. That drop is
+    // gone, so the argument for keeping this narrow is gone with it.
+    "cascadeDelever(address[],uint256[],uint256[],uint256[],bytes[])",
     // (§E247) `rebalanceMany` — the #84 whole-book batch (`LevManager:354`), sent by
     // `lev_keeper.rs` since the central rebalancer landed and never listed here.
     // §S15 — GAINED `uint256[],bytes[]` (per-LP `dex2`/`route`). The three-array selector is GONE,

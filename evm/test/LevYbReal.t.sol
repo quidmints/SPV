@@ -369,7 +369,7 @@ contract LevYbRealProbe is AllesFixture {
         // De-lever through the real adapter: withdraw weETH (real Morpho) → sell (real Uniswap) → repay (real
         // Morpho). Called by the LP (self-de-risk path; the keeper uses permissionless cascadeDelever).
         vm.prank(LP);
-        rlm.deleverOne(LP, 0, DEX_WETH_USDC);
+        rlm.deleverOne(LP, 0, DEX_WETH_USDC, 0, "");
 
         emit log_named_uint("Morpho debt (USDC) after delever", rvenue.debtOf(LP));
         emit log_named_uint("LTV after delever (bps)", rlm.getCurrentLtvBps(LP));
