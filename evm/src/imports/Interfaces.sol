@@ -19,15 +19,9 @@ pragma solidity ^0.8.26;
 ///         `LevManager` has 70 bytes of headroom and `SwapLib` 295, and both are unchanged by this.)
 ///         Every merge here is a strict UNION of previously-declared members with byte-identical
 ///         signatures, so no call encoding changes.
-// §RANGEBACKING-FOLD — `IRangeBacking` DELETED, along with the contract it described. Its members
-// moved onto `Aux` (`report`, `committedTotal`), which is where the gate that consumes them already
-// lives; `otherThan` was dropped rather than moved, having had no callers. Note this interface was
-// declared in TWO places — here and again in Core.sol — which is exactly what the warning below was
-// written about, and which standing rule 2 exists to prevent.
-//
-// ⚠️ KEEP THE WARNING, it outlives the interface: a duplicate interface surfaces as forge's
-// `Error writing output JSON`, NOT as a redeclaration error — the message points at the wrong layer
-// entirely, and it has cost this repo hours on two separate days.
+// ⚠️ THE FAILURE MODE STANDING RULE 2 EXISTS TO PREVENT: declaring the same interface in TWO files
+// surfaces as forge's `Error writing output JSON`, NOT as a redeclaration error — the message points
+// at the wrong layer entirely, and it has cost this repo hours on two separate days.
 
 // (there is no wrapper type here: a Solidity file may hold interfaces alone, and the empty
 //  `library Interfaces {}` that used to sit on this line was a no-op that only produced an artifact)
@@ -86,9 +80,7 @@ library MarketParamsLib {
 /// Morpho **Vaults V2** — a DIFFERENT protocol from Blue above, and the tree calls ONE member.
 interface IVaultV2 { function liquidityAdapter() external view returns (address); }
 
-/// Aave v4 spoke. Union of the five former variants: `IAaveV4Spoke` (Aux, Vault, BasketLib),
-/// `IAaveV4Spoke_V` (QuidLib), `IAaveV4SpokeCL` (ChannelLib).
-/// Canonical Aave **v4** spoke view — union of the former per-file variants
+/// Canonical Aave **v4** spoke view — the ONE declaration every consumer imports.
 interface IAaveV4Spoke {
     function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
     function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
@@ -97,13 +89,11 @@ interface IAaveV4Spoke {
     function getUserSuppliedShares(uint256 reserveId, address user) external view returns (uint256);
     function getReserveSuppliedAssets(uint256 reserveId) external view returns (uint256);
     function getReserveTotalDebt(uint256 reserveId) external view returns (uint256);
-    // §E325 — THE BORROW SURFACE IS GONE, AND IT WENT WITH THE FEATURE, NOT WITH A GREP.
-    // `setUsingAsCollateral` / `borrow` / `repay` / `getUserDebt` were declared here.
-    // `cbbc0993` ("Drop Euler v2 and Aave V4 borrowing") deleted their only call sites —
-    // `SPOKE.setUsingAsCollateral(COLL_RESERVE, true, address(this))` and
-    // `SPOKE.getUserDebt(STABLE_RESERVE, address(e))` are both in that diff — and left the
-    // four declarations behind. Its own message says why the rest of this interface stays:
-    // *"Aave V4 BORROWING is gone; Aave V4 SUPPLY is not."*
+    // ⛔ NO BORROW SURFACE HERE, DELIBERATELY. `cbbc0993` ("Drop Euler v2 and Aave V4 borrowing")
+    // removed the FEATURE, not the protocol member: `setUsingAsCollateral` / `borrow` / `repay` /
+    // `getUserDebt` still exist ON THE SPOKE. Do not declare them here to reach them — its own
+    // message says why the rest of this interface stays: *"Aave V4 BORROWING is gone; Aave V4
+    // SUPPLY is not."*
     // Risk config. `collateralRisk` is a CONFIG ID, not a risk magnitude -- it is the second argument to
     // getDynamicReserveConfig. Reading it as a number makes an ordinary reserve look unconfigured (0).
     function getReserveConfig(uint256 reserveId)
@@ -121,10 +111,6 @@ interface IWeETH {
 
 
 
-/// Canonical Quid view — union of the former per-file variants (`QuidLib::IQuid_VG` +
-/// `IQuidView_VG`), which split ONE contract's surface across two declarations so a signature
-/// change had to be made twice and a missed one still compiled.
-
 /// Curve `weETH/WETH-ng` (0xdb74dfdd…). ⚠️ THE `int128` SIGNATURE IS THE ONE THIS POOL ANSWERS — the
 /// uint256 `-ng` variant REVERTS on it (verified live 2026-08-09). coin0 = WETH, coin1 = weETH.
 interface ICurvePool {
@@ -138,35 +124,10 @@ interface ICurvePool {
     function balances(uint256 i) external view returns (uint256);
 }
 
-// §SCRUB-TRI (2026-08-21) — the block that stood here described the removed Curve 3-coin pool as "the ONLY
-// external route to WETH/WBTC" in the PRESENT tense, twelve lines above the note recording that it
-// was REMOVED. Its verified coins/`get_dy` figures are preserved in §E292. The venue below is the
-// live one.
-//   coins(0)=USDC 0xA0b8…eB48 · coins(1)=WBTC 0x2260…C599 · coins(2)=WETH 0xC02a…6Cc2
-//   get_dy(0→2, 10_000 USDC) = 5.293e18   (~$1,889/ETH)
-//   get_dy(0→1, 10_000 USDC) = 1.584e7 sats (~$63.1k/BTC)
-// The ORDERING was read from the chain, not assumed — a wrong index swaps the wrong pair at size and
-// there is no id to assert against, unlike the Morpho markets.
-// (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
-// §V-R1-MIN — THE VOLATILE VENUE, PINNED ON-CHAIN. Uniswap V3 SwapRouter02.
-// MEASURED 2026-08-17, and this depth IS the argument for these pools (the predecessor venue was
-// removed for breaching the 1% floor between $10k and $25k — a DEPTH problem, §E292):
-//     USDC/WETH 0.05%  32,497 WETH + 36.9M USDC   — 46x the predecessor's 698 WETH
-//     WBTC/USDC 0.30%   262.9 WBTC + 10.3M USDC   — 12.7x the predecessor's 20.72 WBTC
-// It was removed because BOTH legs breached the 1% floor between $10k and $25k. That was a
-// DEPTH problem, and a deeper pool solves it. It did NOT require an aggregator.
-//
-// ⚠️ WHY PINNED AND NOT AGGREGATED — THIS IS A KEEPER-SCOPE DECISION, NOT A ROUTING PREFERENCE.
-// 1inch resolves routes OFF-CHAIN, so routing through it forces a `bytes route` argument, which
-// forces the KEEPER to run an HTTP client, hold API access, handle quote staleness, and choose the
-// execution path. That moves the keeper from "picks WHEN" to "picks HOW", and every one of those is
-// a new moving part that can fail independently of the chain. A pinned pool needs none of it: the
-// keeper passes NOTHING and its entire role stays "decide the moment".
-// §C2.1 — THE PINNED-V3-POOL RATIONALE ABOVE IS HISTORY. V3 is deleted; the volatile leg is a
-// keeper-supplied 1inch route, so "a pinned pool can be thin at size" is no longer the trade-off
-// being made. What replaces it: the ROUTE is chosen off-chain per swap, and the on-chain bound is
-// `minOut` on the balance delta.
-// 1inch AggregationRouterV6 (mainnet). §C2.1 — the volatile leg's venue. PINNED AS A CONSTANT AND
+// §C2.1 — THE VOLATILE LEG IS A KEEPER-SUPPLIED 1INCH ROUTE. The route is chosen off-chain per
+// swap; the on-chain bound is `minOut` measured on the BALANCE DELTA, never the router's own
+// `minReturn`. (Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.)
+// 1inch AggregationRouterV6 (mainnet) — the volatile leg's venue. PINNED AS A CONSTANT AND
 // THAT IS LOAD-BEARING: the executor `call`s it, so the ONLY thing standing between a malicious
 // keeper and the protocol's funds is that the CALLEE cannot be chosen. An `address` parameter here
 // would make the whole design a rug vector.
@@ -244,11 +205,9 @@ interface IUniV3PoolMin { function token0() external view returns (address); }
 // A SHARED index constant would therefore be silently wrong for one of them — wrong-pair swap at
 // size, no revert, no id to assert against. Each pool carries its own pair of indices for that reason.
 // Token handles for the routing branch (the basket's own stables; USDC is the routing hub).
-// USDC — the stable ROUTING HUB. §SCRUB (2026-08-16): its old name embedded a venue, which named
-// it after a pool it has nothing to do with — it is used as the hub in `_hubSwap`/
-// `_routableStable`, where that venue is not involved. The genuine venue names below are the POOL
-// and its coin indices, and those stay. Also the ONE declaration (rule 2): `SOR.USDC_HUB` was a
-// second private copy of this same address.
+// USDC — the stable ROUTING HUB, and the ONE declaration of this address (rule 2). Named for the
+// ROLE, not for a venue: `_routableStable` and the hub hop reach it with no pool in the name. The
+// genuine venue names below are the POOL and its coin indices, and those stay.
 // (`///` is a DOC tag; solc rejects it on a file-level variable, so these are plain `//`.)
 address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 address constant RLUSD_TOKEN                = 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD;
@@ -291,16 +250,13 @@ address constant CURVE_CRVUSD_USDC     = 0x4DEcE678ceceb27446b35C672dC7d61F30bAD
 int128  constant CRV_CRVUSD_IDX        = 1;
 int128  constant CRV_CRVUSD_USDC_IDX   = 0;
 
-/// @notice Curve crypto-swap. Uniswap is gone from every leg: stable→stable goes through
-///         the stableswap pools via `ICurvePool` (int128), stable→volatile through this one (uint256).
-/// @dev    🔴 A SEPARATE INTERFACE, NOT AN OVERLOAD ON `ICurvePool`, DELIBERATELY. Curve's two families
-///         encode indices differently — stableswap `int128`, crypto-swap `uint256` — and calling the
-///         wrong one REVERTS (CLAUDE.md records the uint256 variant reverting on the weETH/WETH ng
-///         pool). Overloading both on one interface would let a caller pick the wrong ABI by
-///         integer-literal inference. Two named types make the choice explicit, and reverting is the
-///         SAFE failure: a mis-encoded index would otherwise swap the wrong pair.
-// §E240-tri — the 3-coin crypto-swap interface DELETED: no caller. `ICurvePool` (int128 stableswap) stays, and
-// `ICurveOracle` in `OracleLib` is a separate, still-live price surface -- do not confuse them.
+// 🔴 CURVE'S TWO FAMILIES ENCODE INDICES DIFFERENTLY — stableswap `int128`, crypto-swap
+// `uint256` — and calling the wrong one REVERTS (CLAUDE.md records the uint256 variant reverting on
+// the weETH/WETH ng pool). Reverting is the SAFE failure: a mis-encoded index would otherwise swap
+// the wrong pair. ⇒ a crypto-swap surface, if one is ever needed, gets its OWN interface; NEVER an
+// overload on `ICurvePool`, which would let a caller pick the wrong ABI by integer-literal inference.
+// §E240-tri — `ICurvePool` (int128 stableswap) stays, and `ICurveOracle` (declared below) is a
+// separate, still-live price surface -- do not confuse them.
 
 interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) external returns (uint); }
 
@@ -323,21 +279,15 @@ interface IAaveV4Hub {
     function getAssetLiquidity(uint256 assetId) external view returns (uint256);
 }
 
-/// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
-/// ILevEquity_VG and the former `ILevEquityBtc`/`ILevBtc_V`.
+/// Canonical ILevEquity — ONE interface over BOTH lev managers, the ETH one and the BTC one.
 ///
-/// §LEV-FOLD-2 — THE BTC MIRROR IS GONE, AND THE GUARD IT PROVIDED IS NOT. The old note here said
-/// these were "NOT mergeable ... a single interface would let a caller reach a BTC read on the ETH
-/// manager (and vice versa)", and that was TRUE: distinct selectors made a wrong-manager call
-/// REVERT rather than quietly return the other range's book, which matters in a tree that has
-/// shipped three address-confusion bugs of that shape in one session.
-///
-/// But that is a CLAMP -- it catches the mis-assignment once per call, forever, and only if the
-/// caller happens to use the suffixed accessor. The state it was detecting is now
-/// UNCONSTRUCTIBLE instead: `setLevManager` refuses any manager whose `ORACLE_KEY` is not the
-/// pinning range's own asset, so a BTC manager cannot be pinned to the ETH range at all and there is
-/// no wrong-manager handle for a caller to hold. Standing rule 17 — a root fix makes the previous
-/// guard DELETABLE, which is exactly the test for whether it was a fix or a clamp.
+/// §LEV-FOLD-2 — ONE FACE IS SAFE HERE BECAUSE THE MIS-ASSIGNMENT IS UNCONSTRUCTIBLE, not because
+/// it would be harmless. Per-asset accessors would only CLAMP a wrong-manager call — once per call,
+/// forever, and only where the caller happens to reach for the suffixed name. Instead `setLevManager`
+/// refuses any manager whose `ORACLE_KEY` is not the pinning range's own asset, so a BTC manager
+/// cannot be pinned to the ETH range at all and there is no wrong-manager handle for a caller to
+/// hold. Standing rule 17 — a root fix makes the previous guard DELETABLE, which is exactly the
+/// test for whether it was a fix or a clamp.
 ///
 /// UNITS ARE PER INSTANCE, not per interface: `netEquity`/`grossCollateral` are 1e18 ETH on the
 /// ETH manager and 8-dec sats on the BTC one. The MEANING is identical, which is why one name
@@ -372,18 +322,7 @@ interface ILevPooled {
 
 
 
-/// Canonical ILevVenue — union of ILevVenue, ILevVenueB.
-
-// §E325 — a DANGLING `/// Canonical IAux — union of IAux, IAux.` stood here, attached to no
-// declaration at all, so a reader takes it for `ICollection`'s docblock. Deleted, with its twin
-// above `IBTCChannels`. See the note on `ICollection` for where the degenerate text comes from.
-
 /// Canonical ICollection view.
-/// ⚠️ §E325 — this read "union of ICollection, ICollection". `b748857f` GENERATED these
-///    "union of A, B" lines mechanically for every consolidated pair, and where the two variants
-///    had already collapsed to one spelling it emitted the same name twice. There is no earlier,
-///    non-degenerate form to restore: the sentence was born saying nothing. The pre-consolidation
-///    variants are recoverable from `b748857f^` if they are ever needed.
 /// ⚠️ `transferFrom` here is ERC-721 (`tokenId`) and shares its ABI signature with
 ///    `IERC20Min.transferFrom` (`amount`). Same selector, different meaning — do not merge them.
 interface ICollection {
@@ -391,43 +330,25 @@ interface ICollection {
     function getApproved(uint tokenId) external view returns (address);
 }
 
-/// Canonical Chainlink aggregator view. (§E325: was "union of IAggregatorV3, IAggregatorV3" —
-/// same `b748857f` generator as `ICollection` above.)
+/// Canonical Chainlink aggregator view.
 interface IAggregatorV3 {
     function decimals() external view returns (uint8);
     function latestRoundData() external view returns ( uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
-// Uniswap V3 SwapRouter02. Plain `//`, not NatSpec — solc rejects @notice/@dev on file-level variables.
-// §SLOP — `V3_SWAP_ROUTER` DELETED: its only consumer was `SOR._v3Route`, removed with `SOR.sol`.
-// ⚠️ AND IT CAME BACK BEFORE GOING AGAIN — THIS TOMBSTONE WAS FALSE FOR MONTHS. `e4f9c512` re-pinned
-// the router days after `9eef279a` cut it, because deleting the only volatile route re-opened the
-// hole. It is deleted AGAIN under §C2.1, and this time the replacement (a keeper-supplied 1inch
-// route) landed FIRST. A tombstone is only true while nothing needs what it buried.
-
-/// @notice Uniswap V3 SwapRouter02 — the SOR's multi-hop route. Callers here only INITIATE swaps, so
-///         `IUniswapV3SwapCallback` (implemented by pools) is deliberately not inherited.
-// §SLOP — `IV3Router` DELETED with the router constant above: zero references after the SOR cut.
 
 /// Canonical Aux view — union of FIVE former per-file variants, which described ONE contract, so a
 /// signature change had to be made up to six times and a missed one still compiled.
-/// ⚠️ §E325 — the variant list here read `(IAux, IAux, ChannelLib::IAux, BasketLib::IAux)` plus a
-///    header line "union of IAux, IAux_VG". The later suffix-stripping passes rewrote each variant
-///    into the surviving name, so the list stopped naming what was merged and started asserting
-///    that `IAux` was merged with itself. `19072701` ("Consolidate six Aux interface views into one
-///    canonical IAux") holds the real names; they are NOT restated here, because a name that no
-///    longer resolves is exactly what CLAUDE.md's rename table says to leave in history.
 /// @notice §E296 — `ISwap.sol` and `ILevVenue.sol` folded in (standing rule 2: one declaration per
 ///         interface, in THIS file). Both files existed ONLY to hold interfaces, so both are deleted.
 ///         `IAux is ISwap` rather than restating its three members: `getTWAPforAsset`, `resolvedTwap`
 ///         and `swap` were declared in BOTH places and had DRIFTED — `Aux.swap` is `public payable`
-///         (`Aux.sol:721`), `ISwap` agreed, and `IAux` said non-payable. No `src` caller used either
+///         (`Aux.sol:862`), `ISwap` agreed, and `IAux` said non-payable. No `src` caller used either
 ///         handle, so the wrong selector never fired; that is exactly the §E21 failure mode this rule
 ///         exists to prevent, caught this time before it could bite.
 /// @notice Aux's public stable<->volatile swap surface (Aux.sol `swap`), declared
-///         once here as the single source of truth. `Aux` implements it; peripherals
-///         (formerly also `SorExchange`, the Liquity-zapper adapter, deleted 2026-08) consume it without
-///         re-declaring a duplicate interface. `token` = stable side (or QUID/zero),
+///         once here as the single source of truth. `Aux` implements it; peripherals consume
+///         it without re-declaring a duplicate interface. `token` = stable side (or QUID/zero),
 ///         `asset` = volatile side (WETH/WBTC), `forVolatile` true = stable->volatile.
 interface ISwap {
     function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut, bool loadBalance)
@@ -484,10 +405,6 @@ interface IAux is ISwap {
     function deposit(address from, address token, uint amount) external returns (uint);
     function avgYield() external view returns (uint);
     function vaultBlocked(address vault) external view returns (bool);
-    // §E325 — `_tryPath` removed. `09fedf18` ("Delete the SOR…") deleted the BODY from `Aux.sol` and
-    // left this declaration; `Aux.sol:765` names it in the removal list. That is the exact shape
-    // §E145 warns about six interfaces down — *"Leaving the DECLARATION here is what let a deleted
-    // implementation still compile at the call site; the two must be removed together."*
     function toIndex(address token) external view returns (uint);
     function supplySelf(address token, uint amount) external returns (uint);
     function withdrawSelf(address token, uint amount, address to) external returns (uint);
@@ -514,15 +431,9 @@ interface IAux is ISwap {
     function reserveIdOf(address token) external view returns (uint256);
     function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint);
     function tryCheckBacking() external returns (uint committedSum, uint totalLiquid);
-    /// §E21 — absorbed from the three per-file restatements (`LevMath.IAuxM`,
-    /// `LevManager.ISwapAux`, `FeeLib.IAuxFee`). ⚠️ `sorSelfFundedReverse` takes FOUR
-    /// arguments; `ISwapAux` declared THREE. It was never called through that handle, so
-    /// the wrong selector never fired — which is exactly why a per-file restatement is
-    /// dangerous: it drifts silently and only breaks the first time someone uses it.
     function redeem(uint amount) external;
 }
-/// Shared token surfaces for the whole leverage cluster (LevManager / LevMath / BtcLevManager) — was three
-/// byte-identical ERC-20 slices (IERC20Min / IErc20M / IERC20B) + three WETH slices. One each now.
+/// The ONE ERC-20 slice for the whole leverage cluster (LevManager / LevMath / BtcLevManager).
 interface IERC20Min {
     function approve(address spender, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
@@ -537,8 +448,7 @@ interface IERC20Min {
 }
 
 /// §A.52: the ONE WETH view. Inherits `IERC20Min` so consumers needing balance/allowance/transfer
-/// do not each declare a private variant — `QuidLib::IWETH_VG` and `SwapLib::IWethDeposit` were both
-/// partial restatements of exactly this, and a signature change had to be made in three places.
+/// do not each declare a private variant.
 interface IWETH9 is IERC20Min { function deposit() external payable; function withdraw(uint256) external; }
 
 /// @title  ILevVenue — per-LP isolated borrow-venue adapter for the leverage overlay
@@ -563,15 +473,15 @@ interface ILevVenue {
     function borrow(address lp, uint256 stableAmount) external returns (uint256 borrowed);
 
     /// @notice §DUST — bring the venue's debt accounting up to NOW before anything READS it.
-    /// @dev    Surfaced on the interface so `LevManager` can call it before it SIZES anything.
-    ///         `MorphoEscrowVenue.accrue` has existed since the keeper work and was never called
-    ///         from `src`; it is the fix for the pre-accrual drift its own docblock describes.
+    /// @dev    Surfaced on the interface so `LevManager` can call it before it SIZES anything
+    ///         (`LevManager.sol:539`); it is the fix for the pre-accrual drift that
+    ///         `MorphoEscrowVenue.accrue`'s own docblock describes.
     ///         Permissionless (Morpho's `accrueInterest` is), idempotent within a block, and a
     ///         NO-OP on a venue whose debt view already reflects accrued interest at read time.
     function accrue() external;
 
     /// @notice Repay `stableAmount` of `lp`'s debt (the stable was already transferred in). Repays at most
-    ///         the outstanding debt; the caller (`LevManager._deleverChunk`) clamps the transfer IN to the
+    ///         the outstanding debt; the de-lever paths in `LevMath` cap the transfer IN to the
     ///         current debt, so no cross-LP excess is ever left sitting on the adapter.
     /// @return repaid `stable()` actually applied to debt.
     function repay(address lp, uint256 stableAmount) external returns (uint256 repaid);
@@ -589,10 +499,10 @@ interface ILevVenue {
 
     /// @notice The stablecoin this venue lends (the debt asset).
     function stable() external view returns (address);
-    // §ILEVVENUE FOLD — `ILevVenue` is DELETED into this face. `stable()` above was declared
-    // identically in both, so the merge DEDUPES it; `COLLATERAL()` is the only member it added.
-    // Verified same implementor rather than same address (the `EthVenue`-split lesson):
-    // `LevVenueBase` provides BOTH `COLLATERAL()` and `supply(address,uint256)`.
+    // `stable()` above and `COLLATERAL()` here come from the SAME implementor — verified as one
+    // implementor rather than one address (the `EthVenue`-split lesson): `LevVenueBase` provides
+    // BOTH `COLLATERAL()` (a `public immutable`, so its getter is auto-generated) and
+    // `supply(address,uint256)`.
     function COLLATERAL() external view returns (address);
 
     /// @notice Venue liquidation threshold in bps of collateral value (e.g. 8000 = 80% LLTV).
@@ -651,24 +561,10 @@ interface ILevVenue {
 
 /// Canonical Core view — union of FOUR former per-file variants, which described ONE contract, so a
 /// signature change had to be made up to four times and any missed one still compiled.
-/// (§E325: the variant list read `SwapLib::ICore, SwapLib::ICore, BasketLib::ICore` — the same
-///  rename flattening as `IAux` above. Real names in `b748857f^`.)
 interface ICore {
-    // §E325 — `BACKING()` removed: THE SUBJECT OF THIS ACCESSOR NO LONGER EXISTS. It arrived with
-    // `6b4de0ee` as the pointer to the `IBandBacking`/`IRangeBacking` accountant, and
-    // §RANGEBACKING-FOLD (top of this file) deleted that interface *"along with the contract it
-    // described"*, moving `report`/`committedTotal` onto `Aux`. No contract in `evm/src` declares
-    // `BACKING` — not as a function, not as public state — so a call through this handle would have
-    // fallen through the dispatcher at ~195 gas, the failure mode this interface's own header warns
-    // about 60 lines below. Every other `BACKING` in the tree is English prose in a comment.
     function drawPooledUsdBtc(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
     function committedUsd18() external view returns (uint);
-    /// §E315 — RESTORED. A conflict auto-merge spliced TWO declarations into one broken line,
-    /// `function mo.  t amount, address token)`, which left `ICore` declaring NEITHER `modLP`
-    /// nor `outOfRange` while both are called through it. Signatures recovered from `Core.sol`
-    /// and from the live call sites, not reconstructed by guess. (`outOfRange` itself went with
-    /// §OOR-BOOK-DELETED; only `modLP` remains of that pair.)
     function modLP(int256 delta, int256 deltaUSD, address sender) external returns (uint sent);
     /// §OOR-AS-INTENT — settle ONE filled intent. Both legs at once, because a fill is a TRADE.
     /// ⚠️ THIS SURVIVED THE BOOK'S DELETION AND IS NOW ITS ONLY CONSUMER: `Quid.fillIntent` calls
@@ -677,11 +573,11 @@ interface ICore {
     function POOLED() external view returns (uint);
     function btcThetaBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
-    // §ISBTC-SPLIT — ONE ARGUMENT. The `bool` selected which of two rings a single Core owned;
-    // each instance owns exactly one, so there is nothing left to select. This declaration had
-    // drifted from `Core.observe(uint32[])` and the mismatch was INVISIBLE to the compiler: an
-    // external call through an interface is encoded from the DECLARATION, so it reverted at
-    // RUNTIME with "unrecognized function selector" inside every fixture's setUp.
+    // §ISBTC-SPLIT — ONE ARGUMENT: each `Core` instance owns exactly one ring, so there is nothing
+    // left to select. ⚠️ MUST MATCH `Core.observe(uint32[])` EXACTLY. A drifted declaration is
+    // INVISIBLE to the compiler — an external call through an interface is encoded from the
+    // DECLARATION — and reverts at RUNTIME with "unrecognized function selector" inside every
+    // fixture's setUp.
     function observe(uint32[] calldata secondsAgos) external view returns (uint192[] memory);
     function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
@@ -716,16 +612,11 @@ interface ICore {
     function rangeEquityUsd18() external view returns (uint);
     function swap(address recipient, bool inputIsUsd, address token, uint amount, bool loadBalance) external returns (uint);   // §DE-TICK: no price limit, no isBTC -- the instance IS the asset
 
-    // ═══ §E305 — `IBand` FOLDED IN. ONE INTERFACE FOR CORE AND BOTH RANGE MANAGERS ═══
-    // 🔴 §E325 — THIS NOTE SAID "`ICore` FOLDED IN … `ICore` named the same objects this does",
-    //    INSIDE `interface ICore`, WHICH NAMES NOTHING. `c372f7b0` ("E305: … and IBand folds into
-    //    ICore") wrote the sentence with the folded interface ALREADY spelled as its destination,
-    //    so the note lost the only fact it existed to carry. The absorbed interface was **`IBand`**.
-    // `IBand` named the same objects this does, from the other side, so the two were one concept
-    // wearing two nouns. Its 16 members are below; `Core`, `Quid` and `Vault` all cast to `ICore`.
+    // ═══ ONE INTERFACE FOR CORE AND BOTH RANGE MANAGERS ═══
+    // The pool face and the range face named the same objects from opposite sides, so they were one
+    // concept wearing two nouns: `Core`, `Quid` and `Vault` all cast to `ICore`.
     // ⚠️ THIS INTERFACE DELIBERATELY OVER-PROMISES, AND THAT IS THE COST OF ONE NOUN. No single
-    //    contract implements all 44 members (43 when this was written; §E307 added three and §E325
-    //    removed `BACKING`): `Core` has the pool surface, `Quid` and `Vault` the
+    //    contract implements all 47 members: `Core` has the pool surface, `Quid` and `Vault` the
     //    range surface. A call to a member the target does not implement COMPILES and reverts at
     //    runtime with no matching selector (~195 gas, the dispatcher falling through). If that
     //    ever bites, the tell is the gas number, not the message.
@@ -755,21 +646,14 @@ interface ICore {
     /// Pay the volatile leg out to `who`. See the no-op note above.
     function deliverVolatile(uint amount, address who) external returns (uint sent);
 
-    // ═══ §E302 — `IBandManager`'s SEVEN MEMBERS, MERGED IN. ONE RANGE FACE, NOT TWO ═══
-    // 🔴 §E325 — THIS ROW SAID `IRangeManager`, AND NO SUCH SYMBOL HAS EVER BEEN DECLARED IN THIS
-    //    TREE. The merge happened as `7f3b1f93` while the pair was still spelled `IBandManager` +
-    //    `IBand`; the Band→Range pass (`1b21ca09`) then rewrote the DEAD name in this comment into
-    //    the live vocabulary, which is CLAUDE.md's own warning arriving from inside the source:
-    //    *"Renaming a tombstone does not destale it; it disguises it."* The cost was measured —
-    //    the merge below reads as OUTSTANDING WORK to anyone who greps `IRangeManager`, and it is
-    //    DONE. Verified 2026-08-23: `grep -rn "IRangeManager\|IRange\b" src test script` returns
-    //    exactly this file's comments, and all 16 members are present in `ICore` below.
-    // The two interfaces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
-    // they were never two objects - only two names for one. Nothing was declared twice, which is
-    // why standing rule 2 never flagged it; the defect was that a caller holding a range had no way
-    // to know which of two faces to reach for, in a codebase whose target is ONE range manager.
-    // ⚠️ `feesPerShare`, `USD_FEES` and `CORE` are PUBLIC STATE on `Shares`, not functions - their
-    //    getters are auto-generated, so grepping for their `function` form in `Quid.sol` returns 0
+    // ═══ ONE RANGE FACE, NOT TWO ═══
+    // The two former faces shared ZERO member names and `Quid` and `Vault` each implement BOTH, so
+    // they were never two objects - only two names for one. Nothing was declared twice, which is why
+    // standing rule 2 never flagged it; the defect was that a caller holding a range had no way to
+    // know which of two faces to reach for, in a codebase whose target is ONE range manager.
+    // ⚠️ `feesPerShare`, `USD_FEES` (`Shares.sol:126-127`) and `CORE` (`Quid.sol:78`, `Vault.sol:84`)
+    //    are PUBLIC STATE, not functions - their getters are auto-generated, so grepping for their
+    //    `function` form in `Quid.sol` returns 0
     //    while the members are fully implemented.
     /// §DE-TICK — uniform 256-bit: price, bounds, liquidity. The narrow widths were v4 packing.
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
@@ -785,32 +669,18 @@ interface ICore {
     /// in `derivedThetaWad`'s `μ/(K·σ²)`, and `Quid` has exposed it as `kLvrWad()` since that work —
     /// declared here so the leverage overlay can reach it through `ICore` on EITHER range.
     function kLvrWad() external view returns (uint);
-    // §E325-IQUID FOLD — the last two members of `IQuid`, which is now DELETED. `derivedThetaWad`
-    // above was declared IDENTICALLY in both, so the fold DEDUPES it rather than colliding.
-    // ⚠️ `Core` implements NONE of these three: `ICore` has been the polymorphic RANGE-MANAGER face
-    // since `IBand` was folded in, and its implementors are `Quid` and `Vault`. These two are
-    // `Quid`-only, which is ABI-legal and matches how the merged face already works.
+    // ⚠️ `Core` implements NONE of the three members below: `ICore` is the polymorphic RANGE-MANAGER
+    // face as well as the pool face, and these three are `Quid`-only — ABI-legal, and exactly how the
+    // merged face already works.
     function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
     function setBTCChannels(address b) external;
 
-    // §E307 — the LEFTOVER `IBand` folded in; members `ICore` already had are not duplicated
-    // (that is why `bandBounds`, which both carried, appears once above as `rangeBounds`).
-    // 🔴 §E325 — this line said "`ICore` folded in", naming its own destination again. `1b21ca09`
-    //    absorbed a SECOND interface still called `IBand` — `{syncLev, soldFractionWad, bandPrice,
-    //    bandBounds}` — which had survived §E305's fold of the first one.
-    /// §SLOP — ONE NAME. This interface declared BOTH `syncLev` and `syncLevBTC` for the same
-    /// operation, so the two ranges could not be called through one method even though the
-    /// interface existed precisely to make that possible. The interface IS the polymorphism;
-    /// a second name for the same call defeats it.
+    /// §SLOP — ONE NAME FOR BOTH RANGES. The interface IS the polymorphism; a per-asset second name
+    /// for the same call would defeat the reason it exists.
     function syncLev(address lp) external;
     function soldFractionWad(uint syncKeyPx) external view returns (uint256);
     function rangePrice() external view returns (uint);
-    // Range bounds. These replace the former `reseatEpoch()` counter as the re-anchor signal: the counter and
-    // the ticks are written in the same statement pair (Quid:1137-1138, Vault:711-712), so the bounds carry
-    // the same information AND strictly more of it -- a reseat that leaves an anchor inside the new range
-    // bumped the counter but needs no re-anchor. All four are auto-generated getters for existing public
-    // state (Quid:92-93, Vault:214-215); no new contract code implements them.
 }
 
 /// @notice ETH-VENUE CUSTODY ONLY — the AAVE-v4 WETH + ether.fi weETH positions. Today `Vault`
@@ -824,23 +694,10 @@ interface IEthVenue {
     function withdrawForAux(uint amount, address to) external returns (uint);
     function rangeOp(uint amount, uint8 op) external returns (uint);
     function supplyEtherFi(uint amount) external returns (uint);
-    // §E325 — `offrampEtherFi` removed from this FACE; the function is alive and stays
-    // (`Quid.sol:131`, `public`, and `Quid` IS the ethVenue — `DeployL1_s:534,546` cast
-    // `Quid(payable(AUX.ethVenue()))`). Nothing ever reached it THROUGH `IEthVenue`: its one
-    // caller is `Quid.sol:702`, an internal call, and the scripts hold the concrete type.
-    /// §E306 — folded in from `ILevHost`, a one-function face over this SAME contract: all three of its
-    /// call sites resolved `IAux(...).ethVenue()`, which is what `IEthVenue` is already cast on.
-    /// (§E325: this said "folded in from `IEthVenue`" — its own name. `892c5b78` is titled
-    ///  *"fold ILevHost and IBasketMint away"*, which is where both real names come from.)
     /// @notice The lev manager this venue hosts.
     function LEV_MANAGER() external view returns (address);
 }
 
-// §E325 — the second dangling `/// Canonical IAux — union of IAux, IAux.` stood here, and above it
-// the §E5 docblock describing `creditSkewPremium` — a member of `ICore`, not of `IBTCChannels`.
-// Both were left behind when their subjects were folded away, and a `///` block immediately above
-// `interface IBTCChannels` reads as ITS documentation. The §E5 prose moved to the member it
-// describes; only the line that is actually about this interface stays.
 
 /// E21 -- the last of the per-file restatements, homed here so there is ONE declaration each.
 interface IBTCChannels {
@@ -872,14 +729,12 @@ interface IWiredBasket { function AUX() external view returns (address);
 interface IWiredVault { function btcChannels() external view returns (address);
                         function LEV_MANAGER() external view returns (address); }
 
-/// Canonical Basket turn/maturity view (was `BasketLib.IBasketTurn`, itself already a union of two
-/// earlier per-file variants). §E325: read `BasketLib.IBasket` — this interface's own name.
+/// Canonical Basket turn/maturity view.
 interface IBasket {
     function turn(address from, uint value) external returns (uint sent, uint seedBurned);
     function matureSupply() external view returns (uint);
     function immatureBalanceOf(address who) external view returns (uint);
-    /// §E303 — folded in from `IQuidTarget`, which was a SECOND interface over this SAME contract.
-    /// `target()` lives in `Basket.sol` alongside the three above, so both faces described one thing.
+    /// `target()` lives in `Basket.sol` alongside the three above.
     /// 📖 **NAMING, SO IT IS NOT RE-READ AS DRIFT:** `Basket` is the QU!D token contract, and the
     /// variables that hold it are named `quid` accordingly — `DeployLib:171` `Basket quid = new
     /// Basket(...)`. The contract *named* `Quid` is the ETH RANGE (`DeployLib:118` `Quid ethRange = new
@@ -887,11 +742,8 @@ interface IBasket {
     /// role.** So `IBasket(quid)` reads the QU!D token, which is what `turn`, `matureSupply`,
     /// `immatureBalanceOf` and `target` all belong to.
     /// ⇒ Interfaces here are named for the CONTRACT they address, never for the variable at the call
-    /// site — which is why the `IQuid*` name was the one to retire, not this one.
+    /// site.
     function target() external view returns (uint);
-    /// §E306 — folded in from `IBasketMint` (§E325: the note said `IBasket`, its own name; the real
-    /// one is in `892c5b78`), a one-function face over this SAME contract. Both were cast
-    /// on `quid`, and `Basket.sol` implements `mint` alongside `turn` / `matureSupply` / `target`.
     /// @notice Mint `amount` against `pledge`'s deposit of `token`, dated `when`.
     function mint(address pledge, uint amount, address token, uint when) external returns (uint);
 }
@@ -929,9 +781,8 @@ interface IBtc {
     // BTC LP position: open/close/splice (driven on channel open/close).
     function requestDeposit(address lpEth, uint sats) external;
     function requestRedeem(address lpEth, uint lpPayoutSats) external;
-    // (E145) `settleBtcFeesOwed` REMOVED — the BTC fee leg compounds into `pooled` in sats,
-    // so there is no owed ledger to clear. Leaving the DECLARATION here is what let a deleted
-    // implementation still compile at the call site; the two must be removed together.
+    // ⚠️ A DECLARATION AND ITS IMPLEMENTATION MUST BE REMOVED TOGETHER: leaving the declaration
+    // behind is what lets a deleted implementation still compile at the call site.
     // `exactUsd` > 0 ⇒ on-chain swap-out delivery (pay the LP that exact proceeds);
     // 0 ⇒ LP-withdrawal splice-out (all native).
     // §EIP-7540 — NOT given a `request*` name, deliberately. 7540 has requestDeposit and
