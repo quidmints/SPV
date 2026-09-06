@@ -53965,11 +53965,127 @@ so it belongs off-chain and nothing was added on-chain for it.
 
 ### ⛔ WHAT STILL BLOCKS THE VALUE, AND IT IS NOT THE SCORER
 1. **`§POOL-VENUE` pin** — one venue per range, so no migration for existing ranges (blocker #7).
-2. **`_routeOf` still has TWO entries** (RLUSD 4.74%, PYUSD 5.85%) — §SESS-24 grew `_quoteOf` to six but
-   **deliberately did NOT grow `_routeOf`**, because doing so changes EXECUTION and broke
-   `test_ProtectFromQuid_HostileOperatorNetsZero`. ⇒ **the reachable cheap dollar (USDT, 4.08%, $252M,
-   1.7 bps) is still unborrowable**, so the scorer's best answer is currently unreachable.
+2. ✅ **CLOSED BY §SESS-47 (2026-09-06) — AND THE DIAGNOSIS IN THIS ROW WAS WRONG, WHICH IS THE PART
+   WORTH READING.** It said *"the reachable cheap dollar (USDT, 4.08%, $252M, 1.7 bps) is still
+   unborrowable"* — **true** — and blamed `_routeOf`'s two entries — **false**. USDT was unborrowable
+   because the KEEPER discarded the hub pool word it had already planned; `_routeOf` was only what the
+   contract fell back to. See §SESS-47. ⚠️ Per standing rule 20 this row was closable-looking from
+   prose in both directions and I spent an hour extending the table before checking the caller.
 3. **`LevVenueBase.STABLE` is immutable** — one debt asset per venue, so no capacity split (blocker #5).
-▶️ **The scorer is the cheap half. The expensive half is making its answer reachable**, and that is
-on-chain work gated on the §SESS-24 regression.
+▶️ ~~**The scorer is the cheap half. The expensive half is making its answer reachable**, and that is
+on-chain work gated on the §SESS-24 regression.~~ 🔴 **FALSIFIED BY §SESS-47: there was no expensive
+half and no on-chain work at all.** Making the scorer's answer reachable was ~30 lines of Rust wiring
+`plan_route` into three send sites that were throwing its output away. **The cost estimate was wrong
+because the DIAGNOSIS was wrong**, which is how a mis-booked blocker prices itself out of getting done.
+
+---
+
+## §SESS-46 — **`curveExchange` DECODED A RETURN VALUE OLD CURVE POOLS DO NOT GIVE. THE USDT `approve` TRAP, IN A SECOND PLACE.** (2026-09-06)
+
+**Measured, not reasoned.** Adding a 3pool row to `_routeOf` produced a trace where
+`3pool.exchange(0, 1, 10740705046441623547, 0)` **SUCCEEDED** — DAI in, `10739097` USDC out — and the
+transaction then reverted with *"unrecognized function selector 0xafb6a695 … which has no fallback
+function"* against an address with **zero code on mainnet**.
+
+🔑 **CAUSE: `ICurvePool.exchange` is declared `returns (uint256)` and Curve's 3pool (`0xbEbc4478`) is an
+old Vyper pool whose `exchange` returns VOID**, so the ABI decoder reverted on empty returndata —
+*after* the swap had already moved the money. **This is verbatim the trap `convertTo` already records
+for USDT** (*"`approve` declares `returns (bool)`, and USDT RETURNS NOTHING, so the ABI decoder reverts
+on empty returndata"*), and §SESS-2 had booked this exact line: *"`curveExchange` trusts the pool's own
+return value."*
+
+▶️ **FIX — measure the delta, which is the discipline `_aggSwap` already states** (*"`minOut` IS ENFORCED
+ON THE BALANCE DELTA, NEVER ON THE ROUTER'S RETURN VALUE … a hostile or merely mis-encoded pool cannot
+fake our own balance"*). `curveExchange` now reads `coins(j)`, snapshots its balance, calls
+`exchange` low-level, and returns the measured delta; `soft` yields 0, hard reverts `Slippage()`.
+✅ **AND IT CLOSES §SESS-2's SECOND HAZARD IN THE SAME CHANGE:** the approval was zeroed only on the
+failure path, leaving a standing allowance after a successful partial pull. Zeroed on BOTH paths now.
+⚠️ **KEPT ON ITS OWN MERITS, NOT AS THE USDT FIX** (rule 13 — a dismissal is a conclusion): `_hubSwap`
+stays reachable for RLUSD/PYUSD and for any keeper read that fails, so the defect is live regardless.
+📌 **Acceptance test is the KNOWN POSITIVE:** `CurveOfframp.test_Curve_ExchangeActuallyFills` performs a
+real 3pool swap and asserts the measured balance delta. 30/30 green across the Curve/route suites,
+0 `setUp` failures, 0 environmental errors, at a pin taken immediately before the run.
+
+---
+
+## §SESS-47 — 🔴 **THE KEEPER PLANNED THE ROUTE AND THREW IT AWAY. THREE SEND SITES, ONE STALE COMMENT EACH.** (2026-09-06)
+
+**The owner's question was *"why would you ever use the 3pool, it has almost no liquidity"* — and
+following it is what found this**, because the honest answer is *we wouldn't*: `_routeOf` is a fallback
+the contract reaches only when `hubDex == 0`, and `LevMath.sol:1243` already sentences it (*"DELETE THIS
+BRANCH … once the keepers supply `hubDex` for every venue stable in use"*).
+
+### THE DEFECT — BUILT, TESTED, AND UNCONSUMED
+`plan_route` resolves USDT→WETH into `dex2 = UniV3 USDT/USDC 0.01%` + `dex = UniV3 USDC/WETH 0.05%`, and
+`planner_two_hop_puts_the_hub_leg_in_dex2` has pinned that for months. **All three send sites discarded it:**
+| site | what it sent | comment it carried |
+|---|---|---|
+| `rebalance` | a literal `[0u8; 32]` hub word | *"ZERO ⇒ the contract falls back to its legacy Curve hub hop"* |
+| `cascade_delever` | `dex2s = Vec::new()` | *"this keeper plans no second pool word yet"* |
+| `rebalance_many` | `dex2s = Vec::new()` | *"this keeper has no SECOND pool word to plan yet"* |
+⛔ **ALL THREE COMMENTS WERE STALE — `plan_route` had already landed.** `dex2 == 0` routes the contract
+into `_hubSwap`, whose table covers RLUSD and PYUSD and reverts `NoStableRoute()` for everything else.
+⇒ **`_routeOf`'s narrowness was the SYMPTOM; discarding the plan was the DEFECT.**
+🔑 **THE SHAPE IS `check-orphans.py`'s, ON THE SIDE THAT HAS NO SUCH GATE.** Built-but-unwired: every
+planner test passed while nothing consumed the planner. **A green planner is exactly what a discarded
+plan produces.** ▶️ **Booked: there is no orphan check for the Rust keeper's own helpers.**
+
+### THE FIX — AND IT IS A DELETION ENABLER, NOT A CLAMP (standing rule 17)
+`plan_for_lp(evm, lm, lp, volatile)` reads `pos(lp).venue → stable()` and plans against it; all three
+sites now send `p.dex` / `p.dex2` per LP. ⭐ **FAIL-SAFE BY CONSTRUCTION:** a failed read, an unknown
+venue, or a stable `direct_pool` cannot express all degrade to **exactly today's bytes** (`dex_word()`
++ zero hub), so the legacy arm stays reachable and no position changes behaviour. It never guesses a pool.
+⚠️ **USDC is unchanged and its zero `dex2` is CORRECT** — it is the hub, and `_hubSwap` returns `amt`
+unchanged for it. (This is why adding `&& stable != USDC` to that guard once broke 17 tests.)
+✅ **AND I BACKED OUT MY OWN FIRST FIX.** I had added USDT+DAI rows to `_routeOf` and bisected them
+(`+USDT` green, `+DAI` red — the red was §SESS-46, not DAI). **Both rows were a clamp on a table already
+marked for deletion**, and would have been permanent dead weight on a contract with 730 bytes of margin.
+📌 161/161 `quid-bridge` lib tests green, plus a new test pinning the two properties that matter: a
+borrowable stable yields a NON-ZERO hub word, and an unplannable one degrades to `dex_word()` exactly.
+
+### ⚠️ THE VENUE INTUITION WAS WRONG, AND THE MEASUREMENT IS WORTH KEEPING
+*"3pool has almost no liquidity"* is a fact about its history, not its book. **Measured at the pin:**
+3pool holds **$160M** ($58.8M USDC / $39.8M USDT / $61.6M DAI) against **$34M** in the UniV3 USDC/USDT
+0.01% pool. And `get_dy` USDT→USDC beats UniV3 wherever size matters:
+| size | 3pool | UniV3 0.01% |
+|---|---|---|
+| $50k | −0.35 bps | **−0.08** |
+| $250k | −0.37 | **−0.22** |
+| $1M | **−0.42** | −0.72 |
+| $5M | **−0.68** | −2.16 |
+⇒ flat-curve depth beats concentrated depth above ~$500k. **3pool was never the problem; hardcoding ANY
+venue was.** The keeper picks per-LP now, which is the only answer that stays right as books move.
+
+### 📊 FULL-SUITE STATE AT `FORK_BLOCK=25919850`: **1090 passed / 2 failed / 3 skipped, 172 suites, 653s**
+`setUp` failures **0**. Both failures are pre-existing and **neither is this change** — verified, not asserted:
+1. `test_UNIT_BacktestV3TickVarianceVsChainlink` — **HTTP 429**, *"call rate limit exhausted, retry in
+   10m0s"*. The known-failing UNITB control, failing ENVIRONMENTALLY this run rather than on its q0
+   assertion. `env errs: 3`.
+2. `test_TheGuessedSlipIsTooTightAtSmallSizeAndLooseAtLarge` — **reproduced at HEAD with my `LevMath`
+   change stashed, byte-identical** (`20024668458573266484 <= 21381863684901085264`, gas `1107501`).
+   Per standing rule 13 this was run as a control rather than dismissed on plausibility.
+
+## 🔴 §SESS-48 — **§SESS-41'S LIVENESS DEFECT IS NOT PRESENT AT THIS BLOCK, AND THE TEST THAT SAYS SO IS A FROZEN MARKET READING** (2026-09-06)
+
+`FillerCallback.t.sol:224` asserts `assertGt(fSmall, 21381863684901085264)` — *"the floor is UNMEETABLE by
+the best reachable venue"* — against a constant measured at `FORK_BLOCK=25800000`. At `25919850`
+(~120k blocks, ~17 days later) the **floor is 20.0247 against a best fill of 21.3819**: it now clears by
+**~6.3%**, the opposite of what the row records. The test's own message anticipated exactly this
+(*"RE-MEASURE, the oracle/pool basis moved"*), and its own comment bounds it (*"one block, one oracle
+reading … not 'the floor is always unmeetable'"*).
+
+⛔ **DO NOT JUST UPDATE THE CONSTANT — standing rule 4: a tolerance that makes a test pass is the tell
+that the real question is still there.** Re-basing the number re-freezes a market reading and buys one
+more pin's worth of green. **The defect is the test's SHAPE:** it encodes a measurement as an assertion,
+so it must fail every time the basis moves, in either direction, forever.
+▶️ **WHAT IT SHOULD ASSERT IS THE INVARIANT, WHICH IS ALREADY WRITTEN DOWN** (§SESS-43): *the budget must
+cover TWAP lag + fee + impact* — measured need **27 bps @ $50k, 81 bps @ $1M** against a 25–50 bps
+`_slipBps`. That is a claim about the BUDGET, not about one block's oracle, and it is falsifiable at any
+pin. ⚠️ **AND THE LIVENESS ITEM STAYS OPEN (rule 16 — close only what is AXIOMATIC):** one block where
+the basis happens to be favourable is not evidence the budget is sufficient; it is evidence the basis
+MOVES, which is the whole argument for deriving the floor rather than guessing it.
+📌 **Rule 21 is the general form and this is a textbook instance:** a fixture encodes a WORLD, the tree
+moved, and nothing failed until the world did. The 🔴 row in §SESS-43 describing this defect is
+**unchanged in substance and wrong in its numbers**; re-read it against a fresh measurement before
+quoting the 2-bps/31-bps shortfalls.
 

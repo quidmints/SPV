@@ -872,11 +872,39 @@ library LevMath {
     function curveExchange(address tokenIn, address pool, int128 i, int128 j,
                            uint256 amountIn, uint256 minOut, bool soft) internal returns (uint256) {
         if (pool == address(0) || amountIn == 0) return 0;
+        // 🔴 **§SESS-46 — DO NOT DECODE THE POOL'S RETURN VALUE. OLD CURVE POOLS RETURN NOTHING.**
+        //    This read `return ICurvePool(pool).exchange(...)` against an interface declaring
+        //    `returns (uint256)`. **Curve's 3pool (`0xbEbc4478`) is an old Vyper pool whose `exchange`
+        //    returns VOID**, so the ABI decoder reverted on empty returndata — the swap having already
+        //    SUCCEEDED (measured: DAI in, 10.739097 USDC out, then the revert). ⚠️ **That is verbatim
+        //    the USDT trap `convertTo` records** — *"`approve` declares `returns (bool)`, and USDT
+        //    RETURNS NOTHING, so the ABI decoder reverts on empty returndata"* — in a second place.
+        //    ⇒ it is why adding a 3pool row to `_routeOf` failed. ⚠️ **IT IS *NOT* WHY USDT WAS
+        //    UNBORROWABLE, AND I WROTE THAT SENTENCE HERE BEFORE CHECKING — the keeper was discarding
+        //    the hub pool word it had already planned (§SESS-47, `plan_for_lp`).** Two independent
+        //    defects on one path: this one is real and is fixed below, and it would have stayed
+        //    invisible had the other not sent every non-USDC stable through here. Per standing rule 13
+        //    a dismissal is a conclusion — so note that this fix is kept on its OWN merits (`_hubSwap`
+        //    stays reachable for RLUSD/PYUSD and for any keeper read that fails), not as the USDT fix.
+        // ⭐ **MEASURE THE DELTA INSTEAD — the discipline `_aggSwap` already states:** *"`minOut` IS
+        //    ENFORCED ON THE BALANCE DELTA, NEVER ON THE ROUTER'S RETURN VALUE … a hostile or merely
+        //    mis-encoded pool cannot fake our own balance."* The same argument applies to a pool.
+        // ✅ **AND IT CLOSES §SESS-2's SECOND HAZARD IN THE SAME CHANGE:** the approval was zeroed only
+        //    on the failure path, leaving a standing allowance after a SUCCESSFUL partial pull — *"a
+        //    standing claim on the next block's balance."* It is now zeroed on BOTH paths.
+        address tokenOut = ICurvePool(pool).coins(uint256(int256(j)));
+        uint256 before_ = IERC20Min(tokenOut).balanceOf(address(this));
         IERC20OZ(tokenIn).forceApprove(pool, amountIn);
-        if (!soft) return ICurvePool(pool).exchange(i, j, amountIn, minOut);
-        try ICurvePool(pool).exchange(i, j, amountIn, minOut) returns (uint256 out) {
-            return out;
-        } catch { IERC20OZ(tokenIn).forceApprove(pool, 0); return 0; }
+        // Low-level: a void-returning pool must not revert the decoder. Success is the DELTA.
+        (bool ok, ) = pool.call(
+            abi.encodeWithSignature("exchange(int128,int128,uint256,uint256)", i, j, amountIn, minOut));
+        IERC20OZ(tokenIn).forceApprove(pool, 0);                 // zeroed on BOTH paths
+        uint256 got = IERC20Min(tokenOut).balanceOf(address(this)) - before_;
+        if (!ok || got < minOut) {
+            if (soft) return 0;                                  // soft: a thin pool yields nothing
+            revert Slippage();                                   // hard: fail loud, never a silent 0
+        }
+        return got;
     }
 
     function _weethToWethDex(SellCtx memory c, uint256 pulled) internal returns (uint256) {
@@ -1076,6 +1104,21 @@ library LevMath {
     {
         if (stable == RLUSD_TOKEN) return (CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX);
         if (stable == PYUSD_TOKEN) return (CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX);
+        // ⛔ §SESS-47 — **AND DO NOT ADD USDT/DAI ROWS HERE EITHER. I DID, AND IT WAS THE WRONG FIX.**
+        //    Chasing *"USDT is not borrowable"* I added both against `CURVE_3POOL` and bisected the
+        //    fallout (`+USDT` green, `+DAI` red). ⭐ **BOTH ROWS WERE TREATING A SYMPTOM ON A TABLE
+        //    THIS FILE ALREADY SENTENCES TO DEATH** — `:1243` says *"DELETE THIS BRANCH … once the
+        //    keepers supply `hubDex` for every venue stable in use"* — and the keeper had been
+        //    computing that word and discarding it (`plan_for_lp`, §SESS-47). **Standing rule 17: a
+        //    root fix makes the previous fix DELETABLE, a clamp adds another bound.** Wiring the
+        //    keeper makes this table unreachable for every planned stable, so a row here would have
+        //    been permanent dead weight on a contract with 730 bytes of margin.
+        // ⚠️ **THE MEASUREMENT THAT SETTLED THE VENUE QUESTION IS WORTH KEEPING, because "3pool has
+        //    almost no liquidity" is the intuition and it is FALSE at our sizes.** 3pool holds $160M
+        //    ($58.8M USDC / $39.8M USDT / $61.6M DAI) against $34M in the UniV3 USDC/USDT 0.01% pool,
+        //    and `get_dy` USDT→USDC beats it wherever size matters: **−0.42 vs −0.72 bps at $1M, and
+        //    −0.68 vs −2.16 bps at $5M** (the 1-bp tier wins only below ~$500k). ⇒ 3pool was never the
+        //    problem; hardcoding ANY venue was, and the keeper picks per-LP now.
         // ⛔ §SESS-24 — **DO NOT ADD QUOTE-ONLY ROWS HERE.** This table drives EXECUTION: `_routableStable`
         //    reads it, and `consolidate` swaps a slice rather than refunding it whenever both sides are
         //    routable. Adding four measured-deep rows here turned four previously-refunded slices into

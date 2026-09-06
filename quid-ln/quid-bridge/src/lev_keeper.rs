@@ -575,11 +575,14 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
             let mut data = selector4("rebalance(address,uint256,uint256,uint256,bytes)");
             data.extend_from_slice(&addr_word(lp));
             data.extend_from_slice(&u64_word(0));
-            data.extend_from_slice(&dex_word());
-            // hub pool word (stable->USDC). ZERO ⇒ the contract falls back to its legacy Curve
-            // hub hop, which is exactly today's behaviour. Supply a real pool word here to let
-            // the lever borrow a stable the old on-chain table never covered.
-            data.extend_from_slice(&[0u8; 32]);
+            // §SESS-47 — BOTH hops now come from `plan_for_lp`, which resolves THIS LP's venue stable
+            // and plans against it. The literal `[0u8; 32]` that used to sit on the next line is the
+            // whole reason a USDT- or DAI-denominated venue reverted `NoStableRoute()`: it forced the
+            // contract onto `_hubSwap`'s two-row Curve table. A stable we cannot plan still lands
+            // here as `dex_word()` + zero, i.e. byte-identical to the old call.
+            let p = plan_for_lp(&evm, lm, lp, WETH_ADDR);
+            data.extend_from_slice(&p.dex);
+            data.extend_from_slice(&p.dex2);
             // `bytes route` — EMPTY, so the contract takes the keyless pool-word arm of the ladder.
             // A dynamic tail needs TWO words: the head offset (0xA0 = five 32-byte head slots) and
             // then a zero length. Supply a real 1inch `swap()` calldata here to take the full-venue
@@ -595,14 +598,17 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
         // §SESS-21 — `routes` was `_routes`: the parameter was here and DROPPED, because the CLOSE leg
         // could not carry one (`_delever` handed `_deleverFlash` only `dex`). §SESS-19 fixed the leg and
-        // this widens the batch that reaches it. As with `rebalance_many`, a route only takes effect
-        // when its `dex2` is non-zero, and this keeper plans no second pool word yet — so `dex2s` goes
-        // EMPTY and on-chain behaviour is unchanged. What changes is that the seam is now consistent.
+        // this widens the batch that reaches it.
+        // §SESS-47 — the sentence that stood here, *"this keeper plans no second pool word yet — so
+        // `dex2s` goes EMPTY and on-chain behaviour is unchanged"*, was STALE: `plan_route` plans one,
+        // and sending nothing is what pinned every non-USDC venue to `_routeOf`'s two-row table.
+        // PER-LP now, because a batch spans venues and a book-wide word would be wrong for most of it.
         let (evm, lm, gas, lps, routes) =
             (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let dexes = vec![dex_word(); lps.len()];
-            let dex2s: Vec<[u8; 32]> = Vec::new();
+            let plans: Vec<Plan> = lps.iter().map(|&lp| plan_for_lp(&evm, lm, lp, WETH_ADDR)).collect();
+            let dexes: Vec<[u8; 32]> = plans.iter().map(|p| p.dex).collect();
+            let dex2s: Vec<[u8; 32]> = plans.iter().map(|p| p.dex2).collect();
             evm.send_tx(lm, encode_batch5(CD_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
@@ -614,16 +620,18 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
         // §S15 — `routes` used to be `_routes`: the parameter was here and DROPPED, because the
         // on-chain `rebalanceMany` had nowhere to put it. It does now.
-        // ⚠️ A route only takes effect when its `dex2` is non-zero (`LevMath._stableToWethSor:991`
-        //    branches on `c.dex2 == 0`), and this keeper has no SECOND pool word to plan yet — so
-        //    `dex2s` is sent EMPTY and on-chain behaviour is unchanged today. What this commit buys
-        //    is that the ABI, the allowlist and the contract now AGREE, so supplying a second hop is
-        //    a keeper-planner change alone rather than a four-file one.
+        // §SESS-47 — that predicted "keeper-planner change alone" is THIS, and it is one line per site.
+        //    The note here used to read *"this keeper has no SECOND pool word to plan yet"*; `plan_route`
+        //    had already landed, so the claim was stale and the empty `dex2s` was a live regression —
+        //    `dex2 == 0` routes the contract into `_hubSwap`, whose table covers RLUSD and PYUSD only.
+        //    A route only takes effect when its `dex2` is non-zero (`LevMath._stableToWethSor:991`),
+        //    which is precisely why sending nothing disabled the `bytes route` arm as well.
         let (evm, lm, gas, lps, routes) =
             (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
-        let dex2s: Vec<[u8; 32]> = Vec::new();
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let dexes = vec![dex_word(); lps.len()];
+            let plans: Vec<Plan> = lps.iter().map(|&lp| plan_for_lp(&evm, lm, lp, WETH_ADDR)).collect();
+            let dexes: Vec<[u8; 32]> = plans.iter().map(|p| p.dex).collect();
+            let dex2s: Vec<[u8; 32]> = plans.iter().map(|p| p.dex2).collect();
             evm.send_tx(lm, encode_batch5(RM_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
             Ok(())
         })
@@ -930,6 +938,54 @@ pub fn plan_route(token_in: LpAddr, token_out: LpAddr) -> Option<Plan> {
     Some(Plan { dex: v3_word(second), dex2: v3_word(first) })
 }
 
+/// §SESS-47 — **THIS LP'S VENUE STABLE. The one read that was missing.**
+///
+/// `pos(lp)` already yields the venue address (`position_view` reads it for `liqThresholdBps`), and
+/// `ILevVenue` declares `stable()`. So the keeper could always have known which dollar each position
+/// borrows; nothing consumed it.
+fn venue_stable_of<R: JsonRpc, S: TxSigner>(
+    evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr,
+) -> Option<LpAddr> {
+    let pw = evm.eth_read(lm, "pos(address)", Some(&addr_word(lp))).ok()?;
+    let venue = Address::from_slice(pw.get(12..32)?);
+    let s = evm.eth_read(venue, "stable()", None).ok()?;
+    let mut out = [0u8; 20];
+    out.copy_from_slice(s.get(12..32)?);
+    Some(out)
+}
+
+/// §SESS-47 — 🔴 **THE ACTUAL REASON A NON-USDC STABLE WAS UNBORROWABLE, AND IT WAS NEVER ON-CHAIN.**
+///
+/// `plan_route` has known how to reach USDT and DAI since it was written, and
+/// `plan_route_puts_the_hub_hop_in_dex2` pins that USDT→WETH yields `dex2 = USDT/USDC 0.01%`.
+/// **All three send sites then threw the plan away** — `rebalance` wrote a literal `[0u8; 32]` hub
+/// word, `cascade_delever` and `rebalance_many` sent `dex2s = Vec::new()` — and every one carried a
+/// comment saying *"this keeper plans no second pool word yet"*, which stopped being true the day
+/// `plan_route` landed. ⇒ `dex2 == 0` sent the contract down `_stableToWbtc`/`_stableToWethSor`'s
+/// `hubDex == 0` arm into `_hubSwap`, whose `_routeOf` table holds RLUSD and PYUSD and **reverts
+/// `NoStableRoute()` for everything else**. The table was the SYMPTOM; discarding the plan was the
+/// defect. Per standing rule 17 this makes the fix a deletion rather than another row: `_routeOf` is
+/// already marked *"DELETE THIS BRANCH … once the keepers supply `hubDex` for every venue stable in
+/// use"* (`LevMath.sol:1243`) — this is the keeper half of that condition.
+///
+/// ⭐ **FAIL-SAFE BY CONSTRUCTION, WHICH IS WHY IT IS SAFE TO LAND AHEAD OF THAT DELETION.** A failed
+///    read, an unknown venue or a stable `direct_pool` cannot express all degrade to **exactly
+///    today's bytes** — `dex_word()` with a zero hub word — so the legacy Curve arm stays reachable
+///    and no position changes behaviour. It never guesses a pool.
+/// ⚠️ **AND NOTE WHAT DOES NOT CHANGE: USDC.** `plan_route(USDC, WETH)` finds a DIRECT pool, so it
+///    returns `dex2 = 0` on its own merits. The identity case is handled inside `_hubSwap` (`stable
+///    == USDC ⇒ return amt`), which is why adding `&& stable != USDC` to that guard broke 17 tests.
+/// 📌 Costs two `eth_read`s per LP per cycle against a 5-minute poll. `position_view` already reads
+///    `pos(lp)`; threading the stable through it would save one read at the price of widening the
+///    `LevKeeperEvm` trait and its mock, so the duplicate read is the smaller change.
+fn plan_for_lp<R: JsonRpc, S: TxSigner>(
+    evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr, volatile: LpAddr,
+) -> Plan {
+    venue_stable_of(evm, lm, lp)
+        .and_then(|stable| plan_route(stable, volatile))
+        .unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32] })
+}
+
 fn hex_lit_pool() -> [u8; 20] {
     [0x88,0xe6,0xA0,0xc2,0xdD,0xD2,0x6F,0xEE,0xb6,0x4F,
      0x03,0x9a,0x2c,0x41,0x29,0x6F,0xcB,0x3f,0x56,0x40]
@@ -1178,6 +1234,41 @@ mod tests {
         let wbtc = plan_route(USDC_ADDR, WBTC_ADDR).expect("USDC/WBTC must plan");
         assert_ne!(&wbtc.dex[12..], &P_USDC_WETH_005[..],
             "USDC/WBTC resolved to the WETH pool - exactly the bug dex_word_wbtc existed to dodge");
+    }
+
+    /// §SESS-47 — 🔴 **THE REGRESSION WAS THAT NOBODY CONSUMED `plan_route`, SO PIN THE CONSUMPTION,
+    /// NOT THE PLANNER.** Every planner test above passed for months while all three send sites wrote
+    /// `dex2 = 0` — a green planner is exactly what a discarded plan produces, which is the
+    /// built-but-unwired shape `check-orphans.py` catches on the Solidity side and nothing catches here.
+    ///
+    /// Two properties, and the second is the one that lets this land ahead of `_routeOf`'s deletion:
+    ///   1. **a stable the venue can borrow must yield a NON-ZERO hub word** — `dex2 == 0` is precisely
+    ///      the value that routes the contract into `_hubSwap`'s two-row table and reverts
+    ///      `NoStableRoute()` for anything but RLUSD/PYUSD;
+    ///   2. **an unplannable stable must degrade to today's EXACT bytes**, so a failed `stable()` read
+    ///      or an unlisted venue changes nothing rather than naming a pool we did not verify.
+    /// ⚠️ Asserts the fallback against `dex_word()` itself rather than a literal, so an operator's
+    ///    `QUID_LEV_DEX_WORD` override cannot make this test disagree with the code it guards.
+    #[test]
+    fn planned_hub_word_is_non_zero_and_the_fallback_is_byte_identical_to_the_old_call() {
+        for (name, stable) in [("USDT", USDT_ADDR), ("DAI", DAI_ADDR)] {
+            let p = plan_route(stable, WETH_ADDR)
+                .unwrap_or_else(|| panic!("{name} must plan: it is why the lever could not borrow it"));
+            assert_ne!(p.dex2, [0u8; 32],
+                "{name} planned a ZERO hub word - that is the value that falls back to _routeOf");
+            assert_ne!(p.dex, [0u8; 32], "{name} planned no volatile hop");
+        }
+        // USDC is the hub, so a zero `dex2` is CORRECT for it and must not be read as the defect:
+        // `_hubSwap` returns `amt` unchanged when `stable == USDC`.
+        let usdc = plan_route(USDC_ADDR, WETH_ADDR).expect("USDC must plan");
+        assert_eq!(usdc.dex2, [0u8; 32], "USDC is the hub; a second hop would be a pool we do not need");
+
+        // Property 2 — the degrade path `plan_for_lp` takes when the venue/stable cannot be resolved.
+        let unplannable: LpAddr = [0xAB; 20];
+        assert!(plan_route(unplannable, WETH_ADDR).is_none());
+        let fallback = Plan { dex: dex_word(), dex2: [0u8; 32] };
+        assert_eq!(fallback.dex, dex_word(), "degrade must reuse the live venue word, not a literal");
+        assert_eq!(fallback.dex2, [0u8; 32], "degrade must leave the hub word zero = legacy Curve arm");
     }
 
     /// §SESS-21 — the SAME encoder now serves `cascadeDelever`, so its selector gets its own pin.
