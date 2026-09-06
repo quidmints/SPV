@@ -382,6 +382,25 @@ if I were wrong?" before reading any compiler error as a code defect in a tree y
 below: on a CLEAN log it exits non-zero, so the harness reports the whole command as failed while the
 build was green. **Read the captured count, never the pipeline's exit code.**
 
+### ⭐ A COMMENT-ONLY EDIT NEEDS NO TEST RUN AT ALL — CONFIG-VERIFIED, NOT ASSUMED
+
+**`evm/foundry.toml` sets `bytecode_hash = "none"` and `cbor_metadata = false`** (`:51`, `:53`), so
+solc appends **no source-hash trailer** to runtime bytecode — confirmed by reading an artifact, whose
+runtime tail is real opcodes rather than a CBOR blob. ⇒ **editing a comment yields BYTE-IDENTICAL
+deployed bytecode, so behaviour cannot move and no test can fail from it.**
+⇒ **A prose/stale-comment pass needs a COMPILE at most, never the suite.** That covers §BTC-7's 15
+sites, §BTC-8e D1's 145 comments and §PLP-9's table — the largest item count in the whole plan, at
+zero test cost.
+⚠️ **BUT DO NOT AUTO-DETECT WHICH ITEMS THOSE ARE, AND THIS WAS TRIED AND REVERTED.** Matching
+`/comment|docblock|prose/` over an item's text tagged **`7i`** — a real `swapOutDeleverPooled`
+reconciliation defect — because it quotes a docblock, and it would have exempted **`9b`, which
+RENAMES AN EVENT AND AN ERROR**, i.e. ABI a client can act on. **Same false-positive class as
+everywhere else here: the word appears in the item without being its subject.** ⇒ **a human marks
+prose-only work; the tool does not guess.**
+📌 **The discriminator, when you mark one: does the edit change any IDENTIFIER a caller can see?**
+An event name, an error name, a function signature and a storage layout are all code wearing prose's
+clothes. **Everything inside `//` or `/** */` is free.**
+
 ### ⭐ AND STOP RUNNING THE WHOLE SUITE — `tools/impacted-tests.py` ROUTES A CHANGE TO ITS OWN TESTS
 
 A full `forge test` is ~250s and **70 of 155 `.t.sol` files reference no money-path contract at all**,
