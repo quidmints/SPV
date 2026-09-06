@@ -247,15 +247,93 @@ correct and unused, which is the same shape as a gate whose only runner is a rul
 ▶️ **`tools/lane.sh L3` — creates the worktree WARM. Every number measured, not estimated:**
 | step | cost | note |
 |---|---|---|
-| `git worktree add --detach` | **1s** | takes `HEAD`, so another lane's uncommitted edits are excluded BY CONSTRUCTION |
+| `git worktree add -b lane/<N>` | **1s** | takes `HEAD`, so another lane's uncommitted edits are excluded BY CONSTRUCTION |
 | copy `evm/out` + `evm/cache` | **0s** | 125M, free from page cache on this box |
-| `evm/lib` | **0s** | ⭐ **it is a SYMLINK in this repo, so vendored libs are already shared** — no submodule init, which is the step that would otherwise cost minutes |
-| first `forge build` in the lane | **~35s** | 0 errors; solc compiled 129 files, not 1,875. **Against ~342s cold** |
+| `evm/lib` (11 forge submodules) | 🔴 **THE ONE THAT BITES — see below** | a worktree creates the submodule DIRECTORIES and does not populate them |
+| first `forge build` in the lane | ⚠️ **NOT RELIABLY MEASURED — see below** | the MECHANISM works (a fresh lane reported `No files changed`); the TIMING is confounded |
+
+🔴 **`evm/lib` IS THE TRAP, AND I WROTE THE WRONG CAUSE INTO THIS TABLE ONCE ALREADY — the correction
+is the useful part.** An earlier revision of this row claimed *"it is a SYMLINK in this repo, so
+vendored libs are already shared."* **Measured: `ls -ld evm/lib` on the parent is `drwxr-xr-x`, a
+REAL DIRECTORY**, and `.gitmodules` declares 11 submodules under it. The symlink I saw belonged to a
+throwaway probe worktree, not to the repo — **I generalised one tree's property to the repo's**, which
+is the same shape as the external-probe class below. ⚠️ **A fresh worktree therefore needs
+`git submodule update --init --recursive` (slow) or the parent's `evm/lib` copied in**, and until it
+does, `forge build` fails with errors that **name files in `evm/` and read exactly like your own
+defect.**
+
+⚠️ **AND THE WARM-BUILD TIMING IS DELIBERATELY NOT BOOKED, BECAUSE I CONFOUNDED IT MYSELF.** Two runs
+in the SAME lane gave **`No files changed`** (the copy worked; near-zero) and **2m22s**, and the logs'
+timestamps show the first one overlapped a `forge build` running in the parent. **This file's own rule
+says *"Run ONE build at a time and never launch a second while one is in flight"* — I ran three.**
+⇒ **The mechanism is verified (`No files changed` in a fresh lane is exactly the intended outcome, and
+`errors: 0`); the SPEED-UP FIGURE IS NOT.** ▶️ **One clean sequential re-measure will settle it —
+until then quote the mechanism, not a number.** 📌 This is the same discipline the margin and
+pass-count rows below exist to enforce, arriving on a new axis: **a number measured under contention
+is not a measurement of the tool.**
 
 ✅ **ISOLATION VERIFIED BY A LEAK TEST, NOT ASSUMED** — `evm/src` and `evm/out` have different inodes
 from the parent's, and `echo >> lane/evm/src/Quid.sol` left the parent's copy at **0** occurrences.
 ⚠️ **Re-run that leak test if `lane.sh` changes.** A lane that silently aliases the parent is strictly
 worse than no lane: it gives the *appearance* of isolation while collisions continue.
+
+### 🛤️ THE RECIPE: N THREADS IN PARALLEL THAT COMMIT WITHOUT OVERWRITING EACH OTHER
+
+**Run this per thread. Nothing else in this file has to be remembered for the commits to be safe.**
+
+```bash
+tools/lane.sh L3                 # worktree + BRANCH lane/L3, warm, ~36s total
+cd ../spv-L3                     # your own tree; nobody else writes here
+<edit only files in your lane's collision domain — §LANES in SPRINT.md>
+python3 tools/impacted-tests.py  # 6-31% of the suite, or "NO BUILD NEEDED" for prose
+git add <paths by name>          # rule 14: NEVER -A, NEVER commit -a
+git commit
+```
+**Integration, from the MAIN tree, one lane at a time so any conflict has a single author:**
+```bash
+git merge --no-ff lane/L3
+git worktree remove ../spv-L3 && git branch -d lane/L3
+```
+
+⭐ **WHY A BRANCH PER LANE AND NOT `--detach`: GIT ENFORCES THE RULE INSTEAD OF YOU REMEMBERING IT.**
+Checking the same branch out in two worktrees is refused outright —
+`fatal: 'sprint-fold-and-destale' is already used by worktree at '/root/project/spv'` (measured
+2026-09-06). ⇒ **two lanes CANNOT share a branch, so they cannot fast-forward over, amend, or clobber
+each other's commits.** Per standing rule 17 that beats a rule asking people not to do it: the bad
+state is unconstructible rather than merely forbidden.
+
+🔴 **AND THE ONE RULE THE TOOLING CANNOT ENFORCE — BOOK IN `docs/actionable/lanes/L<n>.md`, NEVER IN
+`SPRINT.md`. THIS IS MECHANICAL, NOT STYLISTIC, AND IT WAS MEASURED RATHER THAN ARGUED:**
+two lanes each appended **one line** to `SPRINT.md`; the first `git merge --no-ff` was **clean** and
+the second **CONFLICTED** (`CONFLICT (content): Merge conflict in docs/actionable/SPRINT.md`). Their
+`lanes/LA.md` and `lanes/LB.md` merged clean both times, being different files.
+⇒ **`SPRINT.md` is a 52,700-line append target that every lane wants**, which is exactly how
+`fe9720ac` came to swallow a 228-line `§MASTER-ORDER` restructuring with no mention of it in its
+message (§SESS-17 U6). **One merge pass folds the lane books at the end of the day.**
+
+⚠️ **WHAT STILL COLLIDES, so it is not discovered late:** two lanes editing the **same contract** will
+conflict at merge like any branch pair — that is what §LANES' collision-domain partition exists to
+prevent, and it is why `LevManager` (227 bytes) and `SwapLib` are single-lane by physics rather than
+by preference. **Partition first; the branch protocol protects the commits, not the design.**
+📌 **The partition itself — which lane owns which files, and why `L4`/`L5` are serial — is
+`§LANES-2026-09-06` in `SPRINT.md`.** This file is how to run a lane; that one is what goes in it.
+
+### ⭐ AND THE METHOD LESSON, BECAUSE IT COST NOTHING ONLY BECAUSE THE RULE WAS OBEYED
+
+**`lane.sh` shipped BROKEN and its own acceptance test caught it in one run.** The script created the
+lane, printed a confident success banner, and produced a tree whose `forge build` failed with **11
+solc errors naming files in `evm/`** — indistinguishable from a real defect in this repo's own code.
+⇒ **The rule below — *"a gate you just wrote is unverified code on the same footing as anything else;
+the acceptance test for a detector is the KNOWN POSITIVE, not a clean run"* — is what turned a
+would-be multi-hour false trail into one command.**
+🔑 **AND THE CONTROL IS WHAT NAMED THE CAUSE, not the error text.** The errors said *"Function has
+override specified but does not override anything"*, which points at Solidity. Building the PARENT at
+the same commit gave **0 errors**, and `openzeppelin-contracts` held **69 files in the lane against 86
+in the parent** — so the fault was the environment, not the source. **Ask "would this look the same
+if I were wrong?" before reading any compiler error as a code defect in a tree you just created.**
+📌 **The `grep -c "^Error" <log>` exit-1 trap fired twice in the same session** and is already booked
+below: on a CLEAN log it exits non-zero, so the harness reports the whole command as failed while the
+build was green. **Read the captured count, never the pipeline's exit code.**
 
 ### ⭐ AND STOP RUNNING THE WHOLE SUITE — `tools/impacted-tests.py` ROUTES A CHANGE TO ITS OWN TESTS
 
@@ -558,6 +636,26 @@ a green targeted run says nothing about the suites it did not execute.
 statement in this section's previous revision — "contains ZERO Solidity", "never use it for Solidity",
 "scope any query to `quid-hop/`" — described *that* file and is now false. Solidity is the **majority** of
 this graph.
+
+🔴 **THIS SECTION IS NOT LANDING, AND 2026-09-06 IS THE PROOF: A WHOLE SESSION GREPPED AND NEVER ONCE
+ASKED THE GRAPH — INCLUDING WHILE BUILDING A BLAST-RADIUS TOOL.** `tools/impacted-tests.py` hand-rolls
+a reverse-import scan by regex, which is **exactly** what `graphify affected` is documented four lines
+below as doing (*"reverse traversal — blast radius of a change"*). That is standing rule 8
+(*"don't hand-roll what an existing tool already does"*) violated by the author of the tool, in the
+same session, against an instruction sitting in this file.
+✅ **THE TWO AGREE, WHICH IS THE USEFUL PART — treat it as a mutual control rather than a duplication.**
+`graphify affected "LevManager"` (depth 2) returns `LevCascade.t.sol`, `LevYbReal.t.sol` and
+`LeverageCrossSubsidyProbe.t.sol` with `file:line` and edge type; the regex tool independently selects
+all three. **Two methods, one answer, so neither is quietly wrong.**
+⚠️ **AND THE REASON `impacted-tests.py` STILL DOES NOT DEPEND ON THE GRAPH — do not "fix" it:**
+🔴 **the graph is STALE by default.** Measured 2026-09-06: `built_at_commit` = **`7c5bc10d`** against a
+`HEAD` of **`f3ac46bb`** — dozens of commits behind, including every change made that day. A test
+router must read the LIVE tree or it will route around the very file you just edited. ⇒ **the graph is
+for UNDERSTANDING structure; the regex is for ROUTING a change that exists right now.** Different
+freshness requirements, so both earn their place.
+📌 **Trap 4 below is what catches this, and it costs one command** — read `built_at_commit` back out of
+`graph.json` and compare with `git rev-parse --short HEAD` **before** believing any traversal, exactly
+as it says. **A stale graph answers the question, which per rule 19 is worse than having no graph.**
 
 **Ask the graph before you grep.** These four answer most structural questions in one call, and none of
 them needs an LLM or an API key:

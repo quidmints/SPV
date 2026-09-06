@@ -31,13 +31,33 @@ DEST="${LANE_ROOT:-$(dirname "$ROOT")}/spv-$LANE"
 
 [ -e "$DEST" ] && { echo "refusing: $DEST exists (it may hold uncommitted lane work)"; exit 1; }
 
-# HEAD, not the working tree: another lane's UNCOMMITTED edits are excluded BY
+# A BRANCH PER LANE, not --detach. This is what makes concurrent commits safe: a lane
+# commits to `lane/<N>` and can therefore never fast-forward, amend or clobber another
+# lane's work, and integration becomes an explicit merge someone reads.
+#
+# ⭐ AND GIT ENFORCES IT RATHER THAN ASKING YOU TO REMEMBER: checking the SAME branch
+#    out in two worktrees is refused outright --
+#      fatal: 'sprint-fold-and-destale' is already used by worktree at '/root/project/spv'
+#    (measured 2026-09-06). So the shared-branch mistake is unconstructible, which per
+#    standing rule 17 beats a rule telling people not to make it.
+#
+# REF is HEAD, not the working tree: another lane's UNCOMMITTED edits are excluded BY
 # CONSTRUCTION, which is the property CLAUDE.md's 2026-08-10 note relies on.
-git -C "$ROOT" worktree add --detach "$DEST" "$REF"
+git -C "$ROOT" worktree add -b "lane/$LANE" "$DEST" "$REF"
 
 [ -f "$ROOT/evm/.env" ] && cp "$ROOT/evm/.env" "$DEST/evm/.env"   # gitignored; does not travel
 cp -r "$ROOT/evm/out"   "$DEST/evm/out"   2>/dev/null || true      # warm start
 cp -r "$ROOT/evm/cache" "$DEST/evm/cache" 2>/dev/null || true
+
+# 🔴 THE STEP THAT IS NOT OPTIONAL, AND THE ONE THIS SCRIPT SHIPPED BROKEN WITHOUT.
+# `git worktree add` creates the 11 forge submodule DIRECTORIES under evm/lib and does
+# NOT populate them. Measured 2026-09-06: a lane built with 11 solc errors --
+#   Error (7792): Function has override specified but does not override anything.
+# -- which name files in evm/ and read exactly like your own defect. The control is
+# what identified it: the PARENT built 0 errors at the same commit, and the lane's
+# openzeppelin-contracts held 69 files against the parent's 86.
+# `git submodule update --init --recursive` also works and is far slower.
+cp -a "$ROOT/evm/lib/." "$DEST/evm/lib/" 2>/dev/null || true
 
 cat <<EOF
 
@@ -47,8 +67,13 @@ lane $LANE ready at $DEST
   python3 tools/impacted-tests.py       # what actually needs running
   git commit -- <paths by name>         # rule 14: NEVER add -A, NEVER commit -a
 
-  Book findings in docs/actionable/lanes/$LANE.md, NEVER in SPRINT.md — every lane
-  wants that file and it is the collision that ate fe9720ac.
+  🔴 BOOK FINDINGS IN docs/actionable/lanes/$LANE.md, NEVER IN SPRINT.md.
+     This is mechanical, not stylistic. MEASURED 2026-09-06: two lanes that each
+     appended one line to SPRINT.md merged clean the FIRST time and CONFLICTED the
+     second. Their lanes/*.md files merged clean both times, being different files.
 
-  When done:  git worktree remove $DEST
+  Integrate (from the main tree, one lane at a time, so a conflict has one author):
+     git merge --no-ff lane/$LANE
+  When done:
+     git worktree remove $DEST && git branch -d lane/$LANE
 EOF

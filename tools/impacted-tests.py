@@ -14,6 +14,12 @@ test, and 70 of 155 `.t.sol` files reference NO money-path contract at all.
    still runs once before anything merges. CLAUDE.md's rule stands: a green targeted
    run says nothing about the suites it did not execute.
 
+⚠️ WHY NOT `graphify affected` (CLAUDE.md rule 8, "don't hand-roll what a tool already does"):
+   the graph is STALE BY DEFAULT -- measured 2026-09-06, built_at_commit 7c5bc10d against a HEAD
+   of f3ac46bb. A router must read the LIVE tree or it routes around the file you just edited.
+   The two AGREE on the known positive (both select LevCascade/LevYbReal/LeverageCrossSubsidy
+   for LevManager), so use `graphify affected` to UNDERSTAND structure and this to ROUTE a change.
+
 ⚠️ AND ITS FALSE-NEGATIVE CLASS IS NAMED, per CLAUDE.md's sweep rule: it maps by SYMBOL
    REFERENCE, so it cannot see a test that reaches a contract only through an address,
    a raw slot read, or a deploy script. `UnificationControls.t.sol` reads mock addresses
