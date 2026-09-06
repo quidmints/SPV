@@ -51159,6 +51159,60 @@ both times.**
 
 ---
 
+# 🔍 §SEQ-AUDIT-2026-09-06 — **WHAT THE 461 MARKERS MEAN, AND EXACTLY HOW FAR THEY WERE VERIFIED**
+
+**461 rows in this file now carry a `§SEQ-AUDIT` marker and nothing defined the tag — a dangling
+reference is the slop rule 19 exists to remove, so this is the definition.**
+
+**What was done:** six read-only agents took the ~669 open-marked rows outside `§MASTER-ORDER` and
+checked each row's own falsifiable claim **against code, not against comments** (rule 20). The
+verdicts were written into the rows themselves rather than into a new file, because a status living
+in two places is the drift this repo pays for every time.
+
+| marker | means |
+|---|---|
+| ✅ `CLOSED … verified against code` | the work is done or the row's premise is false |
+| 📌 `GATE n · lane Lx` | genuinely open, with its place in the order and its collision domain |
+| 🔁 `MERGED into the row at :N` | the same task stated twice in this file |
+
+### ⚠️ THE HONEST LIMIT, BECAUSE A ✅ DECIDES WHAT NOBODY RE-READS (rule 16)
+
+- **67 falsifiable symbol/path claims were RE-RUN INDEPENDENTLY** by `tools/verify-seq-audit.py`
+  after the marking: **0 false positives, 0 false negatives**, with a control proving the detector
+  discriminates. Those are the closures you can lean on.
+- **~131 closures rest on JUDGEMENT** — *"superseded"*, *"retracted"*, *"a measurement cell, not a
+  task"*. Probably right, **not** a code check. **The marker wording does not distinguish them, and
+  that is the known weakness of this pass.**
+- **48 rows were SKIPPED** because another lane moved them mid-audit; they are unmarked, not closed.
+- ⛔ **Four deep hand-checks were run on the highest-stakes closures and all held** — the
+  pool-inventory custody invariant (no EVM path can inflate `ch.amountSats`; it is only ever set from
+  an SPV-proven `p.amountSats`), the `lpSig`/`isValidSignatureNow` deletion, the two-sided deposit-key
+  agreement (Rust pins `m/SWAP_IN_DEPOSIT_ACCOUNT'/0'`, EVM pins `BTC_DEPOSIT_KEY`, uniqueness in the
+  leaf), and the routing-fee claim (`announce_for_forwarding` is never set, so the node is
+  unannounced). **Four is a sample, not the population.**
+
+### 🔍 CHECKING A ROW WITH THE GRAPH — and where the graph is NOT enough
+
+`tools/graph.sh` wraps graphify with a staleness banner (the graph was **dozens of commits stale**
+until it was rebuilt to `3d41d0f5` on 2026-09-06).
+
+```
+tools/graph.sh explain  <Symbol>     # every neighbour, with file:line and edge direction
+tools/graph.sh affected <Symbol>     # who reaches it — the blast radius of changing it
+tools/graph.sh --rebuild             # after any structural change; verifies built_at_commit
+```
+✅ **Good for:** does this symbol still exist, what does it neighbour, is anything calling it. It
+confirmed `swapOutDeliverUnlevered` has **0 callers on all three of its nodes** — a structural
+answer a grep cannot give, because grep cannot tell a declaration from a call.
+🔴 **NOT ENOUGH FOR A LIBRARY, AND THIS TREE IS LIBRARIES.** Measured on the fresh graph:
+`LevManager.sol:653` calls `LevMath.swapOutDeliverUnleveredBody(...)` and the graph has **zero**
+`LevManager → LevMath` edges; every `calls` edge into `LevMath` starts inside `LevMath.sol`.
+⇒ **For `SwapLib`/`QuidLib`/`BtcLib`/`LevMath`/`BasketLib`/`ChannelLib`/`BitcoinTx`, treat
+`affected` as a LOWER BOUND and confirm with `grep -rn "Lib\.fn("`.** A small blast radius on a
+library is a reason to distrust the answer, not to act on it.
+
+---
+
 # 🧭 §MASTER-ORDER-2026-09-05 — **ONE DEPENDENCY ORDER ACROSS BOTH SCOPES AND THIS FILE**
 
 **Owner, 2026-09-05:** *"make sure sprint.md (including all the new stuff you added) does everything in a
