@@ -53660,3 +53660,65 @@ caught THAT and reported *"did not revert"* while the desk worked perfectly. **�
 cheatcode against an inlined internal library call.** ⇒ **hoist anything that touches the chain out of an
 `expectRevert` call's arguments.**
 
+## §SESS-41 — **FLOOR DERIVED ON-CHAIN, CONTROLS RE-RUN — AND IT SURFACED A LIVENESS DEFECT ON THE VOLATILE LEG.** (2026-09-06)
+
+**Owner:** *"derive the floor on-chain and re-run the three controls"* · *"there should be no guesswork."*
+`evm/test/FillerCallback.t.sol`, **6/6**, `AllesFixture` on a pinned fork so `AUX` and its Chainlink-backed
+TWAP are real.
+
+### ✅ THE GUESS-FREE FLOOR EXISTS, AND IT BEATS THE GUESSED ONE
+The desk now derives its own floor as **`max(live quote, oracle − slip)`**:
+| USDC → USDT, $50k | value |
+|---|---|
+| **quoted (measured, `_selfServableQuote`)** | **50,008.061179** |
+| oracle arm (carries `_slipBps`) | 49,875.000000 |
+| **enforced** | **50,008.061179** |
+⇒ **26 bps of guesswork removed on that pair**, and the enforced floor contains **no constant at all** —
+it is a live Curve `get_dy` at the traded size. 🔑 **Where `_quoteOf` has a row, there is no guesswork.**
+🔴 **Where it does not, the guess is what binds** — asserted, not assumed:
+`floorQuoted(USDC → WETH) == 0`, so the oracle arm carries the volatile leg. **That is §SESS-23's gap
+restated as a bound the suite now enforces**, and it turns red the day a WETH quote becomes available.
+
+### 🔴 AND THE DERIVATION EXPOSED A LIVENESS DEFECT I DID NOT GO LOOKING FOR
+With the floor computed the tree's own way, **the best reachable venue cannot meet it — at either size:**
+| | derived floor | best reachable fill | short by |
+|---|---|---|---|
+| $50k | **21.38602** | 21.38186 (V3 0.05%) | **2 bps** |
+| $1M | **426.6484** | 425.3313 (V3 0.05%) · 425.4601 (best 2-hop, §SESS-37) | **31 bps** |
+⇒ at this block the oracle sits **~25 bps BELOW** the pool's execution price, while `_slipBps` budgets
+**25–50 bps for the basis AND the execution cost together.** **There is no headroom left for the fee and
+impact any real fill must pay**, so a stable→WETH lever-up at these sizes would **revert**.
+⭐ **THIS IS THE "NO GUESSWORK" ARGUMENT IN ITS STRONGEST FORM.** The guessed constant is not merely
+loose — at this block it is **UNMEETABLE**, which is a liveness failure rather than a bleed. A measured
+floor cannot have this failure mode: a quote is by construction achievable, because something achieved it.
+⚠️ **BOUND IT — ONE BLOCK, ONE ORACLE READING.** This is not *"the floor is always unmeetable"*; it is
+*"at `FORK_BLOCK=25800000` the guessed budget does not cover the observed basis."* ▶️ **Re-measure across
+several blocks before sizing anything**, and note the lev suite passes today because its fixtures trade
+sizes and paths where the basis happens to fit — **rule 21 applies to that reassurance too.**
+
+### ✅ THE THREE CONTROLS, RE-RUN AGAINST THE DERIVED FLOOR
+| control | result |
+|---|---|
+| honest filler pays the **derived** floor | ✅ paid **426.648** exactly; desk's input fully handed over |
+| filler takes and returns nothing | ✅ **reverts**, input returned by the rollback |
+| **solvent** filler underpays by **1 wei** | ✅ **reverts** `Short(owed-1, owed)` |
+🔑 **THE CONTROLS HAD TO STOP ROUTING THROUGH A VENUE, AND THAT SEPARATION IS THE POINT.** *"Does the desk
+ENFORCE its floor"* (mechanism) and *"can any venue MEET the floor"* (market) are different questions;
+routing tests both at once, so when the venue cannot meet the floor **the mechanism test fails for a
+reason that has nothing to do with the mechanism.** The controls now pay from inventory.
+
+### 🔴 A REAL TRAP HIT: `_fromUsd` RETURNED PAR FOR WETH, SILENTLY
+My first derivation used `_wethStableFloor`'s form for a **WETH** output and got a floor of
+**49,875e18 WETH for 50,000 USDC** — wrong by ~2,500×. Cause: `loanPxUsd18` returns `USD_PX` whenever
+`assetPriceFeed(token) == 0`, and **the fixture does not register WETH** (`assetPriceFeed(WETH) == 0`)
+even though `getTWAPforAsset(WETH)` answers **2,332.13** perfectly well.
+⭐ **THE TREE AVOIDS THIS BY HAVING DIRECTION-SPECIFIC FLOORS:** `_stableToWethSor` reads
+`getTWAPforAsset` **directly** because it knows its output is WETH; `_wethStableFloor` uses `_fromUsd`
+because it knows its output is a **dollar stable**. **They are not interchangeable**, and a generic desk
+must discriminate rather than pick one. ⚠️ `_fromUsd`'s own docblock warns this failure is **silent**
+(*"every shape and decimal typechecks"*) — **and it reproduced exactly.**
+✅ Fixed fail-loud: the roster says "par", the oracle says "priced", and an asset that is **neither
+reverts** `NotPriced` rather than defaulting (rule 3).
+📌 **AND `assetPriceFeed(WETH) == 0` IN THE FIXTURE IS ITSELF A RULE-21 ITEM** — booked for GATE 0a's
+mock audit. Whether production wires it is not established here.
+
