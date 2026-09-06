@@ -452,9 +452,13 @@ library OracleLib {
     ///
     /// ⚠️ SPOT, NOT A TWAP — no window, so manipulable within a block. It is an INDEPENDENT
     ///    OBSERVATION for cross-checking only; never SIZE anything from it.
-    /// 📌 UNWIRED TODAY: `oneInchRateWad` has zero callers in `evm/src` — only this declaration.
-    ///    `internal`, so it costs no deployed bytes, but whoever wires it owns writing the
-    ///    agreement check that consumes it; there is no such function in the tree right now.
+    /// 📌 UNWIRED, ON PURPOSE — SPRINT.md §V-DOLLARS. `oneInchRateWad` and `curvePriceWad` have
+    ///    ZERO call sites in `evm/src`; they were unwired before the §E318 fold and are unwired
+    ///    after it. ⛔ **This is a deliberately preserved gap, not an ordinary unused helper — do
+    ///    not let an "unwired code gets deleted" sweep eat it.** They are the NON-CIRCULAR
+    ///    external price source that §E222's circularity (`Core` reading the ring's own TWAP
+    ///    back as an anchor) needs. `internal`, so the gap costs no deployed bytes. Whoever
+    ///    wires them also owns the agreement check that consumes them; none exists yet.
     function oneInchRateWad(address oracle, address src, address dst, uint8 srcDec, uint8 dstDec)
         internal view returns (uint priceWad) {
         uint rate = IOffchainOracle(oracle).getRate(src, dst, false);
