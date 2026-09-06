@@ -53424,3 +53424,100 @@ is bounded only by `_slipBps` on the volatile leg.
 mid-transaction while an order embeds its amount; an unfilled order is not a mechanism (the M5 problem);
 and ERC-1271 maker signing must not become a second keeper key.
 
+## §SESS-37 — 📊 **WHAT ROUTE OPTIMALITY IS WORTH, PER USE-SITE. IT IS THE LEVER LEG, NOT THE REDEEM LEG.** (2026-09-06)
+
+**Owner:** *"is there a way to make sure that the provided route is optimal … MEASURE ALL the things."*
+§SESS-36 argued optimality is not VERIFIABLE. That says nothing about whether it is VALUABLE — and if the
+spread were a couple of bps, no architecture would be worth buying. **It is not a couple of bps.**
+
+`evm/test/RouteOptimalityValue.t.sol`, pinned fork, USDC→WETH, four reachable routes per size:
+| size | **best reachable** | what our planner emits | worst reachable | best-vs-worst |
+|---|---|---|---|---|
+| $10k | v3 0.05% **4.27734** | ✅ same | DAI 2-hop 4.25459 | 53 bps |
+| $100k | v3 0.05% **42.7516** | ✅ same | DAI 2-hop 41.8213 | 217 bps |
+| **$1M** | **USDT 2-hop 425.460** | v3 0.05% 425.331 | DAI 2-hop **110.625** | **7,399 bps** |
+| **$5M** | **USDT 2-hop 2112.011** | v3 0.05% **2077.621** | DAI 2-hop 110.631 | **9,476 bps** |
+
+### ⭐ MEASURED PER USE-SITE, AND IT INVERTS THE PRIORITY
+**Owner:** *"dont measure abstractly but with respect to our specific uses of 1inch (swap out, redeem, il
+protect)."* ⇒ **the abstract sweep was answering the wrong question.** The three real legs behave
+differently, and only one of them needs architecture.
+
+| use-site | shape of the trade | $100k | $1M | $5M |
+|---|---|---|---|---|
+| **IL-PROTECT / LEVER-UP** (`_stableToWethSor`) | **ONE BIG TICKET** — the whole borrow in one swap | USDT 31 · DAI 215 bps | USDT 5 · **DAI 1,566 bps** | **USDT 167 · DAI 2,505 bps** |
+| **REDEEM / SWAP-OUT** (`convertShortfall`) | **PRO-RATA, ONE LEG PER STABLE** (÷13) | 34 bps | 32 bps | **19 bps** |
+
+🔑 **THE REDEEM PATH'S SPREAD DOES NOT GROW WITH SIZE — IT SHRINKS.** A $5M redemption is not a $5M
+swap; it is **13 legs of $384,615**, and at that size every reachable route is within ~19 bps. ⇒ **the
+pro-rata draw is ITSELF a route-optimality mechanism**: it never presents a large ticket to any single
+venue, so it never pays the convexity that punishes one. **Nothing about redeem/swap-out justifies a
+re-architecture.**
+🔴 **THE LEVER LEG IS THE OPPOSITE, AND IT IS WHERE THE MONEY IS.** It swaps the whole borrow at once,
+so it eats the full convexity: **167 bps on USDT at $5M, and 1,566–2,505 bps if the route picks DAI's
+direct pool** (which returns 358 WETH for $1M against ~425 expected — it is thin and the floor would
+revert it). ⇒ **the case for "any venue, unlimited hops, optimal route" rests on the IL-protect / lever
+leg. State it that way rather than as a property of "the 1inch integration."**
+⚠️ **AND ON THE REDEEM LEG THE FLOOR SLACK IS THE SAME ORDER AS THE WHOLE ROUTE SPREAD** — `_slipBps` is
+25–100 bps against a 19–34 bps best-vs-worst. ⇒ **there, tightening the floor (§SESS-23) is worth at
+least as much as better routing**, which is a much cheaper change than an RFQ.
+
+### 🔴 THREE FINDINGS, AND THE FIRST IS ABOUT US
+1. ⭐ **OUR OWN PLANNER IS 165 bps BEHIND THE BEST REACHABLE ROUTE AT $5M** (2077.62 vs 2112.01) and
+   3 bps behind at $1M. `dex_word()` returns the v3 0.05% pool for every size, and **the two-hop wins at
+   size** — the same crossover §UNOSWAP-CANNOT-REACH measured on the BTC leg (0.67% vs 0.92% at $1M).
+   ⇒ **a size-blind planner is not a placeholder, it is a live cost** — **on the LEVER leg**, which is
+   the only one that presents a ticket big enough for size to matter.
+2. 🔴 **A WRONG-BUT-REACHABLE ROUTE COSTS 74%** — the DAI 2-hop returns **110.6 WETH for $1M**. ✅ The
+   oracle floor catches it (it is far below TWAP−slip), so the realised damage is a REVERT, not a loss.
+   ⇒ **the floor converts route-selection error into a liveness event**, which is the design working.
+3. ⚠️ **SO THE EXTRACTABLE SPREAD IS NOT best-vs-worst — IT IS best-vs-FLOOR.** A keeper cannot deliver
+   110 WETH; it can deliver anything ≥ `TWAP·(1−slip)`. **At `_slipBps` 25–100 bps that is the live
+   channel**, and at $5M a 100 bps slack is **~$50,000 per conversion**. **That is the number that
+   justifies architecture, and it is the one §SESS-23's floor does not yet cover on the volatile leg.**
+⚠️ **BOUND: this measures routes WE CAN REACH.** It is a **LOWER bound** on the value of optimality —
+an off-chain solver's set is strictly larger. Nothing here bounds what is outside it.
+
+## §SESS-38 — **DO POOL WORDS PROVIDE SECURITY? MOSTLY NOT — AND §SESS-22 IS WHY.** (2026-09-06)
+
+**Owner:** *"why do we have poolword entrypoints at all, do they provide security? it limits flexibility.
+i believe we might need to re-architect the design for this feature."* ⇒ **The instinct is right, and the
+reason is a change we made THIS session.**
+
+### 🔑 WHAT ACTUALLY PROVIDES CUSTODY SAFETY — AND IT IS SHARED BY BOTH ARMS
+| guard | pool-word arm | calldata arm |
+|---|---|---|
+| callee is a pinned constant | ✅ | ✅ **same** |
+| approve exactly `amt`, zeroed both paths | ✅ | ✅ **same** |
+| `ROUTE_GAS_CAP` per leg | ✅ | ✅ **same** |
+| floor on the MEASURED balance delta | ✅ | ✅ **same** |
+| **`spent > 0 ⇒ delivered > 0`** (§SESS-22) | ✅ | ✅ **same** |
+⇒ **NONE of the custody properties come from the pool word.** They come from the executor, and
+`convertTo` is one executor for both arms — which §C15 already says: *"the calldata arm is not a second
+security surface — it is the same bound reached by a different encoder."*
+
+### ⇒ WHAT THE POOL WORD *DOES* BUY, STATED HONESTLY — TWO THINGS, BOTH LIVENESS
+1. **STALENESS IMMUNITY.** It carries no amount, and our amounts are computed mid-transaction. *"The
+   keeper could not have supplied a working route, only a route that happened to work."* **This is real
+   and the calldata arm cannot have it.**
+2. **NO OFF-CHAIN DEPENDENCY.** *"An outage must degrade to the keyless pool-word path, not to a stalled
+   rebalance"* — the paths that need it fire when positions are stressed.
+🔴 **AND THE THIRD REASON HAS LARGELY EXPIRED.** Pinning the SELECTOR used to matter because arbitrary
+calldata to the router could call a function that moves our approved tokens elsewhere. **§SESS-22's
+`spent ⇒ delivered` closed exactly that**, so selector-pinning is now mostly redundant with a guard that
+protects both arms. ⇒ **the security case for pool words is materially weaker than it was a week ago, and
+the flexibility cost is unchanged: 1–3 hops, and only venues 1inch's word format can address.**
+
+### ▶️ SO THE RE-ARCHITECTURE THE OWNER SUSPECTS IS REAL, AND ITS SHAPE FOLLOWS
+**Keep pool words as the LIVENESS FALLBACK; stop treating them as the primary path.** The primary should
+be whatever reaches all venues and unlimited hops — the calldata arm — with its one open weakness (price,
+not custody) closed by one of §SESS-36's three verifiable claims, in increasing strength:
+**(1) beat my references · (2) best of N submitted · (3) exactly the price I posted.**
+⛔ **DO NOT DELETE THE POOL-WORD ARM.** Its staleness immunity and API-independence are exactly what a
+stressed-path fallback needs, and §SESS-37 shows the floor already converts a bad route into a revert —
+which is only survivable if a keyless path exists to retry through.
+▶️ **MEASURE NEXT, in this order:** ① gas: calldata arm vs pool-word arm per leg (is the primary path
+affordable at 14 legs — §SESS-13 measured the frame at 1.46M); ② does a contract-maker order actually
+FILL on-chain (`fillContractOrderArgs`, the §SESS-25 bar: a row that does not fill is not a row);
+③ what spread must be posted to attract a filler — the §PLP-T M5 problem, unchanged.
+

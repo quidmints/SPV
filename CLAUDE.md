@@ -127,6 +127,24 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     earns its place **while the root is still reachable** — `poolOwnedSats` was correct to land
     and is correct to remove, in that order.
 
+22. **CROSS ITEMS OFF `SPRINT.md` AS YOU FIND THEM DONE — CLOSING IS AS URGENT AS BOOKING**
+    (owner, 2026-09-06). Rule 12 says lift a finding to a task in the same turn. **This is its
+    inverse and it is not covered by rule 12 or 16:** when you walk past a row and the code shows it
+    is already DONE, already DELETED, or already ANSWERED, mark it **in that turn**, with the
+    evidence that closed it. ⛔ **An item that is done but still open is not harmless — it is a
+    STALE, and rule 19 says a stale is worse than a gap because it answers the question.** It sends
+    the next thread to re-derive settled work, and this file is 52,000 lines: nobody re-reads it,
+    they grep it and trust what they find.
+    ⚠️ **RULE 16 STILL BINDS: close only what is AXIOMATIC.** These do not conflict — 16 governs
+    *what may be closed*, this governs *when*. If a row is closed by measurement, cite the
+    measurement; if by deletion, cite the grep that shows zero references; if a later decision could
+    reopen it, it is ⏸️ and not ✅.
+    *Worked examples from one session, all found by walking past them:* `§OOR item 1` cited a revert
+    with **zero occurrences in `evm/src`** — built, and the row said unbuilt. `§SESS-8` existed only
+    in a commit message. `§E2-#1` had **already shipped and was measured working** while a test
+    still asserted the pre-fix behaviour. **Three rows, three different flavours of "already done and
+    still open."**
+
 21. **A FIXTURE IS CODE, AND IT GOES STALE LIKE ANY OTHER — MEASURE WHAT IT MODELS BEFORE YOU
     BELIEVE WHAT IT SHOWS** (owner, 2026-09-06: *"there should be a standing rule that many fixtures
     might have stale code"*). A test fixture encodes a WORLD: which venues exist, which sources run,
