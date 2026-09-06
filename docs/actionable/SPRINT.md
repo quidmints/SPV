@@ -52216,3 +52216,101 @@ a forced unwind at a duration bound, "repaid from future flow" is the same *"org
 already dismisses as *"not a mechanism — a hope."* ⇒ **Per the owner: do not adopt it on the argument.
 M2/M3 first, and the forcing mechanism is a precondition of the design, not a detail of it.**
 
+## §SESS-16 — **M0 MEASURED. THE SKEW IS ~0 bps ACROSS THE ENTIRE NORMAL RANGE, SO §PLP-T's RATCHET IS REAL AND MY OWN COUNTER-READING IS DEAD.** (2026-09-06)
+
+`evm/test/SkewTollCurve.t.sol`, 4/4, pure. Live-measured inputs (SPRINT.md:19301): **σ² =
+704808248487932092 · flowEwmaUsd = $198,203 · POOLED = 319.79 ETH (~$900k)**.
+
+### ⛔ FIRST, WHAT M0 CANNOT BE: THERE IS NO DEPLOYMENT
+`evm/deployments/l1.json` names **`chainId: 1`** addresses — and **`core`, `aux`, `vault` and
+`levManager` all have ZERO CODE on mainnet** at the archive pin. It is a dry-run artifact.
+⇒ **There is no realised flow to regress, so M0's BEHAVIOURAL half is unmeasurable — and so is §PLP-T's
+entire M1–M7 set as written.** 🔴 **THOSE MEASUREMENTS ARE BLOCKED ON LAUNCH (or on a proxy venue), NOT
+ON ANALYSIS**, which means **GATE 2.2's *"gated on M1–M3 + M7"* is gated on something that cannot happen
+pre-launch.** That is a scheduling fact the order does not currently carry.
+
+### ⭐ THE MAGNITUDE HALF IS PURE, AND IT SETTLES M0 WITHOUT THE BEHAVIOURAL HALF
+The toll a drain pays, at **live** parameters (`inv/target = 4.54`):
+| drain, % of pool | 1% | 5% | 10% | 25% | 50% | 75% | 90% |
+|---|---|---|---|---|---|---|---|
+| **skew, bps** | **0** | **0** | **0** | **0** | **1** | **1** | **96** |
+
+And the same ticket as inventory falls (5% of a full pool):
+| inventory | $900k | $675k | $450k | $225k | $90k | $45k |
+|---|---|---|---|---|---|---|
+| **skew, bps** | 0 | 0 | 0 | **10** | **435** | 10000 (saturated) |
+
+🔴 **⇒ THE DETERRENT IS ZERO OVER THE WHOLE OPERATING RANGE. NO ELASTICITY CAN RESCUE IT** — a 0-bps toll
+changes nobody's routing, whatever their price sensitivity. ⇒ **§SESS-15's steelman ("the pool is
+self-LIMITING: rising skew prices out the marginal drain, so §PLP-T's *no restoring term* is too strong")
+is REFUTED BY MEASUREMENT.** The restoring term exists in the formula and is **not engaged in practice**.
+**§PLP-T's ratchet reading stands. I was wrong and the sweep is why.**
+⚠️ **The brake does exist — it just switches on far too late**, at ~75-90% depletion, i.e. only once the
+pool is nearly gone. It is a wipeout guard, not a rebalancing incentive.
+
+### 🔑 AND THE OWNER'S REMEMBERED TODO IS PLAUSIBLY A PRINCIPAL CAUSE, NOT A SIDE ISSUE
+**Owner, 2026-09-06:** *"there was a todo to include redemption flow somehow in the skew math?"* **There
+was, it is live, and it points straight at the result above.**
+🔎 **`_bumpFlow` has EXACTLY ONE CALL SITE** — `Core.sol:1053`, inside the swap settlement path, whose own
+comment reads *"Every range and well swap routes through here, so this remains the ONE bump point."*
+**`unwindForRedeem` is a BURN, not a swap** ⇒ **a redemption wave consumes range inventory and NEVER
+raises `flowEwmaUsd`** — the EWMA `skewWad` reads as `target`.
+⇒ **`target` systematically UNDER-COUNTS the demand the range actually serves, so `inv/target` reads too
+HIGH and the pool looks over-stocked.** At live values that ratio is **4.54**, which is exactly why the
+table above is a row of zeros.
+📊 **PRICED — same drain, same inventory, only `target` varied:**
+| true flow vs measured | ×1 (today) | ×2 | ×3 | ×5 | ×10 |
+|---|---|---|---|---|---|
+| **skew, bps** | **0** | 0 | 0 | **34** | **279** |
+⇒ **If redemptions make true throughput ~5× the swap-only EWMA, the skew goes from 0 to 34 bps; at 10×,
+279 bps.** ⭐ **So the omission is not a rounding error — it is the difference between a mechanism that
+fires and one that does not.**
+⚠️ **BOUND THE CLAIM, TWICE.** ① The multiplier is a SWEEP, not a measurement — **what redemption volume
+actually is relative to swap volume is unknown and needs the same live data M1/M7 need** (§PLP-T2's M7 is
+exactly this quantity, which makes M7 the highest-value item in that set, not an optional seventh).
+② Fixing `target` is a **money-path change to a live pricing term**; rule 10 says it is its own change,
+and §E352's flush-branch defect sits in the same function.
+
+### ▶️ WHAT THIS CHANGES IN THE ORDER
+1. **§PLP-T's four classes are back in play in full** — the "maybe the skew already handles it" escape is
+   closed by measurement.
+2. **M7 is promoted**: redemption-vs-swap volume is now an input to the SKEW, not just to the class ruling.
+3. **A candidate that costs nothing and was not in the class list: COUNT REDEMPTION FLOW IN `target`.** It
+   is not a fifth class — it makes the EXISTING mechanism engage — and it pays no third party, borrows
+   nothing, and holds no inventory. ⚠️ **Not proposed as the answer**: it re-prices every drain, so it
+   needs M7 first and a decision on whether a 34–279 bps toll is wanted.
+4. ⛔ **GATE 2.2's measurement gate needs re-scoping against "there is no deployment."**
+
+### 🔴 A CORRECTION I OWE ON THIS FILE'S OWN METHOD
+My first `_bps` helper multiplied the raw skew by 10,000 **before** clamping and overflowed, which I
+briefly read as a library defect. It was not: `skewWad` returns `type(uint).max` once `drain >= inv` **by
+design**, so the pole *"reports itself"* and `_boundToFullHaircut` saturates it at `SKEW_UNFILLABLE`.
+**The test was wrong, not the code** — recorded because a "panic in a money-path pure function" is exactly
+the kind of finding that would have been expensive to report without bracketing it first.
+
+## §SESS-17 — **THE UN-BOOKED REGISTER: findings that lived only in commit messages or in chat.** (2026-09-06)
+
+**Owner, 2026-09-06:** *"when you say first half holds but second half doesnt, and things of this nature,
+why dont you address the todo immediately? or at least book it for later. a lot of actionable work is
+getting lost in your prompt responses, incl precompaction."*
+✅ **The criticism is correct and §SESS-8 is the proof** — a whole delever-surface enumeration lived in
+`283efd31`'s MESSAGE and nowhere else, and was found by accident. **A commit message is not a register:
+it is not read when planning, and it cannot be grepped by anyone who does not already suspect it exists.**
+🔑 **THE METHOD FIX, NOT JUST THE ITEMS: a finding lands in `SPRINT.md` IN THE SAME COMMIT as the code, or
+it does not count as booked.** Standing rule 12 already says this; what it did not say is that *a commit
+message does not discharge it.* ▶️ **Swept every commit on `sprint-fold-and-destale` that did NOT touch
+`SPRINT.md`** — six of them — and the items below are what that recovered.
+
+| # | item | source | state |
+|---|---|---|---|
+| **U1** | 🔴 **`_delever` DROPS `dex2` AND `route` — the two-hop is unreachable on the CLOSE leg from EVERY entrypoint, direct calls included.** `LevManager.sol:369-370` takes both and calls `_deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, dex)`. **Strictly larger than the batch gap §SESS-15's commit closed**, which was only about `rebalanceMany`. Threading it touches `deleverFlashBody` and `ExtractCfg` (`dex2: 0` hardcoded, `:538`). | `913d07c2` msg | 🔴 **UNBOOKED UNTIL NOW** |
+| **U2** | ⚠️ **`LevManager` runtime margin is 419 BYTES** (was 1,129; the `rebalanceMany` widening cost 710). **This is a precondition on U1** — the close-leg threading may not fit without reclaiming space first, and `Quid` is at 1,689. **Measure before designing U1, not after.** | `913d07c2` msg | 🔴 **UNBOOKED UNTIL NOW** |
+| **U3** | ⚠️ **`app/tsconfig.fixtures.json` must have `rootDir: features/identity`, NOT `features/identity/pp`** — because `pp/prove.ts` imports `../sdk/circuits.ts` (outside `pp/`) **and** `loadWallet` requires the emitted layout to keep `<build>/pp/*.js`. Either constraint alone permits the wrong answer; only together do they pin it. A future "tidy the config" edit will re-break it silently. | `d5587ccb` msg | 🔴 **UNBOOKED UNTIL NOW** |
+| **U4** | 🟡 **`7c1d8d39` destaled NINE comments and §SESS-3 records only the COUNT**, deferring the list to *"the destale commit."* Same anti-pattern, milder: the three claimed-stale sites that were deliberately NOT edited ARE in §SESS-3, so the load-bearing half survived. **Low priority; noted so the pattern is counted rather than excused.** | `7c1d8d39` | 🟡 pointer-only |
+| **U5** | 🟡 **127 `§`-tags are cited ≥2× in this file and have NO definition site** (measured 2026-09-06; `§B7` 11×, `§E124` 11×, `§SIGMA-REMOVE-RESCOPED` 9×, `§D6` 8×). Some are inline-bold definitions my detector cannot see, so **127 is an upper bound, not a count of losses.** ⚠️ But `§SESS-8` was found exactly this way, so **the residue is worth one pass** — and it is the only mechanical check that finds a section that was never written. | this session | 🟡 open |
+
+⛔ **WHAT IS DELIBERATELY NOT ON THIS LIST:** items already booked at their own site — the `curveExchange`
+return-value/approval hazard (§SESS-2), OOR items 1–4 (their table), the `avgYield` diagnostic (§SESS-10),
+GATE 0a's second half, and `Alles.t.sol`'s divergent `VAULTS` array. **A register that repeats booked work
+is as useless as one that omits unbooked work.**
+
